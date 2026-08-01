@@ -340,7 +340,10 @@ seam组合为`validateTypeKeyPhasesV1 data.types = .ok ()`；named-type uniquene
 紧随其后的`validateNamedTypeNameUniquenessV1`现也已闭合：fixture无named Struct/Enum，production收集
 空name array并由empty/singleton no-sort fast path确认unique。valueBytes及后续gate仍pending。
 canonical valueBytes现按production顺序开始：empty constants walker已证明完整保留
-`maxCanonicalProgramBytes` work budget。callable literals及后续gate仍pending。
+`maxCanonicalProgramBytes` work budget。callable walker随后按gate→truthLeaf→truth→falsehood真实
+source order遍历；仅truthLeaf的`#[1]`与falsehood的`#[0]`进入sole production valueBytes decoder，
+各精确消耗entry+output两单位，得到最终budget `maxCanonicalProgramBytes - 4`。name/signature/CFG/
+requirements及完整structure/encoder/carrier/formal状态仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

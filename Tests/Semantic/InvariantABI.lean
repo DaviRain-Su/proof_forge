@@ -761,6 +761,39 @@ theorem constantsValueBytes_data :
   simp [validateConstantsValueBytesV1, data, Pure.pure, Except.pure,
     Bind.bind, Except.bind]
 
+/-- The production callable traversal encounters exactly the truth-leaf and
+    falsehood Bool literals, consuming two work units for each in source order. -/
+theorem callablesValueBytes_data :
+    validateCallablesValueBytesV1 data.types data.callables
+      maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 4) := by
+  have htrue :
+      validateOpValueBytesV1 types
+        (.literal 0 (ByteArray.mk #[1])) maxCanonicalProgramBytes =
+        .ok (maxCanonicalProgramBytes - 2) := by
+    apply validateOpValueBytesV1_literal_bool_eq_ok types 0 boolType 1
+    · rfl
+    · rfl
+    · exact Or.inr rfl
+    · decide
+  have hfalse :
+      validateOpValueBytesV1 types
+        (.literal 0 (ByteArray.mk #[0])) (maxCanonicalProgramBytes - 2) =
+        .ok ((maxCanonicalProgramBytes - 2) - 2) := by
+    apply validateOpValueBytesV1_literal_bool_eq_ok types 0 boolType 0
+    · rfl
+    · rfl
+    · exact Or.inl rfl
+    · decide
+  have hpure (budget : Nat) :
+      validateOpValueBytesV1 types (.pureCall 1 #[]) budget = .ok budget := by
+    rfl
+  simp [validateCallablesValueBytesV1, data, gate, entryGate, leaf,
+    leafBlock, leafInstruction, truth, invariantCallable, truthInstruction,
+    instruction, valueDef, falsehood, falsehoodInstruction, boolLiteral,
+    validateTerminatorValueBytesV1, htrue, hfalse, hpure, Pure.pure,
+    Except.pure, Bind.bind, Except.bind]
+  omega
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

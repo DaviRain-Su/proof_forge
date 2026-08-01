@@ -612,4 +612,8 @@ named TypeDecl exact-name uniqueness现已闭合：三项fixture TypeDecl均anon
 
 canonical valueBytes第一片已闭合empty constants table：sole production walker执行零次，精确证明
 `validateConstantsValueBytesV1 data.types data.constants maxCanonicalProgramBytes =
-.ok maxCanonicalProgramBytes`。下一片必须按callable source order线程化两个Bool literal各2单位work。
+.ok maxCanonicalProgramBytes`。第二片也已按callable source order闭合：gate无literal，truthLeaf的
+canonical Bool `#[1]`经sole decoder消耗2单位，truth的PureCall不消费valueBytes，falsehood的
+canonical Bool `#[0]`再消耗2单位，故production callable walker精确返回
+`maxCanonicalProgramBytes - 4`。下一片进入declaration/name/signature gates；完整structure、encoder/
+carrier identity及formal TASK/TST仍pending。

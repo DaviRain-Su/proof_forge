@@ -12530,3 +12530,12 @@ normative: false
 - 金样：EvmSmoke WideUint + UInt128 result；shard-targets 绿
 - 非 formal D2/D4；不改 AGENTS.md/MIGRATION_MATRIX.md
 
+## 2026-08-01 — D2-07 concrete callable Bool valueBytes
+
+- Refinement：`validateOpValueBytesV1_literal_bool_eq_ok`直接展开sole production valueBytes decoder，
+  证明canonical one-byte Bool精确消耗1 entry work + 1 output-byte work；没有第二decoder/validator。
+- Kernel：production walker按gate→truthLeaf→truth→falsehood source order遍历；仅truthLeaf `#[1]`
+  与falsehood `#[0]`消费budget，PureCall及所有return terminator原样传递budget，最终得到
+  `validateCallablesValueBytesV1 ... maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 4)`。
+- Boundary：declaration/name/signature、CFG/invariant closure、requirements、完整structure、production
+  encoder/carrier identity与formal TASK/TST仍pending。
