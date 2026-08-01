@@ -369,6 +369,12 @@ optional invariantSteps的u64 blocker现已闭合：新增transparent `readSpine
 现可组合marker 1→u64 payload，all-0xff边界固定为UInt64 max；none仍复用既有marker-0 theorem。
 optional name同理复用String production seam。下一步进入Block/Terminator/Instruction/Op。
 
+Block root-element scaffold现已闭合：原anonymous Block decoder机械抽为sole production body，public
+decoder仍只包装一次tagged nesting；composition严格线程Block/4 header→id→bounded params→bounded
+instructions→terminator，并保留两个`maxArrayElements` gate与parent depth restoration。当前只接受真实
+Instruction/Terminator decoder success premise，不宣称其nested branches已闭合；下一步处理canonical
+Term.Return none/some，再处理Instruction与Literal/PureCall。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

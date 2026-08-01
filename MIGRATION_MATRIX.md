@@ -284,7 +284,8 @@ entry/pureFn/invariant三分支现可由真实tag→zero field-count及nesting�
 保持但proof按需pending。后续CallableResult切片又组合exact tag→typeId→visibility及parent nesting，
 可覆盖canonical public results而不提前声称TypeId结构合法。后续u64切片闭合transparent/production
 reader universal refinement、decoder composition及Option.some invariantSteps。Block、Instruction/Op与
-Terminator仍待闭合。
+Terminator原仍待闭合；后续Block scaffold切片已固定header→id→params→instructions→terminator、
+两个bounded arrays及parent nesting，但nested Instruction/Terminator proof仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

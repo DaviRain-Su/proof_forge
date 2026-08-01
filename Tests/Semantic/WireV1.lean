@@ -527,6 +527,27 @@ example (c c' : Cursor) (result : CallableResultV1)
     decodeCallableResultV1 c = .ok (result, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeCallableResultV1_eq_of_bodyV1 c result c' hdepth hbody
 
+example (c afterTag afterId afterParams afterInstructions afterTerminator : Cursor)
+    (id : UInt32) (params : Array BlockParameterV1)
+    (instructions : Array InstructionV1) (terminator : TerminatorV1)
+    (htag : expectTag "Block" 4 c = .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : decodeArray maxArrayElements decodeBlockParameterV1 afterId =
+      .ok (params, afterParams))
+    (hinstructions : decodeArray maxArrayElements decodeInstructionV1 afterParams =
+      .ok (instructions, afterInstructions))
+    (hterminator : decodeTerminatorV1 afterInstructions =
+      .ok (terminator, afterTerminator)) :
+    decodeBlockBodyV1 c = .ok ({ id, params, instructions, terminator }, afterTerminator) :=
+  decodeBlockBodyV1_eq_of_fields c afterTag afterId afterParams afterInstructions
+    afterTerminator id params instructions terminator htag hid hparams hinstructions hterminator
+
+example (c c' : Cursor) (block : BlockV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeBlockBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (block, c')) :
+    decodeBlockV1 c = .ok (block, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeBlockV1_eq_of_bodyV1 c block c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

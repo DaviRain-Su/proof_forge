@@ -11588,3 +11588,13 @@ normative: false
   all-0xff kernel example固定UInt64 max；focused build、Wire engineering suite与blocker review通过。
 - Boundary：optional none仍复用marker-0 theorem，name some复用String seam；这只闭合transport decoder，
   不证明invariant step上限或closure metadata。Block/Terminator/Instruction/Op与formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 Block production proof scaffold
+
+- Production：将Block原anonymous body机械命名为sole `decodeBlockBodyV1`，public decoder仍由一次
+  `withTaggedNesting`包装；header→id→params→instructions→terminator顺序及两个
+  `maxArrayElements` bounds保持。
+- Proof：field theorem线程五个真实production equality和exact cursor；wrapper success保留body
+  input/offset并恢复parent depth。focused build、kernel signature examples与blocker review通过。
+- Boundary：Instruction/Terminator仅作为真实decoder success premise，未声称nested branch已闭合；
+  canonical Return、Instruction/Op、完整carrier与formal TASK/TST仍pending。

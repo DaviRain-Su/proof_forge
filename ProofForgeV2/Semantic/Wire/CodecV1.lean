@@ -1803,13 +1803,42 @@ def encodeBlockV1 (b : BlockV1) : Except SemanticWireErrorV1 ByteArray := do
   let termB ← encodeTerminatorV1 b.terminator
   encodeTagged "Block" #[encodeU32le b.id, paramsB, instrB, termB]
 
-def decodeBlockV1 : Decoder BlockV1 := withTaggedNesting fun c => do
+/-- Sole production body for a Block tagged record. -/
+def decodeBlockBodyV1 : Decoder BlockV1 := fun c => do
   let ((), c) ← expectTag "Block" 4 c
   let (id, c) ← decodeU32le c
   let (params, c) ← decodeArray maxArrayElements decodeBlockParameterV1 c
   let (instructions, c) ← decodeArray maxArrayElements decodeInstructionV1 c
   let (terminator, c) ← decodeTerminatorV1 c
   pure ({ id, params, instructions, terminator }, c)
+
+def decodeBlockV1 : Decoder BlockV1 :=
+  withTaggedNesting decodeBlockBodyV1
+
+/-- Compose Block from its actual production field decoders in wire order. -/
+theorem decodeBlockBodyV1_eq_of_fields
+    (c afterTag afterId afterParams afterInstructions afterTerminator : Cursor)
+    (id : UInt32) (params : Array BlockParameterV1)
+    (instructions : Array InstructionV1) (terminator : TerminatorV1)
+    (htag : expectTag "Block" 4 c = .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : decodeArray maxArrayElements decodeBlockParameterV1 afterId =
+      .ok (params, afterParams))
+    (hinstructions : decodeArray maxArrayElements decodeInstructionV1 afterParams =
+      .ok (instructions, afterInstructions))
+    (hterminator : decodeTerminatorV1 afterInstructions =
+      .ok (terminator, afterTerminator)) :
+    decodeBlockBodyV1 c = .ok ({ id, params, instructions, terminator }, afterTerminator) := by
+  simp only [decodeBlockBodyV1, htag, hid, hparams, hinstructions, hterminator,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+/-- Compose a successful Block body through tagged nesting. -/
+theorem decodeBlockV1_eq_of_bodyV1 (c : Cursor) (block : BlockV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeBlockBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (block, c')) :
+    decodeBlockV1 c = .ok (block, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeBlockV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeLoopBoundV1 (lb : LoopBoundV1) : Except SemanticWireErrorV1 ByteArray := do
   encodeTagged "LoopBound"
