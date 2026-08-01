@@ -12,8 +12,13 @@ default: dev-check
 # Default 4; invalid values fall back to 4.
 test_jobs := env_var_or_default("PROOF_FORGE_TEST_JOBS", "4")
 
+# Product CLI path is in-process Loader (no frontend worker). Keep the worker
+# exe as an explicit target for Tests.Frontend.WorkerV1 / optional CI.
 build:
-    lake build ProofForgeV2 proof_forge_next proof_forge_frontend_worker_v1
+    lake build ProofForgeV2 proof_forge_next
+
+build-frontend-worker:
+    lake build proof_forge_frontend_worker_v1
 
 # Build all memory-bounded test shards once, then run them with bounded
 # parallelism. Each failing shard prints `FAIL shard: <name>` and xargs
@@ -60,7 +65,8 @@ test: build
     export jobs
     printf '%s\n' "${shards[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_shard "$@"' _
 
-test-fast: build
+# Fast suite includes WorkerV1 subprocess tests; build the worker exe explicitly.
+test-fast: build build-frontend-worker
     lake build proof_forge_next_fast_tests
     lake env .lake/build/bin/proof-forge-next-fast-tests
 
