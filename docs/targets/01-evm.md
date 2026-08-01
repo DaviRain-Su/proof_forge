@@ -3,7 +3,7 @@ id: TARGET-EVM
 title: EVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-07-30
+updated: 2026-08-01
 normative: true
 ---
 
@@ -15,19 +15,20 @@ Phase 1：实现
 
 ## 当前工程迁移状态（非 formal 完成）
 
-当前 capability-only 产品入口 `planFromCapability` 已在 S1 迁移先导中直接读取
-`CompiledSemanticV1.semanticV1Of`，重新验证 `SemanticProgramV1` carrier 后构造 target-owned
-`EvmPlan`；EVM module 内不再读取 `alphaResidualOf`，也不保留 `makePlanFromAlpha`。该事实只覆盖
-下述首个 UInt64/single-block fragment，并不关闭 `TASK-D4-02`：
+`planFromCapability` 直接读取 `CompiledSemanticV1.semanticV1Of`，structure-gate 后 private
+lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `makePlanFromAlpha`。
 
-- 产品编译已只 mint `CompiledSemanticV1`；resolver与artifact identity绑定 canonical source/semantic Digest，不再依赖 residual alpha；
-- Solana/NEAR/Noir 已完成同类 retained-V1 consumer迁移；四 target现已共同承接 checked add/sub，但都尚未覆盖完整 SemanticProgramV1 表面；
-- EVM IR/Yul/solc与 on-disk v2alpha1 output仍是 engineering contract，尚无 formal Plan/IR identity、
-  `BuildIdentity` 或 `OutputSetV1`；
-- 历史 Anvil Counter/Accumulator smoke 尚未升级为 Reference↔Anvil formal differential。
+**工程已接线（摘）**：
 
-因此当前成熟度仍是“可复用、runtime-validated alpha + SemanticProgramV1-native public-UInt64 Plan pilot”，
-不得写成 D4 milestone或任一 formal task已完成。
+- multi-width UInt/Int 与 body 窄宽、UInt128/256（EVM-only）ABI/body 子集；Field(bn254) mod-p 通道；
+- 控制流 if/match、fn/localCall、let/bounded for、shift/bitwise/logical、revert/emit；
+- named 聚合 flatten、定长 Array IndexGet/Set（bounds revert）；String 类型面（match switch 仍可 fail-closed）；
+- Yul + digest-pinned `solc` bytecode；**EvmSolc** `solc --strict-assembly` 验收门（工具缺席干净跳过）；
+- engineering planDigest 可绑 BuildIdentity/OutputSet；历史 Anvil Counter/overflow smoke 存在。
+
+**明确未闭合**：完整 SemanticProgramV1 表面；call/schedule（需 address-bearing 类型）fail-closed；
+Principal Plan fail-closed；Map/Bytes/Option state 多仍 fail-closed；formal Plan/IR/Build/Output
+identity 与 Reference↔Anvil formal differential；不得写成 D4 / formal TASK 完成。
 
 ## 1. 身份与来源
 

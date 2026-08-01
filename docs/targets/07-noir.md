@@ -3,7 +3,7 @@ id: TARGET-NOIR
 title: Noir target dossier
 status: proposed
 owner: architecture
-updated: 2026-07-30
+updated: 2026-08-01
 normative: true
 ---
 
@@ -15,19 +15,19 @@ Phase 1：实现
 
 ## 当前工程迁移状态（非 formal 完成）
 
-`planFromCapability` 已直接读取 retained `SemanticProgramV1` 并在 target 内重新执行 structure gate；
-Noir module 内 `alphaResidualOf`、`makePlanFromAlpha`、alpha requirement re-derive均已归零。当前只
-lower NormalizeV1 当前 public-UInt64 envelope 的 anonymous UInt64/Unit、public state/params/results、
-single-block initializer/entry/view 与 literal/stateLoad/checked add-sub/stateStore/return；dense `ValueId`、
-expanded-tree cost及 store/return effect segment均 fail closed，并继续支持 stateless relation。checked-sub
-source先约束 `lhs >= rhs`，再执行 `u64` subtraction；仍无 ACIR/runtime proof evidence。
+`planFromCapability` 读取 retained `SemanticProgramV1`，structure-gate 后 private lowering；
+无 alpha residual Plan route。`NoirPlan` source/semantic hash 由 `CompiledSemanticV1` canonical
+Digest 在 Plan 边界派生（engineering identity，非 formal BuildIdentity）。
 
-`NoirPlan.sourceHash/semanticHash` 由 `CompiledSemanticV1` 的 canonical source/semantic Digest在
-Plan边界派生；carrier不存第二份 hash字符串，也不依赖 alpha residual。`TargetDescriptor` 已删除
-residual requirement list，Noir engineering plan-hash descriptor preimage只编码 target/profile/axis identity。
-这些仍是 engineering Plan identity，
-不是 formal BuildIdentity/Plan digest。现有 maturity仍是 relation IR与source package：无 ACIR/witness/proof/VK/verify，不关闭 formal Noir
-milestone。
+**工程已接线（摘）**：
+
+- Normalize 当前子集 + Field(bn254) 原生算术路径；UInt8/16/32/64 与窄 Int ABI/body；
+  named Struct/Enum construct/field/variant + aggregate state flatten（容器 state 多 FAIL-CLOSED）；
+- call/schedule 持 capability（status/arg slot）；私有 state/params 走 private-witness 输入；
+- 产物：typed relation IR + Noir source packages（host model / relation tests）。
+
+**明确未闭合**：**无** Nargo/ACIR/witness/proof/VK/prove/verify 验收门（backlog **C-4**）；
+formal Noir milestone；完整 Semantic 面。不得写成 circuit proof 完成。
 
 ## 1. 身份与来源
 

@@ -3,7 +3,7 @@ id: DOC-INDEX
 title: ProofForge V2 文档导航
 status: proposed
 owner: architecture
-updated: 2026-07-25
+updated: 2026-08-01
 normative: true
 ---
 
@@ -11,10 +11,20 @@ normative: true
 
 ## 当前产品恢复
 
-日常产品执行以根级 [`RECOVERY.md`](../RECOVERY.md) 为边界，并以
-[`MIGRATION_MATRIX.md`](../MIGRATION_MATRIX.md) 的27行事实矩阵按 D1 → D2 → D3 → D4
-迁移。当前 Counter/Accumulator 只是 ProgramV1→alpha downstream恢复桥；既有formal task与
-TaskQualification资料继续如实保留，但不冒充工程实现完成度。
+日常产品执行以根级 [`RECOVERY.md`](../RECOVERY.md) 与 [`AGENTS.md`](../AGENTS.md) 为边界，
+并以 [`MIGRATION_MATRIX.md`](../MIGRATION_MATRIX.md) 的 27 行事实矩阵按 D1 → D2 → D3 → D4
+区分 **formal task** 与 **工程地基**。
+
+**当前工程路径（非 formal 完成）**：CLI 进程内 `Loader.selectProgramV1Product` →
+CheckV1/Normalize → `CompiledSemanticV1` → capability Plan/IR → 工程制品/disk closure。
+四 target 已直连 retained `SemanticProgramV1`；Normalize 为扩展中的子集（超出最初 Counter-only S1，
+仍非完整语言面）。前端监督层已于 2026-08-01 移除。
+
+**日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。  
+宽度/ABI 专项：[`roadmap-t8.md`](roadmap-t8.md)。  
+Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。
+
+既有 formal task 与 TaskQualification 资料继续如实保留，但不冒充工程实现完成度，也不阻塞日常开发。
 
 ## 生命周期
 
@@ -61,10 +71,10 @@ TaskQualification资料继续如实保留，但不冒充工程实现完成度。
 - 模块边界：[`modules/README.md`](modules/README.md)。
 - 目标档案：[`targets/README.md`](targets/README.md)。
 - ADR：[`adr/README.md`](adr/README.md)。
-- 调研：[`research/README.md`](research/README.md)。
-- V1/V2 前端与 IR 对照：[`research/08-v1-v2-frontend-ir-comparison.md`](research/08-v1-v2-frontend-ir-comparison.md)。
-- Solana ISA 地基（研究）：[`research/09-assembler-semantics-bridge.md`](research/09-assembler-semantics-bridge.md)。
-- 追踪矩阵：[`traceability/README.md`](traceability/README.md)。
+- 调研：[`research/README.md`](research/README.md)（含特性审计 11、覆盖矩阵 12、IBC 北极星 10）。
+- 工程 backlog：[`engineering-backlog.md`](engineering-backlog.md)。
+- T8/T9 宽度路线图：[`roadmap-t8.md`](roadmap-t8.md)。
+- 追踪矩阵：[`traceability/README.md`](traceability/README.md)（formal/release 轴）。
 - 术语：[`glossary.md`](glossary.md)。
 
 目标与 ADR/调研目录由对应工作流维护。缺失页面表示该工作流尚未完成，不能推断

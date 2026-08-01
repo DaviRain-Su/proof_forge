@@ -3,7 +3,7 @@ id: TARGET-SOLANA
 title: Solana target dossier
 status: proposed
 owner: architecture
-updated: 2026-07-30
+updated: 2026-08-01
 normative: true
 ---
 
@@ -15,16 +15,21 @@ Phase 1：实现
 
 ## 当前工程迁移状态（非 formal 完成）
 
-`planFromCapability` 已直接读取 retained `SemanticProgramV1` 并在 target 内重新执行 structure gate；
-Solana module 内 `alphaResidualOf`、`makePlanFromAlpha`、alpha requirement re-derive均已归零。当前只
-lower NormalizeV1 当前 public-UInt64 envelope 的 anonymous UInt64/Unit、public state/params/results、
-single-block initializer/entry/view 与 literal/stateLoad/checked add-sub/stateStore/return；dense `ValueId`、
-expanded-tree cost及 store/return effect segment均 fail closed。checked-sub 在 typed audit IR 中保留同一
-arithmetic error code并发射为 `checked_sub_u64`；产物仍是不可执行 plan text。
+`planFromCapability` 读取 retained `SemanticProgramV1`，structure-gate 后 private lowering；
+module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemanticV1` + canonical Digests。
 
-这只完成 shared migration leaf：现有产物仍是 `.sbpf-plan`+IDL 的不可执行审计制品，没有
-sBPF assembly/ELF、validator runtime或 formal Solana milestone证据；产品 compiler/resolver/artifact identity
-已切到 `CompiledSemanticV1` + canonical Digests，但 transitional v2alpha1 output contract尚未删除。
+**工程已接线（摘）**：
+
+- Normalize 当前可 lower 的控制流/算术/fn/for/shift/bitwise/revert/emit 等子集（非完整 Semantic 面）；
+- state/param/result **UInt8/16/32/64 与窄 Int** ABI/body 子集（UInt128/256 仍 fail-closed）；
+- **`EmitSbpfAsmV1`** 完整 Operation 表面 → 锁定 `sbpf` 汇编为 deployable Solana ELF `.so`
+  （`solana-sbpf-elf-v1` profile；默认仍可走 plan-only profile）；
+- **Mollusk 运行时差分**（`runtime-tests/solana`：Counter + 多 fixture，含 body 多宽）；
+- call/schedule 因无 program-id/address 类型 fail-closed；named 聚合/Map/Bytes/Option 边界见覆盖矩阵。
+
+**明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
+完整 Normalize 表面。registry 历史标签可能仍显示 `plan-only` 字符串——**工程事实以本段与
+coverage matrix 为准**。
 
 ## 1. 身份与来源
 

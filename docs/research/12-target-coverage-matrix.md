@@ -9,8 +9,9 @@ normative: false
 
 # Target Plan/IR/Emitter 覆盖缺口矩阵
 
-> **目的**：工程轨道"未实现 feature"的单一事实源。每个 wave 闭合哪些格子在此可查；
-> wave 完成后由该 worker 简报的"已 lower op 列表"验证，矩阵随之更新。
+> **目的**：工程轨道 op×target **格子**的事实源。每个 wave 闭合哪些格子在此可查；
+> wave 完成后由 worker 简报的"已 lower op 列表"验证，矩阵随之更新。  
+> **总执行队列**（优先级/并行规则）：[`../engineering-backlog.md`](../engineering-backlog.md)。  
 > 非 formal：D2–D4 formal task 不在此矩阵（走 release-qualification 轨道）。
 
 ## 矩阵说明

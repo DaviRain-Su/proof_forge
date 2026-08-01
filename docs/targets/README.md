@@ -3,31 +3,34 @@ id: TARGET-INDEX
 title: Target 研究与实现档案
 status: proposed
 owner: architecture
-updated: 2026-07-16
+updated: 2026-08-01
 normative: true
 ---
 
 # Target 研究与实现档案
 
 状态：`proposed`
-更新日期：2026-07-16
+更新日期：2026-08-01
 
 本目录按执行语义而不是文件后缀组织目标。`family` 是阅读视图，编译器实际依据多轴 `TargetDescriptor` 和 exact `SupportClaim` 决策。
 
+工程缺口队列：[`../engineering-backlog.md`](../engineering-backlog.md)；op×target 格子：
+[`../research/12-target-coverage-matrix.md`](../research/12-target-coverage-matrix.md)。
+
 ## 成熟度
 
-| Target | 视图 | 本阶段 | Static dossier ceiling | 当前证据与限制 | Dossier |
+| Target | 视图 | 本阶段 | Static dossier ceiling | 当前证据与限制（工程观察，非 formal binding） | Dossier |
 |---|---|---|---|---|---|
-| `evm` | contract VM | Phase 1 implement | `specified` | development `EV-20260715-0004`/`EV-20260716-0018` 只是 alpha 观察：Counter/Accumulator + Anvil；不是 formal maturity binding | [EVM](01-evm.md) |
-| `solana` | explicit-account SVM | Phase 1 implement | `specified` | development `EV-20260716-0019` 只是 alpha 观察：typed non-executable `.sbpf-plan` + IDL；无 sBPF object/ELF/runtime | [Solana](02-solana.md) |
-| `near` | Wasm host | Phase 1 implement | `specified` | development `EV-20260716-0020` 只是 alpha 观察：raw-u64 Wasm 结构验证；无 sandbox receipt | [NEAR](03-near.md) |
-| `cosmwasm` | Wasm host | design only | `research` | transaction profile 仍 provisional | [CosmWasm](04-cosmwasm.md) |
-| `soroban` | Wasm host | design only | `research` | host model已调研，protocol/tool profile 未冻结；无 backend | [Soroban](05-soroban.md) |
-| `icp` | Wasm actor host | design only | `research` | actor model已调研，protocol/tool profile 未冻结；无 backend | [ICP](06-icp.md) |
-| `noir` | circuit compiler | Phase 1 implement | `specified` | development `EV-20260716-0021` 只是 alpha 观察：relation source packages；无 Nargo/ACIR/prove/verify | [Noir](07-noir.md) |
-| `openvm` | zkVM | design only | `research` | exact version/toolchain line 仍 provisional | [OpenVM](08-openvm.md) |
-| `aleo` | ZK application chain | design only | `research` | Leo 4.x model已调研，exact patch/profile 未冻结；无 backend | [Aleo](09-aleo.md) |
-| `psy` | ZK application chain | research only | `research` | pre-testnet/live workflow provisional | [Psy](10-psy.md) |
+| `evm` | contract VM | Phase 1 implement | `specified` | retained-V1 Plan + Yul/solc bytecode + EvmSolc 验收 + 历史 Anvil smoke；**非** formal maturity / Reference↔Anvil 闭包 | [EVM](01-evm.md) |
+| `solana` | explicit-account SVM | Phase 1 implement | `specified` | retained-V1 Plan + SBPF asm → ELF `.so` + Mollusk runtime 差分；**非** formal Stage-0/hermetic | [Solana](02-solana.md) |
+| `near` | Wasm host | Phase 1 implement | `specified` | retained-V1 Plan + WAT/`wat2wasm` 结构验证；**无** sandbox receipt runtime | [NEAR](03-near.md) |
+| `cosmwasm` | Wasm host | design only | `research` | design-only；无产品 backend | [CosmWasm](04-cosmwasm.md) |
+| `soroban` | Wasm host | design only | `research` | design-only；无产品 backend | [Soroban](05-soroban.md) |
+| `icp` | Wasm actor host | design only | `research` | design-only；无产品 backend | [ICP](06-icp.md) |
+| `noir` | circuit compiler | Phase 1 implement | `specified` | retained-V1 Plan + relation source packages；**无** Nargo/ACIR/prove/verify | [Noir](07-noir.md) |
+| `openvm` | zkVM | design only | `research` | design-only；无产品 backend | [OpenVM](08-openvm.md) |
+| `aleo` | ZK application chain | Phase 1 implement（工程 source leaf） | `specified` | 工程 source-only leaf（scalar 子集 + 显式 FAIL-CLOSED 边界）；**无** leo compiler 验收门 | [Aleo](09-aleo.md) |
+| `psy` | ZK application chain | Phase 1 implement（工程 source leaf） | `specified` | 工程 source-only leaf；dargo 等工具未配置；**无** VM 验收 | [Psy](10-psy.md) |
 
 ## Family 视图
 

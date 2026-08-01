@@ -129,8 +129,11 @@ Solana/NEAR/Noir `PlanSchemaV1` + `engineering*PlanDigestV1`；Registry 四 Phas
 - 先做设计（worktree 内 prototype + oracle 评审）再实现；EVM 的 T9b 语义是参照
 - 可能拆分 T9e-Solana / T9e-NEAR
 
-### [pending] T9-0：MIGRATION_MATRIX 深度对齐（主代理直接做，不进调度）
-- D2 行 "target Plan ABI 仍 UInt64/Int64-only"、v2alpha1 残留、M3/M4/N2-N5 状态行——逐行按代码事实修正
+### [partial] T9-0：控制面/文档对齐（主代理；不进调度）
+- **2026-08-01 已做**：RECOVERY 当前 CLI 路径；docs/index + document-status；四 target dossier +
+  targets/README；Matrix D1-02/06 产品 CLI 句；engineering-backlog 登记 DOC-1/4/5 done
+- **仍待**：Matrix 长表内 D2/D4 叙述中过时 “UInt64-only / single-block S1 only” 字样的全文扫除；
+  research/12 NEAR 列逐 op 复扫；DOC-SPEC-AUDIT
 
 ## 执行顺序
 

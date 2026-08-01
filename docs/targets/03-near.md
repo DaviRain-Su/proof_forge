@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-07-30
+updated: 2026-08-01
 normative: true
 ---
 
@@ -15,16 +15,19 @@ Phase 1：实现
 
 ## 当前工程迁移状态（非 formal 完成）
 
-`planFromCapability` 已直接读取 retained `SemanticProgramV1` 并在 target 内重新执行 structure gate；
-NEAR module 内 `alphaResidualOf`、`makePlanFromAlpha`、alpha requirement re-derive均已归零。当前只
-lower NormalizeV1 当前 public-UInt64 envelope 的 anonymous UInt64/Unit、public state/params/results、
-single-block initializer/entry/view 与 literal/stateLoad/checked add-sub/stateStore/return；dense `ValueId`、
-expanded-tree cost及 store/return effect segment均 fail closed，同时保留 KV/raw ABI/receipt-local target
-policy。checked-sub 的 recipe/WAT 在 `i64.sub` 前用 unsigned comparison trap underflow。
+`planFromCapability` 读取 retained `SemanticProgramV1`，structure-gate 后 private lowering；
+无 alpha residual Plan route。保留 KV / raw ABI / receipt-local policy。
 
-这只完成 shared migration leaf：现有 maturity仍是 raw-u64 `wat2wasm` 静态结构验证，没有 NEAR
-sandbox receipt/runtime执行，也不关闭任何 formal milestone；产品 dual-carrier与 alpha-backed identity已删除，
-但 transitional v2alpha1 output contract尚未退役。
+**工程已接线（摘）**：
+
+- Normalize 当前子集：算术/比较/assert、控制流、fn、let/for、shift/bitwise、revert/emit 等；
+- state/param **UInt8/16/32/64 与窄 Int** ABI/body 子集；schedule → 原生 promise；
+  sync call 在 capability 矩阵上 fail-closed；
+- WAT 发射 + **`wat2wasm` 结构验证**（工程成熟度标签仍接近 Wasm-validated alpha）。
+
+**明确未闭合**：**无** NEAR sandbox receipt / 真实 runtime 差分（backlog **C-1**）；
+named 聚合/Array/Map 等容器 lower 不齐或 fail-closed（见 coverage matrix **B-1a**）；
+formal identity/OutputSet / D6 milestone。不得写成 runtime-validated 完成。
 
 ## 1. 身份与来源
 

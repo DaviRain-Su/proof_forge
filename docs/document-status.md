@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-07-25
+updated: 2026-08-01
 normative: true
 ---
 
@@ -23,9 +23,11 @@ normative: true
 
 ## 当前恢复执行指针
 
-当前产品开发由根级 [`RECOVERY.md`](../RECOVERY.md) 收敛到 ProgramV1 Counter → EVM
-纵向切面。下表中的 task/evidence 文档继续保存历史 release-qualification 权威，但不再
-作为 development completion 的前置条件。
+当前产品开发由根级 [`RECOVERY.md`](../RECOVERY.md) / [`AGENTS.md`](../AGENTS.md) 驱动：
+ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → 四 target capability Plan/IR 的
+**工程纵切面**（Counter/Accumulator 为验收向量，非唯一可编译程序）。日常缺口队列见
+[`engineering-backlog.md`](engineering-backlog.md)。下表中的 task/evidence 文档继续保存
+历史 release-qualification 权威，但不再作为 development completion 的前置条件。
 
 ## 当前索引
 

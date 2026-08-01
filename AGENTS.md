@@ -23,6 +23,7 @@
 | Next task | **TASK-D1-01**（历史 release-qualification 序列的下一行；恢复期间暂停，不是产品开发前置） |
 | Known blocker | **TASK-D1-01** 的 formal TaskQualification/eligible-host 前置仍未满足；该阻塞只影响 release qualification，不阻塞产品开发 |
 | Recovery authority | [`RECOVERY.md`](RECOVERY.md) |
+| Engineering backlog | [`docs/engineering-backlog.md`](docs/engineering-backlog.md) |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir`, `aleo`, `psy` |

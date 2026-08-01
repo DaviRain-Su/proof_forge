@@ -12,7 +12,13 @@ ValidatedSourceV1
   → OutputSetV1
 ```
 
-当前可运行的 Counter/Accumulator 路径已由单一 `CompiledSemanticV1` 保留 structure-valid `SemanticProgramV1`，并直接构造四个 target Plan；产品编译、resolver 与 artifact identity 已不再持有 alpha carrier，但下游仍使用 transitional D3 output。它是迁移中的工程纵切面，不是上述目标链已经完成。
+当前可运行的 Counter/Accumulator（及更广 Normalize 子集）路径已由单一 `CompiledSemanticV1` 保留
+structure-valid `SemanticProgramV1`，并直接构造四个 target Plan；产品编译、resolver 与 artifact
+identity 已不再持有 alpha carrier。D3 侧已有工程 registry/SupportClaim/BuildIdentity/Materialized/
+Finalized/disk-closure，但 **formal** `registryDigest` / SupportClaim / BuildIdentity / `OutputSetV1`
+与完整 Phase-1 语言/runtime DoD 仍未闭合。这是迁移中的工程纵切面，不是目标链已经完成。
+
+**日常工程队列**（非 formal）：[`docs/engineering-backlog.md`](docs/engineering-backlog.md)。
 
 ## 为什么重基线
 
@@ -40,13 +46,20 @@ ValidatedSourceV1
 
 当前仍**不是**新架构迁移完成态。只有以下条件全部满足，才能把 engineering migration 写成完成：
 
-1. CLI source path 只走 supervised safe-open → worker，产品 `IO.FS.readFile`、双 open 与 fallback 归零。
-2. shipped ProgramV1 产品表面都经 CheckV1 → NormalizeV1 生成 structure-valid `SemanticProgramV1`，不再仅是 Counter-like S1。
+1. CLI 产品 source 路径为单一、fail-closed 权威（**当前工程事实**：进程内
+   `Loader.selectProgramV1Product` → located Normalize → `compileProgramProductV1`；
+   2026-08-01 起前端监督层 SafeOpen/worker supervisor 已按产品决策移除，不再作为完成条件）。
+   无 dual open、无 embedded Counter fallback、无 legacy Source reader。
+2. shipped ProgramV1 产品表面都经 CheckV1 → NormalizeV1 生成 structure-valid `SemanticProgramV1`，
+   不再仅是 Counter-like S1（**当前**：Normalize 已扩多宽/控制流/fn/for/call 等，完整语言面仍未闭合）。
 3. `CompiledSemanticV1` 是唯一产品编译成功 carrier；alpha Typed/Semantic lowering与 residual accessors 无产品调用。
 4. `ProgramRequirementsV1` 是唯一产品 requirement authority；target-neutral contribution engine 只向该 authority供给，不存在第二套 AST walker、alpha parity或 caller override。
 5. EVM/Solana/NEAR/Noir 四个 Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
-6. 产品可达 registry digest、SupportClaim/decision、BuildIdentity、Plan/IR identity 与 `OutputSetV1` 已接线，v2alpha1 transitional sidecars 退役。
-7. legacy `Core/Source`、alpha Typed/Semantic 与旧 compiler入口的产品 consumer 归零；测试先迁后删。
+6. 产品可达 formal-layout registry digest、SupportClaim/decision、BuildIdentity、Plan/IR identity 与
+   formal `OutputSetV1` 已接线，transitional publisher 残留退役（**当前**：工程 carriers/S7 已接线，
+   formal 与部分 planDigest 全 target 仍未闭合）。
+7. legacy `Core/Source`、alpha Typed/Semantic 与旧 compiler入口的产品 consumer 归零；测试先迁后删
+   （**当前**：alpha Core 模块与产品 import 已物理删除/门禁禁止）。
 8. 聚焦/deletion/reflection gates、`just dev-check`、普通 `just ci`、docs/SBOM 全绿。
 
 formal TASK/TST/EV/qualification 是独立轴，不由上述 engineering completion 代签；也不得用 formal pending 否定已经成为唯一产品 authority 的工程切片。
@@ -54,18 +67,29 @@ formal TASK/TST/EV/qualification 是独立轴，不由上述 engineering complet
 ## 产品迁移 Wave DAG
 
 ```text
-Wave 1  D1 supervised frontend + CLI cutover
-  → Wave 2  [done] freeze current S1 Semantic contract
-           → [done] EVM SemanticProgramV1-native Plan migration pilot (migration only, not D4 completion)
-           → [done] freeze seam + Solana/NEAR/Noir non-overlapping target leaf migrations
-           → [done] requirements single authority + alpha dual-carrier/product-consumer deletion
-           → [current] expand the sole SemanticProgramV1 producer beyond S1
-  → Wave 3  SupportClaim + BuildIdentity + Materializer identity + OutputSetV1 + supervisors
+Wave 1  D1 ProgramV1 CLI source path + DiagnosticV1 product cutover
+        [done as engineering] 2026-08-01：监督式 frontend 层按产品决策移除；
+        现 sole 产品源路径 = 进程内 Loader.selectProgramV1Product
+  → Wave 2  [done] freeze S1 Semantic + EVM/Solana/NEAR/Noir V1 Plan leaf + single carrier
+           → [current] expand sole Normalize/Reference/target beyond S1
+             （多宽/控制流/fn/for/call/部分聚合已接线；完整语言面未闭合）
+  → Wave 3  formal-layout identity + OutputSetV1 闭合（工程 S4–S7c 已部分接线）
   → Wave 4  D4 EVM first → D5 Solana + D6 NEAR + D7 Noir target completion
   → Wave 5  D8 aggregate/security/repro/clean-room/review
 ```
 
-**Wave 1 / D1 frontend engineering cutover 已闭合**：B11b2 把 pinned B11a safe-open helper 与 B10 frontend worker 纳入同一 absolute monotonic wall，B12 令 CLI `build`/`build-counter` sole consume success-only reconstructed product carrier，并删除 Main 内 `realPath`/`readFile`/Loader/reconstruct/embedded Counter fallback；native worker spawn也已切到 no-follow fd-derived bounded private snapshot（suspended spawn + vnode recheck），不再执行 caller pathname；D1-04 shared IntegerLiteral slice 同样已接线。formal executable/import identity、TASK-D1-08、controller-backed containment与完整 host/race matrix仍独立 pending。当前 wave 仍为 **Wave 2 / D2**：S1 Semantic contract、EVM迁移先导和 Solana/NEAR/Noir target leaf均已接线，四 target Plan body已切断 alpha residual；requirements contribution engine → `ProgramRequirementsV1` sole freeze、`CompiledSemanticV1` 单 carrier、Digest identity以及 compiler/resolver/materialize/finalize/CLI 的 alpha产品consumer删除已接线。sole Normalize 的首个扩面已加入 public UInt64 checked-sub，并同步贯穿四个 target-owned Plan/IR/emitter；完整 Normalize 表面仍远未闭合，下一步继续在同一 producer扩面。该 cutover只属于迁移，不冒充 D4–D7里程碑完成。
+**Wave 1 / D1 工程路径（2026-08-01 起）**：产品 CLI `build` 经 validated project root 下进程内
+`Loader.selectProgramV1Product` 读源 → `normalizeProgramLocatedV1` → `compileProgramProductV1`。
+历史上的 B9–B12 监督式 SafeOpen/frontend-worker 切片曾接线，**已按产品决策整体移除**
+（模块/exe/gate 删除；contained/host-race formal 资格不再适用；`TASK-D1-08` superseded）。
+`Frontend/ProtocolV1` 与 `WorkerV1` 协议面可仍存在于树中供测试/残留，**不是**产品 CLI 源权威。
+D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表面。
+
+**当前 wave = Wave 2 / D2 扩面**：四 target Plan body 已直连 retained `SemanticProgramV1`；
+`CompiledSemanticV1` + `ProgramRequirementsV1` sole freeze + engineering resolver/capability
+已接线；alpha Core 与产品 consumer 已删。sole Normalize 已超出最初 Counter-like S1（多宽 UInt/Int、
+比较/assert、if/match、revert/emit、fn、let/for、shift/bitwise、call/schedule、部分聚合/Field 等），
+完整 ProgramV1→Semantic 表面与 Reference 全 op 仍未闭合。**不是** D4–D7 formal 完成。
 
 并发规则：`main` 是唯一集成权威。允许从 exact clean `main` 创建临时隔离 worktree 推进接口已冻结、文件 allowlist 完全不重叠的 leaf lanes；worker 不编辑 `AGENTS.md`、`RECOVERY.md`、`MIGRATION_MATRIX.md`、实现日志、umbrella、suite注册、`lakefile.lean`、justfile或SBOM pin。主代理只读审查并串行集成，聚合门禁通过后立即删除临时 worktree/branch。shared-core cutover、文档、package pin与提交始终串行。
 
@@ -73,59 +97,30 @@ Wave 1  D1 supervised frontend + CLI cutover
 
 - `docs-check`/`dev-check`/`ci` 已不再运行 Stage-0 或 TaskQualification；历史审计由
   `governance-check` 显式运行，release host preflight 在当前主机准确返回 `PF-HOST-INELIGIBLE`。
-- CLI `build`/`build-counter` 产品 source 路径只调用 pinned sibling safe-open helper → B10 worker →
-  `SupervisedFrontendV1.productInput` → `compileProgramProductV1`；success pair 仅在 request-bound composer
-  内 reconstruct 一次，canonical SafeOpen Err 只保留 closed fault（`.tooLarge` 精确恢复 16 MiB
-  `PF-SRC-INVALID`，无 reopen/stat），source open/resource/protocol事件映射 closed
-  `DiagnosticBundleV1`，失败按 `selectExitCode` 退出；成功后 mint private-ctor
-  `CompiledSemanticV1`（retained semantic + artifact name + canonical source/semantic Digest），再经
-  engineering exact requirement capability进入 target Plan/IR/finalization；EVM/Solana/NEAR/Noir 四个
-  Plan body均在 capability 后直接消费 retained `SemanticProgramV1`，target module 内 alpha Plan route归零；
-  resolver与artifact identity同样只读该单 carrier，全链不构造 legacy `Source.Program`。
-- ProgramV1 expression 与 pattern integer literal 现共用 sole decoder：只接受 unsigned decimal 或 lowercase-prefix `0x` hexadecimal（hex digits 可大小写），拒绝 `0X`/binary/octal/underscore，范围精确为 `0..2^256-1`；等值 spelling 产生相同 AST、canonical bytes 与 sourceHash。该 bounded D1-04 工程切片不改变 formal 状态。
-- B10 已新增一请求一进程的 `proof-forge-frontend-worker-v1`：stdin/stdout 只承载
-  `Frontend.Req/Ok/Err.v1`，与产品 Loader 共享单 parser snapshot，并由真实子进程测试固定
-  deterministic bytes 与 64/65/70 abnormal exits。B11a 已新增 package-owned native safe-open
-  foundation（component no-follow、regular/single-link、16 MiB pre-read gate、read probe、fd/path
-  metadata recheck 与 closed redacted faults）；B11a2 已新增 pure canonical/public-safe、host-tagged
-  development-observation receipt model。B11b1 已以独立 process group 监督**已编码**
-  canonical request：monotonic budget 从 native allocation/pipe/spawn 前开始，使用 selective
-  `LEAN_SYSROOT`/`LEAN_PATH` + fixed env，轮询 aggregate process/memory、stdout/stderr 与 deadline，
-  bounded kill/cleanup 后实际 mint B11a2 receipt；malformed/cross-request/incomplete-cleanup response
-  fail closed。B11b2 另以 closed `SafeOpen.Req/Ok/Err.v1` one-request helper（不 import Loader）把
-  `safeOpenSourceV1` 放入同一 hardened `posix_spawn` 监督面；private native `CLOCK_MONOTONIC` capability
-  在 open request 前 sole mint，两个 child stage 消费 exact absolute start，wall 覆盖 open、parent request
-  construction 与 B10 worker，并在每次 snapshot/allocation/pipe/spawn 前检查耗尽。SafeOpen Ok/Err 绑定
-  canonical request digest，最终 observations 合并两阶段 peak；仅 request-bound canonical fault + complete
-  cleanup mint `sourceOpenFailed`，并仅在 private supervised carrier保留 exact closed fault。B12 已令 CLI
-  sole consume该完整 supervisor并以 durable deletion gate固定无 source reopen/Loader/fallback/direct
-  pathname spawn。Darwin 保留 suspended spawn/vnode 复核；Linux development path 使用 root-owned
-  sticky `/tmp` 下128-bit私有 snapshot、fork 后 `close_range` 清除 ambient fd、独立 process group、
-  `/proc` group/RSS fail-closed sampling，并实际跑通 safe-open→frontend→CLI product positive。Linux
-  receipt使用 `linux-development-observed` 与 `linuxProcRssAggregate`，不冒充 Darwin footprint、cgroup
-  或 containment。formal executable/import identity、`setsid` escape、controller-backed containment
-  与 formal TASK-D1-08 仍缺失。
-- Counter 已从真实 source 完成 ProgramV1 到目标制品的 CLI smoke；快速测试固定
-  ProgramV1 identity/sourceHash/NodeId、Typed/Semantic、EVM Plan/IR 与 deterministic Yul/ABI。
-- 真实 Counter/Accumulator source 已经由当前恢复桥使用 digest-pinned `solc 0.8.34` 生成
-  EVM bytecode；product runtime 只要求所选工具的 executable/runtime exact closure，无关 `jv`
-  缺失不再阻塞 EVM，而 release checker 继续要求完整 global bundle。四 target Plan body现均由 retained
-  `SemanticProgramV1` S1 carrier构造；EVM继续复用既有 IR/Yul/solc。工程链已删除 dual-carrier与 alpha-backed
-  artifact identity，但仍保留 private v2alpha1 publisher，不代表正式 D1–D4 contract、formal `OutputSetV1`
-  或 task completion；本切片也未新增 Anvil runtime 结论。
-- Legacy Source source-reading 与 v1 export decoder 已删除；Lean command/export 与
-  Loader 只读 ProgramV1。产品 CLI 入口是 B12 supervisor product carrier + located compile；
-  `selectProgramV1Product`/`selectProgramV1*`/`compileValidatedSourceV1` helpers 仅保留给 worker共享实现、测试或嵌入方。B10 worker 的
-  spans payload API 与产品 OriginJoin API 共享同一私有 parse/select/SpanJoin snapshot；
-  产品编译只返回 `CompiledSemanticV1`，resolver、四 target Plan body与 artifact identity均只读 retained
-  `SemanticProgramV1`及其 canonical Digests。隔离的 `AlphaCompatibility` 仅供 legacy hand-built测试；
-  产品 umbrella/compiler/capability/materializer/CLI 的递归 import closure禁止 legacy Source/Typed/
-  SemanticIR/Semantics与 AlphaCompatibility。无 adapter、dual reader、
-  第二套 ProgramV1 decoder 或 fallback。
-- [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md) 已逐项记录 D1–D4 的 requirement、实现文件、
-  产品接线、测试事实、缺口和删除门槛；formal仍为0/27 done。
-- [`QUALIFICATION_INVENTORY.md`](QUALIFICATION_INVENTORY.md) 已确认 qualification 子系统为
-  84 个文件、58,429 行；ordinary product gate 无直接依赖，本轮未移动或删除任何文件。
+- **产品 CLI 源路径（当前）**：`build` 经进程内 `Loader.selectProgramV1Product`（validated project root
+  下 `IO.FS.readFile`）→ `normalizeProgramLocatedV1`（CheckV1 ok∧analysisComplete + structure-gated
+  Semantic）→ `compileProgramProductV1` → private-ctor `CompiledSemanticV1` → engineering
+  `resolveEngineeringRequirementsV1` → 四 target capability Plan/IR/finalize → disk closure。
+  失败走 `DiagnosticBundleV1` / `selectExitCode`。全链不构造 legacy `Source.Program`。
+- **历史 frontend 监督层（已移除）**：B9 Protocol / B10 worker / B11 SafeOpen+supervisor / B12 CLI
+  切over 曾完成工程接线；**2026-08-01 产品决策整体删除**该层。详情与 superseded 说明见
+  `MIGRATION_MATRIX` D1-08 与 AGENTS checkpoint；不得再写成当前产品路径。
+- ProgramV1 expression 与 pattern integer literal 共用 sole decoder：unsigned decimal 或
+  lowercase-prefix `0x` hexadecimal（hex digits 可大小写），拒绝 `0X`/binary/octal/underscore，
+  范围 `0..2^256-1`；等值 spelling → 相同 AST/canonical bytes/sourceHash（D1-04 工程切片）。
+- Counter/Accumulator 等真实 source 可经 CLI 产出四 target 工程制品；EVM 使用 digest-pinned
+  `solc 0.8.34` 生成 bytecode，另有 EvmSolc 验收门与历史 Anvil smoke（**非** formal Reference↔Anvil）。
+  Solana 有 SBPF→ELF + Mollusk 运行时差分工程链路；NEAR 主要为 `wat2wasm` 结构验证；Noir 为
+  relation source package（无 prove/verify）。四 target Plan body 均由 retained `SemanticProgramV1`
+  经 capability 构造；工程 output 已接 S7a–S7c，仍非 formal D1–D4 / formal OutputSetV1 完成。
+- Legacy Source source-reading 与 v1 export decoder 已删除；command/export 仅 ProgramV1 v2。
+  `selectProgramV1Product` 为产品 CLI 使用的 Loader 入口；`selectProgramV1*` /
+  `compileValidatedSourceV1` 仍可为测试/库 API。alpha Core 模块与产品 import 已删/门禁禁止；
+  无 adapter、dual reader、第二套 ProgramV1 decoder 或 fallback。
+- [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md) 记录 D1–D4 formal vs 工程地基；formal 仍 0/27 done。
+- [`docs/engineering-backlog.md`](docs/engineering-backlog.md) 为日常工程可勾选队列。
+- [`QUALIFICATION_INVENTORY.md`](QUALIFICATION_INVENTORY.md) 隔离 qualification 子系统；ordinary
+  product gate 无直接依赖。
 
 ## 明确暂停
 

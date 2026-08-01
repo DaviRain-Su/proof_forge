@@ -3,14 +3,16 @@ id: RPT-011
 title: 特性覆盖审查——文档与代码对照
 status: draft
 owner: research
-updated: 2026-08-02
+updated: 2026-08-01
 normative: false
 ---
 
 # 特性覆盖审查——文档与代码对照
 
 状态：`draft`
-研究日期：2026-08-02
+研究日期：2026-08-01
+
+> **执行队列**：缺口关闭请回写 [`../engineering-backlog.md`](../engineering-backlog.md)，勿另开平行清单。
 
 ## 目的
 
@@ -97,7 +99,7 @@ fail closed（逐项对照 spec EBNF 与 `SPEC-SEM-001`）：
 | Target | 代码 | 真制品/运行 | 主要缺口 |
 |---|---|---|---|
 | EVM | `LowerSemantic` 2600 行 + `Keccak` + `ValidateIR` | ✅ solc bytecode + Anvil Counter/overflow | 完整 D4 lowering（非 Counter）、Reference↔Anvil closure、formal identity |
-| Solana | `LowerSemantic` 2028 + `EmitSbpfAsm` + ELF | ✅ SBPF `.so` + Mollusk 差分（Counter + 7 fixture） | state/param/ABI 仍 UInt64/Bool/Int64；UInt128/256 fail closed |
+| Solana | `LowerSemantic` + `EmitSbpfAsm` + ELF | ✅ SBPF `.so` + Mollusk 差分（Counter + 多 fixture） | state/param/body 多宽 UInt8/16/32/64 + 窄 Int 工程子集；UInt128/256 fail closed |
 | NEAR | `LowerSemantic` 2007 行 | ❌ 仅 raw-u64 `wat2wasm` 结构验证 | 无真实 bytecode/runtime |
 | Noir | `LowerSemantic` 1930 行 | ❌ 仅 Plan/typed relation IR + source packages | 无电路证明、无 runtime |
 
