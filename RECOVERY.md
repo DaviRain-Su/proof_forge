@@ -310,6 +310,11 @@ zero `decodeFieldCount` success，随后`decodeTypeShapeV1_eq_of_bodyV1`经真�
 同时保留body返回input/offset。错误路径仍由通用`withTaggedNesting_eqV1`覆盖；其余九个shape、TypeDecl
 与root types array仍pending，formal状态不变。
 
+TypeDecl composition现已闭合：`expectTag_eq_of_headerV1`将真实expected-header reader success映到cursor，
+`decodeOption_noneV1`固定canonical marker 0且不调用payload decoder；sole `decodeTypeDeclBodyV1`按
+tag→id→name→shape线程真实decoder结果，再经`decodeTypeDeclV1_eq_of_bodyV1`恢复parent nesting。
+下一步将这些success组合进root types array；完整root/formal状态不变。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

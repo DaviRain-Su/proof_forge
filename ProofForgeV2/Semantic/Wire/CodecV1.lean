@@ -706,6 +706,14 @@ def decodeOption (decode : Decoder α) : Decoder (Option α) := fun c => do
     pure (some v, c)
   | _ => err .badScalar
 
+/-- Canonical absent-option composition through the sole production marker
+    decoder. -/
+theorem decodeOption_noneV1 (decode : Decoder α) (c afterMarker : Cursor)
+    (hmarker : decodeU8 c = .ok (0, afterMarker)) :
+    decodeOption decode c = .ok (none, afterMarker) := by
+  simp only [decodeOption, hmarker, UInt8.toNat_ofNat, Nat.zero_mod, Bind.bind,
+    Pure.pure, Except.bind, Except.pure]
+
 /-- Sole production array-element iteration authority. Keeping the loop in a
     structurally recursive definition gives kernel proofs a stable unfolding
     seam without introducing a proof-side decoder. -/
@@ -875,6 +883,14 @@ theorem decodeFieldCount_eq_of_readU16leV1 (expected : Nat) (c : Cursor)
 def expectTag (want : String) (fieldCount : Nat) : Decoder Unit := fun c => do
   let offset ← expectTaggedHeaderBytesAtV1 c.input c.offset want.toUTF8 fieldCount
   pure ((), ⟨c.input, offset, c.nesting⟩)
+
+/-- Expected tagged-header composition through the shared production reader. -/
+theorem expectTag_eq_of_headerV1 (want : String) (fieldCount : Nat) (c : Cursor)
+    (offset : Nat)
+    (hread : expectTaggedHeaderBytesAtV1 c.input c.offset want.toUTF8 fieldCount =
+      .ok offset) :
+    expectTag want fieldCount c = .ok ((), ⟨c.input, offset, c.nesting⟩) := by
+  simp only [expectTag, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
 
 private def decodeNullary (want : String) : Decoder Unit :=
   expectTag want 0
@@ -1051,12 +1067,35 @@ def encodeTypeDeclV1 (d : TypeDeclV1) : Except SemanticWireErrorV1 ByteArray := 
   let shapeB ← encodeTypeShapeV1 d.shape
   encodeTagged "TypeDecl" #[idB, nameB, shapeB]
 
-def decodeTypeDeclV1 : Decoder TypeDeclV1 := withTaggedNesting fun c => do
+/-- Sole production body for a TypeDecl tagged record. -/
+def decodeTypeDeclBodyV1 : Decoder TypeDeclV1 := fun c => do
   let ((), c) ← expectTag "TypeDecl" 3 c
   let (id, c) ← decodeU32le c
   let (name, c) ← decodeOption decodeString c
   let (shape, c) ← decodeTypeShapeV1 c
   pure ({ id, name, shape }, c)
+
+def decodeTypeDeclV1 : Decoder TypeDeclV1 :=
+  withTaggedNesting decodeTypeDeclBodyV1
+
+/-- Compose the sole TypeDecl body from its actual production field decoders. -/
+theorem decodeTypeDeclBodyV1_eq_of_fields (c afterTag afterId afterName afterShape : Cursor)
+    (id : UInt32) (name : Option String) (shape : TypeShapeV1)
+    (htag : expectTag "TypeDecl" 3 c = .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hname : decodeOption decodeString afterId = .ok (name, afterName))
+    (hshape : decodeTypeShapeV1 afterName = .ok (shape, afterShape)) :
+    decodeTypeDeclBodyV1 c = .ok ({ id, name, shape }, afterShape) := by
+  simp only [decodeTypeDeclBodyV1, htag, hid, hname, hshape, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose a successful TypeDecl body through the tagged nesting authority. -/
+theorem decodeTypeDeclV1_eq_of_bodyV1 (c : Cursor) (decl : TypeDeclV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeTypeDeclBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (decl, c')) :
+    decodeTypeDeclV1 c = .ok (decl, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeTypeDeclV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeConstantV1 (d : ConstantV1) : Except SemanticWireErrorV1 ByteArray := do
   let idB := encodeU32le d.id

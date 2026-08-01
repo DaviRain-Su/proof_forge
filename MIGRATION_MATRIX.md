@@ -266,7 +266,8 @@ raw framing→既有UTF-8/ASCII分支composition。后续TypeShape前置切片�
 `decodeTypeShapeBodyV1`并补u16 field-count success/mismatch theorem，全部12分支保持原样；九张root
 table与完整carrier refinement仍pending。后续nullary切片已组合Bool/Principal/Unit真实tag+zero-field
 success及body→nesting wrapper success，保留body cursor input/offset和parent depth；其余shape与TypeDecl
-仍pending。
+原仍pending。后续TypeDecl切片已补expected-tag header与canonical Option.none composition，机械抽取sole
+production body，并按header→id→name→shape组合success及parent nesting restoration；root types array仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 
