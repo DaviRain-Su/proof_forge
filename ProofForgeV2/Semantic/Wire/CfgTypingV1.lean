@@ -200,6 +200,7 @@ private def checkArgsPositional (env : OpTypingEnv)
     Except SemanticWireErrorV1 Unit := do
   unless args.size == expected.size do
     return ← err .badCfg
+  if args.isEmpty then return
   let mut i : Nat := 0
   while i < args.size do
     let argT ← requireOperand env args[i]!
@@ -208,6 +209,10 @@ private def checkArgsPositional (env : OpTypingEnv)
     | some expT => unless argT == expT do return ← err .badCfg
     i := i + 1
   pure ()
+
+private theorem checkArgsPositional_empty_eq_ok (env : OpTypingEnv) :
+    checkArgsPositional env #[] #[] = .ok () := by
+  rfl
 
 /-- Exact-size positional arg type check against interface fields
     (Term.Revert / Op.Assert(some) / Op.Emit). Identical modulo table lookup. -/
@@ -777,6 +782,105 @@ def checkOpTyping (instr : InstructionV1) (env : OpTypingEnv) :
   --   requirement binding are enforced by the later closed-catalog passes.
   | .contextRead _ => requireResultPresent instr.result
 
+/-- Production callable-CFG steps a–d. Returns the exact reachability table
+    consumed by the later dominance phase. -/
+def validateCallableCfgShapeReachability (c : CallableV1) :
+    Except SemanticWireErrorV1 (Array Bool) := do
+  let blockCount := c.blocks.size
+  unless c.entryBlock.toNat == 0 do
+    return ← err .badCfg
+  if blockCount == 0 then
+    return ← err .badCfg
+  let mut idx : Nat := 0
+  for b in c.blocks do
+    unless b.id.toNat == idx do
+      return ← err .badCfg
+    idx := idx + 1
+  for b in c.blocks do
+    match b.terminator with
+    | .switch _ cases _ =>
+        if cases.isEmpty then return ← err .badCfg
+        validateSwitchCaseValuesUnique cases
+    | _ => pure ()
+  for b in c.blocks do
+    for succ in terminatorSuccessors (BlockV1.terminator b) do
+      checkBlockIdInRange succ blockCount
+  for b in c.blocks do
+    for target in terminatorJumpTargets (BlockV1.terminator b) do
+      checkJumpTargetArity c.blocks blockCount target
+  let reachable : Array Bool :=
+    let visited0 : Array Bool := Array.mk (List.replicate blockCount false)
+    let visited1 := visited0.set! 0 true
+    cfgReachFixpoint c.blocks blockCount blockCount visited1
+  for v in reachable do
+    unless v do
+      return ← err .badCfg
+  pure reachable
+
+/-- Production callable-CFG steps f–g. The canonical def-site table and
+    dominator implementation remain internal to this coherent phase. -/
+def validateCallableCfgValueFlow (c : CallableV1) (reachable : Array Bool) :
+    Except SemanticWireErrorV1 Unit := do
+  let defSites := collectValueDefSites c
+  checkValueIdCanonicalAssignment defSites
+  checkValueIdUsesExist c defSites
+  validateCallableDominanceOfUse c defSites reachable
+
+/-- Compose production value-flow success while pinning the canonical def-site
+    table built once and shared by assignment, use, and dominance checks. -/
+theorem validateCallableCfgValueFlow_eq_ok_of_phases
+    (c : CallableV1) (reachable : Array Bool)
+    (defSites : Array (ValueIdV1 × BlockIdV1))
+    (hDefSites : collectValueDefSites c = defSites)
+    (hAssignment : checkValueIdCanonicalAssignment defSites = .ok ())
+    (hUses : checkValueIdUsesExist c defSites = .ok ())
+    (hDominance : validateCallableDominanceOfUse c defSites reachable = .ok ()) :
+    validateCallableCfgValueFlow c reachable = .ok () := by
+  simp only [validateCallableCfgValueFlow, hDefSites, hAssignment, hUses,
+    hDominance, Bind.bind, Except.bind]
+
+/-- Production callable-CFG steps h–j. The def-type table and canonical typing
+    environment remain internal and are shared by terminator and op typing. -/
+def validateCallableCfgTypingPhases (c : CallableV1) (typeCount : Nat)
+    (data : SemanticProgramDataV1) : Except SemanticWireErrorV1 Unit := do
+  let defTypes := collectValueTypeDefs c
+  checkDefSiteTypeIdsInRange defTypes typeCount
+  let env := mkOpTypingEnv defTypes data
+  checkTerminatorTyping c env
+  for b in c.blocks do
+    for instr in b.instructions do
+      checkOpTyping instr env
+
+/-- A one-block, parameter-free callable that returns the result of a
+    parameter-free PureCall satisfies the exact production h–j typing phases
+    when the callee join and result TypeId are pinned. -/
+theorem validateCallableCfgTypingPhases_single_nullary_pureCall_eq_ok
+    (c callee : CallableV1) (data : SemanticProgramDataV1)
+    (typeCount : Nat) (calleeId : CallableIdV1) (resultType : TypeIdV1)
+    (hparams : c.params = #[])
+    (hresult : c.result.typeId = resultType)
+    (hblocks : c.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := resultType }
+        op := .pureCall calleeId #[]
+      }]
+      terminator := .return_ (some 0)
+    }])
+    (hcallee : data.callables[calleeId.toNat]? = some callee)
+    (hkind : (callee.kind == .pureFn) = true)
+    (hcalleeParams : callee.params = #[])
+    (hcalleeResult : callee.result.typeId = resultType)
+    (hrange : checkTypeIdInRange resultType typeCount = .ok ()) :
+    validateCallableCfgTypingPhases c typeCount data = .ok () := by
+  simp [validateCallableCfgTypingPhases, collectValueTypeDefs,
+    checkDefSiteTypeIdsInRange, checkTerminatorTyping, checkOpTyping,
+    mkOpTypingEnv, OpTypingEnv.typeOf, requireOperand, requireResultEq,
+    checkArgsPositional_empty_eq_ok, hparams, hresult, hblocks, hcallee, hkind,
+    hcalleeParams, hcalleeResult, hrange, Id.run,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Per-callable CFG shape + reachability + loopBounds + EffectId assignment
     + ValueId SSA def-table + dominance-of-use + def-site TypeId range +
     terminator typing + per-op type/result contract. Deterministic, bounded.
@@ -794,97 +898,29 @@ def validateCallableCfgShape (c : CallableV1)
     (typeCount : Nat) (_types : Array TypeDeclV1)
     (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
-  let blockCount := c.blocks.size
-  -- a) the canonical entry block exists and has id 0
-  unless c.entryBlock.toNat == 0 do
-    return ← err .badCfg
-  if blockCount == 0 then
-    return ← err .badCfg
-  -- b) block id == array index
-  let mut idx : Nat := 0
-  for b in c.blocks do
-    unless b.id.toNat == idx do
-      return ← err .badCfg
-    idx := idx + 1
-  -- b.5/b.6) Canonical Switch shape: zero cases must normalize to Jump, and
-  --   typed canonical case constants must be unique within each Switch.
-  for b in c.blocks do
-    match b.terminator with
-    | .switch _ cases _ =>
-        if cases.isEmpty then return ← err .badCfg
-        validateSwitchCaseValuesUnique cases
-    | _ => pure ()
-  -- c) terminator target range
-  for b in c.blocks do
-    for succ in terminatorSuccessors (BlockV1.terminator b) do
-      checkBlockIdInRange succ blockCount
-  -- c.5) jump/branch/switch target arg arity == target block params.
-  --   Only in-range targets reach this step; step c owns OOR. Positional
-  --   argument TypeId equality is checked later by terminator typing (step i).
-  for b in c.blocks do
-    for target in terminatorJumpTargets (BlockV1.terminator b) do
-      checkJumpTargetArity c.blocks blockCount target
-  -- d) reachability from entry (bounded fixed-point passes). The reachable
-  --   array is hoisted so steps d, f, g share it.
-  let reachable : Array Bool :=
-    let visited0 : Array Bool := Array.mk (List.replicate blockCount false)
-    let visited1 := visited0.set! 0 true
-    cfgReachFixpoint c.blocks blockCount blockCount visited1
-  for v in reachable do
-    unless v do
-      return ← err .badCfg
+  let reachable ← validateCallableCfgShapeReachability c
   -- e) loopBounds back-edge coverage (SPEC §6 / §6.2)
   validateCallableLoopBounds c
   -- e.5) EffectId assignment: Emit/ExternalCall/Schedule IDs are contiguous
   --   from zero in BlockId/instruction order, independently per callable.
   validateCallableEffectIds c
-  -- f) Canonical ValueId assignment + use-existence (SPEC §6/§6.2):
-  --   callable params, then all block params, then all instruction results
-  --   must be exactly `0..n-1`, independently per callable. Build defSites
-  --   once and reuse for step g; build defTypes once for h–j.
-  let defSites := collectValueDefSites c
-  checkValueIdCanonicalAssignment defSites
-  checkValueIdUsesExist c defSites
-  -- g) dominance-of-use (SPEC §6.2): every ValueId use is in a block
-  --   dominated by its def's block.
-  validateCallableDominanceOfUse c defSites reachable
-  -- h) def-site TypeId range (SPEC §6.2): block params + instruction result
-  --   ValueDef TypeIds must be in [0, typeCount). Callable param/result
-  --   TypeIds are already checked at step 2. Failure → `.badReference`.
-  let defTypes := collectValueTypeDefs c
-  checkDefSiteTypeIdsInRange defTypes typeCount
-  -- Shared per-callable typing environment for steps i–j (typeOf/shapeOf +
-  -- uniqueness-gated Bool/UInt32/UInt8 built once).
-  let env := mkOpTypingEnv defTypes data
-  -- i) terminator typing (SPEC §6.2): branch cond Bool, switch case type ==
-  --   scrutinee type, jump/branch/switch target arg types == target block
-  --   param types positionally, return (some v) type == result type, and
-  --   Term.Revert errorId/args == selected ErrorDecl fields. All `.badCfg`.
-  checkTerminatorTyping c env
-  -- j) per-op type/result contract (SPEC-SEM-WIRE-001 §4.3/§5.1): every
-  --   value-producing op (literal/constant/stateLoad/construct/fieldGet/
-  --   indexGet/unary/binary/pureCall/fieldSet/variantTag) must carry
-  --   `result := some _` whose declared TypeId matches the op's type
-  --   contract, and ValueId operand types must match the declared operand
-  --   contract. `Op.FieldSet` carries the full §5.1 contract (base Struct,
-  --   fieldIndex in range, type(value) == field.typeId, result.typeId ==
-  --   type(base)). `Op.VariantTag` carries the full §5.1 contract (base
-  --   Enum/Option, result.typeId == unique UInt32 TypeId). `Op.StateStore`
-  --   resolves stateId, checks value type, and requires no result. `Op.Assert`
-  --   checks Bool condition plus exact optional ErrorDecl/args and no result.
-  --   `Op.Emit` resolves EventDecl, checks positional args, and requires no
-  --   result. The remaining void ops (ExternalCall/Schedule) require no result;
-  --   a spurious result is `.badCfg`. VariantPayload, IndexSet, and
-  --   CheckedCast have exact static contracts; `Op.ContextRead` carries
-  --   result presence here plus the §5.1 same-key result-TypeId global
-  --   consistency and closed exact key/anonymous UInt64 catalog in a separate
-  --   post-CFG gate; its exact requirement row is checked after generic
-  --   requirement structure. `Op.Commit` resolves its operand and requires
-  --   result.typeId == type(value); exact disclosure requirement binding is
-  --   deferred. All failures → `.badCfg`. Reuses shared `OpTypingEnv`
-  --   from step h.
-  for b in c.blocks do
-    for instr in b.instructions do
-      checkOpTyping instr env
+  validateCallableCfgValueFlow c reachable
+  validateCallableCfgTypingPhases c typeCount data
+
+/-- Compose success of the sole production callable-CFG validator from its
+    exact coherent production phases. The reachability witness is pinned by
+    the a–d result; def-site, dominator, def-type, and typing environments stay
+    internal to their owning phases. -/
+theorem validateCallableCfgShape_eq_ok_of_phases
+    (c : CallableV1) (typeCount : Nat) (types : Array TypeDeclV1)
+    (data : SemanticProgramDataV1) (reachable : Array Bool)
+    (hShapeReach : validateCallableCfgShapeReachability c = .ok reachable)
+    (hLoopBounds : validateCallableLoopBounds c = .ok ())
+    (hEffectIds : validateCallableEffectIds c = .ok ())
+    (hValueFlow : validateCallableCfgValueFlow c reachable = .ok ())
+    (hTyping : validateCallableCfgTypingPhases c typeCount data = .ok ()) :
+    validateCallableCfgShape c typeCount types data = .ok () := by
+  simp only [validateCallableCfgShape, hShapeReach, hLoopBounds, hEffectIds,
+    hValueFlow, hTyping, Bind.bind, Except.bind]
 
 end ProofForgeV2.Semantic.WireV1

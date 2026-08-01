@@ -328,6 +328,21 @@ def checkValueIdUsesExist (c : CallableV1)
         return ← err .badCfg
   pure ()
 
+/-- A canonical one-block callable whose sole operand-free instruction defines
+    ValueId 0 and returns it passes the production use-existence scan. -/
+theorem checkValueIdUsesExist_single_local_return_eq_ok
+    (c : CallableV1) (instr : InstructionV1)
+    (hblocks : c.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[instr]
+      terminator := .return_ (some 0)
+    }])
+    (hopUses : opValueUses instr.op = #[]) :
+    checkValueIdUsesExist c #[(0, 0)] = .ok () := by
+  simp [checkValueIdUsesExist, hblocks, hopUses, terminatorValueUses,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Per-callable ValueId SSA def-table: canonical contiguous assignment plus
     use-existence. Builds `defSites` once via the SPEC §6 three-pass collector,
     validates `0..n-1`, then checks uses against the same array. Canonical
@@ -374,6 +389,9 @@ private def cfgPredecessors (blocks : Array BlockV1) (blockCount : Nat) :
     Bounded, non-recursive. -/
 private def computeDominators (blocks : Array BlockV1) (blockCount : Nat)
     (reachable : Array Bool) : Array (Array Bool) := Id.run do
+  -- The singleton fixed point is exactly the entry reachability bit. Keep
+  -- this mathematically trivial case out of the general iterative pass.
+  if blockCount == 1 then return #[#[reachable[0]!]]
   if blockCount == 0 then pure #[] else do
     let preds := cfgPredecessors blocks blockCount
     -- Initial dominator sets (each row is full blockCount-sized for uniform
@@ -436,6 +454,11 @@ private def computeDominators (blocks : Array BlockV1) (blockCount : Nat)
           b := b + 1
     pure dom
 
+private theorem computeDominators_singleton_unreachable_eq
+    (blocks : Array BlockV1) :
+    computeDominators blocks 1 #[false] = #[#[false]] := by
+  simp [computeDominators]
+
 /-- Check that every ValueId use (op uses + terminator uses) in each reachable
     block B is dominated by its def's block D. `defSites` is already
     exactly-once (step f), so a ValueId maps to a single def block. Missing
@@ -497,5 +520,22 @@ def validateCallableDominanceOfUse (c : CallableV1)
   let blockCount := c.blocks.size
   let dom := computeDominators c.blocks blockCount reachable
   checkDominanceOfUse c defSites dom reachable
+
+/-- A canonical one-block callable whose sole instruction has no operands and
+    whose return uses its sole local definition satisfies the production
+    dominator/checker path. -/
+theorem validateCallableDominanceOfUse_single_local_return_eq_ok
+    (c : CallableV1) (instr : InstructionV1)
+    (hblocks : c.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[instr]
+      terminator := .return_ (some 0)
+    }])
+    (hopUses : opValueUses instr.op = #[]) :
+    validateCallableDominanceOfUse c #[(0, 0)] #[true] = .ok () := by
+  simp [validateCallableDominanceOfUse, computeDominators, checkDominanceOfUse,
+    hblocks, hopUses, terminatorValueUses, Id.run, Pure.pure,
+    Except.pure, Bind.bind, Except.bind]
 
 end ProofForgeV2.Semantic.WireV1

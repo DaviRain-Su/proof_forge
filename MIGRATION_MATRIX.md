@@ -352,7 +352,10 @@ filtered callable source order闭合`truth→2`、`falsehood→3`。随后identi
 NFC refinement加真实长度/首尾字符检查通过；QualifiedName不属于本gate。CFG/requirements及完整
 structure/encoder/carrier/formal状态仍pending。CFG现按callable source order开始：首项`gate`已通过sole
 `validateCallableCfgShape`，闭合single reachable return block、empty defs/effects/loops及generic typing。
-truthLeaf/truth/falsehood与global closure/fuel仍pending。
+随后`truthLeaf`、`truth`、`falsehood`也均通过同一production authority的完整a–j路径：两个literal
+callable闭合canonical ValueId/use/dominance/Bool op+return typing，`truth`闭合nullary PureCall→pureFn
+callee join与Bool result typing。四项generic callable CFG已全部kernel闭合；global ContextRead catalog、
+invariant closure/fuel及完整`.cfg`组合仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 
