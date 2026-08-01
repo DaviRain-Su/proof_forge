@@ -74,6 +74,22 @@ private def encodeUInt64LE (value : U64) : ByteArray :=
     (UInt64.shiftRight value 56).toUInt8
   ]
 
+/-- Encode the low `byteWidth` bytes of `value` little-endian (1/2/4/8). -/
+private def encodeUIntLE (value : U64) (byteWidth : Nat) : ByteArray :=
+  match byteWidth with
+  | 1 => ByteArray.mk #[value.toUInt8]
+  | 2 => ByteArray.mk #[
+      value.toUInt8,
+      (UInt64.shiftRight value 8).toUInt8
+    ]
+  | 4 => ByteArray.mk #[
+      value.toUInt8,
+      (UInt64.shiftRight value 8).toUInt8,
+      (UInt64.shiftRight value 16).toUInt8,
+      (UInt64.shiftRight value 24).toUInt8
+    ]
+  | _ => encodeUInt64LE value
+
 private def decodeUInt64LEAt (bytes : ByteArray) (offset : Nat) : Option U64 :=
   if offset + 8 > bytes.size then
     none
@@ -85,8 +101,23 @@ private def decodeUInt64LEAt (bytes : ByteArray) (offset : Nat) : Option U64 :=
           UInt64.shiftLeft bytes[offset + index]!.toUInt64 (UInt64.ofNat (8 * index))
       return value
 
+/-- Decode exactly `byteWidth` LE bytes at `offset`, zero-extending to U64. -/
+private def decodeUIntLEAt (bytes : ByteArray) (offset byteWidth : Nat) : Option U64 :=
+  if byteWidth == 0 || offset + byteWidth > bytes.size then
+    none
+  else
+    some <| Id.run do
+      let mut value : U64 := 0
+      for index in [0:byteWidth] do
+        value := value |||
+          UInt64.shiftLeft bytes[offset + index]!.toUInt64 (UInt64.ofNat (8 * index))
+      return value
+
 private def decodeUInt64LE (bytes : ByteArray) : Option U64 :=
   if bytes.size == 8 then decodeUInt64LEAt bytes 0 else none
+
+private def decodeUIntLE (bytes : ByteArray) (byteWidth : Nat) : Option U64 :=
+  if bytes.size == byteWidth then decodeUIntLEAt bytes 0 byteWidth else none
 
 private def storageLookup? (storage : HostStorage) (key : String) : Option ByteArray :=
   match storage.find? (fun item => item.1 == key) with
@@ -172,6 +203,15 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       else
         .ok { machine with
           storage := storagePut machine.storage field.key (encodeUInt64LE 0) }
+  | .narrowZeroState bitWidth field =>
+      let bw := bitWidth / 8
+      if !(bw == 1 || bw == 2 || bw == 4) then
+        modelError s!"narrowZeroState bitWidth {bitWidth} is not admitted"
+      else if (storageLookup? machine.storage field.key).isSome then
+        modelError s!"state key '{field.key}' already exists during zero initialization"
+      else
+        .ok { machine with
+          storage := storagePut machine.storage field.key (encodeUIntLE 0 bw) }
   | .literal destination value =>
       writeTemp machine destination value
   | .loadParam destination inputOffset => do
@@ -179,11 +219,29 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         | some value => pure value
         | none => modelError "parameter read is outside the exact input"
       writeTemp machine destination value
+  | .narrowLoadParam bitWidth destination inputOffset => do
+      let bw := bitWidth / 8
+      unless bw == 1 || bw == 2 || bw == 4 do
+        modelError s!"narrowLoadParam bitWidth {bitWidth} is not admitted"
+      let value ← match decodeUIntLEAt input inputOffset bw with
+        | some value => pure value
+        | none => modelError "narrow parameter read is outside the exact input"
+      writeTemp machine destination value
   | .loadState destination field => do
       let encoded ← requireStorage machine field
       let value ← match decodeUInt64LE encoded with
         | some value => pure value
         | none => modelError s!"state key '{field.key}' is not exactly eight bytes"
+      writeTemp machine destination value
+  | .narrowLoadState bitWidth destination field => do
+      let bw := bitWidth / 8
+      unless bw == 1 || bw == 2 || bw == 4 do
+        modelError s!"narrowLoadState bitWidth {bitWidth} is not admitted"
+      let encoded ← requireStorage machine field
+      let value ← match decodeUIntLE encoded bw with
+        | some value => pure value
+        | none =>
+            modelError s!"state key '{field.key}' is not exactly {bw} bytes"
       writeTemp machine destination value
   | .checkedAdd destination lhs rhs => do
       let left ← readTemp machine lhs
@@ -384,6 +442,16 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       let value ← readTemp machine source
       pure { machine with
         storage := storagePut machine.storage field.key (encodeUInt64LE value) }
+  | .narrowStoreState bitWidth field source => do
+      let bw := bitWidth / 8
+      unless bw == 1 || bw == 2 || bw == 4 do
+        modelError s!"narrowStoreState bitWidth {bitWidth} is not admitted"
+      let previous ← requireStorage machine field
+      unless previous.size == bw do
+        modelError s!"evicted state at '{field.key}' is not exactly {bw} bytes"
+      let value ← readTemp machine source
+      pure { machine with
+        storage := storagePut machine.storage field.key (encodeUIntLE value bw) }
   | .setLayout marker value =>
       if (storageLookup? machine.storage marker.key).isSome then
         modelError "layout marker unexpectedly exists before commit"
@@ -666,9 +734,12 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .requireLayoutAbsent _ => "requireLayoutAbsent"
     | .requireLayout _ _ => "requireLayout"
     | .zeroState _ => "zeroState"
+    | .narrowZeroState _ _ => "narrowZeroState"
     | .literal _ _ => "literal"
     | .loadParam _ _ => "loadParam"
+    | .narrowLoadParam _ _ _ => "narrowLoadParam"
     | .loadState _ _ => "loadState"
+    | .narrowLoadState _ _ _ => "narrowLoadState"
     | .checkedAdd _ _ _ => "checkedAdd"
     | .checkedSub _ _ _ => "checkedSub"
     | .checkedMul _ _ _ => "checkedMul"
@@ -692,6 +763,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .boolAnd _ _ _ => "boolAnd"
     | .boolOr _ _ _ => "boolOr"
     | .storeState _ _ => "storeState"
+    | .narrowStoreState _ _ _ => "narrowStoreState"
     | .setLayout _ _ => "setLayout"
     | .setReturnData _ => "setReturnData"
     | .compare _ _ _ op =>
@@ -2421,6 +2493,190 @@ private unsafe def testOmittedTypeLetProductPath
   expect (ret1 == some 7)
     s!"omit-let: sum(3,4) must yield 7, got ret={ret1}"
 
+/-- T8b-NEAR: public UInt8/16/32 state + params materialize with width-aware
+    layout marker / ABI / WAT. Body multi-width arithmetic stays T8c — this
+    program only assigns params into state and returns a UInt64 literal. -/
+private unsafe def testNarrowAbiProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program NarrowAbi where\n" ++
+    "  state a : UInt8\n" ++
+    "  state b : UInt16\n" ++
+    "  state c : UInt32\n\n" ++
+    "  init(x : UInt8, y : UInt16, z : UInt32) do\n" ++
+    "    a := x\n" ++
+    "    b := y\n" ++
+    "    c := z\n\n" ++
+    "  entry set8(x : UInt8) : UInt64 do\n" ++
+    "    a := x\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-narrow-abi>" "Examples.NarrowAbi" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.size == 3)
+    "narrow-abi: expected three state fields"
+  expect (plan.storage.fields[0]!.byteWidth == 1 &&
+      plan.storage.fields[1]!.byteWidth == 2 &&
+      plan.storage.fields[2]!.byteWidth == 4)
+    s!"narrow-abi: field byteWidths must be 1/2/4, got {[plan.storage.fields[0]!.byteWidth, plan.storage.fields[1]!.byteWidth, plan.storage.fields[2]!.byteWidth]}"
+  let initParams := plan.initializer.params
+  expect (initParams.size == 3 &&
+      initParams[0]!.byteWidth == 1 && initParams[0]!.inputOffset == 0 &&
+      initParams[1]!.byteWidth == 2 && initParams[1]!.inputOffset == 8 &&
+      initParams[2]!.byteWidth == 4 && initParams[2]!.inputOffset == 16)
+    "narrow-abi: init params must retain 8-byte slot pitch with narrow byteWidths"
+  -- Layout marker must change when narrow widths appear (not pure u64-le).
+  expect (plan.storage.markerValue != 0)
+    "narrow-abi: layout marker must be nonzero"
+  liftResult <| Targets.Near.validatePlan plan
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  liftResult <| Targets.Near.validateIR ir
+  let initIR ← findMethod ir "init"
+  let initKinds := operationKinds initIR.operations
+  expect (initKinds.contains "narrowZeroState")
+    s!"narrow-abi: init must narrow-zero fields, got {initKinds}"
+  expect (initKinds.contains "narrowLoadParam")
+    s!"narrow-abi: init must narrow-load params, got {initKinds}"
+  expect (initKinds.contains "narrowStoreState")
+    s!"narrow-abi: init must narrow-store state, got {initKinds}"
+  let set8IR ← findMethod ir "set8"
+  let set8Kinds := operationKinds set8IR.operations
+  expect (set8Kinds.contains "narrowLoadParam" && set8Kinds.contains "narrowStoreState")
+    s!"narrow-abi: set8 must narrow load/store, got {set8Kinds}"
+  -- Host-model: init(1,2,3) → set8(9) stores 9 in UInt8 field a.
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let pack3 (x y z : U64) : ByteArray :=
+    encodeUInt64LE x ++ encodeUInt64LE y ++ encodeUInt64LE z
+  let (storage0, _, _) ← requireSuccess "narrow-abi init" <|
+    execute initIR empty (pack3 1 2 3) zero
+  let aKey := ir.keys[1]!
+  let bKey := ir.keys[2]!
+  let cKey := ir.keys[3]!
+  expect (match storageLookup? storage0 aKey.key with
+    | some bytes => bytes.size == 1 && bytes[0]!.toNat == 1
+    | none => false)
+    "narrow-abi: field a must be 1-byte LE 1 after init"
+  expect (match storageLookup? storage0 bKey.key with
+    | some bytes => bytes.size == 2 && decodeUIntLE bytes 2 == some 2
+    | none => false)
+    "narrow-abi: field b must be 2-byte LE 2 after init"
+  expect (match storageLookup? storage0 cKey.key with
+    | some bytes => bytes.size == 4 && decodeUIntLE bytes 4 == some 3
+    | none => false)
+    "narrow-abi: field c must be 4-byte LE 3 after init"
+  let (storage1, ret, _) ← requireSuccess "narrow-abi set8" <|
+    execute set8IR storage0 (encodeUInt64LE 9) zero
+  expect (ret == some 0)
+    "narrow-abi: set8 must return UInt64 0"
+  expect (match storageLookup? storage1 aKey.key with
+    | some bytes => bytes.size == 1 && bytes[0]!.toNat == 9
+    | none => false)
+    "narrow-abi: set8 must overwrite field a with 9"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some watFile := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "narrow-abi: missing .wat artifact"
+  let some abiFile := files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "narrow-abi: missing .near-abi.json artifact"
+  expectContains watFile.contents "i32.load8_u" "narrow-abi WAT load8_u"
+  expectContains watFile.contents "i32.load16_u" "narrow-abi WAT load16_u"
+  expectContains watFile.contents "i32.store8" "narrow-abi WAT store8"
+  expectContains watFile.contents "i32.store16" "narrow-abi WAT store16"
+  expectContains watFile.contents "(i64.const 1)" "narrow-abi WAT storage_write len 1"
+  expectContains watFile.contents "(i64.const 2)" "narrow-abi WAT storage_write len 2"
+  expectContains watFile.contents "(i64.const 4)" "narrow-abi WAT storage_write len 4"
+  expectContains abiFile.contents "\"type\":\"u8-le\"" "narrow-abi ABI u8-le"
+  expectContains abiFile.contents "\"type\":\"u16-le\"" "narrow-abi ABI u16-le"
+  expectContains abiFile.contents "\"type\":\"u32-le\"" "narrow-abi ABI u32-le"
+  -- Pure UInt64 Counter-style program must still render only u64-le on fields.
+  let u64Text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program U64Only where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry add(amount : UInt64) : UInt64 do\n" ++
+    "    count := count + amount\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let u64Source ← liftResult (← session.selectProgramV1
+    u64Text "<near-u64-only>" "Examples.U64Only" none)
+  let u64Compiled ← liftResult <| Compiler.compileValidatedSourceV1 u64Source
+  let u64Cap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection u64Compiled
+  let u64Plan ← liftResult <| Targets.Near.planFromCapability u64Cap
+  expect (u64Plan.storage.fields[0]!.byteWidth == 8)
+    "u64-only: field byteWidth must remain 8"
+  let u64Files ← liftResult <| Targets.Near.buildFromCapability u64Cap
+  let some u64Abi := u64Files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "u64-only: missing abi"
+  expect (u64Abi.contents.contains "\"type\":\"u64-le\"")
+    "u64-only: ABI must keep u64-le"
+  expect (!u64Abi.contents.contains "\"type\":\"u8-le\"")
+    "u64-only: ABI must not introduce u8-le"
+
+/-- T8b-NEAR negatives: UInt128 state, Int8 param, narrow entry result fail closed. -/
+private unsafe def testNarrowAbiNegatives
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let cases : Array (String × String × String) := #[
+    ("uint128-state", "Examples.U128State",
+      "program U128State where\n" ++
+      "  state big : UInt128\n\n" ++
+      "  init(x : UInt64) do\n" ++
+      "    big := 0\n\n" ++
+      "  entry ping(x : UInt64) : UInt64 do\n" ++
+      "    return x\n"),
+    ("int8-param", "Examples.Int8Param",
+      "program Int8Param where\n" ++
+      "  state count : UInt64\n\n" ++
+      "  init(i : UInt64) do\n" ++
+      "    count := i\n\n" ++
+      "  entry ping(x : Int8) : UInt64 do\n" ++
+      "    return count\n"),
+    ("uint8-result", "Examples.U8Result",
+      "program U8Result where\n" ++
+      "  state count : UInt64\n\n" ++
+      "  init(i : UInt64) do\n" ++
+      "    count := i\n\n" ++
+      "  entry ping(x : UInt64) : UInt8 do\n" ++
+      "    return 0\n")
+  ]
+  for item in cases do
+    let (label, moduleName, body) := item
+    let sourceText :=
+      "import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      body ++ "\nend ProofForgeV2.Examples\n"
+    let source ← liftResult (← session.selectProgramV1
+      sourceText s!"<near-host-{label}>" moduleName none)
+    match Compiler.compileValidatedSourceV1 source with
+    | .error _ => pure ()
+    | .ok compiled =>
+        let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+        match Targets.resolveEngineeringRequirementsV1 selection compiled with
+        | .error _ => pure ()
+        | .ok capability =>
+            match Targets.Near.planFromCapability capability with
+            | .error _ => pure ()
+            | .ok _ =>
+                throw <| IO.userError
+                  s!"{label}: must fail closed for NEAR T8b ABI multi-width"
+
 /-- Host-model Bool `!` execution pin (boolNot). Plan/WAT already lower `!`;
     this closes the host-model execution gap left by &&/||-only traces. -/
 private unsafe def testBoolNotHostExecution
@@ -2583,6 +2839,193 @@ private unsafe def testMultiStateHostExecution
       storedUInt64? storage1 balanceKey == some 7)
     "two-state: go must update count and balance independently"
 
+/-- T8b-NEAR: UInt8/16/32 state + params (assign-only; body multi-width is T8c).
+    8-byte input slot pitch retained; KV values store exact ABI byteWidth. -/
+private unsafe def testAbiMultiWidthStateParam (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program AbiMw where\n" ++
+    "  state flag : UInt8\n" ++
+    "  state score : UInt16\n" ++
+    "  state ticks : UInt32\n\n" ++
+    "  init(f : UInt8, s : UInt16, t : UInt32) do\n" ++
+    "    flag := f\n" ++
+    "    score := s\n" ++
+    "    ticks := t\n\n" ++
+    "  entry setFlag(f : UInt8) : UInt64 do\n" ++
+    "    flag := f\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-host-abi-mw>" "Examples.AbiMw" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.map (·.name) == #["flag", "score", "ticks"])
+    "AbiMw storage names"
+  expect (plan.storage.fields.map (·.byteWidth) == #[1, 2, 4])
+    "AbiMw storage byteWidth UInt8/16/32 → 1/2/4"
+  expect (plan.initializer.params.map (·.byteWidth) == #[1, 2, 4])
+    "AbiMw init params byteWidth 1/2/4"
+  expect (plan.initializer.params.map (·.inputOffset) == #[0, 8, 16])
+    "AbiMw init params retain 8-byte slot pitch"
+  let setFlag := plan.entries[0]!
+  expect (setFlag.params.size == 1 && setFlag.params[0]!.byteWidth == 1)
+    "AbiMw setFlag param is UInt8 (byteWidth 1)"
+  let hasNarrowStore :=
+    setFlag.body.any fun s =>
+      match s with
+      | .store st => st.byteWidth == 1 &&
+          match st.value with
+          | .narrowParam 8 0 => true
+          | _ => false
+      | _ => false
+  expect hasNarrowStore
+    "AbiMw plan must lower UInt8 param assign via narrowParam + byteWidth-1 store"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initializer ← findMethod ir "init"
+  let setFlagIR ← findMethod ir "setFlag"
+  expect (initializer.operations.any fun op =>
+      match op with | .narrowZeroState 8 _ => true | _ => false)
+    "AbiMw init must emit narrowZeroState 8 for UInt8 field"
+  expect (initializer.operations.any fun op =>
+      match op with | .narrowZeroState 16 _ => true | _ => false)
+    "AbiMw init must emit narrowZeroState 16 for UInt16 field"
+  expect (initializer.operations.any fun op =>
+      match op with | .narrowZeroState 32 _ => true | _ => false)
+    "AbiMw init must emit narrowZeroState 32 for UInt32 field"
+  expect (setFlagIR.operations.any fun op =>
+      match op with | .narrowLoadParam 8 _ _ => true | _ => false)
+    "AbiMw setFlag IR must narrowLoadParam 8"
+  expect (setFlagIR.operations.any fun op =>
+      match op with | .narrowStoreState 8 _ _ => true | _ => false)
+    "AbiMw setFlag IR must narrowStoreState 8"
+  let output ← liftResult <|
+    Targets.materializeResult capability
+  let files := MaterializedArtifactsV1.filesOf output
+  let abi ← match files.find? (·.path.endsWith ".near-abi.json") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "AbiMw missing near-abi.json"
+  expect (abi.contains "\"type\":\"u8-le\"")
+    "AbiMw ABI must expose u8-le for narrow field/param"
+  expect (abi.contains "\"type\":\"u16-le\"" && abi.contains "\"type\":\"u32-le\"")
+    "AbiMw ABI must expose u16-le/u32-le"
+  -- Entry/view results stay UInt64 (JSON `returns` field, not a `type` key).
+  expect (abi.contains "\"returns\":\"u64-le\"")
+    "AbiMw ABI result remains u64-le"
+  let wat ← match files.find? (·.path.endsWith ".wat") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "AbiMw missing wat"
+  expectContains wat "i32.load8_u" "AbiMw WAT narrow param/state load8"
+  expectContains wat "i32.store8" "AbiMw WAT narrow store8"
+  expectContains wat "i32.load16_u" "AbiMw WAT narrow load16"
+  expectContains wat "i32.store16" "AbiMw WAT narrow store16"
+  expectContains wat "(i64.const 1)" "AbiMw WAT storage_write length 1 present"
+  expectContains wat "(i64.const 2)" "AbiMw WAT storage_write length 2 present"
+  expectContains wat "(i64.const 4)" "AbiMw WAT storage_write length 4 present"
+  -- Host model: init packs three narrow params in 24-byte input (8-byte slots).
+  let flagKey := ir.keys[1]!.key
+  let scoreKey := ir.keys[2]!.key
+  let ticksKey := ir.keys[3]!.key
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let initInput :=
+    encodeUIntLE 7 1 ++ repeatedByte 7 0 ++
+    encodeUIntLE 300 2 ++ repeatedByte 6 0 ++
+    encodeUIntLE 40000 4 ++ repeatedByte 4 0
+  expect (initInput.size == 24) "AbiMw init input is 3×8 slots"
+  let (storage0, _, _) ← requireSuccess "AbiMw init"
+    (execute initializer empty initInput zero)
+  let flag0 ← match storageLookup? storage0 flagKey with
+    | some b => pure b
+    | none => throw <| IO.userError "AbiMw init missing flag key"
+  let score0 ← match storageLookup? storage0 scoreKey with
+    | some b => pure b
+    | none => throw <| IO.userError "AbiMw init missing score key"
+  let ticks0 ← match storageLookup? storage0 ticksKey with
+    | some b => pure b
+    | none => throw <| IO.userError "AbiMw init missing ticks key"
+  expect (decodeUIntLE flag0 1 == some 7) "AbiMw init stores UInt8 flag"
+  expect (decodeUIntLE score0 2 == some 300) "AbiMw init stores UInt16 score"
+  expect (decodeUIntLE ticks0 4 == some 40000) "AbiMw init stores UInt32 ticks"
+  let setInput := encodeUIntLE 9 1 ++ repeatedByte 7 0
+  let (storage1, ret1, _) ← requireSuccess "AbiMw setFlag"
+    (execute setFlagIR storage0 setInput zero)
+  expect (ret1 == some 0) "AbiMw setFlag returns 0"
+  let flag1 ← match storageLookup? storage1 flagKey with
+    | some b => pure b
+    | none => throw <| IO.userError "AbiMw setFlag missing flag key"
+  expect (decodeUIntLE flag1 1 == some 9) "AbiMw setFlag overwrites UInt8 flag"
+
+/-- T8b-NEAR: UInt128 state remains fail-closed. -/
+private unsafe def testUInt128StateRejected (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program U128State where\n" ++
+    "  state big : UInt128\n\n" ++
+    "  init() do\n" ++
+    "    big := 0\n\n" ++
+    "  entry noop() : UInt64 do\n" ++
+    "    return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-host-u128>" "Examples.U128State" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()
+  | .ok compiled =>
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+      match Targets.resolveEngineeringRequirementsV1 selection compiled with
+      | .error _ => pure ()
+      | .ok capability =>
+          match Targets.Near.planFromCapability capability with
+          | .error e =>
+              expect (e.render.contains "UInt64" || e.render.contains "not public" ||
+                  e.render.contains "unsupported")
+                s!"UInt128 state must fail closed with planInvariant, got {e.render}"
+          | .ok _ =>
+              throw <| IO.userError "UInt128 state must fail closed at NEAR plan"
+
+/-- T8b-NEAR: Int8 param remains fail-closed (narrow Int not on ABI surface). -/
+private unsafe def testInt8ParamRejected (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program Int8Param where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    count := 0\n\n" ++
+    "  entry set(x : Int8) : UInt64 do\n" ++
+    "    return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-host-i8>" "Examples.Int8Param" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()
+  | .ok compiled =>
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+      match Targets.resolveEngineeringRequirementsV1 selection compiled with
+      | .error _ => pure ()
+      | .ok capability =>
+          match Targets.Near.planFromCapability capability with
+          | .error e =>
+              expect (e.render.contains "UInt64" || e.render.contains "not public" ||
+                  e.render.contains "unsupported")
+                s!"Int8 param must fail closed, got {e.render}"
+          | .ok _ =>
+              throw <| IO.userError "Int8 param must fail closed at NEAR plan"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -2606,6 +3049,9 @@ unsafe def run : IO Unit := do
   testBoolResultPureFnProductPath session
   testOmittedTypeLetProductPath session
   testBoolNotHostExecution session
+  testAbiMultiWidthStateParam session
+  testUInt128StateRejected session
+  testInt8ParamRejected session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)
@@ -2703,6 +3149,9 @@ unsafe def run : IO Unit := do
   testBoolResultKindMismatchRejected session
   testBoolResultAccepted session
   testBoolPredicateProductPath session
+  -- T8b-NEAR: state/param UInt{8,16,32} ABI multi-width.
+  testNarrowAbiProductPath session
+  testNarrowAbiNegatives session
   IO.println "Tests.Materialization.NearHostModel: ok"
 
 end Tests.Materialization.NearHostModel

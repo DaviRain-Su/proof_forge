@@ -20,9 +20,15 @@ inductive Operation where
   | requireLayoutAbsent (marker : KeyRegion)
   | requireLayout (marker : KeyRegion) (value : UInt64)
   | zeroState (field : KeyRegion)
+  /-- Narrow field zero on init (`bitWidth ∈ {8,16,32}`); UInt64 keeps `zeroState`. -/
+  | narrowZeroState (bitWidth : Nat) (field : KeyRegion)
   | literal (destination : Nat) (value : UInt64)
   | loadParam (destination inputOffset : Nat)
+  /-- Narrow ABI param load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `loadParam`. -/
+  | narrowLoadParam (bitWidth destination inputOffset : Nat)
   | loadState (destination : Nat) (field : KeyRegion)
+  /-- Narrow ABI state load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `loadState`. -/
+  | narrowLoadState (bitWidth destination : Nat) (field : KeyRegion)
   | checkedAdd (destination lhs rhs : Nat)
   | checkedSub (destination lhs rhs : Nat)
   | signedCheckedAdd (destination lhs rhs : Nat)
@@ -34,6 +40,8 @@ inductive Operation where
   | checkedNeg (destination source : Nat)
   | sar (destination lhs rhs : Nat)
   | storeState (field : KeyRegion) (value : Nat)
+  /-- Narrow field store (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `storeState`. -/
+  | narrowStoreState (bitWidth : Nat) (field : KeyRegion) (value : Nat)
   | setLayout (marker : KeyRegion) (value : UInt64)
   | setReturnData (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
@@ -169,6 +177,13 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         { operations := #[], value := inputOffset / 8, next := next }
       else
         { operations := #[.loadParam next inputOffset], value := next, next := next + 1 }
+  | .narrowParam bitWidth inputOffset =>
+      if paramAsTemp then
+        -- pureFn params still occupy one Wasm i64 slot each (8-byte pitch).
+        { operations := #[], value := inputOffset / 8, next := next }
+      else
+        { operations := #[.narrowLoadParam bitWidth next inputOffset],
+          value := next, next := next + 1 }
   | .localTemp index =>
       match localEnv.find? (fun p => p.1 == index) with
       | some (_, irTemp) =>
@@ -180,6 +195,12 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
   | .stateLoad fieldIndex =>
       {
         operations := #[.loadState next (fieldRegion keys fieldIndex)]
+        value := next
+        next := next + 1
+      }
+  | .narrowStateLoad bitWidth fieldIndex =>
+      {
+        operations := #[.narrowLoadState bitWidth next (fieldRegion keys fieldIndex)]
         value := next
         next := next + 1
       }
@@ -446,7 +467,12 @@ private partial def lowerBodyOps
     | .store store =>
         let value := lowerExpr keys next fnMode localEnv store.value
         operations := operations ++ value.operations
-        operations := operations.push (.storeState (fieldRegion keys store.fieldIndex) value.value)
+        let storeOp : Operation :=
+          if store.byteWidth == 8 then
+            .storeState (fieldRegion keys store.fieldIndex) value.value
+          else
+            .narrowStoreState (store.byteWidth * 8) (fieldRegion keys store.fieldIndex) value.value
+        operations := operations.push storeOp
         next := value.next
     | .returnValue value =>
         let value := lowerExpr keys next fnMode localEnv value
@@ -545,7 +571,13 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
   if method.mode == .initialize then
     operations := operations.push (.requireLayoutAbsent marker)
     for index in [0:plan.storage.fields.size] do
-      operations := operations.push (.zeroState (fieldRegion keys index))
+      let field := plan.storage.fields[index]!
+      let zeroOp : Operation :=
+        if field.byteWidth == 8 then
+          .zeroState (fieldRegion keys index)
+        else
+          .narrowZeroState (field.byteWidth * 8) (fieldRegion keys index)
+      operations := operations.push zeroOp
   else
     operations := operations.push (.requireLayout marker plan.storage.markerValue)
   -- The initializer's final bare-return marker is the natural fall-through;
@@ -588,8 +620,11 @@ private def expectedFns (plan : Plan) (keys : Array KeyRegion) : Array FnIR :=
 private partial def opIsMethodOnlyV1 : Operation → Bool
   | .checkInputLen _ | .requireZeroAttachedDeposit
   | .requireLayoutAbsent _ | .requireLayout _ _
-  | .zeroState _ | .loadState _ _ | .storeState _ _
-  | .setLayout _ _ | .setReturnData _ | .loadParam _ _ => true
+  | .zeroState _ | .narrowZeroState _ _
+  | .loadState _ _ | .narrowLoadState _ _ _
+  | .storeState _ _ | .narrowStoreState _ _ _
+  | .setLayout _ _ | .setReturnData _ | .loadParam _ _
+  | .narrowLoadParam _ _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
   | .switchRegion _ cases defaultOps =>
@@ -711,12 +746,45 @@ private def renderImport : HostImport → String
       -- in this pilot (explicit in the call site, not silent economics).
       "  (import \"env\" \"promise_batch_action_function_call\" (func $pf_promise_batch_action_function_call (param i64 i64 i64 i64 i64 i64 i64 i64)))\n"
 
+/-- Load a LE integer of `byteWidth` from `addr` into an i64 local (zero-extend). -/
+private def renderLoadLeToI64 (indent : String) (destination addr byteWidth : Nat) : String :=
+  match byteWidth with
+  | 1 =>
+      s!"{indent}(local.set $t{destination} (i64.extend_i32_u (i32.load8_u (i32.const {addr}))))\n"
+  | 2 =>
+      s!"{indent}(local.set $t{destination} (i64.extend_i32_u (i32.load16_u (i32.const {addr}))))\n"
+  | 4 =>
+      s!"{indent}(local.set $t{destination} (i64.extend_i32_u (i32.load (i32.const {addr}))))\n"
+  | _ =>
+      s!"{indent}(local.set $t{destination} (i64.load (i32.const {addr})))\n"
+
+/-- Store low `byteWidth` bytes of an i64 local to `addr` (LE). -/
+private def renderStoreI64Le (indent : String) (addr valueTemp byteWidth : Nat) : String :=
+  match byteWidth with
+  | 1 =>
+      s!"{indent}(i32.store8 (i32.const {addr}) (i32.wrap_i64 (local.get $t{valueTemp})))\n"
+  | 2 =>
+      s!"{indent}(i32.store16 (i32.const {addr}) (i32.wrap_i64 (local.get $t{valueTemp})))\n"
+  | 4 =>
+      s!"{indent}(i32.store (i32.const {addr}) (i32.wrap_i64 (local.get $t{valueTemp})))\n"
+  | _ =>
+      s!"{indent}(i64.store (i32.const {addr}) (local.get $t{valueTemp}))\n"
+
+/-- Zero `byteWidth` bytes at `addr`. -/
+private def renderZeroLe (indent : String) (addr byteWidth : Nat) : String :=
+  match byteWidth with
+  | 1 => s!"{indent}(i32.store8 (i32.const {addr}) (i32.const 0))\n"
+  | 2 => s!"{indent}(i32.store16 (i32.const {addr}) (i32.const 0))\n"
+  | 4 => s!"{indent}(i32.store (i32.const {addr}) (i32.const 0))\n"
+  | _ => s!"{indent}(i64.store (i32.const {addr}) (i64.const 0))\n"
+
 private def renderReadKey (registers : RegisterLayout) (memory : MemoryLayout)
-    (indent : String) (destination : Nat) (field : KeyRegion) : String :=
+    (indent : String) (destination : Nat) (field : KeyRegion)
+    (byteWidth : Nat := 8) : String :=
   s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {field.length}) (i64.const {field.offset}) (i64.const {registers.storage})) (i64.const 1)) (then unreachable))\n" ++
-    s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.storage})) (i64.const 8)) (then unreachable))\n" ++
+    s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.storage})) (i64.const {byteWidth})) (then unreachable))\n" ++
     s!"{indent}(call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n" ++
-    s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.valueOffset})))\n"
+    renderLoadLeToI64 indent destination memory.valueOffset byteWidth
 
 /-- Offset of the transient interface-message scratch region (right after the
     8-byte value-return cell; bounded well inside the first memory page). -/
@@ -830,14 +898,22 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         s!"{indent}(call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n" ++
         s!"{indent}(if (i64.ne (i64.load (i32.const {memory.valueOffset})) (i64.const {value.toNat})) (then unreachable))\n"
   | .zeroState field =>
-      s!"{indent}(i64.store (i32.const {memory.valueOffset}) (i64.const 0))\n" ++
+      renderZeroLe indent memory.valueOffset 8 ++
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
+  | .narrowZeroState bitWidth field =>
+      let bw := bitWidth / 8
+      renderZeroLe indent memory.valueOffset bw ++
+        s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const {bw}) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
   | .literal destination value =>
       s!"{indent}(local.set $t{destination} (i64.const {value.toNat}))\n"
   | .loadParam destination inputOffset =>
       s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.inputOffset + inputOffset})))\n"
+  | .narrowLoadParam bitWidth destination inputOffset =>
+      renderLoadLeToI64 indent destination (memory.inputOffset + inputOffset) (bitWidth / 8)
   | .loadState destination field =>
-      renderReadKey registers memory indent destination field
+      renderReadKey registers memory indent destination field 8
+  | .narrowLoadState bitWidth destination field =>
+      renderReadKey registers memory indent destination field (bitWidth / 8)
   | .checkedAdd destination lhs rhs =>
       s!"{indent}(local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
         s!"{indent}(if (i64.lt_u (local.get $t{destination}) (local.get $t{lhs})) (then unreachable))\n"
@@ -963,6 +1039,11 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))\n" ++
         s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const 8)) (then unreachable))\n"
+  | .narrowStoreState bitWidth field value =>
+      let bw := bitWidth / 8
+      renderStoreI64Le indent memory.valueOffset value bw ++
+        s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const {bw}) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))\n" ++
+        s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const {bw})) (then unreachable))\n"
   | .setLayout marker value =>
       s!"{indent}(i64.store (i32.const {memory.valueOffset}) (i64.const {value.toNat}))\n" ++
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
@@ -1107,13 +1188,13 @@ private def renderDepositPolicy : DepositPolicy → String
   | .queryOnly => "query-only"
 
 private def renderParamJson (param : Param) : String :=
-  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"u64-le\",\"inputOffset\":{param.inputOffset}}"
+  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"{abiScalarTypeString param.byteWidth}\",\"inputOffset\":{param.inputOffset}}"
 
 private def renderParamsJson (params : Array Param) : String :=
   String.intercalate "," (params.toList.map renderParamJson)
 
 private def renderFieldJson (field : StorageField) : String :=
-  s!"\{\"name\":\"{Targets.escapeJson field.name}\",\"sourceId\":{field.sourceId},\"key\":\"{Targets.escapeJson field.key}\",\"type\":\"u64-le\"}"
+  s!"\{\"name\":\"{Targets.escapeJson field.name}\",\"sourceId\":{field.sourceId},\"key\":\"{Targets.escapeJson field.key}\",\"type\":\"{abiScalarTypeString field.byteWidth}\"}"
 
 private def renderResultKindJson : MethodResultKind → String
   | .unit => "null"

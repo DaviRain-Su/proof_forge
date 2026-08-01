@@ -48,8 +48,10 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
       | some nodes => some (1 + nodes)
     match expr with
     | .literal .. => some 1
-    | .param inputOffset => if params.any (·.inputOffset == inputOffset) then some 1 else none
-    | .stateLoad fieldIndex => if fieldIndex < layout.fields.size then some 1 else none
+    | .param inputOffset | .narrowParam _ inputOffset =>
+        if params.any (·.inputOffset == inputOffset) then some 1 else none
+    | .stateLoad fieldIndex | .narrowStateLoad _ fieldIndex =>
+        if fieldIndex < layout.fields.size then some 1 else none
     | .localTemp _ => some 1
     | .checkedAdd lhs rhs => binaryNodes lhs rhs
     | .checkedSub lhs rhs => binaryNodes lhs rhs
@@ -129,10 +131,14 @@ private def validateStorageLayout (limits : ResourceLimits)
     throw <| .planInvariant .near "state field count is outside the profile limits"
   for index in [0:layout.fields.size] do
     let field := layout.fields[index]!
+    let admittedWidth :=
+      field.byteWidth == 1 || field.byteWidth == 2 ||
+      field.byteWidth == 4 || field.byteWidth == 8
     unless field.sourceId == index && isIdentifier field.name &&
-        field.key == stateKey index && field.byteWidth == 8 &&
+        field.key == stateKey index && admittedWidth &&
         field.endianness == .little do
-      throw <| .planInvariant .near "state field KV layout is not canonical UInt64 little-endian"
+      throw <| .planInvariant .near
+        "state field KV layout is not canonical little-endian with admitted ABI byteWidth"
   if hasDuplicates (layout.fields.map (·.name)) ||
       hasDuplicates (layout.fields.map (·.key)) ||
       layout.fields.any (·.key == layout.markerKey) then
@@ -147,11 +153,14 @@ private def validateParams (limits : ResourceLimits) (owner : String)
       s!"parameter count in {owner} exceeds profile limit {limits.maxParams}"
   for index in [0:params.size] do
     let param := params[index]!
+    let admittedWidth :=
+      param.byteWidth == 1 || param.byteWidth == 2 ||
+      param.byteWidth == 4 || param.byteWidth == 8
     unless param.sourceId == index && isIdentifier param.name &&
-        param.inputOffset == index * 8 && param.byteWidth == 8 &&
+        param.inputOffset == index * 8 && admittedWidth &&
         param.endianness == .little do
       throw <| .planInvariant .near
-        s!"parameter binding in {owner} is not canonical UInt64 little-endian"
+        s!"parameter binding in {owner} is not canonical little-endian with admitted ABI byteWidth"
   if hasDuplicates (params.map (·.name)) then
     throw <| .planInvariant .near s!"parameter names in {owner} must be unique"
 
@@ -185,6 +194,10 @@ private partial def checkMethodStatementsV1
           throw <| .planInvariant .near s!"pureFn body writes state"
         unless store.fieldIndex < layout.fields.size do
           throw <| .planInvariant .near s!"method stores to an unknown KV field"
+        let field := layout.fields[store.fieldIndex]!
+        unless store.byteWidth == field.byteWidth do
+          throw <| .planInvariant .near
+            "method store byteWidth does not match state field layout"
         total ← addPlanExprNodes limits layout params fns total store.value
         methodTemps ← addMethodExprTemps limits layout params fns methodTemps store.value
     | .returnValue value =>

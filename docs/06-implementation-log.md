@@ -11968,6 +11968,24 @@ normative: false
 - Boundary：结果/event/error 仍 UInt64/Bool/Int64；UInt128/256 与窄 Int
   ABI fail closed；**不是** formal D4。
 
+## 2026-08-01 — T8b-NEAR state/param UInt8/16/32 multi-width ABI
+
+- Production：
+  * `EnvelopeV1`：`isNearAbiUintWidth` 别名（= `isAbiUintWidth`）；文档注明 EVM/Solana/NEAR 共享 ABI 宽度集。
+  * `Near/LowerSemanticV1`：state/param 准入改 `requirePublicUintAbiOrInt64*`；
+    `byteWidth` 1/2/4/8（**方法参数 inputOffset 仍 8 字节 pitch**；KV 每字段一 key，值长=byteWidth）；
+    `layoutFieldSignature` 渲染 `u8-le/…/u64-le`；`Expr.narrowParam`/`narrowStateLoad` +
+    `Store.byteWidth`；UInt64/Int64 走历史构造器；窄 ABI 值零扩展进 UInt64 body temps（body 多宽见 T8c）。
+  * `Near/ValidatePlanV1`：field/param `byteWidth ∈ {1,2,4,8}`；store 宽度与 field 一致；
+    识别 narrowParam/narrowStateLoad。
+  * `Near/EmitIRV1`：`narrowLoadParam`/`narrowLoadState`/`narrowStoreState`/`narrowZeroState`；
+    WAT `i32.load8_u/16_u/load` + `i64.extend_i32_u` 与 `i32.store8/16/store`；
+    `storage_write`/`register_len` 使用 exact `byteWidth`；ABI JSON 字段/参数类型按宽度。
+- Tests：`NearHostModel` 正向 AbiMw（UInt8/16/32 state+param 赋值、WAT 窄载存、host 金样、
+  IDL 类型）+ 负向 UInt128 state / Int8 param；既有 Accumulator/Counter 路径保持。
+- Boundary：entry/view 结果仍 UInt64/Bool；body 多宽算术仍 UInt64/Int64（T8c）；
+  UInt128/256 与窄 Int ABI fail closed；**不是** formal D4；无 NEAR 本地运行时 harness。
+
 ## 2026-08-01 — N4 String type surface + match nested patterns + general loop forms
 
 - Engineering slice only (not formal TASK-D2/D4 / SupportClaim / OutputSetV1).

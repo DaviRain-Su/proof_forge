@@ -108,8 +108,14 @@ def pilotUintWidthPolicyEvmBody : PilotUintWidthPolicy where
 def pilotUintWidthPolicySolanaBody : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
+/-- NEAR type-table policy for T8b ABI multi-width: admits UInt{8,16,32,64}
+    so top-level state/param types may appear. Body arithmetic remains the
+    historical UInt64/UInt32-shift pilot (T8c); narrow body ops stay fail closed. -/
+def pilotUintWidthPolicyNearAbi : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32, 8, 16]
+
 /-- Admitted body UInt widths for Phase-1 multi-width pilots (EVM/Solana body).
-    Distinct from the historical `{64,32}` default used by NEAR/Noir. -/
+    Distinct from the historical `{64,32}` default used by NEAR/Noir body. -/
 def isPilotBodyUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
 
@@ -270,7 +276,7 @@ def PilotTypeClosureV1.isUInt64OrInt64
   typeId == c.uint64TypeId || c.int64TypeId == some typeId
 
 /-- Admitted **ABI** UInt widths for state/param: `{8,16,32,64}`.
-    Shared by EVM and Solana T8b. Distinct from body multi-width only by
+    Shared by EVM, Solana, and NEAR T8b. Distinct from body multi-width only by
     documentation — same set today; UInt128/256 stay fail closed. Int narrow
     widths are **not** admitted on the ABI surface. -/
 def isAbiUintWidth (w : Nat) : Bool :=
@@ -281,6 +287,9 @@ def isEvmAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
 
 /-- Solana **ABI** UInt widths — alias of `isAbiUintWidth`. -/
 def isSolanaAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
+
+/-- NEAR **ABI** UInt widths — alias of `isAbiUintWidth`. -/
+def isNearAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
 
 /-- Bit width ↔ byte width for admitted ABI UInt widths. -/
 def bitWidthOfByteWidth (byteWidth : Nat) : Nat := byteWidth * 8
@@ -374,15 +383,16 @@ def solanaTypeClosureWording : PilotTypeClosureWording where
   unsupportedShapeDetail :=
     "only UInt64, UInt32, Int64, Unit, and Bool are supported (no native Field; Principal is variable-length u32-prefixed identity, not fixed 32-byte pubkey)"
 
-/-- NEAR type-closure diagnostic wording (UInt64/32 + Int64).
-    Field fail-closed: no native field element. -/
+/-- NEAR type-closure diagnostic wording (ABI multi-width UInt + Int64).
+    Field fail-closed: no native field element. Body multi-width (T8c) is
+    still closed even though the type table admits UInt{8,16,32,64}. -/
 def nearTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "NEAR"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64/UInt32 and Int64 integer types are supported"
+    "only anonymous UInt8/UInt16/UInt32/UInt64 and Int64 integer types are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, Int64, Unit, and Bool are supported (no native Field; Principal is binary variable-length identity, not NEAR account-id string)"
+    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, and Bool are supported (no native Field; Principal is binary variable-length identity, not NEAR account-id string)"
 
 /-- Noir type-closure diagnostic wording (UInt64 + optional UInt32 + Int64 + Field).
 

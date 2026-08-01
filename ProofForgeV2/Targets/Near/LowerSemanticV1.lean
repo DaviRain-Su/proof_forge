@@ -126,7 +126,11 @@ inductive ComparisonOp where
 inductive Expr where
   | literal (value : UInt64)
   | param (inputOffset : Nat)
+  /-- Narrow ABI param load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `param`. -/
+  | narrowParam (bitWidth : Nat) (inputOffset : Nat)
   | stateLoad (fieldIndex : Nat)
+  /-- Narrow ABI state load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `stateLoad`. -/
+  | narrowStateLoad (bitWidth : Nat) (fieldIndex : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | checkedMul (lhs rhs : Expr)
@@ -164,6 +168,9 @@ inductive Expr where
 structure Store where
   fieldIndex : Nat
   value : Expr
+  /-- Physical store width in bytes (`1/2/4/8`). Default 8 keeps historical
+      UInt64/Int64 Plan literals byte-identical. -/
+  byteWidth : Nat := 8
   deriving BEq, Inhabited, Repr
 
 inductive Statement where
@@ -366,8 +373,20 @@ def nearScheduleDisallowedError (kind : String) : String :=
 def stateKey (sourceId : Nat) : String :=
   s!"pf:v1:state:{sourceId}"
 
+/-- Layout field type suffix from physical byte width (`u8-le` … `u64-le`). -/
+def layoutFieldTypeSuffix (byteWidth : Nat) : String :=
+  match byteWidth with
+  | 1 => "u8-le"
+  | 2 => "u16-le"
+  | 4 => "u32-le"
+  | _ => "u64-le"
+
+/-- ABI / IDL type string for a param or storage field (Int64 keeps `u64-le`). -/
+def abiScalarTypeString (byteWidth : Nat) : String :=
+  layoutFieldTypeSuffix byteWidth
+
 private def layoutFieldSignature (field : StorageField) : String :=
-  s!"{field.sourceId}:{field.name}:{field.key}:{field.byteWidth}:u64-le"
+  s!"{field.sourceId}:{field.name}:{field.key}:{field.byteWidth}:{layoutFieldTypeSuffix field.byteWidth}"
 
 private def layoutSignature (fields : Array StorageField) : String :=
   s!"{fields.size}|{String.intercalate "|" (fields.toList.map layoutFieldSignature)}"
@@ -386,8 +405,9 @@ def layoutMarker (fields : Array StorageField) : UInt64 :=
 /-- Value kinds admitted in the NEAR pilot value table. Bool is admitted for
 comparison/logical/literal temps, assert conditions, and entry/view return
 values. UInt32 is admitted only as a shift-count temp (zero-extended into the
-i64 plan surface). State/params remain UInt64-only; initializer result stays
-Unit. -/
+i64 plan surface). Top-level state/params admit UInt{8,16,32,64}|Int64 (T8b);
+body arithmetic remains UInt64/Int64/UInt32-shift (T8c opens body multi-width).
+Initializer result stays Unit. -/
 private inductive NearValueKindV1 where
   | uint64
   | uint32
@@ -396,21 +416,45 @@ private inductive NearValueKindV1 where
   deriving BEq, Inhabited, Repr
 
 /-- NEAR pilot type-closure carrier (shared `PilotTypeClosureV1`).
-    Bool/UInt32 optional; state/params remain UInt64-only. -/
+    Bool/UInt32 optional; state/params admit UInt{8,16,32,64}|Int64 (T8b). -/
 private abbrev NearTypeClosureV1 := PilotTypeClosureV1
 
 private def nearPlanErr (message : String) : CompileError :=
   .planInvariant .near message
 
-/-- NEAR pilot accepts the anonymous UInt64/Unit/Bool/UInt32 closure currently
-    emitted by the NormalizeV1 public-UInt64 envelope. Valid but richer
-    SemanticProgramV1 programs fail at the target Plan seam rather than being
-    silently erased.
+/-- NEAR pilot accepts anonymous UInt{8,16,32,64}/Unit/Bool/Int64 under
+    `pilotUintWidthPolicyNearAbi` so T8b ABI multi-width state/params may
+    appear. Body multi-width arithmetic remains fail closed until T8c.
     N2c: Principal remains fail-closed (wire identity is binary variable-length;
     not a NEAR account-id string). -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
+    pilotUintWidthPolicyNearAbi
+
+/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8). -/
+private def abiByteWidthOfTypeV1
+    (types : NearTypeClosureV1) (typeId : TypeIdV1) : CompileResult Nat := do
+  match types.uintWidthOf typeId with
+  | some w =>
+      unless isNearAbiUintWidth w do
+        throw <| .planInvariant .near
+          s!"unsupported NEAR semantic shape: ABI UInt{w} is not admitted"
+      pure (byteWidthOfBitWidth w)
+  | none =>
+      unless types.int64TypeId == some typeId do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: ABI type must be UInt{8,16,32,64} or Int64"
+      pure 8
+
+/-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
+private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat) : Expr :=
+  if bitWidth == 64 then .param inputOffset else .narrowParam bitWidth inputOffset
+
+/-- Width-dispatch for state loads: UInt64/Int64 keep historical `stateLoad`. -/
+private def mkStateLoadExpr (bitWidth : Nat) (fieldIndex : Nat) : Expr :=
+  if bitWidth == 64 then .stateLoad fieldIndex
+  else .narrowStateLoad bitWidth fieldIndex
 
 private def makeStorageLayoutV1
     (types : NearTypeClosureV1)
@@ -421,14 +465,17 @@ private def makeStorageLayoutV1
   for state in states do
     unless state.id.toNat == fields.size do
       throw <| .planInvariant .near "semantic state ids must match declaration order"
-    requirePublicUInt64OrInt64State nearPlanErr types state (allowNonPublic := true)
+    -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
+    -- KV keys stay one-per-field (no packing); value length is the ABI width.
+    requirePublicUintAbiOrInt64State nearPlanErr types state (allowNonPublic := true)
     unless isIdentifier state.name do
       throw <| .planInvariant .near s!"state name '{state.name}' is not a safe identifier"
+    let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
     fields := fields.push {
       sourceId := state.id.toNat
       name := state.name
       key := stateKey state.id.toNat
-      byteWidth := 8
+      byteWidth
       endianness := .little
     }
   let marker := layoutMarker fields
@@ -461,22 +508,26 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
     unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .near
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    requirePublicUInt64OrInt64Param nearPlanErr types owner param
+    -- T8b: ABI params admit UInt{8,16,32,64} / Int64; 8-byte input slot pitch retained.
+    requirePublicUintAbiOrInt64Param nearPlanErr types owner param
       (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .near
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
     let isInt := types.int64TypeId == some param.typeId
+    let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
+    let bitWidth := bitWidthOfByteWidth byteWidth
     let binding : Param := {
       sourceId := param.valueId.toNat
       name := param.name
       inputOffset := planned.size * 8
-      byteWidth := 8
+      byteWidth
       endianness := .little
     }
     planned := planned.push binding
     values := values.push {
-      expr := .param binding.inputOffset
+      -- Body multi-width is T8c; zero-extend narrow ABI params into UInt64 temps.
+      expr := mkParamExpr bitWidth binding.inputOffset
       kind := if isInt then .int64 else .uint64
       depth := 1
       expandedNodes := 1
@@ -910,11 +961,24 @@ private def lowerBlockInstructionsV1
             "unsupported NEAR semantic shape: pureFn cannot load state"
         let field ← findFieldV1 layout stateId
         let isInt := types.int64TypeId == some result.typeId
-        unless result.typeId == types.uint64TypeId || isInt do
+        let bitWidth ←
+          if isInt then pure 64
+          else match types.uintWidthOf result.typeId with
+            | some w =>
+                unless isNearAbiUintWidth w do
+                  throw <| .planInvariant .near
+                    s!"unsupported NEAR semantic shape: state load UInt{w} is not admitted"
+                pure w
+            | none =>
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64} or Int64"
+        unless field.byteWidth == byteWidthOfBitWidth bitWidth do
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: state load must be UInt64 or Int64"
+            "unsupported NEAR semantic shape: state load width does not match field layout"
         values := ← appendResultValueV1 result.typeId values result {
-          expr := .stateLoad field.sourceId
+          -- T8b: narrow ABI loads zero-extend into UInt64 body temps (T8c opens
+          -- body multi-width arithmetic on the narrow TypeId itself).
+          expr := mkStateLoadExpr bitWidth field.sourceId
           kind := if isInt then .int64 else .uint64
           depth := 1
           expandedNodes := 1
@@ -1213,11 +1277,20 @@ private def lowerBlockInstructionsV1
             "unsupported NEAR semantic shape: pureFn cannot store state"
         let field ← findFieldV1 layout stateId
         let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables valueId
+        -- Narrow ABI loads zero-extend into UInt64/Int64 temps; store writes
+        -- the low `field.byteWidth` bytes (T8b). Body multi-width is T8c.
         unless root.kind == .uint64 || root.kind == .int64 do
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: state store value must be UInt64"
+            "unsupported NEAR semantic shape: state store value must be UInt64 or Int64"
+        unless root.kind != .int64 || field.byteWidth == 8 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: Int state store requires 8-byte field"
         let value ← consumeCurrentSegmentV1 values stableCount segmentStart valueId
-        body := body.push (.store { fieldIndex := field.sourceId, value })
+        body := body.push (.store {
+          fieldIndex := field.sourceId
+          value
+          byteWidth := field.byteWidth
+        })
         segmentStart := values.size
     | .assert_ condId errorId args, none =>
         unless errorId.isNone && args.isEmpty do
