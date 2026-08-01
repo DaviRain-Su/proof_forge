@@ -9,6 +9,7 @@
   No forged private-ctor carriers; no reimplemented on-disk renderer.
 -/
 import ProofForgeV2
+import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.CLI.Main
 import ProofForgeV2.Examples.Counter
@@ -21,6 +22,8 @@ import Lean.Elab.Command
 namespace Tests.Materialization.OutputEnvelopeV1
 
 open ProofForgeV2
+open ProofForgeV2.Targets.EngineeringBuildIdentityV1
+open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Compiler
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.WireV1
@@ -28,6 +31,12 @@ open ProofForgeV2.Targets.BuildSelectionV1
 open System
 open Lean
 open Lean.Elab.Command
+
+private def dummyPlanDigestV1 : IO Digest := do
+  match engineeringAbsentPlanDigestV1
+      TargetId.evm CodegenProfileId.evmYulSolc0834V1 with
+  | .ok d => pure d
+  | .error e => throw <| IO.userError s!"dummy plan digest: {e}"
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -180,6 +189,8 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
     "on-disk artifactProgramName"
   expect ((json.splitOn "\"buildIdentityDigest\":").length > 1)
     "on-disk buildIdentityDigest present"
+  expect ((json.splitOn "\"planDigest\":").length > 1)
+    "on-disk planDigest present"
   expect ((json.splitOn "\"outputSetDigest\":").length > 1)
     "on-disk outputSetDigest present"
   let evidence ← IO.FS.readFile (outDir / "evidence.json")
@@ -219,13 +230,13 @@ private unsafe def testMintPathNegatives : IO Unit := do
           mediaType := "text/plain"
           contents := "x"
         }
-        match mintMaterializedArtifactsV1 capability desc #[file] with
+        match mintMaterializedArtifactsV1 capability desc #[file] (← dummyPlanDigestV1) with
         | .error e =>
             expect (e.code == "PF-SRC-INVALID")
               s!"{label} → invalidProgram (got {e.code})"
         | .ok _ => throw <| IO.userError s!"{label} must not mint"
       -- Empty files → fail closed, no carrier.
-      match mintMaterializedArtifactsV1 capability desc #[] with
+      match mintMaterializedArtifactsV1 capability desc #[] (← dummyPlanDigestV1) with
       | .error e =>
           expect (e.code == "PF-SRC-INVALID") "empty files → invalidProgram"
       | .ok _ => throw <| IO.userError "empty files must not mint"
@@ -240,13 +251,13 @@ private unsafe def testMintPathNegatives : IO Unit := do
       reject "utf8 length 241" ("x".pushn 'y' 240)
       -- Duplicate path.
       let f0 := goodFiles[0]!
-      match mintMaterializedArtifactsV1 capability desc #[f0, f0] with
+      match mintMaterializedArtifactsV1 capability desc #[f0, f0] (← dummyPlanDigestV1) with
       | .error e =>
           expect (e.code == "PF-SRC-INVALID") "duplicate path → invalidProgram"
       | .ok _ => throw <| IO.userError "duplicate path must not mint"
       -- Descriptor target drift vs capability.
       let drifted := { desc with targetId := TargetId.solana }
-      match mintMaterializedArtifactsV1 capability drifted goodFiles with
+      match mintMaterializedArtifactsV1 capability drifted goodFiles (← dummyPlanDigestV1) with
       | .error e =>
           expect (e.code == "PF-REGISTRY-INVALID") "target drift → registryInvalid"
       | .ok _ => throw <| IO.userError "descriptor target drift must not mint"
@@ -254,7 +265,7 @@ private unsafe def testMintPathNegatives : IO Unit := do
       let profileDrift := {
         desc with codegenProfile := CodegenProfileId.solanaSbpfPlanV1
       }
-      match mintMaterializedArtifactsV1 capability profileDrift goodFiles with
+      match mintMaterializedArtifactsV1 capability profileDrift goodFiles (← dummyPlanDigestV1) with
       | .error e =>
           expect (e.code == "PF-REGISTRY-INVALID") "profile drift → registryInvalid"
       | .ok _ => throw <| IO.userError "descriptor profile drift must not mint"

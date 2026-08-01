@@ -21,6 +21,7 @@ import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
+import ProofForgeV2.Targets.Evm.PlanSchemaV1
 import ProofForgeV2.Targets.RegistryRootV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Targets.SupportClaimV1
@@ -277,9 +278,27 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
         (EngineeringBuildIdentityV1.sourceDigestOf identity)
         (EngineeringBuildIdentityV1.semanticDigestOf identity)
         (EngineeringBuildIdentityV1.engineeringRegistryRootDigestOf identity)
-        (EngineeringBuildIdentityV1.supportClaimDigestOf identity))
+        (EngineeringBuildIdentityV1.supportClaimDigestOf identity)
+        (EngineeringBuildIdentityV1.planDigestOf identity))
     expect (EngineeringBuildIdentityV1.identityDigestOf identity == recomputed)
       s!"{tid} identity digest recomputes"
+    -- M4: EVM binds real Plan schema digest; others bind absent-plan slot.
+    if tid == TargetId.evm then
+      let selection ← liftResult s!"select {tid}"
+        (resolveBuildSelectionV1 tid none)
+      let cap ← liftResult s!"resolve {tid}"
+        (Targets.resolveEngineeringRequirementsV1 selection compiled)
+      let plan ← liftResult s!"plan {tid}" (Targets.Evm.planFromCapability cap)
+      let expected ← liftExcept s!"evm plan digest {tid}"
+        (Targets.Evm.engineeringEvmPlanDigestV1 plan)
+      expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
+        s!"{tid} planDigest matches engineeringEvmPlanDigestV1"
+    else
+      let expected ← liftExcept s!"absent plan {tid}"
+        (engineeringAbsentPlanDigestV1 tid
+          (EngineeringBuildIdentityV1.codegenProfileOf identity))
+      expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
+        s!"{tid} planDigest is engineering-absent slot"
     -- Determinism across two full product paths.
     let (_, artifacts2) ← materializeTarget compiled tid
     expect (MaterializedArtifactsV1.beq artifacts artifacts2)

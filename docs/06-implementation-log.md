@@ -12218,3 +12218,19 @@ normative: false
   missing evidence). Materialization/Targets/Core off-limits; read-only consume of
   OutputSetV1 public recompute API.
 - Boundary: engineering inspect only; not formal OutputSetV1 product completion.
+
+## 2026-08-01 — M4 闭合：EVM planDigest → BuildIdentity/OutputSet
+
+- Engineering only (not formal BuildIdentity / OutputSetV1 / TASK-D3/D4).
+- `EngineeringBuildIdentityV1`：新增 `planDigest`；canonical preimage 追加
+  `renderDigest(planDigest)`；`identityDigest` 绑定 Plan 槽。
+- EVM：`Registry.materializeResult` 经 `planFromCapability` +
+  `engineeringEvmPlanDigestV1`；非 EVM：`engineeringAbsentPlanDigestV1`
+  （`pf.plan.engineering.absent.v1`，绑 target+profile）。
+- `EngineeringOutputSetV1`：`planDigest` 字段 + preimage + manifest
+  `"planDigest"`；CLI inspect required keys / recompute / 人读输出。
+- `scripts/validate_artifacts.py` required keys 含 planDigest。
+- Tests：IdentityChain 重算 + EVM/absent 字段钉；OutputSet recompute 参数；
+  OutputEnvelope mint 负向路径带 dummy plan digest。
+- Boundary：非 formal Plan identity；非其他 target Plan schema。
+

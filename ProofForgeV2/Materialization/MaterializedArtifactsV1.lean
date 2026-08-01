@@ -126,7 +126,8 @@ private def validateArtifactFiles (files : Array OutputFile) : CompileResult Uni
 def mintMaterializedArtifactsV1
     (capability : ResolvedEngineeringBuildV1)
     (descriptor : TargetDescriptor)
-    (files : Array OutputFile) :
+    (files : Array OutputFile)
+    (planDigest : Digest) :
     CompileResult MaterializedArtifactsV1 := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
   let compiled := ResolvedEngineeringBuildV1.compiledOf capability
@@ -176,6 +177,7 @@ def mintMaterializedArtifactsV1
   let supportClaimDigest := EngineeringSupportClaimV1.claimDigestOf supportClaim
   validateBoundDigestV1 "engineering registry root digest" engineeringRegistryRootDigest
   validateBoundDigestV1 "support claim digest" supportClaimDigest
+  validateBoundDigestV1 "plan digest" planDigest
   let buildIdentity ← match mintEngineeringBuildIdentityV1
       selection.targetId
       selection.codegenProfile
@@ -183,7 +185,8 @@ def mintMaterializedArtifactsV1
       sourceDigest
       semanticDigest
       engineeringRegistryRootDigest
-      supportClaimDigest with
+      supportClaimDigest
+      planDigest with
     | .ok identity => pure identity
     | .error error =>
         throw <| .invalidProgram

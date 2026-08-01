@@ -19,6 +19,7 @@
     String(renderDigest(engineeringRegistryRootDigest))
     String(renderDigest(supportClaimDigest))
     String(renderDigest(buildIdentityDigest))
+    String(renderDigest(planDigest))      -- M4 Plan / absent-plan slot
     String("true" | "false")              -- deployable
 
   Sole mint: `mintEngineeringOutputSetV1` from private-ctor
@@ -76,6 +77,7 @@ structure EngineeringOutputSetV1 where
   engineeringRegistryRootDigest : Digest
   supportClaimDigest : Digest
   buildIdentityDigest : Digest
+  planDigest : Digest
   deployable : Bool
   evidenceNote : String
   /-- Domain-separated digest of the canonical output-set preimage. -/
@@ -107,6 +109,8 @@ def supportClaimDigestOf (o : EngineeringOutputSetV1) : Digest :=
 def buildIdentityDigestOf (o : EngineeringOutputSetV1) : Digest :=
   o.buildIdentityDigest
 
+def planDigestOf (o : EngineeringOutputSetV1) : Digest := o.planDigest
+
 def deployableOf (o : EngineeringOutputSetV1) : Bool := o.deployable
 
 def evidenceNoteOf (o : EngineeringOutputSetV1) : String := o.evidenceNote
@@ -129,6 +133,8 @@ def beq (a b : EngineeringOutputSetV1) : Bool :=
   a.supportClaimDigest.bytes == b.supportClaimDigest.bytes &&
   a.buildIdentityDigest.algorithm == b.buildIdentityDigest.algorithm &&
   a.buildIdentityDigest.bytes == b.buildIdentityDigest.bytes &&
+  a.planDigest.algorithm == b.planDigest.algorithm &&
+  a.planDigest.bytes == b.planDigest.bytes &&
   a.deployable == b.deployable &&
   a.evidenceNote == b.evidenceNote &&
   a.outputSetDigest.algorithm == b.outputSetDigest.algorithm &&
@@ -180,6 +186,7 @@ def encodeEngineeringOutputSetBytesV1
     (engineeringRegistryRootDigest : Digest)
     (supportClaimDigest : Digest)
     (buildIdentityDigest : Digest)
+    (planDigest : Digest)
     (deployable : Bool) : Except String ByteArray := do
   let mut out := ByteArray.empty
   out := out.append (← encodeString engineeringOutputSchemaVersionV1)
@@ -194,6 +201,7 @@ def encodeEngineeringOutputSetBytesV1
   out := out.append (← encodeDigestWire engineeringRegistryRootDigest)
   out := out.append (← encodeDigestWire supportClaimDigest)
   out := out.append (← encodeDigestWire buildIdentityDigest)
+  out := out.append (← encodeDigestWire planDigest)
   out := out.append (← encodeString (if deployable then "true" else "false"))
   pure out
 
@@ -208,12 +216,13 @@ def engineeringOutputSetDigestV1
     (engineeringRegistryRootDigest : Digest)
     (supportClaimDigest : Digest)
     (buildIdentityDigest : Digest)
+    (planDigest : Digest)
     (deployable : Bool) : Except String Digest := do
   let bytes ← encodeEngineeringOutputSetBytesV1
     targetId codegenProfile artifactProgramName files
     sourceDigest semanticDigest
     engineeringRegistryRootDigest supportClaimDigest
-    buildIdentityDigest deployable
+    buildIdentityDigest planDigest deployable
   domainSeparatedSha256 engineeringOutputSetDomainV1 bytes
 
 private def digestHexExcept (label : String) (digest : Digest) : Except String String := do
@@ -280,6 +289,7 @@ def mintEngineeringOutputSetV1
     throw <| .invalidProgram
       "output set: claim digest diverges from build identity"
   let buildIdentityDigest := EngineeringBuildIdentityV1.identityDigestOf identity
+  let planDigest := EngineeringBuildIdentityV1.planDigestOf identity
   let basePaths :=
     (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
   let files := basePaths ++ FinalizedArtifactsV1.extraFilesOf finalized
@@ -307,6 +317,9 @@ def mintEngineeringOutputSetV1
   match validateBoundDigest "build identity digest" buildIdentityDigest with
   | .ok () => pure ()
   | .error e => throw <| .invalidProgram e
+  match validateBoundDigest "plan digest" planDigest with
+  | .ok () => pure ()
+  | .error e => throw <| .invalidProgram e
   -- Recompute build-identity digest from nested fields (tamper dual-defense).
   let recomputedIdentity ← match engineeringBuildIdentityDigestV1
       selection.targetId
@@ -315,7 +328,8 @@ def mintEngineeringOutputSetV1
       sourceDigest
       semanticDigest
       engineeringRegistryRootDigest
-      supportClaimDigest with
+      supportClaimDigest
+      planDigest with
     | .ok d => pure d
     | .error e =>
         throw <| .invalidProgram s!"output set: build identity recompute failed: {e}"
@@ -334,6 +348,7 @@ def mintEngineeringOutputSetV1
       engineeringRegistryRootDigest
       supportClaimDigest
       buildIdentityDigest
+      planDigest
       deployable with
     | .ok d => pure d
     | .error e =>
@@ -348,6 +363,7 @@ def mintEngineeringOutputSetV1
     engineeringRegistryRootDigest
     supportClaimDigest
     buildIdentityDigest
+    planDigest
     deployable
     evidenceNote
     outputSetDigest)
@@ -365,6 +381,7 @@ def renderEngineeringOutputSetManifestV1 (outputSet : EngineeringOutputSetV1) :
     digestHexExcept "engineering registry root" outputSet.engineeringRegistryRootDigest
   let claimHash ← digestHexExcept "support claim" outputSet.supportClaimDigest
   let identityHash ← digestHexExcept "build identity" outputSet.buildIdentityDigest
+  let planHash ← digestHexExcept "plan" outputSet.planDigest
   let setHash ← digestHexExcept "output set" outputSet.outputSetDigest
   let files := String.intercalate "," <|
     outputSet.files.toList.map fun path => s!"\"{Targets.escapeJson path}\""
@@ -378,6 +395,7 @@ def renderEngineeringOutputSetManifestV1 (outputSet : EngineeringOutputSetV1) :
     s!"  \"sourceHash\": \"{sourceHash}\",\n" ++
     s!"  \"semanticHash\": \"{semanticHash}\",\n" ++
     s!"  \"buildIdentityDigest\": \"{identityHash}\",\n" ++
+s!"  \"planDigest\": \"{planHash}\",\n" ++
     s!"  \"supportClaimDigest\": \"{claimHash}\",\n" ++
     s!"  \"engineeringRegistryRootDigest\": \"{registryRoot}\",\n" ++
     s!"  \"outputSetDigest\": \"{setHash}\",\n" ++

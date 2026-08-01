@@ -15,6 +15,8 @@
     String(renderDigest(semanticDigest))
     String(renderDigest(engineeringRegistryRootDigest))
     String(renderDigest(supportClaimDigest))
+    String(renderDigest(planDigest))   -- M4: EVM Plan schema digest, or
+                                       -- engineering-absent plan digest for other targets
 
   Sole mint: `mintEngineeringBuildIdentityV1`, called from
   `mintMaterializedArtifactsV1` after capability + digest validation.
@@ -51,6 +53,11 @@ structure EngineeringBuildIdentityV1 where
   semanticDigest : Digest
   engineeringRegistryRootDigest : Digest
   supportClaimDigest : Digest
+  /-- Target Plan engineering digest (M4). EVM uses
+      `engineeringEvmPlanDigestV1`; other targets bind
+      `engineeringAbsentPlanDigestV1` so the identity chain always carries a
+      plan slot without inventing fake Plan schemas. -/
+  planDigest : Digest
   /-- Domain-separated digest of the canonical identity preimage. -/
   identityDigest : Digest
   deriving Repr
@@ -74,6 +81,8 @@ def engineeringRegistryRootDigestOf (b : EngineeringBuildIdentityV1) : Digest :=
 def supportClaimDigestOf (b : EngineeringBuildIdentityV1) : Digest :=
   b.supportClaimDigest
 
+def planDigestOf (b : EngineeringBuildIdentityV1) : Digest := b.planDigest
+
 def identityDigestOf (b : EngineeringBuildIdentityV1) : Digest := b.identityDigest
 
 /-- Exact field equality (digests by algorithm + raw bytes). -/
@@ -89,6 +98,8 @@ def beq (a b : EngineeringBuildIdentityV1) : Bool :=
   a.engineeringRegistryRootDigest.bytes == b.engineeringRegistryRootDigest.bytes &&
   a.supportClaimDigest.algorithm == b.supportClaimDigest.algorithm &&
   a.supportClaimDigest.bytes == b.supportClaimDigest.bytes &&
+  a.planDigest.algorithm == b.planDigest.algorithm &&
+  a.planDigest.bytes == b.planDigest.bytes &&
   a.identityDigest.algorithm == b.identityDigest.algorithm &&
   a.identityDigest.bytes == b.identityDigest.bytes
 
@@ -135,7 +146,8 @@ def encodeEngineeringBuildIdentityBytesV1
     (sourceDigest : Digest)
     (semanticDigest : Digest)
     (engineeringRegistryRootDigest : Digest)
-    (supportClaimDigest : Digest) : Except String ByteArray := do
+    (supportClaimDigest : Digest)
+    (planDigest : Digest) : Except String ByteArray := do
   let mut out := ByteArray.empty
   out := out.append (← encodeString targetId.toString)
   out := out.append (← encodeString codegenProfile.toString)
@@ -144,6 +156,7 @@ def encodeEngineeringBuildIdentityBytesV1
   out := out.append (← encodeDigestWire semanticDigest)
   out := out.append (← encodeDigestWire engineeringRegistryRootDigest)
   out := out.append (← encodeDigestWire supportClaimDigest)
+  out := out.append (← encodeDigestWire planDigest)
   pure out
 
 /-- Compute identityDigest for the given binding fields. -/
@@ -154,12 +167,29 @@ def engineeringBuildIdentityDigestV1
     (sourceDigest : Digest)
     (semanticDigest : Digest)
     (engineeringRegistryRootDigest : Digest)
-    (supportClaimDigest : Digest) : Except String Digest := do
+    (supportClaimDigest : Digest)
+    (planDigest : Digest) : Except String Digest := do
   let bytes ← encodeEngineeringBuildIdentityBytesV1
     targetId codegenProfile artifactName
     sourceDigest semanticDigest
     engineeringRegistryRootDigest supportClaimDigest
+    planDigest
   domainSeparatedSha256 engineeringBuildIdentityDomainV1 bytes
+
+/-- Domain for targets that have no engineering Plan schema yet (non-EVM M4). -/
+def engineeringAbsentPlanDomainV1 : String :=
+  "pf.plan.engineering.absent.v1"
+
+/-- Deterministic plan-slot digest when no target Plan schema is wired.
+    Binds target + profile so absent slots are not identity-colliding across
+    targets/profiles. Not a Plan content digest. -/
+def engineeringAbsentPlanDigestV1
+    (targetId : TargetId)
+    (codegenProfile : CodegenProfileId) : Except String Digest := do
+  let mut out := ByteArray.empty
+  out := out.append (← encodeString targetId.toString)
+  out := out.append (← encodeString codegenProfile.toString)
+  domainSeparatedSha256 engineeringAbsentPlanDomainV1 out
 
 /-- Sole mint of `EngineeringBuildIdentityV1`.
 
@@ -172,18 +202,21 @@ def mintEngineeringBuildIdentityV1
     (sourceDigest : Digest)
     (semanticDigest : Digest)
     (engineeringRegistryRootDigest : Digest)
-    (supportClaimDigest : Digest) :
+    (supportClaimDigest : Digest)
+    (planDigest : Digest) :
     Except String EngineeringBuildIdentityV1 := do
   validateBoundDigest "source digest" sourceDigest
   validateBoundDigest "semantic digest" semanticDigest
   validateBoundDigest "engineering registry root digest" engineeringRegistryRootDigest
   validateBoundDigest "support claim digest" supportClaimDigest
+  validateBoundDigest "plan digest" planDigest
   unless artifactName.toUTF8.size > 0 do
     throw "build identity artifact name must be non-empty"
   let identityDigest ← engineeringBuildIdentityDigestV1
     targetId codegenProfile artifactName
     sourceDigest semanticDigest
     engineeringRegistryRootDigest supportClaimDigest
+    planDigest
   pure (EngineeringBuildIdentityV1.mk
     targetId
     codegenProfile
@@ -192,6 +225,7 @@ def mintEngineeringBuildIdentityV1
     semanticDigest
     engineeringRegistryRootDigest
     supportClaimDigest
+    planDigest
     identityDigest)
 
 end ProofForgeV2.Targets.EngineeringBuildIdentityV1

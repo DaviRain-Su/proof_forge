@@ -765,6 +765,7 @@ structure InspectedOutputManifestV1 where
   sourceHash : String
   semanticHash : String
   buildIdentityDigest : String
+  planDigest : String
   supportClaimDigest : String
   engineeringRegistryRootDigest : String
   outputSetDigest : String
@@ -780,6 +781,7 @@ private def engineeringManifestRequiredKeysV1 : Array String := #[
   "sourceHash",
   "semanticHash",
   "buildIdentityDigest",
+  "planDigest",
   "supportClaimDigest",
   "engineeringRegistryRootDigest",
   "outputSetDigest",
@@ -1036,6 +1038,9 @@ def validateEngineeringOutputManifestTextV1 (text : String) :
   let buildIdentityDigest ← expectHex64Digest "buildIdentityDigest"
     (← expectJsonString "buildIdentityDigest"
       (jsonField? fields "buildIdentityDigest" |>.getD .null))
+  let planDigest ← expectHex64Digest "planDigest"
+    (← expectJsonString "planDigest"
+      (jsonField? fields "planDigest" |>.getD .null))
   let supportClaimDigest ← expectHex64Digest "supportClaimDigest"
     (← expectJsonString "supportClaimDigest"
       (jsonField? fields "supportClaimDigest" |>.getD .null))
@@ -1071,11 +1076,13 @@ def validateEngineeringOutputManifestTextV1 (text : String) :
     digestFromBareHex "engineeringRegistryRootDigest" engineeringRegistryRootDigest
   let claimDigest ← digestFromBareHex "supportClaimDigest" supportClaimDigest
   let identityDigest ← digestFromBareHex "buildIdentityDigest" buildIdentityDigest
+  let planDigestValue ← digestFromBareHex "planDigest" planDigest
   let recordedSetDigest ← digestFromBareHex "outputSetDigest" outputSetDigest
   let recomputed ← match engineeringOutputSetDigestV1
       tid pid artifactProgramName files
       sourceDigest semanticDigest
       registryRootDigest claimDigest identityDigest
+      planDigestValue
       deployable with
     | .ok d => pure d
     | .error e => throw s!"outputSetDigest recompute failed: {e}"
@@ -1089,6 +1096,7 @@ def validateEngineeringOutputManifestTextV1 (text : String) :
     sourceHash
     semanticHash
     buildIdentityDigest
+    planDigest
     supportClaimDigest
     engineeringRegistryRootDigest
     outputSetDigest
@@ -1143,6 +1151,7 @@ def renderInspectOutputHumanV1
     s!"sourceHash={sha256WireFromBareHex manifest.sourceHash}",
     s!"semanticHash={sha256WireFromBareHex manifest.semanticHash}",
     s!"buildIdentityDigest={sha256WireFromBareHex manifest.buildIdentityDigest}",
+    s!"planDigest={sha256WireFromBareHex manifest.planDigest}",
     s!"supportClaimDigest={sha256WireFromBareHex manifest.supportClaimDigest}",
     s!"engineeringRegistryRootDigest={sha256WireFromBareHex manifest.engineeringRegistryRootDigest}",
     s!"outputSetDigest={sha256WireFromBareHex manifest.outputSetDigest}",
@@ -1168,6 +1177,8 @@ def renderInspectOutputJsonV1
       ("semanticHash", .string (sha256WireFromBareHex manifest.semanticHash)),
       ("buildIdentityDigest",
         .string (sha256WireFromBareHex manifest.buildIdentityDigest)),
+      ("planDigest",
+        .string (sha256WireFromBareHex manifest.planDigest)),
       ("supportClaimDigest",
         .string (sha256WireFromBareHex manifest.supportClaimDigest)),
       ("engineeringRegistryRootDigest",

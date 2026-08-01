@@ -1,4 +1,6 @@
 import ProofForgeV2.Targets.Evm
+import ProofForgeV2.Targets.Evm.PlanSchemaV1
+import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Near
 import ProofForgeV2.Targets.Noir
@@ -28,6 +30,8 @@ open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.TargetRegistryV1
 open ProofForgeV2.Targets.RequirementResolverV1
 open ProofForgeV2.Targets.DescriptorDataV1
+open ProofForgeV2.Targets.EngineeringBuildIdentityV1
+open ProofForgeV2.Core.Common
 open System
 
 /-- All static registrations in canonical TargetId storage order (product seed). -/
@@ -53,6 +57,26 @@ def descriptor? (target : TargetId) : CompileResult (Option TargetDescriptor) :=
       else
         return none
 
+/-- M4: bind engineering Plan digest into identity.
+    EVM recomputes `engineeringEvmPlanDigestV1` from the capability Plan;
+    other targets bind `engineeringAbsentPlanDigestV1` (no Plan schema yet). -/
+private def planDigestForCapabilityV1
+    (capability : ResolvedEngineeringBuildV1) : CompileResult Digest := do
+  let selection := ResolvedEngineeringBuildV1.selectionOf capability
+  match selection.kind with
+  | .evm =>
+      let plan ← Evm.planFromCapability capability
+      match Evm.engineeringEvmPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: EVM plan digest failed: {e}"
+  | _ =>
+      match engineeringAbsentPlanDigestV1
+          selection.targetId selection.codegenProfile with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: absent plan digest failed: {e}"
+
 /-- Aggregate materialization consumes only the private engineering capability.
     Support was decided at `resolveEngineeringRequirementsV1`. All four target
     Plan bodies construct their S1 plans from retained `SemanticProgramV1`;
@@ -60,32 +84,32 @@ def descriptor? (target : TargetId) : CompileResult (Option TargetDescriptor) :=
     `CompiledSemanticV1` source/semantic digests and program name.
     Target-owned Plan/IR/emit algorithms remain capability-gated; the aggregate
     product carrier is private-ctor `MaterializedArtifactsV1` (sole mint via
-    `mintMaterializedArtifactsV1` after emit). No residual Common resolve, no
-    public makePlan, no public OutputSet/makeOutput product surface. Formal
-    SupportClaim / OutputSetV1 and complete SemanticProgramV1-native lowering
-    remain pending. -/
+    `mintMaterializedArtifactsV1` after emit). M4 binds planDigest into identity.
+    No residual Common resolve, no public makePlan, no public OutputSet/makeOutput
+    product surface. Formal SupportClaim / OutputSetV1 remain pending. -/
 def materializeResult (capability : ResolvedEngineeringBuildV1) :
     CompileResult MaterializedArtifactsV1 := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
+  let planDigest ← planDigestForCapabilityV1 capability
   match selection.kind with
   | .evm =>
       let files ← Evm.buildFromCapability capability
-      mintMaterializedArtifactsV1 capability Evm.descriptor files
+      mintMaterializedArtifactsV1 capability Evm.descriptor files planDigest
   | .solana =>
       let files ← Solana.buildFromCapability capability
-      mintMaterializedArtifactsV1 capability Solana.descriptor files
+      mintMaterializedArtifactsV1 capability Solana.descriptor files planDigest
   | .near =>
       let files ← Near.buildFromCapability capability
-      mintMaterializedArtifactsV1 capability Near.descriptor files
+      mintMaterializedArtifactsV1 capability Near.descriptor files planDigest
   | .noir =>
       let files ← Noir.buildFromCapability capability
-      mintMaterializedArtifactsV1 capability Noir.descriptor files
+      mintMaterializedArtifactsV1 capability Noir.descriptor files planDigest
   | .aleo =>
       let files ← Aleo.buildFromCapability capability
-      mintMaterializedArtifactsV1 capability Aleo.descriptor files
+      mintMaterializedArtifactsV1 capability Aleo.descriptor files planDigest
   | .psy =>
       let files ← Psy.buildFromCapability capability
-      mintMaterializedArtifactsV1 capability Psy.descriptor files
+      mintMaterializedArtifactsV1 capability Psy.descriptor files planDigest
   | other => .error <| .targetNotImplemented other
 
 def materialize (capability : ResolvedEngineeringBuildV1) :

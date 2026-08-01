@@ -122,6 +122,7 @@ private unsafe def testMintDeterminismFourTargets : IO Unit := do
         (EngineeringOutputSetV1.engineeringRegistryRootDigestOf a)
         (EngineeringOutputSetV1.supportClaimDigestOf a)
         (EngineeringOutputSetV1.buildIdentityDigestOf a)
+        (EngineeringOutputSetV1.planDigestOf a)
         (EngineeringOutputSetV1.deployableOf a))
     expect (EngineeringOutputSetV1.outputSetDigestOf a == recomputed)
       s!"{tid} outputSetDigest recomputes"
@@ -156,6 +157,7 @@ private unsafe def testDigestTamperMatrix : IO Unit := do
       (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
       (EngineeringOutputSetV1.supportClaimDigestOf base)
       (EngineeringOutputSetV1.buildIdentityDigestOf base)
+      (EngineeringOutputSetV1.planDigestOf base)
       (EngineeringOutputSetV1.deployableOf base))
   expectDigestDiff "files list" baseDigest filesDigest
   -- Deployable flip.
@@ -170,6 +172,7 @@ private unsafe def testDigestTamperMatrix : IO Unit := do
       (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
       (EngineeringOutputSetV1.supportClaimDigestOf base)
       (EngineeringOutputSetV1.buildIdentityDigestOf base)
+      (EngineeringOutputSetV1.planDigestOf base)
       true)
   expectDigestDiff "deployable" baseDigest deployDigest
   -- Build-identity digest field flip (use semantic digest bytes as stand-in).
@@ -187,6 +190,7 @@ private unsafe def testDigestTamperMatrix : IO Unit := do
       (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
       (EngineeringOutputSetV1.supportClaimDigestOf base)
       flippedIdentity
+      (EngineeringOutputSetV1.planDigestOf base)
       (EngineeringOutputSetV1.deployableOf base))
   expectDigestDiff "buildIdentityDigest field" baseDigest identityDigest
   -- Artifact name change.
@@ -201,6 +205,7 @@ private unsafe def testDigestTamperMatrix : IO Unit := do
       (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
       (EngineeringOutputSetV1.supportClaimDigestOf base)
       (EngineeringOutputSetV1.buildIdentityDigestOf base)
+      (EngineeringOutputSetV1.planDigestOf base)
       (EngineeringOutputSetV1.deployableOf base))
   expectDigestDiff "artifactProgramName" baseDigest nameDigest
   if ← scratch.pathExists then IO.FS.removeDirAll scratch
