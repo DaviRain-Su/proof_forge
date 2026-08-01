@@ -12504,3 +12504,11 @@ normative: false
 - Verification：focused NamesV1/InvariantABI build通过。
 - Boundary：canonical Constant/callable valueBytes及后续name/signature/CFG/requirements、完整structure、
   encoder/carrier/formal状态仍pending。
+
+## 2026-08-01 — D2-07 concrete empty constants valueBytes
+
+- Kernel：fixture constants empty，sole `validateConstantsValueBytesV1` iterator执行零次，完整
+  `maxCanonicalProgramBytes` budget原样返回。
+- Verification：focused InvariantABI build通过。
+- Boundary：callables内两个Bool Literal valueBytes、后续name/signature/CFG/requirements、完整
+  structure/encoder/carrier/formal状态仍pending。

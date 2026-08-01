@@ -609,3 +609,7 @@ empty-domain success；primitive-only table无Struct/Enum/Array/Map edge source�
 named TypeDecl exact-name uniqueness现已闭合：三项fixture TypeDecl均anonymous，真实production collector
 得到empty array；shared name checker新增语义等价的empty/singleton no-sort fast path并返回success。
 `validateNamedTypeNameUniquenessV1 data.types = .ok ()`已kernel证明。下一片进入canonical valueBytes。
+
+canonical valueBytes第一片已闭合empty constants table：sole production walker执行零次，精确证明
+`validateConstantsValueBytesV1 data.types data.constants maxCanonicalProgramBytes =
+.ok maxCanonicalProgramBytes`。下一片必须按callable source order线程化两个Bool literal各2单位work。

@@ -339,6 +339,8 @@ table也不产生Option-removed graph edge source，故`namedBodyCycle`闭合。
 seam组合为`validateTypeKeyPhasesV1 data.types = .ok ()`；named-type uniqueness及后续structure仍pending。
 紧随其后的`validateNamedTypeNameUniquenessV1`现也已闭合：fixture无named Struct/Enum，production收集
 空name array并由empty/singleton no-sort fast path确认unique。valueBytes及后续gate仍pending。
+canonical valueBytes现按production顺序开始：empty constants walker已证明完整保留
+`maxCanonicalProgramBytes` work budget。callable literals及后续gate仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

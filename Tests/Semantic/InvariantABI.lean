@@ -753,6 +753,14 @@ theorem namedTypeNames_data :
     data, types, boolType, principalType, unitType, Pure.pure, Except.pure,
     Bind.bind, Except.bind]
 
+/-- The fixture's empty constants table preserves the full production
+    canonical-value work budget. -/
+theorem constantsValueBytes_data :
+    validateConstantsValueBytesV1 data.types data.constants
+      maxCanonicalProgramBytes = .ok maxCanonicalProgramBytes := by
+  simp [validateConstantsValueBytesV1, data, Pure.pure, Except.pure,
+    Bind.bind, Except.bind]
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])
