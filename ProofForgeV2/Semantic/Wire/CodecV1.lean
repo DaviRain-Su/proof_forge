@@ -1968,6 +1968,19 @@ theorem decodeTerminatorV1_eq_of_bodyV1 (c : Cursor) (terminator : TerminatorV1)
   unfold decodeTerminatorV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
+/-- Compose a Return branch directly through the Terminator nesting wrapper. -/
+theorem decodeTerminatorV1_return (c afterTag afterFields afterValue : Cursor)
+    (value : Option UInt32) (hdepth : c.nesting < maxNesting)
+    (htag : decodeTag ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ("Term.Return", afterTag))
+    (hfields : decodeFieldCount 1 afterTag = .ok ((), afterFields))
+    (hvalue : decodeOption decodeU32le afterFields = .ok (value, afterValue)) :
+    decodeTerminatorV1 c = .ok (.return_ value,
+      ⟨afterValue.input, afterValue.offset, c.nesting⟩) :=
+  decodeTerminatorV1_eq_of_bodyV1 c (.return_ value) afterValue hdepth
+    (decodeTerminatorBodyV1_return ⟨c.input, c.offset, c.nesting + 1⟩
+      afterTag afterFields afterValue value htag hfields hvalue)
+
 def encodeBlockV1 (b : BlockV1) : Except SemanticWireErrorV1 ByteArray := do
   let paramsB ← encodeArray encodeBlockParameterV1 b.params
   let instrB ← encodeArray encodeInstructionV1 b.instructions
@@ -2010,6 +2023,29 @@ theorem decodeBlockV1_eq_of_bodyV1 (c : Cursor) (block : BlockV1) (c' : Cursor)
     decodeBlockV1 c = .ok (block, ⟨c'.input, c'.offset, c.nesting⟩) := by
   unfold decodeBlockV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+/-- Compose Block production fields directly through its nesting wrapper. -/
+theorem decodeBlockV1_eq_of_fieldsV1
+    (c afterTag afterId afterParams afterInstructions afterTerminator : Cursor)
+    (id : UInt32) (params : Array BlockParameterV1)
+    (instructions : Array InstructionV1) (terminator : TerminatorV1)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : decodeArray maxArrayElements decodeBlockParameterV1 afterId =
+      .ok (params, afterParams))
+    (hinstructions : decodeArray maxArrayElements decodeInstructionV1 afterParams =
+      .ok (instructions, afterInstructions))
+    (hterminator : decodeTerminatorV1 afterInstructions =
+      .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params, instructions, terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) :=
+  decodeBlockV1_eq_of_bodyV1 c { id, params, instructions, terminator }
+    afterTerminator hdepth
+    (decodeBlockBodyV1_eq_of_fields ⟨c.input, c.offset, c.nesting + 1⟩ afterTag
+      afterId afterParams afterInstructions afterTerminator id params instructions terminator
+      htag hid hparams hinstructions hterminator)
 
 def encodeLoopBoundV1 (lb : LoopBoundV1) : Except SemanticWireErrorV1 ByteArray := do
   encodeTagged "LoopBound"

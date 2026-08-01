@@ -404,6 +404,11 @@ corollaries只组合各既有body theorem与sole `withTaggedNesting` theorem，�
 input/offset并恢复该层parent depth。后续Block证明可直接消费public Instruction/Terminator success，
 无需再次手工展开nested wrapper。
 
+Return与Block public composition现已接通：Return corollary组合真实tag/field-count/optional ValueId后
+恢复Terminator parent；Block corollary严格线程header→id→bounded params→bounded instructions→
+public Terminator，并恢复Block parent。两者均只提升既有body theorem，不新增runtime或nested claim。
+现在可将zero/singleton array theorem与public Instruction/Return successes直接拼为fixture三种单Block。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
