@@ -12291,3 +12291,15 @@ normative: false
   Field digest determinism + marker-rejection IR negative.
 - Boundary: engineering only (not formal D4); solc/Anvil acceptance out of scope;
   pureFn Field / Field event-error fields closed; Fermat cost documented.
+
+## 2026-08-01 — D2-07 concrete structure prelude
+
+- Production：将structure step 0–2机械抽为sole validator直接调用的
+  `validateSemanticProgramStructurePreludeV1`（root shape、table IDs、shallow refs）；不是第二validator。
+- Proof seam：新增按全部当前真实production phase成功结果组合structure success的refinement theorem；
+  premises直接引用production gates，不引入平行validity predicate。
+- Kernel：1235-byte invariant fixture已闭合该prelude的qualified root、七张表contiguous IDs及全部
+  declaration-level TypeId/CallableId ranges。
+- Verification：StructureV1与InvariantABI focused build通过。
+- Boundary：type/value/signature/CFG/requirements phase、完整structure gate、encoder/carrier identity与
+  formal TASK/TST仍pending。

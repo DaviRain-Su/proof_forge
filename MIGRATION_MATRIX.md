@@ -323,6 +323,10 @@ requirements、root finish、structure-gated encoder/carrier closed theorem与fo
 ProgramRequirements闭合1206→1235；九字段root、magic/size/finish现已由sole production composition
 得到closed transport theorem `decodeSemanticProgramDataV1 canonicalBytes = .ok data`。这不是
 structure-gated encoder/carrier theorem，后者与formal TASK/TST仍pending。
+structure gate现将原有step 0–2原位抽为sole production调用的
+`validateSemanticProgramStructurePreludeV1`，并新增按真实production phase结果组合成功的refinement
+theorem；具体fixture已kernel闭合root shape、table id及shallow refs prelude。后续type/value/signature/
+CFG/requirements phase、完整structure gate、encoder/carrier identity与formal TASK/TST仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

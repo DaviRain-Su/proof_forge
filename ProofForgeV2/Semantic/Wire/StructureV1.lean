@@ -22,7 +22,9 @@ namespace ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
 
-private def checkTableIds (getId : α → UInt32) (table : Array α) :
+/-- Internal contiguous table-ID check used by the production structure
+    prelude. This is a phase helper, not a complete validation API. -/
+def checkTableIdsV1 (getId : α → UInt32) (table : Array α) :
     Except SemanticWireErrorV1 Unit := do
   let mut i : Nat := 0
   for item in table do
@@ -39,6 +41,45 @@ def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
     Except SemanticWireErrorV1 Unit := do
   unless 2 ≤ name.components.toArray.size do return ← err .badScalar
   pure ()
+
+/-- Internal production prelude for root shape, table IDs, and shallow
+    declaration references. This is not a complete structure validator; the
+    sole production gate invokes it before every type/value/CFG/requirement
+    phase. -/
+def validateSemanticProgramStructurePreludeV1 (data : SemanticProgramDataV1) :
+    Except SemanticWireErrorV1 Unit := do
+  -- 0) Program root identity shape; intentionally precedes every table/ref/
+  --   type/CFG/requirement gate.
+  validateProgramQualifiedNameShapeV1 data.qualifiedName
+  -- 1) Table ID == array index
+  checkTableIdsV1 (·.id) data.types
+  checkTableIdsV1 (·.id) data.constants
+  checkTableIdsV1 (·.id) data.logicalState
+  checkTableIdsV1 (·.id) data.events
+  checkTableIdsV1 (·.id) data.errors
+  checkTableIdsV1 (·.id) data.callables
+  checkTableIdsV1 (·.id) data.invariants
+  -- 2) Shallow reference range on declaration records only
+  let typeCount := data.types.size
+  let callableCount := data.callables.size
+  for t in data.types do
+    checkTypeShapeRefs t.shape typeCount
+  for c in data.constants do
+    checkTypeIdInRange c.typeId typeCount
+  for s in data.logicalState do
+    checkTypeIdInRange s.typeId typeCount
+  for e in data.events do
+    for f in e.fields do
+      checkTypeIdInRange f.typeId typeCount
+  for e in data.errors do
+    for f in e.fields do
+      checkTypeIdInRange f.typeId typeCount
+  for c in data.callables do
+    for p in c.params do
+      checkTypeIdInRange p.typeId typeCount
+    checkTypeIdInRange c.result.typeId typeCount
+  for inv in data.invariants do
+    checkCallableIdInRange inv.callableId callableCount
 
 /-- Post-wire structural subset: program root qualifiedName has at least two
     components, table IDs, shallow declaration refs, type-shape/FieldSpec/
@@ -96,38 +137,7 @@ def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
     closure reachability/provenance, and product wiring remain deferred. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
-  -- 0) Program root identity shape; intentionally precedes every table/ref/
-  --   type/CFG/requirement gate.
-  validateProgramQualifiedNameShapeV1 data.qualifiedName
-  -- 1) Table ID == array index
-  checkTableIds (·.id) data.types
-  checkTableIds (·.id) data.constants
-  checkTableIds (·.id) data.logicalState
-  checkTableIds (·.id) data.events
-  checkTableIds (·.id) data.errors
-  checkTableIds (·.id) data.callables
-  checkTableIds (·.id) data.invariants
-  -- 2) Shallow reference range on declaration records only
-  let typeCount := data.types.size
-  let callableCount := data.callables.size
-  for t in data.types do
-    checkTypeShapeRefs t.shape typeCount
-  for c in data.constants do
-    checkTypeIdInRange c.typeId typeCount
-  for s in data.logicalState do
-    checkTypeIdInRange s.typeId typeCount
-  for e in data.events do
-    for f in e.fields do
-      checkTypeIdInRange f.typeId typeCount
-  for e in data.errors do
-    for f in e.fields do
-      checkTypeIdInRange f.typeId typeCount
-  for c in data.callables do
-    for p in c.params do
-      checkTypeIdInRange p.typeId typeCount
-    checkTypeIdInRange c.result.typeId typeCount
-  for inv in data.invariants do
-    checkCallableIdInRange inv.callableId callableCount
+  validateSemanticProgramStructurePreludeV1 data
   -- 3) Type-shape / FieldSpec catalog / Map-key legality, then the TypeKey
   --   uniqueness segment via the exact phase seam: named contiguous-prefix
   --   rank first, then leaf primitive anonymous TypeKey uniqueness, then
@@ -187,5 +197,37 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateProgramRequirementsStructure data.requirements
   validateContextReadRequirementsV1 data
   validateCommitRequirementsV1 data
+
+/-- Compose success of the sole production structure gate from successful
+    results of every current production phase. Every premise names a production
+    phase rather than a shadow validity predicate. -/
+theorem validateSemanticProgramStructureV1_eq_ok_of_phases
+    (data : SemanticProgramDataV1) (constantBudget callableBudget : Nat)
+    (hPrelude : validateSemanticProgramStructurePreludeV1 data = .ok ())
+    (hTypes : validateTypesStructureV1 data.types = .ok ())
+    (hTypeKeys : validateTypeKeyPhasesV1 data.types = .ok ())
+    (hNamedTypes : validateNamedTypeNameUniquenessV1 data.types = .ok ())
+    (hConstants : validateConstantsValueBytesV1 data.types data.constants
+      maxCanonicalProgramBytes = .ok constantBudget)
+    (hCallables : validateCallablesValueBytesV1 data.types data.callables
+      constantBudget = .ok callableBudget)
+    (hConstantNames : validateConstantNameUniquenessV1 data.constants = .ok ())
+    (hStateNames : validateLogicalStateNameUniquenessV1 data.logicalState = .ok ())
+    (hEventNames : validateEventNameUniquenessV1 data.events = .ok ())
+    (hErrorNames : validateErrorNameUniquenessV1 data.errors = .ok ())
+    (hInterfaceNames : validateInterfaceFieldNameUniquenessV1 data.events data.errors = .ok ())
+    (hSignatures : validateCallableSignaturePhasesV1 data.types data.callables = .ok ())
+    (hInvariantJoin : validateInvariantDeclarationJoinV1 data.callables data.invariants = .ok ())
+    (hIdentifiers : validateDeclarationIdentifierNamesV1 data = .ok ())
+    (hCfg : validateCfgInvariantPhasesV1 data = .ok ())
+    (hRequirements : validateProgramRequirementsStructure data.requirements = .ok ())
+    (hContextRequirements : validateContextReadRequirementsV1 data = .ok ())
+    (hCommitRequirements : validateCommitRequirementsV1 data = .ok ()) :
+    validateSemanticProgramStructureV1 data = .ok () := by
+  simp only [validateSemanticProgramStructureV1, hPrelude, hTypes, hTypeKeys,
+    hNamedTypes, hConstants, hCallables, hConstantNames, hStateNames, hEventNames,
+    hErrorNames, hInterfaceNames, hSignatures, hInvariantJoin, hIdentifiers, hCfg,
+    hRequirements, hContextRequirements, hCommitRequirements, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
 
 end ProofForgeV2.Semantic.WireV1

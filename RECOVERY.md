@@ -579,3 +579,9 @@ two-element array消费1126→1206；empty ProgramRequirements再消费1206→12
 `decodeSemanticProgramDataV1 canonicalBytes = .ok data`。新增通用finish seam仅证明offset=input.size时
 sole trailing-byte check成功，不替代decoder。当前结论严格为transport-only；structure-gated encoder
 identity、`decodeSemanticProgramV1` carrier theorem及formal TASK/TST仍pending。
+
+structure证明现已开始而未越界：原structure gate的root shape、table IDs与shallow declaration refs
+被机械抽为`validateSemanticProgramStructurePreludeV1`，完整production validator直接调用该prelude，
+没有第二套validator。production另提供按全部真实phase成功结果组合的refinement theorem；1235-byte
+fixture已kernel证明prelude成功。type/value/signature/CFG/requirements phases及完整structure、encoder/
+carrier identity仍需后续逐片闭合，formal状态不变。

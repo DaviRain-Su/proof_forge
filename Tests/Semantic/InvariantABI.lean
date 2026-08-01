@@ -623,6 +623,20 @@ def data : SemanticProgramDataV1 := {
   requirements := { items := #[] }
 }
 
+/-- The concrete fixture closes the sole production structure prelude: root
+    shape, contiguous table IDs, and shallow declaration references. This is
+    intentionally not a claim that the later type/value/CFG/requirement gates
+    have completed. -/
+theorem structurePrelude_data :
+    validateSemanticProgramStructurePreludeV1 data = .ok () := by
+  have hQualifiedName : 2 ≤ qualifiedName.components.toArray.size := by decide
+  simp [validateSemanticProgramStructurePreludeV1, checkTableIdsV1,
+    validateProgramQualifiedNameShapeV1, hQualifiedName, data, types, boolType,
+    principalType, unitType, logicalStateDecl, gate, entryGate, leaf, truth,
+    invariantCallable, falsehood, invariants, truthDecl, falsehoodDecl,
+    checkTypeShapeRefs, checkTypeIdInRange, checkCallableIdInRange,
+    checkIdEqualsIndex, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])
