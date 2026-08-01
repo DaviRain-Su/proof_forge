@@ -542,6 +542,9 @@ def types : Array TypeDeclV1 := #[boolType, principalType, unitType]
 def logicalStateDecl : StateDeclV1 :=
   { id := 0, name := "flag", typeId := 0, visibility := .public_ }
 
+def gateBlock : BlockV1 :=
+  { id := 0, params := #[], instructions := #[], terminator := .return_ none }
+
 def gate : CallableV1 := entryGate 0 2
 
 def leaf : CallableV1 := {
@@ -632,19 +635,30 @@ def canonicalLogicalStateSpine : TransparentByteSpineV1 := [
   0, 0
 ]
 
-/-- Remaining 986 bytes after the logical-state field. Keeping this opaque to
-    prefix reductions avoids traversing the full carrier for scalar facts. -/
+/-- Exact empty events and errors tables at root offsets 249 and 253. -/
+def canonicalEmptyInterfacesSpine : TransparentByteSpineV1 :=
+  [0, 0, 0, 0, 0, 0, 0, 0]
+
+/-- Exact four-element callables count at root offset 257. -/
+def canonicalCallablesHeaderSpine : TransparentByteSpineV1 := [4, 0, 0, 0]
+
+/-- Exact first callable (`entry_gate`) at root offset 261. -/
+def canonicalEntryGateSpine : TransparentByteSpineV1 := [
+  8, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 9, 0, 0, 0, 0, 0,
+  14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 46, 69, 110, 116, 114, 121,
+  0, 0, 1, 10, 0, 0, 0, 101, 110, 116, 114, 121, 95, 103, 97, 116, 101, 0,
+  0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115,
+  117, 108, 116, 2, 0, 2, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105, 98,
+  105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0, 0, 0, 0, 0,
+  1, 0, 0, 0, 5, 0, 0, 0, 66, 108, 111, 99, 107, 4, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 11, 0, 0, 0, 84, 101, 114, 109, 46,
+  82, 101, 116, 117, 114, 110, 1, 0, 0, 0, 0, 0, 0, 0
+]
+
+/-- Remaining 816 bytes after the first callable. Keeping this opaque to prefix
+    reductions avoids traversing the full carrier for scalar facts. -/
 def canonicalRootFields : Array UInt8 := #[
-  0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 8, 0, 0, 0, 67, 97, 108, 108, 97, 98,
-  108, 101, 9,
-  0, 0, 0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 46, 69, 110,
-  116, 114, 121, 0, 0, 1, 10, 0, 0, 0, 101, 110, 116, 114, 121, 95, 103, 97, 116,
-  101, 0, 0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 82, 101,
-  115, 117, 108, 116, 2, 0, 2, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105, 98, 105,
-  108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0, 0, 0, 0, 0, 1, 0, 0,
-  0, 5, 0, 0, 0, 66, 108, 111, 99, 107, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 11, 0, 0, 0, 84, 101, 114, 109, 46, 82, 101, 116, 117, 114, 110, 1, 0,
-  0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 9, 0, 1,
+  8, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 9, 0, 1,
   0, 0, 0, 15, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 46, 80, 117, 114,
   101, 70, 110, 0, 0, 1, 9, 0, 0, 0, 116, 114, 117, 116, 104, 76, 101, 97, 102,
   0, 0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115,
@@ -693,6 +707,7 @@ def canonicalRootFields : Array UInt8 := #[
 def canonicalSpine : TransparentByteSpineV1 :=
   canonicalMagicSpine ++ canonicalRootHeaderSpine ++ canonicalQualifiedNameSpine ++
     canonicalTypesSpine ++ canonicalConstantsSpine ++ canonicalLogicalStateSpine ++
+    canonicalEmptyInterfacesSpine ++ canonicalCallablesHeaderSpine ++ canonicalEntryGateSpine ++
     canonicalRootFields.toList
 
 def canonicalBytes : ByteArray := ByteArray.mk canonicalSpine.toArray
@@ -1129,6 +1144,250 @@ theorem decodeErrors_canonicalBytes :
     .ok (0, 257)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
+
+private theorem decodeCanonicalTagV1 (offset after nesting : Nat)
+    (raw : TransparentByteSpineV1) (value : String)
+    (hspine : readTagSpineBytesV1 canonicalSpine offset = .ok (raw, after))
+    (hutf8 : String.fromUTF8? (ByteArray.mk raw.toArray) = some value)
+    (hascii : isAsciiTagV1 value = true) :
+    decodeTag ⟨canonicalBytes, offset, nesting⟩ =
+      .ok (value, ⟨canonicalBytes, after, nesting⟩) := by
+  apply decodeTag_eq_of_valueV1 _ _ _ _ _ hutf8 hascii
+  change readTagBytesAtV1 (ByteArray.mk canonicalSpine.toArray) offset =
+    .ok (ByteArray.mk raw.toArray, after)
+  exact readTagBytesAtV1_eq_of_spine canonicalSpine raw offset after hspine
+
+private theorem decodeCanonicalZeroFieldsV1 (offset after nesting : Nat)
+    (hspine : readSpineU16leV1 canonicalSpine offset = .ok (0, after)) :
+    decodeFieldCount 0 ⟨canonicalBytes, offset, nesting⟩ =
+      .ok ((), ⟨canonicalBytes, after, nesting⟩) := by
+  have hread : readU16leAtV1 canonicalBytes offset = .ok (0, after) := by
+    change readU16leAtV1 (ByteArray.mk canonicalSpine.toArray) offset = .ok (0, after)
+    rw [readU16leAtV1_refinesSpine, hspine]
+  simpa using decodeFieldCount_eq_of_readU16leV1 0
+    ⟨canonicalBytes, offset, nesting⟩ 0 after hread
+
+private theorem decodeCanonicalU32V1 (offset after nesting value : Nat)
+    (hspine : readSpineU32leV1 canonicalSpine offset =
+      .ok (UInt32.ofNat value, after)) :
+    decodeU32le ⟨canonicalBytes, offset, nesting⟩ =
+      .ok (UInt32.ofNat value, ⟨canonicalBytes, after, nesting⟩) := by
+  apply decodeU32le_eq_of_readV1
+  change readU32leAtV1 (ByteArray.mk canonicalSpine.toArray) offset =
+    .ok (UInt32.ofNat value, after)
+  rw [readU32leAtV1_refinesSpine, hspine]
+
+theorem readCallablesCount_canonicalBytes :
+    readArrayCountAtV1 canonicalBytes 257 maxTableElements = .ok (4, 261) := by
+  change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 257 maxTableElements =
+    .ok (4, 261)
+  rw [readArrayCountAtV1_refinesSpine]
+  rfl
+
+theorem expectGateCallable_canonicalBytes :
+    expectTag "Callable" 9 ⟨canonicalBytes, 261, 2⟩ =
+      .ok ((), ⟨canonicalBytes, 275, 2⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 261
+      (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101].toArray) 9 = .ok 275
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem decodeGateId_canonicalBytes :
+    decodeU32le ⟨canonicalBytes, 275, 2⟩ =
+      .ok (0, ⟨canonicalBytes, 279, 2⟩) := by
+  apply decodeCanonicalU32V1
+  rfl
+
+theorem decodeGateKind_canonicalBytes :
+    decodeCallableKindV1 ⟨canonicalBytes, 279, 2⟩ =
+      .ok (.entry, ⟨canonicalBytes, 299, 2⟩) := by
+  refine decodeCallableKindV1_eq_of_bodyV1 ⟨canonicalBytes, 279, 2⟩ .entry
+    ⟨canonicalBytes, 299, 3⟩ (by decide) ?_
+  apply decodeCallableKindBodyV1_entry
+  · apply decodeCanonicalTagV1 279 297 3
+      [67, 97, 108, 108, 97, 98, 108, 101, 46, 69, 110, 116, 114, 121]
+      "Callable.Entry"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · apply decodeCanonicalZeroFieldsV1
+    rfl
+
+theorem readGateNameBytes_canonicalBytes :
+    readSizedBytesAtV1 canonicalBytes 300 maxStringBytes =
+      .ok (ByteArray.mk [101, 110, 116, 114, 121, 95, 103, 97, 116, 101].toArray,
+        314) := by
+  change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 300 maxStringBytes =
+    .ok (ByteArray.mk [101, 110, 116, 114, 121, 95, 103, 97, 116, 101].toArray, 314)
+  apply readSizedBytesAtV1_eq_of_spine
+  apply readSizedSpineBytesV1_eq_of_parts canonicalSpine
+      [101, 110, 116, 114, 121, 95, 103, 97, 116, 101] 300 maxStringBytes 10 304
+  · rfl
+  · decide
+  · decide
+  · unfold takeSpineBytesV1 spineRemainingV1
+    rw [canonicalSpine_length]
+    rfl
+
+private theorem decodeEntryGateNameV1_of_read (bytes : ByteArray)
+    (hread : readSizedBytesAtV1 bytes 300 maxStringBytes =
+      .ok (ByteArray.mk [101, 110, 116, 114, 121, 95, 103, 97, 116, 101].toArray,
+        314)) :
+    decodeString ⟨bytes, 300, 2⟩ = .ok ("entry_gate", ⟨bytes, 314, 2⟩) := by
+  apply decodeString_eq_of_valueV1 _ _ _ _ hread
+  · rfl
+  · apply ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii
+    rfl
+
+theorem decodeGateName_canonicalBytes :
+    decodeOption decodeString ⟨canonicalBytes, 299, 2⟩ =
+      .ok (some "entry_gate", ⟨canonicalBytes, 314, 2⟩) := by
+  apply decodeOption_someV1 decodeString ⟨canonicalBytes, 299, 2⟩
+    ⟨canonicalBytes, 300, 2⟩ ⟨canonicalBytes, 314, 2⟩ "entry_gate"
+  · apply decodeU8_eq_of_readV1
+    change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 299 = .ok 1
+    rw [readByteAtV1_refinesSpine]
+    rfl
+  · exact decodeEntryGateNameV1_of_read canonicalBytes readGateNameBytes_canonicalBytes
+
+theorem expectGateResult_canonicalBytes :
+    expectTag "CallableResult" 2 ⟨canonicalBytes, 318, 3⟩ =
+      .ok ((), ⟨canonicalBytes, 338, 3⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 318
+      (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115, 117, 108,
+        116].toArray) 2 = .ok 338
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem decodeGateResultVisibility_canonicalBytes :
+    decodeVisibilityV1 ⟨canonicalBytes, 342, 3⟩ =
+      .ok (.public_, ⟨canonicalBytes, 365, 3⟩) := by
+  refine decodeVisibilityV1_eq_of_bodyV1 ⟨canonicalBytes, 342, 3⟩ .public_
+    ⟨canonicalBytes, 365, 4⟩ (by decide) ?_
+  apply decodeVisibilityBodyV1_public
+  · apply decodeCanonicalTagV1 342 363 4
+      [86, 105, 115, 105, 98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105,
+        99] "Visibility.Public"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · apply decodeCanonicalZeroFieldsV1
+    rfl
+
+theorem decodeGateResult_canonicalBytes :
+    decodeCallableResultV1 ⟨canonicalBytes, 318, 2⟩ =
+      .ok ({ typeId := 2, visibility := .public_ }, ⟨canonicalBytes, 365, 2⟩) := by
+  refine decodeCallableResultV1_eq_of_bodyV1 ⟨canonicalBytes, 318, 2⟩
+    { typeId := 2, visibility := .public_ } ⟨canonicalBytes, 365, 3⟩ (by decide) ?_
+  apply decodeCallableResultBodyV1_eq_of_fields
+  · exact expectGateResult_canonicalBytes
+  · apply decodeCanonicalU32V1
+    rfl
+  · exact decodeGateResultVisibility_canonicalBytes
+
+theorem expectGateBlock_canonicalBytes :
+    expectTag "Block" 4 ⟨canonicalBytes, 373, 3⟩ =
+      .ok ((), ⟨canonicalBytes, 384, 3⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 373
+      (ByteArray.mk [66, 108, 111, 99, 107].toArray) 4 = .ok 384
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem decodeGateReturn_canonicalBytes :
+    decodeTerminatorV1 ⟨canonicalBytes, 396, 3⟩ =
+      .ok (.return_ none, ⟨canonicalBytes, 414, 3⟩) := by
+  apply decodeTerminatorV1_return ⟨canonicalBytes, 396, 3⟩
+    ⟨canonicalBytes, 411, 4⟩ ⟨canonicalBytes, 413, 4⟩
+    ⟨canonicalBytes, 414, 4⟩ none (by decide)
+  · apply decodeCanonicalTagV1 396 411 4
+      [84, 101, 114, 109, 46, 82, 101, 116, 117, 114, 110] "Term.Return"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · have hread : readU16leAtV1 canonicalBytes 411 = .ok (1, 413) := by
+      change readU16leAtV1 (ByteArray.mk canonicalSpine.toArray) 411 = .ok (1, 413)
+      rw [readU16leAtV1_refinesSpine]
+      rfl
+    have hresult := decodeFieldCount_eq_of_readU16leV1 1
+      ⟨canonicalBytes, 411, 4⟩ 1 413 hread
+    simpa using hresult
+  · apply decodeOption_noneV1
+    apply decodeU8_eq_of_readV1
+    change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 413 = .ok 0
+    rw [readByteAtV1_refinesSpine]
+    rfl
+
+theorem decodeGateBlock_canonicalBytes :
+    decodeBlockV1 ⟨canonicalBytes, 373, 2⟩ =
+      .ok (gateBlock, ⟨canonicalBytes, 414, 2⟩) := by
+  apply decodeBlockV1_emptyV1 ⟨canonicalBytes, 373, 2⟩
+    ⟨canonicalBytes, 384, 3⟩ ⟨canonicalBytes, 388, 3⟩
+    ⟨canonicalBytes, 414, 3⟩ 392 396 0 (.return_ none) (by decide)
+  · exact expectGateBlock_canonicalBytes
+  · apply decodeCanonicalU32V1
+    rfl
+  · change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 388
+      maxArrayElements = .ok (0, 392)
+    rw [readArrayCountAtV1_refinesSpine]
+    rfl
+  · change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 392
+      maxArrayElements = .ok (0, 396)
+    rw [readArrayCountAtV1_refinesSpine]
+    rfl
+  · exact decodeGateReturn_canonicalBytes
+
+theorem decodeGate_canonicalBytes :
+    decodeCallableV1 ⟨canonicalBytes, 261, 1⟩ =
+      .ok (gate, ⟨canonicalBytes, 419, 1⟩) := by
+  have h := decodeCallableV1_singleBlockV1
+    ⟨canonicalBytes, 261, 1⟩ ⟨canonicalBytes, 275, 2⟩
+    ⟨canonicalBytes, 279, 2⟩ ⟨canonicalBytes, 299, 2⟩
+    ⟨canonicalBytes, 314, 2⟩ ⟨canonicalBytes, 365, 2⟩
+    ⟨canonicalBytes, 369, 2⟩ ⟨canonicalBytes, 414, 2⟩
+    ⟨canonicalBytes, 419, 2⟩ 318 373 418 0 0 .entry (some "entry_gate")
+    { typeId := 2, visibility := .public_ } gateBlock none (by decide)
+    expectGateCallable_canonicalBytes decodeGateId_canonicalBytes decodeGateKind_canonicalBytes
+    decodeGateName_canonicalBytes (by
+      change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 314
+        maxArrayElements = .ok (0, 318)
+      rw [readArrayCountAtV1_refinesSpine]
+      rfl)
+    decodeGateResult_canonicalBytes (decodeCanonicalU32V1 365 369 2 0 (by rfl))
+    (by
+      change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 369
+        maxArrayElements = .ok (1, 373)
+      rw [readArrayCountAtV1_refinesSpine]
+      rfl)
+    decodeGateBlock_canonicalBytes (by
+      change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 414
+        maxArrayElements = .ok (0, 418)
+      rw [readArrayCountAtV1_refinesSpine]
+      rfl)
+    (by
+      apply decodeOption_noneV1
+      apply decodeU8_eq_of_readV1
+      change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 418 = .ok 0
+      rw [readByteAtV1_refinesSpine]
+      rfl)
+  simpa [gate, entryGate, gateBlock] using h
 
 end CanonicalInvariantFixtureV1
 
