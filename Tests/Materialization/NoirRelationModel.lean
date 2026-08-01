@@ -192,6 +192,93 @@ private partial def step (machine : Machine) :
       let value ← readValue machine source
       writeTemp machine destination
         (UInt64.ofNat (18446744073709551615 - value.toNat))
+  | .narrowCheckedAdd bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowCheckedAdd bitWidth {bitWidth} is not admitted"
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      let sum := left.toNat + right.toNat
+      let limit := Nat.pow 2 bitWidth
+      if sum ≥ limit then
+        modelError s!"UInt{bitWidth} addition overflow"
+      else
+        writeTemp machine destination (UInt64.ofNat sum)
+  | .narrowCheckedSub bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowCheckedSub bitWidth {bitWidth} is not admitted"
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      if left < right then
+        modelError s!"UInt{bitWidth} subtraction underflow"
+      else
+        writeTemp machine destination (left - right)
+  | .narrowCheckedMul bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowCheckedMul bitWidth {bitWidth} is not admitted"
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      let product := left.toNat * right.toNat
+      let limit := Nat.pow 2 bitWidth
+      if product ≥ limit then
+        modelError s!"UInt{bitWidth} multiplication overflow"
+      else
+        writeTemp machine destination (UInt64.ofNat product)
+  | .narrowCheckedDiv bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowCheckedDiv bitWidth {bitWidth} is not admitted"
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      if right == 0 then modelError "division by zero"
+      else writeTemp machine destination (left / right)
+  | .narrowCheckedMod bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowCheckedMod bitWidth {bitWidth} is not admitted"
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      if right == 0 then modelError "division by zero"
+      else writeTemp machine destination (left % right)
+  | .narrowBitAnd bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowBitAnd bitWidth {bitWidth} is not admitted"
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      writeTemp machine destination (UInt64.ofNat (Nat.land left.toNat right.toNat))
+  | .narrowBitOr bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowBitOr bitWidth {bitWidth} is not admitted"
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      writeTemp machine destination (UInt64.ofNat (Nat.lor left.toNat right.toNat))
+  | .narrowBitXor bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowBitXor bitWidth {bitWidth} is not admitted"
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      writeTemp machine destination (UInt64.ofNat (Nat.xor left.toNat right.toNat))
+  | .narrowBitNot bitWidth destination source => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowBitNot bitWidth {bitWidth} is not admitted"
+      let value ← readValue machine source
+      let mask := Nat.pow 2 bitWidth - 1
+      let flipped := 18446744073709551615 - value.toNat
+      writeTemp machine destination (UInt64.ofNat (Nat.land flipped mask))
+  | .narrowShl bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowShl bitWidth {bitWidth} is not admitted"
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      let shifted := left.toNat <<< right.toNat
+      let limit := Nat.pow 2 bitWidth
+      if shifted ≥ limit then
+        modelError s!"UInt{bitWidth} shift left overflow"
+      else
+        writeTemp machine destination (UInt64.ofNat shifted)
+  | .narrowShr bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowShr bitWidth {bitWidth} is not admitted"
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      writeTemp machine destination (UInt64.ofNat (left.toNat >>> right.toNat))
   | .boolNot destination source => do
       let value ← readValue machine source
       if value == 0 then

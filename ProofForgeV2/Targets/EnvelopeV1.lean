@@ -121,19 +121,28 @@ def pilotUintWidthPolicyNearBody : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
 /-- Noir type-table policy for T8b ABI multi-width: admits UInt{8,16,32,64}
-    so top-level state/param types may appear alongside Field. Body multi-width
-    arithmetic remains the historical UInt64/UInt32-shift pilot (T8d); narrow
-    body ops stay fail closed. -/
+    so top-level state/param types may appear alongside Field. Superseded for
+    full plan admission by `pilotUintWidthPolicyNoirBody` (T8d); kept as named
+    ABI alias. -/
 def pilotUintWidthPolicyNoirAbi : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
-/-- Admitted body UInt widths for Phase-1 multi-width pilots (EVM/Solana/NEAR body).
-    Distinct from the historical `{64,32}` default still used by Noir body (T8d). -/
+/-- Noir body multi-width policy (T8d): same admitted set as EVM/Solana/NEAR
+    body (`{64, 32, 8, 16}`). Field stays on the separate field* Plan path;
+    UInt128/256 fail closed at the Plan seam. -/
+def pilotUintWidthPolicyNoirBody : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32, 8, 16]
+
+/-- Admitted body UInt widths for Phase-1 multi-width pilots
+    (EVM/Solana/NEAR/Noir body). -/
 def isPilotBodyUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
 
 /-- NEAR body UInt width gate (alias of `isPilotBodyUintWidth`). -/
 def isNearBodyUintWidth (w : Nat) : Bool := isPilotBodyUintWidth w
+
+/-- Noir body UInt width gate (alias of `isPilotBodyUintWidth`). -/
+def isNoirBodyUintWidth (w : Nat) : Bool := isPilotBodyUintWidth w
 
 
 /-- Per-target admission set for anonymous Int widths.

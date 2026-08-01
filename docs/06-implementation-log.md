@@ -12140,3 +12140,15 @@ normative: false
 - NearHostModel：host 执行窄宽 ops + `testNarrowBodyProductPath`（UInt8 state add 成功/溢出回滚 + WAT 守卫）；T8b ABI 测试保持。
 - Boundary：工程切片；**不是** formal D2/D4；Noir body 仍 T8d。
 
+## 2026-08-01 — T8d Noir body multi-width UInt8/16/32
+
+- Envelope：`pilotUintWidthPolicyNoirBody` + `isNoirBodyUintWidth`（admitted `{64,32,8,16}`）。
+- Noir LowerSemanticV1：type-closure 切到 NoirBody；`NoirValueKindV1` 扩 uint8/16/32；
+  Plan Expr `narrowChecked*`/`narrowBit*`/`narrowShl`/`narrowShr`（**仅 UInt**；Field 仍 field*）；
+  param/stateLoad/literal 保留语义宽度；store 接受 matching UInt width。
+- EmitIRV1：Operation 窄宽族；constShiftCount? 折叠 narrowChecked*；源发射 u64 运算 +
+  `assert((t >> w) == 0)` 高位守卫（add/mul/shl）；bitNot 后 AND 掩码。
+- ValidatePlanV1：Expr 节点计数覆盖 narrow*。
+- NoirRelationModel：host step 窄宽 ops + `checkNarrowBodyProduct`（UInt8 state add Plan/IR/source）。
+- Boundary：工程切片；**不是** formal D2/D4；Field 路径未改。
+

@@ -32,6 +32,19 @@ inductive Operation where
   | fieldMul (destination : Nat) (lhs rhs : ValueRef)
   | fieldDiv (destination : Nat) (lhs rhs : ValueRef)
   | bitNot (destination : Nat) (source : ValueRef)
+  /-- Narrow body UInt ops (`bitWidth ∈ {8,16,32}`); UInt64 keeps historical.
+      Field never uses these. -/
+  | narrowCheckedAdd (bitWidth destination : Nat) (lhs rhs : ValueRef)
+  | narrowCheckedSub (bitWidth destination : Nat) (lhs rhs : ValueRef)
+  | narrowCheckedMul (bitWidth destination : Nat) (lhs rhs : ValueRef)
+  | narrowCheckedDiv (bitWidth destination : Nat) (lhs rhs : ValueRef)
+  | narrowCheckedMod (bitWidth destination : Nat) (lhs rhs : ValueRef)
+  | narrowBitAnd (bitWidth destination : Nat) (lhs rhs : ValueRef)
+  | narrowBitOr (bitWidth destination : Nat) (lhs rhs : ValueRef)
+  | narrowBitXor (bitWidth destination : Nat) (lhs rhs : ValueRef)
+  | narrowBitNot (bitWidth destination : Nat) (source : ValueRef)
+  | narrowShl (bitWidth destination : Nat) (lhs rhs : ValueRef)
+  | narrowShr (bitWidth destination : Nat) (lhs rhs : ValueRef)
   | boolNot (destination : Nat) (source : ValueRef)
   | checkedNeg (destination : Nat) (source : ValueRef)
   | fieldNeg (destination : Nat) (source : ValueRef)
@@ -114,25 +127,30 @@ mutual
     while counts ≥ 64 lower to the literal invalidShift guard). -/
 private partial def constShiftCount? : Expr → Option Nat
   | .literal value => some value.toNat
-  | .checkedAdd lhs rhs => do
+  | .checkedAdd lhs rhs
+  | .narrowCheckedAdd _ lhs rhs => do
       let l ← constShiftCount? lhs
       let r ← constShiftCount? rhs
       let n := l + r
       if n >= 4294967296 then none else some n
-  | .checkedSub lhs rhs => do
+  | .checkedSub lhs rhs
+  | .narrowCheckedSub _ lhs rhs => do
       let l ← constShiftCount? lhs
       let r ← constShiftCount? rhs
       if l < r then none else some (l - r)
-  | .checkedMul lhs rhs => do
+  | .checkedMul lhs rhs
+  | .narrowCheckedMul _ lhs rhs => do
       let l ← constShiftCount? lhs
       let r ← constShiftCount? rhs
       let n := l * r
       if n >= 4294967296 then none else some n
-  | .checkedDiv lhs rhs => do
+  | .checkedDiv lhs rhs
+  | .narrowCheckedDiv _ lhs rhs => do
       let l ← constShiftCount? lhs
       let r ← constShiftCount? rhs
       if r == 0 then none else some (l / r)
-  | .checkedMod lhs rhs => do
+  | .checkedMod lhs rhs
+  | .narrowCheckedMod _ lhs rhs => do
       let l ← constShiftCount? lhs
       let r ← constShiftCount? rhs
       if r == 0 then none else some (l % r)
@@ -244,6 +262,103 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
       let operand ← lowerExpr plan fuel loopEnv stateValues next operand
       pure {
         operations := operand.operations ++ #[.bitNot operand.next operand.value]
+        value := .temp operand.next
+        next := operand.next + 1
+      }
+  | .narrowCheckedAdd bitWidth lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedAdd bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedSub bitWidth lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedSub bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedMul bitWidth lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedMul bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedDiv bitWidth lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedDiv bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedMod bitWidth lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedMod bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitAnd bitWidth lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitAnd bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitOr bitWidth lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitOr bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitXor bitWidth lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitXor bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowShl bitWidth lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowShl bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowShr bitWidth lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowShr bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitNot bitWidth operand => do
+      let operand ← lowerExpr plan fuel loopEnv stateValues next operand
+      pure {
+        operations := operand.operations ++ #[.narrowBitNot bitWidth operand.next operand.value]
         value := .temp operand.next
         next := operand.next + 1
       }
@@ -496,6 +611,103 @@ private partial def lowerExprFn (plan : Plan) (fuel depth : Nat)
       let operand ← lowerExprFn plan fuel depth paramValues stateValues next operand
       pure {
         operations := operand.operations ++ #[.bitNot operand.next operand.value]
+        value := .temp operand.next
+        next := operand.next + 1
+      }
+  | .narrowCheckedAdd bitWidth lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedAdd bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedSub bitWidth lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedSub bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedMul bitWidth lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedMul bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedDiv bitWidth lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedDiv bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedMod bitWidth lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedMod bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitAnd bitWidth lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitAnd bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitOr bitWidth lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitOr bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitXor bitWidth lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitXor bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowShl bitWidth lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowShl bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowShr bitWidth lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowShr bitWidth rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitNot bitWidth operand => do
+      let operand ← lowerExprFn plan fuel depth paramValues stateValues next operand
+      pure {
+        operations := operand.operations ++ #[.narrowBitNot bitWidth operand.next operand.value]
         value := .temp operand.next
         next := operand.next + 1
       }
@@ -1175,6 +1387,16 @@ private partial def collectLiveTempsV1 (relationName : String)
     | .checkedMul destination lhs rhs
     | .checkedDiv destination lhs rhs
     | .checkedMod destination lhs rhs
+    | .narrowCheckedAdd _ destination lhs rhs
+    | .narrowCheckedSub _ destination lhs rhs
+    | .narrowCheckedMul _ destination lhs rhs
+    | .narrowCheckedDiv _ destination lhs rhs
+    | .narrowCheckedMod _ destination lhs rhs
+    | .narrowBitAnd _ destination lhs rhs
+    | .narrowBitOr _ destination lhs rhs
+    | .narrowBitXor _ destination lhs rhs
+    | .narrowShl _ destination lhs rhs
+    | .narrowShr _ destination lhs rhs
     | .fieldAdd destination lhs rhs
     | .fieldSub destination lhs rhs
     | .fieldMul destination lhs rhs
@@ -1191,6 +1413,7 @@ private partial def collectLiveTempsV1 (relationName : String)
             s!"relation '{relationName}' contains dead checked arithmetic whose failure would not be constrained"
         live := addLiveTemp (addLiveTemp live lhs) rhs
     | .bitNot destination source
+    | .narrowBitNot _ destination source
     | .boolNot destination source
     | .checkedNeg destination source
     | .fieldNeg destination source =>
@@ -1253,6 +1476,14 @@ private def lower (plan : Plan) : CompileResult IR := do
   }
   validateIR ir
   return ir
+
+
+private def narrowUintMaskImm (bitWidth : Nat) : Nat :=
+  match bitWidth with
+  | 8 => 255
+  | 16 => 65535
+  | 32 => 4294967295
+  | _ => 0
 
 /-- Render a ValueRef. Narrow ABI public inputs (u8/u16/u32, T8b) zero-extend
     into the UInt64 body pilot via `as u64` so checked arithmetic stays on the
@@ -1361,6 +1592,41 @@ private partial def renderOperation (relation : Relation) (indent : String) :
         s!"{indent}let t{destination}: Field = {renderValue relation lhs} / {renderValue relation rhs};\n"
   | .bitNot destination source =>
       s!"{indent}let t{destination}: u64 = !{renderValue relation source};\n"
+  | .narrowCheckedAdd bitWidth destination lhs rhs =>
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} + {renderValue relation rhs};\n" ++
+        s!"{indent}assert((t{destination} >> {bitWidth}) == 0);\n"
+  | .narrowCheckedSub bitWidth destination lhs rhs =>
+      let _ := bitWidth
+      s!"{indent}assert({renderValue relation lhs} >= {renderValue relation rhs});\n" ++
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} - {renderValue relation rhs};\n"
+  | .narrowCheckedMul bitWidth destination lhs rhs =>
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} * {renderValue relation rhs};\n" ++
+        s!"{indent}assert((t{destination} >> {bitWidth}) == 0);\n"
+  | .narrowCheckedDiv bitWidth destination lhs rhs =>
+      let _ := bitWidth
+      s!"{indent}assert({renderValue relation rhs} != 0);\n" ++
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} / {renderValue relation rhs};\n"
+  | .narrowCheckedMod bitWidth destination lhs rhs =>
+      let _ := bitWidth
+      s!"{indent}assert({renderValue relation rhs} != 0);\n" ++
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} % {renderValue relation rhs};\n"
+  | .narrowBitAnd bitWidth destination lhs rhs =>
+      let _ := bitWidth
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} & {renderValue relation rhs};\n"
+  | .narrowBitOr bitWidth destination lhs rhs =>
+      let _ := bitWidth
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} | {renderValue relation rhs};\n"
+  | .narrowBitXor bitWidth destination lhs rhs =>
+      let _ := bitWidth
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} ^ {renderValue relation rhs};\n"
+  | .narrowBitNot bitWidth destination source =>
+      s!"{indent}let t{destination}: u64 = (!{renderValue relation source}) & {narrowUintMaskImm bitWidth};\n"
+  | .narrowShl bitWidth destination lhs rhs =>
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} << {renderValue relation rhs};\n" ++
+        s!"{indent}assert((t{destination} >> {bitWidth}) == 0);\n"
+  | .narrowShr bitWidth destination lhs rhs =>
+      let _ := bitWidth
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} >> {renderValue relation rhs};\n"
   | .boolNot destination source =>
       s!"{indent}let t{destination}: bool = !{renderValue relation source};\n"
   | .bitAnd destination lhs rhs =>

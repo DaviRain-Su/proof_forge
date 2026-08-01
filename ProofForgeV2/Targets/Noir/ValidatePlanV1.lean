@@ -31,6 +31,11 @@ private partial def planExprNodes? (states : Array StateField) (inputs : Array I
     | .stateLoad fieldIndex => if fieldIndex < states.size then some 1 else none
     | .checkedAdd lhs rhs | .checkedSub lhs rhs | .checkedMul lhs rhs |
         .checkedDiv lhs rhs | .checkedMod lhs rhs |
+        .narrowCheckedAdd _ lhs rhs | .narrowCheckedSub _ lhs rhs |
+        .narrowCheckedMul _ lhs rhs | .narrowCheckedDiv _ lhs rhs |
+        .narrowCheckedMod _ lhs rhs |
+        .narrowBitAnd _ lhs rhs | .narrowBitOr _ lhs rhs | .narrowBitXor _ lhs rhs |
+        .narrowShl _ lhs rhs | .narrowShr _ lhs rhs |
         .fieldAdd lhs rhs | .fieldSub lhs rhs | .fieldMul lhs rhs | .fieldDiv lhs rhs |
         .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs |
         .shl lhs rhs | .shr lhs rhs | .boolAnd lhs rhs | .boolOr lhs rhs =>
@@ -41,7 +46,8 @@ private partial def planExprNodes? (states : Array StateField) (inputs : Array I
             match planExprNodes? states inputs fnCount (depthLeft - 1) (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .bitNot operand | .boolNot operand | .checkedNeg operand | .fieldNeg operand =>
+    | .bitNot operand | .narrowBitNot _ operand | .boolNot operand |
+        .checkedNeg operand | .fieldNeg operand =>
         match planExprNodes? states inputs fnCount (depthLeft - 1) (nodeBudget - 1) operand with
         | none => none
         | some operandNodes => some (1 + operandNodes)
