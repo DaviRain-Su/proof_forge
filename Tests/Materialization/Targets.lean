@@ -1519,9 +1519,11 @@ private def noirDescriptorEngineeringReprBaseline : String :=
     Wave C: init relation bodies now carry the explicit `.returnNone`
     bare-return marker, which is part of the planHash preimage.
     N2b: StateField/Param gain `inputType` (u64/bool/field); UInt64 programs
-    pin `.u64` and rehash the preimage. -/
+    pin `.u64` and rehash the preimage.
+    Noir private-witness redesign: StateField gains `visibility` (public
+    programs pin `.verifier`); rehash the preimage. -/
 private def accumulatorPlanHashBaseline : String :=
-  "a304a1e078f7e62c51b3ccf41eafa9fb8ceb8260bc12215df28fbc19a652ee95"
+  "badaf7ad4924b2c427e05e9cda6e15a766b74601b282c3501ad336428e71b275"
 
 set_option maxRecDepth 10000 in
 unsafe def run : IO Unit := do
@@ -2347,8 +2349,10 @@ unsafe def run : IO Unit := do
   expect emittedFiles.isEmpty
     "EVM product negative: files accumulator must stay empty"
 
-  -- N1: private state write-only + public return compiles and materializes on
-  -- EVM/Solana/NEAR/Psy; Noir declines at Plan (relation slots are public inputs).
+  -- N1 + Noir private-witness redesign: private state write-only + public
+  -- return compiles and materializes on EVM/Solana/NEAR/Psy/Aleo and Noir
+  -- (private pre/post state slots are private-witness inputs; public count
+  -- remains verifier-visible).
   let privateStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2380,23 +2384,32 @@ unsafe def run : IO Unit := do
   expect (privStateData.logicalState.any fun s =>
       s.name == "secret" && s.visibility == .private_)
     "N1 priv-state: secret retains private visibility"
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.psy, TargetId.aleo] do
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.psy, TargetId.aleo,
+      TargetId.noir] do
     let out ← liftResult <| materializeSelected target privStateCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"N1 priv-state: {target} must materialize"
-  match materializeSelected TargetId.noir privStateCompiled with
-  | .ok _ =>
-      throw <| IO.userError
-        "N1 priv-state: Noir must decline private state at Plan"
-  | .error e =>
-      expect (e.code == "PF-PLAN-INVARIANT" || (e.render).contains "plan")
-        s!"N1 priv-state Noir must be planInvariant, got {e.render}"
-      expect ((e.render).contains "private/commitment state" ||
-          (e.render).contains "not representable")
-        s!"N1 priv-state Noir message must cite private/commitment boundary, got {e.render}"
+  let noirPrivState ← liftResult <| planNoir privStateCompiled
+  expect (noirPrivState.states.any fun s =>
+      s.name == "secret" && s.visibility == .witness)
+    "N1 priv-state: Noir Plan maps private state to witness slots"
+  expect (noirPrivState.states.any fun s =>
+      s.name == "count" && s.visibility == .verifier)
+    "N1 priv-state: Noir Plan keeps public state verifier-visible"
+  let secretPrePost := noirPrivState.relations[1]!.inputs.filter fun i =>
+    match i.role with
+    | .preState sid | .postState sid =>
+        match noirPrivState.states[sid]? with
+        | some f => f.name == "secret"
+        | none => false
+    | _ => false
+  expect (secretPrePost.size == 2 && secretPrePost.all (·.visibility == .witness))
+    "N1 priv-state: Noir pre/post secret inputs are private-witness"
 
   -- N1: commitment state public→commitment write + public return materializes
-  -- on accepting targets (lattice: public→commitment OK).
+  -- on accepting targets (lattice: public→commitment OK). Noir still declines
+  -- commitment (private-witness redesign admits private only; no public
+  -- commitment binding in the relation pilot).
   let commitmentStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2429,11 +2442,14 @@ unsafe def run : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "N1 comm-state: Noir must decline commitment state at Plan"
   | .error e =>
-      expect ((e.render).contains "private/commitment state" ||
-          (e.render).contains "not representable")
-        s!"N1 comm-state Noir message must cite boundary, got {e.render}"
+      expect ((e.render).contains "commitment state" ||
+          (e.render).contains "not representable" ||
+          (e.render).contains "commitment binding")
+        s!"N1 comm-state Noir message must cite commitment boundary, got {e.render}"
 
-  -- N1: unused private param (no public sink) compiles + materializes on EVM.
+  -- N1 + Noir private-witness redesign: unused private param (no public sink)
+  -- compiles + materializes on EVM and Noir (private param → private-witness
+  -- input; unused so no disclosure leak).
   let privateParamSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2456,13 +2472,16 @@ unsafe def run : IO Unit := do
   let evmPrivParam ← liftResult <| materializeSelected TargetId.evm privParamCompiled
   expect (!(MaterializedArtifactsV1.filesOf evmPrivParam).isEmpty)
     "N1 priv-param: EVM must materialize unused private param"
-  match materializeSelected TargetId.noir privParamCompiled with
-  | .ok _ =>
-      throw <| IO.userError "N1 priv-param: Noir must decline private param at Plan"
-  | .error e =>
-      expect ((e.render).contains "private/commitment parameter" ||
-          (e.render).contains "not representable")
-        s!"N1 priv-param Noir message must cite parameter boundary, got {e.render}"
+  let noirPrivParamOut ← liftResult <| materializeSelected TargetId.noir privParamCompiled
+  expect (!(MaterializedArtifactsV1.filesOf noirPrivParamOut).isEmpty)
+    "N1 priv-param: Noir must materialize unused private param as witness"
+  let noirPrivParamPlan ← liftResult <| planNoir privParamCompiled
+  let witnessParamInputs := noirPrivParamPlan.relations[1]!.inputs.filter fun i =>
+    match i.role with
+    | .parameter _ => i.visibility == .witness
+    | _ => false
+  expect (witnessParamInputs.size == 1 && witnessParamInputs[0]!.sourceName == "witness")
+    "N1 priv-param: Noir binds private param as private-witness input"
 
   -- N2b: Field bn254_fr product pin — Noir (native Field) + EVM (ADDMOD/MULMOD
   -- + Fermat inv) admit; Solana/NEAR/Psy fail closed at Plan type-closure.

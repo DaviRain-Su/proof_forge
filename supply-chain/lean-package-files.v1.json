@@ -606,14 +606,14 @@
       "sha256": "7750e755d58f53f9bbc9c7b9494b2ef4036ac7368a21fc1a64c822b80e21f8bd"
     },
     {
-      "bytes": 94303,
+      "bytes": 95589,
       "path": "ProofForgeV2/Targets/Noir/LowerSemanticV1.lean",
-      "sha256": "b21f6c7cb8db0a26294329a305ac57fefde4667e67f989fa6529f7160e950bf1"
+      "sha256": "7c60fdbd60f1121daba37791b4fde3efe8b39443005212d526c0a275db71a8ec"
     },
     {
-      "bytes": 15274,
+      "bytes": 15632,
       "path": "ProofForgeV2/Targets/Noir/ValidatePlanV1.lean",
-      "sha256": "d76cc3713dfea08f12b2acb3bd68b29adf1a85490f0727383b55dbe4e0c952db"
+      "sha256": "f042a8894a0dda2c13820e266f002f93539a28f7986079a68c83adbbea67e5de"
     },
     {
       "bytes": 1999,

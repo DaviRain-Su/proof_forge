@@ -663,11 +663,10 @@ private def checkPrivateSum4ResidualRelationModel : IO Unit := do
     privateSumInputs relation #[1, 2, 3, 4] 11
   expectReject "PrivateSum4 wrong public result" relation wrongResult
 
-/-- S6 product path: privateWitness / private params fail closed before emit.
-    Shipped path: CheckV1 disclosure rejects private→public return as
-    `PF-VIS-001` (via Normalize typed gate). Alternate closed phases:
-    `PF-SRC-INVALID` (unsupported shape) or later capability
-    `PF-REQ-UNSUPPORTED` / `PF-REGISTRY-INVALID`. Never vacuous pure (). -/
+/-- Product path: PrivateSum4 private params returning a public UInt64 still
+    fail closed at disclosure (`PF-VIS-001` private→public). Legal private
+    params that do not flow to public sinks are covered by
+    `checkPrivateParamProduct` (private-witness redesign). Never vacuous pure (). -/
 private unsafe def checkPrivateSum4ProductClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgramV1 privateSumSourceText "<noir-private-sum>"
@@ -2572,6 +2571,201 @@ private unsafe def checkNarrowAbiNegatives : IO Unit := do
                 throw <| IO.userError
                   s!"{label}: must fail closed for Noir T8b ABI multi-width"
 
+/-- Dual-state private-write program: public count + private secret. Public
+    return flows only from public count (disclosure-safe). -/
+private def privateStateSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program PrivWrite where\n" ++
+  "  state count : UInt64\n" ++
+  "  state private secret : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "    secret := 0\n\n" ++
+  "  entry bump(d : UInt64) : UInt64 do\n" ++
+  "    secret := secret + d\n" ++
+  "    count := count + d\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- Unused private param (no public sink) — product-legal private-witness input. -/
+private def privateParamSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program PrivParam where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry increment(delta : UInt64, private witness : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- Commitment state still fail-closed on Noir (no public commitment binding). -/
+private def commitmentStateSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program CommMark where\n" ++
+  "  state commitment sealed : UInt64\n\n" ++
+  "  init() do\n" ++
+  "    sealed := 0\n\n" ++
+  "  entry mark(x : UInt64) : UInt64 do\n" ++
+  "    sealed := x\n" ++
+  "    return x\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- Multi-field stateful witness assignment by sourceId (public + private slots). -/
+private def multiStateInputs (relation : Targets.Noir.RelationIR)
+    (preInitialized : Bool) (preStates : Array U64) (params : Array U64)
+    (postStates : Array U64) (postInitialized : Bool) (result : U64) :
+    Except String (Array ModelValue) :=
+  bindInputs relation fun role => match role with
+    | .preInitialized => some <| .bool preInitialized
+    | .preState sid => .u64 <$> preStates[sid]?
+    | .parameter pid => .u64 <$> params[pid]?
+    | .postState sid => .u64 <$> postStates[sid]?
+    | .postInitialized => some <| .bool postInitialized
+    | .result => some <| .u64 result
+    | .eventSlot _ _ | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
+
+/-- Product path: private state is a private-witness pre/post slot; host model
+    accepts/rejects transitions; artifacts render witness (not pub) on secret. -/
+private unsafe def checkPrivateStateProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 privateStateSourceText
+    "Examples.PrivWrite" "<noir-priv-state>"
+  expect (ir.sourcePlan.states.size == 2)
+    "PrivWrite plan must carry two state fields"
+  expect (ir.sourcePlan.states.any fun s =>
+      s.name == "secret" && s.visibility == .witness)
+    "PrivWrite plan must map private secret to witness visibility"
+  expect (ir.sourcePlan.states.any fun s =>
+      s.name == "count" && s.visibility == .verifier)
+    "PrivWrite plan must keep public count verifier-visible"
+  let initializer ← findRelation ir "init"
+  let bump ← findRelation ir "bump"
+  let viewRelation ← findRelation ir "get"
+  -- Plan input disclosure: secret pre/post are private-witness; count public.
+  let secretSlots := bump.sourceRelation.inputs.filter fun i =>
+    i.sourceName == "secret"
+  expect (secretSlots.size == 2 && secretSlots.all (·.visibility == .witness))
+    "PrivWrite bump must bind secret pre/post as private-witness"
+  let countSlots := bump.sourceRelation.inputs.filter fun i =>
+    i.sourceName == "count"
+  expect (countSlots.size == 2 && countSlots.all (·.visibility == .verifier))
+    "PrivWrite bump must bind count pre/post as public"
+  -- Host model lifecycle: init seed=7 → secret=0,count=7; bump(+3) → secret=3,count=10.
+  -- Initialize mode has no pre-state/result roles.
+  let initOk ← liftModel "PrivWrite init ok" <|
+    bindInputs initializer fun role => match role with
+      | .preInitialized => some (.bool false)
+      | .parameter 0 => some (.u64 7)
+      | .postState 0 => some (.u64 7)
+      | .postState 1 => some (.u64 0)
+      | .postInitialized => some (.bool true)
+      | _ => none
+  expectAccept "PrivWrite init seed=7" initializer initOk
+  let bumpOk ← liftModel "PrivWrite bump ok" <|
+    multiStateInputs bump true #[7, 0] #[3] #[10, 3] true 10
+  expectAccept "PrivWrite bump +3" bump bumpOk
+  let bumpWrongSecret ← liftModel "PrivWrite bump wrong secret" <|
+    multiStateInputs bump true #[7, 0] #[3] #[10, 9] true 10
+  expectReject "PrivWrite bump wrong secret post" bump bumpWrongSecret
+  let viewOk ← liftModel "PrivWrite view ok" <|
+    multiStateInputs viewRelation true #[10, 3] #[] #[10, 3] true 10
+  expectAccept "PrivWrite view" viewRelation viewOk
+  -- Artifacts: interface JSON + .nr signature expose private-witness (no pub).
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 privateStateSourceText
+    "<noir-priv-state-files>" "Examples.PrivWrite" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Noir.buildFromCapability capability
+  let some iface := files.find? (fun f => f.path.endsWith ".noir-relations.json") |
+    throw <| IO.userError "PrivWrite: missing relations interface json"
+  expect (iface.contents.contains "\"visibility\":\"private-witness\"" &&
+      iface.contents.contains "\"sourceName\":\"secret\"")
+    "PrivWrite interface must mark secret as private-witness"
+  let some bumpNr := files.find? (fun f =>
+      f.path.endsWith "r1-bump/src/main.nr") |
+    throw <| IO.userError "PrivWrite: missing bump main.nr"
+  -- Private witness inputs omit the Noir `pub` prefix; public count keeps it.
+  expect (bumpNr.contents.contains "pre_s0: pub u64" &&
+      bumpNr.contents.contains "pre_s1: u64" &&
+      !bumpNr.contents.contains "pre_s1: pub u64")
+    "PrivWrite bump .nr must mark public count as pub and secret as private witness"
+  -- Determinism of planHash across rebuilds.
+  let ir2 ← compileIrFromProgramV1 privateStateSourceText
+    "Examples.PrivWrite" "<noir-priv-state-2>"
+  expect (ir.sourcePlan.planHash == ir2.sourcePlan.planHash)
+    "PrivWrite planHash must be deterministic"
+
+/-- Product path: unused private param is a private-witness argument slot. -/
+private unsafe def checkPrivateParamProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 privateParamSourceText
+    "Examples.PrivParam" "<noir-priv-param>"
+  let increment ← findRelation ir "increment"
+  let paramBindings := increment.sourceRelation.inputs.filter fun i =>
+    match i.role with
+    | .parameter _ => true
+    | _ => false
+  expect (paramBindings.size == 2)
+    "PrivParam increment must bind two parameters"
+  expect (paramBindings.any fun i =>
+      i.sourceName == "delta" && i.visibility == .verifier)
+    "PrivParam public delta must be verifier-visible"
+  expect (paramBindings.any fun i =>
+      i.sourceName == "witness" && i.visibility == .witness)
+    "PrivParam private witness must be private-witness"
+  -- Host model: unused witness may be any value; lifecycle still exact on count.
+  let ok ← liftModel "PrivParam bump" <|
+    multiStateInputs increment true #[5] #[3, 999] #[8] true 8
+  expectAccept "PrivParam +3 with unused witness" increment ok
+  let wrong ← liftModel "PrivParam wrong post" <|
+    multiStateInputs increment true #[5] #[3, 999] #[9] true 8
+  expectReject "PrivParam wrong post state" increment wrong
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 privateParamSourceText
+    "<noir-priv-param-files>" "Examples.PrivParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Noir.buildFromCapability capability
+  let some incrNr := files.find? (fun f =>
+      f.path.endsWith "r1-increment/src/main.nr") |
+    throw <| IO.userError "PrivParam: missing increment main.nr"
+  expect (incrNr.contents.contains "arg_p0: pub u64" &&
+      incrNr.contents.contains "arg_p1: u64" &&
+      !incrNr.contents.contains "arg_p1: pub u64")
+    "PrivParam .nr must keep delta public and witness private"
+
+/-- Commitment state remains fail-closed on Noir Plan (private-only redesign). -/
+private unsafe def checkCommitmentStateClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 commitmentStateSourceText
+    "<noir-comm-state>" "Examples.CommMark" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  match Targets.Noir.planFromCapability capability with
+  | .ok _ =>
+      throw <| IO.userError
+        "CommMark: Noir must decline commitment state at Plan"
+  | .error e =>
+      expect ((e.render).contains "commitment" ||
+          (e.render).contains "not representable")
+        s!"CommMark Noir decline must cite commitment boundary, got {e.render}"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -2599,6 +2793,9 @@ unsafe def run : IO Unit := do
   checkCounterPlanHashUnchanged
   checkPrivateSum4ResidualRelationModel
   checkPrivateSum4ProductClosed
+  checkPrivateStateProduct
+  checkPrivateParamProduct
+  checkCommitmentStateClosed
   checkBranchingProduct
   checkEmitRevertProduct
   checkFnLocalCallProduct

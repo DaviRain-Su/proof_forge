@@ -267,6 +267,11 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     let field := plan.states[index]!
     unless field.sourceId == index && isIdentifier field.name do
       throw <| .planInvariant .noir "state binding is not canonical"
+    -- Private-witness redesign: only verifier-visible public slots and
+    -- private-witness private slots are legal (commitment is not a plan
+    -- InputVisibility; it is rejected at makeStatesV1).
+    unless field.visibility == .verifier || field.visibility == .witness do
+      throw <| .planInvariant .noir "state binding disclosure is not canonical"
   if hasDuplicates (plan.states.map (·.name)) ||
       hasDuplicates (plan.relations.map (·.name)) ||
       hasDuplicates (plan.relations.map (·.artifactStem)) then

@@ -94,6 +94,11 @@ structure StateField where
   /-- UInt64 / Int64 share the u64 plan word; UInt{8,16,32} map to native Noir
       widths (T8b); Field is native Noir Field. -/
   inputType : InputType := .u64
+  /-- Relation-slot disclosure: public state is a verifier-visible pre/post
+      public input; private state is a private-witness pre/post slot (the
+      proof carries the values as witnesses while Reference still treats them
+      as logical state). Commitment is not representable in this pilot. -/
+  visibility : InputVisibility := .verifier
   deriving BEq, Inhabited, Repr
 
 structure Param where
@@ -421,6 +426,13 @@ private def validateNoirTypeClosureV1
     pilotUintWidthPolicyNoirBody
     (fieldPolicy := pilotFieldPolicyBn254)
 
+/-- Map Semantic visibility to Noir relation-slot disclosure. Commitment is
+    rejected by the caller before this helper is applied. -/
+private def inputVisibilityOfSemanticV1 : VisibilityV1 → InputVisibility
+  | .public_ => .verifier
+  | .private_ => .witness
+  | .commitment => .verifier
+
 private def makeStatesV1
     (types : NoirTypeClosureV1)
     (states : Array StateDeclV1) : CompileResult (Array StateField) := do
@@ -430,13 +442,15 @@ private def makeStatesV1
   for state in states do
     unless state.id.toNat == planned.size do
       throw <| .planInvariant .noir "semantic state ids must match declaration order"
-    -- N1: Noir relation state slots are public inputs — private/commitment
-    -- state is not representable without a later witness-input redesign.
-    -- T8b: admit public UInt{8,16,32,64}/Int64/Field.
+    -- Witness redesign: private state → private-witness pre/post slots
+    -- (still logical state for the Reference machine). Commitment remains
+    -- fail-closed (no public commitment binding / Commit realization in the
+    -- Noir relation pilot). T8b: UInt{8,16,32,64}/Int64/Field types.
+    if state.visibility == .commitment then
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: commitment state is not representable (relation pilot has no public commitment binding; private-witness redesign admits private only)"
     requirePublicUintAbiOrInt64OrFieldState noirPlanErr types state
-      (allowNonPublic := false)
-      (nonPublicMsg := some
-        "unsupported Noir semantic shape: private/commitment state is not representable (relation state slots are public inputs)")
+      (allowNonPublic := true)
     unless isIdentifier state.name do
       throw <| .planInvariant .noir s!"state name '{state.name}' is not a safe identifier"
     let inputType ← inputTypeOfScalarV1 types state.typeId
@@ -444,6 +458,7 @@ private def makeStatesV1
       sourceId := state.id.toNat
       name := state.name
       inputType
+      visibility := inputVisibilityOfSemanticV1 state.visibility
     }
   if hasDuplicates (planned.map (·.name)) then
     throw <| .planInvariant .noir "state names must be unique"
@@ -468,13 +483,14 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
     unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .noir
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    -- N1: Noir binds params as public inputs — private/commitment params
-    -- would leak into verifier-visible data.
-    -- T8b: admit public UInt{8,16,32,64}/Int64/Field.
+    -- Witness redesign: private params → private-witness inputs (no verifier
+    -- leak). Commitment params remain fail-closed (no commitment realization).
+    -- T8b: UInt{8,16,32,64}/Int64/Field types.
+    if param.visibility == .commitment then
+      throw <| .planInvariant .noir
+        s!"unsupported Noir semantic shape: commitment parameter '{param.name}' in {owner} is not representable (relation pilot has no public commitment binding; private-witness redesign admits private only)"
     requirePublicUintAbiOrInt64OrFieldParam noirPlanErr types owner param
-      (allowNonPublic := false)
-      (nonPublicMsg := some
-        s!"unsupported Noir semantic shape: private/commitment parameter '{param.name}' in {owner} is not representable (relation parameter slots are public inputs)")
+      (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .noir
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
@@ -485,7 +501,7 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
       sourceId := param.valueId.toNat
       name := param.name
       inputIndex := inputOffset + planned.size
-      visibility := .verifier
+      visibility := inputVisibilityOfSemanticV1 param.visibility
       inputType
     }
     planned := planned.push binding
@@ -564,10 +580,13 @@ partial def collectScheduleSlots (statements : Array Statement) :
     | .forLoop _ _ _ _ _ body => slots ++ collectScheduleSlots body
     | _ => slots) #[]
 
-/-- Build the canonical public-input envelope. `resultType` is used only for
-    non-initializer relations (entry/view) and is ignored for `.initialize`.
-    Event slots trail the result input: one verifier-visible u64 per argument
-    of each static emit statement in pre-order. -/
+/-- Build the canonical input envelope. Public state/params are verifier-visible;
+    private state/params are private-witness slots (proof carries them; Reference
+    still treats private state as state). Lifecycle flags (`pre_initialized` /
+    `post_initialized`) and entry/view results stay verifier-visible.
+    `resultType` is used only for non-initializer relations (entry/view).
+    Event/call/schedule slots trail the result: verifier-visible u64 per static
+    effect argument in pre-order. -/
 def makeInputsV1 (states : Array StateField) (mode : RelationMode)
     (params : Array Param) (resultType : InputType)
     (emitSlots : Array (Nat × Nat × Nat)) (callSlots : Array (Nat × Nat))
@@ -587,7 +606,7 @@ def makeInputsV1 (states : Array StateField) (mode : RelationMode)
         name := s!"pre_s{field.sourceId}"
         sourceName := field.name
         type := field.inputType
-        visibility := .verifier
+        visibility := field.visibility
         role := .preState field.sourceId
       }
   for param in params do
@@ -603,7 +622,7 @@ def makeInputsV1 (states : Array StateField) (mode : RelationMode)
       name := s!"post_s{field.sourceId}"
       sourceName := field.name
       type := field.inputType
-      visibility := .verifier
+      visibility := field.visibility
       role := .postState field.sourceId
     }
   if !states.isEmpty then

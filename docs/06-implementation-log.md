@@ -12345,3 +12345,26 @@ normative: false
   index place as non-Array/Map (Typed off-limits) so Map/Bytes index *assign*
   cannot enter product Normalize from source yet — wire/Normalize paths ready.
   Solana dynamic index closed. No formal Reference↔target differential.
+
+## 2026-08-01 — Noir private-witness redesign (private state/params)
+
+- Design: private state maps to private-witness pre/post relation slots (still
+  logical state for Reference; proof carries values as witnesses). Private params
+  map to private-witness inputs. Lifecycle flags + entry/view results stay
+  verifier-visible. Commitment state/params remain fail-closed (no public
+  commitment binding / Commit realization in the Noir relation pilot).
+- Production (`ProofForgeV2/Targets/Noir` only):
+  * `StateField.visibility : InputVisibility` (default `.verifier`).
+  * `makeStatesV1` / `makeParamsV1` open private via Envelope `allowNonPublic := true`,
+    reject `.commitment` with a commitment-specific planInvariant message.
+  * `makeInputsV1` propagates field/param visibility onto pre/post state and
+    parameter slots (EmitIR already renders non-`pub` for `.witness` and JSON
+    `private-witness`).
+  * `ValidatePlanV1` documents verifier|witness state disclosure canonicity.
+- Tests: Targets N1 flips Noir private state/param from decline→accept and pins
+  witness slots; commitment decline retained. NoirRelationModel product positives
+  for PrivWrite (init/entry/view + host accept/reject + artifact pub/witness
+  surface) and PrivParam; CommMark Plan closed; PrivateSum4 private→public return
+  still PF-VIS-001. Accumulator planHash baseline rehashed for StateField.visibility.
+- Boundary: engineering only; EnvelopeV1 untouched; other targets unchanged;
+  no ACIR/proof backend; formal D2/D4 not claimed.
