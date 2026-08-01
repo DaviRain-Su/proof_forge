@@ -330,6 +330,23 @@ example (c c' : Cursor) (decl : TypeDeclV1)
     decodeTypeDeclV1 c = .ok (decl, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeTypeDeclV1_eq_of_bodyV1 c decl c' hdepth hbody
 
+example (decode : Decoder UInt32) (count : Nat) (acc : Array UInt32)
+    (c afterElement afterElements : Cursor) (value : UInt32) (values : Array UInt32)
+    (helement : decode c = .ok (value, afterElement))
+    (htail : decodeArrayElementsV1 decode count (acc.push value) afterElement =
+      .ok (values, afterElements)) :
+    decodeArrayElementsV1 decode (count + 1) acc c = .ok (values, afterElements) :=
+  decodeArrayElementsV1_succ decode count acc c afterElement value
+    (.ok (values, afterElements)) helement htail
+
+example (c : Cursor) (count offset : Nat) (types : Array TypeDeclV1)
+    (afterTypes : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
+    (helements : decodeArrayElementsV1 decodeTypeDeclV1 count #[]
+      ⟨c.input, offset, c.nesting⟩ = .ok (types, afterTypes)) :
+    decodeArray maxTableElements decodeTypeDeclV1 c = .ok (types, afterTypes) :=
+  decodeTypeDeclArrayV1_eq_of_elements c count offset types afterTypes hcount helements
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

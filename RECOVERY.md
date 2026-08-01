@@ -315,6 +315,11 @@ TypeDecl composition现已闭合：`expectTag_eq_of_headerV1`将真实expected-h
 tag→id→name→shape线程真实decoder结果，再经`decodeTypeDeclV1_eq_of_bodyV1`恢复parent nesting。
 下一步将这些success组合进root types array；完整root/formal状态不变。
 
+root `types` array composition seam现已闭合：`decodeArrayElementsV1_succ`按source order执行一个真实
+TypeDecl decoder、push accumulator并将完整cursor传给tail；通用`decodeArray_eq_of_elementsV1`组合真实
+count header与完整run，`decodeTypeDeclArrayV1_eq_of_elements`锁定root的`maxTableElements`调用。
+Bool/Principal/Unit declaration array已无需额外迭代器 theorem；root body连接仍pending。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

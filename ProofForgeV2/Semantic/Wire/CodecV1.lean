@@ -725,6 +725,17 @@ def decodeArrayElementsV1 (decode : Decoder α) :
       | .error e => .error e
       | .ok (v, c') => decodeArrayElementsV1 decode count (acc.push v) c'
 
+/-- Compose one successful production element step with the remaining sole
+    array iteration. -/
+theorem decodeArrayElementsV1_succ (decode : Decoder α) (count : Nat)
+    (acc : Array α) (c afterElement : Cursor) (value : α)
+    (result : Except SemanticWireErrorV1 (Array α × Cursor))
+    (helement : decode c = .ok (value, afterElement))
+    (htail : decodeArrayElementsV1 decode count (acc.push value) afterElement = result) :
+    decodeArrayElementsV1 decode (count + 1) acc c = result := by
+  simp only [decodeArrayElementsV1, helement]
+  exact htail
+
 def decodeArray (maxCount : Nat) (decode : Decoder α) : Decoder (Array α) := fun c =>
   match readArrayCountAtV1 c.input c.offset maxCount with
   | .error e => .error e
@@ -739,6 +750,16 @@ theorem decodeArray_eq_elementsV1 (maxCount : Nat) (decode : Decoder α) (c : Cu
     decodeArray maxCount decode c =
       decodeArrayElementsV1 decode count #[] ⟨c.input, offset, c.nesting⟩ := by
   simp only [decodeArray, hcount]
+
+/-- Compose a successful count header and complete production element run. -/
+theorem decodeArray_eq_of_elementsV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
+    (count offset : Nat) (values : Array α) (afterElements : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (count, offset))
+    (helements : decodeArrayElementsV1 decode count #[]
+      ⟨c.input, offset, c.nesting⟩ = .ok (values, afterElements)) :
+    decodeArray maxCount decode c = .ok (values, afterElements) := by
+  rw [decodeArray_eq_elementsV1 maxCount decode c count offset hcount]
+  exact helements
 
 def decodeByteArray (maxLen : Nat) : Decoder ByteArray := fun c => do
   let (payload, offset) ← readSizedBytesAtV1 c.input c.offset maxLen
@@ -1096,6 +1117,16 @@ theorem decodeTypeDeclV1_eq_of_bodyV1 (c : Cursor) (decl : TypeDeclV1) (c' : Cur
     decodeTypeDeclV1 c = .ok (decl, ⟨c'.input, c'.offset, c.nesting⟩) := by
   unfold decodeTypeDeclV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+/-- Root `types` field composition through the sole generic array decoder. -/
+theorem decodeTypeDeclArrayV1_eq_of_elements (c : Cursor) (count offset : Nat)
+    (types : Array TypeDeclV1) (afterTypes : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
+    (helements : decodeArrayElementsV1 decodeTypeDeclV1 count #[]
+      ⟨c.input, offset, c.nesting⟩ = .ok (types, afterTypes)) :
+    decodeArray maxTableElements decodeTypeDeclV1 c = .ok (types, afterTypes) :=
+  decodeArray_eq_of_elementsV1 maxTableElements decodeTypeDeclV1 c count offset
+    types afterTypes hcount helements
 
 def encodeConstantV1 (d : ConstantV1) : Except SemanticWireErrorV1 ByteArray := do
   let idB := encodeU32le d.id

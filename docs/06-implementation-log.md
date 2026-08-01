@@ -11457,3 +11457,14 @@ normative: false
   scalar/shape validation。kernel signature examples、focused suite与blocker review通过。
 - Boundary：canonical unnamed Bool/Principal/Unit TypeDecl现可逐项证明；root types array、其余shape、
   完整carrier及formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 root types-array composition seam
+
+- Proof：`decodeArrayElementsV1_succ`直接展开sole production successor step，保持source-order push、
+  exact cursor threading与tail result（含error）原样传播；`decodeArray_eq_of_elementsV1`组合真实bounded
+  count header与完整element run。
+- Root：`decodeTypeDeclArrayV1_eq_of_elements`将上述通用证明锁定到
+  `decodeArray maxTableElements decodeTypeDeclV1`。kernel signature examples、focused build与blocker
+  review通过，未新增第二循环。
+- Boundary：具体Bool/Principal/Unit bytes现可逐项接入该array seam；SemanticProgram root body、其余
+  tables、完整carrier与formal TASK/TST仍pending。
