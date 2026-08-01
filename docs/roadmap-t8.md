@@ -97,7 +97,17 @@ literal + bigLiteral；ResultKind uint128/256；Yul 掩码 + ABI；PlanSchema ta
 Solana/NEAR/Noir 保持 fail closed。EvmSmoke WideUint 绿；shard-targets 绿。
 隔离 CI 已 dispatch（ci-verify-t9b-evm-u128-256）。
 
-### [in_progress] T9c：窄 Int（Int8/16/32 body + ABI）
+### [merged] T9c-EVM：窄 Int（Int8/16/32 body + ABI）EVM-first（2026-08-01, f523b674f）
+EVM-only：`pilotIntWidthPolicyNarrow`；ResultKind int8/16/32；ABI int*；
+`narrowSigned*` Plan tags 51–58；Yul signextend+range；EvmSmoke NarrowInt。
+Solana/NEAR/Noir 仍 Int64-only → 见 pending **T9c-2**。
+隔离 CI 已 dispatch（ci-verify-t9c-evm-narrow-int）。
+
+### [pending] T9c-2：窄 Int 其余三 target（Solana/NEAR/Noir body + ABI）
+- 镜像 T9c-EVM：`pilotIntWidthPolicyNarrow` + signed narrow Plan/IR/emit + results
+- Solana layout `i*-le` + SBPF 宽度守卫；NEAR WAT；Noir i8/i16/i32
+- 金样 + 可选 Mollusk NarrowInt fixture
+
 - 当前 Int64-only（pilotIntWidthPolicyI64）；TypeCheck/Normalize 已开 Int 窄宽（T1）
 - 工作面：Envelope Int 策略扩展；signed 语义（符号扩展、signed overflow min/max 检测、toward-zero div/rem、arsh 算术右移）；四 target
 - 注意与 UInt 窄宽的区分（isInt 标志 + 宽度）；金样 + 负向（Int128/256 保持 fail closed）
@@ -131,3 +141,4 @@ T9-0（主代理）→ T9a → T9b → T9c → T9d → T9e（每个之间留 aud
 | 2026-08-01 | M4 | merged 13e3a54be, 隔离 CI 已 dispatch（ci-verify-m4-plan-digest） |
 | 2026-08-01 | T9a | merged 642e6016e, 隔离 CI 已 dispatch（ci-verify-t9a-narrow-result） |
 | 2026-08-01 | T9b | merged 09c07cfc8, 隔离 CI 已 dispatch（ci-verify-t9b-evm-u128-256） |
+| 2026-08-01 | T9c-EVM | merged f523b674f, 隔离 CI 已 dispatch（ci-verify-t9c-evm-narrow-int） |
