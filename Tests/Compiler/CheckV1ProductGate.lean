@@ -1,16 +1,16 @@
 /-
   Tests.Compiler.CheckV1ProductGate — product-path fail-closed gate for
-  independent multi-pass CheckV1 inside NormalizeV1, plus exact-erasure parity
-  on the isolated legacy checker and non-product compileValidatedSourceV1 seam.
+  independent multi-pass CheckV1 inside NormalizeV1, plus non-product
+  compileValidatedSourceV1 seam.
 
   Pins Counter happy path (Normalize structure gate + single semantic carrier),
   type / effect / bound / disclosure product wires, Normalize-gate unsupported
-  control-flow (missing/after-return) and private unused state fail closed at
-  S1 Normalize (no alpha-only compile path). Bound-only coverage is a
-  well-typed triple-nested `for bounded 4096` (UInt32 product overflow).
+  control-flow (missing/after-return) and private unused state through the
+  sole ProgramV1 product path. Bound-only coverage is a well-typed triple-nested
+  `for bounded 4096` (UInt32 product overflow). Alpha Typed.checkV1 parity was
+  removed with the alpha residual modules.
 -/
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Core.TypedV1
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Typed.CheckV1
@@ -176,7 +176,6 @@ def runAst : IO Unit := do
       .return_ (some (var count))]) #[param delta]),
     .view (mkView getN (ret (var count)))]
   let _ ← expectOk "counter-ast" (Compiler.compileValidatedSourceV1 counter)
-  let _ ← expectOk "counter-checkV1" (Typed.checkV1 counter)
   expectNormalizeOk "counter-ast-normalize" counter
 
   -- Accumulator-shaped S1 AST succeeds through Normalize and the shared compiler mint.
@@ -199,24 +198,15 @@ def runAst : IO Unit := do
   expectRender "type-only"
     "PF-SRC-INVALID: type mismatch: expected UInt64, got Bool"
     (Compiler.compileValidatedSourceV1 typeOnly)
-  expectRenderPrefix "type-only-checkV1" "PF-SRC-INVALID:"
-    (Typed.checkV1 typeOnly)
 
-  -- Effect-only: view write/call → CompileError.effectDisallowed / PF-EFFECT-001
-  -- via EffectCheckV1 (sole product allowlist authority). Never the retired alpha
-  -- strings "cannot write state" / "cannot perform synchronous call".
+  -- Effect-only: view write/call → PF-EFFECT-001 via EffectCheckV1 (sole product
+  -- allowlist authority). Never the retired alpha residual strings
+  -- "cannot write state" / "cannot perform synchronous call".
   let viewWrite ← validated moduleQ identity demo #[
     .state (mkState count),
     .view (mkView getN (block #[.assign (.name count) (u 1), .return_ (some (var count))]))]
   let wantWrite := "PF-EFFECT-001: view 'get' does not allow effect 'state.write'"
   expectRender "effect-view-write" wantWrite (Compiler.compileValidatedSourceV1 viewWrite)
-  expectRender "effect-view-write-checkV1" wantWrite (Typed.checkV1 viewWrite)
-  match Typed.checkV1 viewWrite with
-  | .error (.effectDisallowed msg) =>
-      expect (msg == "view 'get' does not allow effect 'state.write'")
-        s!"effect-view-write-ctor detail: {msg}"
-  | .error e => throw <| IO.userError s!"effect-view-write-ctor: expected effectDisallowed, got {e.render}"
-  | .ok _ => throw <| IO.userError "effect-view-write-ctor: expected error"
   match Compiler.compileValidatedSourceV1 viewWrite with
   | .error e =>
       expect (not (e.render.contains "cannot write state"))
@@ -227,13 +217,6 @@ def runAst : IO Unit := do
     .view (mkView getN (block #[.call { callee := peer, args := #[] }, .return_ (some (u 0))]))]
   let wantCall := "PF-EFFECT-001: view 'get' does not allow effect 'external.call.sync'"
   expectRender "effect-view-call" wantCall (Compiler.compileValidatedSourceV1 viewCall)
-  expectRender "effect-view-call-checkV1" wantCall (Typed.checkV1 viewCall)
-  match Typed.checkV1 viewCall with
-  | .error (.effectDisallowed msg) =>
-      expect (msg == "view 'get' does not allow effect 'external.call.sync'")
-        s!"effect-view-call-ctor detail: {msg}"
-  | .error e => throw <| IO.userError s!"effect-view-call-ctor: expected effectDisallowed, got {e.render}"
-  | .ok _ => throw <| IO.userError "effect-view-call-ctor: expected error"
   match Compiler.compileValidatedSourceV1 viewCall with
   | .error e =>
       expect (not (e.render.contains "cannot perform synchronous call"))
@@ -263,11 +246,8 @@ def runAst : IO Unit := do
   expectRender "bound-loop-product"
     "PF-BOUND-001: loop bound product overflows UInt32 in entry 'run' (bound 4096)"
     (Compiler.compileValidatedSourceV1 boundOnly)
-  expectRender "bound-loop-product-checkV1"
-    "PF-BOUND-001: loop bound product overflows UInt32 in entry 'run' (bound 4096)"
-    (Typed.checkV1 boundOnly)
 
-  -- Unsupported control-flow fails at Normalize S1; no product alpha stage follows it.
+  -- Unsupported control-flow fails at Normalize S1 on the sole product path.
   -- Nonempty block without return (unit entry + state assign); empty blocks are
   -- rejected by ValidatedSourceV1 before the compiler.
   let missing ← validated moduleQ identity demo #[
@@ -292,7 +272,6 @@ def runAst : IO Unit := do
   let priv ← validated moduleQ identity demo #[
     .state (mkState count (.uint 64) .private_),
     .entry (mkEntry runN (ret (var seed)) #[param seed])]
-  let _ ← expectOk "private-unused-checkV1" (Typed.checkV1 priv)
   let privCompiled ← expectOk "private-unused-compile"
     (Compiler.compileValidatedSourceV1 priv)
   let privData ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
@@ -306,7 +285,6 @@ def runAst : IO Unit := do
   -- path; retained SemanticProgramV1 contains the exact Op.Literal bytes.
   let litOnly ← validated moduleQ identity demo #[
     .entry (mkEntry runN (ret (u 72623859790382856)))]
-  let _ ← expectOk "literal-only-checkV1" (Typed.checkV1 litOnly)
   let litCompiled ← expectOk "literal-only-compile"
     (Compiler.compileValidatedSourceV1 litOnly)
   expectNormalizeOk "literal-only-normalize" litOnly
@@ -383,7 +361,6 @@ private unsafe def runSource
   match ← session.selectProgramV1 privateStateUnusedSource
       "<checkv1-product-private>" moduleName none with
   | .ok source =>
-      let _ ← expectOk "private-unused-source-checkV1" (Typed.checkV1 source)
       -- N1: private state now compiles; the retained carrier carries the
       -- private visibility and the product path succeeds.
       let compiled ← expectOk "private-unused-source-compile"
@@ -425,7 +402,7 @@ private unsafe def runSource
         (Compiler.compileValidatedSourceV1 source)
   | .error error => throw <| IO.userError s!"disclosure-source load: {error.render}"
 
-  -- D2-04b implicit PC: private if then public return → PF-VIS-001 via checkV1/compile.
+  -- D2-04b implicit PC: private if then public return → PF-VIS-001 via product compile.
   let discImplicitSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n\n" ++
@@ -441,9 +418,6 @@ private unsafe def runSource
       expectRenderContains "disclosure-implicit-source" "PF-VIS-001:"
         "disclosure violation: cannot flow 'private' into 'public'"
         (Compiler.compileValidatedSourceV1 source)
-      expectRenderContains "disclosure-implicit-checkV1" "PF-VIS-001:"
-        "disclosure violation: cannot flow 'private' into 'public'"
-        (Typed.checkV1 source)
   | .error error => throw <| IO.userError s!"disclosure-implicit-source load: {error.render}"
 
   -- D2-04b assert condition is a public sink (assert ⇒ failure.revert).
@@ -460,9 +434,6 @@ private unsafe def runSource
       expectRenderContains "disclosure-assert-source" "PF-VIS-001:"
         "disclosure violation: cannot flow 'private' into 'public'"
         (Compiler.compileValidatedSourceV1 source)
-      expectRenderContains "disclosure-assert-checkV1" "PF-VIS-001:"
-        "disclosure violation: cannot flow 'private' into 'public'"
-        (Typed.checkV1 source)
   | .error error => throw <| IO.userError s!"disclosure-assert-source load: {error.render}"
 
   -- Bound-only source path: same triple-nested product overflow as AST case.
@@ -484,12 +455,9 @@ private unsafe def runSource
       expectRender "bound-loop-product-source"
         "PF-BOUND-001: loop bound product overflows UInt32 in entry 'run' (bound 4096)"
         (Compiler.compileValidatedSourceV1 source)
-      expectRender "bound-loop-product-source-checkV1"
-        "PF-BOUND-001: loop bound product overflows UInt32 in entry 'run' (bound 4096)"
-        (Typed.checkV1 source)
   | .error error => throw <| IO.userError s!"bound-source load: {error.render}"
 
-  -- Literal-only source succeeds through CheckV1 → Normalize → the retained
+  -- Literal-only source succeeds through Normalize → the retained
   -- single-semantic compiled carrier.
   let literalSource :=
     "import ProofForgeV2\n" ++
@@ -500,7 +468,6 @@ private unsafe def runSource
   match ← session.selectProgramV1 literalSource
       "<checkv1-product-literal>" moduleName none with
   | .ok source =>
-      let _ ← expectOk "literal-source-checkV1" (Typed.checkV1 source)
       let _ ← expectOk "literal-source-compile"
         (Compiler.compileValidatedSourceV1 source)
       expectNormalizeOk "literal-source-normalize" source

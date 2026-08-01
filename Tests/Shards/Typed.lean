@@ -1,4 +1,3 @@
-import Tests.Compiler.TypedNameIndex
 import Tests.Compiler.ValidatedSourceV1Pipeline
 import Tests.Compiler.CheckV1ProductGate
 import Tests.Compiler.DiagnosticPipelineV1
@@ -18,7 +17,6 @@ import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.ReferenceV1
 unsafe def main : IO Unit := do
-  Tests.Compiler.TypedNameIndex.run
   Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Compiler.CheckV1ProductGate.run
   Tests.Compiler.DiagnosticPipelineV1.run

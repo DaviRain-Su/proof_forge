@@ -97,7 +97,8 @@ w2-single-semantic-carrier-deletion-gate:
     done
     rg -q 'structure CompiledSemanticV1 where' ProofForgeV2/Compiler/Pipeline.lean
     rg -q 'private mk ::' ProofForgeV2/Compiler/Pipeline.lean
-    rg -q '^namespace ProofForgeV2.Compiler.AlphaCompatibility$' ProofForgeV2/Compiler/AlphaCompatibility.lean
+    # Alpha cleanup wave deleted the compat module; pin absence instead of presence.
+    fail_if_file_exists "$gate" ProofForgeV2/Compiler/AlphaCompatibility.lean
     rg -q 'structure RequirementContributionV1 where' ProofForgeV2/Typed/RequirementsInferV1.lean
     rg -q 'inferRequirementContributionsV1' ProofForgeV2/Semantic/RequirementsV1.lean
     lake build ProofForgeV2.Compiler.Pipeline ProofForgeV2.Targets.EngineeringBuildV1 \
@@ -106,6 +107,31 @@ w2-single-semantic-carrier-deletion-gate:
       Tests.Compiler.ValidatedSourceV1Pipeline Tests.Materialization.RequirementResolverV1 \
       Tests.Materialization.OutputEnvelopeV1 Tests.Materialization.EngineeringFinalizationV1
     echo "w2-single-semantic-carrier-deletion-gate: ok"
+
+# D2 alpha-residual physical-deletion gate (durable just/ci pin).
+# Core/Source, Core/Typed, Core/SemanticIR, Core/Semantics, Core/TypedV1,
+# Compiler/AlphaCompatibility and Tests.Fixtures.SourcePrograms deleted by the
+# AlphaCleanup wave; imports and physical presence must stay absent.
+alpha-deletion-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source scripts/gate_helpers.sh
+    gate="alpha-deletion-gate"
+    fail_if_match "$gate" 'import ProofForgeV2\.Core\.Semantics' ProofForgeV2 Tests
+    fail_if_match "$gate" 'import ProofForgeV2\.Core\.SemanticIR' ProofForgeV2 Tests
+    fail_if_match "$gate" 'import ProofForgeV2\.Core\.Source' ProofForgeV2 Tests
+    fail_if_match "$gate" 'import ProofForgeV2\.Core\.Typed$' ProofForgeV2 Tests
+    fail_if_match "$gate" 'import ProofForgeV2\.Core\.TypedV1' ProofForgeV2 Tests
+    fail_if_match "$gate" 'import ProofForgeV2\.Compiler\.AlphaCompatibility' ProofForgeV2 Tests
+    fail_if_match "$gate" 'import Tests\.Fixtures\.SourcePrograms' Tests
+    fail_if_file_exists "$gate" ProofForgeV2/Core/Semantics.lean
+    fail_if_file_exists "$gate" ProofForgeV2/Core/SemanticIR.lean
+    fail_if_file_exists "$gate" ProofForgeV2/Core/Source.lean
+    fail_if_file_exists "$gate" ProofForgeV2/Core/Typed.lean
+    fail_if_file_exists "$gate" ProofForgeV2/Core/TypedV1.lean
+    fail_if_file_exists "$gate" ProofForgeV2/Compiler/AlphaCompatibility.lean
+    fail_if_file_exists "$gate" Tests/Fixtures/SourcePrograms.lean
+    echo "alpha-deletion-gate: ok"
 
 # D3/S5 engineering deletion + sole-mint gate (durable just/ci pin).
 # - no checkSupport def/call
@@ -922,6 +948,6 @@ solana-runtime:
 # Ordinary-host product gate. Release qualification is intentionally excluded.
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
 # selection and S5–S7c deletion gates retain the engineering output closure.
-ci: docs-check sbom-package-files-check build test product-negative source-bounds target-cli-positive target-negative s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
+ci: docs-check sbom-package-files-check build test product-negative source-bounds target-cli-positive target-negative s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate alpha-deletion-gate
 
 check: ci

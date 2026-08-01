@@ -2,13 +2,10 @@ import Tests.Core.Common
 import Tests.Core.CommonRemaining
 import Tests.Core.CommonScalars
 import Tests.Core.Unicode
-import Tests.Core.Semantics
 import Tests.Core.DiagnosticV1
 import Tests.Core.DiagnosticBundleV1
 import Tests.Frontend.ProtocolV1
 import Tests.Frontend.WorkerV1
-import Tests.Compiler.Pipeline
-import Tests.Compiler.TypedNameIndex
 import Tests.Compiler.ValidatedSourceV1Pipeline
 import Tests.Compiler.CheckV1ProductGate
 import Tests.Compiler.DiagnosticPipelineV1
@@ -130,13 +127,10 @@ unsafe def main : IO Unit := do
   Tests.Core.CommonRemaining.run
   Tests.Core.CommonScalars.run
   Tests.Core.Unicode.run
-  Tests.Core.run
   Tests.Core.DiagnosticV1.run
   Tests.Core.DiagnosticBundleV1.run
   Tests.Frontend.ProtocolV1.run
   Tests.Frontend.WorkerV1.run
-  Tests.Compiler.run
-  Tests.Compiler.TypedNameIndex.run
   Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Compiler.CheckV1ProductGate.run
   Tests.Compiler.DiagnosticPipelineV1.run

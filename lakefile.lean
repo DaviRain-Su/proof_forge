@@ -10,14 +10,10 @@ lean_lib ProofForgeV2 where
 
 lean_lib ProofForgeV2Tests where
   roots := #[
-    `Tests.Fixtures.SourcePrograms,
     `Tests.Core.Common,
     `Tests.Core.CommonRemaining,
     `Tests.Core.CommonScalars,
     `Tests.Core.Unicode,
-    `Tests.Core.Semantics,
-    `Tests.Compiler.Pipeline,
-    `Tests.Compiler.TypedNameIndex,
     `Tests.Compiler.ValidatedSourceV1Pipeline,
     `Tests.Compiler.CheckV1ProductGate,
     `Tests.Compiler.DiagnosticPipelineV1,

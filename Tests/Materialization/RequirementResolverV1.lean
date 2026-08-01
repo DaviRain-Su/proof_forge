@@ -14,7 +14,6 @@
 -/
 import ProofForgeV2
 import ProofForgeV2.CLI.Main
-import ProofForgeV2.Core.SemanticIR
 import Tests.Language.ParserSession
 import Lean
 import Lean.Elab.Command
@@ -120,12 +119,16 @@ def sizeOfOnlySelection (_s : ResolvedBuildSelectionV1) : Unit := ()
 end DualArgProbe
 
 /-! Synthetic residual emission-bypass probes. These deliberately shape public
-    types as capability-free SemanticProgram→Plan / Plan→IR / IR→files chains.
+    types as capability-free stand-in-Semantic→Plan / Plan→IR / IR→files chains.
     The product gate under `ProofForgeV2` must reject renames/aliases of this form;
-    probes live under Tests prefix and prove the scanner catches them. -/
+    probes live under Tests prefix and prove the scanner catches them.
+    Stand-in `ProbeSemantic` replaces deleted alpha `ProofForgeV2.SemanticProgram`. -/
 namespace ResidualBypassProbe
 
-/-- Opaque stand-ins so probes do not import private target Residual APIs. -/
+/-- Opaque stand-ins so probes do not import deleted alpha Semantic / private Residual APIs. -/
+structure ProbeSemantic where
+  tag : Unit := ()
+  deriving Inhabited
 structure ProbePlan where
   tag : Unit := ()
   deriving Inhabited
@@ -133,8 +136,8 @@ structure ProbeIR where
   tag : Unit := ()
   deriving Inhabited
 
-/-- Capability-free SemanticProgram → Plan (forbidden product shape). -/
-def probeSemToPlan (_p : SemanticProgram) : CompileResult ProbePlan :=
+/-- Capability-free stand-in-Semantic → Plan (forbidden product shape). -/
+def probeSemToPlan (_p : ProbeSemantic) : CompileResult ProbePlan :=
   .ok {}
 
 /-- Capability-free Plan → IR (forbidden product shape). -/
@@ -146,11 +149,11 @@ def probeIRToFiles (_ir : ProbeIR) : CompileResult (Array OutputFile) :=
   .ok #[]
 
 /-- Renamed residual planFromAlpha shape (must still be caught by type scan). -/
-def planFromAlphaRenamed (_p : SemanticProgram) : CompileResult ProbePlan :=
+def planFromAlphaRenamed (_p : ProbeSemantic) : CompileResult ProbePlan :=
   .ok {}
 
-/-- Reducible alias of SemanticProgram (alias expand must catch). -/
-abbrev SemanticAlias := SemanticProgram
+/-- Reducible alias of ProbeSemantic (alias expand must catch). -/
+abbrev SemanticAlias := ProbeSemantic
 
 def probeViaSemanticAlias (_p : SemanticAlias) : CompileResult ProbePlan :=
   .ok {}
@@ -158,7 +161,7 @@ def probeViaSemanticAlias (_p : SemanticAlias) : CompileResult ProbePlan :=
 /-- Result-type alias of CompileResult ProbePlan (result expand must catch). -/
 abbrev PlanResultAlias := CompileResult ProbePlan
 
-def probeViaResultAlias (_p : SemanticProgram) : PlanResultAlias :=
+def probeViaResultAlias (_p : ProbeSemantic) : PlanResultAlias :=
   .ok {}
 
 /-- Two-step abbrev chain on the input carrier. -/
@@ -168,19 +171,19 @@ def probeViaAbbrevChain (_p : SemanticAliasChain) : CompileResult ProbePlan :=
   .ok {}
 
 /-- Reducible-def chain (attribute reducible, not opaque). -/
-@[reducible] def SemanticReducible := SemanticProgram
+@[reducible] def SemanticReducible := ProbeSemantic
 @[reducible] def PlanResultReducible := CompileResult ProbePlan
 
 def probeViaReducibleChain (_p : SemanticReducible) : PlanResultReducible :=
   .ok {}
 
 /-- Opaque function with forbidden Semantic→Plan type (must be scanned as opaqueInfo). -/
-opaque opaqueSemToPlan (_p : SemanticProgram) : CompileResult ProbePlan
+opaque opaqueSemToPlan (_p : ProbeSemantic) : CompileResult ProbePlan
 
 /-- Direct public constructor whose field type embeds a forbidden emission chain.
     Scanner must walk ctor field types (not only top-level defnInfo). -/
 structure DirectCtorBypass where
-  planFromAlpha : SemanticProgram → CompileResult ProbePlan
+  planFromAlpha : ProbeSemantic → CompileResult ProbePlan
 
 /-- Direct mandatory capability binder: authorized (not residual bypass). -/
 def probeCapabilityPlan
@@ -216,8 +219,8 @@ def probeOptionCapBinder
     (_c : Option Targets.ResolvedEngineeringBuildV1) (_plan : ProbePlan) :
     CompileResult ProbeIR :=
   .ok {}
-/-- Pure validation control (Semantic → Unit): not an emission chain. -/
-def probeValidateOnly (_p : SemanticProgram) : CompileResult Unit :=
+/-- Pure validation control (stand-in Semantic → Unit): not an emission chain. -/
+def probeValidateOnly (_p : ProbeSemantic) : CompileResult Unit :=
   .ok ()
 
 /-- Capability-bearing structure ctor control: first field is direct mandatory
@@ -234,23 +237,23 @@ structure CtorParentProbe where
 /-- User-declared forbidden emission under constructor-name parent
     `CtorParentProbe.mk.*`. Hierarchical name is intentional: must be scanned
     (narrow Lean-generated leaf list must not swallow this user API). -/
-def CtorParentProbe.mk.planFromAlphaNested (_p : SemanticProgram) :
+def CtorParentProbe.mk.planFromAlphaNested (_p : ProbeSemantic) :
     CompileResult ProbePlan :=
   .ok {}
 
 /-- Transparent alias whose expansion body is a nested forbidden Pi.
     Classifier must expand the alias and discover Semantic→Plan. -/
-abbrev NestedSemToPlan := SemanticProgram → CompileResult ProbePlan
+abbrev NestedSemToPlan := ProbeSemantic → CompileResult ProbePlan
 
 def probeViaNestedAliasPi (_f : NestedSemToPlan) : Unit := ()
 
 /-- Reducible alias expansion body is nested forbidden Pi. -/
-@[reducible] def NestedSemToPlanReducible := SemanticProgram → CompileResult ProbePlan
+@[reducible] def NestedSemToPlanReducible := ProbeSemantic → CompileResult ProbePlan
 
 def probeViaNestedReduciblePi (_f : NestedSemToPlanReducible) : Unit := ()
 
 /-- Pure (unwrapped) Semantic→Plan — forbidden without capability. -/
-def probePureSemToPlan (_p : SemanticProgram) : ProbePlan := {}
+def probePureSemToPlan (_p : ProbeSemantic) : ProbePlan := {}
 
 /-- Pure Plan→IR — forbidden without capability. -/
 def probePurePlanToIR (_plan : ProbePlan) : ProbeIR := {}
@@ -1585,7 +1588,7 @@ private def residualCapabilityN : Name :=
   ``ProofForgeV2.Targets.ResolvedEngineeringBuildV1
 
 private def residualSemanticProgramN : Name :=
-  ``ProofForgeV2.SemanticProgram
+  ``Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.ProbeSemantic
 
 private def residualOutputFileN : Name :=
   ``ProofForgeV2.OutputFile

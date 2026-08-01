@@ -1,7 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Compiler.AlphaCompatibility
 import ProofForgeV2.Core.Crypto
-import ProofForgeV2.Core.Semantics
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
@@ -9,7 +7,6 @@ import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
-import Tests.Fixtures.SourcePrograms
 import Tests.Language.ParserSession
 
 namespace Tests.Materialization
@@ -1880,42 +1877,9 @@ unsafe def run : IO Unit := do
         (solanaIR.handlers.set! 2 forgedCurrentHandler)) with
   | .error (.planInvariant .solana _) => pure ()
   | _ => throw <| IO.userError "Solana typed IR must remain exactly bound to its source Plan"
-  -- S1 still excludes multi-field partial-init/read-other shapes. Keep this
-  -- legacy Core.Semantics characterization explicit and isolated from the
-  -- ProgramV1 compiled carrier.
-  let legacyAccumulator ← liftResult <|
-    Compiler.AlphaCompatibility.compile Tests.Fixtures.SourcePrograms.accumulatorQualified
-  let untouchedState : Semantic.StateDecl := {
-    id := ⟨1⟩
-    name := "untouched"
-    type := .u64
-  }
-  let partialInitProgram : Semantic.Program := {
-    legacyAccumulator with
-    qualifiedName := "Tests.PartialInit"
-    name := "PartialInit"
-    «state» := legacyAccumulator.state.push untouchedState
-  }
-  let partialReference ← liftResult <| Semantics.initializeProgram partialInitProgram #[7]
-  expect (partialReference.storage == #[7, 0])
-    "reference initialization must start every declared state field at zero"
-  let readOtherInitializer : Semantic.Initializer := {
-    params := #[]
-    body := #[.store ⟨0⟩ (.state ⟨1⟩)]
-  }
-  let readOtherDraft := {
-    partialInitProgram with
-    qualifiedName := "Tests.ReadOtherInit"
-    name := "ReadOtherInit"
-    initializer := some readOtherInitializer
-    requirements := #[]
-  }
-  let readOtherProgram := {
-    readOtherDraft with requirements := Semantic.deriveRequirements readOtherDraft
-  }
-  let readOtherReference ← liftResult <| Semantics.initializeProgram readOtherProgram #[]
-  expect (readOtherReference.storage == #[0, 0])
-    "reference initializer state reads must observe canonical zero storage"
+  -- Multi-field partial-init/read-other shapes remain S1 Normalize fail-closed;
+  -- former alpha Core.Semantics hand-built characterization removed with the
+  -- alpha residual modules.
 
   let nearPlan ← liftResult <| planNear accCompiled
   -- forgedNearDescriptor still used for validatePlan descriptor-binding negatives.

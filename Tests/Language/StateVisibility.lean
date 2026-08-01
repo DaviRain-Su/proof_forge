@@ -1,5 +1,4 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Core.TypedV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Typed.RequirementsInferV1
@@ -117,16 +116,9 @@ unsafe def run : IO Unit := do
       semanticDefault.requirements.items.map (·.id) == #["state.persistent"])
     "public/default state must freeze only state.persistent"
 
-  -- Private / commitment: AST + CheckV1 + RequirementsInfer retained; N1 product
-  -- compile succeeds and Semantic state rows keep visibility (disclosure keys
-  -- are freeze-skipped; only state.persistent is frozen).
-  match Typed.checkV1 privVis with
-  | .ok _ => pure ()
-  | .error e => throw <| IO.userError s!"private CheckV1: {e.render}"
-  match Typed.checkV1 commVis with
-  | .ok _ => pure ()
-  | .error e => throw <| IO.userError s!"commitment CheckV1: {e.render}"
-
+  -- Private / commitment: AST + RequirementsInfer retained; N1 product compile
+  -- succeeds and Semantic state rows keep visibility (disclosure keys are
+  -- freeze-skipped; only state.persistent is frozen).
   let privIds := (inferRequirementContributionsFromSourceV1 privVis).map
     RequirementContributionV1.idOf
   let commIds := (inferRequirementContributionsFromSourceV1 commVis).map

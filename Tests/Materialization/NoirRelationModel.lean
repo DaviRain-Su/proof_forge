@@ -4,7 +4,6 @@ import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Language.Loader
 import Tests.Language.ParserSession
-import Tests.Fixtures.SourcePrograms
 import Tests.Materialization.TargetIrFixtures
 
 namespace Tests.Materialization.NoirRelationModel
@@ -12,7 +11,6 @@ namespace Tests.Materialization.NoirRelationModel
 open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
-open Tests.Fixtures.SourcePrograms
 
 private def counterSourceText : String :=
   "import ProofForgeV2\n\n" ++
