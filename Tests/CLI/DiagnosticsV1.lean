@@ -9,6 +9,8 @@
     * parser/source boundary: exit 3
     * Counter `build` success: exit 0 + success stdout, no failure artifacts
     * C1: `check` ok/fail, `inspect` digests, `--json` PF-JCS, `--profile` selection
+    * inspect-output: build Counter → inspect dir (human + --json + --output-dir);
+      missing/tampered manifest/evidence fail closed with PF-OUTPUT-MANIFEST exit 6
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.CLI.Emit
@@ -406,6 +408,171 @@ private def testProfileSelection : IO Unit := do
   expect (containsSubstr stderr4 "Usage:")
     s!"deleted describe-target must print usage: {stderr4}"
 
+/-- C1 inspect-output: build Counter → inspect dir → assert fields; tamper fails;
+    `--json` golden schema; `--output-dir` form; registered target still preferred. -/
+private def testInspectOutputDir : IO Unit := do
+  let outDir := FilePath.mk "build/v2/diagnostic-inspect-output-ok"
+  if ← outDir.pathExists then IO.FS.removeDirAll outDir
+  let (buildEc, buildStdout, buildStderr) ← runCli #[
+    "build", "Examples/Counter.lean",
+    "--module", "Examples.Counter",
+    "--target", "solana",
+    "--profile", "solana-sbpf-plan-v1",
+    "-o", outDir.toString
+  ]
+  expect (buildEc == 0)
+    s!"inspect-output fixture build must exit 0, got {buildEc}\n{buildStderr}\n{buildStdout}"
+  expect (← (outDir / "manifest.json").pathExists) "fixture must write manifest.json"
+  expect (← (outDir / "evidence.json").pathExists) "fixture must write evidence.json"
+  -- Positional path form.
+  let (ec, stdout, stderr) ← runCli #["inspect", outDir.toString]
+  expect (ec == 0)
+    s!"inspect output-dir must exit 0, got {ec}\n{stderr}\n{stdout}"
+  expect (containsSubstr stdout s!"outputDir={outDir}")
+    s!"inspect-output outputDir: {stdout}"
+  expect (containsSubstr stdout "schemaVersion=proof-forge.output.v1\n")
+    s!"inspect-output schemaVersion: {stdout}"
+  expect (containsSubstr stdout "target=solana\n")
+    s!"inspect-output target: {stdout}"
+  expect (containsSubstr stdout "codegenProfile=solana-sbpf-plan-v1\n")
+    s!"inspect-output profile: {stdout}"
+  expect (containsSubstr stdout "artifactProgramName=Counter\n")
+    s!"inspect-output artifact name: {stdout}"
+  expect (containsSubstr stdout "sourceHash=sha256:")
+    s!"inspect-output sourceHash: {stdout}"
+  expect (containsSubstr stdout "semanticHash=sha256:")
+    s!"inspect-output semanticHash: {stdout}"
+  expect (containsSubstr stdout "buildIdentityDigest=sha256:")
+    s!"inspect-output buildIdentity: {stdout}"
+  expect (containsSubstr stdout "supportClaimDigest=sha256:")
+    s!"inspect-output supportClaim: {stdout}"
+  expect (containsSubstr stdout "engineeringRegistryRootDigest=sha256:")
+    s!"inspect-output registry root: {stdout}"
+  expect (containsSubstr stdout "outputSetDigest=sha256:")
+    s!"inspect-output outputSetDigest: {stdout}"
+  expect (containsSubstr stdout "deployable=")
+    s!"inspect-output deployable: {stdout}"
+  expect (containsSubstr stdout "files=#[")
+    s!"inspect-output files: {stdout}"
+  expect (containsSubstr stdout
+      "validation=structure+evidence+digest-format+outputSetDigest-recompute")
+    s!"inspect-output validation tag: {stdout}"
+  expect (stderr == "")
+    s!"inspect-output ok must be silent on stderr, got {stderr}"
+  -- Determinism.
+  let (ec2, stdout2, _) ← runCli #["inspect", outDir.toString]
+  expect (ec2 == 0 && stdout2 == stdout)
+    "inspect-output must be deterministic"
+  -- Explicit --output-dir form.
+  let (ec3, stdout3, stderr3) ← runCli #["inspect", "--output-dir", outDir.toString]
+  expect (ec3 == 0)
+    s!"inspect --output-dir must exit 0, got {ec3}\n{stderr3}"
+  expect (stdout3 == stdout)
+    "inspect --output-dir must match positional form"
+  -- --json PF-JCS golden shape.
+  let (ec4, stdout4, stderr4) ← runCli #["inspect", outDir.toString, "--json"]
+  expect (ec4 == 0)
+    s!"inspect-output --json exit, got {ec4}\n{stderr4}"
+  expectCanonicalJson "inspect-output" stdout4
+  expect (containsSubstr stdout4 "\"schema\":\"proof-forge.cli.inspect-output.v1\"")
+    s!"inspect-output schema: {stdout4}"
+  expect (containsSubstr stdout4 "\"target\":\"solana\"")
+    s!"inspect-output json target: {stdout4}"
+  expect (containsSubstr stdout4 "\"codegenProfile\":\"solana-sbpf-plan-v1\"")
+    s!"inspect-output json profile: {stdout4}"
+  expect (containsSubstr stdout4 "\"artifactProgramName\":\"Counter\"")
+    s!"inspect-output json artifact: {stdout4}"
+  expect (containsSubstr stdout4 "\"sourceHash\":\"sha256:")
+    s!"inspect-output json sourceHash: {stdout4}"
+  expect (containsSubstr stdout4 "\"outputSetDigest\":\"sha256:")
+    s!"inspect-output json outputSetDigest: {stdout4}"
+  expect (containsSubstr stdout4
+      "\"validation\":\"structure+evidence+digest-format+outputSetDigest-recompute\"")
+    s!"inspect-output json validation: {stdout4}"
+  -- Explicit --output-dir --json either order.
+  let (ec5, stdout5, _) ← runCli #["inspect", "--json", "--output-dir", outDir.toString]
+  expect (ec5 == 0 && stdout5 == stdout4)
+    "inspect --json --output-dir must match"
+  -- Registered target still preferred over a same-named directory (disambiguation).
+  let (ecTarget, stdoutTarget, _) ← runCli #["inspect", "solana"]
+  expect (ecTarget == 0)
+    "inspect solana must remain target inspect"
+  expect (containsSubstr stdoutTarget "target=solana\n")
+    s!"target inspect still works: {stdoutTarget}"
+  expect (!containsSubstr stdoutTarget "outputDir=")
+    "registered target must not switch to output-dir mode"
+  expect (containsSubstr stdoutTarget "registryRootDigest=sha256:")
+    s!"target inspect still reports registry root: {stdoutTarget}"
+  -- Missing directory.
+  let missingDir := "build/v2/diagnostic-inspect-output-missing"
+  if ← (FilePath.mk missingDir).pathExists then
+    IO.FS.removeDirAll (FilePath.mk missingDir)
+  let (ecMiss, stdoutMiss, stderrMiss) ← runCli #["inspect", missingDir]
+  expect (ecMiss == 6)
+    s!"missing output-dir must exit 6, got {ecMiss}\n{stderrMiss}"
+  expect (containsSubstr stderrMiss "PF-OUTPUT-MANIFEST:")
+    s!"missing dir must use PF-OUTPUT-MANIFEST: {stderrMiss}"
+  expect (stdoutMiss == "")
+    "missing dir must not print success stdout"
+  -- Tamper: flip the first hex nibble of outputSetDigest (format still valid,
+  -- public recompute must fail closed).
+  let originalManifest ← IO.FS.readFile (outDir / "manifest.json")
+  let digestMarker := "\"outputSetDigest\": \""
+  let parts := originalManifest.splitOn digestMarker
+  expect (parts.length ≥ 2)
+    s!"manifest must contain outputSetDigest field:\n{originalManifest}"
+  let before := parts[0]!
+  let after := String.intercalate digestMarker (parts.drop 1)
+  let afterChars := after.toList
+  expect (!afterChars.isEmpty)
+    "outputSetDigest value must be nonempty"
+  let first := afterChars.head!
+  let flipped : Char := if first == '0' then '1' else '0'
+  let tampered :=
+    before ++ digestMarker ++ String.singleton flipped ++ String.ofList afterChars.tail!
+  expect (tampered != originalManifest)
+    "tamper must change manifest text"
+  IO.FS.writeFile (outDir / "manifest.json") tampered
+  let (ecTamper, stdoutTamper, stderrTamper) ← runCli #["inspect", outDir.toString]
+  expect (ecTamper == 6)
+    s!"tampered outputSetDigest must exit 6, got {ecTamper}\n{stderrTamper}"
+  expect (containsSubstr stderrTamper "PF-OUTPUT-MANIFEST:")
+    s!"tamper must use PF-OUTPUT-MANIFEST: {stderrTamper}"
+  expect (containsSubstr stderrTamper "outputSetDigest")
+    s!"tamper must mention outputSetDigest: {stderrTamper}"
+  expect (stdoutTamper == "")
+    "tamper must not print success stdout"
+  -- Restore then break evidence identity join.
+  IO.FS.writeFile (outDir / "manifest.json") originalManifest
+  let originalEvidence ← IO.FS.readFile (outDir / "evidence.json")
+  let badEvidence :=
+    String.intercalate "\"target\": \"near\""
+      (originalEvidence.splitOn "\"target\": \"solana\"")
+  expect (badEvidence != originalEvidence)
+    "evidence tamper must change text"
+  IO.FS.writeFile (outDir / "evidence.json") badEvidence
+  let (ecEv, stdoutEv, stderrEv) ← runCli #["inspect", "--output-dir", outDir.toString]
+  expect (ecEv == 6)
+    s!"evidence target mismatch must exit 6, got {ecEv}\n{stderrEv}"
+  expect (containsSubstr stderrEv "PF-OUTPUT-MANIFEST:")
+    s!"evidence mismatch prefix: {stderrEv}"
+  expect (containsSubstr stderrEv "evidence target")
+    s!"evidence mismatch message: {stderrEv}"
+  expect (stdoutEv == "")
+    "evidence mismatch must not print success"
+  -- Missing evidence.
+  IO.FS.writeFile (outDir / "evidence.json") originalEvidence
+  IO.FS.removeFile (outDir / "evidence.json")
+  let (ecNoEv, stdoutNoEv, stderrNoEv) ← runCli #["inspect", outDir.toString]
+  expect (ecNoEv == 6)
+    s!"missing evidence must exit 6, got {ecNoEv}\n{stderrNoEv}"
+  expect (containsSubstr stderrNoEv "missing evidence.json")
+    s!"missing evidence message: {stderrNoEv}"
+  expect (stdoutNoEv == "")
+    "missing evidence must not print success"
+  -- Cleanup fixture for subsequent runs / disk hygiene.
+  if ← outDir.pathExists then IO.FS.removeDirAll outDir
+
 unsafe def run : IO Unit := do
   unless ← cliBin.pathExists do
     throw <| IO.userError
@@ -421,6 +588,7 @@ unsafe def run : IO Unit := do
   testInspectDigests
   testJsonSurface
   testProfileSelection
+  testInspectOutputDir
   IO.println "Tests.CLI.DiagnosticsV1: ok"
 
 end Tests.CLI.DiagnosticsV1

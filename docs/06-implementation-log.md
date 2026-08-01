@@ -12179,3 +12179,30 @@ normative: false
 - Boundary: not formal `step` / CAP binding / target ContextRead Plan Expr;
   cryptographic commitment realization remains target-owned; pureFn ContextRead/
   Commit remain Normalize fail-closed.
+
+## 2026-08-01 — CLI inspect-output for engineering proof-forge.output.v1 dirs
+
+- Engineering CLI slice only (not formal OutputSetV1 / TASK-D3-05 / SupportClaim).
+- Commands:
+  * `inspect <output-dir> [--json]` — when `<arg>` is not a registered TargetId
+  * `inspect --output-dir <dir> [--json]` — always output-dir mode (`--json` either order)
+  * Positional disambiguation prefers frozen-registry TargetId over a same-named path;
+    document in usage; force path with `--output-dir`.
+- Behavior:
+  * Load regular `manifest.json` + `evidence.json` (reject missing/symlink).
+  * Whitespace-tolerant engineering JSON parse (pretty-printed publisher bytes; not PF-JCS).
+  * Exact key set for `proof-forge.output.v1`; schemaVersion exact; digests 64 lowercase hex;
+    files non-empty unique safe relative paths without sidecars.
+  * Evidence identity join: target/sourceHash/semanticHash/deployable match manifest.
+  * Public recompute of `outputSetDigest` via `engineeringOutputSetDigestV1` from parsed
+    binding fields; fail closed on mismatch (does not re-mint OutputSet or re-walk S7c
+    disk closure).
+  * Human summary + PF-JCS schema `proof-forge.cli.inspect-output.v1`; validation tag
+    `structure+evidence+digest-format+outputSetDigest-recompute`.
+  * Failures: `PF-OUTPUT-MANIFEST: …` on stderr, exit 6 (emit-phase band).
+- Files: `ProofForgeV2/CLI/Emit.lean`, `ProofForgeV2/CLI/Main.lean`,
+  `Tests/CLI/DiagnosticsV1.lean` (subprocess: build Counter → inspect ok/json/
+  --output-dir; missing dir; outputSetDigest tamper; evidence target mismatch;
+  missing evidence). Materialization/Targets/Core off-limits; read-only consume of
+  OutputSetV1 public recompute API.
+- Boundary: engineering inspect only; not formal OutputSetV1 product completion.

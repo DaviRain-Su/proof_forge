@@ -23,6 +23,8 @@ private def usage : String :=
   "Usage:\n" ++
   "  proof-forge-next list-targets [--all] [--json]\n" ++
   "  proof-forge-next inspect <target> [--json]\n" ++
+  "  proof-forge-next inspect <output-dir> [--json]\n" ++
+  "  proof-forge-next inspect --output-dir <dir> [--json]\n" ++
   "  proof-forge-next check <source.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--json]\n" ++
   "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--json]\n" ++
   "\n" ++
@@ -30,6 +32,8 @@ private def usage : String :=
   "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
   "  --network is not supported (no network registry); it is a usage error.\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build.\n" ++
+  "  inspect <arg> prefers a registered target id when ambiguous; use --output-dir to force a path.\n" ++
+  "  inspect output-dir validates proof-forge.output.v1 manifest + evidence identity chain.\n" ++
   "  check validates without writing artifacts; build materializes under -o (default build/v2).\n"
 
 /-- CLI usage/config failure: plain stderr and exit 2, not a diagnostic bundle. -/
@@ -239,16 +243,79 @@ private def listTargets (options : ListTargetsOptions) : IO Unit := do
 private def inspectTarget (value : String) (json : Bool) : IO Unit := do
   IO.println (← liftCompileResult (inspectTargetText value json))
 
+/-- Product failure for inspect-output: plain `PF-OUTPUT-MANIFEST:` line + emit-phase
+    exit 6 (same priority band as DiagnosticCodeV1 emit codes). Not a full
+    DiagnosticBundle (no source origin); keeps the historical emit wire prefix. -/
+private def failOutputManifest (message : String) : IO α := do
+  IO.eprintln s!"PF-OUTPUT-MANIFEST: {message}"
+  IO.Process.exit 6
+
+private def pathType? (path : FilePath) : IO (Option IO.FS.FileType) :=
+  try
+    return some (← path.symlinkMetadata).type
+  catch _ =>
+    return none
+
+/-- Read and strictly validate an engineering build output directory.
+Requires regular `manifest.json` + `evidence.json`; validates structure, hex
+digests, evidence identity join, and public `outputSetDigest` recompute. -/
+private def inspectOutputDir (dir : String) (json : Bool) : IO Unit := do
+  if dir.isEmpty then
+    failUsage "inspect output directory path must be nonempty"
+  let outputPath := FilePath.mk dir
+  match ← pathType? outputPath with
+  | none =>
+      failOutputManifest s!"output directory does not exist: {dir}"
+  | some .symlink =>
+      failOutputManifest s!"output directory cannot be a symbolic link: {dir}"
+  | some .dir => pure ()
+  | some _ =>
+      failOutputManifest s!"output path is not a directory: {dir}"
+  let manifestPath := outputPath / "manifest.json"
+  let evidencePath := outputPath / "evidence.json"
+  match ← pathType? manifestPath with
+  | some .file => pure ()
+  | some .symlink =>
+      failOutputManifest "manifest.json cannot be a symbolic link"
+  | _ =>
+      failOutputManifest s!"missing manifest.json under {dir}"
+  match ← pathType? evidencePath with
+  | some .file => pure ()
+  | some .symlink =>
+      failOutputManifest "evidence.json cannot be a symbolic link"
+  | _ =>
+      failOutputManifest s!"missing evidence.json under {dir}"
+  let manifestText ← IO.FS.readFile manifestPath
+  let evidenceText ← IO.FS.readFile evidencePath
+  let manifest ← match validateEngineeringOutputManifestTextV1 manifestText with
+    | .ok value => pure value
+    | .error err => failOutputManifest err
+  match validateEngineeringEvidenceAgainstManifestV1 evidenceText manifest with
+  | .ok () => pure ()
+  | .error err => failOutputManifest err
+  if json then
+    IO.println (← liftCompileResult (renderInspectOutputJsonV1 dir manifest))
+  else
+    IO.println (renderInspectOutputHumanV1 dir manifest)
+
 /-- Product CLI entry. Sole dispatcher: `parseProductCliCommandV1` =
 seed-first preflight (`parseCliCommandWithSeedV1` on frozen seed) then
-`parseCliCommandV1`. Does not mint selection capability; bodies bind seed again. -/
+`parseCliCommandV1`. Does not mint selection capability; bodies bind seed again.
+Positional `inspect <arg>` prefers a registered TargetId; otherwise treats
+`<arg>` as an output directory. Explicit `--output-dir` always selects
+output-dir mode. -/
 unsafe def run (args : List String) : IO Unit := do
   match parseProductCliCommandV1 args with
   | .error msg => failUsage msg
   | .ok command =>
       match command with
       | .listTargets options => listTargets options
-      | .inspect target json => inspectTarget target json
+      | .inspect arg json =>
+          if isRegisteredInspectTargetV1 arg then
+            inspectTarget arg json
+          else
+            inspectOutputDir arg json
+      | .inspectOutput dir json => inspectOutputDir dir json
       | .check options => checkSource options
       | .build options => buildSource options
       | .usage => failUsage usage

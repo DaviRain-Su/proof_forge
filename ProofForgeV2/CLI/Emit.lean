@@ -1,19 +1,41 @@
 /-
   ProofForgeV2.CLI.Emit — product emit + pure CLI command surface.
 
-  Product commands (C1):
+  Product commands (C1 + inspect-output):
     list-targets [--all] [--json]
     inspect <target> [--json]
+    inspect <output-dir> [--json]
+    inspect --output-dir <dir> [--json]
     check <source.lean> --module <Name> [--root] [--program] [--target]
       [--profile] [--language-version] [--json]
     build <source.lean> --module <Name> --target <t> [-o <dir>]
       [--program] [--root] [--profile] [--language-version] [--json]
 
+  Disambiguation for positional `inspect <arg>`:
+    * If `<arg>` is a registered TargetId (frozen registry membership), treat as
+      target inspect (`proof-forge.cli.inspect.v1`).
+    * Otherwise treat as output-dir inspect (`proof-forge.cli.inspect-output.v1`).
+    * Explicit `inspect --output-dir <dir>` always selects output-dir mode.
+    * Ambiguous names that are both a registered target and a directory prefer
+      the registry target (document this; use `--output-dir` to force a path).
+
   Stable JSON uses sole PF-JCS (`renderPfJcs` / `PfJson`). Schemas:
     proof-forge.cli.list-targets.v1
     proof-forge.cli.inspect.v1
+    proof-forge.cli.inspect-output.v1
     proof-forge.cli.check.v1
     proof-forge.cli.build.v1
+
+  Output-dir validation scope (engineering, not formal OutputSetV1):
+    * Load `manifest.json` + require `evidence.json` as regular files.
+    * Parse pretty-printed engineering JSON (whitespace-tolerant; not PF-JCS).
+    * Exact key set for `proof-forge.output.v1` + schemaVersion exact.
+    * Digest fields: 64-char lowercase hex; re-encode to Digest via `sha256:`.
+    * files: non-empty unique relative strings; sidecars excluded.
+    * evidence.json target/sourceHash/semanticHash/deployable exact match.
+    * Recompute `outputSetDigest` via public `engineeringOutputSetDigestV1`
+      from parsed binding fields and require byte identity with recorded digest.
+    * Does NOT re-walk disk closure, re-mint OutputSet, or re-run materializers.
 
   Deleted product commands: `build-counter`, `describe-target` (use
   `build Examples/Counter.lean --module Examples.Counter` and `inspect`).
@@ -280,10 +302,14 @@ structure ListTargetsOptions where
   deriving BEq, Repr
 
 /-- Typed product CLI command surface. `CLI.run` matches only this enum.
-Deleted: `build-counter`, `describe-target` (use build + inspect). -/
+Deleted: `build-counter`, `describe-target` (use build + inspect).
+`inspect` keeps the historical `(String, Bool)` shape so pure parse tests stay
+stable; product `CLI.run` disambiguates registered target vs output-dir path.
+`inspectOutput` is the explicit `--output-dir` form (always output-dir mode). -/
 inductive CliCommandV1 where
   | listTargets (options : ListTargetsOptions)
   | inspect (target : String) (json : Bool)
+  | inspectOutput (dir : String) (json : Bool)
   | check (options : BuildOptions)
   | build (options : BuildOptions)
   | usage
@@ -414,6 +440,27 @@ def parseJsonOnlyArgsExcept (args : List String) : Except String Bool :=
   | ["--json"] => .ok true
   | other =>
       .error s!"unknown argument '{String.intercalate " " other}'"
+
+/-- Parse `inspect` trailing flags for the explicit `--output-dir` form.
+Accepts `--json` / `--output-dir <dir>` in either order; duplicates fail closed. -/
+partial def parseInspectOutputArgsExcept
+    (args : List String) (dir? : Option String := none) (json : Bool := false) :
+    Except String (String × Bool) := do
+  match args with
+  | [] =>
+      match dir? with
+      | some dir => pure (dir, json)
+      | none => throw "inspect --output-dir requires a directory path"
+  | "--output-dir" :: value :: rest =>
+      if dir?.isSome then throw "duplicate --output-dir"
+      if value.isEmpty then throw "inspect --output-dir requires a directory path"
+      if value.startsWith "-" then throw s!"invalid --output-dir path '{value}'"
+      parseInspectOutputArgsExcept rest (some value) json
+  | "--json" :: rest =>
+      if json then throw "duplicate --json"
+      parseInspectOutputArgsExcept rest dir? true
+  | other =>
+      .error s!"unknown inspect argument '{String.intercalate " " other}'"
 
 /-- Format exact S2 request identities for inspect/describe product text. -/
 private def formatS2RequirementIds (ids : Array String) : String :=
@@ -706,15 +753,460 @@ def renderBuildOkJsonV1 (receipt : EmitReceiptV1) : CompileResult String :=
       ("deployable", .bool receipt.deployable)
     ]
 
+-- ---------------------------------------------------------------------------
+-- Output-dir inspect (proof-forge.cli.inspect-output.v1)
+-- ---------------------------------------------------------------------------
+
+/-- Engineering on-disk manifest fields accepted by product inspect-output. -/
+structure InspectedOutputManifestV1 where
+  target : String
+  codegenProfile : String
+  artifactProgramName : String
+  sourceHash : String
+  semanticHash : String
+  buildIdentityDigest : String
+  supportClaimDigest : String
+  engineeringRegistryRootDigest : String
+  outputSetDigest : String
+  deployable : Bool
+  files : Array String
+  deriving BEq, Repr
+
+private def engineeringManifestRequiredKeysV1 : Array String := #[
+  "schemaVersion",
+  "target",
+  "codegenProfile",
+  "artifactProgramName",
+  "sourceHash",
+  "semanticHash",
+  "buildIdentityDigest",
+  "supportClaimDigest",
+  "engineeringRegistryRootDigest",
+  "outputSetDigest",
+  "deployable",
+  "files"
+]
+
+private def engineeringEvidenceRequiredKeysV1 : Array String := #[
+  "target",
+  "sourceHash",
+  "semanticHash",
+  "deployable",
+  "note"
+]
+
+/-- Whitespace-tolerant engineering JSON parser for pretty-printed on-disk
+    sidecars. Does **not** enforce PF-JCS re-encode identity (manifest/evidence
+    are pretty-printed by the publisher). Duplicate keys fail closed. -/
+private partial def skipJsonWs (input : List Char) : List Char :=
+  match input with
+  | [] => []
+  | c :: rest =>
+      if c == ' ' || c == '\n' || c == '\r' || c == '\t' then skipJsonWs rest
+      else input
+
+private def isJsonAsciiDigit (c : Char) : Bool :=
+  '0' ≤ c && c ≤ '9'
+
+private partial def parseJsonStringBody
+    (input : List Char) (reversed : List Char) : Except String (String × List Char) :=
+  match input with
+  | [] => throw "json string is unterminated"
+  | '\x22' :: rest => pure (String.ofList reversed.reverse, rest)
+  | '\\' :: '\x22' :: rest => parseJsonStringBody rest ('\x22' :: reversed)
+  | '\\' :: '\\' :: rest => parseJsonStringBody rest ('\\' :: reversed)
+  | '\\' :: '/' :: rest => parseJsonStringBody rest ('/' :: reversed)
+  | '\\' :: 'n' :: rest => parseJsonStringBody rest ('\x0a' :: reversed)
+  | '\\' :: 'r' :: rest => parseJsonStringBody rest ('\x0d' :: reversed)
+  | '\\' :: 't' :: rest => parseJsonStringBody rest ('\x09' :: reversed)
+  | '\\' :: _ => throw "json string contains an unsupported escape"
+  | c :: rest =>
+      if c.toNat < 0x20 then
+        throw "json string contains an unescaped control character"
+      else
+        parseJsonStringBody rest (c :: reversed)
+
+private def parseJsonStringValue : List Char → Except String (String × List Char)
+  | '\x22' :: rest => parseJsonStringBody rest []
+  | _ => throw "json expected a string"
+
+private def consumeJsonLiteral : List Char → List Char → Option (List Char)
+  | [], input => some input
+  | wanted :: wantedRest, actual :: actualRest =>
+      if wanted == actual then consumeJsonLiteral wantedRest actualRest else none
+  | _ :: _, [] => none
+
+private def parseJsonLiteral
+    (spelling : String) (value : PfJson) (input : List Char) :
+    Except String (PfJson × List Char) :=
+  match consumeJsonLiteral spelling.toList input with
+  | some rest => pure (value, rest)
+  | none => throw "json contains an invalid literal"
+
+private def parseJsonNumber (input : List Char) : Except String (PfJson × List Char) := do
+  let (negative, unsignedInput) :=
+    match input with
+    | '-' :: rest => (true, rest)
+    | _ => (false, input)
+  let (digits, rest) := unsignedInput.span isJsonAsciiDigit
+  if digits.isEmpty then
+    throw "json integer requires at least one digit"
+  if digits.length > 1 && digits.head? == some '0' then
+    throw "json integer contains a leading zero"
+  -- Engineering sidecars only use booleans for non-string scalars; reject
+  -- non-zero integers so deployable cannot be smuggled as 0/1.
+  let mut value : Nat := 0
+  for d in digits do
+    value := value * 10 + (d.toNat - '0'.toNat)
+  if negative && value = 0 then
+    throw "json forbids negative zero"
+  if value ≠ 0 then
+    throw "json integer non-zero is not accepted in engineering sidecars"
+  pure (.int 0, rest)
+
+private def hasJsonObjectKey (fields : Array (String × PfJson)) (key : String) : Bool :=
+  fields.any (fun field => field.1 == key)
+
+mutual
+
+private partial def parseJsonValue (input : List Char) : Except String (PfJson × List Char) :=
+  let input := skipJsonWs input
+  match input with
+  | [] => throw "json input ended before a value"
+  | 'n' :: _ => parseJsonLiteral "null" .null input
+  | 't' :: _ => parseJsonLiteral "true" (.bool true) input
+  | 'f' :: _ => parseJsonLiteral "false" (.bool false) input
+  | '\x22' :: _ => do
+      let (value, rest) ← parseJsonStringValue input
+      pure (.string value, rest)
+  | '[' :: rest => parseJsonArray (skipJsonWs rest)
+  | '{' :: rest => parseJsonObject (skipJsonWs rest)
+  | '-' :: _ => parseJsonNumber input
+  | c :: _ =>
+      if isJsonAsciiDigit c then parseJsonNumber input
+      else throw "json contains an invalid value"
+
+private partial def parseJsonArrayTail
+    (input : List Char) (values : Array PfJson) : Except String (PfJson × List Char) :=
+  let input := skipJsonWs input
+  match input with
+  | ']' :: rest => pure (.array values, rest)
+  | ',' :: rest => do
+      let (value, tail) ← parseJsonValue rest
+      parseJsonArrayTail tail (values.push value)
+  | _ => throw "json array requires ',' or ']'"
+
+private partial def parseJsonArray
+    (input : List Char) : Except String (PfJson × List Char) :=
+  let input := skipJsonWs input
+  match input with
+  | ']' :: rest => pure (.array #[], rest)
+  | _ => do
+      let (value, rest) ← parseJsonValue input
+      parseJsonArrayTail rest #[value]
+
+private partial def parseJsonObjectField
+    (input : List Char) (fields : Array (String × PfJson)) :
+    Except String ((Array (String × PfJson)) × List Char) := do
+  let input := skipJsonWs input
+  let (key, afterKey) ← parseJsonStringValue input
+  if hasJsonObjectKey fields key then
+    throw "json object contains a duplicate key"
+  let afterKey := skipJsonWs afterKey
+  let afterColon ← match afterKey with
+    | ':' :: rest => pure rest
+    | _ => throw "json object member requires ':'"
+  let (value, rest) ← parseJsonValue afterColon
+  pure (fields.push (key, value), rest)
+
+private partial def parseJsonObjectTail
+    (input : List Char) (fields : Array (String × PfJson)) :
+    Except String (PfJson × List Char) :=
+  let input := skipJsonWs input
+  match input with
+  | '}' :: rest => pure (.object fields, rest)
+  | ',' :: rest => do
+      let (nextFields, tail) ← parseJsonObjectField rest fields
+      parseJsonObjectTail tail nextFields
+  | _ => throw "json object requires ',' or '}'"
+
+private partial def parseJsonObject
+    (input : List Char) : Except String (PfJson × List Char) :=
+  let input := skipJsonWs input
+  match input with
+  | '}' :: rest => pure (.object #[], rest)
+  | _ => do
+      let (fields, rest) ← parseJsonObjectField input #[]
+      parseJsonObjectTail rest fields
+
+end
+
+/-- Parse a complete engineering JSON document (trailing whitespace allowed). -/
+def parseEngineeringJsonDocumentV1 (input : String) : Except String PfJson := do
+  let (value, rest) ← parseJsonValue input.toList
+  let rest := skipJsonWs rest
+  unless rest.isEmpty do
+    throw "json input contains trailing data"
+  pure value
+
+private def jsonObjectFields? : PfJson → Option (Array (String × PfJson))
+  | .object fields => some fields
+  | _ => none
+
+private def jsonField? (fields : Array (String × PfJson)) (key : String) : Option PfJson :=
+  match fields.find? (fun field => field.1 == key) with
+  | some (_, value) => some value
+  | none => none
+
+private def expectJsonString (label : String) (value : PfJson) : Except String String :=
+  match value with
+  | .string s => pure s
+  | _ => throw s!"{label} must be a string"
+
+private def expectJsonBool (label : String) (value : PfJson) : Except String Bool :=
+  match value with
+  | .bool b => pure b
+  | _ => throw s!"{label} must be a boolean"
+
+private def expectJsonStringArray (label : String) (value : PfJson) :
+    Except String (Array String) := do
+  match value with
+  | .array values =>
+      let mut out : Array String := #[]
+      for v in values do
+        match v with
+        | .string s => out := out.push s
+        | _ => throw s!"{label} must be an array of strings"
+      pure out
+  | _ => throw s!"{label} must be an array"
+
+private def isLowerHex64 (value : String) : Bool :=
+  value.length == 64 && value.all fun c =>
+    ('0' ≤ c && c ≤ '9') || ('a' ≤ c && c ≤ 'f')
+
+private def expectHex64Digest (label : String) (value : String) : Except String String := do
+  unless isLowerHex64 value do
+    throw s!"{label} must be 64 lowercase hex characters"
+  pure value
+
+private def digestFromBareHex (label : String) (hex : String) : Except String Digest := do
+  let _ ← expectHex64Digest label hex
+  match parseDigest ("sha256:" ++ hex) with
+  | .ok d => pure d
+  | .error e => throw s!"{label} is not a valid sha256 digest: {e}"
+
+private def exactKeySet
+    (fields : Array (String × PfJson)) (required : Array String) : Except String Unit := do
+  unless fields.size == required.size do
+    throw s!"expected exactly {required.size} keys, got {fields.size}"
+  for key in required do
+    unless hasJsonObjectKey fields key do
+      throw s!"missing required key '{key}'"
+  for (key, _) in fields do
+    unless required.contains key do
+      throw s!"unexpected key '{key}'"
+
+/-- Validate on-disk `manifest.json` body into a typed carrier.
+Structure + hex format + public `engineeringOutputSetDigestV1` recompute. -/
+def validateEngineeringOutputManifestTextV1 (text : String) :
+    Except String InspectedOutputManifestV1 := do
+  let value ← match parseEngineeringJsonDocumentV1 text with
+    | .ok v => pure v
+    | .error e => throw s!"manifest is not valid JSON: {e}"
+  let fields ← match jsonObjectFields? value with
+    | some f => pure f
+    | none => throw "manifest must be a JSON object"
+  exactKeySet fields engineeringManifestRequiredKeysV1
+  let schemaVersion ← expectJsonString "schemaVersion"
+    (jsonField? fields "schemaVersion" |>.getD .null)
+  unless schemaVersion == engineeringOutputSchemaVersionV1 do
+    throw s!"schemaVersion must be '{engineeringOutputSchemaVersionV1}', got '{schemaVersion}'"
+  let target ← expectJsonString "target" (jsonField? fields "target" |>.getD .null)
+  unless !target.isEmpty do throw "target must be nonempty"
+  let codegenProfile ← expectJsonString "codegenProfile"
+    (jsonField? fields "codegenProfile" |>.getD .null)
+  unless !codegenProfile.isEmpty do throw "codegenProfile must be nonempty"
+  let artifactProgramName ← expectJsonString "artifactProgramName"
+    (jsonField? fields "artifactProgramName" |>.getD .null)
+  unless !artifactProgramName.isEmpty do throw "artifactProgramName must be nonempty"
+  let sourceHash ← expectHex64Digest "sourceHash"
+    (← expectJsonString "sourceHash" (jsonField? fields "sourceHash" |>.getD .null))
+  let semanticHash ← expectHex64Digest "semanticHash"
+    (← expectJsonString "semanticHash" (jsonField? fields "semanticHash" |>.getD .null))
+  let buildIdentityDigest ← expectHex64Digest "buildIdentityDigest"
+    (← expectJsonString "buildIdentityDigest"
+      (jsonField? fields "buildIdentityDigest" |>.getD .null))
+  let supportClaimDigest ← expectHex64Digest "supportClaimDigest"
+    (← expectJsonString "supportClaimDigest"
+      (jsonField? fields "supportClaimDigest" |>.getD .null))
+  let engineeringRegistryRootDigest ← expectHex64Digest "engineeringRegistryRootDigest"
+    (← expectJsonString "engineeringRegistryRootDigest"
+      (jsonField? fields "engineeringRegistryRootDigest" |>.getD .null))
+  let outputSetDigest ← expectHex64Digest "outputSetDigest"
+    (← expectJsonString "outputSetDigest"
+      (jsonField? fields "outputSetDigest" |>.getD .null))
+  let deployable ← expectJsonBool "deployable"
+    (jsonField? fields "deployable" |>.getD .null)
+  let files ← expectJsonStringArray "files" (jsonField? fields "files" |>.getD .null)
+  if files.isEmpty then throw "files must be non-empty"
+  let mut seen : Array String := #[]
+  for path in files do
+    if path.isEmpty then throw "files entries must be nonempty"
+    if path == evidenceSidecarNameV1 || path == manifestSidecarNameV1 then
+      throw "sidecars must not appear in files"
+    unless safeRelativeArtifactPathV1 path do
+      throw s!"unsafe artifact path '{path}'"
+    if seen.contains path then throw s!"duplicate file path '{path}'"
+    seen := seen.push path
+  -- Public recompute of outputSetDigest from binding fields.
+  let tid ← match TargetId.parse? target with
+    | some t => pure t
+    | none => throw s!"target '{target}' is not a valid TargetId"
+  let pid ← match CodegenProfileId.parse? codegenProfile with
+    | some p => pure p
+    | none => throw s!"codegenProfile '{codegenProfile}' is not a valid CodegenProfileId"
+  let sourceDigest ← digestFromBareHex "sourceHash" sourceHash
+  let semanticDigest ← digestFromBareHex "semanticHash" semanticHash
+  let registryRootDigest ←
+    digestFromBareHex "engineeringRegistryRootDigest" engineeringRegistryRootDigest
+  let claimDigest ← digestFromBareHex "supportClaimDigest" supportClaimDigest
+  let identityDigest ← digestFromBareHex "buildIdentityDigest" buildIdentityDigest
+  let recordedSetDigest ← digestFromBareHex "outputSetDigest" outputSetDigest
+  let recomputed ← match engineeringOutputSetDigestV1
+      tid pid artifactProgramName files
+      sourceDigest semanticDigest
+      registryRootDigest claimDigest identityDigest
+      deployable with
+    | .ok d => pure d
+    | .error e => throw s!"outputSetDigest recompute failed: {e}"
+  unless recomputed.algorithm == recordedSetDigest.algorithm &&
+      recomputed.bytes == recordedSetDigest.bytes do
+    throw "outputSetDigest does not match recomputed engineering preimage"
+  pure {
+    target
+    codegenProfile
+    artifactProgramName
+    sourceHash
+    semanticHash
+    buildIdentityDigest
+    supportClaimDigest
+    engineeringRegistryRootDigest
+    outputSetDigest
+    deployable
+    files
+  }
+
+/-- Validate evidence.json and cross-check identity fields against the manifest. -/
+def validateEngineeringEvidenceAgainstManifestV1
+    (evidenceText : String) (manifest : InspectedOutputManifestV1) :
+    Except String Unit := do
+  let value ← match parseEngineeringJsonDocumentV1 evidenceText with
+    | .ok v => pure v
+    | .error e => throw s!"evidence is not valid JSON: {e}"
+  let fields ← match jsonObjectFields? value with
+    | some f => pure f
+    | none => throw "evidence must be a JSON object"
+  exactKeySet fields engineeringEvidenceRequiredKeysV1
+  let target ← expectJsonString "target" (jsonField? fields "target" |>.getD .null)
+  let sourceHash ← expectHex64Digest "sourceHash"
+    (← expectJsonString "sourceHash" (jsonField? fields "sourceHash" |>.getD .null))
+  let semanticHash ← expectHex64Digest "semanticHash"
+    (← expectJsonString "semanticHash" (jsonField? fields "semanticHash" |>.getD .null))
+  let deployable ← expectJsonBool "deployable"
+    (jsonField? fields "deployable" |>.getD .null)
+  let _note ← expectJsonString "note" (jsonField? fields "note" |>.getD .null)
+  unless target == manifest.target do
+    throw s!"evidence target '{target}' diverges from manifest '{manifest.target}'"
+  unless sourceHash == manifest.sourceHash do
+    throw "evidence sourceHash diverges from manifest"
+  unless semanticHash == manifest.semanticHash do
+    throw "evidence semanticHash diverges from manifest"
+  unless deployable == manifest.deployable do
+    throw "evidence deployable diverges from manifest"
+
+private def formatFileList (files : Array String) : String :=
+  let body := String.intercalate ", " files.toList
+  s!"#[{body}]"
+
+private def sha256WireFromBareHex (hex : String) : String :=
+  "sha256:" ++ hex
+
+/-- Product inspect-output human body. -/
+def renderInspectOutputHumanV1
+    (outputDir : String) (manifest : InspectedOutputManifestV1) : String :=
+  String.intercalate "\n" [
+    s!"outputDir={outputDir}",
+    s!"schemaVersion={engineeringOutputSchemaVersionV1}",
+    s!"target={manifest.target}",
+    s!"codegenProfile={manifest.codegenProfile}",
+    s!"artifactProgramName={manifest.artifactProgramName}",
+    s!"sourceHash={sha256WireFromBareHex manifest.sourceHash}",
+    s!"semanticHash={sha256WireFromBareHex manifest.semanticHash}",
+    s!"buildIdentityDigest={sha256WireFromBareHex manifest.buildIdentityDigest}",
+    s!"supportClaimDigest={sha256WireFromBareHex manifest.supportClaimDigest}",
+    s!"engineeringRegistryRootDigest={sha256WireFromBareHex manifest.engineeringRegistryRootDigest}",
+    s!"outputSetDigest={sha256WireFromBareHex manifest.outputSetDigest}",
+    s!"deployable={manifest.deployable}",
+    s!"files={formatFileList manifest.files}",
+    "validation=structure+evidence+digest-format+outputSetDigest-recompute"
+  ]
+
+/-- Product inspect-output JSON (`proof-forge.cli.inspect-output.v1`). -/
+def renderInspectOutputJsonV1
+    (outputDir : String) (manifest : InspectedOutputManifestV1) :
+    CompileResult String :=
+  let fileJson := manifest.files.map PfJson.string
+  renderCliJsonV1 <|
+    PfJson.object #[
+      ("schema", .string "proof-forge.cli.inspect-output.v1"),
+      ("outputDir", .string outputDir),
+      ("schemaVersion", .string engineeringOutputSchemaVersionV1),
+      ("target", .string manifest.target),
+      ("codegenProfile", .string manifest.codegenProfile),
+      ("artifactProgramName", .string manifest.artifactProgramName),
+      ("sourceHash", .string (sha256WireFromBareHex manifest.sourceHash)),
+      ("semanticHash", .string (sha256WireFromBareHex manifest.semanticHash)),
+      ("buildIdentityDigest",
+        .string (sha256WireFromBareHex manifest.buildIdentityDigest)),
+      ("supportClaimDigest",
+        .string (sha256WireFromBareHex manifest.supportClaimDigest)),
+      ("engineeringRegistryRootDigest",
+        .string (sha256WireFromBareHex manifest.engineeringRegistryRootDigest)),
+      ("outputSetDigest",
+        .string (sha256WireFromBareHex manifest.outputSetDigest)),
+      ("deployable", .bool manifest.deployable),
+      ("files", .array fileJson),
+      ("validation",
+        .string "structure+evidence+digest-format+outputSetDigest-recompute")
+    ]
+
+/-- Whether `value` is a registered TargetId in the frozen product registry.
+Used solely for `inspect <arg>` disambiguation (registry wins over path). -/
+def isRegisteredInspectTargetV1 (value : String) : Bool :=
+  match TargetId.parse? value with
+  | none => false
+  | some tid =>
+      match initialTargetRegistryV1Result with
+      | .error _ => false
+      | .ok registry => (registrationInRegistry? registry tid).isSome
+
 /-- Argument parser only (no seed bind). Used after seed preflight succeeds. -/
 def parseCliCommandV1 (args : List String) : Except String CliCommandV1 := do
   match args with
   | "list-targets" :: rest =>
       let options ← parseListTargetsArgsExcept rest
       pure (.listTargets options)
-  | "inspect" :: target :: rest =>
-      let json ← parseJsonOnlyArgsExcept rest
-      pure (.inspect target json)
+  | "inspect" :: rest =>
+      -- Explicit output-dir form (any order of --output-dir / --json).
+      if rest.any (· == "--output-dir") then
+        let (dir, json) ← parseInspectOutputArgsExcept rest
+        pure (.inspectOutput dir json)
+      else
+        match rest with
+        | target :: tail =>
+            let json ← parseJsonOnlyArgsExcept tail
+            pure (.inspect target json)
+        | [] => pure .usage
   | "check" :: rest =>
       let options ← parseBuildArgsExcept rest
       pure (.check options)
