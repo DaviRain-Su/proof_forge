@@ -32,9 +32,9 @@ just test-targets       # targets materialization suite only
 # PROOF_FORGE_TEST_JOBS=4   # default
 PROOF_FORGE_TEST_JOBS=2 just test
 
-# Frontend worker exe is not part of default `just build` (in-process Loader).
-# Fast tests that need it still build via:
-just build-frontend-worker
+# Frontend worker is not on default build / test-fast / dev-check (in-process Loader).
+just build-frontend-worker   # only the worker exe
+just test-frontend-worker    # worker exe + WorkerV1 shard
 
 # Explicit, non-default control planes:
 just governance-check   # historical task/freeze/evidence consistency

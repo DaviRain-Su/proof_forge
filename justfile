@@ -65,11 +65,16 @@ test: build
     export jobs
     printf '%s\n' "${shards[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_shard "$@"' _
 
-# Fast suite includes WorkerV1 subprocess tests; build the worker exe explicitly.
 # Daily feedback path: prefer `just test-fast` over full `just test`.
-test-fast: build build-frontend-worker
+# Does NOT build/run the frontend worker (removed from product CLI path).
+test-fast: build
     lake build proof_forge_next_fast_tests
     lake env .lake/build/bin/proof-forge-next-fast-tests
+
+# Explicit frontend-worker suite (non-default). Builds worker exe + worker shard.
+test-frontend-worker: build-frontend-worker
+    lake build proof_forge_next_tests_shard_worker
+    lake env .lake/build/bin/proof-forge-next-tests-shard-worker
 
 # Focused shard: `just test-shard core` → proof-forge-next-tests-shard-core.
 # Names: core typed language-b language-c aggregate language-heavy source source-b targets
