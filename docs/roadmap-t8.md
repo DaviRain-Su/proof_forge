@@ -21,7 +21,7 @@ normative: false
 4. **合并**：
    - 非共享代码文件：从 worktree 复制到 main
    - `docs/06-implementation-log.md`：**永远从 HEAD 版追加**（提取 worktree 的切片条目 → append），禁止整文件覆盖
-   - `supply-chain/lean-package-files.v1.json`：**在 main 里重跑** `just sbom-package-files-refresh`（禁止复制 worktree 的 pin——基座旧哈希会污染）
+   - `supply-chain/lean-package-files.v1.json`：**在 main 里重跑** `just sbom-package-files-refresh`（禁止复制 worktree 的 pin——基座旧哈希会污染）。**顺序硬规则**：refresh 必须是 commit 前最后一步——之后任何 ProofForgeV2/** 变更（包括合并、stash pop、Amp 文件进入）都必须重刷，否则 CI sbom 检查必挂（T8a/T8d 两次踩坑）
    - main 验证：`lake build` + `rm -f .lake/build/bin/proof-forge-next-tests-shard-targets* && lake build proof_forge_next_tests_shard_targets && lake env .lake/build/bin/proof-forge-next-tests-shard-targets`（**必须 `lake env` 前缀**，裸跑缺 LEAN_PATH 报 unknown module prefix）；Solana 相关切片还要 `PROOF_FORGE_TOOL_ROOT=$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64 bash scripts/solana_runtime_test.sh`
 5. **提交推送**：显式 `git add`（列文件），消息描述事实；推送被拒 → `git rebase --autostash origin/main`；docs 冲突 → 并集
 6. **清理**：合并后**立即** `git worktree remove --force` + `rm -rf`

@@ -165,9 +165,10 @@ def pilotIntWidthPolicyI64 : PilotIntWidthPolicy where
 
 /-- Per-target admission for sole catalog Field (bn254 Fr).
 
-    Empty / false = Field fail-closed (historical default for EVM / Solana /
+    Empty / false = Field fail-closed (historical default for Solana /
     NEAR / Psy). Noir admits bn254 because its native `Field` is the Barretenberg
     bn254 scalar field — exact modulus match with `bn254FrFieldSpecV1`.
+    EVM admits bn254 via ADDMOD/MULMOD + Fermat inverse (engineering Field lane).
     Any non-catalog FieldSpec fails closed even when admission is enabled. -/
 structure PilotFieldPolicy where
   /-- When true, admit at most one anonymous `.field bn254FrFieldSpecV1`. -/
@@ -178,7 +179,7 @@ structure PilotFieldPolicy where
 def pilotFieldPolicyNone : PilotFieldPolicy where
   admitBn254Fr := false
 
-/-- Noir (and future targets whose native field is exactly bn254 Fr). -/
+/-- Noir native Field / EVM mod-p subsystem (exact bn254 Fr catalog modulus). -/
 def pilotFieldPolicyBn254 : PilotFieldPolicy where
   admitBn254Fr := true
 
@@ -432,16 +433,16 @@ structure PilotTypeClosureWording where
   unsupportedShapeDetail : String
   deriving BEq, Repr
 
-/-- EVM type-closure diagnostic wording (body multi-width UInt + Int64).
-    Field stays fail-closed: needs a mod-p arithmetic subsystem (Fermat
-    inverse for div). -/
+/-- EVM type-closure diagnostic wording (body multi-width UInt + Int64 + Field).
+    Wave N2b-EVM opens sole catalog Field (bn254 Fr) via ADDMOD/MULMOD +
+    Fermat inverse for div. Principal stays fail-closed. -/
 def evmTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "EVM"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
     "only anonymous UInt8/UInt16/UInt32/UInt64 and Int64 integer widths are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, and Bool are supported (Field needs mod-p arithmetic; Principal is variable-length u32-prefixed identity with no EVM address exact match)"
+    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length u32-prefixed identity with no EVM address exact match)"
 
 /-- Solana type-closure diagnostic wording (UInt64/32 + Int64).
     Field fail-closed: no native field element. -/
