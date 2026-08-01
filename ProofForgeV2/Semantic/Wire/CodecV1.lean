@@ -1598,7 +1598,8 @@ def encodeSemanticOpV1 : SemanticOpV1 → Except SemanticWireErrorV1 ByteArray
       let argsB ← encodeValueIdArray args
       encodeTagged "Op.Schedule" #[encodeU32le effectId, calleeB, argsB]
 
-def decodeSemanticOpV1 : Decoder SemanticOpV1 := withTaggedNesting fun c => do
+/-- Sole production body for the SemanticOp tagged sum. -/
+def decodeSemanticOpBodyV1 : Decoder SemanticOpV1 := fun c => do
   let (tag, c) ← decodeTag c
   match tag with
   | "Op.Literal" => do
@@ -1711,6 +1712,42 @@ def decodeSemanticOpV1 : Decoder SemanticOpV1 := withTaggedNesting fun c => do
       let (args, c) ← decodeArray maxArrayElements decodeU32le c
       pure (.schedule effectId callee args, c)
   | _ => err .badTag
+
+def decodeSemanticOpV1 : Decoder SemanticOpV1 :=
+  withTaggedNesting decodeSemanticOpBodyV1
+
+/-- Literal branch through the actual production field decoders. -/
+theorem decodeSemanticOpBodyV1_literal
+    (c afterTag afterFields afterType afterBytes : Cursor) (typeId : UInt32)
+    (valueBytes : ByteArray)
+    (htag : decodeTag c = .ok ("Op.Literal", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (htype : decodeU32le afterFields = .ok (typeId, afterType))
+    (hbytes : decodeByteArray maxCanonicalProgramBytes afterType =
+      .ok (valueBytes, afterBytes)) :
+    decodeSemanticOpBodyV1 c = .ok (.literal typeId valueBytes, afterBytes) := by
+  simp only [decodeSemanticOpBodyV1, htag, hfields, htype, hbytes, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- PureCall branch through the actual production field and bounded-array decoders. -/
+theorem decodeSemanticOpBodyV1_pureCall
+    (c afterTag afterFields afterCallable afterArgs : Cursor) (callableId : UInt32)
+    (args : Array UInt32)
+    (htag : decodeTag c = .ok ("Op.PureCall", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (hcallable : decodeU32le afterFields = .ok (callableId, afterCallable))
+    (hargs : decodeArray maxArrayElements decodeU32le afterCallable = .ok (args, afterArgs)) :
+    decodeSemanticOpBodyV1 c = .ok (.pureCall callableId args, afterArgs) := by
+  simp only [decodeSemanticOpBodyV1, htag, hfields, hcallable, hargs, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose a successful SemanticOp body through tagged nesting. -/
+theorem decodeSemanticOpV1_eq_of_bodyV1 (c : Cursor) (op : SemanticOpV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeSemanticOpBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (op, c')) :
+    decodeSemanticOpV1 c = .ok (op, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeSemanticOpV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeInstructionV1 (i : InstructionV1) : Except SemanticWireErrorV1 ByteArray := do
   let resultB ← encodeOption encodeValueDefV1 i.result

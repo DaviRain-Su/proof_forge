@@ -11619,3 +11619,13 @@ normative: false
   decoder。focused build、kernel signature examples与blocker review通过。
 - Boundary：SemanticOp仍为success premise；Literal/PureCall branches、完整carrier及formal TASK/TST
   仍pending。
+
+## 2026-08-01 — D2-07 canonical Literal and PureCall composition
+
+- Production：将SemanticOp原anonymous sum body机械命名为sole `decodeSemanticOpBodyV1`，public decoder
+  仍由一次`withTaggedNesting`包装；全部既有op branches与unknown-tag行为保持。
+- Proof：Literal组合真实tag→field count 2→TypeId→bounded byte payload；PureCall组合真实tag→field
+  count 2→callableId→bounded ValueId array；wrapper theorem保留body input/offset并恢复parent depth。
+  focused build、kernel signature examples与blocker review通过。
+- Boundary：只覆盖canonical fixture所需两个op branch；其余branches、具体Instruction/Block array run、
+  完整carrier及formal TASK/TST仍pending。

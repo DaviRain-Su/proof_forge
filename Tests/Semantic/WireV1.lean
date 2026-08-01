@@ -592,6 +592,33 @@ example (c c' : Cursor) (instruction : InstructionV1)
     decodeInstructionV1 c = .ok (instruction, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeInstructionV1_eq_of_bodyV1 c instruction c' hdepth hbody
 
+example (c afterTag afterFields afterType afterBytes : Cursor) (typeId : UInt32)
+    (valueBytes : ByteArray)
+    (htag : decodeTag c = .ok ("Op.Literal", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (htype : decodeU32le afterFields = .ok (typeId, afterType))
+    (hbytes : decodeByteArray maxCanonicalProgramBytes afterType =
+      .ok (valueBytes, afterBytes)) :
+    decodeSemanticOpBodyV1 c = .ok (.literal typeId valueBytes, afterBytes) :=
+  decodeSemanticOpBodyV1_literal c afterTag afterFields afterType afterBytes typeId
+    valueBytes htag hfields htype hbytes
+
+example (c afterTag afterFields afterCallable afterArgs : Cursor) (callableId : UInt32)
+    (args : Array UInt32)
+    (htag : decodeTag c = .ok ("Op.PureCall", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (hcallable : decodeU32le afterFields = .ok (callableId, afterCallable))
+    (hargs : decodeArray maxArrayElements decodeU32le afterCallable = .ok (args, afterArgs)) :
+    decodeSemanticOpBodyV1 c = .ok (.pureCall callableId args, afterArgs) :=
+  decodeSemanticOpBodyV1_pureCall c afterTag afterFields afterCallable afterArgs callableId
+    args htag hfields hcallable hargs
+
+example (c c' : Cursor) (op : SemanticOpV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeSemanticOpBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (op, c')) :
+    decodeSemanticOpV1 c = .ok (op, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeSemanticOpV1_eq_of_bodyV1 c op c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

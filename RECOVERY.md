@@ -387,6 +387,12 @@ optional ValueDef→SemanticOp，并正确处理Option marker不占nesting、nes
 depth、最终Instruction恢复parent depth。SemanticOp仍只是真实decoder success premise。下一步机械抽取
 sole SemanticOp sum body并仅闭合fixture所需Literal与PureCall branches。
 
+canonical SemanticOp composition现已闭合到fixture所需范围：原anonymous sum body机械抽为sole
+production body，全部既有op与unknown-tag行为保持；Literal严格线程tag→field count 2→typeId→
+`maxCanonicalProgramBytes` sized payload，PureCall严格线程tag→field count 2→callableId→
+`maxArrayElements` args，再经唯一tagged wrapper恢复parent depth。其余op branch proof按需pending。
+下一步把这些field successes组合为具体Instruction、Block及callables array run。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
