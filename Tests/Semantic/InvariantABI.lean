@@ -721,6 +721,30 @@ theorem typeKeyPrimitiveLeaf_data :
     compare_bool_principal_fixture, compare_bool_unit_fixture,
     compare_principal_unit_fixture, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+/-- No fixture declaration is an anonymous Array/Map/Option container, so the
+    production recursive structural-class subphase has an empty domain. -/
+theorem typeKeyRecursiveAnonymous_data :
+    validateRecursiveAnonymousTypeKeyUniquenessV1 data.types = .ok () := by
+  simp [validateRecursiveAnonymousTypeKeyUniquenessV1, data, types, boolType,
+    principalType, unitType, Pure.pure, Except.pure]
+
+/-- Primitive-only fixture declarations contribute no edge source to the
+    production Option-removed TypeId graph. -/
+theorem typeKeyNamedBodyCycle_data :
+    validateNamedBodyOptionCycleLegalityV1 data.types = .ok () := by
+  simp [validateNamedBodyOptionCycleLegalityV1, data, types, boolType,
+    principalType, unitType, Pure.pure, Except.pure]
+
+/-- All four exact production TypeKey subphases now compose successfully for
+    the canonical fixture. -/
+theorem typeKeyPhases_data :
+    validateTypeKeyPhasesV1 data.types = .ok () := by
+  apply validateTypeKeyPhasesV1_eq_ok_of_phases
+  · exact typeKeyNamedPrefix_data
+  · exact typeKeyPrimitiveLeaf_data
+  · exact typeKeyRecursiveAnonymous_data
+  · exact typeKeyNamedBodyCycle_data
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

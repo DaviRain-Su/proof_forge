@@ -334,6 +334,9 @@ encoding/sort authority的`primitiveLeaf`，后续recursive/namedBody及完整Ty
 `primitiveLeaf`现经sole `encodeTypeShapeV1`固定Bool/Principal/Unit exact bytes，并由sole unsigned-byte
 comparator闭合三组distinct比较。production对≤3 keys使用最多三次pair scan，>3仍保留原qsort路径；
 fixture theorem已闭合该subphase。recursive/namedBody与完整TypeKey仍pending。
+fixture不含anonymous container，故真实`recursiveAnonymous` empty-domain fast path闭合；primitive-only
+table也不产生Option-removed graph edge source，故`namedBodyCycle`闭合。四项随后由production phase
+seam组合为`validateTypeKeyPhasesV1 data.types = .ok ()`；named-type uniqueness及后续structure仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 
