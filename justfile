@@ -574,19 +574,24 @@ s1-target-semantic-plan-deletion-gate:
     lake build ProofForgeV2.Targets.Solana ProofForgeV2.Targets.Near ProofForgeV2.Targets.Noir Tests.Materialization.Targets Tests.Materialization.NearHostModel Tests.Materialization.NoirRelationModel
     echo "s1-target-semantic-plan-deletion-gate: ok"
 
-# BUILD-5: product path serial, then deletion gates with bounded parallelism
-# (PROOF_FORGE_GATE_JOBS, default 4; use 1 for serial). Fail-closed: any gate
-# non-zero fails the recipe and prints FAIL gate: <name>.
+# BUILD-5: product path serial, then deletion gates. Every current gate may invoke
+# lake against the shared `.lake/` tree, so gates always run **serially** (fail-closed
+# with `FAIL gate: <name>`). PROOF_FORGE_GATE_JOBS is accepted for forward-compat but
+# values >1 are forced to 1 with a warning (no concurrent lake on one worktree).
 dev-check: docs-check sbom-package-files-check build test-fast run-deletion-gates
 
-gate_jobs := env_var_or_default("PROOF_FORGE_GATE_JOBS", "4")
+gate_jobs := env_var_or_default("PROOF_FORGE_GATE_JOBS", "1")
 
 run-deletion-gates:
     #!/usr/bin/env bash
     set -euo pipefail
     jobs='{{gate_jobs}}'
     if ! [[ "${jobs}" =~ ^[1-9][0-9]*$ ]]; then
-      jobs=4
+      jobs=1
+    fi
+    if [[ "${jobs}" -gt 1 ]]; then
+      echo "run-deletion-gates: PROOF_FORGE_GATE_JOBS=${jobs} ignored; all gates touch .lake — serializing" >&2
+      jobs=1
     fi
     gates=(
       s1-evm-semantic-plan-deletion-gate
@@ -598,19 +603,15 @@ run-deletion-gates:
       s7b-finalize-authority-deletion-gate
       s7c-disk-closure-gate
     )
-    run_gate() {
-      local name="$1"
-      echo "=== gate start: ${name} (jobs=${jobs}) ==="
+    for name in "${gates[@]}"; do
+      echo "=== gate start: ${name} (serial) ==="
       if just "${name}"; then
         echo "=== gate ok: ${name} ==="
       else
         echo "FAIL gate: ${name}" >&2
         exit 1
       fi
-    }
-    export -f run_gate
-    export jobs
-    printf '%s\n' "${gates[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_gate "$@"' _
+    done
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
@@ -1061,6 +1062,14 @@ solana-runtime:
 # Ordinary-host product gate. Release qualification is intentionally excluded.
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
 # selection and S5–S7c deletion gates retain the engineering output closure.
-ci: docs-check sbom-package-files-check build test product-negative source-bounds target-cli-positive target-negative s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate alpha-deletion-gate
+# BUILD-4 local recipes: three independent lanes (also mapped in CI jobs).
+# lean-product: unit/product Lean tests + deletion gates (no target CLI smoke).
+# target-smoke: target-cli-positive + target-negative (needs tool root).
+# Full `ci` keeps the historical one-shot path for local machines.
+ci-lean-product: docs-check sbom-package-files-check build test product-negative source-bounds run-deletion-gates alpha-deletion-gate
+
+ci-target-smoke: build target-cli-positive target-negative
+
+ci: ci-lean-product ci-target-smoke
 
 check: ci
