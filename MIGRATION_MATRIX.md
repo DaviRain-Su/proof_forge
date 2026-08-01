@@ -269,7 +269,9 @@ success及body→nesting wrapper success，保留body cursor input/offset和pare
 原仍pending。后续TypeDecl切片已补expected-tag header与canonical Option.none composition，机械抽取sole
 production body，并按header→id→name→shape组合success及parent nesting restoration。后续root-types
 切片为sole array iterator补单步success与header+完整run组合 theorem，并将其专用于
-`decodeArray maxTableElements decodeTypeDeclV1`；具体root body composition仍pending。
+`decodeArray maxTableElements decodeTypeDeclV1`。后续root scaffold切片将anonymous九字段closure机械抽为
+sole `decodeSemanticProgramDataBodyV1`与单一tagged wrapper，正式transport decoder直接消费，并建立
+exact field-order与nesting success composition；各剩余字段的具体证明仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

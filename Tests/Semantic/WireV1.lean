@@ -347,6 +347,14 @@ example (c : Cursor) (count offset : Nat) (types : Array TypeDeclV1)
     decodeArray maxTableElements decodeTypeDeclV1 c = .ok (types, afterTypes) :=
   decodeTypeDeclArrayV1_eq_of_elements c count offset types afterTypes hcount helements
 
+example (c c' : Cursor) (data : SemanticProgramDataV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeSemanticProgramDataBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (data, c')) :
+    decodeSemanticProgramDataTaggedV1 c =
+      .ok (data, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeSemanticProgramDataTaggedV1_eq_of_bodyV1 c data c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

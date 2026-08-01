@@ -244,6 +244,71 @@ def encodeSemanticProgramDataV1 (p : SemanticProgramDataV1) :
     return ← err .limitExceeded
   pure out
 
+/-- Sole production body for the nine-field `SemanticProgram.Data` record. -/
+def decodeSemanticProgramDataBodyV1 : Decoder SemanticProgramDataV1 := fun c => do
+  let ((), c) ← expectTag "SemanticProgram.Data" 9 c
+  let (qualifiedName, c) ← decodeQualifiedName c
+  let (types, c) ← decodeArray maxTableElements decodeTypeDeclV1 c
+  let (constants, c) ← decodeArray maxTableElements decodeConstantV1 c
+  let (logicalState, c) ← decodeArray maxTableElements decodeStateDeclV1 c
+  let (events, c) ← decodeArray maxTableElements decodeEventDeclV1 c
+  let (errors, c) ← decodeArray maxTableElements decodeErrorDeclV1 c
+  let (callables, c) ← decodeArray maxTableElements decodeCallableV1 c
+  let (invariants, c) ← decodeArray maxTableElements decodeInvariantDeclV1 c
+  let (requirements, c) ← decodeProgramRequirementsV1 c
+  pure ({
+    qualifiedName, types, constants, logicalState, events, errors,
+    callables, invariants, requirements
+  }, c)
+
+/-- Sole tagged production decoder for the root data record. -/
+def decodeSemanticProgramDataTaggedV1 : Decoder SemanticProgramDataV1 :=
+  withTaggedNesting decodeSemanticProgramDataBodyV1
+
+/-- Compose the root body from the actual production field decoders in exact
+    wire order. -/
+theorem decodeSemanticProgramDataBodyV1_eq_of_fields
+    (c cTag cName cTypes cConstants cState cEvents cErrors cCallables cInvariants
+      cRequirements : Cursor)
+    (qualifiedName : QualifiedName) (types : Array TypeDeclV1)
+    (constants : Array ConstantV1) (logicalState : Array StateDeclV1)
+    (events : Array EventDeclV1) (errors : Array ErrorDeclV1)
+    (callables : Array CallableV1) (invariants : Array InvariantDeclV1)
+    (requirements : ProgramRequirementsV1)
+    (htag : expectTag "SemanticProgram.Data" 9 c = .ok ((), cTag))
+    (hname : decodeQualifiedName cTag = .ok (qualifiedName, cName))
+    (htypes : decodeArray maxTableElements decodeTypeDeclV1 cName = .ok (types, cTypes))
+    (hconstants : decodeArray maxTableElements decodeConstantV1 cTypes =
+      .ok (constants, cConstants))
+    (hstate : decodeArray maxTableElements decodeStateDeclV1 cConstants =
+      .ok (logicalState, cState))
+    (hevents : decodeArray maxTableElements decodeEventDeclV1 cState = .ok (events, cEvents))
+    (herrors : decodeArray maxTableElements decodeErrorDeclV1 cEvents = .ok (errors, cErrors))
+    (hcallables : decodeArray maxTableElements decodeCallableV1 cErrors =
+      .ok (callables, cCallables))
+    (hinvariants : decodeArray maxTableElements decodeInvariantDeclV1 cCallables =
+      .ok (invariants, cInvariants))
+    (hrequirements : decodeProgramRequirementsV1 cInvariants =
+      .ok (requirements, cRequirements)) :
+    decodeSemanticProgramDataBodyV1 c = .ok ({
+      qualifiedName, types, constants, logicalState, events, errors,
+      callables, invariants, requirements
+    }, cRequirements) := by
+  simp only [decodeSemanticProgramDataBodyV1, htag, hname, htypes, hconstants,
+    hstate, hevents, herrors, hcallables, hinvariants, hrequirements, Bind.bind,
+    Pure.pure, Except.bind, Except.pure]
+
+/-- Compose a successful root body through its tagged nesting frame. -/
+theorem decodeSemanticProgramDataTaggedV1_eq_of_bodyV1 (c : Cursor)
+    (data : SemanticProgramDataV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeSemanticProgramDataBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (data, c')) :
+    decodeSemanticProgramDataTaggedV1 c =
+      .ok (data, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeSemanticProgramDataTaggedV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
 /-- Transport decode only: magic/tags/limits/nesting/trailing. No structure gate. -/
 def decodeSemanticProgramDataV1 (bytes : ByteArray) :
     Except SemanticWireErrorV1 SemanticProgramDataV1 := do
@@ -251,22 +316,7 @@ def decodeSemanticProgramDataV1 (bytes : ByteArray) :
     return ← err .limitExceeded
   let c := start bytes
   let ((), c) ← consumeMagic semanticProgramMagicV1 c
-  let (data, c) ← withTaggedNesting (fun c => do
-    let ((), c) ← expectTag "SemanticProgram.Data" 9 c
-    let (qualifiedName, c) ← decodeQualifiedName c
-    let (types, c) ← decodeArray maxTableElements decodeTypeDeclV1 c
-    let (constants, c) ← decodeArray maxTableElements decodeConstantV1 c
-    let (logicalState, c) ← decodeArray maxTableElements decodeStateDeclV1 c
-    let (events, c) ← decodeArray maxTableElements decodeEventDeclV1 c
-    let (errors, c) ← decodeArray maxTableElements decodeErrorDeclV1 c
-    let (callables, c) ← decodeArray maxTableElements decodeCallableV1 c
-    let (invariants, c) ← decodeArray maxTableElements decodeInvariantDeclV1 c
-    let (requirements, c) ← decodeProgramRequirementsV1 c
-    pure ({
-      qualifiedName, types, constants, logicalState, events, errors,
-      callables, invariants, requirements
-    }, c)
-  ) c
+  let (data, c) ← decodeSemanticProgramDataTaggedV1 c
   finish c
   pure data
 

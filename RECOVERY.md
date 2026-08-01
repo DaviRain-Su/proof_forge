@@ -320,6 +320,12 @@ TypeDecl decoder、push accumulator并将完整cursor传给tail；通用`decodeA
 count header与完整run，`decodeTypeDeclArrayV1_eq_of_elements`锁定root的`maxTableElements`调用。
 Bool/Principal/Unit declaration array已无需额外迭代器 theorem；root body连接仍pending。
 
+`SemanticProgram.Data` root scaffold现已闭合：原anonymous九字段production closure机械抽为sole
+`decodeSemanticProgramDataBodyV1`，再由sole `decodeSemanticProgramDataTaggedV1`包装一次nesting；transport
+decoder已直接改用该同一wrapper。field composition theorem固定tag后qualifiedName→types→constants→
+logicalState→events→errors→callables→invariants→requirements顺序，未移动structure gate。剩余字段
+具体proof仍逐段pending。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

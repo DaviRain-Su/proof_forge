@@ -11495,3 +11495,14 @@ normative: false
   - For-loop start literal `0` fails TypeCheck (no default integer width); LoopSum uses `(n - n) ..< n`.
   - invalidShift test uses `x << (32 + 32)` (literal 64 rejected at typecheck).
 - Boundary：工程运行时差分扩展，非 formal Stage-0/hermetic EV；不改 Lean 产品路径（发射器修复除外）。
+
+## 2026-08-01 — D2-07 SemanticProgram.Data root proof scaffold
+
+- Production：将原anonymous九字段decoder机械抽为sole `decodeSemanticProgramDataBodyV1`，由sole
+  `decodeSemanticProgramDataTaggedV1`包装一次nesting；`decodeSemanticProgramDataV1`直接消费该wrapper，
+  size→magic→nesting→tag/fields→finish错误顺序不变。
+- Proof：root body theorem严格按qualifiedName→types→constants→logicalState→events→errors→callables→
+  invariants→requirements线程真实production equality；wrapper theorem恢复parent nesting并保留body
+  input/offset。focused build、signature example与blocker review通过。
+- Boundary：transport/structure边界不变；本切片只建立root scaffold，各剩余字段、完整carrier与formal
+  TASK/TST仍pending。
