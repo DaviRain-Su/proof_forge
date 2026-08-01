@@ -347,7 +347,9 @@ declaration-name phase也已闭合：empty constants/events/errors与interface w
 logicalState走production ≤1 no-sort success path。callable signature phase随后已完整闭合：四个extracted
 names走≤4 exhaustive exact-pair path，empty params走≤1 no-sort path，entry/view及special invariant
 signature/metadata gates均通过；>4 names仍保留原qsort+adjacent authority。InvariantDecl exact join也已按
-filtered callable source order闭合`truth→2`、`falsehood→3`。identifier grammar、CFG/requirements及完整
+filtered callable source order闭合`truth→2`、`falsehood→3`。随后identifier grammar也已逐项经sole shared
+`validateIdentifierComponent`闭合：`flag`、`entry_gate`、`truthLeaf`、`truth`、`falsehood`均由ASCII
+NFC refinement加真实长度/首尾字符检查通过；QualifiedName不属于本gate。CFG/requirements及完整
 structure/encoder/carrier/formal状态仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet

@@ -12591,6 +12591,16 @@ normative: false
 - 矩阵 ALEO 列与 B-1c 已更新（GAP→FAIL-CLOSED 或 Commit→LOWERED）；source-only 成熟度不变。
 - 非 formal D2/D4；不改 AGENTS.md/MIGRATION_MATRIX.md/RECOVERY.md；不碰 off-limits target。
 
+## 2026-08-01 — D2-07 concrete declaration identifier grammar
+
+- Refinement：wire name gate只从sole shared `validateIdentifierComponent` success组合；ASCII theorem仅
+  refine pinned Unicode 17 NFC fixed-point，不替代长度、non-`_`、`Lean.isIdFirst/isIdRest`检查。
+- Kernel：production table-order walker逐项闭合`flag`、InvariantDecl `truth/falsehood`及callable
+  `entry_gate/truthLeaf/truth/falsehood`；anonymous primitive types与empty tables/params不产生name site。
+- Boundary：QualifiedName不由本declaration walker检查；earlier prelude只拥有≥2 component root shape，
+  component grammar仍由Core parse/render路径经同一`validateIdentifierComponent`拥有。CFG/invariant
+  closure、requirements、完整structure/encoder/carrier identity与formal TASK/TST仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；

@@ -628,4 +628,7 @@ exact equality scan，>4仍走原private qsort+adjacent路径；所有parameter�
 fixture随后真实通过kind/name、entry/view、initializer absence、Bool-public invariant result、zero params/
 loopBounds、non-closure metadata与root steps presence。紧随其后的InvariantDecl exact join也已闭合：
 production过滤callable source order得到`#[2,3]`，两行declaration依次精确匹配callable id、kind与name。
-下一production gate是declaration identifier grammar。
+declaration identifier grammar也已闭合：production source-order walker检查state `flag`、两项
+InvariantDecl name及四项callable name；重复的`truth`/`falsehood`仍在各自site经过sole shared
+`validateIdentifierComponent`。ASCII只用于refine pinned Unicode NFC fixed-point，长度、非`_`、
+`Lean.isIdFirst/isIdRest`仍由真实authority检查。下一production gate进入CFG/invariant phases。
