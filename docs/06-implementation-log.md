@@ -11647,3 +11647,20 @@ normative: false
   focused build、kernel signature examples与blocker review通过。
 - Boundary：只覆盖canonical fixture所需两个op branch；其余branches、具体Instruction/Block array run、
   完整carrier及formal TASK/TST仍pending。
+
+## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
+
+- Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）
+  与共享 `isPilotBodyUintWidth`；默认 `pilotUintWidthPolicyU64U32` 不变（NEAR/Noir 仍 fail closed
+  于窄宽 body）。
+- Solana LowerSemanticV1：`validateSolanaTypeClosureV1` 传 Solana body policy；`LoweredValueV1.bitWidth`
+  （Bool=1）；`admitUIntWidthResultTypeV1` + width-dispatch `mkChecked*`/`narrow*` Expr 构造器；
+  literal 经 `decodeUIntWidthLiteralLe` 按字节数 LE 解码；state/param/return/event/revert/pureCall
+  参数保持 UInt64/Bool/Int64（`bitWidth==64`）门禁，窄宽值不得流向 ABI 边界。
+- EmitIRV1：`Operation.narrowChecked*`/`narrowBit*`/`narrowCheckedShl/Shr`（仅 bitWidth∈{8,16,32}，
+  w=64 走历史构造器）；plan 文本 `checked_add_u8` 等宽度标识；validate 同步 temp/operand/error。
+- EmitSbpfAsmV1：窄宽 add/mul/shl 在 64 位算后 `rsh64 imm,w` 高位检查 → 0x1001；sub/div/mod/shr
+  复用 u64 守卫（结果自动 in-range）；bitNot 后 AND 宽度掩码；count≥64 仍 0x1004；仅真实 Solana 指令。
+- 测试：`Tests/Targets/SolanaAsmV1` 窄宽金样 + UInt128 fail closed；fixture
+  `runtime-tests/solana/fixtures/NarrowGates.lean` + Mollusk `narrow_gates_*`；`solana_runtime_test.sh`
+  纳入第七 fixture。非 formal D2/D4。

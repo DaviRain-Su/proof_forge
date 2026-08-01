@@ -158,6 +158,21 @@ inductive Expr where
   | callFn (fnIndex : Nat) (args : Array Expr)
   /-- Plan-level loop induction temporary (bound by `Statement.forLoop`). -/
   | temp (id : Nat)
+  /-- Checked add at `bitWidth ∈ {8,16,32}` (body multi-width). UInt64 keeps
+      historical `checkedAdd` so plan/IR goldens stay byte-identical. -/
+  | narrowCheckedAdd (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedSub (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedMul (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedDiv (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedMod (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitAnd (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitOr (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitXor (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitNot (bitWidth : Nat) (operand : Expr)
+  /-- Left shift of a narrow UInt value; count is UInt32. Count ≥ 64 →
+      invalidShift; shifted result exceeding the width mask → overflow. -/
+  | narrowShl (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowShr (bitWidth : Nat) (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -300,18 +315,21 @@ before any Solana lowering; hand-built/inspection Semantic programs that
 still carry the ops fail closed here with an explicit planInvariant. -/
 
 /-- Solana pilot type-closure carrier (shared `PilotTypeClosureV1`).
-    Bool/UInt32 optional; state/params remain UInt64-only. -/
+    Body multi-width admits UInt{8,16,32,64}; state/params remain UInt64/Int64. -/
 private abbrev SolanaTypeClosureV1 := PilotTypeClosureV1
 
 private def solanaPlanErr (message : String) : CompileError :=
   .planInvariant .solana message
 
-/-- Solana pilot accepts anonymous UInt64/Unit/Bool/UInt32/Int64 (default Int
-    policy). Valid but richer SemanticProgramV1 programs fail at the target
-    Plan seam rather than being silently erased. -/
+/-- Solana pilot accepts anonymous UInt{8,16,32,64}/Unit/Bool/Int64 under
+    `pilotUintWidthPolicySolanaBody` + default `pilotIntWidthPolicyI64`. Body
+    multi-width UInt values are allowed; **state and ABI parameters admit
+    UInt64 or Int64** via `requirePublicUInt64OrInt64*` with
+    `allowNonPublic := true` (N1). UInt128/256 and non-64 Int fail closed. -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
+    pilotUintWidthPolicySolanaBody
 
 private def makeStateAccountV1
     (types : SolanaTypeClosureV1)
@@ -355,10 +373,13 @@ private structure LoweredValueV1 where
   expandedNodes : Nat
   dependencies : Array ValueIdV1
   isBool : Bool
-  /-- True for anonymous UInt32 shift-count values (never simultaneously Bool). -/
+  /-- True for anonymous UInt32 values (shift counts and body UInt32 temps).
+      Never simultaneously Bool or Int. Prefer `bitWidth` for width gates. -/
   isUInt32 : Bool := false
   /-- True for Int64-typed values (mutually exclusive with isBool/isUInt32). -/
   isInt : Bool := false
+  /-- Bit width of non-Bool values: 8/16/32/64. Bool uses 1. -/
+  bitWidth : Nat := 64
   deriving Inhabited
 
 private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
@@ -394,6 +415,7 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
       dependencies := #[]
       isBool := false
       isInt
+      bitWidth := 64
     }
   pure (planned, values)
 
@@ -459,12 +481,29 @@ private def currentValueWithArmsV1
       "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
+/-- Admitted body UInt widths for Solana sBPF (state/ABI remain 64-only). -/
+private def isSolanaBodyUintWidth (w : Nat) : Bool :=
+  isPilotBodyUintWidth w
+
+/-- Shared bounded SSA-tree cost for binary Expr constructors. Operands must
+    be non-Bool and share `bitWidth` (+ signedness for non-Bool results).
+    Comparison results are Bool (`bitWidth=1`). -/
 private def makeBinaryTreeValueV1
     (mk : Expr → Expr → Expr)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1)
     (isBool : Bool)
+    (resultBitWidth : Nat)
     (isInt : Bool := false) : CompileResult LoweredValueV1 := do
+  unless isBool || (lhs.bitWidth == rhs.bitWidth && lhs.bitWidth == resultBitWidth) do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: binary operands must share integer width"
+  unless isBool || isSolanaBodyUintWidth resultBitWidth do
+    throw <| .planInvariant .solana
+      s!"unsupported Solana semantic shape: width {resultBitWidth} is not an admitted body width"
+  unless isBool || !isInt || resultBitWidth == 64 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: only Int64 is admitted (not narrower/wider Int)"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .solana s!"Solana plan expression exceeds depth {maxExprDepth}"
@@ -479,95 +518,204 @@ private def makeBinaryTreeValueV1
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
     isBool
+    isUInt32 := !isBool && !isInt && resultBitWidth == 32
     isInt := !isBool && isInt
+    bitWidth := if isBool then 1 else resultBitWidth
   }
 
+/-- Admit a wire result TypeId for UInt-width arithmetic/bitwise and return
+    `(typeId, bitWidth)`. UInt8/16/32/64 only; UInt128/256 fail closed. -/
+private def admitUIntWidthResultTypeV1
+    (types : SolanaTypeClosureV1) (resultTypeId : TypeIdV1) :
+    CompileResult (TypeIdV1 × Nat) := do
+  match types.uintWidthOf resultTypeId with
+  | some w =>
+      unless isSolanaBodyUintWidth w do
+        throw <| .planInvariant .solana
+          s!"unsupported Solana semantic shape: arithmetic/bitwise result UInt{w} is not admitted"
+      pure (resultTypeId, w)
+  | none =>
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: arithmetic/bitwise result must be admitted UInt width"
+
+/-- Width-dispatch: UInt64 keeps historical constructors; narrow widths use
+    `narrow*` so Emit can attach width overflow/mask guards. -/
+private def mkCheckedAdd (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedAdd l r else .narrowCheckedAdd w l r
+private def mkCheckedSub (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedSub l r else .narrowCheckedSub w l r
+private def mkCheckedMul (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedMul l r else .narrowCheckedMul w l r
+private def mkCheckedDiv (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedDiv l r else .narrowCheckedDiv w l r
+private def mkCheckedMod (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedMod l r else .narrowCheckedMod w l r
+private def mkBitAnd (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .bitAnd l r else .narrowBitAnd w l r
+private def mkBitOr (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .bitOr l r else .narrowBitOr w l r
+private def mkBitXor (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .bitXor l r else .narrowBitXor w l r
+private def mkBitNot (w : Nat) (o : Expr) : Expr :=
+  if w == 64 then .bitNot o else .narrowBitNot w o
+private def mkShl (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .shl l r else .narrowShl w l r
+private def mkShr (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .shr l r else .narrowShr w l r
+
 private def makeCheckedAddValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 .signedCheckedAdd lhsId rhsId lhs rhs false (isInt := true)
+    makeBinaryTreeValueV1 .signedCheckedAdd lhsId rhsId lhs rhs false 64 (isInt := true)
   else
-    makeBinaryTreeValueV1 .checkedAdd lhsId rhsId lhs rhs false
+    makeBinaryTreeValueV1 (mkCheckedAdd bitWidth) lhsId rhsId lhs rhs false bitWidth
 
 private def makeCheckedSubValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 .signedCheckedSub lhsId rhsId lhs rhs false (isInt := true)
+    makeBinaryTreeValueV1 .signedCheckedSub lhsId rhsId lhs rhs false 64 (isInt := true)
   else
-    makeBinaryTreeValueV1 .checkedSub lhsId rhsId lhs rhs false
+    makeBinaryTreeValueV1 (mkCheckedSub bitWidth) lhsId rhsId lhs rhs false bitWidth
 
 private def makeCheckedMulValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 .signedCheckedMul lhsId rhsId lhs rhs false (isInt := true)
+    makeBinaryTreeValueV1 .signedCheckedMul lhsId rhsId lhs rhs false 64 (isInt := true)
   else
-    makeBinaryTreeValueV1 .checkedMul lhsId rhsId lhs rhs false
+    makeBinaryTreeValueV1 (mkCheckedMul bitWidth) lhsId rhsId lhs rhs false bitWidth
 
 private def makeCheckedDivValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 .signedCheckedDiv lhsId rhsId lhs rhs false (isInt := true)
+    makeBinaryTreeValueV1 .signedCheckedDiv lhsId rhsId lhs rhs false 64 (isInt := true)
   else
-    makeBinaryTreeValueV1 .checkedDiv lhsId rhsId lhs rhs false
+    makeBinaryTreeValueV1 (mkCheckedDiv bitWidth) lhsId rhsId lhs rhs false bitWidth
 
 private def makeCheckedModValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 .signedCheckedMod lhsId rhsId lhs rhs false (isInt := true)
+    makeBinaryTreeValueV1 .signedCheckedMod lhsId rhsId lhs rhs false 64 (isInt := true)
   else
-    makeBinaryTreeValueV1 .checkedMod lhsId rhsId lhs rhs false
+    makeBinaryTreeValueV1 (mkCheckedMod bitWidth) lhsId rhsId lhs rhs false bitWidth
 
 private def makeBitAndValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .bitAnd lhsId rhsId lhs rhs false (isInt := lhs.isInt)
+  makeBinaryTreeValueV1 (mkBitAnd bitWidth) lhsId rhsId lhs rhs false bitWidth
+    (isInt := lhs.isInt)
 
 private def makeBitOrValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .bitOr lhsId rhsId lhs rhs false (isInt := lhs.isInt)
+  makeBinaryTreeValueV1 (mkBitOr bitWidth) lhsId rhsId lhs rhs false bitWidth
+    (isInt := lhs.isInt)
 
 private def makeBitXorValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .bitXor lhsId rhsId lhs rhs false (isInt := lhs.isInt)
+  makeBinaryTreeValueV1 (mkBitXor bitWidth) lhsId rhsId lhs rhs false bitWidth
+    (isInt := lhs.isInt)
+
+/-- Shift tree cost: lhs carries `bitWidth`, count is UInt32 (distinct width). -/
+private def makeShiftTreeValueV1
+    (mk : Expr → Expr → Expr)
+    (bitWidth : Nat)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless !lhs.isBool && !rhs.isBool do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: shift operands must be integer"
+  unless !rhs.isInt do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: shift count must be UInt32"
+  unless lhs.bitWidth == bitWidth && isSolanaBodyUintWidth bitWidth do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: shift lhs width mismatch"
+  unless rhs.bitWidth == 32 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: shift count must be UInt32"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mk lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+    isBool := false
+    isUInt32 := !lhs.isInt && bitWidth == 32
+    isInt := lhs.isInt
+    bitWidth
+  }
 
 private def makeShlValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
-    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .shl lhsId rhsId lhs rhs false (isInt := lhs.isInt)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  let v ← makeShiftTreeValueV1 (mkShl bitWidth) bitWidth lhsId rhsId lhs rhs
+  pure { v with isInt := lhs.isInt }
 
 private def makeShrValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
-    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
   if lhs.isInt then
-    makeBinaryTreeValueV1 .sar lhsId rhsId lhs rhs false (isInt := true)
+    unless bitWidth == 64 do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: only Int64 arithmetic shift is admitted"
+    let v ← makeShiftTreeValueV1 .sar bitWidth lhsId rhsId lhs rhs
+    pure { v with isInt := true }
   else
-    makeBinaryTreeValueV1 .shr lhsId rhsId lhs rhs false
+    makeShiftTreeValueV1 (mkShr bitWidth) bitWidth lhsId rhsId lhs rhs
 
 private def makeBoolAndValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .boolAnd lhsId rhsId lhs rhs true
+  makeBinaryTreeValueV1 .boolAnd lhsId rhsId lhs rhs true 1
 
 private def makeBoolOrValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .boolOr lhsId rhsId lhs rhs true
+  makeBinaryTreeValueV1 .boolOr lhsId rhsId lhs rhs true 1
 
 private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
-    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 (.signedCompare op) lhsId rhsId lhs rhs true
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless !lhs.isBool && !rhs.isBool do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: comparison operands must be integer"
+  unless lhs.bitWidth == rhs.bitWidth && isSolanaBodyUintWidth lhs.bitWidth do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: comparison operands must share admitted width"
+  unless lhs.isInt == rhs.isInt do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: comparison operands must share signedness"
+  if lhs.isInt then
+    unless lhs.bitWidth == 64 do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: only Int64 comparisons are admitted"
+    makeBinaryTreeValueV1 (.signedCompare op) lhsId rhsId lhs rhs true 1
   else
-    makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true
+    makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true 1
 
 /-- Unary plan-value constructor (depth/node accounting for bitNot/boolNot/neg). -/
 private def makeUnaryTreeValueV1
@@ -575,7 +723,11 @@ private def makeUnaryTreeValueV1
     (operandId : ValueIdV1)
     (operand : LoweredValueV1)
     (isBool : Bool)
+    (resultBitWidth : Nat)
     (isInt : Bool := false) : CompileResult LoweredValueV1 := do
+  unless isBool || operand.bitWidth == resultBitWidth do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: unary bitNot width mismatch"
   let depth := 1 + operand.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .solana s!"Solana plan expression exceeds depth {maxExprDepth}"
@@ -587,26 +739,30 @@ private def makeUnaryTreeValueV1
     expandedNodes := 1 + operand.expandedNodes
     dependencies := #[operandId]
     isBool
+    isUInt32 := !isBool && !isInt && resultBitWidth == 32
     isInt := !isBool && isInt
+    bitWidth := if isBool then 1 else resultBitWidth
   }
 
 private def makeBitNotValueV1
+    (bitWidth : Nat)
     (operandId : ValueIdV1)
     (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeUnaryTreeValueV1 .bitNot operandId operand false (isInt := operand.isInt)
+  makeUnaryTreeValueV1 (mkBitNot bitWidth) operandId operand false bitWidth
+    (isInt := operand.isInt)
 
 private def makeBoolNotValueV1
     (operandId : ValueIdV1)
     (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeUnaryTreeValueV1 .boolNot operandId operand true
+  makeUnaryTreeValueV1 .boolNot operandId operand true 1
 
 private def makeCheckedNegValueV1
     (operandId : ValueIdV1)
     (operand : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  unless operand.isInt do
+  unless operand.isInt && !operand.isBool && operand.bitWidth == 64 do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: checkedNeg requires Int64 operand"
-  makeUnaryTreeValueV1 .checkedNeg operandId operand false (isInt := true)
+  makeUnaryTreeValueV1 .checkedNeg operandId operand false 64 (isInt := true)
 
 /-- Pure local-call value: n-ary args, pure expression (not an effect boundary). -/
 private def makeCallFnValueV1
@@ -629,6 +785,7 @@ private def makeCallFnValueV1
     expandedNodes
     dependencies := argIds
     isBool
+    bitWidth := if isBool then 1 else 64
   }
 
 /-- Signature index for pureFn callables: CallableId → fnIndex, arity, result kind. -/
@@ -830,6 +987,7 @@ private def lowerBlockInstructionsV1
             isBool := false
             isUInt32 := false
             isInt := false
+            bitWidth := 64
           }
         else if types.int64TypeId == some typeId then
           let value ← decodeInt64LiteralLe solanaPlanErr "Solana" bytes
@@ -841,6 +999,7 @@ private def lowerBlockInstructionsV1
             isBool := false
             isUInt32 := false
             isInt := true
+            bitWidth := 64
           }
         else if types.boolTypeId == some typeId then
           let bit ← decodeBoolLiteralV1 bytes
@@ -852,21 +1011,26 @@ private def lowerBlockInstructionsV1
             isBool := true
             isUInt32 := false
             isInt := false
+            bitWidth := 1
           }
-        else if types.uint32TypeId == some typeId then
-          let value ← decodeUInt32LiteralV1 bytes
+        else if let some bitWidth := types.uintWidthOf typeId then
+          unless isSolanaBodyUintWidth bitWidth do
+            throw <| .planInvariant .solana
+              s!"unsupported Solana semantic shape: UInt{bitWidth} literal is not admitted"
+          let value ← decodeUIntWidthLiteralLe solanaPlanErr "Solana" bitWidth bytes
           values := ← appendResultValueV1 typeId values result {
             expr := .literal value
             depth := 1
             expandedNodes := 1
             dependencies := #[]
             isBool := false
-            isUInt32 := true
+            isUInt32 := bitWidth == 32
             isInt := false
+            bitWidth
           }
         else
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: literal is not UInt64, Int64, UInt32, or Bool"
+            "unsupported Solana semantic shape: literal is not admitted UInt width, Int64, or Bool"
     | .stateLoad stateId, some result =>
         let field ← findFieldV1 account stateId
         let isInt := types.int64TypeId == some result.typeId
@@ -880,6 +1044,7 @@ private def lowerBlockInstructionsV1
           dependencies := #[]
           isBool := false
           isInt
+          bitWidth := 64
         }
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables lhsId
@@ -900,17 +1065,16 @@ private def lowerBlockInstructionsV1
             if op == .and then makeBoolAndValueV1 lhsId rhsId lhs rhs
             else makeBoolOrValueV1 lhsId rhsId lhs rhs
           values := ← appendResultValueV1 boolTypeId values result value
-        -- Shifts: UInt64/Int64 operand, UInt32 count; result matches lhs width kind.
+        -- Shifts: admitted body UInt/Int64 operand, UInt32 count; result matches lhs.
         else if op == .shl || op == .shr then
-          unless !lhs.isBool && !lhs.isUInt32 do
+          unless !lhs.isBool && (lhs.isInt || isSolanaBodyUintWidth lhs.bitWidth) do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: shift operand must be UInt64 or Int64"
-          unless rhs.isUInt32 do
+              "unsupported Solana semantic shape: shift operand must be admitted integer width"
+          unless !rhs.isBool && !rhs.isInt && rhs.bitWidth == 32 do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: shift count must be UInt32"
-          let resultTid ←
-            if lhs.isInt then
-              match types.int64TypeId with
+          if lhs.isInt then
+            let resultTid ← match types.int64TypeId with
               | some tid =>
                   unless result.typeId == tid do
                     throw <| .planInvariant .solana
@@ -918,141 +1082,156 @@ private def lowerBlockInstructionsV1
                   pure tid
               | none => throw (.planInvariant .solana
                   "unsupported Solana semantic shape: Int64 type is missing for shift")
-            else
-              unless result.typeId == types.uint64TypeId do
-                throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: shift result must be UInt64"
-              pure types.uint64TypeId
-          let value ←
-            if op == .shl then makeShlValueV1 lhsId rhsId lhs rhs
-            else makeShrValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 resultTid values result value
-        -- UInt32 arithmetic/bitwise: admitted only as shift-count composition
-        -- (e.g. `x >> (32 + 32)`). Same plan/IR opcodes as UInt64; checked-op
-        -- overflow guards are UInt64-wide (a conservative superset for the small
-        -- counts Normalize produces). A u32 arithmetic overflow yields a value
-        -- ≥ 2^32 which, in this envelope, can only flow into a shift count,
-        -- where the shift's own invalidShift (0x1004) check errors it — both
-        -- paths revert; u32 values never escape the count position.
-        else if (op == .add || op == .sub || op == .mul || op == .div ||
-            op == .mod || op == .bitAnd || op == .bitOr || op == .bitXor) &&
-            lhs.isUInt32 && rhs.isUInt32 then
-          let u32TypeId ← match types.uint32TypeId with
-            | some tid => pure tid
-            | none => throw (.planInvariant .solana
-                "unsupported Solana semantic shape: UInt32 type is missing for shift-count arithmetic")
-          unless result.typeId == u32TypeId do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: UInt32 binary result type mismatch"
-          let raw ←
-            if op == .add then makeCheckedAddValueV1 lhsId rhsId lhs rhs
-            else if op == .sub then makeCheckedSubValueV1 lhsId rhsId lhs rhs
-            else if op == .mul then makeCheckedMulValueV1 lhsId rhsId lhs rhs
-            else if op == .div then makeCheckedDivValueV1 lhsId rhsId lhs rhs
-            else if op == .mod then makeCheckedModValueV1 lhsId rhsId lhs rhs
-            else if op == .bitAnd then makeBitAndValueV1 lhsId rhsId lhs rhs
-            else if op == .bitOr then makeBitOrValueV1 lhsId rhsId lhs rhs
-            else makeBitXorValueV1 lhsId rhsId lhs rhs
-          let value := { raw with isBool := false, isUInt32 := true }
-          values := ← appendResultValueV1 u32TypeId values result value
-        -- UInt64/Int64 arithmetic / bitwise / comparison operands.
+            let value ←
+              if op == .shl then makeShlValueV1 64 lhsId rhsId lhs rhs
+              else makeShrValueV1 64 lhsId rhsId lhs rhs
+            values := ← appendResultValueV1 resultTid values result value
+          else
+            let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+            unless bitWidth == lhs.bitWidth do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: shift result width mismatch"
+            let value ←
+              if op == .shl then makeShlValueV1 bitWidth lhsId rhsId lhs rhs
+              else makeShrValueV1 bitWidth lhsId rhsId lhs rhs
+            values := ← appendResultValueV1 widthTid values result value
+        -- Body multi-width UInt arithmetic / bitwise / comparison, or Int64.
         else
-          unless !lhs.isBool && !rhs.isBool && !lhs.isUInt32 && !rhs.isUInt32 do
+          unless !lhs.isBool && !rhs.isBool do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: binary operands must be UInt64 or Int64"
+              "unsupported Solana semantic shape: binary operands must be integer"
           unless lhs.isInt == rhs.isInt do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: binary operands must share signedness"
-          let wordTid ←
-            if lhs.isInt then
-              match types.int64TypeId with
+          if lhs.isInt then
+            let wordTid ← match types.int64TypeId with
               | some tid => pure tid
               | none => throw (.planInvariant .solana
                   "unsupported Solana semantic shape: Int64 type is missing")
-            else
-              pure types.uint64TypeId
-          if op == .add then
-            unless result.typeId == wordTid do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: arithmetic result type mismatch"
-            let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 wordTid values result value
-          else if op == .sub then
-            unless result.typeId == wordTid do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: arithmetic result type mismatch"
-            let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 wordTid values result value
-          else if op == .mul then
-            unless result.typeId == wordTid do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: arithmetic result type mismatch"
-            let value ← makeCheckedMulValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 wordTid values result value
-          else if op == .div then
-            unless result.typeId == wordTid do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: arithmetic result type mismatch"
-            let value ← makeCheckedDivValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 wordTid values result value
-          else if op == .mod then
-            unless result.typeId == wordTid do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: arithmetic result type mismatch"
-            let value ← makeCheckedModValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 wordTid values result value
-          else if op == .bitAnd then
-            unless result.typeId == wordTid do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: bitwise result type mismatch"
-            let value ← makeBitAndValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 wordTid values result value
-          else if op == .bitOr then
-            unless result.typeId == wordTid do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: bitwise result type mismatch"
-            let value ← makeBitOrValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 wordTid values result value
-          else if op == .bitXor then
-            unless result.typeId == wordTid do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: bitwise result type mismatch"
-            let value ← makeBitXorValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 wordTid values result value
-          else
-            match comparisonOpOfV1 op with
-            | some cmpOp =>
-                let boolTypeId ← match types.boolTypeId with
-                  | some value => pure value
-                  | none => throw (.planInvariant .solana
-                      "unsupported Solana semantic shape: Bool type is missing for comparison")
-                unless result.typeId == boolTypeId do
-                  throw <| .planInvariant .solana
-                    "unsupported Solana semantic shape: comparison result must be Bool"
-                let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
-                values := ← appendResultValueV1 boolTypeId values result value
-            | none =>
+            if op == .add then
+              unless result.typeId == wordTid do
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: only checked UInt64/Int64/UInt32 arith/bitwise, shift, Bool logical, and comparisons are supported"
+                  "unsupported Solana semantic shape: arithmetic result type mismatch"
+              let value ← makeCheckedAddValueV1 64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .sub then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: arithmetic result type mismatch"
+              let value ← makeCheckedSubValueV1 64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .mul then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: arithmetic result type mismatch"
+              let value ← makeCheckedMulValueV1 64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .div then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: arithmetic result type mismatch"
+              let value ← makeCheckedDivValueV1 64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .mod then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: arithmetic result type mismatch"
+              let value ← makeCheckedModValueV1 64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .bitAnd then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: bitwise result type mismatch"
+              let value ← makeBitAndValueV1 64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .bitOr then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: bitwise result type mismatch"
+              let value ← makeBitOrValueV1 64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .bitXor then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: bitwise result type mismatch"
+              let value ← makeBitXorValueV1 64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else
+              match comparisonOpOfV1 op with
+              | some cmpOp =>
+                  let boolTypeId ← match types.boolTypeId with
+                    | some value => pure value
+                    | none => throw (.planInvariant .solana
+                        "unsupported Solana semantic shape: Bool type is missing for comparison")
+                  unless result.typeId == boolTypeId do
+                    throw <| .planInvariant .solana
+                      "unsupported Solana semantic shape: comparison result must be Bool"
+                  let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
+                  values := ← appendResultValueV1 boolTypeId values result value
+              | none =>
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: only checked Int64 arith/bitwise and comparisons are supported"
+          else
+            -- Unsigned body multi-width path (UInt8/16/32/64).
+            unless isSolanaBodyUintWidth lhs.bitWidth &&
+                lhs.bitWidth == rhs.bitWidth do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: binary operands must share admitted UInt width"
+            if op == .add || op == .sub || op == .mul || op == .div ||
+                op == .mod || op == .bitAnd || op == .bitOr || op == .bitXor then
+              let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+              unless bitWidth == lhs.bitWidth do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: arithmetic/bitwise result width mismatch"
+              let value ←
+                if op == .add then makeCheckedAddValueV1 bitWidth lhsId rhsId lhs rhs
+                else if op == .sub then makeCheckedSubValueV1 bitWidth lhsId rhsId lhs rhs
+                else if op == .mul then makeCheckedMulValueV1 bitWidth lhsId rhsId lhs rhs
+                else if op == .div then makeCheckedDivValueV1 bitWidth lhsId rhsId lhs rhs
+                else if op == .mod then makeCheckedModValueV1 bitWidth lhsId rhsId lhs rhs
+                else if op == .bitAnd then makeBitAndValueV1 bitWidth lhsId rhsId lhs rhs
+                else if op == .bitOr then makeBitOrValueV1 bitWidth lhsId rhsId lhs rhs
+                else makeBitXorValueV1 bitWidth lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 widthTid values result value
+            else
+              match comparisonOpOfV1 op with
+              | some cmpOp =>
+                  let boolTypeId ← match types.boolTypeId with
+                    | some value => pure value
+                    | none => throw (.planInvariant .solana
+                        "unsupported Solana semantic shape: Bool type is missing for comparison")
+                  unless result.typeId == boolTypeId do
+                    throw <| .planInvariant .solana
+                      "unsupported Solana semantic shape: comparison result must be Bool"
+                  let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
+                  values := ← appendResultValueV1 boolTypeId values result value
+              | none =>
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: only checked multi-width UInt arith/bitwise, shift, Bool logical, and comparisons are supported"
     | .unary op operandId, some result =>
         let operand ← currentValueWithArmsV1 values blockEntry segmentStart armReadables operandId
         match op with
         | .bitNot =>
-            unless !operand.isBool && !operand.isUInt32 do
+            unless !operand.isBool && (operand.isInt || isSolanaBodyUintWidth operand.bitWidth) do
               throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: bitNot operand must be UInt64 or Int64"
-            let wordTid ←
-              if operand.isInt then
-                match types.int64TypeId with
+                "unsupported Solana semantic shape: bitNot operand must be admitted integer width"
+            if operand.isInt then
+              let wordTid ← match types.int64TypeId with
                 | some tid => pure tid
                 | none => throw (.planInvariant .solana
                     "unsupported Solana semantic shape: Int64 type is missing for bitNot")
-              else pure types.uint64TypeId
-            unless result.typeId == wordTid do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: bitNot result type mismatch"
-            let value ← makeBitNotValueV1 operandId operand
-            values := ← appendResultValueV1 wordTid values result value
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: bitNot result type mismatch"
+              let value ← makeBitNotValueV1 64 operandId operand
+              values := ← appendResultValueV1 wordTid values result value
+            else
+              let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+              unless bitWidth == operand.bitWidth do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: bitNot result width mismatch"
+              let value ← makeBitNotValueV1 bitWidth operandId operand
+              values := ← appendResultValueV1 widthTid values result value
         | .not =>
             unless operand.isBool do
               throw <| .planInvariant .solana
@@ -1089,7 +1268,7 @@ private def lowerBlockInstructionsV1
         let mut argValues : Array LoweredValueV1 := #[]
         for argId in argIds do
           let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-          unless !arg.isBool && !arg.isUInt32 do
+          unless !arg.isBool && arg.bitWidth == 64 do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: pureCall arguments must be UInt64 or Int64"
           argValues := argValues.push arg
@@ -1112,7 +1291,7 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: pureCall result type does not match callee"
         let value ← makeCallFnValueV1 fnIndex argIds argValues resultIsBool
-        let value := { value with isInt := resultIsInt }
+        let value := { value with isInt := resultIsInt, bitWidth := if resultIsBool then 1 else 64 }
         values := ← appendResultValueV1 expectedTypeId values result value
     | .stateStore stateId valueId, none =>
         if mode == .view then
@@ -1120,7 +1299,7 @@ private def lowerBlockInstructionsV1
             "unsupported Solana semantic shape: view callable writes state"
         let field ← findFieldV1 account stateId
         let stored ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
-        unless !stored.isBool && !stored.isUInt32 do
+        unless !stored.isBool && stored.bitWidth == 64 do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: state store value must be UInt64 or Int64"
         let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
@@ -1148,7 +1327,7 @@ private def lowerBlockInstructionsV1
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-          unless !root.isBool && !root.isUInt32 do
+          unless !root.isBool && !root.isInt && root.bitWidth == 64 do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: event arguments must be UInt64"
           argExprs := argExprs.push root.expr
@@ -1230,6 +1409,7 @@ private def allocateBlockParamSlotsV1
         expandedNodes := 1
         dependencies := #[]
         isBool := false
+        bitWidth := 64
       }
   pure values
 
@@ -1242,7 +1422,7 @@ private def readJumpArgExprV1
     (armReadables : Array ValueIdV1)
     (argId : ValueIdV1) : CompileResult (Expr × Array LoweredValueV1 × Nat) := do
   let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-  unless !root.isBool && !root.isUInt32 do
+  unless !root.isBool && !root.isInt && root.bitWidth == 64 do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: jump argument must be UInt64"
   if argId.toNat >= segmentStart then
@@ -1311,6 +1491,10 @@ private partial def emitRegionV1
                 "unsupported Solana semantic shape: Bool entry/view must return a Bool value"
                else
                 "unsupported Solana semantic shape: UInt64 entry/view must not return a Bool value")
+          -- ABI returns are UInt64/Bool/Int64 only; narrow body values cannot escape.
+          unless expectsBoolReturn || returned.bitWidth == 64 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: entry/view return must be UInt64 or Int64 (not narrow body width)"
           let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
           pure (instrs.push (.returnValue value), values, .closed)
   | .return_ none =>
@@ -1456,7 +1640,7 @@ private partial def emitRegionV1
       let mut argExprs : Array Expr := #[]
       for argId in argIds do
         let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-        unless !root.isBool do
+        unless !root.isBool && !root.isInt && root.bitWidth == 64 do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: revert arguments must be UInt64"
         argExprs := argExprs.push root.expr
@@ -1516,6 +1700,7 @@ private partial def lowerForLoopV1
     expandedNodes := 1
     dependencies := #[]
     isBool := false
+    bitWidth := 64
   }
   let lowered ← lowerBlockInstructionsV1
     owner mode types account pureFns armReadables header valuesBound

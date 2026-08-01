@@ -86,6 +86,19 @@ inductive Operation where
   | boolAnd (destination lhs rhs : Nat)
   /-- Strict Bool OR on 0/1 words (no short-circuit, no program_error). -/
   | boolOr (destination lhs rhs : Nat)
+  /-- Body multi-width checked add (`bitWidth ∈ {8,16,32}` only; w=64 uses
+      historical `checkedAdd`). Field order: bitWidth, dest, lhs, rhs, error. -/
+  | narrowCheckedAdd (bitWidth destination lhs rhs errorCode : Nat)
+  | narrowCheckedSub (bitWidth destination lhs rhs errorCode : Nat)
+  | narrowCheckedMul (bitWidth destination lhs rhs errorCode : Nat)
+  | narrowCheckedDiv (bitWidth destination lhs rhs errorCode : Nat)
+  | narrowCheckedMod (bitWidth destination lhs rhs errorCode : Nat)
+  | narrowBitAnd (bitWidth destination lhs rhs : Nat)
+  | narrowBitOr (bitWidth destination lhs rhs : Nat)
+  | narrowBitXor (bitWidth destination lhs rhs : Nat)
+  | narrowBitNot (bitWidth destination source : Nat)
+  | narrowCheckedShl (bitWidth destination lhs rhs shiftError overflowError : Nat)
+  | narrowCheckedShr (bitWidth destination lhs rhs shiftError : Nat)
   deriving BEq, Inhabited, Repr
 
 structure HandlerIR where
@@ -240,6 +253,105 @@ private partial def lowerExpr (overflowError : Nat) (tempMap : List (Nat × Nat)
         operations := operand.operations ++ #[.bitNot operand.next operand.value]
         value := operand.next
         next := operand.next + 1
+      }
+  | .narrowBitNot bitWidth operand =>
+      let operand := lowerExpr overflowError tempMap next operand
+      {
+        operations := operand.operations ++
+          #[.narrowBitNot bitWidth operand.next operand.value]
+        value := operand.next
+        next := operand.next + 1
+      }
+  | .narrowCheckedAdd bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedAdd bitWidth rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedSub bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedSub bitWidth rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedMul bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedMul bitWidth rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedDiv bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedDiv bitWidth rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedMod bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedMod bitWidth rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitAnd bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitAnd bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitOr bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitOr bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitXor bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitXor bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowShl bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedShl bitWidth rhs.next lhs.value rhs.value
+              invalidShiftError overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowShr bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedShr bitWidth rhs.next lhs.value rhs.value invalidShiftError]
+        value := rhs.next
+        next := rhs.next + 1
       }
   | .boolNot operand =>
       let operand := lowerExpr overflowError tempMap next operand
@@ -548,6 +660,10 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
     operations
   }
 
+/-- Admitted narrow body widths for Operation constructors (UInt64 uses historical). -/
+private def isNarrowBodyWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32
+
 private def tempDestination? : Operation → Option Nat
   | .literal destination .. | .loadParam destination .. |
       .loadState destination .. | .checkedAdd destination .. |
@@ -561,6 +677,12 @@ private def tempDestination? : Operation → Option Nat
       .checkedShl destination .. | .checkedShr destination .. |
       .bitNot destination _ | .boolNot destination _ |
       .boolAnd destination .. | .boolOr destination .. |
+      .narrowCheckedAdd _ destination .. | .narrowCheckedSub _ destination .. |
+      .narrowCheckedMul _ destination .. | .narrowCheckedDiv _ destination .. |
+      .narrowCheckedMod _ destination .. |
+      .narrowBitAnd _ destination .. | .narrowBitOr _ destination .. |
+      .narrowBitXor _ destination .. | .narrowBitNot _ destination _ |
+      .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
       .compare destination .. | .callFn _ destination _ => some destination
   | _ => none
 
@@ -611,6 +733,10 @@ private partial def validateOperationSequence
     | .checkedShl .. | .checkedShr ..
     | .bitNot .. | .boolNot ..
     | .boolAnd .. | .boolOr ..
+    | .narrowCheckedAdd .. | .narrowCheckedSub .. | .narrowCheckedMul ..
+    | .narrowCheckedDiv .. | .narrowCheckedMod ..
+    | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor .. | .narrowBitNot ..
+    | .narrowCheckedShl .. | .narrowCheckedShr ..
     | .compare .. | .assert .. | .zeroState .. | .storeState ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool ..
     | .emitEvent .. | .revertError ..
@@ -685,6 +811,36 @@ private partial def validateOperationSequence
     | .bitNot _ source =>
         unless source < next - 1 do
           throw <| .planInvariant .solana "typed Solana IR bitNot operand is invalid"
+    | .narrowCheckedAdd bitWidth _ lhs rhs errorCode
+    | .narrowCheckedSub bitWidth _ lhs rhs errorCode
+    | .narrowCheckedMul bitWidth _ lhs rhs errorCode
+    | .narrowCheckedDiv bitWidth _ lhs rhs errorCode
+    | .narrowCheckedMod bitWidth _ lhs rhs errorCode =>
+        unless isNarrowBodyWidth bitWidth && lhs < next - 1 && rhs < next - 1 &&
+            errorCode == plan.arithmeticOverflowError do
+          throw <| .planInvariant .solana
+            "typed Solana IR narrow checked-arith width/operands/error are invalid"
+    | .narrowBitAnd bitWidth _ lhs rhs
+    | .narrowBitOr bitWidth _ lhs rhs
+    | .narrowBitXor bitWidth _ lhs rhs =>
+        unless isNarrowBodyWidth bitWidth && lhs < next - 1 && rhs < next - 1 do
+          throw <| .planInvariant .solana
+            "typed Solana IR narrow bitwise width/operands are invalid"
+    | .narrowBitNot bitWidth _ source =>
+        unless isNarrowBodyWidth bitWidth && source < next - 1 do
+          throw <| .planInvariant .solana
+            "typed Solana IR narrow bitNot width/operand is invalid"
+    | .narrowCheckedShl bitWidth _ lhs rhs shiftError overflowError =>
+        unless isNarrowBodyWidth bitWidth && lhs < next - 1 && rhs < next - 1 &&
+            shiftError == plan.invalidShiftError &&
+            overflowError == plan.arithmeticOverflowError do
+          throw <| .planInvariant .solana
+            "typed Solana IR narrow checked-shl width/operands/errors are invalid"
+    | .narrowCheckedShr bitWidth _ lhs rhs shiftError =>
+        unless isNarrowBodyWidth bitWidth && lhs < next - 1 && rhs < next - 1 &&
+            shiftError == plan.invalidShiftError do
+          throw <| .planInvariant .solana
+            "typed Solana IR narrow checked-shr width/operands/error are invalid"
     | .boolNot _ source =>
         unless source < next - 1 do
           throw <| .planInvariant .solana "typed Solana IR boolNot operand is invalid"
@@ -1057,6 +1213,28 @@ private partial def renderOperation (indent : String)
       s!"{indent}%{destination} = shr_u64 %{lhs}, %{rhs} else program_error 0x{natHex shiftError}\n"
   | .bitNot destination source =>
       s!"{indent}%{destination} = bitnot_u64 %{source}\n"
+  | .narrowCheckedAdd bitWidth destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_add_u{bitWidth} %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .narrowCheckedSub bitWidth destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_sub_u{bitWidth} %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .narrowCheckedMul bitWidth destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_mul_u{bitWidth} %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .narrowCheckedDiv bitWidth destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_div_u{bitWidth} %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .narrowCheckedMod bitWidth destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_rem_u{bitWidth} %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .narrowBitAnd bitWidth destination lhs rhs =>
+      s!"{indent}%{destination} = bitand_u{bitWidth} %{lhs}, %{rhs}\n"
+  | .narrowBitOr bitWidth destination lhs rhs =>
+      s!"{indent}%{destination} = bitor_u{bitWidth} %{lhs}, %{rhs}\n"
+  | .narrowBitXor bitWidth destination lhs rhs =>
+      s!"{indent}%{destination} = bitxor_u{bitWidth} %{lhs}, %{rhs}\n"
+  | .narrowBitNot bitWidth destination source =>
+      s!"{indent}%{destination} = bitnot_u{bitWidth} %{source}\n"
+  | .narrowCheckedShl bitWidth destination lhs rhs shiftError overflowError =>
+      s!"{indent}%{destination} = shl_u{bitWidth} %{lhs}, %{rhs} else program_error 0x{natHex shiftError} else program_error 0x{natHex overflowError}\n"
+  | .narrowCheckedShr bitWidth destination lhs rhs shiftError =>
+      s!"{indent}%{destination} = shr_u{bitWidth} %{lhs}, %{rhs} else program_error 0x{natHex shiftError}\n"
   | .boolNot destination source =>
       s!"{indent}%{destination} = bool_not %{source}\n"
   | .boolAnd destination lhs rhs =>

@@ -436,6 +436,100 @@ private unsafe def testEmitEvent
   -- declared revert code base 0x2000
   expect (asm.contains "lddw r0, 0x2000") "emit: declared error Cap @ 0x2000"
 
+/-- T8a body multi-width: u8 add overflow guard, u16 mul, u32 shl, u8 bitNot mask. -/
+private unsafe def testNarrowWidthOps
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- u8 checked_add: high-bit rsh64 immediate + 0x1001 on overflow path.
+  let srcAdd := wrapProgram "NarrowAddU8" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let a : UInt8 := 250\n" ++
+    "    let b : UInt8 := a + 10\n" ++
+    "    if b > 12 then\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let asmAdd ← emitFromSource session srcAdd "Examples.NarrowAddU8" "<solana-asm-nu8-add>"
+  expect (asmAdd.contains "checked_add_u8") "narrow-add: comment width tag"
+  expect (asmAdd.contains "rsh64 r3, 8") "narrow-add: high-bit rsh by 8"
+  expect (asmAdd.contains "jne r3, 0,") "narrow-add: high-bit nonzero overflow"
+  expect (asmAdd.contains "lddw r0, 0x1001") "narrow-add: overflow 0x1001"
+  -- u16 mul high-bit check
+  let srcMul := wrapProgram "NarrowMulU16" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let a : UInt16 := 1000\n" ++
+    "    let b : UInt16 := a * 3\n" ++
+    "    if b > 2000 then\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let asmMul ← emitFromSource session srcMul "Examples.NarrowMulU16" "<solana-asm-nu16-mul>"
+  expect (asmMul.contains "checked_mul_u16") "narrow-mul: comment width tag"
+  expect (asmMul.contains "mul64 r4, r2") "narrow-mul: mul64"
+  expect (asmMul.contains "rsh64 r3, 16") "narrow-mul: high-bit rsh by 16"
+  -- u32 shl: count≥64 + high-bit overflow
+  let srcShl := wrapProgram "NarrowShlU32" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let a : UInt32 := 1\n" ++
+    "    let b : UInt32 := a << 4\n" ++
+    "    if b > 10 then\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let asmShl ← emitFromSource session srcShl "Examples.NarrowShlU32" "<solana-asm-nu32-shl>"
+  expect (asmShl.contains "shl_u32") "narrow-shl: comment width tag"
+  expect (asmShl.contains "jge r2, 64,") "narrow-shl: count >= 64 guard"
+  expect (asmShl.contains "lsh64 r1, r2") "narrow-shl: lsh64"
+  expect (asmShl.contains "rsh64 r3, 32") "narrow-shl: high-bit rsh by 32"
+  -- u8 bitNot: xor -1 then AND 0xff mask
+  let srcNot := wrapProgram "NarrowNotU8" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let a : UInt8 := 10\n" ++
+    "    let b : UInt8 := ~a\n" ++
+    "    if b > 200 then\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let asmNot ← emitFromSource session srcNot "Examples.NarrowNotU8" "<solana-asm-nu8-not>"
+  expect (asmNot.contains "bitnot_u8") "narrow-not: comment width tag"
+  expect (asmNot.contains "lddw r2, 0xffffffffffffffff") "narrow-not: xor -1"
+  expect (asmNot.contains "lddw r2, 0xff") "narrow-not: width mask 0xff"
+  expect (asmNot.contains "and64 r1, r2") "narrow-not: apply mask"
+  -- UInt128 body let still fail closed at Solana Plan seam.
+  let src128 := wrapProgram "NarrowU128Reject" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let a : UInt128 := 1\n" ++
+    "    count := count + 1\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled128 ← compileSource session src128 "Examples.NarrowU128Reject"
+    "<solana-asm-u128-reject>"
+  match irSolana compiled128 with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "narrow: UInt128 body must fail closed on Solana"
+  -- Determinism of narrow path.
+  let asmAdd2 ← emitFromSource session srcAdd "Examples.NarrowAddU8" "<solana-asm-nu8-add-2>"
+  expect (asmAdd == asmAdd2) "narrow-add: deterministic"
+
 /-- Source-level end-to-end covering mul/if/for/fn/revert/emit together. -/
 private unsafe def testSourceE2E
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -490,6 +584,7 @@ unsafe def run : IO Unit := do
   testCallFn session
   testCallFnEarlyReturn session
   testEmitEvent session
+  testNarrowWidthOps session
   testSourceE2E session
   IO.println "Tests.Targets.SolanaAsmV1: ok"
 

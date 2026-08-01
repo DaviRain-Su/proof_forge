@@ -225,6 +225,12 @@ private def opDestination? : Operation → Option Nat
       .checkedShl destination .. | .checkedShr destination .. |
       .bitNot destination _ | .boolNot destination _ |
       .boolAnd destination .. | .boolOr destination .. |
+      .narrowCheckedAdd _ destination .. | .narrowCheckedSub _ destination .. |
+      .narrowCheckedMul _ destination .. | .narrowCheckedDiv _ destination .. |
+      .narrowCheckedMod _ destination .. |
+      .narrowBitAnd _ destination .. | .narrowBitOr _ destination .. |
+      .narrowBitXor _ destination .. | .narrowBitNot _ destination _ |
+      .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
       .compare destination .. | .callFn _ destination _ => some destination
   | _ => none
 
@@ -598,6 +604,108 @@ private def emitCheckedShr (b : AsmBuf) (tempBase dest lhs rhs shiftErr : Nat) :
     let b := emitErrorExit b errShift shiftErr
     emit b s!"{okLab}:"
 
+/-- Width mask for narrow body UInt (compile-time immediate). -/
+private def narrowUintMaskImm (bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 => "0xff"
+  | 16 => "0xffff"
+  | 32 => "0xffffffff"
+  | _ => "0xffffffffffffffff"
+
+/-- Narrow checked_add: 64-bit add then high bits above `bitWidth` must be zero. -/
+private def emitNarrowCheckedAdd (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
+    AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_nadd"
+    let (b, okLab) := fresh b "ok_nadd"
+    let b := loadTemp b "r1" tempBase lhs
+    let b := loadTemp b "r2" tempBase rhs
+    let b := emit b "  mov64 r4, r1"
+    let b := emit b "  add64 r4, r2"
+    let b := emit b "  mov64 r3, r4"
+    let b := emit b s!"  rsh64 r3, {bitWidth}"
+    let b := emit b s!"  jne r3, 0, {errLab}"
+    let b := storeTemp b tempBase dest "r4"
+    let b := emit b s!"  ja {okLab}"
+    let b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Narrow checked_sub: same underflow guard as u64; result auto in-range. -/
+private def emitNarrowCheckedSub (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
+    AsmBuf :=
+  Id.run do
+    let _ := bitWidth
+    emitCheckedSub b tempBase dest lhs rhs errorCode
+
+/-- Narrow checked_mul: 64-bit mul then high bits above `bitWidth` must be zero. -/
+private def emitNarrowCheckedMul (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
+    AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_nmul"
+    let (b, okLab) := fresh b "ok_nmul"
+    let b := loadTemp b "r1" tempBase lhs
+    let b := loadTemp b "r2" tempBase rhs
+    let b := emit b "  mov64 r4, r1"
+    let b := emit b "  mul64 r4, r2"
+    let b := emit b "  mov64 r3, r4"
+    let b := emit b s!"  rsh64 r3, {bitWidth}"
+    let b := emit b s!"  jne r3, 0, {errLab}"
+    let b := storeTemp b tempBase dest "r4"
+    let b := emit b s!"  ja {okLab}"
+    let b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Narrow checked_div: zero guard only; quotient auto in-range for UInt. -/
+private def emitNarrowCheckedDiv (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
+    AsmBuf :=
+  Id.run do
+    let _ := bitWidth
+    emitCheckedDiv b tempBase dest lhs rhs errorCode
+
+/-- Narrow checked_mod: zero guard only; remainder auto in-range. -/
+private def emitNarrowCheckedMod (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
+    AsmBuf :=
+  Id.run do
+    let _ := bitWidth
+    emitCheckedMod b tempBase dest lhs rhs errorCode
+
+/-- Narrow shl: count ≥ 64 → shiftErr; high bits above width → overflow. -/
+private def emitNarrowCheckedShl (b : AsmBuf) (tempBase dest lhs rhs shiftErr overflowErr
+    bitWidth : Nat) : AsmBuf :=
+  Id.run do
+    let (b, errShift) := fresh b "err_nshl_count"
+    let (b, errOverflow) := fresh b "err_nshl_ovf"
+    let (b, okLab) := fresh b "ok_nshl"
+    let b := loadTemp b "r1" tempBase lhs
+    let b := loadTemp b "r2" tempBase rhs
+    let b := emit b s!"  jge r2, 64, {errShift}"
+    let b := emit b "  lsh64 r1, r2"
+    let b := emit b "  mov64 r3, r1"
+    let b := emit b s!"  rsh64 r3, {bitWidth}"
+    let b := emit b s!"  jne r3, 0, {errOverflow}"
+    let b := storeTemp b tempBase dest "r1"
+    let b := emit b s!"  ja {okLab}"
+    let b := emitErrorExit b errShift shiftErr
+    let b := emitErrorExit b errOverflow overflowErr
+    emit b s!"{okLab}:"
+
+/-- Narrow shr: count ≥ 64 → shiftErr; result auto in-range. -/
+private def emitNarrowCheckedShr (b : AsmBuf) (tempBase dest lhs rhs shiftErr bitWidth : Nat) :
+    AsmBuf :=
+  Id.run do
+    let _ := bitWidth
+    emitCheckedShr b tempBase dest lhs rhs shiftErr
+
+/-- Narrow bitNot: xor -1 then AND width mask. -/
+private def emitNarrowBitNot (b : AsmBuf) (tempBase dest source bitWidth : Nat) : AsmBuf :=
+  Id.run do
+    let b := loadTemp b "r1" tempBase source
+    let b := emit b "  lddw r2, 0xffffffffffffffff"
+    let b := emit b "  xor64 r1, r2"
+    let b := emit b s!"  lddw r2, {narrowUintMaskImm bitWidth}"
+    let b := emit b "  and64 r1, r2"
+    storeTemp b tempBase dest "r1"
+
 /-- Stash a u64 at absolute temp `retTemp` and call `sol_set_return_data`. -/
 private def emitSetReturnDataU64 (b : AsmBuf) (tempBase valueTemp retTemp : Nat) :
     AsmBuf :=
@@ -750,6 +858,49 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
   | .checkedShr destination lhs rhs shiftError =>
       let b := emit b s!"  ; %{destination} = shr_u64 %{lhs}, %{rhs}"
       pure (emitCheckedShr b tempBase destination lhs rhs shiftError)
+  | .narrowCheckedAdd bitWidth destination lhs rhs errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_add_u{bitWidth} %{lhs}, %{rhs}"
+      pure (emitNarrowCheckedAdd b tempBase destination lhs rhs errorCode bitWidth)
+  | .narrowCheckedSub bitWidth destination lhs rhs errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_sub_u{bitWidth} %{lhs}, %{rhs}"
+      pure (emitNarrowCheckedSub b tempBase destination lhs rhs errorCode bitWidth)
+  | .narrowCheckedMul bitWidth destination lhs rhs errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_mul_u{bitWidth} %{lhs}, %{rhs}"
+      pure (emitNarrowCheckedMul b tempBase destination lhs rhs errorCode bitWidth)
+  | .narrowCheckedDiv bitWidth destination lhs rhs errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_div_u{bitWidth} %{lhs}, %{rhs}"
+      pure (emitNarrowCheckedDiv b tempBase destination lhs rhs errorCode bitWidth)
+  | .narrowCheckedMod bitWidth destination lhs rhs errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_rem_u{bitWidth} %{lhs}, %{rhs}"
+      pure (emitNarrowCheckedMod b tempBase destination lhs rhs errorCode bitWidth)
+  | .narrowBitAnd bitWidth destination lhs rhs =>
+      let b := emit b s!"  ; %{destination} = bitand_u{bitWidth} %{lhs}, %{rhs}"
+      let b := loadTemp b "r1" tempBase lhs
+      let b := loadTemp b "r2" tempBase rhs
+      let b := emit b "  and64 r1, r2"
+      pure (storeTemp b tempBase destination "r1")
+  | .narrowBitOr bitWidth destination lhs rhs =>
+      let b := emit b s!"  ; %{destination} = bitor_u{bitWidth} %{lhs}, %{rhs}"
+      let b := loadTemp b "r1" tempBase lhs
+      let b := loadTemp b "r2" tempBase rhs
+      let b := emit b "  or64 r1, r2"
+      pure (storeTemp b tempBase destination "r1")
+  | .narrowBitXor bitWidth destination lhs rhs =>
+      let b := emit b s!"  ; %{destination} = bitxor_u{bitWidth} %{lhs}, %{rhs}"
+      let b := loadTemp b "r1" tempBase lhs
+      let b := loadTemp b "r2" tempBase rhs
+      let b := emit b "  xor64 r1, r2"
+      pure (storeTemp b tempBase destination "r1")
+  | .narrowBitNot bitWidth destination source =>
+      let b := emit b s!"  ; %{destination} = bitnot_u{bitWidth} %{source}"
+      pure (emitNarrowBitNot b tempBase destination source bitWidth)
+  | .narrowCheckedShl bitWidth destination lhs rhs shiftError overflowError =>
+      let b := emit b s!"  ; %{destination} = shl_u{bitWidth} %{lhs}, %{rhs}"
+      pure (emitNarrowCheckedShl b tempBase destination lhs rhs shiftError overflowError
+        bitWidth)
+  | .narrowCheckedShr bitWidth destination lhs rhs shiftError =>
+      let b := emit b s!"  ; %{destination} = shr_u{bitWidth} %{lhs}, %{rhs}"
+      pure (emitNarrowCheckedShr b tempBase destination lhs rhs shiftError bitWidth)
   | .boolNot destination source =>
       let b := emit b s!"  ; %{destination} = bool_not %{source}"
       let b := loadTemp b "r1" tempBase source

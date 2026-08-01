@@ -795,3 +795,160 @@ fn match_ops_unknown_disc() {
         &[Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN))],
     );
 }
+
+// ─── NarrowGates (T8a body multi-width UInt8/16/32) ─────────────────────────
+
+fn narrow_fields() -> [StateField; 1] {
+    single_field("count")
+}
+
+fn narrow_state(initialized: bool, count: u64) -> Vec<u8> {
+    state_data(&narrow_fields(), initialized, &[count])
+}
+
+fn assert_narrow_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("NarrowGates"),
+        &[
+            ("initialize", 1),
+            ("u8AddOk", 0),
+            ("u8AddOvf", 0),
+            ("u16MulOk", 0),
+            ("u32ShlOk", 0),
+            ("u8BitNotOk", 0),
+            ("get", 0),
+        ],
+    );
+}
+
+/// Independent: UInt8 10+5=15 > 12 → count becomes initial+1.
+#[test]
+fn narrow_gates_u8_add_ok() {
+    assert_narrow_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowGates");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("u8AddOk", 0);
+    let initial = 5u64;
+    // 10u8 + 5u8 = 15u8; 15 > 12 → count := 5+1 = 6
+    let a: u8 = 10;
+    let b = a.checked_add(5).expect("u8 add ok oracle");
+    assert!(b > 12);
+    let expected = initial + 1;
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, false),
+        &[(state_key, state_account(&program_id, narrow_state(true, initial)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&narrow_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+/// Independent: UInt8 250+10 overflows → Custom(0x1001), state unchanged.
+#[test]
+fn narrow_gates_u8_add_overflow_0x1001() {
+    assert_narrow_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowGates");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("u8AddOvf", 0);
+    let pre = narrow_state(true, 9);
+    // 250u8 + 10u8 overflows independently of the product path.
+    assert!(u8::checked_add(250, 10).is_none());
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, false),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+/// Independent: UInt16 1000*3=3000 > 2000 → count becomes initial+1.
+#[test]
+fn narrow_gates_u16_mul_ok() {
+    assert_narrow_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowGates");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("u16MulOk", 0);
+    let initial = 2u64;
+    let a: u16 = 1000;
+    let b = a.checked_mul(3).expect("u16 mul ok oracle");
+    assert!(b > 2000);
+    let expected = initial + 1;
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, false),
+        &[(state_key, state_account(&program_id, narrow_state(true, initial)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&narrow_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+/// Independent: UInt32 1<<4 = 16 > 10 → count becomes initial+1.
+#[test]
+fn narrow_gates_u32_shl_ok() {
+    assert_narrow_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowGates");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("u32ShlOk", 0);
+    let initial = 0u64;
+    let a: u32 = 1;
+    let b = a.checked_shl(4).expect("u32 shl ok oracle");
+    assert!(b > 10);
+    let expected = initial + 1;
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, false),
+        &[(state_key, state_account(&program_id, narrow_state(true, initial)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&narrow_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+/// Independent: UInt8 ~10 = 245 (0xff ^ 10) > 200 → count becomes initial+1.
+#[test]
+fn narrow_gates_u8_bitnot_ok() {
+    assert_narrow_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowGates");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("u8BitNotOk", 0);
+    let initial = 1u64;
+    let a: u8 = 10;
+    let b = !a; // 245
+    assert_eq!(b, 245);
+    assert!(b > 200);
+    let expected = initial + 1;
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, false),
+        &[(state_key, state_account(&program_id, narrow_state(true, initial)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&narrow_state(true, expected))
+                .build(),
+        ],
+    );
+}

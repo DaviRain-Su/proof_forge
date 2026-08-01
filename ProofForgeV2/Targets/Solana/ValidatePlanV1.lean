@@ -32,11 +32,16 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
           none
     | .checkedAdd lhs rhs | .checkedSub lhs rhs
     | .checkedMul lhs rhs | .checkedDiv lhs rhs | .checkedMod lhs rhs
+    | .narrowCheckedAdd _ lhs rhs | .narrowCheckedSub _ lhs rhs
+    | .narrowCheckedMul _ lhs rhs | .narrowCheckedDiv _ lhs rhs
+    | .narrowCheckedMod _ lhs rhs
     | .signedCheckedAdd lhs rhs | .signedCheckedSub lhs rhs
     | .signedCheckedMul lhs rhs | .signedCheckedDiv lhs rhs
     | .signedCheckedMod lhs rhs
     | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+    | .narrowBitAnd _ lhs rhs | .narrowBitOr _ lhs rhs | .narrowBitXor _ lhs rhs
     | .shl lhs rhs | .shr lhs rhs | .sar lhs rhs
+    | .narrowShl _ lhs rhs | .narrowShr _ lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs
     | .compare _ lhs rhs | .signedCompare _ lhs rhs =>
         let childDepth := depthLeft - 1
@@ -47,7 +52,7 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
             match planExprNodes? account params fns childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .bitNot operand | .boolNot operand | .checkedNeg operand =>
+    | .bitNot operand | .narrowBitNot _ operand | .boolNot operand | .checkedNeg operand =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? account params fns childDepth available operand with
@@ -79,9 +84,13 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
       | some fn => !fn.resultIsBool
       | none => false
   | .checkedMul .. | .checkedDiv .. | .checkedMod .. | .bitNot _
+  | .narrowCheckedAdd .. | .narrowCheckedSub .. | .narrowCheckedMul ..
+  | .narrowCheckedDiv .. | .narrowCheckedMod .. | .narrowBitNot ..
   | .signedCheckedAdd .. | .signedCheckedSub .. | .signedCheckedMul ..
   | .signedCheckedDiv .. | .signedCheckedMod .. | .checkedNeg _
   | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar ..
+  | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
+  | .narrowShl .. | .narrowShr ..
   | .checkedAdd .. | .checkedSub .. | .literal _ | .param _ | .stateLoad ..
   | .temp _ => true
 
@@ -95,9 +104,13 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
       | none => false
   | .literal _ => true
   | .checkedMul .. | .checkedDiv .. | .checkedMod .. | .bitNot _
+  | .narrowCheckedAdd .. | .narrowCheckedSub .. | .narrowCheckedMul ..
+  | .narrowCheckedDiv .. | .narrowCheckedMod .. | .narrowBitNot ..
   | .signedCheckedAdd .. | .signedCheckedSub .. | .signedCheckedMul ..
   | .signedCheckedDiv .. | .signedCheckedMod .. | .checkedNeg _
   | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar ..
+  | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
+  | .narrowShl .. | .narrowShr ..
   | .checkedAdd .. | .checkedSub .. | .param _ | .stateLoad .. | .temp _ => false
 
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)

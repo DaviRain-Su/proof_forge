@@ -100,6 +100,18 @@ def pilotUintWidthPolicyU64U32 : PilotUintWidthPolicy where
 def pilotUintWidthPolicyEvmBody : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
+/-- Solana body multi-width policy: same admitted set as EVM body
+    (`{64, 32, 8, 16}`). State/param/return ABI stay UInt64/Bool/Int64;
+    UInt128/256 remain fail-closed at the Solana Plan seam. -/
+def pilotUintWidthPolicySolanaBody : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32, 8, 16]
+
+/-- Admitted body UInt widths for Phase-1 multi-width pilots (EVM/Solana body).
+    Distinct from the historical `{64,32}` default used by NEAR/Noir. -/
+def isPilotBodyUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64
+
+
 /-- Per-target admission set for anonymous Int widths.
 
     Empty = Int fail-closed (historical). First honest product slice admits

@@ -1378,11 +1378,12 @@ private unsafe def testShiftBitwiseLogical
             (.literal 1)))])
     "strictOr Plan body must be return boolOr(gt(a,0), eq(div(1,b), 1))"
   let bigShift ← findHandler plan "bigShift"
-  -- Computed UInt32 count: (32 + 32) lowers as checkedAdd of two UInt32 lits.
+  -- Computed UInt32 count: (32 + 32) lowers as narrowCheckedAdd 32 (T8a body
+  -- multi-width); UInt64 shr constructor is unchanged.
   expect (bigShift.body == #[
       .returnValue (.shr (.param 8)
-        (.checkedAdd (.literal 32) (.literal 32)))])
-    "bigShift Plan body must be return shr(param, checkedAdd(32, 32))"
+        (.narrowCheckedAdd 32 (.literal 32) (.literal 32)))])
+    "bigShift Plan body must be return shr(param, narrowCheckedAdd 32 (32, 32))"
   let ir ← liftResult <| irSolana compiled
   liftResult <| validateIR ir
   let shiftMaskIR ← findHandlerIR ir "shiftMask"
@@ -1424,16 +1425,16 @@ private unsafe def testShiftBitwiseLogical
       .loadParam 0 8,
       .literal 1 32,
       .literal 2 32,
-      .checkedAdd 3 1 2 overflow,
+      .narrowCheckedAdd 32 3 1 2 overflow,
       .checkedShr 4 0 3 shiftErr,
       .setReturnData 4])
-    "bigShift IR must lower UInt32 count add then checkedShr with invalidShift"
+    "bigShift IR must lower UInt32 count narrowCheckedAdd then checkedShr with invalidShift"
   let files ← liftResult <| filesSolana compiled
   let planText ← findFile files "BitLogic.sbpf-plan"
   for fragment in #["bitand_u64", "bitor_u64", "bitxor_u64",
       "shl_u64", "shr_u64", "bool_and", "bool_or",
       "program_error 0x1004", "program_error 0x1001",
-      "checked_add_u64"] do
+      "checked_add_u32"] do
     expect (planText.contains fragment)
       s!"sbpf-plan must contain '{fragment}'"
   -- Dual-else form for shl: invalidShift then arithmeticOverflow.
@@ -1442,7 +1443,7 @@ private unsafe def testShiftBitwiseLogical
     "sbpf-plan must render shl with dual program_error guards"
   expect (planText.contains "shr_u64 %5, %6 else program_error 0x1004")
     "sbpf-plan must render shr with invalidShift guard"
-  -- Computed-count shift reuses ordinary u64 opcodes; count ≥ 64 → 0x1004.
+  -- Computed-count shift: UInt32 add then u64 shr; count ≥ 64 → 0x1004.
   expect (planText.contains "shr_u64 %0, %3 else program_error 0x1004")
     "sbpf-plan bigShift must render shr with invalidShift on the computed count"
   let ir2 ← liftResult <| irSolana compiled
