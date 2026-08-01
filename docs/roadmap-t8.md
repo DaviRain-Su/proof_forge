@@ -62,7 +62,7 @@ NearHostModel AbiMw + UInt128/Int8 负向；shard-targets 绿。CI 隔离验证�
 emit 原生 Noir 类型 + assertEqual 窄宽 cast；UInt128/Int8/窄结果 fail closed。
 Body 多宽仍 T8d。NoirRelationModel goldens；shard-targets 绿。CI 隔离验证中。
 
-### [pending] T8c：NEAR body 多宽 UInt8/16/32
+### [in_progress] T8c：NEAR body 多宽 UInt8/16/32
 - 镜像 T8a（Solana body 多宽）：EnvelopeV1 `pilotUintWidthPolicyNearBody` + narrow* Plan/IR ops + Wasm 发射守卫
 - 注意与既有 UInt32 shift-count 路径并存
 
