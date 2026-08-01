@@ -124,10 +124,14 @@ Solana/NEAR/Noir `PlanSchemaV1` + `engineering*PlanDigestV1`；Registry 四 Phas
 - 镜像 M4（13e3a54be）：NEAR/Solana/Noir plan schema digest + `engineering*PlanDigestV1` + BuildIdentity/OutputSet/manifest 字段 + CLI inspect
 - 小-中切片；金样 IdentityChain/OutputSet
 
-### [pending] T9e：Solana/NEAR UInt128/256（多字算术，大工程，最后）
-- 64 位寄存器平台需要双字/四字软件算术（add/sub/mul/div、比较、移位）
-- 先做设计（worktree 内 prototype + oracle 评审）再实现；EVM 的 T9b 语义是参照
-- 可能拆分 T9e-Solana / T9e-NEAR
+### [in_progress] T9e-Solana：Solana UInt128/256（多字算术，软件双字/四字）
+- 从原 T9e 拆出：先 Solana，后 T9e-NEAR
+- 参照 EVM T9b：`isEvmAbiUintWidth`/body/`bigLiteral`/ResultKind/Yul 掩码
+- 64 位寄存器：add/sub/mul/div/比较/移位的软件多字；Plan/IR/SBPF 全链路
+- 负向：body 溢出 fail closed 保持；金样 + 可选 Mollusk
+
+### [pending] T9e-NEAR：NEAR UInt128/256（多字算术）
+- 镜像 T9e-Solana；WAT i64 软件多字 + host model
 
 ### [partial] T9-0：控制面/文档对齐（主代理；不进调度）
 - **2026-08-01 已做**：RECOVERY 当前 CLI 路径；docs/index + document-status；四 target dossier +
