@@ -80,9 +80,43 @@ NoirRelationModel host + `checkNarrowBodyProduct`。shard-targets 绿。
 manifest/CLI/validate_artifacts 发布字段。shard-targets 绿。
 隔离 CI 已 dispatch（ci-verify-m4-plan-digest）。
 
+## T9 阶段切片清单（2026-08-02 起）
+
+> 执行模式：参照 T8 的 merged 切片（T8b-EVM 是 ABI 模板、T8a 是 body 模板、M4 是 digest 模板）。
+> 每切片按"执行协议"走完整流程；顺序固定（依赖关系），不跳项。
+
+### [pending] T9a：窄结果四 target（entry/view 返回 UInt8/16/32）
+- Normalize 已开（requireScalarResultTypeId）；target 侧 resultKind 仍 uint64/bool/int64
+- 工作面：各 target resultKind 扩展 + 返回编码（EVM ABI return 低字节、Solana set_return_data 长度 1/2/4、NEAR 返回值编码、Noir result 类型）+ IDL/manifest 同步
+- 金样 + Solana 运行时 fixture（窄返回 Mollusk 断言）；负向：UInt128 结果仍 fail closed
+- 注意：EVM selector 不含返回类型（不变）；Solana discriminator 不含返回类型（不变）
+
+### [pending] T9b：EVM UInt128/256 ABI（state/param + body）
+- EVM 256 位字天然：UInt256 = 原生字、UInt128 = 低 128 位；storage slot-per-field 保持
+- 工作面：Envelope EVM 策略扩 {128,256}（或专用）；literal 解码 16/32 字节；checked add/sub/mul/div/mod 256 位溢出守卫（Yul gt/lt 而非 64 位掩码）；shl/shr 大宽；state/param byteWidth 16/32；IDL
+- 负向：Solana/NEAR/Noir 对 UInt128/256 保持 fail closed（本切片只做 EVM）
+- 金样 + EvmSmoke 正/负；solc/anvil 若工具可用则验证
+
+### [pending] T9c：窄 Int（Int8/16/32 body + ABI）
+- 当前 Int64-only（pilotIntWidthPolicyI64）；TypeCheck/Normalize 已开 Int 窄宽（T1）
+- 工作面：Envelope Int 策略扩展；signed 语义（符号扩展、signed overflow min/max 检测、toward-zero div/rem、arsh 算术右移）；四 target
+- 注意与 UInt 窄宽的区分（isInt 标志 + 宽度）；金样 + 负向（Int128/256 保持 fail closed）
+
+### [pending] T9d：M5 其余 target planDigest 绑 identity（NEAR/Solana/Noir）
+- 镜像 M4（13e3a54be）：NEAR/Solana/Noir plan schema digest + `engineering*PlanDigestV1` + BuildIdentity/OutputSet/manifest 字段 + CLI inspect
+- 小-中切片；金样 IdentityChain/OutputSet
+
+### [pending] T9e：Solana/NEAR UInt128/256（多字算术，大工程，最后）
+- 64 位寄存器平台需要双字/四字软件算术（add/sub/mul/div、比较、移位）
+- 先做设计（worktree 内 prototype + oracle 评审）再实现；EVM 的 T9b 语义是参照
+- 可能拆分 T9e-Solana / T9e-NEAR
+
+### [pending] T9-0：MIGRATION_MATRIX 深度对齐（主代理直接做，不进调度）
+- D2 行 "target Plan ABI 仍 UInt64/Int64-only"、v2alpha1 残留、M3/M4/N2-N5 状态行——逐行按代码事实修正
+
 ## 执行顺序
 
-T8b-NEAR → T8b-Noir → T8c → T8d → M4 闭合（每个之间留 audit+CI 窗口；若 Amp 合入相关模块改动，先按协议 3 处理）
+T9-0（主代理）→ T9a → T9b → T9c → T9d → T9e（每个之间留 audit+CI 窗口；若 Amp 合入相关模块改动，先按协议 3 处理；Amp 的 N4 String/N5/NoirPrivate/ArrayState/EvmSolc 并行 lane 若与切片工作面交叉，按 3way/oracle 处理）
 
 ## 状态记录
 
