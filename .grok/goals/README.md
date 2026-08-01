@@ -15,67 +15,55 @@ normative: false
 /goal @.grok/goals/prompt-master-queue.md --budget 8000000
 ```
 
-这会让 Goal **按序消费** [QUEUE.md](QUEUE.md) 里 **60 个工程切片**（每项契约在 [slices/](slices/)），  
-配合已有 workflow：
+**默认模式是 `drain`**：Goal **在内部连续消项**，直到：
+
+- 工程 pending **清空**，或  
+- **预算硬尽** / **硬阻塞**（脏 tree、决策缺失等）
+
+**不会**因为「做完 3 项 / 进度 10%」就正常结束。  
+若预算用尽，报告 `NEXT=` 后 **再开同一 Goal 从 NEXT 续跑**。
+
+## 与 workflow
 
 | Workflow | 作用 |
 |---|---|
-| `proof-forge-engineering-slice` | 单切片：preflight→实现→三方审→修→验→**本地 commit** |
-| `proof-forge-one-slice` | 实现后只读 review（Goal 自实现时用） |
+| `proof-forge-engineering-slice` | 单切片全流程 + local commit |
+| `proof-forge-one-slice` | 实现后只读 review |
 
-**不会**自动 formal release；**不会** push。
+**不** push；**不** formal release。
 
-## 目录结构
+## 目录
 
 ```text
 .grok/goals/
-  README.md                 ← 本文件
-  QUEUE.md                  ← 全序 ID 表
-  slice-ids.txt             ← 纯 ID 列表
-  prompt-master-queue.md    ← ★ 主 Goal（跑全部队列）
-  prompt-build-1-2.md       ← BUILD 细案（可选，比 slice 更详）
-  prompt-n-a2.md            ← N-A2 细案
-  slices/
-    BUILD-1.md … EXT-CRYPTO.md   ← 每 ID 一份可执行契约 + engineering-slice JSON
+  prompt-master-queue.md    ← ★ 主 Goal（drain 全队列）
+  QUEUE.md / slices/        ← 顺序与每项契约
+  prompt-build-1-2.md / prompt-n-a2.md  ← 细案
 ```
 
-## 单开某一项（不用主队列）
+## 单开一项
 
 ```text
-/goal @.grok/goals/slices/N-1.md --budget 2000000
+/goal @.grok/goals/slices/BUILD-3.md --budget 1500000
 ```
 
-或：
+## pilot（可选限流）
+
+仅当显式需要短试跑时：
 
 ```text
-/workflow proof-forge-engineering-slice
+/goal @.grok/goals/prompt-master-queue.md pilot max_slices=3 --budget 2000000
 ```
 
-args 复制对应 `slices/<ID>.md` 里的 JSON。
+未写 `pilot` / `max_slices` → **一律 drain**。
 
-## 与「Go / Goal」的关系
+## 预算
 
-- **Goal** = 跨轮自动驾驶 + 完成前 adversarial 核验（slash `/goal`）。  
-- **Workflow** = 确定性多智能体流水线（`/workflow` 或模型侧 `workflow` 工具）。  
-- **Backlog** = 人类可读状态权威 `docs/engineering-backlog.md`（Goal 必须回写）。
-
-推荐：**主 Goal 驱动顺序**，切片内 **调 engineering-slice / one-slice**。
-
-## 会话预算建议
-
-| 意图 | `--budget` 量级 | max_slices |
-|---|---|---|
-| 只做 BUILD 反馈循环 | 0.8M–1.5M | 3 |
-| BUILD + 一个 Normalize | 2M–4M | 2–3 |
-| 长跑多切片 | 8M+ | 5–10（见 master 内默认 3，可改） |
-
-一项共享核 Normalize 失败重试会吃很多 token——**宁少勿滥**。
+| 意图 | `--budget` |
+|---|---|
+| 续跑一长段 | 8M+ |
+| 小 pilot | 1–2M + 显式 max_slices |
 
 ## 禁止
 
-见任意 `slices/*.md` 的 Global forbidden；主队列再强调：不 push、不 formal 仪式、不并行改 Normalize。
-
-## 生成说明
-
-`slices/*` 与 `QUEUE.md` 由工程 backlog 导出生成（2026-08-02）。  
-新增 backlog ID 时：补 `slices/<ID>.md` + `QUEUE.md` 一行，并同步 `docs/engineering-backlog.md`。
+不 push、不 formal 仪式、不并行改 Normalize 共享核。
