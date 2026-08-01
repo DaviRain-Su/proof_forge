@@ -296,9 +296,9 @@ mutual
       (placePath : NormalizedSyntacticPathV1) : PlaceV1 → M Unit
     | .name n => resolveValueName tables scope placePath n
     | .field base field => do
-        -- N5: sole ContextRead surface `context.unixTimeSeconds` is not a
-        -- value-name root; skip base resolution for the exact spelling only.
-        if isContextUnixTimeSecondsPlaceV1 (.field base field) then pure ()
+        -- N5/N-2: ContextRead surfaces are not value-name roots; skip base
+        -- resolution for exact `context.unixTimeSeconds` / `context.caller`.
+        if isContextReadPlaceV1 (.field base field) then pure ()
         else
           match ← directOrInternal placePath "Place.Field" "base" with
           | none => pure ()

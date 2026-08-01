@@ -170,16 +170,37 @@ private def bindUsedOpToExactRequirementRow
       found := true
   unless found do return ← err .badRequirement
 
-/-- Bind every used wire-owned ContextRead key to its one exact requirement
-    row. Generic requirement structure/order is validated first. -/
+/-- Bind every used wire-owned ContextRead key to its exact requirement row.
+    Closed v1 catalog: unix-time-seconds and caller (N-2). Generic requirement
+    structure/order is validated first. -/
 def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
-    Except SemanticWireErrorV1 Unit :=
-  bindUsedOpToExactRequirementRow data
-    (fun
-      | .contextRead _ => true
-      | _ => false)
-    unixTimeSecondsContextRequirementIdV1
-    unixTimeSecondsContextRequirementV1
+    Except SemanticWireErrorV1 Unit := do
+  let mut usedUnix := false
+  let mut usedCaller := false
+  for callable in data.callables do
+    for block in callable.blocks do
+      for instr in block.instructions do
+        match instr.op with
+        | .contextRead key =>
+            if key == unixTimeSecondsContextKeyV1 then usedUnix := true
+            else if key == callerContextKeyV1 then usedCaller := true
+            else pure ()
+        | _ => pure ()
+  if usedUnix then
+    bindUsedOpToExactRequirementRow data
+      (fun
+        | .contextRead k => k == unixTimeSecondsContextKeyV1
+        | _ => false)
+      unixTimeSecondsContextRequirementIdV1
+      unixTimeSecondsContextRequirementV1
+  if usedCaller then
+    bindUsedOpToExactRequirementRow data
+      (fun
+        | .contextRead k => k == callerContextKeyV1
+        | _ => false)
+      callerContextRequirementIdV1
+      callerContextRequirementV1
+  pure ()
 
 /-- Bind every used Commit operation to the one exact disclosure.commitment
     requirement row. Generic requirement structure/order is validated first. -/

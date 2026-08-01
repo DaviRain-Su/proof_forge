@@ -6407,9 +6407,8 @@ private unsafe def testMultiArmDuplicateCtorFailClosed
   expect (msgs.any (fun m => m.contains "duplicate pattern"))
     s!"dup-ctor: expected duplicate pattern diag, got {msgs}"
 
-/-- N5: ContextRead sole key `context.unixTimeSeconds` in entry + wire requirement.
-    N5b step traces (explicit InvocationV1.context → returned UInt64) live in
-    `Tests.Semantic.ReferenceV1.testContextCommitNormalizeReference`. -/
+/-- N5: ContextRead key `context.unixTimeSeconds` in entry + wire requirement.
+    N5b step traces live in `Tests.Semantic.ReferenceV1`. -/
 private unsafe def testContextUnixTimeSeconds
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "CtxTime" <|
@@ -6436,6 +6435,39 @@ private unsafe def testContextUnixTimeSeconds
           expect hasReq "ctx-time: context.unix-time-seconds requirement row"
           -- UTF-8 order: context.* before state/value when present
           expect (data.requirements.items.size ≥ 1) "ctx-time: at least one requirement"
+
+/-- N-2: ContextRead `context.caller` → Principal + wire requirement row. -/
+private unsafe def testContextCaller
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CtxCaller" <|
+    "  entry who() : Principal do\n" ++
+    "    return context.caller\n" ++
+    "  entry eqSelf(a : Principal) : Bool do\n" ++
+    "    return context.caller == a\n"
+  let validated ← loadSource session "ctx-caller" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"ctx-caller: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .error e => throw <| IO.userError s!"ctx-caller: normalize {repr e}"
+  | .ok sem => do
+      match validateSemanticProgramV1 sem with
+      | .error e => throw <| IO.userError s!"ctx-caller: structure {repr e}"
+      | .ok data => do
+          let hasCtx := data.callables.any (fun c =>
+            c.blocks.any (fun b =>
+              b.instructions.any (fun i =>
+                match i.op with
+                | .contextRead key => key == callerContextKeyV1
+                | _ => false)))
+          expect hasCtx "ctx-caller: Op.ContextRead caller key"
+          let hasReq := data.requirements.items.any (fun r =>
+            r.id == callerContextRequirementIdV1)
+          expect hasReq "ctx-caller: context.caller requirement row"
+          let hasPrincipal := data.types.any fun d =>
+            match d.name, d.shape with
+            | none, .principal => true
+            | _, _ => false
+          expect hasPrincipal "ctx-caller: anonymous Principal type present"
 
 /-- N5: Commit identity on public UInt64 into commitment state
     (return of commitment is a public sink and correctly PF-VIS-001). -/
@@ -6602,6 +6634,7 @@ unsafe def run : IO Unit := do
   testStringStateLiteralEqMatch session
   testNestedConstructorPattern session
   testContextUnixTimeSeconds session
+  testContextCaller session
   testCommitIdentityPublic session
   testCommitPrivateToCommitmentState session
   testContextReadInPureFnFailClosed session

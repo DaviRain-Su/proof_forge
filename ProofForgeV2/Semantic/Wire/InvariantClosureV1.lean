@@ -303,9 +303,9 @@ private def validateInvariantStepsIntrinsicCeilingV1
     performs exact-key lookup/insert only (`key.value` string equality); it
     never iterates the host map. Expected time O(number of ContextRead
     occurrences), space O(distinct keys). The wire-owned v1 catalog admits
-    only the Unix-time-seconds key with anonymous UInt64 shape; exact
-    requirement binding runs after generic requirement validation. Commit's
-    disclosure contract remains deferred. -/
+    closed keys: unix-time-seconds → anonymous UInt64, caller → anonymous
+    Principal (N-2); exact requirement binding runs after generic requirement
+    validation. Commit's disclosure contract remains deferred. -/
 private def validateContextReadCatalogV1
     (types : Array TypeDeclV1) (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
@@ -315,14 +315,20 @@ private def validateContextReadCatalogV1
       for instr in block.instructions do
         match instr.op with
         | .contextRead key =>
-            unless key == unixTimeSecondsContextKeyV1 do
-              return ← err .badCfg
             match instr.result with
             | none => return ← err .badCfg
             | some rdef =>
-                match types[rdef.typeId.toNat]? with
-                | some { name := none, shape := .uint 64, .. } => pure ()
-                | _ => return ← err .badCfg
+                let shapeOk :=
+                  if key == unixTimeSecondsContextKeyV1 then
+                    match types[rdef.typeId.toNat]? with
+                    | some { name := none, shape := .uint 64, .. } => true
+                    | _ => false
+                  else if key == callerContextKeyV1 then
+                    match types[rdef.typeId.toNat]? with
+                    | some { name := none, shape := .principal, .. } => true
+                    | _ => false
+                  else false
+                unless shapeOk do return ← err .badCfg
                 match seen.get? key.value with
                 | none => seen := seen.insert key.value rdef.typeId
                 | some prevT =>

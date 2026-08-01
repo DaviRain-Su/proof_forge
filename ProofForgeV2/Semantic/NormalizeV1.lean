@@ -91,11 +91,13 @@
       * statements: immutable `let` bindings lower to environment entries
       (the RHS evaluates once; reassignment via `assign` fails closed except
       field/index update of an immutable local which rebinds the name)
-    * N5 ContextRead/Commit (init/entry/view only; pureFn fail closed):
-      place `context.unixTimeSeconds` → `Op.ContextRead` sole wire key
-      `proof-forge.context.unix-time-seconds.v1` (UInt64); bare local-call
-      `commit(x)` (no user `fn commit`) → `Op.Commit` label-only identity.
-      Wire-owned requirement rows are merged after S2 freeze (UTF-8 id order).
+    * N5/N-2 ContextRead/Commit (init/entry/view only; pureFn fail closed):
+      place `context.unixTimeSeconds` → `Op.ContextRead`
+      `proof-forge.context.unix-time-seconds.v1` (UInt64);
+      place `context.caller` → `Op.ContextRead` `proof-forge.context.caller.v1`
+      (Principal); bare local-call `commit(x)` (no user `fn commit`) →
+      `Op.Commit` label-only identity. Wire-owned requirement rows merged
+      after S2 freeze (UTF-8 id order).
     * S2 exact ProgramRequirementsV1 freeze (Counter catalog, SPEC wire order)
       before encode/hash; companion provenance only via
       `normalizeProgramWithProvenanceV1` (source+path+spans rebuild inventory;
@@ -128,8 +130,8 @@
       param-root field/index assign, true mutable locals (field/index
       rebind of immutable let only), Int event/error fields (stay UInt-only),
       String event/error fields (stay UInt-only this slice),
-      ContextRead keys other than `context.unixTimeSeconds`, Commit/ContextRead
-      inside pureFn (fail closed; init/entry/view only)
+      ContextRead keys other than `context.unixTimeSeconds` / `context.caller`,
+      Commit/ContextRead inside pureFn (fail closed; init/entry/view only)
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -815,8 +817,10 @@ structure BodyStateV1 where
   interner : TypeInternerV1
   /-- N5: true for init/entry/view; false for pureFn (ContextRead/Commit fail closed). -/
   allowContextCommit : Bool := false
-  /-- N5: any Op.ContextRead emitted in this program (for wire requirement merge). -/
-  usedContextRead : Bool := false
+  /-- N5/N-2: Op.ContextRead unix-time-seconds used (wire requirement merge). -/
+  usedContextUnixTime : Bool := false
+  /-- N-2: Op.ContextRead caller used (wire requirement merge). -/
+  usedContextCaller : Bool := false
   /-- N5: any Op.Commit emitted in this program (for wire requirement merge). -/
   usedCommit : Bool := false
 
@@ -971,7 +975,8 @@ private def requireLetTypeId
   | none =>
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
-/-- Type-only walk of a place chain (env/state root + field/index). -/
+/-- Type-only walk of a place chain (env/state root + field/index).
+    N5/N-2: ContextRead surfaces are not env/state roots. -/
 private partial def synthPlaceTypeV1
     (place : SrcPlace) (interner : TypeInternerV1)
     (env : LocalEnvV1) (states : StateTableV1) :
@@ -985,18 +990,40 @@ private partial def synthPlaceTypeV1
           match stateLookup states key with
           | some (_, tid) => pure (interner, tid)
           | none =>
-              failUnsupported s!"S1 bare place '{key}' is neither param nor state"
+              if key == "context" then
+                failUnsupported
+                  "S1 context place must be context.unixTimeSeconds or context.caller (field chain)"
+              else
+                failUnsupported s!"S1 bare place '{key}' is neither param nor state"
   | .field base fieldName => do
-      let (interner, baseTid) ← synthPlaceTypeV1 base interner env states
-      match shapeOf? interner.types baseTid with
-      | some (.struct fields) =>
-          match findStructFieldIndex fields (raw fieldName) with
-          | none =>
-              failUnsupported
-                s!"S1 field '{raw fieldName}' not found on struct"
-          | some (_, fieldTid) => pure (interner, fieldTid)
-      | _ =>
-          failUnsupported "S1 field place requires a struct base"
+      match base with
+      | .name root =>
+          if raw root == "context" && raw fieldName == "unixTimeSeconds" then
+            pure (internShape interner (.uint 64))
+          else if raw root == "context" && raw fieldName == "caller" then
+            pure (internShape interner .principal)
+          else do
+            let (interner, baseTid) ← synthPlaceTypeV1 base interner env states
+            match shapeOf? interner.types baseTid with
+            | some (.struct fields) =>
+                match findStructFieldIndex fields (raw fieldName) with
+                | none =>
+                    failUnsupported
+                      s!"S1 field '{raw fieldName}' not found on struct"
+                | some (_, fieldTid) => pure (interner, fieldTid)
+            | _ =>
+                failUnsupported "S1 field place requires a struct base"
+      | _ => do
+          let (interner, baseTid) ← synthPlaceTypeV1 base interner env states
+          match shapeOf? interner.types baseTid with
+          | some (.struct fields) =>
+              match findStructFieldIndex fields (raw fieldName) with
+              | none =>
+                  failUnsupported
+                    s!"S1 field '{raw fieldName}' not found on struct"
+              | some (_, fieldTid) => pure (interner, fieldTid)
+          | _ =>
+              failUnsupported "S1 field place requires a struct base"
   | .index base _idxExpr => do
       let (interner, baseTid) ← synthPlaceTypeV1 base interner env states
       match shapeOf? interner.types baseTid with
@@ -1556,37 +1583,71 @@ private partial def lowerPlace
       | none =>
           match stateLookup states key with
           | none =>
-              failUnsupported s!"S1 bare place '{key}' is neither param nor state"
+              if key == "context" then
+                failUnsupported
+                  "S1 context place must be context.unixTimeSeconds or context.caller (field chain)"
+              else
+                failUnsupported s!"S1 bare place '{key}' is neither param nor state"
           | some (sid, tid) =>
               let (st1, vid) := emitValue st tid (.stateLoad sid)
               pure (vid, tid, st1)
   | .field base fieldName => do
-      -- N5: sole ContextRead surface `context.unixTimeSeconds` → Op.ContextRead
-      -- with anonymous UInt64 result (wire catalog sole key).
-      if isContextUnixTimeSecondsPlaceV1 (.field base fieldName) then
-        unless st.allowContextCommit do
-          return ← failUnsupported
-            "S1 ContextRead is not admitted in pureFn (init/entry/view only)"
-        let (iU64, u64Tid) := internShape st.interner (.uint 64)
-        let st0 := { st with interner := iU64, usedContextRead := true }
-        let (st1, vid) :=
-          emitValue st0 u64Tid (.contextRead unixTimeSecondsContextKeyV1)
-        pure (vid, u64Tid, st1)
-      else do
-        let (baseVid, baseTid, st1) ← lowerPlace base st states fns
-        match shapeOf? st1.interner.types baseTid with
-        | some (.struct fields) =>
-            match findStructFieldIndex fields (raw fieldName) with
-            | none =>
-                failUnsupported
-                  s!"S1 field '{raw fieldName}' not found on struct"
-            | some (idx, fieldTid) =>
-                let (st2, vid) :=
-                  emitValue st1 fieldTid
-                    (.fieldGet baseVid (UInt32.ofNat idx))
-                pure (vid, fieldTid, st2)
-        | _ =>
-            failUnsupported "S1 field place requires a struct base"
+      -- N5/N-2: ContextRead surfaces `context.unixTimeSeconds` (UInt64) and
+      -- `context.caller` (Principal). PureFn fail closed.
+      -- Match on base+field directly (same shape as ContextCommitSurface helpers).
+      match base with
+      | .name root =>
+          if raw root == "context" && raw fieldName == "unixTimeSeconds" then
+            unless st.allowContextCommit do
+              return ← failUnsupported
+                "S1 ContextRead is not admitted in pureFn (init/entry/view only)"
+            let (iU64, u64Tid) := internShape st.interner (.uint 64)
+            let st0 := { st with interner := iU64, usedContextUnixTime := true }
+            let (st1, vid) :=
+              emitValue st0 u64Tid (.contextRead unixTimeSecondsContextKeyV1)
+            pure (vid, u64Tid, st1)
+          else if raw root == "context" && raw fieldName == "caller" then
+            unless st.allowContextCommit do
+              return ← failUnsupported
+                "S1 ContextRead is not admitted in pureFn (init/entry/view only)"
+            let (iP, pTid) := internShape st.interner .principal
+            let st0 := { st with interner := iP, usedContextCaller := true }
+            let (st1, vid) :=
+              emitValue st0 pTid (.contextRead callerContextKeyV1)
+            pure (vid, pTid, st1)
+          else if raw root == "context" then
+            failUnsupported
+              s!"S1 unsupported context field '{raw fieldName}' (admitted: unixTimeSeconds, caller)"
+          else do
+            let (baseVid, baseTid, st1) ← lowerPlace base st states fns
+            match shapeOf? st1.interner.types baseTid with
+            | some (.struct fields) =>
+                match findStructFieldIndex fields (raw fieldName) with
+                | none =>
+                    failUnsupported
+                      s!"S1 field '{raw fieldName}' not found on struct"
+                | some (idx, fieldTid) =>
+                    let (st2, vid) :=
+                      emitValue st1 fieldTid
+                        (.fieldGet baseVid (UInt32.ofNat idx))
+                    pure (vid, fieldTid, st2)
+            | _ =>
+                failUnsupported "S1 field place requires a struct base"
+      | _ => do
+          let (baseVid, baseTid, st1) ← lowerPlace base st states fns
+          match shapeOf? st1.interner.types baseTid with
+          | some (.struct fields) =>
+              match findStructFieldIndex fields (raw fieldName) with
+              | none =>
+                  failUnsupported
+                    s!"S1 field '{raw fieldName}' not found on struct"
+              | some (idx, fieldTid) =>
+                  let (st2, vid) :=
+                    emitValue st1 fieldTid
+                      (.fieldGet baseVid (UInt32.ofNat idx))
+                  pure (vid, fieldTid, st2)
+          | _ =>
+              failUnsupported "S1 field place requires a struct base"
   | .index base idxExpr => do
       let (baseVid, baseTid, st1) ← lowerPlace base st states fns
       match shapeOf? st1.interner.types baseTid with
@@ -2926,9 +2987,9 @@ private def lowerBlock
     (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1)
     (allowImplicitReturnNone : Bool)
     (allowContextCommit : Bool)
-    (usedContextRead0 usedCommit0 : Bool) :
+    (usedUnix0 usedCaller0 usedCommit0 : Bool) :
     Except NormalizeErrorV1
-      (Array BlockV1 × Array LoopBoundV1 × TypeInternerV1 × Bool × Bool) := do
+      (Array BlockV1 × Array LoopBoundV1 × TypeInternerV1 × Bool × Bool × Bool) := do
   let mut env := emptyEnv
   for p in params do
     env := envInsert env p.name p.valueId p.typeId
@@ -2946,7 +3007,8 @@ private def lowerBlock
     env := env
     interner := interner
     allowContextCommit := allowContextCommit
-    usedContextRead := usedContextRead0
+    usedContextUnixTime := usedUnix0
+    usedContextCaller := usedCaller0
     usedCommit := usedCommit0
   }
   let (st', status) ← lowerStmts body.statements resultTid st states events errors fns
@@ -2956,7 +3018,8 @@ private def lowerBlock
       stF.loopBounds.qsort (fun a b =>
         a.header < b.header || (a.header == b.header && a.backEdgeFrom < b.backEdgeFrom)),
       stF.interner,
-      stF.usedContextRead,
+      stF.usedContextUnixTime,
+      stF.usedContextCaller,
       stF.usedCommit)
   match status with
   | .closed =>
@@ -3034,13 +3097,18 @@ private def insertRequirementSortedV1
     Only when the corresponding ops were emitted; empty predicates, exact
     SemVer 1.0.0, domain-separated digests from Wire ModelV1. -/
 private def mergeWireOwnedRequirementsV1
-    (s2 : ProgramRequirementsV1) (usedContextRead usedCommit : Bool) :
+    (s2 : ProgramRequirementsV1)
+    (usedUnixTime usedCaller usedCommit : Bool) :
     Except NormalizeErrorV1 ProgramRequirementsV1 := do
   let mut items := s2.items
-  if usedContextRead then
+  if usedUnixTime then
     match unixTimeSecondsContextRequirementV1 with
     | .ok row => items := insertRequirementSortedV1 items row
-    | .error e => return ← failUnsupported s!"ContextRead requirement row: {e}"
+    | .error e => return ← failUnsupported s!"ContextRead unix-time requirement row: {e}"
+  if usedCaller then
+    match callerContextRequirementV1 with
+    | .ok row => items := insertRequirementSortedV1 items row
+    | .error e => return ← failUnsupported s!"ContextRead caller requirement row: {e}"
   if usedCommit then
     match commitmentDisclosureRequirementV1 with
     | .ok row => items := insertRequirementSortedV1 items row
@@ -3167,7 +3235,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   -- Pass 2: lower supported callables; reject unsupported item kinds.
   let mut callables : Array CallableV1 := #[]
   let mut callableId : Nat := 0
-  let mut usedContextRead := false
+  let mut usedContextUnixTime := false
+  let mut usedContextCaller := false
   let mut usedCommit := false
   for item in program.items do
     match item with
@@ -3177,11 +3246,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', unitTid) := internShape interner .unit
         interner := interner''
-        let (blocks, loopBounds, interner''', ctx, cm) ←
+        let (blocks, loopBounds, interner''', ux, uc, cm) ←
           lowerBlock d.body params unitTid interner stateTable eventTable errorTable fnTable
-            true true usedContextRead usedCommit
+            true true usedContextUnixTime usedContextCaller usedCommit
         interner := interner'''
-        usedContextRead := ctx
+        usedContextUnixTime := ux
+        usedContextCaller := uc
         usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .initializer none params
@@ -3193,11 +3263,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', resultTid) ← internSourceType interner e.result
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
-        let (blocks, loopBounds, interner''', ctx, cm) ←
+        let (blocks, loopBounds, interner''', ux, uc, cm) ←
           lowerBlock e.body params resultTid interner stateTable eventTable errorTable fnTable
-            false true usedContextRead usedCommit
+            false true usedContextUnixTime usedContextCaller usedCommit
         interner := interner'''
-        usedContextRead := ctx
+        usedContextUnixTime := ux
+        usedContextCaller := uc
         usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .entry (some (raw e.name)) params
@@ -3209,11 +3280,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', resultTid) ← internSourceType interner v.result
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
-        let (blocks, loopBounds, interner''', ctx, cm) ←
+        let (blocks, loopBounds, interner''', ux, uc, cm) ←
           lowerBlock v.body params resultTid interner stateTable eventTable errorTable fnTable
-            false true usedContextRead usedCommit
+            false true usedContextUnixTime usedContextCaller usedCommit
         interner := interner'''
-        usedContextRead := ctx
+        usedContextUnixTime := ux
+        usedContextCaller := uc
         usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .view (some (raw v.name)) params
@@ -3235,11 +3307,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         -- table, so any state name fails closed (fn effects are revert-only).
         -- N5: ContextRead/Commit also fail closed (allowContextCommit=false).
         let emptyStates : StateTableV1 := ⟨#[]⟩
-        let (blocks, loopBounds, interner''', ctx, cm) ←
+        let (blocks, loopBounds, interner''', ux, uc, cm) ←
           lowerBlock d.body params resultTid interner emptyStates eventTable errorTable fnTable
-            false false usedContextRead usedCommit
+            false false usedContextUnixTime usedContextCaller usedCommit
         interner := interner'''
-        usedContextRead := ctx
+        usedContextUnixTime := ux
+        usedContextCaller := uc
         usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .pureFn (some (raw d.name)) params
@@ -3268,7 +3341,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     | .error detail => failUnsupported s!"S2 requirements freeze: {detail}"
   -- N5: merge wire-owned ContextRead/Commit exact rows (non-S2 digest domains)
   -- when those ops were emitted. Sort by UTF-8 id so structure gate order holds.
-  let requirements ← mergeWireOwnedRequirementsV1 s2Reqs usedContextRead usedCommit
+  let requirements ← mergeWireOwnedRequirementsV1 s2Reqs usedContextUnixTime usedContextCaller usedCommit
   pure {
     qualifiedName := qn
     types := interner.types

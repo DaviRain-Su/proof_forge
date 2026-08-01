@@ -21,14 +21,28 @@ normative: false
 /goal @.grok/goals/prompt-skeptic-recovery.md --budget 4000000
 ```
 
+**当前主轴（N-1 已 commit，N-2 有 Goal-owned WIP 未提交）——在 Goal 内收口 N-2 再 drain：**
+
+```text
+/goal @.grok/goals/prompt-n-2-finish.md --budget 4000000
+```
+
+或：
+
+```text
+/goal @.grok/goals/prompt-master-queue.md starting at N-2 --budget 8000000
+```
+
+**禁止**在普通聊天回合里把 N-2/后续切片实现到「半绿 + backlog 假 done」；实现、检查、commit、backlog 回写都必须发生在 **Goal** 内。
+
 **默认模式是 `drain`**：Goal **在内部连续消项**，直到：
 
-- 工程 pending **清空**，或  
-- **预算硬尽** / **硬阻塞**（脏 tree、决策缺失等）
+- 工程 pending **清空**，或
+- **预算硬尽** / **硬阻塞**（无关脏 tree、决策缺失等）
 
-**不会**因为「做完 3 项 / 进度 10%」就正常结束。  
-若预算用尽，报告 `NEXT=` 后 **再开同一 Goal 从 NEXT 续跑**。  
-Skeptic 修复也必须在 **Goal 内 commit**，不要在聊天侧手工交差后假装队列前进。
+**不会**因为「做完 3 项 / 进度 10%」就正常结束。
+若预算用尽，报告 `NEXT=` 后 **再开同一 Goal 从 NEXT 续跑**。
+Skeptic / N-2 修复也必须在 **Goal 内 commit**，不要在聊天侧手工交差后假装队列前进。
 
 ## 与 workflow
 
@@ -45,13 +59,16 @@ Skeptic 修复也必须在 **Goal 内 commit**，不要在聊天侧手工交差�
 .grok/goals/
   prompt-master-queue.md       ← ★ 主 Goal（drain 全队列）
   prompt-skeptic-recovery.md   ← skeptic 三缺口优先入口
-  QUEUE.md / slices/           ← 顺序与每项契约（含 SKEPTIC-1、DOC-T9-0）
+  prompt-n-2-finish.md         ← 收口 N-2 WIP → commit → 续 drain
+  QUEUE.md / slices/           ← 顺序与每项契约（含 SKEPTIC-1、N-2、DOC-T9-0）
   prompt-build-1-2.md / prompt-n-a2.md  ← 细案
 ```
 
 ## 单开一项
 
 ```text
+/goal @.grok/goals/slices/N-2.md --budget 2000000
+/goal @.grok/goals/prompt-n-2-finish.md --budget 4000000
 /goal @.grok/goals/slices/DOC-T9-0.md --budget 1500000
 /goal @.grok/goals/slices/SKEPTIC-1.md --budget 2000000
 ```

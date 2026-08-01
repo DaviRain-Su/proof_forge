@@ -370,6 +370,7 @@ def inspectResolveRequestsV1
     -- not S2 engineering catalog members. Accept the exact mint only; do not
     -- require target support-matrix membership. Other non-S2 ids still fail.
     if item.id == unixTimeSecondsContextRequirementIdV1 ||
+        item.id == callerContextRequirementIdV1 ||
         item.id == commitmentDisclosureRequirementIdV1 then
       let expected ←
         if item.id == unixTimeSecondsContextRequirementIdV1 then
@@ -377,7 +378,13 @@ def inspectResolveRequestsV1
           | .ok r => pure r
           | .error e =>
               throw <| .unsupportedRequirementV1
-                s!"ContextRead requirement row unavailable: {e}"
+                s!"ContextRead unix-time requirement row unavailable: {e}"
+        else if item.id == callerContextRequirementIdV1 then
+          match callerContextRequirementV1 with
+          | .ok r => pure r
+          | .error e =>
+              throw <| .unsupportedRequirementV1
+                s!"ContextRead caller requirement row unavailable: {e}"
         else
           match commitmentDisclosureRequirementV1 with
           | .ok r => pure r

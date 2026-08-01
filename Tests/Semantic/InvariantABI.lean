@@ -2848,10 +2848,12 @@ private def testEvalInvariantABI : IO Unit := do
     "ordinal 1: selected invariant returns false"
   expect (evalInvariantV1 carrier 2 selectedState == .trapped)
     "out-of-range invariant ordinal maps to trapped"
+  -- N-2: Principal is identity-admitted (context.caller / Principal state).
+  -- Unrelated Principal rows no longer block whole-program engineering admission.
   match admitReferenceProgramSliceV1 carrier with
-  | .error _ => pure ()
-  | .ok _ => throw <| IO.userError (
-      "unrelated Principal declaration must remain outside whole-program engineering admission")
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError (
+      s!"N-2 Principal identity admission expected ok, got {repr e}")
 
   let runTerminal (label name : String) (root : CallableV1)
       (want : InvariantEvalResultV1) : IO Unit := do

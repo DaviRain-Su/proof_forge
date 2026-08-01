@@ -61,7 +61,7 @@
        arith/compare/overflow, Int positive lit/compare/bitNot, Struct
        construct/fieldGet/fieldSet, Enum construct + constructor-pattern match
        (VariantTag/Payload), expression-match join block-params, expression
-       match on Enum constructors, and Principal admission fail-closed.
+       match on Enum constructors, and Principal identity admission (N-2).
    22. N5b ContextRead/Commit product step: Normalize `context.unixTimeSeconds`
        + bare `commit(x)` → admit → `stepReferenceSliceV1` with explicit
        context input; init/entry/view identity; missing context
@@ -3328,8 +3328,8 @@ private def testInvariantReferenceSlice : IO Unit := do
     "invariant-lower-runner: malformed state must trap"
 
   -- Principal equality is canonical typed-byte equality. This also executes
-  -- Unit Construct inside an invariant through the formal-compatible seam;
-  -- whole-program engineering admission remains intentionally narrower.
+  -- Unit Construct inside an invariant through the formal-compatible seam.
+  -- N-2: Principal is identity-admitted for whole-program engineering admission.
   let principalTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .principal },
@@ -3356,8 +3356,8 @@ private def testInvariantReferenceSlice : IO Unit := do
       callables := #[mkEntry 0 "principalGate" #[] 2 #[] (.return_ none), principalRoot]
       invariants := #[{ id := 0, name := "principalTruth", callableId := 1 }]
   }
-  admitUnsupported "invariant-principal-admission" principalCarrier
-    (fun detail => detail.contains "Principal") "unrelated Principal"
+  -- N-2: Principal is identity-admitted for context.caller / Principal state.
+  let _ ← admitOk "invariant-principal-admission" principalCarrier
   let principalData ← match validateSemanticProgramV1 principalCarrier with
     | .ok data => pure data
     | .error e => throw <| IO.userError s!"invariant-principal validate: {repr e}"
@@ -3976,8 +3976,8 @@ private unsafe def testExprMatchEnumNormalizeReference
     (stepReferenceSliceV1 admitted pre (inv 1 #[]) emptyResponses)
     pre (some (refU64 u64Tid 2)) #[]
 
-/-- T6: Principal type in Normalize carrier is admitted fail-closed (known gap). -/
-private unsafe def testPrincipalNormalizeAdmissionRejected
+/-- N-2: Principal type in Normalize carrier is Reference-admitted (identity-only). -/
+private unsafe def testPrincipalNormalizeAdmissionOk
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrap "PrinRef" <|
     "  struct Bundle where\n" ++
@@ -3988,9 +3988,7 @@ private unsafe def testPrincipalNormalizeAdmissionRejected
   let carrier ← match normalizeProgramV1 validated with
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"prin-ref: normalize: {repr e}"
-  admitUnsupported "prin-ref" carrier
-    (fun d => d.contains "Principal" || d.contains "principal")
-    "Principal"
+  let _ ← admitOk "prin-ref" carrier
 
 /-- Focused BN254 scalar-field semantics, separate from fixed-width integers. -/
 private def testBn254FieldLowerRunner : IO Unit := do
@@ -4308,6 +4306,41 @@ private unsafe def testMapBytesAssignNormalizeReference
   -- `testArrayBytesReferenceSlice`; Map product Normalize structure is pinned
   -- in Tests.Typed.CheckV1.
 
+/-- N-2 product path: Normalize `context.caller` → Principal ContextRead +
+    Reference step with explicit InvocationV1.context Principal row. -/
+private unsafe def testContextCallerNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let key := callerContextKeyV1
+  let src := wrap "CallerNormRef" <|
+    "  entry who() : Principal do\n" ++
+    "    return context.caller\n"
+  let validated ← loadSource session "caller-norm-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"caller-norm-ref: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"caller-norm-ref: validate: {repr e}"
+  expect (data.requirements.items.any fun r => r.id == callerContextRequirementIdV1)
+    "caller-norm-ref: context.caller requirement"
+  let admitted ← admitOk "caller-norm-ref" carrier
+  let pTid? := data.types.findSome? fun decl =>
+    match decl.name, decl.shape with
+    | none, .principal => some decl.id
+    | _, _ => none
+  let some pTid := pTid? |
+    throw <| IO.userError "caller-norm-ref: missing Principal type"
+  let principalBytes := (encodeU32le 1).append (ByteArray.mk #[0xca])
+  let callerVal : ReferenceValueV1 := { typeId := pTid, valueBytes := principalBytes }
+  let pre ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"caller-norm-ref: initial: {repr e}"
+  let ctxRows : Array ContextInputV1 := #[{ key, value := callerVal }]
+  expectReturned "caller-norm-ref-who"
+    (stepReferenceSliceV1 admitted pre
+      (invWithContext 0 #[] ctxRows) emptyResponses)
+    pre (some callerVal) #[]
+
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -4344,9 +4377,10 @@ unsafe def run : IO Unit := do
   testEnumMatchNormalizeReference session
   testExprMatchNormalizeReference session
   testExprMatchEnumNormalizeReference session
-  testPrincipalNormalizeAdmissionRejected session
-  -- N5b: ContextRead/Commit product step semantics
+  testPrincipalNormalizeAdmissionOk session
+  -- N5b/N-2: ContextRead/Commit product step semantics
   testContextCommitNormalizeReference session
+  testContextCallerNormalizeReference session
   -- N-A3: Map/Bytes single-step index assign product path
   testMapBytesAssignNormalizeReference session
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"

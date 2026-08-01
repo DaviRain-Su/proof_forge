@@ -8,7 +8,7 @@
 
 | Order | ID | Phase | Status seed |
 |---|---|---|---|
-| 0 | `SKEPTIC-1` | recovery | **NEXT if skeptic open** — matrix + DONE_IDS + BUILD-5 log |
+| 0 | `SKEPTIC-1` | recovery | seed: closed if backlog done + matrix commit exists |
 | 1 | `BUILD-1` | build | seed only; backlog may already be done |
 | 2 | `BUILD-2` | build | seed only |
 | 3 | `BUILD-3` | build | seed only |
@@ -20,16 +20,16 @@
 | 9 | `BUILD-9` | build | seed only |
 | 10 | `DOC-2` | docs | seed only |
 | 11 | `DOC-3` | docs | seed only |
-| 12 | `DOC-T9-0` | docs | **pending until matrix commit** (reopened by skeptic) |
-| 13 | `DOC-SPEC-AUDIT` | docs | pending |
-| 14 | `DOC-DEDUP` | docs | pending |
-| 15 | `N-A2` | normalize | pending |
-| 16 | `N-A1` | normalize | pending |
-| 17 | `N-A4` | normalize | pending |
-| 18 | `N-1` | normalize | pending |
-| 19 | `N-A3` | normalize | pending |
+| 12 | `DOC-T9-0` | docs | seed: done only with matrix commit (see backlog) |
+| 13 | `DOC-SPEC-AUDIT` | docs | seed: often already done — re-read backlog |
+| 14 | `DOC-DEDUP` | docs | seed: often already done — re-read backlog |
+| 15 | `N-A2` | normalize | seed: often already done — re-read backlog |
+| 16 | `N-A1` | normalize | seed: often already done — re-read backlog |
+| 17 | `N-A4` | normalize | seed: often already done — re-read backlog |
+| 18 | `N-1` | normalize | seed: often already done — re-read backlog |
+| 19 | `N-A3` | normalize | seed: often already done — re-read backlog |
 | 20 | `N-BYTES` | normalize | pending |
-| 21 | `N-2` | normalize | pending |
+| 21 | `N-2` | normalize | **NEXT after N-1** — finish via `prompt-n-2-finish.md` (WIP may be dirty) |
 | 22 | `N-3` | normalize | pending |
 | 23 | `N-4` | normalize | pending |
 | 24 | `N-5` | normalize | pending |

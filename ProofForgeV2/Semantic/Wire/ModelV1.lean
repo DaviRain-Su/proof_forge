@@ -44,15 +44,24 @@ def maxMapEntriesV1 : Nat := maxArrayElements
 /-- v1 Field catalog sole entry id (SPEC-SEM-WIRE-001 §5). -/
 def bn254FrFieldIdV1 : String := "proof-forge.field.bn254-fr.v1"
 
-/-- Sole statically admitted v1 ContextRead key. -/
+/-- Closed v1 ContextRead key: immutable invocation wall-clock seconds. -/
 def unixTimeSecondsContextKeyV1 : SchemaId :=
   { value := "proof-forge.context.unix-time-seconds.v1" }
 
-/-- Requirement identity bound to the sole v1 ContextRead key.
+/-- Closed v1 ContextRead key: invocation caller identity (N-2).
+    Result shape is anonymous Principal. -/
+def callerContextKeyV1 : SchemaId :=
+  { value := "proof-forge.context.caller.v1" }
+
+/-- Requirement identity bound to the unix-time ContextRead key.
     Thin alias of `RequirementIdsV1.wireContextUnixTimeSecondsIdV1`
     (domain `pf.context-read-requirement.v1`). -/
 def unixTimeSecondsContextRequirementIdV1 : String :=
   RequirementIdsV1.wireContextUnixTimeSecondsIdV1
+
+/-- Requirement identity bound to the caller ContextRead key (N-2). -/
+def callerContextRequirementIdV1 : String :=
+  RequirementIdsV1.wireContextCallerIdV1
 
 /-- Exact requirement identity contributed by every v1 Commit operation.
     Thin alias of `RequirementIdsV1.wireCommitmentDisclosureIdV1`
@@ -328,12 +337,23 @@ structure ProgramRequirementsV1 where
   items : Array RequirementRequestV1
   deriving BEq
 
-/-- Exact requirement row for the sole v1 ContextRead key. -/
+/-- Exact requirement row for the unix-time ContextRead key. -/
 def unixTimeSecondsContextRequirementV1 : Except String RequirementRequestV1 := do
   let digest ← domainSeparatedSha256 "pf.context-read-requirement.v1"
     unixTimeSecondsContextRequirementIdV1.toUTF8
   pure {
     id := unixTimeSecondsContextRequirementIdV1
+    version := { major := 1, minor := 0, patch := 0 }
+    digest
+    predicates := #[]
+  }
+
+/-- Exact requirement row for the caller ContextRead key (N-2). -/
+def callerContextRequirementV1 : Except String RequirementRequestV1 := do
+  let digest ← domainSeparatedSha256 "pf.context-read-requirement.v1"
+    callerContextRequirementIdV1.toUTF8
+  pure {
+    id := callerContextRequirementIdV1
     version := { major := 1, minor := 0, patch := 0 }
     digest
     predicates := #[]

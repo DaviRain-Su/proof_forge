@@ -15,8 +15,9 @@ import ProofForgeV2.Semantic.WireV1
   not depend on whole-program engineering admission.
 
   Admitted surface:
-    * types: Bool / all Wire UInt/Int widths / BN254 Field / Unit / Bytes / fixed Array /
-      Map / Struct / Option / Enum over acyclic recursively admitted payload types
+    * types: Bool / all Wire UInt/Int widths / BN254 Field / Unit / Bytes / Principal /
+      String / fixed Array / Map / Struct / Option / Enum over acyclic recursively
+      admitted payload types
     * ops: Literal, Constant, StateLoad/Store, Unary/Binary on admitted shapes,
       CheckedCast (UInt/Int combinations), Struct Construct/FieldGet/FieldSet,
       Option/Enum Construct/VariantTag/VariantPayload, PureCall, Assert, Emit,
@@ -31,9 +32,11 @@ import ProofForgeV2.Semantic.WireV1
 
   Rejected at admission (never masquerade as runtime invalidCore; only
   internalInvariant defense if admission is bypassed):
-    Principal, recursive Struct/Array/Map/Option/Enum type graphs,
+    recursive Struct/Array/Map/Option/Enum type graphs,
     nonempty-Map Construct,
     view/pureFn effect-or-state violations, ExternalCall/Schedule Unit args.
+  Principal and String are identity-admitted leaves (N-2 / N4); resource
+  bounds use worst-case `4 + maxTypeLengthV1` length-prefixed payloads.
 
   Semantics (SPEC-SEM-001 engineering):
     * dense ValueId env, state overlay, per-EffectId occurrence counters,
@@ -44,17 +47,19 @@ import ProofForgeV2.Semantic.WireV1
     * only `.returned` commits overlay/effects; init success sets
       `initialized=true`; revert/trap return pre byte-for-byte
 
-  N5b ContextRead / Commit step contract (engineering; product surface via N5
-  Normalize `context.unixTimeSeconds` / bare `commit(x)`):
-    * ContextRead: sole admitted wire key
-      `proof-forge.context.unix-time-seconds.v1` → anonymous UInt64. Invocation
-      gate collects the exact key/result-TypeId set reachable from the selected
-      root through static PureCall edges; supplied `InvocationV1.context` must
-      be strict key-ascending, exact membership, TypeId match, and canonical
-      valueBytes, else `invalidInvocation` (before lifecycle and responses).
-      Runtime looks up the immutable Machine-level context snapshot (not
-      copied into PureCall frames); missing/TypeId mismatch after the gate is
-      `internalInvariant`. Context never enters overlay or ordered effects.
+  N5b/N-2 ContextRead / Commit step contract (engineering; product surface via
+  Normalize `context.unixTimeSeconds` / `context.caller` / bare `commit(x)`):
+    * ContextRead closed keys:
+      - `proof-forge.context.unix-time-seconds.v1` → anonymous UInt64
+      - `proof-forge.context.caller.v1` → anonymous Principal (N-2)
+      Invocation gate collects the exact key/result-TypeId set reachable from
+      the selected root through static PureCall edges; supplied
+      `InvocationV1.context` must be strict key-ascending, exact membership,
+      TypeId match, and canonical valueBytes, else `invalidInvocation`
+      (before lifecycle and responses). Runtime looks up the immutable
+      Machine-level context snapshot (not copied into PureCall frames);
+      missing/TypeId mismatch after the gate is `internalInvariant`. Context
+      never enters overlay or ordered effects.
     * Commit: label-only identity (SPEC wire). Result binds the operand's
       exact TypeId and canonical valueBytes unchanged; no hash, salt, or
       re-encode; no overlay/effect mutation. Cryptographic commitment
@@ -202,7 +207,7 @@ private def typeShapeAdmitted (shape : TypeShapeV1) :
   | .option _ => pure ()
   | .struct _ => pure ()
   | .enum _ => pure ()
-  | .principal => admitFail "unsupported Principal"
+  | .principal => pure ()  -- N-2: identity-only Principal (context.caller / state)
   | .string => pure ()  -- N4: identity valueBytes; eq/ne via byte compare
 
 /-- Family-level op admission. Unsupported ops never reach runtime (only
@@ -484,6 +489,15 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
                   widths := widths.set! tid length.toNat
                   depths := depths.set! tid 1
                   works := works.set! tid (1 + max 1 length.toNat)
+                  color := color.set! tid 2
+              | some { shape := .principal, .. }
+              | some { shape := .string, .. } =>
+                  -- Length-prefixed identity payload: u32le(len) || body,
+                  -- body ≤ maxTypeLengthV1 (Wire valueBytes gate).
+                  let bytes := 4 + maxTypeLengthV1
+                  widths := widths.set! tid bytes
+                  depths := depths.set! tid 1
+                  works := works.set! tid (1 + max 1 bytes)
                   color := color.set! tid 2
               | some { shape := .struct fields, .. } =>
                   color := color.set! tid 1

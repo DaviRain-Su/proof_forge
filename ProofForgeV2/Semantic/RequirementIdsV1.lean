@@ -91,6 +91,10 @@ def s2CatalogIdsWireOrderV1 : Array String :=
 /-- Wire ContextRead exact-row id (domain `pf.context-read-requirement.v1`). -/
 def wireContextUnixTimeSecondsIdV1 : String := "context.unix-time-seconds"
 
+/-- Wire ContextRead exact-row id for caller identity (N-2).
+    Domain `pf.context-read-requirement.v1`. -/
+def wireContextCallerIdV1 : String := "context.caller"
+
 /-- Wire Commit exact-row id (domain `pf.commit-requirement.v1`).
     Same spelling as `inferDisclosureCommitmentIdV1` — dual meaning; see
     module doc. -/
@@ -98,7 +102,8 @@ def wireCommitmentDisclosureIdV1 : String := "disclosure.commitment"
 
 /-- Closed wire-owned requirement ids (ContextRead + Commit bindings). -/
 def wireOwnedRequirementIdsV1 : Array String :=
-  #[wireContextUnixTimeSecondsIdV1, wireCommitmentDisclosureIdV1]
+  #[wireContextUnixTimeSecondsIdV1, wireContextCallerIdV1,
+    wireCommitmentDisclosureIdV1]
 
 /-! ### Infer-only contribution ids (S2 freeze rejects; no engineering digest) -/
 
