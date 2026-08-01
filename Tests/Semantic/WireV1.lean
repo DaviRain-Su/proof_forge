@@ -7142,6 +7142,46 @@ private def testInvariantPureFnClosureMembership : IO Unit := do
       name := some "safe"
       invariantSteps := some 9
   }
+  -- Tight worker-fuel boundary: two roots seed the worklist, duplicate calls
+  -- discover index 0 once, and a reachable two-PureFn cycle discovers index 1.
+  -- All four callables are processed with exactly `callables.size` fuel.
+  let cycleA : CallableV1 := {
+    middle with
+      id := 0
+      name := some "cycleA"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+  }
+  let cycleB : CallableV1 := {
+    middle with
+      id := 1
+      name := some "cycleB"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+        (.return_ (some 0))]
+  }
+  let duplicateRoot : CallableV1 := {
+    root with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[]),
+          cfgInstr (some (cfgValueDef 1)) (.pureCall 0 #[])]
+        (.return_ (some 1))]
+  }
+  let literalRoot : CallableV1 := {
+    root with
+      id := 3
+      name := some "literalSafe"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let tightMembers ← expectOk "membership tight worker fuel"
+    (invariantClosureMembershipResultV1
+      #[cycleA, cycleB, duplicateRoot, literalRoot])
+  expect (tightMembers == #[true, true, true, true])
+    "membership tight worker fuel: expected all four members"
   let p1Base ← programWithTypes "InvClosureMembershipP1Transitive"
     cfgBoolTypes #[] #[leaf, middle, root]
   let p1 : SemanticProgramDataV1 := {
