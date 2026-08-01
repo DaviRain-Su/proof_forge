@@ -1,21 +1,26 @@
 # Goal slice queue (engineering only)
 > Generated for `/goal` + workflows. Formal F-*/Q-*/C-3 excluded.
 > Master goal: `.grok/goals/prompt-master-queue.md`
+> **Next session entry if skeptic open:** `.grok/goals/prompt-skeptic-recovery.md`
+>
+> Status seed is **not** live authority — always re-read `docs/engineering-backlog.md`.
+> Order 0 is recovery: must close before trusting later “done” marks from false T9-0.
 
 | Order | ID | Phase | Status seed |
 |---|---|---|---|
-| 1 | `BUILD-1` | build | pending |
-| 2 | `BUILD-2` | build | pending |
-| 3 | `BUILD-3` | build | pending |
-| 4 | `BUILD-4` | build | pending |
-| 5 | `BUILD-5` | build | pending |
-| 6 | `BUILD-6` | build | pending |
-| 7 | `BUILD-7` | build | pending |
-| 8 | `BUILD-8` | build | pending |
-| 9 | `BUILD-9` | build | pending |
-| 10 | `DOC-2` | docs | pending |
-| 11 | `DOC-3` | docs | pending |
-| 12 | `DOC-T9-0` | docs | pending |
+| 0 | `SKEPTIC-1` | recovery | **NEXT if skeptic open** — matrix + DONE_IDS + BUILD-5 log |
+| 1 | `BUILD-1` | build | seed only; backlog may already be done |
+| 2 | `BUILD-2` | build | seed only |
+| 3 | `BUILD-3` | build | seed only |
+| 4 | `BUILD-4` | build | seed only |
+| 5 | `BUILD-5` | build | seed only; re-verify serial exit 0 under SKEPTIC-1 |
+| 6 | `BUILD-6` | build | seed only |
+| 7 | `BUILD-7` | build | seed only |
+| 8 | `BUILD-8` | build | seed only |
+| 9 | `BUILD-9` | build | seed only |
+| 10 | `DOC-2` | docs | seed only |
+| 11 | `DOC-3` | docs | seed only |
+| 12 | `DOC-T9-0` | docs | **pending until matrix commit** (reopened by skeptic) |
 | 13 | `DOC-SPEC-AUDIT` | docs | pending |
 | 14 | `DOC-DEDUP` | docs | pending |
 | 15 | `N-A2` | normalize | pending |
@@ -65,4 +70,4 @@
 | 59 | `NS-2` | northstar | pending |
 | 60 | `EXT-CRYPTO` | northstar | pending |
 
-Total slices: 60
+Total slices: 61 (incl. SKEPTIC-1 recovery; backlog is live status authority)

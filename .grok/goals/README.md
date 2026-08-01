@@ -15,13 +15,20 @@ normative: false
 /goal @.grok/goals/prompt-master-queue.md --budget 8000000
 ```
 
+**若 skeptic 缺口仍 open（矩阵未真扫 / DONE_IDS 漏项 / BUILD-5 脏日志）先：**
+
+```text
+/goal @.grok/goals/prompt-skeptic-recovery.md --budget 4000000
+```
+
 **默认模式是 `drain`**：Goal **在内部连续消项**，直到：
 
 - 工程 pending **清空**，或  
 - **预算硬尽** / **硬阻塞**（脏 tree、决策缺失等）
 
 **不会**因为「做完 3 项 / 进度 10%」就正常结束。  
-若预算用尽，报告 `NEXT=` 后 **再开同一 Goal 从 NEXT 续跑**。
+若预算用尽，报告 `NEXT=` 后 **再开同一 Goal 从 NEXT 续跑**。  
+Skeptic 修复也必须在 **Goal 内 commit**，不要在聊天侧手工交差后假装队列前进。
 
 ## 与 workflow
 
@@ -36,15 +43,17 @@ normative: false
 
 ```text
 .grok/goals/
-  prompt-master-queue.md    ← ★ 主 Goal（drain 全队列）
-  QUEUE.md / slices/        ← 顺序与每项契约
+  prompt-master-queue.md       ← ★ 主 Goal（drain 全队列）
+  prompt-skeptic-recovery.md   ← skeptic 三缺口优先入口
+  QUEUE.md / slices/           ← 顺序与每项契约（含 SKEPTIC-1、DOC-T9-0）
   prompt-build-1-2.md / prompt-n-a2.md  ← 细案
 ```
 
 ## 单开一项
 
 ```text
-/goal @.grok/goals/slices/BUILD-3.md --budget 1500000
+/goal @.grok/goals/slices/DOC-T9-0.md --budget 1500000
+/goal @.grok/goals/slices/SKEPTIC-1.md --budget 2000000
 ```
 
 ## pilot（可选限流）

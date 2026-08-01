@@ -172,7 +172,9 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **DOC-3** | `11-feature-coverage-audit` L4/L6 刷新 | Solana 多宽句已修；Reference admitted 全表仍待 | **done**（2026-08-02：L6 Solana/T9e + N-A1/A2 注记；L4 admitted 全表仍可深化） |
 | **DOC-4** | 四 target dossier「工程迁移状态」刷新 | EVM/Solana/NEAR/Noir + targets/README | **done**（2026-08-01） |
 | **DOC-5** | `docs/index.md` / document-status 恢复桥叙述 | 工程路径 + backlog 链接 | **done**（2026-08-01） |
-| **DOC-SPEC-AUDIT** | SPEC-LANG/SEM/TYPE/CLI × Normalize/CLI **机械对账** | 产生 diff 表再回流本 backlog；**真正全集闭包**所需 | pending（大切片） |
+| **DOC-T9-0** | `MIGRATION_MATRIX` 长表过时 present-tense 扫（UInt64-only / single-block / supervisor 等） | **非** 仅 roadmap 状态；commit **必须**改矩阵 | **pending**（2026-08-02 reopened：skeptic — T9-0 曾无矩阵 commit 即标 done；契约见 `.grok/goals/slices/DOC-T9-0.md`） |
+| **SKEPTIC-1** | Goal 内闭合 skeptic 三缺口：DOC-T9-0 真扫 + DONE_IDS 全量（含 B-1d/B-1e/T9e）+ BUILD-5 exit-0 日志 | 入口 `prompt-skeptic-recovery.md` | **pending**（优先于 DOC-SPEC-AUDIT drain） |
+| **DOC-SPEC-AUDIT** | SPEC-LANG/SEM/TYPE/CLI × Normalize/CLI **机械对账** | 产生 diff 表再回流本 backlog；**真正全集闭包**所需 | pending（大切片；**SKEPTIC-1 后**） |
 | **DOC-DEDUP** | 禁止再开第四份平行 gap 清单 | 新研究只追加 11/12 或本文件；关掉旧 `build/*-audit.md` 心智依赖 | **done**（2026-08-02：research README + goals README + index 已指向 sole live queues） |
 
 ---
@@ -220,7 +222,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **T9a–T9c-2** | 窄结果 / EVM UInt128·256 / 窄 Int 四 target | **done**（roadmap merged） |
 | **T9d** | NEAR/Solana/Noir `planDigest` 绑 BuildIdentity/OutputSet（镜像 M4） | **done**（`c3626725f` / roadmap 2026-08-01） |
 | **T9e** | Solana/NEAR UInt128/256 多字算术（先设计后实现，可拆） | **done**（2026-08-02：T9e-Solana `52f527140` + T9e-NEAR claimed on main） |
-| **T9-0** | 控制面/文档对齐 | **done**（2026-08-02：roadmap merged `93b80db45` / control-plane status） |
+| **T9-0** | 控制面/roadmap 状态对齐 | **done**（2026-08-02：roadmap merged `93b80db45` / control-plane status；**矩阵长表扫见 DOC-T9-0，仍 pending**） |
 
 ---
 

@@ -72,4 +72,4 @@ After implementation is green and still uncommitted (or use engineering-slice fo
 
 
 ## Notes
-(none)
+Skeptic recovery: if prior session left a `slice-BUILD-5-checks.log` with `AssertionError` / non-zero exit, **re-run serial** `just run-deletion-gates` under SKEPTIC-1 and require exit 0. Product code already serializes gates (shared `.lake`); recovery may be evidence-only.

@@ -7,10 +7,16 @@
 > /goal @.grok/goals/prompt-master-queue.md --budget 8000000
 > ```
 >
+> **若 skeptic 仍 open（DOC-T9-0 无矩阵 commit / DONE_IDS 漏项 / BUILD-5 脏日志）先跑：**
+>
+> ```text
+> /goal @.grok/goals/prompt-skeptic-recovery.md --budget 4000000
+> ```
+>
 > 从指定 ID 续跑（上一会话结束后）：
 >
 > ```text
-> /goal @.grok/goals/prompt-master-queue.md starting at BUILD-3 --budget 8000000
+> /goal @.grok/goals/prompt-master-queue.md starting at DOC-SPEC-AUDIT --budget 8000000
 > ```
 
 ---
@@ -28,10 +34,26 @@
 3. [`docs/engineering-backlog.md`](../../docs/engineering-backlog.md)  
 4. `AGENTS.md` / `RECOVERY.md` / `MIGRATION_MATRIX.md`  
 5. `docs/roadmap-t8.md`  
-6. `docs/research/12-target-coverage-matrix.md`
+6. `docs/research/12-target-coverage-matrix.md`  
+7. Skeptic recovery: [`.grok/goals/slices/SKEPTIC-1.md`](slices/SKEPTIC-1.md) + [`prompt-skeptic-recovery.md`](prompt-skeptic-recovery.md)
 
 **目标**：按 QUEUE 顺序，把 **pending** 工程切片逐个做成 **local commit（不 push）**，回写 backlog，**然后立即做下一项**，直到停止条件。  
 **非目标**：formal TASK/TST/EV、release-check、Stage-0、「formal 0/27 done」。
+
+---
+
+## ⚠ 启动硬门：Skeptic recovery（在 drain 前）
+
+若下列任一为真，**禁止**直接宣称从 DOC-SPEC-AUDIT / N-* 开干；先闭合 SKEPTIC-1：
+
+1. `DOC-T9-0` 在 backlog 非 done，或 done 但 `git log --oneline -- MIGRATION_MATRIX.md` 自上次 false-done 后**无**对应矩阵扫 commit  
+2. 上轮 report 的 `DONE_IDS` 漏了 backlog 已 done 的 `B-1d` / `B-1e` / `T9e`  
+3. BUILD-5 无 clean exit-0 serial log（带 `AssertionError` 的 log 无效）
+
+执行契约：[`slices/SKEPTIC-1.md`](slices/SKEPTIC-1.md)、[`slices/DOC-T9-0.md`](slices/DOC-T9-0.md)。  
+**DOC-T9-0 完成 = 该 commit 的 file list 含 `MIGRATION_MATRIX.md`**；仅改 backlog/roadmap **不算**。
+
+闭合后打印 `SKEPTIC_RECOVERY: closed`，再进入正常 drain。
 
 ---
 
@@ -151,8 +173,15 @@ NEXT: <id or EMPTY>
 
 ## 当前队列事实（执行时以 backlog 为准）
 
-典型已 done：BUILD-1/2/6、DOC-1/4/5、T9a–d、B-1a/b/c、部分 MultiArm/N-A2 若 backlog 已标。  
-从 **第一个仍 pending** 起（常为 BUILD-3 或 N-A2）**继续 drain**，不要停在「第一波 BUILD 完成」。
+典型已 done（须全部进 DONE_IDS，**勿漏**）：BUILD-1..9、DOC-1..5、DOC-DEDUP、N-A1、N-A2、B-1a..e、T9a–e、T9-0（控制面）、以及 **DOC-T9-0 仅在矩阵 commit 后**。  
+`SKEPTIC-1` 关闭前不得假装 DOC-T9-0 已完成。  
+从 **第一个仍 pending** 起（常为 DOC-T9-0 → DOC-SPEC-AUDIT 或 N-A4）**继续 drain**。
+
+### PROGRESS 计数规则
+
+- `done` / `DONE_IDS`：从 `docs/engineering-backlog.md` 实际 `**done**` 行收集，含 B-1d、B-1e、T9e  
+- `pending`：backlog 中仍 pending 且未 excluded formal 的工程 ID  
+- QUEUE.md 的 Status seed **仅导航**；冲突时 **backlog 赢**
 
 ---
 
@@ -163,7 +192,9 @@ NEXT: <id or EMPTY>
 MODE: drain | pilot(max_slices=N)
 HEAD_START: ...
 HEAD_END: ...
+SKEPTIC_RECOVERY: closed|open|n/a
 PROGRESS: done=D pending=P total_engineering=T (~pct%)
+DONE_IDS: <comma list — must include B-1d,B-1e,T9e if backlog-done>
 COMPLETED:
   - ID @ sha
   - ...
