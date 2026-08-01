@@ -179,6 +179,12 @@ private def testIrValidationNegatives : IO Unit := do
   match validateEvmTargetIRV1 goodName goodYul "" with
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "empty abi"
+  -- Nested-slot .fieldDiv marker must be rejected at IR validation
+  -- (fail closed instead of silently emitting a multiply).
+  let markerYul := goodYul ++ "      let x := pf_unsupported_nested_field_div()\n"
+  match validateEvmTargetIRV1 goodName markerYul goodAbi with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "nested fieldDiv marker accepted"
   match validateEvmTargetIRV1 "Other" goodYul goodAbi with
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "name mismatch"
@@ -219,6 +225,72 @@ private def testWirePresence : IO Unit := do
       schema.stdout.contains "engineeringEvmPlanDigestV1")
     s!"schema surface: {schema.stdout}"
 
+/-- N2b-EVM: Field Expr tags are additive; Field plan digest is deterministic
+    and distinct from a UInt64-only plan with the same names. -/
+private unsafe def testFieldPlanDigestDeterminism : IO Unit := do
+  let fieldPlan : Plan := {
+    objectName := "F"
+    runtimeObjectName := "__proof_forge_runtime"
+    storageLayout := #[{ sourceId := 0, name := "acc", slot := 0, byteWidth := 32 }]
+    events := #[]
+    errors := #[]
+    constructor := some {
+      params := #[{ sourceId := 0, name := "i", wordIndex := 0, byteWidth := 32 }]
+      stores := #[{ slot := 0, value := .param 0, byteWidth := 32 }]
+    }
+    entries := #[{
+      name := "add"
+      selector := Targets.Evm.Keccak.selector "add" #["uint256"]
+      params := #[{ sourceId := 0, name := "d", wordIndex := 0, byteWidth := 32 }]
+      mutability := .nonpayable
+      body := #[
+        .store {
+          slot := 0
+          value := .fieldAdd (.fieldStorageLoad 0) (.param 0)
+          byteWidth := 32
+        },
+        .returnValue (.fieldStorageLoad 0)
+      ]
+      resultKind := .field
+    }, {
+      name := "div"
+      selector := Targets.Evm.Keccak.selector "div" #["uint256"]
+      params := #[{ sourceId := 0, name := "d", wordIndex := 0, byteWidth := 32 }]
+      mutability := .nonpayable
+      body := #[
+        .returnValue (.fieldDiv (.fieldStorageLoad 0) (.param 0))
+      ]
+      resultKind := .field
+    }, {
+      name := "neg"
+      selector := Targets.Evm.Keccak.selector "neg" #["uint256"]
+      params := #[{ sourceId := 0, name := "x", wordIndex := 0, byteWidth := 32 }]
+      mutability := .nonpayable
+      body := #[.returnValue (.fieldNeg (.param 0))]
+      resultKind := .field
+    }]
+    fns := #[]
+  }
+  match validatePlan fieldPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"field plan: {e.render}"
+  let b1 ← liftExcept "e1" (encodeEngineeringEvmPlanBytesV1 fieldPlan)
+  let b2 ← liftExcept "e2" (encodeEngineeringEvmPlanBytesV1 fieldPlan)
+  expect (b1 == b2) "Field plan encode determinism"
+  let d1 ← liftExcept "d1" (engineeringEvmPlanDigestV1 fieldPlan)
+  let d2 ← liftExcept "d2" (engineeringEvmPlanDigestV1 fieldPlan)
+  expect (d1.bytes == d2.bytes) "Field plan digest determinism"
+  -- Historical UInt64-only minimal plan encoding must remain unchanged shape
+  -- (Field uses new Expr tags 42..47; Counter product digest still recomputes).
+  let uintPlan := minimalPlan
+  let ub ← liftExcept "u" (encodeEngineeringEvmPlanBytesV1 uintPlan)
+  expect (!(ub == b1)) "Field plan bytes must differ from UInt64 minimal plan"
+  -- Counter product path still digests deterministically after Field tags.
+  let counter ← planCounter
+  let cd1 ← liftExcept "cd1" (engineeringEvmPlanDigestV1 counter)
+  let cd2 ← liftExcept "cd2" (engineeringEvmPlanDigestV1 counter)
+  expect (cd1.bytes == cd2.bytes) "Counter digest still deterministic with Field tags present"
+
 unsafe def run : IO Unit := do
   testDomain
   testMinimalPlanDeterminism
@@ -227,6 +299,7 @@ unsafe def run : IO Unit := do
   testIrValidationPositive
   testIrValidationNegatives
   testWirePresence
+  testFieldPlanDigestDeterminism
   IO.println "Tests.Materialization.EvmPlanSchemaV1: ok"
 
 end Tests.Materialization.EvmPlanSchemaV1

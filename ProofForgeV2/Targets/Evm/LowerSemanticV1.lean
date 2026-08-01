@@ -22,20 +22,21 @@ open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 
 /-- Target-owned binding from a semantic state identity to an EVM storage slot.
-    `byteWidth ∈ {1,2,4,8}` is the physical storage width (narrow values live
-    in the low bytes of a 32-byte slot). Default 8 keeps historical UInt64/Int64
-    Plan literals byte-identical at the structure level. -/
+    `byteWidth ∈ {1,2,4,8,32}` is the physical storage width (narrow values live
+    in the low bytes of a 32-byte slot; Field uses the full 32-byte word).
+    Default 8 keeps historical UInt64/Int64 Plan literals byte-identical. -/
 structure StorageBinding where
   sourceId : Nat
   name : String
   slot : Nat
-  /-- Physical width in bytes: UInt8→1, UInt16→2, UInt32→4, UInt64/Int64→8. -/
+  /-- Physical width in bytes: UInt8→1, UInt16→2, UInt32→4, UInt64/Int64→8,
+      Field(bn254)→32. -/
   byteWidth : Nat := 8
   deriving BEq, Inhabited, Repr
 
 /-- Target-owned ABI word binding. `sourceId` is retained only for traceability;
 all lowering after plan construction uses `wordIndex`. Each param still occupies
-one 32-byte ABI word; narrow values sit in the low bytes. -/
+one 32-byte ABI word; narrow values sit in the low bytes; Field uses the full word. -/
 structure Param where
   sourceId : Nat
   name : String
@@ -43,8 +44,9 @@ structure Param where
   /-- True when the ABI word is Int64 (selector/`int64`); default false keeps
       historical UInt64 Plan literals byte-identical. -/
   isInt : Bool := false
-  /-- Physical ABI value width in bytes: UInt8→1 … UInt64/Int64→8. `isInt`
-      implies `byteWidth = 8`. -/
+  /-- Physical ABI value width in bytes: UInt8→1 … UInt64/Int64→8, Field→32.
+      `isInt` implies `byteWidth = 8`. Field uses `byteWidth = 32` with
+      `isInt = false` (ABI type `uint256`). -/
   byteWidth : Nat := 8
   deriving BEq, Inhabited, Repr
 
@@ -137,6 +139,16 @@ inductive Expr where
   /-- ABI param load of a narrow UInt value (`bitWidth ∈ {8,16,32}`); Yul masks
   after `calldataload`/`mload`. UInt64/Int64 keep historical `param`. -/
   | narrowParam (bitWidth : Nat) (wordIndex : Nat)
+  /-- Exact mod-p Field arithmetic (bn254 Fr via ADDMOD/MULMOD). No overflow
+  assert; div reverts on zero divisor (Fermat inv via `pow(b, p-2, p)`). -/
+  | fieldAdd (lhs rhs : Expr)
+  | fieldSub (lhs rhs : Expr)
+  | fieldMul (lhs rhs : Expr)
+  | fieldDiv (lhs rhs : Expr)
+  /-- Field unary neg: `(p - a) mod p` via ADDMOD. -/
+  | fieldNeg (operand : Expr)
+  /-- Full 32-byte storage load for Field (no UInt64 range gate). -/
+  | fieldStorageLoad (slot : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -182,13 +194,14 @@ inductive Mutability where
   | view
   deriving BEq, Inhabited, Repr
 
-/-- Declared ABI result kind for an entry/view. Results stay UInt64/Bool/Int64
-(result multi-width is out of scope); state/params admit UInt{8,16,32,64} or
-Int64. -/
+/-- Declared ABI result kind for an entry/view. Results admit UInt64/Bool/Int64/
+Field; state/params admit UInt{8,16,32,64}/Int64/Field. -/
 inductive ResultKind where
   | uint64
   | bool
   | int64
+  /-- bn254 Fr Field (ABI `uint256` full word). -/
+  | field
   deriving BEq, Inhabited, Repr
 
 /-- Solidity ABI type string for a plan Param (selector + `.abi.json`). -/
@@ -198,6 +211,7 @@ def abiParamTypeString (p : Param) : String :=
   | 1 => "uint8"
   | 2 => "uint16"
   | 4 => "uint32"
+  | 32 => "uint256"
   | _ => "uint64"
 
 structure Entry where
@@ -266,22 +280,23 @@ def validSelector (selector : String) : Bool :=
     "0123456789abcdef".contains character)
 
 /-- EVM pilot type-closure carrier (shared `PilotTypeClosureV1`).
-    Bool + UInt8/16/32 optional; Int64 optional. Top-level scalar state/params
-    admit UInt{8,16,32,64} or Int64 (T8b ABI multi-width); named Struct/Enum
+    Bool + UInt8/16/32 optional; Int64 optional; Field optional. Top-level
+    scalar state/params admit UInt{8,16,32,64}/Int64/Field; named Struct/Enum
     state/params are flattened to UInt64/Int64 ABI/storage leaves (N3). -/
 private abbrev EvmTypeClosureV1 := PilotTypeClosureV1
 
 private def evmPlanErr (message : String) : CompileError :=
   .planInvariant .evm message
 
-/-- EVM pilot admits anonymous UInt{8,16,32,64} + Int64 + Unit + Bool under
-    `pilotUintWidthPolicyEvmBody` + default `pilotIntWidthPolicyI64`, plus
-    **named Struct/Enum** (`pilotNamedAggregateStatePolicyAdmit`, N3). Body
-    multi-width UInt values and Int64 values are allowed; **top-level scalar
-    state and ABI parameters admit UInt{8,16,32,64} or Int64** via
-    `requirePublicUintAbiOrInt64*` (T8b), and **named aggregates admit
-    UInt64/Int64 leaves only** via `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*`
-    with `allowNonPublic := true` (N3). UInt128/256 and non-64 Int fail closed.
+/-- EVM pilot admits anonymous UInt{8,16,32,64} + Int64 + Unit + Bool + Field
+    under `pilotUintWidthPolicyEvmBody` + `pilotIntWidthPolicyI64` +
+    `pilotFieldPolicyBn254`, plus **named Struct/Enum**
+    (`pilotNamedAggregateStatePolicyAdmit`, N3). Body multi-width UInt and
+    Int64 values are allowed; **top-level scalar state and ABI parameters admit
+    UInt{8,16,32,64}/Int64/Field** via `requirePublicUintAbiOrInt64OrField*`
+    (T8b + N2b-EVM), and **named aggregates admit UInt64/Int64 leaves only**
+    via `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*` with
+    `allowNonPublic := true` (N3). UInt128/256 and non-64 Int fail closed.
     N2c: Principal remains fail-closed (wire identity is variable-length
     u32-prefixed; not a 20-byte EVM address). -/
 private def validateEvmTypeClosureV1
@@ -289,7 +304,7 @@ private def validateEvmTypeClosureV1
   validatePilotTypeClosure evmPlanErr evmTypeClosureWording types
     pilotUintWidthPolicyEvmBody
     (intPolicy := pilotIntWidthPolicyI64)
-    (fieldPolicy := pilotFieldPolicyNone)
+    (fieldPolicy := pilotFieldPolicyBn254)
     (principalPolicy := pilotPrincipalPolicyNone)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (stringPolicy := pilotStringPolicyAdmit)
@@ -303,21 +318,24 @@ private structure EvmLowerLayoutV1 where
   typeDecls : Array TypeDeclV1
   deriving Inhabited
 
-/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8).
-    Named aggregates must NOT be passed here (their leaves are 64-bit words). -/
+/-- Resolve admitted scalar state/param TypeId to physical byte width
+    (1/2/4/8/32). Named aggregates must NOT be passed here. -/
 private def abiByteWidthOfTypeV1
     (types : EvmTypeClosureV1) (typeId : TypeIdV1) : CompileResult Nat := do
-  match types.uintWidthOf typeId with
-  | some w =>
-      unless isEvmAbiUintWidth w do
-        throw <| .planInvariant .evm
-          s!"unsupported EVM semantic shape: ABI UInt{w} is not admitted"
-      pure (byteWidthOfBitWidth w)
-  | none =>
-      unless types.int64TypeId == some typeId do
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: ABI type must be UInt{8,16,32,64} or Int64"
-      pure 8
+  if types.isField typeId then
+    pure 32
+  else
+    match types.uintWidthOf typeId with
+    | some w =>
+        unless isEvmAbiUintWidth w do
+          throw <| .planInvariant .evm
+            s!"unsupported EVM semantic shape: ABI UInt{w} is not admitted"
+        pure (byteWidthOfBitWidth w)
+    | none =>
+        unless types.int64TypeId == some typeId do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: ABI type must be UInt{8,16,32,64}, Int64, or Field"
+        pure 8
 
 private structure LoweredValueV1 where
   expr : Expr
@@ -327,9 +345,12 @@ private structure LoweredValueV1 where
   /-- Defensive kind bit: true for comparison/logical results and Bool
   literals only. State loads, params, UInt arithmetic/bitwise/shift are false. -/
   isBool : Bool
-  /-- True for Int64-typed values (mutually exclusive with isBool). -/
+  /-- True for Int64-typed values (mutually exclusive with isBool/isField). -/
   isInt : Bool := false
-  /-- Bit width of non-Bool values: 8/16/32/64. Bool uses 1. -/
+  /-- True for bn254 Field-typed values (mutually exclusive with isBool/isInt). -/
+  isField : Bool := false
+  /-- Bit width of non-Bool values: 8/16/32/64 for UInt/Int; 256 for Field.
+      Bool uses 1. -/
   bitWidth : Nat := 64
   /-- N3: named-aggregate leaf words (UInt64/Int64) in preorder flatten order.
       `none` = scalar. When `some`, `expr` mirrors `leaves[0]!` (or literal 0). -/
@@ -542,8 +563,10 @@ private def makeStorageLayoutV1
         leaves := leaves.push slot
       stateLeaves := stateLeaves.push leaves
     else
-      -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
-      requirePublicUintAbiOrInt64State evmPlanErr types state (allowNonPublic := true)
+      -- T8b + N2b-EVM: scalar state admits UInt{8,16,32,64}/Int64/Field
+      -- (byteWidth 1/2/4/8/32).
+      requirePublicUintAbiOrInt64OrFieldState evmPlanErr types state
+        (allowNonPublic := true)
       let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
       let slot := bindings.size
       bindings := bindings.push {
@@ -606,11 +629,12 @@ private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
         nextWord := nextWord + 1
       values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
     else
-      requirePublicUintAbiOrInt64Param
+      requirePublicUintAbiOrInt64OrFieldParam
         evmPlanErr types owner param (allowNonPublic := true)
       let isInt := types.int64TypeId == some param.typeId
+      let isField := types.isField param.typeId
       let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
-      let bitWidth := bitWidthOfByteWidth byteWidth
+      let bitWidth := if isField then 256 else bitWidthOfByteWidth byteWidth
       let binding : Param := {
         sourceId := nextWord
         name := param.name
@@ -620,12 +644,16 @@ private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
       }
       planned := planned.push binding
       values := values.push {
-        expr := mkParamExpr bitWidth binding.wordIndex
+        -- Field and UInt64/Int64 share `.param` (full ABI word); narrow UInt
+        -- uses `narrowParam`. Field load range is full 256-bit (no UInt64 gate).
+        expr := if isField then .param binding.wordIndex
+          else mkParamExpr bitWidth binding.wordIndex
         depth := 1
         expandedNodes := 1
         dependencies := #[]
         isBool := false
         isInt
+        isField
         bitWidth
       }
       nextWord := nextWord + 1
@@ -852,11 +880,63 @@ private def mkShl (w : Nat) (l r : Expr) : Expr :=
 private def mkShr (w : Nat) (l r : Expr) : Expr :=
   if w == 64 then .shr l r else .narrowShr w l r
 
+/-- Field binary tree cost (bn254 Fr). Operands must both be Field. -/
+private def makeFieldBinaryTreeValueV1
+    (mk : Expr → Expr → Expr)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.isField && rhs.isField && !lhs.isBool && !rhs.isBool do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Field arithmetic operands must be Field"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mk lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+    isBool := false
+    isInt := false
+    isField := true
+    bitWidth := 256
+  }
+
+private def makeFieldUnaryTreeValueV1
+    (mk : Expr → Expr)
+    (operandId : ValueIdV1)
+    (operand : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless operand.isField && !operand.isBool do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Field unary operand must be Field"
+  let depth := 1 + operand.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds depth {maxExprDepth}"
+  if operand.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mk operand.expr
+    depth
+    expandedNodes := 1 + operand.expandedNodes
+    dependencies := #[operandId]
+    isBool := false
+    isInt := false
+    isField := true
+    bitWidth := 256
+  }
+
 private def makeCheckedAddValueV1
     (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  if lhs.isInt || rhs.isInt then
+  if lhs.isField || rhs.isField then
+    makeFieldBinaryTreeValueV1 .fieldAdd lhsId rhsId lhs rhs
+  else if lhs.isInt || rhs.isInt then
     makeBinaryTreeValueV1 .signedCheckedAdd lhsId rhsId lhs rhs false 64
       (resultIsInt := true)
   else
@@ -866,15 +946,17 @@ private def makeCheckedSubValueV1
     (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  if lhs.isInt || rhs.isInt then
+  if lhs.isField || rhs.isField then
+    makeFieldBinaryTreeValueV1 .fieldSub lhsId rhsId lhs rhs
+  else if lhs.isInt || rhs.isInt then
     makeBinaryTreeValueV1 .signedCheckedSub lhsId rhsId lhs rhs false 64
       (resultIsInt := true)
   else
     makeBinaryTreeValueV1 (mkCheckedSub bitWidth) lhsId rhsId lhs rhs false bitWidth
 
-/-- Comparison: same-width UInt or Int64 operands → Bool.
-    N4: aggregate (String / named) operands only support `eq`/`ne` via
-    leaf-wise unsigned equality AND/OR chain. -/
+/-- Comparison: same-width UInt or Int64 operands → Bool; Field admits only
+    `eq`/`ne`. N4: aggregate (String / named) operands only support `eq`/`ne`
+    via leaf-wise unsigned equality AND/OR chain. -/
 private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
@@ -903,6 +985,32 @@ private def makeCompareValueV1
       dependencies := (lhs.dependencies ++ rhs.dependencies).push lhsId |>.push rhsId
       isBool := true
       isInt := false
+      isField := false
+      bitWidth := 1
+    }
+  else if lhs.isField || rhs.isField then
+    unless lhs.isField && rhs.isField do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: Field comparison requires both operands Field"
+    unless op == .eq || op == .ne do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: Field admits only == / != (ordering fail closed)"
+    let depth := 1 + max lhs.depth rhs.depth
+    if depth > maxExprDepth then
+      throw <| .planInvariant .evm s!"EVM plan expression exceeds depth {maxExprDepth}"
+    if lhs.expandedNodes > maxPlanNodes - 1 then
+      throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+    let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+    if rhs.expandedNodes > remaining then
+      throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+    pure {
+      expr := .compare op lhs.expr rhs.expr
+      depth
+      expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+      dependencies := #[lhsId, rhsId]
+      isBool := true
+      isInt := false
+      isField := false
       bitWidth := 1
     }
   else do
@@ -927,7 +1035,9 @@ private def makeCheckedMulValueV1
     (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  if lhs.isInt || rhs.isInt then
+  if lhs.isField || rhs.isField then
+    makeFieldBinaryTreeValueV1 .fieldMul lhsId rhsId lhs rhs
+  else if lhs.isInt || rhs.isInt then
     makeBinaryTreeValueV1 .signedCheckedMul lhsId rhsId lhs rhs false 64
       (resultIsInt := true)
   else
@@ -937,7 +1047,9 @@ private def makeCheckedDivValueV1
     (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  if lhs.isInt || rhs.isInt then
+  if lhs.isField || rhs.isField then
+    makeFieldBinaryTreeValueV1 .fieldDiv lhsId rhsId lhs rhs
+  else if lhs.isInt || rhs.isInt then
     makeBinaryTreeValueV1 .signedCheckedDiv lhsId rhsId lhs rhs false 64
       (resultIsInt := true)
   else
@@ -946,8 +1058,11 @@ private def makeCheckedDivValueV1
 private def makeCheckedModValueV1
     (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
-    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  if lhs.isInt || rhs.isInt then
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  if lhs.isField || rhs.isField then
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Field does not support mod (remainder)"
+  else if lhs.isInt || rhs.isInt then
     makeBinaryTreeValueV1 .signedCheckedMod lhsId rhsId lhs rhs false 64
       (resultIsInt := true)
   else
@@ -1082,10 +1197,13 @@ private def makeBitNotValueV1
 private def makeCheckedNegValueV1
     (operandId : ValueIdV1)
     (operand : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  unless operand.isInt && !operand.isBool && operand.bitWidth == 64 do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: checkedNeg requires Int64 operand"
-  makeUnaryTreeValueV1 .checkedNeg operandId operand false false 64
+  if operand.isField then
+    makeFieldUnaryTreeValueV1 .fieldNeg operandId operand
+  else do
+    unless operand.isInt && !operand.isBool && operand.bitWidth == 64 do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: checkedNeg requires Int64 or Field operand"
+    makeUnaryTreeValueV1 .checkedNeg operandId operand false false 64
 
 private def makeBoolNotValueV1
     (operandId : ValueIdV1)
@@ -1419,7 +1537,22 @@ private def lowerBlockInstructionsV1
           let binding ← findStorageV1 layout stateId
           let expectedBitWidth := bitWidthOfByteWidth binding.byteWidth
           let isInt := types.int64TypeId == some result.typeId
-          if isInt then
+          let isField := types.isField result.typeId
+          if isField then
+            unless binding.byteWidth == 32 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: Field state load requires 32-byte slot"
+            values := ← appendResultValueV1 result.typeId values result {
+              expr := .fieldStorageLoad binding.slot
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+              isBool := false
+              isInt := false
+              isField := true
+              bitWidth := 256
+            }
+          else if isInt then
             unless binding.byteWidth == 8 do
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: Int64 state load requires 8-byte slot"
@@ -1452,12 +1585,15 @@ private def lowerBlockInstructionsV1
                 }
             | none =>
                 throw <| .planInvariant .evm
-                  "unsupported EVM semantic shape: state load result must be UInt{8,16,32,64} or Int64"
+                  "unsupported EVM semantic shape: state load result must be UInt{8,16,32,64}, Int64, or Field"
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables lhsId
         let rhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables rhsId
         if op == .add then
-          if types.intWidthOf result.typeId == some 64 then
+          if types.isField result.typeId then
+            let value ← makeCheckedAddValueV1 256 lhsId rhsId lhs rhs
+            values := ← appendResultValueV1 result.typeId values result value
+          else if types.intWidthOf result.typeId == some 64 then
             let tid ← admitInt64ResultTypeV1 types result.typeId
             let value ← makeCheckedAddValueV1 64 lhsId rhsId lhs rhs
             values := ← appendResultValueV1 tid values result value
@@ -1466,7 +1602,10 @@ private def lowerBlockInstructionsV1
             let value ← makeCheckedAddValueV1 bitWidth lhsId rhsId lhs rhs
             values := ← appendResultValueV1 widthTid values result value
         else if op == .sub then
-          if types.intWidthOf result.typeId == some 64 then
+          if types.isField result.typeId then
+            let value ← makeCheckedSubValueV1 256 lhsId rhsId lhs rhs
+            values := ← appendResultValueV1 result.typeId values result value
+          else if types.intWidthOf result.typeId == some 64 then
             let tid ← admitInt64ResultTypeV1 types result.typeId
             let value ← makeCheckedSubValueV1 64 lhsId rhsId lhs rhs
             values := ← appendResultValueV1 tid values result value
@@ -1475,7 +1614,10 @@ private def lowerBlockInstructionsV1
             let value ← makeCheckedSubValueV1 bitWidth lhsId rhsId lhs rhs
             values := ← appendResultValueV1 widthTid values result value
         else if op == .mul then
-          if types.intWidthOf result.typeId == some 64 then
+          if types.isField result.typeId then
+            let value ← makeCheckedMulValueV1 256 lhsId rhsId lhs rhs
+            values := ← appendResultValueV1 result.typeId values result value
+          else if types.intWidthOf result.typeId == some 64 then
             let tid ← admitInt64ResultTypeV1 types result.typeId
             let value ← makeCheckedMulValueV1 64 lhsId rhsId lhs rhs
             values := ← appendResultValueV1 tid values result value
@@ -1484,7 +1626,10 @@ private def lowerBlockInstructionsV1
             let value ← makeCheckedMulValueV1 bitWidth lhsId rhsId lhs rhs
             values := ← appendResultValueV1 widthTid values result value
         else if op == .div then
-          if types.intWidthOf result.typeId == some 64 then
+          if types.isField result.typeId then
+            let value ← makeCheckedDivValueV1 256 lhsId rhsId lhs rhs
+            values := ← appendResultValueV1 result.typeId values result value
+          else if types.intWidthOf result.typeId == some 64 then
             let tid ← admitInt64ResultTypeV1 types result.typeId
             let value ← makeCheckedDivValueV1 64 lhsId rhsId lhs rhs
             values := ← appendResultValueV1 tid values result value
@@ -1493,7 +1638,10 @@ private def lowerBlockInstructionsV1
             let value ← makeCheckedDivValueV1 bitWidth lhsId rhsId lhs rhs
             values := ← appendResultValueV1 widthTid values result value
         else if op == .mod then
-          if types.intWidthOf result.typeId == some 64 then
+          if types.isField result.typeId || lhs.isField || rhs.isField then
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: Field does not support mod (remainder)"
+          else if types.intWidthOf result.typeId == some 64 then
             let tid ← admitInt64ResultTypeV1 types result.typeId
             let value ← makeCheckedModValueV1 64 lhsId rhsId lhs rhs
             values := ← appendResultValueV1 tid values result value
@@ -1600,10 +1748,18 @@ private def lowerBlockInstructionsV1
             let value ← makeBoolNotValueV1 operandId operand
             values := ← appendResultValueV1 boolTid values result value
         | .neg =>
-            -- Int64: Op.Unary.neg (intMin reverts). UInt still arrives as 0-x.
-            let tid ← admitInt64ResultTypeV1 types result.typeId
-            let value ← makeCheckedNegValueV1 operandId operand
-            values := ← appendResultValueV1 tid values result value
+            -- Int64: Op.Unary.neg (intMin reverts). Field: fieldNeg (p - a).
+            -- UInt still arrives as 0-x.
+            if types.isField result.typeId then
+              unless types.fieldTypeId == some result.typeId do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: fieldNeg result must be Field"
+              let value ← makeCheckedNegValueV1 operandId operand
+              values := ← appendResultValueV1 result.typeId values result value
+            else
+              let tid ← admitInt64ResultTypeV1 types result.typeId
+              let value ← makeCheckedNegValueV1 operandId operand
+              values := ← appendResultValueV1 tid values result value
     | .pureCall callableId argIds, some result =>
         -- Not an effect boundary: callFn is a value expression inside the segment.
         let fnIndex ← resolveFnIndexV1 fnIndexByCallableId callableId
@@ -1667,16 +1823,24 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: scalar store targets multi-leaf state"
           let binding ← findStorageV1 layout stateId
-          let expectedBitWidth := bitWidthOfByteWidth binding.byteWidth
-          unless !stored.isBool && stored.bitWidth == expectedBitWidth do
-            throw <| .planInvariant .evm
-              s!"unsupported EVM semantic shape: state store value width {stored.bitWidth} must match storage bitWidth {expectedBitWidth}"
-          unless !stored.isInt || expectedBitWidth == 64 do
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: Int state store requires 8-byte slot"
-          unless stored.isInt || isEvmAbiUintWidth stored.bitWidth do
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: state store value must be admitted UInt width or Int64"
+          if stored.isField then
+            unless binding.byteWidth == 32 && stored.bitWidth == 256 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: Field state store requires 32-byte slot"
+            unless !stored.isBool && !stored.isInt do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: Field state store kind conflict"
+          else
+            let expectedBitWidth := bitWidthOfByteWidth binding.byteWidth
+            unless !stored.isBool && stored.bitWidth == expectedBitWidth do
+              throw <| .planInvariant .evm
+                s!"unsupported EVM semantic shape: state store value width {stored.bitWidth} must match storage bitWidth {expectedBitWidth}"
+            unless !stored.isInt || expectedBitWidth == 64 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: Int state store requires 8-byte slot"
+            unless stored.isInt || isEvmAbiUintWidth stored.bitWidth do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: state store value must be admitted UInt width, Int64, or Field"
           body := body.push (.store {
             slot := binding.slot
             value := stored.expr
@@ -2266,17 +2430,24 @@ private partial def emitJobV1
               let returned ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
               match expected with
               | .uint64 =>
-                  unless !returned.isBool && !returned.isInt && returned.bitWidth == 64 do
+                  unless !returned.isBool && !returned.isInt && !returned.isField &&
+                      returned.bitWidth == 64 do
                     throw <| .planInvariant .evm
                       "unsupported EVM semantic shape: return value must be UInt64"
               | .int64 =>
-                  unless !returned.isBool && returned.isInt && returned.bitWidth == 64 do
+                  unless !returned.isBool && returned.isInt && !returned.isField &&
+                      returned.bitWidth == 64 do
                     throw <| .planInvariant .evm
                       "unsupported EVM semantic shape: return value must be Int64"
               | .bool =>
                   unless returned.isBool do
                     throw <| .planInvariant .evm
                       "unsupported EVM semantic shape: return value must be Bool"
+              | .field =>
+                  unless !returned.isBool && !returned.isInt && returned.isField &&
+                      returned.bitWidth == 256 do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: return value must be Field"
               let value ← consumeCurrentSegmentWithArmsV1
                 values paramCount segmentStart armReadables valueId
               pure (instrs.push (.returnValue value), values, .done, hA, false)
@@ -2626,7 +2797,7 @@ private def makeEntryV1
     throw <| .planInvariant .evm s!"entry name '{name}' is not an EVM ABI identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .evm
-      s!"entry '{name}' does not return public UInt64, Int64, or Bool"
+      s!"entry '{name}' does not return public UInt64, Int64, Bool, or Field"
   let resultKind : ResultKind ←
     if callable.result.typeId == types.uint64TypeId then
       pure .uint64
@@ -2634,9 +2805,11 @@ private def makeEntryV1
       pure .int64
     else if types.boolTypeId == some callable.result.typeId then
       pure .bool
+    else if types.isField callable.result.typeId then
+      pure .field
     else
       throw <| .planInvariant .evm
-        s!"entry '{name}' does not return public UInt64, Int64, or Bool"
+        s!"entry '{name}' does not return public UInt64, Int64, Bool, or Field"
   let mode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .entry
     | .view => pure .view

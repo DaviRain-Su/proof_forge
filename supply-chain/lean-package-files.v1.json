@@ -521,9 +521,9 @@
       "sha256": "8a498cb5e1e6a391fc015e967a45149b305ce22a30ddc1c6926c901358ebc623"
     },
     {
-      "bytes": 45775,
+      "bytes": 45890,
       "path": "ProofForgeV2/Targets/EnvelopeV1.lean",
-      "sha256": "813cdbdbfba2e1efe98ea7f6e5eca919c0bce8706ef916338e3dbb1bb42262cb"
+      "sha256": "1f9c455a0096fe392581888ce1c313f92073e1e1e623f81717bfc7ae8d1ab27f"
     },
     {
       "bytes": 1919,
@@ -531,9 +531,9 @@
       "sha256": "2074b12033df812f677404b96c9e5e8a90c04ccb7c62ca28d7b3091d7bcbabf6"
     },
     {
-      "bytes": 40063,
+      "bytes": 46074,
       "path": "ProofForgeV2/Targets/Evm/EmitIRV1.lean",
-      "sha256": "295f7fa71a06a4ffcc09f2a596b5bf84f53eb0a61d5468a71fd95468483a0293"
+      "sha256": "53de2aa41855230388751729b606af73910ca1176242c1b4145ea44aa56f32c0"
     },
     {
       "bytes": 2267,
@@ -546,24 +546,24 @@
       "sha256": "72becf95b688496c97263ab7d1ce49dabd725256471e75fb268d0f0c5f4ac371"
     },
     {
-      "bytes": 135713,
+      "bytes": 143819,
       "path": "ProofForgeV2/Targets/Evm/LowerSemanticV1.lean",
-      "sha256": "d41f5f329f3f44d730aeb6105f43c46718836af7edc5039cdff9d7426a8937ee"
+      "sha256": "48891c535044ca73739b3204ebcc666ca7208d19e4981e59ae0fb5017cb93dd4"
     },
     {
-      "bytes": 14191,
+      "bytes": 14868,
       "path": "ProofForgeV2/Targets/Evm/PlanSchemaV1.lean",
-      "sha256": "a0d07b622010355088387e31740a8506bf383ec9cc70f36ae2d426991d51066f"
+      "sha256": "ab45e8d6c9210c3a264e38dc352fd55915989905828a5b3cdae5dfd626399191"
     },
     {
-      "bytes": 4428,
+      "bytes": 4895,
       "path": "ProofForgeV2/Targets/Evm/ValidateIRV1.lean",
-      "sha256": "a23cbed79288cba23d81f6ef4861a82063dadcfba896e16bfd90fb409822feb5"
+      "sha256": "417fe5ccb289eff1facca850af4e4d98e05a34286f6ba489f0412cde6f7c81a8"
     },
     {
-      "bytes": 24279,
+      "bytes": 25100,
       "path": "ProofForgeV2/Targets/Evm/ValidatePlanV1.lean",
-      "sha256": "22aa5197190d466c7face7c7b029a4a735fca203f78a0c52b92d350afaaf8e8e"
+      "sha256": "cdc12b05fc5a1babfb49995de96fe1670c765a30fe103a5346c5371e76535575"
     },
     {
       "bytes": 1337,

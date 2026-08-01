@@ -2464,8 +2464,8 @@ unsafe def run : IO Unit := do
           (e.render).contains "not representable")
         s!"N1 priv-param Noir message must cite parameter boundary, got {e.render}"
 
-  -- N2b: Field bn254_fr product pin — Noir admits (native Field = bn254 Fr);
-  -- EVM/Solana/NEAR/Psy fail closed at Plan type-closure.
+  -- N2b: Field bn254_fr product pin — Noir (native Field) + EVM (ADDMOD/MULMOD
+  -- + Fermat inv) admit; Solana/NEAR/Psy fail closed at Plan type-closure.
   let fieldSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2499,7 +2499,25 @@ unsafe def run : IO Unit := do
     throw <| IO.userError "N2b field: missing bump relation"
   expect (bumpRel.inputs.any fun i => i.type == Targets.Noir.InputType.field)
     "N2b field: Noir bump relation must carry Field-typed inputs"
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.psy] do
+  -- EVM is the second Field lane (N2b-EVM): Plan admits Field state/params.
+  let evmField ← liftResult <| planEvm fieldCompiled
+  expect (evmField.storageLayout.size == 1 &&
+      evmField.storageLayout[0]!.byteWidth == 32 &&
+      evmField.storageLayout[0]!.name == "acc")
+    "N2b field: EVM Field state must be a single 32-byte storage slot"
+  expect (evmField.entries.any fun e => e.name == "bump" && e.resultKind == .field)
+    "N2b field: EVM bump must return Field"
+  expect (evmField.entries.any fun e => e.name == "neg" && e.resultKind == .field)
+    "N2b field: EVM neg must return Field"
+  let evmFieldFiles ← liftResult <| materializeSelected TargetId.evm fieldCompiled
+  let some evmFieldYul :=
+      (MaterializedArtifactsV1.filesOf evmFieldFiles).find? (·.path == "FieldMix.yul") |
+    throw <| IO.userError "N2b field: missing FieldMix.yul"
+  expect (evmFieldYul.contents.contains "addmod(" &&
+      evmFieldYul.contents.contains
+        "0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001")
+    "N2b field: EVM Yul must emit addmod with bn254 Fr modulus"
+  for target in [TargetId.solana, TargetId.near, TargetId.psy] do
     match materializeSelected target fieldCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N2b field: {target} must fail closed on Field"

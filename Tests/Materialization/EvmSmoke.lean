@@ -2153,6 +2153,156 @@ private unsafe def testAssertElseRejected : IO Unit := do
       | .ok _ =>
           throw <| IO.userError "assert-else must not produce an EVM plan"
 
+/-- N2b-EVM: Field (bn254 Fr) state/params/results + Yul addmod/mulmod pins.
+    Exact sequences: add = addmod(a,b,p); sub = addmod(a, sub(p, addmod(b,0,p)), p)
+    (EVM SUB is mod 2^256 and 2^256 mod bn254-p != 0, so sub(0,b) would be wrong);
+    mul = mulmod(a,b,p); div = zero-check + Fermat inv (mulmod chain) + mulmod;
+    neg = addmod(0, sub(p, addmod(a,0,p)), p). Ordering / % fail closed.
+    Nested-slot .fieldDiv is rejected by validateIR (marker), never a multiply.
+    solc acceptance out of scope. -/
+private unsafe def testFieldBn254Lane : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let p := "0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"
+  let exp := "0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffffff"
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program FieldLane where\n" ++
+    "  state acc : Field bn254_fr\n" ++
+    "  init(initial : Field bn254_fr) do\n" ++
+    "    acc := initial\n" ++
+    "  entry add(delta : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n" ++
+    "  entry sub(delta : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    acc := acc - delta\n" ++
+    "    return acc\n" ++
+    "  entry mul(factor : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    acc := acc * factor\n" ++
+    "    return acc\n" ++
+    "  entry div(den : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    return acc / den\n" ++
+    "  entry neg(x : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    return -x\n" ++
+    "  entry eq(a : Field bn254_fr, b : Field bn254_fr) : Bool do\n" ++
+    "    return a == b\n" ++
+    "  entry ne(a : Field bn254_fr, b : Field bn254_fr) : Bool do\n" ++
+    "    return a != b\n" ++
+    "  view get() : Field bn254_fr do\n" ++
+    "    return acc\n"
+  let source ← liftResult "load FieldLane" (← session.selectProgramV1
+    sourceText "<evm-field-lane>" "Tests.EvmFieldLane" none)
+  let compiled ← liftResult "compile FieldLane" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan FieldLane" <| planEvm compiled
+  expect (plan.objectName == "FieldLane")
+    "FieldLane object name"
+  expect (plan.storageLayout.size == 1 &&
+      plan.storageLayout[0]!.byteWidth == 32 &&
+      plan.storageLayout[0]!.name == "acc")
+    "Field state is one 32-byte slot named acc"
+  expect (plan.entries.any fun e => e.name == "add" && e.resultKind == .field)
+    "add returns Field"
+  expect (plan.entries.any fun e => e.name == "eq" && e.resultKind == .bool)
+    "eq returns Bool"
+  -- Constructor takes one Field ABI word.
+  match plan.constructor with
+  | none => throw <| IO.userError "FieldLane requires constructor"
+  | some ctor =>
+      expect (ctor.params.size == 1 && ctor.params[0]!.byteWidth == 32)
+        "Field init param is 32-byte ABI word"
+  let output ← liftResult "materialize FieldLane" <|
+    materializeSelected TargetId.evm compiled
+  let files := MaterializedArtifactsV1.filesOf output
+  let some yulFile := files.find? (·.path == "FieldLane.yul") |
+    throw <| IO.userError "missing FieldLane.yul"
+  let yul := yulFile.contents
+  let some abiFile := files.find? (·.path == "FieldLane.abi.json") |
+    throw <| IO.userError "missing FieldLane.abi.json"
+  let abi := abiFile.contents
+  -- Exact modulus pin + op families.
+  expect (yul.contains p) "Yul must embed bn254 Fr modulus"
+  expect (yul.contains "addmod(") "Yul must emit addmod for Field add"
+  expect (yul.contains "mulmod(") "Yul must emit mulmod for Field mul/div"
+  expect (yul.contains exp) "Yul must embed Fermat p-2 exponent for fieldDiv"
+  expect (yul.contains "if iszero(") "fieldDiv zero-divisor guard"
+  expect (yul.contains "shr(1,") "Fermat inv square-and-multiply shift"
+  -- Exact mod-p sub/neg shapes: (a + (p - (b mod p))) mod p and
+  -- (0 + (p - (a mod p))) mod p. EVM SUB is mod 2^256, so the old
+  -- sub(0, ...) form was NOT mod-p subtraction — pin the corrected shape
+  -- (p is the embedded hex modulus literal).
+  expect (yul.contains ("sub(" ++ p ++ ", addmod("))
+    "Field sub/neg must use sub(p, addmod(..., 0, p)) (mod-p subtraction)"
+  expect (yul.contains ("addmod(0, sub(" ++ p ++ ", addmod("))
+    "Field neg must use addmod(0, sub(p, addmod(..., 0, p)), p)"
+  expect (!yul.contains "sub(0, expr" && !yul.contains "addmod(0, sub(0,")
+    "no mod-2^256 sub(0, ...) shape may appear for Field ops"
+  -- Nested-slot fieldDiv marker must never appear in shipped Yul.
+  expect (!yul.contains "pf_unsupported_nested_field_div")
+    "valid EVM Yul must not contain the nested fieldDiv marker"
+  -- fieldStorageLoad: bare sload (no UInt64 range gate on Field loads).
+  expect (yul.contains "sload(0)") "Field state load via sload(0)"
+  -- ABI: Field params/results as uint256.
+  expect (abi.contains "\"type\":\"uint256\"") "Field ABI uses uint256"
+  expect (abi.contains "\"name\":\"add\"" && abi.contains "\"name\":\"div\"")
+    "FieldLane ABI lists add/div"
+  -- Ordering fail closed.
+  let ordSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program FieldOrd where\n" ++
+    "  state a : Field bn254_fr\n" ++
+    "  init(x : Field bn254_fr) do\n" ++
+    "    a := x\n" ++
+    "  entry lt(x : Field bn254_fr, y : Field bn254_fr) : Bool do\n" ++
+    "    return x < y\n" ++
+    "  view get() : Field bn254_fr do\n" ++
+    "    return a\n"
+  let ordSrc ← liftResult "load FieldOrd" (← session.selectProgramV1
+    ordSource "<evm-field-ord>" "Tests.EvmFieldOrd" none)
+  match Compiler.compileValidatedSourceV1 ordSrc with
+  | .error e =>
+      -- Normalize/typed may reject Field ordering before Plan.
+      expect (e.render.contains "Field" || e.render.contains "unsupported" ||
+          e.render.contains "order" || e.render.contains "comparison" ||
+          e.render.contains "PF-")
+        s!"Field ordering compile must fail closed, got {e.render}"
+  | .ok ordCompiled =>
+      match planEvm ordCompiled with
+      | .error e =>
+          expect (e.render.contains "Field" || e.render.contains "ordering" ||
+              e.render.contains "unsupported" || e.render.contains "==")
+            s!"Field ordering plan must fail closed, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "Field ordering must not produce an EVM plan"
+  -- Mod (%) fail closed.
+  let modSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program FieldMod where\n" ++
+    "  state a : Field bn254_fr\n" ++
+    "  init(x : Field bn254_fr) do\n" ++
+    "    a := x\n" ++
+    "  entry rem(x : Field bn254_fr, y : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    return x % y\n" ++
+    "  view get() : Field bn254_fr do\n" ++
+    "    return a\n"
+  let modSrc ← liftResult "load FieldMod" (← session.selectProgramV1
+    modSource "<evm-field-mod>" "Tests.EvmFieldMod" none)
+  match Compiler.compileValidatedSourceV1 modSrc with
+  | .error e =>
+      expect (e.render.contains "Field" || e.render.contains "mod" ||
+          e.render.contains "unsupported" || e.render.contains "PF-")
+        s!"Field mod compile must fail closed, got {e.render}"
+  | .ok modCompiled =>
+      match planEvm modCompiled with
+      | .error e =>
+          expect (e.render.contains "Field" || e.render.contains "mod" ||
+              e.render.contains "remainder" || e.render.contains "unsupported")
+            s!"Field mod plan must fail closed, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "Field mod must not produce an EVM plan"
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -2191,6 +2341,7 @@ unsafe def run : IO Unit := do
   testBoolResultPureFn
   testOmittedTypeLet
   testAssertElseRejected
+  testFieldBn254Lane
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)

@@ -12247,3 +12247,33 @@ normative: false
   OutputEnvelope mint 负向路径带 dummy plan digest。
 - Boundary：非 formal Plan identity；非其他 target Plan schema。
 
+
+## 2026-08-01 — N2b-EVM: EVM second Field lane (bn254 Fr)
+
+- EnvelopeV1: EVM admits sole catalog Field via `pilotFieldPolicyBn254`; type-closure
+  wording lists Field(bn254-fr); Solana/NEAR/Psy stay fail-closed.
+- EVM Plan (`LowerSemanticV1`): additive Expr tags 42–47 (`fieldAdd`/`fieldSub`/
+  `fieldMul`/`fieldDiv`/`fieldNeg`/`fieldStorageLoad`); Field state/params =
+  32-byte storage/ABI word (`byteWidth=32`, ABI `uint256`, one slot per Field);
+  ordering and `%` fail closed; no Field source literals; `ResultKind.field` for
+  entry/view returns; pureFn Field results stay closed.
+- EmitIRV1 Yul (existing op emission preserved; **mod-p correctness audit by
+  adversarial verifier caught and fixed three shapes**):
+  * add = `addmod(a,b,p)`; **sub = `addmod(a, sub(p, addmod(b,0,p)), p)`** —
+    EVM SUB is mod 2^256 and 2^256 mod bn254-p ≠ 0, so `sub(0,b)` is NOT p-b
+    (both statement and nested forms fixed);
+  * **neg = `addmod(0, sub(p, addmod(a,0,p)), p)`** — same sub-wrapping fix;
+  * div = zero-check + Fermat inv `b^(p-2) mod p` (square-and-multiply mulmod
+    loop, ~254 sq + ~128 mul) + `mulmod(a,inv,p)`; nested-slot `.fieldDiv`
+    emits `pf_unsupported_nested_field_div()` and `ValidateIRV1` rejects any
+    occurrence (compile-time fail closed — never a silent multiply);
+  * modulus pin `0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001`.
+- PlanSchemaV1: tags 42–47 appended (prior encodings byte-identical);
+  `ResultKind.field` = tag 3. ValidatePlanV1: Field exprs + `byteWidth==32`
+  admitted additively.
+- Tests: Targets N2b EVM positive + Solana/NEAR/Psy decline; EvmSmoke FieldLane
+  pins exact mod-p sub/neg shapes (`sub(p, addmod(` with the modulus literal,
+  no `sub(0,` for Field), Fermat/zero-guard, ordering/% negatives; EvmPlanSchema
+  Field digest determinism + marker-rejection IR negative.
+- Boundary: engineering only (not formal D4); solc/Anvil acceptance out of scope;
+  pureFn Field / Field event-error fields closed; Fermat cost documented.

@@ -27,7 +27,8 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
           some 1
         else none
     | .temp _ => some 1
-    | .storageLoad slot => if slots.contains slot then some 1 else none
+    | .storageLoad slot | .fieldStorageLoad slot =>
+        if slots.contains slot then some 1 else none
     | .narrowStorageLoad bitWidth slot =>
         if (bitWidth == 8 || bitWidth == 16 || bitWidth == 32) && slots.contains slot then
           some 1
@@ -49,7 +50,9 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
     | .shl lhs rhs | .narrowShl _ lhs rhs
     | .shr lhs rhs | .narrowShr _ lhs rhs
     | .sar lhs rhs
-    | .logicalAnd lhs rhs | .logicalOr lhs rhs =>
+    | .logicalAnd lhs rhs | .logicalOr lhs rhs
+    | .fieldAdd lhs rhs | .fieldSub lhs rhs
+    | .fieldMul lhs rhs | .fieldDiv lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? slots paramCount childDepth available fns lhs with
@@ -59,7 +62,7 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .bitNot operand | .narrowBitNot _ operand | .boolNot operand
-    | .checkedNeg operand =>
+    | .checkedNeg operand | .fieldNeg operand =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? slots paramCount childDepth available fns operand with
@@ -112,7 +115,8 @@ private def addPlanExprNodes (slots : Array Nat) (paramCount total : Nat)
         s!"plan expression has a dangling reference or exceeds depth {maxExprDepth}/node limit {maxPlanNodes}"
 
 private def validAbiByteWidth (byteWidth : Nat) : Bool :=
-  byteWidth == 1 || byteWidth == 2 || byteWidth == 4 || byteWidth == 8
+  byteWidth == 1 || byteWidth == 2 || byteWidth == 4 || byteWidth == 8 ||
+    byteWidth == 32
 
 private def addPlanStoreNodes (slots : Array Nat) (paramCount total : Nat)
     (fns : Array FnBinding) (store : Store) : CompileResult Nat := do
@@ -150,9 +154,9 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool 
       | none => false
   | _ => false
 
-/-- Word-compatible (UInt64 or Int64): everything except comparison, boolNot,
-    logical binaries, and Bool-returning callFn. Signed arith/neg/sar count as
-    word-compatible for store/return/event args. -/
+/-- Word-compatible (UInt/Int/Field): everything except comparison, boolNot,
+    logical binaries, and Bool-returning callFn. Signed arith/neg/sar and Field
+    arith/neg count as word-compatible for store/return/event args. -/
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool :=
   match expr with
   | .compare .. => false
@@ -204,10 +208,10 @@ private partial def checkPlanStatementsV1
         if isConstructor then
           throw <| .planInvariant .evm "constructor cannot return a value"
         match resultKind with
-        | .uint64 | .int64 =>
+        | .uint64 | .int64 | .field =>
             unless exprIsUInt64CompatibleV1 fns value do
               throw <| .planInvariant .evm
-                s!"{owner} resultKind integer is inconsistent with Bool return expression"
+                s!"{owner} resultKind integer/Field is inconsistent with Bool return expression"
         | .bool =>
             unless exprIsBoolCompatibleV1 fns value do
               throw <| .planInvariant .evm
@@ -379,6 +383,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       unless !fn.params[index]!.isInt || fn.params[index]!.byteWidth == 8 do
         throw <| .planInvariant .evm
           s!"fn '{fn.name}' Int64 parameter must have byteWidth 8"
+      unless !(fn.params[index]!.byteWidth == 32) || !fn.params[index]!.isInt do
+        throw <| .planInvariant .evm
+          s!"fn '{fn.name}' Field (byteWidth 32) parameter must not be Int64"
     let sourceIds := fn.params.map (·.sourceId)
     let names := fn.params.map (·.name)
     let words := fn.params.map (·.wordIndex)
@@ -405,6 +412,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           constructor.params[index]!.byteWidth == 8 do
         throw <| .planInvariant .evm
           "constructor Int64 parameter must have byteWidth 8"
+      unless !(constructor.params[index]!.byteWidth == 32) ||
+          !constructor.params[index]!.isInt do
+        throw <| .planInvariant .evm
+          "constructor Field (byteWidth 32) parameter must not be Int64"
     let sourceIds := constructor.params.map (·.sourceId)
     let names := constructor.params.map (·.name)
     let words := constructor.params.map (·.wordIndex)
@@ -441,6 +452,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       unless !entry.params[index]!.isInt || entry.params[index]!.byteWidth == 8 do
         throw <| .planInvariant .evm
           s!"entry '{entry.name}' Int64 parameter must have byteWidth 8"
+      unless !(entry.params[index]!.byteWidth == 32) || !entry.params[index]!.isInt do
+        throw <| .planInvariant .evm
+          s!"entry '{entry.name}' Field (byteWidth 32) parameter must not be Int64"
   let entryNames := plan.entries.map (·.name)
   let selectors := plan.entries.map (·.selector)
   if hasDuplicates entryNames then

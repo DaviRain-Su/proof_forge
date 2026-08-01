@@ -64,7 +64,7 @@ private def encodeMutability : Mutability → UInt8
   | .nonpayable => 0 | .view => 1
 
 private def encodeResultKind : ResultKind → UInt8
-  | .uint64 => 0 | .bool => 1 | .int64 => 2
+  | .uint64 => 0 | .bool => 1 | .int64 => 2 | .field => 3
 
 private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   match expr with
@@ -143,6 +143,13 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .narrowParam bitWidth wordIndex =>
       pure (((encodeU8 41).append (← encodeNatAsU32le bitWidth)).append
         (← encodeNatAsU32le wordIndex))
+  -- N2b-EVM Field constructors (tags 42..47 appended; prior tags byte-identical).
+  | .fieldAdd lhs rhs => pure (((encodeU8 42).append (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .fieldSub lhs rhs => pure (((encodeU8 43).append (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .fieldMul lhs rhs => pure (((encodeU8 44).append (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .fieldDiv lhs rhs => pure (((encodeU8 45).append (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .fieldNeg operand => pure ((encodeU8 46).append (← encodeExpr operand))
+  | .fieldStorageLoad slot => pure ((encodeU8 47).append (← encodeNatAsU32le slot))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

@@ -32,6 +32,21 @@ private def yulUintMask (bitWidth : Nat) : String :=
   | 64 => "0xffffffffffffffff"
   | _ => "0xffffffffffffffff"
 
+/-- Exact bn254 Fr modulus as a Yul hex literal (SPEC `bn254FrModulusBEV1`). -/
+private def bn254FrModulusYulV1 : String :=
+  "0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"
+
+/-- Exact `p - 2` exponent for Fermat inverse `b^(p-2) ≡ b⁻¹ (mod p)`.
+
+    Cost profile (engineering note): each Field div expands to one zero-check
+    plus a square-and-multiply loop over this 254-bit exponent. Worst case
+    ≈ 254 `mulmod` squarings + ≈ 128 `mulmod` multiplies (plus one final
+    `mulmod` for `a * inv`), deterministic and independent of the dividend.
+    Prefer targets with native field ops (Noir) when circuit cost matters;
+    EVM uses ADDMOD/MULMOD only. -/
+private def bn254FrFermatExpYulV1 : String :=
+  "0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffffff"
+
 /-- Nested Yul expression form (no intermediate lets). Used for for-loop
     condition/update slots that require expression positions. Storage loads
     and checked overflow guards are not nested here — callers pre-render
@@ -110,6 +125,26 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       s!"sub(0, {renderExprNested paramPrefix operand})"
   | .sar lhs rhs =>
       s!"sar({renderExprNested paramPrefix rhs}, {renderExprNested paramPrefix lhs})"
+  | .fieldAdd lhs rhs =>
+      s!"addmod({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs}, {bn254FrModulusYulV1})"
+  | .fieldSub lhs rhs =>
+      -- (a + (p - (b mod p))) mod p = (a - b) mod p; the inner addmod(b,0,p)
+      -- reduces b so sub(p, _) cannot wrap (EVM SUB is mod 2^256, and
+      -- 2^256 mod bn254-p != 0, so sub(0, b) would be wrong).
+      s!"addmod({renderExprNested paramPrefix lhs}, sub({bn254FrModulusYulV1}, addmod({renderExprNested paramPrefix rhs}, 0, {bn254FrModulusYulV1})), {bn254FrModulusYulV1})"
+  | .fieldMul lhs rhs =>
+      s!"mulmod({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs}, {bn254FrModulusYulV1})"
+  | .fieldDiv lhs rhs =>
+      -- Unreachable for validated plans: nested slots (loop conds/updates,
+      -- Bool conditions) are UInt-typed, so a Field-typed .fieldDiv cannot
+      -- appear here; statement form emits the Fermat inverse. Emit a marker
+      -- that validateIR rejects, so this can never silently become a multiply.
+      s!"pf_unsupported_nested_field_div()"
+  | .fieldNeg operand =>
+      -- (0 + (p - (a mod p))) mod p = (-a) mod p; see fieldSub for the
+      -- sub-wrapping rationale.
+      s!"addmod(0, sub({bn254FrModulusYulV1}, addmod({renderExprNested paramPrefix operand}, 0, {bn254FrModulusYulV1})), {bn254FrModulusYulV1})"
+  | .fieldStorageLoad slot => s!"sload({slot})"
   | .callFn fnIndex args =>
       let argsJoined := String.intercalate ", "
         (args.toList.map (renderExprNested paramPrefix))
@@ -476,6 +511,70 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
           s!"{indent}let {r} := sar({rhs.value}, {a})\n" ++
           s!"{indent}let {name} := and({r}, 0xffffffffffffffff)\n",
         value := name, next := rhs.next + 1 }
+  | .fieldAdd lhs rhs =>
+      let p := bn254FrModulusYulV1
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := addmod({lhs.value}, {rhs.value}, {p})\n",
+        value := name, next := rhs.next + 1 }
+  | .fieldSub lhs rhs =>
+      -- (a + (p - (b mod p))) mod p = (a - b) mod p. The inner addmod(b,0,p)
+      -- reduces b so sub(p, _) cannot wrap: EVM SUB is mod 2^256 and
+      -- 2^256 mod bn254-p != 0, so sub(0, b) would NOT equal p - b.
+      let p := bn254FrModulusYulV1
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := addmod({lhs.value}, sub({p}, addmod({rhs.value}, 0, {p})), {p})\n",
+        value := name, next := rhs.next + 1 }
+  | .fieldMul lhs rhs =>
+      let p := bn254FrModulusYulV1
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := mulmod({lhs.value}, {rhs.value}, {p})\n",
+        value := name, next := rhs.next + 1 }
+  | .fieldDiv lhs rhs =>
+      -- mulmod(a, inv(b), p) with inv = b^(p-2) via square-and-multiply.
+      -- Zero divisor reverts (Reference divisionByZero). Cost: ~254 squarings
+      -- + ~128 multiplies of mulmod (see bn254FrFermatExpYulV1 note).
+      let p := bn254FrModulusYulV1
+      let expLit := bn254FrFermatExpYulV1
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let inv := s!"inv{rhs.next}"
+      let base := s!"base{rhs.next}"
+      let exp := s!"exp{rhs.next}"
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero({rhs.value}) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {inv} := 1\n" ++
+          s!"{indent}let {base} := {rhs.value}\n" ++
+          s!"{indent}for \{ let {exp} := {expLit} } {exp} \{\n" ++
+          s!"{indent}  {exp} := shr(1, {exp})\n" ++
+          s!"{indent}  {base} := mulmod({base}, {base}, {p})\n" ++
+          s!"{indent}} \{\n" ++
+          s!"{indent}  if and({exp}, 1) \{ {inv} := mulmod({inv}, {base}, {p}) }\n" ++
+          s!"{indent}}\n" ++
+          s!"{indent}let {name} := mulmod({lhs.value}, {inv}, {p})\n",
+        value := name, next := rhs.next + 1 }
+  | .fieldNeg operand =>
+      -- (0 + (p - (a mod p))) mod p = (-a) mod p; see fieldSub for the
+      -- sub-wrapping rationale (EVM SUB is mod 2^256, not mod p).
+      let p := bn254FrModulusYulV1
+      let operand := renderExpr indent paramPrefix next operand
+      let name := s!"expr{operand.next}"
+      { code := operand.code ++
+          s!"{indent}let {name} := addmod(0, sub({p}, addmod({operand.value}, 0, {p})), {p})\n",
+        value := name, next := operand.next + 1 }
+  | .fieldStorageLoad slot =>
+      let name := s!"expr{next}"
+      { code := s!"{indent}let {name} := sload({slot})\n",
+        value := name, next := next + 1 }
   | .callFn fnIndex args => Id.run do
       let mut code := ""
       let mut next := next
@@ -490,10 +589,12 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       { code := code ++ s!"{indent}let {name} := pf_fn{fnIndex}({argsJoined})\n",
         value := name, next := next + 1 }
 
-/-- Mask a stored word to `byteWidth` low bytes before `sstore` (narrow ABI). -/
+/-- Mask a stored word to `byteWidth` low bytes before `sstore` (narrow ABI).
+    UInt64/Int64 (`byteWidth == 8`) and Field (`byteWidth == 32`) store the
+    full word unmasked; narrow UInt{8,16,32} mask to the admitted width. -/
 private def renderMaskedSstore (indent : String) (slot : Nat) (value : String)
     (byteWidth : Nat) : String :=
-  if byteWidth == 8 then
+  if byteWidth == 8 || byteWidth == 32 then
     s!"{indent}sstore({slot}, {value})\n"
   else
     let mask := yulUintMask (byteWidth * 8)
@@ -695,7 +796,11 @@ private def renderConstructor (plan : Plan) : String := Id.run do
     output := output ++ s!"    codecopy(0, programSize, {argumentBytes})\n"
   for param in constructor.params do
     let raw := s!"mload({param.wordIndex * 32})"
-    if param.byteWidth == 8 then
+    if param.byteWidth == 32 then
+      -- Field: full 32-byte ABI word (no UInt64 range gate).
+      output := output ++
+        s!"    let ctor_arg{param.wordIndex} := {raw}\n"
+    else if param.byteWidth == 8 then
       output := output ++
         s!"    let ctor_arg{param.wordIndex} := {raw}\n" ++
         s!"    if gt(ctor_arg{param.wordIndex}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
@@ -721,7 +826,11 @@ private def renderEntry (plan : Plan) (entry : Entry) : String := Id.run do
   for param in entry.params do
     let offset := 4 + param.wordIndex * 32
     let raw := s!"calldataload({offset})"
-    if param.byteWidth == 8 then
+    if param.byteWidth == 32 then
+      -- Field: full 32-byte ABI word (no UInt64 range gate).
+      output := output ++
+        s!"        let arg{param.wordIndex} := {raw}\n"
+    else if param.byteWidth == 8 then
       output := output ++
         s!"        let arg{param.wordIndex} := {raw}\n" ++
         s!"        if gt(arg{param.wordIndex}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
@@ -765,6 +874,7 @@ private def resultKindAbiType (kind : ResultKind) : String :=
   | .uint64 => "uint64"
   | .bool => "bool"
   | .int64 => "int64"
+  | .field => "uint256"
 
 private def renderEntryAbi (entry : Entry) : String :=
   let mutability := match entry.mutability with
