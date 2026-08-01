@@ -190,6 +190,13 @@ def finish (c : Cursor) : Except SemanticWireErrorV1 Unit := do
     return ← err .trailingBytes
   pure ()
 
+/-- A cursor positioned exactly at input size succeeds through the sole
+    production trailing-byte check. -/
+theorem finish_eq_ok_of_offset_sizeV1 (c : Cursor) (h : c.offset = c.input.size) :
+    finish c = .ok () := by
+  simp only [finish, remaining, remainingBytesAtV1, h, Nat.sub_self, BEq.beq,
+    decide_true, ↓reduceIte, Bind.bind, Except.bind, Pure.pure, Except.pure]
+
 /-- Transparent proof-facing byte spine. This is deliberately only the
     primitive read seam, not an independent semantic decoder. -/
 abbrev TransparentByteSpineV1 := List UInt8

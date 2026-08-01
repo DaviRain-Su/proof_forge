@@ -319,6 +319,10 @@ Instruction/ValueDef/Bool Literal payload/Return some ValueId与Option.some UInt
 654→888。最后一个`falsehood`经canonical Bool false payload与steps=3闭合888→1126，四元素callables
 随后由sole production iterator按gate/leaf/truth/falsehood source order完整组合。InvariantDecl、
 requirements、root finish、structure-gated encoder/carrier closed theorem与formal TASK/TST仍pending。
+两个InvariantDecl随后按`truth→callable 2`、`falsehood→callable 3`闭合1126→1206，empty
+ProgramRequirements闭合1206→1235；九字段root、magic/size/finish现已由sole production composition
+得到closed transport theorem `decodeSemanticProgramDataV1 canonicalBytes = .ok data`。这不是
+structure-gated encoder/carrier theorem，后者与formal TASK/TST仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

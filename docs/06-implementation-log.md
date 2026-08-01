@@ -12101,6 +12101,20 @@ normative: false
 - Boundary：两个InvariantDecl、requirements、root finish、closed encoder/carrier theorem与formal
   TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 closed concrete transport decode
+
+- Golden segmentation：最终109 bytes拆为80-byte two-InvariantDecl array与29-byte empty
+  ProgramRequirements；完整explicit golden保持1235 bytes且production encoder runtime identity通过。
+- Kernel：InvariantDecl精确固定`truth→callable 2`与`falsehood→callable 3`，requirements items empty；
+  九字段root按既有cursor链组合并恢复nesting 0，production size/magic/tagged-root/finish最终闭合
+  `decodeSemanticProgramDataV1 canonicalBytes = .ok data`。
+- Proof seam：`finish_eq_ok_of_offset_sizeV1`仅组合sole production trailing-byte check在
+  `offset=input.size`下的成功，不新增framing authority。
+- Review/Verification：blocker-only APPROVE；focused Semantic builds、WireV1/InvariantABI suites及
+  docs-check通过。Wire suite首次与build并发时遇到尚未生成olean，build完成后重跑通过。
+- Boundary：本结论仅为transport decode；structure-gated encoder identity、closed
+  `decodeSemanticProgramV1` carrier theorem、`evalInvariantV1`连接及formal TASK/TST仍pending。
+
 ## 2026-08-01 — N5 ContextRead/Commit engineering slice
 
 - Engineering slice only (not formal TASK-D2-07/D4 / SupportClaim / OutputSetV1).

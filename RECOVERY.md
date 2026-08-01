@@ -572,3 +572,10 @@ canonical Bool false payload `[0]`，随后为`Return (some 0)`、empty loopBoun
 segment与109-byte remainder保持golden identity。四个已证明的Callable再经sole production four-element
 iterator按gate→leaf→truth→falsehood顺序组合，完整callables字段闭合257→1126。下一字段为两个
 InvariantDecl；requirements/root finish/carrier theorem及formal evidence仍pending。
+
+root尾部现已闭合：两个InvariantDecl分别固定`(0,"truth",2)`与`(1,"falsehood",3)`，production
+two-element array消费1126→1206；empty ProgramRequirements再消费1206→1235。九字段root composition
+按既有exact cursor链恢复nesting 0，size/magic/tagged-root/finish production framing最终证明
+`decodeSemanticProgramDataV1 canonicalBytes = .ok data`。新增通用finish seam仅证明offset=input.size时
+sole trailing-byte check成功，不替代decoder。当前结论严格为transport-only；structure-gated encoder
+identity、`decodeSemanticProgramV1` carrier theorem及formal TASK/TST仍pending。
