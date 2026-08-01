@@ -682,15 +682,31 @@ def decodeOption (decode : Decoder α) : Decoder (Option α) := fun c => do
     pure (some v, c)
   | _ => err .badScalar
 
-def decodeArray (maxCount : Nat) (decode : Decoder α) : Decoder (Array α) := fun c => do
-  let (count, offset) ← readArrayCountAtV1 c.input c.offset maxCount
-  let mut c : Cursor := ⟨c.input, offset, c.nesting⟩
-  let mut acc : Array α := Array.empty
-  for _ in [:count] do
-    let (v, c') ← decode c
-    acc := acc.push v
-    c := c'
-  pure (acc, c)
+/-- Sole production array-element iteration authority. Keeping the loop in a
+    structurally recursive definition gives kernel proofs a stable unfolding
+    seam without introducing a proof-side decoder. -/
+def decodeArrayElementsV1 (decode : Decoder α) :
+    Nat → Array α → Cursor → Except SemanticWireErrorV1 (Array α × Cursor)
+  | 0, acc, c => .ok (acc, c)
+  | count + 1, acc, c =>
+      match decode c with
+      | .error e => .error e
+      | .ok (v, c') => decodeArrayElementsV1 decode count (acc.push v) c'
+
+def decodeArray (maxCount : Nat) (decode : Decoder α) : Decoder (Array α) := fun c =>
+  match readArrayCountAtV1 c.input c.offset maxCount with
+  | .error e => .error e
+  | .ok (count, offset) =>
+      decodeArrayElementsV1 decode count #[] ⟨c.input, offset, c.nesting⟩
+
+/-- Compose an established count-header result with the sole production
+    element iterator. -/
+theorem decodeArray_eq_elementsV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
+    (count offset : Nat)
+    (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (count, offset)) :
+    decodeArray maxCount decode c =
+      decodeArrayElementsV1 decode count #[] ⟨c.input, offset, c.nesting⟩ := by
+  simp only [decodeArray, hcount]
 
 def decodeByteArray (maxLen : Nat) : Decoder ByteArray := fun c => do
   let (payload, offset) ← readSizedBytesAtV1 c.input c.offset maxLen

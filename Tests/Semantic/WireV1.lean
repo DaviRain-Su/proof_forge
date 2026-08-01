@@ -204,6 +204,33 @@ example (input : TransparentByteSpineV1) (offset maxCount : Nat) :
   readArrayCountAtV1_refinesSpine input offset maxCount
 
 example :
+    decodeArrayElementsV1 decodeU32le 0 #[]
+      ⟨ByteArray.mk [0xaa].toArray, 0, 7⟩ =
+        .ok (#[], ⟨ByteArray.mk [0xaa].toArray, 0, 7⟩) := by rfl
+
+example :
+    (decodeArray 3 decodeU32le
+      ⟨ByteArray.mk [2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0xee].toArray, 0, 5⟩).map
+        (fun (values, cursor) => (values, cursor.offset, cursor.nesting, remaining cursor)) =
+      .ok (#[1, 2], 12, 5, 1) := by rfl
+
+example :
+    decodeArray 2 decodeU32le
+      (start (ByteArray.mk [2, 0, 0, 0, 1, 0, 0, 0].toArray)) =
+        .error .truncated := by rfl
+
+example :
+    decodeArray 1 decodeU32le
+      (start (ByteArray.mk [1, 0, 0, 0].toArray)) =
+        .error .truncated := by rfl
+
+example (input : ByteArray) (offset nesting maxCount count afterCount : Nat)
+    (hcount : readArrayCountAtV1 input offset maxCount = .ok (count, afterCount)) :
+    decodeArray maxCount decodeU32le ⟨input, offset, nesting⟩ =
+      decodeArrayElementsV1 decodeU32le count #[] ⟨input, afterCount, nesting⟩ :=
+  decodeArray_eq_elementsV1 maxCount decodeU32le ⟨input, offset, nesting⟩ count afterCount hcount
+
+example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
       .ok (0x10, 1, 0) := by rfl

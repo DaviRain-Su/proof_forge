@@ -11338,3 +11338,14 @@ normative: false
   高于u32可表示最大值的limit及universal theorem复用；目标Wire模块与suite构建通过。
 - Boundary：本切片不证明或复制array element iteration，不处理QualifiedName/root九字段，也不关闭
   `InvariantTheoremV1`、TASK-D2-07、TST-SEM-002/003或TST-PROOF-001。
+
+## 2026-08-01 — D2-07 array element iteration proof seam
+
+- Production：将`decodeArray`唯一既有generic element loop抽为它直接消费的结构递归
+  `decodeArrayElementsV1`；顺序、acc push、cursor线程、zero count与首错fail-fast保持不变。新增
+  header-success composition theorem，使closed kernel proof可稳定展开具体count，不依赖Lean
+  `forIn/foldlM`内部展开。
+- Tests：kernel examples覆盖zero iteration、两个UInt32顺序与trailing byte、原nesting、首元素失败、
+  成功prefix后失败及任意header equality的theorem复用；目标Wire suite通过，blocker review批准。
+- Boundary：该helper是production sole executable loop，不存在transparent/proof-side generic decoder；
+  QualifiedName、root tables、完整carrier validation与formal TASK/TST仍pending。

@@ -256,7 +256,9 @@ invariant theorem与formal TASK/TST状态不变。后续payload framing切片已
 u32-length-prefixed bytes的prefix/limit/exact payload refinement，并让`decodeByteArray`/`decodeString`
 直接委托。后续array-header切片再闭合u32 count与`maxCount` gate，production `decodeArray`仅将
 header委托给shared primitive并保留唯一既有element loop；universal theorem固定truncation优先、
-count等于上限及超限边界。array element iteration、QualifiedName与九张root table仍pending。
+count等于上限及超限边界。后续iteration切片将该唯一production loop抽为结构递归
+`decodeArrayElementsV1`，保持顺序、fail-fast与cursor线程，并以header-success composition theorem
+提供稳定kernel unfolding seam；没有proof-side generic decoder。QualifiedName与九张root table仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 
