@@ -12574,3 +12574,19 @@ normative: false
 - Tests：`NoirRelationModel` PointBox 正例 + Array state 负例；`Targets` N3 矩阵 Noir 从 decline→admit（Solana/NEAR/Psy 仍 decline）
 - Matrix：`docs/research/12-target-coverage-matrix.md` NOIR 行列 construct/field*/variant*/named state LOWERED(NoirAggregate)；Array/Map/Bytes/index FAIL-CLOSED
 - 非 formal D2/D4/D7；不改 EnvelopeV1/Registry/CLI/Semantic shared core
+
+## 2026-08-01 — AleoCoverage：Aleo 边界核对 + Field/聚合/容器/Commit 钉
+
+- 核对 `Aleo/LowerSemanticV1`：原先 catch-all 把 construct/field*/variant*/index*/
+  ContextRead/Commit 混为 GAP；矩阵误标 emit/externalCall/schedule 为 LOWERED。
+- **Field research pin（PsyFelt 式）**：Aleo native `field` = BLS12-377 Fr（Edwards BLS
+  scalar）≠ catalog bn254 Fr → `pilotFieldPolicyNone` + `aleoTypeClosureWording`
+  显式拒绝；禁止静默错误 modulus 映射。
+- **Commit**：N5 身份透传（复用 operand Plan Expr，无新 tag）；**ContextRead** 显式
+  fail closed。
+- **named 聚合 / Array/Map/Bytes/Option**：scalar mapping 信封（`u8 => u64`）上显式
+  FAIL-CLOSED；Leo native struct/record 另排布局切片，本 wave 不近似实现。
+- Type-closure：`validateAleoTypeClosureV1`（UInt64+UInt32、Int none、Field none）。
+- Tests：`Tests/Materialization/Aleo` 增 Field/named Struct/Array/Commit/ContextRead 钉。
+- 矩阵 ALEO 列与 B-1c 已更新（GAP→FAIL-CLOSED 或 Commit→LOWERED）；source-only 成熟度不变。
+- 非 formal D2/D4；不改 AGENTS.md/MIGRATION_MATRIX.md/RECOVERY.md；不碰 off-limits target。

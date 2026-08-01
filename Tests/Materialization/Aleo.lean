@@ -762,6 +762,160 @@ unsafe def testCallScheduleFailClosedLeo : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "Aleo unexpectedly supports the async-workflow key"
 
+/-- Aleo Field research pin (2026-08-01 AleoCoverage): catalog bn254_fr fails
+    closed at type-closure. Native Aleo `field` is BLS12-377 Fr (Edwards BLS
+    scalar), not bn254 Fr — wording must cite BLS12-377 / bn254 so no silent
+    wrong-field mapping can land later. -/
+unsafe def testFieldBn254FailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program AleoFieldPin where\n" ++
+    "  state acc : Field bn254_fr\n" ++
+    "  init(initial : Field bn254_fr) do\n" ++
+    "    acc := initial\n" ++
+    "  entry bump(delta : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n" ++
+    "  view get() : Field bn254_fr do\n" ++
+    "    return acc\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-field-pin>" "Tests.AleoFieldPin" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planAleo compiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "Field bn254_fr must fail closed at Aleo type-closure (BLS12-377 Fr ≠ bn254 Fr)"
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "Field" || msg.contains "unsupported" ||
+          msg.contains "BLS12" || msg.contains "bn254")
+        s!"Aleo Field decline must cite Field/BLS12/bn254 boundary, got: {msg}"
+      expect (msg.contains "BLS12-377" || msg.contains "BLS12" ||
+          msg.contains "bn254 Fr" || msg.contains "Edwards")
+        s!"Aleo Field decline must cite BLS12-377 Fr vs bn254 Fr, got: {msg}"
+      expect (msg.contains "Aleo" || msg.contains "aleo")
+        s!"Aleo Field decline must label Aleo, got: {msg}"
+
+/-- Named Struct construct/field access fails closed on the scalar mapping
+    envelope (Leo native struct/record is deferred). Uses product constructor
+    spelling `Point.new(...)` (same as N3 PointBox). -/
+unsafe def testNamedAggregateFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program AleoPoint where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  entry setX(v : UInt64) : UInt64 do\n" ++
+    "    p.x := v\n" ++
+    "    return p.x\n" ++
+    "  view getX() : UInt64 do\n" ++
+    "    return p.x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-point>" "Tests.AleoPoint" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planAleo compiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "named Struct state must fail closed on Aleo scalar mapping envelope"
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "named" || msg.contains "Struct" ||
+          msg.contains "unsupported" || msg.contains "pilot" ||
+          msg.contains "aggregate" || msg.contains "mapping")
+        s!"Aleo named-aggregate decline must cite named/Struct boundary, got: {msg}"
+
+/-- Array state fails closed (no container mapping layout). -/
+unsafe def testArrayStateFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program AleoArr where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-arr>" "Tests.AleoArr" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planAleo compiled with
+  | .ok _ =>
+      throw <| IO.userError "Array state must fail closed on Aleo"
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "Array" || msg.contains "container" ||
+          msg.contains "unsupported" || msg.contains "pilot" ||
+          msg.contains "IndexGet" || msg.contains "UInt64")
+        s!"Aleo Array decline must cite container/Array boundary, got: {msg}"
+
+/-- N5 Commit identity: label-only passthrough into commitment state. -/
+unsafe def testCommitIdentityLeo : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CommitSeal where\n" ++
+    "  state commitment sealed : UInt64\n" ++
+    "  init() do\n" ++
+    "    sealed := 0\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    sealed := commit(x)\n" ++
+    "    return x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-commit>" "Tests.AleoCommitSeal" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  expect (plan.functions.map (·.name) == #["initialize", "run"])
+    "CommitSeal must carry initialize + run"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "commitseal.aleo") |
+    throw <| IO.userError "aleo: missing commitseal.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "fn run(public p0: u64) -> Final {")
+    "commit identity entry must materialize as Final"
+  expect (leo.contains "pf_state_0.set(0u8,")
+    "commit identity must store the passthrough operand into the mapping"
+  expect (leo.contains "p0")
+    "commit identity must still evaluate the sealed operand (param p0)"
+
+/-- N5 ContextRead fails closed (no host clock ABI). -/
+unsafe def testContextReadFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CtxTime where\n" ++
+    "  state public pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry now() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-ctx>" "Tests.AleoCtxTime" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planAleo compiled with
+  | .ok _ =>
+      throw <| IO.userError "ContextRead must fail closed on Aleo"
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "ContextRead" || msg.contains "context" ||
+          msg.contains "unix-time" || msg.contains "unsupported" ||
+          msg.contains "pilot")
+        s!"Aleo ContextRead decline must cite context boundary, got: {msg}"
+
 unsafe def run : IO Unit := do
   testCounterPlanAndLeo
   testPureOpsAndShifts
@@ -781,6 +935,11 @@ unsafe def run : IO Unit := do
   testVoidEntryLeo
   testMultiParamFnLeo
   testCallScheduleFailClosedLeo
+  testFieldBn254FailClosed
+  testNamedAggregateFailClosed
+  testArrayStateFailClosed
+  testCommitIdentityLeo
+  testContextReadFailClosed
   IO.println "Tests.Materialization.Aleo: ok"
 
 end Tests.Materialization.Aleo

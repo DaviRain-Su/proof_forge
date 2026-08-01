@@ -31,11 +31,20 @@ Leo 4.0.2 execution model (verified by the hackathon spike + devnet runs):
     `div`/`mod` by zero and `assert(false)` halt the transaction, which
     reverts atomically (no state change) — the DSL revert analogue.
 
-Honest fail-closed decisions (documented, SPEC-TARGET-ALEO-001):
+Honest fail-closed decisions (documented, SPEC-TARGET-ALEO-001 + AleoCoverage):
   * `emit` — Leo 4.0.2 has no on-chain event log → fail closed.
+  * `externalCall` / `schedule` — no address-bearing type / workflow model
+    → fail closed (resolver declines both requirement keys).
   * `revert` with error args — the payload cannot be represented →
     fail closed; bare `revert` lowers to `assert(false)` (halt = revert).
   * `trap` lowers to `assert(false)` (unreachable halt).
+  * **Field (bn254 Fr)** — Aleo native `field` is BLS12-377 Fr (Edwards BLS
+    scalar), **not** catalog bn254 Fr → fail closed (PsyFelt-style pin).
+  * **named aggregates / Array/Map/Bytes/Option** — Plan is scalar mapping
+    (`u8 => u64`) only; construct/field*/variant*/index* fail closed
+    (Leo native struct/record is a later dedicated layout slice).
+  * **ContextRead** — no host clock ABI → fail closed; **Commit** is
+    label-only identity passthrough (same N5 policy as EVM/Solana/NEAR).
   * views: bare public-state reads materialize as off-chain query
     descriptors (`leo query` — the EVM `eth_call` analogue); computed
     state-reading views fail closed; pure computed views are plain fns.

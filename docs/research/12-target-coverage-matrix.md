@@ -28,32 +28,32 @@ normative: false
 | wire Op / feature | EVM | Solana | NEAR | Noir | Psy | Aleo |
 |---|---|---|---|---|---|---|
 | stateLoad/stateStore（标量） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
-| stateLoad/stateStore（named 聚合） | LOWERED(N3) | FAIL-CLOSED | GAP | LOWERED(NoirAggregate) | FAIL-CLOSED | GAP |
-| stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | GAP | FAIL-CLOSED | FAIL-CLOSED | GAP |
-| stateLoad/stateStore（Map） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | GAP |
-| stateLoad/stateStore（Bytes） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | GAP |
-| stateLoad/stateStore（Option） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | GAP |
+| stateLoad/stateStore（named 聚合） | LOWERED(N3) | FAIL-CLOSED | GAP | LOWERED(NoirAggregate) | FAIL-CLOSED | FAIL-CLOSED(scalar mapping) |
+| stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Map） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Bytes） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Option） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（String） | LOWERED(N4) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
-| stateLoad/stateStore（Field bn254） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED(Goldilocks证伪) | FAIL-CLOSED |
-| construct（named Struct/Enum） | LOWERED(N3) | FAIL-CLOSED | GAP | LOWERED(NoirAggregate) | LOWERED | GAP |
-| fieldGet/fieldSet | LOWERED(N3) | LOWERED | GAP | LOWERED(NoirAggregate) | LOWERED | GAP |
-| variantTag/variantPayload | LOWERED(N3) | LOWERED | GAP | LOWERED(NoirAggregate) | LOWERED | GAP |
-| indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | GAP | FAIL-CLOSED | LOWERED | GAP |
-| indexGet/indexSet（Map） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | GAP |
-| indexGet/indexSet（Bytes） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | GAP |
-| fieldAdd/Sub/Mul/Div/Neg（Field） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Field bn254） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED(Goldilocks证伪) | FAIL-CLOSED(BLS12-377≠bn254) |
+| construct（named Struct/Enum） | LOWERED(N3) | FAIL-CLOSED | GAP | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED(struct deferred) |
+| fieldGet/fieldSet | LOWERED(N3) | LOWERED | GAP | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED |
+| variantTag/variantPayload | LOWERED(N3) | LOWERED | GAP | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED |
+| indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | GAP | FAIL-CLOSED | LOWERED | FAIL-CLOSED |
+| indexGet/indexSet（Map） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| indexGet/indexSet（Bytes） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| fieldAdd/Sub/Mul/Div/Neg（Field） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED | FAIL-CLOSED(BLS12-377) |
 | eq/ne（所有支持类型） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | ordering 比较 | LOWERED(UInt/Int) | LOWERED(UInt/Int) | LOWERED | LOWERED(UInt/Field) | LOWERED | LOWERED |
-| unary（-/~/!） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
+| unary（-/~/!） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED(~/!;neg FC) |
 | binary 算术（checked + - * / %） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | shift/bitwise/logical | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | pureCall（fn/localCall） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
-| emit / revert | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
+| emit / revert | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | FAIL-CLOSED emit; bare revert LOWERED |
 | assertOp | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | contextRead | FAIL-CLOSED(全target) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
-| commit | LOWERED(身份透传) | LOWERED | LOWERED | LOWERED | LOWERED | GAP |
-| externalCall（sync call） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | FAIL-CLOSED | LOWERED | FAIL-CLOSED | LOWERED |
-| schedule（async） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | LOWERED(promise) | LOWERED | FAIL-CLOSED | LOWERED |
+| commit | LOWERED(身份透传) | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED(身份透传) |
+| externalCall（sync call） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | FAIL-CLOSED | LOWERED | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
+| schedule（async） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | LOWERED(promise) | LOWERED | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
 | **match String scrutinee** | GAP(N-A1) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | **match 多臂同构造器** | GAP(N-A2) | GAP | GAP | GAP | GAP | GAP |
 | **Principal state/params** | FAIL-CLOSED(全) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
@@ -91,7 +91,7 @@ normative: false
 |---|---|---|---|
 | **B-1a** | NEAR named 聚合 + Array/容器 | NEAR 只下降 7 op（stateStore/stateLoad/commit/contextRead/emit/revert/schedule），construct/fieldGet/fieldSet/variantTag/arrayIndexGet/fieldAdd(Field) 全 fail-closed | NearAggregate |
 | **B-1b** | Noir named 聚合 | **闭合(NoirAggregate)**：named Struct/Enum construct/fieldGet/fieldSet/variantTag/variantPayload + named-aggregate stateLoad/store 经 leaf 扁平化 public inputs（circuit-native 字段约束）；Array/Map/Bytes/Option 容器 state 与 IndexGet/Set 显式 FAIL-CLOSED | NoirAggregate |
-| **B-1c** | Aleo 全功能 | Aleo 只下降 6 op（最不完整 implemented target），Field/聚合/容器/ContextRead/Commit/construct/variant 全 fail-closed | AleoCoverage |
+| **B-1c** | Aleo 全功能 | **AleoCoverage 已闭合（2026-08-01）**：核对代码后修正矩阵——LOWERED 为标量 UInt64 envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）+ Commit 身份透传；**Field FAIL-CLOSED**（Aleo native field = BLS12-377 Fr ≠ catalog bn254 Fr，PsyFelt 式研究钉）；named 聚合/construct/field*/variant*/Array/Map/Bytes/Option/ContextRead/emit/externalCall/schedule 均显式 FAIL-CLOSED（不再 GAP）；Leo native struct/record 布局切片另排 | AleoCoverage ✅ |
 | **B-1d** | Solana Map/Bytes/Option state | Solana 有 Array(UInt64) 正例，Map/Bytes/Option state FAIL-CLOSED（可保持或开放） | 后续 wave |
 | **B-1e** | EVM Map/Bytes/Option state | EVM 有 Array+Field+String 正例，Map/Bytes/Option state FAIL-CLOSED（可保持或开放） | 后续 wave |
 

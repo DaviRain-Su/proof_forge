@@ -4,6 +4,7 @@ import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.Common
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Targets.EnvelopeV1
 
 /-!
 # Aleo LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
@@ -11,6 +12,25 @@ import ProofForgeV2.Targets.EngineeringBuildV1
 Owns the Aleo-owned Plan surface and the retained-`SemanticProgramV1` Plan body.
 Plan canonicity lives in `ValidatePlanV1`; Leo emission in `EmitIRV1`.
 `FinalizeV1` remains a separate submodule.
+
+## Coverage boundary (AleoCoverage wave, 2026-08-01)
+
+LOWERED (product path): scalar stateLoad/stateStore (UInt64), checked
+arithmetic/compare/bitwise/shift/logical, unary not/bitNot, pureCall,
+bare assert, bare revert (`assert(false)`), if/switch/for, Commit identity
+passthrough (label-only; no crypto commitment realization).
+
+FAIL-CLOSED (explicit pins, not catch-all GAP):
+  * **Field (bn254 Fr)** — research pin: Aleo native `field` is the BLS12-377
+    scalar field (Edwards BLS Fr = BLS12-377 Fr), **not** catalog bn254 Fr.
+    Mapping would be a silent wrong modulus. Keep `pilotFieldPolicyNone`.
+  * **named aggregates** — Leo has native `struct`/`record`, but this Plan/IR
+    envelope is scalar-only (mappings `u8 => u64`); construct/fieldGet/fieldSet/
+    variantTag/variantPayload fail closed until a dedicated layout slice.
+  * **Array/Map/Bytes/Option/String/Principal state** — no scalar mapping layout.
+  * **ContextRead** — no host clock ABI in Leo 4.0.2 Final model for this pilot.
+  * **emit / externalCall / schedule / revert-with-args** — no Leo analogue
+    (resolver also declines event/sync/async requirement keys).
 -/
 
 namespace ProofForgeV2.Targets.Aleo
@@ -19,6 +39,7 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
+open ProofForgeV2.Targets.EnvelopeV1
 
 /-- Engineering codegen profile for the Leo 4.0.2 source slice. Any change to
     the supported surface or the Leo toolchain requires a new profile. -/
@@ -129,6 +150,27 @@ structure Plan where
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .aleo message
 
+private def aleoPlanErr (message : String) : CompileError :=
+  .planInvariant .aleo message
+
+/-- Aleo type-closure wording. Field pin cites BLS12-377 Fr ≠ bn254 Fr. -/
+private def aleoTypeClosureWording : PilotTypeClosureWording where
+  targetLabel := "Aleo"
+  uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
+  badIntegerWidthDetail :=
+    "only anonymous UInt64/UInt32 widths are supported"
+  unsupportedShapeDetail :=
+    "only UInt64, UInt32, Unit, and Bool are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, not bn254 Fr; named Struct/Enum, Array/Map/Bytes/Option, Principal, and String stay fail-closed on the scalar mapping envelope)"
+
+/-- Aleo pilot type-closure: UInt64 + UInt32 (shift counts) + Unit/Bool.
+    Field stays on `pilotFieldPolicyNone` (BLS12-377 ≠ bn254). Int/named/
+    containers/Principal/String fail closed. -/
+private def validateAleoTypeClosureV1
+    (types : Array TypeDeclV1) : CompileResult PilotTypeClosureV1 :=
+  validatePilotTypeClosure aleoPlanErr aleoTypeClosureWording types
+    pilotUintWidthPolicyU64U32
+    (intPolicy := pilotIntWidthPolicyNone)
+    (fieldPolicy := pilotFieldPolicyNone)
 
 -- ---------------------------------------------------------------------------
 -- Wire semantic → target-owned Plan lowering
@@ -351,8 +393,39 @@ private partial def lowerRegion
         planError "Aleo does not support external calls"
     | .schedule .. =>
         planError "Aleo does not support scheduled workflows"
-    | other =>
-        planError "Aleo lowering: semantic op is outside the public UInt64/Bool envelope"
+    -- N5: Op.Commit is label-only identity — reuse the operand's Plan value
+    -- (no new Expr tag). Cryptographic commitment realization is deferred.
+    | .commit valueId => do
+        unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
+          planError "unsupported Aleo semantic shape: Commit is not admitted by pilot context policy"
+        let operand ← match envLookup env valueId with
+          | some e => pure e
+          | none => planError "Aleo commit references an undefined operand"
+        match instr.result with
+        | none => planError "Aleo commit instruction must produce a value"
+        | some valueDef =>
+            env := envInsert env valueDef.valueId operand
+    | .contextRead key => do
+        unless key == unixTimeSecondsContextKeyV1 do
+          planError s!"unsupported Aleo semantic shape: unknown ContextRead key '{key.value}'"
+        planError
+          "unsupported Aleo semantic shape: ContextRead is not admitted by pilot context policy"
+    | .construct .. =>
+        planError
+          "unsupported Aleo semantic shape: named Struct/Enum construct is outside the scalar mapping envelope (Leo native struct/record deferred)"
+    | .fieldGet .. | .fieldSet .. =>
+        planError
+          "unsupported Aleo semantic shape: named Struct fieldGet/fieldSet are outside the scalar mapping envelope (Leo native struct/record deferred)"
+    | .variantTag .. | .variantPayload .. =>
+        planError
+          "unsupported Aleo semantic shape: Enum variantTag/variantPayload are outside the scalar mapping envelope"
+    | .indexGet .. | .indexSet .. =>
+        planError
+          "unsupported Aleo semantic shape: IndexGet/IndexSet (Array/Map/Bytes) are outside the scalar mapping envelope"
+    | .constant .. =>
+        planError "unsupported Aleo semantic shape: Constant load is outside the public UInt64 envelope"
+    | .checkedCast .. =>
+        planError "unsupported Aleo semantic shape: CheckedCast is outside the public UInt64 envelope"
   -- Terminator
   match block.terminator with
   | .jump target =>
@@ -471,7 +544,7 @@ private partial def lowerLoop
         | some valueDef => condVid? := some valueDef.valueId
         | none => planError "Aleo lowering: loop condition must produce a value"
         endExpr? := some r
-    | other =>
+    | _ =>
         planError "Aleo lowering: loop header carries an unexpected instruction"
   let endExpr ← match endExpr? with
     | some e => pure e
@@ -626,12 +699,16 @@ private partial def lowerCallable
 private def makePlanFromSemanticDataV1
     (data : SemanticProgramDataV1) (programName : String)
     (sourceHash semanticHash : String) : CompileResult Plan := do
-  -- State fields (public UInt64 only in this envelope).
+  -- Type-closure first: Field/Principal/named aggregates/containers fail closed
+  -- with `aleoTypeClosureWording` (Field cites BLS12-377 Fr ≠ bn254 Fr).
+  let _types ← validateAleoTypeClosureV1 data.types
+  -- State fields (UInt64 only in this envelope; any visibility — N1).
   let mut stateFields : Array String := #[]
   for state in data.logicalState do
     -- N1: Aleo mappings are naturally private; accept any visibility, UInt64 type.
+    -- Field/named/containers already rejected at type-closure.
     unless isUInt64Type data state.typeId do
-      planError "Aleo state must be UInt64"
+      planError "Aleo state must be UInt64 (Array/Map/Bytes/Option/named aggregate and Field declined)"
     stateFields := stateFields.push state.name
   -- Callable names in wire order (pureCall callee resolution).
   let fnNames := data.callables.filterMap fun c =>
