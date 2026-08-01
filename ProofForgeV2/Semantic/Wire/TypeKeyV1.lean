@@ -157,7 +157,9 @@ def validateTypesStructureV1 (types : Array TypeDeclV1) :
     O(n) time and O(1) extra space: once an anonymous declaration is seen, a
     `seenAnonymous` flag is set and any subsequent `name=some` declaration is
     rejected. -/
-private def validateNamedPrefixRankV1
+-- Internal production named-prefix TypeKey subphase exposed for refinement.
+-- The complete TypeKey gate remains `validateTypeKeyPhasesV1`.
+def validateNamedPrefixRankV1
     (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
   let mut seenAnonymous := false
   for decl in types do

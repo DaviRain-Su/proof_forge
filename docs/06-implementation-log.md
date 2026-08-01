@@ -12411,3 +12411,13 @@ normative: false
   Anvil differential; ValidateIRV1 structural gate untouched and still
   additive under solc acceptance.
 
+## 2026-08-01 — D2-07 concrete TypeKey named-prefix phase
+
+- Production proof seam：仅开放真实`validateNamedPrefixRankV1` subphase供refinement；完整authority仍为
+  `validateTypeKeyPhasesV1`。
+- Kernel：Bool/Principal/Unit三项均anonymous，single forward pass在首项后保持anonymous suffix，闭合
+  `validateNamedPrefixRankV1 data.types = .ok ()`。
+- Verification：focused TypeKeyV1/InvariantABI build通过。
+- Boundary：`primitiveLeaf`真实encoding/sort proof及其后的recursive/namedBody、完整TypeKey/structure/
+  encoder/carrier/formal状态仍pending。
+
