@@ -3016,9 +3016,41 @@ private def testCallableNameUniqueness : IO Unit := do
   let p0Base ← programWithTypes "CallableUniqueP0Kinds" boolUnitTypes #[]
     #[initializer0, entry1, view2, pure3, invariant4]
   let p0 : SemanticProgramDataV1 := {
-    p0Base with invariants := #[{ id := 0, name := "safe", callableId := 4 }]
+    p0Base with
+    callables := #[initializer0, entry1, view2, pure3, invariant4]
+    invariants := #[{ id := 0, name := "safe", callableId := 4 }]
   }
   expectCfgOk "P0 initializer plus four distinct named kinds" p0
+  -- The transparent four-name production path must cover all six unordered
+  -- duplicate positions; phase reporting remains callableName/badCfg.
+  let fourNames := #["a", "b", "c", "d"]
+  let duplicatePairs : Array (Nat × Nat) :=
+    #[(0, 1), (0, 2), (1, 2), (0, 3), (1, 3), (2, 3)]
+  for pair in duplicatePairs do
+    let names := fourNames.mapIdx fun index name =>
+      if index == pair.2 then fourNames[pair.1]! else name
+    let callables := names.mapIdx fun index name => {
+      (cfgCallableKindName .entry (some name)) with id := UInt32.ofNat index
+    }
+    let duplicateData : SemanticProgramDataV1 := { p0Base with callables }
+    expectCallableSignaturePhase s!"four-name duplicate {pair.1}/{pair.2}"
+      .callableName .badCfg duplicateData
+  -- Five extracted names retain the original qsort+adjacent fallback.
+  let fiveNames := #["e", "d", "c", "b", "a"]
+  let fiveCallables := fiveNames.mapIdx fun index name => {
+    (cfgCallableKindName .entry (some name)) with id := UInt32.ofNat index
+  }
+  let pFallback : SemanticProgramDataV1 := { p0Base with callables := fiveCallables }
+  expectCfgOk "P fallback five distinct callable names" pFallback
+  let fiveDuplicateNames := #["e", "d", "c", "b", "e"]
+  let fiveDuplicateCallables := fiveDuplicateNames.mapIdx fun index name => {
+    (cfgCallableKindName .entry (some name)) with id := UInt32.ofNat index
+  }
+  let nFallback : SemanticProgramDataV1 := {
+    p0Base with callables := fiveDuplicateCallables
+  }
+  expectCallableSignaturePhase "N fallback five-name duplicate"
+    .callableName .badCfg nFallback
   let upper1 : CallableV1 := {
     (cfgCallableKindName .view (some "F")) with id := 1
   }

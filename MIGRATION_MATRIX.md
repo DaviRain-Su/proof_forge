@@ -344,8 +344,10 @@ canonical valueBytes现按production顺序开始：empty constants walker已证�
 source order遍历；仅truthLeaf的`#[1]`与falsehood的`#[0]`进入sole production valueBytes decoder，
 各精确消耗entry+output两单位，得到最终budget `maxCanonicalProgramBytes - 4`。紧随其后的same-error
 declaration-name phase也已闭合：empty constants/events/errors与interface walkers执行零次，singleton
-logicalState走production ≤1 no-sort success path。callable signature/InvariantDecl join/identifier grammar、
-CFG/requirements及完整structure/encoder/carrier/formal状态仍pending。
+logicalState走production ≤1 no-sort success path。callable signature phase随后已完整闭合：四个extracted
+names走≤4 exhaustive exact-pair path，empty params走≤1 no-sort path，entry/view及special invariant
+signature/metadata gates均通过；>4 names仍保留原qsort+adjacent authority。InvariantDecl join/identifier
+grammar、CFG/requirements及完整structure/encoder/carrier/formal状态仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

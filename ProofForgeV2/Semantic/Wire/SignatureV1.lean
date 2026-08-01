@@ -13,7 +13,7 @@ namespace ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
 
-private def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
+def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   for callable in callables do
     match callable.kind, callable.name with
@@ -27,13 +27,27 @@ private def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
     Compare exact UTF-8 strings; identifier grammar/NFC is the later
     declaration-name structure gate. Sorting a private name array preserves
     public callable source order. -/
-private def validateCallableNameUniquenessV1 (callables : Array CallableV1) :
+def validateCallableNameUniquenessV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   let mut names : Array String := #[]
   for callable in callables do
     match callable.name with
     | some name => names := names.push name
     | none => pure ()
+  -- Zero/one extracted names are unique. Keep the canonical four-name proof
+  -- subject transparent with a bounded exhaustive scan; larger tables retain
+  -- the existing O(n log n) private-sort path below.
+  if names.size ≤ 1 then return
+  if names.size ≤ 4 then
+    if names[0]! == names[1]! then return ← err .badCfg
+    if names.size ≥ 3 then
+      if names[0]! == names[2]! then return ← err .badCfg
+      if names[1]! == names[2]! then return ← err .badCfg
+    if names.size == 4 then
+      if names[0]! == names[3]! then return ← err .badCfg
+      if names[1]! == names[3]! then return ← err .badCfg
+      if names[2]! == names[3]! then return ← err .badCfg
+    return
   let sorted := names.qsort fun left right =>
     compareByteArrayLex left.toUTF8 right.toUTF8 == .lt
   let mut index : Nat := 1
@@ -46,10 +60,11 @@ private def validateCallableNameUniquenessV1 (callables : Array CallableV1) :
 /-- Parameter names are exact-string unique within each callable (SPEC §6).
     Each callable gets a fresh private sort; identifier grammar/NFC is the
     later declaration-name structure gate. -/
-private def validateCallableParameterNameUniquenessV1
+def validateCallableParameterNameUniquenessV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   for callable in callables do
     let names := callable.params.map (·.name)
+    if names.size ≤ 1 then continue
     let sorted := names.qsort fun left right =>
       compareByteArrayLex left.toUTF8 right.toUTF8 == .lt
     let mut index : Nat := 1
@@ -68,7 +83,7 @@ private def validateCallableParameterNameUniquenessV1
     before initializer/invariant signature checks, CFG, and requirements, so
     those later gates only observe programs that already expose an entry/view.
     `decodeSemanticProgramDataV1` transport remains permissive. -/
-private def validateCallableEntryViewPresenceV1
+def validateCallableEntryViewPresenceV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   let mut found := false
   for callable in callables do
@@ -80,7 +95,7 @@ private def validateCallableEntryViewPresenceV1
   pure ()
 
 /-- At most one initializer callable may occur in source order (SPEC §6). -/
-private def validateInitializerCardinalityV1 (callables : Array CallableV1) :
+def validateInitializerCardinalityV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   let mut seen : Bool := false
   for callable in callables do
@@ -92,7 +107,7 @@ private def validateInitializerCardinalityV1 (callables : Array CallableV1) :
 /-- Every initializer result resolves to Type.Unit and has public visibility
     (SPEC §6). Shallow result TypeId range validation runs earlier; this helper
     remains total and fails closed if called with a missing type. -/
-private def validateInitializerResultShapeV1 (types : Array TypeDeclV1)
+def validateInitializerResultShapeV1 (types : Array TypeDeclV1)
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   for callable in callables do
     if callable.kind == .initializer then
@@ -110,7 +125,7 @@ private def validateInitializerResultShapeV1 (types : Array TypeDeclV1)
     visibility (SPEC §6). Declaration join, zero params, closure restrictions,
     and invariantSteps are separate gates. Shallow result TypeId range
     validation runs earlier; this helper stays total for missing types. -/
-private def validateInvariantResultShapeV1 (types : Array TypeDeclV1)
+def validateInvariantResultShapeV1 (types : Array TypeDeclV1)
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   for callable in callables do
     if callable.kind == .invariant then
@@ -127,7 +142,7 @@ private def validateInvariantResultShapeV1 (types : Array TypeDeclV1)
 /-- Invariant roots carry no parameters (SPEC §8). Declaration join, closure
     restrictions, and invariantSteps are separate gates. Parameter TypeId range
     validation runs in the earlier shallow-reference phase. -/
-private def validateInvariantParameterShapeV1 (callables : Array CallableV1) :
+def validateInvariantParameterShapeV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   for callable in callables do
     if callable.kind == .invariant && !callable.params.isEmpty then
@@ -137,7 +152,7 @@ private def validateInvariantParameterShapeV1 (callables : Array CallableV1) :
 /-- Invariant roots carry no loop bounds (SPEC §8). Their normalized closure
     must be acyclic; full closure validation and invariantSteps remain separate
     gates. Other callable kinds retain the generic bounded-loop contract. -/
-private def validateInvariantLoopBoundsShapeV1 (callables : Array CallableV1) :
+def validateInvariantLoopBoundsShapeV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   for callable in callables do
     if callable.kind == .invariant && !callable.loopBounds.isEmpty then
@@ -151,7 +166,7 @@ private def validateInvariantLoopBoundsShapeV1 (callables : Array CallableV1) :
     pureFn membership, reachable call-graph DAG, and closure-CFG acyclicity are
     checked post-CFG; op restrictions and exact checked step computation follow
     those structural gates. -/
-private def validateNonClosureCallableInvariantStepsV1
+def validateNonClosureCallableInvariantStepsV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   let hasInvariantRoot := callables.any (·.kind == .invariant)
   for callable in callables do
@@ -174,7 +189,7 @@ private def validateNonClosureCallableInvariantStepsV1
     step computation are checked post-CFG. This presence
     gate runs after non-closure absence checks and before declaration join/CFG
     validation. -/
-private def validateInvariantRootStepsPresenceV1
+def validateInvariantRootStepsPresenceV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   for callable in callables do
     if callable.kind == .invariant then
@@ -239,6 +254,27 @@ def validateCallableSignaturePhasesV1 (types : Array TypeDeclV1)
     (validateNonClosureCallableInvariantStepsV1 callables)
   liftCallableSignatureValidationPhaseV1 .specialSignature
     (validateInvariantRootStepsPresenceV1 callables)
+
+/-- Compose success of the sole production callable-signature sequence from
+    the results of its production validation steps. -/
+theorem validateCallableSignaturePhasesV1_eq_ok_of_phases
+    (types : Array TypeDeclV1) (callables : Array CallableV1)
+    (hKindName : validateCallableKindNamePresenceV1 callables = .ok ())
+    (hCallableNames : validateCallableNameUniquenessV1 callables = .ok ())
+    (hParameterNames : validateCallableParameterNameUniquenessV1 callables = .ok ())
+    (hEntryView : validateCallableEntryViewPresenceV1 callables = .ok ())
+    (hInitializerCount : validateInitializerCardinalityV1 callables = .ok ())
+    (hInitializerResult : validateInitializerResultShapeV1 types callables = .ok ())
+    (hInvariantResult : validateInvariantResultShapeV1 types callables = .ok ())
+    (hInvariantParams : validateInvariantParameterShapeV1 callables = .ok ())
+    (hInvariantLoops : validateInvariantLoopBoundsShapeV1 callables = .ok ())
+    (hNonClosureSteps : validateNonClosureCallableInvariantStepsV1 callables = .ok ())
+    (hRootSteps : validateInvariantRootStepsPresenceV1 callables = .ok ()) :
+    validateCallableSignaturePhasesV1 types callables = .ok () := by
+  simp only [validateCallableSignaturePhasesV1, hKindName, hCallableNames,
+    hParameterNames, hEntryView, hInitializerCount, hInitializerResult,
+    hInvariantResult, hInvariantParams, hInvariantLoops, hNonClosureSteps,
+    hRootSteps, liftCallableSignatureValidationPhaseV1, Bind.bind, Except.bind]
 
 /-- InvariantDecl rows correspond one-to-one with invariant callables in the
     latter's filtered source order (SPEC §6): exact callableId, invariant kind,

@@ -12548,3 +12548,14 @@ normative: false
   `validateDeclarationIdentifierNamesV1`拥有，没有并入或重排phase。
 - Boundary：callable signature phases、InvariantDecl join、identifier grammar、CFG/requirements、完整
   structure/encoder/carrier/formal状态仍pending。
+
+## 2026-08-01 — D2-07 concrete callable signature phase
+
+- Production：named callable count ≤4时以最多六组exact String pair检查保持transparent；>4保留原
+  qsort+adjacent路径。parameter name count ≤1直接success，multi-param sort路径不变。
+- Regression：四名称六种duplicate pair全部固定`.callableName/.badCfg`；五名称distinct/duplicate固定
+  retained qsort fallback；initializer + four extracted names固定threshold按extracted names计算。
+- Kernel：canonical fixture闭合完整`validateCallableSignaturePhasesV1 = .ok ()`，覆盖kind/name、
+  entry/view、无initializer、invariant Bool-public/zero-param/zero-loop与fuel metadata presence。
+- Boundary：InvariantDecl join、identifier grammar、CFG/invariant closure、requirements、完整structure、
+  encoder/carrier identity与formal TASK/TST仍pending。

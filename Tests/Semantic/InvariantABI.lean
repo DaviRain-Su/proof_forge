@@ -825,6 +825,34 @@ theorem interfaceFieldNames_data :
   simp [validateInterfaceFieldNameUniquenessV1, data, Pure.pure, Except.pure,
     Bind.bind, Except.bind]
 
+/-- The four canonical callables pass the sole production signature phase
+    sequence, including exact callable-name uniqueness and special invariant
+    metadata presence checks. -/
+theorem callableSignatures_data :
+    validateCallableSignaturePhasesV1 data.types data.callables = .ok () := by
+  have hEntryInit : ((.entry : CallableKindV1) == .initializer) = false := by decide
+  have hPureInit : ((.pureFn : CallableKindV1) == .initializer) = false := by decide
+  have hInvariantInit : ((.invariant : CallableKindV1) == .initializer) = false := by decide
+  have hEntryInvariant : ((.entry : CallableKindV1) == .invariant) = false := by decide
+  have hPureInvariant : ((.pureFn : CallableKindV1) == .invariant) = false := by decide
+  have hInvariantInvariant : ((.invariant : CallableKindV1) == .invariant) = true := by decide
+  have hPublicPublic : ((.public_ : VisibilityV1) == .public_) = true := by decide
+  apply validateCallableSignaturePhasesV1_eq_ok_of_phases
+  all_goals simp [data, types, boolType, principalType,
+    unitType, gate, entryGate, leaf, leafBlock, truth, invariantCallable,
+    truthInstruction, instruction, valueDef, falsehood, falsehoodInstruction,
+    boolLiteral, validateCallableKindNamePresenceV1,
+    validateCallableNameUniquenessV1,
+    validateCallableParameterNameUniquenessV1,
+    validateCallableEntryViewPresenceV1, validateInitializerCardinalityV1,
+    validateInitializerResultShapeV1, validateInvariantResultShapeV1,
+    validateInvariantParameterShapeV1, validateInvariantLoopBoundsShapeV1,
+    validateNonClosureCallableInvariantStepsV1,
+    validateInvariantRootStepsPresenceV1,
+    hEntryInit, hPureInit, hInvariantInit, hEntryInvariant, hPureInvariant,
+    hInvariantInvariant, hPublicPublic, Pure.pure, Except.pure, Bind.bind,
+    Except.bind]
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

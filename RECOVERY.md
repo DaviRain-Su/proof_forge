@@ -622,3 +622,8 @@ canonical valueBytes之后的same-error declaration-name组已按production顺�
 errors为空，interface-field walker也无声明可遍历；logicalState仅`flag`一项，走shared exact-name checker
 的singleton no-sort success path。下一阻塞为callable signature phases，随后才是InvariantDecl exact join
 与identifier grammar；不得提前声称完整structure成功。
+
+callable signature phase现已闭合。production对≤4个extracted callable names使用六组以内exhaustive
+exact equality scan，>4仍走原private qsort+adjacent路径；所有parameter表为空并由≤1 fast path跳过sort。
+fixture随后真实通过kind/name、entry/view、initializer absence、Bool-public invariant result、zero params/
+loopBounds、non-closure metadata与root steps presence。下一production gate是InvariantDecl exact join。
