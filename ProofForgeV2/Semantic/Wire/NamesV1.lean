@@ -95,11 +95,18 @@ def validateInterfaceFieldNameUniquenessV1
     exact uniqueness. Transport decode of bare `String` fields remains
     NFC-only; this gate is the sole full identifier authority for structure
     validate / structure-gated encode / carrier re-encode. -/
-private def validateIdentifierNameV1 (name : String) :
+def validateIdentifierNameV1 (name : String) :
     Except SemanticWireErrorV1 Unit :=
   mapCommon (validateIdentifierComponent name)
 
-private def validateTypeShapeIdentifierNamesV1 (shape : TypeShapeV1) :
+/-- Refine the wire identifier-name gate from success of the sole shared
+    SPEC-COMMON identifier authority. -/
+theorem validateIdentifierNameV1_eq_ok_of_common (name : String)
+    (hcommon : validateIdentifierComponent name = .ok ()) :
+    validateIdentifierNameV1 name = .ok () := by
+  simp [validateIdentifierNameV1, mapCommon, hcommon]
+
+def validateTypeShapeIdentifierNamesV1 (shape : TypeShapeV1) :
     Except SemanticWireErrorV1 Unit := do
   match shape with
   | .struct fields =>

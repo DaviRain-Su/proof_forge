@@ -866,6 +866,66 @@ theorem invariantDeclarationJoin_data :
     truthDecl, falsehoodDecl, hEntryInvariant, hPureInvariant,
     hInvariantInvariant, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+/-- Every declaration name in the canonical fixture passes the sole shared
+    SPEC-COMMON identifier authority in production table order. -/
+theorem declarationIdentifierNames_data :
+    validateDeclarationIdentifierNamesV1 data = .ok () := by
+  have identifierOk (name : String)
+      (hcommon : validateIdentifierComponent name = .ok ()) :
+      validateIdentifierNameV1 name = .ok () :=
+    validateIdentifierNameV1_eq_ok_of_common name hcommon
+  have hflag : validateIdentifierNameV1 "flag" = .ok () := by
+    apply identifierOk
+    unfold validateIdentifierComponent
+    rw [if_pos (by decide)]
+    simp only [ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii "flag" (by decide),
+      Bind.bind, Except.bind]
+    rw [if_neg (by decide)]
+    simp only [Pure.pure, Except.pure]
+    rfl
+  have hentry : validateIdentifierNameV1 "entry_gate" = .ok () := by
+    apply identifierOk
+    unfold validateIdentifierComponent
+    rw [if_pos (by decide)]
+    simp only [ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii "entry_gate" (by decide),
+      Bind.bind, Except.bind]
+    rw [if_neg (by decide)]
+    simp only [Pure.pure, Except.pure]
+    rfl
+  have hleaf : validateIdentifierNameV1 "truthLeaf" = .ok () := by
+    apply identifierOk
+    unfold validateIdentifierComponent
+    rw [if_pos (by decide)]
+    simp only [ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii "truthLeaf" (by decide),
+      Bind.bind, Except.bind]
+    rw [if_neg (by decide)]
+    simp only [Pure.pure, Except.pure]
+    rfl
+  have htruth : validateIdentifierNameV1 "truth" = .ok () := by
+    apply identifierOk
+    unfold validateIdentifierComponent
+    rw [if_pos (by decide)]
+    simp only [ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii "truth" (by decide),
+      Bind.bind, Except.bind]
+    rw [if_neg (by decide)]
+    simp only [Pure.pure, Except.pure]
+    rfl
+  have hfalsehood : validateIdentifierNameV1 "falsehood" = .ok () := by
+    apply identifierOk
+    unfold validateIdentifierComponent
+    rw [if_pos (by decide)]
+    simp only [ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii "falsehood" (by decide),
+      Bind.bind, Except.bind]
+    rw [if_neg (by decide)]
+    simp only [Pure.pure, Except.pure]
+    rfl
+  simp [validateDeclarationIdentifierNamesV1, validateTypeShapeIdentifierNamesV1,
+    data, types, boolType, principalType, unitType, logicalStateDecl, gate,
+    entryGate, leaf, leafBlock, truth, invariantCallable, truthInstruction,
+    instruction, valueDef, falsehood, falsehoodInstruction, boolLiteral,
+    invariants, truthDecl, falsehoodDecl, hflag, hentry, hleaf, htruth,
+    hfalsehood, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])
