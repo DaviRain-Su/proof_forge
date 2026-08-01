@@ -91,11 +91,11 @@ set_return_data 1/2/4 + SBPF stxb/h/w；NEAR value_return 长度 + u8-le ABI；N
 原生 result InputType。UInt128 结果 fail closed。NarrowResult Mollusk 三测绿。
 shard-targets 绿。隔离 CI 已 dispatch（ci-verify-t9a-narrow-result）。
 
-### [in_progress] T9b：EVM UInt128/256 ABI（state/param + body）
-- EVM 256 位字天然：UInt256 = 原生字、UInt128 = 低 128 位；storage slot-per-field 保持
-- 工作面：Envelope EVM 策略扩 {128,256}（或专用）；literal 解码 16/32 字节；checked add/sub/mul/div/mod 256 位溢出守卫（Yul gt/lt 而非 64 位掩码）；shl/shr 大宽；state/param byteWidth 16/32；IDL
-- 负向：Solana/NEAR/Noir 对 UInt128/256 保持 fail closed（本切片只做 EVM）
-- 金样 + EvmSmoke 正/负；solc/anvil 若工具可用则验证
+### [merged] T9b：EVM UInt128/256 ABI（state/param + body）（2026-08-01, 09c07cfc8）
+EVM-only：type-table/isEvmAbiUintWidth 扩 {128,256}；byteWidth 16/32；wide LE
+literal + bigLiteral；ResultKind uint128/256；Yul 掩码 + ABI；PlanSchema tag 49。
+Solana/NEAR/Noir 保持 fail closed。EvmSmoke WideUint 绿；shard-targets 绿。
+隔离 CI 已 dispatch（ci-verify-t9b-evm-u128-256）。
 
 ### [pending] T9c：窄 Int（Int8/16/32 body + ABI）
 - 当前 Int64-only（pilotIntWidthPolicyI64）；TypeCheck/Normalize 已开 Int 窄宽（T1）
@@ -130,3 +130,4 @@ T9-0（主代理）→ T9a → T9b → T9c → T9d → T9e（每个之间留 aud
 | 2026-08-01 | T8d | merged 91bd079ff, 隔离 CI 已 dispatch（ci-verify-t8d-noir-body） |
 | 2026-08-01 | M4 | merged 13e3a54be, 隔离 CI 已 dispatch（ci-verify-m4-plan-digest） |
 | 2026-08-01 | T9a | merged 642e6016e, 隔离 CI 已 dispatch（ci-verify-t9a-narrow-result） |
+| 2026-08-01 | T9b | merged 09c07cfc8, 隔离 CI 已 dispatch（ci-verify-t9b-evm-u128-256） |
