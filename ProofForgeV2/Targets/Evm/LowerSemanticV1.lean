@@ -249,7 +249,9 @@ private def evmPlanErr (message : String) : CompileError :=
     `pilotUintWidthPolicyEvmBody` + default `pilotIntWidthPolicyI64`. Body
     multi-width UInt values and Int64 values are allowed; **state and ABI
     parameters admit UInt64 or Int64** via `requirePublicUInt64OrInt64*` with
-    `allowNonPublic := true` (N1). UInt128/256 and non-64 Int fail closed. -/
+    `allowNonPublic := true` (N1). UInt128/256 and non-64 Int fail closed.
+    N2c: Principal remains fail-closed (wire identity is variable-length
+    u32-prefixed; not a 20-byte EVM address). -/
 private def validateEvmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 :=
   validatePilotTypeClosure evmPlanErr evmTypeClosureWording types

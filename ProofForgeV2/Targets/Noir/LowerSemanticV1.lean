@@ -348,7 +348,9 @@ private def noirPlanErr (m : String) : CompileError :=
 
 /-- Noir pilot accepts UInt64/Unit/Bool/UInt32/Int64 plus sole catalog Field
     (bn254 Fr = Noir native Field). Valid but richer SemanticProgramV1 programs
-    fail at the target Plan seam rather than being silently erased. -/
+    fail at the target Plan seam rather than being silently erased.
+    N2c: Principal remains fail-closed (variable-length identity is not a
+    Field element; default `pilotPrincipalPolicyNone`). -/
 private def validateNoirTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 :=
   validatePilotTypeClosure noirPlanErr noirTypeClosureWording types

@@ -9,9 +9,10 @@ materializer (EVM / Solana / NEAR / Noir / Psy) currently reimplements:
 
 * ASCII identifier grammar (cap is target-local)
 * generic array duplicate scan
-* anonymous UInt64 / optional UInt32 / Unit / Bool / optional Int64
-  type-closure admission (Int widths are per-target; first honest slice is
-  Int64-only on every Phase-1 target)
+* anonymous UInt64 / optional UInt32 / Unit / Bool / optional Int64 /
+  optional Field / optional Principal type-closure admission (Int widths are
+  per-target; first honest slice is Int64-only on every Phase-1 target;
+  Principal defaults fail-closed — wire identity is variable-length)
 * UInt64/Int64 state/parameter type predicates with per-target visibility
   policy (`allowNonPublic` — EVM/Solana/NEAR accept private/commitment;
   Noir declines)
@@ -149,11 +150,35 @@ def pilotFieldPolicyNone : PilotFieldPolicy where
 def pilotFieldPolicyBn254 : PilotFieldPolicy where
   admitBn254Fr := true
 
+/-- Per-target admission for identity-only Principal.
+
+    Wire Principal valueBytes are **variable-length**: `u32 LE length` (1..=4096)
+    + opaque body (`maxTypeLengthV1`). No Phase-1 target identity is an exact
+    canonical-bytes match:
+    * EVM `address` = fixed 20 bytes (not variable-length u32-prefixed)
+    * Solana pubkey = fixed 32 bytes
+    * NEAR account id = UTF-8 string, not binary identity payload
+    * Noir Field / Psy Felt = field elements, not opaque identity bytes
+
+    Default is fail-closed. A future target may set `admitPrincipal := true`
+    only when it can store and byte-compare the full wire encoding. -/
+structure PilotPrincipalPolicy where
+  admitPrincipal : Bool
+  deriving BEq, Repr
+
+/-- Historical / opt-out: Principal fail-closed (all Phase-1 targets). -/
+def pilotPrincipalPolicyNone : PilotPrincipalPolicy where
+  admitPrincipal := false
+
+/-- Admit at most one anonymous Principal type (reserved; no Phase-1 user yet). -/
+def pilotPrincipalPolicyAdmit : PilotPrincipalPolicy where
+  admitPrincipal := true
+
 /-- Anonymous type ids admitted by a pilot type-closure policy.
-    UInt64 is required; Unit / Bool / Int64 / Field are optional (at most one
-    each). Additional anonymous UInt widths appear in `otherUintByWidth`
-    (includes UInt32 when present). Admitted Int widths appear in
-    `otherIntByWidth` (Int64 also mirrored as `int64TypeId`). -/
+    UInt64 is required; Unit / Bool / Int64 / Field / Principal are optional
+    (at most one each). Additional anonymous UInt widths appear in
+    `otherUintByWidth` (includes UInt32 when present). Admitted Int widths
+    appear in `otherIntByWidth` (Int64 also mirrored as `int64TypeId`). -/
 structure PilotTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
@@ -172,6 +197,8 @@ structure PilotTypeClosureV1 where
   otherIntByWidth : Array (Nat × TypeIdV1) := #[]
   /-- Optional sole catalog Field (bn254 Fr) when Field policy admits. -/
   fieldTypeId : Option TypeIdV1 := none
+  /-- Optional anonymous Principal when Principal policy admits. -/
+  principalTypeId : Option TypeIdV1 := none
   deriving BEq, Repr
 
 /-- Look up an admitted non-64 UInt TypeId by bit width. -/
@@ -216,10 +243,20 @@ def PilotTypeClosureV1.isField
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.fieldTypeId == some typeId
 
+/-- True when `typeId` is the admitted anonymous Principal. -/
+def PilotTypeClosureV1.isPrincipal
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.principalTypeId == some typeId
+
 /-- True when `typeId` is admitted UInt64, Int64, or Field. -/
 def PilotTypeClosureV1.isUInt64OrInt64OrField
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isUInt64OrInt64 typeId || c.isField typeId
+
+/-- True when `typeId` is admitted UInt64, Int64, Field, or Principal. -/
+def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipal
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.isUInt64OrInt64OrField typeId || c.isPrincipal typeId
 
 /-- Per-target detail strings that already diverged before EnvelopeV1.
     Common details (named types, one UInt64, duplicate Unit/Bool, missing
@@ -244,7 +281,7 @@ def evmTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt8/UInt16/UInt32/UInt64 and Int64 integer widths are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, and Bool are supported (Field needs mod-p arithmetic subsystem)"
+    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, and Bool are supported (Field needs mod-p arithmetic; Principal is variable-length u32-prefixed identity with no EVM address exact match)"
 
 /-- Solana type-closure diagnostic wording (UInt64/32 + Int64).
     Field fail-closed: no native field element. -/
@@ -254,7 +291,7 @@ def solanaTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/UInt32 and Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, Int64, Unit, and Bool are supported (no native Field)"
+    "only UInt64, UInt32, Int64, Unit, and Bool are supported (no native Field; Principal is variable-length u32-prefixed identity, not fixed 32-byte pubkey)"
 
 /-- NEAR type-closure diagnostic wording (UInt64/32 + Int64).
     Field fail-closed: no native field element. -/
@@ -264,7 +301,7 @@ def nearTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/UInt32 and Int64 integer types are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, Int64, Unit, and Bool are supported (no native Field)"
+    "only UInt64, UInt32, Int64, Unit, and Bool are supported (no native Field; Principal is binary variable-length identity, not NEAR account-id string)"
 
 /-- Noir type-closure diagnostic wording (UInt64 + optional UInt32 + Int64 + Field).
 
@@ -277,7 +314,7 @@ def noirTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64 and Int64 integer widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, Int64, Unit, Bool, and Field(bn254-fr) are supported"
+    "only UInt64, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length identity, not a Field element)"
 
 /-- Psy type-closure diagnostic wording (UInt64/32 + Int64).
     Field fail-closed: Psy Felt is a field element but there is no pinned
@@ -288,7 +325,7 @@ def psyTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/UInt32 and Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, Int64, Unit, and Bool are supported (Psy Felt modulus not proven equal to bn254 Fr)"
+    "only UInt64, UInt32, Int64, Unit, and Bool are supported (Psy Felt modulus not proven equal to bn254 Fr; Principal is variable-length identity, not Felt)"
 private def shapeMsg (label detail : String) : String :=
   s!"unsupported {label} semantic shape: {detail}"
 
@@ -306,25 +343,28 @@ private def duplicateUintDetail
 private def duplicateIntDetail (width : Nat) : String :=
   s!"expected at most one anonymous Int{width} type"
 
-/-- Admit a pilot type closure under explicit UInt-, Int-width, and Field
-    policies.
+/-- Admit a pilot type closure under explicit UInt-, Int-width, Field, and
+    Principal policies.
 
     Rules: reject named types; require exactly one anonymous UInt64; accept at
     most one of each other admitted UInt width / admitted Int width / Unit /
-    Bool / sole catalog Field; reject all other shapes. Diagnostics use
-    `mkErr` and `wording`.
+    Bool / sole catalog Field / Principal; reject all other shapes. Diagnostics
+    use `mkErr` and `wording`.
 
     Default UInt policy is historical `{64, 32}`; default Int policy is
     **Int64-only** (`pilotIntWidthPolicyI64`) so Phase-1 targets open Int64
     without per-call-site boilerplate. Default Field policy is **none**
-    (fail closed); pass `pilotFieldPolicyBn254` for Noir. -/
+    (fail closed); pass `pilotFieldPolicyBn254` for Noir. Default Principal
+    policy is **none** (fail closed on all Phase-1 targets — wire Principal is
+    variable-length u32-prefixed opaque identity). -/
 def validatePilotTypeClosure
     (mkErr : String → CompileError)
     (wording : PilotTypeClosureWording)
     (types : Array TypeDeclV1)
     (policy : PilotUintWidthPolicy := pilotUintWidthPolicyU64U32)
     (intPolicy : PilotIntWidthPolicy := pilotIntWidthPolicyI64)
-    (fieldPolicy : PilotFieldPolicy := pilotFieldPolicyNone) :
+    (fieldPolicy : PilotFieldPolicy := pilotFieldPolicyNone)
+    (principalPolicy : PilotPrincipalPolicy := pilotPrincipalPolicyNone) :
     CompileResult PilotTypeClosureV1 := do
   let label := wording.targetLabel
   unless policy.admittedWidths.contains 64 do
@@ -335,6 +375,7 @@ def validatePilotTypeClosure
   let mut otherUintByWidth : Array (Nat × TypeIdV1) := #[]
   let mut otherIntByWidth : Array (Nat × TypeIdV1) := #[]
   let mut fieldTypeId : Option TypeIdV1 := none
+  let mut principalTypeId : Option TypeIdV1 := none
   for decl in types do
     unless decl.name.isNone do
       throw <| mkErr (shapeMsg label
@@ -380,6 +421,13 @@ def validatePilotTypeClosure
           throw <| mkErr (shapeMsg label
             "expected at most one anonymous Field type")
         fieldTypeId := some decl.id
+    | .principal =>
+        unless principalPolicy.admitPrincipal do
+          throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
+        unless principalTypeId.isNone do
+          throw <| mkErr (shapeMsg label
+            "expected at most one anonymous Principal type")
+        principalTypeId := some decl.id
     | _ =>
         throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
   let resolvedUInt64TypeId ← match uint64TypeId with
@@ -398,6 +446,7 @@ def validatePilotTypeClosure
     int64TypeId
     otherIntByWidth
     fieldTypeId
+    principalTypeId
   }
 /-! ### UInt64 state / parameter predicates (visibility policy)
 
@@ -509,6 +558,38 @@ def requirePublicUInt64OrInt64OrFieldParam
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
   unless types.isUInt64OrInt64OrField param.typeId do
+    throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+
+/-- Fail unless `state` is UInt64, Int64, Field, or Principal, and public unless
+    `allowNonPublic`. Reserved for a target that admits Principal. -/
+def requirePublicUInt64OrInt64OrFieldOrPrincipalState
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isUInt64OrInt64OrFieldOrPrincipal state.typeId do
+    throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
+
+/-- Fail unless `param` is UInt64, Int64, Field, or Principal, and public unless
+    `allowNonPublic`. Reserved for a target that admits Principal. -/
+def requirePublicUInt64OrInt64OrFieldOrPrincipalParam
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (owner : String)
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isUInt64OrInt64OrFieldOrPrincipal param.typeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
   unless param.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with

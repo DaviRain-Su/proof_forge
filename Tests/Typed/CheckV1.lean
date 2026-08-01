@@ -4680,6 +4680,84 @@ private unsafe def testFieldBn254Normalize
   let ordTyped := checkProgramTypedResultV1 ordValidated
   expect (!ordTyped.ok) "field-ord: TypeCheck rejects Field ordering"
 
+/-- Wave N2c: Principal identity-only — state/params/return + eq/ne.
+    Arithmetic/ordering/unary on Principal fail closed. No Principal literals. -/
+private unsafe def testPrincipalIdentityNormalize
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "PrinProg" <|
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  entry set(who : Principal) : Principal do\n" ++
+    "    owner := who\n" ++
+    "    return owner\n" ++
+    "  entry eq(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n" ++
+    "  entry ne(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a != b\n" ++
+    "  view get() : Principal do\n" ++
+    "    return owner\n"
+  let validated ← loadSource session "principal-id" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"principal-id: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"principal-id: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"principal-id: validate: {repr e}"
+  let principalTid? := data.types.findSome? fun decl =>
+    match decl.name, decl.shape with
+    | none, .principal => some decl.id
+    | _, _ => none
+  let principalTid ← match principalTid? with
+    | some tid => pure tid
+    | none => throw <| IO.userError "principal-id: missing anonymous Principal"
+  let some st0 := data.logicalState[0]? |
+    throw <| IO.userError "principal-id: missing state"
+  expect (st0.typeId == principalTid) "principal-id: state is Principal"
+  -- entry set result Principal
+  let some setC := data.callables.find? (fun c => c.name == some "set") |
+    throw <| IO.userError "principal-id: missing entry set"
+  expect (setC.result.typeId == principalTid) "principal-id: set returns Principal"
+  -- entry eq: Op.Binary.eq
+  let some eqC := data.callables.find? (fun c => c.name == some "eq") |
+    throw <| IO.userError "principal-id: missing entry eq"
+  let some eqBlk := eqC.blocks[0]? |
+    throw <| IO.userError "principal-id: missing eq block"
+  let hasEq := eqBlk.instructions.any fun instr =>
+    match instr.op with | .binary .eq _ _ => true | _ => false
+  expect hasEq "principal-id: Op.Binary.eq present"
+  -- entry ne: Op.Binary.ne
+  let some neC := data.callables.find? (fun c => c.name == some "ne") |
+    throw <| IO.userError "principal-id: missing entry ne"
+  let some neBlk := neC.blocks[0]? |
+    throw <| IO.userError "principal-id: missing ne block"
+  let hasNe := neBlk.instructions.any fun instr =>
+    match instr.op with | .binary .ne _ _ => true | _ => false
+  expect hasNe "principal-id: Op.Binary.ne present"
+  -- Arithmetic on Principal fails closed at TypeCheck
+  let arithSrc := wrap "PrinArith" <|
+    "  entry add(a : Principal, b : Principal) : Principal do\n" ++
+    "    return a + b\n"
+  let arithValidated ← loadSource session "principal-arith" arithSrc
+  let arithTyped := checkProgramTypedResultV1 arithValidated
+  expect (!arithTyped.ok) "principal-arith: TypeCheck rejects Principal arithmetic"
+  -- Ordering on Principal fails closed
+  let ordSrc := wrap "PrinOrd" <|
+    "  entry lt(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a < b\n"
+  let ordValidated ← loadSource session "principal-ord" ordSrc
+  let ordTyped := checkProgramTypedResultV1 ordValidated
+  expect (!ordTyped.ok) "principal-ord: TypeCheck rejects Principal ordering"
+  -- Unary neg on Principal fails closed
+  let negSrc := wrap "PrinNeg" <|
+    "  entry neg(x : Principal) : Principal do\n" ++
+    "    return -x\n"
+  let negValidated ← loadSource session "principal-neg" negSrc
+  let negTyped := checkProgramTypedResultV1 negValidated
+  expect (!negTyped.ok) "principal-neg: TypeCheck rejects Principal unary neg"
+
 /-- T1 multi-width match scrutinee on UInt8 with exact case valueBytes. -/
 private unsafe def testMultiWidthMatchScrut
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -5681,6 +5759,7 @@ unsafe def run : IO Unit := do
   testMultiWidthIntResults session
   testInt64StateArithNeg session
   testFieldBn254Normalize session
+  testPrincipalIdentityNormalize session
   testMultiWidthMatchScrut session
   testMixedWidthOperandsTypedNotOk session
   testMultiWidthShiftUInt32Shared session

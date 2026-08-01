@@ -2545,4 +2545,42 @@ unsafe def run : IO Unit := do
             (e.render).contains "bn254")
           s!"N2b field {target} message must cite Field boundary, got {e.render}"
 
+
+  -- N2c: Principal identity-only product pin — Normalize admits, all five
+  -- Phase-1 targets fail closed (wire Principal is variable-length u32-prefixed
+  -- opaque identity; no exact native address/pubkey/account-id/Field match).
+  let prinSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PrincipalMix where\n" ++
+    "  state owner : Principal\n\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n\n" ++
+    "  entry set(who : Principal) : Principal do\n" ++
+    "    owner := who\n" ++
+    "    return owner\n\n" ++
+    "  entry eq(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n\n" ++
+    "  view get() : Principal do\n" ++
+    "    return owner\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let prinV1 ← match ← session.selectProgramV1 prinSource
+      "<targets-n2c-principal>" "Examples.PrincipalMix" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"N2c principal select: {e.render}"
+  let prinCompiled ← liftResult <| Compiler.compileValidatedSourceV1 prinV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy] do
+    match materializeSelected target prinCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N2c principal: {target} must fail closed on Principal"
+    | .error e =>
+        expect ((e.render).contains "Principal" ||
+            (e.render).contains "principal" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "identity" ||
+            (e.render).contains "variable-length")
+          s!"N2c principal {target} message must cite Principal boundary, got {e.render}"
+
 end Tests.Materialization

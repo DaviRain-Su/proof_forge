@@ -405,7 +405,9 @@ private def nearPlanErr (message : String) : CompileError :=
 /-- NEAR pilot accepts the anonymous UInt64/Unit/Bool/UInt32 closure currently
     emitted by the NormalizeV1 public-UInt64 envelope. Valid but richer
     SemanticProgramV1 programs fail at the target Plan seam rather than being
-    silently erased. -/
+    silently erased.
+    N2c: Principal remains fail-closed (wire identity is binary variable-length;
+    not a NEAR account-id string). -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types

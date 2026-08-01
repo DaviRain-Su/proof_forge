@@ -632,9 +632,10 @@ private def makePlanFromSemanticDataV1
     (sourceHash semanticHash : String) : CompileResult Plan := do
   let mut stateFields : Array String := #[]
   for state in data.logicalState do
-    -- N1: Felt storage is opaque; accept any visibility, UInt64 type.
+    -- N1: Felt storage is opaque; accept any visibility, UInt64/Int64 type.
+    -- N2c: Principal is variable-length u32-prefixed identity — not Felt.
     unless isUInt64Type data state.typeId || isInt64Type data state.typeId do
-      planError "unsupported Psy semantic shape: state must be UInt64 or Int64"
+      planError "unsupported Psy semantic shape: state must be UInt64 or Int64 (Principal is variable-length identity, not Felt)"
     stateFields := stateFields.push state.name
   let mut events : Array PlanEvent := #[]
   for ev in data.events do

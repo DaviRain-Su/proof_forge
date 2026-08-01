@@ -325,7 +325,9 @@ private def solanaPlanErr (message : String) : CompileError :=
     `pilotUintWidthPolicySolanaBody` + default `pilotIntWidthPolicyI64`. Body
     multi-width UInt values are allowed; **state and ABI parameters admit
     UInt64 or Int64** via `requirePublicUInt64OrInt64*` with
-    `allowNonPublic := true` (N1). UInt128/256 and non-64 Int fail closed. -/
+    `allowNonPublic := true` (N1). UInt128/256 and non-64 Int fail closed.
+    N2c: Principal remains fail-closed (wire identity is variable-length
+    u32-prefixed; not a fixed 32-byte Solana pubkey). -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
