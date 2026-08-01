@@ -32,6 +32,9 @@ just test-targets       # targets materialization suite only
 # PROOF_FORGE_TEST_JOBS=4   # default
 PROOF_FORGE_TEST_JOBS=2 just test
 
+# Lake module builds already parallelize (no lake -j on Lake 5).
+# PROOF_FORGE_GATE_JOBS=1 just run-deletion-gates   # serial deletion gates
+
 # Frontend worker is not on default build / test-fast / dev-check (in-process Loader).
 just build-frontend-worker   # only the worker exe
 just test-frontend-worker    # worker exe + WorkerV1 shard
