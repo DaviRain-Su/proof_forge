@@ -137,7 +137,8 @@ Solana/NEAR/Noir `PlanSchemaV1` + `engineering*PlanDigestV1`；Registry 四 Phas
 - WAT 多肢 i64：add/sub/compare；条件 scratch locals；host model WideUint
 - shard-targets 绿。隔离 CI 已 dispatch（ci-verify-t9e-near）。非 formal。
 
-### [partial] T9-0：控制面/文档对齐（主代理；不进调度）
+### [merged] T9-0：控制面/矩阵对齐（主代理；578a1e5d1 + b955a3798）
+MIGRATION_MATRIX D2 行与 AGENTS.md Program/Active task/成熟度声明已按 T8/T9 事实更新。
 - **2026-08-01 已做**：RECOVERY 当前 CLI 路径；docs/index + document-status；四 target dossier +
   targets/README；Matrix D1-02/06 产品 CLI 句；engineering-backlog 登记 DOC-1/4/5 done
 - **仍待**：Matrix 长表内 D2/D4 叙述中过时 “UInt64-only / single-block S1 only” 字样的全文扫除；
