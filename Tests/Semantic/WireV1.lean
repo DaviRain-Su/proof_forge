@@ -1979,6 +1979,14 @@ private def testValueBytesPositives : IO Unit := do
     #[{ id := 0, name := none, shape := .unit }]
     #[constOf 0 "u" 0 ByteArray.empty]
   expectValueOk "unit" unitP
+  -- N4 String: empty + ASCII (u32le len || UTF-8)
+  let strTypes : Array TypeDeclV1 := #[{ id := 0, name := none, shape := .string }]
+  let strEmpty ← programWithTypes "VBStrEmpty" strTypes
+    #[constOf 0 "e" 0 (ByteArray.mk #[0, 0, 0, 0])]
+  let strHi ← programWithTypes "VBStrHi" strTypes
+    #[constOf 0 "h" 0 (ByteArray.mk #[2, 0, 0, 0, 'h'.toNat.toUInt8, 'i'.toNat.toUInt8])]
+  expectValueOk "string empty" strEmpty
+  expectValueOk "string hi" strHi
   -- Bytes length 0 and exact N=3
   let bytes0 ← programWithTypes "VBBytes0"
     #[{ id := 0, name := none, shape := .bytes 0 }]
@@ -2086,6 +2094,14 @@ private def testValueBytesNegatives : IO Unit := do
     #[{ id := 0, name := none, shape := .uint 64 }]
     #[constOf 0 "u" 0 (ByteArray.mk #[1, 2, 3])]
   expectValueNonCanonical "uint64 short" badU64
+  -- N4 String: truncated body / overlong framing
+  let strTypes : Array TypeDeclV1 := #[{ id := 0, name := none, shape := .string }]
+  let badStrTrunc ← programWithTypes "VBBadStrTrunc" strTypes
+    #[constOf 0 "s" 0 (ByteArray.mk #[2, 0, 0, 0, 'x'.toNat.toUInt8])]  -- claims 2, has 1
+  expectValueNonCanonical "string truncated" badStrTrunc
+  let badStrOver ← programWithTypes "VBBadStrOver" strTypes
+    #[constOf 0 "s" 0 (ByteArray.mk #[0, 0, 0, 0, 'x'.toNat.toUInt8])]  -- claims 0, trailing
+  expectValueNonCanonical "string trailing" badStrOver
   -- Bytes N wrong length
   let badBytes ← programWithTypes "VBBadBytes"
     #[{ id := 0, name := none, shape := .bytes 2 }]

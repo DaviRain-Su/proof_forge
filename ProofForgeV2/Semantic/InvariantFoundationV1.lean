@@ -110,6 +110,9 @@ private def defaultValueAtV1 (types : Array TypeDeclV1) (typeId : TypeIdV1) :
           pure ((encodeU32le 1).append (encodeU8 0))
       | .unit =>
           pure ByteArray.empty
+      | .string =>
+          -- Empty string: u32le(0) with no body (N4; empty is legal).
+          pure (encodeU32le 0)
       | .bytes length =>
           pure (zeroBytesV1 length.toNat)
       | .array element length => do

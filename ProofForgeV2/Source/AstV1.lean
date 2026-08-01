@@ -18,6 +18,9 @@ inductive TypeV1 where
   | int (width : UInt16)
   | principal
   | unit
+  /-- Variable-length NFC UTF-8 string (N4). Source keyword `String`; maps to
+      Semantic `TypeShapeV1.string`. -/
+  | string
   | named (name : SourceNameComponentV1)
   | array (element : TypeV1) (length : UInt32)
   | map (key value : TypeV1)

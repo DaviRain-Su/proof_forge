@@ -128,6 +128,12 @@ inductive TypeShapeV1 where
   | int (width : UInt16)
   | principal
   | unit
+  /-- Variable-length NFC UTF-8 string (N4 engineering TypeShape).
+      Canonical valueBytes = `u32le(byteLen) || UTF-8` with `0 ≤ byteLen ≤ maxTypeLengthV1`
+      (empty string admitted; invalid UTF-8 / non-NFC → `.nonCanonical`).
+      Not a formal SPEC §4.2 tag yet; engineering extension for ProgramV1
+      `String` / string-literal product surface. -/
+  | string
   | bytes (length : UInt32)
   | array (element : TypeIdV1) (length : UInt32)
   | map (key : TypeIdV1) (value : TypeIdV1)

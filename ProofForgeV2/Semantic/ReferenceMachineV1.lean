@@ -180,6 +180,7 @@ private def typeShapeAdmitted (shape : TypeShapeV1) :
   | .struct _ => pure ()
   | .enum _ => pure ()
   | .principal => admitFail "unsupported Principal"
+  | .string => pure ()  -- N4: identity valueBytes; eq/ne via byte compare
 
 /-- Family-level op admission. Unsupported ops never reach runtime (only
     internalInvariant defense remains if admission is bypassed). -/

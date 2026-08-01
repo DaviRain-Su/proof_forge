@@ -363,7 +363,7 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     | none => false
     | some decl =>
       match decl.shape with
-      | .bool | .uint _ | .int _ | .principal | .bytes _ | .field _ => true
+      | .bool | .uint _ | .int _ | .principal | .string | .bytes _ | .field _ => true
       | .struct fields =>
           fields.all (fun f => serializableType types f.typeId fuel)
       | .enum variants =>
@@ -478,8 +478,8 @@ def checkOpTyping (instr : InstructionV1) (env : OpTypingEnv) :
             unless ctorIdx == 0 do return ← err .badCfg
             unless args.size == 0 do return ← err .badCfg
             requireResultEq instr.result tid
-        | .bool | .uint _ | .int _ | .principal | .bytes _ | .field _ =>
-            -- primitives/Bytes/Principal/Field/uint/int/bool cannot be Constructed
+        | .bool | .uint _ | .int _ | .principal | .string | .bytes _ | .field _ =>
+            -- primitives/Bytes/Principal/String/Field/uint/int/bool cannot be Constructed
             err .badCfg
   | .fieldGet base fieldIdx =>
       -- base ValueId type resolves to Struct via defTypes; fieldIndex < fields.size;

@@ -25,9 +25,13 @@
       (integer/Bool literal arms) or Enum/Option scrutinee (constructor arms
       via `Op.VariantTag` → switch on UInt32 tag + arm-local
       `Op.VariantPayload` binds); exactly one wildcard/bind catch-all when
-      required by TypeCheck; string patterns and nested constructor/literal
-      sub-patterns fail closed; a catch-all-only match materializes inline;
-      expression-level match shares the same pattern set (see expressions)
+      required by TypeCheck; string literal patterns on String scrutinee
+      (N4; exact valueBytes identity); nested constructor/literal
+      sub-patterns open when each outer constructor is unique (recursive
+      bind/wildcard/constructor; nested literal falls through to catch-all
+      on mismatch and therefore requires a catch-all); a catch-all-only
+      match materializes inline; expression-level match shares the same
+      pattern set (see expressions)
     * expressions: bare place (param or state name), expected-type integer
       literals (legal UInt/Int widths, LE valueBytes of width/8; Int negatives
       enter as `unary neg (integer literal)` folded to two's-complement LE
@@ -43,15 +47,15 @@
       revert; Field neg = `(p - v) % p`; Principal has no unary). call/schedule
       args and for endpoints stay UInt64 in this slice
     * types: named Struct/Enum (Pass0 contiguous prefix, source order) then
-      anonymous legal UInt/Int, Unit, Bool, Principal, Bytes, Array, Map,
-      Option, Field(bn254-fr); one TypeId per distinct anonymous shape,
+      anonymous legal UInt/Int, Unit, Bool, Principal, String, Bytes, Array,
+      Map, Option, Field(bn254-fr); one TypeId per distinct anonymous shape,
       interned on first actual use after named registration. State/parameter
-      positions admit public legal-UInt/Int/Field/Principal **or named
-      Struct/Enum** (N3; anonymous Array/Map/Option/Bytes state still fail
+      positions admit public legal-UInt/Int/Field/Principal/String **or named
+      Struct/Enum** (N3/N4; anonymous Array/Map/Option/Bytes state still fail
       closed). Entry/view/fn results stay legal
-      UInt/Int/Unit/Bool/Field/Principal (aggregate results fail closed —
+      UInt/Int/Unit/Bool/Field/Principal/String (aggregate results fail closed —
       target ABI surface is scalar). Local `let` may hold named/aggregate
-      values (including Principal)
+      values (including Principal/String)
     * expressions (aggregate values): `StructName.new` / `Enum.Variant` /
       `Option.some` / `Option.none` constructors → `Op.Construct`; field places
       → `Op.FieldGet`; index places → `Op.IndexGet` (Array/Bytes/Map); field
@@ -67,11 +71,10 @@
       edges still point forward; block params appear on loop headers and on
       expression-match join blocks (arm value → join via jump args)
       * expression-level `match Expr with | Pattern => Expr` (T4/T5): same
-      literal + Enum/Option constructor + catch-all pattern set as statement
-      match; each arm value lowers in its own block and jumps to a join block
-      carrying the result as a single block param; catch-all-only matches
-      inline without a switch. String patterns remain fail closed (no String
-      TypeShapeV1)
+      literal (UInt/Bool/String) + Enum/Option constructor + catch-all pattern
+      set as statement match; each arm value lowers in its own block and jumps
+      to a join block carrying the result as a single block param;
+      catch-all-only matches inline without a switch
       * statements: immutable `let` bindings lower to environment entries
       (the RHS evaluates once; reassignment via `assign` fails closed except
       field/index update of an immutable local which rebinds the name)
@@ -93,15 +96,16 @@
       residual alpha `Semantic.Program`, Registry, or target Plan/IR.
 
   Out of scope for this module:
-    * Field/Principal source literals, Field/Principal ordering comparisons,
-      Field `mod`, Principal arithmetic/bitwise/unary,
+    * Field/Principal source literals, Field/Principal/String ordering
+      comparisons, Field `mod`, Principal/String arithmetic/bitwise/unary,
       non-UInt64 call/schedule args and for endpoints,
       anonymous Array/Map/Option/Bytes/Unit/Bool as state or param types,
       aggregate entry/view/fn results, nonempty Map construction,
-      ContextRead/Commit, match string patterns (no String TypeShape),
-      nested constructor/literal sub-patterns inside constructor arms,
+      ContextRead/Commit, multi-arm same outer constructor with competing
+      nested patterns (still fail closed as duplicate constructor cases),
       param-root field/index assign, true mutable locals (field/index
-      rebind of immutable let only), Int event/error fields (stay UInt-only)
+      rebind of immutable let only), Int event/error fields (stay UInt-only),
+      String event/error fields (stay UInt-only this slice)
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -240,6 +244,7 @@ private def shapeEq (a b : TypeShapeV1) : Bool :=
   | .unit, .unit => true
   | .bool, .bool => true
   | .principal, .principal => true
+  | .string, .string => true
   | .bytes la, .bytes lb => la == lb
   | .array ea la, .array eb lb => ea == eb && la == lb
   | .map ka va, .map kb vb => ka == kb && va == vb
@@ -306,6 +311,7 @@ private partial def internSourceType (interner : TypeInternerV1) (ty : SrcType) 
   | .unit => pure (internShape interner .unit)
   | .bool => pure (internShape interner .bool)
   | .principal => pure (internShape interner .principal)
+  | .string => pure (internShape interner .string)
   | .named n =>
       -- Named types are registered only in Pass0; body/declaration sites only
       -- look up. Never push a named TypeDecl here (would break named prefix).
@@ -546,15 +552,15 @@ private def requireAnonymousIntegerOrFieldTypeId
   | some (.field spec) =>
       if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
       else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
-  | some .principal => pure ()
+  | some .principal | some .string => pure ()
   | some _ =>
-      failUnsupported s!"S1 {context} requires anonymous UInt/Int/Field/Principal type"
+      failUnsupported s!"S1 {context} requires anonymous UInt/Int/Field/Principal/String type"
   | none =>
       failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
 
-/-- N3 state/param admission: anonymous legal UInt/Int/Field/Principal **or**
-    named Struct/Enum. Anonymous Array/Map/Option/Bytes/Unit/Bool fail closed
-    at declaration sites (locals may still hold them via let). -/
+/-- N3/N4 state/param admission: anonymous legal UInt/Int/Field/Principal/String
+    **or** named Struct/Enum. Anonymous Array/Map/Option/Bytes/Unit/Bool fail
+    closed at declaration sites (locals may still hold them via let). -/
 private def requireStateOrParamTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
@@ -572,14 +578,14 @@ private def requireStateOrParamTypeId
           if legalIntegerWidthV1 w.toNat then pure ()
           else
             failUnsupported
-              s!"S1 {context} requires legal UInt/Int/Field/Principal or named Struct/Enum"
+              s!"S1 {context} requires legal UInt/Int/Field/Principal/String or named Struct/Enum"
       | none, .field spec =>
           if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
           else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
-      | none, .principal => pure ()
+      | none, .principal | none, .string => pure ()
       | none, _ =>
           failUnsupported
-            s!"S1 {context} requires anonymous UInt/Int/Field/Principal or named Struct/Enum"
+            s!"S1 {context} requires anonymous UInt/Int/Field/Principal/String or named Struct/Enum"
 
 /-- Backward-compatible UInt64-only pin used by call/schedule/for endpoints. -/
 private def requireUInt64TypeId
@@ -592,23 +598,23 @@ private def requireUInt64TypeId
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
 /-- Require anonymous scalar at entry/view/fn results: legal UInt/Int, Unit,
-    Bool, sole catalog Field, or Principal. -/
+    Bool, sole catalog Field, Principal, or String. -/
 private def requireScalarResultTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
   match anonShapeOf? types typeId with
   | some (.uint w) =>
       if legalIntegerWidthV1 w.toNat then pure ()
-      else failUnsupported s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal type"
+      else failUnsupported s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal/String type"
   | some (.int w) =>
       if legalIntegerWidthV1 w.toNat then pure ()
-      else failUnsupported s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal type"
-  | some .unit | some .bool | some .principal => pure ()
+      else failUnsupported s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal/String type"
+  | some .unit | some .bool | some .principal | some .string => pure ()
   | some (.field spec) =>
       if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
       else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
   | some _ =>
-      failUnsupported s!"S1 {context} requires UInt/Int/Unit/Bool/Field/Principal type"
+      failUnsupported s!"S1 {context} requires UInt/Int/Unit/Bool/Field/Principal/String type"
   | none =>
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
@@ -974,8 +980,7 @@ private partial def synthLetExpectedV1
   | .literal (.integer _) =>
       failUnsupported "S1 let integer literal requires a type annotation"
   | .literal (.bool _) => pure (internShape st.interner .bool)
-  | .literal (.string _) =>
-      failUnsupported "S1 normalizer supports only UInt/Int/Bool literals"
+  | .literal (.string _) => pure (internShape st.interner .string)
   | .place p =>
       synthPlaceTypeV1 p st.interner st.env states
   | .binary op lhs _ =>
@@ -1195,10 +1200,28 @@ private def resolveCtorPatternV1
       "S1 constructor pattern type does not match match scrutinee"
   pure (idx, payloads)
 
-/-- Bind constructor-arm payload sub-patterns into the local env.
-    Supported sub-patterns: `wildcard` (skip) and `bind` (VariantPayload).
-    Nested constructor/literal sub-patterns fail closed in this slice. -/
-private def bindCtorArgPatternsV1
+/-- True when the scrutinee TypeId is Enum or Option (constructor-matchable). -/
+private def isCtorMatchScrutineeV1 (types : Array TypeDeclV1) (tid : TypeIdV1) : Bool :=
+  match shapeOf? types tid with
+  | some (.enum _) | some (.option _) => true
+  | _ => false
+
+/-- Bind constructor-arm payload sub-patterns into the local env (N4).
+
+    Supported:
+    * `wildcard` — skip
+    * `bind` — `Op.VariantPayload` into env
+    * nested `constructor` — recursive on the extracted payload when the
+      payload TypeId is Enum/Option; only bind/wildcard/constructor leaves
+      (no competing multi-arm same-outer-ctor refinement — still fail closed
+      as duplicate constructor cases at the arm partitioner)
+    * nested `literal` — ignored at bind time; statement/expression match
+      lowerers desugar nested literals to eq-branch fallthrough when a
+      catch-all is present
+
+    Nested constructor assumes a single outer-ctor arm owns this payload path;
+    it does not re-switch on the outer tag. -/
+private partial def bindCtorArgPatternsV1
     (scrutVid : ValueIdV1) (variantIndex : UInt32)
     (payloadTids : Array TypeIdV1) (argPatterns : Array SrcPattern)
     (st : BodyStateV1) : Except NormalizeErrorV1 BodyStateV1 := do
@@ -1217,19 +1240,60 @@ private def bindCtorArgPatternsV1
           (.variantPayload scrutVid variantIndex (UInt32.ofNat i))
         st := { st1 with env := envInsert st1.env (raw name) vid pTid }
     | .literal _ =>
-        return ← failUnsupported
-          "S1 constructor pattern nested literal sub-patterns are not supported"
-    | .constructor _ _ =>
-        return ← failUnsupported
-          "S1 constructor pattern nested constructor sub-patterns are not supported"
+        -- Nested literal guards are applied by the match lowerer after binds
+        -- (needs catch-all fallthrough target). Skip bind here.
+        pure ()
+    | .constructor nestedCtor nestedArgs => do
+        unless isCtorMatchScrutineeV1 st.interner.types pTid do
+          return ← failUnsupported
+            "S1 nested constructor pattern requires Enum or Option payload"
+        let (nIdx, nPayloads) ←
+          resolveCtorPatternV1 st.interner nestedCtor pTid
+        let (st1, pVid) := emitValue st pTid
+          (.variantPayload scrutVid variantIndex (UInt32.ofNat i))
+        st ← bindCtorArgPatternsV1 pVid nIdx nPayloads nestedArgs st1
     i := i + 1
   pure st
 
-/-- True when the scrutinee TypeId is Enum or Option (constructor-matchable). -/
-private def isCtorMatchScrutineeV1 (types : Array TypeDeclV1) (tid : TypeIdV1) : Bool :=
-  match shapeOf? types tid with
-  | some (.enum _) | some (.option _) => true
-  | _ => false
+/-- Encode a source literal to canonical valueBytes under an expected TypeId.
+    Used by match case materialization and nested-literal guards. -/
+private def encodeLiteralValueBytesV1
+    (types : Array TypeDeclV1) (expectedTid : TypeIdV1)
+    (lit : ProofForgeV2.Source.AstV1.LiteralV1) :
+    Except NormalizeErrorV1 ByteArray := do
+  match lit with
+  | .bool value =>
+      match anonShapeOf? types expectedTid with
+      | some .bool => pure (encodeBool value)
+      | _ => failUnsupported "S1 Bool literal requires Bool type"
+  | .integer magnitude =>
+      match anonShapeOf? types expectedTid with
+      | some (.uint w) =>
+          let width := w.toNat
+          unless legalIntegerWidthV1 width do
+            return ← failUnsupported "S1 integer literal requires legal UInt width"
+          unless magnitude < uintExclusiveLimit width do
+            return ← failUnsupported "S1 UInt integer literal is out of range"
+          pure (encodeNatLeBytes magnitude (width / 8))
+      | some (.int w) =>
+          let width := w.toNat
+          unless legalIntegerWidthV1 width do
+            return ← failUnsupported "S1 integer literal requires legal Int width"
+          unless magnitude ≤ intPositiveInclusiveMax width do
+            return ← failUnsupported "S1 Int integer literal is out of range"
+          pure (encodeNatLeBytes magnitude (width / 8))
+      | _ => failUnsupported "S1 integer literal requires legal UInt/Int type"
+  | .string value =>
+      match anonShapeOf? types expectedTid with
+      | some .string => do
+          let bytes ← match encodeString value with
+            | .ok b => pure b
+            | .error _ =>
+                failUnsupported "S1 String literal is not NFC UTF-8"
+          unless bytes.size ≤ 4 + maxTypeLengthV1 do
+            return ← failUnsupported "S1 String literal exceeds maxTypeLengthV1"
+          pure bytes
+      | _ => failUnsupported "S1 String literal requires String type"
 
 /-- One step along an assign place chain after the root name (N3). -/
 private inductive PlaceStepV1 where
@@ -1560,16 +1624,19 @@ private partial def lowerExpr
                   unless fieldSpecEq spec bn254FrFieldSpecV1 do
                     return ← failUnsupported
                       "S1 equality requires sole catalog Field bn254_fr"
-              | some .bool | some .principal => pure ()
+              | some .bool | some .principal | some .string => pure ()
               | _ =>
                   return ← failUnsupported
-                    "S1 equality requires UInt/Int/Bool/Field/Principal operands"
+                    "S1 equality requires UInt/Int/Bool/Field/Principal/String operands"
             else
-              -- Ordering: legal UInt/Int only (Field/Principal fail closed).
+              -- Ordering: legal UInt/Int only (Field/Principal/String fail closed).
               match anonShapeOf? iOp.types opTid with
               | some .principal =>
                   return ← failUnsupported
                     "S1 Principal does not support ordering comparisons"
+              | some .string =>
+                  return ← failUnsupported
+                    "S1 String does not support ordering comparisons"
               | _ => pure ()
               requireExpectedIntegerWidth iOp.types opTid "ordering comparison"
               if isAnonBn254Field iOp.types opTid then
@@ -1629,8 +1696,26 @@ private partial def lowerExpr
           let st0 := { st with interner := i1 }
           let (st1, vid) := emitValue st0 boolTid (.literal boolTid (encodeBool value))
           pure (vid, boolTid, st1)
-      | .string _ =>
-          failUnsupported "S1 normalizer supports only UInt/Int/Bool literals"
+      | .string value => do
+          let (i1, stringTid) := internShape st.interner .string
+          unless stringTid == expectedTid do
+            return ← failUnsupported
+              "S1 String literal requires an enclosing String expected type"
+          let st0 := { st with interner := i1 }
+          let bytes ← match encodeString value with
+            | .ok b => pure b
+            | .error _ =>
+                failUnsupported "S1 String literal is not NFC UTF-8 or exceeds wire string limit"
+          unless bytes.size ≤ 4 + maxTypeLengthV1 do
+            return ← failUnsupported
+              s!"S1 String literal exceeds maxTypeLengthV1 ({maxTypeLengthV1}) UTF-8 bytes"
+          -- encodeString already frames u32le||utf8; reject oversize body.
+          let bodyLen := bytes.size - 4
+          unless bodyLen ≤ maxTypeLengthV1 do
+            return ← failUnsupported
+              s!"S1 String literal exceeds maxTypeLengthV1 ({maxTypeLengthV1}) UTF-8 bytes"
+          let (st1, vid) := emitValue st0 stringTid (.literal stringTid bytes)
+          pure (vid, stringTid, st1)
   | .constructor ctor args => do
       let (resultTid, ctorIdx, argTids) ←
         resolveConstructorLoweringV1 st.interner ctor expectedTid
@@ -1781,43 +1866,41 @@ private partial def lowerExpr
         match anonShapeOf? st1.interner.types scrutTid with
         | some .bool => true
         | _ => false
+      let scrutIsString :=
+        match anonShapeOf? st1.interner.types scrutTid with
+        | some .string => true
+        | _ => false
       let scrutUintWidth? : Option Nat :=
         match anonShapeOf? st1.interner.types scrutTid with
         | some (.uint w) =>
             if legalIntegerWidthV1 w.toNat then some w.toNat else none
         | _ => none
       let scrutIsCtor := isCtorMatchScrutineeV1 st1.interner.types scrutTid
-      -- Partition arms: literal cases | constructor cases | one catch-all.
-      let mut litArms : Array (Nat × Bool × SrcExpr) := #[]
+      -- Partition arms: literal cases (valueBytes) | constructor cases | one catch-all.
+      let mut litArms : Array (ByteArray × SrcExpr) := #[]
       let mut ctorArms : Array (UInt32 × Array TypeIdV1 × Array SrcPattern × SrcExpr) := #[]
       let mut defaultArm? : Option (Option SourceNameComponentV1 × SrcExpr) := none
       for arm in arms do
         match arm.pattern with
-        | .literal lit =>
+        | .literal lit => do
+            let bytes ← encodeLiteralValueBytesV1 st1.interner.types scrutTid lit
+            if litArms.any (fun (b, _) => b == bytes) then
+              return ← failUnsupported
+                "S1 match expression has duplicate literal cases"
             match lit with
-            | .integer magnitude =>
-                let some width := scrutUintWidth? |
+            | .integer _ =>
+                unless scrutUintWidth?.isSome do
                   return ← failUnsupported
                     "S1 match expression integer pattern requires a legal UInt scrutinee"
-                unless magnitude < uintExclusiveLimit width do
-                  return ← failUnsupported
-                    s!"S1 match expression UInt{width} integer pattern is out of range"
-                if litArms.any (fun (v, isBool, _) => !isBool && v == magnitude) then
-                  return ← failUnsupported
-                    "S1 match expression has duplicate literal cases"
-                litArms := litArms.push (magnitude, false, arm.value)
-            | .bool value =>
+            | .bool _ =>
                 unless scrutIsBool do
                   return ← failUnsupported
                     "S1 match expression Bool pattern requires a Bool scrutinee"
-                if litArms.any (fun (v, isBool, _) =>
-                    isBool && v == (if value then 1 else 0)) then
-                  return ← failUnsupported
-                    "S1 match expression has duplicate literal cases"
-                litArms := litArms.push (if value then 1 else 0, true, arm.value)
             | .string _ =>
-                return ← failUnsupported
-                  "S1 match expression does not support string literal patterns (no String TypeShape)"
+                unless scrutIsString do
+                  return ← failUnsupported
+                    "S1 match expression String pattern requires a String scrutinee"
+            litArms := litArms.push (bytes, arm.value)
         | .wildcard =>
             if defaultArm?.isSome then
               return ← failUnsupported
@@ -1858,21 +1941,21 @@ private partial def lowerExpr
             "S1 match expression arm type does not match expected type"
         pure (vid, expectedTid, { stR with env := st1.env })
       else if !litArms.isEmpty then
-        unless scrutIsBool || scrutUintWidth?.isSome do
+        unless scrutIsBool || scrutIsString || scrutUintWidth?.isSome do
           return ← failUnsupported
-            "S1 match expression literal patterns require legal UInt or Bool scrutinee"
+            "S1 match expression literal patterns require legal UInt, Bool, or String scrutinee"
         let (defaultBinder?, defaultValue) ← match defaultArm? with
           | some da => pure da
           | none =>
               return ← failUnsupported
-                "S1 match expression on UInt/Bool requires a catch-all arm"
+                "S1 match expression on UInt/Bool/String requires a catch-all arm"
         let scrutIdx := st1.blocks.size
         let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
         let savedEnv := st1.env
         let mut stA := st2
         let mut caseTargets : Array BlockIdV1 := #[]
         let mut jumpSlots : Array Nat := #[]
-        for (_, _, armValue) in litArms do
+        for (_, armValue) in litArms do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
           let (vid, vtid, stB) ←
             lowerExpr armValue expectedTid { stA with env := savedEnv } states fns
@@ -1893,14 +1976,10 @@ private partial def lowerExpr
         jumpSlots := jumpSlots.push stD.blocks.size
         stA := sealCurrentBlock stD (.jump { blockId := 0, args := #[dVid] })
         let switchCases : Array SwitchCaseV1 :=
-          litArms.mapIdx fun i (value, isBool, _) =>
+          litArms.mapIdx fun i (valueBytes, _) =>
             {
               typeId := scrutTid
-              valueBytes :=
-                if isBool then encodeBool (value == 1)
-                else
-                  let width := scrutUintWidth?.getD 64
-                  encodeNatLeBytes value (width / 8)
+              valueBytes := valueBytes
               target := { blockId := caseTargets[i]!, args := #[] }
             }
         let joinId := UInt32.ofNat stA.blocks.size
@@ -2163,12 +2242,16 @@ private partial def lowerStmt
         return ← failUnsupported "S1 match requires at least one arm"
       let (iB, boolTid) := internShape st.interner .bool
       let st0 := { st with interner := iB }
-      -- Scrutinee: Bool literal, bare place (UInt/Bool/Enum/Option local), or
-      -- UInt64 fallback for non-place heads (legacy UInt match programs).
+      -- Scrutinee: Bool/String literal, bare place (UInt/Bool/String/Enum/Option),
+      -- or UInt64 fallback for non-place heads (legacy UInt match programs).
       let (scrutVid, scrutTid, st1) ←
         match scrutinee with
         | .literal (.bool _) =>
             lowerExpr scrutinee boolTid st0 states fns
+        | .literal (.string _) => do
+            let (iS, stringTid) := internShape st0.interner .string
+            let stS := { st0 with interner := iS }
+            lowerExpr scrutinee stringTid stS states fns
         | .place p => do
             let (vid, tid, stP) ← lowerPlace p st0 states fns
             pure (vid, tid, stP)
@@ -2180,41 +2263,40 @@ private partial def lowerStmt
         match anonShapeOf? st1.interner.types scrutTid with
         | some .bool => true
         | _ => false
+      let scrutIsString :=
+        match anonShapeOf? st1.interner.types scrutTid with
+        | some .string => true
+        | _ => false
       let scrutUintWidth? : Option Nat :=
         match anonShapeOf? st1.interner.types scrutTid with
         | some (.uint w) =>
             if legalIntegerWidthV1 w.toNat then some w.toNat else none
         | _ => none
       let scrutIsCtor := isCtorMatchScrutineeV1 st1.interner.types scrutTid
-      let mut litArms : Array (Nat × Bool × SrcBlock) := #[]
+      let mut litArms : Array (ByteArray × SrcBlock) := #[]
       let mut ctorArms :
           Array (UInt32 × Array TypeIdV1 × Array SrcPattern × SrcBlock) := #[]
       let mut defaultArm? : Option (Option SourceNameComponentV1 × SrcBlock) := none
       for arm in arms do
         match arm.pattern with
-        | .literal lit =>
+        | .literal lit => do
+            let bytes ← encodeLiteralValueBytesV1 st1.interner.types scrutTid lit
+            if litArms.any (fun (b, _) => b == bytes) then
+              return ← failUnsupported "S1 match has duplicate literal cases"
             match lit with
-            | .integer magnitude =>
-                let some width := scrutUintWidth? |
+            | .integer _ =>
+                unless scrutUintWidth?.isSome do
                   return ← failUnsupported
                     "S1 match integer literal requires a legal UInt scrutinee"
-                unless magnitude < uintExclusiveLimit width do
-                  return ← failUnsupported
-                    s!"S1 match UInt{width} integer literal is out of range"
-                if litArms.any (fun (v, isBool, _) => !isBool && v == magnitude) then
-                  return ← failUnsupported "S1 match has duplicate literal cases"
-                litArms := litArms.push (magnitude, false, arm.body)
-            | .bool value =>
+            | .bool _ =>
                 unless scrutIsBool do
                   return ← failUnsupported
                     "S1 match Bool literal requires a Bool scrutinee"
-                if litArms.any (fun (v, isBool, _) =>
-                    isBool && v == (if value then 1 else 0)) then
-                  return ← failUnsupported "S1 match has duplicate literal cases"
-                litArms := litArms.push (if value then 1 else 0, true, arm.body)
             | .string _ =>
-                return ← failUnsupported
-                  "S1 match does not support string literal patterns (no String TypeShape)"
+                unless scrutIsString do
+                  return ← failUnsupported
+                    "S1 match String literal requires a String scrutinee"
+            litArms := litArms.push (bytes, arm.body)
         | .wildcard =>
             if defaultArm?.isSome then
               return ← failUnsupported "S1 match has more than one catch-all arm"
@@ -2249,14 +2331,14 @@ private partial def lowerStmt
           states events errors fns
         pure ({ stR with env := st1.env }, rStatus)
       else if !litArms.isEmpty then
-        unless scrutIsBool || scrutUintWidth?.isSome do
+        unless scrutIsBool || scrutIsString || scrutUintWidth?.isSome do
           return ← failUnsupported
-            "S1 match literal patterns require legal UInt or Bool scrutinee"
+            "S1 match literal patterns require legal UInt, Bool, or String scrutinee"
         let (defaultBinder?, defaultBody) ← match defaultArm? with
           | some da => pure da
           | none =>
               return ← failUnsupported
-                "S1 match on UInt/Bool requires a catch-all arm"
+                "S1 match on UInt/Bool/String requires a catch-all arm"
         let scrutIdx := st1.blocks.size
         let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
         let savedEnv := st1.env
@@ -2264,7 +2346,7 @@ private partial def lowerStmt
         let mut caseTargets : Array BlockIdV1 := #[]
         let mut jumpSlots : Array Nat := #[]
         let mut closedCount : Nat := 0
-        for (_, _, body) in litArms do
+        for (_, body) in litArms do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
           let (stB, status) ← lowerStmts body.statements resultTid
             { stA with env := savedEnv } states events errors fns
@@ -2286,14 +2368,10 @@ private partial def lowerStmt
         | .open_ =>
             jumpSlots := jumpSlots.push stA.blocks.size
             stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
-        let switchCases : Array SwitchCaseV1 := litArms.mapIdx fun i (value, isBool, _) =>
+        let switchCases : Array SwitchCaseV1 := litArms.mapIdx fun i (valueBytes, _) =>
           {
             typeId := scrutTid
-            valueBytes :=
-              if isBool then encodeBool (value == 1)
-              else
-                let width := scrutUintWidth?.getD 64
-                encodeNatLeBytes value (width / 8)
+            valueBytes := valueBytes
             target := { blockId := caseTargets[i]!, args := #[] }
           }
         if closedCount == litArms.size + 1 then

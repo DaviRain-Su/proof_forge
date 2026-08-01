@@ -41,7 +41,7 @@ def checkTypeShapeRefs (shape : TypeShapeV1) (typeCount : Nat) :
       for v in variants do
         for t in v.payloadTypes do
           checkTypeIdInRange t typeCount
-  | .bool | .uint _ | .int _ | .principal | .unit | .bytes _ | .field _ =>
+  | .bool | .uint _ | .int _ | .principal | .unit | .string | .bytes _ | .field _ =>
       pure ()
 
 /-- Integer widths allowed by SPEC-SEM-WIRE-001 §5. -/
@@ -83,7 +83,10 @@ def checkLegalMapKeyTypeV1 (types : Array TypeDeclV1) (typeId : TypeIdV1) :
       | .struct fields =>
           for f in fields do
             checkLegalMapKeyTypeV1 types f.typeId fuel
-      | .option _ | .array _ _ | .map _ _ | .enum _ | .unit | .field _ =>
+      -- String is deliberately not a Map key (N4 engineering decision:
+      -- variable-length NFC UTF-8; keep Map-key closure Bool|UInt|Int|Principal|
+      -- Bytes|Struct-of-legal-keys).
+      | .option _ | .array _ _ | .map _ _ | .enum _ | .unit | .field _ | .string =>
           err .badType
 
 /-- Named rule: `name=some` iff shape is struct|enum (SPEC §5). -/
@@ -102,7 +105,7 @@ private def validateTypeDeclShapeV1 (decl : TypeDeclV1) (types : Array TypeDeclV
     Except SemanticWireErrorV1 Unit := do
   validateTypeDeclNamedRuleV1 decl
   match decl.shape with
-  | .bool | .principal | .unit | .option _ =>
+  | .bool | .principal | .unit | .string | .option _ =>
       pure ()
   | .uint width | .int width =>
       unless legalIntegerWidthV1 width do
@@ -177,7 +180,7 @@ private def validatePrimitiveAnonymousTypeKeyUniquenessV1
   let mut keys : Array ByteArray := #[]
   for decl in types do
     let isPrimitive := match decl.shape with
-      | .bool | .uint _ | .int _ | .principal | .unit | .bytes _ | .field _ => true
+      | .bool | .uint _ | .int _ | .principal | .unit | .string | .bytes _ | .field _ => true
       | .array _ _ | .map _ _ | .option _ | .struct _ | .enum _ => false
     if isPrimitive then
       keys := keys.push (← encodeTypeShapeV1 decl.shape)
@@ -241,6 +244,7 @@ private def terminalStructuralSignature (decl : TypeDeclV1) : ByteArray :=
   | .int w => structuralClassSignatureTag "int" #[encodeU16le w]
   | .principal => structuralClassSignatureTag "principal" #[]
   | .unit => structuralClassSignatureTag "unit" #[]
+  | .string => structuralClassSignatureTag "string" #[]
   | .bytes len => structuralClassSignatureTag "bytes" #[encodeU32le len]
   | .field spec =>
       structuralClassSignatureTag "field"

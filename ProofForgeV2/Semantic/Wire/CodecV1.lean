@@ -1174,6 +1174,7 @@ def encodeTypeShapeV1 : TypeShapeV1 → Except SemanticWireErrorV1 ByteArray
       encodeTagged "Type.Int" #[encodeU16le w]
   | .principal => encodeNullary "Type.Principal"
   | .unit => encodeNullary "Type.Unit"
+  | .string => encodeNullary "Type.String"
   | .bytes len => do
       encodeTagged "Type.Bytes" #[encodeU32le len]
   | .array element length => do
@@ -1213,6 +1214,9 @@ def decodeTypeShapeBodyV1 : Decoder TypeShapeV1 := fun c => do
   | "Type.Unit" => do
       let ((), c) ← decodeFieldCount 0 c
       pure (.unit, c)
+  | "Type.String" => do
+      let ((), c) ← decodeFieldCount 0 c
+      pure (.string, c)
   | "Type.Bytes" => do
       let ((), c) ← decodeFieldCount 1 c
       let (len, c) ← decodeU32le c
@@ -1280,6 +1284,14 @@ theorem decodeTypeShapeBodyV1_unit (c afterTag afterFields : Cursor)
     (htag : decodeTag c = .ok ("Type.Unit", afterTag))
     (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
     decodeTypeShapeBodyV1 c = .ok (.unit, afterFields) := by
+  simp only [decodeTypeShapeBodyV1, htag, hfields, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Nullary String branch of the sole TypeShape sum body (N4 engineering). -/
+theorem decodeTypeShapeBodyV1_string (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Type.String", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeTypeShapeBodyV1 c = .ok (.string, afterFields) := by
   simp only [decodeTypeShapeBodyV1, htag, hfields, Bind.bind, Pure.pure,
     Except.bind, Except.pure]
 

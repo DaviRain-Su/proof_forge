@@ -39,7 +39,7 @@ Pattern.Constructor Pattern.Literal Pattern.Wildcard Place.Field Place.Index
 Place.Name Program ProofDecl StateDecl Stmt.Assert Stmt.Assign Stmt.Call
 Stmt.Emit Stmt.For Stmt.If Stmt.Let Stmt.Match Stmt.Return Stmt.Revert
 Stmt.Schedule StmtMatchArm StructDecl Type.Array Type.Bool Type.Bytes Type.Field
-Type.Int Type.Map Type.Named Type.Option Type.Principal Type.UInt Type.Unit
+Type.Int Type.Map Type.Named Type.Option Type.Principal Type.String Type.UInt Type.Unit
 UnaryOp.BitNot UnaryOp.Neg UnaryOp.Not ViewDecl Visibility.Commitment
 Visibility.Private Visibility.Public
 """.split())
@@ -48,7 +48,7 @@ NODE_TAGS = set("""
 Program StateDecl StructDecl EnumDecl ConstDecl EventDecl ErrorDecl InitDecl
 EntryDecl ViewDecl FnDecl InvariantDecl ExtensionReq ProofDecl Param FieldDecl
 EnumVariant Block StmtMatchArm ExprMatchArm ExternalCallExpr Type.Bool Type.UInt
-Type.Int Type.Principal Type.Unit Type.Named Type.Array Type.Map Type.Option
+Type.Int Type.Principal Type.Unit Type.String Type.Named Type.Array Type.Map Type.Option
 Type.Bytes Type.Field Stmt.Let Stmt.Assign Stmt.If Stmt.Match Stmt.For
 Stmt.Assert Stmt.Revert Stmt.Emit Stmt.Return Stmt.Call Stmt.Schedule
 Expr.Literal Expr.Place Expr.Constructor Expr.Unary Expr.Binary Expr.LocalCall
@@ -404,7 +404,7 @@ def build_fixture():
     all_types = [type_null("Bool")]
     all_types += [type_uint(width) for width in sorted(WIDTHS)]
     all_types += [type_int(width) for width in sorted(WIDTHS)]
-    all_types += [type_null("Principal"), type_null("Unit"), type_named("Record")]
+    all_types += [type_null("Principal"), type_null("String"), type_null("Unit"), type_named("Record")]
     all_types += [type_array(type_null("Bool"), 0), type_array(type_uint(8), 4096)]
     all_types += [type_map(type_uint(16), type_int(16)), type_option(type_null("Principal"))]
     all_types += [type_bytes(0), type_bytes(4096), type_field("bn254_fr")]
@@ -555,7 +555,7 @@ def representative_spans(source_bytes, visits):
     visit_index = {path: tag for tag, path in visits}
     # Frozen exact spans for nested type/expr/escaped/Unicode coverage.
     frozen = [
-        ("Program", [], 111, 6020, None),
+        ("Program", [], 111, 6028, None),
         ("StateDecl",
          [{"parentTag": "Program", "fieldTag": "items", "index": 0}],
          135, 167, b"state public cell : Array Bool 1"),
@@ -570,32 +570,32 @@ def representative_spans(source_bytes, visits):
         ("Type.Field",
          [{"parentTag": "Program", "fieldTag": "items", "index": 2},
           {"parentTag": "EnumDecl", "fieldTag": "variants", "index": 0},
-          {"parentTag": "EnumVariant", "fieldTag": "payloadTypes", "index": 22}],
-         509, 514, b"Field"),
+          {"parentTag": "EnumVariant", "fieldTag": "payloadTypes", "index": 23}],
+         517, 522, b"Field"),
         ("Expr.Literal",
          [{"parentTag": "Program", "fieldTag": "items", "index": 6},
           {"parentTag": "InitDecl", "fieldTag": "body", "index": 0},
           {"parentTag": "Block", "fieldTag": "statements", "index": 0},
           {"parentTag": "Stmt.Let", "fieldTag": "value", "index": 0},
           {"parentTag": "Expr.Constructor", "fieldTag": "args", "index": 1}],
-         869, 876, "\"café\"".encode("utf-8")),
+         877, 884, "\"café\"".encode("utf-8")),
         ("Expr.Match",
          [{"parentTag": "Program", "fieldTag": "items", "index": 6},
           {"parentTag": "InitDecl", "fieldTag": "body", "index": 0},
           {"parentTag": "Block", "fieldTag": "statements", "index": 13},
           {"parentTag": "Stmt.Return", "fieldTag": "value", "index": 0}],
-         3543, 3673, None),
+         3551, 3681, None),
         ("Stmt.Schedule",
          [{"parentTag": "Program", "fieldTag": "items", "index": 6},
           {"parentTag": "InitDecl", "fieldTag": "body", "index": 0},
           {"parentTag": "Block", "fieldTag": "statements", "index": 16}],
-         5512, 5536, b"schedule Peer.followup()"),
+         5520, 5544, b"schedule Peer.followup()"),
         ("ExtensionReq",
          [{"parentTag": "Program", "fieldTag": "items", "index": 11}],
-         5858, 5986, None),
+         5866, 5994, None),
         ("ProofDecl",
          [{"parentTag": "Program", "fieldTag": "items", "index": 12}],
-         5989, 6020, b"proof safe using Golden.theorem"),
+         5997, 6028, b"proof safe using Golden.theorem"),
     ]
     rows = []
     for tag, path_doc, start, end, expected_slice in frozen:
@@ -633,9 +633,9 @@ def expected_package(root):
              for parent, field_name, _index in path}
     paths = [path for _tag, path in visits]
 
-    require(len(WIRE_TAGS) == 84 and observed_tags == WIRE_TAGS,
+    require(len(WIRE_TAGS) == 85 and observed_tags == WIRE_TAGS,
             f"wire tag inventory missing={sorted(WIRE_TAGS - observed_tags)} extra={sorted(observed_tags - WIRE_TAGS)}")
-    require(len(NODE_TAGS) == 57 and node_tags == NODE_TAGS,
+    require(len(NODE_TAGS) == 58 and node_tags == NODE_TAGS,
             f"node tag inventory missing={sorted(NODE_TAGS - node_tags)} extra={sorted(node_tags - NODE_TAGS)}")
     require(len(EDGE_PAIRS) == 63 and edges == EDGE_PAIRS,
             f"edge inventory missing={sorted(EDGE_PAIRS - edges)} extra={sorted(edges - EDGE_PAIRS)}")
@@ -748,11 +748,11 @@ def main(argv):
     try:
         if argv == ["--emit"]:
             emit(root)
-            print("reference_source_program_v1_source_golden: emitted 1 84 57 63")
+            print("reference_source_program_v1_source_golden: emitted 1 85 58 63")
             return 0
         if argv == ["--self-check"]:
             validate_checked_in(root)
-            print("reference_source_program_v1_source_golden: ok 1 84 57 63")
+            print("reference_source_program_v1_source_golden: ok 1 85 58 63")
             return 0
         print("usage: reference_source_program_v1_source_golden.py --emit|--self-check",
               file=sys.stderr)

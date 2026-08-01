@@ -127,8 +127,8 @@ private def wireTags : Array String := #[
   "Stmt.Assign", "Stmt.Call", "Stmt.Emit", "Stmt.For", "Stmt.If", "Stmt.Let",
   "Stmt.Match", "Stmt.Return", "Stmt.Revert", "Stmt.Schedule", "StmtMatchArm",
   "StructDecl", "Type.Array", "Type.Bool", "Type.Bytes", "Type.Field", "Type.Int",
-  "Type.Map", "Type.Named", "Type.Option", "Type.Principal", "Type.UInt", "Type.Unit",
-  "UnaryOp.BitNot", "UnaryOp.Neg", "UnaryOp.Not", "ViewDecl",
+  "Type.Map", "Type.Named", "Type.Option", "Type.Principal", "Type.String", "Type.UInt",
+  "Type.Unit", "UnaryOp.BitNot", "UnaryOp.Neg", "UnaryOp.Not", "ViewDecl",
   "Visibility.Commitment", "Visibility.Private", "Visibility.Public"
 ]
 
@@ -137,8 +137,9 @@ private def nodeTags : Array String := #[
   "ErrorDecl", "InitDecl", "EntryDecl", "ViewDecl", "FnDecl", "InvariantDecl",
   "ExtensionReq", "ProofDecl", "Param", "FieldDecl", "EnumVariant", "Block",
   "StmtMatchArm", "ExprMatchArm", "ExternalCallExpr", "Type.Bool", "Type.UInt",
-  "Type.Int", "Type.Principal", "Type.Unit", "Type.Named", "Type.Array", "Type.Map",
-  "Type.Option", "Type.Bytes", "Type.Field", "Stmt.Let", "Stmt.Assign", "Stmt.If",
+  "Type.Int", "Type.Principal", "Type.Unit", "Type.String", "Type.Named", "Type.Array",
+  "Type.Map", "Type.Option", "Type.Bytes", "Type.Field", "Stmt.Let", "Stmt.Assign",
+  "Stmt.If",
   "Stmt.Match", "Stmt.For", "Stmt.Assert", "Stmt.Revert", "Stmt.Emit", "Stmt.Return",
   "Stmt.Call", "Stmt.Schedule", "Expr.Literal", "Expr.Place", "Expr.Constructor",
   "Expr.Unary", "Expr.Binary", "Expr.LocalCall", "Expr.Match", "Place.Name",
@@ -227,10 +228,10 @@ unsafe def run : IO Unit := do
   expect (manifest.programIdentity ==
       #["Tests", "Language", "ProgramV1SourceFullTagGolden", "Source", "FullTag"])
     "programIdentity"
-  expect (wireTags.size == 84 && sameSet manifest.wireTags wireTags)
-    "closed 84-tag wire inventory"
-  expect (nodeTags.size == 57 && sameSet manifest.nodeTags nodeTags)
-    "closed 57-tag node inventory"
+  expect (wireTags.size == 85 && sameSet manifest.wireTags wireTags)
+    "closed 85-tag wire inventory"
+  expect (nodeTags.size == 58 && sameSet manifest.nodeTags nodeTags)
+    "closed 58-tag node inventory"
   expect (edgePairs.size == 63 && sameSet manifest.edgePairs edgePairs)
     "closed 63-edge inventory"
 

@@ -41,6 +41,7 @@ def encodeTypeV1 : TypeV1 → Except String ByteArray
       encodeTagged "Type.Int" #[encodeU16le width]
   | .principal => nullary "Type.Principal"
   | .unit => nullary "Type.Unit"
+  | .string => nullary "Type.String"
   | .named name => do
       let payload ← encodeSourceNameComponentV1 name
       encodeTagged "Type.Named" #[payload]

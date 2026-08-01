@@ -830,7 +830,7 @@ private unsafe def testTypeCheckLocalCallArgType
   let _ ← expectTypeCheckDraft "tc-call-arg" inv validated.program draft
     "type mismatch" "Expr.Literal" #["Param"]
 
-/-- String pattern fail-closed: primary Pattern.Literal. -/
+/-- String pattern on non-String scrutinee: primary Pattern.Literal (N4). -/
 private unsafe def testTypeCheckStringPattern
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source :=
@@ -848,10 +848,10 @@ private unsafe def testTypeCheckStringPattern
     throw <| IO.userError s!"tc-str-pat: resolution failed: {resolution.drafts.map (·.diagnostic.message)}"
   expect (!tc.ok) "tc-str-pat: not ok"
   let some draft := tc.drafts.find?
-      (·.diagnostic.message.contains "string patterns") |
+      (·.diagnostic.message.contains "expected String") |
     throw <| IO.userError s!"tc-str-pat: missing, got {tc.drafts.map (·.diagnostic.message)}"
   let _ ← expectTypeCheckDraft "tc-str-pat" inv validated.program draft
-    "string patterns" "Pattern.Literal" #[]
+    "expected String" "Pattern.Literal" #[]
 
 /-- Non-exhaustive enum match: primary Stmt.Match; related EnumDecl. -/
 private unsafe def testTypeCheckNonExhaustive

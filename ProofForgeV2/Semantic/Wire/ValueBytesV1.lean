@@ -109,6 +109,30 @@ private def decodeAndReencodeValueBytesV1 (types : Array TypeDeclV1) (typeId : T
           pure ((encodeU32le lenU).append bodyBytes, c, budget)
       | .unit =>
           pure (ByteArray.empty, c, budget)
+      | .string => do
+          -- N4: `u32le(byteLen) || UTF-8` with `0 ≤ byteLen ≤ maxTypeLengthV1`.
+          -- Empty string is legal. Body must be valid UTF-8 in NFC form; the
+          -- re-encode identity (encodeString ∘ decode) rejects non-NFC and
+          -- alternate spellings. Truncation/overlong framing → `.nonCanonical`.
+          let (lenU, c) ← takeU32leNC c
+          let len := lenU.toNat
+          unless len ≤ maxTypeLengthV1 do
+            return ← err .nonCanonical
+          let (bodyBytes, c) ← takeBytesNC c len
+          match String.fromUTF8? bodyBytes with
+          | none => err .nonCanonical
+          | some s => do
+              match requireNfc s with
+              | .error _ => err .nonCanonical
+              | .ok _ =>
+                  -- Re-encode via production encodeString so length header and
+                  -- NFC body are the sole canonical spelling.
+                  match encodeString s with
+                  | .error _ => err .nonCanonical
+                  | .ok re =>
+                      unless re == (encodeU32le lenU).append bodyBytes do
+                        return ← err .nonCanonical
+                      pure (re, c, budget)
       | .bytes length => do
           let (raw, c) ← takeBytesNC c length.toNat
           pure (raw, c, budget)

@@ -11,7 +11,7 @@ program FullTag where
     café : Map UInt8 Int8
     «raw.with.dot» : UInt64
   enum Choice where
-    | Filled(Bool, UInt8, UInt16, UInt32, UInt64, UInt128, UInt256, Int8, Int16, Int32, Int64, Int128, Int256, Principal, Unit, Record, Array Bool 0, Array UInt8 4096, Map UInt16 Int16, Option Principal, Bytes 0, Bytes 4096, Field bn254_fr)
+    | Filled(Bool, UInt8, UInt16, UInt32, UInt64, UInt128, UInt256, Int8, Int16, Int32, Int64, Int128, Int256, Principal, String, Unit, Record, Array Bool 0, Array UInt8 4096, Map UInt16 Int16, Option Principal, Bytes 0, Bytes 4096, Field bn254_fr)
     | Empty
   const limit : UInt256 := 115792089237316195423570985008687907853269984665640564039457584007913129639935
   event Changed(public who : Principal, private eventValue : UInt64)

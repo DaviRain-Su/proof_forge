@@ -218,6 +218,7 @@ partial def typeName : TypeV1 → String
   | .int w => s!"Int{w.toNat}"
   | .principal => "Principal"
   | .unit => "Unit"
+  | .string => "String"
   | .named n => renderSourceNameComponentV1 n
   | .bytes n => s!"Bytes({n.toNat})"
   | .field id => s!"Field({id.raw})"
@@ -238,12 +239,19 @@ def isFieldType : TypeV1 → Bool
 def isNumericType (t : TypeV1) : Bool :=
   isIntegerType t || isFieldType t
 
+/-- Legacy message kept only for erase-parity tests that pin the historical
+    string-pattern rejection; N4 admits string patterns on `TypeV1.string`. -/
 def stringPatternDiagnosticDraft : TypedDiagnosticDraftV1 :=
   make .sourceInvalid
     "string patterns are not supported (String is not a TypeV1)"
 
 def stringPatternDiagnostic : DiagnosticV1 :=
   erase stringPatternDiagnosticDraft
+
+def stringPatternOnNonStringDiagnosticDraft (actual : String) :
+    TypedDiagnosticDraftV1 :=
+  make .sourceInvalid
+    s!"type mismatch: expected String, got {actual}"
 
 def armTypeMismatchDiagnosticDraft (armIndex : Nat) (expected actual : String) :
     TypedDiagnosticDraftV1 :=
@@ -530,7 +538,12 @@ partial def typeCheckPatternDrafts (tables : TypedDeclTablesV1)
           (expectedActualDiagnosticDraft (typeName scrutineeType) "integer literal")
           patternPath? #[] ]
   | .literal (.string _) =>
-      patternResultDraft [] #[locateDraft stringPatternDiagnosticDraft patternPath? #[] ]
+      if scrutineeType == .string then
+        patternResultDraft [] #[]
+      else
+        patternResultDraft [] #[locateDraft
+          (stringPatternOnNonStringDiagnosticDraft (typeName scrutineeType))
+          patternPath? #[] ]
   | .constructor ctor args =>
       match resolveConstructorType tables ctor with
       | .error diag =>
@@ -741,13 +754,15 @@ mutual
     | .literal (.string _) =>
         match expected? with
         | none =>
-            resultDraft .unit #[locateDraft
-              (expectedActualDiagnosticDraft "expected type" "string literal")
-              exprPath? expectedRelated]
+            -- Intrinsic type of a string literal is String (N4).
+            resultDraft .string #[]
         | some expected =>
-            resultDraft expected #[locateDraft
-              (expectedActualDiagnosticDraft (typeName expected) "string literal")
-              exprPath? expectedRelated]
+            if expected == .string then
+              resultDraft .string #[]
+            else
+              resultDraft expected #[locateDraft
+                (expectedActualDiagnosticDraft (typeName expected) "String")
+                exprPath? expectedRelated]
     | .place p =>
         let (pp?, pathDs) := resolveDirect exprPath? "Expr.Place" "place"
         let pRes := typeCheckPlaceDrafts scope tables pp? p

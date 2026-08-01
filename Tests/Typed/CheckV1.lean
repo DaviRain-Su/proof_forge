@@ -5826,7 +5826,7 @@ private unsafe def testStmtMatchOptionLikeEnum
       | _ => false
   expect hasSomePayload "stmt-match-maybe: VariantPayload(1,0) for Some"
 
-/-- T5: nested constructor sub-pattern fails closed. -/
+/-- N4: nested constructor sub-pattern opens (unique outer + nested ctor). -/
 private unsafe def testNestedCtorPatternFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "NestedCtor" <|
@@ -5844,35 +5844,118 @@ private unsafe def testNestedCtorPatternFailClosed
     "      return 0\n"
   let validated ← loadSource session "nested-ctor" source
   let typed := checkProgramTypedResultV1 validated
-  if typed.ok then
-    match normalizeProgramV1 validated with
-    | .ok _ => throw <| IO.userError "nested-ctor: expected fail closed"
-    | .error (.unsupported detail) =>
-        expect (detail.contains "nested" || detail.contains "constructor")
-          s!"nested-ctor: detail={detail}"
-    | .error e => throw <| IO.userError s!"nested-ctor: {repr e}"
-  else
-    -- TypeCheck may also reject nested shapes depending on resolve path.
-    pure ()
+  expect typed.ok s!"nested-ctor: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .ok sem =>
+      match validateSemanticProgramV1 sem with
+      | .ok _ => pure ()
+      | .error e => throw <| IO.userError s!"nested-ctor: structure {repr e}"
+  | .error e => throw <| IO.userError s!"nested-ctor: normalize {repr e}"
 
-/-- T5: string patterns stay fail closed (no String TypeShapeV1). -/
-private unsafe def testStringPatternFailClosed
+/-- N4: String state + literal + eq + match (catch-all) structure-gated Normalize. -/
+private unsafe def testStringStateLiteralEqMatch
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "StrPat" <|
-    "  entry run(x : UInt64) : UInt64 do\n" ++
+  let source := wrap "StrState" <|
+    "  state public label : String\n" ++
+    "  init() do\n" ++
+    "    label := \"hi\"\n" ++
+    "  entry run(x : String) : Bool do\n" ++
+    "    let ok : Bool := x == \"hi\"\n" ++
     "    match x with\n" ++
     "    | \"hi\" => do\n" ++
-    "      return 1\n" ++
+    "      return ok\n" ++
     "    | _ => do\n" ++
-    "      return 0\n"
-  let validated ← loadSource session "str-pat" source
+    "      return false\n"
+  let validated ← loadSource session "str-state" source
   let typed := checkProgramTypedResultV1 validated
-  -- TypeCheck rejects string patterns; Normalize must not invent a carrier.
-  expect (!typed.ok) "str-pat: CheckV1 rejects string patterns"
+  expect typed.ok "str-state: CheckV1 ok"
   match normalizeProgramV1 validated with
-  | .error (.typedNotOk _) => pure ()
-  | .error e => throw <| IO.userError s!"str-pat: expected typedNotOk, got {repr e}"
-  | .ok _ => throw <| IO.userError "str-pat: must not normalize"
+  | .error e => throw <| IO.userError s!"str-state: normalize failed {repr e}"
+  | .ok sem => do
+      match validateSemanticProgramV1 sem with
+      | .error e => throw <| IO.userError s!"str-state: structure {repr e}"
+      | .ok data => do
+          expect (data.logicalState.any (fun s =>
+            match data.types[s.typeId.toNat]? with
+            | some d => match d.shape with | .string => true | _ => false
+            | none => false)) "str-state: String state present"
+          expect (data.callables.any (fun c =>
+            c.blocks.any (fun b =>
+              b.instructions.any (fun i =>
+                match i.op with
+                | .literal _ bytes => bytes.size ≥ 4
+                | .binary Semantic.WireV1.BinaryOpV1.eq _ _ => true
+                | _ => false) ||
+              match b.terminator with
+              | .switch _ cases _ => cases.any (fun sc => sc.valueBytes.size ≥ 4)
+              | _ => false))) "str-state: String literal or eq or switch present"
+
+/-- N4: nested constructor pattern on Enum payload (unique outer ctors). -/
+private unsafe def testNestedConstructorPattern
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "NestCtor" <|
+    "  enum Outer where\n" ++
+    "    | Hold(Inner)\n" ++
+    "    | Empty\n" ++
+    "  enum Inner where\n" ++
+    "    | Val(UInt64)\n" ++
+    "    | None\n" ++
+    "  entry run(x : Outer) : UInt64 do\n" ++
+    "    match x with\n" ++
+    "    | Outer.Hold(Inner.Val(v)) => do\n" ++
+    "      return v\n" ++
+    "    | Outer.Empty() => do\n" ++
+    "      return 0\n" ++
+    "    | _ => do\n" ++
+    "      return 1\n"
+  let validated ← loadSource session "nest-ctor" source
+  let typed := checkProgramTypedResultV1 validated
+  if !typed.ok then
+    throw <| IO.userError s!"nest-ctor: CheckV1 failed {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .ok sem =>
+      match validateSemanticProgramV1 sem with
+      | .ok _ => pure ()
+      | .error e => throw <| IO.userError s!"nest-ctor: structure {repr e}"
+  | .error (.unsupported detail) =>
+      -- Nested constructor may still be partial; document fail closed.
+      expect (detail.contains "nested" || detail.contains "constructor")
+        s!"nest-ctor unsupported: {detail}"
+  | .error e => throw <| IO.userError s!"nest-ctor: {repr e}"
+
+/-- N4: for-body nested if + nested for — loopBounds exact coverage. -/
+private unsafe def testNestedLoopsAndIfInLoopState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "NestLoop" <|
+    "  state public acc : UInt64\n" ++
+    "  init() do\n" ++
+    "    acc := 0\n" ++
+    "  entry run(start : UInt64, stop : UInt64) : UInt64 do\n" ++
+    "    for i in start ..< stop bounded 3 do\n" ++
+    "      if i == start then\n" ++
+    "        acc := acc + 1\n" ++
+    "      else\n" ++
+    "        for j in start ..< stop bounded 2 do\n" ++
+    "          acc := acc + 1\n" ++
+    "    return acc\n"
+  let validated ← loadSource session "nest-loop" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"nest-loop: CheckV1 ok diags={typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .error e => throw <| IO.userError s!"nest-loop: normalize {repr e}"
+  | .ok sem =>
+      match validateSemanticProgramV1 sem with
+      | .error e => throw <| IO.userError s!"nest-loop: structure {repr e}"
+      | .ok data => do
+          let entryCallable? := data.callables.find? (fun c =>
+            c.kind == ProofForgeV2.Semantic.WireV1.CallableKindV1.entry)
+          match entryCallable? with
+          | none => throw <| IO.userError "nest-loop: missing entry"
+          | some c =>
+              expect (c.loopBounds.size >= 2)
+                s!"nest-loop: expected >=2 loopBounds, got {c.loopBounds.size}"
+              for lb in c.loopBounds do
+                expect (lb.maxIterations <= 4096) "nest-loop: bound <= 4096"
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -5896,6 +5979,9 @@ unsafe def run : IO Unit := do
   testUnsupportedStatementAfterTerminalIf session
   testUnsupportedMatchDuplicateLiteral session
   testMatchConstructorPatternOnEnumParam session
+  testStringStateLiteralEqMatch session
+  testNestedConstructorPattern session
+  testNestedLoopsAndIfInLoopState session
   testEmitRevertMultiBlock session
   testEmitRequirementsWireOrder session
   testEmitInViewTypedNotOk session
@@ -5971,7 +6057,7 @@ unsafe def run : IO Unit := do
   testExprMatchEnumConstructors session
   testStmtMatchOptionLikeEnum session
   testNestedCtorPatternFailClosed session
-  testStringPatternFailClosed session
+  testStringStateLiteralEqMatch session
   IO.println "Tests.Semantic.NormalizeV1: ok"
 
 end Tests.Semantic.NormalizeV1

@@ -197,7 +197,7 @@ private unsafe def testEnumConstructorWithPayload
     "      | Shape.Rect(w, h) => w * h\n"
   expectProgramOk session "enum-payload-pattern" prelude body "UInt64"
 
-private unsafe def testStringPatternRejected
+private unsafe def testStringPatternOnNonStringRejected
     (session : Language.Loader.ParserSession) : IO Unit := do
   let body :=
     "    return\n" ++
@@ -205,7 +205,7 @@ private unsafe def testStringPatternRejected
     "      | \"hello\" => 0\n" ++
     "      | _ => 1\n"
   let res ← typeCheckResult session "string-pattern" "" body "UInt64"
-  expectProgramDiag res "string-pattern" "string patterns are not supported"
+  expectProgramDiag res "string-pattern" "expected String"
 
 private unsafe def testWrongTypeLiteralPattern
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -669,7 +669,7 @@ unsafe def run : IO Unit := do
   testIntegerPatternOutOfRange session
   testEnumConstructorPattern session
   testEnumConstructorWithPayload session
-  testStringPatternRejected session
+  testStringPatternOnNonStringRejected session
   testWrongTypeLiteralPattern session
   testExpressionArmMismatch session
   testStatementMatchBodyInResultContext session

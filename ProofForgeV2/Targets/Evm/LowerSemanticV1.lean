@@ -292,6 +292,7 @@ private def validateEvmTypeClosureV1
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyNone)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
+    (stringPolicy := pilotStringPolicyAdmit)
 
 /-- Lowering-time storage + type table. Plan.storageLayout is `bindings`
     (flattened leaf slots; sourceId == slot == declaration order of leaves).
@@ -367,9 +368,19 @@ private def mkAggregateValueV1 (leaves : Array Expr) (leafIsInt : Array Bool)
     aggregateLeaves := some leaves
     aggregateLeafIsInt := some leafIsInt }
 
-/-- Flatten a type into ordered leaf (name, isInt) pairs under EVM N3 policy.
-    Scalars: UInt64 / Int64 only. Named Struct: field preorder. Named Enum:
-    tag (UInt64) + max-payload leaf slots across variants (`_tag`, `_p0`…). -/
+/-- EVM pilot String storage layout (N4, deterministic, fixed leaf count):
+    * leaf 0: UTF-8 byte length (`UInt64`)
+    * leaves 1..8: up to 64 payload bytes packed little-endian into 8×UInt64
+      words (zero-padded)
+    Strings longer than 64 UTF-8 bytes fail closed at plan lowering.
+    Wire still admits up to `maxTypeLengthV1`; only the EVM pilot bound is 64. -/
+private def evmStringMaxPayloadBytesV1 : Nat := 64
+private def evmStringDataWordCountV1 : Nat := 8  -- 64 / 8
+
+/-- Flatten a type into ordered leaf (name, isInt) pairs under EVM N3/N4 policy.
+    Scalars: UInt64 / Int64 / String (length+8 data words). Named Struct: field
+    preorder. Named Enum: tag (UInt64) + max-payload leaf slots across variants
+    (`_tag`, `_p0`…). -/
 private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
@@ -378,6 +389,21 @@ private partial def flattenTypeLeafSpecsV1
     pure #[(namePrefix, false)]
   else if types.int64TypeId == some typeId then
     pure #[(namePrefix, true)]
+  else if types.isString typeId then
+    let lenName :=
+      if namePrefix.isEmpty then "len" else namePrefix ++ "_len"
+    unless isIdentifier lenName do
+      throw <| .planInvariant .evm
+        s!"storage name '{lenName}' is not an EVM ABI identifier"
+    let mut out : Array (String × Bool) := #[(lenName, false)]
+    for i in [0:evmStringDataWordCountV1] do
+      let wName :=
+        if namePrefix.isEmpty then s!"w{i}" else namePrefix ++ "_w" ++ toString i
+      unless isIdentifier wName do
+        throw <| .planInvariant .evm
+          s!"storage name '{wName}' is not an EVM ABI identifier"
+      out := out.push (wName, false)
+    pure out
   else if types.isNamedAggregate typeId then
     match typeDecls[typeId.toNat]? with
     | none =>
@@ -429,7 +455,7 @@ private partial def flattenTypeLeafSpecsV1
               "unsupported EVM semantic shape: named type must be Struct or Enum"
   else
     throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: storage/param leaf must be UInt64, Int64, or named Struct/Enum"
+      "unsupported EVM semantic shape: storage/param leaf must be UInt64, Int64, String, or named Struct/Enum"
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
@@ -553,7 +579,7 @@ private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
     unless isIdentifier param.name do
       throw <| .planInvariant .evm
         s!"parameter name '{param.name}' in {owner} is not an EVM ABI identifier"
-    if types.isNamedAggregate param.typeId then
+    if types.isNamedAggregate param.typeId || types.isString param.typeId then
       requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
         evmPlanErr types owner param (allowNonPublic := true)
       let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types param.typeId param.name
@@ -636,6 +662,35 @@ private def findValueV1 (values : Array LoweredValueV1)
 
 private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
   decodeUInt64LiteralLe evmPlanErr "EVM" bytes
+
+/-- Pack wire String valueBytes (`u32le len || UTF-8`) into EVM pilot leaves:
+    length word + 8×UInt64 data words (max 64 payload bytes). -/
+private def decodeStringLiteralLeavesV1 (bytes : ByteArray) :
+    CompileResult (Array Expr) := do
+  unless bytes.size ≥ 4 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: String literal valueBytes too short"
+  let len :=
+    (bytes.get! 0).toNat + (bytes.get! 1).toNat * 256 +
+      (bytes.get! 2).toNat * 65536 + (bytes.get! 3).toNat * 16777216
+  unless bytes.size == 4 + len do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: String literal valueBytes length framing mismatch"
+  unless len ≤ evmStringMaxPayloadBytesV1 do
+    throw <| .planInvariant .evm
+      s!"unsupported EVM semantic shape: String longer than {evmStringMaxPayloadBytesV1} bytes (EVM pilot bound)"
+  let payload := bytes.extract 4 bytes.size
+  let mut leaves : Array Expr := #[.literal (UInt64.ofNat len)]
+  for w in [0:evmStringDataWordCountV1] do
+    let mut word : Nat := 0
+    let mut place : Nat := 1
+    for b in [0:8] do
+      let idx := w * 8 + b
+      let byte := if idx < payload.size then (payload.get! idx).toNat else 0
+      word := word + byte * place
+      place := place * 256
+    leaves := leaves.push (.literal (UInt64.ofNat word))
+  pure leaves
 
 /-- Shift-count literals are 4-byte LE UInt32 on the wire; widen to UInt64 for
     the Plan expression surface (values are always < 2^32). -/
@@ -817,27 +872,56 @@ private def makeCheckedSubValueV1
   else
     makeBinaryTreeValueV1 (mkCheckedSub bitWidth) lhsId rhsId lhs rhs false bitWidth
 
-/-- Comparison: same-width UInt or Int64 operands → Bool. -/
+/-- Comparison: same-width UInt or Int64 operands → Bool.
+    N4: aggregate (String / named) operands only support `eq`/`ne` via
+    leaf-wise unsigned equality AND/OR chain. -/
 private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  unless !lhs.isBool && !rhs.isBool do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: comparison operands must be integer"
-  unless lhs.bitWidth == rhs.bitWidth && isEvmBodyUintWidth lhs.bitWidth do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: comparison operands must share admitted width"
-  unless lhs.isInt == rhs.isInt do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: comparison operands must share signedness"
-  if lhs.isInt then
-    unless lhs.bitWidth == 64 do
+  if lhs.isAggregate || rhs.isAggregate then
+    unless lhs.isAggregate && rhs.isAggregate do
       throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: only Int64 comparisons are admitted"
-    makeBinaryTreeValueV1 (.signedCompare op) lhsId rhsId lhs rhs true 1
-  else
-    makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true 1
+        "unsupported EVM semantic shape: aggregate comparison requires both operands aggregate"
+    unless op == .eq || op == .ne do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: aggregate comparison only supports == / !="
+    let le := lhs.leafExprs
+    let re := rhs.leafExprs
+    unless le.size == re.size && le.size > 0 do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: aggregate comparison leaf count mismatch"
+    -- Build (((l0==r0) && (l1==r1)) && ...) then optionally invert for ne.
+    let mut acc : Expr := .compare .eq le[0]! re[0]!
+    for i in [1:le.size] do
+      acc := .logicalAnd acc (.compare .eq le[i]! re[i]!)
+    let expr := if op == .ne then .boolNot acc else acc
+    pure {
+      expr
+      depth := max lhs.depth rhs.depth + le.size + 1
+      expandedNodes := lhs.expandedNodes + rhs.expandedNodes + le.size + 1
+      dependencies := (lhs.dependencies ++ rhs.dependencies).push lhsId |>.push rhsId
+      isBool := true
+      isInt := false
+      bitWidth := 1
+    }
+  else do
+    unless !lhs.isBool && !rhs.isBool do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: comparison operands must be integer"
+    unless lhs.bitWidth == rhs.bitWidth && isEvmBodyUintWidth lhs.bitWidth do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: comparison operands must share admitted width"
+    unless lhs.isInt == rhs.isInt do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: comparison operands must share signedness"
+    if lhs.isInt then
+      unless lhs.bitWidth == 64 do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: only Int64 comparisons are admitted"
+      makeBinaryTreeValueV1 (.signedCompare op) lhsId rhsId lhs rhs true 1
+    else
+      makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true 1
 
 private def makeCheckedMulValueV1
     (bitWidth : Nat)
@@ -1287,27 +1371,33 @@ private def lowerBlockInstructionsV1
                   | some tid => pure tid
                   | none => throw (.planInvariant .evm
                       "unsupported EVM semantic shape: Bool literal requires anonymous Bool type")
-                unless typeId == boolTid do
-                  throw <| .planInvariant .evm
-                    "unsupported EVM semantic shape: literal is not admitted UInt/Int64/Bool"
-                let value ← decodeBoolLiteralV1 bytes
-                -- Bool words are 0/1 UInt64 literals in the Plan expression surface,
-                -- tagged isBool so return/assert/store kind gates remain defensive.
-                values := ← appendResultValueV1 boolTid values result {
-                  expr := .literal value
-                  depth := 1
-                  expandedNodes := 1
-                  dependencies := #[]
-                  isBool := true
-                  isInt := false
-                  bitWidth := 1
-                }
+                if types.isString typeId then
+                  let leafExprs ← decodeStringLiteralLeavesV1 bytes
+                  let leafIsInt := leafExprs.map (fun _ => false)
+                  let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size
+                  values := ← appendResultValueV1 typeId values result value
+                else do
+                  unless typeId == boolTid do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: literal is not admitted UInt/Int64/Bool/String"
+                  let value ← decodeBoolLiteralV1 bytes
+                  -- Bool words are 0/1 UInt64 literals in the Plan expression surface,
+                  -- tagged isBool so return/assert/store kind gates remain defensive.
+                  values := ← appendResultValueV1 boolTid values result {
+                    expr := .literal value
+                    depth := 1
+                    expandedNodes := 1
+                    dependencies := #[]
+                    isBool := true
+                    isInt := false
+                    bitWidth := 1
+                  }
     | .stateLoad stateId, some result =>
         if mode == .pureFn then
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: pureFn body loads storage"
         let leaves ← findStateLeavesV1 layout stateId
-        if types.isNamedAggregate result.typeId then
+        if types.isNamedAggregate result.typeId || types.isString result.typeId then
           -- N3 aggregate load; per-leaf isInt restored from the flatten specs
           -- (the base N3 lowering marked every leaf UInt64, losing Int64 flags).
           let specs ← flattenTypeLeafSpecsV1 layout.typeDecls types result.typeId "state"
@@ -2258,6 +2348,9 @@ private partial def emitJobV1
                 values2, elseCont, hA || hA1 || hA2, true)
       | .switch scrutId cases defaultTarget =>
           let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
+          if scrutVal.isAggregate then
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: switch on aggregate/String is outside the EVM pilot (use ==/!= + if)"
           let scrut ← consumeCurrentSegmentWithArmsV1
             values paramCount segmentStart armReadables scrutId
           let some defaultT := defaultTarget |

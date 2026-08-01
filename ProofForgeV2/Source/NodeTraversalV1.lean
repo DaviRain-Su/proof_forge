@@ -135,6 +135,7 @@ def typeConstructorTagV1 : TypeV1 → String
   | .int _ => "Type.Int"
   | .principal => "Type.Principal"
   | .unit => "Type.Unit"
+  | .string => "Type.String"
   | .named _ => "Type.Named"
   | .array .. => "Type.Array"
   | .map .. => "Type.Map"
@@ -162,6 +163,7 @@ def canonicalTypeVisitsV1
       | .int _ => visits := visits.push (visit "Type.Int" current)
       | .principal => visits := visits.push (visit "Type.Principal" current)
       | .unit => visits := visits.push (visit "Type.Unit" current)
+      | .string => visits := visits.push (visit "Type.String" current)
       | .named _ => visits := visits.push (visit "Type.Named" current)
       | .array element _ =>
           visits := visits.push (visit "Type.Array" current)
@@ -272,6 +274,7 @@ def canonicalNodeVisitsV1
       | .int _ => visits := visits.push (visit "Type.Int" current)
       | .principal => visits := visits.push (visit "Type.Principal" current)
       | .unit => visits := visits.push (visit "Type.Unit" current)
+      | .string => visits := visits.push (visit "Type.String" current)
       | .named _ => visits := visits.push (visit "Type.Named" current)
       | .array element _ =>
           visits := visits.push (visit "Type.Array" current)

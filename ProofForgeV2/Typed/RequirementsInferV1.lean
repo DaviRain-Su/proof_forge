@@ -84,7 +84,7 @@ private partial def typeContributions : TypeV1 → Array RequirementContribution
   | .option element => typeContributions element
   | .array element _ => typeContributions element
   | .map key value => typeContributions key ++ typeContributions value
-  | .uint _ | .int _ | .principal | .unit | .named _ | .bytes _ => #[]
+  | .uint _ | .int _ | .principal | .unit | .string | .named _ | .bytes _ => #[]
 
 private def stateVisibilityContributions : VisibilityV1 → Array RequirementContributionV1
   | .public_ => #[]

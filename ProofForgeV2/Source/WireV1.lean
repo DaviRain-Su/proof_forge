@@ -99,8 +99,8 @@ private def isProgramItemTag (tag : String) : Bool :=
 
 private def isTypeTag (tag : String) : Bool :=
   #["Type.Bool", "Type.UInt", "Type.Int", "Type.Principal", "Type.Unit",
-    "Type.Named", "Type.Array", "Type.Map", "Type.Option", "Type.Bytes",
-    "Type.Field"].contains tag
+    "Type.String", "Type.Named", "Type.Array", "Type.Map", "Type.Option",
+    "Type.Bytes", "Type.Field"].contains tag
 
 private def isStatementTag (tag : String) : Bool :=
   #["Stmt.Let", "Stmt.Assign", "Stmt.If", "Stmt.Match", "Stmt.For",

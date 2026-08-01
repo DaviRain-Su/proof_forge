@@ -56,6 +56,7 @@ private partial def lowerTypeV1 : TypeV1 → CompileResult Source.ValueType
   | .int _ => unsupportedV1 "Type.Int"
   | .principal => pure .principal
   | .unit => pure .unit
+  | .string => unsupportedV1 "Type.String"
   | .named _ => unsupportedV1 "Type.Named"
   | .array element length => do
       let element ← lowerTypeV1 element

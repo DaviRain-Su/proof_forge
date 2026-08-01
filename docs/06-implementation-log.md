@@ -11967,3 +11967,38 @@ normative: false
   `common/mod.rs` 宽度感知 discriminator/layout marker。
 - Boundary：结果/event/error 仍 UInt64/Bool/Int64；UInt128/256 与窄 Int
   ABI fail closed；**不是** formal D4。
+
+## 2026-08-01 — N4 String type surface + match nested patterns + general loop forms
+
+- Engineering slice only (not formal TASK-D2/D4 / SupportClaim / OutputSetV1).
+- Wire: `TypeShapeV1.string` nullary tag `Type.String`; valueBytes
+  `u32le(len)||UTF-8 NFC` with `0 ≤ len ≤ maxTypeLengthV1` (empty legal);
+  truncated/trailing/non-NFC → `.nonCanonical`; String is a primitive leaf
+  for interning; **Map keys reject String** (keep Bool|UInt|Int|Principal|
+  Bytes|Struct-of-legal-keys); eq/ne serializable.
+- Source: `TypeV1.string` keyword `String`; codecs/decoder/traversal; full-tag
+  golden inventory 84→85 wire / 57→58 node (source-full-tag only; constructed
+  full-tag remains 84 without String usage).
+- TypeCheck: string literals type as String (intrinsic or expected); string
+  patterns on String scrutinee; non-String scrutinee → expected String mismatch.
+- Normalize: admit String state/param/result; literals; `==`/`!=`; match
+  literal arms via ByteArray valueBytes; nested constructor patterns
+  (recursive VariantPayload binds when outer ctors unique); nested literal
+  still desugars only via catch-all fallthrough path (bind phase skips);
+  multi-arm same outer ctor still fail closed. Loop lowering verified for
+  nested for + if-in-body (loopBounds ≥2 structure-gated).
+- Reference: admit String; eq/ne via valueBytes identity; default empty string.
+- Envelope: `PilotStringPolicy` (default none); `stringTypeId` on
+  `PilotTypeClosureV1`; require helpers include String when admitted.
+- EVM positive lane: admit String; storage/param layout =
+  length UInt64 + 8×UInt64 data words (**max 64 UTF-8 payload bytes**);
+  literal→leaves; load/store multi-leaf; eq/ne leaf-wise AND; **switch on
+  String/aggregate fail closed** (use ==/!= + if). Solana/NEAR/Noir/Psy
+  keep policy none (decline at type-closure).
+- Tests: WireV1 String valueBytes ±; NormalizeV1 String state/eq/match +
+  nested ctor + nested loops; TypeCheckMatch/DiagnosticLocations string
+  pattern on Bool; pipeline diagnostic message updates; source-full-tag
+  golden regenerated.
+- Boundary: not full multi-target String ABI; EVM match-switch on String
+  not lowered; nested multi-arm same-outer refinement still fail closed;
+  formal status unchanged.

@@ -188,10 +188,24 @@ def pilotNamedAggregateStatePolicyNone : PilotNamedAggregateStatePolicy where
 def pilotNamedAggregateStatePolicyAdmit : PilotNamedAggregateStatePolicy where
   admitNamedStructEnum := true
 
+/-- Per-target admission for N4 `TypeShapeV1.string` (variable-length NFC UTF-8).
+    Default fail-closed. A positive lane must store and byte-compare the full
+    wire encoding (`u32le len || UTF-8`, len ≤ maxTypeLengthV1) or a documented
+    pilot bound (EVM: fixed length+8×u64 data leaves, max 64 payload bytes). -/
+structure PilotStringPolicy where
+  admitString : Bool
+  deriving BEq, Repr
+
+def pilotStringPolicyNone : PilotStringPolicy where
+  admitString := false
+
+def pilotStringPolicyAdmit : PilotStringPolicy where
+  admitString := true
+
 /-- Anonymous type ids admitted by a pilot type-closure policy.
-    UInt64 is required; Unit / Bool / Int64 / Field / Principal are optional
-    (at most one each). Named Struct/Enum TypeIds appear in `namedTypeIds`
-    when N3 policy admits them. -/
+    UInt64 is required; Unit / Bool / Int64 / Field / Principal / String are
+    optional (at most one each). Named Struct/Enum TypeIds appear in
+    `namedTypeIds` when N3 policy admits them. -/
 structure PilotTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
@@ -212,6 +226,8 @@ structure PilotTypeClosureV1 where
   fieldTypeId : Option TypeIdV1 := none
   /-- Optional anonymous Principal when Principal policy admits. -/
   principalTypeId : Option TypeIdV1 := none
+  /-- Optional anonymous String when String policy admits (N4). -/
+  stringTypeId : Option TypeIdV1 := none
   /-- Named Struct/Enum TypeIds in source order when N3 aggregate policy admits. -/
   namedTypeIds : Array TypeIdV1 := #[]
   deriving BEq, Repr
@@ -288,6 +304,11 @@ def PilotTypeClosureV1.isPrincipal
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.principalTypeId == some typeId
 
+/-- True when `typeId` is the admitted anonymous String (N4). -/
+def PilotTypeClosureV1.isString
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.stringTypeId == some typeId
+
 /-- True when `typeId` is admitted UInt64, Int64, or Field. -/
 def PilotTypeClosureV1.isUInt64OrInt64OrField
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
@@ -298,6 +319,11 @@ def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipal
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isUInt64OrInt64OrField typeId || c.isPrincipal typeId
 
+/-- True when `typeId` is admitted UInt64/Int64/Field/Principal/String. -/
+def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipalOrString
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.isUInt64OrInt64OrFieldOrPrincipal typeId || c.isString typeId
+
 /-- True when `typeId` is an admitted named Struct/Enum (N3). -/
 def PilotTypeClosureV1.isNamedAggregate
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
@@ -307,6 +333,11 @@ def PilotTypeClosureV1.isNamedAggregate
 def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipalOrNamed
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isUInt64OrInt64OrFieldOrPrincipal typeId || c.isNamedAggregate typeId
+
+/-- Scalar pilot + named aggregate + String (N4 EVM positive lane). -/
+def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipalOrNamedOrString
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.isUInt64OrInt64OrFieldOrPrincipalOrNamed typeId || c.isString typeId
 
 /-- Per-target detail strings that already diverged before EnvelopeV1.
     Common details (named types, one UInt64, duplicate Unit/Bool, missing
@@ -394,17 +425,18 @@ private def duplicateIntDetail (width : Nat) : String :=
   s!"expected at most one anonymous Int{width} type"
 
 /-- Admit a pilot type closure under explicit UInt-, Int-width, Field,
-    Principal, and named-aggregate policies.
+    Principal, String, and named-aggregate policies.
 
     Rules: require exactly one anonymous UInt64; accept at most one of each
     other admitted UInt width / admitted Int width / Unit / Bool / sole catalog
-    Field / Principal; named Struct/Enum only when
+    Field / Principal / String; named Struct/Enum only when
     `namedAggregatePolicy.admitNamedStructEnum` (N3); reject all other shapes
     (including anonymous Array/Map/Option/Bytes). Diagnostics use `mkErr` and
     `wording`.
 
-    Default named-aggregate policy is **none** (fail closed); pass
-    `pilotNamedAggregateStatePolicyAdmit` for EVM (and any future positive lane). -/
+    Default named-aggregate/String policies are **none** (fail closed); pass
+    `pilotNamedAggregateStatePolicyAdmit` / `pilotStringPolicyAdmit` for
+    positive lanes (EVM). -/
 def validatePilotTypeClosure
     (mkErr : String → CompileError)
     (wording : PilotTypeClosureWording)
@@ -414,7 +446,8 @@ def validatePilotTypeClosure
     (fieldPolicy : PilotFieldPolicy := pilotFieldPolicyNone)
     (principalPolicy : PilotPrincipalPolicy := pilotPrincipalPolicyNone)
     (namedAggregatePolicy : PilotNamedAggregateStatePolicy :=
-      pilotNamedAggregateStatePolicyNone) :
+      pilotNamedAggregateStatePolicyNone)
+    (stringPolicy : PilotStringPolicy := pilotStringPolicyNone) :
     CompileResult PilotTypeClosureV1 := do
   let label := wording.targetLabel
   unless policy.admittedWidths.contains 64 do
@@ -426,6 +459,7 @@ def validatePilotTypeClosure
   let mut otherIntByWidth : Array (Nat × TypeIdV1) := #[]
   let mut fieldTypeId : Option TypeIdV1 := none
   let mut principalTypeId : Option TypeIdV1 := none
+  let mut stringTypeId : Option TypeIdV1 := none
   let mut namedTypeIds : Array TypeIdV1 := #[]
   for decl in types do
     match decl.name with
@@ -495,6 +529,13 @@ def validatePilotTypeClosure
             throw <| mkErr (shapeMsg label
               "expected at most one anonymous Principal type")
           principalTypeId := some decl.id
+      | .string =>
+          unless stringPolicy.admitString do
+            throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
+          unless stringTypeId.isNone do
+            throw <| mkErr (shapeMsg label
+              "expected at most one anonymous String type")
+          stringTypeId := some decl.id
       | _ =>
           throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
   let resolvedUInt64TypeId ← match uint64TypeId with
@@ -514,6 +555,7 @@ def validatePilotTypeClosure
     otherIntByWidth
     fieldTypeId
     principalTypeId
+    stringTypeId
     namedTypeIds
   }
 
@@ -701,14 +743,14 @@ def requirePublicUInt64OrInt64OrFieldOrPrincipalParam
 
 
 /-- Fail unless `state` is UInt64/Int64/Field/Principal **or named Struct/Enum**
-    (N3), and public unless `allowNonPublic`. -/
+    (N3) **or String** (N4 when admitted), and public unless `allowNonPublic`. -/
 def requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState
     (mkErr : String → CompileError)
     (types : PilotTypeClosureV1)
     (state : StateDeclV1)
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
-  unless types.isUInt64OrInt64OrFieldOrPrincipalOrNamed state.typeId do
+  unless types.isUInt64OrInt64OrFieldOrPrincipalOrNamedOrString state.typeId do
     throw <| mkErr s!"state '{state.name}' is not public UInt64"
   unless state.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with
@@ -716,7 +758,7 @@ def requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState
     | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
 
 /-- Fail unless `param` is UInt64/Int64/Field/Principal **or named Struct/Enum**
-    (N3), and public unless `allowNonPublic`. -/
+    (N3) **or String** (N4 when admitted), and public unless `allowNonPublic`. -/
 def requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
     (mkErr : String → CompileError)
     (types : PilotTypeClosureV1)
@@ -724,7 +766,7 @@ def requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
     (param : ParameterV1)
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
-  unless types.isUInt64OrInt64OrFieldOrPrincipalOrNamed param.typeId do
+  unless types.isUInt64OrInt64OrFieldOrPrincipalOrNamedOrString param.typeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
   unless param.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with

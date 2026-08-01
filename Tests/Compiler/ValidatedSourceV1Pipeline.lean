@@ -554,7 +554,7 @@ def run : IO Unit := do
     ("EnumDecl", #[.enum { name := x, variants := #[{ name := y, payloadTypes := #[illegalMapKey] }] }],
       "S1 Map key type is not a legal map key"),
     ("ConstDecl", #[.const { name := x, type_ := .map .bool .bool, value := hostile }],
-      "type mismatch: expected Map (Bool) (Bool), got string literal"),
+      "type mismatch: expected Map (Bool) (Bool), got String"),
     ("EventDecl", #[.event { name := x, params := #[param y (.map .bool .bool)] }],
       "S1 event 'x' field 'y' requires anonymous UInt type"),
     ("ErrorDecl", #[.error { name := x, params := #[param y (.map .bool .bool)] }],
@@ -566,14 +566,14 @@ def run : IO Unit := do
           result := .map .bool .bool
           body := ret hostile
         }],
-      "type mismatch: expected Map (Bool) (Bool), got string literal"),
+      "type mismatch: expected Map (Bool) (Bool), got String"),
     ("InvariantDecl", #[.invariant { name := x, predicate := hostile }],
-      "type mismatch: expected Bool, got string literal"),
+      "type mismatch: expected Bool, got String"),
     ("ExtensionReq", #[.extensionReq { id := peer, version := "1.0.0", digest := digest0 }],
       "S1 normalizer does not support extension"),
     ("ProofDecl", #[.proof { invariant := x, theorem_ := peer },
       .invariant { name := x, predicate := hostile }],
-      "type mismatch: expected Bool, got string literal")]
+      "type mismatch: expected Bool, got String")]
   for (tag, itemPrefix, want) in topCases do
     -- Entry uses param-echo so CheckV1-clean constructors hit Normalize unsupported,
     -- not the isolated legacy alpha "validated ProgramV1 lowering does not support …" path.
@@ -584,11 +584,11 @@ def run : IO Unit := do
   -- Named types fail CheckV1 resolution; aggregate state still fails UInt-only gate.
   let typeCases : Array (String × TypeV1 × String) := #[
     ("Type.Named", .named x, "name 'x' resolved to state but expected type"),
-    ("Type.Map", .map .bool .bool, "S1 state 'x' requires anonymous UInt/Int/Field/Principal or named Struct/Enum"),
+    ("Type.Map", .map .bool .bool, "S1 state 'x' requires anonymous UInt/Int/Field/Principal/String or named Struct/Enum"),
     ("Type.Named nested", .option (.array (.named x) 1),
       "name 'x' resolved to state but expected type"),
     ("Type.Map nested", .array (.option (.map .bool .bool)) 1,
-      "S1 state 'x' requires anonymous UInt/Int/Field/Principal or named Struct/Enum"),
+      "S1 state 'x' requires anonymous UInt/Int/Field/Principal/String or named Struct/Enum"),
     ("Type.illegalMapKey", illegalMapKey, "S1 Map key type is not a legal map key")]
   for (tag, type_, want) in typeCases do
     let bad ← validated moduleName identity demo
@@ -599,16 +599,16 @@ def run : IO Unit := do
   let exprArms := patterns.map fun p => { pattern := p, value := hostile }
   let mut exprCases : Array (String × ExprV1 × String) := #[
     ("Literal.Bool", .literal (.bool true), "type mismatch: expected UInt64, got Bool"),
-    ("Literal.String", hostile, "type mismatch: expected UInt64, got string literal"),
+    ("Literal.String", hostile, "type mismatch: expected UInt64, got String"),
     ("Place.Field", .place (.field (.name x) y), "unknown name 'x' (expected value)"),
     ("Place.Index", .place (.index (.name x) hostile), "unknown name 'x' (expected value)"),
     ("Expr.Constructor", .constructor peer #[hostile],
       "unknown name 'Peer' (expected constructor enum)"),
     ("Expr.Unary.neg", .unary .neg hostile,
-      "type mismatch: expected expected type, got string literal"),
-    ("Expr.Unary.not", .unary .not hostile, "type mismatch: expected Bool, got string literal"),
+      "type mismatch: expected integer or Field type, got String"),
+    ("Expr.Unary.not", .unary .not hostile, "type mismatch: expected Bool, got String"),
     ("Expr.Unary.bitNot", .unary .bitNot hostile,
-      "type mismatch: expected expected type, got string literal"),
+      "type mismatch: expected integer type, got String"),
     ("Expr.LocalCall", .localCall x #[hostile], "unknown name 'x' (expected function)"),
     ("Expr.Match", .match_ hostile exprArms, "unknown name 'Peer' (expected constructor enum)")]
   let arithBinary : Array (String × BinaryOpV1) := #[
@@ -617,27 +617,27 @@ def run : IO Unit := do
     ("BinaryOp.BitXor", .bitXor)]
   for (tag, op) in arithBinary do
     exprCases := exprCases.push (tag, .binary op hostile hostile,
-      "type mismatch: expected UInt64, got string literal")
+      "type mismatch: expected UInt64, got String")
   exprCases := exprCases.push ("BinaryOp.Eq", .binary .eq hostile hostile,
-    "type mismatch: expected expected type, got string literal")
+    "type mismatch: expected UInt64, got Bool")
   exprCases := exprCases.push ("BinaryOp.Ne", .binary .ne hostile hostile,
-    "type mismatch: expected expected type, got string literal")
+    "type mismatch: expected UInt64, got Bool")
   exprCases := exprCases.push ("BinaryOp.Lt", .binary .lt hostile hostile,
-    "type mismatch: expected expected type, got string literal")
+    "type mismatch: expected integer type, got String")
   exprCases := exprCases.push ("BinaryOp.Le", .binary .le hostile hostile,
-    "type mismatch: expected expected type, got string literal")
+    "type mismatch: expected integer type, got String")
   exprCases := exprCases.push ("BinaryOp.Gt", .binary .gt hostile hostile,
-    "type mismatch: expected expected type, got string literal")
+    "type mismatch: expected integer type, got String")
   exprCases := exprCases.push ("BinaryOp.Ge", .binary .ge hostile hostile,
-    "type mismatch: expected expected type, got string literal")
+    "type mismatch: expected integer type, got String")
   exprCases := exprCases.push ("BinaryOp.And", .binary .logicalAnd hostile hostile,
-    "type mismatch: expected Bool, got string literal")
+    "type mismatch: expected Bool, got String")
   exprCases := exprCases.push ("BinaryOp.Or", .binary .logicalOr hostile hostile,
-    "type mismatch: expected Bool, got string literal")
+    "type mismatch: expected Bool, got String")
   exprCases := exprCases.push ("BinaryOp.Shl", .binary .shl hostile hostile,
-    "type mismatch: expected UInt64, got string literal")
+    "type mismatch: expected UInt64, got String")
   exprCases := exprCases.push ("BinaryOp.Shr", .binary .shr hostile hostile,
-    "type mismatch: expected UInt64, got string literal")
+    "type mismatch: expected UInt64, got String")
   for (tag, expression, want) in exprCases do
     let bad ← validated moduleName identity demo #[.entry (entry runN (ret expression))]
     expectInvalid s!"expression {tag}" want (Compiler.compileValidatedSourceV1 bad)
@@ -650,21 +650,21 @@ def run : IO Unit := do
   let stmtArms := patterns.map fun p => { pattern := p, body := ret hostile }
   let stmtCases : Array (String × StmtV1 × String) := #[
     ("Stmt.Let", .let_ x (some (.map .bool .bool)) hostile,
-      "type mismatch: expected Map (Bool) (Bool), got string literal"),
+      "type mismatch: expected Map (Bool) (Bool), got String"),
     ("Stmt.Assign.field", .assign (.field (.name x) y) hostile, "unknown name 'x' (expected value)"),
     ("Stmt.Assign.index", .assign (.index (.name x) hostile) hostile, "unknown name 'x' (expected value)"),
     ("Stmt.If", .if_ hostile (ret hostile) (some (ret hostile)),
-      "type mismatch: expected Bool, got string literal"),
+      "type mismatch: expected Bool, got String"),
     ("Stmt.Match", .match_ hostile stmtArms, "unknown name 'Peer' (expected constructor enum)"),
     ("Stmt.For", .for_ x hostile hostile 1 (ret hostile),
-      "type mismatch: expected expected type, got string literal"),
-    ("Stmt.Assert", .assert_ hostile none, "type mismatch: expected Bool, got string literal"),
+      "type mismatch: expected integer type, got String"),
+    ("Stmt.Assert", .assert_ hostile none, "type mismatch: expected Bool, got String"),
     ("Stmt.Assert.error", .assert_ hostile (some x), "unknown name 'x' (expected error)"),
     ("Stmt.Revert", .revert x #[hostile], "unknown name 'x' (expected error)"),
     ("Stmt.Emit", .emit x #[hostile], "unknown name 'x' (expected event)"),
     ("Stmt.Return", .return_ none, "type mismatch: expected UInt64, got empty return"),
     ("Stmt.Schedule", .schedule { callee := peer, args := #[hostile] },
-      "type mismatch: expected expected type, got string literal")]
+      "S1 String literal requires an enclosing String expected type")]
   for (tag, statement, want) in stmtCases do
     let bad ← validated moduleName identity demo
       #[.entry (entry runN (block #[statement, .return_ (some (var seed))]) #[param seed])]
@@ -672,16 +672,16 @@ def run : IO Unit := do
   let callArgs ← validated moduleName identity demo #[.entry (entry runN
     (block #[.call { callee := peer, args := #[hostile] }, .return_ (some (var seed))])
       #[param seed])]
-  expectInvalid "call arguments" "type mismatch: expected expected type, got string literal"
+  expectInvalid "call arguments" "S1 String literal requires an enclosing String expected type"
     (Compiler.compileValidatedSourceV1 callArgs)
 
   -- Phase-order priority under CheckV1-first product gate (via Normalize typedNotOk).
   let priority : Array (String × Array ProgramItemV1 × String) := #[
     ("item order", #[.entry (entry runN (ret hostile)),
       .struct { name := x, fields := #[{ name := y, type_ := .bool }] }],
-      "type mismatch: expected UInt64, got string literal"),
+      "type mismatch: expected UInt64, got String"),
     ("add lhs", #[.entry (entry runN (ret (.binary .add hostile (.literal (.bool true)))))],
-      "type mismatch: expected UInt64, got string literal"),
+      "type mismatch: expected UInt64, got String"),
     ("assign target", #[.state (state x), .entry (entry runN (block #[
       .assign (.field (.name x) y) hostile, .return_ (some (var seed))]) #[param seed])],
       "type mismatch: expected struct type, got UInt64"),

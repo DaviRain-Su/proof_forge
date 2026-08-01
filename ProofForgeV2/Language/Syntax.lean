@@ -404,6 +404,7 @@ private def primitiveTypeV1 (raw : String) : Option TypeV1 :=
   | "Int256" => some (.int 256)
   | "Unit" => some .unit
   | "Principal" => some .principal
+  | "String" => some .string
   | _ => none
 
 private def isTypeConstructorNameV1 (raw : String) : Bool :=

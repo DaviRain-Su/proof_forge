@@ -28,7 +28,7 @@ private def requireLen (kind : String) (length : UInt32) : Except String Unit :=
 /-- Closed 11-tag field counts; unknown before any fieldCount read. -/
 private def expectedFieldCount (tag : String) : Except String Nat :=
   match tag with
-  | "Type.Bool" | "Type.Principal" | "Type.Unit" => pure 0
+  | "Type.Bool" | "Type.Principal" | "Type.Unit" | "Type.String" => pure 0
   | "Type.UInt" | "Type.Int" | "Type.Named" | "Type.Option" |
       "Type.Bytes" | "Type.Field" => pure 1
   | "Type.Array" | "Type.Map" => pure 2
@@ -61,6 +61,7 @@ def decodeTypeV1 : (remainingDepth : Nat) → (budget : DecodeBudgetV1) →
       | "Type.Bool" => pure ((TypeV1.bool, budget), c)
       | "Type.Principal" => pure ((TypeV1.principal, budget), c)
       | "Type.Unit" => pure ((TypeV1.unit, budget), c)
+      | "Type.String" => pure ((TypeV1.string, budget), c)
       | "Type.UInt" => do
           let (width, c) ← decodeU16le c
           requireWidth width
