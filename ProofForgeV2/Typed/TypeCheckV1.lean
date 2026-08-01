@@ -464,11 +464,34 @@ def constructorArgRelatedPaths (tables : TypedDeclTablesV1)
       | _ => #[]
   | _ => #[]
 
+/-- N-A4: resolve `Option.some` / `Option.none` (and Some/None) when the expected
+    or scrutinee type is `Option T`. Without expected Option context, returns none
+    so the ordinary enum/struct path can produce a clear diagnostic. -/
+private def tryOptionConstructor
+    (expected? : Option TypeV1) (ctor : SourceQualifiedNameV1) :
+    Option (TypeV1 × Array TypeV1) :=
+  let comps := ctor.components.toArray
+  match comps, expected? with
+  | #[typeName, methodOrVariant], some (.option elem) =>
+      if typeName.raw != "Option" then none
+      else
+        let m := methodOrVariant.raw
+        if m == "none" || m == "None" then
+          some (.option elem, #[])
+        else if m == "some" || m == "Some" then
+          some (.option elem, #[elem])
+        else none
+  | _, _ => none
+
 /-- Resolve a constructor path to its result type and expected argument types.
-    Mirrors `NameResolutionV1.resolveConstructorName`. -/
+    Mirrors `NameResolutionV1.resolveConstructorName`. Optional `expected?` unlocks
+    N-A4 `Option.some`/`Option.none` when the expected type is `Option T`. -/
 def resolveConstructorType (tables : TypedDeclTablesV1)
-    (ctor : SourceQualifiedNameV1) :
+    (ctor : SourceQualifiedNameV1) (expected? : Option TypeV1 := none) :
     Except DiagnosticV1 (TypeV1 × Array TypeV1) :=
+  match tryOptionConstructor expected? ctor with
+  | some r => pure r
+  | none =>
   let comps := ctor.components.toArray
   match comps with
   | #[name] =>
@@ -496,10 +519,8 @@ def resolveConstructorType (tables : TypedDeclTablesV1)
             | some (kind, _) => .error (wrongCategoryDiagnostic name kind "constructor")
             | none => .error (unknownNameDiagnostic name "constructor")
   | #[typeName, methodOrVariant] =>
-      -- Phase-1 constructor identity: StructName.new | EnumName.Variant.
-      -- (Option.some/none need expected context and are handled at the call site
-      -- only when TypeCheck later threads expected; bare multi-component Option
-      -- paths fail as unknown enum until that extension.)
+      -- Phase-1 constructor identity: StructName.new | EnumName.Variant |
+      -- Option.some/none (when expected? = some (.option _)).
       if methodOrVariant.raw == "new" then
         match tables.struct.find? typeName with
         | some (_, structDecl) =>
@@ -597,7 +618,7 @@ partial def typeCheckPatternDrafts (tables : TypedDeclTablesV1)
           (stringPatternOnNonStringDiagnosticDraft (typeName scrutineeType))
           patternPath? #[] ]
   | .constructor ctor args =>
-      match resolveConstructorType tables ctor with
+      match resolveConstructorType tables ctor (some scrutineeType) with
       | .error diag =>
           patternResultDraft [] #[draftFromDiag diag patternPath?
             (constructorRelatedPaths tables ctor .unit)]
@@ -1081,7 +1102,7 @@ mutual
               "binary expression")
             exprPath? expectedRelated]
     | .constructor ctor args =>
-        let pathRes := resolveConstructorType tables ctor
+        let pathRes := resolveConstructorType tables ctor expected?
         match pathRes with
         | .error diag =>
             let (argDrafts, pathDs) := args.zipIdx.foldl

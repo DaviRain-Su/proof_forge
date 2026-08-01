@@ -240,8 +240,8 @@ def pilotNamedAggregateStatePolicyAdmit : PilotNamedAggregateStatePolicy where
     Default fail-closed (`none`). A positive lane must pin a concrete layout
     (e.g. Solana: fixed-length `Array UInt64 N` flattened to N consecutive
     8-byte account slots with literal-index IndexGet/IndexSet). Map/Bytes
-    remain optional; Option container state stays Normalize-closed and is
-    never admitted here. -/
+    remain optional; Option state is Normalize-admitted (N-A4, default none)
+    but is **never** admitted by this container policy (targets fail closed). -/
 structure PilotContainerStatePolicy where
   admitArray : Bool
   admitMap : Bool
@@ -622,7 +622,8 @@ private def duplicateIntDetail (width : Nat) : String :=
     Field / Principal / String; named Struct/Enum only when
     `namedAggregatePolicy.admitNamedStructEnum` (N3); anonymous Array/Map/Bytes
     only when `containerPolicy` admits the matching shape (ArrayState);
-    reject Option and all other shapes. Diagnostics use `mkErr` and `wording`.
+    reject Option (Normalize may admit; target container policy does not) and
+    all other shapes. Diagnostics use `mkErr` and `wording`.
 
     Default named-aggregate/String/container policies are **none** (fail closed);
     pass `pilotNamedAggregateStatePolicyAdmit` / `pilotStringPolicyAdmit` /

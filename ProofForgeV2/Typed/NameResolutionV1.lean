@@ -158,7 +158,7 @@ def resolveConstructorName (tables : TypedDeclTablesV1)
           | none =>
               emitLocated (unknownNameDiagnosticDraft name "constructor") sitePath #[]
   | #[typeName, methodOrVariant] =>
-      -- Phase-1: StructName.new | EnumName.Variant
+      -- Phase-1: StructName.new | EnumName.Variant | Option.some/none (N-A4)
       if methodOrVariant.raw == "new" then
         match tables.struct.find? typeName with
         | some _ => pure ()
@@ -170,6 +170,14 @@ def resolveConstructorName (tables : TypedDeclTablesV1)
             | none =>
                 emitLocated (unknownNameDiagnosticDraft typeName "constructor struct")
                   sitePath #[]
+      else if typeName.raw == "Option" then
+        -- Built-in Option constructors (TypeCheck still requires Option expected type).
+        let m := methodOrVariant.raw
+        if m == "some" || m == "Some" || m == "none" || m == "None" then
+          pure ()
+        else
+          emitLocated (unknownNameDiagnosticDraft methodOrVariant "constructor variant")
+            sitePath #[]
       else
         match tables.enum.find? typeName with
         | some p =>

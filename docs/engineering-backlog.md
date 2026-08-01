@@ -203,7 +203,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **N-A1** | EVM String `match` switch（N4 类型面已开） | **done**（2026-08-02：`a25365213` EvmStringMatch；matrix LOWERED） |
 | **N-A2** | 多臂同外构造器 match 细化 | **done**（2026-08-02：`2a6c2bc9c` MultiArmCtor；matrix LOWERED 四 target） |
 | **N-A3** | Map/Bytes 穿透元素赋值 | pending |
-| **N-A4** | Option state | pending |
+| **N-A4** | Option state | **done**（2026-08-02：Normalize admit Option state/param；default none；四 target Plan FAIL-CLOSED 钉死） |
 
 ### 2.3 Reference / invariant 工程子集
 

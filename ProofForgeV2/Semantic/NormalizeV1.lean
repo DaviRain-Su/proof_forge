@@ -55,8 +55,9 @@
       Map, Option, Field(bn254-fr); one TypeId per distinct anonymous shape,
       interned on first actual use after named registration. State/parameter
       positions admit public legal-UInt/Int/Field/Principal/String **or named
-      Struct/Enum** (N3/N4) **or anonymous Array/Map/Bytes** (N3 ArrayState;
-      Option/Unit/Bool state still fail closed). Entry/view/fn results stay legal
+      Struct/Enum** (N3/N4) **or anonymous Array/Map/Bytes/Option** (N3 ArrayState +
+      N-A4 Option; default valueBytes = Option-none `0x00`). Unit/Bool state still
+      fail closed). Entry/view/fn results stay legal
       UInt/Int/Unit/Bool/Field/Principal/String (aggregate results fail closed —
       target ABI surface is scalar). Local `let` may hold named/aggregate
       values (including Principal/String)
@@ -108,9 +109,8 @@
     * Field/Principal source literals, Field/Principal/String ordering
       comparisons, Field `mod`, Principal/String arithmetic/bitwise/unary,
       non-UInt64 call/schedule args and for endpoints,
-      anonymous Option/Unit/Bool as state or param types (Array/Map/Bytes
-      state admitted; Option still fail closed — no clean state default
-      surface beyond wire none-tag without product constructors),
+      anonymous Unit/Bool as state or param types (Array/Map/Bytes/Option
+      state admitted; Option default is none-tag `0x00` via InvariantFoundation),
       aggregate entry/view/fn results, nonempty Map construction,
       identical multi-arm same-outer patterns (structural duplicate keys),
       param-root field/index assign, true mutable locals (field/index
@@ -572,10 +572,10 @@ private def requireAnonymousIntegerOrFieldTypeId
   | none =>
       failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
 
-/-- N3/N4 + ArrayState state/param admission: anonymous legal
+/-- N3/N4 + ArrayState + N-A4 state/param admission: anonymous legal
     UInt/Int/Field/Principal/String **or** named Struct/Enum **or** anonymous
-    Array/Map/Bytes. Option/Unit/Bool still fail closed at declaration sites
-    (locals may still hold them via let). -/
+    Array/Map/Bytes/Option. Unit/Bool still fail closed at declaration sites
+    (locals may still hold them via let). Option default is wire none-tag. -/
 private def requireStateOrParamTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
@@ -593,7 +593,7 @@ private def requireStateOrParamTypeId
           if legalIntegerWidthV1 w.toNat then pure ()
           else
             failUnsupported
-              s!"S1 {context} requires legal UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes"
+              s!"S1 {context} requires legal UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes/Option"
       | none, .field spec =>
           if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
           else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
@@ -609,9 +609,10 @@ private def requireStateOrParamTypeId
           else
             failUnsupported
               s!"S1 {context} Bytes length {len} exceeds maxTypeLengthV1 ({maxTypeLengthV1})"
+      | none, .option _ => pure ()
       | none, _ =>
           failUnsupported
-            s!"S1 {context} requires anonymous UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes"
+            s!"S1 {context} requires anonymous UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes/Option"
 
 /-- Backward-compatible UInt64-only pin used by call/schedule/for endpoints. -/
 private def requireUInt64TypeId

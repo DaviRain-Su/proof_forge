@@ -55,6 +55,7 @@ open ProofForgeV2.Typed.CheckV1
 open ProofForgeV2.Typed.DiagnosticDraftV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Typed.NameResolutionV1
+open ProofForgeV2.Semantic.NormalizeV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -5324,23 +5325,57 @@ private unsafe def testBytesStateAdmitted
   expect hasBytes "bytes-state: Bytes 2 type present"
   expect (data.logicalState.any (·.name == "b")) "bytes-state: state b present"
 
-/-- ArrayState: Option state remains fail closed at Normalize. -/
-private unsafe def testOptionStateFailClosed
+/-- N-A4: Option state admitted at Normalize; init stores Option.none; entry
+    may Construct.some / match / StateStore. Target Plan remains FAIL-CLOSED. -/
+private unsafe def testOptionStateAdmitted
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "OptState" <|
     "  state o : Option UInt64\n" ++
     "  init() do\n" ++
     "    o := Option.none()\n" ++
-    "  entry run() : UInt64 do\n" ++
-    "    return 0\n"
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(v)\n" ++
+    "    return v\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    match o with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
   let validated ← loadSource session "opt-state" source
-  match normalizeProgramV1 validated with
-  | .ok _ => throw <| IO.userError "opt-state: expected Option state fail closed"
-  | .error e =>
-      let msg := toString (repr e)
-      expect (msg.contains "Option" || msg.contains "unsupported" ||
-          msg.contains "Array/Map/Bytes" || msg.contains "UInt")
-        s!"opt-state: message should reject Option state, got {msg}"
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"opt-state: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"opt-state: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"opt-state: validate: {repr e}"
+  expect (data.logicalState.size == 1) "opt-state: one logical state"
+  expect (data.logicalState.any (·.name == "o")) "opt-state: state o present"
+  let hasOption := data.types.any fun d =>
+    match d.shape with | .option _ => true | _ => false
+  expect hasOption "opt-state: Option type present"
+  let some initC := data.callables.find? (·.kind == .initializer) |
+    throw <| IO.userError "opt-state: missing init"
+  let some initBlk := initC.blocks[0]? |
+    throw <| IO.userError "opt-state: missing init block"
+  let hasConstruct := initBlk.instructions.any fun i =>
+    match i.op with | .construct .. => true | _ => false
+  let hasStore := initBlk.instructions.any fun i =>
+    match i.op with | .stateStore .. => true | _ => false
+  expect hasConstruct "opt-state: Construct Option.none in init"
+  expect hasStore "opt-state: StateStore in init"
+  let some entryC := data.callables.find? (·.kind == .entry) |
+    throw <| IO.userError "opt-state: missing entry"
+  let some entryBlk := entryC.blocks[0]? |
+    throw <| IO.userError "opt-state: missing entry block"
+  let entryHasConstruct := entryBlk.instructions.any fun i =>
+    match i.op with | .construct .. => true | _ => false
+  let entryHasStore := entryBlk.instructions.any fun i =>
+    match i.op with | .stateStore .. => true | _ => false
+  expect entryHasConstruct "opt-state: Construct Option.some in entry"
+  expect entryHasStore "opt-state: StateStore in entry"
 
 /-- N3: bare reassignment of immutable let still fails closed. -/
 private unsafe def testImmutableLetReassignFailClosed
@@ -6433,11 +6468,11 @@ unsafe def run : IO Unit := do
   testAggregateParamOk session
   testAggregateResultFailClosed session
   testImmutableLetReassignFailClosed session
-  -- ArrayState: anonymous Array/Map/Bytes state + index assign; Option closed
+  -- ArrayState + N-A4: Array/Map/Bytes/Option state admitted
   testArrayStateIndexAssign session
   testMapStateAdmitted session
   testBytesStateAdmitted session
-  testOptionStateFailClosed session
+  testOptionStateAdmitted session
   -- T3 aggregate values
   testAggregateTypeInterning session
   testAggregateIllegalMapKey session

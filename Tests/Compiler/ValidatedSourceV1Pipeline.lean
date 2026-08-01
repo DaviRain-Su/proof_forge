@@ -581,21 +581,28 @@ def run : IO Unit := do
       (itemPrefix.push (.entry (entry runN (ret (var seed)) #[param seed])))
     expectInvalid s!"top {tag}" want (Compiler.compileValidatedSourceV1 bad)
 
-  -- Named types fail CheckV1 resolution; Option/Unit/Bool state stay fail closed
-  -- (Array/Map/Bytes state admitted by ArrayState wave).
+  -- Named types fail CheckV1 resolution; Unit/Bool state stay fail closed
+  -- (Array/Map/Bytes/Option state admitted by ArrayState + N-A4).
   let typeCases : Array (String × TypeV1 × String) := #[
     ("Type.Named", .named x, "name 'x' resolved to state but expected type"),
-    ("Type.Option", .option .bool,
-      "S1 state 'x' requires anonymous UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes"),
     ("Type.Named nested", .option (.array (.named x) 1),
       "name 'x' resolved to state but expected type"),
     ("Type.Bool state", .bool,
-      "S1 state 'x' requires anonymous UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes"),
+      "S1 state 'x' requires anonymous UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes/Option"),
+    ("Type.Unit state", .unit,
+      "S1 state 'x' requires anonymous UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes/Option"),
     ("Type.illegalMapKey", illegalMapKey, "S1 Map key type is not a legal map key")]
   for (tag, type_, want) in typeCases do
     let bad ← validated moduleName identity demo
       #[.state (state x type_), .entry (entry runN (ret (var seed)) #[param seed])]
     expectInvalid s!"type {tag}" want (Compiler.compileValidatedSourceV1 bad)
+  -- N-A4: Option state compiles (structure-gated carrier); targets still FC.
+  let optOk ← validated moduleName identity demo
+    #[.state (state x (.option (.uint 64))),
+      .entry (entry runN (ret (var seed)) #[param seed])]
+  match Compiler.compileValidatedSourceV1 optOk with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"type Type.Option: expected compile ok, got {e.render}"
 
   let patterns : Array PatternV1 := #[.wildcard, .bind x, .literal (.bool true), .constructor peer #[]]
   let exprArms := patterns.map fun p => { pattern := p, value := hostile }

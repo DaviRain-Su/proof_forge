@@ -2706,6 +2706,38 @@ unsafe def run : IO Unit := do
             (e.render).contains "UInt64")
           s!"ArrayState {target} message must cite container/Array boundary, got {e.render}"
 
+  -- N-A4: Option state Normalize-admitted; all Phase-1 targets fail closed
+  -- (container policy never admits Option).
+  let optionStateSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptBox where\n" ++
+    "  state o : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optV1 ← match ← session.selectProgramV1 optionStateSource
+      "<targets-option-state>" "Examples.OptBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"N-A4 Option select: {e.render}"
+  let optCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir, TargetId.psy] do
+    match materializeSelected target optCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N-A4: {target} must decline Option state"
+    | .error e =>
+        expect ((e.render).contains "Option" ||
+            (e.render).contains "container" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "shape" ||
+            (e.render).contains "UInt64")
+          s!"N-A4 {target} message must cite Option/container boundary, got {e.render}"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1

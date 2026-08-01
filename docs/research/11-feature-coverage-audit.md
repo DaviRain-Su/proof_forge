@@ -64,14 +64,14 @@ exact-fuel）。但 `NormalizeV1` 只 lowering 一个子集，`ReferenceV1` 只�
 
 fail closed（逐项对照 spec EBNF 与 `SPEC-SEM-001`；**N-A1/N-A2 已闭合 2026-08-02**）：
 
-1. 非空 Map 构造 + anonymous Map/Array/Option/Bytes 作 state/param；
-2. ContextRead / `context.read.<name>` / callerContext；
-3. Commit 算子 / `disclosure.commit`；
+1. 非空 Map 构造（anonymous Map/Array/Bytes/Option **state** 已 admit；Option 默认 none，N-A4）；
+2. ContextRead 扩 key / `callerContext`（sole `unixTimeSeconds` 已 N5）；
+3. Commit **disclosure 契约**（label-only `commit(x)` 已 N5）；
 4. aggregate entry/view/fn 返回值（target ABI 仍 scalar-only）；
 5. call 返回值 / schedule response 语义（v1 external call 无返回值——`SPEC-SEM-001` 明确
    "加 typed return 必须升级 semantic/reference schema"）；
 6. true mutable locals（仅 field/index rebind of 不可变 let）；
-7. match 内构造器子模式嵌套（nested constructor/literal sub-patterns）；
+7. match 内构造器子模式嵌套深化；
 8. Int event/error 字段（仍 UInt-only）；
 9. 非 UInt64 的 call/schedule args 与 for 端点；
 10. Field/Principal 源字面量、Field 排序比较、Field `mod`、Principal 算术。
