@@ -12368,3 +12368,46 @@ normative: false
   still PF-VIS-001. Accumulator planHash baseline rehashed for StateField.visibility.
 - Boundary: engineering only; EnvelopeV1 untouched; other targets unchanged;
   no ACIR/proof backend; formal D2/D4 not claimed.
+
+## 2026-08-01 — EvmSolc: real solc acceptance of emitted Yul objects
+
+- Engineering only (not formal TASK-D4-04 / hermetic tool lock / Anvil).
+- Context: M4 delivered `validateEvmTargetIRV1` structural gate on Yul+ABI text,
+  but product-emitted Yul objects had not been re-checked by a live solc after
+  the recent Plan/IR expansion (dispatcher, multi-width, Field Fermat, for-loop,
+  plan-level `pf_fn*`, aggregates). FinalizeV1 already documents the product
+  invocation; this wave adds a fail-closed acceptance suite on top of that.
+- solc invocation (exact product parity with FinalizeV1):
+  `solc --strict-assembly --bin <name>.yul` with cwd = staging dir containing
+  the object file. Dialect is top-level Yul `object "Name" { code { … }
+  object "__proof_forge_runtime" { code { … } } }` (nested deployment/runtime
+  objects; constructor uses `datasize`/`dataoffset`/`datacopy`).
+- Suite: `Tests/Materialization/EvmSolcAcceptance.lean` materializes five
+  representative programs through the product capability path
+  (select → compileValidatedSourceV1 → resolve → materializeResult), writes
+  `.yul` under `build/v2/evm-solc-acceptance/`, invokes host solc, asserts
+  non-empty hex `Binary representation:`. When solc is absent (PATH /
+  `/opt/homebrew/bin/solc` / `/usr/local/bin/solc`), logs
+  `skipped: solc unavailable` and passes so ordinary Linux CI stays green.
+  When solc is present the suite is fail-closed.
+- Programs accepted on this host (solc 0.8.34 Darwin): Counter (237 B),
+  PointBox named-Struct aggregate (200 B), FieldLane with Fermat `fieldDiv`
+  (610 B), StrBox String multi-word param ABI (345 B), LoopSum bounded for
+  (458 B). **No EmitIRV1 fixes were required** — solc accepted every emitted
+  object without modification.
+- Helper: optional `scripts/evm_solc_acceptance.sh` (skip when solc absent;
+  fail-closed when present) for ad-hoc `.yul` dirs/files.
+- Registration: `Tests.lean` / `Tests/Fast.lean` / `Tests/Shards/Targets.lean`
+  / `lakefile.lean` (targets shard) per M3b pattern. No justfile change.
+- Known residual (out of EmitIRV1 allowlist / LowerSemantic OFF-LIMITS):
+  * String *state* storage routing still fail-closes in
+    `makeStorageLayoutV1` (scalar branch omits `isString`; named/aggregate
+    path is Struct/Enum only).
+  * String literal `==` can hit `dead or reordered value instructions` SSA
+    consumption in LowerSemantic. Suite therefore uses String *param* ABI
+    (9×UInt64 leaf loads) + `return true` to exercise the multi-word Yul
+    surface without those plan gaps.
+- Boundary: not formal D4-04, not locked-tool root / evidence ceremony, not
+  Anvil differential; ValidateIRV1 structural gate untouched and still
+  additive under solc acceptance.
+

@@ -50,7 +50,9 @@ import Tests.Frontend.ProtocolV1
 import Tests.Frontend.WorkerV1
 import Tests.Product.CounterV1Evm
 import Tests.Materialization.EvmSmoke
+import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.SolanaPlanV1
+
 import Tests.Materialization.Targets
 import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
@@ -122,7 +124,9 @@ unsafe def main : IO Unit := do
   Tests.Frontend.WorkerV1.run
   Tests.Product.CounterV1Evm.run
   Tests.Materialization.EvmSmoke.run
+  Tests.Materialization.EvmSolcAcceptance.run
   Tests.Materialization.SolanaPlanV1.run
+
   Tests.Materialization.TargetRegistryV1.run
   Tests.Materialization.RequirementResolverV1.run
   Tests.Materialization.IdentityChainV1.run

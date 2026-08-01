@@ -5,7 +5,9 @@ import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.IdentityChainV1
 import Tests.Materialization.EvmPlanSchemaV1
 import Tests.Materialization.EvmSmoke
+import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.OutputSetV1
+
 import Tests.Materialization.OutputEnvelopeV1
 import Tests.Materialization.EngineeringFinalizationV1
 import Tests.Materialization.EngineeringDiskClosureV1
@@ -36,7 +38,10 @@ unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.EvmSmoke.run
   IO.eprintln "CP run"
+  Tests.Materialization.EvmSolcAcceptance.run
+  IO.eprintln "CP run"
   Tests.Materialization.OutputSetV1.run
+
   IO.eprintln "CP run"
   Tests.Materialization.OutputEnvelopeV1.run
   IO.eprintln "CP run"
