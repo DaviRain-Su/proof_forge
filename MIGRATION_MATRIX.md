@@ -258,7 +258,9 @@ u32-length-prefixed bytes的prefix/limit/exact payload refinement，并让`decod
 header委托给shared primitive并保留唯一既有element loop；universal theorem固定truncation优先、
 count等于上限及超限边界。后续iteration切片将该唯一production loop抽为结构递归
 `decodeArrayElementsV1`，保持顺序、fail-fast与cursor线程，并以header-success composition theorem
-提供稳定kernel unfolding seam；没有proof-side generic decoder。QualifiedName与九张root table仍pending。
+提供稳定kernel unfolding seam；没有proof-side generic decoder。后续QualifiedName切片组合既有
+sized-byte、sole String UTF-8/NFC、array iteration与`parseQualifiedName` authority，两个theorem保持
+全部错误相位且不复制validator。九张root table与完整carrier refinement仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

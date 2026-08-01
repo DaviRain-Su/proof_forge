@@ -11349,3 +11349,14 @@ normative: false
   成功prefix后失败及任意header equality的theorem复用；目标Wire suite通过，blocker review批准。
 - Boundary：该helper是production sole executable loop，不存在transparent/proof-side generic decoder；
   QualifiedName、root tables、完整carrier validation与formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 QualifiedName framing proof seam
+
+- Proof seam：新增`decodeString_eq_of_sizedBytesV1`，由真实production sized-read equality进入既有
+  UTF-8/NFC分支；新增`decodeQualifiedName_eq_elementsV1`，由真实count-header equality进入sole
+  `decodeArrayElementsV1 decodeString`，最后仍调用既有`parseQualifiedName`。
+- Contract：保留header truncation/limit→source-order component decode→QualifiedName grammar顺序，
+  success cursor保留原input/nesting并线程化exact offsets；未添加第二String/QualifiedName validator。
+  focused Wire build与kernel theorem reuse通过，blocker review批准。
+- Boundary：本切片仅闭合QualifiedName framing composition；root九字段、完整carrier kernel validation、
+  `InvariantTheoremV1`与formal TASK/TST仍pending。

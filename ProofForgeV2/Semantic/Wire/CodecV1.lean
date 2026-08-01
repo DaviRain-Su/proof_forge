@@ -722,6 +722,19 @@ def decodeString : Decoder String := fun c => do
       | .error _ => err .badScalar
       | .ok _ => pure (s, c)
 
+/-- Once the shared sized-byte read is established, String decoding retains
+    the sole production UTF-8 and NFC checks without a proof-side validator. -/
+theorem decodeString_eq_of_sizedBytesV1 (c : Cursor) (raw : ByteArray) (offset : Nat)
+    (hread : readSizedBytesAtV1 c.input c.offset maxStringBytes = .ok (raw, offset)) :
+    decodeString c =
+      match String.fromUTF8? raw with
+      | none => .error .badScalar
+      | some s =>
+          match requireNfc s with
+          | .error _ => .error .badScalar
+          | .ok _ => .ok (s, ⟨c.input, offset, c.nesting⟩) := by
+  simp only [decodeString, hread, Bind.bind, Pure.pure, Except.bind, Except.pure, err]
+
 def decodeDigest : Decoder Digest := fun c => do
   let (bytes, c) ← takeBytes c 32
   let digest : Digest := { algorithm := .sha256, bytes }
@@ -753,6 +766,28 @@ def decodeQualifiedName : Decoder QualifiedName := fun c => do
   match parseQualifiedName components with
   | .error _ => err .badScalar
   | .ok name => pure (name, c)
+
+/-- QualifiedName framing composed from the established array header and sole
+    production element iterator. Component UTF-8/NFC and name grammar remain
+    in their existing production authorities. -/
+theorem decodeQualifiedName_eq_elementsV1 (c : Cursor) (count offset : Nat)
+    (hcount : readArrayCountAtV1 c.input c.offset 256 = .ok (count, offset)) :
+    decodeQualifiedName c =
+      match decodeArrayElementsV1 decodeString count #[] ⟨c.input, offset, c.nesting⟩ with
+      | .error e => .error e
+      | .ok (components, c') =>
+          match parseQualifiedName components with
+          | .error _ => .error .badScalar
+          | .ok name => .ok (name, c') := by
+  unfold decodeQualifiedName
+  rw [decodeArray_eq_elementsV1 256 decodeString c count offset hcount]
+  generalize decodeArrayElementsV1 decodeString count #[]
+    ⟨c.input, offset, c.nesting⟩ = result
+  cases result with
+  | error e => rfl
+  | ok pair =>
+      cases pair
+      rfl
 
 def decodeProjectRelativePath : Decoder ProjectRelativePath := fun c => do
   let (s, c) ← decodeString c

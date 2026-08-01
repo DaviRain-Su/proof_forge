@@ -230,6 +230,17 @@ example (input : ByteArray) (offset nesting maxCount count afterCount : Nat)
       decodeArrayElementsV1 decodeU32le count #[] ⟨input, afterCount, nesting⟩ :=
   decodeArray_eq_elementsV1 maxCount decodeU32le ⟨input, offset, nesting⟩ count afterCount hcount
 
+example (c : Cursor) (count offset : Nat)
+    (hcount : readArrayCountAtV1 c.input c.offset 256 = .ok (count, offset)) :
+    decodeQualifiedName c =
+      match decodeArrayElementsV1 decodeString count #[] ⟨c.input, offset, c.nesting⟩ with
+      | .error e => .error e
+      | .ok (components, c') =>
+          match parseQualifiedName components with
+          | .error _ => .error .badScalar
+          | .ok name => .ok (name, c') :=
+  decodeQualifiedName_eq_elementsV1 c count offset hcount
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

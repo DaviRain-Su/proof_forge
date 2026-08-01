@@ -288,6 +288,13 @@ array element iteration切片现已建立稳定proof seam：原production `forIn
 closed proof可按具体count展开而无需依赖`forIn/foldlM`内部实现，也未新增transparent/proof-side generic
 decoder。下一步进入QualifiedName；完整carrier kernel validation与formal TASK/TST仍pending。
 
+QualifiedName framing切片现已闭合：`decodeString_eq_of_sizedBytesV1`在shared sized read成功后仍显式
+保留production `String.fromUTF8?`与`requireNfc`分支；`decodeQualifiedName_eq_elementsV1`只在真实array
+header成功后重写到sole production element iterator与既有`parseQualifiedName`。因此header→component
+UTF-8/NFC→name grammar错误顺序及cursor input/offset/nesting均不变，也没有proof-side String/name
+validator。下一步按root `SemanticProgram.Data`字段逐段组合；完整carrier validation与formal TASK/TST
+仍pending。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
