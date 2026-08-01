@@ -3,7 +3,7 @@ id: RPT-011
 title: 特性覆盖审查——文档与代码对照
 status: draft
 owner: research
-updated: 2026-08-01
+updated: 2026-08-02
 normative: false
 ---
 
@@ -62,7 +62,7 @@ exact-fuel）。但 `NormalizeV1` 只 lowering 一个子集，`ReferenceV1` 只�
 - bare `assert`；不可变 `let`（field/index rebind）；bounded `for`；
 - `fn`/localCall（pureCall）；`call`/`schedule`；`revert`/`emit`（public UInt64 event/error）；多块 CFG。
 
-fail closed（逐项对照 spec EBNF 与 `SPEC-SEM-001`）：
+fail closed（逐项对照 spec EBNF 与 `SPEC-SEM-001`；**N-A1/N-A2 已闭合 2026-08-02**）：
 
 1. 非空 Map 构造 + anonymous Map/Array/Option/Bytes 作 state/param；
 2. ContextRead / `context.read.<name>` / callerContext；
@@ -99,7 +99,7 @@ fail closed（逐项对照 spec EBNF 与 `SPEC-SEM-001`）：
 | Target | 代码 | 真制品/运行 | 主要缺口 |
 |---|---|---|---|
 | EVM | `LowerSemantic` 2600 行 + `Keccak` + `ValidateIR` | ✅ solc bytecode + Anvil Counter/overflow | 完整 D4 lowering（非 Counter）、Reference↔Anvil closure、formal identity |
-| Solana | `LowerSemantic` + `EmitSbpfAsm` + ELF | ✅ SBPF `.so` + Mollusk 差分（Counter + 多 fixture） | state/param/body 多宽 UInt8/16/32/64 + 窄 Int 工程子集；UInt128/256 fail closed |
+| Solana | `LowerSemantic` + `EmitSbpfAsm` + ELF | ✅ SBPF `.so` + Mollusk 差分 | multi-width UInt/Int + T9e UInt128/256 multiword；Map/Bytes state FAIL-CLOSED |
 | NEAR | `LowerSemantic` 2007 行 | ❌ 仅 raw-u64 `wat2wasm` 结构验证 | 无真实 bytecode/runtime |
 | Noir | `LowerSemantic` 1930 行 | ❌ 仅 Plan/typed relation IR + source packages | 无电路证明、无 runtime |
 
