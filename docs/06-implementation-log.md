@@ -12039,3 +12039,15 @@ normative: false
   source order/cursors 76→80→114→153→187，nesting 1/2/3恢复不变；empty constants再闭合187→191。
 - Review/Verification：blocker-only APPROVE；Codec/InvariantABI build与工程suite通过，golden仍1235 bytes。
 - Boundary：logicalState及后续root字段、finish、encoder/carrier identity与formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 concrete logicalState + empty events/errors
+
+- Golden segmentation：将types后的字节精确拆为empty constants、58-byte singleton logicalState与后续
+  986-byte remainder；显式spine仍为1235 bytes，production encoder逐字节golden suite保持通过。
+- Kernel：production one-element array组合真实StateDecl header/id/ASCII-NFC name/typeId与nested
+  `Visibility.Public`，精确闭合cursor 191→249并恢复nesting；empty events/errors经production zero-array
+  authority继续闭合249→253→257。
+- Review/Verification：blocker-only APPROVE；完整focused Semantic builds、WireV1/InvariantABI suites及
+  docs-check通过；无`native_decide`、recursion-limit提高、axiom、cast或第二decoder。
+- Boundary：四个callables及后续root字段、finish、structure-gated encoder/carrier closed theorem、
+  `evalInvariantV1`/`InvariantTheoremV1`与formal TASK/TST仍pending。

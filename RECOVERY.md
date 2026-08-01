@@ -538,4 +538,11 @@ non-ASCII corpus均通过。fixture随后经production UTF-8、NFC、two-element
 types字段现已完整kernel闭合：count=3（76→80），三个production TypeDecl分别为anonymous Bool
 （80→114）、Principal（114→153）、Unit（153→187）；每个路径均保留TypeDecl nesting=2与
 TypeShape nesting=3，并经真实tag/field-count/scalar/Option-none decoder组合。empty constants array随后
-由production zero-array authority闭合187→191。下一字段为singleton logicalState。
+由production zero-array authority闭合187→191。
+
+singleton logicalState现已闭合191→249：production array count=1后，真实StateDecl路径依次消费
+header 195→210、id 210→214、ASCII/NFC name `flag` 214→222、typeId 222→226，以及nested
+`Visibility.Public` 226→249；StateDecl与Visibility wrapper均恢复parent nesting。empty events/errors又经
+production zero-array authority闭合249→253→257。显式golden仅重新分段，production encoder
+byte-for-byte suite仍确认总长1235且内容不变。下一字段为四元素callables；尚未闭合root finish、
+structure-gated encoder/carrier theorem、`evalInvariantV1`/`InvariantTheoremV1`或formal TASK/TST evidence。

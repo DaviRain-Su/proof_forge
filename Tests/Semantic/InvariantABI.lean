@@ -539,6 +539,9 @@ def unitType : TypeDeclV1 := { id := 2, name := none, shape := .unit }
 /-- The exact type table exercised by the selected invariant. -/
 def types : Array TypeDeclV1 := #[boolType, principalType, unitType]
 
+def logicalStateDecl : StateDeclV1 :=
+  { id := 0, name := "flag", typeId := 0, visibility := .public_ }
+
 def gate : CallableV1 := entryGate 0 2
 
 def leaf : CallableV1 := {
@@ -576,9 +579,7 @@ def data : SemanticProgramDataV1 := {
   qualifiedName
   types
   constants := #[]
-  logicalState := #[
-    { id := 0, name := "flag", typeId := 0, visibility := .public_ }
-  ]
+  logicalState := #[logicalStateDecl]
   events := #[]
   errors := #[]
   callables := #[gate, leaf, truth, falsehood]
@@ -620,14 +621,22 @@ def canonicalTypesSpine : TransparentByteSpineV1 := [
   0, 0, 0, 84, 121, 112, 101, 46, 85, 110, 105, 116, 0, 0
 ]
 
-/-- Remaining 1048 bytes after the types field. Keeping this opaque to prefix
-    reductions avoids traversing the full carrier for scalar facts. -/
+/-- Exact empty constants table at root offset 187. -/
+def canonicalConstantsSpine : TransparentByteSpineV1 := [0, 0, 0, 0]
+
+/-- Exact singleton StateDecl array at root offset 191. -/
+def canonicalLogicalStateSpine : TransparentByteSpineV1 := [
+  1, 0, 0, 0, 9, 0, 0, 0, 83, 116, 97, 116, 101, 68, 101, 99, 108, 4, 0,
+  0, 0, 0, 0, 4, 0, 0, 0, 102, 108, 97, 103, 0, 0, 0, 0, 17, 0, 0, 0,
+  86, 105, 115, 105, 98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99,
+  0, 0
+]
+
+/-- Remaining 986 bytes after the logical-state field. Keeping this opaque to
+    prefix reductions avoids traversing the full carrier for scalar facts. -/
 def canonicalRootFields : Array UInt8 := #[
-  0, 0, 0, 0, 1, 0,
-  0, 0, 9, 0, 0, 0, 83, 116, 97, 116, 101, 68, 101, 99, 108, 4, 0, 0, 0, 0, 0,
-  4, 0, 0, 0, 102, 108, 97, 103, 0, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105,
-  98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 4, 0, 0, 0, 8, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 9,
+  0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 8, 0, 0, 0, 67, 97, 108, 108, 97, 98,
+  108, 101, 9,
   0, 0, 0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 46, 69, 110,
   116, 114, 121, 0, 0, 1, 10, 0, 0, 0, 101, 110, 116, 114, 121, 95, 103, 97, 116,
   101, 0, 0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 82, 101,
@@ -683,7 +692,8 @@ def canonicalRootFields : Array UInt8 := #[
     computation and is not a second runtime decoder. -/
 def canonicalSpine : TransparentByteSpineV1 :=
   canonicalMagicSpine ++ canonicalRootHeaderSpine ++ canonicalQualifiedNameSpine ++
-    canonicalTypesSpine ++ canonicalRootFields.toList
+    canonicalTypesSpine ++ canonicalConstantsSpine ++ canonicalLogicalStateSpine ++
+    canonicalRootFields.toList
 
 def canonicalBytes : ByteArray := ByteArray.mk canonicalSpine.toArray
 
@@ -1003,6 +1013,120 @@ theorem decodeConstants_canonicalBytes :
   apply decodeArray_zeroV1
   change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 187 maxTableElements =
     .ok (0, 191)
+  rw [readArrayCountAtV1_refinesSpine]
+  rfl
+
+theorem readLogicalStateCount_canonicalBytes :
+    readArrayCountAtV1 canonicalBytes 191 maxTableElements = .ok (1, 195) := by
+  change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 191 maxTableElements =
+    .ok (1, 195)
+  rw [readArrayCountAtV1_refinesSpine]
+  rfl
+
+theorem expectStateDecl_canonicalBytes :
+    expectTag "StateDecl" 4 ⟨canonicalBytes, 195, 2⟩ =
+      .ok ((), ⟨canonicalBytes, 210, 2⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 195
+      (ByteArray.mk [83, 116, 97, 116, 101, 68, 101, 99, 108].toArray) 4 = .ok 210
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem decodeStateId_canonicalBytes :
+    decodeU32le ⟨canonicalBytes, 210, 2⟩ =
+      .ok (0, ⟨canonicalBytes, 214, 2⟩) := by
+  apply decodeTypeIdV1_canonicalBytes
+  rfl
+
+theorem readStateNameBytes_canonicalBytes :
+    readSizedBytesAtV1 canonicalBytes 214 maxStringBytes =
+      .ok (ByteArray.mk [102, 108, 97, 103].toArray, 222) := by
+  change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 214 maxStringBytes =
+    .ok (ByteArray.mk [102, 108, 97, 103].toArray, 222)
+  apply readSizedBytesAtV1_eq_of_spine
+  apply readSizedSpineBytesV1_eq_of_parts canonicalSpine [102, 108, 97, 103]
+      214 maxStringBytes 4 218
+  · rfl
+  · decide
+  · decide
+  · unfold takeSpineBytesV1 spineRemainingV1
+    rw [canonicalSpine_length]
+    rfl
+
+private theorem decodeFlagV1_of_read (bytes : ByteArray)
+    (hread : readSizedBytesAtV1 bytes 214 maxStringBytes =
+      .ok (ByteArray.mk [102, 108, 97, 103].toArray, 222)) :
+    decodeString ⟨bytes, 214, 2⟩ = .ok ("flag", ⟨bytes, 222, 2⟩) := by
+  apply decodeString_eq_of_valueV1 _ _ _ _ hread
+  · rfl
+  · apply ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii
+    rfl
+
+theorem decodeStateName_canonicalBytes :
+    decodeString ⟨canonicalBytes, 214, 2⟩ =
+      .ok ("flag", ⟨canonicalBytes, 222, 2⟩) := by
+  exact decodeFlagV1_of_read canonicalBytes readStateNameBytes_canonicalBytes
+
+theorem decodeStateTypeId_canonicalBytes :
+    decodeU32le ⟨canonicalBytes, 222, 2⟩ =
+      .ok (0, ⟨canonicalBytes, 226, 2⟩) := by
+  apply decodeTypeIdV1_canonicalBytes
+  rfl
+
+theorem decodeStateVisibility_canonicalBytes :
+    decodeVisibilityV1 ⟨canonicalBytes, 226, 2⟩ =
+      .ok (.public_, ⟨canonicalBytes, 249, 2⟩) := by
+  refine decodeVisibilityV1_eq_of_bodyV1 ⟨canonicalBytes, 226, 2⟩ .public_
+    ⟨canonicalBytes, 249, 3⟩ (by decide) ?_
+  apply decodeVisibilityBodyV1_public
+  · apply decodeTypeShapeTagV1_canonicalBytes 226 247
+      [86, 105, 115, 105, 98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105,
+        99] "Visibility.Public"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · apply decodeZeroFieldCountV1_canonicalBytes
+    rfl
+
+theorem decodeStateDecl_canonicalBytes :
+    decodeStateDeclV1 ⟨canonicalBytes, 195, 1⟩ =
+      .ok (logicalStateDecl, ⟨canonicalBytes, 249, 1⟩) := by
+  refine decodeStateDeclV1_eq_of_bodyV1 ⟨canonicalBytes, 195, 1⟩ logicalStateDecl
+    ⟨canonicalBytes, 249, 2⟩ (by decide) ?_
+  apply decodeStateDeclBodyV1_eq_of_fields
+  · exact expectStateDecl_canonicalBytes
+  · exact decodeStateId_canonicalBytes
+  · exact decodeStateName_canonicalBytes
+  · exact decodeStateTypeId_canonicalBytes
+  · exact decodeStateVisibility_canonicalBytes
+
+theorem decodeLogicalState_canonicalBytes :
+    decodeArray maxTableElements decodeStateDeclV1 ⟨canonicalBytes, 191, 1⟩ =
+      .ok (#[logicalStateDecl], ⟨canonicalBytes, 249, 1⟩) := by
+  exact decodeArray_oneV1 maxTableElements decodeStateDeclV1
+    ⟨canonicalBytes, 191, 1⟩ 195 logicalStateDecl ⟨canonicalBytes, 249, 1⟩
+    readLogicalStateCount_canonicalBytes decodeStateDecl_canonicalBytes
+
+theorem decodeEvents_canonicalBytes :
+    decodeArray maxTableElements decodeEventDeclV1 ⟨canonicalBytes, 249, 1⟩ =
+      .ok (#[], ⟨canonicalBytes, 253, 1⟩) := by
+  apply decodeArray_zeroV1
+  change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 249 maxTableElements =
+    .ok (0, 253)
+  rw [readArrayCountAtV1_refinesSpine]
+  rfl
+
+theorem decodeErrors_canonicalBytes :
+    decodeArray maxTableElements decodeErrorDeclV1 ⟨canonicalBytes, 253, 1⟩ =
+      .ok (#[], ⟨canonicalBytes, 257, 1⟩) := by
+  apply decodeArray_zeroV1
+  change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 253 maxTableElements =
+    .ok (0, 257)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 

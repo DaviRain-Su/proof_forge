@@ -309,7 +309,10 @@ QualifiedName framing又已kernel闭合count=2（41→45）及两个exact sized 
 通用ASCII NFC fixed-point seam随后接入sole Unicode normalizer，最终production UTF-8/NFC、two-element
 array与Common `parseQualifiedName`已闭合完整QualifiedName value cursor 41→76；下一字段为types。
 types现又经production三元素array与真实nested TypeDecl/TypeShape decoder闭合Bool、Principal、Unit
-source order cursor 76→187；紧随的empty constants array闭合187→191。下一字段为logicalState。
+source order cursor 76→187；紧随的empty constants array闭合187→191。singleton logicalState随后经真实
+StateDecl header/id/name/typeId、nested public Visibility与production one-element array闭合191→249；
+empty events/errors再由production zero-array authority闭合249→253→257。下一字段为四元素callables；
+root finish、structure-gated encoder/carrier closed theorem与formal TASK/TST仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 
