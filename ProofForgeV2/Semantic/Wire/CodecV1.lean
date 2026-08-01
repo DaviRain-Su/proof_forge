@@ -404,6 +404,19 @@ def readSizedSpineBytesV1 (input : TransparentByteSpineV1) (offset maxLen : Nat)
         | .error e => .error e
         | .ok payload => .ok (payload, afterLen + len)
 
+/-- Compose a successful proof-spine sized-byte read from its transparent u32
+    and exact-slice premises. This remains proof-only and does not replace the
+    production reader. -/
+theorem readSizedSpineBytesV1_eq_of_parts (input payload : TransparentByteSpineV1)
+    (offset maxLen len afterLen : Nat)
+    (hread : readSpineU32leV1 input offset = .ok (UInt32.ofNat len, afterLen))
+    (hfit : len < UInt32.size)
+    (hlimit : ¬len > maxLen)
+    (htake : takeSpineBytesV1 input afterLen len = .ok payload) :
+    readSizedSpineBytesV1 input offset maxLen = .ok (payload, afterLen + len) := by
+  simp only [readSizedSpineBytesV1, hread, UInt32.toNat_ofNat', Nat.mod_eq_of_lt,
+    hfit, hlimit, ↓reduceIte, htake]
+
 /-- Production u32-length-prefixed byte payload primitive. -/
 def readSizedBytesAtV1 (input : ByteArray) (offset maxLen : Nat) :
     Except SemanticWireErrorV1 (ByteArray × Nat) :=
@@ -444,6 +457,30 @@ theorem readSizedBytesAtV1_refinesSpine (input : TransparentByteSpineV1)
           simp [List.extract_eq_take_drop]
       · simp only [if_neg ht]
         rfl
+
+/-- Turn a successful transparent-spine sized-byte computation back into the
+    exact sole production result. -/
+theorem readSizedBytesAtV1_eq_of_spine (input payload : TransparentByteSpineV1)
+    (offset maxLen next : Nat)
+    (hspine : readSizedSpineBytesV1 input offset maxLen = .ok (payload, next)) :
+    readSizedBytesAtV1 (ByteArray.mk input.toArray) offset maxLen =
+      .ok (ByteArray.mk payload.toArray, next) := by
+  have href := readSizedBytesAtV1_refinesSpine input offset maxLen
+  rw [hspine] at href
+  cases hproduction : readSizedBytesAtV1 (ByteArray.mk input.toArray) offset maxLen with
+  | error e =>
+      rw [hproduction] at href
+      contradiction
+  | ok pair =>
+      rcases pair with ⟨raw, productionNext⟩
+      rw [hproduction] at href
+      simp only [Except.map, Except.ok.injEq, Prod.mk.injEq] at href
+      rcases href with ⟨hraw, hnext⟩
+      subst productionNext
+      congr
+      apply ByteArray.ext
+      rw [← Array.toList_inj, Array.toArray_toList]
+      exact hraw
 
 /-- Decode and limit-check an array count on the transparent spine. Element
     decoding is deliberately outside this primitive. -/
@@ -857,6 +894,17 @@ theorem decodeArray_oneV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
     afterElement value (.ok (#[value], afterElement)) helement
   rfl
 
+/-- A count of two executes two production element decoders in source order
+    and returns the second cursor. -/
+theorem decodeArray_twoV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
+    (offset : Nat) (v0 v1 : α) (c1 c2 : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (2, offset))
+    (h0 : decode ⟨c.input, offset, c.nesting⟩ = .ok (v0, c1))
+    (h1 : decode c1 = .ok (v1, c2)) :
+    decodeArray maxCount decode c = .ok (#[v0, v1], c2) := by
+  apply decodeArray_eq_of_elementsV1 maxCount decode c 2 offset #[v0, v1] c2 hcount
+  simp [decodeArrayElementsV1, h0, h1]
+
 /-- A count of four executes four production element decoders in source order
     and returns the fourth cursor. -/
 theorem decodeArray_fourV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
@@ -897,6 +945,17 @@ theorem decodeString_eq_of_sizedBytesV1 (c : Cursor) (raw : ByteArray) (offset :
           | .error _ => .error .badScalar
           | .ok _ => .ok (s, ⟨c.input, offset, c.nesting⟩) := by
   simp only [decodeString, hread, Bind.bind, Pure.pure, Except.bind, Except.pure, err]
+
+/-- Successful String composition through the sole sized-byte, UTF-8, and NFC
+    authorities. -/
+theorem decodeString_eq_of_valueV1 (c : Cursor) (raw : ByteArray) (offset : Nat)
+    (value : String)
+    (hread : readSizedBytesAtV1 c.input c.offset maxStringBytes = .ok (raw, offset))
+    (hutf8 : String.fromUTF8? raw = some value)
+    (hnfc : requireNfc value = .ok ()) :
+    decodeString c = .ok (value, ⟨c.input, offset, c.nesting⟩) := by
+  simp only [decodeString, hread, hutf8, hnfc, Bind.bind, Pure.pure, Except.bind,
+    Except.pure]
 
 def decodeDigest : Decoder Digest := fun c => do
   let (bytes, c) ← takeBytes c 32
@@ -951,6 +1010,16 @@ theorem decodeQualifiedName_eq_elementsV1 (c : Cursor) (count offset : Nat)
   | ok pair =>
       cases pair
       rfl
+
+/-- QualifiedName composition once the sole production string-array decoder
+    and shared Common parser have both succeeded. -/
+theorem decodeQualifiedName_eq_of_arrayV1 (c afterComponents : Cursor)
+    (components : Array String) (name : QualifiedName)
+    (hcomponents : decodeArray 256 decodeString c = .ok (components, afterComponents))
+    (hparse : parseQualifiedName components = .ok name) :
+    decodeQualifiedName c = .ok (name, afterComponents) := by
+  simp only [decodeQualifiedName, hcomponents, hparse, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
 
 def decodeProjectRelativePath : Decoder ProjectRelativePath := fun c => do
   let (s, c) ← decodeString c

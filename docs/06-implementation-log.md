@@ -11932,3 +11932,12 @@ normative: false
   拒绝例退役。`EvmPlanSchemaV1`/shard-targets 全绿。
 - Boundary：结果宽度/event/error/revert 参数仍 UInt64/Bool/Int64；UInt128/256 与
   窄 Int ABI 继续 fail closed；**不是** formal D4。targets: EVM state/param UInt8/16/32 ABI multi-width (T8b-EVM))
+
+## 2026-08-01 — D2-07 concrete QualifiedName framing
+
+- 新增two-element array、sized proof-spine→production bytes、String与parsed QualifiedName的通用
+  conditional composition seams；无第二reader/decoder。
+- concrete kernel闭合count=2 cursor 41→45、`Tests` raw bytes 45→54及
+  `PublicInvariantABI` raw bytes 54→76；golden保持1235 bytes且工程suite通过。
+- Review：blocker-only APPROVE。最终UTF-8/NFC/Common parse与`decodeQualifiedName` value留下一片；
+  full transport/carrier/formal状态不变。

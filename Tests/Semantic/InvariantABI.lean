@@ -601,12 +601,17 @@ def canonicalRootHeaderSpine : TransparentByteSpineV1 :=
   [20, 0, 0, 0, 83, 101, 109, 97, 110, 116, 105, 99, 80, 114, 111, 103,
     114, 97, 109, 46, 68, 97, 116, 97, 9, 0]
 
-/-- Remaining 1194 bytes after magic and root header. Keeping this opaque to
-    prefix reductions avoids traversing the full carrier for framing facts. -/
-def canonicalRootFields : Array UInt8 := #[
+/-- Exact two-component QualifiedName field at root offset 41. -/
+def canonicalQualifiedNameSpine : TransparentByteSpineV1 := [
   2, 0, 0, 0, 5, 0, 0, 0, 84, 101, 115, 116, 115, 18, 0, 0,
   0, 80, 117, 98, 108, 105, 99, 73, 110, 118, 97, 114, 105, 97, 110, 116, 65,
-  66, 73, 3, 0, 0, 0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0,
+  66, 73
+]
+
+/-- Remaining 1159 bytes after the qualified name. Keeping this opaque to
+    prefix reductions avoids traversing the full carrier for scalar facts. -/
+def canonicalRootFields : Array UInt8 := #[
+  3, 0, 0, 0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0,
   0, 0, 0, 0, 0, 9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0,
   8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 1, 0, 0, 0, 0, 14,
   0, 0, 0, 84, 121, 112, 101, 46, 80, 114, 105, 110, 99, 105, 112, 97, 108, 0,
@@ -670,7 +675,8 @@ def canonicalRootFields : Array UInt8 := #[
     spine. This explicit segmented golden is independent of encoder
     computation and is not a second runtime decoder. -/
 def canonicalSpine : TransparentByteSpineV1 :=
-  canonicalMagicSpine ++ canonicalRootHeaderSpine ++ canonicalRootFields.toList
+  canonicalMagicSpine ++ canonicalRootHeaderSpine ++ canonicalQualifiedNameSpine ++
+    canonicalRootFields.toList
 
 def canonicalBytes : ByteArray := ByteArray.mk canonicalSpine.toArray
 
@@ -700,6 +706,47 @@ theorem expectRootTag_canonicalBytes :
     spineRemainingV1 readSpineU16leV1
   rw [canonicalSpine_length]
   rfl
+
+theorem readQualifiedNameCount_canonicalBytes :
+    readArrayCountAtV1 canonicalBytes 41 256 = .ok (2, 45) := by
+  change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 41 256 = .ok (2, 45)
+  rw [readArrayCountAtV1_refinesSpine]
+  rfl
+
+theorem readQualifiedNameTestsBytes_canonicalBytes :
+    readSizedBytesAtV1 canonicalBytes 45 maxStringBytes =
+      .ok (ByteArray.mk [84, 101, 115, 116, 115].toArray, 54) := by
+  change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 45 maxStringBytes =
+    .ok (ByteArray.mk [84, 101, 115, 116, 115].toArray, 54)
+  apply readSizedBytesAtV1_eq_of_spine
+  apply readSizedSpineBytesV1_eq_of_parts canonicalSpine [84, 101, 115, 116, 115]
+      45 maxStringBytes 5 49
+  · rfl
+  · decide
+  · decide
+  · unfold takeSpineBytesV1 spineRemainingV1
+    rw [canonicalSpine_length]
+    rfl
+
+theorem readQualifiedNamePublicInvariantABIBytes_canonicalBytes :
+    readSizedBytesAtV1 canonicalBytes 54 maxStringBytes =
+      .ok (ByteArray.mk
+        [80, 117, 98, 108, 105, 99, 73, 110, 118, 97, 114, 105, 97, 110, 116,
+          65, 66, 73].toArray, 76) := by
+  change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 54 maxStringBytes =
+    .ok (ByteArray.mk
+      [80, 117, 98, 108, 105, 99, 73, 110, 118, 97, 114, 105, 97, 110, 116,
+        65, 66, 73].toArray, 76)
+  apply readSizedBytesAtV1_eq_of_spine
+  apply readSizedSpineBytesV1_eq_of_parts canonicalSpine
+      [80, 117, 98, 108, 105, 99, 73, 110, 118, 97, 114, 105, 97, 110, 116,
+        65, 66, 73] 54 maxStringBytes 18 58
+  · rfl
+  · decide
+  · decide
+  · unfold takeSpineBytesV1 spineRemainingV1
+    rw [canonicalSpine_length]
+    rfl
 
 end CanonicalInvariantFixtureV1
 

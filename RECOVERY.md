@@ -525,3 +525,7 @@ List。`CodecV1.consumeMagic_eq_of_bytesV1`只组合sole production `consumeMagi
 再经既有transparent-spine refinement证明真实production magic cursor `0→15`及root tagged-header
 cursor `15→41`（tag body nesting=1），同时closed证明总长1235。没有新增decoder；qualifiedName及后续
 九字段、finish、structure-gated encoder与carrier identity仍待后续逐层闭合。
+
+QualifiedName下一子片已闭合production framing：count=2 cursor 41→45，`Tests` raw sized bytes
+45→54，`PublicInvariantABI` raw sized bytes54→76。新增seam均为conditional composition/refinement，
+不替代production reader；UTF-8/NFC与Common parser的最终value composition仍待下一片。
