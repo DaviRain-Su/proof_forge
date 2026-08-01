@@ -46,15 +46,19 @@
       anonymous legal UInt/Int, Unit, Bool, Principal, Bytes, Array, Map,
       Option, Field(bn254-fr); one TypeId per distinct anonymous shape,
       interned on first actual use after named registration. State/parameter
-      positions admit public legal-UInt/Int/Field/Principal (named/aggregate
-      state fail closed); entry/view/fn results stay legal
-      UInt/Int/Unit/Bool/Field/Principal. Local `let` may hold named/aggregate
+      positions admit public legal-UInt/Int/Field/Principal **or named
+      Struct/Enum** (N3; anonymous Array/Map/Option/Bytes state still fail
+      closed). Entry/view/fn results stay legal
+      UInt/Int/Unit/Bool/Field/Principal (aggregate results fail closed —
+      target ABI surface is scalar). Local `let` may hold named/aggregate
       values (including Principal)
     * expressions (aggregate values): `StructName.new` / `Enum.Variant` /
       `Option.some` / `Option.none` constructors → `Op.Construct`; field places
       → `Op.FieldGet`; index places → `Op.IndexGet` (Array/Bytes/Map); field
-      and index assign on bare local names → `Op.FieldSet`/`Op.IndexSet`
-      (result rebinds the local). Nested field/index assign targets fail closed
+      and index assign on place chains → `Op.FieldSet`/`Op.IndexSet` with
+      outward rebind (N3 nested `x.f`, `x[i]`, `x.f[0].g = v`, including
+      state roots: load → chain → write → store). Bare-local field/index
+      assign rebinds the local; param roots still fail closed
     * callables: multi-block CFG (entryBlock=0, dense block ids,
       invariantSteps=none). Bounded `for i in s .. e bounded N do` loops
       lower to a single-param header block (the induction variable), a
@@ -91,12 +95,13 @@
   Out of scope for this module:
     * Field/Principal source literals, Field/Principal ordering comparisons,
       Field `mod`, Principal arithmetic/bitwise/unary,
-      non-UInt64 call/schedule args and for endpoints, named/aggregate state,
-      nonempty Map construction, nested field/index assign chains,
+      non-UInt64 call/schedule args and for endpoints,
+      anonymous Array/Map/Option/Bytes/Unit/Bool as state or param types,
+      aggregate entry/view/fn results, nonempty Map construction,
       ContextRead/Commit, match string patterns (no String TypeShape),
       nested constructor/literal sub-patterns inside constructor arms,
-      named Enum/Struct entry parameters (local `let` carries them),
-      true mutable locals, Int event/error fields (stay UInt-only)
+      param-root field/index assign, true mutable locals (field/index
+      rebind of immutable let only), Int event/error fields (stay UInt-only)
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -547,6 +552,35 @@ private def requireAnonymousIntegerOrFieldTypeId
   | none =>
       failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
 
+/-- N3 state/param admission: anonymous legal UInt/Int/Field/Principal **or**
+    named Struct/Enum. Anonymous Array/Map/Option/Bytes/Unit/Bool fail closed
+    at declaration sites (locals may still hold them via let). -/
+private def requireStateOrParamTypeId
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match types[typeId.toNat]? with
+  | none =>
+      failUnsupported s!"S1 {context} references missing TypeId {typeId}"
+  | some decl =>
+      match decl.name, decl.shape with
+      | some _, .struct _ => pure ()
+      | some _, .enum _ => pure ()
+      | some _, _ =>
+          failUnsupported
+            s!"S1 {context} named type must be Struct or Enum"
+      | none, .uint w | none, .int w =>
+          if legalIntegerWidthV1 w.toNat then pure ()
+          else
+            failUnsupported
+              s!"S1 {context} requires legal UInt/Int/Field/Principal or named Struct/Enum"
+      | none, .field spec =>
+          if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
+          else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
+      | none, .principal => pure ()
+      | none, _ =>
+          failUnsupported
+            s!"S1 {context} requires anonymous UInt/Int/Field/Principal or named Struct/Enum"
+
 /-- Backward-compatible UInt64-only pin used by call/schedule/for endpoints. -/
 private def requireUInt64TypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
@@ -886,6 +920,45 @@ private def requireLetTypeId
   | none =>
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
+/-- Type-only walk of a place chain (env/state root + field/index). -/
+private partial def synthPlaceTypeV1
+    (place : SrcPlace) (interner : TypeInternerV1)
+    (env : LocalEnvV1) (states : StateTableV1) :
+    Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
+  match place with
+  | .name n =>
+      let key := raw n
+      match envLookup env key with
+      | some (_, tid) => pure (interner, tid)
+      | none =>
+          match stateLookup states key with
+          | some (_, tid) => pure (interner, tid)
+          | none =>
+              failUnsupported s!"S1 bare place '{key}' is neither param nor state"
+  | .field base fieldName => do
+      let (interner, baseTid) ← synthPlaceTypeV1 base interner env states
+      match shapeOf? interner.types baseTid with
+      | some (.struct fields) =>
+          match findStructFieldIndex fields (raw fieldName) with
+          | none =>
+              failUnsupported
+                s!"S1 field '{raw fieldName}' not found on struct"
+          | some (_, fieldTid) => pure (interner, fieldTid)
+      | _ =>
+          failUnsupported "S1 field place requires a struct base"
+  | .index base _idxExpr => do
+      let (interner, baseTid) ← synthPlaceTypeV1 base interner env states
+      match shapeOf? interner.types baseTid with
+      | some (.array elTid _) => pure (interner, elTid)
+      | some (.bytes _) =>
+          let (iU8, u8Tid) := internShape interner (.uint 8)
+          pure (iU8, u8Tid)
+      | some (.map _keyTid valTid) =>
+          let (iOpt, optTid) := internShape interner (.option valTid)
+          pure (iOpt, optTid)
+      | _ =>
+          failUnsupported "S1 index place requires Array, Bytes, or Map base"
+
 /-- Derive the expected TypeId for an unannotated `let` RHS from its head
 shape. CheckV1 has already rejected integer literals without an expected
 type, so every remaining pilot shape carries an intrinsic result type.
@@ -903,18 +976,8 @@ private partial def synthLetExpectedV1
   | .literal (.bool _) => pure (internShape st.interner .bool)
   | .literal (.string _) =>
       failUnsupported "S1 normalizer supports only UInt/Int/Bool literals"
-  | .place (.name n) =>
-      let key := raw n
-      match envLookup st.env key with
-      | some (_, tid) => pure (st.interner, tid)
-      | none =>
-          match stateLookup states key with
-          | some (_, tid) => pure (st.interner, tid)
-          | none => failUnsupported s!"S1 bare place '{key}' is neither param nor state"
-  | .place (.field ..) =>
-      failUnsupported "S1 normalizer does not support field places"
-  | .place (.index ..) =>
-      failUnsupported "S1 normalizer does not support index places"
+  | .place p =>
+      synthPlaceTypeV1 p st.interner st.env states
   | .binary op lhs _ =>
       let srcOp := op
       if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add ||
@@ -984,18 +1047,8 @@ private def synthComparisonOperandTypeV1
     (lhs : SrcExpr) (st : BodyStateV1) (states : StateTableV1) :
     Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
   match lhs with
-  | .place (.name n) =>
-      let key := raw n
-      match envLookup st.env key with
-      | some (_, tid) => pure (st.interner, tid)
-      | none =>
-          match stateLookup states key with
-          | some (_, tid) => pure (st.interner, tid)
-          | none => failUnsupported s!"S1 bare place '{key}' is neither param nor state"
-  | .place (.field ..) =>
-      failUnsupported "S1 normalizer does not support field places"
-  | .place (.index ..) =>
-      failUnsupported "S1 normalizer does not support index places"
+  | .place p =>
+      synthPlaceTypeV1 p st.interner st.env states
   | .unary _ operand =>
       match operand with
       | .place (.name n) =>
@@ -1178,6 +1231,23 @@ private def isCtorMatchScrutineeV1 (types : Array TypeDeclV1) (tid : TypeIdV1) :
   | some (.enum _) | some (.option _) => true
   | _ => false
 
+/-- One step along an assign place chain after the root name (N3). -/
+private inductive PlaceStepV1 where
+  | field (name : SourceNameComponentV1)
+  | index (idx : SrcExpr)
+
+/-- Peel `root.f[i].g` into `(root, #[.field f, .index i, .field g])`. -/
+private partial def peelPlaceRootV1 (place : SrcPlace) :
+    Except NormalizeErrorV1 (SourceNameComponentV1 × Array PlaceStepV1) :=
+  match place with
+  | .name n => pure (n, #[])
+  | .field base fieldName => do
+      let (root, steps) ← peelPlaceRootV1 base
+      pure (root, steps.push (.field fieldName))
+  | .index base idxExpr => do
+      let (root, steps) ← peelPlaceRootV1 base
+      pure (root, steps.push (.index idxExpr))
+
 mutual
 
 /-- Lower a place to a value: bare name (env/stateLoad), fieldGet, indexGet. -/
@@ -1242,6 +1312,127 @@ private partial def lowerPlace
           pure (vid, optTid, st3)
       | _ =>
           failUnsupported "S1 index place requires Array, Bytes, or Map base"
+
+/-- N3: apply a nonempty field/index path as a functional update of `baseVid`. -/
+private partial def applyNestedUpdateV1
+    (baseVid : ValueIdV1) (baseTid : TypeIdV1)
+    (steps : Array PlaceStepV1) (value : SrcExpr)
+    (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
+    Except NormalizeErrorV1 (ValueIdV1 × BodyStateV1) := do
+  if steps.isEmpty then
+    return ← failUnsupported "S1 nested assign requires at least one field/index step"
+  let some first := steps[0]? |
+    return ← failUnsupported "S1 nested assign requires at least one field/index step"
+  if steps.size == 1 then
+    match first with
+    | .field fieldName =>
+        match shapeOf? st.interner.types baseTid with
+        | some (.struct fields) =>
+            match findStructFieldIndex fields (raw fieldName) with
+            | none =>
+                failUnsupported
+                  s!"S1 field '{raw fieldName}' not found on struct"
+            | some (idx, fieldTid) => do
+                let (vVid, vTid, st1) ← lowerExpr value fieldTid st states fns
+                unless vTid == fieldTid do
+                  return ← failUnsupported "S1 field assign value type mismatch"
+                let (st2, newVid) :=
+                  emitValue st1 baseTid
+                    (.fieldSet baseVid (UInt32.ofNat idx) vVid)
+                pure (newVid, st2)
+        | _ =>
+            failUnsupported "S1 field assign requires a struct base"
+    | .index idxExpr =>
+        match shapeOf? st.interner.types baseTid with
+        | some (.array elTid _) => do
+            let (iU32, u32Tid) := internShape st.interner (.uint 32)
+            let st0 := { st with interner := iU32 }
+            let (idxVid, idxTid, st1) ←
+              lowerExpr idxExpr u32Tid st0 states fns
+            unless idxTid == u32Tid do
+              return ← failUnsupported "S1 Array index must be UInt32"
+            let (vVid, vTid, st2) ← lowerExpr value elTid st1 states fns
+            unless vTid == elTid do
+              return ← failUnsupported "S1 Array index-assign value type mismatch"
+            let (st3, newVid) :=
+              emitValue st2 baseTid (.indexSet baseVid idxVid vVid)
+            pure (newVid, st3)
+        | some (.bytes _) => do
+            let (iU32, u32Tid) := internShape st.interner (.uint 32)
+            let (iU8, u8Tid) := internShape iU32 (.uint 8)
+            let st0 := { st with interner := iU8 }
+            let (idxVid, idxTid, st1) ←
+              lowerExpr idxExpr u32Tid st0 states fns
+            unless idxTid == u32Tid do
+              return ← failUnsupported "S1 Bytes index must be UInt32"
+            let (vVid, vTid, st2) ← lowerExpr value u8Tid st1 states fns
+            unless vTid == u8Tid do
+              return ← failUnsupported "S1 Bytes index-assign value must be UInt8"
+            let (st3, newVid) :=
+              emitValue st2 baseTid (.indexSet baseVid idxVid vVid)
+            pure (newVid, st3)
+        | some (.map keyTid valTid) => do
+            let (idxVid, idxTid, st1) ←
+              lowerExpr idxExpr keyTid st states fns
+            unless idxTid == keyTid do
+              return ← failUnsupported "S1 Map index type mismatch"
+            let (vVid, vTid, st2) ← lowerExpr value valTid st1 states fns
+            unless vTid == valTid do
+              return ← failUnsupported "S1 Map index-assign value type mismatch"
+            let (st3, newVid) :=
+              emitValue st2 baseTid (.indexSet baseVid idxVid vVid)
+            pure (newVid, st3)
+        | _ =>
+            failUnsupported
+              "S1 index assign requires Array, Bytes, or Map base"
+  else
+    let rest := steps.extract 1 steps.size
+    match first with
+    | .field fieldName =>
+        match shapeOf? st.interner.types baseTid with
+        | some (.struct fields) =>
+            match findStructFieldIndex fields (raw fieldName) with
+            | none =>
+                failUnsupported
+                  s!"S1 field '{raw fieldName}' not found on struct"
+            | some (idx, fieldTid) => do
+                let (st1, midVid) :=
+                  emitValue st fieldTid
+                    (.fieldGet baseVid (UInt32.ofNat idx))
+                let (newMid, st2) ←
+                  applyNestedUpdateV1 midVid fieldTid rest value st1 states fns
+                let (st3, newBase) :=
+                  emitValue st2 baseTid
+                    (.fieldSet baseVid (UInt32.ofNat idx) newMid)
+                pure (newBase, st3)
+        | _ =>
+            failUnsupported "S1 field place requires a struct base"
+    | .index idxExpr =>
+        match shapeOf? st.interner.types baseTid with
+        | some (.array elTid _) => do
+            let (iU32, u32Tid) := internShape st.interner (.uint 32)
+            let st0 := { st with interner := iU32 }
+            let (idxVid, idxTid, st1) ←
+              lowerExpr idxExpr u32Tid st0 states fns
+            unless idxTid == u32Tid do
+              return ← failUnsupported "S1 Array index must be UInt32"
+            let (st2, midVid) :=
+              emitValue st1 elTid (.indexGet baseVid idxVid)
+            let (newMid, st3) ←
+              applyNestedUpdateV1 midVid elTid rest value st2 states fns
+            let (st4, newBase) :=
+              emitValue st3 baseTid (.indexSet baseVid idxVid newMid)
+            pure (newBase, st4)
+        | some (.bytes _) =>
+            failUnsupported
+              "S1 nested assign through Bytes element is not supported"
+        | some (.map keyTid valTid) => do
+            let _ := keyTid
+            let _ := valTid
+            failUnsupported
+              "S1 nested assign through Map element is not supported"
+        | _ =>
+            failUnsupported "S1 index place requires Array, Bytes, or Map base"
 
 private partial def lowerExpr
     (expr : SrcExpr) (expectedTid : TypeIdV1)
@@ -1857,123 +2048,40 @@ private partial def lowerStmt
     Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
   match stmt with
   | .assign target value => do
-      match target with
-      | .name n =>
-          let key := raw n
-          -- Match Typed/EffectCheck param-before-state resolution: a bare name
-          -- that is bound as a param/local is not a state write target. S1 only
-          -- lowers unshadowed state assigns; param assigns fail closed.
-          match envLookup st.env key with
-          | some _ =>
-              return (← failUnsupported
-                s!"S1 assign target must be a state place, not a param '{key}'")
+      -- N3: peel any field/index chain; bare name → whole state store;
+      -- nonempty path → load root → nested FieldSet/IndexSet rebind →
+      -- env rebind (local) or StateStore (state). Param roots fail closed.
+      let (rootName, steps) ← peelPlaceRootV1 target
+      let key := raw rootName
+      match envLookup st.env key with
+      | some (rootVid, rootTid) =>
+          if steps.isEmpty then
+            return (← failUnsupported
+              s!"S1 assign target must be a state place, not a param '{key}'")
+          else do
+            let (newRoot, st1) ←
+              applyNestedUpdateV1 rootVid rootTid steps value st states fns
+            pure ({ st1 with
+              env := envRebind st1.env key newRoot rootTid }, .open_)
+      | none =>
+          match stateLookup states key with
           | none =>
-              match stateLookup states key with
-              | none =>
-                  return (← failUnsupported s!"S1 assign target '{key}' must be a state place")
-              | some (sid, expectedTid) =>
-                  let (vid, tid, st1) ←
-                    lowerExpr value expectedTid st states fns
-                  unless tid == expectedTid do
-                    return ← failUnsupported
-                      s!"S1 assign type mismatch for state '{key}'"
-                  pure (emitVoid st1 (.stateStore sid vid), .open_)
-      | .field base fieldName => do
-          -- Only single-level field assign on a bare local name:
-          -- `p.x := v` → FieldSet + rebind `p`. Nested/state bases fail closed.
-          match base with
-          | .name n =>
-              let key := raw n
-              match envLookup st.env key with
-              | none =>
-                  failUnsupported
-                    s!"S1 field assign '{key}.{raw fieldName}' requires a local binding"
-              | some (baseVid, baseTid) =>
-                  match shapeOf? st.interner.types baseTid with
-                  | some (.struct fields) =>
-                      match findStructFieldIndex fields (raw fieldName) with
-                      | none =>
-                          failUnsupported
-                            s!"S1 field '{raw fieldName}' not found on struct"
-                      | some (idx, fieldTid) => do
-                          let (vVid, vTid, st1) ←
-                            lowerExpr value fieldTid st states fns
-                          unless vTid == fieldTid do
-                            return ← failUnsupported
-                              "S1 field assign value type mismatch"
-                          let (st2, newVid) :=
-                            emitValue st1 baseTid
-                              (.fieldSet baseVid (UInt32.ofNat idx) vVid)
-                          pure ({ st2 with
-                            env := envRebind st2.env key newVid baseTid }, .open_)
-                  | _ =>
-                      failUnsupported "S1 field assign requires a struct local"
-          | _ =>
-              failUnsupported
-                "S1 field assign only supports a bare local base (no nested place)"
-      | .index base idxExpr => do
-          match base with
-          | .name n =>
-              let key := raw n
-              match envLookup st.env key with
-              | none =>
-                  failUnsupported
-                    s!"S1 index assign '{key}[...]' requires a local binding"
-              | some (baseVid, baseTid) =>
-                  match shapeOf? st.interner.types baseTid with
-                  | some (.array elTid _) => do
-                      let (iU32, u32Tid) := internShape st.interner (.uint 32)
-                      let st0 := { st with interner := iU32 }
-                      let (idxVid, idxTid, st1) ←
-                        lowerExpr idxExpr u32Tid st0 states fns
-                      unless idxTid == u32Tid do
-                        return ← failUnsupported "S1 Array index must be UInt32"
-                      let (vVid, vTid, st2) ←
-                        lowerExpr value elTid st1 states fns
-                      unless vTid == elTid do
-                        return ← failUnsupported
-                          "S1 Array index-assign value type mismatch"
-                      let (st3, newVid) :=
-                        emitValue st2 baseTid (.indexSet baseVid idxVid vVid)
-                      pure ({ st3 with
-                        env := envRebind st3.env key newVid baseTid }, .open_)
-                  | some (.bytes _) => do
-                      let (iU32, u32Tid) := internShape st.interner (.uint 32)
-                      let (iU8, u8Tid) := internShape iU32 (.uint 8)
-                      let st0 := { st with interner := iU8 }
-                      let (idxVid, idxTid, st1) ←
-                        lowerExpr idxExpr u32Tid st0 states fns
-                      unless idxTid == u32Tid do
-                        return ← failUnsupported "S1 Bytes index must be UInt32"
-                      let (vVid, vTid, st2) ←
-                        lowerExpr value u8Tid st1 states fns
-                      unless vTid == u8Tid do
-                        return ← failUnsupported
-                          "S1 Bytes index-assign value must be UInt8"
-                      let (st3, newVid) :=
-                        emitValue st2 baseTid (.indexSet baseVid idxVid vVid)
-                      pure ({ st3 with
-                        env := envRebind st3.env key newVid baseTid }, .open_)
-                  | some (.map keyTid valTid) => do
-                      let (idxVid, idxTid, st1) ←
-                        lowerExpr idxExpr keyTid st states fns
-                      unless idxTid == keyTid do
-                        return ← failUnsupported "S1 Map index type mismatch"
-                      let (vVid, vTid, st2) ←
-                        lowerExpr value valTid st1 states fns
-                      unless vTid == valTid do
-                        return ← failUnsupported
-                          "S1 Map index-assign value type mismatch"
-                      let (st3, newVid) :=
-                        emitValue st2 baseTid (.indexSet baseVid idxVid vVid)
-                      pure ({ st3 with
-                        env := envRebind st3.env key newVid baseTid }, .open_)
-                  | _ =>
-                      failUnsupported
-                        "S1 index assign requires Array, Bytes, or Map local"
-          | _ =>
-              failUnsupported
-                "S1 index assign only supports a bare local base (no nested place)"
+              return (← failUnsupported
+                s!"S1 assign target '{key}' must be a state place")
+          | some (sid, rootTid) =>
+              if steps.isEmpty then
+                let (vid, tid, st1) ←
+                  lowerExpr value rootTid st states fns
+                unless tid == rootTid do
+                  return ← failUnsupported
+                    s!"S1 assign type mismatch for state '{key}'"
+                pure (emitVoid st1 (.stateStore sid vid), .open_)
+              else do
+                let (st0, rootVid) :=
+                  emitValue st rootTid (.stateLoad sid)
+                let (newRoot, st1) ←
+                  applyNestedUpdateV1 rootVid rootTid steps value st0 states fns
+                pure (emitVoid st1 (.stateStore sid newRoot), .open_)
   -- Explicit bare `return` is rejected at the S1 gate so product compile never
   -- succeeds Normalize and then fails residual alpha `validateBlockShapeV1`
   -- (`Stmt.Return`). Init may still end with implicit terminator-none when the
@@ -2418,7 +2526,7 @@ private def lowerParams
   for p in ps do
     let (interner', tid) ← internSourceType interner p.type_
     interner := interner'
-    requireAnonymousIntegerOrFieldTypeId interner.types tid
+    requireStateOrParamTypeId interner.types tid
       s!"parameter '{raw p.name}'"
     out := out.push {
       valueId := UInt32.ofNat i
@@ -2472,13 +2580,14 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
 
   -- Pass 1: complete state/event/error tables (source order among those
   -- items only). Event/error fields stay public legal-UInt in this envelope.
-  -- State rows admit legal UInt/Int/Field/Principal and retain visibility (N1/N2b/N2c).
+  -- State rows admit legal UInt/Int/Field/Principal or named Struct/Enum and
+  -- retain visibility (N1/N2b/N2c/N3).
   for item in program.items do
     match item with
     | .state s =>
         let (interner', tid) ← internSourceType interner s.type_
         interner := interner'
-        requireAnonymousIntegerOrFieldTypeId interner.types tid
+        requireStateOrParamTypeId interner.types tid
           s!"state '{raw s.name}'"
         let sid := UInt32.ofNat stateRows.size
         stateRows := stateRows.push {
@@ -2548,7 +2657,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
               s!"S1 fn '{raw d.name}' param '{raw p.name}' must be public"
           let (interner', tid) ← internSourceType interner p.type_
           interner := interner'
-          requireAnonymousIntegerOrFieldTypeId interner.types tid
+          requireStateOrParamTypeId interner.types tid
             s!"fn '{raw d.name}' param '{raw p.name}'"
           paramTids := paramTids.push tid
         let (interner', resultTid) ← internSourceType interner d.result

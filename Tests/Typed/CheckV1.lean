@@ -2140,10 +2140,9 @@ private unsafe def testUnsupportedMatchDuplicateLiteral
     (fun d => d.contains "duplicate")
     "duplicate literal"
 
-private unsafe def testUnsupportedMatchConstructorPattern
+private unsafe def testMatchConstructorPatternOnEnumParam
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Named Enum entry parameters remain legal-UInt only (use local `let` for
-  -- constructor-match positives below). Pin the param gate.
+  -- N3: named Enum params are admitted; constructor match lowers with VariantTag.
   let source := wrap "CtorPat" <|
     "  enum Color where\n" ++
     "    | Red\n" ++
@@ -2154,11 +2153,21 @@ private unsafe def testUnsupportedMatchConstructorPattern
     "      return 1\n" ++
     "    | _ => do\n" ++
     "      return 0\n"
-  expectUnsupportedAfterCheckOk session "ctor-pat" source
-    (fun d =>
-      d.contains "named" || d.contains "parameter" || d.contains "UInt" ||
-      d.contains "anonymous")
-    "named Color parameter still fail closed"
+  let validated ← loadSource session "ctor-pat" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"ctor-pat: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"ctor-pat: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"ctor-pat: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "ctor-pat: missing entry"
+  expect (entryC.params.size == 1) "ctor-pat: Color param"
+  let hasVariantTag := entryC.blocks.any fun b =>
+    b.instructions.any fun i => match i.op with | .variantTag _ => true | _ => false
+  expect hasVariantTag "ctor-pat: VariantTag for constructor match"
 
 /-- Event/error declaration tables plus emit/revert lowering: exact table
     shapes, canonical EffectId order, revert terminator closing the path. -/
@@ -5051,31 +5060,189 @@ private unsafe def testNamedEnumPayloadTypes
         "named-enum-pay: all UInt64 payloads share TypeId"
   | _ => throw <| IO.userError "named-enum-pay: Shape must be .enum"
 
-/-- T2: named struct as state type still fails closed (declaration sites stay
-    public legal-UInt only; aggregate state values are T3). -/
-private unsafe def testNamedStructStateUnsupported
+/-- N3: named struct as state type is admitted (StateLoad/StateStore of aggregate). -/
+private unsafe def testNamedStructState
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "NamedState" <|
     "  struct Point where\n" ++
     "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
     "  state p : Point\n" ++
-    "  entry run() : UInt64 do\n" ++
-    "    return 0\n"
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  entry setX(v : UInt64) : UInt64 do\n" ++
+    "    p.x := v\n" ++
+    "    return p.x\n" ++
+    "  view getX() : UInt64 do\n" ++
+    "    return p.x\n"
   let validated ← loadSource session "named-state" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"named-state: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"named-state: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"named-state: validate: {repr e}"
+  expect (data.logicalState.size == 1) "named-state: one logical state"
+  let some st0 := data.logicalState[0]? |
+    throw <| IO.userError "named-state: missing state row"
+  expect (st0.name == "p") "named-state: state name p"
+  -- Point is named type 0
+  expect (st0.typeId == 0) "named-state: state typeId is Point"
+  let some entryC := data.callables.find? (·.kind == .entry) |
+    throw <| IO.userError "named-state: missing entry"
+  let some blk := entryC.blocks[0]? |
+    throw <| IO.userError "named-state: missing entry block"
+  let hasLoad := blk.instructions.any fun i => match i.op with | .stateLoad _ => true | _ => false
+  let hasFieldSet := blk.instructions.any fun i => match i.op with | .fieldSet .. => true | _ => false
+  let hasStore := blk.instructions.any fun i => match i.op with | .stateStore .. => true | _ => false
+  expect hasLoad "named-state: entry emits StateLoad"
+  expect hasFieldSet "named-state: entry emits FieldSet"
+  expect hasStore "named-state: entry emits StateStore"
+
+/-- N3: nested field assign with state root (`s.inner.x := v`). -/
+private unsafe def testNestedFieldAssignStateRoot
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "NestedAssign" <|
+    "  struct Inner where\n" ++
+    "    x : UInt64\n" ++
+    "  struct Outer where\n" ++
+    "    inner : Inner\n" ++
+    "  state s : Outer\n" ++
+    "  init() do\n" ++
+    "    s := Outer.new(Inner.new(0))\n" ++
+    "  entry bump(v : UInt64) : UInt64 do\n" ++
+    "    s.inner.x := v\n" ++
+    "    return s.inner.x\n"
+  let validated ← loadSource session "nested-assign" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"nested-assign: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"nested-assign: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"nested-assign: validate: {repr e}"
+  let some entryC := data.callables.find? (·.kind == .entry) |
+    throw <| IO.userError "nested-assign: missing entry"
+  let some blk := entryC.blocks[0]? |
+    throw <| IO.userError "nested-assign: missing block"
+  -- load → fieldGet → fieldSet → fieldSet → store
+  let tags := blk.instructions.map fun i =>
+    match i.op with
+    | .stateLoad _ => "load"
+    | .fieldGet .. => "fget"
+    | .fieldSet .. => "fset"
+    | .stateStore .. => "store"
+    | _ => "other"
+  expect (tags.any (· == "load")) "nested-assign: StateLoad"
+  expect (tags.any (· == "fget")) "nested-assign: FieldGet intermediate"
+  expect ((tags.filter (· == "fset")).size >= 2)
+    s!"nested-assign: ≥2 FieldSet (inner write + outer rebind), got {tags}"
+  expect (tags.any (· == "store")) "nested-assign: StateStore"
+
+/-- N3: enum state + VariantTag switch path via match constructors. -/
+private unsafe def testEnumStateMatch
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "EnumState" <|
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Blue(UInt64)\n" ++
+    "  state c : Color\n" ++
+    "  init() do\n" ++
+    "    c := Color.Red()\n" ++
+    "  entry setBlue(v : UInt64) : UInt64 do\n" ++
+    "    c := Color.Blue(v)\n" ++
+    "    match c with\n" ++
+    "    | Color.Blue(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "enum-state" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"enum-state: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"enum-state: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"enum-state: validate: {repr e}"
+  let some stC := data.logicalState[0]? |
+    throw <| IO.userError "enum-state: missing state"
+  expect (stC.name == "c") "enum-state: state c"
+  let some entryC := data.callables.find? (·.kind == .entry) |
+    throw <| IO.userError "enum-state: missing entry"
+  let hasVariantTag := entryC.blocks.any fun b =>
+    b.instructions.any fun i => match i.op with | .variantTag _ => true | _ => false
+  expect hasVariantTag "enum-state: VariantTag present for match"
+
+/-- N3: aggregate param admitted (Reference supports); result stays scalar. -/
+private unsafe def testAggregateParamOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "AggParam" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "  entry sum(p : Point) : UInt64 do\n" ++
+    "    return p.x\n"
+  let validated ← loadSource session "agg-param" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"agg-param: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"agg-param: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"agg-param: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "agg-param: missing entry"
+  expect (entryC.params.size == 1) "agg-param: one param"
+  let some p0 := entryC.params[0]? |
+    throw <| IO.userError "agg-param: missing param"
+  expect (p0.typeId == 0) "agg-param: Point typeId"
+
+/-- N3: aggregate entry result still fails closed. -/
+private unsafe def testAggregateResultFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "AggResult" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "  entry make() : Point do\n" ++
+    "    return Point.new(1)\n"
+  let validated ← loadSource session "agg-result" source
   let typed := checkProgramTypedResultV1 validated
   if typed.ok then
     match normalizeProgramV1 validated with
-    | .ok _ =>
-        throw <| IO.userError
-          "named-state: expected unsupported named struct state, got carrier"
+    | .ok _ => throw <| IO.userError "agg-result: expected unsupported aggregate result"
     | .error (.unsupported detail) =>
-        expect (detail.contains "UInt" || detail.contains "state" ||
-            detail.contains "anonymous" || detail.contains "named")
-          s!"named-state: expected UInt/state detail, got {detail}"
+        expect (detail.contains "result" || detail.contains "UInt" ||
+            detail.contains "Field" || detail.contains "Principal")
+          s!"agg-result: detail={detail}"
     | .error e =>
-        throw <| IO.userError s!"named-state: expected .unsupported, got {repr e}"
+        throw <| IO.userError s!"agg-result: expected unsupported, got {repr e}"
   else
-    -- Typed rejected named state: Normalize boundary not reached (acceptable).
+    pure ()
+
+/-- N3: bare reassignment of immutable let still fails closed. -/
+private unsafe def testImmutableLetReassignFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ImmLet" <|
+    "  entry run() : UInt64 do\n" ++
+    "    let x : UInt64 := 1\n" ++
+    "    x := 2\n" ++
+    "    return x\n"
+  let validated ← loadSource session "imm-let" source
+  let typed := checkProgramTypedResultV1 validated
+  if typed.ok then
+    match normalizeProgramV1 validated with
+    | .ok _ => throw <| IO.userError "imm-let: expected unsupported bare let reassign"
+    | .error (.unsupported detail) =>
+        expect (detail.contains "state" || detail.contains "param" ||
+            detail.contains "assign")
+          s!"imm-let: detail={detail}"
+    | .error e =>
+        throw <| IO.userError s!"imm-let: expected unsupported, got {repr e}"
+  else
     pure ()
 
 /-- T3: aggregate type interning via struct field types (Array/Map/Option/Bytes/Field/Principal). -/
@@ -5479,8 +5646,8 @@ private unsafe def testExprMatchCatchAllOnly
       expect (vid == 0) s!"expr-match-inline: return param vid0, got {vid}"
   | _ => throw <| IO.userError "expr-match-inline: expected return"
 
-/-- T4/T5: named Enum entry params still fail; constructor match uses `let`. -/
-private unsafe def testExprMatchConstructorFailClosed
+/-- T4/T5/N3: named Enum entry params admitted; expr-match lowers with VariantTag. -/
+private unsafe def testExprMatchConstructorOnEnumParam
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "ExprMatchCtor" <|
     "  enum Color where\n" ++
@@ -5491,11 +5658,19 @@ private unsafe def testExprMatchConstructorFailClosed
     "      match c with\n" ++
     "      | Color.Red() => 1\n" ++
     "      | _ => 0\n"
-  expectUnsupportedAfterCheckOk session "expr-match-ctor" source
-    (fun d =>
-      d.contains "UInt" || d.contains "parameter" || d.contains "named" ||
-      d.contains "anonymous")
-    "named Color parameter still fail closed"
+  let validated ← loadSource session "expr-match-ctor" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"expr-match-ctor: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"expr-match-ctor: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"expr-match-ctor: validate: {repr e}"
+  let hasVariantTag := data.callables.any fun c =>
+    c.blocks.any fun b =>
+      b.instructions.any fun i => match i.op with | .variantTag _ => true | _ => false
+  expect hasVariantTag "expr-match-ctor: VariantTag present"
 
 /-- T5: statement match on Enum via local let — VariantTag + UInt32 switch. -/
 private unsafe def testStmtMatchEnumConstructors
@@ -5720,7 +5895,7 @@ unsafe def run : IO Unit := do
   testMatchBoolAndBind session
   testUnsupportedStatementAfterTerminalIf session
   testUnsupportedMatchDuplicateLiteral session
-  testUnsupportedMatchConstructorPattern session
+  testMatchConstructorPatternOnEnumParam session
   testEmitRevertMultiBlock session
   testEmitRequirementsWireOrder session
   testEmitInViewTypedNotOk session
@@ -5769,7 +5944,12 @@ unsafe def run : IO Unit := do
   testNamedNestedStructFieldOrder session
   testNamedForwardFieldReference session
   testNamedEnumPayloadTypes session
-  testNamedStructStateUnsupported session
+  testNamedStructState session
+  testNestedFieldAssignStateRoot session
+  testEnumStateMatch session
+  testAggregateParamOk session
+  testAggregateResultFailClosed session
+  testImmutableLetReassignFailClosed session
   -- T3 aggregate values
   testAggregateTypeInterning session
   testAggregateIllegalMapKey session
@@ -5784,7 +5964,7 @@ unsafe def run : IO Unit := do
   testExprMatchLetAndOperand session
   testExprMatchNested session
   testExprMatchCatchAllOnly session
-  testExprMatchConstructorFailClosed session
+  testExprMatchConstructorOnEnumParam session
   -- T5 constructor patterns (Enum/Option); string stays fail closed
   testStmtMatchEnumConstructors session
   testStmtMatchEnumPayload session

@@ -2583,4 +2583,46 @@ unsafe def run : IO Unit := do
             (e.render).contains "variable-length")
           s!"N2c principal {target} message must cite Principal boundary, got {e.render}"
 
+
+  -- N3: named Struct state + field assign product pin — EVM admits (flatten-to-leaf
+  -- storage); Solana/NEAR/Noir/Psy decline at type-closure (named types default none).
+  let structStateSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PointBox where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n\n" ++
+    "  entry setX(v : UInt64) : UInt64 do\n" ++
+    "    p.x := v\n" ++
+    "    return p.x\n\n" ++
+    "  view getX() : UInt64 do\n" ++
+    "    return p.x\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let structV1 ← match ← session.selectProgramV1 structStateSource
+      "<targets-n3-struct-state>" "Examples.PointBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"N3 struct-state select: {e.render}"
+  let structCompiled ← liftResult <| Compiler.compileValidatedSourceV1 structV1
+  let evmStruct ← liftResult <| planEvm structCompiled
+  expect (evmStruct.storageLayout.size == 2)
+    s!"N3 struct-state: EVM flattened leaf slots for Point.x/y, got {evmStruct.storageLayout.size}"
+  expect (evmStruct.entries.any fun e => e.name == "setX")
+    "N3 struct-state: EVM plan has setX entry"
+  for target in [TargetId.solana, TargetId.near, TargetId.noir, TargetId.psy] do
+    match materializeSelected target structCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N3 struct-state: {target} must decline named aggregate"
+    | .error e =>
+        expect ((e.render).contains "named" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "Struct" ||
+            (e.render).contains "pilot")
+          s!"N3 struct-state {target} message must cite named/aggregate boundary, got {e.render}"
+
+
 end Tests.Materialization

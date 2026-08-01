@@ -11830,3 +11830,30 @@ normative: false
   engineering output schema 校验。已挂 Fast / full / shard-targets / lakefile。
 - Boundary：**工程** OutputSet 切片；**不是** formal TASK-D3-05 / formal OutputSetV1 /
   hermetic publish / formal BuildIdentity。formal status 不变。
+
+## 2026-08-01 — N3 named Struct/Enum aggregate state + nested assign + EVM flatten
+
+- Engineering slice only (not formal TASK-D2/D4 / SupportClaim / OutputSetV1).
+- NormalizeV1: admit named Struct/Enum as state/param types (anonymous
+  Array/Map/Option/Bytes state still fail closed); aggregate entry/view/fn
+  results remain fail closed; nested field/index assign via
+  `peelPlaceRootV1` + `applyNestedUpdateV1` (local rebind or state
+  load→chain→store); param-root bare assign still fail closed; immutable
+  let bare reassign still fail closed.
+- EnvelopeV1: `PilotNamedAggregateStatePolicy` (default none;
+  `pilotNamedAggregateStatePolicyAdmit`); `PilotTypeClosureV1.namedTypeIds`
+  + `isNamedAggregate` / `isUInt64OrInt64OrFieldOrPrincipalOrNamed`;
+  `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed{State,Param}`.
+- EVM LowerSemanticV1 (sole positive lane): type-closure admits named
+  aggregates; storage flattens Struct fields and Enum tag+max-payload to
+  distinct leaf slots (`p_x`/`p_y`, `c_tag`/`c_p0`); StateLoad/StateStore of
+  aggregates; Construct/FieldGet/FieldSet/VariantTag/VariantPayload;
+  multi-word ABI params for named aggregates. IndexGet/IndexSet fail closed
+  (no Array/Map/Bytes state). Solana/NEAR/Noir/Psy keep default policy none
+  (decline named types at type-closure with planInvariant).
+- Tests: NormalizeV1 suite (struct state, nested assign, enum state match,
+  aggregate param ok, aggregate result/immutable-let fail closed, ctor-pat
+  Enum param positive); Targets N3 EVM leaf-slot pin + decline matrix;
+  ValidatedSource message update for Map state gate.
+- Boundary: not full multi-target aggregate ABI; not formal Reference↔target
+  differential; not Array/Map state; formal status unchanged.

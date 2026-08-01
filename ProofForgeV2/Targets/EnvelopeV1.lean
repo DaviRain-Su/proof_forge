@@ -174,11 +174,23 @@ def pilotPrincipalPolicyNone : PilotPrincipalPolicy where
 def pilotPrincipalPolicyAdmit : PilotPrincipalPolicy where
   admitPrincipal := true
 
+/-- Per-target admission for named Struct/Enum aggregate types (N3).
+    Default fail-closed. When true, named Struct/Enum TypeDecls are recorded
+    in `PilotTypeClosureV1.namedTypeIds` and may appear as state/param types. -/
+structure PilotNamedAggregateStatePolicy where
+  admitNamedStructEnum : Bool
+  deriving BEq, Repr
+
+def pilotNamedAggregateStatePolicyNone : PilotNamedAggregateStatePolicy where
+  admitNamedStructEnum := false
+
+def pilotNamedAggregateStatePolicyAdmit : PilotNamedAggregateStatePolicy where
+  admitNamedStructEnum := true
+
 /-- Anonymous type ids admitted by a pilot type-closure policy.
     UInt64 is required; Unit / Bool / Int64 / Field / Principal are optional
-    (at most one each). Additional anonymous UInt widths appear in
-    `otherUintByWidth` (includes UInt32 when present). Admitted Int widths
-    appear in `otherIntByWidth` (Int64 also mirrored as `int64TypeId`). -/
+    (at most one each). Named Struct/Enum TypeIds appear in `namedTypeIds`
+    when N3 policy admits them. -/
 structure PilotTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
@@ -199,6 +211,8 @@ structure PilotTypeClosureV1 where
   fieldTypeId : Option TypeIdV1 := none
   /-- Optional anonymous Principal when Principal policy admits. -/
   principalTypeId : Option TypeIdV1 := none
+  /-- Named Struct/Enum TypeIds in source order when N3 aggregate policy admits. -/
+  namedTypeIds : Array TypeIdV1 := #[]
   deriving BEq, Repr
 
 /-- Look up an admitted non-64 UInt TypeId by bit width. -/
@@ -257,6 +271,16 @@ def PilotTypeClosureV1.isUInt64OrInt64OrField
 def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipal
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isUInt64OrInt64OrField typeId || c.isPrincipal typeId
+
+/-- True when `typeId` is an admitted named Struct/Enum (N3). -/
+def PilotTypeClosureV1.isNamedAggregate
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.namedTypeIds.contains typeId
+
+/-- True when `typeId` is a scalar pilot type or an admitted named aggregate. -/
+def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipalOrNamed
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.isUInt64OrInt64OrFieldOrPrincipal typeId || c.isNamedAggregate typeId
 
 /-- Per-target detail strings that already diverged before EnvelopeV1.
     Common details (named types, one UInt64, duplicate Unit/Bool, missing
@@ -343,20 +367,18 @@ private def duplicateUintDetail
 private def duplicateIntDetail (width : Nat) : String :=
   s!"expected at most one anonymous Int{width} type"
 
-/-- Admit a pilot type closure under explicit UInt-, Int-width, Field, and
-    Principal policies.
+/-- Admit a pilot type closure under explicit UInt-, Int-width, Field,
+    Principal, and named-aggregate policies.
 
-    Rules: reject named types; require exactly one anonymous UInt64; accept at
-    most one of each other admitted UInt width / admitted Int width / Unit /
-    Bool / sole catalog Field / Principal; reject all other shapes. Diagnostics
-    use `mkErr` and `wording`.
+    Rules: require exactly one anonymous UInt64; accept at most one of each
+    other admitted UInt width / admitted Int width / Unit / Bool / sole catalog
+    Field / Principal; named Struct/Enum only when
+    `namedAggregatePolicy.admitNamedStructEnum` (N3); reject all other shapes
+    (including anonymous Array/Map/Option/Bytes). Diagnostics use `mkErr` and
+    `wording`.
 
-    Default UInt policy is historical `{64, 32}`; default Int policy is
-    **Int64-only** (`pilotIntWidthPolicyI64`) so Phase-1 targets open Int64
-    without per-call-site boilerplate. Default Field policy is **none**
-    (fail closed); pass `pilotFieldPolicyBn254` for Noir. Default Principal
-    policy is **none** (fail closed on all Phase-1 targets — wire Principal is
-    variable-length u32-prefixed opaque identity). -/
+    Default named-aggregate policy is **none** (fail closed); pass
+    `pilotNamedAggregateStatePolicyAdmit` for EVM (and any future positive lane). -/
 def validatePilotTypeClosure
     (mkErr : String → CompileError)
     (wording : PilotTypeClosureWording)
@@ -364,7 +386,9 @@ def validatePilotTypeClosure
     (policy : PilotUintWidthPolicy := pilotUintWidthPolicyU64U32)
     (intPolicy : PilotIntWidthPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy : PilotFieldPolicy := pilotFieldPolicyNone)
-    (principalPolicy : PilotPrincipalPolicy := pilotPrincipalPolicyNone) :
+    (principalPolicy : PilotPrincipalPolicy := pilotPrincipalPolicyNone)
+    (namedAggregatePolicy : PilotNamedAggregateStatePolicy :=
+      pilotNamedAggregateStatePolicyNone) :
     CompileResult PilotTypeClosureV1 := do
   let label := wording.targetLabel
   unless policy.admittedWidths.contains 64 do
@@ -376,60 +400,77 @@ def validatePilotTypeClosure
   let mut otherIntByWidth : Array (Nat × TypeIdV1) := #[]
   let mut fieldTypeId : Option TypeIdV1 := none
   let mut principalTypeId : Option TypeIdV1 := none
+  let mut namedTypeIds : Array TypeIdV1 := #[]
   for decl in types do
-    unless decl.name.isNone do
-      throw <| mkErr (shapeMsg label
-        "named types are outside the current UInt64 pilot")
-    match decl.shape with
-    | .uint width =>
-        let w := width.toNat
-        unless widthAdmitted policy w do
-          throw <| mkErr (shapeMsg label wording.badIntegerWidthDetail)
-        if w == 64 then
-          unless uint64TypeId.isNone do
+    match decl.name with
+    | some _ =>
+        unless namedAggregatePolicy.admitNamedStructEnum do
+          throw <| mkErr (shapeMsg label
+            "named types are outside the current UInt64 pilot")
+        match decl.shape with
+        | .struct fields =>
+            unless fields.size > 0 do
+              throw <| mkErr (shapeMsg label
+                "named Struct requires at least one field")
+            namedTypeIds := namedTypeIds.push decl.id
+        | .enum variants =>
+            unless variants.size > 0 do
+              throw <| mkErr (shapeMsg label
+                "named Enum requires at least one variant")
+            namedTypeIds := namedTypeIds.push decl.id
+        | _ =>
             throw <| mkErr (shapeMsg label
-              "expected one anonymous UInt64 type")
-          uint64TypeId := some decl.id
-        else
-          if otherUintByWidth.any (fun (ew, _) => ew == w) then
-            throw <| mkErr (shapeMsg label (duplicateUintDetail wording w))
-          otherUintByWidth := otherUintByWidth.push (w, decl.id)
-    | .int width =>
-        let w := width.toNat
-        unless intWidthAdmitted intPolicy w do
-          throw <| mkErr (shapeMsg label wording.badIntegerWidthDetail)
-        if otherIntByWidth.any (fun (ew, _) => ew == w) then
-          throw <| mkErr (shapeMsg label (duplicateIntDetail w))
-        otherIntByWidth := otherIntByWidth.push (w, decl.id)
-    | .unit =>
-        unless unitTypeId.isNone do
-          throw <| mkErr (shapeMsg label "duplicate Unit type")
-        unitTypeId := some decl.id
-    | .bool =>
-        unless boolTypeId.isNone do
-          throw <| mkErr (shapeMsg label "duplicate Bool type")
-        boolTypeId := some decl.id
-    | .field spec =>
-        unless fieldPolicy.admitBn254Fr do
+              "named types must be Struct or Enum")
+    | none =>
+      match decl.shape with
+      | .uint width =>
+          let w := width.toNat
+          unless widthAdmitted policy w do
+            throw <| mkErr (shapeMsg label wording.badIntegerWidthDetail)
+          if w == 64 then
+            unless uint64TypeId.isNone do
+              throw <| mkErr (shapeMsg label
+                "expected one anonymous UInt64 type")
+            uint64TypeId := some decl.id
+          else
+            if otherUintByWidth.any (fun (ew, _) => ew == w) then
+              throw <| mkErr (shapeMsg label (duplicateUintDetail wording w))
+            otherUintByWidth := otherUintByWidth.push (w, decl.id)
+      | .int width =>
+          let w := width.toNat
+          unless intWidthAdmitted intPolicy w do
+            throw <| mkErr (shapeMsg label wording.badIntegerWidthDetail)
+          if otherIntByWidth.any (fun (ew, _) => ew == w) then
+            throw <| mkErr (shapeMsg label (duplicateIntDetail w))
+          otherIntByWidth := otherIntByWidth.push (w, decl.id)
+      | .unit =>
+          unless unitTypeId.isNone do
+            throw <| mkErr (shapeMsg label "duplicate Unit type")
+          unitTypeId := some decl.id
+      | .bool =>
+          unless boolTypeId.isNone do
+            throw <| mkErr (shapeMsg label "duplicate Bool type")
+          boolTypeId := some decl.id
+      | .field spec =>
+          unless fieldPolicy.admitBn254Fr do
+            throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
+          unless spec.id.value == bn254FrFieldIdV1 &&
+              spec.modulusBE == bn254FrModulusBEV1 do
+            throw <| mkErr (shapeMsg label
+              "only sole catalog Field bn254-fr (exact modulus) is supported")
+          unless fieldTypeId.isNone do
+            throw <| mkErr (shapeMsg label
+              "expected at most one anonymous Field type")
+          fieldTypeId := some decl.id
+      | .principal =>
+          unless principalPolicy.admitPrincipal do
+            throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
+          unless principalTypeId.isNone do
+            throw <| mkErr (shapeMsg label
+              "expected at most one anonymous Principal type")
+          principalTypeId := some decl.id
+      | _ =>
           throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
-        -- Sole catalog: exact SchemaId + modulusBE.
-        unless spec.id.value == bn254FrFieldIdV1 &&
-            spec.modulusBE == bn254FrModulusBEV1 do
-          throw <| mkErr (shapeMsg label
-            "only sole catalog Field bn254-fr (exact modulus) is supported")
-        unless fieldTypeId.isNone do
-          throw <| mkErr (shapeMsg label
-            "expected at most one anonymous Field type")
-        fieldTypeId := some decl.id
-    | .principal =>
-        unless principalPolicy.admitPrincipal do
-          throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
-        unless principalTypeId.isNone do
-          throw <| mkErr (shapeMsg label
-            "expected at most one anonymous Principal type")
-        principalTypeId := some decl.id
-    | _ =>
-        throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
   let resolvedUInt64TypeId ← match uint64TypeId with
     | some value => pure value
     | none => throw (mkErr (shapeMsg label "UInt64 type is missing"))
@@ -447,7 +488,9 @@ def validatePilotTypeClosure
     otherIntByWidth
     fieldTypeId
     principalTypeId
+    namedTypeIds
   }
+
 /-! ### UInt64 state / parameter predicates (visibility policy)
 
     Type messages are identical across the four targets (no label substitution).
@@ -590,6 +633,39 @@ def requirePublicUInt64OrInt64OrFieldOrPrincipalParam
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
   unless types.isUInt64OrInt64OrFieldOrPrincipal param.typeId do
+    throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+
+
+/-- Fail unless `state` is UInt64/Int64/Field/Principal **or named Struct/Enum**
+    (N3), and public unless `allowNonPublic`. -/
+def requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isUInt64OrInt64OrFieldOrPrincipalOrNamed state.typeId do
+    throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
+
+/-- Fail unless `param` is UInt64/Int64/Field/Principal **or named Struct/Enum**
+    (N3), and public unless `allowNonPublic`. -/
+def requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (owner : String)
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isUInt64OrInt64OrFieldOrPrincipalOrNamed param.typeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
   unless param.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with
