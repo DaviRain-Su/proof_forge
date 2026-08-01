@@ -150,6 +150,14 @@ private def isSkippedInferDisclosureIdV1 (id : String) : Bool :=
   id == inferDisclosurePrivateStateIdV1 ||
   id == inferDisclosureCommitmentStateIdV1
 
+/-- T-3: ContextRead / Commit contribution ids use wire spellings. Normalize
+    merges exact wire requirement rows after S2 freeze; freeze must skip them
+    so they never invent S2 catalog rows. -/
+private def isSkippedWireContextCommitIdV1 (id : String) : Bool :=
+  id == wireContextUnixTimeSecondsIdV1 ||
+  id == wireContextCallerIdV1 ||
+  id == wireCommitmentDisclosureIdV1
+
 /-- Infer-only Field type contribution. Field arithmetic is exact modular
     (no overflow); product arithmetic is covered by the existing S2 key
     `value.checked-arithmetic`. No new S2 catalog entry is minted for
@@ -169,7 +177,8 @@ def freezeProgramRequirementsV1 (program : ProgramV1) :
   let mut items : Array RequirementRequestV1 := #[]
   for contribution in contributions do
     let id := RequirementContributionV1.idOf contribution
-    if isSkippedInferDisclosureIdV1 id || isSkippedInferFieldIdV1 id then
+    if isSkippedInferDisclosureIdV1 id || isSkippedInferFieldIdV1 id ||
+        isSkippedWireContextCommitIdV1 id then
       pure ()
     else do
       unless isS2CatalogIdV1 id do

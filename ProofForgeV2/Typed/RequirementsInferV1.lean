@@ -23,6 +23,7 @@ import ProofForgeV2.Source.AstSpineDeclV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
+import ProofForgeV2.Source.ContextCommitSurfaceV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.ValidatedSourceV1
 
@@ -36,6 +37,7 @@ open ProofForgeV2.Source.AstSpineDeclV1
 open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.AstV1
+open ProofForgeV2.Source.ContextCommitSurfaceV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.ValidatedSourceV1
 
@@ -67,6 +69,11 @@ private def commitmentDisclosure := contribution inferDisclosureCommitmentIdV1
 private def fieldBn254 := contribution inferValueFieldBn254FrIdV1
 private def privateState := contribution inferDisclosurePrivateStateIdV1
 private def commitmentState := contribution inferDisclosureCommitmentStateIdV1
+/-- T-3: ContextRead / Commit contribution identities (wire spellings; freeze-skipped
+    because Normalize merges exact wire rows after S2 freeze). -/
+private def contextUnixTime := contribution wireContextUnixTimeSecondsIdV1
+private def contextCaller := contribution wireContextCallerIdV1
+private def commitOp := contribution wireCommitmentDisclosureIdV1
 
 private def stableUniqueContributions
     (values : Array RequirementContributionV1) : Array RequirementContributionV1 :=
@@ -105,7 +112,14 @@ private def stateContributions (state : StateDeclV1) : Array RequirementContribu
 mutual
   private partial def placeContributions : PlaceV1 → Array RequirementContributionV1
     | .name _ => #[]
-    | .field base _ => placeContributions base
+    | .field base field =>
+        -- T-3: exact ContextRead surfaces (context.unixTimeSeconds / context.caller).
+        if isContextUnixTimeSecondsPlaceV1 (.field base field) then
+          #[contextUnixTime]
+        else if isContextCallerPlaceV1 (.field base field) then
+          #[contextCaller]
+        else
+          placeContributions base
     | .index base index => placeContributions base ++ exprContributions index
 
   private partial def exprContributions : ExprV1 → Array RequirementContributionV1
@@ -121,7 +135,13 @@ mutual
         | .add | .sub | .mul | .div | .mod =>
             child ++ #[checkedArithmetic, transactionalRollback]
         | _ => child
-    | .localCall _ args => args.flatMap exprContributions
+    | .localCall callee args =>
+        let child := args.flatMap exprContributions
+        -- T-3: intrinsic commit(x) shape (fn-shadow still product-resolved later).
+        if isCommitLocalCallShapeV1 (.localCall callee args) then
+          child ++ #[commitOp]
+        else
+          child
     | .match_ scrutinee arms =>
         exprContributions scrutinee ++
           arms.flatMap (fun arm => exprContributions arm.value)

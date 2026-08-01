@@ -215,6 +215,30 @@ private unsafe def testCounterAuthority
       expectFreezeIds "Counter authority" source
         #["failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"]
 
+/-- T-3: context.caller / context.unixTimeSeconds / commit contribute wire ids
+    (first-seen); freeze skips them (Normalize merges wire rows). -/
+private unsafe def testContextCommitContributions
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ReqCtxCommit" <|
+    "  state commitment sealed : UInt64\n" ++
+    "  init() do\n" ++
+    "    sealed := 0\n" ++
+    "  entry both(x : UInt64) : UInt64 do\n" ++
+    "    let t : UInt64 := context.unixTimeSeconds\n" ++
+    "    sealed := commit(x)\n" ++
+    "    let _who : Principal := context.caller\n" ++
+    "    return t\n"
+  let (validated, ids) ← inferSource session "ctx-commit-infer" source
+  expect (ids.contains "context.unix-time-seconds")
+    s!"T-3 missing unix-time contribution: {ids}"
+  expect (ids.contains "context.caller")
+    s!"T-3 missing caller contribution: {ids}"
+  expect (ids.contains "disclosure.commitment")
+    s!"T-3 missing commit contribution: {ids}"
+  -- Freeze must not invent S2 rows for wire-owned keys.
+  expectFreezeIds "ctx-commit-freeze" validated
+    #["state.persistent"]
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterLike session
@@ -222,6 +246,7 @@ unsafe def run : IO Unit := do
   testCatalogAndDedup session
   testIdempotent session
   testCounterAuthority session
+  testContextCommitContributions session
   IO.println "Tests.Typed.RequirementsInferV1: ok"
 
 end Tests.Typed.RequirementsInferV1
