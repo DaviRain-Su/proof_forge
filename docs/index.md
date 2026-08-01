@@ -21,6 +21,7 @@ CheckV1/Normalize → `CompiledSemanticV1` → capability Plan/IR → 工程制�
 仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 
 **日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。  
+**Goal 全队列执行**：[`.grok/goals/prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md)（[`QUEUE.md`](../.grok/goals/QUEUE.md) + [`slices/`](../.grok/goals/slices/)）。  
 宽度/ABI 专项：[`roadmap-t8.md`](roadmap-t8.md)。  
 Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。
 
