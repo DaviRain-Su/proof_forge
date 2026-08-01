@@ -11567,3 +11567,13 @@ normative: false
   blocker review通过。
 - Boundary：initializer/view仍由production runtime支持，但branch proof按需pending；CallableResult、
   Block、Terminator、Instruction/Op、完整carrier与formal `InvariantTheoremV1`/TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 CallableResult production composition
+
+- Production：将CallableResult原anonymous body机械命名为sole `decodeCallableResultBodyV1`，public decoder
+  仍由一次`withTaggedNesting`包装；expected tag/field count→TypeId→Visibility顺序与错误语义不变。
+- Proof：field theorem只组合真实production decoder equality并线程exact cursors；wrapper theorem在body
+  success后保留input/offset、恢复parent depth。canonical public result的所有TypeId均可复用；focused
+  build、kernel signature examples与blocker review通过。
+- Boundary：这是transport composition，不提前证明TypeId引用或callable signature结构合法；optional
+  name/steps、Block、Terminator、Instruction/Op、完整carrier与formal TASK/TST仍pending。

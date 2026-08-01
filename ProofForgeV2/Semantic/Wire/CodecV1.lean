@@ -1346,11 +1346,35 @@ def encodeCallableResultV1 (r : CallableResultV1) : Except SemanticWireErrorV1 B
   let visB ← encodeVisibilityV1 r.visibility
   encodeTagged "CallableResult" #[typeB, visB]
 
-def decodeCallableResultV1 : Decoder CallableResultV1 := withTaggedNesting fun c => do
+/-- Sole production body for a CallableResult tagged record. -/
+def decodeCallableResultBodyV1 : Decoder CallableResultV1 := fun c => do
   let ((), c) ← expectTag "CallableResult" 2 c
   let (typeId, c) ← decodeU32le c
   let (visibility, c) ← decodeVisibilityV1 c
   pure ({ typeId, visibility }, c)
+
+def decodeCallableResultV1 : Decoder CallableResultV1 :=
+  withTaggedNesting decodeCallableResultBodyV1
+
+/-- Compose CallableResult from its actual production field decoders. -/
+theorem decodeCallableResultBodyV1_eq_of_fields
+    (c afterTag afterType afterVisibility : Cursor) (typeId : UInt32)
+    (visibility : VisibilityV1)
+    (htag : expectTag "CallableResult" 2 c = .ok ((), afterTag))
+    (htype : decodeU32le afterTag = .ok (typeId, afterType))
+    (hvisibility : decodeVisibilityV1 afterType = .ok (visibility, afterVisibility)) :
+    decodeCallableResultBodyV1 c = .ok ({ typeId, visibility }, afterVisibility) := by
+  simp only [decodeCallableResultBodyV1, htag, htype, hvisibility, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose a successful CallableResult body through tagged nesting. -/
+theorem decodeCallableResultV1_eq_of_bodyV1 (c : Cursor) (result : CallableResultV1)
+    (c' : Cursor) (hdepth : c.nesting < maxNesting)
+    (hbody : decodeCallableResultBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (result, c')) :
+    decodeCallableResultV1 c = .ok (result, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeCallableResultV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeValueDefV1 (v : ValueDefV1) : Except SemanticWireErrorV1 ByteArray := do
   encodeTagged "ValueDef" #[encodeU32le v.valueId, encodeU32le v.typeId]

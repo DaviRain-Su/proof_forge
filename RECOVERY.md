@@ -357,6 +357,12 @@ CallableKind canonical composition现已闭合：通用`decodeOption_someV1`要�
 恢复parent depth；initializer/view proof按需pending。下一步依次闭合empty params/loopBounds、
 CallableResult、optional name/steps，再进入Block、Terminator与fixture所需Instruction/Op。
 
+CallableResult composition现已闭合：原anonymous decoder body机械抽为sole production body，public decoder
+仍由一次tagged nesting包装；field theorem严格线程expected CallableResult/2 header→u32 TypeId→真实
+Visibility decoder，wrapper保留body input/offset并恢复parent depth。该transport theorem覆盖canonical
+public result，但TypeId引用合法性仍由structure gate负责。empty params/loopBounds可直接复用zero-array；
+下一步组合optional name/steps，再进入Block与fixture所需terminator/instruction/op。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

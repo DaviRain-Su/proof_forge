@@ -490,6 +490,22 @@ example (c c' : Cursor) (kind : CallableKindV1)
     decodeCallableKindV1 c = .ok (kind, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeCallableKindV1_eq_of_bodyV1 c kind c' hdepth hbody
 
+example (c afterTag afterType afterVisibility : Cursor) (typeId : UInt32)
+    (visibility : VisibilityV1)
+    (htag : expectTag "CallableResult" 2 c = .ok ((), afterTag))
+    (htype : decodeU32le afterTag = .ok (typeId, afterType))
+    (hvisibility : decodeVisibilityV1 afterType = .ok (visibility, afterVisibility)) :
+    decodeCallableResultBodyV1 c = .ok ({ typeId, visibility }, afterVisibility) :=
+  decodeCallableResultBodyV1_eq_of_fields c afterTag afterType afterVisibility typeId
+    visibility htag htype hvisibility
+
+example (c c' : Cursor) (result : CallableResultV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeCallableResultBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (result, c')) :
+    decodeCallableResultV1 c = .ok (result, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeCallableResultV1_eq_of_bodyV1 c result c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
