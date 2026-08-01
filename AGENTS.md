@@ -42,8 +42,8 @@ pinned d835bc6e，cargo-git source-build 供给，Tool Lock v4）汇编成 Solan
 （`solana-sbpf-elf-v1` profile 产品链路，Counter 已端到端产出 ELF）+ **S3a+S3b Mollusk
 运行时差分**（`runtime-tests/solana` + `scripts/solana_runtime_test.sh`：Counter +
 七 fixture LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates 覆盖 S1b
-发射面与 body 多宽 UInt8/16/32；非 formal Stage-0/hermetic）；**T8 已铺四 target**：
-state/param UInt8/16/32 ABI + body 多宽（UInt128/256 与窄结果仍 fail closed）；Noir 只有
+发射面与 body 多宽 UInt8/16/32；非 formal Stage-0/hermetic）；**T8/T9 已铺四 target**：
+state/param UInt8/16/32 ABI + body 多宽 + 窄结果 + 窄 Int（EVM 另开 UInt128/256，Solana/NEAR 软件多字 128/256 add/sub/cmp/bit；Int128/256 仍 fail closed）；Noir 只有
 target-owned Plan/typed relation IR 与 source packages；Aleo/Psy 均为 source-only
 （target-owned Plan/IR/source packages，无 compiler/VM 验收门）。
 不得把静态制品写成部署、运行或证明完成。
