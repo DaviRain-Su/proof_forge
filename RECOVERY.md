@@ -350,6 +350,13 @@ id→kind→name→params→result→entryBlock→blocks→loopBounds→invarian
 tagged nesting；root array corollary锁定`maxTableElements`。本切片只接受nested production decoder
 success premise，不宣称Block/Instruction/Op已完成proof。
 
+CallableKind canonical composition现已闭合：通用`decodeOption_someV1`要求真实marker reader解出1，
+再从exact post-marker cursor执行真实payload decoder并保留其结果cursor；CallableKind原anonymous body
+机械抽为sole production body，tag→zero field-count顺序及initializer/entry/view/pureFn/invariant五个runtime
+分支均不变。当前branch theorem只覆盖fixture所需entry/pureFn/invariant，再经唯一tagged-nesting wrapper
+恢复parent depth；initializer/view proof按需pending。下一步依次闭合empty params/loopBounds、
+CallableResult、optional name/steps，再进入Block、Terminator与fixture所需Instruction/Op。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

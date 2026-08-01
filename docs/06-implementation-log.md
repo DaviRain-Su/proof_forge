@@ -11555,3 +11555,15 @@ normative: false
   review通过。
 - Boundary：这是scaffold；Block/Instruction/Op、callable kind/result等nested proof、完整carrier与formal
   TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 CallableKind and present-option composition
+
+- Production：将CallableKind原anonymous body机械命名为sole `decodeCallableKindBodyV1`，public decoder仍
+  只由一次`withTaggedNesting`包装；initializer/entry/view/pureFn/invariant五个runtime分支及
+  tag→field-count→branch错误顺序不变。
+- Proof：通用`decodeOption_someV1`组合真实marker 1与真实payload decoder，payload只从post-marker cursor
+  执行并返回其完整cursor；CallableKind为canonical fixture所需entry/pureFn/invariant建立真实tag与
+  zero-field-count branch theorem，再组合nesting并恢复parent depth。kernel examples、focused build与
+  blocker review通过。
+- Boundary：initializer/view仍由production runtime支持，但branch proof按需pending；CallableResult、
+  Block、Terminator、Instruction/Op、完整carrier与formal `InvariantTheoremV1`/TASK/TST仍pending。

@@ -279,6 +279,9 @@ StateDecl tag→id→name→typeId→visibility、nested depth及root bounded ar
 后续InvariantDecl切片同样组合tag→id→name→callableId、nesting与root bounded array。
 后续Callable scaffold切片机械抽取sole九字段body，固定id→kind→name→params→result→entryBlock→blocks→
 loopBounds→invariantSteps、nesting与root bounded array；各nested callable字段proof仍pending。
+后续CallableKind切片补通用production `Option.some` composition，并机械抽取sole kind body；canonical
+entry/pureFn/invariant三分支现可由真实tag→zero field-count及nesting组合，initializer/view runtime分支
+保持但proof按需pending。CallableResult、Block、Instruction/Op与Terminator仍待后续闭合。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

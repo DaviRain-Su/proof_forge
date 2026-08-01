@@ -714,6 +714,15 @@ theorem decodeOption_noneV1 (decode : Decoder α) (c afterMarker : Cursor)
   simp only [decodeOption, hmarker, UInt8.toNat_ofNat, Nat.zero_mod, Bind.bind,
     Pure.pure, Except.bind, Except.pure]
 
+/-- Canonical present-option composition through the sole production marker
+    and payload decoders. -/
+theorem decodeOption_someV1 (decode : Decoder α) (c afterMarker afterValue : Cursor)
+    (value : α) (hmarker : decodeU8 c = .ok (1, afterMarker))
+    (hvalue : decode afterMarker = .ok (value, afterValue)) :
+    decodeOption decode c = .ok (some value, afterValue) := by
+  simp only [decodeOption, hmarker, UInt8.toNat_ofNat, hvalue,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
+
 /-- Sole production array-element iteration authority. Keeping the loop in a
     structurally recursive definition gives kernel proofs a stable unfolding
     seam without introducing a proof-side decoder. -/
@@ -1270,7 +1279,8 @@ def encodeCallableKindV1 : CallableKindV1 → Except SemanticWireErrorV1 ByteArr
   | .pureFn => encodeNullary "Callable.PureFn"
   | .invariant => encodeNullary "Callable.Invariant"
 
-def decodeCallableKindV1 : Decoder CallableKindV1 := withTaggedNesting fun c => do
+/-- Sole production body for the CallableKind tagged sum. -/
+def decodeCallableKindBodyV1 : Decoder CallableKindV1 := fun c => do
   let (tag, c) ← decodeTag c
   let ((), c) ← decodeFieldCount 0 c
   match tag with
@@ -1280,6 +1290,41 @@ def decodeCallableKindV1 : Decoder CallableKindV1 := withTaggedNesting fun c => 
   | "Callable.PureFn" => pure (.pureFn, c)
   | "Callable.Invariant" => pure (.invariant, c)
   | _ => err .badTag
+
+def decodeCallableKindV1 : Decoder CallableKindV1 :=
+  withTaggedNesting decodeCallableKindBodyV1
+
+/-- Entry branch through the actual tag and field-count decoders. -/
+theorem decodeCallableKindBodyV1_entry (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Callable.Entry", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeCallableKindBodyV1 c = .ok (.entry, afterFields) := by
+  simp only [decodeCallableKindBodyV1, htag, hfields, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Pure-function branch through the actual tag and field-count decoders. -/
+theorem decodeCallableKindBodyV1_pureFn (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Callable.PureFn", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeCallableKindBodyV1 c = .ok (.pureFn, afterFields) := by
+  simp only [decodeCallableKindBodyV1, htag, hfields, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Invariant branch through the actual tag and field-count decoders. -/
+theorem decodeCallableKindBodyV1_invariant (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Callable.Invariant", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeCallableKindBodyV1 c = .ok (.invariant, afterFields) := by
+  simp only [decodeCallableKindBodyV1, htag, hfields, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose a successful CallableKind body through tagged nesting. -/
+theorem decodeCallableKindV1_eq_of_bodyV1 (c : Cursor) (kind : CallableKindV1)
+    (c' : Cursor) (hdepth : c.nesting < maxNesting)
+    (hbody : decodeCallableKindBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (kind, c')) :
+    decodeCallableKindV1 c = .ok (kind, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeCallableKindV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeParameterV1 (p : ParameterV1) : Except SemanticWireErrorV1 ByteArray := do
   let valueB := encodeU32le p.valueId
