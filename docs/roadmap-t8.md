@@ -116,7 +116,7 @@ SolanaPlanV1 NarrowInt 绿。隔离 CI 已 dispatch（ci-verify-t9c2-narrow-int�
 - 工作面：Envelope Int 策略扩展；signed 语义（符号扩展、signed overflow min/max 检测、toward-zero div/rem、arsh 算术右移）；四 target
 - 注意与 UInt 窄宽的区分（isInt 标志 + 宽度）；金样 + 负向（Int128/256 保持 fail closed）
 
-### [pending] T9d：M5 其余 target planDigest 绑 identity（NEAR/Solana/Noir）
+### [in_progress] T9d：M5 其余 target planDigest 绑 identity（NEAR/Solana/Noir）
 - 镜像 M4（13e3a54be）：NEAR/Solana/Noir plan schema digest + `engineering*PlanDigestV1` + BuildIdentity/OutputSet/manifest 字段 + CLI inspect
 - 小-中切片；金样 IdentityChain/OutputSet
 
