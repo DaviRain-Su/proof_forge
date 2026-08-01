@@ -2538,6 +2538,13 @@ def consumeMagic (magic : String) : Decoder Unit := fun c => do
   let offset ← consumeMagicBytesAtV1 c.input c.offset want
   pure ((), ⟨c.input, offset, c.nesting⟩)
 
+/-- Magic-prefix composition through the sole production byte consumer. -/
+theorem consumeMagic_eq_of_bytesV1 (magic : String) (c : Cursor) (offset : Nat)
+    (hread : consumeMagicBytesAtV1 c.input c.offset (encodeMagicPrefix magic) =
+      .ok offset) :
+    consumeMagic magic c = .ok ((), ⟨c.input, offset, c.nesting⟩) := by
+  simp only [consumeMagic, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
 /-- Internal WireV1 table-size limit helper (not a public contract). -/
 def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
   unless size ≤ maxTableElements do

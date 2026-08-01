@@ -11896,3 +11896,16 @@ normative: false
   闭合，因此未伪造encode/decode/carrier theorem，也未使用`native_decide`、axiom、cast、第二decoder或
   recursion-limit workaround。closed transport→structure-gated encoder→carrier theorem、
   `InvariantTheoremV1`与formal TASK-D2-07/TST-SEM-002/003/TST-PROOF-001仍pending。
+
+## 2026-08-01 — D2-07 concrete carrier outer framing
+
+- Production seam：`CodecV1.consumeMagic_eq_of_bytesV1`把`consumeMagic`成功路径组合到sole production
+  `consumeMagicBytesAtV1`，不增加magic reader或transport decoder。
+- Concrete kernel facts：将同一显式1235-byte golden仅作proof segmentation（15-byte magic、26-byte
+  root header、1194-byte fields）；经既有`consumeMagicBytesAtV1_refinesSpine`与
+  `expectTaggedHeaderBytesAtV1_refinesSpine`闭合总长、magic cursor 0→15，以及nesting=1时
+  `SemanticProgram.Data`/fieldCount=9 root header cursor 15→41。runtime `canonicalBytes`仍由该唯一
+  segmented spine构造，工程encoder golden check保持。
+- Review/Verification：blocker-only review APPROVE；聚焦Codec/InvariantABI build通过。
+- Boundary：仅outer framing closed；qualifiedName、九字段payload、finish、structure-gated encoder、
+  carrier identity、`InvariantTheoremV1`及formal TASK/TST仍pending。

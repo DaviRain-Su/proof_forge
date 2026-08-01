@@ -592,13 +592,19 @@ def selectedState : LogicalStateV1 := {
   canonicalValues := stateSlot (ByteArray.mk #[0])
 }
 
-/-- Exact 1235-byte production encoding of `data`. This explicit golden is
-    intentionally independent of encoder computation, so later decoder proofs
-    have a closed byte spine rather than a self-derived carrier. -/
-def canonicalBytes : ByteArray := ByteArray.mk #[
-  112, 102, 46, 115, 101, 109, 97, 110, 116, 105, 99, 46, 118, 49, 0, 20, 0, 0, 0,
-  83, 101, 109, 97, 110, 116, 105, 99, 80, 114, 111, 103, 114, 97, 109, 46, 68,
-  97, 116, 97, 9, 0, 2, 0, 0, 0, 5, 0, 0, 0, 84, 101, 115, 116, 115, 18, 0, 0,
+/-- Exact magic segment of the concrete canonical carrier. -/
+def canonicalMagicSpine : TransparentByteSpineV1 :=
+  [112, 102, 46, 115, 101, 109, 97, 110, 116, 105, 99, 46, 118, 49, 0]
+
+/-- Exact root tagged-header segment: u32 tag length, ASCII tag, u16 count. -/
+def canonicalRootHeaderSpine : TransparentByteSpineV1 :=
+  [20, 0, 0, 0, 83, 101, 109, 97, 110, 116, 105, 99, 80, 114, 111, 103,
+    114, 97, 109, 46, 68, 97, 116, 97, 9, 0]
+
+/-- Remaining 1194 bytes after magic and root header. Keeping this opaque to
+    prefix reductions avoids traversing the full carrier for framing facts. -/
+def canonicalRootFields : Array UInt8 := #[
+  2, 0, 0, 0, 5, 0, 0, 0, 84, 101, 115, 116, 115, 18, 0, 0,
   0, 80, 117, 98, 108, 105, 99, 73, 110, 118, 97, 114, 105, 97, 110, 116, 65,
   66, 73, 3, 0, 0, 0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0,
   0, 0, 0, 0, 0, 9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0,
@@ -659,6 +665,41 @@ def canonicalBytes : ByteArray := ByteArray.mk #[
   0, 0, 0, 80, 114, 111, 103, 114, 97, 109, 82, 101, 113, 117, 105, 114, 101, 109,
   101, 110, 116, 115, 1, 0, 0, 0, 0, 0
 ]
+
+/-- Exact 1235-byte production encoding of `data` as the transparent proof
+    spine. This explicit segmented golden is independent of encoder
+    computation and is not a second runtime decoder. -/
+def canonicalSpine : TransparentByteSpineV1 :=
+  canonicalMagicSpine ++ canonicalRootHeaderSpine ++ canonicalRootFields.toList
+
+def canonicalBytes : ByteArray := ByteArray.mk canonicalSpine.toArray
+
+theorem canonicalSpine_length : canonicalSpine.length = 1235 := by
+  rfl
+
+theorem consumeMagic_canonicalBytes :
+    consumeMagic semanticProgramMagicV1 (start canonicalBytes) =
+      .ok ((), ⟨canonicalBytes, 15, 0⟩) := by
+  apply consumeMagic_eq_of_bytesV1
+  change consumeMagicBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 0
+      (ByteArray.mk canonicalMagicSpine.toArray) = .ok 15
+  rw [consumeMagicBytesAtV1_refinesSpine]
+  unfold consumeMagicSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem expectRootTag_canonicalBytes :
+    expectTag "SemanticProgram.Data" 9 ⟨canonicalBytes, 15, 1⟩ =
+      .ok ((), ⟨canonicalBytes, 41, 1⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 15
+      (ByteArray.mk [83, 101, 109, 97, 110, 116, 105, 99, 80, 114, 111, 103,
+        114, 97, 109, 46, 68, 97, 116, 97].toArray) 9 = .ok 41
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
 
 end CanonicalInvariantFixtureV1
 

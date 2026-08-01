@@ -518,3 +518,10 @@ byte-for-byte identity，随后仍由既有encode→`decodeSemanticProgramV1`路
 production structure gate，且没有改用`native_decide`、axiom、cast、第二decoder或提高recursion limit。
 下一步继续用现有production decoder composition显式闭合该golden的transport premises，再单独闭合
 structure-gated encoder premise；`InvariantTheoremV1`与formal TASK/TST状态不变。
+
+outer framing现已完成第一个kernel切片：显式golden被分成15-byte magic、26-byte
+`SemanticProgram.Data`/9-fields root header和1194-byte field remainder，避免为prefix proof遍历完整
+List。`CodecV1.consumeMagic_eq_of_bytesV1`只组合sole production `consumeMagicBytesAtV1`；fixture theorem
+再经既有transparent-spine refinement证明真实production magic cursor `0→15`及root tagged-header
+cursor `15→41`（tag body nesting=1），同时closed证明总长1235。没有新增decoder；qualifiedName及后续
+九字段、finish、structure-gated encoder与carrier identity仍待后续逐层闭合。

@@ -302,6 +302,9 @@ encoder→ByteArray BEq true/false，mismatch exact为nonCanonical。当前`Inva
 IO内联构造提升为纯`CanonicalInvariantFixtureV1.data`，并固定独立显式1235-byte golden；工程suite
 检查sole production structure-gated encoder逐字节命中该golden且carrier仍走encode→decode。transport/
 structure-gated encode/carrier的closed kernel theorem仍pending，不把该工程golden冒充formal evidence。
+该golden现按15-byte magic/26-byte root header/1194-byte fields作proof-only transparent segmentation，
+kernel已由production `consumeMagic`与`expectTag`真实路径闭合size=1235、magic offset 0→15及
+`SemanticProgram.Data`/9-fields root header offset 15→41；九字段payload及finish尚未concrete闭合。
 
 ## D3：Registry、resolver、materializer与OutputSet
 
