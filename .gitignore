@@ -15,3 +15,16 @@ __pycache__/
 
 # Solana Mollusk runtime-tests cargo target
 /runtime-tests/solana/target/
+/runtime-tests/**/target/
+
+# Local probe / agent scratch under build/ (committed build/ is unused; keep ignore)
+/build/**/*.log
+/build/tmp/
+/build/scratch/
+/build/repro/
+
+# Editor / OS
+*.swp
+*~
+.idea/
+.vscode/
