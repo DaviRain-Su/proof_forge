@@ -13201,3 +13201,18 @@ normative: false
   并保持supervisor deadline/stdout/stderr/nonzero与cleanup覆盖；non-Linux suite只接受`unsupportedHost`。
 - 边界：transport closure不是containment。仍无memory/process accounting、seccomp、network/write/exec confinement、
   setsid逃逸控制、CLI、receipt、`.olean` importer/policy/defeq/trust closure或formal TASK/TST完成声明。
+
+### 2026-08-02 — Source invariant to Semantic IR engineering slice
+
+- Normalize：每个`invariant name : BoolExpr`按source order降低为zero-arg public-Bool `.invariant`
+  callable与dense `InvariantDecl`。predicate复用现有表达式lowering，可产生expression-match多块CFG；
+  ContextRead/Commit/effect与loop保持fail closed。
+- Fuel：`InvariantClosureV1`公开pure compute入口，Normalize与structure validator共享同一closure graph、
+  reverse-Kahn传播和checked accumulation公式，为invariant root及reachable pureFn写入exact
+  `invariantSteps`；forward pureFn引用与invariant穿插callable order均有回归覆盖。
+- Provenance/identity：Provenance从实际lowered callable绑定全部block/instruction/value/terminator，覆盖
+  expression-match synthetic join。`.proof`仍只属certification metadata；同一program identity有无proof的
+  canonical semantic bytes/hash精确相同，而invariant predicate变化会改变semantic hash。
+- Tests/Boundary：typed shard覆盖literal/state/pureFn closure、3/6 exact fuel、callable ordering、名称冲突、
+  multi-block provenance与无invariant回归。六target仍对nonempty invariants fail closed；本工程切片不关闭
+  formal `TASK-D2-06`/`TASK-D2-07`或`TST-SEM-001/002/003`。

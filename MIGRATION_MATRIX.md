@@ -28,6 +28,14 @@ D1–D4 共 27 个 formal task，当前仍为：
 > relation model、Aleo Leo get-before-set/optional `leo build` 均回归通过。此为 engineering
 > correctness 修复，**不**改变 formal D1–D4 状态。
 
+> **2026-08-02 N-INVARIANT-IR 增量**：产品 Normalize 不再静默丢弃 source invariant；每个
+> `invariant name : BoolExpr` 生成零参 public-Bool `.invariant` callable 与 source-order dense
+> `InvariantDecl`，并通过 Wire 唯一 closure membership/exact fuel 公式填充 root 与 reachable pureFn 的
+> `invariantSteps`。Provenance 从实际 lowered callable 覆盖 multi-block predicate 的 block/instruction/
+> value/terminator；`.proof` 继续不进入业务 IR，因此同一 program 有/无 proof 的 semantic bytes/hash
+> 相同。六 target materializer 仍对 nonempty invariants fail closed；formal D2-06/D2-07 与
+> TST-SEM-001/002/003 仍 pending。
+
 ### D1 Linux frontend supervisor 增量（2026-07-30）
 
 > **superseded（2026-08-01）**：本节全部工程切片已随前端监督层产品决策移除（`Frontend/SafeOpen*`/`DarwinSupervisor*`/native C/safe-open worker exe/B12 gate 删除；B10 frontend worker executable 保留为非产品面；CLI 源读取为进程内 `Loader.selectProgramV1Product`）。仅保留为历史记录。

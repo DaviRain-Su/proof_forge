@@ -228,7 +228,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **N-CALL-RET** | typed call/schedule 返回值 | 共享核（大） | N-5 仅 RPT-014 schema 研究；产品仍 void Stmt.Call→ExternalCall FC；Wire ExternalCall result schema 或需升级；**先产品决策再动手** | pending |
 | **N-ANON-RESULT** | 匿名容器（Array/Map/Option/Bytes）entry/view/fn 返回值 | 共享核 | N-4 只开 named Struct/Enum；匿名 result 仍 FC | pending |
 | **N-NEST-IDX** | Map/Bytes 嵌套穿透赋值（`m[k].x:=v`、`b[i].…`） | 共享核 | N-A3 只开单步 IndexSet；嵌套 Option 中间值 FC | pending |
-| **N-INVARIANT-IR** | invariant 进 Semantic callables/invariants | 共享核 | Normalize skip（`invariants:=#[]`）；INV-1 只是 proof-bundle 旁路；R-2 ABI 有、产品 IR 无 | pending |
+| **N-INVARIANT-IR** | invariant 进 Semantic callables/invariants | 共享核 | Normalize 将每个 `invariant name : BoolExpr` 降为零参 public-Bool `.invariant` callable + source-order dense `InvariantDecl`；复用 Wire sole closure membership 与 exact `invariantSteps` 公式，支持 pureFn closure 与 expression-match 多块 CFG；Provenance 覆盖全部 lowered block/instruction/value/terminator；`.proof` 仍仅为 certification metadata，同一 program 有/无 proof 的 semantic bytes/hash 相同；六 target 对 nonempty invariants 继续 fail closed | **done**（2026-08-02；engineering，非 formal TASK-D2-06/07） |
 | **N-STR-EVENT** | String 作 event/error 字段 | 共享核（小） | String state/param/result 已开；event/error 仍 UInt/Int-only | pending |
 | **N-FOR-INT** | for 端点 Int | 共享核（小） | N-8 余量；for 端点仍 legal-UInt-only | pending |
 | **N-CONST-REF** | body 中 const place 引用 | 共享核（小） | `const` 字面量已进入 Semantic constants 表，但表达式 name resolution/lowering 尚未把 body place 绑定到 ConstantId；当前会 fail closed，不能把 N-CONST 写成完整 const 支持 | pending |
@@ -245,7 +245,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **B-SOL-MUL** | Solana UInt128/256 schoolbook 多字 mul + fail-closed div/mod | target leaf | SBPF emit `narrowCheckedMul` 128/256 → 真 schoolbook 多字乘（32-bit digit split、lane-ordered carry、高肢 overflow trap）；div/mod 仍 low64 + 高肢零检查 FC（err_mwdiv/err_mwmod）；Rust Mollusk WideMul fixture 归 C-5 | **done**（2026-08-02；integration commit 9bb6fe1ad；testMultiwordMulDivMod 于 shard-targets） |
 | **RES-1B** | memory/output 运行时 limit | NFR | RES-1 只有 wall-ms | pending |
 | **B-SOL-MAP-UPSERT** | 聚合 StateStore 顺序 store-then-read hazard（Map empty upsert） | target leaf（正确性） | 已实证 EVM/Solana/NEAR/Noir cap-8 与 Aleo cap-2 同构：leaf Expr live-read 已部分写 state。五 target 均改为 target-owned atomic aggregate store：同一 Semantic StateStore 全叶先基于 pre-store snapshot 求值、再统一写；不同 StateStore 保持顺序可见。Solana structural CSE 保持 1424B frame，`map_mini_put_into_empty` 真实 Mollusk 转绿；EVM Yul 顺序、NEAR HostModel、Noir relation model、Aleo Leo get-before-set 均钉测 | **done**（2026-08-02；非 formal） |
-| **B-MAP-STRUCT-PIN** | Map atomic-store 结构与跨 batch 可见性补钉 | target tests（P2） | 当前 Solana 主要由 Mollusk 终态捕捉，缺与 EVM 对等的 Lean Plan/IR `storeAggregate`/`storeStateMulti` 结构断言；EVM/Solana 也缺与 NEAR Token 对等的双 `StateStore` 顺序可见性单元钉。实现已复核正确，本项只补防退化覆盖 | pending（P2） |
+| **B-MAP-STRUCT-PIN** | Map atomic-store 结构与跨 batch 可见性补钉 | target tests（P2） | Solana MapMini production Plan/IR 固定单个 24-leaf `storeAggregate`/`storeStateMulti` 且无 scalar store；Token 固定多个独立 24-leaf batch，并要求 batch 间重新 load。EVM Token 同样固定多个 `storeAtomic(24)`，每批内部无 `sload`、批间重新 `sload`；Solana SBPF 继续守 4096B frame gate | **done**（2026-08-02；commit `ff61d3e13`，非 formal） |
 | **NFR-REPEAT** | NFR-001 决定性 repeat gate（连续构建 hash 相同） | NFR | PRD 要求；无工程 ID | pending |
 | **DOC-CODE-1** | **T14 Field catalog v2 文档↔代码矛盾** | 文档/代码决策 | commit 30df771f2 声称「Wire ModelV1 扩 bls12377/goldilocks FieldSpec + Aleo/Psy Field 接线」，实际 diff 只有 NEAR/Solana 文件+docs；**代码 catalog 仍 sole bn254**（EnvelopeV1/WireV1）。AGENTS.md 已先行修正为 fail-closed 叙述。需要产品决策：(a) 按 commit message 真做 T14（共享核 Wire 变更）；(b) 把 30df771f2 的 commit message 记录为错误声明并关闭 | **done**（2026-08-02：选 (a) 真做 T14，已由 B-FIELD-CATALOG 闭合；见 T14 lane 0f4d9e294） |
 
@@ -363,7 +363,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
    - proposed current-path 文档：删除 B12 现状误述，保留 accepted ADR 决策债
    - B-SOL-MAP-UPSERT：EVM/Solana/NEAR/Noir/Aleo 五个 target-local snapshot 修复；Solana 真实 Mollusk 转绿
 2. **必须先决策**：B-CALL-SEM（降 support 或实现真实 call/schedule）+ DOC-ADR-SCOPE（6 target / frontend assurance）
-3. **下一串行 shared-core**：N-INVARIANT-IR（先消除 invariant 静默丢弃）→ D3-E7（artifact 内容 hash/inspect closure）
+3. ~~N-INVARIANT-IR（消除 invariant 静默丢弃）~~已完成；**下一串行 identity/output 切片**：D3-E7（artifact 内容 hash/inspect closure）
 4. **随后串行语言面**：N-CONST-REF → N-CALL-RET（需 schema 决策）→ N-ANON-RESULT → N-NEST-IDX → N-MAP-CONSTRUCT → N-STR-EVENT → N-FOR-INT
 5. **可并行 target leaf（接口冻结后）**：B-OPT-STATE / B-COMMIT-ZK / B-CTX-OPEN（需产品决策）
 6. **NFR / identity residual**：D3-E8/E9 → RES-1B → NFR-REPEAT
