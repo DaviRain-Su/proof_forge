@@ -701,3 +701,7 @@ success；全部已证明production phases由既有composition theorem组合为
 encoder证明边界已先收窄：sole production array encoder现有0–4元素exact success refinements，root
 encoder现可由原顺序的shape/table/structure gates、九个真实field encoders、真实tag framing与size gate
 组合成功。没有第二encoder或行为变化；下一步从Literal/PureCall nested callable exact bytes向上组合。
+
+首个nested callable已闭合：固定8-byte `encodeU64le`与tag field append仅做等价机械透明化；production
+ValueDef、Bool Literal、Instruction、Return、Block、Callable逐层组合，证明`truthLeaf`精确等于既有
+`canonicalTruthLeafSpine`。WireV1/InvariantABI builds与两套runner通过；下一步为truth PureCall与falsehood。
