@@ -342,9 +342,10 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testFourRowTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 7) "exactly seven support rows"
+  expect (rows.size == 8) "exactly eight support rows"
   let expectedKeys := #[
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4),
+    ("cosmwasm", "cosmwasm-wasm-u64-v1", 5),
     ("evm", "evm-yul-solc-0.8.34-v1", 7),
     ("near", "near-wasm-raw-u64-v1", 6),
     ("noir", "noir-source-u64-relations-v1", 7),
@@ -353,7 +354,7 @@ private def testFourRowTable : IO Unit := do
     ("solana", "solana-sbpf-plan-v1", 7)
   ]
   let mut i : Nat := 0
-  while i < 7 do
+  while i < 8 do
     match rows[i]?, expectedKeys[i]? with
     | some row, some (tid, prof, supportCount) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"
@@ -384,14 +385,15 @@ private def testFourRowTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 7-row (target,profile) skeleton matching the shipped index shape.
+/-- Canonical 8-row (target,profile) skeleton matching the shipped index shape.
     `evmSupported` replaces the EVM row's supported list for content negatives. -/
-private def sevenRowSkeleton
+private def eightRowSkeleton
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
     Array StaticRequirementSupportRowV1 :=
   #[
     mkRow .aleo CodegenProfileId.aleoLeoU64V1 base,
+    mkRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 base,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
@@ -441,9 +443,9 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .openvm CodegenProfileId.evmYulSolc0834V1 trio
   ]
-  -- Size-extra first (8 rows vs expected 7):
+  -- Size-extra first (9 rows vs expected 8):
   let extra :=
-    (sevenRowSkeleton trio trio).push
+    (eightRowSkeleton trio trio).push
       (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)
   expectErrorCode (createStaticRequirementSupportIndexV1 extra)
     "PF-REGISTRY-INVALID" "extra design-only row"
@@ -490,30 +492,30 @@ private def testIndexValidationNegatives : IO Unit := do
   let r1 ← match trio[1]? with | some r => pure r | none => throw <| IO.userError "trio1"
   let r2 ← match trio[2]? with | some r => pure r | none => throw <| IO.userError "trio2"
   let reversed := #[r2, r1, r0]
-  let revRows := sevenRowSkeleton trio reversed
+  let revRows := eightRowSkeleton trio reversed
   expectErrorCode (createStaticRequirementSupportIndexV1 revRows)
     "PF-REGISTRY-INVALID" "non-canonical requirement order"
   -- Duplicate requirement id
   let dupReq := #[r0, r0, r1]
-  let dupReqRows := sevenRowSkeleton trio dupReq
+  let dupReqRows := eightRowSkeleton trio dupReq
   expectErrorCode (createStaticRequirementSupportIndexV1 dupReqRows)
     "PF-REGISTRY-DUPLICATE" "duplicate requirement in support row"
   -- Wrong version
   let badVer := { r0 with version := { major := 2, minor := 0, patch := 0 } }
   let badVerTrio := #[badVer, r1, r2]
-  let badVerRows := sevenRowSkeleton trio badVerTrio
+  let badVerRows := eightRowSkeleton trio badVerTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 badVerRows)
     "PF-REGISTRY-INVALID" "wrong requirement version in support row"
   -- Wrong digest
   let badDig := { r0 with digest := zeroDigest }
   let badDigTrio := #[badDig, r1, r2]
-  let badDigRows := sevenRowSkeleton trio badDigTrio
+  let badDigRows := eightRowSkeleton trio badDigTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 badDigRows)
     "PF-REGISTRY-INVALID" "wrong requirement digest in support row"
   -- Nonempty predicates
   let withPred := { r0 with predicates := #[.boolEquals "x" true] }
   let predTrio := #[withPred, r1, r2]
-  let predRows := sevenRowSkeleton trio predTrio
+  let predRows := eightRowSkeleton trio predTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 predRows)
     "PF-REGISTRY-INVALID" "nonempty predicates in support row"
   -- Unknown requirement id (swap the last item for a non-catalog id that
@@ -529,7 +531,7 @@ private def testIndexValidationNegatives : IO Unit := do
     let some first := full[0]? | throw <| IO.userError "trio0"
     let some second := full[1]? | throw <| IO.userError "trio1"
     pure #[first, second, unknown]
-  let unkRows := sevenRowSkeleton unkTrio unkTrio
+  let unkRows := eightRowSkeleton unkTrio unkTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 unkRows)
     "PF-REGISTRY-INVALID" "unknown requirement id in support row"
 
@@ -568,13 +570,13 @@ private def testRequestInspectionErrors : IO Unit := do
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"zero reqs should succeed: {e.render}"
   -- Full S2 catalog succeeds against all-capable Noir and EVM (AddressBearing).
-  let noirSupported ← match rows[3]? with
+  let noirSupported ← match rows[4]? with
     | some row => pure row.supported
     | none => throw <| IO.userError "missing noir support row"
   match inspectResolveRequestsV1 noirSupported { items := trio } with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"full trio on noir should succeed: {e.render}"
-  let evmSupported ← match rows[1]? with
+  let evmSupported ← match rows[2]? with
     | some row => pure row.supported
     | none => throw <| IO.userError "missing evm support row"
   match inspectResolveRequestsV1 evmSupported { items := trio } with

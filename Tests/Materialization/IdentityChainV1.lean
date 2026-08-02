@@ -92,8 +92,8 @@ private def testClaimMintCanonicalOrder : IO Unit := do
     StaticRequirementSupportIndexV1.toArray index
   expect (claims.size == rows.size)
     s!"one claim per support row: got {claims.size} want {rows.size}"
-  expect (claims.size == 7)
-    s!"implemented profile count is 7 (aleo/evm/near/noir/psy/solana×2), got {claims.size}"
+  expect (claims.size == 8)
+    s!"implemented profile count is 8 (aleo/cosmwasm/evm/near/noir/psy/solana×2), got {claims.size}"
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
   let mut i : Nat := 0

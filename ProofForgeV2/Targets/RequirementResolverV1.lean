@@ -217,8 +217,8 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped seven-row seed body (canonical targetId order: aleo, evm, near, noir,
-    psy, solana×2). Solana carries both `solana-sbpf-elf-v1` and
+/-- Shipped eight-row seed body (canonical targetId order: aleo, cosmwasm, evm,
+    near, noir, psy, solana×2). Solana carries both `solana-sbpf-elf-v1` and
     `solana-sbpf-plan-v1` (ASCII ascending); both share the same S2 capability set.
     Capability gates are per target: EVM/Solana admit both call keys via static
     QualifiedName callees (AddressBearing: wire Op.ExternalCall/Schedule take
@@ -229,7 +229,12 @@ private def mkImplementedRow
     families (no static-callee Plan open) and `effect.event` (Leo 4.0.2 has no
     on-chain event log — emit fails closed at the materializer); Psy supports
     sync calls and events but declines `effect.asynchronous-workflow` (no
-    emitted deferred crosscall form — schedule fails closed at the materializer). -/
+    emitted deferred crosscall form — schedule fails closed at the materializer).
+    CosmWasm declines both call families at MVP: its `WasmMsg::Execute` is a
+    same-transaction submessage with a savepoint, **not** an EVM-style
+    synchronous CALL, and SubMsg fire-and-forget is **not** a cross-transaction
+    async workflow — aliasing either would overclaim the platform semantics
+    (B-CALL-SEM discipline). Its `effect.event` maps to Response attributes. -/
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
   let catalogRequests ← s2CatalogRequests
   -- Capability filters reference closed S2 id spellings from RequirementIdsV1
@@ -245,8 +250,14 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- effect.asynchronous-workflow is declined here (never alias sync semantics).
   let psyRequests := catalogRequests.filter fun r =>
     r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
+  -- CosmWasm MVP: decline both call families (no sync CALL, no cross-tx async);
+  -- state/event/arithmetic/rollback keys stay admitted.
+  let cosmwasmRequests := catalogRequests.filter fun r =>
+    r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
+    mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
     -- AddressBearing: full seven keys — static QN call/schedule Plan open.
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 catalogRequests,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,

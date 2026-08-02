@@ -62,6 +62,13 @@ def aleo : TargetDescriptor :=
 def psy : TargetDescriptor :=
   descriptorFromRegistryAxes .psy .psySource CodegenProfileId.psyDargoU64V1
 
+/-- CosmWasm emits WAT text assembled by the locked `wat2wasm` (same Wasm
+    binary encoder family as NEAR — shared encoding, target-owned Plan per
+    ADR-0007). The Plan/IR/host bindings (db_*, Region, JSON entries,
+    SubMsg/reply fail-closed at MVP) are CosmWasm-owned. -/
+def cosmwasm : TargetDescriptor :=
+  descriptorFromRegistryAxes .cosmwasm .wasmText CodegenProfileId.cosmwasmWasmU64V1
+
 /-- Engineering descriptor for an implemented kind. Design-only kinds → none. -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .evm => some evm
@@ -70,6 +77,7 @@ def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .noir => some noir
   | .aleo => some aleo
   | .psy => some psy
+  | .cosmwasm => some cosmwasm
   | _ => none
 
 /-- Exact registry-owned six-axis join for an implemented descriptor.

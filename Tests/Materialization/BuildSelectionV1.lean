@@ -210,23 +210,23 @@ private def testGrammar : IO Unit := do
 private def testRegistrySeedMembership : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 10) "initial registry must contain 6 implemented + 4 design-only"
+  expect (regs.size == 10) "initial registry must contain 7 implemented + 3 design-only"
   match createTargetRegistryV1 initialRegistrationRowsV1 with
   | .ok rebuilt =>
       expect (rebuilt.toArray.size == 10) "rebuilt seed registry size"
   | .error e => throw <| IO.userError s!"initialRegistrationRowsV1 must validate: {e.render}"
   let impl ← liftResult implementedRegistrations
   let design ← liftResult designOnlyRegistrations
-  expect (impl.size == 6) "exactly six implemented targets"
-  expect (design.size == 4) "exactly four design-only targets"
+  expect (impl.size == 7) "exactly seven implemented targets"
+  expect (design.size == 3) "exactly three design-only targets"
   let expectedIds :=
     #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "solana", "soroban"]
   let ids := regs.map (·.targetId.toString)
   expect (ids == expectedIds) s!"exact closed target id set, got {ids}"
-  let expectedImpl := #["aleo", "evm", "near", "noir", "psy", "solana"]
+  let expectedImpl := #["aleo", "cosmwasm", "evm", "near", "noir", "psy", "solana"]
   expect (impl.map (·.targetId.toString) == expectedImpl)
     s!"exact implemented set, got {impl.map (·.targetId.toString)}"
-  let expectedDesign := #["cosmwasm", "icp", "openvm", "soroban"]
+  let expectedDesign := #["icp", "openvm", "soroban"]
   expect (design.map (·.targetId.toString) == expectedDesign)
     s!"exact design-only set, got {design.map (·.targetId.toString)}"
   for reg in impl do
@@ -422,8 +422,11 @@ private def testResolve : IO ResolvedBuildSelectionV1 := do
     | some id => pure id
     | none => throw <| IO.userError "ghost-target must parse"
   expectErrorCode (resolveBuildSelectionV1 ghost none) "PF-TARGET-UNKNOWN" "unknown target"
-  expectErrorCode (resolveBuildSelectionV1 TargetId.cosmwasm none)
+  expectErrorCode (resolveBuildSelectionV1 TargetId.soroban none)
     "PF-TARGET-NOT-IMPLEMENTED" "design-only target"
+  let cosmwasmDefault ← liftResult <| resolveBuildSelectionV1 TargetId.cosmwasm none
+  expect (cosmwasmDefault.codegenProfile == CodegenProfileId.cosmwasmWasmU64V1)
+    "cosmwasm default profile after promotion"
   expectErrorCode
     (resolveBuildSelectionV1 TargetId.evm
       (some CodegenProfileId.nearWasmRawU64V1))
@@ -465,15 +468,15 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (msg == "duplicate --target") "success seed duplicate --target"
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
-  expect (defaultList.size == 6) "default list-targets is implemented-only"
-  expect (defaultList == #["aleo\tsource-only", "evm\truntime-validated-alpha",
-      "near\twasm-validated-alpha", "noir\tsource-only", "psy\tsource-only",
-      "solana\tplan-only"])
+  expect (defaultList.size == 7) "default list-targets is implemented-only"
+  expect (defaultList == #["aleo\tsource-only", "cosmwasm\twasm-validated-alpha",
+      "evm\truntime-validated-alpha", "near\twasm-validated-alpha", "noir\tsource-only",
+      "psy\tsource-only", "solana\tplan-only"])
     s!"default list-targets exact lines, got {defaultList}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
   expect (allList == #[
       "aleo\tsource-only",
-      "cosmwasm\tresearch-only",
+      "cosmwasm\twasm-validated-alpha",
       "evm\truntime-validated-alpha",
       "icp\tresearch-only",
       "near\twasm-validated-alpha",
