@@ -68,6 +68,9 @@
        `invalidInvocation`; Commit+StateStore success publishes; assert-fail
        after ContextRead/Commit+store rolls back pre-state (label-only Commit
        never publishes alone).
+   23. N-ANON-RESULT product path: anonymous Array/Map/Option/Bytes callable
+       results preserve exact TypeIds and canonical return valueBytes, including
+       an Array-typed PureCall; target ABI materialization remains separate.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -4626,6 +4629,108 @@ private unsafe def testOptionStateNormalizeReference
         "opt-ref-state-peek: Option.some recovered"
   | _ => throw <| IO.userError "opt-ref-state-peek: expected returned"
 
+/-- N-ANON-RESULT: Normalize retains anonymous Array/Map/Option/Bytes
+    callable results, and Reference returns their exact canonical valueBytes.
+    The Array path also crosses an Array-typed PureCall. -/
+private unsafe def testAnonymousContainerResultNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "AnonymousResultRef" <|
+    "  state slots : Array UInt64 2\n" ++
+    "  state payload : Bytes 2\n" ++
+    "  state maybe : Option UInt64\n" ++
+    "  state table : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 7\n" ++
+    "    slots[1] := 9\n" ++
+    "    payload[0] := 1\n" ++
+    "    payload[1] := 2\n" ++
+    "    maybe := Option.some(11)\n" ++
+    "    table[3] := 13\n" ++
+    "  fn passArray(value : Array UInt64 2) : Array UInt64 2 do\n" ++
+    "    return value\n" ++
+    "  view getArray() : Array UInt64 2 do\n" ++
+    "    return slots\n" ++
+    "  view getBytes() : Bytes 2 do\n" ++
+    "    return payload\n" ++
+    "  view getOption() : Option UInt64 do\n" ++
+    "    return maybe\n" ++
+    "  view getMap() : Map UInt64 UInt64 do\n" ++
+    "    return table\n" ++
+    "  entry viaFn() : Array UInt64 2 do\n" ++
+    "    return passArray(slots)\n"
+  let validated ← loadSource session "anonymous-result-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"anonymous-result-ref: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"anonymous-result-ref: validate: {repr e}"
+  let admitted ← admitOk "anonymous-result-ref" carrier
+  let some u64Tid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .uint 64 => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "anonymous-result-ref: missing UInt64"
+  let some arrayTid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .array elem 2 => if elem == u64Tid then some decl.id else none
+      | _, _ => none) |
+    throw <| IO.userError "anonymous-result-ref: missing Array UInt64 2"
+  let some bytesTid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .bytes 2 => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "anonymous-result-ref: missing Bytes 2"
+  let some optionTid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .option elem => if elem == u64Tid then some decl.id else none
+      | _, _ => none) |
+    throw <| IO.userError "anonymous-result-ref: missing Option UInt64"
+  let some mapTid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .map key value =>
+          if key == u64Tid && value == u64Tid then some decl.id else none
+      | _, _ => none) |
+    throw <| IO.userError "anonymous-result-ref: missing Map UInt64 UInt64"
+  let callableId (name : String) : IO CallableIdV1 := do
+    let some callable := data.callables.find? (fun c => c.name == some name) |
+      throw <| IO.userError s!"anonymous-result-ref: missing callable {name}"
+    pure callable.id
+  let some initializer := data.callables.find? (fun c => c.kind == .initializer) |
+    throw <| IO.userError "anonymous-result-ref: missing initializer"
+  let arrayBytes := (u64Bytes 7).append (u64Bytes 9)
+  let bytesBytes := ByteArray.mk #[1, 2]
+  let optionBytes := (ByteArray.mk #[1]).append (u64Bytes 11)
+  let emptyMap ← match encodeCanonicalEmptyMapValueV1 data.types mapTid with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"anonymous-result-ref: empty Map: {repr e}"
+  let mapBytes ← match upsertCanonicalMapValueV1 data.types mapTid emptyMap
+      (u64Bytes 3) (u64Bytes 13) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"anonymous-result-ref: Map insert: {repr e}"
+  let expectedState : LogicalStateV1 := {
+    initialized := true
+    canonicalValues :=
+      (((stateSlot arrayBytes).append (stateSlot bytesBytes)).append
+        (stateSlot optionBytes)).append (stateSlot mapBytes)
+  }
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"anonymous-result-ref: initial: {repr e}"
+  expectReturned "anonymous-result-ref-init"
+    (stepReferenceSliceV1 admitted initial (inv initializer.id #[]) emptyResponses)
+    expectedState none #[]
+  let arrayValue : ReferenceValueV1 := { typeId := arrayTid, valueBytes := arrayBytes }
+  let bytesValue : ReferenceValueV1 := { typeId := bytesTid, valueBytes := bytesBytes }
+  let optionValue : ReferenceValueV1 := { typeId := optionTid, valueBytes := optionBytes }
+  let mapValue : ReferenceValueV1 := { typeId := mapTid, valueBytes := mapBytes }
+  for (name, expected) in #[("getArray", arrayValue), ("getBytes", bytesValue),
+      ("getOption", optionValue), ("getMap", mapValue), ("viaFn", arrayValue)] do
+    let id ← callableId name
+    expectReturned s!"anonymous-result-ref-{name}"
+      (stepReferenceSliceV1 admitted expectedState (inv id #[]) emptyResponses)
+      expectedState (some expected) #[]
+
 /-- R-1: ExternalCall arg admission accepts UInt16 (N-8 multi-width parity). -/
 private def testExternalCallUInt16ArgAdmission : IO Unit := do
   let u16 : TypeIdV1 := 2
@@ -4729,6 +4834,8 @@ unsafe def run : IO Unit := do
   testMapBytesAssignNormalizeReference session
   -- R-1: Option state product admit + step
   testOptionStateNormalizeReference session
+  -- N-ANON-RESULT: exact canonical container return bytes + Array PureCall
+  testAnonymousContainerResultNormalizeReference session
   -- R-1: multi-width external call arg admission (N-8 parity)
   testExternalCallUInt16ArgAdmission
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"

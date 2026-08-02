@@ -6002,25 +6002,87 @@ private unsafe def testEnumEntryResult
     throw <| IO.userError "enum-ret: missing entry"
   expect (entryC.result.typeId == colorTid) "enum-ret: entry result Color"
 
-/-- N-4: anonymous Array result still fail closed (named Struct/Enum only). -/
-private unsafe def testArrayResultFailClosed
+/-- N-ANON-RESULT: anonymous Array/Map/Option/Bytes may be retained as
+    entry/view/pureFn result TypeIds. This opens only target-neutral Semantic;
+    each target-owned ABI remains independently fail closed. -/
+private unsafe def testAnonymousContainerResults
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "ArrayRet" <|
+  let source := wrap "AnonymousResults" <|
     "  state slots : Array UInt64 2\n" ++
+    "  state payload : Bytes 2\n" ++
+    "  state maybe : Option UInt64\n" ++
+    "  state table : Map UInt64 UInt64\n" ++
     "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n" ++
-    "  entry dump() : Array UInt64 2 do\n" ++
-    "    return slots\n"
-  let validated ← loadSource session "array-ret" source
-  -- TypeCheck may admit Array results; Normalize must fail closed.
-  match normalizeProgramV1 validated with
-  | .ok _ => throw <| IO.userError "array-ret: expected Normalize fail closed for Array result"
-  | .error (.unsupported detail) =>
-      expect (detail.contains "result" || detail.contains "Struct" || detail.contains "Array" ||
-          detail.contains "UInt" || detail.contains "named")
-        s!"array-ret: unexpected detail {detail}"
-  | .error e => throw <| IO.userError s!"array-ret: unexpected {repr e}"
+    "    slots[0] := 7\n" ++
+    "    slots[1] := 9\n" ++
+    "    payload[0] := 1\n" ++
+    "    payload[1] := 2\n" ++
+    "    maybe := Option.some(11)\n" ++
+    "    table[3] := 13\n" ++
+    "  fn passArray(value : Array UInt64 2) : Array UInt64 2 do\n" ++
+    "    return value\n" ++
+    "  view getArray() : Array UInt64 2 do\n" ++
+    "    return slots\n" ++
+    "  view getBytes() : Bytes 2 do\n" ++
+    "    return payload\n" ++
+    "  view getOption() : Option UInt64 do\n" ++
+    "    return maybe\n" ++
+    "  view getMap() : Map UInt64 UInt64 do\n" ++
+    "    return table\n" ++
+    "  entry viaFn() : Array UInt64 2 do\n" ++
+    "    return passArray(slots)\n"
+  let validated ← loadSource session "anonymous-results" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok
+    s!"anonymous-results: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"anonymous-results: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"anonymous-results: validate: {repr e}"
+  let some u64Tid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .uint 64 => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "anonymous-results: missing UInt64"
+  let some arrayTid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .array elem 2 => if elem == u64Tid then some decl.id else none
+      | _, _ => none) |
+    throw <| IO.userError "anonymous-results: missing Array UInt64 2"
+  let some bytesTid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .bytes 2 => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "anonymous-results: missing Bytes 2"
+  let some optionTid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .option elem => if elem == u64Tid then some decl.id else none
+      | _, _ => none) |
+    throw <| IO.userError "anonymous-results: missing Option UInt64"
+  let some mapTid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .map key value =>
+          if key == u64Tid && value == u64Tid then some decl.id else none
+      | _, _ => none) |
+    throw <| IO.userError "anonymous-results: missing Map UInt64 UInt64"
+  for (kind, name, expectedTid) in #[(CallableKindV1.pureFn, "passArray", arrayTid),
+      (.view, "getArray", arrayTid), (.view, "getBytes", bytesTid),
+      (.view, "getOption", optionTid), (.view, "getMap", mapTid),
+      (.entry, "viaFn", arrayTid)] do
+    let some callable := data.callables.find? (fun c =>
+        c.kind == kind && c.name == some name) |
+      throw <| IO.userError s!"anonymous-results: missing callable {name}"
+    expect (callable.result.typeId == expectedTid)
+      s!"anonymous-results: {name} result TypeId"
+  let some viaFn := data.callables.find? (fun c => c.name == some "viaFn") |
+    throw <| IO.userError "anonymous-results: missing viaFn"
+  expect (viaFn.blocks.any fun block => block.instructions.any fun instruction =>
+      match instruction.result, instruction.op with
+      | some result, .pureCall _ _ => result.typeId == arrayTid
+      | _, _ => false)
+    "anonymous-results: viaFn must retain Array-typed Op.PureCall"
 
 /-- T3: constructor arity mismatch fails (TypeCheck or Normalize). -/
 private unsafe def testStructConstructArityMismatch
@@ -7515,7 +7577,7 @@ unsafe def run : IO Unit := do
   testEnumConstruct session
   testStructEntryResult session
   testEnumEntryResult session
-  testArrayResultFailClosed session
+  testAnonymousContainerResults session
   testStructConstructArityMismatch session
   testFieldGetNonStructTypedNotOk session
   -- T4 expression-level match

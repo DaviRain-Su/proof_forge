@@ -188,6 +188,17 @@ private def intForBoundarySourceTextV1 : String :=
   "      total := total + 1\n" ++
   "    return total\n"
 
+private def anonymousResultBoundarySourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program AnonymousResultBoundary where\n" ++
+  "  state slots : Array UInt64 2\n" ++
+  "  init() do\n" ++
+  "    slots[0] := 7\n" ++
+  "    slots[1] := 9\n" ++
+  "  view getArray() : Array UInt64 2 do\n" ++
+  "    return slots\n"
+
 private def expectMaterializePlanInvariantV1
     (label : String)
     (target : TargetId)
@@ -370,6 +381,44 @@ private unsafe def testIntForMaterializationFailClosed : IO Unit := do
       (TargetId.aleo, TargetKind.aleo, "does not support Int64 for-loop endpoints"),
       (TargetId.psy, TargetKind.psy, "loop header must carry one UInt64 parameter")] do
     expectMaterializePlanInvariantV1 "int-for" target kind compiled marker
+
+/-- N-ANON-RESULT opens only the shared Semantic/Reference result contract.
+    None of the six target-owned ABIs may reinterpret an anonymous Array result
+    as a named aggregate or silently omit its canonical container value. -/
+private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let (source, origins) ← match ← session.selectProgramV1WithOrigins
+      anonymousResultBoundarySourceTextV1 "targets/anonymous-result-boundary.pf"
+        "Tests.Targets.AnonymousResultBoundary" none with
+    | .ok pair => pure pair
+    | .error error =>
+        throw <| IO.userError s!"anonymous result boundary: load failed: {error.render}"
+  let compiled ← match Compiler.compileProgramProductV1 source origins with
+    | .ok value => pure value
+    | .error _ =>
+        throw <| IO.userError "anonymous result boundary: product compile failed"
+  let data ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of compiled) with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"anonymous result boundary: invalid semantic {repr error}"
+  let some arrayTid := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .array _ 2 => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "anonymous result boundary: missing anonymous Array TypeId"
+  let some callable := data.callables.find? (fun c => c.name == some "getArray") |
+    throw <| IO.userError "anonymous result boundary: missing getArray"
+  expect (callable.result.typeId == arrayTid)
+    "anonymous result boundary: Normalize must retain anonymous Array result TypeId"
+  for (target, kind, marker) in #[
+      (TargetId.evm, TargetKind.evm, "named Struct/Enum aggregate"),
+      (TargetId.solana, TargetKind.solana, "cannot return multi-leaf aggregate"),
+      (TargetId.near, TargetKind.near, "does not return public"),
+      (TargetId.noir, TargetKind.noir, "named Struct/Enum aggregate"),
+      (TargetId.aleo, TargetKind.aleo, "return of aggregate is outside"),
+      (TargetId.psy, TargetKind.psy, "return of aggregate is outside")] do
+    expectMaterializePlanInvariantV1 "anonymous-result" target kind compiled marker
 
 private def testSemanticPlanSourceAuthority : IO Unit := do
   for target in #["Evm", "Solana", "Near", "Noir"] do
@@ -1730,6 +1779,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testConstInvariantMaterializationFailClosed
   testStringInterfaceMaterializationFailClosed
   testIntForMaterializationFailClosed
+  testAnonymousResultMaterializationFailClosed
   testRichUInt64SemanticPlans
   testGuardedCounterSemanticPlans
   testBoolPredicateSemanticPlans

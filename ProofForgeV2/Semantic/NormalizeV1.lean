@@ -65,9 +65,9 @@
       Struct/Enum** (N3/N4) **or anonymous Array/Map/Bytes/Option** (N3 ArrayState +
       N-A4 Option; default valueBytes = Option-none `0x00`). Unit/Bool state still
       fail closed). Entry/view/fn results admit legal
-      UInt/Int/Unit/Bool/Field/Principal/String **or named Struct/Enum** (N-4;
-      anonymous Array/Map/Bytes/Option results still fail closed). Local `let`
-      may hold named/aggregate values (including Principal/String)
+      UInt/Int/Unit/Bool/Field/Principal/String, named Struct/Enum (N-4), and
+      anonymous Array/Map/Bytes/Option (N-ANON-RESULT). Local `let` may hold
+      named/aggregate values (including Principal/String)
     * expressions (aggregate values): `StructName.new` / `Enum.Variant` /
       `Option.some` / `Option.none` constructors → `Op.Construct`; field places
       → `Op.FieldGet`; index places → `Op.IndexGet` (Array/Bytes/Map); field
@@ -138,8 +138,6 @@
       comparisons, Field `mod`, Principal/String arithmetic/bitwise/unary,
       anonymous Unit/Bool as state or param types (Array/Map/Bytes/Option
       state admitted; Option default is none-tag `0x00` via InvariantFoundation),
-      anonymous Array/Map/Bytes/Option entry/view/fn results (named Struct/Enum
-      results admitted — N-4),
       multi-arg nonempty Map *Construct* (product nonempty = empty default /
       `Map.empty` + IndexSet upsert — N-1; Wire Construct remains empty-only),
       nested assign through Map/Bytes elements (single-step Map/Bytes
@@ -672,9 +670,10 @@ private def requireStateOrParamTypeId
           failUnsupported
             s!"S1 {context} requires anonymous UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes/Option"
 
-/-- Require entry/view/fn result type: anonymous scalar (legal UInt/Int, Unit,
-    Bool, sole catalog Field, Principal, String) **or** named Struct/Enum (N-4).
-    Anonymous Array/Map/Bytes/Option results remain fail-closed (no ABI). -/
+/-- Require entry/view/fn result type: anonymous legal UInt/Int, Unit,
+    Bool, catalog Field, Principal, String, Array/Map/Bytes/Option, or named
+    Struct/Enum. This is target-neutral Semantic admission; target-owned result
+    ABIs independently fail closed on unsupported container shapes. -/
 private def requireCallableResultTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
@@ -688,29 +687,30 @@ private def requireCallableResultTypeId
       | some _, _ =>
           failUnsupported
             s!"S1 {context} named result type must be Struct or Enum"
-      | none, .uint w =>
+      | none, .uint w | none, .int w =>
           if legalIntegerWidthV1 w.toNat then pure ()
           else
             failUnsupported
-              s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal/String or named Struct/Enum"
-      | none, .int w =>
-          if legalIntegerWidthV1 w.toNat then pure ()
-          else
-            failUnsupported
-              s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal/String or named Struct/Enum"
+              s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes/Option"
       | none, .unit | none, .bool | none, .principal | none, .string => pure ()
       | none, .field spec =>
           if isCatalogFieldSpec spec then pure ()
           else failUnsupported s!"S1 {context} requires a closed-catalog Field spec"
+      | none, .array _ len =>
+          if len.toNat ≤ maxTypeLengthV1 then pure ()
+          else
+            failUnsupported
+              s!"S1 {context} Array length {len} exceeds maxTypeLengthV1 ({maxTypeLengthV1})"
+      | none, .map _ _ => pure ()
+      | none, .bytes len =>
+          if len.toNat ≤ maxTypeLengthV1 then pure ()
+          else
+            failUnsupported
+              s!"S1 {context} Bytes length {len} exceeds maxTypeLengthV1 ({maxTypeLengthV1})"
+      | none, .option _ => pure ()
       | none, _ =>
           failUnsupported
-            s!"S1 {context} requires UInt/Int/Unit/Bool/Field/Principal/String or named Struct/Enum"
-
-/-- Historical alias for scalar-only call sites that still need the narrow gate. -/
-private def requireScalarResultTypeId
-    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
-    Except NormalizeErrorV1 Unit :=
-  requireCallableResultTypeId types typeId context
+            s!"S1 {context} requires UInt/Int/Unit/Bool/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes/Option"
 
 /-- Require anonymous legal UInt expected type (arith/bitwise/shift lhs). -/
 private def requireExpectedUIntWidth
@@ -3618,7 +3618,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
           paramTids := paramTids.push tid
         let (interner', resultTid) ← internSourceType interner d.result
         interner := interner'
-        requireScalarResultTypeId interner.types resultTid s!"fn '{raw d.name}' result"
+        requireCallableResultTypeId interner.types resultTid s!"fn '{raw d.name}' result"
         let fnRow := (raw d.name, UInt32.ofNat fnCallableOrdinal, paramTids, resultTid)
         fnTable := { rows := fnTable.rows.push fnRow }
     | _ => pure ()
@@ -3682,7 +3682,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', resultTid) ← internSourceType interner e.result
         interner := interner''
-        requireScalarResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
+        requireCallableResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
         let (blocks, loopBounds, interner''', ux, uc, cm) ←
           lowerBlock e.body params resultTid interner stateTable constantTable
             eventTable errorTable fnTable
@@ -3700,7 +3700,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', resultTid) ← internSourceType interner v.result
         interner := interner''
-        requireScalarResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
+        requireCallableResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
         let (blocks, loopBounds, interner''', ux, uc, cm) ←
           lowerBlock v.body params resultTid interner stateTable constantTable
             eventTable errorTable fnTable
@@ -3723,7 +3723,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', resultTid) ← internSourceType interner d.result
         interner := interner''
-        requireScalarResultTypeId interner.types resultTid s!"fn '{raw d.name}' result"
+        requireCallableResultTypeId interner.types resultTid s!"fn '{raw d.name}' result"
         -- Fn purity: the body resolves bare places against an empty state
         -- table, so any state name fails closed (fn effects are revert-only).
         -- Constants remain visible (compile-time values, not state).
