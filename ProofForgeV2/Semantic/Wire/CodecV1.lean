@@ -30,14 +30,17 @@ def encodeU32le (value : UInt32) : ByteArray :=
   let b3 := UInt8.ofNat ((v / 16777216) % 256)
   ((((ByteArray.empty.push b0).push b1).push b2).push b3)
 
-def encodeU64le (value : UInt64) : ByteArray := Id.run do
+def encodeU64le (value : UInt64) : ByteArray :=
   let v := value.toNat
-  let mut out := ByteArray.emptyWithCapacity 8
-  let mut n := v
-  for _ in [:8] do
-    out := out.push (UInt8.ofNat (n % 256))
-    n := n / 256
-  pure out
+  let b0 := UInt8.ofNat (v % 256)
+  let b1 := UInt8.ofNat ((v / 256) % 256)
+  let b2 := UInt8.ofNat ((v / 65536) % 256)
+  let b3 := UInt8.ofNat ((v / 16777216) % 256)
+  let b4 := UInt8.ofNat ((v / 4294967296) % 256)
+  let b5 := UInt8.ofNat ((v / 1099511627776) % 256)
+  let b6 := UInt8.ofNat ((v / 281474976710656) % 256)
+  let b7 := UInt8.ofNat ((v / 72057594037927936) % 256)
+  ((((((((ByteArray.empty.push b0).push b1).push b2).push b3).push b4).push b5).push b6).push b7)
 
 def encodeBool (value : Bool) : ByteArray :=
   encodeU8 (if value then 1 else 0)
@@ -165,6 +168,23 @@ def isAsciiTagV1 (tag : String) : Bool := Id.run do
       return false
   return true
 
+/-- Sole source-order field concatenation worker used by tagged encoding. -/
+def appendTaggedFieldsV1 (initial : ByteArray) (fields : Array ByteArray) : ByteArray :=
+  fields.foldl (fun out field => out.append field) initial
+
+@[simp] theorem appendTaggedFieldsV1_empty (initial : ByteArray) :
+    appendTaggedFieldsV1 initial #[] = initial := by
+  rfl
+
+/-- Exact framing constructor used by the validated tagged encoder. -/
+def taggedBytesFromBytesV1 (tagBytes : ByteArray) (fields : Array ByteArray) : ByteArray :=
+  appendTaggedFieldsV1
+    (((encodeU32le (UInt32.ofNat tagBytes.size)).append tagBytes).append
+      (encodeU16le (UInt16.ofNat fields.size))) fields
+
+def taggedBytesV1 (tag : String) (fields : Array ByteArray) : ByteArray :=
+  taggedBytesFromBytesV1 tag.toUTF8 fields
+
 def encodeTagged (tag : String) (fields : Array ByteArray) :
     Except SemanticWireErrorV1 ByteArray := do
   if tag.isEmpty then
@@ -174,12 +194,30 @@ def encodeTagged (tag : String) (fields : Array ByteArray) :
   let tagBytes := tag.toUTF8
   unless tagBytes.size ≤ maxTagAsciiBytes do
     return ← err .limitExceeded
-  let tagLen ← encodeNatAsU32le tagBytes.size
-  let fieldCount ← encodeNatAsU16le fields.size
-  let mut out := (tagLen.append tagBytes).append fieldCount
-  for field in fields do
-    out := out.append field
-  pure out
+  let _tagLen ← encodeNatAsU32le tagBytes.size
+  let _fieldCount ← encodeNatAsU16le fields.size
+  pure (taggedBytesV1 tag fields)
+
+/-- Successful tagged framing through the sole production field worker. -/
+theorem encodeTagged_eq_okV1 (tag : String) (fields : Array ByteArray)
+    (hempty : tag.isEmpty = false) (hascii : isAsciiTagV1 tag = true)
+    (htagSize : tag.toUTF8.size ≤ maxTagAsciiBytes)
+    (htagU32 : tag.toUTF8.size ≤ UInt32.size - 1)
+    (hfieldSize : fields.size ≤ UInt16.size - 1) :
+    encodeTagged tag fields = .ok (taggedBytesV1 tag fields) := by
+  simp only [encodeTagged, hempty, Bool.false_eq_true, ↓reduceIte, hascii, htagSize,
+    encodeNatAsU32le, encodeNatAsU16le, htagU32, hfieldSize, Bind.bind, Except.bind,
+    Pure.pure, Except.pure]
+
+theorem encodeTagged_eq_ok_of_bytesV1 (tag : String) (tagBytes : ByteArray)
+    (fields : Array ByteArray) (htagBytes : tag.toUTF8 = tagBytes)
+    (hempty : tag.isEmpty = false) (hascii : isAsciiTagV1 tag = true)
+    (htagSize : tag.toUTF8.size ≤ maxTagAsciiBytes)
+    (htagU32 : tag.toUTF8.size ≤ UInt32.size - 1)
+    (hfieldSize : fields.size ≤ UInt16.size - 1) :
+    encodeTagged tag fields = .ok (taggedBytesFromBytesV1 tagBytes fields) := by
+  rw [encodeTagged_eq_okV1 tag fields hempty hascii htagSize htagU32 hfieldSize]
+  simp only [taggedBytesV1, htagBytes]
 
 def encodeNullary (tag : String) : Except SemanticWireErrorV1 ByteArray :=
   encodeTagged tag #[]
@@ -199,8 +237,9 @@ theorem encodeNullary_eq_okV1 (tag : String)
   have hlimit' : tag.utf8ByteSize ≤ maxTagAsciiBytes := by simpa using hlimit
   have hu32' : tag.utf8ByteSize ≤ UInt32.size - 1 := by simpa using hu32
   have hu32'' : tag.utf8ByteSize ≤ 4294967295 := by omega
-  simp [encodeNullary, encodeTagged, encodeNatAsU32le, encodeNatAsU16le,
-    hnonempty, hascii, hlimit', hu32'', Pure.pure, Except.pure, Bind.bind, Except.bind]
+  simp [encodeNullary, encodeTagged, taggedBytesV1, taggedBytesFromBytesV1,
+    encodeNatAsU32le, encodeNatAsU16le, hnonempty, hascii, hlimit', hu32'',
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 /-! ### Primitive decode cursor -/
 
@@ -2029,6 +2068,14 @@ def encodeInstructionV1 (i : InstructionV1) : Except SemanticWireErrorV1 ByteArr
   let opB ← encodeSemanticOpV1 i.op
   encodeTagged "Instruction" #[resultB, opB]
 
+theorem encodeInstructionV1_eq_of_fields (i : InstructionV1)
+    (resultB opB out : ByteArray)
+    (hresult : encodeOption encodeValueDefV1 i.result = .ok resultB)
+    (hop : encodeSemanticOpV1 i.op = .ok opB)
+    (htag : encodeTagged "Instruction" #[resultB, opB] = .ok out) :
+    encodeInstructionV1 i = .ok out := by
+  simp only [encodeInstructionV1, hresult, hop, htag, Bind.bind, Except.bind]
+
 /-- Sole production body for an Instruction tagged record. -/
 def decodeInstructionBodyV1 : Decoder InstructionV1 := fun c => do
   let ((), c) ← expectTag "Instruction" 2 c
@@ -2206,6 +2253,17 @@ def encodeBlockV1 (b : BlockV1) : Except SemanticWireErrorV1 ByteArray := do
   let termB ← encodeTerminatorV1 b.terminator
   encodeTagged "Block" #[encodeU32le b.id, paramsB, instrB, termB]
 
+theorem encodeBlockV1_eq_of_fields (b : BlockV1)
+    (paramsB instructionsB terminatorB out : ByteArray)
+    (hparams : encodeArray encodeBlockParameterV1 b.params = .ok paramsB)
+    (hinstructions : encodeArray encodeInstructionV1 b.instructions = .ok instructionsB)
+    (hterminator : encodeTerminatorV1 b.terminator = .ok terminatorB)
+    (htag : encodeTagged "Block"
+      #[encodeU32le b.id, paramsB, instructionsB, terminatorB] = .ok out) :
+    encodeBlockV1 b = .ok out := by
+  simp only [encodeBlockV1, hparams, hinstructions, hterminator, htag, Bind.bind,
+    Except.bind]
+
 /-- Sole production body for a Block tagged record. -/
 def decodeBlockBodyV1 : Decoder BlockV1 := fun c => do
   let ((), c) ← expectTag "Block" 4 c
@@ -2343,6 +2401,21 @@ def encodeCallableV1 (c : CallableV1) : Except SemanticWireErrorV1 ByteArray := 
     encodeU32le c.id, kindB, nameB, paramsB, resultB,
     encodeU32le c.entryBlock, blocksB, loopB, stepsB
   ]
+
+theorem encodeCallableV1_eq_of_fields (c : CallableV1)
+    (kindB nameB paramsB resultB blocksB loopB stepsB out : ByteArray)
+    (hkind : encodeCallableKindV1 c.kind = .ok kindB)
+    (hname : encodeOption encodeString c.name = .ok nameB)
+    (hparams : encodeArray encodeParameterV1 c.params = .ok paramsB)
+    (hresult : encodeCallableResultV1 c.result = .ok resultB)
+    (hblocks : encodeArray encodeBlockV1 c.blocks = .ok blocksB)
+    (hloop : encodeArray encodeLoopBoundV1 c.loopBounds = .ok loopB)
+    (hsteps : encodeOption (fun v => pure (encodeU64le v)) c.invariantSteps = .ok stepsB)
+    (htag : encodeTagged "Callable" #[encodeU32le c.id, kindB, nameB, paramsB,
+      resultB, encodeU32le c.entryBlock, blocksB, loopB, stepsB] = .ok out) :
+    encodeCallableV1 c = .ok out := by
+  simp only [encodeCallableV1, hkind, hname, hparams, hresult, hblocks, hloop,
+    hsteps, htag, Bind.bind, Except.bind]
 
 /-- Sole production body for a Callable tagged record. -/
 def decodeCallableBodyV1 : Decoder CallableV1 := fun c => do

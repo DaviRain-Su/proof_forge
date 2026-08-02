@@ -1267,6 +1267,123 @@ def canonicalBytes : ByteArray := ByteArray.mk canonicalSpine.toArray
 theorem canonicalSpine_length : canonicalSpine.length = 1235 := by
   rfl
 
+/-- Proof-side names for the exact outputs of production framing leaves. They
+    contain no semantic traversal; each semantic layer below is separately
+    tied to its sole production encoder. -/
+def encodedValueDef0 : ByteArray :=
+  taggedBytesFromBytesV1 (ByteArray.mk #[86, 97, 108, 117, 101, 68, 101, 102])
+    #[encodeU32le 0, encodeU32le 0]
+
+def encodedSomeValueDef0 : ByteArray := (encodeU8 1).append encodedValueDef0
+
+def encodedBoolTrueValueBytes : ByteArray :=
+  (encodeU32le 1).append (ByteArray.mk #[1])
+
+def encodedLiteralTrueOp : ByteArray :=
+  taggedBytesFromBytesV1
+    (ByteArray.mk #[79, 112, 46, 76, 105, 116, 101, 114, 97, 108])
+    #[encodeU32le 0, encodedBoolTrueValueBytes]
+
+def encodedLeafInstruction : ByteArray :=
+  taggedBytesFromBytesV1
+    (ByteArray.mk #[73, 110, 115, 116, 114, 117, 99, 116, 105, 111, 110])
+    #[encodedSomeValueDef0, encodedLiteralTrueOp]
+
+def encodedReturnValue0 : ByteArray :=
+  taggedBytesFromBytesV1
+    (ByteArray.mk #[84, 101, 114, 109, 46, 82, 101, 116, 117, 114, 110])
+    #[(encodeU8 1).append (encodeU32le 0)]
+
+def encodedLeafBlock : ByteArray :=
+  taggedBytesFromBytesV1 (ByteArray.mk #[66, 108, 111, 99, 107])
+    #[encodeU32le 0, encodeU32le 0,
+      (encodeU32le 1).append encodedLeafInstruction, encodedReturnValue0]
+
+def encodedPureFnKind : ByteArray := taggedBytesFromBytesV1
+  (ByteArray.mk #[67, 97, 108, 108, 97, 98, 108, 101, 46, 80, 117, 114, 101, 70, 110]) #[]
+
+def encodedPublicVisibility : ByteArray := taggedBytesFromBytesV1
+  (ByteArray.mk #[86, 105, 115, 105, 98, 105, 108, 105, 116, 121, 46, 80, 117, 98,
+    108, 105, 99]) #[]
+
+def encodedLeafName : ByteArray :=
+  (encodeU8 1).append ((encodeU32le 9).append
+    (ByteArray.mk #[116, 114, 117, 116, 104, 76, 101, 97, 102]))
+
+def encodedBoolPublicResult : ByteArray :=
+  taggedBytesFromBytesV1
+    (ByteArray.mk #[67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115, 117, 108, 116])
+    #[encodeU32le 0, encodedPublicVisibility]
+
+def encodedLeafCallable : ByteArray :=
+  taggedBytesFromBytesV1 (ByteArray.mk #[67, 97, 108, 108, 97, 98, 108, 101])
+    #[encodeU32le 1, encodedPureFnKind, encodedLeafName,
+      encodeU32le 0, encodedBoolPublicResult, encodeU32le 0,
+      (encodeU32le 1).append encodedLeafBlock, encodeU32le 0,
+      (encodeU8 1).append (encodeU64le 3)]
+
+theorem encodeLeaf_canonicalBytes :
+    encodeCallableV1 leaf = .ok (ByteArray.mk canonicalTruthLeafSpine.toArray) := by
+  have hValueDef : encodeValueDefV1 (valueDef 0 0) = .ok encodedValueDef0 := by
+    unfold encodeValueDefV1 encodedValueDef0
+    exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+      (by decide) (by decide) (by decide)
+  have hResult : encodeOption encodeValueDefV1 (some (valueDef 0 0)) =
+      .ok encodedSomeValueDef0 := by
+    simp [encodeOption, encodedSomeValueDef0, hValueDef]
+    rfl
+  have hValueBytes : encodeByteArray (ByteArray.mk #[1]) =
+      .ok encodedBoolTrueValueBytes := by
+    rfl
+  have hOp : encodeSemanticOpV1 (.literal 0 (ByteArray.mk #[1])) =
+      .ok encodedLiteralTrueOp := by
+    simp only [encodeSemanticOpV1, hValueBytes, Bind.bind, Except.bind]
+    unfold encodedLiteralTrueOp
+    exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+      (by decide) (by decide) (by decide)
+  have hInstruction : encodeInstructionV1 leafInstruction =
+      .ok encodedLeafInstruction := by
+    apply encodeInstructionV1_eq_of_fields leafInstruction encodedSomeValueDef0
+      encodedLiteralTrueOp encodedLeafInstruction
+    · simpa [leafInstruction, boolLiteral, instruction] using hResult
+    · simpa [leafInstruction, boolLiteral, instruction] using hOp
+    · unfold encodedLeafInstruction
+      exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+        (by decide) (by decide) (by decide)
+  have hTerminator : encodeTerminatorV1 (.return_ (some 0)) =
+      .ok encodedReturnValue0 := by
+    simp only [encodeTerminatorV1, encodeOption, Bind.bind, Except.bind, Pure.pure,
+      Except.pure]
+    unfold encodedReturnValue0
+    exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+      (by decide) (by decide) (by decide)
+  have hBlock : encodeBlockV1 leafBlock = .ok encodedLeafBlock := by
+    apply encodeBlockV1_eq_of_fields leafBlock (encodeU32le 0)
+      ((encodeU32le 1).append encodedLeafInstruction) encodedReturnValue0 encodedLeafBlock
+    · exact encodeArray_zeroV1 _
+    · exact encodeArray_oneV1 _ leafInstruction encodedLeafInstruction hInstruction
+    · simpa [leafBlock] using hTerminator
+    · unfold encodedLeafBlock
+      exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+        (by decide) (by decide) (by decide)
+  have hEncoded : encodeCallableV1 leaf = .ok encodedLeafCallable := by
+    apply encodeCallableV1_eq_of_fields leaf encodedPureFnKind encodedLeafName
+      (encodeU32le 0) encodedBoolPublicResult
+      ((encodeU32le 1).append encodedLeafBlock) (encodeU32le 0)
+      ((encodeU8 1).append (encodeU64le 3)) encodedLeafCallable
+    · rfl
+    · rfl
+    · exact encodeArray_zeroV1 _
+    · rfl
+    · exact encodeArray_oneV1 _ leafBlock encodedLeafBlock hBlock
+    · exact encodeArray_zeroV1 _
+    · rfl
+    · unfold encodedLeafCallable
+      exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+        (by decide) (by decide) (by decide)
+  rw [hEncoded]
+  congr 1
+
 theorem consumeMagic_canonicalBytes :
     consumeMagic semanticProgramMagicV1 (start canonicalBytes) =
       .ok ((), ⟨canonicalBytes, 15, 0⟩) := by

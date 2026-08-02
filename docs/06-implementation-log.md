@@ -12688,6 +12688,15 @@ normative: false
 - Boundary：这些seams只建立下一片的组合边界；canonical nested callable bytes与最终encoder/carrier
   identity仍pending，formal TASK/TST状态不变。
 
+## 2026-08-02 — D2-07 canonical truthLeaf production encoding
+
+- Production refinement：`encodeU64le`的固定8轮LE输出机械展开为八个exact byte；tag fields的无错误
+  mutableappend循环机械命名为source-order `Array.foldl` worker。byte layout、limits与error precedence不变。
+- Composition：新增tag exact-byte、Instruction、Block与Callable success seams；canonical `truthLeaf`沿真实
+  ValueDef→Bool Literal→Instruction→Return→Block→Callable encoder闭合到既有explicit golden segment。
+- Review/regression：Oracle无blocker；WireV1与InvariantABI focused builds及两套engineering runners通过。
+- Boundary：`truth` PureCall、`falsehood`、四callable array、root encoder/carrier identity及formal TASK/TST仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；
