@@ -1,8 +1,8 @@
 # Goal slice queue (engineering only)
 > Generated for `/goal` + workflows. Formal F-*/Q-*/C-3 excluded.
 > Master goal: `.grok/goals/prompt-master-queue.md`
-> **Current resume (2026-08-02):** `prompt-master-queue.md starting at D4-E2`
-> (through D4-E1 done; C-5 ongoing; formal C-3 blocked)
+> **Current resume (2026-08-02):** `prompt-master-queue.md starting at T-1`
+> (through D5-plus done; C-5 ongoing; formal C-3 blocked)
 >
 > Status seed is **not** live authority — always re-read `docs/engineering-backlog.md`.
 > Seed column below tracks **navigation only**; conflict → backlog wins.
@@ -56,11 +56,11 @@
 | 44 | `D3-E5` | d3 | **done** |
 | 45 | `D3-E6` | d3 | **done** |
 | 46 | `D4-E1` | d4 | **done** |
-| 47 | `D4-E2` | d4 | **NEXT** pending |
-| 48 | `D4-E3` | d4 | pending |
-| 49 | `D4-E4` | d4 | pending |
-| 50 | `D5-plus` | d4 | pending |
-| 51 | `T-1` | typed | pending |
+| 47 | `D4-E2` | d4 | **done** |
+| 48 | `D4-E3` | d4 | **done** |
+| 49 | `D4-E4` | d4 | **done** |
+| 50 | `D5-plus` | d4 | **done** |
+| 51 | `T-1` | typed | **NEXT** pending |
 | 52 | `T-2` | typed | pending |
 | 53 | `T-3` | typed | **done** |
 | 54 | `INV-1` | typed | pending |
