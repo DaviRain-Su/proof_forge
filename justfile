@@ -12,8 +12,8 @@ default: dev-check
 # Default 4; invalid values fall back to 4.
 test_jobs := env_var_or_default("PROOF_FORGE_TEST_JOBS", "4")
 
-# Product CLI path is in-process Loader (no frontend worker). Keep the worker
-# exe as an explicit target for Tests.Frontend.WorkerV1 / optional CI.
+# Product CLI path is in-process Loader (no worker subprocess). Keep both worker
+# executables as explicit targets for the non-default worker shard.
 # BUILD-7: Lake 5 has no `-j` flag; module builds already fan out across cores
 # (see `Built … (N jobs)` in lake logs). PROOF_FORGE_TEST_JOBS only parallelizes
 # *test shard processes*, not Lean compilation.
@@ -21,7 +21,7 @@ build:
     lake build ProofForgeV2 proof_forge_next
 
 build-frontend-worker:
-    lake build proof_forge_frontend_worker_v1
+    lake build proof_forge_frontend_worker_v1 proof_forge_compiler_proof_worker_v1
 
 # Build all memory-bounded test shards once, then run them with bounded
 # parallelism. Each failing shard prints `FAIL shard: <name>` and xargs
@@ -615,7 +615,7 @@ run-deletion-gates:
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
-    lake build proof_forge_next_tests
+    lake build proof_forge_frontend_worker_v1 proof_forge_compiler_proof_worker_v1 proof_forge_next_tests
     PROOF_FORGE_HOST_ISOLATION_TEST=1 lake env .lake/build/bin/proof-forge-next-tests
 
 # Fast product-document validation. It deliberately excludes task/evidence
@@ -693,7 +693,7 @@ toolchains-closure-negative: build
 
 toolchains-environment-negative: build
     rm -rf build/toolchain-environment-negative build/v2/environment-negative
-    lake build proof_forge_next_tests
+    lake build proof_forge_frontend_worker_v1 proof_forge_compiler_proof_worker_v1 proof_forge_next_tests
     DYLD_IMAGE_SUFFIX=_debug lake env .lake/build/bin/proof-forge-next-tests
     cp -R "{{tool_root}}" build/toolchain-environment-negative
     dd if=/dev/zero of=build/toolchain-environment-negative/lib/libcrypto.3_debug.dylib bs=16 count=1 >/dev/null 2>&1

@@ -231,9 +231,19 @@ private def testSuccessRoundTripAndReconstruct : IO Unit := do
     "success canonical bytes"
   expect (FrontendSuccessV1.spans dec == FrontendSuccessV1.spans ok)
     "success spans"
+  let (pairedSource, pairedSpans) ← lift "reconstruct-spans"
+    (reconstructFrontendSourceSpansV1 req dec)
+  expect (pairedSpans.size == spans.size) "reconstruct paired span count"
+  for i in [:pairedSpans.size] do
+    match pairedSpans[i]?, spans[i]? with
+    | some (_, actual), some expected =>
+        expect (actual == expected) s!"reconstruct paired span {i}"
+    | _, _ => throw <| IO.userError "reconstruct paired span zip incomplete"
   let (src2, inv) ← lift "reconstruct" (reconstructFrontendSuccessV1 req dec)
   let h1 ← lift "hash1" (sourceHashV1 source)
+  let hp ← lift "paired-hash" (sourceHashV1 pairedSource)
   let h2 ← lift "hash2" (sourceHashV1 src2)
+  expect (h1 == hp) "reconstruct paired sourceHash identity"
   expect (h1 == h2) "reconstruct sourceHash identity"
   expect (originInventorySourceHashV1 inv == h1)
     "origin inventory sourceHash"

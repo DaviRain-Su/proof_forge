@@ -825,6 +825,135 @@ private unsafe def testSourceE2E
   let asm2 ← liftResult <| emitSbpfAsmV1 ir
   expect (asm == asm2) "e2e: deterministic"
 
+/-- L2 / B-SOL-MAP-ELF: Map dense pilot (cap-8) ELF frame budget must fit
+    within 4096 bytes. The Map upsert expands to 24 occ/key/val leaf Exprs;
+    without temp reuse across consuming statements the frame grows linearly
+    with all leaves. Temp reuse after consuming statements (store/assert/emit/
+    revert/call/schedule/returnData) recycles frame slots, so the peak is the
+    deepest single leaf tree, not the sum of all leaves. -/
+private unsafe def testMapMiniElfFrameBudgetOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "MapMiniFb" <|
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "  view get(k : UInt64) : UInt64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.MapMiniFb"
+    "<solana-map-mini-fb>"
+  let ir ← liftResult <| irSolana compiled
+  -- The put handler does a Map IndexSet (24 leaf stores) + a return.
+  -- Before temp reuse: 24888 bytes (3109 temps). After: must be ≤ 4096.
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  -- The asm must contain the put handler label.
+  expect (asm.contains "put:") "map-mini-fb: asm must contain put handler"
+  -- Frame budget gate already passed inside emitSbpfAsmV1 (it throws on
+  -- overflow). If we reach here, all handlers fit within 4096 bytes.
+  expect (asm.contains "entrypoint:") "map-mini-fb: asm must contain entrypoint"
+
+/-- L2 / B-SOL-MAP-ELF: Token (Map balances) ELF frame budget must fit
+    within 4096 bytes: mint does Map IndexGet + IndexSet (48 leaf ops). -/
+private unsafe def testTokenElfFrameBudgetOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "TokenFb" <|
+    "  state balances : Map UInt64 UInt64\n" ++
+    "  state supply : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    balances := Map.empty()\n" ++
+    "    supply := 0\n\n" ++
+    "  entry mint(to : UInt64, amount : UInt64) : UInt64 do\n" ++
+    "    match balances[to] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      balances[to] := v + amount\n" ++
+    "      supply := supply + amount\n" ++
+    "      return supply\n" ++
+    "    | _ => do\n" ++
+    "      balances[to] := amount\n" ++
+    "      supply := supply + amount\n" ++
+    "      return supply\n\n" ++
+    "  entry transfer(src : UInt64, dst : UInt64, amount : UInt64) : Bool do\n" ++
+    "    match balances[src] with\n" ++
+    "    | Option.some(fromBal) => do\n" ++
+    "      assert fromBal >= amount\n" ++
+    "      match balances[dst] with\n" ++
+    "      | Option.some(toBal) => do\n" ++
+    "        balances[src] := fromBal - amount\n" ++
+    "        balances[dst] := toBal + amount\n" ++
+    "        return true\n" ++
+    "      | _ => do\n" ++
+    "        balances[src] := fromBal - amount\n" ++
+    "        balances[dst] := amount\n" ++
+    "        return true\n" ++
+    "    | _ => do\n" ++
+    "      assert false\n" ++
+    "      return false\n\n" ++
+    "  view total() : UInt64 do\n" ++
+    "    return supply\n\n" ++
+    "  view balanceOf(who : UInt64) : UInt64 do\n" ++
+    "    match balances[who] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.TokenFb"
+    "<solana-token-fb>"
+  let ir ← liftResult <| irSolana compiled
+  -- Before temp reuse mint was 58032 bytes (7254 temps). After: ≤ 4096.
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  expect (asm.contains "mint:") "token-fb: asm must contain mint handler"
+  expect (asm.contains "entrypoint:") "token-fb: asm must contain entrypoint"
+
+/-- L2 / B-SOL-MAP-ELF: an oversized handler must still fail closed at the
+    4096-byte frame budget (the budget is not raised to make Map fit). -/
+private unsafe def testFrameBudgetFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- 300 state fields → sum chain depth 300 > 256 → Plan lowering rejects.
+  let mut stateDecls := ""
+  let mut initStores := ""
+  for i in [:300] do
+    stateDecls := stateDecls ++ "  state s" ++ toString i ++ " : UInt64\n"
+    initStores := initStores ++ "    s" ++ toString i ++ " := 0\n"
+  let mut sumExpr := "s0"
+  for i in [1:300] do
+    sumExpr := sumExpr ++ " + s" ++ toString i
+  let source := wrapProgram "OversizedFrame" <|
+    stateDecls ++ "\n" ++
+    "  init() do\n" ++
+    initStores ++ "\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return " ++ sumExpr ++ "\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return s0\n"
+  match ← session.selectProgramV1 source "OversizedFrame.lean"
+    "Examples.OversizedFrame" none with
+  | .error e =>
+    let msg := e.render
+    expect (msg.contains "exceeds depth 256" || msg.contains "exceeds nesting" || msg.contains "BOUND")
+      s!"oversized-frame: expected depth/bound error, got: {msg}"
+  | .ok validated =>
+    match Compiler.compileValidatedSourceV1 validated with
+    | .error e =>
+      let msg := e.render
+      expect (msg.contains "exceeds depth 256" || msg.contains "frame budget")
+        s!"oversized-frame: expected depth/frame error, got: {msg}"
+    | .ok compiled =>
+      let ir ← liftResult <| irSolana compiled
+      match emitSbpfAsmV1 ir with
+      | .ok _ =>
+        throw <| IO.userError
+          "oversized-frame: expected error but asm emitted successfully"
+      | .error e =>
+        let msg := e.render
+        expect (msg.contains "frame budget exceeded" || msg.contains "exceeds depth")
+          s!"oversized-frame: expected frame budget error, got: {msg}"
+
 unsafe def run : IO Unit := do
   testLayoutExact16
   testLayoutVariesWithDataLen
@@ -848,6 +977,9 @@ unsafe def run : IO Unit := do
   testAbiMultiWidthStateParam session
   testWideUintProduct session
   testMultiwordMulDivMod session
+  testMapMiniElfFrameBudgetOk session
+  testTokenElfFrameBudgetOk session
+  testFrameBudgetFailClosed session
   testNarrowResultAdmitted session
   testUInt128ResultAdmitted session
   testSourceE2E session

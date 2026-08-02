@@ -1,8 +1,50 @@
 import Lake
 open Lake DSL
 
+private def xcrunValue (args : Array String) : IO String := do
+  let output ← IO.Process.output {
+    cmd := "/usr/bin/xcrun"
+    args
+    stdin := .null
+    stdout := .piped
+    stderr := .piped
+    inheritEnv := true
+  }
+  unless output.exitCode == 0 do
+    throw <| IO.userError "xcrun failed while resolving the macOS native toolchain"
+  let value := output.stdout.trimAscii.copy
+  if value.isEmpty then
+    throw <| IO.userError "xcrun returned an empty macOS native toolchain path"
+  pure value
+
+private def proofSubjectNativeCompiler : IO (System.FilePath × Array String) := do
+  if System.Platform.isOSX then
+    let cc := System.FilePath.mk (← xcrunValue #["--find", "clang"])
+    let sdk ← xcrunValue #["--sdk", "macosx", "--show-sdk-path"]
+    pure (cc, #["-isysroot", sdk])
+  else if System.Platform.isWindows then
+    throw <| IO.userError "proof-subject native stable-read is unsupported on Windows"
+  else
+    let cc := System.FilePath.mk "/usr/bin/cc"
+    unless ← cc.pathExists do
+      throw <| IO.userError "proof-subject native stable-read requires /usr/bin/cc"
+    pure (cc, #[])
+
 package «proof-forge-next» where
   version := v!"0.1.0"
+
+extern_lib proof_forge_proof_subject_files_v1 pkg := do
+  let source ← inputFile
+    (pkg.dir / "ProofForgeV2/Compiler/Native/proof_forge_proof_subject_files_v1.c") false
+  let leanInclude ← getLeanIncludeDir
+  let (cc, platformArgs) ← liftM proofSubjectNativeCompiler
+  let object ← buildO
+    (pkg.buildDir / "native/compiler/proof_forge_proof_subject_files_v1.o") source #[]
+    (#["-std=c11", "-fPIC", "-Wall", "-Wextra", "-Werror", "-I",
+        leanInclude.toString] ++ platformArgs)
+    cc
+  buildStaticLib
+    (pkg.buildDir / "lib" / nameToStaticLib "proof_forge_proof_subject_files_v1") #[object]
 
 @[default_target]
 lean_lib ProofForgeV2 where
@@ -17,6 +59,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.ValidatedSourceV1Pipeline,
     `Tests.Compiler.CheckV1ProductGate,
     `Tests.Compiler.DiagnosticPipelineV1,
+    `Tests.Compiler.ProofSubjectFilesV1,
+    `Tests.Compiler.ProofWorkerV1,
     `Tests.Typed.NameResolutionV1,
     `Tests.Typed.DiagnosticLocationsV1,
     `Tests.Typed.TypeCheckExpressionsV1,
@@ -37,6 +81,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Semantic.ReferenceV1,
     `Tests.Semantic.NormalizeConst,
     `Tests.Semantic.ProofBundleV1,
+    `Tests.Semantic.ProofSubjectGeneratedFixtureV1,
+    `Tests.Semantic.ProofSubjectV1,
     `Tests.Semantic.ProofReferenceJoinV1,
     `Tests.Language.ParserSession,
     `Tests.Language.ProgramExportFixtures.A,
@@ -169,6 +215,11 @@ lean_exe proof_forge_next where
 lean_exe proof_forge_frontend_worker_v1 where
   exeName := "proof-forge-frontend-worker-v1"
   root := `ProofForgeV2.Frontend.WorkerMainV1
+  supportInterpreter := true
+
+lean_exe proof_forge_compiler_proof_worker_v1 where
+  exeName := "proof-forge-compiler-proof-worker-v1"
+  root := `ProofForgeV2.Compiler.ProofWorkerMainV1
   supportInterpreter := true
 
 lean_exe proof_forge_next_tests where

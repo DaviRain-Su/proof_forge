@@ -452,3 +452,40 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > `.invalidExternalResponse`优先级；两者均返回exact pre-state。reference runtime corpus仍不是formal
 > acceptance；当前仓库没有执行final target output并产出structural `OutcomeV1`的adapter，且尚无
 > versioned tagged retained outcome artifact/verifier，因此TST-SEM-002/003与TASK-D2-07保持pending。
+
+> 2026-08-02 TST-PROOF-001 proof-subject authority工程增量：新增private-constructor
+> `ProofSubjectV1`与唯一`buildProofSubjectV1`。输入只接受validated source、trusted path/spans及
+> `.pfsem/.pfprov` bytes；依次复用production canonical decoders、`sourceHashV1`、
+> `semanticHashV1`和source-bound `semanticProvenanceDigestV1`，不接受caller inventory或digest
+> claim。成功后确定性生成固定namespace的完整decimal-byte `ByteArray.mk` reducible Lean source，
+> 无runtime read或可注入名称。真实parser/span tests覆盖exact positive、transport优先级、wrong path及
+> canonical-but-foreign semantic substitution。该切片尚无filesystem safe-read、contained builder、
+> `.olean` declaration loading、expected-type defeq、trust closure或formal retained evidence；
+> TST-PROOF-001与TASK-D2-07继续pending。
+
+> 2026-08-02 proof-subject manifest join后续增量：`ProofReferenceJoinV1`新增只接受sealed
+> `ProofSubjectV1`的完整join，除bundle digest、sourceHash、semanticHash与source/export set外，现同时
+> exact要求manifest `semanticProvenanceDigest`等于authority重算值；manifest仍仅为claim，不能mint
+> subject。三项digest逐项mutation均fail closed。旧CLI compile-digest engineering入口保持兼容且不被
+> 升格；本增量时filesystem/contained builder与`.olean` kernel loader仍pending（filesystem见下一增量）。
+
+> 2026-08-02 proof-subject filesystem工程增量：新增compiler-core-owned
+> `ProofSubjectFilesV1`与package C primitive，不恢复已删除的Frontend safe-open/supervisor架构。API只接受
+> trusted absolute root及source/path/spans，文件名固定为`proof-subject.pfsem/.pfprov`。native从`/`
+> component no-follow打开root，保留同一dirfd与两个leaf fd，要求regular/single-link/每文件≤64MiB，
+> exact-size read+EOF probe后对两个fd/path和root metadata做pair-wide final recheck；随后唯一委托sealed
+> subject builder。Linux明确使用`/usr/bin/cc`，避免历史Lean bundled-clang libc header失败。focused
+> native shard覆盖positive、fixed-name、root/intermediate/leaf symlink、hardlink、directory/FIFO/missing与
+> pure error pass-through。尚无contained worker/deadline/effective lower profile或`.olean` loader，formal
+> TST-PROOF-001继续pending。
+
+> 2026-08-02 compiler proof-worker protocol工程增量：新增versioned canonical
+> `CompilerProof.Req/Ok/Err.v1`、direct one-request worker及standalone executable。request在单一64MiB
+> aggregate frame内保留trusted absolute root与exact canonical frontend request/success bytes；nested
+> decode、digest binding、source/path-span reconstruction均在filesystem IO前完成。worker只调用既有
+> fixed-pair stable reader；success仅返回与exact request绑定的authority-derived三digest identity claims，
+> 不序列化或mint `ProofSubjectV1`，failure使用closed phase/fault组合。shared bounded stdin执行EOF+
+> one-byte probe；真实subprocess与direct success/failure exact parity，malformed frame稳定非零退出。
+> decoded/bound response不构成authentication、freshness、same-request anti-replay或loading authority。
+> 本增量没有containment/supervisor、deadline/resource/FD/network policy、receipt、CLI接线、`.olean`
+> importer/policy/defeq或formal evidence；TST-PROOF-001与TASK-D2-07继续pending。

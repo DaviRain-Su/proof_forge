@@ -13098,3 +13098,78 @@ normative: false
   Source AST 三 id 解码。coverage matrix Field 行随之更新。
 - 边界：engineering only；非 formal Field claim；EVM/Noir 仍仅 bn254；Solana/NEAR Field 仍
   fail-closed。
+
+## 2026-08-02 — TST-PROOF-001 proof-subject authority engineering slice
+
+- 新增sealed `ProofSubjectV1`；private constructor只能由`buildProofSubjectV1` mint。authority输入只有
+  `ValidatedSourceV1`、trusted project path/spans与exact `.pfsem/.pfprov` bytes，不接受caller
+  inventory、manifest hash或其他digest claim。
+- 固定phase顺序为semantic canonical decode → provenance canonical decode → `sourceHashV1` →
+  `semanticHashV1` → source-bound `semanticProvenanceDigestV1`。最后一步复用sole production inventory
+  rebuild、normalize identity与provenance exact join，没有第二encoder/decoder/validator。
+- 成功后生成固定import/namespace/declaration模板：`subjectBytes`与`subjectProgram`均为`abbrev`，完整
+  canonical bytes逐项写成decimal UInt8 literal；无digest placeholder、ellipsis、runtime file read、
+  caller-controlled Lean name或syntax。
+- 新engineering suite使用真实ParserSession span table和production provenance encoder，覆盖digest exact
+  recomputation、deterministic complete source、semantic/provenance transport优先级、wrong trusted path，
+  以及decode成功但属于另一个program的canonical `.pfsem` substitution；checked-in exact generated
+  fixture由Lean实际elaborate，并以`rfl`固定`subjectProgram`到reducible `subjectBytes` projection。
+- 边界：本首片尚未实现filesystem no-follow读取、contained Lean build（manifest join见下一增量）、
+  `.olean` declaration loading、ordinal/expected-type definitional equality、axiom/unsafe/import closure或
+  formal retained evidence；不得关闭`TST-PROOF-001`或`TASK-D2-07`。
+
+## 2026-08-02 — sealed proof subject → ProofBundle manifest join
+
+- `ProofReferenceJoinV1`新增`joinValidatedProofSubjectV1`，只接受private-constructor subject；manifest
+  字段只与authority重算结果比较，不能反向mint或替换subject字段。
+- 在既有bundle digest、sourceHash、semanticHash与source proof/export exact set join之外，新增
+  `semanticProvenanceDigestMismatch`并强制manifest provenance digest exact匹配。
+- engineering tests从真实source/path/spans mint subject，再构造strict-open bundle；positive与三个digest
+  claim独立mutation均通过预期。旧CLI compile-digest join因尚无trusted spans保持transitional行为。
+- 本增量时仍无proof-subject filesystem safe-read（见下一增量）、contained compiler、`.olean` declaration/defeq/trust closure；
+  formal `TST-PROOF-001`保持pending。
+
+## 2026-08-02 — compiler-owned proof-subject pair stable-read
+
+- 新增`Compiler.ProofSubjectFilesV1`与小型package-owned C primitive；没有恢复2026-08-01删除的Frontend
+  SafeOpen/supervisor/worker产品架构，pure `Semantic.ProofSubjectV1`继续保持bytes-in authority。
+- public API无filename/path override：固定读取`proof-subject.pfsem`和`proof-subject.pfprov`。native从
+  `/`开始逐component `O_NOFOLLOW|O_DIRECTORY|O_NONBLOCK|O_CLOEXEC`打开trusted absolute root，随后
+  从同一retained dirfd打开并同时保留两个leaf fd。
+- 两leaf分别要求regular、`st_nlink==1`、nonnegative size、≤64MiB；按initial size exact read并probe
+  EOF。两次读取完成后才统一比较各自before/fd-after/path-after的dev/inode/mode/nlink/size/mtime/ctime，
+  同时比较root dirfd before/after metadata；任一变化返回closed redacted fault。
+- Lean边界再次检查per-file与128MiB aggregate hard cap，再唯一调用`buildProofSubjectV1`；fixed native
+  fault保留root/semantic/provenance phase，unknown wire fail closed为`nativeProtocol`。
+- Lake在Linux明确使用`/usr/bin/cc`，macOS使用`xcrun clang + SDK`，不回退到曾导致Linux CI libc
+  header失败的Lean bundled compiler；Windows显式不支持。
+- focused worker shard实际链接native archive并覆盖direct-builder parity、relative/NUL/symlink root、
+  intermediate symlink、两leaf fixed-name/symlink、hardlink、directory、FIFO、missing与pure decode error。
+- 边界：没有atomic filesystem transaction承诺；retained dirfd与content authority共同拒绝torn pair。
+  尚无contained process、deadline/memory measurement、effective lower profile、macOS CI或`.olean`
+  importer/policy/defeq，故不得关闭formal `TST-PROOF-001`。
+
+## 2026-08-02 — canonical compiler proof-worker payload and direct process
+
+- 新增`Compiler.ProofWorkerProtocolV1`：opaque request只由trusted absolute root、exact canonical
+  `Frontend.Req.v1`与对应exact canonical `Frontend.Ok.v1` bytes构造。outer tagged binary frame执行
+  64MiB aggregate precheck、field bounds、full consume与exact re-encode；nested两帧分别复用sole
+  frontend decoder，并在任何filesystem IO前完成request digest binding及validated source/canonical
+  preorder path-span reconstruction。
+- success是与exact outer request digest绑定的sourceHash、semanticHash、semanticProvenanceDigest identity
+  claims；它不是sealed `ProofSubjectV1`、receipt或loading authority。公开bind仅拒绝cross-request replay，
+  不提供process authentication、freshness或same-request anti-replay。failure wire只允许closed
+  root/file/native/semantic authority phase与合法stable-file fault组合。
+- 新增direct `Compiler.ProofWorkerV1`：重建trusted source/spans后唯一调用
+  `loadProofSubjectFilesV1`，正常filesystem与semantic authority失败编码为canonical Err并保持exit 0；
+  malformed outer/nested protocol为stable protocol fault。没有第二source/semantic/provenance decoder或
+  caller-supplied inventory/digest authority。
+- 新增standalone `proof-forge-compiler-proof-worker-v1`。`Core.ProtocolStreamV1`抽出shared bounded stdin
+  EOF read + one-byte over-limit probe，frontend worker改为复用同一实现。工程tests使用真实ParserSession、
+  production normalization及native fixed files，覆盖canonical roundtrip/trailing/truncation、nested两帧
+  noncanonical、cross-request mismatch/bind、direct determinism、root与semantic phase failure，以及真实
+  subprocess success/root-failure exact parity和malformed stable stderr/nonzero exit。worker recipes显式构建
+  两个subprocess executable，避免clean orb测试依赖stale binary。
+- 边界：当前worker不contained，没有supervisor、deadline、memory/CPU/FD/network/process-group policy、
+  effective lower resource profile、receipt、CLI接线、`.olean` generation/import/policy/defeq/trust closure或
+  formal retained evidence；不得关闭`TST-PROOF-001`或`TASK-D2-07`。

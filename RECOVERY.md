@@ -726,3 +726,39 @@ theorem登记成formal acceptance，也不要提前关闭TASK-D2-07。
 final target output的adapter；现有NEAR HostModel/Noir RelationModel只是IR二次模型，不能作为formal
 target differential。若继续该轴，应先新增真实EVM/Anvil deploy+call harness并转换为`OutcomeV1`；
 retained tagged outcome artifact/verifier另作为后续独立schema切片。
+
+proof-subject的首个可信authority也已建立：`ProofSubjectV1`构造器private，唯一builder只消费
+`ValidatedSourceV1 + ProjectRelativePath + trusted path/span table + pfsem/pfprov bytes`。它先严格
+canonical decode两种wire，再重算source/semantic hash，并通过`semanticProvenanceDigestV1`内部重建
+inventory、重跑normalize和exact provenance join；caller无法提供inventory或digest自证。成功结果附带
+固定namespace、完整decimal UInt8列表的reducible closed Lean source，不含runtime file read或manifest
+字符串注入。focused tests已覆盖真实parser spans、canonical foreign carrier、wrong path和transport
+error priority。下一步应在独立边界接filesystem no-follow safe-read/contained generation，再由
+`ProofReferenceJoinV1`接入sealed subject（下一段已完成），最后才实现`.olean` declaration/defeq/trust
+closure loader；当前TST-PROOF-001与TASK-D2-07仍pending。
+
+sealed subject→manifest三digest join现已在`ProofReferenceJoinV1`补齐：新入口额外强制
+`semanticProvenanceDigest`匹配，并继续执行bundle digest与source/export exact set join；source、semantic、
+provenance三项manifest claim独立mutation均拒绝。旧CLI尚无trusted spans，故其transitional
+compile-digest入口未伪接provenance；下一真实切片是subject files的no-follow/single-link safe-read
+（下一段已完成），其后为contained generation boundary与`.olean` kernel loader。
+
+proof-subject双文件safe-read现已作为compiler-core专用边界实现，而非恢复已删除的Frontend B11/B12
+层。`ProofSubjectFilesV1`只接受trusted absolute root并固定两个文件名；package C从`/`逐component
+no-follow打开root，在同一dirfd下同时保留两个regular/single-link leaf fd，按64MiB/file执行size gate、
+exact read+one-byte probe，并在两次读取后统一重检两leaf的fd/path identity及root metadata。返回bytes只
+进入`buildProofSubjectV1`，native层不解析semantic/provenance。Linux Lake构建明确使用系统
+`/usr/bin/cc`，避免已知bundled clang header故障。下一步不应直接接CLI；应先建立compiler-core
+contained worker/deadline/lower resource profile，再开始`.olean` importer/policy/defeq loader。
+
+compiler proof-worker的canonical one-request payload与direct process现已建立。outer request在统一64MiB
+aggregate cap内携带trusted absolute subject root、exact canonical `Frontend.Req.v1` bytes与与其digest
+绑定的exact canonical `Frontend.Ok.v1` bytes；decode必须full-consume/re-encode identity，并在任何文件
+访问前经sole frontend decoder重建`ValidatedSourceV1`及canonical preorder path/span table。worker随后只
+调用`loadProofSubjectFilesV1`，成功返回request-bound source/semantic/provenance三项authority-derived
+identity claim，失败返回closed phase/fault record。该wire record不是`ProofSubjectV1` capability；response
+binding只提供cross-request correlation，不提供process authentication、freshness、same-request replay保护或
+loading authority。direct与真实subprocess已有exact parity，正常filesystem/semantic失败exit 0且输出
+canonical failure，malformed protocol使用稳定stderr token/nonzero exit。此进程仍不contained：没有
+supervisor、deadline、FD/network/process-group policy、effective resource profile、receipt、CLI接线或
+`.olean` loader；formal TST-PROOF-001与TASK-D2-07继续pending。

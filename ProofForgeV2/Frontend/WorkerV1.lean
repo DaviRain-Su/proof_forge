@@ -19,10 +19,12 @@
 -/
 import ProofForgeV2.Frontend.ProtocolV1
 import ProofForgeV2.Language.Loader
+import ProofForgeV2.Core.ProtocolStreamV1
 
 namespace ProofForgeV2.Frontend.WorkerV1
 
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.ProtocolStreamV1
 open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Frontend.ProtocolV1
@@ -116,22 +118,8 @@ unsafe def processFrameV1
     containment is intentionally owned by the future B11 supervisor. -/
 def readProtocolFrameV1
     (stream : IO.FS.Stream) : IO (Except FrontendWorkerFaultV1 ByteArray) := do
-  let probeLimit := maxProtocolBytes + 1
-  let chunkSize := 64 * 1024
-  let mut bytes := ByteArray.empty
-  let mut done := false
-  while !done do
-    let remainingBudget := probeLimit - bytes.size
-    if remainingBudget == 0 then
-      return .error .protocol
-    let wanted := Nat.min chunkSize remainingBudget
-    let chunk ← stream.read (USize.ofNat wanted)
-    if chunk.isEmpty then
-      done := true
-    else
-      bytes := bytes.append chunk
-      if bytes.size > maxProtocolBytes then
-        return .error .protocol
-  pure (.ok bytes)
+  match ← readBoundedFrameV1 stream maxProtocolBytes with
+  | .ok bytes => pure (.ok bytes)
+  | .error () => pure (.error .protocol)
 
 end ProofForgeV2.Frontend.WorkerV1
