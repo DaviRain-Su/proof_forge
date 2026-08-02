@@ -223,6 +223,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | ID | 项 | 类型 | 说明 | 状态 |
 |---|---|---|---|---|
 | **N-ASSERT-ELSE** | assert-else（带 error 的 assert）Normalize+TypeCheck 接线 | 共享核（小） | EBNF `assert Expr (else Ident)?`；零参 error → `Op.Assert cond (some eid) #[]`；带参 error 源无法供参仍 FC；target Plan 对 errorId=some 保持 FC | **done**（L1 lane；integration commit b059778fa） |
+| **N-CONST** | `const` 声明 lowering → constants 表 | 共享核（小） | `evalConstDeclValueV1` 编译期求值字面量（UInt/Int±/Bool/String）→ canonical valueBytes（与 Op.Literal 字节一致）；place/binary/ctor/call/match 仍 FC；body 内 const place 引用未接（后续切片）；Reference admission 已消费 constants | **done**（2026-08-02；integration commit 9a73a3287；Tests.Semantic.NormalizeConst 注册 Typed shard） |
 | **N-CALL-RET** | typed call/schedule 返回值 | 共享核（大） | N-5 仅 RPT-014 schema 研究；产品仍 void Stmt.Call→ExternalCall FC；Wire ExternalCall result schema 或需升级；**先产品决策再动手** | pending |
 | **N-ANON-RESULT** | 匿名容器（Array/Map/Option/Bytes）entry/view/fn 返回值 | 共享核 | N-4 只开 named Struct/Enum；匿名 result 仍 FC | pending |
 | **N-NEST-IDX** | Map/Bytes 嵌套穿透赋值（`m[k].x:=v`、`b[i].…`） | 共享核 | N-A3 只开单步 IndexSet；嵌套 Option 中间值 FC | pending |
@@ -234,11 +235,12 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **B-CTX-OPEN** | ContextRead 各 target Plan 开放（unixTime/caller） | target leaf | B-ctx 有意钉死 FC；无 open 项；**需产品决策是否开** | pending |
 | **B-OPT-STATE** | 四 target Option state Plan | target leaf | N-A4 只开 Normalize admit；Plan 全 FC | pending |
 | **B-COMMIT-ZK** | Commit × Noir/Psy | target leaf | EVM/Solana/NEAR/Aleo 身份透传已开；Noir/Psy FC | pending |
-| **B-FIELD-CATALOG** | Field 真 catalog 接通 Aleo(BLS12-377)/Psy(Goldilocks) | 共享核+leaf | **前置：先解决 DOC-CODE-1**；全部 `pilotFieldPolicyNone` | blocked（待 DOC-CODE-1 决策） |
+| **B-FIELD-CATALOG** | Field 真 catalog 接通 Aleo(BLS12-377)/Psy(Goldilocks) | 共享核+leaf | DOC-CODE-1 已决策：**真做 T14**（lane/t14-field-catalog）；扩 Wire FieldSpec catalog sole bn254 → 三 spec + TypeKey allowlist + Source Field id + Aleo/Psy LowerSemantic | **in_progress**（T14 lane，2026-08-02） |
+| **B-SOL-MUL** | Solana UInt128/256 schoolbook 多字 mul + fail-closed div/mod | target leaf | SBPF emit `narrowCheckedMul` 128/256 → 真 schoolbook 多字乘（32-bit digit split、lane-ordered carry、高肢 overflow trap）；div/mod 仍 low64 + 高肢零检查 FC（err_mwdiv/err_mwmod）；Rust Mollusk WideMul fixture 归 C-5 | **done**（2026-08-02；integration commit 9bb6fe1ad；testMultiwordMulDivMod 于 shard-targets） |
 | **RES-1B** | memory/output 运行时 limit | NFR | RES-1 只有 wall-ms | pending |
 | **B-SOL-MAP-UPSERT** | Solana Map 顺序 store-then-read hazard（put_into_empty 错误 occ 翻转） | target leaf（正确性） | L2 揭示：24 叶顺序 store、后续叶 expr 经 stateLoad 读到已改 occ/key/val；**同 hazard 理论上也存在于 EVM/NEAR/Aleo/Noir 顺序叶物化，需先核实再修**；修需预计算 24 叶或专用 upsert op/scratch 空间 | pending（**正确性优先**） |
 | **NFR-REPEAT** | NFR-001 决定性 repeat gate（连续构建 hash 相同） | NFR | PRD 要求；无工程 ID | pending |
-| **DOC-CODE-1** | **T14 Field catalog v2 文档↔代码矛盾** | 文档/代码决策 | commit 30df771f2 声称「Wire ModelV1 扩 bls12377/goldilocks FieldSpec + Aleo/Psy Field 接线」，实际 diff 只有 NEAR/Solana 文件+docs；**代码 catalog 仍 sole bn254**（EnvelopeV1/WireV1）。AGENTS.md 已先行修正为 fail-closed 叙述。需要产品决策：(a) 按 commit message 真做 T14（共享核 Wire 变更）；(b) 把 30df771f2 的 commit message 记录为错误声明并关闭 | **in_progress**（本次复核） |
+| **DOC-CODE-1** | **T14 Field catalog v2 文档↔代码矛盾** | 文档/代码决策 | commit 30df771f2 声称「Wire ModelV1 扩 bls12377/goldilocks FieldSpec + Aleo/Psy Field 接线」，实际 diff 只有 NEAR/Solana 文件+docs；**代码 catalog 仍 sole bn254**（EnvelopeV1/WireV1）。AGENTS.md 已先行修正为 fail-closed 叙述。需要产品决策：(a) 按 commit message 真做 T14（共享核 Wire 变更）；(b) 把 30df771f2 的 commit message 记录为错误声明并关闭 | **done-决策**（2026-08-02：选 (a) 真做 T14，见 B-FIELD-CATALOG lane/t14-field-catalog） |
 
 ### 复核结论存档（2026-08-02）
 
