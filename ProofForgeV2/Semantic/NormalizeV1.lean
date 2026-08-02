@@ -3291,6 +3291,47 @@ private def mergeWireOwnedRequirementsV1
     | .error e => return ← failUnsupported s!"Commit requirement row: {e}"
   pure { items }
 
+/-- Compile-time constant evaluator for `const` declarations (engineering
+    slice). SPEC-LANG: a `const` is evaluated at elaboration time, so it must
+    NOT read state/context and must NOT call functions. This first slice
+    admits only the self-evaluating forms:
+      * a Bool / integer / string literal, or
+      * unary `-` applied to an integer literal (Int / negative-Int ranges).
+    Every other expression form (place reads, binary ops, constructors,
+    local calls, match) fails closed here so a later slice can extend the
+    admitted constant grammar with exact range/overflow semantics rather than
+    silently approximating. The value is canonicalized to `valueBytes` via the
+    same literal encoder used by `Op.Literal`, so const and literal encodings
+    agree byte-for-byte. -/
+private def evalConstDeclValueV1
+    (types : Array TypeDeclV1) (expectedTid : TypeIdV1) (value : SrcExpr) :
+    Except NormalizeErrorV1 ByteArray := do
+  match value with
+  | ProofForgeV2.Source.AstSpineV1.ExprV1.literal lit =>
+      encodeLiteralValueBytesV1 types expectedTid lit
+  | ProofForgeV2.Source.AstSpineV1.ExprV1.unary
+      ProofForgeV2.Source.AstV1.UnaryOpV1.neg
+      (ProofForgeV2.Source.AstSpineV1.ExprV1.literal
+        (ProofForgeV2.Source.AstV1.LiteralV1.integer magnitude)) =>
+      -- `-magnitude` as a two's-complement Int literal (mirrors the lowerer
+      -- unary-neg-on-literal folding at the call sites below).
+      match anonShapeOf? types expectedTid with
+      | some (.int w) =>
+          let width := w.toNat
+          unless legalIntegerWidthV1 width do
+            return ← failUnsupported "S1 const negative literal requires legal Int width"
+          let vi : Int := - Int.ofNat magnitude
+          let lo : Int := - Int.ofNat (Nat.pow 2 (width - 1))
+          let hi : Int := Int.ofNat (Nat.pow 2 (width - 1)) - 1
+          unless lo ≤ vi ∧ vi ≤ hi do
+            return ← failUnsupported "S1 const negative literal is out of Int range"
+          pure (encodeIntLeBytes vi width)
+      | _ =>
+          failUnsupported "S1 const unary minus requires an Int expected type"
+  | _ =>
+      failUnsupported
+        "S1 const value must be a literal (or `-` integer literal); place reads, binary ops, constructors, calls, and match fail closed"
+
 /-- Core lowering after Typed CheckV1 has succeeded.
 
   Passes over ProgramV1 items (not NameResolution tables):
@@ -3410,6 +3451,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
 
   -- Pass 2: lower supported callables; reject unsupported item kinds.
   let mut callables : Array CallableV1 := #[]
+  let mut constantRows : Array ConstantV1 := #[]
   let mut callableId : Nat := 0
   let mut usedContextUnixTime := false
   let mut usedContextCaller := false
@@ -3469,8 +3511,19 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         callableId := callableId + 1
     | .struct _ => pure ()  -- registered in Pass0; no callable body
     | .enum _ => pure ()    -- registered in Pass0; no callable body
-    | .const _ =>
-        return ← failUnsupported "S1 normalizer does not support const"
+    | .const d =>
+        -- const slice: compile-time-evaluate the value to canonical
+        -- valueBytes and record a ConstantV1 row. The value must be a
+        -- literal (or `-` integer literal); richer constant expressions fail
+        -- closed in `evalConstDeclValueV1`.
+        let (interner', tid) ← internSourceType interner d.type_
+        interner := interner'
+        let valueBytes ← evalConstDeclValueV1 interner.types tid d.value
+        constantRows := constantRows.push {
+          id := UInt32.ofNat constantRows.size
+          name := raw d.name
+          typeId := tid
+          valueBytes }
     | .event _ => pure ()
     | .error _ => pure ()
     | .fn d =>
@@ -3527,7 +3580,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   pure {
     qualifiedName := qn
     types := interner.types
-    constants := #[]
+    constants := constantRows
     logicalState := stateRows
     events := eventRows
     errors := errorRows
