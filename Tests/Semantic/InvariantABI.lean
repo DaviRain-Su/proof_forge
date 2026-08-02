@@ -1016,6 +1016,51 @@ theorem genericCfgPhases_data :
   · exact falsehoodCfg_data
   · rfl
 
+/-- Direct root restrictions, exact membership, and PureFn metadata agreement
+    close the production invariant-closure prefix. -/
+theorem invariantClosureMembershipPhases_data :
+    validateInvariantClosureMembershipPhasesV1 data.callables =
+      .ok closureMembers := by
+  apply validateInvariantClosureMembershipPhasesV1_eq_ok
+  · rfl
+  · exact computeInvariantClosureMembership_data
+  · apply validatePureFnInvariantClosureMembershipFourV1
+      gate leaf truth falsehood 3 <;> rfl
+
+/-- The public production DAG prefix consumes that exact membership. Its
+    actual graph builder yields indegree #[0,1,0,0], caller adjacency
+    #[#[],#[],#[1],#[]], and three members; source-index ready collection is
+    #[2,3], after which Kahn appends leaf 1 and processes all three members. -/
+theorem invariantClosureDagPhases_data :
+    validateInvariantClosureDagPhasesV1 data.callables =
+      .ok closureMembers := by
+  apply validateInvariantClosureDagPhasesV1_eq_ok
+  · exact invariantClosureMembershipPhases_data
+  · apply validateInvariantClosureDagCanonicalFourV1
+    · rfl
+    · rfl
+    · rfl
+
+/-- The canonical fixture closes the complete non-fuel invariant-closure
+    production prefix: all three closure CFGs are forward-only, the sole
+    reachable PureFn operation is its Bool literal, and invariant roots are
+    outside the PureFn operation allowlist. -/
+theorem invariantClosurePhases_data :
+    validateInvariantClosurePhasesV1 data.callables =
+      .ok closureMembers := by
+  apply validateInvariantClosurePhasesV1_eq_ok
+  · exact invariantClosureDagPhases_data
+  · exact (validateInvariantClosurePostDagCanonicalFourV1
+      gate leaf truth falsehood leafBlock truthBlock falsehoodBlock
+      leafInstruction 0 (ByteArray.mk #[1])
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)).1
+  · exact (validateInvariantClosurePostDagCanonicalFourV1
+      gate leaf truth falsehood leafBlock truthBlock falsehoodBlock
+      leafInstruction 0 (ByteArray.mk #[1])
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)).2
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

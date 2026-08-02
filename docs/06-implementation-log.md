@@ -12643,6 +12643,23 @@ normative: false
 - Regression：四member tight-fuel case覆盖two roots、duplicate static calls和reachable two-PureFn cycle。
 - Boundary：metadata、call-DAG、closure-CFG、PureFn-op、fuel及完整structure仍pending。
 
+## 2026-08-01 — D2-07 canonical closure metadata + call DAG
+
+- Metadata：source-index scan机械抽为total worker；sole PureFn truthLeaf的steps presence与exact member bit一致。
+- DAG：production graph build、ready collect、Kahn queue均保持原source/FIFO顺序并以callable count为fuel；
+  worker done/exhaustion两端均由private kernel lemmas固定。
+- Kernel：indegree `#[0,1,0,0]`、adjacency `#[#[],#[],#[1],#[]]`、ready `#[2,3]`；
+  truth出队后追加leaf 1，最终processed=memberCount=3。
+- Boundary：closure-CFG、PureFn-op、exact/intrinsic fuel、requirements及完整structure仍pending。
+
+## 2026-08-01 — D2-07 canonical non-fuel closure complete
+
+- Production：closure-CFG与PureFn-op source-index scans均机械抽为`callables.size` fuel workers，保持
+  member/kind filters、callable→block→instruction order、错误顺序与exact forbidden-op list。
+- Kernel：members 1/2/3的singleton CFG均无back edge；sole reachable PureFn truthLeaf只含Bool literal；
+  roots 2/3不进入PureFn-only allowlist。完整`validateInvariantClosurePhasesV1`返回exact members成功。
+- Boundary：exact/intrinsic invariant fuel、requirements、完整structure/encoder/carrier/formal状态仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；

@@ -358,7 +358,9 @@ callee join与Bool result typing。四项generic callable CFG已全部kernel闭�
 随后已与原private global ContextRead catalog按production顺序组合，fixture无ContextRead并闭合完整generic
 `.cfg` phase。closure production现已先做行为保持的single-analysis重构：direct-root后只计算一次exact
 membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membership worklist现已kernel闭合为
-`#[false,true,true,true]`；metadata/DAG/CFG/PureFn-op及fuel proof仍pending。
+`#[false,true,true,true]`；metadata与call-DAG也已由production total workers闭合，exact graph为
+`2→1`且Kahn processed=3。closure CFG acyclicity与PureFn-op allowlist随后闭合，完整non-fuel closure
+已成功；exact/intrinsic fuel proof仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

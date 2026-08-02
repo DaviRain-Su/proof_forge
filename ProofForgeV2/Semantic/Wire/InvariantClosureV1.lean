@@ -103,6 +103,44 @@ def invariantClosureMembershipResultV1
   computeInvariantClosureMembershipWorkerV1 callables 0 members worklist
     callables.size
 
+private def validatePureFnInvariantClosureMembershipWorkerV1
+    (callables : Array CallableV1) (members : Array Bool) (index : Nat) :
+    Nat → Except SemanticWireErrorV1 Unit
+  | 0 =>
+      if index < callables.size then err .badCfg else pure ()
+  | fuel + 1 => do
+      if index < callables.size then
+        match callables[index]? with
+        | none => return ← err .badCfg
+        | some callable =>
+            if callable.kind == .pureFn then
+              let hasSteps := match callable.invariantSteps with
+                | some _ => true
+                | none => false
+              unless hasSteps == members[index]! do
+                return ← err .badCfg
+        validatePureFnInvariantClosureMembershipWorkerV1
+          callables members (index + 1) fuel
+      else
+        pure ()
+
+private theorem validatePureFnInvariantClosureMembershipWorkerDoneV1
+    (callables : Array CallableV1) (members : Array Bool)
+    (index fuel : Nat) (hDone : ¬ index < callables.size) :
+    validatePureFnInvariantClosureMembershipWorkerV1
+      callables members index fuel = .ok () := by
+  cases fuel <;>
+    simp [validatePureFnInvariantClosureMembershipWorkerV1, hDone,
+      Pure.pure, Except.pure]
+
+private theorem validatePureFnInvariantClosureMembershipWorkerExhaustedV1
+    (callables : Array CallableV1) (members : Array Bool)
+    (index : Nat) (hWork : index < callables.size) :
+    validatePureFnInvariantClosureMembershipWorkerV1
+      callables members index 0 = .error .badCfg := by
+  simp [validatePureFnInvariantClosureMembershipWorkerV1, hWork]
+  rfl
+
 /-- A pureFn carries invariant fuel metadata iff it is transitively reachable
     from an invariant root through `Op.PureCall` (SPEC §8). Presence is checked
     here after complete generic CFG/op validation; reachable call-graph DAG
@@ -111,18 +149,25 @@ def invariantClosureMembershipResultV1
     presence rules remain in the earlier signature gates. -/
 private def validatePureFnInvariantClosureMembershipWithMembersV1
     (callables : Array CallableV1) (members : Array Bool) :
-    Except SemanticWireErrorV1 Unit := do
-  for index in [:callables.size] do
-    match callables[index]? with
-    | none => return ← err .badCfg
-    | some callable =>
-        if callable.kind == .pureFn then
-          let hasSteps := match callable.invariantSteps with
-            | some _ => true
-            | none => false
-          unless hasSteps == members[index]! do
-            return ← err .badCfg
-  pure ()
+    Except SemanticWireErrorV1 Unit :=
+  validatePureFnInvariantClosureMembershipWorkerV1
+    callables members 0 callables.size
+
+/-- Four-callable refinement for the production closure-metadata scan. Only
+    the source-order PureFn at index 1 is membership-sensitive; its carried
+    steps are pinned present and its exact membership bit is true. -/
+theorem validatePureFnInvariantClosureMembershipFourV1
+    (c0 c1 c2 c3 : CallableV1) (steps : UInt64)
+    (h0 : (c0.kind == .pureFn) = false)
+    (h1 : (c1.kind == .pureFn) = true)
+    (h1Steps : c1.invariantSteps = some steps)
+    (h2 : (c2.kind == .pureFn) = false)
+    (h3 : (c3.kind == .pureFn) = false) :
+    validatePureFnInvariantClosureMembershipWithMembersV1
+      #[c0, c1, c2, c3] #[false, true, true, true] = .ok () := by
+  simp [validatePureFnInvariantClosureMembershipWithMembersV1,
+    validatePureFnInvariantClosureMembershipWorkerV1, h0, h1, h1Steps,
+    h2, h3, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 /-- Reject cycles in the reachable invariant-closure `Op.PureCall` graph
     (SPEC §8). Kahn traversal is restricted to exact closure members, counts
@@ -130,51 +175,154 @@ private def validatePureFnInvariantClosureMembershipWithMembersV1
     Generic CFG/op typing and exact membership already ran; all edge facts are
     rechecked fail-closed. Unreachable pureFn cycles are outside this gate.
     Closure-CFG back edges and exact step computation run afterward. -/
+@[simp] private def validateInvariantClosureDagReadyWorkerV1
+    (cursor processed : Nat) (indegree : Array Nat)
+    (adjacency : Array (Array Nat)) (ready : Array Nat)
+    (memberCount : Nat) : Nat → Except SemanticWireErrorV1 Nat
+  | 0 =>
+      if cursor < ready.size then err .badCfg else pure processed
+  | fuel + 1 => do
+      if cursor < ready.size then
+        let callerIndex := ready[cursor]!
+        let mut nextIndegree := indegree
+        let mut nextReady := ready
+        for calleeIndex in adjacency[callerIndex]! do
+          let count := nextIndegree[calleeIndex]!
+          if count == 0 then return ← err .badCfg
+          let next := count - 1
+          nextIndegree := nextIndegree.set! calleeIndex next
+          if next == 0 then nextReady := nextReady.push calleeIndex
+        validateInvariantClosureDagReadyWorkerV1 (cursor + 1) (processed + 1)
+          nextIndegree adjacency nextReady memberCount fuel
+      else
+        pure processed
+
+private theorem validateInvariantClosureDagReadyWorkerDoneV1
+    (cursor processed fuel : Nat) (indegree : Array Nat)
+    (adjacency : Array (Array Nat)) (ready : Array Nat)
+    (memberCount : Nat) (hDone : ¬ cursor < ready.size) :
+    validateInvariantClosureDagReadyWorkerV1 cursor processed indegree adjacency
+      ready memberCount fuel = .ok processed := by
+  cases fuel <;>
+    simp [validateInvariantClosureDagReadyWorkerV1, hDone, Pure.pure,
+      Except.pure]
+
+private theorem validateInvariantClosureDagReadyWorkerExhaustedV1
+    (cursor processed : Nat) (indegree : Array Nat)
+    (adjacency : Array (Array Nat)) (ready : Array Nat)
+    (memberCount : Nat) (hWork : cursor < ready.size) :
+    validateInvariantClosureDagReadyWorkerV1 cursor processed indegree adjacency
+      ready memberCount 0 = .error .badCfg := by
+  simp [validateInvariantClosureDagReadyWorkerV1, hWork]
+  rfl
+
+private abbrev InvariantClosureDagGraphV1 :=
+  Array Nat × Array (Array Nat) × Nat
+
+@[simp] private def buildInvariantClosureDagGraphWorkerV1
+    (callables : Array CallableV1) (members : Array Bool) (callerIndex : Nat)
+    (indegree : Array Nat) (adjacency : Array (Array Nat))
+    (memberCount : Nat) : Nat →
+    Except SemanticWireErrorV1 InvariantClosureDagGraphV1
+  | 0 =>
+      if callerIndex < callables.size then err .badCfg
+      else pure (indegree, adjacency, memberCount)
+  | fuel + 1 => do
+      if callerIndex < callables.size then
+        let mut nextIndegree := indegree
+        let mut nextAdjacency := adjacency
+        let mut nextMemberCount := memberCount
+        if members[callerIndex]! then
+          nextMemberCount := nextMemberCount + 1
+          match callables[callerIndex]? with
+          | none => return ← err .badCfg
+          | some caller =>
+              for block in caller.blocks do
+                for instr in block.instructions do
+                  match instr.op with
+                  | .pureCall calleeId _ =>
+                      let calleeIndex := calleeId.toNat
+                      match callables[calleeIndex]? with
+                      | none => return ← err .badCfg
+                      | some callee =>
+                          unless callee.kind == .pureFn && members[calleeIndex]! do
+                            return ← err .badCfg
+                          nextAdjacency := nextAdjacency.set! callerIndex
+                            (nextAdjacency[callerIndex]!.push calleeIndex)
+                          nextIndegree := nextIndegree.set! calleeIndex
+                            (nextIndegree[calleeIndex]! + 1)
+                  | _ => pure ()
+        buildInvariantClosureDagGraphWorkerV1 callables members (callerIndex + 1)
+          nextIndegree nextAdjacency nextMemberCount fuel
+      else
+        pure (indegree, adjacency, memberCount)
+
+private theorem buildInvariantClosureDagGraphWorkerDoneV1
+    (callables : Array CallableV1) (members : Array Bool)
+    (callerIndex : Nat) (indegree : Array Nat)
+    (adjacency : Array (Array Nat)) (memberCount fuel : Nat)
+    (hDone : ¬ callerIndex < callables.size) :
+    buildInvariantClosureDagGraphWorkerV1 callables members callerIndex
+      indegree adjacency memberCount fuel =
+      .ok (indegree, adjacency, memberCount) := by
+  cases fuel <;>
+    simp [buildInvariantClosureDagGraphWorkerV1, hDone, Pure.pure,
+      Except.pure]
+
+private theorem buildInvariantClosureDagGraphWorkerExhaustedV1
+    (callables : Array CallableV1) (members : Array Bool)
+    (callerIndex : Nat) (indegree : Array Nat)
+    (adjacency : Array (Array Nat)) (memberCount : Nat)
+    (hWork : callerIndex < callables.size) :
+    buildInvariantClosureDagGraphWorkerV1 callables members callerIndex
+      indegree adjacency memberCount 0 = .error .badCfg := by
+  simp [buildInvariantClosureDagGraphWorkerV1, hWork]
+  rfl
+
+@[simp] private def collectInvariantClosureDagReadyWorkerV1
+    (members : Array Bool) (indegree : Array Nat) (index : Nat)
+    (ready : Array Nat) : Nat → Except SemanticWireErrorV1 (Array Nat)
+  | 0 => if index < members.size then err .badCfg else pure ready
+  | fuel + 1 =>
+      if index < members.size then
+        let nextReady :=
+          if members[index]! && indegree[index]! == 0 then ready.push index else ready
+        collectInvariantClosureDagReadyWorkerV1 members indegree (index + 1)
+          nextReady fuel
+      else
+        pure ready
+
+private theorem collectInvariantClosureDagReadyWorkerDoneV1
+    (members : Array Bool) (indegree : Array Nat) (index fuel : Nat)
+    (ready : Array Nat) (hDone : ¬ index < members.size) :
+    collectInvariantClosureDagReadyWorkerV1 members indegree index ready fuel =
+      .ok ready := by
+  cases fuel <;>
+    simp [collectInvariantClosureDagReadyWorkerV1, hDone, Pure.pure,
+      Except.pure]
+
+private theorem collectInvariantClosureDagReadyWorkerExhaustedV1
+    (members : Array Bool) (indegree : Array Nat) (index : Nat)
+    (ready : Array Nat) (hWork : index < members.size) :
+    collectInvariantClosureDagReadyWorkerV1 members indegree index ready 0 =
+      .error .badCfg := by
+  simp [collectInvariantClosureDagReadyWorkerV1, hWork]
+  rfl
+
 private def validateInvariantClosureCallGraphDagWithMembersV1
     (callables : Array CallableV1) (members : Array Bool) :
     Except SemanticWireErrorV1 Unit := do
   let callableCount := callables.size
-  let mut indegree := Array.mk (List.replicate callableCount 0)
-  let mut adjacency : Array (Array Nat) :=
+  let indegree := Array.mk (List.replicate callableCount 0)
+  let adjacency : Array (Array Nat) :=
     Array.mk (List.replicate callableCount #[])
-  let mut memberCount : Nat := 0
-  for callerIndex in [:callableCount] do
-    if members[callerIndex]! then
-      memberCount := memberCount + 1
-      match callables[callerIndex]? with
-      | none => return ← err .badCfg
-      | some caller =>
-          for block in caller.blocks do
-            for instr in block.instructions do
-              match instr.op with
-              | .pureCall calleeId _ =>
-                  let calleeIndex := calleeId.toNat
-                  match callables[calleeIndex]? with
-                  | none => return ← err .badCfg
-                  | some callee =>
-                      unless callee.kind == .pureFn && members[calleeIndex]! do
-                        return ← err .badCfg
-                      adjacency := adjacency.set! callerIndex
-                        (adjacency[callerIndex]!.push calleeIndex)
-                      indegree := indegree.set! calleeIndex
-                        (indegree[calleeIndex]! + 1)
-              | _ => pure ()
-  let mut ready : Array Nat := #[]
-  for index in [:callableCount] do
-    if members[index]! && indegree[index]! == 0 then
-      ready := ready.push index
-  let mut cursor : Nat := 0
-  let mut processed : Nat := 0
-  while cursor < ready.size do
-    let callerIndex := ready[cursor]!
-    cursor := cursor + 1
-    processed := processed + 1
-    for calleeIndex in adjacency[callerIndex]! do
-      let count := indegree[calleeIndex]!
-      if count == 0 then return ← err .badCfg
-      let next := count - 1
-      indegree := indegree.set! calleeIndex next
-      if next == 0 then ready := ready.push calleeIndex
+  let (indegree, adjacency, memberCount) ←
+    buildInvariantClosureDagGraphWorkerV1 callables members 0 indegree adjacency 0
+      callableCount
+  let ready ← collectInvariantClosureDagReadyWorkerV1 members indegree 0 #[]
+    callableCount
+  let processed ← validateInvariantClosureDagReadyWorkerV1 0 0 indegree
+    adjacency ready memberCount callableCount
   unless processed == memberCount do return ← err .badCfg
   pure ()
 
@@ -183,17 +331,41 @@ private def validateInvariantClosureCallGraphDagWithMembersV1
     back-edge metadata; this post-membership gate rejects any actual back edge
     in a closure member while leaving unreachable pureFn bounded loops under
     the generic contract. Bounded by callables plus CFG successor edges. -/
+@[simp] private def validateInvariantClosureCfgAcyclicWorkerV1
+    (callables : Array CallableV1) (members : Array Bool) (index : Nat) :
+    Nat → Except SemanticWireErrorV1 Unit
+  | 0 => if index < callables.size then err .badCfg else pure ()
+  | fuel + 1 => do
+      if index < callables.size then
+        if members[index]! then
+          match callables[index]? with
+          | none => return ← err .badCfg
+          | some callable =>
+              unless (cfgBackEdges callable.blocks callable.blocks.size).isEmpty do
+                return ← err .badCfg
+        validateInvariantClosureCfgAcyclicWorkerV1 callables members (index + 1) fuel
+      else
+        pure ()
+
+private theorem validateInvariantClosureCfgAcyclicWorkerDoneV1
+    (callables : Array CallableV1) (members : Array Bool) (index fuel : Nat)
+    (hDone : ¬ index < callables.size) :
+    validateInvariantClosureCfgAcyclicWorkerV1 callables members index fuel = .ok () := by
+  cases fuel <;> simp [validateInvariantClosureCfgAcyclicWorkerV1, hDone,
+    Pure.pure, Except.pure]
+
+private theorem validateInvariantClosureCfgAcyclicWorkerExhaustedV1
+    (callables : Array CallableV1) (members : Array Bool) (index : Nat)
+    (hWork : index < callables.size) :
+    validateInvariantClosureCfgAcyclicWorkerV1 callables members index 0 =
+      .error .badCfg := by
+  simp [validateInvariantClosureCfgAcyclicWorkerV1, hWork]
+  rfl
+
 private def validateInvariantClosureCfgAcyclicWithMembersV1
     (callables : Array CallableV1) (members : Array Bool) :
-    Except SemanticWireErrorV1 Unit := do
-  for index in [:callables.size] do
-    if members[index]! then
-      match callables[index]? with
-      | none => return ← err .badCfg
-      | some callable =>
-          unless (cfgBackEdges callable.blocks callable.blocks.size).isEmpty do
-            return ← err .badCfg
-  pure ()
+    Except SemanticWireErrorV1 Unit :=
+  validateInvariantClosureCfgAcyclicWorkerV1 callables members 0 callables.size
 
 /-- A pureFn in an invariant closure cannot access logical state or context,
     create commitments, emit events, perform synchronous external calls, or
@@ -201,27 +373,51 @@ private def validateInvariantClosureCfgAcyclicWithMembersV1
     closure graph/CFG acyclicity have
     already run. Invariant roots remain allowed to use StateLoad directly, and
     unreachable pureFns remain outside this closure-only restriction. -/
+@[simp] private def validateInvariantClosurePureFnOpsWorkerV1
+    (callables : Array CallableV1) (members : Array Bool) (index : Nat) :
+    Nat → Except SemanticWireErrorV1 Unit
+  | 0 => if index < callables.size then err .badCfg else pure ()
+  | fuel + 1 => do
+      if index < callables.size then
+        if members[index]! then
+          match callables[index]? with
+          | none => return ← err .badCfg
+          | some callable =>
+              if callable.kind == .pureFn then
+                for block in callable.blocks do
+                  for instr in block.instructions do
+                    match instr.op with
+                    | .stateLoad _ => return ← err .badCfg
+                    | .stateStore _ _ => return ← err .badCfg
+                    | .contextRead _ => return ← err .badCfg
+                    | .commit _ => return ← err .badCfg
+                    | .emit _ _ _ => return ← err .badCfg
+                    | .externalCall _ _ _ => return ← err .badCfg
+                    | .schedule _ _ _ => return ← err .badCfg
+                    | _ => pure ()
+        validateInvariantClosurePureFnOpsWorkerV1 callables members (index + 1) fuel
+      else
+        pure ()
+
+private theorem validateInvariantClosurePureFnOpsWorkerDoneV1
+    (callables : Array CallableV1) (members : Array Bool) (index fuel : Nat)
+    (hDone : ¬ index < callables.size) :
+    validateInvariantClosurePureFnOpsWorkerV1 callables members index fuel = .ok () := by
+  cases fuel <;> simp [validateInvariantClosurePureFnOpsWorkerV1, hDone,
+    Pure.pure, Except.pure]
+
+private theorem validateInvariantClosurePureFnOpsWorkerExhaustedV1
+    (callables : Array CallableV1) (members : Array Bool) (index : Nat)
+    (hWork : index < callables.size) :
+    validateInvariantClosurePureFnOpsWorkerV1 callables members index 0 =
+      .error .badCfg := by
+  simp [validateInvariantClosurePureFnOpsWorkerV1, hWork]
+  rfl
+
 private def validateInvariantClosurePureFnOpsWithMembersV1
     (callables : Array CallableV1) (members : Array Bool) :
-    Except SemanticWireErrorV1 Unit := do
-  for index in [:callables.size] do
-    if members[index]! then
-      match callables[index]? with
-      | none => return ← err .badCfg
-      | some callable =>
-          if callable.kind == .pureFn then
-            for block in callable.blocks do
-              for instr in block.instructions do
-                match instr.op with
-                | .stateLoad _ => return ← err .badCfg
-                | .stateStore _ _ => return ← err .badCfg
-                | .contextRead _ => return ← err .badCfg
-                | .commit _ => return ← err .badCfg
-                | .emit _ _ _ => return ← err .badCfg
-                | .externalCall _ _ _ => return ← err .badCfg
-                | .schedule _ _ _ => return ← err .badCfg
-                | _ => pure ()
-  pure ()
+    Except SemanticWireErrorV1 Unit :=
+  validateInvariantClosurePureFnOpsWorkerV1 callables members 0 callables.size
 
 /-- Add one contribution to an invariant step total without wraparound. The
     schema-fixed 10M ceiling is stricter than UInt64 overflow, so rejecting as
@@ -318,14 +514,30 @@ private def validateInvariantStepsIntrinsicCeilingV1
         unless steps ≤ maxInvariantStepsV1 do return ← err .badCfg
   pure ()
 
-/-- Run invariant-closure validation in its exact production order and return
-    the exact membership array shared by all membership-consuming subphases. -/
-def validateInvariantClosurePhasesV1 (callables : Array CallableV1) :
+/-- Production closure prefix: direct-root restriction, exact membership
+    computation, and PureFn metadata agreement. Returns the exact membership
+    consumed by the remaining closure and fuel phases. -/
+def validateInvariantClosureMembershipPhasesV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 (Array Bool) := do
   validateInvariantRootDirectOpsV1 callables
   let members ← invariantClosureMembershipResultV1 callables
   validatePureFnInvariantClosureMembershipWithMembersV1 callables members
+  pure members
+
+/-- Public production DAG prefix. It consumes the already-proved membership
+    prefix, runs the actual graph builder, source-index ready collector, and
+    Kahn checker, and returns that exact membership array unchanged. -/
+def validateInvariantClosureDagPhasesV1 (callables : Array CallableV1) :
+    Except SemanticWireErrorV1 (Array Bool) := do
+  let members ← validateInvariantClosureMembershipPhasesV1 callables
   validateInvariantClosureCallGraphDagWithMembersV1 callables members
+  pure members
+
+/-- Run invariant-closure validation in its exact production order and return
+    the exact membership array shared by all membership-consuming subphases. -/
+def validateInvariantClosurePhasesV1 (callables : Array CallableV1) :
+    Except SemanticWireErrorV1 (Array Bool) := do
+  let members ← validateInvariantClosureDagPhasesV1 callables
   validateInvariantClosureCfgAcyclicWithMembersV1 callables members
   validateInvariantClosurePureFnOpsWithMembersV1 callables members
   pure members
@@ -341,23 +553,97 @@ def validateInvariantFuelPhasesV1 (callables : Array CallableV1)
   validateInvariantStepsExactWithMembersV1 callables members
   validateInvariantStepsIntrinsicCeilingV1 callables
 
-/-- Shallow composition rule for the closure phase, retaining the exact
-    membership value returned to the fuel phase. -/
-theorem validateInvariantClosurePhasesV1_eq_ok
+/-- Shallow composition rule for the closure prefix, pinning exact membership
+    through the production direct-root, computation, and metadata checks. -/
+theorem validateInvariantClosureMembershipPhasesV1_eq_ok
     (callables : Array CallableV1) (members : Array Bool)
     (hRoot : validateInvariantRootDirectOpsV1 callables = .ok ())
     (hMembers : invariantClosureMembershipResultV1 callables = .ok members)
     (hMetadata : validatePureFnInvariantClosureMembershipWithMembersV1
-      callables members = .ok ())
+      callables members = .ok ()) :
+    validateInvariantClosureMembershipPhasesV1 callables = .ok members := by
+  simp only [validateInvariantClosureMembershipPhasesV1, hRoot, hMembers,
+    hMetadata, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Shallow production composition for the public DAG prefix. The second
+    premise is the actual private DAG checker, not a parallel graph predicate. -/
+theorem validateInvariantClosureDagPhasesV1_eq_ok
+    (callables : Array CallableV1) (members : Array Bool)
+    (hMembership :
+      validateInvariantClosureMembershipPhasesV1 callables = .ok members)
     (hDag : validateInvariantClosureCallGraphDagWithMembersV1
-      callables members = .ok ())
+      callables members = .ok ()) :
+    validateInvariantClosureDagPhasesV1 callables = .ok members := by
+  simp only [validateInvariantClosureDagPhasesV1, hMembership, hDag, Pure.pure,
+    Except.pure, Bind.bind, Except.bind]
+
+/-- Exact graph/ready/Kahn refinement seam for a four-callable canonical
+    closure. The premises pin the production workers' states: graph
+    `(#[0,1,0,0], #[#[],#[],#[1],#[]], 3)`, ready `#[2,3]`, and Kahn count 3. -/
+theorem validateInvariantClosureDagCanonicalFourV1
+    (callables : Array CallableV1)
+    (hGraph : buildInvariantClosureDagGraphWorkerV1 callables
+      #[false, true, true, true] 0
+      (Array.mk (List.replicate callables.size 0))
+      (Array.mk (List.replicate callables.size #[])) 0 callables.size =
+      .ok (#[0, 1, 0, 0], #[#[], #[], #[1], #[]], 3))
+    (hReady : collectInvariantClosureDagReadyWorkerV1
+      #[false, true, true, true] #[0, 1, 0, 0] 0 #[] callables.size = .ok #[2, 3])
+    (hKahn : validateInvariantClosureDagReadyWorkerV1 0 0 #[0, 1, 0, 0]
+      #[#[], #[], #[1], #[]] #[2, 3] 3 callables.size = .ok 3) :
+    validateInvariantClosureCallGraphDagWithMembersV1 callables
+      #[false, true, true, true] = .ok () := by
+  simp only [validateInvariantClosureCallGraphDagWithMembersV1]
+  rw [hGraph]
+  simp only [Bind.bind, Except.bind]
+  rw [hReady]
+  simp only []
+  rw [hKahn]
+  rfl
+
+/-- Refinement of the two post-DAG closure checkers for the canonical
+    four-callable shape. Callable zero is outside the closure. Callables one,
+    two, and three each have one back-edge-free block; only callable one is a
+    `pureFn`, and its sole instruction is an allowed Bool literal. Invariant
+    roots (two and three) are deliberately not inspected by the PureFn
+    allowlist. -/
+theorem validateInvariantClosurePostDagCanonicalFourV1
+    (c0 c1 c2 c3 : CallableV1) (b1 b2 b3 : BlockV1)
+    (i1 : InstructionV1) (typeId : TypeIdV1) (valueBytes : ByteArray)
+    (hC1Blocks : c1.blocks = #[b1])
+    (hC2Blocks : c2.blocks = #[b2])
+    (hC3Blocks : c3.blocks = #[b3])
+    (hC1BackEdges : cfgBackEdges #[b1] 1 = #[])
+    (hC2BackEdges : cfgBackEdges #[b2] 1 = #[])
+    (hC3BackEdges : cfgBackEdges #[b3] 1 = #[])
+    (hC1Kind : c1.kind = .pureFn)
+    (hC2Kind : (c2.kind == .pureFn) = false)
+    (hC3Kind : (c3.kind == .pureFn) = false)
+    (hC1Instructions : b1.instructions = #[i1])
+    (hLiteral : i1.op = .literal typeId valueBytes) :
+    validateInvariantClosureCfgAcyclicWithMembersV1
+        #[c0, c1, c2, c3] #[false, true, true, true] = .ok () ∧
+      validateInvariantClosurePureFnOpsWithMembersV1
+        #[c0, c1, c2, c3] #[false, true, true, true] = .ok () := by
+  constructor <;>
+    simp [validateInvariantClosureCfgAcyclicWithMembersV1,
+      validateInvariantClosurePureFnOpsWithMembersV1, hC1Blocks, hC2Blocks,
+      hC3Blocks, hC1BackEdges, hC2BackEdges, hC3BackEdges, hC1Kind,
+      hC2Kind, hC3Kind, hC1Instructions, hLiteral, Pure.pure, Except.pure,
+      Bind.bind, Except.bind]
+
+/-- Shallow composition rule for the closure phase, retaining the exact
+    membership value returned to the fuel phase. -/
+theorem validateInvariantClosurePhasesV1_eq_ok
+    (callables : Array CallableV1) (members : Array Bool)
+    (hDag : validateInvariantClosureDagPhasesV1 callables = .ok members)
     (hCfg : validateInvariantClosureCfgAcyclicWithMembersV1
       callables members = .ok ())
     (hOps : validateInvariantClosurePureFnOpsWithMembersV1
       callables members = .ok ()) :
     validateInvariantClosurePhasesV1 callables = .ok members := by
-  simp only [validateInvariantClosurePhasesV1, hRoot, hMembers, hMetadata,
-    hDag, hCfg, hOps, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  simp only [validateInvariantClosurePhasesV1, hDag, hCfg, hOps,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 /-- Shallow composition rule for exact fuel validation over pinned closure
     membership. -/
