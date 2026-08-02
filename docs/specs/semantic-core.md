@@ -288,7 +288,10 @@ SPEC-SEM-WIRE-001 固定为 `pf.semantic.v1`。module/theorem
 `ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1`。modules 按 module name NFC UTF-8 bytes
 排序；roots 同序；exports 按 `(invariantName,theoremName)` 排序。所有 name/path/export/import
 必须唯一，imports 保留 `.olean` direct-import 顺序，owner/root/module 引用必须存在。manifest
-不得自含 digest：
+内所有 bundle-local import edge（包括 roots 不可达的 module）必须组成 DAG；self cycle 与任意
+多 module cycle 都拒绝。未出现在 manifest modules 的 import 在本阶段只形成 unresolved import
+frontier，不得据此认定它属于 trusted base；后续必须与独立验证的 trusted-base inventory exact
+join。manifest 不得自含 digest：
 
 ```text
 proofBundleDigest = SHA-256(

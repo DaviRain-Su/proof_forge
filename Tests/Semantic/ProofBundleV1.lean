@@ -32,11 +32,17 @@ private def qn (comps : Array String) : IO QualifiedName :=
 private def fixedDigest (tag : UInt8) : Digest :=
   sha256Bytes (ByteArray.mk #[tag, 1, 2, 3])
 
+private def fixedTrustPolicyDigest : IO Digest :=
+  match proofTrustPolicyDigestV1 with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError s!"trust policy: {repr error}"
+
 private def mkMinimalManifest (oleanPath : String) (oleanDigest : Digest) :
     IO ProofBundleManifestV1 := do
   let abiModuleName ← qn proofAbiModuleComponentsV1
   let theoremName ← qn proofAbiTheoremComponentsV1
   let moduleName ← qn #["Bundle", "Root"]
+  let trustPolicyDigest ← fixedTrustPolicyDigest
   let mod : ProofModuleV1 := {
     moduleName
     oleanPath
@@ -69,7 +75,7 @@ private def mkMinimalManifest (oleanPath : String) (oleanDigest : Digest) :
       moduleName := abiModuleName
       theoremName
       abiOleanDigest := fixedDigest 0x55
-      trustPolicyDigest := fixedDigest 0x66
+      trustPolicyDigest
       trustedBaseClosureDigest := fixedDigest 0x77
     }
     roots
@@ -95,6 +101,86 @@ private def expectManifestValid
   match validateProofBundleManifestV1 manifest with
   | .ok () => pure ()
   | .error error => throw <| IO.userError s!"{label}: {repr error}"
+
+private def manifestWithGraph
+    (base : ProofBundleManifestV1)
+    (rows : Array (QualifiedName × Array QualifiedName)) : IO ProofBundleManifestV1 := do
+  let modules ← match NonEmptyArray.ofArray (rows.map fun (name, imports) =>
+      { base.modules.head with
+        moduleName := name
+        oleanPath := proofModuleOleanPathV1 name
+        imports }) with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let root ← match rows[0]? with
+    | some row => pure row.1
+    | none => throw <| IO.userError "graph manifest requires a module"
+  let roots ← match NonEmptyArray.ofArray #[root] with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let exports ← match NonEmptyArray.ofArray #[{ base.exports.head with ownerModule := root }] with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  pure { base with modules, roots, exports }
+
+private def expectCycleRejected (label : String) (manifest : ProofBundleManifestV1) : IO Unit := do
+  expectManifestMalformed label manifest "cycle"
+  match proofBundleDigestV1 manifest with
+  | .error (.malformed detail) => expect (detail.contains "cycle") s!"{label} digest: {detail}"
+  | .error error => throw <| IO.userError s!"{label} digest: {repr error}"
+  | .ok _ => throw <| IO.userError s!"{label}: cycle minted digest"
+
+private def testDeclaredLoadPlansAndCycles : IO Unit := do
+  let bytes := "graph-module".toUTF8
+  let base ← mkMinimalManifest "modules/Bundle/Root.olean" (sha256Bytes bytes)
+  let a ← qn #["Bundle", "A"]
+  let b ← qn #["Bundle", "B"]
+  let c ← qn #["Bundle", "C"]
+  let d ← qn #["Bundle", "D"]
+  let unknownA ← qn #["Trusted", "A"]
+  let unknownZ ← qn #["Trusted", "Z"]
+  let checkPlan (label : String) (manifest : ProofBundleManifestV1)
+      (expectedOrder expectedUnknown : Array QualifiedName) : IO Unit := do
+    let manifestBytes ← encodeManifestBytes manifest
+    let files := (NonEmptyArray.toArray manifest.modules).map fun module =>
+      (module.oleanPath, bytes)
+    let opened ← match openProofBundleV1 manifestBytes files with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} open: {repr error}"
+    expect
+      ((NonEmptyArray.toArray opened.manifest.modules).map (·.imports) ==
+        (NonEmptyArray.toArray manifest.modules).map (·.imports))
+      s!"{label}: decoded direct-import order"
+    let plan ← match declaredProofBundleLoadPlanV1 opened with
+      | .ok value => pure value
+      | .error error => throw <| IO.userError s!"{label} plan: {repr error}"
+    expect (plan.dependencyFirstModules == expectedOrder) s!"{label}: dependency order"
+    expect (plan.unresolvedImportFrontier == expectedUnknown) s!"{label}: unresolved imports"
+
+  let singleton ← manifestWithGraph base #[(a, #[])]
+  checkPlan "singleton" singleton #[a] #[]
+  let reversedDependency ← manifestWithGraph base #[(a, #[b]), (b, #[])]
+  checkPlan "dependency first" reversedDependency #[b, a] #[]
+  -- A diamond with canonical manifest rows deterministically selects B before C.
+  let diamond ← manifestWithGraph base #[(a, #[c, b]), (b, #[d]), (c, #[d]), (d, #[])]
+  let originalImports := diamond.modules.head.imports
+  checkPlan "diamond" diamond #[d, b, c, a] #[]
+  expect (diamond.modules.head.imports == originalImports) "plan mutated direct import order"
+  let unknowns ← manifestWithGraph base #[(a, #[unknownZ, unknownA]),
+    (b, #[unknownA, unknownZ])]
+  checkPlan "unknown frontier" unknowns #[a, b] #[unknownA, unknownZ]
+  expect (unknowns.modules.head.imports == #[unknownZ, unknownA])
+    "unknown imports changed direct order"
+
+  expectCycleRejected "self cycle" (← manifestWithGraph base #[(a, #[a])])
+  expectCycleRejected "two-node cycle" (← manifestWithGraph base #[(a, #[b]), (b, #[a])])
+  expectCycleRejected "three-node cycle"
+    (← manifestWithGraph base #[(a, #[b]), (b, #[c]), (c, #[a])])
+  expectCycleRejected "disconnected cycle"
+    (← manifestWithGraph base #[(a, #[]), (b, #[c]), (c, #[b]), (d, #[a])])
+  let disconnectedAcyclic ← manifestWithGraph base
+    #[(a, #[b]), (b, #[]), (c, #[]), (d, #[c])]
+  checkPlan "disconnected acyclic" disconnectedAcyclic #[b, a, c, d] #[]
 
 /-- Positive: open a well-formed one-module bundle. -/
 private def testOpenWellFormed : IO Unit := do
@@ -190,6 +276,16 @@ private def testManifestAuthorityShape : IO Unit := do
   let bytes := ByteArray.mk #[1]
   let path := "modules/Bundle/Root.olean"
   let base ← mkMinimalManifest path (sha256Bytes bytes)
+  let trustPolicyDigest ← fixedTrustPolicyDigest
+  let trustPolicyWire ← match renderDigest trustPolicyDigest with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  expect (trustPolicyWire ==
+      "sha256:68aece0ab5ed11e0010e6ba01153f01872008735add20a656c085af73a242d2c")
+    "fixed trust-policy digest"
+  expectManifestMalformed "foreign trust policy" { base with
+      proofAbi := { base.proofAbi with trustPolicyDigest := fixedDigest 0x66 } }
+    "trustPolicyDigest"
   let baseModule := base.modules.head
   expect (proofModuleOleanPathV1 baseModule.moduleName == path)
     "module path derived from qualified name"
@@ -328,6 +424,7 @@ unsafe def run : IO Unit := do
   testMissingModule
   testExtraModule
   testManifestAuthorityShape
+  testDeclaredLoadPlansAndCycles
   IO.println "Tests.Semantic.ProofBundleV1: ok"
 
 end Tests.Semantic.ProofBundleV1

@@ -65,6 +65,11 @@ private def qn (comps : Array String) : IO QualifiedName :=
 private def fixedDigest (tag : UInt8) : Digest :=
   sha256Bytes (ByteArray.mk #[tag, 1, 2, 3])
 
+private def fixedTrustPolicyDigest : IO Digest :=
+  match proofTrustPolicyDigestV1 with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError s!"trust policy: {repr error}"
+
 private def block (statements : Array StmtV1) : BlockV1 := { statements }
 private def ret (value : ExprV1) : BlockV1 := block #[.return_ (some value)]
 private def u (value : Nat) : ExprV1 := .literal (.integer value)
@@ -125,6 +130,7 @@ private def mkMatchingBundle
   let theoremNameAbi ← qn proofAbiTheoremComponentsV1
   let exportThm ← qn theoremComps
   let moduleName ← qn #["Bundle", "Root"]
+  let trustPolicyDigest ← fixedTrustPolicyDigest
   let mod : ProofModuleV1 := {
     moduleName
     oleanPath
@@ -157,7 +163,7 @@ private def mkMatchingBundle
       moduleName := abiModuleName
       theoremName := theoremNameAbi
       abiOleanDigest := fixedDigest 0x55
-      trustPolicyDigest := fixedDigest 0x66
+      trustPolicyDigest
       trustedBaseClosureDigest := fixedDigest 0x77
     }
     roots

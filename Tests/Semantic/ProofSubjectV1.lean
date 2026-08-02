@@ -71,6 +71,9 @@ private def openMatchingBundle
   let abiTheoremName ← qn proofAbiTheoremComponentsV1
   let exportTheoremName ← qn #["Bundle", "Thm"]
   let moduleName ← qn #["Bundle", "Root"]
+  let trustPolicyDigest ← match proofTrustPolicyDigestV1 with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"trust policy: {repr error}"
   let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := "proof-subject-join-olean".toUTF8
   let proofModule : ProofModuleV1 := {
@@ -103,7 +106,7 @@ private def openMatchingBundle
       moduleName := abiModuleName
       theoremName := abiTheoremName
       abiOleanDigest := sha256Bytes "abi".toUTF8
-      trustPolicyDigest := sha256Bytes "trust".toUTF8
+      trustPolicyDigest
       trustedBaseClosureDigest := sha256Bytes "closure".toUTF8 }
     roots
     modules
