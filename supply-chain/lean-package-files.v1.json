@@ -716,6 +716,11 @@
       "sha256": "2d91caeb073fa8608d46de1fc7a900bcec483c08c094baa7ad94c3d8b742257d"
     },
     {
+      "bytes": 7304,
+      "path": "ProofForgeV2/Typed/AuthorityCustodyCheckV1.lean",
+      "sha256": "d51681582ed92e1e2b68317f96ef0dec015ee5c76e06e951b73343a4e9fe1289"
+    },
+    {
       "bytes": 23023,
       "path": "ProofForgeV2/Typed/BoundCheckV1.lean",
       "sha256": "8a443e73cb6d1f9d2c6934ae7cdec4037f31dc662de53b1c290a1b20fe2a4f79"
