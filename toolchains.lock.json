@@ -24,6 +24,27 @@
       "format": "zip"
     },
     {
+      "id": "leo-4.0.2-aarch64-apple-darwin",
+      "url": "https://github.com/ProvableHQ/leo/releases/download/v4.0.2/leo-release_4_0_2-aarch64-apple-darwin.zip",
+      "size": 30528562,
+      "sha256": "0b7e5010312e850e01d2861f23af047e42229109b649caef0d58b514bfb8701f",
+      "format": "zip"
+    },
+    {
+      "id": "nargo-1.0.0-beta.26-aarch64-apple-darwin",
+      "url": "https://github.com/noir-lang/noir/releases/download/v1.0.0-beta.26/nargo-aarch64-apple-darwin.tar.gz",
+      "size": 16041552,
+      "sha256": "2b8a938a0eae411d0105133eb1eb97b0b1f1942037b2f42c9fac72456f5e9b32",
+      "format": "tar.gz"
+    },
+    {
+      "id": "near-sandbox-2.13.0-darwin-arm64",
+      "url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Darwin-arm64/2.13.0/near-sandbox.tar.gz",
+      "size": 28825202,
+      "sha256": "330bb4125bc7f466b844366748decae2b44f8e75b31148196293e81a4116a666",
+      "format": "tar.gz"
+    },
+    {
       "id": "openssl-3.6.3-homebrew-arm64-tahoe",
       "url": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:2d995a1bbbd8e6ee6a9042990dde87e7321d1ddd5716ffee53b140d23cb9f92f",
       "size": 10916538,
@@ -58,6 +79,19 @@
       "size": 3871425,
       "sha256": "e5269d6bbe05dfeb179e4f21111b3a641d6ccaa38b0b21d472ae5c65f8c4ff5d",
       "format": "tar.gz"
+    },
+    {
+      "id": "xz-5.8.3-homebrew-arm64-tahoe",
+      "url": "https://ghcr.io/v2/homebrew/core/xz/blobs/sha256:55c891f5d47142fe923c87df0e3343d7ef2bc7d368c67892b4ad2c80e53069d5",
+      "size": 770804,
+      "sha256": "55c891f5d47142fe923c87df0e3343d7ef2bc7d368c67892b4ad2c80e53069d5",
+      "format": "tar.gz",
+      "auth": {
+        "type": "oci-bearer",
+        "realm": "https://ghcr.io/token",
+        "service": "ghcr.io",
+        "scope": "repository:homebrew/core/xz:pull"
+      }
     }
   ],
   "compilerToolchain": {
@@ -123,12 +157,44 @@
       "mode": "0555"
     },
     {
+      "path": "leo",
+      "assetId": "leo-4.0.2-aarch64-apple-darwin",
+      "member": "leo",
+      "size": 75384208,
+      "sha256": "da83089b4cb43a33a846a3e674c24cf54b66da5d14cd2bcddc2977a3b1856397",
+      "mode": "0555"
+    },
+    {
       "path": "lib/libcrypto.3.dylib",
       "assetId": "openssl-3.6.3-homebrew-arm64-tahoe",
       "member": "openssl@3/3.6.3/lib/libcrypto.3.dylib",
       "size": 4846032,
       "sha256": "64bc88540449292800458aa64fb0ca8b6fdb913413fd691f5f057b16315c06f4",
       "mode": "0444"
+    },
+    {
+      "path": "lib/liblzma.5.dylib",
+      "assetId": "xz-5.8.3-homebrew-arm64-tahoe",
+      "member": "xz/5.8.3/lib/liblzma.5.dylib",
+      "size": 184512,
+      "sha256": "75ec6dbd7c2194e0c7ca48a182aee4fc84587e5fd05a875297c07a77a8504211",
+      "mode": "0444"
+    },
+    {
+      "path": "nargo",
+      "assetId": "nargo-1.0.0-beta.26-aarch64-apple-darwin",
+      "member": "nargo",
+      "size": 43341760,
+      "sha256": "f6813368af0a901261cf0cc785d8f3c75a038756b2c9927fbd990e64239d3781",
+      "mode": "0555"
+    },
+    {
+      "path": "near-sandbox",
+      "assetId": "near-sandbox-2.13.0-darwin-arm64",
+      "member": "Darwin-arm64/near-sandbox",
+      "size": 71414992,
+      "sha256": "fcc74e9421f727d6b01e1f8a92ef1c2e471a8cc3e68cc1a4c4917574f225eae7",
+      "mode": "0555"
     },
     {
       "path": "solc",
@@ -169,9 +235,34 @@
         "externalLoads": []
       },
       {
+        "path": "leo",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
         "path": "lib/libcrypto.3.dylib",
         "installId": "@@HOMEBREW_PREFIX@@/opt/openssl@3/lib/libcrypto.3.dylib",
         "externalLoads": []
+      },
+      {
+        "path": "lib/liblzma.5.dylib",
+        "installId": "@@HOMEBREW_PREFIX@@/opt/xz/lib/liblzma.5.dylib",
+        "externalLoads": []
+      },
+      {
+        "path": "nargo",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "near-sandbox",
+        "installId": null,
+        "externalLoads": [
+          {
+            "installName": "/opt/homebrew/opt/xz/lib/liblzma.5.dylib",
+            "bundlePath": "lib/liblzma.5.dylib"
+          }
+        ]
       },
       {
         "path": "solc",
@@ -255,6 +346,74 @@
       "sourceBuild": null
     },
     {
+      "id": "leo",
+      "version": "4.0.2",
+      "sourceUrl": "https://github.com/ProvableHQ/leo/releases/tag/v4.0.2",
+      "platform": "darwin-arm64",
+      "assetId": "leo-4.0.2-aarch64-apple-darwin",
+      "executable": "leo",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/leo",
+      "executableSha256": "da83089b4cb43a33a846a3e674c24cf54b66da5d14cd2bcddc2977a3b1856397",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "4.0.2",
+      "licenseSpdx": "GPL-3.0-or-later",
+      "requiredByProfiles": [
+        "aleo-leo-build-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "nargo",
+      "version": "1.0.0-beta.26",
+      "sourceUrl": "https://github.com/noir-lang/noir/releases/tag/v1.0.0-beta.26",
+      "platform": "darwin-arm64",
+      "assetId": "nargo-1.0.0-beta.26-aarch64-apple-darwin",
+      "executable": "nargo",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/nargo",
+      "executableSha256": "f6813368af0a901261cf0cc785d8f3c75a038756b2c9927fbd990e64239d3781",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "1.0.0-beta.26",
+      "licenseSpdx": "Apache-2.0 OR MIT",
+      "requiredByProfiles": [
+        "noir-nargo-compile-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "near-sandbox",
+      "version": "2.13.0",
+      "sourceUrl": "https://github.com/near/nearcore/releases/tag/2.13.0",
+      "platform": "darwin-arm64",
+      "assetId": "near-sandbox-2.13.0-darwin-arm64",
+      "executable": "near-sandbox",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/near-sandbox",
+      "executableSha256": "fcc74e9421f727d6b01e1f8a92ef1c2e471a8cc3e68cc1a4c4917574f225eae7",
+      "runtimeLibrarySubdir": "lib",
+      "runtimeFiles": [
+        {
+          "path": "lib/liblzma.5.dylib",
+          "sha256": "75ec6dbd7c2194e0c7ca48a182aee4fc84587e5fd05a875297c07a77a8504211"
+        }
+      ],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "2.13.0",
+      "licenseSpdx": "GPL-3.0-or-later OR MIT OR Apache-2.0",
+      "requiredByProfiles": [
+        "near-sandbox-receipt-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
       "id": "sbpf",
       "version": "0.2.2",
       "sourceUrl": "https://github.com/blueshift-gg/sbpf",
@@ -328,7 +487,7 @@
   "unresolved": {
     "nearSandbox": "2.13.0",
     "solanaAssembler": "0.2.2",
-    "nargo": null,
+    "nargo": "1.0.0-beta.26",
     "barretenberg": null
   }
 }

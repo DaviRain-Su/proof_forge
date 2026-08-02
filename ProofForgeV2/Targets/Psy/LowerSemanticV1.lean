@@ -20,9 +20,13 @@ enforced by explicit assert guards at emission (Felt is a field element; the
 old Psy backend had no checked arith — V2 requires it). Bitwise `&`/`|`/`^`
 and shifts lower to native Psy Felt operators (golden BitwiseProbe); unary
 `~` (bitNot) lowers for **UInt32** to `x ^ 4294967295u32` (XOR with the 2^32−1
-mask, verified faithful on the real dargo VM). **UInt64 bitNot fails closed**:
-Psy has no u64 type and no bitwise-not unary, and `2^64−1` is not a
-representable Felt (`≡ 2^32−2 mod p`).
+mask, verified faithful on the real dargo VM). **UInt64 bitNot** lowers to
+`checkedBitNot`: exact UInt64 `bitNot x = (2^64−1) − x` is representable as a
+Felt iff `x ≥ 2^32−1` (equivalently result `< p`); emission asserts that
+threshold then computes `(2^32−2) − x` as wrapping Felt sub
+(`2^32−2 ≡ 2^64−1 (mod p)`, and the field wrap recovers the exact difference
+precisely when the guard passes). Inputs `x ≤ 2^32−2` trap like checked-arith
+overflow — **not** mod-p bitNot. Int64 bitNot stays fail-closed.
 
 **Field (bn254 Fr) is fail-closed.** Native Psy `Felt` is plonky2 Goldilocks
 (`ORDER = 0xFFFFFFFF00000001`), not catalog bn254 Fr — see
@@ -112,10 +116,17 @@ inductive Expr where
       `flip 4294967295 → 0`, `flip 0 → 4294967295`). Mask-**subtraction** is
       NOT used: the VM's u32 sub is checked with a bug (`u32 sub value too
       low` panics on `4294967295u32 - 4294967295u32`), so `2^32−1 − x` would
-      wrongly revert at `x = 2^32−1`. **UInt64 bitNot stays fail-closed**: Psy
-      has no u64 type and no bitwise-not unary, and the `2^64−1` mask is not
-      representable as a Felt (`≡ 2^32−2 mod p`). -/
+      wrongly revert at `x = 2^32−1`. -/
   | bitNot (operand : Expr)
+  /-- Checked UInt64 bitwise-not. Exact `bitNot x = (2^64−1) − x` is a legal
+      Felt iff `x ≥ 2^32−1` (result `< p = 2^64−2^32+1`). Emission asserts the
+      threshold then does wrapping Felt sub `(2^32−2) − x`
+      (`2^32−2 ≡ 2^64−1 (mod p)`); when the guard holds the field result equals
+      the exact UInt64 bitNot. Boundary matrix: `x=0` / `x=2^32−2` trap;
+      `x=2^32−1` → `p−1`; `x=UInt64.max` is not a Felt value (domain is
+      `[0,p)`), so the runtime surface is the representable half only — never
+      silent mod-p bitNot for the unrepresentable half. -/
+  | checkedBitNot (operand : Expr)
   /-- Checked Int64 negation (intMin reverts at emission). -/
   | checkedNeg (operand : Expr)
   /-- Signed Int64 comparison (Felt signed interpretation at emission). -/
@@ -593,7 +604,9 @@ private def lowerUnary
   match op with
   | .not => pure (.boolNot operand)
   | .bitNot =>
-      planError "unsupported Psy semantic shape: unary bitNot (~) on UInt64/Int64 has no Psy surface form (no u64 type, no bitwise-not unary; 2^64−1 is not a representable Felt)"
+      -- UInt32/UInt64 bitNot are handled in the unary instruction arm before
+      -- this helper; residual callers (Int64 / wrong width) stay fail-closed.
+      planError "unsupported Psy semantic shape: unary bitNot (~) on Int64 has no Psy surface form (checkedBitNot is UInt64-only; Int two's-complement flip is not admitted on Felt)"
   | .neg => pure (.checkedNeg operand)
 
 private structure LoopCtxV1 where
@@ -792,6 +805,12 @@ private partial def lowerRegion
               unless !o.isAggregate && o.isU32 do
                 planError "unsupported Psy semantic shape: UInt32 bitNot operand must be a scalar u32"
               env := envInsertU32 env valueDef.valueId (.bitNot o.expr)
+            else if op == .bitNot && isUInt64Type data valueDef.typeId then
+              -- Exact UInt64 bitNot with Felt representability guard (see
+              -- `Expr.checkedBitNot`). Operand must be scalar Felt UInt64.
+              unless !o.isAggregate && !o.isU32 && !o.isField do
+                planError "unsupported Psy semantic shape: UInt64 bitNot operand must be a scalar Felt UInt64"
+              env := envInsert env valueDef.valueId (.checkedBitNot o.expr)
             else if o.isField && op == .neg then
               -- T14 catalog v2 (Goldilocks): native Felt field negation.
               unless !o.isAggregate do

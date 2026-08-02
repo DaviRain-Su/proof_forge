@@ -13338,3 +13338,41 @@ normative: false
   P0/P1 review、`git diff --check` 与 final ordinary `just ci` 全部通过。
 - Boundary：shared engineering Semantic/Reference cutover only；六 target 的 Int loop lowering仍未开放，
   不声称 formal `TASK-D2-06/07`、TST-SEM 或 D4 完成。
+
+### 2026-08-03 — Wave 1 六 lane 集成（branch `integrate/w1-all`，基座 9ad021700）
+
+> 六条显式 worktree lane（L1/L2/L3/L4/G4/G123）经主代理 diff 审计、共享文件手工并集
+> （`Tests/Materialization/Targets.lean` N3 钉测）、shard 注册与门禁后集成为单一分支；
+> 各 lane 的 atomic aggregate store 均保持 pre-store snapshot 模式不回退。
+
+- **L3 Noir Bytes state**：`Bytes N` → N×`InputType.u8` public-input leaves（统一
+  `containerLeafLayoutV1` 给出 `(leafCount, leafByteWidth)`）；literal IndexGet/IndexSet；
+  `storeAggregate` 两阶段。Bytes construct/param/动态索引仍 FC；Noir 仍 source-only。
+- **L4 Psy UInt64 bitNot**：UInt64 `~` → Plan `Expr.checkedBitNot`；发射 `assert x ≥ 2^32−1`
+  + wrapping Felt sub `(2^32−2) − x`（`2^32−2 ≡ 2^64−1 (mod p)`，guard 通过时精确等于
+  `(2^64−1) − x`；不可表示输入运行时 trap，非 mod-p bitNot）。Int64 `~` 仍 FC。
+- **G123 Tool Lock 三联**：near-sandbox 2.13.0 / nargo 1.0.0-beta.26 / leo 4.0.2 入
+  `tools[]`（darwin+linux，实测 SHA-256；Darwin near-sandbox 捆绑 xz 5.8.3 liblzma）。
+  `near_sandbox_acceptance.sh`（deploy/init(7)/increment(5)/view==12 真实通过）与
+  `noir_compile_acceptance.sh`（Counter 三 relation 包 nargo compile 真实通过）新增；
+  `aleo_acceptance.sh` 优先 Tool Lock leo。Noir 仅 compile-only（RPT-017 最小路径），
+  barretenberg 仍 null，`validate_artifacts.py` 仍拒 proof-stage 叶，`Nargo.toml` 不写
+  `compiler_version`。新 suite `NearSandboxAcceptance`/`NoirCompileAcceptance` 注册
+  shard-targets 并真实通过；均为可选工具工程门，非 formal/Stage-0/prove 完成。
+- **G4 EVM Anvil 工程差分**：`evm_anvil_differential.sh` 编排产品 CLI 制品
+  （Counter/Accumulator/ArithOps/EventFlow）；`smoke_evm.sh` 增 storage slot0 双读、
+  overflow revert 状态不变与 EventFlow `Moved(0,5)` emit 日志断言；token smoke 增
+  overflow/over-transfer hold。本机 Foundry 0.3.0 真实全绿；Token companion 因 solc
+  StackTooDeep（dense Map pilot）skip-clean。非 formal C-3。
+- **L1 NEAR named 聚合**：named Struct/Enum state/params preorder 扁平 UInt64/Int64 KV
+  leaves + construct/fieldGet/fieldSet/variantTag/variantPayload + atomic storeAtomic；
+  HostModel PointBox/EnumBox 端到端。聚合返回值/Option state/ContextRead/sync call 仍 FC。
+- **L2 Solana named 聚合 + Bytes**：named Struct/Enum state flatten + Bytes N×UInt8
+  state/params + literal IndexGet/Set；`storeAggregate`→`storeStateMulti`（pre-store
+  snapshot + CSE）；4096B SBPF frame 硬门保持，plan profile 绿，solana-runtime 44/44 绿。
+  聚合/Array/Principal 返回值、named params、Bytes construct、Array/Map params、Option
+  state、ContextRead 仍 FC；CPI/call/schedule 保持现状 stub（B-CALL-SEM 独立轨道）。
+- **N3 并集**：`Tests.Materialization.Targets` named Struct state 钉测改为六 target 全
+  admit（EVM/Solana/NEAR/Noir/Psy/Aleo flatten-to-leaf）。
+- 边界：全部为非 formal 工程切片；不声称 formal D2/D4、prove/verify、sandbox formal
+  closure 或部署完成。

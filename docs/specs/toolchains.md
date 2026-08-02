@@ -206,8 +206,13 @@ candidate/release digest 仍是起始信任。开发模式可输出 ineligible �
 
 | sBPF assembler (`sbpf`) | blueshift-gg/sbpf `0.2.2` @ `d835bc6e…a5ba`，`format: cargo-git`，`sourceBuild` | n/a（非字节 pin；`sbpf --version` → `sbpf 0.2.2`） | 已登记；`unresolved.solanaAssembler="0.2.2"` 记录 version pin |
 
-未冻结：Nargo、Barretenberg；`null` 表示未进入实现承诺，不能从 PATH 猜测。nearSandbox
-version pin 已写入 unresolved，工具尚未进入 `tools[]`。
+| near-sandbox | official nearcore `2.13.0`（Darwin-arm64 / Linux-x86_64 tar.gz） | darwin archive `330bb412…a666`、linux archive `522f9877…89de`（executable digest 见 lock） | Darwin 捆绑 Homebrew `xz 5.8.3` bottle 的 `liblzma.5.dylib`（`55c891f5…69d5`）；`unresolved.nearSandbox="2.13.0"` 记录 version pin |
+| nargo | noir-lang `v1.0.0-beta.26`（compile-only 门；**不**含 prove/verify） | darwin archive `2b8a938a…9b32`、linux archive `64048040…fb80` | `unresolved.nargo="1.0.0-beta.26"` 记录 version pin；barretenberg 仍 `null` |
+| leo | ProvableHQ `v4.0.2`（darwin aarch64 / linux x86_64-gnu） | darwin archive `0b7e5010…701f`、linux archive `7dc54a9f…7be8` | system-only 闭包（Linux 含 `libssl.so.3`/`libcrypto.so.3` system soname） |
+
+未冻结：Barretenberg；`null` 表示未进入实现承诺，不能从 PATH 猜测。near-sandbox / nargo /
+leo 已入 `tools[]`（G123 工程切片，2026-08-03）；验收门为可选工具门（缺席 skip-clean），
+Noir 仅 compile-only，不升格 prove/verify。
 
 ## Provision 与离线物化
 

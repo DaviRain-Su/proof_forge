@@ -29,25 +29,25 @@ normative: false
 | wire Op / feature | EVM | Solana | NEAR | Noir | Psy | Aleo |
 |---|---|---|---|---|---|---|
 | stateLoad/stateStore（标量） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
-| stateLoad/stateStore（named 聚合） | LOWERED(N3) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
+| stateLoad/stateStore（named 聚合） | LOWERED(N3) | LOWERED(L2) | LOWERED(L1) | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
 | stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | LOWERED(H3 flatten) |
 | stateLoad/stateStore（Map） | LOWERED(cap-8; atomic store) | LOWERED(cap-8; aggregate CSE→storeStateMulti；ELF+Mollusk 4/4) | LOWERED(cap-8; atomic KV store) | LOWERED(cap-8; atomic multi-leaf PI) | FAIL-CLOSED | LOWERED(cap-2; atomic mapping store) |
-| stateLoad/stateStore（Bytes） | LOWERED(D4-E2: N×UInt8 leaves) | FAIL-CLOSED | LOWERED(N×UInt8 KV leaves) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(Bytes N: N×u8 mappings) |
+| stateLoad/stateStore（Bytes） | LOWERED(D4-E2: N×UInt8 leaves) | LOWERED(L2: N×UInt8 leaves) | LOWERED(N×UInt8 KV leaves) | LOWERED(L3: N×UInt8 leaves) | FAIL-CLOSED | LOWERED(Bytes N: N×u8 mappings) |
 | stateLoad/stateStore（Option） | FAIL-CLOSED（Normalize **admitted** N-A4；target container 永不 admit） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（String） | LOWERED(N4) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（Field bn254） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED(非Goldilocks) | FAIL-CLOSED(非BLS12-377) |
 | stateLoad/stateStore（Field BLS12-377） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | **LOWERED(T14)** |
 | stateLoad/stateStore（Field Goldilocks） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | **LOWERED(T14)** | FAIL-CLOSED |
-| construct（named Struct/Enum） | LOWERED(N3) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
-| fieldGet/fieldSet | LOWERED(N3) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
+| construct（named Struct/Enum） | LOWERED(N3) | LOWERED(L2) | LOWERED(L1) | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
+| fieldGet/fieldSet | LOWERED(N3) | LOWERED(L2) | LOWERED(L1) | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
 | variantTag/variantPayload | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | LOWERED(H3) |
 | indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | LOWERED(H3 flatten) |
 | indexGet/indexSet（Map） | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | FAIL-CLOSED | LOWERED(dense Map cap-2) |
-| indexGet/indexSet（Bytes） | LOWERED(D4-E2) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| indexGet/indexSet（Bytes） | LOWERED(D4-E2) | LOWERED(L2: literal index) | FAIL-CLOSED | LOWERED(L3: compile-time literal index、UInt8 leaf；动态索引 FC) | FAIL-CLOSED | FAIL-CLOSED |
 | fieldAdd/Sub/Mul/Div/Neg（Field） | LOWERED(N2b-EVM bn254) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生 bn254) | **LOWERED(T14 Goldilocks)** | **LOWERED(T14 BLS12-377)** |
 | eq/ne（所有支持类型） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | ordering 比较 | LOWERED(UInt/Int) | LOWERED(UInt/Int) | LOWERED | LOWERED(UInt/Field) | LOWERED | LOWERED |
-| unary（-/~/!） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED(~/!;neg FC) |
+| unary（-/~/!） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED(UInt64 `~`→checkedBitNot，x<2^32−1 运行时 trap；Int64 `~` FC；UInt32 `~` XOR mask) | LOWERED(~/!;neg FC) |
 | binary 算术（checked + - * / %） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | shift/bitwise/logical | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | pureCall（fn/localCall） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
@@ -70,8 +70,8 @@ normative: false
 |---|---|---|---|---|---|---|
 | Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A |
-| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: wat2wasm+wasm-interp) | ❌(source-only) | ❌(source-only) | ✅(AleoAcceptance: leo 4.0.2 build; 缺席 skip；非 Tool Lock pin) |
-| 运行时差分 (Reference↔target) | ❌(Anvil formal 缺) | ✅(S3b Mollusk) | ⚠️(WABT load+dummy env; 非 sandbox receipt / 非 Reference↔Wasm) | ❌ | ❌ | ❌ |
+| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: wat2wasm+wasm-interp) | ✅(NoirCompileAcceptance: nargo 1.0.0-beta.26 compile-only；G123；缺席 skip；**非** prove/verify) | ❌(source-only) | ✅(AleoAcceptance: leo 4.0.2 Tool Lock pin（G123）；缺席 skip；非 prove/deploy) |
+| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow overflow state-hold + emit 日志；**非** formal C-3) | ✅(S3b Mollusk) | ⚠️(WABT dummy env + 可选 near-sandbox 2.13.0 receipt 工程门（G123：deploy/init/mutate/view）；非 Reference↔Wasm formal) | ❌ | ❌ | ❌ |
 
 ## 3. 工程轨道未实现 feature 全清单（A/B/C/D 组）
 
@@ -95,7 +95,7 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **B-1a** | NEAR 聚合与容器 | **部分闭合**：Array UInt、dense Map cap-8 与 fixed Bytes N 已 flatten-to-KV；named Struct/Enum state、construct 与 fieldGet/fieldSet 仍 FAIL-CLOSED | NearAggregate + NS-1 + Bytes |
+| **B-1a** | NEAR 聚合与容器 | **闭合（L1）**：Array UInt、dense Map cap-8、fixed Bytes N 与 **named Struct/Enum** 已 flatten-to-KV（construct/fieldGet/fieldSet/variant ops + atomic storeAtomic；HostModel 端到端）；聚合返回值仍 FAIL-CLOSED（B-RET-ABI） | NearAggregate + NS-1 + Bytes + L1 |
 | **B-1b** | Noir named 聚合 | **闭合(NoirAggregate)**：named Struct/Enum + **Map UInt64 dense pilot**（cap-8 occ/key/val multi-leaf PI + IndexGet→Option + IndexSet；`storeAggregate` 两阶段 snapshot 与 empty-upsert relation model）+ **Array UInt64 state flatten**；Bytes 仍 FAIL-CLOSED | NoirAggregate + NoirMap + NoirContainer + MapSnapshot |
 | **B-1c** | Aleo 全功能 | **AleoCoverage + H3/NS-1/Bytes/Int64/T14**：标量、named Struct/Enum、Array、dense Map cap-2、fixed Bytes N、Commit 身份透传与 **BLS12-377 Fr** 已 LOWERED；Map aggregate StateStore 以 get-all-before-set two-phase 修复 empty upsert。bn254/Goldilocks、Option/Principal/String/ContextRead/externalCall/schedule/emit 仍 FAIL-CLOSED。compiler 仅 optional host `leo build`，无 Tool Lock pin | AleoCoverage + T14 + MapSnapshot |
 | **B-1d** | Solana Map/Bytes/Option state | **Map pilot 已进 ELF+Mollusk**；`storeAggregate` structural CSE + `storeStateMulti` 固定 pre-store snapshot，峰值 177 temp/1424B，`put_into_empty` 已解除 ignore，MapMini 4/4 runtime 通过；Bytes/Option state 仍 FAIL-CLOSED | SolanaMapPilot + B-SOL-MAP-ELF + B-SOL-MAP-UPSERT ✅ |

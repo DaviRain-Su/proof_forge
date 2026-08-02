@@ -2988,9 +2988,9 @@ unsafe def run : IO Unit := do
         s!"T10 Principal return decline must cite result surface, got {e.render}"
 
 
-  -- N3 / NoirAggregate / H3 PsyAleoAggregate: named Struct state + field assign
-  -- product pin — EVM/Noir/Psy/Aleo admit (flatten-to-leaf); Solana/NEAR decline
-  -- at type-closure (named types default none).
+  -- N3 / NoirAggregate / H3 PsyAleoAggregate / L1 NearNamedAggregate / L2
+  -- SolanaNamedAggregate: named Struct state + field assign product pin —
+  -- all six targets admit (flatten-to-leaf).
   let structStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3018,6 +3018,17 @@ unsafe def run : IO Unit := do
     s!"N3 struct-state: EVM flattened leaf slots for Point.x/y, got {evmStruct.storageLayout.size}"
   expect (evmStruct.entries.any fun e => e.name == "setX")
     "N3 struct-state: EVM plan has setX entry"
+  -- L2 SolanaNamedAggregate: Solana admits named Struct flatten-to-leaf.
+  let solanaStruct ← liftResult <| planSolana structCompiled
+  expect (solanaStruct.stateAccount.fields.size == 2)
+    s!"N3 struct-state: Solana flattened leaf slots for Point.x/y, got {solanaStruct.stateAccount.fields.size}"
+  expect (solanaStruct.stateAccount.fields.any fun f => f.name == "p_x")
+    "N3 struct-state: Solana leaf name p_x"
+  expect (solanaStruct.stateAccount.fields.any fun f => f.name == "p_y")
+    "N3 struct-state: Solana leaf name p_y"
+  expect (solanaStruct.entries.any fun e => e.name == "setX")
+    "N3 struct-state: Solana plan has setX entry"
+  let _ ← liftResult <| materializeSelected TargetId.solana structCompiled
   let noirStruct ← liftResult <| planNoir structCompiled
   expect (noirStruct.states.size == 2)
     s!"NoirAggregate: Noir flattened leaf public inputs for Point.x/y, got {noirStruct.states.size}"
@@ -3037,16 +3048,13 @@ unsafe def run : IO Unit := do
   expect (aleoStruct.stateFieldNames == #["p_x", "p_y"])
     s!"H3 Aleo named Struct must flatten to p_x/p_y, got {aleoStruct.stateFieldNames}"
   let _ ← liftResult <| materializeSelected TargetId.aleo structCompiled
-  for target in [TargetId.solana, TargetId.near] do
-    match materializeSelected target structCompiled with
-    | .ok _ =>
-        throw <| IO.userError s!"N3 struct-state: {target} must decline named aggregate"
-    | .error e =>
-        expect ((e.render).contains "named" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "Struct" ||
-            (e.render).contains "pilot")
-          s!"N3 struct-state {target} message must cite named/aggregate boundary, got {e.render}"
+  -- L1 NearNamedAggregate: NEAR admits named Struct flatten-to-KV leaves.
+  let nearStruct ← liftResult <| planNear structCompiled
+  expect (nearStruct.storage.fields.map (·.name) == #["p_x", "p_y"])
+    s!"NearNamedAggregate: NEAR flattened KV leaves p_x/p_y, got {nearStruct.storage.fields.map (·.name)}"
+  expect (nearStruct.entries.any fun e => e.name == "setX")
+    "NearNamedAggregate: NEAR plan has setX entry"
+  let _ ← liftResult <| materializeSelected TargetId.near structCompiled
 
   -- ArrayState: fixed Array UInt64 2 state — Solana + EVM + NEAR + Noir + H3
   -- Psy/Aleo admit (flatten to leaf slots named slots_0/slots_1; IndexGet/Set).

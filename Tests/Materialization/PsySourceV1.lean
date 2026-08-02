@@ -190,8 +190,19 @@ unsafe def testEmitAndPureFn : IO Unit := do
   expect (psy.contains "double(")
     "localCall must invoke the helper"
 
-/-- Fail closed: unary bitNot has no Psy surface. -/
-unsafe def testFailClosedBitNot : IO Unit := do
+/-- UInt64 bitNot (~) lowers to Plan `checkedBitNot` and emits exact-semantics
+    with a Felt representability guard:
+      bitNot x = (2^64−1) − x  is a legal Felt iff x ≥ 2^32−1 (result < p).
+    Emission: `assert x >= 4294967295` then wrapping Felt sub
+    `(4294967294) − x` where 4294967294 = 2^32−2 ≡ (2^64−1) (mod p).
+    Boundary coverage (runtime / math):
+      x=0         → trap (result = 2^64−1 ≥ p)
+      x=2^32−2    → trap (result = p)
+      x=2^32−1    → p−1 (representable)
+      x=UInt64.max→ math result 0, but UInt64.max ∉ Felt domain [0,p); not a
+                    runtime input on this surface (Felt values are already < p).
+    Forbidden: silent mod-p bitNot / illegal 2^64−1 Felt literal. -/
+unsafe def testUInt64BitNotLowered : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -202,15 +213,60 @@ unsafe def testFailClosedBitNot : IO Unit := do
   let parsed ← liftResult (← session.selectProgramV1
     source "<psy-flip>" "Tests.PsyFlip" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let some flip := plan.functions.find? (·.name == "flip") |
+    throw <| IO.userError s!"flip: missing flip, got {plan.functions.map (·.name)}"
+  expect (flip.body == #[.returnValue (.checkedBitNot (.param 0))])
+    s!"UInt64 bitNot must lower to Plan checkedBitNot(param0), got {repr flip.body}"
+  expect (!flip.params.any (·.isU32))
+    "flip: UInt64 param must not be tagged isU32"
+  expect (!flip.resultIsU32)
+    "flip: UInt64 result must not be tagged resultIsU32"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "Flip.psy") |
+    throw <| IO.userError "psy: missing Flip.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub fn flip(p0: Felt) -> Felt")
+    "UInt64 bitNot fn must render Felt param and result"
+  -- Representability guard: x >= 2^32−1 (exact UInt64 bitNot result < p)
+  expect (psy.contains "4294967295")
+    "UInt64 bitNot must emit the 2^32−1 representability threshold"
+  expect (psy.contains "u64 bitNot result not representable in Felt")
+    "UInt64 bitNot must emit the representability assert message"
+  -- Reduced mask 2^32−2 used as wrapping Felt sub (≡ 2^64−1 mod p)
+  expect (psy.contains "4294967294")
+    "UInt64 bitNot must emit the reduced mask 2^32−2 for field sub"
+  expect (psy.contains " - ")
+    "UInt64 bitNot must emit Felt subtraction of the reduced mask"
+  -- Never emit the illegal full UInt64 all-ones mask as a Felt literal
+  expect (!psy.contains "18446744073709551615")
+    "UInt64 bitNot must not emit the illegal 2^64−1 Felt literal"
+  -- Must not reuse the u32 XOR surface
+  expect (!psy.contains "4294967295u32")
+    "UInt64 bitNot must not emit the u32 XOR mask form"
+
+/-- Fail closed: Int64 bitNot has no Psy surface (checkedBitNot is UInt64-only). -/
+unsafe def testFailClosedInt64BitNot : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program FlipI64 where\n" ++
+    "  entry flip(x : Int64) : Int64 do\n" ++
+    "    return ~x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-flip-i64>" "Tests.PsyFlipI64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planPsy compiled with
   | .error (.planInvariant .psy msg) =>
-      expect (msg.contains "bitNot" || msg.contains "bitwise-not")
-        s!"bitNot planInvariant must mention bitNot, got: {msg}"
+      expect (msg.contains "bitNot" || msg.contains "Int64")
+        s!"Int64 bitNot planInvariant must mention bitNot/Int64, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
-  | .ok _ => throw <| IO.userError "bitNot must fail closed at Psy plan"
+  | .ok _ => throw <| IO.userError "Int64 bitNot must fail closed at Psy plan"
 
 /-- bitNot (~) on UInt32 lowers to `x ^ 4294967295u32` (XOR mask, verified
-    faithful on the real dargo VM). UInt64 bitNot stays fail-closed. -/
+    faithful on the real dargo VM). UInt64 bitNot uses checkedBitNot separately. -/
 unsafe def testUInt32BitNotLowered : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -871,7 +927,8 @@ unsafe def run : IO Unit := do
   testCheckedArithGuards
   testBitwiseAndShifts
   testEmitAndPureFn
-  testFailClosedBitNot
+  testUInt64BitNotLowered
+  testFailClosedInt64BitNot
   testUInt32BitNotLowered
   testUInt32ArithFailClosed
   testUInt32CompareLowered

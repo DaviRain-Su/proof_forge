@@ -7,6 +7,7 @@ import Tests.Materialization.EvmPlanSchemaV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.NearWasmAcceptance
+import Tests.Materialization.NearSandboxAcceptance
 import Tests.Materialization.OutputSetV1
 
 import Tests.Materialization.OutputEnvelopeV1
@@ -18,6 +19,7 @@ import Tests.Materialization.Aleo
 import Tests.Materialization.AleoAcceptance
 import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
+import Tests.Materialization.NoirCompileAcceptance
 import Tests.Materialization.SolanaPlanV1
 import Tests.Targets.SolanaAsmV1
 import Tests.Targets.SolanaElfV1
@@ -47,6 +49,8 @@ unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.NearWasmAcceptance.run
   IO.eprintln "CP run"
+  Tests.Materialization.NearSandboxAcceptance.run
+  IO.eprintln "CP run"
   Tests.Materialization.OutputSetV1.run
 
   IO.eprintln "CP run"
@@ -63,6 +67,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.Aleo.run
   IO.eprintln "CP run"
   Tests.Materialization.AleoAcceptance.run
+  IO.eprintln "CP run"
+  Tests.Materialization.NoirCompileAcceptance.run
   IO.eprintln "CP run"
   Tests.Materialization.NearHostModel.run
   IO.eprintln "CP run"

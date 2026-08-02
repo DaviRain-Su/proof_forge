@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# Engineering Anvil runtime differential for product EVM bytecode.
+#
+# Coverage (when artifacts under build/v2/* exist):
+#   - Counter: init / view+storage / increment / overflow revert+state hold
+#   - Accumulator: init / view+storage / add / overflow revert+state hold
+#   - ArithOps (optional artifact): masked bitNot + checkedMul overflow
+#   - EventFlow (optional artifact): emit Moved log topic+data + Cap revert
+#
+# Preconditions:
+#   - FOUNDRY_BIN (or PROOF_FORGE_TOOL_ROOT / default tool-root) has locked
+#     anvil + cast (exact sha256 + version pin from toolchains.lock.json).
+#   - Product CLI already wrote Counter.bin / Accumulator.bin (etc.).
+#
+# NOT formal TASK-D4-05 / TST-EVM-005 / Reference↔Anvil closure (C-3).
+# This is an engineering local_runtime gate only.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,6 +39,7 @@ chain_id="${PF_EVM_CHAIN_ID:-31338}"
 rpc="http://127.0.0.1:$port"
 private_key="${PF_EVM_PRIVATE_KEY:-ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 log="$root/build/v2/anvil.log"
+UINT64_MAX="18446744073709551615"
 
 die() {
   echo "evm-smoke: $*" >&2
@@ -48,6 +64,57 @@ require_uint_equal() {
     die "$message (expected uint output, got '$actual')"
   fi
   require_equal "$canonical" "$expected" "$message"
+}
+
+# Normalize cast storage / hex / decimal to a decimal integer string.
+to_dec() {
+  local x="$1"
+  x="${x//$'\n'/}"
+  x="${x// /}"
+  if [[ -z "$x" ]]; then
+    echo ""
+    return
+  fi
+  if [[ "$x" == 0x* || "$x" == 0X* ]]; then
+    /usr/bin/python3 -I -S -c "print(int('$x', 16))"
+  elif [[ "$x" =~ ^([0-9]+)(\ \[[0-9.eE+-]+\])?$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    echo "$x"
+  fi
+}
+
+require_storage_uint() {
+  local addr="$1"
+  local slot="$2"
+  local expected="$3"
+  local message="$4"
+  local raw actual
+  raw="$("$cast" storage --rpc-url "$rpc" "$addr" "$slot")"
+  actual="$(to_dec "$raw")"
+  require_equal "$actual" "$expected" "$message (storage slot $slot raw=$raw)"
+}
+
+# Send a state-changing tx; return the tx hash on stdout. Fail if send fails.
+send_tx() {
+  local out
+  out="$("$cast" send --json --rpc-url "$rpc" --private-key "$private_key" "$@")"
+  /usr/bin/python3 -I -S -c 'import json,sys; print(json.load(sys.stdin)["transactionHash"])' <<<"$out"
+}
+
+# Assert a tx reverts (cast send non-zero) AND that storage slot 0 is unchanged.
+# PRD Phase-1 DoD: overflow attempt reverts and state is unchanged.
+require_revert_preserves_slot0() {
+  local addr="$1"
+  local expected_slot="$2"
+  local label="$3"
+  shift 3
+  if "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
+      "$addr" "$@" >/dev/null 2>&1; then
+    die "$label: overflow/revert transaction unexpectedly succeeded"
+  fi
+  require_storage_uint "$addr" 0 "$expected_slot" \
+    "$label: overflow must leave storage slot 0 unchanged"
 }
 
 for tool in "$anvil" "$cast"; do
@@ -132,29 +199,41 @@ deploy() {
     evm) artifact=Counter ;;
     evm-accumulator) artifact=Accumulator ;;
     evm-arithops) artifact=ArithOps ;;
+    evm-eventflow) artifact=EventFlow ;;
     *) echo "evm-smoke: unknown program artifact '$program'" >&2; return 2 ;;
   esac
-  bytecode="$(tr -d '\n\r ' < "$root/build/v2/$program/$artifact.bin")"
+  local bin_path="$root/build/v2/$program/$artifact.bin"
+  [[ -f "$bin_path" ]] || die "missing artifact $bin_path"
+  bytecode="$(tr -d '\n\r ' < "$bin_path")"
+  # All current fixtures take a single uint64 constructor arg.
   encoded="$($cast abi-encode 'constructor(uint64)' "$initial")"
   receipt="$($cast send --json --rpc-url "$rpc" --private-key "$private_key" --create "0x${bytecode}${encoded#0x}")"
   /usr/bin/python3 -I -S -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])' <<<"$receipt"
 }
 
+# ---------------------------------------------------------------------------
+# Counter — view + storage dual-read, increment, overflow state hold
+# ---------------------------------------------------------------------------
+[[ -f "$root/build/v2/evm/Counter.bin" ]] \
+  || die "missing Counter artifact (required by differential matrix)"
+
 counter="$(deploy evm 7)"
 before="$($cast call --rpc-url "$rpc" "$counter" 'get()(uint64)')"
-require_uint_equal "$before" "7" "Counter constructor state mismatch"
+require_uint_equal "$before" "7" "Counter constructor state mismatch (view)"
+require_storage_uint "$counter" 0 "7" "Counter constructor state mismatch (storage)"
+
 counter_simulated="$($cast call --rpc-url "$rpc" "$counter" 'increment(uint64)(uint64)' 5)"
 require_uint_equal "$counter_simulated" "12" "Counter increment return mismatch"
 require_uint_equal "$($cast call --rpc-url "$rpc" "$counter" 'get()(uint64)')" "7" \
   "Counter eth_call unexpectedly committed state"
 if "$cast" send --rpc-url "$rpc" --private-key "$private_key" --value 2 \
     "$counter" 'increment(uint64)' 5 >/dev/null 2>&1; then
-  echo "evm-smoke: nonpayable increment unexpectedly accepted value" >&2
-  exit 1
+  die "nonpayable increment unexpectedly accepted value"
 fi
 "$cast" send --rpc-url "$rpc" --private-key "$private_key" "$counter" 'increment(uint64)' 5 >/dev/null
 after="$($cast call --rpc-url "$rpc" "$counter" 'get()(uint64)')"
-require_uint_equal "$after" "12" "Counter increment state mismatch"
+require_uint_equal "$after" "12" "Counter increment state mismatch (view)"
+require_storage_uint "$counter" 0 "12" "Counter increment state mismatch (storage)"
 balance="$($cast balance --rpc-url "$rpc" "$counter")"
 require_equal "$balance" "0" "Counter accepted native value"
 
@@ -162,22 +241,26 @@ bytecode="$(tr -d '\n\r ' < "$root/build/v2/evm/Counter.bin")"
 encoded="$($cast abi-encode 'constructor(uint64)' 7)"
 if "$cast" send --rpc-url "$rpc" --private-key "$private_key" --value 1 --create \
     "0x${bytecode}${encoded#0x}" >/dev/null 2>&1; then
-  echo "evm-smoke: nonpayable constructor unexpectedly accepted value" >&2
-  exit 1
+  die "nonpayable constructor unexpectedly accepted value"
 fi
 
-max_counter="$(deploy evm 18446744073709551615)"
-if "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
-    "$max_counter" 'increment(uint64)' 1 >/dev/null 2>&1; then
-  echo "evm-smoke: overflow transaction unexpectedly succeeded" >&2
-  exit 1
-fi
-preserved="$($cast call --rpc-url "$rpc" "$max_counter" 'get()(uint64)')"
-require_uint_equal "$preserved" "18446744073709551615" "Counter overflow changed state"
+max_counter="$(deploy evm "$UINT64_MAX")"
+require_storage_uint "$max_counter" 0 "$UINT64_MAX" "Counter max constructor storage"
+require_revert_preserves_slot0 "$max_counter" "$UINT64_MAX" "Counter overflow" \
+  'increment(uint64)' 1
+require_uint_equal "$($cast call --rpc-url "$rpc" "$max_counter" 'get()(uint64)')" \
+  "$UINT64_MAX" "Counter overflow changed view state"
+
+# ---------------------------------------------------------------------------
+# Accumulator — same matrix as Counter (add entry)
+# ---------------------------------------------------------------------------
+[[ -f "$root/build/v2/evm-accumulator/Accumulator.bin" ]] \
+  || die "missing Accumulator artifact (required by differential matrix)"
 
 accumulator="$(deploy evm-accumulator 7)"
 accumulator_before="$($cast call --rpc-url "$rpc" "$accumulator" 'current()(uint64)')"
-require_uint_equal "$accumulator_before" "7" "Accumulator constructor state mismatch"
+require_uint_equal "$accumulator_before" "7" "Accumulator constructor state mismatch (view)"
+require_storage_uint "$accumulator" 0 "7" "Accumulator constructor state mismatch (storage)"
 accumulator_simulated="$($cast call --rpc-url "$rpc" "$accumulator" 'add(uint64)(uint64)' 5)"
 require_uint_equal "$accumulator_simulated" "12" "Accumulator add return mismatch"
 require_uint_equal "$($cast call --rpc-url "$rpc" "$accumulator" 'current()(uint64)')" "7" \
@@ -185,33 +268,96 @@ require_uint_equal "$($cast call --rpc-url "$rpc" "$accumulator" 'current()(uint
 "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
   "$accumulator" 'add(uint64)' 5 >/dev/null
 accumulator_after="$($cast call --rpc-url "$rpc" "$accumulator" 'current()(uint64)')"
-require_uint_equal "$accumulator_after" "12" "Accumulator add state mismatch"
-max_accumulator="$(deploy evm-accumulator 18446744073709551615)"
-if "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
-    "$max_accumulator" 'add(uint64)' 1 >/dev/null 2>&1; then
-  echo "evm-smoke: Accumulator overflow transaction unexpectedly succeeded" >&2
-  exit 1
-fi
-accumulator_preserved="$($cast call --rpc-url "$rpc" "$max_accumulator" 'current()(uint64)')"
-require_uint_equal "$accumulator_preserved" "18446744073709551615" \
-  "Accumulator overflow changed state"
+require_uint_equal "$accumulator_after" "12" "Accumulator add state mismatch (view)"
+require_storage_uint "$accumulator" 0 "12" "Accumulator add state mismatch (storage)"
+max_accumulator="$(deploy evm-accumulator "$UINT64_MAX")"
+require_revert_preserves_slot0 "$max_accumulator" "$UINT64_MAX" "Accumulator overflow" \
+  'add(uint64)' 1
+require_uint_equal "$($cast call --rpc-url "$rpc" "$max_accumulator" 'current()(uint64)')" \
+  "$UINT64_MAX" "Accumulator overflow changed view state"
 
-# ArithOps differential: masked bitNot (`~x = 2^64-1-x`) and checkedMul
-# overflow (scale with count = UInt64.max and factor = 2 must revert; the
-# previous Yul round-trip div guard could never fire and silently admitted
-# 2^32 * 2^32 = 2^64).
-arith="$(deploy evm-arithops 7)"
-bits_zero="$($cast call --rpc-url "$rpc" "$arith" 'bits(uint64)(uint64)' 0)"
-require_uint_equal "$bits_zero" "18446744073709551615" "ArithOps bits(0) must be UInt64.max (masked bitNot)"
-bits_five="$($cast call --rpc-url "$rpc" "$arith" 'bits(uint64)(uint64)' 5)"
-require_uint_equal "$bits_five" "18446744073709551610" "ArithOps bits(5) must be UInt64.max - 5"
-scale_ok="$($cast call --rpc-url "$rpc" "$arith" 'scale(uint64,uint64)(uint64)' 3 2)"
-require_uint_equal "$scale_ok" "11" "ArithOps scale(3,2) mismatch"
-max_arith="$(deploy evm-arithops 18446744073709551615)"
-if "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
-    "$max_arith" 'scale(uint64,uint64)' 2 1 >/dev/null 2>&1; then
-  echo "evm-smoke: checkedMul overflow transaction unexpectedly succeeded" >&2
-  exit 1
+# ---------------------------------------------------------------------------
+# ArithOps (optional — present when target-smoke / differential built it)
+# ---------------------------------------------------------------------------
+if [[ -f "$root/build/v2/evm-arithops/ArithOps.bin" ]]; then
+  # ArithOps differential: masked bitNot (`~x = 2^64-1-x`) and checkedMul
+  # overflow (scale with count = UInt64.max and factor = 2 must revert).
+  arith="$(deploy evm-arithops 7)"
+  bits_zero="$($cast call --rpc-url "$rpc" "$arith" 'bits(uint64)(uint64)' 0)"
+  require_uint_equal "$bits_zero" "$UINT64_MAX" "ArithOps bits(0) must be UInt64.max (masked bitNot)"
+  bits_five="$($cast call --rpc-url "$rpc" "$arith" 'bits(uint64)(uint64)' 5)"
+  require_uint_equal "$bits_five" "18446744073709551610" "ArithOps bits(5) must be UInt64.max - 5"
+  scale_ok="$($cast call --rpc-url "$rpc" "$arith" 'scale(uint64,uint64)(uint64)' 3 2)"
+  require_uint_equal "$scale_ok" "11" "ArithOps scale(3,2) mismatch"
+  require_storage_uint "$arith" 0 "7" "ArithOps eth_call must not write storage"
+  "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
+    "$arith" 'scale(uint64,uint64)' 3 2 >/dev/null
+  require_storage_uint "$arith" 0 "11" "ArithOps scale committed storage mismatch"
+  max_arith="$(deploy evm-arithops "$UINT64_MAX")"
+  require_revert_preserves_slot0 "$max_arith" "$UINT64_MAX" "ArithOps checkedMul overflow" \
+    'scale(uint64,uint64)' 2 1
 fi
 
-echo "evm-smoke: ok (Counter + generic Accumulator init/add/read/overflow rollback + ArithOps mul overflow/masked bitNot)"
+# ---------------------------------------------------------------------------
+# EventFlow (optional — product CLI build of emit/revert surface)
+# ---------------------------------------------------------------------------
+if [[ -f "$root/build/v2/evm-eventflow/EventFlow.bin" ]]; then
+  # EventFlow: emit Moved(src,dst) as log1; Cap(limit) ABI custom-error revert.
+  # Deploy with count=0 so bump(5) takes the success arm (count > delta is false).
+  eventflow="$(deploy evm-eventflow 0)"
+  require_storage_uint "$eventflow" 0 "0" "EventFlow constructor storage"
+  moved_topic="$("$cast" keccak "Moved(uint64,uint64)")"
+  # Normalize topic to 0x + 64 hex lowercase.
+  moved_topic="$(/usr/bin/python3 -I -S -c "t='$moved_topic'.lower(); print(t if t.startswith('0x') else '0x'+t)")"
+
+  tx_hash="$(send_tx "$eventflow" 'bump(uint64)' 5)"
+  require_storage_uint "$eventflow" 0 "5" "EventFlow bump success storage"
+  require_uint_equal "$($cast call --rpc-url "$rpc" "$eventflow" 'get()(uint64)')" "5" \
+    "EventFlow bump success view"
+
+  # Receipt must contain exactly one log with Moved topic and ABI data (0, 5).
+  receipt_json="$("$cast" receipt --rpc-url "$rpc" --json "$tx_hash")"
+  /usr/bin/python3 -I -S -c '
+import json, sys
+topic = sys.argv[1].lower()
+addr = sys.argv[2].lower()
+r = json.load(sys.stdin)
+logs = r.get("logs") or []
+if not logs:
+    raise SystemExit("EventFlow: receipt has no logs (emit missing)")
+matched = []
+for lg in logs:
+    topics = [t.lower() for t in (lg.get("topics") or [])]
+    if topics and topics[0] == topic and (lg.get("address") or "").lower() == addr:
+        matched.append(lg)
+if len(matched) != 1:
+    raise SystemExit(f"EventFlow: expected 1 Moved log, got {len(matched)} (total logs={len(logs)})")
+data = (matched[0].get("data") or "").lower()
+if data.startswith("0x"):
+    data = data[2:]
+# Two 32-byte words: src=0, dst=5 (pre-bump count, delta)
+if len(data) != 128:
+    raise SystemExit(f"EventFlow: log data length {len(data)} != 128 hex chars")
+src = int(data[0:64], 16)
+dst = int(data[64:128], 16)
+if src != 0 or dst != 5:
+    raise SystemExit(f"EventFlow: Moved data expected (0,5) got ({src},{dst})")
+print("EventFlow: Moved(0,5) log ok")
+' "$moved_topic" "$eventflow" <<<"$receipt_json"
+
+  # Second bump with count=5, delta=3: count > delta → Cap revert.
+  # Source order: emit first, then if count > delta revert Cap. On EVM a full
+  # tx revert rolls back the log as well — state stays 5; no new committed log.
+  if "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
+      "$eventflow" 'bump(uint64)' 3 >/dev/null 2>&1; then
+    die "EventFlow Cap revert path unexpectedly succeeded"
+  fi
+  require_storage_uint "$eventflow" 0 "5" "EventFlow Cap revert must leave storage unchanged"
+  require_uint_equal "$($cast call --rpc-url "$rpc" "$eventflow" 'get()(uint64)')" "5" \
+    "EventFlow Cap revert changed view"
+fi
+
+covered="Counter + Accumulator"
+[[ -f "$root/build/v2/evm-arithops/ArithOps.bin" ]] && covered+=" + ArithOps"
+[[ -f "$root/build/v2/evm-eventflow/EventFlow.bin" ]] && covered+=" + EventFlow"
+echo "evm-smoke: ok ($covered; view+storage dual-read; overflow/Cap revert state hold; engineering only — not formal Reference↔Anvil)"

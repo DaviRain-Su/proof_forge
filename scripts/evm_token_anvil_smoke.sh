@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Engineering Token mint/transfer smoke on Anvil (not formal Reference↔Anvil).
-# Requires Foundry anvil/cast and a built Token.bin (EVM dense Map pilot).
+# Engineering Token mint/transfer (+ overflow / over-transfer hold) smoke on Anvil.
+# Not formal Reference↔Anvil (C-3). Dense Map pilot may exceed EIP-3860
+# initcode limits — that path skip-cleans (exit 0), never fabricates pass.
+#
+# Requires Foundry anvil/cast. Builds Token.bin via product CLI when missing.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 case "$(uname -s)" in
@@ -10,24 +13,41 @@ case "$(uname -s)" in
 esac
 foundry_bin="${FOUNDRY_BIN:-${PROOF_FORGE_TOOL_ROOT:-$default_tool_root}}"
 anvil_path="$foundry_bin/anvil"; cast_path="$foundry_bin/cast"
-command -v anvil >/dev/null 2>&1 && anvil_path="$(command -v anvil)" || true
-command -v cast >/dev/null 2>&1 && cast_path="$(command -v cast)" || true
+# Prefer FOUNDRY_BIN co-located tools; only fall back to PATH when missing.
+if [[ ! -x "${anvil_path:-}" ]] && command -v anvil >/dev/null 2>&1; then
+  anvil_path="$(command -v anvil)"
+fi
+if [[ ! -x "${cast_path:-}" ]] && command -v cast >/dev/null 2>&1; then
+  cast_path="$(command -v cast)"
+fi
 if [[ ! -x "${anvil_path:-}" || ! -x "${cast_path:-}" ]]; then
-  echo "evm-token-anvil: skipped: anvil/cast unavailable" >&2; exit 0
+  echo "evm-token-anvil: skipped: anvil/cast unavailable" >&2
+  echo "evm-token-anvil: engineering only; not formal Reference↔Anvil" >&2
+  exit 0
 fi
 token_bin="${TOKEN_BIN:-$root/build/v2/token-evm/Token.bin}"
 if [[ ! -f "$token_bin" ]]; then
   echo "evm-token-anvil: building Token EVM artifact..." >&2
   mkdir -p "$root/build/v2/token-evm"
-  (cd "$root" && lake env .lake/build/bin/proof-forge-next build \
-    Examples/Token.lean --module Examples.Token --target evm -o build/v2/token-evm) || {
-    echo "evm-token-anvil: skipped: Token EVM build failed" >&2; exit 0
-  }
+  if [[ -x "$root/.lake/build/bin/proof-forge-next" ]] && command -v lake >/dev/null 2>&1; then
+    # Product CLI refuses non-empty existing -o dirs (PF-OUTPUT-COLLISION).
+    rm -rf "$root/build/v2/token-evm"
+    (cd "$root" && lake env .lake/build/bin/proof-forge-next build \
+      Examples/Token.lean --module Examples.Token --target evm -o build/v2/token-evm) || {
+      echo "evm-token-anvil: skipped: Token EVM build failed" >&2
+      exit 0
+    }
+  else
+    echo "evm-token-anvil: skipped: product CLI unavailable to build Token" >&2
+    exit 0
+  fi
   token_bin="$root/build/v2/token-evm/Token.bin"
+  [[ -f "$token_bin" ]] || {
+    echo "evm-token-anvil: skipped: Token.bin missing after build" >&2
+    exit 0
+  }
 fi
-echo "evm-token-anvil: engineering Token smoke only (mint/balanceOf/transfer); not formal" >&2
-# Deploy + mint(1,100) + balanceOf(1)==100 + transfer(1,2,40) + balanceOf checks via cast
-# Reuse smoke_evm pattern: start anvil, deploy bytecode, call ABI.
+echo "evm-token-anvil: engineering Token smoke (mint/balanceOf/transfer/overflow-hold); not formal" >&2
 export FOUNDRY_BIN="$(cd "$(dirname "$anvil_path")" && pwd)"
 abi="$root/build/v2/token-evm/Token.abi.json"
 [[ -f "$abi" ]] || abi="$(dirname "$token_bin")/Token.abi.json"
@@ -36,11 +56,22 @@ port=$((18545 + RANDOM % 1000))
 "$anvil_path" --port "$port" --silent >/tmp/pf-token-anvil.log 2>&1 &
 anvil_pid=$!
 trap 'kill $anvil_pid 2>/dev/null || true' EXIT
-sleep 1
+# Wait for RPC readiness (avoid fixed sleep races).
 rpc="http://127.0.0.1:$port"
+ready=0
+for _ in $(seq 1 50); do
+  if "$cast_path" chain-id --rpc-url "$rpc" >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  sleep 0.1
+done
+if [[ "$ready" != 1 ]]; then
+  echo "evm-token-anvil: skipped: anvil failed to start (see /tmp/pf-token-anvil.log)" >&2
+  exit 0
+fi
 # Anvil default key
 pk=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-from=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 # Deploy create
 binhex=$(xxd -p -c 1000000 "$token_bin" | tr -d '\n')
 # Token Map pilot bytecode can exceed Anvil/EIP-3860 initcode limits (~49KiB).
@@ -84,6 +115,8 @@ to_dec() {
   fi
 }
 
+UINT64_MAX="18446744073709551615"
+
 # mint(to=1, amount=100)
 "$cast_path" send --rpc-url "$rpc" --private-key "$pk" "$addr" "mint(uint64,uint64)" 1 100 >/dev/null
 bal1=$("$cast_path" call --rpc-url "$rpc" "$addr" "balanceOf(uint64)(uint64)" 1)
@@ -91,6 +124,12 @@ bal1d=$(to_dec "$bal1")
 if [[ -z "$bal1d" ]]; then echo "FAIL: balanceOf(1) empty" >&2; exit 1; fi
 if [[ "$bal1d" != "100" ]]; then
   echo "FAIL: balanceOf(1) expected 100 got $bal1d (raw=$bal1)" >&2
+  exit 1
+fi
+supply=$("$cast_path" call --rpc-url "$rpc" "$addr" "total()(uint64)")
+supplyd=$(to_dec "$supply")
+if [[ "$supplyd" != "100" ]]; then
+  echo "FAIL: total supply expected 100 got $supplyd" >&2
   exit 1
 fi
 "$cast_path" send --rpc-url "$rpc" --private-key "$pk" "$addr" "transfer(uint64,uint64,uint64)" 1 2 40 >/dev/null
@@ -105,5 +144,33 @@ if [[ "$bal2d" != "40" ]]; then
   echo "FAIL: after transfer balanceOf(2) expected 40 got $bal2d" >&2
   exit 1
 fi
-echo "evm-token-anvil: ok mint/transfer/balanceOf on $addr (1→60, 2→40)" >&2
+
+# Overflow hold: mint(1, UInt64.max) must revert (60 + max overflows) and leave balances.
+if "$cast_path" send --rpc-url "$rpc" --private-key "$pk" \
+    "$addr" "mint(uint64,uint64)" 1 "$UINT64_MAX" >/dev/null 2>&1; then
+  echo "FAIL: Token mint overflow unexpectedly succeeded" >&2
+  exit 1
+fi
+bal1=$("$cast_path" call --rpc-url "$rpc" "$addr" "balanceOf(uint64)(uint64)" 1)
+bal2=$("$cast_path" call --rpc-url "$rpc" "$addr" "balanceOf(uint64)(uint64)" 2)
+bal1d=$(to_dec "$bal1"); bal2d=$(to_dec "$bal2")
+if [[ "$bal1d" != "60" || "$bal2d" != "40" ]]; then
+  echo "FAIL: Token mint overflow changed balances (1=$bal1d 2=$bal2d)" >&2
+  exit 1
+fi
+# Underflow-style transfer assert: transfer more than balance must fail closed.
+if "$cast_path" send --rpc-url "$rpc" --private-key "$pk" \
+    "$addr" "transfer(uint64,uint64,uint64)" 1 2 61 >/dev/null 2>&1; then
+  echo "FAIL: Token over-transfer unexpectedly succeeded" >&2
+  exit 1
+fi
+bal1=$("$cast_path" call --rpc-url "$rpc" "$addr" "balanceOf(uint64)(uint64)" 1)
+bal2=$("$cast_path" call --rpc-url "$rpc" "$addr" "balanceOf(uint64)(uint64)" 2)
+bal1d=$(to_dec "$bal1"); bal2d=$(to_dec "$bal2")
+if [[ "$bal1d" != "60" || "$bal2d" != "40" ]]; then
+  echo "FAIL: Token over-transfer changed balances (1=$bal1d 2=$bal2d)" >&2
+  exit 1
+fi
+
+echo "evm-token-anvil: ok mint/transfer/balanceOf/overflow-hold on $addr (1→60, 2→40)" >&2
 echo "evm-token-anvil: engineering only; not formal Reference↔Anvil"

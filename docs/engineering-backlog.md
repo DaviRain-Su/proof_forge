@@ -274,11 +274,15 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | ID | 项 | 文件边界 | 状态 |
 |---|---|---|---|
 | **B-1a** | NEAR named 聚合 + Array/容器 lower 或显式 FAIL-CLOSED+测 | `Targets/Near/**` | **done**（`4c79e0a59` NearAggregate） |
+| **B-1a2** | NEAR named Struct/Enum（B-1a 余量） | `Targets/Near/**` | **done**（2026-08-03：L1 lane `integrate/w1-all`；preorder 扁平 UInt64/Int64 KV leaves + construct/fieldGet/fieldSet/variantTag/variantPayload + atomic storeAtomic；HostModel PointBox/EnumBox 端到端；聚合返回值/Option state/ContextRead 仍 FC） |
 | **B-1b** | Noir named 聚合 | Noir/** | **done**（`61b7dff09`） |
+| **B-1b2** | Noir Bytes state（B-1b 余量） | Noir/** | **done**（2026-08-03：L3 lane `integrate/w1-all`；Bytes N→N×UInt8 leaves + literal IndexGet/Set + atomic storeAggregate；Bytes construct/param/动态索引仍 FC） |
+| **B-PSY-BITNOT** | Psy UInt64 `~`（矩阵 unary 粒度偏差） | Psy/** | **done**（2026-08-03：L4 lane `integrate/w1-all`；`checkedBitNot` = assert `x ≥ 2^32−1` + Felt sub `(2^32−2)−x`，可表示半区精确语义、其余运行时 trap；Int64 `~` 仍 FC） |
 | **B-1c** | Aleo 覆盖核对 + 显式边界 | Aleo/** | **done**（`04fe6e815`） |
-| **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array + **Map UInt64 dense pilot** cap-8；默认仍 plan profile，opt-in ELF+Mollusk 已通；aggregate CSE/storeStateMulti 修复 empty upsert，MapMini 4/4 active；Bytes 仍 FC；Option 中间值自 Map IndexGet） |
+| **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array + **Map UInt64 dense pilot** cap-8；默认仍 plan profile，opt-in ELF+Mollusk 已通；aggregate CSE/storeStateMulti 修复 empty upsert，MapMini 4/4 active；Option 中间值自 Map IndexGet；**Bytes 已随 B-1d2 开放**） |
+| **B-1d2** | Solana named Struct/Enum + Bytes state | Solana/** | **done**（2026-08-03：L2 lane `integrate/w1-all`；named 聚合 flatten + Bytes N×UInt8 state/params + atomic storeAggregate/storeStateMulti；4096B frame 硬门保持、plan/ELF 绿；聚合返回值/Option state/Bytes construct/ContextRead 仍 FC） |
 | **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2；**Map UInt64 dense pilot** cap-8 + Token deployable；Option-from-Map；EVM/Solana/NEAR/Noir/Aleo Map 横向已开并闭合 aggregate snapshot hazard） |
-| **B-1f** | Noir Map multi-leaf public inputs | Noir/** | **done**（2026-08-02：Map UInt64 cap-8 occ/key/val public-input leaves + IndexGet→Option + IndexSet upsert + Token relations；Array/Bytes 仍 FC） |
+| **B-1f** | Noir Map multi-leaf public inputs | Noir/** | **done**（2026-08-02：Map UInt64 cap-8 occ/key/val public-input leaves + IndexGet→Option + IndexSet upsert + Token relations；Array/Bytes 仍 FC（Bytes 已随 B-1b2 开放）） |
 | **B-3** | Principal → address，解锁 EVM/Solana call/schedule | Envelope + EVM/Solana | **done**（2026-08-02：sole research pin `4ecb4f86e` PrincipalAddr — wire Principal ≠ EVM 20B / Solana 32B pubkey；no CALL/CPI unlock；`pilotPrincipalPolicyNone`；docs close） |
 | **B-ctx** | ContextRead 各 target Plan：保持 fail-closed 并补齐负向测 | 四 target | **done**（2026-08-02：unixTime + caller 五 target materialize decline 钉测） |
 
@@ -291,6 +295,10 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；工程 Anvil smoke 可保留） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | **done**（2026-08-02：RPT-016 **不**升格 prove/verify；无 nargo Tool Lock pin；保持 source-only；见 `16-noir-prove-path.md`） |
 | **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（13 programs：Counter + 12 fixtures，56 Rust tests 全 active/通过；**MapMini 4/4** 与 **WideMul 4/4** 均走真实 ELF+Mollusk，后者覆盖 UInt128/256 高肢/跨肢成功及 `0x1001` rollback；Option/Context/Principal/call 运行覆盖仍待扩） |
+| **C-6** | NEAR near-sandbox receipt 工程门（G123） | **done**（2026-08-03：near-sandbox 2.13.0 入 `tools[]`（darwin+linux，Darwin 捆绑 xz/liblzma）；`scripts/near_sandbox_acceptance.sh` deploy/init/mutate/view 真实通过；`NearSandboxAcceptance` 注册 shard-targets；非 formal Reference↔sandbox / Stage-0） |
+| **C-7** | Noir nargo compile-only 工程门（G123；RPT-017 最小路径） | **done**（2026-08-03：nargo 1.0.0-beta.26 入 `tools[]`；`scripts/noir_compile_acceptance.sh` 产品 Counter 三 relation 包真实 compile 通过；`NoirCompileAcceptance` 注册 shard-targets；barretenberg 仍 null，**不**升格 prove/verify；`validate_artifacts.py` 仍拒 proof-stage 叶） |
+| **C-8** | EVM Anvil 工程差分加固（G4） | **done**（2026-08-03：Counter/Accumulator/ArithOps/EventFlow 产品 CLI 制品 + overflow revert 状态不变（view+storage 双读）+ EventFlow emit 日志断言真实通过；Token companion 因 solc StackTooDeep（Map pilot）skip-clean；非 formal C-3） |
+| **C-2-pin** | leo 4.0.2 Tool Lock pin（G123） | **done**（2026-08-03：leo 4.0.2 入 `tools[]`（darwin+linux）；`aleo_acceptance.sh` 优先 Tool Lock 解析；仍 source-only + optional compile，非 prove/deploy） |
 
 ---
 

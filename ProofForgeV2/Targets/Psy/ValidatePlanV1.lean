@@ -45,7 +45,7 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
       let dl ← validateExprNodes l
       let dr ← validateExprNodes r
       if dl + dr + 1 > maxExprDepth then none else some (dl + dr + 1)
-  | .boolNot o | .checkedNeg o | .bitNot o | .fieldNeg o => do
+  | .boolNot o | .checkedNeg o | .bitNot o | .checkedBitNot o | .fieldNeg o => do
       let do' ← validateExprNodes o
       if do' + 1 > maxExprDepth then none else some (do' + 1)
   | .callFn _ args => do

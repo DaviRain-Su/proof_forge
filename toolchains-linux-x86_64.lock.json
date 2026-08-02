@@ -24,6 +24,27 @@
       "format": "zip"
     },
     {
+      "id": "leo-4.0.2-x86_64-unknown-linux-gnu",
+      "url": "https://github.com/ProvableHQ/leo/releases/download/v4.0.2/leo-release_4_0_2-x86_64-unknown-linux-gnu.zip",
+      "size": 32262514,
+      "sha256": "7dc54a9f050083e3b230b5566530bb839186ee8eb5b3d28a2e2abcb975b37be8",
+      "format": "zip"
+    },
+    {
+      "id": "nargo-1.0.0-beta.26-x86_64-unknown-linux-gnu",
+      "url": "https://github.com/noir-lang/noir/releases/download/v1.0.0-beta.26/nargo-x86_64-unknown-linux-gnu.tar.gz",
+      "size": 18773428,
+      "sha256": "64048040befd55a987158b11137d8f38f9688f696db4d84910dd1bcf0442fb80",
+      "format": "tar.gz"
+    },
+    {
+      "id": "near-sandbox-2.13.0-linux-x86_64",
+      "url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/2.13.0/near-sandbox.tar.gz",
+      "size": 35154831,
+      "sha256": "522f9877c1abd42b8e065d9f0248223c8b7327a359996de8150723e8d7b289de",
+      "format": "tar.gz"
+    },
+    {
       "id": "sbpf-0.2.2-git-d835bc6e638e",
       "url": "https://github.com/blueshift-gg/sbpf",
       "commit": "d835bc6e638e4f55b88f31a31bbc92e3a2e0a5ba",
@@ -107,6 +128,30 @@
       "member": "jv",
       "size": 10608100,
       "sha256": "905cbe1e59b36771ea5b4d9479141cb07c4722462cef8f81fda7cd4fbdbc2c9c",
+      "mode": "0555"
+    },
+    {
+      "path": "leo",
+      "assetId": "leo-4.0.2-x86_64-unknown-linux-gnu",
+      "member": "leo",
+      "size": 85878936,
+      "sha256": "7d12192925327bc3dd28e29e4475b5a8adfa22ccd1409b49c90cc1d29558b44f",
+      "mode": "0555"
+    },
+    {
+      "path": "nargo",
+      "assetId": "nargo-1.0.0-beta.26-x86_64-unknown-linux-gnu",
+      "member": "nargo",
+      "size": 52087248,
+      "sha256": "5d27bd197061dd4ad255933017e94f3f8c6a679ddb686f24a8c5b20e1fa5671c",
+      "mode": "0555"
+    },
+    {
+      "path": "near-sandbox",
+      "assetId": "near-sandbox-2.13.0-linux-x86_64",
+      "member": "Linux-x86_64/near-sandbox",
+      "size": 93659016,
+      "sha256": "634bc8c5e14a53c2a622c787975201b1505ec07712b8159f38e97ede3607e114",
       "mode": "0555"
     },
     {
@@ -208,6 +253,96 @@
         "runpath": null
       },
       {
+        "path": "leo",
+        "needed": [
+          {
+            "soname": "ld-linux-x86-64.so.2",
+            "bundlePath": null
+          },
+          {
+            "soname": "libc.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libcrypto.so.3",
+            "bundlePath": null
+          },
+          {
+            "soname": "libgcc_s.so.1",
+            "bundlePath": null
+          },
+          {
+            "soname": "libm.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libssl.so.3",
+            "bundlePath": null
+          }
+        ],
+        "runpath": null
+      },
+      {
+        "path": "nargo",
+        "needed": [
+          {
+            "soname": "ld-linux-x86-64.so.2",
+            "bundlePath": null
+          },
+          {
+            "soname": "libc.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libdl.so.2",
+            "bundlePath": null
+          },
+          {
+            "soname": "libgcc_s.so.1",
+            "bundlePath": null
+          },
+          {
+            "soname": "libm.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libpthread.so.0",
+            "bundlePath": null
+          },
+          {
+            "soname": "librt.so.1",
+            "bundlePath": null
+          }
+        ],
+        "runpath": null
+      },
+      {
+        "path": "near-sandbox",
+        "needed": [
+          {
+            "soname": "ld-linux-x86-64.so.2",
+            "bundlePath": null
+          },
+          {
+            "soname": "libc.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libgcc_s.so.1",
+            "bundlePath": null
+          },
+          {
+            "soname": "libm.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libstdc++.so.6",
+            "bundlePath": null
+          }
+        ],
+        "runpath": null
+      },
+      {
         "path": "solc",
         "needed": [],
         "runpath": null
@@ -293,6 +428,69 @@
       "sourceBuild": null
     },
     {
+      "id": "leo",
+      "version": "4.0.2",
+      "sourceUrl": "https://github.com/ProvableHQ/leo/releases/tag/v4.0.2",
+      "platform": "linux-x86_64",
+      "assetId": "leo-4.0.2-x86_64-unknown-linux-gnu",
+      "executable": "leo",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/leo",
+      "executableSha256": "7d12192925327bc3dd28e29e4475b5a8adfa22ccd1409b49c90cc1d29558b44f",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "4.0.2",
+      "licenseSpdx": "GPL-3.0-or-later",
+      "requiredByProfiles": [
+        "aleo-leo-build-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "nargo",
+      "version": "1.0.0-beta.26",
+      "sourceUrl": "https://github.com/noir-lang/noir/releases/tag/v1.0.0-beta.26",
+      "platform": "linux-x86_64",
+      "assetId": "nargo-1.0.0-beta.26-x86_64-unknown-linux-gnu",
+      "executable": "nargo",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/nargo",
+      "executableSha256": "5d27bd197061dd4ad255933017e94f3f8c6a679ddb686f24a8c5b20e1fa5671c",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "1.0.0-beta.26",
+      "licenseSpdx": "Apache-2.0 OR MIT",
+      "requiredByProfiles": [
+        "noir-nargo-compile-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "near-sandbox",
+      "version": "2.13.0",
+      "sourceUrl": "https://github.com/near/nearcore/releases/tag/2.13.0",
+      "platform": "linux-x86_64",
+      "assetId": "near-sandbox-2.13.0-linux-x86_64",
+      "executable": "near-sandbox",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/near-sandbox",
+      "executableSha256": "634bc8c5e14a53c2a622c787975201b1505ec07712b8159f38e97ede3607e114",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "2.13.0",
+      "licenseSpdx": "GPL-3.0-or-later OR MIT OR Apache-2.0",
+      "requiredByProfiles": [
+        "near-sandbox-receipt-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
       "id": "sbpf",
       "version": "0.2.2",
       "sourceUrl": "https://github.com/blueshift-gg/sbpf",
@@ -361,7 +559,7 @@
   "unresolved": {
     "nearSandbox": "2.13.0",
     "solanaAssembler": "0.2.2",
-    "nargo": null,
+    "nargo": "1.0.0-beta.26",
     "barretenberg": null
   }
 }

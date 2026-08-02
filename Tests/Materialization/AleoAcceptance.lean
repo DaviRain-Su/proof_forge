@@ -38,13 +38,17 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
 
-/-- Resolve `leo` from PATH. Returns `none` when unavailable (skip path). -/
+/-- Resolve `leo`: prefer Tool Lock materialize root, then cargo/homebrew/PATH.
+    Returns `none` when unavailable (skip path). -/
 private def resolveLeoPath : IO (Option String) := do
-  -- Prefer cargo-installed leo (common on Darwin dev hosts), then PATH.
   let home ← IO.getEnv "HOME"
   let mut absCandidates : Array String := #["/opt/homebrew/bin/leo", "/usr/local/bin/leo"]
   if let some h := home then
+    absCandidates := absCandidates.push (h ++ "/.cache/proof-forge-v2/tool-root/darwin-arm64/leo")
+    absCandidates := absCandidates.push (h ++ "/.cache/proof-forge-v2/tool-root/linux-x86_64/leo")
     absCandidates := absCandidates.push (h ++ "/.cargo/bin/leo")
+  if let some root ← IO.getEnv "PROOF_FORGE_TOOL_ROOT" then
+    absCandidates := #[root ++ "/leo"] ++ absCandidates
   for c in absCandidates do
     if ← (FilePath.mk c).pathExists then
       return some c

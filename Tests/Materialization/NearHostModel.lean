@@ -4002,6 +4002,207 @@ private unsafe def testMapTokenDualStoreVisibility
   expect (balSrc == some 60) s!"token-dual: balanceOf(src)=60, got {balSrc}"
   expect (balDst == some 40) s!"token-dual: balanceOf(dst)=40, got {balDst}"
 
+/-- Named Struct state + construct/fieldGet/fieldSet: flatten to KV leaves
+    `p_x`/`p_y`; setX rebinds leaf 0 via storeAtomic; getX returns scalar
+    field (B-RET-ABI keeps aggregate return fail closed). -/
+private unsafe def testNamedStructProductPath (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PointBox where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n\n" ++
+    "  entry setX(v : UInt64) : UInt64 do\n" ++
+    "    p.x := v\n" ++
+    "    return p.x\n\n" ++
+    "  view getX() : UInt64 do\n" ++
+    "    return p.x\n\n" ++
+    "  entry setBoth(x : UInt64, y : UInt64) : UInt64 do\n" ++
+    "    p := Point.new(x, y)\n" ++
+    "    return p.y\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-point-box>" "Examples.PointBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.size == 2)
+    s!"named-struct: Point must flatten to 2 KV leaves, got {plan.storage.fields.size}"
+  expect (plan.storage.fields.map (·.name) == #["p_x", "p_y"])
+    s!"named-struct: leaf names must be p_x/p_y, got {plan.storage.fields.map (·.name)}"
+  expect (plan.storage.fields.all (·.byteWidth == 8))
+    "named-struct: Struct leaves must be 8-byte UInt64 KV fields"
+  let some setX := plan.entries.find? (·.name == "setX") |
+    throw <| IO.userError "named-struct: missing setX"
+  let hasAtomic := setX.body.any fun s =>
+    match s with
+    | .storeAtomic leaves => leaves.size == 2
+    | _ => false
+  expect hasAtomic
+    "named-struct: setX field assign must storeAtomic both Point leaves"
+  let some setBoth := plan.entries.find? (·.name == "setBoth") |
+    throw <| IO.userError "named-struct: missing setBoth"
+  let hasConstructStore := setBoth.body.any fun s =>
+    match s with
+    | .storeAtomic leaves => leaves.size == 2
+    | _ => false
+  expect hasConstructStore
+    "named-struct: setBoth construct+store must storeAtomic two leaves"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let setXIR ← findMethod ir "setX"
+  let getXIR ← findMethod ir "getX"
+  let setBothIR ← findMethod ir "setBoth"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "named-struct init"
+    (execute initIR empty ByteArray.empty zero)
+  expect (storedUInt64? storage0 "pf:v1:state:0" == some 0)
+    "named-struct: init must zero p_x"
+  expect (storedUInt64? storage0 "pf:v1:state:1" == some 0)
+    "named-struct: init must zero p_y"
+  let (storage1, retSet, _) ← requireSuccess "named-struct setX"
+    (execute setXIR storage0 (encodeUInt64LE 7) zero)
+  expect (retSet == some 7) s!"named-struct: setX must return 7, got {retSet}"
+  expect (storedUInt64? storage1 "pf:v1:state:0" == some 7)
+    "named-struct: setX must write p_x=7"
+  expect (storedUInt64? storage1 "pf:v1:state:1" == some 0)
+    "named-struct: setX must leave p_y=0 (storeAtomic pre-store snapshot)"
+  let (_, retGet, _) ← requireSuccess "named-struct getX"
+    (execute getXIR storage1 ByteArray.empty zero)
+  expect (retGet == some 7) s!"named-struct: getX must return p_x, got {retGet}"
+  let (storage2, retBoth, _) ← requireSuccess "named-struct setBoth"
+    (execute setBothIR storage1 (encodeUInt64LE 11 ++ encodeUInt64LE 22) zero)
+  expect (retBoth == some 22) s!"named-struct: setBoth must return y, got {retBoth}"
+  expect (storedUInt64? storage2 "pf:v1:state:0" == some 11)
+    "named-struct: setBoth must write p_x=11"
+  expect (storedUInt64? storage2 "pf:v1:state:1" == some 22)
+    "named-struct: setBoth must write p_y=22"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "named-struct: missing .wat artifact"
+  expectContains wat.contents "pf:v1:state:0" "named-struct WAT state key 0"
+  expectContains wat.contents "pf:v1:state:1" "named-struct WAT state key 1"
+
+/-- Named Enum state: tag + max-payload leaf layout; construct variants
+    store via storeAtomic. Match uses catch-all default (NEAR Plan switch
+    requires defaultTarget; exhaustive enum match without `_` stays FC). -/
+private unsafe def testNamedEnumProductPath (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EnumBox where\n" ++
+    "  enum Shape where\n" ++
+    "    | Dot\n" ++
+    "    | Circle(UInt64)\n" ++
+    "  state s : Shape\n\n" ++
+    "  init() do\n" ++
+    "    s := Shape.Dot()\n\n" ++
+    "  entry setCircle(r : UInt64) : UInt64 do\n" ++
+    "    s := Shape.Circle(r)\n" ++
+    "    return r\n\n" ++
+    "  view getPayload() : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | Shape.Circle(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-enum-box>" "Examples.EnumBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  -- Enum Shape: tag + max payload 1 UInt64 → 2 leaves.
+  expect (plan.storage.fields.size == 2)
+    s!"named-enum: Shape must flatten to tag+payload leaves, got {plan.storage.fields.size}"
+  expect (plan.storage.fields.map (·.name) == #["s_tag", "s_p0"])
+    s!"named-enum: leaf names must be s_tag/s_p0, got {plan.storage.fields.map (·.name)}"
+  let some setCircle := plan.entries.find? (·.name == "setCircle") |
+    throw <| IO.userError "named-enum: missing setCircle"
+  let hasAtomic := setCircle.body.any fun s =>
+    match s with
+    | .storeAtomic leaves => leaves.size == 2
+    | _ => false
+  expect hasAtomic
+    "named-enum: setCircle construct+store must storeAtomic tag+payload leaves"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let setCircleIR ← findMethod ir "setCircle"
+  let getPayloadIR ← findMethod ir "getPayload"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "named-enum init"
+    (execute initIR empty ByteArray.empty zero)
+  -- Dot = variant 0; payload padded 0.
+  expect (storedUInt64? storage0 "pf:v1:state:0" == some 0)
+    "named-enum: init Dot tag=0"
+  expect (storedUInt64? storage0 "pf:v1:state:1" == some 0)
+    "named-enum: init Dot payload pad=0"
+  let (storage1, retR, _) ← requireSuccess "named-enum setCircle"
+    (execute setCircleIR storage0 (encodeUInt64LE 42) zero)
+  expect (retR == some 42) s!"named-enum: setCircle must return r, got {retR}"
+  expect (storedUInt64? storage1 "pf:v1:state:0" == some 1)
+    "named-enum: Circle tag must be 1"
+  expect (storedUInt64? storage1 "pf:v1:state:1" == some 42)
+    "named-enum: Circle payload must be 42"
+  let (_, retPay, _) ← requireSuccess "named-enum getPayload"
+    (execute getPayloadIR storage1 ByteArray.empty zero)
+  expect (retPay == some 42)
+    s!"named-enum: getPayload after Circle must be 42, got {retPay}"
+  let (_, retDot, _) ← requireSuccess "named-enum getPayload Dot"
+    (execute getPayloadIR storage0 ByteArray.empty zero)
+  expect (retDot == some 0)
+    s!"named-enum: getPayload on Dot catch-all must be 0, got {retDot}"
+
+/-- Named aggregate entry/view return stays fail closed (B-RET-ABI). -/
+private unsafe def testNamedAggregateReturnFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PairRet where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n\n" ++
+    "  init() do\n" ++
+    "    p := Pair.new(0, 0)\n\n" ++
+    "  view getPair() : Pair do\n" ++
+    "    return p\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-pair-ret>" "Examples.PairRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  match Targets.Near.planFromCapability capability with
+  | .error e =>
+      expect ((e.render).contains "return" ||
+          (e.render).contains "aggregate" ||
+          (e.render).contains "Pair" ||
+          (e.render).contains "UInt" ||
+          (e.render).contains "Bool" ||
+          (e.render).contains "public")
+        s!"named-ret: fail-closed message must cite return/aggregate surface, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "named-ret: NEAR must fail closed on named Struct entry/view return (B-RET-ABI)"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -4034,6 +4235,9 @@ unsafe def run : IO Unit := do
   testInt8ParamAdmitted session
   testMapEmptyPutAtomicStore session
   testMapTokenDualStoreVisibility session
+  testNamedStructProductPath session
+  testNamedEnumProductPath session
+  testNamedAggregateReturnFailClosed session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)
