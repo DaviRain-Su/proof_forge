@@ -57,6 +57,12 @@
 > `inspect <output-dir>` 会重新打开 artifact 并验证 exact disk closure。该结果仅是工程 stable
 > observation，不声称 retained-FD/race-free/contained/hermetic/formal `OutputSetV1`。
 >
+> **2026-08-03 NFR-REPEAT update**：ordinary `ci-target-smoke` 现运行
+> `just nfr-repeat`，对同一 built binary 连续构建 Counter 的 Solana 默认 plan 与 Noir 默认
+> source profile各两次；每树先重验 descriptor/evidence/exact closure，再要求两份 sidecar exact-byte
+> 相等。该门仅是 same-host/zero-tool engineering subset，不是 hermetic/clean-room/multi-host/full-target/
+> formal NFR-001 或 release evidence。
+>
 > **Capability caveat（2026-08-02 audit）**：`call` / `schedule` 的 resolver support 不能等同于
 > 完整平台语义。当前 EVM sync 是 static-qualified-name→hashed-address `CALL`，EVM async 为同步
 > `CALL` 后忽略结果；Solana 两键在 SBPF 仍为 `sol_log_data` 观测桩（非 CPI）；Noir 为 relation

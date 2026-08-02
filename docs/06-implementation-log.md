@@ -12,6 +12,21 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-03 — NFR-REPEAT same-host engineering determinism gate
+
+- Production gate：新增 `scripts/nfr_repeat_gate.py`，固定同一 built `proof-forge-next`、同一 host/
+  lock environment、同一 Counter source，分别对 Solana 默认 `solana-sbpf-plan-v1` 与 Noir 默认
+  source profile执行连续两次完整 CLI `build`。每个输出先复用独立 artifact validator 重验
+  no-follow/single-link exact closure、descriptor size/content SHA-256与exact evidence digest，再要求两次
+  `manifest.json`/`evidence.json` UTF-8 bytes完全相同。
+- Tests/CI：`nfr_repeat_gate_self_test.py` 以 synthetic legal trees固定size drift、same-size content hash
+  drift、manifest identity field、evidence bytes与纯格式 drift均fail closed；`just nfr-repeat`进入 ordinary
+  `ci-target-smoke`。实现 commit `3592c5fb8` 经聚焦recipe、fresh read-only P0/P1 review与完整`just ci`
+  通过；`git diff --check`通过。
+- Boundary：只覆盖same-host/same-binary Counter × 2 zero-tool profiles × 2 runs；不覆盖EVM/solc、
+  Solana ELF、cross-host/cache/root、完整target矩阵、hermetic/clean-room、formal NFR-001/TST、release
+  qualification或formal OutputSetV1。
+
 ## 2026-08-03 — D3-E7 engineering artifact content binding and inspect closure
 
 - Commits：`557127cf1` 建立 `ArtifactContentV1` sole physical walker/stable-read/hash authority；

@@ -246,7 +246,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **RES-1B** | memory/output 运行时 limit | NFR | RES-1 只有 wall-ms | pending |
 | **B-SOL-MAP-UPSERT** | 聚合 StateStore 顺序 store-then-read hazard（Map empty upsert） | target leaf（正确性） | 已实证 EVM/Solana/NEAR/Noir cap-8 与 Aleo cap-2 同构：leaf Expr live-read 已部分写 state。五 target 均改为 target-owned atomic aggregate store：同一 Semantic StateStore 全叶先基于 pre-store snapshot 求值、再统一写；不同 StateStore 保持顺序可见。Solana structural CSE 保持 1424B frame，`map_mini_put_into_empty` 真实 Mollusk 转绿；EVM Yul 顺序、NEAR HostModel、Noir relation model、Aleo Leo get-before-set 均钉测 | **done**（2026-08-02；非 formal） |
 | **B-MAP-STRUCT-PIN** | Map atomic-store 结构与跨 batch 可见性补钉 | target tests（P2） | Solana MapMini production Plan/IR 固定单个 24-leaf `storeAggregate`/`storeStateMulti` 且无 scalar store；Token 固定多个独立 24-leaf batch，并要求 batch 间重新 load。EVM Token 同样固定多个 `storeAtomic(24)`，每批内部无 `sload`、批间重新 `sload`；Solana SBPF 继续守 4096B frame gate | **done**（2026-08-02；commit `ff61d3e13`，非 formal） |
-| **NFR-REPEAT** | NFR-001 决定性 repeat gate（连续构建 hash 相同） | NFR | PRD 要求；无工程 ID | pending |
+| **NFR-REPEAT** | NFR-001 决定性 repeat gate（连续构建 hash 相同） | NFR | `scripts/nfr_repeat_gate.py` 同机同 binary 连续构建 Counter：Solana 默认 `solana-sbpf-plan-v1` ×2 + Noir 默认 profile ×2；每树独立重验 exact closure/descriptors/evidence，再要求 `manifest.json`/`evidence.json` exact bytes；no-tool mutation self-test；`just nfr-repeat` 进入 ordinary `ci-target-smoke` | **done**（2026-08-03；仅 engineering subset，非 hermetic/clean-room/multi-host/full-target/formal NFR-001/TST） |
 | **DOC-CODE-1** | **T14 Field catalog v2 文档↔代码矛盾** | 文档/代码决策 | commit 30df771f2 声称「Wire ModelV1 扩 bls12377/goldilocks FieldSpec + Aleo/Psy Field 接线」，实际 diff 只有 NEAR/Solana 文件+docs；**代码 catalog 仍 sole bn254**（EnvelopeV1/WireV1）。AGENTS.md 已先行修正为 fail-closed 叙述。需要产品决策：(a) 按 commit message 真做 T14（共享核 Wire 变更）；(b) 把 30df771f2 的 commit message 记录为错误声明并关闭 | **done**（2026-08-02：选 (a) 真做 T14，已由 B-FIELD-CATALOG 闭合；见 T14 lane 0f4d9e294） |
 
 ### 复核结论存档（2026-08-02）
@@ -366,7 +366,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 3. ~~N-INVARIANT-IR（消除 invariant 静默丢弃）~~已完成；~~D3-E7（artifact 内容 hash/inspect closure）~~已完成；identity residual 仍为 D3-E8/E9，其中 E8 需先冻结 evidence-grade 语义
 4. ~~N-CONST-REF~~已完成；**随后串行语言面**：N-CALL-RET（需 schema 决策）→ N-ANON-RESULT → N-NEST-IDX → N-MAP-CONSTRUCT → N-STR-EVENT → N-FOR-INT
 5. **可并行 target leaf（接口冻结后）**：B-OPT-STATE / B-COMMIT-ZK / B-CTX-OPEN（需产品决策）
-6. **NFR / identity residual**：D3-E8/E9 → RES-1B → NFR-REPEAT
+6. **NFR / identity residual**：D3-E8/E9 → RES-1B；~~NFR-REPEAT~~已完成（同机双 target 工程子集）
 7. 语言面够用后：NS-2 / EXT-CRYPTO（仍 language-gated）
 ```
 
@@ -393,3 +393,4 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | 2026-08-02 | **Goal 默认 drain**：master 禁止「做满 3 项即结束」；仅预算硬尽/阻塞/队列空可停；续跑用 starting at NEXT |
 | 2026-08-02 | **文档↔代码三方复核**（SPEC×Normalize / op×target 矩阵 / backlog done 声明）：§2.4 剩余缺口登记（15 新 ID + DOC-CODE-1）；research/12 约 9 格修正（Aleo Map/Bytes/aggregate/Array、Noir Array）；research/13 §1-§6 刷新对齐 HEAD；NEAR/Solana/Aleo/Psy dossier 工程状态段修正；**AGENTS.md T14 假声明修正**（Field catalog 仍 sole bn254；30df771f2 commit message 与 diff 不符，挂 DOC-CODE-1 待产品决策）；推荐序重排为当前批 4 lane + 下一串行主轴 |
 | 2026-08-03 | **D3-E7 工程闭合**：content descriptors + evidence digest 进入 engineering OutputSet identity；publisher pre/post inventory 与 inspect exact closure 接线；明确 stable-observation-only、formal D3-05 仍 pending |
+| 2026-08-03 | **NFR-REPEAT 工程门**：Counter × Solana default plan/Noir default 各连续两次产品构建，sidecars exact-byte + descriptor content closure 相等；进入 ordinary CI；非 formal NFR-001/clean-room |
