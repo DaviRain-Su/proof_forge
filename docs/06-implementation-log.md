@@ -13376,3 +13376,21 @@ normative: false
   admit（EVM/Solana/NEAR/Noir/Psy/Aleo flatten-to-leaf）。
 - 边界：全部为非 formal 工程切片；不声称 formal D2/D4、prove/verify、sandbox formal
   closure 或部署完成。
+
+### 2026-08-03 — N-ANON-RESULT shared callable-result slice
+
+- Tests-first：typed/Reference 与 target 边界测试在生产修改前分别稳定失败于
+  `S1 fn 'passArray' result requires ... named Struct/Enum` 与 product compile failure，确认旧
+  callable-result gate 被真实命中。
+- Normalize：`requireCallableResultTypeId` 在既有 legal scalar + named Struct/Enum 之外接纳 anonymous
+  Array/Map/Bytes/Option；Array/Bytes 继续执行 `maxTypeLengthV1`，最终仍只经 Wire structure gate
+  产出 carrier。删除误导性的 scalar alias，不新增 decoder、schema 或 fallback。
+- Reference：产品 fixture 初始化 Array `[7,9]`、Bytes `[1,2]`、Option.some(11) 与 Map `{3↦13}`，
+  精确断言四种 result TypeId/canonical valueBytes；`viaFn` 另执行 Array-typed `Op.PureCall`。
+- Target boundary：不定义 anonymous-container ABI。EVM/Solana/NEAR/Noir/Aleo/Psy 六个产品
+  materializer 均以 target-owned Plan invariant 拒绝 Array result，且无 target production 改动或制品。
+- Verification：代码 commit `ea74d132a`；typed shard、focused target leaf、完整 targets shard、fresh
+  SBOM pin、独立 verifier PASS、`git diff --check` 与当前 Wave 1 Tool Lock 根下 ordinary `just ci`
+  全部通过。
+- Boundary：shared engineering Semantic/Reference cutover only；六 target 的 anonymous result ABI、
+  formal `TASK-D2-06/07`、TST-SEM 与 D4 状态均未改变。

@@ -3,7 +3,7 @@ id: RPT-013
 title: SPEC × NormalizeV1 机械对账（DOC-SPEC-AUDIT）
 status: draft
 owner: research
-updated: 2026-08-02
+updated: 2026-08-03
 normative: false
 ---
 
@@ -27,7 +27,7 @@ normative: false
 
 **非目标**：formal TASK/TST 关闭；完整 EBNF×decoder 行列证明；target Plan 逐 op（见 12）。
 
-**证据等级**：`code-docstring` = Normalize 头注释与当前 HEAD 一致（2026-08-02）；`spec-intent` = accepted SPEC 意图；`backlog` = 工程队列状态。
+**证据等级**：`code-docstring` = Normalize 头注释与当前 HEAD 一致（2026-08-03）；`spec-intent` = accepted SPEC 意图；`backlog` = 工程队列状态。
 
 ---
 
@@ -64,7 +64,7 @@ normative: false
 | revert / emit | **LOWERED** | shared event/error 字段 public UInt/Int/String；target String ABI 全 FC | N-STR-EVENT ✅ |
 | `context.unixTimeSeconds` + `context.caller` | **LOWERED** | 两个 sole wire key（UInt64 / Principal） | N-2 ✅ |
 | `commit(x)` | **LOWERED**（label-only） | disclosure 契约已钉（N-3）；pureFn **FC** | N-3 ✅ |
-| aggregate entry/view/fn **result** | **partial** | named Struct/Enum 已 LOWERED（N-4）；**匿名 Array/Map/Bytes/Option result 仍 FC**；target ABI 见 12 矩阵 | N-4 ✅ |
+| aggregate entry/view/fn **result** | **LOWERED**（shared） | named Struct/Enum（N-4）与 anonymous Array/Map/Bytes/Option（N-ANON-RESULT）均保留 exact TypeId/canonical bytes；target ABI 见 12 矩阵 | N-4 ✅ N-ANON-RESULT ✅ |
 | nonempty Map construction | **LOWERED** | 产品 = `Map.empty` + 连续 IndexSet（N-1）；仅 Wire multi-arg Map Construct 仍 FC | N-1 ✅ |
 | Field/Principal **source** literals | **FAIL-CLOSED** | 经 param/state | — |
 | proof / requires 完整 surface | **FAIL-CLOSED** 于 Normalize 项 | | R-2/R-3 |
@@ -111,7 +111,8 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 | **N-1** | 产品 nonempty Map = `Map.empty`+IndexSet 已开；仅 Wire multi-arg Construct FC | **done** |
 | **N-2** | `context.caller`（Principal）+ unixTimeSeconds 双 key 已接线 | **done** |
 | **N-3** | Commit disclosure 契约已钉（private→commitment declass） | **done** |
-| **N-4** | named Struct/Enum result 已开；匿名容器 result + target ABI 仍 FC（剩余缺口见 backlog 2.4 新 ID） | **done**（子集） |
+| **N-4** | named Struct/Enum result 已开；target aggregate ABI 仍按 target 矩阵分层 | **done**（子集） |
+| **N-ANON-RESULT** | shared Normalize/Reference 已开 Array/Map/Option/Bytes result 与 Array PureCall；六 target anonymous result ABI 精确 FC | **done**（shared-only） |
 | **N-5** | call 返回值：仅 RPT-014 schema 研究；**产品仍 void，实现 follow-on 未排**（见 backlog 2.4） | **done**（研究） |
 | **N-6** | bare `x:=e` env rebind 已开；param immutable | **done** |
 | **N-7** | 嵌套 ctor/lit/bind 子模式已开 | **done** |
@@ -128,8 +129,8 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 ## 6. 回流 engineering-backlog（2026-08-03 复核更新）
 
 1. 登记本文路径；DOC-SPEC-AUDIT → done（已登记）。
-2. N 家族 done 声明与代码主路径一致；String event payload、Int bounded-for、zero-arg assert-else 与 invariant IR 已闭合。剩余余量为 call 返回值、匿名 result、嵌套穿透与 multi-entry Map Construct，并继续只在 backlog §2.4 排队。
-3. 下一产品优先按 backlog 推荐序：先处理 call 返回值 schema 与 call/schedule capability 产品决策，再串行其余 shared-core；target leaf 仅在接口冻结后并行。
+2. N 家族 done 声明与代码主路径一致；String event payload、Int bounded-for、anonymous container result、zero-arg assert-else 与 invariant IR 已闭合。剩余余量为 call 返回值、嵌套穿透与 multi-entry Map Construct，并继续只在 backlog §2.4 排队。
+3. 下一产品优先按 backlog 推荐序：先处理 call 返回值 schema 与 call/schedule capability 产品决策；嵌套 Map 缺键和 multi-entry Map Construct 均需先冻结语义/schema，target leaf 仅在接口冻结后并行。
 
 ---
 
@@ -146,3 +147,4 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 | 2026-08-02 | DOC-SPEC-AUDIT 初版：Normalize docstring × SPEC-LANG/SEM/TYPE 表 + backlog 校准 |
 | 2026-08-02 | 复核刷新：CheckV1 六相位、N 家族 done 状态对齐 HEAD；§2/§3/§4 表修正（let 可变、caller ContextRead、named aggregate result、nonempty Map、authority/custody/commit 已接线）；§5 改为历史对照 + 余量指引 |
 | 2026-08-03 | N-FOR-INT：同宽 Int bounded-for 进入 shared Normalize/Reference；六 target signed induction 继续 fail closed |
+| 2026-08-03 | N-ANON-RESULT：anonymous Array/Map/Option/Bytes callable result 进入 shared Normalize/Reference；六 target result ABI 继续 fail closed |
