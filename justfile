@@ -1048,6 +1048,13 @@ target-negative: build
     ln -s /usr/bin/false build/tool-mismatch-root/solc
     if [ "$(uname -s)" = Darwin ]; then if PROOF_FORGE_TOOL_ROOT="$PWD/build/tool-mismatch-root" lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm -o build/v2/tool-mismatch > build/tool-mismatch.log 2>&1; then echo "invalid solc unexpectedly accepted" >&2; exit 1; fi; rg -q "PF-TOOLCHAIN-MISMATCH" build/tool-mismatch.log; fi
 
+# Engineering-only subset of PRD NFR-001: same host/binary, Counter,
+# two consecutive product builds for zero-tool Solana-plan and Noir profiles.
+# Not hermetic, clean-room, multi-host, formal TST, or full-target coverage.
+nfr-repeat: build
+    /usr/bin/python3 -I -S scripts/nfr_repeat_gate_self_test.py
+    /usr/bin/python3 -I -S scripts/nfr_repeat_gate.py
+
 target-smoke: build
     rm -rf build/v2/standalone build/v2/evm build/v2/evm-accumulator build/v2/evm-arithops build/v2/solana build/v2/solana-accumulator build/v2/near build/v2/near-accumulator build/v2/noir build/v2/noir-accumulator
     lake env .lake/build/bin/proof-forge-next build testdata/valid/Standalone.lean --module Standalone --target evm -o build/v2/standalone
@@ -1092,11 +1099,11 @@ solana-runtime:
 # selection and S5–S7c deletion gates retain the engineering output closure.
 # BUILD-4 local recipes: three independent lanes (also mapped in CI jobs).
 # lean-product: unit/product Lean tests + deletion gates (no target CLI smoke).
-# target-smoke: target-cli-positive + target-negative (needs tool root).
+# target-smoke: target-cli-positive + target-negative + zero-tool NFR repeat gate.
 # Full `ci` keeps the historical one-shot path for local machines.
 ci-lean-product: docs-check sbom-package-files-check build test product-negative source-bounds run-deletion-gates alpha-deletion-gate
 
-ci-target-smoke: build target-cli-positive target-negative
+ci-target-smoke: build target-cli-positive target-negative nfr-repeat
 
 ci: ci-lean-product ci-target-smoke
 
