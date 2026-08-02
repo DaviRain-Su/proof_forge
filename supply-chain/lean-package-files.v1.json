@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 3801,
+      "bytes": 3851,
       "path": "ProofForgeV2.lean",
-      "sha256": "a3eff8b11c08f93bfb358879a0c7d11db9fe6a663b11379094da2ba6e32274cc"
+      "sha256": "4cff8a6f397d723182958e8b9d14a4d215da814da37af479a3e7e3fb6bfcc426"
     },
     {
       "bytes": 65071,
@@ -731,9 +731,14 @@
       "sha256": "42d7995965c25247283f1474a4079cf1a7875185afa0a75e6fff03eb0aa495de"
     },
     {
-      "bytes": 11376,
+      "bytes": 11818,
       "path": "ProofForgeV2/Typed/CheckV1.lean",
-      "sha256": "5eb84a532d8d98bb0ae35975a575c9e988ec8a61c11c9a4aa10276fbe36a9519"
+      "sha256": "211b90d69452ddee0a77fd4fc6e84a648c936ef3efb9ef727cf4294e51367d6d"
+    },
+    {
+      "bytes": 6109,
+      "path": "ProofForgeV2/Typed/ContextExtensionCheckV1.lean",
+      "sha256": "4440de7fae260635dad63cd38ad74654814f46f62d72c1ccb06b2caeded209c5"
     },
     {
       "bytes": 5918,

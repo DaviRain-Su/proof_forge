@@ -570,7 +570,7 @@ def run : IO Unit := do
     ("InvariantDecl", #[.invariant { name := x, predicate := hostile }],
       "type mismatch: expected Bool, got String"),
     ("ExtensionReq", #[.extensionReq { id := peer, version := "1.0.0", digest := digest0 }],
-      "S1 normalizer does not support extension"),
+      "extension requirements are not admitted on the engineering Check path"),
     ("ProofDecl", #[.proof { invariant := x, theorem_ := peer },
       .invariant { name := x, predicate := hostile }],
       "type mismatch: expected Bool, got String")]

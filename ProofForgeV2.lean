@@ -58,6 +58,7 @@ import ProofForgeV2.Typed.EffectCheckV1
 import ProofForgeV2.Typed.BoundCheckV1
 import ProofForgeV2.Typed.DisclosureCheckV1
 import ProofForgeV2.Typed.AuthorityCustodyCheckV1
+import ProofForgeV2.Typed.ContextExtensionCheckV1
 import ProofForgeV2.Typed.RequirementsInferV1
 import ProofForgeV2.Typed.CheckV1
 import ProofForgeV2.Semantic.WireV1

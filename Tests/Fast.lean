@@ -12,6 +12,7 @@ import Tests.Typed.EffectCheckV1
 import Tests.Typed.BoundCheckV1
 import Tests.Typed.DisclosureCheckV1
 import Tests.Typed.AuthorityCustodyCheckV1
+import Tests.Typed.ContextExtensionCheckV1
 import Tests.Typed.RequirementsInferV1
 import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
@@ -91,6 +92,7 @@ unsafe def main : IO Unit := do
   Tests.Typed.BoundCheckV1.run
   Tests.Typed.DisclosureCheckV1.run
   Tests.Typed.AuthorityCustodyCheckV1.run
+  Tests.Typed.ContextExtensionCheckV1.run
   Tests.Typed.RequirementsInferV1.run
   Tests.Typed.CheckV1.run
   Tests.Semantic.WireV1.run

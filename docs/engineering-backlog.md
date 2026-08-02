@@ -282,7 +282,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | ID | 项 | 状态 |
 |---|---|---|
 | **T-1** | authority / custody 轴（`TST-VIS-002` 工程子集） | **done**（2026-08-02：`AuthorityCustodyCheckV1` — entry 写 private state 需 `context.caller` 权威证据；`reqPrecondition` 非 PF-VIS-001；CheckV1 phase 6；**非** formal TST-VIS-002） |
-| **T-2** | context / extension requirements 接入 CheckV1 | pending |
+| **T-2** | context / extension requirements 接入 CheckV1 | **done**（2026-08-02：`ContextExtensionCheckV1` — 仅 admit context.caller/unixTimeSeconds；extension 声明工程 Check `ext001` fail-closed；CheckV1 phase 7；**非** formal extension catalog） |
 | **T-3** | RequirementsInfer：callerContext / commit 等贡献键（随 N-2/N-3） | **done**（2026-08-02：context.unixTimeSeconds/caller + commit 贡献 wire id；S2 freeze skip；Normalize 仍 sole wire-row mint） |
 | **INV-1** | 受约束 `proof` reference 产品路径（FR-002 / Phase-1 语言范围） | pending |
 | **APP-1** | PrivateSum4 持续作为隐私边界验收向量（Phase-1 DoD） | pending |

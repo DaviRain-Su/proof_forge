@@ -22,6 +22,8 @@
     6. authority   = T-1 authority/custody drafts when analysisComplete
                      (private state write on entry requires context.caller);
                      otherwise append nothing and mark incomplete
+    7. context/ext = T-2 context surface + extension-req gate when analysisComplete;
+                     otherwise append nothing and mark incomplete
 
   `ok` is true only when analysis is complete and diagnostics/drafts are empty.
   Incomplete analysis (currently: duplicate `fn` keys) forces `ok = false`
@@ -60,6 +62,7 @@ import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Typed.AuthorityCustodyCheckV1
 import ProofForgeV2.Typed.BoundCheckV1
 import ProofForgeV2.Typed.CallGraphV1
+import ProofForgeV2.Typed.ContextExtensionCheckV1
 import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.DisclosureCheckV1
 import ProofForgeV2.Typed.EffectCheckV1
@@ -77,6 +80,7 @@ open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Typed.AuthorityCustodyCheckV1
 open ProofForgeV2.Typed.BoundCheckV1
 open ProofForgeV2.Typed.CallGraphV1
+open ProofForgeV2.Typed.ContextExtensionCheckV1
 open ProofForgeV2.Typed.DiagnosticDraftV1
 open ProofForgeV2.Typed.DisclosureCheckV1
 open ProofForgeV2.Typed.EffectCheckV1
@@ -154,9 +158,11 @@ def checkProgramTypedDraftWithResolutionV1 (program : ProgramV1)
     let boundRes := checkBoundsDraftsV1 program tables
     let discRes := checkDisclosureDraftsV1 program tables
     let authRes := checkAuthorityCustodyDraftsV1 program tables
+    let ctxRes := checkContextExtensionDraftsV1 program tables
     let analysisComplete :=
       effectRes.analysisComplete && boundRes.analysisComplete &&
-        discRes.analysisComplete && authRes.analysisComplete
+        discRes.analysisComplete && authRes.analysisComplete &&
+        ctxRes.analysisComplete
     let effectDrafts :=
       if effectRes.analysisComplete then effectRes.drafts else #[]
     let boundDrafts :=
@@ -165,9 +171,11 @@ def checkProgramTypedDraftWithResolutionV1 (program : ProgramV1)
       if discRes.analysisComplete then discRes.drafts else #[]
     let authDrafts :=
       if authRes.analysisComplete then authRes.drafts else #[]
+    let ctxDrafts :=
+      if ctxRes.analysisComplete then ctxRes.drafts else #[]
     let drafts :=
       structureDrafts ++ typeRes.drafts ++ effectDrafts ++ boundDrafts ++
-        discDrafts ++ authDrafts
+        discDrafts ++ authDrafts ++ ctxDrafts
     { drafts := drafts
       ok := analysisComplete && drafts.isEmpty
       analysisComplete := analysisComplete }
