@@ -36,6 +36,15 @@ D1–D4 共 27 个 formal task，当前仍为：
 > 相同。六 target materializer 仍对 nonempty invariants fail closed；formal D2-06/D2-07 与
 > TST-SEM-001/002/003 仍 pending。
 
+> **2026-08-02 N-CONST-REF 增量**：constants rows 仍由 sole `evalConstDeclValueV1` 生成 canonical
+> valueBytes；新增 complete source-order lookup 位于 fn signature type interning 后、任何 callable body
+> 前，故 forward const reference 可解析。bare const place 按 env→state→const 发独立 value-producing
+> `Op.Constant`，result TypeId 与 Constant row exact，覆盖 entry/view/pureFn/invariant 与窄 UInt 合成。
+> Provenance 绑定 ConstantDecl entity、ConstDecl.type、每次 body place instruction/value 及 Bool requirement
+> origin。声明值中的 place/binary/constructor/call/match 仍 fail closed。EVM/Solana/NEAR/Noir 对任意
+> nonempty constants 表拒绝，Aleo/Psy 对实际 `Op.Constant` 拒绝；post-declared novel const shape 相对旧
+> body-only TypeId 次序是明确 engineering identity cutover，不是 hash-stability 或 formal D2/D4 完成声明。
+
 ### D1 Linux frontend supervisor 增量（2026-07-30）
 
 > **superseded（2026-08-01）**：本节全部工程切片已随前端监督层产品决策移除（`Frontend/SafeOpen*`/`DarwinSupervisor*`/native C/safe-open worker exe/B12 gate 删除；B10 frontend worker executable 保留为非产品面；CLI 源读取为进程内 `Loader.selectProgramV1Product`）。仅保留为历史记录。

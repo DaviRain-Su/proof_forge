@@ -13216,3 +13216,19 @@ normative: false
 - Tests/Boundary：typed shard覆盖literal/state/pureFn closure、3/6 exact fuel、callable ordering、名称冲突、
   multi-block provenance与无invariant回归。六target仍对nonempty invariants fail closed；本工程切片不关闭
   formal `TASK-D2-06`/`TASK-D2-07`或`TST-SEM-001/002/003`。
+
+### 2026-08-02 — Body constant reference Semantic lowering slice
+
+- Normalize：在state/event/error与fn signature types之后、任何callable body之前建立完整source-order
+  `ConstantTableV1`；ConstantId稠密，valueBytes仍唯一复用`evalConstDeclValueV1`。bare place按
+  env→state→const解析，每次const读取生成独立value-producing `Op.Constant`并保持TypeId/ValueId/source
+  evaluation order；forward reference及entry/view/pureFn/invariant均接线。
+- Type/identity：place、binary/comparison、for endpoint等expected-type seam识别const窄宽；Typed拒绝无expected
+  integer的表面仍先fail closed。fn signature类型继续先于const类型intern；post-declared novel const shape
+  相对旧body-only TypeId次序发生明确engineering identity cutover，不声称跨切片semanticHash稳定。
+- Provenance：`.constant`绑定ConstDecl item，novel `.typeRef`绑定exact ConstDecl.type，每次Op.Constant
+  instruction/value绑定body place；Bool const的`value.bool` requirement origins包含ConstDecl.type，authority
+  exact join拒绝missing/extra实体。
+- Tests/Boundary：typed shard固定canonical rows、negative declaration grammar、forward ref、shadowing、
+  UInt32 ops/for、ConstantId/ValueId与exact provenance origins。const声明表达式仍只接纳literal/negative Int；
+  EVM/Solana/NEAR/Noir拒绝任意nonempty constants表，Aleo/Psy拒绝实际Op.Constant；非formal D2/D4完成。

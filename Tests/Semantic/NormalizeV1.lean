@@ -18,7 +18,7 @@
       dense InvariantDecl; exact invariantSteps via sole Wire compute;
       provenance covers `.invariant`; `.proof` stays certification-only
     * N-CONST-REF: body bare const places → `Op.Constant`; constants table
-      after fn signatures / before bodies (forward ref; fn types before const
+      in pass 2b after fn signatures / before bodies (forward ref; fn types before const
       types); rhs-place expected-type synthesis for binary/cmp/for end;
       provenance `.constant` + `.typeRef`←ConstDecl.type + place;
       suite `Tests.Semantic.NormalizeConst` (not full hash-stability claim)

@@ -3508,7 +3508,7 @@ private def evalConstDeclValueV1
      `mapVisibility`; product disclosure is enforced by CheckV1/DisclosureCheck
      before this lowering (not by the state table gate).
   2a. Fn signature table (param/result types interned).
-  1b/2b. Complete constants table (dense source-order IDs + type interning +
+  2b. Complete constants table (dense source-order IDs + type interning +
      literal valueBytes via sole `evalConstDeclValueV1`) **after** fn
      signatures and **before** any callable body so forward const references
      resolve while preserving the older "all fn signature types before const
@@ -3517,7 +3517,7 @@ private def evalConstDeclValueV1
      (N-CONST-REF engineering identity — not a claim of full hash stability).
      Const type/value grammar is owned by TypeCheck + `evalConstDeclValueV1`
      (no second allowlist authority here).
-  2. Lower init/entry/view/fn/invariant bodies against complete tables.
+  2c. Lower init/entry/view/fn/invariant bodies against complete tables.
      Target note: EVM/Solana/NEAR/Noir fail closed on any nonempty constants
      table; Aleo/Psy fail closed when an `Op.Constant` appears in a body
      (unused table rows alone are not a six-target early reject).
@@ -3600,12 +3600,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
 
   -- Pass 2a: fn signature table for localCall resolution. CallableIds follow
   -- the unified source order of **every item that becomes a callable** in
-  -- pass 2: init/entry/view/fn/**invariant** (same order pass 2 lowers them).
+  -- pass 2c: init/entry/view/fn/**invariant** (same order pass 2c lowers them).
   -- Invariants occupy an ordinal so that a pureFn declared after an invariant
   -- still receives the correct PureCall calleeId. Fn params stay public
   -- legal-UInt/Int/Field/Principal; results are public legal
   -- UInt/Int/Unit/Bool/Field/Principal. Signature types intern before const
-  -- types (pass 1b below) to keep prior fn-before-const interning order.
+  -- types (pass 2b below) to keep prior fn-before-const interning order.
   let mut fnTable : FnTableV1 := ⟨#[]⟩
   let mut fnCallableOrdinal : Nat := 0
   for item in program.items do
@@ -3632,7 +3632,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         fnCallableOrdinal := fnCallableOrdinal + 1
     | _ => pure ()
 
-  -- Pass 1b (after 2a): complete constants table before any callable body
+  -- Pass 2b: complete constants table before any callable body
   -- (N-CONST-REF). Dense ConstantId by const declaration source order;
   -- valueBytes sole path is `evalConstDeclValueV1` (same literal encoder as
   -- Op.Literal). Type/value legality: TypeCheck + evalConstDeclValueV1 only.
@@ -3655,7 +3655,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         }
     | _ => pure ()
 
-  -- Pass 2: lower supported callables; reject unsupported item kinds.
+  -- Pass 2c: lower supported callables; reject unsupported item kinds.
   let mut callables : Array CallableV1 := #[]
   let mut invariantRows : Array WireV1.InvariantDeclV1 := #[]
   let mut callableId : Nat := 0
@@ -3720,7 +3720,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         callableId := callableId + 1
     | .struct _ => pure ()  -- registered in Pass0; no callable body
     | .enum _ => pure ()    -- registered in Pass0; no callable body
-    | .const _ => pure ()   -- Pass 1b complete constants table
+    | .const _ => pure ()   -- Pass 2b complete constants table
     | .event _ => pure ()
     | .error _ => pure ()
     | .fn d =>

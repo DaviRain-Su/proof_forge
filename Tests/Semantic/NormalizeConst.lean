@@ -20,7 +20,7 @@
       origin via inventory; Bool const `value.bool` requirement origin on
       ConstDecl.type; body instruction/value → place path; authority join exact.
 
-  Pass order note: fn signature types intern before const types (2a then 1b);
+  Pass order note: fn signature types intern before const types (2a then 2b);
   post-declared novel const shapes may still cut over body-only type order
   (N-CONST-REF engineering identity, not full hash stability).
 
@@ -541,8 +541,8 @@ private unsafe def testConstNarrowRhsSynthesis
       expect (rA.typeId == cN.typeId) "narrow-add: add result UInt32"
   | _, _, _, _, _, _ => throw <| IO.userError "narrow-add: unexpected ops"
 
-  -- Annotated let also exercises synth when RHS is unannotated-width binary
-  -- under explicit UInt32 annotation: `let x : UInt32 := 1 + NARROW`.
+  -- Annotated let supplies UInt32 directly (it does not call
+  -- `synthLetExpectedV1`); this still pins Op.Constant + add at UInt32.
   let bodyLet :=
     "  const NARROW : UInt32 := 5\n" ++
     "  state count : UInt64\n" ++
