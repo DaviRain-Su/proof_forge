@@ -13056,3 +13056,14 @@ normative: false
 - 没有第二evaluator、`native_decide`、runtime read、production `unsafe`/`partial`或新增axiom。
   这仍只是一个concrete engineering theorem，不能替代TST-SEM-002/003、TST-PROOF-001
   corpus/evidence或关闭TASK-D2-07。
+
+## 2026-08-02 — TST-SEM-002/003 runtime corpus gap closure
+
+- 对照`docs/05-test-spec.md`逐项审计ReferenceV1 engineering suite；initializer/default、entry/view、
+  context、10个standard revert、6类fault、rollback与大部分response precedence已有覆盖。
+- 新增exact duplicate external-response row（matched row后同occurrence trailing duplicate）拒绝，以及
+  `invalidCore` terminal candidate带trailing response时由response exhaustion唯一覆盖为
+  `.trapped(.invalidExternalResponse, pre)`。
+- formal边界不变：仓库尚无执行final target output后转换为structural `OutcomeV1`的adapter；NEAR host
+  model和Noir relation model都是IR二次模型，不可冒充target differential。versioned tagged retained
+  outcome artifact/verifier也尚不存在，因此TST-SEM-002/003与TASK-D2-07继续pending。

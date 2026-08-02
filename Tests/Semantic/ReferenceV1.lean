@@ -1360,6 +1360,16 @@ private def testPrimitiveEffectLogAndResponses : IO Unit := do
     stepReferenceSliceV1 admitted pre (inv 0 #[]) extraResponses
   expectTrapped "effects-extra-resp" outExtra .invalidExternalResponse pre
 
+  -- A duplicate row is a matched response followed by an unconsumed trailing
+  -- row for the same exact occurrence; it must not be silently deduplicated.
+  let duplicateResponses : ExternalResponsesV1 := #[
+    { occurrence := occ1, disposition := .returned },
+    { occurrence := occ1, disposition := .returned }
+  ]
+  let outDuplicate :=
+    stepReferenceSliceV1 admitted pre (inv 0 #[]) duplicateResponses
+  expectTrapped "effects-duplicate-resp" outDuplicate .invalidExternalResponse pre
+
   -- matched external revert + trailing extra → same invalidExternalResponse precedence
   let revPlusExtra : ExternalResponsesV1 := #[
     { occurrence := occ1, disposition := .reverted },
@@ -1968,6 +1978,10 @@ private def testUnitReturnShape : IO Unit := do
   expectTrapped "unit-some"
     (stepReferenceSliceV1 admittedBad preBad (inv 0 #[]) emptyResponses)
     .invalidCore preBad
+  -- Terminal response exhaustion has priority over the invalid-Core candidate.
+  expectTrapped "unit-some+trailing"
+    (stepReferenceSliceV1 admittedBad preBad (inv 0 #[]) trailingResp)
+    .invalidExternalResponse preBad
 
 /-- Switch miss / every explicit Term.Trap fault + trailing-response override. -/
 private def testSwitchTrapAndTrailing : IO Unit := do

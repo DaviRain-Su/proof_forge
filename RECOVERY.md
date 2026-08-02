@@ -719,3 +719,10 @@ StateConforms decode → ordinal 0 → `runInvariantCallableV1` exact 6-step
 同一elaboration process达到orb RSS上限；独立module复用其`.olean`后为小型增量build。下一步先审计
 TST-SEM-002、TST-SEM-003与TST-PROOF-001的corpus/evidence门槛；不要把此concrete engineering
 theorem登记成formal acceptance，也不要提前关闭TASK-D2-07。
+
+随后完成的TST-SEM-002/003 runtime审计补了两个真实regression：duplicate response row不得去重，
+`invalidCore` candidate遇到trailing response必须由terminal exhaustion覆盖为
+`.invalidExternalResponse`，两者均保持pre-state。下一大缺口不是更多Reference算术模型，而是执行
+final target output的adapter；现有NEAR HostModel/Noir RelationModel只是IR二次模型，不能作为formal
+target differential。若继续该轴，应先新增真实EVM/Anvil deploy+call harness并转换为`OutcomeV1`；
+retained tagged outcome artifact/verifier另作为后续独立schema切片。

@@ -446,3 +446,9 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > `truth → truthLeaf → Bool true`；没有第二evaluator、runtime file read、`native_decide`、
 > `unsafe`/`partial`或新增axiom。此为单个concrete engineering theorem；formal TASK-D2-07、
 > TST-SEM-002/003、TST-PROOF-001及corpus/evidence registration仍pending。
+
+> 2026-08-02 TST-SEM-002/003 runtime corpus审计增量：engineering ReferenceV1 suite新增显式
+> duplicate external-response row拒绝，以及`invalidCore` candidate带trailing response时
+> `.invalidExternalResponse`优先级；两者均返回exact pre-state。reference runtime corpus仍不是formal
+> acceptance；当前仓库没有执行final target output并产出structural `OutcomeV1`的adapter，且尚无
+> versioned tagged retained outcome artifact/verifier，因此TST-SEM-002/003与TASK-D2-07保持pending。
