@@ -13095,5 +13095,25 @@ normative: false
   `semanticProvenanceDigestMismatch`并强制manifest provenance digest exact匹配。
 - engineering tests从真实source/path/spans mint subject，再构造strict-open bundle；positive与三个digest
   claim独立mutation均通过预期。旧CLI compile-digest join因尚无trusted spans保持transitional行为。
-- 仍无proof-subject filesystem safe-read、contained compiler、`.olean` declaration/defeq/trust closure；
+- 本增量时仍无proof-subject filesystem safe-read（见下一增量）、contained compiler、`.olean` declaration/defeq/trust closure；
   formal `TST-PROOF-001`保持pending。
+
+## 2026-08-02 — compiler-owned proof-subject pair stable-read
+
+- 新增`Compiler.ProofSubjectFilesV1`与小型package-owned C primitive；没有恢复2026-08-01删除的Frontend
+  SafeOpen/supervisor/worker产品架构，pure `Semantic.ProofSubjectV1`继续保持bytes-in authority。
+- public API无filename/path override：固定读取`proof-subject.pfsem`和`proof-subject.pfprov`。native从
+  `/`开始逐component `O_NOFOLLOW|O_DIRECTORY|O_NONBLOCK|O_CLOEXEC`打开trusted absolute root，随后
+  从同一retained dirfd打开并同时保留两个leaf fd。
+- 两leaf分别要求regular、`st_nlink==1`、nonnegative size、≤64MiB；按initial size exact read并probe
+  EOF。两次读取完成后才统一比较各自before/fd-after/path-after的dev/inode/mode/nlink/size/mtime/ctime，
+  同时比较root dirfd before/after metadata；任一变化返回closed redacted fault。
+- Lean边界再次检查per-file与128MiB aggregate hard cap，再唯一调用`buildProofSubjectV1`；fixed native
+  fault保留root/semantic/provenance phase，unknown wire fail closed为`nativeProtocol`。
+- Lake在Linux明确使用`/usr/bin/cc`，macOS使用`xcrun clang + SDK`，不回退到曾导致Linux CI libc
+  header失败的Lean bundled compiler；Windows显式不支持。
+- focused worker shard实际链接native archive并覆盖direct-builder parity、relative/NUL/symlink root、
+  intermediate symlink、两leaf fixed-name/symlink、hardlink、directory、FIFO、missing与pure decode error。
+- 边界：没有atomic filesystem transaction承诺；retained dirfd与content authority共同拒绝torn pair。
+  尚无contained process、deadline/memory measurement、effective lower profile、macOS CI或`.olean`
+  importer/policy/defeq，故不得关闭formal `TST-PROOF-001`。

@@ -740,5 +740,13 @@ closure loader；当前TST-PROOF-001与TASK-D2-07仍pending。
 sealed subject→manifest三digest join现已在`ProofReferenceJoinV1`补齐：新入口额外强制
 `semanticProvenanceDigest`匹配，并继续执行bundle digest与source/export exact set join；source、semantic、
 provenance三项manifest claim独立mutation均拒绝。旧CLI尚无trusted spans，故其transitional
-compile-digest入口未伪接provenance；下一真实切片是subject files的no-follow/single-link safe-read与
-contained generation boundary，之后才是`.olean` kernel loader。
+compile-digest入口未伪接provenance；下一真实切片是subject files的no-follow/single-link safe-read
+（下一段已完成），其后为contained generation boundary与`.olean` kernel loader。
+
+proof-subject双文件safe-read现已作为compiler-core专用边界实现，而非恢复已删除的Frontend B11/B12
+层。`ProofSubjectFilesV1`只接受trusted absolute root并固定两个文件名；package C从`/`逐component
+no-follow打开root，在同一dirfd下同时保留两个regular/single-link leaf fd，按64MiB/file执行size gate、
+exact read+one-byte probe，并在两次读取后统一重检两leaf的fd/path identity及root metadata。返回bytes只
+进入`buildProofSubjectV1`，native层不解析semantic/provenance。Linux Lake构建明确使用系统
+`/usr/bin/cc`，避免已知bundled clang header故障。下一步不应直接接CLI；应先建立compiler-core
+contained worker/deadline/lower resource profile，再开始`.olean` importer/policy/defeq loader。

@@ -467,4 +467,14 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > `ProofSubjectV1`的完整join，除bundle digest、sourceHash、semanticHash与source/export set外，现同时
 > exact要求manifest `semanticProvenanceDigest`等于authority重算值；manifest仍仅为claim，不能mint
 > subject。三项digest逐项mutation均fail closed。旧CLI compile-digest engineering入口保持兼容且不被
-> 升格；filesystem/contained builder与`.olean` kernel loader仍pending。
+> 升格；本增量时filesystem/contained builder与`.olean` kernel loader仍pending（filesystem见下一增量）。
+
+> 2026-08-02 proof-subject filesystem工程增量：新增compiler-core-owned
+> `ProofSubjectFilesV1`与package C primitive，不恢复已删除的Frontend safe-open/supervisor架构。API只接受
+> trusted absolute root及source/path/spans，文件名固定为`proof-subject.pfsem/.pfprov`。native从`/`
+> component no-follow打开root，保留同一dirfd与两个leaf fd，要求regular/single-link/每文件≤64MiB，
+> exact-size read+EOF probe后对两个fd/path和root metadata做pair-wide final recheck；随后唯一委托sealed
+> subject builder。Linux明确使用`/usr/bin/cc`，避免历史Lean bundled-clang libc header失败。focused
+> native shard覆盖positive、fixed-name、root/intermediate/leaf symlink、hardlink、directory/FIFO/missing与
+> pure error pass-through。尚无contained worker/deadline/effective lower profile或`.olean` loader，formal
+> TST-PROOF-001继续pending。
