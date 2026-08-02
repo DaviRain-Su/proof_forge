@@ -1339,6 +1339,8 @@ private def attributeCounterEntitiesV1
   -- init decl (nearest producing; no source Type.Unit on S1 init result).
   let mut typeBound : Array Bool := Array.replicate data.types.size false
 
+  -- Declaration attribution order mirrors Normalize pass groups:
+  -- state → event → error → constants → callables (not source item interleave).
   -- States + first UInt64 type
   let mut si : Nat := 0
   for itemI in stateItemIdxs do
@@ -1357,19 +1359,6 @@ private def attributeCounterEntitiesV1
         | _ => pure ()
     | _ => pure ()
     si := si + 1
-
-  -- Constants: declaration entity + type node binding (N-CONST-REF).
-  let mut ci : Nat := 0
-  for itemI in constItemIdxs do
-    let itemPath := childPath #[] "Program" "items" itemI
-    let some constRow := data.constants[ci]? |
-      return ← failUnsupported "S2 provenance: missing constant row"
-    acc ← attrPushPath acc idx (.constant constRow.id) itemPath
-    let typePath := directChild itemPath "ConstDecl" "type"
-    let (accC, tbC) ← tryBindType acc idx typeBound constRow.typeId typePath
-    acc := accC
-    typeBound := tbC
-    ci := ci + 1
 
   -- Events + errors: declaration entities and first-seen field type nodes.
   let mut ei : Nat := 0
@@ -1418,6 +1407,19 @@ private def attributeCounterEntitiesV1
           fi := fi + 1
     | _ => pure ()
     zi := zi + 1
+
+  -- Constants after state/event/error (N-CONST-REF; matches Normalize pass groups).
+  let mut ci : Nat := 0
+  for itemI in constItemIdxs do
+    let itemPath := childPath #[] "Program" "items" itemI
+    let some constRow := data.constants[ci]? |
+      return ← failUnsupported "S2 provenance: missing constant row"
+    acc ← attrPushPath acc idx (.constant constRow.id) itemPath
+    let typePath := directChild itemPath "ConstDecl" "type"
+    let (accC, tbC) ← tryBindType acc idx typeBound constRow.typeId typePath
+    acc := accC
+    typeBound := tbC
+    ci := ci + 1
 
   -- Callables in source order among init/entry/view/fn/invariant
   let mut callableId : Nat := 0

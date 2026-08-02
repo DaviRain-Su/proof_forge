@@ -1185,14 +1185,44 @@ private partial def synthPlaceTypeV1
       | _ =>
           failUnsupported "S1 index place requires Array, Bytes, or Map base"
 
+/-- When an expression is a place (bare / field / index), synthesize its TypeId
+    via the full place walk (env → state → const). Non-place heads return none
+    so callers can fall back to the other operand or a UInt64 default. -/
+private def trySynthPlaceExprTypeV1
+    (expr : SrcExpr) (st : BodyStateV1) (states : StateTableV1) :
+    Except NormalizeErrorV1 (Option (TypeInternerV1 × TypeIdV1)) :=
+  match expr with
+  | .place p => do
+      let pair ← synthPlaceTypeV1 p st.interner st.env states st.constants
+      pure (some pair)
+  | .unary _ (.place p) => do
+      let pair ← synthPlaceTypeV1 p st.interner st.env states st.constants
+      pure (some pair)
+  | _ => pure none
+
+/-- Operand TypeId for arithmetic/bitwise/shift binary synthesis and comparison:
+    lhs place first (TypeCheck order); if lhs is not a place, use rhs place
+    (env/state/const, including field/index when synthPlaceType admits it).
+    Both places still lower lhs-first; same-type gate rejects mismatches. -/
+private def synthBinaryOperandTypeV1
+    (lhs rhs : SrcExpr) (st : BodyStateV1) (states : StateTableV1) :
+    Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) := do
+  match ← trySynthPlaceExprTypeV1 lhs st states with
+  | some pair => pure pair
+  | none =>
+      match ← trySynthPlaceExprTypeV1 rhs st states with
+      | some pair => pure pair
+      | none => pure (internShape st.interner (.uint 64))
+
 /-- Derive the expected TypeId for an unannotated `let` RHS from its head
 shape. CheckV1 has already rejected integer literals without an expected
 type, so every remaining pilot shape carries an intrinsic result type.
 
-Unannotated arithmetic/bitwise/unary still default to UInt64 for backward
-compatibility with existing tests that omit a type annotation on such lets.
-Multi-width arithmetic must use an explicit annotation (or flow through a
-typed place/callable result) so width is never silently mis-defaulted. -/
+Unannotated arithmetic/bitwise/unary still default to UInt64 only when
+neither operand is an env/state/const place. Prefer lhs place width, else
+rhs place width (N-CONST-REF), so `1 + NARROW` / comparison with const rhs
+keep exact width when TypeCheck has already accepted the program under an
+enclosing expected type or annotated let. -/
 private partial def synthLetExpectedV1
     (value : SrcExpr) (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
     Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
@@ -1203,7 +1233,7 @@ private partial def synthLetExpectedV1
   | .literal (.string _) => pure (internShape st.interner .string)
   | .place p =>
       synthPlaceTypeV1 p st.interner st.env states st.constants
-  | .binary op lhs _ =>
+  | .binary op lhs rhs =>
       let srcOp := op
       if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add ||
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.sub ||
@@ -1215,20 +1245,7 @@ private partial def synthLetExpectedV1
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.bitXor ||
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.shl ||
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.shr then
-        -- Prefer the lhs place width when available; else keep UInt64 default.
-        match lhs with
-        | .place (.name n) =>
-            let key := raw n
-            match envLookup st.env key with
-            | some (_, tid) => pure (st.interner, tid)
-            | none =>
-                match stateLookup states key with
-                | some (_, tid) => pure (st.interner, tid)
-                | none =>
-                    match constLookup st.constants key with
-                    | some (_, tid) => pure (st.interner, tid)
-                    | none => pure (internShape st.interner (.uint 64))
-        | _ => pure (internShape st.interner (.uint 64))
+        synthBinaryOperandTypeV1 lhs rhs st states
       else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq ||
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ne ||
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.lt ||
@@ -1241,20 +1258,10 @@ private partial def synthLetExpectedV1
       else
         failUnsupported "S1 normalizer supports only binary arithmetic, bitwise, shift, comparison, and logical operators"
   | .unary .not _ => pure (internShape st.interner .bool)
-  | .unary _ operand =>
-      match operand with
-      | .place (.name n) =>
-          let key := raw n
-          match envLookup st.env key with
-          | some (_, tid) => pure (st.interner, tid)
-          | none =>
-              match stateLookup states key with
-              | some (_, tid) => pure (st.interner, tid)
-              | none =>
-                  match constLookup st.constants key with
-                  | some (_, tid) => pure (st.interner, tid)
-                  | none => pure (internShape st.interner (.uint 64))
-      | _ => pure (internShape st.interner (.uint 64))
+  | .unary _ operand => do
+      match ← trySynthPlaceExprTypeV1 operand st states with
+      | some pair => pure pair
+      | none => pure (internShape st.interner (.uint 64))
   | .constructor _ _ =>
       -- Constructor result type is supplied by the let annotation (or enclosing
       -- expected context); unannotated constructor lets fail closed here.
@@ -1271,30 +1278,21 @@ private partial def synthLetExpectedV1
       | none => failUnsupported "S1 match expression requires at least one arm"
       | some arm => synthLetExpectedV1 arm.value st states fns
 
-/-- Infer comparison operand TypeId from the lhs place (TypeCheck order: lhs
-    first, then rhs under that type). Non-place lhs heads fall back to UInt64
-    so existing UInt64 comparison programs keep lowering. -/
+/-- Infer comparison operand TypeId (TypeCheck order: lhs first, then rhs under
+    that type). When lhs is not a place, use rhs place (env/state/const) so
+    programs TypeCheck already accepts with a const/place rhs keep exact width
+    rather than defaulting to UInt64. -/
 private def synthComparisonOperandTypeV1
-    (lhs : SrcExpr) (st : BodyStateV1) (states : StateTableV1) :
+    (lhs rhs : SrcExpr) (st : BodyStateV1) (states : StateTableV1) :
     Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
   match lhs with
   | .place p =>
       synthPlaceTypeV1 p st.interner st.env states st.constants
-  | .unary _ operand =>
-      match operand with
-      | .place (.name n) =>
-          let key := raw n
-          match envLookup st.env key with
-          | some (_, tid) => pure (st.interner, tid)
-          | none =>
-              match stateLookup states key with
-              | some (_, tid) => pure (st.interner, tid)
-              | none =>
-                  match constLookup st.constants key with
-                  | some (_, tid) => pure (st.interner, tid)
-                  | none => pure (internShape st.interner (.uint 64))
-      | _ => pure (internShape st.interner (.uint 64))
-  | .binary op l _ =>
+  | .unary _ operand => do
+      match ← trySynthPlaceExprTypeV1 operand st states with
+      | some pair => pure pair
+      | none => synthBinaryOperandTypeV1 lhs rhs st states
+  | .binary op l r =>
       let srcOp := op
       if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add ||
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.sub ||
@@ -1306,13 +1304,15 @@ private def synthComparisonOperandTypeV1
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.bitXor ||
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.shl ||
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.shr then
-        synthComparisonOperandTypeV1 l st states
+        synthComparisonOperandTypeV1 l r st states
       else
-        pure (internShape st.interner (.uint 64))
+        synthBinaryOperandTypeV1 lhs rhs st states
   | .localCall callee _ =>
       failUnsupported
         s!"S1 comparison operand localCall '{raw callee}' needs an explicit integer place"
-  | _ => pure (internShape st.interner (.uint 64))
+  | _ =>
+      -- Literal / other non-place lhs: exact width from rhs place when present.
+      synthBinaryOperandTypeV1 lhs rhs st states
 
 /-- Emit a value-producing instruction: allocate the next ValueId, bind it as
     the instruction result at `typeId`, and advance `nextValueId`. -/
@@ -2077,7 +2077,7 @@ private partial def lowerExpr
               return ← failUnsupported
                 "S1 comparison requires an enclosing Bool expected type"
             let stB := { st with interner := iBool }
-            let (iOp, opTid) ← synthComparisonOperandTypeV1 lhs stB states
+            let (iOp, opTid) ← synthComparisonOperandTypeV1 lhs rhs stB states
             let isEq :=
               semanticOp == BinaryOpV1.eq || semanticOp == BinaryOpV1.ne
             if isEq then
@@ -3084,10 +3084,19 @@ private partial def lowerStmt
       pure ({ st1 with env := envInsert st1.env (raw name) vid tid }, .open_)
   | .for_ binder start endExclusive bound body => do
       -- N-8: for endpoints are same-width legal UInt (not only UInt64).
+      -- Prefer start place width; when start is a bare integer literal (or other
+      -- non-place) and endExclusive is env/state/const place, use end's exact
+      -- UInt width so `for i in 0 .. LIMIT` with UInt32 LIMIT does not default
+      -- to UInt64. TypeCheck must already accept the program (literal start
+      -- without expected type is rejected by Typed today — Normalize keeps
+      -- this end-fallback for accepted place-end forms and future Typed parity).
       let (iStart, startTid) ← match start with
-        | .place p => synthPlaceTypeV1 p st.interner st.env states st.constants
-        | .literal (.integer _) => pure (internShape st.interner (.uint 64))
-        | _ => pure (internShape st.interner (.uint 64))
+        | .place p =>
+            synthPlaceTypeV1 p st.interner st.env states st.constants
+        | _ => do
+            match ← trySynthPlaceExprTypeV1 endExclusive st states with
+            | some pair => pure pair
+            | none => pure (internShape st.interner (.uint 64))
       requireAnonymousUIntTypeId iStart.types startTid "for start"
       let (iB, boolTid) := internShape iStart .bool
       let st0 := { st with interner := iB }
@@ -3498,13 +3507,20 @@ private def evalConstDeclValueV1
      decls, independent of callable position). Visibility is retained via
      `mapVisibility`; product disclosure is enforced by CheckV1/DisclosureCheck
      before this lowering (not by the state table gate).
-  1b. Complete constants table (dense source-order IDs + type interning +
-     literal valueBytes via sole `evalConstDeclValueV1`) **before** any
-     callable body so forward const references resolve. Const types intern
-     after state/event/error types and before body-only shapes (deterministic;
-     programs with only pre-callable const decls keep prior type order for
-     shared shapes already interned by pass 1).
+  2a. Fn signature table (param/result types interned).
+  1b/2b. Complete constants table (dense source-order IDs + type interning +
+     literal valueBytes via sole `evalConstDeclValueV1`) **after** fn
+     signatures and **before** any callable body so forward const references
+     resolve while preserving the older "all fn signature types before const
+     types" interning order. Const types are deterministic; post-declared
+     novel const shapes still cut over relative to earlier body-only shapes
+     (N-CONST-REF engineering identity — not a claim of full hash stability).
+     Const type/value grammar is owned by TypeCheck + `evalConstDeclValueV1`
+     (no second allowlist authority here).
   2. Lower init/entry/view/fn/invariant bodies against complete tables.
+     Target note: EVM/Solana/NEAR/Noir fail closed on any nonempty constants
+     table; Aleo/Psy fail closed when an `Op.Constant` appears in a body
+     (unused table rows alone are not a six-target early reject).
 -/
 def lowerProgramDataV1 (source : ValidatedSourceV1) :
     Except NormalizeErrorV1 SemanticProgramDataV1 := do
@@ -3582,35 +3598,14 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         errorTable := { rows := errorTable.rows.push (raw d.name, eid, fieldTids) }
     | _ => pure ()
 
-  -- Pass 1b: complete constants table before any callable body (N-CONST-REF).
-  -- Dense ConstantId by const declaration source order; valueBytes sole path
-  -- is `evalConstDeclValueV1` (same literal encoder as Op.Literal).
-  let mut constantRows : Array ConstantV1 := #[]
-  let mut constantTable : ConstantTableV1 := ⟨#[]⟩
-  for item in program.items do
-    match item with
-    | .const d =>
-        let (interner', tid) ← internSourceType interner d.type_
-        interner := interner'
-        let valueBytes ← evalConstDeclValueV1 interner.types tid d.value
-        let cid := UInt32.ofNat constantRows.size
-        constantRows := constantRows.push {
-          id := cid
-          name := raw d.name
-          typeId := tid
-          valueBytes }
-        constantTable := {
-          rows := constantTable.rows.push (raw d.name, cid, tid)
-        }
-    | _ => pure ()
-
   -- Pass 2a: fn signature table for localCall resolution. CallableIds follow
   -- the unified source order of **every item that becomes a callable** in
   -- pass 2: init/entry/view/fn/**invariant** (same order pass 2 lowers them).
   -- Invariants occupy an ordinal so that a pureFn declared after an invariant
   -- still receives the correct PureCall calleeId. Fn params stay public
   -- legal-UInt/Int/Field/Principal; results are public legal
-  -- UInt/Int/Unit/Bool/Field/Principal.
+  -- UInt/Int/Unit/Bool/Field/Principal. Signature types intern before const
+  -- types (pass 1b below) to keep prior fn-before-const interning order.
   let mut fnTable : FnTableV1 := ⟨#[]⟩
   let mut fnCallableOrdinal : Nat := 0
   for item in program.items do
@@ -3635,6 +3630,29 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     match item with
     | .init _ | .entry _ | .view _ | .fn _ | .invariant _ =>
         fnCallableOrdinal := fnCallableOrdinal + 1
+    | _ => pure ()
+
+  -- Pass 1b (after 2a): complete constants table before any callable body
+  -- (N-CONST-REF). Dense ConstantId by const declaration source order;
+  -- valueBytes sole path is `evalConstDeclValueV1` (same literal encoder as
+  -- Op.Literal). Type/value legality: TypeCheck + evalConstDeclValueV1 only.
+  let mut constantRows : Array ConstantV1 := #[]
+  let mut constantTable : ConstantTableV1 := ⟨#[]⟩
+  for item in program.items do
+    match item with
+    | .const d =>
+        let (interner', tid) ← internSourceType interner d.type_
+        interner := interner'
+        let valueBytes ← evalConstDeclValueV1 interner.types tid d.value
+        let cid := UInt32.ofNat constantRows.size
+        constantRows := constantRows.push {
+          id := cid
+          name := raw d.name
+          typeId := tid
+          valueBytes }
+        constantTable := {
+          rows := constantTable.rows.push (raw d.name, cid, tid)
+        }
     | _ => pure ()
 
   -- Pass 2: lower supported callables; reject unsupported item kinds.

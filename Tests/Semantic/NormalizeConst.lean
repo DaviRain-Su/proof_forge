@@ -7,19 +7,27 @@
       time into `constants` with canonical `valueBytes` (byte-identical to
       `Op.Literal` encoding).
     * Body bare const places lower to value-producing `Op.Constant ConstantId`
-      with `result.typeId == ConstantV1.typeId` (return, binary, unannotated
-      let, comparison).
+      with `result.typeId == ConstantV1.typeId` (return, binary, comparison).
+    * Expected-type synthesis: `1 + NARROW` / comparison with const place on
+      either side keep exact UInt32 (not default UInt64) when TypeCheck accepts.
+    * For endpoints: endExclusive const UInt32 width when start is place/let.
     * Forward reference: const declared after the reading callable still works
-      (constants table complete before any body lowering).
+      (constants table complete after fn signatures, before body lowering).
     * Reads from entry / view / pureFn / invariant.
     * Param and let shadowing do not emit Op.Constant.
     * Independent Op.Constant per read; canonical ValueId order.
-    * Provenance: `.constant id` → ConstDecl; Constant type → ConstDecl.type;
-      body instruction/value → exact const place path; authority join exact.
+    * Provenance: `.constant id` → ConstDecl; `.typeRef` → exact ConstDecl.type
+      origin via inventory; Bool const `value.bool` requirement origin on
+      ConstDecl.type; body instruction/value → place path; authority join exact.
+
+  Pass order note: fn signature types intern before const types (2a then 1b);
+  post-declared novel const shapes may still cut over body-only type order
+  (N-CONST-REF engineering identity, not full hash stability).
 
   Negative pins: non-literal const (place read, binary op) fail closed; a
   UInt-typed negative literal is rejected by CheckV1 (typedNotOk) before
-  Normalize.
+  Normalize. Const type/value grammar authority remains TypeCheck +
+  evalConstDeclValueV1 (no second Normalize allowlist).
 -/
 import ProofForgeV2
 import Tests.Language.ParserSession
@@ -27,7 +35,10 @@ import ProofForgeV2.Core.Common
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.ProvenanceV1
+import ProofForgeV2.Semantic.RequirementIdsV1
 import ProofForgeV2.Semantic.WireV1
+import ProofForgeV2.Source.NodeAssignmentV1
+import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.SpanV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import Lean.Parser
@@ -38,7 +49,10 @@ open ProofForgeV2
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.ProvenanceV1
+open ProofForgeV2.Semantic.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
+open ProofForgeV2.Source.NodeAssignmentV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.SpanV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireV1
@@ -85,6 +99,54 @@ private def findOrigin
     Option SourceOrigin :=
   provenance.originMap.findSome? fun b =>
     if b.entity == entity then b.origins[0]? else none
+
+private def findOrigins
+    (provenance : SemanticProvenanceV1) (entity : SemanticEntityRefV1) :
+    Array SourceOrigin :=
+  match provenance.originMap.findSome? fun b =>
+    if b.entity == entity then some b.origins else none with
+  | some os => os
+  | none => #[]
+
+private def childPathT (parent : NormalizedSyntacticPathV1) (tag field : String)
+    (index : Nat) : NormalizedSyntacticPathV1 :=
+  parent.push {
+    parentTag := tag
+    fieldTag := field
+    index := UInt32.ofNat index
+  }
+
+private def directChildT (parent : NormalizedSyntacticPathV1) (tag field : String) :
+    NormalizedSyntacticPathV1 :=
+  childPathT parent tag field 0
+
+/-- Independent origin at an explicit syntactic path via assignNodeIdsV1 + inventory. -/
+private def originAtExplicitPath
+    (source : ValidatedSourceV1)
+    (inventory : SourceNodeInventoryV1)
+    (path : NormalizedSyntacticPathV1) :
+    IO SourceOrigin := do
+  let table ← match assignNodeIdsV1
+      source.moduleName source.programIdentity source.program with
+    | .ok t => pure t
+    | .error e => throw <| IO.userError s!"assignNodeIdsV1: {e}"
+  let assignments := nodeAssignmentsPreorderV1 table
+  let mut nodeId? : Option NodeId := none
+  for a in assignments do
+    if a.path == path then
+      nodeId? := some a.nodeId
+  let some nid := nodeId? |
+    throw <| IO.userError s!"no NodeId for path key={pathLookupKeyV1 path}"
+  let mut origin? : Option SourceOrigin := none
+  for o in inventory.nodes do
+    if o.nodeId == nid then
+      origin? := some o
+  let some origin := origin? |
+    throw <| IO.userError "NodeId not present in inventory"
+  pure origin
+
+private def isUInt32 (t : TypeDeclV1) : Bool :=
+  t.name.isNone && (match t.shape with | .uint 32 => true | _ => false)
 
 private unsafe def constRowsOf
     (session : Language.Loader.ParserSession) (label name body : String) :
@@ -441,7 +503,162 @@ private unsafe def testConstValueIdOrder
   | _, _, _, _, _, _ => throw <| IO.userError "vid: unexpected instruction sequence"
   IO.println "  const ValueId / ConstantId order: ok"
 
-/-- Provenance: declaration + type + body instruction/value exact join. -/
+/-- UInt32 exact synthesis: `return 1 + NARROW` and comparison with const place.
+    Typed rejects bare integer lhs without expected type (`10 == N`); accepted
+    forms use enclosing UInt32 result or place-first comparison. -/
+private unsafe def testConstNarrowRhsSynthesis
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- `1 + NARROW` under UInt32 return: both operands lower at UInt32; Op.Constant
+  -- result.typeId == Constant.typeId; binary result UInt32 (not UInt64).
+  let bodyAdd :=
+    "  const NARROW : UInt32 := 5\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  entry addOne() : UInt32 do\n" ++
+    "    return 1 + NARROW\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let (_, dataAdd) ← dataOf session "narrow-add" "ConstNarrowAdd" bodyAdd
+  let some cN := dataAdd.constants[0]? | throw <| IO.userError "narrow-add: const"
+  expect (cN.name == "NARROW") "narrow-add: name"
+  match dataAdd.types[cN.typeId.toNat]? with
+  | some t => expect (isUInt32 t) "narrow-add: const type UInt32"
+  | none => throw <| IO.userError "narrow-add: type OOR"
+  let some entryAdd := dataAdd.callables[1]? |
+    throw <| IO.userError "narrow-add: entry"
+  let some blkAdd := entryAdd.blocks[0]? | throw <| IO.userError "narrow-add: block"
+  -- literal 1, Op.Constant NARROW, binary add — all UInt32
+  expect (blkAdd.instructions.size == 3)
+    s!"narrow-add: expected 3 instrs, got {blkAdd.instructions.size}"
+  let some iLit := blkAdd.instructions[0]? | throw <| IO.userError "narrow-add: lit"
+  let some iC := blkAdd.instructions[1]? | throw <| IO.userError "narrow-add: const"
+  let some iAdd := blkAdd.instructions[2]? | throw <| IO.userError "narrow-add: add"
+  match iLit.op, iLit.result, iC.op, iC.result, iAdd.op, iAdd.result with
+  | .literal tidL _, some rL, .constant 0, some rC, .binary .add _ _, some rA =>
+      expect (tidL == cN.typeId && rL.typeId == cN.typeId) "narrow-add: lit UInt32"
+      expect (rC.typeId == cN.typeId) "narrow-add: Constant result UInt32"
+      expect (rA.typeId == cN.typeId) "narrow-add: add result UInt32"
+  | _, _, _, _, _, _ => throw <| IO.userError "narrow-add: unexpected ops"
+
+  -- Annotated let also exercises synth when RHS is unannotated-width binary
+  -- under explicit UInt32 annotation: `let x : UInt32 := 1 + NARROW`.
+  let bodyLet :=
+    "  const NARROW : UInt32 := 5\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  entry viaLet() : UInt32 do\n" ++
+    "    let x : UInt32 := 1 + NARROW\n" ++
+    "    return x\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let (_, dataLet) ← dataOf session "narrow-let" "ConstNarrowLet" bodyLet
+  let some cL := dataLet.constants[0]? | throw <| IO.userError "narrow-let: const"
+  let some entryL := dataLet.callables[1]? | throw <| IO.userError "narrow-let: entry"
+  let some blkL := entryL.blocks[0]? | throw <| IO.userError "narrow-let: block"
+  let mut sawC := false
+  for instr in blkL.instructions do
+    match instr.op, instr.result with
+    | .constant 0, some r =>
+        expect (r.typeId == cL.typeId) "narrow-let: Constant UInt32"
+        sawC := true
+    | .binary .add _ _, some r =>
+        expect (r.typeId == cL.typeId) "narrow-let: add UInt32"
+    | _, _ => pure ()
+  expect sawC "narrow-let: must emit Op.Constant"
+
+  -- Comparison: TypeCheck rejects `10 == NARROW` (integer lhs without expected).
+  -- Accepted form `NARROW == 10` keeps exact UInt32 on Constant + literal.
+  let bodyCmp :=
+    "  const NARROW : UInt32 := 10\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  entry check() : UInt64 do\n" ++
+    "    assert NARROW == 10\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let (_, dataCmp) ← dataOf session "narrow-cmp" "ConstNarrowCmp" bodyCmp
+  let some cCmp := dataCmp.constants[0]? | throw <| IO.userError "narrow-cmp: const"
+  let some entryCmp := dataCmp.callables[1]? |
+    throw <| IO.userError "narrow-cmp: entry"
+  let some blkCmp := entryCmp.blocks[0]? | throw <| IO.userError "narrow-cmp: block"
+  let mut sawConstCmp := false
+  let mut sawLitU32 := false
+  for instr in blkCmp.instructions do
+    match instr.op, instr.result with
+    | .constant 0, some r =>
+        expect (r.typeId == cCmp.typeId) "narrow-cmp: Constant UInt32"
+        sawConstCmp := true
+    | .literal tid _, some r =>
+        if tid == cCmp.typeId && r.typeId == cCmp.typeId then
+          sawLitU32 := true
+    | _, _ => pure ()
+  expect sawConstCmp "narrow-cmp: Op.Constant"
+  expect sawLitU32 "narrow-cmp: literal 10 at UInt32 (not UInt64)"
+
+  -- Document Typed rejection of literal-lhs equality without expected width.
+  expectNormalizeFails session "narrow-cmp-lit-lhs" "ConstNarrowCmpLit"
+    ("  const NARROW : UInt32 := 10\n" ++
+     "  state count : UInt64\n" ++
+     "  init() do\n    count := 0\n" ++
+     "  entry check() : UInt64 do\n" ++
+     "    assert 10 == NARROW\n" ++
+     "    return count\n" ++
+     "  view get() : UInt64 do\n    return count\n")
+    "integer"
+  IO.println "  const narrow UInt32 rhs/synthesis: ok"
+
+/-- For endpoint width from endExclusive const when start is typed place. -/
+private unsafe def testConstForEndpoint
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Typed rejects bare `for i in 0 ..< LIMIT` (integer start without expected).
+  -- Accepted: let-bound zero UInt32 + LIMIT const; startTid from start place,
+  -- end lowers at that width; LIMIT emits Op.Constant UInt32.
+  let body :=
+    "  const LIMIT : UInt32 := 4\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  entry loopSum() : UInt64 do\n" ++
+    "    let zero : UInt32 := 0\n" ++
+    "    for i in zero ..< LIMIT bounded 4 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let (_, data) ← dataOf session "for-end" "ConstForEnd" body
+  let some cLim := data.constants[0]? | throw <| IO.userError "for-end: const"
+  match data.types[cLim.typeId.toNat]? with
+  | some t => expect (isUInt32 t) "for-end: LIMIT UInt32"
+  | none => throw <| IO.userError "for-end: type OOR"
+  let some entryC := data.callables[1]? | throw <| IO.userError "for-end: entry"
+  let mut sawLimit := false
+  for blk in entryC.blocks do
+    for instr in blk.instructions do
+      match instr.op, instr.result with
+      | .constant 0, some r =>
+          expect (r.typeId == cLim.typeId) "for-end: Constant result UInt32"
+          sawLimit := true
+      | _, _ => pure ()
+  expect sawLimit "for-end: LIMIT must emit Op.Constant"
+  -- End-fallback path: start non-place + end place (Normalize-side). Typed
+  -- still rejects bare integer start; pin that surface.
+  expectNormalizeFails session "for-lit-start" "ConstForLitStart"
+    ("  const LIMIT : UInt32 := 4\n" ++
+     "  state count : UInt64\n" ++
+     "  init() do\n    count := 0\n" ++
+     "  entry loopSum() : UInt64 do\n" ++
+     "    for i in 0 ..< LIMIT bounded 4 do\n" ++
+     "      count := count + 1\n" ++
+     "    return count\n" ++
+     "  view get() : UInt64 do\n    return count\n")
+    "integer"
+  IO.println "  const for endpoint UInt32: ok"
+
+/-- Provenance: declaration + typeRef from ConstDecl.type + body place. -/
 private unsafe def testConstProvenance
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "ConstProv" <|
@@ -455,6 +672,9 @@ private unsafe def testConstProvenance
     "    return count\n"
   let (validated, spans) ← loadSourceWithSpans session "prov" source
   let path ← parseTestPath "prov"
+  let inventory ← match buildSourceNodeInventoryV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"prov: inventory: {repr e}"
   let (carrier, provenance) ← match
       normalizeProgramWithProvenanceV1 validated path spans with
     | .ok pair => pure pair
@@ -463,26 +683,63 @@ private unsafe def testConstProvenance
     | .ok d => pure d
     | .error e => throw <| IO.userError s!"prov: validate: {repr e}"
   expect (data.constants.size == 1) "prov: one constant"
+  let some c0 := data.constants[0]? | throw <| IO.userError "prov: row"
   let some constOrig := findOrigin provenance (.constant 0) |
     throw <| IO.userError "prov: missing .constant 0 origin"
-  -- Instruction 0 / value 0 of entry (callable 1) bind the place path under return.
+  let constItemPath := childPathT #[] "Program" "items" 0
+  let expConstDecl ← originAtExplicitPath validated inventory constItemPath
+  expect (constOrig == expConstDecl)
+    "prov: .constant origin must equal ConstDecl item origin"
+  -- UInt64 may already be bound by state; novel-width const pins typeRef below.
+  -- Body place: instruction 0 / value 0 of entry (callable 1).
   let some instrOrig := findOrigin provenance (.instruction 1 0 0) |
     throw <| IO.userError "prov: missing instruction origin"
   let some valOrig := findOrigin provenance (.value 1 0) |
     throw <| IO.userError "prov: missing value origin"
-  -- Origins must be present and instruction/value share the place origin.
   expect (instrOrig == valOrig)
     "prov: instruction and value must share const place origin"
-  -- Declaration entity must differ from body place entity (different nodes).
   expect (constOrig != instrOrig)
     "prov: constant decl origin must differ from body Op.Constant place"
-  -- Authority re-validation already ran inside normalizeProgramWithProvenanceV1.
   let expected := collectProgramEntityRefsV1 data
   expect (provenance.originMap.size == expected.size)
     s!"prov: originMap size {provenance.originMap.size} != expected {expected.size}"
+  let _ := c0
   IO.println "  const provenance (decl + body place): ok"
 
-/-- Unreferenced const still joins provenance (declaration entities only). -/
+/-- Novel UInt32 const: `.typeRef` origin is exactly ConstDecl.type path. -/
+private unsafe def testConstTypeRefProvenance
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ConstTypeRef" <|
+    "  const NARROW : UInt32 := 3\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  entry use() : UInt32 do\n" ++
+    "    return NARROW\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let (validated, spans) ← loadSourceWithSpans session "type-ref" source
+  let path ← parseTestPath "type-ref"
+  let inventory ← match buildSourceNodeInventoryV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"type-ref: inventory: {repr e}"
+  let (carrier, provenance) ← match
+      normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok pair => pure pair
+    | .error e => throw <| IO.userError s!"type-ref: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"type-ref: validate: {repr e}"
+  let some c0 := data.constants[0]? | throw <| IO.userError "type-ref: row"
+  let typePath := directChildT (childPathT #[] "Program" "items" 0) "ConstDecl" "type"
+  let expTypeOrigin ← originAtExplicitPath validated inventory typePath
+  let some typeOrig := findOrigin provenance (.typeRef c0.typeId) |
+    throw <| IO.userError "type-ref: missing .typeRef origin"
+  expect (typeOrig == expTypeOrigin)
+    "type-ref: .typeRef must equal ConstDecl.type inventory origin"
+  IO.println "  const typeRef → ConstDecl.type: ok"
+
+/-- Unreferenced Bool const: declaration entities + value.bool req on ConstDecl.type. -/
 private unsafe def testConstRowsProvenance
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "ConstRowsProv" <|
@@ -495,6 +752,9 @@ private unsafe def testConstRowsProvenance
     "    return count\n"
   let (validated, spans) ← loadSourceWithSpans session "rows-prov" source
   let path ← parseTestPath "rows-prov"
+  let inventory ← match buildSourceNodeInventoryV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"rows-prov: inventory: {repr e}"
   match normalizeProgramWithProvenanceV1 validated path spans with
   | .ok (carrier, provenance) =>
       let data ← match validateSemanticProgramV1 carrier with
@@ -506,7 +766,28 @@ private unsafe def testConstRowsProvenance
       let some o1 := findOrigin provenance (.constant 1) |
         throw <| IO.userError "rows-prov: missing constant 1"
       expect (o0 != o1) "rows-prov: distinct origins per const"
-      IO.println "  const rows provenance (unreferenced): ok"
+      -- FLAG is items[1]; ConstDecl.type is value.bool producing site.
+      let flagTypePath :=
+        directChildT (childPathT #[] "Program" "items" 1) "ConstDecl" "type"
+      let expBoolType ← originAtExplicitPath validated inventory flagTypePath
+      let mut foundBoolReq := false
+      let mut ri : Nat := 0
+      for req in data.requirements.items do
+        if req.id == s2ValueBoolIdV1 then
+          let orgs := findOrigins provenance (.requirement (UInt32.ofNat ri))
+          expect (orgs.any (· == expBoolType))
+            "rows-prov: value.bool origin must include ConstDecl.type"
+          foundBoolReq := true
+        ri := ri + 1
+      expect foundBoolReq "rows-prov: value.bool requirement present"
+      -- Bool typeRef from FLAG const type path.
+      let some flagRow := data.constants[1]? |
+        throw <| IO.userError "rows-prov: FLAG row"
+      let some boolTypeOrig := findOrigin provenance (.typeRef flagRow.typeId) |
+        throw <| IO.userError "rows-prov: missing Bool typeRef"
+      expect (boolTypeOrig == expBoolType)
+        "rows-prov: Bool typeRef origin == ConstDecl.type"
+      IO.println "  const rows provenance (unreferenced + value.bool): ok"
   | .error e => throw <| IO.userError s!"rows-prov: {repr e}"
 
 unsafe def run : IO Unit := do
@@ -521,7 +802,10 @@ unsafe def run : IO Unit := do
   testConstTypeSynthesis session
   testConstShadowing session
   testConstValueIdOrder session
+  testConstNarrowRhsSynthesis session
+  testConstForEndpoint session
   testConstProvenance session
+  testConstTypeRefProvenance session
   testConstRowsProvenance session
   IO.println "Tests.Semantic.NormalizeConst: ok"
 
