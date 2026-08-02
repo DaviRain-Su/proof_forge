@@ -13067,3 +13067,22 @@ normative: false
 - formal边界不变：仓库尚无执行final target output后转换为structural `OutcomeV1`的adapter；NEAR host
   model和Noir relation model都是IR二次模型，不可冒充target differential。versioned tagged retained
   outcome artifact/verifier也尚不存在，因此TST-SEM-002/003与TASK-D2-07继续pending。
+
+## 2026-08-02 — TST-PROOF-001 proof-subject authority engineering slice
+
+- 新增sealed `ProofSubjectV1`；private constructor只能由`buildProofSubjectV1` mint。authority输入只有
+  `ValidatedSourceV1`、trusted project path/spans与exact `.pfsem/.pfprov` bytes，不接受caller
+  inventory、manifest hash或其他digest claim。
+- 固定phase顺序为semantic canonical decode → provenance canonical decode → `sourceHashV1` →
+  `semanticHashV1` → source-bound `semanticProvenanceDigestV1`。最后一步复用sole production inventory
+  rebuild、normalize identity与provenance exact join，没有第二encoder/decoder/validator。
+- 成功后生成固定import/namespace/declaration模板：`subjectBytes`与`subjectProgram`均为`abbrev`，完整
+  canonical bytes逐项写成decimal UInt8 literal；无digest placeholder、ellipsis、runtime file read、
+  caller-controlled Lean name或syntax。
+- 新engineering suite使用真实ParserSession span table和production provenance encoder，覆盖digest exact
+  recomputation、deterministic complete source、semantic/provenance transport优先级、wrong trusted path，
+  以及decode成功但属于另一个program的canonical `.pfsem` substitution；checked-in exact generated
+  fixture由Lean实际elaborate，并以`rfl`固定`subjectProgram`到reducible `subjectBytes` projection。
+- 边界：尚未实现filesystem no-follow读取、contained Lean build、manifest三digest sealed-subject join、
+  `.olean` declaration loading、ordinal/expected-type definitional equality、axiom/unsafe/import closure或
+  formal retained evidence；不得关闭`TST-PROOF-001`或`TASK-D2-07`。

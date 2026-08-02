@@ -28,6 +28,7 @@ import Tests.Semantic.InvariantABI
 import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.ProofBundleV1
+import Tests.Semantic.ProofSubjectV1
 import Tests.Semantic.ProofReferenceJoinV1
 import Tests.Language.ProgramExports
 import Tests.Language.ProgramExportAcceptance
@@ -134,6 +135,43 @@ import Tests.Materialization.EngineeringDiskClosureV1
 import Tests.CLI.DiagnosticsV1
 import Tests.CLI.ResourceFlagsV1
 
+private unsafe def runSemanticTests : IO Unit := do
+  Tests.Semantic.WireV1.run
+  Tests.Semantic.InvariantABI.run
+  Tests.Semantic.ReferenceV1.run
+  Tests.Semantic.ProofBundleV1.run
+  Tests.Semantic.ProofSubjectV1.run
+  Tests.Semantic.ProofReferenceJoinV1.run
+
+private unsafe def runMaterializationAndProductTests : IO Unit := do
+  Tests.Materialization.BuildSelectionV1.run
+  Tests.Materialization.TargetRegistryV1.run
+  Tests.Materialization.RequirementResolverV1.run
+  Tests.Materialization.IdentityChainV1.run
+  Tests.Materialization.EvmPlanSchemaV1.run
+  Tests.Materialization.OutputSetV1.run
+  Tests.Materialization.OutputEnvelopeV1.run
+  Tests.Materialization.EngineeringFinalizationV1.run
+  Tests.Materialization.EngineeringDiskClosureV1.run
+  Tests.Materialization.run
+  Tests.Materialization.Aleo.run
+  Tests.Materialization.AleoAcceptance.run
+  Tests.Materialization.EvmSmoke.run
+  Tests.Materialization.EvmSolcAcceptance.run
+  Tests.Materialization.NearWasmAcceptance.run
+  Tests.Materialization.NearHostModel.run
+  Tests.Materialization.NoirRelationModel.run
+  Tests.Materialization.SolanaPlanV1.run
+  Tests.Targets.SolanaAsmV1.run
+  Tests.Targets.SolanaElfV1.run
+  Tests.Product.CounterV1Evm.run
+  Tests.Product.PrivateSum4PrivacyV1.run
+  Tests.Product.PerfCheckHarnessV1.run
+  Tests.Product.TokenV1.run
+  Tests.CLI.Emit.run
+  Tests.CLI.ToolchainPolicy.run
+  Tests.CLI.DiagnosticsV1.run
+  Tests.CLI.ResourceFlagsV1.run
 
 unsafe def main : IO Unit := do
   Tests.Core.Common.run
@@ -161,11 +199,7 @@ unsafe def main : IO Unit := do
   Tests.Typed.ContextExtensionCheckV1.run
   Tests.Typed.RequirementsInferV1.run
   Tests.Typed.CheckV1.run
-  Tests.Semantic.WireV1.run
-  Tests.Semantic.InvariantABI.run
-  Tests.Semantic.ReferenceV1.run
-  Tests.Semantic.ProofBundleV1.run
-  Tests.Semantic.ProofReferenceJoinV1.run
+  runSemanticTests
   Tests.Language.ProgramExports.run
   Tests.Language.ProgramExportAcceptance.run
   Tests.Language.ProgramExportAcceptanceEmpty.run
@@ -240,33 +274,5 @@ unsafe def main : IO Unit := do
   Tests.Language.SourceProgramWireMarkerGoldenV1.run
   Tests.Language.SourceProgramWireUnknownTagGoldenV1.run
   Tests.Language.SourceSpan.run
-  Tests.Materialization.BuildSelectionV1.run
-  Tests.Materialization.TargetRegistryV1.run
-  Tests.Materialization.RequirementResolverV1.run
-  Tests.Materialization.IdentityChainV1.run
-  Tests.Materialization.EvmPlanSchemaV1.run
-  Tests.Materialization.OutputSetV1.run
-  Tests.Materialization.OutputEnvelopeV1.run
-  Tests.Materialization.EngineeringFinalizationV1.run
-  Tests.Materialization.EngineeringDiskClosureV1.run
-  Tests.Materialization.run
-  Tests.Materialization.Aleo.run
-  Tests.Materialization.AleoAcceptance.run
-  Tests.Materialization.EvmSmoke.run
-  Tests.Materialization.EvmSolcAcceptance.run
-  Tests.Materialization.NearWasmAcceptance.run
-  Tests.Materialization.NearHostModel.run
-
-  Tests.Materialization.NoirRelationModel.run
-  Tests.Materialization.SolanaPlanV1.run
-  Tests.Targets.SolanaAsmV1.run
-  Tests.Targets.SolanaElfV1.run
-  Tests.Product.CounterV1Evm.run
-  Tests.Product.PrivateSum4PrivacyV1.run
-  Tests.Product.PerfCheckHarnessV1.run
-  Tests.Product.TokenV1.run
-  Tests.CLI.Emit.run
-  Tests.CLI.ToolchainPolicy.run
-  Tests.CLI.DiagnosticsV1.run
-  Tests.CLI.ResourceFlagsV1.run
+  runMaterializationAndProductTests
   IO.println "proof-forge-next-tests: ok"

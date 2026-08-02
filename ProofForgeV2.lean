@@ -65,6 +65,7 @@ import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Semantic.ProofBundleV1
+import ProofForgeV2.Semantic.ProofSubjectV1
 import ProofForgeV2.Semantic.ProofReferenceJoinV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Language.Syntax

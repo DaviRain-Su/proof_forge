@@ -726,3 +726,13 @@ theorem登记成formal acceptance，也不要提前关闭TASK-D2-07。
 final target output的adapter；现有NEAR HostModel/Noir RelationModel只是IR二次模型，不能作为formal
 target differential。若继续该轴，应先新增真实EVM/Anvil deploy+call harness并转换为`OutcomeV1`；
 retained tagged outcome artifact/verifier另作为后续独立schema切片。
+
+proof-subject的首个可信authority也已建立：`ProofSubjectV1`构造器private，唯一builder只消费
+`ValidatedSourceV1 + ProjectRelativePath + trusted path/span table + pfsem/pfprov bytes`。它先严格
+canonical decode两种wire，再重算source/semantic hash，并通过`semanticProvenanceDigestV1`内部重建
+inventory、重跑normalize和exact provenance join；caller无法提供inventory或digest自证。成功结果附带
+固定namespace、完整decimal UInt8列表的reducible closed Lean source，不含runtime file read或manifest
+字符串注入。focused tests已覆盖真实parser spans、canonical foreign carrier、wrong path和transport
+error priority。下一步应在独立边界接filesystem no-follow safe-read/contained generation，再由
+`ProofReferenceJoinV1`比较sealed subject与manifest的三个digest，最后才实现`.olean` declaration/
+defeq/trust closure loader；当前TST-PROOF-001与TASK-D2-07仍pending。

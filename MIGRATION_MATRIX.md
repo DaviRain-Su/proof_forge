@@ -452,3 +452,13 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > `.invalidExternalResponse`优先级；两者均返回exact pre-state。reference runtime corpus仍不是formal
 > acceptance；当前仓库没有执行final target output并产出structural `OutcomeV1`的adapter，且尚无
 > versioned tagged retained outcome artifact/verifier，因此TST-SEM-002/003与TASK-D2-07保持pending。
+
+> 2026-08-02 TST-PROOF-001 proof-subject authority工程增量：新增private-constructor
+> `ProofSubjectV1`与唯一`buildProofSubjectV1`。输入只接受validated source、trusted path/spans及
+> `.pfsem/.pfprov` bytes；依次复用production canonical decoders、`sourceHashV1`、
+> `semanticHashV1`和source-bound `semanticProvenanceDigestV1`，不接受caller inventory或digest
+> claim。成功后确定性生成固定namespace的完整decimal-byte `ByteArray.mk` reducible Lean source，
+> 无runtime read或可注入名称。真实parser/span tests覆盖exact positive、transport优先级、wrong path及
+> canonical-but-foreign semantic substitution。该切片尚无filesystem safe-read、contained builder、
+> `.olean` declaration loading、expected-type defeq、trust closure或formal retained evidence；
+> TST-PROOF-001与TASK-D2-07继续pending。

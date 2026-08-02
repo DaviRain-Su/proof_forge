@@ -36,6 +36,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Semantic.InvariantTheoremV1,
     `Tests.Semantic.ReferenceV1,
     `Tests.Semantic.ProofBundleV1,
+    `Tests.Semantic.ProofSubjectGeneratedFixtureV1,
+    `Tests.Semantic.ProofSubjectV1,
     `Tests.Semantic.ProofReferenceJoinV1,
     `Tests.Language.ParserSession,
     `Tests.Language.ProgramExportFixtures.A,
