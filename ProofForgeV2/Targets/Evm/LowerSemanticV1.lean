@@ -191,6 +191,16 @@ inductive Statement where
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
   | revertError (errorIndex : Nat) (args : Array Expr)
+  /-- Sync external call (void). `callee` is the static QualifiedName component
+      array (≥2); Yul derives a fixed 20-byte CALL address as the last 20 bytes
+      of `keccak256(UTF-8 of target path)` and a 4-byte selector from the method
+      name + `uint64` ABI. Not a dynamic address ValueId (B-3 Principal remains
+      fail-closed). Failure reverts the caller. -/
+  | externalCall (callee : Array String) (args : Array Expr)
+  /-- Async fire-and-forget schedule (void). Same static-callee address/selector
+      derivation as `externalCall`, but CALL success is ignored (no response
+      channel — matches Reference schedule semantics). -/
+  | schedule (callee : Array String) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
@@ -2089,20 +2099,61 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         hasAssert := true
         segmentStart := values.size
-    -- Wave I + B-3: EVM declines external calls / workflow schedules. Product
-    -- capability resolution rejects `effect.synchronous-call` and
-    -- `effect.asynchronous-workflow` with PF-REQ-UNSUPPORTED before this
-    -- lowerer runs; the arms below are defensive for hand-built / inspection
-    -- SemanticProgramV1 carriers. No placeholder CALL/CREATE Yul: EVM
-    -- external calls need a 20-byte address, but wire Principal is
-    -- u32-prefixed variable-length identity (no exact match) and product
-    -- call/schedule callees are static QualifiedName, not Principal values.
-    | .externalCall _effectId _callee _args, none =>
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: external calls are outside the EVM pilot envelope (no address-bearing type; Principal is variable-length u32-prefixed identity, not a fixed 20-byte EVM address)"
-    | .schedule _effectId _callee _args, none =>
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: workflow schedules are outside the EVM pilot envelope (no address-bearing type; Principal is variable-length u32-prefixed identity, not a fixed 20-byte EVM address)"
+    -- AddressBearing: static QualifiedName callees (wire Op.ExternalCall/
+    -- Schedule take QN, not a ValueId address). Principal remains fail-closed
+    -- (variable-length identity ≠ 20-byte EVM address). View/pureFn banned.
+    | .externalCall _effectId callee argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: view callable makes an external call"
+        if mode == .pureFn then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pureFn cannot make external calls"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: external call callee must have at least two components"
+        for c in components do
+          unless isIdentifier c do
+            throw <| .planInvariant .evm
+              s!"unsupported EVM semantic shape: external call callee component '{c}' is not a safe identifier"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless !root.isBool && root.bitWidth == 64 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: external call arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        body := body.push (.externalCall components argExprs)
+        hasAssert := true
+        segmentStart := values.size
+    | .schedule _effectId callee argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: view callable schedules a workflow"
+        if mode == .pureFn then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pureFn cannot schedule workflows"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: schedule callee must have at least two components"
+        for c in components do
+          unless isIdentifier c do
+            throw <| .planInvariant .evm
+              s!"unsupported EVM semantic shape: schedule callee component '{c}' is not a safe identifier"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless !root.isBool && root.bitWidth == 64 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: schedule arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        body := body.push (.schedule components argExprs)
+        hasAssert := true
+        segmentStart := values.size
     | .construct typeId ctorIdx argIds, some result => do
         unless result.typeId == typeId do
           throw <| .planInvariant .evm

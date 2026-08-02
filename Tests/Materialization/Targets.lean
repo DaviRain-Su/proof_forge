@@ -1376,24 +1376,54 @@ private def laterFlowSourceTextV1 : String :=
   "  view get() : UInt64 do\n" ++
   "    return count\n"
 
-/-- Wave I capability matrix: the sync call key is Noir-only (address-bearing
-    types are absent everywhere else), the async workflow key is Noir+NEAR,
-    and each supported surface keeps its exact form (Noir status/arg slots,
-    NEAR promise account). -/
+/-- AddressBearing capability matrix: sync call is EVM+Solana+Noir+Psy
+    (static QN callees; NEAR still declines sync); async workflow is
+    EVM+Solana+NEAR+Noir. Each supported surface keeps its exact form. -/
 private unsafe def testCallScheduleSemanticPlans : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
     extFlowSourceTextV1 "<targets-ext-flow>" "Tests.Targets.ExtFlow" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
-  -- ExtFlow contains a sync call: only Noir may mint a capability.
-  for tid in #[TargetId.evm, TargetId.solana, TargetId.near] do
-    let selection ← liftResult <| resolveBuildSelectionV1 tid none
-    match Targets.resolveEngineeringRequirementsV1 selection compiled with
-    | .error e =>
-        expect (e.code == "PF-REQ-UNSUPPORTED")
-          s!"{tid} must reject the sync-call key, got {e.render}"
-    | .ok _ =>
-        throw <| IO.userError s!"{tid} unexpectedly supports the sync-call key"
+  -- ExtFlow contains a sync call: NEAR still declines (no sync CPI).
+  let nearSel ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  match Targets.resolveEngineeringRequirementsV1 nearSel compiled with
+  | .error e =>
+      expect (e.code == "PF-REQ-UNSUPPORTED")
+        s!"near must reject the sync-call key, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "near unexpectedly supports the sync-call key"
+  -- EVM static QN call → Plan.externalCall + CALL Yul.
+  let evmSelection ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
+  let evmCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 evmSelection compiled
+  let evmPlan ← liftResult <| Targets.Evm.planFromCapability evmCapability
+  match evmPlan.entries[0]!.body[1]? with
+  | some (stmt : Targets.Evm.Statement) =>
+      match stmt with
+      | .externalCall #["Oracle", "feed"] #[.storageLoad 0] => pure ()
+      | _ => throw <| IO.userError "EVM bump must keep externalCall Oracle.feed"
+  | none => throw <| IO.userError "EVM bump body is too short"
+  let evmOutput ← liftResult <| materializeSelected TargetId.evm compiled
+  let some yul := evmOutput.files.find? (·.path == "ExtFlow.yul") |
+    throw <| IO.userError "call-schedule: missing ExtFlow.yul"
+  expect (yul.contents.contains "call(gas(), 0x")
+    "EVM Yul must render CALL to the static keccak-derived address"
+  -- Solana static QN call → external_call in plan text.
+  let solSelection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
+  let solCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 solSelection compiled
+  let solPlan ← liftResult <| Targets.Solana.planFromCapability solCapability
+  match solPlan.entries[0]!.body[1]? with
+  | some (stmt : Targets.Solana.Statement) =>
+      match stmt with
+      | .externalCall #["Oracle", "feed"] #[.stateLoad 0 8] => pure ()
+      | _ => throw <| IO.userError "Solana bump must keep externalCall Oracle.feed"
+  | none => throw <| IO.userError "Solana bump body is too short"
+  let solOutput ← liftResult <| materializeSelected TargetId.solana compiled
+  let some sbpf := solOutput.files.find? (·.path.endsWith ".sbpf-plan") |
+    throw <| IO.userError "call-schedule: missing ExtFlow.sbpf-plan"
+  expect (sbpf.contents.contains "external_call Oracle.feed program_id=0x")
+    "Solana sbpf-plan must render static external_call"
   let noirSelection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
   let noirCapability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 noirSelection compiled
@@ -1409,18 +1439,30 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
       noirInputs[8]!.name == "call_e1_a0")
     "Noir bump envelope must bind the status witness and call arg slot"
 
-  -- LaterFlow is schedule-only: NEAR and Noir support it; EVM/Solana decline.
+  -- LaterFlow is schedule-only: EVM, Solana, NEAR, Noir support it.
   let laterSource ← liftResult (← session.selectProgramV1
     laterFlowSourceTextV1 "<targets-later-flow>" "Tests.Targets.LaterFlow" none)
   let laterCompiled ← liftResult <| Compiler.compileValidatedSourceV1 laterSource
-  for tid in #[TargetId.evm, TargetId.solana] do
-    let selection ← liftResult <| resolveBuildSelectionV1 tid none
-    match Targets.resolveEngineeringRequirementsV1 selection laterCompiled with
-    | .error e =>
-        expect (e.code == "PF-REQ-UNSUPPORTED")
-          s!"{tid} must reject the async-workflow key, got {e.render}"
-    | .ok _ =>
-        throw <| IO.userError s!"{tid} unexpectedly supports the async-workflow key"
+  let evmLaterSel ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
+  let evmLaterCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 evmLaterSel laterCompiled
+  let evmLaterPlan ← liftResult <| Targets.Evm.planFromCapability evmLaterCap
+  match evmLaterPlan.entries[0]!.body[0]? with
+  | some (stmt : Targets.Evm.Statement) =>
+      match stmt with
+      | .schedule #["ledger", "daily"] #[.storageLoad 0] => pure ()
+      | _ => throw <| IO.userError "EVM later must keep schedule ledger.daily"
+  | none => throw <| IO.userError "EVM later body is too short"
+  let solLaterSel ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
+  let solLaterCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 solLaterSel laterCompiled
+  let solLaterPlan ← liftResult <| Targets.Solana.planFromCapability solLaterCap
+  match solLaterPlan.entries[0]!.body[0]? with
+  | some (stmt : Targets.Solana.Statement) =>
+      match stmt with
+      | .schedule #["ledger", "daily"] #[.stateLoad 0 8] => pure ()
+      | _ => throw <| IO.userError "Solana later must keep schedule ledger.daily"
+  | none => throw <| IO.userError "Solana later body is too short"
   let nearSelection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
   let nearCapability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 nearSelection laterCompiled

@@ -967,6 +967,51 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           output := output ++ s!"{indent}mstore({4 + 32 * index}, {rendered.value})\n"
         output := output ++ s!"{indent}mstore(0, 0x{padded})\n"
         output := output ++ s!"{indent}revert(0, {4 + 32 * args.size})\n"
+    | .externalCall callee args =>
+        -- Static QualifiedName → fixed CALL address + selector (AddressBearing).
+        -- Target path = all but last component (joined by "."); method = last.
+        -- Address = last 20 bytes of keccak256(UTF-8 target path).
+        -- Selector = first 4 bytes of keccak256("method(uint64,...)").
+        let method := callee[callee.size - 1]!
+        let targetParts := callee.extract 0 (callee.size - 1)
+        let targetPath := String.intercalate "." targetParts.toList
+        -- Address = last 20 bytes of keccak256(UTF-8 target path) as hex.
+        let addrHex := Keccak.keccak256Hex targetPath.toUTF8
+        let addr20 := addrHex.drop 24
+        let sel := Keccak.selector method (Array.replicate args.size "uint64")
+        let padded := sel ++ String.ofList (List.replicate 56 '0')
+        for index in [0:args.size] do
+          let rendered := renderExpr indent paramPrefix next args[index]!
+          output := output ++ rendered.code
+          next := rendered.next
+          output := output ++ s!"{indent}mstore({4 + 32 * index}, {rendered.value})\n"
+        output := output ++ s!"{indent}mstore(0, 0x{padded})\n"
+        let okName := s!"callOk{next}"
+        next := next + 1
+        output := output ++
+          s!"{indent}let {okName} := call(gas(), 0x{addr20}, 0, 0, {4 + 32 * args.size}, 0, 0)\n" ++
+          s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n"
+    | .schedule callee args =>
+        -- Fire-and-forget: same static address/selector, CALL success ignored.
+        let method := callee[callee.size - 1]!
+        let targetParts := callee.extract 0 (callee.size - 1)
+        let targetPath := String.intercalate "." targetParts.toList
+        let addrHex := Keccak.keccak256Hex targetPath.toUTF8
+        let addr20 := addrHex.drop 24
+        let sel := Keccak.selector method (Array.replicate args.size "uint64")
+        let padded := sel ++ String.ofList (List.replicate 56 '0')
+        for index in [0:args.size] do
+          let rendered := renderExpr indent paramPrefix next args[index]!
+          output := output ++ rendered.code
+          next := rendered.next
+          output := output ++ s!"{indent}mstore({4 + 32 * index}, {rendered.value})\n"
+        output := output ++ s!"{indent}mstore(0, 0x{padded})\n"
+        let okName := s!"schedOk{next}"
+        next := next + 1
+        -- pop success: assign then discard (Yul requires the value be consumed)
+        output := output ++
+          s!"{indent}let {okName} := call(gas(), 0x{addr20}, 0, 0, {4 + 32 * args.size}, 0, 0)\n" ++
+          s!"{indent}pop({okName})\n"
     | .ifThenElse condition thenBody elseBody =>
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code

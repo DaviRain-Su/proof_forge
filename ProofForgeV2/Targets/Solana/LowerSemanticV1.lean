@@ -227,6 +227,15 @@ inductive Statement where
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
   | revertError (errorIndex : Nat) (args : Array Expr)
+  /-- Sync external call (void). `callee` is the static QualifiedName component
+      array (≥2). Program id for the CPI-shaped site is the first 32 bytes of
+      SHA-256(UTF-8 of the target path = all-but-last components joined by
+      "."); method is the last component. Not a dynamic pubkey ValueId
+      (B-3 Principal remains fail-closed). -/
+  | externalCall (callee : Array String) (args : Array Expr)
+  /-- Async fire-and-forget schedule (void). Same static-callee program-id
+      derivation; no response channel (matches Reference schedule). -/
+  | schedule (callee : Array String) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
@@ -387,15 +396,11 @@ def accessFor (account : StateAccount) (mode : HandlerMode) : AccountAccess := {
 
 The Solana pilot lowers public-UInt64 state, checked arith/bitwise/shift,
 Bool compare/logical, bare assert, emit/revert, pureFn localCall, if/match
-regions, and bounded for. External calls (`Op.ExternalCall`) and workflow
-schedules (`Op.Schedule`) are declined (Wave I + B-3): CPI needs a fixed
-32-byte program id, but wire Principal is u32-prefixed variable-length
-identity (1..4096 body, not an exact 32-byte pubkey match) and product
-call/schedule callees are static `QualifiedName`, not Principal values.
-The product path rejects those S2 requirements at
-`resolveEngineeringRequirementsV1` before any Solana lowering;
-hand-built/inspection Semantic programs that still carry the ops fail
-closed here with an explicit planInvariant. -/
+regions, bounded for, and **static-callee** external call / schedule
+(AddressBearing followup). Wire `Op.ExternalCall`/`Op.Schedule` take a
+compile-time `QualifiedName` (not a ValueId address); program id is the
+first 32 bytes of SHA-256(UTF-8 target path). B-3 Principal remains
+fail-closed (u32-prefixed variable-length identity ≠ 32-byte pubkey). -/
 
 /-- Solana pilot type-closure carrier (shared `PilotTypeClosureV1`).
     Body multi-width admits UInt8/16/32/64; state/params admit
@@ -1736,17 +1741,55 @@ private def lowerBlockInstructionsV1
         let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
         body := body.push (.emitEvent eventId.toNat argExprs)
         segmentStart := values.size
-    -- External call / workflow schedule: Solana declines both (Wave I + B-3).
-    -- CPI needs a fixed 32-byte program id; wire Principal is u32-prefixed
-    -- variable-length identity (not an exact match) and product call/schedule
-    -- callees are static QualifiedName — no placeholder, adapter, or
-    -- fabricated program id.
-    | .externalCall _ _ _, _ =>
+    -- AddressBearing: static QualifiedName callees (wire takes QN, not a
+    -- ValueId pubkey). Principal remains fail-closed. View banned.
+    | .externalCall _effectId callee argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: view callable makes an external call"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: external call callee must have at least two components"
+        for c in components do
+          unless isIdentifier c do
+            throw <| .planInvariant .solana
+              s!"unsupported Solana semantic shape: external call callee component '{c}' is not a safe identifier"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+          unless !root.isBool && !root.isInt && root.bitWidth == 64 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: external call arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+        body := body.push (.externalCall components argExprs)
+        segmentStart := values.size
+    | .schedule _effectId callee argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: view callable schedules a workflow"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: schedule callee must have at least two components"
+        for c in components do
+          unless isIdentifier c do
+            throw <| .planInvariant .solana
+              s!"unsupported Solana semantic shape: schedule callee component '{c}' is not a safe identifier"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+          unless !root.isBool && !root.isInt && root.bitWidth == 64 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: schedule arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+        body := body.push (.schedule components argExprs)
+        segmentStart := values.size
+    | .externalCall _ _ _, some _ | .schedule _ _ _, some _ =>
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: external calls are outside the Solana pilot envelope (CPI requires a fixed 32-byte program id; Principal is variable-length u32-prefixed identity, not a Solana pubkey)"
-    | .schedule _ _ _, _ =>
-        throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: workflow schedules are outside the Solana pilot envelope (CPI requires a fixed 32-byte program id; Principal is variable-length u32-prefixed identity, not a Solana pubkey)"
+          "unsupported Solana semantic shape: external call/schedule must be void"
     -- ArrayState: construct fixed Array UInt64 N from N scalar UInt64 args.
     | .construct typeId ctorIdx argIds, some result => do
         unless result.typeId == typeId do

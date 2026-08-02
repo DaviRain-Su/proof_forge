@@ -57,6 +57,12 @@ inductive Operation where
   | assert (condition : Nat) (errorCode : Nat)
   | emitEvent (eventIndex : Nat) (args : Array Nat)
   | revertError (errorIndex : Nat) (args : Array Nat)
+  /-- Static-callee external call: `callee` is the QualifiedName component array;
+      `programIdHex` is the first 32 bytes of SHA-256(UTF-8 target path) as 64
+      lower-case hex chars; `args` are UInt64 temps. -/
+  | externalCall (callee : Array String) (programIdHex : String) (args : Array Nat)
+  /-- Static-callee schedule (fire-and-forget); same program-id derivation. -/
+  | schedule (callee : Array String) (programIdHex : String) (args : Array Nat)
   | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
@@ -639,7 +645,8 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ | .emitEvent .. | .forLoop .. => false
+      | .store _ | .assert _ | .emitEvent .. | .externalCall .. | .schedule ..
+      | .forLoop .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard exit after a closed region arm, unless the arm already
@@ -706,6 +713,28 @@ private partial def lowerBodyOps
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.revertError errorIndex argTemps)
+    | .externalCall callee args =>
+        let targetParts := callee.extract 0 (callee.size - 1)
+        let targetPath := String.intercalate "." targetParts.toList
+        let programIdHex := Crypto.sha256Hex targetPath.toUTF8
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr overflowError tempMap next arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        operations := operations.push (.externalCall callee programIdHex argTemps)
+    | .schedule callee args =>
+        let targetParts := callee.extract 0 (callee.size - 1)
+        let targetPath := String.intercalate "." targetParts.toList
+        let programIdHex := Crypto.sha256Hex targetPath.toUTF8
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr overflowError tempMap next arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        operations := operations.push (.schedule callee programIdHex argTemps)
     | .assert condition =>
         let value := lowerExpr overflowError tempMap next condition
         operations := operations ++ value.operations
@@ -914,7 +943,7 @@ private partial def validateOperationSequence
     | .compare .. | .wideCompare .. | .assert .. | .zeroState .. | .narrowZeroState ..
     | .storeState .. | .narrowStoreState ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool ..
-    | .emitEvent .. | .revertError ..
+    | .emitEvent .. | .revertError .. | .externalCall .. | .schedule ..
     | .ifRegion .. | .switchRegion .. | .forRegion .. | .callFn .. =>
         if returned || initialized then
           throw <| .planInvariant .solana "typed Solana IR has an operation after its terminator"
@@ -1100,6 +1129,16 @@ private partial def validateOperationSequence
             args.size == plan.events[eventIndex]!.fieldCount &&
             args.all (· < next) do
           throw <| .planInvariant .solana "typed Solana IR event emission is invalid"
+    | .externalCall callee programIdHex args =>
+        unless handler.mode != .view && callee.size ≥ 2 &&
+            programIdHex.length == 64 &&
+            args.all (· < destBound) do
+          throw <| .planInvariant .solana "typed Solana IR external call is invalid"
+    | .schedule callee programIdHex args =>
+        unless handler.mode != .view && callee.size ≥ 2 &&
+            programIdHex.length == 64 &&
+            args.all (· < destBound) do
+          throw <| .planInvariant .solana "typed Solana IR schedule is invalid"
     | .revertError errorIndex args =>
         unless errorIndex < plan.errors.size &&
             args.size == plan.errors[errorIndex]!.fieldCount &&
@@ -1251,14 +1290,14 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
     match op with
     | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
     | .zeroState .. | .narrowZeroState .. | .setHeader ..
-    | .emitEvent .. =>
+    | .emitEvent .. | .externalCall .. | .schedule .. =>
         throw <| .planInvariant .solana
           s!"fn IR '{fn.name}' contains a non-pure operation"
     | .ifRegion _ thenOps elseOps =>
         for nested in thenOps ++ elseOps do
           match nested with
           | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
-          | .emitEvent .. =>
+          | .emitEvent .. | .externalCall .. | .schedule .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
           | _ => pure ()
@@ -1267,7 +1306,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
         for nested in nestedOps do
           match nested with
           | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
-          | .emitEvent .. =>
+          | .emitEvent .. | .externalCall .. | .schedule .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
           | _ => pure ()
@@ -1275,7 +1314,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
         for nested in condOps ++ bodyOps ++ boundOps ++ updateOps do
           match nested with
           | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
-          | .emitEvent .. =>
+          | .emitEvent .. | .externalCall .. | .schedule .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
           | _ => pure ()
@@ -1483,6 +1522,20 @@ private partial def renderOperation (indent : String)
   | .emitEvent eventIndex args =>
       let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))
       s!"{indent}emit_event {events[eventIndex]!.name} {argText}\n"
+  | .externalCall callee programIdHex args =>
+      let note := String.intercalate "." callee.toList
+      let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))
+      if args.isEmpty then
+        s!"{indent}external_call {note} program_id=0x{programIdHex}\n"
+      else
+        s!"{indent}external_call {note} program_id=0x{programIdHex} {argText}\n"
+  | .schedule callee programIdHex args =>
+      let note := String.intercalate "." callee.toList
+      let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))
+      if args.isEmpty then
+        s!"{indent}schedule {note} program_id=0x{programIdHex}\n"
+      else
+        s!"{indent}schedule {note} program_id=0x{programIdHex} {argText}\n"
   | .revertError errorIndex args =>
       let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))
       s!"{indent}program_error 0x{natHex (declaredErrorBase + errorIndex)} ; {errors[errorIndex]!.name}({argText})\n"

@@ -104,7 +104,7 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **B-3** | Principal→address 映射 | **已闭合为 FAIL-CLOSED 研究钉（PrincipalAddr, 2026-08-02，PsyFelt 式诚实）**：wire Principal valueBytes = `u32le(len)\|body`（`1≤len≤4096`；default `01 00 00 00 00`）；EVM `address` = 固定 20 raw bytes（无 length prefix）；Solana pubkey/program id = 固定 32 raw bytes。**无无损 exact canonical-bytes 匹配**——truncate/pad/strip-prefix 会发明第二身份拼写。另：产品 `call`/`schedule` 降为 `Op.ExternalCall`/`Schedule` 的 **static `QualifiedName` callee**，不是 Principal `ValueId`；仅开放 Principal state/param 也无法解锁 CALL/CPI。全 target 保持 `pilotPrincipalPolicyNone`；EVM/Solana type-closure wording 钉 20-byte / 32-byte mismatch；resolver 仍拒 EVM/Solana 双 call 键。**不**开放 approximate address mapping | PrincipalAddr ✅ |
+| **B-3** | Principal→address 映射 | **已闭合为 FAIL-CLOSED 研究钉（PrincipalAddr, 2026-08-02）** + **AddressBearing followup 已闭合（static-callee open, 2026-08-02）**。Principal valueBytes = `u32le(len)\|body`（`1≤len≤4096`）≠ EVM 20B / Solana 32B pubkey，**无** approximate Principal→address 映射；全 target 保持 `pilotPrincipalPolicyNone`。产品 `call`/`schedule` 为 wire `Op.ExternalCall`/`Schedule` 的 **static `QualifiedName` callee**（非 ValueId 地址）。AddressBearing 打开 EVM/Solana 双 call 键：EVM Plan `externalCall`/`schedule` → Yul `CALL` 至 `keccak256(targetPath)` 后 20 字节 + method selector；Solana Plan/IR `externalCall`/`schedule` → program id = SHA-256(targetPath) 32B，plan 文本 `external_call`/`schedule`，SBPF 以 `sol_log_data` 观测桩（完整 `invoke_signed` CPI 需 account metas，另排）。NEAR 仍拒 sync；Noir 七键不变 | PrincipalAddr ✅ + AddressBearing ✅ |
 
 #### B-4：验收门升级（= C 组）
 
@@ -142,7 +142,8 @@ normative: false
 - **OptionState**（N-A4）：NormalizeV1 + Reference + 每 target
 
 ### Phase F（B-3 + C 组，可并行）
-- **PrincipalAddr**（B-3）：**已闭合为 FAIL-CLOSED 研究钉** — wire Principal（u32-prefixed 1..4096）≠ EVM 20B address / Solana 32B pubkey；call/schedule callee 仍为 QualifiedName 非 Principal；全 target `pilotPrincipalPolicyNone`；见 §B-3 与 `scripts/principal_addr_research.sh`
+- **PrincipalAddr**（B-3）：**已闭合为 FAIL-CLOSED 研究钉** — wire Principal ≠ EVM/Solana 固定地址；见 §B-3
+- **AddressBearing**（B-3 followup）：**已闭合（static-callee open）** — research 确认 callee 为 static QN 非 dynamic address；EVM/Solana resolver 七键 + Plan/IR/emitter 打开；Principal 仍 fail closed
 - **NearWasmAcceptance**（C-1）：**已闭合** — `Tests/Materialization/NearWasmAcceptance.lean` + `scripts/near_wasm_acceptance.sh`；WABT wat2wasm+wasm-interp dummy-import 门
 - **AleoPsyResearch**（C-2）：**已闭合** — `docs/research/15-aleo-psy-compiler-vm.md`（不升格门）
 - **NoirProveResearch**（C-4）：**已闭合** — `docs/research/16-noir-prove-path.md`（不升格 prove/verify）

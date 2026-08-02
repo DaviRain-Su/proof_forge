@@ -232,6 +232,21 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       out := out.append (← encodeNatAsU32le body.size)
       for s in body do out := out.append (← encodeStatement s)
       pure out
+  -- AddressBearing: static QualifiedName external call / schedule (tags 9/10).
+  | .externalCall callee args => do
+      let mut out := encodeU8 9
+      out := out.append (← encodeNatAsU32le callee.size)
+      for c in callee do out := out.append (← encodeString c)
+      out := out.append (← encodeNatAsU32le args.size)
+      for a in args do out := out.append (← encodeExpr a)
+      pure out
+  | .schedule callee args => do
+      let mut out := encodeU8 10
+      out := out.append (← encodeNatAsU32le callee.size)
+      for c in callee do out := out.append (← encodeString c)
+      out := out.append (← encodeNatAsU32le args.size)
+      for a in args do out := out.append (← encodeExpr a)
+      pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do
   let mut out := ByteArray.empty

@@ -1622,13 +1622,10 @@ private unsafe def testForLoop : IO Unit := do
   -- No-loop programs remain accepted (regression guard via Counter path in run).
   pure ()
 
-/-- Wave I product gate: EVM declines both external-call requirement keys
-    because no address-bearing type exists in the public-UInt64 envelope.
-    Compile succeeds (Normalize lowers `call`/`schedule`), selection succeeds,
-    but `resolveEngineeringRequirementsV1` fails closed with PF-REQ-UNSUPPORTED
-    before any EVM Plan/Yul lowering. The EVM lowerer's explicit
-    `externalCall`/`schedule` planInvariant arms are defensive only — the
-    product path never reaches them. -/
+/-- AddressBearing product path: EVM admits static QualifiedName call/schedule
+    (wire Op.ExternalCall/Schedule take compile-time QN, not a dynamic address
+    ValueId). Plan lowers CALL to a fixed keccak-derived 20-byte address;
+    Principal remains fail-closed. -/
 private unsafe def testExternalCallGate : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let callText :=
@@ -1650,22 +1647,21 @@ private unsafe def testExternalCallGate : IO Unit := do
     Compiler.compileValidatedSourceV1 callSource
   let callSelection ← liftResult "select EVM (call)" <|
     resolveBuildSelectionV1 TargetId.evm none
-  match Targets.resolveEngineeringRequirementsV1 callSelection callCompiled with
-  | .error e =>
-      expect (e.code == "PF-REQ-UNSUPPORTED")
-        s!"EVM must reject effect.synchronous-call with PF-REQ-UNSUPPORTED, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError
-        "EVM resolveEngineeringRequirementsV1 must reject a program with call Oracle.feed"
-  -- planFromCapability is unreachable on the product path: without a capability
-  -- the defensive lowerer never runs. Pin that the call-bearing compiled carrier
-  -- cannot obtain a capability for EVM (same gate as above, re-checked).
-  match Targets.resolveEngineeringRequirementsV1 callSelection callCompiled with
-  | .error e =>
-      expect (e.render.startsWith "PF-REQ-UNSUPPORTED:")
-        s!"call gate must render PF-REQ-UNSUPPORTED:, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError "call gate: capability mint must stay closed"
+  let callCap ← liftResult "resolve CallGate" <|
+    Targets.resolveEngineeringRequirementsV1 callSelection callCompiled
+  let callPlan ← liftResult "plan CallGate" <| Targets.Evm.planFromCapability callCap
+  let bump := callPlan.entries[0]!
+  match bump.body[0]? with
+  | some (stmt : Targets.Evm.Statement) =>
+      match stmt with
+      | .externalCall #["Oracle", "feed"] #[.storageLoad 0] => pure ()
+      | _ => throw <| IO.userError "CallGate bump must start with externalCall Oracle.feed"
+  | none => throw <| IO.userError "CallGate bump body is empty"
+  let callIr ← liftResult "ir CallGate" <| Targets.Evm.irFromCapability callCap
+  expect (callIr.yul.contains "call(gas(), 0x")
+    "CallGate Yul must emit CALL to the fixed keccak-derived address"
+  expect (callIr.yul.contains "if iszero(")
+    "CallGate Yul must revert on CALL failure (sync external call)"
 
   let scheduleText :=
     "import ProofForgeV2\n" ++
@@ -1686,13 +1682,22 @@ private unsafe def testExternalCallGate : IO Unit := do
     Compiler.compileValidatedSourceV1 scheduleSource
   let scheduleSelection ← liftResult "select EVM (schedule)" <|
     resolveBuildSelectionV1 TargetId.evm none
-  match Targets.resolveEngineeringRequirementsV1 scheduleSelection scheduleCompiled with
-  | .error e =>
-      expect (e.code == "PF-REQ-UNSUPPORTED")
-        s!"EVM must reject effect.asynchronous-workflow with PF-REQ-UNSUPPORTED, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError
-        "EVM resolveEngineeringRequirementsV1 must reject a program with schedule Ledger.daily"
+  let scheduleCap ← liftResult "resolve ScheduleGate" <|
+    Targets.resolveEngineeringRequirementsV1 scheduleSelection scheduleCompiled
+  let schedulePlan ← liftResult "plan ScheduleGate" <|
+    Targets.Evm.planFromCapability scheduleCap
+  match schedulePlan.entries[0]!.body[0]? with
+  | some (stmt : Targets.Evm.Statement) =>
+      match stmt with
+      | .schedule #["Ledger", "daily"] #[.storageLoad 0] => pure ()
+      | _ => throw <| IO.userError "ScheduleGate must start with schedule Ledger.daily"
+  | none => throw <| IO.userError "ScheduleGate bump body is empty"
+  let scheduleIr ← liftResult "ir ScheduleGate" <|
+    Targets.Evm.irFromCapability scheduleCap
+  expect (scheduleIr.yul.contains "call(gas(), 0x")
+    "ScheduleGate Yul must emit CALL (fire-and-forget)"
+  expect (scheduleIr.yul.contains "pop(")
+    "ScheduleGate Yul must ignore CALL success (async schedule)"
   pure ()
 
 /-- Walk Plan Expr trees for a narrow UInt8 checked-add. -/

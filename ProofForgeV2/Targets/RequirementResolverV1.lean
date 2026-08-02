@@ -13,9 +13,11 @@
     effect.asynchronous-workflow, effect.event, effect.synchronous-call,
     failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic
   with SemVer 1.0.0, engineeringRequirementDigestV1, and empty predicates only.
-  Capability gates: EVM/Solana decline both call keys (no address-bearing type
-  in the envelope), NEAR declines only `effect.synchronous-call` (async
-  workflow promises are native), Noir supports all seven.
+  Capability gates: EVM/Solana admit both call keys via **static**
+  `QualifiedName` callees (AddressBearing followup: no dynamic address type;
+  Plan lowers CALL/CPI-shaped sites from compile-time QN). NEAR declines only
+  `effect.synchronous-call` (async workflow promises are native), Noir
+  supports all seven.
 
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.
   Dependency-injected seams return index rows or
@@ -218,23 +220,20 @@ private def mkImplementedRow
 /-- Shipped seven-row seed body (canonical targetId order: aleo, evm, near, noir,
     psy, solana×2). Solana carries both `solana-sbpf-elf-v1` and
     `solana-sbpf-plan-v1` (ASCII ascending); both share the same S2 capability set.
-    Capability gates are per target: external sync calls need an address-bearing
-    type (absent from the UInt64 envelope) so EVM/Solana decline
-    `effect.synchronous-call`; NEAR has no synchronous external calls but owns
-    async workflow promises, so it declines sync and supports
-    `effect.asynchronous-workflow`; Noir's verifier-witness response model
-    supports both; Aleo declines both call families (no address-bearing type
-    and no workflow model) and `effect.event` (Leo 4.0.2 has no on-chain event
-    log — emit fails closed at the materializer); Psy supports sync calls and
-    events but declines `effect.asynchronous-workflow` (no emitted deferred
-    crosscall form — schedule fails closed at the materializer). -/
+    Capability gates are per target: EVM/Solana admit both call keys via static
+    QualifiedName callees (AddressBearing: wire Op.ExternalCall/Schedule take
+    compile-time QN, not a dynamic address ValueId — no Principal→20B/32B map);
+    NEAR has no synchronous external calls but owns async workflow promises, so
+    it declines sync and supports `effect.asynchronous-workflow`; Noir's
+    verifier-witness response model supports both; Aleo declines both call
+    families (no static-callee Plan open) and `effect.event` (Leo 4.0.2 has no
+    on-chain event log — emit fails closed at the materializer); Psy supports
+    sync calls and events but declines `effect.asynchronous-workflow` (no
+    emitted deferred crosscall form — schedule fails closed at the materializer). -/
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
   let catalogRequests ← s2CatalogRequests
   -- Capability filters reference closed S2 id spellings from RequirementIdsV1
   -- (not bare literals). s2CatalogIdsWireOrderV1 stays RequirementsV1 public.
-  let withoutCalls := catalogRequests.filter fun r =>
-    r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
-      r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
   let withoutSync := catalogRequests.filter fun r =>
     r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
   let aleoRequests := catalogRequests.filter fun r =>
@@ -248,12 +247,13 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
-    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 withoutCalls,
+    -- AddressBearing: full seven keys — static QN call/schedule Plan open.
+    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 catalogRequests,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
-    mkImplementedRow .solana CodegenProfileId.solanaSbpfElfV1 withoutCalls,
-    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 withoutCalls
+    mkImplementedRow .solana CodegenProfileId.solanaSbpfElfV1 catalogRequests,
+    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 catalogRequests
   ]
 
 /-- Frozen product seed as `CompileResult`. Binders surface seed errors first —

@@ -1487,6 +1487,76 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       b := emit b s!"  add64 r1, -{tempStackOff descKeyPtr}"
       b := emit b "  lddw r2, 2"
       pure (emit b "  call sol_log_data")
+  | .externalCall callee programIdHex args =>
+      -- AddressBearing pilot: log static-callee site via sol_log_data.
+      -- Full CPI (`invoke_signed`) needs account metas beyond the static QN
+      -- surface; deployable CPI is a follow-on. Plan profile renders
+      -- `external_call`; ELF remains assembleable.
+      let note := String.intercalate "." callee.toList
+      let n := args.size
+      let need := n + 5
+      let (b0, bufBase) := allocTemps b need
+      let keySlot := bufBase
+      let mut b := emit b0 s!"  ; external_call {note} program_id=0x{programIdHex} ({n} args) via sol_log_data"
+      -- Fixed key tag 0xEC01 for sync external call observability.
+      b := emit b "  lddw r1, 0xec01"
+      b := storeTempAbs b keySlot "r1"
+      for i in [:n] do
+        let slot := bufBase + n - i
+        b := loadTemp b "r1" tempBase args[i]!
+        b := storeTempAbs b slot "r1"
+      let dataHighSlot := if n == 0 then bufBase else bufBase + n
+      let descKeyPtr := bufBase + n + 1
+      let descKeyLen := bufBase + n + 2
+      let descDataPtr := bufBase + n + 3
+      let descDataLen := bufBase + n + 4
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff keySlot}"
+      b := storeTempAbs b descKeyPtr "r1"
+      b := emit b "  lddw r1, 8"
+      b := storeTempAbs b descKeyLen "r1"
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff dataHighSlot}"
+      b := storeTempAbs b descDataPtr "r1"
+      b := emit b s!"  lddw r1, {hexImm (8 * n)}"
+      b := storeTempAbs b descDataLen "r1"
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff descKeyPtr}"
+      b := emit b "  lddw r2, 2"
+      pure (emit b "  call sol_log_data")
+  | .schedule callee programIdHex args =>
+      let note := String.intercalate "." callee.toList
+      let n := args.size
+      let need := n + 5
+      let (b0, bufBase) := allocTemps b need
+      let keySlot := bufBase
+      let mut b := emit b0 s!"  ; schedule {note} program_id=0x{programIdHex} ({n} args) via sol_log_data"
+      -- Fixed key tag 0x5C01 for schedule observability (distinct from call).
+      b := emit b "  lddw r1, 0x5c01"
+      b := storeTempAbs b keySlot "r1"
+      for i in [:n] do
+        let slot := bufBase + n - i
+        b := loadTemp b "r1" tempBase args[i]!
+        b := storeTempAbs b slot "r1"
+      let dataHighSlot := if n == 0 then bufBase else bufBase + n
+      let descKeyPtr := bufBase + n + 1
+      let descKeyLen := bufBase + n + 2
+      let descDataPtr := bufBase + n + 3
+      let descDataLen := bufBase + n + 4
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff keySlot}"
+      b := storeTempAbs b descKeyPtr "r1"
+      b := emit b "  lddw r1, 8"
+      b := storeTempAbs b descKeyLen "r1"
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff dataHighSlot}"
+      b := storeTempAbs b descDataPtr "r1"
+      b := emit b s!"  lddw r1, {hexImm (8 * n)}"
+      b := storeTempAbs b descDataLen "r1"
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff descKeyPtr}"
+      b := emit b "  lddw r2, 2"
+      pure (emit b "  call sol_log_data")
 
 /-- Emit a sequence of operations, threading the assembly buffer. -/
 private partial def emitOperations (b0 : AsmBuf) (ir : IR) (tempBase : Nat)

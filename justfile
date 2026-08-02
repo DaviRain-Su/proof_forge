@@ -953,7 +953,8 @@ target-cli-positive: build
 	lake env .lake/build/bin/proof-forge-next inspect evm > build/inspect-evm.stdout
 	rg -q '^target=evm$' build/inspect-evm.stdout
 	rg -q '^profile=evm-yul-solc-0.8.34-v1$' build/inspect-evm.stdout
-	rg -q '^requirements=#\[effect.event, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-evm.stdout
+	# AddressBearing: EVM admits full S2 catalog (static QN call/schedule).
+	rg -q '^requirements=#\[effect.asynchronous-workflow, effect.event, effect.synchronous-call, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-evm.stdout
 	rg -q '^status=implemented$' build/inspect-evm.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-evm.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-evm.stdout

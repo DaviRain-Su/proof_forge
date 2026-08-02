@@ -1449,12 +1449,9 @@ private unsafe def testShiftBitwiseLogical
   let ir2 ← liftResult <| irSolana compiled
   expect (ir == ir2) "BitLogic IR rebuild must be structure-identical"
 
-/-- Wave I: Solana declines external call and workflow schedule at the S2
-    requirement resolver (no address-bearing type for CPI program ids in the
-    UInt64 envelope). Compile succeeds; build selection succeeds; capability
-    resolve fails closed with PF-REQ-UNSUPPORTED before any Solana lowering.
-    Defensive planInvariant arms in `lowerBlockInstructionsV1` cover hand-built
-    Semantic carriers, but the product path never reaches them for these ops. -/
+/-- AddressBearing: Solana admits static QualifiedName call/schedule. Plan
+    carries externalCall/schedule; default plan profile renders program_id=
+    (SHA-256 of target path). Principal remains fail-closed. -/
 private unsafe def testExternalCallGate
     (session : Language.Loader.ParserSession) : IO Unit := do
   let callText := wrapProgram "CallGate" <|
@@ -1470,15 +1467,20 @@ private unsafe def testExternalCallGate
   let callCompiled ← compileSource session callText
     "Examples.CallGate" "<solana-call-gate>"
   let callSelection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
-  match Targets.resolveEngineeringRequirementsV1 callSelection callCompiled with
-  | .error e =>
-      expect (e.code == "PF-REQ-UNSUPPORTED")
-        s!"call gate: expected PF-REQ-UNSUPPORTED, got {e.render}"
-      expect (e.render.startsWith "PF-REQ-UNSUPPORTED:")
-        s!"call gate: PF-REQ-UNSUPPORTED rendering must be code-prefixed, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError
-        "call gate: Solana must reject effect.synchronous-call at resolveEngineeringRequirementsV1"
+  let callCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 callSelection callCompiled
+  let callPlan ← liftResult <| Targets.Solana.planFromCapability callCap
+  match callPlan.entries[0]!.body[0]? with
+  | some (stmt : Statement) =>
+      match stmt with
+      | .externalCall #["Oracle", "feed"] #[.stateLoad 0 8] => pure ()
+      | _ => throw <| IO.userError "CallGate must start with externalCall Oracle.feed"
+  | none => throw <| IO.userError "CallGate bump body is empty"
+  let callFiles ← liftResult <| Targets.Solana.buildFromCapability callCap
+  let some planFile := callFiles.find? (·.path.endsWith ".sbpf-plan") |
+    throw <| IO.userError "CallGate: missing .sbpf-plan"
+  expect (planFile.contents.contains "external_call Oracle.feed program_id=0x")
+    "CallGate sbpf-plan must render static external_call with program_id"
 
   let scheduleText := wrapProgram "ScheduleGate" <|
     "  state count : UInt64\n\n" ++
@@ -1493,15 +1495,20 @@ private unsafe def testExternalCallGate
   let scheduleCompiled ← compileSource session scheduleText
     "Examples.ScheduleGate" "<solana-schedule-gate>"
   let scheduleSelection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
-  match Targets.resolveEngineeringRequirementsV1 scheduleSelection scheduleCompiled with
-  | .error e =>
-      expect (e.code == "PF-REQ-UNSUPPORTED")
-        s!"schedule gate: expected PF-REQ-UNSUPPORTED, got {e.render}"
-      expect (e.render.startsWith "PF-REQ-UNSUPPORTED:")
-        s!"schedule gate: PF-REQ-UNSUPPORTED rendering must be code-prefixed, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError
-        "schedule gate: Solana must reject effect.asynchronous-workflow at resolveEngineeringRequirementsV1"
+  let scheduleCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 scheduleSelection scheduleCompiled
+  let schedulePlan ← liftResult <| Targets.Solana.planFromCapability scheduleCap
+  match schedulePlan.entries[0]!.body[0]? with
+  | some (stmt : Statement) =>
+      match stmt with
+      | .schedule #["Ledger", "daily"] #[.stateLoad 0 8] => pure ()
+      | _ => throw <| IO.userError "ScheduleGate must start with schedule Ledger.daily"
+  | none => throw <| IO.userError "ScheduleGate later body is empty"
+  let scheduleFiles ← liftResult <| Targets.Solana.buildFromCapability scheduleCap
+  let some sPlan := scheduleFiles.find? (·.path.endsWith ".sbpf-plan") |
+    throw <| IO.userError "ScheduleGate: missing .sbpf-plan"
+  expect (sPlan.contents.contains "schedule Ledger.daily program_id=0x")
+    "ScheduleGate sbpf-plan must render static schedule with program_id"
 
 /-- Unit/void entry (`entry run() do`) fails closed at makeEntryV1. -/
 private unsafe def testVoidEntryRejected

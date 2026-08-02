@@ -12851,3 +12851,27 @@ normative: false
 - Boundary: engineering only; no Principal state/param Plan admit; no
   externalCall/schedule unlock; RequirementResolver call-key matrix unchanged
   (off-limits this wave); not formal D2/D4.
+
+## 2026-08-02 — AddressBearing (B-3 followup): static-callee call/schedule open
+
+- Research: wire `Op.ExternalCall`/`Op.Schedule` take **static `QualifiedName`
+  callee** + `ValueId` args (not a dynamic address ValueId). Principal remains
+  fail-closed (B-3). Correct path = open static-callee Plan lowering, not a new
+  Type.Address / Principal→20B/32B map.
+- RequirementResolverV1: EVM + Solana rows admit full seven S2 keys (was
+  withoutCalls); NEAR still declines sync; Aleo unchanged; matrix shape
+  unchanged (additive capability only).
+- EVM: Plan `Statement.externalCall`/`schedule` (static components + UInt64
+  args); LowerSemantic opens view/pureFn-banned sites; ValidatePlan/PlanSchema
+  tags 9/10; EmitIR Yul `CALL` to last 20 bytes of `keccak256(targetPath)` with
+  method selector; sync reverts on failure, schedule pops success.
+- Solana: Plan + IR `externalCall`/`schedule` with program id =
+  SHA-256(UTF-8 target path) 32-byte hex; plan text `external_call`/`schedule`;
+  SBPF ELF logs via `sol_log_data` (full `invoke_signed` CPI needs account
+  metas — deferred, documented).
+- Tests: EvmSmoke/SolanaPlanV1 external-call gates flipped to product-path
+  positive pins; Targets Wave I matrix admits EVM/Solana call+schedule; Resolver
+  support counts 7 for EVM/Solana; describe/inspect full catalog for EVM.
+- Matrix: B-3 followup AddressBearing closed as static-callee open.
+- Boundary: engineering only; not formal D2/D4/SupportClaim; no Principal Plan
+  admit; Solana deployable CPI incomplete; no dynamic address type.

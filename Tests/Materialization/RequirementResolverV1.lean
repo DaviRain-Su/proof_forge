@@ -345,12 +345,12 @@ private def testFourRowTable : IO Unit := do
   expect (rows.size == 7) "exactly seven support rows"
   let expectedKeys := #[
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4),
-    ("evm", "evm-yul-solc-0.8.34-v1", 5),
+    ("evm", "evm-yul-solc-0.8.34-v1", 7),
     ("near", "near-wasm-raw-u64-v1", 6),
     ("noir", "noir-source-u64-relations-v1", 7),
     ("psy", "psy-dargo-u64-v1", 6),
-    ("solana", "solana-sbpf-elf-v1", 5),
-    ("solana", "solana-sbpf-plan-v1", 5)
+    ("solana", "solana-sbpf-elf-v1", 7),
+    ("solana", "solana-sbpf-plan-v1", 7)
   ]
   let mut i : Nat := 0
   while i < 7 do
@@ -360,15 +360,20 @@ private def testFourRowTable : IO Unit := do
         expect (row.codegenProfile.toString == prof) s!"row {i} profile"
         expect (row.supported.size == supportCount)
           s!"row {i} support count"
-        -- Every row is a wire-order subset of the S2 catalog; Noir supports
-        -- both external-call keys, NEAR the async one, Psy the sync one.
+        -- Every row is a wire-order subset of the S2 catalog; EVM/Solana/Noir
+        -- admit both external-call keys (AddressBearing static QN), NEAR the
+        -- async one, Psy the sync one.
         let ids := row.supported.map (·.id)
         expect (ids.all isS2CatalogIdV1) s!"row {i} ids are catalog members"
         expect (row.supported.all fun item =>
             item.version == s2RequirementVersionV1 && item.predicates.isEmpty)
           s!"row {i} version/predicates"
-        let expectSync := row.targetId == TargetId.noir || row.targetId == TargetId.psy
-        let expectAsync := row.targetId == TargetId.noir || row.targetId == TargetId.near
+        let expectSync :=
+          row.targetId == TargetId.noir || row.targetId == TargetId.psy ||
+            row.targetId == TargetId.evm || row.targetId == TargetId.solana
+        let expectAsync :=
+          row.targetId == TargetId.noir || row.targetId == TargetId.near ||
+            row.targetId == TargetId.evm || row.targetId == TargetId.solana
         expect ((ids.contains "effect.synchronous-call") == expectSync &&
             (ids.contains "effect.asynchronous-workflow") == expectAsync)
           s!"row {i} capability gate shape"
@@ -545,10 +550,10 @@ private def testSeedPrecedence : IO Unit := do
     inspectSupportWithSeedV1 initialStaticRequirementSupportIndexV1Result
       TargetId.evm CodegenProfileId.evmYulSolc0834V1
   expect (insp.targetId == TargetId.evm) "DI inspection target"
-  -- EVM declines both external-call keys: five of the seven catalog ids.
-  expect (insp.supported.size == 5 &&
-      !insp.supported.any (·.id == "effect.synchronous-call") &&
-      !insp.supported.any (·.id == "effect.asynchronous-workflow"))
+  -- AddressBearing: EVM admits both external-call keys (full seven catalog ids).
+  expect (insp.supported.size == 7 &&
+      insp.supported.any (·.id == "effect.synchronous-call") &&
+      insp.supported.any (·.id == "effect.asynchronous-workflow"))
     "DI inspection EVM capability gate"
 
 private def testRequestInspectionErrors : IO Unit := do
@@ -562,16 +567,22 @@ private def testRequestInspectionErrors : IO Unit := do
   match inspectResolveRequestsV1 supported emptyProgramRequirements with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"zero reqs should succeed: {e.render}"
-  -- Full S2 catalog succeeds only against the all-capable Noir row...
+  -- Full S2 catalog succeeds against all-capable Noir and EVM (AddressBearing).
   let noirSupported ← match rows[3]? with
     | some row => pure row.supported
     | none => throw <| IO.userError "missing noir support row"
   match inspectResolveRequestsV1 noirSupported { items := trio } with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"full trio on noir should succeed: {e.render}"
-  -- ...while EVM's capability gate declines the external-call keys.
+  let evmSupported ← match rows[1]? with
+    | some row => pure row.supported
+    | none => throw <| IO.userError "missing evm support row"
+  match inspectResolveRequestsV1 evmSupported { items := trio } with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"full trio on evm should succeed: {e.render}"
+  -- Aleo still declines external-call keys (first row seed).
   expectErrorCode (inspectResolveRequestsV1 supported { items := trio })
-    "PF-REQ-UNSUPPORTED" "evm declines external-call keys"
+    "PF-REQ-UNSUPPORTED" "aleo declines external-call keys"
   -- Unknown id
   let unknown : RequirementRequestV1 := {
     id := "disclosure.private-witness"
@@ -824,10 +835,8 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
     "CLI emit profile"
   match ProofForgeV2.CLI.inspectTargetText "evm" with
   | .ok text =>
-      let expectedIds := String.intercalate ", "
-        ((s2CatalogIdsWireOrderV1.filter fun id =>
-          id != "effect.asynchronous-workflow" &&
-            id != "effect.synchronous-call").toList)
+      -- AddressBearing: EVM admits full seven-key S2 catalog (static QN callees).
+      let expectedIds := String.intercalate ", " s2CatalogIdsWireOrderV1.toList
       expect
         (hasSubstr text
           s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
@@ -848,10 +857,7 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
   -- Pure three-line helper remains exact for S2 wire-order pinning.
   match ProofForgeV2.CLI.describeTargetText "evm" with
   | .ok text =>
-      let expectedIds := String.intercalate ", "
-        ((s2CatalogIdsWireOrderV1.filter fun id =>
-          id != "effect.asynchronous-workflow" &&
-            id != "effect.synchronous-call").toList)
+      let expectedIds := String.intercalate ", " s2CatalogIdsWireOrderV1.toList
       expect
         (text ==
           s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
