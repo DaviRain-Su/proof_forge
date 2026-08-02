@@ -70,6 +70,46 @@ def encodeArray (encode : α → Except SemanticWireErrorV1 ByteArray)
     payload := payload.append chunk
   pure (header.append payload)
 
+/-- Fixed-size success refinements for the sole production array encoder.
+    These expose its exact source-order concatenation without defining a
+    second traversal. -/
+theorem encodeArray_zeroV1 (encode : α → Except SemanticWireErrorV1 ByteArray) :
+    encodeArray encode #[] = .ok (encodeU32le 0) := by
+  simp [encodeArray]
+  rfl
+
+theorem encodeArray_oneV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 : α) (b0 : ByteArray) (h0 : encode v0 = .ok b0) :
+    encodeArray encode #[v0] = .ok ((encodeU32le 1).append b0) := by
+  simp [encodeArray, h0]
+  rfl
+
+theorem encodeArray_twoV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 : α) (b0 b1 : ByteArray)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1) :
+    encodeArray encode #[v0, v1] =
+      .ok ((encodeU32le 2).append (b0.append b1)) := by
+  simp [encodeArray, h0, h1]
+  rfl
+
+theorem encodeArray_threeV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 : α) (b0 b1 b2 : ByteArray)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h2 : encode v2 = .ok b2) :
+    encodeArray encode #[v0, v1, v2] =
+      .ok ((encodeU32le 3).append ((b0.append b1).append b2)) := by
+  simp [encodeArray, h0, h1, h2]
+  rfl
+
+theorem encodeArray_fourV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 : α) (b0 b1 b2 b3 : ByteArray)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h2 : encode v2 = .ok b2) (h3 : encode v3 = .ok b3) :
+    encodeArray encode #[v0, v1, v2, v3] =
+      .ok ((encodeU32le 4).append (((b0.append b1).append b2).append b3)) := by
+  simp [encodeArray, h0, h1, h2, h3]
+  rfl
+
 def encodeByteArray (value : ByteArray) : Except SemanticWireErrorV1 ByteArray := do
   unless value.size ≤ maxCanonicalProgramBytes do
     return ← err .limitExceeded

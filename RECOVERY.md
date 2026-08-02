@@ -697,3 +697,7 @@ requirements尾段现已闭合：fixture的generic、ContextRead与Commit requir
 success；全部已证明production phases由既有composition theorem组合为
 `validateSemanticProgramStructureV1 data = .ok ()`。下一片是sole production encoder exact
 1235-byte identity，再组合public carrier decode；formal TASK/TST状态保持pending。
+
+encoder证明边界已先收窄：sole production array encoder现有0–4元素exact success refinements，root
+encoder现可由原顺序的shape/table/structure gates、九个真实field encoders、真实tag framing与size gate
+组合成功。没有第二encoder或行为变化；下一步从Literal/PureCall nested callable exact bytes向上组合。

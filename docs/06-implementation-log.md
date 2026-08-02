@@ -12680,6 +12680,14 @@ normative: false
   exact production encoder bytes、carrier identity、`InvariantTheoremV1`、TASK-D2-07、TST-SEM-002/003与
   TST-PROOF-001仍pending。
 
+## 2026-08-02 — D2-07 production encoder proof boundary
+
+- Proof seams：为sole production `encodeArray`增加0–4元素exact success refinements；为root
+  `encodeSemanticProgramDataV1`增加按原validation与九字段编码顺序组合success的theorem。
+- Safety：没有新增encoder或runtime fast path，production实现、错误precedence与bytes均未改变。
+- Boundary：这些seams只建立下一片的组合边界；canonical nested callable bytes与最终encoder/carrier
+  identity仍pending，formal TASK/TST状态不变。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；

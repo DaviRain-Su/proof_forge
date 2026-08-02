@@ -244,6 +244,44 @@ def encodeSemanticProgramDataV1 (p : SemanticProgramDataV1) :
     return ← err .limitExceeded
   pure out
 
+/-- Compose a successful root encoding from the exact results of every sole
+    production gate and field encoder. This theorem exposes no alternate
+    traversal: all semantic fields and the root framing are still produced by
+    the existing encoder authorities in their original error order. -/
+theorem encodeSemanticProgramDataV1_eq_of_fields
+    (p : SemanticProgramDataV1)
+    (qualifiedNameB typesB constantsB stateB eventsB errorsB callablesB invariantsB
+      requirementsB body : ByteArray)
+    (hnameShape : validateProgramQualifiedNameShapeV1 p.qualifiedName = .ok ())
+    (htypesSize : checkTableSize p.types.size = .ok ())
+    (hconstantsSize : checkTableSize p.constants.size = .ok ())
+    (hstateSize : checkTableSize p.logicalState.size = .ok ())
+    (heventsSize : checkTableSize p.events.size = .ok ())
+    (herrorsSize : checkTableSize p.errors.size = .ok ())
+    (hcallablesSize : checkTableSize p.callables.size = .ok ())
+    (hinvariantsSize : checkTableSize p.invariants.size = .ok ())
+    (hstructure : validateSemanticProgramStructureV1 p = .ok ())
+    (hname : encodeQualifiedName p.qualifiedName = .ok qualifiedNameB)
+    (htypes : encodeArray encodeTypeDeclV1 p.types = .ok typesB)
+    (hconstants : encodeArray encodeConstantV1 p.constants = .ok constantsB)
+    (hstate : encodeArray encodeStateDeclV1 p.logicalState = .ok stateB)
+    (hevents : encodeArray encodeEventDeclV1 p.events = .ok eventsB)
+    (herrors : encodeArray encodeErrorDeclV1 p.errors = .ok errorsB)
+    (hcallables : encodeArray encodeCallableV1 p.callables = .ok callablesB)
+    (hinvariants : encodeArray encodeInvariantDeclV1 p.invariants = .ok invariantsB)
+    (hrequirements : encodeProgramRequirementsV1 p.requirements = .ok requirementsB)
+    (hbody : encodeTagged "SemanticProgram.Data" #[qualifiedNameB, typesB, constantsB,
+      stateB, eventsB, errorsB, callablesB, invariantsB, requirementsB] = .ok body)
+    (houtSize : ((encodeMagicPrefix semanticProgramMagicV1).append body).size ≤
+      maxCanonicalProgramBytes) :
+    encodeSemanticProgramDataV1 p =
+      .ok ((encodeMagicPrefix semanticProgramMagicV1).append body) := by
+  simp only [encodeSemanticProgramDataV1, hnameShape, htypesSize, hconstantsSize,
+    hstateSize, heventsSize, herrorsSize, hcallablesSize, hinvariantsSize, hstructure,
+    hname, htypes, hconstants, hstate, hevents, herrors, hcallables, hinvariants,
+    hrequirements, hbody, houtSize, ↓reduceIte, Bind.bind, Pure.pure, Except.bind,
+    Except.pure]
+
 /-- Sole production body for the nine-field `SemanticProgram.Data` record. -/
 def decodeSemanticProgramDataBodyV1 : Decoder SemanticProgramDataV1 := fun c => do
   let ((), c) ← expectTag "SemanticProgram.Data" 9 c
