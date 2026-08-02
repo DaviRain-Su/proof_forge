@@ -412,6 +412,9 @@ def validate_solana_accumulator(root: Path, evm_manifest: dict) -> dict:
             "arguments": "packed-u64-le",
             "trailingBytes": "reject",
         },
+        "fns": [],
+        "events": [],
+        "errors": [],
         "accounts": [
             {
                 "name": "state",
@@ -661,6 +664,8 @@ def validate_near_accumulator(
   (import "env" "storage_write" (func $pf_storage_write (param i64 i64 i64 i64 i64) (result i64)))
   (import "env" "value_return" (func $pf_value_return (param i64 i64)))
   (import "env" "attached_deposit" (func $pf_attached_deposit (param i64)))
+  (import "env" "log_utf8" (func $pf_log_utf8 (param i64 i64)))
+  (import "env" "panic_utf8" (func $pf_panic_utf8 (param i64 i64)))
   (memory (export "memory") 1)
   (data (i32.const 0) "pf:v1:layout")
   (data (i32.const 12) "pf:v1:state:0")
@@ -732,10 +737,10 @@ def validate_near_accumulator(
     wasm = wasm_path.read_bytes()
     if wasm[:8] != b"\x00asm\x01\x00\x00\x00":
         raise SystemExit("NEAR Accumulator artifact has an invalid Wasm header/version")
-    if len(wasm) != 827:
+    if len(wasm) != 859:
         raise SystemExit(f"NEAR Accumulator Wasm has invalid size: {len(wasm)}")
     wasm_digest = hashlib.sha256(wasm).hexdigest()
-    if wasm_digest != "c1c835420646f8028bbca137f5866858f421c7afe01c2644a6cbe26c97da1b78":
+    if wasm_digest != "889bccfc92c914deb6d1f68510bab36be2f1c62dbb601457e084683aa27250a9":
         raise SystemExit(f"NEAR Accumulator Wasm digest is invalid: {wasm_digest}")
     return manifest
 
@@ -964,7 +969,7 @@ def main() -> None:
         "increment",
         "delta",
         "get",
-        "14a6bda584fb67c86589e45245f3389b025d26553968404b6f3bd3f2a226527d",
+        "3355c6eebe0e59913f51eda0fe2474f07e1a1947837f77c3f2a6a51660ced0e9",
         (("EVM", manifests["evm"]), ("Solana", manifests["solana"]), ("NEAR", manifests["near"])),
     )
     evm_accumulator = validate_evm_accumulator(root)
@@ -979,7 +984,7 @@ def main() -> None:
         "add",
         "amount",
         "current",
-        "311b8842b65701161db35039958ea11174ef572a0c4723560bff7539bd23fbc3",
+        "f58772dc5241fb2c5b5558a216a2ae448c42425d32a3b70185611a4c74d2c08e",
         (
             ("EVM", evm_accumulator),
             ("Solana", solana_accumulator),
