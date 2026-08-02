@@ -258,9 +258,10 @@ executable，unknown/symlink/special node 一律拒绝，但未被选中工具�
 bundle/`sourceBuild` 成员不得阻塞产品执行。例如 EVM `solc` 不依赖 SBOM validator `jv` 或
 `sbpf`。不搜索 cwd、父目录或 PATH。WABT 仍只能使用 tool root 内锁定的 `libcrypto`。
 
-上述 product per-tool closure 不替代 release exact-set：`toolchain_assets.py verify-external`、
-clean-room 与 `release-check` 继续要求完整全局 bundle + 全部 sourceBuild 可执行文件，并执行
-Mach-O/ELF static/runtime closure（仅 bundle 成员）与 version probe（含 sourceBuild）。
+上述 product per-tool closure 不替代 release exact-set：`toolchain_assets.py verify-external` 与
+clean-room 设计仍要求完整全局 bundle + 全部 sourceBuild 可执行文件，并执行 Mach-O/ELF
+static/runtime closure（仅 bundle 成员）与 version probe（含 sourceBuild）。当前仓库没有
+`release-check` recipe，恢复 wrapper 前不得声称已执行这些 release gates。
 development 与 release 两种结论不得混写。
 
 ## Supply-chain inventory

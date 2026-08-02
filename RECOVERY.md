@@ -121,8 +121,9 @@ D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表�
 
 ## 当前结果
 
-- `docs-check`/`dev-check`/`ci` 已不再运行 Stage-0 或 TaskQualification；历史审计由
-  `governance-check` 显式运行，release host preflight 在当前主机准确返回 `PF-HOST-INELIGIBLE`。
+- `docs-check`/`dev-check`/`ci` 不运行 Stage-0 或 TaskQualification；当前也没有
+  `governance-check` / `release-check` recipe。历史治理数据保持隔离，正式 host 判断只能由
+  AGENTS.md 所列直接 Stage-0 命令与外部流程执行。
 - **产品 CLI 源路径（当前）**：`build` 经进程内 `Loader.selectProgramV1Product`（validated project root
   下 `IO.FS.readFile`）→ `normalizeProgramLocatedV1`（CheckV1 ok∧analysisComplete + structure-gated
   Semantic）→ `compileProgramProductV1` → private-ctor `CompiledSemanticV1` → engineering

@@ -227,17 +227,17 @@ ADR-0016 后工具链与 host 观察按平台拆分，两台机器都可以直�
   `toolchains-linux-x86_64.lock.json`（linux）；`justfile` 按 `uname` 选择
   tool root、锁定 git/python 与 Stage-0 分支，consumer 对跨平台文件互相拒绝。
 - `just dev-check` 与 `just ci` 在两个平台都应可运行，且不会进入 Stage-0、custody 或
-  formal qualification。当前 B12 产品 source supervisor 仅在 Darwin 提供 development-observed
-  build 路径；Linux lane 运行 portable core/unit/selection 门禁，并明确断言 `build`/`build-counter`
-  以 `PF-FRONTEND-PROTOCOL`、零制品 fail closed，不把它写成 Linux 产品 build 成功。Darwin 上
-  显式 EVM/NEAR build 可使用锁定的 per-tool development closure；完整 tool-root exact-set、
-  clean-room 与 host qualification 仍只属于 `release-check`。
+  formal qualification。2026-08-01 起 B11/B12 frontend supervisor 已删除；macOS/Linux 产品
+  source 路径均为进程内 `IO.FS.readFile` → `Loader.selectProgramV1Product`。这不提供 safe-open、
+  receipt 或 contained assurance。
+- 显式 EVM/NEAR build 可使用锁定的 per-tool development closure；完整 tool-root exact-set、
+  clean-room 与 host qualification 只属于独立 release 流程。当前无 `release-check` recipe。
 - 多台开发机协作时先 `git fetch && git status --short`；不要覆盖他人的未提交文件，
   也不要为维护历史 evidence 哈希而阻塞普通产品迭代。
-- SBOM package-file pin 与供应链闭包归入 `release-check`。本次 ProgramV1 迁移会核对一次
+- SBOM package-file pin 与供应链闭包属于独立 release 轴。本次 ProgramV1 迁移会核对一次
   既有 pin；后续普通源码编辑不再由 SBOM ceremony 决定 development completion。
-- 当前已登记开发机均不是 eligible host；因此 `release-check` 应明确拒绝，而
-  `dev-check`/`ci` 仍应正常给出产品结论。不得把两者混写成同一失败。
+- 当前已登记开发机均不是 eligible host；直接 Stage-0 应明确拒绝，而 `dev-check`/`ci`
+  仍应正常给出产品结论。不得把两者混写成同一失败。
 
 首次物化锁定工具（本地 hermetic，非普通 `just ci`）：
 
