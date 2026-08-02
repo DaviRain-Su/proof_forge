@@ -13018,3 +13018,23 @@ normative: false
 - Boundary: engineering only; not formal D2/D4; no Principal→address CALL
   target; no multi-word Principal ResultKind; Aleo/Psy fail closed; not
   formal SupportClaim / registry digest.
+
+## 2026-08-02 — J1 NoirToolchain: research decision (source-only, no nargo/bb gate)
+
+- Research: host re-check `which nargo` / `which bb` → **not found**; common
+  install paths empty; Tool Lock / `supply-chain/*` has **no** nargo/noirc/bb
+  asset pin; SPEC toolchains still lists `nargo`/`barretenberg` under
+  `unresolved` (not frozen).
+- Emit surface audit (`Targets/Noir/EmitIRV1.lean`): product path emits per
+  relation `Nargo.toml` + `src/main.nr` + root `*.noir-relations.json` with
+  `artifactKind=source-only` / `proofStatus=not-produced`. FinalizeV1 is
+  zero-tool (`deployable=false`). `validate_artifacts.py` **rejects**
+  proof-stage leaves (`.acir`/`.proof`/`.vk`/`.witness`).
+- Decision (**defer**): **do not** add `NoirAcceptance` suite, `nargo compile`
+  CI gate, or prove/verify path this wave. Maturity remains **source-only**
+  relations + Lean `NoirRelationModel`. Matches C-4/RPT-016; J1 expands with
+  emit/install detail and explicit compile-gate rejection (not only prove).
+- Docs: `docs/research/13-noir-toolchain-research.md` (RPT-017); coverage
+  matrix §2 Noir toolchain/runtime columns + C-4 row + Phase F J1 note.
+- Non-claims: not formal TST-NOIR; no Tool Lock pin; no fake ACIR/proof; no
+  justfile recipe (not needed until a pin exists).
