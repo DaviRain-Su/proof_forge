@@ -2810,10 +2810,11 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"N3 struct-state {target} message must cite named/aggregate boundary, got {e.render}"
 
-  -- ArrayState: fixed Array UInt64 2 state — Solana + EVM + H3 Psy/Aleo admit
-  -- (flatten to leaf slots named slots_0/slots_1; IndexGet/IndexSet). Near/Noir
-  -- decline container state. Map remains fail closed on all Phase-1 lanes;
-  -- EVM also admits Bytes (D4-E2) separately from this Array fixture.
+  -- ArrayState: fixed Array UInt64 2 state — Solana + EVM + NEAR + H3 Psy/Aleo
+  -- admit (flatten to leaf slots named slots_0/slots_1; IndexGet/IndexSet).
+  -- Noir declines container state. Map UInt64→UInt64 dense pilot is open on
+  -- EVM/Solana/NEAR; EVM also admits Bytes (D4-E2) separately from this Array
+  -- fixture.
   let arrayStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2863,7 +2864,18 @@ unsafe def run : IO Unit := do
   expect (aleoArray.stateFieldNames == #["slots_0", "slots_1"])
     s!"H3 Aleo Array must flatten to slots_0/slots_1, got {aleoArray.stateFieldNames}"
   let _ ← liftResult <| materializeSelected TargetId.aleo arrayCompiled
-  for target in [TargetId.near, TargetId.noir] do
+  -- NEAR ArrayState: same flatten-to-leaf as Solana (Map pilot shares ArrayMap policy).
+  let nearArray ← liftResult <| planNear arrayCompiled
+  expect (nearArray.storage.fields.size == 2)
+    s!"ArrayState: NEAR flattened 2 leaf slots for Array UInt64 2, got {nearArray.storage.fields.size}"
+  expect (nearArray.storage.fields.any fun f => f.name == "slots_0")
+    "ArrayState: NEAR leaf name slots_0"
+  expect (nearArray.storage.fields.any fun f => f.name == "slots_1")
+    "ArrayState: NEAR leaf name slots_1"
+  expect (nearArray.entries.any fun e => e.name == "set0")
+    "ArrayState: NEAR plan has set0 entry"
+  let _ ← liftResult <| materializeSelected TargetId.near arrayCompiled
+  for target in [TargetId.noir] do
     match materializeSelected target arrayCompiled with
     | .ok _ =>
         throw <| IO.userError s!"ArrayState: {target} must decline container state"
