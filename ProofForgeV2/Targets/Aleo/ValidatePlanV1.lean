@@ -23,12 +23,20 @@ private def maxBodyStatements : Nat := 4096
 private def maxExprDepth : Nat := 256
 
 /-- Leo 4.0.2 reserved words / mapping method names that a DSL identifier must
-    not collide with (conservative; `leo build` is the final authority). -/
+    not collide with (conservative; `leo build` is the final authority).
+    `rem`/`neg`/`gt`/`lt`/`add`/`sub`/`mul`/`div`/`mod`/`and`/`or`/`xor`/
+    `not`/`shl`/`shr`/`pow`/`abs`/`sqrt`/`square`/`double`/`ternary`/`cast`
+    are Leo reserved opcode names (spike-verified with leo 4.0.2: a function
+    with any of these names fails to parse). -/
 private def reservedLeoWords : Array String :=
   #[ "mapping", "transition", "finalize", "final", "function", "fn", "program",
      "constructor", "async", "record", "struct", "enum", "for", "if", "else",
      "return", "let", "assert", "true", "false", "public", "private",
-     "self", "as", "cast" ]
+     "self", "as", "cast", "i8", "i16", "i32", "i64", "i128", "u8", "u16",
+     "u32", "u64", "u128", "field", "bool",
+     "add", "sub", "mul", "div", "rem", "mod", "pow", "abs", "sqrt", "square",
+     "neg", "and", "or", "xor", "not", "shl", "shr", "double", "ternary",
+     "gt", "lt" ]
 
 private def isReserved (name : String) : Bool :=
   reservedLeoWords.contains name
@@ -40,18 +48,23 @@ private def isReserved (name : String) : Bool :=
 
 private def validateExprNodes (expr : Expr) : Option Nat :=
   match expr with
-  | .literal _ | .boolLiteral _ | .param _ | .loopVar _ | .stateLoad _ => some 1
+  | .literal _ | .i64Literal _ | .boolLiteral _ | .param _ | .loopVar _ | .stateLoad _ =>
+      some 1
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
-  | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r => do
+  | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
+  | .signedCheckedAdd l r | .signedCheckedSub l r | .signedCheckedMul l r
+  | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedShl l r | .signedShr l r
+  | .signedBitAnd l r | .signedBitOr l r | .signedBitXor l r => do
       let dl ← validateExprNodes l
       let dr ← validateExprNodes r
       if dl + dr + 1 > maxExprDepth then none else some (dl + dr + 1)
-  | .compare _ l r => do
+  | .compare _ l r | .signedCompare _ l r => do
       let dl ← validateExprNodes l
       let dr ← validateExprNodes r
       if dl + dr + 1 > maxExprDepth then none else some (dl + dr + 1)
-  | .bitNot o | .boolNot o => do
+  | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o => do
       let do' ← validateExprNodes o
       if do' + 1 > maxExprDepth then none else some (do' + 1)
   | .callFn _ args => do
@@ -104,6 +117,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "Aleo plan exceeds the function limit"
   if plan.stateFieldNames.size > maxParams then
     planError "Aleo plan exceeds the state mapping limit"
+  unless plan.stateFieldIsInt.size == plan.stateFieldNames.size do
+    planError "Aleo plan state signedness table must match the state field count"
   let names := plan.functions.map (·.name) ++ plan.views.map (·.name)
   for name in names do
     if isReserved name then
@@ -114,7 +129,11 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     for param in fn.params do
       if isReserved param.name then
         planError s!"Aleo parameter '{param.name}' collides with a reserved Leo word"
+      if param.isInt && param.isBool then
+        planError "Aleo parameter cannot be both Bool and Int64"
     validateStatements fn.body
+    if fn.resultIsInt && fn.resultIsBool then
+      planError "Aleo function result cannot be both Bool and Int64"
     if fn.resultDropped && fn.kind != .mutate then
       planError "resultDropped is only valid on state-touching entries"
     if fn.resultDropped && !fn.touchesState then

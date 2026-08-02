@@ -178,6 +178,31 @@ private def dualFieldSourceText : String :=
   "  view getX() : UInt64 do\n" ++
   "    return x\n"
 
+/-- Int64 Counter: i64 state mapping + signed add/sub/mul/div/mod/comparison
+    + unary neg + shifts, verified end-to-end by `leo build`. -/
+private def int64SourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program IntBox where\n" ++
+  "  state acc : Int64\n" ++
+  "  init(seed : Int64) do\n" ++
+  "    acc := seed\n" ++
+  "  entry bump(delta : Int64) : Int64 do\n" ++
+  "    acc := acc + delta\n" ++
+  "    return acc\n" ++
+  "  entry diff(a : Int64, b : Int64) : Int64 do\n" ++
+  "    return a - b\n" ++
+  "  entry quot(a : Int64, b : Int64) : Int64 do\n" ++
+  "    return a / b\n" ++
+  "  entry remainder(a : Int64, b : Int64) : Int64 do\n" ++
+  "    return a % b\n" ++
+  "  entry negate(a : Int64) : Int64 do\n" ++
+  "    return -a\n" ++
+  "  entry less(a : Int64, b : Int64) : Bool do\n" ++
+  "    return a < b\n" ++
+  "  entry shift(a : Int64) : Int64 do\n" ++
+  "    return (a << 2) >> 2\n"
+
 /-- Suite entry. Skips cleanly when leo is unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.AleoAcceptance: start"
@@ -201,6 +226,8 @@ unsafe def run : IO Unit := do
           pointBoxSourceText "Tests.AleoAccept.PointBox" "pointbox.aleo"
         acceptProgram leo tmp "ArrBox"
           arrayStateSourceText "Tests.AleoAccept.ArrBox" "arrbox.aleo"
+        acceptProgram leo tmp "IntBox"
+          int64SourceText "Tests.AleoAccept.IntBox" "intbox.aleo"
         IO.println "Tests.Materialization.AleoAcceptance: ok"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp

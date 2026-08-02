@@ -123,15 +123,15 @@ unsafe def testPureOpsAndShifts : IO Unit := do
     "    return a > 0 && b > 0\n" ++
     "  entry flip(x : UInt64) : UInt64 do\n" ++
     "    return ~x\n" ++
-    "  fn double(a : UInt64) : UInt64 do\n" ++
+    "  fn dbl(a : UInt64) : UInt64 do\n" ++
     "    return a + a\n" ++
     "  entry scaled(x : UInt64) : UInt64 do\n" ++
-    "    return double(x)\n"
+    "    return dbl(x)\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<aleo-bitlogic>" "Tests.AleoBitLogic" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planAleo compiled
-  expect (plan.functions.map (·.name) == #["mask", "both", "flip", "double", "scaled"])
+  expect (plan.functions.map (·.name) == #["mask", "both", "flip", "dbl", "scaled"])
     "BitLogic Aleo plan must carry five callables in source order"
   expect (plan.functions.all fun fn => !fn.touchesState && !fn.resultDropped)
     "pure entries and fns must not touch state and must keep their results"
@@ -160,7 +160,7 @@ unsafe def testPureOpsAndShifts : IO Unit := do
   expect (leo.contains "(!")
     "bitNot must render as Leo type-directed !"
   -- pureFn is a Leo 4 helper outside `program` (no input modes).
-  expect (leo.contains "fn double(p0: u64) -> u64 {")
+  expect (leo.contains "fn dbl(p0: u64) -> u64 {")
     "pure fn must materialize as a file-level helper without public modes"
   expect (leo.contains "scaled(public p0: u64) -> u64")
     "scaled must materialize as a plain entry function"
@@ -276,6 +276,7 @@ unsafe def testPlanValidation : IO Unit := do
   let badPlan : Targets.Aleo.Plan := {
     programName := "Tiny"
     stateFieldNames := #["count"]
+    stateFieldIsInt := #[false]
     functions := #[pureFn]
     views := #[]
     sourceHash := plan.sourceHash
@@ -298,6 +299,7 @@ unsafe def testPlanValidation : IO Unit := do
   let badPlan2 : Targets.Aleo.Plan := {
     programName := "Tiny"
     stateFieldNames := #["count"]
+    stateFieldIsInt := #[false]
     functions := #[reservedFn]
     views := #[]
     sourceHash := plan.sourceHash
@@ -437,22 +439,22 @@ unsafe def testCheckedSubLeo : IO Unit := do
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program Diff where\n" ++
-    "  entry sub(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "  entry subtract(a : UInt64, b : UInt64) : UInt64 do\n" ++
     "    return a - b\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<aleo-diff>" "Tests.AleoDiff" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planAleo compiled
-  expect (plan.functions.map (·.name) == #["sub"])
-    "Diff Aleo plan must carry the pure sub entry"
+  expect (plan.functions.map (·.name) == #["subtract"])
+    "Diff Aleo plan must carry the pure subtract entry"
   liftResult <| Targets.Aleo.validatePlan plan
   let output ← liftResult <| materializeAleo compiled
   let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
       (·.path == "diff.aleo") |
     throw <| IO.userError "aleo: missing diff.aleo"
   let leo := leoFile.contents
-  expect (leo.contains "fn sub(public p0: u64, public p1: u64) -> u64 {")
-    "sub must be a plain u64-returning function"
+  expect (leo.contains "fn subtract(public p0: u64, public p1: u64) -> u64 {")
+    "subtract must be a plain u64-returning function"
   -- EmitIRV1 binds checkedSub as `let pf_eN: u64 = (lhs - rhs);` with no
   -- explicit underflow assert (Leo 4.0.2 native checked arithmetic).
   expect (leo.contains " - ")
@@ -698,18 +700,18 @@ unsafe def testMultiParamFnLeo : IO Unit := do
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program Helpers where\n" ++
-    "  fn add(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "  fn plus(a : UInt64, b : UInt64) : UInt64 do\n" ++
     "    return a + b\n" ++
     "  fn above(a : UInt64, b : UInt64) : Bool do\n" ++
     "    return a > b\n" ++
     "  entry go(x : UInt64) : Bool do\n" ++
-    "    return above(add(x, 1), x)\n"
+    "    return above(plus(x, 1), x)\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<aleo-helpers>" "Tests.AleoHelpers" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planAleo compiled
-  expect (plan.functions.map (·.name) == #["add", "above", "go"])
-    "Helpers Aleo plan must carry add + above + go in source order"
+  expect (plan.functions.map (·.name) == #["plus", "above", "go"])
+    "Helpers Aleo plan must carry plus + above + go in source order"
   expect (plan.functions.all fun fn => !fn.touchesState && !fn.resultDropped)
     "pure helpers and entry must not touch state"
   expect (plan.functions[1]!.resultIsBool && plan.functions[2]!.resultIsBool)
@@ -720,14 +722,14 @@ unsafe def testMultiParamFnLeo : IO Unit := do
       (·.path == "helpers.aleo") |
     throw <| IO.userError "aleo: missing helpers.aleo"
   let leo := leoFile.contents
-  expect (leo.contains "fn add(p0: u64, p1: u64) -> u64 {")
+  expect (leo.contains "fn plus(p0: u64, p1: u64) -> u64 {")
     "UInt64 pureFn must render as a file-level helper without public"
   expect (leo.contains "fn above(p0: u64, p1: u64) -> bool {")
     "multi-param Bool pureFn must render as a file-level helper"
   expect (leo.contains "fn go(public p0: u64) -> bool {")
     "Bool entry must render a bool result"
-  expect (leo.contains "add(")
-    "entry must call the add helper"
+  expect (leo.contains "plus(")
+    "entry must call the plus helper"
   expect (leo.contains "above(")
     "entry must call the above helper"
 
@@ -971,6 +973,276 @@ unsafe def testContextReadFailClosed : IO Unit := do
           msg.contains "pilot")
         s!"Aleo ContextRead decline must cite context boundary, got: {msg}"
 
+/-- Int64 state/params: checked signed arithmetic lowers to Leo i64 with
+    i64 mappings and i64 dropped returns. -/
+unsafe def testInt64StateArithLeo : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Temp where\n" ++
+    "  state acc : Int64\n" ++
+    "  init(seed : Int64) do\n" ++
+    "    acc := seed\n" ++
+    "  entry bump(delta : Int64) : Int64 do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n" ++
+    "  entry scale(a : Int64, b : Int64) : Int64 do\n" ++
+    "    return a * b\n" ++
+    "  entry diff(a : Int64, b : Int64) : Int64 do\n" ++
+    "    return a - b\n" ++
+    "  entry quot(a : Int64, b : Int64) : Int64 do\n" ++
+    "    return a / b\n" ++
+    "  entry remainder(a : Int64, b : Int64) : Int64 do\n" ++
+    "    return a % b\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return acc\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-i64-arith>" "Tests.AleoI64Arith" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  expect (plan.stateFieldNames == #["acc"])
+    "Int64 plan must carry the acc state field"
+  expect (plan.stateFieldIsInt == #[true])
+    "Int64 state leaf must be marked signed"
+  let bump := plan.functions.find? (·.name == "bump")
+  match bump with
+  | some fn =>
+      expect (fn.resultIsInt && fn.resultDropped && fn.touchesState)
+        "Int64 state-touching entry must drop an i64 result"
+      expect (fn.params.all (·.isInt))
+        "Int64 entry params must be marked signed"
+  | none => throw <| IO.userError "missing bump"
+  let scale := plan.functions.find? (·.name == "scale")
+  match scale with
+  | some fn =>
+      expect (fn.resultIsInt && !fn.touchesState)
+        "pure Int64 entry must keep an i64 result"
+  | none => throw <| IO.userError "missing scale"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "temp.aleo") |
+    throw <| IO.userError "aleo: missing temp.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "mapping pf_state_0: u8 => i64;")
+    "Int64 state must render an i64 mapping"
+  expect (leo.contains "fn initialize(public p0: i64) -> Final {")
+    "init must take an i64 public param"
+  expect (leo.contains "pf_state_0.get_or_use(0u8, 0i64)")
+    "Int64 stateLoad must default to 0i64"
+  expect (leo.contains "let pf_e")
+    "signed add must bind an intermediate"
+  expect (leo.contains ": i64 = ")
+    "signed arithmetic must bind i64 lets"
+  expect (leo.contains "let pf_return: i64 =")
+    "dropped Int64 return must bind an i64 pf_return"
+  expect (leo.contains "fn scale(public p0: i64, public p1: i64) -> i64 {")
+    "pure Int64 entry must return i64"
+  expect (leo.contains " / ")
+    "signed div must render Leo /"
+  expect (leo.contains " % ")
+    "signed mod must render Leo %"
+  expect (leo.contains "assert((p1 != 0i64));")
+    "signed div/mod must guard the i64 divisor against zero"
+  -- The bare Int64 view materializes as an off-chain query (Plan view), so
+  -- no view function appears inside the Leo program.
+  expect (!leo.contains "fn get(")
+    "bare Int64 view must not materialize as an on-chain Leo function"
+
+/-- Int64 six comparisons render with Leo native signed i64 operators. -/
+unsafe def testInt64ComparisonsLeo : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CmpI where\n" ++
+    "  entry cmp(a : Int64, b : Int64) : Bool do\n" ++
+    "    return a == b || a != b || a < b || a <= b || a > b || a >= b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-cmpi>" "Tests.AleoCmpI" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  let cmp := plan.functions.find? (·.name == "cmp")
+  match cmp with
+  | some fn =>
+      expect (fn.resultIsBool && fn.params.all (·.isInt))
+        "Int64 comparison entry must be Bool-returning with signed params"
+  | none => throw <| IO.userError "missing cmp"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "cmpi.aleo") |
+    throw <| IO.userError "aleo: missing cmpi.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "fn cmp(public p0: i64, public p1: i64) -> bool {")
+    "Int64 comparison entry must render i64 params and bool result"
+  for op in #["==", "!=", "<", "<=", ">", ">="] do
+    expect (leo.contains s!" {op} ")
+      s!"Int64 comparison operator {op} must render"
+
+/-- Int64 unary neg, bitwise not, bitwise ops, shifts (count u8 cast;
+    UInt32 params stay fail-closed — shift counts enter as literals). -/
+unsafe def testInt64NegBitwiseShiftsLeo : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BitI where\n" ++
+    "  entry negate(a : Int64) : Int64 do\n" ++
+    "    return -a\n" ++
+    "  entry bw(a : Int64, b : Int64) : Int64 do\n" ++
+    "    return (a & b) | (a ^ b)\n" ++
+    "  entry flip(a : Int64) : Int64 do\n" ++
+    "    return ~a\n" ++
+    "  entry shift(a : Int64) : Int64 do\n" ++
+    "    return (a << 2) >> 2\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-biti>" "Tests.AleoBitI" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "biti.aleo") |
+    throw <| IO.userError "aleo: missing biti.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "fn negate(public p0: i64) -> i64 {")
+    "neg entry must render i64"
+  expect (leo.contains "(-p0)")
+    "unary neg must render Leo -"
+  expect (leo.contains ": i64 = (!")
+    "Int64 bitwise not must bind an i64 !"
+  expect (leo.contains " & ")
+    "Int64 bitwise and must render"
+  expect (leo.contains " | ")
+    "Int64 bitwise or must render"
+  expect (leo.contains " ^ ")
+    "Int64 bitwise xor must render"
+  expect (leo.contains " as u8)")
+    "Int64 shifts must cast the count to u8"
+  expect (leo.contains " << ")
+    "Int64 left shift must render"
+  expect (leo.contains " >> ")
+    "Int64 right shift must render (arithmetic on Leo i64)"
+
+/-- Int64 pureFn helper: helper result i64 typing across a call site. -/
+unsafe def testInt64PureHelperLeo : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program HelperI where\n" ++
+    "  fn twice(a : Int64) : Int64 do\n" ++
+    "    return a + a\n" ++
+    "  fn pos(a : Int64) : Bool do\n" ++
+    "    return a > 0\n" ++
+    "  entry go(x : Int64) : Bool do\n" ++
+    "    return pos(twice(x))\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-helperi>" "Tests.AleoHelperI" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  expect (plan.functions.map (·.name) == #["twice", "pos", "go"])
+    "HelperI Aleo plan must carry twice + pos + go"
+  let twice := plan.functions[0]!
+  expect (twice.resultIsInt && twice.isPureHelper)
+    "twice must be an Int64-returning pure helper"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "helperi.aleo") |
+    throw <| IO.userError "aleo: missing helperi.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "fn twice(p0: i64) -> i64 {")
+    "Int64 pureFn must render as a file-level i64 helper"
+  expect (leo.contains "fn pos(p0: i64) -> bool {")
+    "Bool pureFn with i64 param must render i64 param"
+  expect (leo.contains "fn go(public p0: i64) -> bool {")
+    "entry must render the i64 param"
+  expect (leo.contains "twice(")
+    "entry must call the twice helper"
+
+/-- Mixed signedness and Int64-in-unsigned contexts fail closed at
+    Normalize (product path) and again at the Aleo plan (defense in depth). -/
+unsafe def testInt64MixedSignednessFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- UInt64/Int64 mixed binary: Normalize rejects the type mismatch before
+  -- the plan; if a residual carrier ever reached the lowerer, the operand
+  -- signedness check fails closed too.
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Mixed where\n" ++
+    "  entry mix(a : UInt64, b : Int64) : UInt64 do\n" ++
+    "    return a + b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-i64neg-mixed>" "Tests.AleoI64NegMixed" none)
+  match Compiler.compileValidatedSourceV1 parsed with
+  | .error e =>
+      expect (e.code == "PF-SRC-INVALID")
+        s!"mixed-signedness must fail closed at Normalize, got {e.render}"
+  | .ok compiled =>
+      match planAleo compiled with
+      | .error (.planInvariant .aleo _) => pure ()
+      | .error e => throw <| IO.userError s!"mixed: expected planInvariant, got {e.render}"
+      | .ok _ => throw <| IO.userError "mixed-signedness must fail closed at Aleo plan"
+
+/-- Negative Int64 literals: wire two's-complement decodes to i64 literals. -/
+unsafe def testInt64Negatives : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NegLit where\n" ++
+    "  entry min() : Int64 do\n" ++
+    "    return -9223372036854775808\n" ++
+    "  entry negone() : Int64 do\n" ++
+    "    return -1\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-neglit>" "Tests.AleoNegLit" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  expect (plan.functions.all (·.resultIsInt))
+    "negative literal entries must be Int64-returning"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "neglit.aleo") |
+    throw <| IO.userError "aleo: missing neglit.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "-9223372036854775808i64")
+    "intMin must render as a negative i64 literal"
+  expect (leo.contains "-1i64")
+    "-1 must render as a negative i64 literal"
+
+/-- End-to-end leo build of an Int64 Counter shape (skipped when leo absent;
+    this is the resident source-shape test; the leo build itself lives in
+    AleoAcceptance when leo is present). -/
+unsafe def testInt64AcceptanceLeo : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Temp where\n" ++
+    "  state acc : Int64\n" ++
+    "  init(seed : Int64) do\n" ++
+    "    acc := seed\n" ++
+    "  entry bump(delta : Int64) : Int64 do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-i64-accept>" "Tests.AleoI64Accept" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "temp.aleo") |
+    throw <| IO.userError "aleo: missing temp.aleo"
+  expect (leoFile.contents.contains "program temp.aleo {")
+    "Int64 Counter must materialize a Leo program"
+
 unsafe def run : IO Unit := do
   testCounterPlanAndLeo
   testPureOpsAndShifts
@@ -995,6 +1267,13 @@ unsafe def run : IO Unit := do
   testArrayStateLowered
   testCommitIdentityLeo
   testContextReadFailClosed
+  testInt64StateArithLeo
+  testInt64ComparisonsLeo
+  testInt64NegBitwiseShiftsLeo
+  testInt64PureHelperLeo
+  testInt64MixedSignednessFailClosed
+  testInt64Negatives
+  testInt64AcceptanceLeo
   IO.println "Tests.Materialization.Aleo: ok"
 
 end Tests.Materialization.Aleo
