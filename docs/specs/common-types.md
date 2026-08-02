@@ -3,11 +3,18 @@ id: SPEC-COMMON-001
 title: 公共类型、规范编码与资源 Profile
 status: proposed
 owner: architecture
-updated: 2026-07-30
+updated: 2026-08-02
 normative: true
 ---
 
 # 公共类型、规范编码与资源 Profile
+
+> **当前工程覆盖（2026-08-02）**：`ResourceProfileV1` 类型、hard maxima、lower-only
+> override 校验仍存在，但产品 CLI 目前只实际强制各 stage 的 `wall-ms`；memory/process/
+> protocol/stderr/published-byte 字段尚无 controller enforcement。B11/B12 safe-open/supervisor
+> 实现已于 2026-08-01 删除，当前 source path 为进程内 `IO.FS.readFile` →
+> `Loader.selectProgramV1Product`，不产出 receipts 或 containment assurance。下文 B11/B12
+> 实现段落是 superseded 历史快照；controller/receipt 条款仍是 proposed 目标。
 
 本文件是所有 normative schema 的 primitive authority。其他规格可以缩窄值域，不能重新定义
 同名类型、wire form、比较或 hash 规则。
@@ -177,16 +184,21 @@ hard maximum 为 `0` 时 effective 值必须仍为 `0`，表示该 stage 禁止�
 | `proof-forge.resource.tool.v1` | externalTool | 600,000 ms | 4 GiB | 8 | 64 MiB | 64 KiB | 0 |
 | `proof-forge.resource.output.v1` | artifactOutput | 60,000 ms | 2 GiB | 1 | 1 MiB | 64 KiB | 256 MiB |
 
-Frontend stage 的 protocol/stdout 硬上限 **64 MiB**（`maxProtocolBytes`）与 source open 的
-**16 MiB** source-byte 上限是 B9/B9R `FrontendProtocolV1`（`ProofForgeV2/Frontend/ProtocolV1.lean`）
-解码器 precheck 的权威数字：一帧 request 或 response 超过 64 MiB、source/canonical bytes 超过
-16 MiB、或 span/node 计数超过 100000 时 fail closed。**B9R**：module/program selector 不再带
+Retained B9/B9R `FrontendProtocolV1` 的 protocol/stdout 硬上限为 **64 MiB**
+（`maxProtocolBytes`），其非产品 request/response decoder 对超限 frame fail closed。产品 CLI
+当前不经过该 protocol；其 **16 MiB** source-byte 上限由 Loader 在文件读入后检查，span/node
+计数上限仍为 100000。**B9R**：module/program selector 不再带
 任意 4096-byte 语义上限——仅受 `maxProtocolBytes` 分配/帧 guard 约束（`maxSelectorBytes` 仅为
 等于该值的兼容别名）；精确 Lean `1..256 × 1..240` 组件合法性与源诊断分类推迟到 Loader。
 Failure 帧在 `parsePfJcs` 前对 PF-JCS 诊断数组做 top-level 条目预扫描（0 或 >101 拒绝；嵌套/
 字符串逗号不计），canonical 权威仍为 `mkFailureBundleV1` re-encode identity。**B10** standalone
 worker 的 stdin reader 以 64 KiB chunks 累积，最多探测到 `maxProtocolBytes+1` 后 fail closed；
-worker 自身不打开路径。**B11a** package-owned native safe-open foundation 复用 `maxSourceBytes`，在
+worker 自身不打开路径。
+
+### Superseded B11–B12 历史实现快照
+
+以下实现已于 2026-08-01 从产品与源码删除，不是当前 resource/source authority。
+**B11a** package-owned native safe-open foundation 曾复用 `maxSourceBytes`，在
 读取前按 initial `fstat` 拒绝 `>16 MiB`，并执行 component no-follow、regular/single-link、exact-size
 read + one-byte probe 和 fd/path metadata recheck。**B11a2** 另提供 canonical、bounded、
 public-safe 的 pure Darwin development-observation receipt model。**B11b1** 已监督完整 canonical
@@ -199,9 +211,12 @@ Err 的 closed fault class，使 `.tooLarge` 在不 reopen/stat source 时仍保
 另把 worker pathname执行改为 native no-follow fd
 authority：512 MiB executable gate、fd-derived private snapshot、Darwin suspended spawn + vnode mutation
 check、snapshot cleanup，且 fresh exact-copy/ACL清除成本继续消费同一 wall。
-B12 已把它接入产品 CLI sole source authority；formal executable/import identity、controller-backed
-contained assurance、完整 formal host/race matrix与 TASK-D1-08 仍 pending。详见
+历史 B12 曾把它接入产品 CLI；该 cutover 随监督层删除而 superseded。当前无
+controller-backed contained assurance，formal executable/import identity、完整 formal host/race
+matrix 与 TASK-D1-08 仍 pending。详见
 [`source-frontend.md`](../modules/source-frontend.md)。
+
+### Proposed controller/containment contract（当前未实现）
 
 Darwin v1 的 `memoryMetric` 为 containment 内全部 live process `phys_footprint` 之和；其他 host
 必须登记等价的 kernel/job-controller metric，不能把单 leader RSS 冒充 aggregate。wall clock 从
@@ -223,7 +238,7 @@ close-on-exec open，`fstat` 后只接受 regular single-link file；size 大于
 随后 bounded read 到 EOF 并额外探测 1 byte。FIFO/device/socket/symlink、read deadline、truncate/
 grow race 和 short read 都稳定失败；攻击者不能在 worker budget 生效前阻塞 parent。
 
-工程状态：B11a 已实现上述 no-follow/regular/single-link/size/read-probe/metadata-recheck primitive；
+历史工程状态（已 superseded）：B11a 曾实现上述 no-follow/regular/single-link/size/read-probe/metadata-recheck primitive；
 B11a2 已实现只承载 `darwin-development-observed`、profile/request digest、bounded observation、
 closed event/result/cleanup 的 pure receipt carrier/codec。B11b1 已为**已编码 request**提供 killable
 Darwin worker unit 与真实 observation producer：fd-derived bounded private worker snapshot、suspended
@@ -236,8 +251,9 @@ B11b2 已以 pinned one-request safe-open helper + B10 worker建立 shared sourc
 response 以 canonical request digest绑定，只有 bound fault + complete cleanup才产生 `sourceOpenFailed`，
 且 exact closed fault只保留在 private supervised carrier；最终 observation保留两阶段最大 peak。该
 development polling仍不是 controller event，
-B12 已完成 CLI authority cutover，但仍未完成 filesystem race/host matrix，因此不能声称 controller-backed
-attribution、containment、formal `TST-RESOURCE-001` 或 TASK-D1-08 完成。
+历史 B12 曾完成 CLI authority cutover，但未完成 filesystem race/host matrix，随后整体被删除；
+不能据此声称当前 controller-backed attribution、containment、formal `TST-RESOURCE-001` 或
+TASK-D1-08 完成。
 
 超限归因优先级固定为 controller event：process denial → memory controller event → protocol/output
 cap → monotonic deadline；无对应 controller event 的 signal、malformed/truncated response 或 worker

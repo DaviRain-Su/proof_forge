@@ -24,6 +24,8 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 - 控制流 if/match、fn/localCall、let/bounded for、shift/bitwise/logical、revert/emit；
 - named 聚合 flatten、定长 Array IndexGet/Set（bounds revert）；String 类型面（**String match switch 已落地 N-A1**）；
 - **Map UInt64→UInt64 dense pilot（cap-8，Token deployable）+ Bytes（N×UInt8 leaves，D4-E2）**；
+  aggregate `StateStore` 以 `storeAtomic` 两阶段 Yul（全部 leaf Expr/sload 先物化，再连续 sstore），
+  `EvmSmoke` 已固定 empty Map upsert 顺序并由 `solc --strict-assembly` 回归；
 - Yul + digest-pinned `solc` bytecode；**EvmSolc** `solc --strict-assembly` 验收门（工具缺席干净跳过）；
 - engineering planDigest 可绑 BuildIdentity/OutputSet；历史 Anvil Counter/overflow smoke 存在。
 

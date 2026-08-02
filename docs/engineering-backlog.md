@@ -14,7 +14,7 @@ normative: false
 > **本文件不是什么**：
 > - **不是** “读完仓库每一页文档后的最终真理表”
 > - **不是** formal `TASK-*` / `TST-*` / EV / release-qualification 权威（那是
->   `04-task-breakdown` / `05-test-spec` / `MIGRATION_MATRIX` / `just release-check`）
+>   `04-task-breakdown` / `05-test-spec` / `MIGRATION_MATRIX`；`release-check` 当前无 recipe）
 > - **不是** 第二套 PRD/SPEC（冲突时：accepted ADR → PRD → architecture → SPEC → 代码事实）
 
 状态只允许：`pending` / `in_progress` / `done` / `blocked` / `wontfix`。
@@ -135,7 +135,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 
 | ID | 项 | 说明 | 状态 |
 |---|---|---|---|
-| **NS-1** | Fungible Token 四 target | 验证“写一次跨链物化”；共享 N-1/N-2/B-3 前置 | **done**（2026-08-02：dense Map pilot **EVM+Solana+NEAR+Noir** cap-8 UInt64 键值；EVM/NEAR deployable；Solana **默认 plan**（ELF 帧预算：pure-expr Map 超 4KiB，ELF 对 Map Token 仍 opt-in 失败）；Noir multi-leaf public inputs；runtime smoke 工程脚本；**非** formal/IBC） |
+| **NS-1** | Fungible Token 四 target | 验证“写一次跨链物化”；共享 N-1/N-2/B-3 前置 | **done**（2026-08-02：dense Map pilot **EVM+Solana+NEAR+Noir** cap-8 UInt64 键值；EVM/NEAR deployable；Solana 默认仍为 plan profile，但 opt-in ELF+Mollusk 已通，24 叶 snapshot upsert 已修且 MapMini 4/4 runtime 通过；Noir multi-leaf public inputs + relation model；**非** formal/IBC） |
 | **NS-2** | packet mailbox 最小件 | IBC-flavored 子集 | pending |
 | **NS-3** | 真 IBC 模块栈 | 长期；依赖 crypto | wontfix-until-NS-1 |
 | **EXT-CRYPTO** | `extension.crypto`（SHA-256 / Merkle / 签名） | IBC 与大量链上逻辑命脉；capability 矩阵 | pending（设计后单独立项） |
@@ -158,6 +158,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **BUILD-7** | Lake 并行度 | 本机 12 核；warm `ProofForgeV2` ~0.4s | 冷构建/CI 确认 `lake` 默认 job 数；必要时 `lake -j$(nproc) build` 写进 justfile | **done**（2026-08-02：Lake 5 无 `-j`；模块构建已多 job；justfile 注释 + 测试并行仍用 PROOF_FORGE_TEST_JOBS） |
 | **BUILD-8** | 死代码与过时 RECOVERY 叙述 | RECOVERY 仍大量写 B12 supervisor 为当前路径；AGENTS 已写移除 | 文档对齐（见 DOC-1）；删除已 supersede 的 worker-only 路径若产品不再需要 | **done**（2026-08-02：audit 无 SafeOpen/Supervisor 产品模块；仅 Protocol/Worker；CLI=Loader；见 goal slice-BUILD-8-checks.log） |
 | **BUILD-9** | `build/` 与 `runtime-tests/**/target` 垃圾 | 工作区含大量历史产物 | `.gitignore` 收紧 + 定期清理；避免误扫进 SBOM/索引 | **done**（2026-08-02：gitignore runtime-tests/**/target + build probe logs） |
+| **BUILD-10** | ordinary CI suite reachability | Authority/Custody、Context/Extension、ProofSubject、InvariantTheorem、ResourceFlags、PsyAcceptance 六个关键 suite 未进入九 shard | 注册到 Typed/Targets shard；InvariantTheorem import-only；工具验收缺席需 skip-clean | **done**（2026-08-02：两 shard 实际执行通过；非 formal/release evidence） |
 
 **预期收益（粗估）**：BUILD-1 在本地满核可把 test 执行墙钟接近压到最慢 shard；BUILD-2/3 降冷构建与磁盘；BUILD-4 降 CI 排队与失败定位时间。
 
@@ -202,7 +203,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 |---|---|---|
 | **N-A1** | EVM String `match` switch（N4 类型面已开） | **done**（2026-08-02：`a25365213` EvmStringMatch；matrix LOWERED） |
 | **N-A2** | 多臂同外构造器 match 细化 | **done**（2026-08-02：`2a6c2bc9c` MultiArmCtor；matrix LOWERED 四 target） |
-| **N-A3** | Map/Bytes 穿透元素赋值 | **done**（2026-08-02：TypeCheck assign-target Map→value / Bytes→UInt8；Normalize 单步 IndexSet；嵌套 FC；target Plan 仍 FAIL-CLOSED） |
+| **N-A3** | Map/Bytes 穿透元素赋值 | **done**（2026-08-02：TypeCheck assign-target Map→value / Bytes→UInt8；Normalize 单步 IndexSet；嵌套 FC；target coverage 非均匀——EVM/Solana/NEAR/Noir/Aleo Map 已开并完成 snapshot 修复，Bytes 见 coverage matrix） |
 | **N-A4** | Option state | **done**（2026-08-02：Normalize admit Option state/param；default none；四 target Plan FAIL-CLOSED 钉死） |
 
 ### 2.3 Reference / invariant 工程子集
@@ -230,15 +231,21 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **N-INVARIANT-IR** | invariant 进 Semantic callables/invariants | 共享核 | Normalize skip（`invariants:=#[]`）；INV-1 只是 proof-bundle 旁路；R-2 ABI 有、产品 IR 无 | pending |
 | **N-STR-EVENT** | String 作 event/error 字段 | 共享核（小） | String state/param/result 已开；event/error 仍 UInt/Int-only | pending |
 | **N-FOR-INT** | for 端点 Int | 共享核（小） | N-8 余量；for 端点仍 legal-UInt-only | pending |
+| **N-CONST-REF** | body 中 const place 引用 | 共享核（小） | `const` 字面量已进入 Semantic constants 表，但表达式 name resolution/lowering 尚未把 body place 绑定到 ConstantId；当前会 fail closed，不能把 N-CONST 写成完整 const 支持 | pending |
+| **N-MAP-CONSTRUCT** | 非空 Map 构造 / wire multi-arg Construct | 共享核 | shipped 产品只靠 `Map.empty` + bounded IndexSet 建非空 Map；通用 multi-entry Map Construct 及其 canonical duplicate/order 语义仍 fail closed | pending |
 | **B-RET-ABI** | 四 target aggregate ABI 返回（named struct/enum） | target leaf | N-4 done 的剩余；EVM+Noir LOWERED（≤8 UInt64/Int64 叶 preorder flatten；EVM tuple ABI + Noir per-leaf verifier inputs）；Solana/NEAR/Aleo/Psy 保持 FC+钉 | **done**（L3 lane；integration commit b059778fa；EVM/Noir only） |
-| **B-SOL-MAP-ELF** | Solana Map ELF 帧预算友好化 + MapMini Mollusk 升级 | target leaf | IR temp recycling（消费语句后 next 回收到 nextBase；峰值=最深单语句树而非线性总和）；MapMini put 24888B→≤4096、Token mint 58032B→≤4096，均 deployable ELF；MapMini fixture 升 ELF+Mollusk（3 过 1 ignore）；**未提预算上限** | **done**（L2 lane；`put_into_empty` 语义 hazard 拆为 B-SOL-MAP-UPSERT） |
+| **B-SOL-MAP-ELF** | Solana Map ELF 帧预算友好化 + MapMini Mollusk 升级 | target leaf | IR temp recycling + aggregate-store structural CSE；MapMini/Token 均 deployable ELF，Map put 峰值 177 temp≈1424B≤4096；MapMini 4/4 Mollusk active；**未提预算上限** | **done**（L2 + B-SOL-MAP-UPSERT；`put_into_empty` 已解除 ignore） |
 | **B-CTX-OPEN** | ContextRead 各 target Plan 开放（unixTime/caller） | target leaf | B-ctx 有意钉死 FC；无 open 项；**需产品决策是否开** | pending |
 | **B-OPT-STATE** | 四 target Option state Plan | target leaf | N-A4 只开 Normalize admit；Plan 全 FC | pending |
 | **B-COMMIT-ZK** | Commit × Noir/Psy | target leaf | EVM/Solana/NEAR/Aleo 身份透传已开；Noir/Psy FC | pending |
+| **B-CALL-SEM** | call/schedule capability 与真实平台语义对齐 | 产品决策 + target leaf | resolver 当前对若干键过度声明：EVM sync 为 static-hash CALL、async 为同步 CALL+丢结果；Solana 双键仅 `sol_log_data` stub（非 CPI）；Noir 双键是 relation status/arg slots；Aleo/Psy 边界亦需逐项复核。必须选择：降级 support claim/fail closed，或实现满足 Reference 契约的真实语义；禁止继续用“LOWERED”掩盖 stub/partial | pending（**先产品决策**） |
+| **DOC-ADR-SCOPE** | accepted 范围与工程控制面 reconciliation | 文档/产品决策 | accepted PRD 仍以 EVM/Solana/NEAR/Noir 为 Phase 1，registry/CLI 已实现 Aleo/Psy；accepted ADR-0022/架构仍要求 contained frontend，而 B11/B12 已删除。不得直接重写 accepted 文档；需新增 accepted ADR 或正式修订，明确 4→6 target 与 frontend assurance 取舍 | pending（**产品决策**） |
+| **DOC-JUST-CONTROL** | 文档引用不存在的 governance/release recipes | 文档/发布决策 | `AGENTS`/`RECOVERY`/README/CONTRIBUTING/qualification inventory 曾把 `just governance-check` / `just release-check` 写成当前命令，但本分支及已知 `origin/main` 的 `justfile` 均无 recipe。现已纠正当前文档为“不可执行”；若要恢复，必须显式设计 recipe、测试与资格边界，禁止临时拼装命令冒充 gate | pending（**产品/发布决策**） |
 | **B-FIELD-CATALOG** | Field 真 catalog 接通 Aleo(BLS12-377)/Psy(Goldilocks) | 共享核+leaf | DOC-CODE-1 已决策：**真做 T14**；Wire FieldSpec catalog sole bn254 → 三 spec（bn254/BLS12-377/Goldilocks，exact id+modulusBE membership，无任意 modulus）+ TypeKey allowlist + Source/TypeCheck Field id + Normalize catalog 镜像 + Aleo bls12_377_fr→Leo field + Psy goldilocks→Felt + Reference fieldModulus 参数化 | **done**（2026-08-02；T14 lane 0f4d9e294 + field-id 测试修复；typed/targets/source shard 绿） |
 | **B-SOL-MUL** | Solana UInt128/256 schoolbook 多字 mul + fail-closed div/mod | target leaf | SBPF emit `narrowCheckedMul` 128/256 → 真 schoolbook 多字乘（32-bit digit split、lane-ordered carry、高肢 overflow trap）；div/mod 仍 low64 + 高肢零检查 FC（err_mwdiv/err_mwmod）；Rust Mollusk WideMul fixture 归 C-5 | **done**（2026-08-02；integration commit 9bb6fe1ad；testMultiwordMulDivMod 于 shard-targets） |
 | **RES-1B** | memory/output 运行时 limit | NFR | RES-1 只有 wall-ms | pending |
-| **B-SOL-MAP-UPSERT** | Solana Map 顺序 store-then-read hazard（put_into_empty 错误 occ 翻转） | target leaf（正确性） | L2 揭示：24 叶顺序 store、后续叶 expr 经 stateLoad 读到已改 occ/key/val；**同 hazard 理论上也存在于 EVM/NEAR/Aleo/Noir 顺序叶物化，需先核实再修**；修需预计算 24 叶或专用 upsert op/scratch 空间 | pending（**正确性优先**） |
+| **B-SOL-MAP-UPSERT** | 聚合 StateStore 顺序 store-then-read hazard（Map empty upsert） | target leaf（正确性） | 已实证 EVM/Solana/NEAR/Noir cap-8 与 Aleo cap-2 同构：leaf Expr live-read 已部分写 state。五 target 均改为 target-owned atomic aggregate store：同一 Semantic StateStore 全叶先基于 pre-store snapshot 求值、再统一写；不同 StateStore 保持顺序可见。Solana structural CSE 保持 1424B frame，`map_mini_put_into_empty` 真实 Mollusk 转绿；EVM Yul 顺序、NEAR HostModel、Noir relation model、Aleo Leo get-before-set 均钉测 | **done**（2026-08-02；非 formal） |
+| **B-MAP-STRUCT-PIN** | Map atomic-store 结构与跨 batch 可见性补钉 | target tests（P2） | 当前 Solana 主要由 Mollusk 终态捕捉，缺与 EVM 对等的 Lean Plan/IR `storeAggregate`/`storeStateMulti` 结构断言；EVM/Solana 也缺与 NEAR Token 对等的双 `StateStore` 顺序可见性单元钉。实现已复核正确，本项只补防退化覆盖 | pending（P2） |
 | **NFR-REPEAT** | NFR-001 决定性 repeat gate（连续构建 hash 相同） | NFR | PRD 要求；无工程 ID | pending |
 | **DOC-CODE-1** | **T14 Field catalog v2 文档↔代码矛盾** | 文档/代码决策 | commit 30df771f2 声称「Wire ModelV1 扩 bls12377/goldilocks FieldSpec + Aleo/Psy Field 接线」，实际 diff 只有 NEAR/Solana 文件+docs；**代码 catalog 仍 sole bn254**（EnvelopeV1/WireV1）。AGENTS.md 已先行修正为 fail-closed 叙述。需要产品决策：(a) 按 commit message 真做 T14（共享核 Wire 变更）；(b) 把 30df771f2 的 commit message 记录为错误声明并关闭 | **done**（2026-08-02：选 (a) 真做 T14，已由 B-FIELD-CATALOG 闭合；见 T14 lane 0f4d9e294） |
 
@@ -269,8 +276,8 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **B-1a** | NEAR named 聚合 + Array/容器 lower 或显式 FAIL-CLOSED+测 | `Targets/Near/**` | **done**（`4c79e0a59` NearAggregate） |
 | **B-1b** | Noir named 聚合 | Noir/** | **done**（`61b7dff09`） |
 | **B-1c** | Aleo 覆盖核对 + 显式边界 | Aleo/** | **done**（`04fe6e815`） |
-| **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array + **Map UInt64 dense pilot** cap-8 + Token **plan** 默认；ELF 对 Map pure-expr 超 4KiB 帧 FC；Bytes 仍 FC；Option 中间值自 Map IndexGet） |
-| **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2；**Map UInt64 dense pilot** cap-8 + Token deployable；Option-from-Map；Solana/NEAR/Noir Map 横向已开） |
+| **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array + **Map UInt64 dense pilot** cap-8；默认仍 plan profile，opt-in ELF+Mollusk 已通；aggregate CSE/storeStateMulti 修复 empty upsert，MapMini 4/4 active；Bytes 仍 FC；Option 中间值自 Map IndexGet） |
+| **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2；**Map UInt64 dense pilot** cap-8 + Token deployable；Option-from-Map；EVM/Solana/NEAR/Noir/Aleo Map 横向已开并闭合 aggregate snapshot hazard） |
 | **B-1f** | Noir Map multi-leaf public inputs | Noir/** | **done**（2026-08-02：Map UInt64 cap-8 occ/key/val public-input leaves + IndexGet→Option + IndexSet upsert + Token relations；Array/Bytes 仍 FC） |
 | **B-3** | Principal → address，解锁 EVM/Solana call/schedule | Envelope + EVM/Solana | **done**（2026-08-02：sole research pin `4ecb4f86e` PrincipalAddr — wire Principal ≠ EVM 20B / Solana 32B pubkey；no CALL/CPI unlock；`pilotPrincipalPolicyNone`；docs close） |
 | **B-ctx** | ContextRead 各 target Plan：保持 fail-closed 并补齐负向测 | 四 target | **done**（2026-08-02：unixTime + caller 五 target materialize decline 钉测） |
@@ -283,7 +290,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **C-2** | Aleo/Psy compiler/VM 可用性研究与是否升格验收 | **done**（2026-08-02：RPT-015 不升格门；Aleo/Psy 保持 source-only；矩阵 C-2 行 + research README 已登记） |
 | **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；工程 Anvil smoke 可保留） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | **done**（2026-08-02：RPT-016 **不**升格 prove/verify；无 nargo Tool Lock pin；保持 source-only；见 `16-noir-prove-path.md`） |
-| **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（fixture 集：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates/NarrowAbi/NarrowResult + ArraySlots + **MapMini ELF+Mollusk**（L2/B-SOL-MAP-ELF done：3 过 1 ignore；`put_into_empty` 见 B-SOL-MAP-UPSERT）；Option/Context 随 LOWERED 再扩） |
+| **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（12 programs：Counter + 11 fixtures，52 Rust tests 全 active/通过；**MapMini ELF+Mollusk 4/4**，`put_into_empty` 已随 B-SOL-MAP-UPSERT 转绿；Option/Context 与 UInt128/256/Principal/call 运行覆盖仍待扩） |
 
 ---
 
@@ -299,6 +306,9 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **D3-E4** | formal `OutputSetV1` 字段齐套；退役 transitional v2alpha1 残留 | **done**（2026-08-02：**工程** on-disk 已是 `proof-forge.output.v1` + `mintEngineeringOutputSetV1`；legacy `proof-forge-output/v2alpha1` renderer 已删并由 OutputSetV1 suite 钉零；`sourceHash`/`semanticHash` 键名仅为兼容；**非** formal OutputSetV1 字段齐套） |
 | **D3-E5** | CLI 剩余 flag：evidence/resource override 等 SPEC-CLI 面 | **done**（2026-08-02：`--resource-limit` lower-only hard-max/dup/stage 校验；check 拒 external-tool/artifact-output；`--minimum-evidence` build-only 四 grade；proof-bundle pair 已由 **INV-1** 产品 join；check/build JSON 可观测 `resourceLimits`；`Tests.CLI.ResourceFlagsV1`；非 RES-1 wall 执行/formal SPEC-CLI） |
 | **D3-E6** | stage supervisor / receipt（compiler-core/tool/output）——与 D1 监督层移除决策协调 | **done**（2026-08-02：**永久进程内** — 不恢复 SafeOpen/supervisor 产品路径；sole Loader 进程内；RES-1 若做也在进程内；见 `RECOVERY.md` D3-E6） |
+| **D3-E7** | artifact 内容绑定与 post-publish inspect closure | pending：当前 `outputSetDigest` 只绑定 identity digests + 文件路径列表，不绑定每个 artifact 的 role/size/content hash；`inspect` 只重验 manifest/evidence，不打开 listed artifacts、不重走 exact disk closure。需升级 engineering manifest/OutputSet preimage并对发布后字节篡改 fail closed；非 formal OutputSetV1 |
+| **D3-E8** | `--minimum-evidence` 进入 resolver/claim | pending：当前只解析、白名单和 JSON 回显，不参与 support decision、claim 或 manifest identity；需先冻结 evidence grade 语义，禁止把回显写成门禁 |
+| **D3-E9** | Protocol descriptor axes ↔ TargetRegistry axes 一致性门 | pending：两套 closed enum/wire 目前无逐轴转换或 equality gate；需确立 registry sole authority 并在 materialization identity 前 exact join |
 
 ---
 
@@ -340,25 +350,24 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | ID | 项 | 状态 |
 |---|---|---|
 | **F-*** | D1–D4 formal 0/27；`TASK-D1-01` blocked | 不进日常队列 |
-| **Q-*** | SBOM ceremony / eligible-host / clean-room / custody | `just release-check` 专用 |
+| **Q-*** | SBOM ceremony / eligible-host / clean-room / custody | 独立 formal/release 轴；`release-check` 当前无 recipe，见 DOC-JUST-CONTROL |
 
 ---
 
 ## 推荐击杀顺序（产品开发）
 
 ```text
-0. ~~DOC-1/4/5 + T9d + B-1a/b/c~~（2026-08-01/02 已合入 main）
-1. ~~BUILD-1/2/6~~（已 done）
-2. ~~Normalize 串行主轴~~ N-A1..N-8/R-1..R-3（已 done；余量已登记 §2.4）
-3. **当前批（2026-08-02 并行 lane）**：
-   - L1 = N-ASSERT-ELSE（共享核小切片，worktree）
-   - L2 = B-SOL-MAP-ELF（Solana leaf，worktree）
-   - L3 = B-RET-ABI（四 target leaf，worktree，EVM-first）
-   - L4 = 文档纠偏（research/12+13、5 dossier、AGENTS T14、backlog §2.4）— 主代理主树
-4. **下一串行主轴**（共享核，按序）：N-CALL-RET（先产品决策）→ N-ANON-RESULT → N-NEST-IDX → N-INVARIANT-IR → N-STR-EVENT → N-FOR-INT
-5. **下一并行 leaf**：B-OPT-STATE / B-COMMIT-ZK / B-CTX-OPEN（需产品决策）/ RES-1B / NFR-REPEAT
-6. **DOC-CODE-1 决策后**：B-FIELD-CATALOG（T14 真做或关闭）
-7. 语言面够用后：NS-2 / EXT-CRYPTO（仍语言-gated）
+0. ~~既有 DOC/T8–T14/Normalize 主轴~~（已完成；formal 状态不变）
+1. ~~2026-08-02 P0 审计修复批~~：
+   - BUILD-10：六个 ordinary-CI 漏注册 suite 接入 Typed/Targets shard
+   - proposed current-path 文档：删除 B12 现状误述，保留 accepted ADR 决策债
+   - B-SOL-MAP-UPSERT：EVM/Solana/NEAR/Noir/Aleo 五个 target-local snapshot 修复；Solana 真实 Mollusk 转绿
+2. **必须先决策**：B-CALL-SEM（降 support 或实现真实 call/schedule）+ DOC-ADR-SCOPE（6 target / frontend assurance）
+3. **下一串行 shared-core**：N-INVARIANT-IR（先消除 invariant 静默丢弃）→ D3-E7（artifact 内容 hash/inspect closure）
+4. **随后串行语言面**：N-CONST-REF → N-CALL-RET（需 schema 决策）→ N-ANON-RESULT → N-NEST-IDX → N-MAP-CONSTRUCT → N-STR-EVENT → N-FOR-INT
+5. **可并行 target leaf（接口冻结后）**：B-OPT-STATE / B-COMMIT-ZK / B-CTX-OPEN（需产品决策）
+6. **NFR / identity residual**：D3-E8/E9 → RES-1B → NFR-REPEAT
+7. 语言面够用后：NS-2 / EXT-CRYPTO（仍 language-gated）
 ```
 
 **切片纪律**（继承 roadmap-t8 / AGENTS）：

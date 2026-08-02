@@ -12,6 +12,12 @@ normative: false
 状态：`draft`
 研究日期：2026-08-01
 
+> **历史快照警告（2026-08-02）**：本文正文保留 2026-08-01 审计时点，已被后续
+> T-1/T-2、T8–T14、AddressBearing、Map/Bytes、Invariant ABI 与 target leaf 切片大幅超越，
+> 不再作为当前能力或调度依据。当前工程事实以根级 `AGENTS.md` / `MIGRATION_MATRIX.md`、
+> [`12-target-coverage-matrix.md`](12-target-coverage-matrix.md) 与
+> [`../engineering-backlog.md`](../engineering-backlog.md) 为准。
+>
 > **执行队列**：缺口关闭请回写 [`../engineering-backlog.md`](../engineering-backlog.md)，勿另开平行清单。
 
 ## 目的

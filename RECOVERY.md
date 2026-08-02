@@ -161,12 +161,12 @@ D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表�
 ```bash
 just dev-check          # 日常：docs + build + 核心产品测试
 just ci                 # 普通主机：完整产品测试与负例
-just governance-check   # 显式审计历史 task/freeze/evidence
-just release-check      # 发布预检；非 eligible 主机应明确拒绝
 ```
 
-`just ci` 成功只说明产品开发门禁通过，不等于 formal/hermetic evidence。
-`just release-check` 失败也必须区分“主机/ceremony 不合格”和“产品代码失败”。
+当前 `justfile` 未注册 `governance-check` / `release-check`；不得把文档中的历史命令名当成
+可执行 gate，恢复它们需要独立产品决策与可验证 recipe。`just ci` 成功只说明产品开发门禁
+通过，不等于 formal/hermetic evidence；正式 Stage-0 仍须由调用者直接执行 AGENTS.md 中的
+eligible-host 命令。
 
 ## 完成条件
 

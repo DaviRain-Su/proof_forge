@@ -3,11 +3,17 @@ id: SPEC-DIAG-001
 title: 稳定诊断规格
 status: proposed
 owner: frontend
-updated: 2026-07-30
+updated: 2026-08-02
 normative: true
 ---
 
 # 稳定诊断规格
+
+> **当前工程覆盖（2026-08-02）**：结构化 `DiagnosticBundleV1`、located
+> Check/Normalize/Compiler 链和 CLI full-bundle human render 仍在；B11/B12 supervised source
+> authority 已删除。当前 CLI 进程内读源并调用 `Loader.selectProgramV1Product`，没有 supervisor
+> receipt，也没有 controller-backed `PF-RESOURCE-*` 生产者。下文相关条款是 proposed / 历史
+> 设计，不是当前产品 assurance。
 
 本规格对齐 [`ADR-0022`](../adr/0022-d1-diagnostics-contained-frontend-contract.md) 的 D1
 diagnostic / contained-frontend 工程契约（proposed；非 formal approval）。
@@ -56,7 +62,7 @@ major version 内稳定。
 - 全零 16-byte NodeId sentinel 不是长期 public 契约。**B6** 已落地结构化 `DiagnosticV1`
   carrier/codec（closed code catalog、nullable `DiagnosticOriginV1`、PF-JCS encode/decode、
   message-independent order/dedupe、结构 redaction、`normalizeDiagnosticBundleV1` cap 工程
-  子集；产品 multi-error bundle 未接线）。**B7a** 已退役 pre-node zero-sentinel：parser/
+  子集；该括号记录 B6 当时切片，当前产品接线状态见后述 B8b）。**B7a** 已退役 pre-node zero-sentinel：parser/
   duplicate 位置使用显式 `nodeId: null`（`none`），Source `DiagnosticLocateV1` + Loader
   `selectProgramV1WithOrigins` 提供 path→真实 NodeId 归因基础设施；**B7b** Typed producers
   经 child-path helpers + `DiagnosticDraftV1` 物化真实 primary/related 已工程完成
@@ -64,8 +70,14 @@ major version 内稳定。
   `DiagnosticBundleV1` / `DiagnosticResultV1` 工程地基（private constructor、sole total
   `mkFailureBundleV1` 复用 `normalizeDiagnosticBundleV1` + validate/encode、fail-closed 固定
   `PF-INTERNAL`、read-only diagnostics、deterministic human/PF-JCS array render、exit priority
-  selection）。**B8b** 已完成 located multi-error compiler cutover；**B12** 进一步把 CLI source authority 原子切为 pinned safe-open helper → B10 worker → request-bound success-only product carrier → Normalize `normalizeProgramLocatedV1` → Compiler `compileProgramProductV1`。Frontend.Err 与后续 compiler failures保留完整 bundle；source-open映射 `PF-SRC-INVALID`，resource events映射 `PF-RESOURCE-*`，abnormal protocol/supervisor映射 `PF-FRONTEND-PROTOCOL`，统一 full `renderHuman` + `selectExitCode`；usage/config仍 exit 2（无 `PF-CLI-USAGE`）。非产品兼容面保留 unlocated `normalizeProgramV1`/`compileValidatedSourceV1`/`selectProgramV1*`；**无**产品路径把 bundle 擦回单 `CompileError`，也无 CLI reopen/reparse/fallback。Full JSON
-  envelope/receipts、Emit/Toolchain bundle、OutputSet 与 formal `TASK-D1-07` 仍 pending。
+  selection）。**B8b** 已完成 located multi-error compiler cutover。当前 CLI source authority 为
+  进程内 `IO.FS.readFile` → `Loader.selectProgramV1Product` → Normalize
+  `normalizeProgramLocatedV1` → Compiler `compileProgramProductV1`；Loader 与后续 compiler
+  failures 保留完整 bundle，并统一 full `renderHuman` + `selectExitCode`；usage/config 仍 exit 2
+  （无 `PF-CLI-USAGE`）。B11/B12 已删除，因此当前没有 Frontend worker/supervisor abnormal
+  producer、receipt 或 controller-backed `PF-RESOURCE-*` producer。非产品兼容面保留 unlocated
+  `normalizeProgramV1`/`compileValidatedSourceV1`/`selectProgramV1*`；产品不 reparse、不 fallback。
+  Full JSON receipts、source-open/Emit/Toolchain bundle、OutputSet 与 formal `TASK-D1-07` 仍 pending。
   不得把已删除的 zero-sentinel 写入 golden，也不得把 B8b 工程 cutover 写成 formal 完成。
 
 ### 排序、去重与 stableContext
@@ -136,11 +148,11 @@ requiredness 失败使用 `PF-INTERNAL`，因为 emitter 生成非法自身协�
 | `PF-EFFECT-002` | effect 未声明/不受支持 |
 | `PF-BOUND-001` | portable Syntax/identifier/program identity 超过 100000 nodes 或 nesting/components 256；未来也用于无法证明的控制流 bound |
 | `PF-SRC-INVALID` | source 非 UTF-8、超过 16 MiB 或无法进入 parser |
-| `PF-RESOURCE-TIME` | contained compiler worker 超过 versioned monotonic wall budget |
-| `PF-RESOURCE-MEMORY` | contained compiler worker 超过 versioned memory budget |
-| `PF-RESOURCE-PROCESS` | contained compiler worker 创建超过允许数量的进程或逃逸 containment |
-| `PF-RESOURCE-OUTPUT` | contained compiler worker protocol/stdout/stderr 超过 versioned budget |
-| `PF-FRONTEND-PROTOCOL` | frontend worker 异常退出或返回 malformed/truncated/version-mismatched payload |
+| `PF-RESOURCE-TIME` | compiler stage 超过 effective monotonic wall budget；当前产品仅实现 in-process wall enforcement，不代表 containment |
+| `PF-RESOURCE-MEMORY` | 规划中的 controller/supervisor memory budget 超限；当前产品无 producer |
+| `PF-RESOURCE-PROCESS` | 规划中的 controller process/session budget 超限；当前产品无 producer |
+| `PF-RESOURCE-OUTPUT` | 规划中的 supervised protocol/stdout/stderr budget 超限；当前产品无 producer |
+| `PF-FRONTEND-PROTOCOL` | retained worker protocol 或未来 supervisor 的异常；当前 CLI source path 不经过 worker |
 | `PF-LANGUAGE-VERSION-UNKNOWN` | 请求的 exact DSL parser version 未登记 |
 | `PF-LANGUAGE-VERSION-DISABLED` | parser version 已禁用/撤销 |
 | `PF-LANGUAGE-DEFAULT` | static parser registry 无唯一 current-major default |
@@ -201,15 +213,17 @@ parser/selection producers 与 Typed producers 经 `DiagnosticV1.make` 发出结
 产品入口再以 `mkFailureBundleV1` 封装（真实节点归因见 B7）。**B7a** 已提供 Source path locate +
 pre-node `nodeId=null`，**B7b**
 工程已完成（含 B7b3d CheckV1 located composition）；**B8a** inert `DiagnosticBundleV1` 地基与
-**B8b/B12** supervised frontend/Normalize/Compiler/CLI multi-error cutover 已落地
-（`DiagnosticBundleV1` + pinned workers + `SupervisedFrontendV1.productInput` + `normalizeProgramLocatedV1` + `compileProgramProductV1` + CLI full-bundle render/exit；`Tests/CLI/DiagnosticsV1`、
-`Tests/Compiler/DiagnosticPipelineV1`）；formal 仍 pending。Syntax preflight 的产品路径以
+**B8b** 的 Normalize/Compiler/CLI multi-error cutover 已落地
+（`DiagnosticBundleV1` + in-process `Loader.selectProgramV1Product` +
+`normalizeProgramLocatedV1` + `compileProgramProductV1` + CLI full-bundle render/exit；
+`Tests/CLI/DiagnosticsV1`、`Tests/Compiler/DiagnosticPipelineV1`）；B12 supervised frontend 已删除，
+formal 仍 pending。Syntax preflight 的产品路径以
 `DiagnosticCodeV1.resourceBound` 保留 `PF-BOUND-001`，非产品兼容面仍投影为
 `CompileError.resourceBound`；human message 只说明超出的 node/nesting/identity limit。CLI 的
-16 MiB parser 前文件上限由 request-bound canonical SafeOpen Err 的 closed `.tooLarge` fault（private
-supervised carrier，不进入 receipt/JSON）精确恢复，在产品 bundle 中为
-`DiagnosticCodeV1.sourceInvalid` / `PF-SRC-INVALID: source exceeds the 16 MiB limit`；CLI 不得
-reopen/stat source以重分类。非产品兼容面仍为 `CompileError.invalidProgram`；这两个边界不得在证据中混写。
+16 MiB source 上限当前由 Loader 在 `IO.FS.readFile` 已读入后检查，并在产品 bundle 中为
+`DiagnosticCodeV1.sourceInvalid` / `PF-SRC-INVALID: source exceeds the 16 MiB limit`；它不是
+pre-read bounded safe-open，也不提供 filesystem race assurance。非产品兼容面仍为
+`CompileError.invalidProgram`；这两个边界不得在证据中混写。
 
 ## 隐私与安全
 

@@ -39,9 +39,10 @@ PROOF_FORGE_TEST_JOBS=2 just test
 just build-frontend-worker   # only the worker exe
 just test-frontend-worker    # worker exe + WorkerV1 shard
 
-# Explicit, non-default control planes:
-just governance-check   # historical task/freeze/evidence consistency
-just release-check      # eligible-host and release preflight
+# Historical control-plane names are currently NOT registered in justfile:
+# just governance-check
+# just release-check
+# Do not claim governance/release execution until explicit recipes are restored.
 ```
 
 GitHub runs the lightweight `docs` lane and the product `source-core` lane

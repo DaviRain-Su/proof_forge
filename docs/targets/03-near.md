@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-01
+updated: 2026-08-02
 normative: true
 ---
 
@@ -23,12 +23,14 @@ Phase 1：实现
 - Normalize 当前子集：算术/比较/assert、控制流、fn、let/for、shift/bitwise、revert/emit 等；
 - state/param **UInt8/16/32/64 与窄 Int** ABI/body 子集；**UInt128/256 软件多字（T9e）**；
   schedule → 原生 promise；sync call 在 capability 矩阵上 fail-closed；
-- **named Struct/Enum + Array + dense Map UInt64 cap-8** flatten-to-KV（B-1a/NS-1）；Bytes/Option 仍 fail-closed；
+- **Array + dense Map UInt64 cap-8 + fixed Bytes N** flatten-to-KV；聚合 `StateStore` 使用
+  `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel 已固定 empty Map upsert 与连续两个
+  Map StateStore 的可见性；named Struct/Enum state/construct/field ops 与 Option state 仍 fail-closed；
 - **Principal 9×KV leaf 存储（T12）**（wire identity 原样；**非** account-id）；
 - WAT 发射 + **`wat2wasm` + `wasm-interp` 工程验收门（C-1 已闭合：NearWasmAcceptance，工具缺席 skip）**。
 
 **明确未闭合**：**非** NEAR sandbox receipt / **非** Reference↔Wasm formal 差分；
-Bytes/Option state 仍 fail-closed；ContextRead 各 target Plan fail-closed（B-ctx 有意钉死）；
+named Struct/Enum 与 Option state 仍 fail-closed；ContextRead 各 target Plan fail-closed（B-ctx 有意钉死）；
 formal identity/OutputSet / D6 milestone。不得写成 runtime-validated 完成。
 
 ## 1. 身份与来源

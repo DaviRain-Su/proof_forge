@@ -3,11 +3,16 @@ id: MOD-CLI-001
 title: CliOrchestrator 模块规格
 status: proposed
 owner: cli
-updated: 2026-07-30
+updated: 2026-08-02
 normative: true
 ---
 
 # CliOrchestrator
+
+> **当前工程覆盖（2026-08-02）**：B11/B12 supervisor 产品层已删除。当前 `check` / `build`
+> 在进程内读取 source 并调用 `Loader.selectProgramV1Product`；JSON 结果不含 public
+> `receipts`，也不声明 contained assurance。下文的 supervised receipt 条款是尚未实现的
+> proposed 契约，不是当前代码事实。
 
 模块把 argv 转成 typed command，调用 frontend/semantics/resolver/materializer/artifact public
 API，并渲染 human/JSON result。它不 import target Plan/IR 模块，不读取 registry 之外的 target
@@ -24,10 +29,11 @@ API，并渲染 human/JSON result。它不 import target Plan/IR 模块，不读
 negotiation；selection 失败映射既有 `PF-LANGUAGE-*` 诊断。`languageVersion` 不传入
 ProgramV1 identity/hash/NodeId 构造。
 
-## Supervised public `receipts`（ADR-0022 D3）
+## 规划中的 supervised public `receipts`（ADR-0022 D3）
 
-supervised `check`/`build` 的 JSON object 在 **success 与 failure** 均带顶层 **`receipts`**：
-bounded public-safe supervisor projection/digest。orchestrator **不得**：
+该接口尚未由当前产品实现。若后续重新引入 supervised `check`/`build`，其 JSON object 在
+**success 与 failure** 均应带顶层 **`receipts`**：bounded public-safe supervisor
+projection/digest。orchestrator **不得**：
 
 - 把 raw/full receipt、stream tails、host paths 或 secrets 写入 stdout JSON；
 - 把 receipt 当作 `diagnostics[]` 元素或 diagnostic 字段；
@@ -38,7 +44,14 @@ development in-process 路径若发出 observation 投影，assurance class 必�
 （`darwin-development-observed` 永不等于 `contained` / formal evidence；Linux `contained` 仅在
 controller-bound + controller-event attribution 下成立，禁止 silent fallback）。
 
-**B8b/B12 engineering：** `build`/`build-counter` 仅走 pinned sibling safe-open helper → B10 worker → success-only `SupervisedFrontendV1.productInput` → `compileProgramProductV1`。CLI 不 import Loader、不 reopen/reparse、不调用 ambient PATH；physical compiler path逐 component拒绝 symlink，两个 sibling worker均须为 regular non-symlink，native仅从 no-follow fd-derived `≤512 MiB` private snapshot做 suspended spawn并监视 vnode mutation，不直接执行 caller pathname。built-in Counter 只从 checked `.lake/build/bin` package layout对应root下的 tracked `Examples/Counter.lean` 读取，不依赖 caller cwd，也不使用 embedded `counterSourceText`；其他安装布局 fail closed。Frontend.Err 保留 full bundle；request-bound canonical SafeOpen Err 的 closed fault 仅保留在 private carrier，`.tooLarge`→精确 `PF-SRC-INVALID: source exceeds the 16 MiB limit`，其他 source-open→稳定 `PF-SRC-INVALID`，resource events→对应 `PF-RESOURCE-*`，abnormal snapshot/protocol/supervisor→`PF-FRONTEND-PROTOCOL`，统一 `selectExitCode`；usage仍 exit 2。非 Darwin产品 build固定 protocol diagnostic/exit 3/零制品，portable CI只验证 core与该 fail-closed行为，不声称 Linux build成功。formal executable/import identity、Full JSON envelope、public supervised `receipts`、controller-backed containment与 Emit/Toolchain typed migration仍 out of scope。
+**当前 B8b engineering：** `check` / `build` 解析 canonical root-relative source path，
+`CLI.Main.loadSourceProduct` 以 `IO.FS.readFile` 读入 source 后调用
+`Loader.selectProgramV1Product`，再进入 located Normalize 与 `compileProgramProductV1`。Loader/typed
+失败保留 full `DiagnosticBundleV1` 并统一 `selectExitCode`；usage 仍 exit 2。产品 JSON 不含
+`receipts`，没有 Darwin-only 可用性门，也不声明 snapshot/worker/contained assurance。16 MiB gate
+由 Loader 在读入后执行；source-open 的 host I/O fault 仍未完全迁入结构化 bundle。formal
+executable/import identity、public supervised `receipts`、controller-backed containment 与
+Emit/Toolchain typed migration仍 out of scope。
 
 覆盖全部命令/flags、multi-program、unknown target/profile/network、exit priority、JSON/human、
 TTY、signals、private file/FD、build network prohibition、deploy bundle revalidation、proof

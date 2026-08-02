@@ -19,7 +19,7 @@ Phase 1：实现（工程切片已接线；成熟度 source-only）
 
 **工程已接线（摘）**：标量 UInt64/UInt32/Unit/Bool/Int64 envelope；named Struct/Enum + Array UInt64 flatten-to-Felt leaves；sync call（`__invoke_sync`）与 event（`__emit`）；Dargo/Psy source（`psy-dargo-u64-v1`）。注意：Emit 层把 UInt 字面量按 Goldilocks 模约（`feltNat`），这是 **UInt→Felt 字面量归约**，**不是** Field 类型支持。
 
-**明确未闭合**：Field **全部 fail-closed**——Psy Felt=Goldilocks(2^64−2^32+1) ≠ catalog bn254，且 wire FieldSpec catalog 当前仍是 **sole bn254**（`pilotFieldPolicyNone`；「T14」叙事与代码不符，见 backlog DOC-CODE-1）；**Commit 也 fail-closed**（EVM/Solana/NEAR/Aleo 身份透传不含 Psy）；Map/Bytes/Option/Principal/String/bitNot 显式 fail-closed；resolver 拒 async-workflow(schedule)；无 VM/prover 门；成熟度 **source-only**，不得写成 runtime/formal 完成。
+**明确边界**：T14 已把 exact Goldilocks FieldSpec 接到 Psy Felt；bn254 与 BLS12-377 在 Psy 上仍 fail-closed。**Commit 也 fail-closed**（EVM/Solana/NEAR/Aleo 身份透传不含 Psy）；Map/Bytes/Option/Principal/String、UInt64 bitNot 显式 fail-closed；resolver 拒 async-workflow(schedule)；有 optional host `psyup`/`dargo` source compile 验收，但无 Tool Lock pin、VM/prover 门；成熟度 **source-only + optional host compile**，不得写成 runtime/formal 完成。
 
 ## 1. 身份与来源
 
@@ -55,7 +55,7 @@ PsyPlan {
 
 ## 5. Target IR 与制品
 
-候选路径：`PsyPlan → PsyIR/DPN operations → compiler artifact/circuit package`。现阶段不承诺 `.psy`、opcode 或部署包的稳定格式，不创建 emitter、registry production entry 或假 artifact。
+当前工程路径为 `PsyPlan → PsyIR → Dargo `.psy` source package`，并已进入 registry/capability materialization；该 source schema仍是 engineering profile，不承诺 VM bytecode、circuit/proof 或部署包的稳定格式。Finalize 为零工具、`deployable=false`，不得把 source package 写成可执行 artifact。
 
 ## 6. 工具链
 
@@ -75,9 +75,8 @@ PsyPlan {
 
 ## 10. 不支持、风险与成熟度退出
 
-Psy 不在 Phase 1 implementation scope。离开 research 的条件：稳定一手规格、可获取且许可明确的工具链、完整 live MWE、状态/证明/finalization 语义无未决冲突。此前不得宣称 supported，也不得将它归入 Noir circuit family。
+accepted PRD 仍把 Psy 列为 Phase 1 design-only；当前 Recovery 工程则已接入 source-only target leaf，两者的范围差异尚无 accepted ADR 闭合。离开 source-only/research 成熟度的条件仍是稳定一手规格、可获取且许可明确的锁定工具链、完整 live MWE，以及状态/证明/finalization 语义无未决冲突。不得将它归入 Noir circuit family。
 
 ### 工程成熟度（C-2 / 2026-08-02）
 
-树内为 target-owned Plan/IR/source 面；Psy Felt=Goldilocks 对 catalog bn254 **FAIL-CLOSED**。
-**C-2 研究结论（`docs/research/15-aleo-psy-compiler-vm.md`）**：**不**升格 psy-vm / prover 验收门；无受支持工具链 pin。成熟度保持 **source-only / research**，不得写成 VM 或证明完成。
+树内为 target-owned Plan/IR/source 面；Goldilocks Field 已 LOWERED，bn254/BLS12-377 仍 FAIL-CLOSED。`PsyAcceptance` 在主机提供 psyup/dargo/std 时编译 source fixtures（缺席可 skip）；没有受支持 Tool Lock pin，也不运行 psy-vm/prover。成熟度保持 **source-only + optional host compile / research**，不得写成 VM 或证明完成。

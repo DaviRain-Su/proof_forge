@@ -1,17 +1,21 @@
 # TaskQualification 隔离清单
 
-本清单记录 2026-07-25 recovery 工作树中的事实，只盘点
+本清单记录 2026-07-25 recovery 工作树中的历史事实，只盘点
 `scripts/*task_qualification*`。它不把历史资格声明改写成产品完成，也不授权删除、搬迁或继续扩张资格协议。
+
+> **当前命令面纠正（2026-08-02）**：现有 `justfile` 未注册 `governance-check` 或
+> `release-check`。下文关于这两个 recipe 的闭包描述只属于 2026-07-25 历史快照，不是当前
+> 可执行入口；恢复前不得声称运行或通过。
 
 ## 结论
 
 - qualification 子系统共有 **84 个文件、58,429 行**。
 - `ProofForgeV2/**`、`Tests/**`、CLI、Lake targets 和 hosted CI 对它的直接代码依赖均为 **0**。
 - `just dev-check` 与 `just ci` 使用 development docs profile，在 task/freeze/evidence 检查前返回，不加载 qualification 代码。
-- `just governance-check` 的 qualification 闭包只有 **3 个文件、10,968 行**：
+- 2026-07-25 历史 `just governance-check` 的 qualification 闭包只有 **3 个文件、10,968 行**：
   `task_qualification_objects.py`、`task_qualification_fixture_builder.py`、
-  `task_qualification_verifier.py`。
-- `just release-check` 除继承上述 governance 闭包外，不调用 ceremony、authority store、native custody/service 或其 self-test。
+  `task_qualification_verifier.py`；当前 recipe 已不存在。
+- 2026-07-25 历史 `just release-check` 除继承上述 governance 闭包外，不调用 ceremony、authority store、native custody/service 或其 self-test；当前 recipe 已不存在。
 - 其余 **81 个文件、47,461 行**没有 ordinary product gate 的执行入口；它们是历史 release ceremony 实现、协议实现、自测、生成器或已被后续实现取代的 standalone foundation。
 
 因此，TaskQualification 已经可以从产品开发语义中隔离；继续把它视为每个编译器任务的完成前置没有代码依赖依据。
@@ -24,8 +28,8 @@
 | Lean product tests / `Tests/**` | 无 | 不是产品测试依赖 |
 | `just dev-check` | 无 | development docs profile 在治理检查前返回 |
 | `just ci` / `.github/workflows/ci.yml` | 无 | 普通主机产品门禁不执行资格协议 |
-| `just governance-check` | 3-file Python 闭包 | 只为历史 D0-10 文档/fixture 审计保留 |
-| `just release-check` | 上述 governance 闭包 | 当前 recipe 没有 steady-state ceremony/service 入口 |
+| 历史 `just governance-check`（当前不存在） | 3-file Python 闭包 | 2026-07-25 快照；无当前可执行入口 |
+| 历史 `just release-check`（当前不存在） | 上述 governance 闭包 | 2026-07-25 快照；无当前可执行入口 |
 | 历史 specs、ledger、implementation log | 文本引用 | 记录历史，不构成可执行产品依赖 |
 
 `docs_check.py --profile governance` 以 exact-path 方式加载
@@ -47,13 +51,14 @@
 | Unicode table generator | 1 | 159 | 生成 native Unicode table | 与 native stack 一起迁移 |
 | **合计** | **84** | **58,429** |  |  |
 
-### 历史 governance 闭包（当前必须保持可运行）
+### 历史 governance 闭包（当前无 recipe；文件仍保留）
 
 - `scripts/task_qualification_objects.py`
 - `scripts/task_qualification_fixture_builder.py`
 - `scripts/task_qualification_verifier.py`
 
-这里的“必须”只表示 `just governance-check` 当前仍引用它们，不表示 PAE 产品或日常开发需要它们。
+2026-07-25 的 recipe 曾引用这三个文件；当前 `justfile` 已无该入口。是否恢复或迁移属于
+DOC-JUST-CONTROL / release 决策，不表示 PAE 产品或日常开发需要它们。
 
 ### Ceremony / protected Python（无仓库 gate 入口）
 
@@ -101,7 +106,7 @@ tools/release-qualification/
 1. 修正 Python import、同目录 identity/read-bytes 路径和 C compile/include 路径；
 2. 把 `docs_check.py` 的 exact-path loader 与 `docs_check_self_test.py` 的 fixture import 指向新目录；
 3. 更新仍把 `scripts/...` 当作当前路径的规格、ledger 和实现日志链接；历史命令文字可以保留并标注 historical path；
-4. 保证 `just governance-check` 结果不变；
+4. 若产品决定恢复 `governance-check`，先新增可验证 recipe 与行为测试；否则保持无入口且不得声称结果；
 5. 不把任何 qualification self-test 重新加入 `dev-check` 或 `ci`。
 
 整组迁移优于留下 3 个文件、移动 81 个文件：后者会制造跨目录 import、重复 decoder 或兼容 shim，重新扩大维护面。

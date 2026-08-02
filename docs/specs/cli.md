@@ -3,11 +3,18 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-07-30
+updated: 2026-08-02
 normative: true
 ---
 
 # CLI 契约
+
+> **当前实现状态（2026-08-02）**：产品 `check` / `build` 已回到进程内
+> `IO.FS.readFile` → `Loader.selectProgramV1Product`，不经过 B11/B12 safe-open/supervisor，
+> 不输出 supervised `receipts`，且不按 Darwin/非 Darwin 区分可用性。六类
+> `--resource-limit` 目前只有各 stage 的 `wall-ms` 在产品 CLI 中实际强制；其余字段虽被
+> 解析和回显，尚未形成对应 controller enforcement。以下 receipt/containment 条款保留为
+> proposed 目标，不能当作 shipped 行为。
 
 可执行文件固定 `proof-forge-next`。所有命令 non-interactive；JSON 输出 stdout，日志和
 human diagnostics 到 stderr。
@@ -117,20 +124,18 @@ sourceHash/semanticHash/semanticProvenanceDigest。
 
 ## JSON Results
 
-成功 object：`schema`, `command`, `status:"ok"`, `result`；在 **supervised** `check`/`build`
-上另含顶层 **`receipts`**（ADR-0022 D3）。失败 object：同 schema、`status:"error"`、
-`diagnostics:[...]`；supervised `check`/`build` 失败同样 **始终** 含顶层 **`receipts`**
-（与 `diagnostics` 并列，不是其成员）。不混入日志。输入/输出皆 UTF-8，JSON duplicate key
-拒绝。human output 不作为稳定 API。
+当前已实现的成功 object 为 `schema`, `command`, `status:"ok"`, `result`；失败 object 为同
+schema、`status:"error"`, `diagnostics:[...]`。不混入日志；输入/输出皆 UTF-8，JSON duplicate
+key 拒绝。human output 不作为稳定 API。当前 in-process `check`/`build` **不**输出
+`receipts`，也不得伪造 `contained` assurance。
 
-未 supervised 的 development in-process 路径 **不得** 伪造 `contained` 级 receipt 语义，也
-不得在字段清单上假装已有 controller-backed containment；若仍发出 development observation
-投影，assurance class 必须可区分且不得 silent 升格。
+若后续恢复 supervised 产品路径，success/failure object 应另含与 `diagnostics` 并列的顶层
+`receipts`，且 assurance class 必须可区分、不得 silent 升格。
 
-### Supervised public `receipts`（ADR-0022 D3）
+### 规划中的 supervised public `receipts`（ADR-0022 D3）
 
-在 **supervised** `check`/`build` 路径上，JSON stdout object 在 **success 与 failure** 均携带
-顶层 **`receipts`** 字段（见上字段清单）。`receipts` 是 supervisor/controller 结果的
+该字段尚未实现。在未来 **supervised** `check`/`build` 路径上，JSON stdout object 应在
+**success 与 failure** 均携带顶层 **`receipts`** 字段。`receipts` 是 supervisor/controller 结果的
 **bounded public-safe projection 与 digest**（hard/effective profile id/digest、observed
 peak/elapsed 的可公开摘要、controller event class、cleanup result 等），**不是**：
 
@@ -161,23 +166,23 @@ human stderr 文本 **不是** `receipts` 的稳定替代 API。
 
 多个 diagnostics 取最高优先级：70 > 7 > 6 > 5 > 4 > 3 > 2。
 
-### B8b/B12 product diagnostic exit（engineering）
+### B8b product diagnostic exit（engineering）
 
-`build` / `build-counter` 产品路径经 pinned safe-open helper → B10 worker → success-only reconstructed product carrier → located Normalize → product Compiler；CLI Main 不再 source `realPath`/`readFile`、不 import Loader、不 caller-side reconstruct或 fallback；physical compiler path逐 component拒绝 symlink，pinned workers为 regular siblings，native只执行 no-follow fd-derived bounded private snapshot（suspended spawn + vnode recheck），`build-counter` package source root不依赖 caller cwd。Frontend.Err 与后续失败在 stderr 一次打印全部 `DiagnosticBundleV1.renderHuman` 行；source-open为 `PF-SRC-INVALID`，resource event为对应 `PF-RESOURCE-*`，worker snapshot/protocol/supervisor异常为 `PF-FRONTEND-PROTOCOL`。exit 为
-`DiagnosticBundleV1.selectExitCode`：仅 `severity=error`；`PF-DIAG-LIMIT` 与 warning/note
-中立；`PF-INTERNAL` → 70；phase deploy/verify → 7；emit/tool → 6；plan/lower → 5；
-resolve → 4；source/type/effect/semantic → 3。canonical SafeOpen `.tooLarge` 由 private supervised
-fault join 精确映射为 `PF-SRC-INVALID: source exceeds the 16 MiB limit`；CLI 不得为恢复该分类而
-reopen/stat source。CLI usage/config（缺 `--module`/未知选项/未知 `--target`/非法 argv）**exit 2**
-（`failUsage` plain message），**不是** diagnostic，且不发明 `PF-CLI-USAGE`、不 throw
-`CompileError.render` / uncaught-exception exit 1。
-Emit/Toolchain alpha 失败仍可走既有 `IO.userError` 面（本切片未迁 bundle）。`build` 与
-`build-counter` 已接线 static `LanguageParserDescriptorV1`：省略与显式 `1.0.0` 解析为同一
-descriptor；range、`latest`、malformed 与 unknown exact 在 source open 前以
-`PF-LANGUAGE-VERSION-UNKNOWN`/exit 3/零制品拒绝。当前 product
-supervisor 仅 Darwin development-observed；非 Darwin `build`/`build-counter` 必须
-`PF-FRONTEND-PROTOCOL`/exit 3/零制品 fail closed。Linux `just ci` 只执行 portable core、selection
-与该负向，不得宣称 product materialization positive。Full JSON result envelope/receipts 与 formal
+`check` / `build` 产品路径经进程内 `IO.FS.readFile` →
+`Loader.selectProgramV1Product` → located Normalize → product Compiler；不经过 B10 worker 或
+B11/B12 supervisor。Loader 与后续 compiler 失败在 stderr 一次打印全部
+`DiagnosticBundleV1.renderHuman` 行。exit 为 `DiagnosticBundleV1.selectExitCode`：仅
+`severity=error`；`PF-DIAG-LIMIT` 与 warning/note 中立；`PF-INTERNAL` → 70；phase
+deploy/verify → 7；emit/tool → 6；plan/lower → 5；resolve → 4；
+source/type/effect/semantic → 3。CLI usage/config（缺 `--module`/未知选项/未知 `--target`/非法
+argv）**exit 2**（`failUsage` plain message），**不是** diagnostic，且不发明
+`PF-CLI-USAGE`。source 16 MiB gate 由 Loader 在文件已读入后产生 `PF-SRC-INVALID`；host
+source-open I/O fault、Emit/Toolchain 失败仍未全部迁入 bundle。
+
+`check` / `build` 已接线 static `LanguageParserDescriptorV1`：省略与显式 `1.0.0` 解析为同一
+descriptor；range、`latest`、malformed 与 unknown exact 在 source read 前以
+`PF-LANGUAGE-VERSION-UNKNOWN`/exit 3/零制品拒绝。当前产品不按 Darwin/非 Darwin 区分，也
+不输出 supervised receipts。Full receipt envelope、controller resource enforcement 与 formal
 `TASK-D1-07` 仍 pending。
 
 ## Secret、Inputs 与副作用

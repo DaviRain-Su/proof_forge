@@ -3,11 +3,17 @@ id: SPEC-SEC-001
 title: 安全与隐私规格
 status: proposed
 owner: security
-updated: 2026-07-30
+updated: 2026-08-02
 normative: true
 ---
 
 # 安全与隐私规格
+
+> **当前工程偏离（2026-08-02）**：B11/B12 safe-open/supervisor/native 层已按产品决策
+> 删除。CLI 当前对 root/source 做词法校验后使用进程内 `IO.FS.readFile`；因此本规格所要求的
+> pre-read bounded no-follow、regular/single-link、worker process containment 与 controller 资源
+> 归因均 **未由当前产品路径实现**。Loader 仍在读入后执行 16 MiB source gate。下文 B11/B12
+> 实现叙述只作为 superseded 历史记录；accepted 安全/架构意图是否修订仍需 ADR 决策。
 
 ## 资产与攻击者
 
@@ -161,12 +167,17 @@ writable/order/PDA；NEAR predecessor/signer、attached value、Promise callback
 ## 安全失败
 
 安全检查失败一律 error，不允许 warning override。Syntax/identity 资源超限
-`PF-BOUND-001`，CLI source 16 MiB 超限 `PF-SRC-INVALID`；frontend worker 的 time/memory/
-process/protocol-output 超限分别为 `PF-RESOURCE-TIME`、`PF-RESOURCE-MEMORY`、
-`PF-RESOURCE-PROCESS`、`PF-RESOURCE-OUTPUT`，worker protocol/异常退出为
-`PF-FRONTEND-PROTOCOL`。不可信
-工具 `PF-TOOL-UNTRUSTED`，路径 `PF-OUTPUT-PATH`，披露 `PF-VIS-001`。`--force` 只允许
-替换输出目录，不绕过任何安全/语义/版本检查。
+`PF-BOUND-001`，CLI source 16 MiB 超限 `PF-SRC-INVALID`。当前 in-process CLI 只实际强制
+stage `wall-ms` 并以 `PF-RESOURCE-TIME` 失败；`PF-RESOURCE-MEMORY`、
+`PF-RESOURCE-PROCESS`、`PF-RESOURCE-OUTPUT` 与 supervised
+`PF-FRONTEND-PROTOCOL` 仍是尚无产品 controller producer 的 catalog/规划语义。不可信工具
+`PF-TOOL-UNTRUSTED`，路径 `PF-OUTPUT-PATH`，披露 `PF-VIS-001`。`--force` 只允许替换输出
+目录，不绕过任何安全/语义/版本检查。
+
+## Superseded B10–B12 历史实现快照
+
+以下内容记录 2026-07-30 的 worker/safe-open/supervisor 切片；2026-08-01 已从产品与源码中
+删除 B11/B12 部分，B10 模块仅作非产品协议面保留。
 
 B10 standalone frontend worker 只定义 abnormal process 的稳定本地 stderr token 与退出值：
 argv misuse=`64`、malformed protocol=`65`、internal fault=`70`；有效 request 的 source/parser
@@ -184,7 +195,7 @@ digest；仅 request-bound canonical SafeOpen fault + complete cleanup产生 `so
 supervised carrier只额外保留该 closed fault class（无 path/errno），供 CLI 将 `.tooLarge` 精确映射为
 16 MiB `PF-SRC-INVALID`，不得 reopen/stat source；malformed、cross-request 与 incomplete-cleanup
 response均 fail closed，stderr/path/PID/signal/exit detail不进入 carrier。
-process-group polling仍无法阻止 `setsid()` escape，也不是 controller-backed containment。B12 已完成 CLI cutover：physical compiler path逐 component拒绝 symlink，pinned sibling workers必须为 regular non-symlink；native以 no-follow fd作为 worker snapshot authority，拒绝非 regular/多链接/无 execute bit/`>512 MiB`，只从 source-fd physical worker同目录的 fd-derived 128-bit 随机私有 snapshot做 suspended spawn；snapshot是 fresh O_EXCL byte-only copy，不复制source xattr/ACL，目录与文件都清空并验证无 inherited extended ACL；vnode/path复核通过后才恢复，mutation或snapshot cleanup失败均 fail closed；`build-counter` source root只来自 checked package layout而非 caller cwd。source-open 映射 `PF-SRC-INVALID`，resource events 映射对应 `PF-RESOURCE-*`，abnormal protocol/supervisor 映射 `PF-FRONTEND-PROTOCOL`；receipt 不进入 diagnostics。snapshot不等于签名/digest worker identity；sole native open前已发生的同路径 replacement、selectively inherited `LEAN_SYSROOT`/`LEAN_PATH` import closure与同 UID/formal threat model仍不作保证。B10退出值、B11a fault labels、B11b1/B11b2 native event 与 B11a2 receipt都不证明 time/memory/process containment；产品消费该 engineering seam 不会将其升格为 formal assurance。当前非 Darwin 产品 build 必须以 closed protocol diagnostic/零制品拒绝；portable Linux CI 的该负向不是 Linux containment 或 materialization positive。
+process-group polling仍无法阻止 `setsid()` escape，也不是 controller-backed containment。历史 B12 曾完成 CLI cutover：physical compiler path逐 component拒绝 symlink，pinned sibling workers必须为 regular non-symlink；native以 no-follow fd作为 worker snapshot authority，拒绝非 regular/多链接/无 execute bit/`>512 MiB`，只从 source-fd physical worker同目录的 fd-derived 128-bit 随机私有 snapshot做 suspended spawn；snapshot是 fresh O_EXCL byte-only copy，不复制source xattr/ACL，目录与文件都清空并验证无 inherited extended ACL；vnode/path复核通过后才恢复，mutation或snapshot cleanup失败均 fail closed；`build-counter` source root只来自 checked package layout而非 caller cwd。source-open 映射 `PF-SRC-INVALID`，resource events 映射对应 `PF-RESOURCE-*`，abnormal protocol/supervisor 映射 `PF-FRONTEND-PROTOCOL`；receipt 不进入 diagnostics。snapshot不等于签名/digest worker identity；sole native open前已发生的同路径 replacement、selectively inherited `LEAN_SYSROOT`/`LEAN_PATH` import closure与同 UID/formal threat model仍不作保证。B10退出值、B11a fault labels、B11b1/B11b2 native event 与 B11a2 receipt都不证明 time/memory/process containment；产品消费该 engineering seam 不会将其升格为 formal assurance。该历史切片曾令非 Darwin 产品 build 以 closed protocol diagnostic/零制品拒绝；当前进程内产品路径已无此平台分支，且仍不构成 Linux containment 或 formal materialization evidence。
 
 ## Attack Matrix 与验收
 

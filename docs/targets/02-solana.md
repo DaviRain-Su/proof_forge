@@ -3,7 +3,7 @@ id: TARGET-SOLANA
 title: Solana target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-01
+updated: 2026-08-02
 normative: true
 ---
 
@@ -27,8 +27,10 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 - **Mollusk 运行时差分**（`runtime-tests/solana`：Counter + 多 fixture，含 body 多宽）；
 - **AddressBearing static-callee call/schedule 已开**（B-3 followup：callee 为 static QualifiedName，
   program id = SHA-256(targetPath) 32B，SBPF 以 `sol_log_data` 观测桩；完整 `invoke_signed` CPI 另排）；
-- **dense Map UInt64 cap-8 plan pilot**（Token/MapMini 默认 plan；ELF 帧预算超限 FC，见 backlog B-SOL-MAP-ELF）；
-  named 聚合/Bytes/Option state 边界见覆盖矩阵。
+- **dense Map UInt64 cap-8 pilot** 已进入 opt-in ELF + Mollusk；`storeAggregate` → structural CSE →
+  `storeStateMulti` 令同一 StateStore 的 24 叶先基于旧 account snapshot 求值、再统一写入，且保持
+  177 temp / 1424B < 4096B frame。`put_into_empty` 已解除 ignore 并转绿；当前 Mollusk 为
+  12 programs、52 tests 全 active/通过。named 聚合/Bytes/Option state 边界见覆盖矩阵。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
 完整 Normalize 表面。registry 历史标签可能仍显示 `plan-only` 字符串——**工程事实以本段与
@@ -65,14 +67,13 @@ SolanaPlan {
 
 每个 instruction 完整列出 account index、role、owner、signer、writable、optional、PDA 约束。禁止 materializer 在 assembly 阶段猜账户顺序。
 
-Phase-1 的首个通用 planning 切片使用一个显式 state account：8-byte target-owned header
-后按声明顺序保存 little-endian `UInt64`。header 绑定 layout version 与 initialized 状态；
-initializer 只接受未初始化账户，entry/view 只接受已初始化账户。instruction data 使用
-`8-byte discriminator + little-endian UInt64 parameters`，Plan 明确记录每个参数 offset、state offset、
-checked-add、store/return 与 writable 要求。discriminator 固定为
-`SHA-256("proof-forge-solana-v1:" || canonical-signature)[0..8]`，避免按声明序编号造成 ABI
-漂移。这个边界仍是 non-deployable typed audit plan，不是 sBPF assembly/ELF，也没有 local
-runtime 证据。
+首个通用 planning 基线使用一个显式 state account：8-byte target-owned header
+后按声明顺序保存 little-endian `UInt64`。该历史基线已经扩到多宽 ABI/body、真实 SBPF assembly、
+opt-in ELF 与 Mollusk；**默认 profile 仍是 non-deployable plan**，但不能再把整个 Solana 工程面
+写成“没有 ELF/runtime”。header 绑定 layout version 与 initialized 状态；initializer 只接受未初始化
+账户，entry/view 只接受已初始化账户。instruction data 使用 8-byte discriminator + target-owned
+little-endian参数布局；discriminator 固定为
+`SHA-256("proof-forge-solana-v1:" || canonical-signature)[0..8]`，避免按声明序编号造成 ABI 漂移。
 
 当前单账户 provisioning policy 要求 `initialize` 时 state account 自身为 signer、program-owned、
 writable 且 header 为 zero；成功后写入版本化 initialized marker。mutate 不再要求 signer，view

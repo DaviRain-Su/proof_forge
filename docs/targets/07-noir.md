@@ -3,7 +3,7 @@ id: TARGET-NOIR
 title: Noir target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-01
+updated: 2026-08-02
 normative: true
 ---
 
@@ -22,7 +22,9 @@ Digest 在 Plan 边界派生（engineering identity，非 formal BuildIdentity�
 **工程已接线（摘）**：
 
 - Normalize 当前子集 + Field(bn254) 原生算术路径；UInt8/16/32/64 与窄 Int ABI/body；
-  named Struct/Enum construct/field/variant + aggregate state flatten（容器 state 多 FAIL-CLOSED）；
+  named Struct/Enum construct/field/variant、Array UInt64 与 dense Map UInt64 cap-8 aggregate state
+  flatten；Map/aggregate StateStore 经 `storeAggregate` 两阶段 relation lowering固定 pre-state snapshot，
+  `NoirRelationModel` 已覆盖 empty upsert；Bytes/Option/String state 仍 FAIL-CLOSED；
 - call/schedule 持 capability（status/arg slot）；私有 state/params 走 private-witness 输入；
 - 产物：typed relation IR + Noir source packages（host model / relation tests）。
 
@@ -61,8 +63,10 @@ compile/execute/prove/verify workflow，证明后端另行选择。Noir 的 publ
 
 目标 portable fragment 包含有限域/固定宽度整数、Bool、固定数组/struct、有界控制流、
 纯函数、assert、public/private/commitment disclosure 与确定性 state transition relation。
-当前已实现的 alpha slice 仅为 `UInt64`、Bool lifecycle、literal/parameter/state load、
-checked add/sub、store、return；不能把目标范围误写成当前覆盖范围。
+当前工程片已远超早期 UInt64 add/sub alpha：包含多宽 UInt/窄 Int、bn254 Field、named
+aggregate、Array/Map state、if/match/for、pureFn、event/revert 与 relation-level call/schedule slots；
+精确 op×type 边界以 coverage matrix 为准。它仍不是完整 Semantic 面，更不是已验证 proof
+pipeline。
 
 Phase 1 禁止 unconstrained functions、oracle、foreign calls、无界循环和动态分配。当前
 `commitmentOnly` 输入也 fail closed；后续只能通过带 soundness obligation 的版本化

@@ -3,14 +3,14 @@ id: TARGET-INDEX
 title: Target 研究与实现档案
 status: proposed
 owner: architecture
-updated: 2026-08-01
+updated: 2026-08-02
 normative: true
 ---
 
 # Target 研究与实现档案
 
 状态：`proposed`
-更新日期：2026-08-01
+更新日期：2026-08-02
 
 本目录按执行语义而不是文件后缀组织目标。`family` 是阅读视图，编译器实际依据多轴 `TargetDescriptor` 和 exact `SupportClaim` 决策。
 
@@ -23,14 +23,14 @@ normative: true
 |---|---|---|---|---|---|
 | `evm` | contract VM | Phase 1 implement | `specified` | retained-V1 Plan + Yul/solc bytecode + EvmSolc 验收 + 历史 Anvil smoke；**非** formal maturity / Reference↔Anvil 闭包 | [EVM](01-evm.md) |
 | `solana` | explicit-account SVM | Phase 1 implement | `specified` | retained-V1 Plan + SBPF asm → ELF `.so` + Mollusk runtime 差分；**非** formal Stage-0/hermetic | [Solana](02-solana.md) |
-| `near` | Wasm host | Phase 1 implement | `specified` | retained-V1 Plan + WAT/`wat2wasm` 结构验证；**无** sandbox receipt runtime | [NEAR](03-near.md) |
+| `near` | Wasm host | Phase 1 implement | `specified` | retained-V1 Plan + WAT/`wat2wasm` + `wasm-interp --dummy-import-func` 结构/实例化门与 deterministic HostModel；**无** NEAR sandbox receipt runtime | [NEAR](03-near.md) |
 | `cosmwasm` | Wasm host | design only | `research` | design-only；无产品 backend | [CosmWasm](04-cosmwasm.md) |
 | `soroban` | Wasm host | design only | `research` | design-only；无产品 backend | [Soroban](05-soroban.md) |
 | `icp` | Wasm actor host | design only | `research` | design-only；无产品 backend | [ICP](06-icp.md) |
 | `noir` | circuit compiler | Phase 1 implement | `specified` | retained-V1 Plan + relation source packages；**无** Nargo/ACIR/prove/verify | [Noir](07-noir.md) |
 | `openvm` | zkVM | design only | `research` | design-only；无产品 backend | [OpenVM](08-openvm.md) |
-| `aleo` | ZK application chain | Phase 1 implement（工程 source leaf） | `specified` | 工程 source-only leaf（scalar 子集 + 显式 FAIL-CLOSED 边界）；**无** leo compiler 验收门 | [Aleo](09-aleo.md) |
-| `psy` | ZK application chain | Phase 1 implement（工程 source leaf） | `specified` | 工程 source-only leaf；dargo 等工具未配置；**无** VM 验收 | [Psy](10-psy.md) |
+| `aleo` | ZK application chain | Phase 1 implement（工程 source leaf） | `specified` | 工程 source-only leaf（scalar 子集 + 显式 FAIL-CLOSED 边界）；host 有 `leo 4.0.2` 时 optional `leo build --offline`，但无 Tool Lock/VM/prove | [Aleo](09-aleo.md) |
+| `psy` | ZK application chain | Phase 1 implement（工程 source leaf） | `specified` | 工程 source-only leaf；host tool 可用时 optional compile，但无 Tool Lock/VM/proof | [Psy](10-psy.md) |
 
 ## Family 视图
 

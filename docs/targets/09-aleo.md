@@ -17,9 +17,9 @@ Phase 1：实现（工程切片已接线；成熟度 source-only）
 
 `planFromCapability` 直接读取 `CompiledSemanticV1.semanticV1Of`，private lowering 构造 target-owned `AleoPlan`。
 
-**工程已接线（摘）**：标量 UInt64/UInt32/UInt8/Int64/Unit/Bool envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）；named Struct/Enum + Array UInt64 flatten-to-mapping leaves；**dense Map UInt64 cap-2**（occ/key/val leaves + IndexGet→Option + IndexSet upsert）；**fixed Bytes N**（N×u8 mappings + checked u8 lane）；Commit 身份透传；Leo 4.0.2 emission（`EmitIRV1`，`leo build --offline` 验收，工具缺席 skip；**非** Tool Lock pin）。
+**工程已接线（摘）**：标量 UInt64/UInt32/UInt8/Int64/Unit/Bool envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）；named Struct/Enum + Array UInt64 flatten-to-mapping leaves；**dense Map UInt64 cap-2**（occ/key/val leaves + IndexGet→Option + IndexSet upsert；`storeAggregate` 先完成全叶 `get_or_use`/值绑定再统一 `set`，固定 pre-store snapshot）；**fixed Bytes N**（N×u8 mappings + checked u8 lane）；Commit 身份透传；Leo 4.0.2 emission（`EmitIRV1`，`leo build --offline` 验收，工具缺席 skip；**非** Tool Lock pin）。
 
-**明确未闭合**：Field **全部 fail-closed**——Aleo native = BLS12-377 Fr ≠ catalog bn254，且 wire FieldSpec catalog 当前仍是 **sole bn254**（`pilotFieldPolicyNone`；所谓「T14 Field catalog v2」叙事与代码不符，见 backlog DOC-CODE-1）；Option/Principal/String/Int128/256/emit/call/schedule/ContextRead 均显式 fail-closed；无 prove/deploy/VM 门；成熟度 **source-only**，不得写成 runtime/formal 完成。
+**明确边界**：T14 已把 exact BLS12-377 Fr FieldSpec 接到 Leo `field`；bn254 与 Goldilocks 在 Aleo 上仍 fail-closed。Option/Principal/String/Int128/256/emit/call/schedule/ContextRead 均显式 fail-closed；有 optional host `leo build --offline` 工程验收，但无 Tool Lock pin、prove/deploy/VM 门；成熟度仍为 **source-only + optional host compile**，不得写成 runtime/formal 完成。
 
 ## 1. 身份与来源
 
@@ -75,9 +75,8 @@ Leo4 AST/printer golden → compiler parse/typecheck → local proof execution �
 
 ## 10. 不支持、风险与成熟度退出
 
-当前不实现。准入条件：冻结 Leo 4 patch/profile、完成 record 与 mapping 两条最小闭环、证明 disclosure/custody/finalization requirements 可精确推导。Aleo 不能复用 NoirPlan 或 PsyPlan。
+当前工程仅实现 target-owned Plan/IR/source package 与 public mapping pilot，不实现 record custody、prove/deploy 或 VM runtime。进入更高成熟度前仍须冻结 Leo 4 工具链 profile、完成 record 与 mapping 两条最小闭环，并证明 disclosure/custody/finalization requirements 可精确推导。Aleo 不能复用 NoirPlan 或 PsyPlan。
 
 ### 工程成熟度（C-2 / 2026-08-02）
 
-产品路径已有 target-owned Plan/IR/source package 与 B-1c coverage 钉（Field FAIL-CLOSED）。
-**C-2 研究结论（`docs/research/15-aleo-psy-compiler-vm.md`）**：**不**在本波次升格真实 `leo` 编译验收门；无 Tool Lock pin 与 skip/fail-closed CI 门。成熟度声明保持 **source-only**，不得写成 compiler/VM 验收完成。
+产品路径已有 target-owned Plan/IR/source package 与 B-1c/T14 coverage 钉。`AleoAcceptance` 在主机提供 Leo 4.0.2 时执行 `leo build --offline`（缺席可 skip）；这仍没有 Tool Lock pin，也不验证 VM、proof 或 deploy。成熟度声明保持 **source-only + optional host compile**，不得写成 hermetic compiler/VM 验收完成。

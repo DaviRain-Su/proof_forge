@@ -50,7 +50,7 @@ program Counter where
 just dev-check   # 快速文档检查、构建与核心产品测试
 just ci          # 普通开发机 / GitHub CI 的完整产品门禁
 
-# 仅在明确做历史治理审计或发布预检时运行：
+# 历史控制面名称（当前 justfile 未注册，不能执行或声称通过）：
 # just governance-check
 # just release-check
 
@@ -208,8 +208,7 @@ just test-fast          # 核心产品 smoke tests
 just dev-check          # 日常：docs-check + build + test-fast
 just test               # 全量 proof-forge-next-tests
 just ci                 # 普通主机的完整产品门禁
-just governance-check   # 显式审计历史 task/freeze/evidence
-just release-check      # 发布预检；需要 eligible host 与锁定工具链
+# governance-check / release-check 当前未注册；恢复前不得声称运行或通过
 ```
 
 | 表面 | 命令 / 配置 | 宣称 |
@@ -217,8 +216,8 @@ just release-check      # 发布预检；需要 eligible host 与锁定工具链
 | Hosted CI | `.github/workflows/ci.yml`、`.woodpecker.yml` → `just ci` | Linux portable core/build/test/selection 检查，并断言 Darwin-only product frontend 在 Linux fail closed；不声称 Linux 产品 build 成功 |
 | Linux tool-root CI | `.github/workflows/ci.yml` 的 `linux-tool-root` lane | linux 资产 provision/materialize/verify 与 host profile 观察；development 级 |
 | 密钥扫描 | `secret-scan` workflow | only-verified TruffleHog |
-| 历史治理审计 | `just governance-check` | task/freeze/evidence 数据自洽；不证明 release |
-| 发布预检 | `just release-check` | eligible-host、SBOM、clean-room 与锁定工具；只有外部正式流程才能生成 release EV |
+| 历史治理审计 | 当前无 `governance-check` recipe | 仅保留历史数据；恢复命令前不可声称已审计 |
+| 发布预检 | 当前无 `release-check` recipe | 正式判断只能由直接 eligible-host Stage-0 与外部流程完成；恢复 wrapper 前不可声称已预检 |
 
 ### macOS / Linux 双开发机
 

@@ -132,7 +132,7 @@ normative: false
 
 ## 2026-08-01 — D1 frontend 监督层移除（产品决策）
 
-- Production：B11a/B11a2/B11b1/B11b2/B12 native safe-open/supervisor 层整体删除（`Frontend/SafeOpen*`、`DarwinSupervisor*`、native C、两个 worker exe 与 `b12-cli-source-authority-deletion-gate`）；产品 CLI `build`/`build-counter` 源读取恢复为进程内 `Loader.selectProgramV1Product`（validated project root 下 `IO.FS.readFile`）→ `normalizeProgramLocatedV1` → `compileProgramProductV1`；`Frontend/ProtocolV1`、`WorkerV1`/`WorkerMainV1` 协议与 worker 面保留。原监督切面的 contained/host-race formal 资格随层删除不再适用，formal TASK-D1-08 superseded；fail-closed 与无 fallback 产品边界由 in-process Loader + located Normalize 门禁保持。
+- Production：B11a/B11a2/B11b1/B11b2/B12 native safe-open/supervisor 层整体删除（`Frontend/SafeOpen*`、`DarwinSupervisor*`、native C、safe-open worker exe 与 `b12-cli-source-authority-deletion-gate`；B10 frontend worker 模块与 standalone optional executable 保留）；产品 CLI `build`/`build-counter` 源读取恢复为进程内 `Loader.selectProgramV1Product`（validated project root 下 `IO.FS.readFile`）→ `normalizeProgramLocatedV1` → `compileProgramProductV1`；`Frontend/ProtocolV1`、`WorkerV1`/`WorkerMainV1` 协议与 worker 面保留。原监督切面的 contained/host-race formal 资格随层删除不再适用，formal TASK-D1-08 superseded；fail-closed 与无 fallback 产品边界由 in-process Loader + located Normalize 门禁保持。
 - CI：lakefile `extern_lib` 删除修复 Linux 工具链 stddef/libc++ 链接失败（CI 自 2026-07-26 持续红）；测试套件按内存上限拆分为独立分片可执行（core/typed/language-b/language-c/aggregate/language-heavy/source/source-b/targets，各分片峰值 <5.2 GB），两个重套件退出默认链；CI source-core job 预置并物化 Linux tool root（solc/wat2wasm/anvil/cast/jv）。amd64 ubuntu-24.04 容器全量验证。
 
 ## 2026-07-31 — proof-validation magic/version prefix refinement
