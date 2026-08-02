@@ -74,7 +74,8 @@ private def encodeUInt64LE (value : U64) : ByteArray :=
     (UInt64.shiftRight value 56).toUInt8
   ]
 
-/-- Encode the low `byteWidth` bytes of `value` little-endian (1/2/4/8). -/
+/-- Encode the low `byteWidth` bytes of `value` little-endian (1/2/4/8/16/32).
+    Multiword widths pack `value` into the first limb and zero the rest. -/
 private def encodeUIntLE (value : U64) (byteWidth : Nat) : ByteArray :=
   match byteWidth with
   | 1 => ByteArray.mk #[value.toUInt8]
@@ -88,6 +89,8 @@ private def encodeUIntLE (value : U64) (byteWidth : Nat) : ByteArray :=
       (UInt64.shiftRight value 16).toUInt8,
       (UInt64.shiftRight value 24).toUInt8
     ]
+  | 16 => encodeUInt64LE value ++ encodeUInt64LE 0
+  | 32 => encodeUInt64LE value ++ encodeUInt64LE 0 ++ encodeUInt64LE 0 ++ encodeUInt64LE 0
   | _ => encodeUInt64LE value
 
 private def decodeUInt64LEAt (bytes : ByteArray) (offset : Nat) : Option U64 :=
@@ -177,6 +180,23 @@ private def writeTemp (machine : Machine) (index : Nat)
   else
     modelError s!"temporary {index} is outside the method frame"
 
+/-- Reassemble `nLimbs` consecutive LE i64 temps into one Nat. -/
+private def readMultiword (machine : Machine) (base nLimbs : Nat) :
+    Except String Nat := do
+  let mut value : Nat := 0
+  for k in [:nLimbs] do
+    value := value + Nat.shiftLeft (← readTemp machine (base + k)).toNat (64 * k)
+  pure value
+
+/-- Split a Nat into `nLimbs` consecutive LE i64 temps. -/
+private def writeMultiword (machine : Machine) (base nLimbs : Nat)
+    (value : Nat) : Except String Machine := do
+  let mut machine := machine
+  for k in [:nLimbs] do
+    machine ← writeTemp machine (base + k)
+      (UInt64.ofNat ((value / Nat.pow 2 (64 * k)) % Nat.pow 2 64))
+  pure machine
+
 mutual
 
 private partial def step (input : ByteArray) (deposit : Deposit)
@@ -221,12 +241,23 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       writeTemp machine destination value
   | .narrowLoadParam bitWidth destination inputOffset => do
       let bw := bitWidth / 8
-      unless bw == 1 || bw == 2 || bw == 4 do
-        modelError s!"narrowLoadParam bitWidth {bitWidth} is not admitted"
-      let value ← match decodeUIntLEAt input inputOffset bw with
-        | some value => pure value
-        | none => modelError "narrow parameter read is outside the exact input"
-      writeTemp machine destination value
+      if bw == 16 || bw == 32 then
+        -- Multiword param: each limb is an 8-byte LE slot in the raw input.
+        let nLimbs := bw / 8
+        let mut machine := machine
+        for k in [:nLimbs] do
+          let value ← match decodeUInt64LEAt input (inputOffset + 8 * k) with
+            | some value => pure value
+            | none => modelError "wide parameter read is outside the exact input"
+          machine ← writeTemp machine (destination + k) value
+        pure machine
+      else
+        unless bw == 1 || bw == 2 || bw == 4 do
+          modelError s!"narrowLoadParam bitWidth {bitWidth} is not admitted"
+        let value ← match decodeUIntLEAt input inputOffset bw with
+          | some value => pure value
+          | none => modelError "narrow parameter read is outside the exact input"
+        writeTemp machine destination value
   | .loadState destination field => do
       let encoded ← requireStorage machine field
       let value ← match decodeUInt64LE encoded with
@@ -235,14 +266,28 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       writeTemp machine destination value
   | .narrowLoadState bitWidth destination field => do
       let bw := bitWidth / 8
-      unless bw == 1 || bw == 2 || bw == 4 do
-        modelError s!"narrowLoadState bitWidth {bitWidth} is not admitted"
-      let encoded ← requireStorage machine field
-      let value ← match decodeUIntLE encoded bw with
-        | some value => pure value
-        | none =>
-            modelError s!"state key '{field.key}' is not exactly {bw} bytes"
-      writeTemp machine destination value
+      if bw == 16 || bw == 32 then
+        -- Multiword state: limbs are 8-byte LE words inside the KV value.
+        let encoded ← requireStorage machine field
+        unless encoded.size == bw do
+          modelError s!"state key '{field.key}' is not exactly {bw} bytes"
+        let nLimbs := bw / 8
+        let mut machine := machine
+        for k in [:nLimbs] do
+          let value ← match decodeUInt64LEAt encoded (8 * k) with
+            | some value => pure value
+            | none => modelError "wide state read is outside the KV value"
+          machine ← writeTemp machine (destination + k) value
+        pure machine
+      else
+        unless bw == 1 || bw == 2 || bw == 4 do
+          modelError s!"narrowLoadState bitWidth {bitWidth} is not admitted"
+        let encoded ← requireStorage machine field
+        let value ← match decodeUIntLE encoded bw with
+          | some value => pure value
+          | none =>
+              modelError s!"state key '{field.key}' is not exactly {bw} bytes"
+        writeTemp machine destination value
   | .checkedAdd destination lhs rhs => do
       let left ← readTemp machine lhs
       let right ← readTemp machine rhs
@@ -404,37 +449,72 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       let value ← readTemp machine source
       writeTemp machine destination (value ^^^ UInt64.ofNat 18446744073709551615)
   | .narrowCheckedAdd bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowCheckedAdd bitWidth {bitWidth} is not admitted"
-      let left ← readTemp machine lhs
-      let right ← readTemp machine rhs
-      let sum := left.toNat + right.toNat
-      let limit := Nat.pow 2 bitWidth
-      if sum ≥ limit then
-        modelError s!"UInt{bitWidth} addition overflow"
+      if bitWidth == 128 || bitWidth == 256 then
+        -- Multiword: Nat arithmetic over the limb vectors; overflow traps.
+        let nLimbs := bitWidth / 64
+        let left ← readMultiword machine lhs nLimbs
+        let right ← readMultiword machine rhs nLimbs
+        let sum := left + right
+        let limit := Nat.pow 2 bitWidth
+        if sum ≥ limit then
+          modelError s!"UInt{bitWidth} addition overflow"
+        else
+          writeMultiword machine destination nLimbs sum
       else
-        writeTemp machine destination (UInt64.ofNat sum)
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowCheckedAdd bitWidth {bitWidth} is not admitted"
+        let left ← readTemp machine lhs
+        let right ← readTemp machine rhs
+        let sum := left.toNat + right.toNat
+        let limit := Nat.pow 2 bitWidth
+        if sum ≥ limit then
+          modelError s!"UInt{bitWidth} addition overflow"
+        else
+          writeTemp machine destination (UInt64.ofNat sum)
   | .narrowCheckedSub bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowCheckedSub bitWidth {bitWidth} is not admitted"
-      let left ← readTemp machine lhs
-      let right ← readTemp machine rhs
-      if left < right then
-        modelError s!"UInt{bitWidth} subtraction underflow"
+      if bitWidth == 128 || bitWidth == 256 then
+        let nLimbs := bitWidth / 64
+        let left ← readMultiword machine lhs nLimbs
+        let right ← readMultiword machine rhs nLimbs
+        if left < right then
+          modelError s!"UInt{bitWidth} subtraction underflow"
+        else
+          writeMultiword machine destination nLimbs (left - right)
       else
-        writeTemp machine destination (left - right)
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowCheckedSub bitWidth {bitWidth} is not admitted"
+        let left ← readTemp machine lhs
+        let right ← readTemp machine rhs
+        if left < right then
+          modelError s!"UInt{bitWidth} subtraction underflow"
+        else
+          writeTemp machine destination (left - right)
   | .narrowCheckedMul bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowCheckedMul bitWidth {bitWidth} is not admitted"
-      let left ← readTemp machine lhs
-      let right ← readTemp machine rhs
-      let product := left.toNat * right.toNat
-      let limit := Nat.pow 2 bitWidth
-      if product ≥ limit then
-        modelError s!"UInt{bitWidth} multiplication overflow"
+      if bitWidth == 128 || bitWidth == 256 then
+        -- Multiword: Nat product; overflow when it no longer fits bitWidth.
+        let nLimbs := bitWidth / 64
+        let left ← readMultiword machine lhs nLimbs
+        let right ← readMultiword machine rhs nLimbs
+        let product := left * right
+        let limit := Nat.pow 2 bitWidth
+        if product ≥ limit then
+          modelError s!"UInt{bitWidth} multiplication overflow"
+        else
+          writeMultiword machine destination nLimbs product
       else
-        writeTemp machine destination (UInt64.ofNat product)
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowCheckedMul bitWidth {bitWidth} is not admitted"
+        let left ← readTemp machine lhs
+        let right ← readTemp machine rhs
+        let product := left.toNat * right.toNat
+        let limit := Nat.pow 2 bitWidth
+        if product ≥ limit then
+          modelError s!"UInt{bitWidth} multiplication overflow"
+        else
+          writeTemp machine destination (UInt64.ofNat product)
   | .narrowCheckedDiv bitWidth destination lhs rhs => do
+      -- Multiword div/mod never reach the model: the NEAR Plan lowering
+      -- fails them closed (multiword division is not implemented).
       unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
         modelError s!"narrowCheckedDiv bitWidth {bitWidth} is not admitted"
       let left ← readTemp machine lhs
@@ -453,29 +533,65 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       else
         writeTemp machine destination (left % right)
   | .narrowBitAnd bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowBitAnd bitWidth {bitWidth} is not admitted"
-      let left ← readTemp machine lhs
-      let right ← readTemp machine rhs
-      writeTemp machine destination (left &&& right)
+      if bitWidth == 128 || bitWidth == 256 then
+        let nLimbs := bitWidth / 64
+        let mut machine := machine
+        for k in [:nLimbs] do
+          let left ← readTemp machine (lhs + k)
+          let right ← readTemp machine (rhs + k)
+          machine ← writeTemp machine (destination + k) (left &&& right)
+        pure machine
+      else
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowBitAnd bitWidth {bitWidth} is not admitted"
+        let left ← readTemp machine lhs
+        let right ← readTemp machine rhs
+        writeTemp machine destination (left &&& right)
   | .narrowBitOr bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowBitOr bitWidth {bitWidth} is not admitted"
-      let left ← readTemp machine lhs
-      let right ← readTemp machine rhs
-      writeTemp machine destination (left ||| right)
+      if bitWidth == 128 || bitWidth == 256 then
+        let nLimbs := bitWidth / 64
+        let mut machine := machine
+        for k in [:nLimbs] do
+          let left ← readTemp machine (lhs + k)
+          let right ← readTemp machine (rhs + k)
+          machine ← writeTemp machine (destination + k) (left ||| right)
+        pure machine
+      else
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowBitOr bitWidth {bitWidth} is not admitted"
+        let left ← readTemp machine lhs
+        let right ← readTemp machine rhs
+        writeTemp machine destination (left ||| right)
   | .narrowBitXor bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowBitXor bitWidth {bitWidth} is not admitted"
-      let left ← readTemp machine lhs
-      let right ← readTemp machine rhs
-      writeTemp machine destination (left ^^^ right)
+      if bitWidth == 128 || bitWidth == 256 then
+        let nLimbs := bitWidth / 64
+        let mut machine := machine
+        for k in [:nLimbs] do
+          let left ← readTemp machine (lhs + k)
+          let right ← readTemp machine (rhs + k)
+          machine ← writeTemp machine (destination + k) (left ^^^ right)
+        pure machine
+      else
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowBitXor bitWidth {bitWidth} is not admitted"
+        let left ← readTemp machine lhs
+        let right ← readTemp machine rhs
+        writeTemp machine destination (left ^^^ right)
   | .narrowBitNot bitWidth destination source => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowBitNot bitWidth {bitWidth} is not admitted"
-      let value ← readTemp machine source
-      let mask := UInt64.ofNat ((Nat.pow 2 bitWidth) - 1)
-      writeTemp machine destination ((value ^^^ UInt64.ofNat 18446744073709551615) &&& mask)
+      if bitWidth == 128 || bitWidth == 256 then
+        let nLimbs := bitWidth / 64
+        let mut machine := machine
+        for k in [:nLimbs] do
+          let value ← readTemp machine (source + k)
+          machine ← writeTemp machine (destination + k)
+            (value ^^^ UInt64.ofNat 18446744073709551615)
+        pure machine
+      else
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowBitNot bitWidth {bitWidth} is not admitted"
+        let value ← readTemp machine source
+        let mask := UInt64.ofNat ((Nat.pow 2 bitWidth) - 1)
+        writeTemp machine destination ((value ^^^ UInt64.ofNat 18446744073709551615) &&& mask)
   | .narrowShl bitWidth destination lhs rhs => do
       unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
         modelError s!"narrowShl bitWidth {bitWidth} is not admitted"
@@ -3327,6 +3443,304 @@ private unsafe def testWideUintProduct (session : Language.Loader.ParserSession)
   let ir ← liftResult <| Targets.Near.irFromCapability capability
   expect (ir.methods.any (·.name == "add128")) "T9e: IR has add128"
 
+/-- T9e-lane (engineering): software multiword UInt128/256 mul on i64 limbs.
+    mul lowers to `.narrowCheckedMul 128/256`; the WAT renders an exact
+    base-2^32 schoolbook product (verified against exact literal
+    expectations in the host model, plus wide state round-trips). Wide
+    div/mod/shift stay fail-closed at the NEAR Plan (see
+    `testWideDivModShiftFailClosed`). Not formal D2/D4. -/
+private unsafe def testWideMulProductPath (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program WideMul where\n" ++
+    "  state p : UInt128\n" ++
+    "  state q : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    p := 0\n" ++
+    "    q := 0\n\n" ++
+    "  entry add128(x : UInt128, y : UInt128) : Bool do\n" ++
+    "    let r : UInt128 := x + y\n" ++
+    "    return r == 0x10000000200000005\n\n" ++
+    "  entry sub128(x : UInt128, y : UInt128) : Bool do\n" ++
+    "    let r : UInt128 := x - y\n" ++
+    "    return r == 0x10000000000000001\n\n" ++
+    "  entry mul128(x : UInt128, y : UInt128) : Bool do\n" ++
+    "    let r : UInt128 := x * y\n" ++
+    "    p := r\n" ++
+    "    return p == 0x1000000030000000500000006\n\n" ++
+    "  entry mul256(x : UInt256, y : UInt256) : Bool do\n" ++
+    "    let r : UInt256 := x * y\n" ++
+    "    q := r\n" ++
+    "    return q == 0x500000000000000000000000000000005000000000000000f\n\n" ++
+    "  entry addOverflow128(x : UInt128) : UInt128 do\n" ++
+    "    return x + 0x80000000000000000000000000000000\n\n" ++
+    "  entry mulOverflow128(x : UInt128) : UInt128 do\n" ++
+    "    return x * x\n\n" ++
+    "  view check128() : Bool do\n" ++
+    "    return p == 0x1000000030000000500000006\n\n" ++
+    "  view check256() : Bool do\n" ++
+    "    return q == 0x500000000000000000000000000000005000000000000000f\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-wide-mul>" "Examples.WideMul" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.size == 2) "wide-mul: two KV fields"
+  expect (plan.storage.fields[0]!.byteWidth == 16 &&
+      plan.storage.fields[1]!.byteWidth == 32)
+    "wide-mul: p 16-byte / q 32-byte KV widths"
+  let some mul128 := plan.entries.find? (·.name == "mul128") |
+    throw <| IO.userError "wide-mul: missing mul128"
+  expect (mul128.resultKind == .bool) "wide-mul: mul128 Bool result"
+  expect (mul128.body.any fun s => match s with
+      | .store { value := .narrowCheckedMul 128 .., .. } => true | _ => false)
+    "wide-mul: mul128 body must store a narrowCheckedMul 128 tree"
+  expect (mul128.body.any fun s => match s with
+      | .returnValue (.wideCompare 128 ..) => true | _ => false)
+    "wide-mul: mul128 body must return a wideCompare 128 tree"
+  let some mul256 := plan.entries.find? (·.name == "mul256") |
+    throw <| IO.userError "wide-mul: missing mul256"
+  expect (mul256.body.any fun s => match s with
+      | .store { value := .narrowCheckedMul 256 .., .. } => true | _ => false)
+    "wide-mul: mul256 body must store a narrowCheckedMul 256 tree"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let add128IR ← findMethod ir "add128"
+  let sub128IR ← findMethod ir "sub128"
+  let mul128IR ← findMethod ir "mul128"
+  let mul256IR ← findMethod ir "mul256"
+  let addOverflowIR ← findMethod ir "addOverflow128"
+  let mulOverflowIR ← findMethod ir "mulOverflow128"
+  let check128IR ← findMethod ir "check128"
+  let check256IR ← findMethod ir "check256"
+  let mulKinds := operationKinds mul128IR.operations
+  expect (mulKinds.contains "narrowCheckedMul" && mulKinds.contains "wideCompare")
+    s!"wide-mul: mul128 IR must lower narrowCheckedMul+wideCompare, got {mulKinds}"
+  let addKinds := operationKinds add128IR.operations
+  expect (addKinds.contains "narrowCheckedAdd")
+    s!"wide-mul: add128 IR must lower narrowCheckedAdd, got {addKinds}"
+  let subKinds := operationKinds sub128IR.operations
+  expect (subKinds.contains "narrowCheckedSub")
+    s!"wide-mul: sub128 IR must lower narrowCheckedSub, got {subKinds}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "wide-mul: missing .wat artifact"
+  expectContains wat.contents "multiword checked_mul" "wide-mul WAT multiword mul"
+  expectContains wat.contents "i64.mul" "wide-mul WAT i64.mul"
+  -- Host model: exact products against literals + wide state round-trip.
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "wide-mul init" (execute initIR empty ByteArray.empty zero)
+  let encode128 (lo hi : U64) : ByteArray := encodeUInt64LE lo ++ encodeUInt64LE hi
+  let encode256 (a b c d : U64) : ByteArray :=
+    encodeUInt64LE a ++ encodeUInt64LE b ++ encodeUInt64LE c ++ encodeUInt64LE d
+  let (_, ret0, _) ← requireSuccess "wide-mul check128 before" (execute check128IR storage0 ByteArray.empty zero)
+  expect (ret0 == some 0) "wide-mul: check128 must be false before mul128"
+  let (_, retAdd, _) ← requireSuccess "wide-mul add128" (execute add128IR storage0
+    (encode128 (0x100000003 : U64) 1 ++ encode128 (0x100000002 : U64) 0) zero)
+  expect (retAdd == some 1) s!"wide-mul: add128 exact sum equality must hold, got {retAdd}"
+  let (_, retSub, _) ← requireSuccess "wide-mul sub128" (execute sub128IR storage0
+    (encode128 (0x100000003 : U64) 1 ++ encode128 (0x100000002 : U64) 0) zero)
+  expect (retSub == some 1) s!"wide-mul: sub128 exact difference equality must hold, got {retSub}"
+  let (storage1, retMul, _) ← requireSuccess "wide-mul mul128" (execute mul128IR storage0
+    (encode128 (0x100000003 : U64) 1 ++ encode128 (0x100000002 : U64) 0) zero)
+  expect (retMul == some 1) s!"wide-mul: mul128 exact product equality must hold, got {retMul}"
+  let (_, retC128, _) ← requireSuccess "wide-mul check128 after" (execute check128IR storage1 ByteArray.empty zero)
+  expect (retC128 == some 1) "wide-mul: check128 must see the stored wide product"
+  let (storage2, retMul256, _) ← requireSuccess "wide-mul mul256" (execute mul256IR storage1
+    (encode256 3 1 0 1 ++ encode256 5 0 0 0) zero)
+  expect (retMul256 == some 1) s!"wide-mul: mul256 exact product equality must hold, got {retMul256}"
+  let (_, retC256, _) ← requireSuccess "wide-mul check256" (execute check256IR storage2 ByteArray.empty zero)
+  expect (retC256 == some 1) "wide-mul: check256 must see the stored wide product"
+  -- Overflow traps roll back storage (2^127 + 2^127 and 2^64 * 2^64).
+  match execute addOverflowIR storage0 (encode128 0 (0x8000000000000000 : U64)) zero with
+  | .trapped restored reason =>
+      expect (restored == storage0) "wide-mul: add overflow must roll back storage"
+      expect (reason.contains "UInt128 addition overflow")
+        s!"wide-mul: expected UInt128 addition overflow, got {reason}"
+  | .success .. => throw <| IO.userError "wide-mul: addOverflow128(2^127) must trap"
+  match execute mulOverflowIR storage0 (encode128 0 1) zero with
+  | .trapped restored reason =>
+      expect (restored == storage0) "wide-mul: mul overflow must roll back storage"
+      expect (reason.contains "UInt128 multiplication overflow")
+        s!"wide-mul: expected UInt128 multiplication overflow, got {reason}"
+  | .success .. => throw <| IO.userError "wide-mul: mulOverflow128(2^64) must trap"
+
+/-- Wide div/mod/shift stay fail-closed at the NEAR Plan: the multiword
+    surface is add/sub/mul only (multiword division and cross-limb shift are
+    not implemented in this slice; each decline names the limitation). -/
+private unsafe def testWideDivModShiftFailClosed (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let checkFailClosed (label : String) (body : String) : IO Unit := do
+    let text :=
+      "import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program " ++ label ++ " where\n" ++
+      "  state p : UInt128\n\n" ++
+      "  init() do\n" ++
+      "    p := 0\n\n" ++
+      "  entry run(x : UInt128, y : UInt128) : UInt128 do\n" ++
+      "    " ++ body ++ "\n" ++
+      "    return p\n\n" ++
+      "end ProofForgeV2.Examples\n"
+    let source ← liftResult (← session.selectProgramV1
+      text s!"<near-{label}>" s!"Examples.{label}" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    match Targets.Near.planFromCapability capability with
+    | .error e =>
+        expect (e.render.contains "fail-closed" || e.render.contains "outside the NEAR pilot")
+          s!"{label}: wide op must fail closed with a multiword limitation message, got {e.render}"
+    | .ok _ =>
+        throw <| IO.userError s!"{label}: wide op must fail closed at the NEAR plan"
+  checkFailClosed "WideDiv" "p := x / y"
+  checkFailClosed "WideMod" "p := x % y"
+  checkFailClosed "WideShl" "p := x << 1"
+  checkFailClosed "WideShr" "p := x >> 1"
+
+/-- Bytes N state/param: flatten to N×UInt8 KV leaves (state, byteWidth 1)
+    and N×UInt8 input words (param, cumulative 8-byte pitch, read-only).
+    IndexGet/IndexSet with compile-time literal indices; wide Bytes equality
+    is not produced by Normalize (fails earlier). -/
+private unsafe def testBytesStateParamProductPath (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ByteBox where\n" ++
+    "  state data : Bytes 2\n\n" ++
+    "  init() do\n" ++
+    "    data[0] := 0\n" ++
+    "    data[1] := 0\n\n" ++
+    "  entry set0(v : UInt8) : UInt8 do\n" ++
+    "    data[0] := v\n" ++
+    "    return data[0]\n\n" ++
+    "  entry peek(d : Bytes 2) : UInt8 do\n" ++
+    "    return d[0]\n\n" ++
+    "  view get1() : UInt8 do\n" ++
+    "    return data[1]\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-byte-box>" "Examples.ByteBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.size == 2) "bytes: data must flatten to two KV leaves"
+  expect (plan.storage.fields[0]!.byteWidth == 1 && plan.storage.fields[1]!.byteWidth == 1)
+    "bytes: leaves must be 1-byte UInt8 fields"
+  expect (plan.storage.fields.map (·.name) == #["data_0", "data_1"])
+    "bytes: leaf names must be data_0/data_1"
+  let some set0 := plan.entries.find? (·.name == "set0") |
+    throw <| IO.userError "bytes: missing set0"
+  expect (set0.resultKind == .uint8) "bytes: set0 UInt8 result"
+  expect (set0.body == #[
+      .store { fieldIndex := 0, value := .narrowParam 8 0, byteWidth := 1 },
+      .store { fieldIndex := 1, value := .narrowStateLoad 8 1, byteWidth := 1 },
+      .returnValue (.narrowStateLoad 8 0)])
+    "bytes: set0 must store leaf 0 then return leaf 0"
+  let some peek := plan.entries.find? (·.name == "peek") |
+    throw <| IO.userError "bytes: missing peek"
+  expect (peek.params.size == 2 && peek.params.map (·.byteWidth) == #[1, 1])
+    "bytes: Bytes 2 param must flatten to two UInt8 input words"
+  expect (peek.exactInputLen == 16) "bytes: Bytes 2 param pitch must use cumulative 8-byte slots"
+  expect (peek.body == #[.returnValue (.narrowParam 8 0)])
+    "bytes: peek must return the first UInt8 leaf of the param aggregate"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let set0IR ← findMethod ir "set0"
+  let peekIR ← findMethod ir "peek"
+  let get1IR ← findMethod ir "get1"
+  let kinds := operationKinds set0IR.operations
+  expect (kinds.contains "narrowStoreState" && kinds.contains "narrowLoadState" &&
+      kinds.contains "narrowLoadParam")
+    s!"bytes: set0 IR must lower UInt8 leaf store/load/param ops, got {kinds}"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "bytes init" (execute initIR empty ByteArray.empty zero)
+  expect (storageLookup? storage0 "pf:v1:state:0" == some (ByteArray.mk #[(0 : UInt8)]))
+    "bytes: init must zero leaf 0 as one byte"
+  let (storage1, retSet, _) ← requireSuccess "bytes set0" (execute set0IR storage0
+    (encodeUInt64LE 42) zero)
+  expect (retSet == some 42) s!"bytes: set0 must return the written byte, got {retSet}"
+  expect (storageLookup? storage1 "pf:v1:state:0" == some (ByteArray.mk #[(42 : UInt8)]))
+    "bytes: set0 must store the UInt8 byte in leaf 0"
+  let (_, retGet, _) ← requireSuccess "bytes get1" (execute get1IR storage1 ByteArray.empty zero)
+  expect (retGet == some 0) s!"bytes: get1 must read the untouched leaf 1, got {retGet}"
+  let (_, retPeek, _) ← requireSuccess "bytes peek" (execute peekIR storage1
+    (encodeUInt64LE 0x7b ++ encodeUInt64LE 0xc8) zero)
+  expect (retPeek == some 0x7b) s!"bytes: peek must read the first param byte, got {retPeek}"
+  let (storage2, retSet255, _) ← requireSuccess "bytes set0 255" (execute set0IR storage1
+    (encodeUInt64LE 255) zero)
+  expect (retSet255 == some 255) s!"bytes: set0(255) must return 255, got {retSet255}"
+  expect (storageLookup? storage2 "pf:v1:state:0" == some (ByteArray.mk #[(255 : UInt8)]))
+    "bytes: set0(255) must store 0xff in leaf 0"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "bytes: missing .wat artifact"
+  expectContains wat.contents "i32.store8" "bytes WAT UInt8 store"
+  expectContains wat.contents "i32.load8_u" "bytes WAT UInt8 load"
+
+/-- Bytes/container negatives stay fail-closed on NEAR: dynamic (non-literal)
+    Bytes indices and non-Bytes container params are declined at the Plan. -/
+private unsafe def testBytesNegativesFailClosed (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let dynIndexText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DynIndex where\n" ++
+    "  state data : Bytes 2\n\n" ++
+    "  init() do\n" ++
+    "    data[0] := 0\n" ++
+    "    data[1] := 0\n\n" ++
+    "  entry read(i : UInt32) : UInt8 do\n" ++
+    "    return data[i]\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    dynIndexText "<near-dyn-index>" "Examples.DynIndex" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  match Targets.Near.planFromCapability capability with
+  | .error e =>
+      expect (e.render.contains "compile-time constant index")
+        s!"bytes: dynamic index must fail closed, got {e.render}"
+  | .ok _ => throw <| IO.userError "bytes: dynamic Bytes index must fail closed on NEAR"
+  let arrParamText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrParam where\n" ++
+    "  state d : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    d := 0\n\n" ++
+    "  entry peek(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return a[0]\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrSource ← liftResult (← session.selectProgramV1
+    arrParamText "<near-arr-param>" "Examples.ArrParam" none)
+  let arrCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrSource
+  let arrSelection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let arrCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 arrSelection arrCompiled
+  match Targets.Near.planFromCapability arrCapability with
+  | .error e =>
+      expect (e.render.contains "Array/Map params")
+        s!"bytes: Array param must fail closed, got {e.render}"
+  | .ok _ => throw <| IO.userError "bytes: Array param must fail closed on NEAR"
 
 private unsafe def testInt8ParamAdmitted (session : Language.Loader.ParserSession) :
     IO Unit := do
@@ -3384,6 +3798,10 @@ unsafe def run : IO Unit := do
   testBoolNotHostExecution session
   testAbiMultiWidthStateParam session
   testWideUintProduct session
+  testWideMulProductPath session
+  testWideDivModShiftFailClosed session
+  testBytesStateParamProductPath session
+  testBytesNegativesFailClosed session
   testInt8ParamAdmitted session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"

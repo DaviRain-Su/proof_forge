@@ -234,6 +234,42 @@ private def loopSumSourceText : String :=
   "  view get() : UInt64 do\n" ++
   "    return count\n"
 
+/-- Software multiword UInt128 add/sub/mul surface: exact literal products
+    (base-2^32 schoolbook in the WAT) compared with wide equality. Structural
+    wat2wasm validation only — the host model owns arithmetic semantics. -/
+private def wideArithSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program WideArith where\n" ++
+  "  state p : UInt128\n" ++
+  "  init() do\n" ++
+  "    p := 0\n" ++
+  "  entry mul128() : Bool do\n" ++
+  "    let r : UInt128 := 0x10000000100000003 * 0x100000002\n" ++
+  "    p := r\n" ++
+  "    return p == 0x1000000030000000500000006\n" ++
+  "  entry add128() : Bool do\n" ++
+  "    let r : UInt128 := 0x10000000100000003 + 0x100000002\n" ++
+  "    return r == 0x10000000200000005\n" ++
+  "  entry sub128() : Bool do\n" ++
+  "    let r : UInt128 := 0x10000000100000003 - 0x100000002\n" ++
+  "    return r == 0x10000000000000001\n"
+
+/-- Bytes 2 state flattened to 1-byte UInt8 KV leaves (index store/load). -/
+private def byteBoxSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program ByteBox where\n" ++
+  "  state data : Bytes 2\n" ++
+  "  init() do\n" ++
+  "    data[0] := 0\n" ++
+  "    data[1] := 0\n" ++
+  "  entry set0(v : UInt8) : UInt8 do\n" ++
+  "    data[0] := v\n" ++
+  "    return data[0]\n" ++
+  "  view get1() : UInt8 do\n" ++
+  "    return data[1]\n"
+
 /-- Suite entry. Skips cleanly when wat2wasm + a Wasm runtime are unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.NearWasmAcceptance: start"
@@ -256,6 +292,10 @@ unsafe def run : IO Unit := do
           dualFieldSourceText "Tests.NearWasm.DualField" "DualField.wat"
         acceptProgram tc tmp "LoopSum"
           loopSumSourceText "Tests.NearWasm.LoopSum" "LoopSum.wat"
+        acceptProgram tc tmp "WideArith"
+          wideArithSourceText "Tests.NearWasm.WideArith" "WideArith.wat"
+        acceptProgram tc tmp "ByteBox"
+          byteBoxSourceText "Tests.NearWasm.ByteBox" "ByteBox.wat"
         IO.println "Tests.Materialization.NearWasmAcceptance: ok"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp
