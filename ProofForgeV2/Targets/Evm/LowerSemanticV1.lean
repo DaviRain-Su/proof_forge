@@ -352,17 +352,18 @@ private def evmPlanErr (message : String) : CompileError :=
     via `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*` with
     `allowNonPublic := true` (N3), and **Array state** flattens to contiguous
     scalar slots (element UInt8/16/32/64/128/256). non-64 Int fail closed.
-    T9b admits UInt128/256 on scalar state/param/body/result. B-3 / N2c:
-    Principal remains fail-closed (wire identity is variable-length
-    u32-prefixed 1..4096 body; not a fixed 20-byte EVM address — no
-    truncate/pad/strip-prefix mapping). -/
+    T9b admits UInt128/256 on scalar state/param/body/result. T10: Principal
+    admitted as **storage identity only** (`pilotPrincipalPolicyAdmit`) —
+    fixed leaf layout len+8×UInt64 (≤64B body, same pattern as N4 String);
+    still not a fixed 20-byte EVM address (no truncate/pad/strip-prefix
+    mapping; CALL target remains static QN). -/
 private def validateEvmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 :=
   validatePilotTypeClosure evmPlanErr evmTypeClosureWording types
     pilotUintWidthPolicyEvmBody
     (intPolicy := pilotIntWidthPolicyNarrow)
     (fieldPolicy := pilotFieldPolicyBn254)
-    (principalPolicy := pilotPrincipalPolicyNone)
+    (principalPolicy := pilotPrincipalPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (stringPolicy := pilotStringPolicyAdmit)
     -- D4-E2: admit fixed-length Bytes as N×UInt8 leaves (Map stays closed).
@@ -466,10 +467,38 @@ private def mkAggregateValueV1 (leaves : Array Expr) (leafIsInt : Array Bool)
 private def evmStringMaxPayloadBytesV1 : Nat := 64
 private def evmStringDataWordCountV1 : Nat := 8  -- 64 / 8
 
-/-- Flatten a type into ordered leaf (name, isInt) pairs under EVM N3/N4 policy.
-    Scalars: UInt64 / Int64 / String (length+8 data words). Named Struct: field
-    preorder. Named Enum: tag (UInt64) + max-payload leaf slots across variants
-    (`_tag`, `_p0`…). -/
+/-- EVM pilot Principal storage layout (T10, isomorphic to N4 String):
+    * leaf 0: wire body length (`UInt64`; wire framing is still `u32le`)
+    * leaves 1..8: up to 64 opaque body bytes packed little-endian into
+      8×UInt64 words (zero-padded)
+    Principal body longer than 64 bytes fails closed at plan lowering.
+    Full wire admits 1..`maxTypeLengthV1`; EVM pilot bound is 64.
+    **Not** a 20-byte EVM address — storage is raw wire identity only. -/
+private def evmPrincipalMaxPayloadBytesV1 : Nat := 64
+private def evmPrincipalDataWordCountV1 : Nat := 8  -- 64 / 8
+
+/-- Shared len+payload leaf layout for N4 String and T10 Principal. -/
+private def flattenWireBytesLeafSpecsV1 (namePrefix : String) (dataWordCount : Nat) :
+    CompileResult (Array (String × Bool)) := do
+  let lenName :=
+    if namePrefix.isEmpty then "len" else namePrefix ++ "_len"
+  unless isIdentifier lenName do
+    throw <| .planInvariant .evm
+      s!"storage name '{lenName}' is not an EVM ABI identifier"
+  let mut out : Array (String × Bool) := #[(lenName, false)]
+  for i in [0:dataWordCount] do
+    let wName :=
+      if namePrefix.isEmpty then s!"w{i}" else namePrefix ++ "_w" ++ toString i
+    unless isIdentifier wName do
+      throw <| .planInvariant .evm
+        s!"storage name '{wName}' is not an EVM ABI identifier"
+    out := out.push (wName, false)
+  pure out
+
+/-- Flatten a type into ordered leaf (name, isInt) pairs under EVM N3/N4/T10
+    policy. Scalars: UInt64 / Int64 / String / Principal (length+8 data words).
+    Named Struct: field preorder. Named Enum: tag (UInt64) + max-payload leaf
+    slots across variants (`_tag`, `_p0`…). -/
 private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
@@ -479,20 +508,9 @@ private partial def flattenTypeLeafSpecsV1
   else if types.int64TypeId == some typeId then
     pure #[(namePrefix, true)]
   else if types.isString typeId then
-    let lenName :=
-      if namePrefix.isEmpty then "len" else namePrefix ++ "_len"
-    unless isIdentifier lenName do
-      throw <| .planInvariant .evm
-        s!"storage name '{lenName}' is not an EVM ABI identifier"
-    let mut out : Array (String × Bool) := #[(lenName, false)]
-    for i in [0:evmStringDataWordCountV1] do
-      let wName :=
-        if namePrefix.isEmpty then s!"w{i}" else namePrefix ++ "_w" ++ toString i
-      unless isIdentifier wName do
-        throw <| .planInvariant .evm
-          s!"storage name '{wName}' is not an EVM ABI identifier"
-      out := out.push (wName, false)
-    pure out
+    flattenWireBytesLeafSpecsV1 namePrefix evmStringDataWordCountV1
+  else if types.isPrincipal typeId then
+    flattenWireBytesLeafSpecsV1 namePrefix evmPrincipalDataWordCountV1
   else if types.isNamedAggregate typeId then
     match typeDecls[typeId.toNat]? with
     | none =>
@@ -544,7 +562,7 @@ private partial def flattenTypeLeafSpecsV1
               "unsupported EVM semantic shape: named type must be Struct or Enum"
   else
     throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: storage/param leaf must be UInt64, Int64, String, or named Struct/Enum"
+      "unsupported EVM semantic shape: storage/param leaf must be UInt64, Int64, String, Principal, or named Struct/Enum"
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
@@ -698,8 +716,10 @@ private def makeStorageLayoutV1
           leaves := leaves.push slot
         stateLeaves := stateLeaves.push leaves
     | none =>
-      if types.isNamedAggregate state.typeId then
-        -- N3: flatten named Struct/Enum state to 64-bit leaf slots.
+      if types.isNamedAggregate state.typeId || types.isString state.typeId ||
+          types.isPrincipal state.typeId then
+        -- N3 named Struct/Enum; N4 String; T10 Principal: flatten to 64-bit
+        -- leaf slots (String/Principal = len + 8 payload words).
         requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState evmPlanErr types state
           (allowNonPublic := true)
         let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
@@ -714,7 +734,7 @@ private def makeStorageLayoutV1
             sourceId := slot
             name := leafName
             slot
-            -- N3 aggregate leaves stay 64-bit words.
+            -- N3/N4/T10 aggregate leaves stay 64-bit words.
             byteWidth := 8
           }
           leaves := leaves.push slot
@@ -759,7 +779,8 @@ private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
     unless isIdentifier param.name do
       throw <| .planInvariant .evm
         s!"parameter name '{param.name}' in {owner} is not an EVM ABI identifier"
-    if types.isNamedAggregate param.typeId || types.isString param.typeId then
+    if types.isNamedAggregate param.typeId || types.isString param.typeId ||
+        types.isPrincipal param.typeId then
       requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
         evmPlanErr types owner param (allowNonPublic := true)
       let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types param.typeId param.name
@@ -848,25 +869,30 @@ private def findValueV1 (values : Array LoweredValueV1)
 private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
   decodeUInt64LiteralLe evmPlanErr "EVM" bytes
 
-/-- Pack wire String valueBytes (`u32le len || UTF-8`) into EVM pilot leaves:
-    length word + 8×UInt64 data words (max 64 payload bytes). -/
-private def decodeStringLiteralLeavesV1 (bytes : ByteArray) :
-    CompileResult (Array Expr) := do
+/-- Pack wire `u32le len || body` valueBytes into EVM pilot leaves: length word
+    + `dataWordCount`×UInt64 data words (zero-padded). Shared by N4 String and
+    T10 Principal (opaque body; String UTF-8 is already validated on wire). -/
+private def decodeWireBytesLiteralLeavesV1
+    (label : String) (maxPayload : Nat) (dataWordCount : Nat)
+    (bytes : ByteArray) (minLen : Nat) : CompileResult (Array Expr) := do
   unless bytes.size ≥ 4 do
     throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: String literal valueBytes too short"
+      s!"unsupported EVM semantic shape: {label} literal valueBytes too short"
   let len :=
     (bytes.get! 0).toNat + (bytes.get! 1).toNat * 256 +
       (bytes.get! 2).toNat * 65536 + (bytes.get! 3).toNat * 16777216
   unless bytes.size == 4 + len do
     throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: String literal valueBytes length framing mismatch"
-  unless len ≤ evmStringMaxPayloadBytesV1 do
+      s!"unsupported EVM semantic shape: {label} literal valueBytes length framing mismatch"
+  unless minLen ≤ len do
     throw <| .planInvariant .evm
-      s!"unsupported EVM semantic shape: String longer than {evmStringMaxPayloadBytesV1} bytes (EVM pilot bound)"
+      s!"unsupported EVM semantic shape: {label} body shorter than {minLen} bytes"
+  unless len ≤ maxPayload do
+    throw <| .planInvariant .evm
+      s!"unsupported EVM semantic shape: {label} longer than {maxPayload} bytes (EVM pilot bound)"
   let payload := bytes.extract 4 bytes.size
   let mut leaves : Array Expr := #[.literal (UInt64.ofNat len)]
-  for w in [0:evmStringDataWordCountV1] do
+  for w in [0:dataWordCount] do
     let mut word : Nat := 0
     let mut place : Nat := 1
     for b in [0:8] do
@@ -876,6 +902,21 @@ private def decodeStringLiteralLeavesV1 (bytes : ByteArray) :
       place := place * 256
     leaves := leaves.push (.literal (UInt64.ofNat word))
   pure leaves
+
+/-- Pack wire String valueBytes (`u32le len || UTF-8`) into EVM pilot leaves:
+    length word + 8×UInt64 data words (max 64 payload bytes; empty allowed). -/
+private def decodeStringLiteralLeavesV1 (bytes : ByteArray) :
+    CompileResult (Array Expr) :=
+  decodeWireBytesLiteralLeavesV1 "String" evmStringMaxPayloadBytesV1
+    evmStringDataWordCountV1 bytes 0
+
+/-- Pack wire Principal valueBytes (`u32le len || body`, `1 ≤ len ≤ 4096` on
+    wire) into EVM pilot leaves. Body longer than 64 fails closed. No source
+    Principal literal — used if Semantic carries Op.Literal Principal. -/
+private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
+    CompileResult (Array Expr) :=
+  decodeWireBytesLiteralLeavesV1 "Principal" evmPrincipalMaxPayloadBytesV1
+    evmPrincipalDataWordCountV1 bytes 1
 
 /-- Shift-count literals are 4-byte LE UInt32 on the wire; widen to UInt64 for
     the Plan expression surface (values are always < 2^32). -/
@@ -1690,10 +1731,15 @@ private def lowerBlockInstructionsV1
                   let leafIsInt := leafExprs.map (fun _ => false)
                   let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size
                   values := ← appendResultValueV1 typeId values result value
+                else if types.isPrincipal typeId then
+                  let leafExprs ← decodePrincipalLiteralLeavesV1 bytes
+                  let leafIsInt := leafExprs.map (fun _ => false)
+                  let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size
+                  values := ← appendResultValueV1 typeId values result value
                 else do
                   unless typeId == boolTid do
                     throw <| .planInvariant .evm
-                      "unsupported EVM semantic shape: literal is not admitted UInt/Int64/Bool/String"
+                      "unsupported EVM semantic shape: literal is not admitted UInt/Int64/Bool/String/Principal"
                   let value ← decodeBoolLiteralV1 bytes
                   -- Bool words are 0/1 UInt64 literals in the Plan expression surface,
                   -- tagged isBool so return/assert/store kind gates remain defensive.
@@ -1732,9 +1778,10 @@ private def lowerBlockInstructionsV1
             leafIsInt := leafIsInt.push false
           let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leaves.size
           values := ← appendResultValueV1 result.typeId values result value
-        else if types.isNamedAggregate result.typeId || types.isString result.typeId then
-          -- N3 aggregate load; per-leaf isInt restored from the flatten specs
-          -- (the base N3 lowering marked every leaf UInt64, losing Int64 flags).
+        else if types.isNamedAggregate result.typeId || types.isString result.typeId ||
+            types.isPrincipal result.typeId then
+          -- N3/N4/T10 aggregate load; per-leaf isInt restored from the flatten
+          -- specs (base N3 lowering marked every leaf UInt64, losing Int64 flags).
           let specs ← flattenTypeLeafSpecsV1 layout.typeDecls types result.typeId "state"
           unless specs.size == leaves.size do
             throw <| .planInvariant .evm
@@ -2100,8 +2147,9 @@ private def lowerBlockInstructionsV1
         hasAssert := true
         segmentStart := values.size
     -- AddressBearing: static QualifiedName callees (wire Op.ExternalCall/
-    -- Schedule take QN, not a ValueId address). Principal remains fail-closed
-    -- (variable-length identity ≠ 20-byte EVM address). View/pureFn banned.
+    -- Schedule take QN, not a ValueId address). T10 admits Principal storage
+    -- only — CALL target is never a Principal ValueId (wire ≠ 20-byte address).
+    -- View/pureFn banned.
     | .externalCall _effectId callee argIds, none =>
         if mode == .view then
           throw <| .planInvariant .evm
@@ -3199,7 +3247,12 @@ private def lowerCallableV1
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: loop back edge must be a jump"
   let (params, initialValues) ← makeParamsV1 owner types layout.typeDecls callable.params
-  let paramCount := params.size
+  -- Semantic ValueId boundary for params (NOT ABI word count). N4 String / T10
+  -- Principal expand one Semantic param into many ABI words (`params.size`),
+  -- but `values` still holds one LoweredValueV1 per Semantic ValueId. Using
+  -- `params.size` here mis-classifies stateLoad/compare results as "free params"
+  -- and trips dead/reordered segment consumption on `state == param` paths.
+  let paramCount := initialValues.size
   -- Pre-allocate block-param ValueIds so instruction results stay dense
   -- (callable params < all block params < instruction results).
   let mut values := initialValues

@@ -1622,10 +1622,134 @@ private unsafe def testForLoop : IO Unit := do
   -- No-loop programs remain accepted (regression guard via Counter path in run).
   pure ()
 
+/-- T10: Principal state + param leaf storage (N4 String-isomorphic layout).
+    * state owner : Principal → 9 storage slots (owner_len + owner_w0..w7)
+    * init/entry Principal params → 9 ABI words each (leaf tuple, not `bytes`)
+    * eq/ne and state load/store via aggregate leaf path
+    * multi-word Principal entry/view *result* still fail closed
+    * Principal is not an EVM address (CALL remains static QN) -/
+private unsafe def testPrincipalStateStorage : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PrincipalOwner where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  entry setOwner(who : Principal) : Bool do\n" ++
+    "    owner := who\n" ++
+    "    return true\n" ++
+    "  entry same(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n" ++
+    "  entry matchesOwner(who : Principal) : Bool do\n" ++
+    "    return owner == who\n"
+  let source ← liftResult "load PrincipalOwner" (← session.selectProgramV1
+    text "<evm-principal-owner>" "Tests.EvmPrincipalOwner" none)
+  let compiled ← liftResult "compile PrincipalOwner" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan PrincipalOwner" <| planEvm compiled
+  expect (plan.storageLayout.size == 9)
+    s!"PrincipalOwner storage must be 9 leaves, got {plan.storageLayout.size}"
+  expect (plan.storageLayout.map (·.name) ==
+      #["owner_len", "owner_w0", "owner_w1", "owner_w2", "owner_w3",
+        "owner_w4", "owner_w5", "owner_w6", "owner_w7"])
+    s!"PrincipalOwner leaf names must be owner_len + owner_w0..w7, got {plan.storageLayout.map (·.name)}"
+  for b in plan.storageLayout do
+    expect (b.byteWidth == 8)
+      s!"PrincipalOwner leaf {b.name} must be 64-bit word, got byteWidth={b.byteWidth}"
+  match plan.constructor with
+  | none => throw <| IO.userError "PrincipalOwner must retain initializer"
+  | some ctor =>
+      expect (ctor.params.size == 9)
+        s!"PrincipalOwner init must expand Principal param to 9 ABI words, got {ctor.params.size}"
+      expect (ctor.params[0]!.name == "initial_len")
+        s!"PrincipalOwner init first leaf must be initial_len, got {ctor.params[0]!.name}"
+      -- Store-only constructor path: 9 leaf stores from param words.
+      expect (ctor.stores.size == 9 || ctor.body.size ≥ 9)
+        "PrincipalOwner init must store all 9 Principal leaves"
+      if ctor.stores.size == 9 then
+        for i in [0:9] do
+          expect (ctor.stores[i]!.slot == i)
+            s!"PrincipalOwner init store[{i}] slot must be {i}"
+          expect (ctor.stores[i]!.value == .param i)
+            s!"PrincipalOwner init store[{i}] must be param {i}"
+  let setOwner := plan.entries[0]!
+  expect (setOwner.name == "setOwner")
+    s!"first entry must be setOwner, got {setOwner.name}"
+  expect (setOwner.params.size == 9)
+    s!"setOwner must expand Principal param to 9 ABI words, got {setOwner.params.size}"
+  expect (setOwner.params[0]!.name == "who_len")
+    s!"setOwner first leaf must be who_len, got {setOwner.params[0]!.name}"
+  let same := plan.entries[1]!
+  expect (same.name == "same")
+    s!"second entry must be same, got {same.name}"
+  expect (same.params.size == 18)
+    s!"same(a,b : Principal) must expand to 18 ABI words, got {same.params.size}"
+  let matchesOwner := plan.entries[2]!
+  expect (matchesOwner.name == "matchesOwner")
+    s!"third entry must be matchesOwner, got {matchesOwner.name}"
+  expect (matchesOwner.params.size == 9)
+    s!"matchesOwner must expand Principal param to 9 ABI words, got {matchesOwner.params.size}"
+  -- stateLoad + leaf-wise eq against multi-word param (pins Semantic ValueId
+  -- paramCount boundary; ABI word count must not be used as ValueId bound).
+  expect (matchesOwner.body.size ≥ 1)
+    "matchesOwner must emit at least a return of leaf-wise Principal eq"
+  -- Yul materializes multi-word param/state load/store and leaf-wise eq.
+  let output ← liftResult "materialize PrincipalOwner" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "PrincipalOwner.yul") |
+    throw <| IO.userError "PrincipalOwner: missing PrincipalOwner.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "sstore(0," || yul.contains "sstore(0, ")
+    "PrincipalOwner Yul must sstore leaf 0 (len)"
+  expect (yul.contains "sstore(8," || yul.contains "sstore(8, ")
+    "PrincipalOwner Yul must sstore leaf 8 (last payload word)"
+  expect (yul.contains "sload(0)" || yul.contains "sload(0,")
+    "PrincipalOwner Yul must sload leaf 0 for matchesOwner"
+  expect (yul.contains "sload(8)" || yul.contains "sload(8,")
+    "PrincipalOwner Yul must sload leaf 8 for matchesOwner"
+  expect (yul.contains "eq(")
+    "PrincipalOwner Yul must emit leaf-wise eq for Principal comparison"
+  -- ABI: Principal params render as successive uint64 leaf words (N4 String pattern).
+  let some abiFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "PrincipalOwner.abi.json") |
+    throw <| IO.userError "PrincipalOwner: missing PrincipalOwner.abi.json"
+  expect (abiFile.contents.contains "\"type\":\"uint64\"")
+    "PrincipalOwner ABI must use uint64 leaf words for Principal params"
+  expect (abiFile.contents.contains "who_len" ||
+      abiFile.contents.contains "initial_len")
+    "PrincipalOwner ABI must name Principal length leaf (*_len)"
+  -- Multi-word Principal return remains fail closed.
+  let retText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PrincipalRet where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n"
+  let retSource ← liftResult "load PrincipalRet" (← session.selectProgramV1
+    retText "<evm-principal-ret>" "Tests.EvmPrincipalRet" none)
+  let retCompiled ← liftResult "compile PrincipalRet" <|
+    Compiler.compileValidatedSourceV1 retSource
+  match planEvm retCompiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "Principal multi-word entry/view result must fail closed"
+  | .error e =>
+      expect ((e.render).contains "return" || (e.render).contains "Principal" ||
+          (e.render).contains "UInt" || (e.render).contains "public" ||
+          (e.render).contains "unsupported")
+        s!"Principal return fail-closed message, got {e.render}"
+  pure ()
+
 /-- AddressBearing product path: EVM admits static QualifiedName call/schedule
     (wire Op.ExternalCall/Schedule take compile-time QN, not a dynamic address
-    ValueId). Plan lowers CALL to a fixed keccak-derived 20-byte address;
-    Principal remains fail-closed. -/
+    ValueId). Plan lowers CALL to a fixed keccak-derived 20-byte address.
+    T10 opens Principal *storage* only — still not a CALL target. -/
 private unsafe def testExternalCallGate : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let callText :=
@@ -2824,6 +2948,7 @@ unsafe def run : IO Unit := do
   testForLoop
   testRegionValidationNegatives
   testComparisonNegatives
+  testPrincipalStateStorage
   testExternalCallGate
   testBodyMultiWidthUInt
   testBodyUInt8OverflowPlan

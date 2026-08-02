@@ -12903,3 +12903,38 @@ normative: false
 - Matrix: B-3 followup AddressBearing closed as static-callee open.
 - Boundary: engineering only; not formal D2/D4/SupportClaim; no Principal Plan
   admit; Solana deployable CPI incomplete; no dynamic address type.
+
+## 2026-08-02 — T10: EVM Principal state storage pilot
+
+- Production: open EVM-only Principal **storage identity** (not address mapping).
+  * `EnvelopeV1`: EVM `validateEvmTypeClosureV1` uses `pilotPrincipalPolicyAdmit`;
+    Solana/NEAR/Noir/Aleo/Psy stay `pilotPrincipalPolicyNone`. B-3 pin updated:
+    full wire may be stored as fixed leaf words; Principal→20B/32B address
+    mapping remains forbidden.
+  * `Evm/LowerSemanticV1`: Principal flattens like N4 String —
+    leaf 0 = body length (UInt64), leaves 1..8 = ≤64B opaque body as 8×UInt64
+    LE words (`evmPrincipalMaxPayloadBytesV1 = 64`). Shared
+    `flattenWireBytesLeafSpecsV1` / `decodeWireBytesLiteralLeavesV1` helpers.
+    `makeStorageLayoutV1` / `makeParamsV1` / stateLoad route Principal through
+    the aggregate leaf path (also closes the prior String **state** layout gap
+    that only params used). Op.Literal Principal packs with minLen=1 and
+    fail-closed body >64. ABI renders Principal params as successive `uint64`
+    leaf names (`*_len`, `*_w0`..`*_w7`) — same N4 String leaf-tuple pattern.
+  * EmitIR/ValidatePlan: no new Plan tags; store/load/eq consume existing
+    aggregate leaf path (9×`storageLoad`/`sstore` + leaf-wise `eq`).
+  * Bugfix (N4 residual): `lowerCallableV1` used `params.size` (ABI word
+    count) as the Semantic ValueId param boundary. Multi-word String/Principal
+    params made `state == param` comparisons trip
+    `dead or reordered value instructions`. Now `paramCount := initialValues.size`.
+- Tests: `EvmSmoke.testPrincipalStateStorage` pins 9-leaf layout, 9/18-word
+  ABI params, sstore/sload/eq Yul, uint64 ABI leaves, and Principal
+  entry/view **result** still fail closed. `Targets` N2c: EVM positive 9-leaf
+  materialize; Solana/NEAR/Noir/Psy remain fail closed; Solana B-3 32-byte
+  wording pin retained; Principal multi-word return negative retained.
+  `context.caller` (Principal ContextRead) still Plan fail closed on all
+  targets (address/host identity ABI not opened).
+- Docs: coverage matrix Principal state/params EVM → LOWERED(T10); B-3 row
+  notes storage pilot without address mapping.
+- Boundary: engineering only; not formal D2/D4; no Principal→address CALL
+  target; no multi-word Principal ResultKind; other targets fail closed; not
+  formal SupportClaim / registry digest.

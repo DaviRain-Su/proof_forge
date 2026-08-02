@@ -2622,11 +2622,12 @@ unsafe def run : IO Unit := do
         s!"N2b field Psy message must cite Goldilocks≠bn254 Fr, got {e.render}"
 
 
-  -- N2c + B-3 PrincipalAddr research pin — Normalize admits identity-only
-  -- Principal (state/params/eq/ne); all Phase-1 targets fail closed at Plan
-  -- type-closure. Wire is variable-length u32-prefixed 1..4096 body; no exact
-  -- EVM 20-byte address / Solana 32-byte pubkey / NEAR account-id / Field match
-  -- (PsyFelt-style honesty pin — no silent truncate/pad/reinterpret).
+  -- N2c + B-3 PrincipalAddr + T10 EVM Principal storage pilot.
+  -- Normalize admits identity-only Principal (state/params/eq/ne). Wire is
+  -- variable-length u32-prefixed 1..4096 body. T10 opens EVM state/param leaf
+  -- storage (len + 8×UInt64, ≤64B body) without Principal→address mapping.
+  -- Solana/NEAR/Noir/Psy remain Plan fail-closed (no exact pubkey/account-id/
+  -- Field match; PsyFelt-style honesty pin).
   let prinSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2635,21 +2636,38 @@ unsafe def run : IO Unit := do
     "  state owner : Principal\n\n" ++
     "  init(initial : Principal) do\n" ++
     "    owner := initial\n\n" ++
-    "  entry set(who : Principal) : Principal do\n" ++
+    "  entry set(who : Principal) : Bool do\n" ++
     "    owner := who\n" ++
-    "    return owner\n\n" ++
+    "    return true\n\n" ++
     "  entry eq(a : Principal, b : Principal) : Bool do\n" ++
     "    return a == b\n\n" ++
-    "  view get() : Principal do\n" ++
-    "    return owner\n\n" ++
+    "  entry matchesOwner(who : Principal) : Bool do\n" ++
+    "    return owner == who\n\n" ++
     "end ProofForgeV2.Examples\n"
   let prinV1 ← match ← session.selectProgramV1 prinSource
       "<targets-n2c-principal>" "Examples.PrincipalMix" none with
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"N2c principal select: {e.render}"
   let prinCompiled ← liftResult <| Compiler.compileValidatedSourceV1 prinV1
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy] do
+  -- T10: EVM admits Principal storage (9 leaf slots) and materializes.
+  let prinEvm ← liftResult <| materializeSelected TargetId.evm prinCompiled
+  let some prinYul := (MaterializedArtifactsV1.filesOf prinEvm).find?
+      (·.path == "PrincipalMix.yul") |
+    throw <| IO.userError "T10 principal: missing PrincipalMix.yul"
+  expect (prinYul.contents.contains "sload(0)" &&
+      prinYul.contents.contains "sload(8)")
+    "T10 EVM Principal state must load all 9 leaf slots (0..8)"
+  let prinPlan ← liftResult <| planEvm prinCompiled
+  expect (prinPlan.storageLayout.size == 9)
+    s!"T10 EVM Principal state must flatten to 9 leaves, got {prinPlan.storageLayout.size}"
+  expect (prinPlan.storageLayout[0]!.name == "owner_len")
+    s!"T10 Principal leaf 0 must be owner_len, got {prinPlan.storageLayout[0]!.name}"
+  expect (prinPlan.storageLayout[1]!.name == "owner_w0")
+    s!"T10 Principal leaf 1 must be owner_w0, got {prinPlan.storageLayout[1]!.name}"
+  expect (prinPlan.storageLayout[8]!.name == "owner_w7")
+    s!"T10 Principal leaf 8 must be owner_w7, got {prinPlan.storageLayout[8]!.name}"
+  -- Non-EVM Phase-1 targets remain fail-closed on Principal.
+  for target in [TargetId.solana, TargetId.near, TargetId.noir, TargetId.psy] do
     match materializeSelected target prinCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N2c principal: {target} must fail closed on Principal"
@@ -2660,21 +2678,6 @@ unsafe def run : IO Unit := do
             (e.render).contains "identity" ||
             (e.render).contains "variable-length")
           s!"N2c principal {target} message must cite Principal boundary, got {e.render}"
-  -- B-3 EVM exact mismatch pin: wording must name fixed 20-byte address vs
-  -- variable-length u32-prefixed wire (no approximate mapping theater).
-  match materializeSelected TargetId.evm prinCompiled with
-  | .ok _ =>
-      throw <| IO.userError
-        "B-3 principal: EVM must fail closed (wire ≠ fixed 20-byte address)"
-  | .error e =>
-      expect ((e.render).contains "20-byte" ||
-          (e.render).contains "EVM address" ||
-          (e.render).contains "address exact match")
-        s!"B-3 EVM Principal decline must cite 20-byte address mismatch, got {e.render}"
-      expect ((e.render).contains "variable-length" ||
-          (e.render).contains "u32-prefixed" ||
-          (e.render).contains "1..4096")
-        s!"B-3 EVM Principal decline must cite variable-length wire, got {e.render}"
   -- B-3 Solana exact mismatch pin: wording must name fixed 32-byte pubkey.
   match materializeSelected TargetId.solana prinCompiled with
   | .ok _ =>
@@ -2689,6 +2692,35 @@ unsafe def run : IO Unit := do
           (e.render).contains "u32-prefixed" ||
           (e.render).contains "1..4096")
         s!"B-3 Solana Principal decline must cite variable-length wire, got {e.render}"
+  -- T10: Principal multi-word entry *result* still fail closed (same gap as
+  -- String return; storage/param/eq are open). Pins ResultKind surface.
+  let prinRetSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PrincipalReturn where\n" ++
+    "  state owner : Principal\n\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let prinRetV1 ← match ← session.selectProgramV1 prinRetSource
+      "<targets-t10-principal-return>" "Examples.PrincipalReturn" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"T10 principal return select: {e.render}"
+  let prinRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 prinRetV1
+  match materializeSelected TargetId.evm prinRetCompiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "T10: EVM Principal entry/view result must remain fail closed (no multi-word ResultKind)"
+  | .error e =>
+      expect ((e.render).contains "Principal" ||
+          (e.render).contains "return" ||
+          (e.render).contains "UInt" ||
+          (e.render).contains "unsupported" ||
+          (e.render).contains "public")
+        s!"T10 Principal return decline must cite result surface, got {e.render}"
 
 
   -- N3 / NoirAggregate / H3 PsyAleoAggregate: named Struct state + field assign

@@ -225,23 +225,29 @@ def pilotFieldPolicyBn254 : PilotFieldPolicy where
 
     SPEC-TYPE-001: Principal is opaque logical identity and must not assume
     20/32-byte layout; target Plan must reject when it cannot encode losslessly.
-    Decision (PsyFelt-style honesty pin): keep **all** Phase-1 targets on
-    `pilotPrincipalPolicyNone`. Do **not** open approximate address mapping.
+    Decision (PsyFelt-style honesty pin): **do not** open approximate
+    Principal→address mapping. Storage of the **full** wire encoding
+    (length header + body) may be admitted under `pilotPrincipalPolicyAdmit`
+    when the target flattens identity into fixed leaf words without
+    reinterpretation as a host address (T10 EVM pilot: len + 8×UInt64 body
+    words, ≤64B body bound — same leaf pattern as N4 String; not 20-byte
+    address). Other Phase-1 targets remain `pilotPrincipalPolicyNone`.
 
-    Default is fail-closed. A future target may set `admitPrincipal := true`
-    only when it can store and byte-compare the **full** wire encoding
-    (length header + body) without truncation/padding/reinterpretation. -/
+    Default is fail-closed. A target may set `admitPrincipal := true` only
+    when it can store and byte-compare the wire encoding without
+    truncation/padding/reinterpretation as a native address. -/
 structure PilotPrincipalPolicy where
   admitPrincipal : Bool
   deriving BEq, Repr
 
 /-- Historical / opt-out and B-3 research pin: Principal fail-closed
-    (all Phase-1 targets; no EVM address / Solana pubkey exact match). -/
+    (Solana/NEAR/Noir/Aleo/Psy; no pubkey / account-id / Field exact match). -/
 def pilotPrincipalPolicyNone : PilotPrincipalPolicy where
   admitPrincipal := false
 
-/-- Admit at most one anonymous Principal type (reserved; full wire identity
-    storage only — not an EVM/Solana address alias). No Phase-1 user yet. -/
+/-- Admit at most one anonymous Principal type (full wire identity storage
+    only — not an EVM/Solana address alias). T10: EVM Plan uses this for
+    state/param leaf layout; CALL target remains static QN, not Principal. -/
 def pilotPrincipalPolicyAdmit : PilotPrincipalPolicy where
   admitPrincipal := true
 
@@ -558,18 +564,19 @@ structure PilotTypeClosureWording where
   unsupportedShapeDetail : String
   deriving BEq, Repr
 
-/-- EVM type-closure diagnostic wording (body multi-width UInt + Int64 + Field).
-    Wave N2b-EVM opens sole catalog Field (bn254 Fr) via ADDMOD/MULMOD +
-    Fermat inverse for div. B-3: Principal stays fail-closed — wire is
-    u32-prefixed 1..4096 bytes; EVM address is fixed 20 raw bytes (not an
-    exact match; no silent truncate/pad). -/
+/-- EVM type-closure diagnostic wording (body multi-width UInt + Int64 + Field
+    + Principal storage). Wave N2b-EVM opens sole catalog Field (bn254 Fr) via
+    ADDMOD/MULMOD + Fermat inverse for div. T10: Principal is admitted as
+    **storage identity only** (len+payload leaf words; pilot body ≤64B) — still
+    not an EVM address (wire 1..4096 body ≠ fixed 20-byte address; no CALL
+    target = Principal). -/
 def evmTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "EVM"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
     "only anonymous UInt8/UInt16/UInt32/UInt64/UInt128/UInt256 and Int8/Int16/Int32/Int64 integer widths are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, UInt128, UInt256, Int8, Int16, Int32, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length u32-prefixed identity with no EVM address exact match; wire 1..4096 body ≠ fixed 20-byte address)"
+    "only UInt8, UInt16, UInt32, UInt64, UInt128, UInt256, Int8, Int16, Int32, Int64, Unit, Bool, Field(bn254-fr), and Principal (variable-length u32-prefixed identity storage; not an EVM address; wire 1..4096 body ≠ fixed 20-byte address) are supported"
 
 /-- Solana type-closure diagnostic wording (UInt multi-width + Int multi-width T9c).
     Field fail-closed: no native field element. B-3: Principal stays fail-closed
