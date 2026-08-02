@@ -3,7 +3,7 @@ id: RPT-011
 title: 特性覆盖审查——文档与代码对照
 status: draft
 owner: research
-updated: 2026-08-02
+updated: 2026-08-03
 normative: false
 ---
 
@@ -116,9 +116,11 @@ fail closed（逐项对照 spec EBNF 与 `SPEC-SEM-001`；**N-A1/N-A2 已闭合 
 - ✅ `TargetRegistryV1` sole membership/default/profile、engineering registry root digest、
   engineering SupportClaim / BuildIdentity carriers、capability resolver、S7a
   `MaterializedArtifactsV1` / S7b `FinalizedArtifactsV1` / S7c disk closure；
-  `Materialization/OutputSetV1.lean` 已存在（工程版）。
+  `Materialization/OutputSetV1.lean` 已存在（工程版）。2026-08-03 增量：`ArtifactContentV1`
+  descriptor（role/path/size/content hash）、`evidenceSha256`、publisher pre/post inventory 与
+  post-publish inspect exact closure 已接线，on-disk schema 为 engineering `proof-forge.output.v1`。
 - ❌ formal `registryDigest` / formal SupportClaim / formal BuildIdentity mint /
-  formal `OutputSetV1` / formal ToolchainIdentity；CLI 仍走 transitional v2alpha1 sidecars。
+  formal `OutputSetV1` / formal ToolchainIdentity；工程 stable observation 不等于 race-free/hermetic publish。
 
 ### L8 Release qualification —— 独立轴
 

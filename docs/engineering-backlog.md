@@ -306,7 +306,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **D3-E4** | formal `OutputSetV1` 字段齐套；退役 transitional v2alpha1 残留 | **done**（2026-08-02：**工程** on-disk 已是 `proof-forge.output.v1` + `mintEngineeringOutputSetV1`；legacy `proof-forge-output/v2alpha1` renderer 已删并由 OutputSetV1 suite 钉零；`sourceHash`/`semanticHash` 键名仅为兼容；**非** formal OutputSetV1 字段齐套） |
 | **D3-E5** | CLI 剩余 flag：evidence/resource override 等 SPEC-CLI 面 | **done**（2026-08-02：`--resource-limit` lower-only hard-max/dup/stage 校验；check 拒 external-tool/artifact-output；`--minimum-evidence` build-only 四 grade；proof-bundle pair 已由 **INV-1** 产品 join；check/build JSON 可观测 `resourceLimits`；`Tests.CLI.ResourceFlagsV1`；非 RES-1 wall 执行/formal SPEC-CLI） |
 | **D3-E6** | stage supervisor / receipt（compiler-core/tool/output）——与 D1 监督层移除决策协调 | **done**（2026-08-02：**永久进程内** — 不恢复 SafeOpen/supervisor 产品路径；sole Loader 进程内；RES-1 若做也在进程内；见 `RECOVERY.md` D3-E6） |
-| **D3-E7** | artifact 内容绑定与 post-publish inspect closure | pending：当前 `outputSetDigest` 只绑定 identity digests + 文件路径列表，不绑定每个 artifact 的 role/size/content hash；`inspect` 只重验 manifest/evidence，不打开 listed artifacts、不重走 exact disk closure。需升级 engineering manifest/OutputSet preimage并对发布后字节篡改 fail closed；非 formal OutputSetV1 |
+| **D3-E7** | artifact 内容绑定与 post-publish inspect closure | **done**（2026-08-03：`ArtifactContentV1` sole walker/stable-read/hash → private canonical inventory；engineering manifest `files` 原子迁为 `role/path/size/contentSha256` descriptor，并绑定 exact evidence UTF-8 `evidenceSha256`；pure OutputSet mint；publisher sidecar 前后 inventory compare + manifest-last closure；`inspect <output-dir>` 重开 artifacts并重走 no-follow/single-link exact disk closure；legacy path-only fail closed；Python validator同构；**仅 stable observation，非 race-free/hermetic/formal OutputSetV1**） |
 | **D3-E8** | `--minimum-evidence` 进入 resolver/claim | pending：当前只解析、白名单和 JSON 回显，不参与 support decision、claim 或 manifest identity；需先冻结 evidence grade 语义，禁止把回显写成门禁 |
 | **D3-E9** | Protocol descriptor axes ↔ TargetRegistry axes 一致性门 | pending：两套 closed enum/wire 目前无逐轴转换或 equality gate；需确立 registry sole authority 并在 materialization identity 前 exact join |
 
@@ -363,7 +363,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
    - proposed current-path 文档：删除 B12 现状误述，保留 accepted ADR 决策债
    - B-SOL-MAP-UPSERT：EVM/Solana/NEAR/Noir/Aleo 五个 target-local snapshot 修复；Solana 真实 Mollusk 转绿
 2. **必须先决策**：B-CALL-SEM（降 support 或实现真实 call/schedule）+ DOC-ADR-SCOPE（6 target / frontend assurance）
-3. ~~N-INVARIANT-IR（消除 invariant 静默丢弃）~~已完成；**下一串行 identity/output 切片**：D3-E7（artifact 内容 hash/inspect closure）
+3. ~~N-INVARIANT-IR（消除 invariant 静默丢弃）~~已完成；~~D3-E7（artifact 内容 hash/inspect closure）~~已完成；identity residual 仍为 D3-E8/E9，其中 E8 需先冻结 evidence-grade 语义
 4. ~~N-CONST-REF~~已完成；**随后串行语言面**：N-CALL-RET（需 schema 决策）→ N-ANON-RESULT → N-NEST-IDX → N-MAP-CONSTRUCT → N-STR-EVENT → N-FOR-INT
 5. **可并行 target leaf（接口冻结后）**：B-OPT-STATE / B-COMMIT-ZK / B-CTX-OPEN（需产品决策）
 6. **NFR / identity residual**：D3-E8/E9 → RES-1B → NFR-REPEAT
@@ -392,3 +392,4 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | 2026-08-02 | **全队列 Goal**：`.grok/goals/prompt-master-queue.md` + `QUEUE.md` + `slices/`（60 个工程切片 prompt）；排除 formal/release |
 | 2026-08-02 | **Goal 默认 drain**：master 禁止「做满 3 项即结束」；仅预算硬尽/阻塞/队列空可停；续跑用 starting at NEXT |
 | 2026-08-02 | **文档↔代码三方复核**（SPEC×Normalize / op×target 矩阵 / backlog done 声明）：§2.4 剩余缺口登记（15 新 ID + DOC-CODE-1）；research/12 约 9 格修正（Aleo Map/Bytes/aggregate/Array、Noir Array）；research/13 §1-§6 刷新对齐 HEAD；NEAR/Solana/Aleo/Psy dossier 工程状态段修正；**AGENTS.md T14 假声明修正**（Field catalog 仍 sole bn254；30df771f2 commit message 与 diff 不符，挂 DOC-CODE-1 待产品决策）；推荐序重排为当前批 4 lane + 下一串行主轴 |
+| 2026-08-03 | **D3-E7 工程闭合**：content descriptors + evidence digest 进入 engineering OutputSet identity；publisher pre/post inventory 与 inspect exact closure 接线；明确 stable-observation-only、formal D3-05 仍 pending |

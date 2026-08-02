@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-02
+updated: 2026-08-03
 normative: false
 ---
 
@@ -11,6 +11,26 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+## 2026-08-03 — D3-E7 engineering artifact content binding and inspect closure
+
+- Commits：`557127cf1` 建立 `ArtifactContentV1` sole physical walker/stable-read/hash authority；
+  `062f93460` 将 private inventory接入 pure `EngineeringOutputSetV1` mint、publisher 与 inspect。
+- Production：artifact claims以closed `materialized-base`/`finalized-extra` role、safe relative path、
+  observed size和exact-byte SHA-256形成canonical descriptor；engineering `proof-forge.output.v1`
+  `files`从path-only数组原子迁为descriptor objects，exact `evidence.json` UTF-8另以
+  `evidenceSha256`进入domain-separated `outputSetDigest`。publisher在sidecar前后重扫比较artifact
+  inventory，保持evidence→manifest-last，并在rename前验证full closure与on-disk evidence bytes。
+- Inspect/validators：`inspect <output-dir>`通过sole stable-read读取sidecars，从untrusted descriptors
+  派生claims，重走no-follow/single-link exact disk closure并逐项比较role/path/size/hash；missing/extra/
+  mutated artifact、descriptor/evidence digest tamper与legacy path-only manifest均fail closed。独立Python
+  validator同步descriptor/evidence/outputSet digest重算、C0 path、JSON/数量边界和hardlink拒绝。
+- Tests/verification：`Tests.Materialization.ArtifactContentV1`、`OutputSetV1`、`OutputEnvelopeV1`、
+  `EngineeringDiskClosureV1`与`Tests.CLI.DiagnosticsV1`固定tamper/resource/legacy矩阵；
+  `validate_artifacts_self_test.py`、`just test-shard targets`、完整`just ci`和`git diff --check`通过。
+  外部工具解析使用workspace exact tool root隔离ambient cache；SBOM pin为170 files且fresh。
+- Boundary：这是有界stable observation；未retained-open FD，不声称race-free、contained、hermetic、
+  formal `OutputSetV1`、`TASK-D3-05`或release qualification完成。
 
 ## 2026-07-31 — D2-07 complete fixed-width UInt/Int runtime engineering slice
 

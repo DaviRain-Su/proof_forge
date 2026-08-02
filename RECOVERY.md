@@ -13,9 +13,9 @@ ValidatedSourceV1
 ```
 
 当前可运行的 Counter/Accumulator（及更广 Normalize 子集）路径已由单一 `CompiledSemanticV1` 保留
-structure-valid `SemanticProgramV1`，并直接构造四个 target Plan；产品编译、resolver 与 artifact
+structure-valid `SemanticProgramV1`，并直接构造六个 implemented target Plan；产品编译、resolver 与 artifact
 identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
-Materialized/Finalized/disk-closure 与部分 planDigest 绑定，但 **formal** `registryDigest` /
+Materialized/Finalized/content-descriptor/disk-closure 与全工程 planDigest 槽位绑定，但 **formal** `registryDigest` /
 SupportClaim / 可达 BuildIdentity mint / formal `OutputSetV1` 与完整 Phase-1 语言/runtime DoD
 仍未闭合。这是迁移中的工程纵切面，不是目标链已经完成。
 
@@ -43,6 +43,18 @@ DarwinSupervisor / frontend-worker 监督层 **保持删除**。sole 产品源�
 `--resource-limit` 已由 **D3-E5** 解析/硬上限；**不**借此重开 supervisor 产品面。
 `Frontend/ProtocolV1` / `WorkerV1` 模块可保留作非产品面，但不得重新成为 CLI `build`/`check`
 sole authority。
+
+### D3-E7 工程结果（2026-08-03）
+
+engineering `proof-forge.output.v1` 已完成 artifact 内容绑定与 inspect 闭包：`ArtifactContentV1`
+是 sole physical walker/stable-read/hash authority，private inventory 按 canonical role/path 顺序记录
+`role/path/size/contentSha256`；pure `mintEngineeringOutputSetV1` 同时绑定 exact `evidence.json`
+UTF-8 的 `evidenceSha256`。publisher 在 sidecar 写入前后比较 artifact inventory，并在 manifest-last
+后、rename 前重验 closure；`inspect <output-dir>` 会 stable-read sidecars 和 listed artifacts、重走
+no-follow/single-link exact disk closure并逐 descriptor 比对。legacy path-only manifest fail closed。
+
+该结果只证明有界 stable observation；不保留打开的 FD，也不声称 race-free、contained、hermetic、
+formal `OutputSetV1` 或 `TASK-D3-05` 完成。
 
 **日常工程队列**（非 formal）：[`docs/engineering-backlog.md`](docs/engineering-backlog.md)。
 
@@ -80,10 +92,11 @@ sole authority。
    不再仅是 Counter-like S1（**当前**：Normalize 已扩多宽/控制流/fn/for/call 等，完整语言面仍未闭合）。
 3. `CompiledSemanticV1` 是唯一产品编译成功 carrier；alpha Typed/Semantic lowering与 residual accessors 无产品调用。
 4. `ProgramRequirementsV1` 是唯一产品 requirement authority；target-neutral contribution engine 只向该 authority供给，不存在第二套 AST walker、alpha parity或 caller override。
-5. EVM/Solana/NEAR/Noir 四个 Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
+5. EVM/Solana/NEAR/Noir/Aleo/Psy 六个 Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
 6. 产品可达 formal-layout registry digest、SupportClaim/decision、BuildIdentity、Plan/IR identity 与
-   formal `OutputSetV1` 已接线，transitional publisher 残留退役（**当前**：工程 carriers/S7 已接线，
-   formal 与部分 planDigest 全 target 仍未闭合）。
+   formal `OutputSetV1` 已接线，transitional publisher 残留退役（**当前**：工程 carriers/S7 + D3-E7
+   content-bound descriptor/evidence/inspect closure 已接线；formal registry/claim/OutputSet 与
+   race-free/hermetic publication仍未闭合）。
 7. legacy `Core/Source`、alpha Typed/Semantic 与旧 compiler入口的产品 consumer 归零；测试先迁后删
    （**当前**：alpha Core 模块与产品 import 已物理删除/门禁禁止）。
 8. 聚焦/deletion/reflection gates、`just dev-check`、普通 `just ci`、docs/SBOM 全绿。
@@ -99,7 +112,7 @@ Wave 1  D1 ProgramV1 CLI source path + DiagnosticV1 product cutover
   → Wave 2  [done] freeze S1 Semantic + EVM/Solana/NEAR/Noir V1 Plan leaf + single carrier
            → [current] expand sole Normalize/Reference/target beyond S1
              （多宽/控制流/fn/for/call/部分聚合已接线；完整语言面未闭合）
-  → Wave 3  formal-layout identity + OutputSetV1 闭合（工程 S4–S7c 已部分接线）
+  → Wave 3  formal-layout identity + OutputSetV1 闭合（工程 S4–S7c + D3-E7 content closure 已接线，formal 仍 pending）
   → Wave 4  D4 EVM first → D5 Solana + D6 NEAR + D7 Noir target completion
   → Wave 5  D8 aggregate/security/repro/clean-room/review
 ```
@@ -111,7 +124,7 @@ Wave 1  D1 ProgramV1 CLI source path + DiagnosticV1 product cutover
 `Frontend/ProtocolV1` 与 `WorkerV1` 协议面可仍存在于树中供测试/残留，**不是**产品 CLI 源权威。
 D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表面。
 
-**当前 wave = Wave 2 / D2 扩面**：四 target Plan body 已直连 retained `SemanticProgramV1`；
+**当前 wave = Wave 2 / D2 扩面**：六 target Plan body 已直连 retained `SemanticProgramV1`；
 `CompiledSemanticV1` + `ProgramRequirementsV1` sole freeze + engineering resolver/capability
 已接线；alpha Core 与产品 consumer 已删。sole Normalize 已超出最初 Counter-like S1（多宽 UInt/Int、
 比较/assert、if/match、revert/emit、fn、let/for、shift/bitwise、call/schedule、部分聚合/Field 等），
@@ -127,7 +140,7 @@ D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表�
 - **产品 CLI 源路径（当前）**：`build` 经进程内 `Loader.selectProgramV1Product`（validated project root
   下 `IO.FS.readFile`）→ `normalizeProgramLocatedV1`（CheckV1 ok∧analysisComplete + structure-gated
   Semantic）→ `compileProgramProductV1` → private-ctor `CompiledSemanticV1` → engineering
-  `resolveEngineeringRequirementsV1` → 四 target capability Plan/IR/finalize → disk closure。
+  `resolveEngineeringRequirementsV1` → target capability Plan/IR/finalize → artifact content inventory + pure OutputSet mint → manifest-last/exact disk closure。
   失败走 `DiagnosticBundleV1` / `selectExitCode`。全链不构造 legacy `Source.Program`。
 - **历史 frontend 监督层（已移除）**：B9 Protocol / B10 worker / B11 SafeOpen+supervisor / B12 CLI
   切over 曾完成工程接线；**2026-08-01 产品决策整体删除**该层。详情与 superseded 说明见
@@ -135,11 +148,11 @@ D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表�
 - ProgramV1 expression 与 pattern integer literal 共用 sole decoder：unsigned decimal 或
   lowercase-prefix `0x` hexadecimal（hex digits 可大小写），拒绝 `0X`/binary/octal/underscore，
   范围 `0..2^256-1`；等值 spelling → 相同 AST/canonical bytes/sourceHash（D1-04 工程切片）。
-- Counter/Accumulator 等真实 source 可经 CLI 产出四 target 工程制品；EVM 使用 digest-pinned
+- Counter/Accumulator 等真实 source 可经 CLI 产出六 target 工程制品；EVM 使用 digest-pinned
   `solc 0.8.34` 生成 bytecode，另有 EvmSolc 验收门与历史 Anvil smoke（**非** formal Reference↔Anvil）。
   Solana 有 SBPF→ELF + Mollusk 运行时差分工程链路；NEAR 主要为 `wat2wasm` 结构验证；Noir 为
-  relation source package（无 prove/verify）。四 target Plan body 均由 retained `SemanticProgramV1`
-  经 capability 构造；工程 output 已接 S7a–S7c，仍非 formal D1–D4 / formal OutputSetV1 完成。
+  relation source package（无 prove/verify）；Aleo/Psy 为 source-only package。六 target Plan body 均由 retained `SemanticProgramV1`
+  经 capability 构造；工程 output 已接 S7a–S7c + D3-E7 descriptors/evidence digest/post-publish inspect closure，仍非 formal D1–D4 / formal OutputSetV1 完成。
 - Legacy Source source-reading 与 v1 export decoder 已删除；command/export 仅 ProgramV1 v2。
   `selectProgramV1Product` 为产品 CLI 使用的 Loader 入口；`selectProgramV1*` /
   `compileValidatedSourceV1` 仍可为测试/库 API。alpha Core 模块与产品 import 已删/门禁禁止；
@@ -178,12 +191,12 @@ CLI真实走完 `SemanticProgramV1 → exact resolver → target Plan/IR → Out
 private-ctor `CompiledSemanticV1` 单 carrier + engineering exact requirement resolver capability
 （`resolveEngineeringRequirementsV1 (selection, compiled)` → private
 `ResolvedEngineeringBuildV1`，exact retained SemanticProgramV1 `data.requirements`，
-无 caller request override；静态四行 S2 support index）。**精确边界**：shipped
-aggregate/CLI `materialize`/`emit` 仅接受 capability；EVM/Solana/NEAR/Noir 均在 capability 后读取
+无 caller request override；静态六行 S2 support index）。**精确边界**：shipped
+aggregate/CLI `materialize`/`emit` 仅接受 capability；EVM/Solana/NEAR/Noir/Aleo/Psy 均在 capability 后读取
 retained `SemanticProgramV1`，经各自 private S1 lowering构造 target-owned Plan，再进入各自 IR/emission；
 residual alpha不再参与 Plan body。**D3/S6 工程**：public residual Common resolve / validateResolved /
 public makePlan 与 `TargetDescriptor.supportedRequirements` 字段/membership acceptance 已关闭；
-cycle-free `EngineeringBuildV1` leaf sole mint；四 target 仅 capability-gated
+cycle-free `EngineeringBuildV1` leaf sole mint；六 target 仅 capability-gated
 `planFromCapability`/`irFromCapability`/`buildFromCapability`（+ descriptor/
 validatePlan/validateIR inspection）；Registry 直接 capability dispatch；public
 `namespace Residual` 与 `planFromAlpha`/`lowerPlan`/`filesFromIR` 完整
@@ -193,21 +206,23 @@ residual type-chain reflection（defn/opaque/ctor）已接入 dev/ci。**D3/S7a 
 aggregate `materializeResult` 返回 private-ctor `MaterializedArtifactsV1`（sole mint
 `mintMaterializedArtifactsV1`；exact target/profile/kind + semantic-derived artifact name + canonical
 ProgramV1 source Digest + `semanticHashV1` Digest + ordered files）；已删 public
-`OutputSet`/`OutputManifest`/`makeOutput`/`manifestJson`；CLI private legacy-engineering
-v2alpha1 renderer 保持 on-disk manifest/evidence 字节兼容；
+`OutputSet`/`OutputManifest`/`makeOutput`/`manifestJson`；CLI 仅发布 engineering
+`proof-forge.output.v1`，legacy `proof-forge-output/v2alpha1` renderer 已删除且 path-only files manifest fail closed；
 `s7-output-envelope-deletion-gate` 已接入 dev/ci。**D3/S7b 工程**：locked-tool
 finalization 已迁出 CLI：`Materialization/LockedToolchainV1`（无 Core.Source/CLI）；
 private-ctor `FinalizedArtifactsV1` sole mint；Registry sole
-`finalizeMaterializedArtifactsV1` → Evm/Near/Solana/Noir FinalizeV1 adapters；
+`finalizeMaterializedArtifactsV1` → Evm/Near/Solana/Noir/Aleo/Psy FinalizeV1 adapters；
 CLI/Emit publisher-only；已删 `CLI/Toolchain` 与 `finalizeEvm`/`finalizeNear`；
-exact on-disk v2alpha1/tool bytes 保持；`s7b-finalize-authority-deletion-gate` 已接入
-dev/ci。**D3/S7c 工程**：sole `validateEngineeringDiskClosureV1`（private
-`FinalizedArtifactsV1` + staging；derived base+extras+`evidence.json`/`manifest.json`；
-no-follow bounded walk；limits 1024/64MiB/256MiB）；CLI publisher evidence→manifest-last
-后 exact closure、destination race recheck/rename 前；`validate_artifacts.py`
-统一 no-follow exact closure + self-test；`s7c-disk-closure-gate` 已接入 dev/ci。
+engineering `proof-forge.output.v1`/tool bytes 保持；`s7b-finalize-authority-deletion-gate` 已接入
+dev/ci。**D3/S7c + D3-E7 工程**：`ArtifactContentV1` sole physical walker/stable-read/hash
+生成 private canonical artifact inventory（base/extra role + path + size + exact-byte SHA-256）；pure
+`mintEngineeringOutputSetV1` 将 descriptors 与 exact evidence UTF-8 `evidenceSha256` 绑入
+`outputSetDigest`。publisher evidence→manifest-last，sidecar 前后 exact inventory compare，rename 前
+重验 no-follow bounded closure（limits 1024/64MiB/256MiB）；`inspect <output-dir>` stable-read sidecars/
+listed artifacts、重走 closure并逐 descriptor 比对；Python validator同样拒绝 symlink/hardlink/额外或
+缺失 leaf并重算 digest；`s7c-disk-closure-gate` 已接入 dev/ci。
 仍**不是** SupportClaim/formal resolver/BuildIdentity/`OutputSetV1`/
-ToolchainIdentity/formal exact closure/hermetic publisher/完整 SemanticProgramV1 lowering
+ToolchainIdentity/race-free formal closure/hermetic publisher/完整 SemanticProgramV1 lowering
 完成态。formal task状态与 release qualification仍按各自真实条件变化，不由本恢复文档代签。
 
 ## D2-07 invariant reference evaluator status（2026-07-31）
