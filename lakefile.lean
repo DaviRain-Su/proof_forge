@@ -225,12 +225,14 @@ lean_exe proof_forge_compiler_proof_worker_v1 where
 lean_exe proof_forge_next_tests where
   exeName := "proof-forge-next-tests"
   root := `Tests
-  supportInterpreter := false
+  -- Parser-backed suites transitively require Init interpreter externs such as
+  -- IO.getRandomBytes on Linux, even though this aggregate is non-product.
+  supportInterpreter := true
 
 lean_exe proof_forge_next_fast_tests where
   exeName := "proof-forge-next-fast-tests"
   root := `Tests.Fast
-  supportInterpreter := false
+  supportInterpreter := true
 
 -- Memory-bounded shards: the single-process aggregate keeps a high-water RSS
 -- above the 7 GB hosted runner limit because Lean does not return heap to the
