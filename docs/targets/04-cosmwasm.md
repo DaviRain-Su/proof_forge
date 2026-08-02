@@ -11,7 +11,23 @@ normative: true
 
 状态：`draft`
 Target ID：`cosmwasm`
-Phase 1：设计，不实现
+Phase 1：**MVP 已实现**（2026-08-03，见 §0）
+
+## 0. 工程状态（2026-08-03）
+
+**已实现（MVP，branch `integrate/cosmwasm-a1`）**：registry 晋升 implemented
+（profile `cosmwasm-wasm-u64-v1`，maturity `wasm-validated-alpha`）；`Targets/CosmWasm/**`
+target-owned Plan/IR/WAT emitter（public UInt64 多字段 KV state→`env.db_*`、init/entry/view
+→`instantiate`/`execute`/`query`、`allocate`/`deallocate`/`interface_version_8`、有界最小
+JSON 子集、emit→attributes、revert→`ContractResult::Err`、if/match/bounded for/fn、
+mul/div/mod/unary/shift/bitwise/logical）；Finalize 经 locked `wat2wasm` 产 `{name}.wasm`
+（deployable=true）；resolver 五键拒绝双 call family（`WasmMsg::Execute` savepoint 非
+sync CALL、SubMsg fire-and-forget 非跨 tx async）；**`cosmwasm-check 3.0.9` Tool Lock
+静态验收门**（fixture 矩阵 + 产品 Counter `.wasm` 真实通过）。
+**仍 fail closed**：call/schedule、iterator（db_scan/db_next）、IBC、migrate、named
+Struct/Enum、Array/Map/Bytes/Option、Field/Principal/String、ContextRead/Commit、
+nonempty invariants、multi-width UInt8..256 ABI、named 聚合返回值。
+**未做**：wasmd/cosmwasm-vm runtime 差分、SubMsg/reply 语义、JSON 全集。
 
 ## 1. 身份与来源
 

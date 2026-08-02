@@ -256,8 +256,9 @@ if ! cli="$(resolve_cli)"; then
 fi
 
 PRODUCT_OUT="$STAGING/product-out"
+# The product CLI requires a fresh output path (exact disk closure);
+# pre-creating the directory trips PF-OUTPUT-COLLISION.
 rm -rf "$PRODUCT_OUT"
-mkdir -p "$PRODUCT_OUT"
 
 # Prefer Examples/Counter if present; otherwise skip product without failing.
 COUNTER_SRC=""
@@ -278,15 +279,18 @@ fi
 
 # Product CLI: build <source.lean> --module <Name> --target <t> [-o <dir>]
 # Module for Examples/Counter.lean is Examples.Counter (see Emit.lean docs).
+# The CLI requires a canonical project-relative source path (no leading /),
+# so strip the repo-root prefix before invoking.
 module_name="Examples.Counter"
 case "$COUNTER_SRC" in
   *ProofForgeV2/Examples/Counter.lean) module_name="ProofForgeV2.Examples.Counter" ;;
 esac
+REL_SRC="${COUNTER_SRC#"$ROOT"/}"
 
 set +e
 build_out="$(
-  cd "$ROOT" && "$cli" build \
-    "$COUNTER_SRC" \
+  cd "$ROOT" && lake env "$cli" build \
+    "$REL_SRC" \
     --module "$module_name" \
     --target cosmwasm \
     -o "$PRODUCT_OUT" 2>&1

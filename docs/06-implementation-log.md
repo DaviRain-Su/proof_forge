@@ -13416,3 +13416,22 @@ normative: false
   共享 Plan）；`docs/targets/README.md` 索引增 `ton` 与 TVM family。编译器零改动，`ton`
   仍不可寻址 fail closed；SRC/CLM 注册留待独立后续。
 - 边界：均非 formal；CosmWasm 尚无 emitter（A1 进行中）；TON 无 TargetId/registry。
+
+### 2026-08-03 — CosmWasm MVP leaf 工程切片（A1 lane，branch `integrate/cosmwasm-a1`）
+
+- Plan/IR：`Targets/CosmWasm/**`（LowerSemantic/ValidatePlan/PlanSchema/EmitIR/Finalize +
+  facade）+ Registry dispatch；public UInt64 多字段 KV state→`env.db_read/db_write/db_remove`，
+  init/entry/view→`instantiate`/`execute`/`query`，`allocate`/`deallocate`（bump allocator）/
+  `interface_version_8`，单 memory 无 maximum，12B Region；有界最小 JSON 子集（flat 单方法+
+  整数参数，非子集显式 Err）；emit→Response attributes；revert→`{"error":...}` Region；
+  if/match/bounded for/fn/mul/div/mod/unary/shift/bitwise/logical 镜像 NEAR 守卫。
+- Finalize：locked `wat2wasm` → `{name}.wasm`（deployable=true）+ ABI JSON + evidence/
+  manifest（proof-forge.output.v1 既有闭包）。
+- 验收：`CosmWasmPlanV1` 套件注册 shard-targets（Counter Plan/IR/WAT/ABI 形状 + FC 边界 +
+  Registry materialize dispatch）；`cosmwasm_check_acceptance.sh` 产品层由 skip 转为
+  **真实通过**（`Counter.wasm` 经 `cosmwasm-check 3.0.9`；脚本修复相对源码路径、
+  `lake env` 前缀与 PF-OUTPUT-COLLISION 新鲜目录语义）。
+- 边界：`wasm-validated-alpha` 只表示 WAT+locked wat2wasm 制品链与静态 ABI 验收；
+  **不是** wasmd/cosmwasm-vm runtime、SubMsg/reply、IBC、JSON 全集或 formal D3/D4 完成；
+  call/schedule/iterator/migrate/聚合/多宽 ABI/ContextRead/Commit/nonempty invariants 全部
+  fail closed 且有钉测。

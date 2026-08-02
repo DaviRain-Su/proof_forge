@@ -214,6 +214,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.NearWasmAcceptance,
     `Tests.Materialization.NearSandboxAcceptance,
     `Tests.Materialization.CosmWasmCheckAcceptance,
+    `Tests.Materialization.CosmWasmPlanV1,
     `Tests.Materialization.NearHostModel,
     `Tests.Materialization.NoirRelationModel,
     `Tests.Materialization.NoirCompileAcceptance,
