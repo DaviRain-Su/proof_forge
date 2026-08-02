@@ -613,6 +613,93 @@ unsafe def testOmittedTypeLet : IO Unit := do
   expect (psy.contains "return ")
     "omit-let sum must still return the bound value"
 
+
+/-- H3 PsyAleoAggregate: named Struct flattens to Felt storage leaves p_x/p_y. -/
+unsafe def testNamedAggregateLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2
+" ++
+    "open ProofForgeV2.Language
+" ++
+    "program PsyPoint where
+" ++
+    "  struct Point where
+" ++
+    "    x : UInt64
+" ++
+    "    y : UInt64
+" ++
+    "  state p : Point
+" ++
+    "  init() do
+" ++
+    "    p := Point.new(0, 0)
+" ++
+    "  entry setX(v : UInt64) : UInt64 do
+" ++
+    "    p.x := v
+" ++
+    "    return p.x
+" ++
+    "  view getX() : UInt64 do
+" ++
+    "    return p.x
+"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-point>" "Tests.PsyPoint" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  expect (plan.stateFieldNames == #["p_x", "p_y"])
+    s!"Psy named Struct must flatten to p_x/p_y leaves, got {plan.stateFieldNames}"
+  expect (plan.functions.any (·.name == "setX"))
+    "Psy Point plan must carry setX"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "PsyPoint.psy") |
+    throw <| IO.userError "psy: missing PsyPoint.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "p_x" && psy.contains "p_y")
+    "Psy Point source must declare p_x and p_y Felt fields"
+
+/-- H3: fixed Array UInt64 2 flattens to slots_0/slots_1 Felt storage. -/
+unsafe def testArrayStateLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2
+" ++
+    "open ProofForgeV2.Language
+" ++
+    "program PsyArr where
+" ++
+    "  state slots : Array UInt64 2
+" ++
+    "  init() do
+" ++
+    "    slots[0] := 0
+" ++
+    "    slots[1] := 0
+" ++
+    "  entry set0(v : UInt64) : UInt64 do
+" ++
+    "    slots[0] := v
+" ++
+    "    return slots[0]
+"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-arr>" "Tests.PsyArr" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  expect (plan.stateFieldNames == #["slots_0", "slots_1"])
+    s!"Psy Array must flatten to slots_0/slots_1, got {plan.stateFieldNames}"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "PsyArr.psy") |
+    throw <| IO.userError "psy: missing PsyArr.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "slots_0" && psy.contains "slots_1")
+    "Psy Array source must declare slots_0 and slots_1"
+
 unsafe def run : IO Unit := do
   testCounterPsySource
   testCheckedArithGuards
@@ -633,6 +720,8 @@ unsafe def run : IO Unit := do
   testVoidEntry
   testFieldBn254FailClosed
   testOmittedTypeLet
+  testNamedAggregateLowered
+  testArrayStateLowered
   IO.println "Tests.Materialization.PsySourceV1: ok"
 
 end Tests.Materialization.PsySourceV1

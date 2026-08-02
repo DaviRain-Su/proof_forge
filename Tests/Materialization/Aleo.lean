@@ -798,66 +798,106 @@ unsafe def testFieldBn254FailClosed : IO Unit := do
       expect (msg.contains "Aleo" || msg.contains "aleo")
         s!"Aleo Field decline must label Aleo, got: {msg}"
 
-/-- Named Struct construct/field access fails closed on the scalar mapping
-    envelope (Leo native struct/record is deferred). Uses product constructor
-    spelling `Point.new(...)` (same as N3 PointBox). -/
-unsafe def testNamedAggregateFailClosed : IO Unit := do
+/-- H3 PsyAleoAggregate: named Struct flattens to two u64 mappings (p_x/p_y).
+    Field assign + bare field view lower to leaf stateLoad/store. -/
+unsafe def testNamedAggregateLowered : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program AleoPoint where\n" ++
-    "  struct Point where\n" ++
-    "    x : UInt64\n" ++
-    "    y : UInt64\n" ++
-    "  state p : Point\n" ++
-    "  init() do\n" ++
-    "    p := Point.new(0, 0)\n" ++
-    "  entry setX(v : UInt64) : UInt64 do\n" ++
-    "    p.x := v\n" ++
-    "    return p.x\n" ++
-    "  view getX() : UInt64 do\n" ++
-    "    return p.x\n"
+    "import ProofForgeV2
+" ++
+    "open ProofForgeV2.Language
+" ++
+    "program AleoPoint where
+" ++
+    "  struct Point where
+" ++
+    "    x : UInt64
+" ++
+    "    y : UInt64
+" ++
+    "  state p : Point
+" ++
+    "  init() do
+" ++
+    "    p := Point.new(0, 0)
+" ++
+    "  entry setX(v : UInt64) : UInt64 do
+" ++
+    "    p.x := v
+" ++
+    "    return p.x
+" ++
+    "  view getX() : UInt64 do
+" ++
+    "    return p.x
+"
   let parsed ← liftResult (← session.selectProgramV1
     source "<aleo-point>" "Tests.AleoPoint" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planAleo compiled with
-  | .ok _ =>
-      throw <| IO.userError
-        "named Struct state must fail closed on Aleo scalar mapping envelope"
-  | .error e =>
-      let msg := e.render
-      expect (msg.contains "named" || msg.contains "Struct" ||
-          msg.contains "unsupported" || msg.contains "pilot" ||
-          msg.contains "aggregate" || msg.contains "mapping")
-        s!"Aleo named-aggregate decline must cite named/Struct boundary, got: {msg}"
+  let plan ← liftResult <| planAleo compiled
+  expect (plan.stateFieldNames == #["p_x", "p_y"])
+    s!"Aleo named Struct must flatten to p_x/p_y leaves, got {plan.stateFieldNames}"
+  expect (plan.functions.map (·.name) == #["initialize", "setX"])
+    s!"Aleo Point must carry initialize+setX, got {plan.functions.map (·.name)}"
+  expect (plan.views.map (·.name) == #["getX"])
+    "Aleo getX must materialize as bare leaf view"
+  expect (plan.views[0]!.stateFieldIndex == 0)
+    "Aleo getX bare view must bind p_x (leaf 0)"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "aleopoint.aleo") |
+    throw <| IO.userError "aleo: missing aleopoint.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "mapping pf_state_0: u8 => u64;")
+    "Aleo Point must emit pf_state_0 for p_x"
+  expect (leo.contains "mapping pf_state_1: u8 => u64;")
+    "Aleo Point must emit pf_state_1 for p_y"
+  expect (leo.contains "pf_state_0.set(0u8,")
+    "setX must write the x leaf mapping"
 
-/-- Array state fails closed (no container mapping layout). -/
-unsafe def testArrayStateFailClosed : IO Unit := do
+/-- H3: fixed Array UInt64 2 flattens to slots_0/slots_1 mappings. -/
+unsafe def testArrayStateLowered : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program AleoArr where\n" ++
-    "  state slots : Array UInt64 2\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n" ++
-    "  entry set0(v : UInt64) : UInt64 do\n" ++
-    "    slots[0] := v\n" ++
-    "    return slots[0]\n"
+    "import ProofForgeV2
+" ++
+    "open ProofForgeV2.Language
+" ++
+    "program AleoArr where
+" ++
+    "  state slots : Array UInt64 2
+" ++
+    "  init() do
+" ++
+    "    slots[0] := 0
+" ++
+    "    slots[1] := 0
+" ++
+    "  entry set0(v : UInt64) : UInt64 do
+" ++
+    "    slots[0] := v
+" ++
+    "    return slots[0]
+"
   let parsed ← liftResult (← session.selectProgramV1
     source "<aleo-arr>" "Tests.AleoArr" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planAleo compiled with
-  | .ok _ =>
-      throw <| IO.userError "Array state must fail closed on Aleo"
-  | .error e =>
-      let msg := e.render
-      expect (msg.contains "Array" || msg.contains "container" ||
-          msg.contains "unsupported" || msg.contains "pilot" ||
-          msg.contains "IndexGet" || msg.contains "UInt64")
-        s!"Aleo Array decline must cite container/Array boundary, got: {msg}"
+  let plan ← liftResult <| planAleo compiled
+  expect (plan.stateFieldNames == #["slots_0", "slots_1"])
+    s!"Aleo Array must flatten to slots_0/slots_1, got {plan.stateFieldNames}"
+  expect (plan.functions.any (·.name == "set0"))
+    "Aleo Array plan must carry set0"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "aleoarr.aleo") |
+    throw <| IO.userError "aleo: missing aleoarr.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "mapping pf_state_0: u8 => u64;")
+    "Aleo Array must emit pf_state_0 for slots_0"
+  expect (leo.contains "mapping pf_state_1: u8 => u64;")
+    "Aleo Array must emit pf_state_1 for slots_1"
 
 /-- N5 Commit identity: label-only passthrough into commitment state. -/
 unsafe def testCommitIdentityLeo : IO Unit := do
@@ -936,8 +976,8 @@ unsafe def run : IO Unit := do
   testMultiParamFnLeo
   testCallScheduleFailClosedLeo
   testFieldBn254FailClosed
-  testNamedAggregateFailClosed
-  testArrayStateFailClosed
+  testNamedAggregateLowered
+  testArrayStateLowered
   testCommitIdentityLeo
   testContextReadFailClosed
   IO.println "Tests.Materialization.Aleo: ok"

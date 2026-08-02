@@ -63,6 +63,16 @@ private def planNoir (compiled : CompiledSemanticV1) : CompileResult Targets.Noi
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Noir.planFromCapability capability
 
+private def planPsy (compiled : CompiledSemanticV1) : CompileResult Targets.Psy.Plan := do
+  let selection ← resolveBuildSelectionV1 TargetId.psy none
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.Psy.planFromCapability capability
+
+private def planAleo (compiled : CompiledSemanticV1) : CompileResult Targets.Aleo.Plan := do
+  let selection ← resolveBuildSelectionV1 TargetId.aleo none
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.Aleo.planFromCapability capability
+
 /-- Capability-gated production IR inspection (S6 repair; not TargetIrFixtures). -/
 private def irEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.IR := do
   let selection ← resolveBuildSelectionV1 TargetId.evm none
@@ -2391,10 +2401,13 @@ unsafe def run : IO Unit := do
   expect emittedFiles.isEmpty
     "EVM product negative: files accumulator must stay empty"
 
-  -- N1 + Noir private-witness redesign: private state write-only + public
+  -- N1 + Noir private-witness redesign: private state in layout + public
   -- return compiles and materializes on EVM/Solana/NEAR/Psy/Aleo and Noir
   -- (private pre/post state slots are private-witness inputs; public count
   -- remains verifier-visible).
+  -- T-1 authority/custody: entry private writes require context.caller evidence
+  -- (and ContextRead is target Plan fail-closed). Keep private writes in init
+  -- only so product compile + target materialize still pin private layout.
   let privateStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2406,7 +2419,6 @@ unsafe def run : IO Unit := do
     "    count := initial\n" ++
     "    secret := 0\n\n" ++
     "  entry bump(d : UInt64) : UInt64 do\n" ++
-    "    secret := secret + d\n" ++
     "    count := count + d\n" ++
     "    return count\n\n" ++
     "  view get() : UInt64 do\n" ++
@@ -2438,15 +2450,23 @@ unsafe def run : IO Unit := do
   expect (noirPrivState.states.any fun s =>
       s.name == "count" && s.visibility == .verifier)
     "N1 priv-state: Noir Plan keeps public state verifier-visible"
-  let secretPrePost := noirPrivState.relations[1]!.inputs.filter fun i =>
-    match i.role with
-    | .preState sid | .postState sid =>
-        match noirPrivState.states[sid]? with
-        | some f => f.name == "secret"
-        | none => false
-    | _ => false
-  expect (secretPrePost.size == 2 && secretPrePost.all (·.visibility == .witness))
-    "N1 priv-state: Noir pre/post secret inputs are private-witness"
+  -- secret is written in init only (T-1: no entry private write without caller).
+  -- Any relation that carries secret pre/post slots must mark them witness.
+  let mut secretWitnessSlots : Nat := 0
+  for rel in noirPrivState.relations do
+    for i in rel.inputs do
+      match i.role with
+      | .preState sid | .postState sid =>
+          match noirPrivState.states[sid]? with
+          | some f =>
+              if f.name == "secret" then
+                expect (i.visibility == .witness)
+                  "N1 priv-state: Noir secret pre/post inputs must be private-witness"
+                secretWitnessSlots := secretWitnessSlots + 1
+          | none => pure ()
+      | _ => pure ()
+  expect (secretWitnessSlots ≥ 2)
+    s!"N1 priv-state: expected ≥2 secret pre/post witness slots, got {secretWitnessSlots}"
 
   -- N1: commitment state public→commitment write + public return materializes
   -- on accepting targets (lattice: public→commitment OK). Noir still declines
@@ -2671,10 +2691,9 @@ unsafe def run : IO Unit := do
         s!"B-3 Solana Principal decline must cite variable-length wire, got {e.render}"
 
 
-  -- N3 / NoirAggregate: named Struct state + field assign product pin —
-  -- EVM admits (flatten-to-leaf storage); Noir admits (flatten-to-leaf public
-  -- inputs / circuit-native field constraints); Solana/NEAR/Psy decline at
-  -- type-closure (named types default none).
+  -- N3 / NoirAggregate / H3 PsyAleoAggregate: named Struct state + field assign
+  -- product pin — EVM/Noir/Psy/Aleo admit (flatten-to-leaf); Solana/NEAR decline
+  -- at type-closure (named types default none).
   let structStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2712,7 +2731,16 @@ unsafe def run : IO Unit := do
   expect (noirStruct.relations.any fun r => r.name == "setX")
     "NoirAggregate: Noir plan has setX relation"
   let _ ← liftResult <| materializeSelected TargetId.noir structCompiled
-  for target in [TargetId.solana, TargetId.near, TargetId.psy] do
+  -- H3 PsyAleoAggregate: Psy + Aleo admit named Struct flatten-to-leaf.
+  let psyStruct ← liftResult <| planPsy structCompiled
+  expect (psyStruct.stateFieldNames == #["p_x", "p_y"])
+    s!"H3 Psy named Struct must flatten to p_x/p_y, got {psyStruct.stateFieldNames}"
+  let _ ← liftResult <| materializeSelected TargetId.psy structCompiled
+  let aleoStruct ← liftResult <| planAleo structCompiled
+  expect (aleoStruct.stateFieldNames == #["p_x", "p_y"])
+    s!"H3 Aleo named Struct must flatten to p_x/p_y, got {aleoStruct.stateFieldNames}"
+  let _ ← liftResult <| materializeSelected TargetId.aleo structCompiled
+  for target in [TargetId.solana, TargetId.near] do
     match materializeSelected target structCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N3 struct-state: {target} must decline named aggregate"
@@ -2723,8 +2751,8 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"N3 struct-state {target} message must cite named/aggregate boundary, got {e.render}"
 
-  -- ArrayState: fixed Array UInt64 2 state — Solana + EVM admit (flatten to
-  -- 2×8B slots named slots_0/slots_1; IndexGet/IndexSet). Near/Noir/Psy
+  -- ArrayState: fixed Array UInt64 2 state — Solana + EVM + H3 Psy/Aleo admit
+  -- (flatten to leaf slots named slots_0/slots_1; IndexGet/IndexSet). Near/Noir
   -- decline container state. Map remains fail closed on all Phase-1 lanes;
   -- EVM also admits Bytes (D4-E2) separately from this Array fixture.
   let arrayStateSource :=
@@ -2767,7 +2795,16 @@ unsafe def run : IO Unit := do
     "ArrayState: EVM plan has set0 entry"
   -- Product materialize path accepts EVM Array state.
   let _ ← liftResult <| materializeSelected TargetId.evm arrayCompiled
-  for target in [TargetId.near, TargetId.noir, TargetId.psy] do
+  -- H3 PsyAleoAggregate: Psy + Aleo admit Array UInt64 flatten-to-leaf.
+  let psyArray ← liftResult <| planPsy arrayCompiled
+  expect (psyArray.stateFieldNames == #["slots_0", "slots_1"])
+    s!"H3 Psy Array must flatten to slots_0/slots_1, got {psyArray.stateFieldNames}"
+  let _ ← liftResult <| materializeSelected TargetId.psy arrayCompiled
+  let aleoArray ← liftResult <| planAleo arrayCompiled
+  expect (aleoArray.stateFieldNames == #["slots_0", "slots_1"])
+    s!"H3 Aleo Array must flatten to slots_0/slots_1, got {aleoArray.stateFieldNames}"
+  let _ ← liftResult <| materializeSelected TargetId.aleo arrayCompiled
+  for target in [TargetId.near, TargetId.noir] do
     match materializeSelected target arrayCompiled with
     | .ok _ =>
         throw <| IO.userError s!"ArrayState: {target} must decline container state"
@@ -2799,7 +2836,7 @@ unsafe def run : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"N-A4 Option select: {e.render}"
   let optCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optV1
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir, TargetId.psy] do
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir, TargetId.psy, TargetId.aleo] do
     match materializeSelected target optCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N-A4: {target} must decline Option state"
