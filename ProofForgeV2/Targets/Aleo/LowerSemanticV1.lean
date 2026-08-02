@@ -116,7 +116,10 @@ structure PlanParam where
 /-- One callable artifact. `resultDropped` records that a non-Unit result
     cannot be returned by Leo's `Final` model (see module doc): the value is
     observable post-transaction via `leo query`, and each return expression
-    is still evaluated in the final block for failure semantics. -/
+    is still evaluated in the final block for failure semantics.
+    `isPureHelper` is true for Semantic `pureFn` callables: Leo 4.0.2 requires
+    helper `fn`s outside the `program` block (no input modes) so entry points
+    can call them. -/
 structure PlanFunction where
   index : Nat
   name : String
@@ -127,6 +130,8 @@ structure PlanFunction where
   touchesState : Bool
   resultIsBool : Bool
   resultDropped : Bool
+  /-- True when source kind was `pureFn` (Leo helper outside program). -/
+  isPureHelper : Bool := false
   deriving BEq, Inhabited, Repr
 
 /-- Bare public-state read view: materializes as an off-chain mapping query
@@ -1176,6 +1181,7 @@ private partial def lowerCallable
   if callable.kind == .view && touchesState then
     planError "Aleo computed views that read state fail closed: only bare public-state reads map to leo query"
   let resultDropped := !resultIsUnit && touchesState
+  let isPureHelper := callable.kind == .pureFn
   let name ← match callable.name with
     | some n => pure n
     | none => pure "initialize"
@@ -1188,6 +1194,7 @@ private partial def lowerCallable
     touchesState
     resultIsBool
     resultDropped
+    isPureHelper
   })
 
 /-- Assembly entry: wire semantic data → target-owned Plan. -/

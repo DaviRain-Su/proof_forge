@@ -112,10 +112,10 @@ import Tests.Materialization.OutputEnvelopeV1
 import Tests.Materialization.TargetIrFixtures
 import Tests.Materialization.Targets
 import Tests.Materialization.Aleo
+import Tests.Materialization.AleoAcceptance
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.NearWasmAcceptance
-import Tests.Materialization.PsyAcceptance
 import Tests.Materialization.NearHostModel
 
 import Tests.Materialization.NoirRelationModel
@@ -250,10 +250,10 @@ unsafe def main : IO Unit := do
   Tests.Materialization.EngineeringDiskClosureV1.run
   Tests.Materialization.run
   Tests.Materialization.Aleo.run
+  Tests.Materialization.AleoAcceptance.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.EvmSolcAcceptance.run
   Tests.Materialization.NearWasmAcceptance.run
-  Tests.Materialization.PsyAcceptance.run
   Tests.Materialization.NearHostModel.run
 
   Tests.Materialization.NoirRelationModel.run

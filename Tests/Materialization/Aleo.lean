@@ -87,6 +87,12 @@ unsafe def testCounterPlanAndLeo : IO Unit := do
     "Leo source must declare the one-shot init guard mapping"
   expect (leo.contains "fn initialize(public p0: u64) -> Final {")
     "init must materialize as a Final function"
+  expect (leo.contains "constructor() {}")
+    "Leo 4 requires a closed empty constructor before mappings"
+  expect (leo.contains "return final {")
+    "Final functions must use return final { ... }; form"
+  expect (leo.contains "    };\n")
+    "return final block must end with a trailing semicolon"
   expect (leo.contains "initialized.get_or_use(0u8, false)")
     "init guard must read the initialized mapping"
   expect (leo.contains "assert((!pf_seen));")
@@ -99,6 +105,10 @@ unsafe def testCounterPlanAndLeo : IO Unit := do
     "increment must write the state mapping"
   expect (leo.contains "let pf_return: u64 =")
     "dropped return must still be evaluated in the final block"
+  expect (!leo.contains "boolean")
+    "Leo 4 keyword is bool, not boolean"
+  expect (!leo.contains "return ();")
+    "Leo 4 rejects return () unit tuples"
 
 /-- Pure fns and entries: shifts, bitwise, strict logical, Bool results. -/
 unsafe def testPureOpsAndShifts : IO Unit := do
@@ -141,18 +151,21 @@ unsafe def testPureOpsAndShifts : IO Unit := do
     "Leo source must render the shift operator"
   expect (leo.contains "assert((")
     "shift count guard must be emitted"
-  expect (leo.contains "fn both(public p0: u64, public p1: u64) -> boolean {")
-    "Bool-returning entry must render a boolean result"
+  expect (leo.contains "fn both(public p0: u64, public p1: u64) -> bool {")
+    "Bool-returning entry must render a bool result"
   expect (leo.contains " && ")
     "strict logical and must render"
   expect (leo.contains "fn flip(public p0: u64) -> u64 {")
     "flip must be a plain function"
   expect (leo.contains "(!")
     "bitNot must render as Leo type-directed !"
-  expect (leo.contains "fn double(public p0: u64) -> u64 {")
-    "pure fn must materialize as a plain function"
+  -- pureFn is a Leo 4 helper outside `program` (no input modes).
+  expect (leo.contains "fn double(p0: u64) -> u64 {")
+    "pure fn must materialize as a file-level helper without public modes"
   expect (leo.contains "scaled(public p0: u64) -> u64")
-    "scaled must materialize as a plain function"
+    "scaled must materialize as a plain entry function"
+  expect (leo.contains " as u8)")
+    "shift count must cast to u8 for Leo 4.0.2"
 
 /-- Bounded for: constant-bound loop with the boundExceeded guard. -/
 unsafe def testBoundedForLeo : IO Unit := do
@@ -470,8 +483,8 @@ unsafe def testComparisonsLeo : IO Unit := do
       (·.path == "cmp.aleo") |
     throw <| IO.userError "aleo: missing cmp.aleo"
   let leo := leoFile.contents
-  expect (leo.contains "fn cmp(public p0: u64, public p1: u64) -> boolean {")
-    "Bool-returning entry must render a boolean result"
+  expect (leo.contains "fn cmp(public p0: u64, public p1: u64) -> bool {")
+    "Bool-returning entry must render a bool result"
   for op in #["==", "!=", "<", "<=", ">", ">="] do
     expect (leo.contains s!" {op} ")
       s!"comparison operator {op} must render"
@@ -497,13 +510,13 @@ unsafe def testLogicalLeo : IO Unit := do
       (·.path == "log.aleo") |
     throw <| IO.userError "aleo: missing log.aleo"
   let leo := leoFile.contents
-  expect (leo.contains "fn both(public p0: u64, public p1: u64) -> boolean {")
-    "both must be a plain boolean-returning function"
+  expect (leo.contains "fn both(public p0: u64, public p1: u64) -> bool {")
+    "both must be a plain bool-returning function"
   expect (leo.contains " || ")
     "logical or must render as Leo ||"
-  -- boolNot binds `let pf_eN: boolean = (!operand);`
+  -- boolNot binds `let pf_eN: bool = (!operand);`
   expect (leo.contains "let pf_")
-    "boolNot must bind an intermediate boolean"
+    "boolNot must bind an intermediate bool"
   expect (leo.contains "(!")
     "Bool negation must render as Leo type-directed !"
 
@@ -707,12 +720,12 @@ unsafe def testMultiParamFnLeo : IO Unit := do
       (·.path == "helpers.aleo") |
     throw <| IO.userError "aleo: missing helpers.aleo"
   let leo := leoFile.contents
-  expect (leo.contains "fn add(public p0: u64, public p1: u64) -> u64 {")
-    "multi-param UInt64 fn must render both public params"
-  expect (leo.contains "fn above(public p0: u64, public p1: u64) -> boolean {")
-    "multi-param Bool fn must render a boolean result"
-  expect (leo.contains "fn go(public p0: u64) -> boolean {")
-    "Bool entry must render a boolean result"
+  expect (leo.contains "fn add(p0: u64, p1: u64) -> u64 {")
+    "UInt64 pureFn must render as a file-level helper without public"
+  expect (leo.contains "fn above(p0: u64, p1: u64) -> bool {")
+    "multi-param Bool pureFn must render as a file-level helper"
+  expect (leo.contains "fn go(public p0: u64) -> bool {")
+    "Bool entry must render a bool result"
   expect (leo.contains "add(")
     "entry must call the add helper"
   expect (leo.contains "above(")
@@ -771,7 +784,7 @@ unsafe def testFieldBn254FailClosed : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program AleoFieldPin where\n" ++
+    "program FieldPin where\n" ++
     "  state acc : Field bn254_fr\n" ++
     "  init(initial : Field bn254_fr) do\n" ++
     "    acc := initial\n" ++
@@ -781,7 +794,7 @@ unsafe def testFieldBn254FailClosed : IO Unit := do
     "  view get() : Field bn254_fr do\n" ++
     "    return acc\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<aleo-field-pin>" "Tests.AleoFieldPin" none)
+    source "<aleo-field-pin>" "Tests.FieldPinAleo" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planAleo compiled with
   | .ok _ =>
@@ -807,7 +820,7 @@ unsafe def testNamedAggregateLowered : IO Unit := do
 " ++
     "open ProofForgeV2.Language
 " ++
-    "program AleoPoint where
+    "program PointBox where
 " ++
     "  struct Point where
 " ++
@@ -832,7 +845,7 @@ unsafe def testNamedAggregateLowered : IO Unit := do
     "    return p.x
 "
   let parsed ← liftResult (← session.selectProgramV1
-    source "<aleo-point>" "Tests.AleoPoint" none)
+    source "<aleo-point>" "Tests.PointBoxAleo" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planAleo compiled
   expect (plan.stateFieldNames == #["p_x", "p_y"])
@@ -846,8 +859,8 @@ unsafe def testNamedAggregateLowered : IO Unit := do
   liftResult <| Targets.Aleo.validatePlan plan
   let output ← liftResult <| materializeAleo compiled
   let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "aleopoint.aleo") |
-    throw <| IO.userError "aleo: missing aleopoint.aleo"
+      (·.path == "pointbox.aleo") |
+    throw <| IO.userError "aleo: missing pointbox.aleo"
   let leo := leoFile.contents
   expect (leo.contains "mapping pf_state_0: u8 => u64;")
     "Aleo Point must emit pf_state_0 for p_x"
@@ -855,6 +868,8 @@ unsafe def testNamedAggregateLowered : IO Unit := do
     "Aleo Point must emit pf_state_1 for p_y"
   expect (leo.contains "pf_state_0.set(0u8,")
     "setX must write the x leaf mapping"
+  expect (leo.contains "program pointbox.aleo {")
+    "Leo program id must not contain the substring aleo"
 
 /-- H3: fixed Array UInt64 2 flattens to slots_0/slots_1 mappings. -/
 unsafe def testArrayStateLowered : IO Unit := do
@@ -864,7 +879,7 @@ unsafe def testArrayStateLowered : IO Unit := do
 " ++
     "open ProofForgeV2.Language
 " ++
-    "program AleoArr where
+    "program ArrBox where
 " ++
     "  state slots : Array UInt64 2
 " ++
@@ -881,7 +896,7 @@ unsafe def testArrayStateLowered : IO Unit := do
     "    return slots[0]
 "
   let parsed ← liftResult (← session.selectProgramV1
-    source "<aleo-arr>" "Tests.AleoArr" none)
+    source "<aleo-arr>" "Tests.ArrBoxAleo" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planAleo compiled
   expect (plan.stateFieldNames == #["slots_0", "slots_1"])
@@ -891,8 +906,8 @@ unsafe def testArrayStateLowered : IO Unit := do
   liftResult <| Targets.Aleo.validatePlan plan
   let output ← liftResult <| materializeAleo compiled
   let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "aleoarr.aleo") |
-    throw <| IO.userError "aleo: missing aleoarr.aleo"
+      (·.path == "arrbox.aleo") |
+    throw <| IO.userError "aleo: missing arrbox.aleo"
   let leo := leoFile.contents
   expect (leo.contains "mapping pf_state_0: u8 => u64;")
     "Aleo Array must emit pf_state_0 for slots_0"

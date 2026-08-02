@@ -58,8 +58,8 @@ normative: false
 | **match String scrutinee** | LOWERED(N-A1) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | **match 多臂同构造器** | LOWERED(N-A2) | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | **Principal state/params** | LOWERED(T10: leaf storage; ≠address) | LOWERED(T12: 9×u64 leaves; ≠32B pubkey) | LOWERED(T12: 9×KV leaves; ≠account-id) | LOWERED(T12: 9×u64 inputs; ≠Field) | FAIL-CLOSED | FAIL-CLOSED |
-| **UInt128 state/param/body** | LOWERED(T9b 原生 word) | LOWERED(T9e 2×u64 multiword) | LOWERED(T9e 2×i64 multiword) | LOWERED(T11 原生 u128 / multi-limb analogue；mul/div/mod FC) | FAIL-CLOSED | FAIL-CLOSED |
-| **UInt256 state/param/body** | LOWERED(T9b) | LOWERED(T9e 4×u64) | LOWERED(T9e 4×i64) | LOWERED(T13 原生 u256 / multi-limb analogue；mul/div/mod FC) | FAIL-CLOSED | FAIL-CLOSED |
+| **UInt128 state/param/body** | LOWERED(T9b 原生 word) | LOWERED(T9e 2×u64 multiword) | LOWERED(T9e 2×i64 multiword) | LOWERED(T11 原生 u128 / multi-limb analogue；mul/div/mod FC；UInt256 FC) | FAIL-CLOSED | FAIL-CLOSED |
+| **UInt256 state/param/body** | LOWERED(T9b) | LOWERED(T9e 4×u64) | LOWERED(T9e 4×i64) | FAIL-CLOSED(T11) | FAIL-CLOSED | FAIL-CLOSED |
 
 ## 2. 验收/差分覆盖矩阵
 
@@ -67,7 +67,7 @@ normative: false
 |---|---|---|---|---|---|---|
 | Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A |
-| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: wat2wasm+wasm-interp) | ❌(source-only) | ❌(source-only) | ❌(source-only) |
+| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: wat2wasm+wasm-interp) | ❌(source-only) | ❌(source-only) | ✅(AleoAcceptance: leo 4.0.2 build; 缺席 skip；非 Tool Lock pin) |
 | 运行时差分 (Reference↔target) | ❌(Anvil formal 缺) | ✅(S3b Mollusk) | ⚠️(WABT load+dummy env; 非 sandbox receipt / 非 Reference↔Wasm) | ❌ | ❌ | ❌ |
 
 ## 3. 工程轨道未实现 feature 全清单（A/B/C/D 组）
@@ -117,7 +117,7 @@ normative: false
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
 | **C-1** | NEAR Wasm 运行时差分 | **已闭合(NearWasmAcceptance 工程切片)**：产品 path 物化 Counter/DualField（多字段 public UInt64 KV；named Struct 仍 NEAR Plan FC）/LoopSum → `.wat` → 主机 `wat2wasm` + `wasm-interp --dummy-import-func`（或 wasmtime compile / wasmer validate）实例化；工具缺席干净 skip；**非** NEAR sandbox receipt / Reference↔Wasm formal 差分 | NearWasmAcceptance ✅ |
-| **C-2** | Aleo/Psy compiler/VM 验收研究 | **已闭合（2026-08-02，RPT-015）**：**不**升格验收门。树内无 pinned `leo` / psy-vm Tool Lock 资产与 CI 编译/证明门；Aleo Field≠bn254、Psy Felt=Goldilocks 仍 FAIL-CLOSED。成熟度保持 **source-only** Plan/IR/source package。跟进需独立 Tool Lock + gate ID | AleoPsyResearch ✅ |
+| **C-2** | Aleo/Psy compiler/VM 验收研究 | **研究闭合（2026-08-02，RPT-015）** + **J2 AleoEmissionFix（2026-08-02）**：`leo 4.0.2` 主机可用时 `AleoAcceptance` 对产品 `.aleo` 做 `leo build --offline` 验收（缺席 skip；**无** Tool Lock pin / 非 prove-deploy）；EmitIRV1 已对齐 Leo 4 语法（`bool`、`return final {…};`、shift `as u8`、pureFn 文件级 helper、闭合 constructor）。Psy 仍无 VM 门。Aleo Field≠bn254 仍 FAIL-CLOSED。成熟度：**source package + optional host leo compile**，**非** hermetic/runtime | AleoPsyResearch ✅ / AleoEmissionFix |
 | **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + 历史 Anvil Counter，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
 | **C-4** | Noir prove/verify 验收门 | **已闭合研究（2026-08-02，RPT-016）**：**不**升格。无 nargo/backend Tool Lock pin；host 无 nargo；`validate_artifacts` 故意拒绝 proof-stage 叶子；成熟度保持 **source-only** relations + Lean relation model。跟进需独立 `NoirProveAcceptance` + pin | NoirProveResearch ✅ |
 | **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates 已在；N 系列 Map/Option/Context 等 Solana Plan 多为 FAIL-CLOSED，不发明 fake runtime 面 | MolluskFixtures |
