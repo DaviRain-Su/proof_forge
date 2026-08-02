@@ -246,7 +246,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **C-2** | Aleo/Psy compiler/VM 可用性研究与是否升格验收 | **done**（2026-08-02：RPT-015 不升格门；Aleo/Psy 保持 source-only；矩阵 C-2 行 + research README 已登记） |
 | **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；工程 Anvil smoke 可保留） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | **done**（2026-08-02：RPT-016 **不**升格 prove/verify；无 nargo Tool Lock pin；保持 source-only；见 `16-noir-prove-path.md`） |
-| **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（fixture 集：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates/NarrowAbi/NarrowResult；N 系列 Map/Option/Context 等 Solana Plan 多为 FAIL-CLOSED，不发明 runtime 面；随新 LOWERED 再扩） |
+| **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（fixture 集：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates/NarrowAbi/NarrowResult + **ArraySlots**（Array UInt64 2）；Map/Option/Context 等 Solana Plan 多为 FAIL-CLOSED，不发明 runtime 面；随新 LOWERED 再扩） |
 
 ---
 

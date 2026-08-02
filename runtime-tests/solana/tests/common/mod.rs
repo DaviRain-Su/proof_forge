@@ -157,6 +157,27 @@ pub fn two_fields(a: &'static str, b: &'static str) -> [StateField; 2] {
     ]
 }
 
+/// Array UInt64 N flatten: leaf names `slots_0`… share `source_id` 0 (ArrayState).
+pub fn array_u64_leaves(n: usize) -> Vec<StateField> {
+    (0..n)
+        .map(|i| {
+            let name: &'static str = match i {
+                0 => "slots_0",
+                1 => "slots_1",
+                2 => "slots_2",
+                3 => "slots_3",
+                _ => panic!("array_u64_leaves: only n≤4 supported in fixture helper"),
+            };
+            StateField {
+                source_id: 0,
+                name,
+                byte_offset: STATE_HEADER_BYTES + i * 8,
+                byte_width: 8,
+            }
+        })
+        .collect()
+}
+
 /// Multi-field layout with explicit widths (8-byte slot pitch).
 pub fn fields_with_widths(specs: &[(&'static str, usize)]) -> Vec<StateField> {
     specs

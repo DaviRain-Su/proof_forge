@@ -1260,3 +1260,128 @@ fn narrow_result_get32_returns_four_bytes() {
         ],
     );
 }
+
+// ─── ArraySlots (C-5: Array UInt64 2 flatten → slots_0/slots_1) ─────────────
+
+fn array_slots_fields() -> Vec<StateField> {
+    array_u64_leaves(2)
+}
+
+fn array_slots_state(initialized: bool, v0: u64, v1: u64) -> Vec<u8> {
+    state_data(&array_slots_fields(), initialized, &[v0, v1])
+}
+
+fn assert_array_slots_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("ArraySlots"),
+        &[
+            ("initialize", 2),
+            ("set0", 1),
+            ("set1", 1),
+            ("get0", 0),
+            ("get1", 0),
+        ],
+    );
+}
+
+#[test]
+fn array_slots_initialize() {
+    assert_array_slots_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "ArraySlots");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("initialize", 2);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[11, 22], true, true),
+        &[(
+            state_key,
+            state_account(&program_id, array_slots_state(false, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::account(&state_key)
+                .data(&array_slots_state(true, 11, 22))
+                .build(),
+        ],
+    );
+    // Array flatten layout marker distinct from MultiField (different names + source_id).
+    let arr = layout_marker(&array_slots_fields());
+    let multi = layout_marker(&two_fields("a", "b"));
+    assert_ne!(arr, 0);
+    assert_ne!(arr, multi);
+}
+
+#[test]
+fn array_slots_set0_get0() {
+    assert_array_slots_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "ArraySlots");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("set0", 1);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[77], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, array_slots_state(true, 1, 2)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&77u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&array_slots_state(true, 77, 2))
+                .build(),
+        ],
+    );
+
+    let disc_get = instruction_discriminator("get0", 0);
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc_get, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, array_slots_state(true, 77, 2)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&77u64.to_le_bytes()),
+        ],
+    );
+}
+
+#[test]
+fn array_slots_set1_get1() {
+    assert_array_slots_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "ArraySlots");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("set1", 1);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[88], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, array_slots_state(true, 1, 2)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&88u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&array_slots_state(true, 1, 88))
+                .build(),
+        ],
+    );
+
+    let disc_get = instruction_discriminator("get1", 0);
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc_get, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, array_slots_state(true, 1, 88)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&88u64.to_le_bytes()),
+        ],
+    );
+}

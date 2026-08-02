@@ -118,7 +118,7 @@ normative: false
 | **C-2** | Aleo/Psy compiler/VM 验收研究 | **已闭合（2026-08-02，RPT-015）**：**不**升格验收门。树内无 pinned `leo` / psy-vm Tool Lock 资产与 CI 编译/证明门；Aleo Field≠bn254、Psy Felt=Goldilocks 仍 FAIL-CLOSED。成熟度保持 **source-only** Plan/IR/source package。跟进需独立 Tool Lock + gate ID | AleoPsyResearch ✅ |
 | **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + 历史 Anvil Counter，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
 | **C-4** | Noir prove/verify 验收门 | **已闭合研究（2026-08-02，RPT-016）**：**不**升格。无 nargo/backend Tool Lock pin；host 无 nargo；`validate_artifacts` 故意拒绝 proof-stage 叶子；成熟度保持 **source-only** relations + Lean relation model。跟进需独立 `NoirProveAcceptance` + pin | NoirProveResearch ✅ |
-| **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates 已在；N 系列 Map/Option/Context 等 Solana Plan 多为 FAIL-CLOSED，不发明 fake runtime 面 | MolluskFixtures |
+| **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates/NarrowAbi/NarrowResult + **ArraySlots**（Array UInt64 2）；Map/Option/Context 等 Solana Plan 多为 FAIL-CLOSED，不发明 fake runtime 面 | MolluskFixtures |
 
 ### D 组：文档/checkpoint 同步缺口
 

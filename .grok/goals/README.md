@@ -29,7 +29,7 @@ Live status authority = [`docs/engineering-backlog.md`](../../docs/engineering-b
 | 状态 | 说明 |
 |---|---|
 | **已 commit 过的主轴** | N-*、R-1…R-3、B-*、C-1/C-2/C-4、T-3、D3-E1…E3、SKEPTIC-1、DOC-* 等见 backlog `done` |
-| **NEXT** | **`INV-1`** proof reference product path（见 backlog） |
+| **NEXT** | **EMPTY** (drain done; C-5 ongoing / NS-1 when language product path) proof reference product path（见 backlog） |
 | **ongoing** | **C-5** Mollusk fixtures — inventory only; expand when Solana LOWERED grows |
 
 **从 T-1 续 drain：**

@@ -1,8 +1,7 @@
 # Goal slice queue (engineering only)
 > Generated for `/goal` + workflows. Formal F-*/Q-*/C-3 excluded.
 > Master goal: `.grok/goals/prompt-master-queue.md`
-> **Current resume (2026-08-02):** `prompt-master-queue.md starting at INV-1`
-> (through D5-plus done; C-5 ongoing; formal C-3 blocked)
+> **Current resume (2026-08-02):** engineering drain complete through RES-1; C-5 ongoing (ArraySlots); formal C-3 blocked; NS-* language-gated
 >
 > Status seed is **not** live authority — always re-read `docs/engineering-backlog.md`.
 > Seed column below tracks **navigation only**; conflict → backlog wins.
@@ -47,7 +46,7 @@
 | 35 | `C-1` | target | **done** |
 | 36 | `C-2` | docs | **done** |
 | 37 | `C-4` | target | **done** |
-| 38 | `C-5` | target | **ongoing** (fixture inventory; expand on new LOWERED) |
+| 38 | `C-5` | target | **ongoing** (ArraySlots added; expand on new LOWERED) |
 | 39 | `T9e` | width | **done** |
 | 40 | `D3-E1` | d3 | **done** |
 | 41 | `D3-E2` | d3 | **done** |
@@ -63,10 +62,10 @@
 | 51 | `T-1` | typed | **done** |
 | 52 | `T-2` | typed | **done** |
 | 53 | `T-3` | typed | **done** |
-| 54 | `INV-1` | typed | **NEXT** pending |
-| 55 | `APP-1` | app | pending |
-| 56 | `PERF-1` | nfr | pending |
-| 57 | `RES-1` | nfr | pending |
+| 54 | `INV-1` | typed | **done** |
+| 55 | `APP-1` | app | **done** |
+| 56 | `PERF-1` | nfr | **done** |
+| 57 | `RES-1` | nfr | **done** |
 | 58 | `NS-1` | northstar | pending (language deps) |
 | 59 | `NS-2` | northstar | pending |
 | 60 | `EXT-CRYPTO` | northstar | pending |
