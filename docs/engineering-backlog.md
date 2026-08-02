@@ -271,8 +271,8 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 |---|---|---|
 | **D4-E1** | EVM Plan schema/canonical hash/BuildIdentity 绑定完整 | **done**（2026-08-02：工程 `engineeringEvmPlanDigestV1` + PlanSchemaV1 + BuildIdentity planDigest 绑定；`Tests.Materialization.EvmPlanSchemaV1` + IdentityChainV1；**非** formal TASK-D4-01） |
 | **D4-E2** | EVM 完整 Semantic→Plan 表面（非仅当前 pilot 集） | **done**（2026-08-02：EVM 开 Normalize-admitted **Bytes N** state → N×UInt8 storage leaves + IndexGet/IndexSet；Map 仍 FAIL-CLOSED；`EvmSmoke.testBytesStateIndexOps`；非 formal 全 Semantic 面） |
-| **D4-E3** | TargetIR schema/validator/hash/trace | pending |
-| **D4-E4** | locked solc + OutputSet 角色齐套 | pending |
+| **D4-E3** | TargetIR schema/validator/hash/trace | **done**（2026-08-02：工程 `validateEvmTargetIRV1` 结构门 + `lower`/`emitFromIR` 接线；Yul/ABI size/brace/marker；**非** formal TargetIR grammar/solc 等价） |
+| **D4-E4** | locked solc + OutputSet 角色齐套 | **done**（2026-08-02：locked solc FinalizeV1 + engineering OutputSet `proof-forge.output.v1` + EvmSolcAcceptance；**非** formal OutputSetV1 角色齐套） |
 | **D5+** | Solana / NEAR / Noir 里程碑完成（ELF/runtime/prove 按 dossier） | pending |
 
 ---
