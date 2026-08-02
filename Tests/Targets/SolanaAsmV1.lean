@@ -905,10 +905,10 @@ private unsafe def testTokenElfFrameBudgetOk
   let compiled ← compileSource session source "Examples.TokenFb"
     "<solana-token-fb>"
   let ir ← liftResult <| irSolana compiled
-  -- Before temp reuse mint was 58032 bytes (7254 temps). After: ≤ 4096.
+  -- Before temp reuse: 58032 bytes (7254 temps). After: must be ≤ 4096.
   let asm ← liftResult <| emitSbpfAsmV1 ir
   expect (asm.contains "mint:") "token-fb: asm must contain mint handler"
-  expect (asm.contains "entrypoint:") "token-fb: asm must contain entrypoint"
+  expect (asm.contains "transfer:") "token-fb: asm must contain transfer handler"
 
 /-- L2 / B-SOL-MAP-ELF: an oversized handler must still fail closed at the
     4096-byte frame budget (the budget is not raised to make Map fit). -/
@@ -952,7 +952,7 @@ private unsafe def testFrameBudgetFailClosed
       | .error e =>
         let msg := e.render
         expect (msg.contains "frame budget exceeded" || msg.contains "exceeds depth")
-          s!"oversized-frame: expected frame budget error, got: {msg}"
+          s!"oversized-frame: error must mention frame budget or depth, got: {msg}"
 
 unsafe def run : IO Unit := do
   testLayoutExact16
