@@ -19,6 +19,7 @@ import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.ProofBundleV1
+import Tests.Semantic.ProofReferenceJoinV1
 import Tests.Language.ProgramV1Declarations
 import Tests.Language.ProgramV1DeclarationNegatives
 import Tests.Language.ProgramV1ExternalStatements
@@ -99,6 +100,7 @@ unsafe def main : IO Unit := do
   Tests.Semantic.InvariantABI.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.ProofBundleV1.run
+  Tests.Semantic.ProofReferenceJoinV1.run
   Tests.Language.ProgramV1Declarations.run
   Tests.Language.ProgramV1DeclarationNegatives.run
   Tests.Language.ProgramV1ExternalStatements.run

@@ -99,7 +99,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | FR | 工程判断 | backlog 落点 |
 |---|---|---|
 | FR-001 唯一 `program` | 基本 done | — |
-| FR-002 全 declaration + proof ref | parser/typed 强；**Normalize/product 子集**；proof reference 未闭合 | N-*、INV-* |
+| FR-002 全 declaration + proof ref | parser/typed 强；**INV-1** 工程 product join 已闭合；formal kernel/defeq 仍开 | N-*、INV-1 |
 | FR-003 type/effect/bound/disclosure | CheckV1 七相位产品门禁；**T-1 工程 authority/custody 子集已接线**（entry 写 private 需 `context.caller`；**非** formal TST-VIS-002） | T-1 **done** |
 | FR-004 SemanticProgram + requirements | structure-gated + S2 freeze 工程子集 | N-*、D3-E* |
 | FR-005 target 不改语义 | 架构遵守；跨 target reference trace 矩阵未做满 | R-1、C-* |
@@ -260,7 +260,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **D3-E2** | SupportClaim/decision 全字段与 resolver 决策面 | **done**（2026-08-02：**工程** `EngineeringSupportClaimV1` + `mintEngineeringSupportClaimsV1` + resolver/describe-target `claimDigest` + `Tests/Materialization/IdentityChainV1`；domain `pf.support-claim.engineering.v1`；**非** formal SupportClaim/predicate/evidence grade） |
 | **D3-E3** | 可达 BuildIdentity mint + Plan/IR digest 全 target（T9d 子集） | **done**（2026-08-02：工程 `mintEngineeringBuildIdentityV1` + EVM/Solana/NEAR/Noir planDigest；Aleo/Psy engineering-absent slot；`IdentityChainV1` 钉四 target 匹配 + absent；**非** formal BuildIdentity） |
 | **D3-E4** | formal `OutputSetV1` 字段齐套；退役 transitional v2alpha1 残留 | **done**（2026-08-02：**工程** on-disk 已是 `proof-forge.output.v1` + `mintEngineeringOutputSetV1`；legacy `proof-forge-output/v2alpha1` renderer 已删并由 OutputSetV1 suite 钉零；`sourceHash`/`semanticHash` 键名仅为兼容；**非** formal OutputSetV1 字段齐套） |
-| **D3-E5** | CLI 剩余 flag：evidence/resource override 等 SPEC-CLI 面 | **done**（2026-08-02：`--resource-limit` lower-only hard-max/dup/stage 校验；check 拒 external-tool/artifact-output；`--minimum-evidence` build-only 四 grade；proof-bundle 对 fail-closed 至 INV-1；check/build JSON 可观测 `resourceLimits`；`Tests.CLI.ResourceFlagsV1`；非 RES-1 wall 执行/formal SPEC-CLI） |
+| **D3-E5** | CLI 剩余 flag：evidence/resource override 等 SPEC-CLI 面 | **done**（2026-08-02：`--resource-limit` lower-only hard-max/dup/stage 校验；check 拒 external-tool/artifact-output；`--minimum-evidence` build-only 四 grade；proof-bundle pair 已由 **INV-1** 产品 join；check/build JSON 可观测 `resourceLimits`；`Tests.CLI.ResourceFlagsV1`；非 RES-1 wall 执行/formal SPEC-CLI） |
 | **D3-E6** | stage supervisor / receipt（compiler-core/tool/output）——与 D1 监督层移除决策协调 | **done**（2026-08-02：**永久进程内** — 不恢复 SafeOpen/supervisor 产品路径；sole Loader 进程内；RES-1 若做也在进程内；见 `RECOVERY.md` D3-E6） |
 
 ---
@@ -284,7 +284,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **T-1** | authority / custody 轴（`TST-VIS-002` 工程子集） | **done**（2026-08-02：`AuthorityCustodyCheckV1` — entry 写 private state 需 `context.caller` 权威证据；`reqPrecondition` 非 PF-VIS-001；CheckV1 phase 6；**非** formal TST-VIS-002） |
 | **T-2** | context / extension requirements 接入 CheckV1 | **done**（2026-08-02：`ContextExtensionCheckV1` — 仅 admit context.caller/unixTimeSeconds；extension 声明工程 Check `ext001` fail-closed；CheckV1 phase 7；**非** formal extension catalog） |
 | **T-3** | RequirementsInfer：callerContext / commit 等贡献键（随 N-2/N-3） | **done**（2026-08-02：context.unixTimeSeconds/caller + commit 贡献 wire id；S2 freeze skip；Normalize 仍 sole wire-row mint） |
-| **INV-1** | 受约束 `proof` reference 产品路径（FR-002 / Phase-1 语言范围） | pending |
+| **INV-1** | 受约束 `proof` reference 产品路径（FR-002 / Phase-1 语言范围） | **done**（2026-08-02：`ProofReferenceJoinV1` + CLI `--proof-bundle` pair 在 compile 后 exact 集合 join；Normalize skip invariant/proof 进 IR；R-3 `openProofBundleV1`；无 ambient Lean term；**非** formal TST-PROOF-001/kernel/defeq） |
 | **APP-1** | PrivateSum4 持续作为隐私边界验收向量（Phase-1 DoD） | pending |
 
 ---

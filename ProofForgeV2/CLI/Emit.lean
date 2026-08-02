@@ -458,10 +458,9 @@ def validateBuildOptionsCliV1
       if dir.isEmpty then throw "--proof-bundle path must be nonempty"
       unless isValidProofBundleDigestWireV1 dig do
         throw "invalid --proof-bundle-digest (want sha256:<64 lowercase hex>)"
-      -- Engineering product path: proof references are not yet a shipped product
-      -- surface (INV-1). Providing the pair is still parsed, then fail closed
-      -- here so Counter-like programs cannot silently ignore it.
-      throw "proof-bundle is not accepted: source proof references are not enabled on the product path"
+      -- INV-1: pair shape accepted here; product path joins after compile using
+      -- ProofReferenceJoinV1 (unused pair / missing pair / export join fail closed).
+      pure ()
   pure options
 
 /-- Shared build/check argument parser (pure Except).

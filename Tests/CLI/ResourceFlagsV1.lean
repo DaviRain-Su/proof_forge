@@ -106,13 +106,15 @@ def run : IO Unit := do
       ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
         "--proof-bundle-digest", "sha256:0000000000000000000000000000000000000000000000000000000000000000"])
     "--proof-bundle-digest requires"
-  expectErr "bundle pair product"
-    (parseProductCliCommandV1
+  -- INV-1: pair shape is accepted at parse; unused-on-Counter is a product-time
+  -- join gate (source has no proof references), not a parse rejection.
+  match parseProductCliCommandV1
       ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
         "--proof-bundle", "bundle-dir",
         "--proof-bundle-digest",
-        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"])
-    "proof-bundle is not accepted"
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"] with
+  | .error e => throw <| IO.userError s!"bundle pair parse must succeed (INV-1): {e}"
+  | .ok _ => pure ()
 
   -- Unknown option still fail closed
   expectErr "network"

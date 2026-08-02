@@ -17,6 +17,7 @@ import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.ProofBundleV1
+import Tests.Semantic.ProofReferenceJoinV1
 unsafe def main : IO Unit := do
   Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Compiler.CheckV1ProductGate.run
@@ -37,4 +38,5 @@ unsafe def main : IO Unit := do
   Tests.Semantic.InvariantABI.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.ProofBundleV1.run
+  Tests.Semantic.ProofReferenceJoinV1.run
   IO.println "shard-typed: ok"

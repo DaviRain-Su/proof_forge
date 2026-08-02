@@ -4,6 +4,8 @@ import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Frontend.ProtocolV1
 import ProofForgeV2.Language.Loader
+import ProofForgeV2.Semantic.ProofBundleV1
+import ProofForgeV2.Semantic.ProofReferenceJoinV1
 import ProofForgeV2.Targets.BuildSelectionV1
 
 namespace ProofForgeV2.CLI
@@ -15,6 +17,8 @@ open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Frontend.ProtocolV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Semantic.ProofBundleV1
+open ProofForgeV2.Semantic.ProofReferenceJoinV1
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Compiler
 
@@ -25,15 +29,15 @@ private def usage : String :=
   "  proof-forge-next inspect <target> [--json]\n" ++
   "  proof-forge-next inspect <output-dir> [--json]\n" ++
   "  proof-forge-next inspect --output-dir <dir> [--json]\n" ++
-  "  proof-forge-next check <source.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
-  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
+  "  proof-forge-next check <source.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--resource-limit <stage>.<field>=<n>]... [--proof-bundle <dir> --proof-bundle-digest <sha256:…>] [--json]\n" ++
+  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--resource-limit <stage>.<field>=<n>]... [--proof-bundle <dir> --proof-bundle-digest <sha256:…>] [--json]\n" ++
   "\n" ++
   "Notes:\n" ++
   "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
   "  --network is not supported (no network registry); it is a usage error.\n" ++
   "  --resource-limit is a lower-only override (stage.field=n); check rejects external-tool/artifact-output.\n" ++
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
-  "  --proof-bundle pair is fail-closed until product proof references are enabled.\n" ++
+  "  --proof-bundle pair joins source `proof … using …` to a digest-pinned ProofBundleV1 (INV-1 engineering; no ambient Lean term).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build.\n" ++
   "  inspect <arg> prefers a registered target id when ambiguous; use --output-dir to force a path.\n" ++
   "  inspect output-dir validates proof-forge.output.v1 manifest + evidence identity chain.\n" ++
@@ -133,6 +137,76 @@ private def liftCompileResult (result : Except CompileError α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
 
+/-- Product proof-join failure: unused pair is usage/exit 2; all other join
+    failures are exit 3 with a stable human message (engineering INV-1). -/
+private def failProofJoin (e : ProofReferenceJoinErrorV1) : IO α := do
+  let msg := renderProofReferenceJoinErrorV1 e
+  match e with
+  | .unusedBundle => failUsage msg
+  | _ =>
+      IO.eprintln msg
+      IO.Process.exit 3
+
+/-- Open a layout-valid proof-bundle directory: `proof-bundle.json` + each
+    manifest `oleanPath` relative to the directory. Drives shipped
+    `openProofBundleV1` (R-3). No ambient LEAN_PATH / kernel load. -/
+private def openProofBundleDirectoryV1 (dir : FilePath) :
+    IO (Except ProofReferenceJoinErrorV1 OpenedProofBundleV1) := do
+  let manPath := dir / "proof-bundle.json"
+  let manBytes ← try
+      IO.FS.readBinFile manPath
+    catch _ =>
+      return .error (.bundleOpen (.malformed
+        s!"cannot read proof-bundle.json under '{dir.toString}'"))
+  match decodeProofBundleManifestV1 manBytes with
+  | .error pe => pure (.error (.bundleOpen pe))
+  | .ok m => do
+      let mut files : Array (String × ByteArray) := #[]
+      for mod in NonEmptyArray.toArray m.modules do
+        let filePath := dir / FilePath.mk mod.oleanPath
+        let bytes ← try
+            IO.FS.readBinFile filePath
+          catch _ =>
+            return .error (.bundleOpen (.missingModule mod.oleanPath))
+        files := files.push (mod.oleanPath, bytes)
+      match openProofBundleV1 manBytes files with
+      | .error pe => pure (.error (.bundleOpen pe))
+      | .ok opened => pure (.ok opened)
+
+/-- After successful product compile: gate + optional ProofBundle join.
+    Order matches SPEC-CLI: normalize/hash first, then proof-bundle join.
+    Does not load ambient theorems; join is name/digest structural only. -/
+private def applyProofBundleProductGateV1
+    (sourceProgram : ValidatedSourceV1)
+    (compiled : CompiledSemanticV1)
+    (options : BuildOptions) : IO Unit := do
+  let bindings := collectSourceProofBindingsV1 sourceProgram.program
+  let pairPresent := options.proofBundle.isSome
+  match requireProofBundlePairGateV1 bindings pairPresent with
+  | .error e => failProofJoin e
+  | .ok () => pure ()
+  if bindings.isEmpty then
+    pure ()
+  else
+    let dir ← match options.proofBundle with
+      | some d => pure (FilePath.mk d)
+      | none => failProofJoin .missingBundle
+    let digWire ← match options.proofBundleDigest with
+      | some w => pure w
+      | none => failProofJoin .missingBundle
+    let expected ← match parseDigest digWire with
+      | .ok d => pure d
+      | .error detail =>
+          failProofJoin (.digestMismatch s!"invalid --proof-bundle-digest: {detail}")
+    let opened ← match ← openProofBundleDirectoryV1 dir with
+      | .error e => failProofJoin e
+      | .ok o => pure o
+    let sourceHash := CompiledSemanticV1.sourceDigestOf compiled
+    let semanticHash := CompiledSemanticV1.semanticDigestOf compiled
+    match joinProofReferencesV1 bindings opened expected sourceHash semanticHash with
+    | .error e => failProofJoin e
+    | .ok () => pure ()
+
 private def resolveLanguageVersionForCli (requested : Option String) : IO SemVer :=
   match resolveLanguageParserDescriptorV1 requested with
   | .ok descriptor => pure (LanguageParserDescriptorV1.version descriptor)
@@ -181,6 +255,8 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>
+      -- INV-1: proof-bundle join after compile, before materialize.
+      applyProofBundleProductGateV1 sourceProgram compiled options
       -- Product phase: in-process Loader read → located compile → exact
       -- requirement capability → emit/finalize/disk closure.
       -- Selected codegen profile is bound by selection and flows into the
@@ -218,6 +294,8 @@ private unsafe def checkSource (options : BuildOptions) : IO Unit := do
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>
+      -- INV-1: proof-bundle join after compile (no materialize).
+      applyProofBundleProductGateV1 sourceProgram compiled options
       let target? := selection?.map ResolvedBuildSelectionV1.targetIdOf
       let profile? := selection?.map ResolvedBuildSelectionV1.codegenProfileOf
       match selection? with

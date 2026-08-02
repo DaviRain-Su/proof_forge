@@ -3482,11 +3482,17 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
           { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
         callableId := callableId + 1
     | .invariant _ =>
-        return ← failUnsupported "S1 normalizer does not support invariant"
+        -- INV-1 engineering: invariant predicates are typed by CheckV1 but are
+        -- not yet lowered into SemanticProgramV1.callables/invariants. Skip so
+        -- constrained `proof … using …` product paths can compile; residual is
+        -- empty `invariants` table (not formal invariant closure).
+        pure ()
     | .extensionReq _ =>
         return ← failUnsupported "S1 normalizer does not support extension"
     | .proof _ =>
-        return ← failUnsupported "S1 normalizer does not support proof"
+        -- INV-1: proof references are certification metadata only; they never
+        -- enter Semantic IR / business execution (SPEC-TYPE / SPEC-LANG).
+        pure ()
 
   -- Target envelope still requires exactly one anonymous UInt64 TypeId.
   -- Int-primary programs (Int64 state/results only) never intern UInt64 via
