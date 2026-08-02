@@ -429,6 +429,144 @@ private def addInvariantStepsCheckedV1 (lhs rhs : UInt64) :
   if maxInvariantStepsV1.toNat < total then return ← err .badCfg
   pure (UInt64.ofNat total)
 
+private abbrev InvariantFuelGraphV1 :=
+  Array Nat × Array (Array Nat) × Array UInt64 × Nat
+
+@[simp] private def buildInvariantFuelGraphWorkerV1
+    (callables : Array CallableV1) (members : Array Bool) (callerIndex : Nat)
+    (remainingCalls : Array Nat) (callersByCallee : Array (Array Nat))
+    (totals : Array UInt64) (memberCount : Nat) : Nat →
+    Except SemanticWireErrorV1 InvariantFuelGraphV1
+  | 0 => if callerIndex < callables.size then err .badCfg
+      else pure (remainingCalls, callersByCallee, totals, memberCount)
+  | fuel + 1 => do
+      if callerIndex < callables.size then
+        let mut nextRemaining := remainingCalls
+        let mut nextCallers := callersByCallee
+        let mut nextTotals := totals
+        let mut nextMemberCount := memberCount
+        if members[callerIndex]! then
+          nextMemberCount := nextMemberCount + 1
+          match callables[callerIndex]? with
+          | none => return ← err .badCfg
+          | some caller =>
+              let mut intrinsicTotal : UInt64 := 1
+              for block in caller.blocks do
+                intrinsicTotal ← addInvariantStepsCheckedV1 intrinsicTotal
+                  (UInt64.ofNat (block.instructions.size + 1))
+                for instr in block.instructions do
+                  match instr.op with
+                  | .pureCall calleeId _ =>
+                      let calleeIndex := calleeId.toNat
+                      match callables[calleeIndex]? with
+                      | none => return ← err .badCfg
+                      | some callee =>
+                          unless callee.kind == .pureFn && members[calleeIndex]! do
+                            return ← err .badCfg
+                          nextRemaining := nextRemaining.set! callerIndex
+                            (nextRemaining[callerIndex]! + 1)
+                          nextCallers := nextCallers.set! calleeIndex
+                            (nextCallers[calleeIndex]!.push callerIndex)
+                  | _ => pure ()
+              nextTotals := nextTotals.set! callerIndex intrinsicTotal
+        buildInvariantFuelGraphWorkerV1 callables members (callerIndex + 1)
+          nextRemaining nextCallers nextTotals nextMemberCount fuel
+      else pure (remainingCalls, callersByCallee, totals, memberCount)
+
+private theorem buildInvariantFuelGraphWorkerDoneV1
+    (callables : Array CallableV1) (members : Array Bool) (index fuel : Nat)
+    (remaining : Array Nat) (callers : Array (Array Nat))
+    (totals : Array UInt64) (count : Nat) (hDone : ¬ index < callables.size) :
+    buildInvariantFuelGraphWorkerV1 callables members index remaining callers totals
+      count fuel = .ok (remaining, callers, totals, count) := by
+  cases fuel <;> simp [buildInvariantFuelGraphWorkerV1, hDone, Pure.pure, Except.pure]
+
+private theorem buildInvariantFuelGraphWorkerExhaustedV1
+    (callables : Array CallableV1) (members : Array Bool) (index : Nat)
+    (remaining : Array Nat) (callers : Array (Array Nat))
+    (totals : Array UInt64) (count : Nat) (hWork : index < callables.size) :
+    buildInvariantFuelGraphWorkerV1 callables members index remaining callers totals
+      count 0 = .error .badCfg := by
+  simp [buildInvariantFuelGraphWorkerV1, hWork]
+  rfl
+
+@[simp] private def collectInvariantFuelReadyWorkerV1
+    (members : Array Bool) (remaining : Array Nat) (index : Nat)
+    (ready : Array Nat) : Nat → Except SemanticWireErrorV1 (Array Nat)
+  | 0 => if index < members.size then err .badCfg else pure ready
+  | fuel + 1 =>
+      if index < members.size then
+        collectInvariantFuelReadyWorkerV1 members remaining (index + 1)
+          (if members[index]! && remaining[index]! == 0 then ready.push index else ready) fuel
+      else pure ready
+
+private theorem collectInvariantFuelReadyWorkerDoneV1
+    (members : Array Bool) (remaining : Array Nat) (index fuel : Nat)
+    (ready : Array Nat) (hDone : ¬ index < members.size) :
+    collectInvariantFuelReadyWorkerV1 members remaining index ready fuel = .ok ready := by
+  cases fuel <;> simp [collectInvariantFuelReadyWorkerV1, hDone, Pure.pure, Except.pure]
+
+private theorem collectInvariantFuelReadyWorkerExhaustedV1
+    (members : Array Bool) (remaining : Array Nat) (index : Nat)
+    (ready : Array Nat) (hWork : index < members.size) :
+    collectInvariantFuelReadyWorkerV1 members remaining index ready 0 = .error .badCfg := by
+  simp [collectInvariantFuelReadyWorkerV1, hWork]
+  rfl
+
+private abbrev InvariantFuelKahnResultV1 :=
+  Nat × Array Nat × Array UInt64 × Array Nat
+
+@[simp] private def validateInvariantFuelKahnWorkerV1
+    (cursor processed : Nat) (remaining : Array Nat)
+    (callers : Array (Array Nat)) (totals : Array UInt64) (ready : Array Nat)
+    (memberCount : Nat) (callables : Array CallableV1) : Nat →
+    Except SemanticWireErrorV1 InvariantFuelKahnResultV1
+  | 0 => if cursor < ready.size then err .badCfg
+      else pure (processed, remaining, totals, ready)
+  | fuel + 1 => do
+      if cursor < ready.size then
+        let calleeIndex := ready[cursor]!
+        match callables[calleeIndex]? with
+        | none => return ← err .badCfg
+        | some callee =>
+            match callee.invariantSteps with
+            | none => return ← err .badCfg
+            | some carried =>
+                unless carried == totals[calleeIndex]! do return ← err .badCfg
+        let calleeSteps := totals[calleeIndex]!
+        let mut nextRemaining := remaining
+        let mut nextTotals := totals
+        let mut nextReady := ready
+        for callerIndex in callers[calleeIndex]! do
+          nextTotals := nextTotals.set! callerIndex
+            (← addInvariantStepsCheckedV1 nextTotals[callerIndex]! calleeSteps)
+          let count := nextRemaining[callerIndex]!
+          if count == 0 then return ← err .badCfg
+          let next := count - 1
+          nextRemaining := nextRemaining.set! callerIndex next
+          if next == 0 then nextReady := nextReady.push callerIndex
+        validateInvariantFuelKahnWorkerV1 (cursor + 1) (processed + 1)
+          nextRemaining callers nextTotals nextReady memberCount callables fuel
+      else pure (processed, remaining, totals, ready)
+
+private theorem validateInvariantFuelKahnWorkerDoneV1
+    (cursor processed fuel : Nat) (remaining : Array Nat)
+    (callers : Array (Array Nat)) (totals : Array UInt64) (ready : Array Nat)
+    (memberCount : Nat) (callables : Array CallableV1)
+    (hDone : ¬ cursor < ready.size) :
+    validateInvariantFuelKahnWorkerV1 cursor processed remaining callers totals ready
+      memberCount callables fuel = .ok (processed, remaining, totals, ready) := by
+  cases fuel <;> simp [validateInvariantFuelKahnWorkerV1, hDone, Pure.pure, Except.pure]
+
+private theorem validateInvariantFuelKahnWorkerExhaustedV1
+    (cursor processed : Nat) (remaining : Array Nat)
+    (callers : Array (Array Nat)) (totals : Array UInt64) (ready : Array Nat)
+    (memberCount : Nat) (callables : Array CallableV1) (hWork : cursor < ready.size) :
+    validateInvariantFuelKahnWorkerV1 cursor processed remaining callers totals ready
+      memberCount callables 0 = .error .badCfg := by
+  simp [validateInvariantFuelKahnWorkerV1, hWork]
+  rfl
+
 /-- Compute and validate exact `computedInvariantSteps` for every callable in
     the already-validated invariant-closure DAG (SPEC §8). Local cost is
     `1 + sum(block.instructions.size + 1)`; every static PureCall occurrence
@@ -441,63 +579,14 @@ private def validateInvariantStepsExactWithMembersV1
     (callables : Array CallableV1) (members : Array Bool) :
     Except SemanticWireErrorV1 Unit := do
   let callableCount := callables.size
-  let mut remainingCalls := Array.mk (List.replicate callableCount 0)
-  let mut callersByCallee : Array (Array Nat) :=
-    Array.mk (List.replicate callableCount #[])
-  let mut totals := Array.mk (List.replicate callableCount (0 : UInt64))
-  let mut memberCount : Nat := 0
-  for callerIndex in [:callableCount] do
-    if members[callerIndex]! then
-      memberCount := memberCount + 1
-      match callables[callerIndex]? with
-      | none => return ← err .badCfg
-      | some caller =>
-          let mut intrinsicTotal : UInt64 := 1
-          for block in caller.blocks do
-            let next ← addInvariantStepsCheckedV1 intrinsicTotal
-              (UInt64.ofNat (block.instructions.size + 1))
-            intrinsicTotal := next
-            for instr in block.instructions do
-              match instr.op with
-              | .pureCall calleeId _ =>
-                  let calleeIndex := calleeId.toNat
-                  match callables[calleeIndex]? with
-                  | none => return ← err .badCfg
-                  | some callee =>
-                      unless callee.kind == .pureFn && members[calleeIndex]! do
-                        return ← err .badCfg
-                      remainingCalls := remainingCalls.set! callerIndex
-                        (remainingCalls[callerIndex]! + 1)
-                      callersByCallee := callersByCallee.set! calleeIndex
-                        (callersByCallee[calleeIndex]!.push callerIndex)
-              | _ => pure ()
-          totals := totals.set! callerIndex intrinsicTotal
-  let mut ready : Array Nat := #[]
-  for index in [:callableCount] do
-    if members[index]! && remainingCalls[index]! == 0 then
-      ready := ready.push index
-  let mut cursor : Nat := 0
-  let mut processed : Nat := 0
-  while cursor < ready.size do
-    let calleeIndex := ready[cursor]!
-    cursor := cursor + 1
-    processed := processed + 1
-    match callables[calleeIndex]? with
-    | none => return ← err .badCfg
-    | some callee =>
-        match callee.invariantSteps with
-        | none => return ← err .badCfg
-        | some carried =>
-            unless carried == totals[calleeIndex]! do return ← err .badCfg
-    let calleeSteps := totals[calleeIndex]!
-    for callerIndex in callersByCallee[calleeIndex]! do
-      let nextTotal ← addInvariantStepsCheckedV1 totals[callerIndex]! calleeSteps
-      totals := totals.set! callerIndex nextTotal
-      let remaining := remainingCalls[callerIndex]!
-      if remaining == 0 then return ← err .badCfg
-      let nextRemaining := remaining - 1
-      remainingCalls := remainingCalls.set! callerIndex nextRemaining
-      if nextRemaining == 0 then ready := ready.push callerIndex
+  let (remainingCalls, callersByCallee, totals, memberCount) ←
+    buildInvariantFuelGraphWorkerV1 callables members 0
+      (Array.mk (List.replicate callableCount 0))
+      (Array.mk (List.replicate callableCount #[]))
+      (Array.mk (List.replicate callableCount (0 : UInt64))) 0 callableCount
+  let ready ← collectInvariantFuelReadyWorkerV1 members remainingCalls 0 #[] callableCount
+  let (processed, _, _, _) ← validateInvariantFuelKahnWorkerV1 0 0 remainingCalls
+    callersByCallee totals ready memberCount callables callableCount
   unless processed == memberCount do return ← err .badCfg
   pure ()
 
@@ -505,14 +594,36 @@ private def validateInvariantStepsExactWithMembersV1
     intrinsic ceiling (SPEC §8). Exact checked computation for closure members
     has already run. This residual scan keeps the scalar metadata boundary
     explicit and runs before requirements. -/
+@[simp] private def validateInvariantStepsIntrinsicCeilingWorkerV1
+    (callables : Array CallableV1) (index : Nat) : Nat → Except SemanticWireErrorV1 Unit
+  | 0 => if index < callables.size then err .badCfg else pure ()
+  | fuel + 1 => do
+      if index < callables.size then
+        match callables[index]? with
+        | none => return ← err .badCfg
+        | some callable =>
+            match callable.invariantSteps with
+            | none => pure ()
+            | some steps => unless steps ≤ maxInvariantStepsV1 do return ← err .badCfg
+        validateInvariantStepsIntrinsicCeilingWorkerV1 callables (index + 1) fuel
+      else pure ()
+
+private theorem validateInvariantStepsIntrinsicCeilingWorkerDoneV1
+    (callables : Array CallableV1) (index fuel : Nat)
+    (hDone : ¬ index < callables.size) :
+    validateInvariantStepsIntrinsicCeilingWorkerV1 callables index fuel = .ok () := by
+  cases fuel <;> simp [validateInvariantStepsIntrinsicCeilingWorkerV1, hDone,
+    Pure.pure, Except.pure]
+
+private theorem validateInvariantStepsIntrinsicCeilingWorkerExhaustedV1
+    (callables : Array CallableV1) (index : Nat) (hWork : index < callables.size) :
+    validateInvariantStepsIntrinsicCeilingWorkerV1 callables index 0 = .error .badCfg := by
+  simp [validateInvariantStepsIntrinsicCeilingWorkerV1, hWork]
+  rfl
+
 private def validateInvariantStepsIntrinsicCeilingV1
-    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
-  for callable in callables do
-    match callable.invariantSteps with
-    | none => pure ()
-    | some steps =>
-        unless steps ≤ maxInvariantStepsV1 do return ← err .badCfg
-  pure ()
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit :=
+  validateInvariantStepsIntrinsicCeilingWorkerV1 callables 0 callables.size
 
 /-- Production closure prefix: direct-root restriction, exact membership
     computation, and PureFn metadata agreement. Returns the exact membership
@@ -644,6 +755,38 @@ theorem validateInvariantClosurePhasesV1_eq_ok
     validateInvariantClosurePhasesV1 callables = .ok members := by
   simp only [validateInvariantClosurePhasesV1, hDag, hCfg, hOps,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Exact production-fuel refinement for the canonical four-callable closure.
+    The premises expose only identities of the private production workers:
+    source-order graph construction, source-index ready collection, reverse
+    Kahn propagation, and the residual intrinsic-ceiling scan. -/
+theorem validateInvariantFuelCanonicalFourV1
+    (callables : Array CallableV1)
+    (hSize : callables.size = 4)
+    (hGraph : buildInvariantFuelGraphWorkerV1 callables
+      #[false, true, true, true] 0
+      (Array.mk (List.replicate callables.size 0))
+      (Array.mk (List.replicate callables.size #[]))
+      (Array.mk (List.replicate callables.size (0 : UInt64))) 0 callables.size =
+      .ok (#[0, 0, 1, 0], #[#[], #[2], #[], #[]], #[0, 3, 3, 3], 3))
+    (hReady : collectInvariantFuelReadyWorkerV1 #[false, true, true, true]
+      #[0, 0, 1, 0] 0 #[] callables.size = .ok #[1, 3])
+    (hKahn : validateInvariantFuelKahnWorkerV1 0 0 #[0, 0, 1, 0]
+      #[#[], #[2], #[], #[]] #[0, 3, 3, 3] #[1, 3] 3 callables
+      callables.size = .ok (3, #[0, 0, 0, 0], #[0, 3, 6, 3], #[1, 3, 2]))
+    (hCeiling : validateInvariantStepsIntrinsicCeilingWorkerV1 callables 0
+      callables.size = .ok ()) :
+    validateInvariantFuelPhasesV1 callables #[false, true, true, true] = .ok () := by
+  simp only [validateInvariantFuelPhasesV1]
+  rw [if_pos (by simp [hSize])]
+  simp only [validateInvariantStepsExactWithMembersV1]
+  rw [hGraph]
+  simp only [Bind.bind, Except.bind]
+  rw [hReady]
+  simp only []
+  rw [hKahn]
+  simp only [beq_self_eq_true, ↓reduceIte, Pure.pure, Except.pure]
+  exact hCeiling
 
 /-- Shallow composition rule for exact fuel validation over pinned closure
     membership. -/
