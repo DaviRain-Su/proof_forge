@@ -1541,6 +1541,17 @@ private def makeCheckedModValueV1
     (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  -- Field `mod`: fail closed, defense-in-depth. There is NO defined field-
+  -- remainder semantic in the shared core: `TypeCheckV1` rejects it
+  -- ("Field mod (no field remainder)"), `NormalizeV1` fails it closed
+  -- ("S1 Field does not support mod (remainder); use div"), the wire
+  -- structure gate (`CfgTypingV1` Field arithmetic) rejects `.mod` as
+  -- `.badCfg`, and `ReferenceMachineV1` traps Field `.mod` as `.invalidCore`.
+  -- Because Normalize rejects it before a SemanticProgramV1 is produced, a
+  -- Field `.mod` never reaches this EVM lowering through the product path;
+  -- this guard is a defensive boundary and MUST NOT be turned into a modular
+  -- `mod-p` reduction (which would diverge from the trapped Reference
+  -- semantic and emit an unreachable EVM op).
   if lhs.isField || rhs.isField then
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: Field does not support mod (remainder)"
@@ -3022,13 +3033,30 @@ private def lowerBlockInstructionsV1
           aggregateLeafIsInt := operand.aggregateLeafIsInt
         }
     | .contextRead key, some _ =>
-        -- N5: sole wire key would map to Yul `timestamp()`, but PlanSchema/
-        -- ValidatePlan are frozen against new Expr tags in this slice.
+        -- Research pin (EVM ContextRead decision): the two admitted closed
+        -- wire keys would naively map to EVM opcodes — `unix-time-seconds`
+        -- to the `timestamp()` opcode and `caller` to the `caller()` opcode —
+        -- but that is intentionally NOT done in this slice.
+        --   * `context.unixTimeSeconds` → `timestamp()` changes the EVM
+        --     semantic surface (a nonce-like block-context read) and would
+        --     require a new PlanSchema Expr tag; PlanSchema/ValidatePlan are
+        --     frozen against new tags here, and there is no established
+        --     EVM-side differential for block timestamp semantics.
+        --   * `context.caller` → `caller()` requires an address-bearing type
+        --     (20-byte address ABI) which B-3 `PrincipalAddr` explicitly keeps
+        --     fail-closed (no CALL/CPI unlock); a naive `caller()` read would
+        --     leak a 20-byte EVM address into a 32-byte Principal slot.
+        -- Decision: keep fail-closed for BOTH keys pending a separate EVM
+        -- ContextRead decision (TIMESTAMP/CALLER mapping). This is the
+        -- conservative boundary, not a silent fallback.
+        if key == callerContextKeyV1 then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: ContextRead (context.caller) is not admitted by pilot context policy (B-3 PrincipalAddr pinned fail-closed; caller() address mapping deferred)"
         unless key == unixTimeSecondsContextKeyV1 do
           throw <| .planInvariant .evm
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
         throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: ContextRead (unix-time-seconds) is not admitted by pilot context policy (PlanSchema frozen; Yul timestamp deferred)"
+          "unsupported EVM semantic shape: ContextRead (unix-time-seconds) is not admitted by pilot context policy (PlanSchema frozen; Yul timestamp() mapping deferred)"
     | _, _ =>
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: instruction op/result is outside the current UInt64 pilot"

@@ -2918,6 +2918,84 @@ private unsafe def testBytesStateIndexOps : IO Unit := do
   | .error e =>
       throw <| IO.userError s!"EVM must accept Map after I1, got {e.render}"
 
+/-- EVM ContextRead research-pin: both admitted closed wire keys
+    (`context.unixTimeSeconds` → UInt64, `context.caller` → Principal) reach
+    the EVM Plan layer from Normalize (init/entry/view) and MUST fail closed
+    with an explicit ContextRead boundary — never a silent TIMESTAMP/CALLER
+    opcode mapping. `unix-time-seconds` is deferred (PlanSchema frozen); the
+    caller key is pinned fail-closed by the B-3 PrincipalAddr boundary. -/
+private unsafe def testContextReadFailClosedBoundary : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- unix-time-seconds → UInt64 result.
+  let timeSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CtxTime where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry now() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
+  let timeSrc ← liftResult "load CtxTime" (← session.selectProgramV1
+    timeSource "<evm-ctx-time>" "Tests.EvmCtxTime" none)
+  let timeCompiled ← liftResult "compile CtxTime" <|
+    Compiler.compileValidatedSourceV1 timeSrc
+  match planEvm timeCompiled with
+  | .error (.planInvariant .evm msg) =>
+      expect (msg.contains "ContextRead" && msg.contains "unix-time-seconds")
+        s!"EVM unix-time ContextRead must cite the ContextRead/unix-time boundary, got: {msg}"
+  | .error e =>
+      throw <| IO.userError s!"EVM unix-time ContextRead must fail closed at plan, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "EVM unix-time ContextRead must not produce a plan"
+  -- context.caller → Principal result (B-3 PrincipalAddr pin).
+  let callerSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CtxCaller where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry who(a : Principal) : Bool do\n" ++
+    "    return context.caller == a\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
+  let callerSrc ← liftResult "load CtxCaller" (← session.selectProgramV1
+    callerSource "<evm-ctx-caller>" "Tests.EvmCtxCaller" none)
+  let callerCompiled ← liftResult "compile CtxCaller" <|
+    Compiler.compileValidatedSourceV1 callerSrc
+  match planEvm callerCompiled with
+  | .error (.planInvariant .evm msg) =>
+      expect (msg.contains "ContextRead" && msg.contains "caller")
+        s!"EVM caller ContextRead must cite the ContextRead/caller boundary, got: {msg}"
+  | .error e =>
+      throw <| IO.userError s!"EVM caller ContextRead must fail closed at plan, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "EVM caller ContextRead must not produce a plan"
+  -- Unknown context key stays fail-closed too (closed wire surface).
+  let unknownSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CtxBad where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry bad() : UInt64 do\n" ++
+    "    return context.nonexistent\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
+  let badSrc ← liftResult "load CtxBad" (← session.selectProgramV1
+    unknownSource "<evm-ctx-bad>" "Tests.EvmCtxBad" none)
+  match Compiler.compileValidatedSourceV1 badSrc with
+  | .error _ => pure ()  -- Normalize rejects the unknown context field first.
+  | .ok badCompiled =>
+      match planEvm badCompiled with
+      | .error _ => pure ()
+      | .ok _ =>
+          throw <| IO.userError "EVM unknown-context must not produce a plan"
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -2963,6 +3041,7 @@ unsafe def run : IO Unit := do
   testFieldBn254Lane
   testArrayStateIndexOps
   testBytesStateIndexOps
+  testContextReadFailClosedBoundary
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)
