@@ -2683,7 +2683,8 @@ unsafe def run : IO Unit := do
 
   -- ArrayState: fixed Array UInt64 2 state — Solana + EVM admit (flatten to
   -- 2×8B slots named slots_0/slots_1; IndexGet/IndexSet). Near/Noir/Psy
-  -- decline container state. Map/Bytes remain fail closed on all Phase-1 lanes.
+  -- decline container state. Map remains fail closed on all Phase-1 lanes;
+  -- EVM also admits Bytes (D4-E2) separately from this Array fixture.
   let arrayStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++

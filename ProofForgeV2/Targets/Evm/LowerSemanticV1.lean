@@ -334,8 +334,8 @@ private def evmPlanErr (message : String) : CompileError :=
     under `pilotUintWidthPolicyEvmBody` + `pilotIntWidthPolicyNarrow` +
     `pilotFieldPolicyBn254`, plus **named Struct/Enum**
     (`pilotNamedAggregateStatePolicyAdmit`, N3) and **anonymous fixed-length
-    Array** (`pilotContainerStatePolicyArrayOnly`, EvmIndex wave; Map/Bytes
-    stay fail closed). Body multi-width UInt and Int64 values are allowed;
+    Array + Bytes** (local Array+Bytes container policy, EvmIndex + D4-E2;
+    Map stays fail closed). Body multi-width UInt and Int64 values are allowed;
     **top-level scalar state and ABI parameters admit
     UInt8/16/32/64/Int64/Field** via `requirePublicUintAbiOrInt64OrField*`
     (T8b + N2b-EVM), **named aggregates admit UInt64/Int64 leaves only**
@@ -355,7 +355,12 @@ private def validateEvmTypeClosureV1
     (principalPolicy := pilotPrincipalPolicyNone)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (stringPolicy := pilotStringPolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyArrayOnly)
+    -- D4-E2: admit fixed-length Bytes as N×UInt8 leaves (Map stays closed).
+    (containerPolicy := {
+      admitArray := true
+      admitMap := false
+      admitBytes := true
+    })
 
 /-- Lowering-time storage + type table. Plan.storageLayout is `bindings`
     (flattened leaf slots; sourceId == slot == declaration order of leaves).
@@ -537,9 +542,9 @@ private def leafCountOfTypeV1
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
 
-/-- ArrayState positive layout: fixed-length `Array UInt8/16/32/64 N`
-    (`1 ≤ N`). Returns `(elementBitWidth, N)`. Map/Bytes and non-UInt
-    elements fail closed this wave. -/
+/-- Container positive layout: fixed-length `Array UInt8/16/32/64 N` or
+    `Bytes N` (flattened as N×UInt8). Returns `(elementBitWidth, N)`.
+    Map and non-UInt Array elements fail closed. -/
 private def arrayScalarLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat)) := do
@@ -563,10 +568,14 @@ private def arrayScalarLeafLayoutV1
       pure (some (bitWidth, n))
   | some { shape := .map .., .. } =>
       throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: Map state is outside the EVM Array-only container pilot"
-  | some { shape := .bytes _, .. } =>
-      throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: Bytes state is outside the EVM Array-only container pilot"
+        "unsupported EVM semantic shape: Map state is outside the EVM Array/Bytes container pilot"
+  | some { shape := .bytes len, .. } =>
+      -- D4-E2: fixed-length Bytes N → N consecutive UInt8 storage leaves.
+      let n := len.toNat
+      unless n ≥ 1 do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: Bytes state length must be ≥ 1"
+      pure (some (8, n))
   | _ =>
       throw <| .planInvariant .evm
         "unsupported EVM semantic shape: container TypeId is not Array/Map/Bytes"
@@ -656,8 +665,8 @@ private def makeStorageLayoutV1
       throw <| .planInvariant .evm s!"state name '{state.name}' is not an EVM ABI identifier"
     match ← arrayScalarLeafLayoutV1 typeDecls types state.typeId with
     | some (bitWidth, n) =>
-        -- ArrayState: N consecutive slots named `{state}_{i}`; element
-        -- UInt8/16/32/64 sets physical byteWidth (one storage word each).
+        -- Array/Bytes state: N consecutive slots named `{state}_{i}`;
+        -- element UInt8/16/32/64 (Bytes → UInt8) sets physical byteWidth.
         requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedOrContainerState
           evmPlanErr types state (allowNonPublic := true)
         if bindings.size + n > maxStorageBindings then

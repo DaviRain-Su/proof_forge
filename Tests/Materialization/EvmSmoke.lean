@@ -2703,7 +2703,7 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
   | .error _ => pure ()
 
   -- Map state product decline (type-closure / plan fail closed on EVM).
-  -- Normalize admits Map state; EVM container policy is Array-only.
+  -- Normalize admits Map state; EVM container policy admits Array+Bytes only.
   let mapSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -2725,6 +2725,73 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
           (e.render).contains "Array" || (e.render).contains "unsupported" ||
           (e.render).contains "pilot")
         s!"Map decline must cite container/Map boundary, got {e.render}"
+
+/-- D4-E2: Bytes N state flattens to N×UInt8 leaves with IndexGet/IndexSet
+    (Normalize-admitted; Map remains fail closed). -/
+private unsafe def testBytesStateIndexOps : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ByteBox where\n" ++
+    "  state data : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    data[0] := 0\n" ++
+    "    data[1] := 0\n" ++
+    "  entry set0(v : UInt8) : UInt8 do\n" ++
+    "    data[0] := v\n" ++
+    "    return data[0]\n" ++
+    "  view get1() : UInt8 do\n" ++
+    "    return data[1]\n"
+  let src ← liftResult "load ByteBox" (← session.selectProgramV1
+    source "<evm-byte-box>" "Tests.EvmByteBox" none)
+  let compiled ← liftResult "compile ByteBox" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan ByteBox" <| planEvm compiled
+  expect (plan.storageLayout.size == 2)
+    s!"ByteBox must flatten to 2 UInt8 slots, got {plan.storageLayout.size}"
+  expect (plan.storageLayout.any fun b =>
+      b.name == "data_0" && b.slot == 0 && b.byteWidth == 1)
+    "ByteBox data_0 must be slot 0 with 1-byte width"
+  expect (plan.storageLayout.any fun b =>
+      b.name == "data_1" && b.slot == 1 && b.byteWidth == 1)
+    "ByteBox data_1 must be slot 1 with 1-byte width"
+  expect (plan.entries.any fun e => e.name == "set0")
+    "ByteBox must have set0 entry"
+  expect (plan.entries.any fun e => e.name == "get1")
+    "ByteBox must have get1 view"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ByteBox plan must validate: {e.render}"
+  let out ← liftResult "materialize ByteBox" <|
+    materializeSelected TargetId.evm compiled
+  let yul ← match (MaterializedArtifactsV1.filesOf out).find?
+      (·.path == "ByteBox.yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "ByteBox: missing ByteBox.yul"
+  expect (yul.contains "sstore" && yul.contains "sload")
+    "ByteBox Yul must sstore/sload Bytes leaves"
+  -- Map still fail closed (orthogonal residual).
+  let mapSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapStillClosed where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  state d : UInt64\n" ++
+    "  init() do\n" ++
+    "    d := 0\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return d\n"
+  let mapSrc ← liftResult "load MapStillClosed" (← session.selectProgramV1
+    mapSource "<evm-map-still>" "Tests.EvmMapStill" none)
+  let mapCompiled ← liftResult "compile MapStillClosed" <|
+    Compiler.compileValidatedSourceV1 mapSrc
+  match planEvm mapCompiled with
+  | .ok _ => throw <| IO.userError "EVM must still decline Map after Bytes open"
+  | .error e =>
+      expect ((e.render).contains "Map" || (e.render).contains "container" ||
+          (e.render).contains "unsupported" || (e.render).contains "pilot")
+        s!"Map residual fail-closed message, got {e.render}"
 
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
@@ -2769,6 +2836,7 @@ unsafe def run : IO Unit := do
   testAssertElseRejected
   testFieldBn254Lane
   testArrayStateIndexOps
+  testBytesStateIndexOps
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)
