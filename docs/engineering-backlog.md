@@ -100,7 +100,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 |---|---|---|
 | FR-001 唯一 `program` | 基本 done | — |
 | FR-002 全 declaration + proof ref | parser/typed 强；**Normalize/product 子集**；proof reference 未闭合 | N-*、INV-* |
-| FR-003 type/effect/bound/disclosure | CheckV1 五相位产品门禁；**authority/custody 轴缺** | T-1 |
+| FR-003 type/effect/bound/disclosure | CheckV1 七相位产品门禁；**T-1 工程 authority/custody 子集已接线**（entry 写 private 需 `context.caller`；**非** formal TST-VIS-002） | T-1 **done** |
 | FR-004 SemanticProgram + requirements | structure-gated + S2 freeze 工程子集 | N-*、D3-E* |
 | FR-005 target 不改语义 | 架构遵守；跨 target reference trace 矩阵未做满 | R-1、C-* |
 | FR-006 exact capability | engineering resolver 有；formal SupportClaim 未 | D3-E2、B-3 |
@@ -109,7 +109,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | FR-009 manifest 全 hash 链 | engineering output 部分；plan/IR/tool 不齐 | D3-E3/E4、T9d |
 | FR-010 multi-program `--program` | Loader 有 | 回归保持 |
 | FR-011 CLI JSON | 主命令有；flag 面未满 | D3-E5 |
-| FR-012 private/authority/custody | disclosure 有；**custody/authority 未** | T-1、N-3 |
+| FR-012 private/authority/custody | disclosure 有；**T-1 工程 authority/custody 子集有**（非 formal TST-VIS-002 / 完整 owner-key custody） | T-1 **done**、N-3 |
 | FR-013 extension exact-match | 矩阵雏形；非完整 | EXT-* |
 | FR-014 无隐式 deploy | 遵守 | — |
 
