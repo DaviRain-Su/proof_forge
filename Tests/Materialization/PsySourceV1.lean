@@ -209,6 +209,132 @@ unsafe def testFailClosedBitNot : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
   | .ok _ => throw <| IO.userError "bitNot must fail closed at Psy plan"
 
+/-- bitNot (~) on UInt32 lowers to `x ^ 4294967295u32` (XOR mask, verified
+    faithful on the real dargo VM). UInt64 bitNot stays fail-closed. -/
+unsafe def testUInt32BitNotLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Flip32 where\n" ++
+    "  entry flip(x : UInt32) : UInt32 do\n" ++
+    "    return ~x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-flip32>" "Tests.PsyFlip32" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let some flip := plan.functions.find? (·.name == "flip") |
+    throw <| IO.userError s!"flip32: missing flip, got {plan.functions.map (·.name)}"
+  expect (flip.body == #[.returnValue (.bitNot (.param 0))])
+    s!"UInt32 bitNot must lower to Plan bitNot(param0), got {repr flip.body}"
+  expect (flip.params.any (·.isU32))
+    "flip32: UInt32 param must be tagged isU32 in the Plan"
+  expect (flip.resultIsU32)
+    "flip32: UInt32 result must be tagged resultIsU32 in the Plan"
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "Flip32.psy") |
+    throw <| IO.userError "psy: missing Flip32.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub fn flip(p0: u32) -> u32")
+    "UInt32 bitNot fn must render u32 param and result"
+  expect (psy.contains "4294967295u32")
+    "UInt32 bitNot must emit the 2^32−1 mask with the u32 suffix"
+  expect (psy.contains " ^ ")
+    "UInt32 bitNot must emit XOR with the mask"
+  expect (!psy.contains "18446744073709551615")
+    "UInt32 bitNot must not emit the illegal 2^64−1 mask"
+
+/-- Fail closed: UInt32 arithmetic/bitwise/shift on u32 operands. The real
+    dargo VM u32 ops are not faithful to Reference (overflow/underflow are
+    internal panics — even `a - a = 0` panics "u32 sub value too low" — and
+    shifts wrap), so only u32 comparisons + bitNot are admitted. -/
+unsafe def testUInt32ArithFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Add32 where\n" ++
+    "  entry add(a : UInt32, b : UInt32) : UInt32 do\n" ++
+    "    return a + b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-add32>" "Tests.PsyAdd32" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planPsy compiled with
+  | .error (.planInvariant .psy msg) =>
+      expect (msg.contains "UInt32" && msg.contains "slice")
+        s!"u32 add must fail closed citing the u32 slice, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
+  | .ok _ => throw <| IO.userError "u32 add must fail closed at Psy plan"
+
+/-- UInt32 comparisons are admitted (native unsigned == Reference unsigned). -/
+unsafe def testUInt32CompareLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Cmp32 where\n" ++
+    "  entry cmp(a : UInt32, b : UInt32) : Bool do\n" ++
+    "    return a < b || a == b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-cmp32>" "Tests.PsyCmp32" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "Cmp32.psy") |
+    throw <| IO.userError "psy: missing Cmp32.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub fn cmp(p0: u32, p1: u32) -> bool")
+    "u32 comparison fn must render u32 params and bool result"
+  expect (psy.contains " < ")
+    "u32 lt must render"
+  expect (psy.contains " == ")
+    "u32 eq must render"
+
+/-- Fail closed: narrow Int (Int8/16/32). The Psy toolchain has no native
+    narrow integer types, no u8 storage impl, and the u32/Felt building blocks
+    for faithful sign-extended narrow arithmetic are absent or VM-buggy
+    (u32 sub panics on `a - a`; u32 shifts wrap; Felt ops are modular). -/
+unsafe def testNarrowIntFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program I8 where\n" ++
+    "  entry cmp(a : Int8, b : Int8) : Bool do\n" ++
+    "    return a < b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-i8>" "Tests.PsyI8" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planPsy compiled with
+  | .error (.planInvariant .psy msg) =>
+      expect (msg.contains "Int" || msg.contains "width")
+        s!"narrow Int must fail closed at Psy type-closure, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
+  | .ok _ => throw <| IO.userError "narrow Int must fail closed at Psy plan"
+
+/-- Fail closed: Bytes state. Psy has no u8 native type / storage impl, and
+    Bytes element ops return UInt8 which is outside the Psy pilot closure. -/
+unsafe def testBytesStateFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Buf where\n" ++
+    "  state buf : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    buf[0] := 0\n" ++
+    "  entry get() : UInt8 do\n" ++
+    "    return buf[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-bytes>" "Tests.PsyBytes" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planPsy compiled with
+  | .error (.planInvariant .psy msg) =>
+      expect (msg.contains "Bytes" || msg.contains "UInt8" ||
+          msg.contains "container" || msg.contains "Array-only")
+        s!"Bytes state must fail closed citing Bytes/UInt8/container boundary, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
+  | .ok _ => throw <| IO.userError "Bytes state must fail closed at Psy plan"
+
 /-- if/else multi-block control flow renders as a Psy if-else. -/
 unsafe def testIfElseControlFlow : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -711,6 +837,11 @@ unsafe def run : IO Unit := do
   testBitwiseAndShifts
   testEmitAndPureFn
   testFailClosedBitNot
+  testUInt32BitNotLowered
+  testUInt32ArithFailClosed
+  testUInt32CompareLowered
+  testNarrowIntFailClosed
+  testBytesStateFailClosed
   testIfElseControlFlow
   testMatchStatement
   testBoundedFor

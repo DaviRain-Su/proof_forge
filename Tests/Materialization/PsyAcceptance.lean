@@ -224,6 +224,16 @@ private def arrayStateSourceText : String :=
   "    slots[0] := v\n" ++
   "    return slots[0]\n"
 
+/-- u32 slice (2026-08-02): bitNot lowers to `x ^ 4294967295u32` (XOR mask,
+    verified faithful on the real dargo VM). The acceptance gate compiles the
+    emitted `.psy` with the real dargo toolchain. -/
+private def u32BitNotSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program PsyFlip32 where\n" ++
+  "  entry flip(x : UInt32) : UInt32 do\n" ++
+  "    return ~x\n"
+
 /-- Suite entry. Skips cleanly when psyup/dargo/std are unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.PsyAcceptance: start"
@@ -255,6 +265,9 @@ unsafe def run : IO Unit := do
         acceptProgram tc staging "PsyArr"
           arrayStateSourceText "Tests.PsyAccept.PsyArr"
           "PsyArr.psy" "psy_arr"
+        acceptProgram tc staging "PsyFlip32"
+          u32BitNotSourceText "Tests.PsyAccept.PsyFlip32"
+          "PsyFlip32.psy" "psy_flip32"
         IO.println "Tests.Materialization.PsyAcceptance: ok"
       finally
         if ← staging.pathExists then IO.FS.removeDirAll staging

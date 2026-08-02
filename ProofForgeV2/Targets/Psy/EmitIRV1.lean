@@ -80,6 +80,8 @@ end
 structure PsyParam where
   name : String
   isBool : Bool
+  /-- Native Psy `u32` parameter (2026-08-02 u32 slice). -/
+  isU32 : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure PsyMethod where
@@ -87,6 +89,8 @@ structure PsyMethod where
   params : Array PsyParam
   resultIsBool : Bool
   resultIsUnit : Bool
+  /-- Native Psy `u32` result (2026-08-02 u32 slice; `-> u32`). -/
+  resultIsU32 : Bool := false
   /-- Contract entrypoint (`#[contract_method]`) vs pure helper `fn`. -/
   isContractMethod : Bool
   body : Array PsyStmt
@@ -221,13 +225,14 @@ mutual
 end
 
 private def renderParam (p : PsyParam) : String :=
-  s!"{p.name}: {if p.isBool then "bool" else "Felt"}"
+  s!"{p.name}: {if p.isBool then "bool" else if p.isU32 then "u32" else "Felt"}"
 
 /-- Render a contract method with the correct `Ref::new` line. -/
 private def renderContractMethod (refName : String) (m : PsyMethod) : String :=
   let returnSuffix :=
     if m.resultIsUnit then ""
     else if m.resultIsBool then " -> bool"
+    else if m.resultIsU32 then " -> u32"
     else " -> Felt"
   let paramList := String.intercalate ", " (m.params.map renderParam).toList
   let header := indent 1 "#[contract_method]"
@@ -242,6 +247,7 @@ private def renderHelper (m : PsyMethod) : String :=
   let returnSuffix :=
     if m.resultIsUnit then ""
     else if m.resultIsBool then " -> bool"
+    else if m.resultIsU32 then " -> u32"
     else " -> Felt"
   let paramList := String.intercalate ", " (m.params.map renderParam).toList
   let signature := s!"fn {m.name}({paramList}){returnSuffix} " ++ "{"
@@ -333,6 +339,8 @@ private def exprTypeName : Expr → String
   | .compare _ _ _ | .signedCompare _ _ _ => "bool"
   | .logicalAnd _ _ | .logicalOr _ _ => "bool"
   | .boolNot _ => "bool"
+  | .bitNot _ => "u32"
+  | .u32Literal _ => "u32"
   | _ => "Felt"
 
 private partial def lowerExprStmt
@@ -342,6 +350,7 @@ private partial def lowerExprStmt
     pure (#[], e, ctx)
   match expr with
   | .literal value => leaf (feltLit value.toNat)
+  | .u32Literal value => leaf (.literal (.u32 value.toNat))
   | .boolLiteral value => leaf (.literal (.bool value))
   | .param inputIndex => leaf (.local s!"p{inputIndex}")
   | .loopVar depth => leaf (.local s!"pf_i{depth}")
@@ -403,20 +412,31 @@ private partial def lowerExprStmt
   | .shl l r => do
       -- Count < 64 only. The prior product < 2^64 bound was not a legal Felt
       -- literal under Goldilocks; field wrap of the shift is left to the VM.
+      -- A UInt32 literal count (u32 slice) is folded to its Felt value here
+      -- (the Felt shift op needs a Felt count; the lowerer admits only
+      -- literal UInt32 counts).
       let (ls1, l', ctx1) ← lowerExprStmt ctx l
       let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
       let (name, ctx3) := freshName ctx2
+      let count :=
+        match r with
+        | .u32Literal v => feltLit v.toNat
+        | _ => r'
       pure (ls1 ++ ls2 ++
-        #[.assert (.binary r' .lt (feltLit 64)) "invalidShift: count >= 64",
-          .letBind name "Felt" (.binary l' .shiftLeft r')],
+        #[.assert (.binary count .lt (feltLit 64)) "invalidShift: count >= 64",
+          .letBind name "Felt" (.binary l' .shiftLeft count)],
         .local name, ctx3)
   | .shr l r => do
       let (ls1, l', ctx1) ← lowerExprStmt ctx l
       let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
       let (name, ctx3) := freshName ctx2
+      let count :=
+        match r with
+        | .u32Literal v => feltLit v.toNat
+        | _ => r'
       pure (ls1 ++ ls2 ++
-        #[.assert (.binary r' .lt (feltLit 64)) "invalidShift: count >= 64",
-          .letBind name "Felt" (.binary l' .shiftRight r')],
+        #[.assert (.binary count .lt (feltLit 64)) "invalidShift: count >= 64",
+          .letBind name "Felt" (.binary l' .shiftRight count)],
         .local name, ctx3)
   | .compare op l r => do
       let psyOp := match op with
@@ -428,6 +448,19 @@ private partial def lowerExprStmt
       pure (ls1 ++ ls2 ++
         #[.letBind name "bool" (.binary l' psyOp r')],
         .local name, ctx3)
+  | .bitNot operand => do
+      -- UInt32 bitwise-not as `x ^ 4294967295u32` (XOR with the 2^32−1 mask;
+      -- the `u32` suffix is required so dargo types the literal as u32, and
+      -- the result is verified faithful on the real VM: 5→4294967290,
+      -- 4294967295→0, 0→4294967295). Mask-subtraction is NOT used — the VM's
+      -- u32 sub is checked with a bug and panics on `4294967295u32 -
+      -- 4294967295u32` ("u32 sub value too low"). (UInt64 bitNot fails closed
+      -- in the lowerer — Psy has no u64 type.)
+      let (ls1, o', ctx1) ← lowerExprStmt ctx operand
+      let (name, ctx2) := freshName ctx1
+      pure (ls1 ++
+        #[.letBind name "u32" (.binary o' .bitXor (.literal (.u32 4294967295)))],
+        .local name, ctx2)
   | .bitAnd l r | .bitOr l r | .bitXor l r => do
       let psyOp := match expr with
         | .bitAnd _ _ => PsyBinaryOp.bitAnd
@@ -647,13 +680,14 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
   unless isSafeIdent fn.name do
     planError s!"Psy function name '{fn.name}' is not a safe identifier"
   let params := fn.params.map fun p =>
-    { name := s!"p{p.sourceIndex}", isBool := p.isBool }
+    { name := s!"p{p.sourceIndex}", isBool := p.isBool, isU32 := p.isU32 }
   let (body, ctx1) ← emitStatements ctx fn.body 0
   pure ({
     name := fn.name
     params
     resultIsBool := fn.resultIsBool
     resultIsUnit := fn.resultIsUnit
+    resultIsU32 := fn.resultIsU32
     isContractMethod := fn.kind != .pureHelper
     body
   }, ctx1)

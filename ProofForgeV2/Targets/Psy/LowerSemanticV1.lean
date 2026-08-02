@@ -19,7 +19,10 @@ Psy maps UInt64/UInt32 → `Felt`, Bool → `bool`. Checked u64 arithmetic is
 enforced by explicit assert guards at emission (Felt is a field element; the
 old Psy backend had no checked arith — V2 requires it). Bitwise `&`/`|`/`^`
 and shifts lower to native Psy Felt operators (golden BitwiseProbe); unary
-`~` (bitNot) fails closed because the Psy surface has no bitwise-not unary.
+`~` (bitNot) lowers for **UInt32** to `x ^ 4294967295u32` (XOR with the 2^32−1
+mask, verified faithful on the real dargo VM). **UInt64 bitNot fails closed**:
+Psy has no u64 type and no bitwise-not unary, and `2^64−1` is not a
+representable Felt (`≡ 2^32−2 mod p`).
 
 **Field (bn254 Fr) is fail-closed.** Native Psy `Felt` is plonky2 Goldilocks
 (`ORDER = 0xFFFFFFFF00000001`), not catalog bn254 Fr — see
@@ -80,6 +83,19 @@ inductive Expr where
   | shl (lhs rhs : Expr)
   | shr (lhs rhs : Expr)
   | boolNot (operand : Expr)
+  /-- UInt32 literal (native Psy `u32` type). Emitted with the `u32` suffix so
+      the literal is typed as u32 rather than Felt. -/
+  | u32Literal (value : UInt64)
+  /-- Bitwise-not of a UInt32 value, emitted as `x ^ 4294967295u32` (XOR with
+      the 2^32−1 mask). Faithful for every u32 input and verified against the
+      real dargo VM (2026-08-02 probe: `flip 5 → 4294967290`,
+      `flip 4294967295 → 0`, `flip 0 → 4294967295`). Mask-**subtraction** is
+      NOT used: the VM's u32 sub is checked with a bug (`u32 sub value too
+      low` panics on `4294967295u32 - 4294967295u32`), so `2^32−1 − x` would
+      wrongly revert at `x = 2^32−1`. **UInt64 bitNot stays fail-closed**: Psy
+      has no u64 type and no bitwise-not unary, and the `2^64−1` mask is not
+      representable as a Felt (`≡ 2^32−2 mod p`). -/
+  | bitNot (operand : Expr)
   /-- Checked Int64 negation (intMin reverts at emission). -/
   | checkedNeg (operand : Expr)
   /-- Signed Int64 comparison (Felt signed interpretation at emission). -/
@@ -114,6 +130,8 @@ structure PlanParam where
   sourceIndex : Nat
   name : String
   isBool : Bool
+  /-- Native Psy `u32` parameter (2026-08-02 u32 slice). -/
+  isU32 : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure PlanFunction where
@@ -124,6 +142,8 @@ structure PlanFunction where
   body : Array Statement
   resultIsBool : Bool
   resultIsUnit : Bool
+  /-- Native Psy `u32` result (2026-08-02 u32 slice; emitted `-> u32`). -/
+  resultIsU32 : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure PlanEvent where
@@ -181,10 +201,13 @@ private def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
 /-- Scalar + optional multi-leaf aggregate carrier (H3). SSA ValueIds are
-    defined once; `leaves? = some` means fixed-width flattened Struct/Enum/Array. -/
+    defined once; `leaves? = some` means fixed-width flattened Struct/Enum/Array.
+    `isU32 = true` marks native Psy `u32` values (params, literals, bitNot
+    results) so emission can type them and u32-only ops can fail closed. -/
 private structure LoweredVal where
   expr : Expr
   leaves? : Option (Array Expr) := none
+  isU32 : Bool := false
   deriving Inhabited
 
 private def LoweredVal.isAggregate (v : LoweredVal) : Bool :=
@@ -196,11 +219,14 @@ private def LoweredVal.leafExprs (v : LoweredVal) : Array Expr :=
   | none => #[v.expr]
 
 private def mkScalarVal (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none }
+  { expr := e, leaves? := none, isU32 := false }
+
+private def mkU32Val (e : Expr) : LoweredVal :=
+  { expr := e, leaves? := none, isU32 := true }
 
 private def mkAggregateVal (leaves : Array Expr) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
-  { expr := head, leaves? := some leaves }
+  { expr := head, leaves? := some leaves, isU32 := false }
 
 private structure ValueEnv where
   entries : Array (ValueIdV1 × LoweredVal)
@@ -214,6 +240,9 @@ private def envLookupExpr (env : ValueEnv) (id : ValueIdV1) : Option Expr :=
 
 private def envInsert (env : ValueEnv) (id : ValueIdV1) (e : Expr) : ValueEnv :=
   { env with entries := env.entries.push (id, mkScalarVal e) }
+
+private def envInsertU32 (env : ValueEnv) (id : ValueIdV1) (e : Expr) : ValueEnv :=
+  { env with entries := env.entries.push (id, mkU32Val e) }
 
 private def envInsertVal (env : ValueEnv) (id : ValueIdV1) (v : LoweredVal) : ValueEnv :=
   { env with entries := env.entries.push (id, v) }
@@ -424,6 +453,7 @@ private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
     planError "unsupported Psy semantic shape: Array index must be a scalar UInt literal"
   match v.expr with
   | .literal n => pure n.toNat
+  | .u32Literal n => pure n.toNat
   | _ =>
       planError "unsupported Psy semantic shape: Array IndexGet/IndexSet requires a compile-time constant index"
 
@@ -478,7 +508,7 @@ private def lowerLiteral
     | .error e => .error e
   else if isUInt32Type data typeId then
     match decodeUInt32LiteralV1 valueBytes with
-    | .ok value => pure (.literal value)
+    | .ok value => pure (.u32Literal value)
     | .error e => .error e
   else
     planError "unsupported Psy semantic shape: literal type is outside the public UInt64/Int64/Bool/UInt32 envelope"
@@ -506,11 +536,11 @@ private def lowerBinary
   | .shr => pure (.shr lhs rhs)
 
 private def lowerUnary
-    (op : UnaryOpV1) (operand : Expr) : CompileResult Expr :=
+    (op : UnaryOpV1) (operand : Expr) (_resultTypeId : TypeIdV1) : CompileResult Expr :=
   match op with
   | .not => pure (.boolNot operand)
   | .bitNot =>
-      planError "unsupported Psy semantic shape: unary bitNot (~) has no Psy surface form on Felt (no bitwise-not unary)"
+      planError "unsupported Psy semantic shape: unary bitNot (~) on UInt64/Int64 has no Psy surface form (no u64 type, no bitwise-not unary; 2^64−1 is not a representable Felt)"
   | .neg => pure (.checkedNeg operand)
 
 private structure LoopCtxV1 where
@@ -544,6 +574,8 @@ private def lookupArgs
     | some v =>
         if v.isAggregate then
           planError s!"unsupported Psy semantic shape: {what} does not accept aggregate arguments"
+        if v.isU32 then
+          planError s!"unsupported Psy semantic shape: {what} does not accept UInt32 arguments (Felt-typed call surface; u32 slice admits only params/bitNot/comparisons)"
         out := out.push v.expr
     | none => planError s!"unsupported Psy semantic shape: {what} references an undefined argument"
   pure out
@@ -571,7 +603,10 @@ private partial def lowerRegion
         match instr.result with
         | none => planError "unsupported Psy semantic shape: literal instruction must produce a value"
         | some valueDef =>
-            env := envInsert env valueDef.valueId e
+            if isUInt32Type data typeId then
+              env := envInsertU32 env valueDef.valueId e
+            else
+              env := envInsert env valueDef.valueId e
     | .stateLoad stateId => do
         match instr.result with
         | none => planError "unsupported Psy semantic shape: stateLoad instruction must produce a value"
@@ -589,12 +624,37 @@ private partial def lowerRegion
                 leaves := leaves.push (.stateLoad fi)
               env := envInsertVal env valueDef.valueId (mkAggregateVal leaves)
     | .binary op lhs rhs => do
-        let l ← match envLookupExpr env lhs with
-          | some e => pure e
+        let lv ← match envLookup env lhs with
+          | some v => pure v
           | none => planError "unsupported Psy semantic shape: binary references an undefined operand"
-        let r ← match envLookupExpr env rhs with
-          | some e => pure e
+        let rv ← match envLookup env rhs with
+          | some v => pure v
           | none => planError "unsupported Psy semantic shape: binary references an undefined operand"
+        -- UInt32 gate (2026-08-02 u32 slice): only comparisons are admitted.
+        -- The real dargo VM u32 arithmetic is not faithful to Reference:
+        --   * u32 +/* overflow → internal VM panic (not a revert), so the
+        --     checked-guard pattern cannot be expressed for u32 operands;
+        --   * u32 - is VM-buggy (a - a = 0 panics "u32 sub value too low");
+        --   * u32 << / >> wrap (1 << 32 = 0) while Reference reverts
+        --     (invalidShift), so shifts cannot be guarded either.
+        -- u32 comparisons are native unsigned and match Reference unsigned
+        -- (probe: `4294967295 > 3 == 1`, `a == b`), so they are admitted.
+        if lv.isU32 || rv.isU32 then
+          match op with
+          | .eq | .ne | .lt | .le | .gt | .ge => pure ()
+          | .shl | .shr =>
+              -- Shift counts: a UInt32 literal count is folded to a Felt
+              -- count at emission (identical value; the Felt shift op needs a
+              -- Felt count); a UInt32 non-literal count is out of the slice
+              -- because the u32→Felt cast would need `(x as Felt)`.
+              let isLiteral := match rv.expr with | .u32Literal _ => true | _ => false
+              unless isLiteral do
+                planError "unsupported Psy semantic shape: UInt32 shift count must be a literal (u32 slice)"
+              pure ()
+          | _ =>
+              planError "unsupported Psy semantic shape: UInt32 arithmetic/bitwise is outside the Psy u32 slice (VM u32 ops are not faithful to Reference: overflow/underflow are internal panics)"
+        let l := lv.expr
+        let r := rv.expr
         -- Signed Int64 comparisons use bias-corrected signedCompare; UInt64 uses
         -- unsigned compare. Operand types come from result TypeId of the
         -- comparison (Bool) is not helpful — inspect lhs type via state/params
@@ -604,39 +664,51 @@ private partial def lowerRegion
         -- signed when any logicalState row is Int64 and both operands are not
         -- clearly Bool. Prefer exact: look up lhs's defining instruction type.
         let signed :=
-          match instr.result with
-          | some _ =>
-              -- Use lhs type when available via stateLoad field index types.
-              match l with
-              | .stateLoad idx =>
-                  match data.logicalState[idx]? with
-                  | some st => isInt64Type data st.typeId
-                  | none => false
-              | .param pidx =>
-                  match callable.params[pidx]? with
-                  | some p => isInt64Type data p.typeId
-                  | none => false
-              | _ =>
-                  -- Int64 literals and intermediate results: if any Int64 type is
-                  -- interned and this is a comparison, prefer signed when the
-                  -- program has Int64 state/params (product Int64 Counter path).
-                  data.logicalState.any (fun st => isInt64Type data st.typeId) ||
-                    callable.params.any (fun p => isInt64Type data p.typeId)
-          | none => false
+          if lv.isU32 || rv.isU32 then false
+          else
+            match instr.result with
+            | some _ =>
+                -- Use lhs type when available via stateLoad field index types.
+                match l with
+                | .stateLoad idx =>
+                    match data.logicalState[idx]? with
+                    | some st => isInt64Type data st.typeId
+                    | none => false
+                | .param pidx =>
+                    match callable.params[pidx]? with
+                    | some p => isInt64Type data p.typeId
+                    | none => false
+                | _ =>
+                    -- Int64 literals and intermediate results: if any Int64 type is
+                    -- interned and this is a comparison, prefer signed when the
+                    -- program has Int64 state/params (product Int64 Counter path).
+                    data.logicalState.any (fun st => isInt64Type data st.typeId) ||
+                      callable.params.any (fun p => isInt64Type data p.typeId)
+            | none => false
         let e ← lowerBinary op l r signed
         match instr.result with
         | none => planError "unsupported Psy semantic shape: binary instruction must produce a value"
         | some valueDef =>
             env := envInsert env valueDef.valueId e
     | .unary op operand => do
-        let o ← match envLookupExpr env operand with
-          | some e => pure e
+        let o ← match envLookup env operand with
+          | some v => pure v
           | none => planError "unsupported Psy semantic shape: unary references an undefined operand"
-        let e ← lowerUnary op o
         match instr.result with
         | none => planError "unsupported Psy semantic shape: unary instruction must produce a value"
         | some valueDef =>
-            env := envInsert env valueDef.valueId e
+            if op == .bitNot && isUInt32Type data valueDef.typeId then
+              -- Psy has no native bitwise-not unary. UInt32 bitNot lowers to
+              -- `x ^ 4294967295u32` (XOR mask; verified faithful on the real
+              -- dargo VM — the u32 sub form would panic at x = 2^32−1).
+              unless !o.isAggregate && o.isU32 do
+                planError "unsupported Psy semantic shape: UInt32 bitNot operand must be a scalar u32"
+              env := envInsertU32 env valueDef.valueId (.bitNot o.expr)
+            else
+              unless !o.isU32 do
+                planError "unsupported Psy semantic shape: unary on a UInt32 operand is outside the Psy u32 slice (only bitNot is admitted)"
+              let e ← lowerUnary op o.expr valueDef.typeId
+              env := envInsert env valueDef.valueId e
     | .pureCall callableId args => do
         let fnName ← match fnNames.findSome? (fun (cid, n) =>
             if cid == callableId then some n else none) with
@@ -979,9 +1051,12 @@ private partial def lowerRegion
       let stmts := ls.stmts.push (.ifThenElse c thenRes.stmts elseRes.stmts)
       pure { stmts, join? }
   | .switch scrutinee cases defaultTarget => do
-      let s ← match envLookupExpr env scrutinee with
-        | some e => pure e
+      let sVal ← match envLookup env scrutinee with
+        | some v => pure v
         | none => planError "unsupported Psy semantic shape: switch references an undefined scrutinee"
+      unless !sVal.isU32 do
+        planError "unsupported Psy semantic shape: UInt32 switch scrutinee is outside the Psy u32 slice (case values decode as UInt64)"
+      let s := sVal.expr
       let mut caseStmts : Array (UInt64 × Array Statement) := #[]
       let mut joins : Array Nat := #[]
       for case in cases do
@@ -1052,9 +1127,12 @@ private partial def lowerLoop
   let startVid ← match target.args[0]? with
     | some v => pure v
     | none => planError "unsupported Psy semantic shape: loop start value is missing"
-  let startExpr ← match envLookupExpr env startVid with
-    | some e => pure e
+  let startVal ← match envLookup env startVid with
+    | some v => pure v
     | none => planError "unsupported Psy semantic shape: loop start value is not defined"
+  unless !startVal.isU32 do
+    planError "unsupported Psy semantic shape: UInt32 loop endpoints are outside the Psy u32 slice (Felt range loop)"
+  let startExpr := startVal.expr
   let mut condVid? : Option ValueIdV1 := none
   let mut endExpr? : Option Expr := none
   for instr in header.instructions do
@@ -1062,13 +1140,15 @@ private partial def lowerLoop
     | .binary .lt lhs rhs => do
         unless lhs == paramDef.valueId do
           planError "unsupported Psy semantic shape: loop condition lhs must be the induction parameter"
-        let r ← match envLookupExpr env rhs with
-          | some e => pure e
+        let rVal ← match envLookup env rhs with
+          | some v => pure v
           | none => planError "unsupported Psy semantic shape: loop end value is not defined"
+        unless !rVal.isU32 do
+          planError "unsupported Psy semantic shape: UInt32 loop endpoints are outside the Psy u32 slice (Felt range loop)"
         match instr.result with
         | some valueDef => condVid? := some valueDef.valueId
         | none => planError "unsupported Psy semantic shape: loop condition must produce a value"
-        endExpr? := some r
+        endExpr? := some rVal.expr
     | _ =>
         planError "unsupported Psy semantic shape: loop header carries an unexpected instruction"
   let endExpr ← match endExpr? with
@@ -1103,12 +1183,13 @@ private partial def lowerLoop
 end
 
 private def resultShape (data : SemanticProgramDataV1) (callable : CallableV1) :
-    CompileResult (Bool × Bool) := do
-  if isBoolType data callable.result.typeId then pure (true, false)
-  else if isUInt64Type data callable.result.typeId then pure (false, false)
-  else if isInt64Type data callable.result.typeId then pure (false, false)
-  else if isUnitType data callable.result.typeId then pure (false, true)
-  else planError "unsupported Psy semantic shape: callable result is outside the public UInt64/Int64/Bool/Unit envelope"
+    CompileResult (Bool × Bool × Bool) := do
+  if isBoolType data callable.result.typeId then pure (true, false, false)
+  else if isUInt64Type data callable.result.typeId then pure (false, false, false)
+  else if isInt64Type data callable.result.typeId then pure (false, false, false)
+  else if isUInt32Type data callable.result.typeId then pure (false, false, true)
+  else if isUnitType data callable.result.typeId then pure (false, true, false)
+  else planError "unsupported Psy semantic shape: callable result is outside the public UInt64/Int64/Bool/UInt32/Unit envelope"
 
 private def lowerCallable
     (data : SemanticProgramDataV1) (layout : PsyLowerLayoutV1) (callable : CallableV1)
@@ -1140,20 +1221,26 @@ private def lowerCallable
   for p in callable.params do
     let isBool ← if isBoolType data p.typeId then pure true
       else if isUInt64Type data p.typeId || isInt64Type data p.typeId then pure false
-      else planError "unsupported Psy semantic shape: callable parameter is outside the UInt64/Int64/Bool envelope"
-    params := params.push { sourceIndex := paramIndex, name := p.name, isBool }
+      else if isUInt32Type data p.typeId then pure false
+      else planError "unsupported Psy semantic shape: callable parameter is outside the UInt64/Int64/Bool/UInt32 envelope"
+    params := params.push
+      { sourceIndex := paramIndex, name := p.name, isBool,
+        isU32 := isUInt32Type data p.typeId }
     paramIndex := paramIndex + 1
   let mut env0 : ValueEnv := default
   let mut paramOrdinal : Nat := 0
   for p in callable.params do
-    env0 := envInsert env0 p.valueId (.param paramOrdinal)
+    if isUInt32Type data p.typeId then
+      env0 := envInsertU32 env0 p.valueId (.param paramOrdinal)
+    else
+      env0 := envInsert env0 p.valueId (.param paramOrdinal)
     paramOrdinal := paramOrdinal + 1
   let empty0 : LowerStateV1 := { stmts := #[] }
   let res ← lowerRegion data layout callable fnNames 0 #[] env0 empty0
   unless res.join?.isNone do
     planError "unsupported Psy semantic shape: callable does not end in return on all paths"
   let body := res.stmts
-  let (resultIsBool, resultIsUnit) ← resultShape data callable
+  let (resultIsBool, resultIsUnit, resultIsU32) ← resultShape data callable
   let kind := match callable.kind with
     | .initializer => FunctionKind.initialize
     | .pureFn => FunctionKind.pureHelper
@@ -1169,6 +1256,7 @@ private def lowerCallable
     body
     resultIsBool
     resultIsUnit
+    resultIsU32
   }
 
 private def makePlanFromSemanticDataV1
