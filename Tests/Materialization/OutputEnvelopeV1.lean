@@ -169,7 +169,8 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
   for file in MaterializedArtifactsV1.filesOf carrier do
     IO.FS.writeFile (stagingScratch / file.path) file.contents
   let finalized ← Targets.finalizeMaterializedArtifactsV1 capability carrier stagingScratch
-  let outputSet ← liftResult "mint output set" (mintEngineeringOutputSetV1 finalized)
+  let inv ← scanEngineeringArtifactContentOnlyV1 finalized stagingScratch
+  let outputSet ← liftResult "mint output set" (mintEngineeringOutputSetV1 finalized inv)
   let expectedManifest ← match renderEngineeringOutputSetManifestV1 outputSet with
     | .ok value => pure value
     | .error e => throw <| IO.userError s!"render manifest: {e}"
@@ -181,8 +182,16 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
     s!"exact proof-forge.output.v1 manifest byte identity:\n---got---\n{json}\n---want---\n{expectedManifest}"
   expect ((json.splitOn "\"schemaVersion\": \"proof-forge.output.v1\"").length > 1)
     "on-disk schemaVersion proof-forge.output.v1"
-  expect ((json.splitOn "\"files\": [\"Counter.sbpf-plan\",\"Counter.idl.json\"]").length > 1)
-    "on-disk files array exact carrier path order"
+  expect ((json.splitOn "\"path\": \"Counter.sbpf-plan\"").length > 1)
+    "on-disk files include Counter.sbpf-plan descriptor"
+  expect ((json.splitOn "\"path\": \"Counter.idl.json\"").length > 1)
+    "on-disk files include Counter.idl.json descriptor"
+  expect ((json.splitOn "\"role\": \"materialized-base\"").length > 1)
+    "on-disk files carry materialized-base role"
+  expect ((json.splitOn "\"contentSha256\":").length > 1)
+    "on-disk files carry contentSha256"
+  expect ((json.splitOn "\"evidenceSha256\":").length > 1)
+    "on-disk evidenceSha256 present"
   expect ((json.splitOn "\"deployable\": false").length > 1)
     "on-disk deployable false"
   expect ((json.splitOn "\"artifactProgramName\": \"Counter\"").length > 1)

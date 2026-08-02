@@ -153,6 +153,10 @@ def exact_physical_closure(
             elif stat.S_ISREG(mode):
                 if child_rel not in expected_files:
                     raise SystemExit(f"{tag}: unexpected file '{child_rel}'")
+                if child_st.st_nlink != 1:
+                    raise SystemExit(
+                        f"{tag}: path is not a single-link regular file '{child_rel}'"
+                    )
                 size = child_st.st_size
                 if size > MAX_CLOSURE_FILE_BYTES:
                     raise SystemExit(f"{tag}: file exceeds size limit '{child_rel}'")
@@ -187,9 +191,14 @@ _ENGINEERING_OUTPUT_REQUIRED_KEYS = (
     "supportClaimDigest",
     "engineeringRegistryRootDigest",
     "outputSetDigest",
+    "evidenceSha256",
     "deployable",
     "files",
 )
+_FILE_DESCRIPTOR_REQUIRED_KEYS = ("role", "path", "size", "contentSha256")
+_CLOSED_ROLES = ("materialized-base", "finalized-extra")
+_ROLE_RANK = {"materialized-base": 0, "finalized-extra": 1}
+_SIDECAR_NAMES = ("evidence.json", "manifest.json")
 
 
 def _require_hex64(manifest: dict, key: str, label: str) -> None:
@@ -198,8 +207,137 @@ def _require_hex64(manifest: dict, key: str, label: str) -> None:
         raise SystemExit(f"{label}: invalid {key}")
 
 
-def validate_engineering_output_manifest(manifest: dict, *, label: str) -> None:
-    """Validate engineering proof-forge.output.v1 field surface (not formal)."""
+def _require_hex64_value(value: object, *, label: str, key: str) -> str:
+    if not isinstance(value, str) or not _HEX64.fullmatch(value):
+        raise SystemExit(f"{label}: invalid {key}")
+    return value
+
+
+def safe_relative_artifact_path(value: str) -> bool:
+    """Mirror Lean safeRelativeArtifactPathV1 (lexical only; independent of product)."""
+    if not value or len(value.encode("utf-8")) > 240:
+        return False
+    if value.startswith("/") or "\\" in value:
+        return False
+    if any(ord(char) < 0x20 for char in value):
+        return False
+    parts = value.split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        return False
+    return True
+
+
+def role_rank(role: str) -> int:
+    return _ROLE_RANK[role]
+
+
+def descriptor_sort_key(d: dict) -> tuple[int, str]:
+    return (role_rank(d["role"]), d["path"])
+
+
+def artifact_paths_from_manifest(manifest: dict) -> list[str]:
+    """Extract ordered artifact paths from descriptor objects (not path-only)."""
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        raise SystemExit("manifest files must be a list of descriptor objects")
+    if files and isinstance(files[0], str):
+        raise SystemExit(
+            "manifest files path-only string entries are rejected under proof-forge.output.v1"
+        )
+    out: list[str] = []
+    for entry in files:
+        if not isinstance(entry, dict) or "path" not in entry:
+            raise SystemExit(
+                "manifest files entries must be objects {role,path,size,contentSha256}"
+            )
+        out.append(entry["path"])
+    return out
+
+
+def validate_file_descriptors(
+    files: list,
+    *,
+    label: str,
+) -> list[dict]:
+    """Validate files as exact-key descriptor objects; return normalized list."""
+    if not isinstance(files, list) or not files:
+        raise SystemExit(f"{label}: files must be a non-empty list of objects")
+    if len(files) > MAX_CLOSURE_FILES:
+        raise SystemExit(
+            f"{label}: too many file descriptors ({len(files)} > {MAX_CLOSURE_FILES})"
+        )
+    out: list[dict] = []
+    seen: set[str] = set()
+    total_bytes = 0
+    for entry in files:
+        if isinstance(entry, str):
+            raise SystemExit(
+                f"{label}: files path-only string entries are rejected "
+                "under proof-forge.output.v1"
+            )
+        if not isinstance(entry, dict):
+            raise SystemExit(
+                f"{label}: files entries must be objects "
+                "{role,path,size,contentSha256}"
+            )
+        if set(entry.keys()) != set(_FILE_DESCRIPTOR_REQUIRED_KEYS):
+            raise SystemExit(
+                f"{label}: file descriptor keys must be exactly "
+                f"{sorted(_FILE_DESCRIPTOR_REQUIRED_KEYS)}; got {sorted(entry.keys())}"
+            )
+        role = entry["role"]
+        path = entry["path"]
+        size = entry["size"]
+        content = entry["contentSha256"]
+        if role not in _CLOSED_ROLES:
+            raise SystemExit(f"{label}: unknown artifact role {role!r}")
+        if not isinstance(path, str) or not path:
+            raise SystemExit(f"{label}: file path must be a nonempty string")
+        if path in _SIDECAR_NAMES:
+            raise SystemExit(f"{label}: sidecars must not appear in files")
+        if not safe_relative_artifact_path(path):
+            raise SystemExit(f"{label}: unsafe artifact path '{path}'")
+        if path in seen:
+            raise SystemExit(f"{label}: duplicate file path '{path}'")
+        seen.add(path)
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+            raise SystemExit(f"{label}: size must be a non-negative integer for '{path}'")
+        if size > MAX_CLOSURE_FILE_BYTES:
+            raise SystemExit(f"{label}: file exceeds size limit '{path}'")
+        total_bytes += size
+        if total_bytes > MAX_CLOSURE_TOTAL_BYTES:
+            raise SystemExit(
+                f"{label}: artifact inventory total size exceeds limit at '{path}'"
+            )
+        _require_hex64_value(content, label=label, key=f"contentSha256 for '{path}'")
+        out.append(
+            {
+                "role": role,
+                "path": path,
+                "size": size,
+                "contentSha256": content,
+            }
+        )
+    # Canonical order: role-rank then UTF-8 path.
+    sorted_out = sorted(out, key=descriptor_sort_key)
+    if out != sorted_out:
+        raise SystemExit(
+            f"{label}: files order is noncanonical (role-rank then path required)"
+        )
+    for a in out:
+        for b in out:
+            if a["path"] != b["path"] and b["path"].startswith(a["path"] + "/"):
+                raise SystemExit(
+                    f"{label}: file/directory prefix conflict '{a['path']}'"
+                )
+    return out
+
+
+def validate_engineering_output_manifest(manifest: dict, *, label: str) -> list[dict]:
+    """Validate engineering proof-forge.output.v1 field surface (not formal).
+
+    Returns normalized descriptor list. Path-only files arrays fail closed.
+    """
     if not isinstance(manifest, dict):
         raise SystemExit(f"{label}: manifest must be an object")
     if set(manifest.keys()) != set(_ENGINEERING_OUTPUT_REQUIRED_KEYS):
@@ -220,6 +358,7 @@ def validate_engineering_output_manifest(manifest: dict, *, label: str) -> None:
         "supportClaimDigest",
         "engineeringRegistryRootDigest",
         "outputSetDigest",
+        "evidenceSha256",
     ):
         _require_hex64(manifest, key, label)
     if not isinstance(manifest["target"], str) or not manifest["target"]:
@@ -233,16 +372,55 @@ def validate_engineering_output_manifest(manifest: dict, *, label: str) -> None:
         raise SystemExit(f"{label}: invalid artifactProgramName")
     if not isinstance(manifest["deployable"], bool):
         raise SystemExit(f"{label}: deployable must be bool")
-    if not isinstance(manifest["files"], list) or not all(
-        isinstance(p, str) and p for p in manifest["files"]
-    ):
-        raise SystemExit(f"{label}: files must be a non-empty list of strings")
-    if not manifest["files"]:
-        raise SystemExit(f"{label}: files must be non-empty")
-    if len(set(manifest["files"])) != len(manifest["files"]):
-        raise SystemExit(f"{label}: files list has duplicates")
-    if "manifest.json" in manifest["files"] or "evidence.json" in manifest["files"]:
-        raise SystemExit(f"{label}: sidecars must not appear in files")
+    return validate_file_descriptors(manifest["files"], label=label)
+
+
+def verify_descriptor_contents(
+    root: Path, descriptors: list[dict], *, label: str
+) -> None:
+    """Independent size/SHA-256 check of each artifact leaf (test validator only)."""
+    for d in descriptors:
+        path = root / d["path"]
+        try:
+            st = os.lstat(path)
+        except FileNotFoundError as exc:
+            raise SystemExit(f"{label}: missing regular file '{d['path']}'") from exc
+        if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+            raise SystemExit(f"{label}: missing regular file '{d['path']}'")
+        if st.st_nlink != 1:
+            raise SystemExit(
+                f"{label}: path is not a single-link regular file '{d['path']}'"
+            )
+        data = path.read_bytes()
+        if len(data) != d["size"] or st.st_size != d["size"]:
+            raise SystemExit(
+                f"{label}: size mismatch for '{d['path']}' "
+                f"(manifest {d['size']}, disk {len(data)})"
+            )
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != d["contentSha256"]:
+            raise SystemExit(
+                f"{label}: contentSha256 mismatch for '{d['path']}'"
+            )
+
+
+def verify_evidence_sha256(
+    root: Path, evidence_sha256: str, *, label: str
+) -> None:
+    """SHA-256 of exact evidence.json UTF-8 bytes must match manifest field."""
+    evidence_path = root / "evidence.json"
+    try:
+        st = os.lstat(evidence_path)
+    except FileNotFoundError as exc:
+        raise SystemExit(f"{label}: missing evidence.json") from exc
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        raise SystemExit(f"{label}: evidence.json is not a regular file")
+    if st.st_nlink != 1:
+        raise SystemExit(f"{label}: evidence.json is not a single-link regular file")
+    data = evidence_path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != evidence_sha256:
+        raise SystemExit(f"{label}: evidence content digest diverges from evidenceSha256")
 
 
 def _require_engineering_output_manifest(
@@ -254,25 +432,34 @@ def _require_engineering_output_manifest(
     deployable: bool,
     files: list[str],
     label: str,
-) -> None:
-    validate_engineering_output_manifest(manifest, label=label)
-    expected = {
-        "schemaVersion": _ENGINEERING_OUTPUT_SCHEMA,
-        "target": target,
-        "codegenProfile": codegen_profile,
-        "artifactProgramName": artifact_program_name,
-        "sourceHash": manifest["sourceHash"],
-        "semanticHash": manifest["semanticHash"],
-        "buildIdentityDigest": manifest["buildIdentityDigest"],
-        "planDigest": manifest["planDigest"],
-        "supportClaimDigest": manifest["supportClaimDigest"],
-        "engineeringRegistryRootDigest": manifest["engineeringRegistryRootDigest"],
-        "outputSetDigest": manifest["outputSetDigest"],
-        "deployable": deployable,
-        "files": files,
-    }
-    if manifest != expected:
-        raise SystemExit(f"{label}: manifest is invalid: {manifest}")
+) -> list[dict]:
+    """Validate structure + identity fields; files is expected path membership only.
+
+    Size/contentSha256 are content-dependent and checked separately against disk.
+    """
+    descriptors = validate_engineering_output_manifest(manifest, label=label)
+    if manifest["target"] != target:
+        raise SystemExit(f"{label}: target mismatch: {manifest['target']!r} != {target!r}")
+    if manifest["codegenProfile"] != codegen_profile:
+        raise SystemExit(
+            f"{label}: codegenProfile mismatch: "
+            f"{manifest['codegenProfile']!r} != {codegen_profile!r}"
+        )
+    if manifest["artifactProgramName"] != artifact_program_name:
+        raise SystemExit(
+            f"{label}: artifactProgramName mismatch: "
+            f"{manifest['artifactProgramName']!r} != {artifact_program_name!r}"
+        )
+    if manifest["deployable"] != deployable:
+        raise SystemExit(
+            f"{label}: deployable mismatch: {manifest['deployable']!r} != {deployable!r}"
+        )
+    actual_paths = [d["path"] for d in descriptors]
+    if set(actual_paths) != set(files) or len(actual_paths) != len(files):
+        raise SystemExit(
+            f"{label}: files paths {actual_paths} do not match expected {files}"
+        )
+    return descriptors
 
 
 def load_manifest(root: Path, target: str) -> dict:
@@ -282,9 +469,14 @@ def load_manifest(root: Path, target: str) -> dict:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest["target"] != target:
         raise SystemExit(f"target mismatch in {path}")
-    validate_engineering_output_manifest(manifest, label=target)
-    expected_files = set(manifest["files"]) | {"manifest.json", "evidence.json"}
+    descriptors = validate_engineering_output_manifest(manifest, label=target)
+    artifact_paths = [d["path"] for d in descriptors]
+    expected_files = set(artifact_paths) | {"manifest.json", "evidence.json"}
     exact_physical_closure(root / target, expected_files, label=target)
+    verify_descriptor_contents(root / target, descriptors, label=target)
+    verify_evidence_sha256(
+        root / target, manifest["evidenceSha256"], label=target
+    )
     return manifest
 
 
@@ -299,7 +491,7 @@ def validate_evm_accumulator(root: Path) -> dict:
         "Accumulator.abi.json",
         "Accumulator.bin",
     ]
-    _require_engineering_output_manifest(
+    descriptors = _require_engineering_output_manifest(
         manifest,
         target="evm",
         codegen_profile="evm-yul-solc-0.8.34-v1",
@@ -312,6 +504,10 @@ def validate_evm_accumulator(root: Path) -> dict:
         output,
         set(expected_files) | {"manifest.json", "evidence.json"},
         label="evm-accumulator",
+    )
+    verify_descriptor_contents(output, descriptors, label="Accumulator EVM")
+    verify_evidence_sha256(
+        output, manifest["evidenceSha256"], label="Accumulator EVM"
     )
     binary = (output / "Accumulator.bin").read_text(encoding="ascii").strip()
     if len(binary) % 2 != 0 or not re.fullmatch(r"[0-9a-fA-F]+", binary):
@@ -371,7 +567,7 @@ def validate_solana_accumulator(root: Path, evm_manifest: dict) -> dict:
         )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    _require_engineering_output_manifest(
+    descriptors = _require_engineering_output_manifest(
         manifest,
         target="solana",
         codegen_profile="solana-sbpf-plan-v1",
@@ -379,6 +575,10 @@ def validate_solana_accumulator(root: Path, evm_manifest: dict) -> dict:
         deployable=False,
         files=["Accumulator.sbpf-plan", "Accumulator.idl.json"],
         label="Solana Accumulator",
+    )
+    verify_descriptor_contents(output, descriptors, label="Solana Accumulator")
+    verify_evidence_sha256(
+        output, manifest["evidenceSha256"], label="Solana Accumulator"
     )
     for digest_name in ("sourceHash", "semanticHash"):
         if manifest[digest_name] != evm_manifest[digest_name]:
@@ -526,8 +726,8 @@ def validate_solana_accumulator(root: Path, evm_manifest: dict) -> dict:
   %1 = load_u64_le(instruction_data + 8)
   %2 = checked_add_u64 %0, %1 else program_error 0x1001
   store_u64_le account[0].data + 8, %2
-  %3 = load_u64_le(account[0].data + 8)
-  set_return_data_u64_le %3
+  %0 = load_u64_le(account[0].data + 8)
+  set_return_data_u64_le %0
 .end-handler
 .handler 8c07d3938c593e21 current mode=view
   check instruction_data_len == 8
@@ -565,7 +765,7 @@ def validate_near_accumulator(
     exact_physical_closure(output, expected_names, label="near-accumulator")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    _require_engineering_output_manifest(
+    descriptors = _require_engineering_output_manifest(
         manifest,
         target="near",
         codegen_profile="near-wasm-raw-u64-v1",
@@ -577,6 +777,10 @@ def validate_near_accumulator(
             "Accumulator.wasm",
         ],
         label="NEAR Accumulator",
+    )
+    verify_descriptor_contents(output, descriptors, label="NEAR Accumulator")
+    verify_evidence_sha256(
+        output, manifest["evidenceSha256"], label="NEAR Accumulator"
     )
     for other_name, other_manifest in (
         ("EVM", evm_manifest),
@@ -784,7 +988,7 @@ def validate_noir_bundle(
         raise SystemExit(f"Noir source-only bundle contains proof-stage artifacts: {forbidden}")
 
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    _require_engineering_output_manifest(
+    descriptors = _require_engineering_output_manifest(
         manifest,
         target="noir",
         codegen_profile="noir-source-u64-relations-v1",
@@ -792,6 +996,10 @@ def validate_noir_bundle(
         deployable=False,
         files=logical_files,
         label=f"Noir {program}",
+    )
+    verify_descriptor_contents(output, descriptors, label=f"Noir {program}")
+    verify_evidence_sha256(
+        output, manifest["evidenceSha256"], label=f"Noir {program}"
     )
     for peer_name, peer_manifest in peer_manifests:
         for digest_name in ("sourceHash", "semanticHash"):

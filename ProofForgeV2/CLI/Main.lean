@@ -41,7 +41,7 @@ private def usage : String :=
   "  --proof-bundle pair joins source `proof … using …` to a digest-pinned ProofBundleV1 (INV-1 engineering; no ambient Lean term).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build.\n" ++
   "  inspect <arg> prefers a registered target id when ambiguous; use --output-dir to force a path.\n" ++
-  "  inspect output-dir validates proof-forge.output.v1 manifest + evidence identity chain.\n" ++
+  "  inspect output-dir validates proof-forge.output.v1 artifact-content + exact disk closure.\n" ++
   "  check validates without writing artifacts; build materializes under -o (default build/v2).\n"
 
 /-- CLI usage/config failure: plain stderr and exit 2, not a diagnostic bundle. -/
@@ -343,8 +343,11 @@ private def pathType? (path : FilePath) : IO (Option IO.FS.FileType) :=
     return none
 
 /-- Read and strictly validate an engineering build output directory.
-Requires regular `manifest.json` + `evidence.json`; validates structure, hex
-digests, evidence identity join, and public `outputSetDigest` recompute. -/
+
+    Stable-reads sidecars via ArtifactContentV1, parses proof-forge.output.v1
+    with content descriptors + evidenceSha256, sole-scan exact disk closure,
+    exact inventory compare, evidence digest/identity, outputSetDigest recompute.
+    Does not forge FinalizedArtifactsV1. Engineering only. -/
 private def inspectOutputDir (dir : String) (json : Bool) : IO Unit := do
   if dir.isEmpty then
     failUsage "inspect output directory path must be nonempty"
@@ -357,28 +360,14 @@ private def inspectOutputDir (dir : String) (json : Bool) : IO Unit := do
   | some .dir => pure ()
   | some _ =>
       failOutputManifest s!"output path is not a directory: {dir}"
-  let manifestPath := outputPath / "manifest.json"
-  let evidencePath := outputPath / "evidence.json"
-  match ← pathType? manifestPath with
-  | some .file => pure ()
-  | some .symlink =>
-      failOutputManifest "manifest.json cannot be a symbolic link"
-  | _ =>
-      failOutputManifest s!"missing manifest.json under {dir}"
-  match ← pathType? evidencePath with
-  | some .file => pure ()
-  | some .symlink =>
-      failOutputManifest "evidence.json cannot be a symbolic link"
-  | _ =>
-      failOutputManifest s!"missing evidence.json under {dir}"
-  let manifestText ← IO.FS.readFile manifestPath
-  let evidenceText ← IO.FS.readFile evidencePath
-  let manifest ← match validateEngineeringOutputManifestTextV1 manifestText with
-    | .ok value => pure value
-    | .error err => failOutputManifest err
-  match validateEngineeringEvidenceAgainstManifestV1 evidenceText manifest with
-  | .ok () => pure ()
-  | .error err => failOutputManifest err
+  let manifest ← try
+    inspectEngineeringOutputDirV1 outputPath
+  catch e =>
+    let msg := toString e
+    -- Strip optional "Error: " / userError wrappers for stable PF-OUTPUT-MANIFEST.
+    let cleaned :=
+      if msg.startsWith "Error: " then (msg.drop 7).toString else msg
+    failOutputManifest cleaned
   if json then
     IO.println (← liftCompileResult (renderInspectOutputJsonV1 dir manifest))
   else

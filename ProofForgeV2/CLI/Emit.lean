@@ -27,15 +27,21 @@
     proof-forge.cli.build.v1
 
   Output-dir validation scope (engineering, not formal OutputSetV1):
-    * Load `manifest.json` + require `evidence.json` as regular files.
+    * Stable-read `manifest.json` + `evidence.json` via ArtifactContentV1 helper
+      (regular single-link, bounded; no ad-hoc readFile content authority).
     * Parse pretty-printed engineering JSON (whitespace-tolerant; not PF-JCS).
     * Exact key set for `proof-forge.output.v1` + schemaVersion exact.
     * Digest fields: 64-char lowercase hex; re-encode to Digest via `sha256:`.
-    * files: non-empty unique relative strings; sidecars excluded.
-    * evidence.json target/sourceHash/semanticHash/deployable exact match.
-    * Recompute `outputSetDigest` via public `engineeringOutputSetDigestV1`
-      from parsed binding fields and require byte identity with recorded digest.
-    * Does NOT re-walk disk closure, re-mint OutputSet, or re-run materializers.
+    * files: non-empty array of exact-key objects
+      `{role,path,size,contentSha256}`; path-only string arrays fail closed.
+    * Top-level `evidenceSha256` (bare hex of exact evidence.json UTF-8).
+    * Derive untrusted claims from manifest descriptors → sole
+      `scanArtifactContentClosureV1` with fixed sidecars → exact inventory
+      compare to manifest descriptors; evidence digest + identity join;
+      recompute `outputSetDigest`. Rejects artifact/byte/size/role/path
+      mutation, extra/missing leaves, symlink/FIFO/hardlink, evidence note-only
+      mutation, legacy path-only manifests.
+    * Does NOT forge FinalizedArtifactsV1 or re-run materializers.
 
   Deleted product commands: `build-counter`, `describe-target` (use
   `build Examples/Counter.lean --module Examples.Counter` and `inspect`).
@@ -50,6 +56,7 @@ import ProofForgeV2.Targets.RegistryRootV1
 import ProofForgeV2.Targets.SupportClaimV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
+import ProofForgeV2.Materialization.ArtifactContentV1
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
 import ProofForgeV2.Materialization.EngineeringDiskClosureV1
 import ProofForgeV2.Materialization.OutputSetV1
@@ -179,15 +186,17 @@ def validateFinalizedExtraPathsForPublishV1
       throw <| IO.userError s!"PF-OUTPUT-PATH: duplicate finalized artifact path '{file}'"
     paths := paths.push file
 
-/-- Publisher-only staging render (D3/S7b + S7c + M3c OutputSet).
+/-- Publisher-only staging render (D3/S7b + S7c + D3-E7 artifact-content OutputSet).
 
-    Owns base-file writes, dual-defense extra-path checks, sole
-    `mintEngineeringOutputSetV1` + engineering `proof-forge.output.v1`
+    Owns base-file writes, dual-defense extra-path checks, artifact-only scan →
+    pure `mintEngineeringOutputSetV1` + engineering `proof-forge.output.v1`
     manifest/evidence rendering. Finalization authority (tools, deployability,
     notes) is sole Registry `finalizeMaterializedArtifactsV1` → target adapters
-    → `FinalizedArtifactsV1`. Write order: base → finalize extras → mint
-    OutputSet → evidence.json → manifest.json (last) → exact disk-closure
-    validation before destination race recheck/rename. Not formal OutputSetV1. -/
+    → `FinalizedArtifactsV1`. Write order: base → finalize extras → artifact-only
+    scan → pure OutputSet mint → render evidence → render manifest → write
+    evidence → write manifest last → full scan with sidecars → exact pre/post
+    inventory compare → verify evidence bytes digest → rename.
+    Sole content walker/hash is ArtifactContentV1. Not formal OutputSetV1. -/
 private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     (compiled : CompiledSemanticV1) (artifacts : MaterializedArtifactsV1)
     (stagingDir : FilePath) : IO EmitReceiptV1 := do
@@ -202,7 +211,9 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
   -- Dual-defense: safety + uniqueness vs base + uniqueness among extras.
   validateFinalizedExtraPathsForPublishV1 basePaths
     (FinalizedArtifactsV1.extraFilesOf finalized)
-  let outputSet ← match mintEngineeringOutputSetV1 finalized with
+  -- Artifact-only scan (no sidecars yet) → pure OutputSet mint.
+  let preInv ← scanEngineeringArtifactContentOnlyV1 finalized stagingDir
+  let outputSet ← match mintEngineeringOutputSetV1 finalized preInv with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   let evidence ← match renderEngineeringOutputSetEvidenceV1 outputSet with
@@ -213,11 +224,31 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     | .ok value => pure value
     | .error error =>
         throw <| IO.userError s!"PF-OUTPUT-MANIFEST: output-set manifest render failed: {error}"
+  -- Dual-defense: rendered evidence UTF-8 digest must match mint-time evidenceSha256.
+  let evidenceDigest := sha256Bytes evidence.toUTF8
+  let recordedEvidence := EngineeringOutputSetV1.evidenceSha256Of outputSet
+  unless evidenceDigest.algorithm == recordedEvidence.algorithm &&
+      evidenceDigest.bytes == recordedEvidence.bytes do
+    throw <| IO.userError
+      "PF-OUTPUT-MANIFEST: evidence bytes digest diverges from output-set evidenceSha256"
   -- S7c: evidence before manifest; manifest is the last file write.
-  IO.FS.writeFile (stagingDir / "evidence.json") evidence
-  IO.FS.writeFile (stagingDir / "manifest.json") manifest
-  -- Exact disk closure after manifest and before destination race recheck/rename.
-  validateEngineeringDiskClosureV1 finalized stagingDir
+  IO.FS.writeFile (stagingDir / evidenceSidecarNameV1) evidence
+  IO.FS.writeFile (stagingDir / manifestSidecarNameV1) manifest
+  -- Full scan with fixed sidecars; exact pre/post artifact inventory compare.
+  let postInv ← scanEngineeringArtifactContentWithSidecarsV1 finalized stagingDir
+  unless ArtifactContentInventoryV1.beq preInv postInv do
+    throw <| IO.userError
+      "PF-OUTPUT-MANIFEST: artifact content inventory changed after sidecar write"
+  -- Re-verify evidence.json exact bytes digest via sole stable-read authority.
+  let (_sz, evidenceBytes, evidenceOnDiskDigest) ←
+    readStableArtifactLeafBytesV1 stagingDir evidenceSidecarNameV1
+  unless evidenceOnDiskDigest.algorithm == recordedEvidence.algorithm &&
+      evidenceOnDiskDigest.bytes == recordedEvidence.bytes do
+    throw <| IO.userError
+      "PF-OUTPUT-MANIFEST: on-disk evidence content digest diverges from evidenceSha256"
+  unless evidenceBytes == evidence.toUTF8 do
+    throw <| IO.userError
+      "PF-OUTPUT-MANIFEST: on-disk evidence bytes diverge from rendered evidence"
   return {
     target := EngineeringOutputSetV1.targetIdOf outputSet
     codegenProfile := EngineeringOutputSetV1.codegenProfileOf outputSet
@@ -977,9 +1008,10 @@ structure InspectedOutputManifestV1 where
   supportClaimDigest : String
   engineeringRegistryRootDigest : String
   outputSetDigest : String
+  evidenceSha256 : String
   deployable : Bool
-  files : Array String
-  deriving BEq, Repr
+  files : Array ArtifactContentDescriptorV1
+  deriving Repr
 
 private def engineeringManifestRequiredKeysV1 : Array String := #[
   "schemaVersion",
@@ -993,8 +1025,16 @@ private def engineeringManifestRequiredKeysV1 : Array String := #[
   "supportClaimDigest",
   "engineeringRegistryRootDigest",
   "outputSetDigest",
+  "evidenceSha256",
   "deployable",
   "files"
+]
+
+private def engineeringFileDescriptorRequiredKeysV1 : Array String := #[
+  "role",
+  "path",
+  "size",
+  "contentSha256"
 ]
 
 private def engineeringEvidenceRequiredKeysV1 : Array String := #[
@@ -1053,6 +1093,45 @@ private def parseJsonLiteral
   | some rest => pure (value, rest)
   | none => throw "json contains an invalid literal"
 
+/-- Max decimal digits for engineering JSON integers (UInt64 bound, size fields). -/
+private def maxEngineeringJsonIntegerDigitsV1 : Nat := 20
+
+/-- Max JSON array elements before fail-closed (matches file-cap; untrusted input). -/
+private def maxEngineeringJsonArrayElemsV1 : Nat := maxEngineeringDiskClosureFilesV1
+
+/-- Max JSON object members before fail-closed (untrusted input). -/
+private def maxEngineeringJsonObjectKeysV1 : Nat := 64
+
+/-- Max structural JSON nesting before the recursive parser runs. -/
+private def maxEngineeringJsonNestingV1 : Nat := 64
+
+/-- O(n) lexical nesting pre-scan (brackets inside strings are ignored).
+
+    Syntax remains authoritative in the JSON parser; this guard only prevents
+    attacker-controlled deeply nested sidecars from exhausting the call stack. -/
+private def validateEngineeringJsonNestingV1 (input : String) : Except String Unit := do
+  let mut depth : Nat := 0
+  let mut inString := false
+  let mut escaped := false
+  for c in input.toList do
+    if inString then
+      if escaped then
+        escaped := false
+      else if c == '\\' then
+        escaped := true
+      else if c == '"' then
+        inString := false
+    else if c == '"' then
+      inString := true
+    else if c == '{' || c == '[' then
+      depth := depth + 1
+      if depth > maxEngineeringJsonNestingV1 then
+        throw "json nesting exceeds bound"
+    else if c == '}' || c == ']' then
+      if depth > 0 then
+        depth := depth - 1
+  pure ()
+
 private def parseJsonNumber (input : List Char) : Except String (PfJson × List Char) := do
   let (negative, unsignedInput) :=
     match input with
@@ -1063,16 +1142,20 @@ private def parseJsonNumber (input : List Char) : Except String (PfJson × List 
     throw "json integer requires at least one digit"
   if digits.length > 1 && digits.head? == some '0' then
     throw "json integer contains a leading zero"
-  -- Engineering sidecars only use booleans for non-string scalars; reject
-  -- non-zero integers so deployable cannot be smuggled as 0/1.
+  -- Cap digit count before Nat accumulation (UInt64-sized bound is sufficient).
+  if digits.length > maxEngineeringJsonIntegerDigitsV1 then
+    throw "json integer digit count exceeds bound"
+  -- Non-negative integers only (file size fields). Deployable remains bool-only
+  -- via expectJsonBool; negative / non-zero-as-bool smuggling fails there.
   let mut value : Nat := 0
   for d in digits do
     value := value * 10 + (d.toNat - '0'.toNat)
-  if negative && value = 0 then
-    throw "json forbids negative zero"
-  if value ≠ 0 then
-    throw "json integer non-zero is not accepted in engineering sidecars"
-  pure (.int 0, rest)
+  if negative then
+    if value = 0 then
+      throw "json forbids negative zero"
+    else
+      throw "json negative integer is not accepted in engineering sidecars"
+  pure (.int (Int.ofNat value), rest)
 
 private def hasJsonObjectKey (fields : Array (String × PfJson)) (key : String) : Bool :=
   fields.any (fun field => field.1 == key)
@@ -1102,6 +1185,8 @@ private partial def parseJsonArrayTail
   match input with
   | ']' :: rest => pure (.array values, rest)
   | ',' :: rest => do
+      if values.size >= maxEngineeringJsonArrayElemsV1 then
+        throw "json array exceeds element bound"
       let (value, tail) ← parseJsonValue rest
       parseJsonArrayTail tail (values.push value)
   | _ => throw "json array requires ',' or ']'"
@@ -1118,6 +1203,8 @@ private partial def parseJsonArray
 private partial def parseJsonObjectField
     (input : List Char) (fields : Array (String × PfJson)) :
     Except String ((Array (String × PfJson)) × List Char) := do
+  if fields.size >= maxEngineeringJsonObjectKeysV1 then
+    throw "json object exceeds key bound"
   let input := skipJsonWs input
   let (key, afterKey) ← parseJsonStringValue input
   if hasJsonObjectKey fields key then
@@ -1153,6 +1240,7 @@ end
 
 /-- Parse a complete engineering JSON document (trailing whitespace allowed). -/
 def parseEngineeringJsonDocumentV1 (input : String) : Except String PfJson := do
+  validateEngineeringJsonNestingV1 input
   let (value, rest) ← parseJsonValue input.toList
   let rest := skipJsonWs rest
   unless rest.isEmpty do
@@ -1178,17 +1266,12 @@ private def expectJsonBool (label : String) (value : PfJson) : Except String Boo
   | .bool b => pure b
   | _ => throw s!"{label} must be a boolean"
 
-private def expectJsonStringArray (label : String) (value : PfJson) :
-    Except String (Array String) := do
+private def expectJsonNat (label : String) (value : PfJson) : Except String Nat :=
   match value with
-  | .array values =>
-      let mut out : Array String := #[]
-      for v in values do
-        match v with
-        | .string s => out := out.push s
-        | _ => throw s!"{label} must be an array of strings"
-      pure out
-  | _ => throw s!"{label} must be an array"
+  | .int n =>
+      if n < 0 then throw s!"{label} must be a non-negative integer"
+      else pure n.toNat
+  | _ => throw s!"{label} must be an integer"
 
 private def isLowerHex64 (value : String) : Bool :=
   value.length == 64 && value.all fun c =>
@@ -1216,8 +1299,72 @@ private def exactKeySet
     unless required.contains key do
       throw s!"unexpected key '{key}'"
 
+/-- Parse one exact-key file descriptor object; reject path-only strings. -/
+private def parseFileDescriptorObjectV1 (value : PfJson) :
+    Except String ArtifactContentDescriptorV1 := do
+  let fields ← match jsonObjectFields? value with
+    | some f => pure f
+    | none =>
+        throw "files entries must be objects {role,path,size,contentSha256} (path-only rejected)"
+  exactKeySet fields engineeringFileDescriptorRequiredKeysV1
+  let roleWire ← expectJsonString "role" (jsonField? fields "role" |>.getD .null)
+  let role ← match ArtifactContentRoleV1.ofWire? roleWire with
+    | some r => pure r
+    | none => throw s!"unknown artifact role '{roleWire}'"
+  let path ← expectJsonString "path" (jsonField? fields "path" |>.getD .null)
+  if path.isEmpty then throw "files path must be nonempty"
+  if path == evidenceSidecarNameV1 || path == manifestSidecarNameV1 then
+    throw "sidecars must not appear in files"
+  unless safeRelativeArtifactPathV1 path do
+    throw s!"unsafe artifact path '{path}'"
+  let size ← expectJsonNat "size" (jsonField? fields "size" |>.getD .null)
+  if size > maxEngineeringDiskClosureFileBytesV1 then
+    throw s!"file exceeds size limit '{path}'"
+  let contentHex ← expectHex64Digest "contentSha256"
+    (← expectJsonString "contentSha256" (jsonField? fields "contentSha256" |>.getD .null))
+  let contentSha256 ← digestFromBareHex "contentSha256" contentHex
+  pure { role, path, size, contentSha256 }
+
+private def expectFileDescriptorArrayV1 (label : String) (value : PfJson) :
+    Except String (Array ArtifactContentDescriptorV1) := do
+  match value with
+  | .array values =>
+      if values.isEmpty then throw s!"{label} must be non-empty"
+      if values.size > maxEngineeringDiskClosureFilesV1 then
+        throw s!"{label} exceeds descriptor bound ({values.size} > {maxEngineeringDiskClosureFilesV1})"
+      let mut out : Array ArtifactContentDescriptorV1 := #[]
+      let mut seen : Array String := #[]
+      let mut totalBytes : Nat := 0
+      for v in values do
+        -- Explicit path-only rejection for clear diagnostics.
+        match v with
+        | .string _ =>
+            throw s!"{label} path-only string entries are rejected under proof-forge.output.v1"
+        | _ => pure ()
+        let d ← parseFileDescriptorObjectV1 v
+        if seen.contains d.path then throw s!"duplicate file path '{d.path}'"
+        seen := seen.push d.path
+        totalBytes := totalBytes + d.size
+        if totalBytes > maxEngineeringDiskClosureTotalBytesV1 then
+          throw s!"{label} total size exceeds limit at '{d.path}'"
+        out := out.push d
+      -- Canonical order (role-rank then path).
+      let sorted := sortArtifactContentDescriptorsV1 out
+      unless out.size == sorted.size do
+        throw s!"{label} order is noncanonical"
+      for pair in out.zip sorted do
+        unless ArtifactContentDescriptorV1.beq pair.1 pair.2 do
+          throw s!"{label} order is noncanonical (role-rank then path required)"
+      for a in out do
+        for b in out do
+          if a.path != b.path && b.path.startsWith (a.path ++ "/") then
+            throw s!"file/directory prefix conflict '{a.path}'"
+      pure out
+  | _ => throw s!"{label} must be an array"
+
 /-- Validate on-disk `manifest.json` body into a typed carrier.
-Structure + hex format + public `engineeringOutputSetDigestV1` recompute. -/
+Structure + descriptor objects + hex format + public `engineeringOutputSetDigestV1`
+recompute. Path-only `files` arrays fail closed. -/
 def validateEngineeringOutputManifestTextV1 (text : String) :
     Except String InspectedOutputManifestV1 := do
   let value ← match parseEngineeringJsonDocumentV1 text with
@@ -1258,20 +1405,13 @@ def validateEngineeringOutputManifestTextV1 (text : String) :
   let outputSetDigest ← expectHex64Digest "outputSetDigest"
     (← expectJsonString "outputSetDigest"
       (jsonField? fields "outputSetDigest" |>.getD .null))
+  let evidenceSha256 ← expectHex64Digest "evidenceSha256"
+    (← expectJsonString "evidenceSha256"
+      (jsonField? fields "evidenceSha256" |>.getD .null))
   let deployable ← expectJsonBool "deployable"
     (jsonField? fields "deployable" |>.getD .null)
-  let files ← expectJsonStringArray "files" (jsonField? fields "files" |>.getD .null)
-  if files.isEmpty then throw "files must be non-empty"
-  let mut seen : Array String := #[]
-  for path in files do
-    if path.isEmpty then throw "files entries must be nonempty"
-    if path == evidenceSidecarNameV1 || path == manifestSidecarNameV1 then
-      throw "sidecars must not appear in files"
-    unless safeRelativeArtifactPathV1 path do
-      throw s!"unsafe artifact path '{path}'"
-    if seen.contains path then throw s!"duplicate file path '{path}'"
-    seen := seen.push path
-  -- Public recompute of outputSetDigest from binding fields.
+  let files ← expectFileDescriptorArrayV1 "files" (jsonField? fields "files" |>.getD .null)
+  -- Public recompute of outputSetDigest from binding fields + descriptors.
   let tid ← match TargetId.parse? target with
     | some t => pure t
     | none => throw s!"target '{target}' is not a valid TargetId"
@@ -1285,13 +1425,15 @@ def validateEngineeringOutputManifestTextV1 (text : String) :
   let claimDigest ← digestFromBareHex "supportClaimDigest" supportClaimDigest
   let identityDigest ← digestFromBareHex "buildIdentityDigest" buildIdentityDigest
   let planDigestValue ← digestFromBareHex "planDigest" planDigest
+  let evidenceDigest ← digestFromBareHex "evidenceSha256" evidenceSha256
   let recordedSetDigest ← digestFromBareHex "outputSetDigest" outputSetDigest
   let recomputed ← match engineeringOutputSetDigestV1
       tid pid artifactProgramName files
       sourceDigest semanticDigest
       registryRootDigest claimDigest identityDigest
       planDigestValue
-      deployable with
+      deployable
+      evidenceDigest with
     | .ok d => pure d
     | .error e => throw s!"outputSetDigest recompute failed: {e}"
   unless recomputed.algorithm == recordedSetDigest.algorithm &&
@@ -1308,14 +1450,24 @@ def validateEngineeringOutputManifestTextV1 (text : String) :
     supportClaimDigest
     engineeringRegistryRootDigest
     outputSetDigest
+    evidenceSha256
     deployable
     files
   }
 
-/-- Validate evidence.json and cross-check identity fields against the manifest. -/
+/-- Validation label for inspect-output human/JSON (artifact-content + disk closure). -/
+def inspectOutputValidationLabelV1 : String :=
+  "structure+evidence+artifact-content+exact-disk-closure+outputSetDigest-recompute"
+
+/-- Validate evidence.json identity fields + exact UTF-8 digest vs manifest.evidenceSha256. -/
 def validateEngineeringEvidenceAgainstManifestV1
     (evidenceText : String) (manifest : InspectedOutputManifestV1) :
     Except String Unit := do
+  let evidenceDigest := sha256Bytes evidenceText.toUTF8
+  let recorded ← digestFromBareHex "evidenceSha256" manifest.evidenceSha256
+  unless evidenceDigest.algorithm == recorded.algorithm &&
+      evidenceDigest.bytes == recorded.bytes do
+    throw "evidence content digest diverges from manifest evidenceSha256"
   let value ← match parseEngineeringJsonDocumentV1 evidenceText with
     | .ok v => pure v
     | .error e => throw s!"evidence is not valid JSON: {e}"
@@ -1340,8 +1492,11 @@ def validateEngineeringEvidenceAgainstManifestV1
   unless deployable == manifest.deployable do
     throw "evidence deployable diverges from manifest"
 
-private def formatFileList (files : Array String) : String :=
-  let body := String.intercalate ", " files.toList
+private def formatFileDescriptorList (files : Array ArtifactContentDescriptorV1) : String :=
+  let body := String.intercalate ", " <|
+    files.toList.map fun d =>
+      let role := ArtifactContentRoleV1.toWire d.role
+      s!"{role}:{d.path}:{d.size}"
   s!"#[{body}]"
 
 private def sha256WireFromBareHex (hex : String) : String :=
@@ -1363,16 +1518,28 @@ def renderInspectOutputHumanV1
     s!"supportClaimDigest={sha256WireFromBareHex manifest.supportClaimDigest}",
     s!"engineeringRegistryRootDigest={sha256WireFromBareHex manifest.engineeringRegistryRootDigest}",
     s!"outputSetDigest={sha256WireFromBareHex manifest.outputSetDigest}",
+    s!"evidenceSha256={sha256WireFromBareHex manifest.evidenceSha256}",
     s!"deployable={manifest.deployable}",
-    s!"files={formatFileList manifest.files}",
-    "validation=structure+evidence+digest-format+outputSetDigest-recompute"
+    s!"files={formatFileDescriptorList manifest.files}",
+    s!"validation={inspectOutputValidationLabelV1}"
   ]
 
 /-- Product inspect-output JSON (`proof-forge.cli.inspect-output.v1`). -/
 def renderInspectOutputJsonV1
     (outputDir : String) (manifest : InspectedOutputManifestV1) :
-    CompileResult String :=
-  let fileJson := manifest.files.map PfJson.string
+    CompileResult String := do
+  let mut fileJson : Array PfJson := #[]
+  for d in manifest.files do
+    let contentWire ← match renderDigest d.contentSha256 with
+      | .ok w => pure w
+      | .error e => throw <| .registryInvalid s!"content digest render failed: {e}"
+    fileJson := fileJson.push <|
+      PfJson.object #[
+        ("role", .string (ArtifactContentRoleV1.toWire d.role)),
+        ("path", .string d.path),
+        ("size", .int (Int.ofNat d.size)),
+        ("contentSha256", .string contentWire)
+      ]
   renderCliJsonV1 <|
     PfJson.object #[
       ("schema", .string "proof-forge.cli.inspect-output.v1"),
@@ -1393,11 +1560,52 @@ def renderInspectOutputJsonV1
         .string (sha256WireFromBareHex manifest.engineeringRegistryRootDigest)),
       ("outputSetDigest",
         .string (sha256WireFromBareHex manifest.outputSetDigest)),
+      ("evidenceSha256",
+        .string (sha256WireFromBareHex manifest.evidenceSha256)),
       ("deployable", .bool manifest.deployable),
       ("files", .array fileJson),
-      ("validation",
-        .string "structure+evidence+digest-format+outputSetDigest-recompute")
+      ("validation", .string inspectOutputValidationLabelV1)
     ]
+
+/-- Pure sidecar-text validation only (manifest structure + evidence digest/identity).
+
+    Not a directory walk; does not take a FilePath. Full on-disk closure is
+    `inspectEngineeringOutputDirV1` only. -/
+private def validateEngineeringOutputSidecarTextsV1
+    (manifestText : String)
+    (evidenceText : String) :
+    Except String InspectedOutputManifestV1 := do
+  let manifest ← validateEngineeringOutputManifestTextV1 manifestText
+  validateEngineeringEvidenceAgainstManifestV1 evidenceText manifest
+  pure manifest
+
+/-- Sole product API for full engineering output-dir validation.
+
+    Stable-reads sidecars via ArtifactContentV1, parses proof-forge.output.v1
+    descriptors + evidenceSha256, sole-scan exact disk closure with fixed
+    sidecars, exact inventory compare to manifest descriptors. Does not forge
+    FinalizedArtifactsV1. Engineering only. -/
+def inspectEngineeringOutputDirV1 (outputDir : FilePath) :
+    IO InspectedOutputManifestV1 := do
+  let manifestText ← readStableArtifactLeafUtf8V1 outputDir manifestSidecarNameV1
+  let evidenceText ← readStableArtifactLeafUtf8V1 outputDir evidenceSidecarNameV1
+  let manifest ← match validateEngineeringOutputSidecarTextsV1
+      manifestText evidenceText with
+    | .ok m => pure m
+    | .error e => throw <| IO.userError e
+  -- Derive untrusted claims from manifest descriptors; sole scanner rewalks.
+  let claims := manifest.files.map fun d =>
+    ({ role := d.role, path := d.path } : ArtifactPathClaimV1)
+  let inv ← scanArtifactContentClosureV1 outputDir claims engineeringFixedSidecarLeavesV1
+  let actual := ArtifactContentInventoryV1.descriptorsOf inv
+  unless actual.size == manifest.files.size do
+    throw <| IO.userError
+      s!"artifact content inventory size {actual.size} diverges from manifest {manifest.files.size}"
+  for pair in actual.zip manifest.files do
+    unless ArtifactContentDescriptorV1.beq pair.1 pair.2 do
+      throw <| IO.userError
+        s!"artifact content diverges from manifest at '{pair.1.path}'"
+  pure manifest
 
 /-- Whether `value` is a registered TargetId in the frozen product registry.
 Used solely for `inspect <arg>` disambiguation (registry wins over path). -/

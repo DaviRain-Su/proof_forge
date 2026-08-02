@@ -515,22 +515,29 @@ private unsafe def testSoleValidatorPins : IO Unit := do
   expect ((diskSrc.splitOn "deriveArtifactPathClaimsFromFinalizedV1").length > 1)
     "EngineeringDiskClosure exposes derive claims helper"
   -- Manifest-last ordering in Emit: evidence write before manifest write.
+  -- D3-E7: uses evidenceSidecarNameV1/manifestSidecarNameV1 + full scan/compare
+  -- (not a second walker; validateEngineeringDiskClosureV1 remains the Unit API).
   let emitSrc ← IO.FS.readFile (FilePath.mk "ProofForgeV2/CLI/Emit.lean")
-  let evIdx := (emitSrc.splitOn "stagingDir / \"evidence.json\"").length
-  let mfIdx := (emitSrc.splitOn "stagingDir / \"manifest.json\"").length
-  expect (evIdx > 1 && mfIdx > 1) "Emit must write both sidecars"
-  -- Source order: evidence path string appears before last manifest write in render.
+  expect ((emitSrc.splitOn "evidenceSidecarNameV1").length > 1)
+    "Emit must reference evidenceSidecarNameV1"
+  expect ((emitSrc.splitOn "manifestSidecarNameV1").length > 1)
+    "Emit must reference manifestSidecarNameV1"
   match emitSrc.splitOn "renderIntoStaging" with
   | _ :: body :: _ =>
-      let parts := body.splitOn "IO.FS.writeFile (stagingDir / \"evidence.json\")"
-      expect (parts.length > 1) "renderIntoStaging writes evidence.json"
+      expect ((body.splitOn "scanEngineeringArtifactContentOnlyV1").length > 1)
+        "renderIntoStaging does artifact-only pre-scan"
+      expect ((body.splitOn "mintEngineeringOutputSetV1").length > 1)
+        "renderIntoStaging pure-mints OutputSet after pre-scan"
+      let parts := body.splitOn "IO.FS.writeFile (stagingDir / evidenceSidecarNameV1)"
+      expect (parts.length > 1) "renderIntoStaging writes evidence sidecar"
       let afterEv := parts[1]!
-      expect ((afterEv.splitOn "IO.FS.writeFile (stagingDir / \"manifest.json\")").length > 1)
-        "manifest.json write must follow evidence.json write"
-      expect ((afterEv.splitOn "validateEngineeringDiskClosureV1").length > 1)
-        "closure validation after sidecar writes"
+      expect ((afterEv.splitOn "IO.FS.writeFile (stagingDir / manifestSidecarNameV1)").length > 1)
+        "manifest sidecar write must follow evidence write"
+      expect ((afterEv.splitOn "scanEngineeringArtifactContentWithSidecarsV1").length > 1)
+        "full scan with sidecars after manifest-last write"
+      expect ((afterEv.splitOn "ArtifactContentInventoryV1.beq").length > 1)
+        "pre/post inventory compare after sidecar writes"
   | _ => throw <| IO.userError "renderIntoStaging not found in Emit.lean"
-  expect (evIdx > 1 && mfIdx > 1) "Emit source mentions both sidecar paths"
 
 /-- Production adapter and package helpers share the sole scanner inventory. -/
 private unsafe def testAdapterSameScannerInventory : IO Unit := do

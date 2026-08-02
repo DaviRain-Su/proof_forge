@@ -79,6 +79,8 @@ private def testClaimValidationNegatives : IO Unit := do
     validateArtifactPathClaimsV1 #[{ role := .materializedBase, path := "" }]
   expectIoErrorContains "abs" "unsafe artifact path" do
     validateArtifactPathClaimsV1 #[{ role := .materializedBase, path := "/tmp/x" }]
+  expectIoErrorContains "control" "unsafe artifact path" do
+    validateArtifactPathClaimsV1 #[{ role := .materializedBase, path := "a\tb" }]
   expectIoErrorContains "dup" "duplicate artifact path" do
     validateArtifactPathClaimsV1 #[
       { role := .materializedBase, path := "a.txt" },

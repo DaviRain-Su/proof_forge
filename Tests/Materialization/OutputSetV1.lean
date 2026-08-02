@@ -1,12 +1,12 @@
 /-
-  M3c engineering OutputSet carrier + CLI publisher suite.
+  M3c / D3-E7 engineering OutputSet carrier + CLI publisher suite.
 
   Pins:
   * domain / schema surface (engineering-only names)
-  * mint determinism from FinalizedArtifactsV1
-  * outputSetDigest sensitivity to files / identity digests / deployable
+  * mint determinism from FinalizedArtifactsV1 + ArtifactContentInventoryV1
+  * outputSetDigest sensitivity to role/path/size/hash / evidence / deployable
   * product-path recompute: emit → on-disk manifest == render(mint)
-  * evidence→manifest-last + exact disk closure still holds
+  * evidence→manifest-last + pre/post inventory + exact disk closure
   * sole-mint / forbidden public names (OutputSet/makeOutput/manifestJson/…)
 
   **Not** formal TASK-D3-05 / formal OutputSetV1 / hermetic publish.
@@ -16,6 +16,7 @@ import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
+import ProofForgeV2.Materialization.ArtifactContentV1
 import ProofForgeV2.Materialization.EngineeringDiskClosureV1
 import ProofForgeV2.Materialization.OutputSetV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
@@ -79,6 +80,12 @@ private unsafe def finalizeScratch
     IO.FS.writeFile path file.contents
   Targets.finalizeMaterializedArtifactsV1 capability artifacts scratch
 
+private unsafe def mintFromStaging
+    (finalized : FinalizedArtifactsV1) (staging : FilePath) :
+    IO EngineeringOutputSetV1 := do
+  let inv ← scanEngineeringArtifactContentOnlyV1 finalized staging
+  liftResult "mint" (mintEngineeringOutputSetV1 finalized inv)
+
 private def testDomainsAndSchema : IO Unit := do
   expect (engineeringOutputSchemaVersionV1 == "proof-forge.output.v1")
     "engineering schema version"
@@ -90,14 +97,44 @@ private def testDomainsAndSchema : IO Unit := do
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"output-set domain grammar: {e}"
 
+private def testEngineeringJsonAndEvidenceBoundaries : IO Unit := do
+  expect (Targets.escapeJson "a\tb\rc" == "a\\tb\\rc")
+    "engineering JSON escapes tab/carriage return"
+  let digest := sha256Bytes ByteArray.empty
+  match renderEngineeringEvidenceBodyV1 TargetId.solana digest digest false "bad\u0001note" with
+  | .ok _ => throw <| IO.userError "evidence control character must fail closed"
+  | .error e =>
+      expect ((e.splitOn "unsupported control character").length > 1)
+        s!"evidence control diagnostic: {e}"
+  let mut atNestingBound := ""
+  for _ in [:64] do
+    atNestingBound := atNestingBound ++ "["
+  atNestingBound := atNestingBound ++ "null"
+  for _ in [:64] do
+    atNestingBound := atNestingBound ++ "]"
+  match ProofForgeV2.CLI.parseEngineeringJsonDocumentV1 atNestingBound with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"depth-64 JSON must be accepted: {e}"
+  let mut deeplyNested := ""
+  for _ in [:65] do
+    deeplyNested := deeplyNested ++ "["
+  deeplyNested := deeplyNested ++ "null"
+  for _ in [:65] do
+    deeplyNested := deeplyNested ++ "]"
+  match ProofForgeV2.CLI.parseEngineeringJsonDocumentV1 deeplyNested with
+  | .ok _ => throw <| IO.userError "deep engineering JSON must fail closed"
+  | .error e =>
+      expect ((e.splitOn "json nesting exceeds bound").length > 1)
+        s!"deep engineering JSON diagnostic: {e}"
+
 private unsafe def testMintDeterminismFourTargets : IO Unit := do
   let compiled ← compileCounter
   for tid in #[TargetId.solana, TargetId.noir] do
     let (cap, arts) ← materializeTarget compiled tid
     let scratch := FilePath.mk s!"build/v2/output-set-mint-{tid}"
     let finalized ← finalizeScratch cap arts scratch
-    let a ← liftResult s!"mint {tid} a" (mintEngineeringOutputSetV1 finalized)
-    let b ← liftResult s!"mint {tid} b" (mintEngineeringOutputSetV1 finalized)
+    let a ← mintFromStaging finalized scratch
+    let b ← mintFromStaging finalized scratch
     expect (EngineeringOutputSetV1.beq a b) s!"{tid} output set mint deterministic"
     expect (EngineeringOutputSetV1.targetIdOf a == tid) s!"{tid} target"
     expect (EngineeringOutputSetV1.artifactProgramNameOf a == "Counter")
@@ -106,10 +143,9 @@ private unsafe def testMintDeterminismFourTargets : IO Unit := do
       s!"{tid} plan/source-only non-deployable"
     expect (!(EngineeringOutputSetV1.filesOf a).isEmpty) s!"{tid} files nonempty"
     -- Sidecars never enter files.
-    expect (!((EngineeringOutputSetV1.filesOf a).contains "manifest.json"))
-      s!"{tid} no manifest in files"
-    expect (!((EngineeringOutputSetV1.filesOf a).contains "evidence.json"))
-      s!"{tid} no evidence in files"
+    let paths := (EngineeringOutputSetV1.filesOf a).map (·.path)
+    expect (!(paths.contains "manifest.json")) s!"{tid} no manifest in files"
+    expect (!(paths.contains "evidence.json")) s!"{tid} no evidence in files"
     -- Digest recomputes from fields.
     let recomputed ← liftExcept s!"recompute {tid}"
       (engineeringOutputSetDigestV1
@@ -123,7 +159,8 @@ private unsafe def testMintDeterminismFourTargets : IO Unit := do
         (EngineeringOutputSetV1.supportClaimDigestOf a)
         (EngineeringOutputSetV1.buildIdentityDigestOf a)
         (EngineeringOutputSetV1.planDigestOf a)
-        (EngineeringOutputSetV1.deployableOf a))
+        (EngineeringOutputSetV1.deployableOf a)
+        (EngineeringOutputSetV1.evidenceSha256Of a))
     expect (EngineeringOutputSetV1.outputSetDigestOf a == recomputed)
       s!"{tid} outputSetDigest recomputes"
     -- Nested build-identity digest matches materialization.
@@ -135,6 +172,12 @@ private unsafe def testMintDeterminismFourTargets : IO Unit := do
     expect (EngineeringOutputSetV1.supportClaimDigestOf a ==
         EngineeringSupportClaimV1.claimDigestOf claim)
       s!"{tid} supportClaimDigest bound from capability"
+    -- evidenceSha256 matches render(evidence) UTF-8.
+    let evidence ← liftExcept s!"evidence {tid}"
+      (renderEngineeringOutputSetEvidenceV1 a)
+    let evidenceDigest := sha256Bytes evidence.toUTF8
+    expect (EngineeringOutputSetV1.evidenceSha256Of a == evidenceDigest)
+      s!"{tid} evidenceSha256 binds exact evidence UTF-8"
     if ← scratch.pathExists then IO.FS.removeDirAll scratch
 
 private unsafe def testDigestTamperMatrix : IO Unit := do
@@ -142,71 +185,136 @@ private unsafe def testDigestTamperMatrix : IO Unit := do
   let (cap, arts) ← materializeTarget compiled TargetId.solana
   let scratch := FilePath.mk "build/v2/output-set-tamper"
   let finalized ← finalizeScratch cap arts scratch
-  let base ← liftResult "base mint" (mintEngineeringOutputSetV1 finalized)
+  let base ← mintFromStaging finalized scratch
   let baseDigest := EngineeringOutputSetV1.outputSetDigestOf base
-  -- File list mutation (append synthetic path) changes digest.
-  let altFiles := EngineeringOutputSetV1.filesOf base |>.push "extra.shadow"
-  let filesDigest ← liftExcept "files tamper"
+  let baseFiles := EngineeringOutputSetV1.filesOf base
+  expect (baseFiles.size ≥ 1) "tamper fixture nonempty files"
+  let d0 ← match baseFiles.toList with
+    | h :: _ => pure h
+    | [] => throw <| IO.userError "tamper fixture empty"
+  -- Path mutation on first descriptor.
+  let altPathFiles := baseFiles.set! 0 { d0 with path := "extra.shadow" }
+  let pathDigest ← liftExcept "path tamper"
     (engineeringOutputSetDigestV1
       (EngineeringOutputSetV1.targetIdOf base)
       (EngineeringOutputSetV1.codegenProfileOf base)
       (EngineeringOutputSetV1.artifactProgramNameOf base)
-      altFiles
+      altPathFiles
       (EngineeringOutputSetV1.sourceDigestOf base)
       (EngineeringOutputSetV1.semanticDigestOf base)
       (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
       (EngineeringOutputSetV1.supportClaimDigestOf base)
       (EngineeringOutputSetV1.buildIdentityDigestOf base)
       (EngineeringOutputSetV1.planDigestOf base)
-      (EngineeringOutputSetV1.deployableOf base))
-  expectDigestDiff "files list" baseDigest filesDigest
+      (EngineeringOutputSetV1.deployableOf base)
+      (EngineeringOutputSetV1.evidenceSha256Of base))
+  expectDigestDiff "descriptor path" baseDigest pathDigest
+  -- Size mutation.
+  let altSizeFiles := baseFiles.set! 0 { d0 with size := d0.size + 1 }
+  let sizeDigest ← liftExcept "size tamper"
+    (engineeringOutputSetDigestV1
+      (EngineeringOutputSetV1.targetIdOf base)
+      (EngineeringOutputSetV1.codegenProfileOf base)
+      (EngineeringOutputSetV1.artifactProgramNameOf base)
+      altSizeFiles
+      (EngineeringOutputSetV1.sourceDigestOf base)
+      (EngineeringOutputSetV1.semanticDigestOf base)
+      (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
+      (EngineeringOutputSetV1.supportClaimDigestOf base)
+      (EngineeringOutputSetV1.buildIdentityDigestOf base)
+      (EngineeringOutputSetV1.planDigestOf base)
+      (EngineeringOutputSetV1.deployableOf base)
+      (EngineeringOutputSetV1.evidenceSha256Of base))
+  expectDigestDiff "descriptor size" baseDigest sizeDigest
+  -- Content hash mutation (use source digest as stand-in).
+  let altHashFiles := baseFiles.set! 0
+    { d0 with contentSha256 := EngineeringOutputSetV1.sourceDigestOf base }
+  let hashDigest ← liftExcept "content hash tamper"
+    (engineeringOutputSetDigestV1
+      (EngineeringOutputSetV1.targetIdOf base)
+      (EngineeringOutputSetV1.codegenProfileOf base)
+      (EngineeringOutputSetV1.artifactProgramNameOf base)
+      altHashFiles
+      (EngineeringOutputSetV1.sourceDigestOf base)
+      (EngineeringOutputSetV1.semanticDigestOf base)
+      (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
+      (EngineeringOutputSetV1.supportClaimDigestOf base)
+      (EngineeringOutputSetV1.buildIdentityDigestOf base)
+      (EngineeringOutputSetV1.planDigestOf base)
+      (EngineeringOutputSetV1.deployableOf base)
+      (EngineeringOutputSetV1.evidenceSha256Of base))
+  expectDigestDiff "descriptor contentSha256" baseDigest hashDigest
+  -- Role flip (only if single role present; always flip first to opposite).
+  let flippedRole : ArtifactContentRoleV1 :=
+    match d0.role with
+    | .materializedBase => .finalizedExtra
+    | .finalizedExtra => .materializedBase
+  let altRoleFiles := baseFiles.set! 0 { d0 with role := flippedRole }
+  let roleDigest ← liftExcept "role tamper"
+    (engineeringOutputSetDigestV1
+      (EngineeringOutputSetV1.targetIdOf base)
+      (EngineeringOutputSetV1.codegenProfileOf base)
+      (EngineeringOutputSetV1.artifactProgramNameOf base)
+      altRoleFiles
+      (EngineeringOutputSetV1.sourceDigestOf base)
+      (EngineeringOutputSetV1.semanticDigestOf base)
+      (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
+      (EngineeringOutputSetV1.supportClaimDigestOf base)
+      (EngineeringOutputSetV1.buildIdentityDigestOf base)
+      (EngineeringOutputSetV1.planDigestOf base)
+      (EngineeringOutputSetV1.deployableOf base)
+      (EngineeringOutputSetV1.evidenceSha256Of base))
+  expectDigestDiff "descriptor role" baseDigest roleDigest
+  -- Evidence digest flip.
+  let flippedEvidence := EngineeringOutputSetV1.semanticDigestOf base
+  expectDigestDiff "evidence stand-in distinct"
+    (EngineeringOutputSetV1.evidenceSha256Of base) flippedEvidence
+  let evidenceDigest ← liftExcept "evidence tamper"
+    (engineeringOutputSetDigestV1
+      (EngineeringOutputSetV1.targetIdOf base)
+      (EngineeringOutputSetV1.codegenProfileOf base)
+      (EngineeringOutputSetV1.artifactProgramNameOf base)
+      baseFiles
+      (EngineeringOutputSetV1.sourceDigestOf base)
+      (EngineeringOutputSetV1.semanticDigestOf base)
+      (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
+      (EngineeringOutputSetV1.supportClaimDigestOf base)
+      (EngineeringOutputSetV1.buildIdentityDigestOf base)
+      (EngineeringOutputSetV1.planDigestOf base)
+      (EngineeringOutputSetV1.deployableOf base)
+      flippedEvidence)
+  expectDigestDiff "evidenceSha256 field" baseDigest evidenceDigest
   -- Deployable flip.
   let deployDigest ← liftExcept "deployable tamper"
     (engineeringOutputSetDigestV1
       (EngineeringOutputSetV1.targetIdOf base)
       (EngineeringOutputSetV1.codegenProfileOf base)
       (EngineeringOutputSetV1.artifactProgramNameOf base)
-      (EngineeringOutputSetV1.filesOf base)
+      baseFiles
       (EngineeringOutputSetV1.sourceDigestOf base)
       (EngineeringOutputSetV1.semanticDigestOf base)
       (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
       (EngineeringOutputSetV1.supportClaimDigestOf base)
       (EngineeringOutputSetV1.buildIdentityDigestOf base)
       (EngineeringOutputSetV1.planDigestOf base)
-      true)
+      true
+      (EngineeringOutputSetV1.evidenceSha256Of base))
   expectDigestDiff "deployable" baseDigest deployDigest
-  -- Build-identity digest field flip (use semantic digest bytes as stand-in).
-  let flippedIdentity := EngineeringOutputSetV1.semanticDigestOf base
-  expectDigestDiff "identity field stand-in distinct"
-    (EngineeringOutputSetV1.buildIdentityDigestOf base) flippedIdentity
-  let identityDigest ← liftExcept "identity tamper"
-    (engineeringOutputSetDigestV1
-      (EngineeringOutputSetV1.targetIdOf base)
-      (EngineeringOutputSetV1.codegenProfileOf base)
-      (EngineeringOutputSetV1.artifactProgramNameOf base)
-      (EngineeringOutputSetV1.filesOf base)
-      (EngineeringOutputSetV1.sourceDigestOf base)
-      (EngineeringOutputSetV1.semanticDigestOf base)
-      (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
-      (EngineeringOutputSetV1.supportClaimDigestOf base)
-      flippedIdentity
-      (EngineeringOutputSetV1.planDigestOf base)
-      (EngineeringOutputSetV1.deployableOf base))
-  expectDigestDiff "buildIdentityDigest field" baseDigest identityDigest
   -- Artifact name change.
   let nameDigest ← liftExcept "name tamper"
     (engineeringOutputSetDigestV1
       (EngineeringOutputSetV1.targetIdOf base)
       (EngineeringOutputSetV1.codegenProfileOf base)
       "NotCounter"
-      (EngineeringOutputSetV1.filesOf base)
+      baseFiles
       (EngineeringOutputSetV1.sourceDigestOf base)
       (EngineeringOutputSetV1.semanticDigestOf base)
       (EngineeringOutputSetV1.engineeringRegistryRootDigestOf base)
       (EngineeringOutputSetV1.supportClaimDigestOf base)
       (EngineeringOutputSetV1.buildIdentityDigestOf base)
       (EngineeringOutputSetV1.planDigestOf base)
-      (EngineeringOutputSetV1.deployableOf base))
+      (EngineeringOutputSetV1.deployableOf base)
+      (EngineeringOutputSetV1.evidenceSha256Of base))
   expectDigestDiff "artifactProgramName" baseDigest nameDigest
   if ← scratch.pathExists then IO.FS.removeDirAll scratch
 
@@ -218,10 +326,10 @@ private unsafe def testProductPathDiskRecompute : IO Unit := do
   let receipt ← ProofForgeV2.CLI.emitProgram cap outDir
   expect (receipt.target == TargetId.solana) "receipt target"
   expect (receipt.deployable == false) "receipt deployable"
-  -- Independent recompute via finalize + mint + render.
+  -- Independent recompute via finalize + scan + mint + render.
   let scratch := FilePath.mk "build/v2/output-set-product-scratch"
   let finalized ← finalizeScratch cap arts scratch
-  let outputSet ← liftResult "mint" (mintEngineeringOutputSetV1 finalized)
+  let outputSet ← mintFromStaging finalized scratch
   let expectedManifest ← liftExcept "render"
     (renderEngineeringOutputSetManifestV1 outputSet)
   let expectedEvidence ← liftExcept "evidence"
@@ -234,12 +342,22 @@ private unsafe def testProductPathDiskRecompute : IO Unit := do
     "product evidence byte identity"
   expect ((diskManifest.splitOn "\"schemaVersion\": \"proof-forge.output.v1\"").length > 1)
     "schema pin"
+  expect ((diskManifest.splitOn "\"evidenceSha256\":").length > 1)
+    "manifest binds evidenceSha256"
+  expect ((diskManifest.splitOn "\"contentSha256\":").length > 1)
+    "manifest files carry contentSha256"
+  expect ((diskManifest.splitOn "\"role\": \"materialized-base\"").length > 1)
+    "manifest files carry role"
   -- Exact disk closure still holds (S7c).
   validateEngineeringDiskClosureV1 finalized outDir
-  -- Sidecars present; files order exact.
-  expect ((EngineeringOutputSetV1.filesOf outputSet) ==
-      #["Counter.sbpf-plan", "Counter.idl.json"])
-    "solana files order"
+  -- Files order is canonical role-rank then UTF-8 path (not materializer source order).
+  let paths := (EngineeringOutputSetV1.filesOf outputSet).map (·.path)
+  expect (paths == #["Counter.idl.json", "Counter.sbpf-plan"])
+    "solana files canonical path order"
+  -- Inspect product path accepts the published dir.
+  let inspected ← ProofForgeV2.CLI.inspectEngineeringOutputDirV1 outDir
+  expect (inspected.target == "solana") "inspect target"
+  expect (inspected.files.size == 2) "inspect file count"
   if ← scratch.pathExists then IO.FS.removeDirAll scratch
 
 private def testSoleMintAndForbiddenNames : IO Unit := do
@@ -297,13 +415,43 @@ private def testSoleMintAndForbiddenNames : IO Unit := do
     throw <| IO.userError s!"legacy v2alpha1 residual:\n{legacy.stdout}"
   else if legacy.exitCode != 1 then
     throw <| IO.userError s!"legacy scan rg failed ({legacy.exitCode}): {legacy.stderr}"
+  -- Path-only files accessor residual should not reappear as Array String files.
+  -- (filesOf now returns Array ArtifactContentDescriptorV1)
+
+private unsafe def testLegacyPathOnlyManifestRejected : IO Unit := do
+  -- Hand-built path-only files array under proof-forge.output.v1 must fail closed.
+  let legacy :=
+    "{\n" ++
+    "  \"schemaVersion\": \"proof-forge.output.v1\",\n" ++
+    "  \"target\": \"solana\",\n" ++
+    "  \"codegenProfile\": \"solana-sbpf-plan-v1\",\n" ++
+    "  \"artifactProgramName\": \"Counter\",\n" ++
+    "  \"sourceHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"semanticHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"buildIdentityDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"planDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"supportClaimDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"engineeringRegistryRootDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"outputSetDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"evidenceSha256\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"deployable\": false,\n" ++
+    "  \"files\": [\"Counter.sbpf-plan\",\"Counter.idl.json\"]\n" ++
+    "}\n"
+  match ProofForgeV2.CLI.validateEngineeringOutputManifestTextV1 legacy with
+  | .ok _ => throw <| IO.userError "legacy path-only files must fail"
+  | .error e =>
+      expect ((e.splitOn "path-only").length > 1 ||
+          (e.splitOn "must be objects").length > 1)
+        s!"legacy rejection must mention path-only/objects: {e}"
 
 unsafe def run : IO Unit := do
   testDomainsAndSchema
+  testEngineeringJsonAndEvidenceBoundaries
   testMintDeterminismFourTargets
   testDigestTamperMatrix
   testProductPathDiskRecompute
   testSoleMintAndForbiddenNames
+  testLegacyPathOnlyManifestRejected
   IO.println "Tests.Materialization.OutputSetV1: ok"
 
 end Tests.Materialization.OutputSetV1

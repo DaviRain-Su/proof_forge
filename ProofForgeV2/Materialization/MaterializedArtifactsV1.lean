@@ -101,7 +101,7 @@ def safeRelativeArtifactPathV1 (value : String) : Bool :=
   let path := FilePath.mk value
   !value.isEmpty && value.toUTF8.size <= 240 && !path.isAbsolute &&
     !(path.components.contains "..") && !(path.components.contains ".") &&
-    !value.contains "\u0000" && !value.contains "\r" && !value.contains "\n"
+    !value.toList.any (fun c => c.toNat < 0x20)
 
 private def validateArtifactFiles (files : Array OutputFile) : CompileResult Unit := do
   if files.isEmpty then

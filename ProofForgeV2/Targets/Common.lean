@@ -14,5 +14,6 @@ def maxRequirementKinds : Nat := 13
     renderer consumed by the CLI publisher. Not formal OutputSetV1. -/
 def escapeJson (input : String) : String :=
   input.replace "\\" "\\\\" |>.replace "\"" "\\\"" |>.replace "\n" "\\n"
+    |>.replace "\r" "\\r" |>.replace "\t" "\\t"
 
 end ProofForgeV2.Targets

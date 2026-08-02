@@ -434,35 +434,61 @@ s7c-disk-closure-gate:
     # CLI Toolchain must remain deleted (S7b pin retained).
     fail_if_file_exists "$gate" ProofForgeV2/CLI/Toolchain.lean
     fail_if_match "$gate" 'import ProofForgeV2\.CLI\.Toolchain' ProofForgeV2 Tests
-    # Manifest-last: evidence write before manifest write in Emit publisher.
-    if ! rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / "evidence\.json"\)' \
+    # Manifest-last (D3-E7): constant-based sidecar writes + sole scanner pre/post.
+    # Evidence write uses evidenceSidecarNameV1; manifest uses manifestSidecarNameV1.
+    if ! rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / evidenceSidecarNameV1\)' \
         ProofForgeV2/CLI/Emit.lean >/dev/null; then
-      echo "s7c-disk-closure-gate: Emit must write evidence.json" >&2
+      echo "s7c-disk-closure-gate: Emit must write evidence sidecar via evidenceSidecarNameV1" >&2
       exit 1
     fi
-    if ! rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / "manifest\.json"\)' \
+    if ! rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / manifestSidecarNameV1\)' \
         ProofForgeV2/CLI/Emit.lean >/dev/null; then
-      echo "s7c-disk-closure-gate: Emit must write manifest.json" >&2
+      echo "s7c-disk-closure-gate: Emit must write manifest sidecar via manifestSidecarNameV1" >&2
       exit 1
     fi
     # Evidence write line number must be less than manifest write line number.
-    ev_line="$(rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / "evidence\.json"\)' \
+    ev_line="$(rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / evidenceSidecarNameV1\)' \
       ProofForgeV2/CLI/Emit.lean | head -1 | cut -d: -f1)"
-    mf_line="$(rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / "manifest\.json"\)' \
+    mf_line="$(rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / manifestSidecarNameV1\)' \
       ProofForgeV2/CLI/Emit.lean | head -1 | cut -d: -f1)"
     if [[ -z "$ev_line" || -z "$mf_line" || ! "$ev_line" -lt "$mf_line" ]]; then
-      echo "s7c-disk-closure-gate: evidence.json must be written before manifest.json" >&2
+      echo "s7c-disk-closure-gate: evidence sidecar must be written before manifest sidecar" >&2
       echo "  evidence line=$ev_line manifest line=$mf_line" >&2
       exit 1
     fi
-    # Closure call after manifest write in Emit.
-    cl_line="$(rg -n --no-heading 'validateEngineeringDiskClosureV1' \
+    # Artifact-only pre-scan before mint (code-site line order; skip docstrings).
+    pre_line="$(rg -n --no-heading 'let preInv ← scanEngineeringArtifactContentOnlyV1' \
       ProofForgeV2/CLI/Emit.lean | head -1 | cut -d: -f1)"
-    if [[ -z "$cl_line" || ! "$mf_line" -lt "$cl_line" ]]; then
-      echo "s7c-disk-closure-gate: validateEngineeringDiskClosureV1 must follow manifest write" >&2
-      echo "  manifest line=$mf_line closure line=$cl_line" >&2
+    mint_line="$(rg -n --no-heading 'match mintEngineeringOutputSetV1 finalized preInv' \
+      ProofForgeV2/CLI/Emit.lean | head -1 | cut -d: -f1)"
+    if [[ -z "$pre_line" || -z "$mint_line" || ! "$pre_line" -lt "$mint_line" ]]; then
+      echo "s7c-disk-closure-gate: artifact-only scan must precede OutputSet mint" >&2
+      echo "  pre-scan line=$pre_line mint line=$mint_line" >&2
       exit 1
     fi
+    if [[ -z "$mint_line" || ! "$mint_line" -lt "$ev_line" ]]; then
+      echo "s7c-disk-closure-gate: OutputSet mint must precede evidence write" >&2
+      echo "  mint line=$mint_line evidence line=$ev_line" >&2
+      exit 1
+    fi
+    # Full scan + pre/post inventory compare after manifest-last write.
+    post_line="$(rg -n --no-heading 'let postInv ← scanEngineeringArtifactContentWithSidecarsV1' \
+      ProofForgeV2/CLI/Emit.lean | head -1 | cut -d: -f1)"
+    beq_line="$(rg -n --no-heading 'ArtifactContentInventoryV1\.beq preInv postInv' \
+      ProofForgeV2/CLI/Emit.lean | head -1 | cut -d: -f1)"
+    if [[ -z "$post_line" || ! "$mf_line" -lt "$post_line" ]]; then
+      echo "s7c-disk-closure-gate: full sidecar scan must follow manifest write" >&2
+      echo "  manifest line=$mf_line post-scan line=$post_line" >&2
+      exit 1
+    fi
+    if [[ -z "$beq_line" || ! "$post_line" -lt "$beq_line" ]]; then
+      echo "s7c-disk-closure-gate: pre/post inventory compare must follow full scan" >&2
+      echo "  post-scan line=$post_line beq line=$beq_line" >&2
+      exit 1
+    fi
+    # No second content walker in Emit (sole ArtifactContent authority).
+    fail_if_match "$gate" 'IO\.FS\.readFile \(stagingDir /' ProofForgeV2/CLI/Emit.lean
+    fail_if_match "$gate" 'IO\.FS\.readBinFile \(stagingDir /' ProofForgeV2/CLI/Emit.lean
     # Fast no-tool self-test of shared Python exact_physical_closure.
     /usr/bin/python3 -I -S scripts/validate_artifacts_self_test.py
     # Lean suite + product Solana/Noir closure without requiring solc for the gate.

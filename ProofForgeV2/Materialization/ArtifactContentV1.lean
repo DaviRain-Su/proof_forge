@@ -397,9 +397,10 @@ private def walkPhysicalClosureV1
 /-- Stable content observation: before/after symlinkMetadata + readBinFile + SHA-256.
 
     Requires regular file, numLinks=1, size==bytes.size, key meta unchanged.
-    Engineering observation only — no retained fd / TOCTOU claim. -/
+    Engineering observation only — no retained fd / TOCTOU claim.
+    Returns `(size, bytes, contentSha256)`. -/
 private def readArtifactContentStableV1 (rel : String) (abs : FilePath) :
-    IO (Nat × Digest) := do
+    IO (Nat × ByteArray × Digest) := do
   let before ← try abs.symlinkMetadata
     catch _ => pathError s!"missing regular file '{rel}'"
   unless before.type == .file do
@@ -422,7 +423,24 @@ private def readArtifactContentStableV1 (rel : String) (abs : FilePath) :
     pathError s!"path is not a single-link regular file '{rel}'"
   unless after.byteSize.toNat == bytes.size do
     pathError s!"file size mismatch during read '{rel}'"
-  pure (bytes.size, sha256Bytes bytes)
+  pure (bytes.size, bytes, sha256Bytes bytes)
+
+/-- Package-visible sole stable-read for a relative leaf under `parent`.
+
+    Sidecar/inspect reuse this instead of ad-hoc `IO.FS.readFile` content authority.
+    Engineering observation only — no retained fd / race-free claim. -/
+def readStableArtifactLeafBytesV1 (parent : FilePath) (rel : String) :
+    IO (Nat × ByteArray × Digest) := do
+  unless safeRelativeArtifactPathV1 rel do
+    pathError s!"unsafe artifact path '{rel}'"
+  readArtifactContentStableV1 rel (parent / rel)
+
+/-- Package-visible UTF-8 stable-read for pretty-printed engineering sidecars. -/
+def readStableArtifactLeafUtf8V1 (parent : FilePath) (rel : String) : IO String := do
+  let (_size, bytes, _digest) ← readStableArtifactLeafBytesV1 parent rel
+  match String.fromUTF8? bytes with
+  | some text => pure text
+  | none => pathError s!"path is not valid UTF-8 '{rel}'"
 
 /-- Aux leaf: same stable single-link observation as artifacts; digest discarded. -/
 private def checkAuxLeafStableV1 (rel : String) (abs : FilePath) : IO Unit := do
@@ -449,7 +467,7 @@ def scanArtifactContentClosureV1
   let mut descriptors : Array ArtifactContentDescriptorV1 := #[]
   for c in ordered do
     let abs := stagingDir / c.path
-    let (size, digest) ← readArtifactContentStableV1 c.path abs
+    let (size, _bytes, digest) ← readArtifactContentStableV1 c.path abs
     descriptors := descriptors.push {
       role := c.role
       path := c.path

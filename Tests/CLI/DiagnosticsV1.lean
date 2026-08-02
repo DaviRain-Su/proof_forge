@@ -408,10 +408,8 @@ private def testProfileSelection : IO Unit := do
   expect (containsSubstr stderr4 "Usage:")
     s!"deleted describe-target must print usage: {stderr4}"
 
-/-- C1 inspect-output: build Counter → inspect dir → assert fields; tamper fails;
-    `--json` golden schema; `--output-dir` form; registered target still preferred. -/
-private def testInspectOutputDir : IO Unit := do
-  let outDir := FilePath.mk "build/v2/diagnostic-inspect-output-ok"
+/-- Build solana Counter fixture for inspect-output tests. -/
+private def buildInspectOutputFixture (outDir : FilePath) : IO Unit := do
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let (buildEc, buildStdout, buildStderr) ← runCli #[
     "build", "Examples/Counter.lean",
@@ -424,7 +422,11 @@ private def testInspectOutputDir : IO Unit := do
     s!"inspect-output fixture build must exit 0, got {buildEc}\n{buildStderr}\n{buildStdout}"
   expect (← (outDir / "manifest.json").pathExists) "fixture must write manifest.json"
   expect (← (outDir / "evidence.json").pathExists) "fixture must write evidence.json"
-  -- Positional path form.
+
+/-- C1 inspect-output positive path: fields, determinism, json, --output-dir. -/
+private def testInspectOutputDirPositive : IO Unit := do
+  let outDir := FilePath.mk "build/v2/diagnostic-inspect-output-ok"
+  buildInspectOutputFixture outDir
   let (ec, stdout, stderr) ← runCli #["inspect", outDir.toString]
   expect (ec == 0)
     s!"inspect output-dir must exit 0, got {ec}\n{stderr}\n{stdout}"
@@ -450,26 +452,25 @@ private def testInspectOutputDir : IO Unit := do
     s!"inspect-output registry root: {stdout}"
   expect (containsSubstr stdout "outputSetDigest=sha256:")
     s!"inspect-output outputSetDigest: {stdout}"
+  expect (containsSubstr stdout "evidenceSha256=sha256:")
+    s!"inspect-output evidenceSha256: {stdout}"
   expect (containsSubstr stdout "deployable=")
     s!"inspect-output deployable: {stdout}"
   expect (containsSubstr stdout "files=#[")
     s!"inspect-output files: {stdout}"
   expect (containsSubstr stdout
-      "validation=structure+evidence+digest-format+outputSetDigest-recompute")
+      "validation=structure+evidence+artifact-content+exact-disk-closure+outputSetDigest-recompute")
     s!"inspect-output validation tag: {stdout}"
   expect (stderr == "")
     s!"inspect-output ok must be silent on stderr, got {stderr}"
-  -- Determinism.
   let (ec2, stdout2, _) ← runCli #["inspect", outDir.toString]
   expect (ec2 == 0 && stdout2 == stdout)
     "inspect-output must be deterministic"
-  -- Explicit --output-dir form.
   let (ec3, stdout3, stderr3) ← runCli #["inspect", "--output-dir", outDir.toString]
   expect (ec3 == 0)
     s!"inspect --output-dir must exit 0, got {ec3}\n{stderr3}"
   expect (stdout3 == stdout)
     "inspect --output-dir must match positional form"
-  -- --json PF-JCS golden shape.
   let (ec4, stdout4, stderr4) ← runCli #["inspect", outDir.toString, "--json"]
   expect (ec4 == 0)
     s!"inspect-output --json exit, got {ec4}\n{stderr4}"
@@ -486,14 +487,16 @@ private def testInspectOutputDir : IO Unit := do
     s!"inspect-output json sourceHash: {stdout4}"
   expect (containsSubstr stdout4 "\"outputSetDigest\":\"sha256:")
     s!"inspect-output json outputSetDigest: {stdout4}"
+  expect (containsSubstr stdout4 "\"evidenceSha256\":\"sha256:")
+    s!"inspect-output json evidenceSha256: {stdout4}"
+  expect (containsSubstr stdout4 "\"contentSha256\":\"sha256:")
+    s!"inspect-output json file contentSha256: {stdout4}"
   expect (containsSubstr stdout4
-      "\"validation\":\"structure+evidence+digest-format+outputSetDigest-recompute\"")
+      "\"validation\":\"structure+evidence+artifact-content+exact-disk-closure+outputSetDigest-recompute\"")
     s!"inspect-output json validation: {stdout4}"
-  -- Explicit --output-dir --json either order.
   let (ec5, stdout5, _) ← runCli #["inspect", "--json", "--output-dir", outDir.toString]
   expect (ec5 == 0 && stdout5 == stdout4)
     "inspect --json --output-dir must match"
-  -- Registered target still preferred over a same-named directory (disambiguation).
   let (ecTarget, stdoutTarget, _) ← runCli #["inspect", "solana"]
   expect (ecTarget == 0)
     "inspect solana must remain target inspect"
@@ -503,7 +506,20 @@ private def testInspectOutputDir : IO Unit := do
     "registered target must not switch to output-dir mode"
   expect (containsSubstr stdoutTarget "registryRootDigest=sha256:")
     s!"target inspect still reports registry root: {stdoutTarget}"
-  -- Missing directory.
+
+/-- Ensure fixture exists; return (outDir, originalManifest, originalEvidence). -/
+private def ensureInspectFixture :
+    IO (FilePath × String × String) := do
+  let outDir := FilePath.mk "build/v2/diagnostic-inspect-output-ok"
+  unless (← (outDir / "manifest.json").pathExists) do
+    buildInspectOutputFixture outDir
+  let originalManifest ← IO.FS.readFile (outDir / "manifest.json")
+  let originalEvidence ← IO.FS.readFile (outDir / "evidence.json")
+  pure (outDir, originalManifest, originalEvidence)
+
+/-- Negatives A: missing dir, outputSetDigest, evidence, content, extra leaf. -/
+private def testInspectOutputDirNegativesA : IO Unit := do
+  let (outDir, originalManifest, originalEvidence) ← ensureInspectFixture
   let missingDir := "build/v2/diagnostic-inspect-output-missing"
   if ← (FilePath.mk missingDir).pathExists then
     IO.FS.removeDirAll (FilePath.mk missingDir)
@@ -514,9 +530,6 @@ private def testInspectOutputDir : IO Unit := do
     s!"missing dir must use PF-OUTPUT-MANIFEST: {stderrMiss}"
   expect (stdoutMiss == "")
     "missing dir must not print success stdout"
-  -- Tamper: flip the first hex nibble of outputSetDigest (format still valid,
-  -- public recompute must fail closed).
-  let originalManifest ← IO.FS.readFile (outDir / "manifest.json")
   let digestMarker := "\"outputSetDigest\": \""
   let parts := originalManifest.splitOn digestMarker
   expect (parts.length ≥ 2)
@@ -530,8 +543,6 @@ private def testInspectOutputDir : IO Unit := do
   let flipped : Char := if first == '0' then '1' else '0'
   let tampered :=
     before ++ digestMarker ++ String.singleton flipped ++ String.ofList afterChars.tail!
-  expect (tampered != originalManifest)
-    "tamper must change manifest text"
   IO.FS.writeFile (outDir / "manifest.json") tampered
   let (ecTamper, stdoutTamper, stderrTamper) ← runCli #["inspect", outDir.toString]
   expect (ecTamper == 6)
@@ -542,36 +553,192 @@ private def testInspectOutputDir : IO Unit := do
     s!"tamper must mention outputSetDigest: {stderrTamper}"
   expect (stdoutTamper == "")
     "tamper must not print success stdout"
-  -- Restore then break evidence identity join.
   IO.FS.writeFile (outDir / "manifest.json") originalManifest
-  let originalEvidence ← IO.FS.readFile (outDir / "evidence.json")
   let badEvidence :=
     String.intercalate "\"target\": \"near\""
       (originalEvidence.splitOn "\"target\": \"solana\"")
-  expect (badEvidence != originalEvidence)
-    "evidence tamper must change text"
   IO.FS.writeFile (outDir / "evidence.json") badEvidence
   let (ecEv, stdoutEv, stderrEv) ← runCli #["inspect", "--output-dir", outDir.toString]
   expect (ecEv == 6)
     s!"evidence target mismatch must exit 6, got {ecEv}\n{stderrEv}"
   expect (containsSubstr stderrEv "PF-OUTPUT-MANIFEST:")
     s!"evidence mismatch prefix: {stderrEv}"
-  expect (containsSubstr stderrEv "evidence target")
+  expect (containsSubstr stderrEv "evidence" || containsSubstr stderrEv "evidenceSha256")
     s!"evidence mismatch message: {stderrEv}"
   expect (stdoutEv == "")
     "evidence mismatch must not print success"
-  -- Missing evidence.
+  IO.FS.writeFile (outDir / "evidence.json") originalEvidence
+  let noteTampered :=
+    if (originalEvidence.splitOn "\"note\": \"").length ≥ 2 then
+      let p := originalEvidence.splitOn "\"note\": \""
+      p[0]! ++ "\"note\": \"x" ++ String.intercalate "\"note\": \"" (p.drop 1)
+    else
+      originalEvidence ++ " "
+  IO.FS.writeFile (outDir / "evidence.json") noteTampered
+  let (ecNote, stdoutNote, stderrNote) ← runCli #["inspect", outDir.toString]
+  expect (ecNote == 6)
+    s!"evidence note-only tamper must exit 6, got {ecNote}\n{stderrNote}"
+  expect (containsSubstr stderrNote "PF-OUTPUT-MANIFEST:")
+    s!"note tamper prefix: {stderrNote}"
+  expect (containsSubstr stderrNote "evidence")
+    s!"note tamper must mention evidence: {stderrNote}"
+  expect (stdoutNote == "")
+    "note tamper must not print success"
+  IO.FS.writeFile (outDir / "evidence.json") originalEvidence
+  let artifactPath := outDir / "Counter.sbpf-plan"
+  expect (← artifactPath.pathExists) "fixture must have Counter.sbpf-plan"
+  let originalArtifact ← IO.FS.readFile artifactPath
+  IO.FS.writeFile artifactPath (originalArtifact ++ "\n//tamper")
+  let (ecArt, stdoutArt, stderrArt) ← runCli #["inspect", outDir.toString]
+  expect (ecArt == 6)
+    s!"artifact content tamper must exit 6, got {ecArt}\n{stderrArt}"
+  expect (containsSubstr stderrArt "PF-OUTPUT-MANIFEST:")
+    s!"artifact tamper prefix: {stderrArt}"
+  expect (containsSubstr stderrArt "artifact content" ||
+      containsSubstr stderrArt "diverges")
+    s!"artifact tamper message: {stderrArt}"
+  expect (stdoutArt == "")
+    "artifact tamper must not print success"
+  IO.FS.writeFile artifactPath originalArtifact
+  IO.FS.writeFile (outDir / "extra-rogue.txt") "rogue"
+  let (ecExtra, stdoutExtra, stderrExtra) ← runCli #["inspect", outDir.toString]
+  expect (ecExtra == 6)
+    s!"extra leaf must exit 6, got {ecExtra}\n{stderrExtra}"
+  expect (containsSubstr stderrExtra "PF-OUTPUT-MANIFEST:")
+    s!"extra leaf prefix: {stderrExtra}"
+  expect (containsSubstr stderrExtra "unexpected" || containsSubstr stderrExtra "extra")
+    s!"extra leaf message: {stderrExtra}"
+  expect (stdoutExtra == "")
+    "extra leaf must not print success"
+  IO.FS.removeFile (outDir / "extra-rogue.txt")
+
+/-- Negatives B: missing evidence/artifact, descriptor role/path/size/hash, legacy. -/
+private def testInspectOutputDirNegativesB : IO Unit := do
+  let (outDir, originalManifest, originalEvidence) ← ensureInspectFixture
+  IO.FS.writeFile (outDir / "manifest.json") originalManifest
   IO.FS.writeFile (outDir / "evidence.json") originalEvidence
   IO.FS.removeFile (outDir / "evidence.json")
   let (ecNoEv, stdoutNoEv, stderrNoEv) ← runCli #["inspect", outDir.toString]
   expect (ecNoEv == 6)
     s!"missing evidence must exit 6, got {ecNoEv}\n{stderrNoEv}"
-  expect (containsSubstr stderrNoEv "missing evidence.json")
+  expect (containsSubstr stderrNoEv "evidence.json")
     s!"missing evidence message: {stderrNoEv}"
   expect (stdoutNoEv == "")
     "missing evidence must not print success"
-  -- Cleanup fixture for subsequent runs / disk hygiene.
+  IO.FS.writeFile (outDir / "evidence.json") originalEvidence
+  let idlPath := outDir / "Counter.idl.json"
+  expect (← idlPath.pathExists) "fixture must have Counter.idl.json"
+  let idlBytes ← IO.FS.readFile idlPath
+  IO.FS.removeFile idlPath
+  let (ecMissArt, stdoutMissArt, stderrMissArt) ← runCli #["inspect", outDir.toString]
+  expect (ecMissArt == 6)
+    s!"missing listed artifact must exit 6, got {ecMissArt}\n{stderrMissArt}"
+  expect (containsSubstr stderrMissArt "PF-OUTPUT-MANIFEST:")
+    s!"missing artifact prefix: {stderrMissArt}"
+  expect (containsSubstr stderrMissArt "Counter.idl.json" ||
+      containsSubstr stderrMissArt "missing")
+    s!"missing artifact message: {stderrMissArt}"
+  expect (stdoutMissArt == "")
+    "missing artifact must not print success"
+  IO.FS.writeFile idlPath idlBytes
+  let contentMarker := "\"contentSha256\": \""
+  let cParts := originalManifest.splitOn contentMarker
+  expect (cParts.length ≥ 2)
+    s!"manifest must contain contentSha256:\n{originalManifest}"
+  let cBefore := cParts[0]!
+  let cAfter := String.intercalate contentMarker (cParts.drop 1)
+  let cChars := cAfter.toList
+  expect (!cChars.isEmpty) "contentSha256 value nonempty"
+  let cFirst := cChars.head!
+  let cFlipped : Char := if cFirst == '0' then '1' else '0'
+  let contentTampered :=
+    cBefore ++ contentMarker ++ String.singleton cFlipped ++ String.ofList cChars.tail!
+  IO.FS.writeFile (outDir / "manifest.json") contentTampered
+  let (ecHash, stdoutHash, stderrHash) ← runCli #["inspect", outDir.toString]
+  expect (ecHash == 6)
+    s!"descriptor contentSha256 tamper must exit 6, got {ecHash}\n{stderrHash}"
+  expect (containsSubstr stderrHash "PF-OUTPUT-MANIFEST:")
+    s!"hash tamper prefix: {stderrHash}"
+  expect (stdoutHash == "")
+    "hash tamper must not print success"
+  IO.FS.writeFile (outDir / "manifest.json") originalManifest
+  let roleTampered :=
+    String.intercalate "\"role\": \"finalized-extra\""
+      (originalManifest.splitOn "\"role\": \"materialized-base\"")
+  expect (roleTampered != originalManifest)
+    "role tamper must change text"
+  IO.FS.writeFile (outDir / "manifest.json") roleTampered
+  let (ecRole, stdoutRole, stderrRole) ← runCli #["inspect", outDir.toString]
+  expect (ecRole == 6)
+    s!"descriptor role tamper must exit 6, got {ecRole}\n{stderrRole}"
+  expect (containsSubstr stderrRole "PF-OUTPUT-MANIFEST:")
+    s!"role tamper prefix: {stderrRole}"
+  expect (stdoutRole == "")
+    "role tamper must not print success"
+  IO.FS.writeFile (outDir / "manifest.json") originalManifest
+  let sizeMarker := "\"size\": "
+  let sParts := originalManifest.splitOn sizeMarker
+  expect (sParts.length ≥ 2)
+    s!"manifest must contain size field:\n{originalManifest}"
+  let sBefore := sParts[0]!
+  let sRest := String.intercalate sizeMarker (sParts.drop 1)
+  let sizeTampered := sBefore ++ sizeMarker ++ "9" ++ sRest
+  IO.FS.writeFile (outDir / "manifest.json") sizeTampered
+  let (ecSize, stdoutSize, stderrSize) ← runCli #["inspect", outDir.toString]
+  expect (ecSize == 6)
+    s!"descriptor size tamper must exit 6, got {ecSize}\n{stderrSize}"
+  expect (containsSubstr stderrSize "PF-OUTPUT-MANIFEST:")
+    s!"size tamper prefix: {stderrSize}"
+  expect (stdoutSize == "")
+    "size tamper must not print success"
+  IO.FS.writeFile (outDir / "manifest.json") originalManifest
+  let pathTampered :=
+    String.intercalate "\"path\": \"Counter.rogue\""
+      (originalManifest.splitOn "\"path\": \"Counter.idl.json\"")
+  expect (pathTampered != originalManifest)
+    "path tamper must change text"
+  IO.FS.writeFile (outDir / "manifest.json") pathTampered
+  let (ecPath, stdoutPath, stderrPath) ← runCli #["inspect", outDir.toString]
+  expect (ecPath == 6)
+    s!"descriptor path tamper must exit 6, got {ecPath}\n{stderrPath}"
+  expect (containsSubstr stderrPath "PF-OUTPUT-MANIFEST:")
+    s!"path tamper prefix: {stderrPath}"
+  expect (stdoutPath == "")
+    "path tamper must not print success"
+  let legacyManifest :=
+    "{\n" ++
+    "  \"schemaVersion\": \"proof-forge.output.v1\",\n" ++
+    "  \"target\": \"solana\",\n" ++
+    "  \"codegenProfile\": \"solana-sbpf-plan-v1\",\n" ++
+    "  \"artifactProgramName\": \"Counter\",\n" ++
+    "  \"sourceHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"semanticHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"buildIdentityDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"planDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"supportClaimDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"engineeringRegistryRootDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"outputSetDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"evidenceSha256\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
+    "  \"deployable\": false,\n" ++
+    "  \"files\": [\"Counter.sbpf-plan\",\"Counter.idl.json\"]\n" ++
+    "}\n"
+  IO.FS.writeFile (outDir / "manifest.json") legacyManifest
+  let (ecLegacy, stdoutLegacy, stderrLegacy) ← runCli #["inspect", outDir.toString]
+  expect (ecLegacy == 6)
+    s!"legacy path-only manifest must exit 6, got {ecLegacy}\n{stderrLegacy}"
+  expect (containsSubstr stderrLegacy "PF-OUTPUT-MANIFEST:")
+    s!"legacy prefix: {stderrLegacy}"
+  expect (containsSubstr stderrLegacy "path-only" ||
+      containsSubstr stderrLegacy "must be objects")
+    s!"legacy message: {stderrLegacy}"
+  expect (stdoutLegacy == "")
+    "legacy must not print success"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
+
+private def testInspectOutputDir : IO Unit := do
+  testInspectOutputDirPositive
+  testInspectOutputDirNegativesA
+  testInspectOutputDirNegativesB
 
 unsafe def run : IO Unit := do
   unless ← cliBin.pathExists do

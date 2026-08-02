@@ -41,6 +41,14 @@ def _write(path: Path, body: str = "x\n") -> None:
     path.write_text(body, encoding="utf-8")
 
 
+def test_safe_relative_path_controls() -> None:
+    if not va.safe_relative_artifact_path("nested/a.txt"):
+        _fail("ordinary nested artifact path must be accepted")
+    for value in ("a\tb", "a\x01b", "a\rb", "a\nb"):
+        if va.safe_relative_artifact_path(value):
+            _fail(f"C0 artifact path must be rejected: {value!r}")
+
+
 def test_happy_flat() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -150,6 +158,24 @@ def test_symlink_dir() -> None:
             "symbolic link",
             lambda: va.exact_physical_closure(
                 root, {"a.txt", "manifest.json", "evidence.json"}, label="symlink-dir"
+            ),
+        )
+
+
+def test_hardlink() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _write(root / "a.txt")
+        os.link(root / "a.txt", root / "peer.txt")
+        _write(root / "manifest.json")
+        _write(root / "evidence.json")
+        _expect_exit(
+            "hardlink",
+            "single-link regular file",
+            lambda: va.exact_physical_closure(
+                root,
+                {"a.txt", "peer.txt", "manifest.json", "evidence.json"},
+                label="hardlink",
             ),
         )
 
@@ -299,6 +325,7 @@ def test_limits_total_size() -> None:
 
 
 def main() -> None:
+    test_safe_relative_path_controls()
     test_happy_flat()
     test_happy_nested()
     test_missing()
@@ -306,6 +333,7 @@ def main() -> None:
     test_extra_dir()
     test_symlink_file()
     test_symlink_dir()
+    test_hardlink()
     test_fifo()
     test_unlisted_extra_sidecar_name()
     test_evidence_sidecar_symlink()
