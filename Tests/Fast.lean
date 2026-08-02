@@ -54,6 +54,7 @@ import Tests.Frontend.ProtocolV1
 -- WorkerV1 subprocess suite is intentionally NOT on test-fast/dev-check.
 -- Run: `just test-frontend-worker` (builds proof-forge-frontend-worker-v1).
 import Tests.Product.CounterV1Evm
+import Tests.Product.PrivateSum4PrivacyV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.NearWasmAcceptance
@@ -133,6 +134,7 @@ unsafe def main : IO Unit := do
   Tests.Core.DiagnosticBundleV1.run
   Tests.Frontend.ProtocolV1.run
   Tests.Product.CounterV1Evm.run
+  Tests.Product.PrivateSum4PrivacyV1.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.EvmSolcAcceptance.run
   Tests.Materialization.NearWasmAcceptance.run

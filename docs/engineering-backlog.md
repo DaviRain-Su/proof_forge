@@ -117,7 +117,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 |---|---|
 | Counter 四目标 + overflow 状态不变 | 部分：EVM/Solana 强；NEAR 偏静态；产品路径有 overflow 语义 |
 | EVM/Solana/NEAR local runtime；Noir prove/verify | **未满足字面**（C-1/C-4；EVM Anvil 非 formal 闭包） |
-| PrivateSum4 隐私边界 | 有 fixture；未当持续验收主轴 | → **APP-1** |
+| PrivateSum4 隐私边界 | **APP-1** 产品持续向量（PF-VIS-001 + 无制品泄漏） | APP-1 |
 | OutputSet 可重现 + clean-room | engineering 有；formal/clean-room 属 release |
 | 全 FR/NFR×SPEC/TASK/TST/EV 闭合 | formal 轴；不进日常 |
 
@@ -285,7 +285,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **T-2** | context / extension requirements 接入 CheckV1 | **done**（2026-08-02：`ContextExtensionCheckV1` — 仅 admit context.caller/unixTimeSeconds；extension 声明工程 Check `ext001` fail-closed；CheckV1 phase 7；**非** formal extension catalog） |
 | **T-3** | RequirementsInfer：callerContext / commit 等贡献键（随 N-2/N-3） | **done**（2026-08-02：context.unixTimeSeconds/caller + commit 贡献 wire id；S2 freeze skip；Normalize 仍 sole wire-row mint） |
 | **INV-1** | 受约束 `proof` reference 产品路径（FR-002 / Phase-1 语言范围） | **done**（2026-08-02：`ProofReferenceJoinV1` + CLI `--proof-bundle` pair 在 compile 后 exact 集合 join；Normalize skip invariant/proof 进 IR；R-3 `openProofBundleV1`；无 ambient Lean term；**非** formal TST-PROOF-001/kernel/defeq） |
-| **APP-1** | PrivateSum4 持续作为隐私边界验收向量（Phase-1 DoD） | pending |
+| **APP-1** | PrivateSum4 持续作为隐私边界验收向量（Phase-1 DoD） | **done**（2026-08-02：`Examples/PrivateSum4` + `Tests.Product.PrivateSum4PrivacyV1` — product compile/CLI check·build 对 private→public `PF-VIS-001` fail closed、无 manifest 泄漏；**非** Noir prove/formal TST-NOIR-006） |
 
 ---
 

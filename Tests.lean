@@ -122,6 +122,7 @@ import Tests.Materialization.SolanaPlanV1
 import Tests.Targets.SolanaAsmV1
 import Tests.Targets.SolanaElfV1
 import Tests.Product.CounterV1Evm
+import Tests.Product.PrivateSum4PrivacyV1
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.Materialization.EngineeringFinalizationV1
@@ -256,6 +257,7 @@ unsafe def main : IO Unit := do
   Tests.Targets.SolanaAsmV1.run
   Tests.Targets.SolanaElfV1.run
   Tests.Product.CounterV1Evm.run
+  Tests.Product.PrivateSum4PrivacyV1.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run
   Tests.CLI.DiagnosticsV1.run
