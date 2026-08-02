@@ -16,6 +16,7 @@ import ProofForgeV2.CLI.Emit
 import ProofForgeV2.CLI.Main
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
+import ProofForgeV2.Materialization.ArtifactContentV1
 import ProofForgeV2.Materialization.EngineeringDiskClosureV1
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
 import Tests.Language.ParserSession
@@ -26,6 +27,7 @@ namespace Tests.Materialization.EngineeringDiskClosureV1
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Targets.BuildSelectionV1
 open System
 open Lean
@@ -485,7 +487,7 @@ private unsafe def testValidatorNegativesExtended : IO Unit := do
     -- Safe unique extra still accepted.
     ProofForgeV2.CLI.validateFinalizedExtraPathsForPublishV1 basePaths #["tool-extra.bin"]
 
-/-- Sole production validator symbol pins. -/
+/-- Sole production validator symbol pins + same-scanner adapter proof. -/
 private unsafe def testSoleValidatorPins : IO Unit := do
   let rg (pat : String) (paths : Array String) : IO (UInt32 × String) := do
     let args := #["--glob", "*.lean", "-n", "--no-heading", pat] ++ paths
@@ -503,6 +505,15 @@ private unsafe def testSoleValidatorPins : IO Unit := do
     "validateEngineeringDiskClosureV1\\s*\\([^)]*expected" #["ProofForgeV2"]
   expect (ecCall == 1)
     s!"validator must not take caller expected-list:\n{hitsCall}"
+  -- Adapter must call sole scanner (not a second walker).
+  let diskSrc ← IO.FS.readFile (FilePath.mk
+    "ProofForgeV2/Materialization/EngineeringDiskClosureV1.lean")
+  expect ((diskSrc.splitOn "scanArtifactContentClosureV1").length > 1)
+    "EngineeringDiskClosure must call scanArtifactContentClosureV1"
+  expect ((diskSrc.splitOn "walkPhysicalClosure").length == 1)
+    "EngineeringDiskClosure must not reimplement walkPhysicalClosure"
+  expect ((diskSrc.splitOn "deriveArtifactPathClaimsFromFinalizedV1").length > 1)
+    "EngineeringDiskClosure exposes derive claims helper"
   -- Manifest-last ordering in Emit: evidence write before manifest write.
   let emitSrc ← IO.FS.readFile (FilePath.mk "ProofForgeV2/CLI/Emit.lean")
   let evIdx := (emitSrc.splitOn "stagingDir / \"evidence.json\"").length
@@ -520,6 +531,36 @@ private unsafe def testSoleValidatorPins : IO Unit := do
         "closure validation after sidecar writes"
   | _ => throw <| IO.userError "renderIntoStaging not found in Emit.lean"
   expect (evIdx > 1 && mfIdx > 1) "Emit source mentions both sidecar paths"
+
+/-- Production adapter and package helpers share the sole scanner inventory. -/
+private unsafe def testAdapterSameScannerInventory : IO Unit := do
+  let (_, finalized, staging) ← solanaFinalizedStaging "adapter-same"
+  -- Full scan inventory via package helper.
+  let inv ← scanEngineeringArtifactContentWithSidecarsV1 finalized staging
+  let claims := deriveArtifactPathClaimsFromFinalizedV1 finalized
+  expect (ArtifactContentInventoryV1.size inv == claims.size)
+    "inventory size matches claim count (aux excluded)"
+  let ds := ArtifactContentInventoryV1.descriptorsOf inv
+  for d in ds do
+    expect (← (staging / d.path).pathExists) s!"descriptor path present {d.path}"
+    expect (d.size > 0) s!"descriptor content must be nonempty: {d.path}"
+    match validateDigest d.contentSha256 with
+    | .ok () => pure ()
+    | .error e => throw <| IO.userError s!"bad digest: {e}"
+  -- Unit validator still succeeds on same tree.
+  validateEngineeringDiskClosureV1 finalized staging
+  -- Artifact-only scan fails if sidecars remain unlisted (aux empty).
+  expectIoErrorContains "artifact-only sees sidecars" "unexpected file" do
+    let _ ← scanEngineeringArtifactContentOnlyV1 finalized staging
+    pure ()
+  -- Remove sidecars → artifact-only succeeds and matches role/path set.
+  IO.FS.removeFile (staging / "evidence.json")
+  IO.FS.removeFile (staging / "manifest.json")
+  let invOnly ← scanEngineeringArtifactContentOnlyV1 finalized staging
+  expect (ArtifactContentInventoryV1.size invOnly == claims.size)
+    "artifact-only size"
+  -- Role coverage: at least one base.
+  expect (ds.any (·.role == .materializedBase)) "has materialized-base"
 
 private def assertDiskClosureEnv (env : Environment) : Except String Unit := do
   let validator := Name.mkStr2 "ProofForgeV2" "validateEngineeringDiskClosureV1"
@@ -544,6 +585,7 @@ unsafe def run : IO Unit := do
   testValidatorNegatives
   testValidatorNegativesExtended
   testSoleValidatorPins
+  testAdapterSameScannerInventory
   IO.println "Tests.Materialization.EngineeringDiskClosureV1: ok"
 
 end Tests.Materialization.EngineeringDiskClosureV1

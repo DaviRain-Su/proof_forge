@@ -201,6 +201,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.OutputSetV1,
     `Tests.Materialization.OutputEnvelopeV1,
     `Tests.Materialization.EngineeringFinalizationV1,
+    `Tests.Materialization.ArtifactContentV1,
     `Tests.Materialization.EngineeringDiskClosureV1,
     `Tests.Materialization.TargetIrFixtures,
     `Tests.Materialization.Targets,

@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 4239,
+      "bytes": 4293,
       "path": "ProofForgeV2.lean",
-      "sha256": "b13effdf6afac9136f9963714e8fe170c7ea988ee5b69072915a71f3b1feb4e2"
+      "sha256": "e094798b25507b2ab8429e126bafbf8509bf75b35c5ff94335c322ec810c2e8b"
     },
     {
       "bytes": 66269,
@@ -176,9 +176,14 @@
       "sha256": "34deeb3702f55cb55c1bcdb148ed625c77a551a7cb670f8b60ae7b1f8321e47f"
     },
     {
-      "bytes": 10937,
+      "bytes": 18740,
+      "path": "ProofForgeV2/Materialization/ArtifactContentV1.lean",
+      "sha256": "55a043ec330c835997f2feb246977a96d08e46223a5ddbcae25f856a113d6cc7"
+    },
+    {
+      "bytes": 3970,
       "path": "ProofForgeV2/Materialization/EngineeringDiskClosureV1.lean",
-      "sha256": "84d6d9c7a9032c653fe4f5cfcdf9c17638a416c5fc8831dcd656a2ae4d403817"
+      "sha256": "669e9e1e0d6a60738b06a778acadae95448cce4c61f17a6b90596a380092d885"
     },
     {
       "bytes": 4156,

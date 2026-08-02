@@ -11,6 +11,7 @@ import Tests.Materialization.OutputSetV1
 
 import Tests.Materialization.OutputEnvelopeV1
 import Tests.Materialization.EngineeringFinalizationV1
+import Tests.Materialization.ArtifactContentV1
 import Tests.Materialization.EngineeringDiskClosureV1
 import Tests.Materialization.Targets
 import Tests.Materialization.Aleo
@@ -52,6 +53,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.OutputEnvelopeV1.run
   IO.eprintln "CP run"
   Tests.Materialization.EngineeringFinalizationV1.run
+  IO.eprintln "CP run"
+  Tests.Materialization.ArtifactContentV1.run
   IO.eprintln "CP run"
   Tests.Materialization.EngineeringDiskClosureV1.run
   IO.eprintln "CP run"
