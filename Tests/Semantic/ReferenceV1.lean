@@ -590,6 +590,73 @@ private unsafe def testEmitRevertReferenceSlice
   }
   expectReturned "event-ref-emit" emitted twelveState (some (refU64 u64Tid 12)) #[movedEffect]
 
+  -- N-STR-EVENT RED/green seam: shared Semantic + Reference accepts canonical
+  -- String event/error payloads. Target ABIs remain separately fail closed.
+  let stringSource := wrap "StringEventRef" <|
+    "  event Note(message : String)\n" ++
+    "  error Stop(reason : String)\n" ++
+    "  entry emitNote() : UInt64 do\n" ++
+    "    emit Note(\"hello\")\n" ++
+    "    return 0\n" ++
+    "  entry fail() : UInt64 do\n" ++
+    "    revert Stop(\"stop\")\n"
+  let stringValidated ← loadSource session "string-event-ref" stringSource
+  let stringCarrier ← match normalizeProgramV1 stringValidated with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"string-event-ref: normalize failed: {repr e}"
+  let stringData ← match validateSemanticProgramV1 stringCarrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"string-event-ref: validate failed: {repr e}"
+  let some stringI := stringData.types.findIdx? (fun t =>
+      t.name.isNone && (match t.shape with | .string => true | _ => false)) |
+    throw <| IO.userError "string-event-ref: missing anonymous String TypeId"
+  let stringTid := UInt32.ofNat stringI
+  let some u64I := stringData.types.findIdx? (fun t =>
+      t.name.isNone && (match t.shape with | .uint 64 => true | _ => false)) |
+    throw <| IO.userError "string-event-ref: missing UInt64 TypeId"
+  let u64StringTid := UInt32.ofNat u64I
+  let some eventRow := stringData.events[0]? |
+    throw <| IO.userError "string-event-ref: missing EventDecl"
+  let some errorRow := stringData.errors[0]? |
+    throw <| IO.userError "string-event-ref: missing ErrorDecl"
+  expect (stringData.events.size == 1 &&
+      eventRow.fields.map (·.typeId) == #[stringTid])
+    "string-event-ref: EventDecl must retain String TypeId"
+  expect (stringData.errors.size == 1 &&
+      errorRow.fields.map (·.typeId) == #[stringTid])
+    "string-event-ref: ErrorDecl must retain String TypeId"
+  let stringAdmitted ← admitOk "string-event-ref" stringCarrier
+  let pre ← match initialLogicalStateV1 stringCarrier with
+    | .ok s => pure s
+    | .error e =>
+        throw <| IO.userError s!"string-event-ref: initial state: {repr e}"
+  let helloBytes ← match encodeString "hello" with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"string-event-ref: hello encode: {repr e}"
+  let stopBytes ← match encodeString "stop" with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"string-event-ref: stop encode: {repr e}"
+  let hello : ReferenceValueV1 := { typeId := stringTid, valueBytes := helloBytes }
+  let stop : ReferenceValueV1 := { typeId := stringTid, valueBytes := stopBytes }
+  let noteEffect : OrderedEffectV1 := {
+    occurrence := { effectId := 0, occurrence := 0 }
+    payload := .event 0 #[hello]
+  }
+  expectReturned "string-event-ref-emit"
+    (stepReferenceSliceV1 stringAdmitted pre (inv 0 #[]) emptyResponses)
+    pre (some (refU64 u64StringTid 0)) #[noteEffect]
+  match stepReferenceSliceV1 stringAdmitted pre (inv 1 #[]) emptyResponses with
+  | .reverted (.declared eid args) st =>
+      expect (eid == 0 && args == #[stop])
+        "string-event-ref-revert: declared String payload"
+      expect (logicalStateEq st pre)
+        "string-event-ref-revert: revert must preserve pre-state"
+  | other =>
+      throw <| IO.userError
+        s!"string-event-ref-revert: expected declared revert, got {repr other}"
+
 private unsafe def testFnLocalCallReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Pure-fn calls: nested fn→fn evaluation, and a declared revert inside an

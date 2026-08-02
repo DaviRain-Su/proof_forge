@@ -545,8 +545,8 @@ def run : IO Unit := do
   let hostile := .literal (.string "HOSTILE")
   let digest0 := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
   -- Struct/Enum declarations are registered in Normalize Pass0. Legal Map
-  -- fields now intern (T3); illegal map keys and non-UInt event/error fields
-  -- still fail closed.
+  -- fields now intern (T3); illegal map keys and non-UInt/Int/String
+  -- event/error fields still fail closed.
   let illegalMapKey : TypeV1 := .map (.option .bool) .bool
   let topCases : Array (String × Array ProgramItemV1 × String) := #[
     ("StructDecl", #[.struct { name := x, fields := #[{ name := y, type_ := illegalMapKey }] }],
@@ -556,9 +556,9 @@ def run : IO Unit := do
     ("ConstDecl", #[.const { name := x, type_ := .map .bool .bool, value := hostile }],
       "type mismatch: expected Map (Bool) (Bool), got String"),
     ("EventDecl", #[.event { name := x, params := #[param y (.map .bool .bool)] }],
-      "S1 event 'x' field 'y' requires anonymous UInt/Int type"),
+      "S1 event 'x' field 'y' requires anonymous UInt/Int/String type"),
     ("ErrorDecl", #[.error { name := x, params := #[param y (.map .bool .bool)] }],
-      "S1 error 'x' field 'y' requires anonymous UInt/Int type"),
+      "S1 error 'x' field 'y' requires anonymous UInt/Int/String type"),
     ("FnDecl",
       #[ProgramItemV1.fn {
           name := x

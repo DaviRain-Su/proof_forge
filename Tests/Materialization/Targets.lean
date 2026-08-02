@@ -164,6 +164,18 @@ private def invariantTargetBoundarySourceTextV1 : String :=
   "    return 0\n" ++
   "  invariant truth : true\n"
 
+private def stringInterfaceBoundarySourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program StringInterfaceBoundary where\n" ++
+  "  event Note(message : String)\n" ++
+  "  error Stop(reason : String)\n" ++
+  "  entry emitNote() : UInt64 do\n" ++
+  "    emit Note(\"hello\")\n" ++
+  "    return 0\n" ++
+  "  entry fail() : UInt64 do\n" ++
+  "    revert Stop(\"stop\")\n"
+
 private def expectMaterializePlanInvariantV1
     (label : String)
     (target : TargetId)
@@ -236,6 +248,72 @@ private unsafe def testConstInvariantMaterializationFailClosed : IO Unit := do
       (TargetId.aleo, TargetKind.aleo, "does not support invariants"),
       (TargetId.psy, TargetKind.psy, "invariants are outside")] do
     expectMaterializePlanInvariantV1 "invariant" target kind invariantCompiled marker
+
+/-- N-STR-EVENT opens only the shared Semantic/Reference contract. Every target
+    must still reject String event/error ABI materialization rather than silently
+    narrowing or omitting the canonical payload. Aleo declines effect.event at
+    requirement resolution; the other five reach their target-owned Plan gate. -/
+private unsafe def testStringInterfaceMaterializationFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let (source, origins) ← match ← session.selectProgramV1WithOrigins
+      stringInterfaceBoundarySourceTextV1 "targets/string-interface-boundary.pf"
+        "Tests.Targets.StringInterfaceBoundary" none with
+    | .ok pair => pure pair
+    | .error error =>
+        throw <| IO.userError s!"string interface: load failed: {error.render}"
+  let compiled ← match Compiler.compileProgramProductV1 source origins with
+    | .ok value => pure value
+    | .error _ =>
+        throw <| IO.userError "string interface: product compile failed"
+  let data ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of compiled) with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"string interface: invalid semantic {repr error}"
+  let some eventRow := data.events[0]? |
+    throw <| IO.userError "string interface: missing EventDecl"
+  let some errorRow := data.errors[0]? |
+    throw <| IO.userError "string interface: missing ErrorDecl"
+  let some eventField := eventRow.fields[0]? |
+    throw <| IO.userError "string interface: missing event field"
+  let some errorField := errorRow.fields[0]? |
+    throw <| IO.userError "string interface: missing error field"
+  expect (data.events.size == 1 && data.errors.size == 1 &&
+      eventRow.fields.size == 1 && errorRow.fields.size == 1)
+    "string interface: Normalize must retain both interface declarations"
+  let eventTid := eventField.typeId
+  expect (errorField.typeId == eventTid &&
+      match data.types[eventTid.toNat]? with
+      | some decl => decl.name.isNone &&
+          match decl.shape with | .string => true | _ => false
+      | none => false)
+    "string interface: event/error fields must bind one anonymous String TypeId"
+  for (target, kind, marker) in #[
+      (TargetId.evm, TargetKind.evm, "fields must be public UInt64"),
+      (TargetId.solana, TargetKind.solana, "only UInt8"),
+      (TargetId.near, TargetKind.near, "only UInt8"),
+      (TargetId.noir, TargetKind.noir, "only UInt8"),
+      (TargetId.psy, TargetKind.psy, "only UInt64")] do
+    match materializeSelected target compiled with
+    | .error (.planInvariant actualKind message) =>
+        expect (actualKind == kind && message.contains marker)
+          s!"string interface/{target}: expected marker '{marker}', got {message}"
+    | .error error =>
+        throw <| IO.userError
+          s!"string interface/{target}: expected PF-PLAN-INVARIANT, got {error.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"string interface/{target}: materialization must fail closed"
+  match materializeSelected TargetId.aleo compiled with
+  | .error (.unsupportedRequirementV1 message) =>
+      expect (message.contains "effect.event")
+        s!"string interface/aleo: expected effect.event decline, got {message}"
+  | .error error =>
+      throw <| IO.userError
+        s!"string interface/aleo: expected PF-REQ-UNSUPPORTED, got {error.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "string interface/aleo: materialization must fail closed"
 
 private def testSemanticPlanSourceAuthority : IO Unit := do
   for target in #["Evm", "Solana", "Near", "Noir"] do
@@ -1594,6 +1672,7 @@ set_option maxRecDepth 10000 in
 unsafe def runSemanticPlanLeafFast : IO Unit := do
   testSemanticPlanSourceAuthority
   testConstInvariantMaterializationFailClosed
+  testStringInterfaceMaterializationFailClosed
   testRichUInt64SemanticPlans
   testGuardedCounterSemanticPlans
   testBoolPredicateSemanticPlans

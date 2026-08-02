@@ -14,9 +14,9 @@
 
   Supported S1/S2 surface (everything else fails closed at this boundary):
     * declarations: public primitive state/params/event/error fields
-      (anonymous legal UInt or Int widths {8,16,32,64,128,256}, sole catalog
-      Field bn254_fr, or identity-only Principal for state/params; event/error
-      fields stay legal UInt),
+      (state/params admit anonymous legal UInt/Int widths {8,16,32,64,128,256},
+      sole catalog Field, Principal, String, and the documented aggregates;
+      event/error fields admit public anonymous legal UInt/Int or String),
       init, entry, view
     * statements: bare-place assign to state, return (some/none); init may omit
       return (implicit return none); bare `assert` with a Bool condition, and
@@ -147,7 +147,8 @@
       index assign is open; deeper `m[k].…` / `b[i].…` fail closed),
       identical multi-arm same-outer patterns (structural duplicate keys),
       param-root bare/field/index assign (params immutable; lets mutable N-6),
-      String event/error fields (stay UInt/Int-only this slice),
+      target-specific String event/error ABI materialization (shared Semantic and
+      Reference accept canonical String payloads; every target remains fail closed),
       ContextRead keys other than `context.unixTimeSeconds` / `context.caller`,
       Commit/ContextRead inside pureFn (fail closed; init/entry/view only)
     * registry / resolver / materializer / OutputSetV1
@@ -598,6 +599,22 @@ private def requireAnonymousIntegerTypeId
       else failUnsupported s!"S1 {context} requires legal UInt/Int width"
   | some _ =>
       failUnsupported s!"S1 {context} requires anonymous UInt/Int type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
+
+/-- N-STR-EVENT: target-neutral event/error payloads admit the existing
+    canonical String valueBytes shape in addition to legal integer scalars.
+    Target-owned interface ABIs remain independently fail closed. -/
+private def requireEventErrorFieldTypeId
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match anonShapeOf? types typeId with
+  | some (.uint w) | some (.int w) =>
+      if legalIntegerWidthV1 w.toNat then pure ()
+      else failUnsupported s!"S1 {context} requires legal UInt/Int/String type"
+  | some .string => pure ()
+  | some _ =>
+      failUnsupported s!"S1 {context} requires anonymous UInt/Int/String type"
   | none =>
       failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
 
@@ -3536,7 +3553,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   let mut errorTable : ErrorTableV1 := ⟨#[]⟩
 
   -- Pass 1: complete state/event/error tables (source order among those
-  -- items only). Event/error fields stay public legal-UInt in this envelope.
+  -- items only). Event/error fields stay public anonymous legal UInt/Int/String.
   -- State rows admit legal UInt/Int/Field/Principal or named Struct/Enum and
   -- retain visibility (N1/N2b/N2c/N3).
   for item in program.items do
@@ -3565,7 +3582,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
               s!"S1 event '{raw d.name}' field '{raw f.name}' must be public"
           let (interner', tid) ← internSourceType interner f.type_
           interner := interner'
-          requireAnonymousIntegerTypeId interner.types tid
+          requireEventErrorFieldTypeId interner.types tid
             s!"event '{raw d.name}' field '{raw f.name}'"
           fieldTids := fieldTids.push tid
           fields := fields.push {
@@ -3585,7 +3602,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
               s!"S1 error '{raw d.name}' field '{raw f.name}' must be public"
           let (interner', tid) ← internSourceType interner f.type_
           interner := interner'
-          requireAnonymousIntegerTypeId interner.types tid
+          requireEventErrorFieldTypeId interner.types tid
             s!"error '{raw d.name}' field '{raw f.name}'"
           fieldTids := fieldTids.push tid
           fields := fields.push {
