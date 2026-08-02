@@ -148,6 +148,95 @@ private def richUInt64SourceTextV1 : String :=
   "  view getRight() : UInt64 do\n" ++
   "    return right\n"
 
+private def constTargetBoundarySourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program ConstTargetBoundary where\n" ++
+  "  const ANSWER : UInt64 := 42\n" ++
+  "  entry answer() : UInt64 do\n" ++
+  "    return ANSWER\n"
+
+private def invariantTargetBoundarySourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program InvariantTargetBoundary where\n" ++
+  "  entry run() : UInt64 do\n" ++
+  "    return 0\n" ++
+  "  invariant truth : true\n"
+
+private def expectMaterializePlanInvariantV1
+    (label : String)
+    (target : TargetId)
+    (expectedKind : TargetKind)
+    (compiled : CompiledSemanticV1)
+    (marker : String) : IO Unit :=
+  match materializeSelected target compiled with
+  | .error (.planInvariant kind message) => do
+      expect (kind == expectedKind)
+        s!"{label}/{target}: expected plan target {expectedKind}, got {kind}"
+      expect (message.contains marker)
+        s!"{label}/{target}: expected marker '{marker}', got {message}"
+  | .error error =>
+      throw <| IO.userError
+        s!"{label}/{target}: expected PF-PLAN-INVARIANT, got {error.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        s!"{label}/{target}: product materialization must fail closed"
+
+/-- Normalize deliberately retains constants/invariants in the sole semantic
+    carrier. Until each target owns those contracts, all six product
+    materializers must reject them rather than silently omit either table/op. -/
+private unsafe def testConstInvariantMaterializationFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let constSource ← liftResult (← session.selectProgramV1
+    constTargetBoundarySourceTextV1 "<targets-const-boundary>"
+      "Tests.Targets.ConstTargetBoundary" none)
+  let constCompiled ← liftResult <| Compiler.compileValidatedSourceV1 constSource
+  let constData ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of constCompiled) with
+    | .ok data => pure data
+    | .error error =>
+        throw <| IO.userError s!"const boundary: invalid semantic {repr error}"
+  expect (constData.constants.size == 1)
+    "const boundary: Normalize must retain one Constant row"
+  expect (constData.callables.any (fun callable =>
+      callable.blocks.any (fun block =>
+        block.instructions.any (fun instruction =>
+          match instruction.op with
+          | .constant 0 => true
+          | _ => false))))
+    "const boundary: entry must retain Op.Constant 0"
+  for (target, kind, marker) in #[
+      (TargetId.evm, TargetKind.evm, "constants/invariants"),
+      (TargetId.solana, TargetKind.solana, "constants/invariants"),
+      (TargetId.near, TargetKind.near, "constants/invariants"),
+      (TargetId.noir, TargetKind.noir, "constants/invariants"),
+      (TargetId.aleo, TargetKind.aleo, "Constant load"),
+      (TargetId.psy, TargetKind.psy, "Constant/CheckedCast")] do
+    expectMaterializePlanInvariantV1 "constant" target kind constCompiled marker
+
+  let invariantSource ← liftResult (← session.selectProgramV1
+    invariantTargetBoundarySourceTextV1 "<targets-invariant-boundary>"
+      "Tests.Targets.InvariantTargetBoundary" none)
+  let invariantCompiled ← liftResult <|
+    Compiler.compileValidatedSourceV1 invariantSource
+  let invariantData ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of invariantCompiled) with
+    | .ok data => pure data
+    | .error error =>
+        throw <| IO.userError s!"invariant boundary: invalid semantic {repr error}"
+  expect (invariantData.invariants.size == 1 &&
+      invariantData.callables.any (fun callable => callable.kind == .invariant))
+    "invariant boundary: Normalize must retain callable and InvariantDecl"
+  for (target, kind, marker) in #[
+      (TargetId.evm, TargetKind.evm, "constants/invariants"),
+      (TargetId.solana, TargetKind.solana, "constants/invariants"),
+      (TargetId.near, TargetKind.near, "constants/invariants"),
+      (TargetId.noir, TargetKind.noir, "constants/invariants"),
+      (TargetId.aleo, TargetKind.aleo, "does not support invariants"),
+      (TargetId.psy, TargetKind.psy, "invariants are outside")] do
+    expectMaterializePlanInvariantV1 "invariant" target kind invariantCompiled marker
+
 private def testSemanticPlanSourceAuthority : IO Unit := do
   for target in #["Evm", "Solana", "Near", "Noir"] do
     let path := s!"ProofForgeV2/Targets/{target}.lean"
@@ -1500,10 +1589,11 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
       | _ => throw <| IO.userError "Noir later must keep the schedule statement"
   | none => throw <| IO.userError "Noir later body is too short"
 
--- Fast regression for the frozen four-target retained-V1 UInt64 add/sub seam.
+-- Fast regression for the retained-V1 target Plan seam and fail-closed tables.
 set_option maxRecDepth 10000 in
 unsafe def runSemanticPlanLeafFast : IO Unit := do
   testSemanticPlanSourceAuthority
+  testConstInvariantMaterializationFailClosed
   testRichUInt64SemanticPlans
   testGuardedCounterSemanticPlans
   testBoolPredicateSemanticPlans
