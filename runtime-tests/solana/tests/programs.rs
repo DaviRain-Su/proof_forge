@@ -1535,3 +1535,195 @@ fn map_mini_put_updates_existing_key() {
         ],
     );
 }
+
+// ─── WideMul (C-5/B-SOL-MUL: UInt128/256 schoolbook runtime) ──────────────
+
+fn wide_mul_fields() -> Vec<StateField> {
+    fields_with_widths(&[("product128", 16), ("product256", 32)])
+}
+
+fn wide_mul_state(initialized: bool, product128: [u64; 2], product256: [u64; 4]) -> Vec<u8> {
+    let fields = wide_mul_fields();
+    state_data_limbs(
+        &fields,
+        initialized,
+        &[product128.as_slice(), product256.as_slice()],
+    )
+}
+
+/// Independent base-2^64 schoolbook oracle. The product emitter under test
+/// splits into 32-bit digits, so this deliberately uses a different radix.
+fn checked_mul_limbs<const N: usize>(lhs: [u64; N], rhs: [u64; N]) -> Option<[u64; N]> {
+    let mut out = [0u64; N];
+    for (i, lhs_limb) in lhs.iter().copied().enumerate() {
+        let mut carry = 0u128;
+        for (j, rhs_limb) in rhs.iter().copied().enumerate() {
+            let k = i + j;
+            let product = u128::from(lhs_limb) * u128::from(rhs_limb);
+            if k >= N {
+                if product != 0 || carry != 0 {
+                    return None;
+                }
+                continue;
+            }
+            let sum = u128::from(out[k]) + product + carry;
+            out[k] = sum as u64;
+            carry = sum >> 64;
+        }
+        if carry != 0 {
+            return None;
+        }
+    }
+    Some(out)
+}
+
+fn assert_wide_mul_plan() {
+    assert_discriminators_match_plan_widths(
+        &fixture_plan_path("WideMul"),
+        &[
+            ("initialize", vec![]),
+            ("mul128", vec![16, 16]),
+            ("mul256", vec![32, 32]),
+        ],
+    );
+    let fields = wide_mul_fields();
+    assert_eq!(fields[0].byte_offset, 8);
+    assert_eq!(fields[1].byte_offset, 24);
+    assert_eq!(exact_data_len_for_fields(&fields), 56);
+}
+
+#[test]
+fn wide_mul_u128_high_limb_success() {
+    assert_wide_mul_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideMul");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("mul128", &[16, 16]);
+    let lhs = [3u64, 1]; // 2^64 + 3
+    let rhs = [5u64, 0];
+    let expected = checked_mul_limbs(lhs, rhs).expect("u128 product must fit");
+    assert_eq!(expected, [15, 5]);
+    let product256 = [11, 12, 13, 14];
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(16, lhs.as_slice()), (16, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(
+                &program_id,
+                wide_mul_state(true, [9, 10], product256),
+            ),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&wide_mul_state(true, expected, product256))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn wide_mul_u128_overflow_0x1001() {
+    assert_wide_mul_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideMul");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("mul128", &[16, 16]);
+    let lhs = [0u64, 1]; // 2^64
+    let rhs = [0u64, 1]; // 2^64; product = 2^128
+    assert_eq!(checked_mul_limbs(lhs, rhs), None);
+    let pre = wide_mul_state(true, [9, 10], [11, 12, 13, 14]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(16, lhs.as_slice()), (16, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+#[test]
+fn wide_mul_u256_cross_limb_success() {
+    assert_wide_mul_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideMul");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("mul256", &[32, 32]);
+    let lhs = [3u64, 1, 0, 0]; // 2^64 + 3
+    let rhs = [5u64, 1, 0, 0]; // 2^64 + 5
+    let expected = checked_mul_limbs(lhs, rhs).expect("u256 product must fit");
+    assert_eq!(expected, [15, 8, 1, 0]);
+    let product128 = [21, 22];
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(32, lhs.as_slice()), (32, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(
+                &program_id,
+                wide_mul_state(true, product128, [31, 32, 33, 34]),
+            ),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&wide_mul_state(true, product128, expected))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn wide_mul_u256_overflow_0x1001() {
+    assert_wide_mul_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideMul");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("mul256", &[32, 32]);
+    let lhs = [0u64, 0, 1, 0]; // 2^128
+    let rhs = [0u64, 0, 1, 0]; // 2^128; product = 2^256
+    assert_eq!(checked_mul_limbs(lhs, rhs), None);
+    let pre = wide_mul_state(true, [21, 22], [31, 32, 33, 34]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(32, lhs.as_slice()), (32, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}

@@ -38,7 +38,8 @@ pub const CHECK_OR_UNKNOWN: u32 = 1;
 pub const BASE_LAMPORTS: u64 = 10 * LAMPORTS_PER_SOL;
 
 /// One state field for layout-marker / account packing (declaration order).
-/// `byte_width` is the physical ABI width (1/2/4/8); slot pitch remains 8.
+/// `byte_width` is the physical ABI width (1/2/4/8/16/32); widths through 8
+/// use an 8-byte pitch, UInt128/256 use 16/32 bytes.
 #[derive(Clone, Copy, Debug)]
 pub struct StateField {
     pub source_id: u64,
@@ -47,24 +48,42 @@ pub struct StateField {
     pub byte_width: usize,
 }
 
-/// ABI param type string for discriminator signatures (`u8`/`u16`/`u32`/`u64`).
+/// ABI param type string for discriminator signatures.
 /// Int64 keeps historical `"u64"` (matches Lean `abiParamTypeString`).
 pub fn abi_param_type_string(byte_width: usize) -> &'static str {
     match byte_width {
         1 => "u8",
         2 => "u16",
         4 => "u32",
-        _ => "u64",
+        8 => "u64",
+        16 => "u128",
+        32 => "u256",
+        _ => panic!("unsupported fixture ABI byte width {byte_width}"),
     }
 }
 
-/// Layout field type suffix (`u8-le` … `u64-le`).
+/// Layout field type suffix (`u8-le` … `u256-le`).
 pub fn layout_field_type_suffix(byte_width: usize) -> &'static str {
     match byte_width {
         1 => "u8-le",
         2 => "u16-le",
         4 => "u32-le",
-        _ => "u64-le",
+        8 => "u64-le",
+        16 => "u128-le",
+        32 => "u256-le",
+        _ => panic!("unsupported fixture layout byte width {byte_width}"),
+    }
+}
+
+/// Independent copy of the public slot-pitch contract: widths through UInt64
+/// occupy 8 bytes; UInt128/256 occupy 16/32 bytes.
+pub fn slot_pitch(byte_width: usize) -> usize {
+    assert!(byte_width > 0, "fixture byte width must be positive");
+    let limbs = (byte_width + 7) / 8;
+    if limbs <= 1 {
+        8
+    } else {
+        limbs * 8
     }
 }
 
@@ -178,22 +197,35 @@ pub fn array_u64_leaves(n: usize) -> Vec<StateField> {
         .collect()
 }
 
-/// Multi-field layout with explicit widths (8-byte slot pitch).
+/// Multi-field layout with explicit physical widths and canonical slot pitch.
 pub fn fields_with_widths(specs: &[(&'static str, usize)]) -> Vec<StateField> {
+    let mut next_offset = STATE_HEADER_BYTES;
     specs
         .iter()
         .enumerate()
-        .map(|(i, (name, w))| StateField {
-            source_id: i as u64,
-            name,
-            byte_offset: STATE_HEADER_BYTES + i * 8,
-            byte_width: *w,
+        .map(|(i, (name, byte_width))| {
+            let field = StateField {
+                source_id: i as u64,
+                name,
+                byte_offset: next_offset,
+                byte_width: *byte_width,
+            };
+            next_offset += slot_pitch(*byte_width);
+            field
         })
         .collect()
 }
 
 pub fn exact_data_len(field_count: usize) -> usize {
     STATE_HEADER_BYTES + field_count * 8
+}
+
+pub fn exact_data_len_for_fields(fields: &[StateField]) -> usize {
+    fields
+        .iter()
+        .map(|field| field.byte_offset + slot_pitch(field.byte_width))
+        .max()
+        .unwrap_or(STATE_HEADER_BYTES)
 }
 
 /// Parse `.handler <hex16> <name> ...` lines from product plan text.
@@ -254,6 +286,21 @@ pub fn instruction_data(disc_hex: &str, params: &[u64]) -> Vec<u8> {
     data
 }
 
+/// Pack explicit-width params as little-endian u64 limbs at canonical pitch.
+pub fn instruction_data_limbs(disc_hex: &str, params: &[(usize, &[u64])]) -> Vec<u8> {
+    let mut data = discriminator_bytes(disc_hex).to_vec();
+    for (byte_width, limbs) in params {
+        let limb_count = (*byte_width + 7) / 8;
+        assert_eq!(limbs.len(), limb_count, "wide param limb count");
+        let start = data.len();
+        for limb in *limbs {
+            data.extend_from_slice(&limb.to_le_bytes());
+        }
+        data.resize(start + slot_pitch(*byte_width), 0);
+    }
+    data
+}
+
 /// Pack account data: [marker LE | field0 LE | field1 LE | …].
 pub fn state_data(fields: &[StateField], initialized: bool, values: &[u64]) -> Vec<u8> {
     assert_eq!(fields.len(), values.len(), "field/value arity");
@@ -265,6 +312,25 @@ pub fn state_data(fields: &[StateField], initialized: bool, values: &[u64]) -> V
     for (i, v) in values.iter().enumerate() {
         let off = fields[i].byte_offset;
         data[off..off + 8].copy_from_slice(&v.to_le_bytes());
+    }
+    data
+}
+
+/// Pack state values as explicit little-endian u64 limbs. Unused pitch bytes
+/// remain zero, matching freshly initialized account data.
+pub fn state_data_limbs(fields: &[StateField], initialized: bool, values: &[&[u64]]) -> Vec<u8> {
+    assert_eq!(fields.len(), values.len(), "wide field/value arity");
+    let mut data = vec![0u8; exact_data_len_for_fields(fields)];
+    if initialized {
+        data[..8].copy_from_slice(&layout_marker(fields).to_le_bytes());
+    }
+    for (field, limbs) in fields.iter().zip(values.iter()) {
+        let limb_count = (field.byte_width + 7) / 8;
+        assert_eq!(limbs.len(), limb_count, "wide state limb count");
+        for (i, limb) in limbs.iter().enumerate() {
+            let off = field.byte_offset + i * 8;
+            data[off..off + 8].copy_from_slice(&limb.to_le_bytes());
+        }
     }
     data
 }
@@ -289,6 +355,26 @@ pub fn build_ix(
         AccountMeta::new_readonly(state_key, signer)
     };
     Instruction::new_with_bytes(program_id, &instruction_data(disc_hex, params), vec![meta])
+}
+
+pub fn build_ix_limbs(
+    program_id: Pubkey,
+    state_key: Pubkey,
+    disc_hex: &str,
+    params: &[(usize, &[u64])],
+    writable: bool,
+    signer: bool,
+) -> Instruction {
+    let meta = if writable {
+        AccountMeta::new(state_key, signer)
+    } else {
+        AccountMeta::new_readonly(state_key, signer)
+    };
+    Instruction::new_with_bytes(
+        program_id,
+        &instruction_data_limbs(disc_hex, params),
+        vec![meta],
+    )
 }
 
 /// Counter product env (S3a): `PROOF_FORGE_SO_DIR` + `PROOF_FORGE_PLAN`.

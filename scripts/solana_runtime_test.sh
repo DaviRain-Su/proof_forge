@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Solana S3a+S3b: build Counter ELF + S1b fixture ELFs (solana-sbpf-elf-v1)
-# (LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates/ArraySlots) and run
-# Mollusk runtime differential tests.
+# Solana engineering runtime: build Counter ELF + target fixture ELFs
+# (solana-sbpf-elf-v1; control flow, effects, aggregates, narrow/wide ABI)
+# and run Mollusk runtime differential tests.
 #
 # Requires:
 #   - lake / Lean toolchain on PATH
@@ -71,6 +71,7 @@ fixtures=(
   NarrowResult
   ArraySlots
   MapMini
+  WideMul
 )
 
 echo "solana-runtime-test: building proof-forge-next (lake build proof_forge_next)"
