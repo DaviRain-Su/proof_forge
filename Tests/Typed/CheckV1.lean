@@ -7094,6 +7094,97 @@ private unsafe def testInvariantPureFnClosureSteps
       .returnedTrue)
     "inv-fn: eval via PureCall → returnedTrue"
 
+/-- P0 regression: invariant before pureFn (forward localCall) and invariant
+    between ordinary callables must not desync fnTable PureCall calleeIds. -/
+private unsafe def testInvariantCallableOrderingPureCall
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Source order: invariant → pureFn → entry. Pass2a must count the leading
+  -- invariant so leaf's CallableId is 1 (not 0).
+  let sourceFwd := wrap "InvOrdFwd" <|
+    "  invariant truth : leaf()\n" ++
+    "  fn leaf() : Bool do\n" ++
+    "    return true\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let vFwd ← loadSource session "inv-ord-fwd" sourceFwd
+  expect (checkProgramTypedResultV1 vFwd).ok "inv-ord-fwd: CheckV1.ok"
+  let cFwd ← match normalizeProgramV1 vFwd with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"inv-ord-fwd: normalize {repr e}"
+  let dFwd ← match validateSemanticProgramV1 cFwd with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"inv-ord-fwd: validate {repr e}"
+  expect (dFwd.callables.size == 3)
+    s!"inv-ord-fwd: 3 callables, got {dFwd.callables.size}"
+  let some inv0 := dFwd.callables[0]? |
+    throw <| IO.userError "inv-ord-fwd: missing callables[0]"
+  let some leaf1 := dFwd.callables[1]? |
+    throw <| IO.userError "inv-ord-fwd: missing callables[1]"
+  let some entry2 := dFwd.callables[2]? |
+    throw <| IO.userError "inv-ord-fwd: missing callables[2]"
+  expect (inv0.kind == .invariant && inv0.id == 0) "inv-ord-fwd: [0] invariant id0"
+  expect (leaf1.kind == .pureFn && leaf1.id == 1 && leaf1.name == some "leaf")
+    "inv-ord-fwd: [1] pureFn leaf id1"
+  expect (entry2.kind == .entry && entry2.id == 2) "inv-ord-fwd: [2] entry id2"
+  let some invBlk := inv0.blocks[0]? |
+    throw <| IO.userError "inv-ord-fwd: inv missing block"
+  let some pureCallInstr := invBlk.instructions.find? (fun i =>
+      match i.op with | .pureCall _ _ => true | _ => false) |
+    throw <| IO.userError "inv-ord-fwd: missing PureCall"
+  match pureCallInstr.op with
+  | .pureCall calleeId _ =>
+      expect (calleeId == 1)
+        s!"inv-ord-fwd: PureCall calleeId must be leaf=1, got {calleeId}"
+      expect (leaf1.kind == .pureFn) "inv-ord-fwd: callee is pureFn"
+  | _ => throw <| IO.userError "inv-ord-fwd: expected pureCall op"
+  let emptyState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1 :=
+    { initialized := true, canonicalValues := ByteArray.empty }
+  expect
+    (ProofForgeV2.Semantic.InvariantABI.evalInvariantV1 cFwd 0 emptyState ==
+      .returnedTrue)
+    "inv-ord-fwd: evalInvariantV1 returnedTrue"
+
+  -- Source order: entry → invariant → pureFn → view. Invariant sandwiched.
+  let sourceMid := wrap "InvOrdMid" <|
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  invariant truth : leaf()\n" ++
+    "  fn leaf() : Bool do\n" ++
+    "    return true\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let vMid ← loadSource session "inv-ord-mid" sourceMid
+  expect (checkProgramTypedResultV1 vMid).ok "inv-ord-mid: CheckV1.ok"
+  let cMid ← match normalizeProgramV1 vMid with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"inv-ord-mid: normalize {repr e}"
+  let dMid ← match validateSemanticProgramV1 cMid with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"inv-ord-mid: validate {repr e}"
+  expect (dMid.callables.size == 4)
+    s!"inv-ord-mid: 4 callables, got {dMid.callables.size}"
+  -- entry=0, inv=1, leaf=2, view=3
+  let some midInv := dMid.callables[1]? |
+    throw <| IO.userError "inv-ord-mid: missing inv"
+  let some midLeaf := dMid.callables[2]? |
+    throw <| IO.userError "inv-ord-mid: missing leaf"
+  expect (midInv.kind == .invariant && midInv.id == 1) "inv-ord-mid: inv id1"
+  expect (midLeaf.kind == .pureFn && midLeaf.id == 2) "inv-ord-mid: leaf id2"
+  let some midBlk := midInv.blocks[0]? |
+    throw <| IO.userError "inv-ord-mid: inv block"
+  let some midCall := midBlk.instructions.find? (fun i =>
+      match i.op with | .pureCall _ _ => true | _ => false) |
+    throw <| IO.userError "inv-ord-mid: missing PureCall"
+  match midCall.op with
+  | .pureCall calleeId _ =>
+      expect (calleeId == 2)
+        s!"inv-ord-mid: PureCall calleeId must be leaf=2, got {calleeId}"
+  | _ => throw <| IO.userError "inv-ord-mid: expected pureCall"
+  expect
+    (ProofForgeV2.Semantic.InvariantABI.evalInvariantV1 cMid 0 emptyState ==
+      .returnedTrue)
+    "inv-ord-mid: evalInvariantV1 returnedTrue"
+
 private unsafe def testInvariantSemanticHashSensitive
     (session : Language.Loader.ParserSession) : IO Unit := do
   let base :=
@@ -7157,21 +7248,99 @@ private unsafe def testInvariantProvenanceAndProofSkip
         | none => false
     | _ => false
   expect hasInvCallable "inv-prov: originMap covers invariant callable"
-  -- business hash identical with/without proof declaration
-  let sourceNoProof := wrap "InvProv2" <|
+  -- Same module/program identity; only `proof` line differs → identical
+  -- business Semantic IR (canonicalBytes + semanticHash).
+  let sourceNoProof := wrap "InvProv" <|
     "  entry run() : UInt64 do\n" ++
     "    return 0\n" ++
     "  invariant truth : true\n"
-  let v2 ← loadSource session "inv-prov2" sourceNoProof
+  let v2 ← loadSource session "inv-prov-noproof" sourceNoProof
   let c2 ← match normalizeProgramV1 v2 with
-    | .ok c => pure c | .error e => throw <| IO.userError s!"inv-prov2: {repr e}"
-  -- different program names → different QN → different hash; pin same shape instead
+    | .ok c => pure c | .error e => throw <| IO.userError s!"inv-prov-noproof: {repr e}"
   let d2 ← match validateSemanticProgramV1 c2 with
-    | .ok d => pure d | .error e => throw <| IO.userError s!"inv-prov2 val: {repr e}"
+    | .ok d => pure d | .error e => throw <| IO.userError s!"inv-prov-noproof val: {repr e}"
   expect (d2.invariants.size == 1 && data.invariants.size == 1)
     "inv-prov: proof does not add invariant rows"
   expect (d2.callables.size == data.callables.size)
     "inv-prov: proof does not add callables"
+  expect (bytesEqual carrier.canonicalBytes c2.canonicalBytes)
+    "inv-prov: identical program identity ⇒ identical canonicalBytes with/without proof"
+  let h1 ← match semanticHashV1 carrier with
+    | .ok h => pure h | .error e => throw <| IO.userError s!"inv-prov hash1: {repr e}"
+  let h2 ← match semanticHashV1 c2 with
+    | .ok h => pure h | .error e => throw <| IO.userError s!"inv-prov hash2: {repr e}"
+  expect (h1 == h2)
+    "inv-prov: identical program identity ⇒ identical semanticHash with/without proof"
+
+/-- Expression-match invariant: multi-block CFG + provenance covers every
+    expected block/terminator/value from collectProgramEntityRefsV1. -/
+private unsafe def testInvariantExprMatchMultiBlockProvenance
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Expression match as invariant predicate (arms aligned under `match`,
+  -- same layout as working expr-match entry fixtures).
+  let source := wrap "InvMatch" <|
+    "  state n : UInt64\n" ++
+    "  init(v : UInt64) do\n" ++
+    "    n := v\n" ++
+    "  entry run(d : UInt64) : UInt64 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n" ++
+    "  invariant zeroOk :\n" ++
+    "    match n with\n" ++
+    "    | 0 => true\n" ++
+    "    | _ => false\n"
+  let (validated, spans) ← loadSourceWithSpans session "inv-match" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok
+    s!"inv-match: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let path ← parseTestPath "inv-match"
+  let pair ← match normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok p => pure p
+    | .error e => throw <| IO.userError s!"inv-match: normalize+prov {repr e}"
+  let (carrier, provenance) := pair
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"inv-match: validate {repr e}"
+  expect (data.invariants.size == 1) "inv-match: one invariant"
+  let some invC := data.callables.find? (fun c => c.kind == .invariant) |
+    throw <| IO.userError "inv-match: missing invariant callable"
+  -- Multi-block: switch scrut + arm cases + join (at least 3 blocks).
+  expect (invC.blocks.size >= 3)
+    s!"inv-match: multi-block CFG, got {invC.blocks.size} blocks"
+  -- Final block is the join carrying return some (block-param result).
+  let some lastBlk := invC.blocks[invC.blocks.size - 1]? |
+    throw <| IO.userError "inv-match: missing last block"
+  match lastBlk.terminator with
+  | .return_ (some _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "inv-match: last block must return some (join sealed by lowerInvariantPredicate)"
+  -- originMap exact-covers every program entity (incl. every inv block/term/value)
+  let expected := collectProgramEntityRefsV1 data
+  expect (provenance.originMap.size == expected.size)
+    s!"inv-match: originMap size {provenance.originMap.size} != expected {expected.size}"
+  for ent in expected do
+    let found := provenance.originMap.any fun b => b.entity == ent
+    unless found do
+      throw <| IO.userError "inv-match: missing origin for an expected semantic entity"
+  -- Explicit multi-block coverage on the invariant callable
+  for blk in invC.blocks do
+    let hasBlk := provenance.originMap.any fun b =>
+      match b.entity with
+      | .block cid bid => cid == invC.id && bid == blk.id
+      | _ => false
+    expect hasBlk s!"inv-match: origin for block {blk.id}"
+    let hasTerm := provenance.originMap.any fun b =>
+      match b.entity with
+      | .terminator cid bid => cid == invC.id && bid == blk.id
+      | _ => false
+    expect hasTerm s!"inv-match: origin for terminator {blk.id}"
+    for bp in blk.params do
+      let hasV := provenance.originMap.any fun b =>
+        match b.entity with
+        | .value cid vid => cid == invC.id && vid == bp.valueId
+        | _ => false
+      expect hasV s!"inv-match: origin for block-param value {bp.valueId}"
 
 private unsafe def testInvariantNameCollisionFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -7253,8 +7422,10 @@ unsafe def run : IO Unit := do
   testInvariantLiteralTrueShapeAndSteps session
   testInvariantStatePredicate session
   testInvariantPureFnClosureSteps session
+  testInvariantCallableOrderingPureCall session
   testInvariantSemanticHashSensitive session
   testInvariantProvenanceAndProofSkip session
+  testInvariantExprMatchMultiBlockProvenance session
   testInvariantNameCollisionFailClosed session
   testInvariantDoesNotChangeNoInvPrograms session
   testNestedConstructorPattern session

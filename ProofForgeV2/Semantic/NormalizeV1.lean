@@ -83,8 +83,9 @@
       init/entry/view/pureFn carry `invariantSteps=none` unless a pureFn is
       in an invariant PureCall closure (then sole Wire exact steps).
       `invariant name : BoolExpr` lowers to a zero-arg `.invariant` callable
-      (public Bool result, empty loopBounds, single-block return of the
-      lowered predicate) plus a dense source-order `InvariantDecl` row;
+      (public Bool result, empty loopBounds, return of the lowered predicate on
+      the final open block — may be multi-block when the predicate is e.g.
+      expression `match`) plus a dense source-order `InvariantDecl` row;
       ContextRead/Commit/effect ops stay fail closed on invariant roots.
       Exact `invariantSteps` (including pureFn closure metadata) are produced
       by sole `computeInvariantStepsExactWithMembersV1` before encode.
@@ -3278,20 +3279,25 @@ private def mkCallable
     invariantSteps := none
   }
 
-/-- Lower `invariant name : BoolExpr` to a single-block zero-arg callable body:
-    evaluate the Bool predicate (full state + pureFn table; ContextRead/Commit
-    fail closed) and `return some`. Empty loopBounds by construction. -/
+/-- Lower `invariant name : BoolExpr` to a zero-arg callable body: evaluate the
+    Bool predicate (full state + pureFn table; ContextRead/Commit fail closed)
+    and `return some` on the **current open block** after expression lowering.
+    Predicates may be multi-block (e.g. expression `match` → arm blocks + join);
+    `loopBounds` stay empty by construction (no source `for` in a bare expr). -/
 private def lowerInvariantPredicate
     (predicate : SrcExpr)
     (interner : TypeInternerV1) (states : StateTableV1) (fns : FnTableV1) :
     Except NormalizeErrorV1 (Array BlockV1 × TypeInternerV1) := do
   let (i1, boolTid) := internShape interner .bool
+  -- Expression-match joins allocate block params in the same pre-counted
+  -- ValueId range as statement bodies (params first, then join params).
+  let joinReserve := countExprMatchJoinsInExprV1 predicate
   let st : BodyStateV1 := {
     blocks := #[]
     instructions := #[]
     currentParams := #[]
     loopBounds := #[]
-    nextValueId := 0
+    nextValueId := UInt32.ofNat joinReserve
     nextBlockParamOrdinal := 0
     callableParamCount := 0
     nextEffectId := 0
@@ -3311,6 +3317,8 @@ private def lowerInvariantPredicate
   if st1.usedContextUnixTime || st1.usedContextCaller || st1.usedCommit then
     return ← failUnsupported
       "S1 invariant predicate must not use ContextRead or Commit"
+  -- Seal whatever block is open after the predicate (join block for match,
+  -- the sole entry block for straight-line predicates).
   let st2 := sealCurrentBlock st1 (TerminatorV1.return_ (some vid))
   pure (st2.blocks, st2.interner)
 
@@ -3522,9 +3530,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     | _ => pure ()
 
   -- Pass 2a: fn signature table for localCall resolution. CallableIds follow
-  -- the unified source order of init/entry/view/fn items (the same order
-  -- pass 2 lowers them). Fn params stay public legal-UInt/Int/Field/Principal;
-  -- results are public legal UInt/Int/Unit/Bool/Field/Principal.
+  -- the unified source order of **every item that becomes a callable** in
+  -- pass 2: init/entry/view/fn/**invariant** (same order pass 2 lowers them).
+  -- Invariants occupy an ordinal so that a pureFn declared after an invariant
+  -- still receives the correct PureCall calleeId. Fn params stay public
+  -- legal-UInt/Int/Field/Principal; results are public legal
+  -- UInt/Int/Unit/Bool/Field/Principal.
   let mut fnTable : FnTableV1 := ⟨#[]⟩
   let mut fnCallableOrdinal : Nat := 0
   for item in program.items do
@@ -3547,7 +3558,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         fnTable := { rows := fnTable.rows.push fnRow }
     | _ => pure ()
     match item with
-    | .init _ | .entry _ | .view _ | .fn _ =>
+    | .init _ | .entry _ | .view _ | .fn _ | .invariant _ =>
         fnCallableOrdinal := fnCallableOrdinal + 1
     | _ => pure ()
 

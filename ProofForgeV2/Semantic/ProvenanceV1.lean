@@ -994,6 +994,50 @@ private partial def attrStmt
 
 end
 
+/-- Attribute every CFG entity of an already-lowered callable body to `path`.
+    Used for invariant predicates whose source is a bare expression (not a
+    statement Block): multi-block expression match, join block params, and the
+    final `return some` terminator all appear only after Normalize, so a pure
+    source walk cannot invent them. Entity ids are taken from the lowered
+    `CallableV1` so they exact-join `collectProgramEntityRefsV1`. -/
+private def attrLoweredCallableBodyV1
+    (acc0 : AttrAccumV1) (idx : OriginIndexV1)
+    (callableId : CallableIdV1) (c : CallableV1)
+    (path : NormalizedSyntacticPathV1) :
+    Except ProvenanceBuildErrorV1 AttrAccumV1 := do
+  let mut acc := acc0
+  -- Callable parameters (invariants have zero; keep general).
+  for p in c.params do
+    acc ← attrPushPath acc idx (.value callableId p.valueId) path
+  for blk in c.blocks do
+    acc ← attrPushPath acc idx
+      (SemanticEntityRefV1.block callableId blk.id) path
+    for bp in blk.params do
+      acc ← attrPushPath acc idx
+        (SemanticEntityRefV1.value callableId bp.valueId) path
+    let mut ii : Nat := 0
+    for instr in blk.instructions do
+      acc ← attrPushPath acc idx
+        (SemanticEntityRefV1.instruction callableId blk.id (UInt32.ofNat ii))
+        path
+      match instr.result with
+      | some r =>
+          acc ← attrPushPath acc idx
+            (SemanticEntityRefV1.value callableId r.valueId) path
+      | none => pure ()
+      -- Effect ids on emit/external/schedule (invariants forbid these ops;
+      -- still attribute if present so expected-set join stays total).
+      match instr.op with
+      | .emit effectId _ _ | .externalCall effectId _ _
+      | .schedule effectId _ _ =>
+          acc ← attrPushPath acc idx
+            (SemanticEntityRefV1.effect callableId effectId) path
+      | _ => pure ()
+      ii := ii + 1
+    acc ← attrPushPath acc idx
+      (SemanticEntityRefV1.terminator callableId blk.id) path
+  pure acc
+
 private def attrBlock
     (callableId : CallableIdV1)
     (body : SrcBlock) (blockPath : NormalizedSyntacticPathV1)
@@ -1444,10 +1488,14 @@ private def attributeCounterEntitiesV1
         let bodyPath := directChild itemPath "FnDecl" "body"
         acc ← attrBlock cid d.body bodyPath params ⟨#[]⟩ idx acc false
         callableId := callableId + 1
-    | .invariant d =>
+    | .invariant _d =>
         -- N-INVARIANT-IR: attribute zero-arg invariant callable + InvariantDecl
-        -- entity; synthetic single-block body is the Bool predicate expression
-        -- (mirrors Normalize lowerInvariantPredicate). `.proof` is skipped.
+        -- entity. Predicate bodies may be multi-block (expression `match` arms
+        -- + join + return on the final open block). Body CFG entities are
+        -- attributed from the **lowered** callable so block/instr/term/value
+        -- ids exact-match Normalize (no single-block / terminator-0 assumption).
+        -- Nearest producer for synthetic body nodes is InvariantDecl.predicate.
+        -- `.proof` is skipped (no business entity).
         let some c := data.callables[callableId]? |
           return ← failUnsupported "S2 provenance: missing invariant callable"
         unless c.kind == .invariant do
@@ -1467,23 +1515,7 @@ private def attributeCounterEntitiesV1
         acc := accB
         typeBound := tbB
         let predPath := directChild itemPath "InvariantDecl" "predicate"
-        -- Block 0 entity binds the predicate path (nearest producer).
-        let accBlk ← attrPushPath acc idx
-          (SemanticEntityRefV1.block cid 0) predPath
-        let st0 : BodyAttrV1 := {
-          nextValueId := 0
-          nextInstr := 0
-          blockId := 0
-          nextBlockId := 1
-          nextBlockParamOrdinal := 0
-          callableParamCount := 0
-          nextEffectId := 0
-          env := ⟨#[]⟩
-          acc := accBlk
-        }
-        let (_vid, st1) ← attrExpr cid d.predicate predPath st0 states idx
-        let termEntity := SemanticEntityRefV1.terminator cid 0
-        acc ← attrPushPath st1.acc idx termEntity predPath
+        acc ← attrLoweredCallableBodyV1 acc idx cid c predPath
         callableId := callableId + 1
         invOrdinal := invOrdinal + 1
     | .event _ | .error _ => pure ()
