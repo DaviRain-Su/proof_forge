@@ -1373,8 +1373,11 @@ private unsafe def testAllComparisonOpsWat
 
 private unsafe def testAssertElseRejected
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Assert-else is rejected at Normalize (before target). Confirm product path
-  -- still fails closed and does not produce NEAR artifacts.
+  -- L1 / N-ASSERT-ELSE: shared core now lowers zero-arg `assert … else ZeroErr`
+  -- to `Op.Assert cond (some eid) #[]`. The NEAR target-owned Plan keeps
+  -- fail-closed on `errorId=some` (it only materializes bare asserts with
+  -- `errorId=none`). Confirm the product path still fails closed at the NEAR
+  -- plan boundary and does not produce NEAR artifacts.
   let sourceText :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -1389,8 +1392,18 @@ private unsafe def testAssertElseRejected
     sourceText "<near-host-assert-else>" "Examples.AssertElse" none)
   match Compiler.compileValidatedSourceV1 source with
   | .error _ => pure ()
-  | .ok _ =>
-      throw <| IO.userError "assert-else must fail product compile before NEAR materialization"
+  | .ok compiled =>
+      -- Shared core admitted the zero-arg assert-else; the NEAR plan must
+      -- still fail closed on errorId=some.
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+      match Targets.resolveEngineeringRequirementsV1 selection compiled with
+      | .error _ => pure ()
+      | .ok capability =>
+          match Targets.Near.planFromCapability capability with
+          | .error _ => pure ()
+          | .ok _ =>
+              throw <| IO.userError
+                "assert-else must fail closed at NEAR plan (errorId=some)"
 
 /-- Bool state/param remain outside the NEAR pilot; Bool results are accepted. -/
 private unsafe def testBoolStateParamRejected

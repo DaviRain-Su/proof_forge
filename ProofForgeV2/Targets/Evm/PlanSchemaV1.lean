@@ -63,11 +63,21 @@ private def encodeComparisonOp : ComparisonOp → UInt8
 private def encodeMutability : Mutability → UInt8
   | .nonpayable => 0 | .view => 1
 
-private def encodeResultKind : ResultKind → UInt8
-  | .uint64 => 0 | .bool => 1 | .int64 => 2 | .field => 3
-  | .uint8 => 4 | .uint16 => 5 | .uint32 => 6
-  | .uint128 => 7 | .uint256 => 8
-  | .int8 => 9 | .int16 => 10 | .int32 => 11
+private def encodeLeafAbiType (leaf : LeafAbiType) : Except String ByteArray := do
+  pure ((encodeBool leaf.isInt).append (← encodeNatAsU32le leaf.byteWidth))
+
+/-- B-RET-ABI: ResultKind encoding. Scalar kinds use a single tag byte (0..11).
+Aggregate uses tag 12 followed by u32le leaf count + per-leaf encoding. -/
+private def encodeResultKind : ResultKind → Except String ByteArray
+  | .uint64 => pure (encodeU8 0) | .bool => pure (encodeU8 1) | .int64 => pure (encodeU8 2)
+  | .field => pure (encodeU8 3) | .uint8 => pure (encodeU8 4) | .uint16 => pure (encodeU8 5)
+  | .uint32 => pure (encodeU8 6) | .uint128 => pure (encodeU8 7) | .uint256 => pure (encodeU8 8)
+  | .int8 => pure (encodeU8 9) | .int16 => pure (encodeU8 10) | .int32 => pure (encodeU8 11)
+  | .aggregate leaves => do
+      let mut out := encodeU8 12
+      out := out.append (← encodeNatAsU32le leaves.size)
+      for leaf in leaves do out := out.append (← encodeLeafAbiType leaf)
+      pure out
 
 private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   match expr with
@@ -212,6 +222,13 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       pure ((((encodeU8 0).append (← encodeNatAsU32le operation.slot)).append
         (← encodeNatAsU32le operation.byteWidth)).append (← encodeExpr operation.value))
   | .returnValue value => pure ((encodeU8 1).append (← encodeExpr value))
+  | .returnAggregate leaves leafIsInt =>
+      let mut out := encodeU8 13
+      out := out.append (← encodeNatAsU32le leaves.size)
+      for leaf in leaves do out := out.append (← encodeExpr leaf)
+      out := out.append (← encodeNatAsU32le leafIsInt.size)
+      for flag in leafIsInt do out := out.append (encodeBool flag)
+      pure out
   | .returnNone => pure (encodeU8 2)
   | .assert condition => pure ((encodeU8 3).append (← encodeExpr condition))
   | .emitEvent eventIndex args =>
@@ -319,7 +336,7 @@ private def encodeEntry (e : Entry) : Except String ByteArray := do
   out := out.append (← encodeParams e.params)
   out := out.append (encodeU8 (encodeMutability e.mutability))
   out := out.append (← encodeStatements e.body)
-  out := out.append (encodeU8 (encodeResultKind e.resultKind))
+  out := out.append (← encodeResultKind e.resultKind)
   pure out
 
 private def encodeFnBinding (f : FnBinding) : Except String ByteArray := do

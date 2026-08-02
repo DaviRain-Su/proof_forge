@@ -11,6 +11,11 @@ import ProofForgeV2.Targets.Evm.Keccak
 
 Owns the EVM-owned Plan surface and the retained-`SemanticProgramV1` Plan body.
 Plan canonicity lives in `ValidatePlanV1`; Yul/ABI emission in `EmitIRV1`.
+
+B-RET-ABI: named Struct/Enum entry/view returns are admitted via
+`ResultKind.aggregate` + `Statement.returnAggregate` (≤8 UInt64/Int64 leaves
+in preorder flatten order; Solidity tuple ABI with `components`).
+Anonymous container returns (Array/Map/Bytes/Option) stay fail-closed.
 -/
 
 namespace ProofForgeV2.Targets.Evm
@@ -187,6 +192,11 @@ structure Store where
 inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
+  /-- B-RET-ABI: multi-word aggregate return. `leaves` are the per-leaf
+  expressions in preorder flatten order; `leafIsInt` is parallel. Emitted as
+  sequential `mstore(32*i, leaf_i)` then `return(0, 32*leaves.size)`. ABI
+  declares a tuple of the per-leaf types. -/
+  | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
@@ -229,8 +239,18 @@ inductive Mutability where
   | view
   deriving BEq, Inhabited, Repr
 
+/-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
+UInt64/Int64 ABI words (`isInt` selects `int64` vs `uint64`); `byteWidth`
+is 8 for both. Future wider-leaf support keeps the same carrier. -/
+structure LeafAbiType where
+  isInt : Bool
+  byteWidth : Nat
+  deriving BEq, Inhabited, Repr
+
 /-- Declared ABI result kind for an entry/view. Results admit
-UInt8/16/32/64/128/256/Bool/Int8/16/32/64/Field (T9a/T9b/T9c). -/
+UInt8/16/32/64/128/256/Bool/Int8/16/32/64/Field (T9a/T9b/T9c). B-RET-ABI
+adds `.aggregate` for named Struct/Enum entry/view returns: leaves are
+emitted as an ABI tuple in preorder flatten order (≤8 leaves). -/
 inductive ResultKind where
   | uint64
   | bool
@@ -248,6 +268,11 @@ inductive ResultKind where
   | int8
   | int16
   | int32
+  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` carries the
+  per-leaf ABI type in preorder flatten order (1..8 leaves). Anonymous
+  container result types (Array/Map/Bytes/Option) stay fail-closed at the
+  result-kind resolution boundary (not here). -/
+  | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
 /-- Solidity ABI type string for a plan Param (selector + `.abi.json`). -/
@@ -570,6 +595,31 @@ private def leafCountOfTypeV1
     (typeId : TypeIdV1) : CompileResult Nat := do
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
+
+/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
+`ResultKind`. Leaves come from `flattenTypeLeafSpecsV1` (preorder, UInt64/Int64
+ABI words). Enforces 1..8 leaves. String/Principal fields flatten to multi-
+word leaves that exceed the cap-8 bound for any non-trivial payload, so they
+are naturally excluded. Anonymous container result types (Array/Map/Bytes/
+Option) are not named aggregates and fail closed here. -/
+private def aggregateResultKindOfV1
+    (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
+    (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
+  unless types.isNamedAggregate typeId do
+    throw <| .planInvariant .evm
+      s!"{owner} does not return a named Struct/Enum aggregate"
+  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+  let n := specs.size
+  unless n > 0 do
+    throw <| .planInvariant .evm
+      s!"{owner} aggregate return must have at least one leaf"
+  unless n <= 8 do
+    throw <| .planInvariant .evm
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+  let mut leaves : Array LeafAbiType := #[]
+  for (_, isInt) in specs do
+    leaves := leaves.push { isInt, byteWidth := 8 }
+  pure (.aggregate leaves)
 
 /-- Container positive layout: fixed-length `Array UInt8/16/32/64 N` or
     `Bytes N` (flattened as N×UInt8). Returns `(elementBitWidth, N)`.
@@ -1878,6 +1928,46 @@ private def consumeCurrentSegmentWithArmsV1
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: dead or reordered value instructions"
   pure rootValue.expr
+
+/-- B-RET-ABI: segment consume that returns the full `LoweredValueV1` (with
+aggregate leaves) instead of just the head expr. Same segment discipline as
+`consumeCurrentSegmentWithArmsV1`. -/
+private def consumeCurrentSegmentValueWithArmsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
+    (root : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let rootValue ← currentValueWithArmsV1 values paramCount segmentStart armReadables root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  if root.toNat >= paramCount && !armReadables.contains root then
+    stack := stack.push root.toNat
+  else if root.toNat >= segmentStart then
+    stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount && !armReadables.contains dependency then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: dead or reordered value instructions"
+  pure rootValue
 
 /-- Soft segment consume for multi-effect blocks (e.g. two consecutive Map
     stores in a transfer arm). Walks the root dependency tree and rejects
@@ -3341,9 +3431,30 @@ private partial def emitJobV1
                       returned.bitWidth == 256 do
                     throw <| .planInvariant .evm
                       "unsupported EVM semantic shape: return value must be Field"
-              let value ← consumeCurrentSegmentWithArmsV1
-                values paramCount segmentStart freeAfter valueId
-              pure (instrs.push (.returnValue value), values, .done, hA, false)
+              | .aggregate expectedLeaves =>
+                  unless returned.isAggregate do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: aggregate return value must be a named aggregate"
+                  let returnedLeaves := returned.leafExprs
+                  let returnedIsInt := returned.leafIsInts
+                  unless returnedLeaves.size == expectedLeaves.size do
+                    throw <| .planInvariant .evm
+                      s!"unsupported EVM semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {returnedLeaves.size})"
+                  for i in [0:expectedLeaves.size] do
+                    let some exp := expectedLeaves[i]? | throw <| .planInvariant .evm "aggregate return expected leaf missing"
+                    let some gotInt := returnedIsInt[i]? | throw <| .planInvariant .evm "aggregate return leaf isInt missing"
+                    unless gotInt == exp.isInt do
+                      throw <| .planInvariant .evm
+                        s!"unsupported EVM semantic shape: aggregate return leaf {i} ABI kind mismatch (expected isInt={exp.isInt}, got {gotInt})"
+              if let .aggregate _ := expected then
+                let consumed ← consumeCurrentSegmentValueWithArmsV1
+                  values paramCount segmentStart freeAfter valueId
+                pure (instrs.push (.returnAggregate consumed.leafExprs consumed.leafIsInts),
+                  values, .done, hA, false)
+              else
+                let value ← consumeCurrentSegmentWithArmsV1
+                  values paramCount segmentStart freeAfter valueId
+                pure (instrs.push (.returnValue value), values, .done, hA, false)
       | .return_ none =>
           unless segmentStart == values.size do
             throw <| .planInvariant .evm
@@ -3794,9 +3905,12 @@ private def makeEntryV1
             pure .bool
           else if types.isField callable.result.typeId then
             pure .field
+          else if types.isNamedAggregate callable.result.typeId then
+            aggregateResultKindOfV1 layout.typeDecls types
+              s!"entry '{name}'" callable.result.typeId
           else
             throw <| .planInvariant .evm
-              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or Field"
+              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, Field, or named Struct/Enum aggregate"
   let mode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .entry
     | .view => pure .view

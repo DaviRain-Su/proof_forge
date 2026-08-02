@@ -3006,5 +3006,42 @@ unsafe def run : IO Unit := do
             (e.render).contains "Principal")
           s!"B-ctx caller {target} message must cite ContextRead/caller boundary, got {e.render}"
 
+  -- B-RET-ABI: named Struct view return. EVM + Noir admit (multi-leaf ABI);
+  -- Solana/NEAR/Aleo/Psy must fail closed (scalar return ABI only).
+  let pairRetSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PairRet where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n\n" ++
+    "  state p : Pair\n\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n\n" ++
+    "  view getPair() : Pair do\n" ++
+    "    return p\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let pairV1 ← match ← session.selectProgramV1 pairRetSource
+      "<targets-b-ret-abi>" "Examples.PairRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"B-RET-ABI select: {e.render}"
+  let pairCompiled ← liftResult <| Compiler.compileValidatedSourceV1 pairV1
+  -- EVM admits: plan has .returnAggregate.
+  let _evmPair ← liftResult <| planEvm pairCompiled
+  -- Noir admits: plan has .returnAggregate.
+  let _noirPair ← liftResult <| planNoir pairCompiled
+  -- Solana/NEAR/Aleo/Psy must decline aggregate return.
+  for target in [TargetId.solana, TargetId.near, TargetId.aleo, TargetId.psy] do
+    match materializeSelected target pairCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"B-RET-ABI: {target} must decline named-aggregate return"
+    | .error e =>
+        expect ((e.render).contains "aggregate" ||
+            (e.render).contains "scalar" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "envelope")
+          s!"B-RET-ABI {target} message must cite aggregate/scalar boundary, got {e.render}"
+
 
 end Tests.Materialization

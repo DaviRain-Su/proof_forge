@@ -273,7 +273,38 @@ private partial def checkPlanStatementsV1
             unless exprIsBoolCompatibleV1 fns value do
               throw <| .planInvariant .evm
                 s!"{owner} resultKind bool is inconsistent with integer return expression"
+        | .aggregate _ =>
+            throw <| .planInvariant .evm
+              s!"{owner} aggregate resultKind must use returnAggregate, not returnValue"
         total ← addPlanExprNodes slots paramCount total fns value
+        closed := true
+    | .returnAggregate leaves leafIsInt =>
+        if isConstructor then
+          throw <| .planInvariant .evm "constructor cannot return a value"
+        match resultKind with
+        | .aggregate expectedLeaves =>
+            unless leaves.size == expectedLeaves.size do
+              throw <| .planInvariant .evm
+                s!"{owner} returnAggregate leaf count mismatch (expected {expectedLeaves.size}, got {leaves.size})"
+            unless leafIsInt.size == leaves.size do
+              throw <| .planInvariant .evm
+                s!"{owner} returnAggregate leafIsInt length mismatch"
+            for i in [0:expectedLeaves.size] do
+              let some exp := expectedLeaves[i]? | throw <| .planInvariant .evm "returnAggregate expected leaf missing"
+              let some gotInt := leafIsInt[i]? | throw <| .planInvariant .evm "returnAggregate leafIsInt missing"
+              unless gotInt == exp.isInt do
+                throw <| .planInvariant .evm
+                  s!"{owner} returnAggregate leaf {i} ABI kind mismatch (expected isInt={exp.isInt}, got {gotInt})"
+              let some leaf := leaves[i]? | throw <| .planInvariant .evm "returnAggregate leaf missing"
+              unless exprIsUInt64CompatibleV1 fns leaf do
+                throw <| .planInvariant .evm
+                  s!"{owner} returnAggregate leaf {i} must be an integer/Field expression"
+        | _ =>
+            throw <| .planInvariant .evm
+              s!"{owner} returnAggregate requires an aggregate resultKind"
+        for leaf in leaves do
+          total ← addPlanExprNodes slots paramCount total fns leaf
+        total := total + 1
         closed := true
     | .returnNone =>
         unless allowReturnNone do

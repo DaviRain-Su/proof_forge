@@ -11,7 +11,7 @@ normative: false
 
 状态：`draft` · 切片 **DOC-SPEC-AUDIT** · 非 formal
 
-> **执行队列**：缺口关闭回写 [`../engineering-backlog.md`](../engineering-backlog.md)。  
+> **执行队列**：缺口关闭回写 [`../engineering-backlog.md`](../engineering-backlog.md)。
 > **不**替代 `11-feature-coverage-audit` / `12-target-coverage-matrix`；本文固定 **SPEC 意图 ↔ Normalize docstring/代码边界** 的对照表，供 backlog 校准。
 
 ## 方法（可复核）
@@ -36,7 +36,7 @@ normative: false
 | 层 | SPEC 意图 | 工程事实 | 差距归属 |
 |---|---|---|---|
 | ProgramV1 grammar | 完整 EBNF 表面 | Loader/Syntax 大子集已产品化 | L1 ≈ 闭；formal D1 独立 |
-| CheckV1 | type/effect/bound/disclosure | 五相位产品门禁 | authority/custody/full commit check 仍缺 |
+| CheckV1 | type/effect/bound/disclosure | **六相位**产品门禁（structure→type→effect→bound→disclosure→authority） | full commit check 仍缺 |
 | **NormalizeV1** | ProgramV1 → SemanticProgramV1 | **子集 lowering**；其余 `.unsupported` | **主瓶颈**（本文重点） |
 | WireV1 structure | 完整 op/CFG 契约 | structure gate 宽于 Normalize | 可装更多；Normalize 未降 |
 | ReferenceV1 | admitted `step` 子集 | 工程 admitted；非 formal step | R-1.. |
@@ -55,17 +55,17 @@ normative: false
 | init/entry/view/fn | **LOWERED** | invariant/proof item 仍 FC | INV-1 |
 | bare assign / return / assert | **LOWERED** | assert-else **FC** | — |
 | if / match（stmt+expr） | **LOWERED** | multi-block；嵌套子模式已开；同键 duplicate FC | N-7 深化 |
-| let 不可变 + field/index rebind | **LOWERED** | true mutable **FC** | N-6 |
+| let 可变 + field/index rebind | **LOWERED** | bare `x:=e` env rebind 已开（N-6）；param 仍 immutable | N-6 ✅ |
 | bounded for | **LOWERED** | 端点仍 UInt64 | N-8 |
 | 算术/位运算/移位/比较/逻辑 | **LOWERED** | Field mod FC；Field/Principal ordering FC | — |
 | unary `- ~ !` | **LOWERED** | UInt `-` → `0-x` | — |
 | fn / localCall pureCall | **LOWERED** | purity 门禁 | — |
 | call / schedule | **LOWERED** | args UInt64；无返回值 | N-5 |
 | revert / emit | **LOWERED** | event/error 字段 UInt-only | N-8 |
-| `context.unixTimeSeconds` | **LOWERED**（N5） |  sole wire key | N-2 余量：callerContext / 多 key |
-| `commit(x)` | **LOWERED**（N5 label） | pureFn **FC** | N-3 余量：disclosure 契约 |
-| aggregate entry/view/fn **result** | **FAIL-CLOSED** | ABI scalar | N-4 |
-| nonempty Map construction | **FAIL-CLOSED** | | N-1 |
+| `context.unixTimeSeconds` + `context.caller` | **LOWERED** | 两个 sole wire key（UInt64 / Principal） | N-2 ✅ |
+| `commit(x)` | **LOWERED**（label-only） | disclosure 契约已钉（N-3）；pureFn **FC** | N-3 ✅ |
+| aggregate entry/view/fn **result** | **partial** | named Struct/Enum 已 LOWERED（N-4）；**匿名 Array/Map/Bytes/Option result 仍 FC**；target ABI 见 12 矩阵 | N-4 ✅ |
+| nonempty Map construction | **LOWERED** | 产品 = `Map.empty` + 连续 IndexSet（N-1）；仅 Wire multi-arg Map Construct 仍 FC | N-1 ✅ |
 | Field/Principal **source** literals | **FAIL-CLOSED** | 经 param/state | — |
 | proof / requires 完整 surface | **FAIL-CLOSED** 于 Normalize 项 | | R-2/R-3 |
 
@@ -84,7 +84,7 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 | VariantTag / VariantPayload | yes | match |
 | PureCall | yes | pureFn |
 | Assert / Emit / ExternalCall / Schedule | yes | void；EffectId 序 |
-| ContextRead | **partial** | 仅 `unixTimeSeconds` |
+| ContextRead | **partial** | `unixTimeSeconds` + `caller` |
 | Commit | **partial** | label-only identity |
 | CheckedCast | 视切片 | structure 可；产品路径以 docstring out-of-scope 为准抽检 |
 | block-param loop / join | yes | for + expr match |
@@ -96,45 +96,45 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 
 | 意图 | CheckV1 | 产品 Normalize 依赖 |
 |---|---|---|
-| structure / type / effect / bound / disclosure | 五相位 sole 权威 | 必须 ok∧analysisComplete |
-| authority / custody | **缺** | 不进 Normalize |
-| full `disclosure.commit` typing | **部分**（Commit 算子 N5） | 与 N-3 对齐 |
-| `callerContext` | **缺 / 窄** | N-2 |
+| structure / type / effect / bound / disclosure | 六相位 sole 权威 | 必须 ok∧analysisComplete |
+| authority / custody | **已接线**（T-1 工程子集：entry 写 private 需 `context.caller`） | 第六相位；**非** formal TST-VIS-002 |
+| full `disclosure.commit` typing | **已钉**（N-3：private→commitment declass；commitment↛public） | 与 N-3 对齐 |
+| `callerContext` | **已接线**（N-2：仅 admit caller/unixTimeSeconds） | ContextExtensionCheck 第七相 |
 | extension keys 全表 | 有限 S2 freeze | RequirementsInfer + freeze |
 
 ---
 
-## 5. 与 backlog 的校准（避免假 pending / 假 done）
+## 5. 与 backlog 的校准（2026-08-02 复核更新：以下 N 家族已全部 done，本表保留为历史对照）
 
-| ID | 审计结论 | 建议 |
+| ID | 2026-08-02 复核结论 | backlog 状态 |
 |---|---|---|
-| **N-1** | nonempty Map 构造仍 FC；Map state 可能已部分 admit | 保持 pending；拆「构造」vs「state」若实现分叉 |
-| **N-2** | ContextRead **已**有 sole key；**非**全 callerContext | 改描述为「扩 key + callerContext + Check 接线」 |
-| **N-3** | Commit **已** label-only；非 full disclosure contract | 改描述为「disclosure 契约 + Check」 |
-| **N-4** | aggregate results 仍 FC | 保持 |
-| **N-5** | call 返回值仍需 schema 升级 | 保持；大切片 |
-| **N-6** | true mutable 仍 FC | 保持 |
-| **N-7** | 嵌套子模式 docstring 称 open | 复核测例后可 done 或缩范围 |
-| **N-8** | Int event/error；非 UInt64 for/call args | 保持 |
-| **N-A3** | Map/Bytes 穿透赋值 | 与 IndexSet rebind 对照；可能已部分 |
-| **N-A4** | Option state | 仍 FC（无 clean default） |
-| **N-BYTES** | Bytes state docstring **admitted** | 状态可能过时 → 复扫代码后标 done 或缩到「产品 String」 |
-| **DOC-SPEC-AUDIT** | 本文 | **done** 于本 commit |
+| **N-1** | 产品 nonempty Map = `Map.empty`+IndexSet 已开；仅 Wire multi-arg Construct FC | **done** |
+| **N-2** | `context.caller`（Principal）+ unixTimeSeconds 双 key 已接线 | **done** |
+| **N-3** | Commit disclosure 契约已钉（private→commitment declass） | **done** |
+| **N-4** | named Struct/Enum result 已开；匿名容器 result + target ABI 仍 FC（剩余缺口见 backlog 2.4 新 ID） | **done**（子集） |
+| **N-5** | call 返回值：仅 RPT-014 schema 研究；**产品仍 void，实现 follow-on 未排**（见 backlog 2.4） | **done**（研究） |
+| **N-6** | bare `x:=e` env rebind 已开；param immutable | **done** |
+| **N-7** | 嵌套 ctor/lit/bind 子模式已开 | **done** |
+| **N-8** | event/error legal UInt/Int 已开；**for 端点仍 legal UInt only**（余量未排） | **done**（子集） |
+| **N-A3** | 单步 IndexSet 已开；**嵌套穿透 `m[k].x` 仍 FC**（余量未排） | **done**（子集） |
+| **N-A4** | Option state Normalize admit 已开；全 target Plan FC | **done**（子集） |
+| **N-BYTES** | Bytes state+index 已开 | **done** |
+| **DOC-SPEC-AUDIT** | 本文 | **done** |
 
 ---
 
-## 6. 回流 engineering-backlog（本切片动作）
+## 6. 回流 engineering-backlog（2026-08-02 复核更新）
 
-1. 登记本文路径；DOC-SPEC-AUDIT → done。  
-2. **不**批量改 N-* 为 done（需代码+测例）；仅在 backlog 备注栏加「见 RPT-013 §5」指针（可选）。  
-3. 下一产品优先仍按 backlog 推荐序：Normalize 串行 N-A4 / N-1 / N-2 余量，勿并行改共享核。
+1. 登记本文路径；DOC-SPEC-AUDIT → done（已登记）。
+2. N 家族 done 声明与代码主路径一致；**子集 done 的余量**（call 返回值、匿名 result、嵌套穿透、for-Int 端点、String event 字段、assert-else、invariant IR）已回写 backlog §2.4「剩余缺口登记」并挂新 ID。
+3. 下一产品优先按 backlog 推荐序：共享核串行（assert-else → call 返回值 schema → …），target leaf 可并行。
 
 ---
 
 ## 7. 明确不做的声称
 
-- 不声称 formal D2 / TST-SEM-001/002/003 完成  
-- 不声称 SPEC 全文 EBNF 已 100% 映射  
+- 不声称 formal D2 / TST-SEM-001/002/003 完成
+- 不声称 SPEC 全文 EBNF 已 100% 映射
 - 不新开第四份平行 gap 清单（缺口只回 backlog + 11/12 更新）
 
 ## 变更记录
@@ -142,3 +142,4 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 | 日期 | 事件 |
 |---|---|
 | 2026-08-02 | DOC-SPEC-AUDIT 初版：Normalize docstring × SPEC-LANG/SEM/TYPE 表 + backlog 校准 |
+| 2026-08-02 | 复核刷新：CheckV1 六相位、N 家族 done 状态对齐 HEAD；§2/§3/§4 表修正（let 可变、caller ContextRead、named aggregate result、nonempty Map、authority/custody/commit 已接线）；§5 改为历史对照 + 余量指引 |

@@ -8,6 +8,11 @@ import ProofForgeV2.Compiler.Pipeline
 # Noir LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
 
 Owns the Noir-owned relation Plan surface and Semantic→Plan body.
+
+B-RET-ABI: named Struct/Enum entry/view returns are admitted via
+`Statement.returnAggregate` + per-leaf `InputRole.resultLeaf` verifier inputs
+(≤8 UInt64/Int64 leaves in preorder flatten order). Anonymous container
+returns (Array/Map/Bytes/Option) stay fail-closed.
 -/
 
 namespace ProofForgeV2.Targets.Noir
@@ -68,6 +73,9 @@ inductive InputType where
   | i16
   | i32
   | i64
+  /-- B-RET-ABI: named Struct/Enum aggregate result — multi-leaf public
+  output. `leaves` are per-leaf InputTypes in preorder flatten order (≤8). -/
+  | aggregate (leaves : Array InputType)
   deriving BEq, Inhabited, Repr
 
 inductive InputRole where
@@ -77,6 +85,9 @@ inductive InputRole where
   | postState (sourceId : Nat)
   | postInitialized
   | result
+  /-- B-RET-ABI: one leaf of an aggregate (named Struct/Enum) verifier
+  result. `index` is the preorder leaf position (0-based). -/
+  | resultLeaf (index : Nat)
   | eventSlot (emitIndex argIndex : Nat)
   /-- Verifier witness of one static external call's outcome: true when the
       executing path's response disposition is returned (a reverted claim is
@@ -199,6 +210,10 @@ structure Store where
 inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
+  /-- B-RET-ABI: multi-leaf aggregate return. `leaves` are per-leaf
+  expressions in preorder flatten order; each is constrained to its
+  corresponding `resultLeaf` verifier input. -/
+  | returnAggregate (leaves : Array Expr)
   | returnNone
   | assert (condition : Expr)
   | emitEvent (effectId : Nat) (eventIndex : Nat) (args : Array Expr)
@@ -1103,13 +1118,25 @@ def makeInputsV1 (states : Array StateField) (mode : RelationMode)
       role := .postInitialized
     }
   if mode != .initialize then
-    inputs := inputs.push {
-      name := "result"
-      sourceName := "result"
-      type := resultType
-      visibility := .verifier
-      role := .result
-    }
+    match resultType with
+    | .aggregate leafTypes =>
+        for index in [0:leafTypes.size] do
+          let some leafTy := leafTypes[index]? | continue
+          inputs := inputs.push {
+            name := s!"result_{index}"
+            sourceName := s!"result_{index}"
+            type := leafTy
+            visibility := .verifier
+            role := .resultLeaf index
+          }
+    | _ =>
+        inputs := inputs.push {
+          name := "result"
+          sourceName := "result"
+          type := resultType
+          visibility := .verifier
+          role := .result
+        }
   for (effectId, _, argCount) in emitSlots do
     for argIndex in [0:argCount] do
       inputs := inputs.push {
@@ -1149,7 +1176,13 @@ def makeInputsV1 (states : Array StateField) (mode : RelationMode)
 def resultInputTypeOf (relation : Relation) : InputType :=
   match relation.inputs.find? (fun binding => binding.role == .result) with
   | some binding => binding.type
-  | none => .u64
+  | none =>
+    -- B-RET-ABI: aggregate return uses .resultLeaf inputs instead of .result.
+    -- Reconstruct the aggregate InputType from the ordered resultLeaf bindings.
+    let leafBindings := relation.inputs.filter fun b =>
+      match b.role with | .resultLeaf _ => true | _ => false
+    if leafBindings.isEmpty then .u64
+    else .aggregate (leafBindings.map (·.type))
 
 private def findValueV1 (values : Array LoweredValueV1)
     (id : ValueIdV1) : CompileResult LoweredValueV1 :=
@@ -1462,9 +1495,42 @@ private def consumeCurrentSegmentV1
       "unsupported Noir semantic shape: dead or reordered value instructions"
   pure rootValue.expr
 
-/-- Multi-root effect-boundary consumption (event/revert argument lists):
-    every value produced in the current segment must be reachable from at
-    least one sink root, mirroring the single-root discipline. -/
+/-- B-RET-ABI: segment consume returning the full LoweredValueV1 (with
+aggregate leaves). Same discipline as `consumeCurrentSegmentV1`. -/
+private def consumeCurrentSegmentValueV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
+    (root : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let rootValue ← currentValueV1 values paramCount segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  if root.toNat >= paramCount then
+    stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount && !armReadables.contains dependency then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: dead or reordered value instructions"
+  pure rootValue
 private def consumeSegmentRootsV1
     (values : Array LoweredValueV1)
     (paramCount segmentStart : Nat)
@@ -2489,11 +2555,19 @@ private partial def emitRegionV1
                 throw <| .planInvariant .noir
                   "unsupported Noir semantic shape: entry/view return kind is missing"
           let root ← currentValueWithArmsV1 values paramCount segmentStart freeAfter valueId
-          unless root.kind == expectedKind do
-            throw <| .planInvariant .noir
-              s!"unsupported Noir semantic shape: return value kind is not consistent with the {owner} result type"
-          let value ← consumeCurrentSegmentV1 values paramCount segmentStart freeAfter valueId
-          pure (instrs.push (.returnValue value), values, none, none)
+          if expectedKind == .aggregate then
+            unless root.isAggregate do
+              throw <| .planInvariant .noir
+                s!"unsupported Noir semantic shape: {owner} aggregate return value must be a named aggregate"
+            let _ ← consumeCurrentSegmentValueV1 values paramCount segmentStart freeAfter valueId
+            let leaves := root.leafExprs
+            pure (instrs.push (.returnAggregate leaves), values, none, none)
+          else
+            unless root.kind == expectedKind do
+              throw <| .planInvariant .noir
+                s!"unsupported Noir semantic shape: return value kind is not consistent with the {owner} result type"
+            let value ← consumeCurrentSegmentV1 values paramCount segmentStart freeAfter valueId
+            pure (instrs.push (.returnValue value), values, none, none)
   | .return_ none =>
       unless segmentStart == values.size do
         throw <| .planInvariant .noir
@@ -2816,6 +2890,7 @@ private def lowerCallableV1
   pure { params, body }
 
 private def resolveEntryViewResultV1
+    (typeDecls : Array TypeDeclV1)
     (types : NoirTypeClosureV1)
     (name : String)
     (callable : CallableV1) : CompileResult (NoirValueKindV1 × InputType) := do
@@ -2847,9 +2922,22 @@ private def resolveEntryViewResultV1
         | none =>
         if types.boolTypeId == some callable.result.typeId then
           pure (.bool, .bool)
+        else if types.isNamedAggregate callable.result.typeId then
+          -- B-RET-ABI: named Struct/Enum aggregate return.
+          let specs ← flattenTypeLeafSpecsV1 typeDecls types callable.result.typeId "ret"
+          unless specs.size > 0 do
+            throw <| .planInvariant .noir
+              s!"entry '{name}' aggregate return must have at least one leaf"
+          unless specs.size <= 8 do
+            throw <| .planInvariant .noir
+              s!"entry '{name}' aggregate return has {specs.size} leaves, exceeding B-RET-ABI cap of 8"
+          let mut leafTypes : Array InputType := #[]
+          for (_, isInt) in specs do
+            leafTypes := leafTypes.push (if isInt then .i64 else .u64)
+          pure (.aggregate, .aggregate leafTypes)
         else
           throw <| .planInvariant .noir
-            s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or Field"
+            s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, Field, or named Struct/Enum aggregate"
 
 private def makeRelationV1
     (index : Nat)
@@ -2876,7 +2964,7 @@ private def makeRelationV1
           "unsupported Noir semantic shape: initializer result is not Unit"
       pure (none, .u64)
     else
-      let (kind, inputTy) ← resolveEntryViewResultV1 types name callable
+      let (kind, inputTy) ← resolveEntryViewResultV1 layout.typeDecls types name callable
       pure (some kind, inputTy)
   let inputOffset := if states.isEmpty then 0 else
     1 + (if mode == .initialize then 0 else states.size)

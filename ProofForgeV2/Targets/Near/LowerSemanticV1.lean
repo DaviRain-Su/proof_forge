@@ -2430,7 +2430,7 @@ private partial def emitRegionV1
           let root ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
           if root.isAggregate then
             throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: multi-leaf aggregate cannot be returned (ABI is scalar)"
+              "unsupported NEAR semantic shape: multi-leaf aggregate cannot be returned (ABI is scalar; B-RET-ABI: NEAR does not support named-aggregate return)"
           unless root.kind == expectedKind do
             let expectedLabel :=
               match expectedKind with

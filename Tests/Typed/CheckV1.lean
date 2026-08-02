@@ -2381,18 +2381,78 @@ private unsafe def testUnsupportedBoolParam
     (fun d => d.contains "UInt64" || d.contains "param")
     "UInt64 param"
 
-private unsafe def testUnsupportedAssertElse
+/-- L1 / N-ASSERT-ELSE: `assert cond else ZeroErr` (zero-argument declared
+    error) lowers to `Op.Assert cond (some eid) #[]`; the assert instruction
+    stays void and the path stays open (control flow continues). -/
+private unsafe def testAssertElseZeroArg
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Entry precedes the error declaration so the assert-else gate (not the
-  -- item-level error gate) produces the unsupported detail.
+  -- item-level error gate) is exercised.
   let source := wrap "AssertElse" <|
     "  entry f(x : UInt64) : UInt64 do\n" ++
     "    assert x > 0 else bad\n" ++
     "    return x\n" ++
     "  error bad()\n"
-  expectUnsupportedAfterCheckOk session "assert-else" source
-    (fun d => d.contains "assert" || d.contains "else")
-    "assert-else"
+  let validated ← loadSource session "assert-else-zero" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "assert-else-zero: CheckV1.ok"
+  expect typed.analysisComplete "assert-else-zero: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"assert-else-zero: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"assert-else-zero: validate: {repr e}"
+  -- error table: one zero-argument error row in declaration order.
+  let some errDecl := data.errors[0]? |
+    throw <| IO.userError "assert-else-zero: missing error declaration"
+  expect (data.errors.size == 1 && errDecl.name == "bad" &&
+      errDecl.fields.isEmpty)
+    "assert-else-zero: error table must hold one zero-arg 'bad'"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "assert-else-zero: missing entry callable"
+  let some block := entryC.blocks[0]? |
+    throw <| IO.userError "assert-else-zero: missing entry block"
+  -- block: load count? no — x>0 == ge(param0,0? ) actually literal 0 interned.
+  -- Find the assert instruction and pin its shape.
+  let assertOps := block.instructions.filter fun instr =>
+    match instr.op with | .assert_ .. => true | _ => false
+  expect (assertOps.size == 1)
+    s!"assert-else-zero: expected one assert, got {assertOps.size}"
+  let some assertInstr := assertOps[0]? |
+    throw <| IO.userError "assert-else-zero: missing assert instruction"
+  expect assertInstr.result.isNone "assert-else-zero: assert must be void"
+  match assertInstr.op with
+  | SemanticOpV1.assert_ cond errorId args =>
+      expect (errorId.isSome && errorId.get! == 0 && args.isEmpty)
+        s!"assert-else-zero: expected assert(cond, some 0, []), got {cond}/{errorId}/{args.size}"
+      expect (cond == 2)
+        s!"assert-else-zero: expected cond vid2 (ge result), got {cond}"
+  | _ => throw <| IO.userError "assert-else-zero: expected Op.Assert"
+  -- The path stays open: the block must terminate in return (not revert).
+  match block.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "assert-else-zero: block must terminate in return"
+
+/-- L1 / N-ASSERT-ELSE: `assert cond else ParamErr` where ParamErr declares
+    fields is rejected by TypeCheck (source `assert Expr else Ident` carries no
+    args, so a parameterized error cannot be satisfied). Mirrors the revert/emit
+    arity diagnostic shape; the normalizer never runs. -/
+private unsafe def testAssertElseParameterizedFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "AssertElseParam" <|
+    "  error bad(limit : UInt64)\n" ++
+    "  entry f(x : UInt64) : UInt64 do\n" ++
+    "    assert x > 0 else bad\n" ++
+    "    return x\n"
+  let validated ← loadSource session "assert-else-param" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "assert-else-param: CheckV1 must reject parameterized error"
+  expect typed.analysisComplete
+    "assert-else-param: CheckV1.analysisComplete (deterministic arity error)"
+  let msgs := typed.diagnostics.map (·.message)
+  expect (msgs.any fun m => m.contains "0 arguments" && m.contains "1 arguments")
+    s!"assert-else-param: expected 0/1 arguments mismatch, got {msgs}"
 
 private unsafe def testUnsupportedNestedComparison
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -6965,7 +7025,8 @@ unsafe def run : IO Unit := do
   testPrivateStateWriteOnly session
   testUnsupportedBoolState session
   testUnsupportedBoolParam session
-  testUnsupportedAssertElse session
+  testAssertElseZeroArg session
+  testAssertElseParameterizedFailClosed session
   testUnsupportedNestedComparison session
   testUnsupportedParamShadowsStateAssign session
   testCounterRequirementsAndProvenance session

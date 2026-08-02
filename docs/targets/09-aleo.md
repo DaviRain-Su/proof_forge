@@ -17,9 +17,9 @@ Phase 1：实现（工程切片已接线；成熟度 source-only）
 
 `planFromCapability` 直接读取 `CompiledSemanticV1.semanticV1Of`，private lowering 构造 target-owned `AleoPlan`。
 
-**工程已接线（摘）**：标量 UInt64/UInt32/Unit/Bool envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）；named Struct/Enum + Array UInt64 flatten-to-mapping leaves；Commit 身份透传；**Field BLS12-377 Fr（T14）→ Leo native `field` state/param/body**（不再 fail-closed）；Leo 4.0.2 emission（`EmitIRV1`，`leo build --offline` 验收，工具缺席 skip）。
+**工程已接线（摘）**：标量 UInt64/UInt32/UInt8/Int64/Unit/Bool envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）；named Struct/Enum + Array UInt64 flatten-to-mapping leaves；**dense Map UInt64 cap-2**（occ/key/val leaves + IndexGet→Option + IndexSet upsert）；**fixed Bytes N**（N×u8 mappings + checked u8 lane）；Commit 身份透传；Leo 4.0.2 emission（`EmitIRV1`，`leo build --offline` 验收，工具缺席 skip；**非** Tool Lock pin）。
 
-**明确未闭合**：bn254 Fr 仍 fail-closed（Aleo native = BLS12-377 ≠ catalog bn254）；Map/Bytes/Option/Principal/String/Int/call/schedule/event 均显式 fail-closed；无 prove/deploy/VM 门；成熟度 **source-only**，不得写成 runtime/formal 完成。
+**明确未闭合**：Field **全部 fail-closed**——Aleo native = BLS12-377 Fr ≠ catalog bn254，且 wire FieldSpec catalog 当前仍是 **sole bn254**（`pilotFieldPolicyNone`；所谓「T14 Field catalog v2」叙事与代码不符，见 backlog DOC-CODE-1）；Option/Principal/String/Int128/256/emit/call/schedule/ContextRead 均显式 fail-closed；无 prove/deploy/VM 门；成熟度 **source-only**，不得写成 runtime/formal 完成。
 
 ## 1. 身份与来源
 

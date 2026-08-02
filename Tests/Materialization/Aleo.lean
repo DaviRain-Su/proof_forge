@@ -558,9 +558,12 @@ unsafe def testAssertLeo : IO Unit := do
   expect (leo.contains " >= ")
     "assert condition must carry the >= comparison"
 
-/-- assert-with-else is outside the envelope: S1 Normalize rejects it before
-    the Aleo lowerer (which would also reject with planInvariant). Product
-    path fails closed with PF-SRC-INVALID. -/
+/-- L1 / N-ASSERT-ELSE: `assert cond else ParamErr` where ParamErr declares a
+    field is rejected by the shared-core TypeCheck arity gate (source
+    `assert Expr else Ident` carries no args). Product path fails closed with
+    PF-SRC-INVALID before any Aleo plan is produced. (Aleo's lowerer would
+    silently drop a zero-arg errorId; pinning the parameterized case at the
+    shared core avoids that drop and keeps assert-else fail closed.) -/
 unsafe def testAssertElseFailClosedLeo : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -568,7 +571,7 @@ unsafe def testAssertElseFailClosedLeo : IO Unit := do
     "open ProofForgeV2.Language\n" ++
     "program GuardElse where\n" ++
     "  state count : UInt64\n" ++
-    "  error Guard\n" ++
+    "  error Guard(limit : UInt64)\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
     "  entry run(x : UInt64) : UInt64 do\n" ++
@@ -576,21 +579,15 @@ unsafe def testAssertElseFailClosedLeo : IO Unit := do
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<aleo-guard-else>" "Tests.AleoGuardElse" none)
-  -- Product path: Normalize rejects assert-else (sole authority). The Aleo
-  -- lowerer independently fails closed with "Aleo assert-else is outside the
-  -- envelope" if a residual carrier ever reached planFromCapability.
+  -- Product path: shared-core TypeCheck arity gate rejects assert-else on a
+  -- parameterized error (source `assert Expr else Ident` carries no args)
+  -- before any Aleo plan is produced → PF-SRC-INVALID.
   match Compiler.compileValidatedSourceV1 parsed with
   | .error e =>
-      expect (e.code == "PF-SRC-INVALID" && e.render.contains "assert-else")
-        s!"assert-else must fail closed at Normalize with assert-else, got: {e.render}"
-  | .ok compiled =>
-      match planAleo compiled with
-      | .error (.planInvariant .aleo msg) =>
-          expect (msg.contains "assert-else")
-            s!"assert-else planInvariant must mention assert-else, got: {msg}"
-      | .error e =>
-          throw <| IO.userError s!"assert-else: expected planInvariant .aleo, got {e.render}"
-      | .ok _ => throw <| IO.userError "assert-else must fail closed at Aleo plan"
+      expect (e.code == "PF-SRC-INVALID" && e.render.contains "arguments")
+        s!"assert-else must fail closed at shared core with arguments mismatch, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "assert-else (parameterized error) must fail closed at shared core, got compile ok"
 
 /-- Bare zero-arg `revert Err` lowers to Leo `assert(false)`. -/
 unsafe def testBareRevertLeo : IO Unit := do

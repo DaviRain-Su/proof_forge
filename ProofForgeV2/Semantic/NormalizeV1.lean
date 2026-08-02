@@ -19,8 +19,11 @@
       fields stay legal UInt),
       init, entry, view
     * statements: bare-place assign to state, return (some/none); init may omit
-      return (implicit return none); bare `assert` with a Bool condition
-      (assert-else still fails closed); `if cond then B (else B)?` lowered to
+      return (implicit return none); bare `assert` with a Bool condition, and
+      `assert cond else Err` referencing a declared zero-argument error (lowered
+      to `Op.Assert cond (some eid) #[]`); referencing a parameterized error
+      fails closed because the source `assert Expr else Ident` carries no args;
+      `if cond then B (else B)?` lowered to
       branch/jump blocks; `match scrut with` on a legal-UInt/Bool scrutinee
       (integer/Bool literal arms) or Enum/Option scrutinee (constructor arms
       via `Op.VariantTag` → switch on UInt32 tag + arm-local
@@ -2657,16 +2660,26 @@ private partial def lowerStmt
         return ← failUnsupported "S1 return expression type mismatch"
       pure (sealCurrentBlock st1 (TerminatorV1.return_ (some vid)), .closed)
   | .assert_ condition errorRef => do
+      let (i1, boolTid) := internShape st.interner .bool
+      let st0 := { st with interner := i1 }
+      let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states fns
+      unless condTid == boolTid do
+        return ← failUnsupported "S1 assert condition must be Bool"
       match errorRef with
-      | some _ =>
-          failUnsupported "S1 normalizer does not support assert-else"
-      | none => do
-          let (i1, boolTid) := internShape st.interner .bool
-          let st0 := { st with interner := i1 }
-          let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states fns
-          unless condTid == boolTid do
-            return ← failUnsupported "S1 assert condition must be Bool"
-          pure (emitVoid st1 (.assert_ condVid none #[]), .open_)
+      | none => pure (emitVoid st1 (.assert_ condVid none #[]), .open_)
+      | some errorName => do
+          let key := raw errorName
+          match errorLookup errors key with
+          | none =>
+              failUnsupported s!"S1 assert-else error '{key}' is not declared"
+          | some (errorId, fieldTids) => do
+              -- Source `assert Expr else Ident` carries no args, so the
+              -- referenced error must be zero-argument; parameterized errors
+              -- fail closed (mirrors the revert arity gate).
+              unless fieldTids.isEmpty do
+                return ← failUnsupported
+                  s!"S1 assert-else error '{key}' expects {fieldTids.size} arguments, but the source assert carries none"
+              pure (emitVoid st1 (.assert_ condVid (some errorId) #[]), .open_)
   | .if_ condition thenBlock elseBlock? => do
       let (i1, boolTid) := internShape st.interner .bool
       let st0 := { st with interner := i1 }

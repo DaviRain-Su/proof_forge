@@ -408,6 +408,7 @@ private def validateInputTypes (relation : Targets.Noir.RelationIR)
         return ← modelError s!"input {index} must be UInt/Int"
     | .bool, .u64 _ => return ← modelError s!"input {index} must be Bool"
     | .field, .bool _ => return ← modelError s!"input {index} must be Field"
+    | .aggregate _, _ => pure ()  -- B-RET-ABI: not reached (leaves are scalar)
 
 /-- Pure deterministic interpreter for target-owned typed relation operations.
 It checks a caller-supplied relation witness/public-input assignment only. It
@@ -551,6 +552,7 @@ private def bindInputs (relation : Targets.Noir.RelationIR)
         return ← modelError s!"input '{binding.name}' must be UInt/Int"
     | .bool, .u64 _ => return ← modelError s!"input '{binding.name}' must be Bool"
     | .field, .bool _ => return ← modelError s!"input '{binding.name}' must be Field"
+    | .aggregate _, _ => values := values.push value  -- B-RET-ABI: not reached
   return values
 
 private def statefulInputs (relation : Targets.Noir.RelationIR)
@@ -563,6 +565,7 @@ private def statefulInputs (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .u64 result
+    | .resultLeaf _ => none  -- B-RET-ABI: aggregate result handled separately
     | .eventSlot _ _ | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
 
 /-- Stateful relation witness with a Bool entry/view result binding. -/
@@ -576,6 +579,7 @@ private def statefulInputsBoolResult (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .bool result
+    | .resultLeaf _ => none
     | .eventSlot _ _ | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
 
 private def privateSumInputs (relation : Targets.Noir.RelationIR)
@@ -1390,6 +1394,7 @@ private def statefulInputsWithSlots (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .u64 result
+    | .resultLeaf _ => none
     | .eventSlot emitIndex argIndex =>
         (slots.find? fun (e, a, _) => e == emitIndex && a == argIndex).map
           fun (_, _, value) => ModelValue.u64 value
@@ -1910,6 +1915,7 @@ private def statefulInputs2 (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .u64 result
+    | .resultLeaf _ => none
     | .eventSlot _ _ | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
 
 private def statefulInputs2Bool (relation : Targets.Noir.RelationIR)
@@ -1922,6 +1928,7 @@ private def statefulInputs2Bool (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .bool result
+    | .resultLeaf _ => none
     | .eventSlot _ _ | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
 
 private unsafe def checkShiftBitwiseLogicalProduct : IO Unit := do
@@ -2075,6 +2082,7 @@ private def extFlowInputs (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .u64 result
+    | .resultLeaf _ => none
     | .eventSlot emitIndex argIndex =>
         (eventSlots.find? fun (e, a, _) => e == emitIndex && a == argIndex).map
           fun (_, _, value) => ModelValue.u64 value
@@ -2499,6 +2507,7 @@ private unsafe def checkNarrowAbiProduct : IO Unit := do
       | .postState _ => none
       | .postInitialized => some (.bool true)
       | .result => none
+      | .resultLeaf _ => none
       | .eventSlot .. | .callStatus _ | .callArgSlot .. | .scheduleArgSlot .. =>
           some (.u64 0)
   expectAccept "narrow-abi init(1,2,3)" initializer initOk
@@ -2517,6 +2526,7 @@ private unsafe def checkNarrowAbiProduct : IO Unit := do
       | .postState _ => none
       | .postInitialized => some (.bool true)
       | .result => some (.u64 0)
+      | .resultLeaf _ => none
       | .eventSlot .. | .callStatus _ | .callArgSlot .. | .scheduleArgSlot .. =>
           some (.u64 0)
   expectAccept "narrow-abi set8(9)" set8 setOk
@@ -2850,6 +2860,7 @@ private def multiStateInputs (relation : Targets.Noir.RelationIR)
     | .postState sid => .u64 <$> postStates[sid]?
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .u64 result
+    | .resultLeaf _ => none
     | .eventSlot _ _ | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
 
 /-- Product path: private state is a private-witness pre/post slot; host model
@@ -3140,6 +3151,85 @@ private unsafe def checkContainerStateFailClosed : IO Unit := do
     "ArrayBox Noir leaf name slots_1"
   let _ ← liftResult <| Targets.Noir.buildFromCapability capability
 
+/-- B-RET-ABI: named Struct view return lowers to `.returnAggregate` with
+two resultLeaf verifier inputs (preorder leaves). -/
+private unsafe def checkAggregateReturnProduct : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PairBox where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n\n" ++
+    "  view getPair() : Pair do\n" ++
+    "    return p\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.PairBox" "<noir-pair-box-ret>"
+  let getPair ← findRelation ir "getPair"
+  let resultLeaves := getPair.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (resultLeaves.size == 2)
+    s!"getPair must have 2 resultLeaf inputs, got {resultLeaves.size}"
+  -- Verify the body has a returnAggregate statement.
+  let hasReturnAggregate := getPair.sourceRelation.body.any fun stmt =>
+    match stmt with | .returnAggregate _ => true | _ => false
+  expect hasReturnAggregate
+    "getPair body must contain a .returnAggregate statement"
+  -- Model: getPair from p=(3,5) → result_0=3, result_1=5.
+  let getInputs ← liftModel "PairBox getPair inputs" do
+    let mut values : Array ModelValue := #[]
+    for input in getPair.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 3)  -- p_a
+      | .preState 1 => values := values.push (.u64 5)  -- p_b
+      | .postState 0 => values := values.push (.u64 3)
+      | .postState 1 => values := values.push (.u64 5)
+      | .postInitialized => values := values.push (.bool true)
+      | .resultLeaf 0 => values := values.push (.u64 3)
+      | .resultLeaf 1 => values := values.push (.u64 5)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "PairBox getPair returns (3,5)" getPair getInputs
+
+/-- B-RET-ABI: anonymous container (Array) result type stays fail-closed. -/
+private unsafe def checkAnonymousContainerReturnFailClosed : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrayRet where\n" ++
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let session ← Tests.Language.ParserSession.shared
+  match ← session.selectProgramV1 sourceText "<noir-array-ret>" "Examples.ArrayRet" none with
+  | .error _ => pure ()
+  | .ok source =>
+    match Compiler.compileValidatedSourceV1 source with
+    | .error _ => pure ()
+    | .ok compiled =>
+      match resolveBuildSelectionV1 TargetId.noir none with
+      | .error _ => pure ()
+      | .ok selection =>
+        match Targets.resolveEngineeringRequirementsV1 selection compiled with
+        | .error _ => pure ()
+        | .ok cap =>
+          match Targets.Noir.planFromCapability cap with
+          | .error _ => pure ()
+          | .ok _ =>
+              throw <| IO.userError
+                "Noir anonymous container return must fail closed, not produce a plan"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -3189,6 +3279,8 @@ unsafe def run : IO Unit := do
   checkUInt256MultiLimb
   checkUInt128Negatives
   checkNamedAggregateProduct
+  checkAggregateReturnProduct
+  checkAnonymousContainerReturnFailClosed
   checkContainerStateFailClosed
 
 end Tests.Materialization.NoirRelationModel

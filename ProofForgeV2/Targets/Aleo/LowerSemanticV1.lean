@@ -1541,7 +1541,7 @@ private partial def lowerRegion
             match envLookup env vid with
             | some v =>
                 if v.isAggregate then
-                  planError "Aleo return of aggregate is outside the scalar result envelope"
+                  planError "Aleo return of aggregate is outside the scalar result envelope (B-RET-ABI: Aleo does not support named-aggregate return)"
                 pure (ls.stmts.push (.returnValue v.expr))
             | none => planError "Aleo return references an undefined value"
       pure { stmts, join? := none }

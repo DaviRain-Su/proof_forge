@@ -2401,7 +2401,7 @@ private partial def emitRegionV1
           let returned ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
           if returned.isAggregate then
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal) cannot be returned (ABI is scalar)"
+              "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal/Struct/Enum) cannot be returned (ABI is scalar; B-RET-ABI: Solana does not support named-aggregate return)"
           unless returned.isBool == expectsBoolReturn do
             throw <| .planInvariant .solana
               (if expectsBoolReturn then

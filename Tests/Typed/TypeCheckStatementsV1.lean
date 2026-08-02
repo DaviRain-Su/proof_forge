@@ -183,6 +183,28 @@ private unsafe def testAssertUnknownElseError
   let res ← typeCheckUnit session "assert-unknown-else" prelude "    assert true else Unknown\n"
   expectDiag res "assert-unknown-else" "unknown name 'Unknown'"
 
+/-- L1 / N-ASSERT-ELSE: `assert cond else ParamErr` where ParamErr declares a
+    field is a TypeCheck arity mismatch — source `assert Expr else Ident`
+    carries no args, so a parameterized error cannot be satisfied. Mirrors the
+    revert/emit arity diagnostic shape. -/
+private unsafe def testAssertElseParameterizedErrorArity
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let prelude := "  error Err(a : UInt64)\n"
+  let res ← typeCheckUnit session "assert-else-param-arity" prelude
+    "    assert true else Err\n"
+  expectDiag res "assert-else-param-arity" "0 arguments"
+  expectDiag res "assert-else-param-arity" "1 arguments"
+
+/-- L1 / N-ASSERT-ELSE: `assert cond else ZeroErr` with a declared zero-arg
+    error is TypeCheck-ok (no arity mismatch). -/
+private unsafe def testAssertElseZeroArgOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let prelude := "  error Empty()\n"
+  let res ← typeCheckUnit session "assert-else-zero-ok" prelude
+    "    assert true else Empty\n"
+  unless res.ok do
+    throw <| IO.userError s!"assert-else-zero-ok: expected ok, got {messages res}"
+
 private unsafe def testIfNonBoolCondition
     (session : Language.Loader.ParserSession) : IO Unit := do
   let body :=
@@ -420,6 +442,8 @@ unsafe def run : IO Unit := do
   testEmitWrongArgType session
   testAssertNonBool session
   testAssertUnknownElseError session
+  testAssertElseParameterizedErrorArity session
+  testAssertElseZeroArgOk session
   testIfNonBoolCondition session
   testForMismatchedEndpointWidths session
   testForIteratorLeakRejection session

@@ -483,7 +483,11 @@ private unsafe def testBoolPredicateEndToEnd
     "BoolPredicate artifacts must rebuild byte-identically"
   liftResult <| validateIR ir
 
-/-- `assert … else Ident` is outside the envelope (errorId/args non-empty path). -/
+/-- `assert … else Ident` (zero-arg declared error): L1 lowers it through the
+    shared core to `Op.Assert cond (some eid) #[]`; the Solana target-owned
+    Plan keeps fail-closed on `errorId=some` (it only materializes bare asserts
+    with `errorId=none`). Confirm the product path still fails closed at the
+    Solana plan boundary and produces no artifacts. -/
 private unsafe def testAssertElseRejected
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrapProgram "AssertElse" <|
@@ -498,7 +502,10 @@ private unsafe def testAssertElseRejected
     "  error bad()\n"
   let validated ← liftResult (← session.selectProgramV1
     source "<solana-assert-else>" "Examples.AssertElse" none)
-  expectCompileFailure "assert-else" (Compiler.compileValidatedSourceV1 validated)
+  -- Shared core (Normalize/TypeCheck) now lowers zero-arg assert-else.
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 validated
+  -- Solana plan keeps fail-closed on errorId=some (target-owned behavior).
+  expectPlanError "assert-else" (planSolana compiled)
 
 /-- validatePlan rejects dangling assert operands and post-return assert. -/
 private unsafe def testValidatePlanNegatives

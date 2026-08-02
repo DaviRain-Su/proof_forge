@@ -1183,6 +1183,65 @@ private unsafe def testGuardedCounterReferenceSlice
       (inv entryId #[refU64 u64Tid 4]) emptyResponses
   expectRevertedStandard "guarded-assert" guarded .assertionFailed expectedDecPost
 
+/-- L1 / N-ASSERT-ELSE: `Op.Assert cond (some eid) #[]` with cond=false reverts
+    via `.declared eid #[]` (zero-arg declared error), mirroring `revert E`.
+    cond=true continues. Pins the Reference machine's assert-else path which
+    already handles `errorId=some` (no Reference change needed). -/
+private def testAssertElseReferenceSlice : IO Unit := do
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .unit },
+    { id := 1, name := none, shape := .bool }
+  ]
+  let errors : Array ErrorDeclV1 := #[
+    { id := 0, name := "Abort", fields := #[] }
+  ]
+  -- entry: literal false → assert(false, some 0, []) → would continue to return.
+  let entryFalse := mkEntry 0 "fail" #[] 0
+    #[
+      instr (some { valueId := 0, typeId := 1 })
+        (.literal 1 (ByteArray.mk #[0])),
+      instr none (.assert_ 0 (some 0) #[])
+    ]
+    (.return_ none)
+  let baseF ← emptyData "AssertElseFail"
+  let dataF : SemanticProgramDataV1 := {
+    baseF with
+    types
+    errors
+    callables := #[entryFalse]
+  }
+  let carrierF ← encodeCarrier "assert-else-fail" dataF
+  let admittedF ← admitOk "assert-else-fail" carrierF
+  let preF ← match initialLogicalStateV1 carrierF with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"assert-else-fail initial: {repr e}"
+  let outF := stepReferenceSliceV1 admittedF preF (inv 0 #[]) emptyResponses
+  -- cond=false → .reverted (.declared 0 #[]), pre-state preserved.
+  expectRevertedDeclared "assert-else-fail" outF 0 preF
+  -- entry: literal true → assert(true, some 0, []) → continues to return none.
+  let entryTrue := mkEntry 0 "ok" #[] 0
+    #[
+      instr (some { valueId := 0, typeId := 1 })
+        (.literal 1 (ByteArray.mk #[1])),
+      instr none (.assert_ 0 (some 0) #[])
+    ]
+    (.return_ none)
+  let baseT ← emptyData "AssertElseOk"
+  let dataT : SemanticProgramDataV1 := {
+    baseT with
+    types
+    errors
+    callables := #[entryTrue]
+  }
+  let carrierT ← encodeCarrier "assert-else-ok" dataT
+  let admittedT ← admitOk "assert-else-ok" carrierT
+  let preT ← match initialLogicalStateV1 carrierT with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"assert-else-ok initial: {repr e}"
+  let outT := stepReferenceSliceV1 admittedT preT (inv 0 #[]) emptyResponses
+  -- cond=true → returns (no state change, no effects).
+  expectReturned "assert-else-ok" outT preT none #[]
+
 private unsafe def testCounterReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "CounterRef" <|
@@ -4473,6 +4532,7 @@ unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterReferenceSlice session
   testGuardedCounterReferenceSlice session
+  testAssertElseReferenceSlice
   testBoolResultReferenceSlice session
   testIfMatchReferenceSlice session
   testEmitRevertReferenceSlice session

@@ -21,11 +21,14 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 **工程已接线（摘）**：
 
 - Normalize 当前可 lower 的控制流/算术/fn/for/shift/bitwise/revert/emit 等子集（非完整 Semantic 面）；
-- state/param/result **UInt8/16/32/64 与窄 Int** ABI/body 子集（UInt128/256 仍 fail-closed）；
+- state/param/result **UInt8/16/32/64 与窄 Int** ABI/body 子集（UInt128/256 软件多字已开 T9e）；
 - **`EmitSbpfAsmV1`** 完整 Operation 表面 → 锁定 `sbpf` 汇编为 deployable Solana ELF `.so`
   （`solana-sbpf-elf-v1` profile；默认仍可走 plan-only profile）；
 - **Mollusk 运行时差分**（`runtime-tests/solana`：Counter + 多 fixture，含 body 多宽）；
-- call/schedule 因无 program-id/address 类型 fail-closed；named 聚合/Map/Bytes/Option 边界见覆盖矩阵。
+- **AddressBearing static-callee call/schedule 已开**（B-3 followup：callee 为 static QualifiedName，
+  program id = SHA-256(targetPath) 32B，SBPF 以 `sol_log_data` 观测桩；完整 `invoke_signed` CPI 另排）；
+- **dense Map UInt64 cap-8 plan pilot**（Token/MapMini 默认 plan；ELF 帧预算超限 FC，见 backlog B-SOL-MAP-ELF）；
+  named 聚合/Bytes/Option state 边界见覆盖矩阵。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
 完整 Normalize 表面。registry 历史标签可能仍显示 `plan-only` 字符串——**工程事实以本段与

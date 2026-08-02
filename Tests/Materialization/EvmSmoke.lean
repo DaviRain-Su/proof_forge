@@ -2996,6 +2996,126 @@ private unsafe def testContextReadFailClosedBoundary : IO Unit := do
       | .ok _ =>
           throw <| IO.userError "EVM unknown-context must not produce a plan"
 
+/-- B-RET-ABI: named Struct entry/view return lowers to `.returnAggregate`
+with preorder leaves and emits a Solidity tuple ABI. -/
+private unsafe def testAggregateStructReturn : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PairBox where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n" ++
+    "  view getPair() : Pair do\n" ++
+    "    return p\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load PairBox" (← session.selectProgramV1
+    sourceText "<evm-aggregate-ret>" "Tests.EvmAggregateRet" none)
+  let compiled ← liftResult "compile PairBox" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan PairBox" <| planEvm compiled
+  expect (plan.entries.size == 1) "PairBox must have one entry"
+  let viewEntry := plan.entries[0]!
+  expect (viewEntry.name == "getPair") "PairBox entry name"
+  match viewEntry.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"PairBox aggregate return must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "PairBox aggregate leaves must be uint64"
+  | _ =>
+      throw <| IO.userError
+        s!"PairBox getPair resultKind must be .aggregate, got {repr viewEntry.resultKind}"
+  expect (viewEntry.body.size == 1) "PairBox getPair body must be one return statement"
+  match viewEntry.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2)
+        s!"returnAggregate must have 2 leaves, got {leaves.size}"
+      expect (leafIsInt == #[false, false])
+        "returnAggregate leafIsInt must be #[false, false]"
+  | _ =>
+      throw <| IO.userError "PairBox getPair body must be .returnAggregate"
+  -- Materialize to check Yul + ABI.
+  let output ← liftResult "materialize PairBox" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "PairBox.yul") |
+    throw <| IO.userError "PairBox: missing PairBox.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "mstore(0, ") "PairBox Yul must mstore leaf 0"
+  expect (yul.contains "mstore(32, ") "PairBox Yul must mstore leaf 1"
+  expect (yul.contains "return(0, 64)") "PairBox Yul must return 64 bytes"
+  let some abiFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "PairBox.abi.json") |
+    throw <| IO.userError "PairBox: missing PairBox.abi.json"
+  let abi := abiFile.contents
+  expect (abi.contains "(uint64,uint64)")
+    s!"PairBox ABI must declare tuple (uint64,uint64), got: {abi}"
+  expect (abi.contains "components")
+    "PairBox ABI must have components for tuple"
+
+/-- B-RET-ABI: anonymous container (Array) result type stays fail-closed. -/
+private unsafe def testAnonymousContainerReturnFailClosed : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayRet where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← match ← session.selectProgramV1
+    sourceText "<evm-array-ret>" "Tests.EvmArrayRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"ArrayRet select: {e.render}"
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()  -- Normalize/CheckV1 may reject first.
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error _ => pure ()
+      | .ok _ =>
+          throw <| IO.userError
+            "EVM anonymous container return must fail closed, not produce a plan"
+
+/-- B-RET-ABI: leaf count exceeding cap-8 stays fail-closed. A Struct with
+9 UInt64 fields exceeds the B-RET-ABI cap. -/
+private unsafe def testAggregateLeafCapFailClosed : IO Unit := do
+  let mut fields := ""
+  for i in [0:9] do
+    fields := fields ++ s!"    f{i} : UInt64\n"
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideBox where\n" ++
+    "  struct Wide where\n" ++
+    fields ++
+    "  state w : Wide\n" ++
+    "  init() do\n" ++
+    "    w := Wide.new(0, 0, 0, 0, 0, 0, 0, 0, 0)\n" ++
+    "  view getWide() : Wide do\n" ++
+    "    return w\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← match ← session.selectProgramV1
+    sourceText "<evm-wide-ret>" "Tests.EvmWideRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"WideBox select: {e.render}"
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+        expect (e.render.contains "8" || e.render.contains "leaf")
+          s!"WideBox leaf-cap error must cite cap/leaf, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "EVM 9-leaf aggregate return must fail closed (cap-8), not produce a plan"
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -3042,6 +3162,9 @@ unsafe def run : IO Unit := do
   testArrayStateIndexOps
   testBytesStateIndexOps
   testContextReadFailClosedBoundary
+  testAggregateStructReturn
+  testAnonymousContainerReturnFailClosed
+  testAggregateLeafCapFailClosed
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)

@@ -1090,7 +1090,7 @@ private partial def lowerRegion
             match envLookup env vid with
             | some v =>
                 if v.isAggregate then
-                  planError "unsupported Psy semantic shape: return of aggregate is outside the Psy scalar result envelope"
+                  planError "unsupported Psy semantic shape: return of aggregate is outside the Psy scalar result envelope (B-RET-ABI: Psy does not support named-aggregate return)"
                 pure (ls.stmts.push (.returnValue v.expr))
             | none => planError "unsupported Psy semantic shape: return references an undefined value"
       pure { stmts, join? := none }

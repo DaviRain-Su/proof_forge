@@ -30,19 +30,19 @@ normative: false
 |---|---|---|---|---|---|---|
 | stateLoad/stateStore（标量） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | stateLoad/stateStore（named 聚合） | LOWERED(N3) | FAIL-CLOSED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | FAIL-CLOSED | FAIL-CLOSED(scalar mapping) |
-| stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | FAIL-CLOSED | FAIL-CLOSED |
-| stateLoad/stateStore（Map） | LOWERED(dense Map cap-8) | LOWERED(dense Map cap-8; plan default; ELF frame FC) | LOWERED(dense Map cap-8) | LOWERED(dense Map cap-8; multi-leaf PI) | FAIL-CLOSED | FAIL-CLOSED |
-| stateLoad/stateStore（Bytes） | LOWERED(D4-E2: N×UInt8 leaves) | FAIL-CLOSED | FAIL-CLOSED(NearAggregate) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | FAIL-CLOSED |
+| stateLoad/stateStore（Map） | LOWERED(dense Map cap-8) | LOWERED(dense Map cap-8; plan default; ELF frame FC) | LOWERED(dense Map cap-8) | LOWERED(dense Map cap-8; multi-leaf PI) | FAIL-CLOSED | LOWERED(dense Map cap-2) |
+| stateLoad/stateStore（Bytes） | LOWERED(D4-E2: N×UInt8 leaves) | FAIL-CLOSED | FAIL-CLOSED(NearAggregate) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(Bytes N: N×u8 mappings) |
 | stateLoad/stateStore（Option） | FAIL-CLOSED（Normalize **admitted** N-A4；target container 永不 admit） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（String） | LOWERED(N4) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（Field bn254） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED(非Goldilocks) | FAIL-CLOSED(非BLS12-377) |
 | stateLoad/stateStore（Field BLS12-377） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | **LOWERED(T14)** |
 | stateLoad/stateStore（Field Goldilocks） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | **LOWERED(T14)** | FAIL-CLOSED |
-| construct（named Struct/Enum） | LOWERED(N3) | FAIL-CLOSED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED(struct deferred) |
-| fieldGet/fieldSet | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED |
-| variantTag/variantPayload | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED |
-| indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | FAIL-CLOSED |
-| indexGet/indexSet（Map） | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | FAIL-CLOSED | FAIL-CLOSED |
+| construct（named Struct/Enum） | LOWERED(N3) | FAIL-CLOSED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | LOWERED(H3) |
+| fieldGet/fieldSet | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | LOWERED(H3) |
+| variantTag/variantPayload | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | LOWERED(H3) |
+| indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | LOWERED(H3 flatten) |
+| indexGet/indexSet（Map） | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | FAIL-CLOSED | LOWERED(dense Map cap-2) |
 | indexGet/indexSet（Bytes） | LOWERED(D4-E2) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | fieldAdd/Sub/Mul/Div/Neg（Field） | LOWERED(N2b-EVM bn254) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生 bn254) | **LOWERED(T14 Goldilocks)** | **LOWERED(T14 BLS12-377)** |
 | eq/ne（所有支持类型） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
@@ -95,8 +95,8 @@ normative: false
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
 | **B-1a** | NEAR named 聚合 + Array/容器 | **闭合(NearAggregate)**：named Struct/Enum + Array UInt flatten-to-KV；Map/Bytes FAIL-CLOSED | NearAggregate ✅ |
-| **B-1b** | Noir named 聚合 | **闭合(NoirAggregate)**：named Struct/Enum + **Map UInt64 dense pilot**（cap-8 occ/key/val multi-leaf public inputs + IndexGet→Option + IndexSet upsert）；Array/Bytes 仍 FAIL-CLOSED | NoirAggregate + NoirMap |
-| **B-1c** | Aleo 全功能 | **AleoCoverage 已闭合（2026-08-01）**：核对代码后修正矩阵——LOWERED 为标量 UInt64 envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）+ Commit 身份透传；**Field FAIL-CLOSED**（Aleo native field = BLS12-377 Fr ≠ catalog bn254 Fr，PsyFelt 式研究钉）；named 聚合/construct/field*/variant*/Array/Map/Bytes/Option/ContextRead/emit/externalCall/schedule 均显式 FAIL-CLOSED（不再 GAP）；Leo native struct/record 布局切片另排 | AleoCoverage ✅ |
+| **B-1b** | Noir named 聚合 | **闭合(NoirAggregate)**：named Struct/Enum + **Map UInt64 dense pilot**（cap-8 occ/key/val multi-leaf public inputs + IndexGet→Option + IndexSet upsert）+ **Array UInt64 state flatten**（NoirContainer，93de6eb62 修复）；Bytes 仍 FAIL-CLOSED | NoirAggregate + NoirMap + NoirContainer |
+| **B-1c** | Aleo 全功能 | **AleoCoverage（2026-08-01）+ H3/NS-1/Bytes N/Int64 lane（2026-08-02）**：LOWERED = 标量 UInt64/UInt32/UInt8/Int64/Unit/Bool envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）+ Commit 身份透传 + named Struct/Enum + Array UInt64 flatten + **dense Map UInt64 cap-2**（occ/key/val leaves + IndexGet→Option + IndexSet upsert）+ **fixed Bytes N**（N×u8 mappings）；**Field FAIL-CLOSED**（Aleo native = BLS12-377 Fr ≠ catalog bn254；wire FieldSpec catalog 仍 sole bn254——「T14 Field catalog v2」叙事与代码不符，见 backlog DOC-CODE-1）；Option/Principal/String/ContextRead/externalCall/schedule/**emit** 仍显式 FAIL-CLOSED；Leo native struct/record 布局切片另排 | AleoCoverage ✅ + Aleo lane（Int64/Map/Bytes） |
 | **B-1d** | Solana Map/Bytes/Option state | **闭合(Map pilot)**：Array + **Map UInt64 cap-8** plan（Token/MapMini）；ELF profile 对 Map pure-expr 超 4KiB 帧 fail-closed（默认 plan）；Bytes/Option state 仍 FC（Option 中间值自 Map IndexGet） | SolanaMapPilot ✅ |
 | **B-1e** | EVM Map/Bytes/Option state | **闭合(Map pilot)**：Array + Bytes + **Map UInt64 cap-8** deployable Token；Option-from-Map IndexGet | EvmMapPilot ✅ |
 

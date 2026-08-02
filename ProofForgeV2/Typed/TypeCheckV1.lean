@@ -1467,15 +1467,36 @@ mutual
     | .assert_ condition error? =>
         let (cp?, pathDs) := resolveDirect stmtPath? "Stmt.Assert" "condition"
         let condRes := typeCheckExprDrafts scope tables (some .bool) #[] cp? condition
-        let drafts :=
+        let condDrafts :=
           if condRes.drafts.isEmpty && condRes.type != .bool then
             pathDs ++ condRes.drafts ++ #[locateDraft
               (expectedActualDiagnosticDraft "Bool" (typeName condRes.type))
               cp? #[]]
           else
             pathDs ++ condRes.drafts
-        let _ := error?
-        (scope, drafts)
+        -- assert-else: source `assert Expr else Ident` carries no args, so the
+        -- referenced error must be declared and zero-argument. NameResolution
+        -- already rejects unknown error names; the `none` branch below is
+        -- defense-in-depth mirroring the revert path.
+        let errorDrafts : Array TypedDiagnosticDraftV1 :=
+          match error? with
+          | none => #[]
+          | some name =>
+              match tables.error.find? name with
+              | none =>
+                  #[locateDraft
+                    (internalDiagnosticDraft
+                      s!"unresolved error name '{name.raw}' in assert-else")
+                    stmtPath? #[]]
+              | some (_, decl) =>
+                  let relatedErr :=
+                    optRelatedPath (itemPathForNamed? tables .error name)
+                  if decl.params.isEmpty then #[]
+                  else #[locateDraft
+                    (expectedActualDiagnosticDraft
+                      s!"0 arguments" s!"{decl.params.size} arguments")
+                    stmtPath? relatedErr]
+        (scope, condDrafts ++ errorDrafts)
     | .revert name args =>
         match tables.error.find? name with
         | none =>

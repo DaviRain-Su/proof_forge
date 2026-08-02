@@ -940,6 +940,13 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
             output := output ++ rendered.code ++
               s!"{indent}{r} := {rendered.value}\n"
         next := rendered.next
+    | .returnAggregate leaves leafIsInt =>
+        for index in [0:leaves.size] do
+          let rendered := renderExpr indent paramPrefix next leaves[index]!
+          output := output ++ rendered.code ++
+            s!"{indent}mstore({32 * index}, {rendered.value})\n"
+          next := rendered.next
+        output := output ++ s!"{indent}return(0, {32 * leaves.size})\n"
     | .returnNone =>
         -- Valid only as the constructor body's final statement (validated);
         -- falling off the body reaches the deployment epilogue on this path.
@@ -1182,6 +1189,9 @@ private def renderConstructorAbi (constructor : Constructor) : String :=
   "{\"type\":\"constructor\",\"stateMutability\":\"nonpayable\",\"inputs\":[" ++
     renderParamsJson constructor.params ++ "]}"
 
+private def leafAbiTypeString (leaf : LeafAbiType) : String :=
+  if leaf.isInt then "int64" else "uint64"
+
 private def resultKindAbiType (kind : ResultKind) : String :=
   match kind with
   | .uint64 => "uint64"
@@ -1196,16 +1206,30 @@ private def resultKindAbiType (kind : ResultKind) : String :=
   | .int8 => "int8"
   | .int16 => "int16"
   | .int32 => "int32"
+  | .aggregate leaves =>
+      -- B-RET-ABI: Solidity tuple type, e.g. "(uint64,int64)".
+      "(" ++ String.intercalate "," (leaves.map leafAbiTypeString).toList ++ ")"
+
+/-- B-RET-ABI: render aggregate return outputs as a Solidity tuple with
+`components`. Scalar kinds keep the single-output form. -/
+private def renderEntryOutputsAbi (entry : Entry) : String :=
+  match entry.resultKind with
+  | .aggregate leaves =>
+      let comps := leaves.map fun leaf =>
+        "{\"name\":\"\",\"type\":\"" ++ leafAbiTypeString leaf ++ "\"}"
+      "{\"name\":\"\",\"type\":\"" ++ resultKindAbiType entry.resultKind ++
+        "\",\"components\":[" ++ String.intercalate "," comps.toList ++ "]}"
+  | _ =>
+      "{\"name\":\"\",\"type\":\"" ++ resultKindAbiType entry.resultKind ++ "\"}"
 
 private def renderEntryAbi (entry : Entry) : String :=
   let mutability := match entry.mutability with
     | .nonpayable => "nonpayable"
     | .view => "view"
-  let resultType := resultKindAbiType entry.resultKind
   "{\"type\":\"function\",\"name\":\"" ++ Targets.escapeJson entry.name ++
     "\",\"stateMutability\":\"" ++ mutability ++ "\",\"inputs\":[" ++
     renderParamsJson entry.params ++
-    "],\"outputs\":[{\"name\":\"\",\"type\":\"" ++ resultType ++ "\"}]}"
+    "],\"outputs\":[" ++ renderEntryOutputsAbi entry ++ "]}"
 
 private def renderInterfaceBindingAbi (kind : String) (binding : InterfaceBinding) : String :=
   let inputs := (List.range binding.fieldCount).map fun index =>

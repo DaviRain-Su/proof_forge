@@ -17,9 +17,9 @@ Phase 1：实现（工程切片已接线；成熟度 source-only）
 
 `planFromCapability` 直接读取 `CompiledSemanticV1.semanticV1Of`，private lowering 构造 target-owned `PsyPlan`。
 
-**工程已接线（摘）**：标量 UInt64/UInt32/Unit/Bool/Int64 envelope；named Struct/Enum + Array UInt64 flatten-to-Felt leaves；Commit 身份透传；sync call 与 event（`__emit`）；**Field Goldilocks（T14，p=2^64−2^32+1）→ Felt state/param/body**（不再 fail-closed，PsyEmissionFix 修字面量范围）；Dargo/Psy source（`psy-dargo-u64-v1`）。
+**工程已接线（摘）**：标量 UInt64/UInt32/Unit/Bool/Int64 envelope；named Struct/Enum + Array UInt64 flatten-to-Felt leaves；sync call（`__invoke_sync`）与 event（`__emit`）；Dargo/Psy source（`psy-dargo-u64-v1`）。注意：Emit 层把 UInt 字面量按 Goldilocks 模约（`feltNat`），这是 **UInt→Felt 字面量归约**，**不是** Field 类型支持。
 
-**明确未闭合**：bn254 Fr 仍 fail-closed（Psy Felt=Goldilocks ≠ bn254）；Map/Bytes/Option/Principal/String/bitNot 显式 fail-closed；resolver 拒 async-workflow(schedule)；无 VM/prover 门；成熟度 **source-only**，不得写成 runtime/formal 完成。
+**明确未闭合**：Field **全部 fail-closed**——Psy Felt=Goldilocks(2^64−2^32+1) ≠ catalog bn254，且 wire FieldSpec catalog 当前仍是 **sole bn254**（`pilotFieldPolicyNone`；「T14」叙事与代码不符，见 backlog DOC-CODE-1）；**Commit 也 fail-closed**（EVM/Solana/NEAR/Aleo 身份透传不含 Psy）；Map/Bytes/Option/Principal/String/bitNot 显式 fail-closed；resolver 拒 async-workflow(schedule)；无 VM/prover 门；成熟度 **source-only**，不得写成 runtime/formal 完成。
 
 ## 1. 身份与来源
 

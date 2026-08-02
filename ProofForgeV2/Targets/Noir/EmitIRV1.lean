@@ -111,7 +111,7 @@ private partial def statementListClosesV1 : List Statement → Bool
   | [] => false
   | [statement] =>
       match statement with
-      | .returnValue _ | .returnNone | .revertError .. => true
+      | .returnValue _ | .returnAggregate _ | .returnNone | .revertError .. => true
       | .ifThenElse _ thenBody elseBody =>
           !elseBody.isEmpty && statementListClosesV1 thenBody.toList &&
             statementListClosesV1 elseBody.toList
@@ -917,6 +917,9 @@ private partial def inlineStmtsV1
               "unsupported Noir semantic shape: fn body has a statement after a return"
           let value ← lowerExprFn plan fuel depth paramValues stateValues next valueExpr
           pure (acc ++ value.operations, value.value, value.next)
+      | .returnAggregate _ =>
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: pureFn aggregate return is not admitted"
       | .returnNone =>
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: fn body must return a value"
@@ -1009,7 +1012,7 @@ private def pathEffectArgValueV1 (pathEmits : Array (Nat × Array ValueRef))
 private def leafAssertions (plan : Plan) (relation : Relation)
     (emitSlots : Array (Nat × Nat × Nat))
     (callSlots : Array (Nat × Nat)) (scheduleSlots : Array (Nat × Nat))
-    (stateValues : Array ValueRef) (returned : Option ValueRef)
+    (stateValues : Array ValueRef) (returned : Option (Array ValueRef))
     (pathEmits : Array (Nat × Array ValueRef)) : CompileResult (Array Operation) := do
   let mut operations : Array Operation := #[]
   for field in plan.states do
@@ -1026,9 +1029,18 @@ private def leafAssertions (plan : Plan) (relation : Relation)
       (inputIndexFor relation .postInitialized) true
   if relation.mode != .initialize then
     match returned with
-    | some v =>
+    | some leafValues =>
+      -- B-RET-ABI: aggregate return produces one assertEqual per leaf against
+      -- its `resultLeaf index` input; scalar return (single-element array)
+      -- uses the `.result` input for byte-identical existing behavior.
+      if leafValues.size == 1 then
         operations := operations.push <| .assertEqual
-          (.input (inputIndexFor relation .result)) v
+          (.input (inputIndexFor relation .result)) leafValues[0]!
+      else
+        for index in [0:leafValues.size] do
+          let some leafVal := leafValues[index]? | throw <| .planInvariant .noir "aggregate return leaf value missing"
+          operations := operations.push <| .assertEqual
+            (.input (inputIndexFor relation (.resultLeaf index))) leafVal
     | none =>
         throw <| .planInvariant .noir
           "noir relation result missing outside initialize"
@@ -1096,7 +1108,7 @@ private def defaultOpenLeafV1 (plan : Plan) (relation : Relation)
       throw <| .planInvariant .noir
         s!"relation '{relation.name}' path does not end in a return"
     let assertions ← leafAssertions plan relation slots.emit slots.call slots.schedule
-      stateValues none pathEmits
+      stateValues (none) pathEmits
     pure (acc ++ assertions, next)
 
 mutual
@@ -1187,14 +1199,29 @@ private partial def lowerPathStatementsV1
               s!"relation '{relation.name}' has a statement after a return"
           let value ← lowerExpr plan fuel loopEnv stateValues next valueExpr
           let assertions ← leafAssertions plan relation slots.emit slots.call slots.schedule
-            stateValues (some value.value) pathEmits
+            stateValues (some #[value.value]) pathEmits
           pure (acc ++ value.operations ++ assertions, value.next)
+      | .returnAggregate leafExprs =>
+          unless rest.isEmpty do
+            throw <| .planInvariant .noir
+              s!"relation '{relation.name}' has a statement after a return"
+          let mut leafVals : Array ValueRef := #[]
+          let mut ops : Array Operation := #[]
+          let mut next' := next
+          for leafExpr in leafExprs do
+            let value ← lowerExpr plan fuel loopEnv stateValues next' leafExpr
+            ops := ops ++ value.operations
+            leafVals := leafVals.push value.value
+            next' := value.next
+          let assertions ← leafAssertions plan relation slots.emit slots.call slots.schedule
+            stateValues (some leafVals) pathEmits
+          pure (acc ++ ops ++ assertions, next')
       | .returnNone =>
           unless rest.isEmpty do
             throw <| .planInvariant .noir
               s!"relation '{relation.name}' has a statement after a return"
           let assertions ← leafAssertions plan relation slots.emit slots.call slots.schedule
-            stateValues none pathEmits
+            stateValues (none) pathEmits
           pure (acc ++ assertions, next)
       | .revertError _ args =>
           unless rest.isEmpty do
@@ -1528,6 +1555,7 @@ private def renderValue (relation : Relation) : ValueRef → String
       | .u8 | .u16 | .u32 => s!"({input.name} as u64)"
       | .i8 | .i16 | .i32 | .i64 => s!"({input.name} as u64)"
       | .u64 | .u128 | .u256 | .bool | .field => input.name
+      | .aggregate _ => input.name  -- B-RET-ABI: not reached (leaves are scalar)
   | .literal value => toString value.toNat
   | .temp index => s!"t{index}"
 
@@ -1548,6 +1576,7 @@ private def renderValueAsWide (relation : Relation) (bitWidth : Nat) :
       | .u64 | .u8 | .u16 | .u32 => s!"({input.name} as {ty})"
       | .i8 | .i16 | .i32 | .i64 => s!"({input.name} as {ty})"
       | .bool | .field => s!"({input.name} as {ty})"
+      | .aggregate _ => s!"({input.name} as {ty})"  -- B-RET-ABI: not reached
   | .literal value => s!"({value.toNat} as {ty})"
   | .temp index => s!"(t{index} as {ty})"
 
@@ -1591,6 +1620,7 @@ private def narrowInputTypeString? : InputType → Option String
   | .i32 => some "i32"
   | .i64 => some "i64"
   | .u64 | .bool | .field => none
+  | .aggregate _ => none
 
 /-- Equality operands for assertEqual. Narrow post-state/public inputs keep
     their native Noir type; the paired body u64 word (temp/literal) is cast
@@ -1831,6 +1861,7 @@ private def renderInputType : InputType → String
   | .i16 => "i16"
   | .i32 => "i32"
   | .i64 => "i64"
+  | .aggregate _ => "u64"  -- B-RET-ABI: not reached (leaves are scalar inputs)
 
 private def renderInput (input : InputBinding) : String :=
   let visibility := if input.visibility == .verifier then "pub " else ""
@@ -1867,6 +1898,7 @@ private def renderInputJson (input : InputBinding) : String :=
     | .postState id => ("post-state", toString id)
     | .postInitialized => ("post-initialized", "null")
     | .result => ("result", "null")
+    | .resultLeaf index => ("result-leaf", toString index)
     | .eventSlot emitIndex argIndex => ("event-slot", s!"[{emitIndex},{argIndex}]")
     | .callStatus callIndex => ("call-status", toString callIndex)
     | .callArgSlot callIndex argIndex => ("call-arg-slot", s!"[{callIndex},{argIndex}]")

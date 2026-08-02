@@ -126,6 +126,13 @@ private partial def checkRelationStatementsV1
           throw <| .planInvariant .noir "initializer relation cannot return a value"
         total ← addPlanExprNodes plan relation total value
         closed := true
+    | .returnAggregate leaves =>
+        if relation.mode == .initialize then
+          throw <| .planInvariant .noir "initializer relation cannot return a value"
+        for leaf in leaves do
+          total ← addPlanExprNodes plan relation total leaf
+        total := total + 1
+        closed := true
     | .returnNone =>
         -- Bare return exists only for the initializer's Unit result; a marker
         -- in an entry/view relation would have no result value to bind.
@@ -212,11 +219,19 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
     throw <| .planInvariant .noir s!"relation '{relation.name}' exceeds parameter limit"
   if relation.body.size > plan.resourceLimits.maxBodyStatements then
     throw <| .planInvariant .noir s!"relation '{relation.name}' exceeds body limit"
+  -- B-RET-ABI: aggregate return produces one result input per leaf
+  -- (resultLeaf bindings) instead of a single .result input.
+  let resultInputCount :=
+    if relation.mode == .initialize then 0
+    else
+      let resultLeaves := relation.inputs.filter fun b =>
+        match b.role with | .resultLeaf _ => true | _ => false
+      if resultLeaves.size > 0 then resultLeaves.size else 1
   let expectedInputCount :=
     (if plan.states.isEmpty then 0 else 2) +
     (if relation.mode == .initialize then 0 else plan.states.size) +
     relation.params.size + plan.states.size +
-    (if relation.mode == .initialize then 0 else 1) +
+    resultInputCount +
     (collectEmitSlots relation.body).foldl (fun acc (_, _, argCount) => acc + argCount) 0 +
     (collectCallSlots relation.body).foldl (fun acc (_, argCount) => acc + 1 + argCount) 0 +
     (collectScheduleSlots relation.body).foldl (fun acc (_, argCount) => acc + argCount) 0
@@ -235,12 +250,13 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
         (collectCallSlots relation.body) (collectScheduleSlots relation.body) do
     throw <| .planInvariant .noir "relation parameters/input disclosure are not canonical"
   if relation.mode != .initialize then
-    unless expectedResultType == .u64 || expectedResultType == .bool ||
-        expectedResultType == .field || expectedResultType == .u8 ||
-        expectedResultType == .u16 || expectedResultType == .u32 ||
-        expectedResultType == .u128 || expectedResultType == .u256 do
-      throw <| .planInvariant .noir
-        s!"relation '{relation.name}' result type is outside the UInt8/16/32/64/128/256/Bool/Field pilot"
+    match expectedResultType with
+    | .u64 | .bool | .field | .u8 | .u16 | .u32 | .u128 | .u256
+    | .i8 | .i16 | .i32 | .i64 => pure ()
+    | .aggregate leaves =>
+        unless leaves.size > 0 && leaves.size <= 8 do
+          throw <| .planInvariant .noir
+            s!"relation '{relation.name}' aggregate result leaf count outside 1..8"
   let (total, closed) ← checkRelationStatementsV1
     plan relation (relation.mode == .view) relation.body baseNodes
   unless closed do
