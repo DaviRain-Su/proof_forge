@@ -39,9 +39,13 @@
       literal by valueBytes) still fail closed as duplicates; a
       catch-all-only match materializes inline; expression-level match
       shares the same pattern set (see expressions)
-    * expressions: bare place (param or state name), expected-type integer
-      literals (legal UInt/Int widths, LE valueBytes of width/8; Int negatives
-      enter as `unary neg (integer literal)` folded to two's-complement LE
+    * expressions: bare place (param, state, or **const** name — N-CONST-REF:
+      env → state → const; each const read emits independent value-producing
+      `Op.Constant` with `result.typeId == ConstantV1.typeId`; constants table
+      complete before any body so forward refs resolve; dense source-order
+      ConstantIds; valueBytes sole via `evalConstDeclValueV1`), expected-type
+      integer literals (legal UInt/Int widths, LE valueBytes of width/8; Int
+      negatives enter as `unary neg (integer literal)` folded to two's-complement LE
       including intMin; **no Field or Principal source literal** — Field and
       Principal values enter via params/state), Bool literal, checked binary
       add/sub/mul/div/mod and bitwise and/or/xor on same-width legal UInt/Int,
@@ -817,6 +821,16 @@ private def stateLookup (table : StateTableV1) (name : String) :
   table.rows.findSome? fun (n, sid, tid) =>
     if n == name then some (sid, tid) else none
 
+/-- Const name → (ConstantId, TypeId). Built complete before any callable body
+    so forward references resolve; IDs are dense source-order among const decls. -/
+structure ConstantTableV1 where
+  rows : Array (String × ConstantIdV1 × TypeIdV1)
+
+private def constLookup (table : ConstantTableV1) (name : String) :
+    Option (ConstantIdV1 × TypeIdV1) :=
+  table.rows.findSome? fun (n, cid, tid) =>
+    if n == name then some (cid, tid) else none
+
 /-- Event name → (EventId, field TypeIds in declaration order). -/
 structure EventTableV1 where
   rows : Array (String × EventIdV1 × Array TypeIdV1)
@@ -873,6 +887,9 @@ structure BodyStateV1 where
   /-- Callable parameter names (immutable). Bare assign rebinds only non-param
       env names (let locals and for binders) — N-6. -/
   paramNames : Array String := #[]
+  /-- Complete const table (source-order dense IDs). Locals/params shadow via
+      `env`; bare names resolve env → state → const. Available in pureFn too. -/
+  constants : ConstantTableV1 := ⟨#[]⟩
   interner : TypeInternerV1
   /-- N5: true for init/entry/view; false for pureFn (ContextRead/Commit fail closed). -/
   allowContextCommit : Bool := false
@@ -1097,11 +1114,13 @@ private def requireLetTypeId
   | none =>
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
-/-- Type-only walk of a place chain (env/state root + field/index).
-    N5/N-2: ContextRead surfaces are not env/state roots. -/
+/-- Type-only walk of a place chain (env/state/const root + field/index).
+    N5/N-2: ContextRead surfaces are not env/state/const roots.
+    Lookup priority: locals/params → state → const (Typed fail-closes top-level
+    state/const name clashes; body locals shadow both). -/
 private partial def synthPlaceTypeV1
     (place : SrcPlace) (interner : TypeInternerV1)
-    (env : LocalEnvV1) (states : StateTableV1) :
+    (env : LocalEnvV1) (states : StateTableV1) (constants : ConstantTableV1) :
     Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
   match place with
   | .name n =>
@@ -1112,11 +1131,15 @@ private partial def synthPlaceTypeV1
           match stateLookup states key with
           | some (_, tid) => pure (interner, tid)
           | none =>
-              if key == "context" then
-                failUnsupported
-                  "S1 context place must be context.unixTimeSeconds or context.caller (field chain)"
-              else
-                failUnsupported s!"S1 bare place '{key}' is neither param nor state"
+              match constLookup constants key with
+              | some (_, tid) => pure (interner, tid)
+              | none =>
+                  if key == "context" then
+                    failUnsupported
+                      "S1 context place must be context.unixTimeSeconds or context.caller (field chain)"
+                  else
+                    failUnsupported
+                      s!"S1 bare place '{key}' is neither param, state, nor const"
   | .field base fieldName => do
       match base with
       | .name root =>
@@ -1125,7 +1148,8 @@ private partial def synthPlaceTypeV1
           else if raw root == "context" && raw fieldName == "caller" then
             pure (internShape interner .principal)
           else do
-            let (interner, baseTid) ← synthPlaceTypeV1 base interner env states
+            let (interner, baseTid) ←
+              synthPlaceTypeV1 base interner env states constants
             match shapeOf? interner.types baseTid with
             | some (.struct fields) =>
                 match findStructFieldIndex fields (raw fieldName) with
@@ -1136,7 +1160,8 @@ private partial def synthPlaceTypeV1
             | _ =>
                 failUnsupported "S1 field place requires a struct base"
       | _ => do
-          let (interner, baseTid) ← synthPlaceTypeV1 base interner env states
+          let (interner, baseTid) ←
+            synthPlaceTypeV1 base interner env states constants
           match shapeOf? interner.types baseTid with
           | some (.struct fields) =>
               match findStructFieldIndex fields (raw fieldName) with
@@ -1147,7 +1172,8 @@ private partial def synthPlaceTypeV1
           | _ =>
               failUnsupported "S1 field place requires a struct base"
   | .index base _idxExpr => do
-      let (interner, baseTid) ← synthPlaceTypeV1 base interner env states
+      let (interner, baseTid) ←
+        synthPlaceTypeV1 base interner env states constants
       match shapeOf? interner.types baseTid with
       | some (.array elTid _) => pure (interner, elTid)
       | some (.bytes _) =>
@@ -1176,7 +1202,7 @@ private partial def synthLetExpectedV1
   | .literal (.bool _) => pure (internShape st.interner .bool)
   | .literal (.string _) => pure (internShape st.interner .string)
   | .place p =>
-      synthPlaceTypeV1 p st.interner st.env states
+      synthPlaceTypeV1 p st.interner st.env states st.constants
   | .binary op lhs _ =>
       let srcOp := op
       if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add ||
@@ -1198,7 +1224,10 @@ private partial def synthLetExpectedV1
             | none =>
                 match stateLookup states key with
                 | some (_, tid) => pure (st.interner, tid)
-                | none => pure (internShape st.interner (.uint 64))
+                | none =>
+                    match constLookup st.constants key with
+                    | some (_, tid) => pure (st.interner, tid)
+                    | none => pure (internShape st.interner (.uint 64))
         | _ => pure (internShape st.interner (.uint 64))
       else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq ||
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ne ||
@@ -1221,7 +1250,10 @@ private partial def synthLetExpectedV1
           | none =>
               match stateLookup states key with
               | some (_, tid) => pure (st.interner, tid)
-              | none => pure (internShape st.interner (.uint 64))
+              | none =>
+                  match constLookup st.constants key with
+                  | some (_, tid) => pure (st.interner, tid)
+                  | none => pure (internShape st.interner (.uint 64))
       | _ => pure (internShape st.interner (.uint 64))
   | .constructor _ _ =>
       -- Constructor result type is supplied by the let annotation (or enclosing
@@ -1247,7 +1279,7 @@ private def synthComparisonOperandTypeV1
     Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
   match lhs with
   | .place p =>
-      synthPlaceTypeV1 p st.interner st.env states
+      synthPlaceTypeV1 p st.interner st.env states st.constants
   | .unary _ operand =>
       match operand with
       | .place (.name n) =>
@@ -1257,7 +1289,10 @@ private def synthComparisonOperandTypeV1
           | none =>
               match stateLookup states key with
               | some (_, tid) => pure (st.interner, tid)
-              | none => pure (internShape st.interner (.uint 64))
+              | none =>
+                  match constLookup st.constants key with
+                  | some (_, tid) => pure (st.interner, tid)
+                  | none => pure (internShape st.interner (.uint 64))
       | _ => pure (internShape st.interner (.uint 64))
   | .binary op l _ =>
       let srcOp := op
@@ -1692,7 +1727,8 @@ private partial def peelPlaceRootV1 (place : SrcPlace) :
 
 mutual
 
-/-- Lower a place to a value: bare name (env/stateLoad), fieldGet, indexGet. -/
+/-- Lower a place to a value: bare name (env / stateLoad / Op.Constant),
+    fieldGet, indexGet. Each const read emits an independent `Op.Constant`. -/
 private partial def lowerPlace
     (place : SrcPlace) (st : BodyStateV1) (states : StateTableV1)
     (fns : FnTableV1) :
@@ -1704,15 +1740,22 @@ private partial def lowerPlace
       | some (vid, tid) => pure (vid, tid, st)
       | none =>
           match stateLookup states key with
-          | none =>
-              if key == "context" then
-                failUnsupported
-                  "S1 context place must be context.unixTimeSeconds or context.caller (field chain)"
-              else
-                failUnsupported s!"S1 bare place '{key}' is neither param nor state"
           | some (sid, tid) =>
               let (st1, vid) := emitValue st tid (.stateLoad sid)
               pure (vid, tid, st1)
+          | none =>
+              match constLookup st.constants key with
+              | some (cid, tid) =>
+                  -- result.typeId == ConstantV1.typeId (wire step-j contract).
+                  let (st1, vid) := emitValue st tid (.constant cid)
+                  pure (vid, tid, st1)
+              | none =>
+                  if key == "context" then
+                    failUnsupported
+                      "S1 context place must be context.unixTimeSeconds or context.caller (field chain)"
+                  else
+                    failUnsupported
+                      s!"S1 bare place '{key}' is neither param, state, nor const"
   | .field base fieldName => do
       -- N5/N-2: ContextRead surfaces `context.unixTimeSeconds` (UInt64) and
       -- `context.caller` (Principal). PureFn fail closed.
@@ -2589,7 +2632,7 @@ private partial def lowerExternalEffect
   let mut argIds : Array ValueIdV1 := #[]
   for arg in externalCall.args do
     let (i1, expectedTid) ← match arg with
-      | .place p => synthPlaceTypeV1 p st'.interner st'.env states
+      | .place p => synthPlaceTypeV1 p st'.interner st'.env states st'.constants
       | .literal (.integer _) => pure (internShape st'.interner (.uint 64))
       | _ =>
           -- Fall back to place/synth path; reject non-integer shapes below.
@@ -3042,7 +3085,7 @@ private partial def lowerStmt
   | .for_ binder start endExclusive bound body => do
       -- N-8: for endpoints are same-width legal UInt (not only UInt64).
       let (iStart, startTid) ← match start with
-        | .place p => synthPlaceTypeV1 p st.interner st.env states
+        | .place p => synthPlaceTypeV1 p st.interner st.env states st.constants
         | .literal (.integer _) => pure (internShape st.interner (.uint 64))
         | _ => pure (internShape st.interner (.uint 64))
       requireAnonymousUIntTypeId iStart.types startTid "for start"
@@ -3189,6 +3232,7 @@ end
 private def lowerBlock
     (body : SrcBlock) (params : Array ParameterV1) (resultTid : TypeIdV1)
     (interner : TypeInternerV1) (states : StateTableV1)
+    (constants : ConstantTableV1)
     (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1)
     (allowImplicitReturnNone : Bool)
     (allowContextCommit : Bool)
@@ -3214,6 +3258,7 @@ private def lowerBlock
     nextEffectId := 0
     env := env
     paramNames := paramNames
+    constants := constants
     interner := interner
     allowContextCommit := allowContextCommit
     usedContextUnixTime := usedUnix0
@@ -3286,7 +3331,8 @@ private def mkCallable
     `loopBounds` stay empty by construction (no source `for` in a bare expr). -/
 private def lowerInvariantPredicate
     (predicate : SrcExpr)
-    (interner : TypeInternerV1) (states : StateTableV1) (fns : FnTableV1) :
+    (interner : TypeInternerV1) (states : StateTableV1)
+    (constants : ConstantTableV1) (fns : FnTableV1) :
     Except NormalizeErrorV1 (Array BlockV1 × TypeInternerV1) := do
   let (i1, boolTid) := internShape interner .bool
   -- Expression-match joins allocate block params in the same pre-counted
@@ -3303,6 +3349,7 @@ private def lowerInvariantPredicate
     nextEffectId := 0
     env := emptyEnv
     paramNames := #[]
+    constants := constants
     interner := i1
     allowContextCommit := false
     usedContextUnixTime := false
@@ -3451,7 +3498,13 @@ private def evalConstDeclValueV1
      decls, independent of callable position). Visibility is retained via
      `mapVisibility`; product disclosure is enforced by CheckV1/DisclosureCheck
      before this lowering (not by the state table gate).
-  2. Lower init/entry/view bodies against that complete table.
+  1b. Complete constants table (dense source-order IDs + type interning +
+     literal valueBytes via sole `evalConstDeclValueV1`) **before** any
+     callable body so forward const references resolve. Const types intern
+     after state/event/error types and before body-only shapes (deterministic;
+     programs with only pre-callable const decls keep prior type order for
+     shared shapes already interned by pass 1).
+  2. Lower init/entry/view/fn/invariant bodies against complete tables.
 -/
 def lowerProgramDataV1 (source : ValidatedSourceV1) :
     Except NormalizeErrorV1 SemanticProgramDataV1 := do
@@ -3529,6 +3582,28 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         errorTable := { rows := errorTable.rows.push (raw d.name, eid, fieldTids) }
     | _ => pure ()
 
+  -- Pass 1b: complete constants table before any callable body (N-CONST-REF).
+  -- Dense ConstantId by const declaration source order; valueBytes sole path
+  -- is `evalConstDeclValueV1` (same literal encoder as Op.Literal).
+  let mut constantRows : Array ConstantV1 := #[]
+  let mut constantTable : ConstantTableV1 := ⟨#[]⟩
+  for item in program.items do
+    match item with
+    | .const d =>
+        let (interner', tid) ← internSourceType interner d.type_
+        interner := interner'
+        let valueBytes ← evalConstDeclValueV1 interner.types tid d.value
+        let cid := UInt32.ofNat constantRows.size
+        constantRows := constantRows.push {
+          id := cid
+          name := raw d.name
+          typeId := tid
+          valueBytes }
+        constantTable := {
+          rows := constantTable.rows.push (raw d.name, cid, tid)
+        }
+    | _ => pure ()
+
   -- Pass 2a: fn signature table for localCall resolution. CallableIds follow
   -- the unified source order of **every item that becomes a callable** in
   -- pass 2: init/entry/view/fn/**invariant** (same order pass 2 lowers them).
@@ -3564,7 +3639,6 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
 
   -- Pass 2: lower supported callables; reject unsupported item kinds.
   let mut callables : Array CallableV1 := #[]
-  let mut constantRows : Array ConstantV1 := #[]
   let mut invariantRows : Array WireV1.InvariantDeclV1 := #[]
   let mut callableId : Nat := 0
   let mut usedContextUnixTime := false
@@ -3579,7 +3653,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', unitTid) := internShape interner .unit
         interner := interner''
         let (blocks, loopBounds, interner''', ux, uc, cm) ←
-          lowerBlock d.body params unitTid interner stateTable eventTable errorTable fnTable
+          lowerBlock d.body params unitTid interner stateTable constantTable
+            eventTable errorTable fnTable
             true true usedContextUnixTime usedContextCaller usedCommit
         interner := interner'''
         usedContextUnixTime := ux
@@ -3596,7 +3671,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
         let (blocks, loopBounds, interner''', ux, uc, cm) ←
-          lowerBlock e.body params resultTid interner stateTable eventTable errorTable fnTable
+          lowerBlock e.body params resultTid interner stateTable constantTable
+            eventTable errorTable fnTable
             false true usedContextUnixTime usedContextCaller usedCommit
         interner := interner'''
         usedContextUnixTime := ux
@@ -3613,7 +3689,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
         let (blocks, loopBounds, interner''', ux, uc, cm) ←
-          lowerBlock v.body params resultTid interner stateTable eventTable errorTable fnTable
+          lowerBlock v.body params resultTid interner stateTable constantTable
+            eventTable errorTable fnTable
             false true usedContextUnixTime usedContextCaller usedCommit
         interner := interner'''
         usedContextUnixTime := ux
@@ -3625,19 +3702,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         callableId := callableId + 1
     | .struct _ => pure ()  -- registered in Pass0; no callable body
     | .enum _ => pure ()    -- registered in Pass0; no callable body
-    | .const d =>
-        -- const slice: compile-time-evaluate the value to canonical
-        -- valueBytes and record a ConstantV1 row. The value must be a
-        -- literal (or `-` integer literal); richer constant expressions fail
-        -- closed in `evalConstDeclValueV1`.
-        let (interner', tid) ← internSourceType interner d.type_
-        interner := interner'
-        let valueBytes ← evalConstDeclValueV1 interner.types tid d.value
-        constantRows := constantRows.push {
-          id := UInt32.ofNat constantRows.size
-          name := raw d.name
-          typeId := tid
-          valueBytes }
+    | .const _ => pure ()   -- Pass 1b complete constants table
     | .event _ => pure ()
     | .error _ => pure ()
     | .fn d =>
@@ -3648,10 +3713,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         requireScalarResultTypeId interner.types resultTid s!"fn '{raw d.name}' result"
         -- Fn purity: the body resolves bare places against an empty state
         -- table, so any state name fails closed (fn effects are revert-only).
+        -- Constants remain visible (compile-time values, not state).
         -- N5: ContextRead/Commit also fail closed (allowContextCommit=false).
         let emptyStates : StateTableV1 := ⟨#[]⟩
         let (blocks, loopBounds, interner''', ux, uc, cm) ←
-          lowerBlock d.body params resultTid interner emptyStates eventTable errorTable fnTable
+          lowerBlock d.body params resultTid interner emptyStates constantTable
+            eventTable errorTable fnTable
             false false usedContextUnixTime usedContextCaller usedCommit
         interner := interner'''
         usedContextUnixTime := ux
@@ -3663,11 +3730,11 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         callableId := callableId + 1
     | .invariant d =>
         -- N-INVARIANT-IR: lower Bool predicate into a zero-arg `.invariant`
-        -- callable + dense InvariantDecl row (source order). Full state table
-        -- and pureFn table are visible; ContextRead/Commit fail closed.
-        -- `.proof` remains certification-only (handled below).
+        -- callable + dense InvariantDecl row (source order). Full state table,
+        -- constants table, and pureFn table are visible; ContextRead/Commit
+        -- fail closed. `.proof` remains certification-only (handled below).
         let (blocks, interner') ←
-          lowerInvariantPredicate d.predicate interner stateTable fnTable
+          lowerInvariantPredicate d.predicate interner stateTable constantTable fnTable
         interner := interner'
         let (interner'', boolTid) := internShape interner .bool
         interner := interner''

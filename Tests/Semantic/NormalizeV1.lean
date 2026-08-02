@@ -17,6 +17,9 @@
     * N-INVARIANT-IR: `invariant name : BoolExpr` → `.invariant` callable +
       dense InvariantDecl; exact invariantSteps via sole Wire compute;
       provenance covers `.invariant`; `.proof` stays certification-only
+    * N-CONST-REF: body bare const places → `Op.Constant`; constants table
+      complete before bodies (forward ref); provenance `.constant` + place;
+      suite `Tests.Semantic.NormalizeConst`
     * Counter-like public legal-UInt state + init/entry/view with exact CFG ops
       (UInt64 golden bytes unchanged; multi-width UInt/Int covered in suite)
     * T2 named Struct/Enum Pass0 registration (contiguous named prefix; nested

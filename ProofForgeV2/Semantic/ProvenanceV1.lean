@@ -393,6 +393,13 @@ private structure StateNamesV1 where
 private def stateHas (s : StateNamesV1) (name : String) : Bool :=
   s.names.contains name
 
+/-- Const name set for bare-place resolution (after env + state). -/
+private structure ConstNamesV1 where
+  names : Array String
+
+private def constHas (c : ConstNamesV1) (name : String) : Bool :=
+  c.names.contains name
+
 /-- Body attribution state: next ValueId + instruction index + env. -/
 private structure BodyAttrV1 where
   nextValueId : ValueIdV1
@@ -403,6 +410,8 @@ private structure BodyAttrV1 where
   callableParamCount : Nat
   nextEffectId : UInt32
   env : AttrEnvV1
+  /-- Complete const names (source-order). Locals/params shadow via env. -/
+  constants : ConstNamesV1 := ⟨#[]⟩
   acc : AttrAccumV1
 
 /-- Mirror of NormalizeV1.countForLoopsStmtsV1: every lowered `for`
@@ -437,21 +446,37 @@ private def attrPlace
       match envLookupAttr st.env key with
       | some vid => pure (vid, st)
       | none =>
-          unless stateHas states key do
-            return ← failUnsupported
-              s!"S2 provenance place '{key}' is neither param nor state"
-          -- State load instruction + result value at the Place.Name node.
-          let vid := st.nextValueId
-          let instrEntity :=
-            SemanticEntityRefV1.instruction callableId (UInt32.ofNat st.blockId) (UInt32.ofNat st.nextInstr)
-          let valEntity := SemanticEntityRefV1.value callableId vid
-          let acc1 ← attrPushPath st.acc idx instrEntity placePath
-          let acc2 ← attrPushPath acc1 idx valEntity placePath
-          pure (vid, { st with
-            nextValueId := vid + 1
-            nextInstr := st.nextInstr + 1
-            acc := acc2
-          })
+          if stateHas states key then
+            -- State load instruction + result value at the Place.Name node.
+            let vid := st.nextValueId
+            let instrEntity :=
+              SemanticEntityRefV1.instruction callableId (UInt32.ofNat st.blockId)
+                (UInt32.ofNat st.nextInstr)
+            let valEntity := SemanticEntityRefV1.value callableId vid
+            let acc1 ← attrPushPath st.acc idx instrEntity placePath
+            let acc2 ← attrPushPath acc1 idx valEntity placePath
+            pure (vid, { st with
+              nextValueId := vid + 1
+              nextInstr := st.nextInstr + 1
+              acc := acc2
+            })
+          else if constHas st.constants key then
+            -- N-CONST-REF: Op.Constant + result value at the exact const place path.
+            let vid := st.nextValueId
+            let instrEntity :=
+              SemanticEntityRefV1.instruction callableId (UInt32.ofNat st.blockId)
+                (UInt32.ofNat st.nextInstr)
+            let valEntity := SemanticEntityRefV1.value callableId vid
+            let acc1 ← attrPushPath st.acc idx instrEntity placePath
+            let acc2 ← attrPushPath acc1 idx valEntity placePath
+            pure (vid, { st with
+              nextValueId := vid + 1
+              nextInstr := st.nextInstr + 1
+              acc := acc2
+            })
+          else
+            failUnsupported
+              s!"S2 provenance place '{key}' is neither param, state, nor const"
   | .field _ _ => failUnsupported "S2 provenance does not support field places"
   | .index _ _ => failUnsupported "S2 provenance does not support index places"
 
@@ -1042,7 +1067,8 @@ private def attrBlock
     (callableId : CallableIdV1)
     (body : SrcBlock) (blockPath : NormalizedSyntacticPathV1)
     (params : Array (String × ValueIdV1))
-    (states : StateNamesV1) (idx : OriginIndexV1)
+    (states : StateNamesV1) (constants : ConstNamesV1)
+    (idx : OriginIndexV1)
     (acc0 : AttrAccumV1)
     (allowImplicitReturnNone : Bool) :
     Except ProvenanceBuildErrorV1 AttrAccumV1 := do
@@ -1060,6 +1086,7 @@ private def attrBlock
     callableParamCount := params.size
     nextEffectId := 0
     env := env
+    constants := constants
     acc := accB
   }
   let (st', status) ← attrStmts callableId body.statements blockPath st states idx
@@ -1274,6 +1301,8 @@ private def attributeCounterEntitiesV1
   let mut acc := emptyAttr
   let mut stateNames : Array String := #[]
   let mut stateItemIdxs : Array Nat := #[]
+  let mut constNames : Array String := #[]
+  let mut constItemIdxs : Array Nat := #[]
   let mut eventItemIdxs : Array Nat := #[]
   let mut errorItemIdxs : Array Nat := #[]
   let mut itemIdx : Nat := 0
@@ -1282,6 +1311,9 @@ private def attributeCounterEntitiesV1
     | .state s =>
         stateNames := stateNames.push (raw s.name)
         stateItemIdxs := stateItemIdxs.push itemIdx
+    | .const d =>
+        constNames := constNames.push (raw d.name)
+        constItemIdxs := constItemIdxs.push itemIdx
     | .event _ =>
         eventItemIdxs := eventItemIdxs.push itemIdx
     | .error _ =>
@@ -1289,9 +1321,13 @@ private def attributeCounterEntitiesV1
     | _ => pure ()
     itemIdx := itemIdx + 1
   let states : StateNamesV1 := ⟨stateNames⟩
+  let constants : ConstNamesV1 := ⟨constNames⟩
   unless stateItemIdxs.size == data.logicalState.size do
     return ← failUnsupported
       "S2 provenance: state count mismatch vs semantic logicalState"
+  unless constItemIdxs.size == data.constants.size do
+    return ← failUnsupported
+      "S2 provenance: constant count mismatch vs semantic constants"
   unless eventItemIdxs.size == data.events.size do
     return ← failUnsupported
       "S2 provenance: event count mismatch vs semantic events"
@@ -1321,6 +1357,19 @@ private def attributeCounterEntitiesV1
         | _ => pure ()
     | _ => pure ()
     si := si + 1
+
+  -- Constants: declaration entity + type node binding (N-CONST-REF).
+  let mut ci : Nat := 0
+  for itemI in constItemIdxs do
+    let itemPath := childPath #[] "Program" "items" itemI
+    let some constRow := data.constants[ci]? |
+      return ← failUnsupported "S2 provenance: missing constant row"
+    acc ← attrPushPath acc idx (.constant constRow.id) itemPath
+    let typePath := directChild itemPath "ConstDecl" "type"
+    let (accC, tbC) ← tryBindType acc idx typeBound constRow.typeId typePath
+    acc := accC
+    typeBound := tbC
+    ci := ci + 1
 
   -- Events + errors: declaration entities and first-seen field type nodes.
   let mut ei : Nat := 0
@@ -1403,7 +1452,7 @@ private def attributeCounterEntitiesV1
           params := params.push (raw p.name, sp.valueId)
           pi := pi + 1
         let bodyPath := directChild itemPath "InitDecl" "body"
-        acc ← attrBlock cid d.body bodyPath params states idx acc true
+        acc ← attrBlock cid d.body bodyPath params states constants idx acc true
         callableId := callableId + 1
     | .entry e =>
         let some c := data.callables[callableId]? |
@@ -1430,7 +1479,7 @@ private def attributeCounterEntitiesV1
         acc := accR
         typeBound := tbR
         let bodyPath := directChild itemPath "EntryDecl" "body"
-        acc ← attrBlock cid e.body bodyPath params states idx acc false
+        acc ← attrBlock cid e.body bodyPath params states constants idx acc false
         callableId := callableId + 1
     | .view v =>
         let some c := data.callables[callableId]? |
@@ -1457,7 +1506,7 @@ private def attributeCounterEntitiesV1
         acc := accR
         typeBound := tbR
         let bodyPath := directChild itemPath "ViewDecl" "body"
-        acc ← attrBlock cid v.body bodyPath params states idx acc false
+        acc ← attrBlock cid v.body bodyPath params states constants idx acc false
         callableId := callableId + 1
     | .fn d =>
         let some c := data.callables[callableId]? |
@@ -1483,10 +1532,10 @@ private def attributeCounterEntitiesV1
         let (accR, tbR) ← tryBindType acc idx typeBound c.result.typeId resultPath
         acc := accR
         typeBound := tbR
-        -- Fn purity: the body attributes against an empty state-name table,
-        -- so any state place fails closed (mirroring the normalizer).
+        -- Fn purity: empty state-name table (mirrors normalizer); constants
+        -- remain visible for body Op.Constant attribution.
         let bodyPath := directChild itemPath "FnDecl" "body"
-        acc ← attrBlock cid d.body bodyPath params ⟨#[]⟩ idx acc false
+        acc ← attrBlock cid d.body bodyPath params ⟨#[]⟩ constants idx acc false
         callableId := callableId + 1
     | .invariant _d =>
         -- N-INVARIANT-IR: attribute zero-arg invariant callable + InvariantDecl
@@ -1520,8 +1569,8 @@ private def attributeCounterEntitiesV1
         invOrdinal := invOrdinal + 1
     | .event _ | .error _ => pure ()
     | .struct _ | .enum _ | .const _ | .proof _ =>
-        -- Named types / const rows / proof refs: no business callable body.
-        -- Proof is certification-only and never produces a semantic entity.
+        -- Named types: no business callable body. Const declaration entities
+        -- are bound above (N-CONST-REF). Proof is certification-only.
         pure ()
     | .extensionReq _ =>
         return ← failUnsupported
@@ -1578,7 +1627,7 @@ private def attributeCounterEntitiesV1
     let itemPath := childPath #[] "Program" "items" itemI
     rs := reqPush rs s2StatePersistentIdV1 itemPath
   -- Type-annotation producing sites for value.bool (mirrors the contribution
-  -- engine's type carriers: state/param/result Bool types).
+  -- engine's type carriers: state/param/result/const Bool types).
   itemIdx := 0
   for item in program.items do
     let itemPath := childPath #[] "Program" "items" itemIdx
@@ -1587,6 +1636,11 @@ private def attributeCounterEntitiesV1
         match s.type_ with
         | .bool =>
             rs := reqPush rs s2ValueBoolIdV1 (directChild itemPath "StateDecl" "type")
+        | _ => pure ()
+    | .const d =>
+        match d.type_ with
+        | .bool =>
+            rs := reqPush rs s2ValueBoolIdV1 (directChild itemPath "ConstDecl" "type")
         | _ => pure ()
     | .init d =>
         let mut pi : Nat := 0
