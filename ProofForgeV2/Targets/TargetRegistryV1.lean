@@ -487,6 +487,9 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
         .synchronousCpi .noProof .solanaChain)
       -- Strictly ASCII-ascending: elf-v1 < plan-v1. Default stays plan-v1.
       #[CodegenProfileId.solanaSbpfElfV1, CodegenProfileId.solanaSbpfPlanV1]
+      -- Default plan: Map Token exceeds SBPF 4KiB frame budget under pure-expr
+      -- dense lowering (ELF needs frame-friendly Map follow-on). ELF remains
+      -- selectable via `--profile solana-sbpf-elf-v1` for non-Map programs.
       (some CodegenProfileId.solanaSbpfPlanV1),
     row .near
       (axes TargetId.near .nearWasm .receiptLocal .contractKeyValue

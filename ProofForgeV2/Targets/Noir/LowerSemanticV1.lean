@@ -454,18 +454,19 @@ private def inputTypeOfScalarV1
     NoirAggregate) flattened to UInt64/Int64 relation-slot leaves. T12: Principal
     admitted as **storage identity only** (`pilotPrincipalPolicyAdmit`) — fixed
     leaf layout len+8×UInt64 (≤64B body, same pattern as EVM T10); still not a
-    Field element. Anonymous Array/Map/Bytes stay fail closed
-    (`pilotContainerStatePolicyNone`). -/
+    Field element. **Map UInt64 UInt64** dense pilot via
+    `pilotContainerStatePolicyArrayMap` (capacity-12×occ/key/val public-input
+    leaves; Option intermediate for Map IndexGet). Array/Bytes still FC. -/
 private def validateNoirTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 :=
-  -- Named aggregates admitted (flatten-to-leaf public inputs). Containers
-  -- (anonymous Array/Map/Bytes) and Option stay fail closed at type-closure.
+  -- Named aggregates + Map UInt64 dense pilot. Array/Bytes stay fail closed.
   validatePilotTypeClosure noirPlanErr noirTypeClosureWording types
     pilotUintWidthPolicyNoirBody
     (intPolicy := pilotIntWidthPolicyNarrow)
     (fieldPolicy := pilotFieldPolicyBn254)
     (principalPolicy := pilotPrincipalPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
+    (containerPolicy := pilotContainerStatePolicyArrayMap)
 
 /-- Noir pilot Principal storage layout (T12, isomorphic to EVM T10):
     * leaf 0: wire body length (`UInt64`)
@@ -524,6 +525,103 @@ private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
       place := place * 256
     leaves := leaves.push (.literal (UInt64.ofNat word))
   pure leaves
+
+/-- Dense Map pilot capacity (aligned with EVM/Solana/NEAR Token pilot). -/
+private def noirMapPilotCapacityV1 : Nat := 12
+private def noirMapSlotsPerEntryV1 : Nat := 3
+private def noirMapPilotLeafCountV1 : Nat :=
+  noirMapPilotCapacityV1 * noirMapSlotsPerEntryV1
+
+/-- Map UInt64 UInt64 leaf count; `none` when not Map. -/
+private def mapUInt64LeafCountV1
+    (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .map keyTid valTid, .. } =>
+      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: Map state admits only Map UInt64 UInt64"
+      pure (some noirMapPilotLeafCountV1)
+  | some { shape := .array .., .. } =>
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: Array state is outside the Noir Map pilot"
+  | some { shape := .bytes _, .. } =>
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: Bytes state is outside the Noir Map pilot"
+  | _ => pure none
+
+/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
+private def mapLookupOptionLeavesV1
+    (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
+  unless mapLeaves.size == noirMapPilotLeafCountV1 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: Map leaf count must match pilot capacity"
+  let mut found : Expr := .literal 0
+  let mut payload : Expr := .literal 0
+  for e in [0:noirMapPilotCapacityV1] do
+    let base := e * noirMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .noir "Map lookup occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      throw <| .planInvariant .noir "Map lookup key leaf missing"
+    let some v := mapLeaves[base + 2]? |
+      throw <| .planInvariant .noir "Map lookup val leaf missing"
+    let hit := Expr.checkedMul occ (Expr.compare .eq k key)
+    let miss := Expr.boolNot hit
+    found := Expr.boolOr found hit
+    payload :=
+      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
+  pure #[Expr.checkedAdd found (.literal 0), payload]
+
+/-- Dense Map IndexSet upsert. -/
+private def mapUpsertLeavesV1
+    (mapLeaves : Array Expr) (key value : Expr) :
+    CompileResult (Array Expr × Expr) := do
+  unless mapLeaves.size == noirMapPilotLeafCountV1 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: Map leaf count must match pilot capacity"
+  let mut anyMatch : Expr := .literal 0
+  for e in [0:noirMapPilotCapacityV1] do
+    let base := e * noirMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .noir "Map upsert occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      throw <| .planInvariant .noir "Map upsert key leaf missing"
+    let hit := Expr.checkedMul occ (Expr.compare .eq k key)
+    anyMatch := Expr.boolOr anyMatch hit
+  let mut seenEmpty : Expr := .literal 0
+  let mut isFirstEmpty : Array Expr := #[]
+  for e in [0:noirMapPilotCapacityV1] do
+    let base := e * noirMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .noir "Map upsert empty-scan occ missing"
+    let empty := Expr.boolNot occ
+    let first := Expr.checkedMul empty (Expr.boolNot seenEmpty)
+    isFirstEmpty := isFirstEmpty.push first
+    seenEmpty := Expr.boolOr seenEmpty empty
+  let okInsert := Expr.boolOr anyMatch seenEmpty
+  let mut out : Array Expr := #[]
+  for e in [0:noirMapPilotCapacityV1] do
+    let base := e * noirMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .noir "Map upsert rebuild occ missing"
+    let some k := mapLeaves[base + 1]? |
+      throw <| .planInvariant .noir "Map upsert rebuild key missing"
+    let some v := mapLeaves[base + 2]? |
+      throw <| .planInvariant .noir "Map upsert rebuild val missing"
+    let matchHit := Expr.checkedMul occ (Expr.compare .eq k key)
+    let some firstE := isFirstEmpty[e]? |
+      throw <| .planInvariant .noir "Map upsert firstEmpty missing"
+    let insertHere := Expr.checkedMul firstE (Expr.boolNot anyMatch)
+    let write := Expr.boolOr matchHit insertHere
+    let miss := Expr.boolNot write
+    let occ' := Expr.checkedAdd (Expr.boolOr occ write) (.literal 0)
+    let k' :=
+      Expr.checkedAdd (Expr.checkedMul write key) (Expr.checkedMul miss k)
+    let v' :=
+      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
+    out := out.push occ' |>.push k' |>.push v'
+  pure (out, okInsert)
 
 /-- Map Semantic visibility to Noir relation-slot disclosure. Commitment is
     rejected by the caller before this helper is applied. -/
@@ -647,6 +745,33 @@ private partial def flattenTypeLeafSpecsV1
     throw <| .planInvariant .noir
       "unsupported Noir semantic shape: aggregate leaf must be UInt64, Int64, Principal, or named Struct/Enum"
 
+/-- Promote pure ValueIds across effect boundaries (Token dual Map store). -/
+private def promoteDominatingPureV1
+    (paramCount : Nat) (values : Array LoweredValueV1)
+    (base : Array ValueIdV1) : Array ValueIdV1 := Id.run do
+  let mut out := base
+  for i in [paramCount:values.size] do
+    let id : ValueIdV1 := UInt32.ofNat i
+    unless out.contains id do
+      out := out.push id
+  pure out
+
+/-- Match-arm free values: scrutinee + dependency closure. -/
+private def extendArmReadablesV1
+    (values : Array LoweredValueV1) (armReadables : Array ValueIdV1)
+    (scrutId : ValueIdV1) : Array ValueIdV1 := Id.run do
+  let mut out := armReadables
+  if !out.contains scrutId then
+    out := out.push scrutId
+  match values[scrutId.toNat]? with
+  | none => pure out
+  | some v =>
+      for d in v.dependencies do
+        if !out.contains d then
+          out := out.push d
+      pure out
+
+
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult Nat := do
@@ -716,7 +841,30 @@ private def makeStateLayoutV1
     unless isIdentifier state.name do
       throw <| .planInvariant .noir s!"state name '{state.name}' is not a safe identifier"
     let visibility := inputVisibilityOfSemanticV1 state.visibility
-    if types.isNamedAggregate state.typeId || types.isPrincipal state.typeId then
+    if (← mapUInt64LeafCountV1 typeDecls types state.typeId).isSome then
+      -- Dense Map pilot: capacity×3 UInt64 public-input leaves `name_i`.
+      -- Map is not a scalar; skip scalar public-UInt gate (leaves are public u64).
+      let n ← match ← mapUInt64LeafCountV1 typeDecls types state.typeId with
+        | some n => pure n
+        | none => throw <| .planInvariant .noir "Map leaf count missing"
+      if planned.size + n > maxStateFields then
+        throw <| .planInvariant .noir s!"state count exceeds profile limit {maxStateFields}"
+      let mut leaves : Array Nat := #[]
+      for i in [0:n] do
+        let leafName := state.name ++ "_" ++ toString i
+        unless isIdentifier leafName do
+          throw <| .planInvariant .noir
+            s!"state name '{leafName}' is not a safe identifier"
+        let sourceId := planned.size
+        planned := planned.push {
+          sourceId
+          name := leafName
+          inputType := .u64
+          visibility
+        }
+        leaves := leaves.push sourceId
+      stateLeaves := stateLeaves.push leaves
+    else if types.isNamedAggregate state.typeId || types.isPrincipal state.typeId then
       -- Named Struct/Enum (NoirAggregate) or T12 Principal: flatten to u64 leaves.
       requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState noirPlanErr types state
         (allowNonPublic := true)
@@ -1428,6 +1576,7 @@ private structure LoweredBlockV1 where
   statements : Array Statement
   values : Array LoweredValueV1
   segmentStart : Nat
+  armReadables : Array ValueIdV1
 
 /-- Lower one block's instruction sequence (terminator handled by the region
     walker). Each block starts a fresh effect segment; values from dominating
@@ -1449,6 +1598,7 @@ private def lowerBlockInstructionsV1
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
   let mut values := values0
   let mut segmentStart := values0.size
+  let mut armReadables := armReadables
   let mut body : Array Statement := #[]
   for instruction in block.instructions do
     match instruction.op, instruction.result with
@@ -1513,7 +1663,18 @@ private def lowerBlockInstructionsV1
                   "unsupported Noir semantic shape: literal is not UInt{8,16,32,64,128,256}, Int64, Bool, or Principal"
     | .stateLoad stateId, some result =>
         let leaves ← findStateLeavesV1 layout stateId
-        if types.isNamedAggregate result.typeId || types.isPrincipal result.typeId then
+        if (← mapUInt64LeafCountV1 layout.typeDecls types result.typeId).isSome then
+          unless leaves.size == noirMapPilotLeafCountV1 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: Map state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          for fieldIndex in leaves do
+            leafExprs := leafExprs.push (.stateLoad fieldIndex)
+            leafIsInt := leafIsInt.push false
+          let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leaves.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if types.isNamedAggregate result.typeId || types.isPrincipal result.typeId then
           let specs ← flattenTypeLeafSpecsV1 layout.typeDecls types result.typeId "state"
           unless specs.size == leaves.size do
             throw <| .planInvariant .noir
@@ -1694,8 +1855,8 @@ private def lowerBlockInstructionsV1
         let stored ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
         -- Consume the whole segment via the stored value's dependency closure
         -- (works for both scalar and aggregate roots).
-        let _ ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables valueId
         if stored.isAggregate then
+          -- Soft consume: dual Map stores leave pure values for a later store.
           let leafExprs := stored.leafExprs
           unless leafExprs.size == leaves.size do
             throw <| .planInvariant .noir
@@ -1706,7 +1867,9 @@ private def lowerBlockInstructionsV1
             let some expr := leafExprs[i]? |
               throw <| .planInvariant .noir "aggregate store leaf expr missing"
             body := body.push (.store { fieldIndex, value := expr })
+          armReadables := promoteDominatingPureV1 paramCount values armReadables
         else
+          let _ ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables valueId
           unless leaves.size == 1 do
             throw <| .planInvariant .noir
               "unsupported Noir semantic shape: scalar store targets multi-leaf state"
@@ -1729,6 +1892,7 @@ private def lowerBlockInstructionsV1
             "unsupported Noir semantic shape: assert condition must be Bool"
         let condition ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables condId
         body := body.push (.assert condition)
+        armReadables := promoteDominatingPureV1 paramCount values armReadables
         segmentStart := values.size
     | .emit effectId eventId argIds, none =>
         if mode == .view then
@@ -1745,6 +1909,7 @@ private def lowerBlockInstructionsV1
         -- segment must be reachable from at least one argument tree.
         let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
         body := body.push (.emitEvent effectId.toNat eventId.toNat argExprs)
+        armReadables := promoteDominatingPureV1 paramCount values armReadables
         segmentStart := values.size
     | .externalCall effectId qname argIds, none =>
         if mode == .view then
@@ -1843,83 +2008,93 @@ private def lowerBlockInstructionsV1
         unless result.typeId == typeId do
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: construct result typeId must match op typeId"
-        unless types.isNamedAggregate typeId do
-          throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: construct requires named Struct/Enum (Array/Map/Bytes/Option containers are outside the Noir pilot)"
-        let some decl := layout.typeDecls[typeId.toNat]? |
-          throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: construct TypeDecl missing"
-        match decl.shape with
-        | .struct fields => do
-            unless ctorIdx.toNat == 0 do
-              throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: struct construct ctorIdx must be 0"
-            unless argIds.size == fields.size do
-              throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: struct construct arity mismatch"
-            let mut leaves : Array Expr := #[]
-            let mut leafIsInt : Array Bool := #[]
-            let mut deps : Array ValueIdV1 := #[]
-            let mut depth : Nat := 1
-            let mut nodes : Nat := 1
-            for i in [0:argIds.size] do
-              let some argId := argIds[i]? |
-                throw <| .planInvariant .noir "struct construct arg missing"
-              let some field := fields[i]? |
-                throw <| .planInvariant .noir "struct construct field missing"
-              let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-              let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types field.typeId
-              let argLeaves := arg.leafExprs
-              let argIsInt := arg.leafIsInts
-              unless argLeaves.size == expectedLeaves do
-                throw <| .planInvariant .noir
-                  "unsupported Noir semantic shape: struct construct field leaf count mismatch"
-              leaves := leaves ++ argLeaves
-              leafIsInt := leafIsInt ++ argIsInt
-              deps := deps.push argId
-              depth := Nat.max depth (arg.depth + 1)
-              nodes := nodes + arg.expandedNodes
-            let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
-            values := ← appendResultValueV1 typeId values result value
-        | .enum variants => do
-            let vi := ctorIdx.toNat
-            let some variant := variants[vi]? |
-              throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: enum construct variant out of range"
-            unless argIds.size == variant.payloadTypes.size do
-              throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: enum construct arity mismatch"
-            let maxPay ← enumMaxPayloadLeavesV1 layout.typeDecls types variants
-            let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
-            let mut leafIsInt : Array Bool := #[false]
-            let mut deps : Array ValueIdV1 := #[]
-            let mut depth : Nat := 1
-            let mut nodes : Nat := 1
-            for i in [0:argIds.size] do
-              let some argId := argIds[i]? |
-                throw <| .planInvariant .noir "enum construct arg missing"
-              let some pt := variant.payloadTypes[i]? |
-                throw <| .planInvariant .noir "enum construct payload type missing"
-              let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-              let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types pt
-              let argLeaves := arg.leafExprs
-              let argIsInt := arg.leafIsInts
-              unless argLeaves.size == expectedLeaves do
-                throw <| .planInvariant .noir
-                  "unsupported Noir semantic shape: enum construct payload leaf count mismatch"
-              leaves := leaves ++ argLeaves
-              leafIsInt := leafIsInt ++ argIsInt
-              deps := deps.push argId
-              depth := Nat.max depth (arg.depth + 1)
-              nodes := nodes + arg.expandedNodes
-            while leaves.size < 1 + maxPay do
-              leaves := leaves.push (.literal 0)
-              leafIsInt := leafIsInt.push false
-            let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
-            values := ← appendResultValueV1 typeId values result value
-        | _ =>
+        if let some n := (← mapUInt64LeafCountV1 layout.typeDecls types typeId) then
+          unless ctorIdx == 0 && argIds.isEmpty do
             throw <| .planInvariant .noir
-              "unsupported Noir semantic shape: construct requires Struct or Enum shape"
+              "unsupported Noir semantic shape: Map construct admits only Map.empty"
+          let mut zeros : Array Expr := #[]
+          let mut zInt : Array Bool := #[]
+          for _ in [0:n] do
+            zeros := zeros.push (.literal 0)
+            zInt := zInt.push false
+          let value := mkAggregateValueV1 zeros zInt #[] 1 n
+          values := ← appendResultValueV1 result.typeId values result value
+        else do
+          let some decl := layout.typeDecls[typeId.toNat]? |
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: construct TypeDecl missing"
+          match decl.shape with
+          | .struct fields => do
+              unless ctorIdx.toNat == 0 do
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: struct construct ctorIdx must be 0"
+              unless argIds.size == fields.size do
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: struct construct arity mismatch"
+              let mut leaves : Array Expr := #[]
+              let mut leafIsInt : Array Bool := #[]
+              let mut deps : Array ValueIdV1 := #[]
+              let mut depth : Nat := 1
+              let mut nodes : Nat := 1
+              for i in [0:argIds.size] do
+                let some argId := argIds[i]? |
+                  throw <| .planInvariant .noir "struct construct arg missing"
+                let some field := fields[i]? |
+                  throw <| .planInvariant .noir "struct construct field missing"
+                let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+                let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types field.typeId
+                let argLeaves := arg.leafExprs
+                let argIsInt := arg.leafIsInts
+                unless argLeaves.size == expectedLeaves do
+                  throw <| .planInvariant .noir
+                    "unsupported Noir semantic shape: struct construct field leaf count mismatch"
+                leaves := leaves ++ argLeaves
+                leafIsInt := leafIsInt ++ argIsInt
+                deps := deps.push argId
+                depth := Nat.max depth (arg.depth + 1)
+                nodes := nodes + arg.expandedNodes
+              let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
+              values := ← appendResultValueV1 typeId values result value
+          | .enum variants => do
+              let vi := ctorIdx.toNat
+              let some variant := variants[vi]? |
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: enum construct variant out of range"
+              unless argIds.size == variant.payloadTypes.size do
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: enum construct arity mismatch"
+              let maxPay ← enumMaxPayloadLeavesV1 layout.typeDecls types variants
+              let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
+              let mut leafIsInt : Array Bool := #[false]
+              let mut deps : Array ValueIdV1 := #[]
+              let mut depth : Nat := 1
+              let mut nodes : Nat := 1
+              for i in [0:argIds.size] do
+                let some argId := argIds[i]? |
+                  throw <| .planInvariant .noir "enum construct arg missing"
+                let some pt := variant.payloadTypes[i]? |
+                  throw <| .planInvariant .noir "enum construct payload type missing"
+                let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+                let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types pt
+                let argLeaves := arg.leafExprs
+                let argIsInt := arg.leafIsInts
+                unless argLeaves.size == expectedLeaves do
+                  throw <| .planInvariant .noir
+                    "unsupported Noir semantic shape: enum construct payload leaf count mismatch"
+                leaves := leaves ++ argLeaves
+                leafIsInt := leafIsInt ++ argIsInt
+                deps := deps.push argId
+                depth := Nat.max depth (arg.depth + 1)
+                nodes := nodes + arg.expandedNodes
+              while leaves.size < 1 + maxPay do
+                leaves := leaves.push (.literal 0)
+                leafIsInt := leafIsInt.push false
+              let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
+              values := ← appendResultValueV1 typeId values result value
+          | _ =>
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: construct requires Struct or Enum shape"
+
     | .fieldGet baseId fieldIndex, some result => do
         let base ← currentValueWithArmsV1 values paramCount segmentStart armReadables baseId
         unless base.isAggregate do
@@ -2055,7 +2230,18 @@ private def lowerBlockInstructionsV1
         let base ← currentValueWithArmsV1 values paramCount segmentStart armReadables baseId
         unless base.isAggregate do
           throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: variantPayload base must be a named Enum"
+            "unsupported Noir semantic shape: variantPayload base must be aggregate"
+        if base.leafExprs.size == 2 then
+          let some payload := base.leafExprs[1]? |
+            throw <| .planInvariant .noir "Option variantPayload leaf missing"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := payload
+            kind := .uint64
+            depth := base.depth + 1
+            expandedNodes := base.expandedNodes + 1
+            dependencies := #[baseId]
+          }
+        else do
         let mut hit : Option (Nat × Nat) := none
         for tid in types.namedTypeIds do
           match layout.typeDecls[tid.toNat]? with
@@ -2101,9 +2287,52 @@ private def lowerBlockInstructionsV1
               dependencies := #[baseId]
             }
         values := ← appendResultValueV1 result.typeId values result value
-    | .indexGet .., some _ | .indexSet .., some _ =>
-        throw <| .planInvariant .noir
-          "unsupported Noir semantic shape: IndexGet/IndexSet are outside the Noir pilot (anonymous Array/Map/Bytes containers fail closed)"
+    | .indexGet baseId idxId, some result => do
+        let base ← currentValueWithArmsV1 values paramCount segmentStart armReadables baseId
+        unless base.isAggregate do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: IndexGet base must be a Map aggregate"
+        let idx ← currentValueWithArmsV1 values paramCount segmentStart armReadables idxId
+        unless base.leafExprs.size == noirMapPilotLeafCountV1 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: IndexGet admits only Map UInt64 pilot tables"
+        let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+        let zInt := optLeaves.map fun _ => false
+        let value := mkAggregateValueV1 optLeaves zInt #[baseId, idxId]
+          (Nat.max base.depth idx.depth + 1)
+          (base.expandedNodes + idx.expandedNodes + 1)
+        values := ← appendResultValueV1 result.typeId values result value
+    | .indexSet baseId idxId valueId, some result => do
+        let base ← currentValueWithArmsV1 values paramCount segmentStart armReadables baseId
+        unless base.isAggregate do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: IndexSet base must be a Map aggregate"
+        let idx ← currentValueWithArmsV1 values paramCount segmentStart armReadables idxId
+        let val ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+        unless val.kind == .uint64 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: Map IndexSet value must be UInt64"
+        unless base.leafExprs.size == noirMapPilotLeafCountV1 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: IndexSet admits only Map UInt64 pilot tables"
+        let (outLeaves0, okInsert) ←
+          mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+        let gate := Expr.checkedDiv (.literal 1) okInsert
+        let mut outLeaves : Array Expr := #[]
+        let mut outIsInt : Array Bool := #[]
+        for i in [0:outLeaves0.size] do
+          let some e := outLeaves0[i]? |
+            throw <| .planInvariant .noir "Map IndexSet leaf missing after upsert"
+          let e' :=
+            if i == 0 then
+              Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
+            else e
+          outLeaves := outLeaves.push e'
+          outIsInt := outIsInt.push false
+        let value := mkAggregateValueV1 outLeaves outIsInt #[baseId, idxId, valueId]
+          (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
+          (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
+        values := ← appendResultValueV1 result.typeId values result value
     -- N5: Noir declines Commit (commitment labels have no relation-slot
     -- representation under N1 public-input policy) and ContextRead (no clock).
     | .commit .., some _ =>
@@ -2118,13 +2347,15 @@ private def lowerBlockInstructionsV1
     | _, _ =>
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: instruction op/result is outside the current UInt64 pilot"
-  pure { statements := body, values, segmentStart }
+  pure { statements := body, values, segmentStart, armReadables }
 
 /-- Decode a switch case constant against the scrutinee kind. -/
-private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bytes : ByteArray) :
-    CompileResult UInt64 := do
+private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bitWidth : Nat)
+    (bytes : ByteArray) : CompileResult UInt64 := do
   if scrutIsBool then
     decodeBoolLiteralV1 bytes
+  else if bitWidth == 32 then
+    decodeUInt32LiteralLe noirPlanErr "Noir" bytes
   else
     decodeUInt64LiteralV1 bytes
 
@@ -2162,6 +2393,7 @@ private partial def emitRegionV1
   let instrs := lowered.statements
   let values := lowered.values
   let segmentStart := lowered.segmentStart
+  let freeAfter := lowered.armReadables
   match block.terminator with
   | .return_ (some valueId) =>
       match mode with
@@ -2173,11 +2405,11 @@ private partial def emitRegionV1
             | none =>
                 throw <| .planInvariant .noir
                   "unsupported Noir semantic shape: entry/view return kind is missing"
-          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+          let root ← currentValueWithArmsV1 values paramCount segmentStart freeAfter valueId
           unless root.kind == expectedKind do
             throw <| .planInvariant .noir
               s!"unsupported Noir semantic shape: return value kind is not consistent with the {owner} result type"
-          let value ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables valueId
+          let value ← consumeCurrentSegmentV1 values paramCount segmentStart freeAfter valueId
           pure (instrs.push (.returnValue value), values, none, none)
   | .return_ none =>
       unless segmentStart == values.size do
@@ -2206,11 +2438,11 @@ private partial def emitRegionV1
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: loop latch must carry exactly one argument"
             let updateId := target.args[0]!
-            let updateRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables updateId
+            let updateRoot ← currentValueWithArmsV1 values paramCount segmentStart freeAfter updateId
             unless updateRoot.kind == .uint64 do
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: loop update must be UInt64"
-            let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables target.args
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart freeAfter target.args
             pure (instrs, values, none, some #[updateRoot.expr])
           else do
             -- Loop entry: the forward jump into the header carries the
@@ -2230,7 +2462,7 @@ private partial def emitRegionV1
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: loop induction variable must be UInt64"
             let initId := target.args[0]!
-            let initRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables initId
+            let initRoot ← currentValueWithArmsV1 values paramCount segmentStart freeAfter initId
             unless initRoot.kind == .uint64 do
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: loop initial value must be UInt64"
@@ -2238,7 +2470,7 @@ private partial def emitRegionV1
               (List.range (values.size - segmentStart)).toArray.map
                 (fun i => UInt32.ofNat (segmentStart + i))
             let loopReadables := armReadables ++ segmentIds
-            let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables segmentIds
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart freeAfter segmentIds
             -- The induction placeholder's slot is this header's ordinal
             -- among all loop headers (BlockId order).
             let mut slot := 0
@@ -2284,14 +2516,14 @@ private partial def emitRegionV1
                 throw <| .planInvariant .noir
                   "unsupported Noir semantic shape: loop header must end in a branch"
   | .branch condId thenT elseT =>
-      let condRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+      let condRoot ← currentValueWithArmsV1 values paramCount segmentStart freeAfter condId
       unless condRoot.kind == .bool do
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: branch condition must be Bool"
-      let cond ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables condId
+      let cond ← consumeCurrentSegmentV1 values paramCount segmentStart freeAfter condId
       let (thenBody, values1, thenNext, thenBack) ←
         emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-          armReadables (fuel - 1) thenT.blockId.toNat values
+          freeAfter (fuel - 1) thenT.blockId.toNat values
       unless thenBack.isNone do
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: loop back edge escapes a branch arm"
@@ -2300,12 +2532,12 @@ private partial def emitRegionV1
           if elseT.blockId.toNat == j then
             let (rest, values2, next, back2) ←
               emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-                armReadables (fuel - 1) j values1
+                freeAfter (fuel - 1) j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next, back2)
           else
             let (elseBody, values2, elseNext, elseBack) ←
               emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-                armReadables (fuel - 1) elseT.blockId.toNat values1
+                freeAfter (fuel - 1) elseT.blockId.toNat values1
             unless elseBack.isNone do
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: loop back edge escapes a branch arm"
@@ -2316,33 +2548,38 @@ private partial def emitRegionV1
                     "unsupported Noir semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, next, back3) ←
                   emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-                    armReadables (fuel - 1) j values2
+                    freeAfter (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next, back3)
             | none =>
                 let (rest, values3, next, back3) ←
                   emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-                    armReadables (fuel - 1) j values2
+                    freeAfter (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next, back3)
       | none =>
           let (elseBody, values2, elseNext, elseBack) ←
             emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-              armReadables (fuel - 1) elseT.blockId.toNat values1
+              freeAfter (fuel - 1) elseT.blockId.toNat values1
           pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext, elseBack)
   | .switch scrutId cases defaultTarget =>
-      let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
-      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables scrutId
+      let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart freeAfter scrutId
+      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart freeAfter scrutId
       let some defaultT := defaultTarget |
         throw (.planInvariant .noir
           "unsupported Noir semantic shape: switch must carry a default target")
       let scrutIsBool := scrutVal.kind == .bool
+      let scrutBitWidth :=
+        match scrutVal.kind with
+        | .uint32 => 32
+        | .bool => 1
+        | _ => 64
       let mut caseBodies : Array (UInt64 × Array Statement) := #[]
       let mut joinAcc : Option Nat := none
       let mut valuesA := values
       for switchCase in cases do
-        let caseValue ← decodeSwitchCaseValueV1 scrutIsBool switchCase.valueBytes
+        let caseValue ← decodeSwitchCaseValueV1 scrutIsBool scrutBitWidth switchCase.valueBytes
         let (body, values1, armNext, armBack) ←
           emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-            (armReadables.push scrutId) (fuel - 1)
+            (extendArmReadablesV1 values freeAfter scrutId) (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         unless armBack.isNone do
           throw <| .planInvariant .noir
@@ -2358,7 +2595,7 @@ private partial def emitRegionV1
                 "unsupported Noir semantic shape: switch arms converge on divergent joins"
       let (defaultBody, values2, defaultNext, defaultBack) ←
         emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-          (armReadables.push scrutId) (fuel - 1)
+          (extendArmReadablesV1 values freeAfter scrutId) (fuel - 1)
           defaultT.blockId.toNat valuesA
       unless defaultBack.isNone do
         throw <| .planInvariant .noir
@@ -2376,17 +2613,17 @@ private partial def emitRegionV1
       | some j =>
           let (rest, values3, next, back3) ←
             emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-              armReadables (fuel - 1) j values2
+              freeAfter (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next, back3)
   | .revert errorId argIds =>
       let mut argExprs : Array Expr := #[]
       for argId in argIds do
-        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+        let root ← currentValueWithArmsV1 values paramCount segmentStart freeAfter argId
         unless root.kind == .uint64 do
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: revert arguments must be UInt64"
         argExprs := argExprs.push root.expr
-      let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
+      let _ ← consumeSegmentRootsV1 values paramCount segmentStart freeAfter argIds
       pure (instrs.push (.revertError errorId.toNat argExprs), values, none, none)
   | .trap _ =>
       throw <| .planInvariant .noir

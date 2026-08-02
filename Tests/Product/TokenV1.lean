@@ -5,9 +5,9 @@
     * product `check` succeeds (Normalize Map path: empty + IndexGet/Set)
     * product `build --target evm` succeeds deployable (dense Map pilot)
     * product `build --target solana` succeeds (plan profile; dense Map pilot)
-    * product `build --target near` succeeds (dense Map pilot; WAT/WASM path)
-    * noir still fail closed on Map Plan until that leaf opens
-    * not Principal-keyed; not IBC; not four-target deployable
+    * product `build --target near` succeeds deployable (dense Map pilot)
+    * product `build --target noir` succeeds (source relations; dense Map pilot)
+    * not Principal-keyed; not IBC; runtime diffs are engineering-only
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Common
@@ -138,34 +138,21 @@ private def testNearBuildOk : IO Unit := do
     throw <| IO.userError "Token NEAR must write manifest.json"
   try IO.FS.removeDirAll outDir catch _ => pure ()
 
-private def mapStillClosedTargets : Array String := #["noir"]
-
-/-- Noir still fail closed on Map state (no materialize / no manifest). -/
-private def testOtherTargetsMapFailClosed : IO Unit := do
+/-- Noir Map pilot: Token builds source package + manifest. -/
+private def testNoirBuildOk : IO Unit := do
   assertShape (← readShipped)
-  for tid in mapStillClosedTargets do
-    let outDir := FilePath.mk s!".lake/build/tmp-ns1-token-{tid}"
-    try IO.FS.removeDirAll outDir catch _ => pure ()
-    let (code, stdout, stderr) ← runCli
-      #["build", "Examples/Token.lean",
-        "--module", "Examples.Token",
-        "--target", tid,
-        "-o", outDir.toString]
-    expect (code != 0)
-      s!"Token build --target {tid} must fail closed, exit={code}"
-    let combined := stdout ++ "\n" ++ stderr
-    expect (
-        containsSubstr combined "Map" ||
-        containsSubstr combined "container-state" ||
-        containsSubstr combined "PF-PLAN-INVARIANT" ||
-        containsSubstr combined "PF-REQ" ||
-        containsSubstr combined "Option" ||
-        containsSubstr combined "IndexGet")
-      s!"{tid}: must cite Map/container/PLAN boundary, got:\n{combined}"
-    if ← (outDir / "manifest.json").pathExists then
-      throw <| IO.userError
-        s!"{tid}: failed Token build must not leave manifest.json"
-    try IO.FS.removeDirAll outDir catch _ => pure ()
+  let outDir := FilePath.mk ".lake/build/tmp-ns1-token-noir"
+  try IO.FS.removeDirAll outDir catch _ => pure ()
+  let (code, stdout, stderr) ← runCli
+    #["build", "Examples/Token.lean",
+      "--module", "Examples.Token",
+      "--target", "noir",
+      "-o", outDir.toString]
+  expect (code == 0)
+    s!"Token build --target noir must succeed, exit={code} stderr={stderr} stdout={stdout}"
+  unless ← (outDir / "manifest.json").pathExists do
+    throw <| IO.userError "Token Noir must write manifest.json"
+  try IO.FS.removeDirAll outDir catch _ => pure ()
 
 unsafe def run : IO Unit := do
   testProductCompileOk
@@ -173,7 +160,7 @@ unsafe def run : IO Unit := do
   testEvmBuildDeployable
   testSolanaBuildOk
   testNearBuildOk
-  testOtherTargetsMapFailClosed
+  testNoirBuildOk
   IO.println "Tests.Product.TokenV1: ok"
 
 end Tests.Product.TokenV1

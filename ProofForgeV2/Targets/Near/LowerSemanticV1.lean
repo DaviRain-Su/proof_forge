@@ -499,7 +499,7 @@ private def nearPlanErr (message : String) : CompileError :=
     pattern as EVM T10); still not a NEAR account-id string.
     ArrayState + **Map UInt64 UInt64** dense pilot via
     `pilotContainerStatePolicyArrayMap` (Array → N×UInt64 leaves; Map →
-    capacity-8×(occ,key,val); Option intermediate for Map IndexGet). -/
+    capacity-12×(occ,key,val); Option intermediate for Map IndexGet). -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
@@ -599,13 +599,13 @@ private def mkStateLoadExpr (bitWidth : Nat) (fieldIndex : Nat) : Expr :=
   else .narrowStateLoad bitWidth fieldIndex
 
 /-- Dense Map pilot capacity (aligned with EVM/Solana Token pilot). -/
-private def nearMapPilotCapacityV1 : Nat := 8
+private def nearMapPilotCapacityV1 : Nat := 12
 private def nearMapSlotsPerEntryV1 : Nat := 3
 private def nearMapPilotLeafCountV1 : Nat :=
   nearMapPilotCapacityV1 * nearMapSlotsPerEntryV1
 
 /-- Array / Map container leaf count. Array: fixed `Array UInt64 N`.
-    Map: dense capacity-8 occ/key/val. Bytes fail closed. -/
+    Map: dense capacity-12 occ/key/val. Bytes fail closed. -/
 private def arrayUInt64LeafCountV1
     (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option Nat) := do
@@ -796,7 +796,7 @@ private structure LoweredValueV1 where
   depth : Nat
   expandedNodes : Nat
   dependencies : Array ValueIdV1
-  /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-8
+  /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-12
       occ/key/val, or Option `[tag,payload]` from Map IndexGet. `expr` mirrors
       `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none

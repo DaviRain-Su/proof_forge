@@ -614,9 +614,9 @@ private def arrayScalarLeafLayoutV1
 
 /-- NS-1b / I1 Map pilot capacity: dense open table for dynamic UInt64 keys.
     Each entry: occupied (0/1), key, value → 3×UInt64 leaves.
-    Capacity 8 keeps Token transfer (nested match + dual IndexSet) under the
+    Capacity 12 keeps Token transfer (nested match + dual IndexSet) under the
     4 MiB Yul IR limit; pure unrolled trees grow ~O(capacity²) per upsert. -/
-private def evmMapPilotCapacityV1 : Nat := 8
+private def evmMapPilotCapacityV1 : Nat := 12
 private def evmMapSlotsPerEntryV1 : Nat := 3
 private def evmMapPilotLeafCountV1 : Nat :=
   evmMapPilotCapacityV1 * evmMapSlotsPerEntryV1

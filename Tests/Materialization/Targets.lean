@@ -2875,18 +2875,8 @@ unsafe def run : IO Unit := do
   expect (nearArray.entries.any fun e => e.name == "set0")
     "ArrayState: NEAR plan has set0 entry"
   let _ ← liftResult <| materializeSelected TargetId.near arrayCompiled
-  for target in [TargetId.noir] do
-    match materializeSelected target arrayCompiled with
-    | .ok _ =>
-        throw <| IO.userError s!"ArrayState: {target} must decline container state"
-    | .error e =>
-        expect ((e.render).contains "Array" ||
-            (e.render).contains "container" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "pilot" ||
-            (e.render).contains "IndexGet" ||
-            (e.render).contains "UInt64")
-          s!"ArrayState {target} message must cite container/Array boundary, got {e.render}"
+  -- NoirContainer: Noir admits Array UInt64 flatten-to-leaf (same as Solana/NEAR/Psy/Aleo).
+  let _ ← liftResult <| materializeSelected TargetId.noir arrayCompiled
 
   -- N-A4: Option state Normalize-admitted; all Phase-1 targets fail closed
   -- (container policy never admits Option).

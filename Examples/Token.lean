@@ -7,7 +7,10 @@ open ProofForgeV2.Language
 -- NS-1 fungible token (Map UInt64→UInt64 balances + supply).
 -- Account keys are UInt64 ids (not Principal — Principal Map/state is still
 -- target-gated outside EVM T10 leaf storage). Transfer/mint use Map IndexGet/Set.
--- Product check/compile succeeds. Dense Map UInt64→UInt64 pilot (capacity-8
+-- Product check/compile succeeds. Dense Map UInt64→UInt64 pilot (capacity-12
+-- occ/key/val) on EVM/Solana/NEAR/Noir. Solana default profile is ELF
+-- (deployable when sbpf locked). Runtime smokes: scripts/evm_token_anvil_smoke.sh,
+-- near_token_wasm_smoke.sh, runtime-tests/solana/fixtures/MapMini.lean.
 -- occ/key/val): EVM deployable Yul/bin; Solana plan+IDL; NEAR plan+WAT.
 -- Noir Map Plan still FAIL-CLOSED until that leaf lane opens.
 program Token where
