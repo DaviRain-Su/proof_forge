@@ -57,8 +57,8 @@ private def validateExprNodes (expr : Expr) (depth : Nat) : Option Nat :=
   if depth > maxExprDepth then none
   else
   match expr with
-  | .literal _ | .i64Literal _ | .u8Literal _ | .boolLiteral _ | .param _
-  | .loopVar _ | .stateLoad _ =>
+  | .literal _ | .i64Literal _ | .u8Literal _ | .boolLiteral _ | .fieldLiteral _
+  | .param _ | .loopVar _ | .stateLoad _ =>
       some 1
   | .u8To64 o | .narrow8 o => do
       let do' ← validateExprNodes o (depth + 1)
@@ -73,7 +73,8 @@ private def validateExprNodes (expr : Expr) (depth : Nat) : Option Nat :=
   | .signedCheckedAdd l r | .signedCheckedSub l r | .signedCheckedMul l r
   | .signedCheckedDiv l r | .signedCheckedMod l r
   | .signedShl l r | .signedShr l r
-  | .signedBitAnd l r | .signedBitOr l r | .signedBitXor l r => do
+  | .signedBitAnd l r | .signedBitOr l r | .signedBitXor l r
+  | .fieldBinary _ l r | .fieldCompare _ l r => do
       let dl ← validateExprNodes l (depth + 1)
       let dr ← validateExprNodes r (depth + 1)
       some (dl + dr + 1)
@@ -81,7 +82,8 @@ private def validateExprNodes (expr : Expr) (depth : Nat) : Option Nat :=
       let dl ← validateExprNodes l (depth + 1)
       let dr ← validateExprNodes r (depth + 1)
       some (dl + dr + 1)
-  | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o | .u8BitNot o => do
+  | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o | .u8BitNot o
+  | .fieldNeg o => do
       let do' ← validateExprNodes o (depth + 1)
       some (do' + 1)
   | .ternary c t e => do

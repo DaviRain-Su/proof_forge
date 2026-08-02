@@ -67,6 +67,10 @@ private def eventEmission := contribution s2EffectEventIdV1
 private def boolValues := contribution s2ValueBoolIdV1
 private def commitmentDisclosure := contribution inferDisclosureCommitmentIdV1
 private def fieldBn254 := contribution inferValueFieldBn254FrIdV1
+/-- T14 catalog v2: BLS12-377 Fr Field type contribution (Aleo native field). -/
+private def fieldBls12377 := contribution inferValueFieldBls12377FrIdV1
+/-- T14 catalog v2: Goldilocks Field type contribution (Psy native Felt). -/
+private def fieldGoldilocks := contribution inferValueFieldGoldilocksIdV1
 private def privateState := contribution inferDisclosurePrivateStateIdV1
 private def commitmentState := contribution inferDisclosureCommitmentStateIdV1
 /-- T-3: ContextRead / Commit contribution identities (wire spellings; freeze-skipped
@@ -87,7 +91,11 @@ private def stableUniqueContributions
 private partial def typeContributions : TypeV1 → Array RequirementContributionV1
   | .bool => #[boolValues]
   | .field id =>
-      if id.raw == "bn254_fr" then #[fieldBn254] else #[]
+      -- T14 catalog v2: one contribution per closed-catalog Field token.
+      if id.raw == "bn254_fr" then #[fieldBn254]
+      else if id.raw == "bls12_377_fr" then #[fieldBls12377]
+      else if id.raw == "goldilocks" then #[fieldGoldilocks]
+      else #[]
   | .option element => typeContributions element
   | .array element _ => typeContributions element
   | .map key value => typeContributions key ++ typeContributions value

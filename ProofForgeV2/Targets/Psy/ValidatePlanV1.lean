@@ -32,10 +32,12 @@ private def isReserved (name : String) : Bool :=
 
 private def validateExprNodes (expr : Expr) : Option Nat :=
   match expr with
-  | .literal _ | .u32Literal _ | .boolLiteral _ | .param _ | .loopVar _ | .stateLoad _ => some 1
+  | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
+  | .param _ | .loopVar _ | .stateLoad _ => some 1
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
-  | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r => do
+  | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
+  | .fieldBinary _ l r | .fieldCompare _ l r => do
       let dl ← validateExprNodes l
       let dr ← validateExprNodes r
       if dl + dr + 1 > maxExprDepth then none else some (dl + dr + 1)
@@ -43,7 +45,7 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
       let dl ← validateExprNodes l
       let dr ← validateExprNodes r
       if dl + dr + 1 > maxExprDepth then none else some (dl + dr + 1)
-  | .boolNot o | .checkedNeg o | .bitNot o => do
+  | .boolNot o | .checkedNeg o | .bitNot o | .fieldNeg o => do
       let do' ← validateExprNodes o
       if do' + 1 > maxExprDepth then none else some (do' + 1)
   | .callFn _ args => do

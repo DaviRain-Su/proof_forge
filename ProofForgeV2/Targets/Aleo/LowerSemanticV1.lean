@@ -73,6 +73,12 @@ inductive ComparisonOp where
   | eq | ne | lt | le | gt | ge
   deriving BEq, Inhabited, Repr
 
+/-- T14 catalog v2 (BLS12-377): native Leo `field` arithmetic operator.
+    Leo `field` is a field element, so each op is exact mod BLS12-377 Fr. -/
+inductive FieldArithOp where
+  | add | sub | mul | div
+  deriving BEq, Inhabited, Repr
+
 /-- Target-owned Aleo Plan expression over the shipped public
     UInt64/Int64/Bool semantic envelope. UInt32 shift counts are promoted to
     UInt64 values with an explicit `count < 64` guard at emission. Int64 uses
@@ -139,6 +145,19 @@ inductive Expr where
   /-- Type-directed selection `cond ? thenV : elseV` (Map pilot selectors;
       Leo ternary requires same-typed arms and a Bool condition). -/
   | ternary (condition thenValue elseValue : Expr)
+  /-- T14 catalog v2 (BLS12-377): native Leo `field` literal. The value is the
+      raw BLS12-377 Fr element (`< r`); emitted as a Leo `field` literal. -/
+  | fieldLiteral (value : UInt64)
+  /-- T14 catalog v2 (BLS12-377): native Leo `field` arithmetic. Leo `field` is
+      a field element so the op is exact mod BLS12-377 Fr — no checked-overflow
+      guard. -/
+  | fieldBinary (op : FieldArithOp) (lhs rhs : Expr)
+  /-- T14 catalog v2 (BLS12-377): native Leo `field` equality (eq/ne only;
+      Leo `field` has no ordering). -/
+  | fieldCompare (op : ComparisonOp) (lhs rhs : Expr)
+  /-- T14 catalog v2 (BLS12-377): native Leo `field` negation `0 - x`
+      (BLS12-377 Fr inverse; no intMin revert). -/
+  | fieldNeg (operand : Expr)
   | callFn (fnName : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
@@ -170,6 +189,8 @@ structure PlanParam where
   isInt : Bool := false
   /-- UInt8 parameter (Bytes element lane; Leo `u8`). -/
   isU8 : Bool := false
+  /-- T14 catalog v2 (BLS12-377): native Leo `field` parameter. -/
+  isField : Bool := false
   deriving BEq, Inhabited, Repr
 
 /-- One callable artifact. `resultDropped` records that a non-Unit result
@@ -192,6 +213,8 @@ structure PlanFunction where
   resultIsInt : Bool := false
   /-- UInt8 result (Bytes element lane; Leo `u8`). -/
   resultIsU8 : Bool := false
+  /-- T14 catalog v2 (BLS12-377): native Leo `field` result. -/
+  resultIsField : Bool := false
   resultDropped : Bool
   /-- True when source kind was `pureFn` (Leo helper outside program). -/
   isPureHelper : Bool := false
@@ -214,6 +237,8 @@ structure Plan where
   stateFieldIsInt : Array Bool
   /-- UInt8 flag per state field (Bytes element lane; `u8` mappings). -/
   stateFieldIsU8 : Array Bool
+  /-- T14 catalog v2 (BLS12-377): Leo `field` flag per state field. -/
+  stateFieldIsField : Array Bool
   functions : Array PlanFunction
   views : Array PlanView
   sourceHash : String
@@ -233,7 +258,7 @@ private def aleoTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/UInt32/UInt8/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, UInt8, Int64, Unit, Bool, named Struct/Enum, Array UInt64, Map UInt64 UInt64, and Bytes N are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, not bn254 Fr; Option-state/Principal/String stay fail-closed)"
+    "only UInt64, UInt32, UInt8, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, and Bytes N are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option-state/Principal/String stay fail-closed)"
 
 /-- Aleo pilot width policy: UInt64 + UInt32 (shift counts) + **UInt8**
     (Bytes N element lane). UInt16/128/256 stay fail-closed. -/
@@ -252,7 +277,7 @@ private def validateAleoTypeClosureV1
   validatePilotTypeClosure aleoPlanErr aleoTypeClosureWording types
     pilotUintWidthPolicyU64U32U8
     (intPolicy := pilotIntWidthPolicyI64)
-    (fieldPolicy := pilotFieldPolicyNone)
+    (fieldPolicy := pilotFieldPolicyBls12377)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
@@ -277,6 +302,9 @@ private structure LoweredVal where
   leafIsInt? : Option (Array Bool) := none
   /-- UInt8 (Bytes element) flag, per-leaf like `leafIsInt?`. -/
   leafIsU8? : Option (Array Bool) := none
+  /-- T14 catalog v2 (BLS12-377): scalar Leo `field` value. Selects native
+      field arithmetic (no checked-overflow guard) and `field` emission. -/
+  isField : Bool := false
   deriving Inhabited
 
 private def LoweredVal.isAggregate (v : LoweredVal) : Bool :=
@@ -300,34 +328,38 @@ private def LoweredVal.isU8Scalar (v : LoweredVal) : Bool :=
   | none => false
 
 private def mkScalarVal (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none, leafIsInt? := none, leafIsU8? := none }
+  { expr := e, leaves? := none, leafIsInt? := none, leafIsU8? := none, isField := false }
 
 /-- Scalar Int64 carrier (single i64 leaf). -/
 private def mkScalarIntVal (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none, leafIsInt? := some #[true], leafIsU8? := none }
+  { expr := e, leaves? := none, leafIsInt? := some #[true], leafIsU8? := none, isField := false }
 
 /-- Scalar UInt8 carrier (Bytes element lane). -/
 private def mkScalarU8Val (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none, leafIsInt? := none, leafIsU8? := some #[true] }
+  { expr := e, leaves? := none, leafIsInt? := none, leafIsU8? := some #[true], isField := false }
+
+/-- T14 catalog v2 (BLS12-377): scalar Leo `field` carrier. -/
+private def mkScalarFieldVal (e : Expr) : LoweredVal :=
+  { expr := e, leaves? := none, leafIsInt? := none, leafIsU8? := none, isField := true }
 
 private def mkAggregateVal (leaves : Array Expr) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
   { expr := head, leaves? := some leaves,
     leafIsInt? := some (leaves.map (fun _ => false)),
-    leafIsU8? := some (leaves.map (fun _ => false)) }
+    leafIsU8? := some (leaves.map (fun _ => false)), isField := false }
 
 /-- Aggregate carrier with explicit per-leaf signedness. -/
 private def mkAggregateValInt (leaves : Array Expr) (flags : Array Bool) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
   { expr := head, leaves? := some leaves, leafIsInt? := some flags,
-    leafIsU8? := some (leaves.map (fun _ => false)) }
+    leafIsU8? := some (leaves.map (fun _ => false)), isField := false }
 
 /-- Aggregate carrier with explicit per-leaf Int64 and UInt8 flags. -/
 private def mkAggregateValFlags (leaves : Array Expr)
     (intFlags u8Flags : Array Bool) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
   { expr := head, leaves? := some leaves, leafIsInt? := some intFlags,
-    leafIsU8? := some u8Flags }
+    leafIsU8? := some u8Flags, isField := false }
 
 private structure ValueEnv where
   entries : Array (ValueIdV1 × LoweredVal)
@@ -359,6 +391,8 @@ private structure AleoLowerLayoutV1 where
   fieldIsInt : Array Bool
   /-- UInt8 flag per state leaf (Bytes element lane; u8 mappings). -/
   fieldIsU8 : Array Bool
+  /-- T14 catalog v2 (BLS12-377): Leo `field` flag per state leaf. -/
+  fieldIsField : Array Bool
   stateLeaves : Array (Array Nat)
   typeDecls : Array TypeDeclV1
   types : AleoTypeClosureV1
@@ -392,6 +426,14 @@ private def isUnitType (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool
   match data.types[typeId.toNat]? with
   | some { shape := .unit, .. } => true
   | _ => false
+
+/-- T14 catalog v2 (BLS12-377): is this the admitted BLS12-377 Field type?
+    `PilotTypeClosureV1.fieldTypeId` is `some` iff the exact BLS12-377
+    FieldSpec passed the target type-closure. Any other catalog spec was
+    rejected at closure, so a `some` here is exactly BLS12-377 Fr. -/
+private def isBls12377FieldType
+    (types : AleoTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.fieldTypeId == some typeId
 
 /-- Dense Map pilot capacity (NS-1 occ/key/val pattern shared with
     EVM/Solana/NEAR/Noir), **reduced to 2 for Leo 4.0.2**: Leo limits a
@@ -673,6 +715,7 @@ private def makeStateLayoutV1
   let mut fieldNames : Array String := #[]
   let mut fieldIsInt : Array Bool := #[]
   let mut fieldIsU8 : Array Bool := #[]
+  let mut fieldIsField : Array Bool := #[]
   let mut stateLeaves : Array (Array Nat) := #[]
   for state in states do
     unless state.id.toNat == stateLeaves.size do
@@ -689,22 +732,33 @@ private def makeStateLayoutV1
         fieldNames := fieldNames.push name
         fieldIsInt := fieldIsInt.push isInt
         fieldIsU8 := fieldIsU8.push isU8
+        fieldIsField := fieldIsField.push false
       stateLeaves := stateLeaves.push leaves
     else if state.typeId == types.uint64TypeId then
       let leafIdx := fieldNames.size
       fieldNames := fieldNames.push state.name
       fieldIsInt := fieldIsInt.push false
       fieldIsU8 := fieldIsU8.push false
+      fieldIsField := fieldIsField.push false
       stateLeaves := stateLeaves.push #[leafIdx]
     else if types.int64TypeId == some state.typeId then
       let leafIdx := fieldNames.size
       fieldNames := fieldNames.push state.name
       fieldIsInt := fieldIsInt.push true
       fieldIsU8 := fieldIsU8.push false
+      fieldIsField := fieldIsField.push false
+      stateLeaves := stateLeaves.push #[leafIdx]
+    else if isBls12377FieldType types state.typeId then
+      -- T14 catalog v2 (BLS12-377): Field state is one native Leo `field` leaf.
+      let leafIdx := fieldNames.size
+      fieldNames := fieldNames.push state.name
+      fieldIsInt := fieldIsInt.push false
+      fieldIsU8 := fieldIsU8.push false
+      fieldIsField := fieldIsField.push true
       stateLeaves := stateLeaves.push #[leafIdx]
     else
-      planError "Aleo state must be UInt64, Int64, named Struct/Enum, Array UInt64, Map UInt64 UInt64, or Bytes N (Option/Field declined)"
-  pure { fieldNames, fieldIsInt, fieldIsU8, stateLeaves, typeDecls, types }
+      planError "Aleo state must be UInt64, Int64, BLS12-377 Field, named Struct/Enum, Array UInt64, Map UInt64 UInt64, or Bytes N (Option/bn254-fr/Goldilocks declined)"
+  pure { fieldNames, fieldIsInt, fieldIsU8, fieldIsField, stateLeaves, typeDecls, types }
 
 private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
   unless !v.isAggregate do
@@ -752,7 +806,8 @@ private def decodeUInt8LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := d
   pure (UInt64.ofNat (bytes.get! 0).toNat)
 
 private def lowerLiteral
-    (data : SemanticProgramDataV1) (typeId : TypeIdV1) (valueBytes : ByteArray) :
+    (data : SemanticProgramDataV1) (types : AleoTypeClosureV1)
+    (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CompileResult Expr := do
   if isUInt64Type data typeId then
     match decodeUInt64LiteralV1 valueBytes with
@@ -777,8 +832,27 @@ private def lowerLiteral
     match decodeUInt8LiteralV1 valueBytes with
     | .ok value => pure (.u8Literal value)
     | .error _ => planError "Aleo UInt8 literal is not canonical"
+  else if isBls12377FieldType types typeId then
+    -- T14 catalog v2 (BLS12-377): Field literal. The wire valueBytes are 32
+    -- LE bytes (`< r`). The Plan Expr surface carries a UInt64 leaf; the only
+    -- Field literal that can reach here is the init default `0` (Normalize has
+    -- no Field source literal), so decoding the low 8 LE bytes is exact for
+    -- the admitted slice. A non-zero high-byte Field literal fails closed to
+    -- avoid silently truncating a 253-bit element into a UInt64 leaf.
+    unless valueBytes.size == 32 do
+      planError "Aleo BLS12-377 Field literal must contain exactly 32 bytes"
+    let highClear := Id.run do
+      let mut ok := true
+      for i in [8:32] do
+        if (valueBytes.get! i).toNat != 0 then ok := false
+      pure ok
+    unless highClear do
+      planError "Aleo BLS12-377 Field literal exceeds the UInt64 leaf envelope (only the init default 0 is admitted)"
+    match decodeU64le (start valueBytes) with
+    | .error _ => planError "Aleo BLS12-377 Field literal is not canonical"
+    | .ok (value, _cursor) => pure (.fieldLiteral value)
   else
-    planError "Aleo literal type is outside the public UInt64/Int64/Bool/UInt32/UInt8 envelope"
+    planError "Aleo literal type is outside the public UInt64/Int64/Bool/UInt32/UInt8/BLS12-377-Field envelope"
 
 private def lowerBinary
     (op : BinaryOpV1) (lhs rhs : Expr) (signed : Bool) : CompileResult Expr :=
@@ -891,7 +965,7 @@ private partial def lowerRegion
   for instr in block.instructions do
     match instr.op with
     | .literal typeId valueBytes => do
-        let e ← lowerLiteral data typeId valueBytes
+        let e ← lowerLiteral data layout.types typeId valueBytes
         match instr.result with
         | none => planError "Aleo literal instruction must produce a value"
         | some valueDef =>
@@ -899,6 +973,8 @@ private partial def lowerRegion
               env := envInsertInt env valueDef.valueId e
             else if isUInt8Type data typeId then
               env := envInsertU8 env valueDef.valueId e
+            else if isBls12377FieldType layout.types typeId then
+              env := envInsertVal env valueDef.valueId (mkScalarFieldVal e)
             else
               env := envInsert env valueDef.valueId e
     | .stateLoad stateId => do
@@ -915,6 +991,8 @@ private partial def lowerRegion
                 env := envInsertInt env valueDef.valueId (.stateLoad fi)
               else if layout.fieldIsU8.getD fi false then
                 env := envInsertU8 env valueDef.valueId (.stateLoad fi)
+              else if layout.fieldIsField.getD fi false then
+                env := envInsertVal env valueDef.valueId (mkScalarFieldVal (.stateLoad fi))
               else
                 env := envInsert env valueDef.valueId (.stateLoad fi)
             else
@@ -934,10 +1012,32 @@ private partial def lowerRegion
         let r ← match envLookup env rhs with
           | some v => pure v
           | none => planError "Aleo binary references an undefined operand"
-        -- Signedness: both operands must agree, except shifts whose count is
-        -- always the UInt32 lane (unsigned). Bool/aggregate operands fail.
         unless !l.isAggregate && !r.isAggregate do
           planError "Aleo binary operands must be scalar"
+        -- T14 catalog v2 (BLS12-377): native Leo `field` arithmetic. Both
+        -- operands must be scalar Field values; the op is exact mod BLS12-377
+        -- Fr so no checked-overflow guard. Field admits add/sub/mul/div and
+        -- eq/ne (ordering is rejected at Normalize); bitwise/shift fail closed.
+        if l.isField && r.isField then
+          let e ←
+            match op with
+            | .add => pure (.fieldBinary .add l.expr r.expr)
+            | .sub => pure (.fieldBinary .sub l.expr r.expr)
+            | .mul => pure (.fieldBinary .mul l.expr r.expr)
+            | .div => pure (.fieldBinary .div l.expr r.expr)
+            | .eq => pure (.fieldCompare .eq l.expr r.expr)
+            | .ne => pure (.fieldCompare .ne l.expr r.expr)
+            | _ => planError "Aleo Field admits only add/sub/mul/div/eq/ne"
+          match instr.result with
+          | none => planError "Aleo binary instruction must produce a value"
+          | some valueDef =>
+              if op == .eq || op == .ne then
+                env := envInsert env valueDef.valueId e
+              else
+                env := envInsertVal env valueDef.valueId (mkScalarFieldVal e)
+          pure ()
+        -- Signedness: both operands must agree, except shifts whose count is
+        -- always the UInt32 lane (unsigned). Bool/aggregate operands fail.
         let isShift := op == .shl || op == .shr
         let signed := l.isIntScalar
         if isShift then
@@ -988,9 +1088,12 @@ private partial def lowerRegion
           | none => planError "Aleo unary references an undefined operand"
         unless !o.isAggregate do
           planError "Aleo unary operand must be scalar"
-        -- UInt8 unary: bitwise not stays on the u8 lane (Leo `!` is
-        -- type-directed); neg/not are not legal on u8 by Normalize.
-        let e ← if o.isU8Scalar then
+        -- T14 catalog v2 (BLS12-377): native Leo `field` negation.
+        let e ← if o.isField then
+            match op with
+            | .neg => pure (.fieldNeg o.expr)
+            | _ => planError "Aleo Field unary admits only neg"
+          else if o.isU8Scalar then
             match op with
             | .bitNot => pure (.u8BitNot o.expr)
             | _ => planError "Aleo UInt8 unary admits only bitwise not"
@@ -999,7 +1102,9 @@ private partial def lowerRegion
         match instr.result with
         | none => planError "Aleo unary instruction must produce a value"
         | some valueDef =>
-            if o.isIntScalar && op != .not then
+            if o.isField && op == .neg then
+              env := envInsertVal env valueDef.valueId (mkScalarFieldVal e)
+            else if o.isIntScalar && op != .not then
               env := envInsertInt env valueDef.valueId e
             else if o.isU8Scalar && op == .bitNot then
               env := envInsertU8 env valueDef.valueId e
@@ -1640,15 +1745,17 @@ private partial def lowerLoop
 
 end
 /-- Resolve a callable result to (isBool, isUnit, isInt64, isUInt8). -/
-private def resultShape (data : SemanticProgramDataV1) (callable : CallableV1) :
-    CompileResult (Bool × Bool × Bool × Bool) := do
-  if isBoolType data callable.result.typeId then pure (true, false, false, false)
-  else if isUInt64Type data callable.result.typeId then pure (false, false, false, false)
-  else if isInt64Type data callable.result.typeId then pure (false, false, true, false)
-  else if isUInt8Type data callable.result.typeId then pure (false, false, false, true)
+private def resultShape (data : SemanticProgramDataV1) (types : AleoTypeClosureV1)
+    (callable : CallableV1) :
+    CompileResult (Bool × Bool × Bool × Bool × Bool) := do
+  if isBoolType data callable.result.typeId then pure (true, false, false, false, false)
+  else if isUInt64Type data callable.result.typeId then pure (false, false, false, false, false)
+  else if isInt64Type data callable.result.typeId then pure (false, false, true, false, false)
+  else if isUInt8Type data callable.result.typeId then pure (false, false, false, true, false)
+  else if isBls12377FieldType types callable.result.typeId then pure (false, false, false, false, true)
   else if (match data.types[callable.result.typeId.toNat]? with
-      | some { shape := .unit, .. } => true | _ => false) then pure (false, true, false, false)
-  else planError "Aleo callable result is outside the public UInt64/Int64/UInt8/Bool/Unit envelope"
+      | some { shape := .unit, .. } => true | _ => false) then pure (false, true, false, false, false)
+  else planError "Aleo callable result is outside the public UInt64/Int64/UInt8/Bool/BLS12-377-Field/Unit envelope"
 
 private partial def touchesStateExpr : Expr → Bool
   | .stateLoad _ => true
@@ -1720,11 +1827,13 @@ private partial def lowerCallable
       else if isUInt64Type data p.typeId then pure false
       else if isInt64Type data p.typeId then pure false
       else if isUInt8Type data p.typeId then pure false
-      else planError "Aleo callable parameter is outside the UInt64/Int64/UInt8/Bool envelope"
+      else if isBls12377FieldType layout.types p.typeId then pure false
+      else planError "Aleo callable parameter is outside the UInt64/Int64/UInt8/Bool/BLS12-377-Field envelope"
     params := params.push {
       sourceIndex := paramIndex, name := p.name, isBool
       isInt := isInt64Type data p.typeId
-      isU8 := isUInt8Type data p.typeId }
+      isU8 := isUInt8Type data p.typeId
+      isField := isBls12377FieldType layout.types p.typeId }
     paramIndex := paramIndex + 1
   -- Seed the value env with callable params (source-indexed), then walk the
   -- body from the entry block.
@@ -1735,6 +1844,8 @@ private partial def lowerCallable
       env0 := envInsertInt env0 p.valueId (.param paramOrdinal)
     else if isUInt8Type data p.typeId then
       env0 := envInsertU8 env0 p.valueId (.param paramOrdinal)
+    else if isBls12377FieldType layout.types p.typeId then
+      env0 := envInsertVal env0 p.valueId (mkScalarFieldVal (.param paramOrdinal))
     else
       env0 := envInsert env0 p.valueId (.param paramOrdinal)
     paramOrdinal := paramOrdinal + 1
@@ -1742,7 +1853,8 @@ private partial def lowerCallable
   unless res.join?.isNone do
     planError "Aleo lowering: callable does not end in return on all paths"
   let body := res.stmts
-  let (resultIsBool, resultIsUnit, resultIsInt, resultIsU8) ← resultShape data callable
+  let (resultIsBool, resultIsUnit, resultIsInt, resultIsU8, resultIsField) ←
+    resultShape data layout.types callable
   -- Bare view: body is exactly `return <stateLoad f>`.
   let bareView? : Option PlanView :=
     match callable.kind, body.toList with
@@ -1778,6 +1890,7 @@ private partial def lowerCallable
     resultIsBool
     resultIsInt
     resultIsU8
+    resultIsField
     resultDropped
     isPureHelper
   })
@@ -1810,6 +1923,7 @@ private def makePlanFromSemanticDataV1
     stateFieldNames := layout.fieldNames
     stateFieldIsInt := layout.fieldIsInt
     stateFieldIsU8 := layout.fieldIsU8
+    stateFieldIsField := layout.fieldIsField
     functions
     views
     sourceHash

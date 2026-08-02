@@ -20,6 +20,8 @@ inductive LeoExpr where
   | i64Literal (value : UInt64)
   | u8Literal (value : UInt64)
   | boolLiteral (value : Bool)
+  /-- T14 catalog v2 (BLS12-377): Leo `field` literal (`42field`). -/
+  | fieldLiteral (value : UInt64)
   | reference (name : String)
   | unary (op : String) (inner : LeoExpr)
   | binary (op : String) (lhs rhs : LeoExpr)
@@ -49,6 +51,8 @@ structure LeoParam where
   isInt : Bool := false
   /-- UInt8 parameter (Bytes element lane; Leo `u8`). -/
   isU8 : Bool := false
+  /-- T14 catalog v2 (BLS12-377): Leo `field` parameter. -/
+  isField : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure LeoFunction where
@@ -59,6 +63,8 @@ structure LeoFunction where
   resultIsInt : Bool := false
   /-- UInt8 result (Bytes element lane; Leo `u8`). -/
   resultIsU8 : Bool := false
+  /-- T14 catalog v2 (BLS12-377): Leo `field` result. -/
+  resultIsField : Bool := false
   /-- State-touching Final function (body runs in `return final { ... };`). -/
   isFinal : Bool
   /-- Semantic pureFn: emitted outside `program` without input modes. -/
@@ -132,12 +138,18 @@ private def renderIntLit (value : UInt64) : String :=
   else
     s!"{value.toNat}i64"
 
+/-- T14 catalog v2 (BLS12-377): Leo `field` literal (`42field`). The UInt64
+    value is always a valid BLS12-377 Fr element (`< 2^64 < r ≈ 2^253`). -/
+private def renderFieldLit (value : UInt64) : String :=
+  s!"{value.toNat}field"
+
 /-- UInt8 literal (`42u8`); values are always ≤ 255 by construction. -/
 private def renderU8Lit (value : UInt64) : String :=
   s!"{value.toNat}u8"
 
 private partial def renderExpr : LeoExpr → String
   | .u64Literal value => renderLit value
+  | .fieldLiteral value => renderFieldLit value
   | .i64Literal value => renderIntLit value
   | .u8Literal value => renderU8Lit value
   | .boolLiteral value => if value then "true" else "false"
@@ -202,6 +214,7 @@ private def renderParam (isHelper : Bool) (param : LeoParam) : String :=
   let ty := if param.isBool then "bool"
     else if param.isU8 then "u8"
     else if param.isInt then "i64"
+    else if param.isField then "field"
     else "u64"
   if isHelper then s!"{param.name}: {ty}" else s!"public {param.name}: {ty}"
 
@@ -216,6 +229,7 @@ private def renderFunction : LeoFunction → String
         else if fn.resultIsBool then "bool"
         else if fn.resultIsU8 then "u8"
         else if fn.resultIsInt then "i64"
+        else if fn.resultIsField then "field"
         else "u64"
       let body := renderStatements bodyIndent fn.body
       s!"{indent}fn {fn.name}({signature}) -> {resultTy} \{\n" ++
@@ -270,10 +284,14 @@ private structure EmitCtx where
   stateLeafIsInt : Array Bool
   /-- UInt8 flag per state leaf (Bytes element lane; u8 mappings). -/
   stateLeafIsU8 : Array Bool := #[]
+  /-- T14 catalog v2 (BLS12-377): Leo `field` flag per state leaf. -/
+  stateLeafIsField : Array Bool := #[]
   /-- Int64 flag per callable param (index-aligned with source param order). -/
   paramIsInt : Array Bool := #[]
   /-- UInt8 flag per callable param (Bytes element lane). -/
   paramIsU8 : Array Bool := #[]
+  /-- T14 catalog v2 (BLS12-377): Leo `field` flag per callable param. -/
+  paramIsField : Array Bool := #[]
   /-- Int64 result flag per pureFn callable, keyed by helper fn name
       (PlanFunction name). Unknown callees default unsigned. -/
   helperResultIsIntByName : Array (String × Bool) := #[]
@@ -289,10 +307,14 @@ private def exprLeoTypeCtx (ctx : EmitCtx) : Expr → String
   | .boolLiteral _ => "bool"
   | .compare _ _ _ => "bool"
   | .signedCompare _ _ _ => "bool"
+  | .fieldCompare _ _ _ => "bool"
   | .logicalAnd _ _ | .logicalOr _ _ => "bool"
   | .boolNot _ => "bool"
   | .i64Literal _ => "i64"
   | .u8Literal _ => "u8"
+  | .fieldLiteral _ => "field"
+  | .fieldBinary _ _ _ => "field"
+  | .fieldNeg _ => "field"
   | .u8To64 _ => "u64"
   | .narrow8 _ => "u8"
   | .u8Shl _ _ | .u8Shr _ _ => "u8"
@@ -305,10 +327,12 @@ private def exprLeoTypeCtx (ctx : EmitCtx) : Expr → String
   | .param inputIndex =>
       if ctx.paramIsU8.getD inputIndex false then "u8"
       else if ctx.paramIsInt.getD inputIndex false then "i64"
+      else if ctx.paramIsField.getD inputIndex false then "field"
       else "u64"
   | .stateLoad fieldIndex =>
       if ctx.stateLeafIsU8.getD fieldIndex false then "u8"
       else if ctx.stateLeafIsInt.getD fieldIndex false then "i64"
+      else if ctx.stateLeafIsField.getD fieldIndex false then "field"
       else "u64"
   | .callFn fnName _args =>
       -- Helper result signedness by name (helpers keep their Plan names).
@@ -318,9 +342,11 @@ private def exprLeoTypeCtx (ctx : EmitCtx) : Expr → String
       | none => "u64"
   | _ => "u64"
 
-/-- Leo type of a mapping default literal for a state leaf (u64 or i64). -/
-private def stateDefault (isInt : Bool) : LeoExpr :=
-  if isInt then .i64Literal 0 else .u64Literal 0
+/-- Leo type of a mapping default literal for a state leaf (u64, i64, or field). -/
+private def stateDefault (isInt : Bool) (isField : Bool := false) : LeoExpr :=
+  if isField then .fieldLiteral 0
+  else if isInt then .i64Literal 0
+  else .u64Literal 0
 
 /-- Lower one plan expression into typed Leo lets with failure guards at every
     checked node (the EVM statement-form discipline): operands are bound in
@@ -347,6 +373,7 @@ private partial def lowerExprStmt
   | .i64Literal value => leaf (.i64Literal value)
   | .u8Literal value => leaf (.u8Literal value)
   | .boolLiteral value => leaf (.boolLiteral value)
+  | .fieldLiteral value => leaf (.fieldLiteral value)
   | .param inputIndex => leaf (.reference s!"p{inputIndex}")
   | .loopVar depth => leaf (.reference s!"pf_i{depth}")
   | .stateLoad fieldIndex =>
@@ -354,7 +381,8 @@ private partial def lowerExprStmt
         leaf (.mappingGetOrUse s!"pf_state_{fieldIndex}" mappingKey (.u8Literal 0))
       else
         let isInt := ctx.stateLeafIsInt.getD fieldIndex false
-        leaf (.mappingGetOrUse s!"pf_state_{fieldIndex}" mappingKey (stateDefault isInt))
+        let isField := ctx.stateLeafIsField.getD fieldIndex false
+        leaf (.mappingGetOrUse s!"pf_state_{fieldIndex}" mappingKey (stateDefault isInt isField))
   | .u8To64 operand => do
       -- u8 → u64 widening: always in range; `as u64` is lossless.
       let (ls1, o', ctx1) ← lowerExprStmt ctx operand
@@ -441,6 +469,22 @@ private partial def lowerExprStmt
       let yul := match op with
         | .eq => "==" | .ne => "!=" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
       bind "bool" yul l r
+  | .fieldBinary op l r => do
+      -- T14 catalog v2 (BLS12-377): native Leo `field` arithmetic (exact mod
+      -- BLS12-377 Fr; no checked-overflow guard).
+      let leoOp := match op with
+        | .add => "+" | .sub => "-" | .mul => "*" | .div => "/"
+      bind "field" leoOp l r
+  | .fieldCompare op l r => do
+      let leoOp := match op with
+        | .eq => "==" | .ne => "!="
+        | _ => "=="  -- unreachable: Normalize rejects Field ordering
+      bind "bool" leoOp l r
+  | .fieldNeg operand => do
+      let (ls1, o', ctx1) ← lowerExprStmt ctx operand
+      let (name, ctx2) := freshName ctx1
+      pure (ls1 ++ #[.letBinding name "field" (.binary "-" (.fieldLiteral 0) o')],
+        .reference name, ctx2)
   | .bitAnd l r => bind "u64" "&" l r
   | .bitOr l r => bind "u64" "|" l r
   | .bitXor l r => bind "u64" "^" l r
@@ -599,11 +643,13 @@ private def needsTrailingReturn (stmts : Array Statement) : Bool :=
 private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
     CompileResult (LeoFunction × EmitCtx) := do
   let params := fn.params.map fun p =>
-    { name := s!"p{p.sourceIndex}", isBool := p.isBool, isInt := p.isInt, isU8 := p.isU8 }
+    { name := s!"p{p.sourceIndex}", isBool := p.isBool, isInt := p.isInt,
+      isU8 := p.isU8, isField := p.isField }
   -- Per-function param signedness tables for expression typing.
   let ctxFn := { ctx with
     paramIsInt := fn.params.map (·.isInt)
     paramIsU8 := fn.params.map (·.isU8)
+    paramIsField := fn.params.map (·.isField)
   }
   let isFinal := fn.touchesState
   let isHelper := fn.isPureHelper
@@ -621,6 +667,7 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
         if fn.resultIsBool then .boolLiteral false
         else if fn.resultIsU8 then .u8Literal 0
         else if fn.resultIsInt then .i64Literal 0
+        else if fn.resultIsField then .fieldLiteral 0
         else .u64Literal 0)]
     else body0
   -- Initialize: inject the one-shot guard + final set.
@@ -638,6 +685,7 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
     resultIsBool := fn.resultIsBool
     resultIsInt := fn.resultIsInt
     resultIsU8 := fn.resultIsU8
+    resultIsField := fn.resultIsField
     isFinal
     isHelper
     body := body'
@@ -652,6 +700,7 @@ private def lower (plan : Plan) : CompileResult IR := do
     name := s!"pf_state_{i}"
     valueType := if plan.stateFieldIsU8.getD i false then "u8"
       else if plan.stateFieldIsInt.getD i false then "i64"
+      else if plan.stateFieldIsField.getD i false then "field"
       else "u64"
   }
   let ctx0 : EmitCtx := {
@@ -659,6 +708,7 @@ private def lower (plan : Plan) : CompileResult IR := do
     mappingNames := mappings.map (·.name)
     stateLeafIsInt := plan.stateFieldIsInt
     stateLeafIsU8 := plan.stateFieldIsU8
+    stateLeafIsField := plan.stateFieldIsField
     helperResultIsIntByName :=
       plan.functions.filter (·.isPureHelper) |>.map fun h => (h.name, h.resultIsInt)
   }

@@ -41,8 +41,20 @@ def maxCanonicalValueBytes : Nat := 16 * 1024 * 1024
 /-- SPEC §3 Map entry count upper bound (same as array elements). -/
 def maxMapEntriesV1 : Nat := maxArrayElements
 
-/-- v1 Field catalog sole entry id (SPEC-SEM-WIRE-001 §5). -/
+/-- v1 Field catalog entry id for the BN254 scalar field (SPEC-SEM-WIRE-001 §5).
+    EVM (ADDMOD/MULMOD + Fermat inverse) and Noir (native Barretenberg bn254
+    scalar `Field`) admit this exact spec. -/
 def bn254FrFieldIdV1 : String := "proof-forge.field.bn254-fr.v1"
+
+/-- v1 Field catalog entry id for the BLS12-377 scalar field (T14 catalog v2).
+    Aleo native Leo `field` is the Edwards BLS / BLS12-377 scalar field — exact
+    modulus match. Other targets stay fail-closed on this spec. -/
+def bls12377FrFieldIdV1 : String := "proof-forge.field.bls12-377-fr.v1"
+
+/-- v1 Field catalog entry id for the Goldilocks prime field (T14 catalog v2).
+    Psy native `Felt` is plonky2 Goldilocks (`p = 2^64 − 2^32 + 1`) — exact
+    modulus match. Other targets stay fail-closed on this spec. -/
+def goldilocksFieldIdV1 : String := "proof-forge.field.goldilocks.v1"
 
 /-- Closed v1 ContextRead key: immutable invocation wall-clock seconds. -/
 def unixTimeSecondsContextKeyV1 : SchemaId :=
@@ -78,6 +90,25 @@ def bn254FrModulusBEV1 : ByteArray :=
     0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91,
     0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01
   ]
+
+/-- Exact BLS12-377 Fr modulus big-endian bytes (T14 catalog v2). The 253-bit
+    scalar-field prime of the BLS12-377 pairing-friendly curve
+    (`r = 0x12ab655e9a2ca55660b44d1e5c37b00159aa76fed00000010a11800000000001`),
+    the native modulus of Aleo's Leo `field` (Edwards BLS scalar = BLS12-377 Fr).
+    Stored as 32 big-endian bytes (leading zero is the 253→256-bit pad). -/
+def bls12377FrModulusBEV1 : ByteArray :=
+  ByteArray.mk #[
+    0x12, 0xab, 0x65, 0x5e, 0x9a, 0x2c, 0xa5, 0x56,
+    0x60, 0xb4, 0x4d, 0x1e, 0x5c, 0x37, 0xb0, 0x01,
+    0x59, 0xaa, 0x76, 0xfe, 0xd0, 0x00, 0x00, 0x00,
+    0x10, 0xa1, 0x18, 0x00, 0x00, 0x00, 0x00, 0x01
+  ]
+
+/-- Exact Goldilocks prime modulus big-endian bytes (T14 catalog v2).
+    `p = 2^64 − 2^32 + 1 = 0xFFFFFFFF00000001`, the native modulus of Psy's
+    plonky2 `Felt`. Stored as 8 big-endian bytes (64-bit prime, no pad). -/
+def goldilocksModulusBEV1 : ByteArray :=
+  ByteArray.mk #[0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x01]
 
 abbrev TypeIdV1 := UInt32
 abbrev ConstantIdV1 := UInt32
@@ -120,6 +151,25 @@ structure FieldSpecV1 where
 /-- Sole v1 FieldSpec catalog entry for structure validation and tests. -/
 def bn254FrFieldSpecV1 : FieldSpecV1 :=
   { id := { value := bn254FrFieldIdV1 }, modulusBE := bn254FrModulusBEV1 }
+
+/-- v1 FieldSpec catalog entry for the BLS12-377 scalar field (T14 catalog v2).
+    Admitted by Aleo (Leo native `field`); fail-closed on every other target
+    via the target-owned type-closure `PilotFieldPolicy`. -/
+def bls12377FrFieldSpecV1 : FieldSpecV1 :=
+  { id := { value := bls12377FrFieldIdV1 }, modulusBE := bls12377FrModulusBEV1 }
+
+/-- v1 FieldSpec catalog entry for the Goldilocks prime field (T14 catalog v2).
+    Admitted by Psy (plonky2 `Felt`); fail-closed on every other target via
+    the target-owned type-closure `PilotFieldPolicy`. -/
+def goldilocksFieldSpecV1 : FieldSpecV1 :=
+  { id := { value := goldilocksFieldIdV1 }, modulusBE := goldilocksModulusBEV1 }
+
+/-- Closed v1 FieldSpec catalog (T14 catalog v2): the three exact (id, modulusBE)
+    entries admitted by Wire structure validation. No arbitrary modulus is
+    accepted; a FieldSpec must match one of these exactly. Membership is checked
+    by `validateFieldSpecCatalogV1`. -/
+def fieldSpecCatalogV1 : Array FieldSpecV1 :=
+  #[bn254FrFieldSpecV1, bls12377FrFieldSpecV1, goldilocksFieldSpecV1]
 
 structure StructFieldV1 where
   name : String

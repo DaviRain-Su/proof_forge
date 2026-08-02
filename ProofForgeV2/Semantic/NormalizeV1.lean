@@ -269,6 +269,25 @@ private def enumVariantsEq (a b : Array WireEnumVariantV1) : Bool :=
 private def fieldSpecEq (a b : FieldSpecV1) : Bool :=
   a.id.value == b.id.value && a.modulusBE == b.modulusBE
 
+/-- T14 catalog v2: is this FieldSpec one of the three closed catalog entries?
+    Wire structure validation (`validateFieldSpecCatalogV1`) is the sole
+    authority; Normalize mirrors the exact membership here so a FieldSpec that
+    passes the catalog gate is admitted by every Normalize field gate, and any
+    non-catalog spec fails closed. -/
+private def isCatalogFieldSpec (spec : FieldSpecV1) : Bool :=
+  fieldSpecCatalogV1.any (fun entry => fieldSpecEq spec entry)
+
+/-- T14 catalog v2: map a source Field type identifier token to its closed
+    catalog FieldSpec. `bn254_fr` → bn254 Fr, `bls12_377_fr` → BLS12-377 Fr,
+    `goldilocks` → Goldilocks. Any other token fails closed (the parser already
+    rejects unknown tokens; this is defense in depth). -/
+private def fieldSpecOfToken? (raw : String) : Option FieldSpecV1 :=
+  match raw with
+  | "bn254_fr" => some bn254FrFieldSpecV1
+  | "bls12_377_fr" => some bls12377FrFieldSpecV1
+  | "goldilocks" => some goldilocksFieldSpecV1
+  | _ => none
+
 private def shapeEq (a b : TypeShapeV1) : Bool :=
   match a, b with
   | .uint wa, .uint wb => wa == wb
@@ -375,12 +394,16 @@ private partial def internSourceType (interner : TypeInternerV1) (ty : SrcType) 
       | .error _ =>
           failUnsupported "S1 Map key type is not a legal map key"
   | .field id =>
-      -- Sole catalog FieldSpec: source token bn254_fr → wire SchemaId.
-      if raw id == "bn254_fr" then
-        pure (internShape interner (.field bn254FrFieldSpecV1))
-      else
-        failUnsupported
-          s!"S1 Field catalog only supports bn254_fr, got '{raw id}'"
+      -- T14 catalog v2: source token → closed catalog FieldSpec. The three
+      -- admitted specs are bn254 Fr (EVM/Noir), BLS12-377 Fr (Aleo), and
+      -- Goldilocks (Psy); target-owned type-closure selects which spec each
+      -- target admits, so a spec accepted here may still fail closed at a
+      -- target that does not own it.
+      match fieldSpecOfToken? (raw id) with
+      | some spec => pure (internShape interner (.field spec))
+      | none =>
+          failUnsupported
+            s!"S1 Field catalog supports bn254_fr, bls12_377_fr, goldilocks; got '{raw id}'"
 
 /-- Kind of source-order named declaration collected in Pass0. -/
 private inductive NamedDeclKindV1 where
@@ -564,12 +587,12 @@ private def requireAnonymousIntegerTypeId
   | none =>
       failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
 
-/-- Sole catalog Field shape (bn254-fr) recognition. -/
-private def isAnonBn254Field
+/-- Catalog Field shape recognition (T14 catalog v2): the anonymous TypeDecl
+    at `typeId` carries one of the three closed catalog FieldSpecs. -/
+private def isAnonCatalogField
     (types : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
   match anonShapeOf? types typeId with
-  | some (.field spec) =>
-      fieldSpecEq spec bn254FrFieldSpecV1
+  | some (.field spec) => isCatalogFieldSpec spec
   | _ => false
 
 /-- Require anonymous legal UInt/Int, sole catalog Field, or Principal
@@ -582,8 +605,8 @@ private def requireAnonymousIntegerOrFieldTypeId
       if legalIntegerWidthV1 w.toNat then pure ()
       else failUnsupported s!"S1 {context} requires legal UInt/Int/Field/Principal type"
   | some (.field spec) =>
-      if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
-      else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
+      if isCatalogFieldSpec spec then pure ()
+      else failUnsupported s!"S1 {context} requires a closed-catalog Field spec"
   | some .principal | some .string => pure ()
   | some _ =>
       failUnsupported s!"S1 {context} requires anonymous UInt/Int/Field/Principal/String type"
@@ -613,8 +636,8 @@ private def requireStateOrParamTypeId
             failUnsupported
               s!"S1 {context} requires legal UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes/Option"
       | none, .field spec =>
-          if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
-          else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
+          if isCatalogFieldSpec spec then pure ()
+          else failUnsupported s!"S1 {context} requires a closed-catalog Field spec"
       | none, .principal | none, .string => pure ()
       | none, .array _ len =>
           if len.toNat ≤ maxTypeLengthV1 then pure ()
@@ -670,8 +693,8 @@ private def requireCallableResultTypeId
               s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal/String or named Struct/Enum"
       | none, .unit | none, .bool | none, .principal | none, .string => pure ()
       | none, .field spec =>
-          if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
-          else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
+          if isCatalogFieldSpec spec then pure ()
+          else failUnsupported s!"S1 {context} requires a closed-catalog Field spec"
       | none, _ =>
           failUnsupported
             s!"S1 {context} requires UInt/Int/Unit/Bool/Field/Principal/String or named Struct/Enum"
@@ -718,8 +741,8 @@ private def requireExpectedIntegerOrFieldWidth
       if legalIntegerWidthV1 w.toNat then pure ()
       else failUnsupported s!"S1 {context} requires expected legal UInt/Int/Field type"
   | some (.field spec) =>
-      if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
-      else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
+      if isCatalogFieldSpec spec then pure ()
+      else failUnsupported s!"S1 {context} requires a closed-catalog Field spec"
   | some _ =>
       failUnsupported s!"S1 {context} requires expected legal UInt/Int/Field type"
   | none =>
@@ -1945,7 +1968,7 @@ private partial def lowerExpr
           requireExpectedIntegerOrFieldWidth st.interner.types expectedTid
             "binary arithmetic"
           if semanticOp == BinaryOpV1.mod &&
-              isAnonBn254Field st.interner.types expectedTid then
+              isAnonCatalogField st.interner.types expectedTid then
             return ← failUnsupported
               "S1 Field does not support mod (remainder); use div"
         -- Preserve source evaluation / ValueId order: lhs, then rhs, then op.
@@ -2012,9 +2035,9 @@ private partial def lowerExpr
                     return ← failUnsupported
                       "S1 equality requires legal UInt/Int/Field/Principal operands"
               | some (.field spec) =>
-                  unless fieldSpecEq spec bn254FrFieldSpecV1 do
+                  unless isCatalogFieldSpec spec do
                     return ← failUnsupported
-                      "S1 equality requires sole catalog Field bn254_fr"
+                      "S1 equality requires a closed-catalog Field spec"
               | some .bool | some .principal | some .string => pure ()
               | _ =>
                   return ← failUnsupported
@@ -2030,7 +2053,7 @@ private partial def lowerExpr
                     "S1 String does not support ordering comparisons"
               | _ => pure ()
               requireExpectedIntegerWidth iOp.types opTid "ordering comparison"
-              if isAnonBn254Field iOp.types opTid then
+              if isAnonCatalogField iOp.types opTid then
                 return ← failUnsupported
                   "S1 Field does not support ordering comparisons"
             let st0 := { stB with interner := iOp }
@@ -2167,9 +2190,9 @@ private partial def lowerExpr
                     emitValue st1 expectedTid (.unary .neg oVid)
                   pure (vid, expectedTid, st2)
           | some (.field spec) => do
-              unless fieldSpecEq spec bn254FrFieldSpecV1 do
+              unless isCatalogFieldSpec spec do
                 return ← failUnsupported
-                  "S1 unary Field negation requires sole catalog Field bn254_fr"
+                  "S1 unary Field negation requires a closed-catalog Field spec"
               let (oVid, oTid, st1) ←
                 lowerExpr operand expectedTid st states fns
               unless oTid == expectedTid do
