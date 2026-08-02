@@ -7,6 +7,7 @@
 -/
 import Tests.Language.ParserSession
 import Tests.Semantic.ProofSubjectGeneratedFixtureV1
+import ProofForgeV2.Semantic.ProofReferenceJoinV1
 import ProofForgeV2.Semantic.ProofSubjectV1
 
 namespace Tests.Semantic.ProofSubjectV1
@@ -14,6 +15,8 @@ namespace Tests.Semantic.ProofSubjectV1
 open ProofForgeV2
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.NormalizeV1
+open ProofForgeV2.Semantic.ProofBundleV1
+open ProofForgeV2.Semantic.ProofReferenceJoinV1
 open ProofForgeV2.Semantic.ProofSubjectV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.SpanV1
@@ -55,6 +58,62 @@ private def encodeProvenance (provenance : SemanticProvenanceV1) : IO ByteArray 
   match encodeSemanticProvenanceV1 provenance with
   | .ok bytes => pure bytes
   | .error error => throw <| IO.userError s!"encode provenance: {repr error}"
+
+private def qn (components : Array String) : IO QualifiedName := do
+  match parseQualifiedName components with
+  | .ok name => pure name
+  | .error error => throw <| IO.userError s!"qualified name: {error}"
+
+private def openMatchingBundle
+    (sourceHash semanticHash provenanceDigest : Digest) :
+    IO OpenedProofBundleV1 := do
+  let moduleName ← qn proofAbiModuleComponentsV1
+  let abiTheoremName ← qn proofAbiTheoremComponentsV1
+  let exportTheoremName ← qn #["Bundle", "Thm"]
+  let root ← qn #["Bundle", "Root"]
+  let oleanPath := "modules/Bundle/Root.olean"
+  let oleanBytes := "proof-subject-join-olean".toUTF8
+  let proofModule : ProofModuleV1 := {
+    moduleName := moduleName
+    oleanPath := oleanPath
+    oleanDigest := sha256Bytes oleanBytes
+    imports := #[] }
+  let modules ← match NonEmptyArray.ofArray #[proofModule] with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let proofExport : ProofExportV1 := {
+    invariantName := "truth"
+    invariantOrdinal := 0
+    theoremName := exportTheoremName
+    ownerModule := moduleName }
+  let exports ← match NonEmptyArray.ofArray #[proofExport] with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let roots ← match NonEmptyArray.ofArray #[root] with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let manifest : ProofBundleManifestV1 := {
+    schema := proofBundleSchemaV1
+    sourceHash
+    semanticHash
+    semanticProvenanceDigest := provenanceDigest
+    toolchainLockDigest := sha256Bytes "toolchain".toUTF8
+    proofAbi := {
+      semanticSchema := proofAbiSemanticSchemaV1
+      moduleName
+      theoremName := abiTheoremName
+      abiOleanDigest := sha256Bytes "abi".toUTF8
+      trustPolicyDigest := sha256Bytes "trust".toUTF8
+      trustedBaseClosureDigest := sha256Bytes "closure".toUTF8 }
+    roots
+    modules
+    exports }
+  let manifestBytes ← match encodeProofBundleManifestV1 manifest with
+    | .ok value => pure value.toUTF8
+    | .error error => throw <| IO.userError s!"manifest encode: {repr error}"
+  match openProofBundleV1 manifestBytes #[(oleanPath, oleanBytes)] with
+  | .ok opened => pure opened
+  | .error error => throw <| IO.userError s!"bundle open: {repr error}"
 
 private def buildPositive
     (source : ValidatedSourceV1)
@@ -154,10 +213,42 @@ private unsafe def testTransportPriorityAndAuthority
     | .error (.authority _) => true
     | _ => false) "authority: canonical provenance substitution rejected"
 
+private unsafe def testManifestDigestJoin
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let (source, spans) ← loadSourceWithSpans session "manifest" "SubjectManifest" 9
+  let path ← parsePath "manifest"
+  let (_, _, _, subject) ← buildPositive source path spans
+  let bindings : Array SourceProofBindingV1 :=
+    #[{ invariantName := "truth", theoremComponents := #["Bundle", "Thm"] }]
+  let opened ← openMatchingBundle subject.sourceHash subject.semanticHash
+    subject.semanticProvenanceDigest
+  match joinValidatedProofSubjectV1 bindings opened opened.bundleDigest subject with
+  | .ok () => pure ()
+  | .error error => throw <| IO.userError s!"manifest join: {repr error}"
+  let wrong := sha256Bytes "wrong-proof-subject-digest".toUTF8
+  let wrongSource ← openMatchingBundle wrong subject.semanticHash
+    subject.semanticProvenanceDigest
+  expect (match joinValidatedProofSubjectV1
+      bindings wrongSource wrongSource.bundleDigest subject with
+    | .error .sourceHashMismatch => true
+    | _ => false) "manifest join: sourceHash claim rejected"
+  let wrongSemantic ← openMatchingBundle subject.sourceHash wrong
+    subject.semanticProvenanceDigest
+  expect (match joinValidatedProofSubjectV1
+      bindings wrongSemantic wrongSemantic.bundleDigest subject with
+    | .error .semanticHashMismatch => true
+    | _ => false) "manifest join: semanticHash claim rejected"
+  let wrongProvenance ← openMatchingBundle subject.sourceHash subject.semanticHash wrong
+  expect (match joinValidatedProofSubjectV1
+      bindings wrongProvenance wrongProvenance.bundleDigest subject with
+    | .error .semanticProvenanceDigestMismatch => true
+    | _ => false) "manifest join: provenance digest claim rejected"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testPositiveAndClosedSource session
   testTransportPriorityAndAuthority session
+  testManifestDigestJoin session
   IO.println "Tests.Semantic.ProofSubjectV1: ok"
 
 end Tests.Semantic.ProofSubjectV1

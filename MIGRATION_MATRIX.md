@@ -462,3 +462,9 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > canonical-but-foreign semantic substitution。该切片尚无filesystem safe-read、contained builder、
 > `.olean` declaration loading、expected-type defeq、trust closure或formal retained evidence；
 > TST-PROOF-001与TASK-D2-07继续pending。
+
+> 2026-08-02 proof-subject manifest join后续增量：`ProofReferenceJoinV1`新增只接受sealed
+> `ProofSubjectV1`的完整join，除bundle digest、sourceHash、semanticHash与source/export set外，现同时
+> exact要求manifest `semanticProvenanceDigest`等于authority重算值；manifest仍仅为claim，不能mint
+> subject。三项digest逐项mutation均fail closed。旧CLI compile-digest engineering入口保持兼容且不被
+> 升格；filesystem/contained builder与`.olean` kernel loader仍pending。

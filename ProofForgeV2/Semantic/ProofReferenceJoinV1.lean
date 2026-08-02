@@ -4,6 +4,7 @@ import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Semantic.ProofBundleV1
+import ProofForgeV2.Semantic.ProofSubjectV1
 
 /-
   ProofForgeV2.Semantic.ProofReferenceJoinV1 — engineering **INV-1** constrained
@@ -28,6 +29,7 @@ open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Semantic.ProofBundleV1
+open ProofForgeV2.Semantic.ProofSubjectV1
 
 /-- One source-level proof reference binding (certification metadata only). -/
 structure SourceProofBindingV1 where
@@ -42,6 +44,7 @@ inductive ProofReferenceJoinErrorV1 where
   | digestMismatch (detail : String)
   | sourceHashMismatch
   | semanticHashMismatch
+  | semanticProvenanceDigestMismatch
   | exportMismatch (detail : String)
   | bundleOpen (err : ProofBundleErrorV1)
   | internal (detail : String)
@@ -173,6 +176,31 @@ def joinProofReferencesV1
     return ← err .semanticHashMismatch
   exactBindingExportJoin bindings (NonEmptyArray.toArray opened.manifest.exports)
 
+/-- Complete digest/reference join from a sealed, source-bound proof subject.
+
+    Unlike the transitional compile-digest join above, this path also requires
+    the manifest provenance digest to equal the authority-recomputed digest.
+    Manifest fields remain claims only and never mint a `ProofSubjectV1`. -/
+def joinValidatedProofSubjectV1
+    (bindings : Array SourceProofBindingV1)
+    (opened : OpenedProofBundleV1)
+    (expectedBundleDigest : Digest)
+    (subject : ProofSubjectV1) :
+    Except ProofReferenceJoinErrorV1 Unit := do
+  if bindings.isEmpty then
+    return ← err .unusedBundle
+  unless opened.bundleDigest.bytes == expectedBundleDigest.bytes do
+    return ← err (.digestMismatch
+      "CLI --proof-bundle-digest does not match opened bundle")
+  unless opened.manifest.sourceHash.bytes == subject.sourceHash.bytes do
+    return ← err .sourceHashMismatch
+  unless opened.manifest.semanticHash.bytes == subject.semanticHash.bytes do
+    return ← err .semanticHashMismatch
+  unless opened.manifest.semanticProvenanceDigest.bytes ==
+      subject.semanticProvenanceDigest.bytes do
+    return ← err .semanticProvenanceDigestMismatch
+  exactBindingExportJoin bindings (NonEmptyArray.toArray opened.manifest.exports)
+
 /-- Gate after successful product compile: decide whether a bundle is required / forbidden.
 
     Returns:
@@ -203,6 +231,8 @@ def renderProofReferenceJoinErrorV1 (e : ProofReferenceJoinErrorV1) : String :=
       "proof-bundle sourceHash does not match compiled source"
   | .semanticHashMismatch =>
       "proof-bundle semanticHash does not match compiled semantic"
+  | .semanticProvenanceDigestMismatch =>
+      "proof-bundle semanticProvenanceDigest does not match validated proof subject"
   | .exportMismatch detail => s!"proof-bundle export join failed: {detail}"
   | .bundleOpen pe =>
       match pe with

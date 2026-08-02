@@ -734,5 +734,11 @@ inventory、重跑normalize和exact provenance join；caller无法提供inventor
 固定namespace、完整decimal UInt8列表的reducible closed Lean source，不含runtime file read或manifest
 字符串注入。focused tests已覆盖真实parser spans、canonical foreign carrier、wrong path和transport
 error priority。下一步应在独立边界接filesystem no-follow safe-read/contained generation，再由
-`ProofReferenceJoinV1`比较sealed subject与manifest的三个digest，最后才实现`.olean` declaration/
-defeq/trust closure loader；当前TST-PROOF-001与TASK-D2-07仍pending。
+`ProofReferenceJoinV1`接入sealed subject（下一段已完成），最后才实现`.olean` declaration/defeq/trust
+closure loader；当前TST-PROOF-001与TASK-D2-07仍pending。
+
+sealed subject→manifest三digest join现已在`ProofReferenceJoinV1`补齐：新入口额外强制
+`semanticProvenanceDigest`匹配，并继续执行bundle digest与source/export exact set join；source、semantic、
+provenance三项manifest claim独立mutation均拒绝。旧CLI尚无trusted spans，故其transitional
+compile-digest入口未伪接provenance；下一真实切片是subject files的no-follow/single-link safe-read与
+contained generation boundary，之后才是`.olean` kernel loader。

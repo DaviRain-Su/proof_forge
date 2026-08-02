@@ -13083,6 +13083,17 @@ normative: false
   recomputation、deterministic complete source、semantic/provenance transport优先级、wrong trusted path，
   以及decode成功但属于另一个program的canonical `.pfsem` substitution；checked-in exact generated
   fixture由Lean实际elaborate，并以`rfl`固定`subjectProgram`到reducible `subjectBytes` projection。
-- 边界：尚未实现filesystem no-follow读取、contained Lean build、manifest三digest sealed-subject join、
+- 边界：本首片尚未实现filesystem no-follow读取、contained Lean build（manifest join见下一增量）、
   `.olean` declaration loading、ordinal/expected-type definitional equality、axiom/unsafe/import closure或
   formal retained evidence；不得关闭`TST-PROOF-001`或`TASK-D2-07`。
+
+## 2026-08-02 — sealed proof subject → ProofBundle manifest join
+
+- `ProofReferenceJoinV1`新增`joinValidatedProofSubjectV1`，只接受private-constructor subject；manifest
+  字段只与authority重算结果比较，不能反向mint或替换subject字段。
+- 在既有bundle digest、sourceHash、semanticHash与source proof/export exact set join之外，新增
+  `semanticProvenanceDigestMismatch`并强制manifest provenance digest exact匹配。
+- engineering tests从真实source/path/spans mint subject，再构造strict-open bundle；positive与三个digest
+  claim独立mutation均通过预期。旧CLI compile-digest join因尚无trusted spans保持transitional行为。
+- 仍无proof-subject filesystem safe-read、contained compiler、`.olean` declaration/defeq/trust closure；
+  formal `TST-PROOF-001`保持pending。
