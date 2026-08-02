@@ -2683,10 +2683,9 @@ private unsafe def testFieldBn254Lane : IO Unit := do
 
 /-- EvmIndex: Array UInt64 state with literal IndexGet/IndexSet + product Yul.
     Pins storage layout, literal rebind stores, and runtime-index Yul
-    (`if iszero(lt(...)) { revert }` + `add(base,idx)` + `sload`). Map/Bytes
-    decline is covered via hand-built plan rejection of non-Array shapes at
-    type-closure (product source Map state is Normalize-admitted but EVM
-    type-closure fails closed). -/
+    (`if iszero(lt(...)) { revert }` + `add(base,idx)` + `sload`). Map state
+    is separately admitted by the I1 dense pilot (see MapBox pin below and
+    `Tests.Product.TokenV1` for full mint/transfer). -/
 private unsafe def testArrayStateIndexOps : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- Literal-index ArrayBox (product path).
@@ -2831,8 +2830,8 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
   | .ok () => throw <| IO.userError "validatePlan must reject OOR indexedStorageLoad range"
   | .error _ => pure ()
 
-  -- Map state product decline (type-closure / plan fail closed on EVM).
-  -- Normalize admits Map state; EVM container policy admits Array+Bytes only.
+  -- I1 Map pilot: empty Map UInt64 UInt64 state is admitted on EVM (dense
+  -- capacity-8 occ/key/val leaves). IndexGet/Set covered by Token/MapMini.
   let mapSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -2840,6 +2839,7 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
     "  state m : Map UInt64 UInt64\n" ++
     "  state dummy : UInt64\n" ++
     "  init() do\n" ++
+    "    m := Map.empty()\n" ++
     "    dummy := 0\n" ++
     "  view get() : UInt64 do\n" ++
     "    return dummy\n"
@@ -2853,7 +2853,7 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
       throw <| IO.userError s!"EVM must accept Map state (I1), got {e.render}"
 
 /-- D4-E2: Bytes N state flattens to N×UInt8 leaves with IndexGet/IndexSet
-    (Normalize-admitted; Map remains fail closed). -/
+    (Normalize-admitted; Map is I1 dense pilot, not Bytes). -/
 private unsafe def testBytesStateIndexOps : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -2897,20 +2897,21 @@ private unsafe def testBytesStateIndexOps : IO Unit := do
     | none => throw <| IO.userError "ByteBox: missing ByteBox.yul"
   expect (yul.contains "sstore" && yul.contains "sload")
     "ByteBox Yul must sstore/sload Bytes leaves"
-  -- Map still fail closed (orthogonal residual).
+  -- Map remains admitted after Bytes path (orthogonal I1 pilot).
   let mapSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program MapStillClosed where\n" ++
+    "program MapStillOpen where\n" ++
     "  state m : Map UInt64 UInt64\n" ++
     "  state d : UInt64\n" ++
     "  init() do\n" ++
+    "    m := Map.empty()\n" ++
     "    d := 0\n" ++
     "  view get() : UInt64 do\n" ++
     "    return d\n"
-  let mapSrc ← liftResult "load MapStillClosed" (← session.selectProgramV1
+  let mapSrc ← liftResult "load MapStillOpen" (← session.selectProgramV1
     mapSource "<evm-map-still>" "Tests.EvmMapStill" none)
-  let mapCompiled ← liftResult "compile MapStillClosed" <|
+  let mapCompiled ← liftResult "compile MapStillOpen" <|
     Compiler.compileValidatedSourceV1 mapSrc
   match planEvm mapCompiled with
   | .ok _ => pure ()

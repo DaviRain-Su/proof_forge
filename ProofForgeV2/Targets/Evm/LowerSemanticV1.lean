@@ -613,8 +613,10 @@ private def arrayScalarLeafLayoutV1
         "unsupported EVM semantic shape: container TypeId is not Array/Map/Bytes"
 
 /-- NS-1b / I1 Map pilot capacity: dense open table for dynamic UInt64 keys.
-    Each entry: occupied (0/1), key, value → 3×UInt64 leaves. -/
-private def evmMapPilotCapacityV1 : Nat := 16
+    Each entry: occupied (0/1), key, value → 3×UInt64 leaves.
+    Capacity 8 keeps Token transfer (nested match + dual IndexSet) under the
+    4 MiB Yul IR limit; pure unrolled trees grow ~O(capacity²) per upsert. -/
+private def evmMapPilotCapacityV1 : Nat := 8
 private def evmMapSlotsPerEntryV1 : Nat := 3
 private def evmMapPilotLeafCountV1 : Nat :=
   evmMapPilotCapacityV1 * evmMapSlotsPerEntryV1
@@ -654,7 +656,8 @@ private def mapLookupOptionLeavesV1
     found := Expr.logicalOr found hit
     payload :=
       Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
-  pure #[found, payload]
+  -- Tag leaf must be UInt-compatible for aggregate/Option materialization.
+  pure #[Expr.checkedAdd found (.literal 0), payload]
 
 /-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert) where okInsert is
     0/1 — caller must `assert okInsert` (map full when key absent). -/
@@ -699,7 +702,10 @@ private def mapUpsertLeavesV1
     let insertHere := Expr.checkedMul firstE (Expr.boolNot anyMatch)
     let write := Expr.logicalOr matchHit insertHere
     let miss := Expr.boolNot write
-    let occ' := Expr.logicalOr occ write
+    -- Coerce Bool 0/1 producers to UInt-compatible trees before storage
+    -- (ValidatePlan rejects logicalOr/compare as store values).
+    let occ' :=
+      Expr.checkedAdd (Expr.logicalOr occ write) (.literal 0)
     let k' :=
       Expr.checkedAdd (Expr.checkedMul write key) (Expr.checkedMul miss k)
     let v' :=
@@ -1145,6 +1151,37 @@ private def currentValueV1
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
+
+/-- Match-arm free values: the switch scrutinee ValueId **and** its dependency
+    closure (so Option/Enum match can `variantPayload` the aggregate base when
+    the scrutinee is a `variantTag` of that base). -/
+private def extendArmReadablesV1
+    (values : Array LoweredValueV1) (armReadables : Array ValueIdV1)
+    (scrutId : ValueIdV1) : Array ValueIdV1 := Id.run do
+  let mut out := armReadables
+  if !out.contains scrutId then
+    out := out.push scrutId
+  match values[scrutId.toNat]? with
+  | none => pure out
+  | some v =>
+      for d in v.dependencies do
+        if !out.contains d then
+          out := out.push d
+      pure out
+
+/-- Promote pure ValueIds in `[paramCount, values.size)` into the free-set so
+    later segments (post assert/store/emit/call/schedule) may still read
+    dominating pure arithmetic and match-bound payloads. Same policy as loop
+    headers (`dominatingPureReadablesV1`). -/
+private def promoteDominatingPureV1
+    (paramCount : Nat) (values : Array LoweredValueV1)
+    (base : Array ValueIdV1) : Array ValueIdV1 := Id.run do
+  let mut out := base
+  for i in [paramCount:values.size] do
+    let id : ValueIdV1 := UInt32.ofNat i
+    unless out.contains id do
+      out := out.push id
+  pure out
 
 /-- Match-bind arm readability: the scrutinee of an enclosing switch may be
     referenced by its arm bodies across the (dominating) scrut-block boundary.
@@ -1831,6 +1868,42 @@ private def consumeCurrentSegmentWithArmsV1
       "unsupported EVM semantic shape: dead or reordered value instructions"
   pure rootValue.expr
 
+/-- Soft segment consume for multi-effect blocks (e.g. two consecutive Map
+    stores in a transfer arm). Walks the root dependency tree and rejects
+    cross-boundary reads, but leaves unvisited pure values in the segment for
+    a later effect (they are promoted into the free-set by the caller). Strict
+    `consumeCurrentSegmentWithArmsV1` remains the default for assert/return. -/
+private def consumeCurrentSegmentPartialWithArmsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
+    (root : ValueIdV1) : CompileResult Expr := do
+  let rootValue ← currentValueWithArmsV1 values paramCount segmentStart armReadables root
+  let mut stack : Array Nat := #[]
+  let mut seen : Array Bool := Array.mk (List.replicate values.size false)
+  if root.toNat >= paramCount && !armReadables.contains root then
+    stack := stack.push root.toNat
+  else if root.toNat >= segmentStart then
+    stack := stack.push root.toNat
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    if index < values.size && seen[index]? != some true then
+      seen := seen.set! index true
+      if index >= paramCount && !armReadables.contains (UInt32.ofNat index) then
+        unless segmentStart <= index && index < values.size do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: expression crosses an effect boundary"
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount && !armReadables.contains dependency then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  pure rootValue.expr
+
 private def appendResultValueV1
     (expectedTypeId : TypeIdV1)
     (values : Array LoweredValueV1)
@@ -1861,6 +1934,10 @@ private structure LoweredBlockV1 where
   values : Array LoweredValueV1
   segmentStart : Nat
   hasAssert : Bool
+  /-- Free-set after mid-block effect promotion (assert/store/emit/…). Nested
+      match arms and this block's terminator consume must use this set; post-arm
+      joins keep the pre-block free-set so arm-local binds do not leak. -/
+  armReadables : Array ValueIdV1
 
 /-- Lower one block's instruction sequence (terminator handled by the region
     walker). Each block starts a fresh effect segment; values from dominating
@@ -1896,6 +1973,12 @@ private def lowerBlockInstructionsV1
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
   let mut values := values0
   let mut segmentStart := values0.size
+  -- Mutable free-set: match-arm scrutinees enter here, and pure values that
+  -- dominate an effect boundary (assert/store/emit/call/schedule) are promoted
+  -- so later pure uses (e.g. match-bound `fromBal` after `assert fromBal >= amount`)
+  -- do not fail closed. Segment consumption still requires every value produced
+  -- *in the current segment* to hang off the effect roots.
+  let mut armReadables := armReadables
   let mut body : Array Statement := #[]
   let mut hasAssert := false
   for instruction in block.instructions do
@@ -2288,9 +2371,9 @@ private def lowerBlockInstructionsV1
             "unsupported EVM semantic shape: view/pureFn callable writes storage"
         let stored ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
         let leaves ← findStateLeavesV1 layout stateId
-        -- Consume the whole segment via the stored value's dependency closure
-        -- (works for both scalar and aggregate roots).
-        let _ ← consumeCurrentSegmentWithArmsV1
+        -- Partial consume: multi-store arms (Token transfer updates two Map
+        -- entries) leave pure values for a later store; promote afterward.
+        let _ ← consumeCurrentSegmentPartialWithArmsV1
           values paramCount segmentStart armReadables valueId
         if stored.isAggregate then
           let leafExprs := stored.leafExprs
@@ -2336,6 +2419,7 @@ private def lowerBlockInstructionsV1
             value := stored.expr
             byteWidth := binding.byteWidth
           })
+        armReadables := promoteDominatingPureV1 paramCount values armReadables
         segmentStart := values.size
     | .assert_ condId errorId args, none =>
         unless errorId.isNone && args.isEmpty do
@@ -2349,6 +2433,7 @@ private def lowerBlockInstructionsV1
           values paramCount segmentStart armReadables condId
         body := body.push (.assert cond)
         hasAssert := true
+        armReadables := promoteDominatingPureV1 paramCount values armReadables
         segmentStart := values.size
     | .emit _effectId eventId argIds, none =>
         if mode == .view || mode == .pureFn then
@@ -2366,6 +2451,7 @@ private def lowerBlockInstructionsV1
         let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
         body := body.push (.emitEvent eventId.toNat argExprs)
         hasAssert := true
+        armReadables := promoteDominatingPureV1 paramCount values armReadables
         segmentStart := values.size
     -- AddressBearing: static QualifiedName callees (wire Op.ExternalCall/
     -- Schedule take QN, not a ValueId address). T10 admits Principal storage
@@ -2396,6 +2482,7 @@ private def lowerBlockInstructionsV1
         let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
         body := body.push (.externalCall components argExprs)
         hasAssert := true
+        armReadables := promoteDominatingPureV1 paramCount values armReadables
         segmentStart := values.size
     | .schedule _effectId callee argIds, none =>
         if mode == .view then
@@ -2422,6 +2509,7 @@ private def lowerBlockInstructionsV1
         let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
         body := body.push (.schedule components argExprs)
         hasAssert := true
+        armReadables := promoteDominatingPureV1 paramCount values armReadables
         segmentStart := values.size
     | .construct typeId ctorIdx argIds, some result => do
         unless result.typeId == typeId do
@@ -2841,17 +2929,21 @@ private def lowerBlockInstructionsV1
                 "unsupported EVM semantic shape: Map IndexSet value must be UInt64"
             let (outLeaves0, okInsert) ←
               mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
-            -- Fail closed when map is full: `1 / okInsert` reverts on 0 without
-            -- introducing an effect-boundary assert mid-value segment.
+            -- Fail closed when map is full: `1 / okInsert` reverts on 0.
+            -- Gate only the first leaf so the large `okInsert` tree is not
+            -- duplicated across all capacity×3 leaves (Token transfer was
+            -- blowing Yul past 4 MiB / plan node limits).
             let gate := Expr.checkedDiv (.literal 1) okInsert
             let mut outLeaves : Array Expr := #[]
             let mut outIsInt : Array Bool := #[]
             for i in [0:outLeaves0.size] do
               let some e := outLeaves0[i]? |
                 throw <| .planInvariant .evm "Map IndexSet leaf missing after upsert"
-              -- Touch every leaf with gate so the div0 is reachable.
-              outLeaves := outLeaves.push
-                (Expr.checkedAdd e (Expr.checkedMul gate (.literal 0)))
+              let e' :=
+                if i == 0 then
+                  Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
+                else e
+              outLeaves := outLeaves.push e'
               outIsInt := outIsInt.push false
             let value := mkAggregateValueV1 outLeaves outIsInt
               #[baseId, idxId, valueId]
@@ -2940,7 +3032,7 @@ private def lowerBlockInstructionsV1
     | _, _ =>
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: instruction op/result is outside the current UInt64 pilot"
-  pure { statements := body, values, segmentStart, hasAssert }
+  pure { statements := body, values, segmentStart, hasAssert, armReadables }
 
 /-- Decode a switch case constant against the scrutinee kind/width. -/
 private def decodeSwitchCaseValueV1
@@ -2978,16 +3070,13 @@ private def loopCounterTempV1 (blocks : Array BlockV1) (loopBounds : Array LoopB
         "unsupported EVM semantic shape: loop counter temp missing loopBounds entry"
 
 /-- Collect pure ValueIds in `[paramCount, values.size)` so loop-header and
-    body blocks may read dominating pure arithmetic (e.g. `limit := n + 4`). -/
+    body blocks may read dominating pure arithmetic (e.g. `limit := n + 4`).
+    Alias of `promoteDominatingPureV1` (shared free-set policy with mid-block
+    effect boundaries). -/
 private def dominatingPureReadablesV1
     (paramCount : Nat) (values : Array LoweredValueV1)
-    (base : Array ValueIdV1) : Array ValueIdV1 := Id.run do
-  let mut out := base
-  for i in [paramCount:values.size] do
-    let id : ValueIdV1 := UInt32.ofNat i
-    unless out.contains id do
-      out := out.push id
-  pure out
+    (base : Array ValueIdV1) : Array ValueIdV1 :=
+  promoteDominatingPureV1 paramCount values base
 
 /-- Strip the checked-add overflow guard from a latch update. Normalize always
     emits `i + 1` after a body that only ran while `i < end ≤ UInt64.max`, so
@@ -3150,6 +3239,9 @@ private partial def emitJobV1
       let values := lowered.values
       let segmentStart := lowered.segmentStart
       let hA := lowered.hasAssert
+      -- Free-set after mid-block promotes (match-bound payloads surviving assert/store).
+      -- Nested arms + this terminator use `freeAfter`; post-arm joins keep `armReadables`.
+      let freeAfter := lowered.armReadables
       match block.terminator with
       | .return_ (some valueId) =>
           match mode with
@@ -3160,7 +3252,7 @@ private partial def emitJobV1
                 | some kind => pure kind
                 | none => throw (.planInvariant .evm
                     "unsupported EVM semantic shape: entry/view/pureFn return missing expected result kind")
-              let returned ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+              let returned ← currentValueWithArmsV1 values paramCount segmentStart freeAfter valueId
               match expected with
               | .uint64 =>
                   unless !returned.isBool && !returned.isInt && !returned.isField &&
@@ -3222,7 +3314,7 @@ private partial def emitJobV1
                     throw <| .planInvariant .evm
                       "unsupported EVM semantic shape: return value must be Field"
               let value ← consumeCurrentSegmentWithArmsV1
-                values paramCount segmentStart armReadables valueId
+                values paramCount segmentStart freeAfter valueId
               pure (instrs.push (.returnValue value), values, .done, hA, false)
       | .return_ none =>
           unless segmentStart == values.size do
@@ -3240,12 +3332,12 @@ private partial def emitJobV1
               | none => throw (.planInvariant .evm
                   "unsupported EVM semantic shape: loop latch must pass exactly one induction arg")
             let updateRoot ← currentValueWithArmsV1
-              values paramCount segmentStart armReadables updateArg
+              values paramCount segmentStart freeAfter updateArg
             unless !updateRoot.isBool do
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: loop induction update must be UInt64"
             let update ← consumeCurrentSegmentWithArmsV1
-              values paramCount segmentStart armReadables updateArg
+              values paramCount segmentStart freeAfter updateArg
             pure (instrs, values, .latch (inductionUpdateExprV1 update), hA, false)
           else
             match findLoopBoundV1 loopBounds targetId with
@@ -3253,7 +3345,7 @@ private partial def emitJobV1
                 let (loopStmts, values1, exitCont, hA1, _) ←
                   emitJobV1 owner mode types layout fnIndexByCallableId fns
                     blocks loopBounds paramCount expectedResultKind (fuel - 1)
-                    (.forFromJump armReadables activeLoopHeader lb target.args values segmentStart)
+                    (.forFromJump freeAfter activeLoopHeader lb target.args values segmentStart)
                 pure (instrs ++ loopStmts, values1, exitCont, hA || hA1, true)
             | none =>
                 unless target.args.isEmpty do
@@ -3264,16 +3356,16 @@ private partial def emitJobV1
                     "unsupported EVM semantic shape: block has unconsumed values"
                 pure (instrs, values, .join targetId, hA, false)
       | .branch condId thenT elseT =>
-          let condVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+          let condVal ← currentValueWithArmsV1 values paramCount segmentStart freeAfter condId
           unless condVal.isBool do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: branch condition must be Bool"
           let cond ← consumeCurrentSegmentWithArmsV1
-            values paramCount segmentStart armReadables condId
+            values paramCount segmentStart freeAfter condId
           let (thenBody, values1, thenCont, hA1, _) ←
             emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
               paramCount expectedResultKind (fuel - 1)
-              (.region armReadables activeLoopHeader thenT.blockId.toNat values)
+              (.region freeAfter activeLoopHeader thenT.blockId.toNat values)
           match thenCont with
           | .latch update =>
               pure (instrs ++ #[.ifThenElse cond thenBody #[]], values1,
@@ -3283,14 +3375,14 @@ private partial def emitJobV1
                 let (rest, values2, next, hA2, _) ←
                   emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                     paramCount expectedResultKind (fuel - 1)
-                    (.region armReadables activeLoopHeader j values1)
+                    (.region freeAfter activeLoopHeader j values1)
                 pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest,
                   values2, next, hA || hA1 || hA2, true)
               else
                 let (elseBody, values2, elseCont, hA2, _) ←
                   emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                     paramCount expectedResultKind (fuel - 1)
-                    (.region armReadables activeLoopHeader elseT.blockId.toNat values1)
+                    (.region freeAfter activeLoopHeader elseT.blockId.toNat values1)
                 match elseCont with
                 | .join j2 =>
                     unless j == j2 do
@@ -3299,14 +3391,14 @@ private partial def emitJobV1
                     let (rest, values3, next, hA3, _) ←
                       emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                         paramCount expectedResultKind (fuel - 1)
-                        (.region armReadables activeLoopHeader j values2)
+                        (.region freeAfter activeLoopHeader j values2)
                     pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
                       values3, next, hA || hA1 || hA2 || hA3, true)
                 | .done =>
                     let (rest, values3, next, hA3, _) ←
                       emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                         paramCount expectedResultKind (fuel - 1)
-                        (.region armReadables activeLoopHeader j values2)
+                        (.region freeAfter activeLoopHeader j values2)
                     pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
                       values3, next, hA || hA1 || hA2 || hA3, true)
                 | .latch _ =>
@@ -3316,11 +3408,11 @@ private partial def emitJobV1
               let (elseBody, values2, elseCont, hA2, _) ←
                 emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                   paramCount expectedResultKind (fuel - 1)
-                  (.region armReadables activeLoopHeader elseT.blockId.toNat values1)
+                  (.region freeAfter activeLoopHeader elseT.blockId.toNat values1)
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody],
                 values2, elseCont, hA || hA1 || hA2, true)
       | .switch scrutId cases defaultTarget =>
-          let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
+          let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart freeAfter scrutId
           let some defaultT := defaultTarget |
             throw (.planInvariant .evm
               "unsupported EVM semantic shape: switch must carry a default target")
@@ -3334,7 +3426,7 @@ private partial def emitJobV1
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: switch on non-String aggregate is outside the EVM pilot"
             let _ ← consumeCurrentSegmentWithArmsV1
-              values paramCount segmentStart armReadables scrutId
+              values paramCount segmentStart freeAfter scrutId
             let mut caseArms : Array (Expr × Array Statement) := #[]
             let mut joinAcc : Option Nat := none
             let mut valuesA := values
@@ -3348,7 +3440,8 @@ private partial def emitJobV1
               let (body, values1, armCont, hA1, _) ←
                 emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                   paramCount expectedResultKind (fuel - 1)
-                  (.region (armReadables.push scrutId) activeLoopHeader
+                  (.region (extendArmReadablesV1 valuesA freeAfter scrutId)
+                    activeLoopHeader
                     switchCase.target.blockId.toNat valuesA)
               caseArms := caseArms.push (cond, body)
               valuesA := values1
@@ -3366,7 +3459,8 @@ private partial def emitJobV1
             let (defaultBody, values2, defaultCont, hA2, _) ←
               emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                 paramCount expectedResultKind (fuel - 1)
-                (.region (armReadables.push scrutId) activeLoopHeader
+                (.region (extendArmReadablesV1 valuesA freeAfter scrutId)
+                  activeLoopHeader
                   defaultT.blockId.toNat valuesA)
             hAAcc := hAAcc || hA2
             match defaultCont, joinAcc with
@@ -3393,11 +3487,11 @@ private partial def emitJobV1
                 let (rest, values3, next, hA3, _) ←
                   emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                     paramCount expectedResultKind (fuel - 1)
-                    (.region armReadables activeLoopHeader j values2)
+                    (.region freeAfter activeLoopHeader j values2)
                 pure (instrs ++ nested ++ rest, values3, next, hAAcc || hA3, true)
           else
             let scrut ← consumeCurrentSegmentWithArmsV1
-              values paramCount segmentStart armReadables scrutId
+              values paramCount segmentStart freeAfter scrutId
             let mut caseBodies : Array (UInt64 × Array Statement) := #[]
             let mut joinAcc : Option Nat := none
             let mut valuesA := values
@@ -3408,7 +3502,8 @@ private partial def emitJobV1
               let (body, values1, armCont, hA1, _) ←
                 emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                   paramCount expectedResultKind (fuel - 1)
-                  (.region (armReadables.push scrutId) activeLoopHeader
+                  (.region (extendArmReadablesV1 valuesA freeAfter scrutId)
+                    activeLoopHeader
                     switchCase.target.blockId.toNat valuesA)
               caseBodies := caseBodies.push (caseValue, body)
               valuesA := values1
@@ -3426,7 +3521,8 @@ private partial def emitJobV1
             let (defaultBody, values2, defaultCont, hA2, _) ←
               emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                 paramCount expectedResultKind (fuel - 1)
-                (.region (armReadables.push scrutId) activeLoopHeader
+                (.region (extendArmReadablesV1 valuesA freeAfter scrutId)
+                  activeLoopHeader
                   defaultT.blockId.toNat valuesA)
             hAAcc := hAAcc || hA2
             match defaultCont, joinAcc with
@@ -3447,13 +3543,13 @@ private partial def emitJobV1
                 let (rest, values3, next, hA3, _) ←
                   emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                     paramCount expectedResultKind (fuel - 1)
-                    (.region armReadables activeLoopHeader j values2)
+                    (.region freeAfter activeLoopHeader j values2)
                 pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
                   values3, next, hAAcc || hA3, true)
       | .revert errorId argIds =>
           let mut argExprs : Array Expr := #[]
           for argId in argIds do
-            let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+            let root ← currentValueWithArmsV1 values paramCount segmentStart freeAfter argId
             unless !root.isBool do
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: revert arguments must be UInt64"

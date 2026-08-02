@@ -7,8 +7,9 @@ open ProofForgeV2.Language
 -- NS-1 fungible token (Map UInt64→UInt64 balances + supply).
 -- Account keys are UInt64 ids (not Principal — Principal Map/state is still
 -- target-gated outside EVM T10 leaf storage). Transfer/mint use Map IndexGet/Set.
--- Product check/compile must succeed; four-target Plan currently FAIL-CLOSED
--- on Map state (coverage matrix). Do not invent Map Plan lowering here.
+-- Product check/compile succeeds. EVM dense Map pilot lowers to deployable
+-- Yul/bin (capacity-8 open table). Solana/NEAR/Noir Plan still FAIL-CLOSED on
+-- Map state until those leaf lanes open.
 program Token where
   state balances : Map UInt64 UInt64
   state supply : UInt64

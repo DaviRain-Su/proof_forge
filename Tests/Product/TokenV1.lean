@@ -3,12 +3,13 @@
 
   Authority: shipped `Examples/Token.lean`.
     * product `check` succeeds (Normalize Map path: empty + IndexGet/Set)
-    * product `build` for evm/solana/near/noir fails closed with Map
-      container-state pilot boundary (PF-PLAN-INVARIANT); no output tree
-    * not Principal-keyed (still target-gated); not IBC; not four-target deploy
+    * product `build --target evm` succeeds deployable (dense Map UInt64→UInt64
+      pilot: capacity-8 occ/key/val leaves + Option match)
+    * solana / near / noir still fail closed on Map Plan (no manifest)
+    * not Principal-keyed; not IBC; not four-target deploy
 
-  Opening Map Plan on any target is a separate B/leaf slice — this suite must
-  flip only when that happens intentionally.
+  Opening Map Plan on Solana/NEAR/Noir is a separate leaf — flip those
+  assertions only when that landing is intentional.
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Common
@@ -85,12 +86,34 @@ private def testCliCheckOk : IO Unit := do
   expect (containsSubstr stdout "program=Token" || containsSubstr stdout "Token")
     s!"check ok must name Token, stdout={stdout}"
 
-private def fourTargets : Array String := #["evm", "solana", "near", "noir"]
-
-/-- Four-target build must fail closed on Map state (no materialize / no manifest). -/
-private def testFourTargetsMapFailClosed : IO Unit := do
+/-- EVM Map pilot: Token builds deployable Yul/bin + manifest. -/
+private def testEvmBuildDeployable : IO Unit := do
   assertShape (← readShipped)
-  for tid in fourTargets do
+  let outDir := FilePath.mk ".lake/build/tmp-ns1-token-evm"
+  try IO.FS.removeDirAll outDir catch _ => pure ()
+  let (code, stdout, stderr) ← runCli
+    #["build", "Examples/Token.lean",
+      "--module", "Examples.Token",
+      "--target", "evm",
+      "-o", outDir.toString]
+  expect (code == 0)
+    s!"Token build --target evm must succeed, exit={code} stderr={stderr} stdout={stdout}"
+  expect (containsSubstr stdout "deployable=true")
+    s!"Token EVM must report deployable=true, stdout={stdout}"
+  unless ← (outDir / "manifest.json").pathExists do
+    throw <| IO.userError "Token EVM must write manifest.json"
+  unless ← (outDir / "Token.bin").pathExists do
+    throw <| IO.userError "Token EVM must write Token.bin"
+  unless ← (outDir / "Token.yul").pathExists do
+    throw <| IO.userError "Token EVM must write Token.yul"
+  try IO.FS.removeDirAll outDir catch _ => pure ()
+
+private def mapStillClosedTargets : Array String := #["solana", "near", "noir"]
+
+/-- Solana/NEAR/Noir still fail closed on Map state (no materialize / no manifest). -/
+private def testOtherTargetsMapFailClosed : IO Unit := do
+  assertShape (← readShipped)
+  for tid in mapStillClosedTargets do
     let outDir := FilePath.mk s!".lake/build/tmp-ns1-token-{tid}"
     try IO.FS.removeDirAll outDir catch _ => pure ()
     let (code, stdout, stderr) ← runCli
@@ -115,7 +138,8 @@ private def testFourTargetsMapFailClosed : IO Unit := do
 unsafe def run : IO Unit := do
   testProductCompileOk
   testCliCheckOk
-  testFourTargetsMapFailClosed
+  testEvmBuildDeployable
+  testOtherTargetsMapFailClosed
   IO.println "Tests.Product.TokenV1: ok"
 
 end Tests.Product.TokenV1
