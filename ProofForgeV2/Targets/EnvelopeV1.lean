@@ -291,6 +291,20 @@ def pilotContainerStatePolicyArrayOnly : PilotContainerStatePolicy where
   admitMap := false
   admitBytes := false
 
+/-- I1 MapState: fixed-length Array + static-key Map (target-local layout:
+    Map UInt64 UInt64 only; N distinct compile-time UInt64 keys → 2N present+value
+    UInt64 leaves). Bytes stay fail closed. -/
+def pilotContainerStatePolicyArrayMap : PilotContainerStatePolicy where
+  admitArray := true
+  admitMap := true
+  admitBytes := false
+
+/-- EVM MapState: Array + Map + fixed Bytes (Map layout same as ArrayMap). -/
+def pilotContainerStatePolicyArrayMapBytes : PilotContainerStatePolicy where
+  admitArray := true
+  admitMap := true
+  admitBytes := true
+
 /-- Per-target admission for N4 `TypeShapeV1.string` (variable-length NFC UTF-8).
     Default fail-closed. A positive lane must store and byte-compare the full
     wire encoding (`u32le len || UTF-8`, len ≤ maxTypeLengthV1) or a documented
@@ -793,6 +807,14 @@ def validatePilotTypeClosure
             throw <| mkErr (shapeMsg label
               "anonymous Bytes is outside the current container-state pilot")
           containerTypeIds := containerTypeIds.push decl.id
+      | .option _ =>
+          -- I1 MapState: Option is the Map IndexGet result shape. Admit it only
+          -- as a body intermediate when Map is admitted (not as container state —
+          -- Option is never pushed to containerTypeIds; state planning still
+          -- fail-closed for Option declarations).
+          unless containerPolicy.admitMap do
+            throw <| mkErr (shapeMsg label
+              "anonymous Option is outside the current container-state pilot")
       | _ =>
           throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
   let resolvedUInt64TypeId ← match uint64TypeId with

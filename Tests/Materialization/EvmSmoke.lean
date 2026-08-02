@@ -2848,12 +2848,9 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
   let mapCompiled ← liftResult "compile MapBox" <|
     Compiler.compileValidatedSourceV1 mapSrc
   match planEvm mapCompiled with
-  | .ok _ => throw <| IO.userError "EVM must decline Map state"
+  | .ok _ => pure ()
   | .error e =>
-      expect ((e.render).contains "Map" || (e.render).contains "container" ||
-          (e.render).contains "Array" || (e.render).contains "unsupported" ||
-          (e.render).contains "pilot")
-        s!"Map decline must cite container/Map boundary, got {e.render}"
+      throw <| IO.userError s!"EVM must accept Map state (I1), got {e.render}"
 
 /-- D4-E2: Bytes N state flattens to N×UInt8 leaves with IndexGet/IndexSet
     (Normalize-admitted; Map remains fail closed). -/
@@ -2916,11 +2913,9 @@ private unsafe def testBytesStateIndexOps : IO Unit := do
   let mapCompiled ← liftResult "compile MapStillClosed" <|
     Compiler.compileValidatedSourceV1 mapSrc
   match planEvm mapCompiled with
-  | .ok _ => throw <| IO.userError "EVM must still decline Map after Bytes open"
+  | .ok _ => pure ()
   | .error e =>
-      expect ((e.render).contains "Map" || (e.render).contains "container" ||
-          (e.render).contains "unsupported" || (e.render).contains "pilot")
-        s!"Map residual fail-closed message, got {e.render}"
+      throw <| IO.userError s!"EVM must accept Map after I1, got {e.render}"
 
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
