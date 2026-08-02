@@ -443,11 +443,11 @@ private def inputTypeOfScalarV1
     Field (bn254 Fr = Noir native Field) under `pilotUintWidthPolicyNoirBody`
     (T8d body multi-width + T8b ABI multi-width + T11 UInt128), plus **named
     Struct/Enum** (`pilotNamedAggregateStatePolicyAdmit`, NoirAggregate)
-    flattened to UInt64/Int64 relation-slot leaves. Anonymous Array/Map/Bytes
-    stay fail closed (`pilotContainerStatePolicyNone`). Valid but richer
-    SemanticProgramV1 programs fail at the target Plan seam rather than being
-    silently erased. N2c: Principal remains fail-closed (variable-length
-    identity is not a Field element; default `pilotPrincipalPolicyNone`). -/
+    flattened to UInt64/Int64 relation-slot leaves. T12: Principal admitted as
+    **storage identity only** (`pilotPrincipalPolicyAdmit`) — fixed leaf
+    layout len+8×UInt64 (≤64B body, same pattern as EVM T10); still not a
+    Field element. Anonymous Array/Map/Bytes stay fail closed
+    (`pilotContainerStatePolicyNone`). -/
 private def validateNoirTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 :=
   -- Named aggregates admitted (flatten-to-leaf public inputs). Containers
@@ -456,7 +456,66 @@ private def validateNoirTypeClosureV1
     pilotUintWidthPolicyNoirBody
     (intPolicy := pilotIntWidthPolicyNarrow)
     (fieldPolicy := pilotFieldPolicyBn254)
+    (principalPolicy := pilotPrincipalPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
+
+/-- Noir pilot Principal storage layout (T12, isomorphic to EVM T10):
+    * leaf 0: wire body length (`UInt64`)
+    * leaves 1..8: up to 64 opaque body bytes packed little-endian into
+      8×UInt64 words (zero-padded)
+    Principal body longer than 64 bytes fails closed at plan lowering.
+    **Not** a Field element — storage is raw wire identity only. -/
+private def noirPrincipalMaxPayloadBytesV1 : Nat := 64
+private def noirPrincipalDataWordCountV1 : Nat := 8
+
+/-- Shared len+payload leaf layout for T12 Principal. -/
+private def flattenWireBytesLeafSpecsV1 (namePrefix : String) (dataWordCount : Nat) :
+    CompileResult (Array (String × Bool)) := do
+  let lenName :=
+    if namePrefix.isEmpty then "len" else namePrefix ++ "_len"
+  unless isIdentifier lenName do
+    throw <| .planInvariant .noir
+      s!"state name '{lenName}' is not a safe identifier"
+  let mut out : Array (String × Bool) := #[(lenName, false)]
+  for i in [0:dataWordCount] do
+    let wName :=
+      if namePrefix.isEmpty then s!"w{i}" else namePrefix ++ "_w" ++ toString i
+    unless isIdentifier wName do
+      throw <| .planInvariant .noir
+        s!"state name '{wName}' is not a safe identifier"
+    out := out.push (wName, false)
+  pure out
+
+/-- Pack wire Principal valueBytes into Noir pilot leaves. -/
+private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
+    CompileResult (Array Expr) := do
+  unless bytes.size ≥ 4 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: Principal literal valueBytes too short"
+  let len :=
+    (bytes.get! 0).toNat + (bytes.get! 1).toNat * 256 +
+      (bytes.get! 2).toNat * 65536 + (bytes.get! 3).toNat * 16777216
+  unless bytes.size == 4 + len do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: Principal literal valueBytes length framing mismatch"
+  unless 1 ≤ len do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: Principal body shorter than 1 byte"
+  unless len ≤ noirPrincipalMaxPayloadBytesV1 do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: Principal longer than {noirPrincipalMaxPayloadBytesV1} bytes (Noir pilot bound)"
+  let payload := bytes.extract 4 bytes.size
+  let mut leaves : Array Expr := #[.literal (UInt64.ofNat len)]
+  for w in [0:noirPrincipalDataWordCountV1] do
+    let mut word : Nat := 0
+    let mut place : Nat := 1
+    for b in [0:8] do
+      let idx := w * 8 + b
+      let byte := if idx < payload.size then (payload.get! idx).toNat else 0
+      word := word + byte * place
+      place := place * 256
+    leaves := leaves.push (.literal (UInt64.ofNat word))
+  pure leaves
 
 /-- Map Semantic visibility to Noir relation-slot disclosure. Commitment is
     rejected by the caller before this helper is applied. -/
@@ -525,6 +584,8 @@ private partial def flattenTypeLeafSpecsV1
     pure #[(namePrefix, false)]
   else if types.int64TypeId == some typeId then
     pure #[(namePrefix, true)]
+  else if types.isPrincipal typeId then
+    flattenWireBytesLeafSpecsV1 namePrefix noirPrincipalDataWordCountV1
   else if types.isNamedAggregate typeId then
     match typeDecls[typeId.toNat]? with
     | none =>
@@ -576,7 +637,7 @@ private partial def flattenTypeLeafSpecsV1
               "unsupported Noir semantic shape: named type must be Struct or Enum"
   else
     throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: aggregate leaf must be UInt64, Int64, or named Struct/Enum"
+      "unsupported Noir semantic shape: aggregate leaf must be UInt64, Int64, Principal, or named Struct/Enum"
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
@@ -647,7 +708,8 @@ private def makeStateLayoutV1
     unless isIdentifier state.name do
       throw <| .planInvariant .noir s!"state name '{state.name}' is not a safe identifier"
     let visibility := inputVisibilityOfSemanticV1 state.visibility
-    if types.isNamedAggregate state.typeId then
+    if types.isNamedAggregate state.typeId || types.isPrincipal state.typeId then
+      -- Named Struct/Enum (NoirAggregate) or T12 Principal: flatten to u64 leaves.
       requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState noirPlanErr types state
         (allowNonPublic := true)
       let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
@@ -708,7 +770,8 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
     unless isIdentifier param.name do
       throw <| .planInvariant .noir
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    if types.isNamedAggregate param.typeId then
+    if types.isNamedAggregate param.typeId || types.isPrincipal param.typeId then
+      -- Named Struct/Enum or T12 Principal: expand to u64 leaf params.
       requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
         noirPlanErr types owner param (allowNonPublic := true)
       let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types param.typeId param.name
@@ -1129,42 +1192,72 @@ private def makeBoolNotValueV1 (operandId : ValueIdV1) (operand : LoweredValueV1
     dependencies := #[operandId]
   }
 
+/-- Leaf-wise unsigned equality chain for Principal / named-aggregate `==`/`!=`. -/
+private def makeLeafWiseEqExprV1 (lhs rhs : Array Expr) : CompileResult Expr := do
+  unless lhs.size == rhs.size && lhs.size > 0 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: aggregate comparison leaf count mismatch"
+  let mut acc : Expr := .compare .eq lhs[0]! rhs[0]!
+  for i in [1:lhs.size] do
+    acc := .boolAnd acc (.compare .eq lhs[i]! rhs[i]!)
+  pure acc
+
 private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  -- Ordering: UInt64/Int64 only. Equality: also Field (canonical typed equality).
-  let isEq := op == .eq || op == .ne
-  let sameUint :=
-    match widthOfUintKindV1 lhs.kind, widthOfUintKindV1 rhs.kind with
-    | some w, some w2 => w == w2
-    | _, _ => false
-  let ok :=
-    sameUint ||
-    (lhs.kind == .int64 && rhs.kind == .int64) ||
-    (isEq && lhs.kind == .field && rhs.kind == .field)
-  unless ok do
-    throw <| .planInvariant .noir
-      (if isEq then
-        "unsupported Noir semantic shape: equality operands must be admitted UInt, Int64, or Field"
-      else
-        "unsupported Noir semantic shape: ordering operands must be admitted UInt or Int64")
-  let depth := 1 + max lhs.depth rhs.depth
-  if depth > maxExprDepth then
-    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
-  if lhs.expandedNodes > maxPlanNodes - 1 then
-    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
-  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
-  if rhs.expandedNodes > remaining then
-    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
-  pure {
-    expr := if lhs.kind == .int64 then .signedCompare op lhs.expr rhs.expr
-      else .compare op lhs.expr rhs.expr
-    kind := .bool
-    depth
-    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
-    dependencies := #[lhsId, rhsId]
-  }
+  -- T12: aggregate (Principal / named Struct/Enum) only supports == / !=.
+  if lhs.isAggregate || rhs.isAggregate then
+    unless lhs.isAggregate && rhs.isAggregate do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: aggregate comparison requires both operands aggregate"
+    unless op == .eq || op == .ne do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: aggregate comparison only supports == / !="
+    let le := lhs.leafExprs
+    let re := rhs.leafExprs
+    let acc ← makeLeafWiseEqExprV1 le re
+    let expr := if op == .ne then .boolNot acc else acc
+    pure {
+      expr
+      kind := .bool
+      depth := max lhs.depth rhs.depth + le.size + 1
+      expandedNodes := lhs.expandedNodes + rhs.expandedNodes + le.size + 1
+      dependencies := (lhs.dependencies ++ rhs.dependencies).push lhsId |>.push rhsId
+    }
+  else do
+    -- Ordering: UInt64/Int64 only. Equality: also Field (canonical typed equality).
+    let isEq := op == .eq || op == .ne
+    let sameUint :=
+      match widthOfUintKindV1 lhs.kind, widthOfUintKindV1 rhs.kind with
+      | some w, some w2 => w == w2
+      | _, _ => false
+    let ok :=
+      sameUint ||
+      (lhs.kind == .int64 && rhs.kind == .int64) ||
+      (isEq && lhs.kind == .field && rhs.kind == .field)
+    unless ok do
+      throw <| .planInvariant .noir
+        (if isEq then
+          "unsupported Noir semantic shape: equality operands must be admitted UInt, Int64, Field, or Principal"
+        else
+          "unsupported Noir semantic shape: ordering operands must be admitted UInt or Int64")
+    let depth := 1 + max lhs.depth rhs.depth
+    if depth > maxExprDepth then
+      throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+    if lhs.expandedNodes > maxPlanNodes - 1 then
+      throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+    let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+    if rhs.expandedNodes > remaining then
+      throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+    pure {
+      expr := if lhs.kind == .int64 then .signedCompare op lhs.expr rhs.expr
+        else .compare op lhs.expr rhs.expr
+      kind := .bool
+      depth
+      expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+      dependencies := #[lhsId, rhsId]
+    }
 
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
@@ -1401,11 +1494,17 @@ private def lowerBlockInstructionsV1
                   dependencies := #[]
                 }
           | none =>
-              throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: literal is not UInt{8,16,32,64,128}, Int64, or Bool"
+              if types.isPrincipal typeId then
+                let leafExprs ← decodePrincipalLiteralLeavesV1 bytes
+                let leafIsInt := leafExprs.map (fun _ => false)
+                let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size
+                values := ← appendResultValueV1 typeId values result value
+              else
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: literal is not UInt{8,16,32,64,128}, Int64, Bool, or Principal"
     | .stateLoad stateId, some result =>
         let leaves ← findStateLeavesV1 layout stateId
-        if types.isNamedAggregate result.typeId then
+        if types.isNamedAggregate result.typeId || types.isPrincipal result.typeId then
           let specs ← flattenTypeLeafSpecsV1 layout.typeDecls types result.typeId "state"
           unless specs.size == leaves.size do
             throw <| .planInvariant .noir
@@ -1444,7 +1543,7 @@ private def lowerBlockInstructionsV1
                         s!"unsupported Noir semantic shape: state load UInt{w} is not admitted"
               | none =>
                   throw <| .planInvariant .noir
-                    "unsupported Noir semantic shape: state load must be UInt{8,16,32,64,128}, Int64, Field, or named Struct/Enum"
+                    "unsupported Noir semantic shape: state load must be UInt{8,16,32,64,128}, Int64, Field, Principal, or named Struct/Enum"
           values := ← appendResultValueV1 result.typeId values result {
             expr := .stateLoad fieldIndex
             kind

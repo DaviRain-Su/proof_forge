@@ -233,7 +233,9 @@ def pilotFieldPolicyBn254 : PilotFieldPolicy where
     when the target flattens identity into fixed leaf words without
     reinterpretation as a host address (T10 EVM pilot: len + 8×UInt64 body
     words, ≤64B body bound — same leaf pattern as N4 String; not 20-byte
-    address). Other Phase-1 targets remain `pilotPrincipalPolicyNone`.
+    address). T12 extends the same leaf storage pilot to Solana/NEAR/Noir
+    (still not pubkey/account-id/Field reinterpretation). Aleo/Psy remain
+    `pilotPrincipalPolicyNone`.
 
     Default is fail-closed. A target may set `admitPrincipal := true` only
     when it can store and byte-compare the wire encoding without
@@ -243,13 +245,15 @@ structure PilotPrincipalPolicy where
   deriving BEq, Repr
 
 /-- Historical / opt-out and B-3 research pin: Principal fail-closed
-    (Solana/NEAR/Noir/Aleo/Psy; no pubkey / account-id / Field exact match). -/
+    (Aleo/Psy and any target without lossless leaf storage; no pubkey /
+    account-id / Field exact match). -/
 def pilotPrincipalPolicyNone : PilotPrincipalPolicy where
   admitPrincipal := false
 
 /-- Admit at most one anonymous Principal type (full wire identity storage
-    only — not an EVM/Solana address alias). T10: EVM Plan uses this for
-    state/param leaf layout; CALL target remains static QN, not Principal. -/
+    only — not an EVM/Solana address alias). T10/T12: EVM/Solana/NEAR/Noir
+    Plans use this for state/param leaf layout; CALL target remains static
+    QN, not Principal. -/
 def pilotPrincipalPolicyAdmit : PilotPrincipalPolicy where
   admitPrincipal := true
 
@@ -607,38 +611,42 @@ def evmTypeClosureWording : PilotTypeClosureWording where
     "only UInt8, UInt16, UInt32, UInt64, UInt128, UInt256, Int8, Int16, Int32, Int64, Unit, Bool, Field(bn254-fr), and Principal (variable-length u32-prefixed identity storage; not an EVM address; wire 1..4096 body ≠ fixed 20-byte address) are supported"
 
 /-- Solana type-closure diagnostic wording (UInt multi-width + Int multi-width T9c).
-    Field fail-closed: no native field element. B-3: Principal stays fail-closed
-    — wire is u32-prefixed 1..4096 bytes; Solana pubkey/program id is fixed
-    32 raw bytes (not an exact match; no silent require-body-32 reinterpret). -/
+    Field fail-closed: no native field element. T12: Principal admitted as
+    **storage identity only** (len+8×UInt64 leaves, ≤64B body) — still not a
+    fixed 32-byte Solana pubkey / program id (no silent reinterpret). -/
 def solanaTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Solana"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
     "only anonymous UInt8/UInt16/UInt32/UInt64 and Int8/Int16/Int32/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, and Bool are supported (no native Field; Principal is variable-length u32-prefixed identity, not fixed 32-byte pubkey; wire 1..4096 body ≠ ed25519 program id)"
+    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, Bool, and Principal (variable-length u32-prefixed identity storage; not a fixed 32-byte pubkey; wire 1..4096 body ≠ ed25519 program id) are supported (no native Field)"
 
 /-- NEAR type-closure diagnostic wording (ABI multi-width UInt + Int T9c).
-    Field fail-closed: no native field element. -/
+    Field fail-closed: no native field element. T12: Principal admitted as
+    **storage identity only** (len+8×UInt64 KV leaves) — still not a NEAR
+    account-id string. -/
 def nearTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "NEAR"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
     "only anonymous UInt8/UInt16/UInt32/UInt64 and Int8/Int16/Int32/Int64 integer types are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, and Bool are supported (no native Field; Principal is binary variable-length identity, not NEAR account-id string)"
+    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, Bool, and Principal (binary variable-length identity storage; not a NEAR account-id string) are supported (no native Field)"
 
 /-- Noir type-closure diagnostic wording (ABI multi-width UInt + Int T9c + Field).
 
     Wave N2a names Int64; Wave N2b opens sole catalog Field (bn254 Fr = Noir
-    native Field). T8b admits UInt{8,16,32,64}; T9c admits Int{8,16,32,64}. -/
+    native Field). T8b admits UInt{8,16,32,64}; T9c admits Int{8,16,32,64}.
+    T12: Principal admitted as storage identity (len+8×UInt64 relation inputs)
+    — still not a Field element. -/
 def noirTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Noir"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
     "only anonymous UInt8/UInt16/UInt32/UInt64 and Int8/Int16/Int32/Int64 integer widths are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length identity, not a Field element)"
+    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, Bool, Field(bn254-fr), and Principal (variable-length identity storage; not a Field element) are supported"
 
 /-- Psy type-closure diagnostic wording (UInt64/32 + Int64).
 

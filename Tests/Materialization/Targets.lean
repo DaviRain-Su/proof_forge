@@ -2622,12 +2622,13 @@ unsafe def run : IO Unit := do
         s!"N2b field Psy message must cite Goldilocks≠bn254 Fr, got {e.render}"
 
 
-  -- N2c + B-3 PrincipalAddr + T10 EVM Principal storage pilot.
+  -- N2c + B-3 PrincipalAddr + T10/T12 Principal storage pilot.
   -- Normalize admits identity-only Principal (state/params/eq/ne). Wire is
-  -- variable-length u32-prefixed 1..4096 body. T10 opens EVM state/param leaf
-  -- storage (len + 8×UInt64, ≤64B body) without Principal→address mapping.
-  -- Solana/NEAR/Noir/Psy remain Plan fail-closed (no exact pubkey/account-id/
-  -- Field match; PsyFelt-style honesty pin).
+  -- variable-length u32-prefixed 1..4096 body. T10 opens EVM; T12 opens
+  -- Solana/NEAR/Noir state/param leaf storage (len + 8×UInt64, ≤64B body)
+  -- without Principal→address mapping. Psy remains Plan fail-closed
+  -- (no exact Felt match; PsyFelt-style honesty pin). B-3 research pin still
+  -- holds: storage is wire identity leaves, not pubkey/account-id/Field.
   let prinSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2666,32 +2667,58 @@ unsafe def run : IO Unit := do
     s!"T10 Principal leaf 1 must be owner_w0, got {prinPlan.storageLayout[1]!.name}"
   expect (prinPlan.storageLayout[8]!.name == "owner_w7")
     s!"T10 Principal leaf 8 must be owner_w7, got {prinPlan.storageLayout[8]!.name}"
-  -- Non-EVM Phase-1 targets remain fail-closed on Principal.
-  for target in [TargetId.solana, TargetId.near, TargetId.noir, TargetId.psy] do
-    match materializeSelected target prinCompiled with
-    | .ok _ =>
-        throw <| IO.userError s!"N2c principal: {target} must fail closed on Principal"
-    | .error e =>
-        expect ((e.render).contains "Principal" ||
-            (e.render).contains "principal" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "identity" ||
-            (e.render).contains "variable-length")
-          s!"N2c principal {target} message must cite Principal boundary, got {e.render}"
-  -- B-3 Solana exact mismatch pin: wording must name fixed 32-byte pubkey.
-  match materializeSelected TargetId.solana prinCompiled with
+  -- T12: Solana/NEAR/Noir admit Principal storage (9 leaf slots) and materialize.
+  let prinSol ← liftResult <| materializeSelected TargetId.solana prinCompiled
+  let prinNear ← liftResult <| materializeSelected TargetId.near prinCompiled
+  let prinNoir ← liftResult <| materializeSelected TargetId.noir prinCompiled
+  let solPlan ← liftResult <| planSolana prinCompiled
+  expect (solPlan.stateAccount.fields.size == 9)
+    s!"T12 Solana Principal state must flatten to 9 leaves, got {solPlan.stateAccount.fields.size}"
+  expect (solPlan.stateAccount.fields[0]!.name == "owner_len")
+    s!"T12 Solana Principal leaf 0 must be owner_len, got {solPlan.stateAccount.fields[0]!.name}"
+  expect (solPlan.stateAccount.fields[8]!.name == "owner_w7")
+    s!"T12 Solana Principal leaf 8 must be owner_w7, got {solPlan.stateAccount.fields[8]!.name}"
+  let nearPlan ← liftResult <| planNear prinCompiled
+  expect (nearPlan.storage.fields.size == 9)
+    s!"T12 NEAR Principal state must flatten to 9 KV leaves, got {nearPlan.storage.fields.size}"
+  expect (nearPlan.storage.fields[0]!.name == "owner_len")
+    s!"T12 NEAR Principal leaf 0 must be owner_len, got {nearPlan.storage.fields[0]!.name}"
+  expect (nearPlan.storage.fields[8]!.name == "owner_w7")
+    s!"T12 NEAR Principal leaf 8 must be owner_w7, got {nearPlan.storage.fields[8]!.name}"
+  let noirPlan ← liftResult <| planNoir prinCompiled
+  expect (noirPlan.states.size == 9)
+    s!"T12 Noir Principal state must flatten to 9 inputs, got {noirPlan.states.size}"
+  expect (noirPlan.states[0]!.name == "owner_len")
+    s!"T12 Noir Principal leaf 0 must be owner_len, got {noirPlan.states[0]!.name}"
+  expect (noirPlan.states[8]!.name == "owner_w7")
+    s!"T12 Noir Principal leaf 8 must be owner_w7, got {noirPlan.states[8]!.name}"
+  -- Materialized artifacts must exist for the three newly-open targets.
+  expect ((MaterializedArtifactsV1.filesOf prinSol).any
+      (fun f => f.path.endsWith ".plan" || f.path.endsWith ".rs" ||
+        f.path.endsWith ".s" || f.path.endsWith ".json"))
+    "T12 Solana Principal materialize must emit plan/source artifacts"
+  expect ((MaterializedArtifactsV1.filesOf prinNear).any
+      (fun f => f.path.endsWith ".wat" || f.path.endsWith ".json"))
+    "T12 NEAR Principal materialize must emit WAT/ABI artifacts"
+  expect ((MaterializedArtifactsV1.filesOf prinNoir).any
+      (fun f => f.path.endsWith ".nr" || f.path.endsWith ".json"))
+    "T12 Noir Principal materialize must emit Noir source artifacts"
+  -- Psy remains fail-closed on Principal (Felt ≠ wire identity).
+  match materializeSelected TargetId.psy prinCompiled with
   | .ok _ =>
-      throw <| IO.userError
-        "B-3 principal: Solana must fail closed (wire ≠ fixed 32-byte pubkey)"
+      throw <| IO.userError "N2c principal: psy must fail closed on Principal"
   | .error e =>
-      expect ((e.render).contains "32-byte" ||
-          (e.render).contains "pubkey" ||
-          (e.render).contains "program id")
-        s!"B-3 Solana Principal decline must cite 32-byte pubkey mismatch, got {e.render}"
-      expect ((e.render).contains "variable-length" ||
-          (e.render).contains "u32-prefixed" ||
-          (e.render).contains "1..4096")
-        s!"B-3 Solana Principal decline must cite variable-length wire, got {e.render}"
+      expect ((e.render).contains "Principal" ||
+          (e.render).contains "principal" ||
+          (e.render).contains "unsupported" ||
+          (e.render).contains "identity" ||
+          (e.render).contains "variable-length" ||
+          (e.render).contains "Felt")
+        s!"N2c principal psy message must cite Principal boundary, got {e.render}"
+  -- B-3 honesty pin survives T12: storage is wire identity leaves, not a
+  -- 32-byte pubkey reinterpretation. Positive Solana materialize proves the
+  -- leaf layout; wording still documents the non-match in Envelope diagnostics
+  -- for unsupported Principal shapes (e.g. multi-word Principal return).
   -- T10: Principal multi-word entry *result* still fail closed (same gap as
   -- String return; storage/param/eq are open). Pins ResultKind surface.
   let prinRetSource :=

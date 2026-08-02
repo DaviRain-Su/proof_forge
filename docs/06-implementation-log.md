@@ -12986,3 +12986,35 @@ normative: false
 - Boundary: engineering only; not formal D2/D4; no UInt256; no multi-limb
   mul/div; pure Lean relation model only low-path u64 carrier for u128;
   source-only maturity unchanged.
+
+## 2026-08-02 — T12: Principal state/param on NEAR/Solana/Noir
+
+- Production: open Principal as **storage identity only** on Solana/NEAR/Noir
+  (mirror T10 EVM). B-3 PrincipalAddr research pin unchanged: wire Principal
+  `u32le(len)||body` is not a fixed 20/32-byte host address, not a NEAR
+  account-id string, and not a Field element. CALL/CPI targets remain static
+  QualifiedName callees.
+  * `EnvelopeV1`: docs + type-closure wording for Solana/NEAR/Noir admit
+    Principal storage; Aleo/Psy remain `pilotPrincipalPolicyNone`.
+  * **Solana** (`LowerSemanticV1`): `pilotPrincipalPolicyAdmit`; flatten
+    Principal state/params to 9×UInt64 account leaves (`*_len` + `*_w0..w7`,
+    ≤64B body); leaf-wise `==`/`!=`; multi-leaf return fail closed. EmitIR/
+    SBPF reuse existing multi-leaf ldxdw/stxdw paths (ArrayState pattern).
+  * **NEAR** (`LowerSemanticV1`): `pilotPrincipalPolicyAdmit`; flatten to
+    9 KV fields (same leaf names; each leaf one storage_read/write); Plan
+    `StorageLayout.stateLeaves` maps logical state → physical field indices;
+    aggregate value carrier + leaf-wise eq; multi-leaf return fail closed.
+    Design note: single variable-length `u32le||body` KV deferred — 9 fixed
+    leaves keep EmitIR temps free while preserving lossless wire identity.
+  * **Noir** (`LowerSemanticV1`): `pilotPrincipalPolicyAdmit`; flatten to
+    9×u64 public/private relation inputs (same leaf names); leaf-wise
+    `==`/`!=` via `boolAnd` chain; multi-word return fail closed via result
+    kind gate.
+- Tests: `Tests/Materialization/Targets.lean` N2c row — Solana/NEAR/Noir
+  positive PrincipalMix materialize + 9-leaf name pins; Psy still
+  fail-closed; EVM T10 pins retained.
+- Docs: coverage matrix Principal row → LOWERED(T12) for Solana/NEAR/Noir;
+  B-3 section + Phase F queue updated.
+- Boundary: engineering only; not formal D2/D4; no Principal→address CALL
+  target; no multi-word Principal ResultKind; Aleo/Psy fail closed; not
+  formal SupportClaim / registry digest.

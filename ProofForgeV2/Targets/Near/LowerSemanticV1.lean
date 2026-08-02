@@ -108,6 +108,10 @@ structure StorageLayout where
   markerValue : UInt64
   payloadInitialization : PayloadInitializationPolicy
   fields : Array StorageField
+  /-- T12 Principal: `stateLeaves[stateId]` lists physical field indices for that
+      logical state (scalar → singleton; Principal → 9 leaves). Empty array means
+      legacy 1:1 `fields[stateId]`. -/
+  stateLeaves : Array (Array Nat) := #[]
   deriving BEq, Inhabited, Repr
 
 structure Param where
@@ -489,9 +493,10 @@ private def nearPlanErr (message : String) : CompileError :=
   .planInvariant .near message
 
 /-- NEAR pilot accepts anonymous UInt{8,16,32,64,128,256}/Unit/Bool/Int{8,16,32,64}
-    under `pilotUintWidthPolicyNearBody` (T9e multiword + T8c/T8b). N2c: Principal
-    remains fail-closed (wire identity is binary variable-length; not a NEAR
-    account-id string). -/
+    under `pilotUintWidthPolicyNearBody` (T9e multiword + T8c/T8b). T12: Principal
+    admitted as **storage identity only** (`pilotPrincipalPolicyAdmit`) —
+    fixed leaf layout len+8×UInt64 as separate KV fields (≤64B body, same
+    pattern as EVM T10); still not a NEAR account-id string. -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
   -- ArrayState: container policy defaults to none — anonymous Array/Map/Bytes
@@ -499,6 +504,68 @@ private def validateNearTypeClosureV1
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
     pilotUintWidthPolicyNearBody
     (intPolicy := pilotIntWidthPolicyNarrow)
+    (principalPolicy := pilotPrincipalPolicyAdmit)
+
+/-- NEAR pilot Principal storage layout (T12, isomorphic to EVM T10):
+    * leaf 0: wire body length (`UInt64`)
+    * leaves 1..8: up to 64 opaque body bytes packed little-endian into
+      8×UInt64 words (zero-padded)
+    Each leaf is a separate KV field (key=`pf:v1:s{sourceId}`); EmitIR reuses
+    existing per-field storage_read/write. Body >64 fails closed.
+    Design note: a single variable-length `u32le||body` KV is deferred —
+    9 fixed leaves keep Plan/Emit multi-temp free while preserving lossless
+    wire identity (not account-id string). -/
+private def nearPrincipalMaxPayloadBytesV1 : Nat := 64
+private def nearPrincipalDataWordCountV1 : Nat := 8
+
+/-- Flatten Principal into ordered leaf names: `{prefix}_len` + `{prefix}_w0`..`_w7`. -/
+private def flattenPrincipalLeafSpecsV1 (namePrefix : String) :
+    CompileResult (Array String) := do
+  let lenName :=
+    if namePrefix.isEmpty then "len" else namePrefix ++ "_len"
+  unless isIdentifier lenName do
+    throw <| .planInvariant .near
+      s!"state name '{lenName}' is not a safe identifier"
+  let mut out : Array String := #[lenName]
+  for i in [0:nearPrincipalDataWordCountV1] do
+    let wName :=
+      if namePrefix.isEmpty then s!"w{i}" else namePrefix ++ "_w" ++ toString i
+    unless isIdentifier wName do
+      throw <| .planInvariant .near
+        s!"state name '{wName}' is not a safe identifier"
+    out := out.push wName
+  pure out
+
+/-- Pack wire Principal valueBytes into NEAR pilot leaves. -/
+private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
+    CompileResult (Array Expr) := do
+  unless bytes.size ≥ 4 do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: Principal literal valueBytes too short"
+  let len :=
+    (bytes.get! 0).toNat + (bytes.get! 1).toNat * 256 +
+      (bytes.get! 2).toNat * 65536 + (bytes.get! 3).toNat * 16777216
+  unless bytes.size == 4 + len do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: Principal literal valueBytes length framing mismatch"
+  unless 1 ≤ len do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: Principal body shorter than 1 byte"
+  unless len ≤ nearPrincipalMaxPayloadBytesV1 do
+    throw <| .planInvariant .near
+      s!"unsupported NEAR semantic shape: Principal longer than {nearPrincipalMaxPayloadBytesV1} bytes (NEAR pilot bound)"
+  let payload := bytes.extract 4 bytes.size
+  let mut leaves : Array Expr := #[.literal (UInt64.ofNat len)]
+  for w in [0:nearPrincipalDataWordCountV1] do
+    let mut word : Nat := 0
+    let mut place : Nat := 1
+    for b in [0:8] do
+      let idx := w * 8 + b
+      let byte := if idx < payload.size then (payload.get! idx).toNat else 0
+      word := word + byte * place
+      place := place * 256
+    leaves := leaves.push (.literal (UInt64.ofNat word))
+  pure leaves
 
 /-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8). -/
 private def abiByteWidthOfTypeV1
@@ -535,22 +602,47 @@ private def makeStorageLayoutV1
   if states.isEmpty || states.size > maxStateFields then
     throw <| .planInvariant .near "state count is outside the profile limits"
   let mut fields : Array StorageField := #[]
+  let mut stateLeaves : Array (Array Nat) := #[]
   for state in states do
-    unless state.id.toNat == fields.size do
+    unless state.id.toNat == stateLeaves.size do
       throw <| .planInvariant .near "semantic state ids must match declaration order"
-    -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
-    -- KV keys stay one-per-field (no packing); value length is the ABI width.
-    requirePublicNearUintAbiOrInt64State nearPlanErr types state (allowNonPublic := true)
     unless isIdentifier state.name do
       throw <| .planInvariant .near s!"state name '{state.name}' is not a safe identifier"
-    let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
-    fields := fields.push {
-      sourceId := state.id.toNat
-      name := state.name
-      key := stateKey state.id.toNat
-      byteWidth
-      endianness := .little
-    }
+    if types.isPrincipal state.typeId then
+      -- T12 Principal: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
+      -- ValidatePlan requires sourceId == physical field index (dense).
+      -- Logical state → leaf indices live only in `stateLeaves`.
+      requirePublicUInt64OrInt64OrFieldOrPrincipalState nearPlanErr types state
+        (allowNonPublic := true)
+      let leafSpecs ← flattenPrincipalLeafSpecsV1 state.name
+      if fields.size + leafSpecs.size > maxStateFields then
+        throw <| .planInvariant .near "state count is outside the profile limits"
+      let mut leaves : Array Nat := #[]
+      for leafName in leafSpecs do
+        let fi := fields.size
+        leaves := leaves.push fi
+        fields := fields.push {
+          sourceId := fi
+          name := leafName
+          key := stateKey fi
+          byteWidth := 8
+          endianness := .little
+        }
+      stateLeaves := stateLeaves.push leaves
+    else
+      -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
+      -- KV keys stay one-per-field (no packing); value length is the ABI width.
+      requirePublicNearUintAbiOrInt64State nearPlanErr types state (allowNonPublic := true)
+      let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
+      let fi := fields.size
+      fields := fields.push {
+        sourceId := fi
+        name := state.name
+        key := stateKey fi
+        byteWidth
+        endianness := .little
+      }
+      stateLeaves := stateLeaves.push #[fi]
   let marker := layoutMarker fields
   if marker == 0 then
     throw <| .planInvariant .near
@@ -560,6 +652,7 @@ private def makeStorageLayoutV1
     markerValue := marker
     payloadInitialization := .zeroAllFields
     fields
+    stateLeaves
   }
 
 private structure LoweredValueV1 where
@@ -568,7 +661,30 @@ private structure LoweredValueV1 where
   depth : Nat
   expandedNodes : Nat
   dependencies : Array ValueIdV1
+  /-- T12 Principal multi-leaf carrier: `some` = len+8 payload words;
+      `expr` mirrors `leaves[0]!`. Scalar values keep `none`. -/
+  aggregateLeaves : Option (Array Expr) := none
   deriving Inhabited
+
+private def LoweredValueV1.isAggregate (v : LoweredValueV1) : Bool :=
+  v.aggregateLeaves.isSome
+
+private def LoweredValueV1.leafExprs (v : LoweredValueV1) : Array Expr :=
+  match v.aggregateLeaves with
+  | some ls => ls
+  | none => #[v.expr]
+
+private def mkAggregateValueV1 (leaves : Array Expr) (deps : Array ValueIdV1)
+    (depth expandedNodes : Nat) : LoweredValueV1 :=
+  let head := match leaves[0]? with | some e => e | none => .literal 0
+  { expr := head
+    -- Aggregate carrier uses uint64 kind only as a placeholder; isAggregate
+    -- gates eq/store; pureCall/arith reject aggregates via isAggregate.
+    kind := .uint64
+    depth
+    expandedNodes
+    dependencies := deps
+    aggregateLeaves := some leaves }
 
 private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
     (params : Array ParameterV1) :
@@ -579,52 +695,114 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
   let mut values : Array LoweredValueV1 := #[]
   let mut nextInputOffset : Nat := 0
   for param in params do
-    unless param.valueId.toNat == planned.size do
+    -- ValueId tracks logical params (values.size); planned may expand (Principal leaves).
+    unless param.valueId.toNat == values.size do
       throw <| .planInvariant .near
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8..64}; cumulative pitch.
-    requirePublicNearUintAbiOrInt64Param nearPlanErr types owner param
-      (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .near
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    let isInt := (types.intWidthOf param.typeId).isSome
-    let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
-    let bitWidth := bitWidthOfByteWidth byteWidth
-    let binding : Param := {
-      sourceId := param.valueId.toNat
-      name := param.name
-      inputOffset := nextInputOffset
-      byteWidth
-      endianness := .little
-    }
-    nextInputOffset := nextInputOffset + slotPitchOfByteWidth byteWidth
-    planned := planned.push binding
-    let kind ←
-      if isInt then pure NearValueKindV1.int64
-      else match uintKindOfWidthV1 bitWidth with
-        | some k => pure k
-        | none =>
-            throw <| .planInvariant .near
-              s!"unsupported NEAR semantic shape: ABI UInt{bitWidth} is not admitted"
-    values := values.push {
-      -- T8c: narrow ABI params retain semantic width for body arithmetic;
-      -- IR loads still zero-extend into i64 temps.
-      expr := mkParamExpr bitWidth binding.inputOffset
-      kind
-      depth := 1
-      expandedNodes := 1
-      dependencies := #[]
-    }
+    if types.isPrincipal param.typeId then
+      -- T12: Principal expands to 9×UInt64 input words (leaf tuple).
+      requirePublicUInt64OrInt64OrFieldOrPrincipalParam
+        nearPlanErr types owner param (allowNonPublic := true)
+      let leafSpecs ← flattenPrincipalLeafSpecsV1 param.name
+      if planned.size + leafSpecs.size > maxParams then
+        throw <| .planInvariant .near
+          s!"parameter count in {owner} exceeds profile limit {maxParams}"
+      let mut leafExprs : Array Expr := #[]
+      for leafName in leafSpecs do
+        unless isIdentifier leafName do
+          throw <| .planInvariant .near
+            s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+        let binding : Param := {
+          sourceId := planned.size
+          name := leafName
+          inputOffset := nextInputOffset
+          byteWidth := 8
+          endianness := .little
+        }
+        planned := planned.push binding
+        leafExprs := leafExprs.push (.param nextInputOffset)
+        nextInputOffset := nextInputOffset + 8
+      values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+    else
+      -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8..64}; cumulative pitch.
+      requirePublicNearUintAbiOrInt64Param nearPlanErr types owner param
+        (allowNonPublic := true)
+      let isInt := (types.intWidthOf param.typeId).isSome
+      let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
+      let bitWidth := bitWidthOfByteWidth byteWidth
+      let binding : Param := {
+        sourceId := planned.size
+        name := param.name
+        inputOffset := nextInputOffset
+        byteWidth
+        endianness := .little
+      }
+      nextInputOffset := nextInputOffset + slotPitchOfByteWidth byteWidth
+      planned := planned.push binding
+      let kind ←
+        if isInt then pure NearValueKindV1.int64
+        else match uintKindOfWidthV1 bitWidth with
+          | some k => pure k
+          | none =>
+              throw <| .planInvariant .near
+                s!"unsupported NEAR semantic shape: ABI UInt{bitWidth} is not admitted"
+      values := values.push {
+        -- T8c: narrow ABI params retain semantic width for body arithmetic;
+        -- IR loads still zero-extend into i64 temps.
+        expr := mkParamExpr bitWidth binding.inputOffset
+        kind
+        depth := 1
+        expandedNodes := 1
+        dependencies := #[]
+      }
   pure (planned, values)
 
 private def findFieldV1 (layout : StorageLayout)
     (id : StateIdV1) : CompileResult StorageField :=
-  match layout.fields[id.toNat]? with
-  | some field =>
-      if field.sourceId == id.toNat then .ok field
-      else planError s!"semantic expression references noncanonical state id {id.toNat}"
-  | none => planError s!"semantic expression references unknown state id {id.toNat}"
+  -- Scalar path: stateLeaves singleton → physical field. sourceId is the
+  -- physical field index (ValidatePlan dense), not the logical state id.
+  match layout.stateLeaves[id.toNat]? with
+  | some leaves =>
+      match leaves[0]? with
+      | some fi =>
+          if leaves.size != 1 then
+            planError s!"semantic expression references multi-leaf state id {id.toNat} as scalar"
+          else match layout.fields[fi]? with
+            | some field =>
+                if field.sourceId == fi then .ok field
+                else planError s!"semantic expression references noncanonical state id {id.toNat}"
+            | none => planError s!"semantic expression references unknown state id {id.toNat}"
+      | none => planError s!"semantic expression references empty leaf list for state id {id.toNat}"
+  | none =>
+      match layout.fields[id.toNat]? with
+      | some field =>
+          if field.sourceId == id.toNat then .ok field
+          else planError s!"semantic expression references noncanonical state id {id.toNat}"
+      | none => planError s!"semantic expression references unknown state id {id.toNat}"
+
+/-- Resolve all physical leaf fields for a logical state id (T12 Principal). -/
+private def findStateLeafFieldsV1 (layout : StorageLayout)
+    (id : StateIdV1) : CompileResult (Array StorageField) := do
+  match layout.stateLeaves[id.toNat]? with
+  | some leaves =>
+      let mut out : Array StorageField := #[]
+      for fi in leaves do
+        match layout.fields[fi]? with
+        | some field =>
+            unless field.sourceId == fi do
+              throw <| .planInvariant .near
+                s!"semantic expression references noncanonical state leaf {fi}"
+            out := out.push field
+        | none =>
+            throw <| .planInvariant .near
+              s!"semantic expression references unknown state leaf {fi}"
+      pure out
+  | none =>
+      let field ← findFieldV1 layout id
+      pure #[field]
 
 private def findValueV1 (values : Array LoweredValueV1)
     (id : ValueIdV1) : CompileResult LoweredValueV1 :=
@@ -1097,12 +1275,16 @@ private def lowerBlockInstructionsV1
               expandedNodes := 1
               dependencies := #[]
             }
+        else if types.isPrincipal typeId then
+          let leafExprs ← decodePrincipalLiteralLeavesV1 bytes
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 typeId values result value
         else
           let boolTypeId ← match types.boolTypeId with
             | some tid =>
                 unless typeId == tid do
                   throw <| .planInvariant .near
-                    "unsupported NEAR semantic shape: literal is not admitted UInt width, Int64, or Bool"
+                    "unsupported NEAR semantic shape: literal is not admitted UInt width, Int64, Bool, or Principal"
                 pure tid
             | none =>
                 throw <| .planInvariant .near
@@ -1119,42 +1301,107 @@ private def lowerBlockInstructionsV1
         if mode == .pureFn then
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: pureFn cannot load state"
-        let field ← findFieldV1 layout stateId
-        let isInt := (types.intWidthOf result.typeId).isSome
-        let bitWidth ←
-          if isInt then pure 64
-          else match types.uintWidthOf result.typeId with
-            | some w =>
-                unless isNearAbiUintWidth w do
+        let leafIdxs ← match layout.stateLeaves[stateId.toNat]? with
+          | some ls => pure ls
+          | none =>
+              -- Legacy 1:1 without stateLeaves: physical index == stateId.
+              pure #[stateId.toNat]
+        if types.isPrincipal result.typeId then
+          unless leafIdxs.size == nearPrincipalDataWordCountV1 + 1 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: Principal state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          for fi in leafIdxs do
+            leafExprs := leafExprs.push (.stateLoad fi)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else
+          let fi ← match leafIdxs[0]? with
+            | some i =>
+                unless leafIdxs.size == 1 do
                   throw <| .planInvariant .near
-                    s!"unsupported NEAR semantic shape: state load UInt{w} is not admitted"
-                pure w
+                    "unsupported NEAR semantic shape: scalar state load saw multi-leaf layout"
+                pure i
             | none =>
                 throw <| .planInvariant .near
-                  "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64} or Int64"
-        unless field.byteWidth == byteWidthOfBitWidth bitWidth do
-          throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: state load width does not match field layout"
-        let kind ←
-          if isInt then pure NearValueKindV1.int64
-          else match uintKindOfWidthV1 bitWidth with
-            | some k => pure k
+                  "unsupported NEAR semantic shape: state load has no leaf fields"
+          let field ← match layout.fields[fi]? with
+            | some f => pure f
             | none =>
                 throw <| .planInvariant .near
-                  s!"unsupported NEAR semantic shape: state load UInt{bitWidth} is not admitted"
-        values := ← appendResultValueV1 result.typeId values result {
-          -- T8c: narrow ABI loads retain semantic width for body arithmetic;
-          -- IR still zero-extends into i64 temps.
-          expr := mkStateLoadExpr bitWidth field.sourceId
-          kind
-          depth := 1
-          expandedNodes := 1
-          dependencies := #[]
-        }
+                  s!"unsupported NEAR semantic shape: state field {fi} missing"
+          let isInt := (types.intWidthOf result.typeId).isSome
+          let bitWidth ←
+            if isInt then pure 64
+            else match types.uintWidthOf result.typeId with
+              | some w =>
+                  unless isNearAbiUintWidth w do
+                    throw <| .planInvariant .near
+                      s!"unsupported NEAR semantic shape: state load UInt{w} is not admitted"
+                  pure w
+              | none =>
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64}, Int64, or Principal"
+          unless field.byteWidth == byteWidthOfBitWidth bitWidth do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: state load width does not match field layout"
+          let kind ←
+            if isInt then pure NearValueKindV1.int64
+            else match uintKindOfWidthV1 bitWidth with
+              | some k => pure k
+              | none =>
+                  throw <| .planInvariant .near
+                    s!"unsupported NEAR semantic shape: state load UInt{bitWidth} is not admitted"
+          values := ← appendResultValueV1 result.typeId values result {
+            -- T8c: narrow ABI loads retain semantic width for body arithmetic;
+            -- IR still zero-extends into i64 temps.
+            expr := mkStateLoadExpr bitWidth fi
+            kind
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values stableCount segmentStart armReadables lhsId
         let rhs ← currentValueWithArmsV1 values stableCount segmentStart armReadables rhsId
-        if op == .and || op == .or then
+        if lhs.isAggregate || rhs.isAggregate then
+          -- T12 Principal: only == / != via leaf-wise eq.
+          match comparisonOpOfBinaryV1 op with
+          | some cmpOp =>
+              unless cmpOp == .eq || cmpOp == .ne do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: aggregate comparison only supports == / !="
+              let boolTypeId ← match types.boolTypeId with
+                | some tid => pure tid
+                | none =>
+                    throw <| .planInvariant .near
+                      "unsupported NEAR semantic shape: Bool type is missing for aggregate comparison"
+              unless result.typeId == boolTypeId do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: aggregate comparison result must be Bool"
+              unless lhs.isAggregate && rhs.isAggregate do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: aggregate comparison requires both operands aggregate"
+              let le := lhs.leafExprs
+              let re := rhs.leafExprs
+              unless le.size == re.size && le.size > 0 do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: aggregate comparison leaf count mismatch"
+              let mut acc : Expr := .compare .eq le[0]! re[0]!
+              for i in [1:le.size] do
+                acc := .boolAnd acc (.compare .eq le[i]! re[i]!)
+              let expr := if cmpOp == .ne then .boolNot acc else acc
+              values := ← appendResultValueV1 boolTypeId values result {
+                expr
+                kind := .bool
+                depth := max lhs.depth rhs.depth + le.size + 1
+                expandedNodes := lhs.expandedNodes + rhs.expandedNodes + le.size + 1
+                dependencies := (lhs.dependencies ++ rhs.dependencies).push lhsId |>.push rhsId
+              }
+          | none =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: binary ops on aggregate operands only support == / !="
+        else if op == .and || op == .or then
           let boolTypeId ← match types.boolTypeId with
             | some tid => pure tid
             | none =>
@@ -1408,7 +1655,7 @@ private def lowerBlockInstructionsV1
         let mut argValues : Array LoweredValueV1 := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables argId
-          unless root.kind == .uint64 || root.kind == .int64 do
+          unless !root.isAggregate && (root.kind == .uint64 || root.kind == .int64) do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: pureCall arguments must be UInt64 or Int64"
           argValues := argValues.push root
@@ -1423,30 +1670,69 @@ private def lowerBlockInstructionsV1
         if mode == .pureFn then
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: pureFn cannot store state"
-        let field ← findFieldV1 layout stateId
+        let leafIdxs ← match layout.stateLeaves[stateId.toNat]? with
+          | some ls => pure ls
+          | none => pure #[stateId.toNat]
         let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables valueId
-        let expectedBitWidth := bitWidthOfByteWidth field.byteWidth
-        -- T8c: store value width must match field layout (narrow body temps OK).
-        if root.kind == .int64 then
-          unless field.byteWidth == 8 do
+        if root.isAggregate then
+          -- T12 Principal multi-leaf store.
+          let leaves := root.leafExprs
+          unless leaves.size == leafIdxs.size do
             throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: Int state store requires 8-byte field"
+              "unsupported NEAR semantic shape: Principal state store leaf count mismatch"
+          let _ ← consumeCurrentSegmentV1 values stableCount segmentStart valueId
+          for i in [0:leaves.size] do
+            let some fi := leafIdxs[i]? |
+              throw <| .planInvariant .near "Principal state store field missing"
+            let some leafExpr := leaves[i]? |
+              throw <| .planInvariant .near "Principal state store leaf missing"
+            let field ← match layout.fields[fi]? with
+              | some f => pure f
+              | none =>
+                  throw <| .planInvariant .near
+                    s!"unsupported NEAR semantic shape: Principal store field {fi} missing"
+            body := body.push (.store {
+              fieldIndex := fi
+              value := leafExpr
+              byteWidth := field.byteWidth
+            })
         else
-          let some valueWidth := widthOfUintKindV1 root.kind |
-            throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int64"
-          unless valueWidth == expectedBitWidth do
-            throw <| .planInvariant .near
-              s!"unsupported NEAR semantic shape: state store value width {valueWidth} must match field bitWidth {expectedBitWidth}"
-          unless isNearAbiUintWidth valueWidth do
-            throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int64"
-        let value ← consumeCurrentSegmentV1 values stableCount segmentStart valueId
-        body := body.push (.store {
-          fieldIndex := field.sourceId
-          value
-          byteWidth := field.byteWidth
-        })
+          let fi ← match leafIdxs[0]? with
+            | some i =>
+                unless leafIdxs.size == 1 do
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: scalar store to multi-leaf state"
+                pure i
+            | none =>
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: state store has no leaf fields"
+          let field ← match layout.fields[fi]? with
+            | some f => pure f
+            | none =>
+                throw <| .planInvariant .near
+                  s!"unsupported NEAR semantic shape: state field {fi} missing"
+          let expectedBitWidth := bitWidthOfByteWidth field.byteWidth
+          -- T8c: store value width must match field layout (narrow body temps OK).
+          if root.kind == .int64 then
+            unless field.byteWidth == 8 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: Int state store requires 8-byte field"
+          else
+            let some valueWidth := widthOfUintKindV1 root.kind |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int64"
+            unless valueWidth == expectedBitWidth do
+              throw <| .planInvariant .near
+                s!"unsupported NEAR semantic shape: state store value width {valueWidth} must match field bitWidth {expectedBitWidth}"
+            unless isNearAbiUintWidth valueWidth do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int64"
+          let value ← consumeCurrentSegmentV1 values stableCount segmentStart valueId
+          body := body.push (.store {
+            fieldIndex := fi
+            value
+            byteWidth := field.byteWidth
+          })
         segmentStart := values.size
     | .assert_ condId errorId args, none =>
         unless errorId.isNone && args.isEmpty do
@@ -1671,6 +1957,9 @@ private partial def emitRegionV1
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: entry/view/pureFn is missing expected return kind"
           let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables valueId
+          if root.isAggregate then
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: multi-leaf Principal cannot be returned (ABI is scalar)"
           unless root.kind == expectedKind do
             let expectedLabel :=
               match expectedKind with

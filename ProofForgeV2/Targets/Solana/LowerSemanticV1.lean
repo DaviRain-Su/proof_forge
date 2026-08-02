@@ -418,16 +418,77 @@ private def solanaPlanErr (message : String) : CompileError :=
     (N1). ArrayState: anonymous **Array** shapes are admitted via
     `pilotContainerStatePolicyArrayOnly` (element/layout gated at state planning
     to fixed-length `Array UInt64 N` leaf slots). UInt128/256 use multiword
-    software limbs. B-3 / N2c: Principal remains fail-closed (wire identity
-    is variable-length u32-prefixed 1..4096 body; not a fixed 32-byte
-    Solana pubkey / program id — no silent reinterpret). -/
+    software limbs. T12: Principal admitted as **storage identity only**
+    (`pilotPrincipalPolicyAdmit`) — fixed leaf layout len+8×UInt64 (≤64B body,
+    same pattern as EVM T10 / N4 String); still not a fixed 32-byte Solana
+    pubkey / program id (no silent reinterpret; CALL/CPI target remains
+    static QN). -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
     pilotUintWidthPolicySolanaBody
     (intPolicy := pilotIntWidthPolicyNarrow)
-    (principalPolicy := pilotPrincipalPolicyNone)
+    (principalPolicy := pilotPrincipalPolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayOnly)
+
+/-- Solana pilot Principal storage layout (T12, isomorphic to EVM T10 / N4 String):
+    * leaf 0: wire body length (`UInt64`; wire framing is still `u32le`)
+    * leaves 1..8: up to 64 opaque body bytes packed little-endian into
+      8×UInt64 words (zero-padded)
+    Principal body longer than 64 bytes fails closed at plan lowering.
+    **Not** a 32-byte Solana pubkey — storage is raw wire identity only. -/
+private def solanaPrincipalMaxPayloadBytesV1 : Nat := 64
+private def solanaPrincipalDataWordCountV1 : Nat := 8  -- 64 / 8
+
+/-- Flatten Principal into ordered leaf names: `{prefix}_len` + `{prefix}_w0`..`_w7`. -/
+private def flattenPrincipalLeafSpecsV1 (namePrefix : String) :
+    CompileResult (Array String) := do
+  let lenName :=
+    if namePrefix.isEmpty then "len" else namePrefix ++ "_len"
+  unless isIdentifier lenName do
+    throw <| .planInvariant .solana
+      s!"state name '{lenName}' is not a safe identifier"
+  let mut out : Array String := #[lenName]
+  for i in [0:solanaPrincipalDataWordCountV1] do
+    let wName :=
+      if namePrefix.isEmpty then s!"w{i}" else namePrefix ++ "_w" ++ toString i
+    unless isIdentifier wName do
+      throw <| .planInvariant .solana
+        s!"state name '{wName}' is not a safe identifier"
+    out := out.push wName
+  pure out
+
+/-- Pack wire Principal valueBytes (`u32le len || body`, `1 ≤ len`) into Solana
+    pilot leaves. Body longer than 64 fails closed. -/
+private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
+    CompileResult (Array Expr) := do
+  unless bytes.size ≥ 4 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Principal literal valueBytes too short"
+  let len :=
+    (bytes.get! 0).toNat + (bytes.get! 1).toNat * 256 +
+      (bytes.get! 2).toNat * 65536 + (bytes.get! 3).toNat * 16777216
+  unless bytes.size == 4 + len do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Principal literal valueBytes length framing mismatch"
+  unless 1 ≤ len do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Principal body shorter than 1 byte"
+  unless len ≤ solanaPrincipalMaxPayloadBytesV1 do
+    throw <| .planInvariant .solana
+      s!"unsupported Solana semantic shape: Principal longer than {solanaPrincipalMaxPayloadBytesV1} bytes (Solana pilot bound)"
+  let payload := bytes.extract 4 bytes.size
+  let mut leaves : Array Expr := #[.literal (UInt64.ofNat len)]
+  for w in [0:solanaPrincipalDataWordCountV1] do
+    let mut word : Nat := 0
+    let mut place : Nat := 1
+    for b in [0:8] do
+      let idx := w * 8 + b
+      let byte := if idx < payload.size then (payload.get! idx).toNat else 0
+      word := word + byte * place
+      place := place * 256
+    leaves := leaves.push (.literal (UInt64.ofNat word))
+  pure leaves
 
 /-- Resolve admitted scalar state/param TypeId to physical byte width
     (1/2/4/8/16/32). -/
@@ -529,23 +590,44 @@ private def makeStateAccountV1
           nextOffset := nextOffset + 8
         stateLeaves := stateLeaves.push leaves
     | none =>
-        -- T8b+T9e: scalar state admits UInt{8,16,32,64,128,256}/Int{8,16,32,64}
-        -- with byteWidth 1/2/4/8/16/32. Pitch = slotPitchOfByteWidth.
-        requirePublicSolanaUintAbiOrInt64State solanaPlanErr types state
-          (allowNonPublic := true)
-        let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
-        let leafIdx := fields.size
-        fields := fields.push {
-          sourceId := state.id.toNat
-          name := state.name
-          accountIndex := 0
-          byteOffset := nextOffset
-          byteWidth
-          endianness := .little
-          isInt := (types.intWidthOf state.typeId).isSome
-        }
-        nextOffset := nextOffset + slotPitchOfByteWidth byteWidth
-        stateLeaves := stateLeaves.push #[leafIdx]
+        if types.isPrincipal state.typeId then
+          -- T12 Principal: 9×UInt64 leaves (`name_len` + `name_w0`..`name_w7`).
+          requirePublicUInt64OrInt64OrFieldOrPrincipalState solanaPlanErr types state
+            (allowNonPublic := true)
+          let leafSpecs ← flattenPrincipalLeafSpecsV1 state.name
+          if fields.size + leafSpecs.size > maxStateFields then
+            throw <| .planInvariant .solana "state count is outside the profile limits"
+          let mut leaves : Array Nat := #[]
+          for leafName in leafSpecs do
+            leaves := leaves.push fields.size
+            fields := fields.push {
+              sourceId := state.id.toNat
+              name := leafName
+              accountIndex := 0
+              byteOffset := nextOffset
+              byteWidth := 8
+              endianness := .little
+            }
+            nextOffset := nextOffset + 8
+          stateLeaves := stateLeaves.push leaves
+        else
+          -- T8b+T9e: scalar state admits UInt{8,16,32,64,128,256}/Int{8,16,32,64}
+          -- with byteWidth 1/2/4/8/16/32. Pitch = slotPitchOfByteWidth.
+          requirePublicSolanaUintAbiOrInt64State solanaPlanErr types state
+            (allowNonPublic := true)
+          let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
+          let leafIdx := fields.size
+          fields := fields.push {
+            sourceId := state.id.toNat
+            name := state.name
+            accountIndex := 0
+            byteOffset := nextOffset
+            byteWidth
+            endianness := .little
+            isInt := (types.intWidthOf state.typeId).isSome
+          }
+          nextOffset := nextOffset + slotPitchOfByteWidth byteWidth
+          stateLeaves := stateLeaves.push #[leafIdx]
   let marker := layoutMarker fields
   if marker == 0 then
     throw <| .planInvariant .solana
@@ -612,38 +694,65 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
   -- Cumulative instruction-data offset after discriminator (T9e multiword pitch).
   let mut nextDataOffset : Nat := discriminatorBytes
   for param in params do
-    unless param.valueId.toNat == planned.size do
+    -- ValueId tracks logical params (values.size); planned may expand (Principal leaves).
+    unless param.valueId.toNat == values.size do
       throw <| .planInvariant .solana
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8,16,32,64}.
-    requirePublicSolanaUintAbiOrInt64Param solanaPlanErr types owner param
-      (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .solana
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    let isInt := (types.intWidthOf param.typeId).isSome
-    let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
-    let bitWidth := bitWidthOfByteWidth byteWidth
-    let binding : Param := {
-      sourceId := param.valueId.toNat
-      name := param.name
-      dataOffset := nextDataOffset
-      byteWidth
-      endianness := .little
-      isInt
-    }
-    nextDataOffset := nextDataOffset + slotPitchOfByteWidth byteWidth
-    planned := planned.push binding
-    values := values.push {
-      expr := mkParamExpr bitWidth binding.dataOffset
-      depth := 1
-      expandedNodes := 1
-      dependencies := #[]
-      isBool := false
-      isInt
-      isUInt32 := !isInt && bitWidth == 32
-      bitWidth
-    }
+    if types.isPrincipal param.typeId then
+      -- T12: Principal expands to 9×UInt64 instruction-data words (leaf tuple).
+      requirePublicUInt64OrInt64OrFieldOrPrincipalParam
+        solanaPlanErr types owner param (allowNonPublic := true)
+      let leafSpecs ← flattenPrincipalLeafSpecsV1 param.name
+      if planned.size + leafSpecs.size > maxParams then
+        throw <| .planInvariant .solana
+          s!"parameter count in {owner} exceeds profile limit {maxParams}"
+      let mut leafExprs : Array Expr := #[]
+      for leafName in leafSpecs do
+        unless isIdentifier leafName do
+          throw <| .planInvariant .solana
+            s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+        let binding : Param := {
+          sourceId := planned.size
+          name := leafName
+          dataOffset := nextDataOffset
+          byteWidth := 8
+          endianness := .little
+          isInt := false
+        }
+        planned := planned.push binding
+        leafExprs := leafExprs.push (.param nextDataOffset)
+        nextDataOffset := nextDataOffset + 8
+      values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+    else
+      -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8,16,32,64}.
+      requirePublicSolanaUintAbiOrInt64Param solanaPlanErr types owner param
+        (allowNonPublic := true)
+      let isInt := (types.intWidthOf param.typeId).isSome
+      let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
+      let bitWidth := bitWidthOfByteWidth byteWidth
+      let binding : Param := {
+        sourceId := planned.size
+        name := param.name
+        dataOffset := nextDataOffset
+        byteWidth
+        endianness := .little
+        isInt
+      }
+      nextDataOffset := nextDataOffset + slotPitchOfByteWidth byteWidth
+      planned := planned.push binding
+      values := values.push {
+        expr := mkParamExpr bitWidth binding.dataOffset
+        depth := 1
+        expandedNodes := 1
+        dependencies := #[]
+        isBool := false
+        isInt
+        isUInt32 := !isInt && bitWidth == 32
+        bitWidth
+      }
   pure (planned, values)
 
 private def findFieldV1 (account : StateAccount)
@@ -1000,28 +1109,61 @@ private def makeBoolOrValueV1
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   makeBinaryTreeValueV1 .boolOr lhsId rhsId lhs rhs true 1
 
+/-- Leaf-wise unsigned equality chain: `(((l0==r0) && (l1==r1)) && ...)`.
+    Shared by T12 Principal (and Array multi-leaf) `==`/`!=`. -/
+private def makeLeafWiseEqExprV1 (lhs rhs : Array Expr) : CompileResult Expr := do
+  unless lhs.size == rhs.size && lhs.size > 0 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: aggregate comparison leaf count mismatch"
+  let mut acc : Expr := .compare .eq lhs[0]! rhs[0]!
+  for i in [1:lhs.size] do
+    acc := .boolAnd acc (.compare .eq lhs[i]! rhs[i]!)
+  pure acc
+
 private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  unless !lhs.isBool && !rhs.isBool do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: comparison operands must be integer"
-  unless lhs.bitWidth == rhs.bitWidth && isSolanaBodyUintWidth lhs.bitWidth do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: comparison operands must share admitted width"
-  unless lhs.isInt == rhs.isInt do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: comparison operands must share signedness"
-  if lhs.isInt then
-    unless isAbiIntWidth lhs.bitWidth do
+  if lhs.isAggregate || rhs.isAggregate then
+    unless lhs.isAggregate && rhs.isAggregate do
       throw <| .planInvariant .solana
-        s!"unsupported Solana semantic shape: Int{lhs.bitWidth} comparison is not admitted"
-    makeBinaryTreeValueV1 (mkSignedCompare lhs.bitWidth op) lhsId rhsId lhs rhs true 1
-  else if lhs.bitWidth > 64 then
-    makeBinaryTreeValueV1 (.wideCompare lhs.bitWidth op) lhsId rhsId lhs rhs true 1
-  else
-    makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true 1
+        "unsupported Solana semantic shape: aggregate comparison requires both operands aggregate"
+    unless op == .eq || op == .ne do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: aggregate comparison only supports == / !="
+    let le := lhs.leafExprs
+    let re := rhs.leafExprs
+    let acc ← makeLeafWiseEqExprV1 le re
+    let expr := if op == .ne then .boolNot acc else acc
+    pure {
+      expr
+      depth := max lhs.depth rhs.depth + le.size + 1
+      expandedNodes := lhs.expandedNodes + rhs.expandedNodes + le.size + 1
+      dependencies := (lhs.dependencies ++ rhs.dependencies).push lhsId |>.push rhsId
+      isBool := true
+      isUInt32 := false
+      isInt := false
+      bitWidth := 1
+    }
+  else do
+    unless !lhs.isBool && !rhs.isBool do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: comparison operands must be integer"
+    unless lhs.bitWidth == rhs.bitWidth && isSolanaBodyUintWidth lhs.bitWidth do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: comparison operands must share admitted width"
+    unless lhs.isInt == rhs.isInt do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: comparison operands must share signedness"
+    if lhs.isInt then
+      unless isAbiIntWidth lhs.bitWidth do
+        throw <| .planInvariant .solana
+          s!"unsupported Solana semantic shape: Int{lhs.bitWidth} comparison is not admitted"
+      makeBinaryTreeValueV1 (mkSignedCompare lhs.bitWidth op) lhsId rhsId lhs rhs true 1
+    else if lhs.bitWidth > 64 then
+      makeBinaryTreeValueV1 (.wideCompare lhs.bitWidth op) lhsId rhsId lhs rhs true 1
+    else
+      makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true 1
 
 /-- Unary plan-value constructor (depth/node accounting for bitNot/boolNot/neg). -/
 private def makeUnaryTreeValueV1
@@ -1352,9 +1494,13 @@ private def lowerBlockInstructionsV1
               isInt := false
               bitWidth
             }
+        else if types.isPrincipal typeId then
+          let leafExprs ← decodePrincipalLiteralLeavesV1 bytes
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 typeId values result value
         else
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: literal is not admitted UInt width, Int64, or Bool"
+            "unsupported Solana semantic shape: literal is not admitted UInt width, Int64, Bool, or Principal"
     | .stateLoad stateId, some result =>
         let leafFields ← findStateLeafFieldsV1 account stateId
         if types.isContainer result.typeId then
@@ -1366,6 +1512,17 @@ private def lowerBlockInstructionsV1
           unless leafFields.size == n do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: Array state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          for field in leafFields do
+            leafExprs := leafExprs.push
+              (.stateLoad field.accountIndex field.byteOffset)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if types.isPrincipal result.typeId then
+          -- T12 Principal multi-leaf load (len + 8 payload words).
+          unless leafFields.size == solanaPrincipalDataWordCountV1 + 1 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Principal state load leaf count mismatch"
           let mut leafExprs : Array Expr := #[]
           for field in leafFields do
             leafExprs := leafExprs.push
@@ -1418,15 +1575,28 @@ private def lowerBlockInstructionsV1
                 }
             | none =>
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: state load must be UInt8/16/32/64 or Int64"
+                  "unsupported Solana semantic shape: state load must be UInt8/16/32/64, Int64, or Principal"
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables lhsId
         let rhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables rhsId
         if lhs.isAggregate || rhs.isAggregate then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: binary ops do not accept Array aggregate operands"
+          -- T12 Principal (and Array multi-leaf): only == / != via leaf-wise eq.
+          match comparisonOpOfV1 op with
+          | some cmpOp =>
+              let boolTypeId ← match types.boolTypeId with
+                | some value => pure value
+                | none => throw (.planInvariant .solana
+                    "unsupported Solana semantic shape: Bool type is missing for aggregate comparison")
+              unless result.typeId == boolTypeId do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: aggregate comparison result must be Bool"
+              let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 boolTypeId values result value
+          | none =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: binary ops on aggregate operands only support == / !="
         -- Strict Bool logical ops: both operands Bool, result Bool.
-        if op == .and || op == .or then
+        else if op == .and || op == .or then
           unless lhs.isBool && rhs.isBool do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: logical operands must be Bool"
@@ -2047,7 +2217,7 @@ private partial def emitRegionV1
           let returned ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
           if returned.isAggregate then
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Array aggregate cannot be returned (ABI is scalar)"
+              "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal) cannot be returned (ABI is scalar)"
           unless returned.isBool == expectsBoolReturn do
             throw <| .planInvariant .solana
               (if expectsBoolReturn then
