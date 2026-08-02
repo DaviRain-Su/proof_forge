@@ -432,3 +432,9 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > 2026-08-02 D2-07 concrete fixture增量：canonical invariant fixture现已对sole production
 > validator闭合全部requirements并组合出完整`validateSemanticProgramStructureV1 data = .ok ()`。
 > exact encoder/carrier identity与formal TASK-D2-07/TST-SEM-002/003/TST-PROOF-001仍pending。
+
+> 2026-08-02 D2-07 concrete fixture后续增量：independent explicit 1235-byte golden现已kernel证明
+> `encodeSemanticProgramDataV1 data = .ok canonicalBytes`及
+> `decodeSemanticProgramV1 canonicalBytes = .ok ⟨canonicalBytes⟩`；transport、完整structure、sole
+> production re-encode与exact byte identity链闭合。此为engineering evidence，formal TASK-D2-07、
+> TST-SEM-002/003、TST-PROOF-001与`InvariantTheoremV1`仍pending。

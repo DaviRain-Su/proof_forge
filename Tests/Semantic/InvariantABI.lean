@@ -1384,6 +1384,330 @@ theorem encodeLeaf_canonicalBytes :
   rw [hEncoded]
   congr 1
 
+def encodedBoolFalseValueBytes : ByteArray :=
+  (encodeU32le 1).append (ByteArray.mk #[0])
+
+def encodedLiteralFalseOp : ByteArray :=
+  taggedBytesFromBytesV1
+    (ByteArray.mk #[79, 112, 46, 76, 105, 116, 101, 114, 97, 108])
+    #[encodeU32le 0, encodedBoolFalseValueBytes]
+
+def encodedFalsehoodInstruction : ByteArray :=
+  taggedBytesFromBytesV1
+    (ByteArray.mk #[73, 110, 115, 116, 114, 117, 99, 116, 105, 111, 110])
+    #[encodedSomeValueDef0, encodedLiteralFalseOp]
+
+def encodedFalsehoodBlock : ByteArray :=
+  taggedBytesFromBytesV1 (ByteArray.mk #[66, 108, 111, 99, 107])
+    #[encodeU32le 0, encodeU32le 0,
+      (encodeU32le 1).append encodedFalsehoodInstruction, encodedReturnValue0]
+
+def encodedInvariantKind : ByteArray := taggedBytesFromBytesV1
+  (ByteArray.mk #[67, 97, 108, 108, 97, 98, 108, 101, 46, 73, 110, 118, 97, 114,
+    105, 97, 110, 116]) #[]
+
+def encodedFalsehoodName : ByteArray :=
+  (encodeU8 1).append ((encodeU32le 9).append
+    (ByteArray.mk #[102, 97, 108, 115, 101, 104, 111, 111, 100]))
+
+def encodedFalsehoodCallable : ByteArray :=
+  taggedBytesFromBytesV1 (ByteArray.mk #[67, 97, 108, 108, 97, 98, 108, 101])
+    #[encodeU32le 3, encodedInvariantKind, encodedFalsehoodName,
+      encodeU32le 0, encodedBoolPublicResult, encodeU32le 0,
+      (encodeU32le 1).append encodedFalsehoodBlock, encodeU32le 0,
+      (encodeU8 1).append (encodeU64le 3)]
+
+theorem encodeFalsehood_canonicalBytes :
+    encodeCallableV1 falsehood =
+      .ok (ByteArray.mk canonicalFalsehoodSpine.toArray) := by
+  have hValueDef : encodeValueDefV1 (valueDef 0 0) = .ok encodedValueDef0 := by
+    unfold encodeValueDefV1 encodedValueDef0
+    exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+      (by decide) (by decide) (by decide)
+  have hResult : encodeOption encodeValueDefV1 (some (valueDef 0 0)) =
+      .ok encodedSomeValueDef0 := by
+    simp [encodeOption, encodedSomeValueDef0, hValueDef]
+    rfl
+  have hValueBytes : encodeByteArray (ByteArray.mk #[0]) =
+      .ok encodedBoolFalseValueBytes := by
+    rfl
+  have hOp : encodeSemanticOpV1 (.literal 0 (ByteArray.mk #[0])) =
+      .ok encodedLiteralFalseOp := by
+    simp only [encodeSemanticOpV1, hValueBytes, Bind.bind, Except.bind]
+    unfold encodedLiteralFalseOp
+    exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+      (by decide) (by decide) (by decide)
+  have hInstruction : encodeInstructionV1 falsehoodInstruction =
+      .ok encodedFalsehoodInstruction := by
+    apply encodeInstructionV1_eq_of_fields falsehoodInstruction encodedSomeValueDef0
+      encodedLiteralFalseOp encodedFalsehoodInstruction
+    · simpa [falsehoodInstruction, boolLiteral, instruction] using hResult
+    · simpa [falsehoodInstruction, boolLiteral, instruction] using hOp
+    · unfold encodedFalsehoodInstruction
+      exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+        (by decide) (by decide) (by decide)
+  have hTerminator : encodeTerminatorV1 (.return_ (some 0)) =
+      .ok encodedReturnValue0 := by
+    simp only [encodeTerminatorV1, encodeOption, Bind.bind, Except.bind, Pure.pure,
+      Except.pure]
+    unfold encodedReturnValue0
+    exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+      (by decide) (by decide) (by decide)
+  have hBlock : encodeBlockV1 falsehoodBlock = .ok encodedFalsehoodBlock := by
+    apply encodeBlockV1_eq_of_fields falsehoodBlock (encodeU32le 0)
+      ((encodeU32le 1).append encodedFalsehoodInstruction) encodedReturnValue0
+      encodedFalsehoodBlock
+    · exact encodeArray_zeroV1 _
+    · exact encodeArray_oneV1 _ falsehoodInstruction encodedFalsehoodInstruction
+        hInstruction
+    · simpa [falsehoodBlock] using hTerminator
+    · unfold encodedFalsehoodBlock
+      exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+        (by decide) (by decide) (by decide)
+  have hEncoded : encodeCallableV1 falsehood = .ok encodedFalsehoodCallable := by
+    apply encodeCallableV1_eq_of_fields falsehood encodedInvariantKind encodedFalsehoodName
+      (encodeU32le 0) encodedBoolPublicResult
+      ((encodeU32le 1).append encodedFalsehoodBlock) (encodeU32le 0)
+      ((encodeU8 1).append (encodeU64le 3)) encodedFalsehoodCallable
+    · rfl
+    · rfl
+    · exact encodeArray_zeroV1 _
+    · rfl
+    · exact encodeArray_oneV1 _ falsehoodBlock encodedFalsehoodBlock hBlock
+    · exact encodeArray_zeroV1 _
+    · rfl
+    · unfold encodedFalsehoodCallable
+      exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+        (by decide) (by decide) (by decide)
+  rw [hEncoded]
+  congr 1
+
+def encodedPureCallLeafOp : ByteArray :=
+  taggedBytesFromBytesV1
+    (ByteArray.mk #[79, 112, 46, 80, 117, 114, 101, 67, 97, 108, 108])
+    #[encodeU32le 1, encodeU32le 0]
+
+def encodedTruthInstruction : ByteArray :=
+  taggedBytesFromBytesV1
+    (ByteArray.mk #[73, 110, 115, 116, 114, 117, 99, 116, 105, 111, 110])
+    #[encodedSomeValueDef0, encodedPureCallLeafOp]
+
+def encodedTruthBlock : ByteArray :=
+  taggedBytesFromBytesV1 (ByteArray.mk #[66, 108, 111, 99, 107])
+    #[encodeU32le 0, encodeU32le 0,
+      (encodeU32le 1).append encodedTruthInstruction, encodedReturnValue0]
+
+def encodedTruthName : ByteArray :=
+  (encodeU8 1).append ((encodeU32le 5).append
+    (ByteArray.mk #[116, 114, 117, 116, 104]))
+
+def encodedTruthCallable : ByteArray :=
+  taggedBytesFromBytesV1 (ByteArray.mk #[67, 97, 108, 108, 97, 98, 108, 101])
+    #[encodeU32le 2, encodedInvariantKind, encodedTruthName,
+      encodeU32le 0, encodedBoolPublicResult, encodeU32le 0,
+      (encodeU32le 1).append encodedTruthBlock, encodeU32le 0,
+      (encodeU8 1).append (encodeU64le 6)]
+
+theorem encodeTruth_canonicalBytes :
+    encodeCallableV1 truth = .ok (ByteArray.mk canonicalTruthSpine.toArray) := by
+  have hValueDef : encodeValueDefV1 (valueDef 0 0) = .ok encodedValueDef0 := by
+    unfold encodeValueDefV1 encodedValueDef0
+    exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+      (by decide) (by decide) (by decide)
+  have hResult : encodeOption encodeValueDefV1 (some (valueDef 0 0)) =
+      .ok encodedSomeValueDef0 := by
+    simp [encodeOption, encodedSomeValueDef0, hValueDef]
+    rfl
+  have hArgs : encodeValueIdArray #[] = .ok (encodeU32le 0) := by
+    exact encodeArray_zeroV1 _
+  have hOp : encodeSemanticOpV1 (.pureCall 1 #[]) = .ok encodedPureCallLeafOp := by
+    simp only [encodeSemanticOpV1, hArgs, Bind.bind, Except.bind]
+    unfold encodedPureCallLeafOp
+    exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+      (by decide) (by decide) (by decide)
+  have hInstruction : encodeInstructionV1 truthInstruction =
+      .ok encodedTruthInstruction := by
+    apply encodeInstructionV1_eq_of_fields truthInstruction encodedSomeValueDef0
+      encodedPureCallLeafOp encodedTruthInstruction
+    · simpa [truthInstruction, instruction] using hResult
+    · simpa [truthInstruction, instruction] using hOp
+    · unfold encodedTruthInstruction
+      exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+        (by decide) (by decide) (by decide)
+  have hTerminator : encodeTerminatorV1 (.return_ (some 0)) =
+      .ok encodedReturnValue0 := by
+    simp only [encodeTerminatorV1, encodeOption, Bind.bind, Except.bind, Pure.pure,
+      Except.pure]
+    unfold encodedReturnValue0
+    exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+      (by decide) (by decide) (by decide)
+  have hBlock : encodeBlockV1 truthBlock = .ok encodedTruthBlock := by
+    apply encodeBlockV1_eq_of_fields truthBlock (encodeU32le 0)
+      ((encodeU32le 1).append encodedTruthInstruction) encodedReturnValue0 encodedTruthBlock
+    · exact encodeArray_zeroV1 _
+    · exact encodeArray_oneV1 _ truthInstruction encodedTruthInstruction hInstruction
+    · simpa [truthBlock] using hTerminator
+    · unfold encodedTruthBlock
+      exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+        (by decide) (by decide) (by decide)
+  have hEncoded : encodeCallableV1 truth = .ok encodedTruthCallable := by
+    apply encodeCallableV1_eq_of_fields truth encodedInvariantKind encodedTruthName
+      (encodeU32le 0) encodedBoolPublicResult
+      ((encodeU32le 1).append encodedTruthBlock) (encodeU32le 0)
+      ((encodeU8 1).append (encodeU64le 6)) encodedTruthCallable
+    · rfl
+    · rfl
+    · exact encodeArray_zeroV1 _
+    · rfl
+    · exact encodeArray_oneV1 _ truthBlock encodedTruthBlock hBlock
+    · exact encodeArray_zeroV1 _
+    · rfl
+    · unfold encodedTruthCallable
+      exact encodeTagged_eq_ok_of_bytesV1 _ _ _ (by rfl) (by decide) (by decide)
+        (by decide) (by decide) (by decide)
+  rw [hEncoded]
+  congr 1
+
+theorem encodeGate_canonicalBytes :
+    encodeCallableV1 gate = .ok (ByteArray.mk canonicalEntryGateSpine.toArray) := by
+  rfl
+
+def canonicalCallablesSpine : TransparentByteSpineV1 :=
+  canonicalCallablesHeaderSpine ++ canonicalEntryGateSpine ++ canonicalTruthLeafSpine ++
+    canonicalTruthSpine ++ canonicalFalsehoodSpine
+
+theorem encodeCallables_canonicalBytes :
+    encodeArray encodeCallableV1 data.callables =
+      .ok (ByteArray.mk canonicalCallablesSpine.toArray) := by
+  have h := encodeArray_fourV1 encodeCallableV1 gate leaf truth falsehood
+    (ByteArray.mk canonicalEntryGateSpine.toArray)
+    (ByteArray.mk canonicalTruthLeafSpine.toArray)
+    (ByteArray.mk canonicalTruthSpine.toArray)
+    (ByteArray.mk canonicalFalsehoodSpine.toArray)
+    encodeGate_canonicalBytes encodeLeaf_canonicalBytes encodeTruth_canonicalBytes
+    encodeFalsehood_canonicalBytes
+  rw [show data.callables = #[gate, leaf, truth, falsehood] by rfl]
+  rw [h]
+  congr 1
+
+theorem encodeQualifiedName_canonicalBytes :
+    encodeQualifiedName data.qualifiedName =
+      .ok (ByteArray.mk canonicalQualifiedNameSpine.toArray) := by
+  rfl
+
+theorem encodeTypes_canonicalBytes :
+    encodeArray encodeTypeDeclV1 data.types =
+      .ok (ByteArray.mk canonicalTypesSpine.toArray) := by
+  rfl
+
+theorem encodeConstants_canonicalBytes :
+    encodeArray encodeConstantV1 data.constants =
+      .ok (ByteArray.mk canonicalConstantsSpine.toArray) := by
+  rfl
+
+theorem encodeLogicalState_canonicalBytes :
+    encodeArray encodeStateDeclV1 data.logicalState =
+      .ok (ByteArray.mk canonicalLogicalStateSpine.toArray) := by
+  rfl
+
+theorem encodeEvents_canonicalBytes :
+    encodeArray encodeEventDeclV1 data.events = .ok (encodeU32le 0) := by
+  rfl
+
+theorem encodeErrors_canonicalBytes :
+    encodeArray encodeErrorDeclV1 data.errors = .ok (encodeU32le 0) := by
+  rfl
+
+theorem encodeInvariants_canonicalBytes :
+    encodeArray encodeInvariantDeclV1 data.invariants =
+      .ok (ByteArray.mk canonicalInvariantsSpine.toArray) := by
+  rfl
+
+theorem encodeRequirements_canonicalBytes :
+    encodeProgramRequirementsV1 data.requirements =
+      .ok (ByteArray.mk canonicalRequirementsSpine.toArray) := by
+  rfl
+
+def canonicalBodySpine : TransparentByteSpineV1 :=
+  canonicalRootHeaderSpine ++ canonicalQualifiedNameSpine ++ canonicalTypesSpine ++
+    canonicalConstantsSpine ++ canonicalLogicalStateSpine ++ canonicalEmptyInterfacesSpine ++
+    canonicalCallablesSpine ++ canonicalInvariantsSpine ++ canonicalRequirementsSpine
+
+theorem appendSpineBytes (left right : TransparentByteSpineV1) :
+    (ByteArray.mk left.toArray).append (ByteArray.mk right.toArray) =
+      ByteArray.mk (left ++ right).toArray := by
+  apply ByteArray.ext
+  simp [ByteArray.append]
+
+theorem byteArray_beq_self (bytes : ByteArray) : (bytes == bytes) = true := by
+  cases bytes with
+  | mk data =>
+      change (data == data) = true
+      exact beq_self_eq_true data
+
+theorem encodeBody_canonicalBytes :
+    encodeTagged "SemanticProgram.Data" #[
+      ByteArray.mk canonicalQualifiedNameSpine.toArray,
+      ByteArray.mk canonicalTypesSpine.toArray,
+      ByteArray.mk canonicalConstantsSpine.toArray,
+      ByteArray.mk canonicalLogicalStateSpine.toArray,
+      encodeU32le 0, encodeU32le 0,
+      ByteArray.mk canonicalCallablesSpine.toArray,
+      ByteArray.mk canonicalInvariantsSpine.toArray,
+      ByteArray.mk canonicalRequirementsSpine.toArray] =
+        .ok (ByteArray.mk canonicalBodySpine.toArray) := by
+  rw [encodeTagged_eq_ok_of_bytesV1 "SemanticProgram.Data"
+    (ByteArray.mk #[83, 101, 109, 97, 110, 116, 105, 99, 80, 114, 111, 103,
+      114, 97, 109, 46, 68, 97, 116, 97]) _ (by rfl) (by decide) (by decide)
+      (by decide) (by decide) (by decide)]
+  congr 1
+
+theorem encodeData_canonicalBytes :
+    encodeSemanticProgramDataV1 data = .ok canonicalBytes := by
+  have hbytes : (encodeMagicPrefix semanticProgramMagicV1).append
+      (ByteArray.mk canonicalBodySpine.toArray) = canonicalBytes := by
+    rw [show encodeMagicPrefix semanticProgramMagicV1 =
+      ByteArray.mk canonicalMagicSpine.toArray by rfl]
+    rw [appendSpineBytes]
+    rfl
+  have hroot : encodeSemanticProgramDataV1 data = .ok
+      ((encodeMagicPrefix semanticProgramMagicV1).append
+        (ByteArray.mk canonicalBodySpine.toArray)) := by
+    apply encodeSemanticProgramDataV1_eq_of_fields data
+      (ByteArray.mk canonicalQualifiedNameSpine.toArray)
+      (ByteArray.mk canonicalTypesSpine.toArray)
+      (ByteArray.mk canonicalConstantsSpine.toArray)
+      (ByteArray.mk canonicalLogicalStateSpine.toArray)
+      (encodeU32le 0) (encodeU32le 0)
+      (ByteArray.mk canonicalCallablesSpine.toArray)
+      (ByteArray.mk canonicalInvariantsSpine.toArray)
+      (ByteArray.mk canonicalRequirementsSpine.toArray)
+      (ByteArray.mk canonicalBodySpine.toArray)
+    · rfl
+    · rfl
+    · rfl
+    · rfl
+    · rfl
+    · rfl
+    · rfl
+    · rfl
+    · exact semanticProgramStructure_data
+    · exact encodeQualifiedName_canonicalBytes
+    · exact encodeTypes_canonicalBytes
+    · exact encodeConstants_canonicalBytes
+    · exact encodeLogicalState_canonicalBytes
+    · exact encodeEvents_canonicalBytes
+    · exact encodeErrors_canonicalBytes
+    · exact encodeCallables_canonicalBytes
+    · exact encodeInvariants_canonicalBytes
+    · exact encodeRequirements_canonicalBytes
+    · exact encodeBody_canonicalBytes
+    · rw [hbytes]
+      change canonicalSpine.length ≤ maxCanonicalProgramBytes
+      rw [canonicalSpine_length]
+      decide
+  rw [hroot, hbytes]
+
 theorem consumeMagic_canonicalBytes :
     consumeMagic semanticProgramMagicV1 (start canonicalBytes) =
       .ok ((), ⟨canonicalBytes, 15, 0⟩) := by
@@ -3064,6 +3388,13 @@ theorem decodeData_canonicalBytes :
   · apply finish_eq_ok_of_offset_sizeV1
     change 1235 = canonicalSpine.length
     exact canonicalSpine_length.symm
+
+theorem decodeCarrier_canonicalBytes :
+    decodeSemanticProgramV1 canonicalBytes = .ok ⟨canonicalBytes⟩ := by
+  apply decodeSemanticProgramV1_eq_of_identity canonicalBytes canonicalBytes data
+  · exact decodeData_canonicalBytes
+  · exact encodeData_canonicalBytes
+  · exact byteArray_beq_self canonicalBytes
 
 end CanonicalInvariantFixtureV1
 

@@ -705,3 +705,8 @@ encoder现可由原顺序的shape/table/structure gates、九个真实field enco
 首个nested callable已闭合：固定8-byte `encodeU64le`与tag field append仅做等价机械透明化；production
 ValueDef、Bool Literal、Instruction、Return、Block、Callable逐层组合，证明`truthLeaf`精确等于既有
 `canonicalTruthLeafSpine`。WireV1/InvariantABI builds与两套runner通过；下一步为truth PureCall与falsehood。
+
+canonical encoder/carrier链现已闭合：falsehood的Bool-false Literal、truth的nullary PureCall及四callable
+source-order array均由production encoder证明；九root fields→root tag→magic/size组合得到exact 1235-byte
+`encodeData_canonicalBytes`，再与既有transport theorem组合得到`decodeCarrier_canonicalBytes`。
+此结论仅为engineering fixture kernel evidence；formal TASK-D2-07与TST仍pending。

@@ -12697,6 +12697,18 @@ normative: false
 - Review/regression：Oracle无blocker；WireV1与InvariantABI focused builds及两套engineering runners通过。
 - Boundary：`truth` PureCall、`falsehood`、四callable array、root encoder/carrier identity及formal TASK/TST仍pending。
 
+## 2026-08-02 — D2-07 canonical encoder + carrier identity complete
+
+- Nested callables：`falsehood`沿production Bool-false Literal链闭合；`truth`沿production nullary
+  PureCall-to-`truthLeaf`链闭合。四callable以exact source order `gate, leaf, truth, falsehood`组合。
+- Root：qualifiedName、types、constants、logicalState、events、errors、callables、invariants、requirements
+  九字段均由sole field encoders给出exact bytes；root tag、magic与1235-byte limit再由production root seam组合。
+- Closed engineering theorem：`encodeSemanticProgramDataV1 data = .ok canonicalBytes`，随后与既有exact
+  transport decode及ByteArray identity组合为`decodeSemanticProgramV1 canonicalBytes = .ok ⟨canonicalBytes⟩`。
+- Review/regression：Oracle无blocker；focused WireV1/InvariantABI builds与两套engineering runners通过。
+- Boundary：这是independent explicit golden上的engineering kernel evidence；`InvariantTheoremV1`、
+  TASK-D2-07、TST-SEM-002/003与TST-PROOF-001仍pending，不声明formal semantic ABI qualification完成。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；
