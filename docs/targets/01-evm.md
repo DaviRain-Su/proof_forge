@@ -3,7 +3,7 @@ id: TARGET-EVM
 title: EVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-01
+updated: 2026-08-02
 normative: true
 ---
 
@@ -22,13 +22,12 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 
 - multi-width UInt/Int 与 body 窄宽、UInt128/256（EVM-only）ABI/body 子集；Field(bn254) mod-p 通道；
 - 控制流 if/match、fn/localCall、let/bounded for、shift/bitwise/logical、revert/emit；
-- named 聚合 flatten、定长 Array IndexGet/Set（bounds revert）；String 类型面（match switch 仍可 fail-closed）；
+- named 聚合 flatten、定长 Array IndexGet/Set（bounds revert）；String 类型面（**String match switch 已落地 N-A1**）；
+- **Map UInt64→UInt64 dense pilot（cap-8，Token deployable）+ Bytes（N×UInt8 leaves，D4-E2）**；
 - Yul + digest-pinned `solc` bytecode；**EvmSolc** `solc --strict-assembly` 验收门（工具缺席干净跳过）；
 - engineering planDigest 可绑 BuildIdentity/OutputSet；历史 Anvil Counter/overflow smoke 存在。
 
-**明确未闭合**：完整 SemanticProgramV1 表面；call/schedule（需 address-bearing 类型）fail-closed；
-Principal Plan fail-closed；Map/Bytes/Option state 多仍 fail-closed；formal Plan/IR/Build/Output
-identity 与 Reference↔Anvil formal differential；不得写成 D4 / formal TASK 完成。
+**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead（EVM Plan 显式 fail-closed）；Option state 仍 fail-closed（仅作 Map IndexGet 中间值）；formal Plan/IR/Build/Output identity 与 Reference↔Anvil formal differential；不得写成 D4 / formal TASK 完成。
 
 ## 1. 身份与来源
 

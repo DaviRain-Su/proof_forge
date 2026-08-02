@@ -3,7 +3,7 @@ id: TARGET-ALEO
 title: Aleo and Leo 4 target dossier
 status: proposed
 owner: architecture
-updated: 2026-07-15
+updated: 2026-08-02
 normative: true
 ---
 
@@ -11,7 +11,15 @@ normative: true
 
 状态：`proposed`
 Target ID：`aleo`
-Phase 1：设计，不实现
+Phase 1：实现（工程切片已接线；成熟度 source-only）
+
+## 当前工程迁移状态（非 formal 完成）
+
+`planFromCapability` 直接读取 `CompiledSemanticV1.semanticV1Of`，private lowering 构造 target-owned `AleoPlan`。
+
+**工程已接线（摘）**：标量 UInt64/UInt32/Unit/Bool envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）；named Struct/Enum + Array UInt64 flatten-to-mapping leaves；Commit 身份透传；**Field BLS12-377 Fr（T14）→ Leo native `field` state/param/body**（不再 fail-closed）；Leo 4.0.2 emission（`EmitIRV1`，`leo build --offline` 验收，工具缺席 skip）。
+
+**明确未闭合**：bn254 Fr 仍 fail-closed（Aleo native = BLS12-377 ≠ catalog bn254）；Map/Bytes/Option/Principal/String/Int/call/schedule/event 均显式 fail-closed；无 prove/deploy/VM 门；成熟度 **source-only**，不得写成 runtime/formal 完成。
 
 ## 1. 身份与来源
 

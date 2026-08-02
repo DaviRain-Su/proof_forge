@@ -3,7 +3,7 @@ id: TARGET-PSY
 title: Psy target dossier
 status: draft
 owner: architecture
-updated: 2026-07-15
+updated: 2026-08-02
 normative: true
 ---
 
@@ -11,7 +11,15 @@ normative: true
 
 状态：`draft`
 Target ID：`psy`
-Phase 1：研究，不实现
+Phase 1：实现（工程切片已接线；成熟度 source-only）
+
+## 当前工程迁移状态（非 formal 完成）
+
+`planFromCapability` 直接读取 `CompiledSemanticV1.semanticV1Of`，private lowering 构造 target-owned `PsyPlan`。
+
+**工程已接线（摘）**：标量 UInt64/UInt32/Unit/Bool/Int64 envelope；named Struct/Enum + Array UInt64 flatten-to-Felt leaves；Commit 身份透传；sync call 与 event（`__emit`）；**Field Goldilocks（T14，p=2^64−2^32+1）→ Felt state/param/body**（不再 fail-closed，PsyEmissionFix 修字面量范围）；Dargo/Psy source（`psy-dargo-u64-v1`）。
+
+**明确未闭合**：bn254 Fr 仍 fail-closed（Psy Felt=Goldilocks ≠ bn254）；Map/Bytes/Option/Principal/String/bitNot 显式 fail-closed；resolver 拒 async-workflow(schedule)；无 VM/prover 门；成熟度 **source-only**，不得写成 runtime/formal 完成。
 
 ## 1. 身份与来源
 

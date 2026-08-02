@@ -3,7 +3,7 @@ id: RESEARCH-012
 title: Target Plan/IR/Emitter 覆盖缺口矩阵（工程轨道权威清单）
 status: draft
 owner: engineering
-updated: 2026-08-01
+updated: 2026-08-02
 normative: false
 ---
 

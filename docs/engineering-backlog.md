@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-01
+updated: 2026-08-02
 normative: false
 ---
 
@@ -278,7 +278,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 
 ---
 
-## 7. Typed / requirements 边角（Check 已五相位，仍缺轴）
+## 7. Typed / requirements 边角（Check 已七相位，仍缺轴）
 
 | ID | 项 | 状态 |
 |---|---|---|

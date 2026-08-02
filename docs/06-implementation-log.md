@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-07-30
+updated: 2026-08-02
 normative: false
 ---
 
@@ -13067,3 +13067,34 @@ normative: false
 - formal边界不变：仓库尚无执行final target output后转换为structural `OutcomeV1`的adapter；NEAR host
   model和Noir relation model都是IR二次模型，不可冒充target differential。versioned tagged retained
   outcome artifact/verifier也尚不存在，因此TST-SEM-002/003与TASK-D2-07继续pending。
+
+## 2026-08-02 — NS-1 Token / Map dense pilot cap-8（EVM+Solana+NEAR+Noir）
+
+- 北极星 NS-1 fungible-token 四 target demo 落地：dense Map UInt64→UInt64 cap-8
+  （occ/key/val leaves、动态键 upsert、IndexGet→Option match、effect-boundary free-set promote）。
+- EVM/NEAR deployable Token；Solana 默认 plan（ELF 帧预算：pure-expr Map 超 4KiB，ELF 对 Map Token
+  仍 opt-in 失败）；Noir multi-leaf public inputs + relation model。runtime smoke 工程脚本接入。
+- Tests：`TokenV1`、Map pilot 横向钉测、MapMini plan fixture。
+- 边界：engineering only；非 formal/IBC；Bytes state 在 Solana/NEAR 仍 fail-closed；Option state 仍
+  fail-closed；Map state 全程序 Reference admission 因 maxMapEntries 资源模型仍 fail-closed。
+
+## 2026-08-02 — T13 Noir UInt256 multi-limb + J1 NoirToolchain deferral
+
+- T13：Noir LowerSemantic 开 UInt256 multi-limb（native u256 surface），UInt128 mul/div/mod 仍 fail
+  closed。`NoirRelationModel` 增 u256 钉测。
+- J1 NoirToolchain：documented source-only deferral（RPT-017）；无 nargo/backend Tool Lock pin；保持
+  source-only relations + Lean relation model，不升格 prove/verify。
+
+## 2026-08-02 — T14 Field catalog v2：BLS12-377 Fr + Goldilocks
+
+- Wire FieldSpec catalog 从 sole bn254 Fr 扩为三 spec：bn254 Fr（EVM/Noir）、BLS12-377 Fr（Aleo）、
+  Goldilocks（Psy）。`ModelV1` 增 `bls12377FrFieldSpecV1`（253-bit，32-byte BE）与
+  `goldilocksFieldSpecV1`（2^64−2^32+1，8-byte BE 填充 32）；`TypeKeyV1` 按 exact id+modulus
+  allowlist 校验；Source Syntax 接受三个 Field id。
+- Aleo LowerSemantic：Field `bls12_377_fr` → Leo native `field` state/param/body（不再 fail-closed）；
+  Psy LowerSemantic：Field `goldilocks` → Felt state/param/body（不再 fail-closed）。
+  `ReferenceMachineV1.fieldModulus` 已按 TypeDecl spec.modulusBE 参数化。
+- Tests：WireV1 三 catalog round-trip + cross-spec `.badType`；Aleo/Psy field state/arith 正向；
+  Source AST 三 id 解码。coverage matrix Field 行随之更新。
+- 边界：engineering only；非 formal Field claim；EVM/Noir 仍仅 bn254；Solana/NEAR Field 仍
+  fail-closed。
