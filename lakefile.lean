@@ -33,6 +33,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Typed.CheckV1,
     `Tests.Semantic.WireV1,
     `Tests.Semantic.InvariantABI,
+    `Tests.Semantic.InvariantTheoremV1,
     `Tests.Semantic.ReferenceV1,
     `Tests.Semantic.ProofBundleV1,
     `Tests.Semantic.ProofReferenceJoinV1,

@@ -710,3 +710,12 @@ canonical encoder/carrier链现已闭合：falsehood的Bool-false Literal、trut
 source-order array均由production encoder证明；九root fields→root tag→magic/size组合得到exact 1235-byte
 `encodeData_canonicalBytes`，再与既有transport theorem组合得到`decodeCarrier_canonicalBytes`。
 此结论仅为engineering fixture kernel evidence；formal TASK-D2-07与TST仍pending。
+
+canonical invariant的下一层也已闭合：`Tests.Semantic.InvariantTheoremV1`证明exact closed
+`InvariantTheoremV1 (⟨canonicalBytes⟩ : SemanticProgramV1) 0`。proof path为production validate →
+StateConforms decode → ordinal 0 → `runInvariantCallableV1` exact 6-step
+`truth/PureCall/truthLeaf/true`，private machine未成为public ABI，也未新增第二evaluator。
+该module必须保持独立：直接把closed theorem放回巨型1235-byte golden module会使Lean 4.31在
+同一elaboration process达到orb RSS上限；独立module复用其`.olean`后为小型增量build。下一步先审计
+TST-SEM-002、TST-SEM-003与TST-PROOF-001的corpus/evidence门槛；不要把此concrete engineering
+theorem登记成formal acceptance，也不要提前关闭TASK-D2-07。

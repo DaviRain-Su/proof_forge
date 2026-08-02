@@ -2216,6 +2216,185 @@ def runInvariantCallableV1
                 else .trapped
             | .returned none => .trapped
 
+private theorem maxValueIdInCallable_eq_zero_of_single_result_zero
+    (callable : CallableV1)
+    (typeId : TypeIdV1)
+    (op : SemanticOpV1)
+    (terminator : TerminatorV1)
+    (hparams : callable.params = #[])
+    (hblocks : callable.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId }
+        op
+      }]
+      terminator
+    }]) :
+    maxValueIdInCallable callable = 0 := by
+  simp [maxValueIdInCallable, hparams, hblocks]
+
+/-- A controlled refinement of the sole production invariant runner for the
+    canonical straight-line proof shape: a nullary invariant calls a nullary
+    pure function whose single instruction returns Bool `true`. The theorem
+    exposes no private machine state and adds no alternate executable path. -/
+theorem runInvariantCallableV1_eq_returnedTrue_of_single_nullary_pureCall_true
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (overlay : Array ByteArray)
+    (rootId leafId : CallableIdV1)
+    (boolTypeId : TypeIdV1)
+    (rootName leafName : Option String)
+    (visibility : VisibilityV1)
+    (typeName : Option String)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok overlay)
+    (htype : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := typeName, shape := .bool })
+    (hroot : data.callables[rootId.toNat]? = some {
+      id := rootId
+      kind := .invariant
+      name := rootName
+      params := #[]
+      result := { typeId := boolTypeId, visibility }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[{
+          result := some { valueId := 0, typeId := boolTypeId }
+          op := .pureCall leafId #[]
+        }]
+        terminator := .return_ (some 0)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 6
+    })
+    (hleaf : data.callables[leafId.toNat]? = some {
+      id := leafId
+      kind := .pureFn
+      name := leafName
+      params := #[]
+      result := { typeId := boolTypeId, visibility }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[{
+          result := some { valueId := 0, typeId := boolTypeId }
+          op := .literal boolTypeId (encodeU8 1)
+        }]
+        terminator := .return_ (some 0)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 3
+    })
+    (hcanonical :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 1) = .ok ()) :
+    runInvariantCallableV1 data rootId state = .returnedTrue := by
+  let root : CallableV1 := {
+    id := rootId
+    kind := .invariant
+    name := rootName
+    params := #[]
+    result := { typeId := boolTypeId, visibility }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := boolTypeId }
+        op := .pureCall leafId #[]
+      }]
+      terminator := .return_ (some 0)
+    }]
+    loopBounds := #[]
+    invariantSteps := some 6
+  }
+  let leaf : CallableV1 := {
+    id := leafId
+    kind := .pureFn
+    name := leafName
+    params := #[]
+    result := { typeId := boolTypeId, visibility }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := boolTypeId }
+        op := .literal boolTypeId (encodeU8 1)
+      }]
+      terminator := .return_ (some 0)
+    }]
+    loopBounds := #[]
+    invariantSteps := some 3
+  }
+  change data.callables[rootId.toNat]? = some root at hroot
+  change data.callables[leafId.toNat]? = some leaf at hleaf
+  have hrootMax : maxValueIdInCallable root = 0 :=
+    maxValueIdInCallable_eq_zero_of_single_result_zero root boolTypeId
+      (.pureCall leafId #[]) (.return_ (some 0)) (by rfl) (by rfl)
+  have hleafMax : maxValueIdInCallable leaf = 0 :=
+    maxValueIdInCallable_eq_zero_of_single_result_zero leaf boolTypeId
+      (.literal boolTypeId (encodeU8 1)) (.return_ (some 0)) (by rfl) (by rfl)
+  have hrootSteps : root.invariantSteps = some 6 := by rfl
+  have hrootKind : root.kind = .invariant := by rfl
+  have hrootParams : root.params = #[] := by rfl
+  have hrootLoops : root.loopBounds = #[] := by rfl
+  have hrootResult : root.result.typeId = boolTypeId := by rfl
+  have hrootEntry : root.entryBlock = 0 := by rfl
+  have hrootBlocks : root.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := boolTypeId }
+        op := .pureCall leafId #[]
+      }]
+      terminator := .return_ (some 0)
+    }] := by rfl
+  have hleafKind : leaf.kind = .pureFn := by rfl
+  have hleafParams : leaf.params = #[] := by rfl
+  have hleafResult : leaf.result.typeId = boolTypeId := by rfl
+  have hleafEntry : leaf.entryBlock = 0 := by rfl
+  have hleafLoops : leaf.loopBounds = #[] := by rfl
+  have hleafBlocks : leaf.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := boolTypeId }
+        op := .literal boolTypeId (encodeU8 1)
+      }]
+      terminator := .return_ (some 0)
+    }] := by rfl
+  have hbool : isBoolType data root.result.typeId = true := by
+    simp [isBoolType, shapeOf, hrootResult, htype]
+  have hkindBne : (CallableKindV1.invariant != .invariant) = false := by decide
+  have hpureBne : (CallableKindV1.pureFn != .pureFn) = false := by decide
+  have hsix : 6 % 2 ^ 64 = (6 : Nat) := by decide
+  have htrueBytes : (encodeU8 1 == encodeU8 1) = true := by decide
+  rw [runInvariantCallableV1]
+  simp only [hinitialized, Bool.not_true, Bool.false_eq_true, ↓reduceIte, hroot]
+  simp only [hrootSteps, hrootKind, hrootParams, Array.isEmpty_empty,
+    hrootLoops, hbool, Bool.not_true, Bool.or_false]
+  rw [hdecode]
+  simp only [UInt64.toNat_ofNat, hrootMax, hrootEntry, hkindBne, hsix]
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  rw [runMachine]
+  simp [hrootBlocks, hleaf, hleafKind, hleafParams, hleafResult, hleafEntry,
+    hleafLoops, hleafMax]
+  simp [lookupArgs, emptyEnv]
+  rw [runMachine]
+  simp [hleafBlocks, execInstruction, valueCanonical, hcanonical, storeResult,
+    envSet]
+  simp only [hpureBne, Bool.false_eq_true, ↓reduceIte]
+  rw [runMachine]
+  simp [hleafBlocks, hleafResult, isUnitType, shapeOf, htype, envGet,
+    valueCanonical, hcanonical, envSet]
+  rw [runMachine]
+  simp [hrootBlocks, hrootResult, isUnitType, shapeOf, htype, execTerminator,
+    envGet, valueCanonical, hcanonical, htrueBytes]
+
 /-- Evaluate one admitted invariant using its structure-validated exact fuel.
     This deliberately bypasses `InvocationV1`: normal root invocation of an
     invariant remains invalid, and invariant execution never publishes an

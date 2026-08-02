@@ -13042,3 +13042,17 @@ normative: false
 - Boundary: engineering only; not formal Stage-0/hermetic; FinalizeV1 remains
   zero-tool non-deployable; Field BLS12-377 ≠ bn254 still fail closed; not
   runtime VM differential.
+
+## 2026-08-02 — D2-07 canonical ordinal-0 concrete theorem
+
+- `WireV1`新增exact validate composition seam；`InvariantFoundationV1`从sole
+  `StateConformsV1`析出initialized与canonical decode事实；public `InvariantABI`只组合
+  validated selection/evaluator与exact proposition。
+- `ReferenceMachineV1`不暴露private machine carrier，对generic
+  single-nullary-PureCall-to-Bool-true shape逐步展开exact 6-step production trace。
+- 最终closed theorem独立置于`Tests.Semantic.InvariantTheoremV1`，复用已编译的1235-byte
+  fixture以控制Lean elaboration RSS，并证明exact
+  `InvariantTheoremV1 (⟨canonicalBytes⟩ : SemanticProgramV1) 0`。
+- 没有第二evaluator、`native_decide`、runtime read、production `unsafe`/`partial`或新增axiom。
+  这仍只是一个concrete engineering theorem，不能替代TST-SEM-002/003、TST-PROOF-001
+  corpus/evidence或关闭TASK-D2-07。

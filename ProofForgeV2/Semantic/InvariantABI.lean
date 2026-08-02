@@ -52,4 +52,42 @@ def InvariantTheoremV1
     StateConformsV1 program state →
     evalInvariantV1 program invariantOrdinal state = .returnedTrue
 
+/-- Compose one exact public evaluator result without unfolding a closed
+    carrier at the proof site. Every premise is an equality from the sole
+    production validation, state decoder, ordinal table, and invariant runner. -/
+theorem evalInvariantV1_eq_of_validated_selection
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (invariantOrdinal : InvariantOrdinalV1)
+    (invariant : InvariantDeclV1)
+    (state : LogicalStateV1)
+    (overlay : Array ByteArray)
+    (result : InvariantEvalResultV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok overlay)
+    (hselection : data.invariants[invariantOrdinal.toNat]? = some invariant)
+    (hrun : runInvariantCallableV1 data invariant.callableId state = result) :
+    evalInvariantV1 program invariantOrdinal state = result := by
+  simp only [evalInvariantV1, hvalidate, hinitialized, Bool.not_true,
+    Bool.false_eq_true, ↓reduceIte, hselection, hdecode, hrun]
+
+/-- Close the exact public invariant proposition from a successful production
+    validation, the decoded table bound, and the production evaluator theorem. -/
+theorem invariantTheoremV1_of_validate_eq_ok
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (invariantOrdinal : InvariantOrdinalV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hbound : invariantOrdinal.toNat < data.invariants.size)
+    (heval : ∀ state : LogicalStateV1,
+      StateConformsV1 program state →
+      evalInvariantV1 program invariantOrdinal state = .returnedTrue) :
+    InvariantTheoremV1 program invariantOrdinal := by
+  constructor
+  · unfold SemanticProgramV1.invariants
+    rw [hvalidate]
+    exact hbound
+  · exact heval
+
 end ProofForgeV2.Semantic.InvariantABI

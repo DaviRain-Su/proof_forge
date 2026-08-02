@@ -25,6 +25,7 @@ import Tests.Typed.RequirementsInferV1
 import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
+import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.ProofBundleV1
 import Tests.Semantic.ProofReferenceJoinV1

@@ -224,4 +224,29 @@ def stateConformsBoolV1 (program : SemanticProgramV1) (state : LogicalStateV1) :
 def StateConformsV1 (program : SemanticProgramV1) (state : LogicalStateV1) : Prop :=
   stateConformsBoolV1 program state = true
 
+/-- Eliminate conformance after an exact successful carrier validation. This
+    exposes only the initialized-state and canonical-state decode facts already
+    enforced by the sole production conformance predicate. -/
+theorem stateConformsV1_elim_of_validate_eq_ok
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hconforms : StateConformsV1 program state) :
+    state.initialized = true ∧
+      ∃ values : Array ByteArray,
+        decodeLogicalStateValuesV1 data state = .ok values := by
+  unfold StateConformsV1 stateConformsBoolV1 at hconforms
+  rw [hvalidate] at hconforms
+  by_cases hinitialized : state.initialized = true
+  · refine ⟨hinitialized, ?_⟩
+    simp only [hinitialized, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hconforms
+    generalize hdecode : decodeLogicalStateValuesV1 data state = decoded at hconforms
+    cases decoded with
+    | error error => contradiction
+    | ok values => exact ⟨values, rfl⟩
+  · have hfalse : state.initialized = false := by
+      cases h : state.initialized <;> simp_all
+    simp [hfalse] at hconforms
+
 end ProofForgeV2.Semantic.InvariantABI

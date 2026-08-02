@@ -466,6 +466,20 @@ def validateSemanticProgramV1 (p : SemanticProgramV1) :
   validateSemanticProgramStructureV1 data
   pure data
 
+/-- Compose exact carrier validation from the sole production decoder,
+    structure-gated encoder, byte identity, and explicit structure gate. -/
+theorem validateSemanticProgramV1_eq_ok_of_identity
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (reencoded : ByteArray)
+    (hdecode : decodeSemanticProgramDataV1 program.canonicalBytes = .ok data)
+    (hencode : encodeSemanticProgramDataV1 data = .ok reencoded)
+    (hidentity : (reencoded == program.canonicalBytes) = true)
+    (hstructure : validateSemanticProgramStructureV1 data = .ok ()) :
+    validateSemanticProgramV1 program = .ok data := by
+  simp only [validateSemanticProgramV1, hdecode, hencode, hidentity, hstructure,
+    ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
 def semanticHashV1 (p : SemanticProgramV1) : Except SemanticWireErrorV1 Digest := do
   let _ ← validateSemanticProgramV1 p
   pure (sha256Bytes p.canonicalBytes)

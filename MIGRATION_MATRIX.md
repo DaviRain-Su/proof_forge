@@ -438,3 +438,11 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > `decodeSemanticProgramV1 canonicalBytes = .ok ⟨canonicalBytes⟩`；transport、完整structure、sole
 > production re-encode与exact byte identity链闭合。此为engineering evidence，formal TASK-D2-07、
 > TST-SEM-002/003、TST-PROOF-001与`InvariantTheoremV1`仍pending。
+
+> 2026-08-02 D2-07 concrete theorem增量：canonical ordinal 0现已闭合exact
+> `InvariantTheoremV1 (⟨canonicalBytes⟩ : SemanticProgramV1) 0`。证明只组合sole production
+> carrier validation、`StateConformsV1` canonical state decode、ordinal selection与既有
+> `runInvariantCallableV1`，并在private machine内部按exact 6 fuel steps执行
+> `truth → truthLeaf → Bool true`；没有第二evaluator、runtime file read、`native_decide`、
+> `unsafe`/`partial`或新增axiom。此为单个concrete engineering theorem；formal TASK-D2-07、
+> TST-SEM-002/003、TST-PROOF-001及corpus/evidence registration仍pending。
