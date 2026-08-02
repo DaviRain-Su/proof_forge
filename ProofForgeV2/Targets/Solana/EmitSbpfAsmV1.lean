@@ -842,10 +842,17 @@ private def emitMultiwordCompare (b : AsmBuf) (tempBase dest lhs rhs nLimbs : Na
           b := emit b s!"{nextLab}:"
         emit b s!"{doneLab}:"
 
-/-- Multiword mul/div/mod: require higher limbs zero (value fits UInt64), else overflow.
-    True multiword schoolbook needs 32-bit split mul; low64 path keeps exact
-    semantics for values that fit in one limb. -/
-private def emitMultiwordViaLow64 (b : AsmBuf) (tempBase dest lhs rhs errorCode nLimbs : Nat)
+/-- Allocate `n` consecutive absolute temps from the cursor; returns base. -/
+private def allocTemps (b : AsmBuf) (n : Nat) : AsmBuf × Nat :=
+  let base := b.cursor
+  ({ b with cursor := b.cursor + n }, base)
+
+/-- Multiword div/mod fail-closed fallback (Solana lane): require all upper
+    limbs of both operands to be zero (the value fits a single UInt64), else
+    fail with `errorCode`. Genuine multiword division / remainder are **not**
+    implemented in this lane; only values representable in UInt64 are lowered
+    (a documented fail-closed fallback, not a silent truncation). -/
+private def emitMultiwordDivModViaLow64 (b : AsmBuf) (tempBase dest lhs rhs errorCode nLimbs : Nat)
     (kind : String) : AsmBuf :=
   Id.run do
     let (b, errLab) := fresh b s!"err_mw{kind}"
@@ -858,18 +865,7 @@ private def emitMultiwordViaLow64 (b : AsmBuf) (tempBase dest lhs rhs errorCode 
       b := emit b s!"  jne r1, 0, {errLab}"
     b := loadTemp b "r1" tempBase lhs
     b := loadTemp b "r2" tempBase rhs
-    if kind == "mul" then
-      let (b1, skipRev) := fresh b "mwmul_skip"
-      b := b1
-      b := emit b "  mov64 r4, r1"
-      b := emit b "  mul64 r4, r2"
-      b := emit b s!"  jeq r1, 0, {skipRev}"
-      b := emit b "  mov64 r3, r4"
-      b := emit b "  div64 r3, r1"
-      b := emit b s!"  jne r3, r2, {errLab}"
-      b := emit b s!"{skipRev}:"
-      b := storeTemp b tempBase dest "r4"
-    else if kind == "div" then
+    if kind == "div" then
       b := emit b s!"  jeq r2, 0, {errLab}"
       b := emit b "  div64 r1, r2"
       b := storeTemp b tempBase dest "r1"
@@ -882,6 +878,238 @@ private def emitMultiwordViaLow64 (b : AsmBuf) (tempBase dest lhs rhs errorCode 
     for i in [1:nLimbs] do
       b := emit b "  lddw r1, 0"
       b := storeTemp b tempBase (dest + i) "r1"
+    b := emit b s!"  ja {okLab}"
+    b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Schoolbook multiword checked mul (Solana lane: UInt128=2 limbs / UInt256=4 limbs).
+
+    Computes the exact `2·nLimbs`-limb unsigned product of the `nLimbs`-limb
+    operands at `lhs`/`rhs`, then:
+      * fails with `errorCode` when any upper limb `[nLimbs .. 2·nLimbs)`
+        of the exact product is non-zero (does not fit the result width);
+      * otherwise copies the low `nLimbs` product limbs to `dest`.
+
+    Each 64×64 → 128 limb product uses the 32-bit-digit schoolbook identity
+    `x·y = p0 + (p1 + p2)·2^32 + p3·2^64` with
+      p0 = xl·yl, p1 = xl·yh, p2 = xh·yl, p3 = xh·yh, mid = p1 + p2 (< 2^65),
+      lo64 = (p0 + midLo·2^32) mod 2^64,  hi64 = p3 + midHi' + carry1,
+    where `midHi' = (mid div 2^32) | (carry·2^32)` (carry = mid div 2^64;
+    when carry = 1 the bit 32 of `mid div 2^32` is already set, so OR ≡ ADD)
+    and `carry1 = (p0h + midLo) div 2^32`; this recovers the 128-bit product
+    exactly (hi64 < 2^64).
+
+    Lane accumulation is lane-ordered (m = i + j ascending) with explicit
+    carry propagation: a lane sum `S_m = Σ_{i+j=m} lo64_{ij} +
+    Σ_{i+j=m-1} hi64_{ij} + carryIn` may reach `O(nLimbs)·2^64` and wraps a
+    64-bit lane, so each lane is accumulated into a running `(rlo, rhi)` pair
+    (rhi tracks every wrap; total S_m < 2^67 for nLimbs ≤ 4), the low lane
+    is stored as `acc[m] = rlo`, and `rhi` becomes the next lane's carryIn.
+    Upper lanes (m ≥ nLimbs) must be exactly zero (checked on both rlo and
+    rhi); the final lane `2·nLimbs-1` holds only carries + hi64 of
+    `i+j = 2·nLimbs-2`. -/
+private def emitMultiwordCheckedMul (b : AsmBuf) (tempBase dest lhs rhs errorCode nLimbs : Nat) :
+    AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_mwmul"
+    let (b, okLab) := fresh b "ok_mwmul"
+    -- acc: low nLimbs product limbs (upper lanes checked inline).
+    let (b, acc) := allocTemps b nLimbs
+    -- hiTemps: stored hi64 per pair (i,j) at index i*nLimbs + j.
+    let (b, hiTemps) := allocTemps b (nLimbs * nLimbs)
+    -- scratch: sx sy sxl sxh syl syh sp0 sp1 sp2 sp3 sp0l sp0h
+    --          smidlo smidhi scarry slo shi
+    let (b, sx) := allocTemps b 17
+    let sy := sx + 1
+    let sxl := sx + 2
+    let sxh := sx + 3
+    let syl := sx + 4
+    let syh := sx + 5
+    let sp0 := sx + 6
+    let sp1 := sx + 7
+    let sp2 := sx + 8
+    let sp3 := sx + 9
+    let sp0l := sx + 10
+    let sp0h := sx + 11
+    let smidlo := sx + 12
+    let smidhi := sx + 13
+    let scarry := sx + 14
+    let slo := sx + 15
+    let shi := sx + 16
+    -- running lane accumulator (rlo, rhi) + carryIn for lane 0.
+    let (b, rlo) := allocTemps b 2
+    let rhi := rlo + 1
+    let (b, carryIn) := allocTemps b 1
+    let mut b := b
+    -- carryIn = 0 (lane 0 has no incoming carry)
+    b := emit b "  lddw r1, 0"
+    b := storeTempAbs b carryIn "r1"
+    -- lane-ordered schoolbook accumulation: S_m = carryIn + Σ lo64 + Σ hi64
+    for m in [0:2 * nLimbs] do
+      -- running lane: rlo := carryIn, rhi := 0
+      b := loadTempAbs b "r1" carryIn
+      b := storeTempAbs b rlo "r1"
+      b := emit b "  lddw r1, 0"
+      b := storeTempAbs b rhi "r1"
+      -- lo64 contributions from pairs (i, j) with i + j == m
+      for i in [:nLimbs] do
+        for j in [:nLimbs] do
+          if i + j == m then
+            b := loadTemp b "r1" tempBase (lhs + i)
+            b := storeTempAbs b sx "r1"
+            b := loadTemp b "r1" tempBase (rhs + j)
+            b := storeTempAbs b sy "r1"
+            -- xl = sx & 0xffffffff
+            b := loadTempAbs b "r1" sx
+            b := emit b "  mov64 r2, r1"
+            b := emit b "  lddw r3, 0xffffffff"
+            b := emit b "  and64 r2, r3"
+            b := storeTempAbs b sxl "r2"
+            -- xh = sx >> 32
+            b := loadTempAbs b "r1" sx
+            b := emit b "  lddw r2, 32"
+            b := emit b "  rsh64 r1, r2"
+            b := storeTempAbs b sxh "r1"
+            -- yl = sy & 0xffffffff
+            b := loadTempAbs b "r1" sy
+            b := emit b "  mov64 r2, r1"
+            b := emit b "  lddw r3, 0xffffffff"
+            b := emit b "  and64 r2, r3"
+            b := storeTempAbs b syl "r2"
+            -- yh = sy >> 32
+            b := loadTempAbs b "r1" sy
+            b := emit b "  lddw r2, 32"
+            b := emit b "  rsh64 r1, r2"
+            b := storeTempAbs b syh "r1"
+            -- p0 = xl * yl
+            b := loadTempAbs b "r1" sxl
+            b := loadTempAbs b "r2" syl
+            b := emit b "  mul64 r1, r2"
+            b := storeTempAbs b sp0 "r1"
+            -- p1 = xl * yh
+            b := loadTempAbs b "r1" sxl
+            b := loadTempAbs b "r2" syh
+            b := emit b "  mul64 r1, r2"
+            b := storeTempAbs b sp1 "r1"
+            -- p2 = xh * yl
+            b := loadTempAbs b "r1" sxh
+            b := loadTempAbs b "r2" syl
+            b := emit b "  mul64 r1, r2"
+            b := storeTempAbs b sp2 "r1"
+            -- p3 = xh * yh
+            b := loadTempAbs b "r1" sxh
+            b := loadTempAbs b "r2" syh
+            b := emit b "  mul64 r1, r2"
+            b := storeTempAbs b sp3 "r1"
+            -- p0l = p0 & 0xffffffff
+            b := loadTempAbs b "r1" sp0
+            b := emit b "  mov64 r2, r1"
+            b := emit b "  lddw r3, 0xffffffff"
+            b := emit b "  and64 r2, r3"
+            b := storeTempAbs b sp0l "r2"
+            -- p0h = p0 >> 32
+            b := loadTempAbs b "r1" sp0
+            b := emit b "  lddw r2, 32"
+            b := emit b "  rsh64 r1, r2"
+            b := storeTempAbs b sp0h "r1"
+            -- mid = p1 + p2 (low 64); carry = 1 if the full sum wrapped
+            b := loadTempAbs b "r1" sp1
+            b := loadTempAbs b "r2" sp2
+            b := emit b "  mov64 r3, r1"
+            b := emit b "  add64 r1, r2"
+            let (b1, midNoCarry) := fresh b "mwmul_midnc"
+            b := b1
+            b := emit b "  mov64 r4, 0"
+            b := emit b s!"  jge r1, r3, {midNoCarry}"
+            b := emit b "  mov64 r4, 1"
+            b := emit b s!"{midNoCarry}:"
+            -- midLo = mid & 0xffffffff ; midHi = (mid >> 32) | (carry << 32)
+            b := emit b "  mov64 r2, r1"
+            b := emit b "  lddw r5, 0xffffffff"
+            b := emit b "  and64 r2, r5"
+            b := storeTempAbs b smidlo "r2"
+            b := emit b "  lddw r5, 32"
+            b := emit b "  rsh64 r1, r5"
+            b := emit b "  mov64 r2, r4"
+            b := emit b "  lsh64 r2, r5"
+            b := emit b "  add64 r1, r2"
+            b := storeTempAbs b smidhi "r1"
+            -- carry1 = (p0h + midLo) >> 32
+            b := loadTempAbs b "r1" sp0h
+            b := loadTempAbs b "r2" smidlo
+            b := emit b "  add64 r1, r2"
+            b := emit b "  lddw r5, 32"
+            b := emit b "  rsh64 r1, r5"
+            b := storeTempAbs b scarry "r1"
+            -- lo64 = ((p0h + midLo) & 0xffffffff) << 32 | p0l
+            b := loadTempAbs b "r1" sp0h
+            b := loadTempAbs b "r2" smidlo
+            b := emit b "  add64 r1, r2"
+            b := emit b "  lddw r5, 0xffffffff"
+            b := emit b "  and64 r1, r5"
+            b := emit b "  lddw r5, 32"
+            b := emit b "  lsh64 r1, r5"
+            b := loadTempAbs b "r2" sp0l
+            b := emit b "  or64 r1, r2"
+            b := storeTempAbs b slo "r1"
+            -- hi64 = p3 + midHi + carry1
+            b := loadTempAbs b "r1" sp3
+            b := loadTempAbs b "r2" smidhi
+            b := emit b "  add64 r1, r2"
+            b := loadTempAbs b "r2" scarry
+            b := emit b "  add64 r1, r2"
+            b := storeTempAbs b shi "r1"
+            -- store hi64 for the m+1 lane
+            b := loadTempAbs b "r1" shi
+            b := storeTempAbs b (hiTemps + i * nLimbs + j) "r1"
+            -- rlo += lo64 (wrap-tracked): rhi += carry(rlo + lo64)
+            b := loadTempAbs b "r1" rlo
+            b := loadTempAbs b "r2" slo
+            b := emit b "  add64 r1, r2"
+            let (b2, laneNoCarry) := fresh b "mwmul_lane"
+            b := b2
+            b := emit b "  mov64 r3, 0"
+            b := emit b s!"  jge r1, r2, {laneNoCarry}"
+            b := emit b "  mov64 r3, 1"
+            b := emit b s!"{laneNoCarry}:"
+            b := storeTempAbs b rlo "r1"
+            b := loadTempAbs b "r4" rhi
+            b := emit b "  add64 r4, r3"
+            b := storeTempAbs b rhi "r4"
+      -- hi64 contributions from pairs (i, j) with i + j == m - 1
+      if m > 0 then
+        for i in [:nLimbs] do
+          for j in [:nLimbs] do
+            if i + j == m - 1 then
+              b := loadTempAbs b "r1" rlo
+              b := loadTempAbs b "r2" (hiTemps + i * nLimbs + j)
+              b := emit b "  add64 r1, r2"
+              let (b3, laneNoCarry) := fresh b "mwmul_lane"
+              b := b3
+              b := emit b "  mov64 r3, 0"
+              b := emit b s!"  jge r1, r2, {laneNoCarry}"
+              b := emit b "  mov64 r3, 1"
+              b := emit b s!"{laneNoCarry}:"
+              b := storeTempAbs b rlo "r1"
+              b := loadTempAbs b "r4" rhi
+              b := emit b "  add64 r4, r3"
+              b := storeTempAbs b rhi "r4"
+      if m < nLimbs then
+        -- low lane: store acc[m] = rlo, propagate rhi as carryIn
+        b := loadTempAbs b "r1" rlo
+        b := storeTempAbs b (acc + m) "r1"
+        b := loadTempAbs b "r1" rhi
+        b := storeTempAbs b carryIn "r1"
+      else
+        -- upper lane: exact product must have a zero digit here
+        b := loadTempAbs b "r1" rlo
+        b := emit b s!"  jne r1, 0, {errLab}"
+        b := loadTempAbs b "r1" rhi
+        b := emit b s!"  jne r1, 0, {errLab}"
+    -- copy the low nLimbs product limbs to dest
+    for t in [:nLimbs] do
+      b := loadTempAbs b "r1" (acc + t)
+      b := storeTemp b tempBase (dest + t) "r1"
     b := emit b s!"  ja {okLab}"
     b := emitErrorExit b errLab errorCode
     emit b s!"{okLab}:"
@@ -915,11 +1143,13 @@ private def emitNarrowCheckedSub (b : AsmBuf) (tempBase dest lhs rhs errorCode b
     let _ := bitWidth
     emitCheckedSub b tempBase dest lhs rhs errorCode
 
-/-- Narrow checked_mul: 64-bit mul then high bits above `bitWidth` must be zero. -/
+/-- Narrow checked_mul: 64-bit mul then high bits above `bitWidth` must be zero.
+    Multiword (UInt128/256) uses true schoolbook 32-bit-split mul (no low64
+    fallback); overflow when the exact product does not fit the width. -/
 private def emitNarrowCheckedMul (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
   if bitWidth > 64 then
-    emitMultiwordViaLow64 b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "mul"
+    emitMultiwordCheckedMul b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth)
   else Id.run do
     let (b, errLab) := fresh b "err_nmul"
     let (b, okLab) := fresh b "ok_nmul"
@@ -935,20 +1165,26 @@ private def emitNarrowCheckedMul (b : AsmBuf) (tempBase dest lhs rhs errorCode b
     let b := emitErrorExit b errLab errorCode
     emit b s!"{okLab}:"
 
-/-- Narrow checked_div: zero guard only; quotient auto in-range for UInt. -/
+/-- Narrow checked_div: zero guard only; quotient auto in-range for UInt.
+    Multiword (UInt128/256) is a documented fail-closed fallback: values that
+    fit a single UInt64 lower via div64; wider operands fail with `errorCode`
+    (genuine multiword division is not implemented in this lane). -/
 private def emitNarrowCheckedDiv (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
   if bitWidth > 64 then
-    emitMultiwordViaLow64 b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "div"
+    emitMultiwordDivModViaLow64 b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "div"
   else Id.run do
     let _ := bitWidth
     emitCheckedDiv b tempBase dest lhs rhs errorCode
 
-/-- Narrow checked_mod: zero guard only; remainder auto in-range. -/
+/-- Narrow checked_mod: zero guard only; remainder auto in-range.
+    Multiword (UInt128/256) is a documented fail-closed fallback (see
+    emitNarrowCheckedDiv): single-limb values lower via mod64; wider operands
+    fail with `errorCode`. -/
 private def emitNarrowCheckedMod (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
   if bitWidth > 64 then
-    emitMultiwordViaLow64 b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "mod"
+    emitMultiwordDivModViaLow64 b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "mod"
   else Id.run do
     let _ := bitWidth
     emitCheckedMod b tempBase dest lhs rhs errorCode
@@ -1049,11 +1285,6 @@ private structure InlineCtx where
       Body temps live at a disjoint region (calleeBase + arity + ..), so a
       body op writing temp `t < arity` can never clobber a param slot. -/
   paramBase : Nat
-
-/-- Allocate `n` consecutive absolute temps from the cursor; returns base. -/
-private def allocTemps (b : AsmBuf) (n : Nat) : AsmBuf × Nat :=
-  let base := b.cursor
-  ({ b with cursor := b.cursor + n }, base)
 
 mutual
 /-- Emit a single Operation. `inlineCtx=none` is a handler body (syscalls + exit). -/
