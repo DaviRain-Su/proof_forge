@@ -196,11 +196,12 @@ structure Store where
 inductive Statement where
   | store (operation : Store)
   /-- Multi-leaf atomic store for one aggregate StateStore (Principal / Array /
-      Map / Bytes). IR lowers as two-phase snapshot: evaluate every leaf Expr
-      against the pre-store KV, then write all leaves. Sequential leaf stores
-      would re-read already-written occ/key/val mid-upsert (empty-Map put hazard).
-      Distinct `storeAtomic` statements remain ordered; later ones see earlier writes
-      (Token dual Map store). Scalar StateStore keeps single `.store`. -/
+      Map / Bytes / named Struct/Enum). IR lowers as two-phase snapshot: evaluate
+      every leaf Expr against the pre-store KV, then write all leaves. Sequential
+      leaf stores would re-read already-written occ/key/val mid-upsert (empty-Map
+      put hazard). Distinct `storeAtomic` statements remain ordered; later ones
+      see earlier writes (Token dual Map store). Scalar StateStore keeps single
+      `.store`. -/
   | storeAtomic (leaves : Array Store)
   | returnValue (value : Expr)
   | returnNone
@@ -507,13 +508,17 @@ private def nearPlanErr (message : String) : CompileError :=
     ArrayState + **Map UInt64 UInt64** dense pilot via
     `pilotContainerStatePolicyArrayMapBytes` (Array → N×UInt64 leaves; Map →
     capacity-8×(occ,key,val); **Bytes N → N×UInt8 leaves**; Option
-    intermediate for Map IndexGet). -/
+    intermediate for Map IndexGet).
+    **Named Struct/Enum** via `pilotNamedAggregateStatePolicyAdmit` (flatten to
+    UInt64/Int64 KV leaves; construct/fieldGet/fieldSet/variant ops; entry/view
+    return of named aggregates stays fail closed — B-RET-ABI). -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
     pilotUintWidthPolicyNearBody
     (intPolicy := pilotIntWidthPolicyNarrow)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 /-- NEAR pilot Principal storage layout (T12, isomorphic to EVM T10):
@@ -647,6 +652,134 @@ private def containerLeafLayoutV1
       throw <| .planInvariant .near
         "unsupported NEAR semantic shape: container TypeId is not Array/Map/Bytes"
 
+/-- Flatten a type into ordered leaf names under NEAR named-aggregate policy.
+    Scalars inside aggregates: UInt64 / Int64 only (matching EVM N3 / Psy H3).
+    Named Struct: field preorder. Named Enum: tag (UInt64) + max-payload slots
+    (`_tag`, `_p0`…). Nested containers / narrow UInt / Bool / Field as leaves
+    fail closed. -/
+private partial def flattenTypeLeafSpecsV1
+    (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
+    (typeId : TypeIdV1) (namePrefix : String) :
+    CompileResult (Array String) := do
+  if typeId == types.uint64TypeId then
+    pure #[namePrefix]
+  else if types.int64TypeId == some typeId then
+    pure #[namePrefix]
+  else if types.isNamedAggregate typeId then
+    match typeDecls[typeId.toNat]? with
+    | none =>
+        throw <| .planInvariant .near
+          s!"unsupported NEAR semantic shape: missing TypeDecl for aggregate {typeId}"
+    | some decl =>
+        match decl.shape with
+        | .struct fields => do
+            unless fields.size > 0 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: named Struct requires at least one field"
+            let mut out : Array String := #[]
+            for f in fields do
+              let subName :=
+                if namePrefix.isEmpty then f.name else namePrefix ++ "_" ++ f.name
+              unless isIdentifier subName do
+                throw <| .planInvariant .near
+                  s!"state name '{subName}' is not a safe identifier"
+              let sub ← flattenTypeLeafSpecsV1 typeDecls types f.typeId subName
+              out := out ++ sub
+            pure out
+        | .enum variants => do
+            unless variants.size > 0 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: named Enum requires at least one variant"
+            let tagName :=
+              if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
+            unless isIdentifier tagName do
+              throw <| .planInvariant .near
+                s!"state name '{tagName}' is not a safe identifier"
+            let mut maxPay : Nat := 0
+            for v in variants do
+              let mut n : Nat := 0
+              for pt in v.payloadTypes do
+                let sub ← flattenTypeLeafSpecsV1 typeDecls types pt "tmp"
+                n := n + sub.size
+              if n > maxPay then maxPay := n
+            let mut out : Array String := #[tagName]
+            for i in [0:maxPay] do
+              let pName :=
+                if namePrefix.isEmpty then s!"p{i}" else namePrefix ++ "_p" ++ toString i
+              unless isIdentifier pName do
+                throw <| .planInvariant .near
+                  s!"state name '{pName}' is not a safe identifier"
+              out := out.push pName
+            pure out
+        | _ =>
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: named type must be Struct or Enum"
+  else
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: aggregate leaf must be UInt64, Int64, or named Struct/Enum"
+
+private def leafCountOfTypeV1
+    (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult Nat := do
+  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
+  pure specs.size
+
+/-- Struct field leaf range (start, length) within the flattened leaf vector. -/
+private def structFieldLeafRangeV1
+    (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
+    (fields : Array StructFieldV1) (fieldIndex : Nat) :
+    CompileResult (Nat × Nat) := do
+  let mut start : Nat := 0
+  for i in [0:fields.size] do
+    let some f := fields[i]? |
+      throw <| .planInvariant .near "struct field index out of range"
+    let n ← leafCountOfTypeV1 typeDecls types f.typeId
+    if i == fieldIndex then return (start, n)
+    start := start + n
+  throw <| .planInvariant .near "struct field index out of range"
+
+/-- Enum max payload leaf count (excluding tag). -/
+private def enumMaxPayloadLeavesV1
+    (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
+    (variants : Array EnumVariantV1) : CompileResult Nat := do
+  let mut maxPay : Nat := 0
+  for v in variants do
+    let mut n : Nat := 0
+    for pt in v.payloadTypes do
+      let c ← leafCountOfTypeV1 typeDecls types pt
+      n := n + c
+    if n > maxPay then maxPay := n
+  pure maxPay
+
+/-- Payload leaf offset of `payloadIndex` within variant `variantIndex`
+    (0-based within the payload region after the tag). -/
+private def enumPayloadLeafRangeV1
+    (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
+    (variants : Array EnumVariantV1) (variantIndex payloadIndex : Nat) :
+    CompileResult (Nat × Nat) := do
+  let some v := variants[variantIndex]? |
+    throw <| .planInvariant .near "enum variant index out of range"
+  let mut start : Nat := 0
+  for i in [0:v.payloadTypes.size] do
+    let some pt := v.payloadTypes[i]? |
+      throw <| .planInvariant .near "enum payload index out of range"
+    let n ← leafCountOfTypeV1 typeDecls types pt
+    if i == payloadIndex then return (start, n)
+    start := start + n
+  throw <| .planInvariant .near "enum payload index out of range"
+
+/-- Resolve scalar kind for a fieldGet/variantPayload leaf result. -/
+private def scalarKindOfNamedLeafResultV1
+    (types : NearTypeClosureV1) (typeId : TypeIdV1) :
+    CompileResult NearValueKindV1 := do
+  if typeId == types.uint64TypeId then
+    pure .uint64
+  else if types.int64TypeId == some typeId then
+    pure .int64
+  else
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: named-aggregate scalar leaf must be UInt64 or Int64"
+
 /-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
 private def mapLookupOptionLeavesV1
     (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
@@ -758,7 +891,31 @@ private def makeStorageLayoutV1
           }
         stateLeaves := stateLeaves.push leaves
     | none =>
-        if types.isPrincipal state.typeId then
+        if types.isNamedAggregate state.typeId then
+          -- Named Struct/Enum: preorder UInt64/Int64 leaves as separate 8-byte
+          -- KV fields (`name_field` / `name_tag` / `name_p0`…). Atomic
+          -- storeAtomic for StateStore (same store-then-read hazard fix as Map).
+          requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState nearPlanErr types state
+            (allowNonPublic := true)
+          let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
+          if leafSpecs.isEmpty then
+            throw <| .planInvariant .near
+              s!"state '{state.name}' produced zero named-aggregate leaves"
+          if fields.size + leafSpecs.size > maxStateFields then
+            throw <| .planInvariant .near "state count is outside the profile limits"
+          let mut leaves : Array Nat := #[]
+          for leafName in leafSpecs do
+            let fi := fields.size
+            leaves := leaves.push fi
+            fields := fields.push {
+              sourceId := fi
+              name := leafName
+              key := stateKey fi
+              byteWidth := 8
+              endianness := .little
+            }
+          stateLeaves := stateLeaves.push leaves
+        else if types.isPrincipal state.typeId then
           -- T12 Principal: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
           -- ValidatePlan requires sourceId == physical field index (dense).
           -- Logical state → leaf indices live only in `stateLeaves`.
@@ -812,12 +969,13 @@ private structure LoweredValueV1 where
   expandedNodes : Nat
   dependencies : Array ValueIdV1
   /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-8
-      occ/key/val, Bytes N (1-byte UInt8 leaves), or Option `[tag,payload]`
-      from Map IndexGet. `expr` mirrors `leaves[0]!` (or literal 0). Scalar
-      values keep `none`. -/
+      occ/key/val, Bytes N (1-byte UInt8 leaves), named Struct/Enum (preorder
+      UInt64/Int64 leaves), or Option `[tag,payload]` from Map IndexGet.
+      `expr` mirrors `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none
   /-- Physical byte width of each leaf KV value: 8 for UInt64 leaves
-      (Array/Map/Principal), 1 for Bytes leaves (UInt8). Scalar values keep 8. -/
+      (Array/Map/Principal/named Struct/Enum), 1 for Bytes leaves (UInt8).
+      Scalar values keep 8. -/
   leafByteWidth : Nat := 8
   deriving Inhabited
 
@@ -889,6 +1047,34 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
       requirePublicUInt64OrInt64OrFieldOrPrincipalParam
         nearPlanErr types owner param (allowNonPublic := true)
       let leafSpecs ← flattenPrincipalLeafSpecsV1 param.name
+      if planned.size + leafSpecs.size > maxParams then
+        throw <| .planInvariant .near
+          s!"parameter count in {owner} exceeds profile limit {maxParams}"
+      let mut leafExprs : Array Expr := #[]
+      for leafName in leafSpecs do
+        unless isIdentifier leafName do
+          throw <| .planInvariant .near
+            s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+        let binding : Param := {
+          sourceId := planned.size
+          name := leafName
+          inputOffset := nextInputOffset
+          byteWidth := 8
+          endianness := .little
+        }
+        planned := planned.push binding
+        leafExprs := leafExprs.push (.param nextInputOffset)
+        nextInputOffset := nextInputOffset + 8
+      values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+    else if types.isNamedAggregate param.typeId then
+      -- Named Struct/Enum param: flatten to 8-byte UInt64 input words (leaf
+      -- tuple); field/variant access on the aggregate is leaf-level only.
+      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
+        nearPlanErr types owner param (allowNonPublic := true)
+      let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types param.typeId param.name
+      if leafSpecs.isEmpty then
+        throw <| .planInvariant .near
+          s!"parameter '{param.name}' in {owner} produced zero named-aggregate leaves"
       if planned.size + leafSpecs.size > maxParams then
         throw <| .planInvariant .near
           s!"parameter count in {owner} exceeds profile limit {maxParams}"
@@ -1569,6 +1755,16 @@ private def lowerBlockInstructionsV1
             leafExprs := leafExprs.push (.stateLoad fi)
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 result.typeId values result value
+        else if types.isNamedAggregate result.typeId then
+          let n ← leafCountOfTypeV1 typeDecls types result.typeId
+          unless leafIdxs.size == n do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: named Struct/Enum state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          for fi in leafIdxs do
+            leafExprs := leafExprs.push (.stateLoad fi)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
         else
           let fi ← match leafIdxs[0]? with
             | some i =>
@@ -1595,7 +1791,7 @@ private def lowerBlockInstructionsV1
                   pure w
               | none =>
                   throw <| .planInvariant .near
-                    "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, or Array/Map"
+                    "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, named Struct/Enum, or Array/Map"
           unless field.byteWidth == byteWidthOfBitWidth bitWidth do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: state load width does not match field layout"
@@ -1942,10 +2138,10 @@ private def lowerBlockInstructionsV1
           | none => pure #[stateId.toNat]
         let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         if root.isAggregate then
-          -- Principal / Array / Map / Bytes multi-leaf store as one atomic unit.
-          -- Soft: dual Map stores leave pure values for a later store (Token).
-          -- Atomic: all leaf Exprs share the pre-store KV snapshot at IR lower
-          -- (store-then-read hazard on sequential leaf materialization).
+          -- Principal / Array / Map / Bytes / named Struct/Enum multi-leaf store
+          -- as one atomic unit. Soft: dual Map stores leave pure values for a
+          -- later store (Token). Atomic: all leaf Exprs share the pre-store KV
+          -- snapshot at IR lower (store-then-read hazard on sequential leaves).
           let leaves := root.leafExprs
           unless leaves.size == leafIdxs.size do
             throw <| .planInvariant .near
@@ -2078,48 +2274,118 @@ private def lowerBlockInstructionsV1
         body := body.push (.promiseAccount receiver method argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    -- Array construct N args, or Map.empty (ctor 0, 0 args → dense zero leaves).
+    -- Array construct N args, Map.empty (ctor 0, 0 args → dense zero leaves),
+    -- or named Struct/Enum construct (field/payload leaf assembly).
     -- Bytes has no source constructor (Normalize never emits `.construct` for
     -- Bytes); the gate below is a defensive fail-closed boundary.
     | .construct typeId ctorIdx argIds, some result => do
         unless result.typeId == typeId do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: construct result typeId must match op typeId"
-        let some (n, leafByteWidth) ←
-          containerLeafLayoutV1 typeDecls types typeId |
-          throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: construct admits only Array/Map UInt64 on NEAR"
-        unless leafByteWidth == 8 do
-          throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: Bytes construct is outside the NEAR pilot (Bytes values enter via state/params only)"
-        unless ctorIdx == 0 do
-          throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: Array/Map construct ctorIdx must be 0"
-        if n == nearMapPilotLeafCountV1 && argIds.isEmpty then
-          let mut zeros : Array Expr := #[]
-          for _ in [0:n] do
-            zeros := zeros.push (.literal 0)
-          let value := mkAggregateValueV1 zeros #[] 1 n
-          values := ← appendResultValueV1 result.typeId values result value
-        else do
-          unless argIds.size == n do
-            throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: Array construct arity mismatch"
-          let mut leafExprs : Array Expr := #[]
-          let mut deps : Array ValueIdV1 := #[]
-          let mut depth : Nat := 1
-          let mut nodes : Nat := 0
-          for argId in argIds do
-            let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-            unless !arg.isAggregate && arg.kind == .uint64 do
+        match ← containerLeafLayoutV1 typeDecls types typeId with
+        | some (n, leafByteWidth) => do
+            unless leafByteWidth == 8 do
               throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: Array construct args must be scalar UInt64"
-            leafExprs := leafExprs.push arg.expr
-            deps := deps.push argId
-            depth := Nat.max depth (arg.depth + 1)
-            nodes := nodes + arg.expandedNodes
-          let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
-          values := ← appendResultValueV1 result.typeId values result value
+                "unsupported NEAR semantic shape: Bytes construct is outside the NEAR pilot (Bytes values enter via state/params only)"
+            unless ctorIdx == 0 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: Array/Map construct ctorIdx must be 0"
+            if n == nearMapPilotLeafCountV1 && argIds.isEmpty then
+              let mut zeros : Array Expr := #[]
+              for _ in [0:n] do
+                zeros := zeros.push (.literal 0)
+              let value := mkAggregateValueV1 zeros #[] 1 n
+              values := ← appendResultValueV1 result.typeId values result value
+            else do
+              unless argIds.size == n do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: Array construct arity mismatch"
+              let mut leafExprs : Array Expr := #[]
+              let mut deps : Array ValueIdV1 := #[]
+              let mut depth : Nat := 1
+              let mut nodes : Nat := 0
+              for argId in argIds do
+                let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                unless !arg.isAggregate && arg.kind == .uint64 do
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: Array construct args must be scalar UInt64"
+                leafExprs := leafExprs.push arg.expr
+                deps := deps.push argId
+                depth := Nat.max depth (arg.depth + 1)
+                nodes := nodes + arg.expandedNodes
+              let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
+              values := ← appendResultValueV1 result.typeId values result value
+        | none => do
+            unless types.isNamedAggregate typeId do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: construct admits only Array/Map UInt64 or named Struct/Enum on NEAR"
+            let some decl := typeDecls[typeId.toNat]? |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: construct TypeDecl missing"
+            match decl.shape with
+            | .struct fields => do
+                unless ctorIdx.toNat == 0 do
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: struct construct ctorIdx must be 0"
+                unless argIds.size == fields.size do
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: struct construct arity mismatch"
+                let mut leaves : Array Expr := #[]
+                let mut deps : Array ValueIdV1 := #[]
+                let mut depth : Nat := 1
+                let mut nodes : Nat := 1
+                for i in [0:argIds.size] do
+                  let some argId := argIds[i]? |
+                    throw <| .planInvariant .near "struct construct arg missing"
+                  let some field := fields[i]? |
+                    throw <| .planInvariant .near "struct construct field missing"
+                  let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                  let expectedLeaves ← leafCountOfTypeV1 typeDecls types field.typeId
+                  let argLeaves := arg.leafExprs
+                  unless argLeaves.size == expectedLeaves do
+                    throw <| .planInvariant .near
+                      "unsupported NEAR semantic shape: struct construct field leaf count mismatch"
+                  leaves := leaves ++ argLeaves
+                  deps := deps.push argId
+                  depth := Nat.max depth (arg.depth + 1)
+                  nodes := nodes + arg.expandedNodes
+                let value := mkAggregateValueV1 leaves deps depth nodes
+                values := ← appendResultValueV1 typeId values result value
+            | .enum variants => do
+                let vi := ctorIdx.toNat
+                let some variant := variants[vi]? |
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: enum construct variant out of range"
+                unless argIds.size == variant.payloadTypes.size do
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: enum construct arity mismatch"
+                let maxPay ← enumMaxPayloadLeavesV1 typeDecls types variants
+                let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
+                let mut deps : Array ValueIdV1 := #[]
+                let mut depth : Nat := 1
+                let mut nodes : Nat := 1
+                for i in [0:argIds.size] do
+                  let some argId := argIds[i]? |
+                    throw <| .planInvariant .near "enum construct arg missing"
+                  let some pt := variant.payloadTypes[i]? |
+                    throw <| .planInvariant .near "enum construct payload type missing"
+                  let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                  let expectedLeaves ← leafCountOfTypeV1 typeDecls types pt
+                  let argLeaves := arg.leafExprs
+                  unless argLeaves.size == expectedLeaves do
+                    throw <| .planInvariant .near
+                      "unsupported NEAR semantic shape: enum construct payload leaf count mismatch"
+                  leaves := leaves ++ argLeaves
+                  deps := deps.push argId
+                  depth := Nat.max depth (arg.depth + 1)
+                  nodes := nodes + arg.expandedNodes
+                while leaves.size < 1 + maxPay do
+                  leaves := leaves.push (.literal 0)
+                let value := mkAggregateValueV1 leaves deps depth nodes
+                values := ← appendResultValueV1 typeId values result value
+            | _ =>
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: construct requires Struct or Enum shape"
     | .indexGet baseId idxId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
         unless base.isAggregate do
@@ -2241,40 +2507,178 @@ private def lowerBlockInstructionsV1
               (Nat.max base.depth val.depth + 1)
               (base.expandedNodes + val.expandedNodes + 1)
             values := ← appendResultValueV1 result.typeId values result value
-    | .fieldGet .., some _ | .fieldSet .., some _ =>
-        throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: named Struct/Enum field ops are outside the NEAR container pilot (named aggregates declined)"
+    | .fieldGet baseId fieldIndex, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        unless base.isAggregate do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: fieldGet base must be a named aggregate"
+        let baseLeaves := base.leafExprs
+        let mut hit : Option (Nat × Nat) := none
+        for tid in types.namedTypeIds do
+          match typeDecls[tid.toNat]? with
+          | some { shape := .struct fields, .. } => do
+              let total ← leafCountOfTypeV1 typeDecls types tid
+              if total == baseLeaves.size && fieldIndex.toNat < fields.size then
+                match fields[fieldIndex.toNat]? with
+                | some f =>
+                    if f.typeId == result.typeId then
+                      let (s, l) ←
+                        structFieldLeafRangeV1 typeDecls types fields fieldIndex.toNat
+                      hit := some (s, l)
+                | none => pure ()
+          | _ => pure ()
+        let (start, len) ← match hit with
+          | some r => pure r
+          | none =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: fieldGet could not resolve struct field range"
+        unless start + len <= baseLeaves.size do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: fieldGet leaf range out of bounds"
+        let mut outLeaves : Array Expr := #[]
+        for i in [start:start+len] do
+          let some e := baseLeaves[i]? |
+            throw <| .planInvariant .near "fieldGet leaf missing"
+          outLeaves := outLeaves.push e
+        let value ←
+          if types.isNamedAggregate result.typeId then
+            pure (mkAggregateValueV1 outLeaves #[baseId]
+              (base.depth + 1) (base.expandedNodes + 1))
+          else
+            let some e0 := outLeaves[0]? |
+              throw <| .planInvariant .near "fieldGet scalar leaf missing"
+            let kind ← scalarKindOfNamedLeafResultV1 types result.typeId
+            pure {
+              expr := e0
+              kind
+              depth := base.depth + 1
+              expandedNodes := base.expandedNodes + 1
+              dependencies := #[baseId]
+            }
+        values := ← appendResultValueV1 result.typeId values result value
+    | .fieldSet baseId fieldIndex valueId, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        let val ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
+        unless base.isAggregate do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: fieldSet base must be a named aggregate"
+        unless types.isNamedAggregate result.typeId do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: fieldSet result must be named aggregate"
+        let baseLeaves := base.leafExprs
+        let valLeaves := val.leafExprs
+        let mut hit : Option (Nat × Nat) := none
+        for tid in types.namedTypeIds do
+          if tid == result.typeId then
+            match typeDecls[tid.toNat]? with
+            | some { shape := .struct fields, .. } => do
+                if fieldIndex.toNat < fields.size then
+                  let (s, l) ←
+                    structFieldLeafRangeV1 typeDecls types fields fieldIndex.toNat
+                  hit := some (s, l)
+            | _ => pure ()
+        let (start, len) ← match hit with
+          | some r => pure r
+          | none =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: fieldSet could not resolve struct field range"
+        unless start + len <= baseLeaves.size && valLeaves.size == len do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: fieldSet leaf range/value size mismatch"
+        let mut outLeaves : Array Expr := #[]
+        for i in [0:baseLeaves.size] do
+          if i >= start && i < start + len then
+            let j := i - start
+            let some e := valLeaves[j]? |
+              throw <| .planInvariant .near "fieldSet value leaf missing"
+            outLeaves := outLeaves.push e
+          else
+            let some e := baseLeaves[i]? |
+              throw <| .planInvariant .near "fieldSet base leaf missing"
+            outLeaves := outLeaves.push e
+        let value := mkAggregateValueV1 outLeaves #[baseId, valueId]
+          (Nat.max base.depth val.depth + 1)
+          (base.expandedNodes + val.expandedNodes + 1)
+        values := ← appendResultValueV1 result.typeId values result value
     | .variantTag baseId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
-        unless base.isAggregate && base.leafExprs.size == 2 do
+        unless base.isAggregate do
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: variantTag admits only Option (2-leaf) from Map IndexGet"
-        let some tag := base.leafExprs[0]? |
-          throw <| .planInvariant .near "Option variantTag leaf missing"
+            "unsupported NEAR semantic shape: variantTag base must be an aggregate (Enum or Option)"
+        let kind ← match types.uintWidthOf result.typeId with
+          | some 32 => pure NearValueKindV1.uint32
+          | some 64 => pure NearValueKindV1.uint64
+          | _ =>
+              if result.typeId == types.uint64TypeId then pure NearValueKindV1.uint64
+              else
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: variantTag result must be UInt32"
+        let some tagExpr := base.leafExprs[0]? |
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: variantTag aggregate has no tag leaf"
         values := ← appendResultValueV1 result.typeId values result {
-          expr := tag
-          kind := .uint32
+          expr := tagExpr
+          kind
           depth := base.depth + 1
           expandedNodes := base.expandedNodes + 1
           dependencies := #[baseId]
         }
-    | .variantPayload baseId _variantIdx _payloadIdx, some result => do
+    | .variantPayload baseId variantIndex payloadIndex, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
-        unless base.isAggregate && base.leafExprs.size == 2 do
+        unless base.isAggregate do
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: variantPayload admits only Option (2-leaf) from Map IndexGet"
-        let some payload := base.leafExprs[1]? |
-          throw <| .planInvariant .near "Option variantPayload leaf missing"
-        unless result.typeId == types.uint64TypeId do
+            "unsupported NEAR semantic shape: variantPayload base must be an aggregate (Enum or Option)"
+        let mut hit : Option (Nat × Nat) := none
+        for tid in types.namedTypeIds do
+          match typeDecls[tid.toNat]? with
+          | some { shape := .enum variants, .. } => do
+              let total ← leafCountOfTypeV1 typeDecls types tid
+              if total == base.leafExprs.size then
+                let (s, l) ← enumPayloadLeafRangeV1 typeDecls types variants
+                  variantIndex.toNat payloadIndex.toNat
+                -- payload region starts after tag (offset +1)
+                hit := some (s + 1, l)
+          | _ => pure ()
+        let (start, len) ← match hit with
+          | some r => pure r
+          | none =>
+              -- Map IndexGet Option intermediate: 2-leaf (tag, payload).
+              if variantIndex.toNat == 1 && payloadIndex.toNat == 0 &&
+                  base.leafExprs.size == 2 then
+                pure (1, 1)
+              else if variantIndex.toNat == 0 then
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: variantPayload of Option.none is empty"
+              else
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: variantPayload could not resolve range"
+        let baseLeaves := base.leafExprs
+        unless start + len <= baseLeaves.size do
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: Option variantPayload must be UInt64"
-        values := ← appendResultValueV1 result.typeId values result {
-          expr := payload
-          kind := .uint64
-          depth := base.depth + 1
-          expandedNodes := base.expandedNodes + 1
-          dependencies := #[baseId]
-        }
+            "unsupported NEAR semantic shape: variantPayload leaf range out of bounds"
+        let mut outLeaves : Array Expr := #[]
+        for i in [start:start+len] do
+          let some e := baseLeaves[i]? |
+            throw <| .planInvariant .near "variantPayload leaf missing"
+          outLeaves := outLeaves.push e
+        let value ←
+          if types.isNamedAggregate result.typeId then
+            pure (mkAggregateValueV1 outLeaves #[baseId]
+              (base.depth + 1) (base.expandedNodes + 1))
+          else
+            let some e0 := outLeaves[0]? |
+              throw <| .planInvariant .near "variantPayload scalar leaf missing"
+            let kind ←
+              if result.typeId == types.uint64TypeId then pure NearValueKindV1.uint64
+              else scalarKindOfNamedLeafResultV1 types result.typeId
+            pure {
+              expr := e0
+              kind
+              depth := base.depth + 1
+              expandedNodes := base.expandedNodes + 1
+              dependencies := #[baseId]
+            }
+        values := ← appendResultValueV1 result.typeId values result value
     -- N5: Commit = identity passthrough; ContextRead declined (no clock ABI).
     | .commit valueId, some result => do
         unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
@@ -2824,6 +3228,12 @@ private def makeEntryV1
     throw <| .planInvariant .near s!"entry name '{name}' is not a safe identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .near s!"entry '{name}' does not return a public result"
+  -- B-RET-ABI: named Struct/Enum entry/view returns stay fail closed (scalar
+  -- ABI only). Surface the aggregate boundary before the generic scalar-width
+  -- reject so product tests can pin the message.
+  if types.isNamedAggregate callable.result.typeId then
+    throw <| .planInvariant .near
+      s!"unsupported NEAR semantic shape: entry '{name}' cannot return named aggregate (ABI is scalar; B-RET-ABI)"
   let (resultKind, expectedReturn) ←
     match types.uintWidthOf callable.result.typeId with
     | some 8 => pure (MethodResultKind.uint8, some NearValueKindV1.uint8)

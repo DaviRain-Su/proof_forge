@@ -421,18 +421,22 @@ private def solanaPlanErr (message : String) : CompileError :=
     multi-width UInt values are allowed; **top-level state and ABI parameters
     admit UInt8/16/32/64/128/256 or Int{8,16,32,64}** via
     `requirePublicSolanaUintAbiOrInt64*` (T8b+T9e) with `allowNonPublic := true`
-    (N1). ArrayState + **Map UInt64 UInt64** dense pilot via
-    `pilotContainerStatePolicyArrayMap` (Array → N×UInt64 leaves; Map →
-    capacity-8×(occ,key,val); Option intermediate for Map IndexGet).
+    (N1). ArrayState + **Map UInt64 UInt64** dense pilot + **Bytes N** via
+    `pilotContainerStatePolicyArrayMapBytes` (Array → N×UInt64 leaves; Map →
+    capacity-8×(occ,key,val); Bytes → N×UInt8 leaves with ABI pitch 8;
+    Option intermediate for Map IndexGet). **Named Struct/Enum** via
+    `pilotNamedAggregateStatePolicyAdmit` (N3 flatten to UInt64/Int64 leaves).
     UInt128/256 multiword limbs. T12: Principal storage identity only
-    (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. -/
+    (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. Named aggregate
+    returns stay fail-closed (B-RET-ABI scalar). -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
     pilotUintWidthPolicySolanaBody
     (intPolicy := pilotIntWidthPolicyNarrow)
     (principalPolicy := pilotPrincipalPolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyArrayMap)
+    (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
+    (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 /-- Solana pilot Principal storage layout (T12, isomorphic to EVM T10 / N4 String):
     * leaf 0: wire body length (`UInt64`; wire framing is still `u32le`)
@@ -529,11 +533,14 @@ private def solanaMapSlotsPerEntryV1 : Nat := 3
 private def solanaMapPilotLeafCountV1 : Nat :=
   solanaMapPilotCapacityV1 * solanaMapSlotsPerEntryV1
 
-/-- Array / Map container leaf count. Array: fixed `Array UInt64 N`.
-    Map: dense capacity-8 occ/key/val. Bytes fail closed. -/
-private def arrayUInt64LeafCountV1
+/-- Container leaf layout: `(leafCount, leafByteWidth)`.
+    Array: fixed `Array UInt64 N` → N×8-byte UInt64 leaves.
+    Map: dense capacity-8 occ/key/val → 24×8-byte leaves.
+    Bytes: fixed `Bytes N` → N×1-byte UInt8 leaves (ABI pitch still 8 via
+    `slotPitchOfByteWidth`; element-wise IndexGet/IndexSet with literal index). -/
+private def containerLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+    (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat)) := do
   unless types.isContainer typeId do
     return none
   match typeDecls[typeId.toNat]? with
@@ -545,18 +552,138 @@ private def arrayUInt64LeafCountV1
       unless n ≥ 1 do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Array state length must be ≥ 1"
-      pure (some n)
+      pure (some (n, 8))
   | some { shape := .map keyTid valTid, .. } =>
       unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Map state admits only Map UInt64 UInt64"
-      pure (some solanaMapPilotLeafCountV1)
-  | some { shape := .bytes _, .. } =>
-      throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: Bytes state is outside the Solana Array/Map container pilot"
+      pure (some (solanaMapPilotLeafCountV1, 8))
+  | some { shape := .bytes len, .. } =>
+      let n := len.toNat
+      unless n ≥ 1 do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: Bytes state length must be ≥ 1"
+      pure (some (n, 1))
   | _ =>
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: container TypeId is not Array/Map/Bytes"
+
+/-- Flatten a type into ordered leaf (name, isInt) pairs under Solana N3 policy.
+    Scalars: UInt64 / Int64 (and Principal as len+8 data words). Named Struct:
+    field preorder. Named Enum: tag (UInt64) + max-payload leaf slots. -/
+private partial def flattenTypeLeafSpecsV1
+    (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
+    (typeId : TypeIdV1) (namePrefix : String) :
+    CompileResult (Array (String × Bool)) := do
+  if typeId == types.uint64TypeId then
+    pure #[(namePrefix, false)]
+  else if types.int64TypeId == some typeId then
+    pure #[(namePrefix, true)]
+  else if types.isPrincipal typeId then
+    let names ← flattenPrincipalLeafSpecsV1 namePrefix
+    pure (names.map fun n => (n, false))
+  else if types.isNamedAggregate typeId then
+    match typeDecls[typeId.toNat]? with
+    | none =>
+        throw <| .planInvariant .solana
+          s!"unsupported Solana semantic shape: missing TypeDecl for aggregate {typeId}"
+    | some decl =>
+        match decl.shape with
+        | .struct fields => do
+            unless fields.size > 0 do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: named Struct requires at least one field"
+            let mut out : Array (String × Bool) := #[]
+            for f in fields do
+              let subName :=
+                if namePrefix.isEmpty then f.name else namePrefix ++ "_" ++ f.name
+              unless isIdentifier subName do
+                throw <| .planInvariant .solana
+                  s!"state name '{subName}' is not a safe identifier"
+              let sub ← flattenTypeLeafSpecsV1 typeDecls types f.typeId subName
+              out := out ++ sub
+            pure out
+        | .enum variants => do
+            unless variants.size > 0 do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: named Enum requires at least one variant"
+            let tagName :=
+              if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
+            unless isIdentifier tagName do
+              throw <| .planInvariant .solana
+                s!"state name '{tagName}' is not a safe identifier"
+            let mut maxPay : Nat := 0
+            for v in variants do
+              let mut n : Nat := 0
+              for pt in v.payloadTypes do
+                let sub ← flattenTypeLeafSpecsV1 typeDecls types pt "tmp"
+                n := n + sub.size
+              if n > maxPay then maxPay := n
+            let mut out : Array (String × Bool) := #[(tagName, false)]
+            for i in [0:maxPay] do
+              let pName :=
+                if namePrefix.isEmpty then s!"p{i}" else namePrefix ++ "_p" ++ toString i
+              unless isIdentifier pName do
+                throw <| .planInvariant .solana
+                  s!"state name '{pName}' is not a safe identifier"
+              out := out.push (pName, false)
+            pure out
+        | _ =>
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: named type must be Struct or Enum"
+  else
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: storage/param leaf must be UInt64, Int64, Principal, or named Struct/Enum"
+
+private def leafCountOfTypeV1
+    (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult Nat := do
+  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
+  pure specs.size
+
+/-- Struct field leaf range (start, length) within the flattened leaf vector. -/
+private def structFieldLeafRangeV1
+    (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
+    (fields : Array StructFieldV1) (fieldIndex : Nat) :
+    CompileResult (Nat × Nat) := do
+  let mut start : Nat := 0
+  for i in [0:fields.size] do
+    let some f := fields[i]? |
+      throw <| .planInvariant .solana "struct field index out of range"
+    let n ← leafCountOfTypeV1 typeDecls types f.typeId
+    if i == fieldIndex then return (start, n)
+    start := start + n
+  throw <| .planInvariant .solana "struct field index out of range"
+
+/-- Enum max payload leaf count (excluding tag). -/
+private def enumMaxPayloadLeavesV1
+    (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
+    (variants : Array EnumVariantV1) : CompileResult Nat := do
+  let mut maxPay : Nat := 0
+  for v in variants do
+    let mut n : Nat := 0
+    for pt in v.payloadTypes do
+      let c ← leafCountOfTypeV1 typeDecls types pt
+      n := n + c
+    if n > maxPay then maxPay := n
+  pure maxPay
+
+/-- Payload leaf offset of `payloadIndex` within variant `variantIndex`
+    (0-based within the payload region after the tag). -/
+private def enumPayloadLeafRangeV1
+    (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
+    (variants : Array EnumVariantV1) (variantIndex payloadIndex : Nat) :
+    CompileResult (Nat × Nat) := do
+  let some v := variants[variantIndex]? |
+    throw <| .planInvariant .solana "enum variant index out of range"
+  let mut start : Nat := 0
+  for i in [0:v.payloadTypes.size] do
+    let some pt := v.payloadTypes[i]? |
+      throw <| .planInvariant .solana "enum payload index out of range"
+    let n ← leafCountOfTypeV1 typeDecls types pt
+    if i == payloadIndex then return (start, n)
+    start := start + n
+  throw <| .planInvariant .solana "enum payload index out of range"
 
 /-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
 private def mapLookupOptionLeavesV1
@@ -648,12 +775,13 @@ private def makeStateAccountV1
       throw <| .planInvariant .solana "semantic state ids must match declaration order"
     unless isIdentifier state.name do
       throw <| .planInvariant .solana s!"state name '{state.name}' is not a safe identifier"
-    match ← arrayUInt64LeafCountV1 typeDecls types state.typeId with
-    | some n =>
-        -- ArrayState: N consecutive 8-byte UInt64 slots; physical field names
-        -- `name_0`..`name_{n-1}` keep layout markers deterministic.
-        -- Visibility: same N1 allowNonPublic as scalar state (physical account
-        -- bytes are opaque; product disclosure remains CheckV1 authority).
+    match ← containerLeafLayoutV1 typeDecls types state.typeId with
+    | some (n, leafByteWidth) =>
+        -- Array/Map: N consecutive 8-byte UInt64 slots; Bytes: N×UInt8 slots
+        -- (byteWidth 1, ABI pitch 8). Physical names `name_0`..`name_{n-1}`.
+        -- Visibility: same N1 allowNonPublic as scalar state.
+        requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedOrContainerState
+          solanaPlanErr types state (allowNonPublic := true)
         if fields.size + n > maxStateFields then
           throw <| .planInvariant .solana "state count is outside the profile limits"
         let mut leaves : Array Nat := #[]
@@ -668,10 +796,10 @@ private def makeStateAccountV1
             name := leafName
             accountIndex := 0
             byteOffset := nextOffset
-            byteWidth := 8
+            byteWidth := leafByteWidth
             endianness := .little
           }
-          nextOffset := nextOffset + 8
+          nextOffset := nextOffset + slotPitchOfByteWidth leafByteWidth
         stateLeaves := stateLeaves.push leaves
     | none =>
         if types.isPrincipal state.typeId then
@@ -691,6 +819,31 @@ private def makeStateAccountV1
               byteOffset := nextOffset
               byteWidth := 8
               endianness := .little
+            }
+            nextOffset := nextOffset + 8
+          stateLeaves := stateLeaves.push leaves
+        else if types.isNamedAggregate state.typeId then
+          -- N3 named Struct/Enum: preorder flatten to UInt64/Int64 leaves.
+          requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState
+            solanaPlanErr types state (allowNonPublic := true)
+          let leafSpecs ←
+            flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
+          if leafSpecs.isEmpty then
+            throw <| .planInvariant .solana
+              s!"state '{state.name}' produced zero storage leaves"
+          if fields.size + leafSpecs.size > maxStateFields then
+            throw <| .planInvariant .solana "state count is outside the profile limits"
+          let mut leaves : Array Nat := #[]
+          for (leafName, isInt) in leafSpecs do
+            leaves := leaves.push fields.size
+            fields := fields.push {
+              sourceId := state.id.toNat
+              name := leafName
+              accountIndex := 0
+              byteOffset := nextOffset
+              byteWidth := 8
+              endianness := .little
+              isInt
             }
             nextOffset := nextOffset + 8
           stateLeaves := stateLeaves.push leaves
@@ -742,9 +895,14 @@ private structure LoweredValueV1 where
   isInt : Bool := false
   /-- Bit width of non-Bool values: 8/16/32/64/128/256. Bool uses 1. -/
   bitWidth : Nat := 64
-  /-- ArrayState multi-leaf carrier: `some` = fixed Array UInt64 N; `expr`
-      mirrors `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
+  /-- Multi-leaf carrier: Array UInt64 N, Map capacity-8, Bytes N (UInt8),
+      Principal (len+8 words), named Struct/Enum, or Option `[tag,payload]`
+      from Map IndexGet. `expr` mirrors `leaves[0]!` (or literal 0). Scalar
+      values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none
+  /-- Physical byte width of each leaf: 8 for UInt64 leaves (Array/Map/
+      Principal/named), 1 for Bytes leaves (UInt8). Scalar values keep 8. -/
+  leafByteWidth : Nat := 8
   deriving Inhabited
 
 private def LoweredValueV1.isAggregate (v : LoweredValueV1) : Bool :=
@@ -756,7 +914,7 @@ private def LoweredValueV1.leafExprs (v : LoweredValueV1) : Array Expr :=
   | none => #[v.expr]
 
 private def mkAggregateValueV1 (leaves : Array Expr) (deps : Array ValueIdV1)
-    (depth expandedNodes : Nat) : LoweredValueV1 :=
+    (depth expandedNodes : Nat) (leafByteWidth : Nat := 8) : LoweredValueV1 :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
   { expr := head
     depth
@@ -766,7 +924,8 @@ private def mkAggregateValueV1 (leaves : Array Expr) (deps : Array ValueIdV1)
     isUInt32 := false
     isInt := false
     bitWidth := 64
-    aggregateLeaves := some leaves }
+    aggregateLeaves := some leaves
+    leafByteWidth }
 
 /-- Promote pure ValueIds across effect boundaries (Token dual Map store). -/
 private def promoteDominatingPureV1
@@ -795,7 +954,7 @@ private def extendArmReadablesV1
       pure out
 
 private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
-    (params : Array ParameterV1) :
+    (typeDecls : Array TypeDeclV1) (params : Array ParameterV1) :
     CompileResult (Array Param × Array LoweredValueV1) := do
   if params.size > maxParams then
     throw <| .planInvariant .solana s!"parameter count in {owner} exceeds profile limit {maxParams}"
@@ -836,6 +995,41 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
         leafExprs := leafExprs.push (.param nextDataOffset)
         nextDataOffset := nextDataOffset + 8
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+    else if types.isContainer param.typeId then
+      -- Bytes N param only: N×UInt8 instruction-data words (pitch 8). Array/Map
+      -- params stay fail closed (no array-param ABI in this pilot).
+      let some (n, leafByteWidth) ←
+        containerLeafLayoutV1 typeDecls types param.typeId |
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: container param is not Array/Map/Bytes"
+      unless leafByteWidth == 1 do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: Array/Map params are outside the Solana pilot (only Bytes N params flatten to UInt8 leaves)"
+      if planned.size + n > maxParams then
+        throw <| .planInvariant .solana
+          s!"parameter count in {owner} exceeds profile limit {maxParams}"
+      let mut leafExprs : Array Expr := #[]
+      for i in [0:n] do
+        let leafName := param.name ++ "_" ++ toString i
+        unless isIdentifier leafName do
+          throw <| .planInvariant .solana
+            s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+        let binding : Param := {
+          sourceId := planned.size
+          name := leafName
+          dataOffset := nextDataOffset
+          byteWidth := 1
+          endianness := .little
+          isInt := false
+        }
+        planned := planned.push binding
+        leafExprs := leafExprs.push (mkParamExpr 8 nextDataOffset)
+        nextDataOffset := nextDataOffset + slotPitchOfByteWidth 1
+      values := values.push
+        (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size (leafByteWidth := 1))
+    else if types.isNamedAggregate param.typeId then
+      throw <| .planInvariant .solana
+        s!"unsupported Solana semantic shape: named Struct/Enum parameter '{param.name}' in {owner} is outside the Solana pilot (named aggregates are state-only; B-RET-ABI scalar)"
     else
       -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8,16,32,64}.
       requirePublicSolanaUintAbiOrInt64Param solanaPlanErr types owner param
@@ -1616,25 +1810,39 @@ private def lowerBlockInstructionsV1
     | .stateLoad stateId, some result =>
         let leafFields ← findStateLeafFieldsV1 account stateId
         if types.isContainer result.typeId then
-          let n ← match ← arrayUInt64LeafCountV1 typeDecls types result.typeId with
-            | some n => pure n
+          let (n, leafByteWidth) ← match ← containerLeafLayoutV1 typeDecls types result.typeId with
+            | some p => pure p
             | none =>
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: container state load is not Array UInt64"
+                  "unsupported Solana semantic shape: container state load is not Array/Map/Bytes"
           unless leafFields.size == n do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Array state load leaf count mismatch"
+              "unsupported Solana semantic shape: Array/Map/Bytes state load leaf count mismatch"
           let mut leafExprs : Array Expr := #[]
           for field in leafFields do
+            let bw := bitWidthOfByteWidth field.byteWidth
             leafExprs := leafExprs.push
-              (.stateLoad field.accountIndex field.byteOffset)
+              (mkStateLoadExpr bw field.accountIndex field.byteOffset)
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+            (leafByteWidth := leafByteWidth)
           values := ← appendResultValueV1 result.typeId values result value
         else if types.isPrincipal result.typeId then
           -- T12 Principal multi-leaf load (len + 8 payload words).
           unless leafFields.size == solanaPrincipalDataWordCountV1 + 1 do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: Principal state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          for field in leafFields do
+            leafExprs := leafExprs.push
+              (.stateLoad field.accountIndex field.byteOffset)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if types.isNamedAggregate result.typeId then
+          -- N3 named Struct/Enum multi-leaf load.
+          let expected ← leafCountOfTypeV1 typeDecls types result.typeId
+          unless leafFields.size == expected do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: named aggregate state load leaf count mismatch"
           let mut leafExprs : Array Expr := #[]
           for field in leafFields do
             leafExprs := leafExprs.push
@@ -1954,7 +2162,7 @@ private def lowerBlockInstructionsV1
           let leaves := stored.leafExprs
           unless leaves.size == leafFields.size do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Array/Map state store leaf count mismatch"
+              "unsupported Solana semantic shape: Array/Map/Bytes/named state store leaf count mismatch"
           -- Soft: dual Map stores leave pure values for a later store (Token).
           let _ ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
           -- One atomic aggregate store per Semantic StateStore: all leaf values
@@ -2085,51 +2293,157 @@ private def lowerBlockInstructionsV1
     | .externalCall _ _ _, some _ | .schedule _ _ _, some _ =>
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: external call/schedule must be void"
-    -- Array construct N args, or Map.empty (ctor 0, 0 args → dense zero leaves).
+    -- Array construct N args, Map.empty, or named Struct/Enum construct.
+    -- Bytes has no source constructor (Normalize never emits `.construct` for
+    -- Bytes); the gate below is a defensive fail-closed boundary.
     | .construct typeId ctorIdx argIds, some result => do
         unless result.typeId == typeId do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: construct result typeId must match op typeId"
-        let n ← match ← arrayUInt64LeafCountV1 typeDecls types typeId with
-          | some n => pure n
+        if types.isContainer typeId then
+          let (n, leafByteWidth) ← match ← containerLeafLayoutV1 typeDecls types typeId with
+            | some p => pure p
+            | none =>
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: construct admits only Array/Map UInt64 on Solana"
+          unless leafByteWidth == 8 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Bytes construct is outside the Solana pilot (Bytes values enter via state/params only)"
+          unless ctorIdx == 0 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Array/Map construct ctorIdx must be 0"
+          if n == solanaMapPilotLeafCountV1 && argIds.isEmpty then
+            let mut zeros : Array Expr := #[]
+            for _ in [0:n] do
+              zeros := zeros.push (.literal 0)
+            let value := mkAggregateValueV1 zeros #[] 1 n
+            values := ← appendResultValueV1 result.typeId values result value
+          else do
+            unless argIds.size == n do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Array construct arity mismatch"
+            let mut leafExprs : Array Expr := #[]
+            let mut deps : Array ValueIdV1 := #[]
+            let mut depth : Nat := 1
+            let mut nodes : Nat := 0
+            for argId in argIds do
+              let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+              unless !arg.isBool && !arg.isInt && !arg.isAggregate && arg.bitWidth == 64 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Array construct args must be scalar UInt64"
+              leafExprs := leafExprs.push arg.expr
+              deps := deps.push argId
+              depth := Nat.max depth (arg.depth + 1)
+              nodes := nodes + arg.expandedNodes
+            let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
+            values := ← appendResultValueV1 result.typeId values result value
+        else if types.isNamedAggregate typeId then
+          match typeDecls[typeId.toNat]? with
           | none =>
               throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: construct admits only Array/Map UInt64 on Solana"
-        unless ctorIdx == 0 do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: Array/Map construct ctorIdx must be 0"
-        if n == solanaMapPilotLeafCountV1 && argIds.isEmpty then
-          let mut zeros : Array Expr := #[]
-          for _ in [0:n] do
-            zeros := zeros.push (.literal 0)
-          let value := mkAggregateValueV1 zeros #[] 1 n
-          values := ← appendResultValueV1 result.typeId values result value
-        else do
-          unless argIds.size == n do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Array construct arity mismatch"
-          let mut leafExprs : Array Expr := #[]
-          let mut deps : Array ValueIdV1 := #[]
-          let mut depth : Nat := 1
-          let mut nodes : Nat := 0
-          for argId in argIds do
-            let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-            unless !arg.isBool && !arg.isInt && !arg.isAggregate && arg.bitWidth == 64 do
+                "unsupported Solana semantic shape: construct TypeDecl missing"
+          | some { shape := .struct fields, .. } => do
+              unless ctorIdx == 0 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: struct construct ctorIdx must be 0"
+              unless argIds.size == fields.size do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: struct construct arity mismatch"
+              let mut leaves : Array Expr := #[]
+              let mut deps : Array ValueIdV1 := #[]
+              let mut depth : Nat := 1
+              let mut nodes : Nat := 0
+              for i in [0:fields.size] do
+                let some field := fields[i]? |
+                  throw <| .planInvariant .solana "struct construct field missing"
+                let some argId := argIds[i]? |
+                  throw <| .planInvariant .solana "struct construct arg missing"
+                let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                let expectedLeaves ← leafCountOfTypeV1 typeDecls types field.typeId
+                let argLeaves := arg.leafExprs
+                unless argLeaves.size == expectedLeaves do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: struct construct field leaf count mismatch"
+                leaves := leaves ++ argLeaves
+                deps := deps.push argId
+                depth := Nat.max depth (arg.depth + 1)
+                nodes := nodes + arg.expandedNodes
+              let value := mkAggregateValueV1 leaves deps depth nodes
+              values := ← appendResultValueV1 typeId values result value
+          | some { shape := .enum variants, .. } => do
+              let vIdx := ctorIdx.toNat
+              unless vIdx < variants.size do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: enum construct variant out of range"
+              let some variant := variants[vIdx]? |
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: enum construct variant out of range"
+              unless argIds.size == variant.payloadTypes.size do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: enum construct arity mismatch"
+              let maxPay ← enumMaxPayloadLeavesV1 typeDecls types variants
+              let mut leaves : Array Expr := #[.literal (UInt64.ofNat vIdx)]
+              let mut deps : Array ValueIdV1 := #[]
+              let mut depth : Nat := 1
+              let mut nodes : Nat := 1
+              for i in [0:variant.payloadTypes.size] do
+                let some pt := variant.payloadTypes[i]? |
+                  throw <| .planInvariant .solana "enum construct payload type missing"
+                let some argId := argIds[i]? |
+                  throw <| .planInvariant .solana "enum construct arg missing"
+                let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                let expectedLeaves ← leafCountOfTypeV1 typeDecls types pt
+                let argLeaves := arg.leafExprs
+                unless argLeaves.size == expectedLeaves do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: enum construct payload leaf count mismatch"
+                leaves := leaves ++ argLeaves
+                deps := deps.push argId
+                depth := Nat.max depth (arg.depth + 1)
+                nodes := nodes + arg.expandedNodes
+              while leaves.size < 1 + maxPay do
+                leaves := leaves.push (.literal 0)
+              let value := mkAggregateValueV1 leaves deps depth nodes
+              values := ← appendResultValueV1 typeId values result value
+          | _ =>
               throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: Array construct args must be scalar UInt64"
-            leafExprs := leafExprs.push arg.expr
-            deps := deps.push argId
-            depth := Nat.max depth (arg.depth + 1)
-            nodes := nodes + arg.expandedNodes
-          let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
-          values := ← appendResultValueV1 result.typeId values result value
+                "unsupported Solana semantic shape: construct requires Struct or Enum shape"
+        else
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: construct admits only Array/Map UInt64 or named Struct/Enum on Solana"
     | .indexGet baseId idxId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
         unless base.isAggregate do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: IndexGet base must be an Array/Map aggregate"
+            "unsupported Solana semantic shape: IndexGet base must be an Array/Map/Bytes aggregate"
         let idx ← currentValueWithArmsV1 values blockEntry segmentStart armReadables idxId
-        if base.leafExprs.size == solanaMapPilotLeafCountV1 then
+        if base.leafByteWidth == 1 then
+          -- Bytes element read → scalar UInt8.
+          let i ← literalIndexNatV1 idx
+          let leaves := base.leafExprs
+          unless i < leaves.size do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Bytes IndexGet index out of range"
+          let some leaf := leaves[i]? |
+            throw <| .planInvariant .solana "Bytes IndexGet leaf missing"
+          let u8Tid ← match types.uintTypeIdAt 8 with
+            | some t => pure t
+            | none => throw (.planInvariant .solana
+                "unsupported Solana semantic shape: UInt8 type is missing for Bytes IndexGet")
+          unless result.typeId == u8Tid do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Bytes IndexGet result must be UInt8"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := leaf
+            depth := base.depth + 1
+            expandedNodes := base.expandedNodes + 1
+            dependencies := #[baseId, idxId]
+            isBool := false
+            isUInt32 := false
+            isInt := false
+            bitWidth := 8
+          }
+        else if base.leafExprs.size == solanaMapPilotLeafCountV1 then
           let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
           let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
             (Nat.max base.depth idx.depth + 1)
@@ -2160,16 +2474,42 @@ private def lowerBlockInstructionsV1
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
         unless base.isAggregate do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: IndexSet base must be an Array/Map aggregate"
+            "unsupported Solana semantic shape: IndexSet base must be an Array/Map/Bytes aggregate"
         unless types.isContainer result.typeId do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: IndexSet result must be Array/Map container"
+            "unsupported Solana semantic shape: IndexSet result must be Array/Map/Bytes container"
         let idx ← currentValueWithArmsV1 values blockEntry segmentStart armReadables idxId
         let val ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
-        unless !val.isBool && !val.isInt && !val.isAggregate && val.bitWidth == 64 do
+        unless !val.isBool && !val.isAggregate do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: Array/Map IndexSet value must be scalar UInt64"
-        if base.leafExprs.size == solanaMapPilotLeafCountV1 then
+            "unsupported Solana semantic shape: IndexSet value must be a scalar UInt8/UInt64"
+        if base.leafByteWidth == 1 then
+          -- Bytes element write → scalar UInt8; rebuild aggregate.
+          let i ← literalIndexNatV1 idx
+          let leaves := base.leafExprs
+          unless i < leaves.size do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Bytes IndexSet index out of range"
+          unless !val.isInt && val.bitWidth == 8 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Bytes IndexSet value must be scalar UInt8"
+          let mut outLeaves : Array Expr := #[]
+          for j in [0:leaves.size] do
+            if j == i then
+              outLeaves := outLeaves.push val.expr
+            else
+              let some e := leaves[j]? |
+                throw <| .planInvariant .solana "Bytes IndexSet leaf missing"
+              outLeaves := outLeaves.push e
+          let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
+            (Nat.max base.depth val.depth + 1)
+            (base.expandedNodes + val.expandedNodes + 1)
+            (leafByteWidth := 1)
+          values := ← appendResultValueV1 result.typeId values result value
+        else if base.leafExprs.size == solanaMapPilotLeafCountV1 then
+          unless !val.isInt && val.bitWidth == 64 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Map IndexSet value must be scalar UInt64"
           let (outLeaves0, okInsert) ←
             mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
           let gate := Expr.checkedDiv (.literal 1) okInsert
@@ -2187,6 +2527,9 @@ private def lowerBlockInstructionsV1
             (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
           values := ← appendResultValueV1 result.typeId values result value
         else do
+          unless !val.isInt && val.bitWidth == 64 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Array IndexSet value must be scalar UInt64"
           let i ← literalIndexNatV1 idx
           let leaves := base.leafExprs
           unless i < leaves.size do
@@ -2204,46 +2547,193 @@ private def lowerBlockInstructionsV1
             (Nat.max base.depth val.depth + 1)
             (base.expandedNodes + val.expandedNodes + 1)
           values := ← appendResultValueV1 result.typeId values result value
-    | .fieldGet .., some _ | .fieldSet .., some _ =>
-        throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: named Struct/Enum field ops are outside the Solana container pilot (named aggregates declined)"
+    | .fieldGet baseId fieldIndex, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        unless base.isAggregate do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: fieldGet base must be a named aggregate"
+        let baseLeaves := base.leafExprs
+        let mut hit : Option (Nat × Nat) := none
+        for tid in types.namedTypeIds do
+          match typeDecls[tid.toNat]? with
+          | some { shape := .struct fields, .. } => do
+              let total ← leafCountOfTypeV1 typeDecls types tid
+              if total == baseLeaves.size && fieldIndex.toNat < fields.size then
+                match fields[fieldIndex.toNat]? with
+                | some f =>
+                    if f.typeId == result.typeId then
+                      let (s, l) ←
+                        structFieldLeafRangeV1 typeDecls types fields fieldIndex.toNat
+                      hit := some (s, l)
+                | none => pure ()
+          | _ => pure ()
+        let (start, len) ← match hit with
+          | some r => pure r
+          | none =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: fieldGet could not resolve struct field range"
+        unless start + len <= baseLeaves.size do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: fieldGet leaf range out of bounds"
+        let mut outLeaves : Array Expr := #[]
+        for i in [start:start+len] do
+          let some e := baseLeaves[i]? |
+            throw <| .planInvariant .solana "fieldGet leaf missing"
+          outLeaves := outLeaves.push e
+        let value ←
+          if types.isNamedAggregate result.typeId then
+            pure (mkAggregateValueV1 outLeaves #[baseId]
+              (base.depth + 1) (base.expandedNodes + 1))
+          else
+            let some e0 := outLeaves[0]? |
+              throw <| .planInvariant .solana "fieldGet scalar leaf missing"
+            let isInt := (types.intWidthOf result.typeId).isSome
+            let bitWidth :=
+              match types.intWidthOf result.typeId with
+              | some w => w
+              | none =>
+                  match types.uintWidthOf result.typeId with
+                  | some w => w
+                  | none => 64
+            pure {
+              expr := e0
+              depth := base.depth + 1
+              expandedNodes := base.expandedNodes + 1
+              dependencies := #[baseId]
+              isBool := false
+              isUInt32 := !isInt && bitWidth == 32
+              isInt
+              bitWidth
+            }
+        values := ← appendResultValueV1 result.typeId values result value
+    | .fieldSet baseId fieldIndex valueId, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        let val ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
+        unless base.isAggregate do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: fieldSet base must be a named aggregate"
+        unless types.isNamedAggregate result.typeId do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: fieldSet result must be named aggregate"
+        let baseLeaves := base.leafExprs
+        let valLeaves := val.leafExprs
+        let mut hit : Option (Nat × Nat) := none
+        for tid in types.namedTypeIds do
+          if tid == result.typeId then
+            match typeDecls[tid.toNat]? with
+            | some { shape := .struct fields, .. } => do
+                if fieldIndex.toNat < fields.size then
+                  let (s, l) ←
+                    structFieldLeafRangeV1 typeDecls types fields fieldIndex.toNat
+                  hit := some (s, l)
+            | _ => pure ()
+        let (start, len) ← match hit with
+          | some r => pure r
+          | none =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: fieldSet could not resolve struct field range"
+        unless start + len <= baseLeaves.size && valLeaves.size == len do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: fieldSet leaf range/value size mismatch"
+        let mut outLeaves : Array Expr := #[]
+        for i in [0:baseLeaves.size] do
+          if i >= start && i < start + len then
+            let j := i - start
+            let some e := valLeaves[j]? |
+              throw <| .planInvariant .solana "fieldSet value leaf missing"
+            outLeaves := outLeaves.push e
+          else
+            let some e := baseLeaves[i]? |
+              throw <| .planInvariant .solana "fieldSet base leaf missing"
+            outLeaves := outLeaves.push e
+        let value := mkAggregateValueV1 outLeaves #[baseId, valueId]
+          (Nat.max base.depth val.depth + 1)
+          (base.expandedNodes + val.expandedNodes + 1)
+        values := ← appendResultValueV1 result.typeId values result value
     | .variantTag baseId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
-        unless base.isAggregate && base.leafExprs.size == 2 do
+        unless base.isAggregate do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: variantTag admits only Option (2-leaf) from Map IndexGet"
+            "unsupported Solana semantic shape: variantTag base must be an aggregate (Enum or Option)"
         let some tag := base.leafExprs[0]? |
-          throw <| .planInvariant .solana "Option variantTag leaf missing"
+          throw <| .planInvariant .solana "variantTag leaf missing"
+        let bitWidth :=
+          match types.uintWidthOf result.typeId with
+          | some w => w
+          | none => 32
         values := ← appendResultValueV1 result.typeId values result {
           expr := tag
           depth := base.depth + 1
           expandedNodes := base.expandedNodes + 1
           dependencies := #[baseId]
           isBool := false
-          isUInt32 := true
+          isUInt32 := bitWidth == 32
           isInt := false
-          bitWidth := 32
+          bitWidth
         }
-    | .variantPayload baseId _variantIdx _payloadIdx, some result => do
+    | .variantPayload baseId variantIdx payloadIdx, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
-        unless base.isAggregate && base.leafExprs.size == 2 do
+        unless base.isAggregate do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: variantPayload admits only Option (2-leaf) from Map IndexGet"
-        let some payload := base.leafExprs[1]? |
-          throw <| .planInvariant .solana "Option variantPayload leaf missing"
-        unless result.typeId == types.uint64TypeId do
+            "unsupported Solana semantic shape: variantPayload base must be an aggregate"
+        let mut hit : Option (Nat × Nat) := none
+        for tid in types.namedTypeIds do
+          match typeDecls[tid.toNat]? with
+          | some { shape := .enum variants, .. } => do
+              let total ← leafCountOfTypeV1 typeDecls types tid
+              if total == base.leafExprs.size then
+                let (s, l) ← enumPayloadLeafRangeV1 typeDecls types variants
+                  variantIdx.toNat payloadIdx.toNat
+                hit := some (s + 1, l)
+          | _ => pure ()
+        let (start, len) ← match hit with
+          | some r => pure r
+          | none =>
+              -- Option intermediate from Map IndexGet: 2-leaf [tag, payload].
+              if variantIdx.toNat == 1 && payloadIdx.toNat == 0 &&
+                  base.leafExprs.size >= 2 then
+                pure (1, 1)
+              else if variantIdx.toNat == 0 then
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: variantPayload of Option.none is empty"
+              else
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: variantPayload could not resolve range"
+        let baseLeaves := base.leafExprs
+        unless start + len <= baseLeaves.size do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: Option variantPayload must be UInt64"
-        values := ← appendResultValueV1 result.typeId values result {
-          expr := payload
-          depth := base.depth + 1
-          expandedNodes := base.expandedNodes + 1
-          dependencies := #[baseId]
-          isBool := false
-          isUInt32 := false
-          isInt := false
-          bitWidth := 64
-        }
+            "unsupported Solana semantic shape: variantPayload leaf range out of bounds"
+        let mut outLeaves : Array Expr := #[]
+        for i in [start:start+len] do
+          let some e := baseLeaves[i]? |
+            throw <| .planInvariant .solana "variantPayload leaf missing"
+          outLeaves := outLeaves.push e
+        let value ←
+          if types.isNamedAggregate result.typeId then
+            pure (mkAggregateValueV1 outLeaves #[baseId]
+              (base.depth + 1) (base.expandedNodes + 1))
+          else
+            let some e0 := outLeaves[0]? |
+              throw <| .planInvariant .solana "variantPayload scalar missing"
+            let isInt := (types.intWidthOf result.typeId).isSome
+            let bitWidth :=
+              match types.intWidthOf result.typeId with
+              | some w => w
+              | none =>
+                  match types.uintWidthOf result.typeId with
+                  | some w => w
+                  | none => 64
+            pure {
+              expr := e0
+              depth := base.depth + 1
+              expandedNodes := base.expandedNodes + 1
+              dependencies := #[baseId]
+              isBool := false
+              isUInt32 := !isInt && bitWidth == 32
+              isInt
+              bitWidth
+            }
+        values := ← appendResultValueV1 result.typeId values result value
     -- N5: Commit = identity passthrough; ContextRead declined (no clock ABI).
     | .commit valueId, some result => do
         unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
@@ -2260,6 +2750,7 @@ private def lowerBlockInstructionsV1
           isInt := operand.isInt
           bitWidth := operand.bitWidth
           aggregateLeaves := operand.aggregateLeaves
+          leafByteWidth := operand.leafByteWidth
         }
     | .contextRead key, some _ =>
         unless key == unixTimeSecondsContextKeyV1 do
@@ -2714,7 +3205,7 @@ private def lowerCallableV1
     | _ =>
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: loop latch must be a jump back to its header"
-  let (params, initialValues) ← makeParamsV1 owner types callable.params
+  let (params, initialValues) ← makeParamsV1 owner types typeDecls callable.params
   let valuesPadded ← allocateBlockParamSlotsV1 types.uint64TypeId callable.loopBounds
     callable.blocks initialValues
   let (body0, values0, exit0) ←
@@ -2825,6 +3316,11 @@ private def makeEntryV1
         | none =>
           if types.boolTypeId == some callable.result.typeId then
             pure .bool
+          else if types.isNamedAggregate callable.result.typeId ||
+              types.isContainer callable.result.typeId ||
+              types.isPrincipal callable.result.typeId then
+            throw <| .planInvariant .solana
+              s!"entry '{name}' cannot return multi-leaf aggregate (named Struct/Enum/Array/Principal); Solana ABI is scalar only (B-RET-ABI)"
           else
             throw <| .planInvariant .solana
               s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, or Bool"

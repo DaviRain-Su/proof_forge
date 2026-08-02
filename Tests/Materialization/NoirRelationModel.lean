@@ -3204,10 +3204,10 @@ private unsafe def checkMapEmptyUpsertProduct : IO Unit := do
       | _ => none
   expectAccept "MapBox get(7) after put returns 42" get getOk
 
-/-- Array UInt64 N is open on Noir (flatten-to-leaf public inputs). Bytes/Option
-    container state remain fail-closed. Map UInt64 dense pilot: see
+/-- Array UInt64 N + Bytes N are open on Noir (flatten-to-leaf public inputs).
+    Option container state remains fail-closed. Map UInt64 dense pilot: see
     `checkMapEmptyUpsertProduct` + TokenV1 product builds. -/
-private unsafe def checkContainerStateFailClosed : IO Unit := do
+private unsafe def checkArrayStateProduct : IO Unit := do
   let arrayText :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3239,6 +3239,135 @@ private unsafe def checkContainerStateFailClosed : IO Unit := do
   expect (plan.states.any fun f => f.name == "slots_1")
     "ArrayBox Noir leaf name slots_1"
   let _ ← liftResult <| Targets.Noir.buildFromCapability capability
+
+/-- Bytes N state: N×u8 public-input leaves, IndexGet/IndexSet (UInt32 index,
+    UInt8 value), atomic storeAggregate for multi-leaf StateStore so sibling
+    pre-store snapshot is not polluted. Option state stays fail-closed. -/
+private unsafe def checkBytesStateProduct : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ByteBox where\n" ++
+    "  state data : Bytes 2\n\n" ++
+    "  init() do\n" ++
+    "    data[0] := 0\n" ++
+    "    data[1] := 0\n\n" ++
+    "  entry set0(v : UInt8) : UInt8 do\n" ++
+    "    data[0] := v\n" ++
+    "    return data[0]\n\n" ++
+    "  view get1() : UInt8 do\n" ++
+    "    return data[1]\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.ByteBox" "<noir-bytes-state>"
+  -- Bytes 2 → two u8 public-input leaves.
+  expect (ir.sourcePlan.states.size == 2)
+    s!"ByteBox must flatten Bytes 2 to 2 leaves, got {ir.sourcePlan.states.size}"
+  expect (ir.sourcePlan.states.any fun f => f.name == "data_0" && f.inputType == .u8)
+    "ByteBox leaf data_0 must be u8"
+  expect (ir.sourcePlan.states.any fun f => f.name == "data_1" && f.inputType == .u8)
+    "ByteBox leaf data_1 must be u8"
+  let set0 ← findRelation ir "set0"
+  -- Single-element IndexSet rebuilds the full aggregate → one storeAggregate of 2.
+  let hasStoreAggregate := set0.sourceRelation.body.any fun stmt =>
+    match stmt with | .storeAggregate leaves => leaves.size == 2 | _ => false
+  expect hasStoreAggregate
+    "ByteBox set0 must lower Bytes StateStore as one storeAggregate of 2 leaves"
+  -- Empty pre → set0(42): post leaf0=42, leaf1=0 (untouched sibling).
+  let setOk ← liftModel "ByteBox set0 empty" <|
+    bindInputs set0 fun role => match role with
+      | .preInitialized => some (.bool true)
+      | .preState _ => some (.u64 0)
+      | .parameter 0 => some (.u64 42)
+      | .postState 0 => some (.u64 42)
+      | .postState 1 => some (.u64 0)
+      | .postInitialized => some (.bool true)
+      | .result => some (.u64 42)
+      | _ => none
+  expectAccept "ByteBox set0(42) → leaf0=42 leaf1=0" set0 setOk
+  -- Polluted sibling (leaf1 rewritten to garbage while leaf0 is written)
+  -- must reject when witness claims wrong post leaf1.
+  let setPolluted ← liftModel "ByteBox set0 polluted sibling" <|
+    bindInputs set0 fun role => match role with
+      | .preInitialized => some (.bool true)
+      | .preState _ => some (.u64 0)
+      | .parameter 0 => some (.u64 42)
+      | .postState 0 => some (.u64 42)
+      | .postState 1 => some (.u64 99)  -- polluted: sibling must stay 0
+      | .postInitialized => some (.bool true)
+      | .result => some (.u64 42)
+      | _ => none
+  expectReject "ByteBox set0 rejects polluted sibling leaf1" set0 setPolluted
+  -- get1 after set0: leaf1 still 0.
+  let get1 ← findRelation ir "get1"
+  let getOk ← liftModel "ByteBox get1 after set0" <|
+    bindInputs get1 fun role => match role with
+      | .preInitialized => some (.bool true)
+      | .preState 0 => some (.u64 42)
+      | .preState 1 => some (.u64 0)
+      | .postState 0 => some (.u64 42)
+      | .postState 1 => some (.u64 0)
+      | .postInitialized => some (.bool true)
+      | .result => some (.u64 0)
+      | _ => none
+  expectAccept "ByteBox get1 after set0 returns 0" get1 getOk
+  -- Emitted .nr must declare u8 pre/post leaves.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 sourceText
+      "<noir-bytes-emit>" "Examples.ByteBox" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some setNr := files.find? (fun file =>
+      file.path.endsWith "r1-set0/src/main.nr") |
+    throw <| IO.userError "ByteBox missing set0 main.nr"
+  expect (setNr.contents.contains "pre_s0: pub u8" &&
+      setNr.contents.contains "pre_s1: pub u8")
+    "ByteBox set0 .nr must declare both pre-state leaves as pub u8"
+  expect (setNr.contents.contains "post_s0: pub u8" &&
+      setNr.contents.contains "post_s1: pub u8")
+    "ByteBox set0 .nr must declare both post-state leaves as pub u8"
+
+/-- Option state remains fail-closed on Noir (no Option state leaf layout). -/
+private unsafe def checkOptionStateFailClosed : IO Unit := do
+  let optionText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptBox where\n" ++
+    "  state slot : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let session ← Tests.Language.ParserSession.shared
+  match ← session.selectProgramV1 optionText
+      "<noir-option-state>" "Examples.OptBox" none with
+  | .error _ => pure ()  -- may fail earlier (typed/normalize)
+  | .ok source =>
+    match Compiler.compileValidatedSourceV1 source with
+    | .error _ => pure ()
+    | .ok compiled =>
+      match resolveBuildSelectionV1 TargetId.noir none with
+      | .error _ => pure ()
+      | .ok selection =>
+        match Targets.resolveEngineeringRequirementsV1 selection compiled with
+        | .error _ => pure ()
+        | .ok cap =>
+          match Targets.Noir.planFromCapability cap with
+          | .error _ => pure ()
+          | .ok _ =>
+              throw <| IO.userError
+                "Noir Option state must fail closed, not produce a plan"
 
 /-- B-RET-ABI: named Struct view return lowers to `.returnAggregate` with
 two resultLeaf verifier inputs (preorder leaves). -/
@@ -3371,6 +3500,8 @@ unsafe def run : IO Unit := do
   checkAggregateReturnProduct
   checkAnonymousContainerReturnFailClosed
   checkMapEmptyUpsertProduct
-  checkContainerStateFailClosed
+  checkArrayStateProduct
+  checkBytesStateProduct
+  checkOptionStateFailClosed
 
 end Tests.Materialization.NoirRelationModel

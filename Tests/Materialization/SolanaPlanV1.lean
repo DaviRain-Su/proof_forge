@@ -2120,6 +2120,293 @@ private unsafe def testTokenDualStoreBatchSeparation
     s!"Token mint Plan must keep scalar supply .store separate from Map aggregate, got seq={mintSeq}"
   IO.println "  Token dual StateStore batch separation pin ok"
 
+/-- Count any-size `storeAggregate` / scalar `.store` (unlike Map-only 24-leaf pin). -/
+private partial def countAnyPlanAggregates (stmts : Array Statement) : Nat × Nat :=
+  stmts.foldl (fun (agg, seq) stmt =>
+    match stmt with
+    | .storeAggregate _ => (agg + 1, seq)
+    | .store _ => (agg, seq + 1)
+    | .ifThenElse _ t e =>
+        let (a1, s1) := countAnyPlanAggregates t
+        let (a2, s2) := countAnyPlanAggregates e
+        (agg + a1 + a2, seq + s1 + s2)
+    | .switchOn _ cases d =>
+        let (ad, sd) := countAnyPlanAggregates d
+        let (ac, sc) := cases.foldl (fun (a, s) (_, b) =>
+          let (ab, sb) := countAnyPlanAggregates b
+          (a + ab, s + sb)) (0, 0)
+        (agg + ad + ac, seq + sd + sc)
+    | .forLoop _ _ _ _ _ b =>
+        let (ab, sb) := countAnyPlanAggregates b
+        (agg + ab, seq + sb)
+    | _ => (agg, seq)) (0, 0)
+
+/-- Count any-size `storeStateMulti` / scalar storeState. -/
+private partial def countAnyIrMultiStores (ops : Array Operation) : Nat × Nat :=
+  ops.foldl (fun (multi, scalar) op =>
+    match op with
+    | .storeStateMulti _ => (multi + 1, scalar)
+    | .storeState .. | .narrowStoreState .. => (multi, scalar + 1)
+    | .ifRegion _ t e =>
+        let (m1, s1) := countAnyIrMultiStores t
+        let (m2, s2) := countAnyIrMultiStores e
+        (multi + m1 + m2, scalar + s1 + s2)
+    | .switchRegion _ cases d =>
+        let (md, sd) := countAnyIrMultiStores d
+        let (mc, sc) := cases.foldl (fun (m, s) (_, b) =>
+          let (mb, sb) := countAnyIrMultiStores b
+          (m + mb, s + sb)) (0, 0)
+        (multi + md + mc, scalar + sd + sc)
+    | .forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _ =>
+        let (m1, s1) := countAnyIrMultiStores condOps
+        let (m2, s2) := countAnyIrMultiStores bodyOps
+        let (m3, s3) := countAnyIrMultiStores boundOps
+        let (m4, s4) := countAnyIrMultiStores updateOps
+        (multi + m1 + m2 + m3 + m4, scalar + s1 + s2 + s3 + s4)
+    | _ => (multi, scalar)) (0, 0)
+
+/-- Named Struct state: flatten to UInt64 leaves; construct/fieldGet/fieldSet
+    + atomic storeAggregate; entry/view return scalar field only (B-RET-ABI). -/
+private unsafe def testNamedStructState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "PointBox" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n\n" ++
+    "  entry setX(v : UInt64) : UInt64 do\n" ++
+    "    p.x := v\n" ++
+    "    return p.x\n\n" ++
+    "  view getY() : UInt64 do\n" ++
+    "    return p.y\n"
+  let compiled ← compileSource session source "Examples.PointBox"
+    "<solana-point-box>"
+  let plan ← liftResult (planSolana compiled)
+  expect (plan.stateAccount.fields.size == 2)
+    s!"PointBox: Point must flatten to 2 leaves, got {plan.stateAccount.fields.size}"
+  expect (plan.stateAccount.fields.any fun f => f.name == "p_x" && f.byteWidth == 8)
+    "PointBox p_x must be 8-byte leaf"
+  expect (plan.stateAccount.fields.any fun f => f.name == "p_y" && f.byteWidth == 8)
+    "PointBox p_y must be 8-byte leaf"
+  let initializer := plan.initializer
+  let (agg, seq) := countAnyPlanAggregates initializer.body
+  expect (agg == 1)
+    s!"PointBox init must have one storeAggregate for Point, got {agg}"
+  expect (seq == 0)
+    s!"PointBox init must not scalar-store Point leaves, got {seq}"
+  let setX ← findHandler plan "setX"
+  let (setAgg, setSeq) := countAnyPlanAggregates setX.body
+  expect (setAgg == 1)
+    s!"PointBox setX must rewrite Point via storeAggregate, got {setAgg}"
+  expect (setSeq == 0)
+    s!"PointBox setX must not scalar-store Point leaves, got {setSeq}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"PointBox plan must validate: {e.render}"
+  let ir ← liftResult (irSolana compiled)
+  let (multi, scalar) := countAnyIrMultiStores (← findHandlerIR ir "setX").operations
+  expect (multi == 1)
+    s!"PointBox setX IR must have one storeStateMulti, got {multi}"
+  expect (scalar == 0)
+    s!"PointBox setX IR must not scalar storeState Point leaves, got {scalar}"
+  -- Plan profile emits plan+IDL only; asm is additive via emitSbpfAsmV1.
+  let asm ← liftResult (emitSbpfAsmV1 ir)
+  expect (asm.contains "setX:") "PointBox asm must contain setX"
+  -- Frame pin: 2-leaf struct rewrite stays well under 4096B (asm fails closed).
+  expect (asm.contains "temps=")
+    "PointBox asm must annotate temps"
+  let files ← liftResult (filesSolana compiled)
+  let _ ← findFile files "PointBox.sbpf-plan"
+  IO.println "  PointBox named Struct Plan/IR pin ok"
+
+/-- Named Enum state: tag + max-payload leaves; construct + atomic store. -/
+private unsafe def testNamedEnumState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "FlagBox" <|
+    "  enum Flag where\n" ++
+    "    | Off\n" ++
+    "    | On\n" ++
+    "  state f : Flag\n\n" ++
+    "  init() do\n" ++
+    "    f := Flag.Off()\n\n" ++
+    "  entry setOn() : UInt64 do\n" ++
+    "    f := Flag.On()\n" ++
+    "    return 1\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let compiled ← compileSource session source "Examples.FlagBox"
+    "<solana-flag-box>"
+  let plan ← liftResult (planSolana compiled)
+  -- Tag-only enum flattens to 1 leaf (tag); zero max payload.
+  expect (plan.stateAccount.fields.size == 1)
+    s!"FlagBox: tag-only Flag must flatten to 1 leaf, got {plan.stateAccount.fields.size}"
+  expect (plan.stateAccount.fields.any fun f => f.name == "f_tag")
+    "FlagBox leaf must be named f_tag"
+  let (agg, seq) := countAnyPlanAggregates plan.initializer.body
+  expect (agg == 1)
+    s!"FlagBox init must storeAggregate the enum, got {agg}"
+  expect (seq == 0)
+    s!"FlagBox init must not scalar-store enum tag, got {seq}"
+  let setOn ← findHandler plan "setOn"
+  let (setAgg, _) := countAnyPlanAggregates setOn.body
+  expect (setAgg == 1)
+    s!"FlagBox setOn must storeAggregate On, got {setAgg}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"FlagBox plan must validate: {e.render}"
+  -- Payload enum: tag + 1 UInt64 payload → 2 leaves.
+  let payloadSource := wrapProgram "MaybeBox" <|
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n\n" ++
+    "  entry put(v : UInt64) : UInt64 do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return v\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  let payloadCompiled ← compileSource session payloadSource "Examples.MaybeBox"
+    "<solana-maybe-box>"
+  let payloadPlan ← liftResult (planSolana payloadCompiled)
+  expect (payloadPlan.stateAccount.fields.size == 2)
+    s!"MaybeBox: Maybe must flatten to tag+payload (2), got {payloadPlan.stateAccount.fields.size}"
+  expect (payloadPlan.stateAccount.fields.any fun f => f.name == "m_tag")
+    "MaybeBox must have m_tag"
+  expect (payloadPlan.stateAccount.fields.any fun f => f.name == "m_p0")
+    "MaybeBox must have m_p0 payload leaf"
+  match validatePlan payloadPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MaybeBox plan must validate: {e.render}"
+  IO.println "  FlagBox/MaybeBox named Enum Plan pin ok"
+
+/-- Bytes N state: N×UInt8 leaves (byteWidth 1, pitch 8); IndexGet/IndexSet. -/
+private unsafe def testBytesStateIndexOps
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ByteBox" <|
+    "  state data : Bytes 2\n\n" ++
+    "  init() do\n" ++
+    "    data[0] := 0\n" ++
+    "    data[1] := 0\n\n" ++
+    "  entry set0(v : UInt8) : UInt8 do\n" ++
+    "    data[0] := v\n" ++
+    "    return data[0]\n\n" ++
+    "  view get1() : UInt8 do\n" ++
+    "    return data[1]\n"
+  let compiled ← compileSource session source "Examples.ByteBox"
+    "<solana-byte-box>"
+  let plan ← liftResult (planSolana compiled)
+  expect (plan.stateAccount.fields.size == 2)
+    s!"ByteBox: Bytes 2 must flatten to 2 leaves, got {plan.stateAccount.fields.size}"
+  expect (plan.stateAccount.fields.any fun f =>
+      f.name == "data_0" && f.byteWidth == 1)
+    "ByteBox data_0 must be 1-byte leaf"
+  expect (plan.stateAccount.fields.any fun f =>
+      f.name == "data_1" && f.byteWidth == 1)
+    "ByteBox data_1 must be 1-byte leaf"
+  -- Pitch 8: second leaf at header+8.
+  let some f0 := plan.stateAccount.fields.find? (·.name == "data_0") |
+    throw <| IO.userError "ByteBox missing data_0"
+  let some f1 := plan.stateAccount.fields.find? (·.name == "data_1") |
+    throw <| IO.userError "ByteBox missing data_1"
+  expect (f1.byteOffset == f0.byteOffset + 8)
+    s!"ByteBox Bytes leaves must use 8-byte pitch, offsets {f0.byteOffset}/{f1.byteOffset}"
+  let set0 ← findHandler plan "set0"
+  let (agg, seq) := countAnyPlanAggregates set0.body
+  expect (agg == 1)
+    s!"ByteBox set0 must storeAggregate both Bytes leaves, got {agg}"
+  expect (seq == 0)
+    s!"ByteBox set0 must not scalar-store Bytes leaves, got {seq}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ByteBox plan must validate: {e.render}"
+  let ir ← liftResult (irSolana compiled)
+  let set0IR ← findHandlerIR ir "set0"
+  let (multi, scalar) := countAnyIrMultiStores set0IR.operations
+  expect (multi == 1)
+    s!"ByteBox set0 IR must have one storeStateMulti, got {multi}"
+  expect (scalar == 0)
+    s!"ByteBox set0 IR must not scalar storeState, got {scalar}"
+  -- Multi-store entries must carry byteWidth 1.
+  let checkMulti (ops : Array Operation) : Bool :=
+    ops.any fun op =>
+      match op with
+      | .storeStateMulti entries =>
+          entries.size == 2 && entries.all fun (_, _, bw, _) => bw == 1
+      | _ => false
+  expect (checkMulti set0IR.operations)
+    "ByteBox set0 storeStateMulti must write 2× byteWidth-1 entries"
+  let asm ← liftResult (emitSbpfAsmV1 ir)
+  expect (asm.contains "set0:") "ByteBox asm must contain set0"
+  expect (asm.contains "temps=")
+    "ByteBox asm must annotate temps"
+  let files ← liftResult (filesSolana compiled)
+  let _ ← findFile files "ByteBox.sbpf-plan"
+  -- Map remains admitted after Bytes path (orthogonal pilot).
+  let mapSource := wrapProgram "MapStillOpen" <|
+    "  state m : Map UInt64 UInt64\n" ++
+    "  state d : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "    d := 0\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return d\n"
+  let mapCompiled ← compileSource session mapSource "Examples.MapStillOpen"
+    "<solana-map-still>"
+  match planSolana mapCompiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError s!"Solana must still accept Map after Bytes, got {e.render}"
+  IO.println "  ByteBox Bytes state Plan/IR pin ok"
+
+/-- Fail-closed boundaries: named aggregate return, Option state, named param. -/
+private unsafe def testAggregateFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Named Struct entry return stays fail-closed (B-RET-ABI scalar).
+  let retSource := wrapProgram "StructRet" <|
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n\n" ++
+    "  init() do\n" ++
+    "    p := Pair.new(0, 0)\n\n" ++
+    "  entry getPair() : Pair do\n" ++
+    "    return p\n"
+  let retCompiled ← compileSource session retSource "Examples.StructRet"
+    "<solana-struct-ret>"
+  expectPlanError "StructRet" (planSolana retCompiled)
+  -- Option state remains fail closed (not a container policy admit).
+  let optSource := wrapProgram "OptState" <|
+    "  state o : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    o := none\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  match ← (do
+      try
+        let c ← compileSource session optSource "Examples.OptState" "<solana-opt>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()  -- may fail at Normalize/typed
+  | some c => expectPlanError "OptState" (planSolana c)
+  -- Named Struct param stays fail closed (state-only pilot).
+  let paramSource := wrapProgram "StructParam" <|
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    pad := i\n\n" ++
+    "  entry take(p : Pair) : UInt64 do\n" ++
+    "    return p.a\n"
+  let paramCompiled ← compileSource session paramSource "Examples.StructParam"
+    "<solana-struct-param>"
+  expectPlanError "StructParam" (planSolana paramCompiled)
+  IO.println "  aggregate fail-closed boundaries ok"
+
 unsafe def run : IO Unit := do
   testNarrowIntAbi
   let session ← Tests.Language.ParserSession.shared
@@ -2157,6 +2444,10 @@ unsafe def run : IO Unit := do
   testOmittedTypeLet session
   testMapMiniEmptyUpsertStructure session
   testTokenDualStoreBatchSeparation session
+  testNamedStructState session
+  testNamedEnumState session
+  testBytesStateIndexOps session
+  testAggregateFailClosed session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
 end Tests.Materialization.SolanaPlanV1

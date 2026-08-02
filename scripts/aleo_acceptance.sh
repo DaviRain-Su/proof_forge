@@ -21,7 +21,27 @@ usage() {
 [[ $# -eq 1 ]] || usage
 target="$1"
 
+platform_id() {
+  local sys mach
+  sys="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  mach="$(uname -m | tr '[:upper:]' '[:lower:]')"
+  echo "${sys}-${mach}"
+}
+
+# Prefer Tool Lock materialize root (PROOF_FORGE_TOOL_ROOT or default cache),
+# then cargo/homebrew/PATH. Host-optional skip semantics unchanged.
 resolve_leo() {
+  local plat cand
+  plat="$(platform_id)"
+  if [[ -n "${PROOF_FORGE_TOOL_ROOT:-}" && -x "${PROOF_FORGE_TOOL_ROOT%/}/leo" ]]; then
+    echo "${PROOF_FORGE_TOOL_ROOT%/}/leo"
+    return 0
+  fi
+  cand="${HOME}/.cache/proof-forge-v2/tool-root/${plat}/leo"
+  if [[ -x "$cand" ]]; then
+    echo "$cand"
+    return 0
+  fi
   if [[ -x "${HOME}/.cargo/bin/leo" ]]; then
     echo "${HOME}/.cargo/bin/leo"
     return 0

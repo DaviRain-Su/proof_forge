@@ -340,6 +340,7 @@ private def exprTypeName : Expr → String
   | .logicalAnd _ _ | .logicalOr _ _ => "bool"
   | .boolNot _ => "bool"
   | .bitNot _ => "u32"
+  | .checkedBitNot _ => "Felt"
   | .u32Literal _ => "u32"
   | _ => "Felt"
 
@@ -455,12 +456,30 @@ private partial def lowerExprStmt
       -- the result is verified faithful on the real VM: 5→4294967290,
       -- 4294967295→0, 0→4294967295). Mask-subtraction is NOT used — the VM's
       -- u32 sub is checked with a bug and panics on `4294967295u32 -
-      -- 4294967295u32` ("u32 sub value too low"). (UInt64 bitNot fails closed
-      -- in the lowerer — Psy has no u64 type.)
+      -- 4294967295u32` ("u32 sub value too low").
       let (ls1, o', ctx1) ← lowerExprStmt ctx operand
       let (name, ctx2) := freshName ctx1
       pure (ls1 ++
         #[.letBind name "u32" (.binary o' .bitXor (.literal (.u32 4294967295)))],
+        .local name, ctx2)
+  | .checkedBitNot operand => do
+      -- Exact UInt64 bitNot with Felt representability guard.
+      -- bitNot x = (2^64−1) − x is a legal Felt iff x ≥ 2^32−1 (result < p).
+      -- 2^64−1 itself is not a legal Felt literal (≡ 2^32−2 mod p); emission
+      -- therefore uses the reduced mask 2^32−2 as a wrapping Felt sub:
+      --   assert x >= 2^32−1;  result = (2^32−2) − x   (field sub wraps)
+      -- When the guard holds, field wrap recovers exact (2^64−1)−x.
+      -- When x ≤ 2^32−2 the exact result is ≥ p and cannot be a Felt — trap
+      -- like checked-arith (never silent mod-p bitNot).
+      -- Boundary: x=0 / x=2^32−2 trap; x=2^32−1 → p−1; UInt64.max is outside
+      -- the Felt domain [0,p) so is not a runtime input on this surface.
+      let (ls1, o', ctx1) ← lowerExprStmt ctx operand
+      let (name, ctx2) := freshName ctx1
+      let threshold := feltLit 4294967295   -- 2^32 − 1
+      let mask := feltLit 4294967294        -- 2^32 − 2 ≡ (2^64−1) (mod p)
+      pure (ls1 ++
+        #[.assert (.binary o' .ge threshold) "u64 bitNot result not representable in Felt",
+          .letBind name "Felt" (.binary mask .sub o')],
         .local name, ctx2)
   | .bitAnd l r | .bitOr l r | .bitXor l r => do
       let psyOp := match expr with
