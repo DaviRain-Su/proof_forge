@@ -8,6 +8,7 @@ import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Targets.BuildIdentityV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.TargetRegistryV1
+import ProofForgeV2.Targets.DescriptorDataV1
 
 namespace Tests.Materialization.TargetRegistryV1
 
@@ -16,6 +17,7 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2.Targets.TargetRegistryV1
 open ProofForgeV2.Targets.BuildIdentityV1
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.DescriptorDataV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -93,6 +95,46 @@ private def testClosedAxesWires : IO Unit := do
   expect (ExecutionHostV1.evm.toWire == "evm") "ExecutionHostV1.evm wire"
   expect (ProofModelV1.noProof.toWire == "no-proof") "ProofModelV1.noProof wire"
   expect (SettlementModelV1.evmChain.toWire == "evm-chain") "SettlementModelV1.evmChain wire"
+
+private def testDescriptorAxesSoleAuthority : IO Unit := do
+  let registry ← liftResult initialTargetRegistryV1Result
+  for reg in TargetRegistryV1.registrationsOf registry do
+    match ProofForgeV2.Targets.DescriptorDataV1.descriptorForKind? reg.kind with
+    | some descriptor =>
+        expect reg.implemented s!"descriptor only for implemented target {reg.targetId}"
+        let _ ← liftResult (validateDescriptorAxesJoinV1 reg descriptor)
+        expect (descriptor.targetId == reg.semantics.targetId)
+          s!"{reg.targetId} descriptor target joins registry semantics"
+        expect (descriptor.executionHost == reg.semantics.executionHost)
+          s!"{reg.targetId} executionHost joins registry"
+        expect (descriptor.commitModel == reg.semantics.commitModel)
+          s!"{reg.targetId} commitModel joins registry"
+        expect (descriptor.stateBinding == reg.semantics.stateBinding)
+          s!"{reg.targetId} stateBinding joins registry"
+        expect (descriptor.callModel == reg.semantics.callModel)
+          s!"{reg.targetId} callModel joins registry"
+        expect (descriptor.proofModel == reg.semantics.proofModel)
+          s!"{reg.targetId} proofModel joins registry"
+        expect (descriptor.settlementModel == reg.semantics.settlementModel)
+          s!"{reg.targetId} settlementModel joins registry"
+    | none =>
+        expect (!reg.implemented)
+          s!"implemented target {reg.targetId} must have descriptor"
+  let evmReg ← match findRegistrationV1 registry TargetId.evm with
+    | some reg => pure reg
+    | none => throw <| IO.userError "missing EVM registration"
+  let base := ProofForgeV2.Targets.DescriptorDataV1.evm
+  let mutations : Array (String × TargetDescriptor) := #[
+    ("executionHost", { base with executionHost := .nearWasm }),
+    ("commitModel", { base with commitModel := .receiptLocal }),
+    ("stateBinding", { base with stateBinding := .contractKeyValue }),
+    ("callModel", { base with callModel := .promiseDag }),
+    ("proofModel", { base with proofModel := .externalCircuit }),
+    ("settlementModel", { base with settlementModel := .nearChain })
+  ]
+  for (axis, descriptor) in mutations do
+    expectErrorCode (validateDescriptorAxesJoinV1 evmReg descriptor)
+      "PF-REGISTRY-INVALID" s!"descriptor {axis} drift"
 
 private def testValidationAndLookup : IO Unit := do
   expectErrorCode (createTargetRegistryV1 #[]) "PF-REGISTRY-INVALID" "empty"
@@ -259,11 +301,41 @@ private def testDeletionGate : IO Unit := do
     throw <| IO.userError s!"deleted initialRegistrations def residual:\n{initRegs.stdout}"
   else if initRegs.exitCode != 1 then
     throw <| IO.userError s!"initialRegistrations rg failed: {initRegs.stderr}"
+  -- Protocol-owned duplicate axis types must remain physically deleted.
+  let oldAxes ← IO.Process.output {
+    cmd := "rg"
+    args := #["-n", "-e",
+      "^inductive (ExecutionHost|CommitModel|StateBinding|CallModel|ProofModel|SettlementModel) where$",
+      "ProofForgeV2/Materialization/Protocol.lean"]
+  }
+  if oldAxes.exitCode == 0 then
+    throw <| IO.userError s!"Protocol duplicate axis types reappeared:\n{oldAxes.stdout}"
+  else if oldAxes.exitCode != 1 then
+    throw <| IO.userError s!"old-axis rg failed: {oldAxes.stderr}"
+  -- Exact product defenses: capability resolve, artifact mint, target inspect.
+  let joinCalls ← IO.Process.output {
+    cmd := "rg"
+    args := #["-n", "--glob", "*.lean", "-e",
+      "^\\s*(Targets\\.DescriptorDataV1\\.)?validateDescriptorAxesJoinV1\\b",
+      "ProofForgeV2"]
+  }
+  unless joinCalls.exitCode == 0 do
+    throw <| IO.userError s!"missing descriptor axes join calls: {joinCalls.stderr}"
+  let joinLines := (joinCalls.stdout.splitOn "\n").filter (fun s => !s.isEmpty)
+  expect (joinLines.length == 3)
+    s!"exactly three descriptor axes product joins expected:\n{joinCalls.stdout}"
+  for path in #[
+      "ProofForgeV2/Targets/EngineeringBuildV1.lean:",
+      "ProofForgeV2/Materialization/MaterializedArtifactsV1.lean:",
+      "ProofForgeV2/CLI/Emit.lean:"] do
+    expect (joinLines.any (·.startsWith path))
+      s!"missing descriptor axes join in {path}\n{joinCalls.stdout}"
   pure ()
 
 def run : IO Unit := do
   testSoleMembershipSource
   testClosedAxesWires
+  testDescriptorAxesSoleAuthority
   testValidationAndLookup
   testDefaultProfileFailClosed
   testNoFormalRootDigestExposure

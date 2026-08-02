@@ -22,6 +22,7 @@ import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Targets.SupportClaimV1
 import ProofForgeV2.Targets.DescriptorDataV1
+import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Core.Common
@@ -32,6 +33,7 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Targets
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.DescriptorDataV1
+open ProofForgeV2.Targets.TargetRegistryV1
 open ProofForgeV2.Targets.EngineeringBuildIdentityV1
 open ProofForgeV2.Targets.SupportClaimV1
 open ProofForgeV2.Semantic.WireV1
@@ -140,6 +142,16 @@ def mintMaterializedArtifactsV1
   unless acceptsCodegenProfile descriptor selection.codegenProfile do
     throw <| .registryInvalid
       "materialized artifacts: descriptor profile diverges from capability selection"
+  let registry ← initialTargetRegistryV1Result
+  let registration ← match findRegistrationV1 registry selection.targetId with
+    | some value => pure value
+    | none =>
+        throw <| .registryInvalid
+          "materialized artifacts: capability target missing from frozen registry"
+  unless registration.kind == selection.kind do
+    throw <| .registryInvalid
+      "materialized artifacts: descriptor registration kind diverges from capability"
+  validateDescriptorAxesJoinV1 registration descriptor
   unless selection.kind.toString == selection.targetId.toString do
     throw <| .registryInvalid
       "materialized artifacts: kind wire diverges from target id"

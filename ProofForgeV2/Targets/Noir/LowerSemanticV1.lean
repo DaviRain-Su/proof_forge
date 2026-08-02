@@ -358,12 +358,12 @@ def targetDescriptorEngineeringReprV1 (d : TargetDescriptor) : String :=
     s!"\"{profile.toString}\""
   "{ targetId := " ++ targetIdWire d.targetId ++ ",\n" ++
   "  artifactEncoding := " ++ reprStr d.artifactEncoding ++ ",\n" ++
-  "  executionHost := " ++ reprStr d.executionHost ++ ",\n" ++
-  "  commitModel := " ++ reprStr d.commitModel ++ ",\n" ++
-  "  stateBinding := " ++ reprStr d.stateBinding ++ ",\n" ++
-  "  callModel := " ++ reprStr d.callModel ++ ",\n" ++
-  "  proofModel := " ++ reprStr d.proofModel ++ ",\n" ++
-  "  settlementModel := " ++ reprStr d.settlementModel ++ ",\n" ++
+  "  executionHost := \"" ++ d.executionHost.toWire ++ "\",\n" ++
+  "  commitModel := \"" ++ d.commitModel.toWire ++ "\",\n" ++
+  "  stateBinding := \"" ++ d.stateBinding.toWire ++ "\",\n" ++
+  "  callModel := \"" ++ d.callModel.toWire ++ "\",\n" ++
+  "  proofModel := \"" ++ d.proofModel.toWire ++ "\",\n" ++
+  "  settlementModel := \"" ++ d.settlementModel.toWire ++ "\",\n" ++
   "  codegenProfile := " ++ codegenProfileWire d.codegenProfile ++ " }"
 
 def canonicalPlanHash (plan : Plan) : String :=

@@ -1,6 +1,9 @@
 import ProofForgeV2.Core.TargetIdentityV1
+import ProofForgeV2.Targets.TargetRegistryV1
 
 namespace ProofForgeV2
+
+open ProofForgeV2.Targets.TargetRegistryV1
 
 inductive ArtifactEncoding where
   | evmYul
@@ -13,72 +16,17 @@ inductive ArtifactEncoding where
   | researchOnly
   deriving BEq, Inhabited, Repr
 
-inductive ExecutionHost where
-  | evm
-  | solanaRuntime
-  | nearRuntime
-  | cosmwasmRuntime
-  | sorobanHost
-  | icpActor
-  | circuit
-  | zkvm
-  | zkApplicationChain
-  deriving BEq, Inhabited, Repr
-
-inductive CommitModel where
-  | transactionAtomic
-  | instructionAtomic
-  | receiptLocal
-  | messageLocal
-  | externalStateTransition
-  deriving BEq, Inhabited, Repr
-
-inductive StateBinding where
-  | contractStorage
-  | explicitAccounts
-  | hostKeyValue
-  | actorMemory
-  | proofInputs
-  | recordsAndMappings
-  | userPartitionedState
-  deriving BEq, Inhabited, Repr
-
-inductive CallModel where
-  | synchronous
-  | cpi
-  | asynchronousReceipt
-  | actorMessage
-  | none
-  deriving BEq, Inhabited, Repr
-
-inductive ProofModel where
-  | none
-  | circuitProof
-  | vmProof
-  | applicationProof
-  deriving BEq, Inhabited, Repr
-
-inductive SettlementModel where
-  | ethereum
-  | solana
-  | near
-  | cosmos
-  | stellar
-  | internetComputer
-  | externalVerifier
-  | aleo
-  | psy
-  deriving BEq, Inhabited, Repr
-
+/-- TargetDescriptor deliberately reuses the registry-owned closed V1 axes.
+    ArtifactEncoding remains profile/materializer metadata, not a semantics axis. -/
 structure TargetDescriptor where
   targetId : TargetId
   artifactEncoding : ArtifactEncoding
-  executionHost : ExecutionHost
-  commitModel : CommitModel
-  stateBinding : StateBinding
-  callModel : CallModel
-  proofModel : ProofModel
-  settlementModel : SettlementModel
+  executionHost : ExecutionHostV1
+  commitModel : CommitModelV1
+  stateBinding : StateBindingV1
+  callModel : CallModelV1
+  proofModel : ProofModelV1
+  settlementModel : SettlementModelV1
   codegenProfile : CodegenProfileId
   -- Requirement support is deliberately absent. The exact engineering resolver
   -- index is the sole current authority; formal SupportClaim remains pending.

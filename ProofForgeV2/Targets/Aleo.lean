@@ -15,7 +15,7 @@ Port of the hackathon/aleo-2026-08 lane onto the current product spine:
 consumes retained `SemanticProgramV1` via the `ResolvedEngineeringBuildV1`
 capability exactly like EVM/Solana/NEAR/Noir. No V1-direct second semantic
 path: the target-owned Plan/IR are built from the same structure-valid
-semantic carrier the other four targets consume.
+semantic carrier consumed by the other implemented targets.
 
 Leo 4.0.2 execution model (verified by the hackathon spike + devnet runs):
   * mappings are the only state; mapping reads/writes are legal only in

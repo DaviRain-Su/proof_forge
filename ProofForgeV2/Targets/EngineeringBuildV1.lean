@@ -119,6 +119,15 @@ def resolveEngineeringRequirementsV1
     throw <| .registryInvalid
       "descriptor codegen profile diverges from resolved selection"
   let registry ← initialTargetRegistryV1Result
+  let registration ← match findRegistrationV1 registry selection.targetId with
+    | some value => pure value
+    | none =>
+        throw <| .registryInvalid
+          "engineering resolver: selection target missing from frozen registry"
+  unless registration.kind == selection.kind do
+    throw <| .registryInvalid
+      "engineering resolver: descriptor registration kind diverges from selection"
+  validateDescriptorAxesJoinV1 registration descriptor
   let claims ← match mintEngineeringSupportClaimsV1 registry supportIndex with
     | .ok value => pure value
     | .error e =>

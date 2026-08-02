@@ -1559,12 +1559,12 @@ Kept test-local so production serialization and its oracle cannot drift together
 private def noirDescriptorEngineeringReprBaseline : String :=
   "{ targetId := ProofForgeV2.TargetId.noir,\n" ++
   "  artifactEncoding := ProofForgeV2.ArtifactEncoding.noirSource,\n" ++
-  "  executionHost := ProofForgeV2.ExecutionHost.circuit,\n" ++
-  "  commitModel := ProofForgeV2.CommitModel.externalStateTransition,\n" ++
-  "  stateBinding := ProofForgeV2.StateBinding.proofInputs,\n" ++
-  "  callModel := ProofForgeV2.CallModel.none,\n" ++
-  "  proofModel := ProofForgeV2.ProofModel.circuitProof,\n" ++
-  "  settlementModel := ProofForgeV2.SettlementModel.externalVerifier,\n" ++
+  "  executionHost := \"noir-circuit\",\n" ++
+  "  commitModel := \"relation-external\",\n" ++
+  "  stateBinding := \"external-public-pre-post\",\n" ++
+  "  callModel := \"no-native-call\",\n" ++
+  "  proofModel := \"external-circuit\",\n" ++
+  "  settlementModel := \"external-verifier\",\n" ++
   "  codegenProfile := \"noir-source-u64-relations-v1\" }"
 
 /-- Independent single-semantic-carrier Accumulator Noir planHash golden.
@@ -1573,15 +1573,16 @@ private def noirDescriptorEngineeringReprBaseline : String :=
     N2b: StateField/Param gain `inputType` (u64/bool/field); UInt64 programs
     pin `.u64` and rehash the preimage.
     Noir private-witness redesign: StateField gains `visibility` (public
-    programs pin `.verifier`); rehash the preimage. -/
+    programs pin `.verifier`); rehash the preimage.
+    D3-E9: descriptor axes now use registry-owned V1 wire values. -/
 private def accumulatorPlanHashBaseline : String :=
-  "badaf7ad4924b2c427e05e9cda6e15a766b74601b282c3501ad336428e71b275"
+  "e2b2a8353a26c86707af9d17a7a26861a8a67e18aac3d6fa26f9a701040437ef"
 
 set_option maxRecDepth 10000 in
 unsafe def run : IO Unit := do
   runSemanticPlanLeafFast
   -- Product path: real ValidatedSourceV1 Counter through the capability aggregate.
-  -- All four target Plan bodies consume retained SemanticProgramV1 S1; residual-only
+  -- All six target Plan bodies consume retained SemanticProgramV1; residual-only
   -- alpha fixtures (privateWitness/out-of-S1) cannot enter the shipped Plan surface.
   -- Host-model PrivateSum4 remains isolated test-local characterization, while
   -- capability Accumulator and rich Ledger cover production target consumers.
@@ -2132,8 +2133,8 @@ unsafe def run : IO Unit := do
   let forgedNoirDescriptor := {
     Targets.Noir.descriptor with codegenProfile := forgedNoirProfile
   }
-  -- Transitional descriptor preimage must be explicit and independent of opaque
-  -- structure Repr; requirement support is not part of this identity.
+  -- Registry-owned descriptor-axis preimage must be explicit V1 wire and
+  -- independent of opaque structure Repr; support is not part of this identity.
   expect (Targets.Noir.targetDescriptorEngineeringReprV1 Targets.Noir.descriptor ==
       noirDescriptorEngineeringReprBaseline)
     "Noir descriptor engineering wire must equal its independent baseline"

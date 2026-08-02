@@ -2,7 +2,7 @@
   ProofForgeV2.Targets.TargetRegistryV1 — D3 engineering registry kernel (repair B)
 
   **Sole** opaque static membership authority for the closed ten-target set
-  (4 implemented + 6 design-only). Product selection (`BuildSelectionV1`)
+  (6 implemented + 4 design-only). Product selection (`BuildSelectionV1`)
   consumes this seed; there is no second static index.
 
   **Not** formal TASK-D3-02:
@@ -457,6 +457,41 @@ private def axes
   { targetId, executionHost, commitModel, stateBinding, callModel, proofModel,
     settlementModel }
 
+/-- Sole closed TargetKind → engineering semantics-axis mapping.
+    Registry rows and implemented TargetDescriptors both project from this
+    function; no target-local or Protocol-owned second axis seed is allowed. -/
+def semanticsAxesOfKindV1 : TargetKind → TargetSemanticsAxesV1
+  | .evm =>
+      axes TargetId.evm .evm .transactionAtomic .contractStorage
+        .synchronousMessage .noProof .evmChain
+  | .solana =>
+      axes TargetId.solana .svm .instructionAtomic .explicitAccounts
+        .synchronousCpi .noProof .solanaChain
+  | .near =>
+      axes TargetId.near .nearWasm .receiptLocal .contractKeyValue
+        .promiseDag .noProof .nearChain
+  | .noir =>
+      axes TargetId.noir .noirCircuit .relationExternal .externalPublicPrePost
+        .noNativeCall .externalCircuit .externalVerifier
+  | .cosmwasm =>
+      axes TargetId.cosmwasm .cosmWasm .transactionSavepoints .contractKeyValue
+        .cosmosSubmessageReply .noProof .cosmosChain
+  | .soroban =>
+      axes TargetId.soroban .sorobanWasm .transactionAtomic .ttlScopedStorage
+        .synchronousAuthTree .noProof .stellarChain
+  | .icp =>
+      axes TargetId.icp .icpCanister .awaitSegmented .canisterHeapStable
+        .asynchronousActor .noProof .icpSubnet
+  | .openvm =>
+      axes TargetId.openvm .openvmGuest .guestExternal .guestMemoryIo
+        .guestInternal .zkvmExecution .externalVerifier
+  | .aleo =>
+      axes TargetId.aleo .aleoVm .proofFinalDual .recordsMappings
+        .programProofFinal .applicationChainProof .aleoChain
+  | .psy =>
+      axes TargetId.psy .psyDpn .recursiveNetwork .userPartitioned
+        .recursiveProofPipeline .recursiveAggregation .psyNetwork
+
 private def row
     (kind : TargetKind)
     (semantics : TargetSemanticsAxesV1)
@@ -477,54 +512,30 @@ private def row
 /-- Shipped initial registration rows (any order; create canonicalizes TargetId). -/
 def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
   #[
-    row .evm
-      (axes TargetId.evm .evm .transactionAtomic .contractStorage
-        .synchronousMessage .noProof .evmChain)
+    row .evm (semanticsAxesOfKindV1 .evm)
       #[CodegenProfileId.evmYulSolc0834V1]
       (some CodegenProfileId.evmYulSolc0834V1),
-    row .solana
-      (axes TargetId.solana .svm .instructionAtomic .explicitAccounts
-        .synchronousCpi .noProof .solanaChain)
+    row .solana (semanticsAxesOfKindV1 .solana)
       -- Strictly ASCII-ascending: elf-v1 < plan-v1. Default stays plan-v1.
       #[CodegenProfileId.solanaSbpfElfV1, CodegenProfileId.solanaSbpfPlanV1]
       -- Default plan: Map Token exceeds SBPF 4KiB frame budget under pure-expr
       -- dense lowering (ELF needs frame-friendly Map follow-on). ELF remains
       -- selectable via `--profile solana-sbpf-elf-v1` for non-Map programs.
       (some CodegenProfileId.solanaSbpfPlanV1),
-    row .near
-      (axes TargetId.near .nearWasm .receiptLocal .contractKeyValue
-        .promiseDag .noProof .nearChain)
+    row .near (semanticsAxesOfKindV1 .near)
       #[CodegenProfileId.nearWasmRawU64V1]
       (some CodegenProfileId.nearWasmRawU64V1),
-    row .noir
-      (axes TargetId.noir .noirCircuit .relationExternal .externalPublicPrePost
-        .noNativeCall .externalCircuit .externalVerifier)
+    row .noir (semanticsAxesOfKindV1 .noir)
       #[CodegenProfileId.noirSourceU64RelationsV1]
       (some CodegenProfileId.noirSourceU64RelationsV1),
-    row .cosmwasm
-      (axes TargetId.cosmwasm .cosmWasm .transactionSavepoints .contractKeyValue
-        .cosmosSubmessageReply .noProof .cosmosChain)
-      #[] none,
-    row .soroban
-      (axes TargetId.soroban .sorobanWasm .transactionAtomic .ttlScopedStorage
-        .synchronousAuthTree .noProof .stellarChain)
-      #[] none,
-    row .icp
-      (axes TargetId.icp .icpCanister .awaitSegmented .canisterHeapStable
-        .asynchronousActor .noProof .icpSubnet)
-      #[] none,
-    row .openvm
-      (axes TargetId.openvm .openvmGuest .guestExternal .guestMemoryIo
-        .guestInternal .zkvmExecution .externalVerifier)
-      #[] none,
-    row .aleo
-      (axes TargetId.aleo .aleoVm .proofFinalDual .recordsMappings
-        .programProofFinal .applicationChainProof .aleoChain)
+    row .cosmwasm (semanticsAxesOfKindV1 .cosmwasm) #[] none,
+    row .soroban (semanticsAxesOfKindV1 .soroban) #[] none,
+    row .icp (semanticsAxesOfKindV1 .icp) #[] none,
+    row .openvm (semanticsAxesOfKindV1 .openvm) #[] none,
+    row .aleo (semanticsAxesOfKindV1 .aleo)
       #[CodegenProfileId.aleoLeoU64V1]
       (some CodegenProfileId.aleoLeoU64V1),
-    row .psy
-      (axes TargetId.psy .psyDpn .recursiveNetwork .userPartitioned
-        .recursiveProofPipeline .recursiveAggregation .psyNetwork)
+    row .psy (semanticsAxesOfKindV1 .psy)
       #[CodegenProfileId.psyDargoU64V1]
       (some CodegenProfileId.psyDargoU64V1)
   ]

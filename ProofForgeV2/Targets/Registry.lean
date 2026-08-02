@@ -99,8 +99,8 @@ private def planDigestForCapabilityV1
           throw <| .invalidProgram s!"materialize: absent plan digest failed: {e}"
 
 /-- Aggregate materialization consumes only the private engineering capability.
-    Support was decided at `resolveEngineeringRequirementsV1`. All four target
-    Plan bodies construct their S1 plans from retained `SemanticProgramV1`;
+    Support was decided at `resolveEngineeringRequirementsV1`. All six target
+    Plan bodies construct their plans from retained `SemanticProgramV1`;
     compiler, resolver, and artifact identity consume the same non-alpha
     `CompiledSemanticV1` source/semantic digests and program name.
     Target-owned Plan/IR/emit algorithms remain capability-gated; the aggregate

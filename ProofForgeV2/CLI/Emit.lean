@@ -748,6 +748,7 @@ def describeImplementedJoin
   unless descriptor.codegenProfile == profile do
     throw <| .registryInvalid
       s!"descriptor profile diverges from static selection for '{reg.targetId}'"
+  Targets.DescriptorDataV1.validateDescriptorAxesJoinV1 reg descriptor
   let s2Ids ← supportedS2RequestIdsForRegistrationV1 reg
   pure s!"target={reg.targetId}\nprofile={profile}\nrequirements={formatS2RequirementIds s2Ids}"
 
