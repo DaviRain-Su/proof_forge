@@ -415,21 +415,18 @@ private def solanaPlanErr (message : String) : CompileError :=
     multi-width UInt values are allowed; **top-level state and ABI parameters
     admit UInt8/16/32/64/128/256 or Int{8,16,32,64}** via
     `requirePublicSolanaUintAbiOrInt64*` (T8b+T9e) with `allowNonPublic := true`
-    (N1). ArrayState: anonymous **Array** shapes are admitted via
-    `pilotContainerStatePolicyArrayOnly` (element/layout gated at state planning
-    to fixed-length `Array UInt64 N` leaf slots). UInt128/256 use multiword
-    software limbs. T12: Principal admitted as **storage identity only**
-    (`pilotPrincipalPolicyAdmit`) — fixed leaf layout len+8×UInt64 (≤64B body,
-    same pattern as EVM T10 / N4 String); still not a fixed 32-byte Solana
-    pubkey / program id (no silent reinterpret; CALL/CPI target remains
-    static QN). -/
+    (N1). ArrayState + **Map UInt64 UInt64** dense pilot via
+    `pilotContainerStatePolicyArrayMap` (Array → N×UInt64 leaves; Map →
+    capacity-8×(occ,key,val); Option intermediate for Map IndexGet).
+    UInt128/256 multiword limbs. T12: Principal storage identity only
+    (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
     pilotUintWidthPolicySolanaBody
     (intPolicy := pilotIntWidthPolicyNarrow)
     (principalPolicy := pilotPrincipalPolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyArrayOnly)
+    (containerPolicy := pilotContainerStatePolicyArrayMap)
 
 /-- Solana pilot Principal storage layout (T12, isomorphic to EVM T10 / N4 String):
     * leaf 0: wire body length (`UInt64`; wire framing is still `u32le`)
@@ -520,9 +517,14 @@ private def mkStateLoadExpr (bitWidth : Nat) (accountIndex byteOffset : Nat) : E
   if bitWidth == 64 then .stateLoad accountIndex byteOffset
   else .narrowStateLoad bitWidth accountIndex byteOffset
 
-/-- ArrayState positive layout: fixed-length `Array UInt64 N` (1 ≤ N ≤ remaining
-    state slots). Other container shapes (Map/Bytes/non-UInt64 element/zero
-    length) fail closed. -/
+/-- Dense Map pilot capacity (aligned with EVM Token pilot). -/
+private def solanaMapPilotCapacityV1 : Nat := 8
+private def solanaMapSlotsPerEntryV1 : Nat := 3
+private def solanaMapPilotLeafCountV1 : Nat :=
+  solanaMapPilotCapacityV1 * solanaMapSlotsPerEntryV1
+
+/-- Array / Map container leaf count. Array: fixed `Array UInt64 N`.
+    Map: dense capacity-8 occ/key/val. Bytes fail closed. -/
 private def arrayUInt64LeafCountV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option Nat) := do
@@ -538,15 +540,91 @@ private def arrayUInt64LeafCountV1
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Array state length must be ≥ 1"
       pure (some n)
-  | some { shape := .map .., .. } =>
-      throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: Map state is outside the Solana Array-only container pilot"
+  | some { shape := .map keyTid valTid, .. } =>
+      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: Map state admits only Map UInt64 UInt64"
+      pure (some solanaMapPilotLeafCountV1)
   | some { shape := .bytes _, .. } =>
       throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: Bytes state is outside the Solana Array-only container pilot"
+        "unsupported Solana semantic shape: Bytes state is outside the Solana Array/Map container pilot"
   | _ =>
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: container TypeId is not Array/Map/Bytes"
+
+/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
+private def mapLookupOptionLeavesV1
+    (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
+  unless mapLeaves.size == solanaMapPilotLeafCountV1 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Map leaf count must match pilot capacity"
+  let mut found : Expr := .literal 0
+  let mut payload : Expr := .literal 0
+  for e in [0:solanaMapPilotCapacityV1] do
+    let base := e * solanaMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .solana "Map lookup occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      throw <| .planInvariant .solana "Map lookup key leaf missing"
+    let some v := mapLeaves[base + 2]? |
+      throw <| .planInvariant .solana "Map lookup val leaf missing"
+    let hit := Expr.checkedMul occ (Expr.compare .eq k key)
+    let miss := Expr.boolNot hit
+    found := Expr.boolOr found hit
+    payload :=
+      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
+  pure #[Expr.checkedAdd found (.literal 0), payload]
+
+/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert). -/
+private def mapUpsertLeavesV1
+    (mapLeaves : Array Expr) (key value : Expr) :
+    CompileResult (Array Expr × Expr) := do
+  unless mapLeaves.size == solanaMapPilotLeafCountV1 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Map leaf count must match pilot capacity"
+  let mut anyMatch : Expr := .literal 0
+  for e in [0:solanaMapPilotCapacityV1] do
+    let base := e * solanaMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .solana "Map upsert occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      throw <| .planInvariant .solana "Map upsert key leaf missing"
+    let hit := Expr.checkedMul occ (Expr.compare .eq k key)
+    anyMatch := Expr.boolOr anyMatch hit
+  let mut seenEmpty : Expr := .literal 0
+  let mut isFirstEmpty : Array Expr := #[]
+  for e in [0:solanaMapPilotCapacityV1] do
+    let base := e * solanaMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .solana "Map upsert empty-scan occ missing"
+    let empty := Expr.boolNot occ
+    let first := Expr.checkedMul empty (Expr.boolNot seenEmpty)
+    isFirstEmpty := isFirstEmpty.push first
+    seenEmpty := Expr.boolOr seenEmpty empty
+  let okInsert := Expr.boolOr anyMatch seenEmpty
+  let mut out : Array Expr := #[]
+  for e in [0:solanaMapPilotCapacityV1] do
+    let base := e * solanaMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .solana "Map upsert rebuild occ missing"
+    let some k := mapLeaves[base + 1]? |
+      throw <| .planInvariant .solana "Map upsert rebuild key missing"
+    let some v := mapLeaves[base + 2]? |
+      throw <| .planInvariant .solana "Map upsert rebuild val missing"
+    let matchHit := Expr.checkedMul occ (Expr.compare .eq k key)
+    let some firstE := isFirstEmpty[e]? |
+      throw <| .planInvariant .solana "Map upsert firstEmpty missing"
+    let insertHere := Expr.checkedMul firstE (Expr.boolNot anyMatch)
+    let write := Expr.boolOr matchHit insertHere
+    let miss := Expr.boolNot write
+    let occ' := Expr.checkedAdd (Expr.boolOr occ write) (.literal 0)
+    let k' :=
+      Expr.checkedAdd (Expr.checkedMul write key) (Expr.checkedMul miss k)
+    let v' :=
+      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
+    out := out.push occ' |>.push k' |>.push v'
+  pure (out, okInsert)
+
 
 private def makeStateAccountV1
     (types : SolanaTypeClosureV1)
@@ -683,6 +761,32 @@ private def mkAggregateValueV1 (leaves : Array Expr) (deps : Array ValueIdV1)
     isInt := false
     bitWidth := 64
     aggregateLeaves := some leaves }
+
+/-- Promote pure ValueIds across effect boundaries (Token dual Map store). -/
+private def promoteDominatingPureV1
+    (blockEntry : Nat) (values : Array LoweredValueV1)
+    (base : Array ValueIdV1) : Array ValueIdV1 := Id.run do
+  let mut out := base
+  for i in [blockEntry:values.size] do
+    let id : ValueIdV1 := UInt32.ofNat i
+    unless out.contains id do
+      out := out.push id
+  pure out
+
+/-- Match-arm free values: scrutinee + dependency closure. -/
+private def extendArmReadablesV1
+    (values : Array LoweredValueV1) (armReadables : Array ValueIdV1)
+    (scrutId : ValueIdV1) : Array ValueIdV1 := Id.run do
+  let mut out := armReadables
+  if !out.contains scrutId then
+    out := out.push scrutId
+  match values[scrutId.toNat]? with
+  | none => pure out
+  | some v =>
+      for d in v.dependencies do
+        if !out.contains d then
+          out := out.push d
+      pure out
 
 private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     (params : Array ParameterV1) :
@@ -1401,6 +1505,7 @@ private structure LoweredBlockV1 where
   statements : Array Statement
   values : Array LoweredValueV1
   segmentStart : Nat
+  armReadables : Array ValueIdV1
 
 /-- Lower one block's instruction sequence (terminator handled by the region
     walker). Each block starts a fresh effect segment; dominating pure SSA
@@ -1423,6 +1528,7 @@ private def lowerBlockInstructionsV1
   let mut values := values0
   let blockEntry := values0.size
   let mut segmentStart := values0.size
+  let mut armReadables := armReadables
   let mut body : Array Statement := #[]
   for instruction in block.instructions do
     match instruction.op, instruction.result with
@@ -1842,8 +1948,9 @@ private def lowerBlockInstructionsV1
           let leaves := stored.leafExprs
           unless leaves.size == leafFields.size do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Array state store leaf count mismatch"
-          let _ ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
+              "unsupported Solana semantic shape: Array/Map state store leaf count mismatch"
+          -- Soft: dual Map stores leave pure values for a later store (Token).
+          let _ ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
           for i in [0:leaves.size] do
             let some field := leafFields[i]? |
               throw <| .planInvariant .solana "Array state store field missing"
@@ -1855,6 +1962,7 @@ private def lowerBlockInstructionsV1
               value := leafExpr
               byteWidth := field.byteWidth
             })
+          armReadables := promoteDominatingPureV1 blockEntry values armReadables
           segmentStart := values.size
         else
           let field ← match leafFields[0]? with
@@ -1883,6 +1991,7 @@ private def lowerBlockInstructionsV1
             value
             byteWidth := field.byteWidth
           })
+          armReadables := promoteDominatingPureV1 blockEntry values armReadables
           segmentStart := values.size
     | .assert_ condId errorId args, none =>
         unless errorId.isNone && args.isEmpty do
@@ -1894,6 +2003,7 @@ private def lowerBlockInstructionsV1
             "unsupported Solana semantic shape: assert condition must be Bool"
         let value ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
         body := body.push (.assert value)
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
     | .emit _effectId eventId argIds, none =>
         if mode == .view then
@@ -1910,6 +2020,7 @@ private def lowerBlockInstructionsV1
         -- segment must be reachable from at least one argument tree.
         let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
         body := body.push (.emitEvent eventId.toNat argExprs)
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
     -- AddressBearing: static QualifiedName callees (wire takes QN, not a
     -- ValueId pubkey). Principal remains fail-closed. View banned.
@@ -1934,6 +2045,7 @@ private def lowerBlockInstructionsV1
           argExprs := argExprs.push root.expr
         let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
         body := body.push (.externalCall components argExprs)
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
     | .schedule _effectId callee argIds, none =>
         if mode == .view then
@@ -1956,11 +2068,12 @@ private def lowerBlockInstructionsV1
           argExprs := argExprs.push root.expr
         let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
         body := body.push (.schedule components argExprs)
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
     | .externalCall _ _ _, some _ | .schedule _ _ _, some _ =>
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: external call/schedule must be void"
-    -- ArrayState: construct fixed Array UInt64 N from N scalar UInt64 args.
+    -- Array construct N args, or Map.empty (ctor 0, 0 args → dense zero leaves).
     | .construct typeId ctorIdx argIds, some result => do
         unless result.typeId == typeId do
           throw <| .planInvariant .solana
@@ -1969,88 +2082,156 @@ private def lowerBlockInstructionsV1
           | some n => pure n
           | none =>
               throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: construct admits only Array UInt64 on Solana"
+                "unsupported Solana semantic shape: construct admits only Array/Map UInt64 on Solana"
         unless ctorIdx == 0 do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: Array construct ctorIdx must be 0"
-        unless argIds.size == n do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: Array construct arity mismatch"
-        let mut leafExprs : Array Expr := #[]
-        let mut deps : Array ValueIdV1 := #[]
-        let mut depth : Nat := 1
-        let mut nodes : Nat := 0
-        for argId in argIds do
-          let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-          unless !arg.isBool && !arg.isInt && !arg.isAggregate && arg.bitWidth == 64 do
+            "unsupported Solana semantic shape: Array/Map construct ctorIdx must be 0"
+        if n == solanaMapPilotLeafCountV1 && argIds.isEmpty then
+          let mut zeros : Array Expr := #[]
+          for _ in [0:n] do
+            zeros := zeros.push (.literal 0)
+          let value := mkAggregateValueV1 zeros #[] 1 n
+          values := ← appendResultValueV1 result.typeId values result value
+        else do
+          unless argIds.size == n do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Array construct args must be scalar UInt64"
-          leafExprs := leafExprs.push arg.expr
-          deps := deps.push argId
-          depth := Nat.max depth (arg.depth + 1)
-          nodes := nodes + arg.expandedNodes
-        let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
-        values := ← appendResultValueV1 result.typeId values result value
+              "unsupported Solana semantic shape: Array construct arity mismatch"
+          let mut leafExprs : Array Expr := #[]
+          let mut deps : Array ValueIdV1 := #[]
+          let mut depth : Nat := 1
+          let mut nodes : Nat := 0
+          for argId in argIds do
+            let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+            unless !arg.isBool && !arg.isInt && !arg.isAggregate && arg.bitWidth == 64 do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Array construct args must be scalar UInt64"
+            leafExprs := leafExprs.push arg.expr
+            deps := deps.push argId
+            depth := Nat.max depth (arg.depth + 1)
+            nodes := nodes + arg.expandedNodes
+          let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
+          values := ← appendResultValueV1 result.typeId values result value
     | .indexGet baseId idxId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
         unless base.isAggregate do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: IndexGet base must be an Array UInt64 aggregate"
+            "unsupported Solana semantic shape: IndexGet base must be an Array/Map aggregate"
         let idx ← currentValueWithArmsV1 values blockEntry segmentStart armReadables idxId
-        let i ← literalIndexNatV1 idx
-        let leaves := base.leafExprs
-        unless i < leaves.size do
+        if base.leafExprs.size == solanaMapPilotLeafCountV1 then
+          let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+          let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
+            (Nat.max base.depth idx.depth + 1)
+            (base.expandedNodes + idx.expandedNodes + 1)
+          values := ← appendResultValueV1 result.typeId values result value
+        else do
+          let i ← literalIndexNatV1 idx
+          let leaves := base.leafExprs
+          unless i < leaves.size do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Array IndexGet index out of range"
+          let some leaf := leaves[i]? |
+            throw <| .planInvariant .solana "Array IndexGet leaf missing"
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Array IndexGet result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := leaf
+            depth := base.depth + 1
+            expandedNodes := base.expandedNodes + 1
+            dependencies := #[baseId, idxId]
+            isBool := false
+            isUInt32 := false
+            isInt := false
+            bitWidth := 64
+          }
+    | .indexSet baseId idxId valueId, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        unless base.isAggregate do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: Array IndexGet index out of range"
-        let some leaf := leaves[i]? |
-          throw <| .planInvariant .solana "Array IndexGet leaf missing"
-        unless result.typeId == types.uint64TypeId do
+            "unsupported Solana semantic shape: IndexSet base must be an Array/Map aggregate"
+        unless types.isContainer result.typeId do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: Array IndexGet result must be UInt64"
+            "unsupported Solana semantic shape: IndexSet result must be Array/Map container"
+        let idx ← currentValueWithArmsV1 values blockEntry segmentStart armReadables idxId
+        let val ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
+        unless !val.isBool && !val.isInt && !val.isAggregate && val.bitWidth == 64 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: Array/Map IndexSet value must be scalar UInt64"
+        if base.leafExprs.size == solanaMapPilotLeafCountV1 then
+          let (outLeaves0, okInsert) ←
+            mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+          let gate := Expr.checkedDiv (.literal 1) okInsert
+          let mut outLeaves : Array Expr := #[]
+          for i in [0:outLeaves0.size] do
+            let some e := outLeaves0[i]? |
+              throw <| .planInvariant .solana "Map IndexSet leaf missing after upsert"
+            let e' :=
+              if i == 0 then
+                Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
+              else e
+            outLeaves := outLeaves.push e'
+          let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
+            (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
+            (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
+          values := ← appendResultValueV1 result.typeId values result value
+        else do
+          let i ← literalIndexNatV1 idx
+          let leaves := base.leafExprs
+          unless i < leaves.size do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Array IndexSet index out of range"
+          let mut outLeaves : Array Expr := #[]
+          for j in [0:leaves.size] do
+            if j == i then
+              outLeaves := outLeaves.push val.expr
+            else
+              let some e := leaves[j]? |
+                throw <| .planInvariant .solana "Array IndexSet leaf missing"
+              outLeaves := outLeaves.push e
+          let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
+            (Nat.max base.depth val.depth + 1)
+            (base.expandedNodes + val.expandedNodes + 1)
+          values := ← appendResultValueV1 result.typeId values result value
+    | .fieldGet .., some _ | .fieldSet .., some _ =>
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: named Struct/Enum field ops are outside the Solana container pilot (named aggregates declined)"
+    | .variantTag baseId, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        unless base.isAggregate && base.leafExprs.size == 2 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: variantTag admits only Option (2-leaf) from Map IndexGet"
+        let some tag := base.leafExprs[0]? |
+          throw <| .planInvariant .solana "Option variantTag leaf missing"
         values := ← appendResultValueV1 result.typeId values result {
-          expr := leaf
+          expr := tag
           depth := base.depth + 1
           expandedNodes := base.expandedNodes + 1
-          dependencies := #[baseId, idxId]
+          dependencies := #[baseId]
+          isBool := false
+          isUInt32 := true
+          isInt := false
+          bitWidth := 32
+        }
+    | .variantPayload baseId _variantIdx _payloadIdx, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        unless base.isAggregate && base.leafExprs.size == 2 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: variantPayload admits only Option (2-leaf) from Map IndexGet"
+        let some payload := base.leafExprs[1]? |
+          throw <| .planInvariant .solana "Option variantPayload leaf missing"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: Option variantPayload must be UInt64"
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := payload
+          depth := base.depth + 1
+          expandedNodes := base.expandedNodes + 1
+          dependencies := #[baseId]
           isBool := false
           isUInt32 := false
           isInt := false
           bitWidth := 64
         }
-    | .indexSet baseId idxId valueId, some result => do
-        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
-        unless base.isAggregate do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: IndexSet base must be an Array UInt64 aggregate"
-        unless types.isContainer result.typeId do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: IndexSet result must be Array container"
-        let idx ← currentValueWithArmsV1 values blockEntry segmentStart armReadables idxId
-        let i ← literalIndexNatV1 idx
-        let val ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
-        unless !val.isBool && !val.isInt && !val.isAggregate && val.bitWidth == 64 do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: Array IndexSet value must be scalar UInt64"
-        let leaves := base.leafExprs
-        unless i < leaves.size do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: Array IndexSet index out of range"
-        let mut outLeaves : Array Expr := #[]
-        for j in [0:leaves.size] do
-          if j == i then
-            outLeaves := outLeaves.push val.expr
-          else
-            let some e := leaves[j]? |
-              throw <| .planInvariant .solana "Array IndexSet leaf missing"
-            outLeaves := outLeaves.push e
-        let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
-          (Nat.max base.depth val.depth + 1)
-          (base.expandedNodes + val.expandedNodes + 1)
-        values := ← appendResultValueV1 result.typeId values result value
-    | .fieldGet .., some _ | .fieldSet .., some _
-    | .variantTag .., some _ | .variantPayload .., some _ =>
-        throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: named Struct/Enum field ops are outside the Solana container pilot (named aggregates declined)"
     -- N5: Commit = identity passthrough; ContextRead declined (no clock ABI).
     | .commit valueId, some result => do
         unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
@@ -2077,14 +2258,16 @@ private def lowerBlockInstructionsV1
     | _, _ =>
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: instruction op/result is outside the current UInt64 pilot"
-  pure { statements := body, values, segmentStart }
+  pure { statements := body, values, segmentStart, armReadables }
 
 /-- Decode a switch case constant against the scrutinee kind. -/
-private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bytes : ByteArray) :
-    CompileResult UInt64 := do
+private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bitWidth : Nat)
+    (bytes : ByteArray) : CompileResult UInt64 := do
   if scrutIsBool then
     let bit ← decodeBoolLiteralV1 bytes
     pure (if bit then 1 else 0)
+  else if bitWidth == 32 then
+    decodeUInt32LiteralLe solanaPlanErr "Solana" bytes
   else
     decodeUInt64LiteralV1 bytes
 
@@ -2207,6 +2390,7 @@ private partial def emitRegionV1
   let instrs := lowered.statements
   let values := lowered.values
   let segmentStart := lowered.segmentStart
+  let freeAfter := lowered.armReadables
   let blockEntry := values0.size
   match block.terminator with
   | .return_ (some valueId) =>
@@ -2214,7 +2398,7 @@ private partial def emitRegionV1
       | .initialize =>
           throw <| .planInvariant .solana "initializer cannot return a value"
       | .mutate | .view =>
-          let returned ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
+          let returned ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
           if returned.isAggregate then
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal) cannot be returned (ABI is scalar)"
@@ -2246,7 +2430,7 @@ private partial def emitRegionV1
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: loop latch must pass exactly one induction argument"
         let (update, values1, _) ←
-          readJumpArgExprV1 values blockEntry segmentStart armReadables target.args[0]!
+          readJumpArgExprV1 values blockEntry segmentStart freeAfter target.args[0]!
         pure (instrs, values1, .latch update)
       else if let some lb := findLoopBoundV1 loopBounds tid then
         -- Enter a (possibly nested) bounded for-loop at its pre-header jump.
@@ -2254,26 +2438,26 @@ private partial def emitRegionV1
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: loop entry must pass exactly one induction argument"
         let (initial, values1, _) ←
-          readJumpArgExprV1 values blockEntry segmentStart armReadables target.args[0]!
+          readJumpArgExprV1 values blockEntry segmentStart freeAfter target.args[0]!
         let (loopStmt, values2, exitId) ←
           lowerForLoopV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-            loopBounds enclosingHeaders armReadables (fuel - 1) lb initial values1
+            loopBounds enclosingHeaders freeAfter (fuel - 1) lb initial values1
         let (rest, values3, exit) ←
           emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-            loopBounds enclosingHeaders armReadables (fuel - 1) exitId values2
+            loopBounds enclosingHeaders freeAfter (fuel - 1) exitId values2
         pure (instrs ++ #[loopStmt] ++ rest, values3, exit)
       else
         -- Forward join: pure dominating values may remain for successors.
         pure (instrs, values, .join tid)
   | .branch condId thenT elseT =>
-      let condVal ← currentValueWithArmsV1 values blockEntry segmentStart armReadables condId
+      let condVal ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter condId
       unless condVal.isBool do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: branch condition must be Bool"
       let cond ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
       let (thenBody, values1, thenExit) ←
         emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-          loopBounds enclosingHeaders armReadables (fuel - 1) thenT.blockId.toNat values
+          loopBounds enclosingHeaders freeAfter (fuel - 1) thenT.blockId.toNat values
       match thenExit with
       | .latch _ =>
           throw <| .planInvariant .solana
@@ -2281,14 +2465,14 @@ private partial def emitRegionV1
       | .closed =>
           let (elseBody, values2, elseExit) ←
             emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-              loopBounds enclosingHeaders armReadables (fuel - 1) elseT.blockId.toNat values1
+              loopBounds enclosingHeaders freeAfter (fuel - 1) elseT.blockId.toNat values1
           match elseExit with
           | .closed =>
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, .closed)
           | .join j =>
               let (rest, values3, exit) ←
                 emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-                  loopBounds enclosingHeaders armReadables (fuel - 1) j values2
+                  loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
           | .latch _ =>
               throw <| .planInvariant .solana
@@ -2297,12 +2481,12 @@ private partial def emitRegionV1
           if elseT.blockId.toNat == j then
             let (rest, values2, exit) ←
               emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-                loopBounds enclosingHeaders armReadables (fuel - 1) j values1
+                loopBounds enclosingHeaders freeAfter (fuel - 1) j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, exit)
           else
             let (elseBody, values2, elseExit) ←
               emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-                loopBounds enclosingHeaders armReadables (fuel - 1) elseT.blockId.toNat values1
+                loopBounds enclosingHeaders freeAfter (fuel - 1) elseT.blockId.toNat values1
             match elseExit with
             | .join j2 =>
                 unless j == j2 do
@@ -2310,30 +2494,31 @@ private partial def emitRegionV1
                     "unsupported Solana semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, exit) ←
                   emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-                    loopBounds enclosingHeaders armReadables (fuel - 1) j values2
+                    loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
             | .closed =>
                 let (rest, values3, exit) ←
                   emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-                    loopBounds enclosingHeaders armReadables (fuel - 1) j values2
+                    loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
             | .latch _ =>
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: branch else-arm cannot be a raw loop latch"
   | .switch scrutId cases defaultTarget =>
-      let scrutVal ← currentValueWithArmsV1 values blockEntry segmentStart armReadables scrutId
+      let scrutVal ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter scrutId
       let scrut ← consumeCurrentSegmentV1 values blockEntry segmentStart scrutId
       let some defaultT := defaultTarget |
         throw (.planInvariant .solana
           "unsupported Solana semantic shape: switch must carry a default target")
+      let armFree := extendArmReadablesV1 values freeAfter scrutId
       let mut caseBodies : Array (UInt64 × Array Statement) := #[]
       let mut joinAcc : Option Nat := none
       let mut valuesA := values
       for switchCase in cases do
-        let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool switchCase.valueBytes
+        let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool scrutVal.bitWidth switchCase.valueBytes
         let (body, values1, armExit) ←
           emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-            loopBounds enclosingHeaders (armReadables.push scrutId) (fuel - 1)
+            loopBounds enclosingHeaders armFree (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
         valuesA := values1
@@ -2349,7 +2534,7 @@ private partial def emitRegionV1
               "unsupported Solana semantic shape: switch arm cannot be a loop latch"
       let (defaultBody, values2, defaultExit) ←
         emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-          loopBounds enclosingHeaders (armReadables.push scrutId) (fuel - 1)
+          loopBounds enclosingHeaders armFree (fuel - 1)
           defaultT.blockId.toNat valuesA
       match defaultExit, joinAcc with
       | .closed, _ => pure ()
@@ -2367,7 +2552,7 @@ private partial def emitRegionV1
       | some j =>
           let (rest, values3, exit) ←
             emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
-              loopBounds enclosingHeaders armReadables (fuel - 1) j values2
+              loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, exit)
   | .revert errorId argIds =>
       let mut argExprs : Array Expr := #[]

@@ -1413,10 +1413,15 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       let elseText := elseOps.foldl (fun output operation =>
         output ++ renderOperation registers memory events errors fnNames promiseStr
           (indent ++ "  ") operation) ""
-      s!"{indent}(if (local.get $t{condition})\n{indent}  (then\n" ++ thenText ++
-        s!"{indent}  )\n" ++
-        (if elseOps.isEmpty then "" else
-          s!"{indent}  (else\n" ++ elseText ++ s!"{indent}  )\n") ++
+      -- wat2wasm rejects empty `(then)` / `(else)` blocks.
+      let thenBody := if thenText.isEmpty then s!"{indent}    nop\n" else thenText
+      let elseClause :=
+        if elseOps.isEmpty then ""
+        else
+          let elseBody := if elseText.isEmpty then s!"{indent}    nop\n" else elseText
+          s!"{indent}  (else\n" ++ elseBody ++ s!"{indent}  )\n"
+      s!"{indent}(if (local.get $t{condition})\n{indent}  (then\n" ++ thenBody ++
+        s!"{indent}  )\n" ++ elseClause ++
         s!"{indent})\n"
   | .forRegion varTemp initial counterTemp maxIterations
         condOps condition bodyOps updateOps updateValue =>
@@ -1452,20 +1457,27 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         s!"{indent})\n"
   | .switchRegion scrutinee cases defaultOps =>
       -- Right-nested if/else chain: first matching case wins, else default.
+      -- The terminal else branch is plain instructions (not a bare `(then …)`),
+      -- which is invalid WAT (`expected an instr` at nested `(else (then …))`).
       let rec renderCases (indent : String) (remaining : Array (UInt64 × Array Operation)) : String :=
         match remaining.toList with
         | [] =>
-            let defaultText := defaultOps.foldl (fun output operation =>
+            defaultOps.foldl (fun output operation =>
               output ++ renderOperation registers memory events errors fnNames promiseStr
-                (indent ++ "  ") operation) ""
-            s!"{indent}(then\n" ++ defaultText ++ s!"{indent})\n"
+                indent operation) ""
         | (caseValue, caseOps) :: rest =>
             let caseText := caseOps.foldl (fun output operation =>
               output ++ renderOperation registers memory events errors fnNames promiseStr
                 (indent ++ "  ") operation) ""
+            let elseText := renderCases (indent ++ "  ") rest.toArray
+            -- Empty else still needs an instruction for wat2wasm.
+            let elseBody := if elseText.isEmpty then s!"{indent}  nop\n" else elseText
             s!"{indent}(if (i64.eq (local.get $t{scrutinee}) (i64.const {caseValue.toNat}))\n" ++
-              s!"{indent}  (then\n" ++ caseText ++ s!"{indent}  )\n" ++
-              s!"{indent}  (else\n" ++ renderCases (indent ++ "  ") rest.toArray ++
+              s!"{indent}  (then\n" ++
+              (if caseText.isEmpty then s!"{indent}    nop\n" else caseText) ++
+              s!"{indent}  )\n" ++
+              s!"{indent}  (else\n" ++ elseBody ++
+              s!"{indent}  )\n" ++
               s!"{indent})\n"
       match cases.toList with
       | [] =>
@@ -1476,9 +1488,14 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
           let caseText := caseOps.foldl (fun output operation =>
             output ++ renderOperation registers memory events errors fnNames promiseStr
               (indent ++ "  ") operation) ""
+          let elseText := renderCases (indent ++ "  ") rest.toArray
+          let elseBody := if elseText.isEmpty then s!"{indent}  nop\n" else elseText
           s!"{indent}(if (i64.eq (local.get $t{scrutinee}) (i64.const {caseValue.toNat}))\n" ++
-            s!"{indent}  (then\n" ++ caseText ++ s!"{indent}  )\n" ++
-            s!"{indent}  (else\n" ++ renderCases (indent ++ "  ") rest.toArray ++
+            s!"{indent}  (then\n" ++
+            (if caseText.isEmpty then s!"{indent}    nop\n" else caseText) ++
+            s!"{indent}  )\n" ++
+            s!"{indent}  (else\n" ++ elseBody ++
+            s!"{indent}  )\n" ++
             s!"{indent})\n"
 
 private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))

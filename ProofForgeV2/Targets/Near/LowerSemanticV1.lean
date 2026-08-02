@@ -496,15 +496,17 @@ private def nearPlanErr (message : String) : CompileError :=
     under `pilotUintWidthPolicyNearBody` (T9e multiword + T8c/T8b). T12: Principal
     admitted as **storage identity only** (`pilotPrincipalPolicyAdmit`) —
     fixed leaf layout len+8×UInt64 as separate KV fields (≤64B body, same
-    pattern as EVM T10); still not a NEAR account-id string. -/
+    pattern as EVM T10); still not a NEAR account-id string.
+    ArrayState + **Map UInt64 UInt64** dense pilot via
+    `pilotContainerStatePolicyArrayMap` (Array → N×UInt64 leaves; Map →
+    capacity-8×(occ,key,val); Option intermediate for Map IndexGet). -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
-  -- ArrayState: container policy defaults to none — anonymous Array/Map/Bytes
-  -- fail closed at type-closure with an explicit container-pilot diagnostic.
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
     pilotUintWidthPolicyNearBody
     (intPolicy := pilotIntWidthPolicyNarrow)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (containerPolicy := pilotContainerStatePolicyArrayMap)
 
 /-- NEAR pilot Principal storage layout (T12, isomorphic to EVM T10):
     * leaf 0: wire body length (`UInt64`)
@@ -596,8 +598,117 @@ private def mkStateLoadExpr (bitWidth : Nat) (fieldIndex : Nat) : Expr :=
   if bitWidth == 64 then .stateLoad fieldIndex
   else .narrowStateLoad bitWidth fieldIndex
 
+/-- Dense Map pilot capacity (aligned with EVM/Solana Token pilot). -/
+private def nearMapPilotCapacityV1 : Nat := 8
+private def nearMapSlotsPerEntryV1 : Nat := 3
+private def nearMapPilotLeafCountV1 : Nat :=
+  nearMapPilotCapacityV1 * nearMapSlotsPerEntryV1
+
+/-- Array / Map container leaf count. Array: fixed `Array UInt64 N`.
+    Map: dense capacity-8 occ/key/val. Bytes fail closed. -/
+private def arrayUInt64LeafCountV1
+    (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+  unless types.isContainer typeId do
+    return none
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: Array state element must be UInt64"
+      let n := len.toNat
+      unless n ≥ 1 do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: Array state length must be ≥ 1"
+      pure (some n)
+  | some { shape := .map keyTid valTid, .. } =>
+      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: Map state admits only Map UInt64 UInt64"
+      pure (some nearMapPilotLeafCountV1)
+  | some { shape := .bytes _, .. } =>
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: Bytes state is outside the NEAR Array/Map container pilot"
+  | _ =>
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: container TypeId is not Array/Map/Bytes"
+
+/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
+private def mapLookupOptionLeavesV1
+    (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
+  unless mapLeaves.size == nearMapPilotLeafCountV1 do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: Map leaf count must match pilot capacity"
+  let mut found : Expr := .literal 0
+  let mut payload : Expr := .literal 0
+  for e in [0:nearMapPilotCapacityV1] do
+    let base := e * nearMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .near "Map lookup occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      throw <| .planInvariant .near "Map lookup key leaf missing"
+    let some v := mapLeaves[base + 2]? |
+      throw <| .planInvariant .near "Map lookup val leaf missing"
+    let hit := Expr.checkedMul occ (Expr.compare .eq k key)
+    let miss := Expr.boolNot hit
+    found := Expr.boolOr found hit
+    payload :=
+      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
+  pure #[Expr.checkedAdd found (.literal 0), payload]
+
+/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert). -/
+private def mapUpsertLeavesV1
+    (mapLeaves : Array Expr) (key value : Expr) :
+    CompileResult (Array Expr × Expr) := do
+  unless mapLeaves.size == nearMapPilotLeafCountV1 do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: Map leaf count must match pilot capacity"
+  let mut anyMatch : Expr := .literal 0
+  for e in [0:nearMapPilotCapacityV1] do
+    let base := e * nearMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .near "Map upsert occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      throw <| .planInvariant .near "Map upsert key leaf missing"
+    let hit := Expr.checkedMul occ (Expr.compare .eq k key)
+    anyMatch := Expr.boolOr anyMatch hit
+  let mut seenEmpty : Expr := .literal 0
+  let mut isFirstEmpty : Array Expr := #[]
+  for e in [0:nearMapPilotCapacityV1] do
+    let base := e * nearMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .near "Map upsert empty-scan occ missing"
+    let empty := Expr.boolNot occ
+    let first := Expr.checkedMul empty (Expr.boolNot seenEmpty)
+    isFirstEmpty := isFirstEmpty.push first
+    seenEmpty := Expr.boolOr seenEmpty empty
+  let okInsert := Expr.boolOr anyMatch seenEmpty
+  let mut out : Array Expr := #[]
+  for e in [0:nearMapPilotCapacityV1] do
+    let base := e * nearMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .near "Map upsert rebuild occ missing"
+    let some k := mapLeaves[base + 1]? |
+      throw <| .planInvariant .near "Map upsert rebuild key missing"
+    let some v := mapLeaves[base + 2]? |
+      throw <| .planInvariant .near "Map upsert rebuild val missing"
+    let matchHit := Expr.checkedMul occ (Expr.compare .eq k key)
+    let some firstE := isFirstEmpty[e]? |
+      throw <| .planInvariant .near "Map upsert firstEmpty missing"
+    let insertHere := Expr.checkedMul firstE (Expr.boolNot anyMatch)
+    let write := Expr.boolOr matchHit insertHere
+    let miss := Expr.boolNot write
+    let occ' := Expr.checkedAdd (Expr.boolOr occ write) (.literal 0)
+    let k' :=
+      Expr.checkedAdd (Expr.checkedMul write key) (Expr.checkedMul miss k)
+    let v' :=
+      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
+    out := out.push occ' |>.push k' |>.push v'
+  pure (out, okInsert)
+
 private def makeStorageLayoutV1
     (types : NearTypeClosureV1)
+    (typeDecls : Array TypeDeclV1)
     (states : Array StateDeclV1) : CompileResult StorageLayout := do
   if states.isEmpty || states.size > maxStateFields then
     throw <| .planInvariant .near "state count is outside the profile limits"
@@ -608,41 +719,65 @@ private def makeStorageLayoutV1
       throw <| .planInvariant .near "semantic state ids must match declaration order"
     unless isIdentifier state.name do
       throw <| .planInvariant .near s!"state name '{state.name}' is not a safe identifier"
-    if types.isPrincipal state.typeId then
-      -- T12 Principal: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
-      -- ValidatePlan requires sourceId == physical field index (dense).
-      -- Logical state → leaf indices live only in `stateLeaves`.
-      requirePublicUInt64OrInt64OrFieldOrPrincipalState nearPlanErr types state
-        (allowNonPublic := true)
-      let leafSpecs ← flattenPrincipalLeafSpecsV1 state.name
-      if fields.size + leafSpecs.size > maxStateFields then
-        throw <| .planInvariant .near "state count is outside the profile limits"
-      let mut leaves : Array Nat := #[]
-      for leafName in leafSpecs do
-        let fi := fields.size
-        leaves := leaves.push fi
-        fields := fields.push {
-          sourceId := fi
-          name := leafName
-          key := stateKey fi
-          byteWidth := 8
-          endianness := .little
-        }
-      stateLeaves := stateLeaves.push leaves
-    else
-      -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
-      -- KV keys stay one-per-field (no packing); value length is the ABI width.
-      requirePublicNearUintAbiOrInt64State nearPlanErr types state (allowNonPublic := true)
-      let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
-      let fi := fields.size
-      fields := fields.push {
-        sourceId := fi
-        name := state.name
-        key := stateKey fi
-        byteWidth
-        endianness := .little
-      }
-      stateLeaves := stateLeaves.push #[fi]
+    match ← arrayUInt64LeafCountV1 typeDecls types state.typeId with
+    | some n =>
+        -- Array/Map: N consecutive 8-byte UInt64 KV fields; physical names
+        -- `name_0`..`name_{n-1}` keep layout markers deterministic.
+        -- Visibility: same N1 allowNonPublic as scalar state.
+        if fields.size + n > maxStateFields then
+          throw <| .planInvariant .near "state count is outside the profile limits"
+        let mut leaves : Array Nat := #[]
+        for i in [0:n] do
+          let leafName := state.name ++ "_" ++ toString i
+          unless isIdentifier leafName do
+            throw <| .planInvariant .near
+              s!"state name '{leafName}' is not a safe identifier"
+          let fi := fields.size
+          leaves := leaves.push fi
+          fields := fields.push {
+            sourceId := fi
+            name := leafName
+            key := stateKey fi
+            byteWidth := 8
+            endianness := .little
+          }
+        stateLeaves := stateLeaves.push leaves
+    | none =>
+        if types.isPrincipal state.typeId then
+          -- T12 Principal: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
+          -- ValidatePlan requires sourceId == physical field index (dense).
+          -- Logical state → leaf indices live only in `stateLeaves`.
+          requirePublicUInt64OrInt64OrFieldOrPrincipalState nearPlanErr types state
+            (allowNonPublic := true)
+          let leafSpecs ← flattenPrincipalLeafSpecsV1 state.name
+          if fields.size + leafSpecs.size > maxStateFields then
+            throw <| .planInvariant .near "state count is outside the profile limits"
+          let mut leaves : Array Nat := #[]
+          for leafName in leafSpecs do
+            let fi := fields.size
+            leaves := leaves.push fi
+            fields := fields.push {
+              sourceId := fi
+              name := leafName
+              key := stateKey fi
+              byteWidth := 8
+              endianness := .little
+            }
+          stateLeaves := stateLeaves.push leaves
+        else
+          -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
+          -- KV keys stay one-per-field (no packing); value length is the ABI width.
+          requirePublicNearUintAbiOrInt64State nearPlanErr types state (allowNonPublic := true)
+          let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
+          let fi := fields.size
+          fields := fields.push {
+            sourceId := fi
+            name := state.name
+            key := stateKey fi
+            byteWidth
+            endianness := .little
+          }
+          stateLeaves := stateLeaves.push #[fi]
   let marker := layoutMarker fields
   if marker == 0 then
     throw <| .planInvariant .near
@@ -661,8 +796,9 @@ private structure LoweredValueV1 where
   depth : Nat
   expandedNodes : Nat
   dependencies : Array ValueIdV1
-  /-- T12 Principal multi-leaf carrier: `some` = len+8 payload words;
-      `expr` mirrors `leaves[0]!`. Scalar values keep `none`. -/
+  /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-8
+      occ/key/val, or Option `[tag,payload]` from Map IndexGet. `expr` mirrors
+      `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none
   deriving Inhabited
 
@@ -685,6 +821,32 @@ private def mkAggregateValueV1 (leaves : Array Expr) (deps : Array ValueIdV1)
     expandedNodes
     dependencies := deps
     aggregateLeaves := some leaves }
+
+/-- Promote pure ValueIds across effect boundaries (Token dual Map store). -/
+private def promoteDominatingPureV1
+    (blockEntry : Nat) (values : Array LoweredValueV1)
+    (base : Array ValueIdV1) : Array ValueIdV1 := Id.run do
+  let mut out := base
+  for i in [blockEntry:values.size] do
+    let id : ValueIdV1 := UInt32.ofNat i
+    unless out.contains id do
+      out := out.push id
+  pure out
+
+/-- Match-arm free values: scrutinee + dependency closure. -/
+private def extendArmReadablesV1
+    (values : Array LoweredValueV1) (armReadables : Array ValueIdV1)
+    (scrutId : ValueIdV1) : Array ValueIdV1 := Id.run do
+  let mut out := armReadables
+  if !out.contains scrutId then
+    out := out.push scrutId
+  match values[scrutId.toNat]? with
+  | none => pure out
+  | some v =>
+      for d in v.dependencies do
+        if !out.contains d then
+          out := out.push d
+      pure out
 
 private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
     (params : Array ParameterV1) :
@@ -810,6 +972,17 @@ private def findValueV1 (values : Array LoweredValueV1)
   | some value => .ok value
   | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
 
+/-- Require a compile-time UInt32/UInt64 literal index for Array IndexGet/IndexSet. -/
+private def literalIndexNatV1 (v : LoweredValueV1) : CompileResult Nat := do
+  unless v.kind == .uint32 || v.kind == .uint64 do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: Array index must be a UInt32/UInt64 literal"
+  match v.expr with
+  | .literal n => pure n.toNat
+  | _ =>
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: Array IndexGet/IndexSet requires a compile-time constant index"
+
 private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
   decodeUInt64LiteralLe nearPlanErr "NEAR" bytes
 
@@ -831,30 +1004,30 @@ private def comparisonOpOfBinaryV1 (op : BinaryOpV1) : Option ComparisonOp :=
   | .ge => some .ge
   | _ => none
 
-/-- `stableCount` is the prefix of the value table that remains readable across
-    effect segments: callable params, all loop-header block params, and any
-    pre-header values frozen when a loop is entered. -/
+/-- Effect-boundary gate (Solana-aligned): values defined before `blockEntry`
+    dominate this block (params, earlier pure SSA, loop-header temps). Only
+    in-block pure values between `blockEntry` and `segmentStart` are sealed by
+    an effect — unless promoted into `armReadables`. -/
 private def currentValueV1
     (values : Array LoweredValueV1)
-    (stableCount segmentStart : Nat)
+    (blockEntry segmentStart : Nat)
     (id : ValueIdV1) : CompileResult LoweredValueV1 := do
   let index := id.toNat
-  if index >= stableCount && index < segmentStart then
+  if index >= blockEntry && index < segmentStart then
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
-/-- Match-bind arm readability: the scrutinee of an enclosing switch may be
-    referenced by its arm bodies across the (dominating) scrut-block boundary.
-    Loop-stable values (`index < stableCount`) and arm readables are free;
-    all other cross-segment reads still fail at the effect boundary. -/
+/-- Match-bind / free-set readability: scrutinees and pure values promoted
+    across an effect boundary may be referenced even when they fall in the
+    sealed in-block range. Dominating values (`index < blockEntry`) stay free. -/
 private def currentValueWithArmsV1
     (values : Array LoweredValueV1)
-    (stableCount segmentStart : Nat)
+    (blockEntry segmentStart : Nat)
     (armReadables : Array ValueIdV1)
     (id : ValueIdV1) : CompileResult LoweredValueV1 := do
   let index := id.toNat
-  if index >= stableCount && index < segmentStart && !armReadables.contains id then
+  if index >= blockEntry && index < segmentStart && !armReadables.contains id then
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
@@ -1060,13 +1233,14 @@ private def admitUIntWidthResultTypeV1
 
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
-    (stableCount segmentStart : Nat)
+    (blockEntry segmentStart : Nat)
     (root : ValueIdV1) : CompileResult Expr := do
-  let rootValue ← currentValueV1 values stableCount segmentStart root
+  let rootValue ← currentValueV1 values blockEntry segmentStart root
   let segmentCount := values.size - segmentStart
   let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
   let mut stack : Array Nat := #[]
-  if root.toNat >= stableCount then
+  -- Only walk in-block segment values; dominating SSA is already closed.
+  if root.toNat >= segmentStart then
     stack := stack.push root.toNat
   let mut visitedCount := 0
   while !stack.isEmpty do
@@ -1082,11 +1256,14 @@ private def consumeCurrentSegmentV1
       let value := values[index]!
       for dependency in value.dependencies do
         let dependencyIndex := dependency.toNat
-        if dependencyIndex >= stableCount then
-          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+        if dependencyIndex >= segmentStart then
+          unless dependencyIndex < values.size do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: expression crosses an effect boundary"
           stack := stack.push dependencyIndex
+        else if dependencyIndex >= blockEntry then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: expression crosses an effect boundary"
   unless visitedCount == segmentCount do
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: dead or reordered value instructions"
@@ -1097,15 +1274,15 @@ private def consumeCurrentSegmentV1
     least one sink root, mirroring the single-root discipline. -/
 private def consumeSegmentRootsV1
     (values : Array LoweredValueV1)
-    (stableCount segmentStart : Nat)
+    (blockEntry segmentStart : Nat)
     (roots : Array ValueIdV1) : CompileResult Unit := do
   for root in roots do
-    let _ ← currentValueV1 values stableCount segmentStart root
+    let _ ← currentValueV1 values blockEntry segmentStart root
   let segmentCount := values.size - segmentStart
   let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
   let mut stack : Array Nat := #[]
   for root in roots do
-    if root.toNat >= stableCount then
+    if root.toNat >= segmentStart then
       stack := stack.push root.toNat
   let mut visitedCount := 0
   while !stack.isEmpty do
@@ -1121,11 +1298,14 @@ private def consumeSegmentRootsV1
       let value := values[index]!
       for dependency in value.dependencies do
         let dependencyIndex := dependency.toNat
-        if dependencyIndex >= stableCount then
-          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+        if dependencyIndex >= segmentStart then
+          unless dependencyIndex < values.size do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: expression crosses an effect boundary"
           stack := stack.push dependencyIndex
+        else if dependencyIndex >= blockEntry then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: expression crosses an effect boundary"
   unless visitedCount == segmentCount do
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: dead or reordered value instructions"
@@ -1172,6 +1352,7 @@ private structure LoweredBlockV1 where
   statements : Array Statement
   values : Array LoweredValueV1
   segmentStart : Nat
+  armReadables : Array ValueIdV1
 
 private def makeCallFnValueV1
     (fnIndex : Nat)
@@ -1206,10 +1387,11 @@ private def lowerBlockInstructionsV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (types : NearTypeClosureV1)
+    (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
     (fnEnv : NearFnEnvV1)
-    (stableCount : Nat)
-    (armReadables : Array ValueIdV1)
+    (_stableCount : Nat)
+    (armReadables0 : Array ValueIdV1)
     (block : BlockV1)
     (values0 : Array LoweredValueV1) : CompileResult LoweredBlockV1 := do
   -- Block params are admitted only as pre-materialized loop induction slots
@@ -1231,7 +1413,9 @@ private def lowerBlockInstructionsV1
     throw <| .planInvariant .near
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
   let mut values := values0
+  let blockEntry := values0.size
   let mut segmentStart := values0.size
+  let mut armReadables := armReadables0
   let mut body : Array Statement := #[]
   for instruction in block.instructions do
     match instruction.op, instruction.result with
@@ -1306,7 +1490,21 @@ private def lowerBlockInstructionsV1
           | none =>
               -- Legacy 1:1 without stateLeaves: physical index == stateId.
               pure #[stateId.toNat]
-        if types.isPrincipal result.typeId then
+        if types.isContainer result.typeId then
+          let n ← match ← arrayUInt64LeafCountV1 typeDecls types result.typeId with
+            | some n => pure n
+            | none =>
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: container state load is not Array/Map UInt64"
+          unless leafIdxs.size == n do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: Array/Map state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          for fi in leafIdxs do
+            leafExprs := leafExprs.push (.stateLoad fi)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if types.isPrincipal result.typeId then
           unless leafIdxs.size == nearPrincipalDataWordCountV1 + 1 do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: Principal state load leaf count mismatch"
@@ -1341,7 +1539,7 @@ private def lowerBlockInstructionsV1
                   pure w
               | none =>
                   throw <| .planInvariant .near
-                    "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64}, Int64, or Principal"
+                    "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, or Array/Map"
           unless field.byteWidth == byteWidthOfBitWidth bitWidth do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: state load width does not match field layout"
@@ -1362,8 +1560,8 @@ private def lowerBlockInstructionsV1
             dependencies := #[]
           }
     | .binary op lhsId rhsId, some result =>
-        let lhs ← currentValueWithArmsV1 values stableCount segmentStart armReadables lhsId
-        let rhs ← currentValueWithArmsV1 values stableCount segmentStart armReadables rhsId
+        let lhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables lhsId
+        let rhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables rhsId
         if lhs.isAggregate || rhs.isAggregate then
           -- T12 Principal: only == / != via leaf-wise eq.
           match comparisonOpOfBinaryV1 op with
@@ -1571,7 +1769,7 @@ private def lowerBlockInstructionsV1
                   throw <| .planInvariant .near
                     "unsupported NEAR semantic shape: only checked multi-width UInt arith/bitwise, shift, Bool logical, and comparisons are supported"
     | .unary op operandId, some result =>
-        let operand ← currentValueWithArmsV1 values stableCount segmentStart armReadables operandId
+        let operand ← currentValueWithArmsV1 values blockEntry segmentStart armReadables operandId
         match op with
         | .bitNot =>
             if operand.kind == .int64 then
@@ -1654,7 +1852,7 @@ private def lowerBlockInstructionsV1
             "unsupported NEAR semantic shape: pureCall result type does not match the callee"
         let mut argValues : Array LoweredValueV1 := #[]
         for argId in argIds do
-          let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables argId
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
           unless !root.isAggregate && (root.kind == .uint64 || root.kind == .int64) do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: pureCall arguments must be UInt64 or Int64"
@@ -1673,29 +1871,32 @@ private def lowerBlockInstructionsV1
         let leafIdxs ← match layout.stateLeaves[stateId.toNat]? with
           | some ls => pure ls
           | none => pure #[stateId.toNat]
-        let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables valueId
+        let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         if root.isAggregate then
-          -- T12 Principal multi-leaf store.
+          -- Principal / Array / Map multi-leaf store.
+          -- Soft: dual Map stores leave pure values for a later store (Token).
           let leaves := root.leafExprs
           unless leaves.size == leafIdxs.size do
             throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: Principal state store leaf count mismatch"
-          let _ ← consumeCurrentSegmentV1 values stableCount segmentStart valueId
+              "unsupported NEAR semantic shape: aggregate state store leaf count mismatch"
+          let _ ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
           for i in [0:leaves.size] do
             let some fi := leafIdxs[i]? |
-              throw <| .planInvariant .near "Principal state store field missing"
+              throw <| .planInvariant .near "aggregate state store field missing"
             let some leafExpr := leaves[i]? |
-              throw <| .planInvariant .near "Principal state store leaf missing"
+              throw <| .planInvariant .near "aggregate state store leaf missing"
             let field ← match layout.fields[fi]? with
               | some f => pure f
               | none =>
                   throw <| .planInvariant .near
-                    s!"unsupported NEAR semantic shape: Principal store field {fi} missing"
+                    s!"unsupported NEAR semantic shape: aggregate store field {fi} missing"
             body := body.push (.store {
               fieldIndex := fi
               value := leafExpr
               byteWidth := field.byteWidth
             })
+          armReadables := promoteDominatingPureV1 blockEntry values armReadables
+          segmentStart := values.size
         else
           let fi ← match leafIdxs[0]? with
             | some i =>
@@ -1727,23 +1928,25 @@ private def lowerBlockInstructionsV1
             unless isNearAbiUintWidth valueWidth do
               throw <| .planInvariant .near
                 "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int64"
-          let value ← consumeCurrentSegmentV1 values stableCount segmentStart valueId
+          let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
           body := body.push (.store {
             fieldIndex := fi
             value
             byteWidth := field.byteWidth
           })
-        segmentStart := values.size
+          armReadables := promoteDominatingPureV1 blockEntry values armReadables
+          segmentStart := values.size
     | .assert_ condId errorId args, none =>
         unless errorId.isNone && args.isEmpty do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: assert must use errorId=none and empty args"
-        let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables condId
+        let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables condId
         unless root.kind == .bool do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: assert condition must be Bool"
-        let condition ← consumeCurrentSegmentV1 values stableCount segmentStart condId
+        let condition ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
         body := body.push (.assert condition)
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
     | .emit _effectId eventId argIds, none =>
         if mode == .view then
@@ -1754,15 +1957,16 @@ private def lowerBlockInstructionsV1
             "unsupported NEAR semantic shape: pureFn cannot emit events"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
-          let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables argId
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
           unless root.kind == .uint64 do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: event arguments must be UInt64"
           argExprs := argExprs.push root.expr
         -- Multi-root effect boundary: every value produced in the current
         -- segment must be reachable from at least one argument tree.
-        let _ ← consumeSegmentRootsV1 values stableCount segmentStart argIds
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
         body := body.push (.emitEvent eventId.toNat argExprs)
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
     | .externalCall _effectId _callee _argIds, none =>
         -- NEAR has no synchronous cross-contract calls. The S2 resolver already
@@ -1789,14 +1993,165 @@ private def lowerBlockInstructionsV1
             s!"schedule method '{method}' is not a safe identifier"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
-          let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables argId
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
           unless root.kind == .uint64 do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: schedule arguments must be UInt64"
           argExprs := argExprs.push root.expr
-        let _ ← consumeSegmentRootsV1 values stableCount segmentStart argIds
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
         body := body.push (.promiseAccount receiver method argExprs)
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
+    -- Array construct N args, or Map.empty (ctor 0, 0 args → dense zero leaves).
+    | .construct typeId ctorIdx argIds, some result => do
+        unless result.typeId == typeId do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: construct result typeId must match op typeId"
+        let n ← match ← arrayUInt64LeafCountV1 typeDecls types typeId with
+          | some n => pure n
+          | none =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: construct admits only Array/Map UInt64 on NEAR"
+        unless ctorIdx == 0 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: Array/Map construct ctorIdx must be 0"
+        if n == nearMapPilotLeafCountV1 && argIds.isEmpty then
+          let mut zeros : Array Expr := #[]
+          for _ in [0:n] do
+            zeros := zeros.push (.literal 0)
+          let value := mkAggregateValueV1 zeros #[] 1 n
+          values := ← appendResultValueV1 result.typeId values result value
+        else do
+          unless argIds.size == n do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: Array construct arity mismatch"
+          let mut leafExprs : Array Expr := #[]
+          let mut deps : Array ValueIdV1 := #[]
+          let mut depth : Nat := 1
+          let mut nodes : Nat := 0
+          for argId in argIds do
+            let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+            unless !arg.isAggregate && arg.kind == .uint64 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: Array construct args must be scalar UInt64"
+            leafExprs := leafExprs.push arg.expr
+            deps := deps.push argId
+            depth := Nat.max depth (arg.depth + 1)
+            nodes := nodes + arg.expandedNodes
+          let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
+          values := ← appendResultValueV1 result.typeId values result value
+    | .indexGet baseId idxId, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        unless base.isAggregate do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: IndexGet base must be an Array/Map aggregate"
+        let idx ← currentValueWithArmsV1 values blockEntry segmentStart armReadables idxId
+        if base.leafExprs.size == nearMapPilotLeafCountV1 then
+          let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+          let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
+            (Nat.max base.depth idx.depth + 1)
+            (base.expandedNodes + idx.expandedNodes + 1)
+          values := ← appendResultValueV1 result.typeId values result value
+        else do
+          let i ← literalIndexNatV1 idx
+          let leaves := base.leafExprs
+          unless i < leaves.size do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: Array IndexGet index out of range"
+          let some leaf := leaves[i]? |
+            throw <| .planInvariant .near "Array IndexGet leaf missing"
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: Array IndexGet result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := leaf
+            kind := .uint64
+            depth := base.depth + 1
+            expandedNodes := base.expandedNodes + 1
+            dependencies := #[baseId, idxId]
+          }
+    | .indexSet baseId idxId valueId, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        unless base.isAggregate do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: IndexSet base must be an Array/Map aggregate"
+        unless types.isContainer result.typeId do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: IndexSet result must be Array/Map container"
+        let idx ← currentValueWithArmsV1 values blockEntry segmentStart armReadables idxId
+        let val ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
+        unless !val.isAggregate && val.kind == .uint64 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: Array/Map IndexSet value must be scalar UInt64"
+        if base.leafExprs.size == nearMapPilotLeafCountV1 then
+          let (outLeaves0, okInsert) ←
+            mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+          let gate := Expr.checkedDiv (.literal 1) okInsert
+          let mut outLeaves : Array Expr := #[]
+          for i in [0:outLeaves0.size] do
+            let some e := outLeaves0[i]? |
+              throw <| .planInvariant .near "Map IndexSet leaf missing after upsert"
+            let e' :=
+              if i == 0 then
+                Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
+              else e
+            outLeaves := outLeaves.push e'
+          let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
+            (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
+            (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
+          values := ← appendResultValueV1 result.typeId values result value
+        else do
+          let i ← literalIndexNatV1 idx
+          let leaves := base.leafExprs
+          unless i < leaves.size do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: Array IndexSet index out of range"
+          let mut outLeaves : Array Expr := #[]
+          for j in [0:leaves.size] do
+            if j == i then
+              outLeaves := outLeaves.push val.expr
+            else
+              let some e := leaves[j]? |
+                throw <| .planInvariant .near "Array IndexSet leaf missing"
+              outLeaves := outLeaves.push e
+          let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
+            (Nat.max base.depth val.depth + 1)
+            (base.expandedNodes + val.expandedNodes + 1)
+          values := ← appendResultValueV1 result.typeId values result value
+    | .fieldGet .., some _ | .fieldSet .., some _ =>
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: named Struct/Enum field ops are outside the NEAR container pilot (named aggregates declined)"
+    | .variantTag baseId, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        unless base.isAggregate && base.leafExprs.size == 2 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: variantTag admits only Option (2-leaf) from Map IndexGet"
+        let some tag := base.leafExprs[0]? |
+          throw <| .planInvariant .near "Option variantTag leaf missing"
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := tag
+          kind := .uint32
+          depth := base.depth + 1
+          expandedNodes := base.expandedNodes + 1
+          dependencies := #[baseId]
+        }
+    | .variantPayload baseId _variantIdx _payloadIdx, some result => do
+        let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
+        unless base.isAggregate && base.leafExprs.size == 2 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: variantPayload admits only Option (2-leaf) from Map IndexGet"
+        let some payload := base.leafExprs[1]? |
+          throw <| .planInvariant .near "Option variantPayload leaf missing"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: Option variantPayload must be UInt64"
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := payload
+          kind := .uint64
+          depth := base.depth + 1
+          expandedNodes := base.expandedNodes + 1
+          dependencies := #[baseId]
+        }
     -- N5: Commit = identity passthrough; ContextRead declined (no clock ABI).
     | .commit valueId, some result => do
         unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
@@ -1809,6 +2164,7 @@ private def lowerBlockInstructionsV1
           depth := operand.depth + 1
           expandedNodes := operand.expandedNodes + 1
           dependencies := operand.dependencies.push valueId
+          aggregateLeaves := operand.aggregateLeaves
         }
     | .contextRead key, some _ =>
         unless key == unixTimeSecondsContextKeyV1 do
@@ -1819,14 +2175,17 @@ private def lowerBlockInstructionsV1
     | _, _ =>
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: instruction op/result is outside the current UInt64 pilot"
-  pure { statements := body, values, segmentStart }
+  pure { statements := body, values, segmentStart, armReadables }
 
-/-- Decode a switch case constant against the scrutinee kind. -/
-private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bytes : ByteArray) :
-    CompileResult UInt64 := do
+/-- Decode a switch case constant against the scrutinee kind.
+    UInt32 covers Option.variantTag from Map IndexGet. -/
+private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (scrutIsUInt32 : Bool)
+    (bytes : ByteArray) : CompileResult UInt64 := do
   if scrutIsBool then
     let bit ← decodeBoolLiteralV1 bytes
     pure (if bit then 1 else 0)
+  else if scrutIsUInt32 then
+    decodeUInt32LiteralV1 bytes
   else
     decodeUInt64LiteralV1 bytes
 
@@ -1904,6 +2263,7 @@ private partial def emitRegionV1
     (mode : SemanticCallableModeV1)
     (expectedReturn : Option NearValueKindV1)
     (types : NearTypeClosureV1)
+    (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
     (fnEnv : NearFnEnvV1)
     (blocks : Array BlockV1)
@@ -1941,10 +2301,12 @@ private partial def emitRegionV1
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: loop header must be entered via its pre-header jump"
   let lowered ← lowerBlockInstructionsV1
-    owner mode types layout fnEnv stableCount armReadables block values0
+    owner mode types typeDecls layout fnEnv stableCount armReadables block values0
   let instrs := lowered.statements
   let values := lowered.values
   let segmentStart := lowered.segmentStart
+  let freeAfter := lowered.armReadables
+  let blockEntry := values0.size
   match block.terminator with
   | .return_ (some valueId) =>
       match mode with
@@ -1956,10 +2318,10 @@ private partial def emitRegionV1
             | none =>
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: entry/view/pureFn is missing expected return kind"
-          let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables valueId
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
           if root.isAggregate then
             throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: multi-leaf Principal cannot be returned (ABI is scalar)"
+              "unsupported NEAR semantic shape: multi-leaf aggregate cannot be returned (ABI is scalar)"
           unless root.kind == expectedKind do
             let expectedLabel :=
               match expectedKind with
@@ -1973,7 +2335,7 @@ private partial def emitRegionV1
               | .int64 => "Int64"
             throw <| .planInvariant .near
               s!"unsupported NEAR semantic shape: return value must be {expectedLabel}"
-          let value ← consumeCurrentSegmentV1 values stableCount segmentStart valueId
+          let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
           pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
   | .return_ none =>
       unless expectedReturn.isNone do
@@ -1995,7 +2357,7 @@ private partial def emitRegionV1
             "unsupported NEAR semantic shape: loop latch must carry exactly one induction arg"
         -- Latch args may reference the just-produced increment; do not require
         -- the segment to be empty — the update expr is recovered from args.
-        let _ ← currentValueWithArmsV1 values stableCount segmentStart armReadables target.args[0]!
+        let _ ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter target.args[0]!
         pure (instrs, values, nextLocal0, .latch target.args)
       else if isLoopHeaderV1 loopBounds targetId then
         -- Enter a (possibly nested) bounded for-loop.
@@ -2006,7 +2368,7 @@ private partial def emitRegionV1
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: loop pre-header must jump with one start arg"
         let initRoot ←
-          currentValueWithArmsV1 values stableCount segmentStart armReadables target.args[0]!
+          currentValueWithArmsV1 values blockEntry segmentStart freeAfter target.args[0]!
         unless initRoot.kind == .uint64 do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: loop start value must be UInt64"
@@ -2037,28 +2399,31 @@ private partial def emitRegionV1
           dependencies := #[]
         }
         let mut valuesH := values.set! inductionVid.toNat inductionSlot
+        let freeH := freeAfter
+        let headerBlockEntry := valuesH.size
         let loweredH ← lowerBlockInstructionsV1
-          owner mode types layout fnEnv loopStable armReadables header valuesH
+          owner mode types typeDecls layout fnEnv loopStable freeH header valuesH
         valuesH := loweredH.values
         let headerSeg := loweredH.segmentStart
+        let freeHeader := loweredH.armReadables
         unless loweredH.statements.isEmpty do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: loop header may not contain effect instructions"
         let loopResult ← match header.terminator with
           | .branch condId thenT elseT => do
               let condRoot ←
-                currentValueWithArmsV1 valuesH loopStable headerSeg armReadables condId
+                currentValueWithArmsV1 valuesH headerBlockEntry headerSeg freeHeader condId
               unless condRoot.kind == .bool do
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: loop condition must be Bool"
-              let cond ← consumeCurrentSegmentV1 valuesH loopStable headerSeg condId
+              let cond ← consumeCurrentSegmentV1 valuesH headerBlockEntry headerSeg condId
               unless thenT.args.isEmpty && elseT.args.isEmpty do
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: loop branch targets must carry empty args"
               -- Body region ends at the latch (jump back to this header).
               let (bodyStmts, valuesB, nextLocal2, bodyCont) ←
-                emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-                  loopStable nextLocal1 (some targetId) armReadables (fuel - 1)
+                emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                  loopStable nextLocal1 (some targetId) freeHeader (fuel - 1)
                   thenT.blockId.toNat valuesH
               let updateArgs ← match bodyCont with
                 | .latch args => pure args
@@ -2082,8 +2447,8 @@ private partial def emitRegionV1
                 .forLoop varTemp initial cond update lb.maxIterations.toNat bodyStmts
               -- Continue the enclosing walk at the exit (else target).
               let (rest, valuesE, nextLocal3, exitCont) ←
-                emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-                  loopStable nextLocal2 enclosingHeader armReadables (fuel - 1)
+                emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                  loopStable nextLocal2 enclosingHeader freeHeader (fuel - 1)
                   elseT.blockId.toNat valuesB
               pure (instrs ++ #[forStmt] ++ rest, valuesE, nextLocal3, exitCont)
           | _ =>
@@ -2100,14 +2465,14 @@ private partial def emitRegionV1
             "unsupported NEAR semantic shape: block has unconsumed values"
         pure (instrs, values, nextLocal0, .join targetId)
   | .branch condId thenT elseT =>
-      let condRoot ← currentValueWithArmsV1 values stableCount segmentStart armReadables condId
+      let condRoot ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter condId
       unless condRoot.kind == .bool do
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: branch condition must be Bool"
-      let cond ← consumeCurrentSegmentV1 values stableCount segmentStart condId
+      let cond ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
       let (thenBody, values1, nextLocal1, thenNext) ←
-        emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-          stableCount nextLocal0 enclosingHeader armReadables (fuel - 1)
+        emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+          stableCount nextLocal0 enclosingHeader freeAfter (fuel - 1)
           thenT.blockId.toNat values
       -- A latch may only arise on the then-arm of a loop header (handled
       -- above); diamond arms must not latch.
@@ -2121,13 +2486,13 @@ private partial def emitRegionV1
       | some j =>
           if elseT.blockId.toNat == j then
             let (rest, values2, nextLocal2, next) ←
-              emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-                stableCount nextLocal1 enclosingHeader armReadables (fuel - 1) j values1
+              emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                stableCount nextLocal1 enclosingHeader freeAfter (fuel - 1) j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, nextLocal2, next)
           else
             let (elseBody, values2, nextLocal2, elseNext) ←
-              emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-                stableCount nextLocal1 enclosingHeader armReadables (fuel - 1)
+              emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                stableCount nextLocal1 enclosingHeader freeAfter (fuel - 1)
                 elseT.blockId.toNat values1
             let elseJoin ← match elseNext with
               | .latch _ =>
@@ -2141,20 +2506,20 @@ private partial def emitRegionV1
                   throw <| .planInvariant .near
                     "unsupported NEAR semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, nextLocal3, next) ←
-                  emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-                    stableCount nextLocal2 enclosingHeader armReadables (fuel - 1) j values2
+                  emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                    stableCount nextLocal2 enclosingHeader freeAfter (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
                   values3, nextLocal3, next)
             | none =>
                 let (rest, values3, nextLocal3, next) ←
-                  emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-                    stableCount nextLocal2 enclosingHeader armReadables (fuel - 1) j values2
+                  emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                    stableCount nextLocal2 enclosingHeader freeAfter (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
                   values3, nextLocal3, next)
       | none =>
           let (elseBody, values2, nextLocal2, elseNext) ←
-            emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-              stableCount nextLocal1 enclosingHeader armReadables (fuel - 1)
+            emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+              stableCount nextLocal1 enclosingHeader freeAfter (fuel - 1)
               elseT.blockId.toNat values1
           match elseNext with
           | .latch _ =>
@@ -2165,21 +2530,23 @@ private partial def emitRegionV1
           | .join j =>
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, nextLocal2, .join j)
   | .switch scrutId cases defaultTarget =>
-      let scrutVal ← currentValueWithArmsV1 values stableCount segmentStart armReadables scrutId
-      let scrut ← consumeCurrentSegmentV1 values stableCount segmentStart scrutId
+      let scrutVal ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter scrutId
+      let scrut ← consumeCurrentSegmentV1 values blockEntry segmentStart scrutId
       let some defaultT := defaultTarget |
         throw (.planInvariant .near
           "unsupported NEAR semantic shape: switch must carry a default target")
       let scrutIsBool := scrutVal.kind == .bool
+      let scrutIsUInt32 := scrutVal.kind == .uint32
+      let armFree := extendArmReadablesV1 values freeAfter scrutId
       let mut caseBodies : Array (UInt64 × Array Statement) := #[]
       let mut joinAcc : Option Nat := none
       let mut valuesA := values
       let mut nextLocalA := nextLocal0
       for switchCase in cases do
-        let caseValue ← decodeSwitchCaseValueV1 scrutIsBool switchCase.valueBytes
+        let caseValue ← decodeSwitchCaseValueV1 scrutIsBool scrutIsUInt32 switchCase.valueBytes
         let (body, values1, nextLocal1, armNext) ←
-          emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-            stableCount nextLocalA enclosingHeader (armReadables.push scrutId) (fuel - 1)
+          emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+            stableCount nextLocalA enclosingHeader armFree (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
         valuesA := values1
@@ -2195,8 +2562,8 @@ private partial def emitRegionV1
               throw <| .planInvariant .near
                 "unsupported NEAR semantic shape: switch arms converge on divergent joins"
       let (defaultBody, values2, nextLocal2, defaultNext) ←
-        emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-          stableCount nextLocalA enclosingHeader (armReadables.push scrutId) (fuel - 1)
+        emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+          stableCount nextLocalA enclosingHeader armFree (fuel - 1)
           defaultT.blockId.toNat valuesA
       match defaultNext, joinAcc with
       | .closed, _ => pure ()
@@ -2213,19 +2580,19 @@ private partial def emitRegionV1
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, nextLocal2, .closed)
       | some j =>
           let (rest, values3, nextLocal3, next) ←
-            emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
-              stableCount nextLocal2 enclosingHeader armReadables (fuel - 1) j values2
+            emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+              stableCount nextLocal2 enclosingHeader freeAfter (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
             values3, nextLocal3, next)
   | .revert errorId argIds =>
       let mut argExprs : Array Expr := #[]
       for argId in argIds do
-        let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables argId
+        let root ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter argId
         unless root.kind == .uint64 do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: revert arguments must be UInt64"
         argExprs := argExprs.push root.expr
-      let _ ← consumeSegmentRootsV1 values stableCount segmentStart argIds
+      let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
       pure (instrs.push (.revertError errorId.toNat argExprs), values, nextLocal0, .closed)
   | .trap _ =>
       throw <| .planInvariant .near
@@ -2236,6 +2603,7 @@ private def lowerCallableV1
     (mode : SemanticCallableModeV1)
     (expectedReturn : Option NearValueKindV1)
     (types : NearTypeClosureV1)
+    (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
     (fnEnv : NearFnEnvV1)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
@@ -2258,7 +2626,7 @@ private def lowerCallableV1
     }
   let stableCount0 := valuesInit.size
   let (body0, values0, _nextLocal0, cont0) ←
-    emitRegionV1 owner mode expectedReturn types layout fnEnv callable.blocks
+    emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv callable.blocks
       callable.loopBounds stableCount0 0 none #[] callable.blocks.size 0 valuesInit
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
@@ -2275,7 +2643,7 @@ private def lowerCallableV1
           "unsupported NEAR semantic shape: loop latch escaped its body walk"
     | .join j =>
         let (rest, values1, nextLocal1, next1) ←
-          emitRegionV1 owner mode expectedReturn types layout fnEnv callable.blocks
+          emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv callable.blocks
             callable.loopBounds stableCount0 nextLocal none #[]
             callable.blocks.size j values
         body := body ++ rest
@@ -2293,6 +2661,7 @@ private def lowerCallableV1
 
 private def makeInitializerV1
     (types : NearTypeClosureV1)
+    (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
     (fnEnv : NearFnEnvV1)
     (callable : CallableV1) : CompileResult Method := do
@@ -2306,7 +2675,8 @@ private def makeInitializerV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "initializer" .initialize none types layout fnEnv callable
+  let lowered ←
+    lowerCallableV1 "initializer" .initialize none types typeDecls layout fnEnv callable
   pure {
     name := "init"
     params := lowered.params
@@ -2319,6 +2689,7 @@ private def makeInitializerV1
 
 private def makeEntryV1
     (types : NearTypeClosureV1)
+    (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
     (fnEnv : NearFnEnvV1)
     (callable : CallableV1) : CompileResult Method := do
@@ -2367,7 +2738,8 @@ private def makeEntryV1
     | .initialize => .initialize
     | .pureFn => .mutate
   let lowered ←
-    lowerCallableV1 s!"entry '{name}'" semanticMode expectedReturn types layout fnEnv callable
+    lowerCallableV1 s!"entry '{name}'" semanticMode expectedReturn types typeDecls layout fnEnv
+      callable
   pure {
     name
     params := lowered.params
@@ -2380,6 +2752,7 @@ private def makeEntryV1
 
 private def makePureFnV1
     (types : NearTypeClosureV1)
+    (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
     (fnEnv : NearFnEnvV1)
     (callable : CallableV1) : CompileResult FnBinding := do
@@ -2400,7 +2773,8 @@ private def makePureFnV1
       throw <| .planInvariant .near
         s!"pureFn '{name}' does not return public UInt64 or Bool"
   let lowered ←
-    lowerCallableV1 s!"pureFn '{name}'" .pureFn (some expectedReturn) types layout fnEnv callable
+    lowerCallableV1 s!"pureFn '{name}'" .pureFn (some expectedReturn) types typeDecls layout fnEnv
+      callable
   pure {
     name
     params := lowered.params
@@ -2485,7 +2859,8 @@ private def makePlanFromSemanticDataV1
     throw <| .planInvariant .near
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
   let types ← validateNearTypeClosureV1 source.types
-  let storage ← makeStorageLayoutV1 types source.logicalState
+  let typeDecls := source.types
+  let storage ← makeStorageLayoutV1 types typeDecls source.logicalState
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>
@@ -2501,15 +2876,15 @@ private def makePlanFromSemanticDataV1
     | .initializer =>
         if initializer.isSome then
           throw <| .planInvariant .near "semantic program has multiple initializers"
-        initializer := some (← makeInitializerV1 types storage fnEnv callable)
+        initializer := some (← makeInitializerV1 types typeDecls storage fnEnv callable)
     | .entry | .view =>
         if entries.size >= maxEntries then
           throw <| .planInvariant .near s!"entry count exceeds profile limit {maxEntries}"
-        entries := entries.push (← makeEntryV1 types storage fnEnv callable)
+        entries := entries.push (← makeEntryV1 types typeDecls storage fnEnv callable)
     | .pureFn =>
         if fns.size >= maxEntries then
           throw <| .planInvariant .near s!"pureFn count exceeds profile limit {maxEntries}"
-        fns := fns.push (← makePureFnV1 types storage fnEnv callable)
+        fns := fns.push (← makePureFnV1 types typeDecls storage fnEnv callable)
     | .invariant =>
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: invariants are outside the current UInt64 pilot"

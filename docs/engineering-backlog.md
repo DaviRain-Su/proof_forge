@@ -135,7 +135,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 
 | ID | 项 | 说明 | 状态 |
 |---|---|---|---|
-| **NS-1** | Fungible Token 四 target | 验证“写一次跨链物化”；共享 N-1/N-2/B-3 前置 | **done**（2026-08-02：`Examples/Token` Map UInt64 余额 + mint/transfer/balanceOf；product check 绿；**EVM dense Map pilot deployable**（capacity-8 occ/key/val + Option match）；solana/near/noir Map Plan 仍 FAIL-CLOSED 钉测 `Tests.Product.TokenV1`；Principal 键与三 target Map lower 仍后续；**非** 四链部署/IBC） |
+| **NS-1** | Fungible Token 四 target | 验证“写一次跨链物化”；共享 N-1/N-2/B-3 前置 | **done**（2026-08-02：`Examples/Token`；product check 绿；**EVM deployable + Solana plan** dense Map pilot cap-8；near/noir Map 仍 FC；`TokenV1` 钉测；**非** 四链 deployable/IBC） |
 | **NS-2** | packet mailbox 最小件 | IBC-flavored 子集 | pending |
 | **NS-3** | 真 IBC 模块栈 | 长期；依赖 crypto | wontfix-until-NS-1 |
 | **EXT-CRYPTO** | `extension.crypto`（SHA-256 / Merkle / 签名） | IBC 与大量链上逻辑命脉；capability 矩阵 | pending（设计后单独立项） |
@@ -233,7 +233,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **B-1a** | NEAR named 聚合 + Array/容器 lower 或显式 FAIL-CLOSED+测 | `Targets/Near/**` | **done**（`4c79e0a59` NearAggregate） |
 | **B-1b** | Noir named 聚合 | Noir/** | **done**（`61b7dff09`） |
 | **B-1c** | Aleo 覆盖核对 + 显式边界 | Aleo/** | **done**（`04fe6e815`） |
-| **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array-only container pilot；Map/Bytes planInvariant；Targets decline tests） |
+| **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array + **Map UInt64 dense pilot** cap-8 + Token plan；Bytes 仍 FC；Option 中间值自 Map IndexGet） |
 | **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2 LOWERED；**Map UInt64→UInt64 dense pilot** capacity-8 + Token deployable；Option-from-Map IndexGet；Solana/NEAR/Noir Map 仍 FC） |
 | **B-3** | Principal → address，解锁 EVM/Solana call/schedule | Envelope + EVM/Solana | **done**（2026-08-02：sole research pin `4ecb4f86e` PrincipalAddr — wire Principal ≠ EVM 20B / Solana 32B pubkey；no CALL/CPI unlock；`pilotPrincipalPolicyNone`；docs close） |
 | **B-ctx** | ContextRead 各 target Plan：保持 fail-closed 并补齐负向测 | 四 target | **done**（2026-08-02：unixTime + caller 五 target materialize decline 钉测） |

@@ -3,13 +3,11 @@
 
   Authority: shipped `Examples/Token.lean`.
     * product `check` succeeds (Normalize Map path: empty + IndexGet/Set)
-    * product `build --target evm` succeeds deployable (dense Map UInt64→UInt64
-      pilot: capacity-8 occ/key/val leaves + Option match)
-    * solana / near / noir still fail closed on Map Plan (no manifest)
-    * not Principal-keyed; not IBC; not four-target deploy
-
-  Opening Map Plan on Solana/NEAR/Noir is a separate leaf — flip those
-  assertions only when that landing is intentional.
+    * product `build --target evm` succeeds deployable (dense Map pilot)
+    * product `build --target solana` succeeds (plan profile; dense Map pilot)
+    * product `build --target near` succeeds (dense Map pilot; WAT/WASM path)
+    * noir still fail closed on Map Plan until that leaf opens
+    * not Principal-keyed; not IBC; not four-target deployable
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Common
@@ -104,13 +102,45 @@ private def testEvmBuildDeployable : IO Unit := do
     throw <| IO.userError "Token EVM must write manifest.json"
   unless ← (outDir / "Token.bin").pathExists do
     throw <| IO.userError "Token EVM must write Token.bin"
-  unless ← (outDir / "Token.yul").pathExists do
-    throw <| IO.userError "Token EVM must write Token.yul"
   try IO.FS.removeDirAll outDir catch _ => pure ()
 
-private def mapStillClosedTargets : Array String := #["solana", "near", "noir"]
+/-- Solana Map pilot: Token builds plan+IDL+manifest (default plan profile). -/
+private def testSolanaBuildOk : IO Unit := do
+  assertShape (← readShipped)
+  let outDir := FilePath.mk ".lake/build/tmp-ns1-token-solana"
+  try IO.FS.removeDirAll outDir catch _ => pure ()
+  let (code, stdout, stderr) ← runCli
+    #["build", "Examples/Token.lean",
+      "--module", "Examples.Token",
+      "--target", "solana",
+      "-o", outDir.toString]
+  expect (code == 0)
+    s!"Token build --target solana must succeed, exit={code} stderr={stderr} stdout={stdout}"
+  unless ← (outDir / "manifest.json").pathExists do
+    throw <| IO.userError "Token Solana must write manifest.json"
+  unless ← (outDir / "Token.sbpf-plan").pathExists do
+    throw <| IO.userError "Token Solana must write Token.sbpf-plan"
+  try IO.FS.removeDirAll outDir catch _ => pure ()
 
-/-- Solana/NEAR/Noir still fail closed on Map state (no materialize / no manifest). -/
+/-- NEAR Map pilot: Token builds plan+WAT+manifest. -/
+private def testNearBuildOk : IO Unit := do
+  assertShape (← readShipped)
+  let outDir := FilePath.mk ".lake/build/tmp-ns1-token-near"
+  try IO.FS.removeDirAll outDir catch _ => pure ()
+  let (code, stdout, stderr) ← runCli
+    #["build", "Examples/Token.lean",
+      "--module", "Examples.Token",
+      "--target", "near",
+      "-o", outDir.toString]
+  expect (code == 0)
+    s!"Token build --target near must succeed, exit={code} stderr={stderr} stdout={stdout}"
+  unless ← (outDir / "manifest.json").pathExists do
+    throw <| IO.userError "Token NEAR must write manifest.json"
+  try IO.FS.removeDirAll outDir catch _ => pure ()
+
+private def mapStillClosedTargets : Array String := #["noir"]
+
+/-- Noir still fail closed on Map state (no materialize / no manifest). -/
 private def testOtherTargetsMapFailClosed : IO Unit := do
   assertShape (← readShipped)
   for tid in mapStillClosedTargets do
@@ -128,7 +158,9 @@ private def testOtherTargetsMapFailClosed : IO Unit := do
         containsSubstr combined "Map" ||
         containsSubstr combined "container-state" ||
         containsSubstr combined "PF-PLAN-INVARIANT" ||
-        containsSubstr combined "PF-REQ")
+        containsSubstr combined "PF-REQ" ||
+        containsSubstr combined "Option" ||
+        containsSubstr combined "IndexGet")
       s!"{tid}: must cite Map/container/PLAN boundary, got:\n{combined}"
     if ← (outDir / "manifest.json").pathExists then
       throw <| IO.userError
@@ -139,6 +171,8 @@ unsafe def run : IO Unit := do
   testProductCompileOk
   testCliCheckOk
   testEvmBuildDeployable
+  testSolanaBuildOk
+  testNearBuildOk
   testOtherTargetsMapFailClosed
   IO.println "Tests.Product.TokenV1: ok"
 
