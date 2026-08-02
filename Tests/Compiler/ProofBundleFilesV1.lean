@@ -35,6 +35,9 @@ private def manifest (path : String) (contents : ByteArray) : IO ProofBundleMani
   let moduleName ← qn #["Bundle", "Root"]
   let abiModuleName ← qn proofAbiModuleComponentsV1
   let theoremName ← qn proofAbiTheoremComponentsV1
+  let trustPolicyDigest ← match proofTrustPolicyDigestV1 with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"trust policy: {repr error}"
   let moduleRow : ProofModuleV1 := {
     moduleName, oleanPath := path, oleanDigest := sha256Bytes contents, imports := #[] }
   let exportRow : ProofExportV1 := {
@@ -59,7 +62,7 @@ private def manifest (path : String) (contents : ByteArray) : IO ProofBundleMani
       moduleName := abiModuleName
       theoremName
       abiOleanDigest := digest 0x55
-      trustPolicyDigest := digest 0x66
+      trustPolicyDigest
       trustedBaseClosureDigest := digest 0x77 }
     roots, modules, exports }
 

@@ -32,11 +32,17 @@ private def qn (comps : Array String) : IO QualifiedName :=
 private def fixedDigest (tag : UInt8) : Digest :=
   sha256Bytes (ByteArray.mk #[tag, 1, 2, 3])
 
+private def fixedTrustPolicyDigest : IO Digest :=
+  match proofTrustPolicyDigestV1 with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError s!"trust policy: {repr error}"
+
 private def mkMinimalManifest (oleanPath : String) (oleanDigest : Digest) :
     IO ProofBundleManifestV1 := do
   let abiModuleName ← qn proofAbiModuleComponentsV1
   let theoremName ← qn proofAbiTheoremComponentsV1
   let moduleName ← qn #["Bundle", "Root"]
+  let trustPolicyDigest ← fixedTrustPolicyDigest
   let mod : ProofModuleV1 := {
     moduleName
     oleanPath
@@ -69,7 +75,7 @@ private def mkMinimalManifest (oleanPath : String) (oleanDigest : Digest) :
       moduleName := abiModuleName
       theoremName
       abiOleanDigest := fixedDigest 0x55
-      trustPolicyDigest := fixedDigest 0x66
+      trustPolicyDigest
       trustedBaseClosureDigest := fixedDigest 0x77
     }
     roots
@@ -270,6 +276,16 @@ private def testManifestAuthorityShape : IO Unit := do
   let bytes := ByteArray.mk #[1]
   let path := "modules/Bundle/Root.olean"
   let base ← mkMinimalManifest path (sha256Bytes bytes)
+  let trustPolicyDigest ← fixedTrustPolicyDigest
+  let trustPolicyWire ← match renderDigest trustPolicyDigest with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  expect (trustPolicyWire ==
+      "sha256:68aece0ab5ed11e0010e6ba01153f01872008735add20a656c085af73a242d2c")
+    "fixed trust-policy digest"
+  expectManifestMalformed "foreign trust policy" { base with
+      proofAbi := { base.proofAbi with trustPolicyDigest := fixedDigest 0x66 } }
+    "trustPolicyDigest"
   let baseModule := base.modules.head
   expect (proofModuleOleanPathV1 baseModule.moduleName == path)
     "module path derived from qualified name"

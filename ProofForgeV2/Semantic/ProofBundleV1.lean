@@ -42,6 +42,27 @@ def proofAbiModuleComponentsV1 : Array String :=
 def proofAbiTheoremComponentsV1 : Array String :=
   #["ProofForgeV2", "Semantic", "InvariantABI", "InvariantTheoremV1"]
 
+/-- Fixed compiler-owned declaration trust-policy identity domain. -/
+def proofTrustPolicySchemaV1 : String := "proof-forge.proof-trust-policy.v1"
+
+/-- Canonical trust-policy payload. A bundle may bind this identity but cannot
+    choose or weaken any policy flag. -/
+def proofTrustPolicyPayloadV1 : PfJson := .object #[
+  ("allowArbitraryTermElaboration", .bool false),
+  ("allowBundleAxioms", .bool false),
+  ("allowEnvironmentExtensions", .bool false),
+  ("allowExtern", .bool false),
+  ("allowImplementedBy", .bool false),
+  ("allowInitializers", .bool false),
+  ("allowNativeArtifacts", .bool false),
+  ("allowPartial", .bool false),
+  ("allowSyntaxOrElaborators", .bool false),
+  ("allowUnsafe", .bool false),
+  ("allowedBaseAxioms", .array #[
+    .string "Classical.choice", .string "Quot.sound", .string "propext"]),
+  ("schema", .string proofTrustPolicySchemaV1)
+]
+
 /-- Closed load/validation errors (engineering). -/
 inductive ProofBundleErrorV1 where
   | malformed (detail : String)
@@ -53,6 +74,15 @@ inductive ProofBundleErrorV1 where
 
 private def err (e : ProofBundleErrorV1) : Except ProofBundleErrorV1 α :=
   .error e
+
+/-- Independently recomputed fixed trust-policy digest. -/
+def proofTrustPolicyDigestV1 : Except ProofBundleErrorV1 Digest := do
+  let canonical ← match renderPfJcs proofTrustPolicyPayloadV1 with
+    | .ok value => pure value
+    | .error e => err (.internal s!"trust-policy PF-JCS: {e}")
+  match domainSeparatedSha256 proofTrustPolicySchemaV1 canonical.toUTF8 with
+  | .ok digest => pure digest
+  | .error e => err (.internal s!"trust-policy digest: {e}")
 
 /-- Engineering proofAbi identity (digest fields required as exact wire strings). -/
 structure ProofAbiIdentityV1 where
@@ -490,6 +520,9 @@ def validateProofBundleManifestV1 (m : ProofBundleManifestV1) :
     return ← err (.malformed "proofAbi.moduleName must be ProofForgeV2.Semantic.InvariantABI")
   unless qnComponents m.proofAbi.theoremName == proofAbiTheoremComponentsV1 do
     return ← err (.malformed "proofAbi.theoremName must be InvariantTheoremV1 FQ")
+  let expectedTrustPolicyDigest ← proofTrustPolicyDigestV1
+  unless m.proofAbi.trustPolicyDigest.bytes == expectedTrustPolicyDigest.bytes do
+    return ← err (.malformed "proofAbi.trustPolicyDigest does not match fixed policy")
   -- Module order is the authority order used by the later exact filesystem
   -- map and importer. Strict order also supplies uniqueness.
   let mods := NonEmptyArray.toArray m.modules
