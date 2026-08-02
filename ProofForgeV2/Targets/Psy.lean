@@ -18,7 +18,13 @@ Psy maps the V2 public-UInt64 envelope to reviewable `.psy` source:
   * UInt64/UInt32 → Felt, Bool → bool
   * checked u64 arith via explicit assert guards (Felt is a field element)
   * bitwise `&`/`|`/`^` and shifts as native Felt ops (golden BitwiseProbe);
-    unary `~` fails closed (no bitwise-not unary on the Psy surface)
+    unary `~` (bitNot) lowers for **UInt32** to `x ^ 4294967295u32`
+    (XOR mask; verified faithful on the real dargo VM) and stays fail-closed
+    on UInt64/Int64 (no u64 type, no bitwise-not unary, 2^64−1 not
+    representable as a Felt). UInt32 arithmetic/bitwise/shifts on u32
+    operands stay fail-closed (VM u32 ops are not faithful to Reference:
+    overflow/underflow are internal panics, shifts wrap); u32 comparisons
+    are admitted (native unsigned == Reference unsigned)
   * emit → `__emit([...])`; call/schedule → `__invoke_sync#<Felt>(...)`
   * revert → `assert(false, ...)` (halt = atomic revert)
 
