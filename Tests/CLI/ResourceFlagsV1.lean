@@ -1,15 +1,18 @@
 /-
-  Tests.CLI.ResourceFlagsV1 — D3-E5 SPEC-CLI resource/evidence/proof-bundle flags.
+  Tests.CLI.ResourceFlagsV1 — D3-E5 SPEC-CLI resource/evidence/proof-bundle flags
+  plus RES-1 pure wall-ms enforce + product CLI PF-RESOURCE-TIME pin.
 
   Drives shipped pure parse + product preflight (`parseProductCliCommandV1` /
-  `parseBuildArgsExcept` / `validateBuildOptionsCliV1` / `parseResourceLimitSpecV1`).
-  Not formal SPEC-CLI completion; not RES-1 wall-clock enforcement.
+  `parseBuildArgsExcept` / `validateBuildOptionsCliV1` / `parseResourceLimitSpecV1`)
+  and shipped `enforceWallMsLimitV1` / `enforceAllWallMsLimitsV1`.
+  Not formal SPEC-CLI / NFR-008 host receipt.
 -/
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Core.Common
 
 namespace Tests.CLI.ResourceFlagsV1
 
+open System
 open ProofForgeV2.CLI
 open ProofForgeV2.Core.Common
 
@@ -137,6 +140,41 @@ def run : IO Unit := do
       match parsePfJcs text with
       | .error e => throw <| IO.userError s!"check json PF-JCS: {e}"
       | .ok _ => pure ()
+
+  -- RES-1 pure wall enforce (shipped)
+  match enforceWallMsLimitV1 "frontend" none 999999 with
+  | .error e => throw <| IO.userError s!"no limit must ok: {e}"
+  | .ok () => pure ()
+  match enforceWallMsLimitV1 "frontend" (some 100) 100 with
+  | .error e => throw <| IO.userError s!"exact limit must ok: {e}"
+  | .ok () => pure ()
+  match enforceWallMsLimitV1 "frontend" (some 100) 101 with
+  | .ok () => throw <| IO.userError "over limit must fail"
+  | .error msg =>
+      expect (hasSubstr msg "PF-RESOURCE-TIME") s!"must cite PF-RESOURCE-TIME, got {msg}"
+  match enforceAllWallMsLimitsV1
+      #[{ stage := "compiler-core", field := "wall-ms", value := 50 }] 51 with
+  | .ok () => throw <| IO.userError "all-wall over must fail"
+  | .error msg =>
+      expect (hasSubstr msg "compiler-core") s!"stage in message: {msg}"
+
+  -- RES-1 product CLI: Counter check with frontend.wall-ms=1 must fail closed.
+  let cliBin := FilePath.mk ".lake/build/bin/proof-forge-next"
+  if ← cliBin.pathExists then
+    let absoluteCli ← IO.FS.realPath cliBin
+    let out ← IO.Process.output {
+      cmd := absoluteCli.toString
+      args := #["check", "Examples/Counter.lean",
+        "--module", "Examples.Counter",
+        "--resource-limit", "frontend.wall-ms=1"]
+    }
+    expect (out.exitCode != 0)
+      s!"RES-1: wall-ms=1 check must fail, exit={out.exitCode}"
+    let combined := out.stdout ++ "\n" ++ out.stderr
+    expect (hasSubstr combined "PF-RESOURCE-TIME")
+      s!"RES-1: product must emit PF-RESOURCE-TIME, got:\n{combined}"
+  else
+    IO.println "Tests.CLI.ResourceFlagsV1: skip product wall CLI (binary absent)"
 
   IO.println "Tests.CLI.ResourceFlagsV1: ok"
 

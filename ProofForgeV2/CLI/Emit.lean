@@ -422,7 +422,8 @@ def isValidProofBundleDigestWireV1 (wire : String) : Bool :=
         ('0' ≤ c && c ≤ '9') || ('a' ≤ c && c ≤ 'f')
 
 /-- Post-parse validation for check vs build (SPEC-CLI resource/evidence/proof-bundle).
-Runs before source open / materialize. Does not enforce wall clocks (RES-1). -/
+Runs before source open / materialize. Wall-clock **enforcement** is RES-1
+(`enforceWallMsLimitV1` after product stages). -/
 def validateBuildOptionsCliV1
     (kind : CliBuildCommandKindV1) (options : BuildOptions) :
     Except String BuildOptions := do
@@ -462,6 +463,35 @@ def validateBuildOptionsCliV1
       -- ProofReferenceJoinV1 (unused pair / missing pair / export join fail closed).
       pure ()
   pure options
+
+/-- First `stage.wall-ms` override value if present (RES-1). -/
+def wallMsOverrideV1
+    (limits : Array ResourceLimitOverrideV1) (stage : String) : Option UInt64 :=
+  match limits.find? (fun l => l.stage == stage && l.field == "wall-ms") with
+  | some lim => some lim.value
+  | none => none
+
+/-- RES-1 pure wall-clock gate: when a `wall-ms` override is present for `stage`,
+    `elapsedMs` must be ≤ the override. Fail closed with a stable PF-RESOURCE-TIME
+    message (exit 6 at product boundary). No override ⇒ ok. -/
+def enforceWallMsLimitV1
+    (stage : String) (limit? : Option UInt64) (elapsedMs : UInt64) :
+    Except String Unit :=
+  match limit? with
+  | none => pure ()
+  | some lim =>
+      if elapsedMs > lim then
+        .error s!"PF-RESOURCE-TIME: {stage}.wall-ms limit {lim} exceeded (elapsed {elapsedMs} ms)"
+      else
+        pure ()
+
+/-- Enforce all present wall-ms overrides against one measured elapsed budget.
+    Product path measures load+compile (+ materialize for build) as one wall. -/
+def enforceAllWallMsLimitsV1
+    (limits : Array ResourceLimitOverrideV1) (elapsedMs : UInt64) :
+    Except String Unit := do
+  for stage in #["frontend", "compiler-core", "external-tool", "artifact-output"] do
+    enforceWallMsLimitV1 stage (wallMsOverrideV1 limits stage) elapsedMs
 
 /-- Shared build/check argument parser (pure Except).
 `--network` and any other unknown dashed option fail as usage errors.

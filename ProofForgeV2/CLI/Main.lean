@@ -35,7 +35,7 @@ private def usage : String :=
   "Notes:\n" ++
   "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
   "  --network is not supported (no network registry); it is a usage error.\n" ++
-  "  --resource-limit is a lower-only override (stage.field=n); check rejects external-tool/artifact-output.\n" ++
+  "  --resource-limit is a lower-only override (stage.field=n); check rejects external-tool/artifact-output; wall-ms is enforced in-process (RES-1).\n" ++
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
   "  --proof-bundle pair joins source `proof … using …` to a digest-pinned ProofBundleV1 (INV-1 engineering; no ambient Lean term).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build.\n" ++
@@ -239,7 +239,24 @@ private def resolveOptionalSelectionForCheck
       | .error (.unknownTarget input) => failUsage s!"unknown target '{input}'"
       | .error error => throw <| IO.userError error.render
 
+/-- RES-1: product wall fail-closed (exit 6, PF-RESOURCE-TIME). -/
+private def failResourceTime (message : String) : IO α := do
+  IO.eprintln message
+  IO.Process.exit 6
+
+/-- RES-1: enforce any configured stage.wall-ms overrides against elapsed mono ms. -/
+private def enforceWallBudgetV1
+    (options : BuildOptions) (startedMs : Nat) : IO Unit := do
+  let now ← IO.monoMsNow
+  let elapsedNat := now - startedMs
+  let elapsed := UInt64.ofNat elapsedNat
+  match enforceAllWallMsLimitsV1 options.resourceLimits elapsed with
+  | .ok () => pure ()
+  | .error msg => failResourceTime msg
+
 private unsafe def buildSource (options : BuildOptions) : IO Unit := do
+  -- RES-1: wall budget covers load → compile → proof join → materialize.
+  let startedMs ← IO.monoMsNow
   let selection ← resolveBuildSelectionForCli options
   let _languageVersion ← resolveLanguageVersionForCli options.languageVersion
   let source ← match options.source with
@@ -267,6 +284,7 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
       let outputPath :=
         if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
       let receipt ← emitProgram capability outputPath
+      enforceWallBudgetV1 options startedMs
       if options.json then
         IO.println (← liftCompileResult
           (renderBuildOkJsonV1 receipt options.resourceLimits options.minimumEvidence))
@@ -279,6 +297,8 @@ capability (fail closed) without writing artifacts. -/
 private unsafe def checkSource (options : BuildOptions) : IO Unit := do
   if options.output.isSome then
     failUsage "check does not write artifacts; omit -o/--output"
+  -- RES-1: wall budget covers load → compile → proof join → optional resolve.
+  let startedMs ← IO.monoMsNow
   let selection? ← resolveOptionalSelectionForCheck options
   let _languageVersion ← resolveLanguageVersionForCli options.languageVersion
   let source ← match options.source with
@@ -304,6 +324,7 @@ private unsafe def checkSource (options : BuildOptions) : IO Unit := do
             (Targets.resolveEngineeringRequirementsV1 selection compiled)
           pure ()
       | none => pure ()
+      enforceWallBudgetV1 options startedMs
       let programName := CompiledSemanticV1.artifactProgramNameOf compiled
       let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
       let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
