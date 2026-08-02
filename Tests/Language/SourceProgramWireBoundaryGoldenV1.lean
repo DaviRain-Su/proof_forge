@@ -210,7 +210,7 @@ private def expectedError (caseId : String) : String :=
     "extension version must use canonical exact SemVer"
   else if caseId.startsWith "extension-digest-" then
     "extension digest must use canonical sha256 spelling"
-  else if caseId == "field-id-invalid" then "field id must be bn254_fr"
+  else if caseId == "field-id-invalid" then "field id must be bn254_fr, bls12_377_fr, or goldilocks"
   else ""
 
 private def hexNibble? (character : Char) : Option Nat :=

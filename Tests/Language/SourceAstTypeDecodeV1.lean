@@ -143,7 +143,7 @@ def run : IO Unit := do
   decErr "b_b4097" "bytes length must be 0..4096" 8 8
     (fromHex "0a000000547970652e4279746573010001100000")
   -- Field wrong id (valid Ident wire for bls12_381_fr)
-  decErr "b_field" "field id must be bn254_fr" 8 8
+  decErr "b_field" "field id must be bn254_fr, bls12_377_fr, or goldilocks" 8 8
     (fromHex "0a000000547970652e4669656c6401000c000000626c7331325f3338315f6672")
   -- 10 missing fieldCount (tag only)
   decErr "b_miss_fc" "truncated" 8 8 (stripFc boolHex)

@@ -45,7 +45,7 @@ private def name (s : String) : IO SourceNameComponentV1 :=
 private def wErr := "integer width must be one of 8,16,32,64,128,256"
 private def aErr := "array length must be 0..4096"
 private def bErr := "bytes length must be 0..4096"
-private def fErr := "field id must be bn254_fr"
+private def fErr := "field id must be bn254_fr, bls12_377_fr, or goldilocks"
 
 /-- D1-PA-95 RED: AstV1/AstCodecV1 missing → focused build fails; goldens fixed. -/
 def run : IO Unit := do

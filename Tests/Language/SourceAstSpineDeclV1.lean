@@ -46,7 +46,7 @@ private def name (s : String) : IO SourceNameComponentV1 :=
 private def wErr := "integer width must be one of 8,16,32,64,128,256"
 private def u256Err := "u256 magnitude exceeds 2^256-1"
 private def blockEmpty := "block statements must be nonempty"
-private def fieldErr := "field id must be bn254_fr"
+private def fieldErr := "field id must be bn254_fr, bls12_377_fr, or goldilocks"
 
 /-- D1-PA-101 phase-neutral: spine-dependent declaration-record wire vectors. -/
 def run : IO Unit := do
