@@ -29,13 +29,13 @@ Live status authority = [`docs/engineering-backlog.md`](../../docs/engineering-b
 | 状态 | 说明 |
 |---|---|
 | **已 commit 过的主轴** | N-*、R-1…R-3、B-*、C-1/C-2/C-4、T-3、D3-E1…E3、SKEPTIC-1、DOC-* 等见 backlog `done` |
-| **NEXT** | **`T-1`** authority/custody engineering subset（见 backlog） |
+| **NEXT** | **`INV-1`** proof reference product path（见 backlog） |
 | **ongoing** | **C-5** Mollusk fixtures — inventory only; expand when Solana LOWERED grows |
 
 **从 T-1 续 drain：**
 
 ```text
-/goal @.grok/goals/prompt-master-queue.md starting at T-1 --budget 8000000
+/goal @.grok/goals/prompt-master-queue.md starting at INV-1 --budget 8000000
 ```
 
 **禁止**在普通聊天回合里把切片实现到「半绿 + backlog 假 done」；实现、检查、commit、backlog 回写都必须发生在 **Goal** 内。
