@@ -2510,7 +2510,8 @@ private unsafe def testOmittedTypeLet : IO Unit := do
   expect (yul.contains "add(")
     "LetOmit Yul must render the add from the omitted-type let"
 
-/-- `assert … else` is outside the envelope (Normalize/plan fail closed). -/
+/-- Normalize admits zero-arg `assert … else`; the current EVM Plan
+    explicitly fails closed on an error-bound assert. -/
 private unsafe def testAssertElseRejected : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let text :=
@@ -2528,20 +2529,16 @@ private unsafe def testAssertElseRejected : IO Unit := do
     "    return count\n"
   let source ← liftResult "load AssertElse" (← session.selectProgramV1
     text "<evm-assert-else>" "Tests.EvmAssertElse" none)
-  match Compiler.compileValidatedSourceV1 source with
+  let compiled ← liftResult "compile AssertElse" <|
+    Compiler.compileValidatedSourceV1 source
+  match planEvm compiled with
+  | .error (.planInvariant .evm msg) =>
+      expect (msg.contains "assert" && msg.contains "errorId=none")
+        s!"assert-else planInvariant must pin the errorId boundary, got: {msg}"
   | .error e =>
-      expect (e.render.contains "assert" || e.render.contains "PF-SRC-INVALID" ||
-          e.render.contains "unsupported")
-        s!"assert-else compile failure must mention assert/unsupported, got {e.render}"
-  | .ok compiled =>
-      match planEvm compiled with
-      | .error (.planInvariant .evm msg) =>
-          expect (msg.contains "assert")
-            s!"assert-else planInvariant must mention assert, got: {msg}"
-      | .error e =>
-          throw <| IO.userError s!"assert-else must fail closed, got {e.render}"
-      | .ok _ =>
-          throw <| IO.userError "assert-else must not produce an EVM plan"
+      throw <| IO.userError s!"assert-else must fail closed at EVM Plan, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "assert-else must not produce an EVM plan"
 
 /-- N2b-EVM: Field (bn254 Fr) state/params/results + Yul addmod/mulmod pins.
     Exact sequences: add = addmod(a,b,p); sub = addmod(a, sub(p, addmod(b,0,p)), p)

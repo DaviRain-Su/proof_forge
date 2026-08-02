@@ -1717,7 +1717,7 @@ unsafe def run : IO Unit := do
     expect (MaterializedArtifactsV1.semanticDigestOf output == counterSemanticDigest)
       "product carrier must bind the retained SemanticProgramV1 digest"
   -- S6: alpha-direct materialize remains closed; product capability path covers Counter.
-  -- Synchronous-call / privateWitness: product support inspection (not residual planFromAlpha).
+  -- Current engineering capability claims / privateWitness inspection (not residual planFromAlpha).
   -- PrivateSum4 host accept/reject: Tests.Materialization.NoirRelationModel fixture.
   let privateWitnessReq : RequirementRequestV1 := {
     id := "disclosure.private-witness"
@@ -1735,18 +1735,29 @@ unsafe def run : IO Unit := do
         s!"EVM product support must reject private-witness, got {e.render}"
   | .ok _ =>
       throw <| IO.userError "EVM must reject private-witness on product support inspection"
-  let syncCallReq : RequirementRequestV1 := {
-    id := "effect.synchronous-call"
-    version := s2RequirementVersionV1
-    digest := zeroDigest
-    predicates := #[]
-  }
+  -- AddressBearing currently advertises the canonical static-QN sync-call key.
+  -- This records the engineering claim only; B-CALL-SEM still decides whether
+  -- partial EVM CALL semantics remain supported or are conservatively downgraded.
+  let syncCallReq ← match mkS2RequirementRequestV1 "effect.synchronous-call" with
+    | .ok request => pure request
+    | .error message =>
+        throw <| IO.userError s!"canonical synchronous-call request failed: {message}"
   match inspectResolveRequestsV1 evmSupport.supported { items := #[syncCallReq] } with
-  | .error e =>
-      expect (e.code == "PF-REQ-UNSUPPORTED")
-        s!"EVM product support must reject synchronous-call, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError "EVM must reject synchronous-call on product support inspection"
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"EVM current engineering claim must admit canonical synchronous-call: {error.render}"
+  -- A malformed digest must not masquerade as evidence that the key itself is
+  -- unsupported; it is a distinct exact-request negative.
+  let malformedSyncCallReq := { syncCallReq with digest := zeroDigest }
+  match inspectResolveRequestsV1 evmSupport.supported
+      { items := #[malformedSyncCallReq] } with
+  | .error error =>
+      expect (error.code == "PF-REQ-UNSUPPORTED" && error.render.contains "digest")
+        s!"EVM malformed synchronous-call request must fail digest matching, got {error.render}"
+  | .ok () =>
+      throw <| IO.userError
+        "EVM malformed synchronous-call digest must fail product support inspection"
   -- Single-semantic capability files + capability-gated plan for Accumulator.
   let accSession ← Tests.Language.ParserSession.shared
   let accSource ← liftResult (← accSession.selectProgramV1
