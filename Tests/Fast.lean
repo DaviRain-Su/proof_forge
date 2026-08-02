@@ -55,6 +55,7 @@ import Tests.Frontend.ProtocolV1
 -- Run: `just test-frontend-worker` (builds proof-forge-frontend-worker-v1).
 import Tests.Product.CounterV1Evm
 import Tests.Product.PrivateSum4PrivacyV1
+import Tests.Product.PerfCheckHarnessV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.NearWasmAcceptance
@@ -135,6 +136,7 @@ unsafe def main : IO Unit := do
   Tests.Frontend.ProtocolV1.run
   Tests.Product.CounterV1Evm.run
   Tests.Product.PrivateSum4PrivacyV1.run
+  Tests.Product.PerfCheckHarnessV1.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.EvmSolcAcceptance.run
   Tests.Materialization.NearWasmAcceptance.run

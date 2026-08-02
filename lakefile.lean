@@ -142,6 +142,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Targets.SolanaElfV1,
     `Tests.Product.CounterV1Evm,
     `Tests.Product.PrivateSum4PrivacyV1,
+    `Tests.Product.PerfCheckHarnessV1,
     `Tests.CLI.Emit,
     `Tests.CLI.ToolchainPolicy,
     `Tests.CLI.DiagnosticsV1,
