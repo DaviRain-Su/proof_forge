@@ -70,6 +70,7 @@ fixtures=(
   NarrowAbi
   NarrowResult
   ArraySlots
+  MapMini
 )
 
 echo "solana-runtime-test: building proof-forge-next (lake build proof_forge_next)"

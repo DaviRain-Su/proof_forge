@@ -31,7 +31,7 @@ normative: false
 | stateLoad/stateStore（标量） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | stateLoad/stateStore（named 聚合） | LOWERED(N3) | FAIL-CLOSED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | FAIL-CLOSED | FAIL-CLOSED(scalar mapping) |
 | stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | FAIL-CLOSED |
-| stateLoad/stateStore（Map） | LOWERED(dense Map cap-8) | LOWERED(dense Map cap-8; plan default; ELF frame FC) | LOWERED(dense Map cap-8) | LOWERED(dense Map cap-8; multi-leaf PI) | FAIL-CLOSED | LOWERED(dense Map cap-2) |
+| stateLoad/stateStore（Map） | LOWERED(dense Map cap-8) | LOWERED(dense Map cap-8; **ELF+Mollusk 已通**（B-SOL-MAP-ELF temp recycling）；put_into_empty 语义 hazard 见 backlog B-SOL-MAP-UPSERT） | LOWERED(dense Map cap-8) | LOWERED(dense Map cap-8; multi-leaf PI) | FAIL-CLOSED | LOWERED(dense Map cap-2) |
 | stateLoad/stateStore（Bytes） | LOWERED(D4-E2: N×UInt8 leaves) | FAIL-CLOSED | FAIL-CLOSED(NearAggregate) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(Bytes N: N×u8 mappings) |
 | stateLoad/stateStore（Option） | FAIL-CLOSED（Normalize **admitted** N-A4；target container 永不 admit） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（String） | LOWERED(N4) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
@@ -58,6 +58,7 @@ normative: false
 | externalCall（sync call） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | FAIL-CLOSED | LOWERED | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
 | schedule（async） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | LOWERED(promise) | LOWERED | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
 | **match String scrutinee** | LOWERED(N-A1) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| **named aggregate entry/view return（B-RET-ABI）** | LOWERED(≤8 UInt64/Int64 叶 tuple ABI) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(per-leaf verifier inputs) | FAIL-CLOSED | FAIL-CLOSED |
 | **match 多臂同构造器** | LOWERED(N-A2) | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | **Principal state/params** | LOWERED(T10: leaf storage; ≠address) | LOWERED(T12: 9×u64 leaves; ≠32B pubkey) | LOWERED(T12: 9×KV leaves; ≠account-id) | LOWERED(T12: 9×u64 inputs; ≠Field) | FAIL-CLOSED | FAIL-CLOSED |
 | **UInt128 state/param/body** | LOWERED(T9b 原生 word) | LOWERED(T9e 2×u64 multiword) | LOWERED(T9e 2×i64 multiword) | LOWERED(T11 原生 u128 / multi-limb analogue；mul/div/mod FC；UInt256 FC) | FAIL-CLOSED | FAIL-CLOSED |

@@ -287,7 +287,7 @@ private unsafe def testRichUInt64SemanticPlans : IO Unit := do
   expect (solanaIR.handlers[1]!.operations.contains
       (.checkedSub 4 2 3 solana.arithmeticOverflowError) &&
       solanaIR.handlers[1]!.operations.contains
-        (.checkedSub 7 5 6 solana.arithmeticOverflowError))
+        (.checkedSub 2 0 1 solana.arithmeticOverflowError))
     "Solana IR must preserve both checked substitutions and shared error code"
   expect (nearIR.methods[1]!.operations.contains (.checkedSub 4 2 3) &&
       nearIR.methods[1]!.operations.contains (.checkedSub 7 5 6))

@@ -183,13 +183,13 @@ private unsafe def testGuardedCounterIR
       .loadParam 1 8,
       .compare 2 0 1 .ge,
       .assert 2 assertErr,
-      .loadState 3 0 8,
-      .loadParam 4 8,
-      .checkedSub 5 3 4 overflow,
-      .storeState 0 8 5,
-      .loadState 6 0 8,
-      .setReturnData 8 6])
-    "decrement IR must lower compare/assert then checked-sub store with dense temps"
+      .loadState 0 0 8,
+      .loadParam 1 8,
+      .checkedSub 2 0 1 overflow,
+      .storeState 0 8 2,
+      .loadState 0 0 8,
+      .setReturnData 8 0])
+    "decrement IR must lower compare/assert then checked-sub store with recycled temps"
   liftResult <| validateIR ir
   -- Deterministic rebuild identity.
   let ir2 ← liftResult <| irSolana compiled
@@ -250,24 +250,22 @@ private unsafe def testAllComparisonOps
   let checkIR ← findHandlerIR ir "check"
   let assertErr := plan.assertionFailedError
   -- Each assert segment lowers as loadParam a / loadParam b / compare / assert
-  -- (4 ops; 3 temps: a, b, compare-result). Temps are dense across statements.
+  -- (4 ops; 3 temps: a, b, compare-result). Temps are recycled after each
+  -- consuming assert, so every segment reuses temps 0/1/2.
   for i in [:6] do
     let opBase := i * 4
-    let destA := i * 3
-    let destB := destA + 1
-    let destCmp := destA + 2
-    expect (checkIR.operations[opBase]? == some (.loadParam destA 8))
-      s!"IR [{opBase}] load param a → %{destA}"
-    expect (checkIR.operations[opBase + 1]? == some (.loadParam destB 16))
-      s!"IR [{opBase}+1] load param b → %{destB}"
+    expect (checkIR.operations[opBase]? == some (.loadParam 0 8))
+      s!"IR [{opBase}] load param a → %0"
+    expect (checkIR.operations[opBase + 1]? == some (.loadParam 1 16))
+      s!"IR [{opBase}+1] load param b → %1"
     expect (checkIR.operations[opBase + 2]? ==
-        some (.compare destCmp destA destB expectedOps[i]!))
-      s!"IR [{opBase}+2] compare {repr (expectedOps[i]!)} → %{destCmp}"
-    expect (checkIR.operations[opBase + 3]? == some (.assert destCmp assertErr))
-      s!"IR [{opBase}+3] assert %{destCmp}"
-  expect (checkIR.operations[24]? == some (.loadParam 18 8) &&
-      checkIR.operations[25]? == some (.setReturnData 8 18))
-    "after six assert segments, return must reload param a into %{18}"
+        some (.compare 2 0 1 expectedOps[i]!))
+      s!"IR [{opBase}+2] compare {repr (expectedOps[i]!)} → %2"
+    expect (checkIR.operations[opBase + 3]? == some (.assert 2 assertErr))
+      s!"IR [{opBase}+3] assert %2"
+  expect (checkIR.operations[24]? == some (.loadParam 0 8) &&
+      checkIR.operations[25]? == some (.setReturnData 8 0))
+    "after six assert segments, return must reload param a into %0 (recycled)"
   let files ← liftResult <| filesSolana compiled
   let planText ← findFile files "AllCompares.sbpf-plan"
   for fragment in #["cmp_eq_u64", "cmp_ne_u64", "cmp_lt_u64", "cmp_le_u64",
@@ -1097,10 +1095,10 @@ private unsafe def testFnLocalCall
       .callFn 0 2 #[1],
       .checkedAdd 3 0 2 overflow,
       .storeState 0 8 3,
-      .loadState 4 0 8,
-      .callFn 1 5 #[4],
-      .setReturnData 8 5])
-    "bump IR must call double then quadruple with dense temps"
+      .loadState 0 0 8,
+      .callFn 1 1 #[0],
+      .setReturnData 8 1])
+    "bump IR must call double then quadruple with recycled temps"
   let files ← liftResult <| filesSolana compiled
   let planText ← findFile files "FnCall.sbpf-plan"
   expect (planText.contains ".fn 0 double (-> u64)" &&
@@ -1180,7 +1178,9 @@ private unsafe def testArithOps
   expect (neg5.resultKind == .bool &&
       neg5.body == #[.returnValue (.boolNot (.compare .gt (.param 8) (.literal 5)))])
     "neg5 Plan body must be return boolNot(gt(param, 5))"
-  -- IR dense temps for scale.
+  -- IR recycled temps for scale: the store and return are independent
+  -- statements; after the store consumes its Expr-tree temps, the return
+  -- recycles back to temp 0.
   let ir ← liftResult <| irSolana compiled
   let scaleIR ← findHandlerIR ir "scale"
   expect (scaleIR.operations == #[
@@ -1194,9 +1194,9 @@ private unsafe def testArithOps
       .checkedMod 7 5 6 overflow,
       .checkedAdd 8 4 7 overflow,
       .storeState 0 8 8,
-      .loadState 9 0 8,
-      .setReturnData 8 9])
-    "scale IR must lower mul/div/mod/add with dense temp numbering"
+      .loadState 0 0 8,
+      .setReturnData 8 0])
+    "scale IR must lower mul/div/mod/add with recycled temp numbering"
   let bitsIR ← findHandlerIR ir "bits"
   expect (bitsIR.operations == #[
       .loadParam 0 8,
@@ -1396,8 +1396,9 @@ private unsafe def testShiftBitwiseLogical
   let shiftMaskIR ← findHandlerIR ir "shiftMask"
   let overflow := plan.arithmeticOverflowError
   let shiftErr := plan.invalidShiftError
-  -- Dense temps: load x, lit 2, shl, lit 15, bitAnd, load x, lit 1, shr,
-  -- lit 3, bitXor, bitOr, store, load count, set_return_data.
+  -- Recycled temps: load x, lit 2, shl, lit 15, bitAnd, load x, lit 1, shr,
+  -- lit 3, bitXor, bitOr, store, load count, set_return_data. After the
+  -- store consumes its Expr-tree temps, the return recycles to temp 0.
   expect (shiftMaskIR.operations == #[
       .loadParam 0 8,
       .literal 1 2,
@@ -1411,9 +1412,9 @@ private unsafe def testShiftBitwiseLogical
       .bitXor 9 7 8,
       .bitOr 10 4 9,
       .storeState 0 8 10,
-      .loadState 11 0 8,
-      .setReturnData 8 11])
-    "shiftMask IR must lower shifts/bitwise with dense temps and dual shift guards"
+      .loadState 0 0 8,
+      .setReturnData 8 0])
+    "shiftMask IR must lower shifts/bitwise with recycled temps and dual shift guards"
   let strictOrIR ← findHandlerIR ir "strictOr"
   expect (strictOrIR.operations == #[
       .loadParam 0 8,

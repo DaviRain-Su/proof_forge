@@ -222,20 +222,21 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 
 | ID | 项 | 类型 | 说明 | 状态 |
 |---|---|---|---|---|
-| **N-ASSERT-ELSE** | assert-else（带 error 的 assert）Normalize+TypeCheck 接线 | 共享核（小） | EBNF `assert Expr (else Ident)?`；TypeCheck `let _ := error?` 忽略；Normalize 显式 FC；Wire/Reference 已支持 errorId+args | **in_progress**（L1 lane） |
+| **N-ASSERT-ELSE** | assert-else（带 error 的 assert）Normalize+TypeCheck 接线 | 共享核（小） | EBNF `assert Expr (else Ident)?`；零参 error → `Op.Assert cond (some eid) #[]`；带参 error 源无法供参仍 FC；target Plan 对 errorId=some 保持 FC | **done**（L1 lane；integration commit b059778fa） |
 | **N-CALL-RET** | typed call/schedule 返回值 | 共享核（大） | N-5 仅 RPT-014 schema 研究；产品仍 void Stmt.Call→ExternalCall FC；Wire ExternalCall result schema 或需升级；**先产品决策再动手** | pending |
 | **N-ANON-RESULT** | 匿名容器（Array/Map/Option/Bytes）entry/view/fn 返回值 | 共享核 | N-4 只开 named Struct/Enum；匿名 result 仍 FC | pending |
 | **N-NEST-IDX** | Map/Bytes 嵌套穿透赋值（`m[k].x:=v`、`b[i].…`） | 共享核 | N-A3 只开单步 IndexSet；嵌套 Option 中间值 FC | pending |
 | **N-INVARIANT-IR** | invariant 进 Semantic callables/invariants | 共享核 | Normalize skip（`invariants:=#[]`）；INV-1 只是 proof-bundle 旁路；R-2 ABI 有、产品 IR 无 | pending |
 | **N-STR-EVENT** | String 作 event/error 字段 | 共享核（小） | String state/param/result 已开；event/error 仍 UInt/Int-only | pending |
 | **N-FOR-INT** | for 端点 Int | 共享核（小） | N-8 余量；for 端点仍 legal-UInt-only | pending |
-| **B-RET-ABI** | 四 target aggregate ABI 返回（named struct/enum） | target leaf | N-4 done 的剩余；全部 FC「multi-leaf aggregate cannot be returned (ABI is scalar)」；EVM-first | **in_progress**（L3 lane） |
-| **B-SOL-MAP-ELF** | Solana Map ELF 帧预算友好化 + MapMini Mollusk 升级 | target leaf | B-1d/C-5 余量；Map cap-8 plan 已开但 ELF 4096B 帧 FC | **in_progress**（L2 lane） |
+| **B-RET-ABI** | 四 target aggregate ABI 返回（named struct/enum） | target leaf | N-4 done 的剩余；EVM+Noir LOWERED（≤8 UInt64/Int64 叶 preorder flatten；EVM tuple ABI + Noir per-leaf verifier inputs）；Solana/NEAR/Aleo/Psy 保持 FC+钉 | **done**（L3 lane；integration commit b059778fa；EVM/Noir only） |
+| **B-SOL-MAP-ELF** | Solana Map ELF 帧预算友好化 + MapMini Mollusk 升级 | target leaf | IR temp recycling（消费语句后 next 回收到 nextBase；峰值=最深单语句树而非线性总和）；MapMini put 24888B→≤4096、Token mint 58032B→≤4096，均 deployable ELF；MapMini fixture 升 ELF+Mollusk（3 过 1 ignore）；**未提预算上限** | **done**（L2 lane；`put_into_empty` 语义 hazard 拆为 B-SOL-MAP-UPSERT） |
 | **B-CTX-OPEN** | ContextRead 各 target Plan 开放（unixTime/caller） | target leaf | B-ctx 有意钉死 FC；无 open 项；**需产品决策是否开** | pending |
 | **B-OPT-STATE** | 四 target Option state Plan | target leaf | N-A4 只开 Normalize admit；Plan 全 FC | pending |
 | **B-COMMIT-ZK** | Commit × Noir/Psy | target leaf | EVM/Solana/NEAR/Aleo 身份透传已开；Noir/Psy FC | pending |
 | **B-FIELD-CATALOG** | Field 真 catalog 接通 Aleo(BLS12-377)/Psy(Goldilocks) | 共享核+leaf | **前置：先解决 DOC-CODE-1**；全部 `pilotFieldPolicyNone` | blocked（待 DOC-CODE-1 决策） |
 | **RES-1B** | memory/output 运行时 limit | NFR | RES-1 只有 wall-ms | pending |
+| **B-SOL-MAP-UPSERT** | Solana Map 顺序 store-then-read hazard（put_into_empty 错误 occ 翻转） | target leaf（正确性） | L2 揭示：24 叶顺序 store、后续叶 expr 经 stateLoad 读到已改 occ/key/val；**同 hazard 理论上也存在于 EVM/NEAR/Aleo/Noir 顺序叶物化，需先核实再修**；修需预计算 24 叶或专用 upsert op/scratch 空间 | pending（**正确性优先**） |
 | **NFR-REPEAT** | NFR-001 决定性 repeat gate（连续构建 hash 相同） | NFR | PRD 要求；无工程 ID | pending |
 | **DOC-CODE-1** | **T14 Field catalog v2 文档↔代码矛盾** | 文档/代码决策 | commit 30df771f2 声称「Wire ModelV1 扩 bls12377/goldilocks FieldSpec + Aleo/Psy Field 接线」，实际 diff 只有 NEAR/Solana 文件+docs；**代码 catalog 仍 sole bn254**（EnvelopeV1/WireV1）。AGENTS.md 已先行修正为 fail-closed 叙述。需要产品决策：(a) 按 commit message 真做 T14（共享核 Wire 变更）；(b) 把 30df771f2 的 commit message 记录为错误声明并关闭 | **in_progress**（本次复核） |
 
@@ -280,7 +281,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **C-2** | Aleo/Psy compiler/VM 可用性研究与是否升格验收 | **done**（2026-08-02：RPT-015 不升格门；Aleo/Psy 保持 source-only；矩阵 C-2 行 + research README 已登记） |
 | **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；工程 Anvil smoke 可保留） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | **done**（2026-08-02：RPT-016 **不**升格 prove/verify；无 nargo Tool Lock pin；保持 source-only；见 `16-noir-prove-path.md`） |
-| **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（fixture 集：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates/NarrowAbi/NarrowResult + **ArraySlots** + **MapMini** plan-only（dense Map cap-8；ELF 帧超限不做 Mollusk `.so`）；Option/Context 随 LOWERED 再扩） |
+| **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（fixture 集：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates/NarrowAbi/NarrowResult + ArraySlots + **MapMini ELF+Mollusk**（L2/B-SOL-MAP-ELF done：3 过 1 ignore；`put_into_empty` 见 B-SOL-MAP-UPSERT）；Option/Context 随 LOWERED 再扩） |
 
 ---
 

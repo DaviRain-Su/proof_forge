@@ -681,9 +681,9 @@
       "sha256": "b04bf5bac3b1a9b7fac358b646ca641aef3f9366c4a032ffa574612854fcafaa"
     },
     {
-      "bytes": 88046,
+      "bytes": 92634,
       "path": "ProofForgeV2/Targets/Solana/EmitIRV1.lean",
-      "sha256": "eeaf150fbc63753cb2b5d23cedabf2d7e3bb6908a9bb37b1ce9cb02f9de46f7a"
+      "sha256": "81390d9b3239862926631456c53580ac123511115780de34cf5b644c7c654490"
     },
     {
       "bytes": 74051,

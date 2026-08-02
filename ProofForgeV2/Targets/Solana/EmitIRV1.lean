@@ -662,11 +662,71 @@ private def armOpsWithHardExit (arm : Array Statement)
   else
     operations
 
+/-- Destination temp of a value-producing op, if any. -/
+private def tempDestination? : Operation → Option Nat
+  | .literal destination .. | .loadParam destination .. |
+      .narrowLoadParam _ destination .. |
+      .loadState destination .. | .narrowLoadState _ destination .. |
+      .checkedAdd destination .. |
+      .signedCheckedAdd destination .. | .signedCheckedSub destination .. |
+      .signedCheckedMul destination .. | .signedCheckedDiv destination .. |
+      .signedCheckedMod destination .. | .checkedNeg destination .. |
+      .signedCompare destination .. | .checkedSar destination .. |
+      .checkedSub destination .. | .checkedMul destination .. |
+      .checkedDiv destination .. | .checkedMod destination .. |
+      .bitAnd destination .. | .bitOr destination .. | .bitXor destination .. |
+      .checkedShl destination .. | .checkedShr destination .. |
+      .bitNot destination _ | .boolNot destination _ |
+      .boolAnd destination .. | .boolOr destination .. |
+      .narrowCheckedAdd _ destination .. | .narrowCheckedSub _ destination .. |
+      .narrowCheckedMul _ destination .. | .narrowCheckedDiv _ destination .. |
+      .narrowCheckedMod _ destination .. |
+      .narrowBitAnd _ destination .. | .narrowBitOr _ destination .. |
+      .narrowBitXor _ destination .. | .narrowBitNot _ destination _ |
+      .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
+      .compare destination .. | .wideCompare _ destination .. |
+      .callFn _ destination _ => some destination
+  | _ => none
+
+/-- Peak temp count over a (possibly nested) operation array. Used by the
+    forLoop lowering to allocate bound-check/update temps above the recycled
+    body temps, which may exceed the returned `next` when the body's last
+    statement is a consuming statement that resets `next` to `nextBase`. -/
+private partial def opsPeakTemp (ops : Array Operation) : Nat :=
+  ops.foldl (init := 0) fun acc op =>
+    let acc := match tempDestination? op with
+      | some d => Nat.max acc (d + 1)
+      | none => acc
+    match op with
+    | .ifRegion _ thenOps elseOps =>
+        Nat.max acc (Nat.max (opsPeakTemp thenOps) (opsPeakTemp elseOps))
+    | .switchRegion _ cases defaultOps =>
+        let caseMax := cases.foldl (init := 0) fun m (_, body) =>
+          Nat.max m (opsPeakTemp body)
+        Nat.max acc (Nat.max caseMax (opsPeakTemp defaultOps))
+    | .forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _ =>
+        let m1 := Nat.max (opsPeakTemp condOps) (opsPeakTemp bodyOps)
+        let m2 := Nat.max (opsPeakTemp boundOps) (opsPeakTemp updateOps)
+        Nat.max acc (Nat.max m1 m2)
+    | _ => acc
+
 private partial def lowerBodyOps
     (overflowError : Nat) (resultKind : ResultKind) (assertErr boundErr : Nat)
     (tempMap : List (Nat × Nat))
     (next : Nat) (statements : Array Statement) : Array Operation × Nat := Id.run do
   let mut operations : Array Operation := #[]
+  -- `nextBase` is the sequence entry point. Each Statement lowers an
+  -- independent Expr tree; no cross-statement temp reference exists outside
+  -- forLoop bodies (where `.temp` binds only the loop variable, which lives
+  -- below `nextBase`). After a consuming statement (store/return/emit/revert/
+  -- call/schedule/assert) all temps allocated for that statement's Expr(s)
+  -- are dead, so we recycle `next` back to `nextBase`. This keeps the IR
+  -- peak temp count at the deepest single-statement tree rather than the
+  -- linear sum of all statements — critical for the dense Map cap-8 pilot
+  -- whose 24 occ/key/val leaf stores would otherwise exceed the 4096-byte
+  -- SBPF frame budget. The IR validator (`validateOperationSequence`) applies
+  -- the same recycling rule so canonical numbering stays consistent.
+  let nextBase := next
   let mut next := next
   for statement in statements do
     match statement with
@@ -679,7 +739,7 @@ private partial def lowerBodyOps
           else
             .narrowStoreState (store.byteWidth * 8) store.accountIndex store.byteOffset value.value
         operations := operations.push storeOp
-        next := value.next
+        next := nextBase
     | .returnValue value =>
         let value := lowerExpr overflowError tempMap next value
         operations := operations ++ value.operations
@@ -692,7 +752,7 @@ private partial def lowerBodyOps
               .setReturnData returnByteLen value.value
           | .bool => .setReturnDataBool value.value
         operations := operations.push returnOp
-        next := value.next
+        next := nextBase
     | .returnNone =>
         -- Valid only inside region arms (validated); the initializer's own
         -- final marker is stripped by lowerHandler before lowering.
@@ -705,6 +765,7 @@ private partial def lowerBodyOps
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.emitEvent eventIndex argTemps)
+        next := nextBase
     | .revertError errorIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
@@ -713,6 +774,7 @@ private partial def lowerBodyOps
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.revertError errorIndex argTemps)
+        next := nextBase
     | .externalCall callee args =>
         let targetParts := callee.extract 0 (callee.size - 1)
         let targetPath := String.intercalate "." targetParts.toList
@@ -724,6 +786,7 @@ private partial def lowerBodyOps
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.externalCall callee programIdHex argTemps)
+        next := nextBase
     | .schedule callee args =>
         let targetParts := callee.extract 0 (callee.size - 1)
         let targetPath := String.intercalate "." targetParts.toList
@@ -735,21 +798,22 @@ private partial def lowerBodyOps
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.schedule callee programIdHex argTemps)
+        next := nextBase
     | .assert condition =>
         let value := lowerExpr overflowError tempMap next condition
         operations := operations ++ value.operations
         operations := operations.push (.assert value.value assertErr)
-        next := value.next
+        next := nextBase
     | .ifThenElse condition thenBody elseBody =>
         let value := lowerExpr overflowError tempMap next condition
         operations := operations ++ value.operations
-        let (thenOps, next1) :=
+        let (thenOps, _) :=
           lowerBodyOps overflowError resultKind assertErr boundErr tempMap value.next thenBody
-        let (elseOps, next2) :=
-          lowerBodyOps overflowError resultKind assertErr boundErr tempMap next1 elseBody
+        let (elseOps, _) :=
+          lowerBodyOps overflowError resultKind assertErr boundErr tempMap value.next elseBody
         operations := operations.push (.ifRegion value.value
           (armOpsWithHardExit thenBody thenOps) (armOpsWithHardExit elseBody elseOps))
-        next := next2
+        next := nextBase
     | .switchOn scrutinee cases defaultBody =>
         let value := lowerExpr overflowError tempMap next scrutinee
         operations := operations ++ value.operations
@@ -760,11 +824,11 @@ private partial def lowerBodyOps
             lowerBodyOps overflowError resultKind assertErr boundErr tempMap nextC caseBody
           caseOps := caseOps.push (caseValue, armOpsWithHardExit caseBody ops)
           nextC := next1
-        let (defaultOps, nextD) :=
+        let (defaultOps, _) :=
           lowerBodyOps overflowError resultKind assertErr boundErr tempMap nextC defaultBody
         operations := operations.push (.switchRegion value.value caseOps
           (armOpsWithHardExit defaultBody defaultOps))
-        next := nextD
+        next := nextBase
     | .forLoop varTemp initial cond update maxIterations body =>
         -- Seed induction from `initial`, allocate completed-iteration counter
         -- at 0, then bind plan varTemp → induction IR temp.
@@ -776,17 +840,23 @@ private partial def lowerBodyOps
         let tempMap' := (varTemp, irVar) :: tempMap
         let afterSeed := counterTemp + 1
         let condL := lowerExpr overflowError tempMap' afterSeed cond
-        let (bodyOps, nextBody) :=
+        let (bodyOps, _) :=
           lowerBodyOps overflowError resultKind assertErr boundErr tempMap' condL.next body
+        -- Body temps may be recycled (consuming statements reset to nextBase),
+        -- so compute the actual peak from the lowered body ops rather than
+        -- trusting the returned `next`. Bound-check/update temps must sit
+        -- above every body temp to avoid overlap.
+        let bodyPeak := opsPeakTemp bodyOps
+        let bodyHigh := Nat.max bodyPeak condL.next
         -- Back-edge bound check (reference noteBackEdge): after the body, if
         -- completed iterations already equal N, revert boundExceeded; else
         -- increment the counter. Counter ≤ N ≤ 4096 so +1 cannot overflow;
         -- still use checked_add to stay within the existing opcode set.
-        let litN := nextBody
-        let eqT := nextBody + 1
-        let okT := nextBody + 2
-        let lit1 := nextBody + 3
-        let counterNext := nextBody + 4
+        let litN := bodyHigh
+        let eqT := bodyHigh + 1
+        let okT := bodyHigh + 2
+        let lit1 := bodyHigh + 3
+        let counterNext := bodyHigh + 4
         let boundOps : Array Operation := #[
           .literal litN (UInt64.ofNat maxIterations),
           .compare eqT counterTemp litN .eq,
@@ -799,7 +869,7 @@ private partial def lowerBodyOps
         operations := operations.push (.forRegion irVar irVar counterTemp maxIterations
           condL.operations condL.value bodyOps boundOps counterNext
           updateL.operations updateL.value)
-        next := updateL.next
+        next := nextBase
   pure (operations, next)
 
 private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run do
@@ -861,31 +931,6 @@ private def opResultLimbCount : Operation → Nat
   | .compare .. | .wideCompare .. | .callFn .. => 1
   | _ => 0
 
-private def tempDestination? : Operation → Option Nat
-  | .literal destination .. | .loadParam destination .. |
-      .narrowLoadParam _ destination .. |
-      .loadState destination .. | .narrowLoadState _ destination .. |
-      .checkedAdd destination .. |
-      .signedCheckedAdd destination .. | .signedCheckedSub destination .. |
-      .signedCheckedMul destination .. | .signedCheckedDiv destination .. |
-      .signedCheckedMod destination .. | .checkedNeg destination .. |
-      .signedCompare destination .. | .checkedSar destination .. |
-      .checkedSub destination .. | .checkedMul destination .. |
-      .checkedDiv destination .. | .checkedMod destination .. |
-      .bitAnd destination .. | .bitOr destination .. | .bitXor destination .. |
-      .checkedShl destination .. | .checkedShr destination .. |
-      .bitNot destination _ | .boolNot destination _ |
-      .boolAnd destination .. | .boolOr destination .. |
-      .narrowCheckedAdd _ destination .. | .narrowCheckedSub _ destination .. |
-      .narrowCheckedMul _ destination .. | .narrowCheckedDiv _ destination .. |
-      .narrowCheckedMod _ destination .. |
-      .narrowBitAnd _ destination .. | .narrowBitOr _ destination .. |
-      .narrowBitXor _ destination .. | .narrowBitNot _ destination _ |
-      .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
-      .compare destination .. | .wideCompare _ destination .. |
-      .callFn _ destination _ => some destination
-  | _ => none
-
 private def lowerFn (plan : Plan) (fn : FnBinding) : FnIR := Id.run do
   let resultKind : ResultKind :=
     if fn.resultIsBool then .bool else if fn.resultIsInt then .i64 else .u64
@@ -904,9 +949,21 @@ private def lowerFn (plan : Plan) (fn : FnBinding) : FnIR := Id.run do
 private partial def validateOperationSequence
     (plan : Plan) (handler : HandlerIR)
     (fieldOffsets paramOffsets : Array Nat)
-    (operations : Array Operation) (next : Nat) :
+    (operations : Array Operation) (next : Nat)
+    (recycle : Bool := true) :
     CompileResult (Nat × Bool × Bool) := do
   let account := plan.stateAccount
+  -- `nextBase` mirrors the recycling rule in `lowerBodyOps`: after a
+  -- consuming operation (store/return/emit/revert/call/schedule/assert/
+  -- returnNone) the temps it consumed are dead and `next` recycles to
+  -- `nextBase`. Regions (ifRegion/switchRegion/forRegion) also reset after
+  -- their sub-sequences because the region consumes its condition/scrutinee
+  -- temp and branch temps are mutually exclusive. This keeps canonical temp
+  -- numbering consistent with the recycled IR produced by `lowerBodyOps`.
+  -- `recycle=false` disables this for fixed dense sequences (e.g. for-loop
+  -- bound-check ops) that are hand-built with consecutive temps including an
+  -- intermediate assert that must NOT trigger recycling.
+  let nextBase := next
   let mut next := next
   let mut returned := false
   let mut initialized := false
@@ -1149,21 +1206,24 @@ private partial def validateOperationSequence
     | .ifRegion condition thenOps elseOps =>
         unless condition < next do
           throw <| .planInvariant .solana "typed Solana IR if-region condition is invalid"
-        let (n1, r1, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets thenOps next
-        let (n2, r2, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets elseOps n1
-        next := n2
+        -- Both arms start from the same `next` (mutually exclusive arms reuse
+        -- the same temp range, matching lowerBodyOps).
+        let (_, r1, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets thenOps next
+        let (_, r2, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets elseOps next
+        -- Ignore n1/n2: the region recycles back to nextBase after both arms
+        -- (unless recycling is disabled for this sequence).
+        next := if recycle then nextBase else next
         returned := (r1 && r2 && !elseOps.isEmpty) || returned
     | .switchRegion scrutinee cases defaultOps =>
         unless scrutinee < next do
           throw <| .planInvariant .solana "typed Solana IR switch-region scrutinee is invalid"
-        let mut nextC := next
+        -- All arms start from the same `next` (mutually exclusive arms).
         let mut allClosed := !defaultOps.isEmpty
         for (_, ops) in cases do
-          let (n, r, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets ops nextC
-          nextC := n
+          let (_, r, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets ops next
           allClosed := allClosed && r
-        let (nd, rd, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets defaultOps nextC
-        next := nd
+        let (_, rd, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets defaultOps next
+        next := if recycle then nextBase else next
         returned := (allClosed && rd) || returned
     | .forRegion varTemp initial counterTemp maxIterations condOps cond bodyOps
           boundOps counterNext updateOps update =>
@@ -1176,17 +1236,21 @@ private partial def validateOperationSequence
           validateOperationSequence plan handler fieldOffsets paramOffsets condOps next
         unless !rCond && cond < nCond do
           throw <| .planInvariant .solana "typed Solana IR for-region condition is invalid"
-        let (nBody, rBody, _) ←
+        let (_, rBody, _) ←
           validateOperationSequence plan handler fieldOffsets paramOffsets bodyOps nCond
         unless !rBody do
           throw <| .planInvariant .solana
             "typed Solana IR for-region body must not close every path (post-loop fallthrough)"
+        -- Body temps may be recycled; compute the actual peak to place
+        -- bound-check temps above all body temps (matches lowerBodyOps).
+        let bodyPeak := opsPeakTemp bodyOps
+        let bodyHigh := Nat.max bodyPeak nCond
         -- Bound-check sequence is fixed: lit N, cmp_eq counter, bool_not, assert
         -- with loopBoundExceededError, lit 1, checked_add → counterNext.
         unless boundOps.size == 6 do
           throw <| .planInvariant .solana "typed Solana IR for-region bound-check shape is invalid"
         let (nBound, rBound, _) ←
-          validateOperationSequence plan handler fieldOffsets paramOffsets boundOps nBody
+          validateOperationSequence plan handler fieldOffsets paramOffsets boundOps bodyHigh (recycle := false)
         unless !rBound && counterNext < nBound && counterNext + 1 == nBound do
           throw <| .planInvariant .solana "typed Solana IR for-region counter rebind is invalid"
         let some op0 := boundOps[0]? |
@@ -1230,7 +1294,20 @@ private partial def validateOperationSequence
           validateOperationSequence plan handler fieldOffsets paramOffsets updateOps nBound
         unless !rUpd && update < nUpd do
           throw <| .planInvariant .solana "typed Solana IR for-region update is invalid"
-        next := nUpd
+        next := if recycle then nextBase else next
+    -- Recycle temps after consuming operations (matching lowerBodyOps).
+    -- These operations consume their operand temps; no subsequent statement
+    -- references them (cross-statement .temp is only for forLoop vars which
+    -- live below nextBase). Resetting keeps canonical numbering consistent.
+    -- Disabled when recycle=false (fixed dense sequences like bound-checks).
+    if recycle then
+      match operation with
+      | .storeState .. | .narrowStoreState ..
+      | .setReturnData .. | .setReturnDataBool ..
+      | .assert .. | .emitEvent .. | .revertError ..
+      | .externalCall .. | .schedule .. | .returnNone =>
+          next := nextBase
+      | _ => pure ()
   pure (next, returned, initialized)
 
 private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResult Unit := do
