@@ -68,6 +68,7 @@ import ProofForgeV2.Semantic.ProofBundleV1
 import ProofForgeV2.Semantic.ProofSubjectV1
 import ProofForgeV2.Semantic.ProofReferenceJoinV1
 import ProofForgeV2.Compiler.ProofSubjectFilesV1
+import ProofForgeV2.Compiler.ProofBundleFilesV1
 import ProofForgeV2.Compiler.ProofWorkerProtocolV1
 import ProofForgeV2.Compiler.ProofWorkerV1
 import ProofForgeV2.Compiler.ProofWorkerControlV2

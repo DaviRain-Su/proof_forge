@@ -1,5 +1,6 @@
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Compiler.ProofBundleFilesV1
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Frontend.ProtocolV1
@@ -147,31 +148,12 @@ private def failProofJoin (e : ProofReferenceJoinErrorV1) : IO α := do
       IO.eprintln msg
       IO.Process.exit 3
 
-/-- Open a layout-valid proof-bundle directory: `proof-bundle.json` + each
-    manifest `oleanPath` relative to the directory. Drives shipped
-    `openProofBundleV1` (R-3). No ambient LEAN_PATH / kernel load. -/
 private def openProofBundleDirectoryV1 (dir : FilePath) :
     IO (Except ProofReferenceJoinErrorV1 OpenedProofBundleV1) := do
-  let manPath := dir / "proof-bundle.json"
-  let manBytes ← try
-      IO.FS.readBinFile manPath
-    catch _ =>
-      return .error (.bundleOpen (.malformed
-        s!"cannot read proof-bundle.json under '{dir.toString}'"))
-  match decodeProofBundleManifestV1 manBytes with
-  | .error pe => pure (.error (.bundleOpen pe))
-  | .ok m => do
-      let mut files : Array (String × ByteArray) := #[]
-      for mod in NonEmptyArray.toArray m.modules do
-        let filePath := dir / FilePath.mk mod.oleanPath
-        let bytes ← try
-            IO.FS.readBinFile filePath
-          catch _ =>
-            return .error (.bundleOpen (.missingModule mod.oleanPath))
-        files := files.push (mod.oleanPath, bytes)
-      match openProofBundleV1 manBytes files with
-      | .error pe => pure (.error (.bundleOpen pe))
-      | .ok opened => pure (.ok opened)
+  match ← ProofForgeV2.Compiler.ProofBundleFilesV1.loadProofBundleFilesV1 dir with
+  | .ok opened => pure (.ok opened)
+  | .error (.bundle pe) => pure (.error (.bundleOpen pe))
+  | .error error => pure (.error (.bundleOpen (.malformed s!"safe bundle load: {repr error}")))
 
 /-- After successful product compile: gate + optional ProofBundle join.
     Order matches SPEC-CLI: normalize/hash first, then proof-bundle join.

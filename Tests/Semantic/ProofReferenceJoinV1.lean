@@ -121,10 +121,10 @@ private def mkMatchingBundle
     (sourceHash semanticHash : Digest)
     (invariantName : String) (theoremComps : Array String) :
     IO (ProofBundleManifestV1 × ByteArray × OpenedProofBundleV1) := do
-  let moduleName ← qn proofAbiModuleComponentsV1
+  let abiModuleName ← qn proofAbiModuleComponentsV1
   let theoremNameAbi ← qn proofAbiTheoremComponentsV1
   let exportThm ← qn theoremComps
-  let root ← qn #["Bundle", "Root"]
+  let moduleName ← qn #["Bundle", "Root"]
   let mod : ProofModuleV1 := {
     moduleName
     oleanPath
@@ -143,7 +143,7 @@ private def mkMatchingBundle
   let exports ← match NonEmptyArray.ofArray #[ex] with
     | .ok ne => pure ne
     | .error e => throw <| IO.userError e
-  let roots ← match NonEmptyArray.ofArray #[root] with
+  let roots ← match NonEmptyArray.ofArray #[moduleName] with
     | .ok ne => pure ne
     | .error e => throw <| IO.userError e
   let m : ProofBundleManifestV1 := {
@@ -154,7 +154,7 @@ private def mkMatchingBundle
     toolchainLockDigest := fixedDigest 0x44
     proofAbi := {
       semanticSchema := proofAbiSemanticSchemaV1
-      moduleName
+      moduleName := abiModuleName
       theoremName := theoremNameAbi
       abiOleanDigest := fixedDigest 0x55
       trustPolicyDigest := fixedDigest 0x66
@@ -185,7 +185,7 @@ private def testPositiveProductJoin : IO Unit := do
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"compile: {e.render}"
 
-  let oleanPath := "modules/ProofForgeV2/Semantic/InvariantABI.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := "olean-fixture-inv1".toUTF8
   let sourceHash := CompiledSemanticV1.sourceDigestOf compiled
   let semanticHash := CompiledSemanticV1.semanticDigestOf compiled
@@ -222,7 +222,7 @@ private def testDigestMismatch : IO Unit := do
   let compiled ← match compileValidatedSourceV1 source with
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"compile: {e.render}"
-  let oleanPath := "modules/A.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := ByteArray.mk #[9]
   let sourceHash := CompiledSemanticV1.sourceDigestOf compiled
   let semanticHash := CompiledSemanticV1.semanticDigestOf compiled
@@ -241,7 +241,7 @@ private def testHashMismatches : IO Unit := do
   let compiled ← match compileValidatedSourceV1 source with
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"compile: {e.render}"
-  let oleanPath := "modules/A.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := ByteArray.mk #[1]
   let sourceHash := CompiledSemanticV1.sourceDigestOf compiled
   let semanticHash := CompiledSemanticV1.semanticDigestOf compiled
@@ -265,7 +265,7 @@ private def testExportMismatch : IO Unit := do
   let compiled ← match compileValidatedSourceV1 source with
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"compile: {e.render}"
-  let oleanPath := "modules/A.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := ByteArray.mk #[2]
   let sourceHash := CompiledSemanticV1.sourceDigestOf compiled
   let semanticHash := CompiledSemanticV1.semanticDigestOf compiled
@@ -286,7 +286,7 @@ private def testExportMismatch : IO Unit := do
 
 /-- Empty bindings + join is unused (defensive). -/
 private def testJoinEmptyBindings : IO Unit := do
-  let oleanPath := "modules/A.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := ByteArray.mk #[3]
   let sh := fixedDigest 0x11
   let mh := fixedDigest 0x22

@@ -1,5 +1,5 @@
 /-
-  Tests.Semantic.ProofBundleV1 — engineering R-3 safe load pins.
+  Tests.Semantic.ProofBundleV1 — engineering R-3 in-memory authority pins.
 
   Drives shipped `openProofBundleV1` / `decodeProofBundleManifestV1` /
   `proofBundleDigestV1` (not a re-implementation). Covers:
@@ -10,6 +10,8 @@
     * missing module file fail closed
     * extra module file fail closed
     * digest determinism
+    * module-derived paths and canonical manifest authority order
+    * invalid direct carriers cannot mint bundle digests
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Semantic.ProofBundleV1
@@ -32,9 +34,9 @@ private def fixedDigest (tag : UInt8) : Digest :=
 
 private def mkMinimalManifest (oleanPath : String) (oleanDigest : Digest) :
     IO ProofBundleManifestV1 := do
-  let moduleName ← qn proofAbiModuleComponentsV1
+  let abiModuleName ← qn proofAbiModuleComponentsV1
   let theoremName ← qn proofAbiTheoremComponentsV1
-  let root ← qn #["Bundle", "Root"]
+  let moduleName ← qn #["Bundle", "Root"]
   let mod : ProofModuleV1 := {
     moduleName
     oleanPath
@@ -53,7 +55,7 @@ private def mkMinimalManifest (oleanPath : String) (oleanDigest : Digest) :
   let exports ← match NonEmptyArray.ofArray #[ex] with
     | .ok ne => pure ne
     | .error e => throw <| IO.userError e
-  let roots ← match NonEmptyArray.ofArray #[root] with
+  let roots ← match NonEmptyArray.ofArray #[moduleName] with
     | .ok ne => pure ne
     | .error e => throw <| IO.userError e
   pure {
@@ -64,7 +66,7 @@ private def mkMinimalManifest (oleanPath : String) (oleanDigest : Digest) :
     toolchainLockDigest := fixedDigest 0x44
     proofAbi := {
       semanticSchema := proofAbiSemanticSchemaV1
-      moduleName
+      moduleName := abiModuleName
       theoremName
       abiOleanDigest := fixedDigest 0x55
       trustPolicyDigest := fixedDigest 0x66
@@ -80,9 +82,23 @@ private def encodeManifestBytes (m : ProofBundleManifestV1) : IO ByteArray := do
   | .ok s => pure s.toUTF8
   | .error e => throw <| IO.userError s!"encode: {repr e}"
 
+private def expectManifestMalformed
+    (label : String) (manifest : ProofBundleManifestV1) (needle : String) : IO Unit := do
+  match validateProofBundleManifestV1 manifest with
+  | .ok () => throw <| IO.userError s!"{label}: unexpectedly accepted"
+  | .error (.malformed detail) =>
+      expect (detail.contains needle) s!"{label}: detail={detail}"
+  | .error error => throw <| IO.userError s!"{label}: {repr error}"
+
+private def expectManifestValid
+    (label : String) (manifest : ProofBundleManifestV1) : IO Unit := do
+  match validateProofBundleManifestV1 manifest with
+  | .ok () => pure ()
+  | .error error => throw <| IO.userError s!"{label}: {repr error}"
+
 /-- Positive: open a well-formed one-module bundle. -/
 private def testOpenWellFormed : IO Unit := do
-  let oleanPath := "modules/ProofForgeV2/Semantic/InvariantABI.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := "olean-fixture-bytes-v1".toUTF8
   let oleanDigest := sha256Bytes oleanBytes
   let m ← mkMinimalManifest oleanPath oleanDigest
@@ -105,7 +121,7 @@ private def testOpenWellFormed : IO Unit := do
 
 /-- Wrong schema string fail closed. -/
 private def testWrongSchema : IO Unit := do
-  let oleanPath := "modules/A.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := ByteArray.mk #[1, 2, 3]
   let m0 ← mkMinimalManifest oleanPath (sha256Bytes oleanBytes)
   let m := { m0 with schema := "proof-forge.proof-bundle.v0" }
@@ -118,7 +134,7 @@ private def testWrongSchema : IO Unit := do
 
 /-- Non-canonical PF-JCS (trailing newline) fail closed. -/
 private def testNonCanonicalJcs : IO Unit := do
-  let oleanPath := "modules/A.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := ByteArray.mk #[9]
   let m ← mkMinimalManifest oleanPath (sha256Bytes oleanBytes)
   let manText ← match encodeProofBundleManifestV1 m with
@@ -134,7 +150,7 @@ private def testNonCanonicalJcs : IO Unit := do
 
 /-- Digest mismatch fail closed. -/
 private def testOleanDigestMismatch : IO Unit := do
-  let oleanPath := "modules/A.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := ByteArray.mk #[7, 7, 7]
   let wrongDigest := sha256Bytes (ByteArray.mk #[0])
   let m ← mkMinimalManifest oleanPath wrongDigest
@@ -147,7 +163,7 @@ private def testOleanDigestMismatch : IO Unit := do
 
 /-- Missing module file fail closed. -/
 private def testMissingModule : IO Unit := do
-  let oleanPath := "modules/A.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := ByteArray.mk #[1]
   let m ← mkMinimalManifest oleanPath (sha256Bytes oleanBytes)
   let manBytes ← encodeManifestBytes m
@@ -159,7 +175,7 @@ private def testMissingModule : IO Unit := do
 
 /-- Extra module file fail closed. -/
 private def testExtraModule : IO Unit := do
-  let oleanPath := "modules/A.olean"
+  let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := ByteArray.mk #[1]
   let m ← mkMinimalManifest oleanPath (sha256Bytes oleanBytes)
   let manBytes ← encodeManifestBytes m
@@ -170,6 +186,140 @@ private def testExtraModule : IO Unit := do
       expect (path == "modules/EXTRA.olean") s!"path={path}"
   | .error e => throw <| IO.userError s!"extra unexpected: {repr e}"
 
+private def testManifestAuthorityShape : IO Unit := do
+  let bytes := ByteArray.mk #[1]
+  let path := "modules/Bundle/Root.olean"
+  let base ← mkMinimalManifest path (sha256Bytes bytes)
+  let baseModule := base.modules.head
+  expect (proofModuleOleanPathV1 baseModule.moduleName == path)
+    "module path derived from qualified name"
+  let wrongPathModule := { baseModule with oleanPath := "modules/Other.olean" }
+  let wrongPathModules ← match NonEmptyArray.ofArray #[wrongPathModule] with
+    | .ok modules => pure modules
+    | .error error => throw <| IO.userError error
+  expectManifestMalformed "foreign module path"
+    { base with modules := wrongPathModules } "does not match moduleName"
+  match proofBundleDigestV1 { base with modules := wrongPathModules } with
+  | .ok _ => throw <| IO.userError "invalid manifest must not have a bundle digest"
+  | .error (.malformed _) => pure ()
+  | .error error => throw <| IO.userError s!"digest validation: {repr error}"
+
+  let decomposedName := String.ofList [Char.ofNat 0x65, Char.ofNat 0x0301]
+  let decomposedExport := { base.exports.head with invariantName := decomposedName }
+  let decomposedExports ← match NonEmptyArray.ofArray #[decomposedExport] with
+    | .ok exports => pure exports
+    | .error error => throw <| IO.userError error
+  let decomposedManifest := { base with exports := decomposedExports }
+  expectManifestMalformed "non-NFC invariant name" decomposedManifest
+    "export.invariantName"
+  let decomposedBytes ← encodeManifestBytes decomposedManifest
+  match decodeProofBundleManifestV1 decomposedBytes with
+  | .ok _ => throw <| IO.userError "decoded non-NFC invariant name must fail"
+  | .error (.malformed detail) =>
+      expect (detail.contains "export.invariantName") s!"detail={detail}"
+  | .error error => throw <| IO.userError s!"decode validation: {repr error}"
+
+  let missingRoot ← qn #["Bundle", "Missing"]
+  let missingRoots ← match NonEmptyArray.ofArray #[missingRoot] with
+    | .ok roots => pure roots
+    | .error error => throw <| IO.userError error
+  expectManifestMalformed "missing root" { base with roots := missingRoots }
+    "root not present"
+
+  let imported ← qn #["Trusted", "Base"]
+  let duplicateImportModule := { baseModule with imports := #[imported, imported] }
+  let duplicateImportModules ← match NonEmptyArray.ofArray #[duplicateImportModule] with
+    | .ok modules => pure modules
+    | .error error => throw <| IO.userError error
+  expectManifestMalformed "duplicate import"
+    { base with modules := duplicateImportModules } "duplicate module import"
+
+  let firstName ← qn #["Bundle", "A"]
+  let secondName ← qn #["Bundle", "B"]
+  let firstModule := { baseModule with
+    moduleName := firstName
+    oleanPath := proofModuleOleanPathV1 firstName }
+  let secondModule := { baseModule with
+    moduleName := secondName
+    oleanPath := proofModuleOleanPathV1 secondName }
+  let reversedModules ← match NonEmptyArray.ofArray #[secondModule, firstModule] with
+    | .ok modules => pure modules
+    | .error error => throw <| IO.userError error
+  let firstRoots ← match NonEmptyArray.ofArray #[firstName] with
+    | .ok roots => pure roots
+    | .error error => throw <| IO.userError error
+  let baseExport := base.exports.head
+  let firstExport := { baseExport with ownerModule := firstName }
+  let firstExports ← match NonEmptyArray.ofArray #[firstExport] with
+    | .ok exports => pure exports
+    | .error error => throw <| IO.userError error
+  expectManifestMalformed "module order" { base with
+      modules := reversedModules, roots := firstRoots, exports := firstExports }
+    "strictly sorted by moduleName"
+
+  let zExport := { firstExport with invariantName := "z" }
+  let aExport := { firstExport with invariantName := "a" }
+  let reversedExports ← match NonEmptyArray.ofArray #[zExport, aExport] with
+    | .ok exports => pure exports
+    | .error error => throw <| IO.userError error
+  let sortedModules ← match NonEmptyArray.ofArray #[firstModule, secondModule] with
+    | .ok modules => pure modules
+    | .error error => throw <| IO.userError error
+  expectManifestValid "canonical authority shape" { base with
+    modules := sortedModules, roots := firstRoots, exports := firstExports }
+
+  let reversedRoots ← match NonEmptyArray.ofArray #[secondName, firstName] with
+    | .ok roots => pure roots
+    | .error error => throw <| IO.userError error
+  expectManifestMalformed "root order" { base with
+      modules := sortedModules, roots := reversedRoots, exports := firstExports }
+    "strictly sorted"
+
+  -- Direct `.olean` import order is authoritative and must not be sorted.
+  let zImport ← qn #["Trusted", "Z"]
+  let aImport ← qn #["Trusted", "A"]
+  let orderedImportModule := { firstModule with imports := #[zImport, aImport] }
+  let orderedImportModules ← match
+      NonEmptyArray.ofArray #[orderedImportModule, secondModule] with
+    | .ok modules => pure modules
+    | .error error => throw <| IO.userError error
+  expectManifestValid "direct import order preserved" { base with
+    modules := orderedImportModules, roots := firstRoots, exports := firstExports }
+
+  expectManifestMalformed "export order" { base with
+      modules := sortedModules, roots := firstRoots, exports := reversedExports }
+    "strictly sorted by invariantName"
+
+  -- Qualified names compare component-by-component, not by dot-joined text:
+  -- `["a", "z"]` sorts before `["a'"]` because `"a"` is a byte prefix.
+  let prefixName ← qn #["a", "z"]
+  let apostropheName ← qn #["a'"]
+  let prefixModule := { baseModule with
+    moduleName := prefixName
+    oleanPath := proofModuleOleanPathV1 prefixName }
+  let apostropheModule := { baseModule with
+    moduleName := apostropheName
+    oleanPath := proofModuleOleanPathV1 apostropheName }
+  let componentOrderedModules ← match
+      NonEmptyArray.ofArray #[prefixModule, apostropheModule] with
+    | .ok modules => pure modules
+    | .error error => throw <| IO.userError error
+  let componentOrderedRoots ← match
+      NonEmptyArray.ofArray #[prefixName, apostropheName] with
+    | .ok roots => pure roots
+    | .error error => throw <| IO.userError error
+  let prefixExport := { baseExport with theoremName := prefixName, ownerModule := prefixName }
+  let apostropheExport := {
+    baseExport with theoremName := apostropheName, ownerModule := apostropheName }
+  let componentOrderedExports ← match
+      NonEmptyArray.ofArray #[prefixExport, apostropheExport] with
+    | .ok exports => pure exports
+    | .error error => throw <| IO.userError error
+  expectManifestValid "component-wise UTF-8 authority order" { base with
+    modules := componentOrderedModules
+    roots := componentOrderedRoots
+    exports := componentOrderedExports }
+
 unsafe def run : IO Unit := do
   testOpenWellFormed
   testWrongSchema
@@ -177,6 +327,7 @@ unsafe def run : IO Unit := do
   testOleanDigestMismatch
   testMissingModule
   testExtraModule
+  testManifestAuthorityShape
   IO.println "Tests.Semantic.ProofBundleV1: ok"
 
 end Tests.Semantic.ProofBundleV1
