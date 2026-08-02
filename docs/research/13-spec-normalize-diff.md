@@ -56,7 +56,7 @@ normative: false
 | bare assign / return / assert | **LOWERED** | `assert cond else Err` 仅 zero-arg error | — |
 | if / match（stmt+expr） | **LOWERED** | multi-block；嵌套子模式已开；同键 duplicate FC | N-7 深化 |
 | let 可变 + field/index rebind | **LOWERED** | bare `x:=e` env rebind 已开（N-6）；param 仍 immutable | N-6 ✅ |
-| bounded for | **LOWERED** | 同宽 legal UInt；Int 端点仍 FC | N-FOR-INT |
+| bounded for | **LOWERED** | 同宽 legal UInt/Int；signed half-open + exact loopBounds；六 target Int induction Plan FC | N-FOR-INT ✅ |
 | 算术/位运算/移位/比较/逻辑 | **LOWERED** | Field mod FC；Field/Principal ordering FC | — |
 | unary `- ~ !` | **LOWERED** | UInt `-` → `0-x` | — |
 | fn / localCall pureCall | **LOWERED** | purity 门禁 | — |
@@ -115,7 +115,8 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 | **N-5** | call 返回值：仅 RPT-014 schema 研究；**产品仍 void，实现 follow-on 未排**（见 backlog 2.4） | **done**（研究） |
 | **N-6** | bare `x:=e` env rebind 已开；param immutable | **done** |
 | **N-7** | 嵌套 ctor/lit/bind 子模式已开 | **done** |
-| **N-8** | event/error legal UInt/Int 与 call/schedule legal UInt/Int 已开；**for 端点仍 legal UInt only** | **done**（子集） |
+| **N-8** | event/error 与 call/schedule legal UInt/Int 已开；for 的 Int 余量由 N-FOR-INT 闭合 | **done**（子集） |
+| **N-FOR-INT** | shared Normalize/Reference 开同宽 Int bounded-for；六 target Int induction Plan FC | **done**（shared-only） |
 | **N-STR-EVENT** | shared event/error String payload 已开并进 Reference；target ABI 全 FC | **done**（shared-only） |
 | **N-A3** | 单步 IndexSet 已开；**嵌套穿透 `m[k].x` 仍 FC**（余量未排） | **done**（子集） |
 | **N-A4** | Option state Normalize admit 已开；全 target Plan FC | **done**（子集） |
@@ -127,7 +128,7 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 ## 6. 回流 engineering-backlog（2026-08-03 复核更新）
 
 1. 登记本文路径；DOC-SPEC-AUDIT → done（已登记）。
-2. N 家族 done 声明与代码主路径一致；String event payload、zero-arg assert-else 与 invariant IR 已闭合。剩余余量为 call 返回值、匿名 result、嵌套穿透、multi-entry Map Construct 与 for-Int 端点，并继续只在 backlog §2.4 排队。
+2. N 家族 done 声明与代码主路径一致；String event payload、Int bounded-for、zero-arg assert-else 与 invariant IR 已闭合。剩余余量为 call 返回值、匿名 result、嵌套穿透与 multi-entry Map Construct，并继续只在 backlog §2.4 排队。
 3. 下一产品优先按 backlog 推荐序：先处理 call 返回值 schema 与 call/schedule capability 产品决策，再串行其余 shared-core；target leaf 仅在接口冻结后并行。
 
 ---
@@ -144,3 +145,4 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 |---|---|
 | 2026-08-02 | DOC-SPEC-AUDIT 初版：Normalize docstring × SPEC-LANG/SEM/TYPE 表 + backlog 校准 |
 | 2026-08-02 | 复核刷新：CheckV1 六相位、N 家族 done 状态对齐 HEAD；§2/§3/§4 表修正（let 可变、caller ContextRead、named aggregate result、nonempty Map、authority/custody/commit 已接线）；§5 改为历史对照 + 余量指引 |
+| 2026-08-03 | N-FOR-INT：同宽 Int bounded-for 进入 shared Normalize/Reference；六 target signed induction 继续 fail closed |

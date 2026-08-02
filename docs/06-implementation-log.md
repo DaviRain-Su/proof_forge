@@ -13306,7 +13306,7 @@ normative: false
 - Tests-first：`ReferenceV1` 与 target shard 在生产修改前均稳定失败于
   `S1 event 'Note' field 'message' requires anonymous UInt/Int type`，排除测试假绿。
 - Normalize：新增 event/error 专用字段门，只允许 public anonymous legal UInt/Int/String；
-  其他 integer-only call/schedule 与 UInt-only for endpoint 门不变。String payload 继续复用 sole
+  当时其他 integer-only call/schedule 与 UInt-only for endpoint 门不变（后由下述 N-FOR-INT supersede）。String payload 继续复用 sole
   `encodeString` canonical `u32le(len) || NFC UTF-8` valueBytes。
 - Product/Reference：located `selectProgramV1WithOrigins → compileProgramProductV1` 成功保留
   EventDecl/ErrorDecl 的同一 String TypeId；Reference 固定 String literal emit 的 ordered effect、
@@ -13318,3 +13318,23 @@ normative: false
   final ordinary `just ci` 全部通过。
 - Boundary：shared engineering semantic identity cutover only；非 target event/error ABI、非 formal
   `TASK-D2-06/07`、非 D4 完成。
+
+### 2026-08-03 — N-FOR-INT signed bounded-for shared slice
+
+- Tests-first：typed 与 target shard 在生产修改前分别稳定失败于
+  `S1 for start requires anonymous UInt type` 与 product compile failure，确认旧 UInt-only Normalize
+  门真实阻断 Int endpoint，而非测试假绿。
+- Normalize：`for` endpoint 门改为同宽 anonymous legal UInt/Int；induction block-param 保留 endpoint
+  TypeId，header 发 typed `<`，latch 发同宽 canonical literal `1` + typed checked `add`，并复用既有
+  exact `(header, backEdgeFrom, maxIterations)` `loopBounds`。合法半开区间进入 body 时
+  `i < end ≤ Int.max`，因此 latch `i+1` 不会越界。
+- Reference/structure：Int8 产品 fixture 固定 `[-2,2)` signed 四趟、`2 ..< -2` 零趟、
+  `126 ..< 127` 的 Int.max 边界与 bound=3 的 `.boundExceeded` 全 state rollback；另精确检查
+  Int8 header param、typed `<`、同宽 literal/add、latch 回边与 bound row。
+- Target boundary：不发明 signed range ABI。EVM/Solana/NEAR/Noir/Aleo/Psy 六个 retained-Semantic
+  materializer 均以 target-owned Plan invariant 拒绝 Int64 induction；Psy 新增 exact UInt64 header
+  TypeId 门，禁止把 two's-complement Int 当 Felt range。
+- Verification：代码 commit `9ad021700`；typed shard、targets shard、fresh SBOM pin、独立只读
+  P0/P1 review、`git diff --check` 与 final ordinary `just ci` 全部通过。
+- Boundary：shared engineering Semantic/Reference cutover only；六 target 的 Int loop lowering仍未开放，
+  不声称 formal `TASK-D2-06/07`、TST-SEM 或 D4 完成。
