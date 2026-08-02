@@ -188,12 +188,51 @@ private def testExactTreeAndMalformed (base : FilePath) : IO Unit := do
   expect (match ← loadProofBundleFilesV1 root with
     | .error (.bundle _) => true | _ => false) "NUL module path rejected by decoder"
 
+private def testCanonicalCycleManifest (base : FilePath) : IO Unit := do
+  let root ← reset (base / "canonical-cycle")
+  let a ← qn #["Bundle", "A"]
+  let b ← qn #["Bundle", "B"]
+  let contents := "cycle-olean".toUTF8
+  let seed ← manifest (proofModuleOleanPathV1 a) contents
+  let rows := #[(a, b), (b, a)].map fun (name, imported) =>
+    { seed.modules.head with
+      moduleName := name
+      oleanPath := proofModuleOleanPathV1 name
+      imports := #[imported] }
+  let modules ← match NonEmptyArray.ofArray rows with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let roots ← match NonEmptyArray.ofArray #[a] with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let exports ← match NonEmptyArray.ofArray #[{ seed.exports.head with ownerModule := a }] with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let cyclic := { seed with modules, roots, exports }
+  let encoded ← match encodeProofBundleManifestV1 cyclic with
+    | .ok value => pure value.toUTF8
+    | .error error => throw <| IO.userError s!"cycle manifest encode: {repr error}"
+  IO.FS.writeBinFile (root / proofBundleManifestFileNameV1) encoded
+  for row in rows do
+    let target := root / FilePath.mk row.oleanPath
+    let parent ← match target.parent with
+      | some value => pure value
+      | none => throw <| IO.userError "cycle module path has no parent"
+    IO.FS.createDirAll parent
+    IO.FS.writeBinFile target contents
+  match ← loadProofBundleFilesV1 root with
+  | .error (.bundle (.malformed detail)) =>
+      expect (detail.contains "cycle") s!"canonical cycle detail: {detail}"
+  | .error error => throw <| IO.userError s!"canonical cycle wrong error: {repr error}"
+  | .ok _ => throw <| IO.userError "canonical cycle unexpectedly accepted"
+
 unsafe def run : IO Unit := do
   let base ← reset ((← IO.currentDir) / "build/proof-bundle-files-v1")
   testPositiveAndRootPolicy base
   testManifestKinds base
   testModuleKinds base
   testExactTreeAndMalformed base
+  testCanonicalCycleManifest base
   IO.println "Tests.Compiler.ProofBundleFilesV1: ok"
 
 end Tests.Compiler.ProofBundleFilesV1

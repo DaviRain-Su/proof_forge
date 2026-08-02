@@ -221,9 +221,9 @@
       "sha256": "f2c1119a374f0b7951e2cf1c7782872cfcda8e5913d95b6a6947dd3b941b2074"
     },
     {
-      "bytes": 23150,
+      "bytes": 27766,
       "path": "ProofForgeV2/Semantic/ProofBundleV1.lean",
-      "sha256": "1586220901a271564ed37ef684a0301bc7d6f8af34499ce355ba7614aba94dff"
+      "sha256": "79b8a863e68b8fdf7a7f37c67bb4b5e0bad8b77b5ccd6aae732d21b551b2c8b8"
     },
     {
       "bytes": 9786,

@@ -94,6 +94,15 @@ structure OpenedProofBundleV1 where
     /-- oleanPath → verified file bytes (exact SHA-256 match). -/
     moduleFiles : Array (String × ByteArray)
 
+/-- Deterministic plan derived only from a validated manifest and verified
+    module byte set. It does not claim that `.olean` headers match the declared
+    imports or that unresolved names belong to the trusted base closure. -/
+structure DeclaredProofBundleLoadPlanV1 where
+  bundleDigest : Digest
+  dependencyFirstModules : Array QualifiedName
+  unresolvedImportFrontier : Array QualifiedName
+  deriving DecidableEq, Repr
+
 /-! ### PF-JCS helpers -/
 
 private def requireObject (value : PfJson) (context : String) :
@@ -221,6 +230,88 @@ private def compareExports (left right : ProofExportV1) : Ordering :=
   match compareUtf8Bytes left.invariantName.toUTF8 right.invariantName.toUTF8 with
   | .eq => compareQualifiedNames left.theoremName right.theoremName
   | order => order
+
+private def sameQualifiedName (left right : QualifiedName) : Bool :=
+  qnComponents left == qnComponents right
+
+private def moduleIndex?
+    (modules : Array ProofModuleV1) (name : QualifiedName) : Option Nat := Id.run do
+  let mut low := 0
+  let mut high := modules.size
+  while low < high do
+    let middle := low + (high - low) / 2
+    let module ← match modules[middle]? with
+      | some module => pure module
+      | none => return none
+    match compareQualifiedNames module.moduleName name with
+    | .lt => low := middle + 1
+    | .gt => high := middle
+    | .eq => return some middle
+  return none
+
+private def canonicalUniqueQualifiedNames
+    (values : Array QualifiedName) : Array QualifiedName :=
+  Id.run do
+    let sorted := values.mergeSort
+      (fun left right => compareQualifiedNames left right != .gt)
+    let mut out := #[]
+    let mut previous : Option QualifiedName := none
+    for value in sorted do
+      unless previous.any (sameQualifiedName · value) do
+        out := out.push value
+      previous := some value
+    pure out
+
+private def hasDuplicateQualifiedName (values : Array QualifiedName) : Bool :=
+  let sorted := values.mergeSort
+    (fun left right => compareQualifiedNames left right != .gt)
+  Id.run do
+    let mut previous : Option QualifiedName := none
+    for value in sorted do
+      if previous.any (sameQualifiedName · value) then return true
+      previous := some value
+    return false
+
+/-- Analyze every declared bundle module. Local imports form dependency edges;
+    names outside the bundle are retained as an unresolved canonical frontier. -/
+private def analyzeDeclaredModuleGraphV1
+    (modules : Array ProofModuleV1) :
+    Except ProofBundleErrorV1 (Array QualifiedName × Array QualifiedName) := do
+  let mut remainingDependencies := Array.replicate modules.size 0
+  let mut dependents : Array (List Nat) := Array.replicate modules.size []
+  let mut unresolved : Array QualifiedName := #[]
+  for importerIndex in List.range modules.size do
+    let importer ← match modules[importerIndex]? with
+      | some importer => pure importer
+      | none => err (.internal "declared module graph importer index")
+    for imported in importer.imports do
+      match moduleIndex? modules imported with
+      | some dependencyIndex =>
+          remainingDependencies := remainingDependencies.set! importerIndex
+            (remainingDependencies[importerIndex]! + 1)
+          dependents := dependents.set! dependencyIndex
+            (importerIndex :: dependents[dependencyIndex]!)
+      | none =>
+          unresolved := unresolved.push imported
+  let mut emitted := Array.replicate modules.size false
+  let mut order : Array QualifiedName := #[]
+  while order.size < modules.size do
+    let candidate := (List.range modules.size).find?
+      (fun index => !emitted[index]! && remainingDependencies[index]! == 0)
+    let index ← match candidate with
+      | some index => pure index
+      | none => err (.malformed "manifest.modules contains a declared import cycle")
+    emitted := emitted.set! index true
+    let module ← match modules[index]? with
+      | some module => pure module
+      | none => err (.internal "declared module graph output index")
+    order := order.push module.moduleName
+    for dependent in dependents[index]! do
+      let remaining := remainingDependencies[dependent]!
+      if remaining == 0 then
+        return ← err (.internal "declared module graph indegree underflow")
+      remainingDependencies := remainingDependencies.set! dependent (remaining - 1)
+  pure (order, canonicalUniqueQualifiedNames unresolved)
 
 private def qnToPfJson (qn : QualifiedName) : PfJson :=
   .array ((qnComponents qn).map PfJson.string)
@@ -421,13 +512,11 @@ def validateProofBundleManifestV1 (m : ProofBundleManifestV1) :
     -- Direct-import order is part of the `.olean` identity and is preserved;
     -- only uniqueness is enforced here. Resolution may target another bundle
     -- module or the separately validated trusted base closure.
-    let mut seenImports : Array (Array String) := #[]
     for imported in mod.imports do
       validateName imported "module.imports"
-      let components := qnComponents imported
-      if seenImports.any (· == components) then
-        return ← err (.malformed "duplicate module import")
-      seenImports := seenImports.push components
+    if hasDuplicateQualifiedName mod.imports then
+      return ← err (.malformed "duplicate module import")
+  let _ ← analyzeDeclaredModuleGraphV1 mods
   -- Roots are a strictly sorted, unique subset of bundle modules.
   let roots := NonEmptyArray.toArray m.roots
   let mut previousRoot : Option QualifiedName := none
@@ -523,5 +612,22 @@ def openProofBundleV1
     unless (NonEmptyArray.toArray m.modules).any (fun mod => mod.oleanPath == path) do
       return ← err (.extraModule path)
   pure ⟨m, digest, verified⟩
+
+/-- Build the deterministic dependency-first order and unresolved external
+    import frontier declared by an already opened bundle.
+
+    This is not `.olean` header verification, trusted-base resolution, an exact
+    importer map, declaration policy checking, kernel replay, or proof
+    certification. -/
+def declaredProofBundleLoadPlanV1
+    (opened : OpenedProofBundleV1) :
+    Except ProofBundleErrorV1 DeclaredProofBundleLoadPlanV1 := do
+  let (order, unresolved) ←
+    analyzeDeclaredModuleGraphV1 (NonEmptyArray.toArray opened.manifest.modules)
+  pure {
+    bundleDigest := opened.bundleDigest
+    dependencyFirstModules := order
+    unresolvedImportFrontier := unresolved
+  }
 
 end ProofForgeV2.Semantic.ProofBundleV1
