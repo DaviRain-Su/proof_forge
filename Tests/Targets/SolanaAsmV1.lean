@@ -848,15 +848,47 @@ private unsafe def testMapMiniElfFrameBudgetOk
     "      return 0\n"
   let compiled ← compileSource session source "Examples.MapMiniFb"
     "<solana-map-mini-fb>"
+  -- Production capability path: Plan must lower put as one storeAggregate(24).
+  let plan ← liftResult <| planSolana compiled
+  expect (plan.stateAccount.fields.size == 24)
+    s!"map-mini-fb: 24 Map leaves, got {plan.stateAccount.fields.size}"
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "map-mini-fb: missing put"
+  let hasAgg := put.body.any fun s =>
+    match s with | .storeAggregate leaves => leaves.size == 24 | _ => false
+  expect hasAgg
+    "map-mini-fb: put Plan must carry one 24-leaf storeAggregate"
+  let hasScalar := put.body.any fun s =>
+    match s with | .store _ => true | _ => false
+  expect (!hasScalar)
+    "map-mini-fb: put Plan must not sequential-store Map leaves"
   let ir ← liftResult <| irSolana compiled
+  let some putIR := ir.handlers.find? (·.name == "put") |
+    throw <| IO.userError "map-mini-fb: missing put IR"
+  let multi24 := putIR.operations.foldl (fun n op =>
+    match op with
+    | .storeStateMulti e => n + (if e.size == 24 then 1 else 0)
+    | _ => n) 0
+  let scalarStore := putIR.operations.foldl (fun n op =>
+    match op with
+    | .storeState .. | .narrowStoreState .. => n + 1
+    | _ => n) 0
+  expect (multi24 == 1)
+    s!"map-mini-fb: put IR must have one storeStateMulti(24), got {multi24}"
+  expect (scalarStore == 0)
+    s!"map-mini-fb: put IR must not scalar-store Map leaves, got {scalarStore}"
   -- The put handler does a Map IndexSet (24 leaf stores) + a return.
   -- Before temp reuse: 24888 bytes (3109 temps). After: must be ≤ 4096.
   let asm ← liftResult <| emitSbpfAsmV1 ir
   -- The asm must contain the put handler label.
   expect (asm.contains "put:") "map-mini-fb: asm must contain put handler"
+  expect (asm.contains "store_multi_le [24]")
+    "map-mini-fb: asm must emit store_multi_le [24] (atomic aggregate, not per-leaf live write)"
   -- Frame budget gate already passed inside emitSbpfAsmV1 (it throws on
   -- overflow). If we reach here, all handlers fit within 4096 bytes.
   expect (asm.contains "entrypoint:") "map-mini-fb: asm must contain entrypoint"
+  expect (asm.contains "handler put (temps=")
+    "map-mini-fb: put temp annotation present (frame ≤ 4096 already gated)"
 
 /-- L2 / B-SOL-MAP-ELF: Token (Map balances) ELF frame budget must fit
     within 4096 bytes: mint does Map IndexGet + IndexSet (48 leaf ops). -/

@@ -2987,6 +2987,166 @@ private unsafe def testMapPutIntoEmptyAtomicStore : IO Unit := do
           "Map.empty init must lower to storeAtomic of 24 zero leaves"
   IO.println "  MapPut atomic store-then-read pin ok"
 
+/-- B-MAP-STRUCT-PIN: Token transfer dual Map StateStores must stay two
+    separate 24-leaf `storeAtomic` batches (not merged). Within each batch Yul
+    evaluates leaf exprs then contiguous sstores; between batches sload is
+    allowed so the second StateStore observes the first write. -/
+private unsafe def testTokenDualStoreBatchSeparation : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Token where\n" ++
+    "  state balances : Map UInt64 UInt64\n" ++
+    "  state supply : UInt64\n" ++
+    "  init() do\n" ++
+    "    balances := Map.empty()\n" ++
+    "    supply := 0\n" ++
+    "  entry mint(to : UInt64, amount : UInt64) : UInt64 do\n" ++
+    "    match balances[to] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      balances[to] := v + amount\n" ++
+    "      supply := supply + amount\n" ++
+    "      return supply\n" ++
+    "    | _ => do\n" ++
+    "      balances[to] := amount\n" ++
+    "      supply := supply + amount\n" ++
+    "      return supply\n" ++
+    "  entry transfer(src : UInt64, dst : UInt64, amount : UInt64) : Bool do\n" ++
+    "    match balances[src] with\n" ++
+    "    | Option.some(fromBal) => do\n" ++
+    "      assert fromBal >= amount\n" ++
+    "      match balances[dst] with\n" ++
+    "      | Option.some(toBal) => do\n" ++
+    "        balances[src] := fromBal - amount\n" ++
+    "        balances[dst] := toBal + amount\n" ++
+    "        return true\n" ++
+    "      | _ => do\n" ++
+    "        balances[src] := fromBal - amount\n" ++
+    "        balances[dst] := amount\n" ++
+    "        return true\n" ++
+    "    | _ => do\n" ++
+    "      assert false\n" ++
+    "      return false\n" ++
+    "  view balanceOf(who : UInt64) : UInt64 do\n" ++
+    "    match balances[who] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let src ← liftResult "load Token dual" (← session.selectProgramV1
+    source "<evm-token-dual>" "Tests.EvmTokenDual" none)
+  let compiled ← liftResult "compile Token dual" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan Token dual" <| planEvm compiled
+  -- 24 Map leaves + supply scalar.
+  expect (plan.storageLayout.size == 25)
+    s!"Token dual: Map+supply must be 25 slots, got {plan.storageLayout.size}"
+  let some transfer := plan.entries.find? (·.name == "transfer") |
+    throw <| IO.userError "Token dual: missing transfer entry"
+  -- Recursive count of 24-leaf storeAtomic vs scalar store.
+  let rec countAtomic (stmts : Array Targets.Evm.Statement) : Nat × Nat :=
+    stmts.foldl (fun (a24, seq) stmt =>
+      match stmt with
+      | Targets.Evm.Statement.storeAtomic ops =>
+          (a24 + (if ops.size == 24 then 1 else 0), seq)
+      | Targets.Evm.Statement.store _ =>
+          (a24, seq + 1)
+      | Targets.Evm.Statement.ifThenElse _ t e =>
+          let (a1, s1) := countAtomic t
+          let (a2, s2) := countAtomic e
+          (a24 + a1 + a2, seq + s1 + s2)
+      | Targets.Evm.Statement.switchOn _ cases d =>
+          let (ad, sd) := countAtomic d
+          let (ac, sc) := cases.foldl (fun (a, s) (_, b) =>
+            let (ab, sb) := countAtomic b
+            (a + ab, s + sb)) (0, 0)
+          (a24 + ad + ac, seq + sd + sc)
+      | Targets.Evm.Statement.forLoop _ _ _ _ _ _ b =>
+          let (ab, sb) := countAtomic b
+          (a24 + ab, seq + sb)
+      | _ => (a24, seq)) (0, 0)
+  let (agg24, _) := countAtomic transfer.body
+  -- Dual-write arms (some/some and some/none) each keep two storeAtomic(24).
+  expect (agg24 >= 4)
+    s!"Token transfer Plan must keep ≥4 separate 24-leaf storeAtomic (dual StateStores × arms), got {agg24}"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"Token dual plan must validate: {e.render}"
+  let out ← liftResult "materialize Token dual" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf out).find?
+      (·.path == "Token.yul") |
+    throw <| IO.userError "Token dual: missing Token.yul"
+  let yul := yulFile.contents
+  let caseMarker := s!"case 0x{transfer.selector}"
+  expect (yul.contains caseMarker)
+    s!"Token dual Yul must contain transfer case 0x{transfer.selector}"
+  let rec indexOf (hay needle : List Char) (i : Nat) : Option Nat :=
+    match hay with
+    | [] => none
+    | _ :: rest =>
+        if needle.isPrefixOf hay then some i else indexOf rest needle (i + 1)
+  let some caseAt := indexOf yul.toList caseMarker.toList 0 |
+    throw <| IO.userError "Token dual: transfer case marker not found"
+  let transferRegion := String.ofList (yul.toList.drop caseAt)
+  -- Collect every sstore( position in the transfer case.
+  let rec collectSstores (hay : List Char) (base : Nat) (acc : Array Nat) : Array Nat :=
+    match indexOf hay "sstore(".toList 0 with
+    | none => acc
+    | some rel =>
+        let pos := base + rel
+        collectSstores (hay.drop (rel + "sstore(".length)) (pos + "sstore(".length)
+          (acc.push pos)
+  let sstorePoses := collectSstores transferRegion.toList 0 #[]
+  -- Dual-write path emits 2 × 24 = 48 sstores per arm; both arms are present
+  -- in the lowered switch, so expect ≥ 48 (often 96 for two full dual arms).
+  expect (sstorePoses.size >= 48)
+    s!"Token transfer Yul must emit ≥48 Map sstores (dual 24-leaf batches), got {sstorePoses.size}"
+  -- Find at least one contiguous 24-sstore run with no sload between members
+  -- (intra-batch atomic write), and ensure a later batch is separated by sload
+  -- (cross-batch re-read, not merged).
+  let mut foundAtomic24 := false
+  let mut foundSeparatedBatches := false
+  let trCs := transferRegion.toList
+  let mut bi := 0
+  while bi + 24 ≤ sstorePoses.size do
+    let mut contiguous := true
+    let mut j := 1
+    while j < 24 && contiguous do
+      let prev := sstorePoses[bi + j - 1]!
+      let cur := sstorePoses[bi + j]!
+      let between := String.ofList ((trCs.drop (prev + "sstore(".length)).take
+        (cur - (prev + "sstore(".length)))
+      if between.contains "sload(" then
+        contiguous := false
+      j := j + 1
+    if contiguous then
+      foundAtomic24 := true
+      -- Look for a later sstore after this batch that has sload in between
+      -- (second StateStore batch re-reads storage).
+      if bi + 24 < sstorePoses.size then
+        let batchEnd := sstorePoses[bi + 23]!
+        let nextStore := sstorePoses[bi + 24]!
+        let gap := String.ofList ((trCs.drop (batchEnd + "sstore(".length)).take
+          (nextStore - (batchEnd + "sstore(".length)))
+        if gap.contains "sload(" then
+          foundSeparatedBatches := true
+    bi := bi + 1
+  expect foundAtomic24
+    "Token transfer Yul must contain a contiguous 24-sstore atomic write batch (no mid-batch sload)"
+  expect foundSeparatedBatches
+    "Token transfer Yul dual StateStores must re-sload between consecutive 24-sstore batches (not merge)"
+  -- mint: Map storeAtomic + scalar supply store stay distinct statement kinds.
+  let some mint := plan.entries.find? (·.name == "mint") |
+    throw <| IO.userError "Token dual: missing mint entry"
+  let (mintAgg, mintSeq) := countAtomic mint.body
+  expect (mintAgg >= 2)
+    s!"Token mint Plan must have ≥2 Map storeAtomic (match arms), got {mintAgg}"
+  expect (mintSeq >= 2)
+    s!"Token mint Plan must keep scalar supply .store separate from Map aggregate, got seq={mintSeq}"
+  IO.println "  Token dual StateStore batch separation pin ok"
+
 /-- D4-E2: Bytes N state flattens to N×UInt8 leaves with IndexGet/IndexSet
     (Normalize-admitted; Map is I1 dense pilot, not Bytes). -/
 private unsafe def testBytesStateIndexOps : IO Unit := do
@@ -3296,6 +3456,7 @@ unsafe def run : IO Unit := do
   testFieldBn254Lane
   testArrayStateIndexOps
   testMapPutIntoEmptyAtomicStore
+  testTokenDualStoreBatchSeparation
   testBytesStateIndexOps
   testContextReadFailClosedBoundary
   testAggregateStructReturn

@@ -1795,6 +1795,331 @@ private unsafe def testNarrowIntAbi : IO Unit := do
       | .error _ => pure ()
       | .ok _ => throw <| IO.userError "Solana plan must reject Int128"
 
+/-- B-MAP-STRUCT-PIN: recursive Plan walk — count 24-leaf `storeAggregate` and
+    any scalar `.store` (sequential leaf writes). -/
+private partial def countPlanAggregates (stmts : Array Statement) : Nat × Nat :=
+  stmts.foldl (fun (agg24, seq) stmt =>
+    match stmt with
+    | .storeAggregate leaves =>
+        (agg24 + (if leaves.size == 24 then 1 else 0), seq)
+    | .store _ =>
+        (agg24, seq + 1)
+    | .ifThenElse _ t e =>
+        let (a1, s1) := countPlanAggregates t
+        let (a2, s2) := countPlanAggregates e
+        (agg24 + a1 + a2, seq + s1 + s2)
+    | .switchOn _ cases d =>
+        let (ad, sd) := countPlanAggregates d
+        let (ac, sc) := cases.foldl (fun (a, s) (_, b) =>
+          let (ab, sb) := countPlanAggregates b
+          (a + ab, s + sb)) (0, 0)
+        (agg24 + ad + ac, seq + sd + sc)
+    | .forLoop _ _ _ _ _ b =>
+        let (ab, sb) := countPlanAggregates b
+        (agg24 + ab, seq + sb)
+    | _ => (agg24, seq)) (0, 0)
+
+/-- B-MAP-STRUCT-PIN: recursive IR walk — count `storeStateMulti` (24-leaf) and
+    scalar `storeState`/`narrowStoreState`. -/
+private partial def countIrMultiStores (ops : Array Operation) : Nat × Nat :=
+  ops.foldl (fun (multi24, scalar) op =>
+    match op with
+    | .storeStateMulti entries =>
+        (multi24 + (if entries.size == 24 then 1 else 0), scalar)
+    | .storeState .. | .narrowStoreState .. =>
+        (multi24, scalar + 1)
+    | .ifRegion _ t e =>
+        let (m1, s1) := countIrMultiStores t
+        let (m2, s2) := countIrMultiStores e
+        (multi24 + m1 + m2, scalar + s1 + s2)
+    | .switchRegion _ cases d =>
+        let (md, sd) := countIrMultiStores d
+        let (mc, sc) := cases.foldl (fun (m, s) (_, b) =>
+          let (mb, sb) := countIrMultiStores b
+          (m + mb, s + sb)) (0, 0)
+        (multi24 + md + mc, scalar + sd + sc)
+    | .forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _ =>
+        let (m1, s1) := countIrMultiStores condOps
+        let (m2, s2) := countIrMultiStores bodyOps
+        let (m3, s3) := countIrMultiStores boundOps
+        let (m4, s4) := countIrMultiStores updateOps
+        (multi24 + m1 + m2 + m3 + m4, scalar + s1 + s2 + s3 + s4)
+    | _ => (multi24, scalar)) (0, 0)
+
+/-- Every `storeStateMulti` batch: leaf-eval ops first (at least one loadState),
+    no scalar storeState interleaved in that eval window, 24 distinct u64
+    offsets. Nested regions are walked recursively. -/
+private partial def assertIrAtomicBatches (ops : Array Operation) (label : String) :
+    IO Unit := do
+  let mut i := 0
+  while i < ops.size do
+    match ops[i]? with
+    | some (.storeStateMulti entries) =>
+        expect (entries.size == 24)
+          s!"{label}: storeStateMulti must write 24 Map leaves, got {entries.size}"
+        -- Walk backward until a prior consuming boundary; collect eval window.
+        let mut j := i
+        let mut sawLoad := false
+        let mut sawScalarStore := false
+        let mut done := false
+        while j > 0 && !done do
+          j := j - 1
+          match ops[j]? with
+          | some (.storeStateMulti ..) | some (.setReturnData ..)
+          | some (.setReturnDataBool ..) | some (.assert ..)
+          | some (.ifRegion ..) | some (.switchRegion ..)
+          | some (.forRegion ..) | some (.returnNone)
+          | some (.emitEvent ..) | some (.revertError ..)
+          | some (.externalCall ..) | some (.schedule ..) =>
+              done := true
+          | some (.storeState ..) | some (.narrowStoreState ..) =>
+              sawScalarStore := true
+          | some (.loadState ..) | some (.narrowLoadState ..) =>
+              sawLoad := true
+          | _ => pure ()
+        expect sawLoad
+          s!"{label}: storeStateMulti at op {i} must be preceded by leaf loadState temps (pre-store snapshot)"
+        expect (!sawScalarStore)
+          s!"{label}: storeStateMulti at op {i} must not interleave scalar storeState in its eval batch"
+        let mut seen : Array Nat := #[]
+        for (acct, off, bw, _) in entries do
+          expect (acct == 0 && bw == 8)
+            s!"{label}: storeStateMulti entry must be account0/u64, got acct={acct} bw={bw}"
+          expect (!seen.contains off)
+            s!"{label}: storeStateMulti must not repeat byteOffset {off}"
+          seen := seen.push off
+        expect (seen.size == 24)
+          s!"{label}: storeStateMulti must cover 24 distinct offsets"
+    | some (.ifRegion _ t e) =>
+        assertIrAtomicBatches t s!"{label}.then"
+        assertIrAtomicBatches e s!"{label}.else"
+    | some (.switchRegion _ cases d) =>
+        for (_, body) in cases do
+          assertIrAtomicBatches body s!"{label}.case"
+        assertIrAtomicBatches d s!"{label}.default"
+    | some (.forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _) =>
+        assertIrAtomicBatches condOps s!"{label}.for.cond"
+        assertIrAtomicBatches bodyOps s!"{label}.for.body"
+        assertIrAtomicBatches boundOps s!"{label}.for.bound"
+        assertIrAtomicBatches updateOps s!"{label}.for.update"
+    | _ => pure ()
+    i := i + 1
+
+/-- Dense Map empty upsert (MapMini put): production Plan carries one 24-leaf
+    `storeAggregate`; IR evaluates all leaf temps then one `storeStateMulti`
+    (not 24 live-read/live-write scalar stores). Frame budget remains ≤4096. -/
+private unsafe def testMapMiniEmptyUpsertStructure
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "MapMini" <|
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "  view get(k : UInt64) : UInt64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.MapMini"
+    "<solana-map-mini-struct>"
+  let plan ← liftResult <| planSolana compiled
+  expect (plan.stateAccount.fields.size == 24)
+    s!"MapMini: dense Map must flatten to 24 leaves, got {plan.stateAccount.fields.size}"
+  let put ← findHandler plan "put"
+  let (agg24, seqStores) := countPlanAggregates put.body
+  expect (agg24 == 1)
+    s!"MapMini put Plan must have exactly one 24-leaf storeAggregate, got {agg24}"
+  expect (seqStores == 0)
+    s!"MapMini put Plan must not emit sequential scalar .store (store-then-read hazard), got {seqStores}"
+  match put.body[0]? with
+  | none =>
+      throw <| IO.userError "MapMini put body empty"
+  | some stmt =>
+      match stmt with
+      | .storeAggregate leaves =>
+          expect (leaves.size == 24)
+            s!"MapMini put body[0] storeAggregate leaves={leaves.size}"
+          for i in [0:leaves.size] do
+            let leaf := leaves[i]!
+            expect (leaf.accountIndex == 0 && leaf.byteWidth == 8)
+              s!"MapMini put leaf {i} must be account0/u64"
+            -- Dense layout: field i at header(8) + i*8.
+            expect (leaf.byteOffset == 8 + i * 8)
+              s!"MapMini put leaf {i} byteOffset must be {8 + i * 8}, got {leaf.byteOffset}"
+      | .store _ =>
+          throw <| IO.userError
+            "MapMini put body[0] must be storeAggregate, not scalar store"
+      | _ =>
+          throw <| IO.userError "MapMini put body[0] must be storeAggregate"
+  liftResult <| validatePlan plan
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let putIR ← findHandlerIR ir "put"
+  let (multi24, scalarStores) := countIrMultiStores putIR.operations
+  expect (multi24 == 1)
+    s!"MapMini put IR must have exactly one storeStateMulti(24), got {multi24}"
+  expect (scalarStores == 0)
+    s!"MapMini put IR must not emit scalar storeState for Map leaves, got {scalarStores}"
+  assertIrAtomicBatches putIR.operations "MapMini.put"
+  -- sbpf-plan text + 4096B frame via asm emitter (throws on overflow).
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "MapMini.sbpf-plan"
+  expect (planText.contains "store_multi_le [24]")
+    "MapMini sbpf-plan must render store_multi_le [24] for the atomic aggregate"
+  expect (!planText.contains "store_multi_le [23]" &&
+      !planText.contains "store_multi_le [25]")
+    "MapMini sbpf-plan must not render a non-24 multi-store for put"
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  expect (asm.contains "put:") "MapMini asm must contain put handler"
+  expect (asm.contains "store_multi_le [24]")
+    "MapMini asm must comment/emit store_multi_le [24]"
+  -- Frame pin: asm emitter already fails closed above 4096; also pin the
+  -- temps=N annotation stays within budget ((N+1)*8 ≤ 4096 ⇒ N ≤ 511).
+  expect (asm.contains "handler put (temps=")
+    "MapMini asm must annotate put temp count"
+  let marker := "handler put (temps="
+  let rec indexOf (hay needle : List Char) (i : Nat) : Option Nat :=
+    match hay with
+    | [] => none
+    | _ :: rest =>
+        if needle.isPrefixOf hay then some i else indexOf rest needle (i + 1)
+  let some at_ := indexOf asm.toList marker.toList 0 |
+    throw <| IO.userError "MapMini: put temps marker not found"
+  let after := (asm.toList.drop (at_ + marker.length))
+  let digits := after.takeWhile (fun c => c.isDigit)
+  let tempStr := String.ofList digits
+  let some temps := tempStr.toNat? |
+    throw <| IO.userError s!"MapMini: could not parse put temps from '{tempStr}'"
+  let frameBytes := (temps + 1) * 8
+  expect (frameBytes ≤ maxSbpfStackBytesV1)
+    s!"MapMini put frame must stay ≤ {maxSbpfStackBytesV1}B, got temps={temps} frame={frameBytes}"
+  -- Historical CSE peak ~177 temps / 1424B; pin well under the hard budget.
+  expect (temps ≤ 400)
+    s!"MapMini put temps must stay CSE-bounded (≤400), got {temps}"
+  IO.println "  MapMini empty-upsert Plan/IR/frame pin ok"
+
+/-- B-MAP-STRUCT-PIN: Token transfer dual Map StateStores must stay two
+    separate 24-leaf batches (not merged). Second batch IR re-loads state
+    after the first `storeStateMulti` so cross-batch writes remain visible. -/
+private unsafe def testTokenDualStoreBatchSeparation
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "Token" <|
+    "  state balances : Map UInt64 UInt64\n" ++
+    "  state supply : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    balances := Map.empty()\n" ++
+    "    supply := 0\n\n" ++
+    "  entry mint(to : UInt64, amount : UInt64) : UInt64 do\n" ++
+    "    match balances[to] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      balances[to] := v + amount\n" ++
+    "      supply := supply + amount\n" ++
+    "      return supply\n" ++
+    "    | _ => do\n" ++
+    "      balances[to] := amount\n" ++
+    "      supply := supply + amount\n" ++
+    "      return supply\n\n" ++
+    "  entry transfer(src : UInt64, dst : UInt64, amount : UInt64) : Bool do\n" ++
+    "    match balances[src] with\n" ++
+    "    | Option.some(fromBal) => do\n" ++
+    "      assert fromBal >= amount\n" ++
+    "      match balances[dst] with\n" ++
+    "      | Option.some(toBal) => do\n" ++
+    "        balances[src] := fromBal - amount\n" ++
+    "        balances[dst] := toBal + amount\n" ++
+    "        return true\n" ++
+    "      | _ => do\n" ++
+    "        balances[src] := fromBal - amount\n" ++
+    "        balances[dst] := amount\n" ++
+    "        return true\n" ++
+    "    | _ => do\n" ++
+    "      assert false\n" ++
+    "      return false\n\n" ++
+    "  view balanceOf(who : UInt64) : UInt64 do\n" ++
+    "    match balances[who] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.Token"
+    "<solana-token-dual-batch>"
+  let plan ← liftResult <| planSolana compiled
+  -- 24 Map leaves + supply scalar.
+  expect (plan.stateAccount.fields.size == 25)
+    s!"Token: Map+supply layout must be 25 fields, got {plan.stateAccount.fields.size}"
+  let transfer ← findHandler plan "transfer"
+  let (agg24, _) := countPlanAggregates transfer.body
+  -- Both successful dual-write arms each emit two storeAggregate(24):
+  -- some/some and some/none ⇒ ≥4 aggregate statements total (not merged).
+  expect (agg24 >= 4)
+    s!"Token transfer Plan must keep ≥4 separate 24-leaf storeAggregate (dual StateStores × arms), got {agg24}"
+  liftResult <| validatePlan plan
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let xferIR ← findHandlerIR ir "transfer"
+  let (multi24, _) := countIrMultiStores xferIR.operations
+  expect (multi24 >= 4)
+    s!"Token transfer IR must keep ≥4 storeStateMulti(24) batches, got {multi24}"
+  assertIrAtomicBatches xferIR.operations "Token.transfer"
+  -- Cross-batch visibility pin: after the first storeStateMulti in a dual-write
+  -- arm, the next storeStateMulti's eval phase must re-loadState (not share a
+  -- single merged batch). Walk nested regions for consecutive multi pairs.
+  let rec hasCrossBatchReload (ops : Array Operation) : Bool :=
+    Id.run do
+      let mut lastMulti : Option Nat := none
+      let mut found := false
+      for i in [0:ops.size] do
+        match ops[i]? with
+        | some (.storeStateMulti _) =>
+            match lastMulti with
+            | none => lastMulti := some i
+            | some prev =>
+                -- Between prev+1 and i there must be a loadState (second batch
+                -- re-reads account after first write).
+                let mut j := prev + 1
+                let mut sawLoad := false
+                while j < i do
+                  match ops[j]? with
+                  | some (.loadState ..) | some (.narrowLoadState ..) =>
+                      sawLoad := true
+                  | _ => pure ()
+                  j := j + 1
+                if sawLoad then found := true
+                lastMulti := some i
+        | some (.ifRegion _ t e) =>
+            if hasCrossBatchReload t || hasCrossBatchReload e then found := true
+        | some (.switchRegion _ cases d) =>
+            if hasCrossBatchReload d then found := true
+            for (_, body) in cases do
+              if hasCrossBatchReload body then found := true
+        | _ => pure ()
+      pure found
+  expect (hasCrossBatchReload xferIR.operations)
+    "Token transfer dual storeStateMulti must re-loadState between batches (cross-batch visibility)"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "Token.sbpf-plan"
+  -- Count store_multi_le [24] markers in plan text (≥4).
+  let rec countSubstr (hay needle : List Char) (acc : Nat) : Nat :=
+    match hay with
+    | [] => acc
+    | _ :: rest =>
+        if needle.isPrefixOf hay then countSubstr rest needle (acc + 1)
+        else countSubstr rest needle acc
+  let multiCount := countSubstr planText.toList "store_multi_le [24]".toList 0
+  expect (multiCount >= 4)
+    s!"Token sbpf-plan must render ≥4 store_multi_le [24], got {multiCount}"
+  -- mint: Map storeAggregate + scalar supply store stay separate batches.
+  let mint ← findHandler plan "mint"
+  let (mintAgg, mintSeq) := countPlanAggregates mint.body
+  expect (mintAgg >= 2)
+    s!"Token mint Plan must have ≥2 Map storeAggregate (two match arms), got {mintAgg}"
+  expect (mintSeq >= 2)
+    s!"Token mint Plan must keep scalar supply .store separate from Map aggregate, got seq={mintSeq}"
+  IO.println "  Token dual StateStore batch separation pin ok"
+
 unsafe def run : IO Unit := do
   testNarrowIntAbi
   let session ← Tests.Language.ParserSession.shared
@@ -1830,6 +2155,8 @@ unsafe def run : IO Unit := do
   testZeroArgRevert session
   testBoolResultPureFn session
   testOmittedTypeLet session
+  testMapMiniEmptyUpsertStructure session
+  testTokenDualStoreBatchSeparation session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
 end Tests.Materialization.SolanaPlanV1
