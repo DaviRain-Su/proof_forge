@@ -714,6 +714,41 @@ unsafe def testFieldBn254FailClosed : IO Unit := do
       expect (msg.contains "Psy" || msg.contains "psy")
         s!"Psy Field decline must label Psy, got: {msg}"
 
+/-- T14 catalog v2 (Goldilocks): Field goldilocks state/param/body lowers to
+    native Psy Felt. State is a Felt storage field; add lowers to native Felt
+    arithmetic (no checked-overflow guard; exact mod Goldilocks). -/
+unsafe def testGoldilocksFieldStateArith : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PsyGoldField where\n" ++
+    "  state acc : Field goldilocks\n" ++
+    "  init(initial : Field goldilocks) do\n" ++
+    "    acc := initial\n" ++
+    "  entry bump(delta : Field goldilocks) : Field goldilocks do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n" ++
+    "  view get() : Field goldilocks do\n" ++
+    "    return acc\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-gold-field>" "Tests.PsyGoldField" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  expect (plan.stateFieldNames == #["acc"])
+    s!"Goldilocks plan must carry the acc Felt state field, got {plan.stateFieldNames}"
+  let bump := plan.functions.find? (·.name == "bump")
+  expect bump.isSome "Goldilocks plan must carry the bump entry"
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (fun f => f.path == "PsyGoldField.psy") |
+    throw <| IO.userError "psy: missing PsyGoldField.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub acc: Felt")
+    s!"Psy Goldilocks source must declare the acc Felt storage field, got:\n{psy}"
+  -- Native Felt add (no checked-overflow guard `>= p` line for Felt fields).
+  expect (psy.contains " + p0")
+    s!"Psy Goldilocks add must lower to native Felt +, got:\n{psy}"
+
 /-- Omitted-type let: `let x := a + b` materializes through checked-add
     (same surface as an annotated UInt64 let). -/
 unsafe def testOmittedTypeLet : IO Unit := do
@@ -855,6 +890,7 @@ unsafe def run : IO Unit := do
   testMultiStateMultiEvent
   testVoidEntry
   testFieldBn254FailClosed
+  testGoldilocksFieldStateArith
   testOmittedTypeLet
   testNamedAggregateLowered
   testArrayStateLowered

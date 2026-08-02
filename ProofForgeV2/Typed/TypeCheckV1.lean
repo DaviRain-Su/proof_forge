@@ -237,12 +237,17 @@ def isIntegerType : TypeV1 → Bool
   | .uint _ | .int _ => true
   | _ => false
 
-/-- Sole Phase-1 Field catalog spelling (`Field bn254_fr`). -/
+/-- Phase-1 Field catalog spellings (T14 catalog v2): `Field bn254_fr`
+    (EVM/Noir), `Field bls12_377_fr` (Aleo), `Field goldilocks` (Psy). The
+    TypeCheck numeric surface admits any closed-catalog Field token; the
+    target-owned type-closure selects which spec each target materializes. -/
 def isFieldType : TypeV1 → Bool
-  | .field id => id.raw == "bn254_fr"
+  | .field id =>
+      id.raw == "bn254_fr" || id.raw == "bls12_377_fr" || id.raw == "goldilocks"
   | _ => false
 
-/-- Integer or Field (bn254_fr) — numeric surface for arithmetic and unary neg. -/
+/-- Integer or closed-catalog Field — numeric surface for arithmetic and
+    unary neg. -/
 def isNumericType (t : TypeV1) : Bool :=
   isIntegerType t || isFieldType t
 
@@ -948,7 +953,7 @@ mutual
         let (opPath?, pathDs) := resolveDirect exprPath? "Expr.Unary" "operand"
         match op with
         | .neg =>
-            -- Integer or Field (bn254_fr); Field maps to Op.Unary.neg mod p.
+            -- Integer or closed-catalog Field; Field maps to Op.Unary.neg mod p.
             let opRes := typeCheckExprDrafts scope tables none #[] opPath? operand
             let (resType, drafts) :=
               if isNumericType opRes.type then
@@ -991,8 +996,8 @@ mutual
         let (rp?, pathDs2) := resolveDirect exprPath? "Expr.Binary" "rhs"
         let pathDs := pathDs1 ++ pathDs2
         if isArithmeticOp op then
-          -- Integer: full add/sub/mul/div/mod. Field bn254_fr: add/sub/mul/div
-          -- only (mod → invalidCore / fail closed at Normalize; reject here).
+          -- Integer: full add/sub/mul/div/mod. Closed-catalog Field: add/sub/
+          -- mul/div only (mod → invalidCore / fail closed at Normalize; reject here).
           let lhsExpected? :=
             expected?.filter fun t => isIntegerType t || isFieldType t
           let lhsRes := typeCheckExprDrafts scope tables lhsExpected? expectedRelated lp? lhs

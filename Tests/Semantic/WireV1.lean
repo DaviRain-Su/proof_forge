@@ -1546,6 +1546,32 @@ private def testTypeShapePositives : IO Unit := do
   expect (bn254FrModulusBEV1.size == 32) "modulus is 32 bytes"
   expectOk "bn254 field structure" (validateSemanticProgramStructureV1 okField)
   let _ ← expectOk "bn254 field encode" (encodeSemanticProgramDataV1 okField)
+  -- T14 catalog v2: BLS12-377 Fr field type.
+  let okBls : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{ id := 0, name := none, shape := .field bls12377FrFieldSpecV1 }]
+    callables := #[entryGateCallable 0]
+  }
+  expect (bls12377FrFieldSpecV1.id.value == bls12377FrFieldIdV1) "bls12-377 field catalog id"
+  expect (bls12377FrFieldSpecV1.modulusBE == bls12377FrModulusBEV1) "bls12-377 field catalog modulus"
+  expect (bls12377FrModulusBEV1.size == 32) "bls12-377 modulus is 32 bytes"
+  expectOk "bls12-377 field structure" (validateSemanticProgramStructureV1 okBls)
+  let bytesBls ← expectOk "bls12-377 field encode" (encodeSemanticProgramDataV1 okBls)
+  let _ ← expectOk "bls12-377 field carrier" (decodeSemanticProgramV1 bytesBls)
+  -- T14 catalog v2: Goldilocks field type.
+  let okGold : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{ id := 0, name := none, shape := .field goldilocksFieldSpecV1 }]
+    callables := #[entryGateCallable 0]
+  }
+  expect (goldilocksFieldSpecV1.id.value == goldilocksFieldIdV1) "goldilocks field catalog id"
+  expect (goldilocksFieldSpecV1.modulusBE == goldilocksModulusBEV1) "goldilocks field catalog modulus"
+  expect (goldilocksModulusBEV1.size == 8) "goldilocks modulus is 8 bytes"
+  expectOk "goldilocks field structure" (validateSemanticProgramStructureV1 okGold)
+  let bytesGold ← expectOk "goldilocks field encode" (encodeSemanticProgramDataV1 okGold)
+  let _ ← expectOk "goldilocks field carrier" (decodeSemanticProgramV1 bytesGold)
+  -- T14 catalog v2: the catalog admits exactly three specs.
+  expect (fieldSpecCatalogV1.size == 3) "field catalog has three entries"
   -- Map over Bool / UInt / Bytes keys
   let okMapPrim : SemanticProgramDataV1 := {
     data0 with
@@ -1650,6 +1676,32 @@ private def testTypeShapeNegatives : IO Unit := do
   }
   expectErr "bad field id" .badType
     (validateSemanticProgramStructureV1 badFieldId)
+  -- T14 catalog v2 cross-spec mismatch: bn254 id with BLS12-377 modulus → badType.
+  let crossSpecBad : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{
+      id := 0
+      name := none
+      shape := .field { id := bn254FrFieldSpecV1.id, modulusBE := bls12377FrModulusBEV1 }
+    }]
+  }
+  expectErr "cross-spec bn254 id bls modulus" .badType
+    (validateSemanticProgramStructureV1 crossSpecBad)
+  -- T14 catalog v2: arbitrary modulus (not in catalog) → badType.
+  let arbitraryMod := ByteArray.mk (Array.replicate 8 (0xFF : UInt8))
+  let arbitrarySpecBad : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{
+      id := 0
+      name := none
+      shape := .field {
+        id := { value := "proof-forge.field.arbitrary.v1" }
+        modulusBE := arbitraryMod
+      }
+    }]
+  }
+  expectErr "arbitrary modulus field" .badType
+    (validateSemanticProgramStructureV1 arbitrarySpecBad)
   -- correct id + zero modulus
   let zeroMod := ByteArray.mk (Array.replicate 32 (0 : UInt8))
   let badFieldMod : SemanticProgramDataV1 := {
@@ -2017,6 +2069,20 @@ private def testValueBytesPositives : IO Unit := do
     #[constOf 0 "m" 0 (leBytesFromNat (p - 1) 32)]
   expectValueOk "field 0" field0
   expectValueOk "field p-1" fieldPm1
+  -- T14 catalog v2: Goldilocks Field 0 and p-1 (8-byte LE, p = 0xFFFFFFFF00000001).
+  let goldTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .field goldilocksFieldSpecV1 }]
+  let gold0 ← programWithTypes "VBGold0" goldTypes
+    #[constOf 0 "z" 0 (ByteArray.mk (Array.replicate 8 (0 : UInt8)))]
+  let gp := beBytesToNat goldilocksModulusBEV1
+  let goldPm1 ← programWithTypes "VBGoldPm1" goldTypes
+    #[constOf 0 "m" 0 (leBytesFromNat (gp - 1) 8)]
+  expectValueOk "goldilocks field 0" gold0
+  expectValueOk "goldilocks field p-1" goldPm1
+  -- Goldilocks value >= p → nonCanonical.
+  let goldOver ← programWithTypes "VBGoldOver" goldTypes
+    #[constOf 0 "o" 0 (leBytesFromNat gp 8)]
+  expectValueNonCanonical "goldilocks field >= p" goldOver
   -- named Struct of two UInt8 (named Pair occupies prefix index 0).
   let structTypes : Array TypeDeclV1 := #[
     {

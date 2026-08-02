@@ -60,9 +60,11 @@ private def checkUniqueIntraTypeNames (names : Array String) :
 
 private def validateFieldSpecCatalogV1 (spec : FieldSpecV1) :
     Except SemanticWireErrorV1 Unit := do
-  unless spec.id.value == bn254FrFieldIdV1 do
-    return ← err .badType
-  unless spec.modulusBE == bn254FrModulusBEV1 do
+  -- T14 catalog v2: the closed FieldSpec catalog admits three exact (id,
+  -- modulusBE) entries (bn254 Fr, BLS12-377 Fr, Goldilocks). No arbitrary
+  -- modulus is accepted; a FieldSpec must match one of these exactly.
+  unless fieldSpecCatalogV1.any (fun entry =>
+      entry.id == spec.id && entry.modulusBE == spec.modulusBE) do
     return ← err .badType
   pure ()
 

@@ -127,11 +127,21 @@ def inferDisclosureCommitmentStateIdV1 : String := "disclosure.commitment-state"
 /-- Infer-only: bn254 Fr Field type contribution (not S2 catalog; freeze-skipped N2b). -/
 def inferValueFieldBn254FrIdV1 : String := "value.field.bn254-fr"
 
+/-- Infer-only: BLS12-377 Fr Field type contribution (T14 catalog v2; not S2
+    catalog; freeze-skipped). Admitted by Aleo (Leo native field). -/
+def inferValueFieldBls12377FrIdV1 : String := "value.field.bls12-377-fr"
+
+/-- Infer-only: Goldilocks Field type contribution (T14 catalog v2; not S2
+    catalog; freeze-skipped). Admitted by Psy (plonky2 Felt). -/
+def inferValueFieldGoldilocksIdV1 : String := "value.field.goldilocks"
+
 /-- Closed infer-only contribution ids (not in S2 catalog).
-    Disclosure ids are freeze-skipped (N1); field bn254 is freeze-skipped (N2b). -/
+    Disclosure ids are freeze-skipped (N1); field bn254/bls12-377/goldilocks
+    are freeze-skipped (N2b; T14 catalog v2 extends the field set). -/
 def inferOnlyRequirementIdsV1 : Array String :=
   #[inferDisclosurePrivateWitnessIdV1, inferDisclosureCommitmentIdV1,
     inferDisclosurePrivateStateIdV1, inferDisclosureCommitmentStateIdV1,
-    inferValueFieldBn254FrIdV1]
+    inferValueFieldBn254FrIdV1, inferValueFieldBls12377FrIdV1,
+    inferValueFieldGoldilocksIdV1]
 
 end ProofForgeV2.Semantic.RequirementIdsV1

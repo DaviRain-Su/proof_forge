@@ -79,8 +79,13 @@ def decodeTypeV1 : (remainingDepth : Nat) → (budget : DecodeBudgetV1) →
           pure ((TypeV1.bytes length, budget), c)
       | "Type.Field" => do
           let (id, c) ← decodeSourceNameComponentV1 c
-          unless id.raw == "bn254_fr" do
-            return ← fail "field id must be bn254_fr"
+          -- T14 catalog v2: the Field type identifier selects one of the
+          -- three closed catalog FieldSpecs. Any other spelling fails closed
+          -- at the wire decoder (mirrors the ProgramV1 source parser).
+          unless id.raw == "bn254_fr"
+              || id.raw == "bls12_377_fr"
+              || id.raw == "goldilocks" do
+            return ← fail "field id must be bn254_fr, bls12_377_fr, or goldilocks"
           pure ((TypeV1.field id, budget), c)
       | "Type.Option" => do
           let ((element, budget), c) ← decodeTypeV1 remainingDepth budget c

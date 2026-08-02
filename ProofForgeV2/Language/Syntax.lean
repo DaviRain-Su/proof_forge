@@ -474,7 +474,14 @@ private def decodeTypeV1At :
               let fieldSyntax ← match atoms[index + 1]? with
                 | some field => pure field
                 | none => throw "unsupported portable type"
-              unless rawIdentifierText? fieldSyntax == some "bn254_fr" do
+              -- T14 catalog v2: the Field type identifier selects one of the
+              -- three closed catalog FieldSpecs. bn254_fr → EVM/Noir,
+              -- bls12_377_fr → Aleo (Leo native field), goldilocks → Psy
+              -- (plonky2 Felt). Any other spelling fails closed at the parser.
+              let fieldId? := rawIdentifierText? fieldSyntax
+              unless fieldId? == some "bn254_fr"
+                  || fieldId? == some "bls12_377_fr"
+                  || fieldId? == some "goldilocks" do
                 throw "unsupported portable type"
               let name ← ProofForgeV2.Source.NameComponentV1.sourceNameComponentV1FromLeanName fieldSyntax.getId
               pure (.field name, #[atom], index + 2)

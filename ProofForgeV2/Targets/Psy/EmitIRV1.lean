@@ -352,6 +352,7 @@ private partial def lowerExprStmt
   | .literal value => leaf (feltLit value.toNat)
   | .u32Literal value => leaf (.literal (.u32 value.toNat))
   | .boolLiteral value => leaf (.literal (.bool value))
+  | .fieldLiteral value => leaf (feltLit value.toNat)
   | .param inputIndex => leaf (.local s!"p{inputIndex}")
   | .loopVar depth => leaf (.local s!"pf_i{depth}")
   | .stateLoad fieldIndex => do
@@ -497,6 +498,36 @@ private partial def lowerExprStmt
       pure (ls1 ++
         #[.assert (.binary o' .ne intMin) "i64 neg overflow (intMin)",
           .letBind name "Felt" (.binary (feltLit 0) .sub o')],
+        .local name, ctx2)
+  | .fieldBinary op l r => do
+      -- T14 catalog v2 (Goldilocks): native Felt field arithmetic. Felt ops
+      -- are exact mod Goldilocks, so no checked-overflow guard is emitted.
+      let psyOp := match op with
+        | .add => PsyBinaryOp.add | .sub => .sub | .mul => .mul | .div => .div
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (name, ctx3) := freshName ctx2
+      pure (ls1 ++ ls2 ++
+        #[.letBind name "Felt" (.binary l' psyOp r')],
+        .local name, ctx3)
+  | .fieldCompare op l r => do
+      -- T14 catalog v2 (Goldilocks): native Felt field equality (eq/ne only).
+      let psyOp := match op with
+        | .eq => PsyBinaryOp.eq | .ne => .ne
+        | _ => PsyBinaryOp.eq  -- unreachable: Normalize rejects Field ordering
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (name, ctx3) := freshName ctx2
+      pure (ls1 ++ ls2 ++
+        #[.letBind name "bool" (.binary l' psyOp r')],
+        .local name, ctx3)
+  | .fieldNeg operand => do
+      -- T14 catalog v2 (Goldilocks): native Felt field negation `0 - x`
+      -- (Goldilocks inverse; every Felt is in [0,p) so no intMin revert).
+      let (ls1, o', ctx1) ← lowerExprStmt ctx operand
+      let (name, ctx2) := freshName ctx1
+      pure (ls1 ++
+        #[.letBind name "Felt" (.binary (feltLit 0) .sub o')],
         .local name, ctx2)
   | .signedCompare op l r => do
       -- Signed compare of Int64 bit patterns: subtract bias 2^63 then unsigned cmp.

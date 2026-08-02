@@ -185,10 +185,23 @@ def isPilotBodyIntWidth (w : Nat) : Bool := isAbiIntWidth w
     Psy stays fail-closed: native `Felt` is plonky2 **Goldilocks**
     (`ORDER = 0xFFFFFFFF00000001 = 2^64 - 2^32 + 1`), not bn254 Fr
     (research pin 2026-08-01; see `psyTypeClosureWording`).
-    Any non-catalog FieldSpec fails closed even when admission is enabled. -/
+    Any non-catalog FieldSpec fails closed even when admission is enabled.
+
+    T14 catalog v2: the catalog now carries three exact FieldSpecs (bn254 Fr,
+    BLS12-377 Fr, Goldilocks). Each target admits only the spec whose modulus
+    exactly matches its native field: EVM/Noir admit bn254 Fr; Aleo admits
+    BLS12-377 Fr (Leo native `field`); Psy admits Goldilocks (plonky2 `Felt`).
+    A target must never admit a spec whose modulus does not exactly match a
+    native field — that would be a silent wrong-field mapping. -/
 structure PilotFieldPolicy where
   /-- When true, admit at most one anonymous `.field bn254FrFieldSpecV1`. -/
   admitBn254Fr : Bool
+  /-- When true, admit at most one anonymous `.field bls12377FrFieldSpecV1`
+      (Aleo native Leo `field` = BLS12-377 Fr). -/
+  admitBls12377Fr : Bool := false
+  /-- When true, admit at most one anonymous `.field goldilocksFieldSpecV1`
+      (Psy native `Felt` = Goldilocks prime). -/
+  admitGoldilocks : Bool := false
   deriving BEq, Repr
 
 /-- Historical / opt-out: Field fail-closed. -/
@@ -196,9 +209,26 @@ def pilotFieldPolicyNone : PilotFieldPolicy where
   admitBn254Fr := false
 
 /-- Noir native Field / EVM mod-p subsystem (exact bn254 Fr catalog modulus).
-    Not Psy: Psy Felt ≠ bn254 Fr (Goldilocks). -/
+    Not Psy: Psy Felt ≠ bn254 Fr (Goldilocks). Not Aleo: Aleo `field` is
+    BLS12-377 Fr, not bn254 Fr. -/
 def pilotFieldPolicyBn254 : PilotFieldPolicy where
   admitBn254Fr := true
+  admitBls12377Fr := false
+  admitGoldilocks := false
+
+/-- Aleo native Leo `field` (exact BLS12-377 Fr catalog modulus; T14 catalog
+    v2). Not EVM/Noir (bn254 Fr) and not Psy (Goldilocks). -/
+def pilotFieldPolicyBls12377 : PilotFieldPolicy where
+  admitBn254Fr := false
+  admitBls12377Fr := true
+  admitGoldilocks := false
+
+/-- Psy native plonky2 `Felt` (exact Goldilocks catalog modulus; T14 catalog
+    v2). Not EVM/Noir (bn254 Fr) and not Aleo (BLS12-377 Fr). -/
+def pilotFieldPolicyGoldilocks : PilotFieldPolicy where
+  admitBn254Fr := false
+  admitBls12377Fr := false
+  admitGoldilocks := true
 
 /-- Per-target admission for identity-only Principal.
 
@@ -666,7 +696,7 @@ def psyTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/UInt32 and Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, Int64, Unit, and Bool are supported (Psy Felt is Goldilocks p=2^64-2^32+1=0xFFFFFFFF00000001, not bn254 Fr; Principal is variable-length identity, not Felt)"
+    "only UInt64, UInt32, Int64, Unit, Bool, and Field(goldilocks) are supported (Psy Felt is Goldilocks p=2^64-2^32+1=0xFFFFFFFF00000001, exact modulus match; bn254 Fr and BLS12-377 Fr fail closed as wrong modulus; Principal is variable-length identity, not Felt)"
 private def shapeMsg (label detail : String) : String :=
   s!"unsupported {label} semantic shape: {detail}"
 
@@ -776,12 +806,25 @@ def validatePilotTypeClosure
             throw <| mkErr (shapeMsg label "duplicate Bool type")
           boolTypeId := some decl.id
       | .field spec =>
-          unless fieldPolicy.admitBn254Fr do
+          -- T14 catalog v2: dispatch on the exact catalog FieldSpec. Each
+          -- target admits only the spec whose modulus exactly matches its
+          -- native field; any other catalog spec (or non-catalog spec) fails
+          -- closed with the target's unsupported-shape wording so no silent
+          -- wrong-field mapping can land.
+          let admitted : Bool :=
+            if spec.id.value == bn254FrFieldIdV1 &&
+                spec.modulusBE == bn254FrModulusBEV1 then
+              fieldPolicy.admitBn254Fr
+            else if spec.id.value == bls12377FrFieldIdV1 &&
+                spec.modulusBE == bls12377FrModulusBEV1 then
+              fieldPolicy.admitBls12377Fr
+            else if spec.id.value == goldilocksFieldIdV1 &&
+                spec.modulusBE == goldilocksModulusBEV1 then
+              fieldPolicy.admitGoldilocks
+            else
+              false
+          unless admitted do
             throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
-          unless spec.id.value == bn254FrFieldIdV1 &&
-              spec.modulusBE == bn254FrModulusBEV1 do
-            throw <| mkErr (shapeMsg label
-              "only sole catalog Field bn254-fr (exact modulus) is supported")
           unless fieldTypeId.isNone do
             throw <| mkErr (shapeMsg label
               "expected at most one anonymous Field type")

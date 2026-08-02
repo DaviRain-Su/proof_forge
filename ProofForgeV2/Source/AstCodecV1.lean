@@ -60,8 +60,10 @@ def encodeTypeV1 : TypeV1 → Except String ByteArray
       requireLen "bytes" length
       encodeTagged "Type.Bytes" #[encodeU32le length]
   | .field id => do
-      unless id.raw == "bn254_fr" do
-        return ← fail "field id must be bn254_fr"
+      unless id.raw == "bn254_fr"
+          || id.raw == "bls12_377_fr"
+          || id.raw == "goldilocks" do
+        return ← fail "field id must be bn254_fr, bls12_377_fr, or goldilocks"
       let payload ← encodeSourceNameComponentV1 id
       encodeTagged "Type.Field" #[payload]
 

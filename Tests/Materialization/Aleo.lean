@@ -278,6 +278,7 @@ unsafe def testPlanValidation : IO Unit := do
     stateFieldNames := #["count"]
     stateFieldIsInt := #[false]
     stateFieldIsU8 := #[false]
+    stateFieldIsField := #[false]
     functions := #[pureFn]
     views := #[]
     sourceHash := plan.sourceHash
@@ -302,6 +303,7 @@ unsafe def testPlanValidation : IO Unit := do
     stateFieldNames := #["count"]
     stateFieldIsInt := #[false]
     stateFieldIsU8 := #[false]
+    stateFieldIsField := #[false]
     functions := #[reservedFn]
     views := #[]
     sourceHash := plan.sourceHash
@@ -811,6 +813,53 @@ unsafe def testFieldBn254FailClosed : IO Unit := do
         s!"Aleo Field decline must cite BLS12-377 Fr vs bn254 Fr, got: {msg}"
       expect (msg.contains "Aleo" || msg.contains "aleo")
         s!"Aleo Field decline must label Aleo, got: {msg}"
+
+/-- T14 catalog v2 (BLS12-377): Field bls12_377_fr state/param/body lowers to
+    native Leo `field`. State is a `field` mapping value; add lowers to native
+    Leo field arithmetic (exact mod BLS12-377 Fr; no checked-overflow guard).
+    Engineering slice — not formal D2/D4. -/
+unsafe def testBls12377FieldStateArith : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BlsFieldBox where\n" ++
+    "  state acc : Field bls12_377_fr\n" ++
+    "  init(initial : Field bls12_377_fr) do\n" ++
+    "    acc := initial\n" ++
+    "  entry bump(delta : Field bls12_377_fr) : Field bls12_377_fr do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n" ++
+    "  view get() : Field bls12_377_fr do\n" ++
+    "    return acc\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-bls-field>" "Tests.BlsFieldBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  expect (plan.stateFieldNames == #["acc"])
+    s!"BLS12-377 plan must carry the acc field state leaf, got {plan.stateFieldNames}"
+  expect (plan.stateFieldIsField == #[true])
+    "BLS12-377 acc state leaf must be flagged as field"
+  let some bump := plan.functions.find? (·.name == "bump") |
+    throw <| IO.userError
+      s!"BLS12-377 plan must carry the bump entry, got {plan.functions.map (·.name)}"
+  expect (bump.resultIsField)
+    "BLS12-377 bump entry result must be flagged as field"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "blsfieldbox.aleo") |
+    throw <| IO.userError "aleo: missing blsfieldbox.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "mapping pf_state_0: u8 => field;")
+    s!"Aleo BLS12-377 source must declare the acc field mapping, got:\n{leo}"
+  expect (leo.contains "public p0: field")
+    s!"Aleo BLS12-377 bump param must be `public p0: field`, got:\n{leo}"
+  -- Native Leo field add (no checked-overflow guard; exact mod BLS12-377 Fr).
+  expect (leo.contains " + p0")
+    s!"Aleo BLS12-377 add must lower to native field + p0, got:\n{leo}"
+  expect (!leo.contains "add overflow")
+    "Aleo BLS12-377 field add must NOT emit a u64 overflow guard"
 
 /-- H3 PsyAleoAggregate: named Struct flattens to two u64 mappings (p_x/p_y).
     Field assign + bare field view lower to leaf stateLoad/store. -/
@@ -1513,6 +1562,7 @@ unsafe def run : IO Unit := do
   testMultiParamFnLeo
   testCallScheduleFailClosedLeo
   testFieldBn254FailClosed
+  testBls12377FieldStateArith
   testNamedAggregateLowered
   testArrayStateLowered
   testCommitIdentityLeo

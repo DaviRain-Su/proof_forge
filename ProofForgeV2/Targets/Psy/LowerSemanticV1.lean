@@ -60,6 +60,12 @@ inductive ComparisonOp where
   | eq | ne | lt | le | gt | ge
   deriving BEq, Inhabited, Repr
 
+/-- T14 catalog v2 (Goldilocks): native Felt field arithmetic operator.
+    Felt is a field element, so each op is exact mod Goldilocks (no overflow). -/
+inductive FieldArithOp where
+  | add | sub | mul | div
+  deriving BEq, Inhabited, Repr
+
 /-- Target-owned Psy Plan expression over the shipped public UInt64/Bool
     envelope. UInt32 shift counts are promoted to UInt64 values with an
     explicit `count < 64` guard at emission. -/
@@ -86,6 +92,20 @@ inductive Expr where
   /-- UInt32 literal (native Psy `u32` type). Emitted with the `u32` suffix so
       the literal is typed as u32 rather than Felt. -/
   | u32Literal (value : UInt64)
+  /-- T14 catalog v2 (Goldilocks): native Felt field literal. The value is the
+      raw Goldilocks field element (`< p`); emitted as a Felt decimal literal
+      reduced mod `0xFFFFFFFF00000001`. Carries no checked-arith guard. -/
+  | fieldLiteral (value : UInt64)
+  /-- T14 catalog v2 (Goldilocks): native Felt field arithmetic. Felt is a
+      field element so the op is exact mod Goldilocks — no checked-overflow
+      guard. `op` is one of add/sub/mul/div. -/
+  | fieldBinary (op : FieldArithOp) (lhs rhs : Expr)
+  /-- T14 catalog v2 (Goldilocks): native Felt field equality (eq/ne only;
+      Felt has no ordering). Emitted as a Felt `==`/`!=` comparison. -/
+  | fieldCompare (op : ComparisonOp) (lhs rhs : Expr)
+  /-- T14 catalog v2 (Goldilocks): native Felt field negation `0 - x`
+      (Goldilocks inverse; no intMin revert). -/
+  | fieldNeg (operand : Expr)
   /-- Bitwise-not of a UInt32 value, emitted as `x ^ 4294967295u32` (XOR with
       the 2^32−1 mask). Faithful for every u32 input and verified against the
       real dargo VM (2026-08-02 probe: `flip 5 → 4294967290`,
@@ -132,6 +152,8 @@ structure PlanParam where
   isBool : Bool
   /-- Native Psy `u32` parameter (2026-08-02 u32 slice). -/
   isU32 : Bool := false
+  /-- T14 catalog v2 (Goldilocks): native Felt field parameter. -/
+  isField : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure PlanFunction where
@@ -187,6 +209,7 @@ private def validatePsyTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult PsyTypeClosureV1 :=
   validatePilotTypeClosure psyPlanErr psyTypeClosureWording types
     pilotUintWidthPolicyU64U32
+    (fieldPolicy := pilotFieldPolicyGoldilocks)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayOnly)
 
@@ -208,6 +231,9 @@ private structure LoweredVal where
   expr : Expr
   leaves? : Option (Array Expr) := none
   isU32 : Bool := false
+  /-- T14 catalog v2 (Goldilocks): scalar Felt field value. Selects native
+      field arithmetic (no checked-overflow guard) and Felt-typed emission. -/
+  isField : Bool := false
   deriving Inhabited
 
 private def LoweredVal.isAggregate (v : LoweredVal) : Bool :=
@@ -219,14 +245,18 @@ private def LoweredVal.leafExprs (v : LoweredVal) : Array Expr :=
   | none => #[v.expr]
 
 private def mkScalarVal (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none, isU32 := false }
+  { expr := e, leaves? := none, isU32 := false, isField := false }
 
 private def mkU32Val (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none, isU32 := true }
+  { expr := e, leaves? := none, isU32 := true, isField := false }
+
+/-- T14 catalog v2 (Goldilocks): scalar Felt field value carrier. -/
+private def mkFieldVal (e : Expr) : LoweredVal :=
+  { expr := e, leaves? := none, isU32 := false, isField := true }
 
 private def mkAggregateVal (leaves : Array Expr) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
-  { expr := head, leaves? := some leaves, isU32 := false }
+  { expr := head, leaves? := some leaves, isU32 := false, isField := false }
 
 private structure ValueEnv where
   entries : Array (ValueIdV1 × LoweredVal)
@@ -278,6 +308,14 @@ private def isUnitType (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool
   match data.types[typeId.toNat]? with
   | some { shape := .unit, .. } => true
   | _ => false
+
+/-- T14 catalog v2 (Goldilocks): is this the admitted Goldilocks Field type?
+    `PilotTypeClosureV1.fieldTypeId` is `some` iff the exact Goldilocks
+    FieldSpec passed the target type-closure. Any other catalog spec was
+    rejected at closure, so a `some` here is exactly Goldilocks. -/
+private def isGoldilocksFieldType
+    (types : PsyTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.fieldTypeId == some typeId
 
 /-- Named Struct/Enum flatten to UInt64/Int64 leaves (preorder). Array UInt64 N
     flattens to N UInt64 leaves. Nested containers / Map / Bytes fail closed. -/
@@ -440,12 +478,13 @@ private def makeStateLayoutV1
         leaves := leaves.push fieldNames.size
         fieldNames := fieldNames.push name
       stateLeaves := stateLeaves.push leaves
-    else if state.typeId == types.uint64TypeId || types.int64TypeId == some state.typeId then
+    else if state.typeId == types.uint64TypeId || types.int64TypeId == some state.typeId
+        || isGoldilocksFieldType types state.typeId then
       let leafIdx := fieldNames.size
       fieldNames := fieldNames.push state.name
       stateLeaves := stateLeaves.push #[leafIdx]
     else
-      planError "unsupported Psy semantic shape: state must be UInt64, Int64, named Struct/Enum, or Array UInt64 (Map/Bytes/Option/Principal declined)"
+      planError "unsupported Psy semantic shape: state must be UInt64, Int64, Goldilocks Field, named Struct/Enum, or Array UInt64 (Map/Bytes/Option/Principal declined)"
   pure { fieldNames, stateLeaves, typeDecls, types }
 
 private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
@@ -486,7 +525,8 @@ private def decodeUInt32LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := 
       | .error _ => planError "unsupported Psy semantic shape: UInt32 literal carries trailing bytes"
 
 private def lowerLiteral
-    (data : SemanticProgramDataV1) (typeId : TypeIdV1) (valueBytes : ByteArray) :
+    (data : SemanticProgramDataV1) (types : PsyTypeClosureV1)
+    (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CompileResult Expr := do
   if isUInt64Type data typeId then
     match decodeUInt64LiteralV1 valueBytes with
@@ -510,8 +550,21 @@ private def lowerLiteral
     match decodeUInt32LiteralV1 valueBytes with
     | .ok value => pure (.u32Literal value)
     | .error e => .error e
+  else if isGoldilocksFieldType types typeId then
+    -- T14 catalog v2 (Goldilocks): Field literal is an 8-byte LE value `< p`.
+    -- The wire canonical valueBytes already enforces `< modulus` (Wire
+    -- ValueBytesV1), so the decoded UInt64 is a legal Goldilocks element.
+    unless valueBytes.size == 8 do
+      planError "unsupported Psy semantic shape: Goldilocks Field literal must contain exactly 8 bytes"
+    match decodeU64le (start valueBytes) with
+    | .error _ => planError "unsupported Psy semantic shape: Goldilocks Field literal is not canonical"
+    | .ok (value, cursor) =>
+        match finish cursor with
+        | .ok () => pure (.fieldLiteral value)
+        | .error _ =>
+            planError "unsupported Psy semantic shape: Goldilocks Field literal carries trailing bytes"
   else
-    planError "unsupported Psy semantic shape: literal type is outside the public UInt64/Int64/Bool/UInt32 envelope"
+    planError "unsupported Psy semantic shape: literal type is outside the public UInt64/Int64/Bool/UInt32/Goldilocks-Field envelope"
 
 private def lowerBinary
     (op : BinaryOpV1) (lhs rhs : Expr) (signed : Bool) : CompileResult Expr :=
@@ -599,12 +652,14 @@ private partial def lowerRegion
   for instr in block.instructions do
     match instr.op with
     | .literal typeId valueBytes => do
-        let e ← lowerLiteral data typeId valueBytes
+        let e ← lowerLiteral data layout.types typeId valueBytes
         match instr.result with
         | none => planError "unsupported Psy semantic shape: literal instruction must produce a value"
         | some valueDef =>
             if isUInt32Type data typeId then
               env := envInsertU32 env valueDef.valueId e
+            else if isGoldilocksFieldType layout.types typeId then
+              env := envInsertVal env valueDef.valueId (mkFieldVal e)
             else
               env := envInsert env valueDef.valueId e
     | .stateLoad stateId => do
@@ -617,7 +672,14 @@ private partial def lowerRegion
             if leafIdxs.size == 1 then
               let some fi := leafIdxs[0]? |
                 planError "unsupported Psy semantic shape: stateLoad leaf index missing"
-              env := envInsert env valueDef.valueId (.stateLoad fi)
+              let isFieldState :=
+                match data.logicalState[stateId.toNat]? with
+                | some st => isGoldilocksFieldType layout.types st.typeId
+                | none => false
+              if isFieldState then
+                env := envInsertVal env valueDef.valueId (mkFieldVal (.stateLoad fi))
+              else
+                env := envInsert env valueDef.valueId (.stateLoad fi)
             else
               let mut leaves : Array Expr := #[]
               for fi in leafIdxs do
@@ -630,6 +692,32 @@ private partial def lowerRegion
         let rv ← match envLookup env rhs with
           | some v => pure v
           | none => planError "unsupported Psy semantic shape: binary references an undefined operand"
+        -- T14 catalog v2 (Goldilocks): native Felt field arithmetic. Both
+        -- operands must be scalar Field values; the op is exact mod Goldilocks
+        -- so no checked-overflow guard is emitted. Field supports add/sub/mul/
+        -- div and eq/ne (ordering is rejected at Normalize). Bitwise/shift on
+        -- Field fail closed (Field has no bitwise ops).
+        if lv.isField && rv.isField then
+          unless !lv.isAggregate && !rv.isAggregate do
+            planError "unsupported Psy semantic shape: Field binary operands must be scalar"
+          let e ←
+            match op with
+            | .add => pure (.fieldBinary .add lv.expr rv.expr)
+            | .sub => pure (.fieldBinary .sub lv.expr rv.expr)
+            | .mul => pure (.fieldBinary .mul lv.expr rv.expr)
+            | .div => pure (.fieldBinary .div lv.expr rv.expr)
+            | .eq => pure (.fieldCompare .eq lv.expr rv.expr)
+            | .ne => pure (.fieldCompare .ne lv.expr rv.expr)
+            | _ =>
+                planError "unsupported Psy semantic shape: Field admits only add/sub/mul/div/eq/ne"
+          match instr.result with
+          | none => planError "unsupported Psy semantic shape: binary instruction must produce a value"
+          | some valueDef =>
+              if op == .eq || op == .ne then
+                env := envInsert env valueDef.valueId e
+              else
+                env := envInsertVal env valueDef.valueId (mkFieldVal e)
+          pure ()
         -- UInt32 gate (2026-08-02 u32 slice): only comparisons are admitted.
         -- The real dargo VM u32 arithmetic is not faithful to Reference:
         --   * u32 +/* overflow → internal VM panic (not a revert), so the
@@ -704,9 +792,16 @@ private partial def lowerRegion
               unless !o.isAggregate && o.isU32 do
                 planError "unsupported Psy semantic shape: UInt32 bitNot operand must be a scalar u32"
               env := envInsertU32 env valueDef.valueId (.bitNot o.expr)
+            else if o.isField && op == .neg then
+              -- T14 catalog v2 (Goldilocks): native Felt field negation.
+              unless !o.isAggregate do
+                planError "unsupported Psy semantic shape: Field neg operand must be scalar"
+              env := envInsertVal env valueDef.valueId (mkFieldVal (.fieldNeg o.expr))
             else
               unless !o.isU32 do
                 planError "unsupported Psy semantic shape: unary on a UInt32 operand is outside the Psy u32 slice (only bitNot is admitted)"
+              unless !o.isField do
+                planError "unsupported Psy semantic shape: Field admits only unary neg"
               let e ← lowerUnary op o.expr valueDef.typeId
               env := envInsert env valueDef.valueId e
     | .pureCall callableId args => do
@@ -1182,14 +1277,16 @@ private partial def lowerLoop
 
 end
 
-private def resultShape (data : SemanticProgramDataV1) (callable : CallableV1) :
+private def resultShape (data : SemanticProgramDataV1) (types : PsyTypeClosureV1)
+    (callable : CallableV1) :
     CompileResult (Bool × Bool × Bool) := do
   if isBoolType data callable.result.typeId then pure (true, false, false)
   else if isUInt64Type data callable.result.typeId then pure (false, false, false)
   else if isInt64Type data callable.result.typeId then pure (false, false, false)
   else if isUInt32Type data callable.result.typeId then pure (false, false, true)
+  else if isGoldilocksFieldType types callable.result.typeId then pure (false, false, false)
   else if isUnitType data callable.result.typeId then pure (false, true, false)
-  else planError "unsupported Psy semantic shape: callable result is outside the public UInt64/Int64/Bool/UInt32/Unit envelope"
+  else planError "unsupported Psy semantic shape: callable result is outside the public UInt64/Int64/Bool/UInt32/Goldilocks-Field/Unit envelope"
 
 private def lowerCallable
     (data : SemanticProgramDataV1) (layout : PsyLowerLayoutV1) (callable : CallableV1)
@@ -1218,20 +1315,25 @@ private def lowerCallable
       planError "unsupported Psy semantic shape: block parameters are only supported on loop headers"
   let mut params : Array PlanParam := #[]
   let mut paramIndex : Nat := 0
+  let types := layout.types
   for p in callable.params do
     let isBool ← if isBoolType data p.typeId then pure true
       else if isUInt64Type data p.typeId || isInt64Type data p.typeId then pure false
       else if isUInt32Type data p.typeId then pure false
-      else planError "unsupported Psy semantic shape: callable parameter is outside the UInt64/Int64/Bool/UInt32 envelope"
+      else if isGoldilocksFieldType types p.typeId then pure false
+      else planError "unsupported Psy semantic shape: callable parameter is outside the UInt64/Int64/Bool/UInt32/Goldilocks-Field envelope"
     params := params.push
       { sourceIndex := paramIndex, name := p.name, isBool,
-        isU32 := isUInt32Type data p.typeId }
+        isU32 := isUInt32Type data p.typeId,
+        isField := isGoldilocksFieldType types p.typeId }
     paramIndex := paramIndex + 1
   let mut env0 : ValueEnv := default
   let mut paramOrdinal : Nat := 0
   for p in callable.params do
     if isUInt32Type data p.typeId then
       env0 := envInsertU32 env0 p.valueId (.param paramOrdinal)
+    else if isGoldilocksFieldType types p.typeId then
+      env0 := envInsertVal env0 p.valueId (mkFieldVal (.param paramOrdinal))
     else
       env0 := envInsert env0 p.valueId (.param paramOrdinal)
     paramOrdinal := paramOrdinal + 1
@@ -1240,7 +1342,7 @@ private def lowerCallable
   unless res.join?.isNone do
     planError "unsupported Psy semantic shape: callable does not end in return on all paths"
   let body := res.stmts
-  let (resultIsBool, resultIsUnit, resultIsU32) ← resultShape data callable
+  let (resultIsBool, resultIsUnit, resultIsU32) ← resultShape data layout.types callable
   let kind := match callable.kind with
     | .initializer => FunctionKind.initialize
     | .pureFn => FunctionKind.pureHelper

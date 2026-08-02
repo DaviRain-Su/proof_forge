@@ -160,10 +160,13 @@ private def isSkippedWireContextCommitIdV1 (id : String) : Bool :=
 
 /-- Infer-only Field type contribution. Field arithmetic is exact modular
     (no overflow); product arithmetic is covered by the existing S2 key
-    `value.checked-arithmetic`. No new S2 catalog entry is minted for
-    `value.field.bn254-fr` — skip at freeze (N2b). -/
+    `value.checked-arithmetic`. No new S2 catalog entry is minted for any
+    `value.field.*` id — skip at freeze (N2b; T14 catalog v2 extends the
+    closed field set to bn254 Fr, BLS12-377 Fr, and Goldilocks). -/
 private def isSkippedInferFieldIdV1 (id : String) : Bool :=
-  id == inferValueFieldBn254FrIdV1
+  id == inferValueFieldBn254FrIdV1 ||
+  id == inferValueFieldBls12377FrIdV1 ||
+  id == inferValueFieldGoldilocksIdV1
 
 /-- Freeze exact ProgramRequirementsV1 from the sole ProgramV1 contribution
     analysis. Infer-only disclosure and Field type contribution ids are
