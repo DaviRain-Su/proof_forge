@@ -13,7 +13,7 @@ Owns the Aleo-owned Plan surface and the retained-`SemanticProgramV1` Plan body.
 Plan canonicity lives in `ValidatePlanV1`; Leo emission in `EmitIRV1`.
 `FinalizeV1` remains a separate submodule.
 
-## Coverage boundary (AleoCoverage + H3 PsyAleoAggregate + NS-1 Map pilot)
+## Coverage boundary (AleoCoverage + H3 PsyAleoAggregate + NS-1 Map pilot + Bytes N)
 
 LOWERED (product path): scalar stateLoad/stateStore (UInt64, Int64),
 checked arithmetic/compare/bitwise/shift/logical (signed for Int64),
@@ -21,18 +21,22 @@ unary not/bitNot/neg (Int64), pureCall, bare assert, bare revert
 (`assert(false)`), if/switch/for, Commit identity passthrough (label-only;
 no crypto commitment realization), **named Struct/Enum and fixed Array
 UInt64 N** via flatten-to-mapping leaves (`name_field` / `name_i` →
-consecutive `pf_state_*` mappings), and **dense Map UInt64 UInt64**
+consecutive `pf_state_*` mappings), **dense Map UInt64 UInt64**
 (NS-1 occ/key/val pilot, **capacity 2** — see `aleoMapPilotCapacityV1`:
 Leo 4.0.2 caps a final block at 32 mapping sets statically across all
 arms, ECMP0376015, so the shipped Token mint/transfer fits only at
-capacity 2; `ValidatePlanV1` enforces the set budget fail-closed).
+capacity 2; `ValidatePlanV1` enforces the set budget fail-closed), and
+**fixed Bytes N** (N×`u8 => u8` mappings; u8 params/results; checked u8
+arithmetic = widen → u64 op → checked `as u8` narrow, spike-verified
+255-ok/256-revert boundary).
 
 FAIL-CLOSED (explicit pins, not catch-all GAP):
   * **Field (bn254 Fr)** — research pin: Aleo native `field` is the BLS12-377
     scalar field (Edwards BLS Fr = BLS12-377 Fr), **not** catalog bn254 Fr.
     Mapping would be a silent wrong modulus. Keep `pilotFieldPolicyNone`.
-  * **Bytes/Option-state/String/Principal state** — outside the
-    Array/Map container pilot.
+  * **Option-state/String/Principal state** — outside the Array/Map/Bytes
+    container pilot; UInt8 scalar state/params (outside the Bytes element
+    lane) and UInt16/128/256 stay fail-closed.
   * **Computed state-reading views** — only bare public-state reads map to
     the off-chain `leo query` model; `balanceOf`-style match-on-state views
     fail closed.
@@ -78,12 +82,23 @@ inductive Expr where
   | literal (value : UInt64)
   /-- Raw Int64 bit pattern (two's complement); Leo `i64` literal. -/
   | i64Literal (value : UInt64)
+  /-- UInt8 literal (0..255); Leo `u8` literal (Bytes element lane). -/
+  | u8Literal (value : UInt64)
   | boolLiteral (value : Bool)
   | param (inputIndex : Nat)
   /-- The induction value of the enclosing bounded `for` at loop stack depth
       `loopDepth` (0 = outermost). -/
   | loopVar (loopDepth : Nat)
   | stateLoad (fieldIndex : Nat)
+  /-- UInt8 → u64 widening (`as u64`; always in range). -/
+  | u8To64 (operand : Expr)
+  /-- Range-guarded UInt8 result: assert(value ≤ 255) then `as u8`
+      (Bytes element lane; wire UInt8 arithmetic is checked). -/
+  | narrow8 (value : Expr)
+  /-- UInt8 << / >> with an explicit `count < 8` guard at emission
+      (wire invalidShift at count ≥ 8) plus the ≤ 255 overflow guard. -/
+  | u8Shl (lhs rhs : Expr)
+  | u8Shr (lhs rhs : Expr)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | checkedMul (lhs rhs : Expr)
@@ -116,6 +131,8 @@ inductive Expr where
   | bitNot (operand : Expr)
   /-- Int64 bitwise not (Leo `!` on i64; binding renders as `i64`). -/
   | signedBitNot (operand : Expr)
+  /-- UInt8 bitwise not (Bytes element lane; binding renders as `u8`). -/
+  | u8BitNot (operand : Expr)
   | boolNot (operand : Expr)
   /-- Checked Int64 negation (intMin reverts at emission). -/
   | checkedNeg (operand : Expr)
@@ -151,6 +168,8 @@ structure PlanParam where
   isBool : Bool
   /-- Int64 parameter (Leo `i64`); overrides the `isBool`-driven u64 default. -/
   isInt : Bool := false
+  /-- UInt8 parameter (Bytes element lane; Leo `u8`). -/
+  isU8 : Bool := false
   deriving BEq, Inhabited, Repr
 
 /-- One callable artifact. `resultDropped` records that a non-Unit result
@@ -171,6 +190,8 @@ structure PlanFunction where
   resultIsBool : Bool
   /-- Int64 result (Leo `i64`); overrides the `isBool`-driven u64 default. -/
   resultIsInt : Bool := false
+  /-- UInt8 result (Bytes element lane; Leo `u8`). -/
+  resultIsU8 : Bool := false
   resultDropped : Bool
   /-- True when source kind was `pureFn` (Leo helper outside program). -/
   isPureHelper : Bool := false
@@ -191,6 +212,8 @@ structure Plan where
   /-- Int64 flag per state field (index-aligned with `stateFieldNames`); used
       to render `i64` mappings and default values. -/
   stateFieldIsInt : Array Bool
+  /-- UInt8 flag per state field (Bytes element lane; `u8` mappings). -/
+  stateFieldIsU8 : Array Bool
   functions : Array PlanFunction
   views : Array PlanView
   sourceHash : String
@@ -208,23 +231,30 @@ private def aleoTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Aleo"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64/UInt32/Int64 widths are supported"
+    "only anonymous UInt64/UInt32/UInt8/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, Int64, Unit, Bool, named Struct/Enum, Array UInt64, and Map UInt64 UInt64 are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, not bn254 Fr; Bytes/Option-state/Principal/String stay fail-closed)"
+    "only UInt64, UInt32, UInt8, Int64, Unit, Bool, named Struct/Enum, Array UInt64, Map UInt64 UInt64, and Bytes N are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, not bn254 Fr; Option-state/Principal/String stay fail-closed)"
 
-/-- Aleo pilot type-closure: UInt64 + UInt32 + Int64 + Unit/Bool + named
-    Struct/Enum + Array UInt64 + dense **Map UInt64 UInt64** (capacity-8
-    occ/key/val leaves, NS-1 pattern) + Option body intermediate (Map
-    IndexGet result). Field stays `pilotFieldPolicyNone` (BLS12-377 ≠
-    bn254). Bytes/Option-state/Principal/String fail closed. -/
+/-- Aleo pilot width policy: UInt64 + UInt32 (shift counts) + **UInt8**
+    (Bytes N element lane). UInt16/128/256 stay fail-closed. -/
+private def pilotUintWidthPolicyU64U32U8 : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32, 8]
+
+/-- Aleo pilot type-closure: UInt64 + UInt32 + UInt8 (Bytes elements) +
+    Int64 + Unit/Bool + named Struct/Enum + Array UInt64 + dense **Map
+    UInt64 UInt64** (capacity-2 occ/key/val leaves, NS-1 pattern) + fixed
+    **Bytes N** (N UInt8 leaves) + Option body intermediate (Map IndexGet
+    result). Field stays `pilotFieldPolicyNone` (BLS12-377 ≠ bn254).
+    Bytes-state/Principal/String stay fail-closed; UInt8 state/params stay
+    fail-closed (only the Bytes element lane is open). -/
 private def validateAleoTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult PilotTypeClosureV1 :=
   validatePilotTypeClosure aleoPlanErr aleoTypeClosureWording types
-    pilotUintWidthPolicyU64U32
+    pilotUintWidthPolicyU64U32U8
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyArrayMap)
+    (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 -- ---------------------------------------------------------------------------
 -- Wire semantic → target-owned Plan lowering
@@ -245,6 +275,8 @@ private structure LoweredVal where
       `leaves?` when set). Used by binary/unary lowering to select signed ops
       and by emission to render `i64`. -/
   leafIsInt? : Option (Array Bool) := none
+  /-- UInt8 (Bytes element) flag, per-leaf like `leafIsInt?`. -/
+  leafIsU8? : Option (Array Bool) := none
   deriving Inhabited
 
 private def LoweredVal.isAggregate (v : LoweredVal) : Bool :=
@@ -261,21 +293,41 @@ private def LoweredVal.isIntScalar (v : LoweredVal) : Bool :=
   | some flags => flags.getD 0 false
   | none => false
 
+/-- Scalar UInt8 flag (Bytes element lane). -/
+private def LoweredVal.isU8Scalar (v : LoweredVal) : Bool :=
+  match v.leafIsU8? with
+  | some flags => flags.getD 0 false
+  | none => false
+
 private def mkScalarVal (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none, leafIsInt? := none }
+  { expr := e, leaves? := none, leafIsInt? := none, leafIsU8? := none }
 
 /-- Scalar Int64 carrier (single i64 leaf). -/
 private def mkScalarIntVal (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none, leafIsInt? := some #[true] }
+  { expr := e, leaves? := none, leafIsInt? := some #[true], leafIsU8? := none }
+
+/-- Scalar UInt8 carrier (Bytes element lane). -/
+private def mkScalarU8Val (e : Expr) : LoweredVal :=
+  { expr := e, leaves? := none, leafIsInt? := none, leafIsU8? := some #[true] }
 
 private def mkAggregateVal (leaves : Array Expr) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
-  { expr := head, leaves? := some leaves, leafIsInt? := some (leaves.map (fun _ => false)) }
+  { expr := head, leaves? := some leaves,
+    leafIsInt? := some (leaves.map (fun _ => false)),
+    leafIsU8? := some (leaves.map (fun _ => false)) }
 
 /-- Aggregate carrier with explicit per-leaf signedness. -/
 private def mkAggregateValInt (leaves : Array Expr) (flags : Array Bool) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
-  { expr := head, leaves? := some leaves, leafIsInt? := some flags }
+  { expr := head, leaves? := some leaves, leafIsInt? := some flags,
+    leafIsU8? := some (leaves.map (fun _ => false)) }
+
+/-- Aggregate carrier with explicit per-leaf Int64 and UInt8 flags. -/
+private def mkAggregateValFlags (leaves : Array Expr)
+    (intFlags u8Flags : Array Bool) : LoweredVal :=
+  let head := match leaves[0]? with | some e => e | none => .literal 0
+  { expr := head, leaves? := some leaves, leafIsInt? := some intFlags,
+    leafIsU8? := some u8Flags }
 
 private structure ValueEnv where
   entries : Array (ValueIdV1 × LoweredVal)
@@ -294,6 +346,10 @@ private def envInsert (env : ValueEnv) (id : ValueIdV1) (e : Expr) : ValueEnv :=
 private def envInsertInt (env : ValueEnv) (id : ValueIdV1) (e : Expr) : ValueEnv :=
   { env with entries := env.entries.push (id, mkScalarIntVal e) }
 
+/-- Insert a scalar UInt8 value (Bytes element lane). -/
+private def envInsertU8 (env : ValueEnv) (id : ValueIdV1) (e : Expr) : ValueEnv :=
+  { env with entries := env.entries.push (id, mkScalarU8Val e) }
+
 private def envInsertVal (env : ValueEnv) (id : ValueIdV1) (v : LoweredVal) : ValueEnv :=
   { env with entries := env.entries.push (id, v) }
 
@@ -301,6 +357,8 @@ private structure AleoLowerLayoutV1 where
   fieldNames : Array String
   /-- Int64 flag per state leaf (index-aligned with `fieldNames`). -/
   fieldIsInt : Array Bool
+  /-- UInt8 flag per state leaf (Bytes element lane; u8 mappings). -/
+  fieldIsU8 : Array Bool
   stateLeaves : Array (Array Nat)
   typeDecls : Array TypeDeclV1
   types : AleoTypeClosureV1
@@ -308,6 +366,11 @@ private structure AleoLowerLayoutV1 where
 private def isUInt64Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool :=
   match data.types[typeId.toNat]? with
   | some { shape := .uint 64, .. } => true
+  | _ => false
+
+private def isUInt8Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool :=
+  match data.types[typeId.toNat]? with
+  | some { shape := .uint 8, .. } => true
   | _ => false
 
 private def isInt64Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool :=
@@ -344,18 +407,19 @@ private def aleoMapSlotsPerEntryV1 : Nat := 3
 private def aleoMapPilotLeafCountV1 : Nat :=
   aleoMapPilotCapacityV1 * aleoMapSlotsPerEntryV1
 
-/-- Flatten a state type to (leaf name, isInt64) pairs (preorder).
+/-- Flatten a state type to (leaf name, isInt64, isUInt8) triples (preorder).
     UInt64 → u64 leaf; Int64 → i64 leaf; named Struct/Enum and Array UInt64
-    recurse as before; Map UInt64 UInt64 → capacity-8 × occ/key/val leaves.
-    Nested containers / Bytes fail closed. -/
+    recurse as before; Map UInt64 UInt64 → capacity-2 × occ/key/val leaves;
+    **Bytes N → N UInt8 leaves** (`<name>_<i>`, u8 mapping values).
+    Nested containers fail closed. -/
 private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
-    CompileResult (Array (String × Bool)) := do
+    CompileResult (Array (String × Bool × Bool)) := do
   if typeId == types.uint64TypeId then
-    pure #[(namePrefix, false)]
+    pure #[(namePrefix, false, false)]
   else if types.int64TypeId == some typeId then
-    pure #[(namePrefix, true)]
+    pure #[(namePrefix, true, false)]
   else if types.isNamedAggregate typeId then
     match typeDecls[typeId.toNat]? with
     | none =>
@@ -365,7 +429,7 @@ private partial def flattenTypeLeafSpecsV1
         | .struct fields => do
             unless fields.size > 0 do
               planError "unsupported Aleo semantic shape: named Struct requires at least one field"
-            let mut out : Array (String × Bool) := #[]
+            let mut out : Array (String × Bool × Bool) := #[]
             for f in fields do
               let subName :=
                 if namePrefix.isEmpty then f.name else namePrefix ++ "_" ++ f.name
@@ -388,13 +452,13 @@ private partial def flattenTypeLeafSpecsV1
                 let sub ← flattenTypeLeafSpecsV1 typeDecls types pt "tmp"
                 n := n + sub.size
               if n > maxPay then maxPay := n
-            let mut out : Array (String × Bool) := #[(tagName, false)]
+            let mut out : Array (String × Bool × Bool) := #[(tagName, false, false)]
             for i in [0:maxPay] do
               let pName :=
                 if namePrefix.isEmpty then s!"p{i}" else namePrefix ++ "_p" ++ toString i
               unless isIdentifier pName do
                 planError s!"state name '{pName}' is not a safe identifier"
-              out := out.push (pName, false)
+              out := out.push (pName, false, false)
             pure out
         | _ =>
             planError "unsupported Aleo semantic shape: named type must be Struct or Enum"
@@ -406,30 +470,40 @@ private partial def flattenTypeLeafSpecsV1
         let n := len.toNat
         unless n ≥ 1 do
           planError "unsupported Aleo semantic shape: Array state length must be ≥ 1"
-        let mut out : Array (String × Bool) := #[]
+        let mut out : Array (String × Bool × Bool) := #[]
         for i in [0:n] do
           let leafName := namePrefix ++ "_" ++ toString i
           unless isIdentifier leafName do
             planError s!"state name '{leafName}' is not a safe identifier"
-          out := out.push (leafName, false)
+          out := out.push (leafName, false, false)
         pure out
     | some { shape := .map keyTid valTid, .. } =>
         unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
           planError "unsupported Aleo semantic shape: Map state admits only Map UInt64 UInt64"
-        let mut out : Array (String × Bool) := #[]
+        let mut out : Array (String × Bool × Bool) := #[]
         for e in [0:aleoMapPilotCapacityV1] do
           for (_, tag) in #[(0, "occ"), (1, "key"), (2, "val")] do
             let leafName := namePrefix ++ "_" ++ toString e ++ "_" ++ tag
             unless isIdentifier leafName do
               planError s!"state name '{leafName}' is not a safe identifier"
-            out := out.push (leafName, false)
+            out := out.push (leafName, false, false)
         pure out
-    | some { shape := .bytes _, .. } =>
-        planError "unsupported Aleo semantic shape: Bytes state is outside the Aleo Array/Map container pilot"
+    | some { shape := .bytes len, .. } =>
+        -- D4-E2 pattern: fixed Bytes N → N consecutive UInt8 leaves.
+        let n := len.toNat
+        unless n ≥ 1 do
+          planError "unsupported Aleo semantic shape: Bytes state length must be ≥ 1"
+        let mut out : Array (String × Bool × Bool) := #[]
+        for i in [0:n] do
+          let leafName := namePrefix ++ "_" ++ toString i
+          unless isIdentifier leafName do
+            planError s!"state name '{leafName}' is not a safe identifier"
+          out := out.push (leafName, false, true)
+        pure out
     | _ =>
         planError "unsupported Aleo semantic shape: container TypeId is not Array/Map/Bytes"
   else
-    planError "unsupported Aleo semantic shape: aggregate leaf must be UInt64, Int64, named Struct/Enum, Array UInt64, or Map UInt64 UInt64"
+    planError "unsupported Aleo semantic shape: aggregate leaf must be UInt64, Int64, named Struct/Enum, Array UInt64, Map UInt64 UInt64, or Bytes N"
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
@@ -442,7 +516,14 @@ private def leafFlagsOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Array Bool) := do
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
-  pure (specs.map (·.2))
+  pure (specs.map (·.2.1))
+
+/-- Per-leaf UInt8 flags of a state type (Bytes element lane). -/
+private def leafU8FlagsOfTypeV1
+    (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Array Bool) := do
+  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
+  pure (specs.map (·.2.2))
 
 private def structFieldLeafRangeV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
@@ -501,8 +582,12 @@ private def arrayUInt64LeafCountV1
       unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
         planError "unsupported Aleo semantic shape: Map state admits only Map UInt64 UInt64"
       pure (some aleoMapPilotLeafCountV1)
-  | some { shape := .bytes _, .. } =>
-      planError "unsupported Aleo semantic shape: Bytes state is outside the Aleo Array/Map container pilot"
+  | some { shape := .bytes len, .. } =>
+      -- Bytes N → N UInt8 leaves.
+      let n := len.toNat
+      unless n ≥ 1 do
+        planError "unsupported Aleo semantic shape: Bytes state length must be ≥ 1"
+      pure (some n)
   | _ =>
       planError "unsupported Aleo semantic shape: container TypeId is not Array/Map/Bytes"
 
@@ -587,6 +672,7 @@ private def makeStateLayoutV1
     (states : Array StateDeclV1) : CompileResult AleoLowerLayoutV1 := do
   let mut fieldNames : Array String := #[]
   let mut fieldIsInt : Array Bool := #[]
+  let mut fieldIsU8 : Array Bool := #[]
   let mut stateLeaves : Array (Array Nat) := #[]
   for state in states do
     unless state.id.toNat == stateLeaves.size do
@@ -598,24 +684,27 @@ private def makeStateLayoutV1
       if fieldNames.size + leafSpecs.size > maxStateLeafFields then
         planError "unsupported Aleo semantic shape: state leaf count exceeds Aleo profile limit"
       let mut leaves : Array Nat := #[]
-      for (name, isInt) in leafSpecs do
+      for (name, isInt, isU8) in leafSpecs do
         leaves := leaves.push fieldNames.size
         fieldNames := fieldNames.push name
         fieldIsInt := fieldIsInt.push isInt
+        fieldIsU8 := fieldIsU8.push isU8
       stateLeaves := stateLeaves.push leaves
     else if state.typeId == types.uint64TypeId then
       let leafIdx := fieldNames.size
       fieldNames := fieldNames.push state.name
       fieldIsInt := fieldIsInt.push false
+      fieldIsU8 := fieldIsU8.push false
       stateLeaves := stateLeaves.push #[leafIdx]
     else if types.int64TypeId == some state.typeId then
       let leafIdx := fieldNames.size
       fieldNames := fieldNames.push state.name
       fieldIsInt := fieldIsInt.push true
+      fieldIsU8 := fieldIsU8.push false
       stateLeaves := stateLeaves.push #[leafIdx]
     else
-      planError "Aleo state must be UInt64, Int64, named Struct/Enum, or Array UInt64 (Map/Bytes/Option/Field declined)"
-  pure { fieldNames, fieldIsInt, stateLeaves, typeDecls, types }
+      planError "Aleo state must be UInt64, Int64, named Struct/Enum, Array UInt64, Map UInt64 UInt64, or Bytes N (Option/Field declined)"
+  pure { fieldNames, fieldIsInt, fieldIsU8, stateLeaves, typeDecls, types }
 
 private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
   unless !v.isAggregate do
@@ -656,6 +745,12 @@ private def decodeUInt32LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := 
       | .ok () => pure (UInt64.ofNat value.toNat)
       | .error _ => planError "Aleo UInt32 literal carries trailing bytes"
 
+/-- UInt8 literals are 1-byte LE values (Bytes element lane). -/
+private def decodeUInt8LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
+  unless bytes.size == 1 do
+    planError "Aleo UInt8 literal must contain exactly 1 byte"
+  pure (UInt64.ofNat (bytes.get! 0).toNat)
+
 private def lowerLiteral
     (data : SemanticProgramDataV1) (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CompileResult Expr := do
@@ -677,8 +772,13 @@ private def lowerLiteral
     match decodeUInt32LiteralV1 valueBytes with
     | .ok value => pure (.literal value)
     | .error _ => planError "Aleo UInt32 literal is not canonical"
+  else if isUInt8Type data typeId then
+    -- UInt8 literals are canonical 1-byte LE values (Bytes element lane).
+    match decodeUInt8LiteralV1 valueBytes with
+    | .ok value => pure (.u8Literal value)
+    | .error _ => planError "Aleo UInt8 literal is not canonical"
   else
-    planError "Aleo literal type is outside the public UInt64/Int64/Bool/UInt32-count envelope"
+    planError "Aleo literal type is outside the public UInt64/Int64/Bool/UInt32/UInt8 envelope"
 
 private def lowerBinary
     (op : BinaryOpV1) (lhs rhs : Expr) (signed : Bool) : CompileResult Expr :=
@@ -710,6 +810,39 @@ private def lowerUnary
   | .neg =>
       if signed then pure (.checkedNeg operand)
       else planError "Aleo does not support unary neg on unsigned values"
+
+/-- UInt8-lane binary (Bytes elements).
+
+    * shifts → `u8Shl`/`u8Shr` (count < 8 guard + Leo's native checked u8
+      shift: overflow and invalidShift both revert, spike-verified).
+    * comparisons → widen both operands to u64 (`as u64` is lossless) and
+      compare there; the result is Bool.
+    * arithmetic/bitwise → widen both operands to u64, run the checked u64
+      op (u64 add/sub of two widened u8 values can only overflow/underflow
+      exactly when the wire u8 op would, since u8 wraps at 256), then
+      `narrow8` — Leo's `as u8` cast reverts out-of-range values
+      (spike-verified), which is exactly the wire's checked-UInt8 boundary.
+      Bitwise and/or/xor of u8 values is always ≤ 255 so the narrow cast is
+      vacuous there. -/
+private def lowerU8Binary
+    (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr :=
+  match op with
+  | .shl => pure (.u8Shl lhs rhs)
+  | .shr => pure (.u8Shr lhs rhs)
+  | .eq => pure (.compare .eq (.u8To64 lhs) (.u8To64 rhs))
+  | .ne => pure (.compare .ne (.u8To64 lhs) (.u8To64 rhs))
+  | .lt => pure (.compare .lt (.u8To64 lhs) (.u8To64 rhs))
+  | .le => pure (.compare .le (.u8To64 lhs) (.u8To64 rhs))
+  | .gt => pure (.compare .gt (.u8To64 lhs) (.u8To64 rhs))
+  | .ge => pure (.compare .ge (.u8To64 lhs) (.u8To64 rhs))
+  | .and | .or =>
+      planError "Aleo UInt8 lane does not admit logical and/or"
+  | other =>
+      let l' := .u8To64 lhs
+      let r' := .u8To64 rhs
+      match lowerBinary other l' r' false with
+      | .ok e => pure (.narrow8 e)
+      | .error err => .error err
 
 private structure LoopCtxV1 where
   header : BlockIdV1
@@ -764,6 +897,8 @@ private partial def lowerRegion
         | some valueDef =>
             if isInt64Type data typeId then
               env := envInsertInt env valueDef.valueId e
+            else if isUInt8Type data typeId then
+              env := envInsertU8 env valueDef.valueId e
             else
               env := envInsert env valueDef.valueId e
     | .stateLoad stateId => do
@@ -776,18 +911,22 @@ private partial def lowerRegion
             if leafIdxs.size == 1 then
               let some fi := leafIdxs[0]? |
                 planError "Aleo stateLoad leaf index missing"
-              let isInt := layout.fieldIsInt.getD fi false
-              if isInt then
+              if layout.fieldIsInt.getD fi false then
                 env := envInsertInt env valueDef.valueId (.stateLoad fi)
+              else if layout.fieldIsU8.getD fi false then
+                env := envInsertU8 env valueDef.valueId (.stateLoad fi)
               else
                 env := envInsert env valueDef.valueId (.stateLoad fi)
             else
               let mut leaves : Array Expr := #[]
-              let mut flags : Array Bool := #[]
+              let mut intFlags : Array Bool := #[]
+              let mut u8Flags : Array Bool := #[]
               for fi in leafIdxs do
                 leaves := leaves.push (.stateLoad fi)
-                flags := flags.push (layout.fieldIsInt.getD fi false)
-              env := envInsertVal env valueDef.valueId (mkAggregateValInt leaves flags)
+                intFlags := intFlags.push (layout.fieldIsInt.getD fi false)
+                u8Flags := u8Flags.push (layout.fieldIsU8.getD fi false)
+              env := envInsertVal env valueDef.valueId
+                (mkAggregateValFlags leaves intFlags u8Flags)
     | .binary op lhs rhs => do
         let l ← match envLookup env lhs with
           | some v => pure v
@@ -807,13 +946,40 @@ private partial def lowerRegion
         else
           unless l.isIntScalar == r.isIntScalar do
             planError "Aleo binary operands must share signedness"
-        let e ← lowerBinary op l.expr r.expr signed
+        -- UInt8 lane (Bytes elements): arithmetic/comparison operands must
+        -- both be u8; shifts widen the lhs to u64 and use the u8 shift ops.
+        let u8Lane := l.isU8Scalar || r.isU8Scalar
+        if u8Lane then
+          unless !signed do
+            planError "Aleo UInt8 lane cannot mix with Int64"
+        if u8Lane && !isShift then
+          unless l.isU8Scalar && r.isU8Scalar do
+            planError "Aleo UInt8 binary operands must share the u8 lane"
+        let e ←
+          if u8Lane && isShift then
+            let widened := match instr.result with
+              | some vd => isUInt8Type data vd.typeId
+              | none => false
+            if widened then
+              pure (Expr.u8Shl l.expr r.expr)
+            else
+              planError "Aleo UInt8 shift result must be UInt8"
+          else if u8Lane then
+            -- Arithmetic/comparison in the u8 lane: Leo's native u8 ops are
+            -- checked (add/mul overflow, div/mod zero, invalidShift); the
+            -- wire's checked arithmetic maps directly.
+            lowerU8Binary op l.expr r.expr
+          else
+            lowerBinary op l.expr r.expr signed
         match instr.result with
         | none => planError "Aleo binary instruction must produce a value"
         | some valueDef =>
             if signed && !(op == .eq || op == .ne || op == .lt || op == .le ||
                 op == .gt || op == .ge) then
               env := envInsertInt env valueDef.valueId e
+            else if u8Lane && !(op == .eq || op == .ne || op == .lt || op == .le ||
+                op == .gt || op == .ge) then
+              env := envInsertU8 env valueDef.valueId e
             else
               env := envInsert env valueDef.valueId e
     | .unary op operand => do
@@ -822,12 +988,21 @@ private partial def lowerRegion
           | none => planError "Aleo unary references an undefined operand"
         unless !o.isAggregate do
           planError "Aleo unary operand must be scalar"
-        let e ← lowerUnary op o.expr o.isIntScalar
+        -- UInt8 unary: bitwise not stays on the u8 lane (Leo `!` is
+        -- type-directed); neg/not are not legal on u8 by Normalize.
+        let e ← if o.isU8Scalar then
+            match op with
+            | .bitNot => pure (.u8BitNot o.expr)
+            | _ => planError "Aleo UInt8 unary admits only bitwise not"
+          else
+            lowerUnary op o.expr o.isIntScalar
         match instr.result with
         | none => planError "Aleo unary instruction must produce a value"
         | some valueDef =>
             if o.isIntScalar && op != .not then
               env := envInsertInt env valueDef.valueId e
+            else if o.isU8Scalar && op == .bitNot then
+              env := envInsertU8 env valueDef.valueId e
             else
               env := envInsert env valueDef.valueId e
     | .pureCall callableId args => do
@@ -867,11 +1042,20 @@ private partial def lowerRegion
         let leaves := v.leafExprs
         unless leaves.size == leafIdxs.size do
           planError "Aleo stateStore leaf count mismatch"
+        -- Per-leaf width check: the stored value's leaf lane must match the
+        -- target leaf (u8 for Bytes elements, otherwise the u64 lane).
+        let vFlags := match v.leafIsU8? with
+          | some f => f
+          | none => leaves.map (fun _ => false)
         for i in [0:leafIdxs.size] do
           let some fi := leafIdxs[i]? |
             planError "Aleo stateStore leaf index missing"
           let some e := leaves[i]? |
             planError "Aleo stateStore leaf value missing"
+          let targetU8 := layout.fieldIsU8.getD fi false
+          let valU8 := vFlags.getD i false
+          unless targetU8 == valU8 do
+            planError "Aleo stateStore leaf width mismatch (Bytes u8 lane vs scalar lane)"
           ls := { ls with stmts := ls.stmts.push (.store fi e) }
     | .assert_ condition _ args => do
         unless args.isEmpty do
@@ -1197,14 +1381,19 @@ private partial def lowerRegion
               let i ← literalIndexNatV1 idx
               let leaves := base.leafExprs
               unless i < leaves.size do
-                planError "unsupported Aleo semantic shape: Array IndexGet index out of range"
+                planError "unsupported Aleo semantic shape: Array/Bytes IndexGet index out of range"
               let some leaf := leaves[i]? |
-                planError "Array IndexGet leaf missing"
-              let flags := match base.leafIsInt? with
+                planError "Array/Bytes IndexGet leaf missing"
+              let intFlags := match base.leafIsInt? with
                 | some f => f
                 | none => leaves.map (fun _ => false)
-              if flags.getD i false then
+              let u8Flags := match base.leafIsU8? with
+                | some f => f
+                | none => leaves.map (fun _ => false)
+              if intFlags.getD i false then
                 env := envInsertInt env valueDef.valueId leaf
+              else if u8Flags.getD i false then
+                env := envInsertU8 env valueDef.valueId leaf
               else
                 env := envInsert env valueDef.valueId leaf
     | .indexSet baseId idxId valueId => do
@@ -1223,11 +1412,13 @@ private partial def lowerRegion
             unless base.isAggregate do
               planError "unsupported Aleo semantic shape: IndexSet base must be an Array/Map aggregate"
             unless !val.isAggregate do
-              planError "unsupported Aleo semantic shape: IndexSet value must be scalar UInt64"
+              planError "unsupported Aleo semantic shape: IndexSet value must be scalar"
             unless !val.isIntScalar do
-              planError "unsupported Aleo semantic shape: IndexSet value must be unsigned UInt64"
+              planError "unsupported Aleo semantic shape: IndexSet value must be unsigned"
             if base.leafExprs.size == aleoMapPilotLeafCountV1 then
               -- Dense Map upsert; revert when the map is full.
+              unless !val.isU8Scalar do
+                planError "unsupported Aleo semantic shape: Map value must be UInt64 (not Bytes u8)"
               let (outLeaves0, okInsert) ←
                 mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
               let gate := Expr.checkedDiv (.literal 1) okInsert
@@ -1245,16 +1436,32 @@ private partial def lowerRegion
               let i ← literalIndexNatV1 idx
               let leaves := base.leafExprs
               unless i < leaves.size do
-                planError "unsupported Aleo semantic shape: Array IndexSet index out of range"
+                planError "unsupported Aleo semantic shape: Array/Bytes IndexSet index out of range"
+              let u8Flags := match base.leafIsU8? with
+                | some f => f
+                | none => leaves.map (fun _ => false)
+              -- Bytes element stores need the u8 lane; Array UInt64 stays u64.
+              if u8Flags.getD i false then
+                unless val.isU8Scalar do
+                  planError "unsupported Aleo semantic shape: Bytes IndexSet value must be UInt8"
+              else
+                unless !val.isU8Scalar do
+                  planError "unsupported Aleo semantic shape: Array UInt64 IndexSet value must be unsigned UInt64"
               let mut outLeaves : Array Expr := #[]
               for j in [0:leaves.size] do
                 if j == i then
                   outLeaves := outLeaves.push val.expr
                 else
                   let some e := leaves[j]? |
-                    planError "Array IndexSet leaf missing"
+                    planError "Array/Bytes IndexSet leaf missing"
                   outLeaves := outLeaves.push e
-              env := envInsertVal env valueDef.valueId (mkAggregateVal outLeaves)
+              -- The rebuilt aggregate keeps the base's per-leaf lanes; the
+              -- stored element's lane was checked against slot i above.
+              let intFlags := match base.leafIsInt? with
+                | some f => f
+                | none => leaves.map (fun _ => false)
+              env := envInsertVal env valueDef.valueId
+                (mkAggregateValFlags outLeaves intFlags u8Flags)
     | .constant .. =>
         planError "unsupported Aleo semantic shape: Constant load is outside the public UInt64 envelope"
     | .checkedCast .. =>
@@ -1432,15 +1639,16 @@ private partial def lowerLoop
   | _ => planError "Aleo lowering: loop header must end in a branch"
 
 end
-/-- Resolve a callable result to (isBool, isUnit, isInt64). -/
+/-- Resolve a callable result to (isBool, isUnit, isInt64, isUInt8). -/
 private def resultShape (data : SemanticProgramDataV1) (callable : CallableV1) :
-    CompileResult (Bool × Bool × Bool) := do
-  if isBoolType data callable.result.typeId then pure (true, false, false)
-  else if isUInt64Type data callable.result.typeId then pure (false, false, false)
-  else if isInt64Type data callable.result.typeId then pure (false, false, true)
+    CompileResult (Bool × Bool × Bool × Bool) := do
+  if isBoolType data callable.result.typeId then pure (true, false, false, false)
+  else if isUInt64Type data callable.result.typeId then pure (false, false, false, false)
+  else if isInt64Type data callable.result.typeId then pure (false, false, true, false)
+  else if isUInt8Type data callable.result.typeId then pure (false, false, false, true)
   else if (match data.types[callable.result.typeId.toNat]? with
-      | some { shape := .unit, .. } => true | _ => false) then pure (false, true, false)
-  else planError "Aleo callable result is outside the public UInt64/Int64/Bool/Unit envelope"
+      | some { shape := .unit, .. } => true | _ => false) then pure (false, true, false, false)
+  else planError "Aleo callable result is outside the public UInt64/Int64/UInt8/Bool/Unit envelope"
 
 private partial def touchesStateExpr : Expr → Bool
   | .stateLoad _ => true
@@ -1452,7 +1660,9 @@ private partial def touchesStateExpr : Expr → Bool
   | .signedBitAnd l r | .signedBitOr l r | .signedBitXor l r =>
       touchesStateExpr l || touchesStateExpr r
   | .compare _ l r | .signedCompare _ l r => touchesStateExpr l || touchesStateExpr r
-  | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o => touchesStateExpr o
+  | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o | .u8BitNot o => touchesStateExpr o
+  | .u8To64 o | .narrow8 o => touchesStateExpr o
+  | .u8Shl l r | .u8Shr l r => touchesStateExpr l || touchesStateExpr r
   | .ternary c t e => touchesStateExpr c || touchesStateExpr t || touchesStateExpr e
   | .callFn _ args => args.any touchesStateExpr
   | _ => false
@@ -1509,9 +1719,12 @@ private partial def lowerCallable
     let isBool ← if isBoolType data p.typeId then pure true
       else if isUInt64Type data p.typeId then pure false
       else if isInt64Type data p.typeId then pure false
-      else planError "Aleo callable parameter is outside the UInt64/Int64/Bool envelope"
+      else if isUInt8Type data p.typeId then pure false
+      else planError "Aleo callable parameter is outside the UInt64/Int64/UInt8/Bool envelope"
     params := params.push {
-      sourceIndex := paramIndex, name := p.name, isBool, isInt := isInt64Type data p.typeId }
+      sourceIndex := paramIndex, name := p.name, isBool
+      isInt := isInt64Type data p.typeId
+      isU8 := isUInt8Type data p.typeId }
     paramIndex := paramIndex + 1
   -- Seed the value env with callable params (source-indexed), then walk the
   -- body from the entry block.
@@ -1520,6 +1733,8 @@ private partial def lowerCallable
   for p in callable.params do
     if isInt64Type data p.typeId then
       env0 := envInsertInt env0 p.valueId (.param paramOrdinal)
+    else if isUInt8Type data p.typeId then
+      env0 := envInsertU8 env0 p.valueId (.param paramOrdinal)
     else
       env0 := envInsert env0 p.valueId (.param paramOrdinal)
     paramOrdinal := paramOrdinal + 1
@@ -1527,7 +1742,7 @@ private partial def lowerCallable
   unless res.join?.isNone do
     planError "Aleo lowering: callable does not end in return on all paths"
   let body := res.stmts
-  let (resultIsBool, resultIsUnit, resultIsInt) ← resultShape data callable
+  let (resultIsBool, resultIsUnit, resultIsInt, resultIsU8) ← resultShape data callable
   -- Bare view: body is exactly `return <stateLoad f>`.
   let bareView? : Option PlanView :=
     match callable.kind, body.toList with
@@ -1562,6 +1777,7 @@ private partial def lowerCallable
     touchesState
     resultIsBool
     resultIsInt
+    resultIsU8
     resultDropped
     isPureHelper
   })
@@ -1593,6 +1809,7 @@ private def makePlanFromSemanticDataV1
     programName
     stateFieldNames := layout.fieldNames
     stateFieldIsInt := layout.fieldIsInt
+    stateFieldIsU8 := layout.fieldIsU8
     functions
     views
     sourceHash

@@ -257,6 +257,29 @@ private def loopSumSourceText : String :=
   "      count := count + i\n" ++
   "    return count\n"
 
+/-- Fixed Bytes N: N×`u8 => u8` mappings with u8 params/results, checked
+    u8 arithmetic (widen → u64 op → checked `as u8` narrow), verified
+    end-to-end by `leo build`. -/
+private def bytesBoxSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program BytesBox where\n" ++
+  "  state b : Bytes 2\n" ++
+  "  init() do\n" ++
+  "    b[0] := 0\n" ++
+  "    b[1] := 0\n" ++
+  "  entry set0(v : UInt8) : UInt8 do\n" ++
+  "    b[0] := v\n" ++
+  "    return b[0]\n" ++
+  "  entry plus(v : UInt8) : UInt8 do\n" ++
+  "    b[1] := b[1] + v\n" ++
+  "    return b[1]\n" ++
+  "  entry flip() : UInt8 do\n" ++
+  "    return ~b[0]\n" ++
+  "  entry shift(v : UInt8) : UInt8 do\n" ++
+  "    b[0] := b[0] << 1\n" ++
+  "    return b[0]\n"
+
 /-- Suite entry. Skips cleanly when leo is unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.AleoAcceptance: start"
@@ -286,6 +309,8 @@ unsafe def run : IO Unit := do
           int64SourceText "Tests.AleoAccept.IntBox" "intbox.aleo"
         acceptProgram leo tmp "LoopSum"
           loopSumSourceText "Tests.AleoAccept.LoopSum" "loopsum.aleo"
+        acceptProgram leo tmp "BytesBox"
+          bytesBoxSourceText "Tests.AleoAccept.BytesBox" "bytesbox.aleo"
         IO.println "Tests.Materialization.AleoAcceptance: ok"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp

@@ -57,8 +57,16 @@ private def validateExprNodes (expr : Expr) (depth : Nat) : Option Nat :=
   if depth > maxExprDepth then none
   else
   match expr with
-  | .literal _ | .i64Literal _ | .boolLiteral _ | .param _ | .loopVar _ | .stateLoad _ =>
+  | .literal _ | .i64Literal _ | .u8Literal _ | .boolLiteral _ | .param _
+  | .loopVar _ | .stateLoad _ =>
       some 1
+  | .u8To64 o | .narrow8 o => do
+      let do' ← validateExprNodes o (depth + 1)
+      some (do' + 1)
+  | .u8Shl l r | .u8Shr l r => do
+      let dl ← validateExprNodes l (depth + 1)
+      let dr ← validateExprNodes r (depth + 1)
+      some (dl + dr + 1)
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
   | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
@@ -73,7 +81,7 @@ private def validateExprNodes (expr : Expr) (depth : Nat) : Option Nat :=
       let dl ← validateExprNodes l (depth + 1)
       let dr ← validateExprNodes r (depth + 1)
       some (dl + dr + 1)
-  | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o => do
+  | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o | .u8BitNot o => do
       let do' ← validateExprNodes o (depth + 1)
       some (do' + 1)
   | .ternary c t e => do
@@ -172,6 +180,12 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "Aleo plan exceeds the state mapping limit"
   unless plan.stateFieldIsInt.size == plan.stateFieldNames.size do
     planError "Aleo plan state signedness table must match the state field count"
+  unless plan.stateFieldIsU8.size == plan.stateFieldNames.size do
+    planError "Aleo plan state u8 table must match the state field count"
+  -- A leaf is either the u64/i64 scalar lane or the Bytes u8 lane, not both.
+  for i in [0:plan.stateFieldNames.size] do
+    if plan.stateFieldIsU8.getD i false && plan.stateFieldIsInt.getD i false then
+      planError "Aleo state leaf cannot be both UInt8 and Int64"
   let names := plan.functions.map (·.name) ++ plan.views.map (·.name)
   for name in names do
     if isReserved name then

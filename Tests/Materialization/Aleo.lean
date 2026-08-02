@@ -277,6 +277,7 @@ unsafe def testPlanValidation : IO Unit := do
     programName := "Tiny"
     stateFieldNames := #["count"]
     stateFieldIsInt := #[false]
+    stateFieldIsU8 := #[false]
     functions := #[pureFn]
     views := #[]
     sourceHash := plan.sourceHash
@@ -300,6 +301,7 @@ unsafe def testPlanValidation : IO Unit := do
     programName := "Tiny"
     stateFieldNames := #["count"]
     stateFieldIsInt := #[false]
+    stateFieldIsU8 := #[false]
     functions := #[reservedFn]
     views := #[]
     sourceHash := plan.sourceHash
@@ -1415,6 +1417,85 @@ unsafe def testMapSetBudgetFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"Spendy: expected set-budget decline, got {e.render}"
   | .ok _ => throw <| IO.userError "Spendy must fail closed at the Leo mapping-set budget"
 
+/-- Fixed Bytes N: N×`u8 => u8` mappings, u8 params/results, checked u8
+    arithmetic via widen → u64 op → checked `as u8` narrow. -/
+unsafe def testBytesStateLeo : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesBox where\n" ++
+    "  state b : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "    b[1] := 0\n" ++
+    "  entry set0(v : UInt8) : UInt8 do\n" ++
+    "    b[0] := v\n" ++
+    "    return b[0]\n" ++
+    "  entry plus(v : UInt8) : UInt8 do\n" ++
+    "    b[1] := b[1] + v\n" ++
+    "    return b[1]\n" ++
+    "  entry flip() : UInt8 do\n" ++
+    "    return ~b[0]\n" ++
+    "  view get0() : UInt8 do\n" ++
+    "    return b[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-bytes>" "Tests.AleoBytes" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  expect (plan.stateFieldNames == #["b_0", "b_1"])
+    s!"Bytes must flatten to b_0/b_1 leaves, got {plan.stateFieldNames}"
+  expect (plan.stateFieldIsU8 == #[true, true])
+    "Bytes leaves must be marked u8"
+  let set0 := plan.functions.find? (·.name == "set0")
+  match set0 with
+  | some fn =>
+      expect (fn.resultIsU8 && fn.params.all (·.isU8))
+        "Bytes entry must take and return UInt8"
+  | none => throw <| IO.userError "missing set0"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "bytesbox.aleo") |
+    throw <| IO.userError "aleo: missing bytesbox.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "mapping pf_state_0: u8 => u8;")
+    "Bytes leaves must render u8 => u8 mappings"
+  expect (leo.contains "fn set0(public p0: u8) -> Final {")
+    "Bytes entry must render a u8 public param"
+  expect (leo.contains "let pf_return: u8 =")
+    "Bytes dropped return must bind u8"
+  expect (leo.contains " as u64)")
+    "u8 arithmetic must widen operands to u64"
+  expect (leo.contains " as u8)")
+    "u8 arithmetic must narrow the result with a checked cast"
+  expect (leo.contains ": u8 = (!")
+    "Bytes bitwise not must bind a u8 !"
+
+/-- Bytes fail-closed: mixed lane stores and UInt8 scalar state decline. -/
+unsafe def testBytesFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- UInt8 scalar *state* stays fail-closed (only the Bytes element lane is
+  -- open): Normalize admits UInt8 state, the Aleo type closure does not.
+  let u8StateSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program U8State where\n" ++
+    "  state x : UInt8\n" ++
+    "  init(seed : UInt8) do\n" ++
+    "    x := seed\n" ++
+    "  entry get() : UInt8 do\n" ++
+    "    return x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    u8StateSource "<aleo-u8state>" "Tests.AleoU8State" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planAleo compiled with
+  | .error (.planInvariant .aleo msg) =>
+      expect (msg.contains "UInt64" || msg.contains "width" || msg.contains "u8")
+        s!"UInt8 state decline must cite the width boundary, got: {msg}"
+  | .error e => throw <| IO.userError s!"UInt8 state: expected decline, got {e.render}"
+  | .ok _ => throw <| IO.userError "UInt8 scalar state must fail closed at Aleo plan"
+
 unsafe def run : IO Unit := do
   testCounterPlanAndLeo
   testPureOpsAndShifts
@@ -1449,6 +1530,8 @@ unsafe def run : IO Unit := do
   testMapStateLeo
   testMapUpsertFailClosed
   testMapSetBudgetFailClosed
+  testBytesStateLeo
+  testBytesFailClosed
   IO.println "Tests.Materialization.Aleo: ok"
 
 end Tests.Materialization.Aleo
