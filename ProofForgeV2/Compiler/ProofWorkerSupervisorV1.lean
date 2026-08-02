@@ -137,7 +137,7 @@ private def decodeNative (bytes : ByteArray) (limits : DevelopmentSupervisorLimi
     bytes.extract 30 bytes.size)
 
 private def proofWorkerPath : IO FilePath := do
-  pure ((← IO.appDir) / "proof-forge-compiler-proof-worker-v1")
+  pure ((← IO.appDir) / "proof-forge-compiler-proof-worker-v2")
 
 private def superviseRaw (input : ByteArray)
     (limits : DevelopmentSupervisorLimitsV1) : IO (Except DevelopmentSupervisorFaultV1

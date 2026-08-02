@@ -85,10 +85,10 @@ static void pf_close(int *fd) {
 }
 
 static int pf_normalize_fd(int *fd) {
-  if (*fd >= 3) {
+  if (*fd >= 4) {
     return 0;
   }
-  int replacement = fcntl(*fd, F_DUPFD_CLOEXEC, 3);
+  int replacement = fcntl(*fd, F_DUPFD_CLOEXEC, 4);
   if (replacement < 0) {
     return -1;
   }
@@ -185,7 +185,7 @@ static int pf_child_close_others(int executable_fd, int exec_error_fd) {
       executable_fd : exec_error_fd);
   unsigned high = (unsigned)(executable_fd > exec_error_fd ?
       executable_fd : exec_error_fd);
-  if ((low > 3 && pf_close_range(3, low - 1) != 0) ||
+  if ((low > 4 && pf_close_range(4, low - 1) != 0) ||
       (high > low + 1 && pf_close_range(low + 1, high - 1) != 0) ||
       (high < UINT_MAX && pf_close_range(high + 1, UINT_MAX) != 0)) {
     return -1;
@@ -256,12 +256,76 @@ static int pf_group_empty(pid_t pid) {
   return errno == ESRCH;
 }
 
+LEAN_EXPORT lean_obj_res proof_forge_read_proof_worker_control_v2(
+    uint64_t maximum_size) {
+  const int control_fd = 3;
+  struct stat control_status;
+  struct stat stdin_status;
+  struct stat null_status;
+  int descriptor_flags;
+  int status_flags;
+  uint8_t *bytes;
+  size_t size = 0;
+
+  if (maximum_size == 0 || maximum_size > SIZE_MAX - 1 ||
+      fstat(control_fd, &control_status) != 0 ||
+      !S_ISFIFO(control_status.st_mode)) {
+    return pf_error("control");
+  }
+  descriptor_flags = fcntl(control_fd, F_GETFD);
+  status_flags = fcntl(control_fd, F_GETFL);
+  if (descriptor_flags != 0 || status_flags < 0 ||
+      (status_flags & O_ACCMODE) != O_RDONLY ||
+      (status_flags & O_NONBLOCK) != 0) {
+    return pf_error("control");
+  }
+  if (fstat(STDIN_FILENO, &stdin_status) != 0 ||
+      stat("/dev/null", &null_status) != 0 ||
+      !S_ISCHR(stdin_status.st_mode) ||
+      stdin_status.st_dev != null_status.st_dev ||
+      stdin_status.st_ino != null_status.st_ino ||
+      stdin_status.st_rdev != null_status.st_rdev ||
+      fcntl(STDIN_FILENO, F_GETFD) != 0 ||
+      (fcntl(STDIN_FILENO, F_GETFL) & O_ACCMODE) != O_RDONLY) {
+    return pf_error("stdin");
+  }
+
+  bytes = malloc((size_t)maximum_size + 1);
+  if (bytes == NULL) {
+    return pf_error("native");
+  }
+  while (size <= (size_t)maximum_size) {
+    ssize_t amount = read(control_fd, bytes + size,
+        (size_t)maximum_size + 1 - size);
+    if (amount > 0) {
+      size += (size_t)amount;
+      continue;
+    }
+    if (amount == 0) {
+      break;
+    }
+    if (errno == EINTR) {
+      continue;
+    }
+    close(control_fd);
+    free(bytes);
+    return pf_error("native");
+  }
+  close(control_fd);
+  if (size > (size_t)maximum_size) {
+    free(bytes);
+    return pf_error("limit");
+  }
+  return pf_ok(bytes, size);
+}
+
 LEAN_EXPORT lean_obj_res proof_forge_supervise_proof_worker_v1(
     b_lean_obj_arg path_object, b_lean_obj_arg input_object,
     uint64_t wall_millis, uint64_t stdout_cap, uint64_t stderr_cap) {
   uint64_t start = 0;
   uint64_t now = 0;
   int executable_fd = -1;
+  int null_fd = -1;
   int input_pipe[2] = {-1, -1};
   int output_pipe[2] = {-1, -1};
   int error_pipe[2] = {-1, -1};
@@ -303,6 +367,16 @@ LEAN_EXPORT lean_obj_res proof_forge_supervise_proof_worker_v1(
     free(output);
     return pf_error("invalid-worker");
   }
+  null_fd = open("/dev/null", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  if (null_fd < 0 || pf_normalize_fd(&null_fd) != 0) {
+    event = PF_SUPERVISOR_FAULT;
+    goto finish;
+  }
+  struct stat null_status;
+  if (fstat(null_fd, &null_status) != 0 || !S_ISCHR(null_status.st_mode)) {
+    event = PF_SUPERVISOR_FAULT;
+    goto finish;
+  }
   if (pf_pipe(input_pipe) != 0 || pf_pipe(output_pipe) != 0 ||
       pf_pipe(error_pipe) != 0 || pf_pipe(exec_pipe) != 0) {
     event = PF_SUPERVISOR_FAULT;
@@ -336,7 +410,7 @@ LEAN_EXPORT lean_obj_res proof_forge_supervise_proof_worker_v1(
     goto finish;
   }
   if (pid == 0) {
-    char *argv[] = {(char *)"proof-forge-compiler-proof-worker-v1", NULL};
+    char *argv[] = {(char *)"proof-forge-compiler-proof-worker-v2", NULL};
     char *envp[] = {(char *)"HOME=/var/empty", (char *)"LC_ALL=C",
                     (char *)"TZ=UTC", NULL};
     struct sigaction default_action;
@@ -345,7 +419,8 @@ LEAN_EXPORT lean_obj_res proof_forge_supervise_proof_worker_v1(
     pf_close(&output_pipe[0]);
     pf_close(&error_pipe[0]);
     pf_close(&exec_pipe[0]);
-    if (setpgid(0, 0) != 0 || dup2(input_pipe[0], STDIN_FILENO) < 0 ||
+    if (setpgid(0, 0) != 0 || dup2(null_fd, STDIN_FILENO) < 0 ||
+        dup2(input_pipe[0], 3) < 0 ||
         dup2(output_pipe[1], STDOUT_FILENO) < 0 ||
         dup2(error_pipe[1], STDERR_FILENO) < 0 || chdir("/") != 0) {
       pf_child_fail(exec_pipe[1]);
@@ -373,6 +448,7 @@ LEAN_EXPORT lean_obj_res proof_forge_supervise_proof_worker_v1(
   }
 
   pf_close(&executable_fd);
+  pf_close(&null_fd);
   pf_close(&input_pipe[0]);
   pf_close(&output_pipe[1]);
   pf_close(&error_pipe[1]);
@@ -513,6 +589,7 @@ finish:
 
   int cleanup_complete = pid > 0 && reaped && pf_group_empty(pid);
   pf_close(&executable_fd);
+  pf_close(&null_fd);
   pf_close(&input_pipe[0]);
   pf_close(&input_pipe[1]);
   pf_close(&output_pipe[0]);
@@ -569,6 +646,12 @@ LEAN_EXPORT lean_obj_res proof_forge_supervise_proof_worker_v1(
   (void)wall_millis;
   (void)stdout_cap;
   (void)stderr_cap;
+  return pf_error("unsupported");
+}
+
+LEAN_EXPORT lean_obj_res proof_forge_read_proof_worker_control_v2(
+    uint64_t maximum_size) {
+  (void)maximum_size;
   return pf_error("unsupported");
 }
 #endif

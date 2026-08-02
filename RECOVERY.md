@@ -771,3 +771,9 @@ executable fd和`execveat(AT_EMPTY_PATH)`启动，cwd为`/`，环境精确为
 无memory/process accounting、seccomp、network/write/exec confinement，setsid逃逸未闭合；
 V1仍以stdin传输，最终normative loader因stdin须为`/dev/null`而需要V2专用control FD。无CLI、receipt、
 `.olean`或formal完成声明。
+
+2026-08-02后续transport切片新增独立V2 worker executable。development supervisor现在把exact request
+只写入固定blocking read FD 3，并把worker stdin固定为已打开的`/dev/null`；worker-side native owner在
+读取前重验FD 3的pipe/access/CLOEXEC状态及stdin的`/dev/null` identity，执行统一64MiB+1 EOF gate后关闭
+control FD。V2不会fallback到stdin；V1 stdin worker仅保留为独立engineering parity面。此变化仍未实现
+memory/process controller、deny network/write/exec、contained proof loader、CLI、receipt或`.olean` importer。

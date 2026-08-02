@@ -495,3 +495,8 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > exact clean environment/cwd，单poll loop限时与双输出drain，并在terminal event后kill/reap原process group。
 > 该监督不是containment；memory/process accounting、seccomp、network/write/exec policy、setsid逃逸控制、
 > V2 control FD、CLI、receipt及`.olean`均deferred。
+
+> 2026-08-02 proof-worker V2 transport后续增量：supervisor固定把request送入child FD 3并把stdin设为
+> `/dev/null`；V2 worker native reader要求FD 3为blocking read pipe、无CLOEXEC，stdin identity exact join
+> `/dev/null`，并执行64MiB+1 bounded EOF read。缺FD 3、stdin替代或stdin framing均fail closed；V1 stdin
+> executable只保留engineering parity。该切片仍非containment、非CLI/receipt/`.olean`或formal evidence。

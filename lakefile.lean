@@ -235,6 +235,11 @@ lean_exe proof_forge_compiler_proof_worker_v1 where
   root := `ProofForgeV2.Compiler.ProofWorkerMainV1
   supportInterpreter := true
 
+lean_exe proof_forge_compiler_proof_worker_v2 where
+  exeName := "proof-forge-compiler-proof-worker-v2"
+  root := `ProofForgeV2.Compiler.ProofWorkerMainV2
+  supportInterpreter := true
+
 lean_exe proof_forge_next_tests where
   exeName := "proof-forge-next-tests"
   root := `Tests

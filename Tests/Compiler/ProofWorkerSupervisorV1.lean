@@ -29,6 +29,14 @@ def run : IO Unit := do
     "raised stderr cap rejected"
   expect ((mkDevelopmentSupervisorLimitsV1 1 1 1).isOk)
     "lower nonzero limits accepted"
+  unless (System.Platform.target.splitOn "-").contains "linux" do
+    match ← superviseProofWorkerFrameDevelopmentV1 (ByteArray.mk #[0]) with
+    | .error .unsupportedHost =>
+        IO.println "Tests.Compiler.ProofWorkerSupervisorV1: unsupported host ok"
+    | .error fault =>
+        throw <| IO.userError s!"unsupported host wrong fault: {repr fault}"
+    | .ok _ => throw <| IO.userError "unsupported host supervisor succeeded"
+    return
   let stderrLimits ← match mkDevelopmentSupervisorLimitsV1
       hardDevelopmentLimitsV1.wallMillis
       hardDevelopmentLimitsV1.stdoutBytes 1 with

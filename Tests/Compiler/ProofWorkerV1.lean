@@ -212,6 +212,9 @@ private unsafe def testProtocolAndDirect : IO Unit := do
 private def workerBin : FilePath :=
   FilePath.mk ".lake/build/bin/proof-forge-compiler-proof-worker-v1"
 
+private def workerV2Bin : FilePath :=
+  FilePath.mk ".lake/build/bin/proof-forge-compiler-proof-worker-v2"
+
 private partial def readBinaryToEnd
     (handle : IO.FS.Handle) (acc : ByteArray := ByteArray.empty) : IO ByteArray := do
   let chunk ← handle.read (USize.ofNat (64 * 1024))
@@ -222,10 +225,12 @@ private partial def readBinaryToEnd
       throw <| IO.userError "proof worker stdout exceeded protocol bound"
     readBinaryToEnd handle next
 
-private def runWorkerProcess (input : ByteArray) :
+private def runWorkerProcessCommand (command : FilePath) (args : Array String)
+    (input : ByteArray) :
     IO (UInt32 × ByteArray × String) := do
   let child0 ← IO.Process.spawn {
-    cmd := workerBin.toString
+    cmd := command.toString
+    args
     stdin := .piped
     stdout := .piped
     stderr := .piped
@@ -244,8 +249,22 @@ private def runWorkerProcess (input : ByteArray) :
   let exitCode ← child.wait
   pure (exitCode, stdout, stderr)
 
+private def runWorkerProcess (input : ByteArray) :
+    IO (UInt32 × ByteArray × String) :=
+  runWorkerProcessCommand workerBin #[] input
+
+private def runWorkerV2WithDescriptors (nullStdin : Bool) (input : ByteArray) :
+    IO (UInt32 × ByteArray × String) :=
+  let script := if nullStdin then
+    "exec 3<&0; exec 0</dev/null; exec \"$1\""
+  else
+    "exec 3<&0; exec \"$1\""
+  runWorkerProcessCommand (FilePath.mk "/bin/sh")
+    #["-c", script, "proof-worker-v2-test", workerV2Bin.toString] input
+
 private unsafe def testSubprocess : IO Unit := do
   expect (← workerBin.pathExists) s!"proof worker binary missing: {workerBin}"
+  expect (← workerV2Bin.pathExists) s!"proof worker V2 binary missing: {workerV2Bin}"
   -- Restore the positive pair after the direct semantic-failure check.
   let fresh ← makeFixture
   let direct ← match ← processFrameV1 fresh.requestBytes with
@@ -256,29 +275,30 @@ private unsafe def testSubprocess : IO Unit := do
   expect (stderr == "") s!"proof worker success stderr: {repr stderr}"
   expect (stdout == direct) "real subprocess exact direct-worker parity"
   expectSuccessParity fresh stdout
-  match ← superviseProofWorkerDevelopmentV1 fresh.request with
-  | .error fault =>
-      throw <| IO.userError s!"supervised proof worker fault: {repr fault}"
-  | .ok outcome => do
-      expect (outcome.event == .success && outcome.cleanup == .observedEmpty &&
-        outcome.stderrBytes == 0) "supervised proof worker success and cleanup"
-      let response ← match outcome.response with
-        | some response => pure response
-        | none => throw <| IO.userError "supervised proof worker withheld response"
-      let supervised ← lift "encode supervised response"
-        (encodeProofWorkerResponseV1 response)
-      expect (supervised == direct) "supervised/direct exact response parity"
-  let stdoutLimits ← match mkDevelopmentSupervisorLimitsV1
-      hardDevelopmentLimitsV1.wallMillis 1 hardDevelopmentLimitsV1.stderrBytes with
-    | .ok limits => pure limits
-    | .error fault => throw <| IO.userError s!"stdout limits: {repr fault}"
-  match ← superviseProofWorkerDevelopmentV1 fresh.request stdoutLimits with
-  | .error fault =>
-      throw <| IO.userError s!"supervised stdout-limit fault: {repr fault}"
-  | .ok outcome =>
-      expect (outcome.event == .stdoutLimit && outcome.cleanup == .observedEmpty &&
-        outcome.stdoutBytes == 2 && outcome.response.isNone)
-        "supervised exact +1 stdout cap and cleanup"
+  if (System.Platform.target.splitOn "-").contains "linux" then
+    match ← superviseProofWorkerDevelopmentV1 fresh.request with
+    | .error fault =>
+        throw <| IO.userError s!"supervised proof worker fault: {repr fault}"
+    | .ok outcome => do
+        expect (outcome.event == .success && outcome.cleanup == .observedEmpty &&
+          outcome.stderrBytes == 0) "supervised proof worker success and cleanup"
+        let response ← match outcome.response with
+          | some response => pure response
+          | none => throw <| IO.userError "supervised proof worker withheld response"
+        let supervised ← lift "encode supervised response"
+          (encodeProofWorkerResponseV1 response)
+        expect (supervised == direct) "supervised/direct exact response parity"
+    let stdoutLimits ← match mkDevelopmentSupervisorLimitsV1
+        hardDevelopmentLimitsV1.wallMillis 1 hardDevelopmentLimitsV1.stderrBytes with
+      | .ok limits => pure limits
+      | .error fault => throw <| IO.userError s!"stdout limits: {repr fault}"
+    match ← superviseProofWorkerDevelopmentV1 fresh.request stdoutLimits with
+    | .error fault =>
+        throw <| IO.userError s!"supervised stdout-limit fault: {repr fault}"
+    | .ok outcome =>
+        expect (outcome.event == .stdoutLimit && outcome.cleanup == .observedEmpty &&
+          outcome.stdoutBytes == 2 && outcome.response.isNone)
+          "supervised exact +1 stdout cap and cleanup"
 
   let missingRequest ← lift "subprocess missing request" <|
     mkProofWorkerRequestV1 (FilePath.mk "/definitely/missing/proof-worker-root")
@@ -305,6 +325,17 @@ private unsafe def testSubprocess : IO Unit := do
   expect badOut.isEmpty "malformed subprocess stdout empty"
   expect (badErr == protocolStderrTokenV1 ++ "\n")
     "malformed subprocess stable stderr token"
+
+  if (System.Platform.target.splitOn "-").contains "linux" then
+    let (v2Exit, v2Out, v2Err) ←
+      runWorkerV2WithDescriptors true fresh.requestBytes
+    expect (v2Exit == 0 && v2Err == "" && v2Out == direct)
+      "V2 control FD 3 with /dev/null stdin exact parity"
+    let (v2StdinExit, v2StdinOut, v2StdinErr) ←
+      runWorkerV2WithDescriptors false fresh.requestBytes
+    expect (v2StdinExit == UInt32.ofNat protocolExitCodeV1.toNat &&
+      v2StdinOut.isEmpty && v2StdinErr == protocolStderrTokenV1 ++ "\n")
+      "V2 worker rejects valid control FD with non-/dev/null stdin"
 
 unsafe def run : IO Unit := do
   testProtocolAndDirect

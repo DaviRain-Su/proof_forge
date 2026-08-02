@@ -13188,3 +13188,16 @@ normative: false
 - 边界：development-only、non-contained、非CLI且无public receipt。无memory/process accounting、seccomp、
   network/write/exec confinement或setsid逃逸控制；V1 stdin transport仅为engineering，normative loader需V2
   dedicated control FD以保留`/dev/null` stdin。无`.olean`、formal evidence或TASK/TST完成声明。
+
+### 2026-08-02 — Proof-worker V2 dedicated control-FD transport slice
+
+- 新增package-built V2 worker executable与`Compiler.ProofWorkerControlV2`。supervisor内部request pipe的child
+  endpoint固定dup到FD 3，stdin固定dup自pre-fork打开并验证为character device的`/dev/null`；其他FD仍由
+  complete `close_range` gap closure移除，production caller仍不能选择executable或FD。
+- worker-side native reader要求FD 3为blocking read-only pipe、`FD_CLOEXEC=0`，并要求stdin descriptor flags及
+  `(dev,ino,rdev)` exact匹配`/dev/null`；统一执行64MiB+1 read/EOF gate并关闭control FD。canonical request/
+  response wire与exact request binding未改变，V2无stdin fallback；V1 executable仅保留engineering parity。
+- tests固定V2 FD3+`/dev/null`与direct response exact parity、同一valid FD3配piped stdin必须protocol reject，
+  并保持supervisor deadline/stdout/stderr/nonzero与cleanup覆盖；non-Linux suite只接受`unsupportedHost`。
+- 边界：transport closure不是containment。仍无memory/process accounting、seccomp、network/write/exec confinement、
+  setsid逃逸控制、CLI、receipt、`.olean` importer/policy/defeq/trust closure或formal TASK/TST完成声明。
