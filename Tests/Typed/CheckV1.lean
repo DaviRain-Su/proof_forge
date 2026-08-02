@@ -2488,6 +2488,7 @@ private unsafe def testPrivateStateWriteOnly
     "    count := initial\n" ++
     "    secret := 0\n" ++
     "  entry bump(d : UInt64) : UInt64 do\n" ++
+    "    let _who : Principal := context.caller\n" ++
     "    secret := secret + d\n" ++
     "    count := count + d\n" ++
     "    return count\n" ++

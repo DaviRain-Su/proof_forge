@@ -27,6 +27,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Typed.EffectCheckV1,
     `Tests.Typed.BoundCheckV1,
     `Tests.Typed.DisclosureCheckV1,
+    `Tests.Typed.AuthorityCustodyCheckV1,
     `Tests.Typed.RequirementsInferV1,
     `Tests.Typed.CheckV1,
     `Tests.Semantic.WireV1,

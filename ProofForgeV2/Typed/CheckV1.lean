@@ -19,6 +19,9 @@
                      (explicit value-flow D2-04a + PC-label / implicit if/match
                      and assert-condition public-sink D2-04b); otherwise append
                      nothing and mark incomplete
+    6. authority   = T-1 authority/custody drafts when analysisComplete
+                     (private state write on entry requires context.caller);
+                     otherwise append nothing and mark incomplete
 
   `ok` is true only when analysis is complete and diagnostics/drafts are empty.
   Incomplete analysis (currently: duplicate `fn` keys) forces `ok = false`
@@ -40,8 +43,8 @@
 
   Deliberately outside this composition module:
     * deleting the isolated legacy alpha compatibility implementation
-    * authority / custody analysis and disclosure.commit operator
-    * formal full-coverage TST-VIS-002 / TASK-D2-04 (engineering subset only)
+    * formal full-coverage TST-VIS-002 / TASK-D2-04 (T-1 is engineering subset only)
+    * full owner-key custody graphs / authorizers keys
     * SemanticProgramV1 / provenance / exact resolver / OutputSetV1
     * unifying CallGraph `.sourceInvalid` cycles with Bound `.resourceBound`
     * new DiagnosticCodeV1 constructors beyond those owned by existing phases
@@ -54,6 +57,7 @@ import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.ValidatedSourceV1
+import ProofForgeV2.Typed.AuthorityCustodyCheckV1
 import ProofForgeV2.Typed.BoundCheckV1
 import ProofForgeV2.Typed.CallGraphV1
 import ProofForgeV2.Typed.DiagnosticDraftV1
@@ -70,6 +74,7 @@ open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Typed.AuthorityCustodyCheckV1
 open ProofForgeV2.Typed.BoundCheckV1
 open ProofForgeV2.Typed.CallGraphV1
 open ProofForgeV2.Typed.DiagnosticDraftV1
@@ -148,18 +153,21 @@ def checkProgramTypedDraftWithResolutionV1 (program : ProgramV1)
     let effectRes := checkEffectsDraftsV1 program tables
     let boundRes := checkBoundsDraftsV1 program tables
     let discRes := checkDisclosureDraftsV1 program tables
+    let authRes := checkAuthorityCustodyDraftsV1 program tables
     let analysisComplete :=
       effectRes.analysisComplete && boundRes.analysisComplete &&
-        discRes.analysisComplete
+        discRes.analysisComplete && authRes.analysisComplete
     let effectDrafts :=
       if effectRes.analysisComplete then effectRes.drafts else #[]
     let boundDrafts :=
       if boundRes.analysisComplete then boundRes.drafts else #[]
     let discDrafts :=
       if discRes.analysisComplete then discRes.drafts else #[]
+    let authDrafts :=
+      if authRes.analysisComplete then authRes.drafts else #[]
     let drafts :=
       structureDrafts ++ typeRes.drafts ++ effectDrafts ++ boundDrafts ++
-        discDrafts
+        discDrafts ++ authDrafts
     { drafts := drafts
       ok := analysisComplete && drafts.isEmpty
       analysisComplete := analysisComplete }
