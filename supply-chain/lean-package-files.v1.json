@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 4088,
+      "bytes": 4141,
       "path": "ProofForgeV2.lean",
-      "sha256": "08441c78b0c3fe54e8bab5aecdcbf68a65005c5f306150ac802ea2dfd3a6c9be"
+      "sha256": "063ddcac38a27f53469c43ba48635f575af3c95d383a54fb468551c1cba49b57"
     },
     {
       "bytes": 66269,
@@ -26,6 +26,11 @@
       "sha256": "f8950e6abe47650132b49104dbc58d75bca48d0955011b80f7e2bf2738b86a7b"
     },
     {
+      "bytes": 15960,
+      "path": "ProofForgeV2/Compiler/Native/proof_forge_proof_worker_supervisor_v1.c",
+      "sha256": "4381c2bde4ba22eade9d8daae8d1cb9b6533d9a6b0b03079b71c4158c6066598"
+    },
+    {
       "bytes": 9002,
       "path": "ProofForgeV2/Compiler/Pipeline.lean",
       "sha256": "5035be25256ca5a6e8e776ec81f4906abcac35ccb55e18ad515355e5780ba797"
@@ -44,6 +49,11 @@
       "bytes": 13688,
       "path": "ProofForgeV2/Compiler/ProofWorkerProtocolV1.lean",
       "sha256": "64f3dbe26eb7132de52e183542f5576fb91f3f9ace1db8fd482af2715cdb979d"
+    },
+    {
+      "bytes": 7957,
+      "path": "ProofForgeV2/Compiler/ProofWorkerSupervisorV1.lean",
+      "sha256": "ced6a616dd43813de98cd9bdbcbf86ce9f4e478ed54f30fc033a47cf6524c9ef"
     },
     {
       "bytes": 2491,

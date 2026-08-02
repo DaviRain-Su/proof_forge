@@ -46,6 +46,18 @@ extern_lib proof_forge_proof_subject_files_v1 pkg := do
   buildStaticLib
     (pkg.buildDir / "lib" / nameToStaticLib "proof_forge_proof_subject_files_v1") #[object]
 
+extern_lib proof_forge_proof_worker_supervisor_v1 pkg := do
+  let source ← inputFile
+    (pkg.dir / "ProofForgeV2/Compiler/Native/proof_forge_proof_worker_supervisor_v1.c") false
+  let leanInclude ← getLeanIncludeDir
+  let (cc, platformArgs) ← liftM proofSubjectNativeCompiler
+  let object ← buildO
+    (pkg.buildDir / "native/compiler/proof_forge_proof_worker_supervisor_v1.o") source #[]
+    (#["-std=c11", "-fPIC", "-Wall", "-Wextra", "-Werror", "-I",
+        leanInclude.toString] ++ platformArgs) cc
+  buildStaticLib
+    (pkg.buildDir / "lib" / nameToStaticLib "proof_forge_proof_worker_supervisor_v1") #[object]
+
 @[default_target]
 lean_lib ProofForgeV2 where
   roots := #[`ProofForgeV2, `Examples]
@@ -61,6 +73,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.DiagnosticPipelineV1,
     `Tests.Compiler.ProofSubjectFilesV1,
     `Tests.Compiler.ProofWorkerV1,
+    `Tests.Compiler.ProofWorkerSupervisorV1,
     `Tests.Typed.NameResolutionV1,
     `Tests.Typed.DiagnosticLocationsV1,
     `Tests.Typed.TypeCheckExpressionsV1,

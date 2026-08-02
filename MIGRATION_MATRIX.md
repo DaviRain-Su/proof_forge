@@ -489,3 +489,9 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > decoded/bound response不构成authentication、freshness、same-request anti-replay或loading authority。
 > 本增量没有containment/supervisor、deadline/resource/FD/network policy、receipt、CLI接线、`.olean`
 > importer/policy/defeq或formal evidence；TST-PROOF-001与TASK-D2-07继续pending。
+
+> 2026-08-02后续窄切片新增Linux-only development supervisor：production API只解析同目录
+> package-built proof worker，不接受caller executable；retained executable fd + `execveat`无pathname fallback，
+> exact clean environment/cwd，单poll loop限时与双输出drain，并在terminal event后kill/reap原process group。
+> 该监督不是containment；memory/process accounting、seccomp、network/write/exec policy、setsid逃逸控制、
+> V2 control FD、CLI、receipt及`.olean`均deferred。

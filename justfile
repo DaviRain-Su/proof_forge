@@ -74,9 +74,10 @@ test-fast: build
     lake build proof_forge_next_fast_tests
     lake env .lake/build/bin/proof-forge-next-fast-tests
 
-# Explicit frontend-worker suite (non-default). Builds worker exe + worker shard.
+# Explicit development worker suite (non-default). Builds real workers and the
+# Linux native supervisor before the worker shard.
 test-frontend-worker: build-frontend-worker
-    lake build proof_forge_next_tests_shard_worker
+    lake build ProofForgeV2.Compiler.ProofWorkerSupervisorV1 proof_forge_next_tests_shard_worker
     lake env .lake/build/bin/proof-forge-next-tests-shard-worker
 
 # Focused shard: `just test-shard core` → proof-forge-next-tests-shard-core.

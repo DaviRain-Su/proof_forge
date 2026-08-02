@@ -3,6 +3,7 @@
   These tests do not claim process containment or formal TST-PROOF-001 evidence.
 -/
 import ProofForgeV2.Compiler.ProofWorkerV1
+import ProofForgeV2.Compiler.ProofWorkerSupervisorV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Source.WireCodecV1
@@ -13,6 +14,7 @@ namespace Tests.Compiler.ProofWorkerV1
 open ProofForgeV2
 open ProofForgeV2.Compiler.ProofSubjectFilesV1
 open ProofForgeV2.Compiler.ProofWorkerProtocolV1
+open ProofForgeV2.Compiler.ProofWorkerSupervisorV1
 open ProofForgeV2.Compiler.ProofWorkerV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Frontend.ProtocolV1
@@ -254,6 +256,29 @@ private unsafe def testSubprocess : IO Unit := do
   expect (stderr == "") s!"proof worker success stderr: {repr stderr}"
   expect (stdout == direct) "real subprocess exact direct-worker parity"
   expectSuccessParity fresh stdout
+  match ← superviseProofWorkerDevelopmentV1 fresh.request with
+  | .error fault =>
+      throw <| IO.userError s!"supervised proof worker fault: {repr fault}"
+  | .ok outcome => do
+      expect (outcome.event == .success && outcome.cleanup == .observedEmpty &&
+        outcome.stderrBytes == 0) "supervised proof worker success and cleanup"
+      let response ← match outcome.response with
+        | some response => pure response
+        | none => throw <| IO.userError "supervised proof worker withheld response"
+      let supervised ← lift "encode supervised response"
+        (encodeProofWorkerResponseV1 response)
+      expect (supervised == direct) "supervised/direct exact response parity"
+  let stdoutLimits ← match mkDevelopmentSupervisorLimitsV1
+      hardDevelopmentLimitsV1.wallMillis 1 hardDevelopmentLimitsV1.stderrBytes with
+    | .ok limits => pure limits
+    | .error fault => throw <| IO.userError s!"stdout limits: {repr fault}"
+  match ← superviseProofWorkerDevelopmentV1 fresh.request stdoutLimits with
+  | .error fault =>
+      throw <| IO.userError s!"supervised stdout-limit fault: {repr fault}"
+  | .ok outcome =>
+      expect (outcome.event == .stdoutLimit && outcome.cleanup == .observedEmpty &&
+        outcome.stdoutBytes == 2 && outcome.response.isNone)
+        "supervised exact +1 stdout cap and cleanup"
 
   let missingRequest ← lift "subprocess missing request" <|
     mkProofWorkerRequestV1 (FilePath.mk "/definitely/missing/proof-worker-root")

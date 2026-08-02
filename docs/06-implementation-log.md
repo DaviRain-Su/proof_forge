@@ -13173,3 +13173,18 @@ normative: false
 - 边界：当前worker不contained，没有supervisor、deadline、memory/CPU/FD/network/process-group policy、
   effective lower resource profile、receipt、CLI接线、`.olean` generation/import/policy/defeq/trust closure或
   formal retained evidence；不得关闭`TST-PROOF-001`或`TASK-D2-07`。
+
+### 2026-08-02 — Proof-worker Linux development supervision slice
+
+- 新增`Compiler.ProofWorkerSupervisorV1`与独立package C extern lib。production API固定解析当前package
+  binary同目录的proof worker且不接受caller executable；只暴露可lower的nonzero deadline/stdout/stderr
+  development limits，未实现的ResourceProfile memory/process字段不伪装成已执行；oversize input在native调用前拒绝。
+- native从open/pipe前monotonic origin计时，absolute component no-follow open并要求regular/single-link/executable，
+  fork后exact cwd/environment、关闭继承fd、仅以retained fd `execveat(AT_EMPTY_PATH)`；parent单poll loop并发写入及
+  drain stdout/stderr/exec-error，执行exact/+1 limits、deadline与waitpid，terminal后bounded kill/reap并报告
+  group-empty observation。stderr仅计数，不返回文本。
+- typed API仅在native success、zero stderr、完整cleanup且canonical response decode/request bind成功时保留response；
+  canonical worker failure同样可接受，malformed/foreign response降为closed worker-protocol outcome。
+- 边界：development-only、non-contained、非CLI且无public receipt。无memory/process accounting、seccomp、
+  network/write/exec confinement或setsid逃逸控制；V1 stdin transport仅为engineering，normative loader需V2
+  dedicated control FD以保留`/dev/null` stdin。无`.olean`、formal evidence或TASK/TST完成声明。

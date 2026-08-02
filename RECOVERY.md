@@ -762,3 +762,12 @@ loading authority。direct与真实subprocess已有exact parity，正常filesyst
 canonical failure，malformed protocol使用稳定stderr token/nonzero exit。此进程仍不contained：没有
 supervisor、deadline、FD/network/process-group policy、effective resource profile、receipt、CLI接线或
 `.olean` loader；formal TST-PROOF-001与TASK-D2-07继续pending。
+
+2026-08-02新增package-owned Linux proof-worker development supervisor，只运行一个exact V1 frame。
+production API固定解析当前package binary同目录worker，不接受caller executable；它以保留的no-follow
+executable fd和`execveat(AT_EMPTY_PATH)`启动，cwd为`/`，环境精确为
+`HOME=/var/empty`、`LC_ALL=C`、`TZ=UTC`（无PATH/LEAN_PATH），并发poll stdin/stdout/stderr/exec-error，
+实施deadline与stdout/stderr界限，终止后kill/reap并观察原group为空。它明确不是contained产品面：
+无memory/process accounting、seccomp、network/write/exec confinement，setsid逃逸未闭合；
+V1仍以stdin传输，最终normative loader因stdin须为`/dev/null`而需要V2专用control FD。无CLI、receipt、
+`.olean`或formal完成声明。
