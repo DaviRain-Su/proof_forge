@@ -13117,3 +13117,28 @@ normative: false
 - 边界：没有atomic filesystem transaction承诺；retained dirfd与content authority共同拒绝torn pair。
   尚无contained process、deadline/memory measurement、effective lower profile、macOS CI或`.olean`
   importer/policy/defeq，故不得关闭formal `TST-PROOF-001`。
+
+## 2026-08-02 — canonical compiler proof-worker payload and direct process
+
+- 新增`Compiler.ProofWorkerProtocolV1`：opaque request只由trusted absolute root、exact canonical
+  `Frontend.Req.v1`与对应exact canonical `Frontend.Ok.v1` bytes构造。outer tagged binary frame执行
+  64MiB aggregate precheck、field bounds、full consume与exact re-encode；nested两帧分别复用sole
+  frontend decoder，并在任何filesystem IO前完成request digest binding及validated source/canonical
+  preorder path-span reconstruction。
+- success是与exact outer request digest绑定的sourceHash、semanticHash、semanticProvenanceDigest identity
+  claims；它不是sealed `ProofSubjectV1`、receipt或loading authority。公开bind仅拒绝cross-request replay，
+  不提供process authentication、freshness或same-request anti-replay。failure wire只允许closed
+  root/file/native/semantic authority phase与合法stable-file fault组合。
+- 新增direct `Compiler.ProofWorkerV1`：重建trusted source/spans后唯一调用
+  `loadProofSubjectFilesV1`，正常filesystem与semantic authority失败编码为canonical Err并保持exit 0；
+  malformed outer/nested protocol为stable protocol fault。没有第二source/semantic/provenance decoder或
+  caller-supplied inventory/digest authority。
+- 新增standalone `proof-forge-compiler-proof-worker-v1`。`Core.ProtocolStreamV1`抽出shared bounded stdin
+  EOF read + one-byte over-limit probe，frontend worker改为复用同一实现。工程tests使用真实ParserSession、
+  production normalization及native fixed files，覆盖canonical roundtrip/trailing/truncation、nested两帧
+  noncanonical、cross-request mismatch/bind、direct determinism、root与semantic phase failure，以及真实
+  subprocess success/root-failure exact parity和malformed stable stderr/nonzero exit。worker recipes显式构建
+  两个subprocess executable，避免clean orb测试依赖stale binary。
+- 边界：当前worker不contained，没有supervisor、deadline、memory/CPU/FD/network/process-group policy、
+  effective lower resource profile、receipt、CLI接线、`.olean` generation/import/policy/defeq/trust closure或
+  formal retained evidence；不得关闭`TST-PROOF-001`或`TASK-D2-07`。

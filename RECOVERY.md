@@ -750,3 +750,15 @@ exact read+one-byte probe，并在两次读取后统一重检两leaf的fd/path i
 进入`buildProofSubjectV1`，native层不解析semantic/provenance。Linux Lake构建明确使用系统
 `/usr/bin/cc`，避免已知bundled clang header故障。下一步不应直接接CLI；应先建立compiler-core
 contained worker/deadline/lower resource profile，再开始`.olean` importer/policy/defeq loader。
+
+compiler proof-worker的canonical one-request payload与direct process现已建立。outer request在统一64MiB
+aggregate cap内携带trusted absolute subject root、exact canonical `Frontend.Req.v1` bytes与与其digest
+绑定的exact canonical `Frontend.Ok.v1` bytes；decode必须full-consume/re-encode identity，并在任何文件
+访问前经sole frontend decoder重建`ValidatedSourceV1`及canonical preorder path/span table。worker随后只
+调用`loadProofSubjectFilesV1`，成功返回request-bound source/semantic/provenance三项authority-derived
+identity claim，失败返回closed phase/fault record。该wire record不是`ProofSubjectV1` capability；response
+binding只提供cross-request correlation，不提供process authentication、freshness、same-request replay保护或
+loading authority。direct与真实subprocess已有exact parity，正常filesystem/semantic失败exit 0且输出
+canonical failure，malformed protocol使用稳定stderr token/nonzero exit。此进程仍不contained：没有
+supervisor、deadline、FD/network/process-group policy、effective resource profile、receipt、CLI接线或
+`.olean` loader；formal TST-PROOF-001与TASK-D2-07继续pending。

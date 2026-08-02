@@ -729,14 +729,16 @@ def bindFrontendFailureV1
   validateBundlePaths request.sourcePath_ failure.bundle_
   pure failure
 
-/-- Reconstruct ValidatedSourceV1 + OriginInventoryV1 from a digest-bound success.
-
-    Sole path: decodeCanonicalSourceAstBytesV1 → assignNodeIdsV1 preorder zip
-    with transmitted spans → joinOriginsV1 (request sourcePath). -/
-def reconstructFrontendSuccessV1
+/-- Reconstruct the validated source and its canonical preorder path/span table
+    from a digest-bound success. This is the sole public pairing seam for later
+    compiler workers that need trusted spans without a second AST decoder or
+    caller-supplied paths. -/
+def reconstructFrontendSourceSpansV1
     (request : FrontendRequestV1)
     (success : FrontendSuccessV1) :
-    Except String (ValidatedSourceV1 × OriginInventoryV1) := do
+    Except String
+      (ValidatedSourceV1 ×
+        Array (NormalizedSyntacticPathV1 × SourceByteSpanV1)) := do
   let success ← bindFrontendSuccessV1 request success
   let source ← decodeCanonicalSourceAstBytesV1 success.canonicalBytes_
   -- Defense-in-depth: success frames must carry the unique canonical root encoding.
@@ -754,6 +756,17 @@ def reconstructFrontendSuccessV1
     match assignments[i]?, success.spans_[i]? with
     | some a, some span => paired := paired.push (a.path, span)
     | _, _ => return ← fail "span/assignment zip incomplete"
+  pure (source, paired)
+
+/-- Reconstruct ValidatedSourceV1 + OriginInventoryV1 from a digest-bound success.
+
+    Sole path: `reconstructFrontendSourceSpansV1` then `joinOriginsV1`; no
+    second ProgramV1 decode or path/span zip. -/
+def reconstructFrontendSuccessV1
+    (request : FrontendRequestV1)
+    (success : FrontendSuccessV1) :
+    Except String (ValidatedSourceV1 × OriginInventoryV1) := do
+  let (source, paired) ← reconstructFrontendSourceSpansV1 request success
   match joinOriginsV1 source request.sourcePath_ paired with
   | .ok inv => pure (source, inv)
   | .error e => fail s!"joinOriginsV1: {repr e}"

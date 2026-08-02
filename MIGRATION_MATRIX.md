@@ -478,3 +478,14 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > native shard覆盖positive、fixed-name、root/intermediate/leaf symlink、hardlink、directory/FIFO/missing与
 > pure error pass-through。尚无contained worker/deadline/effective lower profile或`.olean` loader，formal
 > TST-PROOF-001继续pending。
+
+> 2026-08-02 compiler proof-worker protocol工程增量：新增versioned canonical
+> `CompilerProof.Req/Ok/Err.v1`、direct one-request worker及standalone executable。request在单一64MiB
+> aggregate frame内保留trusted absolute root与exact canonical frontend request/success bytes；nested
+> decode、digest binding、source/path-span reconstruction均在filesystem IO前完成。worker只调用既有
+> fixed-pair stable reader；success仅返回与exact request绑定的authority-derived三digest identity claims，
+> 不序列化或mint `ProofSubjectV1`，failure使用closed phase/fault组合。shared bounded stdin执行EOF+
+> one-byte probe；真实subprocess与direct success/failure exact parity，malformed frame稳定非零退出。
+> decoded/bound response不构成authentication、freshness、same-request anti-replay或loading authority。
+> 本增量没有containment/supervisor、deadline/resource/FD/network policy、receipt、CLI接线、`.olean`
+> importer/policy/defeq或formal evidence；TST-PROOF-001与TASK-D2-07继续pending。

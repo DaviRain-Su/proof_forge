@@ -60,6 +60,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.CheckV1ProductGate,
     `Tests.Compiler.DiagnosticPipelineV1,
     `Tests.Compiler.ProofSubjectFilesV1,
+    `Tests.Compiler.ProofWorkerV1,
     `Tests.Typed.NameResolutionV1,
     `Tests.Typed.DiagnosticLocationsV1,
     `Tests.Typed.TypeCheckExpressionsV1,
@@ -212,6 +213,11 @@ lean_exe proof_forge_next where
 lean_exe proof_forge_frontend_worker_v1 where
   exeName := "proof-forge-frontend-worker-v1"
   root := `ProofForgeV2.Frontend.WorkerMainV1
+  supportInterpreter := true
+
+lean_exe proof_forge_compiler_proof_worker_v1 where
+  exeName := "proof-forge-compiler-proof-worker-v1"
+  root := `ProofForgeV2.Compiler.ProofWorkerMainV1
   supportInterpreter := true
 
 lean_exe proof_forge_next_tests where
