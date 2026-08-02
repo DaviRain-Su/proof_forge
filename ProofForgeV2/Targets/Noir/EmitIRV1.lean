@@ -32,8 +32,10 @@ inductive Operation where
   | fieldMul (destination : Nat) (lhs rhs : ValueRef)
   | fieldDiv (destination : Nat) (lhs rhs : ValueRef)
   | bitNot (destination : Nat) (source : ValueRef)
-  /-- Narrow body UInt ops (`bitWidth ∈ {8,16,32}`); UInt64 keeps historical.
-      Field never uses these. -/
+  /-- Materialize a UInt128 Plan literal as a native Noir `u128` temp (T11). -/
+  | bigLiteral (destination : Nat) (value : Nat)
+  /-- Narrow/wide body UInt ops (`bitWidth ∈ {8,16,32,128}`); UInt64 keeps
+      historical. Field never uses these. bitWidth=128 → native u128 (T11). -/
   | narrowCheckedAdd (bitWidth destination : Nat) (lhs rhs : ValueRef)
   | narrowCheckedSub (bitWidth destination : Nat) (lhs rhs : ValueRef)
   | narrowCheckedMul (bitWidth destination : Nat) (lhs rhs : ValueRef)
@@ -164,6 +166,15 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
     (stateValues : Array ValueRef) (next : Nat) :
     Expr → CompileResult LoweredExpr
   | .literal value => pure { operations := #[], value := .literal value, next }
+  | .bigLiteral bitWidth value => do
+      unless bitWidth == 128 do
+        throw <| .planInvariant .noir
+          s!"unsupported Noir semantic shape: bigLiteral bitWidth {bitWidth} is not admitted"
+      pure {
+        operations := #[.bigLiteral next value]
+        value := .temp next
+        next := next + 1
+      }
   | .param inputIndex => pure { operations := #[], value := .input inputIndex, next }
   | .loopParam slot =>
       match loopEnv.findSome? (fun (s, ref) => if s == slot then some ref else none) with
@@ -514,6 +525,15 @@ private partial def lowerExprFn (plan : Plan) (fuel depth : Nat)
     Expr → CompileResult LoweredExpr
   | .literal value =>
       pure { operations := #[], value := .literal value, next }
+  | .bigLiteral bitWidth value => do
+      unless bitWidth == 128 do
+        throw <| .planInvariant .noir
+          s!"unsupported Noir semantic shape: bigLiteral bitWidth {bitWidth} is not admitted"
+      pure {
+        operations := #[.bigLiteral next value]
+        value := .temp next
+        next := next + 1
+      }
   | .param inputIndex =>
       match paramValues[inputIndex]? with
       | some value => pure { operations := #[], value, next }
@@ -1421,6 +1441,11 @@ private partial def collectLiveTempsV1 (relationName : String)
           throw <| .planInvariant .noir
             s!"relation '{relationName}' contains dead unary arithmetic whose value would not be constrained"
         live := addLiveTemp live source
+    | .bigLiteral destination _value =>
+        -- Pure materialization of a Plan constant; dead only if unused.
+        unless live.contains destination do
+          throw <| .planInvariant .noir
+            s!"relation '{relationName}' contains a dead UInt128 literal"
   pure live
 
 private def validateCheckedArithmeticLiveness
@@ -1483,20 +1508,34 @@ private def narrowUintMaskImm (bitWidth : Nat) : Nat :=
   | 8 => 255
   | 16 => 65535
   | 32 => 4294967295
+  | 128 => 0  -- full u128; mask unused for bitNot u128 (native !)
   | _ => 0
 
 /-- Render a ValueRef. Narrow ABI public inputs (u8/u16/u32, T8b) zero-extend
     into the UInt64 body pilot via `as u64` so checked arithmetic stays on the
-    historical u64 surface until T8d. Field/bool/u64 inputs keep their names. -/
+    historical u64 surface until T8d. Field/bool/u64/u128 inputs keep their
+    names (T11: native u128 surface). -/
 private def renderValue (relation : Relation) : ValueRef → String
   | .input index =>
       let input := relation.inputs[index]!
       match input.type with
       | .u8 | .u16 | .u32 => s!"({input.name} as u64)"
       | .i8 | .i16 | .i32 | .i64 => s!"({input.name} as u64)"
-      | .u64 | .bool | .field => input.name
+      | .u64 | .u128 | .bool | .field => input.name
   | .literal value => toString value.toNat
   | .temp index => s!"t{index}"
+
+/-- Render a ValueRef coerced to native Noir `u128` (T11 multi-limb surface). -/
+private def renderValueAsU128 (relation : Relation) : ValueRef → String
+  | .input index =>
+      let input := relation.inputs[index]!
+      match input.type with
+      | .u128 => input.name
+      | .u64 | .u8 | .u16 | .u32 => s!"({input.name} as u128)"
+      | .i8 | .i16 | .i32 | .i64 => s!"({input.name} as u128)"
+      | .bool | .field => s!"({input.name} as u128)"
+  | .literal value => s!"({value.toNat} as u128)"
+  | .temp index => s!"(t{index} as u128)"
 
 private def renderComparisonOp : ComparisonOp → String
   | .eq => "=="
@@ -1531,6 +1570,7 @@ private def narrowInputTypeString? : InputType → Option String
   | .u8 => some "u8"
   | .u16 => some "u16"
   | .u32 => some "u32"
+  | .u128 => some "u128"
   | .i8 => some "i8"
   | .i16 => some "i16"
   | .i32 => some "i32"
@@ -1597,14 +1637,26 @@ private partial def renderOperation (relation : Relation) (indent : String) :
         s!"{indent}let t{destination}: Field = {renderValue relation lhs} / {renderValue relation rhs};\n"
   | .bitNot destination source =>
       s!"{indent}let t{destination}: u64 = !{renderValue relation source};\n"
+  | .bigLiteral destination value =>
+      -- T11: UInt128 Plan literal → native Noir u128 constant.
+      s!"{indent}let t{destination}: u128 = {value};\n"
   | .narrowCheckedAdd bitWidth destination lhs rhs =>
-      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} + {renderValue relation rhs};\n" ++
-        s!"{indent}assert((t{destination} >> {bitWidth}) == 0);\n"
+      if bitWidth == 128 then
+        -- T11 multi-limb add: native Noir u128 checked add (2×u64 software
+        -- multiword analogue of T9e; circuit surface is one u128 word).
+        s!"{indent}let t{destination}: u128 = {renderValueAsU128 relation lhs} + {renderValueAsU128 relation rhs};\n"
+      else
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} + {renderValue relation rhs};\n" ++
+          s!"{indent}assert((t{destination} >> {bitWidth}) == 0);\n"
   | .narrowCheckedSub bitWidth destination lhs rhs =>
-      let _ := bitWidth
-      s!"{indent}assert({renderValue relation lhs} >= {renderValue relation rhs});\n" ++
-        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} - {renderValue relation rhs};\n"
+      if bitWidth == 128 then
+        s!"{indent}assert({renderValueAsU128 relation lhs} >= {renderValueAsU128 relation rhs});\n" ++
+          s!"{indent}let t{destination}: u128 = {renderValueAsU128 relation lhs} - {renderValueAsU128 relation rhs};\n"
+      else
+        s!"{indent}assert({renderValue relation lhs} >= {renderValue relation rhs});\n" ++
+          s!"{indent}let t{destination}: u64 = {renderValue relation lhs} - {renderValue relation rhs};\n"
   | .narrowCheckedMul bitWidth destination lhs rhs =>
+      -- UInt128 mul is rejected at Plan lower; bitWidth=128 should not reach emit.
       s!"{indent}let t{destination}: u64 = {renderValue relation lhs} * {renderValue relation rhs};\n" ++
         s!"{indent}assert((t{destination} >> {bitWidth}) == 0);\n"
   | .narrowCheckedDiv bitWidth destination lhs rhs =>
@@ -1616,22 +1668,36 @@ private partial def renderOperation (relation : Relation) (indent : String) :
       s!"{indent}assert({renderValue relation rhs} != 0);\n" ++
         s!"{indent}let t{destination}: u64 = {renderValue relation lhs} % {renderValue relation rhs};\n"
   | .narrowBitAnd bitWidth destination lhs rhs =>
-      let _ := bitWidth
-      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} & {renderValue relation rhs};\n"
+      if bitWidth == 128 then
+        s!"{indent}let t{destination}: u128 = {renderValueAsU128 relation lhs} & {renderValueAsU128 relation rhs};\n"
+      else
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} & {renderValue relation rhs};\n"
   | .narrowBitOr bitWidth destination lhs rhs =>
-      let _ := bitWidth
-      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} | {renderValue relation rhs};\n"
+      if bitWidth == 128 then
+        s!"{indent}let t{destination}: u128 = {renderValueAsU128 relation lhs} | {renderValueAsU128 relation rhs};\n"
+      else
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} | {renderValue relation rhs};\n"
   | .narrowBitXor bitWidth destination lhs rhs =>
-      let _ := bitWidth
-      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} ^ {renderValue relation rhs};\n"
+      if bitWidth == 128 then
+        s!"{indent}let t{destination}: u128 = {renderValueAsU128 relation lhs} ^ {renderValueAsU128 relation rhs};\n"
+      else
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} ^ {renderValue relation rhs};\n"
   | .narrowBitNot bitWidth destination source =>
-      s!"{indent}let t{destination}: u64 = (!{renderValue relation source}) & {narrowUintMaskImm bitWidth};\n"
+      if bitWidth == 128 then
+        s!"{indent}let t{destination}: u128 = !{renderValueAsU128 relation source};\n"
+      else
+        s!"{indent}let t{destination}: u64 = (!{renderValue relation source}) & {narrowUintMaskImm bitWidth};\n"
   | .narrowShl bitWidth destination lhs rhs =>
-      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} << {renderValue relation rhs};\n" ++
-        s!"{indent}assert((t{destination} >> {bitWidth}) == 0);\n"
+      if bitWidth == 128 then
+        s!"{indent}let t{destination}: u128 = {renderValueAsU128 relation lhs} << {renderValue relation rhs};\n"
+      else
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} << {renderValue relation rhs};\n" ++
+          s!"{indent}assert((t{destination} >> {bitWidth}) == 0);\n"
   | .narrowShr bitWidth destination lhs rhs =>
-      let _ := bitWidth
-      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} >> {renderValue relation rhs};\n"
+      if bitWidth == 128 then
+        s!"{indent}let t{destination}: u128 = {renderValueAsU128 relation lhs} >> {renderValue relation rhs};\n"
+      else
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} >> {renderValue relation rhs};\n"
   | .boolNot destination source =>
       s!"{indent}let t{destination}: bool = !{renderValue relation source};\n"
   | .bitAnd destination lhs rhs =>
@@ -1650,6 +1716,9 @@ private partial def renderOperation (relation : Relation) (indent : String) :
   | .assertBool inputIndex expected =>
       s!"{indent}assert({relation.inputs[inputIndex]!.name} == {if expected then "true" else "false"});\n"
   | .compare op destination lhs rhs =>
+      -- Operands may be u64 (historical) or u128 (T11); Noir compares same-typed
+      -- values. Cast both sides when either side is already u128-typed is handled
+      -- by Plan compare on matching widths; body temps keep native type.
       s!"{indent}let t{destination}: bool = {renderValue relation lhs} {renderComparisonOp op} {renderValue relation rhs};\n"
   | .signedCompare op destination lhs rhs =>
       -- i64 surface: cast u64 bit patterns to i64 for signed ordering.
@@ -1732,6 +1801,7 @@ private def renderInputType : InputType → String
   | .u8 => "u8"
   | .u16 => "u16"
   | .u32 => "u32"
+  | .u128 => "u128"
   | .i8 => "i8"
   | .i16 => "i16"
   | .i32 => "i32"

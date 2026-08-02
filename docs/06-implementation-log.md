@@ -12938,3 +12938,30 @@ normative: false
 - Boundary: engineering only; not formal D2/D4; no Principal→address CALL
   target; no multi-word Principal ResultKind; other targets fail closed; not
   formal SupportClaim / registry digest.
+
+## 2026-08-02 — T11: Noir UInt128 multi-limb (native u128 surface)
+
+- Production: open UInt128 as Noir state/param/body/result type (UInt256 stays
+  fail closed). Software multi-limb analogue of T9e Solana/NEAR 2×u64 limbs;
+  circuit surface is native Noir `u128` (one public input / temp word), not
+  two separate u64 relation slots.
+  * `EnvelopeV1`: `pilotUintWidthPolicyNoirBody` admits `{8,16,32,64,128}`;
+    `isNoirBodyUintWidth` / `isNoirAbiUintWidth` include 128;
+    `isNoirUintAbiOrInt64OrField` + `requirePublicNoirUintAbiOrInt64OrField*`
+    gate state/param admission (shared ABI `{8..64}` helpers unchanged).
+  * `Noir/LowerSemanticV1`: `InputType.u128`, `NoirValueKindV1.uint128`,
+    `Expr.bigLiteral` (16-byte LE → Nat), body add/sub/bitwise/shift/compare
+    via `narrow*(128)`; mul/div/mod on UInt128 fail closed at Plan lower
+    (true multiword schoolbook deferred, same policy as T9e high-limb gate).
+  * `Noir/EmitIRV1`: `Operation.bigLiteral`; narrow ops with `bitWidth=128`
+    render as native `u128` temps/ops; ABI/IDL `type: u128`.
+  * `Noir/ValidatePlanV1`: result type admits `.u128`; plan expr walker counts
+    `bigLiteral`.
+- Tests: `NoirRelationModel.checkUInt128MultiLimb` (state/param/add/sub/eq
+  product + IR narrowCheckedAdd 128 + emit u128 + low-path model);
+  `checkUInt128Negatives` (mul/div/UInt256 fail closed). Prior T8b UInt128
+  state/result negatives superseded by T11 positives.
+- Docs: coverage matrix UInt128 Noir → LOWERED(T11); UInt256 Noir FAIL-CLOSED.
+- Boundary: engineering only; not formal D2/D4; no UInt256; no multi-limb
+  mul/div; pure Lean relation model only low-path u64 carrier for u128;
+  source-only maturity unchanged.

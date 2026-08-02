@@ -121,16 +121,17 @@ def pilotUintWidthPolicyNearBody : PilotUintWidthPolicy where
 
 /-- Noir type-table policy for T8b ABI multi-width: admits UInt{8,16,32,64}
     so top-level state/param types may appear alongside Field. Superseded for
-    full plan admission by `pilotUintWidthPolicyNoirBody` (T8d); kept as named
-    ABI alias. -/
+    full plan admission by `pilotUintWidthPolicyNoirBody` (T8d/T11); kept as
+    named ABI alias (UInt128 lives on the body policy only). -/
 def pilotUintWidthPolicyNoirAbi : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
-/-- Noir body multi-width policy (T8d): same admitted set as EVM/Solana/NEAR
-    body (`{64, 32, 8, 16}`). Field stays on the separate field* Plan path;
-    UInt128/256 fail closed at the Plan seam. -/
+/-- Noir body+ABI multi-width policy (T8d + T11): UInt{8,16,32,64,128}.
+    UInt128 is a native Noir `u128` Plan word (software multi-limb analogue of
+    T9e Solana/NEAR 2×u64 limbs). Field stays on the separate field* path;
+    UInt256 remains fail closed (4-limb slice deferred). -/
 def pilotUintWidthPolicyNoirBody : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32, 8, 16]
+  admittedWidths := #[64, 32, 8, 16, 128]
 
 /-- Admitted body UInt widths for Phase-1 multi-width pilots
     (EVM/Solana/NEAR/Noir body). -/
@@ -141,8 +142,9 @@ def isPilotBodyUintWidth (w : Nat) : Bool :=
 def isNearBodyUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
-/-- Noir body UInt width gate (alias of `isPilotBodyUintWidth`). -/
-def isNoirBodyUintWidth (w : Nat) : Bool := isPilotBodyUintWidth w
+/-- Noir body UInt width gate (T11: includes UInt128; UInt256 fail closed). -/
+def isNoirBodyUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64 || w == 128
 
 
 /-- Per-target admission set for anonymous Int widths.
@@ -436,8 +438,10 @@ def isSolanaBodyUintWidth (w : Nat) : Bool := isSolanaAbiUintWidth w
 def isNearAbiUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
-/-- Noir **ABI** UInt widths — alias of `isAbiUintWidth`. -/
-def isNoirAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
+/-- Noir **ABI/body** UInt widths (T11): `{8,16,32,64,128}`. UInt256 stays
+    fail closed. Native Noir `u128` is the circuit surface for multi-limb. -/
+def isNoirAbiUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64 || w == 128
 
 /-- Bit width ↔ byte width for admitted ABI UInt widths. -/
 def bitWidthOfByteWidth (byteWidth : Nat) : Nat := byteWidth * 8
@@ -479,6 +483,16 @@ def PilotTypeClosureV1.isUInt64OrInt64OrField
 def PilotTypeClosureV1.isUintAbiOrInt64OrField
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isUintAbiOrInt64 typeId || c.isField typeId
+
+/-- Noir ABI UInt{8,16,32,64,128} or Int{8,16,32,64} or Field (T8b + T11). -/
+def PilotTypeClosureV1.isNoirUintAbiOrInt64OrField
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  match c.uintWidthOf typeId with
+  | some w => isNoirAbiUintWidth w
+  | none =>
+    match c.intWidthOf typeId with
+    | some w => isAbiIntWidth w
+    | none => c.isField typeId
 
 /-- EVM ABI UInt{8,16,32,64,128,256} or Int{8,16,32,64} (T9b + T9c). -/
 def PilotTypeClosureV1.isEvmUintAbiOrInt64
@@ -1074,6 +1088,38 @@ def requirePublicUintAbiOrInt64OrFieldParam
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
   unless types.isUintAbiOrInt64OrField param.typeId do
+    throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+
+/-- Fail unless `state` is Noir-admitted UInt{8,16,32,64,128}, Int{8..64}, or
+    Field (T11), and public unless `allowNonPublic`. -/
+def requirePublicNoirUintAbiOrInt64OrFieldState
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isNoirUintAbiOrInt64OrField state.typeId do
+    throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
+
+/-- Fail unless `param` is Noir-admitted UInt{8,16,32,64,128}, Int{8..64}, or
+    Field (T11), and public unless `allowNonPublic`. -/
+def requirePublicNoirUintAbiOrInt64OrFieldParam
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (owner : String)
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isNoirUintAbiOrInt64OrField param.typeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
   unless param.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with
