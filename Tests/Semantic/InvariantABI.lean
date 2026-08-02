@@ -1081,6 +1081,48 @@ theorem validateCfgInvariantPhases_data :
   · exact invariantClosurePhases_data
   · exact validateInvariantFuelPhases_data
 
+/-- The canonical fixture has no generic requirement rows. -/
+theorem programRequirementsStructure_data :
+    validateProgramRequirementsStructure data.requirements = .ok () := by
+  rfl
+
+/-- No ContextRead operation occurs, and therefore no exact ContextRead
+    requirement row is required. -/
+theorem contextReadRequirements_data :
+    validateContextReadRequirementsV1 data = .ok () := by
+  rfl
+
+/-- No Commit operation occurs, and therefore no disclosure requirement row
+    is required. -/
+theorem commitRequirements_data :
+    validateCommitRequirementsV1 data = .ok () := by
+  rfl
+
+/-- Every production structure phase now closes for the exact canonical
+    invariant ABI fixture. -/
+theorem semanticProgramStructure_data :
+    validateSemanticProgramStructureV1 data = .ok () := by
+  apply validateSemanticProgramStructureV1_eq_ok_of_phases data
+    maxCanonicalProgramBytes (maxCanonicalProgramBytes - 4)
+  · exact structurePrelude_data
+  · exact typesStructure_data
+  · exact typeKeyPhases_data
+  · exact namedTypeNames_data
+  · exact constantsValueBytes_data
+  · exact callablesValueBytes_data
+  · exact constantNames_data
+  · exact logicalStateNames_data
+  · exact eventNames_data
+  · exact errorNames_data
+  · exact interfaceFieldNames_data
+  · exact callableSignatures_data
+  · exact invariantDeclarationJoin_data
+  · exact declarationIdentifierNames_data
+  · exact validateCfgInvariantPhases_data
+  · exact programRequirementsStructure_data
+  · exact contextReadRequirements_data
+  · exact commitRequirements_data
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

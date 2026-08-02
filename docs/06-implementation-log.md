@@ -12670,6 +12670,16 @@ normative: false
   `validateCfgInvariantPhasesV1 data = .ok ()`。
 - Boundary：requirements、完整structure、encoder/carrier identity与formal TASK/TST仍pending。
 
+## 2026-08-02 — D2-07 canonical semantic structure complete
+
+- Kernel：empty generic requirements、ContextRead requirements与Commit disclosure requirements均由sole
+  production validators闭合；此前已证明的prelude、TypeKey、valueBytes、name/signature、CFG、closure与
+  exact fuel phases现经production composition seam组合为
+  `validateSemanticProgramStructureV1 data = .ok ()`。
+- Boundary：这是concrete canonical fixture的完整structure theorem，不是formal TASK/TST evidence；
+  exact production encoder bytes、carrier identity、`InvariantTheoremV1`、TASK-D2-07、TST-SEM-002/003与
+  TST-PROOF-001仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；

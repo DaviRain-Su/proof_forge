@@ -428,3 +428,7 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 5. **Wave 5 / D8**：D8-01/02/03 并行最终重跑，汇合后串行 clean-room full gate与 review/release/rollback。
 
 `main` 是 sole integration authority；临时隔离 worktree 只承载接口已冻结、文件 allowlist 完全不重叠的 leaf lane，合并并通过聚合门禁后立即删除。formal task状态仍只按独立 qualification 规则变化。
+
+> 2026-08-02 D2-07 concrete fixture增量：canonical invariant fixture现已对sole production
+> validator闭合全部requirements并组合出完整`validateSemanticProgramStructureV1 data = .ok ()`。
+> exact encoder/carrier identity与formal TASK-D2-07/TST-SEM-002/003/TST-PROOF-001仍pending。
