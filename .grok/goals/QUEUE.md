@@ -66,7 +66,7 @@
 | 55 | `APP-1` | app | **done** |
 | 56 | `PERF-1` | nfr | **done** |
 | 57 | `RES-1` | nfr | **done** |
-| 58 | `NS-1` | northstar | pending (language deps) |
+| 58 | `NS-1` | northstar | **done** (Token example + Map Plan FC pins; not four-target deploy) |
 | 59 | `NS-2` | northstar | pending |
 | 60 | `EXT-CRYPTO` | northstar | pending |
 

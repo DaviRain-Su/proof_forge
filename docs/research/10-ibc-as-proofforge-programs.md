@@ -126,6 +126,11 @@ light client 验证是共享硬依赖，crypto 是命脉。
 3. **先证明模型，做 Fungible Token**：用补好的语言写一个 `program Token where`，
    跑通四 target 物化。这是"写一次跨链物化"是否真 work 的最小验证，比 IBC 便宜得多。
    Token 本身也对应 IBC transfer app 的内核。
+   **2026-08-02 工程 NS-1 进度**：`Examples/Token.lean`（Map UInt64→UInt64 余额 +
+   mint/transfer/balanceOf）已进产品 `check`；Normalize/Map 路径可用。四 target
+   `build` 仍因 **Map Plan FAIL-CLOSED**（container-state pilot）拒绝——这是诚实的
+   capability 边界，不是 silent fallback。下一步 leaf：Map state Plan lower 至少
+   一 target，再考虑 Principal 键。
 4. **做一个 IBC-flavored 最小件**：不直接上全套 IBC，先做一个 "packet mailbox"——
    存消息、nonce、timeout、emit 事件给 relayer。一个能跑的 IBC 子集，验证 cross-chain
    message 表达力。

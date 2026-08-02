@@ -135,7 +135,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 
 | ID | 项 | 说明 | 状态 |
 |---|---|---|---|
-| **NS-1** | Fungible Token 四 target | 验证“写一次跨链物化”；共享 N-1/N-2/B-3 前置 | pending（语言面够后再开） |
+| **NS-1** | Fungible Token 四 target | 验证“写一次跨链物化”；共享 N-1/N-2/B-3 前置 | **done**（2026-08-02：`Examples/Token` Map UInt64 余额 + mint/transfer/balanceOf；**product check 绿**；四 target build **Map Plan FAIL-CLOSED** 钉测 `Tests.Product.TokenV1`；Principal 键与 Map Plan lower 仍后续 leaf；**非** 四链部署/IBC） |
 | **NS-2** | packet mailbox 最小件 | IBC-flavored 子集 | pending |
 | **NS-3** | 真 IBC 模块栈 | 长期；依赖 crypto | wontfix-until-NS-1 |
 | **EXT-CRYPTO** | `extension.crypto`（SHA-256 / Merkle / 签名） | IBC 与大量链上逻辑命脉；capability 矩阵 | pending（设计后单独立项） |
