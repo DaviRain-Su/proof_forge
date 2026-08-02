@@ -14,6 +14,9 @@
   Contract:
     * source text → Loader V1 → Typed.CheckV1.ok → NormalizeV1 →
       WireV1 validate / decodeSemanticProgramV1 byte identity / semanticHashV1
+    * N-INVARIANT-IR: `invariant name : BoolExpr` → `.invariant` callable +
+      dense InvariantDecl; exact invariantSteps via sole Wire compute;
+      provenance covers `.invariant`; `.proof` stays certification-only
     * Counter-like public legal-UInt state + init/entry/view with exact CFG ops
       (UInt64 golden bytes unchanged; multi-width UInt/Int covered in suite)
     * T2 named Struct/Enum Pass0 registration (contiguous named prefix; nested

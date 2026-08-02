@@ -516,6 +516,48 @@ private theorem collectInvariantFuelReadyWorkerExhaustedV1
 private abbrev InvariantFuelKahnResultV1 :=
   Nat × Array Nat × Array UInt64 × Array Nat
 
+/-- Sole per-ready-node fuel advance (SPEC §8): add callee totals into every
+    static caller and update Kahn remaining/ready. Shared by pure compute and
+    carried-checking validation workers — no second accumulation formula. -/
+private def advanceInvariantFuelFromCalleeV1
+    (calleeIndex : Nat) (remaining : Array Nat)
+    (callers : Array (Array Nat)) (totals : Array UInt64) (ready : Array Nat) :
+    Except SemanticWireErrorV1 (Array Nat × Array UInt64 × Array Nat) := do
+  let calleeSteps := totals[calleeIndex]!
+  let mut nextRemaining := remaining
+  let mut nextTotals := totals
+  let mut nextReady := ready
+  for callerIndex in callers[calleeIndex]! do
+    nextTotals := nextTotals.set! callerIndex
+      (← addInvariantStepsCheckedV1 nextTotals[callerIndex]! calleeSteps)
+    let count := nextRemaining[callerIndex]!
+    if count == 0 then return ← err .badCfg
+    let next := count - 1
+    nextRemaining := nextRemaining.set! callerIndex next
+    if next == 0 then nextReady := nextReady.push callerIndex
+  pure (nextRemaining, nextTotals, nextReady)
+
+/-- Sole reverse-adjacency Kahn propagator for exact invariant fuel (SPEC §8).
+    Does **not** inspect carried `invariantSteps`; Normalize consumes the
+    resulting totals via `computeInvariantStepsExactWithMembersV1`. -/
+@[simp] private def propagateInvariantFuelKahnWorkerV1
+    (cursor processed : Nat) (remaining : Array Nat)
+    (callers : Array (Array Nat)) (totals : Array UInt64) (ready : Array Nat)
+    (memberCount : Nat) : Nat →
+    Except SemanticWireErrorV1 InvariantFuelKahnResultV1
+  | 0 => if cursor < ready.size then err .badCfg
+      else pure (processed, remaining, totals, ready)
+  | fuel + 1 => do
+      if cursor < ready.size then
+        let calleeIndex := ready[cursor]!
+        let (nextRemaining, nextTotals, nextReady) ←
+          advanceInvariantFuelFromCalleeV1 calleeIndex remaining callers totals ready
+        propagateInvariantFuelKahnWorkerV1 (cursor + 1) (processed + 1)
+          nextRemaining callers nextTotals nextReady memberCount fuel
+      else pure (processed, remaining, totals, ready)
+
+/-- Validation Kahn: carried `invariantSteps` equality then sole
+    `advanceInvariantFuelFromCalleeV1` (same formula as pure compute). -/
 @[simp] private def validateInvariantFuelKahnWorkerV1
     (cursor processed : Nat) (remaining : Array Nat)
     (callers : Array (Array Nat)) (totals : Array UInt64) (ready : Array Nat)
@@ -533,18 +575,8 @@ private abbrev InvariantFuelKahnResultV1 :=
             | none => return ← err .badCfg
             | some carried =>
                 unless carried == totals[calleeIndex]! do return ← err .badCfg
-        let calleeSteps := totals[calleeIndex]!
-        let mut nextRemaining := remaining
-        let mut nextTotals := totals
-        let mut nextReady := ready
-        for callerIndex in callers[calleeIndex]! do
-          nextTotals := nextTotals.set! callerIndex
-            (← addInvariantStepsCheckedV1 nextTotals[callerIndex]! calleeSteps)
-          let count := nextRemaining[callerIndex]!
-          if count == 0 then return ← err .badCfg
-          let next := count - 1
-          nextRemaining := nextRemaining.set! callerIndex next
-          if next == 0 then nextReady := nextReady.push callerIndex
+        let (nextRemaining, nextTotals, nextReady) ←
+          advanceInvariantFuelFromCalleeV1 calleeIndex remaining callers totals ready
         validateInvariantFuelKahnWorkerV1 (cursor + 1) (processed + 1)
           nextRemaining callers nextTotals nextReady memberCount callables fuel
       else pure (processed, remaining, totals, ready)
@@ -567,17 +599,38 @@ private theorem validateInvariantFuelKahnWorkerExhaustedV1
   simp [validateInvariantFuelKahnWorkerV1, hWork]
   rfl
 
-/-- Compute and validate exact `computedInvariantSteps` for every callable in
-    the already-validated invariant-closure DAG (SPEC §8). Local cost is
+/-- Sole production computation of exact `computedInvariantSteps` totals for
+    every closure member (SPEC §8). Local cost is
     `1 + sum(block.instructions.size + 1)`; every static PureCall occurrence
     adds its callee's full computed cost, including duplicate edges. A reverse
-    adjacency Kahn pass starts at leaves, so each instruction edge and closure
-    member is processed once. Generic CFG/op typing, exact closure membership,
-    call-graph DAG, closure-CFG acyclicity, and op restrictions have already
-    run; every fact is nevertheless rechecked fail-closed. -/
+    adjacency Kahn pass starts at leaves. Non-member slots stay 0. Normalize
+    must assign these totals into carried `invariantSteps` before encode;
+    structure validation reuses the same graph + propagation formula. -/
+def computeInvariantStepsExactWithMembersV1
+    (callables : Array CallableV1) (members : Array Bool) :
+    Except SemanticWireErrorV1 (Array UInt64) := do
+  unless members.size == callables.size do return ← err .badCfg
+  let callableCount := callables.size
+  let (remainingCalls, callersByCallee, totals, memberCount) ←
+    buildInvariantFuelGraphWorkerV1 callables members 0
+      (Array.mk (List.replicate callableCount 0))
+      (Array.mk (List.replicate callableCount #[]))
+      (Array.mk (List.replicate callableCount (0 : UInt64))) 0 callableCount
+  let ready ← collectInvariantFuelReadyWorkerV1 members remainingCalls 0 #[] callableCount
+  let (processed, _, finalTotals, _) ← propagateInvariantFuelKahnWorkerV1 0 0 remainingCalls
+    callersByCallee totals ready memberCount callableCount
+  unless processed == memberCount do return ← err .badCfg
+  pure finalTotals
+
+/-- Compute and validate exact `computedInvariantSteps` for every callable in
+    the already-validated invariant-closure DAG (SPEC §8). Local cost and
+    PureCall contribution match `computeInvariantStepsExactWithMembersV1`
+    (shared graph builder + same checked accumulation); validation additionally
+    requires carried metadata equality. -/
 private def validateInvariantStepsExactWithMembersV1
     (callables : Array CallableV1) (members : Array Bool) :
     Except SemanticWireErrorV1 Unit := do
+  unless members.size == callables.size do return ← err .badCfg
   let callableCount := callables.size
   let (remainingCalls, callersByCallee, totals, memberCount) ←
     buildInvariantFuelGraphWorkerV1 callables members 0
@@ -759,7 +812,8 @@ theorem validateInvariantClosurePhasesV1_eq_ok
 /-- Exact production-fuel refinement for the canonical four-callable closure.
     The premises expose only identities of the private production workers:
     source-order graph construction, source-index ready collection, reverse
-    Kahn propagation, and the residual intrinsic-ceiling scan. -/
+    Kahn propagation (with carried metadata), and the residual
+    intrinsic-ceiling scan. -/
 theorem validateInvariantFuelCanonicalFourV1
     (callables : Array CallableV1)
     (hSize : callables.size = 4)
@@ -780,6 +834,7 @@ theorem validateInvariantFuelCanonicalFourV1
   simp only [validateInvariantFuelPhasesV1]
   rw [if_pos (by simp [hSize])]
   simp only [validateInvariantStepsExactWithMembersV1]
+  rw [if_pos (by simp [hSize])]
   rw [hGraph]
   simp only [Bind.bind, Except.bind]
   rw [hReady]

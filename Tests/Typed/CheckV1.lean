@@ -26,6 +26,7 @@ import ProofForgeV2.Typed.CheckV1
 import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
+import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.ProvenanceV1
 import ProofForgeV2.Semantic.RequirementsV1
@@ -6964,6 +6965,267 @@ private unsafe def testNestedLoopsAndIfInLoopState
               for lb in c.loopBounds do
                 expect (lb.maxIterations <= 4096) "nest-loop: bound <= 4096"
 
+/-! ### N-INVARIANT-IR: source invariants enter Semantic callables/invariants -/
+
+private unsafe def testInvariantLiteralTrueShapeAndSteps
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "InvTrue" <|
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  invariant truth : true\n"
+  let validated ← loadSource session "inv-true" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "inv-true: CheckV1.ok"
+  expect typed.analysisComplete "inv-true: analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"inv-true: normalize {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"inv-true: validate {repr e}"
+  expect (data.invariants.size == 1)
+    s!"inv-true: invariants size, got {data.invariants.size}"
+  let some inv0 := data.invariants[0]? |
+    throw <| IO.userError "inv-true: missing invariants[0]"
+  expect (inv0.id == 0 && inv0.name == "truth") "inv-true: InvariantDecl name/id"
+  expect (data.callables.size == 2)
+    s!"inv-true: 2 callables (entry+invariant), got {data.callables.size}"
+  let some invC := data.callables.find? (fun c => c.kind == .invariant) |
+    throw <| IO.userError "inv-true: missing .invariant callable"
+  expect (invC.name == some "truth") "inv-true: callable name"
+  expect (invC.params.isEmpty) "inv-true: zero params"
+  expect (invC.loopBounds.isEmpty) "inv-true: empty loopBounds"
+  expect (invC.result.visibility == .public_) "inv-true: public result"
+  expect (inv0.callableId == invC.id) "inv-true: decl↔callable join"
+  -- result TypeId is anonymous Bool
+  let some rt := data.types[invC.result.typeId.toNat]? |
+    throw <| IO.userError "inv-true: result type OOR"
+  expect (rt.name.isNone && match rt.shape with | .bool => true | _ => false)
+    "inv-true: public Bool result type"
+  -- exact steps for single Bool literal + return: 1 + (1+1) = 3
+  expect (invC.invariantSteps == some 3)
+    s!"inv-true: exact steps 3, got {repr invC.invariantSteps}"
+  let some blk := invC.blocks[0]? |
+    throw <| IO.userError "inv-true: missing block 0"
+  expect (blk.instructions.size == 1) "inv-true: one literal instruction"
+  match blk.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "inv-true: expected return some"
+  -- evalInvariantV1 on empty initialized state → returnedTrue
+  let emptyState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1 :=
+    { initialized := true, canonicalValues := ByteArray.empty }
+  expect
+    (ProofForgeV2.Semantic.InvariantABI.evalInvariantV1 carrier 0 emptyState ==
+      .returnedTrue)
+    "inv-true: evalInvariantV1 → returnedTrue"
+  -- no-invariant programs still empty table (Counter regression pin below)
+
+private unsafe def testInvariantStatePredicate
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "InvState" <|
+    "  state flag : UInt64\n" ++
+    "  init(v : UInt64) do\n" ++
+    "    flag := v\n" ++
+    "  entry bump(d : UInt64) : UInt64 do\n" ++
+    "    flag := flag + d\n" ++
+    "    return flag\n" ++
+    "  invariant flagOk : flag == 0\n"
+  let validated ← loadSource session "inv-state" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"inv-state: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"inv-state: normalize {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"inv-state: validate {repr e}"
+  expect (data.invariants.size == 1) "inv-state: one invariant"
+  let some invC := data.callables.find? (fun c => c.kind == .invariant) |
+    throw <| IO.userError "inv-state: missing invariant callable"
+  -- body: stateLoad + literal 0 + eq → 3 instructions → steps = 1+(3+1)=5
+  expect (invC.invariantSteps == some 5)
+    s!"inv-state: steps 5, got {repr invC.invariantSteps}"
+  let some blk := invC.blocks[0]? |
+    throw <| IO.userError "inv-state: missing block"
+  expect (blk.instructions.size == 3)
+    s!"inv-state: 3 instrs, got {blk.instructions.size}"
+  let some i0 := blk.instructions[0]? |
+    throw <| IO.userError "inv-state: missing instr0"
+  match i0.op with
+  | .stateLoad sid => expect (sid == 0) "inv-state: load state0"
+  | _ => throw <| IO.userError "inv-state: expected stateLoad"
+
+private unsafe def testInvariantPureFnClosureSteps
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "InvFn" <|
+    "  fn leaf() : Bool do\n" ++
+    "    return true\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  invariant truth : leaf()\n"
+  let validated ← loadSource session "inv-fn" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"inv-fn: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"inv-fn: normalize {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"inv-fn: validate {repr e}"
+  expect (data.invariants.size == 1) "inv-fn: one invariant"
+  let some leafC := data.callables.find? (fun c =>
+      c.kind == .pureFn && c.name == some "leaf") |
+    throw <| IO.userError "inv-fn: missing pureFn leaf"
+  let some invC := data.callables.find? (fun c => c.kind == .invariant) |
+    throw <| IO.userError "inv-fn: missing invariant"
+  -- leaf: literal+return → steps 3; root: pureCall+return → 1+(1+1)+3 = 6
+  expect (leafC.invariantSteps == some 3)
+    s!"inv-fn: leaf steps 3, got {repr leafC.invariantSteps}"
+  expect (invC.invariantSteps == some 6)
+    s!"inv-fn: root steps 6, got {repr invC.invariantSteps}"
+  -- entry must keep none
+  let some entryC := data.callables.find? (fun c => c.kind == .entry) |
+    throw <| IO.userError "inv-fn: missing entry"
+  expect (entryC.invariantSteps.isNone) "inv-fn: entry steps none"
+  let emptyState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1 :=
+    { initialized := true, canonicalValues := ByteArray.empty }
+  expect
+    (ProofForgeV2.Semantic.InvariantABI.evalInvariantV1 carrier 0 emptyState ==
+      .returnedTrue)
+    "inv-fn: eval via PureCall → returnedTrue"
+
+private unsafe def testInvariantSemanticHashSensitive
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let base :=
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let s1 := wrap "InvHashA" (base ++ "  invariant truth : true\n")
+  let s2 := wrap "InvHashB" (base ++ "  invariant truth : false\n")
+  let s0 := wrap "InvHash0" base
+  let v1 ← loadSource session "inv-hash-a" s1
+  let v2 ← loadSource session "inv-hash-b" s2
+  let v0 ← loadSource session "inv-hash-0" s0
+  let c1 ← match normalizeProgramV1 v1 with
+    | .ok c => pure c | .error e => throw <| IO.userError s!"hash-a: {repr e}"
+  let c2 ← match normalizeProgramV1 v2 with
+    | .ok c => pure c | .error e => throw <| IO.userError s!"hash-b: {repr e}"
+  let c0 ← match normalizeProgramV1 v0 with
+    | .ok c => pure c | .error e => throw <| IO.userError s!"hash-0: {repr e}"
+  let h1 ← match semanticHashV1 c1 with
+    | .ok h => pure h | .error e => throw <| IO.userError s!"hash-a dig: {repr e}"
+  let h2 ← match semanticHashV1 c2 with
+    | .ok h => pure h | .error e => throw <| IO.userError s!"hash-b dig: {repr e}"
+  let h0 ← match semanticHashV1 c0 with
+    | .ok h => pure h | .error e => throw <| IO.userError s!"hash-0 dig: {repr e}"
+  expect (h1 != h2) "inv-hash: true vs false changes semanticHash"
+  expect (h1 != h0) "inv-hash: invariant vs absent changes semanticHash"
+  expect (h2 != h0) "inv-hash: false vs absent changes semanticHash"
+  let d0 ← match validateSemanticProgramV1 c0 with
+    | .ok d => pure d | .error e => throw <| IO.userError s!"hash-0 val: {repr e}"
+  expect (d0.invariants.isEmpty) "inv-hash: no-invariant program keeps empty table"
+
+private unsafe def testInvariantProvenanceAndProofSkip
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "InvProv" <|
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  invariant truth : true\n" ++
+    "  proof truth using Tests.InvProv.truth\n"
+  let (validated, spans) ← loadSourceWithSpans session "inv-prov" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"inv-prov: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let path ← parseTestPath "inv-prov"
+  let pair ← match normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok p => pure p
+    | .error e => throw <| IO.userError s!"inv-prov: normalize+prov {repr e}"
+  let (carrier, provenance) := pair
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"inv-prov: validate {repr e}"
+  expect (data.invariants.size == 1) "inv-prov: one invariant (proof not a row)"
+  -- proof must not invent a second invariant or callable
+  expect (data.callables.size == 2)
+    s!"inv-prov: entry+invariant only, got {data.callables.size}"
+  let hasInvEntity := provenance.originMap.any fun b =>
+    match b.entity with | .invariant _ => true | _ => false
+  expect hasInvEntity "inv-prov: originMap covers .invariant entity"
+  let hasInvCallable := provenance.originMap.any fun b =>
+    match b.entity with
+    | .callable cid =>
+        match data.callables[cid.toNat]? with
+        | some c => c.kind == .invariant
+        | none => false
+    | _ => false
+  expect hasInvCallable "inv-prov: originMap covers invariant callable"
+  -- business hash identical with/without proof declaration
+  let sourceNoProof := wrap "InvProv2" <|
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  invariant truth : true\n"
+  let v2 ← loadSource session "inv-prov2" sourceNoProof
+  let c2 ← match normalizeProgramV1 v2 with
+    | .ok c => pure c | .error e => throw <| IO.userError s!"inv-prov2: {repr e}"
+  -- different program names → different QN → different hash; pin same shape instead
+  let d2 ← match validateSemanticProgramV1 c2 with
+    | .ok d => pure d | .error e => throw <| IO.userError s!"inv-prov2 val: {repr e}"
+  expect (d2.invariants.size == 1 && data.invariants.size == 1)
+    "inv-prov: proof does not add invariant rows"
+  expect (d2.callables.size == data.callables.size)
+    "inv-prov: proof does not add callables"
+
+private unsafe def testInvariantNameCollisionFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Unified callable name uniqueness: entry and invariant share "run".
+  let source := wrap "InvCollide" <|
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  invariant run : true\n"
+  let validated ← loadSource session "inv-collide" source
+  let _typed := checkProgramTypedResultV1 validated
+  -- NameResolution may already reject cross-kind dups; either way Normalize must
+  -- not produce a structure-valid carrier with colliding names.
+  match normalizeProgramV1 validated with
+  | .error (.typedNotOk _) =>
+      expect true "inv-collide: typedNotOk is fail closed"
+  | .error (.unsupported _) =>
+      expect true "inv-collide: unsupported is fail closed"
+  | .error (.wire _) =>
+      expect true "inv-collide: structure/wire is fail closed"
+  | .error (.identity _) =>
+      expect true "inv-collide: identity fail closed"
+  | .ok carrier =>
+      match validateSemanticProgramV1 carrier with
+      | .error _ => pure ()  -- structure gate rejects name collision
+      | .ok _ =>
+          throw <| IO.userError
+            "inv-collide: expected fail closed on entry/invariant name collision"
+
+private unsafe def testInvariantDoesNotChangeNoInvPrograms
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Regression: Counter without invariants still has empty invariants table
+  -- and three callables with invariantSteps=none.
+  let source := wrap "CounterNoInv" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "counter-noinv" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"counter-noinv: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"counter-noinv val: {repr e}"
+  expect (data.invariants.isEmpty) "counter-noinv: empty invariants"
+  expect (data.callables.size == 3) "counter-noinv: 3 callables"
+  for c in data.callables do
+    expect (c.invariantSteps.isNone)
+      s!"counter-noinv: callable {repr c.name} steps none"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterHappyPath session
@@ -6987,6 +7249,14 @@ unsafe def run : IO Unit := do
   testUnsupportedMatchDuplicateLiteral session
   testMatchConstructorPatternOnEnumParam session
   testStringStateLiteralEqMatch session
+  -- N-INVARIANT-IR
+  testInvariantLiteralTrueShapeAndSteps session
+  testInvariantStatePredicate session
+  testInvariantPureFnClosureSteps session
+  testInvariantSemanticHashSensitive session
+  testInvariantProvenanceAndProofSkip session
+  testInvariantNameCollisionFailClosed session
+  testInvariantDoesNotChangeNoInvPrograms session
   testNestedConstructorPattern session
   testNestedCtorDepth2Bind session
   testContextUnixTimeSeconds session

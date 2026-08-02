@@ -79,8 +79,17 @@
       *through* a Map element (`m[k].x = v`) or Bytes element still fail
       closed (Option intermediate / UInt8 scalar). Bare-local field/index
       assign rebinds the local; param roots still fail closed
-    * callables: multi-block CFG (entryBlock=0, dense block ids,
-      invariantSteps=none). Bounded `for i in s .. e bounded N do` loops
+    * callables: multi-block CFG (entryBlock=0, dense block ids).
+      init/entry/view/pureFn carry `invariantSteps=none` unless a pureFn is
+      in an invariant PureCall closure (then sole Wire exact steps).
+      `invariant name : BoolExpr` lowers to a zero-arg `.invariant` callable
+      (public Bool result, empty loopBounds, single-block return of the
+      lowered predicate) plus a dense source-order `InvariantDecl` row;
+      ContextRead/Commit/effect ops stay fail closed on invariant roots.
+      Exact `invariantSteps` (including pureFn closure metadata) are produced
+      by sole `computeInvariantStepsExactWithMembersV1` before encode.
+      `.proof` stays certification-only and never enters business IR.
+      Bounded `for i in s .. e bounded N do` loops
       lower to a single-param header block (the induction variable), a
       branch, and a latch with the only back edge; `loopBounds` records
       exactly that (header, latch, N) edge in ascending order. Non-loop
@@ -3269,6 +3278,76 @@ private def mkCallable
     invariantSteps := none
   }
 
+/-- Lower `invariant name : BoolExpr` to a single-block zero-arg callable body:
+    evaluate the Bool predicate (full state + pureFn table; ContextRead/Commit
+    fail closed) and `return some`. Empty loopBounds by construction. -/
+private def lowerInvariantPredicate
+    (predicate : SrcExpr)
+    (interner : TypeInternerV1) (states : StateTableV1) (fns : FnTableV1) :
+    Except NormalizeErrorV1 (Array BlockV1 × TypeInternerV1) := do
+  let (i1, boolTid) := internShape interner .bool
+  let st : BodyStateV1 := {
+    blocks := #[]
+    instructions := #[]
+    currentParams := #[]
+    loopBounds := #[]
+    nextValueId := 0
+    nextBlockParamOrdinal := 0
+    callableParamCount := 0
+    nextEffectId := 0
+    env := emptyEnv
+    paramNames := #[]
+    interner := i1
+    allowContextCommit := false
+    usedContextUnixTime := false
+    usedContextCaller := false
+    usedCommit := false
+  }
+  let (vid, tid, st1) ← lowerExpr predicate boolTid st states fns
+  unless tid == boolTid do
+    return ← failUnsupported
+      "S1 invariant predicate must lower to Bool"
+  -- Invariant roots must not emit ContextRead/Commit (structure + product).
+  if st1.usedContextUnixTime || st1.usedContextCaller || st1.usedCommit then
+    return ← failUnsupported
+      "S1 invariant predicate must not use ContextRead or Commit"
+  let st2 := sealCurrentBlock st1 (TerminatorV1.return_ (some vid))
+  pure (st2.blocks, st2.interner)
+
+/-- Assign sole Wire exact `invariantSteps` onto invariant roots and pureFn
+    closure members. Membership + totals come from the shared InvariantClosure
+    computation (no second formula). -/
+private def assignExactInvariantStepsV1
+    (callables : Array CallableV1) :
+    Except NormalizeErrorV1 (Array CallableV1) := do
+  let members ← match invariantClosureMembershipResultV1 callables with
+    | .ok m => pure m
+    | .error e =>
+        return ← failUnsupported
+          s!"S1 invariant closure membership failed: {repr e}"
+  let totals ← match computeInvariantStepsExactWithMembersV1 callables members with
+    | .ok t => pure t
+    | .error e =>
+        return ← failUnsupported
+          s!"S1 invariant exact steps failed: {repr e}"
+  unless members.size == callables.size && totals.size == callables.size do
+    return ← failUnsupported "S1 invariant steps size mismatch"
+  let mut out : Array CallableV1 := #[]
+  for i in [:callables.size] do
+    match callables[i]?, totals[i]?, members[i]? with
+    | some c, some total, some isMember =>
+        let steps : Option UInt64 :=
+          if c.kind == CallableKindV1.invariant then
+            some total
+          else if c.kind == CallableKindV1.pureFn && isMember then
+            some total
+          else
+            none
+        out := out.push { c with invariantSteps := steps }
+    | _, _, _ =>
+        return ← failUnsupported "S1 invariant steps index out of range"
+  pure out
+
 /-- Insert a requirement row into a UTF-8 id-ordered array (stable for equal
     keys: new row after existing with the same id so wire exact-match still
     finds it). Local to N5 wire-owned merge; does not invent a second freeze. -/
@@ -3475,6 +3554,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   -- Pass 2: lower supported callables; reject unsupported item kinds.
   let mut callables : Array CallableV1 := #[]
   let mut constantRows : Array ConstantV1 := #[]
+  let mut invariantRows : Array WireV1.InvariantDeclV1 := #[]
   let mut callableId : Nat := 0
   let mut usedContextUnixTime := false
   let mut usedContextCaller := false
@@ -3570,18 +3650,36 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
           (UInt32.ofNat callableId) .pureFn (some (raw d.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
         callableId := callableId + 1
-    | .invariant _ =>
-        -- INV-1 engineering: invariant predicates are typed by CheckV1 but are
-        -- not yet lowered into SemanticProgramV1.callables/invariants. Skip so
-        -- constrained `proof … using …` product paths can compile; residual is
-        -- empty `invariants` table (not formal invariant closure).
-        pure ()
+    | .invariant d =>
+        -- N-INVARIANT-IR: lower Bool predicate into a zero-arg `.invariant`
+        -- callable + dense InvariantDecl row (source order). Full state table
+        -- and pureFn table are visible; ContextRead/Commit fail closed.
+        -- `.proof` remains certification-only (handled below).
+        let (blocks, interner') ←
+          lowerInvariantPredicate d.predicate interner stateTable fnTable
+        interner := interner'
+        let (interner'', boolTid) := internShape interner .bool
+        interner := interner''
+        let cid : CallableIdV1 := UInt32.ofNat callableId
+        callables := callables.push (mkCallable
+          cid CallableKindV1.invariant (some (raw d.name)) #[]
+          { typeId := boolTid, visibility := VisibilityV1.public_ }
+          blocks #[])
+        invariantRows := invariantRows.push ({
+          id := UInt32.ofNat invariantRows.size
+          name := raw d.name
+          callableId := cid
+        } : WireV1.InvariantDeclV1)
+        callableId := callableId + 1
     | .extensionReq _ =>
         return ← failUnsupported "S1 normalizer does not support extension"
     | .proof _ =>
         -- INV-1: proof references are certification metadata only; they never
         -- enter Semantic IR / business execution (SPEC-TYPE / SPEC-LANG).
         pure ()
+
+  -- Sole Wire exact invariantSteps (roots + pureFn closure members).
+  callables ← assignExactInvariantStepsV1 callables
 
   -- Target envelope still requires exactly one anonymous UInt64 TypeId.
   -- Int-primary programs (Int64 state/results only) never intern UInt64 via
@@ -3608,7 +3706,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     events := eventRows
     errors := errorRows
     callables := callables
-    invariants := #[]
+    invariants := invariantRows
     requirements
   }
 

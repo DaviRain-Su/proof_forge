@@ -1326,8 +1326,9 @@ private def attributeCounterEntitiesV1
     | _ => pure ()
     zi := zi + 1
 
-  -- Callables in source order among init/entry/view
+  -- Callables in source order among init/entry/view/fn/invariant
   let mut callableId : Nat := 0
+  let mut invOrdinal : Nat := 0
   itemIdx := 0
   for item in program.items do
     let itemPath := childPath #[] "Program" "items" itemIdx
@@ -1443,14 +1444,61 @@ private def attributeCounterEntitiesV1
         let bodyPath := directChild itemPath "FnDecl" "body"
         acc ← attrBlock cid d.body bodyPath params ⟨#[]⟩ idx acc false
         callableId := callableId + 1
+    | .invariant d =>
+        -- N-INVARIANT-IR: attribute zero-arg invariant callable + InvariantDecl
+        -- entity; synthetic single-block body is the Bool predicate expression
+        -- (mirrors Normalize lowerInvariantPredicate). `.proof` is skipped.
+        let some c := data.callables[callableId]? |
+          return ← failUnsupported "S2 provenance: missing invariant callable"
+        unless c.kind == .invariant do
+          return ← failUnsupported
+            "S2 provenance: callable kind mismatch (invariant)"
+        let some invRow := data.invariants[invOrdinal]? |
+          return ← failUnsupported "S2 provenance: missing invariant row"
+        unless invRow.callableId == c.id do
+          return ← failUnsupported
+            "S2 provenance: invariant callableId mismatch"
+        let cid : CallableIdV1 := UInt32.ofNat callableId
+        acc ← attrPushPath acc idx (.callable cid) itemPath
+        acc ← attrPushPath acc idx (.invariant invRow.id) itemPath
+        -- Bool result type: bind to the InvariantDecl node (no separate result
+        -- annotation field on source invariant).
+        let (accB, tbB) ← tryBindType acc idx typeBound c.result.typeId itemPath
+        acc := accB
+        typeBound := tbB
+        let predPath := directChild itemPath "InvariantDecl" "predicate"
+        -- Block 0 entity binds the predicate path (nearest producer).
+        let accBlk ← attrPushPath acc idx
+          (SemanticEntityRefV1.block cid 0) predPath
+        let st0 : BodyAttrV1 := {
+          nextValueId := 0
+          nextInstr := 0
+          blockId := 0
+          nextBlockId := 1
+          nextBlockParamOrdinal := 0
+          callableParamCount := 0
+          nextEffectId := 0
+          env := ⟨#[]⟩
+          acc := accBlk
+        }
+        let (_vid, st1) ← attrExpr cid d.predicate predPath st0 states idx
+        let termEntity := SemanticEntityRefV1.terminator cid 0
+        acc ← attrPushPath st1.acc idx termEntity predPath
+        callableId := callableId + 1
+        invOrdinal := invOrdinal + 1
     | .event _ | .error _ => pure ()
-    | .struct _ | .enum _ | .const _
-    | .invariant _ | .extensionReq _ | .proof _ =>
+    | .struct _ | .enum _ | .const _ | .proof _ =>
+        -- Named types / const rows / proof refs: no business callable body.
+        -- Proof is certification-only and never produces a semantic entity.
+        pure ()
+    | .extensionReq _ =>
         return ← failUnsupported
-          "S2 provenance attribution only supports state/event/error/init/entry/view/fn"
+          "S2 provenance does not support extensionReq"
     itemIdx := itemIdx + 1
   unless callableId == data.callables.size do
     return ← failUnsupported "S2 provenance: callable count mismatch"
+  unless invOrdinal == data.invariants.size do
+    return ← failUnsupported "S2 provenance: invariant count mismatch"
 
   -- Implicitly body-interned types (Bool from comparisons/Bool literals) have
   -- no annotation node: bind each unbound type to the first producing
