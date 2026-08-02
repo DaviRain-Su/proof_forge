@@ -60,6 +60,7 @@ import Tests.Product.TokenV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.NearWasmAcceptance
+import Tests.Materialization.PsyAcceptance
 import Tests.Materialization.SolanaPlanV1
 
 import Tests.Materialization.Targets
@@ -142,6 +143,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.EvmSolcAcceptance.run
   Tests.Materialization.NearWasmAcceptance.run
+  Tests.Materialization.PsyAcceptance.run
   Tests.Materialization.SolanaPlanV1.run
 
   Tests.Materialization.TargetRegistryV1.run

@@ -192,16 +192,17 @@ private partial def step (machine : Machine) :
       let value ← readValue machine source
       writeTemp machine destination
         (UInt64.ofNat (18446744073709551615 - value.toNat))
-  | .bigLiteral destination value => do
-      -- T11: UInt128 Plan literal. Model only accepts values that fit u64 so
-      -- existing U64 temp storage can carry low-path fixtures; full multi-limb
-      -- evaluation stays outside the pure Lean relation model (like Field).
+  | .bigLiteral destination _bitWidth value => do
+      -- T11/T13: UInt128/UInt256 Plan literal. Model only accepts values that fit
+      -- u64 so existing U64 temp storage can carry low-path fixtures; full
+      -- multi-limb evaluation stays outside the pure Lean relation model (like Field).
       if value > 18446744073709551615 then
-        modelError "UInt128 bigLiteral exceeds pure Lean relation model u64 carrier"
+        modelError "wide UInt bigLiteral exceeds pure Lean relation model u64 carrier"
       else
         writeTemp machine destination (UInt64.ofNat value)
   | .narrowCheckedAdd bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 ||
+          bitWidth == 256 do
         modelError s!"narrowCheckedAdd bitWidth {bitWidth} is not admitted"
       let left ← readValue machine lhs
       let right ← readValue machine rhs
@@ -212,7 +213,8 @@ private partial def step (machine : Machine) :
       else
         writeTemp machine destination (UInt64.ofNat sum)
   | .narrowCheckedSub bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 ||
+          bitWidth == 256 do
         modelError s!"narrowCheckedSub bitWidth {bitWidth} is not admitted"
       let left ← readValue machine lhs
       let right ← readValue machine rhs
@@ -246,28 +248,32 @@ private partial def step (machine : Machine) :
       if right == 0 then modelError "division by zero"
       else writeTemp machine destination (left % right)
   | .narrowBitAnd bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 ||
+          bitWidth == 256 do
         modelError s!"narrowBitAnd bitWidth {bitWidth} is not admitted"
       let left ← readValue machine lhs
       let right ← readValue machine rhs
       writeTemp machine destination (UInt64.ofNat (Nat.land left.toNat right.toNat))
   | .narrowBitOr bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 ||
+          bitWidth == 256 do
         modelError s!"narrowBitOr bitWidth {bitWidth} is not admitted"
       let left ← readValue machine lhs
       let right ← readValue machine rhs
       writeTemp machine destination (UInt64.ofNat (Nat.lor left.toNat right.toNat))
   | .narrowBitXor bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 ||
+          bitWidth == 256 do
         modelError s!"narrowBitXor bitWidth {bitWidth} is not admitted"
       let left ← readValue machine lhs
       let right ← readValue machine rhs
       writeTemp machine destination (UInt64.ofNat (Nat.xor left.toNat right.toNat))
   | .narrowBitNot bitWidth destination source => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 ||
+          bitWidth == 256 do
         modelError s!"narrowBitNot bitWidth {bitWidth} is not admitted"
       let value ← readValue machine source
-      if bitWidth == 128 then
+      if bitWidth == 128 || bitWidth == 256 then
         -- Pure model only holds low-path u64; flip within that carrier.
         writeTemp machine destination
           (UInt64.ofNat (18446744073709551615 - value.toNat))
@@ -276,7 +282,8 @@ private partial def step (machine : Machine) :
         let flipped := 18446744073709551615 - value.toNat
         writeTemp machine destination (UInt64.ofNat (Nat.land flipped mask))
   | .narrowShl bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 ||
+          bitWidth == 256 do
         modelError s!"narrowShl bitWidth {bitWidth} is not admitted"
       let left ← readValue machine lhs
       let right ← readValue machine rhs
@@ -287,7 +294,8 @@ private partial def step (machine : Machine) :
       else
         writeTemp machine destination (UInt64.ofNat shifted)
   | .narrowShr bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128 ||
+          bitWidth == 256 do
         modelError s!"narrowShr bitWidth {bitWidth} is not admitted"
       let left ← readValue machine lhs
       let right ← readValue machine rhs
@@ -391,9 +399,11 @@ private def validateInputTypes (relation : Targets.Noir.RelationIR)
     let actual := inputs[index]!
     match expected, actual with
     | .u64, .u64 _ | .u8, .u64 _ | .u16, .u64 _ | .u32, .u64 _ | .u128, .u64 _
+    | .u256, .u64 _
     | .i8, .u64 _ | .i16, .u64 _ | .i32, .u64 _ | .i64, .u64 _
     | .bool, .bool _ | .field, .u64 _ => pure ()
     | .u64, .bool _ | .u8, .bool _ | .u16, .bool _ | .u32, .bool _ | .u128, .bool _
+    | .u256, .bool _
     | .i8, .bool _ | .i16, .bool _ | .i32, .bool _ | .i64, .bool _ =>
         return ← modelError s!"input {index} must be UInt/Int"
     | .bool, .u64 _ => return ← modelError s!"input {index} must be Bool"
@@ -532,9 +542,11 @@ private def bindInputs (relation : Targets.Noir.RelationIR)
       | none => modelError s!"no model value for input '{binding.name}'"
     match binding.type, value with
     | .u64, .u64 _ | .u8, .u64 _ | .u16, .u64 _ | .u32, .u64 _ | .u128, .u64 _
+    | .u256, .u64 _
     | .i8, .u64 _ | .i16, .u64 _ | .i32, .u64 _ | .i64, .u64 _
     | .bool, .bool _ | .field, .u64 _ => values := values.push value
     | .u64, .bool _ | .u8, .bool _ | .u16, .bool _ | .u32, .bool _ | .u128, .bool _
+    | .u256, .bool _
     | .i8, .bool _ | .i16, .bool _ | .i32, .bool _ | .i64, .bool _ =>
         return ← modelError s!"input '{binding.name}' must be UInt/Int"
     | .bool, .u64 _ => return ← modelError s!"input '{binding.name}' must be Bool"
@@ -2648,7 +2660,75 @@ private unsafe def checkUInt128MultiLimb : IO Unit := do
     statefulInputs addIR true 1 2 3 true 3
   expectAccept "T11 add(1+2)" addIR addOk
 
-/-- T11 negatives: UInt128 mul/div fail closed; UInt256 still fail closed. -/
+/-- T13 positives: UInt256 state + param + add/sub/eq compile and materialize.
+    Emit surfaces native Noir `u256` (4-limb multiword analogue of T9e). -/
+private unsafe def checkUInt256MultiLimb : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program U256Pilot where\n" ++
+    "  state total : UInt256\n\n" ++
+    "  init(seed : UInt256) do\n" ++
+    "    total := seed\n\n" ++
+    "  entry add(delta : UInt256) : UInt256 do\n" ++
+    "    total := total + delta\n" ++
+    "    return total\n\n" ++
+    "  entry sub(delta : UInt256) : UInt256 do\n" ++
+    "    total := total - delta\n" ++
+    "    return total\n\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return total\n\n" ++
+    "  entry eqCheck(x : UInt256) : Bool do\n" ++
+    "    return total == x\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 text "Examples.U256Pilot" "<noir-u256-pilot>"
+  expect (ir.sourcePlan.states.size == 1)
+    "T13: UInt256 state must materialize one state field"
+  expect (ir.sourcePlan.states[0]!.inputType == .u256)
+    "T13: UInt256 state InputType must be u256"
+  let addRel := ir.sourcePlan.relations.find? (·.name == "add")
+  let subRel := ir.sourcePlan.relations.find? (·.name == "sub")
+  let getRel := ir.sourcePlan.relations.find? (·.name == "get")
+  let eqRel := ir.sourcePlan.relations.find? (·.name == "eqCheck")
+  expect (
+      (match addRel with | some r => Targets.Noir.resultInputTypeOf r == .u256 | none => false) &&
+      (match subRel with | some r => Targets.Noir.resultInputTypeOf r == .u256 | none => false) &&
+      (match getRel with | some r => Targets.Noir.resultInputTypeOf r == .u256 | none => false) &&
+      (match eqRel with | some r => Targets.Noir.resultInputTypeOf r == .bool | none => false))
+    "T13: entry/view result InputTypes must be u256/u256/u256/bool"
+  match addRel with
+  | none => throw <| IO.userError "T13: missing add relation"
+  | some r =>
+      expect (r.params.any (·.inputType == .u256))
+        "T13: add param must be u256"
+  let addIR ← findRelation ir "add"
+  let hasWideAdd := addIR.operations.any fun op =>
+    match op with
+    | .narrowCheckedAdd 256 _ _ _ => true
+    | _ => false
+  expect hasWideAdd "T13: add relation IR must contain narrowCheckedAdd 256"
+  let source ← liftResult (← session.selectProgramV1 text
+    "<noir-u256-pilot-emit>" "Examples.U256Pilot" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Noir.buildFromCapability capability
+  let anyU256 := files.any (fun f =>
+    f.path.endsWith "src/main.nr" && f.contents.contains "u256")
+  expect anyU256 "T13: emitted Noir source must mention u256"
+  let some iface := files.find? (fun f => f.path.endsWith ".noir-relations.json") |
+    throw <| IO.userError "T13: missing relations interface json"
+  expect (iface.contents.contains "u256")
+    "T13: interface json must list u256 type"
+  -- Low-path model: small UInt256 values that fit u64 carrier.
+  let addOk ← liftModel "T13 add inputs" <|
+    statefulInputs addIR true 1 2 3 true 3
+  expectAccept "T13 add(1+2)" addIR addOk
+
+/-- T11/T13 negatives: UInt128/UInt256 mul/div fail closed. -/
 private unsafe def checkUInt128Negatives : IO Unit := do
   let cases : Array (String × String × String) := #[
     ("uint128-mul", "Examples.U128Mul",
@@ -2667,13 +2747,22 @@ private unsafe def checkUInt128Negatives : IO Unit := do
       "  entry div(delta : UInt128) : UInt128 do\n" ++
       "    total := total / delta\n" ++
       "    return total\n"),
-    ("uint256-state", "Examples.U256State",
-      "program U256State where\n" ++
-      "  state big : UInt256\n\n" ++
-      "  init(x : UInt64) do\n" ++
-      "    big := 0\n\n" ++
-      "  entry ping(x : UInt64) : UInt64 do\n" ++
-      "    return x\n")
+    ("uint256-mul", "Examples.U256Mul",
+      "program U256Mul where\n" ++
+      "  state total : UInt256\n\n" ++
+      "  init(seed : UInt256) do\n" ++
+      "    total := seed\n\n" ++
+      "  entry mul(delta : UInt256) : UInt256 do\n" ++
+      "    total := total * delta\n" ++
+      "    return total\n"),
+    ("uint256-div", "Examples.U256Div",
+      "program U256Div where\n" ++
+      "  state total : UInt256\n\n" ++
+      "  init(seed : UInt256) do\n" ++
+      "    total := seed\n\n" ++
+      "  entry div(delta : UInt256) : UInt256 do\n" ++
+      "    total := total / delta\n" ++
+      "    return total\n")
   ]
   let session ← Tests.Language.ParserSession.shared
   for item in cases do
@@ -2696,7 +2785,7 @@ private unsafe def checkUInt128Negatives : IO Unit := do
             | .error _ => pure ()
             | .ok _ =>
                 throw <| IO.userError
-                  s!"{label}: must fail closed for Noir T11 (UInt128 mul/div or UInt256)"
+                  s!"{label}: must fail closed for Noir T11/T13 (UInt128/UInt256 mul/div)"
 
 /-- Dual-state program: public count + private secret. Public return flows only
     from public count (disclosure-safe). T-1 authority/custody: entry private
@@ -3096,6 +3185,7 @@ unsafe def run : IO Unit := do
   checkNarrowAbiProduct
   checkNarrowResultProduct
   checkUInt128MultiLimb
+  checkUInt256MultiLimb
   checkUInt128Negatives
   checkNamedAggregateProduct
   checkContainerStateFailClosed

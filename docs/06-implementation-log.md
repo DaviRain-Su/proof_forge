@@ -13019,22 +13019,59 @@ normative: false
   target; no multi-word Principal ResultKind; Aleo/Psy fail closed; not
   formal SupportClaim / registry digest.
 
-## 2026-08-02 — J1 NoirToolchain: research decision (source-only, no nargo/bb gate)
+## 2026-08-02 — J3 PsyEmissionFix: Goldilocks Felt literals + PsyAcceptance
 
-- Research: host re-check `which nargo` / `which bb` → **not found**; common
-  install paths empty; Tool Lock / `supply-chain/*` has **no** nargo/noirc/bb
-  asset pin; SPEC toolchains still lists `nargo`/`barretenberg` under
-  `unresolved` (not frozen).
-- Emit surface audit (`Targets/Noir/EmitIRV1.lean`): product path emits per
-  relation `Nargo.toml` + `src/main.nr` + root `*.noir-relations.json` with
-  `artifactKind=source-only` / `proofStatus=not-produced`. FinalizeV1 is
-  zero-tool (`deployable=false`). `validate_artifacts.py` **rejects**
-  proof-stage leaves (`.acir`/`.proof`/`.vk`/`.witness`).
-- Decision (**defer**): **do not** add `NoirAcceptance` suite, `nargo compile`
-  CI gate, or prove/verify path this wave. Maturity remains **source-only**
-  relations + Lean `NoirRelationModel`. Matches C-4/RPT-016; J1 expands with
-  emit/install detail and explicit compile-gate rejection (not only prove).
-- Docs: `docs/research/13-noir-toolchain-research.md` (RPT-017); coverage
-  matrix §2 Noir toolchain/runtime columns + C-4 row + Phase F J1 note.
-- Non-claims: not formal TST-NOIR; no Tool Lock pin; no fake ACIR/proof; no
-  justfile recipe (not needed until a pin exists).
+- Production (`ProofForgeV2/Targets/Psy/EmitIRV1.lean`):
+  * Every Felt decimal literal is reduced into Goldilocks range
+    `0 .. p-1` with `p = 2^64 − 2^32 + 1 = 0xFFFFFFFF00000001`
+    (`feltNat` / `feltLit`). Illegal `2^64` (18446744073709551616) bound
+    removed — `psyup`/`dargo` rejected it with
+    `number too large to fit in target type`.
+  * Checked add uses official Psy template field-wrap guard
+    `assert(sum >= lhs, "u64 add overflow")`.
+  * Checked mul uses exact inverse
+    `lhs == 0 || product / lhs == rhs` (no 2^64 bound).
+  * Shl keeps `count < 64` only (drops illegal product bound).
+  * CheckedNeg uses field negation `0 - x` after intMin guard
+    (2^63 is legal; 2^64 is not).
+  * Call-site component hashes reduced mod p before emission.
+- Tests:
+  * `PsySourceV1` pins no-2^64 emission + wrap-style overflow messages.
+  * New `Tests/Materialization/PsyAcceptance.lean`: product materialize
+    Counter / PsyPoint (named Struct flatten) / PsyArr (Array flatten) →
+    minimal Dargo project → `psyup build` (sets `DARGO_STD_PATH` so dargo
+    does not clone missing `PsyProtocol/psy-v1`). Skip-clean when
+    psyup/dargo/std absent; fail-closed on non-zero or missing ABI.
+  * Helper `scripts/psy_acceptance.sh` for host-side re-check.
+  * Wired into lakefile module list, `Tests.Shards.Targets`, `Tests.Fast`,
+    `Tests.lean`.
+- Docs: coverage matrix §2 Psy 真实工具链编译验收 → ✅ PsyAcceptance
+  (compile only; not VM/prove); C-2 / Phase F notes updated.
+- Boundary: engineering only; **not** formal Tool Lock pin / psy-vm prove /
+  Stage-0 hermetic; bn254 Field on Psy remains FAIL-CLOSED; maturity still
+  source-package + compile acceptance, not runtime differential.
+
+## 2026-08-02 — T13: Noir UInt256 multi-limb (native u256 surface)
+
+- Production: open UInt256 as Noir state/param/body/result type, isomorphic to
+  T11 UInt128 (native wide Plan word = multi-limb analogue of T9e 4×u64).
+  * `EnvelopeV1`: `pilotUintWidthPolicyNoirBody` admits `{8,16,32,64,128,256}`;
+    `isNoirBodyUintWidth` / `isNoirAbiUintWidth` accept 256;
+    `isNoirUintAbiOrInt64OrField` + `requirePublicNoirUintAbiOrInt64OrField*`
+    gate state/param admission for UInt256.
+  * `Noir/LowerSemanticV1`: `InputType.u256`, `NoirValueKindV1.uint256`,
+    `Expr.bigLiteral` (32-byte LE → Nat), body add/sub/bitwise/shift/compare
+    via `narrow*(256)`; mul/div/mod on UInt128/UInt256 fail closed at Plan
+    lower (`rejectWideUintMulDivModV1`; true multiword schoolbook deferred).
+  * `Noir/EmitIRV1`: `Operation.bigLiteral` carries `bitWidth`; narrow ops with
+    `bitWidth=256` render as native `u256` temps/ops; ABI/IDL `type: u256`.
+  * `Noir/ValidatePlanV1`: result type admits `.u256`.
+- Tests: `NoirRelationModel.checkUInt256MultiLimb` (state/param/add/sub/eq
+  product + IR narrowCheckedAdd 256 + emit u256 + low-path model);
+  `checkUInt128Negatives` extended for UInt256 mul/div fail closed (removed
+  UInt256 state fail-closed case superseded by T13 positives).
+- Docs: coverage matrix UInt256 Noir → LOWERED(T13); UInt128 row notes T13.
+- Boundary: engineering only; not formal D2/D4; no multi-limb mul/div; pure
+  Lean relation model only low-path u64 carrier for wide UInt; source-only
+  maturity unchanged; circuit surface is one native `u256` word (4-limb
+  analogue of T9e), not four separate state leaves.

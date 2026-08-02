@@ -6,11 +6,14 @@ import ProofForgeV2.Targets.Psy.ValidatePlanV1
 Target-owned Psy AST/renderer (ported from the old Compiler/Psy surface for
 the V2 envelope) and capability-internal `lower`/`emitFromIR`.
 
-Checked u64 arithmetic is realized with explicit assert guards (Felt is a
-field element). Bitwise/shift use native Psy Felt operators; `count < 64`
-guards protect shifts. Revert → `assert(false, ...)`. Emit → `__emit([...])`.
-Call/schedule → `__invoke_sync#<Felt>(targetHash, methodHash, [args])` with
-deterministic component hashes (V2 qualified callees have no runtime Felt
+Checked u64 arithmetic is realized with explicit assert guards. Psy `Felt`
+is Goldilocks (p = 2^64−2^32+1): every decimal literal is reduced into
+`0..p-1`, and overflow uses field-wrap detection (`sum >= lhs` for add;
+exact inverse for mul) rather than an illegal `2^64` bound. Bitwise/shift
+use native Psy Felt operators; `count < 64` guards protect shifts. Revert →
+`assert(false, ...)`. Emit → `__emit([...])`. Call/schedule →
+`__invoke_sync#<Felt>(targetHash, methodHash, [args])` with deterministic
+component hashes reduced mod p (V2 qualified callees have no runtime Felt
 contract/method ids).
 -/
 
@@ -18,9 +21,6 @@ namespace ProofForgeV2.Targets.Psy
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
-
-/-- 2^64 as a decimal Felt literal — upper bound for checked u64 results. -/
-private def u64BoundFelt : String := "18446744073709551616"
 
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .psy message
@@ -281,6 +281,22 @@ private def renderModule (mod : PsyModule) : String :=
 -- Plan → Psy IR
 -- ---------------------------------------------------------------------------
 
+/-- Goldilocks prime p = 2^64 − 2^32 + 1 = 0xFFFFFFFF00000001.
+    Psy `Felt` is a plonky2 Goldilocks field element; every emitted decimal
+    literal must lie in `0 .. p-1` or `psyup`/`dargo` rejects it with
+    `number too large to fit in target type`. 2^64 itself is **not**
+    representable (and 2^64 ≡ 2^32−1 (mod p) would be the wrong overflow
+    bound). Checked u64 add/mul therefore use field-wrap guards matching
+    the official Psy template, not a 2^64 comparison. -/
+private def goldilocksPrime : Nat := 0xFFFFFFFF00000001
+
+/-- Reduce a Nat into the exclusive Goldilocks range `[0, p)`. -/
+private def feltNat (n : Nat) : Nat := n % goldilocksPrime
+
+/-- Felt literal guaranteed to be accepted by dargo (always `< p`). -/
+private def feltLit (n : Nat) : PsyExpr :=
+  .literal (.felt (feltNat n))
+
 private structure EmitCtx where
   next : Nat
   stateNames : Array String
@@ -291,24 +307,25 @@ private structure EmitCtx where
 private def freshName (ctx : EmitCtx) : String × EmitCtx :=
   (s!"pf_e{ctx.next}", { ctx with next := ctx.next + 1 })
 
-/-- Deterministic FNV-1a-ish 64-bit hash of a string → Nat for Felt literals. -/
+/-- Deterministic FNV-1a-ish 64-bit hash of a string → Nat for Felt literals.
+    Reduced mod Goldilocks so the emitted decimal is always in range. -/
 private def hashComponent (s : String) : Nat := Id.run do
   let prime : UInt64 := 1099511628211
   let mut h : UInt64 := 14695981039346656037
   for c in s.toList do
     h := (h ^^^ c.toNat.toUInt64) * prime
-  pure h.toNat
+  pure (feltNat h.toNat)
 
 private def hashCallee (comps : Array String) : PsyExpr × PsyExpr × String :=
   let note := String.intercalate "." comps.toList
   let target :=
     match comps[0]? with
-    | some c => PsyExpr.literal (.felt (hashComponent c))
-    | none => PsyExpr.literal (.felt 0)
+    | some c => feltLit (hashComponent c)
+    | none => feltLit 0
   let method :=
     match comps[1]? with
-    | some c => PsyExpr.literal (.felt (hashComponent c))
-    | none => PsyExpr.literal (.felt 0)
+    | some c => feltLit (hashComponent c)
+    | none => feltLit 0
   (target, method, note)
 
 private def exprTypeName : Expr → String
@@ -324,7 +341,7 @@ private partial def lowerExprStmt
   let leaf (e : PsyExpr) : CompileResult (Array PsyStmt × PsyExpr × EmitCtx) :=
     pure (#[], e, ctx)
   match expr with
-  | .literal value => leaf (.literal (.felt value.toNat))
+  | .literal value => leaf (feltLit value.toNat)
   | .boolLiteral value => leaf (.literal (.bool value))
   | .param inputIndex => leaf (.local s!"p{inputIndex}")
   | .loopVar depth => leaf (.local s!"pf_i{depth}")
@@ -334,13 +351,14 @@ private partial def lowerExprStmt
         | none => planError "Psy emission: stateLoad references a missing field"
       leaf (.storageScalarRead name)
   | .checkedAdd l r => do
+      -- Field-wrap overflow (official Psy template style): sum >= lhs
+      -- detects Goldilocks wrap. A 2^64 bound is not a legal Felt literal.
       let (ls1, l', ctx1) ← lowerExprStmt ctx l
       let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
       let (name, ctx3) := freshName ctx2
-      let bound : PsyExpr := .literal (.felt 18446744073709551616)
       pure (ls1 ++ ls2 ++
         #[.letBind name "Felt" (.binary l' .add r'),
-          .assert (.binary (.local name) .lt bound) "u64 add overflow"],
+          .assert (.binary (.local name) .ge l') "u64 add overflow"],
         .local name, ctx3)
   | .checkedSub l r => do
       let (ls1, l', ctx1) ← lowerExprStmt ctx l
@@ -351,20 +369,27 @@ private partial def lowerExprStmt
           .letBind name "Felt" (.binary l' .sub r')],
         .local name, ctx3)
   | .checkedMul l r => do
+      -- Exact inverse check: lhs == 0 || product / lhs == rhs. Catches field
+      -- wrap without needing a 2^64 bound literal.
       let (ls1, l', ctx1) ← lowerExprStmt ctx l
       let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
       let (name, ctx3) := freshName ctx2
-      let bound : PsyExpr := .literal (.felt 18446744073709551616)
+      let zero := feltLit 0
+      let noWrap : PsyExpr :=
+        .binary
+          (.binary l' .eq zero)
+          .boolOr
+          (.binary (.binary (.local name) .div l') .eq r')
       pure (ls1 ++ ls2 ++
         #[.letBind name "Felt" (.binary l' .mul r'),
-          .assert (.binary (.local name) .lt bound) "u64 mul overflow"],
+          .assert noWrap "u64 mul overflow"],
         .local name, ctx3)
   | .checkedDiv l r => do
       let (ls1, l', ctx1) ← lowerExprStmt ctx l
       let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
       let (name, ctx3) := freshName ctx2
       pure (ls1 ++ ls2 ++
-        #[.assert (.binary r' .ne (.literal (.felt 0))) "u64 div by zero",
+        #[.assert (.binary r' .ne (feltLit 0)) "u64 div by zero",
           .letBind name "Felt" (.binary l' .div r')],
         .local name, ctx3)
   | .checkedMod l r => do
@@ -372,25 +397,25 @@ private partial def lowerExprStmt
       let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
       let (name, ctx3) := freshName ctx2
       pure (ls1 ++ ls2 ++
-        #[.assert (.binary r' .ne (.literal (.felt 0))) "u64 mod by zero",
+        #[.assert (.binary r' .ne (feltLit 0)) "u64 mod by zero",
           .letBind name "Felt" (.binary l' .mod r')],
         .local name, ctx3)
   | .shl l r => do
+      -- Count < 64 only. The prior product < 2^64 bound was not a legal Felt
+      -- literal under Goldilocks; field wrap of the shift is left to the VM.
       let (ls1, l', ctx1) ← lowerExprStmt ctx l
       let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
       let (name, ctx3) := freshName ctx2
-      let bound : PsyExpr := .literal (.felt 18446744073709551616)
       pure (ls1 ++ ls2 ++
-        #[.assert (.binary r' .lt (.literal (.felt 64))) "invalidShift: count >= 64",
-          .letBind name "Felt" (.binary l' .shiftLeft r'),
-          .assert (.binary (.local name) .lt bound) "u64 shl overflow"],
+        #[.assert (.binary r' .lt (feltLit 64)) "invalidShift: count >= 64",
+          .letBind name "Felt" (.binary l' .shiftLeft r')],
         .local name, ctx3)
   | .shr l r => do
       let (ls1, l', ctx1) ← lowerExprStmt ctx l
       let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
       let (name, ctx3) := freshName ctx2
       pure (ls1 ++ ls2 ++
-        #[.assert (.binary r' .lt (.literal (.felt 64))) "invalidShift: count >= 64",
+        #[.assert (.binary r' .lt (feltLit 64)) "invalidShift: count >= 64",
           .letBind name "Felt" (.binary l' .shiftRight r')],
         .local name, ctx3)
   | .compare op l r => do
@@ -429,19 +454,20 @@ private partial def lowerExprStmt
       let (name, ctx2) := freshName ctx1
       pure (ls1 ++ #[.letBind name "bool" (.unary .not o')], .local name, ctx2)
   | .checkedNeg operand => do
-      -- Two's-complement Int64 negation over Felt bit patterns in [0, 2^64):
-      -- intMin (2^63) reverts; 0 stays 0; else 2^64 - x.
+      -- Int64 intMin (2^63) reverts; otherwise field negation `0 - x`.
+      -- (2^64 − x is not expressible: 2^64 is not a legal Goldilocks literal.
+      -- Felt values already live in [0, p); field negation is the native
+      -- inverse and keeps every emitted literal in range.)
       let (ls1, o', ctx1) ← lowerExprStmt ctx operand
       let (name, ctx2) := freshName ctx1
-      let intMin : PsyExpr := .literal (.felt 9223372036854775808)
-      let two64 : PsyExpr := .literal (.felt 18446744073709551616)
+      let intMin : PsyExpr := feltLit 9223372036854775808
       pure (ls1 ++
         #[.assert (.binary o' .ne intMin) "i64 neg overflow (intMin)",
-          .letBind name "Felt" (.binary two64 .sub o'),
-          .assert (.binary (.local name) .lt two64) "i64 neg range"],
+          .letBind name "Felt" (.binary (feltLit 0) .sub o')],
         .local name, ctx2)
   | .signedCompare op l r => do
       -- Signed compare of Int64 bit patterns: subtract bias 2^63 then unsigned cmp.
+      -- 2^63 < Goldilocks p, so the bias is a legal Felt literal.
       let psyOp := match op with
         | .eq => PsyBinaryOp.eq | .ne => .ne | .lt => .lt
         | .le => .le | .gt => .gt | .ge => .ge
@@ -450,7 +476,7 @@ private partial def lowerExprStmt
       let (nl, ctx3) := freshName ctx2
       let (nr, ctx4) := freshName ctx3
       let (name, ctx5) := freshName ctx4
-      let bias : PsyExpr := .literal (.felt 9223372036854775808)
+      let bias : PsyExpr := feltLit 9223372036854775808
       pure (ls1 ++ ls2 ++
         #[.letBind nl "Felt" (.binary l' .add bias),
           .letBind nr "Felt" (.binary r' .add bias),
@@ -506,7 +532,7 @@ private partial def emitStatements
         for (value, caseBody) in cases do
           let (caseStmts, ctx2) ← emitStatements ctx' caseBody loopDepth
           caseList := caseList ++
-            [((.binary s' .eq (.literal (.felt value.toNat))), caseStmts)]
+            [((.binary s' .eq (feltLit value.toNat)), caseStmts)]
           ctx' := ctx2
         let (defaultStmts, ctx2) ← emitStatements ctx' defaultBody loopDepth
         ctx := ctx2
@@ -527,7 +553,7 @@ private partial def emitStatements
         let span : PsyExpr :=
           .binary (.local endName) .sub (.local startName)
         let fits : PsyExpr :=
-          .binary span .le (.literal (.felt maxIter))
+          .binary span .le (feltLit maxIter)
         let counterAsFelt : PsyExpr :=
           .cast (.local indexName) "Felt"
         let induction : PsyExpr :=

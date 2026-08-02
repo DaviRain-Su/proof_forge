@@ -238,9 +238,9 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
     unless expectedResultType == .u64 || expectedResultType == .bool ||
         expectedResultType == .field || expectedResultType == .u8 ||
         expectedResultType == .u16 || expectedResultType == .u32 ||
-        expectedResultType == .u128 do
+        expectedResultType == .u128 || expectedResultType == .u256 do
       throw <| .planInvariant .noir
-        s!"relation '{relation.name}' result type is outside the UInt8/16/32/64/128/Bool/Field pilot"
+        s!"relation '{relation.name}' result type is outside the UInt8/16/32/64/128/256/Bool/Field pilot"
   let (total, closed) ← checkRelationStatementsV1
     plan relation (relation.mode == .view) relation.body baseNodes
   unless closed do

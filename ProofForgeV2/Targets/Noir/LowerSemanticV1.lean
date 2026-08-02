@@ -61,6 +61,8 @@ inductive InputType where
   | u32
   /-- T11: native Noir u128 (software multi-limb analogue of T9e 2×u64). -/
   | u128
+  /-- T13: native Noir u256 (software multi-limb analogue of T9e 4×u64). -/
+  | u256
   /-- T9c-2: signed Int ABI/result native Noir i8/i16/i32/i64. -/
   | i8
   | i16
@@ -132,8 +134,9 @@ inductive ComparisonOp where
 
 inductive Expr where
   | literal (value : UInt64)
-  /-- Multi-limb literal for UInt128 (T11). `bitWidth = 128`; Emit lowers to a
-      native Noir `u128` constant (software multi-limb analogue of T9e). -/
+  /-- Multi-limb literal for UInt128/UInt256 (T11/T13). `bitWidth ∈ {128,256}`;
+      Emit lowers to a native Noir `u128`/`u256` constant (software multi-limb
+      analogue of T9e 2×/4×u64). -/
   | bigLiteral (bitWidth : Nat) (value : Nat)
   | param (inputIndex : Nat)
   | stateLoad (fieldIndex : Nat)
@@ -154,9 +157,10 @@ inductive Expr where
   | fieldMul (lhs rhs : Expr)
   | fieldDiv (lhs rhs : Expr)
   | bitNot (operand : Expr)
-  /-- Narrow/wide body checked arithmetic (`bitWidth ∈ {8,16,32,128}`); UInt64
-      keeps historical. Field never uses these — field* stay separate.
-      UInt128 (T11) reuses this family; mul/div/mod on 128 fail at lower. -/
+  /-- Narrow/wide body checked arithmetic (`bitWidth ∈ {8,16,32,128,256}`);
+      UInt64 keeps historical. Field never uses these — field* stay separate.
+      UInt128/UInt256 (T11/T13) reuse this family; mul/div/mod on 128/256 fail
+      at lower. -/
   | narrowCheckedAdd (bitWidth : Nat) (lhs rhs : Expr)
   | narrowCheckedSub (bitWidth : Nat) (lhs rhs : Expr)
   | narrowCheckedMul (bitWidth : Nat) (lhs rhs : Expr)
@@ -365,17 +369,18 @@ def artifactStem (index : Nat) (mode : RelationMode) (name : String) : String :=
 
 /-- Value kinds admitted in the Noir pilot value table. Bool may be intermediate
 (comparison/literal results feeding assert) or an entry/view result binding;
-state and params admit UInt{8,16,32,64,128} / Int64 / Field (bn254). Body
-multi-width (T8d/T11) tracks UInt{8,16,32,64,128} temps; Field stays on field*
-Plan ops only. Named Struct/Enum values are carried as `.aggregate` (flattened
-UInt64/Int64 leaf public inputs — circuit-native field access via leaf
-constraints). -/
+state and params admit UInt{8,16,32,64,128,256} / Int64 / Field (bn254). Body
+multi-width (T8d/T11/T13) tracks UInt{8,16,32,64,128,256} temps; Field stays on
+field* Plan ops only. Named Struct/Enum values are carried as `.aggregate`
+(flattened UInt64/Int64 leaf public inputs — circuit-native field access via
+leaf constraints). -/
 private inductive NoirValueKindV1 where
   | uint64
   | uint32
   | uint16
   | uint8
   | uint128
+  | uint256
   | bool
   | int64
   | field
@@ -389,6 +394,7 @@ private def uintKindOfWidthV1 (w : Nat) : Option NoirValueKindV1 :=
   | 32 => some .uint32
   | 64 => some .uint64
   | 128 => some .uint128
+  | 256 => some .uint256
   | _ => none
 
 private def widthOfUintKindV1 (k : NoirValueKindV1) : Option Nat :=
@@ -398,11 +404,12 @@ private def widthOfUintKindV1 (k : NoirValueKindV1) : Option Nat :=
   | .uint32 => some 32
   | .uint64 => some 64
   | .uint128 => some 128
+  | .uint256 => some 256
   | .bool | .int64 | .field | .aggregate => none
 
 /-- Noir pilot type-closure carrier (shared `PilotTypeClosureV1`).
-    Bool optional; state/params admit UInt{8,16,32,64,128}/Int64/Field
-    (T8b/T11) and named Struct/Enum (NoirAggregate: flattened to leaf public
+    Bool optional; state/params admit UInt{8,16,32,64,128,256}/Int64/Field
+    (T8b/T11/T13) and named Struct/Enum (NoirAggregate: flattened to leaf public
     inputs). Shift counts decode to plain u64 literals in the Plan. -/
 private abbrev NoirTypeClosureV1 := PilotTypeClosureV1
 
@@ -410,7 +417,7 @@ private def noirPlanErr (m : String) : CompileError :=
   .planInvariant .noir m
 
 /-- Map an admitted scalar TypeId to a Noir public-input type.
-    Field → `.field`; ABI UInt{8,16,32,64,128} → matching width; Int{8..64} →
+    Field → `.field`; ABI UInt{8,16,32,64,128,256} → matching width; Int{8..64} →
     matching iN. Fail closed on anything else. -/
 private def inputTypeOfScalarV1
     (types : NoirTypeClosureV1) (typeId : TypeIdV1) : CompileResult InputType := do
@@ -432,20 +439,21 @@ private def inputTypeOfScalarV1
     | some 32 => pure .u32
     | some 64 => pure .u64
     | some 128 => pure .u128
+    | some 256 => pure .u256
     | some w =>
         throw <| .planInvariant .noir
           s!"unsupported Noir semantic shape: ABI UInt{w} is not admitted"
     | none =>
         throw <| .planInvariant .noir
-          "unsupported Noir semantic shape: scalar type is not UInt{8,16,32,64,128}, Int64, or Field"
+          "unsupported Noir semantic shape: scalar type is not UInt{8,16,32,64,128,256}, Int64, or Field"
 
-/-- Noir pilot accepts UInt{8,16,32,64,128}/Unit/Bool/Int64 plus sole catalog
+/-- Noir pilot accepts UInt{8,16,32,64,128,256}/Unit/Bool/Int64 plus sole catalog
     Field (bn254 Fr = Noir native Field) under `pilotUintWidthPolicyNoirBody`
-    (T8d body multi-width + T8b ABI multi-width + T11 UInt128), plus **named
-    Struct/Enum** (`pilotNamedAggregateStatePolicyAdmit`, NoirAggregate)
-    flattened to UInt64/Int64 relation-slot leaves. T12: Principal admitted as
-    **storage identity only** (`pilotPrincipalPolicyAdmit`) — fixed leaf
-    layout len+8×UInt64 (≤64B body, same pattern as EVM T10); still not a
+    (T8d body multi-width + T8b ABI multi-width + T11 UInt128 + T13 UInt256),
+    plus **named Struct/Enum** (`pilotNamedAggregateStatePolicyAdmit`,
+    NoirAggregate) flattened to UInt64/Int64 relation-slot leaves. T12: Principal
+    admitted as **storage identity only** (`pilotPrincipalPolicyAdmit`) — fixed
+    leaf layout len+8×UInt64 (≤64B body, same pattern as EVM T10); still not a
     Field element. Anonymous Array/Map/Bytes stay fail closed
     (`pilotContainerStatePolicyNone`). -/
 private def validateNoirTypeClosureV1
@@ -1028,7 +1036,8 @@ private def currentValueWithArmsV1
   findValueV1 values id
 
 /-- Width-dispatch for UInt body ops. Field never routes here.
-    UInt128 (T11) reuses narrow* with bitWidth=128 (native Noir u128 surface). -/
+    UInt128/UInt256 (T11/T13) reuse narrow* with bitWidth=128/256 (native Noir
+    u128/u256 surface; multi-limb analogue of T9e 2×/4×u64). -/
 private def mkCheckedAdd (w : Nat) (l r : Expr) : Expr :=
   if w == 64 then .checkedAdd l r else .narrowCheckedAdd w l r
 private def mkCheckedSub (w : Nat) (l r : Expr) : Expr :=
@@ -1052,12 +1061,12 @@ private def mkShl (w : Nat) (l r : Expr) : Expr :=
 private def mkShr (w : Nat) (l r : Expr) : Expr :=
   if w == 64 then .shr l r else .narrowShr w l r
 
-/-- T11: true multiword mul/div/mod is deferred (align with T9e high-limb gate);
-    UInt128 mul/div/mod fail closed at the Plan seam. -/
-private def rejectUint128MulDivModV1 (label : String) (w : Nat) : CompileResult Unit := do
-  if w == 128 then
+/-- T11/T13: true multiword mul/div/mod is deferred (align with T9e high-limb
+    gate); UInt128/UInt256 mul/div/mod fail closed at the Plan seam. -/
+private def rejectWideUintMulDivModV1 (label : String) (w : Nat) : CompileResult Unit := do
+  if w == 128 || w == 256 then
     throw <| .planInvariant .noir
-      s!"unsupported Noir semantic shape: UInt128 {label} is not admitted (multi-limb mul/div deferred)"
+      s!"unsupported Noir semantic shape: UInt{w} {label} is not admitted (multi-limb mul/div deferred)"
   else
     pure ()
 
@@ -1128,8 +1137,8 @@ private def binaryOpToComparisonV1 : BinaryOpV1 → Option ComparisonOp
 
 /-- Generic checked-arithmetic value constructor for mul/div/mod (add/sub
     keep their historical constructors above). UInt64/Int64/Field (Field only
-    for mul/div — Field mod is rejected by the caller). T11: UInt128 mul/div/mod
-    fail closed. -/
+    for mul/div — Field mod is rejected by the caller). T11/T13: UInt128/UInt256
+    mul/div/mod fail closed. -/
 private def makeArithValueV1 (label : String)
     (mkUint : Nat → Expr → Expr → Expr)
     (mkField : Option (Expr → Expr → Expr))
@@ -1150,7 +1159,7 @@ private def makeArithValueV1 (label : String)
         unless w == w2 do
           throw <| .planInvariant .noir
             s!"unsupported Noir semantic shape: {label} UInt widths must match"
-        rejectUint128MulDivModV1 label w
+        rejectWideUintMulDivModV1 label w
         makeTreeValueV1 (mkUint w lhs.expr rhs.expr) lhs.kind lhsId rhsId lhs rhs
     | _, _ =>
         throw <| .planInvariant .noir
@@ -1468,7 +1477,7 @@ private def lowerBlockInstructionsV1
         else
           match types.uintWidthOf typeId with
           | some w =>
-              -- T8d/T11: admitted body UInt{8,16,32,64,128} literals retain width.
+              -- T8d/T11/T13: admitted body UInt{8,16,32,64,128,256} literals retain width.
               unless isNoirBodyUintWidth w do
                 throw <| .planInvariant .noir
                   s!"unsupported Noir semantic shape: UInt{w} literal is not admitted"
@@ -1501,7 +1510,7 @@ private def lowerBlockInstructionsV1
                 values := ← appendResultValueV1 typeId values result value
               else
                 throw <| .planInvariant .noir
-                  "unsupported Noir semantic shape: literal is not UInt{8,16,32,64,128}, Int64, Bool, or Principal"
+                  "unsupported Noir semantic shape: literal is not UInt{8,16,32,64,128,256}, Int64, Bool, or Principal"
     | .stateLoad stateId, some result =>
         let leaves ← findStateLeavesV1 layout stateId
         if types.isNamedAggregate result.typeId || types.isPrincipal result.typeId then
@@ -1543,7 +1552,7 @@ private def lowerBlockInstructionsV1
                         s!"unsupported Noir semantic shape: state load UInt{w} is not admitted"
               | none =>
                   throw <| .planInvariant .noir
-                    "unsupported Noir semantic shape: state load must be UInt{8,16,32,64,128}, Int64, Field, Principal, or named Struct/Enum"
+                    "unsupported Noir semantic shape: state load must be UInt{8,16,32,64,128,256}, Int64, Field, Principal, or named Struct/Enum"
           values := ← appendResultValueV1 result.typeId values result {
             expr := .stateLoad fieldIndex
             kind
@@ -1615,7 +1624,7 @@ private def lowerBlockInstructionsV1
               values := ← appendResultValueV1 boolTypeId values result value
           | none =>
               throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: only checked UInt{8,16,32,64,128}/Int64/Field arithmetic, bitwise, shift, comparison, and logical operators are supported"
+                "unsupported Noir semantic shape: only checked UInt{8,16,32,64,128,256}/Int64/Field arithmetic, bitwise, shift, comparison, and logical operators are supported"
     | .unary op operandId, some result =>
         let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
         match op with
@@ -1665,7 +1674,7 @@ private def lowerBlockInstructionsV1
                 "unsupported Noir semantic shape: Op.Unary.neg requires Int64 or Field"
         | .bitNot =>
             let value ← makeBitNotValueV1 operandId operand
-            -- T8d/T11: bitNot preserves operand width (UInt{8..64,128}).
+            -- T8d/T11/T13: bitNot preserves operand width (UInt{8..64,128,256}).
             values := ← appendResultValueV1 result.typeId values result value
         | .not =>
             let boolTypeId ← match types.boolTypeId with
@@ -1799,7 +1808,7 @@ private def lowerBlockInstructionsV1
           else .uint64
         let resultTypeId ← match resultKind with
           | .uint64 => pure types.uint64TypeId
-          | .uint8 | .uint16 | .uint32 | .uint128 =>
+          | .uint8 | .uint16 | .uint32 | .uint128 | .uint256 =>
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: pureCall result cannot be multi-width UInt"
           | .int64 =>
@@ -2492,7 +2501,7 @@ private def resolveEntryViewResultV1
     (callable : CallableV1) : CompileResult (NoirValueKindV1 × InputType) := do
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .noir
-      s!"entry '{name}' does not return a public UInt8/16/32/64/128, Int64, Bool, or Field"
+      s!"entry '{name}' does not return a public UInt8/16/32/64/128/256, Int64, Bool, or Field"
   if types.isField callable.result.typeId then
     pure (.field, .field)
   else
@@ -2502,9 +2511,10 @@ private def resolveEntryViewResultV1
     | some 32 => pure (.uint32, .u32)
     | some 64 => pure (.uint64, .u64)
     | some 128 => pure (.uint128, .u128)
+    | some 256 => pure (.uint256, .u256)
     | some _ =>
         throw <| .planInvariant .noir
-          s!"entry '{name}' does not return public UInt8/16/32/64/128, Int64, Bool, or Field"
+          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or Field"
     | none =>
         match types.intWidthOf callable.result.typeId with
         | some 8 => pure (.int64, .i8)
@@ -2519,7 +2529,7 @@ private def resolveEntryViewResultV1
           pure (.bool, .bool)
         else
           throw <| .planInvariant .noir
-            s!"entry '{name}' does not return public UInt8/16/32/64/128, Int64, Bool, or Field"
+            s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or Field"
 
 private def makeRelationV1
     (index : Nat)

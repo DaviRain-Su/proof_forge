@@ -87,11 +87,14 @@ unsafe def testCounterPsySource : IO Unit := do
     "initialize/increment must write storage via c.count ="
   expect (psy.contains "c.count.get()")
     "reads must use c.count.get()"
-  -- Checked u64 add guard: product then assert against 2^64.
-  expect (psy.contains "18446744073709551616")
-    "checked add/mul must emit the 2^64 Felt bound"
+  -- Checked u64 add guard: field-wrap (sum >= lhs). 2^64 is not a legal
+  -- Goldilocks Felt literal (p = 2^64−2^32+1); dargo rejects it.
+  expect (!psy.contains "18446744073709551616")
+    "checked add must not emit the illegal 2^64 Felt bound"
   expect (psy.contains "u64 add overflow")
     "checked add must emit the overflow assert message"
+  expect (psy.contains ">=" || psy.contains "≥")
+    "checked add must use a field-wrap (>= lhs) guard"
   expect (psy.contains "CounterRef::new(ContractMetadata::current())")
     "each method must construct the contract ref"
 
@@ -118,7 +121,9 @@ unsafe def testCheckedArithGuards : IO Unit := do
   expect (psy.contains "u64 sub underflow")
     "checked sub must assert a >= b before subtraction"
   expect (psy.contains "u64 mul overflow")
-    "checked mul must assert product < 2^64"
+    "checked mul must emit the field-wrap inverse overflow guard"
+  expect (!psy.contains "18446744073709551616")
+    "checked mul must not emit the illegal 2^64 Felt bound"
   expect (psy.contains "u64 div by zero")
     "checked div must assert divisor != 0"
   expect (psy.contains "assert(")
