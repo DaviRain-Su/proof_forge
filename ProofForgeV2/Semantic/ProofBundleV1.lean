@@ -2,8 +2,8 @@ import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Canonical
 
 /-
-  ProofForgeV2.Semantic.ProofBundleV1 — engineering **safe load** for
-  ProofBundleV1-shaped inputs (R-3).
+  ProofForgeV2.Semantic.ProofBundleV1 — engineering in-memory validation for
+  ProofBundleV1-shaped manifests and supplied module maps (R-3 foundation).
 
   Scope (engineering, not formal TST-PROOF-001 / Stage-0 / contained worker):
     * PF-JCS manifest parse + re-encode identity
@@ -15,7 +15,7 @@ import ProofForgeV2.Core.Canonical
       non-canonical JCS, empty tables, unknown top-level keys
 
   Out of scope this slice:
-    * contained worker / empty LEAN_PATH / dirfd open
+    * filesystem safe loading / contained worker / empty LEAN_PATH / dirfd open
     * trust-policy axiom graph / ambient olean search
     * ToolLock digest join / product check-build wiring
     * formal evidence ceremony
@@ -182,6 +182,43 @@ private def requireNonEmptyQualifiedNames (v : PfJson) (context : String) :
 private def qnComponents (qn : QualifiedName) : Array String :=
   NonEmptyArray.toArray qn.components
 
+/-- The only legal bundle-relative path for a module. Filesystem consumers
+    derive this value from the validated module identity; the manifest cannot
+    choose an unrelated pathname. -/
+def proofModuleOleanPathV1 (moduleName : QualifiedName) : String :=
+  "modules/" ++ String.intercalate "/" (qnComponents moduleName).toList ++ ".olean"
+
+private def compareUtf8Bytes (left right : ByteArray) : Ordering :=
+  let count := min left.size right.size
+  let rec loop (index : Nat) : Ordering :=
+    if index < count then
+      if left.get! index < right.get! index then .lt
+      else if left.get! index > right.get! index then .gt
+      else loop (index + 1)
+    else if left.size < right.size then .lt
+    else if left.size > right.size then .gt
+    else .eq
+  loop 0
+
+private def compareQualifiedNames (left right : QualifiedName) : Ordering :=
+  let leftComponents := qnComponents left
+  let rightComponents := qnComponents right
+  let count := min leftComponents.size rightComponents.size
+  let rec loop (index : Nat) : Ordering :=
+    if index < count then
+      match compareUtf8Bytes leftComponents[index]!.toUTF8 rightComponents[index]!.toUTF8 with
+      | .eq => loop (index + 1)
+      | order => order
+    else if leftComponents.size < rightComponents.size then .lt
+    else if leftComponents.size > rightComponents.size then .gt
+    else .eq
+  loop 0
+
+private def compareExports (left right : ProofExportV1) : Ordering :=
+  match compareUtf8Bytes left.invariantName.toUTF8 right.invariantName.toUTF8 with
+  | .eq => compareQualifiedNames left.theoremName right.theoremName
+  | order => order
+
 private def qnToPfJson (qn : QualifiedName) : PfJson :=
   .array ((qnComponents qn).map PfJson.string)
 
@@ -244,10 +281,9 @@ private def decodeModule (v : PfJson) :
   let moduleName ← requireQualifiedName (← fieldExact fields "moduleName" "module") "module.moduleName"
   let oleanDigest ← requireDigest (← fieldExact fields "oleanDigest" "module") "module.oleanDigest"
   let oleanPath ← requireString (← fieldExact fields "oleanPath" "module") "module.oleanPath"
-  unless 1 ≤ oleanPath.utf8ByteSize && oleanPath.utf8ByteSize ≤ 512 do
-    return ← err (.malformed "module.oleanPath length out of range")
-  unless oleanPath.endsWith ".olean" do
-    return ← err (.malformed "module.oleanPath must end with .olean")
+  match parseProjectRelativePath oleanPath with
+  | .ok _ => pure ()
+  | .error e => return ← err (.malformed s!"module.oleanPath: {e}")
   pure { moduleName, oleanPath, oleanDigest, imports }
 
 private def encodeExport (e : ProofExportV1) :
@@ -345,32 +381,82 @@ private def decodeManifestObject (fields : Array (String × PfJson)) :
 /-- Structural validation after decode (identity + uniqueness). -/
 def validateProofBundleManifestV1 (m : ProofBundleManifestV1) :
     Except ProofBundleErrorV1 Unit := do
+  let validateName (name : QualifiedName) (context : String) :
+      Except ProofBundleErrorV1 Unit :=
+    match validateQualifiedName name with
+    | .ok () => pure ()
+    | .error e => err (.malformed s!"{context}: {e}")
   unless m.schema == proofBundleSchemaV1 do
     return ← err (.malformed s!"schema must be '{proofBundleSchemaV1}'")
   unless m.proofAbi.semanticSchema == proofAbiSemanticSchemaV1 do
     return ← err (.malformed s!"proofAbi.semanticSchema must be '{proofAbiSemanticSchemaV1}'")
+  validateName m.proofAbi.moduleName "proofAbi.moduleName"
+  validateName m.proofAbi.theoremName "proofAbi.theoremName"
   unless qnComponents m.proofAbi.moduleName == proofAbiModuleComponentsV1 do
     return ← err (.malformed "proofAbi.moduleName must be ProofForgeV2.Semantic.InvariantABI")
   unless qnComponents m.proofAbi.theoremName == proofAbiTheoremComponentsV1 do
     return ← err (.malformed "proofAbi.theoremName must be InvariantTheoremV1 FQ")
-  -- Unique module names and olean paths (O(n²) small-n).
+  -- Module order is the authority order used by the later exact filesystem
+  -- map and importer. Strict order also supplies uniqueness.
   let mods := NonEmptyArray.toArray m.modules
-  let mut i : Nat := 0
-  for mi in mods do
-    let mut j : Nat := 0
-    for mj in mods do
-      if i < j then
-        if qnComponents mi.moduleName == qnComponents mj.moduleName then
-          return ← err (.malformed "duplicate moduleName in modules")
-        if mi.oleanPath == mj.oleanPath then
-          return ← err (.malformed "duplicate oleanPath in modules")
-      j := j + 1
-    i := i + 1
+  unless mods.size ≤ 1024 do
+    return ← err (.malformed "manifest.modules exceeds 1024 entries")
+  let mut previousModule : Option QualifiedName := none
+  for mod in mods do
+    validateName mod.moduleName "module.moduleName"
+    match validateProjectRelativePath { value := mod.oleanPath } with
+    | .ok () => pure ()
+    | .error e => return ← err (.malformed s!"module.oleanPath: {e}")
+    unless mod.oleanPath == proofModuleOleanPathV1 mod.moduleName do
+      return ← err (.malformed "module.oleanPath does not match moduleName")
+    match previousModule with
+    | some previous =>
+      unless compareQualifiedNames previous mod.moduleName == .lt do
+        return ← err (.malformed "manifest.modules must be strictly sorted by moduleName")
+    | none => pure ()
+    previousModule := some mod.moduleName
+    -- Direct-import order is part of the `.olean` identity and is preserved;
+    -- only uniqueness is enforced here. Resolution may target another bundle
+    -- module or the separately validated trusted base closure.
+    let mut seenImports : Array (Array String) := #[]
+    for imported in mod.imports do
+      validateName imported "module.imports"
+      let components := qnComponents imported
+      if seenImports.any (· == components) then
+        return ← err (.malformed "duplicate module import")
+      seenImports := seenImports.push components
+  -- Roots are a strictly sorted, unique subset of bundle modules.
+  let roots := NonEmptyArray.toArray m.roots
+  let mut previousRoot : Option QualifiedName := none
+  for root in roots do
+    validateName root "manifest.roots"
+    unless mods.any (fun mod => qnComponents mod.moduleName == qnComponents root) do
+      return ← err (.malformed "manifest root not present in modules")
+    match previousRoot with
+    | some previous =>
+      unless compareQualifiedNames previous root == .lt do
+        return ← err (.malformed "manifest.roots must be strictly sorted")
+    | none => pure ()
+    previousRoot := some root
   -- Every export ownerModule must appear in modules.
-  for ex in NonEmptyArray.toArray m.exports do
+  let exports := NonEmptyArray.toArray m.exports
+  let mut previousExport : Option ProofExportV1 := none
+  for ex in exports do
+    match validateIdentifierComponent ex.invariantName with
+    | .ok () => pure ()
+    | .error e => return ← err (.malformed s!"export.invariantName: {e}")
+    validateName ex.theoremName "export.theoremName"
+    validateName ex.ownerModule "export.ownerModule"
     let owner := qnComponents ex.ownerModule
     unless mods.any (fun m => qnComponents m.moduleName == owner) do
       return ← err (.malformed "export.ownerModule not present in modules")
+    match previousExport with
+    | some previous =>
+      unless compareExports previous ex == .lt do
+        return ← err (.malformed
+          "manifest.exports must be strictly sorted by invariantName/theoremName")
+    | none => pure ()
+    previousExport := some ex
   pure ()
 
 /-- Parse PF-JCS bytes with re-encode identity, then structure-validate. -/
@@ -396,6 +482,7 @@ def decodeProofBundleManifestV1 (bytes : ByteArray) :
 /-- Domain-separated bundle digest over exact canonical JCS UTF-8. -/
 def proofBundleDigestV1 (m : ProofBundleManifestV1) :
     Except ProofBundleErrorV1 Digest := do
+  validateProofBundleManifestV1 m
   let jcs ← encodeProofBundleManifestV1 m
   match domainSeparatedSha256 proofBundleSchemaV1 jcs.toUTF8 with
   | .ok d => pure d

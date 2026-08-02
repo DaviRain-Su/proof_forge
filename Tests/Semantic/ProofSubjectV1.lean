@@ -67,10 +67,10 @@ private def qn (components : Array String) : IO QualifiedName := do
 private def openMatchingBundle
     (sourceHash semanticHash provenanceDigest : Digest) :
     IO OpenedProofBundleV1 := do
-  let moduleName ← qn proofAbiModuleComponentsV1
+  let abiModuleName ← qn proofAbiModuleComponentsV1
   let abiTheoremName ← qn proofAbiTheoremComponentsV1
   let exportTheoremName ← qn #["Bundle", "Thm"]
-  let root ← qn #["Bundle", "Root"]
+  let moduleName ← qn #["Bundle", "Root"]
   let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := "proof-subject-join-olean".toUTF8
   let proofModule : ProofModuleV1 := {
@@ -89,7 +89,7 @@ private def openMatchingBundle
   let exports ← match NonEmptyArray.ofArray #[proofExport] with
     | .ok value => pure value
     | .error error => throw <| IO.userError error
-  let roots ← match NonEmptyArray.ofArray #[root] with
+  let roots ← match NonEmptyArray.ofArray #[moduleName] with
     | .ok value => pure value
     | .error error => throw <| IO.userError error
   let manifest : ProofBundleManifestV1 := {
@@ -100,7 +100,7 @@ private def openMatchingBundle
     toolchainLockDigest := sha256Bytes "toolchain".toUTF8
     proofAbi := {
       semanticSchema := proofAbiSemanticSchemaV1
-      moduleName
+      moduleName := abiModuleName
       theoremName := abiTheoremName
       abiOleanDigest := sha256Bytes "abi".toUTF8
       trustPolicyDigest := sha256Bytes "trust".toUTF8
