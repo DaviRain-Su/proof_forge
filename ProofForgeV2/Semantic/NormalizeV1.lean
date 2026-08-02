@@ -56,7 +56,7 @@
       strict logical and/or producing Bool. Unary `-` on UInt desugars to
       `0 - x`; on Int/Field emits `Op.Unary.neg` (intMin overflow is a runtime
       revert; Field neg = `(p - v) % p`; Principal has no unary). call/schedule
-      args and for endpoints admit legal UInt widths (N-8; Int for ends deferred)
+      args and for endpoints admit legal UInt/Int widths (N-8/N-FOR-INT)
     * types: named Struct/Enum (Pass0 contiguous prefix, source order) then
       anonymous legal UInt/Int, Unit, Bool, Principal, String, Bytes, Array,
       Map, Option, Field(bn254-fr); one TypeId per distinct anonymous shape,
@@ -136,7 +136,6 @@
   Out of scope for this module:
     * Field/Principal source literals, Field/Principal/String ordering
       comparisons, Field `mod`, Principal/String arithmetic/bitwise/unary,
-      Int for endpoints (for ends stay legal UInt; N-8 Int events open),
       anonymous Unit/Bool as state or param types (Array/Map/Bytes/Option
       state admitted; Option default is none-tag `0x00` via InvariantFoundation),
       anonymous Array/Map/Bytes/Option entry/view/fn results (named Struct/Enum
@@ -576,20 +575,7 @@ private def findEnumVariantIndex (variants : Array WireEnumVariantV1) (name : St
     i := i + 1
   pure none
 
-/-- Require anonymous legal UInt width (event/error fields; UInt-only sites). -/
-private def requireAnonymousUIntTypeId
-    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
-    Except NormalizeErrorV1 Unit :=
-  match anonShapeOf? types typeId with
-  | some (.uint w) =>
-      if legalIntegerWidthV1 w.toNat then pure ()
-      else failUnsupported s!"S1 {context} requires legal UInt width, got UInt{w}"
-  | some _ =>
-      failUnsupported s!"S1 {context} requires anonymous UInt type"
-  | none =>
-      failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
-
-/-- Require anonymous legal UInt or Int width (legacy integer-only sites). -/
+/-- Require anonymous legal UInt or Int width at integer-only sites. -/
 private def requireAnonymousIntegerTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
@@ -685,16 +671,6 @@ private def requireStateOrParamTypeId
       | none, _ =>
           failUnsupported
             s!"S1 {context} requires anonymous UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes/Option"
-
-/-- Backward-compatible UInt64-only pin used by call/schedule/for endpoints. -/
-private def requireUInt64TypeId
-    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
-    Except NormalizeErrorV1 Unit :=
-  match anonShapeOf? types typeId with
-  | some (.uint 64) => pure ()
-  | some _ => failUnsupported s!"S1 {context} requires UInt64 type"
-  | none =>
-      failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
 /-- Require entry/view/fn result type: anonymous scalar (legal UInt/Int, Unit,
     Bool, sole catalog Field, Principal, String) **or** named Struct/Enum (N-4).
@@ -3100,13 +3076,14 @@ private partial def lowerStmt
         return ← failUnsupported s!"S1 let '{raw name}' type mismatch"
       pure ({ st1 with env := envInsert st1.env (raw name) vid tid }, .open_)
   | .for_ binder start endExclusive bound body => do
-      -- N-8: for endpoints are same-width legal UInt (not only UInt64).
+      -- N-FOR-INT: for endpoints are same-width legal UInt or Int. The CFG
+      -- contract is target-neutral: signedness is carried by the TypeId, the
+      -- header uses typed `<`, and the latch uses typed `+ 1`.
       -- Prefer start place width; when start is a bare integer literal (or other
       -- non-place) and endExclusive is env/state/const place, use end's exact
-      -- UInt width so `for i in 0 .. LIMIT` with UInt32 LIMIT does not default
-      -- to UInt64. TypeCheck must already accept the program (literal start
-      -- without expected type is rejected by Typed today — Normalize keeps
-      -- this end-fallback for accepted place-end forms and future Typed parity).
+      -- integer width so `for i in 0 .. LIMIT` does not default to UInt64.
+      -- TypeCheck must already accept the program (literal start without an
+      -- expected type is rejected today; this fallback keeps future parity).
       let (iStart, startTid) ← match start with
         | .place p =>
             synthPlaceTypeV1 p st.interner st.env states st.constants
@@ -3114,7 +3091,7 @@ private partial def lowerStmt
             match ← trySynthPlaceExprTypeV1 endExclusive st states with
             | some pair => pure pair
             | none => pure (internShape st.interner (.uint 64))
-      requireAnonymousUIntTypeId iStart.types startTid "for start"
+      requireAnonymousIntegerTypeId iStart.types startTid "for start"
       let (iB, boolTid) := internShape iStart .bool
       let st0 := { st with interner := iB }
       let (sVid, sTid, st1) ← lowerExpr start startTid st0 states fns
@@ -3122,10 +3099,10 @@ private partial def lowerStmt
         return ← failUnsupported "S1 for start type mismatch"
       let (eVid, eTid, st2) ← lowerExpr endExclusive startTid st1 states fns
       unless eTid == startTid do
-        return ← failUnsupported "S1 for end must match start UInt width"
+        return ← failUnsupported "S1 for end must match start integer type"
       unless bound ≤ maxWireLoopBoundV1 do
         return ← failUnsupported "S1 for bound exceeds the wire loop maximum"
-      let u64Tid := startTid  -- induction / latch use endpoint width (legal UInt)
+      let inductionTid := startTid
       -- N-6: outer lets reassigned in the body are loop-carried header params.
       let savedEnv := st2.env
       let liveNames := savedEnv.bindings.foldl
@@ -3148,7 +3125,7 @@ private partial def lowerStmt
       let iVid := UInt32.ofNat (st2.callableParamCount + st2.nextBlockParamOrdinal)
       let mut ord := st2.nextBlockParamOrdinal + 1
       let mut headerParams : Array BlockParameterV1 :=
-        #[{ valueId := iVid, typeId := u64Tid }]
+        #[{ valueId := iVid, typeId := inductionTid }]
       let mut carriedHeader : Array (String × ValueIdV1 × TypeIdV1) := #[]
       let mut preArgs : Array ValueIdV1 := #[sVid]
       for (cn, initVid, tid) in carriedInit do
@@ -3170,20 +3147,21 @@ private partial def lowerStmt
       let mut bodyEnv := savedEnv
       for (cn, cVid, tid) in carriedHeader do
         bodyEnv := envRebind bodyEnv cn cVid tid
-      bodyEnv := envInsert bodyEnv bname iVid u64Tid
+      bodyEnv := envInsert bodyEnv bname iVid inductionTid
       let (stB, bodyStatus) ← lowerStmts body.statements resultTid
         { st6 with env := bodyEnv } states events errors fns
       let stL ← match bodyStatus with
         | .open_ =>
             let latchIdx := stB.blocks.size
-            -- N-8: induction width may be UInt8/16/32/64 — encode `1` to that width.
-            let oneBytes := match anonShapeOf? stB.interner.types u64Tid with
-              | some (.uint w) => encodeNatLeBytes 1 (w.toNat / 8)
+            -- The induction literal is canonical `1` at the exact UInt/Int width.
+            let oneBytes := match anonShapeOf? stB.interner.types inductionTid with
+              | some (.uint w) | some (.int w) =>
+                  encodeNatLeBytes 1 (w.toNat / 8)
               | _ => encodeU64le 1
             let (stB1, oneVid) :=
-              emitValue stB u64Tid (.literal u64Tid oneBytes)
+              emitValue stB inductionTid (.literal inductionTid oneBytes)
             let (stB2, incVid) :=
-              emitValue stB1 u64Tid (.binary BinaryOpV1.add iVid oneVid)
+              emitValue stB1 inductionTid (.binary BinaryOpV1.add iVid oneVid)
             let mut latchArgs : Array ValueIdV1 := #[incVid]
             for (cn, _, tid) in carriedHeader do
               match envLookup stB2.env cn with

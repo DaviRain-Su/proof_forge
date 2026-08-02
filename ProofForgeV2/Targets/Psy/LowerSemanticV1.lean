@@ -1217,6 +1217,8 @@ private partial def lowerLoop
     planError "unsupported Psy semantic shape: loop header must carry exactly one block parameter"
   let some paramDef := header.params[0]? |
     planError "unsupported Psy semantic shape: loop header parameter is missing"
+  unless paramDef.typeId == layout.types.uint64TypeId do
+    planError "unsupported Psy semantic shape: loop header must carry one UInt64 parameter"
   unless target.args.size == 1 do
     planError "unsupported Psy semantic shape: loop entry must carry exactly one argument"
   let startVid ← match target.args[0]? with

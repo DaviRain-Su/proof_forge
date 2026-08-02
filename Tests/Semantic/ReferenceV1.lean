@@ -3936,6 +3936,96 @@ private unsafe def testIntNormalizeReference
         throw <| IO.userError s!"int-neg-ref: expected Int8 -1 bytes, got size {bytes.size}"
   | _ => throw <| IO.userError "int-neg-ref: expected folded Op.Literal for -1"
 
+  -- N-FOR-INT: same-width Int endpoints use signed half-open comparison,
+  -- same-width `+ 1`, zero-trip when start ≥ end, and the existing exact
+  -- back-edge bound/rollback contract.
+  let loopSrc := wrap "IntForRef" <|
+    "  state total : Int8\n" ++
+    "  init(initial : Int8) do\n" ++
+    "    total := initial\n" ++
+    "  entry span(start : Int8, stop : Int8) : Int8 do\n" ++
+    "    for i in start ..< stop bounded 8 do\n" ++
+    "      total := total + 1\n" ++
+    "    return total\n" ++
+    "  entry tight(start : Int8, stop : Int8) : Int8 do\n" ++
+    "    for i in start ..< stop bounded 3 do\n" ++
+    "      total := total + 1\n" ++
+    "    return total\n"
+  let loopVal ← loadSource session "int-for-ref" loopSrc
+  let loopCarrier ← match normalizeProgramV1 loopVal with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"int-for-ref: normalize: {repr e}"
+  let loopData ← match validateSemanticProgramV1 loopCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"int-for-ref: validate: {repr e}"
+  let loopAdmitted ← admitOk "int-for-ref" loopCarrier
+  let some loopI8 := findAnonInt loopData.types 8 |
+    throw <| IO.userError "int-for-ref: missing Int8"
+  let some spanCallable := loopData.callables.find? (fun c => c.name == some "span") |
+    throw <| IO.userError "int-for-ref: missing span callable"
+  let some spanBound := spanCallable.loopBounds[0]? |
+    throw <| IO.userError "int-for-ref: missing span loop bound"
+  let some spanHeader := spanCallable.blocks[spanBound.header.toNat]? |
+    throw <| IO.userError "int-for-ref: missing span loop header"
+  let some spanInduction := spanHeader.params[0]? |
+    throw <| IO.userError "int-for-ref: missing span induction parameter"
+  let some spanLatch := spanCallable.blocks[spanBound.backEdgeFrom.toNat]? |
+    throw <| IO.userError "int-for-ref: missing span loop latch"
+  let headerHasSignedLt := spanHeader.instructions.any fun instruction =>
+    match instruction.op with
+    | .binary .lt lhs _ => lhs == spanInduction.valueId
+    | _ => false
+  let latchHasTypedOne := spanLatch.instructions.any fun instruction =>
+    match instruction.result, instruction.op with
+    | some result, .literal typeId bytes =>
+        result.typeId == loopI8 && typeId == loopI8 &&
+          bytes == ByteArray.mk #[(1 : UInt8)]
+    | _, _ => false
+  let latchHasTypedAdd := spanLatch.instructions.any fun instruction =>
+    match instruction.result, instruction.op with
+    | some result, .binary .add lhs _ =>
+        result.typeId == loopI8 && lhs == spanInduction.valueId
+    | _, _ => false
+  let latchReturnsToHeader := match spanLatch.terminator with
+    | .jump target => target.blockId == spanBound.header && target.args.size == 1
+    | _ => false
+  expect (spanCallable.loopBounds.size == 1 && spanBound.maxIterations == 8 &&
+      spanHeader.params.size == 1 && spanInduction.typeId == loopI8 &&
+      headerHasSignedLt && latchHasTypedOne && latchHasTypedAdd &&
+      latchReturnsToHeader)
+    "int-for-ref: Normalize must retain typed Int8 header/latch and exact loopBounds"
+  let refI8 (n : Int) : ReferenceValueV1 :=
+    let bits := if n < 0 then (n + 256).toNat else n.toNat
+    { typeId := loopI8, valueBytes := ByteArray.mk #[UInt8.ofNat bits] }
+  let initial ← match initialLogicalStateV1 loopCarrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"int-for-ref: initial: {repr e}"
+  let tenState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (ByteArray.mk #[10]) }
+  expectReturned "int-for-init"
+    (stepReferenceSliceV1 loopAdmitted initial (inv 0 #[refI8 10]) emptyResponses)
+    tenState none #[]
+  let fourteenState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (ByteArray.mk #[14]) }
+  expectReturned "int-for-negative-to-positive"
+    (stepReferenceSliceV1 loopAdmitted tenState
+      (inv 1 #[refI8 (-2), refI8 2]) emptyResponses)
+    fourteenState (some (refI8 14)) #[]
+  expectReturned "int-for-zero-trip"
+    (stepReferenceSliceV1 loopAdmitted tenState
+      (inv 1 #[refI8 2, refI8 (-2)]) emptyResponses)
+    tenState (some (refI8 10)) #[]
+  let elevenState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (ByteArray.mk #[11]) }
+  expectReturned "int-for-max-boundary"
+    (stepReferenceSliceV1 loopAdmitted tenState
+      (inv 1 #[refI8 126, refI8 127]) emptyResponses)
+    elevenState (some (refI8 11)) #[]
+  expectRevertedStandard "int-for-bound-exceeded"
+    (stepReferenceSliceV1 loopAdmitted tenState
+      (inv 2 #[refI8 (-2), refI8 2]) emptyResponses)
+    .boundExceeded tenState
+
 /-- T6 product path: Struct construct / fieldGet / fieldSet via Normalize. -/
 private unsafe def testStructNormalizeReference
     (session : Language.Loader.ParserSession) : IO Unit := do

@@ -176,6 +176,18 @@ private def stringInterfaceBoundarySourceTextV1 : String :=
   "  entry fail() : UInt64 do\n" ++
   "    revert Stop(\"stop\")\n"
 
+private def intForBoundarySourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program IntForBoundary where\n" ++
+  "  state total : Int64\n" ++
+  "  init(initial : Int64) do\n" ++
+  "    total := initial\n" ++
+  "  entry iterate(start : Int64, stop : Int64) : Int64 do\n" ++
+  "    for i in start ..< stop bounded 8 do\n" ++
+  "      total := total + 1\n" ++
+  "    return total\n"
+
 private def expectMaterializePlanInvariantV1
     (label : String)
     (target : TargetId)
@@ -314,6 +326,50 @@ private unsafe def testStringInterfaceMaterializationFailClosed : IO Unit := do
   | .ok _ =>
       throw <| IO.userError
         "string interface/aleo: materialization must fail closed"
+
+/-- N-FOR-INT opens target-neutral signed bounded-for semantics only. Until a
+    target owns a signed induction/update surface, each of the six target Plan
+    builders must reject the retained Int64 loop rather than treating its
+    two's-complement values as an unsigned/Felt range. -/
+private unsafe def testIntForMaterializationFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let (source, origins) ← match ← session.selectProgramV1WithOrigins
+      intForBoundarySourceTextV1 "targets/int-for-boundary.pf"
+        "Tests.Targets.IntForBoundary" none with
+    | .ok pair => pure pair
+    | .error error =>
+        throw <| IO.userError s!"int for boundary: load failed: {error.render}"
+  let compiled ← match Compiler.compileProgramProductV1 source origins with
+    | .ok value => pure value
+    | .error _ =>
+        throw <| IO.userError "int for boundary: product compile failed"
+  let data ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of compiled) with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"int for boundary: invalid semantic {repr error}"
+  let some callable := data.callables.find? (fun c => c.name == some "iterate") |
+    throw <| IO.userError "int for boundary: missing iterate callable"
+  let some loopBound := callable.loopBounds[0]? |
+    throw <| IO.userError "int for boundary: missing loop bound"
+  let some header := callable.blocks[loopBound.header.toNat]? |
+    throw <| IO.userError "int for boundary: missing loop header"
+  let some induction := header.params[0]? |
+    throw <| IO.userError "int for boundary: missing induction parameter"
+  expect (callable.loopBounds.size == 1 && header.params.size == 1 &&
+      match data.types[induction.typeId.toNat]? with
+      | some decl => decl.name.isNone &&
+          match decl.shape with | .int 64 => true | _ => false
+      | none => false)
+    "int for boundary: Normalize must retain one Int64 loop induction"
+  for (target, kind, marker) in #[
+      (TargetId.evm, TargetKind.evm, "block parameter must be anonymous UInt64"),
+      (TargetId.solana, TargetKind.solana, "loop induction parameter must be UInt64"),
+      (TargetId.near, TargetKind.near, "loop induction must be public UInt64"),
+      (TargetId.noir, TargetKind.noir, "loop header must carry one UInt64 parameter"),
+      (TargetId.aleo, TargetKind.aleo, "does not support Int64 for-loop endpoints"),
+      (TargetId.psy, TargetKind.psy, "loop header must carry one UInt64 parameter")] do
+    expectMaterializePlanInvariantV1 "int-for" target kind compiled marker
 
 private def testSemanticPlanSourceAuthority : IO Unit := do
   for target in #["Evm", "Solana", "Near", "Noir"] do
@@ -1673,6 +1729,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testSemanticPlanSourceAuthority
   testConstInvariantMaterializationFailClosed
   testStringInterfaceMaterializationFailClosed
+  testIntForMaterializationFailClosed
   testRichUInt64SemanticPlans
   testGuardedCounterSemanticPlans
   testBoolPredicateSemanticPlans

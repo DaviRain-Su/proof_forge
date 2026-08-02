@@ -45,7 +45,8 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
   * **emit / externalCall / schedule / revert-with-args** — no Leo analogue
     (resolver also declines event/sync/async requirement keys).
   * Array IndexGet/IndexSet require compile-time UInt literal index.
-  * Int64 for-loop endpoints / Int64 match scrutinees (Normalize N-8).
+  * Int64 for-loop endpoints (shared Normalize retains them; this Aleo profile
+    has no signed range surface) / Int64 match scrutinees.
   * Leo final-block mapping-set budget > 32 (ECMP0376015) — plan-time
     fail-closed, including the dense-Map upsert expansion.
 -/
@@ -1717,10 +1718,10 @@ private partial def lowerLoop
   let startVal ← match envLookup env startVid with
     | some v => pure v
     | none => planError "Aleo lowering: loop start value is not defined"
-  -- Bounded-for induction stays on the UInt64 lane (Normalize N-8 keeps Int
-  -- for-loop endpoints deferred); a signed start would render an i64/u64 mix.
+  -- Bounded-for induction stays on the UInt64 lane. Shared Normalize retains
+  -- Int endpoints, but a signed start would render an i64/u64 range mix here.
   unless !startVal.isIntScalar do
-    planError "Aleo does not support Int64 for-loop endpoints (N-8 deferred)"
+    planError "Aleo does not support Int64 for-loop endpoints in this profile"
   let startExpr := startVal.expr
   -- The header must be exactly `cond := i < end` + branch; the end value is
   -- loop-invariant (already in env). The branch condition must be the cond
@@ -1736,7 +1737,7 @@ private partial def lowerLoop
           | some v => pure v
           | none => planError "Aleo lowering: loop end value is not defined"
         unless !r.isIntScalar do
-          planError "Aleo does not support Int64 for-loop endpoints (N-8 deferred)"
+          planError "Aleo does not support Int64 for-loop endpoints in this profile"
         match instr.result with
         | some valueDef => condVid? := some valueDef.valueId
         | none => planError "Aleo lowering: loop condition must produce a value"
