@@ -3,6 +3,15 @@
   "platform": "darwin-arm64",
   "assets": [
     {
+      "id": "cosmwasm-check-3.0.9-git-fe5b55d283f5",
+      "url": "https://github.com/CosmWasm/cosmwasm",
+      "commit": "fe5b55d283f5987c7fa0f95d5ad923be7a3d9283",
+      "format": "cargo-git",
+      "package": "cosmwasm-check",
+      "bin": "cosmwasm-check",
+      "version": "3.0.9"
+    },
+    {
       "id": "foundry-v0.3.0-darwin-arm64",
       "url": "https://github.com/foundry-rs/foundry/releases/download/v0.3.0/foundry_v0.3.0_darwin_arm64.tar.gz",
       "size": 49415553,
@@ -323,6 +332,29 @@
         "evm-yul-solc-0.8.34-v1-runtime"
       ],
       "sourceBuild": null
+    },
+    {
+      "id": "cosmwasm-check",
+      "version": "3.0.9",
+      "sourceUrl": "https://github.com/CosmWasm/cosmwasm",
+      "platform": "darwin-arm64",
+      "assetId": "cosmwasm-check-3.0.9-git-fe5b55d283f5",
+      "executable": "cosmwasm-check",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/cosmwasm-check",
+      "executableSha256": null,
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "3.0.9",
+      "licenseSpdx": "Apache-2.0",
+      "requiredByProfiles": [
+        "cosmwasm-wasm-u64-v1"
+      ],
+      "sourceBuild": {
+        "assetId": "cosmwasm-check-3.0.9-git-fe5b55d283f5"
+      }
     },
     {
       "id": "jv",

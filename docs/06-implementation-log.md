@@ -13394,3 +13394,25 @@ normative: false
   全部通过。
 - Boundary：shared engineering Semantic/Reference cutover only；六 target 的 anonymous result ABI、
   formal `TASK-D2-06/07`、TST-SEM 与 D4 状态均未改变。
+
+### 2026-08-03 — CosmWasm target 第一波：registry 晋升 + check 工具门 + TON 研究文档（branch `integrate/cosmwasm-a2-b0`）
+
+- **A0 registry 晋升**（`dd607de72`，已先合 main）：`CodegenProfileId.cosmwasmWasmU64V1`；
+  membership 7 implemented + 3 design-only；resolver 第八行五键（双 call family 拒绝——
+  `WasmMsg::Execute` savepoint 非 sync CALL、SubMsg fire-and-forget 非跨 tx async，B-CALL-SEM
+  纪律）；`DescriptorDataV1.cosmwasm`（artifactEncoding wasmText，ADR-0007 共享编码、
+  target-owned Plan）；membership/list-targets/resolver/IdentityChain/RegistryRoot（1618B
+  golden + digest）全部钉测同步。
+- **A2 cosmwasm-check Tool Lock**：`cosmwasm-check 3.0.9` 以 `cargo-git` + `sourceBuild`
+  入 `tools[]`（CosmWasm monorepo `fe5b55d2…9283`；version probe 权威、无 binary digest
+  编造）。`scripts/cosmwasm_check_acceptance.sh` + `CosmWasmCheckAcceptance` 套件（注册
+  shard-targets）：locked wat2wasm 生成 4 个手写 fixture——minimal ABI（allocate/deallocate/
+  interface_version_8/三 entry/db_*）正向通过；missing interface_version、multi-memory、
+  memory-with-maximum 三负例拒绝（本机真实运行）。float 在 3.0.9 静态检查不拒，已诚实
+  记录。产品 Counter 条件式验收当前 skip-clean（A1 emitter 未合并）。
+- **B0 TON 研究期文档（ADR-0017 遗留执行）**：新增 `docs/targets/11-ton.md`（研究期
+  dossier：TVM/int257/cell、纯异步消息、Tolk 推荐路径、sandbox 验收阶梯、sync call 必须
+  FC、research ceiling）与 `docs/targets/family-tvm-stack-account.md`（不与 EVM/SVM/Wasm
+  共享 Plan）；`docs/targets/README.md` 索引增 `ton` 与 TVM family。编译器零改动，`ton`
+  仍不可寻址 fail closed；SRC/CLM 注册留待独立后续。
+- 边界：均非 formal；CosmWasm 尚无 emitter（A1 进行中）；TON 无 TargetId/registry。

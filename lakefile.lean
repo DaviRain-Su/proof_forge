@@ -213,6 +213,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.EvmSolcAcceptance,
     `Tests.Materialization.NearWasmAcceptance,
     `Tests.Materialization.NearSandboxAcceptance,
+    `Tests.Materialization.CosmWasmCheckAcceptance,
     `Tests.Materialization.NearHostModel,
     `Tests.Materialization.NoirRelationModel,
     `Tests.Materialization.NoirCompileAcceptance,

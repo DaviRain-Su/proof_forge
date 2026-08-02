@@ -8,6 +8,7 @@ import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.NearWasmAcceptance
 import Tests.Materialization.NearSandboxAcceptance
+import Tests.Materialization.CosmWasmCheckAcceptance
 import Tests.Materialization.OutputSetV1
 
 import Tests.Materialization.OutputEnvelopeV1
@@ -50,6 +51,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.NearWasmAcceptance.run
   IO.eprintln "CP run"
   Tests.Materialization.NearSandboxAcceptance.run
+  IO.eprintln "CP run"
+  Tests.Materialization.CosmWasmCheckAcceptance.run
   IO.eprintln "CP run"
   Tests.Materialization.OutputSetV1.run
 
