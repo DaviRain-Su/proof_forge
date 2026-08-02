@@ -20,7 +20,11 @@ private def planError (message : String) : CompileResult α :=
 private def maxFunctions : Nat := 256
 private def maxParams : Nat := 64
 private def maxBodyStatements : Nat := 4096
+/-- Per-expression structural depth (nested constructor height). -/
 private def maxExprDepth : Nat := 256
+/-- Aggregate plan node budget (shared with the EVM profile; the dense Map
+    upsert unrolls to thousands of pure-expr nodes). -/
+private def maxPlanNodes : Nat := 100000
 
 /-- Leo 4.0.2 reserved words / mapping method names that a DSL identifier must
     not collide with (conservative; `leo build` is the final authority).
@@ -46,7 +50,12 @@ private def isReserved (name : String) : Bool :=
 -- Plan validation
 -- ---------------------------------------------------------------------------
 
-private def validateExprNodes (expr : Expr) : Option Nat :=
+/-- Expression node count with a depth check. Returns `none` when the
+    structural depth exceeds `maxExprDepth`. Node totals are compared against
+    the aggregate `maxPlanNodes` budget by the caller. -/
+private def validateExprNodes (expr : Expr) (depth : Nat) : Option Nat :=
+  if depth > maxExprDepth then none
+  else
   match expr with
   | .literal _ | .i64Literal _ | .boolLiteral _ | .param _ | .loopVar _ | .stateLoad _ =>
       some 1
@@ -57,60 +66,104 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
   | .signedCheckedDiv l r | .signedCheckedMod l r
   | .signedShl l r | .signedShr l r
   | .signedBitAnd l r | .signedBitOr l r | .signedBitXor l r => do
-      let dl ← validateExprNodes l
-      let dr ← validateExprNodes r
-      if dl + dr + 1 > maxExprDepth then none else some (dl + dr + 1)
+      let dl ← validateExprNodes l (depth + 1)
+      let dr ← validateExprNodes r (depth + 1)
+      some (dl + dr + 1)
   | .compare _ l r | .signedCompare _ l r => do
-      let dl ← validateExprNodes l
-      let dr ← validateExprNodes r
-      if dl + dr + 1 > maxExprDepth then none else some (dl + dr + 1)
+      let dl ← validateExprNodes l (depth + 1)
+      let dr ← validateExprNodes r (depth + 1)
+      some (dl + dr + 1)
   | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o => do
-      let do' ← validateExprNodes o
-      if do' + 1 > maxExprDepth then none else some (do' + 1)
+      let do' ← validateExprNodes o (depth + 1)
+      some (do' + 1)
+  | .ternary c t e => do
+      let dc ← validateExprNodes c (depth + 1)
+      let dt ← validateExprNodes t (depth + 1)
+      let de ← validateExprNodes e (depth + 1)
+      some (dc + dt + de + 1)
   | .callFn _ args => do
       let mut total : Nat := 1
       for arg in args do
-        let da ← validateExprNodes arg
+        let da ← validateExprNodes arg (depth + 1)
         total := total + da
-      if total > maxExprDepth then none else some total
+      some total
 
+/-- Aggregate node accounting across a statement list (bounded by
+    `maxPlanNodes`). Depth violations surface as planInvariant directly. -/
 private partial def validateStatements (stmts : Array Statement) : CompileResult Unit := do
   if stmts.size > maxBodyStatements then
     planError "Aleo function body exceeds the statement limit"
+  let mut budget : Nat := maxPlanNodes
   for stmt in stmts do
     match stmt with
     | .store _ value | .returnValue value => do
-        match validateExprNodes value with
-        | some _ => pure ()
-        | none => planError "Aleo plan expression exceeds the depth/node limit"
+        match validateExprNodes value 0 with
+        | some nodes =>
+            unless nodes ≤ budget do
+              planError "Aleo plan expression exceeds the aggregate node limit"
+            budget := budget - nodes
+        | none => planError "Aleo plan expression exceeds the depth limit"
     | .returnNone => pure ()
     | .assert condition => do
-        match validateExprNodes condition with
-        | some _ => pure ()
-        | none => planError "Aleo plan expression exceeds the depth/node limit"
+        match validateExprNodes condition 0 with
+        | some nodes =>
+            unless nodes ≤ budget do
+              planError "Aleo plan expression exceeds the aggregate node limit"
+            budget := budget - nodes
+        | none => planError "Aleo plan expression exceeds the depth limit"
     | .ifThenElse condition thenBody elseBody => do
-        match validateExprNodes condition with
-        | some _ => pure ()
-        | none => planError "Aleo plan expression exceeds the depth/node limit"
+        match validateExprNodes condition 0 with
+        | some nodes =>
+            unless nodes ≤ budget do
+              planError "Aleo plan expression exceeds the aggregate node limit"
+            budget := budget - nodes
+        | none => planError "Aleo plan expression exceeds the depth limit"
         validateStatements thenBody
         validateStatements elseBody
     | .switchOn condition cases defaultBody => do
-        match validateExprNodes condition with
-        | some _ => pure ()
-        | none => planError "Aleo plan expression exceeds the depth/node limit"
+        match validateExprNodes condition 0 with
+        | some nodes =>
+            unless nodes ≤ budget do
+              planError "Aleo plan expression exceeds the aggregate node limit"
+            budget := budget - nodes
+        | none => planError "Aleo plan expression exceeds the depth limit"
         for (_, caseBody) in cases do
           validateStatements caseBody
         validateStatements defaultBody
     | .forLoop start endExclusive _ body => do
-        match validateExprNodes start, validateExprNodes endExclusive with
-        | some _, some _ => pure ()
-        | _, _ => planError "Aleo plan expression exceeds the depth/node limit"
+        match validateExprNodes start 0, validateExprNodes endExclusive 0 with
+        | some ns, some ne =>
+            unless ns + ne ≤ budget do
+              planError "Aleo plan expression exceeds the aggregate node limit"
+            budget := budget - (ns + ne)
+        | _, _ => planError "Aleo plan expression exceeds the depth limit"
         validateStatements body
     | .emitEvent .. =>
         planError "Aleo does not support emit: Leo 4.0.2 has no on-chain event log"
     | .revertError _ args =>
         unless args.isEmpty do
           planError "Aleo does not support revert payloads: Leo 4.0.2 cannot represent error arguments"
+
+/-- Leo 4.0.2 hard limit: a `final` block allows at most 32 mapping
+    `set`/`remove` commands (spike-verified ECMP0376015). Leo counts the
+    emitted commands **statically across every control-flow arm** (transfer's
+    two inner upserts both count), so this is a sum over arms, not a max.
+    `for` bodies are guarded by `ValidatePlanV1`'s bounded-iteration model:
+    the emitted body contains its sets once (the `for` is a single region),
+    so the body's set count counts once. -/
+private partial def setCountPerFinalBlock (stmts : Array Statement) : Nat :=
+  stmts.foldl (fun acc stmt =>
+    match stmt with
+    | .store _ _ => acc + 1
+    | .ifThenElse _ t e => acc + setCountPerFinalBlock t + setCountPerFinalBlock e
+    | .switchOn _ cases d =>
+        acc + cases.foldl (fun a (_, b) => a + setCountPerFinalBlock b)
+          (setCountPerFinalBlock d)
+    | .forLoop _ _ _ b => acc + setCountPerFinalBlock b
+    | _ => acc) 0
+
+/-- Leo final-block mapping command budget (ECMP0376015). -/
+private def maxLeoMappingSets : Nat := 32
 
 def validatePlan (plan : Plan) : CompileResult Unit := do
   if plan.functions.size > maxFunctions then
@@ -132,6 +185,11 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       if param.isInt && param.isBool then
         planError "Aleo parameter cannot be both Bool and Int64"
     validateStatements fn.body
+    -- Leo ECMP0376015: >32 mapping sets in one final block is invalid Leo.
+    -- Fail closed at plan time (the dense Map upsert emits 3×capacity sets
+    -- per arm; multi-arm matches sum statically).
+    if fn.touchesState && setCountPerFinalBlock fn.body > maxLeoMappingSets then
+      planError "Aleo final function exceeds the Leo mapping-set budget (32 per final block)"
     if fn.resultIsInt && fn.resultIsBool then
       planError "Aleo function result cannot be both Bool and Int64"
     if fn.resultDropped && fn.kind != .mutate then

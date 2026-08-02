@@ -164,18 +164,26 @@ private partial def renderStatement (depth : Nat) : LeoStatement → String
       -- Leo 4.0.2 rejects `return ()` (tuple arity ≥ 2); bare `return;` is unit.
       s!"{indentStr depth}return;\n"
   | .ifElse condition thenBody elseBody =>
+      -- Self-balanced: one `{` opens, one `}` closes. (Historical emission
+      -- used `}}`, which only parsed when the if was the final statement of
+      -- the `return final { ... }` block; an if-else arm or a trailing
+      -- statement after the if broke the block balance. `leo build` is the
+      -- final authority; both shapes verified.)
       s!"{indentStr depth}if {renderExpr condition} \{\n" ++
       renderStatements (depth + 2) thenBody ++
       (if elseBody.isEmpty then
-         s!"{indentStr depth}}}\n"
+         s!"{indentStr depth}}\n"
        else
-         s!"{indentStr depth}}} else \{\n" ++
+         s!"{indentStr depth}} else \{\n" ++
          renderStatements (depth + 2) elseBody ++
-         s!"{indentStr depth}}}\n")
+         s!"{indentStr depth}}\n")
   | .forConst index bound body =>
+      -- Self-balanced: one `{` opens, one `}` closes (same fix as ifElse:
+      -- the historical extra `}` only parsed when the for was the final
+      -- statement of the enclosing `return final { ... }` block).
       s!"{indentStr depth}for {index} in 0u64..{bound}u64 \{\n" ++
       renderStatements (depth + 2) body ++
-      s!"{indentStr depth}}}\n"
+      s!"{indentStr depth}}\n"
 
 end
 
@@ -268,10 +276,11 @@ private def exprLeoTypeCtx (ctx : EmitCtx) : Expr → String
   | .signedCheckedDiv _ _ | .signedCheckedMod _ _ | .signedShl _ _
   | .signedShr _ _ | .checkedNeg _ | .signedBitNot _ => "i64"
   | .signedBitAnd _ _ | .signedBitOr _ _ | .signedBitXor _ _ => "i64"
+  | .ternary _ t _ => exprLeoTypeCtx ctx t
   | .param inputIndex => if ctx.paramIsInt.getD inputIndex false then "i64" else "u64"
   | .stateLoad fieldIndex =>
       if ctx.stateLeafIsInt.getD fieldIndex false then "i64" else "u64"
-  | .callFn fnName args =>
+  | .callFn fnName _args =>
       -- Helper result signedness by name (helpers keep their Plan names).
       match ctx.helperResultIsIntByName.findSome? (fun (n, b) =>
           if n == fnName then some b else none) with
@@ -397,6 +406,16 @@ private partial def lowerExprStmt
       let (ls1, o', ctx1) ← lowerExprStmt ctx operand
       let (name, ctx2) := freshName ctx1
       pure (ls1 ++ #[.letBinding name "i64" (.unary "-" o')], .reference name, ctx2)
+  | .ternary condition thenValue elseValue => do
+      -- Leo ternary `(cond ? thenV : elseV)`; arms must share a type. The
+      -- Map-pilot selectors pass Bool conditions and same-typed arms.
+      let (ls1, c', ctx1) ← lowerExprStmt ctx condition
+      let (ls2, t', ctx2) ← lowerExprStmt ctx1 thenValue
+      let (ls3, e', ctx3) ← lowerExprStmt ctx2 elseValue
+      let (name, ctx4) := freshName ctx3
+      let leoType := exprLeoTypeCtx ctx3 thenValue
+      pure (ls1 ++ ls2 ++ ls3 ++
+        #[.letBinding name leoType (.ternary c' t' e')], .reference name, ctx4)
   | .callFn fnName args => do
       let mut stmts : Array LeoStatement := #[]
       let mut args' : Array LeoExpr := #[]

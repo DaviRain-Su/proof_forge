@@ -203,6 +203,60 @@ private def int64SourceText : String :=
   "  entry shift(a : Int64) : Int64 do\n" ++
   "    return (a << 2) >> 2\n"
 
+/-- Dense Map UInt64 UInt64 (capacity-2 pilot): mint + transfer with Option
+    match arms, verified end-to-end by `leo build`. The computed
+    `balanceOf` view (match on state) stays fail-closed on Aleo (only bare
+    state reads map to the off-chain query model). -/
+private def tokenMapSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program Token where\n" ++
+  "  state balances : Map UInt64 UInt64\n" ++
+  "  state supply : UInt64\n" ++
+  "  init() do\n" ++
+  "    balances := Map.empty()\n" ++
+  "    supply := 0\n" ++
+  "  entry mint(to : UInt64, amount : UInt64) : UInt64 do\n" ++
+  "    match balances[to] with\n" ++
+  "    | Option.some(v) => do\n" ++
+  "      balances[to] := v + amount\n" ++
+  "      supply := supply + amount\n" ++
+  "      return supply\n" ++
+  "    | _ => do\n" ++
+  "      balances[to] := amount\n" ++
+  "      supply := supply + amount\n" ++
+  "      return supply\n" ++
+  "  entry transfer(src : UInt64, dst : UInt64, amount : UInt64) : Bool do\n" ++
+  "    match balances[src] with\n" ++
+  "    | Option.some(fromBal) => do\n" ++
+  "      assert fromBal >= amount\n" ++
+  "      match balances[dst] with\n" ++
+  "      | Option.some(toBal) => do\n" ++
+  "        balances[src] := fromBal - amount\n" ++
+  "        balances[dst] := toBal + amount\n" ++
+  "        return true\n" ++
+  "      | _ => do\n" ++
+  "        balances[src] := fromBal - amount\n" ++
+  "        balances[dst] := amount\n" ++
+  "        return true\n" ++
+  "    | _ => do\n" ++
+  "      assert false\n" ++
+  "      return false\n"
+
+/-- Bounded for + Final-block loop (self-balanced brace rendering). -/
+private def loopSumSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program LoopSum where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry sumUp(n : UInt64) : UInt64 do\n" ++
+  "    let zero : UInt64 := 0\n" ++
+  "    for i in zero ..< n bounded 8 do\n" ++
+  "      count := count + i\n" ++
+  "    return count\n"
+
 /-- Suite entry. Skips cleanly when leo is unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.AleoAcceptance: start"
@@ -222,12 +276,16 @@ unsafe def run : IO Unit := do
           Examples.counterSourceText Examples.counterModuleNameV1 "counter.aleo"
         acceptProgram leo tmp "DualField"
           dualFieldSourceText "Tests.AleoAccept.DualField" "dualfield.aleo"
+        acceptProgram leo tmp "Token"
+          tokenMapSourceText "Tests.AleoAccept.Token" "token.aleo"
         acceptProgram leo tmp "PointBox"
           pointBoxSourceText "Tests.AleoAccept.PointBox" "pointbox.aleo"
         acceptProgram leo tmp "ArrBox"
           arrayStateSourceText "Tests.AleoAccept.ArrBox" "arrbox.aleo"
         acceptProgram leo tmp "IntBox"
           int64SourceText "Tests.AleoAccept.IntBox" "intbox.aleo"
+        acceptProgram leo tmp "LoopSum"
+          loopSumSourceText "Tests.AleoAccept.LoopSum" "loopsum.aleo"
         IO.println "Tests.Materialization.AleoAcceptance: ok"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp

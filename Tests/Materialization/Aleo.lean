@@ -1243,6 +1243,178 @@ unsafe def testInt64AcceptanceLeo : IO Unit := do
   expect (leoFile.contents.contains "program temp.aleo {")
     "Int64 Counter must materialize a Leo program"
 
+/-- Dense Map UInt64 UInt64 (capacity-2 pilot): Map.empty + IndexGet
+    (Option intermediate) + IndexSet upsert + match on the Option tag. -/
+unsafe def testMapStateLeo : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Token where\n" ++
+    "  state balances : Map UInt64 UInt64\n" ++
+    "  state supply : UInt64\n" ++
+    "  init() do\n" ++
+    "    balances := Map.empty()\n" ++
+    "    supply := 0\n" ++
+    "  entry mint(to : UInt64, amount : UInt64) : UInt64 do\n" ++
+    "    match balances[to] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      balances[to] := v + amount\n" ++
+    "      supply := supply + amount\n" ++
+    "      return supply\n" ++
+    "    | _ => do\n" ++
+    "      balances[to] := amount\n" ++
+    "      supply := supply + amount\n" ++
+    "      return supply\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-token-map>" "Tests.AleoTokenMap" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  -- capacity-2 × (occ,key,val) = 6 Map leaves + supply.
+  expect (plan.stateFieldNames.size == 7)
+    s!"Map plan must carry 6 Map leaves + supply, got {plan.stateFieldNames.size}"
+  expect (plan.stateFieldNames.take 6 ==
+      #["balances_0_occ", "balances_0_key", "balances_0_val",
+        "balances_1_occ", "balances_1_key", "balances_1_val"])
+    s!"Map leaves must be entry_i_occ/key/val, got {plan.stateFieldNames.take 6}"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "token.aleo") |
+    throw <| IO.userError "aleo: missing token.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "mapping pf_state_0: u8 => u64;")
+    "Map must render occ/key/val u64 mappings"
+  expect (leo.contains " ? ")
+    "Map lookup/upsert must render typed Leo ternaries"
+  expect (leo.contains "if (")
+    "Option match must render a Leo if on the tag"
+  expect (leo.contains "} else {")
+    "Option match arms must render if/else"
+  expect (leo.contains "1u64 : 0u64)")
+    "Option tag must materialize as a u64 0/1 ternary"
+
+/-- Map-full insert and mixed-shape Map fail closed (Normalize first, then
+    the Aleo type closure / plan as defense in depth). -/
+unsafe def testMapUpsertFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- A non-UInt64→UInt64 Map is declined: Normalize rejects the Bool param
+  -- first (PF-SRC-INVALID); the Aleo type closure would also decline the
+  -- Map shape if a residual carrier ever reached it.
+  let badMapSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BadMap where\n" ++
+    "  state m : Map UInt64 Bool\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry go(k : UInt64, v : Bool) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    badMapSource "<aleo-badmap>" "Tests.AleoBadMap" none)
+  match Compiler.compileValidatedSourceV1 parsed with
+  | .error e =>
+      -- Normalize rejects the Bool param (and would reject the Map shape);
+      -- either is an honest fail-closed layer.
+      expect (e.code == "PF-SRC-INVALID")
+        s!"Map UInt64 Bool must fail closed at Normalize, got {e.render}"
+  | .ok compiled =>
+      match planAleo compiled with
+      | .error (.planInvariant .aleo _) => pure ()
+      | .error e => throw <| IO.userError s!"Map UInt64 Bool must fail closed, got {e.render}"
+      | .ok _ => throw <| IO.userError "Map UInt64 Bool must fail closed at Aleo plan"
+
+/-- The Leo ECMP0376015 mapping-set budget is enforced at plan time: a
+    state-touching function whose statically-summed sets exceed 32 fails
+    closed before any Leo source is emitted. -/
+unsafe def testMapSetBudgetFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- 3 state fields touched in every arm of a 12-arm match → 36 sets (each
+  -- arm contributes 3; Leo sums statically across arms).
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Spendy where\n" ++
+    "  state a : UInt64\n" ++
+    "  state b : UInt64\n" ++
+    "  state c : UInt64\n" ++
+    "  init() do\n" ++
+    "    a := 0\n" ++
+    "    b := 0\n" ++
+    "    c := 0\n" ++
+    "  entry go(x : UInt64) : UInt64 do\n" ++
+    "    match x with\n" ++
+    "    | 0 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | 1 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | 2 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | 3 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | 4 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | 5 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | 6 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | 7 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | 8 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | 9 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | 10 => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n" ++
+    "    | _ => do\n" ++
+    "      a := 1\n" ++
+    "      b := 1\n" ++
+    "      c := 1\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-spendy>" "Tests.AleoSpendy" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planAleo compiled with
+  | .error (.planInvariant .aleo msg) =>
+      expect (msg.contains "mapping-set budget")
+        s!"set-budget decline must cite the Leo budget, got: {msg}"
+  | .error e => throw <| IO.userError s!"Spendy: expected set-budget decline, got {e.render}"
+  | .ok _ => throw <| IO.userError "Spendy must fail closed at the Leo mapping-set budget"
+
 unsafe def run : IO Unit := do
   testCounterPlanAndLeo
   testPureOpsAndShifts
@@ -1274,6 +1446,9 @@ unsafe def run : IO Unit := do
   testInt64MixedSignednessFailClosed
   testInt64Negatives
   testInt64AcceptanceLeo
+  testMapStateLeo
+  testMapUpsertFailClosed
+  testMapSetBudgetFailClosed
   IO.println "Tests.Materialization.Aleo: ok"
 
 end Tests.Materialization.Aleo
