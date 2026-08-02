@@ -14,8 +14,11 @@ import ProofForgeV2.Core.Canonical
     * fail closed on wrong schema, missing module file, digest mismatch,
       non-canonical JCS, empty tables, unknown top-level keys
 
-  Out of scope this slice:
-    * filesystem safe loading / contained worker / empty LEAN_PATH / dirfd open
+  Filesystem policy is intentionally not implemented here.  The compiler-owned
+  `Compiler.ProofBundleFilesV1` adapter component-opens and stable-reads the
+  exact manifest-derived trie, then delegates back to this module as the sole
+  decoder/validator.  Still out of scope:
+    * contained worker / empty LEAN_PATH / `.olean` importing
     * trust-policy axiom graph / ambient olean search
     * ToolLock digest join / product check-build wiring
     * formal evidence ceremony
