@@ -670,3 +670,9 @@ adjacency `#[#[],#[],#[1],#[]]`、ready `#[2,3]`，Kahn追加1并处理3 members
 `callables.size` fuel workers，并由done/exhaustion lemmas固定total边界。members 1/2/3的singleton blocks均
 无back edge；唯一reachable PureFn truthLeaf只含允许的Bool literal，invariant roots不进入PureFn-only scan。
 因此`validateInvariantClosurePhasesV1 data.callables = .ok closureMembers`已kernel成立；下一项exact fuel。
+
+exact/intrinsic fuel现已闭合。production graph build得到remaining `#[0,0,1,0]`、callers
+`#[#[],#[2],#[],#[]]`与intrinsic totals `#[0,3,3,3]`；ready为`#[1,3]`。reverse Kahn依次校验
+truthLeaf=3、falsehood=3，传播leaf cost后校验truth=6，最终totals `#[0,3,6,3]`且processed=3。
+ceiling source scan也由total worker闭合，因此完整`validateCfgInvariantPhasesV1 data = .ok ()`成立。
+下一production gate进入requirements；完整structure/encoder/carrier identity仍pending。

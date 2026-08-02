@@ -12660,6 +12660,16 @@ normative: false
   roots 2/3不进入PureFn-only allowlist。完整`validateInvariantClosurePhasesV1`返回exact members成功。
 - Boundary：exact/intrinsic invariant fuel、requirements、完整structure/encoder/carrier/formal状态仍pending。
 
+## 2026-08-01 — D2-07 canonical invariant fuel + CFG/invariant segment
+
+- Production：fuel graph build、ready collect、reverse-Kahn及intrinsic ceiling source scan均机械抽为total
+  fuel workers；保留duplicate call计数、checked addition、carried metadata-before-propagation与错误顺序。
+- Kernel：remaining `#[0,0,1,0]`、callers `#[#[],#[2],#[],#[]]`、intrinsic totals
+  `#[0,3,3,3]`、ready `#[1,3]`；leaf传播后final totals `#[0,3,6,3]`、ready `#[1,3,2]`、processed=3。
+- Composition：generic `.cfg` + complete closure + exact/intrinsic fuel已组合为
+  `validateCfgInvariantPhasesV1 data = .ok ()`。
+- Boundary：requirements、完整structure、encoder/carrier identity与formal TASK/TST仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；

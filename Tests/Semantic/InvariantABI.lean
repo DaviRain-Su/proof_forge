@@ -1061,6 +1061,26 @@ theorem invariantClosurePhases_data :
       (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
       (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)).2
 
+/-- The sole production fuel composition closes on the exact canonical
+    graph, intrinsic totals, source-order ready queue, and reverse-Kahn states. -/
+theorem validateInvariantFuelPhases_data :
+    validateInvariantFuelPhasesV1 data.callables closureMembers = .ok () := by
+  apply validateInvariantFuelCanonicalFourV1
+  · rfl
+  · rfl
+  · rfl
+  · rfl
+  · rfl
+
+/-- Complete generic CFG, invariant closure, and exact/intrinsic fuel segment
+    for the canonical public invariant ABI fixture. -/
+theorem validateCfgInvariantPhases_data :
+    validateCfgInvariantPhasesV1 data = .ok () := by
+  apply validateCfgInvariantPhasesV1_eq_ok data closureMembers
+  · exact genericCfgPhases_data
+  · exact invariantClosurePhases_data
+  · exact validateInvariantFuelPhases_data
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])
