@@ -123,7 +123,7 @@ normative: false
 | **C-2** | Aleo/Psy compiler/VM 验收研究 | **研究闭合（2026-08-02，RPT-015）** + **J2 AleoEmissionFix（2026-08-02）**：`leo 4.0.2` 主机可用时 `AleoAcceptance` 对产品 `.aleo` 做 `leo build --offline` 验收（缺席 skip；**无** Tool Lock pin / 非 prove-deploy）；EmitIRV1 已对齐 Leo 4 语法（`bool`、`return final {…};`、shift `as u8`、pureFn 文件级 helper、闭合 constructor）。Psy 仍无 VM 门。Aleo Field≠bn254 仍 FAIL-CLOSED。成熟度：**source package + optional host leo compile**，**非** hermetic/runtime | AleoPsyResearch ✅ / AleoEmissionFix |
 | **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + 历史 Anvil Counter，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
 | **C-4** | Noir prove/verify 验收门 | **已闭合研究（2026-08-02，RPT-016）**：**不**升格。无 nargo/backend Tool Lock pin；host 无 nargo；`validate_artifacts` 故意拒绝 proof-stage 叶子；成熟度保持 **source-only** relations + Lean relation model。跟进需独立 `NoirProveAcceptance` + pin | NoirProveResearch ✅ |
-| **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + 11 fixtures（含 MapMini）均产 ELF 并进入 Mollusk；当前 52 个 Rust tests 全 active/通过，`map_mini_put_into_empty` 已转绿。Option/Context 与 UInt128/256/Principal/call 等运行覆盖仍待扩 | MolluskFixtures |
+| **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + 12 fixtures 均产 ELF 并进入 Mollusk；当前 56 个 Rust tests 全 active/通过。MapMini 4/4 覆盖 empty upsert，WideMul 4/4 覆盖 UInt128/256 高肢/跨肢成功与 `0x1001` rollback；Option/Context/Principal/call 等运行覆盖仍待扩 | MolluskFixtures |
 
 ### D 组：文档/checkpoint 同步缺口
 

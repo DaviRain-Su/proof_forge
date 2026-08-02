@@ -13284,3 +13284,19 @@ normative: false
 - Tests/Boundary：typed shard固定canonical rows、negative declaration grammar、forward ref、shadowing、
   UInt32 ops/for、ConstantId/ValueId与exact provenance origins。const声明表达式仍只接纳literal/negative Int；
   EVM/Solana/NEAR/Noir拒绝任意nonempty constants表，Aleo/Psy拒绝实际Op.Constant；非formal D2/D4完成。
+
+### 2026-08-03 — Solana UInt128/256 WideMul ELF+Mollusk differential
+
+- 新增 `runtime-tests/solana/fixtures/WideMul.lean`，通过产品 CLI 与锁定 `sbpf 0.2.2`
+  构建真实 `solana-sbpf-elf-v1` ELF；两个 entry 分别执行 UInt128/UInt256 state 乘法，返回
+  UInt64 零以隔离尚未覆盖的 wide return-data ABI。
+- Rust runtime helper 现按 1/2/4/8/16/32-byte ABI 宽度计算 discriminator、layout suffix、
+  slot pitch 与 exact account length，并按 little-endian `u64` limbs 打包 wide params/state。
+  WideMul state 的 canonical offsets 为 8/24，exact account length 为 56 bytes。
+- `tests/programs.rs` 使用与 production 32-bit-digit emitter 不同的 base-2^64 schoolbook oracle。
+  四个 Mollusk case 固定 UInt128 高肢成功、UInt256 跨肢成功，以及精确产生 `2^128`/`2^256`
+  的 overflow；失败必须返回 `ProgramError::Custom(0x1001)` 且完整 state bytes 不变。
+- 验证：WideMul targeted 4/4；`just solana-runtime` 构建 Counter + 12 fixtures 并运行
+  56/56 Rust tests；使用同一 exact external tool root 的 ordinary `just ci` 通过。
+- Boundary：这是 engineering ELF/runtime coverage，不是 formal Reference↔Mollusk、Stage-0、
+  hermetic 或 release evidence；Solana UInt128/256 div/mod 仍为 low64 + 高肢零检查 fail closed。
