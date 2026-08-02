@@ -15,8 +15,9 @@ ValidatedSourceV1
 当前可运行的 Counter/Accumulator（及更广 Normalize 子集）路径已由单一 `CompiledSemanticV1` 保留
 structure-valid `SemanticProgramV1`，并直接构造六个 implemented target Plan；产品编译、resolver 与 artifact
 identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
-Materialized/Finalized/content-descriptor/disk-closure 与全工程 planDigest 槽位绑定，但 **formal** `registryDigest` /
-SupportClaim / 可达 BuildIdentity mint / formal `OutputSetV1` 与完整 Phase-1 语言/runtime DoD
+Materialized/Finalized/content-descriptor/disk-closure 与全工程 planDigest 槽位绑定；D3-E9 后
+`TargetDescriptor` 六轴直接复用 registry V1 authority，并在 capability/artifact/inspect 前 exact join。但 formal `registryDigest` /
+formal SupportClaim / formal BuildIdentity mint / formal `OutputSetV1` 与完整 Phase-1 语言/runtime DoD
 仍未闭合。这是迁移中的工程纵切面，不是目标链已经完成。
 
 ### D3-E1 产品决策（2026-08-02）
@@ -93,10 +94,11 @@ formal `OutputSetV1` 或 `TASK-D3-05` 完成。
 3. `CompiledSemanticV1` 是唯一产品编译成功 carrier；alpha Typed/Semantic lowering与 residual accessors 无产品调用。
 4. `ProgramRequirementsV1` 是唯一产品 requirement authority；target-neutral contribution engine 只向该 authority供给，不存在第二套 AST walker、alpha parity或 caller override。
 5. EVM/Solana/NEAR/Noir/Aleo/Psy 六个 Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
-6. 产品可达 formal-layout registry digest、SupportClaim/decision、BuildIdentity、Plan/IR identity 与
-   formal `OutputSetV1` 已接线，transitional publisher 残留退役（**当前**：工程 carriers/S7 + D3-E7
-   content-bound descriptor/evidence/inspect closure 已接线；formal registry/claim/OutputSet 与
-   race-free/hermetic publication仍未闭合）。
+6. 产品 identity/output 不再依赖 transitional parallel authority：frozen registry membership/axes、
+   engineering SupportClaim/BuildIdentity/PlanDigest 与 content-bound engineering `proof-forge.output.v1`
+   publish/inspect 已接线。按 D3-E1，formal-layout `registryDigest` 不进入当前产品路径；formal
+   SupportClaim/BuildIdentity/OutputSetV1 与 race-free/hermetic publication 属独立 pending 轴，
+   不冒充 engineering completion。
 7. legacy `Core/Source`、alpha Typed/Semantic 与旧 compiler入口的产品 consumer 归零；测试先迁后删
    （**当前**：alpha Core 模块与产品 import 已物理删除/门禁禁止）。
 8. 聚焦/deletion/reflection gates、`just dev-check`、普通 `just ci`、docs/SBOM 全绿。
@@ -112,7 +114,7 @@ Wave 1  D1 ProgramV1 CLI source path + DiagnosticV1 product cutover
   → Wave 2  [done] freeze S1 Semantic + EVM/Solana/NEAR/Noir V1 Plan leaf + single carrier
            → [current] expand sole Normalize/Reference/target beyond S1
              （多宽/控制流/fn/for/call/部分聚合已接线；完整语言面未闭合）
-  → Wave 3  formal-layout identity + OutputSetV1 闭合（工程 S4–S7c + D3-E7 content closure 已接线，formal 仍 pending）
+  → Wave 3  identity + output 闭合（工程 S4–S7c + D3-E7 content closure + D3-E9 descriptor-axis exact join 已接线；formal carriers 仍 pending）
   → Wave 4  D4 EVM first → D5 Solana + D6 NEAR + D7 Noir target completion
   → Wave 5  D8 aggregate/security/repro/clean-room/review
 ```
@@ -191,7 +193,7 @@ CLI真实走完 `SemanticProgramV1 → exact resolver → target Plan/IR → Out
 private-ctor `CompiledSemanticV1` 单 carrier + engineering exact requirement resolver capability
 （`resolveEngineeringRequirementsV1 (selection, compiled)` → private
 `ResolvedEngineeringBuildV1`，exact retained SemanticProgramV1 `data.requirements`，
-无 caller request override；静态六行 S2 support index）。**精确边界**：shipped
+无 caller request override；静态七行 S2 target/profile support index）。**精确边界**：shipped
 aggregate/CLI `materialize`/`emit` 仅接受 capability；EVM/Solana/NEAR/Noir/Aleo/Psy 均在 capability 后读取
 retained `SemanticProgramV1`，经各自 private S1 lowering构造 target-owned Plan，再进入各自 IR/emission；
 residual alpha不再参与 Plan body。**D3/S6 工程**：public residual Common resolve / validateResolved /
@@ -220,8 +222,11 @@ dev/ci。**D3/S7c + D3-E7 工程**：`ArtifactContentV1` sole physical walker/st
 `outputSetDigest`。publisher evidence→manifest-last，sidecar 前后 exact inventory compare，rename 前
 重验 no-follow bounded closure（limits 1024/64MiB/256MiB）；`inspect <output-dir>` stable-read sidecars/
 listed artifacts、重走 closure并逐 descriptor 比对；Python validator同样拒绝 symlink/hardlink/额外或
-缺失 leaf并重算 digest；`s7c-disk-closure-gate` 已接入 dev/ci。
-仍**不是** SupportClaim/formal resolver/BuildIdentity/`OutputSetV1`/
+缺失 leaf并重算 digest；`s7c-disk-closure-gate` 已接入 dev/ci。**D3-E9 工程**：
+`TargetDescriptor` 直接复用 registry-owned 六轴，六 implemented descriptors 从 frozen
+`semanticsAxesOfKindV1` seed 派生；capability resolve、artifact mint 与 CLI inspect 前逐轴 exact join，
+Protocol 重复轴类型已删除。
+仍**不是 formal** SupportClaim/formal resolver/formal BuildIdentity/formal `OutputSetV1`/
 ToolchainIdentity/race-free formal closure/hermetic publisher/完整 SemanticProgramV1 lowering
 完成态。formal task状态与 release qualification仍按各自真实条件变化，不由本恢复文档代签。
 

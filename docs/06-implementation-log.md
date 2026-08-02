@@ -12,6 +12,23 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-03 — D3-E9 registry-owned descriptor semantics axes
+
+- Production：`Materialization.Protocol.TargetDescriptor` 删除自有六套 closed enum，直接复用
+  `TargetRegistryV1` 的 `ExecutionHostV1`/`CommitModelV1`/`StateBindingV1`/`CallModelV1`/
+  `ProofModelV1`/`SettlementModelV1`。`semanticsAxesOfKindV1` 成为 frozen product registry rows 与六个
+  implemented descriptor 的 sole axis seed；`ArtifactEncoding` 与 profile 继续只属 materializer metadata。
+- Product joins：`validateDescriptorAxesJoinV1` 在 engineering requirement capability resolve、
+  `MaterializedArtifactsV1` sole mint 与 CLI target describe/inspect 前逐轴 fail closed；四个 design-only
+  target 仍无 descriptor。caller-supplied inspection registry 不被强制等同 frozen seed，进入 descriptor
+  产品路径时才必须 exact join。
+- Identity/Tests：Noir descriptor engineering preimage 改用 registry `toWire` 并更新独立 plan-hash golden；
+  `Tests.Materialization.TargetRegistryV1` 固定六 implemented joins、四 design-only absence、六轴逐项 mutation
+  `PF-REGISTRY-INVALID`、Protocol 旧 enum 删除与恰好三个产品 join site。实现 commit `224b05487` 经
+  target shard、fresh read-only P0/P1 review、完整 ordinary `just ci` 与 SBOM freshness 检查通过。
+- Boundary：这是 engineering sole-authority cutover；不新增 formal registry root/TargetSemantics payload、
+  formal `registryDigest`/SupportClaim/BuildIdentity/OutputSetV1，也不把普通 CI 写成 formal/release evidence。
+
 ## 2026-08-03 — NFR-REPEAT same-host engineering determinism gate
 
 - Production gate：新增 `scripts/nfr_repeat_gate.py`，固定同一 built `proof-forge-next`、同一 host/

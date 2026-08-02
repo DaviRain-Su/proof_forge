@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-08-01
+updated: 2026-08-03
 normative: true
 ---
 
@@ -24,8 +24,9 @@ normative: true
 ## 当前恢复执行指针
 
 当前产品开发由根级 [`RECOVERY.md`](../RECOVERY.md) / [`AGENTS.md`](../AGENTS.md) 驱动：
-ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → 四 target capability Plan/IR 的
-**工程纵切面**（Counter/Accumulator 为验收向量，非唯一可编译程序）。日常缺口队列见
+ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → 六 target
+（EVM/Solana/NEAR/Noir/Aleo/Psy）capability Plan/IR 的**工程纵切面**
+（Counter/Accumulator 为验收向量，非唯一可编译程序）。日常缺口队列见
 [`engineering-backlog.md`](engineering-backlog.md)。下表中的 task/evidence 文档继续保存
 历史 release-qualification 权威，但不再作为 development completion 的前置条件。
 
@@ -39,7 +40,7 @@ ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → 四 target capabili
 | 技术规格 | [`03-technical-spec.md`](03-technical-spec.md) + `specs/` | `accepted` | API、schema、错误和版本；`SPEC-TASKQUAL-001` raw artifact owner R2已按single-maintainer owner waiver批准 |
 | 实施计划 | [`04-task-breakdown.md`](04-task-breakdown.md) | `accepted` | 任务顺序与任务验收 |
 | 测试 | [`05-test-spec.md`](05-test-spec.md) | `accepted` | owner matrix、真实production acceptance、签名与closeout要求已批准 |
-| 实现事实 | [`06-implementation-log.md`](06-implementation-log.md) | `draft` | alpha 实际命令、结果与限制 |
+| 实现事实 | [`06-implementation-log.md`](06-implementation-log.md) | `draft` | 工程实现事实、实际命令、结果与限制 |
 | 最终评审 | [`07-review-report.md`](07-review-report.md) | `not_started` | 发布判断 |
 
 ## 权威优先级
