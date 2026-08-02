@@ -11,13 +11,17 @@ import Tests.Typed.CallGraphV1
 import Tests.Typed.EffectCheckV1
 import Tests.Typed.BoundCheckV1
 import Tests.Typed.DisclosureCheckV1
+import Tests.Typed.AuthorityCustodyCheckV1
+import Tests.Typed.ContextExtensionCheckV1
 import Tests.Typed.RequirementsInferV1
 import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
+import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.NormalizeConst
 import Tests.Semantic.ProofBundleV1
+import Tests.Semantic.ProofSubjectV1
 import Tests.Semantic.ProofReferenceJoinV1
 unsafe def main : IO Unit := do
   Tests.Compiler.ValidatedSourceV1Pipeline.run
@@ -33,6 +37,8 @@ unsafe def main : IO Unit := do
   Tests.Typed.EffectCheckV1.run
   Tests.Typed.BoundCheckV1.run
   Tests.Typed.DisclosureCheckV1.run
+  Tests.Typed.AuthorityCustodyCheckV1.run
+  Tests.Typed.ContextExtensionCheckV1.run
   Tests.Typed.RequirementsInferV1.run
   Tests.Typed.CheckV1.run
   Tests.Semantic.WireV1.run
@@ -40,5 +46,6 @@ unsafe def main : IO Unit := do
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.NormalizeConst.run
   Tests.Semantic.ProofBundleV1.run
+  Tests.Semantic.ProofSubjectV1.run
   Tests.Semantic.ProofReferenceJoinV1.run
   IO.println "shard-typed: ok"

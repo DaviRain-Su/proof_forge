@@ -21,9 +21,11 @@ import Tests.Materialization.SolanaPlanV1
 import Tests.Targets.SolanaAsmV1
 import Tests.Targets.SolanaElfV1
 import Tests.Materialization.PsySourceV1
+import Tests.Materialization.PsyAcceptance
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.CLI.DiagnosticsV1
+import Tests.CLI.ResourceFlagsV1
 unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.BuildSelectionV1.run
@@ -67,6 +69,8 @@ unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.PsySourceV1.run
   IO.eprintln "CP run"
+  Tests.Materialization.PsyAcceptance.run
+  IO.eprintln "CP run"
   Tests.Targets.SolanaAsmV1.run
   IO.eprintln "CP run"
   Tests.Targets.SolanaElfV1.run
@@ -76,4 +80,6 @@ unsafe def main : IO Unit := do
   Tests.CLI.ToolchainPolicy.run
   IO.eprintln "CP run"
   Tests.CLI.DiagnosticsV1.run
+  IO.eprintln "CP run"
+  Tests.CLI.ResourceFlagsV1.run
   IO.println "shard-targets: ok"
