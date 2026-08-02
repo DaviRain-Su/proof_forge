@@ -263,6 +263,26 @@ private partial def checkHandlerStatementsV1
           throw <| .planInvariant .solana
             "handler store byteWidth does not match state field layout"
         total ← addPlanExprNodes account params fns total store.value
+    | .storeAggregate leaves =>
+        if isView then
+          throw <| .planInvariant .solana "view handler writes state"
+        unless leaves.size > 0 do
+          throw <| .planInvariant .solana "handler storeAggregate requires at least one leaf"
+        let mut seenTargets : Array (Nat × Nat) := #[]
+        for store in leaves do
+          let target := (store.accountIndex, store.byteOffset)
+          if seenTargets.contains target then
+            throw <| .planInvariant .solana
+              "handler storeAggregate writes the same state field more than once"
+          seenTargets := seenTargets.push target
+          let some field := account.fields.find? (fun field =>
+              field.accountIndex == store.accountIndex && field.byteOffset == store.byteOffset) |
+            throw <| .planInvariant .solana "handler storeAggregate targets an unknown field"
+          unless store.byteWidth == field.byteWidth do
+            throw <| .planInvariant .solana
+              "handler storeAggregate byteWidth does not match state field layout"
+          total ← addPlanExprNodes account params fns total store.value
+        total := total + 1
     | .returnValue value =>
         if isInitializer then
           throw <| .planInvariant .solana "initializer cannot return a value"

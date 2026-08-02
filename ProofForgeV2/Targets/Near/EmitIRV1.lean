@@ -595,7 +595,8 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ | .emitEvent .. | .forLoop .. | .promiseAccount .. => false
+      | .store _ | .storeAtomic _ | .assert _ | .emitEvent .. | .forLoop ..
+      | .promiseAccount .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard return after a closed region arm, unless the arm already
@@ -633,6 +634,24 @@ private partial def lowerBodyOps
             .narrowStoreState (store.byteWidth * 8) (fieldRegion keys store.fieldIndex) value.value
         operations := operations.push storeOp
         next := value.next
+    | .storeAtomic leaves =>
+        -- Two-phase snapshot: lower every leaf Expr first (all stateLoads read
+        -- the pre-store KV), then emit all store ops. Sequential lower+store
+        -- would make later leaves observe earlier writes mid-Map upsert.
+        let mut valueTemps : Array (Nat × Nat × Nat) := #[]
+        for store in leaves do
+          let value := lowerExpr keys next fnMode localEnv store.value
+          operations := operations ++ value.operations
+          valueTemps := valueTemps.push (store.fieldIndex, store.byteWidth, value.value)
+          next := value.next
+        for item in valueTemps do
+          let (fieldIndex, byteWidth, temp) := item
+          let storeOp : Operation :=
+            if byteWidth == 8 then
+              .storeState (fieldRegion keys fieldIndex) temp
+            else
+              .narrowStoreState (byteWidth * 8) (fieldRegion keys fieldIndex) temp
+          operations := operations.push storeOp
     | .returnValue value =>
         let value := lowerExpr keys next fnMode localEnv value
         operations := operations ++ value.operations

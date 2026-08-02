@@ -222,6 +222,12 @@ structure Store where
 
 inductive Statement where
   | store (operation : Store)
+  /-- Atomic multi-leaf aggregate store (one Semantic StateStore).
+      All leaf `value` expressions are evaluated against the pre-store account
+      snapshot, then written together. EmitIR must not interleave live
+      stateLoad with partial leaf writes (dense Map upsert hazard).
+      Distinct from N scalar `.store` statements (which may observe each other). -/
+  | storeAggregate (leaves : Array Store)
   | returnValue (value : Expr)
   | returnNone
   | assert (condition : Expr)
@@ -1951,17 +1957,23 @@ private def lowerBlockInstructionsV1
               "unsupported Solana semantic shape: Array/Map state store leaf count mismatch"
           -- Soft: dual Map stores leave pure values for a later store (Token).
           let _ ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
+          -- One atomic aggregate store per Semantic StateStore: all leaf values
+          -- share a pre-store snapshot (EmitIR CSE + storeStateMulti). Do not
+          -- split into N scalar `.store` — sequential live stateLoad sees
+          -- partial writes (dense Map empty upsert hazard).
+          let mut leafStores : Array Store := #[]
           for i in [0:leaves.size] do
             let some field := leafFields[i]? |
               throw <| .planInvariant .solana "Array state store field missing"
             let some leafExpr := leaves[i]? |
               throw <| .planInvariant .solana "Array state store leaf missing"
-            body := body.push (.store {
+            leafStores := leafStores.push {
               accountIndex := field.accountIndex
               byteOffset := field.byteOffset
               value := leafExpr
               byteWidth := field.byteWidth
-            })
+            }
+          body := body.push (.storeAggregate leafStores)
           armReadables := promoteDominatingPureV1 blockEntry values armReadables
           segmentStart := values.size
         else

@@ -925,6 +925,21 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++ rendered.code ++
           renderMaskedSstore indent store.slot rendered.value store.byteWidth
         next := rendered.next
+    | .storeAtomic operations =>
+        -- Phase 1: evaluate every leaf against the pre-batch storage snapshot.
+        -- Phase 2: sstore all leaves (no re-sload of this batch mid-write).
+        let mut values : Array String := #[]
+        for store in operations do
+          let rendered := renderExpr indent paramPrefix next store.value
+          output := output ++ rendered.code
+          values := values.push rendered.value
+          next := rendered.next
+        for i in [0:operations.size] do
+          match operations[i]?, values[i]? with
+          | some store, some v =>
+              output := output ++
+                renderMaskedSstore indent store.slot v store.byteWidth
+          | _, _ => pure ()
     | .assert condition =>
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code ++

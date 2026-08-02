@@ -556,6 +556,27 @@ private partial def emitStatements
           | none => planError "Aleo emission: store references a missing state field"
         out := out.push (.mappingSet mapping mappingKey leo)
         ctx := ctx1
+    | .storeAggregate leaves => do
+        -- Two-phase snapshot: lower every leaf Expr first so nested
+        -- stateLoad → mappingGetOrUse sees the pre-store live mapping
+        -- (Map upsert cross-reads sibling leaves). Then emit all sets.
+        -- Sequential per-leaf store would interleave set with later get.
+        unless leaves.size > 0 do
+          planError "Aleo emission: storeAggregate has no leaves"
+        let mut prepared : Array (String × LeoExpr) := #[]
+        let mut ctx' := ctx
+        for store in leaves do
+          let (exprStmts, leo, ctx1) ← lowerExprStmt ctx' store.value
+          out := out ++ exprStmts
+          let mapping ← match ctx1.mappingNames[store.fieldIndex]? with
+            | some m => pure m
+            | none => planError "Aleo emission: storeAggregate references a missing state field"
+          prepared := prepared.push (mapping, leo)
+          ctx' := ctx1
+        for item in prepared do
+          let (mapping, leo) := item
+          out := out.push (.mappingSet mapping mappingKey leo)
+        ctx := ctx'
     | .assert condition => do
         let (exprStmts, c', ctx1) ← lowerExprStmt ctx condition
         out := out ++ exprStmts ++ #[.assert c']

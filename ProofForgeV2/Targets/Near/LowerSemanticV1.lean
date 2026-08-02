@@ -195,6 +195,13 @@ structure Store where
 
 inductive Statement where
   | store (operation : Store)
+  /-- Multi-leaf atomic store for one aggregate StateStore (Principal / Array /
+      Map / Bytes). IR lowers as two-phase snapshot: evaluate every leaf Expr
+      against the pre-store KV, then write all leaves. Sequential leaf stores
+      would re-read already-written occ/key/val mid-upsert (empty-Map put hazard).
+      Distinct `storeAtomic` statements remain ordered; later ones see earlier writes
+      (Token dual Map store). Scalar StateStore keeps single `.store`. -/
+  | storeAtomic (leaves : Array Store)
   | returnValue (value : Expr)
   | returnNone
   | assert (condition : Expr)
@@ -1935,13 +1942,19 @@ private def lowerBlockInstructionsV1
           | none => pure #[stateId.toNat]
         let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         if root.isAggregate then
-          -- Principal / Array / Map multi-leaf store.
+          -- Principal / Array / Map / Bytes multi-leaf store as one atomic unit.
           -- Soft: dual Map stores leave pure values for a later store (Token).
+          -- Atomic: all leaf Exprs share the pre-store KV snapshot at IR lower
+          -- (store-then-read hazard on sequential leaf materialization).
           let leaves := root.leafExprs
           unless leaves.size == leafIdxs.size do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: aggregate state store leaf count mismatch"
+          unless leaves.size > 0 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: aggregate state store has zero leaves"
           let _ ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
+          let mut storeLeaves : Array Store := #[]
           for i in [0:leaves.size] do
             let some fi := leafIdxs[i]? |
               throw <| .planInvariant .near "aggregate state store field missing"
@@ -1952,11 +1965,12 @@ private def lowerBlockInstructionsV1
               | none =>
                   throw <| .planInvariant .near
                     s!"unsupported NEAR semantic shape: aggregate store field {fi} missing"
-            body := body.push (.store {
+            storeLeaves := storeLeaves.push {
               fieldIndex := fi
               value := leafExpr
               byteWidth := field.byteWidth
-            })
+            }
+          body := body.push (.storeAtomic storeLeaves)
           armReadables := promoteDominatingPureV1 blockEntry values armReadables
           segmentStart := values.size
         else
@@ -2903,8 +2917,8 @@ partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
         statementsUsePromiseV1 defaultBody ||
           cases.any fun (_, caseBody) => statementsUsePromiseV1 caseBody
     | .forLoop _ _ _ _ _ body => statementsUsePromiseV1 body
-    | .store _ | .returnValue _ | .returnNone | .assert _ | .emitEvent ..
-    | .revertError .. => false
+    | .store _ | .storeAtomic _ | .returnValue _ | .returnNone | .assert _
+    | .emitEvent .. | .revertError .. => false
 
 def planUsesPromiseV1 (plan : Plan) : Bool :=
   statementsUsePromiseV1 plan.initializer.body ||

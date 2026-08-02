@@ -255,6 +255,24 @@ private partial def checkPlanStatementsV1
           throw <| .planInvariant .evm
             s!"{owner} cannot store a Bool-typed expression into a UInt64 slot"
         total ← addPlanStoreNodes slots paramCount total fns store
+    | .storeAtomic operations =>
+        if isView then
+          throw <| .planInvariant .evm s!"{owner} writes storage in a view context"
+        unless operations.size ≥ 2 do
+          throw <| .planInvariant .evm
+            s!"{owner} storeAtomic requires at least two leaf stores (use store for scalar)"
+        -- Slot uniqueness within the batch (one StateStore leaf set).
+        let mut seenSlots : Array Nat := #[]
+        for store in operations do
+          if seenSlots.contains store.slot then
+            throw <| .planInvariant .evm
+              s!"{owner} storeAtomic has duplicate slot {store.slot}"
+          seenSlots := seenSlots.push store.slot
+          unless exprIsUInt64CompatibleV1 fns store.value do
+            throw <| .planInvariant .evm
+              s!"{owner} cannot store a Bool-typed expression into a UInt64 slot"
+          total ← addPlanStoreNodes slots paramCount total fns store
+        total := total + 1
     | .assert condition =>
         unless exprIsBoolCompatibleV1 fns condition do
           throw <| .planInvariant .evm

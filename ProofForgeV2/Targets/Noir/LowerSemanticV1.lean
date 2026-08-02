@@ -209,6 +209,12 @@ structure Store where
 
 inductive Statement where
   | store (operation : Store)
+  /-- Atomic multi-leaf StateStore. All `leaves` lower against the same
+      pre-store `stateValues` snapshot (EmitIR two-phase), then apply as a
+      single update. Required for dense Map upsert (and other aggregate
+      stores) where leaf exprs cross-read sibling leaves via `stateLoad`.
+      Scalar stores stay as `.store`. Does not merge across StateStores. -/
+  | storeAggregate (leaves : Array Store)
   | returnValue (value : Expr)
   /-- B-RET-ABI: multi-leaf aggregate return. `leaves` are per-leaf
   expressions in preorder flatten order; each is constrained to its
@@ -1933,16 +1939,22 @@ private def lowerBlockInstructionsV1
         -- (works for both scalar and aggregate roots).
         if stored.isAggregate then
           -- Soft consume: dual Map stores leave pure values for a later store.
+          -- Emit one atomic storeAggregate so EmitIR lowers all leaf exprs
+          -- against the same pre-store stateValues snapshot (Map upsert
+          -- cross-reads sibling leaves via stateLoad; per-leaf .store would
+          -- pollute later leaves after the first set!).
           let leafExprs := stored.leafExprs
           unless leafExprs.size == leaves.size do
             throw <| .planInvariant .noir
               "unsupported Noir semantic shape: aggregate state store leaf count mismatch"
+          let mut leafStores : Array Store := #[]
           for i in [0:leaves.size] do
             let some fieldIndex := leaves[i]? |
               throw <| .planInvariant .noir "aggregate store leaf missing"
             let some expr := leafExprs[i]? |
               throw <| .planInvariant .noir "aggregate store leaf expr missing"
-            body := body.push (.store { fieldIndex, value := expr })
+            leafStores := leafStores.push { fieldIndex, value := expr }
+          body := body.push (.storeAggregate leafStores)
           armReadables := promoteDominatingPureV1 paramCount values armReadables
         else
           let _ ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables valueId

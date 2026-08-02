@@ -47,6 +47,11 @@ inductive Operation where
   | storeState (accountIndex byteOffset value : Nat)
   /-- Narrow field store (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `storeState`. -/
   | narrowStoreState (bitWidth accountIndex byteOffset value : Nat)
+  /-- Atomic multi-leaf store (one Plan `storeAggregate` / Semantic StateStore).
+      All `value` temps are evaluated against the pre-store snapshot first;
+      entries are written together so no leaf expression reloads a partial write.
+      Each entry is `(accountIndex, byteOffset, byteWidth, valueTemp)`. -/
+  | storeStateMulti (entries : Array (Nat × Nat × Nat × Nat))
   | setHeader (accountIndex byteOffset : Nat) (value : UInt64)
   | setReturnData (byteLen value : Nat)
   | setReturnDataBool (value : Nat)
@@ -611,6 +616,180 @@ private partial def lowerExpr (overflowError : Nat) (tempMap : List (Nat × Nat)
           value := next
           next := next + 1
         }
+
+/-- Structural CSE lowerer for atomic aggregate stores. Shared subtrees (Map
+    upsert `anyMatch` / `seenEmpty` / per-slot scans) lower once so 24 leaves
+    fit the 4096-byte frame; all values are bound before `storeStateMulti`. -/
+private partial def lowerExprCseV1
+    (overflowError : Nat) (tempMap : List (Nat × Nat))
+    (memo : Array (Expr × Nat)) (ops : Array Operation) (next : Nat) :
+    Expr → Array (Expr × Nat) × Array Operation × Nat × Nat
+  | expr =>
+    match memo.findIdx? (fun p => p.1 == expr) with
+    | some i =>
+        let v := (memo[i]!).2
+        (memo, ops, v, next)
+    | none =>
+        let bind (memo : Array (Expr × Nat)) (ops : Array Operation)
+            (value next' : Nat) :
+            Array (Expr × Nat) × Array Operation × Nat × Nat :=
+          (memo.push (expr, value), ops, value, next')
+        let bin (lhs rhs : Expr) (mk : Nat → Nat → Nat → Operation) (nLimbs : Nat) :=
+          let (memo, ops, lv, next) :=
+            lowerExprCseV1 overflowError tempMap memo ops next lhs
+          let (memo, ops, rv, next) :=
+            lowerExprCseV1 overflowError tempMap memo ops next rhs
+          let ops := ops.push (mk next lv rv)
+          bind memo ops next (next + nLimbs)
+        let un (operand : Expr) (mk : Nat → Nat → Operation) (nLimbs : Nat) :=
+          let (memo, ops, ov, next) :=
+            lowerExprCseV1 overflowError tempMap memo ops next operand
+          let ops := ops.push (mk next ov)
+          bind memo ops next (next + nLimbs)
+        match expr with
+        | .literal value =>
+            bind memo (ops.push (.literal next value)) next (next + 1)
+        | .bigLiteral bitWidth value =>
+            Id.run do
+              let nLimbs := limbCountOfBitWidth bitWidth
+              let limbs := natToLimbsLE value nLimbs
+              let mut ops := ops
+              for i in [:nLimbs] do
+                ops := ops.push (.literal (next + i) limbs[i]!)
+              pure (bind memo ops next (next + nLimbs))
+        | .param dataOffset =>
+            bind memo (ops.push (.loadParam next dataOffset)) next (next + 1)
+        | .narrowParam bitWidth dataOffset =>
+            let nLimbs := limbCountOfBitWidth bitWidth
+            bind memo (ops.push (.narrowLoadParam bitWidth next dataOffset))
+              next (next + nLimbs)
+        | .stateLoad accountIndex byteOffset =>
+            bind memo (ops.push (.loadState next accountIndex byteOffset))
+              next (next + 1)
+        | .narrowStateLoad bitWidth accountIndex byteOffset =>
+            let nLimbs := limbCountOfBitWidth bitWidth
+            bind memo
+              (ops.push (.narrowLoadState bitWidth next accountIndex byteOffset))
+              next (next + nLimbs)
+        | .temp id =>
+            let irTemp := resolveTempV1 tempMap id
+            bind memo ops irTemp next
+        | .checkedAdd lhs rhs =>
+            bin lhs rhs (fun d l r => .checkedAdd d l r overflowError) 1
+        | .checkedSub lhs rhs =>
+            bin lhs rhs (fun d l r => .checkedSub d l r overflowError) 1
+        | .checkedMul lhs rhs =>
+            bin lhs rhs (fun d l r => .checkedMul d l r overflowError) 1
+        | .checkedDiv lhs rhs =>
+            bin lhs rhs (fun d l r => .checkedDiv d l r overflowError) 1
+        | .checkedMod lhs rhs =>
+            bin lhs rhs (fun d l r => .checkedMod d l r overflowError) 1
+        | .bitAnd lhs rhs => bin lhs rhs (fun d l r => .bitAnd d l r) 1
+        | .bitOr lhs rhs => bin lhs rhs (fun d l r => .bitOr d l r) 1
+        | .bitXor lhs rhs => bin lhs rhs (fun d l r => .bitXor d l r) 1
+        | .shl lhs rhs =>
+            bin lhs rhs
+              (fun d l r => .checkedShl d l r invalidShiftError overflowError) 1
+        | .shr lhs rhs =>
+            bin lhs rhs
+              (fun d l r => .checkedShr d l r invalidShiftError) 1
+        | .bitNot operand => un operand (fun d o => .bitNot d o) 1
+        | .narrowBitNot bitWidth operand =>
+            un operand (fun d o => .narrowBitNot bitWidth d o)
+              (limbCountOfBitWidth bitWidth)
+        | .narrowCheckedAdd bitWidth lhs rhs =>
+            bin lhs rhs
+              (fun d l r => .narrowCheckedAdd bitWidth d l r overflowError)
+              (limbCountOfBitWidth bitWidth)
+        | .narrowCheckedSub bitWidth lhs rhs =>
+            bin lhs rhs
+              (fun d l r => .narrowCheckedSub bitWidth d l r overflowError)
+              (limbCountOfBitWidth bitWidth)
+        | .narrowCheckedMul bitWidth lhs rhs =>
+            bin lhs rhs
+              (fun d l r => .narrowCheckedMul bitWidth d l r overflowError)
+              (limbCountOfBitWidth bitWidth)
+        | .narrowCheckedDiv bitWidth lhs rhs =>
+            bin lhs rhs
+              (fun d l r => .narrowCheckedDiv bitWidth d l r overflowError)
+              (limbCountOfBitWidth bitWidth)
+        | .narrowCheckedMod bitWidth lhs rhs =>
+            bin lhs rhs
+              (fun d l r => .narrowCheckedMod bitWidth d l r overflowError)
+              (limbCountOfBitWidth bitWidth)
+        | .narrowBitAnd bitWidth lhs rhs =>
+            bin lhs rhs (fun d l r => .narrowBitAnd bitWidth d l r)
+              (limbCountOfBitWidth bitWidth)
+        | .narrowBitOr bitWidth lhs rhs =>
+            bin lhs rhs (fun d l r => .narrowBitOr bitWidth d l r)
+              (limbCountOfBitWidth bitWidth)
+        | .narrowBitXor bitWidth lhs rhs =>
+            bin lhs rhs (fun d l r => .narrowBitXor bitWidth d l r)
+              (limbCountOfBitWidth bitWidth)
+        | .narrowShl bitWidth lhs rhs =>
+            bin lhs rhs
+              (fun d l r =>
+                .narrowCheckedShl bitWidth d l r invalidShiftError overflowError)
+              (limbCountOfBitWidth bitWidth)
+        | .narrowShr bitWidth lhs rhs =>
+            bin lhs rhs
+              (fun d l r => .narrowCheckedShr bitWidth d l r invalidShiftError)
+              (limbCountOfBitWidth bitWidth)
+        | .boolNot operand => un operand (fun d o => .boolNot d o) 1
+        | .boolAnd lhs rhs => bin lhs rhs (fun d l r => .boolAnd d l r) 1
+        | .boolOr lhs rhs => bin lhs rhs (fun d l r => .boolOr d l r) 1
+        | .compare op lhs rhs =>
+            bin lhs rhs (fun d l r => .compare d l r op) 1
+        | .wideCompare bitWidth op lhs rhs =>
+            bin lhs rhs (fun d l r => .wideCompare bitWidth d l r op) 1
+        | .narrowSignedCheckedAdd _bitWidth lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCheckedAdd d l r overflowError) 1
+        | .narrowSignedCheckedSub _bitWidth lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCheckedSub d l r overflowError) 1
+        | .narrowSignedCheckedMul _bitWidth lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCheckedMul d l r overflowError) 1
+        | .narrowSignedCheckedDiv _bitWidth lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCheckedDiv d l r overflowError) 1
+        | .narrowSignedCheckedMod _bitWidth lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCheckedMod d l r overflowError) 1
+        | .narrowSignedCompare _bitWidth op lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCompare d l r op) 1
+        | .narrowCheckedNeg _bitWidth operand =>
+            un operand (fun d o => .checkedNeg d o overflowError) 1
+        | .narrowSar _bitWidth lhs rhs =>
+            bin lhs rhs
+              (fun d l r => .checkedSar d l r invalidShiftError) 1
+        | .signedCheckedAdd lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCheckedAdd d l r overflowError) 1
+        | .signedCheckedSub lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCheckedSub d l r overflowError) 1
+        | .signedCheckedMul lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCheckedMul d l r overflowError) 1
+        | .signedCheckedDiv lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCheckedDiv d l r overflowError) 1
+        | .signedCheckedMod lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCheckedMod d l r overflowError) 1
+        | .signedCompare op lhs rhs =>
+            bin lhs rhs (fun d l r => .signedCompare d l r op) 1
+        | .checkedNeg operand =>
+            un operand (fun d o => .checkedNeg d o overflowError) 1
+        | .sar lhs rhs =>
+            bin lhs rhs
+              (fun d l r => .checkedSar d l r invalidShiftError) 1
+        | .callFn fnIndex args =>
+            Id.run do
+              let mut memoM := memo
+              let mut opsM := ops
+              let mut nextM := next
+              let mut argTemps : Array Nat := #[]
+              for arg in args do
+                let (m, o, v, n) :=
+                  lowerExprCseV1 overflowError tempMap memoM opsM nextM arg
+                memoM := m; opsM := o; nextM := n
+                argTemps := argTemps.push v
+              opsM := opsM.push (.callFn fnIndex nextM argTemps)
+              pure (bind memoM opsM nextM (nextM + 1))
+
 private def checksFor (discriminatorWidth : Nat) (account : StateAccount)
     (handler : Handler) : Array Check := Id.run do
   let access := handler.accountAccess
@@ -645,8 +824,8 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ | .emitEvent .. | .externalCall .. | .schedule ..
-      | .forLoop .. => false
+      | .store _ | .storeAggregate _ | .assert _ | .emitEvent .. | .externalCall ..
+      | .schedule .. | .forLoop .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard exit after a closed region arm, unless the arm already
@@ -739,6 +918,26 @@ private partial def lowerBodyOps
           else
             .narrowStoreState (store.byteWidth * 8) store.accountIndex store.byteOffset value.value
         operations := operations.push storeOp
+        next := nextBase
+    | .storeAggregate leaves =>
+        -- Atomic aggregate StateStore: structural CSE of all leaf Exprs so
+        -- shared stateLoad / anyMatch / seenEmpty subtrees evaluate once
+        -- against the pre-store snapshot, then one storeStateMulti writes
+        -- every leaf. Peak temps ≈ unique DAG nodes (≪ 24× per-leaf trees).
+        let mut memo : Array (Expr × Nat) := #[]
+        let mut cseOps : Array Operation := #[]
+        let mut cseNext := next
+        let mut entries : Array (Nat × Nat × Nat × Nat) := #[]
+        for store in leaves do
+          let (m, o, v, n) :=
+            lowerExprCseV1 overflowError tempMap memo cseOps cseNext store.value
+          memo := m
+          cseOps := o
+          cseNext := n
+          entries := entries.push
+            (store.accountIndex, store.byteOffset, store.byteWidth, v)
+        operations := operations ++ cseOps
+        operations := operations.push (.storeStateMulti entries)
         next := nextBase
     | .returnValue value =>
         let value := lowerExpr overflowError tempMap next value
@@ -998,7 +1197,7 @@ private partial def validateOperationSequence
     | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor .. | .narrowBitNot ..
     | .narrowCheckedShl .. | .narrowCheckedShr ..
     | .compare .. | .wideCompare .. | .assert .. | .zeroState .. | .narrowZeroState ..
-    | .storeState .. | .narrowStoreState ..
+    | .storeState .. | .narrowStoreState .. | .storeStateMulti ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool ..
     | .emitEvent .. | .revertError .. | .externalCall .. | .schedule ..
     | .ifRegion .. | .switchRegion .. | .forRegion .. | .callFn .. =>
@@ -1162,6 +1361,30 @@ private partial def validateOperationSequence
             value + nLimbs ≤ next do
           throw <| .planInvariant .solana
             "typed Solana IR narrowStoreState width/store is invalid"
+    | .storeStateMulti entries =>
+        unless handler.mode != .view && entries.size > 0 do
+          throw <| .planInvariant .solana
+            "typed Solana IR storeStateMulti requires non-view mode and ≥1 entry"
+        let mut seenTargets : Array (Nat × Nat) := #[]
+        for (accountIndex, byteOffset, byteWidth, value) in entries do
+          let target := (accountIndex, byteOffset)
+          if seenTargets.contains target then
+            throw <| .planInvariant .solana
+              "typed Solana IR storeStateMulti repeats a state-field target"
+          seenTargets := seenTargets.push target
+          unless accountIndex == account.index && fieldOffsets.contains byteOffset &&
+              value < next do
+            throw <| .planInvariant .solana
+              "typed Solana IR storeStateMulti entry target/value is invalid"
+          unless byteWidth == 1 || byteWidth == 2 || byteWidth == 4 ||
+              byteWidth == 8 || byteWidth == 16 || byteWidth == 32 do
+            throw <| .planInvariant .solana
+              "typed Solana IR storeStateMulti byteWidth is not admitted"
+          if byteWidth > 8 then
+            let nLimbs := limbCountOfBitWidth (byteWidth * 8)
+            unless value + nLimbs ≤ next do
+              throw <| .planInvariant .solana
+                "typed Solana IR storeStateMulti multiword value is out of range"
     | .setHeader accountIndex byteOffset value =>
         unless handler.mode == .initialize && accountIndex == account.index &&
             byteOffset == account.headerOffset && value == account.initializedMarker do
@@ -1302,7 +1525,7 @@ private partial def validateOperationSequence
     -- Disabled when recycle=false (fixed dense sequences like bound-checks).
     if recycle then
       match operation with
-      | .storeState .. | .narrowStoreState ..
+      | .storeState .. | .narrowStoreState .. | .storeStateMulti ..
       | .setReturnData .. | .setReturnDataBool ..
       | .assert .. | .emitEvent .. | .revertError ..
       | .externalCall .. | .schedule .. | .returnNone =>
@@ -1366,6 +1589,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
   for op in fn.operations do
     match op with
     | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
+    | .storeStateMulti ..
     | .zeroState .. | .narrowZeroState .. | .setHeader ..
     | .emitEvent .. | .externalCall .. | .schedule .. =>
         throw <| .planInvariant .solana
@@ -1374,6 +1598,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
         for nested in thenOps ++ elseOps do
           match nested with
           | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
+          | .storeStateMulti ..
           | .emitEvent .. | .externalCall .. | .schedule .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
@@ -1383,6 +1608,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
         for nested in nestedOps do
           match nested with
           | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
+          | .storeStateMulti ..
           | .emitEvent .. | .externalCall .. | .schedule .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
@@ -1391,6 +1617,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
         for nested in condOps ++ bodyOps ++ boundOps ++ updateOps do
           match nested with
           | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
+          | .storeStateMulti ..
           | .emitEvent .. | .externalCall .. | .schedule .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
@@ -1580,6 +1807,17 @@ private partial def renderOperation (indent : String)
       s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
   | .narrowStoreState bitWidth accountIndex byteOffset value =>
       s!"{indent}store_u{bitWidth}_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
+  | .storeStateMulti entries =>
+      Id.run do
+        let mut out := s!"{indent}store_multi_le [{entries.size}]\n"
+        for (accountIndex, byteOffset, byteWidth, value) in entries do
+          if byteWidth == 8 then
+            out := out ++
+              s!"{indent}  store_u64_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
+          else
+            out := out ++
+              s!"{indent}  store_u{byteWidth*8}_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
+        pure out
   | .setHeader accountIndex byteOffset value =>
       s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
   | .setReturnData byteLen value =>

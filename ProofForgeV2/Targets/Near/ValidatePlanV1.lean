@@ -215,6 +215,30 @@ private partial def checkMethodStatementsV1
             "method store byteWidth does not match state field layout"
         total ← addPlanExprNodes limits layout params fns total store.value
         methodTemps ← addMethodExprTemps limits layout params fns methodTemps store.value
+    | .storeAtomic leaves =>
+        if isView then
+          throw <| .planInvariant .near s!"view method writes state"
+        if isPureFn then
+          throw <| .planInvariant .near s!"pureFn body writes state"
+        unless leaves.size > 0 do
+          throw <| .planInvariant .near "atomic store must have at least one leaf"
+        -- Count each leaf Expr toward plan/method budgets independently (same
+        -- as N sequential stores). Duplicate fieldIndex is fail-closed.
+        let mut seen : Array Nat := #[]
+        for store in leaves do
+          unless store.fieldIndex < layout.fields.size do
+            throw <| .planInvariant .near s!"method stores to an unknown KV field"
+          if seen.any (· == store.fieldIndex) then
+            throw <| .planInvariant .near
+              "atomic store writes the same KV field more than once"
+          seen := seen.push store.fieldIndex
+          let field := layout.fields[store.fieldIndex]!
+          unless store.byteWidth == field.byteWidth do
+            throw <| .planInvariant .near
+              "method store byteWidth does not match state field layout"
+          total ← addPlanExprNodes limits layout params fns total store.value
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps store.value
+        total := total + 1
     | .returnValue value =>
         if isInitializer then
           throw <| .planInvariant .near "initializer cannot return a value"

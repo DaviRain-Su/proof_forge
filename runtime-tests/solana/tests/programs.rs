@@ -1446,20 +1446,10 @@ fn assert_map_mini_plan() {
 /// Independent oracle: after `put(k, v)` on an empty map, slot 0 gets
 /// occ=1, key=k, val=v, and the return value is v.
 ///
-/// **KNOWN LIMITATION (L2 / B-SOL-MAP-ELF):** This test is currently
-/// `#[ignore]` because the dense Map cap-8 pure-expr upsert has a
-/// sequential store-then-read hazard: leaf 0 stores occ[0]=1 to account
-/// data before leaf 3 reads occ[0] for its scan, causing `seenEmpty` to
-/// be recomputed with the mutated value and all 8 occ slots to flip to 1.
-/// This is a pre-existing Plan-lowering correctness issue (not caused by
-/// temp reuse — the same hazard exists with monotonic temps) that was
-/// previously masked by the ELF frame-budget failure. The `get` and
-/// `put_updates_existing` paths do not trigger this hazard and pass.
-/// Fix requires pre-computing all 24 leaf values before any store, which
-/// conflicts with the 4096-byte frame budget; a future slice should either
-/// add dedicated Map upsert SBPF ops or use account-data scratch space.
+/// Atomic aggregate store (`Statement.storeAggregate` → CSE leaf DAG →
+/// `storeStateMulti`) evaluates all 24 occ/key/val leaves against the
+/// pre-store snapshot before any write, so empty-slot upsert is correct.
 #[test]
-#[ignore]
 fn map_mini_put_into_empty() {
     assert_map_mini_plan();
     let program_id = Pubkey::new_unique();

@@ -3659,10 +3659,11 @@ private unsafe def testBytesStateParamProductPath (session : Language.Loader.Par
     throw <| IO.userError "bytes: missing set0"
   expect (set0.resultKind == .uint8) "bytes: set0 UInt8 result"
   expect (set0.body == #[
-      .store { fieldIndex := 0, value := .narrowParam 8 0, byteWidth := 1 },
-      .store { fieldIndex := 1, value := .narrowStateLoad 8 1, byteWidth := 1 },
+      .storeAtomic #[
+        { fieldIndex := 0, value := .narrowParam 8 0, byteWidth := 1 },
+        { fieldIndex := 1, value := .narrowStateLoad 8 1, byteWidth := 1 }],
       .returnValue (.narrowStateLoad 8 0)])
-    "bytes: set0 must store leaf 0 then return leaf 0"
+    "bytes: set0 must atomically store both Bytes leaves then return leaf 0"
   let some peek := plan.entries.find? (·.name == "peek") |
     throw <| IO.userError "bytes: missing peek"
   expect (peek.params.size == 2 && peek.params.map (·.byteWidth) == #[1, 1])
@@ -3786,6 +3787,221 @@ private unsafe def testInt8ParamAdmitted (session : Language.Loader.ParserSessio
       expect (plan.entries.any fun e => e.name == "set")
         "Int8 param: NEAR plan has set entry"
 
+/-- Dense Map empty-table put: sequential leaf store-then-read would flip
+    firstEmpty after writing occ[0]=1 mid-batch (key/val stay 0 or land in
+    slot1). Atomic storeAtomic requires slot0 = (1, k, v) and all other
+    occ/key/val leaves remain 0. -/
+private unsafe def testMapEmptyPutAtomicStore (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapMini where\n" ++
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "  view get(k : UInt64) : UInt64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-map-mini>" "Examples.MapMini" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.size == 24)
+    "map-empty-put: dense Map must expand to 24 occ/key/val leaves"
+  let some putMethod := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "map-empty-put: missing put"
+  -- Single atomic multi-leaf store (not 24 sequential .store).
+  let hasAtomic := putMethod.body.any fun s =>
+    match s with
+    | .storeAtomic leaves => leaves.size == 24
+    | _ => false
+  expect hasAtomic
+    "map-empty-put: put must lower Map StateStore as one storeAtomic of 24 leaves"
+  let hasSequentialLeafStores := putMethod.body.any fun s =>
+    match s with
+    | .store _ => true
+    | _ => false
+  expect (!hasSequentialLeafStores)
+    "map-empty-put: put must not emit sequential scalar leaf .store"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let putIR ← findMethod ir "put"
+  let getIR ← findMethod ir "get"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "map init"
+    (execute initIR empty ByteArray.empty zero)
+  -- All 24 leaves zero after Map.empty init.
+  for i in [0:24] do
+    let key := s!"pf:v1:state:{i}"
+    expect (storedUInt64? storage0 key == some 0)
+      s!"map-empty-put: init leaf {i} must be 0"
+  -- put(k=7, v=42) into empty table → slot0 only.
+  let k : U64 := 7
+  let v : U64 := 42
+  let putInput := encodeUInt64LE k ++ encodeUInt64LE v
+  let (storage1, retPut, _) ← requireSuccess "map put empty"
+    (execute putIR storage0 putInput zero)
+  expect (retPut == some v) s!"map-empty-put: put must return v, got {retPut}"
+  expect (storedUInt64? storage1 "pf:v1:state:0" == some 1)
+    "map-empty-put: slot0 occ must be 1 after empty upsert"
+  expect (storedUInt64? storage1 "pf:v1:state:1" == some k)
+    "map-empty-put: slot0 key must equal k"
+  expect (storedUInt64? storage1 "pf:v1:state:2" == some v)
+    "map-empty-put: slot0 value must equal v"
+  for i in [3:24] do
+    let key := s!"pf:v1:state:{i}"
+    expect (storedUInt64? storage1 key == some 0)
+      s!"map-empty-put: non-slot0 leaf {i} must remain 0"
+  let (_, retGet, _) ← requireSuccess "map get"
+    (execute getIR storage1 (encodeUInt64LE k) zero)
+  expect (retGet == some v) s!"map-empty-put: get(k) must return v, got {retGet}"
+  let (_, retMiss, _) ← requireSuccess "map get miss"
+    (execute getIR storage1 (encodeUInt64LE 99) zero)
+  expect (retMiss == some 0) s!"map-empty-put: get(missing) must return 0, got {retMiss}"
+
+/-- Token dual Map store (shipped NS-1 shape): second StateStore must observe
+    the first write (src debit then dst credit). Within one storeAtomic all
+    24 leaves share a pre-store snapshot; across two storeAtomic statements
+    the later one sees earlier KV writes. -/
+private unsafe def testMapTokenDualStoreVisibility
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Mirrors Examples/Token.lean transfer dual-store path (Map + supply).
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program Token where\n" ++
+    "  state balances : Map UInt64 UInt64\n" ++
+    "  state supply : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    balances := Map.empty()\n" ++
+    "    supply := 0\n\n" ++
+    "  entry mint(to : UInt64, amount : UInt64) : UInt64 do\n" ++
+    "    match balances[to] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      balances[to] := v + amount\n" ++
+    "      supply := supply + amount\n" ++
+    "      return supply\n" ++
+    "    | _ => do\n" ++
+    "      balances[to] := amount\n" ++
+    "      supply := supply + amount\n" ++
+    "      return supply\n\n" ++
+    "  entry transfer(src : UInt64, dst : UInt64, amount : UInt64) : Bool do\n" ++
+    "    match balances[src] with\n" ++
+    "    | Option.some(fromBal) => do\n" ++
+    "      assert fromBal >= amount\n" ++
+    "      match balances[dst] with\n" ++
+    "      | Option.some(toBal) => do\n" ++
+    "        balances[src] := fromBal - amount\n" ++
+    "        balances[dst] := toBal + amount\n" ++
+    "        return true\n" ++
+    "      | _ => do\n" ++
+    "        balances[src] := fromBal - amount\n" ++
+    "        balances[dst] := amount\n" ++
+    "        return true\n" ++
+    "    | _ => do\n" ++
+    "      assert false\n" ++
+    "      return false\n\n" ++
+    "  view balanceOf(who : UInt64) : UInt64 do\n" ++
+    "    match balances[who] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-token-dual>" "Examples.Token" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  -- Map 24 leaves + supply scalar = 25 fields.
+  expect (plan.storage.fields.size == 25)
+    s!"token-dual: Map+supply layout must be 25 fields, got {plan.storage.fields.size}"
+  let some transfer := plan.entries.find? (·.name == "transfer") |
+    throw <| IO.userError "token-dual: missing transfer"
+  let hasAtomicStore := transfer.body.any fun s =>
+    match s with
+    | .storeAtomic _ => true
+    | .switchOn _ cases defB =>
+        cases.any (fun (_, body) =>
+          body.any fun x =>
+            match x with
+            | .storeAtomic _ => true
+            | .switchOn _ c2 d2 =>
+                c2.any (fun (_, b2) =>
+                  b2.any fun y => match y with | .storeAtomic _ => true | _ => false) ||
+                  d2.any fun y => match y with | .storeAtomic _ => true | _ => false
+            | _ => false) ||
+          defB.any fun y => match y with | .storeAtomic _ => true | _ => false
+    | _ => false
+  expect hasAtomicStore
+    "token-dual: transfer must lower Map StateStore via storeAtomic"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let mintIR ← findMethod ir "mint"
+  let transferIR ← findMethod ir "transfer"
+  let balIR ← findMethod ir "balanceOf"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "token-dual init"
+    (execute initIR empty ByteArray.empty zero)
+  -- mint(1, 100): empty Map insert at slot0 + supply.
+  let (storage1, retMint, _) ← requireSuccess "token-dual mint"
+    (execute mintIR storage0 (encodeUInt64LE 1 ++ encodeUInt64LE 100) zero)
+  expect (retMint == some 100) s!"token-dual: mint returns supply, got {retMint}"
+  expect (storedUInt64? storage1 "pf:v1:state:0" == some 1)
+    "token-dual: mint slot0 occ=1"
+  expect (storedUInt64? storage1 "pf:v1:state:1" == some 1)
+    "token-dual: mint slot0 key=1"
+  expect (storedUInt64? storage1 "pf:v1:state:2" == some 100)
+    "token-dual: mint slot0 val=100"
+  expect (storedUInt64? storage1 "pf:v1:state:24" == some 100)
+    "token-dual: mint supply=100"
+  -- transfer(1, 2, 40): two ordered storeAtomic on balances (src then dst).
+  let (storage2, retXfer, _) ← requireSuccess "token-dual transfer"
+    (execute transferIR storage1
+      (encodeUInt64LE 1 ++ encodeUInt64LE 2 ++ encodeUInt64LE 40) zero)
+  expect (retXfer == some 1)
+    s!"token-dual: transfer Bool true, got {retXfer}"
+  expect (storedUInt64? storage2 "pf:v1:state:0" == some 1)
+    "token-dual: after transfer slot0 occ=1"
+  expect (storedUInt64? storage2 "pf:v1:state:1" == some 1)
+    "token-dual: after transfer slot0 key=src"
+  expect (storedUInt64? storage2 "pf:v1:state:2" == some 60)
+    "token-dual: after transfer slot0 val=60 (second storeAtomic must see first write)"
+  expect (storedUInt64? storage2 "pf:v1:state:3" == some 1)
+    "token-dual: after transfer slot1 occ=1"
+  expect (storedUInt64? storage2 "pf:v1:state:4" == some 2)
+    "token-dual: after transfer slot1 key=dst"
+  expect (storedUInt64? storage2 "pf:v1:state:5" == some 40)
+    "token-dual: after transfer slot1 val=40"
+  for i in [6:24] do
+    expect (storedUInt64? storage2 s!"pf:v1:state:{i}" == some 0)
+      s!"token-dual: unused map leaf {i} must stay 0"
+  expect (storedUInt64? storage2 "pf:v1:state:24" == some 100)
+    "token-dual: supply unchanged by transfer"
+  let (_, balSrc, _) ← requireSuccess "token-dual bal src"
+    (execute balIR storage2 (encodeUInt64LE 1) zero)
+  let (_, balDst, _) ← requireSuccess "token-dual bal dst"
+    (execute balIR storage2 (encodeUInt64LE 2) zero)
+  expect (balSrc == some 60) s!"token-dual: balanceOf(src)=60, got {balSrc}"
+  expect (balDst == some 40) s!"token-dual: balanceOf(dst)=40, got {balDst}"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -3816,6 +4032,8 @@ unsafe def run : IO Unit := do
   testBytesStateParamProductPath session
   testBytesNegativesFailClosed session
   testInt8ParamAdmitted session
+  testMapEmptyPutAtomicStore session
+  testMapTokenDualStoreVisibility session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)

@@ -3115,9 +3115,98 @@ private unsafe def checkNamedAggregateProduct : IO Unit := do
       setNr.contents.contains "post_s1: pub u64")
     "PointBox setX .nr must declare both post-state leaf public inputs"
 
+/-- Dense Map UInt64 empty upsert: 24-leaf store must lower all leaf exprs
+    against the pre-store stateValues snapshot (storeAggregate / two-phase).
+    Sequential per-leaf store.set! would pollute later leaves' stateLoad of
+    the first-empty slot after writing occ', zeroing key/value. Contract:
+    put(k=7,v=42) on empty → post slot0 occ/key/val = 1/7/42, rest 0. -/
+private unsafe def checkMapEmptyUpsertProduct : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapBox where\n" ++
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "  view get(k : UInt64) : UInt64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.MapBox" "<noir-map-empty-upsert>"
+  -- Dense pilot: capacity-8 × (occ,key,val) = 24 public-input leaves.
+  expect (ir.sourcePlan.states.size == 24)
+    s!"MapBox must flatten Map to 24 leaves, got {ir.sourcePlan.states.size}"
+  expect (ir.sourcePlan.states.any fun f => f.name == "m_0")
+    "MapBox leaf name m_0 (slot0 occ)"
+  expect (ir.sourcePlan.states.any fun f => f.name == "m_23")
+    "MapBox leaf name m_23 (last val)"
+  let put ← findRelation ir "put"
+  -- Plan must emit atomic storeAggregate (not 24 sequential .store).
+  let hasStoreAggregate := put.sourceRelation.body.any fun stmt =>
+    match stmt with | .storeAggregate leaves => leaves.size == 24 | _ => false
+  expect hasStoreAggregate
+    "MapBox put must lower Map StateStore as one storeAggregate of 24 leaves"
+  -- Empty pre → put(7,42): slot0 occ/key/val = 1/7/42; remaining 21 leaves 0.
+  let putOk ← liftModel "MapBox put empty upsert" <|
+    bindInputs put fun role => match role with
+      | .preInitialized => some (.bool true)
+      | .preState _ => some (.u64 0)
+      | .parameter 0 => some (.u64 7)
+      | .parameter 1 => some (.u64 42)
+      | .postState 0 => some (.u64 1)   -- slot0 occ
+      | .postState 1 => some (.u64 7)   -- slot0 key
+      | .postState 2 => some (.u64 42)  -- slot0 val
+      | .postState _ => some (.u64 0)
+      | .postInitialized => some (.bool true)
+      | .result => some (.u64 42)
+      | _ => none
+  expectAccept "MapBox put(7,42) empty → slot0=1/7/42 rest0" put putOk
+  -- Wrong post (key stays 0 after writing occ) must reject — the historical
+  -- store-then-read pollution symptom.
+  let putPolluted ← liftModel "MapBox put polluted key" <|
+    bindInputs put fun role => match role with
+      | .preInitialized => some (.bool true)
+      | .preState _ => some (.u64 0)
+      | .parameter 0 => some (.u64 7)
+      | .parameter 1 => some (.u64 42)
+      | .postState 0 => some (.u64 1)
+      | .postState 1 => some (.u64 0)   -- polluted: key not written
+      | .postState 2 => some (.u64 0)   -- polluted: val not written
+      | .postState _ => some (.u64 0)
+      | .postInitialized => some (.bool true)
+      | .result => some (.u64 42)
+      | _ => none
+  expectReject "MapBox put rejects polluted key/val zeros" put putPolluted
+  -- get after correct post: lookup key 7 → 42.
+  let get ← findRelation ir "get"
+  let getOk ← liftModel "MapBox get after put" <|
+    bindInputs get fun role => match role with
+      | .preInitialized => some (.bool true)
+      | .preState 0 => some (.u64 1)
+      | .preState 1 => some (.u64 7)
+      | .preState 2 => some (.u64 42)
+      | .preState _ => some (.u64 0)
+      | .parameter 0 => some (.u64 7)
+      | .postState 0 => some (.u64 1)
+      | .postState 1 => some (.u64 7)
+      | .postState 2 => some (.u64 42)
+      | .postState _ => some (.u64 0)
+      | .postInitialized => some (.bool true)
+      | .result => some (.u64 42)
+      | _ => none
+  expectAccept "MapBox get(7) after put returns 42" get getOk
+
 /-- Array UInt64 N is open on Noir (flatten-to-leaf public inputs). Bytes/Option
-    container state remain fail-closed. Map UInt64 dense pilot is covered by
-    TokenV1 / product builds. -/
+    container state remain fail-closed. Map UInt64 dense pilot: see
+    `checkMapEmptyUpsertProduct` + TokenV1 product builds. -/
 private unsafe def checkContainerStateFailClosed : IO Unit := do
   let arrayText :=
     "import ProofForgeV2\n\n" ++
@@ -3281,6 +3370,7 @@ unsafe def run : IO Unit := do
   checkNamedAggregateProduct
   checkAggregateReturnProduct
   checkAnonymousContainerReturnFailClosed
+  checkMapEmptyUpsertProduct
   checkContainerStateFailClosed
 
 end Tests.Materialization.NoirRelationModel

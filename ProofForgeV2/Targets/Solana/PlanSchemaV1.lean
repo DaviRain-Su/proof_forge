@@ -247,6 +247,15 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       out := out.append (← encodeNatAsU32le args.size)
       for a in args do out := out.append (← encodeExpr a)
       pure out
+  -- Atomic aggregate multi-leaf store (tag 11): count + N × store payload.
+  | .storeAggregate leaves => do
+      let mut out := (encodeU8 11).append (← encodeNatAsU32le leaves.size)
+      for op in leaves do
+        out := out.append (← encodeNatAsU32le op.accountIndex)
+        out := out.append (← encodeNatAsU32le op.byteOffset)
+        out := out.append (← encodeNatAsU32le op.byteWidth)
+        out := out.append (← encodeExpr op.value)
+      pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do
   let mut out := ByteArray.empty

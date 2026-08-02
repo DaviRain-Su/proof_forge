@@ -284,6 +284,15 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       out := out.append (← encodeNatAsU32le args.size)
       for arg in args do out := out.append (← encodeExpr arg)
       pure out
+  -- Tag 11: atomic multi-leaf aggregate store (evaluate-all then sstore-all).
+  | .storeAtomic operations => do
+      let mut out := encodeU8 11
+      out := out.append (← encodeNatAsU32le operations.size)
+      for operation in operations do
+        out := out.append (← encodeNatAsU32le operation.slot)
+        out := out.append (← encodeNatAsU32le operation.byteWidth)
+        out := out.append (← encodeExpr operation.value)
+      pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do
   let mut out := ByteArray.empty

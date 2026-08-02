@@ -44,8 +44,11 @@ import Std.Data.HashMap
         · struct fields / enum variants nonempty (`.badType`)
         · integer widths ∈ {8,16,32,64,128,256} (`.badType`)
         · Bytes/Array length ≤ 4096 (`.badType`)
-        · FieldSpec catalog: only `proof-forge.field.bn254-fr.v1` with
-          exact 32-byte modulusBE (`bn254FrFieldSpecV1`; `.badType`)
+        · FieldSpec catalog: exact membership in the three-entry v1 catalog
+          (`proof-forge.field.bn254-fr.v1`,
+          `proof-forge.field.bls12-377-fr.v1`, or
+          `proof-forge.field.goldilocks.v1`) with the catalog's exact
+          modulusBE (`fieldSpecCatalogV1`; `.badType`)
         · unique struct field / enum variant names within one decl and unique
           exact names across named Struct/Enum TypeDecls (`.duplicate`)
         · Map key legality: Bool|UInt|Int|Principal|Bytes|Struct of

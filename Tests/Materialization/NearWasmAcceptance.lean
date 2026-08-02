@@ -270,6 +270,25 @@ private def byteBoxSourceText : String :=
   "  view get1() : UInt8 do\n" ++
   "    return data[1]\n"
 
+/-- Dense Map UInt64 cap-8: empty put materializes storeAtomic (24 leaves);
+    structural wat2wasm only — host model owns upsert semantics. -/
+private def mapMiniSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program MapMini where\n" ++
+  "  state m : Map UInt64 UInt64\n" ++
+  "  init() do\n" ++
+  "    m := Map.empty()\n" ++
+  "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+  "    m[k] := v\n" ++
+  "    return v\n" ++
+  "  view get(k : UInt64) : UInt64 do\n" ++
+  "    match m[k] with\n" ++
+  "    | Option.some(v) => do\n" ++
+  "      return v\n" ++
+  "    | _ => do\n" ++
+  "      return 0\n"
+
 /-- Suite entry. Skips cleanly when wat2wasm + a Wasm runtime are unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.NearWasmAcceptance: start"
@@ -296,6 +315,8 @@ unsafe def run : IO Unit := do
           wideArithSourceText "Tests.NearWasm.WideArith" "WideArith.wat"
         acceptProgram tc tmp "ByteBox"
           byteBoxSourceText "Tests.NearWasm.ByteBox" "ByteBox.wat"
+        acceptProgram tc tmp "MapMini"
+          mapMiniSourceText "Tests.NearWasm.MapMini" "MapMini.wat"
         IO.println "Tests.Materialization.NearWasmAcceptance: ok"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp

@@ -118,7 +118,8 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ | .emitEvent .. | .externalCall .. | .schedule .. | .forLoop .. => false
+      | .store _ | .storeAggregate _ | .assert _ | .emitEvent .. | .externalCall ..
+        | .schedule .. | .forLoop .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 
@@ -892,7 +893,7 @@ private partial def inlineStmtsV1
           "unsupported Noir semantic shape: pure call inlining exceeds the operation limit"
       let fuel := fuel - 1
       match statement with
-      | .store _ =>
+      | .store _ | .storeAggregate _ =>
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: fn body writes state"
       | .emitEvent .. =>
@@ -1146,6 +1147,30 @@ private partial def lowerPathStatementsV1
           lowerPathStatementsV1 plan relation fuel slots loopEnv openLeaf
             (stateValues.set! store.fieldIndex value.value) value.next pathEmits
             (acc ++ value.operations) rest
+      | .storeAggregate leafStores =>
+          -- Two-phase: every leaf of one StateStore lowers against the same
+          -- pre-store snapshot, then all field writes apply together. The next
+          -- statement (incl. a later StateStore) sees the updated map.
+          -- Sequential per-leaf .store would pollute Map upsert cross-reads.
+          unless leafStores.size > 0 do
+            throw <| .planInvariant .noir
+              s!"relation '{relation.name}' storeAggregate has no leaves"
+          let mut ops : Array Operation := #[]
+          let mut next' := next
+          let mut newValues : Array (Nat × ValueRef) := #[]
+          for store in leafStores do
+            unless store.fieldIndex < stateValues.size do
+              throw <| .planInvariant .noir
+                s!"relation '{relation.name}' storeAggregate fieldIndex out of range"
+            let value ← lowerExpr plan fuel loopEnv stateValues next' store.value
+            ops := ops ++ value.operations
+            newValues := newValues.push (store.fieldIndex, value.value)
+            next' := value.next
+          let mut stateValues' := stateValues
+          for (fieldIndex, v) in newValues do
+            stateValues' := stateValues'.set! fieldIndex v
+          lowerPathStatementsV1 plan relation fuel slots loopEnv openLeaf
+            stateValues' next' pathEmits (acc ++ ops) rest
       | .assert condition =>
           let value ← lowerExpr plan fuel loopEnv stateValues next condition
           lowerPathStatementsV1 plan relation fuel slots loopEnv openLeaf

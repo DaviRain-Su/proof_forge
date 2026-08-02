@@ -1665,9 +1665,21 @@ private unsafe def testPrincipalStateStorage : IO Unit := do
         s!"PrincipalOwner init must expand Principal param to 9 ABI words, got {ctor.params.size}"
       expect (ctor.params[0]!.name == "initial_len")
         s!"PrincipalOwner init first leaf must be initial_len, got {ctor.params[0]!.name}"
-      -- Store-only constructor path: 9 leaf stores from param words.
-      expect (ctor.stores.size == 9 || ctor.body.size ≥ 9)
-        "PrincipalOwner init must store all 9 Principal leaves"
+      -- Principal is multi-leaf: storeAtomic (body) or historical 9 scalar stores.
+      let atomicOk :=
+        ctor.body.any fun s =>
+          match s with
+          | Targets.Evm.Statement.storeAtomic ops =>
+              ops.size == 9 &&
+                (Id.run do
+                  let mut ok := true
+                  for i in [0:9] do
+                    if !(ops[i]!.slot == i && ops[i]!.value == .param i) then
+                      ok := false
+                  pure ok)
+          | _ => false
+      expect (ctor.stores.size == 9 || atomicOk)
+        "PrincipalOwner init must store all 9 Principal leaves (storeAtomic or stores)"
       if ctor.stores.size == 9 then
         for i in [0:9] do
           expect (ctor.stores[i]!.slot == i)
@@ -2722,17 +2734,27 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
     "ArrayBox slots_1 must occupy storage slot 1 (8-byte UInt64)"
   expect (litPlan.entries.map (·.name) == #["set0", "get0", "set1"])
     "ArrayBox entry order"
-  -- set0: IndexSet literal 0 → store leaf 0 with param, leaf 1 keeps sload(1).
+  -- set0: IndexSet literal 0 → atomic multi-leaf store (leaf 0 = param,
+  -- leaf 1 keeps sload(1)); single StateStore must not expand to sequential
+  -- stores that re-sload mid-batch.
   let set0 := litPlan.entries[0]!
   expect (set0.body.size >= 2)
     "set0 must store then return"
   match set0.body[0]? with
   | some stmt =>
       match stmt with
-      | .store s =>
-          expect (s.slot == 0 && s.byteWidth == 8)
-            "set0 first store targets slot 0"
-      | _ => throw <| IO.userError "set0 body[0] must be a store"
+      | Targets.Evm.Statement.storeAtomic ops =>
+          expect (ops.size == 2)
+            s!"set0 storeAtomic must write 2 leaves, got {ops.size}"
+          expect (ops[0]!.slot == 0 && ops[0]!.byteWidth == 8)
+            "set0 first leaf targets slot 0"
+          expect (ops[1]!.slot == 1 && ops[1]!.byteWidth == 8)
+            "set0 second leaf targets slot 1"
+      | Targets.Evm.Statement.store s =>
+          -- Single-leaf only path; Array 2 must be atomic.
+          throw <| IO.userError
+            s!"set0 body[0] must be storeAtomic for 2-leaf Array, got scalar store slot={s.slot}"
+      | _ => throw <| IO.userError "set0 body[0] must be storeAtomic"
   | none => throw <| IO.userError "set0 body[0] missing"
   -- get0 returns storageLoad of leaf 0 (literal IndexGet).
   expect (litPlan.entries[1]!.body == #[.returnValue (.storageLoad 0)])
@@ -2851,6 +2873,119 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
   | .ok _ => pure ()
   | .error e =>
       throw <| IO.userError s!"EVM must accept Map state (I1), got {e.render}"
+
+/-- Dense Map put-into-empty: single aggregate StateStore must two-phase
+    evaluate all leaf Expr (sload snapshot) before any sstore of that batch.
+    Sequential per-leaf store re-sloads sibling occ after writing it, flipping
+    insertHere and dropping the key/val write (store-then-read hazard). -/
+private unsafe def testMapPutIntoEmptyAtomicStore : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapPut where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let src ← liftResult "load MapPut" (← session.selectProgramV1
+    source "<evm-map-put>" "Tests.EvmMapPut" none)
+  let compiled ← liftResult "compile MapPut" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan MapPut" <| planEvm compiled
+  -- Dense pilot: 8 entries × 3 leaves = 24 storage slots for Map only.
+  expect (plan.storageLayout.size == 24)
+    s!"MapPut must flatten to 24 Map leaves, got {plan.storageLayout.size}"
+  expect (plan.entries.size == 1 && plan.entries[0]!.name == "put")
+    "MapPut must have single put entry"
+  let putBody := plan.entries[0]!.body
+  -- First statement is the IndexSet→StateStore of the full Map aggregate.
+  match putBody[0]? with
+  | none => throw <| IO.userError "Map put body empty"
+  | some stmt =>
+      match stmt with
+      | Targets.Evm.Statement.storeAtomic ops =>
+          expect (ops.size == 24)
+            s!"Map put StateStore must be one storeAtomic of 24 leaves, got {ops.size}"
+          for i in [0:ops.size] do
+            expect (ops[i]!.slot == i && ops[i]!.byteWidth == 8)
+              s!"Map put leaf {i} must target slot {i} width 8"
+      | Targets.Evm.Statement.store _ =>
+          throw <| IO.userError
+            "Map put must not lower to sequential scalar stores (store-then-read hazard)"
+      | _ =>
+          throw <| IO.userError "Map put body[0] must be storeAtomic"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MapPut plan must validate: {e.render}"
+  let out ← liftResult "materialize MapPut" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf out).find?
+      (·.path == "MapPut.yul") |
+    throw <| IO.userError "MapPut: missing MapPut.yul"
+  let yul := yulFile.contents
+  -- Scope to put case only (constructor also has 24 Map sstores).
+  let putSel := plan.entries[0]!.selector
+  let caseMarker := s!"case 0x{putSel}"
+  expect (yul.contains caseMarker)
+    s!"MapPut Yul must contain put case 0x{putSel}"
+  -- Char-list slice after put case marker through end of runtime object.
+  let rec indexOf (hay needle : List Char) (i : Nat) : Option Nat :=
+    match hay with
+    | [] => none
+    | _ :: rest =>
+        if needle.isPrefixOf hay then some i else indexOf rest needle (i + 1)
+  let yulCs := yul.toList
+  let some caseAt := indexOf yulCs caseMarker.toList 0 |
+    throw <| IO.userError "MapPut: put case marker not found"
+  let putRegion := String.ofList (yulCs.drop caseAt)
+  -- Structural pin inside put: all leaf-eval sloads precede first sstore of
+  -- the 24-leaf batch; the 24 sstores form a contiguous sstore-only run.
+  let some firstSstore := indexOf putRegion.toList "sstore(".toList 0 |
+    throw <| IO.userError "MapPut put case must contain sstore"
+  let beforeSstore := String.ofList (putRegion.toList.take firstSstore)
+  expect (beforeSstore.contains "sload(")
+    "Map put leaf evaluation must sload the empty table before first sstore"
+  let mut pos := firstSstore
+  let mut count := 0
+  let putCs := putRegion.toList
+  while count < 24 do
+    let tail := putCs.drop pos
+    match indexOf tail "sstore(".toList 0 with
+    | none =>
+        throw <| IO.userError
+          s!"MapPut put case expected 24 sstores in write batch, found {count}"
+    | some rel =>
+        let sPos := pos + rel
+        if count > 0 then
+          let between := String.ofList ((putCs.drop pos).take rel)
+          expect (!between.contains "sload(")
+            s!"Map put atomic batch must not sload between sstore {count} and next (store-then-read)"
+        count := count + 1
+        pos := sPos + "sstore(".length
+  expect (count == 24) "Map put write batch must be exactly 24 sstores"
+  -- Dual StateStore still separate: init Map.empty is its own atomic batch.
+  match plan.constructor with
+  | none => throw <| IO.userError "MapPut must have constructor"
+  | some ctor =>
+      if ctor.body.isEmpty then
+        throw <| IO.userError
+          "Map.empty constructor must retain body with storeAtomic (not scalar store-only flatten)"
+      else
+        let hasAtomic :=
+          ctor.body.any fun s =>
+            match s with
+            | Targets.Evm.Statement.storeAtomic ops => ops.size == 24
+            | _ => false
+        expect hasAtomic
+          "Map.empty init must lower to storeAtomic of 24 zero leaves"
+  IO.println "  MapPut atomic store-then-read pin ok"
 
 /-- D4-E2: Bytes N state flattens to N×UInt8 leaves with IndexGet/IndexSet
     (Normalize-admitted; Map is I1 dense pilot, not Bytes). -/
@@ -3160,6 +3295,7 @@ unsafe def run : IO Unit := do
   testAssertElseRejected
   testFieldBn254Lane
   testArrayStateIndexOps
+  testMapPutIntoEmptyAtomicStore
   testBytesStateIndexOps
   testContextReadFailClosedBoundary
   testAggregateStructReturn

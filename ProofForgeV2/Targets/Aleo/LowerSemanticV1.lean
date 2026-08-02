@@ -161,8 +161,23 @@ inductive Expr where
   | callFn (fnName : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
+/-- One leaf write: `fieldIndex` into `stateFieldNames` + value Expr. -/
+structure Store where
+  fieldIndex : Nat
+  value : Expr
+  deriving BEq, Inhabited, Repr
+
 inductive Statement where
+  /-- Scalar StateStore (single mapping leaf). -/
   | store (fieldIndex : Nat) (value : Expr)
+  /-- Atomic multi-leaf StateStore (Map / Array / Struct / Bytes flatten).
+      EmitIR two-phase: every leaf Expr lowers against the same pre-store
+      mapping snapshot (all `get_or_use`), then all `set`s apply. Sequential
+      per-leaf `.store` would interleave live `set` with later leaf
+      `get_or_use` (Map empty-slot upsert hazard). Distinct storeAggregate
+      statements stay ordered — the next StateStore sees prior writes.
+      Scalar stores remain `.store`; never batch consecutive stores by guess. -/
+  | storeAggregate (leaves : Array Store)
   | assert (condition : Expr)
   | returnValue (value : Expr)
   | returnNone
@@ -1152,6 +1167,7 @@ private partial def lowerRegion
         let vFlags := match v.leafIsU8? with
           | some f => f
           | none => leaves.map (fun _ => false)
+        let mut leafStores : Array Store := #[]
         for i in [0:leafIdxs.size] do
           let some fi := leafIdxs[i]? |
             planError "Aleo stateStore leaf index missing"
@@ -1161,7 +1177,19 @@ private partial def lowerRegion
           let valU8 := vFlags.getD i false
           unless targetU8 == valU8 do
             planError "Aleo stateStore leaf width mismatch (Bytes u8 lane vs scalar lane)"
-          ls := { ls with stmts := ls.stmts.push (.store fi e) }
+          leafStores := leafStores.push { fieldIndex := fi, value := e }
+        -- Multi-leaf aggregate: one storeAggregate so EmitIR two-phase
+        -- evaluates every leaf Expr against the pre-store mapping snapshot
+        -- (Map upsert cross-reads sibling leaves via stateLoad). Scalar
+        -- stays `.store`. Do not merge across distinct StateStores.
+        if leafStores.size == 1 then
+          let some s := leafStores[0]? |
+            planError "Aleo stateStore scalar leaf missing"
+          ls := { ls with stmts := ls.stmts.push (.store s.fieldIndex s.value) }
+        else if leafStores.size > 1 then
+          ls := { ls with stmts := ls.stmts.push (.storeAggregate leafStores) }
+        else
+          planError "Aleo stateStore has zero leaves"
     | .assert_ condition _ args => do
         unless args.isEmpty do
           planError "Aleo assert-else is outside the envelope"
@@ -1778,7 +1806,7 @@ private partial def touchesStateExpr : Expr → Bool
 private partial def touchesStateStmts (stmts : Array Statement) : Bool :=
   stmts.any fun stmt =>
     match stmt with
-    | .store _ _ => true
+    | .store _ _ | .storeAggregate _ => true
     | .returnValue e => touchesStateExpr e
     | .ifThenElse _ t e => touchesStateStmts t || touchesStateStmts e
     | .switchOn _ cases d => cases.any (fun (_, b) => touchesStateStmts b) || touchesStateStmts d

@@ -121,6 +121,18 @@ private partial def checkRelationStatementsV1
         unless store.fieldIndex < plan.states.size do
           throw <| .planInvariant .noir s!"relation '{relation.name}' stores unknown state"
         total ← addPlanExprNodes plan relation total store.value
+    | .storeAggregate leafStores =>
+        if isView then
+          throw <| .planInvariant .noir s!"view relation '{relation.name}' writes state"
+        unless leafStores.size > 0 do
+          throw <| .planInvariant .noir
+            s!"relation '{relation.name}' storeAggregate has no leaves"
+        for store in leafStores do
+          unless store.fieldIndex < plan.states.size do
+            throw <| .planInvariant .noir
+              s!"relation '{relation.name}' storeAggregate targets unknown state"
+          total ← addPlanExprNodes plan relation total store.value
+        total := total + 1
     | .returnValue value =>
         if relation.mode == .initialize then
           throw <| .planInvariant .noir "initializer relation cannot return a value"

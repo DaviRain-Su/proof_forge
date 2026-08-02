@@ -374,6 +374,61 @@ private unsafe def testArrayIndexPlanDigestDeterminism : IO Unit := do
   let cd2 ← liftExcept "cd2" (engineeringEvmPlanDigestV1 counter)
   expect (cd1.bytes == cd2.bytes) "Counter digest still deterministic with Array tags present"
 
+/-- Tag-11 storeAtomic is in the engineering plan wire; distinct from two sequential stores. -/
+private unsafe def testStoreAtomicPlanDigest : IO Unit := do
+  let atomicPlan : Plan := {
+    objectName := "At"
+    runtimeObjectName := "__proof_forge_runtime"
+    storageLayout := #[
+      { sourceId := 0, name := "a0", slot := 0 },
+      { sourceId := 1, name := "a1", slot := 1 }
+    ]
+    events := #[]
+    errors := #[]
+    constructor := none
+    entries := #[{
+      name := "set"
+      selector := Targets.Evm.Keccak.selector "set" #["uint64"]
+      params := #[{ sourceId := 0, name := "v", wordIndex := 0 }]
+      mutability := .nonpayable
+      body := #[
+        .storeAtomic #[
+          { slot := 0, value := .param 0 },
+          { slot := 1, value := .storageLoad 1 }
+        ],
+        .returnValue (.storageLoad 0)
+      ]
+      resultKind := .uint64
+    }]
+    fns := #[]
+  }
+  match validatePlan atomicPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"storeAtomic plan must validate: {e.render}"
+  let d1 ← liftExcept "a1" (engineeringEvmPlanDigestV1 atomicPlan)
+  let d2 ← liftExcept "a2" (engineeringEvmPlanDigestV1 atomicPlan)
+  expect (d1.bytes == d2.bytes) "storeAtomic plan digest determinism"
+  let sequentialPlan : Plan := {
+    atomicPlan with
+    entries := #[{
+      atomicPlan.entries[0]! with body := #[
+        .store { slot := 0, value := .param 0 },
+        .store { slot := 1, value := .storageLoad 1 },
+        .returnValue (.storageLoad 0)
+      ]
+    }]
+  }
+  match validatePlan sequentialPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"sequential plan: {e.render}"
+  let ds ← liftExcept "seq" (engineeringEvmPlanDigestV1 sequentialPlan)
+  expect (!(d1.bytes == ds.bytes))
+    "storeAtomic plan digest must differ from sequential scalar stores"
+  -- Counter product path still digests without storeAtomic tag pollution.
+  let counter ← planCounter
+  let cd ← liftExcept "cd" (engineeringEvmPlanDigestV1 counter)
+  expect (cd.bytes.size == 32) "Counter digest remains 32-byte sha256"
+
 unsafe def run : IO Unit := do
   testDomain
   testMinimalPlanDeterminism
@@ -384,6 +439,7 @@ unsafe def run : IO Unit := do
   testWirePresence
   testFieldPlanDigestDeterminism
   testArrayIndexPlanDigestDeterminism
+  testStoreAtomicPlanDigest
   IO.println "Tests.Materialization.EvmPlanSchemaV1: ok"
 
 end Tests.Materialization.EvmPlanSchemaV1

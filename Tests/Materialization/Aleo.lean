@@ -1291,8 +1291,32 @@ unsafe def testInt64AcceptanceLeo : IO Unit := do
   expect (leoFile.contents.contains "program temp.aleo {")
     "Int64 Counter must materialize a Leo program"
 
+/-- First index of `needle` in `hay` as char list, or none. -/
+private partial def indexOfChars (hay needle : List Char) (i : Nat) : Option Nat :=
+  match hay with
+  | [] => if needle.isEmpty then some i else none
+  | _ :: rest =>
+      if needle.isPrefixOf hay then some i else indexOfChars rest needle (i + 1)
+
+/-- Collect every start index of `needle` in `hay` (non-overlapping scan). -/
+private def allSubstrPositions (hay needle : String) : Array Nat := Id.run do
+  let mut out : Array Nat := #[]
+  let mut rest := hay.toList
+  let n := needle.toList
+  let mut base : Nat := 0
+  while true do
+    match indexOfChars rest n 0 with
+    | none => break
+    | some rel =>
+        out := out.push (base + rel)
+        rest := rest.drop (rel + n.length)
+        base := base + rel + n.length
+  pure out
+
 /-- Dense Map UInt64 UInt64 (capacity-2 pilot): Map.empty + IndexGet
-    (Option intermediate) + IndexSet upsert + match on the Option tag. -/
+    (Option intermediate) + IndexSet upsert + match on the Option tag.
+    Map StateStore lowers as one 6-leaf storeAggregate (not six sequential
+    `.store`); Leo final two-phase keeps all batch get_or_use before first set. -/
 unsafe def testMapStateLeo : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1325,6 +1349,36 @@ unsafe def testMapStateLeo : IO Unit := do
       #["balances_0_occ", "balances_0_key", "balances_0_val",
         "balances_1_occ", "balances_1_key", "balances_1_val"])
     s!"Map leaves must be entry_i_occ/key/val, got {plan.stateFieldNames.take 6}"
+  -- Token mint: each arm has one 6-leaf storeAggregate for balances (plus
+  -- scalar supply store). Sequential six `.store` would be the snapshot bug.
+  let some mintFn := plan.functions.find? (·.name == "mint") |
+    throw <| IO.userError "Token plan missing mint"
+  let rec countMapStores (stmts : Array Targets.Aleo.Statement) : Nat × Nat :=
+    stmts.foldl (fun (agg6, seq) stmt =>
+      match stmt with
+      | .storeAggregate leaves =>
+          (agg6 + (if leaves.size == 6 then 1 else 0), seq)
+      | .store fi _ =>
+          (agg6, seq + (if fi < 6 then 1 else 0))
+      | .ifThenElse _ t e =>
+          let (a1, s1) := countMapStores t
+          let (a2, s2) := countMapStores e
+          (agg6 + a1 + a2, seq + s1 + s2)
+      | .switchOn _ cases d =>
+          let (ad, sd) := countMapStores d
+          let (ac, sc) := cases.foldl (fun (a, s) (_, b) =>
+            let (ab, sb) := countMapStores b
+            (a + ab, s + sb)) (0, 0)
+          (agg6 + ad + ac, seq + sd + sc)
+      | .forLoop _ _ _ b =>
+          let (ab, sb) := countMapStores b
+          (agg6 + ab, seq + sb)
+      | _ => (agg6, seq)) (0, 0)
+  let (aggregate6Count, sequentialMapStoreCount) := countMapStores mintFn.body
+  expect (aggregate6Count >= 1)
+    s!"Token mint must form ≥1 6-leaf storeAggregate for Map balances, got {aggregate6Count}"
+  expect (sequentialMapStoreCount == 0)
+    s!"Token mint must not sequential-store Map leaves (snapshot hazard), got {sequentialMapStoreCount}"
   liftResult <| Targets.Aleo.validatePlan plan
   let output ← liftResult <| materializeAleo compiled
   let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
@@ -1341,6 +1395,82 @@ unsafe def testMapStateLeo : IO Unit := do
     "Option match arms must render if/else"
   expect (leo.contains "1u64 : 0u64)")
     "Option tag must materialize as a u64 0/1 ternary"
+
+/-- MapMini put: empty Map upsert must lower as one 6-leaf storeAggregate and
+    emit all mapping get_or_use / value bindings before the first mapping set
+    of that batch (store-then-read snapshot). Sequential per-leaf store
+    polluted later leaves after writing occ' of the first-empty slot. -/
+unsafe def testMapStoreAggregateSnapshot : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapMini where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-mapmini>" "Tests.AleoMapMini" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  expect (plan.stateFieldNames.size == 6)
+    s!"MapMini plan must carry 6 Map leaves, got {plan.stateFieldNames.size}"
+  let some putFn := plan.functions.find? (·.name == "put") |
+    throw <| IO.userError "MapMini plan missing put"
+  let hasAgg6 := putFn.body.any fun stmt =>
+    match stmt with
+    | .storeAggregate leaves => leaves.size == 6
+    | _ => false
+  expect hasAgg6
+    "MapMini put must lower Map StateStore as one storeAggregate of 6 leaves"
+  let hasSeqStore := putFn.body.any fun stmt =>
+    match stmt with | .store _ _ => true | _ => false
+  expect (!hasSeqStore)
+    "MapMini put must not emit sequential per-leaf .store for the Map upsert"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "mapmini.aleo") |
+    throw <| IO.userError "aleo: missing mapmini.aleo"
+  let leo := leoFile.contents
+  -- Extract put's final block (between `return final {` after put header
+  -- and the matching `};` close).
+  let putMarker := "fn put(public p0: u64, public p1: u64) -> Final {"
+  let leoCs := leo.toList
+  let some putStart := indexOfChars leoCs putMarker.toList 0 |
+    throw <| IO.userError s!"MapMini Leo missing put Final header, got:\n{leo}"
+  let afterPutCs := leoCs.drop putStart
+  let finalMarker := "return final {"
+  let some finalRel := indexOfChars afterPutCs finalMarker.toList 0 |
+    throw <| IO.userError "MapMini put missing return final block"
+  let finalBodyStart := putStart + finalRel + finalMarker.length
+  let restCs := leoCs.drop finalBodyStart
+  -- Close of final is `    };` before the function close; take until first
+  -- `    };\n` that ends the final block (Leo emitter uses 4-space indent).
+  let some closeRel := indexOfChars restCs "    };\n".toList 0 |
+    throw <| IO.userError "MapMini put final block missing close"
+  let finalBody := String.ofList (restCs.take closeRel)
+  -- Collect get_or_use / set positions for the six Map leaves.
+  let mut getPoses : Array Nat := #[]
+  let mut setPoses : Array Nat := #[]
+  for i in [0:6] do
+    getPoses := getPoses ++ allSubstrPositions finalBody s!"pf_state_{i}.get_or_use"
+    setPoses := setPoses ++ allSubstrPositions finalBody s!"pf_state_{i}.set"
+  expect (setPoses.size == 6)
+    s!"MapMini put final must emit exactly 6 Map leaf sets, got {setPoses.size}"
+  expect (getPoses.size > 0)
+    "MapMini put final must emit Map leaf get_or_use for upsert snapshot"
+  let some firstSet := setPoses.foldl (fun acc p =>
+      match acc with | none => some p | some m => some (Nat.min m p)) none |
+    throw <| IO.userError "MapMini put: empty setPoses"
+  let some lastGet := getPoses.foldl (fun acc p =>
+      match acc with | none => some p | some m => some (Nat.max m p)) none |
+    throw <| IO.userError "MapMini put: empty getPoses"
+  expect (lastGet < firstSet)
+    s!"MapMini put store-then-read snapshot: all batch get_or_use (last={lastGet}) must precede first mapping set (first={firstSet})"
 
 /-- Map-full insert and mixed-shape Map fail closed (Normalize first, then
     the Aleo type closure / plan as defense in depth). -/
@@ -1575,6 +1705,7 @@ unsafe def run : IO Unit := do
   testInt64Negatives
   testInt64AcceptanceLeo
   testMapStateLeo
+  testMapStoreAggregateSnapshot
   testMapUpsertFailClosed
   testMapSetBudgetFailClosed
   testBytesStateLeo

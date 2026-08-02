@@ -191,6 +191,13 @@ structure Store where
 
 inductive Statement where
   | store (operation : Store)
+  /-- Atomic multi-leaf aggregate storage write from a single StateStore.
+  Emitter evaluates every leaf expression against the pre-batch storage
+  snapshot, then issues all `sstore`s. Prevents store-then-read pollution
+  when leaf Expr trees re-`sload` sibling slots (dense Map upsert). One
+  StateStore → one `storeAtomic`; consecutive StateStores stay separate so
+  later batches observe prior writes. Single-leaf stores keep `.store`. -/
+  | storeAtomic (operations : Array Store)
   | returnValue (value : Expr)
   /-- B-RET-ABI: multi-word aggregate return. `leaves` are the per-leaf
   expressions in preorder flatten order; `leafIsInt` is parallel. Emitted as
@@ -2481,6 +2488,14 @@ private def lowerBlockInstructionsV1
           unless leafExprs.size == leaves.size do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: aggregate state store leaf count mismatch"
+          -- One StateStore → one atomic multi-leaf batch (or a single `.store`
+          -- when the aggregate has one leaf). Sequential per-leaf `.store`
+          -- re-evaluates each leaf Expr after prior `sstore`s, so dense Map
+          -- upsert leaf trees that re-`sload` sibling occ/key/val slots see
+          -- polluted storage (put-into-empty occ flip). Two-phase snapshot
+          -- is target-owned emission; layout and consecutive StateStores are
+          -- unchanged.
+          let mut batch : Array Store := #[]
           for i in [0:leaves.size] do
             let some slot := leaves[i]? |
               throw <| .planInvariant .evm "aggregate store leaf slot missing"
@@ -2491,7 +2506,13 @@ private def lowerBlockInstructionsV1
               match layout.bindings[slot]? with
               | some b => b.byteWidth
               | none => 8
-            body := body.push (.store { slot, value := expr, byteWidth })
+            batch := batch.push { slot, value := expr, byteWidth }
+          if batch.size == 1 then
+            let some only := batch[0]? |
+              throw <| .planInvariant .evm "aggregate store single leaf missing"
+            body := body.push (.store only)
+          else
+            body := body.push (.storeAtomic batch)
         else
           unless leaves.size == 1 do
             throw <| .planInvariant .evm
@@ -3825,18 +3846,24 @@ private def lowerCallableV1
         "unsupported EVM semantic shape: dangling loop latch outside a for body"
   if body.size > maxBodyStatements then
     throw <| .planInvariant .evm s!"{owner} body exceeds profile limit {maxBodyStatements}"
-  -- Constructor store-only path keeps `stores` authoritative (aggregate
-  -- mutation tests target it); asserts/control regions require ordered body.
+  -- Constructor store-only path keeps `stores` authoritative for scalar-only
+  -- init (byte-identical Counter Yul). Terminal `.returnNone` is ignored when
+  -- flattening (historical). Multi-leaf `storeAtomic` must stay in body so
+  -- EmitIR two-phase snapshot applies (cannot flatten into sequential
+  -- constructor.stores without reintroducing store-then-read).
   let mut stores : Array Store := #[]
+  let mut onlyScalarStores := true
   if mode == .constructor && !hasAssert && !hasRegion then
     for statement in body do
       match statement with
       | .store store => stores := stores.push store
-      | _ => pure ()
-  let constructorBody :=
-    if mode == .constructor && !hasAssert && !hasRegion then #[] else body
-  let constructorStores :=
-    if mode == .constructor && !hasAssert && !hasRegion then stores else #[]
+      | .returnNone => pure ()
+      | .storeAtomic _ => onlyScalarStores := false
+      | _ => onlyScalarStores := false
+  let useStoreOnlyCtor :=
+    mode == .constructor && !hasAssert && !hasRegion && onlyScalarStores
+  let constructorBody := if useStoreOnlyCtor then #[] else body
+  let constructorStores := if useStoreOnlyCtor then stores else #[]
   let entryBody := if mode == .constructor then constructorBody else body
   let entryStores := if mode == .constructor then constructorStores else #[]
   pure { params, stores := entryStores, body := entryBody }

@@ -98,48 +98,53 @@ private def validateExprNodes (expr : Expr) (depth : Nat) : Option Nat :=
         total := total + da
       some total
 
+/-- Charge expression-node budget for one Expr; fail closed on depth/budget. -/
+private def chargeExpr (budget : Nat) (value : Expr) : CompileResult Nat := do
+  match validateExprNodes value 0 with
+  | some nodes =>
+      unless nodes ≤ budget do
+        planError "Aleo plan expression exceeds the aggregate node limit"
+      pure (budget - nodes)
+  | none => planError "Aleo plan expression exceeds the depth limit"
+
 /-- Aggregate node accounting across a statement list (bounded by
     `maxPlanNodes`). Depth violations surface as planInvariant directly. -/
-private partial def validateStatements (stmts : Array Statement) : CompileResult Unit := do
+private partial def validateStatements
+    (stmts : Array Statement) (stateFieldCount : Nat) : CompileResult Unit := do
   if stmts.size > maxBodyStatements then
     planError "Aleo function body exceeds the statement limit"
   let mut budget : Nat := maxPlanNodes
   for stmt in stmts do
     match stmt with
-    | .store _ value | .returnValue value => do
-        match validateExprNodes value 0 with
-        | some nodes =>
-            unless nodes ≤ budget do
-              planError "Aleo plan expression exceeds the aggregate node limit"
-            budget := budget - nodes
-        | none => planError "Aleo plan expression exceeds the depth limit"
+    | .store fieldIndex value => do
+        unless fieldIndex < stateFieldCount do
+          planError "Aleo store targets an unknown state field"
+        budget ← chargeExpr budget value
+    | .storeAggregate leaves => do
+        unless leaves.size > 0 do
+          planError "Aleo storeAggregate has no leaves"
+        let mut seen : Array Nat := #[]
+        for store in leaves do
+          unless store.fieldIndex < stateFieldCount do
+            planError "Aleo storeAggregate targets an unknown state field"
+          if seen.contains store.fieldIndex then
+            planError "Aleo storeAggregate writes the same state field more than once"
+          seen := seen.push store.fieldIndex
+          budget ← chargeExpr budget store.value
+    | .returnValue value => do
+        budget ← chargeExpr budget value
     | .returnNone => pure ()
     | .assert condition => do
-        match validateExprNodes condition 0 with
-        | some nodes =>
-            unless nodes ≤ budget do
-              planError "Aleo plan expression exceeds the aggregate node limit"
-            budget := budget - nodes
-        | none => planError "Aleo plan expression exceeds the depth limit"
+        budget ← chargeExpr budget condition
     | .ifThenElse condition thenBody elseBody => do
-        match validateExprNodes condition 0 with
-        | some nodes =>
-            unless nodes ≤ budget do
-              planError "Aleo plan expression exceeds the aggregate node limit"
-            budget := budget - nodes
-        | none => planError "Aleo plan expression exceeds the depth limit"
-        validateStatements thenBody
-        validateStatements elseBody
+        budget ← chargeExpr budget condition
+        validateStatements thenBody stateFieldCount
+        validateStatements elseBody stateFieldCount
     | .switchOn condition cases defaultBody => do
-        match validateExprNodes condition 0 with
-        | some nodes =>
-            unless nodes ≤ budget do
-              planError "Aleo plan expression exceeds the aggregate node limit"
-            budget := budget - nodes
-        | none => planError "Aleo plan expression exceeds the depth limit"
+        budget ← chargeExpr budget condition
         for (_, caseBody) in cases do
-          validateStatements caseBody
-        validateStatements defaultBody
+          validateStatements caseBody stateFieldCount
+        validateStatements defaultBody stateFieldCount
     | .forLoop start endExclusive _ body => do
         match validateExprNodes start 0, validateExprNodes endExclusive 0 with
         | some ns, some ne =>
@@ -147,7 +152,7 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
               planError "Aleo plan expression exceeds the aggregate node limit"
             budget := budget - (ns + ne)
         | _, _ => planError "Aleo plan expression exceeds the depth limit"
-        validateStatements body
+        validateStatements body stateFieldCount
     | .emitEvent .. =>
         planError "Aleo does not support emit: Leo 4.0.2 has no on-chain event log"
     | .revertError _ args =>
@@ -160,11 +165,13 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
     two inner upserts both count), so this is a sum over arms, not a max.
     `for` bodies are guarded by `ValidatePlanV1`'s bounded-iteration model:
     the emitted body contains its sets once (the `for` is a single region),
-    so the body's set count counts once. -/
+    so the body's set count counts once. Multi-leaf `storeAggregate` counts
+    one set per leaf (same as sequential emission). -/
 private partial def setCountPerFinalBlock (stmts : Array Statement) : Nat :=
   stmts.foldl (fun acc stmt =>
     match stmt with
     | .store _ _ => acc + 1
+    | .storeAggregate leaves => acc + leaves.size
     | .ifThenElse _ t e => acc + setCountPerFinalBlock t + setCountPerFinalBlock e
     | .switchOn _ cases d =>
         acc + cases.foldl (fun a (_, b) => a + setCountPerFinalBlock b)
@@ -200,7 +207,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         planError s!"Aleo parameter '{param.name}' collides with a reserved Leo word"
       if param.isInt && param.isBool then
         planError "Aleo parameter cannot be both Bool and Int64"
-    validateStatements fn.body
+    validateStatements fn.body plan.stateFieldNames.size
     -- Leo ECMP0376015: >32 mapping sets in one final block is invalid Leo.
     -- Fail closed at plan time (the dense Map upsert emits 3×capacity sets
     -- per arm; multi-arm matches sum statically).

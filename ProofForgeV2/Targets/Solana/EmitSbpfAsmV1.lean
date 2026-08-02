@@ -51,7 +51,7 @@ writable, headerEquals (account[0] only).
 
 Ops: literal, loadParam, loadState, checkedAdd/Sub/Mul/Div/Mod,
 bitAnd/Or/Xor/Not, checkedShl/Shr, boolNot/And/Or, zeroState, storeState,
-setHeader, setReturnData (u64 LE / bool), compare, assert, returnNone,
+storeStateMulti, setHeader, setReturnData (u64 LE / bool), compare, assert, returnNone,
 revertError, ifRegion, switchRegion, forRegion, callFn (inline expand),
 emitEvent (`sol_log_data`).
 
@@ -1530,6 +1530,29 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
           s!"  ; store_u{bitWidth}_le account[0].data + {byteOffset}, %{value}"
         let b := loadTemp b "r1" tempBase value
         pure (emit b s!"  {mnem} [r6 + ACC0_DATA + {byteOffset}], r1")
+  | .storeStateMulti entries => do
+      let mut b := emit b s!"  ; store_multi_le [{entries.size}] (atomic aggregate)"
+      for (accountIndex, byteOffset, byteWidth, value) in entries do
+        unless accountIndex == 0 do
+          return ← asmError "S1b storeStateMulti supports only account[0]"
+        if byteWidth == 8 then
+          let b' := emit b
+            s!"  ; store_u64_le account[0].data + {byteOffset}, %{value}"
+          let b' := loadTemp b' "r1" tempBase value
+          b := emit b' s!"  stxdw [r6 + ACC0_DATA + {byteOffset}], r1"
+        else if byteWidth > 8 then
+          let bitWidth := byteWidth * 8
+          b := emitMultiwordMemStore b tempBase value
+            (limbCountOfBitWidth bitWidth) byteOffset
+            s!"store_u{bitWidth}_le account[0].data + {byteOffset}, %{value}"
+        else
+          let bitWidth := byteWidth * 8
+          let mnem := narrowStoreMnemonic bitWidth
+          let b' := emit b
+            s!"  ; store_u{bitWidth}_le account[0].data + {byteOffset}, %{value}"
+          let b' := loadTemp b' "r1" tempBase value
+          b := emit b' s!"  {mnem} [r6 + ACC0_DATA + {byteOffset}], r1"
+      pure b
   | .setHeader accountIndex byteOffset value =>
       unless accountIndex == 0 do
         return ← asmError "S1b setHeader supports only account[0]"
