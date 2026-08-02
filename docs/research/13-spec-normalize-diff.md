@@ -52,16 +52,16 @@ normative: false
 | Field(bn254) / Principal state/param | **LOWERED** | 无源字面量 | — |
 | named Struct/Enum state/param | **LOWERED** | N3 | — |
 | anonymous Array/Map/Bytes/Option state | **LOWERED** | Map 非空 = empty+IndexSet（N-1）；Wire multi-arg Map Construct 仍 FC | N-1 ✅ N-A3 ✅ N-A4 ✅ |
-| init/entry/view/fn | **LOWERED** | invariant/proof item 仍 FC | INV-1 |
-| bare assign / return / assert | **LOWERED** | assert-else **FC** | — |
+| init/entry/view/fn/invariant | **LOWERED** | invariant → callable + exact fuel；proof 仅 certification metadata | N-INVARIANT-IR ✅ |
+| bare assign / return / assert | **LOWERED** | `assert cond else Err` 仅 zero-arg error | — |
 | if / match（stmt+expr） | **LOWERED** | multi-block；嵌套子模式已开；同键 duplicate FC | N-7 深化 |
 | let 可变 + field/index rebind | **LOWERED** | bare `x:=e` env rebind 已开（N-6）；param 仍 immutable | N-6 ✅ |
-| bounded for | **LOWERED** | 端点仍 UInt64 | N-8 |
+| bounded for | **LOWERED** | 同宽 legal UInt；Int 端点仍 FC | N-FOR-INT |
 | 算术/位运算/移位/比较/逻辑 | **LOWERED** | Field mod FC；Field/Principal ordering FC | — |
 | unary `- ~ !` | **LOWERED** | UInt `-` → `0-x` | — |
 | fn / localCall pureCall | **LOWERED** | purity 门禁 | — |
-| call / schedule | **LOWERED** | args UInt64；无返回值 | N-5 |
-| revert / emit | **LOWERED** | event/error 字段 UInt-only | N-8 |
+| call / schedule | **LOWERED** | args legal UInt/Int；无返回值 | N-CALL-RET |
+| revert / emit | **LOWERED** | shared event/error 字段 public UInt/Int/String；target String ABI 全 FC | N-STR-EVENT ✅ |
 | `context.unixTimeSeconds` + `context.caller` | **LOWERED** | 两个 sole wire key（UInt64 / Principal） | N-2 ✅ |
 | `commit(x)` | **LOWERED**（label-only） | disclosure 契约已钉（N-3）；pureFn **FC** | N-3 ✅ |
 | aggregate entry/view/fn **result** | **partial** | named Struct/Enum 已 LOWERED（N-4）；**匿名 Array/Map/Bytes/Option result 仍 FC**；target ABI 见 12 矩阵 | N-4 ✅ |
@@ -88,7 +88,7 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 | Commit | **partial** | label-only identity |
 | CheckedCast | 视切片 | structure 可；产品路径以 docstring out-of-scope 为准抽检 |
 | block-param loop / join | yes | for + expr match |
-| invariant callables / exact fuel | **not product-normalized** | Wire gate 存在；Normalize 不产 invariant root |
+| invariant callables / exact fuel | yes | Normalize 产 `.invariant` root + dense InvariantDecl，复用 Wire exact closure/fuel；target 全 FC |
 
 ---
 
@@ -104,9 +104,9 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 
 ---
 
-## 5. 与 backlog 的校准（2026-08-02 复核更新：以下 N 家族已全部 done，本表保留为历史对照）
+## 5. 与 backlog 的校准（2026-08-03 复核更新：本表保留历史 ID 与当前 residual）
 
-| ID | 2026-08-02 复核结论 | backlog 状态 |
+| ID | 2026-08-03 复核结论 | backlog 状态 |
 |---|---|---|
 | **N-1** | 产品 nonempty Map = `Map.empty`+IndexSet 已开；仅 Wire multi-arg Construct FC | **done** |
 | **N-2** | `context.caller`（Principal）+ unixTimeSeconds 双 key 已接线 | **done** |
@@ -115,7 +115,8 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 | **N-5** | call 返回值：仅 RPT-014 schema 研究；**产品仍 void，实现 follow-on 未排**（见 backlog 2.4） | **done**（研究） |
 | **N-6** | bare `x:=e` env rebind 已开；param immutable | **done** |
 | **N-7** | 嵌套 ctor/lit/bind 子模式已开 | **done** |
-| **N-8** | event/error legal UInt/Int 已开；**for 端点仍 legal UInt only**（余量未排） | **done**（子集） |
+| **N-8** | event/error legal UInt/Int 与 call/schedule legal UInt/Int 已开；**for 端点仍 legal UInt only** | **done**（子集） |
+| **N-STR-EVENT** | shared event/error String payload 已开并进 Reference；target ABI 全 FC | **done**（shared-only） |
 | **N-A3** | 单步 IndexSet 已开；**嵌套穿透 `m[k].x` 仍 FC**（余量未排） | **done**（子集） |
 | **N-A4** | Option state Normalize admit 已开；全 target Plan FC | **done**（子集） |
 | **N-BYTES** | Bytes state+index 已开 | **done** |
@@ -123,11 +124,11 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 
 ---
 
-## 6. 回流 engineering-backlog（2026-08-02 复核更新）
+## 6. 回流 engineering-backlog（2026-08-03 复核更新）
 
 1. 登记本文路径；DOC-SPEC-AUDIT → done（已登记）。
-2. N 家族 done 声明与代码主路径一致；**子集 done 的余量**（call 返回值、匿名 result、嵌套穿透、for-Int 端点、String event 字段、assert-else、invariant IR）已回写 backlog §2.4「剩余缺口登记」并挂新 ID。
-3. 下一产品优先按 backlog 推荐序：共享核串行（assert-else → call 返回值 schema → …），target leaf 可并行。
+2. N 家族 done 声明与代码主路径一致；String event payload、zero-arg assert-else 与 invariant IR 已闭合。剩余余量为 call 返回值、匿名 result、嵌套穿透、multi-entry Map Construct 与 for-Int 端点，并继续只在 backlog §2.4 排队。
+3. 下一产品优先按 backlog 推荐序：先处理 call 返回值 schema 与 call/schedule capability 产品决策，再串行其余 shared-core；target leaf 仅在接口冻结后并行。
 
 ---
 

@@ -229,7 +229,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **N-ANON-RESULT** | 匿名容器（Array/Map/Option/Bytes）entry/view/fn 返回值 | 共享核 | N-4 只开 named Struct/Enum；匿名 result 仍 FC | pending |
 | **N-NEST-IDX** | Map/Bytes 嵌套穿透赋值（`m[k].x:=v`、`b[i].…`） | 共享核 | N-A3 只开单步 IndexSet；嵌套 Option 中间值 FC | pending |
 | **N-INVARIANT-IR** | invariant 进 Semantic callables/invariants | 共享核 | Normalize 将每个 `invariant name : BoolExpr` 降为零参 public-Bool `.invariant` callable + source-order dense `InvariantDecl`；复用 Wire sole closure membership 与 exact `invariantSteps` 公式，支持 pureFn closure 与 expression-match 多块 CFG；Provenance 覆盖全部 lowered block/instruction/value/terminator；`.proof` 仍仅为 certification metadata，同一 program 有/无 proof 的 semantic bytes/hash 相同；六 target 对 nonempty invariants 继续 fail closed | **done**（2026-08-02；engineering，非 formal TASK-D2-06/07） |
-| **N-STR-EVENT** | String 作 event/error 字段 | 共享核（小） | String state/param/result 已开；event/error 仍 UInt/Int-only | pending |
+| **N-STR-EVENT** | String 作 event/error 字段 | 共享核（小） | Normalize 现允许 public anonymous UInt/Int/String event/error 字段；String 字面量按 canonical `u32le(len) || NFC UTF-8` 降为 payload，located product compile 与 Reference Emit/Revert（ordered effect / declared rollback）已钉。六 target 不发明 ABI：EVM/Solana/NEAR/Noir/Psy 在 target Plan 精确 FC，Aleo 在 `effect.event` resolver FC | **done**（2026-08-03；`c768d68c7`；shared-only，非 target ABI/formal D2/D4） |
 | **N-FOR-INT** | for 端点 Int | 共享核（小） | N-8 余量；for 端点仍 legal-UInt-only | pending |
 | **N-CONST-REF** | body 中 const place 引用 | 共享核（小） | constants lookup 在 fn signatures 后、任何 callable body 前完成，支持 forward ref；bare place 按 env→state→const 降为独立 value-producing `Op.Constant`，精确绑定 ConstantId/TypeId/ValueId；entry/view/pureFn/invariant、窄 UInt 合成与 authoritative Provenance（`.constant`/`.typeRef`/body place/Bool requirement）已钉。const 声明表达式仍仅 literal/negative Int；EVM/Solana/NEAR/Noir 对任意 nonempty constants 表 FC，Aleo/Psy 对实际 Op.Constant FC；post-declared novel const shape 有明确 engineering semantic-identity cutover，非 hash-stability/formal 声明 | **done**（2026-08-02；engineering，非 formal D2/D4） |
 | **N-MAP-CONSTRUCT** | 非空 Map 构造 / wire multi-arg Construct | 共享核 | shipped 产品只靠 `Map.empty` + bounded IndexSet 建非空 Map；通用 multi-entry Map Construct 及其 canonical duplicate/order 语义仍 fail closed | pending |
@@ -364,7 +364,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
    - B-SOL-MAP-UPSERT：EVM/Solana/NEAR/Noir/Aleo 五个 target-local snapshot 修复；Solana 真实 Mollusk 转绿
 2. **必须先决策**：B-CALL-SEM（降 support 或实现真实 call/schedule）+ DOC-ADR-SCOPE（6 target / frontend assurance）
 3. ~~N-INVARIANT-IR（消除 invariant 静默丢弃）~~已完成；~~D3-E7（artifact 内容 hash/inspect closure）~~与~~D3-E9（descriptor axes exact join）~~已完成；identity residual 仅余 D3-E8，且需先冻结 evidence-grade 语义
-4. ~~N-CONST-REF~~已完成；**随后串行语言面**：N-CALL-RET（需 schema 决策）→ N-ANON-RESULT → N-NEST-IDX → N-MAP-CONSTRUCT → N-STR-EVENT → N-FOR-INT
+4. ~~N-CONST-REF~~与~~N-STR-EVENT~~已完成；**随后串行语言面**：N-CALL-RET（需 schema 决策）→ N-ANON-RESULT → N-NEST-IDX → N-MAP-CONSTRUCT → N-FOR-INT
 5. **可并行 target leaf（接口冻结后）**：B-OPT-STATE / B-COMMIT-ZK / B-CTX-OPEN（需产品决策）
 6. **NFR / identity residual**：D3-E8 → RES-1B；~~D3-E9~~与~~NFR-REPEAT~~已完成（后者为同机双 target 工程子集）
 7. 语言面够用后：NS-2 / EXT-CRYPTO（仍 language-gated）

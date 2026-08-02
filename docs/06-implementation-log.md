@@ -13300,3 +13300,21 @@ normative: false
   56/56 Rust tests；使用同一 exact external tool root 的 ordinary `just ci` 通过。
 - Boundary：这是 engineering ELF/runtime coverage，不是 formal Reference↔Mollusk、Stage-0、
   hermetic 或 release evidence；Solana UInt128/256 div/mod 仍为 low64 + 高肢零检查 fail closed。
+
+### 2026-08-03 — N-STR-EVENT shared Semantic/Reference slice
+
+- Tests-first：`ReferenceV1` 与 target shard 在生产修改前均稳定失败于
+  `S1 event 'Note' field 'message' requires anonymous UInt/Int type`，排除测试假绿。
+- Normalize：新增 event/error 专用字段门，只允许 public anonymous legal UInt/Int/String；
+  其他 integer-only call/schedule 与 UInt-only for endpoint 门不变。String payload 继续复用 sole
+  `encodeString` canonical `u32le(len) || NFC UTF-8` valueBytes。
+- Product/Reference：located `selectProgramV1WithOrigins → compileProgramProductV1` 成功保留
+  EventDecl/ErrorDecl 的同一 String TypeId；Reference 固定 String literal emit 的 ordered effect、
+  declared String revert payload 与 pre-state rollback。
+- Target boundary：不定义或猜测 String interface ABI。EVM/Solana/NEAR/Noir/Psy 分别以
+  target-owned Plan invariant 拒绝，Aleo 因不支持 `effect.event` 在 exact requirement resolution
+  拒绝；任何 target 均不产制品。
+- Verification：typed shard、targets shard、SBOM package-file pin、独立只读 P0/P1 review 与
+  final ordinary `just ci` 全部通过。
+- Boundary：shared engineering semantic identity cutover only；非 target event/error ABI、非 formal
+  `TASK-D2-06/07`、非 D4 完成。
