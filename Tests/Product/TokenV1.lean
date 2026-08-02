@@ -104,7 +104,8 @@ private def testEvmBuildDeployable : IO Unit := do
     throw <| IO.userError "Token EVM must write Token.bin"
   try IO.FS.removeDirAll outDir catch _ => pure ()
 
-/-- Solana Map pilot: Token builds plan+IDL+manifest (default plan profile). -/
+/-- Solana Map pilot: Token builds plan+IDL+manifest (default plan profile;
+    deployable=false — pure-expr Map exceeds SBPF 4 KiB ELF frame). -/
 private def testSolanaBuildOk : IO Unit := do
   assertShape (← readShipped)
   let outDir := FilePath.mk ".lake/build/tmp-ns1-token-solana"
@@ -116,6 +117,10 @@ private def testSolanaBuildOk : IO Unit := do
       "-o", outDir.toString]
   expect (code == 0)
     s!"Token build --target solana must succeed, exit={code} stderr={stderr} stdout={stdout}"
+  expect (containsSubstr stdout "profile=solana-sbpf-plan-v1")
+    s!"Token Solana default must be plan profile, stdout={stdout}"
+  expect (containsSubstr stdout "deployable=false")
+    s!"Token Solana Map must report deployable=false, stdout={stdout}"
   unless ← (outDir / "manifest.json").pathExists do
     throw <| IO.userError "Token Solana must write manifest.json"
   unless ← (outDir / "Token.sbpf-plan").pathExists do
@@ -138,7 +143,7 @@ private def testNearBuildOk : IO Unit := do
     throw <| IO.userError "Token NEAR must write manifest.json"
   try IO.FS.removeDirAll outDir catch _ => pure ()
 
-/-- Noir Map pilot: Token builds source package + manifest. -/
+/-- Noir Map pilot: Token builds source package + multi-leaf Map relations. -/
 private def testNoirBuildOk : IO Unit := do
   assertShape (← readShipped)
   let outDir := FilePath.mk ".lake/build/tmp-ns1-token-noir"
@@ -152,6 +157,9 @@ private def testNoirBuildOk : IO Unit := do
     s!"Token build --target noir must succeed, exit={code} stderr={stderr} stdout={stdout}"
   unless ← (outDir / "manifest.json").pathExists do
     throw <| IO.userError "Token Noir must write manifest.json"
+  -- Dense Map pilot: multi-leaf public inputs (capacity-8 × occ/key/val).
+  unless ← (outDir / "Token.noir-relations.json").pathExists do
+    throw <| IO.userError "Token Noir must write Token.noir-relations.json"
   try IO.FS.removeDirAll outDir catch _ => pure ()
 
 unsafe def run : IO Unit := do

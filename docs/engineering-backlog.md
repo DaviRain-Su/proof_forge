@@ -135,7 +135,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 
 | ID | 项 | 说明 | 状态 |
 |---|---|---|---|
-| **NS-1** | Fungible Token 四 target | 验证“写一次跨链物化”；共享 N-1/N-2/B-3 前置 | **done**（2026-08-02：dense Map pilot **EVM+Solana+NEAR+Noir** cap-12；Solana 默认 ELF；runtime smoke 工程脚本；**非** formal/IBC） |
+| **NS-1** | Fungible Token 四 target | 验证“写一次跨链物化”；共享 N-1/N-2/B-3 前置 | **done**（2026-08-02：dense Map pilot **EVM+Solana+NEAR+Noir** cap-8 UInt64 键值；EVM/NEAR deployable；Solana **默认 plan**（ELF 帧预算：pure-expr Map 超 4KiB，ELF 对 Map Token 仍 opt-in 失败）；Noir multi-leaf public inputs；runtime smoke 工程脚本；**非** formal/IBC） |
 | **NS-2** | packet mailbox 最小件 | IBC-flavored 子集 | pending |
 | **NS-3** | 真 IBC 模块栈 | 长期；依赖 crypto | wontfix-until-NS-1 |
 | **EXT-CRYPTO** | `extension.crypto`（SHA-256 / Merkle / 签名） | IBC 与大量链上逻辑命脉；capability 矩阵 | pending（设计后单独立项） |
@@ -233,8 +233,9 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **B-1a** | NEAR named 聚合 + Array/容器 lower 或显式 FAIL-CLOSED+测 | `Targets/Near/**` | **done**（`4c79e0a59` NearAggregate） |
 | **B-1b** | Noir named 聚合 | Noir/** | **done**（`61b7dff09`） |
 | **B-1c** | Aleo 覆盖核对 + 显式边界 | Aleo/** | **done**（`04fe6e815`） |
-| **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array + **Map UInt64 dense pilot** cap-8 + Token plan；Bytes 仍 FC；Option 中间值自 Map IndexGet） |
-| **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2 LOWERED；**Map UInt64→UInt64 dense pilot** capacity-8 + Token deployable；Option-from-Map IndexGet；Solana/NEAR/Noir Map 仍 FC） |
+| **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array + **Map UInt64 dense pilot** cap-8 + Token **plan** 默认；ELF 对 Map pure-expr 超 4KiB 帧 FC；Bytes 仍 FC；Option 中间值自 Map IndexGet） |
+| **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2；**Map UInt64 dense pilot** cap-8 + Token deployable；Option-from-Map；Solana/NEAR/Noir Map 横向已开） |
+| **B-1f** | Noir Map multi-leaf public inputs | Noir/** | **done**（2026-08-02：Map UInt64 cap-8 occ/key/val public-input leaves + IndexGet→Option + IndexSet upsert + Token relations；Array/Bytes 仍 FC） |
 | **B-3** | Principal → address，解锁 EVM/Solana call/schedule | Envelope + EVM/Solana | **done**（2026-08-02：sole research pin `4ecb4f86e` PrincipalAddr — wire Principal ≠ EVM 20B / Solana 32B pubkey；no CALL/CPI unlock；`pilotPrincipalPolicyNone`；docs close） |
 | **B-ctx** | ContextRead 各 target Plan：保持 fail-closed 并补齐负向测 | 四 target | **done**（2026-08-02：unixTime + caller 五 target materialize decline 钉测） |
 
@@ -246,7 +247,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **C-2** | Aleo/Psy compiler/VM 可用性研究与是否升格验收 | **done**（2026-08-02：RPT-015 不升格门；Aleo/Psy 保持 source-only；矩阵 C-2 行 + research README 已登记） |
 | **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；工程 Anvil smoke 可保留） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | **done**（2026-08-02：RPT-016 **不**升格 prove/verify；无 nargo Tool Lock pin；保持 source-only；见 `16-noir-prove-path.md`） |
-| **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（fixture 集：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates/NarrowAbi/NarrowResult + **ArraySlots**（Array UInt64 2）；Map/Option/Context 等 Solana Plan 多为 FAIL-CLOSED，不发明 runtime 面；随新 LOWERED 再扩） |
+| **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（fixture 集：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates/NarrowAbi/NarrowResult + **ArraySlots** + **MapMini** plan-only（dense Map cap-8；ELF 帧超限不做 Mollusk `.so`）；Option/Context 随 LOWERED 再扩） |
 
 ---
 

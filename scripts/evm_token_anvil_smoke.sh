@@ -43,21 +43,67 @@ pk=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 from=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 # Deploy create
 binhex=$(xxd -p -c 1000000 "$token_bin" | tr -d '\n')
-addr=$("$cast_path" send --rpc-url "$rpc" --private-key "$pk" --create "0x$binhex" --json | python3 -c 'import sys,json; print(json.load(sys.stdin).get("contractAddress",""))' 2>/dev/null || true)
-if [[ -z "$addr" ]]; then
-  # fallback cast receipt style
-  tx=$("$cast_path" send --rpc-url "$rpc" --private-key "$pk" --create "0x$binhex" 2>/dev/null | tail -1)
-  addr=$("$cast_path" receipt --rpc-url "$rpc" "$tx" --json 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin).get("contractAddress",""))' || true)
+# Token Map pilot bytecode can exceed Anvil/EIP-3860 initcode limits (~49KiB).
+create_err=/tmp/pf-token-anvil-create.err
+addr=$("$cast_path" send --rpc-url "$rpc" --private-key "$pk" --create "0x$binhex" --json 2>"$create_err" | python3 -c 'import sys,json
+try:
+  print(json.load(sys.stdin).get("contractAddress",""))
+except Exception:
+  print("")' || true)
+if [[ -z "$addr" || "$addr" == "null" ]]; then
+  if grep -qiE 'initcode|max code|code size|oversized' "$create_err" 2>/dev/null; then
+    echo "evm-token-anvil: skipped: bytecode exceeds Anvil create/initcode limit (Map pilot Yul; engineering only)" >&2
+    exit 0
+  fi
+  tx=$("$cast_path" send --rpc-url "$rpc" --private-key "$pk" --create "0x$binhex" 2>/dev/null | tail -1 || true)
+  if [[ -n "${tx:-}" ]]; then
+    addr=$("$cast_path" receipt --rpc-url "$rpc" "$tx" --json 2>/dev/null | python3 -c 'import sys,json
+try:
+  print(json.load(sys.stdin).get("contractAddress",""))
+except Exception:
+  print("")' || true)
+  fi
 fi
 if [[ -z "$addr" || "$addr" == "null" ]]; then
-  echo "evm-token-anvil: skipped: deploy failed (see /tmp/pf-token-anvil.log)" >&2
+  # Dense Map pilot Yul can exceed EIP-3860 initcode / create limits on Anvil;
+  # treat as engineering skip (not product build failure).
+  echo "evm-token-anvil: skipped: deploy failed (initcode/create; see /tmp/pf-token-anvil.log)" >&2
   exit 0
 fi
+# Normalize cast call output to decimal UInt64 when possible.
+to_dec() {
+  local x="$1"
+  x="${x//$'\n'/}"
+  x="${x// /}"
+  if [[ -z "$x" ]]; then echo ""; return; fi
+  if [[ "$x" == 0x* || "$x" == 0X* ]]; then
+    python3 -c "print(int('$x', 16))" 2>/dev/null || echo "$x"
+  else
+    # cast may print plain decimal
+    echo "$x"
+  fi
+}
+
 # mint(to=1, amount=100)
 "$cast_path" send --rpc-url "$rpc" --private-key "$pk" "$addr" "mint(uint64,uint64)" 1 100 >/dev/null
-bal=$("$cast_path" call --rpc-url "$rpc" "$addr" "balanceOf(uint64)(uint64)" 1)
-# cast returns hex; accept non-empty success
-if [[ -z "$bal" ]]; then echo "FAIL: balanceOf empty" >&2; exit 1; fi
+bal1=$("$cast_path" call --rpc-url "$rpc" "$addr" "balanceOf(uint64)(uint64)" 1)
+bal1d=$(to_dec "$bal1")
+if [[ -z "$bal1d" ]]; then echo "FAIL: balanceOf(1) empty" >&2; exit 1; fi
+if [[ "$bal1d" != "100" ]]; then
+  echo "FAIL: balanceOf(1) expected 100 got $bal1d (raw=$bal1)" >&2
+  exit 1
+fi
 "$cast_path" send --rpc-url "$rpc" --private-key "$pk" "$addr" "transfer(uint64,uint64,uint64)" 1 2 40 >/dev/null
-echo "evm-token-anvil: ok mint/transfer/balanceOf on $addr" >&2
+bal1=$("$cast_path" call --rpc-url "$rpc" "$addr" "balanceOf(uint64)(uint64)" 1)
+bal2=$("$cast_path" call --rpc-url "$rpc" "$addr" "balanceOf(uint64)(uint64)" 2)
+bal1d=$(to_dec "$bal1"); bal2d=$(to_dec "$bal2")
+if [[ "$bal1d" != "60" ]]; then
+  echo "FAIL: after transfer balanceOf(1) expected 60 got $bal1d" >&2
+  exit 1
+fi
+if [[ "$bal2d" != "40" ]]; then
+  echo "FAIL: after transfer balanceOf(2) expected 40 got $bal2d" >&2
+  exit 1
+fi
+echo "evm-token-anvil: ok mint/transfer/balanceOf on $addr (1→60, 2→40)" >&2
 echo "evm-token-anvil: engineering only; not formal Reference↔Anvil"

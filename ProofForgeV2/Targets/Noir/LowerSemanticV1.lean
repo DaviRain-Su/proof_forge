@@ -454,12 +454,13 @@ private def inputTypeOfScalarV1
     NoirAggregate) flattened to UInt64/Int64 relation-slot leaves. T12: Principal
     admitted as **storage identity only** (`pilotPrincipalPolicyAdmit`) — fixed
     leaf layout len+8×UInt64 (≤64B body, same pattern as EVM T10); still not a
-    Field element. **Map UInt64 UInt64** dense pilot via
-    `pilotContainerStatePolicyArrayMap` (capacity-12×occ/key/val public-input
-    leaves; Option intermediate for Map IndexGet). Array/Bytes still FC. -/
+    Field element. **Array UInt64 N** + **Map UInt64 UInt64** dense pilot via
+    `pilotContainerStatePolicyArrayMap` (Array → N leaves; Map →
+    capacity-8×occ/key/val public-input leaves; Option intermediate for Map
+    IndexGet). Bytes still FC. -/
 private def validateNoirTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 :=
-  -- Named aggregates + Map UInt64 dense pilot. Array/Bytes stay fail closed.
+  -- Named aggregates + Array/Map UInt64 container pilot. Bytes stay fail closed.
   validatePilotTypeClosure noirPlanErr noirTypeClosureWording types
     pilotUintWidthPolicyNoirBody
     (intPolicy := pilotIntWidthPolicyNarrow)
@@ -527,27 +528,35 @@ private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
   pure leaves
 
 /-- Dense Map pilot capacity (aligned with EVM/Solana/NEAR Token pilot). -/
-private def noirMapPilotCapacityV1 : Nat := 12
+private def noirMapPilotCapacityV1 : Nat := 8
 private def noirMapSlotsPerEntryV1 : Nat := 3
 private def noirMapPilotLeafCountV1 : Nat :=
   noirMapPilotCapacityV1 * noirMapSlotsPerEntryV1
 
-/-- Map UInt64 UInt64 leaf count; `none` when not Map. -/
+/-- Array / Map container leaf count. Array: fixed `Array UInt64 N`.
+    Map: dense capacity-8 occ/key/val. Bytes fail closed. `none` when not a
+    container TypeId. -/
 private def mapUInt64LeafCountV1
     (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option Nat) := do
   match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: Array state element must be UInt64"
+      let n := len.toNat
+      unless n ≥ 1 do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: Array state length must be ≥ 1"
+      pure (some n)
   | some { shape := .map keyTid valTid, .. } =>
       unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: Map state admits only Map UInt64 UInt64"
       pure (some noirMapPilotLeafCountV1)
-  | some { shape := .array .., .. } =>
-      throw <| .planInvariant .noir
-        "unsupported Noir semantic shape: Array state is outside the Noir Map pilot"
   | some { shape := .bytes _, .. } =>
       throw <| .planInvariant .noir
-        "unsupported Noir semantic shape: Bytes state is outside the Noir Map pilot"
+        "unsupported Noir semantic shape: Bytes state is outside the Noir Array/Map container pilot"
   | _ => pure none
 
 /-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
@@ -1663,10 +1672,11 @@ private def lowerBlockInstructionsV1
                   "unsupported Noir semantic shape: literal is not UInt{8,16,32,64,128,256}, Int64, Bool, or Principal"
     | .stateLoad stateId, some result =>
         let leaves ← findStateLeavesV1 layout stateId
-        if (← mapUInt64LeafCountV1 layout.typeDecls types result.typeId).isSome then
-          unless leaves.size == noirMapPilotLeafCountV1 do
+        if let some expectedN :=
+            (← mapUInt64LeafCountV1 layout.typeDecls types result.typeId) then
+          unless leaves.size == expectedN do
             throw <| .planInvariant .noir
-              "unsupported Noir semantic shape: Map state load leaf count mismatch"
+              "unsupported Noir semantic shape: Array/Map state load leaf count mismatch"
           let mut leafExprs : Array Expr := #[]
           let mut leafIsInt : Array Bool := #[]
           for fieldIndex in leaves do
@@ -2009,16 +2019,44 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: construct result typeId must match op typeId"
         if let some n := (← mapUInt64LeafCountV1 layout.typeDecls types typeId) then
-          unless ctorIdx == 0 && argIds.isEmpty do
-            throw <| .planInvariant .noir
-              "unsupported Noir semantic shape: Map construct admits only Map.empty"
-          let mut zeros : Array Expr := #[]
-          let mut zInt : Array Bool := #[]
-          for _ in [0:n] do
-            zeros := zeros.push (.literal 0)
-            zInt := zInt.push false
-          let value := mkAggregateValueV1 zeros zInt #[] 1 n
-          values := ← appendResultValueV1 result.typeId values result value
+          -- Map.empty (0 args) → dense zero leaves; Array construct N UInt64 args.
+          if n == noirMapPilotLeafCountV1 && argIds.isEmpty then
+            unless ctorIdx == 0 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: Map construct admits only Map.empty"
+            let mut zeros : Array Expr := #[]
+            let mut zInt : Array Bool := #[]
+            for _ in [0:n] do
+              zeros := zeros.push (.literal 0)
+              zInt := zInt.push false
+            let value := mkAggregateValueV1 zeros zInt #[] 1 n
+            values := ← appendResultValueV1 result.typeId values result value
+          else do
+            unless ctorIdx == 0 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: Array construct ctorIdx must be 0"
+            unless argIds.size == n do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: Array construct arity must match length"
+            let mut leaves : Array Expr := #[]
+            let mut zInt : Array Bool := #[]
+            let mut deps : Array ValueIdV1 := #[]
+            let mut depth : Nat := 1
+            let mut nodes : Nat := 1
+            for i in [0:argIds.size] do
+              let some argId := argIds[i]? |
+                throw <| .planInvariant .noir "Array construct arg missing"
+              let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+              unless arg.kind == .uint64 do
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: Array construct element must be UInt64"
+              leaves := leaves.push arg.expr
+              zInt := zInt.push false
+              deps := deps.push argId
+              depth := Nat.max depth (arg.depth + 1)
+              nodes := nodes + arg.expandedNodes
+            let value := mkAggregateValueV1 leaves zInt deps depth nodes
+            values := ← appendResultValueV1 result.typeId values result value
         else do
           let some decl := layout.typeDecls[typeId.toNat]? |
             throw <| .planInvariant .noir
@@ -2291,48 +2329,93 @@ private def lowerBlockInstructionsV1
         let base ← currentValueWithArmsV1 values paramCount segmentStart armReadables baseId
         unless base.isAggregate do
           throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: IndexGet base must be a Map aggregate"
+            "unsupported Noir semantic shape: IndexGet base must be an Array/Map aggregate"
         let idx ← currentValueWithArmsV1 values paramCount segmentStart armReadables idxId
-        unless base.leafExprs.size == noirMapPilotLeafCountV1 do
-          throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: IndexGet admits only Map UInt64 pilot tables"
-        let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
-        let zInt := optLeaves.map fun _ => false
-        let value := mkAggregateValueV1 optLeaves zInt #[baseId, idxId]
-          (Nat.max base.depth idx.depth + 1)
-          (base.expandedNodes + idx.expandedNodes + 1)
-        values := ← appendResultValueV1 result.typeId values result value
+        if base.leafExprs.size == noirMapPilotLeafCountV1 then
+          let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+          let zInt := optLeaves.map fun _ => false
+          let value := mkAggregateValueV1 optLeaves zInt #[baseId, idxId]
+            (Nat.max base.depth idx.depth + 1)
+            (base.expandedNodes + idx.expandedNodes + 1)
+          values := ← appendResultValueV1 result.typeId values result value
+        else do
+          -- Array IndexGet: static UInt64 literal index into leaf vector.
+          let i ← match idx.expr with
+            | .literal v => pure v.toNat
+            | _ =>
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: Array IndexGet index must be UInt64 literal"
+          let leaves := base.leafExprs
+          unless i < leaves.size do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: Array IndexGet index out of range"
+          let some leaf := leaves[i]? |
+            throw <| .planInvariant .noir "Array IndexGet leaf missing"
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: Array IndexGet result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := leaf
+            kind := .uint64
+            depth := base.depth + 1
+            expandedNodes := base.expandedNodes + 1
+            dependencies := #[baseId, idxId]
+          }
     | .indexSet baseId idxId valueId, some result => do
         let base ← currentValueWithArmsV1 values paramCount segmentStart armReadables baseId
         unless base.isAggregate do
           throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: IndexSet base must be a Map aggregate"
+            "unsupported Noir semantic shape: IndexSet base must be an Array/Map aggregate"
         let idx ← currentValueWithArmsV1 values paramCount segmentStart armReadables idxId
         let val ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
         unless val.kind == .uint64 do
           throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: Map IndexSet value must be UInt64"
-        unless base.leafExprs.size == noirMapPilotLeafCountV1 do
-          throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: IndexSet admits only Map UInt64 pilot tables"
-        let (outLeaves0, okInsert) ←
-          mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
-        let gate := Expr.checkedDiv (.literal 1) okInsert
-        let mut outLeaves : Array Expr := #[]
-        let mut outIsInt : Array Bool := #[]
-        for i in [0:outLeaves0.size] do
-          let some e := outLeaves0[i]? |
-            throw <| .planInvariant .noir "Map IndexSet leaf missing after upsert"
-          let e' :=
-            if i == 0 then
-              Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
-            else e
-          outLeaves := outLeaves.push e'
-          outIsInt := outIsInt.push false
-        let value := mkAggregateValueV1 outLeaves outIsInt #[baseId, idxId, valueId]
-          (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
-          (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
-        values := ← appendResultValueV1 result.typeId values result value
+            "unsupported Noir semantic shape: Array/Map IndexSet value must be UInt64"
+        if base.leafExprs.size == noirMapPilotLeafCountV1 then
+          let (outLeaves0, okInsert) ←
+            mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+          let gate := Expr.checkedDiv (.literal 1) okInsert
+          let mut outLeaves : Array Expr := #[]
+          let mut outIsInt : Array Bool := #[]
+          for i in [0:outLeaves0.size] do
+            let some e := outLeaves0[i]? |
+              throw <| .planInvariant .noir "Map IndexSet leaf missing after upsert"
+            let e' :=
+              if i == 0 then
+                Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
+              else e
+            outLeaves := outLeaves.push e'
+            outIsInt := outIsInt.push false
+          let value := mkAggregateValueV1 outLeaves outIsInt #[baseId, idxId, valueId]
+            (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
+            (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
+          values := ← appendResultValueV1 result.typeId values result value
+        else do
+          let i ← match idx.expr with
+            | .literal v => pure v.toNat
+            | _ =>
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: Array IndexSet index must be UInt64 literal"
+          let leaves := base.leafExprs
+          unless i < leaves.size do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: Array IndexSet index out of range"
+          let mut outLeaves : Array Expr := #[]
+          let mut outIsInt : Array Bool := #[]
+          for j in [0:leaves.size] do
+            if j == i then
+              outLeaves := outLeaves.push val.expr
+              outIsInt := outIsInt.push false
+            else
+              let some e := leaves[j]? |
+                throw <| .planInvariant .noir "Array IndexSet leaf missing"
+              let isInt := match base.leafIsInts[j]? with | some b => b | none => false
+              outLeaves := outLeaves.push e
+              outIsInt := outIsInt.push isInt
+          let value := mkAggregateValueV1 outLeaves outIsInt #[baseId, idxId, valueId]
+            (Nat.max base.depth val.depth + 1)
+            (base.expandedNodes + val.expandedNodes + 1)
+          values := ← appendResultValueV1 result.typeId values result value
     -- N5: Noir declines Commit (commitment labels have no relation-slot
     -- representation under N1 public-input policy) and ContextRead (no clock).
     | .commit .., some _ =>

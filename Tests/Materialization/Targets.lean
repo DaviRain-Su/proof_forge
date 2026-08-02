@@ -2810,11 +2810,10 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"N3 struct-state {target} message must cite named/aggregate boundary, got {e.render}"
 
-  -- ArrayState: fixed Array UInt64 2 state — Solana + EVM + NEAR + H3 Psy/Aleo
-  -- admit (flatten to leaf slots named slots_0/slots_1; IndexGet/IndexSet).
-  -- Noir declines container state. Map UInt64→UInt64 dense pilot is open on
-  -- EVM/Solana/NEAR; EVM also admits Bytes (D4-E2) separately from this Array
-  -- fixture.
+  -- ArrayState: fixed Array UInt64 2 state — Solana + EVM + NEAR + Noir + H3
+  -- Psy/Aleo admit (flatten to leaf slots named slots_0/slots_1; IndexGet/Set).
+  -- Map UInt64→UInt64 dense pilot is open on EVM/Solana/NEAR/Noir (cap-8);
+  -- EVM also admits Bytes (D4-E2) separately from this Array fixture.
   let arrayStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++

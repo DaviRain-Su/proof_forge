@@ -30,8 +30,8 @@ normative: false
 |---|---|---|---|---|---|---|
 | stateLoad/stateStore（标量） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | stateLoad/stateStore（named 聚合） | LOWERED(N3) | FAIL-CLOSED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | FAIL-CLOSED | FAIL-CLOSED(scalar mapping) |
-| stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
-| stateLoad/stateStore（Map） | LOWERED(dense Map cap-12) | LOWERED(dense Map cap-8; SBPF frame) | LOWERED(dense Map cap-12) | LOWERED(dense Map cap-12) | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Map） | LOWERED(dense Map cap-8) | LOWERED(dense Map cap-8; plan default; ELF frame FC) | LOWERED(dense Map cap-8) | LOWERED(dense Map cap-8; multi-leaf PI) | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（Bytes） | LOWERED(D4-E2: N×UInt8 leaves) | FAIL-CLOSED | FAIL-CLOSED(NearAggregate) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（Option） | FAIL-CLOSED（Normalize **admitted** N-A4；target container 永不 admit） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（String） | LOWERED(N4) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
@@ -41,7 +41,7 @@ normative: false
 | construct（named Struct/Enum） | LOWERED(N3) | FAIL-CLOSED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED(struct deferred) |
 | fieldGet/fieldSet | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED |
 | variantTag/variantPayload | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED |
-| indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | FAIL-CLOSED | LOWERED | FAIL-CLOSED |
+| indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | FAIL-CLOSED |
 | indexGet/indexSet（Map） | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | FAIL-CLOSED | FAIL-CLOSED |
 | indexGet/indexSet（Bytes） | LOWERED(D4-E2) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | fieldAdd/Sub/Mul/Div/Neg（Field） | LOWERED(N2b-EVM bn254) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生 bn254) | **LOWERED(T14 Goldilocks)** | **LOWERED(T14 BLS12-377)** |
@@ -95,10 +95,10 @@ normative: false
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
 | **B-1a** | NEAR named 聚合 + Array/容器 | **闭合(NearAggregate)**：named Struct/Enum + Array UInt flatten-to-KV；Map/Bytes FAIL-CLOSED | NearAggregate ✅ |
-| **B-1b** | Noir named 聚合 | **闭合(NoirAggregate)**：named Struct/Enum construct/fieldGet/fieldSet/variantTag/variantPayload + named-aggregate stateLoad/store 经 leaf 扁平化 public inputs（circuit-native 字段约束）；Array/Map/Bytes/Option 容器 state 与 IndexGet/Set 显式 FAIL-CLOSED | NoirAggregate |
+| **B-1b** | Noir named 聚合 | **闭合(NoirAggregate)**：named Struct/Enum + **Map UInt64 dense pilot**（cap-8 occ/key/val multi-leaf public inputs + IndexGet→Option + IndexSet upsert）；Array/Bytes 仍 FAIL-CLOSED | NoirAggregate + NoirMap |
 | **B-1c** | Aleo 全功能 | **AleoCoverage 已闭合（2026-08-01）**：核对代码后修正矩阵——LOWERED 为标量 UInt64 envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）+ Commit 身份透传；**Field FAIL-CLOSED**（Aleo native field = BLS12-377 Fr ≠ catalog bn254 Fr，PsyFelt 式研究钉）；named 聚合/construct/field*/variant*/Array/Map/Bytes/Option/ContextRead/emit/externalCall/schedule 均显式 FAIL-CLOSED（不再 GAP）；Leo native struct/record 布局切片另排 | AleoCoverage ✅ |
-| **B-1d** | Solana Map/Bytes/Option state | Solana 有 Array(UInt64) 正例，Map/Bytes/Option state FAIL-CLOSED（可保持或开放） | 后续 wave |
-| **B-1e** | EVM Map/Bytes/Option state | EVM 有 Array+Field+String 正例，Map/Bytes/Option state FAIL-CLOSED（可保持或开放） | 后续 wave |
+| **B-1d** | Solana Map/Bytes/Option state | **闭合(Map pilot)**：Array + **Map UInt64 cap-8** plan（Token/MapMini）；ELF profile 对 Map pure-expr 超 4KiB 帧 fail-closed（默认 plan）；Bytes/Option state 仍 FC（Option 中间值自 Map IndexGet） | SolanaMapPilot ✅ |
+| **B-1e** | EVM Map/Bytes/Option state | **闭合(Map pilot)**：Array + Bytes + **Map UInt64 cap-8** deployable Token；Option-from-Map IndexGet | EvmMapPilot ✅ |
 
 #### B-2：Normalize 语义细化（= A 组，N 家族串行）
 
@@ -122,7 +122,7 @@ normative: false
 | **C-2** | Aleo/Psy compiler/VM 验收研究 | **研究闭合（2026-08-02，RPT-015）** + **J2 AleoEmissionFix（2026-08-02）**：`leo 4.0.2` 主机可用时 `AleoAcceptance` 对产品 `.aleo` 做 `leo build --offline` 验收（缺席 skip；**无** Tool Lock pin / 非 prove-deploy）；EmitIRV1 已对齐 Leo 4 语法（`bool`、`return final {…};`、shift `as u8`、pureFn 文件级 helper、闭合 constructor）。Psy 仍无 VM 门。Aleo Field≠bn254 仍 FAIL-CLOSED。成熟度：**source package + optional host leo compile**，**非** hermetic/runtime | AleoPsyResearch ✅ / AleoEmissionFix |
 | **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + 历史 Anvil Counter，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
 | **C-4** | Noir prove/verify 验收门 | **已闭合研究（2026-08-02，RPT-016）**：**不**升格。无 nargo/backend Tool Lock pin；host 无 nargo；`validate_artifacts` 故意拒绝 proof-stage 叶子；成熟度保持 **source-only** relations + Lean relation model。跟进需独立 `NoirProveAcceptance` + pin | NoirProveResearch ✅ |
-| **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates 已在；N 系列 Map/Option/Context 等 Solana Plan 多为 FAIL-CLOSED，不发明 fake runtime 面 | MolluskFixtures |
+| **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates/ArraySlots + **MapMini plan fixture**（dense Map；ELF 帧超限故 **非** Mollusk `.so` 差分，plan/layout 交叉验证 + 工程脚本）；Option/Context 等仍随 Plan 开放再扩 | MolluskFixtures |
 
 ### D 组：文档/checkpoint 同步缺口
 

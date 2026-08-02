@@ -3104,7 +3104,9 @@ private unsafe def checkNamedAggregateProduct : IO Unit := do
       setNr.contents.contains "post_s1: pub u64")
     "PointBox setX .nr must declare both post-state leaf public inputs"
 
-/-- Array/Map/Bytes/Option state remain fail-closed on Noir (container policy none). -/
+/-- Array UInt64 N is open on Noir (flatten-to-leaf public inputs). Bytes/Option
+    container state remain fail-closed. Map UInt64 dense pilot is covered by
+    TokenV1 / product builds. -/
 private unsafe def checkContainerStateFailClosed : IO Unit := do
   let arrayText :=
     "import ProofForgeV2\n\n" ++
@@ -3128,16 +3130,15 @@ private unsafe def checkContainerStateFailClosed : IO Unit := do
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
   let capability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
-  match Targets.Noir.planFromCapability capability with
-  | .ok _ =>
-      throw <| IO.userError
-        "ArrayBox: Noir must fail closed on Array state"
-  | .error e =>
-      expect ((e.render).contains "Array" ||
-          (e.render).contains "container" ||
-          (e.render).contains "unsupported" ||
-          (e.render).contains "pilot")
-        s!"ArrayBox Noir decline must cite container/Array boundary, got {e.render}"
+  -- NoirContainer: Array UInt64 2 flattens to two public-input leaves.
+  let plan ← liftResult <| Targets.Noir.planFromCapability capability
+  expect (plan.states.size == 2)
+    s!"ArrayBox Noir plan must flatten Array UInt64 2 to 2 state leaves, got {plan.states.size}"
+  expect (plan.states.any fun f => f.name == "slots_0")
+    "ArrayBox Noir leaf name slots_0"
+  expect (plan.states.any fun f => f.name == "slots_1")
+    "ArrayBox Noir leaf name slots_1"
+  let _ ← liftResult <| Targets.Noir.buildFromCapability capability
 
 unsafe def run : IO Unit := do
   runCheckedSubFast
