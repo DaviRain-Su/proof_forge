@@ -194,6 +194,19 @@ fi
 unsigned_out="$(cd "$unsigned_out" && pwd -P)"
 export PROOF_FORGE_CPI_UNSIGNED_OUT="$unsigned_out"
 
+# #120 production-code-generated PDA / signed companion CPI ELF (test-preactivation).
+# Independent of #118/#119; dual-program with #115 companion; no product OutputFile.
+pda_out="${PROOF_FORGE_CPI_PDA_OUT:-$root/build/v2/solana-cpi-pda}"
+export PROOF_FORGE_CPI_PDA_OUT="$pda_out"
+echo "solana-runtime-test: CPI PDA build → $pda_out"
+if ! bash "$root/scripts/solana_cpi_pda_build.sh"; then
+  die "Solana CPI PDA build failed"
+fi
+[[ -f "$pda_out/companion_cpi_pda.s" ]] || die "CPI PDA assembly missing"
+[[ -f "$pda_out/companion_cpi_pda.so" ]] || die "CPI PDA ELF missing"
+pda_out="$(cd "$pda_out" && pwd -P)"
+export PROOF_FORGE_CPI_PDA_OUT="$pda_out"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"

@@ -50,7 +50,7 @@
 > 14,640-byte ELF；committed manifest绑定 source/profile/extension/boundary/text/ELF，Mollusk固定
 > init/route/view、0/16/17 与 22 个 one-mutation full-snapshot negatives。该 ELF 只能称
 > production-code-generated **test-preactivation ELF**，不是 `OutputFile`/产品 artifact；ordinary resolver
-> 仍拒 sync；#119 见下；#120+ 与 formal D5 仍 pending。
+> 仍拒 sync；#119/#120 见下；#121+ 与 formal D5 仍 pending。
 >
 > **2026-08-04 Solana #119 unsigned companion CPI update**：独立 `CpiUnsignedIRV1` +
 > `EmitCpiUnsignedSbpfV1` 在仍为 activationDenied/test-preactivation 的 lane 上，对 pinned
@@ -60,7 +60,20 @@
 > 完整 snapshot rollback + `fail:v1!` 保留。committed unsigned manifest 绑定 source/profile/extension
 > 与 #115 companion ELF pin。准确称谓是 production-code-generated **test-preactivation unsigned-CPI
 > ELF**，**不是** `OutputFile`/产品 artifact/activated sync support；ordinary resolver 仍拒 sync；
-> #120 PDA/bump/`invoke_signed` 与 #121+ 仍 pending；formal D5/Stage-0 hermetic/deployment 不变。
+> #120 见下；#121+ 与 formal D5/Stage-0 hermetic/deployment 仍 pending。
+>
+> **2026-08-04 Solana #120 canonical PDA / signed CPI update**：独立 `CpiPdaIRV1` +
+> `EmitCpiPdaSbpfV1` 在仍为 activationDenied/test-preactivation 的 opt-in
+> `solana-sbpf-cpi-elf-v1` lane 上，对 pinned companion-v1 发射真实 canonical PDA/`invoke_signed`：
+> frozen recipe `current-program-tagged-v1`（seed0 ASCII `proof-forge:pda:v1` + seedAuthority +
+> seedTag LE + bump）、canonical bump 搜索 **255..1**、**bump 0 拒绝**（IR literal + runtime param）；
+> 真实 `sol_try_find_program_address`（前 3 seeds）+ 返回 bump/key 与 authorityPda 全 32B 相等校验，
+> 再 `sol_invoke_signed_c`（单 signer group / 4 seeds）。#118 no-invoke 与 #119 unsigned 链保持独立。
+> Mollusk focused **21/21**（manifest identity、success/rollback、wrong-bump/noncanonical/bump0/role 负例）。
+> 准确称谓是 production-code-generated **test-preactivation PDA-signed CPI ELF**，
+> **不是** `OutputFile`/产品 artifact/activated sync；legacy profiles 仍 fail closed；
+> ordinary resolver 在 #125 前不 advertise/mint 产品 sync；
+> 不把 Principal 全局等同 Solana pubkey；非 formal/hermetic/deploy maturity；#121+ 仍 pending。
 >
 > **2026-08-02 invariant lowering update**：`NormalizeV1` 现将 source `invariant` 降为
 > source-order Semantic `.invariant` callables 与 dense `InvariantDecl`，并复用 Wire sole closure membership/

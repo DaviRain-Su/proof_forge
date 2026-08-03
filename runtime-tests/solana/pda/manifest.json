@@ -1,0 +1,60 @@
+{
+  "schema": "proof-forge.solana.cpi-pda-runtime.v1",
+  "issue": 120,
+  "sbpf": "0.2.2",
+  "runtimeOracle": {
+    "molluskSvm": "0.13.4",
+    "agaveSyscalls": "4.0.0",
+    "solanaProgramRuntime": "4.0.0"
+  },
+  "fixture": {
+    "path": "runtime-tests/solana/fixtures/CompanionPdaCpi.lean",
+    "module": "Examples.CompanionPdaCpi",
+    "sourceSha256": "7afe45a918daee0920f43dd8ed108ad614dfdf2c23c9f50487e411ea7fe53e49",
+    "sourceSize": 1548
+  },
+  "profile": {
+    "id": "solana-sbpf-cpi-elf-v1",
+    "digest": "0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1"
+  },
+  "extension": {
+    "id": "solana.cpi.accounts",
+    "version": "1.0.0",
+    "digest": "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
+  },
+  "boundary": {
+    "productArtifact": false,
+    "testPreactivation": true,
+    "activationDenied": true
+  },
+  "programIdHex": "4242424242424242424242424242424242424242424242424242424242424242",
+  "companionProgramIdHex": "4343434343434343434343434343434343434343434343434343434343434343",
+  "companion": {
+    "package": "companion-v1",
+    "programIdHex": "4343434343434343434343434343434343434343434343434343434343434343",
+    "elfSha256": "c8738f1220c49c309ffe820ca397ae25540d6be29c6153934abd8548fa08c4b9",
+    "elfSize": 1776
+  },
+  "handlers": {
+    "init": 0,
+    "invokeSigned": 1,
+    "invokeSignedThenOverflow": 2,
+    "inspect": 3
+  },
+  "pda": {
+    "recipe": "current-program-tagged-v1",
+    "seed0Utf8": "proof-forge:pda:v1",
+    "seed0Hex": "70726f6f662d666f7267653a7064613a7631",
+    "canonicalBumpSearch": "255..1",
+    "bump0Rejected": true
+  },
+  "expectedAssembly": {
+    "sha256": "6c149fa76e24873cc170f3f5ca9c053d1a9f8e463a036bce679f74f9a72bbf6b",
+    "size": 62066
+  },
+  "expectedElf": {
+    "sha256": "f7c167adf28beb4f4d63f6538312ecc148a2a0d825115697489a529489c47c0d",
+    "size": 24856
+  },
+  "reproducibilityNote": "Generated through the production PDA/signed-CPI authority/emitter chain and assembled with locked sbpf 0.2.2. This is same-host engineering test-preactivation evidence only: not proof-forge.output.v1, not an activated CPI artifact, #121+ System/Token/ATA/product sync still pending, and not formal/hermetic evidence."
+}

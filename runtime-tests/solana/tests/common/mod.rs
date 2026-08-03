@@ -1852,3 +1852,342 @@ pub fn cpi_unsigned_ix_data(handler_id: u64, params: &[u64]) -> Vec<u8> {
     }
     data
 }
+
+// ---------------------------------------------------------------------------
+// #120 production-code-generated PDA / signed companion CPI evidence
+// (test-preactivation only; not product OutputFile / activated sync)
+// ---------------------------------------------------------------------------
+
+pub const CPI_PDA_PROGRAM_ID_BYTES: [u8; 32] = HARNESS_CALLER_ID_BYTES;
+pub const CPI_PDA_INIT_HANDLER_ID: u64 = 0;
+pub const CPI_PDA_INVOKE_SIGNED_HANDLER_ID: u64 = 1;
+pub const CPI_PDA_INVOKE_SIGNED_THEN_OVERFLOW_HANDLER_ID: u64 = 2;
+pub const CPI_PDA_INSPECT_HANDLER_ID: u64 = 3;
+/// Non-Principal signed entry layout: handlerId u64 + seedTag u64 + bump u8 + delta u64.
+pub const CPI_PDA_SIGNED_IX_LEN: usize = 25;
+const CPI_PDA_STEM: &str = "companion_cpi_pda";
+const CPI_PDA_COMPANION_ELF_SHA256: &str =
+    "c8738f1220c49c309ffe820ca397ae25540d6be29c6153934abd8548fa08c4b9";
+const CPI_PDA_COMPANION_ELF_SIZE: u64 = 1776;
+const CPI_PDA_ASSEMBLY_SHA256: &str =
+    "6c149fa76e24873cc170f3f5ca9c053d1a9f8e463a036bce679f74f9a72bbf6b";
+const CPI_PDA_ASSEMBLY_SIZE: u64 = 62066;
+const CPI_PDA_ELF_SHA256: &str = "f7c167adf28beb4f4d63f6538312ecc148a2a0d825115697489a529489c47c0d";
+const CPI_PDA_ELF_SIZE: u64 = 24856;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiPdaManifestV1 {
+    schema: String,
+    issue: u64,
+    sbpf: String,
+    runtime_oracle: CpiPreflightRuntimeOracleV1,
+    fixture: CpiPreflightFixtureV1,
+    profile: CpiPreflightIdentityV1,
+    extension: CpiPreflightExtensionV1,
+    boundary: CpiPreflightBoundaryV1,
+    program_id_hex: String,
+    companion_program_id_hex: String,
+    companion: CpiUnsignedCompanionV1,
+    handlers: CpiPdaHandlersV1,
+    pda: CpiPdaRecipeV1,
+    expected_assembly: CpiPreflightArtifactPinV1,
+    expected_elf: CpiPreflightArtifactPinV1,
+    reproducibility_note: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiPdaHandlersV1 {
+    init: u64,
+    invoke_signed: u64,
+    invoke_signed_then_overflow: u64,
+    inspect: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiPdaRecipeV1 {
+    recipe: String,
+    seed0_utf8: String,
+    seed0_hex: String,
+    canonical_bump_search: String,
+    bump0_rejected: bool,
+}
+
+fn decode_cpi_pda_manifest(bytes: &[u8]) -> Result<CpiPdaManifestV1, String> {
+    let manifest: CpiPdaManifestV1 = serde_json::from_slice(bytes)
+        .map_err(|error| format!("decode CPI PDA manifest: {error}"))?;
+    let expect = |condition: bool, message: &str| {
+        if condition {
+            Ok(())
+        } else {
+            Err(message.to_string())
+        }
+    };
+    expect(
+        manifest.schema == "proof-forge.solana.cpi-pda-runtime.v1",
+        "schema",
+    )?;
+    expect(manifest.issue == 120, "issue")?;
+    expect(manifest.sbpf == "0.2.2", "sbpf")?;
+    expect(
+        manifest.runtime_oracle.mollusk_svm == "0.13.4"
+            && manifest.runtime_oracle.agave_syscalls == "4.0.0"
+            && manifest.runtime_oracle.solana_program_runtime == "4.0.0",
+        "runtime oracle",
+    )?;
+    expect(
+        manifest.fixture.path == "runtime-tests/solana/fixtures/CompanionPdaCpi.lean"
+            && manifest.fixture.module == "Examples.CompanionPdaCpi"
+            && manifest.fixture.source_sha256
+                == "7afe45a918daee0920f43dd8ed108ad614dfdf2c23c9f50487e411ea7fe53e49"
+            && manifest.fixture.source_size == 1548,
+        "fixture identity",
+    )?;
+    expect(
+        manifest.profile.id == "solana-sbpf-cpi-elf-v1"
+            && manifest.profile.digest
+                == "0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1",
+        "profile identity",
+    )?;
+    expect(
+        manifest.extension.id == "solana.cpi.accounts"
+            && manifest.extension.version == "1.0.0"
+            && manifest.extension.digest
+                == "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020",
+        "extension identity",
+    )?;
+    expect(
+        !manifest.boundary.product_artifact
+            && manifest.boundary.test_preactivation
+            && manifest.boundary.activation_denied,
+        "preactivation boundary",
+    )?;
+    expect(
+        manifest.program_id_hex == hex::encode(CPI_PDA_PROGRAM_ID_BYTES),
+        "program id",
+    )?;
+    expect(
+        manifest.companion_program_id_hex == hex::encode(HARNESS_COMPANION_ID_BYTES)
+            && manifest.companion.package == "companion-v1"
+            && manifest.companion.program_id_hex == hex::encode(HARNESS_COMPANION_ID_BYTES)
+            && manifest.companion.elf_sha256 == CPI_PDA_COMPANION_ELF_SHA256
+            && manifest.companion.elf_size == CPI_PDA_COMPANION_ELF_SIZE,
+        "exact #115 companion identity",
+    )?;
+    expect(
+        manifest.handlers.init == CPI_PDA_INIT_HANDLER_ID
+            && manifest.handlers.invoke_signed == CPI_PDA_INVOKE_SIGNED_HANDLER_ID
+            && manifest.handlers.invoke_signed_then_overflow
+                == CPI_PDA_INVOKE_SIGNED_THEN_OVERFLOW_HANDLER_ID
+            && manifest.handlers.inspect == CPI_PDA_INSPECT_HANDLER_ID,
+        "handler ids",
+    )?;
+    expect(
+        manifest.pda.recipe == "current-program-tagged-v1"
+            && manifest.pda.seed0_utf8 == "proof-forge:pda:v1"
+            && manifest.pda.seed0_hex == hex::encode(HARNESS_PDA_SEED0)
+            && manifest.pda.canonical_bump_search == "255..1"
+            && manifest.pda.bump0_rejected,
+        "PDA recipe",
+    )?;
+    expect(
+        manifest.expected_assembly.sha256 == CPI_PDA_ASSEMBLY_SHA256
+            && manifest.expected_assembly.size == CPI_PDA_ASSEMBLY_SIZE,
+        "exact PDA assembly pin",
+    )?;
+    expect(
+        manifest.expected_elf.sha256 == CPI_PDA_ELF_SHA256
+            && manifest.expected_elf.size == CPI_PDA_ELF_SIZE,
+        "exact PDA ELF pin",
+    )?;
+    expect(
+        manifest
+            .reproducibility_note
+            .contains("not proof-forge.output.v1")
+            && manifest
+                .reproducibility_note
+                .contains("not an activated CPI artifact"),
+        "preactivation reproducibility note",
+    )?;
+    Ok(manifest)
+}
+
+pub fn validate_cpi_pda_manifest_bytes(bytes: &[u8]) -> Result<(), String> {
+    decode_cpi_pda_manifest(bytes).map(|_| ())
+}
+
+pub fn committed_cpi_pda_manifest_bytes() -> Vec<u8> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pda/manifest.json");
+    stable_read_harness_file(&path, "CPI PDA committed manifest")
+}
+
+pub fn cpi_pda_out_dir() -> PathBuf {
+    PathBuf::from(env::var("PROOF_FORGE_CPI_PDA_OUT").expect(
+        "PROOF_FORGE_CPI_PDA_OUT must point at scripts/solana_cpi_pda_build.sh output \
+         (requires Tests/Materialization/SolanaCpiPdaExportV1.lean + PDA emitter)",
+    ))
+}
+
+fn read_cpi_pda_bound_file(
+    suffix: &str,
+    expected: &CpiPreflightArtifactPinV1,
+    label: &str,
+) -> Vec<u8> {
+    let out = cpi_pda_out_dir();
+    let committed_manifest = committed_cpi_pda_manifest_bytes();
+    let output_manifest =
+        stable_read_harness_file(&out.join("manifest.json"), "CPI PDA output manifest");
+    assert_eq!(
+        output_manifest, committed_manifest,
+        "CPI PDA output manifest must be exact committed bytes"
+    );
+    let manifest =
+        decode_cpi_pda_manifest(&committed_manifest).unwrap_or_else(|error| panic!("{error}"));
+    let selected = match suffix {
+        "s" => &manifest.expected_assembly,
+        "so" => &manifest.expected_elf,
+        _ => panic!("unknown CPI PDA artifact suffix {suffix}"),
+    };
+    assert_eq!(selected.size, expected.size, "{label} selected size pin");
+    assert_eq!(
+        selected.sha256, expected.sha256,
+        "{label} selected hash pin"
+    );
+
+    let path = out.join(format!("{CPI_PDA_STEM}.{suffix}"));
+    let size_bytes = stable_read_harness_file(
+        &out.join(format!("{CPI_PDA_STEM}.{suffix}.size")),
+        &format!("{label} size sidecar"),
+    );
+    let hash_bytes = stable_read_harness_file(
+        &out.join(format!("{CPI_PDA_STEM}.{suffix}.sha256")),
+        &format!("{label} hash sidecar"),
+    );
+    let sidecar_size: u64 = std::str::from_utf8(&size_bytes)
+        .expect("UTF-8 PDA size sidecar")
+        .trim()
+        .parse()
+        .unwrap_or_else(|error| panic!("parse PDA size sidecar: {error}"));
+    let sidecar_hash = std::str::from_utf8(&hash_bytes)
+        .expect("UTF-8 PDA hash sidecar")
+        .trim();
+    assert_eq!(sidecar_size, expected.size, "{label} sidecar size");
+    assert_eq!(sidecar_hash, expected.sha256, "{label} sidecar hash");
+
+    let bytes = stable_read_harness_file(&path, label);
+    assert_eq!(bytes.len() as u64, expected.size, "{label} size");
+    assert_eq!(
+        hex::encode(Sha256::digest(&bytes)),
+        expected.sha256,
+        "{label} sha256"
+    );
+    bytes
+}
+
+pub fn read_cpi_pda_assembly() -> Vec<u8> {
+    let manifest_bytes = committed_cpi_pda_manifest_bytes();
+    let manifest =
+        decode_cpi_pda_manifest(&manifest_bytes).unwrap_or_else(|error| panic!("{error}"));
+    let bytes = read_cpi_pda_bound_file("s", &manifest.expected_assembly, "CPI PDA assembly");
+    assert!(
+        bytes
+            .windows(b"TEST-PREACTIVATION ONLY".len())
+            .any(|window| window == b"TEST-PREACTIVATION ONLY"),
+        "PDA assembly boundary banner"
+    );
+    for required in [
+        b"sol_try_find_program_address" as &[u8],
+        b"sol_invoke_signed_c",
+        b"sol_set_return_data",
+    ] {
+        assert!(
+            bytes
+                .windows(required.len())
+                .any(|window| window == required),
+            "#120 PDA assembly must contain {}",
+            String::from_utf8_lossy(required)
+        );
+    }
+    assert!(
+        !bytes
+            .windows(b"0xec01".len())
+            .any(|window| window == b"0xec01"),
+        "#120 PDA assembly must not contain 0xec01 stub"
+    );
+    bytes
+}
+
+pub fn read_cpi_pda_elf() -> Vec<u8> {
+    let manifest_bytes = committed_cpi_pda_manifest_bytes();
+    let manifest =
+        decode_cpi_pda_manifest(&manifest_bytes).unwrap_or_else(|error| panic!("{error}"));
+    let bytes = read_cpi_pda_bound_file("so", &manifest.expected_elf, "CPI PDA ELF");
+    assert!(bytes.starts_with(b"\x7fELF"), "CPI PDA output must be ELF");
+    let companion_elf = read_harness_elf("companion");
+    let companion_digest = hex::encode(Sha256::digest(&companion_elf));
+    assert_eq!(
+        companion_digest, CPI_PDA_COMPANION_ELF_SHA256,
+        "harness companion ELF sha must equal frozen #115 pin"
+    );
+    assert_eq!(
+        companion_elf.len() as u64,
+        CPI_PDA_COMPANION_ELF_SIZE,
+        "harness companion ELF size must equal frozen #115 pin"
+    );
+    assert_eq!(
+        manifest.companion.elf_sha256, CPI_PDA_COMPANION_ELF_SHA256,
+        "PDA companion pin must equal frozen #115 sha"
+    );
+    assert_eq!(
+        manifest.companion.elf_size, CPI_PDA_COMPANION_ELF_SIZE,
+        "PDA companion size pin must equal frozen #115 size"
+    );
+    bytes
+}
+
+pub fn cpi_pda_program_id() -> Pubkey {
+    Pubkey::new_from_array(CPI_PDA_PROGRAM_ID_BYTES)
+}
+
+/// Dual-program Mollusk: #120 caller ELF + #115 companion ELF.
+pub fn make_cpi_pda_mollusk() -> (Mollusk, Pubkey, Pubkey) {
+    let program_id = cpi_pda_program_id();
+    let companion_id = harness_companion_id();
+    let caller_elf = read_cpi_pda_elf();
+    let companion_elf = read_harness_elf("companion");
+    let mut mollusk = Mollusk::default();
+    mollusk.add_program_with_loader_and_elf(
+        &program_id,
+        &mollusk_svm::program::loader_keys::LOADER_V3,
+        &caller_elf,
+    );
+    mollusk.add_program_with_loader_and_elf(
+        &companion_id,
+        &mollusk_svm::program::loader_keys::LOADER_V3,
+        &companion_elf,
+    );
+    (mollusk, program_id, companion_id)
+}
+
+/// Signed entry ix data: handlerId u64 + seedTag u64 + bump u8 + delta u64 = 25 bytes.
+pub fn cpi_pda_signed_ix_data(handler_id: u64, seed_tag: u64, bump: u8, delta: u64) -> Vec<u8> {
+    let mut data = Vec::with_capacity(CPI_PDA_SIGNED_IX_LEN);
+    data.extend_from_slice(&handler_id.to_le_bytes());
+    data.extend_from_slice(&seed_tag.to_le_bytes());
+    data.push(bump);
+    data.extend_from_slice(&delta.to_le_bytes());
+    debug_assert_eq!(data.len(), CPI_PDA_SIGNED_IX_LEN);
+    data
+}
+
+/// Init / inspect probe: handlerId u64 LE + optional trailing UInt64 params.
+pub fn cpi_pda_simple_ix_data(handler_id: u64, params: &[u64]) -> Vec<u8> {
+    let mut data = Vec::with_capacity(8 + params.len() * 8);
+    data.extend_from_slice(&handler_id.to_le_bytes());
+    for p in params {
+        data.extend_from_slice(&p.to_le_bytes());
+    }
+    data
+}
