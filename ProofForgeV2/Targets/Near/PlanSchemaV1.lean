@@ -42,6 +42,9 @@ private def encodeU64le (value : UInt64) : ByteArray := Id.run do
 private def encodeU8 (value : UInt8) : ByteArray :=
   ByteArray.empty.push value
 
+private def encodeBool (value : Bool) : ByteArray :=
+  encodeU8 (if value then 1 else 0)
+
 private def encodeString (value : String) : Except String ByteArray := do
   let raw := value.toUTF8
   let header ← encodeNatAsU32le raw.size
@@ -56,11 +59,24 @@ private def encodeMethodMode : MethodMode → UInt8
 private def encodeDepositPolicy : DepositPolicy → UInt8
   | .requireZero => 0 | .queryOnly => 1
 
-private def encodeMethodResultKind : MethodResultKind → UInt8
-  | .unit => 0 | .uint64 => 1 | .bool => 2 | .int64 => 3
-  | .uint8 => 4 | .uint16 => 5 | .uint32 => 6
-  | .int8 => 7 | .int16 => 8 | .int32 => 9
-  | .uint128 => 10 | .uint256 => 11
+private def encodeLeafAbiType (leaf : LeafAbiType) : Except String ByteArray := do
+  pure ((encodeBool leaf.isInt).append (← encodeNatAsU32le leaf.byteWidth))
+
+/-- MethodResultKind encoding. Scalar kinds use a single tag byte (0..11).
+Aggregate uses tag 12 followed by u32le leaf count + per-leaf encoding. -/
+private def encodeMethodResultKind : MethodResultKind → Except String ByteArray
+  | .unit => pure (encodeU8 0) | .uint64 => pure (encodeU8 1)
+  | .bool => pure (encodeU8 2) | .int64 => pure (encodeU8 3)
+  | .uint8 => pure (encodeU8 4) | .uint16 => pure (encodeU8 5)
+  | .uint32 => pure (encodeU8 6)
+  | .int8 => pure (encodeU8 7) | .int16 => pure (encodeU8 8)
+  | .int32 => pure (encodeU8 9)
+  | .uint128 => pure (encodeU8 10) | .uint256 => pure (encodeU8 11)
+  | .aggregate leaves => do
+      let mut out := encodeU8 12
+      out := out.append (← encodeNatAsU32le leaves.size)
+      for leaf in leaves do out := out.append (← encodeLeafAbiType leaf)
+      pure out
 
 private def encodeEndianness : Endianness → UInt8
   | .little => 0
@@ -161,6 +177,14 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       pure ((((encodeU8 0).append (← encodeNatAsU32le op.fieldIndex)).append
         (← encodeNatAsU32le op.byteWidth)).append (← encodeExpr op.value))
   | .returnValue value => pure ((encodeU8 1).append (← encodeExpr value))
+  | .returnAggregate leaves leafIsInt =>
+      -- Tag 11: multi-leaf aggregate return (B-RET-ABI).
+      let mut out := encodeU8 11
+      out := out.append (← encodeNatAsU32le leaves.size)
+      for leaf in leaves do out := out.append (← encodeExpr leaf)
+      out := out.append (← encodeNatAsU32le leafIsInt.size)
+      for flag in leafIsInt do out := out.append (encodeBool flag)
+      pure out
   | .returnNone => pure (encodeU8 2)
   | .assert condition => pure ((encodeU8 3).append (← encodeExpr condition))
   | .emitEvent eventIndex args =>
@@ -227,7 +251,7 @@ private def encodeMethod (m : Method) : Except String ByteArray := do
   out := out.append (← encodeNatAsU32le m.exactInputLen)
   out := out.append (encodeU8 (encodeMethodMode m.mode))
   out := out.append (encodeU8 (encodeDepositPolicy m.depositPolicy))
-  out := out.append (encodeU8 (encodeMethodResultKind m.resultKind))
+  out := out.append (← encodeMethodResultKind m.resultKind)
   out := out.append (← encodeNatAsU32le m.body.size)
   for s in m.body do out := out.append (← encodeStatement s)
   pure out

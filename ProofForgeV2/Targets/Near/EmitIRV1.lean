@@ -43,8 +43,12 @@ inductive Operation where
   /-- Narrow field store (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `storeState`. -/
   | narrowStoreState (bitWidth : Nat) (field : KeyRegion) (value : Nat)
   | setLayout (marker : KeyRegion) (value : UInt64)
-  /-- Host `value_return` payload: `byteLen` ∈ {1,2,4,8,16,32} from MethodResultKind. -/
+  /-- Host `value_return` payload: `byteLen` ∈ {1,2,4,8,16,32} from MethodResultKind
+  (scalar/multiword consecutive temps starting at `value`). -/
   | setReturnData (byteLen value : Nat)
+  /-- B-RET-ABI: host `value_return` of N×8-byte leaves from arbitrary temps
+  (preorder flatten). Total payload length is `8 * temps.size` (1..8). -/
+  | setReturnDataLeaves (temps : Array Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   /-- Multiword unsigned compare (T9e): lhs/rhs bases of bitWidth/64 limbs. -/
   | wideCompare (bitWidth destination lhs rhs : Nat) (op : ComparisonOp)
@@ -588,7 +592,7 @@ private partial def statementListClosesV1 : List Statement → Bool
   | [] => false
   | [statement] =>
       match statement with
-      | .returnValue _ | .returnNone | .revertError .. => true
+      | .returnValue _ | .returnAggregate .. | .returnNone | .revertError .. => true
       | .ifThenElse _ thenBody elseBody =>
           !elseBody.isEmpty && statementListClosesV1 thenBody.toList &&
             statementListClosesV1 elseBody.toList
@@ -602,12 +606,13 @@ private partial def statementListClosesV1 : List Statement → Bool
 /-- Append the hard return after a closed region arm, unless the arm already
     ends in a halting statement (the initializer's bare-return marker, a
     declared revert, or — in pureFn mode — a valued `return` which is already
-    a Wasm `return`). -/
+    a Wasm `return`). Aggregate `value_return` does not halt (same as scalar). -/
 private def armOpsWithHardReturn (arm : Array Statement)
     (operations : Array Operation) (fnMode : Bool) : Array Operation :=
   let alreadyHalts := match arm.back? with
     | some .returnNone | some (.revertError ..) => true
     | some (.returnValue _) => fnMode
+    | some (.returnAggregate ..) => false
     | _ => false
   if statementListClosesV1 arm.toList && !alreadyHalts then
     operations.push .returnNone
@@ -660,6 +665,16 @@ private partial def lowerBodyOps
         else
           operations := operations.push (.setReturnData returnByteLen value.value)
         next := value.next
+    | .returnAggregate leaves _leafIsInt =>
+        -- B-RET-ABI: lower each preorder leaf independently, then pack via
+        -- setReturnDataLeaves (temps need not be consecutive).
+        let mut leafTemps : Array Nat := #[]
+        for leaf in leaves do
+          let lowered := lowerExpr keys next fnMode localEnv leaf
+          operations := operations ++ lowered.operations
+          leafTemps := leafTemps.push lowered.value
+          next := lowered.next
+        operations := operations.push (.setReturnDataLeaves leafTemps)
     | .returnNone =>
         -- Valid only inside region arms (validated); the initializer's own
         -- final marker is stripped by lowerMethod before lowering.
@@ -749,6 +764,9 @@ private def methodResultByteLen : MethodResultKind → Nat
   | .uint32 | .int32 => 4
   | .uint128 => 16
   | .uint256 => 32
+  -- Aggregate return uses setReturnDataLeaves (byteLen derived from temps);
+  -- returnByteLen is unused for that path but kept defined for lowerMethod.
+  | .aggregate leaves => 8 * leaves.size
 
 private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     (method : Method) : MethodIR := Id.run do
@@ -811,8 +829,8 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .zeroState _ | .narrowZeroState _ _
   | .loadState _ _ | .narrowLoadState _ _ _
   | .storeState _ _ | .narrowStoreState _ _ _
-  | .setLayout _ _ | .setReturnData _ _ | .loadParam _ _
-  | .narrowLoadParam _ _ _ => true
+  | .setLayout _ _ | .setReturnData _ _ | .setReturnDataLeaves _
+  | .loadParam _ _ | .narrowLoadParam _ _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
   | .switchRegion _ cases defaultOps =>
@@ -1534,6 +1552,20 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
           s!"{indent}(call $pf_value_return (i64.const {byteLen}) (i64.const {memory.valueOffset}))
 "
 
+  | .setReturnDataLeaves temps =>
+      Id.run do
+        let byteLen := 8 * temps.size
+        let mut out := ""
+        for i in [:temps.size] do
+          let t := temps[i]!
+          out := out ++
+            s!"{indent}(i64.store (i32.const {memory.valueOffset + i * 8}) (local.get $t{t}))
+"
+        out := out ++
+          s!"{indent}(call $pf_value_return (i64.const {byteLen}) (i64.const {memory.valueOffset}))
+"
+        pure out
+
   | .callFn fnIndex destination args =>
       let name := match fnNames[fnIndex]? with
         | some n => n
@@ -1725,6 +1757,23 @@ private def renderParamsJson (params : Array Param) : String :=
 private def renderFieldJson (field : StorageField) : String :=
   s!"\{\"name\":\"{Targets.escapeJson field.name}\",\"sourceId\":{field.sourceId},\"key\":\"{Targets.escapeJson field.key}\",\"type\":\"{abiScalarTypeString field.byteWidth}\"}"
 
+private def renderLeafAbiJson (leaf : LeafAbiType) : String :=
+  if leaf.isInt then
+    match leaf.byteWidth with
+    | 1 => "\"i8-le\""
+    | 2 => "\"i16-le\""
+    | 4 => "\"i32-le\""
+    | _ => "\"i64-le\""
+  else
+    match leaf.byteWidth with
+    | 1 => "\"u8-le\""
+    | 2 => "\"u16-le\""
+    | 4 => "\"u32-le\""
+    | _ => "\"u64-le\""
+
+/-- ABI `returns` field. Scalars stay a single JSON string (historical).
+B-RET-ABI aggregates emit a JSON array of per-leaf type strings in preorder
+flatten order, e.g. `["u64-le","u64-le"]`. -/
 private def renderResultKindJson : MethodResultKind → String
   | .unit => "null"
   | .uint64 => "\"u64-le\""
@@ -1738,6 +1787,8 @@ private def renderResultKindJson : MethodResultKind → String
   | .int8 => "\"i8-le\""
   | .int16 => "\"i16-le\""
   | .int32 => "\"i32-le\""
+  | .aggregate leaves =>
+      "[" ++ String.intercalate "," (leaves.map renderLeafAbiJson).toList ++ "]"
 
 private def renderMethodJson (method : Method) : String :=
   let returns := renderResultKindJson method.resultKind

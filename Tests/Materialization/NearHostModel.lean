@@ -40,6 +40,8 @@ private structure Machine where
   storage : HostStorage
   temps : Array (Option U64)
   returned : Option U64 := none
+  /-- Full return payload words (scalar = singleton; B-RET aggregate = N leaves). -/
+  returnedLeaves : Array U64 := #[]
   halted : Bool := false
   logs : Array String := #[]
   eventNames : Array String := #[]
@@ -49,6 +51,7 @@ private structure Machine where
 
 private inductive Outcome where
   | success (storage : HostStorage) (returned : Option U64) (logs : Array String)
+      (returnedLeaves : Array U64)
   | trapped (storage : HostStorage) (reason : String)
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
@@ -718,17 +721,43 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       else
         .ok { machine with
           storage := storagePut machine.storage marker.key (encodeUInt64LE value) }
-  | .setReturnData _byteLen source => do
+  | .setReturnData byteLen source => do
       if machine.returned.isSome then
         modelError "return data was already set"
-      let value ← readTemp machine source
-      pure { machine with returned := some value }
+      -- Scalar (≤8) or multiword consecutive limbs (16/32). First word is the
+      -- historical single-value return; all limbs fill returnedLeaves.
+      if byteLen > 8 then
+        let nLimbs := byteLen / 8
+        let mut words : Array U64 := #[]
+        for i in [:nLimbs] do
+          words := words.push (← readTemp machine (source + i))
+        pure { machine with
+          returned := some words[0]!
+          returnedLeaves := words }
+      else
+        let value ← readTemp machine source
+        pure { machine with returned := some value, returnedLeaves := #[value] }
+  | .setReturnDataLeaves temps => do
+      -- B-RET-ABI: N×8-byte preorder leaves from arbitrary temps.
+      if machine.returned.isSome then
+        modelError "return data was already set"
+      unless temps.size > 0 && temps.size ≤ 8 do
+        modelError s!"setReturnDataLeaves leaf count {temps.size} outside 1..8"
+      let mut words : Array U64 := #[]
+      for t in temps do
+        words := words.push (← readTemp machine t)
+      pure { machine with
+        returned := some words[0]!
+        returnedLeaves := words }
   | .returnNone =>
       pure { machine with halted := true }
   | .returnValue source => do
       -- PureFn body return: halt the current frame with a value.
       let value ← readTemp machine source
-      pure { machine with returned := some value, halted := true }
+      pure { machine with
+        returned := some value
+        returnedLeaves := #[value]
+        halted := true }
   | .callFn fnIndex destination args => do
       let some fnIR := machine.fns[fnIndex]? |
         modelError s!"callFn index {fnIndex} is outside the pureFn table"
@@ -883,11 +912,18 @@ private def execute (method : Targets.Near.MethodIR) (storage : HostStorage)
     fns := fns
   }
   match runOperations input deposit method.operations.toList initial with
-  | .ok result => .success result.storage result.returned result.logs
+  | .ok result =>
+      .success result.storage result.returned result.logs result.returnedLeaves
   | .error reason => .trapped storage reason
 
 private def requireSuccess (label : String) : Outcome → IO (HostStorage × Option U64 × Array String)
-  | .success storage returned logs => pure (storage, returned, logs)
+  | .success storage returned logs _leaves => pure (storage, returned, logs)
+  | .trapped _ reason => throw <| IO.userError s!"{label} trapped: {reason}"
+
+/-- Like `requireSuccess`, but also returns the full multi-leaf return payload. -/
+private def requireSuccessLeaves (label : String) :
+    Outcome → IO (HostStorage × Array U64 × Array String)
+  | .success storage _returned logs leaves => pure (storage, leaves, logs)
   | .trapped _ reason => throw <| IO.userError s!"{label} trapped: {reason}"
 
 private def expectTrap (label : String) (snapshot : HostStorage) : Outcome → IO Unit
@@ -1037,6 +1073,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .narrowStoreState _ _ _ => "narrowStoreState"
     | .setLayout _ _ => "setLayout"
     | .setReturnData _ _ => "setReturnData"
+    | .setReturnDataLeaves _ => "setReturnDataLeaves"
     | .compare _ _ _ op =>
         match op with
         | .eq => "compare.eq"
@@ -1227,7 +1264,7 @@ private unsafe def testBranchAssertTrap
   | .trapped restored reason =>
       expect (storedUInt64? restored field.key == some 5)
         s!"branch-assert: trap must roll back to pre-call storage, got {reason}"
-  | .success _ _ _ =>
+  | .success _ _ _ _ =>
       throw <| IO.userError "branch-assert: underflowing branch must trap"
   -- delta=0 → else branch, no assert fires, state 0.
   let (storage3, ret3, _) ← requireSuccess "branch-assert else"
@@ -1954,7 +1991,7 @@ private unsafe def testEmitRevertProductPath
         s!"event-flow revert must roll back storage, got {reason}"
       expect (reason == "pf-error:Cap:0000000000000003")
         s!"event-flow revert message must carry the declared error and arg, got {reason}"
-  | .success _ _ _ =>
+  | .success _ _ _ _ =>
       throw <| IO.userError "event-flow: reverting branch must trap"
   -- count=5 < delta=7 → else: count=12, return 12, log Moved(5,7).
   let (storage1, ret1, logs1) ← requireSuccess "event-flow emit"
@@ -2658,7 +2695,7 @@ private unsafe def testZeroArgRevertProductPath
         s!"zero-arg revert must roll back storage, got {reason}"
       expect (reason == "pf-error:Cap:")
         s!"zero-arg revert message must be pf-error:Cap: (empty args), got {reason}"
-  | .success _ _ _ =>
+  | .success _ _ _ _ =>
       throw <| IO.userError "zero-arg revert branch must trap"
   let (storage1, ret1, _) ← requireSuccess "zero-revert else"
     (execute bumpIR storage0 (encodeUInt64LE 7) zero #[] errorNames)
@@ -4167,8 +4204,9 @@ private unsafe def testNamedEnumProductPath (session : Language.Loader.ParserSes
   expect (retDot == some 0)
     s!"named-enum: getPayload on Dot catch-all must be 0, got {retDot}"
 
-/-- Named aggregate entry/view return stays fail closed (B-RET-ABI). -/
-private unsafe def testNamedAggregateReturnFailClosed
+/-- B-RET-ABI: named Struct entry/view return → preorder leaf flatten +
+    HostModel multi-leaf value_return (setX / getPair end-to-end). -/
+private unsafe def testNamedStructAggregateReturn
     (session : Language.Loader.ParserSession) : IO Unit := do
   let sourceText :=
     "import ProofForgeV2\n\n" ++
@@ -4179,8 +4217,11 @@ private unsafe def testNamedAggregateReturnFailClosed
     "    a : UInt64\n" ++
     "    b : UInt64\n" ++
     "  state p : Pair\n\n" ++
-    "  init() do\n" ++
-    "    p := Pair.new(0, 0)\n\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n\n" ++
+    "  entry setPair(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    p := Pair.new(x, y)\n" ++
+    "    return p\n\n" ++
     "  view getPair() : Pair do\n" ++
     "    return p\n\n" ++
     "end ProofForgeV2.Examples\n"
@@ -4190,18 +4231,220 @@ private unsafe def testNamedAggregateReturnFailClosed
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
   let capability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
-  match Targets.Near.planFromCapability capability with
-  | .error e =>
-      expect ((e.render).contains "return" ||
-          (e.render).contains "aggregate" ||
-          (e.render).contains "Pair" ||
-          (e.render).contains "UInt" ||
-          (e.render).contains "Bool" ||
-          (e.render).contains "public")
-        s!"named-ret: fail-closed message must cite return/aggregate surface, got {e.render}"
-  | .ok _ =>
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.size == 2) "pair-ret: Pair must flatten to 2 KV leaves"
+  let some getPair := plan.entries.find? (·.name == "getPair") |
+    throw <| IO.userError "pair-ret: missing getPair"
+  match getPair.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"pair-ret: getPair must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "pair-ret: Pair leaves must be UInt64 (isInt=false)"
+  | other =>
       throw <| IO.userError
-        "named-ret: NEAR must fail closed on named Struct entry/view return (B-RET-ABI)"
+        s!"pair-ret: getPair resultKind must be .aggregate, got {repr other}"
+  expect (getPair.body.size == 1) "pair-ret: getPair body is a single return"
+  match getPair.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2)
+        s!"pair-ret: returnAggregate must have 2 leaves, got {leaves.size}"
+      expect (leafIsInt == #[false, false])
+        "pair-ret: leafIsInt must be #[false, false]"
+  | _ =>
+      throw <| IO.userError "pair-ret: getPair body must be .returnAggregate"
+  let some setPair := plan.entries.find? (·.name == "setPair") |
+    throw <| IO.userError "pair-ret: missing setPair"
+  match setPair.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2) "pair-ret: setPair aggregate leaves"
+  | _ =>
+      throw <| IO.userError "pair-ret: setPair resultKind must be .aggregate"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let getPairIR ← findMethod ir "getPair"
+  let setPairIR ← findMethod ir "setPair"
+  let initIR ← findMethod ir "init"
+  let kinds := operationKinds getPairIR.operations
+  expect (kinds.contains "setReturnDataLeaves")
+    s!"pair-ret: getPair IR must emit setReturnDataLeaves, got {kinds}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "pair-ret: missing .wat"
+  expectContains wat.contents "pf_value_return" "pair-ret WAT value_return"
+  expectContains wat.contents "(call $pf_value_return (i64.const 16)"
+    "pair-ret WAT return length 16 (2×8)"
+  let some abi := files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "pair-ret: missing near-abi.json"
+  expectContains abi.contents "\"returns\":[\"u64-le\",\"u64-le\"]"
+    "pair-ret ABI must declare leaf array [u64-le,u64-le]"
+  -- HostModel e2e: init(3,5) → getPair → [3,5]; setPair(11,22) → [11,22].
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "pair-ret init"
+    (execute initIR empty (encodeUInt64LE 3 ++ encodeUInt64LE 5) zero)
+  expect (storedUInt64? storage0 "pf:v1:state:0" == some 3)
+    "pair-ret: init a=3"
+  expect (storedUInt64? storage0 "pf:v1:state:1" == some 5)
+    "pair-ret: init b=5"
+  let (_, leaves0, _) ← requireSuccessLeaves "pair-ret getPair"
+    (execute getPairIR storage0 ByteArray.empty zero)
+  expect (leaves0 == #[(3 : U64), (5 : U64)])
+    s!"pair-ret: getPair must return [3,5], got {leaves0}"
+  let (storage1, leaves1, _) ← requireSuccessLeaves "pair-ret setPair"
+    (execute setPairIR storage0 (encodeUInt64LE 11 ++ encodeUInt64LE 22) zero)
+  expect (leaves1 == #[(11 : U64), (22 : U64)])
+    s!"pair-ret: setPair must return [11,22], got {leaves1}"
+  expect (storedUInt64? storage1 "pf:v1:state:0" == some 11)
+    "pair-ret: setPair stores a=11"
+  expect (storedUInt64? storage1 "pf:v1:state:1" == some 22)
+    "pair-ret: setPair stores b=22"
+  let (_, leaves2, _) ← requireSuccessLeaves "pair-ret getPair after set"
+    (execute getPairIR storage1 ByteArray.empty zero)
+  expect (leaves2 == #[(11 : U64), (22 : U64)])
+    s!"pair-ret: getPair after set must return [11,22], got {leaves2}"
+
+/-- B-RET-ABI: named Enum view return (tag + max-payload leaf). -/
+private unsafe def testNamedEnumAggregateReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EnumRet where\n" ++
+    "  enum Shape where\n" ++
+    "    | Dot\n" ++
+    "    | Circle(UInt64)\n" ++
+    "  state s : Shape\n\n" ++
+    "  init() do\n" ++
+    "    s := Shape.Dot()\n\n" ++
+    "  entry setCircle(r : UInt64) : Shape do\n" ++
+    "    s := Shape.Circle(r)\n" ++
+    "    return s\n\n" ++
+    "  view getShape() : Shape do\n" ++
+    "    return s\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-enum-ret>" "Examples.EnumRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some getShape := plan.entries.find? (·.name == "getShape") |
+    throw <| IO.userError "enum-ret: missing getShape"
+  match getShape.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"enum-ret: Shape tag+payload must be 2 leaves, got {leaves.size}"
+  | _ =>
+      throw <| IO.userError "enum-ret: getShape must be .aggregate"
+  match getShape.body[0]! with
+  | .returnAggregate leaves _ =>
+      expect (leaves.size == 2) "enum-ret: returnAggregate 2 leaves"
+  | _ =>
+      throw <| IO.userError "enum-ret: getShape body must be returnAggregate"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let setCircleIR ← findMethod ir "setCircle"
+  let getShapeIR ← findMethod ir "getShape"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "enum-ret init"
+    (execute initIR empty ByteArray.empty zero)
+  let (_, leavesDot, _) ← requireSuccessLeaves "enum-ret getShape Dot"
+    (execute getShapeIR storage0 ByteArray.empty zero)
+  expect (leavesDot == #[(0 : U64), (0 : U64)])
+    s!"enum-ret: Dot must return [tag=0, pad=0], got {leavesDot}"
+  let (storage1, leavesCircle, _) ← requireSuccessLeaves "enum-ret setCircle"
+    (execute setCircleIR storage0 (encodeUInt64LE 42) zero)
+  expect (leavesCircle == #[(1 : U64), (42 : U64)])
+    s!"enum-ret: Circle(42) must return [1,42], got {leavesCircle}"
+  let (_, leavesView, _) ← requireSuccessLeaves "enum-ret getShape Circle"
+    (execute getShapeIR storage1 ByteArray.empty zero)
+  expect (leavesView == #[(1 : U64), (42 : U64)])
+    s!"enum-ret: getShape after Circle must be [1,42], got {leavesView}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some abi := files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "enum-ret: missing near-abi.json"
+  expectContains abi.contents "\"returns\":[\"u64-le\",\"u64-le\"]"
+    "enum-ret ABI leaf array"
+
+/-- B-RET-ABI: anonymous Array result stays fail closed. -/
+private unsafe def testAnonymousContainerReturnFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrayRet where\n" ++
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← match ← session.selectProgramV1
+    sourceText "<near-array-ret>" "Examples.ArrayRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"array-ret select: {e.render}"
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()  -- Normalize/Check may reject first.
+  | .ok compiled =>
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+      let capability ← liftResult <|
+        Targets.resolveEngineeringRequirementsV1 selection compiled
+      match Targets.Near.planFromCapability capability with
+      | .error e =>
+          expect ((e.render).contains "return" ||
+              (e.render).contains "Array" ||
+              (e.render).contains "aggregate" ||
+              (e.render).contains "UInt" ||
+              (e.render).contains "Bool" ||
+              (e.render).contains "public" ||
+              (e.render).contains "unsupported")
+            s!"array-ret: FC message must cite return/container surface, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "array-ret: NEAR must fail closed on anonymous Array entry/view return"
+
+/-- B-RET-ABI: leaf count exceeding cap-8 stays fail closed. -/
+private unsafe def testAggregateLeafCapFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let mut fields := ""
+  for i in [0:9] do
+    fields := fields ++ s!"    f{i} : UInt64\n"
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program WideBox where\n" ++
+    "  struct Wide where\n" ++
+    fields ++
+    "  state w : Wide\n\n" ++
+    "  init() do\n" ++
+    "    w := Wide.new(0, 0, 0, 0, 0, 0, 0, 0, 0)\n\n" ++
+    "  view getWide() : Wide do\n" ++
+    "    return w\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← match ← session.selectProgramV1
+    sourceText "<near-wide-ret>" "Examples.WideBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"wide-ret select: {e.render}"
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()
+  | .ok compiled =>
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+      let capability ← liftResult <|
+        Targets.resolveEngineeringRequirementsV1 selection compiled
+      match Targets.Near.planFromCapability capability with
+      | .error e =>
+          expect (e.render.contains "8" || e.render.contains "leaf" ||
+              e.render.contains "cap")
+            s!"wide-ret: leaf-cap error must cite cap/leaf, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "wide-ret: NEAR 9-leaf aggregate return must fail closed (cap-8)"
 
 unsafe def run : IO Unit := do
   runCheckedSubFast
@@ -4237,7 +4480,10 @@ unsafe def run : IO Unit := do
   testMapTokenDualStoreVisibility session
   testNamedStructProductPath session
   testNamedEnumProductPath session
-  testNamedAggregateReturnFailClosed session
+  testNamedStructAggregateReturn session
+  testNamedEnumAggregateReturn session
+  testAnonymousContainerReturnFailClosed session
+  testAggregateLeafCapFailClosed session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)

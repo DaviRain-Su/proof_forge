@@ -204,6 +204,11 @@ inductive Statement where
       `.store`. -/
   | storeAtomic (leaves : Array Store)
   | returnValue (value : Expr)
+  /-- B-RET-ABI: multi-leaf named Struct/Enum return. `leaves` are preorder
+  flatten expressions (UInt64/Int64 only, ≤8); `leafIsInt` is parallel ABI
+  signedness. Emitted as consecutive 8-byte LE limbs via host `value_return`
+  (total length = 8 × leaves.size). -/
+  | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
@@ -231,10 +236,19 @@ inductive Statement where
   | promiseAccount (receiver : String) (method : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
+/-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
+UInt64/Int64 8-byte LE words (`isInt` selects `i64-le` vs `u64-le`). -/
+structure LeafAbiType where
+  isInt : Bool
+  byteWidth : Nat
+  deriving BEq, Inhabited, Repr
+
 /-- Result kind of a NEAR method export. Init is always unit; entry/view may be
 UInt{8,16,32,64}/Bool/Int64 (T9a). UInt64/Int64/Bool wire as 8-byte little-endian
 i64 (Bool is 0/1); UInt{8,16,32} wire as 1/2/4-byte LE payloads. ABI JSON
-`returns` distinguishes the declared type. -/
+`returns` distinguishes the declared type. B-RET-ABI adds `.aggregate` for
+named Struct/Enum entry/view returns: consecutive 8-byte LE leaves in preorder
+flatten order (1..8 leaves); ABI JSON emits a leaf-type array. -/
 inductive MethodResultKind where
   | unit
   | uint64
@@ -249,6 +263,11 @@ inductive MethodResultKind where
   /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
   | uint128
   | uint256
+  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` carries the
+  per-leaf ABI type in preorder flatten order (1..8 leaves). Anonymous
+  container result types (Array/Map/Bytes/Option) stay fail-closed at the
+  result-kind resolution boundary. -/
+  | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
 structure Method where
@@ -511,7 +530,7 @@ private def nearPlanErr (message : String) : CompileError :=
     intermediate for Map IndexGet).
     **Named Struct/Enum** via `pilotNamedAggregateStatePolicyAdmit` (flatten to
     UInt64/Int64 KV leaves; construct/fieldGet/fieldSet/variant ops; entry/view
-    return of named aggregates stays fail closed — B-RET-ABI). -/
+    **named-aggregate return admitted** via B-RET-ABI preorder leaf flatten ≤8). -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
@@ -723,6 +742,80 @@ private def leafCountOfTypeV1
     (typeId : TypeIdV1) : CompileResult Nat := do
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
+
+/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
+`MethodResultKind`. Leaves come from `flattenTypeLeafSpecsV1` (preorder,
+UInt64/Int64 ABI words). Enforces 1..8 leaves. Anonymous container result
+types (Array/Map/Bytes/Option) are not named aggregates and fail closed. -/
+private partial def flattenTypeLeafAbiV1
+    (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Array LeafAbiType) := do
+  if typeId == types.uint64TypeId then
+    pure #[{ isInt := false, byteWidth := 8 }]
+  else if types.int64TypeId == some typeId then
+    pure #[{ isInt := true, byteWidth := 8 }]
+  else if types.isNamedAggregate typeId then
+    match typeDecls[typeId.toNat]? with
+    | none =>
+        throw <| .planInvariant .near
+          s!"unsupported NEAR semantic shape: missing TypeDecl for aggregate {typeId}"
+    | some decl =>
+        match decl.shape with
+        | .struct fields => do
+            unless fields.size > 0 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: named Struct requires at least one field"
+            let mut out : Array LeafAbiType := #[]
+            for f in fields do
+              let sub ← flattenTypeLeafAbiV1 typeDecls types f.typeId
+              out := out ++ sub
+            pure out
+        | .enum variants => do
+            unless variants.size > 0 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: named Enum requires at least one variant"
+            let mut maxPay : Nat := 0
+            for v in variants do
+              let mut n : Nat := 0
+              for pt in v.payloadTypes do
+                let sub ← flattenTypeLeafAbiV1 typeDecls types pt
+                n := n + sub.size
+              if n > maxPay then maxPay := n
+            -- Tag is always unsigned UInt64; payload slots inherit payload leaf ABI.
+            let mut out : Array LeafAbiType := #[{ isInt := false, byteWidth := 8 }]
+            -- Payload pad slots are unsigned zero-fill (variant max payload layout).
+            for _ in [0:maxPay] do
+              out := out.push { isInt := false, byteWidth := 8 }
+            pure out
+        | _ =>
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: named type must be Struct or Enum"
+  else
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: aggregate leaf must be UInt64, Int64, or named Struct/Enum"
+
+private def aggregateResultKindOfV1
+    (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
+    (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
+  unless types.isNamedAggregate typeId do
+    throw <| .planInvariant .near
+      s!"{owner} does not return a named Struct/Enum aggregate"
+  let leaves ← flattenTypeLeafAbiV1 typeDecls types typeId
+  let n := leaves.size
+  unless n > 0 do
+    throw <| .planInvariant .near
+      s!"{owner} aggregate return must have at least one leaf"
+  unless n ≤ 8 do
+    throw <| .planInvariant .near
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+  pure (.aggregate leaves)
+
+/-- Expected return shape for region emission (scalar vs B-RET aggregate). -/
+private inductive ExpectedReturnV1 where
+  | none_
+  | scalar (kind : NearValueKindV1)
+  | aggregate (leaves : Array LeafAbiType)
+  deriving Inhabited
 
 /-- Struct field leaf range (start, length) within the flattened leaf vector. -/
 private def structFieldLeafRangeV1
@@ -2788,7 +2881,7 @@ private def validateCallableLoopsV1
 private partial def emitRegionV1
     (owner : String)
     (mode : SemanticCallableModeV1)
-    (expectedReturn : Option NearValueKindV1)
+    (expectedReturn : ExpectedReturnV1)
     (types : NearTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
@@ -2840,34 +2933,49 @@ private partial def emitRegionV1
       | .initialize =>
           throw <| .planInvariant .near "initializer cannot return a value"
       | .mutate | .view | .pureFn =>
-          let expectedKind ← match expectedReturn with
-            | some kind => pure kind
-            | none =>
-                throw <| .planInvariant .near
-                  "unsupported NEAR semantic shape: entry/view/pureFn is missing expected return kind"
           let root ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
-          if root.isAggregate then
-            throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: multi-leaf aggregate cannot be returned (ABI is scalar; B-RET-ABI: NEAR does not support named-aggregate return)"
-          unless root.kind == expectedKind do
-            let expectedLabel :=
-              match expectedKind with
-              | .uint64 => "UInt64"
-              | .uint32 => "UInt32"
-              | .uint16 => "UInt16"
-              | .uint8 => "UInt8"
-              | .uint128 => "UInt128"
-              | .uint256 => "UInt256"
-              | .bool => "Bool"
-              | .int64 => "Int64"
-            throw <| .planInvariant .near
-              s!"unsupported NEAR semantic shape: return value must be {expectedLabel}"
-          let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
-          pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
+          match expectedReturn with
+          | .none_ =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: entry/view/pureFn is missing expected return kind"
+          | .scalar expectedKind =>
+              if root.isAggregate then
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: multi-leaf aggregate cannot be returned as scalar"
+              unless root.kind == expectedKind do
+                let expectedLabel :=
+                  match expectedKind with
+                  | .uint64 => "UInt64"
+                  | .uint32 => "UInt32"
+                  | .uint16 => "UInt16"
+                  | .uint8 => "UInt8"
+                  | .uint128 => "UInt128"
+                  | .uint256 => "UInt256"
+                  | .bool => "Bool"
+                  | .int64 => "Int64"
+                throw <| .planInvariant .near
+                  s!"unsupported NEAR semantic shape: return value must be {expectedLabel}"
+              let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
+              pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
+          | .aggregate expectedLeaves =>
+              -- B-RET-ABI: named Struct/Enum only (anonymous containers FC at makeEntry).
+              unless root.isAggregate do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: aggregate return value must be a named aggregate"
+              let returnedLeaves := root.leafExprs
+              unless returnedLeaves.size == expectedLeaves.size do
+                throw <| .planInvariant .near
+                  s!"unsupported NEAR semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {returnedLeaves.size})"
+              let leafIsInt := expectedLeaves.map (·.isInt)
+              let _ ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
+              pure (instrs.push (.returnAggregate returnedLeaves leafIsInt),
+                values, nextLocal0, .closed)
   | .return_ none =>
-      unless expectedReturn.isNone do
-        throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: initializer expected-return kind is non-empty"
+      match expectedReturn with
+      | .none_ => pure ()
+      | .scalar _ | .aggregate _ =>
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: initializer expected-return kind is non-empty"
       unless segmentStart == values.size do
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: block has unconsumed values"
@@ -3128,7 +3236,7 @@ private partial def emitRegionV1
 private def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
-    (expectedReturn : Option NearValueKindV1)
+    (expectedReturn : ExpectedReturnV1)
     (types : NearTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
@@ -3203,7 +3311,7 @@ private def makeInitializerV1
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: initializer result is not Unit"
   let lowered ←
-    lowerCallableV1 "initializer" .initialize none types typeDecls layout fnEnv callable
+    lowerCallableV1 "initializer" .initialize .none_ types typeDecls layout fnEnv callable
   pure {
     name := "init"
     params := lowered.params
@@ -3228,38 +3336,43 @@ private def makeEntryV1
     throw <| .planInvariant .near s!"entry name '{name}' is not a safe identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .near s!"entry '{name}' does not return a public result"
-  -- B-RET-ABI: named Struct/Enum entry/view returns stay fail closed (scalar
-  -- ABI only). Surface the aggregate boundary before the generic scalar-width
-  -- reject so product tests can pin the message.
-  if types.isNamedAggregate callable.result.typeId then
-    throw <| .planInvariant .near
-      s!"unsupported NEAR semantic shape: entry '{name}' cannot return named aggregate (ABI is scalar; B-RET-ABI)"
+  -- B-RET-ABI: named Struct/Enum entry/view returns admitted via preorder
+  -- leaf flatten (≤8 UInt64/Int64 leaves). Anonymous containers stay FC below.
   let (resultKind, expectedReturn) ←
-    match types.uintWidthOf callable.result.typeId with
-    | some 8 => pure (MethodResultKind.uint8, some NearValueKindV1.uint8)
-    | some 16 => pure (MethodResultKind.uint16, some NearValueKindV1.uint16)
-    | some 32 => pure (MethodResultKind.uint32, some NearValueKindV1.uint32)
-    | some 64 => pure (MethodResultKind.uint64, some NearValueKindV1.uint64)
-    | some 128 => pure (MethodResultKind.uint128, some NearValueKindV1.uint128)
-    | some 256 => pure (MethodResultKind.uint256, some NearValueKindV1.uint256)
-    | some _ =>
-        throw <| .planInvariant .near
-          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, or Bool"
-    | none =>
-        match types.intWidthOf callable.result.typeId with
-        | some 8 => pure (MethodResultKind.int8, some NearValueKindV1.int64)
-        | some 16 => pure (MethodResultKind.int16, some NearValueKindV1.int64)
-        | some 32 => pure (MethodResultKind.int32, some NearValueKindV1.int64)
-        | some 64 => pure (MethodResultKind.int64, some NearValueKindV1.int64)
-        | some w =>
-            throw <| .planInvariant .near
-              s!"entry '{name}' does not return public Int{w}"
-        | none =>
-          if types.boolTypeId == some callable.result.typeId then
-            pure (MethodResultKind.bool, some NearValueKindV1.bool)
-          else
-            throw <| .planInvariant .near
-              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, or Bool"
+    if types.isNamedAggregate callable.result.typeId then
+      let kind ← aggregateResultKindOfV1 typeDecls types s!"entry '{name}'"
+        callable.result.typeId
+      match kind with
+      | .aggregate leaves => pure (kind, ExpectedReturnV1.aggregate leaves)
+      | _ =>
+          throw <| .planInvariant .near
+            s!"entry '{name}' aggregate result kind resolution failed"
+    else
+      match types.uintWidthOf callable.result.typeId with
+      | some 8 => pure (MethodResultKind.uint8, ExpectedReturnV1.scalar .uint8)
+      | some 16 => pure (MethodResultKind.uint16, ExpectedReturnV1.scalar .uint16)
+      | some 32 => pure (MethodResultKind.uint32, ExpectedReturnV1.scalar .uint32)
+      | some 64 => pure (MethodResultKind.uint64, ExpectedReturnV1.scalar .uint64)
+      | some 128 => pure (MethodResultKind.uint128, ExpectedReturnV1.scalar .uint128)
+      | some 256 => pure (MethodResultKind.uint256, ExpectedReturnV1.scalar .uint256)
+      | some _ =>
+          throw <| .planInvariant .near
+            s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or named Struct/Enum"
+      | none =>
+          match types.intWidthOf callable.result.typeId with
+          | some 8 => pure (MethodResultKind.int8, ExpectedReturnV1.scalar .int64)
+          | some 16 => pure (MethodResultKind.int16, ExpectedReturnV1.scalar .int64)
+          | some 32 => pure (MethodResultKind.int32, ExpectedReturnV1.scalar .int64)
+          | some 64 => pure (MethodResultKind.int64, ExpectedReturnV1.scalar .int64)
+          | some w =>
+              throw <| .planInvariant .near
+                s!"entry '{name}' does not return public Int{w}"
+          | none =>
+            if types.boolTypeId == some callable.result.typeId then
+              pure (MethodResultKind.bool, ExpectedReturnV1.scalar .bool)
+            else
+              throw <| .planInvariant .near
+                s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or named Struct/Enum"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -3299,14 +3412,14 @@ private def makePureFnV1
     throw <| .planInvariant .near s!"pureFn '{name}' does not return a public result"
   let (resultIsBool, expectedReturn) ←
     if callable.result.typeId == types.uint64TypeId then
-      pure (false, NearValueKindV1.uint64)
+      pure (false, ExpectedReturnV1.scalar .uint64)
     else if types.boolTypeId == some callable.result.typeId then
-      pure (true, NearValueKindV1.bool)
+      pure (true, ExpectedReturnV1.scalar .bool)
     else
       throw <| .planInvariant .near
         s!"pureFn '{name}' does not return public UInt64 or Bool"
   let lowered ←
-    lowerCallableV1 s!"pureFn '{name}'" .pureFn (some expectedReturn) types typeDecls layout fnEnv
+    lowerCallableV1 s!"pureFn '{name}'" .pureFn expectedReturn types typeDecls layout fnEnv
       callable
   pure {
     name
@@ -3327,8 +3440,8 @@ partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
         statementsUsePromiseV1 defaultBody ||
           cases.any fun (_, caseBody) => statementsUsePromiseV1 caseBody
     | .forLoop _ _ _ _ _ body => statementsUsePromiseV1 body
-    | .store _ | .storeAtomic _ | .returnValue _ | .returnNone | .assert _
-    | .emitEvent .. | .revertError .. => false
+    | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
+    | .returnNone | .assert _ | .emitEvent .. | .revertError .. => false
 
 def planUsesPromiseV1 (plan : Plan) : Bool :=
   statementsUsePromiseV1 plan.initializer.body ||
