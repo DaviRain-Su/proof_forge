@@ -1050,6 +1050,32 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++
           s!"{indent}let {okName} := call(gas(), 0x{addr20}, 0, 0, {4 + 32 * args.size}, 0, 0)\n" ++
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n"
+    | .externalCallResult callee args resultTemp =>
+        -- N-CALL-RET/B-CALL-SEM: real CALL with 32-byte returndata capture,
+        -- RETURNDATASIZE guard, first-word read, UInt64 range check. Same
+        -- static address/selector derivation and failure-revert discipline
+        -- as the void path.
+        let method := callee[callee.size - 1]!
+        let targetParts := callee.extract 0 (callee.size - 1)
+        let targetPath := String.intercalate "." targetParts.toList
+        let addrHex := Keccak.keccak256Hex targetPath.toUTF8
+        let addr20 := addrHex.drop 24
+        let sel := Keccak.selector method (Array.replicate args.size "uint64")
+        let padded := sel ++ String.ofList (List.replicate 56 '0')
+        for index in [0:args.size] do
+          let rendered := renderExpr indent paramPrefix next args[index]!
+          output := output ++ rendered.code
+          next := rendered.next
+          output := output ++ s!"{indent}mstore({4 + 32 * index}, {rendered.value})\n"
+        output := output ++ s!"{indent}mstore(0, 0x{padded})\n"
+        let okName := s!"callOk{next}"
+        next := next + 1
+        output := output ++
+          s!"{indent}let {okName} := call(gas(), 0x{addr20}, 0, 0, {4 + 32 * args.size}, 0, 32)\n" ++
+          s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
+          s!"{indent}if lt(returndatasize(), 32) \{ revert(0, 0) }\n" ++
+          s!"{indent}let t{resultTemp} := mload(0)\n" ++
+          s!"{indent}if gt(t{resultTemp}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
     | .schedule callee args =>
         -- Fire-and-forget: same static address/selector, CALL success ignored.
         let method := callee[callee.size - 1]!

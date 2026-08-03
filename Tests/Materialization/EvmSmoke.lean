@@ -3522,9 +3522,10 @@ private unsafe def testAnonymousOptionUInt64Return : IO Unit := do
   expect (abi.contains "(uint64,uint64)")
     s!"OptionRet ABI must declare tuple (uint64,uint64), got: {abi}"
 
-/-- N-CALL-RET: result-bearing external call stays fail closed on EVM with an
-    explicit pilot message (return-data lowering is a later slice). -/
-private unsafe def testCallReturnEvmFailClosed : IO Unit := do
+/-- BL-28: result-bearing external call lowers on EVM to real CALL +
+    returndata read (iszero/returndatasize/UInt64 range guards); non-UInt64
+    scalar results stay fail closed. -/
+private unsafe def testCallReturnEvm : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src :=
     "import ProofForgeV2\n" ++
@@ -3537,16 +3538,52 @@ private unsafe def testCallReturnEvmFailClosed : IO Unit := do
       src "<evm-call-ret>" "Tests.EvmCallRet" none with
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"CallRetEvm select: {e.render}"
-  match Compiler.compileValidatedSourceV1 cSrc with
-  | .error _ => throw <| IO.userError "CallRetEvm must compile through located Normalize"
+  let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+    | .error _ => throw <| IO.userError "CallRetEvm must compile through located Normalize"
+    | .ok c => pure c
+  let plan ← match planEvm compiled with
+    | .error e => throw <| IO.userError s!"CallRetEvm must produce a plan (BL-28), got {e.render}"
+    | .ok p => pure p
+  let hasResultCall := plan.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .externalCallResult _ _ _ => true
+      | _ => false
+  expect hasResultCall "CallRetEvm: plan must contain externalCallResult"
+  let files ← match materializeSelected TargetId.evm compiled with
+    | .error e => throw <| IO.userError s!"CallRetEvm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulFile := files.find? (·.path == "CallRetEvm.yul") |
+    throw <| IO.userError "CallRetEvm: missing .yul"
+  let yul := yulFile.contents
+  expect (yul.contains "returndatasize()") "CallRetEvm: Yul must guard returndatasize"
+  expect (yul.contains "let t") "CallRetEvm: Yul must bind the returned word"
+  expect (yul.contains "0xffffffffffffffff") "CallRetEvm: Yul must range-check UInt64"
+  -- Non-UInt64 scalar result stays fail closed (Bool result in the pilot).
+  let boolSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallRetBoolEvm where\n" ++
+    "  entry probe(k : UInt64) : UInt64 do\n" ++
+    "    let x : Bool := call ledger.has(k)\n" ++
+    "    if x then\n" ++
+    "      return 1\n" ++
+    "    else\n" ++
+    "      return 0\n"
+  let bSrc ← match ← session.selectProgramV1
+      boolSrc "<evm-call-ret-bool>" "Tests.EvmCallRetBool" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CallRetBoolEvm select: {e.render}"
+  match Compiler.compileValidatedSourceV1 bSrc with
+  | .error _ => throw <| IO.userError "CallRetBoolEvm must compile"
   | .ok compiled =>
       match planEvm compiled with
       | .error e =>
-          expect (e.render.contains "result-bearing external call")
-            s!"EVM call-return FC must cite result-bearing external call, got: {e.render}"
+          expect (e.render.contains "result must be UInt64")
+            s!"Bool result FC must cite UInt64-only pilot, got: {e.render}"
       | .ok _ =>
           throw <| IO.userError
-            "EVM result-bearing call must fail closed, not produce a plan"
+            "EVM Bool result call must fail closed in the UInt64 pilot"
 
 /-- BL-18: Bytes / Map / Array UInt64 9 / nested Array stay fail-closed. -/
 private unsafe def testAnonymousReturnFailClosedBoundaries : IO Unit := do
@@ -3746,7 +3783,7 @@ unsafe def run : IO Unit := do
   testAggregateStructReturn
   testAnonymousArrayUInt64Return
   testAnonymousOptionUInt64Return
-  testCallReturnEvmFailClosed
+  testCallReturnEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed
   let session ← Tests.Language.ParserSession.shared

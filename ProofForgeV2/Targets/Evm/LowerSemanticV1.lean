@@ -216,6 +216,12 @@ inductive Statement where
       name + `uint64` ABI. Not a dynamic address ValueId (B-3 Principal remains
       fail-closed). Failure reverts the caller. -/
   | externalCall (callee : Array String) (args : Array Expr)
+  /-- N-CALL-RET/B-CALL-SEM: result-bearing sync call. Same static-callee
+      CALL as `externalCall`, then RETURNDATASIZE guard (≥32) + first-word
+      read + UInt64 range check (short data or out-of-range revert with the
+      EVM-bare `revert(0,0)` convention). Failure reverts the caller.
+      `resultTemp` is the ValueId-canonical temp bound to the returned word. -/
+  | externalCallResult (callee : Array String) (args : Array Expr) (resultTemp : Nat)
   /-- Async fire-and-forget schedule (void). Same static-callee address/selector
       derivation as `externalCall`, but CALL success is ignored (no response
       channel — matches Reference schedule semantics). -/
@@ -3255,9 +3261,42 @@ private def lowerBlockInstructionsV1
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: ContextRead (unix-time-seconds) is not admitted by pilot context policy (PlanSchema frozen; Yul timestamp() mapping deferred)"
-    | .externalCall _effectId _ _, some _ =>
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: result-bearing external call is outside the current EVM pilot (N-CALL-RET shared schema; EVM return-data lowering is a later slice)"
+    | .externalCall _effectId callee argIds, some result =>
+        -- N-CALL-RET/B-CALL-SEM: result-bearing sync call → real CALL +
+        -- returndata read (see Statement.externalCallResult). Pilot admits
+        -- UInt64 results only; other scalar widths stay fail closed.
+        if mode == .view then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: view callable makes an external call"
+        if mode == .pureFn then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pureFn cannot make external calls"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: external call callee must have at least two components"
+        for c in components do
+          unless isIdentifier c do
+            throw <| .planInvariant .evm
+              s!"unsupported EVM semantic shape: external call callee component '{c}' is not a safe identifier"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: result-bearing external call result must be UInt64 (other widths are outside the EVM pilot)"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless !root.isBool && root.bitWidth == 64 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: external call arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        let resultTemp := result.valueId.toNat
+        body := body.push (.externalCallResult components argExprs resultTemp)
+        values := ← appendResultValueV1 result.typeId values result
+          (mkScalarValueV1 (.temp resultTemp) #[] false false 64 1 1)
+        hasAssert := true
+        armReadables := promoteDominatingPureV1 paramCount values armReadables
+        segmentStart := values.size
     | _, _ =>
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: instruction op/result is outside the current UInt64 pilot"
