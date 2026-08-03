@@ -192,13 +192,13 @@ InvariantTheoremV1 program ordinal :=
 
 ## 与 ProofBundleV1 的关系
 
-- **Inline same-file** 是本 ADR 冻结的 **engineering product certification 主路径**。
-- 外部 `ProofBundleV1` / digest-pinned olean 规则保留在 `SPEC-SEM-001` 等文档中作为
-  **historical / alternate / formal-oriented** 设计面；在显式 formal task 与产品
-  cutover 完成前，不得把两条路径写成可静默互替的 fallback。
-- 两条路径共享同一 `InvariantTheoremV1` / `StateConformsV1` / trust-policy axiom
-  集合 identity，但 **装载与执行环境不同**（in-process snapshot vs locked olean
-  map），assurance 声明不得混写。
+- **Inline same-file 是产品 CLI 的 sole certification path**（`check`/`build`）。
+- 外部 `ProofBundleV1` / `ProofReferenceJoinV1` / digest-pinned olean 规则保留在
+  `SPEC-SEM-001` 与 library 模块中，仅作 **historical / formal-oriented / library**
+  资产；产品 argv **已删除** `--proof-bundle` / `--proof-bundle-digest`（unknown option）。
+- **禁止** 把 library bundle 写成 check/build alternate surface 或 silent fallback。
+- ABI 命题与 trust-policy axiom 集合 identity 可共享；装载环境不同（in-process snapshot vs
+  locked olean map），assurance 声明不得混写。
 
 ## 后果
 

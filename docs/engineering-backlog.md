@@ -103,7 +103,7 @@ D1–D4 = 0/27 done。
 | FR | 工程判断 | backlog 落点 |
 |---|---|---|
 | FR-001 唯一 `program` | 基本 done | — |
-| FR-002 全 declaration + proof ref | parser/typed 强；**INV-1** 工程 product join 已闭合；formal kernel/defeq 仍开 | N-*、INV-1 |
+| FR-002 全 declaration + proof ref | parser/typed 强；**INV-1 superseded by ADR-0026 inline gate wiring**；formal kernel/defeq 与 raw-source product-positive 仍开 | N-*、ADR-0026 |
 | FR-003 type/effect/bound/disclosure | CheckV1 七相位产品门禁；**T-1 工程 authority/custody 子集已接线**（entry 写 private 需 `context.caller`；**非** formal TST-VIS-002） | T-1 **done** |
 | FR-004 SemanticProgram + requirements | structure-gated + S2 freeze 工程子集 | N-*、D3-E* |
 | FR-005 target 不改语义 | 架构遵守；跨 target reference trace 矩阵未做满 | R-1、C-* |
@@ -216,7 +216,7 @@ D1–D4 = 0/27 done。
 |---|---|---|
 | **R-1** | Reference 扩到 PureCall / aggregates / index / Int / Field / Principal / ContextRead / Commit | **done**（2026-08-02：Map empty-default admit + product IndexSet step；Option state product step；external UInt/Int 全宽；Map Reference budget 4096） |
 | **R-2** | `evalInvariantV1` + `InvariantTheoremV1` 工程入口（非 formal theorem 完成） | **done**（2026-08-02：ABI 已接线；空 invariants OOR trap 钉测；theorem 形 Iff.rfl；非 formal corpus） |
-| **R-3** | ProofBundleV1 safe loading 工程路径 | **done**（2026-08-02：`openProofBundleV1` PF-JCS re-encode identity + olean SHA join；malformed/mismatch/extra/missing FC；非 contained-worker/formal TST-PROOF-001） |
+| **R-3** | ProofBundleV1 safe loading（library only） | **done library**（2026-08-02：`openProofBundleV1`…；**2026-08-04**：产品 CLI 已删除 `--proof-bundle*`，本路径 **不是** check/build surface；formal TST-PROOF-001 仍 pending） |
 
 ---
 
@@ -326,7 +326,7 @@ D1–D4 = 0/27 done。
 | **D3-E2** | SupportClaim/decision 全字段与 resolver 决策面 | **done**（2026-08-02：**工程** `EngineeringSupportClaimV1` + `mintEngineeringSupportClaimsV1` + resolver/describe-target `claimDigest` + `Tests/Materialization/IdentityChainV1`；domain `pf.support-claim.engineering.v1`；**非** formal SupportClaim/predicate/evidence grade） |
 | **D3-E3** | 可达 BuildIdentity mint + Plan/IR digest 全 target（T9d 子集） | **done**（2026-08-02：工程 `mintEngineeringBuildIdentityV1` + EVM/Solana/NEAR/Noir planDigest；Aleo/Psy engineering-absent slot；`IdentityChainV1` 钉四 target 匹配 + absent；**非** formal BuildIdentity） |
 | **D3-E4** | formal `OutputSetV1` 字段齐套；退役 transitional v2alpha1 残留 | **done**（2026-08-02：**工程** on-disk 已是 `proof-forge.output.v1` + `mintEngineeringOutputSetV1`；legacy `proof-forge-output/v2alpha1` renderer 已删并由 OutputSetV1 suite 钉零；`sourceHash`/`semanticHash` 键名仅为兼容；**非** formal OutputSetV1 字段齐套） |
-| **D3-E5** | CLI 剩余 flag：evidence/resource override 等 SPEC-CLI 面 | **done**（2026-08-02：`--resource-limit` lower-only hard-max/dup/stage 校验；check 拒 external-tool/artifact-output；`--minimum-evidence` build-only 四 grade；proof-bundle pair 已由 **INV-1** 产品 join；check/build JSON 可观测 `resourceLimits`；`Tests.CLI.ResourceFlagsV1`；runtime enforcement 由 RES-1/RES-1B 子切片承担，非 formal SPEC-CLI） |
+| **D3-E5** | CLI 剩余 flag：evidence/resource override 等 SPEC-CLI 面 | **done**（2026-08-02：`--resource-limit`…；`--minimum-evidence` build-only；**2026-08-04**：structural `--proof-bundle*` 产品 flag 已删，sole proof gate = inline certifier；check/build JSON 可观测 `resourceLimits`；非 formal SPEC-CLI） |
 | **D3-E6** | stage supervisor / receipt（compiler-core/tool/output）——与 D1 监督层移除决策协调 | **done**（2026-08-02：**永久进程内** — 不恢复 SafeOpen/supervisor 产品路径；sole Loader 进程内；RES-1 wall 与 RES-1B published-bytes 均进程内，其余 resource producer 仍 pending；见 `RECOVERY.md` D3-E6） |
 | **D3-E7** | artifact 内容绑定与 post-publish inspect closure | **done**（2026-08-03：`ArtifactContentV1` sole walker/stable-read/hash → private canonical inventory；engineering manifest `files` 原子迁为 `role/path/size/contentSha256` descriptor，并绑定 exact evidence UTF-8 `evidenceSha256`；pure OutputSet mint；publisher sidecar 前后 inventory compare + manifest-last closure；`inspect <output-dir>` 重开 artifacts并重走 no-follow/single-link exact disk closure；legacy path-only fail closed；Python validator同构；**仅 stable observation，非 race-free/hermetic/formal OutputSetV1**） |
 | **D3-E8** | `--minimum-evidence` 进入 resolver/claim | pending：当前只解析、白名单和 JSON 回显，不参与 support decision、claim 或 manifest identity；需先冻结 evidence grade 语义，禁止把回显写成门禁 |
@@ -353,7 +353,7 @@ D1–D4 = 0/27 done。
 | **T-1** | authority / custody 轴（`TST-VIS-002` 工程子集） | **done**（2026-08-02：`AuthorityCustodyCheckV1` — entry 写 private state 需 `context.caller` 权威证据；`reqPrecondition` 非 PF-VIS-001；CheckV1 phase 6；**非** formal TST-VIS-002） |
 | **T-2** | context / extension requirements 接入 CheckV1 | **done**（2026-08-02：`ContextExtensionCheckV1` — 仅 admit context.caller/unixTimeSeconds；extension 声明工程 Check `ext001` fail-closed；CheckV1 phase 7；**非** formal extension catalog） |
 | **T-3** | RequirementsInfer：callerContext / commit 等贡献键（随 N-2/N-3） | **done**（2026-08-02：context.unixTimeSeconds/caller + commit 贡献 wire id；S2 freeze skip；Normalize 仍 sole wire-row mint） |
-| **INV-1** | 受约束 `proof` reference 产品路径（FR-002 / Phase-1 语言范围） | **done**（2026-08-02：`ProofReferenceJoinV1` + CLI `--proof-bundle` pair 在 compile 后 exact 集合 join；Normalize skip invariant/proof 进 IR；R-3 `openProofBundleV1`；无 ambient Lean term；**非** formal TST-PROOF-001/kernel/defeq） |
+| **INV-1** | 受约束 `proof` reference 产品路径（FR-002） | **superseded → ADR-0026 inline**（2026-08-04：产品 sole path = `selectProgramV1ProductWithTheoremInventory` → `certifyInlineProofV1`；`--proof-bundle*` unknown；check 输出 proofStatus/count/digest，build 只门禁；`ProofReferenceJoinV1`/bundle 退回 library；structure+encode+decode+`ProofedProof.safe` kernel cert 工程闭合；**raw-source product-positive certified 仍 open**；**非** formal TST-PROOF-001；nonempty invariant materializer 仍 FC） |
 | **APP-1** | PrivateSum4 持续作为隐私边界验收向量（Phase-1 DoD） | **done**（2026-08-02：`Examples/PrivateSum4` + `Tests.Product.PrivateSum4PrivacyV1` — product compile/CLI check·build 对 private→public `PF-VIS-001` fail closed、无 manifest 泄漏；**非** Noir prove/formal TST-NOIR-006） |
 
 ---

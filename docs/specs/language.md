@@ -2093,14 +2093,14 @@ theorem statement，也不得只把 `semanticHash` 当成 proposition。
 8. **Gate 顺序**：proof certification 成功（或显式空表面 `noProof`）之后，才允许
    requirement resolve / target Plan；失败零制品。
 
-### Historical / alternate external ProofBundleV1
+### Library-only external ProofBundleV1（非产品 CLI）
 
-外部 digest-pinned `ProofBundleV1` + locked `.olean` 装载规则仍由
-[`SPEC-SEM-001`](semantic-core.md) 描述，面向 historical/formal-oriented 面。它与 inline
-same-file 路径 **不得** 静默互替 fallback。unknown theorem、signature/ordinal/program
-mismatch、forbidden axiom/attr 在两条路径上均 fail closed。successful certification record
-不改写 ProgramV1/`sourceHash`/`semanticHash`，也不改变 Typed 业务执行、requirements 或
-target 选择。
+外部 digest-pinned `ProofBundleV1` + locked `.olean` 规则仍由
+[`SPEC-SEM-001`](semantic-core.md) 描述 library/formal-oriented 面。产品 `check`/`build`
+**不** 接受 `--proof-bundle*`，也 **不** 以 bundle 作 fallback。unknown theorem、
+signature/ordinal/program mismatch、forbidden axiom/attr 在 inline gate 上 fail closed。
+successful certification record 不改写 ProgramV1/`sourceHash`/`semanticHash`，也不改变
+Typed 业务执行、requirements 或 target 选择。
 
 ## Elaboration 与导出
 

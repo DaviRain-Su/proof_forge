@@ -42,8 +42,8 @@ SourceFile (single in-memory snapshot)
 > materialization 与 staging/publish。ProgramV1 / `semanticHash` **不含** adjacent
 > theorem body。当前仅证明 `InvariantTheoremV1`（全体 `StateConformsV1` 状态上
 > invariant 为 true），不声称 reachability / init-step safety / target refinement /
-> formal TST 闭合。外部 digest-pinned `ProofBundleV1` 仍见于历史/并行设计面，不得与
-> inline path 静默 fallback 混用。
+> formal TST 闭合。产品 sole path 为 inline certifier；`ProofBundleV1` 仅为
+> library/historical/formal-oriented，**不是** CLI alternate surface。
 
 各阶段只能消费前一阶段的成功类型；禁止以 optional/error string 绕过阶段。失败统一
 返回 `DiagnosticBundle`，排序键为 `(file, startByte, code, stableContext)`。

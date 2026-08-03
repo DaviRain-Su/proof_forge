@@ -35,12 +35,12 @@ proof-forge-next
 ```
 
 > **Engineering path note（2026-08-04，ADR-0026）**：当前产品源路径是进程内
-> `Loader.selectProgramV1Product` 单次 in-memory snapshot，**不是**下图历史
-> contained frontend/core worker 叙述的运行形态。前端监督层已于 2026-08-01 移除。
-> Inline theorem certification 若启用，对 **同一 snapshot raw source** 做 in-process
-> elaboration + Environment audit；**不是** sandbox、**不是** hermetic/formal evidence。
-> 下文若仍出现 contained worker 措辞，仅保留 historical accepted 意图；产品实现以
-> `RECOVERY.md` / `AGENTS.md` 与 ADR-0026 为准。
+> **单次** `IO.FS.readFile` → `selectProgramV1ProductWithTheoremInventory` → compile →
+> sole `certifyInlineProofV1` → resolve/materialize；**不是**下图历史 contained worker
+> 形态，也 **不是** `--proof-bundle*` / ProofBundle product surface（flag 已删）。
+> Inline certification 对 **同一 held raw source** 做 in-process elaboration + Environment
+> audit；**不是** sandbox / hermetic/formal evidence。下文 contained worker 措辞仅 historical；
+> 产品实现以 `RECOVERY.md` / `AGENTS.md` 与 ADR-0026 为准。
 
 编译器是代码生成与语义检查工具，不是链 VM、密钥托管器或默认网络执行器。
 Lean Parser 提供 token/layout/syntax tree；它不替代业务 IR。parser 成功后，每个 portable

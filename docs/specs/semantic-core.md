@@ -263,10 +263,11 @@ result；program、requirements、semantic serialization 和 target selection �
 
 空 proof 表面为显式 skip；失败 fail closed，不得进入 target Plan。
 
-## ProofBundleV1（historical / alternate / formal-oriented）
+## ProofBundleV1（library / historical / formal-oriented only）
 
-外部 digest-pinned proof bundle 是 source-specific、只读、content-addressed **alternate**
-input，不得与 ADR-0026 inline path 静默互替。directory
+外部 digest-pinned proof bundle 是 source-specific、只读、content-addressed **library**
+schema；**不是** 产品 CLI `check`/`build` surface，不得与 ADR-0026 inline path 互替或
+fallback。directory
 layout 唯一为 `proof-bundle.json` 与 `modules/<QualifiedName components>.olean`；component 逐级作为
 文件名，最后一段追加 `.olean`。禁止 source、`.ilean`、native library、plugin、bytecode、临时文件
 或其他额外 entry。manifest 的逻辑 schema 为：

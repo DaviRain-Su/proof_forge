@@ -12,6 +12,24 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-04 — docs follow-up: product CLI sole inline proof（no ProofBundle flags）
+
+- Correction vs prior ADR-0026 docs commit：独立复核确认 **产品** CLI 已删除
+  `--proof-bundle` / `--proof-bundle-digest`（unknown option）；sole 路径为单次 read →
+  `selectProgramV1ProductWithTheoremInventory` → compile → `certifyInlineProofV1` →
+  target resolve/materialize。`ProofBundleV1` / `ProofReferenceJoinV1` 仅为
+  library/historical/formal-oriented，**不是** check/build alternate 或 fallback。
+- Observation surface：check 输出 `proofStatus` / `proofTheoremCount` /
+  `proofCertificationDigest`；build 只门禁、成功输出不带 proof 字段。nonempty invariant
+  materializer 仍 fail closed。
+- Kernel cert engineering：structure + encode + decode + `ProofedProof.safe` certificate
+  链可记为已闭合；**raw-source ProgramElaboration 生成证书 / product-positive certified**
+  仍并行收尾——**不得** 宣称 feature 完成或 formal `TST-PROOF-001`。
+- Docs：`SPEC-CLI-001`、ADR-0026 关系段、`language`/`semantic-core`/`03-technical-spec`、
+  `MOD-CLI-001`、`engineering-backlog`（INV-1 superseded）、`RECOVERY`/`AGENTS`/
+  `MIGRATION_MATRIX` 控制面同步。Gates：`just docs-check`、`git diff --check`。文档-only
+  follow-up commit；非 formal/hermetic/release。
+
 ## 2026-08-04 — ADR-0026 inline same-file theorem certification（文档 only）
 
 - Decision：新增 `docs/adr/0026-inline-same-file-theorem-certification.md`（`proposed`），
@@ -26,9 +44,8 @@ normative: false
   `SPEC-SEM-WIRE-001`、`SPEC-CLI-001`、`SPEC-SEC-001`、`05-test-spec`（新增 engineering
   `TST-PROOF-INLINE-E1` 叙述，**不** 关闭 formal `TST-PROOF-001`）、ADR index、
   `document-status`/`index`、`MIGRATION_MATRIX`、`AGENTS.md`。
-- Code reality（已存在、本切片不改代码）：`TheoremInventoryV1`、`InlineProofPolicyV1`、
-  `InlineProofProtocolV1`、`InlineProofAuditV1`、`InlineProofCertifierV1` 等工程模块在树中；
-  CLI 全产品 wiring 与 formal task 状态不由本文档代签。
+- 注：同日 follow-up 已纠正「CLI 全产品接线仍独立 / ProofBundle alternate surface」与
+  产品事实的冲突（见上条）。
 - Gates：`just docs-check`、`git diff --check`。边界：文档-only；非 formal/hermetic/release。
 
 ## 2026-08-03 — D3-E9 registry-owned descriptor semantics axes

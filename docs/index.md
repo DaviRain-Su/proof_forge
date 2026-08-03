@@ -15,8 +15,10 @@ normative: true
 并以 [`MIGRATION_MATRIX.md`](../MIGRATION_MATRIX.md) 的 27 行事实矩阵按 D1 → D2 → D3 → D4
 区分 **formal task** 与 **工程地基**。
 
-**当前工程路径（非 formal 完成）**：CLI 进程内 `Loader.selectProgramV1Product` →
-CheckV1/Normalize → `CompiledSemanticV1` → capability Plan/IR → 工程制品/disk closure。
+**当前工程路径（非 formal 完成）**：CLI 进程内单次 read →
+`selectProgramV1ProductWithTheoremInventory` → CheckV1/Normalize →
+`CompiledSemanticV1` → **`certifyInlineProofV1`** → capability Plan/IR → 工程制品/disk
+closure（无 `--proof-bundle*`）。
 工程 registry **11 = 8 implemented + 3 design-only**；**八个 materializer**
 （EVM/Solana/NEAR/Noir/Aleo/Psy/CosmWasm/TON）均直连 retained `SemanticProgramV1`。
 CosmWasm：WAT + `wat2wasm` + check + mock VM；TON：Tolk/BoC + sandbox（Plan schedule 仍
@@ -31,9 +33,10 @@ Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target
 
 既有 formal task 与 TaskQualification 资料继续如实保留，但不冒充工程实现完成度，也不阻塞日常开发。
 
-**Inline proof（ADR-0026，`proposed`）**：engineering certification 为同文件 adjacent theorem +
-in-process Environment audit（非 sandbox）；hash 不含 theorem body；仅
-`InvariantTheoremV1`/`StateConformsV1`；gate 在 materialize 前。见
+**Inline proof（ADR-0026，`proposed`）**：产品 sole gate 为
+`selectProgramV1ProductWithTheoremInventory` → `certifyInlineProofV1`（非 sandbox；无
+`--proof-bundle*`）；hash 不含 theorem body；仅 `InvariantTheoremV1`/`StateConformsV1`；
+check 报告 proofStatus；build 只门禁。raw-source product-positive 与 formal TST 仍 open。见
 [`adr/0026-inline-same-file-theorem-certification.md`](adr/0026-inline-same-file-theorem-certification.md)。
 
 ## 生命周期

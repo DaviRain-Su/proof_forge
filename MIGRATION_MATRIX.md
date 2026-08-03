@@ -36,16 +36,19 @@ D1–D4 共 27 个 formal task，当前仍为：
 > 相同。八个 materializer 仍对 nonempty invariants fail closed；formal D2-06/D2-07 与
 > TST-SEM-001/002/003 仍 pending。
 
-> **2026-08-04 ADR-0026 inline same-file theorem certification（文档）**：proposed ADR 冻结
-> engineering product certification 边界——single in-memory source snapshot；ProgramV1/
-> semantic hash **不含** adjacent theorem body；ordinary same-file Lean theorem；
-> **in-process elaboration 不是 sandbox**；Environment kind/defeq/dependency/axiom audit；
-> 固定允许 axiom `Classical.choice`/`Quot.sound`/`propext`；不信任用户 `.olean`；proof gate
-> 早于 target resolve/materialize/staging；当前仅 `InvariantTheoremV1`（∀ `StateConformsV1` →
-> `evalInvariantV1 = returnedTrue`），**不** 声称 reachability/init-step safety/target
-> refinement/formal `TST-PROOF-001` 闭合。工程模块
-> `TheoremInventoryV1`/`InlineProofPolicyV1`/`InlineProofAuditV1`/`InlineProofCertifierV1` 等
-> 已存在于树中；CLI 全产品接线与 formal task 状态仍独立，不得用本文档更新代签。
+> **2026-08-04 ADR-0026 + product CLI inline cutover（engineering）**：产品 sole proof 路径为
+> 单次 `IO.FS.readFile` → `selectProgramV1ProductWithTheoremInventory` →
+> `compileProgramProductV1` → `certifyInlineProofV1` → target resolve/materialize。
+> `--proof-bundle`/`--proof-bundle-digest` **已删除**（unknown option）；
+> `ProofBundleV1`/`ProofReferenceJoinV1` 仅 library/historical/formal-oriented，**不是**
+> check/build alternate/fallback。check 输出 `proofStatus`/`proofTheoremCount`/
+> `proofCertificationDigest`；build 只门禁、成功输出不带 proof 字段。ProgramV1/semantic hash
+> 不含 theorem body；in-process elab **不是** sandbox；固定 axiom
+> `Classical.choice`/`Quot.sound`/`propext`；不信任用户 `.olean`；当前仅
+> `InvariantTheoremV1`（∀ `StateConformsV1`）。**结构+encode+decode+`ProofedProof.safe` kernel
+> certificate 链已闭合**（engineering）；**raw-source ProgramElaboration 生成证书 /
+> product-positive certified** 仍可在并行收尾——**不得** 宣称 feature 完成或 formal
+> `TST-PROOF-001` 闭合。nonempty invariant materializer 仍 fail closed。
 
 > **2026-08-02 N-CONST-REF 增量**：constants rows 仍由 sole `evalConstDeclValueV1` 生成 canonical
 > valueBytes；新增 complete source-order lookup 位于 fn signature type interning 后、任何 callable body
