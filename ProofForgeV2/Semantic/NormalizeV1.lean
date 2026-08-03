@@ -2199,19 +2199,47 @@ private partial def lowerExpr
           let (st1, vid) := emitValue st0 stringTid (.literal stringTid bytes)
           pure (vid, stringTid, st1)
   | .constructor ctor args => do
-      let (resultTid, ctorIdx, argTids) ←
-        resolveConstructorLoweringV1 st.interner ctor expectedTid
-      unless resultTid == expectedTid do
-        return ← failUnsupported
-          "S1 constructor result type does not match enclosing expected type"
-      unless args.size == argTids.size do
-        return ← failUnsupported
-          s!"S1 constructor expects {argTids.size} arguments, got {args.size}"
-      let (argIds, st') ← lowerArgs args argTids st states fns
-        "S1 constructor argument type mismatch"
-      let (st2, vid) :=
-        emitValue st' resultTid (.construct resultTid ctorIdx argIds)
-      pure (vid, resultTid, st2)
+      let ctorComps := (NonEmptyArray.toArray ctor.components).map (·.raw)
+      if ctorComps == #["Map", "of"] then
+        -- N-MAP-CONSTRUCT: variadic `Map.of(k0, v0, ...)` — flattened key/value
+        -- pairs lowered in source order into one Construct. Reference
+        -- semantics: empty map + sequential upsert (duplicate key last-wins).
+        match shapeOf? st.interner.types expectedTid with
+        | some (.map keyTid valTid) => do
+            unless args.size % 2 == 0 do
+              return ← failUnsupported
+                "S1 Map.of requires an even number of key/value arguments"
+            let mut argIds : Array ValueIdV1 := #[]
+            let mut st' := st
+            let mut i : Nat := 0
+            for arg in args do
+              let expectedArgTid := if i % 2 == 0 then keyTid else valTid
+              let (aVid, aTid, st1) ← lowerExpr arg expectedArgTid st' states fns
+              unless aTid == expectedArgTid do
+                return ← failUnsupported
+                  "S1 Map.of argument type mismatch"
+              argIds := argIds.push aVid
+              st' := st1
+              i := i + 1
+            let (st2, vid) :=
+              emitValue st' expectedTid (.construct expectedTid 0 argIds)
+            pure (vid, expectedTid, st2)
+        | _ =>
+            failUnsupported "S1 Map.of requires an enclosing Map expected type"
+      else do
+        let (resultTid, ctorIdx, argTids) ←
+          resolveConstructorLoweringV1 st.interner ctor expectedTid
+        unless resultTid == expectedTid do
+          return ← failUnsupported
+            "S1 constructor result type does not match enclosing expected type"
+        unless args.size == argTids.size do
+          return ← failUnsupported
+            s!"S1 constructor expects {argTids.size} arguments, got {args.size}"
+        let (argIds, st') ← lowerArgs args argTids st states fns
+          "S1 constructor argument type mismatch"
+        let (st2, vid) :=
+          emitValue st' resultTid (.construct resultTid ctorIdx argIds)
+        pure (vid, resultTid, st2)
   | .unary op operand => do
       match op with
       | .neg => do

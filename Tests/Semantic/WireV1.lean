@@ -8744,6 +8744,86 @@ private def cfgSingleComponentCalleeName : IO QualifiedName := do
 private def cfgSpuriousVoidResult (valueId : ValueIdV1) : ValueDefV1 :=
   { valueId, typeId := 3 }
 
+/-- N-MAP-CONSTRUCT step-j gate: Map Construct ctor 0 with flattened
+    key/value pairs — even count with alternating exact key/value types is
+    admitted (upsert-fold semantics; empty = Map.empty); odd count, swapped
+    position types, wrong result type and nonzero constructorIndex are
+    `.badCfg` on structure + encode dual paths. -/
+private def testCfgMapConstructTyping : IO Unit := do
+  let mapTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .uint 64 },
+      { id := 1, name := none, shape := .uint 8 },
+      { id := 2, name := none, shape := .map 0 1 }]
+  let u64Lit (n : Nat) : SemanticOpV1 := .literal 0 (leBytesFromNat n 8)
+  let u8Lit (b : UInt8) : SemanticOpV1 := .literal 1 (ByteArray.mk #[b])
+  let u64Def (v : ValueIdV1) : ValueDefV1 := { valueId := v, typeId := 0 }
+  let u8Def (v : ValueIdV1) : ValueDefV1 := { valueId := v, typeId := 1 }
+  -- P1: one pair — key UInt64, value UInt8; result is the Map type.
+  let p1 ← programWithTypes "MapCtorP1" mapTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (u64Def 0)) (u64Lit 5),
+             cfgInstr (some (u8Def 1)) (u8Lit 7),
+             cfgInstr (some { valueId := 2, typeId := 2 })
+               (.construct 2 0 #[0, 1]) ]
+          (.return_ (some 2))
+      ] 2]
+  expectCfgOk "P1 Map construct one pair" p1
+  -- P2: two pairs — four flattened args with alternating exact types.
+  let p2 ← programWithTypes "MapCtorP2" mapTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (u64Def 0)) (u64Lit 5),
+             cfgInstr (some (u8Def 1)) (u8Lit 7),
+             cfgInstr (some (u64Def 2)) (u64Lit 6),
+             cfgInstr (some (u8Def 3)) (u8Lit 8),
+             cfgInstr (some { valueId := 4, typeId := 2 })
+               (.construct 2 0 #[0, 1, 2, 3]) ]
+          (.return_ (some 4))
+      ] 2]
+  expectCfgOk "P2 Map construct two pairs" p2
+  -- N1: odd arg count.
+  let n1 ← programWithTypes "MapCtorN1" mapTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (u64Def 0)) (u64Lit 5),
+             cfgInstr (some { valueId := 1, typeId := 2 })
+               (.construct 2 0 #[0]) ]
+          (.return_ (some 1))
+      ] 2]
+  expectCfgErr "N1 Map construct odd args" n1
+  -- N2: swapped position types (UInt8 where key UInt64 required).
+  let n2 ← programWithTypes "MapCtorN2" mapTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (u8Def 0)) (u8Lit 7),
+             cfgInstr (some (u64Def 1)) (u64Lit 5),
+             cfgInstr (some { valueId := 2, typeId := 2 })
+               (.construct 2 0 #[0, 1]) ]
+          (.return_ (some 2))
+      ] 2]
+  expectCfgErr "N2 Map construct swapped pair types" n2
+  -- N3: nonzero constructorIndex.
+  let n3 ← programWithTypes "MapCtorN3" mapTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some { valueId := 0, typeId := 2 })
+               (.construct 2 1 #[]) ]
+          (.return_ (some 0))
+      ] 2]
+  expectCfgErr "N3 Map construct nonzero ctorIdx" n3
+  -- N4: result typeId is not the constructed Map type.
+  let n4 ← programWithTypes "MapCtorN4" mapTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (u64Def 0)) (u64Lit 5),
+             cfgInstr (some (u8Def 1)) (u8Lit 7),
+             cfgInstr (some (u64Def 2))
+               (.construct 2 0 #[0, 1]) ]
+          (.return_ (some 2))
+      ] 0]
+  expectCfgErr "N4 Map construct wrong result type" n4
+
 private def testCfgVoidOpResultPresence : IO Unit := do
   let calleeName ← cfgCalleeName
   -- POSITIVES (result := none on the void op; expectCfgOk).
@@ -11124,6 +11204,7 @@ def run : IO Unit := do
   testCfgDominanceOfUse
   testCfgBlockParamTypeAndTerminatorTyping
   testCfgOpTyping
+  testCfgMapConstructTyping
   testCfgVoidOpResultPresence
   testCfgValueOpResultPresence
   testCfgFieldSetTyping

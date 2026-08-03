@@ -4673,6 +4673,76 @@ private unsafe def testMapNestedAssignNormalizeReference
         "map-nested-assign: getX(0) == 7 after absent-key trap"
   | _ => throw <| IO.userError "map-nested-assign: getX after trap must return"
 
+/-- N-MAP-CONSTRUCT: `Map.of(k0, v0, ...)` lowers to ONE multi-arg Construct
+    (flattened key/value pairs, source order, no IndexSet chain); Reference
+    evaluates it as empty + sequential upsert — duplicate key last-wins,
+    canonical value stays sorted, runtime-computed keys admitted. -/
+private unsafe def testMapOfConstructNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "MapOfRef" <|
+    "  entry build(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    let mm : Map UInt64 UInt64 := Map.of(2, 20, 1, 10, 2, 30, k, v)\n" ++
+    "    match mm[2] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      match mm[k] with\n" ++
+    "      | Option.some(y) => do\n" ++
+    "        return x + y\n" ++
+    "      | _ => do\n" ++
+    "        return 0\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "map-of-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"map-of-ref: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"map-of-ref: validate: {repr e}"
+  -- Structural pin: exactly one multi-arg Construct (8 flattened args), and
+  -- no IndexSet chain anywhere in the entry body.
+  let some build := data.callables.find? (fun c => c.name == some "build") |
+    throw <| IO.userError "map-of-ref: missing build"
+  let ops := build.blocks.foldl (fun acc b => acc ++ b.instructions.map (·.op)) #[]
+  let constructs : Array ProofForgeV2.Semantic.WireV1.SemanticOpV1 :=
+    ops.filter fun (o : ProofForgeV2.Semantic.WireV1.SemanticOpV1) =>
+      match o with | .construct _ _ _ => true | _ => false
+  expect (constructs.size == 1) "map-of-ref: exactly one Construct op"
+  let some mapCtor := constructs[0]? |
+    throw <| IO.userError "map-of-ref: missing Map Construct"
+  match mapCtor with
+  | .construct _ ctorIdx args =>
+      expect (ctorIdx == 0 && args.size == 8)
+        s!"map-of-ref: Construct ctor 0 with 8 flattened args, got ctor={ctorIdx} args={args.size}"
+  | _ => throw <| IO.userError "map-of-ref: missing Map Construct"
+  let hasIndexSet := ops.any fun o =>
+    match o with | .indexSet _ _ _ => true | _ => false
+  expect (!hasIndexSet) "map-of-ref: no IndexSet chain for Map.of"
+  let admitted ← admitOk "map-of-ref" carrier
+  let u64Tid ← match data.types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => pure (UInt32.ofNat i)
+    | none => throw <| IO.userError "map-of-ref: missing UInt64"
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"map-of-ref: initial: {repr e}"
+  -- Duplicate key last-wins: key 1 holds 99 (not 10), key 2 holds 30 (not 20)
+  -- → 30 + 99 = 129.
+  let afterDup :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[refU64 u64Tid 1, refU64 u64Tid 99]) emptyResponses
+  match afterDup with
+  | .returned _ val _ =>
+      expect (optionRefEq val (some (refU64 u64Tid 129)))
+        "map-of-ref: duplicate key last-wins (30 + 99 == 129)"
+  | _ => throw <| IO.userError "map-of-ref: duplicate-key call must return"
+  -- Runtime-computed key inserted by the last pair: (k=9, v=5) → 30 + 5 = 35.
+  let afterFresh :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[refU64 u64Tid 9, refU64 u64Tid 5]) emptyResponses
+  match afterFresh with
+  | .returned _ val _ =>
+      expect (optionRefEq val (some (refU64 u64Tid 35)))
+        "map-of-ref: runtime key upsert (30 + 5 == 35)"
+  | _ => throw <| IO.userError "map-of-ref: fresh-key call must return"
+
 /-- R-1: Option state product Normalize → admit → step (none default + some assign). -/
 private unsafe def testOptionStateNormalizeReference
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -4931,6 +5001,7 @@ unsafe def run : IO Unit := do
   testMapBytesAssignNormalizeReference session
   -- N-NEST-IDX: Map-element penetrating assign + absent-key invalidCore trap
   testMapNestedAssignNormalizeReference session
+  testMapOfConstructNormalizeReference session
   -- R-1: Option state product admit + step
   testOptionStateNormalizeReference session
   -- N-ANON-RESULT: exact canonical container return bytes + Array PureCall

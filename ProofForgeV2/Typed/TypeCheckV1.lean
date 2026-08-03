@@ -1144,46 +1144,79 @@ mutual
               "binary expression")
             exprPath? expectedRelated]
     | .constructor ctor args =>
-        let pathRes := resolveConstructorType tables ctor expected?
-        match pathRes with
-        | .error diag =>
-            let (argDrafts, pathDs) := args.zipIdx.foldl
-              (fun (acc, pds) (arg, i) =>
-                let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
-                let ar := typeCheckExprDrafts scope tables none #[] ap? arg
-                (acc ++ ar.drafts, pds ++ pd))
-              (#[], #[])
-            resultDraft (expected?.getD .unit)
-              (pathDs ++ #[draftFromDiag diag exprPath? #[]] ++ argDrafts)
-        | .ok (resType, expectedTypes) =>
-            let relatedCtor := constructorRelatedPaths tables ctor resType
-            let drafts : Array TypedDiagnosticDraftV1 := #[]
-            let drafts :=
-              if expectedTypes.size == args.size then drafts
-              else drafts ++ #[locateDraft
-                (expectedActualDiagnosticDraft
-                  s!"{expectedTypes.size} constructor arguments"
-                  s!"{args.size} constructor arguments")
-                exprPath? relatedCtor]
-            -- Arity mismatch: only the arity locateDraft (no arg walk). Resolve-error
-            -- and matching-arity paths still walk args; revert/emit keep their walks.
-            let (argDrafts, pathDs) :=
-              if expectedTypes.size == args.size then
-                (expectedTypes.zip args).zipIdx.foldl
-                  (fun (acc, pds) ((expectedType, arg), i) =>
-                    let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
-                    let argRelated :=
-                      constructorArgRelatedPaths tables ctor resType i
-                    let ar := typeCheckExprDrafts scope tables (some expectedType)
-                      argRelated ap? arg
-                    (acc ++ ar.drafts, pds ++ pd))
-                  (#[], #[])
-              else
+        let isMapOf := match ctor.components.toArray with
+          | #[typeName, method] => typeName.raw == "Map" && method.raw == "of"
+          | _ => false
+        if isMapOf then
+          -- N-MAP-CONSTRUCT: variadic `Map.of(k0, v0, ...)` typed against the
+          -- enclosing expected Map type (flattened key/value pairs; duplicate
+          -- keys keep IndexSet last-wins semantics at the Reference).
+          match expected? with
+          | some (.map keyT valueT) =>
+              let (pairDrafts, pathDs) := args.zipIdx.foldl
+                (fun (acc, pds) (arg, i) =>
+                  let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
+                  let expectedArg := if i % 2 == 0 then keyT else valueT
+                  let ar := typeCheckExprDrafts scope tables (some expectedArg) #[] ap? arg
+                  (acc ++ ar.drafts, pds ++ pd))
                 (#[], #[])
-            let drafts := pathDs ++ drafts ++ argDrafts
-            let (type_, drafts) :=
-              checkExpectedDraft resType expected? exprPath? expectedRelated drafts
-            resultDraft type_ drafts
+              let arityDrafts :=
+                if args.size % 2 == 0 then #[]
+                else #[locateDraft
+                  (expectedActualDiagnosticDraft
+                    "an even number of Map.of key/value arguments"
+                    s!"{args.size} constructor arguments")
+                  exprPath? #[]]
+              let (type_, drafts) :=
+                checkExpectedDraft (.map keyT valueT) expected? exprPath? expectedRelated
+                  (pathDs ++ arityDrafts ++ pairDrafts)
+              resultDraft type_ drafts
+          | _ =>
+              resultDraft (expected?.getD .unit) #[locateDraft
+                (expectedActualDiagnosticDraft "an enclosing Map expected type"
+                  "Map.of constructor")
+                exprPath? expectedRelated]
+        else
+          let pathRes := resolveConstructorType tables ctor expected?
+          match pathRes with
+          | .error diag =>
+              let (argDrafts, pathDs) := args.zipIdx.foldl
+                (fun (acc, pds) (arg, i) =>
+                  let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
+                  let ar := typeCheckExprDrafts scope tables none #[] ap? arg
+                  (acc ++ ar.drafts, pds ++ pd))
+                (#[], #[])
+              resultDraft (expected?.getD .unit)
+                (pathDs ++ #[draftFromDiag diag exprPath? #[]] ++ argDrafts)
+          | .ok (resType, expectedTypes) =>
+              let relatedCtor := constructorRelatedPaths tables ctor resType
+              let drafts : Array TypedDiagnosticDraftV1 := #[]
+              let drafts :=
+                if expectedTypes.size == args.size then drafts
+                else drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft
+                    s!"{expectedTypes.size} constructor arguments"
+                    s!"{args.size} constructor arguments")
+                  exprPath? relatedCtor]
+              -- Arity mismatch: only the arity locateDraft (no arg walk). Resolve-error
+              -- and matching-arity paths still walk args; revert/emit keep their walks.
+              let (argDrafts, pathDs) :=
+                if expectedTypes.size == args.size then
+                  (expectedTypes.zip args).zipIdx.foldl
+                    (fun (acc, pds) ((expectedType, arg), i) =>
+                      let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
+                      let argRelated :=
+                        constructorArgRelatedPaths tables ctor resType i
+                      let ar := typeCheckExprDrafts scope tables (some expectedType)
+                        argRelated ap? arg
+                      (acc ++ ar.drafts, pds ++ pd))
+                    (#[], #[])
+                else
+                  (#[], #[])
+              let drafts := pathDs ++ drafts ++ argDrafts
+              let (type_, drafts) :=
+                checkExpectedDraft resType expected? exprPath? expectedRelated drafts
+              resultDraft type_ drafts
     | .localCall callee args =>
         -- N5: intrinsic `commit(x)` when no user `fn commit` — result type =
         -- operand type (label-only identity; disclosure is a separate phase).

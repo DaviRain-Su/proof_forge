@@ -21,7 +21,8 @@ import ProofForgeV2.Semantic.WireV1
     * ops: Literal, Constant, StateLoad/Store, Unary/Binary on admitted shapes,
       CheckedCast (UInt/Int combinations), Struct Construct/FieldGet/FieldSet,
       Option/Enum Construct/VariantTag/VariantPayload, PureCall, Assert, Emit,
-      ExternalCall, Schedule, Unit/Array Construct, empty Map Construct,
+      ExternalCall, Schedule, Unit/Array Construct, Map Construct (empty or
+      flattened key/value pairs, upsert-fold last-wins — N-MAP-CONSTRUCT),
       Array/Bytes/Map IndexGet/IndexSet, ContextRead, Commit
     * terminators: Jump / Branch / Switch / Return / Revert / Trap
     * ExternalCall/Schedule args: Bool / legal UInt/Int widths / Bytes (no Unit;
@@ -34,7 +35,7 @@ import ProofForgeV2.Semantic.WireV1
   Rejected at admission (never masquerade as runtime invalidCore; only
   internalInvariant defense if admission is bypassed):
     recursive Struct/Array/Map/Option/Enum type graphs,
-    nonempty-Map Construct,
+    Map Construct with odd arg count or nonzero constructor index,
     view/pureFn effect-or-state violations, ExternalCall/Schedule Unit args.
   Principal and String are identity-admitted leaves (N-2 / N4); resource
   bounds use worst-case `4 + maxTypeLengthV1` length-prefixed payloads.
@@ -291,8 +292,14 @@ private def admitCallableBody (data : SemanticProgramDataV1) (c : CallableV1) :
           | some { shape := .option _, .. }
           | some { shape := .enum _, .. } => pure ()
           | some { shape := .map _ _, .. } =>
-              if instr.op == .construct tid 0 #[] then pure ()
-              else admitFail "Map Construct admits only constructor 0 with no args"
+              -- N-MAP-CONSTRUCT: ctor 0 with a flattened key/value pair
+              -- sequence (even count; empty = Map.empty). Positional types
+              -- are enforced by the structure gate; eval is upsert-fold.
+              match instr.op with
+              | .construct _ 0 args =>
+                  if args.size % 2 == 0 then pure ()
+                  else admitFail "Map Construct args must be flattened key/value pairs (even count)"
+              | _ => admitFail "Map Construct admits only constructor 0"
           | some _ => admitFail "unsupported non-Struct/Array/Option/Enum Construct shape"
           | none => admitFail "Construct typeId out of range"
       | _ => pure ()
@@ -1218,11 +1225,27 @@ private def evalMapConstruct (data : SemanticProgramDataV1)
     (typeId : TypeIdV1) (constructorIndex : UInt32)
     (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
     Except CandidateV1 ReferenceValueV1 := do
-  unless resultTypeId == typeId && constructorIndex == 0 && args.isEmpty do
+  -- N-MAP-CONSTRUCT: ctor 0 with flattened key/value pairs. Semantics:
+  -- empty map + sequential upsert in arg order (duplicate key last-wins,
+  -- matching IndexSet; canonical value stays sorted via the upsert helper).
+  unless resultTypeId == typeId && constructorIndex == 0 && args.size % 2 == 0 do
     throw (.trapped .invalidCore)
-  match encodeCanonicalEmptyMapValueV1 data.types typeId with
-  | .ok bytes => pure { typeId, valueBytes := bytes }
-  | .error _ => throw (.trapped .invalidCore)
+  let mut bytes := ←
+    match encodeCanonicalEmptyMapValueV1 data.types typeId with
+    | .ok empty => pure empty
+    | .error _ => throw (.trapped .invalidCore)
+  let mut i := 0
+  while i < args.size do
+    match args[i]?, args[i + 1]? with
+    | some key, some value =>
+        match upsertCanonicalMapValueV1 data.types typeId bytes
+            key.valueBytes value.valueBytes with
+        | .ok updated => bytes := updated
+        | .error .resourceExhausted => throw (.trapped .resourceExhausted)
+        | .error (.invalidInput _) => throw (.trapped .invalidCore)
+    | _, _ => throw (.trapped .invalidCore)
+    i := i + 2
+  pure { typeId, valueBytes := bytes }
 
 private def evalUnitConstruct (data : SemanticProgramDataV1)
     (typeId : TypeIdV1) (constructorIndex : UInt32)

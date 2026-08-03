@@ -470,18 +470,23 @@ def checkOpTyping (instr : InstructionV1) (env : OpTypingEnv) :
                 requireResultEq instr.result tid
             | _ => err .badCfg
         | .unit =>
-            -- Unit/empty Map shape: constructorIndex==0, args==#[].
-            -- (`.map` with nonempty cannot be Constructed; empty Map uses
-            -- constructorIndex 0, args #[] — handled under .map below.)
+            -- Unit shape: constructorIndex==0, args==#[].
+            -- (Map construction — empty or flattened key/value pairs — is
+            -- handled under .map below.)
             unless ctorIdx == 0 do return ← err .badCfg
             unless args.size == 0 do return ← err .badCfg
             requireResultEq instr.result tid
-        | .map _ _ =>
-            -- Only the empty Map (constructorIndex 0, args #[]) can be
-            -- Constructed this slice; nonempty Map construction is out of
-            -- scope. constructorIndex != 0 → .badCfg.
+        | .map keyType valueType =>
+            -- N-MAP-CONSTRUCT: constructorIndex 0; args are a flattened
+            -- key/value pair sequence (even count; empty = Map.empty).
+            -- Semantics: empty map + sequential upsert in arg order
+            -- (duplicate key last-wins, matching IndexSet), so runtime
+            -- computed keys are admitted and no static order is required.
             unless ctorIdx == 0 do return ← err .badCfg
-            unless args.size == 0 do return ← err .badCfg
+            unless args.size % 2 == 0 do return ← err .badCfg
+            let expected := (List.range (args.size / 2)).foldl
+              (fun acc _ => acc ++ #[keyType, valueType]) #[]
+            checkArgsPositional env args expected
             requireResultEq instr.result tid
         | .bool | .uint _ | .int _ | .principal | .string | .bytes _ | .field _ =>
             -- primitives/Bytes/Principal/String/Field/uint/int/bool cannot be Constructed

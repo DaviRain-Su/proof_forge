@@ -695,10 +695,13 @@ Map entries 按 `keyBytes` unsigned lexicographic unique ascending，duplicate l
 的 slice，并且 `encode(decode(bytes)) == bytes`，否则为 `nonCanonical`。Constant/Literal bytes、Switch
 case value、state、call argument/result 和 instruction result 都复用这一套 decoder，不能各自发明 wire。
 
-`Op.Construct.constructorIndex` 的解释也是唯一的：Struct/Array/empty Map/Unit 使用 0；Enum 使用
+`Op.Construct.constructorIndex` 的解释也是唯一的：Struct/Array/Map/Unit 使用 0；Enum 使用
 实际 zero-based variant index；Option 使用 0 表示 none、1 表示 some。Struct args 是全部 fields，
-Array args 恰为 N 个 elements，Map/Unit/Option-none 没有 args，Option-some 恰有一个 arg，Enum args
-恰为 selected variant payload。primitive/Bytes/Principal/Field/整数不能用 Construct。
+Array args 恰为 N 个 elements，Map args 是扁平 key/value 对序列（偶数个，key 在偶数位、value 在
+奇数位，positional 类型必须精确等于 K/V；空序列即 empty Map；语义为空 Map 后按 arg 顺序逐对
+upsert，duplicate key 以最后一次写入为准，与 IndexSet 一致，因此允许运行期计算的 key，wire 不
+要求静态排序），Unit/Option-none 没有 args，Option-some 恰有一个 arg，Enum args 恰为 selected
+variant payload。primitive/Bytes/Principal/Field/整数不能用 Construct。
 `VariantTag` 只接受 Enum/Option，分别产生 UInt32 variant index 与 0/1；`VariantPayload` 只接受
 Enum 的 exact runtime variant 或 Option-some `(variantIndex=1,payloadIndex=0)`，mismatch 为 invalid
 Core trap。`FieldGet/FieldSet` 只接受 Struct；`IndexGet/IndexSet` 只接受 Array、Bytes 或 Map，Map

@@ -1285,6 +1285,13 @@ private partial def lowerRegion
                 | none => planError "unsupported Aleo semantic shape: construct admits only Array UInt64 / Map UInt64 UInt64 on Aleo"
               unless ctorIdx == 0 do
                 planError "unsupported Aleo semantic shape: Array/Map construct ctorIdx must be 0"
+              -- N-MAP-CONSTRUCT: nonempty Map construct (flattened kv pairs) is
+              -- outside the Aleo pilot; product maps are built via IndexSet.
+              let isMapConstruct := match layout.typeDecls[typeId.toNat]? with
+                | some { shape := .map _ _, .. } => true
+                | _ => false
+              if isMapConstruct && !argIds.isEmpty then
+                planError "unsupported Aleo semantic shape: nonempty Map construct is outside the Aleo pilot (build maps via IndexSet upsert)"
               -- Map.empty (ctor 0, 0 args) → dense zero leaves; Array
               -- construct takes exactly N scalar args.
               if n == aleoMapPilotLeafCountV1 && argIds.isEmpty then

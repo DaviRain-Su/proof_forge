@@ -5619,6 +5619,59 @@ private unsafe def testMapNonemptyProductPath
       | _ => false
   expect hasVariantTag "map-nonempty: Option match uses VariantTag"
 
+/-- N-MAP-CONSTRUCT: `Map.of(k0, v0, ...)` variadic constructor typing —
+    flattened key/value pairs against the enclosing expected Map type;
+    literal and runtime-computed keys both admitted; odd arity, wrong
+    key/value types and missing expected Map type stay typed errors. -/
+private unsafe def testMapOfConstructTyped
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "MapOfTyped" <|
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m[0] := 0\n" ++
+    "  entry build(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    let mm : Map UInt64 UInt64 := Map.of(k, v, 2, 30, 2, 40)\n" ++
+    "    match mm[2] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "map-of-typed" src
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok
+    s!"map-of-typed: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  -- Odd arg count stays a typed error.
+  let oddSrc := wrap "MapOfOdd" <|
+    "  entry build() : UInt64 do\n" ++
+    "    let mm : Map UInt64 UInt64 := Map.of(1, 10, 2)\n" ++
+    "    return 0\n"
+  let oddValidated ← loadSource session "map-of-odd" oddSrc
+  let oddTyped := checkProgramTypedResultV1 oddValidated
+  expect (!oddTyped.ok) "map-of-odd: expected TypeCheck failure"
+  -- Wrong key type stays a typed error.
+  let badKeySrc := wrap "MapOfBadKey" <|
+    "  entry build(b : Bool) : UInt64 do\n" ++
+    "    let mm : Map UInt64 UInt64 := Map.of(b, 10)\n" ++
+    "    return 0\n"
+  let badKeyValidated ← loadSource session "map-of-bad-key" badKeySrc
+  let badKeyTyped := checkProgramTypedResultV1 badKeyValidated
+  expect (!badKeyTyped.ok) "map-of-bad-key: expected TypeCheck failure"
+  -- Wrong value type stays a typed error.
+  let badValSrc := wrap "MapOfBadVal" <|
+    "  entry build(b : Bool) : UInt64 do\n" ++
+    "    let mm : Map UInt64 UInt64 := Map.of(1, b)\n" ++
+    "    return 0\n"
+  let badValValidated ← loadSource session "map-of-bad-val" badValSrc
+  let badValTyped := checkProgramTypedResultV1 badValValidated
+  expect (!badValTyped.ok) "map-of-bad-val: expected TypeCheck failure"
+  -- Missing enclosing Map expected type stays a typed error.
+  let noExpectSrc := wrap "MapOfNoExpect" <|
+    "  entry build() : UInt64 do\n" ++
+    "    return Map.of(1, 10)\n"
+  let noExpectValidated ← loadSource session "map-of-no-expect" noExpectSrc
+  let noExpectTyped := checkProgramTypedResultV1 noExpectValidated
+  expect (!noExpectTyped.ok) "map-of-no-expect: expected TypeCheck failure"
+
 /-- N-A3: Map index assign value type mismatch fail closed at TypeCheck. -/
 private unsafe def testMapIndexAssignValueMismatch
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -7631,6 +7684,7 @@ unsafe def run : IO Unit := do
   -- N-A3 MapBytesAssign: Map/Bytes single-step index assign + negatives
   testMapStateIndexAssign session
   testMapNestedAssignTyped session
+  testMapOfConstructTyped session
   testMapNonemptyProductPath session
   testMapIndexAssignValueMismatch session
   testMapNestedFieldAssignFailClosed session

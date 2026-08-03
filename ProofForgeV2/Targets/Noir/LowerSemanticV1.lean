@@ -2125,6 +2125,14 @@ private def lowerBlockInstructionsV1
           unless leafByteWidth == 8 do
             throw <| .planInvariant .noir
               "unsupported Noir semantic shape: Bytes construct is outside the Noir pilot (Bytes values enter via state only)"
+          -- N-MAP-CONSTRUCT: nonempty Map construct (flattened kv pairs) is
+          -- outside the Noir pilot; product maps are built via IndexSet.
+          let isMapConstruct := match layout.typeDecls[typeId.toNat]? with
+            | some { shape := .map _ _, .. } => true
+            | _ => false
+          if isMapConstruct && !argIds.isEmpty then
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: nonempty Map construct is outside the Noir pilot (build maps via IndexSet upsert)"
           -- Map.empty (0 args) → dense zero leaves; Array construct N UInt64 args.
           if n == noirMapPilotLeafCountV1 && argIds.isEmpty then
             unless ctorIdx == 0 do

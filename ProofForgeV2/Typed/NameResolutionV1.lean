@@ -179,9 +179,9 @@ def resolveConstructorName (tables : TypedDeclTablesV1)
           emitLocated (unknownNameDiagnosticDraft methodOrVariant "constructor variant")
             sitePath #[]
       else if typeName.raw == "Map" then
-        -- N-1: Map.empty() only (empty construct; nonempty via IndexSet).
+        -- N-1: Map.empty(); N-MAP-CONSTRUCT: Map.of(k0, v0, ...) variadic.
         let m := methodOrVariant.raw
-        if m == "empty" || m == "Empty" then
+        if m == "empty" || m == "Empty" || m == "of" then
           pure ()
         else
           emitLocated (unknownNameDiagnosticDraft methodOrVariant "constructor variant")

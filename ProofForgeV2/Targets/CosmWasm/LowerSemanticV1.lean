@@ -2332,6 +2332,14 @@ private def lowerBlockInstructionsV1
             unless ctorIdx == 0 do
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: Array/Map construct ctorIdx must be 0"
+            -- N-MAP-CONSTRUCT: nonempty Map construct (flattened kv pairs) is
+            -- outside the CosmWasm pilot; product maps are built via IndexSet.
+            let isMapConstruct := match typeDecls[typeId.toNat]? with
+              | some { shape := .map _ _, .. } => true
+              | _ => false
+            if isMapConstruct && !argIds.isEmpty then
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: nonempty Map construct is outside the CosmWasm pilot (build maps via IndexSet upsert)"
             if n == nearMapPilotLeafCountV1 && argIds.isEmpty then
               let mut zeros : Array Expr := #[]
               for _ in [0:n] do
