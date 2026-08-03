@@ -1,11 +1,13 @@
 /-
-  Tests.CLI.ResourceFlagsV1 — D3-E5 SPEC-CLI resource/evidence/proof-bundle flags
-  plus RES-1 pure wall-ms enforce/product CLI PF-RESOURCE-TIME and RES-1B
-  artifact-output published-bytes enforcement/PF-RESOURCE-OUTPUT pins.
+  Tests.CLI.ResourceFlagsV1 — D3-E5 SPEC-CLI resource/evidence flags plus RES-1
+  pure wall-ms enforce/product CLI PF-RESOURCE-TIME and RES-1B artifact-output
+  published-bytes enforcement/PF-RESOURCE-OUTPUT pins.
 
   Drives shipped pure parse + product preflight (`parseProductCliCommandV1` /
   `parseBuildArgsExcept` / `validateBuildOptionsCliV1` / `parseResourceLimitSpecV1`),
   wall gates, and the pre-publish artifacts+sidecars byte gate.
+  Structural `--proof-bundle` / `--proof-bundle-digest` are unknown options
+  (product bypass removed; inline certifier is a separate integration lane).
   Not formal SPEC-CLI / NFR-008 host receipt or memory containment.
 -/
 import ProofForgeV2.CLI.Emit
@@ -108,26 +110,25 @@ def run : IO Unit := do
         "--resource-limit", "frontend.wall-ms=200"])
     "duplicate --resource-limit"
 
-  -- Proof-bundle unpaired / pair fail closed (product path)
+  -- Structural proof-bundle product flags are deleted; both spellings are
+  -- unknown options (no parse pair acceptance / no product bypass).
   expectErr "bundle only"
     (parseProductCliCommandV1
       ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
         "--proof-bundle", "/tmp/pb"])
-    "--proof-bundle requires"
+    "unknown option"
   expectErr "digest only"
     (parseProductCliCommandV1
       ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
         "--proof-bundle-digest", "sha256:0000000000000000000000000000000000000000000000000000000000000000"])
-    "--proof-bundle-digest requires"
-  -- INV-1: pair shape is accepted at parse; unused-on-Counter is a product-time
-  -- join gate (source has no proof references), not a parse rejection.
-  match parseProductCliCommandV1
+    "unknown option"
+  expectErr "bundle pair"
+    (parseProductCliCommandV1
       ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
         "--proof-bundle", "bundle-dir",
         "--proof-bundle-digest",
-        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"] with
-  | .error e => throw <| IO.userError s!"bundle pair parse must succeed (INV-1): {e}"
-  | .ok _ => pure ()
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"])
+    "unknown option"
 
   -- Unknown option still fail closed
   expectErr "network"

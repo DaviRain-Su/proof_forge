@@ -406,11 +406,12 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
 /-- Full build/check option bag (CLI internal + test-facing parse).
 `output`/`root` are `Option` so duplicate flags are detectable (defaults applied
 at product path: `build/v2` and `.`). `json` selects PF-JCS stdout.
-D3-E5: `resourceLimits` / `minimumEvidence` / proof-bundle pair are parsed and
-validated fail-closed before source open. RES-1 enforces wall clocks (build:
-pre-rename inside emitProgram; check: post-success path). The RES-1B
-output-only slice enforces `artifact-output.published-bytes` before
-publication. Memory/process/protocol/stderr remain observation-only gaps. -/
+D3-E5: `resourceLimits` / `minimumEvidence` are parsed and validated fail-closed
+before source open. RES-1 enforces wall clocks (build: pre-rename inside
+emitProgram; check: post-success path). The RES-1B output-only slice enforces
+`artifact-output.published-bytes` before publication. Memory/process/protocol/
+stderr remain observation-only gaps. Structural ambient ProofBundle product
+flags are intentionally absent (inline certifier integration dependency). -/
 structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
@@ -423,8 +424,6 @@ structure BuildOptions where
   json : Bool := false
   resourceLimits : Array ResourceLimitOverrideV1 := #[]
   minimumEvidence : Option String := none
-  proofBundle : Option String := none
-  proofBundleDigest : Option String := none
   deriving Repr
 
 /-- Product command kind for post-parse resource/evidence flag validation. -/
@@ -532,19 +531,7 @@ def isValidMinimumEvidenceGradeV1 (grade : String) : Bool :=
   grade == "local_runtime" ||
   grade == "network_or_proof_validated"
 
-/-- Exact SPEC-COMMON-001 lowercase SHA-256 wire: `sha256:` + 64 hex digits. -/
-def isValidProofBundleDigestWireV1 (wire : String) : Bool :=
-  let cs := wire.toList
-  let pfx := ("sha256:").toList
-  if !pfx.isPrefixOf cs then false
-  else
-    let hexChars := cs.drop pfx.length
-    if hexChars.length != 64 then false
-    else
-      hexChars.all fun c =>
-        ('0' ≤ c && c ≤ '9') || ('a' ≤ c && c ≤ 'f')
-
-/-- Post-parse validation for check vs build (SPEC-CLI resource/evidence/proof-bundle).
+/-- Post-parse validation for check vs build (SPEC-CLI resource/evidence).
 Runs before source open / materialize. Wall-clock **enforcement** is RES-1
 (`enforceWallMsLimitV1` after product stages). -/
 def validateBuildOptionsCliV1
@@ -573,24 +560,13 @@ def validateBuildOptionsCliV1
       | .build =>
           unless isValidMinimumEvidenceGradeV1 grade do
             throw s!"unknown --minimum-evidence grade '{grade}'"
-  -- proof-bundle pair
-  match options.proofBundle, options.proofBundleDigest with
-  | none, none => pure ()
-  | some _, none => throw "--proof-bundle requires --proof-bundle-digest"
-  | none, some _ => throw "--proof-bundle-digest requires --proof-bundle"
-  | some dir, some dig =>
-      if dir.isEmpty then throw "--proof-bundle path must be nonempty"
-      unless isValidProofBundleDigestWireV1 dig do
-        throw "invalid --proof-bundle-digest (want sha256:<64 lowercase hex>)"
-      -- INV-1: pair shape accepted here; product path joins after compile using
-      -- ProofReferenceJoinV1 (unused pair / missing pair / export join fail closed).
-      pure ()
   pure options
 
 /-- Shared build/check argument parser (pure Except).
 `--network` and any other unknown dashed option fail as usage errors.
 `--json` is a bare flag. Duplicate selection and common flags fail closed.
-D3-E5: `--resource-limit` (repeatable), `--minimum-evidence`, proof-bundle pair. -/
+D3-E5: `--resource-limit` (repeatable), `--minimum-evidence`.
+Legacy structural ambient ProofBundle product flags are unknown options. -/
 partial def parseBuildArgsExcept (args : List String) (options : BuildOptions := {}) :
     Except String BuildOptions := do
   match args with
@@ -628,14 +604,6 @@ partial def parseBuildArgsExcept (args : List String) (options : BuildOptions :=
       if options.minimumEvidence.isSome then throw "duplicate --minimum-evidence"
       if value.startsWith "-" then throw "missing --minimum-evidence value"
       parseBuildArgsExcept rest { options with minimumEvidence := some value }
-  | "--proof-bundle" :: value :: rest =>
-      if options.proofBundle.isSome then throw "duplicate --proof-bundle"
-      if value.startsWith "-" then throw "missing --proof-bundle value"
-      parseBuildArgsExcept rest { options with proofBundle := some value }
-  | "--proof-bundle-digest" :: value :: rest =>
-      if options.proofBundleDigest.isSome then throw "duplicate --proof-bundle-digest"
-      if value.startsWith "-" then throw "missing --proof-bundle-digest value"
-      parseBuildArgsExcept rest { options with proofBundleDigest := some value }
   | value :: rest =>
       if value.startsWith "-" then
         throw s!"unknown option '{value}'"
