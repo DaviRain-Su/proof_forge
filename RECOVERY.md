@@ -199,8 +199,8 @@ private-ctor `CompiledSemanticV1` 单 carrier + engineering exact requirement re
 （`resolveEngineeringRequirementsV1 (selection, compiled)` → private
 `ResolvedEngineeringBuildV1`，exact retained SemanticProgramV1 `data.requirements`，
 无 caller request override；静态九行 S2 target/profile support index）。**精确边界**：shipped
-aggregate/CLI `materialize`/`emit` 仅接受 capability；EVM/Solana/NEAR/Noir/Aleo/Psy 均在 capability 后读取
-retained `SemanticProgramV1`，经各自 private S1 lowering构造 target-owned Plan，再进入各自 IR/emission；
+aggregate/CLI `materialize`/`emit` 仅接受 capability；EVM/Solana/NEAR/Noir/Aleo/Psy/CosmWasm/TON 均在 capability 后读取
+retained `SemanticProgramV1`，经各自 private lowering 构造 target-owned Plan，再进入各自 IR/emission；
 residual alpha不再参与 Plan body。**D3/S6 工程**：public residual Common resolve / validateResolved /
 public makePlan 与 `TargetDescriptor.supportedRequirements` 字段/membership acceptance 已关闭；
 cycle-free `EngineeringBuildV1` leaf sole mint；八 materializer 仅 capability-gated
