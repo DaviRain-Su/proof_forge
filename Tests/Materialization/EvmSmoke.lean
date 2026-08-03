@@ -3388,8 +3388,9 @@ private unsafe def testAggregateStructReturn : IO Unit := do
   expect (abi.contains "components")
     "PairBox ABI must have components for tuple"
 
-/-- B-RET-ABI: anonymous container (Array) result type stays fail-closed. -/
-private unsafe def testAnonymousContainerReturnFailClosed : IO Unit := do
+/-- BL-18: anonymous `Array UInt64 2` entry/view return lowers to
+`.returnAggregate` with 2 UInt64 leaves (tuple ABI), same path as named. -/
+private unsafe def testAnonymousArrayUInt64Return : IO Unit := do
   let sourceText :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -3401,18 +3402,239 @@ private unsafe def testAnonymousContainerReturnFailClosed : IO Unit := do
     "  view getArr() : Array UInt64 2 do\n" ++
     "    return slots\n"
   let session ← Tests.Language.ParserSession.shared
-  let source ← match ← session.selectProgramV1
-    sourceText "<evm-array-ret>" "Tests.EvmArrayRet" none with
+  let source ← liftResult "load ArrayRet" (← session.selectProgramV1
+    sourceText "<evm-array-ret>" "Tests.EvmArrayRet" none)
+  let compiled ← liftResult "compile ArrayRet" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan ArrayRet" <| planEvm compiled
+  expect (plan.entries.size == 1) "ArrayRet must have one entry"
+  let viewEntry := plan.entries[0]!
+  expect (viewEntry.name == "getArr") "ArrayRet entry name"
+  match viewEntry.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrayRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "ArrayRet aggregate leaves must be uint64"
+  | _ =>
+      throw <| IO.userError
+        s!"ArrayRet getArr resultKind must be .aggregate, got {repr viewEntry.resultKind}"
+  expect (viewEntry.body.size == 1) "ArrayRet getArr body must be one return statement"
+  match viewEntry.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2)
+        s!"returnAggregate must have 2 leaves, got {leaves.size}"
+      expect (leafIsInt == #[false, false])
+        "returnAggregate leafIsInt must be #[false, false]"
+  | _ =>
+      throw <| IO.userError "ArrayRet getArr body must be .returnAggregate"
+  let output ← liftResult "materialize ArrayRet" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "ArrayRet.yul") |
+    throw <| IO.userError "ArrayRet: missing ArrayRet.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "mstore(0, ") "ArrayRet Yul must mstore leaf 0"
+  expect (yul.contains "mstore(32, ") "ArrayRet Yul must mstore leaf 1"
+  expect (yul.contains "return(0, 64)") "ArrayRet Yul must return 64 bytes"
+  let some abiFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "ArrayRet.abi.json") |
+    throw <| IO.userError "ArrayRet: missing ArrayRet.abi.json"
+  let abi := abiFile.contents
+  expect (abi.contains "(uint64,uint64)")
+    s!"ArrayRet ABI must declare tuple (uint64,uint64), got: {abi}"
+  expect (abi.contains "components")
+    "ArrayRet ABI must have components for tuple"
+
+/-- BL-18: anonymous `Option UInt64` entry/view return is tag+payload
+(2 leaves). Covers construct of none/some and returnAggregate ABI. -/
+private unsafe def testAnonymousOptionUInt64Return : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptionRet where\n" ++
+    "  state flag : UInt64\n" ++
+    "  init(f : UInt64) do\n" ++
+    "    flag := f\n" ++
+    "  view getNone() : Option UInt64 do\n" ++
+    "    return Option.none()\n" ++
+    "  view getSome(x : UInt64) : Option UInt64 do\n" ++
+    "    return Option.some(x)\n" ++
+    "  view getFlagOpt() : Option UInt64 do\n" ++
+    "    if flag == 0 then\n" ++
+    "      return Option.none()\n" ++
+    "    else\n" ++
+    "      return Option.some(flag)\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load OptionRet" (← session.selectProgramV1
+    sourceText "<evm-option-ret>" "Tests.EvmOptionRet" none)
+  let compiled ← liftResult "compile OptionRet" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan OptionRet" <| planEvm compiled
+  expect (plan.entries.size == 3) "OptionRet must have three entries"
+  for e in plan.entries do
+    match e.resultKind with
+    | .aggregate leaves =>
+        expect (leaves.size == 2)
+          s!"{e.name} Option return must have 2 leaves, got {leaves.size}"
+        expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+          s!"{e.name} Option leaves must be uint64"
+    | _ =>
+        throw <| IO.userError
+          s!"{e.name} resultKind must be .aggregate, got {repr e.resultKind}"
+  -- getNone body: returnAggregate (0, 0)
+  let noneEntry := plan.entries[0]!
+  expect (noneEntry.name == "getNone") "getNone name"
+  match noneEntry.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt == #[false, false])
+        "getNone returnAggregate shape"
+      expect (leaves[0]! == .literal 0 && leaves[1]! == .literal 0)
+        "getNone must return tag=0 payload=0"
+  | _ =>
+      throw <| IO.userError "getNone body must be .returnAggregate"
+  -- getSome body: returnAggregate (1, param 0)
+  let someEntry := plan.entries[1]!
+  expect (someEntry.name == "getSome") "getSome name"
+  match someEntry.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt == #[false, false])
+        "getSome returnAggregate shape"
+      expect (leaves[0]! == .literal 1)
+        "getSome must return tag=1"
+      expect (leaves[1]! == .param 0)
+        "getSome payload must be the param"
+  | _ =>
+      throw <| IO.userError "getSome body must be .returnAggregate"
+  let output ← liftResult "materialize OptionRet" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "OptionRet.yul") |
+    throw <| IO.userError "OptionRet: missing OptionRet.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "mstore(0, ") "OptionRet Yul must mstore tag leaf"
+  expect (yul.contains "mstore(32, ") "OptionRet Yul must mstore payload leaf"
+  expect (yul.contains "return(0, 64)") "OptionRet Yul must return 64 bytes"
+  let some abiFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "OptionRet.abi.json") |
+    throw <| IO.userError "OptionRet: missing OptionRet.abi.json"
+  let abi := abiFile.contents
+  expect (abi.contains "(uint64,uint64)")
+    s!"OptionRet ABI must declare tuple (uint64,uint64), got: {abi}"
+
+/-- BL-18: Bytes / Map / Array UInt64 9 / nested Array stay fail-closed. -/
+private unsafe def testAnonymousReturnFailClosedBoundaries : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- Bytes N return (UInt8 leaf width class).
+  let bytesSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRet where\n" ++
+    "  state blob : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    blob[0] := 0\n" ++
+    "    blob[1] := 0\n" ++
+    "  view getBytes() : Bytes 2 do\n" ++
+    "    return blob\n"
+  let bSrc ← match ← session.selectProgramV1
+      bytesSrc "<evm-bytes-ret>" "Tests.EvmBytesRet" none with
     | .ok v => pure v
-    | .error e => throw <| IO.userError s!"ArrayRet select: {e.render}"
-  match Compiler.compileValidatedSourceV1 source with
-  | .error _ => pure ()  -- Normalize/CheckV1 may reject first.
+    | .error e => throw <| IO.userError s!"BytesRet select: {e.render}"
+  match Compiler.compileValidatedSourceV1 bSrc with
+  | .error _ => pure ()
   | .ok compiled =>
       match planEvm compiled with
-      | .error _ => pure ()
+      | .error e =>
+          expect (e.render.contains "Bytes" || e.render.contains "fail" ||
+              e.render.contains "aggregate" || e.render.contains "UInt8")
+            s!"Bytes return FC must cite Bytes/UInt8/aggregate, got: {e.render}"
       | .ok _ =>
           throw <| IO.userError
-            "EVM anonymous container return must fail closed, not produce a plan"
+            "EVM Bytes return must fail closed, not produce a plan"
+  -- Map return (runtime key order).
+  let mapSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapRet where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  view getMap() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+  let mSrc ← match ← session.selectProgramV1
+      mapSrc "<evm-map-ret>" "Tests.EvmMapRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapRet select: {e.render}"
+  match Compiler.compileValidatedSourceV1 mSrc with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect (e.render.contains "Map" || e.render.contains "aggregate" ||
+              e.render.contains "key")
+            s!"Map return FC must cite Map/key/aggregate, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "EVM Map return must fail closed, not produce a plan"
+  -- Array UInt64 9 exceeds cap-8.
+  let arr9Src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Arr9Ret where\n" ++
+    "  state slots : Array UInt64 9\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "    slots[2] := 0\n" ++
+    "    slots[3] := 0\n" ++
+    "    slots[4] := 0\n" ++
+    "    slots[5] := 0\n" ++
+    "    slots[6] := 0\n" ++
+    "    slots[7] := 0\n" ++
+    "    slots[8] := 0\n" ++
+    "  view getArr() : Array UInt64 9 do\n" ++
+    "    return slots\n"
+  let a9Src ← match ← session.selectProgramV1
+      arr9Src "<evm-arr9-ret>" "Tests.EvmArr9Ret" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"Arr9Ret select: {e.render}"
+  match Compiler.compileValidatedSourceV1 a9Src with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect (e.render.contains "8" || e.render.contains "leaf")
+            s!"Array UInt64 9 leaf-cap error must cite cap/leaf, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "EVM Array UInt64 9 return must fail closed (cap-8), not produce a plan"
+  -- Nested anonymous container: Option of Array (non-UInt64 payload) FC.
+  -- Syntax is space-prefix (`Option Array UInt64 2`), not parenthesized.
+  let nestSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NestRet where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init(p : UInt64) do\n" ++
+    "    pad := p\n" ++
+    "  view getNested() : Option Array UInt64 2 do\n" ++
+    "    return Option.none()\n"
+  let nSrc ← match ← session.selectProgramV1
+      nestSrc "<evm-nest-ret>" "Tests.EvmNestRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"NestRet select: {e.render}"
+  match Compiler.compileValidatedSourceV1 nSrc with
+  | .error _ => pure ()  -- Normalize may reject nested container result first.
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect (e.render.contains "Option" || e.render.contains "Array" ||
+              e.render.contains "UInt64" || e.render.contains "aggregate" ||
+              e.render.contains "payload")
+            s!"nested Option Array return FC must cite Option/Array/payload, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "EVM nested Option Array return must fail closed, not produce a plan"
 
 /-- B-RET-ABI: leaf count exceeding cap-8 stays fail-closed. A Struct with
 9 UInt64 fields exceeds the B-RET-ABI cap. -/
@@ -3496,7 +3718,9 @@ unsafe def run : IO Unit := do
   testBytesStateIndexOps
   testContextReadFailClosedBoundary
   testAggregateStructReturn
-  testAnonymousContainerReturnFailClosed
+  testAnonymousArrayUInt64Return
+  testAnonymousOptionUInt64Return
+  testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
