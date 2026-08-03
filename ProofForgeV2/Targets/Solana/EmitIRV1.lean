@@ -55,6 +55,9 @@ inductive Operation where
   | setHeader (accountIndex byteOffset : Nat) (value : UInt64)
   | setReturnData (byteLen value : Nat)
   | setReturnDataBool (value : Nat)
+  /-- B-RET-ABI: multi-leaf return. Each temp is one UInt64/Int64 LE word;
+  packed contiguously into `sol_set_return_data` of `values.size * 8` bytes. -/
+  | setReturnDataMulti (values : Array Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   /-- Multiword unsigned compare (T9e): lhs/rhs are bases of `bitWidth/64` limbs;
       result is a single Bool temp. -/
@@ -817,7 +820,7 @@ private partial def statementListClosesV1 : List Statement → Bool
   | [] => false
   | [statement] =>
       match statement with
-      | .returnValue _ | .returnNone | .revertError .. => true
+      | .returnValue _ | .returnAggregate .. | .returnNone | .revertError .. => true
       | .ifThenElse _ thenBody elseBody =>
           !elseBody.isEmpty && statementListClosesV1 thenBody.toList &&
             statementListClosesV1 elseBody.toList
@@ -946,11 +949,32 @@ private partial def lowerBodyOps
           match resultKind with
           | .u8 | .i8 => 1 | .u16 | .i16 => 2 | .u32 | .i32 => 4
           | .u64 | .i64 => 8 | .u128 => 16 | .u256 => 32 | .bool => 1
+          | .aggregate _ => 0
         let returnOp : Operation := match resultKind with
           | .u64 | .i64 | .u8 | .u16 | .u32 | .i8 | .i16 | .i32 | .u128 | .u256 =>
               .setReturnData returnByteLen value.value
           | .bool => .setReturnDataBool value.value
+          | .aggregate _ =>
+              -- Scalar returnValue must not pair with aggregate resultKind
+              -- (validatePlan / lowerer enforce returnAggregate). Fall closed.
+              .setReturnData 8 value.value
         operations := operations.push returnOp
+        next := nextBase
+    | .returnAggregate leaves _leafIsInt =>
+        -- B-RET-ABI: CSE leaf exprs then one multi-word set_return_data.
+        let mut memo : Array (Expr × Nat) := #[]
+        let mut cseOps : Array Operation := #[]
+        let mut cseNext := next
+        let mut temps : Array Nat := #[]
+        for leaf in leaves do
+          let (m, o, v, n) :=
+            lowerExprCseV1 overflowError tempMap memo cseOps cseNext leaf
+          memo := m
+          cseOps := o
+          cseNext := n
+          temps := temps.push v
+        operations := operations ++ cseOps
+        operations := operations.push (.setReturnDataMulti temps)
         next := nextBase
     | .returnNone =>
         -- Valid only inside region arms (validated); the initializer's own
@@ -1198,7 +1222,7 @@ private partial def validateOperationSequence
     | .narrowCheckedShl .. | .narrowCheckedShr ..
     | .compare .. | .wideCompare .. | .assert .. | .zeroState .. | .narrowZeroState ..
     | .storeState .. | .narrowStoreState .. | .storeStateMulti ..
-    | .setHeader .. | .setReturnData .. | .setReturnDataBool ..
+    | .setHeader .. | .setReturnData .. | .setReturnDataBool .. | .setReturnDataMulti ..
     | .emitEvent .. | .revertError .. | .externalCall .. | .schedule ..
     | .ifRegion .. | .switchRegion .. | .forRegion .. | .callFn .. =>
         if returned || initialized then
@@ -1395,6 +1419,7 @@ private partial def validateOperationSequence
           match handler.resultKind with
           | .u8 | .i8 => 1 | .u16 | .i16 => 2 | .u32 | .i32 => 4
           | .u64 | .i64 => 8 | .u128 => 16 | .u256 => 32 | .bool => 0
+          | .aggregate _ => 0
         let needLimbs := if expectedLen > 8 then expectedLen / 8 else 1
         unless handler.mode != .initialize && expectedLen != 0 &&
             byteLen == expectedLen && value + needLimbs ≤ next do
@@ -1403,6 +1428,16 @@ private partial def validateOperationSequence
     | .setReturnDataBool value =>
         unless handler.mode != .initialize && handler.resultKind == .bool && value < next do
           throw <| .planInvariant .solana "typed Solana IR Bool return value is invalid"
+        returned := true
+    | .setReturnDataMulti values =>
+        let expectedLeaves : Nat :=
+          match handler.resultKind with
+          | .aggregate leaves => leaves.size
+          | _ => 0
+        unless handler.mode != .initialize && expectedLeaves > 0 &&
+            values.size == expectedLeaves && values.all (· < next) do
+          throw <| .planInvariant .solana
+            "typed Solana IR aggregate return (setReturnDataMulti) is invalid"
         returned := true
     | .emitEvent eventIndex args =>
         unless handler.mode != .view && eventIndex < plan.events.size &&
@@ -1526,7 +1561,7 @@ private partial def validateOperationSequence
     if recycle then
       match operation with
       | .storeState .. | .narrowStoreState .. | .storeStateMulti ..
-      | .setReturnData .. | .setReturnDataBool ..
+      | .setReturnData .. | .setReturnDataBool .. | .setReturnDataMulti ..
       | .assert .. | .emitEvent .. | .revertError ..
       | .externalCall .. | .schedule .. | .returnNone =>
           next := nextBase
@@ -1826,6 +1861,9 @@ private partial def renderOperation (indent : String)
   | .setReturnDataBool value =>
       if fnReturnStyle then s!"{indent}ret %{value}\n"
       else s!"{indent}set_return_data_bool %{value}\n"
+  | .setReturnDataMulti values =>
+      let argText := String.intercalate ", " (values.toList.map (fun a => s!"%{a}"))
+      s!"{indent}set_return_data_multi_le [{values.size}] {argText}\n"
   | .compare destination lhs rhs op =>
       s!"{indent}%{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
   | .wideCompare bitWidth destination lhs rhs op =>
@@ -1965,6 +2003,12 @@ private def renderHandlerJson (handler : HandlerIR) : String :=
       | .i32 => "\"i32-le\""
       | .u128 => "\"u128-le\""
       | .u256 => "\"u256-le\""
+      -- B-RET-ABI: leaf tuple as a JSON array of leaf type strings
+      -- (contiguous sol_set_return_data words). Not a scalar string.
+      | .aggregate leaves =>
+          let parts := leaves.toList.map fun leaf =>
+            if leaf.isInt then "\"i64-le\"" else "\"u64-le\""
+          "[" ++ String.intercalate "," parts ++ "]"
   "{" ++
     s!"\"name\":\"{Targets.escapeJson handler.name}\"," ++
     s!"\"discriminator\":\"{handler.discriminator}\"," ++

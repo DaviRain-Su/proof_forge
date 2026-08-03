@@ -57,11 +57,21 @@ private def encodeComparisonOp : ComparisonOp → UInt8
 private def encodeHandlerMode : HandlerMode → UInt8
   | .initialize => 0 | .mutate => 1 | .view => 2
 
-private def encodeResultKind : ResultKind → UInt8
-  | .u64 => 0 | .bool => 1 | .i64 => 2
-  | .u8 => 3 | .u16 => 4 | .u32 => 5
-  | .i8 => 6 | .i16 => 7 | .i32 => 8
-  | .u128 => 9 | .u256 => 10
+/-- B-RET-ABI: scalar kinds use a single tag byte (0..10). Aggregate uses tag 11
+followed by u32le leaf count + per-leaf (isInt, byteWidth). -/
+private def encodeLeafAbiType (leaf : LeafAbiType) : Except String ByteArray := do
+  pure ((encodeBool leaf.isInt).append (← encodeNatAsU32le leaf.byteWidth))
+
+private def encodeResultKind : ResultKind → Except String ByteArray
+  | .u64 => pure (encodeU8 0) | .bool => pure (encodeU8 1) | .i64 => pure (encodeU8 2)
+  | .u8 => pure (encodeU8 3) | .u16 => pure (encodeU8 4) | .u32 => pure (encodeU8 5)
+  | .i8 => pure (encodeU8 6) | .i16 => pure (encodeU8 7) | .i32 => pure (encodeU8 8)
+  | .u128 => pure (encodeU8 9) | .u256 => pure (encodeU8 10)
+  | .aggregate leaves => do
+      let mut out := encodeU8 11
+      out := out.append (← encodeNatAsU32le leaves.size)
+      for leaf in leaves do out := out.append (← encodeLeafAbiType leaf)
+      pure out
 
 private def encodeEndianness : Endianness → UInt8
   | .little => 0
@@ -194,6 +204,13 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         (← encodeNatAsU32le op.byteOffset)).append (← encodeNatAsU32le op.byteWidth)).append
         (← encodeExpr op.value)))
   | .returnValue value => pure ((encodeU8 1).append (← encodeExpr value))
+  | .returnAggregate leaves leafIsInt => do
+      let mut out := encodeU8 12
+      out := out.append (← encodeNatAsU32le leaves.size)
+      for leaf in leaves do out := out.append (← encodeExpr leaf)
+      out := out.append (← encodeNatAsU32le leafIsInt.size)
+      for flag in leafIsInt do out := out.append (encodeBool flag)
+      pure out
   | .returnNone => pure (encodeU8 2)
   | .assert condition => pure ((encodeU8 3).append (← encodeExpr condition))
   | .emitEvent eventIndex args =>
@@ -285,7 +302,7 @@ private def encodeHandler (h : Handler) : Except String ByteArray := do
   out := out.append (← encodeNatAsU32le h.params.size)
   for p in h.params do out := out.append (← encodeParam p)
   out := out.append (encodeU8 (encodeHandlerMode h.mode))
-  out := out.append (encodeU8 (encodeResultKind h.resultKind))
+  out := out.append (← encodeResultKind h.resultKind)
   out := out.append (← encodeNatAsU32le h.accountAccess.accountIndex)
   out := out.append (encodeBool h.accountAccess.signerRequired)
   out := out.append (encodeBool h.accountAccess.writableRequired)

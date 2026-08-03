@@ -65,9 +65,18 @@ inductive HandlerMode where
   | view
   deriving BEq, Inhabited, Repr
 
+/-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
+UInt64/Int64 words (`isInt` selects i64-le vs u64-le); `byteWidth` is 8. -/
+structure LeafAbiType where
+  isInt : Bool
+  byteWidth : Nat
+  deriving BEq, Inhabited, Repr
+
 /-- Entry/view return ABI kind. Init handlers ignore this field (IDL `null`).
     Bool is a single-byte 0/1 return-data payload; UInt64/Int64 are 8-byte LE;
-    UInt{8,16,32} are 1/2/4-byte LE (T9a); UInt128/256 are 16/32-byte LE multiword (T9e). -/
+    UInt{8,16,32} are 1/2/4-byte LE (T9a); UInt128/256 are 16/32-byte LE multiword (T9e).
+    B-RET-ABI: `.aggregate` packs 1..8 UInt64/Int64 leaves via `sol_set_return_data`
+    as contiguous little-endian words (preorder flatten; Enum = tag + max-payload). -/
 inductive ResultKind where
   | u64
   | bool
@@ -82,6 +91,9 @@ inductive ResultKind where
   /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
   | u128
   | u256
+  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` is preorder
+  flatten order (1..8). Anonymous Array/Map/Bytes/Option stay fail-closed. -/
+  | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
 structure StateField where
@@ -229,6 +241,10 @@ inductive Statement where
       Distinct from N scalar `.store` statements (which may observe each other). -/
   | storeAggregate (leaves : Array Store)
   | returnValue (value : Expr)
+  /-- B-RET-ABI: multi-leaf aggregate return. `leaves` are per-leaf expressions
+  in preorder flatten order; `leafIsInt` is parallel. Emitted as contiguous
+  little-endian u64/i64 words via one `sol_set_return_data` (N×8 bytes). -/
+  | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
@@ -427,8 +443,8 @@ private def solanaPlanErr (message : String) : CompileError :=
     Option intermediate for Map IndexGet). **Named Struct/Enum** via
     `pilotNamedAggregateStatePolicyAdmit` (N3 flatten to UInt64/Int64 leaves).
     UInt128/256 multiword limbs. T12: Principal storage identity only
-    (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. Named aggregate
-    returns stay fail-closed (B-RET-ABI scalar). -/
+    (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. B-RET-ABI:
+    named Struct/Enum entry/view returns are admitted (≤8 UInt64/Int64 leaves). -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
@@ -640,6 +656,28 @@ private def leafCountOfTypeV1
     (typeId : TypeIdV1) : CompileResult Nat := do
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
+
+/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
+`ResultKind`. Leaves come from `flattenTypeLeafSpecsV1` (preorder, UInt64/Int64
+words). Enforces 1..8 leaves. Anonymous containers fail closed (not named). -/
+private def aggregateResultKindOfV1
+    (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
+    (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
+  unless types.isNamedAggregate typeId do
+    throw <| .planInvariant .solana
+      s!"{owner} does not return a named Struct/Enum aggregate"
+  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+  let n := specs.size
+  unless n > 0 do
+    throw <| .planInvariant .solana
+      s!"{owner} aggregate return must have at least one leaf"
+  unless n <= 8 do
+    throw <| .planInvariant .solana
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+  let mut leaves : Array LeafAbiType := #[]
+  for (_, isInt) in specs do
+    leaves := leaves.push { isInt, byteWidth := 8 }
+  pure (.aggregate leaves)
 
 /-- Struct field leaf range (start, length) within the flattened leaf vector. -/
 private def structFieldLeafRangeV1
@@ -1627,6 +1665,46 @@ private def consumeCurrentSegmentV1
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: dead or reordered value instructions"
   pure rootValue.expr
+
+/-- B-RET-ABI: segment consume that returns the full `LoweredValueV1` (with
+aggregate leaves) instead of just the head expr. Same segment discipline as
+`consumeCurrentSegmentV1`. -/
+private def consumeCurrentSegmentValueV1
+    (values : Array LoweredValueV1)
+    (blockEntry segmentStart : Nat)
+    (root : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let rootValue ← currentValueV1 values blockEntry segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  if root.toNat >= segmentStart then
+    stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= segmentStart then
+          unless dependencyIndex < values.size do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+        else if dependencyIndex >= blockEntry then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: expression crosses an effect boundary"
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: dead or reordered value instructions"
+  pure rootValue
 
 /-- Multi-root effect-boundary consumption (event/revert argument lists):
     every value produced in the current segment must be reachable from at
@@ -2861,6 +2939,7 @@ private partial def emitRegionV1
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
     (expectedReturnBitWidth : Nat)
+    (expectedAggregateLeaves : Option (Array LeafAbiType))
     (types : SolanaTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (account : StateAccount)
@@ -2902,21 +2981,43 @@ private partial def emitRegionV1
           throw <| .planInvariant .solana "initializer cannot return a value"
       | .mutate | .view =>
           let returned ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
-          if returned.isAggregate then
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal/Struct/Enum) cannot be returned (ABI is scalar; B-RET-ABI: Solana does not support named-aggregate return)"
-          unless returned.isBool == expectsBoolReturn do
-            throw <| .planInvariant .solana
-              (if expectsBoolReturn then
-                "unsupported Solana semantic shape: Bool entry/view must return a Bool value"
-               else
-                "unsupported Solana semantic shape: integer entry/view must not return a Bool value")
-          -- T9a: entry/view may return UInt8/16/32/64/Int64/Bool; width must match.
-          unless expectsBoolReturn || returned.bitWidth == expectedReturnBitWidth do
-            throw <| .planInvariant .solana
-              s!"unsupported Solana semantic shape: entry/view return bitWidth must be {expectedReturnBitWidth} (or Bool) matching declared result"
-          let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
-          pure (instrs.push (.returnValue value), values, .closed)
+          match expectedAggregateLeaves with
+          | some expectedLeaves =>
+              -- B-RET-ABI: named Struct/Enum only (containers/Principal still FC).
+              unless returned.isAggregate do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: aggregate return value must be a named aggregate"
+              let gotLeaves := returned.leafExprs
+              unless gotLeaves.size == expectedLeaves.size do
+                throw <| .planInvariant .solana
+                  s!"unsupported Solana semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
+              -- Anonymous containers also produce aggregateLeaves; reject when
+              -- leafByteWidth is not 8 (Bytes) or when Principal/Array without
+              -- named-aggregate ResultKind. Cap-8 is already on ResultKind.
+              unless returned.leafByteWidth == 8 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal/Struct/Enum) cannot be returned (ABI is scalar; B-RET-ABI: Solana does not support named-aggregate return)"
+              let consumed ← consumeCurrentSegmentValueV1 values blockEntry segmentStart valueId
+              let mut leafIsInt : Array Bool := #[]
+              for leaf in expectedLeaves do
+                leafIsInt := leafIsInt.push leaf.isInt
+              pure (instrs.push (.returnAggregate consumed.leafExprs leafIsInt), values, .closed)
+          | none =>
+              if returned.isAggregate then
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal/Struct/Enum) cannot be returned (ABI is scalar; B-RET-ABI: anonymous/Principal return stay fail-closed)"
+              unless returned.isBool == expectsBoolReturn do
+                throw <| .planInvariant .solana
+                  (if expectsBoolReturn then
+                    "unsupported Solana semantic shape: Bool entry/view must return a Bool value"
+                   else
+                    "unsupported Solana semantic shape: integer entry/view must not return a Bool value")
+              -- T9a: entry/view may return UInt8/16/32/64/Int64/Bool; width must match.
+              unless expectsBoolReturn || returned.bitWidth == expectedReturnBitWidth do
+                throw <| .planInvariant .solana
+                  s!"unsupported Solana semantic shape: entry/view return bitWidth must be {expectedReturnBitWidth} (or Bool) matching declared result"
+              let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
+              pure (instrs.push (.returnValue value), values, .closed)
   | .return_ none =>
       unless segmentStart == values.size do
         throw <| .planInvariant .solana
@@ -2943,10 +3044,10 @@ private partial def emitRegionV1
         let (initial, values1, _) ←
           readJumpArgExprV1 values blockEntry segmentStart freeAfter target.args[0]!
         let (loopStmt, values2, exitId) ←
-          lowerForLoopV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+          lowerForLoopV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
             loopBounds enclosingHeaders freeAfter (fuel - 1) lb initial values1
         let (rest, values3, exit) ←
-          emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+          emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
             loopBounds enclosingHeaders freeAfter (fuel - 1) exitId values2
         pure (instrs ++ #[loopStmt] ++ rest, values3, exit)
       else
@@ -2959,7 +3060,7 @@ private partial def emitRegionV1
           "unsupported Solana semantic shape: branch condition must be Bool"
       let cond ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
       let (thenBody, values1, thenExit) ←
-        emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+        emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
           loopBounds enclosingHeaders freeAfter (fuel - 1) thenT.blockId.toNat values
       match thenExit with
       | .latch _ =>
@@ -2967,14 +3068,14 @@ private partial def emitRegionV1
             "unsupported Solana semantic shape: branch then-arm cannot be a raw loop latch"
       | .closed =>
           let (elseBody, values2, elseExit) ←
-            emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+            emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
               loopBounds enclosingHeaders freeAfter (fuel - 1) elseT.blockId.toNat values1
           match elseExit with
           | .closed =>
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, .closed)
           | .join j =>
               let (rest, values3, exit) ←
-                emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+                emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
                   loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
           | .latch _ =>
@@ -2983,12 +3084,12 @@ private partial def emitRegionV1
       | .join j =>
           if elseT.blockId.toNat == j then
             let (rest, values2, exit) ←
-              emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+              emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
                 loopBounds enclosingHeaders freeAfter (fuel - 1) j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, exit)
           else
             let (elseBody, values2, elseExit) ←
-              emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+              emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
                 loopBounds enclosingHeaders freeAfter (fuel - 1) elseT.blockId.toNat values1
             match elseExit with
             | .join j2 =>
@@ -2996,12 +3097,12 @@ private partial def emitRegionV1
                   throw <| .planInvariant .solana
                     "unsupported Solana semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, exit) ←
-                  emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+                  emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
                     loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
             | .closed =>
                 let (rest, values3, exit) ←
-                  emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+                  emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
                     loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
             | .latch _ =>
@@ -3020,7 +3121,7 @@ private partial def emitRegionV1
       for switchCase in cases do
         let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool scrutVal.bitWidth switchCase.valueBytes
         let (body, values1, armExit) ←
-          emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+          emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
             loopBounds enclosingHeaders armFree (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
@@ -3036,7 +3137,7 @@ private partial def emitRegionV1
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: switch arm cannot be a loop latch"
       let (defaultBody, values2, defaultExit) ←
-        emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+        emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
           loopBounds enclosingHeaders armFree (fuel - 1)
           defaultT.blockId.toNat valuesA
       match defaultExit, joinAcc with
@@ -3054,7 +3155,7 @@ private partial def emitRegionV1
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, .closed)
       | some j =>
           let (rest, values3, exit) ←
-            emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+            emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
               loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, exit)
   | .revert errorId argIds =>
@@ -3079,6 +3180,7 @@ private partial def lowerForLoopV1
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
     (expectedReturnBitWidth : Nat)
+    (expectedAggregateLeaves : Option (Array LeafAbiType))
     (types : SolanaTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (account : StateAccount)
@@ -3144,7 +3246,7 @@ private partial def lowerForLoopV1
       let exitId := elseT.blockId.toNat
       let headers' := enclosingHeaders.push headerId
       let (bodyStmts, values1, bodyExit) ←
-        emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
+        emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns blocks
           loopBounds headers' armReadables (fuel - 1) bodyId values
       match bodyExit with
       | .latch update =>
@@ -3163,6 +3265,7 @@ private def lowerCallableV1
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
     (expectedReturnBitWidth : Nat)
+    (expectedAggregateLeaves : Option (Array LeafAbiType))
     (types : SolanaTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (account : StateAccount)
@@ -3209,7 +3312,7 @@ private def lowerCallableV1
   let valuesPadded ← allocateBlockParamSlotsV1 types.uint64TypeId callable.loopBounds
     callable.blocks initialValues
   let (body0, values0, exit0) ←
-    emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns callable.blocks
+    emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns callable.blocks
       callable.loopBounds #[] #[] callable.blocks.size 0 valuesPadded
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
@@ -3232,7 +3335,7 @@ private def lowerCallableV1
     | none => break
     | some j =>
         let (rest, values1, exit1) ←
-          emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns callable.blocks
+          emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns callable.blocks
             callable.loopBounds #[] #[] callable.blocks.size j values
         body := body ++ rest
         values := values1
@@ -3267,7 +3370,7 @@ private def makeInitializerV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "initializer" .initialize false 64 types typeDecls account pureFns callable
+  let lowered ← lowerCallableV1 "initializer" .initialize false 64 none types typeDecls account pureFns callable
   let handler : Handler := {
     name := "initialize"
     discriminator := ""
@@ -3303,7 +3406,7 @@ private def makeEntryV1
     | some 256 => pure .u256
     | some _ =>
         throw <| .planInvariant .solana
-          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, or Bool"
+          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or named Struct/Enum aggregate"
     | none =>
         match types.intWidthOf callable.result.typeId with
         | some 8 => pure .i8
@@ -3316,14 +3419,15 @@ private def makeEntryV1
         | none =>
           if types.boolTypeId == some callable.result.typeId then
             pure .bool
-          else if types.isNamedAggregate callable.result.typeId ||
-              types.isContainer callable.result.typeId ||
+          else if types.isNamedAggregate callable.result.typeId then
+            aggregateResultKindOfV1 typeDecls types s!"entry '{name}'" callable.result.typeId
+          else if types.isContainer callable.result.typeId ||
               types.isPrincipal callable.result.typeId then
             throw <| .planInvariant .solana
-              s!"entry '{name}' cannot return multi-leaf aggregate (named Struct/Enum/Array/Principal); Solana ABI is scalar only (B-RET-ABI)"
+              s!"entry '{name}' cannot return multi-leaf aggregate (Array/Principal/anonymous container); Solana B-RET-ABI admits only named Struct/Enum (cap-8 leaves)"
           else
             throw <| .planInvariant .solana
-              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, or Bool"
+              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or named Struct/Enum aggregate"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -3338,8 +3442,13 @@ private def makeEntryV1
     match resultKind with
     | .u8 | .i8 => 8 | .u16 | .i16 => 16 | .u32 | .i32 => 32
     | .u64 | .i64 => 64 | .u128 => 128 | .u256 => 256 | .bool => 64
+    | .aggregate _ => 64
+  let expectedAggregateLeaves : Option (Array LeafAbiType) :=
+    match resultKind with
+    | .aggregate leaves => some leaves
+    | _ => none
   let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode expectsBoolReturn
-    expectedReturnBitWidth types typeDecls account pureFns callable
+    expectedReturnBitWidth expectedAggregateLeaves types typeDecls account pureFns callable
   let handler : Handler := {
     name
     discriminator := ""
@@ -3372,7 +3481,7 @@ private def makePureFnV1
       s!"fn '{name}' does not return public UInt64, Int8/16/32/64, or Bool"
   -- pureFn bodies use view mode so store/emit fail closed at the lowerer.
   let lowered ← lowerCallableV1 s!"fn '{name}'" .view resultIsBool
-    64 types typeDecls account pureFns callable
+    64 none types typeDecls account pureFns callable
   pure {
     name
     params := lowered.params
