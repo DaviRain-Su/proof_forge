@@ -1,0 +1,76 @@
+/-
+  Focused engineering tests for in-process fixed-import Lean elaboration.
+  All cases feed the same in-memory source String API (no file re-read).
+  Not a containment or hostile-code sandbox claim.
+-/
+import ProofForgeV2.Compiler.InlineProofElaborationV1
+
+namespace Tests.Compiler.InlineProofElaborationV1
+
+open Lean
+open ProofForgeV2.Compiler.InlineProofElaborationV1
+
+private def expect (condition : Bool) (message : String) : IO Unit :=
+  unless condition do throw <| IO.userError message
+
+private def expectPhase (fault : InlineProofElabFaultV1)
+    (expected : InlineProofElabPhaseV1) (label : String) : IO Unit :=
+  expect (InlineProofElabFaultV1.phase fault == expected)
+    s!"{label}: expected {repr expected}, got {repr (InlineProofElabFaultV1.phase fault)}"
+
+/-- Legal fixed-import ordinary theorem (no axiom/sorry/native_decide). -/
+private def successSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "theorem inlineOk : True := trivial\n"
+
+/-- False proof must fail closed at the commands phase. -/
+private def falseProofSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "theorem inlineBad : False := trivial\n"
+
+/-- Extra import must fail closed at the header gate. -/
+private def extraImportSource : String :=
+  "import ProofForgeV2\n" ++
+  "import Init\n\n" ++
+  "theorem inlineOk : True := trivial\n"
+
+/-- Malformed command body must fail closed at the commands phase. -/
+private def malformedCommandSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "theorem inlineBroken : True :=\n"
+
+private unsafe def expectSuccessDecl : IO Unit := do
+  match ← elaborateInlineProofSourceV1 successSource with
+  | .error fault =>
+      throw <| IO.userError
+        s!"success source failed: {repr (InlineProofElabFaultV1.phase fault)}"
+  | .ok carrier =>
+      let env := InlineProofElabEnvV1.environment carrier
+      expect (env.contains `inlineOk) "success env missing declaration inlineOk"
+      expect (not (InlineProofElabEnvV1.messages carrier).hasErrors)
+        "success must not retain error messages"
+
+private unsafe def expectFalseProofFails : IO Unit := do
+  match ← elaborateInlineProofSourceV1 falseProofSource with
+  | .ok _ => throw <| IO.userError "false proof unexpectedly succeeded"
+  | .error fault => expectPhase fault .commands "false proof"
+
+private unsafe def expectExtraImportFails : IO Unit := do
+  match ← elaborateInlineProofSourceV1 extraImportSource with
+  | .ok _ => throw <| IO.userError "extra import unexpectedly succeeded"
+  | .error fault => expectPhase fault .headerGate "extra import"
+
+private unsafe def expectMalformedFails : IO Unit := do
+  match ← elaborateInlineProofSourceV1 malformedCommandSource with
+  | .ok _ => throw <| IO.userError "malformed command unexpectedly succeeded"
+  | .error fault => expectPhase fault .commands "malformed command"
+
+/-- Same in-memory String surface for every case (no disk re-read path). -/
+unsafe def run : IO Unit := do
+  expectSuccessDecl
+  expectFalseProofFails
+  expectExtraImportFails
+  expectMalformedFails
+  IO.println "Tests.Compiler.InlineProofElaborationV1: ok"
+
+end Tests.Compiler.InlineProofElaborationV1

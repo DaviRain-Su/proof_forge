@@ -77,6 +77,7 @@ import ProofForgeV2.Compiler.ProofWorkerV1
 import ProofForgeV2.Compiler.ProofWorkerControlV2
 import ProofForgeV2.Compiler.ProofWorkerSupervisorV1
 import ProofForgeV2.Compiler.InlineProofProtocolV1
+import ProofForgeV2.Compiler.InlineProofElaborationV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Language.Syntax
 import ProofForgeV2.Language.ProgramElaborationV1

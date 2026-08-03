@@ -90,6 +90,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.ProofWorkerV1,
     `Tests.Compiler.ProofWorkerSupervisorV1,
     `Tests.Compiler.InlineProofProtocolV1,
+    `Tests.Compiler.InlineProofElaborationV1,
     `Tests.Typed.NameResolutionV1,
     `Tests.Typed.DiagnosticLocationsV1,
     `Tests.Typed.TypeCheckExpressionsV1,
