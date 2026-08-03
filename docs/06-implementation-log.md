@@ -13124,8 +13124,10 @@ normative: false
 
 - 北极星 NS-1 fungible-token 四 target demo 落地：dense Map UInt64→UInt64 cap-8
   （occ/key/val leaves、动态键 upsert、IndexGet→Option match、effect-boundary free-set promote）。
-- EVM/NEAR deployable Token；Solana 默认 plan（ELF 帧预算：pure-expr Map 超 4KiB，ELF 对 Map Token
-  仍 opt-in 失败）；Noir multi-leaf public inputs + relation model。runtime smoke 工程脚本接入。
+- 当时记录为 EVM/NEAR deployable Token；后续 B-EVM-MAP-STACK 复核将 EVM 结论收窄为
+  locked-solc engineering finalization（258460 B creation bytecode 超 EIP-3860，无链上部署声明）；
+  Solana 默认 plan（ELF 帧预算：pure-expr Map 超 4KiB，ELF 对 Map Token 仍 opt-in 失败）；
+  Noir multi-leaf public inputs + relation model。runtime smoke 工程脚本接入。
 - Tests：`TokenV1`、Map pilot 横向钉测、MapMini plan fixture。
 - 边界：engineering only；非 formal/IBC；Bytes state 在 Solana/NEAR 仍 fail-closed；Option state 仍
   fail-closed；Map state 全程序 Reference admission 因 maxMapEntries 资源模型仍 fail-closed。
@@ -13362,8 +13364,9 @@ normative: false
 - **G4 EVM Anvil 工程差分**：`evm_anvil_differential.sh` 编排产品 CLI 制品
   （Counter/Accumulator/ArithOps/EventFlow）；`smoke_evm.sh` 增 storage slot0 双读、
   overflow revert 状态不变与 EventFlow `Moved(0,5)` emit 日志断言；token smoke 增
-  overflow/over-transfer hold。本机 Foundry 0.3.0 真实全绿；Token companion 因 solc
-  StackTooDeep（dense Map pilot）skip-clean。非 formal C-3。
+  overflow/over-transfer hold。本机 Foundry 0.3.0 真实全绿；Token companion 在当时因 solc
+  StackTooDeep（dense Map pilot）skip-clean，后由 B-EVM-MAP-STACK 修复编译、转为 EIP-3860
+  部署上限 skip。非 formal C-3。
 - **L1 NEAR named 聚合**：named Struct/Enum state/params preorder 扁平 UInt64/Int64 KV
   leaves + construct/fieldGet/fieldSet/variantTag/variantPayload + atomic storeAtomic；
   HostModel PointBox/EnumBox 端到端。聚合返回值/Option state/ContextRead/sync call 仍 FC。
@@ -13653,7 +13656,8 @@ normative: false
 - Runtime: profile-keyed artifact trees (`*-cancun` suffix); reuse only after
   evidence + manifest profile validation; legacy refuses cancun trees.
 - EventFlow and Token companion inherit the same `PF_EVM_PROFILE` / hardfork pin
-  (Token still skip-cleans on pre-existing Map StackTooDeep).
+  (当时 Token 对 Map StackTooDeep skip-clean；后由 B-EVM-MAP-STACK 修复编译并收窄为
+  EIP-3860 部署上限 skip)。
 - Empty-array `set -u` bash 3.2 safe expansions for optional profile/hardfork args.
 
 ## 2026-08-03 — EVMOZ-006 final corpus integration (manifest + CI + Ownable pins)
@@ -13701,9 +13705,9 @@ normative: false
 - Non-claims: no OZ pass in claim register; no ProofForgeV2 product change;
   no formal maturity elevation.
 
-### Host isolation note (TokenV1 EVM)
+### Host isolation note（EVMOZ-006 baseline；后由 B-EVM-MAP-STACK supersede）
 
-- On this Darwin host, `Tests.Product.TokenV1` product `build --target evm` fails
+- 在 EVMOZ-006 baseline，本 Darwin host 上 `Tests.Product.TokenV1` product `build --target evm` fails
   with solc `StackTooDeep` (dense Map pilot), matching the EVMOZ-004 / C-8 Token
   Anvil companion skip-clean policy. Counter/Accumulator/ArithOps/EventFlow EVM
   builds remain deployable; corpus runtime closes 4 primitives pass + Token adapter
@@ -13711,9 +13715,9 @@ normative: false
 - This failure is **out of EVMOZ-006 scope** (no `ProofForgeV2/**` change; no
   TokenYul rewrite). Isolated: `just evm-corpus-static`, targets shard
   (`EvmCorpusBlockedV1: ok`), focused Ownable suite, runtime harness, docs-check,
-  sbom package pin (183 files, no package-file diff) all green. Full
-  `just dev-check` / `just ci` remain blocked by that pre-existing Token solc path
-  until a separate product slice fixes Map Yul stack depth or TokenV1 expectations.
+  sbom package pin (183 files, no package-file diff) all green. 当时 full
+  `just dev-check` / `just ci` 被该 Token solc 路径阻断；后续独立 B-EVM-MAP-STACK
+  选择修 emitter（未放宽 `TokenV1`）并解除该编译阻断。
 
 ## 2026-08-03 — EVMOZ-006 follow-up (manifest allowlist + full harness pins)
 
@@ -13727,3 +13731,23 @@ normative: false
 - P1: Ownable Lean pin uses exact `"hardfork":"cancun"`.
 - Docs: harness list/count; audit abi wording + W1 partial + CI table split;
   Ownable hash labels corrected.
+
+## 2026-08-03 — B-EVM-MAP-STACK dense Map `storeAtomic` stack repair
+
+- `EmitIRV1` 不再让 24 个 dense-Map leaf DAG 同时存活到 write phase：每个 leaf 在独立
+  Yul block 内求值并 `mstore(0x10000 + 32*i, value)`，全部 leaf spill 完成后才从同一区域
+  `mload` 并连续 `sstore`。同一 `StateStore` 继续基于 pre-store snapshot 原子计算；不同
+  `storeAtomic` batch 继续按序重新 `sload`。
+- `EvmSmoke` 固定 24 个 spill 地址、无 early/mid-batch store/load 与 Token 双 batch 分离；
+  `EvmSolcAcceptance` 加入 shipped `Examples/Token.lean`，`TokenV1` 未放宽，产品 locked
+  solc 0.8.34 finalization 现成功。
+- 本机产品重建得到 `Token.bin` ASCII-hex 文件 516921 B，对应 creation bytecode
+  258460 B，超过 EIP-3860 的 49152 B initcode 上限。故这里只恢复 **compiler/finalizer**，
+  corpus runtime 仍须以部署上限显式 skip；不形成 Anvil deployment、ERC-20/OZ、formal D4
+  或 release/hermetic 声明。
+- 手动 Cancun `just evm-corpus-runtime` 最终闭合：四个 primitive case 均 pass，Token 的 9 个
+  PF-Anvil observations 全部以 `anvil-initcode-limit:dense-Map-cap8-pilot` 显式 skip；skip 不计 pass。
+  Runtime harness 同步收紧：产品 build/solc（含 StackTooDeep 回归）现为 hard fail，只保留 build
+  成功后的 deployment/initcode limit optional skip；runner manifest 已重绑精确 size/hash。
+- 独立静态复审未发现 P0/P1；固定 spill 区仅在当前 emitter 的 low-memory scratch 约定下成立，
+  未来引入 free-memory/high-memory payload 时必须重新审计。

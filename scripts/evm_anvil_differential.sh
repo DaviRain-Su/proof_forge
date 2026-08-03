@@ -6,16 +6,17 @@
 #   2. Product CLI-build Counter + Accumulator (+ ArithOps + EventFlow emit fixture).
 #   3. Delegate runtime matrix to scripts/smoke_evm.sh (view+storage, overflow
 #      state hold, emit log topic/data when EventFlow artifact present).
-#   4. Best-effort Token dense-Map smoke via scripts/evm_token_anvil_smoke.sh
-#      (initcode-limit skip is clean; not a hard failure of this gate).
+#   4. Token dense-Map companion via scripts/evm_token_anvil_smoke.sh:
+#      product build/solc failures are hard; only post-build deployment/initcode
+#      limits may explicit-skip the optional adapter leg.
 #
 # Skip-clean (exit 0) when:
 #   - host platform unsupported
 #   - anvil or cast unavailable
 #   - product CLI binary missing and cannot be built
 #
-# Hard fail (exit 1) when tools+CLI are present but required product builds or
-# the Anvil matrix assertions fail. NEVER fabricate Anvil results.
+# Hard fail (exit 1) when tools+CLI are present but any required/Token product
+# build or Anvil matrix assertion fails. NEVER fabricate Anvil results.
 # NEVER claim formal Reference↔Anvil closure.
 #
 # Optional explicit Cancun path (EVMOZ-001):
@@ -292,10 +293,11 @@ echo "evm-anvil-differential: engineering runtime only; not formal Reference↔A
 export PF_EVM_PROFILE="$evm_profile"
 bash "$root/scripts/smoke_evm.sh"
 
-# Token: adapter companion (Map pilot may StackTooDeep / exceed initcode →
-# explicit case skip, never silent pass). Must inherit the same PF_EVM_PROFILE.
+# Token: adapter companion. Product build/solc failures are hard; the current
+# oversized Map pilot may explicit-skip only at deployment/initcode. Must inherit
+# the same PF_EVM_PROFILE.
 if [[ -x "$root/scripts/evm_token_anvil_smoke.sh" ]]; then
-  echo "evm-anvil-differential: companion Token adapter smoke (explicit StackTooDeep/initcode skip; profile=$expected_profile_wire)" >&2
+  echo "evm-anvil-differential: companion Token adapter smoke (build hard-fail; explicit deployment-limit skip; profile=$expected_profile_wire)" >&2
   PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_token_anvil_smoke.sh" || {
     # Token script exits 0 on explicit skip and 1 on real assertion failure.
     echo "evm-anvil-differential: Token smoke failed (hard)" >&2

@@ -84,7 +84,9 @@ private def testCliCheckOk : IO Unit := do
   expect (containsSubstr stdout "program=Token" || containsSubstr stdout "Token")
     s!"check ok must name Token, stdout={stdout}"
 
-/-- EVM Map pilot: Token builds deployable Yul/bin + manifest. -/
+/-- EVM Map pilot: Token finalizes Yul/bin + manifest and reports the
+    engineering `deployable=true` artifact flag. This does not assert EIP-3860
+    chain deployability; the current creation bytecode exceeds that limit. -/
 private def testEvmBuildDeployable : IO Unit := do
   assertShape (← readShipped)
   let outDir := FilePath.mk ".lake/build/tmp-ns1-token-evm"

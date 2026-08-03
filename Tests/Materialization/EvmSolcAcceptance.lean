@@ -189,8 +189,10 @@ private def strBoxSourceText : String :=
   "  view get() : UInt64 do\n" ++
   "    return pad\n"
 
-/-- B-EVM-MAP-STACK: shipped Token dense Map must pass locked solc without
-    StackTooDeep (24-leaf storeAtomic spill). Reads `Examples/Token.lean`. -/
+/-- B-EVM-MAP-STACK: shipped Token dense Map must pass the suite-resolved
+    host `solc` without StackTooDeep (24-leaf storeAtomic spill). The separate
+    `Tests.Product.TokenV1` CLI path remains the locked-solc authority.
+    Reads `Examples/Token.lean`. -/
 private unsafe def acceptShippedToken
     (solc : String) (tmp : FilePath) : IO Unit := do
   let path := FilePath.mk "Examples/Token.lean"

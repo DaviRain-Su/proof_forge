@@ -483,7 +483,8 @@ component）、hardlink（`nlink != 1`）、非 regular。stable read 使用
 | closed manifest inventory | 已实现（EVMOZ-006） |
 | Reference leg（23 obs）+ pin join | 已实现 |
 | Ownable blocked Lean suite（Loader/Normalize/Reference + planInvariant） | 已实现并注册 |
-| PF-Anvil Cancun full runtime harness | 手动 `evm-corpus-runtime`；Token 可 skip，不得 pass 冒充 |
+| PF-Anvil Cancun full runtime harness | 手动 `evm-corpus-runtime`；Token 仅可因显式、已验证的可选工具/部署上限原因 skip，不得 pass 冒充 |
+| Token build regression policy | 产品 build/solc（含 StackTooDeep）一律 hard fail；只有 build 成功后的 deployment/initcode limit 可作为该 optional adapter leg 的 explicit skip |
 | OZ leg / family·ABI·standard credit | **未**实现；Exact 0 / Partial 0 / Blocked 20 不变 |
 
 ### 错误码

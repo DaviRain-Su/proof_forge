@@ -23,9 +23,12 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 - multi-width UInt/Int 与 body 窄宽、UInt128/256（EVM-only）ABI/body 子集；Field(bn254) mod-p 通道；
 - 控制流 if/match、fn/localCall、let/bounded for、shift/bitwise/logical、revert/emit；
 - named 聚合 flatten、定长 Array IndexGet/Set（bounds revert）；String 类型面（**String match switch 已落地 N-A1**）；
-- **Map UInt64→UInt64 dense pilot（cap-8，Token deployable）+ Bytes（N×UInt8 leaves，D4-E2）**；
-  aggregate `StateStore` 以 `storeAtomic` 两阶段 Yul（全部 leaf Expr/sload 先物化，再连续 sstore），
-  `EvmSmoke` 已固定 empty Map upsert 顺序并由 `solc --strict-assembly` 回归；
+- **Map UInt64→UInt64 dense pilot（cap-8）+ Bytes（N×UInt8 leaves，D4-E2）**；
+  aggregate `StateStore` 以 `storeAtomic` 两阶段 Yul：每个 leaf 在独立 block 中求值并 spill 到
+  reserved memory，全部 leaf 完成后再连续 `sstore`。`EvmSmoke` 固定 empty Map upsert、双 batch
+  可见性与 spill 结构；`EvmSolcAcceptance` 检查 host solc，`TokenV1` 产品路径锁定 solc 0.8.34；
+- Token 当前仅恢复到 **locked-solc engineering finalization**：creation bytecode 为 258460 B，
+  已超过 EIP-3860 的 49152 B initcode 上限，因此没有 Anvil/mainnet deployment、runtime 或 OZ 声明；
 - Yul + digest-pinned `solc` bytecode；**EvmSolc** `solc --strict-assembly` 验收门（工具缺席干净跳过）；
 - engineering planDigest 可绑 BuildIdentity/OutputSet；G4 `evm_anvil_differential.sh` 从产品 CLI
   制品运行 Counter/Accumulator/ArithOps/EventFlow，固定 overflow state-hold 与 emit 日志。

@@ -468,8 +468,10 @@ gas 默认排除，因为优化和 compiler 版本会改变 gas；只有未来�
 - insufficient-balance custom error bytes；
 - revert 后 state/log/balance 全部回滚。
 
-当前 Token 只有 `pf.adapter.token.conservation.v1`（optional adapter；runtime 可因
-solc StackTooDeep **skip**，**不得**记 pass）；不能重命名或复用为 ABI case。
+当前 Token 只有 `pf.adapter.token.conservation.v1`（optional adapter）。EVM `storeAtomic`
+spill 已修复 solc StackTooDeep，但当前 creation bytecode 为 258460 B，超过 EIP-3860 的
+49152 B initcode 上限；runtime 因该部署上限只能显式 **skip**，**不得**记 pass。该 case
+不能重命名或复用为 ABI case。
 
 ### 8.5 CI 分层
 
@@ -478,7 +480,7 @@ solc StackTooDeep **skip**，**不得**记 pass）；不能重命名或复用为
 | Fast/static | schema、manifest、case IDs、Ownable blocked suite、PF Source/Typed/Normalize/Wire | **已接线**：`just evm-corpus-schema` + `EvmCorpusBlockedV1` 在 Fast/Targets；聚合 `evm-corpus-static` 进 `dev-check` / `ci-lean-product` | always-on hard fail |
 | PF engineering — Reference | Loader→Normalize→Reference；exact 23 reference observations；no PF/OZ legs | **已接线**：`just evm-corpus-reference`（依赖 build；**无** solc/Anvil） | ordinary CI；不冒充 runtime/formal |
 | PF engineering — target gates | 既有 EVM Plan/IR/Yul、solc acceptance 等 product/target suites | **既有** ordinary Lean/target gates（与 corpus reference recipe **分开**） | ordinary CI |
-| EVM runtime | locked solc + Cancun Anvil，primitive/adapter PF leg | **手动** `just evm-corpus-runtime`；**不**进 ordinary CI/GitHub | 缺 required tools hard fail；Token skip 允许但不得 pass |
+| EVM runtime | locked solc + Cancun Anvil，primitive/adapter PF leg | **手动** `just evm-corpus-runtime`；**不**进 ordinary CI/GitHub | 产品 build/solc hard fail；Token 仅因已验证 deployment limit explicit skip，且不得 pass |
 | OZ oracle | 隔离 OZ checkout + hardfork 对齐 tests | **未实现**；无 OZ leg | n/a |
 | Sequence/property | bounded sequences / failure injection | **未实现** | n/a |
 | Release/formal | independent identity/evidence | **未**由本 corpus 触达 | 普通 CI ≠ release/formal |
@@ -487,8 +489,9 @@ solc StackTooDeep **skip**，**不得**记 pass）；不能重命名或复用为
 
 - W0：**done**（Counter/Accumulator/ArithOps/EventFlow → `primitive`）。
 - W1：**partial**——Token 已有 explicit `adapter` case，覆盖双账户 transfer 序列、conservation
-  与 rollback steps；**未**交付 cap-8 fill boundary / capacity 边界 corpus；full runtime 上
-  Token 因 solc StackTooDeep **skip**（不得记 pass）。
+  与 rollback steps；**未**交付 cap-8 fill boundary / capacity 边界 corpus；solc StackTooDeep
+  已修，但 258460 B creation bytecode 超过 EIP-3860，full runtime 仍按部署上限显式 **skip**
+  （不得记 pass）。
 - W2：**partial**——Ownable Lean typed `blocked` 已交付；其余 family blocked catalog 与
   closed CLI diagnostic 仍 pending。
 - W3/W4：仍 proposal（无 `abi` / property corpus）。
@@ -574,7 +577,8 @@ modifier、library 或 assembly 全部搬进共享 core。
 - 仓库还没有统一 ABI byte-level、storage-layout 或 standard-conformance corpus。
 - 没有 dynamic caller/value/callback/proxy/precompile 的 PF 产品 EVM 行为证据；
   Ownable F01 精确 **Blocked**（ContextRead planInvariant），无 caller→address ABI。
-- Token adapter 在 full runtime 上可因 solc StackTooDeep **skip**（不得 pass）。
+- Token adapter 已通过 locked solc/finalization，但 258460 B creation bytecode 超过 EIP-3860；
+  full runtime 只能按部署上限显式 **skip**（不得 pass），且尚无链上 runtime 证据。
 - 完整 Governor extension delta、crypto failure matrix 与 7 个 draft 实现未逐对象行为分类。
 - 64 个 library 只做能力语料；本报告没有把每个纯算法库逐一判为 Exact/Blocked。
 - gas/stipend/63-of-64 默认不在观察面。

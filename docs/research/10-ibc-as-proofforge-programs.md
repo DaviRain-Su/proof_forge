@@ -142,8 +142,9 @@ protocol payload、authority 与真实跨平台 effect/context 语义而不可�
    Token 本身也对应 IBC transfer app 的内核。
    **2026-08-03 工程 NS-1 进度**：`Examples/Token.lean`（Map UInt64→UInt64 余额 +
    mint/transfer/balanceOf）已进产品；EVM/Solana/NEAR/Noir cap-8 Map lowering 已接线
-   （EVM/NEAR deployable 工程制品、Solana opt-in ELF+Mollusk、Noir multi-leaf relation），
-   Aleo 另有 cap-2 Map，Psy fail closed。该 demo 仍不含 Principal 键、crypto、IBC packet
+   （EVM locked-solc engineering finalization 已通但 creation bytecode 超 EIP-3860、NEAR deployable
+   工程制品、Solana opt-in ELF+Mollusk、Noir multi-leaf relation），Aleo 另有 cap-2 Map，Psy
+   fail closed。该 demo 仍不含 Principal 键、crypto、IBC packet
    或 formal cross-target equivalence。
 4. **做一个 IBC-flavored 最小件**：不直接上全套 IBC，先做一个 "packet mailbox"——
    存消息、nonce、timeout、emit 事件给 relayer。一个能跑的 IBC 子集，验证 cross-chain

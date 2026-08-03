@@ -3,9 +3,10 @@
 # Adapter observation for pf.adapter.token.conservation.v1 (EVMOZ-004).
 # Not formal Reference↔Anvil (C-3). Not OZ/family/ABI/standard credit.
 #
-# Dense Map pilot may hit solc StackTooDeep or EIP-3860 initcode limits —
-# those paths are **explicit skip** (exit 0 + skip observation when OBS dir set),
-# never silent pass and never skip-as-pass on assertion failure after deploy.
+# Dense Map pilot currently exceeds EIP-3860 initcode limits — that deployment
+# path is an **explicit skip** (exit 0 + skip observation when OBS dir set), never
+# silent pass. Any product build/solc failure, including StackTooDeep regression,
+# is hard failure; assertions after a successful deploy are also hard failures.
 #
 # Requires Foundry anvil/cast. Builds Token.bin via product CLI when missing.
 #
@@ -176,12 +177,6 @@ if ! token_tree_matches_profile "$token_bin"; then
     fi
     set -e
     if [[ "$build_rc" -ne 0 ]]; then
-      if grep -qiE 'StackTooDeep|stack too deep' "$build_log" 2>/dev/null; then
-        echo "evm-token-anvil: explicit skip: solc StackTooDeep on dense Map pilot (profile=$expected_profile_wire; adapter case; not pass)" >&2
-        write_token_skip_obs "solc-StackTooDeep:dense-Map-cap8-pilot"
-        rm -f "$build_log"
-        exit 0
-      fi
       echo "evm-token-anvil: Token EVM build failed (hard when tools present; profile=$expected_profile_wire)" >&2
       tail -40 "$build_log" >&2 || true
       rm -f "$build_log"
@@ -189,8 +184,8 @@ if ! token_tree_matches_profile "$token_bin"; then
     fi
     rm -f "$build_log"
   else
-    echo "evm-token-anvil: explicit skip: product CLI unavailable (optional adapter leg; not pass)" >&2
-    write_token_skip_obs "missing-optional-tool:product-cli"
+    echo "evm-token-anvil: explicit skip: product CLI or lake unavailable (optional adapter leg; not pass)" >&2
+    write_token_skip_obs "missing-optional-tool:product-cli-or-lake"
     exit 0
   fi
   token_bin="$token_out/Token.bin"
@@ -265,7 +260,7 @@ except Exception:
   fi
 fi
 if [[ -z "$addr" || "$addr" == "null" ]]; then
-  if grep -qiE 'initcode|max code|code size|oversized|StackTooDeep' "$create_err" 2>/dev/null \
+  if grep -qiE 'initcode|max code|code size|oversized' "$create_err" 2>/dev/null \
       || grep -qiE 'initcode|max code|code size|oversized' "$anvil_log" 2>/dev/null; then
     echo "evm-token-anvil: explicit skip: deploy initcode/create limit (Map pilot; adapter; not pass)" >&2
     write_token_skip_obs "anvil-deploy-limit:dense-Map-cap8-pilot"
