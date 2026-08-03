@@ -263,9 +263,25 @@ private partial def checkMethodStatementsV1
           total ← addPlanExprNodes limits layout params fns total arg
           methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
         total := total + 1
-    | .promiseAccount .. =>
-        throw <| .planInvariant .ton
-          "schedule/async out-message is outside the TON-2 Counter MVP envelope"
+    | .promiseAccount receiver method args =>
+        -- schedule → async internal out-message admitted on mutate/init only.
+        if isView then
+          throw <| .planInvariant .ton
+            (nearScheduleDisallowedError "view callable schedules a workflow")
+        if isPureFn then
+          throw <| .planInvariant .ton
+            (nearScheduleDisallowedError "pureFn cannot schedule workflows")
+        unless isNearAccountId receiver do
+          throw <| .planInvariant .ton (nearAccountIdError receiver)
+        unless isIdentifier method do
+          throw <| .planInvariant .ton
+            s!"schedule method '{method}' is not a safe identifier"
+        for arg in args do
+          unless exprIsUInt64CompatibleV1 fns arg do
+            throw <| .planInvariant .ton "method schedule arguments must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params fns total arg
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
+        total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
           throw <| .planInvariant .ton "method reverts with an unknown error"

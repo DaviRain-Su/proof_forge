@@ -1,8 +1,10 @@
 /-
-  Ton Plan/IR/Tolk engineering suite (TON-2 Counter leaf).
+  Ton Plan/IR/Tolk engineering suite (TON-2 Counter leaf + BL-1 schedule).
 
   Pins Counter plan shape, Tolk surface (Storage/onInternalMessage/get fun),
-  op+query_id envelope, UInt64 range-check markers, and explicit fail-closed
+  op+query_id envelope, UInt64 range-check markers, schedule→createMessage
+  out-message emission (dest hash stub / NoBounce / value=0 /
+  PAY_FEES_SEPARATELY / op32·query_id·args body), and explicit fail-closed
   boundaries (sync call, multi-width, aggregates, invariants, Field/Principal).
 
   Not registered in Tests/Shards/* — main agent must register the shard.
@@ -187,7 +189,7 @@ private unsafe def testMultiField
   expect (tolk.contains "b: uint64") "field b"
   IO.println "  ✓ multi-field state cell"
 
-private unsafe def testCallScheduleFc
+private unsafe def testCallSyncFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let callSrc := wrapProgram "CallFc" <|
     "  state s : UInt64\n\n" ++
@@ -207,26 +209,77 @@ private unsafe def testCallScheduleFc
       | .error _ => pure ()  -- resolver FC on effect.synchronous-call
       | .ok capability =>
           expectPlanErrorContaining "call plan" "call" (planFromCapability capability)
-  let schedSrc := wrapProgram "SchedFc" <|
+  IO.println "  ✓ call/sync fail closed"
+
+/-- Schedule → Plan/IR/Tolk createMessage pins (destination hash stub, bounce,
+    send mode, value=0, op encoding). Sync call remains FC (above). -/
+private unsafe def testSchedulePlanAndTolk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Receiver stub grammar is lowercase-only (same pilot as NEAR/CosmWasm).
+  let schedSrc := wrapProgram "SchedOpen" <|
     "  state s : UInt64\n\n" ++
     "  init(x : UInt64) do\n" ++
     "    s := x\n\n" ++
     "  entry go() : UInt64 do\n" ++
-    "    schedule Other.method(s)\n" ++
+    "    schedule ledger.daily(s)\n" ++
     "    return s\n\n" ++
     "  view peek() : UInt64 do\n" ++
     "    return s\n"
-  let validated2 ← liftResult (← session.selectProgramV1 schedSrc
-    "<ton-sched-fc>" "Examples.SchedFc" none)
-  match Compiler.compileValidatedSourceV1 validated2 with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match tonCapability compiled with
-      | .error _ => pure ()
-      | .ok capability =>
-          -- Capability admits schedule; plan MVP still FC.
-          expectPlanErrorContaining "schedule plan" "schedule" (planFromCapability capability)
-  IO.println "  ✓ call/schedule fail closed"
+  let compiled ← compileSource session schedSrc "Examples.SchedOpen" "<ton-sched-open>"
+  let plan ← liftResult <| planTon compiled
+  -- Plan body carries promiseAccount on entry `go`
+  let some go := plan.entries.find? (·.name == "go") |
+    throw <| IO.userError "missing entry go"
+  let hasPromise := go.body.any fun s =>
+    match s with
+    | .promiseAccount receiver method args =>
+        receiver == "ledger" && method == "daily" && args.size == 1
+    | _ => false
+  expect hasPromise "entry go lowers schedule → promiseAccount(ledger, daily, [s])"
+  expect (planUsesPromiseV1 plan) "planUsesPromiseV1 true when schedule present"
+  -- Deterministic destination hash + method op (Solana/EVM-class stubs)
+  let destHex := scheduleDestHashHexV1 "ledger"
+  let methodOp := scheduleMethodOpCodeV1 "daily"
+  expect (destHex.length == 64) "dest hash is 64 hex chars"
+  expect (destHex ==
+      "fe14010b4fe83303852f0467c919ef9a7ca089b91e96e3aad7d426dd87079297")
+    "dest hash = SHA-256(UTF-8 \"ledger\") exact pin"
+  -- IR carries promiseAccount with same dest hash / op
+  let ir ← liftResult <| irTon compiled
+  let some goIR := ir.methods.find? (·.name == "go") |
+    throw <| IO.userError "missing IR method go"
+  let hasPromiseOp := goIR.operations.any fun op =>
+    match op with
+    | .promiseAccount receiver dest method opCode args =>
+        receiver == "ledger" && dest == destHex && method == "daily" &&
+          opCode == methodOp && args.size == 1
+    | _ => false
+  expect hasPromiseOp "IR promiseAccount carries dest hash + method op + 1 arg"
+  -- Tolk surface: createMessage + NoBounce + value 0 + PAY_FEES_SEPARATELY + dest stub
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "SchedOpen.tolk"
+  expect (tolk.contains "createMessage({") "tolk createMessage"
+  expect (tolk.contains "bounce: BounceMode.NoBounce") "tolk BounceMode.NoBounce"
+  expect (tolk.contains "value: 0") "tolk value = 0 (no message value economics)"
+  expect (tolk.contains s!"dest: (0, 0x{destHex} as uint256)")
+    "tolk dest = (0, SHA-256 stub as uint256)"
+  expect (tolk.contains "SEND_MODE_PAY_FEES_SEPARATELY") "tolk send mode"
+  expect (tolk.contains s!"storeUint({methodOp}, 32)") "tolk body op32 from method hash"
+  expect (tolk.contains "storeUint(0, 64)") "tolk query_id = 0"
+  expect (tolk.contains "storeUint(") "tolk arg storeUint present"
+  -- External log path (emit) must not be confused with schedule path
+  expect (!tolk.contains "createExternalLogMessage") "schedule does not emit external log"
+  -- Counter shapes remain intact: no schedule on Counter
+  let counter ← compileSource session counterSourceText counterModuleName
+    "<ton-counter-sched-reg>"
+  let cPlan ← liftResult <| planTon counter
+  expect (!planUsesPromiseV1 cPlan) "Counter plan has no schedule"
+  let cFiles ← liftResult <| filesTon counter
+  let cTolk ← findFile cFiles "Counter.tolk"
+  expect (!cTolk.contains "createMessage({") "Counter.tolk has no createMessage"
+  expect (cTolk.contains "struct Storage") "Counter Storage preserved"
+  expect (cTolk.contains "fun onInternalMessage") "Counter entry preserved"
+  IO.println "  ✓ schedule Plan/IR/Tolk createMessage pins"
 
 private unsafe def testMultiWidthFc
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -273,7 +326,8 @@ unsafe def run : IO Unit := do
   testCounterPlan session
   testCounterIRAndTolk session
   testMultiField session
-  testCallScheduleFc session
+  testCallSyncFc session
+  testSchedulePlanAndTolk session
   testMultiWidthFc session
   testRegistryDispatch session
   IO.println "TonPlanV1: all checks passed"
