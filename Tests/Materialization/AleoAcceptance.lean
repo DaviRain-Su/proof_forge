@@ -107,6 +107,11 @@ private def runLeoBuild (leo : String) (pkgRoot : FilePath) (programId : String)
     "}\n"
   IO.FS.writeFile (pkgRoot / "program.json") programJson
   IO.FS.writeFile (pkgRoot / "src" / "main.leo") leoSource
+  -- leo 4.0.2 requires its home directory (`$HOME/.aleo`) to exist even for
+  -- `--offline` builds; a fresh CI runner has none and exits 96
+  -- (EUTL03710000 "Trying to find path at $HOME/.aleo").
+  if let some home ← IO.getEnv "HOME" then
+    IO.FS.createDirAll (FilePath.mk home / ".aleo")
   let process ← IO.Process.output {
     cmd := leo
     args := #["build", "--offline", "--disable-update-check"]
