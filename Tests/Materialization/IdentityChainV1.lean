@@ -25,6 +25,8 @@ import ProofForgeV2.Targets.Evm.PlanSchemaV1
 import ProofForgeV2.Targets.Solana.PlanSchemaV1
 import ProofForgeV2.Targets.Near.PlanSchemaV1
 import ProofForgeV2.Targets.Noir.PlanSchemaV1
+import ProofForgeV2.Targets.CosmWasm.PlanSchemaV1
+import ProofForgeV2.Targets.Ton.PlanSchemaV1
 import ProofForgeV2.Targets.RegistryRootV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Targets.SupportClaimV1
@@ -247,7 +249,11 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
-  for tid in #[TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
+  -- All eight materializing targets: six real Plan schema digests (Registry
+  -- `planDigestForCapabilityV1`) + Aleo/Psy engineering-absent plan slots.
+  for tid in #[
+      TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.cosmwasm, TargetId.ton, TargetId.aleo, TargetId.psy] do
     let (cap, artifacts) ← materializeTarget compiled tid
     let claim := Targets.ResolvedEngineeringBuildV1.supportClaimOf cap
     expect (EngineeringSupportClaimV1.targetIdOf claim == tid)
@@ -285,8 +291,9 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
         (EngineeringBuildIdentityV1.planDigestOf identity))
     expect (EngineeringBuildIdentityV1.identityDigestOf identity == recomputed)
       s!"{tid} identity digest recomputes"
-    -- M4: EVM binds real Plan schema digest; others bind absent-plan slot.
-    -- T9d: Phase-1 targets bind real Plan schema digests; design-only keep absent.
+    -- Registry planDigestForCapabilityV1: EVM/Solana/NEAR/Noir/CosmWasm/TON
+    -- recompute target Plan schema digests; Aleo/Psy bind engineering-absent
+    -- plan slots (no Plan schema digest in identity).
     let selection ← liftResult s!"select {tid}"
       (resolveBuildSelectionV1 tid none)
     let cap ← liftResult s!"resolve {tid}"
@@ -315,12 +322,26 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
         (Targets.Noir.engineeringNoirPlanDigestV1 plan)
       expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
         s!"{tid} planDigest matches engineeringNoirPlanDigestV1"
-    else
+    else if tid == TargetId.cosmwasm then
+      let plan ← liftResult s!"plan {tid}" (Targets.CosmWasm.planFromCapability cap)
+      let expected ← liftExcept s!"cosmwasm plan digest {tid}"
+        (Targets.CosmWasm.engineeringCosmWasmPlanDigestV1 plan)
+      expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
+        s!"{tid} planDigest matches engineeringCosmWasmPlanDigestV1"
+    else if tid == TargetId.ton then
+      let plan ← liftResult s!"plan {tid}" (Targets.Ton.planFromCapability cap)
+      let expected ← liftExcept s!"ton plan digest {tid}"
+        (Targets.Ton.engineeringTonPlanDigestV1 plan)
+      expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
+        s!"{tid} planDigest matches engineeringTonPlanDigestV1"
+    else if tid == TargetId.aleo || tid == TargetId.psy then
       let expected ← liftExcept s!"absent plan {tid}"
         (engineeringAbsentPlanDigestV1 tid
           (EngineeringBuildIdentityV1.codegenProfileOf identity))
       expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
         s!"{tid} planDigest is engineering-absent slot"
+    else
+      throw <| IO.userError s!"unexpected target in identity planDigest pin: {tid}"
     -- Determinism across two full product paths.
     let (_, artifacts2) ← materializeTarget compiled tid
     expect (MaterializedArtifactsV1.beq artifacts artifacts2)
