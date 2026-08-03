@@ -71,6 +71,7 @@ fixtures=(
   NarrowResult
   ArraySlots
   MapMini
+  PrincipalStore
   WideMul
 )
 

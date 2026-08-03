@@ -1727,3 +1727,240 @@ fn wide_mul_u256_overflow_0x1001() {
         ],
     );
 }
+
+// ─── PrincipalStore (C-5/T12: Principal wire identity runtime) ─────────────
+
+const PRINCIPAL_LEAF_NAMES: [&str; 9] = [
+    "owner_len",
+    "owner_w0",
+    "owner_w1",
+    "owner_w2",
+    "owner_w3",
+    "owner_w4",
+    "owner_w5",
+    "owner_w6",
+    "owner_w7",
+];
+
+/// T12 Principal state preserves the exact wire identity through Solana's
+/// nine-leaf pilot ABI: body length plus eight zero-padded little-endian words.
+/// It is deliberately not interpreted as a 32-byte Solana pubkey.
+fn principal_store_fields() -> Vec<StateField> {
+    PRINCIPAL_LEAF_NAMES
+        .iter()
+        .enumerate()
+        .map(|(i, name)| StateField {
+            source_id: 0,
+            name,
+            byte_offset: STATE_HEADER_BYTES + i * 8,
+            byte_width: 8,
+        })
+        .collect()
+}
+
+fn principal_leaves(body: &[u8]) -> [u64; 9] {
+    assert!(!body.is_empty(), "Principal body must be nonempty");
+    assert!(
+        body.len() <= 64,
+        "T12 Principal pilot body must fit 64 bytes"
+    );
+    let mut leaves = [0u64; 9];
+    leaves[0] = body.len() as u64;
+    for (i, chunk) in body.chunks(8).enumerate() {
+        let mut word = [0u8; 8];
+        word[..chunk.len()].copy_from_slice(chunk);
+        leaves[i + 1] = u64::from_le_bytes(word);
+    }
+    leaves
+}
+
+fn full_principal_body() -> [u8; 64] {
+    let mut body = [0u8; 64];
+    for (i, byte) in body.iter_mut().enumerate() {
+        *byte = (i + 1) as u8;
+    }
+    body
+}
+
+fn principal_pair_params(lhs: &[u64; 9], rhs: &[u64; 9]) -> Vec<u64> {
+    lhs.iter().chain(rhs.iter()).copied().collect()
+}
+
+fn principal_store_state(initialized: bool, owner: [u64; 9]) -> Vec<u8> {
+    state_data(&principal_store_fields(), initialized, &owner)
+}
+
+fn assert_principal_store_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("PrincipalStore"),
+        &[
+            ("initialize", 9),
+            ("setOwner", 9),
+            ("same", 18),
+            ("matchesOwner", 9),
+        ],
+    );
+    let fields = principal_store_fields();
+    assert_eq!(fields.len(), 9);
+    assert_eq!(fields[0].name, "owner_len");
+    assert_eq!(fields[8].name, "owner_w7");
+    assert_eq!(fields[0].byte_offset, 8);
+    assert_eq!(fields[8].byte_offset, 72);
+    assert_eq!(exact_data_len_for_fields(&fields), 80);
+}
+
+#[test]
+fn principal_store_initialize_preserves_wire_identity() {
+    assert_principal_store_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "PrincipalStore");
+    let state_key = Pubkey::new_unique();
+    let owner = principal_leaves(&full_principal_body());
+    assert!(owner.iter().all(|leaf| *leaf != 0));
+    let disc = instruction_discriminator("initialize", 9);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &owner, true, true),
+        &[(
+            state_key,
+            state_account(&program_id, principal_store_state(false, [0; 9])),
+        )],
+        &[
+            Check::success(),
+            Check::account(&state_key)
+                .data(&principal_store_state(true, owner))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn principal_store_set_owner_updates_all_nine_leaves() {
+    assert_principal_store_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "PrincipalStore");
+    let state_key = Pubkey::new_unique();
+    let before = principal_leaves(&full_principal_body());
+    let after = principal_leaves(b"new-owner");
+    assert!(before[2..].iter().all(|leaf| *leaf != 0));
+    assert!(after[3..].iter().all(|leaf| *leaf == 0));
+    let disc = instruction_discriminator("setOwner", 9);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &after, true, false),
+        &[(
+            state_key,
+            state_account(&program_id, principal_store_state(true, before)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&[1]),
+            Check::account(&state_key)
+                .data(&principal_store_state(true, after))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn principal_store_matches_owner_equal_and_distinct() {
+    assert_principal_store_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "PrincipalStore");
+    let state_key = Pubkey::new_unique();
+    let owner_body = full_principal_body();
+    let owner = principal_leaves(&owner_body);
+    let disc = instruction_discriminator("matchesOwner", 9);
+    let account = state_account(&program_id, principal_store_state(true, owner));
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &owner, false, false),
+        &[(state_key, account.clone())],
+        &[Check::success(), Check::return_data(&[1])],
+    );
+
+    // Change each payload word independently so a truncated leaf-wise equality
+    // chain cannot pass this runtime regression.
+    for word_index in 0..8 {
+        let mut other_body = owner_body;
+        other_body[word_index * 8] ^= 0xff;
+        let other = principal_leaves(&other_body);
+        assert_eq!(owner[0], other[0]);
+        assert_eq!(
+            owner
+                .iter()
+                .zip(other.iter())
+                .filter(|(lhs, rhs)| lhs != rhs)
+                .count(),
+            1
+        );
+        assert_ne!(owner[word_index + 1], other[word_index + 1]);
+        mollusk.process_and_validate_instruction(
+            &build_ix(program_id, state_key, &disc, &other, false, false),
+            &[(state_key, account.clone())],
+            &[Check::success(), Check::return_data(&[0])],
+        );
+    }
+
+    // Opaque Principal bodies `A` and `A\0` have identical padded payload
+    // words, isolating the length leaf as the only inequality.
+    let short = principal_leaves(b"A");
+    let longer = principal_leaves(b"A\0");
+    assert_eq!(&short[1..], &longer[1..]);
+    let short_account = state_account(&program_id, principal_store_state(true, short));
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &longer, false, false),
+        &[(state_key, short_account)],
+        &[Check::success(), Check::return_data(&[0])],
+    );
+}
+
+#[test]
+fn principal_store_same_compares_all_parameter_leaves() {
+    assert_principal_store_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "PrincipalStore");
+    let state_key = Pubkey::new_unique();
+    let lhs_body = full_principal_body();
+    let lhs = principal_leaves(&lhs_body);
+    let disc = instruction_discriminator("same", 18);
+    let state = state_account(&program_id, principal_store_state(true, lhs));
+
+    let equal_params = principal_pair_params(&lhs, &lhs);
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &equal_params, false, false),
+        &[(state_key, state.clone())],
+        &[Check::success(), Check::return_data(&[1])],
+    );
+
+    for word_index in 0..8 {
+        let mut rhs_body = lhs_body;
+        rhs_body[word_index * 8] ^= 0xff;
+        let rhs = principal_leaves(&rhs_body);
+        assert_eq!(lhs[0], rhs[0]);
+        assert_eq!(
+            lhs.iter()
+                .zip(rhs.iter())
+                .filter(|(lhs, rhs)| lhs != rhs)
+                .count(),
+            1
+        );
+        assert_ne!(lhs[word_index + 1], rhs[word_index + 1]);
+        let params = principal_pair_params(&lhs, &rhs);
+        mollusk.process_and_validate_instruction(
+            &build_ix(program_id, state_key, &disc, &params, false, false),
+            &[(state_key, state.clone())],
+            &[Check::success(), Check::return_data(&[0])],
+        );
+    }
+
+    let short = principal_leaves(b"A");
+    let longer = principal_leaves(b"A\0");
+    assert_eq!(&short[1..], &longer[1..]);
+    let length_params = principal_pair_params(&short, &longer);
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &length_params, false, false),
+        &[(state_key, state)],
+        &[Check::success(), Check::return_data(&[0])],
+    );
+}
