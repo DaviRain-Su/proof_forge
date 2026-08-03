@@ -137,89 +137,47 @@ storage_word32_from_uint() {
 }
 
 # Emit one proof-forge.evm-observation.v1 (canonical) when OBS dir is set.
-# Args: caseId stepIndex status logicalStateJson returnValueJson rollbackEqual
-#       addr slotWord valueWord [calldata] [returndata] [revertData] [logsJson]
+# Shared face must match Reference (decimal-string UInt, ordered effects).
+# Args: caseId step status returnJson logicalJson effectsJson rollback
+#       slotWord valueWord [logsJson] [revertData]
 emit_corpus_obs() {
   [[ -n "$corpus_obs_dir" ]] || return 0
   local case_id="$1"
   local step_index="$2"
   local status="$3"
-  local logical_state="$4"
-  local return_value="$5"
-  local rollback_equal="$6"
-  local addr="${7:-}"
+  local return_json="$4"
+  local logical_json="$5"
+  local effects_json="$6"
+  local rollback_equal="$7"
   local slot_word="${8:-}"
   local value_word="${9:-}"
-  local calldata="${10:-0x}"
-  local returndata="${11:-0x}"
-  local revert_data="${12:-null}"
-  local logs_json="${13:-[]}"
-  mkdir -p "$corpus_obs_dir/$case_id"
-  local out="$corpus_obs_dir/$case_id/pf-anvil-step-${step_index}.json"
-  CORPUS_VALIDATOR="$root/scripts/evm_corpus_v1.py" \
-  /usr/bin/python3 -I -S - "$out" "$case_id" "$step_index" "$status" \
-      "$logical_state" "$return_value" "$rollback_equal" "$addr" \
-      "$slot_word" "$value_word" "$calldata" "$returndata" "$revert_data" \
-      "$logs_json" <<'PY'
-import importlib.util, json, os, sys
-from pathlib import Path
-
-out, case_id, step_s, status, logical_s, ret_s, rb_s = sys.argv[1:8]
-addr, slot_w, value_w, calldata, returndata, rev_s, logs_s = sys.argv[8:15]
-mod_path = Path(os.environ["CORPUS_VALIDATOR"])
-spec = importlib.util.spec_from_file_location("evm_corpus_v1", mod_path)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-
-logical = json.loads(logical_s)
-ret = json.loads(ret_s)
-rb = rb_s.lower() == "true"
-logs = json.loads(logs_s)
-rev = None if rev_s == "null" else rev_s
-
-storage = []
-if slot_w and value_w:
-    storage = [{"slot": slot_w, "value": value_w}]
-
-calldata = calldata if calldata.startswith("0x") else ("0x" + calldata)
-returndata = returndata if returndata.startswith("0x") else ("0x" + returndata)
-if rev is not None and not rev.startswith("0x"):
-    rev = "0x" + rev
-
-balances = []
-if addr:
-    balances = [{"id": "deployer", "wei": "0"}]
-
-evm = {
-    "balances": balances,
-    "calldata": calldata,
-    "externalCalls": [],
-    "logs": logs,
-    "returndata": returndata,
-    "revertData": rev,
-    "storageSlots": storage,
-}
-obs = {
-    "schema": mod.SCHEMA_OBS,
-    "caseId": case_id,
-    "leg": "pf-anvil",
-    "stepIndex": int(step_s),
-    "verdict": "pass",
-    "skipReason": None,
-    "shared": {
-        "status": status,
-        "returnValue": ret,
-        "logicalState": logical,
-        "effects": [],
-        "rollbackEqual": rb,
-    },
-    "evm": evm,
-}
-mod.validate_observation(obs)
-raw = mod.dumps_canonical(obs)
-Path(out).write_bytes(raw)
-print(f"evm-smoke: wrote corpus obs {out} ({len(raw)} bytes)", file=sys.stderr)
-PY
+  local logs_json="${10:-[]}"
+  local revert_data="${11:-null}"
+  local storage_json="[]"
+  if [[ -n "$slot_word" && -n "$value_word" ]]; then
+    storage_json="[{\"slot\":\"$slot_word\",\"value\":\"$value_word\"}]"
+  fi
+  local rev_json="null"
+  if [[ "$revert_data" != "null" ]]; then
+    rev_json="\"$revert_data\""
+  fi
+  local evm_json
+  evm_json="$(/usr/bin/python3 -I -S -c "
+import json
+print(json.dumps({
+  'balances': [{'id': 'deployer', 'wei': '0'}],
+  'calldata': '0x',
+  'externalCalls': [],
+  'logs': json.loads('''$logs_json'''),
+  'returndata': '0x',
+  'revertData': None if '''$rev_json''' == 'null' else json.loads('''$rev_json'''),
+  'storageSlots': json.loads('''$storage_json'''),
+}))
+")"
+  /usr/bin/python3 -I -S "$root/scripts/evm_corpus_obs_write.py" \
+    "$corpus_obs_dir" "$case_id" "pf-anvil" "$step_index" \
+    "$status" "$return_json" "$logical_json" "$effects_json" "$rollback_equal" \
+    "$evm_json"
 }
 
 # Send a state-changing tx; return the tx hash on stdout. Fail if send fails.
@@ -355,6 +313,11 @@ counter="$(deploy evm 7)"
 before="$($cast call --rpc-url "$rpc" "$counter" 'get()(uint64)')"
 require_uint_equal "$before" "7" "Counter constructor state mismatch (view)"
 require_storage_uint "$counter" 0 "7" "Counter constructor state mismatch (storage)"
+slot0_7="$(storage_word32_from_uint 7)"
+# step 0: deploy 7
+emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 0 "success" \
+  "null" '{"count":"7"}' '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_7"
 
 counter_simulated="$($cast call --rpc-url "$rpc" "$counter" 'increment(uint64)(uint64)' 5)"
 require_uint_equal "$counter_simulated" "12" "Counter increment return mismatch"
@@ -370,6 +333,15 @@ require_uint_equal "$after" "12" "Counter increment state mismatch (view)"
 require_storage_uint "$counter" 0 "12" "Counter increment state mismatch (storage)"
 balance="$($cast balance --rpc-url "$rpc" "$counter")"
 require_equal "$balance" "0" "Counter accepted native value"
+slot0_12="$(storage_word32_from_uint 12)"
+# step 1: increment 5 → 12
+emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 1 "success" \
+  '"12"' '{"count":"12"}' '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_12"
+# step 2: view get
+emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 2 "success" \
+  '"12"' '{"count":"12"}' '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_12"
 
 bytecode="$(tr -d '\n\r ' < "$(artifact_dir evm)/Counter.bin")"
 encoded="$($cast abi-encode 'constructor(uint64)' 7)"
@@ -380,31 +352,24 @@ fi
 
 max_counter="$(deploy evm "$UINT64_MAX")"
 require_storage_uint "$max_counter" 0 "$UINT64_MAX" "Counter max constructor storage"
-# Corpus case step 3: deploy max (status success, storage holds max).
 slot0_max="$(storage_word32_from_uint "$UINT64_MAX")"
+# step 3: deploy max
 emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 3 "success" \
-  "{\"count\":\"$UINT64_MAX\"}" "null" "true" \
-  "$max_counter" \
-  "0x0000000000000000000000000000000000000000000000000000000000000000" \
-  "$slot0_max"
+  "null" "{\"count\":\"$UINT64_MAX\"}" '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max"
 require_revert_preserves_slot0 "$max_counter" "$UINT64_MAX" "Counter overflow" \
   'increment(uint64)' 1
 require_uint_equal "$($cast call --rpc-url "$rpc" "$max_counter" 'get()(uint64)')" \
   "$UINT64_MAX" "Counter overflow changed view state"
-# Corpus case step 4: overflow revert + raw storage hold + no committed logs.
+# step 4: overflow revert
 emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 4 "revert" \
-  "{\"count\":\"$UINT64_MAX\"}" "null" "true" \
-  "$max_counter" \
-  "0x0000000000000000000000000000000000000000000000000000000000000000" \
-  "$slot0_max" \
-  "0x" "0x" "0x" "[]"
-# Happy-path step 1 after increment(5) from 7 → 12 (earlier block state).
-slot0_12="$(storage_word32_from_uint 12)"
-emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 1 "success" \
-  "{\"count\":12}" "12" "true" \
-  "$counter" \
-  "0x0000000000000000000000000000000000000000000000000000000000000000" \
-  "$slot0_12"
+  "null" "{\"count\":\"$UINT64_MAX\"}" '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max" \
+  "[]" "0x"
+# step 5: view get holds max
+emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 5 "success" \
+  "\"$UINT64_MAX\"" "{\"count\":\"$UINT64_MAX\"}" '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max"
 
 # ---------------------------------------------------------------------------
 # Accumulator — same matrix as Counter (add entry)
@@ -416,6 +381,10 @@ accumulator="$(deploy evm-accumulator 7)"
 accumulator_before="$($cast call --rpc-url "$rpc" "$accumulator" 'current()(uint64)')"
 require_uint_equal "$accumulator_before" "7" "Accumulator constructor state mismatch (view)"
 require_storage_uint "$accumulator" 0 "7" "Accumulator constructor state mismatch (storage)"
+slot0_7_acc="$(storage_word32_from_uint 7)"
+emit_corpus_obs "pf.primitive.accumulator.overflow-hold.v1" 0 "success" \
+  "null" '{"total":"7"}' '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_7_acc"
 accumulator_simulated="$($cast call --rpc-url "$rpc" "$accumulator" 'add(uint64)(uint64)' 5)"
 require_uint_equal "$accumulator_simulated" "12" "Accumulator add return mismatch"
 require_uint_equal "$($cast call --rpc-url "$rpc" "$accumulator" 'current()(uint64)')" "7" \
@@ -425,24 +394,29 @@ require_uint_equal "$($cast call --rpc-url "$rpc" "$accumulator" 'current()(uint
 accumulator_after="$($cast call --rpc-url "$rpc" "$accumulator" 'current()(uint64)')"
 require_uint_equal "$accumulator_after" "12" "Accumulator add state mismatch (view)"
 require_storage_uint "$accumulator" 0 "12" "Accumulator add state mismatch (storage)"
+slot0_12_acc="$(storage_word32_from_uint 12)"
+emit_corpus_obs "pf.primitive.accumulator.overflow-hold.v1" 1 "success" \
+  '"12"' '{"total":"12"}' '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_12_acc"
+emit_corpus_obs "pf.primitive.accumulator.overflow-hold.v1" 2 "success" \
+  '"12"' '{"total":"12"}' '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_12_acc"
 max_accumulator="$(deploy evm-accumulator "$UINT64_MAX")"
 require_revert_preserves_slot0 "$max_accumulator" "$UINT64_MAX" "Accumulator overflow" \
   'add(uint64)' 1
 require_uint_equal "$($cast call --rpc-url "$rpc" "$max_accumulator" 'current()(uint64)')" \
   "$UINT64_MAX" "Accumulator overflow changed view state"
 slot0_max_acc="$(storage_word32_from_uint "$UINT64_MAX")"
-slot0_12_acc="$(storage_word32_from_uint 12)"
-emit_corpus_obs "pf.primitive.accumulator.overflow-hold.v1" 1 "success" \
-  "{\"total\":12}" "12" "true" \
-  "$accumulator" \
-  "0x0000000000000000000000000000000000000000000000000000000000000000" \
-  "$slot0_12_acc"
+emit_corpus_obs "pf.primitive.accumulator.overflow-hold.v1" 3 "success" \
+  "null" "{\"total\":\"$UINT64_MAX\"}" '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max_acc"
 emit_corpus_obs "pf.primitive.accumulator.overflow-hold.v1" 4 "revert" \
-  "{\"total\":\"$UINT64_MAX\"}" "null" "true" \
-  "$max_accumulator" \
-  "0x0000000000000000000000000000000000000000000000000000000000000000" \
-  "$slot0_max_acc" \
-  "0x" "0x" "0x" "[]"
+  "null" "{\"total\":\"$UINT64_MAX\"}" '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max_acc" \
+  "[]" "0x"
+emit_corpus_obs "pf.primitive.accumulator.overflow-hold.v1" 5 "success" \
+  "\"$UINT64_MAX\"" "{\"total\":\"$UINT64_MAX\"}" '[]' "true" \
+  "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max_acc"
 
 # ---------------------------------------------------------------------------
 # ArithOps (optional — present when target-smoke / differential built it)
@@ -451,32 +425,43 @@ if [[ -f "$(artifact_dir evm-arithops)/ArithOps.bin" ]]; then
   # ArithOps differential: masked bitNot (`~x = 2^64-1-x`) and checkedMul
   # overflow (scale with count = UInt64.max and factor = 2 must revert).
   arith="$(deploy evm-arithops 7)"
+  slot0_7_ar="$(storage_word32_from_uint 7)"
+  emit_corpus_obs "pf.primitive.arithops.bitnot-scale.v1" 0 "success" \
+    "null" '{"count":"7"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_7_ar"
   bits_zero="$($cast call --rpc-url "$rpc" "$arith" 'bits(uint64)(uint64)' 0)"
   require_uint_equal "$bits_zero" "$UINT64_MAX" "ArithOps bits(0) must be UInt64.max (masked bitNot)"
+  # step 1: bits(0) eth_call — Reference also does not store; use call path via cast call
+  # For corpus shared face we use call semantics matching Reference (no storage write).
+  emit_corpus_obs "pf.primitive.arithops.bitnot-scale.v1" 1 "success" \
+    "\"$UINT64_MAX\"" '{"count":"7"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_7_ar"
   bits_five="$($cast call --rpc-url "$rpc" "$arith" 'bits(uint64)(uint64)' 5)"
   require_uint_equal "$bits_five" "18446744073709551610" "ArithOps bits(5) must be UInt64.max - 5"
+  emit_corpus_obs "pf.primitive.arithops.bitnot-scale.v1" 2 "success" \
+    '"18446744073709551610"' '{"count":"7"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_7_ar"
   scale_ok="$($cast call --rpc-url "$rpc" "$arith" 'scale(uint64,uint64)(uint64)' 3 2)"
   require_uint_equal "$scale_ok" "11" "ArithOps scale(3,2) mismatch"
   require_storage_uint "$arith" 0 "7" "ArithOps eth_call must not write storage"
   "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
     "$arith" 'scale(uint64,uint64)' 3 2 >/dev/null
   require_storage_uint "$arith" 0 "11" "ArithOps scale committed storage mismatch"
+  slot0_11="$(storage_word32_from_uint 11)"
+  emit_corpus_obs "pf.primitive.arithops.bitnot-scale.v1" 3 "success" \
+    '"11"' '{"count":"11"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_11"
   max_arith="$(deploy evm-arithops "$UINT64_MAX")"
   require_revert_preserves_slot0 "$max_arith" "$UINT64_MAX" "ArithOps checkedMul overflow" \
     'scale(uint64,uint64)' 2 1
-  slot0_11="$(storage_word32_from_uint 11)"
   slot0_max_ar="$(storage_word32_from_uint "$UINT64_MAX")"
-  emit_corpus_obs "pf.primitive.arithops.bitnot-scale.v1" 3 "success" \
-    "{\"count\":11}" "11" "true" \
-    "$arith" \
-    "0x0000000000000000000000000000000000000000000000000000000000000000" \
-    "$slot0_11"
+  emit_corpus_obs "pf.primitive.arithops.bitnot-scale.v1" 4 "success" \
+    "null" "{\"count\":\"$UINT64_MAX\"}" '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max_ar"
   emit_corpus_obs "pf.primitive.arithops.bitnot-scale.v1" 5 "revert" \
-    "{\"count\":\"$UINT64_MAX\"}" "null" "true" \
-    "$max_arith" \
-    "0x0000000000000000000000000000000000000000000000000000000000000000" \
-    "$slot0_max_ar" \
-    "0x" "0x" "0x" "[]"
+    "null" "{\"count\":\"$UINT64_MAX\"}" '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max_ar" \
+    "[]" "0x"
 fi
 
 # ---------------------------------------------------------------------------
@@ -487,6 +472,10 @@ if [[ -f "$(artifact_dir evm-eventflow)/EventFlow.bin" ]]; then
   # Deploy with count=0 so bump(5) takes the success arm (count > delta is false).
   eventflow="$(deploy evm-eventflow 0)"
   require_storage_uint "$eventflow" 0 "0" "EventFlow constructor storage"
+  slot0_0="$(storage_word32_from_uint 0)"
+  emit_corpus_obs "pf.primitive.eventflow.emit-cap.v1" 0 "success" \
+    "null" '{"count":"0"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_0"
   moved_topic="$("$cast" keccak "Moved(uint64,uint64)")"
   # Normalize topic to 0x + 64 hex lowercase.
   moved_topic="$(/usr/bin/python3 -I -S -c "t='$moved_topic'.lower(); print(t if t.startswith('0x') else '0x'+t)")"
@@ -526,6 +515,24 @@ if src != 0 or dst != 5:
 print("EventFlow: Moved(0,5) log ok")
 ' "$moved_topic" "$eventflow" <<<"$receipt_json"
 
+  slot0_5="$(storage_word32_from_uint 5)"
+  log_obs="$(/usr/bin/python3 -I -S -c '
+import json,sys
+topic=sys.argv[1].lower()
+addr=sys.argv[2].lower()
+data="0x"+"0"*64+"0"*63+"5"
+print(json.dumps([{"address":addr,"topics":[topic],"data":data}]))
+' "$moved_topic" "$eventflow")"
+  # step 1: shared effects must match Reference OrderedEffect (Moved 0,5)
+  effects_moved='[{"kind":"event","eventId":0,"args":["0","5"]}]'
+  emit_corpus_obs "pf.primitive.eventflow.emit-cap.v1" 1 "success" \
+    '"5"' '{"count":"5"}' "$effects_moved" "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_5" \
+    "$log_obs"
+  emit_corpus_obs "pf.primitive.eventflow.emit-cap.v1" 2 "success" \
+    '"5"' '{"count":"5"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_5"
+
   # Second bump with count=5, delta=3: count > delta → Cap revert.
   # Source order: emit first, then if count > delta revert Cap. On EVM a full
   # tx revert rolls back the log as well — state stays 5; no new committed log.
@@ -536,29 +543,13 @@ print("EventFlow: Moved(0,5) log ok")
   require_storage_uint "$eventflow" 0 "5" "EventFlow Cap revert must leave storage unchanged"
   require_uint_equal "$($cast call --rpc-url "$rpc" "$eventflow" 'get()(uint64)')" "5" \
     "EventFlow Cap revert changed view"
-
-  # Corpus observations: ordered log on success, empty logs + rollback on Cap.
-  slot0_5="$(storage_word32_from_uint 5)"
-  log_obs="$(/usr/bin/python3 -I -S -c '
-import json,sys
-topic=sys.argv[1].lower()
-addr=sys.argv[2].lower()
-# ABI data for Moved(0,5): two 32-byte words
-data="0x"+"0"*63+"0"+"0"*63+"5"
-print(json.dumps([{"address":addr,"topics":[topic],"data":data}]))
-' "$moved_topic" "$eventflow")"
-  emit_corpus_obs "pf.primitive.eventflow.emit-cap.v1" 1 "success" \
-    "{\"count\":5}" "5" "true" \
-    "$eventflow" \
-    "0x0000000000000000000000000000000000000000000000000000000000000000" \
-    "$slot0_5" \
-    "0x" "0x" "null" "$log_obs"
   emit_corpus_obs "pf.primitive.eventflow.emit-cap.v1" 3 "revert" \
-    "{\"count\":5}" "null" "true" \
-    "$eventflow" \
-    "0x0000000000000000000000000000000000000000000000000000000000000000" \
-    "$slot0_5" \
-    "0x" "0x" "0x" "[]"
+    "null" '{"count":"5"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_5" \
+    "[]" "0x"
+  emit_corpus_obs "pf.primitive.eventflow.emit-cap.v1" 4 "success" \
+    '"5"' '{"count":"5"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_5"
 fi
 
 covered="Counter + Accumulator"

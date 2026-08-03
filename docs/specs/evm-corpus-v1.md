@@ -144,6 +144,16 @@ Schema 识别全部六类。本 sprint **不** 提供产品 corpus 正向 `oz-be
 - `oz-behavior` / `abi` 要求 `ozCommit` 为 git-object-id。
 - `adapter` / `oos` 允许 `ozCommit` 为 id 或 `null`。
 - 路径必须 project-relative、无 traversal（见 primitive）。
+- `toolLockDigest` 必须是 SPEC-TOOL-001 **canonical `ToolLockV4Digest`**
+  （`SHA-256("proof-forge.toolchains.v4" || 0x00 || PF-JCS(validated ToolLockV4))`），
+  **不是** retained lock file 的 raw SHA-256（`toolchainLockSha256` / raw lock bytes digest）。
+  业务 case 若 pin Darwin digest，则不得在 Linux/foreign ToolLock 主机上静默冒充通过。
+- `pfCommit` 是 **compiler / product baseline** git object id：标识编写/验证该 case 时所依据的
+  产品树与工具语义基线。它 **不要求** 该 commit 自包含后来才加入的 case 文件本身
+  （否则 case 无法在引入自身的 commit 上自引用 pin）。case 源码与语义的 exact 身份由
+  `sourcePath` + `sourceHash` + `semanticHash` 绑定；EVMOZ-006 最终 manifest 再以
+  path + digest 闭包登记。未来 manifest 若覆盖 commit pin，仍不得放宽 source/semantic
+  或 ToolLockV4Digest 身份。
 
 ### `actors[]`
 

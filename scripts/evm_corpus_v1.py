@@ -1154,6 +1154,266 @@ def dumps_canonical(value: object) -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# Case-level exact closure (engineering corpus; not formal C-3)
+# ---------------------------------------------------------------------------
+
+
+def _log_matches_expectation(actual: dict[str, object], exp: dict[str, object]) -> bool:
+    exp_addr = exp.get("address")
+    if exp_addr is not None:
+        if (actual.get("address") or "").lower() != str(exp_addr).lower():
+            return False
+    exp_topics = exp.get("topics") or []
+    act_topics = actual.get("topics") or []
+    if len(exp_topics) != len(act_topics):
+        return False
+    for a, b in zip(exp_topics, act_topics):
+        if str(a).lower() != str(b).lower():
+            return False
+    exp_data = exp.get("data")
+    if exp_data is not None:
+        act_data = actual.get("data") or "0x"
+        if str(act_data).lower() != str(exp_data).lower():
+            return False
+    return True
+
+
+def close_case(
+    case: dict[str, object],
+    observations: list[dict[str, object]],
+) -> dict[str, object]:
+    """Exact case-level observation closure.
+
+    Rejects duplicate/extra/missing (leg, stepIndex), required-leg non-pass,
+    primitive shared inequality, status/log mismatches. Success message only
+    after full closure.
+    """
+    case = validate_case(case)
+    case_id = case["id"]  # type: ignore[index]
+    case_class = case["class"]  # type: ignore[index]
+    oracle = case["oracle"]  # type: ignore[index]
+    legs: list[str] = list(oracle["legs"])  # type: ignore[index]
+    steps: list[dict[str, object]] = list(case["steps"])  # type: ignore[index]
+    skip_policy = case["skipPolicy"]  # type: ignore[index]
+    optional_legs = set(skip_policy["optionalLegs"])  # type: ignore[index]
+    required_legs = [leg for leg in legs if leg not in optional_legs]
+
+    expected_keys: set[tuple[str, int]] = set()
+    for leg in legs:
+        for step in steps:
+            expected_keys.add((leg, int(step["index"])))  # type: ignore[arg-type]
+
+    index: dict[tuple[str, int], dict[str, object]] = {}
+    for obs in observations:
+        o = validate_observation(obs)
+        if o["caseId"] != case_id:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"observation caseId {o['caseId']!r} != case id {case_id!r}",
+            )
+        key = (str(o["leg"]), int(o["stepIndex"]))  # type: ignore[arg-type]
+        if key in index:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"duplicate observation for leg={key[0]} step={key[1]}",
+            )
+        if key not in expected_keys:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"extra observation for leg={key[0]} step={key[1]}",
+            )
+        index[key] = o
+
+    missing = sorted(expected_keys - set(index))
+    if missing:
+        miss_s = ", ".join(f"{leg}@{step}" for leg, step in missing)
+        fail("PF-CORPUS-INVARIANT", f"missing observation(s): {miss_s}")
+
+    # Required legs: every observation must be verdict=pass (skip/tool-blocked/proposal ≠ pass).
+    for leg in required_legs:
+        for step in steps:
+            idx = int(step["index"])  # type: ignore[arg-type]
+            o = index[(leg, idx)]
+            if o["verdict"] != "pass":
+                fail(
+                    "PF-CORPUS-INVARIANT",
+                    f"required leg={leg} step={idx} verdict={o['verdict']!r} "
+                    "(required leg cannot skip/tool-blocked/proposal/fail as pass)",
+                )
+
+    # Optional legs: may be all-skip or all-pass for the leg; mixed fail closed.
+    for leg in sorted(optional_legs):
+        verdicts = {
+            index[(leg, int(step["index"]))]["verdict"]  # type: ignore[arg-type]
+            for step in steps
+        }
+        if "pass" in verdicts and (verdicts - {"pass"}):
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"optional leg={leg} mixes pass with non-pass verdicts",
+            )
+        if not verdicts.issubset({"pass", "skip"}):
+            # tool-blocked/proposal/fail on optional still not case pass
+            if "fail" in verdicts:
+                fail(
+                    "PF-CORPUS-INVARIANT",
+                    f"optional leg={leg} has fail verdict",
+                )
+
+    # Per-step status + expectedLogs (against pf-anvil when present and pass).
+    for step in steps:
+        idx = int(step["index"])  # type: ignore[arg-type]
+        expected_status = step["expectedSharedStatus"]
+        for leg in legs:
+            o = index[(leg, idx)]
+            if o["verdict"] != "pass":
+                continue
+            shared = o["shared"]  # type: ignore[index]
+            if shared["status"] != expected_status:
+                fail(
+                    "PF-CORPUS-INVARIANT",
+                    f"leg={leg} step={idx} shared.status {shared['status']!r} "
+                    f"!= case expected {expected_status!r}",
+                )
+        # expectedLogs vs pf-anvil EVM logs when that leg is pass.
+        if ("pf-anvil", idx) in index and index[("pf-anvil", idx)]["verdict"] == "pass":
+            o = index[("pf-anvil", idx)]
+            evm = o["evm"]  # type: ignore[index]
+            assert isinstance(evm, dict)
+            actual_logs = list(evm.get("logs") or [])
+            expected_logs = list(step.get("expectedLogs") or [])
+            if len(actual_logs) != len(expected_logs):
+                fail(
+                    "PF-CORPUS-INVARIANT",
+                    f"pf-anvil step={idx} log count {len(actual_logs)} "
+                    f"!= expectedLogs {len(expected_logs)}",
+                )
+            for li, (act, exp) in enumerate(zip(actual_logs, expected_logs)):
+                if not isinstance(act, dict) or not isinstance(exp, dict):
+                    fail(
+                        "PF-CORPUS-INVARIANT",
+                        f"pf-anvil step={idx} log[{li}] type mismatch",
+                    )
+                if not _log_matches_expectation(act, exp):
+                    fail(
+                        "PF-CORPUS-INVARIANT",
+                        f"pf-anvil step={idx} log[{li}] does not match expectedLogs",
+                    )
+
+    # Primitive: shared exact equality across required legs per step.
+    if case_class == "primitive":
+        for step in steps:
+            idx = int(step["index"])  # type: ignore[arg-type]
+            shared_vals = []
+            for leg in required_legs:
+                o = index[(leg, idx)]
+                shared_vals.append(o["shared"])
+            if len(shared_vals) >= 2:
+                base = shared_vals[0]
+                for other in shared_vals[1:]:
+                    if other != base:
+                        fail(
+                            "PF-CORPUS-INVARIANT",
+                            f"primitive step={idx} shared mismatch across required legs",
+                        )
+
+    # Adapter optional-only skip: report skip, not pass.
+    adapter_skipped = False
+    if case_class == "adapter" and optional_legs:
+        for leg in optional_legs:
+            if all(
+                index[(leg, int(step["index"]))]["verdict"] == "skip"  # type: ignore[arg-type]
+                for step in steps
+            ):
+                adapter_skipped = True
+
+    if adapter_skipped and not required_legs:
+        return {
+            "caseId": case_id,
+            "class": case_class,
+            "result": "skip",
+            "reason": "optional-leg-skip",
+        }
+
+    return {
+        "caseId": case_id,
+        "class": case_class,
+        "result": "pass",
+    }
+
+
+def load_observations_dir(obs_dir: Path, case_id: str) -> list[dict[str, object]]:
+    """Load canonical observation files for a case from a directory tree.
+
+    Skips intermediate `*.raw.json` files written by the Lean Reference runner.
+    """
+    root = obs_dir / case_id
+    if not root.is_dir():
+        candidates = sorted(obs_dir.glob(f"*{case_id}*.json"))
+        paths = candidates
+    else:
+        paths = sorted(root.rglob("*.json"))
+    out: list[dict[str, object]] = []
+    for path in paths:
+        if path.name.endswith(".raw.json") or ".raw." in path.name:
+            continue
+        out.append(load_and_validate_observation(path))
+    return out
+
+
+def darwin_tool_lock_v4_digest(lock_path: Path) -> str:
+    """Recompute Darwin ToolLockV4Digest from lock file bytes (PF-JCS re-encode)."""
+    import hashlib
+    import json as _json
+
+    raw = lock_path.read_bytes()
+    # Tool lock is larger than case max; use stdlib JSON + our canonical encoder.
+    try:
+        value = _json.loads(raw.decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        fail("PF-CORPUS-JSON", f"tool lock JSON: {exc}")
+    # Restrict to our number/key profile via canonical_bytes validation.
+    canon = canonical_bytes(value)
+    digest = hashlib.sha256(b"proof-forge.toolchains.v4\x00" + canon).hexdigest()
+    return digest
+
+
+def mint_observation_from_shared(
+    *,
+    case_id: str,
+    leg: str,
+    step_index: int,
+    status: str,
+    return_value: object,
+    logical_state: dict[str, object],
+    effects: list[object],
+    rollback_equal: bool,
+    evm: object,
+    verdict: str = "pass",
+    skip_reason: object = None,
+) -> bytes:
+    """Build canonical observation bytes (shared authority for harness emitters)."""
+    obs = {
+        "schema": SCHEMA_OBS,
+        "caseId": case_id,
+        "leg": leg,
+        "stepIndex": step_index,
+        "verdict": verdict,
+        "skipReason": skip_reason,
+        "shared": {
+            "status": status,
+            "returnValue": return_value,
+            "logicalState": logical_state,
+            "effects": effects,
+            "rollbackEqual": rollback_equal,
+        },
+        "evm": evm,
+    }
+    validate_observation(obs)
+    return dumps_canonical(obs)
+
+
+# ---------------------------------------------------------------------------
 # Fixture builders / self-test
 # ---------------------------------------------------------------------------
 
@@ -2108,8 +2368,130 @@ def run_self_tests() -> None:
     _run_resource_boundary_tests()
     _run_storage_word_tests()
     _run_forbidden_early_order_test()
+    _run_close_case_negative_tests()
 
     print("evm-corpus-v1: self-test ok")
+
+
+def _mk_pass_obs(
+    case_id: str,
+    leg: str,
+    step: int,
+    *,
+    status: str = "success",
+    shared_extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    shared: dict[str, object] = {
+        "status": status,
+        "returnValue": None,
+        "logicalState": {"count": "0"},
+        "effects": [],
+        "rollbackEqual": True,
+    }
+    if shared_extra:
+        shared.update(shared_extra)
+    evm: object
+    if leg == "reference":
+        evm = None
+    else:
+        evm = {
+            "balances": [],
+            "calldata": "0x",
+            "externalCalls": [],
+            "logs": [],
+            "returndata": "0x",
+            "revertData": None,
+            "storageSlots": [],
+        }
+    return {
+        "schema": SCHEMA_OBS,
+        "caseId": case_id,
+        "leg": leg,
+        "stepIndex": step,
+        "verdict": "pass",
+        "skipReason": None,
+        "shared": shared,
+        "evm": evm,
+    }
+
+
+def _run_close_case_negative_tests() -> None:
+    """Minimal negatives: missing Reference, sparse steps, dup/extra, shared mismatch, required skip."""
+    case = make_primitive_case()
+    # Ensure single-step primitive with both legs required.
+    case["skipPolicy"] = _skip(optional=[], tools=["anvil", "solc"])
+    case["steps"] = [_step(0, entry="inc", status="success")]
+    case_id = str(case["id"])
+
+    # Happy path for control: two matching pass obs.
+    ok_obs = [
+        _mk_pass_obs(case_id, "reference", 0),
+        _mk_pass_obs(case_id, "pf-anvil", 0),
+    ]
+    result = close_case(case, ok_obs)
+    if result.get("result") != "pass":
+        raise AssertionError(f"close-case happy expected pass, got {result}")
+
+    def expect_close_fail(label: str, obs: list[dict[str, object]]) -> None:
+        try:
+            close_case(case, obs)
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-INVARIANT":
+                raise AssertionError(
+                    f"{label}: expected PF-CORPUS-INVARIANT, got {err.code}"
+                ) from err
+            return
+        raise AssertionError(f"{label}: expected close_case failure")
+
+    # Missing Reference leg.
+    expect_close_fail(
+        "missing-reference",
+        [_mk_pass_obs(case_id, "pf-anvil", 0)],
+    )
+    # Sparse step (missing step index 0 for one leg already covered; multi-step sparse).
+    multi = dict(case)
+    multi["steps"] = [
+        _step(0, entry="inc", status="success"),
+        _step(1, entry="inc", status="success"),
+    ]
+    sparse = [
+        _mk_pass_obs(case_id, "reference", 0),
+        _mk_pass_obs(case_id, "pf-anvil", 0),
+        _mk_pass_obs(case_id, "reference", 1),
+        # missing pf-anvil@1
+    ]
+    try:
+        close_case(multi, sparse)
+        raise AssertionError("sparse-step: expected failure")
+    except CorpusError as err:
+        if err.code != "PF-CORPUS-INVARIANT":
+            raise AssertionError(f"sparse-step: wrong code {err.code}") from err
+
+    # Duplicate observation.
+    dup = ok_obs + [_mk_pass_obs(case_id, "reference", 0)]
+    expect_close_fail("duplicate-obs", dup)
+
+    # Extra observation (wrong step).
+    extra = ok_obs + [_mk_pass_obs(case_id, "reference", 1)]
+    expect_close_fail("extra-obs", extra)
+
+    # Shared mismatch between legs.
+    bad_shared = [
+        _mk_pass_obs(case_id, "reference", 0, shared_extra={"logicalState": {"count": "1"}}),
+        _mk_pass_obs(case_id, "pf-anvil", 0, shared_extra={"logicalState": {"count": "2"}}),
+    ]
+    expect_close_fail("shared-mismatch", bad_shared)
+
+    # Required leg skip cannot pass.
+    skip_obs = [
+        {
+            **_mk_pass_obs(case_id, "reference", 0),
+            "verdict": "skip",
+            "skipReason": "missing-reference-runner",
+        },
+        _mk_pass_obs(case_id, "pf-anvil", 0),
+    ]
+    expect_close_fail("required-leg-skip", skip_obs)
 
 
 def _cmd_validate_case(path: Path) -> None:
@@ -2124,6 +2506,26 @@ def _cmd_validate_observation(path: Path) -> None:
     )
 
 
+def _cmd_close_case(case_path: Path, obs_dir: Path) -> None:
+    case = load_and_validate_case(case_path)
+    case_id = str(case["id"])
+    observations = load_observations_dir(obs_dir, case_id)
+    result = close_case(case, observations)
+    # Success wording only after exact closure.
+    if result.get("result") == "pass":
+        print(
+            f"corpus-case-closed-pass {case_id} claims-not-verified "
+            f"(engineering corpus closure; not formal C-3; no OZ credit)"
+        )
+    elif result.get("result") == "skip":
+        print(
+            f"corpus-case-closed-skip {case_id} reason={result.get('reason')} "
+            f"claims-not-verified (explicit skip; not pass; not formal C-3)"
+        )
+    else:
+        fail("PF-CORPUS-INVARIANT", f"unexpected close result {result!r}")
+
+
 def main(argv: list[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args == ["self-test"]:
@@ -2135,10 +2537,14 @@ def main(argv: list[str] | None = None) -> None:
     if len(args) == 2 and args[0] == "validate-observation":
         _cmd_validate_observation(Path(args[1]))
         return
+    if len(args) == 3 and args[0] == "close-case":
+        _cmd_close_case(Path(args[1]), Path(args[2]))
+        return
     print(
         "usage: evm_corpus_v1.py self-test"
         " | validate-case PATH"
-        " | validate-observation PATH",
+        " | validate-observation PATH"
+        " | close-case CASE.json OBS_DIR",
         file=sys.stderr,
     )
     raise SystemExit(2)

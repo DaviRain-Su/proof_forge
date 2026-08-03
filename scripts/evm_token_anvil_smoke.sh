@@ -19,48 +19,49 @@ corpus_obs_dir="${PF_EVM_CORPUS_OBS_DIR:-}"
 case_id="pf.adapter.token.conservation.v1"
 
 write_token_skip_obs() {
+  # Explicit optional-leg skip for all 9 case steps (never pass).
   local reason="$1"
   [[ -n "$corpus_obs_dir" ]] || return 0
   mkdir -p "$corpus_obs_dir/$case_id"
-  local out="$corpus_obs_dir/$case_id/pf-anvil-step-0.json"
   CORPUS_VALIDATOR="$root/scripts/evm_corpus_v1.py" \
-  /usr/bin/python3 -I -S - "$out" "$case_id" "$reason" <<'PY'
+  /usr/bin/python3 -I -S - "$corpus_obs_dir/$case_id" "$case_id" "$reason" <<'PY'
 import importlib.util, os, sys
 from pathlib import Path
-out, case_id, reason = sys.argv[1], sys.argv[2], sys.argv[3]
-# skipReason ≤128 UTF-8 bytes
+out_dir, case_id, reason = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 if len(reason.encode()) > 128:
     reason = reason[:120] + "..."
 spec = importlib.util.spec_from_file_location("evm_corpus_v1", os.environ["CORPUS_VALIDATOR"])
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
-obs = {
-    "schema": mod.SCHEMA_OBS,
-    "caseId": case_id,
-    "leg": "pf-anvil",
-    "stepIndex": 0,
-    "verdict": "skip",
-    "skipReason": reason,
-    "shared": {
-        "status": "success",
-        "returnValue": None,
-        "logicalState": {},
-        "effects": [],
-        "rollbackEqual": True,
-    },
-    "evm": {
-        "balances": [],
-        "calldata": "0x",
-        "externalCalls": [],
-        "logs": [],
-        "returndata": "0x",
-        "revertData": None,
-        "storageSlots": [],
-    },
-}
-mod.validate_observation(obs)
-Path(out).write_bytes(mod.dumps_canonical(obs))
-print(f"evm-token-anvil: wrote skip observation {out}", file=sys.stderr)
+for step in range(9):
+    obs = {
+        "schema": mod.SCHEMA_OBS,
+        "caseId": case_id,
+        "leg": "pf-anvil",
+        "stepIndex": step,
+        "verdict": "skip",
+        "skipReason": reason,
+        "shared": {
+            "status": "success",
+            "returnValue": None,
+            "logicalState": {},
+            "effects": [],
+            "rollbackEqual": True,
+        },
+        "evm": {
+            "balances": [],
+            "calldata": "0x",
+            "externalCalls": [],
+            "logs": [],
+            "returndata": "0x",
+            "revertData": None,
+            "storageSlots": [],
+        },
+    }
+    mod.validate_observation(obs)
+    path = out_dir / f"pf-anvil-step-{step}.json"
+    path.write_bytes(mod.dumps_canonical(obs))
+print(f"evm-token-anvil: wrote 9 skip observations under {out_dir}", file=sys.stderr)
 PY
 }
 
@@ -141,20 +142,27 @@ token_tree_matches_profile() {
 
 if ! token_tree_matches_profile "$token_bin"; then
   echo "evm-token-anvil: building Token EVM artifact → $token_out_rel (profile=$expected_profile_wire)..." >&2
-  if [[ -x "$root/.lake/build/bin/proof-forge-next" ]] && command -v lake >/dev/null 2>&1; then
+  token_cli=""
+  if [[ -x "${PROOF_FORGE_CLI:-}" ]]; then
+    token_cli="$PROOF_FORGE_CLI"
+  elif [[ -x "$root/.lake/build/bin/proof-forge-next" ]]; then
+    token_cli="$root/.lake/build/bin/proof-forge-next"
+  fi
+  if [[ -n "$token_cli" ]] && command -v lake >/dev/null 2>&1; then
     # Product CLI refuses non-empty existing -o dirs (PF-OUTPUT-COLLISION).
     rm -rf "$token_out"
     build_log="$(mktemp "${TMPDIR:-/tmp}/pf-token-build.XXXXXX.log")"
+    lake_root="${PF_LAKE_ROOT:-$root}"
     set +e
     if [[ ${#build_profile_args[@]} -gt 0 ]]; then
-      (cd "$root" && lake env .lake/build/bin/proof-forge-next build \
+      (cd "$lake_root" && lake env bash -c "cd '$root' && '$token_cli' build \
         Examples/Token.lean --module Examples.Token --target evm \
-        "${build_profile_args[@]}" -o "$token_out_rel") >"$build_log" 2>&1
+        ${build_profile_args[*]} -o '$token_out_rel'") >"$build_log" 2>&1
       build_rc=$?
     else
-      (cd "$root" && lake env .lake/build/bin/proof-forge-next build \
+      (cd "$lake_root" && lake env bash -c "cd '$root' && '$token_cli' build \
         Examples/Token.lean --module Examples.Token --target evm \
-        -o "$token_out_rel") >"$build_log" 2>&1
+        -o '$token_out_rel'") >"$build_log" 2>&1
       build_rc=$?
     fi
     set -e
@@ -172,7 +180,7 @@ if ! token_tree_matches_profile "$token_bin"; then
     fi
     rm -f "$build_log"
   else
-    echo "evm-token-anvil: skipped: product CLI unavailable to build Token" >&2
+    echo "evm-token-anvil: explicit skip: product CLI unavailable (optional adapter leg; not pass)" >&2
     write_token_skip_obs "missing-optional-tool:product-cli"
     exit 0
   fi
@@ -322,19 +330,19 @@ if [[ "$bal1d" != "60" || "$bal2d" != "40" ]]; then
   exit 1
 fi
 
-# Adapter corpus observations (shared projection: conservation/balances/rollback).
+# Adapter corpus observations — all 9 steps (pass path; decimal-string UInts).
 if [[ -n "$corpus_obs_dir" ]]; then
   mkdir -p "$corpus_obs_dir/$case_id"
   CORPUS_VALIDATOR="$root/scripts/evm_corpus_v1.py" \
-  /usr/bin/python3 -I -S - "$corpus_obs_dir/$case_id" "$case_id" "$addr" <<'PY'
-import importlib.util, json, os, sys
+  /usr/bin/python3 -I -S - "$corpus_obs_dir/$case_id" "$case_id" <<'PY'
+import importlib.util, os, sys
 from pathlib import Path
-obs_dir, case_id, addr = Path(sys.argv[1]), sys.argv[2], sys.argv[3].lower()
+obs_dir, case_id = Path(sys.argv[1]), sys.argv[2]
 spec = importlib.util.spec_from_file_location("evm_corpus_v1", os.environ["CORPUS_VALIDATOR"])
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-def write(step, status, logical, ret, rollback, *, logs=None):
+def write(step, status, logical, ret, rollback):
     obs = {
         "schema": mod.SCHEMA_OBS,
         "caseId": case_id,
@@ -350,10 +358,14 @@ def write(step, status, logical, ret, rollback, *, logs=None):
             "rollbackEqual": rollback,
         },
         "evm": {
-            "balances": [{"id": "alice", "wei": "0"}, {"id": "bob", "wei": "0"}, {"id": "deployer", "wei": "0"}],
+            "balances": [
+                {"id": "alice", "wei": "0"},
+                {"id": "bob", "wei": "0"},
+                {"id": "deployer", "wei": "0"},
+            ],
             "calldata": "0x",
             "externalCalls": [],
-            "logs": logs or [],
+            "logs": [],
             "returndata": "0x",
             "revertData": None if status == "success" else "0x",
             "storageSlots": [],
@@ -364,10 +376,16 @@ def write(step, status, logical, ret, rollback, *, logs=None):
     path.write_bytes(mod.dumps_canonical(obs))
     print(f"evm-token-anvil: wrote {path}", file=sys.stderr)
 
-# Post-transfer conserved state: supply=100, 1→60, 2→40
-conserved = {"balances": {"1": 60, "2": 40}, "supply": 100}
+empty = {"balances": {}, "supply": "0"}
+after_mint = {"balances": {"1": "100"}, "supply": "100"}
+conserved = {"balances": {"1": "60", "2": "40"}, "supply": "100"}
+write(0, "success", empty, None, True)
+write(1, "success", after_mint, "100", True)
+write(2, "success", after_mint, "100", True)
+write(3, "success", after_mint, "100", True)
 write(4, "success", conserved, True, True)
-# Overflow mint rollback (step 7) and over-transfer rollback (step 8)
+write(5, "success", conserved, "60", True)
+write(6, "success", conserved, "40", True)
 write(7, "revert", conserved, None, True)
 write(8, "revert", conserved, None, True)
 PY
