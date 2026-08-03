@@ -447,9 +447,41 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
   | .error e =>
       throw <| IO.userError
         s!"anonymous-result: ton must admit Array UInt64 2 view return, got {e.render}"
-  for (target, kind, marker) in #[
-      (TargetId.aleo, TargetKind.aleo, "return of anonymous aggregate is outside")] do
-    expectMaterializePlanInvariantV1 "anonymous-result" target kind compiled marker
+  -- Aleo: view-over-state anonymous aggregate return stays fail closed via
+  -- the computed-view gate (only bare public-state reads map to leo query).
+  match materializeSelected TargetId.aleo compiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "anonymous-result: aleo must decline view-over-state aggregate return"
+  | .error e =>
+      expect ((e.render).contains "leo query" ||
+          (e.render).contains "fail closed" ||
+          (e.render).contains "aggregate")
+        s!"anonymous-result aleo message must cite the computed-view/aggregate boundary, got {e.render}"
+  -- Aleo admits state-touching ENTRY anonymous Array returns via the Final
+  -- evaluate-leaves-and-drop path (BL-24).
+  let aleoArrEntrySource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrRetEntry where\n" ++
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    slots[0] := x\n" ++
+    "    slots[1] := y\n\n" ++
+    "  entry getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrEntryV1 ← match ← session.selectProgramV1 aleoArrEntrySource
+      "<targets-anon-result-aleo>" "Examples.ArrRetEntry" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"anon-result aleo-entry select: {e.render}"
+  let arrEntryCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrEntryV1
+  match materializeSelected TargetId.aleo arrEntryCompiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: aleo must admit entry Array UInt64 2 return, got {e.render}"
 
 private def testSemanticPlanSourceAuthority : IO Unit := do
   for target in #["Evm", "Solana", "Near", "Noir"] do
