@@ -33,6 +33,9 @@ import Tests.Semantic.SimpleClosureTraceV1
 import Tests.Semantic.SimpleClosureStructureCertV1
 import Tests.Semantic.SimpleClosureEncodeV1
 import Tests.Semantic.SimpleClosureDecodeV1
+import Tests.Semantic.SimpleClosureDecodeRootQnV1
+import Tests.Semantic.SimpleClosureDecodeFixedFieldsV1
+import Tests.Semantic.SimpleClosureDecodeCallableV1
 import Tests.Semantic.SimpleClosureDecodeComposeV1
 import Tests.Semantic.ProofedEncodeCertV1
 import Tests.Semantic.ProofedDecodeCertV1
@@ -74,6 +77,9 @@ unsafe def main : IO Unit := do
   Tests.Semantic.SimpleClosureStructureCertV1.run
   Tests.Semantic.SimpleClosureEncodeV1.run
   Tests.Semantic.SimpleClosureDecodeV1.run
+  Tests.Semantic.SimpleClosureDecodeRootQnV1.run
+  Tests.Semantic.SimpleClosureDecodeFixedFieldsV1.run
+  Tests.Semantic.SimpleClosureDecodeCallableV1.run
   Tests.Semantic.SimpleClosureDecodeComposeV1.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.NormalizeConst.run

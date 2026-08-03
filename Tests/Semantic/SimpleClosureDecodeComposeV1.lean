@@ -173,7 +173,3 @@ def run : IO Unit := do
   IO.println "  QN encode payload + parse under Legal closed (no free hparse)"
 
 end Tests.Semantic.SimpleClosureDecodeComposeV1
-
-def main : IO UInt32 := do
-  Tests.Semantic.SimpleClosureDecodeComposeV1.run
-  pure 0

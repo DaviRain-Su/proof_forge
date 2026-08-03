@@ -9,8 +9,7 @@
     * sole value.bool ProgramRequirements
   plus runtime Unicode invName encode/decode and materialize encode identity.
 
-  Standalone (not registered in lakefile); compile via:
-    lake env lean Tests/Semantic/SimpleClosureDecodeFixedFieldsV1.lean
+  Registered in ProofForgeV2Tests roots + Typed shard (`def run`).
   No axiom / sorry / native_decide / ofReduceBool.
 -/
 import ProofForgeV2.Semantic.SimpleClosureDecodeFixedFieldsV1
@@ -224,7 +223,3 @@ def run : IO Unit := do
   IO.println "  types/empty/inv/requirements mid-offset kernel + Unicode inv closed"
 
 end Tests.Semantic.SimpleClosureDecodeFixedFieldsV1
-
--- Standalone entry when compiled with `lake env lean --run` is not used;
--- invoke `run` from a driver or `#eval` in a REPL. For lane verification:
-#eval Tests.Semantic.SimpleClosureDecodeFixedFieldsV1.run

@@ -108,7 +108,3 @@ def run : IO Unit := do
   IO.println "  kernel QN decode under Legal: residual parse/encodeArray (see module)"
 
 end Tests.Semantic.SimpleClosureDecodeRootQnV1
-
-def main : IO UInt32 := do
-  Tests.Semantic.SimpleClosureDecodeRootQnV1.run
-  pure 0

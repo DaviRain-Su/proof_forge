@@ -14,7 +14,7 @@
     * Unicode-shaped params materialize (2 callables)
     * demo encode + mid-offset decode success for view/inv/array
 
-  Not registered in lakefile (lane allowlist: new files only).
+  Registered in ProofForgeV2Tests roots + Typed shard (`def run`).
   No axiom / sorry / native_decide / Tests FQN hardcode in production module.
 -/
 import ProofForgeV2.Semantic.SimpleClosureDecodeCallableV1
@@ -270,6 +270,3 @@ def run : IO Unit := do
   IO.println "SimpleClosureDecodeCallableV1: ok"
 
 end Tests.Semantic.SimpleClosureDecodeCallableV1
-
-def main : IO Unit :=
-  Tests.Semantic.SimpleClosureDecodeCallableV1.run
