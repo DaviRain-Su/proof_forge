@@ -13604,3 +13604,23 @@ normative: false
   五相位分离（成功=compute+action、失败=compute+bounce、无 action）。
 - 边界：engineering sandbox differential；**非**主网/wasmd 级主机/formal Stage-0/
   TST-SEM/hermetic；registry maturity 标签保持 `source-only`，不升格 runtime/formal。
+
+### 2026-08-03 — CI provision 修复：cosmwasm-check × `__rust_probestack`（wasmer 5 × Rust ≥1.89）
+
+- 症状：三个 linux CI job（solana-runtime / target-smoke / lean-product）全部在
+  `toolchains-provision-external` 失败（run 30779533374 / job 91581320993），
+  `cargo build --release -p cosmwasm-check` 链接错误 `undefined reference to
+  __rust_probestack`（wasmer_vm）。
+- 根因：cosmwasm-vm 3.0.9 依赖 **wasmer 5.0.6**，其引用 Rust compiler-builtins 的
+  `__rust_probestack`；rust-lang/rust#141992（**Rust 1.89** 起）把该符号改为
+  `#[naked]` 内部函数、不再导出。darwin-arm64 不受影响（aarch64 无 probestack
+  引用路径），故本地 provision 始终通过而 Linux CI 失败。实证：x86_64 VM 下
+  rust-lld 与 GNU ld **均**失败（`-C linker-features=-lld` 无效，已证伪该方向）；
+  wasmer 官方修复（PR #5690 vendored shim）只在 wasmer 6.1+/7.x，wasmer 5 不可用。
+- 修复：`toolchain_assets.py` 支持 cargo-git 资产级可选 `rustToolchain`
+  （MAJOR.MINOR[.PATCH] 校验 + provision 时 `rustup toolchain install` +
+  `cargo +<v> build`）；两平台 cosmwasm-check 资产钉 **`rustToolchain: "1.88"`**
+  （变更前最后工具链时代）——构建官方 tag 源码与其 committed lockfile，不改依赖图。
+- 验证：x86_64 colima VM（Rosetta）实测 `cargo +1.88 build --release -p
+  cosmwasm-check` **链接通过**（对照：默认 1.97 复现 CI 同款 probestack 失败）；
+  `just toolchains-validate` / self-test 绿。非 formal。

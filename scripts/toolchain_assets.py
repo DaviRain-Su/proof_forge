@@ -442,7 +442,7 @@ def validate_tool_lock(lock: dict) -> dict:
         if format_value == "cargo-git":
             require_keys(asset, {
                 "id", "url", "commit", "format", "package", "bin", "version",
-            }, f"assets[{index}]")
+            }, f"assets[{index}]", {"rustToolchain"})
             asset_id = require_safe_asset_id(asset.get("id"), f"assets[{index}].id")
             require_https_url(asset.get("url"), f"asset {asset_id}.url")
             commit = require_string(asset.get("commit"), f"asset {asset_id}.commit")
@@ -451,6 +451,12 @@ def validate_tool_lock(lock: dict) -> dict:
             require_safe_identifier(asset.get("package"), f"asset {asset_id}.package")
             require_safe_identifier(asset.get("bin"), f"asset {asset_id}.bin")
             require_semver(asset.get("version"), f"asset {asset_id}.version")
+            rust_toolchain = asset.get("rustToolchain")
+            if rust_toolchain is not None:
+                rust_toolchain = require_string(
+                    rust_toolchain, f"asset {asset_id}.rustToolchain")
+                if re.fullmatch(r"[0-9]+\.[0-9]+(\.[0-9]+)?", rust_toolchain) is None:
+                    fail(f"asset {asset_id}.rustToolchain must be MAJOR.MINOR[.PATCH]")
         elif format_value in DOWNLOAD_FORMATS:
             require_keys(asset, {"id", "url", "size", "sha256", "format"},
                          f"assets[{index}]", {"auth"})
@@ -1407,22 +1413,42 @@ def provision_cargo_git_asset(asset: dict) -> Path:
         cargo = shutil.which("cargo")
         if cargo is None:
             fail(f"cargo is required to provision cargo-git asset {asset_id}")
+        build_env = {
+            "LC_ALL": "C",
+            "TZ": "UTC",
+            "HOME": os.environ.get("HOME", "/var/empty"),
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "CARGO_HOME": os.environ.get(
+                "CARGO_HOME", str(Path.home() / ".cargo")),
+            "RUSTUP_HOME": os.environ.get(
+                "RUSTUP_HOME", str(Path.home() / ".rustup")),
+        }
+        # Optional per-asset pinned Rust toolchain (e.g. wasmer 5.x references
+        # `__rust_probestack`, which Rust >= 1.89 no longer exports — the build
+        # must use the toolchain era the pinned source was written for).
+        rust_toolchain = asset.get("rustToolchain")
+        if rust_toolchain is not None:
+            install = subprocess.run(
+                ["rustup", "toolchain", "install", rust_toolchain,
+                 "--profile", "minimal"],
+                check=False, capture_output=True, text=True,
+                env=build_env, timeout=900,
+            )
+            if install.returncode != 0:
+                fail(
+                    f"rustup toolchain install {rust_toolchain} failed for "
+                    f"{asset_id}: {install.stderr.strip() or install.stdout.strip()}"
+                )
+            cargo = [cargo, f"+{rust_toolchain}"]
+        else:
+            cargo = [cargo]
         build = subprocess.run(
-            [cargo, "build", "--release", "-p", package],
+            cargo + ["build", "--release", "-p", package],
             check=False,
             capture_output=True,
             text=True,
             cwd=str(staging),
-            env={
-                "LC_ALL": "C",
-                "TZ": "UTC",
-                "HOME": os.environ.get("HOME", "/var/empty"),
-                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-                "CARGO_HOME": os.environ.get(
-                    "CARGO_HOME", str(Path.home() / ".cargo")),
-                "RUSTUP_HOME": os.environ.get(
-                    "RUSTUP_HOME", str(Path.home() / ".rustup")),
-            },
+            env=build_env,
             timeout=1800,
         )
         if build.returncode != 0:
