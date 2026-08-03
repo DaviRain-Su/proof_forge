@@ -86,6 +86,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.DiagnosticPipelineV1,
     `Tests.Compiler.ProofBundleFilesV1,
     `Tests.Compiler.ProofSubjectFilesV1,
+    `Tests.Compiler.InlineProofAuditV1,
     `Tests.Compiler.ProofWorkerV1,
     `Tests.Compiler.ProofWorkerSupervisorV1,
     `Tests.Compiler.InlineProofProtocolV1,

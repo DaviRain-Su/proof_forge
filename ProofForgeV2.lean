@@ -65,10 +65,12 @@ import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Semantic.ProofBundleV1
+import ProofForgeV2.Semantic.InlineProofPolicyV1
 import ProofForgeV2.Semantic.ProofSubjectV1
 import ProofForgeV2.Semantic.ProofReferenceJoinV1
 import ProofForgeV2.Compiler.ProofSubjectFilesV1
 import ProofForgeV2.Compiler.ProofBundleFilesV1
+import ProofForgeV2.Compiler.InlineProofAuditV1
 import ProofForgeV2.Compiler.ProofWorkerProtocolV1
 import ProofForgeV2.Compiler.ProofWorkerV1
 import ProofForgeV2.Compiler.ProofWorkerControlV2
