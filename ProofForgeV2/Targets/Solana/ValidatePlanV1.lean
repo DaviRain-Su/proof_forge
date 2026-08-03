@@ -288,6 +288,22 @@ private partial def checkHandlerStatementsV1
           throw <| .planInvariant .solana "initializer cannot return a value"
         total ← addPlanExprNodes account params fns total value
         closed := true
+    | .returnAggregate leaves leafIsInt =>
+        if isInitializer then
+          throw <| .planInvariant .solana "initializer cannot return a value"
+        unless leaves.size > 0 && leaves.size ≤ 8 do
+          throw <| .planInvariant .solana
+            "handler returnAggregate leaf count must be in 1..8 (B-RET-ABI)"
+        unless leafIsInt.size == leaves.size do
+          throw <| .planInvariant .solana
+            "handler returnAggregate leafIsInt length must match leaves"
+        for leaf in leaves do
+          unless exprIsUInt64CompatibleV1 fns leaf do
+            throw <| .planInvariant .solana
+              "handler returnAggregate leaves must be integer expressions"
+          total ← addPlanExprNodes account params fns total leaf
+        total := total + 1
+        closed := true
     | .returnNone =>
         unless allowReturnNone do
           throw <| .planInvariant .solana "handler has an early bare return inside a branch arm"

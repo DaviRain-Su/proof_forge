@@ -2166,7 +2166,8 @@ private partial def countAnyIrMultiStores (ops : Array Operation) : Nat × Nat :
     | _ => (multi, scalar)) (0, 0)
 
 /-- Named Struct state: flatten to UInt64 leaves; construct/fieldGet/fieldSet
-    + atomic storeAggregate; entry/view return scalar field only (B-RET-ABI). -/
+    + atomic storeAggregate; scalar field return still covered (aggregate return
+    is pinned separately in `testNamedStructReturn`). -/
 private unsafe def testNamedStructState
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrapProgram "PointBox" <|
@@ -2362,22 +2363,187 @@ private unsafe def testBytesStateIndexOps
       throw <| IO.userError s!"Solana must still accept Map after Bytes, got {e.render}"
   IO.println "  ByteBox Bytes state Plan/IR pin ok"
 
-/-- Fail-closed boundaries: named aggregate return, Option state, named param. -/
-private unsafe def testAggregateFailClosed
+/-- B-RET-ABI: named Struct view return flattens to 2×UInt64 leaves via
+`returnAggregate` / `setReturnDataMulti` / `sol_set_return_data` (16B). -/
+private unsafe def testNamedStructReturn
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Named Struct entry return stays fail-closed (B-RET-ABI scalar).
-  let retSource := wrapProgram "StructRet" <|
+  let source := wrapProgram "PairRet" <|
     "  struct Pair where\n" ++
     "    a : UInt64\n" ++
     "    b : UInt64\n" ++
     "  state p : Pair\n\n" ++
-    "  init() do\n" ++
-    "    p := Pair.new(0, 0)\n\n" ++
-    "  entry getPair() : Pair do\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n\n" ++
+    "  view getPair() : Pair do\n" ++
     "    return p\n"
-  let retCompiled ← compileSource session retSource "Examples.StructRet"
-    "<solana-struct-ret>"
-  expectPlanError "StructRet" (planSolana retCompiled)
+  let compiled ← compileSource session source "Examples.PairRet"
+    "<solana-pair-ret>"
+  let plan ← liftResult (planSolana compiled)
+  let getPair ← findHandler plan "getPair"
+  match getPair.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"PairRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "PairRet leaves must be u64 (not Int)"
+      expect (leaves.all (·.byteWidth == 8))
+        "PairRet leaves must be 8-byte words"
+  | other =>
+      throw <| IO.userError
+        s!"PairRet getPair resultKind must be .aggregate, got {repr other}"
+  expect (getPair.body.size == 1) "PairRet getPair body must be one return"
+  match getPair.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2)
+        s!"returnAggregate must have 2 leaves, got {leaves.size}"
+      expect (leafIsInt == #[false, false])
+        "returnAggregate leafIsInt must be #[false, false]"
+      -- Preorder: p_a then p_b → two stateLoad of the two fields.
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad 0 off0, .stateLoad 0 off1 =>
+          expect (off0 + 8 == off1)
+            s!"PairRet leaf order must be consecutive field offsets, got {off0}/{off1}"
+      | _, _ =>
+          throw <| IO.userError
+            "PairRet returnAggregate leaves must be stateLoad of p fields"
+  | _ =>
+      throw <| IO.userError "PairRet getPair body must be .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"PairRet plan must validate: {e.render}"
+  let ir ← liftResult (irSolana compiled)
+  let getPairIR ← findHandlerIR ir "getPair"
+  expect (getPairIR.resultKind == getPair.resultKind)
+    "PairRet IR resultKind must match Plan"
+  let mut sawMulti := false
+  for op in getPairIR.operations do
+    match op with
+    | .setReturnDataMulti temps =>
+        expect (temps.size == 2)
+          s!"setReturnDataMulti must have 2 temps, got {temps.size}"
+        sawMulti := true
+    | .setReturnData .. | .setReturnDataBool _ =>
+        throw <| IO.userError "PairRet must not emit scalar setReturnData*"
+    | _ => pure ()
+  expect sawMulti "PairRet IR must emit setReturnDataMulti"
+  let asm ← liftResult (emitSbpfAsmV1 ir)
+  expect (asm.contains "sol_set_return_data")
+    "PairRet asm must call sol_set_return_data"
+  expect (asm.contains "set_return_data_multi" || asm.contains "lddw r2, 16")
+    "PairRet asm must pack 16-byte multi return (len=16)"
+  expect (asm.contains "temps=")
+    "PairRet asm must annotate temps (frame budget path)"
+  -- Frame pin: 2-leaf return stays well under 4096B.
+  expect (!asm.contains "frame budget exceeded")
+    "PairRet must not exceed SBPF frame budget"
+  let files ← liftResult (filesSolana compiled)
+  let idl ← findFile files "PairRet.idl.json"
+  expect (idl.contains "\"returns\":[\"u64-le\",\"u64-le\"]")
+    s!"PairRet IDL must declare leaf tuple [\"u64-le\",\"u64-le\"], got: {idl}"
+  let _ ← findFile files "PairRet.sbpf-plan"
+  IO.println "  PairRet named Struct return Plan/IR/SBPF/IDL pin ok"
+
+/-- B-RET-ABI: named Enum return = tag + max-payload slots (Maybe = 2 leaves). -/
+private unsafe def testNamedEnumReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "MaybeRet" <|
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n\n" ++
+    "  entry put(v : UInt64) : Maybe do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return m\n\n" ++
+    "  view peek() : Maybe do\n" ++
+    "    return m\n"
+  let compiled ← compileSource session source "Examples.MaybeRet"
+    "<solana-maybe-ret>"
+  let plan ← liftResult (planSolana compiled)
+  let peek ← findHandler plan "peek"
+  match peek.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"MaybeRet Enum return must be tag+payload (2), got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"MaybeRet peek resultKind must be .aggregate, got {repr other}"
+  match peek.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt.size == 2)
+        "MaybeRet returnAggregate must have 2 leaves"
+  | _ =>
+      throw <| IO.userError "MaybeRet peek body must be .returnAggregate"
+  let put ← findHandler plan "put"
+  match put.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2) "MaybeRet put must also return 2-leaf Maybe"
+  | _ =>
+      throw <| IO.userError "MaybeRet put resultKind must be .aggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MaybeRet plan must validate: {e.render}"
+  let ir ← liftResult (irSolana compiled)
+  let peekIR ← findHandlerIR ir "peek"
+  expect (peekIR.operations.any fun
+      | .setReturnDataMulti t => t.size == 2
+      | _ => false)
+    "MaybeRet peek IR must emit setReturnDataMulti [2]"
+  let asm ← liftResult (emitSbpfAsmV1 ir)
+  expect (asm.contains "sol_set_return_data")
+    "MaybeRet asm must call sol_set_return_data"
+  let files ← liftResult (filesSolana compiled)
+  let idl ← findFile files "MaybeRet.idl.json"
+  expect (idl.contains "\"returns\":[\"u64-le\",\"u64-le\"]")
+    s!"MaybeRet IDL must declare [\"u64-le\",\"u64-le\"], got: {idl}"
+  IO.println "  MaybeRet named Enum return Plan/IR pin ok"
+
+/-- Fail-closed: anonymous container result, cap-8 overflow, Option state, named param. -/
+private unsafe def testAggregateFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Anonymous Array entry return stays fail-closed (B-RET-ABI named-only).
+  let arrSource := wrapProgram "ArrayRet" <|
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  match ← (do
+      try
+        let c ← compileSource session arrSource "Examples.ArrayRet" "<solana-array-ret>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()  -- may fail at Normalize/typed (anonymous result)
+  | some c => expectPlanError "ArrayRet" (planSolana c)
+  -- Cap-8: Struct with 9 UInt64 fields exceeds B-RET-ABI leaf cap.
+  let mut fields := ""
+  for i in [0:9] do
+    fields := fields ++ s!"    f{i} : UInt64\n"
+  let wideSource := wrapProgram "WideRet" <|
+    "  struct Wide where\n" ++
+    fields ++
+    "  state w : Wide\n\n" ++
+    "  init() do\n" ++
+    "    w := Wide.new(0, 0, 0, 0, 0, 0, 0, 0, 0)\n\n" ++
+    "  view getWide() : Wide do\n" ++
+    "    return w\n"
+  match ← (do
+      try
+        let c ← compileSource session wideSource "Examples.WideRet" "<solana-wide-ret>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planSolana c with
+      | .error e =>
+          expect (e.render.contains "8" || e.render.contains "leaf" ||
+              e.render.contains "aggregate")
+            s!"WideRet leaf-cap error must cite cap/leaf/aggregate, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Solana 9-leaf aggregate return must fail closed (cap-8)"
   -- Option state remains fail closed (not a container policy admit).
   let optSource := wrapProgram "OptState" <|
     "  state o : Option UInt64\n\n" ++
@@ -2447,6 +2613,8 @@ unsafe def run : IO Unit := do
   testNamedStructState session
   testNamedEnumState session
   testBytesStateIndexOps session
+  testNamedStructReturn session
+  testNamedEnumReturn session
   testAggregateFailClosed session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 

@@ -51,9 +51,9 @@ writable, headerEquals (account[0] only).
 
 Ops: literal, loadParam, loadState, checkedAdd/Sub/Mul/Div/Mod,
 bitAnd/Or/Xor/Not, checkedShl/Shr, boolNot/And/Or, zeroState, storeState,
-storeStateMulti, setHeader, setReturnData (u64 LE / bool), compare, assert, returnNone,
-revertError, ifRegion, switchRegion, forRegion, callFn (inline expand),
-emitEvent (`sol_log_data`).
+storeStateMulti, setHeader, setReturnData (u64 LE / bool / multi-leaf B-RET-ABI),
+compare, assert, returnNone, revertError, ifRegion, switchRegion, forRegion,
+callFn (inline expand), emitEvent (`sol_log_data`).
 
 ## Fail closed
 
@@ -1264,6 +1264,23 @@ private def emitSetReturnDataBool (b : AsmBuf) (tempBase valueTemp retTemp : Nat
     AsmBuf :=
   emitSetReturnDataBytes b tempBase valueTemp retTemp 1
 
+/-- B-RET-ABI: pack N independent u64 leaf temps into a contiguous return-data
+    buffer at absolute `retTemp..retTemp+N-1` and call `sol_set_return_data`
+    with length `N*8`. Leaves may be non-consecutive (CSE). -/
+private def emitSetReturnDataMulti (b : AsmBuf) (tempBase : Nat)
+    (valueTemps : Array Nat) (retTemp : Nat) : AsmBuf :=
+  Id.run do
+    let n := valueTemps.size
+    let mut b := b
+    for i in [:n] do
+      b := loadTemp b "r1" tempBase valueTemps[i]!
+      b := storeTempAbs b (retTemp + i) "r1"
+    let off := tempStackOff retTemp
+    b := emit b "  mov64 r1, r10"
+    b := emit b s!"  add64 r1, -{off}"
+    b := emit b s!"  lddw r2, {n * 8}"
+    emit b "  call sol_set_return_data"
+
 /-- Resolve pureFn param index by instruction-data offset (fn table). -/
 private def paramIndexByOffset (params : Array Param) (dataOffset : Nat) : Option Nat :=
   Id.run do
@@ -1580,6 +1597,17 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
           let (b, retTemp) := allocTemps b 1
           let b := emit b s!"  ; set_return_data_bool %{value}"
           pure (emitSetReturnDataBool b tempBase value retTemp)
+  | .setReturnDataMulti values =>
+      match inlineCtx with
+      | some _ =>
+          -- pureFn cannot return aggregates; inlined path is unreachable.
+          asmError "S1b setReturnDataMulti is not admitted inside pureFn inline"
+      | none =>
+          unless values.size > 0 && values.size ≤ 8 do
+            return ← asmError "S1b setReturnDataMulti leaf count must be in 1..8"
+          let (b, retTemp) := allocTemps b values.size
+          let b := emit b s!"  ; set_return_data_multi_le [{values.size}]"
+          pure (emitSetReturnDataMulti b tempBase values retTemp)
   | .compare destination lhs rhs op =>
       let b := emit b s!"  ; %{destination} = cmp %{lhs}, %{rhs}"
       pure (emitCompare b tempBase destination lhs rhs op)
