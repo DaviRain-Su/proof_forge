@@ -94,6 +94,7 @@ programs=(
   "runtime-tests/cosmwasm/fixtures/EmitLoop.lean:Examples.EmitLoop:EmitLoop"
   "runtime-tests/cosmwasm/fixtures/ScheduleFlow.lean:Examples.ScheduleFlow:ScheduleFlow"
   "runtime-tests/cosmwasm/fixtures/PairRet.lean:Examples.PairRet:PairRet"
+  "runtime-tests/cosmwasm/fixtures/NarrowCounter.lean:Examples.NarrowCounter:NarrowCounter"
 )
 
 echo "cosmwasm-runtime-test: building proof-forge-next (lake build proof_forge_next)"

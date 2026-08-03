@@ -554,21 +554,29 @@ private abbrev CosmWasmTypeClosureV1 := PilotTypeClosureV1
 private def cosmwasmPlanErr (message : String) : CompileError :=
   .planInvariant .cosmwasm message
 
-/-- CosmWasm admits UInt64 (+ UInt32 shift-count temps), Int64, and named
-    Struct/Enum (B-RET-ABI + state flatten). Multi-width UInt8/16/32/128/256,
-    Principal, anonymous containers, Field, String fail closed at type closure.
-    Named aggregate params and pureFn aggregate returns stay fail closed at
-    callable lowering; anonymous Array/Map/Bytes/Option returns stay FC. -/
+/-- CosmWasm admits body+ABI multi-width UInt{8,16,32,64} (BL-15 / T8 pattern)
+    plus Int64 and named Struct/Enum (B-RET-ABI + state flatten).
+    UInt128/256, narrow Int{8,16,32}, Principal, anonymous containers, Field,
+    String fail closed at type closure. Named aggregate params and pureFn
+    aggregate returns stay fail closed at callable lowering; anonymous
+    Array/Map/Bytes/Option returns stay FC.
+
+    Physical KV honesty: CosmWasm always stores scalar state as an 8-byte LE
+    Region value (`pf_db_store_u64`). Narrow Plan `field.byteWidth` records the
+    semantic ABI width for layout markers / ABI JSON; high bytes must be zero
+    on load (Emit narrowStateLoad high-bit guard). Params arrive as JSON
+    decimals and are range-checked to `2^bitWidth − 1` at the entry boundary
+    (no silent truncation). -/
 private def cosmwasmUintWidthPolicyV1 : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32]
+  admittedWidths := #[64, 32, 8, 16]
 
 private def cosmwasmTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "CosmWasm"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64 and Int64 integer types are supported (MVP; multi-width fail closed)"
+    "only anonymous UInt{8,16,32,64} and Int64 integer types are supported (UInt128/256 and narrow Int fail closed)"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32 (shift-count), Int64, Unit, Bool, and named Struct/Enum are supported (no Field/Principal/anonymous containers)"
+    "only UInt{8,16,32,64}, Int64, Unit, Bool, and named Struct/Enum are supported (no Field/Principal/anonymous containers)"
 
 private def validateCosmWasmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult CosmWasmTypeClosureV1 :=
@@ -645,20 +653,22 @@ private def abiByteWidthOfTypeV1
     (types : CosmWasmTypeClosureV1) (typeId : TypeIdV1) : CompileResult Nat := do
   match types.uintWidthOf typeId with
   | some w =>
-      unless isNearAbiUintWidth w do
+      -- CosmWasm ABI admits UInt{8,16,32,64} only (no multiword 128/256).
+      unless isAbiUintWidth w do
         throw <| .planInvariant .cosmwasm
           s!"unsupported CosmWasm semantic shape: ABI UInt{w} is not admitted"
       pure (byteWidthOfBitWidth w)
   | none =>
       match types.intWidthOf typeId with
       | some w =>
-          unless isAbiIntWidth w do
+          -- Int64 only on CosmWasm (narrow Int FC via type-closure policy).
+          unless w == 64 do
             throw <| .planInvariant .cosmwasm
               s!"unsupported CosmWasm semantic shape: ABI Int{w} is not admitted"
           pure (byteWidthOfBitWidth w)
       | none =>
           throw <| .planInvariant .cosmwasm
-            "unsupported CosmWasm semantic shape: ABI type must be UInt8/16/32/64/128/256 or Int8/16/32/64"
+            "unsupported CosmWasm semantic shape: ABI type must be UInt8/16/32/64 or Int64"
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
 private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat) : Expr :=
@@ -1018,9 +1028,10 @@ private def makeStorageLayoutV1
             }
           stateLeaves := stateLeaves.push leaves
         else
-          -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
-          -- KV keys stay one-per-field (no packing); value length is the ABI width.
-          requirePublicUInt64OrInt64State cosmwasmPlanErr types state (allowNonPublic := true)
+          -- T8b/BL-15: scalar state admits UInt{8,16,32,64} / Int64 with Plan
+          -- byteWidth 1/2/4/8. Physical CosmWasm KV is always an 8-byte Region
+          -- (high bytes zero for narrow values); see type-closure docstring.
+          requirePublicUintAbiOrInt64State cosmwasmPlanErr types state (allowNonPublic := true)
           let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
           let fi := fields.size
           fields := fields.push {
@@ -1186,8 +1197,9 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
         (leafByteWidth := 1))
     else
-      -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8..64}; cumulative pitch.
-      requirePublicUInt64OrInt64Param cosmwasmPlanErr types owner param
+      -- T8b/BL-15: ABI params admit UInt{8,16,32,64}/Int64; cumulative 8-byte pitch.
+      -- JSON entry range-checks to 2^bitWidth−1 (Emit); no silent truncation.
+      requirePublicUintAbiOrInt64Param cosmwasmPlanErr types owner param
         (allowNonPublic := true)
       let isInt := (types.intWidthOf param.typeId).isSome
       let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
@@ -1516,7 +1528,7 @@ private def admitUIntWidthResultTypeV1
     CompileResult (TypeIdV1 × CosmWasmValueKindV1 × Nat) := do
   match types.uintWidthOf resultTypeId with
   | some w =>
-      unless isNearBodyUintWidth w do
+      unless isPilotBodyUintWidth w do
         throw <| .planInvariant .cosmwasm
           s!"unsupported CosmWasm semantic shape: arithmetic/bitwise result UInt{w} is not admitted"
       match uintKindOfWidthV1 w with
@@ -1770,7 +1782,7 @@ private def lowerBlockInstructionsV1
             dependencies := #[]
           }
         else if let some bitWidth := types.uintWidthOf typeId then
-          unless isNearBodyUintWidth bitWidth do
+          unless isPilotBodyUintWidth bitWidth do
             throw <| .planInvariant .cosmwasm
               s!"unsupported CosmWasm semantic shape: UInt{bitWidth} literal is not admitted"
           let kind ← match uintKindOfWidthV1 bitWidth with
@@ -1883,7 +1895,7 @@ private def lowerBlockInstructionsV1
             if isInt then pure 64
             else match types.uintWidthOf result.typeId with
               | some w =>
-                  unless isNearAbiUintWidth w do
+                  unless isAbiUintWidth w do
                     throw <| .planInvariant .cosmwasm
                       s!"unsupported CosmWasm semantic shape: state load UInt{w} is not admitted"
                   pure w
@@ -2089,7 +2101,7 @@ private def lowerBlockInstructionsV1
             let some bitWidth := widthOfUintKindV1 lhs.kind |
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: binary operands must be admitted UInt width"
-            unless isNearBodyUintWidth bitWidth do
+            unless isPilotBodyUintWidth bitWidth do
               throw <| .planInvariant .cosmwasm
                 s!"unsupported CosmWasm semantic shape: UInt{bitWidth} is not an admitted body width"
             if op == .add || op == .sub || op == .mul || op == .div ||
@@ -2295,7 +2307,7 @@ private def lowerBlockInstructionsV1
             unless valueWidth == expectedBitWidth do
               throw <| .planInvariant .cosmwasm
                 s!"unsupported CosmWasm semantic shape: state store value width {valueWidth} must match field bitWidth {expectedBitWidth}"
-            unless isNearAbiUintWidth valueWidth do
+            unless isAbiUintWidth valueWidth do
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: state store value must be admitted UInt width or Int64"
           let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
@@ -3363,20 +3375,24 @@ private def makeEntryV1
     throw <| .planInvariant .cosmwasm s!"entry name '{name}' is not a safe identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .cosmwasm s!"entry '{name}' does not return a public result"
-  -- CosmWasm MVP: scalar ABI is UInt64 / Bool / Int64; B-RET-ABI admits named
-  -- Struct/Enum (≤8 UInt64/Int64 leaves). Multi-width and anonymous containers FC.
+  -- BL-15: scalar ABI is UInt{8,16,32,64} / Bool / Int64; B-RET-ABI admits named
+  -- Struct/Enum (≤8 UInt64/Int64 leaves). UInt128/256, narrow Int, anonymous
+  -- containers stay FC. JSON result wire remains decimal for all scalar UInt.
   let (resultKind, expectedReturn, expectedAggregateLeaves) ←
     match types.uintWidthOf callable.result.typeId with
+    | some 8 => pure (MethodResultKind.uint8, some CosmWasmValueKindV1.uint8, none)
+    | some 16 => pure (MethodResultKind.uint16, some CosmWasmValueKindV1.uint16, none)
+    | some 32 => pure (MethodResultKind.uint32, some CosmWasmValueKindV1.uint32, none)
     | some 64 => pure (MethodResultKind.uint64, some CosmWasmValueKindV1.uint64, none)
     | some w =>
         throw <| .planInvariant .cosmwasm
-          s!"entry '{name}' does not return public UInt64 (UInt{w} multi-width fail closed at CosmWasm MVP)"
+          s!"entry '{name}' does not return public UInt8/16/32/64 (UInt{w} multi-width fail closed on CosmWasm)"
     | none =>
         match types.intWidthOf callable.result.typeId with
         | some 64 => pure (MethodResultKind.int64, some CosmWasmValueKindV1.int64, none)
         | some w =>
             throw <| .planInvariant .cosmwasm
-              s!"entry '{name}' does not return public Int64 (Int{w} multi-width fail closed at CosmWasm MVP)"
+              s!"entry '{name}' does not return public Int64 (Int{w} multi-width fail closed on CosmWasm)"
         | none =>
           if types.boolTypeId == some callable.result.typeId then
             pure (MethodResultKind.bool, some CosmWasmValueKindV1.bool, none)
@@ -3391,7 +3407,7 @@ private def makeEntryV1
               s!"entry '{name}' cannot return anonymous container (Array/Map/Bytes/Option); CosmWasm B-RET-ABI admits only named Struct/Enum (cap-8 leaves)"
           else
             throw <| .planInvariant .cosmwasm
-              s!"entry '{name}' does not return public UInt64, Int64, Bool, or named Struct/Enum aggregate"
+              s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or named Struct/Enum aggregate"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view

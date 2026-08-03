@@ -39,7 +39,12 @@ inductive Operation where
   | zeroState (field : KeyRegion)
   | literal (destination : Nat) (value : UInt64)
   | loadParam (destination inputOffset : Nat)
+  /-- Narrow ABI param copy (`bitWidth ∈ {8,16,32}`); params already
+      range-checked at JSON entry (see `renderParamRangeGuard`). -/
+  | narrowLoadParam (bitWidth destination inputOffset : Nat)
   | loadState (destination : Nat) (field : KeyRegion)
+  /-- Narrow ABI state load: 8-byte Region load + high-bit-zero guard. -/
+  | narrowLoadState (bitWidth destination : Nat) (field : KeyRegion)
   | checkedAdd (destination lhs rhs : Nat)
   | checkedSub (destination lhs rhs : Nat)
   | checkedMul (destination lhs rhs : Nat)
@@ -87,6 +92,18 @@ inductive Operation where
   | shl (destination lhs rhs : Nat)
   | shr (destination lhs rhs : Nat)
   | bitNot (destination source : Nat)
+  /-- Narrow body checked arithmetic (`bitWidth ∈ {8,16,32}`); high-bit guards. -/
+  | narrowCheckedAdd (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedSub (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedMul (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedDiv (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedMod (bitWidth destination lhs rhs : Nat)
+  | narrowBitAnd (bitWidth destination lhs rhs : Nat)
+  | narrowBitOr (bitWidth destination lhs rhs : Nat)
+  | narrowBitXor (bitWidth destination lhs rhs : Nat)
+  | narrowBitNot (bitWidth destination source : Nat)
+  | narrowShl (bitWidth destination lhs rhs : Nat)
+  | narrowShr (bitWidth destination lhs rhs : Nat)
   | boolNot (destination source : Nat)
   | boolAnd (destination lhs rhs : Nat)
   | boolOr (destination lhs rhs : Nat)
@@ -180,11 +197,12 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         { operations := #[], value := inputOffset / 8, next := next }
       else
         { operations := #[.loadParam next inputOffset], value := next, next := next + 1 }
-  | .narrowParam _ inputOffset =>
+  | .narrowParam bitWidth inputOffset =>
       if paramAsTemp then
         { operations := #[], value := inputOffset / 8, next := next }
       else
-        { operations := #[.loadParam next inputOffset], value := next, next := next + 1 }
+        { operations := #[.narrowLoadParam bitWidth next inputOffset]
+          value := next, next := next + 1 }
   | .localTemp index =>
       match localEnv.find? (fun p => p.1 == index) with
       | some (_, irTemp) =>
@@ -197,9 +215,9 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         value := next
         next := next + 1
       }
-  | .narrowStateLoad _ fieldIndex =>
+  | .narrowStateLoad bitWidth fieldIndex =>
       {
-        operations := #[.loadState next (fieldRegion keys fieldIndex)]
+        operations := #[.narrowLoadState bitWidth next (fieldRegion keys fieldIndex)]
         value := next
         next := next + 1
       }
@@ -313,48 +331,69 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       let op := lowerExpr keys next paramAsTemp localEnv operand
       { operations := op.operations ++ #[.bitNot op.next op.value]
         value := op.next, next := op.next + 1 }
-  | .narrowCheckedAdd _ lhs rhs | .narrowCheckedSub _ lhs rhs
-  | .narrowCheckedMul _ lhs rhs | .narrowCheckedDiv _ lhs rhs
-  | .narrowCheckedMod _ lhs rhs =>
-      -- Multi-width FC: treat as full-width checked (only reached via hand-built Plan).
+  | .narrowCheckedAdd bitWidth lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.checkedAdd rhs.next lhs.value rhs.value]
+          #[.narrowCheckedAdd bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .narrowBitAnd _ lhs rhs =>
+  | .narrowCheckedSub bitWidth lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.bitAnd rhs.next lhs.value rhs.value]
+          #[.narrowCheckedSub bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .narrowBitOr _ lhs rhs =>
+  | .narrowCheckedMul bitWidth lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.bitOr rhs.next lhs.value rhs.value]
+          #[.narrowCheckedMul bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .narrowBitXor _ lhs rhs =>
+  | .narrowCheckedDiv bitWidth lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.bitXor rhs.next lhs.value rhs.value]
+          #[.narrowCheckedDiv bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .narrowBitNot _ operand =>
+  | .narrowCheckedMod bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedMod bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowBitAnd bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitAnd bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowBitOr bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitOr bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowBitXor bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitXor bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowBitNot bitWidth operand =>
       let op := lowerExpr keys next paramAsTemp localEnv operand
-      { operations := op.operations ++ #[.bitNot op.next op.value]
+      { operations := op.operations ++ #[.narrowBitNot bitWidth op.next op.value]
         value := op.next, next := op.next + 1 }
-  | .narrowShl _ lhs rhs =>
+  | .narrowShl bitWidth lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.shl rhs.next lhs.value rhs.value]
+          #[.narrowShl bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .narrowShr _ lhs rhs =>
+  | .narrowShr bitWidth lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.shr rhs.next lhs.value rhs.value]
+          #[.narrowShr bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
   | .boolNot operand =>
       let op := lowerExpr keys next paramAsTemp localEnv operand
@@ -553,8 +592,10 @@ private def expectedFns (plan : Plan) (keys : Array KeyRegion) : Array FnIR :=
 
 private partial def opIsMethodOnlyV1 : Operation → Bool
   | .requireLayoutAbsent _ | .requireLayout _ _
-  | .zeroState _ | .loadState _ _ | .storeState _ _
-  | .setLayout _ _ | .setReturnData _ | .setReturnDataMulti _ | .loadParam _ _ => true
+  | .zeroState _ | .loadState _ _ | .narrowLoadState _ _ _
+  | .storeState _ _
+  | .setLayout _ _ | .setReturnData _ | .setReturnDataMulti _
+  | .loadParam _ _ | .narrowLoadParam _ _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
   | .switchRegion _ cases defaultOps =>
@@ -1265,9 +1306,20 @@ private partial def renderOperation (memory : MemoryLayout)
   | .loadParam destination inputOffset =>
       -- Params live in locals $p{inputOffset/8} filled by JSON parse before body.
       s!"{indent}(local.set $t{destination} (local.get $p{inputOffset / 8}))\n"
+  | .narrowLoadParam _bitWidth destination inputOffset =>
+      -- Range already enforced at JSON entry (`renderParamRangeGuard`); body
+      -- copies the same $pN local as UInt64.
+      s!"{indent}(local.set $t{destination} (local.get $p{inputOffset / 8}))\n"
   | .loadState destination field =>
       s!"{indent}(local.set $t{destination} (call $pf_db_load_u64 (i32.const {field.offset}) (i32.const {field.length})))\n"
+  | .narrowLoadState bitWidth destination field =>
+      -- Physical CosmWasm KV is always 8-byte LE. Semantic narrow values live
+      -- in the low bytes with high bytes zero; corrupt high bits trap.
+      s!"{indent}(local.set $t{destination} (call $pf_db_load_u64 (i32.const {field.offset}) (i32.const {field.length})))\n" ++
+        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
   | .storeState field value =>
+      -- Always 8-byte Region store; narrow temps already high-bit-clean from
+      -- body guards / entry range checks (high bytes zero by construction).
       s!"{indent}(call $pf_db_store_u64 (i32.const {field.offset}) (i32.const {field.length}) (local.get $t{value}))\n"
   | .setLayout marker value =>
       s!"{indent}(call $pf_db_store_u64 (i32.const {marker.offset}) (i32.const {marker.length}) (i64.const {value.toNat}))\n"
@@ -1361,6 +1413,45 @@ private partial def renderOperation (memory : MemoryLayout)
   | .sar destination lhs rhs =>
       s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
         s!"{indent}(local.set $t{destination} (i64.shr_s (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowCheckedAdd bitWidth destination lhs rhs =>
+      -- i64.add then high bits above bitWidth must be zero (overflow trap).
+      s!"{indent}(local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowCheckedSub _bitWidth destination lhs rhs =>
+      -- Underflow guard identical to UInt64; result auto in-range for UInt.
+      s!"{indent}(if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowCheckedMul bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.mul (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowCheckedDiv _bitWidth destination lhs rhs =>
+      s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.div_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowCheckedMod _bitWidth destination lhs rhs =>
+      s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.rem_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitAnd _bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.and (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitOr _bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.or (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitXor _bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.xor (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitNot bitWidth destination source =>
+      let mask :=
+        match bitWidth with
+        | 8 => "255"
+        | 16 => "65535"
+        | 32 => "4294967295"
+        | _ => "18446744073709551615"
+      s!"{indent}(local.set $t{destination} (i64.and (i64.xor (local.get $t{source}) (i64.const -1)) (i64.const {mask})))\n"
+  | .narrowShl bitWidth destination lhs rhs =>
+      -- Count ≥ 64 trap; shl; high bits above bitWidth must be 0.
+      s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.shl (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowShr _bitWidth destination lhs rhs =>
+      s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.shr_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .boolNot destination source =>
       s!"{indent}(local.set $t{destination} (i64.extend_i32_u (i64.eqz (local.get $t{source}))))\n"
   | .boolAnd destination lhs rhs =>
@@ -1607,6 +1698,16 @@ private def findNeedle (needles : Array (String × Nat × Nat)) (key : String) :
   | some (_, off, len) => (off, len)
   | none => (0, 0)
 
+/-- After JSON decimal parse into `$p{i}`, reject values outside the param's
+    admitted ABI width. Critical honesty for JSON number inputs: never silently
+    truncate UInt8/16/32. UInt64 keeps the existing `pf_parse_u64_field` bound
+    alone (`2^64−1`). Narrow: trap if `shr_u p bitWidth ≠ 0`. -/
+private def renderParamRangeGuard (indent : String) (i : Nat) (byteWidth : Nat) : String :=
+  let bitWidth := byteWidth * 8
+  if bitWidth ≥ 64 then ""
+  else
+    s!"{indent}(if (i64.ne (i64.shr_u (local.get $p{i}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+
 private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × Nat)) : String :=
   Id.run do
     let init := ir.methods[0]!  -- initializer is always first
@@ -1615,7 +1716,8 @@ private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × 
       let p := init.params[i]!
       let (off, len) := findNeedle paramNeedles s!"{init.name}.{p.name}"
       parse := parse ++
-        s!"    (local.set $p{i} (call $pf_parse_u64_field (local.get $msg_off) (local.get $msg_len) (i32.const {off}) (i32.const {len})))\n"
+        s!"    (local.set $p{i} (call $pf_parse_u64_field (local.get $msg_off) (local.get $msg_len) (i32.const {off}) (i32.const {len})))\n" ++
+        renderParamRangeGuard "    " i p.byteWidth
     let args := String.intercalate " " <| (Array.range init.params.size).toList.map fun i =>
       s!"(local.get $p{i})"
     let paramLocals := String.intercalate "" <| (Array.range init.params.size).toList.map fun i =>
@@ -1640,7 +1742,8 @@ private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String 
         let p := method.params[i]!
         let (off, len) := findNeedle paramNeedles s!"{method.name}.{p.name}"
         parse := parse ++
-          s!"        (local.set $p{i} (call $pf_parse_u64_field (local.get $msg_off) (local.get $msg_len) (i32.const {off}) (i32.const {len})))\n"
+          s!"        (local.set $p{i} (call $pf_parse_u64_field (local.get $msg_off) (local.get $msg_len) (i32.const {off}) (i32.const {len})))\n" ++
+          renderParamRangeGuard "        " i p.byteWidth
       let args := String.intercalate " " <| (Array.range method.params.size).toList.map fun i =>
         s!"(local.get $p{i})"
       dispatch := dispatch ++
@@ -1671,7 +1774,8 @@ private def renderQuery (ir : IR) (methodNeedles paramNeedles : Array (String ×
         let p := method.params[i]!
         let (off, len) := findNeedle paramNeedles s!"{method.name}.{p.name}"
         parse := parse ++
-          s!"        (local.set $p{i} (call $pf_parse_u64_field (local.get $msg_off) (local.get $msg_len) (i32.const {off}) (i32.const {len})))\n"
+          s!"        (local.set $p{i} (call $pf_parse_u64_field (local.get $msg_off) (local.get $msg_len) (i32.const {off}) (i32.const {len})))\n" ++
+          renderParamRangeGuard "        " i p.byteWidth
       let args := String.intercalate " " <| (Array.range method.params.size).toList.map fun i =>
         s!"(local.get $p{i})"
       dispatch := dispatch ++
@@ -1726,14 +1830,26 @@ private def renderMode : MethodMode → String
   | .mutate => "execute"
   | .view => "query"
 
+/-- ABI JSON type token from Plan semantic byteWidth (physical KV remains
+    8-byte LE Region; JSON params are decimal with exact range check). -/
+private def renderAbiTypeString (byteWidth : Nat) : String :=
+  match byteWidth with
+  | 1 => "u8"
+  | 2 => "u16"
+  | 4 => "u32"
+  | _ => "u64"
+
 private def renderParamJson (param : Param) : String :=
-  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"u64\"}"
+  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"{renderAbiTypeString param.byteWidth}\"}"
 
 private def renderMethodJson (method : Method) : String :=
   let returns :=
     match method.resultKind with
     | .unit => "null"
     | .uint64 => "\"u64\""
+    | .uint8 => "\"u8\""
+    | .uint16 => "\"u16\""
+    | .uint32 => "\"u32\""
     | .bool => "\"bool\""
     | .int64 => "\"i64\""
     -- B-RET-ABI: leaf tuple as a JSON array of leaf type strings
@@ -1753,7 +1869,7 @@ private def renderMethodJson (method : Method) : String :=
 
 private def renderAbi (plan : Plan) : String :=
   let fields := String.intercalate "," (plan.storage.fields.toList.map fun f =>
-    s!"\{\"name\":\"{Targets.escapeJson f.name}\",\"key\":\"{Targets.escapeJson f.key}\",\"type\":\"u64\"}")
+    s!"\{\"name\":\"{Targets.escapeJson f.name}\",\"key\":\"{Targets.escapeJson f.key}\",\"type\":\"{renderAbiTypeString f.byteWidth}\"}")
   let methods := #[plan.initializer] ++ plan.entries
   let exports := String.intercalate ",\n    " (methods.toList.map renderMethodJson)
   "{\n" ++

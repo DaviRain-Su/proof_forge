@@ -142,8 +142,12 @@ private def validateStorageLayout (limits : ResourceLimits)
     throw <| .planInvariant .cosmwasm "state field count is outside the profile limits"
   for index in [0:layout.fields.size] do
     let field := layout.fields[index]!
-    -- CosmWasm MVP: public UInt64/Int64 leaves only (8-byte).
-    let admittedWidth := field.byteWidth == 8
+    -- BL-15: Plan semantic byteWidth ∈ {1,2,4,8} for UInt{8,16,32,64}/Int64.
+    -- Physical CosmWasm KV is always an 8-byte Region (high bytes zero for
+    -- narrow values); Emit does not use byteWidth as the Region length.
+    let admittedWidth :=
+      field.byteWidth == 1 || field.byteWidth == 2 ||
+      field.byteWidth == 4 || field.byteWidth == 8
     unless field.sourceId == index && isIdentifier field.name &&
         field.key == stateKey index && admittedWidth &&
         field.endianness == .little do
