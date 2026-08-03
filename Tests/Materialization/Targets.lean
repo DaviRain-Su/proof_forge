@@ -411,8 +411,13 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
     throw <| IO.userError "anonymous result boundary: missing getArray"
   expect (callable.result.typeId == arrayTid)
     "anonymous result boundary: Normalize must retain anonymous Array result TypeId"
+  -- EVM admits anonymous Array UInt64 N (N≤8) returns (BL-18).
+  match materializeSelected TargetId.evm compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: evm must admit Array UInt64 2 return, got {e.render}"
   for (target, kind, marker) in #[
-      (TargetId.evm, TargetKind.evm, "named Struct/Enum aggregate"),
       (TargetId.solana, TargetKind.solana, "cannot return multi-leaf aggregate"),
       (TargetId.near, TargetKind.near, "does not return public"),
       (TargetId.noir, TargetKind.noir, "named Struct/Enum aggregate"),
