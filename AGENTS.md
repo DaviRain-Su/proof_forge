@@ -50,15 +50,17 @@
 > 14,640-byte ELF；committed manifest绑定 source/profile/extension/boundary/text/ELF，Mollusk固定
 > init/route/view、0/16/17 与 22 个 one-mutation full-snapshot negatives。该 ELF 只能称
 > production-code-generated **test-preactivation ELF**，不是 `OutputFile`/产品 artifact；ordinary resolver
-> 仍拒 sync，#119–#125 与 formal D5 均 pending。
+> 仍拒 sync；#119 见下；#120+ 与 formal D5 仍 pending。
 >
 > **2026-08-04 Solana #119 unsigned companion CPI update**：独立 `CpiUnsignedIRV1` +
 > `EmitCpiUnsignedSbpfV1` 在仍为 activationDenied/test-preactivation 的 lane 上，对 pinned
 > companion-v1 发射真实 unsigned `sol_invoke_signed_c`（零 signer groups）与成功路径
-> `sol_set_return_data(0,0)`；#118 no-invoke 链保持独立。`CompanionCpi` fixture 证明
-> state write → CPI → post-call write 的 source order，以及 fail 路径完整 snapshot rollback +
-> `fail:v1!` 保留。committed unsigned manifest 绑定 source/profile/extension 与 #115 companion
-> ELF pin；ordinary resolver 仍拒 sync，无 OutputFile；#120+ 与 formal D5 仍 pending。
+> `sol_set_return_data(0,0)`；#118 no-invoke 链保持独立。exact Semantic-bound authority；
+> `CompanionCpi` fixture 证明 state write → CPI → post-call write 的 source order，以及 fail 路径
+> 完整 snapshot rollback + `fail:v1!` 保留。committed unsigned manifest 绑定 source/profile/extension
+> 与 #115 companion ELF pin。准确称谓是 production-code-generated **test-preactivation unsigned-CPI
+> ELF**，**不是** `OutputFile`/产品 artifact/activated sync support；ordinary resolver 仍拒 sync；
+> #120 PDA/bump/`invoke_signed` 与 #121+ 仍 pending；formal D5/Stage-0 hermetic/deployment 不变。
 >
 > **2026-08-02 invariant lowering update**：`NormalizeV1` 现将 source `invariant` 降为
 > source-order Semantic `.invariant` callables 与 dense `InvariantDecl`，并复用 Wire sole closure membership/

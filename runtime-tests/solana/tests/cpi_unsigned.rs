@@ -121,7 +121,10 @@ fn committed_manifest_and_generated_bytes_are_exact_preactivation_evidence() {
     let head: String = after_fail.lines().take(4).collect::<Vec<_>>().join("\n");
     assert!(head.contains("exit"), "cpi_failed must exit");
     assert!(!head.contains("stxdw"), "no store after cpi_failed");
-    assert!(!head.contains("call sol_invoke"), "no invoke after cpi_failed");
+    assert!(
+        !head.contains("call sol_invoke"),
+        "no invoke after cpi_failed"
+    );
     let elf = read_cpi_unsigned_elf();
     assert!(elf.starts_with(b"\x7fELF"));
 }
@@ -144,6 +147,7 @@ fn unsigned_manifest_closed_identity_mutations_fail() {
         ("/programIdHex", json!("00")),
         ("/companionProgramIdHex", json!("00")),
         ("/companion/elfSha256", json!("00")),
+        ("/companion/elfSize", json!(1777)),
         ("/handlers/invokeOnce", json!(9)),
         ("/expectedAssembly/sha256", json!("00")),
         ("/expectedElf/size", json!(0)),
@@ -173,10 +177,7 @@ fn invoke_success_updates_companion_once_and_commits_caller_pre_post_writes() {
     let result = mollusk.process_and_validate_instruction(
         &ix,
         &case.accounts,
-        &[
-            Check::success(),
-            Check::return_data(&13u64.to_le_bytes()),
-        ],
+        &[Check::success(), Check::return_data(&13u64.to_le_bytes())],
     );
     let post_state = result
         .resulting_accounts
@@ -199,6 +200,103 @@ fn invoke_success_updates_companion_once_and_commits_caller_pre_post_writes() {
         post_counter.data,
         12u64.to_le_bytes().to_vec(),
         "companion counter must be mutated exactly once"
+    );
+
+    // Full success snapshot: only the two expected data payloads may change;
+    // lamports/owner/executable/rent_epoch and the program account stay exact.
+    let mut expected_accounts = case.accounts.clone();
+    expected_accounts
+        .iter_mut()
+        .find(|(key, _)| *key == case.state_key)
+        .expect("expected state")
+        .1
+        .data = companion_cpi_state(true, 13);
+    expected_accounts
+        .iter_mut()
+        .find(|(key, _)| *key == case.account_key)
+        .expect("expected counter")
+        .1
+        .data = 12u64.to_le_bytes().to_vec();
+    let expected_keys: Vec<Pubkey> = expected_accounts.iter().map(|(key, _)| *key).collect();
+    let expected_observed: Vec<(Pubkey, Option<Account>)> = expected_accounts
+        .iter()
+        .map(|(key, account)| (*key, Some(account.clone())))
+        .collect();
+    let actual_observed: Vec<(Pubkey, Option<Account>)> = result
+        .resulting_accounts
+        .iter()
+        .map(|(key, account)| (*key, Some(account.clone())))
+        .collect();
+    assert_eq!(
+        snapshot_exact_accounts(&expected_keys, &actual_observed).expect("actual success snapshot"),
+        snapshot_exact_accounts(&expected_keys, &expected_observed)
+            .expect("expected success snapshot"),
+        "success may change only caller-state and companion-counter data"
+    );
+}
+
+#[test]
+fn high_byte_uint64_delta_reaches_companion_exactly() {
+    let (mollusk, program_id, companion_id) = make_cpi_unsigned_mollusk();
+    let case = InvokeCase::new(program_id, companion_id, 10, 7);
+    // Bit 63 set: proves all 8 LE limbs of the delta survive outer encode,
+    // account-info walk, and the real companion checked_add path.
+    let delta = 0x8000_0000_0000_0005u64;
+    let expected_counter = 7u64.wrapping_add(delta);
+    assert_ne!(
+        expected_counter.to_le_bytes()[7],
+        0,
+        "high-byte coverage requires a non-zero MSB after companion add"
+    );
+    let ix = case.instruction(program_id, CPI_UNSIGNED_INVOKE_ONCE_HANDLER_ID, delta);
+    let result = mollusk.process_and_validate_instruction(
+        &ix,
+        &case.accounts,
+        &[Check::success(), Check::return_data(&13u64.to_le_bytes())],
+    );
+    let post_counter = result
+        .resulting_accounts
+        .iter()
+        .find(|(key, _)| *key == case.account_key)
+        .map(|(_, account)| account)
+        .expect("counter present");
+    assert_eq!(
+        post_counter.data,
+        expected_counter.to_le_bytes().to_vec(),
+        "all eight little-endian delta bytes must reach the companion"
+    );
+
+    // Full success snapshot still holds: only counter data carries the high
+    // byte; caller-state (+1/+2) and companion program metadata stay exact.
+    let mut expected_accounts = case.accounts.clone();
+    expected_accounts
+        .iter_mut()
+        .find(|(key, _)| *key == case.state_key)
+        .expect("expected state")
+        .1
+        .data = companion_cpi_state(true, 13);
+    expected_accounts
+        .iter_mut()
+        .find(|(key, _)| *key == case.account_key)
+        .expect("expected counter")
+        .1
+        .data = expected_counter.to_le_bytes().to_vec();
+    let expected_keys: Vec<Pubkey> = expected_accounts.iter().map(|(key, _)| *key).collect();
+    let expected_observed: Vec<(Pubkey, Option<Account>)> = expected_accounts
+        .iter()
+        .map(|(key, account)| (*key, Some(account.clone())))
+        .collect();
+    let actual_observed: Vec<(Pubkey, Option<Account>)> = result
+        .resulting_accounts
+        .iter()
+        .map(|(key, account)| (*key, Some(account.clone())))
+        .collect();
+    assert_eq!(
+        snapshot_exact_accounts(&expected_keys, &actual_observed)
+            .expect("actual high-byte success snapshot"),
+        snapshot_exact_accounts(&expected_keys, &expected_observed)
+            .expect("expected high-byte success snapshot"),
+        "high-byte success may change only caller-state and companion-counter data"
     );
 }
 
@@ -249,10 +347,7 @@ fn init_and_inspect_without_cpi() {
     mollusk.process_and_validate_instruction(
         &view_ix,
         &[(view_key, view_account)],
-        &[
-            Check::success(),
-            Check::return_data(&77u64.to_le_bytes()),
-        ],
+        &[Check::success(), Check::return_data(&77u64.to_le_bytes())],
     );
 }
 
@@ -263,8 +358,8 @@ enum InvokeMutation {
     CompanionProgramSubstitution,
     AccountPermutation,
     AliasStateAndCounter,
-    HighByteKeyDelta,
-    CompanionCounterReadonly,
+    HighByteProgramKeyDelta,
+    CompanionCounterWrongOwner,
 }
 
 fn mutate_invoke(mut case: InvokeCase, mutation: InvokeMutation) -> InvokeCase {
@@ -295,7 +390,7 @@ fn mutate_invoke(mut case: InvokeCase, mutation: InvokeMutation) -> InvokeCase {
             case.accounts[1].1 = case.accounts[0].1.clone();
             case.account_key = case.state_key;
         }
-        InvokeMutation::HighByteKeyDelta => {
+        InvokeMutation::HighByteProgramKeyDelta => {
             // Corrupt only the high byte of the frozen companion program id so a
             // partial 24-byte compare cannot accept a near-miss key.
             let mut bytes = case.companion_program_key.to_bytes();
@@ -306,8 +401,8 @@ fn mutate_invoke(mut case: InvokeCase, mutation: InvokeMutation) -> InvokeCase {
             case.companion_program_key = wrong;
             case.accounts[2] = (wrong, wrong_account);
         }
-        InvokeMutation::CompanionCounterReadonly => {
-            case.metas[1] = AccountMeta::new_readonly(case.account_key, false);
+        InvokeMutation::CompanionCounterWrongOwner => {
+            case.account_mut(case.account_key).owner = fixed_key(0x76);
         }
     }
     case
@@ -322,8 +417,8 @@ fn one_mutation_negatives_fail_closed_with_full_snapshot() {
         InvokeMutation::UnexpectedSigner,
         InvokeMutation::CompanionProgramSubstitution,
         InvokeMutation::AccountPermutation,
-        InvokeMutation::HighByteKeyDelta,
-        InvokeMutation::CompanionCounterReadonly,
+        InvokeMutation::HighByteProgramKeyDelta,
+        InvokeMutation::CompanionCounterWrongOwner,
     ] {
         let case = mutate_invoke(base.clone(), mutation);
         assert_failure_preserves_exact_accounts(
@@ -342,12 +437,17 @@ fn alias_state_and_counter_keys_fail_closed() {
         InvokeCase::new(program_id, companion_id, 10, 7),
         InvokeMutation::AliasStateAndCounter,
     );
-    // Alias produces duplicate outer keys; runtime rejects before CPI. Snapshot
-    // helper requires unique keys, so assert error without multi-key pre snapshot.
-    mollusk.process_and_validate_instruction(
+    // Alias produces duplicate outer keys; the map-based helper deliberately
+    // rejects duplicate keys, so compare the ordered full account vector.
+    let pre = case.accounts.clone();
+    let result = mollusk.process_and_validate_instruction(
         &case.instruction(program_id, CPI_UNSIGNED_INVOKE_ONCE_HANDLER_ID, 5),
         &case.accounts,
         &[Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN))],
+    );
+    assert_eq!(
+        result.resulting_accounts, pre,
+        "aliased failure must preserve every full account record in order"
     );
 }
 

@@ -91,8 +91,18 @@ D1–D4 共 27 个 formal task，当前仍为：
 > signer/writable checks；PDA/signer groups/provisioning/Token/ATA继续 fail closed。`AccountRoles` 经该真实
 > authority/emitter生成后由 locked `sbpf 0.2.2` 汇编并在 Mollusk跑正向、0/16/17边界与 22 个 single-
 > mutation rollback negatives。该输出是 manifest-bound production-code-generated test-preactivation ELF，
-> 无 invoke、无 `OutputFile`、无产品 materialization；ordinary resolver仍拒 sync，#119/#120/#121–#125
-> 与 formal D5 均 pending。
+> 无 invoke、无 `OutputFile`、无产品 materialization；ordinary resolver仍拒 sync。#119 已在独立 unsigned
+> 链接 real invoke（见下）；#120/#121–#125 与 formal D5 仍 pending。
+
+> **2026-08-04 Solana #119 unsigned companion CPI 增量**：独立 `CpiUnsignedIRV1`/`EmitCpiUnsignedSbpfV1`
+> 在仍为 activationDenied/test-preactivation 的 `solana-sbpf-cpi-elf-v1` lane 上，对 pinned companion-v1
+> 发射真实 unsigned `sol_invoke_signed_c`（零 signer groups）与成功路径 `sol_set_return_data(0,0)`；
+> authority 仍为 retained Semantic → private preflight/unsigned IR 链，#118 no-invoke 回归保持独立。
+> `CompanionCpi` 固定 state write → CPI → post-call write 的 source order，以及 fail 路径完整 snapshot
+> rollback + `fail:v1!` 保留；committed unsigned manifest 绑定 source/profile/extension 与 #115
+> companion ELF pin。准确称谓是 production-code-generated **test-preactivation unsigned-CPI ELF**，
+> **不是** `OutputFile`/产品 artifact/activated sync support；ordinary resolver 仍拒 sync。#120
+> PDA/bump/`invoke_signed` 与 #121+ 仍 pending；formal D5/Stage-0 hermetic/deployment 不变。
 
 ### D1 Linux frontend supervisor 增量（2026-07-30）
 

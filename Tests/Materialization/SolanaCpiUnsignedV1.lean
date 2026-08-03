@@ -105,6 +105,57 @@ private def multiBlockSource : String :=
     "    call solana.companion.invoke(account, delta)\n" ++
     "    return value\n"
 
+private def dualPrincipalSource : String :=
+  wrapProgram "UnsignedDualPrincipal" <|
+    "  state value : UInt64\n" ++
+    "  init() do\n" ++
+    "    value := 0\n" ++
+    "  entry invokeBoth(first : Principal, second : Principal,\n" ++
+    "      delta : UInt64) : UInt64 do\n" ++
+    "    call solana.companion.invoke(first, delta)\n" ++
+    "    call solana.companion.invoke(second, delta)\n" ++
+    "    return 0\n"
+
+private def literalDeltaSource : String :=
+  wrapProgram "UnsignedLiteralDelta" <|
+    "  state value : UInt64\n" ++
+    "  init() do\n" ++
+    "    value := 0\n" ++
+    "  entry invokeLiteral(account : Principal) : UInt64 do\n" ++
+    "    let delta : UInt64 := 513\n" ++
+    "    call solana.companion.invoke(account, delta)\n" ++
+    "    return delta\n"
+
+/-- State + 14 distinct Principal roles + one fixed callee = exact 16-role cap. -/
+private def maxRoleSource : String :=
+  wrapProgram "UnsignedMaxRoles" <|
+    "  state value : UInt64\n" ++
+    "  init() do\n" ++
+    "    value := 0\n" ++
+    "  entry invokeMany(\n" ++
+    "      a0 : Principal, a1 : Principal, a2 : Principal, a3 : Principal,\n" ++
+    "      a4 : Principal, a5 : Principal, a6 : Principal, a7 : Principal,\n" ++
+    "      a8 : Principal, a9 : Principal, a10 : Principal, a11 : Principal,\n" ++
+    "      a12 : Principal, a13 : Principal, delta : UInt64) : UInt64 do\n" ++
+    "    call solana.companion.invoke(a0, delta)\n" ++
+    "    call solana.companion.invoke(a1, delta)\n" ++
+    "    call solana.companion.invoke(a2, delta)\n" ++
+    "    call solana.companion.invoke(a3, delta)\n" ++
+    "    call solana.companion.invoke(a4, delta)\n" ++
+    "    call solana.companion.invoke(a5, delta)\n" ++
+    "    call solana.companion.invoke(a6, delta)\n" ++
+    "    call solana.companion.invoke(a7, delta)\n" ++
+    "    call solana.companion.invoke(a8, delta)\n" ++
+    "    call solana.companion.invoke(a9, delta)\n" ++
+    "    call solana.companion.invoke(a10, delta)\n" ++
+    "    call solana.companion.invoke(a11, delta)\n" ++
+    "    call solana.companion.invoke(a12, delta)\n" ++
+    "    call solana.companion.invoke(a13, delta)\n" ++
+    "    return 0\n"
+
+private def countSubstr (haystack needle : String) : Nat :=
+  (haystack.splitOn needle).length - 1
+
 private unsafe def compileSource
     (session : Language.Loader.ParserSession)
     (source moduleName path : String) : IO CompiledSemanticV1 := do
@@ -178,6 +229,27 @@ unsafe def run : IO Unit := do
   expect (!SolanaCpiUnsignedAssemblyV1.isProductArtifact asm) "isProductArtifact=false"
   expect (SolanaCpiUnsignedAssemblyV1.isTestPreactivation asm) "isTestPreactivation=true"
   expect (SolanaCpiUnsignedAssemblyV1.frameBytesOf asm ≤ 4096) "frame ≤ 4096"
+  let setReturnCalls := countSubstr text "call sol_set_return_data"
+  let checkedSetReturnCalls :=
+    countSubstr text "call sol_set_return_data\n  jne r0, 0, cpi_failed"
+  expect (setReturnCalls == checkedSetReturnCalls)
+    "every sol_set_return_data status must propagate through cpi_failed"
+
+  -- Every companion invoke retains an exact Principal ValueId→param→role→local
+  -- join, and meta[0] must use the same role/local handle.
+  for h in cand.handlers do
+    for op in h.bodyOps do
+      match op with
+      | .invokeUnsigned inv =>
+          expect (inv.principalBindings.size == 1 && inv.metas.size == 1)
+            s!"{h.name}: exact one Principal/meta binding"
+          let principal := inv.principalBindings[0]!
+          let metaBinding := inv.metas[0]!
+          expect (principal.argIndex == 0 &&
+              principal.roleId == metaBinding.roleId &&
+              principal.localIndex == metaBinding.localIndex)
+            s!"{h.name}: Principal/meta exact join"
+      | _ => pure ()
 
   -- After cpi_failed label, only exit (no store/event/call).
   let afterFail :=
@@ -192,6 +264,70 @@ unsafe def run : IO Unit := do
     "no further invoke after cpi_failed"
   expect (!failLines.any (fun l => l.contains "call sol_set_return_data"))
     "no success-clear after cpi_failed"
+
+  -- Two Principal parameters used by two sites must remain distinct all the
+  -- way through their Semantic ValueIds, declaration ordinals, roles and
+  -- dense handler-local positions.
+  let (dualUnsigned, _) ← fullUnsignedChain session dualPrincipalSource
+    "Examples.UnsignedDualPrincipal"
+    "runtime-tests/solana/fixtures/UnsignedDualPrincipal.lean"
+  let some dualHandler := (ResolvedSolanaCpiUnsignedIRV1.candidateOf dualUnsigned).handlers.find?
+      (fun h => h.name == "invokeBoth") |
+    throw <| IO.userError "missing invokeBoth handler"
+  let mut dualBindings : Array CpiUnsignedPrincipalBindingV1 := #[]
+  for op in dualHandler.bodyOps do
+    match op with
+    | .invokeUnsigned inv =>
+        let binding ← match inv.principalBindings[0]? with
+          | some b => pure b
+          | none => throw <| IO.userError "dual invoke missing Principal binding"
+        dualBindings := dualBindings.push binding
+    | _ => pure ()
+  expect (dualBindings.size == 2) "dual Principal: two invoke bindings"
+  let firstBinding := dualBindings[0]!
+  let secondBinding := dualBindings[1]!
+  expect (firstBinding.paramOrdinal == 0 && secondBinding.paramOrdinal == 1)
+    "dual Principal: exact parameter declaration ordinals"
+  expect (firstBinding.semanticValueId != secondBinding.semanticValueId &&
+      firstBinding.roleId != secondBinding.roleId &&
+      firstBinding.localIndex != secondBinding.localIndex)
+    "dual Principal: ValueId/role/local identity must not alias"
+  expect (firstBinding.localIndex == 1 && secondBinding.localIndex == 2)
+    "dual Principal: state precedes dense account-parameter roles"
+
+  -- Numeric instruction data may use the frozen literal source without
+  -- weakening the Principal account binding.
+  let (literalUnsigned, _) ← fullUnsignedChain session literalDeltaSource
+    "Examples.UnsignedLiteralDelta"
+    "runtime-tests/solana/fixtures/UnsignedLiteralDelta.lean"
+  let some literalHandler :=
+      (ResolvedSolanaCpiUnsignedIRV1.candidateOf literalUnsigned).handlers.find?
+        (fun h => h.name == "invokeLiteral") |
+    throw <| IO.userError "missing invokeLiteral handler"
+  let some literalInvoke := literalHandler.bodyOps.findSome? (fun
+      | .invokeUnsigned inv => some inv
+      | _ => none) |
+    throw <| IO.userError "missing literal invoke"
+  match literalInvoke.delta with
+  | .literal value => expect (value == 513) "literal delta exact UInt64 value"
+  | .param .. => throw <| IO.userError "literal delta incorrectly rebound to param"
+
+  -- At the exact 16-role cap, AccountInfo scratch grows toward the temp region.
+  -- CPI_BASE must move down far enough for the full 968-byte region.
+  let (maxUnsigned, maxAsm) ← fullUnsignedChain session maxRoleSource
+    "Examples.UnsignedMaxRoles"
+    "runtime-tests/solana/fixtures/UnsignedMaxRoles.lean"
+  let some maxHandler := (ResolvedSolanaCpiUnsignedIRV1.candidateOf maxUnsigned).handlers.find?
+      (fun h => h.name == "invokeMany") |
+    throw <| IO.userError "missing invokeMany handler"
+  expect (maxHandler.localRoleCount == 16) "max role fixture must hit exact cap"
+  expect (unsignedMaxSiteScratchV1
+      (ResolvedSolanaCpiUnsignedIRV1.candidateOf maxUnsigned) == 968)
+    "max role fixture scratch size"
+  expect (SolanaCpiUnsignedAssemblyV1.frameBytesOf maxAsm == 3160)
+    "max role frame includes relocated base plus reserve"
+  expect (hasSubstr (SolanaCpiUnsignedAssemblyV1.textOf maxAsm) ".equ CPI_BASE, 2192")
+    "max role CPI base leaves 968 bytes above temp region"
 
   -- System package rejected at unsigned IR.
   let sysCompiled ← compileSource session systemTransferSource

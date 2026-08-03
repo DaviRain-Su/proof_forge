@@ -1560,6 +1560,9 @@ pub const CPI_UNSIGNED_INVOKE_ONCE_HANDLER_ID: u64 = 1;
 pub const CPI_UNSIGNED_FAIL_ONCE_HANDLER_ID: u64 = 2;
 pub const CPI_UNSIGNED_INSPECT_HANDLER_ID: u64 = 3;
 const CPI_UNSIGNED_STEM: &str = "companion_cpi_unsigned";
+const CPI_UNSIGNED_COMPANION_ELF_SHA256: &str =
+    "c8738f1220c49c309ffe820ca397ae25540d6be29c6153934abd8548fa08c4b9";
+const CPI_UNSIGNED_COMPANION_ELF_SIZE: u64 = 1776;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1655,9 +1658,9 @@ fn decode_cpi_unsigned_manifest(bytes: &[u8]) -> Result<CpiUnsignedManifestV1, S
         manifest.companion_program_id_hex == hex::encode(HARNESS_COMPANION_ID_BYTES)
             && manifest.companion.package == "companion-v1"
             && manifest.companion.program_id_hex == hex::encode(HARNESS_COMPANION_ID_BYTES)
-            && is_lower_hex_64(&manifest.companion.elf_sha256)
-            && manifest.companion.elf_size > 0,
-        "companion identity",
+            && manifest.companion.elf_sha256 == CPI_UNSIGNED_COMPANION_ELF_SHA256
+            && manifest.companion.elf_size == CPI_UNSIGNED_COMPANION_ELF_SIZE,
+        "exact #115 companion identity",
     )?;
     expect(
         manifest.handlers.init == CPI_UNSIGNED_INIT_HANDLER_ID
@@ -1714,8 +1717,8 @@ fn read_cpi_unsigned_bound_file(
         output_manifest, committed_manifest,
         "CPI unsigned output manifest must be exact committed bytes"
     );
-    let manifest = decode_cpi_unsigned_manifest(&committed_manifest)
-        .unwrap_or_else(|error| panic!("{error}"));
+    let manifest =
+        decode_cpi_unsigned_manifest(&committed_manifest).unwrap_or_else(|error| panic!("{error}"));
     let selected = match suffix {
         "s" => &manifest.expected_assembly,
         "so" => &manifest.expected_elf,
@@ -1776,7 +1779,9 @@ pub fn read_cpi_unsigned_assembly() -> Vec<u8> {
         "#119 unsigned assembly must call sol_invoke_signed_c"
     );
     assert!(
-        !bytes.windows(b"0xec01".len()).any(|window| window == b"0xec01"),
+        !bytes
+            .windows(b"0xec01".len())
+            .any(|window| window == b"0xec01"),
         "#119 unsigned assembly must not contain 0xec01 stub"
     );
     bytes
@@ -1791,17 +1796,25 @@ pub fn read_cpi_unsigned_elf() -> Vec<u8> {
         bytes.starts_with(b"\x7fELF"),
         "CPI unsigned output must be ELF"
     );
-    // Companion pin must match #115 harness ELF bytes.
+    // Companion pin must hard-match the frozen #115 harness ELF bytes/size.
     let companion_elf = read_harness_elf("companion");
+    let companion_digest = hex::encode(Sha256::digest(&companion_elf));
     assert_eq!(
-        manifest.companion.elf_sha256,
-        hex::encode(Sha256::digest(&companion_elf)),
-        "unsigned companion pin must equal harness companion ELF bytes"
+        companion_digest, CPI_UNSIGNED_COMPANION_ELF_SHA256,
+        "harness companion ELF sha must equal frozen #115 pin"
     );
     assert_eq!(
-        manifest.companion.elf_size,
         companion_elf.len() as u64,
-        "unsigned companion size pin"
+        CPI_UNSIGNED_COMPANION_ELF_SIZE,
+        "harness companion ELF size must equal frozen #115 pin"
+    );
+    assert_eq!(
+        manifest.companion.elf_sha256, CPI_UNSIGNED_COMPANION_ELF_SHA256,
+        "unsigned companion pin must equal frozen #115 sha"
+    );
+    assert_eq!(
+        manifest.companion.elf_size, CPI_UNSIGNED_COMPANION_ELF_SIZE,
+        "unsigned companion size pin must equal frozen #115 size"
     );
     bytes
 }

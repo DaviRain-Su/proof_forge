@@ -56,9 +56,21 @@ inductive CpiUnsignedU64SourceV1 where
 /-- One CPI meta binding to a handler-local role. -/
 structure CpiUnsignedMetaV1 where
   metaIndex : Nat
+  roleId : Nat
   localIndex : Nat
   cpiWritable : Bool
   cpiSigner : Bool
+  deriving BEq, Repr, Inhabited
+
+/-- Exact Semantic Principal → callable parameter → outer role join retained by
+    the unsigned IR. The runtime key is synthesized from `localIndex`; this row
+    prevents a ValueId from being silently rebound to a different role. -/
+structure CpiUnsignedPrincipalBindingV1 where
+  argIndex : Nat
+  semanticValueId : Nat
+  paramOrdinal : Nat
+  roleId : Nat
+  localIndex : Nat
   deriving BEq, Repr, Inhabited
 
 /-- Site-local unsigned invoke description (companion-v1 only). -/
@@ -71,6 +83,7 @@ structure CpiUnsignedInvokeV1 where
   tag : Nat
   dataLen : Nat
   delta : CpiUnsignedU64SourceV1
+  principalBindings : Array CpiUnsignedPrincipalBindingV1
   metas : Array CpiUnsignedMetaV1
   /-- Full handler-local AccountInfo count (all roles, once each). -/
   accountInfoCount : Nat
@@ -413,17 +426,21 @@ private def projectSiteChecks
     CompileResult (Array CpiPreflightOpV1) := do
   let mut ops : Array CpiPreflightOpV1 := #[]
   for pred in site.sitePredicates do
-    let localHandleIndex ← match handles.findIdx? (fun h => h.roleId == pred.roleId) with
-      | some idx => pure idx
+    let handle ← match handles.find? (fun h => h.roleId == pred.roleId) with
+      | some h => pure h
       | none =>
           uFail s!"site predicate roleId {pred.roleId} missing from handler locals"
-    let some handle := handles[localHandleIndex]? |
-      uFail "site predicate local handle missing"
+    unless handle.localIndex < handles.size do
+      uFail s!"site predicate roleId {pred.roleId} has out-of-range localIndex"
+    let denseHandle ← getArr handles handle.localIndex "site predicate dense local handles"
+    unless denseHandle.roleId == handle.roleId &&
+        denseHandle.localIndex == handle.localIndex do
+      uFail s!"site predicate roleId {pred.roleId} has non-dense local handle"
     let packageOverride : Option String :=
       match pred.source with
       | .callee => some site.packageId
       | .metaIndex _ | .outerOnlyIndex _ => none
-    let predOps ← projectConstraintOps localHandleIndex mode handle.keyPolicy
+    let predOps ← projectConstraintOps handle.localIndex mode handle.keyPolicy
       pred.constraint stateSchemas packageOverride
     ops := ops ++ predOps
   pure ops
@@ -538,6 +555,70 @@ private def directPublicU64ParamOrdinal?
         return some i
     return none
 
+private def directPublicPrincipalParamOrdinal?
+    (types : Array TypeDeclV1) (callable : CallableV1) (vid : ValueIdV1) :
+    Option Nat :=
+  Id.run do
+    for (p, i) in callable.params.zipIdx do
+      if p.valueId == vid && p.visibility == VisibilityV1.public_ &&
+          isAnonPrincipal types p.typeId then
+        return some i
+    return none
+
+/-- Rejoin a Semantic Principal argument to the exact direct parameter, Plan
+    argument role, dense handler-local handle, and preflight binding row. -/
+private def resolvePrincipalAccountBinding
+    (types : Array TypeDeclV1)
+    (callable : CallableV1)
+    (handles : Array CpiIRRoleHandleV1)
+    (bindings : Array CpiPreflightAccountParamBindingV1)
+    (site : CpiIRSiteV1)
+    (argIndex : Nat)
+    (vid : ValueIdV1) :
+    CompileResult CpiUnsignedPrincipalBindingV1 := do
+  let paramOrdinal ← match directPublicPrincipalParamOrdinal? types callable vid with
+    | some ord => pure ord
+    | none =>
+        uFail s!"site {site.siteId} arg {argIndex}: expected bare direct public Principal parameter"
+  let arg ← getArr site.args argIndex s!"site {site.siteId}.args"
+  unless arg.spec.type_ == FrozenValueType.principal &&
+      arg.spec.source == ArgumentSource.bareDirectPublicPrincipalParameter do
+    uFail s!"site {site.siteId} arg {argIndex}: frozen Principal source diverged"
+  unless arg.semanticValueId == vid.toNat do
+    uFail s!"site {site.siteId} arg {argIndex}: Semantic ValueId diverged from Plan binding"
+  let roleId ← match arg.roleId with
+    | some rid => pure rid
+    | none => uFail s!"site {site.siteId} arg {argIndex}: Principal roleId missing"
+  let handle ← match handles.find? (fun h => h.roleId == roleId) with
+    | some h => pure h
+    | none => uFail s!"site {site.siteId} arg {argIndex}: roleId {roleId} missing from handler"
+  unless handle.localIndex < handles.size do
+    uFail s!"site {site.siteId} arg {argIndex}: localIndex out of range"
+  let denseHandle ← getArr handles handle.localIndex "handler dense local handles"
+  unless denseHandle.roleId == roleId && denseHandle.localIndex == handle.localIndex do
+    uFail s!"site {site.siteId} arg {argIndex}: local handle is not dense/exact"
+  match handle.keyPolicy with
+  | .accountParameter callableId boundOrdinal =>
+      unless callableId == callable.id.toNat && boundOrdinal == paramOrdinal do
+        uFail s!"site {site.siteId} arg {argIndex}: account role does not bind the exact callable parameter"
+  | _ =>
+      uFail s!"site {site.siteId} arg {argIndex}: Principal role is not accountParameter-bound"
+  let paramBindings := bindings.filter (fun b =>
+    b.callableId == callable.id.toNat && b.paramOrdinal == paramOrdinal)
+  unless paramBindings.size == 1 do
+    uFail s!"site {site.siteId} arg {argIndex}: expected exactly one preflight binding for the parameter"
+  let exactBinding ← getArr paramBindings 0 "Principal preflight parameter binding"
+  unless exactBinding.roleId == roleId &&
+      exactBinding.localIndex == handle.localIndex do
+    uFail s!"site {site.siteId} arg {argIndex}: preflight binding role/local index diverged"
+  pure {
+    argIndex
+    semanticValueId := vid.toNat
+    paramOrdinal
+    roleId
+    localIndex := handle.localIndex
+  }
+
 private def resolveU64Source
     (types : Array TypeDeclV1) (callable : CallableV1)
     (layout : Array (Nat × Nat)) (vid : ValueIdV1) (ctx : String) :
@@ -569,6 +650,15 @@ private def projectUnsignedHandler
     uFail "handler callableId must equal Semantic callable.id"
   unless callable.blocks.size ≥ 1 do
     uFail "callable has no blocks"
+  unless handles.size == planHandler.accountUses.size do
+    uFail "handler local handle count must equal Plan accountUses size"
+  for i in [0:handles.size] do
+    let handle ← getArr handles i "handler local handles"
+    let use ← getArr planHandler.accountUses i "handler accountUses"
+    unless handle.handlerId == planHandler.handlerId &&
+        handle.localIndex == i && use.position == i &&
+        handle.roleId == use.roleId do
+      uFail s!"handler {planHandler.handlerId} local handle order diverged at {i}"
   -- Surface gates on sites attached to this handler.
   for site in sites do
     unless site.handlerId == planHandler.handlerId do
@@ -729,19 +819,38 @@ private def projectUnsignedHandler
           uFail "site QN diverges from Semantic ExternalCall"
         unless site.packageId == "companion-v1" do
           uFail "ExternalCall package must be companion-v1"
-        unless args.size == 2 do
-          uFail "companion invoke/fail require exactly 2 args"
-        -- Arg0 Principal (role-bound; no probe materialisation).
-        let _accountVid ← getArr args 0 "externalCall.args"
+        unless args.size == 2 && site.args.size == 2 do
+          uFail "companion invoke/fail require exactly 2 Semantic and Plan args"
+        -- Arg0 Principal: exact ValueId → direct param ordinal → role → dense
+        -- handler-local handle → preflight binding rejoin.
+        let accountVid ← getArr args 0 "externalCall.args"
+        let accountBinding ← resolvePrincipalAccountBinding data.types callable
+          handles bindings site 0 accountVid
         let deltaVid ← getArr args 1 "externalCall.args"
+        let deltaArg ← getArr site.args 1 s!"site {site.siteId}.args"
+        unless deltaArg.semanticValueId == deltaVid.toNat && deltaArg.roleId.isNone &&
+            deltaArg.spec.type_ == FrozenValueType.uint64 do
+          uFail s!"site {site.siteId} delta binding diverged from Semantic arg"
         let deltaSrc ← resolveU64Source data.types callable paramLayout deltaVid
           s!"site {site.siteId} delta"
         let programLocal ← localIndexOfRole handles site.programRoleId
+        unless site.programHandleIndex == programLocal do
+          uFail s!"site {site.siteId} program handle index diverged"
+        unless site.metas.size == 1 do
+          uFail "companion invoke/fail require exactly one CPI meta"
+        let accountMeta ← getArr site.metas 0 s!"site {site.siteId}.metas"
+        unless accountMeta.metaIndex == 0 &&
+            accountMeta.roleId == accountBinding.roleId &&
+            accountMeta.localHandleIndex == accountBinding.localIndex do
+          uFail s!"site {site.siteId} account meta does not join the Principal role"
         let mut metas : Array CpiUnsignedMetaV1 := #[]
         for m in site.metas do
           let li ← localIndexOfRole handles m.roleId
+          unless m.localHandleIndex == li do
+            uFail s!"site {site.siteId} meta {m.metaIndex} local handle diverged"
           metas := metas.push {
             metaIndex := m.metaIndex
+            roleId := m.roleId
             localIndex := li
             cpiWritable := m.spec.cpiWritable
             cpiSigner := m.spec.cpiSigner
@@ -756,6 +865,7 @@ private def projectUnsignedHandler
           tag
           dataLen := site.instructionCodec.length
           delta := deltaSrc
+          principalBindings := #[accountBinding]
           metas
           accountInfoCount := handles.size
         })
@@ -906,11 +1016,15 @@ private def renderU64Source : CpiUnsignedU64SourceV1 → String
   | .literal v => s!"lit:{encodeUInt64LowerHex16 v}"
 
 private def renderMeta (m : CpiUnsignedMetaV1) : String :=
-  s!"{m.metaIndex}:{m.localIndex}:w{m.cpiWritable}:s{m.cpiSigner}"
+  s!"{m.metaIndex}:role{m.roleId}:local{m.localIndex}:w{m.cpiWritable}:s{m.cpiSigner}"
+
+private def renderPrincipalBinding (b : CpiUnsignedPrincipalBindingV1) : String :=
+  s!"arg{b.argIndex}:v{b.semanticValueId}:p{b.paramOrdinal}:role{b.roleId}:local{b.localIndex}"
 
 private def renderInvoke (i : CpiUnsignedInvokeV1) : String :=
+  let principals := String.intercalate "," (i.principalBindings.map renderPrincipalBinding).toList
   let metas := String.intercalate "," (i.metas.map renderMeta).toList
-  s!"invoke:{i.siteId}:{i.qn}:{i.packageId}:prog{i.programLocalIndex}:tag{i.tag}:len{i.dataLen}:delta[{renderU64Source i.delta}]:metas[{metas}]:infos{i.accountInfoCount}"
+  s!"invoke:{i.siteId}:{i.qn}:{i.packageId}:prog{i.programLocalIndex}:tag{i.tag}:len{i.dataLen}:delta[{renderU64Source i.delta}]:principals[{principals}]:metas[{metas}]:infos{i.accountInfoCount}"
 
 private def renderBodyOp : CpiUnsignedBodyOpV1 → String
   | .loadParamU64 t off => s!"loadParamU64:{t}@{off}"
@@ -984,6 +1098,13 @@ def resolveSolanaCpiUnsignedIRV1
           | _ =>
               uFail s!"siteChecks {sid} must be immediately followed by invokeUnsigned"
       | .invokeUnsigned inv =>
+          unless inv.principalBindings.size == 1 && inv.metas.size == 1 do
+            uFail s!"invokeUnsigned site {inv.siteId} requires one Principal binding and one meta"
+          let principal ← getArr inv.principalBindings 0 "invoke principalBindings"
+          let metaBinding ← getArr inv.metas 0 "invoke metas"
+          unless principal.argIndex == 0 && principal.roleId == metaBinding.roleId &&
+              principal.localIndex == metaBinding.localIndex do
+            uFail s!"invokeUnsigned site {inv.siteId} Principal/meta join diverged"
           if i == 0 then
             uFail s!"invokeUnsigned site {inv.siteId} missing preceding siteChecks"
           else

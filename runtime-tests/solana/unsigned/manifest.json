@@ -42,12 +42,12 @@
     "inspect": 3
   },
   "expectedAssembly": {
-    "sha256": "54d7865e7ed1f4ed4fb5dab485e02112a323722f98d2a47c856c3bed6f4e0f70",
-    "size": 40754
+    "sha256": "af7a8c604796af317044f6d2351b2b68d5fcd6b509db5214ac0365cca7079aa6",
+    "size": 40826
   },
   "expectedElf": {
-    "sha256": "e543b564368091b76d0c4563f826d4d2abb7e3b9e91339e977aecb50308b8c55",
-    "size": 15536
+    "sha256": "0cbc238de3059d94e7e5e2c07c54c28077bd7ad8b682827c8c57d54a89c5e6b9",
+    "size": 15560
   },
   "reproducibilityNote": "Generated through the production unsigned-CPI authority/emitter chain and assembled with locked sbpf 0.2.2. This is same-host engineering test-preactivation evidence only: not proof-forge.output.v1, not an activated CPI artifact, #120+ PDA/System/Token still pending, and not formal/hermetic evidence."
 }

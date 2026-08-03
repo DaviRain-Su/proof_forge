@@ -477,11 +477,20 @@ private def emitInvokeUnsigned
     emitFail "companion invoke/fail dataLen must be 9"
   unless inv.metas.size == 1 do
     emitFail "companion invoke/fail expects exactly one meta"
+  unless inv.principalBindings.size == 1 do
+    emitFail "companion invoke/fail expects exactly one Principal binding"
+  let meta0 := inv.metas[0]!
+  let principal0 := inv.principalBindings[0]!
+  unless principal0.argIndex == 0 && principal0.roleId == meta0.roleId &&
+      principal0.localIndex == meta0.localIndex do
+    emitFail "companion Principal binding must join meta[0] exactly"
   unless inv.accountInfoCount ≤ unsignedMaxRolesV1 do
     emitFail "accountInfoCount exceeds max roles"
+  unless meta0.localIndex < inv.accountInfoCount &&
+      inv.programLocalIndex < inv.accountInfoCount do
+    emitFail "invoke local role index exceeds AccountInfo array"
   pure <| Id.run do
     let mut b := b0
-    let meta0 := inv.metas[0]!
     b := emit b s!"  ; --- invokeUnsigned site={inv.siteId} {inv.qn} tag={inv.tag} ---"
     b := emit b "  mov64 r9, r10"
     b := emit b "  lddw r4, CPI_BASE"
@@ -643,6 +652,7 @@ private def emitBodyOp
         b := emit b "  stxdw [r1 + 0], r3"
         b := emit b "  lddw r2, 8"
         b := emit b "  call sol_set_return_data"
+        b := emit b "  jne r0, 0, cpi_failed"
         b := emit b "  lddw r0, 0"
         b := emit b "  exit"
         pure b
@@ -831,14 +841,18 @@ def emitCpiUnsignedSbpfV1
   unless cand.maxFrameBytes == unsignedMaxFrameBytesV1 do
     emitFail "maxFrameBytes must be 4096"
   let maxScratch := unsignedMaxSiteScratchV1 cand
-  -- CPI region starts after temps (1224) with min 1600 headroom.
-  let cpiBase := Nat.max unsignedCpiBaseMinV1 (unsignedTempRegionEndV1 + 16)
-  let frameBytes := cpiBase + Nat.max maxScratch 240
+  let scratchReserve := Nat.max maxScratch 240
+  -- CPI writes start at [r10-CPI_BASE] and grow toward higher addresses. Its
+  -- complete interval is therefore offsets [CPI_BASE-scratchReserve, CPI_BASE].
+  -- Put that lower-offset edge after the temp region; the old base-only check
+  -- was insufficient at the 16-role boundary.
+  let cpiBase := Nat.max unsignedCpiBaseMinV1
+    (unsignedTempRegionEndV1 + scratchReserve)
+  let frameBytes := cpiBase + scratchReserve
   unless frameBytes ≤ unsignedMaxFrameBytesV1 do
     emitFail s!"unsigned CPI frame {frameBytes} exceeds {unsignedMaxFrameBytesV1}"
-  -- Ensure CPI base does not overlap role table/slots/temps.
-  unless cpiBase ≥ unsignedTempRegionEndV1 do
-    emitFail "CPI_BASE overlaps temp/role region"
+  unless cpiBase ≥ unsignedTempRegionEndV1 + scratchReserve do
+    emitFail "CPI scratch overlaps temp/role region"
   let mut b := emptyBuf
   b := emitHeader b cand.handlers.size frameBytes cpiBase
   b := emitProbeEntrypoint b cand.handlers

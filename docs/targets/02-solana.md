@@ -112,6 +112,12 @@ locked `sbpf disassemble` 还直接要求最终 ELF 零 `call` 指令。raw-imag
 original-data-len/rent/padding/pointer-table/truncation/overflow，Mollusk `AccountMeta` 路径只承诺 canonical
 Loader 输入并执行所有相邻 swap与 leading/middle/trailing missing/extra负例。
 
+**#119 unsigned companion CPI（仍 test-preactivation，非产品 artifact/非 activated sync）**：独立
+`CpiUnsignedIRV1`/`EmitCpiUnsignedSbpfV1` 在 #118 authority 之上发射真实 `sol_invoke_signed_c`
+（零 signer groups）到 pinned companion-v1；#118 no-invoke 链保持独立。site checks 在每个 invoke 前
+site-time 执行；fail 路径原样传播 syscall status 并完整 snapshot rollback。仍无 PDA/nonempty signer
+groups、System/Token/ATA、`OutputFile` 或 ordinary resolver sync support。
+
 initialized marker 是
 `SHA-256("proof-forge-solana-layout-v1:" || canonical-account-layout)[0..8]` 对应的 target
 word，而不是所有合约共用常量；同长度但不同字段 schema 不可复用旧 header。为保持参考语义中

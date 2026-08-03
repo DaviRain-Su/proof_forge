@@ -122,25 +122,33 @@ except (OSError, UnicodeError) as error:
     raise SystemExit(f"cannot read locked disassembly: {error}")
 if not text.strip():
     raise SystemExit("locked disassembly is empty")
-has_invoke = False
-has_set_return = False
+if "0xec01" in text:
+    raise SystemExit("final ELF disassembly contains forbidden legacy 0xec01 surface")
+observed_calls = []
+allowed = {"sol_invoke_signed_c", "sol_set_return_data"}
 for line_number, line in enumerate(text.splitlines(), 1):
     fields = line.lstrip().split(None, 1)
-    if not fields:
+    if not fields or fields[0] not in {"call", "callx"}:
         continue
-    if fields[0] not in {"call", "callx"}:
-        continue
-    rest = fields[1] if len(fields) > 1 else ""
-    if "sol_invoke_signed_c" in rest or "sol_invoke_signed_c" in line:
-        has_invoke = True
-    if "sol_set_return_data" in rest or "sol_set_return_data" in line:
-        has_set_return = True
-    if "0xec01" in line:
-        raise SystemExit(f"forbidden legacy 0xec01 call stub at line {line_number}: {line}")
-if not has_invoke:
-    raise SystemExit("final ELF disassembly missing sol_invoke_signed_c")
-if not has_set_return:
-    raise SystemExit("final ELF disassembly missing sol_set_return_data")
+    if fields[0] == "callx":
+        raise SystemExit(f"forbidden indirect callx at line {line_number}: {line}")
+    target = fields[1].strip() if len(fields) > 1 else ""
+    if target not in allowed:
+        raise SystemExit(f"unexpected final-ELF call at line {line_number}: {line}")
+    observed_calls.append(target)
+expected_calls = [
+    "sol_invoke_signed_c",
+    "sol_set_return_data",
+    "sol_set_return_data",
+    "sol_invoke_signed_c",
+    "sol_set_return_data",
+    "sol_set_return_data",
+    "sol_set_return_data",
+]
+if observed_calls != expected_calls:
+    raise SystemExit(
+        f"final ELF call sequence mismatch: got {observed_calls}, want {expected_calls}"
+    )
 PY
 
 rm -rf "$out_dir"
@@ -325,6 +333,10 @@ if companion_manifest.get("programIds", {}).get("companionHex") != "43" * 32:
     raise SystemExit("harness companion id diverged")
 expected_companion_sha = companion_manifest["expectedElfSha256"]["companion"]
 expected_companion_size = companion_manifest["expectedElfSize"]["companion"]
+if expected_companion_sha != "c8738f1220c49c309ffe820ca397ae25540d6be29c6153934abd8548fa08c4b9":
+    raise SystemExit("#115 harness companion sha256 pin diverged")
+if expected_companion_size != 1776:
+    raise SystemExit("#115 harness companion size pin diverged")
 if companion["elfSha256"] != expected_companion_sha:
     raise SystemExit("companion elfSha256 must match #115 harness pin")
 if companion["elfSize"] != expected_companion_size:

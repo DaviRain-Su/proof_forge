@@ -3,7 +3,7 @@ id: RPT-018
 title: QuickNode Solana Program Examples × ProofForge 覆盖评估
 status: draft
 owner: research
-updated: 2026-08-03
+updated: 2026-08-04
 normative: false
 ---
 
@@ -78,6 +78,16 @@ emitter。`AccountRoles` 的 generated assembly经 locked `sbpf` 与 committed m
 init/route/view、0/16/17 role boundary和 22 个 one-mutation account checks；但该 ELF明确是
 production-code-generated **test-preactivation** evidence，不是产品 artifact，且不含任何 invoke/PDA。
 因此下表中 ACCT 只能标为“preflight engineering subset”，`CPI`/`PDA`与 strict equivalence仍不变。
+
+**2026-08-04 #119 engineering update**：独立 `CpiUnsignedIRV1`/`EmitCpiUnsignedSbpfV1` 在仍为
+`activationDenied`/test-preactivation 的 `solana-sbpf-cpi-elf-v1` lane 上，对 pinned companion-v1
+发射真实 unsigned `sol_invoke_signed_c`（零 signer groups）与成功路径 `sol_set_return_data(0,0)`；
+#118 no-invoke 链保持独立。`CompanionCpi` 证明 state write → CPI → post-call write 的 source order，
+以及 fail 路径完整 snapshot rollback + `fail:v1!` 保留；committed unsigned manifest 绑定
+source/profile/extension 与 #115 companion ELF pin。准确称谓仍是 **production-code-generated
+test-preactivation unsigned-CPI ELF**，不是 `OutputFile`/产品 artifact/activated sync；ordinary
+resolver 仍拒 sync。#120 PDA/bump/`invoke_signed` 与 #121+ 仍 pending，whole-example strict
+equivalence 仍为 **0/56**；`CPI`/`PDA` 产品面与 formal D5 不因 #119 改写。
 
 ## 2. 方法与分母
 
@@ -308,11 +318,11 @@ length、current-program owner、exact data length、初始化 header，以及�
 
 | 能力 | 当前事实 |
 |---|---|
-| Multi-account / order / alias | #118 已有 retained-Semantic-derived target Plan/IR + 16-role preactivation parser/constraints；尚无产品 artifact 或 invoke |
+| Multi-account / order / alias | #118 已有 retained-Semantic-derived target Plan/IR + 16-role preactivation parser/constraints；#119 在同一 lane 接 unsigned companion CPI，仍无产品 artifact |
 | PDA / seeds / bump / signer | 产品缺失；#115 仅 pinned-runtime golden/feasibility，#120 pending |
 | System create/transfer/close/realloc | 缺失；#118 只 preflight `transfer` roles，不执行 System CPI |
 | Lamports 语义 | assembly 可做 exact preflight read，无业务读写/转账 |
-| True CPI | 产品缺失且三个 profile均 fail closed；#115 仅 harness-only real invoke feasibility，#119 pending |
+| True CPI | 产品缺失且三个 profile 均 fail closed；#115 harness-only feasibility；**#119** 为 production-code-generated test-preactivation unsigned companion CPI（真实 `sol_invoke_signed_c` 零 signer groups + rollback 矩阵），**不是** OutputFile/产品 sync/activated support；#120+ pending |
 | Classic SPL / ATA | 缺失 |
 | Token-2022 / Metaplex | 缺失 |
 | Clock/Rent/Instructions sysvar | shared ContextRead 部分存在，Solana Plan fail closed |
