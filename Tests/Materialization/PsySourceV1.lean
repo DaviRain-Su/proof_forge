@@ -265,8 +265,8 @@ unsafe def testFailClosedInt64BitNot : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
   | .ok _ => throw <| IO.userError "Int64 bitNot must fail closed at Psy plan"
 
-/-- bitNot (~) on UInt32 lowers to `x ^ 4294967295u32` (XOR mask, verified
-    faithful on the real dargo VM). UInt64 bitNot uses checkedBitNot separately. -/
+/-- T8: bitNot (~) on UInt32 lowers to Felt-carried `narrowBitNot 32` =
+    `x ^ 4294967295` (Felt mask, not native u32). UInt64 uses checkedBitNot. -/
 unsafe def testUInt32BitNotLowered : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -281,30 +281,33 @@ unsafe def testUInt32BitNotLowered : IO Unit := do
   let plan ← liftResult <| planPsy compiled
   let some flip := plan.functions.find? (·.name == "flip") |
     throw <| IO.userError s!"flip32: missing flip, got {plan.functions.map (·.name)}"
-  expect (flip.body == #[.returnValue (.bitNot (.param 0))])
-    s!"UInt32 bitNot must lower to Plan bitNot(param0), got {repr flip.body}"
+  expect (flip.body == #[.returnValue (.narrowBitNot 32 (.param 0))])
+    s!"UInt32 bitNot must lower to Plan narrowBitNot 32 (param0), got {repr flip.body}"
   expect (flip.params.any (·.isU32))
-    "flip32: UInt32 param must be tagged isU32 in the Plan"
+    "flip32: UInt32 param must be tagged uintWidth=32 in the Plan"
   expect (flip.resultIsU32)
-    "flip32: UInt32 result must be tagged resultIsU32 in the Plan"
+    "flip32: UInt32 result must be tagged resultUintWidth=32 in the Plan"
   let files ← liftResult <| buildPsy compiled
   let some psyFile := files.find? (·.path == "Flip32.psy") |
     throw <| IO.userError "psy: missing Flip32.psy"
   let psy := psyFile.contents
-  expect (psy.contains "pub fn flip(p0: u32) -> u32")
-    "UInt32 bitNot fn must render u32 param and result"
-  expect (psy.contains "4294967295u32")
-    "UInt32 bitNot must emit the 2^32−1 mask with the u32 suffix"
+  expect (psy.contains "pub fn flip(p0: Felt) -> Felt")
+    "UInt32 bitNot fn must render Felt param and result (Felt-carried narrow)"
+  expect (psy.contains "u32 param out of range")
+    "UInt32 param must get an entry range assert"
+  expect (psy.contains "4294967295")
+    "UInt32 bitNot must emit the 2^32−1 Felt mask"
   expect (psy.contains " ^ ")
     "UInt32 bitNot must emit XOR with the mask"
+  expect (!psy.contains "4294967295u32")
+    "UInt32 bitNot must not emit the native-u32 mask suffix"
   expect (!psy.contains "18446744073709551615")
     "UInt32 bitNot must not emit the illegal 2^64−1 mask"
 
-/-- Fail closed: UInt32 arithmetic/bitwise/shift on u32 operands. The real
-    dargo VM u32 ops are not faithful to Reference (overflow/underflow are
-    internal panics — even `a - a = 0` panics "u32 sub value too low" — and
-    shifts wrap), so only u32 comparisons + bitNot are admitted. -/
-unsafe def testUInt32ArithFailClosed : IO Unit := do
+/-- T8 multi-width: UInt32 add is Felt-carried with an explicit width guard
+    (`result < 2^32`). Native dargo u32 ops stay unused (unfaithful to
+    Reference); width bound alone is enough because (2^32−1)^2 < Goldilocks p. -/
+unsafe def testUInt32ArithWidthGuard : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -315,14 +318,96 @@ unsafe def testUInt32ArithFailClosed : IO Unit := do
   let parsed ← liftResult (← session.selectProgramV1
     source "<psy-add32>" "Tests.PsyAdd32" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let some add := plan.functions.find? (·.name == "add") |
+    throw <| IO.userError "add32: missing add"
+  expect (add.body == #[.returnValue (.narrowCheckedAdd 32 (.param 0) (.param 1))])
+    s!"UInt32 add must lower to narrowCheckedAdd 32, got {repr add.body}"
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "Add32.psy") |
+    throw <| IO.userError "psy: missing Add32.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub fn add(p0: Felt, p1: Felt) -> Felt")
+    "UInt32 add must render Felt params/result"
+  expect (psy.contains "4294967296")
+    "UInt32 add must emit 2^32 width bound"
+  expect (psy.contains "u32 add overflow")
+    "UInt32 add must emit the width-overflow assert message"
+  expect (psy.contains "u32 param out of range")
+    "UInt32 params must be range-checked at entry"
+
+/-- T8 multi-width: UInt8 state/param/body with width guards + bitNot mask. -/
+unsafe def testUInt8CounterMultiWidth : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program U8Ctr where\n" ++
+    "  state count : UInt8\n" ++
+    "  init(seed : UInt8) do\n" ++
+    "    count := seed\n" ++
+    "  entry increment(delta : UInt8) : UInt8 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  entry flip() : UInt8 do\n" ++
+    "    return ~count\n" ++
+    "  entry shift(v : UInt8) : UInt8 do\n" ++
+    "    return v << 1\n" ++
+    "  view get() : UInt8 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-u8ctr>" "Tests.PsyU8Ctr" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  expect (plan.stateFieldNames == #["count"])
+    "U8Ctr must carry count state"
+  let some inc := plan.functions.find? (·.name == "increment") |
+    throw <| IO.userError "U8Ctr: missing increment"
+  expect (inc.params.any (fun p => p.uintWidth == 8))
+    "increment delta must be uintWidth=8"
+  expect (inc.resultUintWidth == 8)
+    "increment result must be uintWidth=8"
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "U8Ctr.psy") |
+    throw <| IO.userError "psy: missing U8Ctr.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub count: Felt,")
+    "UInt8 state must render as Felt storage"
+  expect (psy.contains "u8 add overflow")
+    "UInt8 add must emit width overflow guard"
+  expect (psy.contains "256")
+    "UInt8 width bound must be 2^8=256"
+  expect (psy.contains "255")
+    "UInt8 bitNot must emit the 2^8−1 mask"
+  expect (psy.contains "u8 param out of range")
+    "UInt8 params must be range-checked"
+  expect (psy.contains "invalidShift: count >= 8")
+    "UInt8 shift must guard count < 8"
+  expect (psy.contains "pub fn increment(p0: Felt) -> Felt")
+    "UInt8 entry must render Felt ABI"
+  expect (psy.contains "pub fn get() -> Felt")
+    "UInt8 view must render Felt result"
+
+/-- Fail closed: UInt128 stays outside the Psy multi-width pilot. -/
+unsafe def testUInt128FailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program W128 where\n" ++
+    "  entry add(a : UInt128, b : UInt128) : UInt128 do\n" ++
+    "    return a + b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-u128>" "Tests.PsyU128" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planPsy compiled with
   | .error (.planInvariant .psy msg) =>
-      expect (msg.contains "UInt32" && msg.contains "slice")
-        s!"u32 add must fail closed citing the u32 slice, got: {msg}"
+      expect (msg.contains "width" || msg.contains "UInt" || msg.contains "128")
+        s!"UInt128 must fail closed at Psy type-closure, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
-  | .ok _ => throw <| IO.userError "u32 add must fail closed at Psy plan"
+  | .ok _ => throw <| IO.userError "UInt128 must fail closed at Psy plan"
 
-/-- UInt32 comparisons are admitted (native unsigned == Reference unsigned). -/
+/-- UInt32 comparisons are Felt-carried (unsigned order for values < 2^32 < p). -/
 unsafe def testUInt32CompareLowered : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -338,8 +423,10 @@ unsafe def testUInt32CompareLowered : IO Unit := do
   let some psyFile := files.find? (·.path == "Cmp32.psy") |
     throw <| IO.userError "psy: missing Cmp32.psy"
   let psy := psyFile.contents
-  expect (psy.contains "pub fn cmp(p0: u32, p1: u32) -> bool")
-    "u32 comparison fn must render u32 params and bool result"
+  expect (psy.contains "pub fn cmp(p0: Felt, p1: Felt) -> bool")
+    "u32 comparison fn must render Felt params and bool result"
+  expect (psy.contains "u32 param out of range")
+    "u32 comparison params must be range-checked"
   expect (psy.contains " < ")
     "u32 lt must render"
   expect (psy.contains " == ")
@@ -1147,7 +1234,9 @@ unsafe def run : IO Unit := do
   testUInt64BitNotLowered
   testFailClosedInt64BitNot
   testUInt32BitNotLowered
-  testUInt32ArithFailClosed
+  testUInt32ArithWidthGuard
+  testUInt8CounterMultiWidth
+  testUInt128FailClosed
   testUInt32CompareLowered
   testNarrowIntFailClosed
   testBytesStateFailClosed

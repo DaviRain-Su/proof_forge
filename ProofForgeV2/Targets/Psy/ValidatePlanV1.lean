@@ -37,6 +37,10 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
   | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
+  | .narrowCheckedAdd _ l r | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r
+  | .narrowCheckedDiv _ l r | .narrowCheckedMod _ l r
+  | .narrowBitAnd _ l r | .narrowBitOr _ l r | .narrowBitXor _ l r
+  | .narrowShl _ l r | .narrowShr _ l r
   | .fieldBinary _ l r | .fieldCompare _ l r => do
       let dl ← validateExprNodes l
       let dr ← validateExprNodes r
@@ -45,7 +49,7 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
       let dl ← validateExprNodes l
       let dr ← validateExprNodes r
       if dl + dr + 1 > maxExprDepth then none else some (dl + dr + 1)
-  | .boolNot o | .checkedNeg o | .bitNot o | .checkedBitNot o | .fieldNeg o => do
+  | .boolNot o | .checkedNeg o | .narrowBitNot _ o | .checkedBitNot o | .fieldNeg o => do
       let do' ← validateExprNodes o
       if do' + 1 > maxExprDepth then none else some (do' + 1)
   | .callFn _ args => do
@@ -147,7 +151,7 @@ private partial def checkReturnFormsV1
 
 private def validateResultKind (fn : PlanFunction) : CompileResult Unit := do
   match fn.resultKind with
-  | .felt | .bool | .unit | .u32 => pure ()
+  | .felt | .bool | .unit => pure ()
   | .aggregate leaves =>
       unless leaves.size > 0 && leaves.size ≤ 8 do
         planError s!"function '{fn.name}' aggregate resultKind leaf count must be in 1..8 (B-RET-ABI)"
@@ -157,7 +161,7 @@ private def validateResultKind (fn : PlanFunction) : CompileResult Unit := do
       -- pureFn aggregate stays fail closed even if a hand-built plan slips through.
       if fn.kind == .pureHelper then
         planError s!"pureFn '{fn.name}' cannot carry an aggregate resultKind"
-      if fn.resultIsBool || fn.resultIsUnit || fn.resultIsU32 then
+      if fn.resultIsBool || fn.resultIsUnit || isNarrowUintWidth fn.resultUintWidth then
         planError s!"function '{fn.name}' aggregate resultKind conflicts with scalar result flags"
 
 def validatePlan (plan : Plan) : CompileResult Unit := do
