@@ -13425,3 +13425,20 @@ normative: false
   P0 级候选缺陷；optional check 脚本还能把产品 build 失败 soft-skip。
 - 边界：候选分支的 Counter WAT/wat2wasm/`cosmwasm-check` 通过只证明静态工程先导可行，不是
   wasmd/cosmwasm-vm runtime、deploy、formal D3/D4 或产品授权。main 继续保持 A0 build fail closed。
+
+### 2026-08-03 — Solana Principal identity ELF+Mollusk differential
+
+- Tests-first：新增 Rust runtime 用例后先确认精确 RED 于缺失
+  `PrincipalStore.sbpf-plan`；随后只新增 `PrincipalStore.lean` fixture 与 runtime 驱动注册，未修改
+  Solana production lowering。产品 CLI 经锁定 `sbpf 0.2.2` 生成 4384-byte ELF。
+- T12 ABI：Principal 保留 opaque wire identity，经 Solana pilot 展开为 9 个 UInt64 叶：
+  `len + w0..w7`；state offsets 为 8..72，exact account length 为 80 bytes。该布局不是 32-byte
+  Solana pubkey，也不提供 dynamic address 或 CPI 语义。
+- Mollusk 4/4：initialize 用满 64-byte 非零 body 固定全部 9 叶；setOwner 以短值覆盖满长值并精确
+  检查高位叶清零；`same` 与 `matchesOwner` 均先固定相等返回单字节 Bool，再分别只扰动 `len`、
+  `w0`..`w7` 每一叶，防止截断 leaf-wise equality 假绿。
+- 验证：聚焦 PrincipalStore 4/4、完整 `just solana-runtime`（Counter + 13 fixtures，60/60 Rust
+  tests）、fresh 171-file package pin、两轮独立只读 P0/P1 review、`git diff --check` 与合并
+  `2b7039731` 后的 ordinary `just ci` 全部通过；代码 commit `c45abff73`。
+- Boundary：engineering ELF/runtime coverage only；非 formal Reference↔Mollusk、Stage-0、hermetic、
+  release 或 deploy evidence；PrincipalAddr/CPI 产品决策仍未开放。

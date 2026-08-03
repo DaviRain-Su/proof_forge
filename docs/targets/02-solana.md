@@ -3,7 +3,7 @@ id: TARGET-SOLANA
 title: Solana target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-02
+updated: 2026-08-03
 normative: true
 ---
 
@@ -30,8 +30,9 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 - **dense Map UInt64 cap-8 pilot** 已进入 opt-in ELF + Mollusk；`storeAggregate` → structural CSE →
   `storeStateMulti` 令同一 StateStore 的 24 叶先基于旧 account snapshot 求值、再统一写入，且保持
   177 temp / 1424B < 4096B frame。`put_into_empty` 已解除 ignore 并转绿；WideMul 另以
-  独立 base-2^64 oracle 钉住 UInt128/256 成功与 `0x1001` 溢出回滚。当前 Mollusk 为
-  13 programs、56 tests 全 active/通过。named 聚合/Bytes/Option state 边界见覆盖矩阵。
+  独立 base-2^64 oracle 钉住 UInt128/256 成功与 `0x1001` 溢出回滚；PrincipalStore 固定
+  `len + 8×UInt64` identity state/param、逐叶 equality 与短值覆盖高位清零（非 pubkey/CPI）。
+  当前 Mollusk 为 14 programs、60 tests 全 active/通过。named 聚合/Bytes/Option state 边界见覆盖矩阵。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
 完整 Normalize 表面。registry 历史标签可能仍显示 `plan-only` 字符串——**工程事实以本段与

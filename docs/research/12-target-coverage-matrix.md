@@ -79,7 +79,7 @@ normative: false
 | Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A |
 | 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: locked wat2wasm + host-optional wasm-interp/wasmtime/wasmer load) | ✅(NoirCompileAcceptance: nargo 1.0.0-beta.26 compile-only；G123；缺席 skip；**非** prove/verify) | ❌(source-only) | ✅(AleoAcceptance: leo 4.0.2 Tool Lock pin（G123）；缺席 skip；非 prove/deploy) |
-| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow overflow state-hold + emit 日志；**非** formal C-3) | ✅(S3b Mollusk) | ⚠️(WABT dummy env + 可选 near-sandbox 2.13.0 receipt 工程门（G123：deploy/init/mutate/view）；非 Reference↔Wasm formal) | ❌ | ❌ | ❌ |
+| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow overflow state-hold + emit 日志；**非** formal C-3) | ✅(S3b Mollusk 工程差分；**非** formal Stage-0 / Reference↔target closure) | ⚠️(WABT dummy env + 可选 near-sandbox 2.13.0 receipt 工程门（G123：deploy/init/mutate/view）；非 Reference↔Wasm formal) | ❌ | ❌ | ❌ |
 
 ## 3. 工程轨道未实现 feature 全清单（A/B/C/D 组）
 
@@ -131,7 +131,7 @@ normative: false
 | **C-2** | Aleo/Psy compiler/VM 验收研究 | **研究闭合（2026-08-02，RPT-015）** + **J2/G123 follow-up**：EmitIRV1 已对齐 Leo 4 语法；Leo 4.0.2 已进入两平台 Tool Lock，`AleoAcceptance` 对产品 `.aleo` 做 `leo build --offline` compile-only 验收（工具未物化时 clean skip）。Psy 仍无锁定 compiler/VM 门；两者均无 prove/deploy runtime 闭环。成熟度保持 source-only，**非** hermetic/runtime/formal | AleoPsyResearch + AleoEmissionFix + C-2-pin ✅ |
 | **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + G4 工程 Anvil 差分，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
 | **C-4** | Noir prove/verify 验收门 | **prove/verify 研究结论仍为不升格**：G123 已将 nargo 1.0.0-beta.26 纳入两平台 Tool Lock，并由 `NoirCompileAcceptance` 对产品 Counter relation packages 做 compile-only 验收；但 Barretenberg/backend、CRS/security profile、witness/prove/verify 与 proof artifact binding 均未锁定，`validate_artifacts` 继续拒绝 proof-stage 叶子。成熟度保持 **source-only** relations；后续仅余独立 `NoirProveAcceptance` 决策与实现 | NoirProveResearch + NoirCompileAcceptance ✅（prove/verify 仍未实现） |
-| **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + 12 fixtures 均产 ELF 并进入 Mollusk；当前 56 个 Rust tests 全 active/通过。MapMini 4/4 覆盖 empty upsert，WideMul 4/4 覆盖 UInt128/256 高肢/跨肢成功与 `0x1001` rollback；Option/Context/Principal/call 等运行覆盖仍待扩 | MolluskFixtures |
+| **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + 13 fixtures 均产 ELF 并进入 Mollusk；当前 60 个 Rust tests 全 active/通过。MapMini 4/4 覆盖 empty upsert，WideMul 4/4 覆盖 UInt128/256 高肢/跨肢成功与 `0x1001` rollback，PrincipalStore 4/4 覆盖 `len + 8×UInt64` identity state/param、逐叶 equality 与高位清零（非 pubkey/CPI）；Option/Context/call 等运行覆盖仍待扩 | MolluskFixtures |
 
 ### D 组：文档/checkpoint 同步缺口
 
