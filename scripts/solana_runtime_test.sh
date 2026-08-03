@@ -156,6 +156,16 @@ for name in "${fixtures[@]}"; do
   echo "solana-runtime-test: ${name}.so=$(wc -c <"$fixture_so" | tr -d ' ') bytes"
 done
 
+# #115 harness-only companion/caller ELFs (not proof-forge.output.v1).
+harness_out="${PROOF_FORGE_HARNESS_OUT:-$root/build/v2/solana-harness}"
+export PROOF_FORGE_HARNESS_OUT="$harness_out"
+echo "solana-runtime-test: harness build → $harness_out"
+if ! bash "$root/scripts/solana_harness_build.sh"; then
+  die "solana harness build failed"
+fi
+[[ -f "$harness_out/caller.so" ]] || die "harness caller.so missing"
+[[ -f "$harness_out/companion.so" ]] || die "harness companion.so missing"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"

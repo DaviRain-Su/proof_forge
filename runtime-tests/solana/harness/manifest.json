@@ -1,0 +1,80 @@
+{
+  "schema": "proof-forge.solana.cpi-harness.v1",
+  "issue": 115,
+  "sbpf": "0.2.2",
+  "runtimeOracle": {
+    "molluskSvm": "0.13.4",
+    "agaveSyscalls": "4.0.0",
+    "solanaProgramRuntime": "4.0.0"
+  },
+  "programIds": {
+    "callerHex": "4242424242424242424242424242424242424242424242424242424242424242",
+    "companionHex": "4343434343434343434343434343434343434343434343434343434343434343"
+  },
+  "opcodes": {
+    "invokeSuccess": 0,
+    "invokeFail": 1,
+    "invokeSigned": 2,
+    "invokeSignedFail": 3,
+    "forgeWritable": 16,
+    "forgeSigner": 17
+  },
+  "callerInstruction": {
+    "unsignedLayout": "opcode:u8 || delta:u64le",
+    "unsignedLen": 9,
+    "signedLayout": "opcode:u8 || delta:u64le || seedTag:u64le || bump:u8",
+    "signedLen": 18
+  },
+  "companionInstruction": {
+    "layout": "tag:u8 || delta:u64le",
+    "len": 9,
+    "tags": {
+      "checkedAdd": 0,
+      "failAfterWrite": 1,
+      "checkedAddRequireSigner": 2,
+      "failAfterWriteRequireSigner": 3
+    }
+  },
+  "cStructSizes": {
+    "SolInstruction": 40,
+    "SolAccountMeta": 16,
+    "SolAccountInfo": 56,
+    "SolSignerSeed": 16,
+    "SolSignerSeeds": 16
+  },
+  "abiV1": {
+    "fullPrefixBytes": 88,
+    "maxPermittedDataIncrease": 10240,
+    "marker": 255,
+    "originalDataLenWire": 0,
+    "rentEpoch": 18446744073709551615,
+    "align": 8,
+    "productCaps": {
+      "outerRoles": 16,
+      "cpiMetas": 16,
+      "signerGroups": 4,
+      "seedSlices": 16,
+      "bytesPerSeed": 32
+    }
+  },
+  "outerRoles": {
+    "unsigned": ["counter", "companion-program"],
+    "signed": ["counter", "authorityPda", "seedAuthority", "companion-program"]
+  },
+  "pda": {
+    "recipe": "current-program-tagged-v1",
+    "seed0Utf8": "proof-forge:pda:v1",
+    "seed0Hex": "70726f6f662d666f7267653a7064613a7631",
+    "canonicalBumpSearch": "255..1",
+    "bump0Rejected": true
+  },
+  "expectedElfSha256": {
+    "companion": "c8738f1220c49c309ffe820ca397ae25540d6be29c6153934abd8548fa08c4b9",
+    "caller": "b00a7ba33248b73eb59f26824c65b099ea124a3ba8401aae63d5a02479f5c7e4"
+  },
+  "expectedElfSize": {
+    "companion": 1776,
+    "caller": 4968
+  },
+  "reproducibilityNote": "sbpf 0.2.2 observed bit-identical same-host rebuilds (darwin-arm64). expectedElfSha256 is a same-toolchain pin, not a hermetic multi-host formal claim. Per-run size/sha256 sidecars still bind exact bytes into tests."
+}

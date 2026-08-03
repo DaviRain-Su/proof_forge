@@ -473,6 +473,28 @@ Plan/IR/IDL identities：
 - signer只授予 exact PDA group，seedAuthority business signer缺失时拒绝；
 - product caps one-below/equal/one-above。
 
+#### #115 engineering observation（2026-08-03）
+
+上述 feasibility exit 已由 harness-only 双程序闭合，但**不改变产品 capability**：
+
+- locked `sbpf 0.2.2` 产出 `companion.so` 1776 bytes / SHA-256
+  `c8738f1220c49c309ffe820ca397ae25540d6be29c6153934abd8548fa08c4b9` 与 `caller.so`
+  4968 bytes / SHA-256 `b00a7ba33248b73eb59f26824c65b099ea124a3ba8401aae63d5a02479f5c7e4`；
+- `runtime-tests/solana/tests/abi_v1_layout.rs` 以独立 program-visible virtual image decoder覆盖
+  0/1/16/17、truncation/overflow、full/duplicate marker、bool、original-data-len、rent、padding、pointer、
+  trailing、真实 `repr(C)` size/offset 与 cap validator；真实 caller ELF另执行 pinned Loader 生成输入上的
+  0/1/16/17 与 duplicate marker。malformed short/overflow/trailing 属独立 decoder 证据，**不**声称 caller ELF
+  从裸 pointer 获得可信 input-end；#118 产品 parser仍必须实现其可证明的 checked-walk/fail-closed边界；
+- SDK-independent SHA-256 + Ed25519 decompression oracle固定 PDA golden，再与 Solana SDK作第二 oracle；
+- pinned Mollusk 双程序真实执行 unsigned/signed CPI success/callee-failure、canonical PDA preflight、matching
+  noncanonical PDA+bump rejection、bump 0、business signer、PDA outer-signer、wrong key/order/executable、
+  privilege escalation、stale/success/failure return-data与 exact account snapshot rollback；
+- 7 ABI + 5 PDA + 25 CPI 聚焦测试全 active；构建脚本与测试进程均绑定 committed manifest，不接受仅替换
+  自洽 sidecars；临时 deploy tree在退出时删除。
+
+这只是 pinned-runtime engineering feasibility。`solana-sbpf-cpi-elf-v1` 仍未注册产品 membership，
+resolver仍不 advertise sync，generic product build仍 fail closed；#116–#125 与 formal D5/TST-SOL 状态不变。
+
 ### Schema mutation obligations
 
 profile/extension/catalog/Plan每个 behavior field至少有一个 one-field mutation改变 digest，并在最早正确边界

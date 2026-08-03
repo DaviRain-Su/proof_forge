@@ -58,8 +58,14 @@ callee 合同：System、classic Token 和 ATA 应成为 P1 forcing oracles。
 
 当前 ProofForge Solana backend 仍是单 state-account 模型。2026-08-03 的 #111 honesty cut 已让
 两个 legacy profile 对 `call`/`schedule` 双键 fail closed，并删除可达的 `sol_log_data` 观测桩；
-但仍没有 account metas、`invoke`/`invoke_signed` 或 inner rollback。因此当前不能声称能够调用、
+但产品仍没有 account metas、`invoke`/`invoke_signed` 或 inner rollback。因此当前不能声称能够调用、
 替代或对等实现本组织中的任何真实 platform program。
+
+**2026-08-03 #115 engineering update**：独立 harness-only caller/companion 已在 locked SBPF + Mollusk 上
+验证最多 16 个 outer roles 的 ABIv1 walk、canonical PDA/bump、真实 unsigned/signed CPI、return-data 与
+failure rollback（37 项聚焦测试）。这只解除后端方案的 feasibility 风险；它没有进入
+`solana-sbpf-cpi-elf-v1` 产品 profile、Plan/IR、resolver 或官方 System/Token/ATA catalog admission，
+所以本报告的 strict-equivalence 与 callee-readiness 结论不变。
 
 ## 2. 快照方法与角色分类
 

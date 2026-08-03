@@ -66,6 +66,11 @@ fail closed，static `QualifiedName` 不再经 SHA-256 冒充 program id，原 `
 
 因此 P0 必须先使 capability claim 与真实物化一致；在此之前不得把 static-QN stub 写成 CPI 支持。
 
+**2026-08-03 #115 engineering update**：harness-only caller/companion 已在 pinned Mollusk 上真实执行
+multi-account ABIv1、canonical PDA/bump、`invoke`/`invoke_signed` success/failure、return-data 与 rollback。
+该结果只证明新合同可实现；产品 profile/Plan/IR/resolver 尚未接线，System/Token/ATA 也未 admission，
+所以 whole-example strict equivalence 仍为 **0/56**。
+
 ## 2. 方法与分母
 
 ### 2.1 分母规则

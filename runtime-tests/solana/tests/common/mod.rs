@@ -476,10 +476,7 @@ pub fn assert_discriminators_match_plan(plan_bytes: &[u8], expected: &[(&str, us
 }
 
 /// Cross-check discriminators with explicit per-handler param widths (T8b).
-pub fn assert_discriminators_match_plan_widths(
-    plan_bytes: &[u8],
-    expected: &[(&str, Vec<usize>)],
-) {
+pub fn assert_discriminators_match_plan_widths(plan_bytes: &[u8], expected: &[(&str, Vec<usize>)]) {
     let plan = std::str::from_utf8(plan_bytes)
         .unwrap_or_else(|error| panic!("manifest-bound plan is not UTF-8: {error}"));
     let from_plan = parse_plan_handlers(plan);
@@ -661,20 +658,16 @@ pub fn build_ix_limbs(
 
 /// Counter product env (S3a): the complete published output tree.
 pub fn counter_output_dir() -> PathBuf {
-    PathBuf::from(env::var("PROOF_FORGE_COUNTER_OUT").expect(
-        "PROOF_FORGE_COUNTER_OUT must point at the published Counter output tree",
-    ))
+    PathBuf::from(
+        env::var("PROOF_FORGE_COUNTER_OUT")
+            .expect("PROOF_FORGE_COUNTER_OUT must point at the published Counter output tree"),
+    )
 }
 
 pub fn counter_plan_bytes() -> Vec<u8> {
     let output = counter_output_dir();
-    read_manifest_leaf_bytes(
-        &output,
-        "Counter",
-        "Counter.sbpf-plan",
-        MATERIALIZED_BASE,
-    )
-    .unwrap_or_else(|error| panic!("Counter plan binding failed: {error}"))
+    read_manifest_leaf_bytes(&output, "Counter", "Counter.sbpf-plan", MATERIALIZED_BASE)
+        .unwrap_or_else(|error| panic!("Counter plan binding failed: {error}"))
 }
 
 /// Fixture product env (S3b): `PROOF_FORGE_FIXTURES_DIR/<Name>/`.
@@ -728,6 +721,34 @@ pub fn assert_custom1_preserves_exact_accounts(
     ix: &Instruction,
     accounts: &[(Pubkey, Account)],
 ) {
+    assert_failure_preserves_exact_accounts(
+        mollusk,
+        ix,
+        accounts,
+        Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN)),
+    );
+}
+
+/// Generalized failure + full present-account snapshot hold.
+/// Accepts any Mollusk `Check` (ProgramError::Custom, InstructionError, …).
+pub fn assert_failure_preserves_exact_accounts(
+    mollusk: &Mollusk,
+    ix: &Instruction,
+    accounts: &[(Pubkey, Account)],
+    failure: Check,
+) {
+    assert_checks_preserve_exact_accounts(mollusk, ix, accounts, &[failure]);
+}
+
+/// Run an exact check set while requiring rollback of every supplied account
+/// field. This lets CPI failure tests pin both the error and return-data
+/// telemetry without weakening the account snapshot oracle.
+pub fn assert_checks_preserve_exact_accounts(
+    mollusk: &Mollusk,
+    ix: &Instruction,
+    accounts: &[(Pubkey, Account)],
+    checks: &[Check],
+) {
     let expected_keys: Vec<Pubkey> = accounts.iter().map(|(k, _)| *k).collect();
     let pre_obs: Vec<(Pubkey, Option<Account>)> = accounts
         .iter()
@@ -736,11 +757,7 @@ pub fn assert_custom1_preserves_exact_accounts(
     let pre = snapshot_exact_accounts(&expected_keys, &pre_obs)
         .unwrap_or_else(|e| panic!("pre exact snapshot: {e}"));
 
-    let result = mollusk.process_and_validate_instruction(
-        ix,
-        accounts,
-        &[Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN))],
-    );
+    let result = mollusk.process_and_validate_instruction(ix, accounts, checks);
 
     let post_obs: Vec<(Pubkey, Option<Account>)> = result
         .resulting_accounts
@@ -751,7 +768,498 @@ pub fn assert_custom1_preserves_exact_accounts(
         .unwrap_or_else(|e| panic!("post exact snapshot: {e}"));
     assert_eq!(
         pre, post,
-        "Custom({CHECK_OR_UNKNOWN}) failure must preserve full account snapshot \
+        "failure must preserve full account snapshot \
          (lamports/data/owner/executable/rent_epoch for every key)"
     );
+}
+
+// ---------------------------------------------------------------------------
+// #115 harness-only CPI spike helpers (not product proof-forge.output.v1)
+// ---------------------------------------------------------------------------
+
+pub const HARNESS_CALLER_ID_BYTES: [u8; 32] = [0x42; 32];
+pub const HARNESS_COMPANION_ID_BYTES: [u8; 32] = [0x43; 32];
+
+pub const HARNESS_OP_INVOKE_SUCCESS: u8 = 0x00;
+pub const HARNESS_OP_INVOKE_FAIL: u8 = 0x01;
+pub const HARNESS_OP_INVOKE_SIGNED: u8 = 0x02;
+pub const HARNESS_OP_INVOKE_SIGNED_FAIL: u8 = 0x03;
+pub const HARNESS_OP_FORGE_WRITABLE: u8 = 0x10;
+pub const HARNESS_OP_FORGE_SIGNER: u8 = 0x11;
+
+pub const HARNESS_PDA_SEED0: &[u8] = b"proof-forge:pda:v1";
+pub const HARNESS_STALE_RETURN_DATA: &[u8; 8] = b"stale:v1";
+pub const HARNESS_INNER_RETURN_DATA: &[u8; 8] = b"inner:v1";
+pub const HARNESS_FAILURE_RETURN_DATA: &[u8; 8] = b"fail:v1!";
+pub const ABI_V1_FULL_PREFIX: usize = 88;
+pub const ABI_V1_MAX_DATA_INCREASE: usize = 10240;
+pub const ABI_V1_MARKER: u8 = 0xff;
+pub const ABI_V1_ALIGN: usize = 8;
+pub const SOLANA_CPI_MAX_OUTER_ROLES: usize = 16;
+pub const SOLANA_CPI_MAX_METAS: usize = 16;
+pub const SOLANA_CPI_MAX_SIGNER_GROUPS: usize = 4;
+pub const SOLANA_CPI_MAX_SEED_SLICES: usize = 16;
+pub const SOLANA_CPI_MAX_BYTES_PER_SEED: usize = 32;
+
+pub fn harness_caller_id() -> Pubkey {
+    Pubkey::new_from_array(HARNESS_CALLER_ID_BYTES)
+}
+
+pub fn harness_companion_id() -> Pubkey {
+    Pubkey::new_from_array(HARNESS_COMPANION_ID_BYTES)
+}
+
+pub fn harness_out_dir() -> PathBuf {
+    PathBuf::from(env::var("PROOF_FORGE_HARNESS_OUT").expect(
+        "PROOF_FORGE_HARNESS_OUT must point at the harness bind directory \
+         (scripts/solana_harness_build.sh)",
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessManifestV1 {
+    schema: String,
+    issue: u64,
+    sbpf: String,
+    runtime_oracle: HarnessRuntimeOracleV1,
+    program_ids: HarnessProgramIdsV1,
+    opcodes: HarnessOpcodesV1,
+    caller_instruction: HarnessCallerInstructionV1,
+    companion_instruction: HarnessCompanionInstructionV1,
+    c_struct_sizes: HarnessCStructSizesV1,
+    abi_v1: HarnessAbiV1,
+    outer_roles: HarnessOuterRolesV1,
+    pda: HarnessPdaV1,
+    expected_elf_sha256: HarnessElfDigestsV1,
+    expected_elf_size: HarnessElfSizesV1,
+    reproducibility_note: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessRuntimeOracleV1 {
+    mollusk_svm: String,
+    agave_syscalls: String,
+    solana_program_runtime: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessProgramIdsV1 {
+    caller_hex: String,
+    companion_hex: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessOpcodesV1 {
+    invoke_success: u8,
+    invoke_fail: u8,
+    invoke_signed: u8,
+    invoke_signed_fail: u8,
+    forge_writable: u8,
+    forge_signer: u8,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessCallerInstructionV1 {
+    unsigned_layout: String,
+    unsigned_len: usize,
+    signed_layout: String,
+    signed_len: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessCompanionInstructionV1 {
+    layout: String,
+    len: usize,
+    tags: HarnessCompanionTagsV1,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessCompanionTagsV1 {
+    checked_add: u8,
+    fail_after_write: u8,
+    checked_add_require_signer: u8,
+    fail_after_write_require_signer: u8,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HarnessCStructSizesV1 {
+    #[serde(rename = "SolInstruction")]
+    sol_instruction: usize,
+    #[serde(rename = "SolAccountMeta")]
+    sol_account_meta: usize,
+    #[serde(rename = "SolAccountInfo")]
+    sol_account_info: usize,
+    #[serde(rename = "SolSignerSeed")]
+    sol_signer_seed: usize,
+    #[serde(rename = "SolSignerSeeds")]
+    sol_signer_seeds: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessAbiV1 {
+    full_prefix_bytes: usize,
+    max_permitted_data_increase: usize,
+    marker: u8,
+    original_data_len_wire: u32,
+    rent_epoch: u64,
+    align: usize,
+    product_caps: HarnessProductCapsV1,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessProductCapsV1 {
+    outer_roles: usize,
+    cpi_metas: usize,
+    signer_groups: usize,
+    seed_slices: usize,
+    bytes_per_seed: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessOuterRolesV1 {
+    unsigned: Vec<String>,
+    signed: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HarnessPdaV1 {
+    recipe: String,
+    seed0_utf8: String,
+    seed0_hex: String,
+    canonical_bump_search: String,
+    bump0_rejected: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HarnessElfDigestsV1 {
+    companion: String,
+    caller: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HarnessElfSizesV1 {
+    companion: u64,
+    caller: u64,
+}
+
+fn decode_harness_manifest(bytes: &[u8]) -> Result<HarnessManifestV1, String> {
+    let manifest: HarnessManifestV1 = serde_json::from_slice(bytes)
+        .map_err(|error| format!("decode harness manifest: {error}"))?;
+    let expect = |condition: bool, message: &str| {
+        if condition {
+            Ok(())
+        } else {
+            Err(message.to_string())
+        }
+    };
+    expect(
+        manifest.schema == "proof-forge.solana.cpi-harness.v1",
+        "schema",
+    )?;
+    expect(manifest.issue == 115, "issue")?;
+    expect(manifest.sbpf == "0.2.2", "sbpf")?;
+    expect(
+        manifest.runtime_oracle.mollusk_svm == "0.13.4",
+        "molluskSvm",
+    )?;
+    expect(
+        manifest.runtime_oracle.agave_syscalls == "4.0.0",
+        "agaveSyscalls",
+    )?;
+    expect(
+        manifest.runtime_oracle.solana_program_runtime == "4.0.0",
+        "solanaProgramRuntime",
+    )?;
+    expect(
+        manifest.program_ids.caller_hex == hex::encode(HARNESS_CALLER_ID_BYTES),
+        "callerHex",
+    )?;
+    expect(
+        manifest.program_ids.companion_hex == hex::encode(HARNESS_COMPANION_ID_BYTES),
+        "companionHex",
+    )?;
+    expect(
+        manifest.opcodes.invoke_success == HARNESS_OP_INVOKE_SUCCESS,
+        "invokeSuccess",
+    )?;
+    expect(
+        manifest.opcodes.invoke_fail == HARNESS_OP_INVOKE_FAIL,
+        "invokeFail",
+    )?;
+    expect(
+        manifest.opcodes.invoke_signed == HARNESS_OP_INVOKE_SIGNED,
+        "invokeSigned",
+    )?;
+    expect(
+        manifest.opcodes.invoke_signed_fail == HARNESS_OP_INVOKE_SIGNED_FAIL,
+        "invokeSignedFail",
+    )?;
+    expect(
+        manifest.opcodes.forge_writable == HARNESS_OP_FORGE_WRITABLE,
+        "forgeWritable",
+    )?;
+    expect(
+        manifest.opcodes.forge_signer == HARNESS_OP_FORGE_SIGNER,
+        "forgeSigner",
+    )?;
+    expect(
+        manifest.caller_instruction.unsigned_layout == "opcode:u8 || delta:u64le"
+            && manifest.caller_instruction.unsigned_len == 9,
+        "caller unsigned instruction",
+    )?;
+    expect(
+        manifest.caller_instruction.signed_layout
+            == "opcode:u8 || delta:u64le || seedTag:u64le || bump:u8"
+            && manifest.caller_instruction.signed_len == 18,
+        "caller signed instruction",
+    )?;
+    expect(
+        manifest.companion_instruction.layout == "tag:u8 || delta:u64le"
+            && manifest.companion_instruction.len == 9,
+        "companion instruction",
+    )?;
+    let tags = &manifest.companion_instruction.tags;
+    expect(
+        tags.checked_add == 0
+            && tags.fail_after_write == 1
+            && tags.checked_add_require_signer == 2
+            && tags.fail_after_write_require_signer == 3,
+        "companion tags",
+    )?;
+    let sizes = &manifest.c_struct_sizes;
+    expect(
+        sizes.sol_instruction == 40
+            && sizes.sol_account_meta == 16
+            && sizes.sol_account_info == 56
+            && sizes.sol_signer_seed == 16
+            && sizes.sol_signer_seeds == 16,
+        "C struct sizes",
+    )?;
+    let abi = &manifest.abi_v1;
+    expect(
+        abi.full_prefix_bytes == ABI_V1_FULL_PREFIX
+            && abi.max_permitted_data_increase == ABI_V1_MAX_DATA_INCREASE
+            && abi.marker == ABI_V1_MARKER
+            && abi.original_data_len_wire == 0
+            && abi.rent_epoch == u64::MAX
+            && abi.align == ABI_V1_ALIGN,
+        "ABIv1 constants",
+    )?;
+    let caps = &abi.product_caps;
+    expect(
+        caps.outer_roles == SOLANA_CPI_MAX_OUTER_ROLES
+            && caps.cpi_metas == SOLANA_CPI_MAX_METAS
+            && caps.signer_groups == SOLANA_CPI_MAX_SIGNER_GROUPS
+            && caps.seed_slices == SOLANA_CPI_MAX_SEED_SLICES
+            && caps.bytes_per_seed == SOLANA_CPI_MAX_BYTES_PER_SEED,
+        "product caps",
+    )?;
+    expect(
+        manifest.outer_roles.unsigned == ["counter", "companion-program"],
+        "unsigned roles",
+    )?;
+    expect(
+        manifest.outer_roles.signed
+            == [
+                "counter",
+                "authorityPda",
+                "seedAuthority",
+                "companion-program",
+            ],
+        "signed roles",
+    )?;
+    let pda = &manifest.pda;
+    expect(
+        pda.recipe == "current-program-tagged-v1"
+            && pda.seed0_utf8 == "proof-forge:pda:v1"
+            && pda.seed0_hex == hex::encode(HARNESS_PDA_SEED0)
+            && pda.canonical_bump_search == "255..1"
+            && pda.bump0_rejected,
+        "PDA recipe",
+    )?;
+    expect(
+        is_lower_hex_64(&manifest.expected_elf_sha256.companion)
+            && is_lower_hex_64(&manifest.expected_elf_sha256.caller),
+        "ELF digests",
+    )?;
+    expect(
+        manifest.expected_elf_size.companion > 0 && manifest.expected_elf_size.caller > 0,
+        "ELF sizes",
+    )?;
+    expect(
+        manifest
+            .reproducibility_note
+            .contains("not a hermetic multi-host formal claim"),
+        "reproducibility note",
+    )?;
+    Ok(manifest)
+}
+
+pub fn validate_harness_manifest_bytes(bytes: &[u8]) -> Result<(), String> {
+    decode_harness_manifest(bytes).map(|_| ())
+}
+
+pub fn committed_harness_manifest_bytes() -> Vec<u8> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("harness/manifest.json");
+    stable_read_harness_file(&path, "harness committed manifest")
+}
+
+fn stable_read_harness_file(path: &Path, label: &str) -> Vec<u8> {
+    let before = require_regular_single_link(path, label).unwrap_or_else(|e| panic!("{e}"));
+    let bytes = fs::read(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let after = require_regular_single_link(path, &format!("{label} post-read"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    if before.dev() != after.dev()
+        || before.ino() != after.ino()
+        || before.len() != after.len()
+        || before.mtime() != after.mtime()
+        || before.mtime_nsec() != after.mtime_nsec()
+        || bytes.len() as u64 != before.len()
+    {
+        panic!("{label} changed during stable read: {}", path.display());
+    }
+    bytes
+}
+
+fn harness_manifest_binding(stem: &str) -> (u64, String) {
+    assert!(
+        matches!(stem, "caller" | "companion"),
+        "unknown harness stem"
+    );
+    let bytes = committed_harness_manifest_bytes();
+    let manifest = decode_harness_manifest(&bytes).unwrap_or_else(|error| panic!("{error}"));
+    match stem {
+        "caller" => (
+            manifest.expected_elf_size.caller,
+            manifest.expected_elf_sha256.caller,
+        ),
+        "companion" => (
+            manifest.expected_elf_size.companion,
+            manifest.expected_elf_sha256.companion,
+        ),
+        _ => unreachable!(),
+    }
+}
+
+/// Stable-read harness ELF and bind it independently to both committed
+/// manifest identity and generated sidecars. Replacing a self-consistent
+/// `.so/.size/.sha256` trio cannot bypass the committed byte pin.
+pub fn read_harness_elf(stem: &str) -> Vec<u8> {
+    let dir = harness_out_dir();
+    let so = dir.join(format!("{stem}.so"));
+    let size_path = dir.join(format!("{stem}.so.size"));
+    let hash_path = dir.join(format!("{stem}.so.sha256"));
+    let (manifest_size, manifest_hash) = harness_manifest_binding(stem);
+    let sidecar_size_bytes = stable_read_harness_file(&size_path, "harness size sidecar");
+    let sidecar_size: u64 = std::str::from_utf8(&sidecar_size_bytes)
+        .expect("UTF-8 size sidecar")
+        .trim()
+        .parse()
+        .unwrap_or_else(|e| panic!("parse size sidecar: {e}"));
+    let sidecar_hash_bytes = stable_read_harness_file(&hash_path, "harness hash sidecar");
+    let sidecar_hash = std::str::from_utf8(&sidecar_hash_bytes)
+        .expect("UTF-8 hash sidecar")
+        .trim();
+    assert_eq!(
+        sidecar_size, manifest_size,
+        "harness size sidecar vs manifest"
+    );
+    assert_eq!(
+        sidecar_hash, manifest_hash,
+        "harness hash sidecar vs manifest"
+    );
+
+    let bytes = stable_read_harness_file(&so, "harness ELF");
+    assert_eq!(
+        bytes.len() as u64,
+        manifest_size,
+        "harness ELF size mismatch"
+    );
+    let digest = hex::encode(Sha256::digest(&bytes));
+    assert_eq!(digest, manifest_hash, "harness {stem}.so sha256 mismatch");
+    assert!(
+        bytes.starts_with(b"\x7fELF"),
+        "harness {stem}.so must be ELF"
+    );
+    bytes
+}
+
+/// Register caller + companion under Loader V3 with exact harness ELF bytes.
+pub fn make_harness_mollusk() -> (Mollusk, Pubkey, Pubkey) {
+    let caller_id = harness_caller_id();
+    let companion_id = harness_companion_id();
+    let caller_elf = read_harness_elf("caller");
+    let companion_elf = read_harness_elf("companion");
+    let mut mollusk = Mollusk::default();
+    mollusk.add_program_with_loader_and_elf(
+        &caller_id,
+        &mollusk_svm::program::loader_keys::LOADER_V3,
+        &caller_elf,
+    );
+    mollusk.add_program_with_loader_and_elf(
+        &companion_id,
+        &mollusk_svm::program::loader_keys::LOADER_V3,
+        &companion_elf,
+    );
+    (mollusk, caller_id, companion_id)
+}
+
+pub fn harness_ix_unsigned(opcode: u8, delta: u64) -> Vec<u8> {
+    let mut data = Vec::with_capacity(9);
+    data.push(opcode);
+    data.extend_from_slice(&delta.to_le_bytes());
+    data
+}
+
+pub fn harness_ix_signed(opcode: u8, delta: u64, seed_tag: u64, bump: u8) -> Vec<u8> {
+    let mut data = Vec::with_capacity(18);
+    data.push(opcode);
+    data.extend_from_slice(&delta.to_le_bytes());
+    data.extend_from_slice(&seed_tag.to_le_bytes());
+    data.push(bump);
+    data
+}
+
+pub fn companion_counter_account(companion_id: &Pubkey, count: u64) -> Account {
+    let mut account = Account::new(BASE_LAMPORTS, 8, companion_id);
+    account.data = count.to_le_bytes().to_vec();
+    account
+}
+
+/// Independent current-program-tagged-v1 PDA search (255..1), using SHA-256 +
+/// `Pubkey::create_program_address` only as the off-curve oracle for candidates.
+/// Seed layout is constructed here; bump 0 is never searched.
+pub fn find_pda_current_program_tagged_v1(
+    program_id: &Pubkey,
+    seed_authority: &Pubkey,
+    seed_tag: u64,
+) -> (Pubkey, u8) {
+    let tag_le = seed_tag.to_le_bytes();
+    for bump in (1u8..=255).rev() {
+        let bump_slice = [bump];
+        let seeds: &[&[u8]] = &[
+            HARNESS_PDA_SEED0,
+            seed_authority.as_ref(),
+            &tag_le,
+            &bump_slice,
+        ];
+        if let Ok(addr) = Pubkey::create_program_address(seeds, program_id) {
+            return (addr, bump);
+        }
+    }
+    panic!("no canonical PDA bump in 255..1 for current-program-tagged-v1");
 }
