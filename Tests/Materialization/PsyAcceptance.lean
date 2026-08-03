@@ -234,6 +234,21 @@ private def u32BitNotSourceText : String :=
   "  entry flip(x : UInt32) : UInt32 do\n" ++
   "    return ~x\n"
 
+/-- B-RET-ABI PairRet: named Struct view return emitted as `-> [Felt; 2]`.
+    Real psyup/dargo must accept the multi-leaf array return form. -/
+private def pairRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program PairRet where\n" ++
+  "  struct Pair where\n" ++
+  "    a : UInt64\n" ++
+  "    b : UInt64\n" ++
+  "  state p : Pair\n" ++
+  "  init(x : UInt64, y : UInt64) do\n" ++
+  "    p := Pair.new(x, y)\n" ++
+  "  view getPair() : Pair do\n" ++
+  "    return p\n"
+
 /-- Suite entry. Skips cleanly when psyup/dargo/std are unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.PsyAcceptance: start"
@@ -268,6 +283,9 @@ unsafe def run : IO Unit := do
         acceptProgram tc staging "PsyFlip32"
           u32BitNotSourceText "Tests.PsyAccept.PsyFlip32"
           "PsyFlip32.psy" "psy_flip32"
+        acceptProgram tc staging "PairRet"
+          pairRetSourceText "Tests.PsyAccept.PairRet"
+          "PairRet.psy" "pair_ret"
         IO.println "Tests.Materialization.PsyAcceptance: ok"
       finally
         if ← staging.pathExists then IO.FS.removeDirAll staging

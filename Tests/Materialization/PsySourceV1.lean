@@ -922,6 +922,223 @@ unsafe def testArrayStateLowered : IO Unit := do
   expect (psy.contains "slots_0" && psy.contains "slots_1")
     "Psy Array source must declare slots_0 and slots_1"
 
+/-- B-RET-ABI: named Struct view return flattens to 2×UInt64 leaves via
+    `returnAggregate` and emits honest Psy `-> [Felt; 2]` + `return [..];`. -/
+unsafe def testNamedStructReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PairRet where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n" ++
+    "  view getPair() : Pair do\n" ++
+    "    return p\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-pair-ret>" "Tests.PairRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let some getPair := plan.functions.find? (·.name == "getPair") |
+    throw <| IO.userError "PairRet plan must carry getPair"
+  match getPair.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"PairRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "PairRet leaves must be u64 (not Int)"
+      expect (leaves.all (·.byteWidth == 8))
+        "PairRet leaves must be 8-byte words"
+  | other =>
+      throw <| IO.userError
+        s!"PairRet getPair resultKind must be .aggregate, got {repr other}"
+  expect (!getPair.resultIsBool && !getPair.resultIsUnit && !getPair.resultIsU32)
+    "PairRet aggregate must not set scalar result flags"
+  expect (getPair.body.size == 1) "PairRet getPair body must be one return"
+  match getPair.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2)
+        s!"returnAggregate must have 2 leaves, got {leaves.size}"
+      expect (leafIsInt == #[false, false])
+        "returnAggregate leafIsInt must be #[false, false]"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad 0, .stateLoad 1 => pure ()
+      | _, _ =>
+          throw <| IO.userError
+            "PairRet returnAggregate leaves must be stateLoad of p_a/p_b"
+  | _ =>
+      throw <| IO.userError "PairRet getPair body must be .returnAggregate"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "PairRet.psy") |
+    throw <| IO.userError "psy: missing PairRet.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub fn getPair() -> [Felt; 2]")
+    s!"PairRet source must declare -> [Felt; 2], got:\n{psy}"
+  expect (psy.contains "return [c.p_a.get(), c.p_b.get()];" ||
+      (psy.contains "return [" && psy.contains "p_a" && psy.contains "p_b"))
+    s!"PairRet source must return [p_a, p_b] leaf array, got:\n{psy}"
+  expect (!psy.contains "return of aggregate")
+    "PairRet must not re-emit the old fail-closed message"
+
+/-- B-RET-ABI: named Enum return = tag + max-payload slots (Maybe = 2 leaves). -/
+unsafe def testNamedEnumReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeRet where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  entry put(v : UInt64) : Maybe do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return m\n" ++
+    "  view peek() : Maybe do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-maybe-ret>" "Tests.MaybeRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let some peek := plan.functions.find? (·.name == "peek") |
+    throw <| IO.userError "MaybeRet plan must carry peek"
+  match peek.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"MaybeRet Enum return must be tag+payload (2), got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"MaybeRet peek resultKind must be .aggregate, got {repr other}"
+  match peek.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt.size == 2)
+        "MaybeRet returnAggregate must have 2 leaves"
+  | _ =>
+      throw <| IO.userError "MaybeRet peek body must be .returnAggregate"
+  let some put := plan.functions.find? (·.name == "put") |
+    throw <| IO.userError "MaybeRet plan must carry put"
+  match put.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2) "MaybeRet put must also return 2-leaf Maybe"
+  | _ =>
+      throw <| IO.userError "MaybeRet put resultKind must be .aggregate"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "MaybeRet.psy") |
+    throw <| IO.userError "psy: missing MaybeRet.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub fn peek() -> [Felt; 2]")
+    s!"MaybeRet peek must declare -> [Felt; 2], got:\n{psy}"
+  expect (psy.contains "pub fn put(p0: Felt) -> [Felt; 2]")
+    s!"MaybeRet put must declare -> [Felt; 2], got:\n{psy}"
+  expect (psy.contains "return [")
+    "MaybeRet source must emit array-literal return"
+
+/-- Fail-closed: anonymous Array return, >8 leaves, pureFn aggregate. -/
+unsafe def testAggregateReturnFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- Anonymous Array entry return stays fail-closed (B-RET-ABI named-only).
+  let arrSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayRet where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          arrSource "<psy-array-ret>" "Tests.ArrayRet" none)
+        let c ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()  -- may fail at Normalize/typed
+  | some c =>
+      match planPsy c with
+      | .error e =>
+          expect (e.render.contains "aggregate" || e.render.contains "Array" ||
+              e.render.contains "container" || e.render.contains "B-RET")
+            s!"ArrayRet error must cite aggregate/Array/container, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Psy anonymous Array return must fail closed (B-RET-ABI named-only)"
+  -- Cap-8: Struct with 9 UInt64 fields exceeds B-RET-ABI leaf cap.
+  let mut fields := ""
+  let mut args := ""
+  for i in [0:9] do
+    fields := fields ++ s!"    f{i} : UInt64\n"
+    args := args ++ (if i == 0 then "0" else ", 0")
+  let wideSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideRet where\n" ++
+    "  struct Wide where\n" ++
+    fields ++
+    "  state w : Wide\n" ++
+    "  init() do\n" ++
+    s!"    w := Wide.new({args})\n" ++
+    "  view getWide() : Wide do\n" ++
+    "    return w\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          wideSource "<psy-wide-ret>" "Tests.WideRet" none)
+        let c ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planPsy c with
+      | .error e =>
+          expect (e.render.contains "8" || e.render.contains "leaf" ||
+              e.render.contains "aggregate")
+            s!"WideRet leaf-cap error must cite cap/leaf/aggregate, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Psy 9-leaf aggregate return must fail closed (cap-8)"
+  -- pureFn aggregate return stays fail closed.
+  let pureSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PureAgg where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n" ++
+    "  init() do\n" ++
+    "    p := Pair.new(0, 0)\n" ++
+    "  fn make(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    return Pair.new(x, y)\n" ++
+    "  entry run(x : UInt64, y : UInt64) : UInt64 do\n" ++
+    "    let q := make(x, y)\n" ++
+    "    return q.a\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          pureSource "<psy-pure-agg>" "Tests.PureAgg" none)
+        let c ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planPsy c with
+      | .error e =>
+          expect (e.render.contains "pureFn" || e.render.contains "aggregate" ||
+              e.render.contains "B-RET")
+            s!"PureAgg error must cite pureFn/aggregate, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Psy pureFn aggregate return must fail closed"
+
 unsafe def run : IO Unit := do
   testCounterPsySource
   testCheckedArithGuards
@@ -951,6 +1168,9 @@ unsafe def run : IO Unit := do
   testOmittedTypeLet
   testNamedAggregateLowered
   testArrayStateLowered
+  testNamedStructReturn
+  testNamedEnumReturn
+  testAggregateReturnFailClosed
   IO.println "Tests.Materialization.PsySourceV1: ok"
 
 end Tests.Materialization.PsySourceV1

@@ -57,6 +57,9 @@ mutual
     | storageScalarRead (stateId : String)
     | crosscallInvoke (target methodId : PsyExpr) (args : Array PsyExpr)
     | call (name : String) (args : Array PsyExpr)
+    /-- B-RET-ABI: fixed-length Felt array literal `[e0, e1, …]` — honest
+        multi-leaf return form on the Psy surface (`-> [Felt; N]`). -/
+    | arrayLit (elems : Array PsyExpr)
     deriving BEq, Inhabited, Repr
 
   inductive PsyStmt where
@@ -91,6 +94,9 @@ structure PsyMethod where
   resultIsUnit : Bool
   /-- Native Psy `u32` result (2026-08-02 u32 slice; `-> u32`). -/
   resultIsU32 : Bool := false
+  /-- B-RET-ABI: `some N` → method signature `-> [Felt; N]` (multi-leaf
+      aggregate return). Mutually exclusive with the scalar flags. -/
+  resultLeafCount : Option Nat := none
   /-- Contract entrypoint (`#[contract_method]`) vs pure helper `fn`. -/
   isContractMethod : Bool
   body : Array PsyStmt
@@ -174,10 +180,14 @@ mutual
     | .call name args =>
         let argStr := String.intercalate ", " (args.map exprStr).toList
         s!"{name}({argStr})"
+    | .arrayLit elems =>
+        let argStr := String.intercalate ", " (elems.map exprStr).toList
+        s!"[{argStr}]"
 
   private partial def operandExpr (e : PsyExpr) : String :=
     match e with
-    | .literal _ | .local _ | .storageScalarRead _ | .call _ _ | .crosscallInvoke _ _ _ =>
+    | .literal _ | .local _ | .storageScalarRead _ | .call _ _ | .crosscallInvoke _ _ _
+    | .arrayLit _ =>
         exprStr e
     | _ => s!"({exprStr e})"
 
@@ -227,13 +237,19 @@ end
 private def renderParam (p : PsyParam) : String :=
   s!"{p.name}: {if p.isBool then "bool" else if p.isU32 then "u32" else "Felt"}"
 
+/-- Method return type suffix. B-RET-ABI aggregates render as `-> [Felt; N]`
+    (honest multi-leaf Psy form verified against dargo). -/
+private def renderReturnSuffix (m : PsyMethod) : String :=
+  if m.resultIsUnit then ""
+  else if m.resultIsBool then " -> bool"
+  else if m.resultIsU32 then " -> u32"
+  else match m.resultLeafCount with
+    | some n => s!" -> [Felt; {n}]"
+    | none => " -> Felt"
+
 /-- Render a contract method with the correct `Ref::new` line. -/
 private def renderContractMethod (refName : String) (m : PsyMethod) : String :=
-  let returnSuffix :=
-    if m.resultIsUnit then ""
-    else if m.resultIsBool then " -> bool"
-    else if m.resultIsU32 then " -> u32"
-    else " -> Felt"
+  let returnSuffix := renderReturnSuffix m
   let paramList := String.intercalate ", " (m.params.map renderParam).toList
   let header := indent 1 "#[contract_method]"
   let signature :=
@@ -244,11 +260,7 @@ private def renderContractMethod (refName : String) (m : PsyMethod) : String :=
     (#[header, signature, newRef] ++ bodyLines ++ #[indent 1 "}"]).toList
 
 private def renderHelper (m : PsyMethod) : String :=
-  let returnSuffix :=
-    if m.resultIsUnit then ""
-    else if m.resultIsBool then " -> bool"
-    else if m.resultIsU32 then " -> u32"
-    else " -> Felt"
+  let returnSuffix := renderReturnSuffix m
   let paramList := String.intercalate ", " (m.params.map renderParam).toList
   let signature := s!"fn {m.name}({paramList}){returnSuffix} " ++ "{"
   let bodyLines := m.body.flatMap (stmtLines 1)
@@ -599,6 +611,20 @@ private partial def emitStatements
         let (exprStmts, psy, ctx1) ← lowerExprStmt ctx value
         out := out ++ exprStmts ++ #[.returnExpr psy]
         ctx := ctx1
+    | .returnAggregate leaves _leafIsInt => do
+        -- B-RET-ABI: lower each preorder leaf independently, pack as `[Felt; N]`.
+        -- Int64 leaves are also Felt on the Psy surface (signed interpretation
+        -- is emission-time for compares only); leafIsInt is Plan ABI metadata.
+        let mut stmts : Array PsyStmt := #[]
+        let mut elems : Array PsyExpr := #[]
+        let mut ctx' := ctx
+        for leaf in leaves do
+          let (ls, e', ctx1) ← lowerExprStmt ctx' leaf
+          stmts := stmts ++ ls
+          elems := elems.push e'
+          ctx' := ctx1
+        out := out ++ stmts ++ #[.returnExpr (.arrayLit elems)]
+        ctx := ctx'
     | .returnNone =>
         out := out.push .returnUnit
     | .ifThenElse condition thenBody elseBody => do
@@ -731,6 +757,10 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
     planError s!"Psy function name '{fn.name}' is not a safe identifier"
   let params := fn.params.map fun p =>
     { name := s!"p{p.sourceIndex}", isBool := p.isBool, isU32 := p.isU32 }
+  let resultLeafCount : Option Nat :=
+    match fn.resultKind with
+    | .aggregate leaves => some leaves.size
+    | _ => none
   let (body, ctx1) ← emitStatements ctx fn.body 0
   pure ({
     name := fn.name
@@ -738,6 +768,7 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
     resultIsBool := fn.resultIsBool
     resultIsUnit := fn.resultIsUnit
     resultIsU32 := fn.resultIsU32
+    resultLeafCount
     isContractMethod := fn.kind != .pureHelper
     body
   }, ctx1)

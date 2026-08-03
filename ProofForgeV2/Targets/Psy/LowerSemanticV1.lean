@@ -41,6 +41,15 @@ Plan Expr remains scalar-only: construct/fieldGet/fieldSet/variantTag/
 variantPayload/indexGet/indexSet operate in the lowering value env only.
 Map/Bytes/Option/String/Principal stay fail-closed. Array IndexGet/IndexSet
 require a compile-time UInt literal index (no dynamic select surface on Psy).
+
+## B-RET-ABI named Struct/Enum entry/view returns (2026-08-03)
+
+Named Struct/Enum **entry/view** results flatten to 1..8 preorder UInt64/Int64
+leaves (`ResultKind.aggregate` + `Statement.returnAggregate`, appended at the
+end of the Statement ctor space). Emission packs leaves as one honest Psy
+`[Felt; N]` return (`-> [Felt; N]` + `return [e0, …];`), verified against
+real dargo/psyup. Anonymous Array/Map/Bytes/Option returns, named aggregate
+params, pureFn aggregate returns, and >8 leaves stay fail closed.
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -149,6 +158,33 @@ inductive Statement where
   | bareRevert
   | externalCall (callee : Array String) (args : Array Expr)
   | schedule (callee : Array String) (args : Array Expr)
+  /-- B-RET-ABI (appended; never renumber prior ctors): multi-leaf named
+      Struct/Enum return. `leaves` are preorder flatten expressions;
+      `leafIsInt` is parallel (i64 vs u64 ABI). Emission packs as one Psy
+      `[Felt; N]` return value (honest multi-leaf form on the Psy surface). -/
+  | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
+  deriving BEq, Inhabited, Repr
+
+/-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
+UInt64/Int64 words (`isInt` selects i64 vs u64); `byteWidth` is 8. -/
+structure LeafAbiType where
+  isInt : Bool
+  byteWidth : Nat
+  deriving BEq, Inhabited, Repr
+
+/-- Entry/view/pureFn result ABI kind. Scalar kinds keep the historical
+    three-flag encoding on `PlanFunction` (`resultIsBool`/`resultIsUnit`/
+    `resultIsU32`); B-RET-ABI `.aggregate` packs 1..8 UInt64/Int64 leaves as
+    one Psy `[Felt; N]` return. Anonymous Array/Map/Bytes/Option stay FC. -/
+inductive ResultKind where
+  /-- Scalar Felt (UInt64/Int64/Goldilocks Field) — flags all false. -/
+  | felt
+  | bool
+  | unit
+  | u32
+  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` is preorder
+  flatten order (1..8). -/
+  | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
 inductive FunctionKind where
@@ -177,6 +213,10 @@ structure PlanFunction where
   resultIsUnit : Bool
   /-- Native Psy `u32` result (2026-08-02 u32 slice; emitted `-> u32`). -/
   resultIsU32 : Bool := false
+  /-- B-RET-ABI result kind. When `.aggregate`, the three scalar flags are
+      false and body paths end in `returnAggregate`. Default `.felt` keeps
+      historical scalar defaults for structure literals that omit the field. -/
+  resultKind : ResultKind := .felt
   deriving BEq, Inhabited, Repr
 
 structure PlanEvent where
@@ -409,6 +449,65 @@ private def leafCountOfTypeV1
     (typeId : TypeIdV1) : CompileResult Nat := do
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
+
+/-- B-RET-ABI return flatten: only UInt64/Int64 + named Struct/Enum
+    (preorder; Enum = tag + max-payload pad). Anonymous Array/Map/Bytes/
+    Option/Principal fail closed (not named aggregates). -/
+private partial def flattenReturnLeafAbiV1
+    (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Array LeafAbiType) := do
+  if typeId == types.uint64TypeId then
+    pure #[{ isInt := false, byteWidth := 8 }]
+  else if types.int64TypeId == some typeId then
+    pure #[{ isInt := true, byteWidth := 8 }]
+  else if types.isNamedAggregate typeId then
+    match typeDecls[typeId.toNat]? with
+    | none =>
+        planError s!"unsupported Psy semantic shape: missing TypeDecl for aggregate {typeId}"
+    | some decl =>
+        match decl.shape with
+        | .struct fields => do
+            unless fields.size > 0 do
+              planError "unsupported Psy semantic shape: named Struct requires at least one field"
+            let mut out : Array LeafAbiType := #[]
+            for f in fields do
+              let sub ← flattenReturnLeafAbiV1 typeDecls types f.typeId
+              out := out ++ sub
+            pure out
+        | .enum variants => do
+            unless variants.size > 0 do
+              planError "unsupported Psy semantic shape: named Enum requires at least one variant"
+            let mut maxPay : Nat := 0
+            for v in variants do
+              let mut n : Nat := 0
+              for pt in v.payloadTypes do
+                let sub ← flattenReturnLeafAbiV1 typeDecls types pt
+                n := n + sub.size
+              if n > maxPay then maxPay := n
+            -- Tag is always unsigned UInt64; payload slots padded to max.
+            let mut out : Array LeafAbiType := #[{ isInt := false, byteWidth := 8 }]
+            for _ in [0:maxPay] do
+              out := out.push { isInt := false, byteWidth := 8 }
+            pure out
+        | _ =>
+            planError "unsupported Psy semantic shape: named type must be Struct or Enum"
+  else
+    planError "unsupported Psy semantic shape: aggregate return leaf must be UInt64, Int64, or named Struct/Enum"
+
+/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
+`ResultKind`. Enforces 1..8 leaves. Anonymous containers fail closed. -/
+private def aggregateResultKindOfV1
+    (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
+    (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
+  unless types.isNamedAggregate typeId do
+    planError s!"{owner} does not return a named Struct/Enum aggregate"
+  let leaves ← flattenReturnLeafAbiV1 typeDecls types typeId
+  let n := leaves.size
+  unless n > 0 do
+    planError s!"{owner} aggregate return must have at least one leaf"
+  unless n ≤ 8 do
+    planError s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+  pure (.aggregate leaves)
 
 private def structFieldLeafRangeV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
@@ -651,6 +750,7 @@ mutual
 private partial def lowerRegion
     (data : SemanticProgramDataV1) (layout : PsyLowerLayoutV1) (callable : CallableV1)
     (fnNames : Array (CallableIdV1 × String))
+    (expectedAggregateLeaves : Option (Array LeafAbiType))
     (entry : Nat) (loops : Array LoopCtxV1) (env : ValueEnv)
     (ls : LowerStateV1) : CompileResult RegionResult := do
   if entry >= callable.blocks.size then
@@ -1145,16 +1245,16 @@ private partial def lowerRegion
       if isActiveHeader loops target.blockId then
         pure { stmts := ls.stmts, join? := none }
       else if isLoopHeaderV1 callable target.blockId then
-        lowerLoop data layout callable fnNames target ls env loops
+        lowerLoop data layout callable fnNames expectedAggregateLeaves target ls env loops
       else
-        lowerRegion data layout callable fnNames target.blockId.toNat loops env ls
+        lowerRegion data layout callable fnNames expectedAggregateLeaves target.blockId.toNat loops env ls
   | .branch condition thenTarget elseTarget => do
       let c ← match envLookupExpr env condition with
         | some e => pure e
         | none => planError "unsupported Psy semantic shape: branch references an undefined condition"
       let emptyLs : LowerStateV1 := { stmts := #[] }
-      let thenRes ← lowerRegion data layout callable fnNames thenTarget.blockId.toNat loops env emptyLs
-      let elseRes ← lowerRegion data layout callable fnNames elseTarget.blockId.toNat loops env emptyLs
+      let thenRes ← lowerRegion data layout callable fnNames expectedAggregateLeaves thenTarget.blockId.toNat loops env emptyLs
+      let elseRes ← lowerRegion data layout callable fnNames expectedAggregateLeaves elseTarget.blockId.toNat loops env emptyLs
       let join? ← match thenRes.join?, elseRes.join? with
         | none, none => pure none
         | some j, none => pure (some j)
@@ -1178,7 +1278,7 @@ private partial def lowerRegion
           | .ok v => pure v
           | .error e => .error e
         let emptyLs : LowerStateV1 := { stmts := #[] }
-        let targetRes ← lowerRegion data layout callable fnNames case.target.blockId.toNat loops env emptyLs
+        let targetRes ← lowerRegion data layout callable fnNames expectedAggregateLeaves case.target.blockId.toNat loops env emptyLs
         caseStmts := caseStmts.push (value, targetRes.stmts)
         match targetRes.join? with
         | some j => joins := joins.push j
@@ -1186,7 +1286,7 @@ private partial def lowerRegion
       let emptyLs : LowerStateV1 := { stmts := #[] }
       let defaultRes ← match defaultTarget with
         | none => regionClosed
-        | some t => lowerRegion data layout callable fnNames t.blockId.toNat loops env emptyLs
+        | some t => lowerRegion data layout callable fnNames expectedAggregateLeaves t.blockId.toNat loops env emptyLs
       match defaultRes.join? with
       | some j => joins := joins.push j
       | none => pure ()
@@ -1203,9 +1303,24 @@ private partial def lowerRegion
         | some vid =>
             match envLookup env vid with
             | some v =>
-                if v.isAggregate then
-                  planError "unsupported Psy semantic shape: return of aggregate is outside the Psy scalar result envelope (B-RET-ABI: Psy does not support named-aggregate return)"
-                pure (ls.stmts.push (.returnValue v.expr))
+                match expectedAggregateLeaves with
+                | some expectedLeaves =>
+                    -- B-RET-ABI: named Struct/Enum only (containers stay FC).
+                    unless v.isAggregate do
+                      planError "unsupported Psy semantic shape: aggregate return value must be a named aggregate"
+                    let gotLeaves := v.leafExprs
+                    unless gotLeaves.size == expectedLeaves.size do
+                      planError s!"unsupported Psy semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
+                    let mut leafIsInt : Array Bool := #[]
+                    for leaf in expectedLeaves do
+                      unless leaf.byteWidth == 8 do
+                        planError "unsupported Psy semantic shape: aggregate return leaves must be 8-byte UInt64/Int64 words"
+                      leafIsInt := leafIsInt.push leaf.isInt
+                    pure (ls.stmts.push (.returnAggregate gotLeaves leafIsInt))
+                | none =>
+                    if v.isAggregate then
+                      planError "unsupported Psy semantic shape: return of aggregate is outside the Psy scalar result envelope (B-RET-ABI: anonymous containers and multi-leaf non-named results stay fail-closed; named Struct/Enum entry/view returns are admitted)"
+                    pure (ls.stmts.push (.returnValue v.expr))
             | none => planError "unsupported Psy semantic shape: return references an undefined value"
       pure { stmts, join? := none }
   | .revert errorId args => do
@@ -1220,6 +1335,7 @@ private partial def lowerRegion
 private partial def lowerLoop
     (data : SemanticProgramDataV1) (layout : PsyLowerLayoutV1) (callable : CallableV1)
     (fnNames : Array (CallableIdV1 × String))
+    (expectedAggregateLeaves : Option (Array LeafAbiType))
     (target : JumpTargetV1) (ls : LowerStateV1) (env : ValueEnv)
     (loops : Array LoopCtxV1) : CompileResult RegionResult := do
   let headerIdx := target.blockId.toNat
@@ -1281,7 +1397,7 @@ private partial def lowerLoop
             planError "unsupported Psy semantic shape: loop branch condition does not match the header computation"
       | none => planError "unsupported Psy semantic shape: loop header branch condition is missing"
       let emptyBody : LowerStateV1 := { stmts := #[] }
-      let thenRes ← lowerRegion data layout callable fnNames thenTarget.blockId.toNat loops' envLoop emptyBody
+      let thenRes ← lowerRegion data layout callable fnNames expectedAggregateLeaves thenTarget.blockId.toNat loops' envLoop emptyBody
       unless thenRes.join?.isNone do
         planError "unsupported Psy semantic shape: loop body must end at the latch back edge"
       let body := thenRes.stmts
@@ -1292,22 +1408,31 @@ private partial def lowerLoop
       match header.terminator with
       | .branch _ _ elseTarget =>
           let ls' : LowerStateV1 := { ls with stmts := ls.stmts.push forStmt }
-          lowerRegion data layout callable fnNames elseTarget.blockId.toNat loops env ls'
+          lowerRegion data layout callable fnNames expectedAggregateLeaves elseTarget.blockId.toNat loops env ls'
       | _ => planError "unsupported Psy semantic shape: loop header must end in a branch"
   | _ => planError "unsupported Psy semantic shape: loop header must end in a branch"
 
 end
 
+/-- Resolve callable result to Plan scalar flags + ResultKind. Named Struct/Enum
+    entry/view results become `.aggregate` (cap-8). pureFn aggregate is rejected
+    by the pureFn gate below; anonymous containers fail closed here. -/
 private def resultShape (data : SemanticProgramDataV1) (types : PsyTypeClosureV1)
-    (callable : CallableV1) :
-    CompileResult (Bool × Bool × Bool) := do
-  if isBoolType data callable.result.typeId then pure (true, false, false)
-  else if isUInt64Type data callable.result.typeId then pure (false, false, false)
-  else if isInt64Type data callable.result.typeId then pure (false, false, false)
-  else if isUInt32Type data callable.result.typeId then pure (false, false, true)
-  else if isGoldilocksFieldType types callable.result.typeId then pure (false, false, false)
-  else if isUnitType data callable.result.typeId then pure (false, true, false)
-  else planError "unsupported Psy semantic shape: callable result is outside the public UInt64/Int64/Bool/UInt32/Goldilocks-Field/Unit envelope"
+    (typeDecls : Array TypeDeclV1) (callable : CallableV1) (owner : String) :
+    CompileResult (Bool × Bool × Bool × ResultKind) := do
+  if isBoolType data callable.result.typeId then pure (true, false, false, .bool)
+  else if isUInt64Type data callable.result.typeId then pure (false, false, false, .felt)
+  else if isInt64Type data callable.result.typeId then pure (false, false, false, .felt)
+  else if isUInt32Type data callable.result.typeId then pure (false, false, true, .u32)
+  else if isGoldilocksFieldType types callable.result.typeId then pure (false, false, false, .felt)
+  else if isUnitType data callable.result.typeId then pure (false, true, false, .unit)
+  else if types.isNamedAggregate callable.result.typeId then
+    let kind ← aggregateResultKindOfV1 typeDecls types owner callable.result.typeId
+    pure (false, false, false, kind)
+  else if types.isContainer callable.result.typeId then
+    planError s!"{owner} cannot return multi-leaf aggregate (Array/anonymous container); Psy B-RET-ABI admits only named Struct/Enum (cap-8 leaves)"
+  else
+    planError s!"{owner} result is outside the public UInt64/Int64/Bool/UInt32/Goldilocks-Field/Unit/named-Struct-Enum envelope"
 
 private def lowerCallable
     (data : SemanticProgramDataV1) (layout : PsyLowerLayoutV1) (callable : CallableV1)
@@ -1358,19 +1483,41 @@ private def lowerCallable
     else
       env0 := envInsert env0 p.valueId (.param paramOrdinal)
     paramOrdinal := paramOrdinal + 1
+  let name ← match callable.name with
+    | some n => pure n
+    | none => pure "initialize"
+  let owner :=
+    match callable.kind with
+    | .initializer => "initializer"
+    | .pureFn => s!"pureFn '{name}'"
+    | .entry => s!"entry '{name}'"
+    | .view => s!"view '{name}'"
+    | .invariant => s!"invariant '{name}'"
+  let (resultIsBool, resultIsUnit, resultIsU32, resultKind) ←
+    resultShape data layout.types layout.typeDecls callable owner
+  -- pureFn aggregate returns stay fail closed (B-RET-ABI entry/view only).
+  match resultKind with
+  | .aggregate _ =>
+      match callable.kind with
+      | .pureFn =>
+          planError s!"pureFn '{name}' cannot return a named aggregate (B-RET-ABI: pureFn aggregate returns stay fail-closed)"
+      | .initializer =>
+          planError "initializer cannot return a named aggregate"
+      | _ => pure ()
+  | _ => pure ()
+  let expectedAggregateLeaves : Option (Array LeafAbiType) :=
+    match resultKind with
+    | .aggregate leaves => some leaves
+    | _ => none
   let empty0 : LowerStateV1 := { stmts := #[] }
-  let res ← lowerRegion data layout callable fnNames 0 #[] env0 empty0
+  let res ← lowerRegion data layout callable fnNames expectedAggregateLeaves 0 #[] env0 empty0
   unless res.join?.isNone do
     planError "unsupported Psy semantic shape: callable does not end in return on all paths"
   let body := res.stmts
-  let (resultIsBool, resultIsUnit, resultIsU32) ← resultShape data layout.types callable
   let kind := match callable.kind with
     | .initializer => FunctionKind.initialize
     | .pureFn => FunctionKind.pureHelper
     | _ => FunctionKind.mutate
-  let name ← match callable.name with
-    | some n => pure n
-    | none => pure "initialize"
   pure {
     index := 0
     name
@@ -1380,6 +1527,7 @@ private def lowerCallable
     resultIsBool
     resultIsUnit
     resultIsU32
+    resultKind
   }
 
 private def makePlanFromSemanticDataV1
