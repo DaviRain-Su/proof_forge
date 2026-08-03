@@ -10,7 +10,7 @@
     * raw same-file simple-closure product-positive (strict; red until production
       closes generated helper + encode/decode):
         - inventory author theorem is ordinary adjacent `SimpleProof.safe`
-        - body `exact <Program>.Proof.simpleClosure_invariantTheorem` (generated
+        - body `exact <Program>.Proof.generatedSafeV1` (generated
           helper name — never redeclared as the inventory theorem)
         - Loader → compileProgramProductV1 → certifyInlineProofV1
         - requires `.certified`, theoremCount=1, present proofCertificationDigest
@@ -94,7 +94,7 @@ private def falseTheoremBody (theoremName typeName : String) : String :=
 
 /-- Literal-true simple-closure family. Inventory author theorem is ordinary
     adjacent `SimpleProof.safe` (not the generated helper name). The body
-    `exact`s planned generated helper `<Program>.Proof.simpleClosure_invariantTheorem`. -/
+    `exact`s planned generated helper `<Program>.Proof.generatedSafeV1`. -/
 private def simpleClosureProgram
     (programName authorTheorem theoremBody : String) : String :=
   header ++
@@ -110,7 +110,7 @@ private def simpleClosureAuthorBodyExact
     (authorTheorem programName : String) : String :=
   "theorem " ++ authorTheorem ++ " : " ++ programName ++
     ".Proof.safe := by\n" ++
-  "  exact " ++ programName ++ ".Proof.simpleClosure_invariantTheorem\n"
+  "  exact " ++ programName ++ ".Proof.generatedSafeV1\n"
 
 /-- Alternate allowlisted body with distinct raw source (not comment-only).
     `simpa` / `simp only [lemma]` emit disallowed simpLemma syntax; use `apply`. -/
@@ -118,7 +118,7 @@ private def simpleClosureAuthorBodyApply
     (authorTheorem programName : String) : String :=
   "theorem " ++ authorTheorem ++ " : " ++ programName ++
     ".Proof.safe := by\n" ++
-  "  apply " ++ programName ++ ".Proof.simpleClosure_invariantTheorem\n"
+  "  apply " ++ programName ++ ".Proof.generatedSafeV1\n"
 
 private def parsePath (s : String) : IO ProjectRelativePath :=
   match parseProjectRelativePath s with
@@ -311,7 +311,7 @@ private def expectCertifiedCarrier
     s!"{label}: audited theorem set size must be 1"
 
 /-- (1) Loader → compile → certify simple-closure with ordinary author theorem
-    that `exact`s planned generated helper `Simple.Proof.simpleClosure_invariantTheorem`.
+    that `exact`s planned generated helper `Simple.Proof.generatedSafeV1`.
     (3) Alternate allowlisted body keeps source/semantic digests and **must**
     change proofCertificationDigest (request binds raw source).
     Hard-fails unless both outcomes are `.certified`. Never hand-mints carriers. -/
@@ -341,7 +341,7 @@ private unsafe def testSimpleClosureProductPositive
     s!"type components: {b0.typeComponents}"
   -- Author theorem must not collide with generated helper name components.
   expect (b0.theoremComponents !=
-      #[programName, "Proof", "simpleClosure_invariantTheorem"])
+      #[programName, "Proof", "generatedSafeV1"])
     "inventory author theorem must not redeclare generated helper name"
   expect ((theoremInventoryBindingsV1 thmInvB).size == 1)
     "alt body inventory size"
@@ -376,7 +376,7 @@ private unsafe def testSimpleClosureProductPositive
           ("simple-closure product-positive requires .certified; got failed " ++
             s!"phase={repr phase} detail={repr detail} " ++
             "(author SimpleProof.safe exacts generated " ++
-            "Simple.Proof.simpleClosure_invariantTheorem)")
+            "Simple.Proof.generatedSafeV1)")
   expectCertifiedCarrier "simple-closure-A" cA
   let cB ← match outcomeB with
     | .certified c => pure c

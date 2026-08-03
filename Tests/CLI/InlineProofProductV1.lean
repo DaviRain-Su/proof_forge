@@ -11,7 +11,7 @@
     * raw same-file simple-closure product-positive (strict red until production
       mints generated helper + closes encode/decode):
         author inventory theorem is ordinary `SimpleProof.safe`; body exacts
-        generated `<Program>.Proof.simpleClosure_invariantTheorem` (never
+        generated `<Program>.Proof.generatedSafeV1` (never
         redeclared as the inventory theorem)
         (2) CLI check human+JSON → certified, count=1, nonempty digest
         (3) alternate allowlisted body (`apply` vs `exact`): source/semantic digests
@@ -118,7 +118,7 @@ private def simpleClosureAuthorBodyExact
     (authorTheorem programName : String) : String :=
   "theorem " ++ authorTheorem ++ " : " ++ programName ++
     ".Proof.safe := by\n" ++
-  "  exact " ++ programName ++ ".Proof.simpleClosure_invariantTheorem\n"
+  "  exact " ++ programName ++ ".Proof.generatedSafeV1\n"
 
 /-- Alternate allowlisted body with distinct raw source.
     `simpa` / `simp only [lemma]` emit disallowed simpLemma; use `apply`. -/
@@ -126,7 +126,7 @@ private def simpleClosureAuthorBodyApply
     (authorTheorem programName : String) : String :=
   "theorem " ++ authorTheorem ++ " : " ++ programName ++
     ".Proof.safe := by\n" ++
-  "  apply " ++ programName ++ ".Proof.simpleClosure_invariantTheorem\n"
+  "  apply " ++ programName ++ ".Proof.generatedSafeV1\n"
 
 private def writeFixture (name body : String) : IO FilePath := do
   IO.FS.createDirAll fixtureRoot
