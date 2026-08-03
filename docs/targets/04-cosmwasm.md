@@ -77,9 +77,25 @@ Plan 必须表达 SubMsg id、reply policy、result decoding 与保存点；不�
 
 `CosmWasmPlan → CosmWasmModuleRecipe → shared Wasm encoder`。预期输出 Wasm、JSON schema、manifest、capability declaration 和 migration metadata。当前不创建 emitter。
 
-## 6. 工具链
+## 6. 工具链（已冻结，2026-08-03 / CW-ABI-FREEZE 闭合）
 
-实现前冻结 Rust-independent Wasm ABI、`cosmwasm-vm`/`wasmd` 版本、allowed capabilities、Cosmos SDK profile 与 schema conventions。
+**版本冻结（versioned profile，唯一权威）**：合约侧 `cosmwasm-std`/`cosmwasm-vm`/
+`cosmwasm-check` **3.0.9**（monorepo tag，sha256 快照见 SRC-CW-003/004）；链侧语义以
+`wasmvm` **3.0.7**（官方 checksums）与 wasmd **`v0.70.3`** 的 `DispatchSubmessages`
+为准（SRC-CW-002 已升级 verified；`v0.61.14`（SDK 0.53 主流线）与 0.70.3 同控制流，
+择 0.70.3 为文档基准）。**Rust-independent Wasm ABI**：单 memory 无 maximum、
+`allocate`/`deallocate`、恰好一个 `interface_version_8` marker、entry 经 12B Region
+传 JSON（SRC-CW-004 pinned `compatibility.rs`）。**allowed capabilities（MVP）**：
+仅默认 KV（`db_read/db_write/db_remove`）与 `abort`；`iterator`/`staking`/`stargate`/
+`cosmwasm_1_1..3_0`/`ibc2` 全部不声明（`requires_*` 导出全部缺席）。
+**schema conventions**：消息/状态为 JSON；A1 工程先导实现有界最小 JSON 子集
+（flat instantiate 参数 + `{method:{decimal params}}`，非子集显式 Err），生产升级
+Binary/base64 属后续切片。**transaction/SubMsg/savepoint 语义（已按 pinned 源固定）**：
+子消息经 `CacheContext` savepoint 执行，成功 commit、失败丢弃子状态与事件；
+`reply_on=Never`/`reply_on=Success` 遇失败**直接把错误返回父 dispatch、整笔交易失败**
+（父状态随 tx 回滚，**不是**「父继续」）；`reply_on=Never` 与 `reply_on=Error` 成功
+时不回调（wasmd v0.70.3 `msg_dispatcher.go` L96–147，SRC-CW-002；事件 attribute 链侧
+稳定排序、非确定性错误文本 redact 为 codespace/code）。
 
 ## 7. 部署流程
 
@@ -91,8 +107,16 @@ Plan 必须表达 SubMsg id、reply policy、result decoding 与保存点；不�
 
 ## 9. 验证阶梯
 
-official ABI fixture → Wasm VM static validation → `cosmwasm-vm` unit → local `wasmd` transaction/reply → optional IBC two-chain evidence。
+official ABI fixture → Wasm VM static validation → `cosmwasm-vm` unit → local `wasmd` transaction/reply → optional IBC two-chain evidence。当前进度：fixture ✓（A2）、static `cosmwasm-check` ✓（A2）、`cosmwasm-vm` mock unit ✓（CW-3）；wasmd tx/reply 与 IBC 未做。
 
 ## 10. 不支持、风险与成熟度退出
 
-当前所有代码生成均不支持。设计退出条件：冻结 versioned profile、复核 transaction/reply semantics、完成 ABI/import/schema fixture 和 local-chain test plan。只有这些完成后才能进入 implementation。
+**设计退出已完成（CW-ABI-FREEZE，2026-08-03）**：versioned profile 已按 §6 冻结并批准
+**structural-WAT 工程先导**（bounded ABI subset：§0 所列 MVP 面）为首个 accepted
+implementation profile。`wasm-validated-alpha` 的声明就此限定为：WAT 文本 + locked
+`wat2wasm` 制品链 + `cosmwasm-check@3.0.9` 静态 ABI 验收 + `cosmwasm-vm@3.0.9` mock
+runtime 差分；**不**含 wasmd runtime、SubMsg/reply 入口、IBC、JSON 全集或 formal
+完成态。A1 独立审计四个 P0（静态内存重叠/JSON 溢出/Int64 min×-1/缓冲区无界）已修复
+并钉测；`SRC-CW-002` 已由 provisional 升级 verified（pinned dispatcher 快照），
+`SRC-CW-003/004` 同步登记。剩余风险：SubMsg `msg` 字段尚为 JSON 形状钉测（wasmd 正式
+期望 Binary）、`contract_addr` 为静态 QN stub、gas 计量模型未进入验收。

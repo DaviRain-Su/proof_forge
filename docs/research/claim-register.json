@@ -1,230 +1,356 @@
 {
-  "schemaVersion": 1,
-  "updatedAt": "2026-07-17",
-  "claims": [
-    {
-      "id": "CLM-LANG-001",
-      "claim": "Lean supports custom syntax categories, source information and command elaboration needed for a dedicated program DSL.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-LEAN-001"],
-      "impact": "Use a custom command elaborator instead of encoding the DSL as an unrestricted Lean StateM builder."
-    },
-    {
-      "id": "CLM-LANG-002",
-      "claim": "ProofForge V2 has one user-level program declaration and no user-written execution kind.",
-      "kind": "decision",
-      "status": "provisional",
-      "sources": ["SRC-LEAN-001"],
-      "impact": "Target selection performs materialization; requirements are inferred from semantics."
-    },
-    {
-      "id": "CLM-EVM-001",
-      "claim": "EVM execution is a transaction-based shared-state machine with account code and persistent per-account storage.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-EVM-001"],
-      "impact": "EvmPlan owns storage layout, ABI, call and revert lowering."
-    },
-    {
-      "id": "CLM-SOL-001",
-      "claim": "Solana programs receive explicitly supplied accounts whose owner and data permissions constrain mutation.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-SOL-001", "SRC-SOL-002"],
-      "impact": "SolanaPlan requires an account schema, signer/writable constraints and CPI metadata."
-    },
-    {
-      "id": "CLM-NEAR-001",
-      "claim": "NEAR cross-contract calls create asynchronous promises/receipts rather than EVM-style synchronous nested calls.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-NEAR-001", "SRC-NEAR-002", "SRC-NEAR-003"],
-      "impact": "NearPlan must model promise DAGs and receipt-local commit boundaries."
-    },
-    {
-      "id": "CLM-NEAR-002",
-      "claim": "NEAR contract preparation rejects a Wasm function with more than 50000 locals.",
-      "kind": "constraint",
-      "status": "verified",
-      "sources": ["SRC-NEAR-005"],
-      "impact": "NearPlan and its typed recipe must bound generated locals per exported method before rendering Wasm."
-    },
-    {
-      "id": "CLM-CW-001",
-      "claim": "CosmWasm is a Cosmos SDK contract environment with messages, IBC integration and instance-scoped state, not generic Wasm semantics.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-CW-001"],
-      "impact": "CosmWasmPlan remains separate from all other Wasm host plans."
-    },
-    {
-      "id": "CLM-CW-002",
-      "claim": "Exact submessage/reply savepoint and rollback behavior must be pinned to a versioned CosmWasm runtime profile before implementation.",
-      "kind": "constraint",
-      "status": "provisional",
-      "sources": ["SRC-CW-002"],
-      "impact": "The CosmWasm backend is design-only in Phase 1."
-    },
-    {
-      "id": "CLM-SOR-001",
-      "claim": "Soroban distinguishes instance, persistent and temporary storage and couples entries to TTL/archival behavior.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-SOR-001", "SRC-SOR-003"],
-      "impact": "SorobanPlan must make durability and TTL policy explicit."
-    },
-    {
-      "id": "CLM-SOR-002",
-      "claim": "Soroban authorization is expressed through address authentication and invocation trees, not merely a caller scalar.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-SOR-002"],
-      "impact": "Authority requirements cannot be collapsed into context.caller."
-    },
-    {
-      "id": "CLM-ICP-001",
-      "claim": "ICP canisters are Wasm actors with System API imports, Candid interfaces, stable memory and message-level commit boundaries.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-ICP-001", "SRC-ICP-002", "SRC-ICP-003", "SRC-ICP-004"],
-      "impact": "IcpPlan owns actor methods, Candid, cycles and await boundaries."
-    },
-    {
-      "id": "CLM-WASM-001",
-      "claim": "Wasm is an artifact encoding and instruction format; it does not determine state, authorization, call, commit or upgrade semantics.",
-      "kind": "inference",
-      "status": "verified",
-      "sources": ["SRC-NEAR-001", "SRC-CW-001", "SRC-SOR-001", "SRC-ICP-001"],
-      "impact": "Share only Wasm AST/encoding and structural validation; keep four host plans."
-    },
-    {
-      "id": "CLM-NOIR-001",
-      "claim": "Noir produces a circuit/witness workflow and delegates proof generation to a backend; it has no native persistent chain state.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-NOIR-001"],
-      "impact": "Noir materializes a state transition relation with external continuity, not a deployable contract."
-    },
-    {
-      "id": "CLM-NOIR-002",
-      "claim": "Unconstrained Noir execution is not automatically constrained by the proof system.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-NOIR-002"],
-      "impact": "Phase 1 rejects unconstrained/foreign-oracle lowering unless a separate soundness proof is accepted."
-    },
-    {
-      "id": "CLM-NOIR-003",
-      "claim": "Noir native u64 inputs are range-constrained fixed-width integers and live ordinary u64 addition fails on overflow, but unused overflow computations may be removed; pub controls verifier-visible input disclosure.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-NOIR-003", "SRC-NOIR-004", "SRC-NOIR-005"],
-      "impact": "The source-only profile preserves public/private visibility and rejects checked additions that are not live into a final relation assertion, instead of losing overflow through dead-code elimination or unconstrained Field arithmetic."
-    },
-    {
-      "id": "CLM-OVM-001",
-      "claim": "OpenVM proves execution of a guest compiled through RV32IM ELF/VmExe and offers application, STARK and EVM proof workflows.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-OVM-001", "SRC-OVM-002", "SRC-OVM-003"],
-      "impact": "OpenVM is a zkVM target with external settlement, not a circuit language or chain contract host."
-    },
-    {
-      "id": "CLM-OVM-002",
-      "claim": "OpenVM documentation currently spans changing version lines and requires an exact toolchain profile before implementation.",
-      "kind": "constraint",
-      "status": "provisional",
-      "sources": ["SRC-OVM-001", "SRC-OVM-002", "SRC-OVM-003"],
-      "impact": "OpenVM is design-only in Phase 1."
-    },
-    {
-      "id": "CLM-ALEO-001",
-      "claim": "Leo 4.0 separates private proof-context fn execution from public finalization-context final execution.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-ALEO-001", "SRC-ALEO-003", "SRC-ALEO-004"],
-      "impact": "AleoPlan must preserve disclosure and finalization boundaries."
-    },
-    {
-      "id": "CLM-ALEO-002",
-      "claim": "Aleo records and public mappings have different custody and disclosure semantics.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-ALEO-002", "SRC-ALEO-003"],
-      "impact": "State custody cannot be represented by one generic storage flag."
-    },
-    {
-      "id": "CLM-PSY-001",
-      "claim": "Psy describes user-partitioned state, local CFC proofs, UPS recursion and network proof aggregation.",
-      "kind": "fact",
-      "status": "provisional",
-      "sources": ["SRC-PSY-001", "SRC-PSY-002"],
-      "impact": "Psy is classified as a ZK application chain and needs its own state/settlement plan."
-    },
-    {
-      "id": "CLM-PSY-002",
-      "claim": "A stable Psy compiler, deploy, proving and network-finalization profile has not been independently reproduced for V2.",
-      "kind": "constraint",
-      "status": "provisional",
-      "sources": ["SRC-PSY-001", "SRC-PSY-003"],
-      "impact": "Psy remains research-only until a live versioned workflow is verified."
-    },
-    {
-      "id": "CLM-TAX-001",
-      "claim": "A single target-family enum is insufficient to drive compilation safely.",
-      "kind": "inference",
-      "status": "verified",
-      "sources": ["SRC-EVM-001", "SRC-SOL-002", "SRC-NEAR-002", "SRC-SOR-002", "SRC-ICP-002", "SRC-NOIR-001", "SRC-OVM-001", "SRC-ALEO-001", "SRC-PSY-001"],
-      "impact": "TargetDescriptor uses orthogonal artifact, execution, commit, state, call, proof, settlement, ABI and resource axes."
-    },
-    {
-      "id": "CLM-SCOPE-001",
-      "claim": "Phase 1 implementation scope is EVM, Solana, NEAR and Noir only.",
-      "kind": "decision",
-      "status": "provisional",
-      "sources": ["SRC-LOCAL-001"],
-      "impact": "All other dossiers are design/research deliverables and may not advertise an implemented backend."
-    },
-    {
-      "id": "CLM-CLEAN-001",
-      "claim": "The new_design directory started without tracked V2 files while the parent repository contains legacy ProofForge modules and target notes.",
-      "kind": "local-fact",
-      "status": "verified",
-      "sources": ["SRC-LOCAL-001"],
-      "impact": "Create an independent package and use parent observations only through a reference ledger."
-    },
-    {
-      "id": "CLM-SBOM-001",
-      "claim": "CycloneDX 1.6 defines a closed JSON schema in which components have typed hashes and dependencies, while an SPDX expression is represented by the single-expression licenseChoice branch rather than a license identifier field.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-CDX-001"],
-      "impact": "The candidate-bound BOM projection pins the official schema closure and emits one concluded expression object for each non-license-text component."
-    },
-    {
-      "id": "CLM-SBOM-002",
-      "claim": "SPDX 3.0.1 specifies license expressions with ABNF, canonical license-list identifiers, WITH/AND/OR operators and explicit precedence rules.",
-      "kind": "fact",
-      "status": "verified",
-      "sources": ["SRC-SPDX-001"],
-      "impact": "The release validator pins the grammar and license-list inputs and canonicalizes parsed ASTs instead of accepting ambient parser behavior."
-    },
-    {
-      "id": "CLM-UNICODE-001",
-      "claim": "Canonical Unicode validation must be pinned to one UCD version and implemented without ambient host normalization libraries.",
-      "kind": "constraint",
-      "status": "verified",
-      "sources": ["SRC-UNICODE-001", "SRC-UNICODE-002"],
-      "impact": "ProofForge V2 pins Unicode 17.0.0 and requires generated pure-Lean NFC data for canonical wire fields; product integration remains implementation work."
-    },
-    {
-      "id": "CLM-HOST-001",
-      "claim": "The locked V2 development observation contains non-system executable dependency closure and macOS/Xcode-dispatched host tools that cannot be represented by hashing only the top-level executable.",
-      "kind": "local-fact",
-      "status": "verified",
-      "sources": ["SRC-LOCAL-002"],
-      "impact": "Keep content-addressed assets separate from an attested host profile and fail closed when either closure is incomplete."
-    }
-  ]
+ "schemaVersion": 1,
+ "updatedAt": "2026-07-17",
+ "claims": [
+  {
+   "id": "CLM-LANG-001",
+   "claim": "Lean supports custom syntax categories, source information and command elaboration needed for a dedicated program DSL.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-LEAN-001"
+   ],
+   "impact": "Use a custom command elaborator instead of encoding the DSL as an unrestricted Lean StateM builder."
+  },
+  {
+   "id": "CLM-LANG-002",
+   "claim": "ProofForge V2 has one user-level program declaration and no user-written execution kind.",
+   "kind": "decision",
+   "status": "provisional",
+   "sources": [
+    "SRC-LEAN-001"
+   ],
+   "impact": "Target selection performs materialization; requirements are inferred from semantics."
+  },
+  {
+   "id": "CLM-EVM-001",
+   "claim": "EVM execution is a transaction-based shared-state machine with account code and persistent per-account storage.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-EVM-001"
+   ],
+   "impact": "EvmPlan owns storage layout, ABI, call and revert lowering."
+  },
+  {
+   "id": "CLM-SOL-001",
+   "claim": "Solana programs receive explicitly supplied accounts whose owner and data permissions constrain mutation.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-SOL-001",
+    "SRC-SOL-002"
+   ],
+   "impact": "SolanaPlan requires an account schema, signer/writable constraints and CPI metadata."
+  },
+  {
+   "id": "CLM-NEAR-001",
+   "claim": "NEAR cross-contract calls create asynchronous promises/receipts rather than EVM-style synchronous nested calls.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-NEAR-001",
+    "SRC-NEAR-002",
+    "SRC-NEAR-003"
+   ],
+   "impact": "NearPlan must model promise DAGs and receipt-local commit boundaries."
+  },
+  {
+   "id": "CLM-NEAR-002",
+   "claim": "NEAR contract preparation rejects a Wasm function with more than 50000 locals.",
+   "kind": "constraint",
+   "status": "verified",
+   "sources": [
+    "SRC-NEAR-005"
+   ],
+   "impact": "NearPlan and its typed recipe must bound generated locals per exported method before rendering Wasm."
+  },
+  {
+   "id": "CLM-CW-001",
+   "claim": "CosmWasm is a Cosmos SDK contract environment with messages, IBC integration and instance-scoped state, not generic Wasm semantics.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-CW-001"
+   ],
+   "impact": "CosmWasmPlan remains separate from all other Wasm host plans."
+  },
+  {
+   "id": "CLM-CW-002",
+   "claim": "Exact submessage/reply savepoint and rollback behavior must be pinned to a versioned CosmWasm runtime profile before implementation.",
+   "kind": "constraint",
+   "status": "provisional",
+   "sources": [
+    "SRC-CW-002"
+   ],
+   "impact": "The CosmWasm backend is design-only in Phase 1."
+  },
+  {
+   "id": "CLM-SOR-001",
+   "claim": "Soroban distinguishes instance, persistent and temporary storage and couples entries to TTL/archival behavior.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-SOR-001",
+    "SRC-SOR-003"
+   ],
+   "impact": "SorobanPlan must make durability and TTL policy explicit."
+  },
+  {
+   "id": "CLM-SOR-002",
+   "claim": "Soroban authorization is expressed through address authentication and invocation trees, not merely a caller scalar.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-SOR-002"
+   ],
+   "impact": "Authority requirements cannot be collapsed into context.caller."
+  },
+  {
+   "id": "CLM-ICP-001",
+   "claim": "ICP canisters are Wasm actors with System API imports, Candid interfaces, stable memory and message-level commit boundaries.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-ICP-001",
+    "SRC-ICP-002",
+    "SRC-ICP-003",
+    "SRC-ICP-004"
+   ],
+   "impact": "IcpPlan owns actor methods, Candid, cycles and await boundaries."
+  },
+  {
+   "id": "CLM-WASM-001",
+   "claim": "Wasm is an artifact encoding and instruction format; it does not determine state, authorization, call, commit or upgrade semantics.",
+   "kind": "inference",
+   "status": "verified",
+   "sources": [
+    "SRC-NEAR-001",
+    "SRC-CW-001",
+    "SRC-SOR-001",
+    "SRC-ICP-001"
+   ],
+   "impact": "Share only Wasm AST/encoding and structural validation; keep four host plans."
+  },
+  {
+   "id": "CLM-NOIR-001",
+   "claim": "Noir produces a circuit/witness workflow and delegates proof generation to a backend; it has no native persistent chain state.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-NOIR-001"
+   ],
+   "impact": "Noir materializes a state transition relation with external continuity, not a deployable contract."
+  },
+  {
+   "id": "CLM-NOIR-002",
+   "claim": "Unconstrained Noir execution is not automatically constrained by the proof system.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-NOIR-002"
+   ],
+   "impact": "Phase 1 rejects unconstrained/foreign-oracle lowering unless a separate soundness proof is accepted."
+  },
+  {
+   "id": "CLM-NOIR-003",
+   "claim": "Noir native u64 inputs are range-constrained fixed-width integers and live ordinary u64 addition fails on overflow, but unused overflow computations may be removed; pub controls verifier-visible input disclosure.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-NOIR-003",
+    "SRC-NOIR-004",
+    "SRC-NOIR-005"
+   ],
+   "impact": "The source-only profile preserves public/private visibility and rejects checked additions that are not live into a final relation assertion, instead of losing overflow through dead-code elimination or unconstrained Field arithmetic."
+  },
+  {
+   "id": "CLM-OVM-001",
+   "claim": "OpenVM proves execution of a guest compiled through RV32IM ELF/VmExe and offers application, STARK and EVM proof workflows.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-OVM-001",
+    "SRC-OVM-002",
+    "SRC-OVM-003"
+   ],
+   "impact": "OpenVM is a zkVM target with external settlement, not a circuit language or chain contract host."
+  },
+  {
+   "id": "CLM-OVM-002",
+   "claim": "OpenVM documentation currently spans changing version lines and requires an exact toolchain profile before implementation.",
+   "kind": "constraint",
+   "status": "provisional",
+   "sources": [
+    "SRC-OVM-001",
+    "SRC-OVM-002",
+    "SRC-OVM-003"
+   ],
+   "impact": "OpenVM is design-only in Phase 1."
+  },
+  {
+   "id": "CLM-ALEO-001",
+   "claim": "Leo 4.0 separates private proof-context fn execution from public finalization-context final execution.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-ALEO-001",
+    "SRC-ALEO-003",
+    "SRC-ALEO-004"
+   ],
+   "impact": "AleoPlan must preserve disclosure and finalization boundaries."
+  },
+  {
+   "id": "CLM-ALEO-002",
+   "claim": "Aleo records and public mappings have different custody and disclosure semantics.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-ALEO-002",
+    "SRC-ALEO-003"
+   ],
+   "impact": "State custody cannot be represented by one generic storage flag."
+  },
+  {
+   "id": "CLM-PSY-001",
+   "claim": "Psy describes user-partitioned state, local CFC proofs, UPS recursion and network proof aggregation.",
+   "kind": "fact",
+   "status": "provisional",
+   "sources": [
+    "SRC-PSY-001",
+    "SRC-PSY-002"
+   ],
+   "impact": "Psy is classified as a ZK application chain and needs its own state/settlement plan."
+  },
+  {
+   "id": "CLM-PSY-002",
+   "claim": "A stable Psy compiler, deploy, proving and network-finalization profile has not been independently reproduced for V2.",
+   "kind": "constraint",
+   "status": "provisional",
+   "sources": [
+    "SRC-PSY-001",
+    "SRC-PSY-003"
+   ],
+   "impact": "Psy remains research-only until a live versioned workflow is verified."
+  },
+  {
+   "id": "CLM-TAX-001",
+   "claim": "A single target-family enum is insufficient to drive compilation safely.",
+   "kind": "inference",
+   "status": "verified",
+   "sources": [
+    "SRC-EVM-001",
+    "SRC-SOL-002",
+    "SRC-NEAR-002",
+    "SRC-SOR-002",
+    "SRC-ICP-002",
+    "SRC-NOIR-001",
+    "SRC-OVM-001",
+    "SRC-ALEO-001",
+    "SRC-PSY-001"
+   ],
+   "impact": "TargetDescriptor uses orthogonal artifact, execution, commit, state, call, proof, settlement, ABI and resource axes."
+  },
+  {
+   "id": "CLM-SCOPE-001",
+   "claim": "Phase 1 implementation scope is EVM, Solana, NEAR and Noir only.",
+   "kind": "decision",
+   "status": "provisional",
+   "sources": [
+    "SRC-LOCAL-001"
+   ],
+   "impact": "All other dossiers are design/research deliverables and may not advertise an implemented backend."
+  },
+  {
+   "id": "CLM-CLEAN-001",
+   "claim": "The new_design directory started without tracked V2 files while the parent repository contains legacy ProofForge modules and target notes.",
+   "kind": "local-fact",
+   "status": "verified",
+   "sources": [
+    "SRC-LOCAL-001"
+   ],
+   "impact": "Create an independent package and use parent observations only through a reference ledger."
+  },
+  {
+   "id": "CLM-SBOM-001",
+   "claim": "CycloneDX 1.6 defines a closed JSON schema in which components have typed hashes and dependencies, while an SPDX expression is represented by the single-expression licenseChoice branch rather than a license identifier field.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-CDX-001"
+   ],
+   "impact": "The candidate-bound BOM projection pins the official schema closure and emits one concluded expression object for each non-license-text component."
+  },
+  {
+   "id": "CLM-SBOM-002",
+   "claim": "SPDX 3.0.1 specifies license expressions with ABNF, canonical license-list identifiers, WITH/AND/OR operators and explicit precedence rules.",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-SPDX-001"
+   ],
+   "impact": "The release validator pins the grammar and license-list inputs and canonicalizes parsed ASTs instead of accepting ambient parser behavior."
+  },
+  {
+   "id": "CLM-UNICODE-001",
+   "claim": "Canonical Unicode validation must be pinned to one UCD version and implemented without ambient host normalization libraries.",
+   "kind": "constraint",
+   "status": "verified",
+   "sources": [
+    "SRC-UNICODE-001",
+    "SRC-UNICODE-002"
+   ],
+   "impact": "ProofForge V2 pins Unicode 17.0.0 and requires generated pure-Lean NFC data for canonical wire fields; product integration remains implementation work."
+  },
+  {
+   "id": "CLM-HOST-001",
+   "claim": "The locked V2 development observation contains non-system executable dependency closure and macOS/Xcode-dispatched host tools that cannot be represented by hashing only the top-level executable.",
+   "kind": "local-fact",
+   "status": "verified",
+   "sources": [
+    "SRC-LOCAL-002"
+   ],
+   "impact": "Keep content-addressed assets separate from an attested host profile and fail closed when either closure is incomplete."
+  },
+  {
+   "id": "CLM-CW-001",
+   "claim": "wasmd DispatchSubmessages：reply_on=Never 的子消息失败会把错误返回父 dispatch，整笔交易失败（父状态随 tx 回滚）；ReplyNever 不是「父继续」语义。",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-CW-002"
+   ],
+   "impact": "CosmWasm schedule→SubMsg(reply_on=never) 的失败耦合必须写成整 tx 中止，不得写成父状态保留。"
+  },
+  {
+   "id": "CLM-CW-002",
+   "claim": "wasmd 对子消息先建 CacheContext savepoint：成功 commit、失败丢弃子消息状态与事件；事件 attribute 在链侧做稳定排序，非确定性错误文本在 reply 中被 redact 为 codespace/code。",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-CW-002"
+   ],
+   "impact": "CW 物化的 savepoint/事件/错误编码语义以 pinned dispatcher 为准。"
+  },
+  {
+   "id": "CLM-CW-003",
+   "claim": "cosmwasm-std v3.0.9 的 SubMsg API：ReplyOn::{Always,Error,Success,Never}，id/payload/msg/gas_limit/reply_on 字段，UNUSED_MSG_ID=0。",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-CW-003"
+   ],
+   "impact": "CW-4 的 SubMsg{reply_on:never, id:0} 发射形状与官方 API 精确一致。"
+  },
+  {
+   "id": "CLM-CW-004",
+   "claim": "cosmwasm-vm v3.0.9 的合约结构门：恰好一个 interface_version_8 marker、单 memory 且不得设 maximum、SUPPORTED_IMPORTS 含 db_*/addr_*/crypto/debug/abort/query_chain；float 在 3.0.9 静态检查不拒绝。",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-CW-004"
+   ],
+   "impact": "A1 emitter 的 ABI 子集（单 memory 无 max + iv8 + db_*）与官方结构门对齐；float 不作负例依据。"
+  }
+ ]
 }
