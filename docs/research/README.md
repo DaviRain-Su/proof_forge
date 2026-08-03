@@ -38,6 +38,7 @@ normative: false
 17. [`15-aleo-psy-compiler-vm.md`](15-aleo-psy-compiler-vm.md)：C-2 Aleo/Psy 历史研究 + G123 follow-up——Aleo 已有 locked leo compile-only 门，Psy 仍无 Tool Lock/VM；二者成熟度保持 source-only，均未升格 VM/prove/deploy。
 18. [`16-noir-prove-path.md`](16-noir-prove-path.md)：C-4 Noir prove/verify 路径——G123 后 nargo compile-only 已锁定并接门，但无 Barretenberg/CRS/proof binding，故**不**升格 prove/verify；保持 source-only relations。
 19. [`13-noir-toolchain-research.md`](13-noir-toolchain-research.md)：RPT-017 的 2026-08-02 J1 历史快照及 2026-08-03 follow-up；明确哪些“无 nargo pin”结论已被 compile-only gate supersede，哪些 prove/verify 阻塞仍有效。
+20. [`17-openzeppelin-ethereum-coverage-audit.md`](17-openzeppelin-ethereum-coverage-audit.md)：OpenZeppelin v5.7.0 × ProofForge EVM 行为能力审计；固定 112 个稳定实现到 20 个族，区分 primitive、行为、ABI 与标准兼容，并给出 oracle/differential 路线。对象归属见 [`openzeppelin-v5.7.0-family-membership-v1.json`](openzeppelin-v5.7.0-family-membership-v1.json)。
 
 ## 证据等级
 

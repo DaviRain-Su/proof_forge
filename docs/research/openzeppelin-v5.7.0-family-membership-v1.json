@@ -1,0 +1,231 @@
+{
+  "draftImplementationCount": 7,
+  "draftImplementations": [
+    "account/extensions/draft-AccountERC7579.sol::AccountERC7579",
+    "account/extensions/draft-AccountERC7579Hooked.sol::AccountERC7579Hooked",
+    "account/extensions/draft-ERC7821.sol::ERC7821",
+    "token/ERC20/extensions/draft-ERC20Bridgeable.sol::ERC20Bridgeable",
+    "token/ERC20/extensions/draft-ERC20TemporaryApproval.sol::ERC20TemporaryApproval",
+    "token/ERC20/extensions/draft-ERC3009.sol::ERC3009",
+    "utils/cryptography/signers/draft-ERC7739.sol::ERC7739"
+  ],
+  "families": {
+    "F01": {
+      "count": 5,
+      "members": [
+        "access/AccessControl.sol::AccessControl",
+        "access/Ownable.sol::Ownable",
+        "access/Ownable2Step.sol::Ownable2Step",
+        "access/extensions/AccessControlDefaultAdminRules.sol::AccessControlDefaultAdminRules",
+        "access/extensions/AccessControlEnumerable.sol::AccessControlEnumerable"
+      ]
+    },
+    "F02": {
+      "count": 2,
+      "members": [
+        "access/manager/AccessManaged.sol::AccessManaged",
+        "access/manager/AccessManager.sol::AccessManager"
+      ]
+    },
+    "F03": {
+      "count": 12,
+      "members": [
+        "token/ERC20/ERC20.sol::ERC20",
+        "token/ERC20/extensions/ERC1363.sol::ERC1363",
+        "token/ERC20/extensions/ERC20Burnable.sol::ERC20Burnable",
+        "token/ERC20/extensions/ERC20Capped.sol::ERC20Capped",
+        "token/ERC20/extensions/ERC20Crosschain.sol::ERC20Crosschain",
+        "token/ERC20/extensions/ERC20FlashMint.sol::ERC20FlashMint",
+        "token/ERC20/extensions/ERC20Pausable.sol::ERC20Pausable",
+        "token/ERC20/extensions/ERC20Permit.sol::ERC20Permit",
+        "token/ERC20/extensions/ERC20TransferAuthorization.sol::ERC20TransferAuthorization",
+        "token/ERC20/extensions/ERC20Votes.sol::ERC20Votes",
+        "token/ERC20/extensions/ERC20Wrapper.sol::ERC20Wrapper",
+        "token/ERC20/extensions/ERC4626.sol::ERC4626"
+      ]
+    },
+    "F04": {
+      "count": 11,
+      "members": [
+        "token/ERC721/ERC721.sol::ERC721",
+        "token/ERC721/extensions/ERC721Burnable.sol::ERC721Burnable",
+        "token/ERC721/extensions/ERC721Consecutive.sol::ERC721Consecutive",
+        "token/ERC721/extensions/ERC721Crosschain.sol::ERC721Crosschain",
+        "token/ERC721/extensions/ERC721Enumerable.sol::ERC721Enumerable",
+        "token/ERC721/extensions/ERC721Pausable.sol::ERC721Pausable",
+        "token/ERC721/extensions/ERC721Royalty.sol::ERC721Royalty",
+        "token/ERC721/extensions/ERC721URIStorage.sol::ERC721URIStorage",
+        "token/ERC721/extensions/ERC721Votes.sol::ERC721Votes",
+        "token/ERC721/extensions/ERC721Wrapper.sol::ERC721Wrapper",
+        "token/ERC721/utils/ERC721Holder.sol::ERC721Holder"
+      ]
+    },
+    "F05": {
+      "count": 7,
+      "members": [
+        "token/ERC1155/ERC1155.sol::ERC1155",
+        "token/ERC1155/extensions/ERC1155Burnable.sol::ERC1155Burnable",
+        "token/ERC1155/extensions/ERC1155Crosschain.sol::ERC1155Crosschain",
+        "token/ERC1155/extensions/ERC1155Pausable.sol::ERC1155Pausable",
+        "token/ERC1155/extensions/ERC1155Supply.sol::ERC1155Supply",
+        "token/ERC1155/extensions/ERC1155URIStorage.sol::ERC1155URIStorage",
+        "token/ERC1155/utils/ERC1155Holder.sol::ERC1155Holder"
+      ]
+    },
+    "F06": {
+      "count": 4,
+      "members": [
+        "token/ERC6909/ERC6909.sol::ERC6909",
+        "token/ERC6909/extensions/ERC6909ContentURI.sol::ERC6909ContentURI",
+        "token/ERC6909/extensions/ERC6909Metadata.sol::ERC6909Metadata",
+        "token/ERC6909/extensions/ERC6909TokenSupply.sol::ERC6909TokenSupply"
+      ]
+    },
+    "F07": {
+      "count": 1,
+      "members": [
+        "token/common/ERC2981.sol::ERC2981"
+      ]
+    },
+    "F08": {
+      "count": 2,
+      "members": [
+        "finance/VestingWallet.sol::VestingWallet",
+        "finance/VestingWalletCliff.sol::VestingWalletCliff"
+      ]
+    },
+    "F09": {
+      "count": 19,
+      "members": [
+        "governance/Governor.sol::Governor",
+        "governance/TimelockController.sol::TimelockController",
+        "governance/extensions/GovernorCountingFractional.sol::GovernorCountingFractional",
+        "governance/extensions/GovernorCountingOverridable.sol::GovernorCountingOverridable",
+        "governance/extensions/GovernorCountingSimple.sol::GovernorCountingSimple",
+        "governance/extensions/GovernorCrosschain.sol::GovernorCrosschain",
+        "governance/extensions/GovernorNoncesKeyed.sol::GovernorNoncesKeyed",
+        "governance/extensions/GovernorPreventLateQuorum.sol::GovernorPreventLateQuorum",
+        "governance/extensions/GovernorProposalGuardian.sol::GovernorProposalGuardian",
+        "governance/extensions/GovernorSequentialProposalId.sol::GovernorSequentialProposalId",
+        "governance/extensions/GovernorSettings.sol::GovernorSettings",
+        "governance/extensions/GovernorStorage.sol::GovernorStorage",
+        "governance/extensions/GovernorSuperQuorum.sol::GovernorSuperQuorum",
+        "governance/extensions/GovernorTimelockAccess.sol::GovernorTimelockAccess",
+        "governance/extensions/GovernorTimelockCompound.sol::GovernorTimelockCompound",
+        "governance/extensions/GovernorTimelockControl.sol::GovernorTimelockControl",
+        "governance/extensions/GovernorVotes.sol::GovernorVotes",
+        "governance/extensions/GovernorVotesQuorumFraction.sol::GovernorVotesQuorumFraction",
+        "governance/extensions/GovernorVotesSuperQuorumFraction.sol::GovernorVotesSuperQuorumFraction"
+      ]
+    },
+    "F10": {
+      "count": 2,
+      "members": [
+        "governance/utils/Votes.sol::Votes",
+        "governance/utils/VotesExtended.sol::VotesExtended"
+      ]
+    },
+    "F11": {
+      "count": 8,
+      "members": [
+        "proxy/ERC1967/ERC1967Proxy.sol::ERC1967Proxy",
+        "proxy/Proxy.sol::Proxy",
+        "proxy/beacon/BeaconProxy.sol::BeaconProxy",
+        "proxy/beacon/UpgradeableBeacon.sol::UpgradeableBeacon",
+        "proxy/transparent/ProxyAdmin.sol::ProxyAdmin",
+        "proxy/transparent/TransparentUpgradeableProxy.sol::TransparentUpgradeableProxy",
+        "proxy/utils/Initializable.sol::Initializable",
+        "proxy/utils/UUPSUpgradeable.sol::UUPSUpgradeable"
+      ]
+    },
+    "F12": {
+      "count": 1,
+      "members": [
+        "account/Account.sol::Account"
+      ]
+    },
+    "F13": {
+      "count": 5,
+      "members": [
+        "account/paymaster/Paymaster.sol::Paymaster",
+        "account/paymaster/extensions/PaymasterERC20.sol::PaymasterERC20",
+        "account/paymaster/extensions/PaymasterERC20Guarantor.sol::PaymasterERC20Guarantor",
+        "account/paymaster/extensions/PaymasterERC721Owner.sol::PaymasterERC721Owner",
+        "account/paymaster/extensions/PaymasterSigner.sol::PaymasterSigner"
+      ]
+    },
+    "F14": {
+      "count": 2,
+      "members": [
+        "metatx/ERC2771Context.sol::ERC2771Context",
+        "metatx/ERC2771Forwarder.sol::ERC2771Forwarder"
+      ]
+    },
+    "F15": {
+      "count": 10,
+      "members": [
+        "crosschain/CrosschainLinked.sol::CrosschainLinked",
+        "crosschain/CrosschainRemoteExecutor.sol::CrosschainRemoteExecutor",
+        "crosschain/ERC7786Recipient.sol::ERC7786Recipient",
+        "crosschain/bridges/BridgeERC1155.sol::BridgeERC1155",
+        "crosschain/bridges/BridgeERC20.sol::BridgeERC20",
+        "crosschain/bridges/BridgeERC721.sol::BridgeERC721",
+        "crosschain/bridges/BridgeERC7802.sol::BridgeERC7802",
+        "crosschain/bridges/abstract/BridgeFungible.sol::BridgeFungible",
+        "crosschain/bridges/abstract/BridgeMultiToken.sol::BridgeMultiToken",
+        "crosschain/bridges/abstract/BridgeNonFungible.sol::BridgeNonFungible"
+      ]
+    },
+    "F16": {
+      "count": 7,
+      "members": [
+        "utils/Context.sol::Context",
+        "utils/Multicall.sol::Multicall",
+        "utils/Nonces.sol::Nonces",
+        "utils/NoncesKeyed.sol::NoncesKeyed",
+        "utils/Pausable.sol::Pausable",
+        "utils/ReentrancyGuard.sol::ReentrancyGuard",
+        "utils/ReentrancyGuardTransient.sol::ReentrancyGuardTransient"
+      ]
+    },
+    "F17": {
+      "count": 9,
+      "members": [
+        "utils/cryptography/signers/AbstractSigner.sol::AbstractSigner",
+        "utils/cryptography/signers/MultiSignerERC7913.sol::MultiSignerERC7913",
+        "utils/cryptography/signers/MultiSignerERC7913Weighted.sol::MultiSignerERC7913Weighted",
+        "utils/cryptography/signers/SignerECDSA.sol::SignerECDSA",
+        "utils/cryptography/signers/SignerEIP7702.sol::SignerEIP7702",
+        "utils/cryptography/signers/SignerERC7913.sol::SignerERC7913",
+        "utils/cryptography/signers/SignerP256.sol::SignerP256",
+        "utils/cryptography/signers/SignerRSA.sol::SignerRSA",
+        "utils/cryptography/signers/SignerWebAuthn.sol::SignerWebAuthn"
+      ]
+    },
+    "F18": {
+      "count": 3,
+      "members": [
+        "utils/cryptography/verifiers/ERC7913P256Verifier.sol::ERC7913P256Verifier",
+        "utils/cryptography/verifiers/ERC7913RSAVerifier.sol::ERC7913RSAVerifier",
+        "utils/cryptography/verifiers/ERC7913WebAuthnVerifier.sol::ERC7913WebAuthnVerifier"
+      ]
+    },
+    "F19": {
+      "count": 1,
+      "members": [
+        "utils/cryptography/EIP712.sol::EIP712"
+      ]
+    },
+    "F20": {
+      "count": 1,
+      "members": [
+        "utils/introspection/ERC165.sol::ERC165"
+      ]
+    }
+  },
+  "membershipSetSha256": "549ae7d95f8ea56e14e78dad271156847df41c2387db7addeb3484913be6a122",
+  "ozCommit": "cab19933c33c2ad1d4c7a84864a3601dddfd16f3",
+  "ozTag": "v5.7.0",
+  "schema": "proof-forge.research.oz-family-membership.v1",
+  "stableImplementationCount": 112
+}

@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "updatedAt": "2026-07-17",
+ "updatedAt": "2026-08-03",
  "claims": [
   {
    "id": "CLM-LANG-001",
@@ -351,6 +351,49 @@
     "SRC-CW-004"
    ],
    "impact": "A1 emitter 的 ABI 子集（单 memory 无 max + iv8 + db_*）与官方结构门对齐；float 不作负例依据。"
+  },
+  {
+   "id": "CLM-OZ-EVM-001",
+   "claim": "OpenZeppelin Contracts v5.7.0 固定 commit 的 248 个生产 Solidity 文件包含 112 个稳定实现声明；研究 manifest 将它们无重复、无遗漏地划分到 20 个行为族。",
+   "kind": "fact",
+   "status": "verified",
+   "sources": [
+    "SRC-OZ-001"
+   ],
+   "impact": "以固定语料、对象 manifest 和行为族管理审计，不以文件数推导 Ethereum 覆盖百分比。"
+  },
+  {
+   "id": "CLM-OZ-EVM-002",
+   "claim": "按至少一个 OpenZeppelin-compatible 真实 EVM 场景才可计 Partial 的严格口径，ProofForge 当前 20 个 OpenZeppelin 行为族均为 Blocked；Exact 和 Partial 均为 0。",
+   "kind": "inference",
+   "status": "verified",
+   "sources": [
+    "SRC-OZ-001",
+    "SRC-LOCAL-003"
+   ],
+   "impact": "Token dense-Map pilot、shared Reference success、Plan lowering 或 solc acceptance 都不得单独升级为 ERC/OZ compatibility claim。"
+  },
+  {
+   "id": "CLM-OZ-EVM-003",
+   "claim": "ProofForge 应把 OpenZeppelin 作为固定的行为压力语料和 oracle，以 versioned primitive、observable scenario、ABI 与 ERC/EIP corpus 管理兼容，而不是逐文件或逐继承图重写。",
+   "kind": "inference",
+   "status": "verified",
+   "sources": [
+    "SRC-OZ-001",
+    "SRC-LOCAL-003"
+   ],
+   "impact": "优先实现 address/caller、scalable mappings、indexed events、value/call/dynamic ABI/crypto 等高杠杆 primitive，并继续对未支持能力 fail closed。"
+  },
+  {
+   "id": "CLM-OZ-EVM-004",
+   "claim": "当前 ProofForge Tool Lock raw digest 不一致且 PF solc、Anvil 与 OpenZeppelin oracle 的 hardfork 未对齐，因此该 HEAD 不能形成新的正向 PF↔OpenZeppelin runtime compatibility 证据。",
+   "kind": "local-fact",
+   "status": "verified",
+   "sources": [
+    "SRC-OZ-001",
+    "SRC-LOCAL-003"
+   ],
+   "impact": "先修复 lock identity 并冻结同一 hardfork；Tool Lock failure 不能冒充 capability blocked case，聚焦 solc pass 也不能替代 locked Finalize/Anvil。"
   }
  ]
 }

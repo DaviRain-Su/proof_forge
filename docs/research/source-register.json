@@ -548,6 +548,32 @@
    "hashStatus": "individual_file_sha256_locked",
    "license": "repository license applies",
    "status": "verified"
+  },
+  {
+   "id": "SRC-OZ-001",
+   "title": "OpenZeppelin Contracts v5.7.0 pinned source and official tests",
+   "authority": "official-source",
+   "url": "https://github.com/OpenZeppelin/openzeppelin-contracts",
+   "version": "v5.7.0, commit cab19933c33c2ad1d4c7a84864a3601dddfd16f3",
+   "locator": "contracts/** production source; test/** Hardhat and Foundry tests; hardhat.config.js; foundry.toml",
+   "accessedAt": "2026-08-03",
+   "contentHash": "git:cab19933c33c2ad1d4c7a84864a3601dddfd16f3",
+   "hashStatus": "git_commit; tracked 112-object research partition has a separate exact-byte manifest digest",
+   "license": "MIT",
+   "status": "verified"
+  },
+  {
+   "id": "SRC-LOCAL-003",
+   "title": "ProofForge EVM OpenZeppelin coverage observation",
+   "authority": "local-evidence",
+   "url": null,
+   "version": "31e271474c85e18fb345fe709694dbd069cd8893",
+   "locator": "Source/Typed/Normalize/Wire/Reference; Targets/Evm Plan/IR/Yul/finalize; focused suites; EVM Anvil scripts; Tool Lock v4 files",
+   "accessedAt": "2026-08-03",
+   "contentHash": "git:31e271474c85e18fb345fe709694dbd069cd8893",
+   "hashStatus": "git_commit; runtime revalidation limitations recorded in RPT-OZ-EVM-COVERAGE-001",
+   "license": "same project",
+   "status": "verified"
   }
  ]
 }
