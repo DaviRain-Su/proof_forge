@@ -107,7 +107,10 @@ ToolLockV4Digest = SHA-256(
 
 `toolchainLockSha256` 只表示 retained lock file exact file bytes 的 raw SHA-256；它与
 `ToolLockV4Digest` 是不同类型。所有名为 `lockDigest` 或 `toolchainLockDigest` 的 typed
-identity 字段都必须消费 `ToolLockV4Digest`。legacy domains
+identity 字段都必须消费 `ToolLockV4Digest`。编译期 active lock 选择必须 fail closed：Linux
+仅接受 exact `x86_64-unknown-linux-gnu`；Darwin 接受 `aarch64|arm64-apple-darwin` 及 Lean
+实际 host target 使用的 `darwinN(.N)*` 十进制 kernel-version 后缀，其他架构、vendor、OS、ABI
+或畸形后缀均不得回退到另一平台 lock。legacy domains
 `proof-forge.toolchain-lock.v1`、`proof-forge.toolchains.v2`、`proof-forge.toolchains.v3`
 一律拒绝，禁止 fallback 或 dual-domain acceptance。
 该决定由 [ADR-0015](../adr/0015-canonical-tool-lock-and-candidate-bound-sbom.md) 与

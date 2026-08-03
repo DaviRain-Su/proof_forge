@@ -27,8 +27,10 @@ CW-A1 必须在不复用 `NearPlan` 的前提下补 target-owned Plan/IR/materia
 Rust-independent ABI、capability/SDK/schema 及 transaction/SubMsg/reply savepoint 语义，且
 `SRC-CW-002` 仍 provisional。除非产品正式修订本 dossier 以批准 structural-only 先导并限定
 `wasm-validated-alpha` 声明，否则不得先按行业常识落码。在此之前不得把 A0 写成 Phase-1 backend
-完成。该工程 promotion 还扩大了 `DOC-ADR-SCOPE`（accepted 四目标 vs engineering 七个
-registry-implemented target）文档决策债。
+完成。未合入候选 `ed2401e72` 的 static `cosmwasm-check` fixture 不满足该 design-exit；未合入
+`48e8bffad` 的 A1 emitter 既绕过 freeze/scope 决策，独立代码审计又认定静态内存布局、JSON
+溢出、Int64 乘法和无界缓冲等 P0 候选，必须保持隔离而非直接合并。该工程 promotion 还扩大了
+`DOC-ADR-SCOPE`（accepted 四目标 vs engineering 七个 registry-implemented target）文档决策债。
 
 ## 1. 身份与来源
 

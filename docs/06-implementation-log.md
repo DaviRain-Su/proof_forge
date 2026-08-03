@@ -13395,3 +13395,33 @@ normative: false
   全部通过。
 - Boundary：shared engineering Semantic/Reference cutover only；六 target 的 anonymous result ABI、
   formal `TASK-D2-06/07`、TST-SEM 与 D4 状态均未改变。
+
+### 2026-08-03 — Tool Lock v4 active-host / identity regression repair
+
+- 基线：合入 `0bc17085c` 后，ordinary CI 在 Darwin 实际
+  `System.Platform.target=arm64-apple-darwin24.6.0` 上失败；同时两个 embedded lock 的
+  retained-file raw digest 常量与当前 `toolchains*.lock.json` 字节均不一致，导致 core/typed/target
+  shard 在 ProofBundle 或 tool resolve 前 fail closed。该失败是 shared-core 真回归，不是 skip。
+- 修复（`608ca8d47`）：strict target parser 接受 canonical `aarch64|arm64-apple-darwin` 与
+  `darwinN(.N)*` 版本后缀，Linux 仍只接受 exact `x86_64-unknown-linux-gnu`；恶意跨平台、额外段与
+  畸形版本后缀继续拒绝。raw retained-file pin 更新为当前两份 lock bytes，PF-JCS
+  `ToolLockV4Digest` KAT 以独立 domain-separated SHA-256 重算并固定，raw digest 仍不得冒充 typed identity。
+- Aleo 事实修正：product `FinalizeV1` 仍为 zero-tool/non-deployable，但 evidence 不再错误声称“没有
+  digest-pinned Leo”；现明确 locked Leo 4.0.2 只由独立 compile-only acceptance 使用，product
+  finalization 本身不调用 Leo/prover。产品 emit 测试固定 exact 新 note 与旧措辞归零。
+- 验证：core shard、targets shard（含真实 solc/wat2wasm/near-sandbox/leo/nargo 可用路径）、fresh
+  171-file package pin、独立 P0/P1 review、`git diff --check` 与 ordinary `just ci` 全部通过。
+  非 formal/hermetic/release evidence。
+
+### 2026-08-03 — CosmWasm A1/A2 unmerged candidate audit
+
+- 只读审计 `ed2401e72`（A2/B0）与 `48e8bffad`（A1）三路完成；两者均未合入 main。
+- A2 的 locked `cosmwasm-check 3.0.9` + 四个手写 Wasm fixture 只覆盖 static ABI shape，未冻结
+  `cosmwasm-vm`/`wasmd`、SDK/capability/schema、transaction/SubMsg/reply/savepoint 或 local-chain plan，
+  因此不解除 dossier §6/§10 的 `CW-ABI-FREEZE`。
+- A1 在未获 accepted scope / ABI freeze 决策时固化自定义 host/JSON/Region/rollback 语义，且 dossier
+  同时保留“实现前冻结/当前不创建 emitter”条款；流程上不得合入。代码审计另发现静态 key 区与固定
+  needle/heap 区可重叠、JSON UInt64 解析溢出 wrap、Int64 `min * -1` 漏 guard、attribute/heap 无界等
+  P0 级候选缺陷；optional check 脚本还能把产品 build 失败 soft-skip。
+- 边界：候选分支的 Counter WAT/wat2wasm/`cosmwasm-check` 通过只证明静态工程先导可行，不是
+  wasmd/cosmwasm-vm runtime、deploy、formal D3/D4 或产品授权。main 继续保持 A0 build fail closed。
