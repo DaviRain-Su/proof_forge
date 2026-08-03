@@ -13,13 +13,16 @@ CosmWasm-owned host-call recipe IR with Region/JSON entry ABI:
   `{"method":{...params...}}` with decimal integer fields
 * results: `ContractResult` JSON (`ok` Response with attributes + messages, or `error`)
 * emit → Response attributes; schedule → Response `messages: [SubMsg]` with
-  `reply_on: "never"`; revert → `{"error":...}` / `abort`
+  `reply_on: "never"`; `WasmMsg::Execute.msg` is cosmwasm-std **Binary**
+  (base64-encoded UTF-8 JSON `{"<method>":{"a0":N,...}}`); revert →
+  `{"error":...}` / `abort`
 
 CW-4 schedule notes (wasmd ≥0.54 `DispatchSubmessages` + cosmwasm-std
 `ReplyOn::Never`): same-tx SubMsg savepoint; no reply callback; submsg failure
 propagates and fails the parent tx (not parent-continues). `contract_addr` is
-a static QN stub, not bech32. Not wasmd runtime / cosmwasm-check acceptance
-(A2). Not formal D4.
+a static QN stub, not bech32. Binary msg uses deterministic table-lookup
+base64 (`$pf_base64_encode`, no host/lib dependency). Not wasmd runtime /
+cosmwasm-check acceptance (A2). Not formal D4.
 -/
 
 namespace ProofForgeV2.Targets.CosmWasm
@@ -60,7 +63,8 @@ inductive Operation where
   /-- Schedule → Response SubMsg (`reply_on: never`, `id: 0`, WasmMsg::Execute).
       `receiver` is the static QN stub used as `contract_addr` (not bech32).
       `method` is the execute-message object key. `args` are i64 temps encoded
-      as decimal JSON fields `a0`.. in source order. -/
+      as decimal JSON fields `a0`.. in source order; the execute `msg` field is
+      cosmwasm-std Binary = base64(UTF-8 of `{"method":{"a0":N,...}}`). -/
   | promiseAccount (receiver : String) (method : String) (args : Array Nat)
   | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
@@ -640,9 +644,11 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   let msgBase := msgBufferBase memory
   let valueCell := memory.valueOffset
   -- Keep helpers compact but complete for Counter MVP + CW-4 SubMsg schedule.
+  -- inner_len: scratch-side builder for Binary execute-msg JSON (pre-base64).
   s!"  (global $heap (mut i32) (i32.const {heapInit}))\n" ++
   s!"  (global $attr_len (mut i32) (i32.const 0))\n" ++
   s!"  (global $msg_len (mut i32) (i32.const 0))\n" ++
+  s!"  (global $inner_len (mut i32) (i32.const 0))\n" ++
   s!"  (global $ret_kind (mut i32) (i32.const 0))\n" ++  -- 0=none 1=u64 2=bool 3=i64
   s!"  (global $ret_val (mut i64) (i64.const 0))\n" ++
   -- allocate(size) -> region_ptr: Region{offset=data, capacity=size, length=size}
@@ -981,16 +987,18 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- region payload view: (offset, length) from region ptr
   s!"  (func $pf_region_off (param $r i32) (result i32) (i32.load (local.get $r)))\n" ++
   s!"  (func $pf_region_len (param $r i32) (result i32) (i32.load offset=8 (local.get $r)))\n" ++
-  -- reset per-entry attribute/messages/return state
+  -- reset per-entry attribute/messages/return/inner-json state
   s!"  (func $pf_reset_result\n" ++
   s!"    (global.set $attr_len (i32.const 0))\n" ++
   s!"    (global.set $msg_len (i32.const 0))\n" ++
+  s!"    (global.set $inner_len (i32.const 0))\n" ++
   s!"    (global.set $ret_kind (i32.const 0))\n" ++
   s!"    (global.set $ret_val (i64.const 0))\n" ++
   "  )\n" ++
   -- append one raw byte to the messages buffer (CW-4 SubMsg JSON builder)
   s!"  (func $pf_msg_byte (param $b i32)\n" ++
   s!"    (local $p i32)\n" ++
+  s!"    (if (i32.ge_u (global.get $msg_len) (i32.const 1536)) (then unreachable))\n" ++
   s!"    (local.set $p (i32.add (i32.const {msgBase}) (global.get $msg_len)))\n" ++
   s!"    (i32.store8 (local.get $p) (local.get $b))\n" ++
   s!"    (global.set $msg_len (i32.add (global.get $msg_len) (i32.const 1)))\n" ++
@@ -998,6 +1006,7 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- append ASCII string from linear memory to messages buffer
   s!"  (func $pf_msg_bytes (param $off i32) (param $len i32)\n" ++
   s!"    (local $i i32) (local $p i32)\n" ++
+  s!"    (if (i32.gt_u (i32.add (global.get $msg_len) (local.get $len)) (i32.const 1536)) (then unreachable))\n" ++
   s!"    (local.set $p (i32.add (i32.const {msgBase}) (global.get $msg_len)))\n" ++
   s!"    (local.set $i (i32.const 0))\n" ++
   s!"    (block $done\n" ++
@@ -1017,6 +1026,98 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (if (i32.gt_u (i32.add (global.get $msg_len) (i32.const 24)) (i32.const 1536)) (then unreachable))\n" ++
   s!"    (local.set $p (i32.add (i32.const {msgBase}) (global.get $msg_len)))\n" ++
   s!"    (local.set $n (call $pf_fmt_u64 (local.get $v) (local.get $p)))\n" ++
+  s!"    (global.set $msg_len (i32.add (global.get $msg_len) (local.get $n)))\n" ++
+  "  )\n" ++
+  -- Inner JSON buffer (scratch@{scratch}, cap 512): pre-base64 execute msg body.
+  -- Content shape: {"<method>":{"a0":N,...}} (UTF-8 JSON bytes).
+  s!"  (func $pf_inner_reset\n" ++
+  s!"    (global.set $inner_len (i32.const 0))\n" ++
+  "  )\n" ++
+  s!"  (func $pf_inner_byte (param $b i32)\n" ++
+  s!"    (local $p i32)\n" ++
+  s!"    (if (i32.ge_u (global.get $inner_len) (i32.const 512)) (then unreachable))\n" ++
+  s!"    (local.set $p (i32.add (i32.const {scratch}) (global.get $inner_len)))\n" ++
+  s!"    (i32.store8 (local.get $p) (local.get $b))\n" ++
+  s!"    (global.set $inner_len (i32.add (global.get $inner_len) (i32.const 1)))\n" ++
+  "  )\n" ++
+  s!"  (func $pf_inner_u64 (param $v i64)\n" ++
+  s!"    (local $p i32) (local $n i32)\n" ++
+  s!"    (if (i32.gt_u (i32.add (global.get $inner_len) (i32.const 24)) (i32.const 512)) (then unreachable))\n" ++
+  s!"    (local.set $p (i32.add (i32.const {scratch}) (global.get $inner_len)))\n" ++
+  s!"    (local.set $n (call $pf_fmt_u64 (local.get $v) (local.get $p)))\n" ++
+  s!"    (global.set $inner_len (i32.add (global.get $inner_len) (local.get $n)))\n" ++
+  "  )\n" ++
+  -- Base64 alphabet char for sextet 0..63 (A-Za-z0-9+/). Deterministic, no table data.
+  s!"  (func $pf_b64_char (param $n i32) (result i32)\n" ++
+  s!"    (if (i32.lt_u (local.get $n) (i32.const 26)) (then\n" ++
+  s!"      (return (i32.add (local.get $n) (i32.const 65)))))\n" ++  -- A-Z
+  s!"    (if (i32.lt_u (local.get $n) (i32.const 52)) (then\n" ++
+  s!"      (return (i32.add (i32.sub (local.get $n) (i32.const 26)) (i32.const 97)))))\n" ++  -- a-z
+  s!"    (if (i32.lt_u (local.get $n) (i32.const 62)) (then\n" ++
+  s!"      (return (i32.add (i32.sub (local.get $n) (i32.const 52)) (i32.const 48)))))\n" ++  -- 0-9
+  s!"    (if (i32.eq (local.get $n) (i32.const 62)) (then (return (i32.const 43))))\n" ++  -- +
+  s!"    (i32.const 47)\n" ++  -- /
+  "  )\n" ++
+  -- Standard base64 encode (RFC 4648, with `=` padding). No deps; O(n) lookup.
+  -- Writes encoded ASCII to dst; returns encoded byte length ((len+2)/3*4).
+  -- Empty input → length 0. Used by SubMsg Binary msg field via $pf_msg_b64.
+  s!"  (func $pf_base64_encode (param $src i32) (param $len i32) (param $dst i32) (result i32)\n" ++
+  s!"    (local $i i32) (local $o i32) (local $rem i32)\n" ++
+  s!"    (local $b0 i32) (local $b1 i32) (local $b2 i32)\n" ++
+  s!"    (local.set $i (i32.const 0))\n" ++
+  s!"    (local.set $o (i32.const 0))\n" ++
+  -- Full 3-byte groups first
+  s!"    (block $full_done\n" ++
+  s!"      (loop $full\n" ++
+  s!"        (br_if $full_done (i32.gt_u (i32.add (local.get $i) (i32.const 3)) (local.get $len)))\n" ++
+  s!"        (local.set $b0 (i32.load8_u (i32.add (local.get $src) (local.get $i))))\n" ++
+  s!"        (local.set $b1 (i32.load8_u (i32.add (local.get $src) (i32.add (local.get $i) (i32.const 1)))))\n" ++
+  s!"        (local.set $b2 (i32.load8_u (i32.add (local.get $src) (i32.add (local.get $i) (i32.const 2)))))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $dst) (local.get $o))\n" ++
+  s!"          (call $pf_b64_char (i32.shr_u (local.get $b0) (i32.const 2))))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $dst) (i32.add (local.get $o) (i32.const 1)))\n" ++
+  s!"          (call $pf_b64_char (i32.or (i32.shl (i32.and (local.get $b0) (i32.const 3)) (i32.const 4))\n" ++
+  s!"            (i32.shr_u (local.get $b1) (i32.const 4)))))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $dst) (i32.add (local.get $o) (i32.const 2)))\n" ++
+  s!"          (call $pf_b64_char (i32.or (i32.shl (i32.and (local.get $b1) (i32.const 15)) (i32.const 2))\n" ++
+  s!"            (i32.shr_u (local.get $b2) (i32.const 6)))))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $dst) (i32.add (local.get $o) (i32.const 3)))\n" ++
+  s!"          (call $pf_b64_char (i32.and (local.get $b2) (i32.const 63))))\n" ++
+  s!"        (local.set $o (i32.add (local.get $o) (i32.const 4)))\n" ++
+  s!"        (local.set $i (i32.add (local.get $i) (i32.const 3)))\n" ++
+  s!"        (br $full)))\n" ++
+  -- Remainder 1 → XX==  or  2 → XXX=
+  s!"    (local.set $rem (i32.sub (local.get $len) (local.get $i)))\n" ++
+  s!"    (if (i32.eq (local.get $rem) (i32.const 1)) (then\n" ++
+  s!"      (local.set $b0 (i32.load8_u (i32.add (local.get $src) (local.get $i))))\n" ++
+  s!"      (i32.store8 (i32.add (local.get $dst) (local.get $o))\n" ++
+  s!"        (call $pf_b64_char (i32.shr_u (local.get $b0) (i32.const 2))))\n" ++
+  s!"      (i32.store8 (i32.add (local.get $dst) (i32.add (local.get $o) (i32.const 1)))\n" ++
+  s!"        (call $pf_b64_char (i32.shl (i32.and (local.get $b0) (i32.const 3)) (i32.const 4))))\n" ++
+  s!"      (i32.store8 (i32.add (local.get $dst) (i32.add (local.get $o) (i32.const 2))) (i32.const 61))\n" ++
+  s!"      (i32.store8 (i32.add (local.get $dst) (i32.add (local.get $o) (i32.const 3))) (i32.const 61))\n" ++
+  s!"      (local.set $o (i32.add (local.get $o) (i32.const 4)))))\n" ++
+  s!"    (if (i32.eq (local.get $rem) (i32.const 2)) (then\n" ++
+  s!"      (local.set $b0 (i32.load8_u (i32.add (local.get $src) (local.get $i))))\n" ++
+  s!"      (local.set $b1 (i32.load8_u (i32.add (local.get $src) (i32.add (local.get $i) (i32.const 1)))))\n" ++
+  s!"      (i32.store8 (i32.add (local.get $dst) (local.get $o))\n" ++
+  s!"        (call $pf_b64_char (i32.shr_u (local.get $b0) (i32.const 2))))\n" ++
+  s!"      (i32.store8 (i32.add (local.get $dst) (i32.add (local.get $o) (i32.const 1)))\n" ++
+  s!"        (call $pf_b64_char (i32.or (i32.shl (i32.and (local.get $b0) (i32.const 3)) (i32.const 4))\n" ++
+  s!"          (i32.shr_u (local.get $b1) (i32.const 4)))))\n" ++
+  s!"      (i32.store8 (i32.add (local.get $dst) (i32.add (local.get $o) (i32.const 2)))\n" ++
+  s!"        (call $pf_b64_char (i32.shl (i32.and (local.get $b1) (i32.const 15)) (i32.const 2))))\n" ++
+  s!"      (i32.store8 (i32.add (local.get $dst) (i32.add (local.get $o) (i32.const 3))) (i32.const 61))\n" ++
+  s!"      (local.set $o (i32.add (local.get $o) (i32.const 4)))))\n" ++
+  s!"    (local.get $o)\n" ++
+  "  )\n" ++
+  -- Encode [src,src+len) as base64 into the messages buffer (Binary string body).
+  s!"  (func $pf_msg_b64 (param $src i32) (param $len i32)\n" ++
+  s!"    (local $need i32) (local $p i32) (local $n i32)\n" ++
+  s!"    (local.set $need (i32.mul (i32.div_u (i32.add (local.get $len) (i32.const 2)) (i32.const 3)) (i32.const 4)))\n" ++
+  s!"    (if (i32.gt_u (i32.add (global.get $msg_len) (local.get $need)) (i32.const 1536)) (then unreachable))\n" ++
+  s!"    (local.set $p (i32.add (i32.const {msgBase}) (global.get $msg_len)))\n" ++
+  s!"    (local.set $n (call $pf_base64_encode (local.get $src) (local.get $len) (local.get $p)))\n" ++
   s!"    (global.set $msg_len (i32.add (global.get $msg_len) (local.get $n)))\n" ++
   "  )\n" ++
   -- append attribute {"key":"K","value":"V"} where V is decimal of u64 temp
@@ -1066,7 +1167,8 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (i32.store8 offset=1 (local.get $p) (i32.const 125))\n" ++
   s!"    (global.set $attr_len (i32.sub (i32.add (local.get $p) (i32.const 2)) (i32.const {attrBase})))\n" ++
   "  )\n" ++
-  s!"  ;; buffers: attr@{attrBase} msg@{msgBase} valueCell@{valueCell} scratch@{scratch}\n"
+  s!"  ;; buffers: attr@{attrBase} msg@{msgBase} valueCell@{valueCell} scratch@{scratch}\n" ++
+  s!"  ;; scratch[0..512): SubMsg Binary inner JSON; $pf_base64_encode → msg buffer\n"
 
 private partial def renderOperation (memory : MemoryLayout)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
@@ -1195,34 +1297,58 @@ private partial def renderOperation (memory : MemoryLayout)
             s!"{indent}(call $pf_push_attr_u64 (i32.const {nameOff}) (i32.const {nameBytes.size}) (local.get $t{args[0]!}))\n"
           pure out
   | .promiseAccount receiver method args =>
-      -- CW-4 SubMsg JSON into messages buffer:
+      -- CW-4 SubMsg JSON into messages buffer. WasmMsg::Execute.msg is Binary:
+      -- base64(UTF-8 of {"<method>":{"a0":N,...}}), matching cosmwasm-std/
+      -- wasmd serde (not a nested JSON object).
+      --
+      -- Outer shape:
       -- {"id":0,"msg":{"wasm":{"execute":{"contract_addr":"<receiver>",
-      --   "msg":{"<method>":{"a0":N,...}},"funds":[]}}},"reply_on":"never"}
+      --   "msg":"<base64>","funds":[]}}},"reply_on":"never"}
       --
       -- Honesty:
       -- * contract_addr = static QN join (receiver); NOT bech32 AccAddress.
-      -- * msg is a JSON object (engineering shape pin). wasmd/wasmvm expects
-      --   Binary (base64) for WasmMsg::Execute.msg — Binary upgrade is future.
-      -- * gas_limit omitted (= None). id=0 = cosmwasm_std::UNUSED_MSG_ID.
+      -- * msg = Binary (base64); inner JSON object key = method, fields a0..
+      -- * gas_limit omitted (= None). payload omitted (serde default empty).
+      -- * id=0 = cosmwasm_std::UNUSED_MSG_ID.
       -- * reply_on=never: no reply entrypoint; same-tx dispatch; submsg failure
       --   fails parent tx (wasmd DispatchSubmessages). See Plan docstring.
       Id.run do
         let _ := events
         let _ := errors
         let _ := fnNames
-        -- Full shape comment (searchable in WAT; bytes also via pf_msg_byte).
+        let scratch := memory.inputOffset
+        -- Full shape comment (searchable in WAT; Binary msg, not nested object).
         let shapeHint :=
           "{\"id\":0,\"msg\":{\"wasm\":{\"execute\":{\"contract_addr\":\"" ++
-          receiver ++ "\",\"msg\":{\"" ++ method ++
-          "\":{...args a0..}},\"funds\":[]}}},\"reply_on\":\"never\"}"
+          receiver ++ "\",\"msg\":\"<base64>\",\"funds\":[]}}},\"reply_on\":\"never\"}"
+        let binaryDoc :=
+          "base64(UTF-8 of {\"" ++ method ++ "\":{\"a0\":N,...}})"
         let mut out :=
           s!"{indent};; schedule SubMsg reply_on=never → {receiver} / {method}\n" ++
-          s!"{indent};; SubMsg shape: {shapeHint}\n"
+          s!"{indent};; SubMsg shape (Binary msg): {shapeHint}\n" ++
+          s!"{indent};; Binary = {binaryDoc}\n"
+        -- 1) Build inner execute-msg JSON into scratch via $pf_inner_*.
+        out := out ++ s!"{indent}(call $pf_inner_reset)\n"
+        let emitInner (s : String) : String := Id.run do
+          let bytes := s.toUTF8
+          let mut t := ""
+          for i in [0:bytes.size] do
+            t := t ++ s!"{indent}(call $pf_inner_byte (i32.const {bytes[i]!.toNat}))\n"
+          pure t
+        out := out ++ emitInner "{\""
+        out := out ++ emitInner method
+        out := out ++ emitInner "\":{"
+        for i in [0:args.size] do
+          if i > 0 then
+            out := out ++ emitInner ","
+          out := out ++ emitInner s!"\"a{i}\":"
+          out := out ++ s!"{indent}(call $pf_inner_u64 (local.get $t{args[i]!}))\n"
+        out := out ++ emitInner "}}"
+        -- 2) Append SubMsg envelope into messages buffer; msg field = base64.
         -- Leading comma when messages buffer already non-empty
         out := out ++
           s!"{indent}(if (i32.ne (global.get $msg_len) (i32.const 0)) (then\n" ++
           s!"{indent}  (call $pf_msg_byte (i32.const 44))))\n"
-        -- Helper: emit a fixed ASCII string via pf_msg_byte immediates
         let emitLit (s : String) : String := Id.run do
           let bytes := s.toUTF8
           let mut t := ""
@@ -1231,15 +1357,11 @@ private partial def renderOperation (memory : MemoryLayout)
           pure t
         out := out ++ emitLit "{\"id\":0,\"msg\":{\"wasm\":{\"execute\":{\"contract_addr\":\""
         out := out ++ emitLit receiver
-        out := out ++ emitLit "\",\"msg\":{\""
-        out := out ++ emitLit method
-        out := out ++ emitLit "\":{"
-        for i in [0:args.size] do
-          if i > 0 then
-            out := out ++ emitLit ","
-          out := out ++ emitLit s!"\"a{i}\":"
-          out := out ++ s!"{indent}(call $pf_msg_u64 (local.get $t{args[i]!}))\n"
-        out := out ++ emitLit "}},\"funds\":[]}}},\"reply_on\":\"never\"}"
+        out := out ++ emitLit "\",\"msg\":\""
+        -- Binary body: base64-encode scratch[0..inner_len) into msg buffer
+        out := out ++
+          s!"{indent}(call $pf_msg_b64 (i32.const {scratch}) (global.get $inner_len))\n"
+        out := out ++ emitLit "\",\"funds\":[]}}},\"reply_on\":\"never\"}"
         pure out
   | .revertError errorIndex args =>
       let binding := errors[errorIndex]!

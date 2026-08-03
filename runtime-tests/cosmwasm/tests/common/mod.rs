@@ -11,9 +11,12 @@
 //! - instantiate: flat `{ "param": <decimal u64>, ... }`
 //! - execute/query: message must contain `"methodName"` needle; params scanned
 //!   as `"paramName": <decimal>` (byte-scan, not full JSON schema)
-//! - execute/instantiate ok: `{"ok":{"messages":[],"attributes":[...],"events":[],"data":null}}`
+//! - execute/instantiate ok: `{"ok":{"messages":[...],"attributes":[...],"events":[],"data":null}}`
 //! - execute valued return: synthetic attribute `{"key":"result","value":"<decimal>"}`
 //! - emit → attributes with event name as key, first UInt64 arg as decimal value
+//! - schedule → `messages:[SubMsg]` with `id=0`, `reply_on="never"`,
+//!   `WasmMsg::Execute{contract_addr=<QN stub>, msg=<Binary base64 of
+//!   {"method":{"a0":N,...}}>, funds:[]}`; gas_limit/payload omitted
 //! - revert → `{"error":"<ErrorDecl name>"}`
 //! - query ok (MVP): `{"ok":"<decimal>"}` as UTF-8 text (NOT cosmwasm-std Binary base64)
 //! - arithmetic overflow: Wasm `unreachable` trap → `VmError` (not ContractResult::Err);

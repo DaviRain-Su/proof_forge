@@ -221,9 +221,11 @@ inductive Statement where
         is required (same honesty class as EVM keccak-addr / Solana
         sha256-program-id stubs).
       * `method` — last QN component (safe identifier); becomes the execute
-        message object key in the SubMsg JSON payload.
+        message object key inside the Binary-encoded JSON payload.
       * `args` — anonymous public UInt64/Int64 values (Normalize schedule
         surface); encoded as decimal JSON fields `a0`..`aN-1` in source order.
+        Emit packs `{"method":{"a0":N,...}}` as UTF-8 then base64 into
+        `WasmMsg::Execute.msg` (cosmwasm-std Binary).
 
       ## wasmd `reply_on=Never` semantics (verified, wasmd ≥0.54 / main)
 

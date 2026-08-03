@@ -3,12 +3,13 @@
 
   Pins Counter plan shape, CosmWasm ABI exports (instantiate/execute/query/
   allocate/deallocate/interface_version_8), Region/JSON markers, db_* imports,
-  CW-4 schedule → SubMsg reply_on=never (Plan/IR/WAT shape), sync call still
-  fail closed, and other FC boundaries (multi-width, aggregates, invariants).
+  CW-4 schedule → SubMsg reply_on=never with Binary (base64) execute msg
+  (Plan/IR/WAT shape), pure Lean base64 encode matrix (empty / 1 / 2 / 3+
+  bytes + typical JSON), sync call still fail closed, and other FC boundaries
+  (multi-width, aggregates, invariants).
 
-  Product capability resolve still declines effect.asynchronous-workflow until
-  main-agent integration; schedule positive coverage uses engineering Plan/IR
-  entry points that bypass resolve. Not wasmd runtime (A2). Not formal D4.
+  Schedule positive coverage uses product capability resolve (async admitted)
+  plus engineering Plan/IR entry points. Not wasmd chain (A2). Not formal D4.
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.CosmWasm
@@ -233,11 +234,69 @@ private unsafe def testCallStillFailClosed
         (engineeringPlanFromCompiled compiled)
   IO.println "  ✓ call/sync still fail closed"
 
+/-- Pure RFC 4648 base64 (with `=` padding). Mirrors WAT `$pf_base64_encode`
+    table-lookup algorithm for engineering pin tests — not a product export. -/
+private def cosmwasmBase64Encode (input : ByteArray) : String := Id.run do
+  let alphabet : Array Char :=
+    ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/").toList.toArray
+  let getChar (n : Nat) : Char := alphabet[n]!
+  let mut out : Array Char := #[]
+  let mut i := 0
+  while i + 3 ≤ input.size do
+    let b0 := (input.get! i).toNat
+    let b1 := (input.get! (i + 1)).toNat
+    let b2 := (input.get! (i + 2)).toNat
+    out := out.push (getChar (b0 >>> 2))
+    out := out.push (getChar (((b0 &&& 3) <<< 4) ||| (b1 >>> 4)))
+    out := out.push (getChar (((b1 &&& 15) <<< 2) ||| (b2 >>> 6)))
+    out := out.push (getChar (b2 &&& 63))
+    i := i + 3
+  let rem := input.size - i
+  if rem == 1 then
+    let b0 := (input.get! i).toNat
+    out := out.push (getChar (b0 >>> 2))
+    out := out.push (getChar ((b0 &&& 3) <<< 4))
+    out := out.push '='
+    out := out.push '='
+  else if rem == 2 then
+    let b0 := (input.get! i).toNat
+    let b1 := (input.get! (i + 1)).toNat
+    out := out.push (getChar (b0 >>> 2))
+    out := out.push (getChar (((b0 &&& 3) <<< 4) ||| (b1 >>> 4)))
+    out := out.push (getChar ((b1 &&& 15) <<< 2))
+    out := out.push '='
+  pure (String.ofList out.toList)
+
+private def testBase64HelperMatrix : IO Unit := do
+  -- Empty input → empty output (WAT $pf_base64_encode returns 0).
+  expect (cosmwasmBase64Encode ByteArray.empty == "")
+    "base64 empty → \"\""
+  -- Single byte remainder → `==` padding.
+  expect (cosmwasmBase64Encode "A".toUTF8 == "QQ==")
+    "base64 single byte A → QQ=="
+  -- Two-byte remainder → `=` padding.
+  expect (cosmwasmBase64Encode "AB".toUTF8 == "QUI=")
+    "base64 two bytes AB → QUI="
+  -- Exact 3-byte group → no padding.
+  expect (cosmwasmBase64Encode "ABC".toUTF8 == "QUJD")
+    "base64 three bytes ABC → QUJD"
+  -- 4 bytes = 3+1 → mixed full group + `==`.
+  expect (cosmwasmBase64Encode "ABCD".toUTF8 == "QUJDRA==")
+    "base64 four bytes ABCD → QUJDRA=="
+  -- Typical schedule inner JSON (fixed count=5).
+  let typical := "{\"daily\":{\"a0\":5}}".toUTF8
+  expect (cosmwasmBase64Encode typical == "eyJkYWlseSI6eyJhMCI6NX19")
+    "base64 typical schedule JSON {\"daily\":{\"a0\":5}}"
+  -- Zero-arg method body.
+  let emptyArgs := "{\"daily\":{}}".toUTF8
+  expect (cosmwasmBase64Encode emptyArgs == "eyJkYWlseSI6e319")
+    "base64 empty-args method JSON"
+  IO.println "  ✓ base64 helper matrix (empty/1/2/3/4/typical JSON)"
+
 private unsafe def testScheduleSubMsg
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- CW-4: schedule → SubMsg reply_on=never Plan/IR/WAT pin.
-  -- Resolver async key is open (integration): capability resolve succeeds and
-  -- produces the same SubMsg plan as the engineering entry.
+  -- CW-4: schedule → SubMsg reply_on=never + Binary (base64) msg Plan/IR/WAT pin.
+  -- Capability resolve admits async and produces the same SubMsg plan as eng.
   let schedSrc := wrapProgram "ScheduleFlow" <|
     "  state count : UInt64\n\n" ++
     "  init(x : UInt64) do\n" ++
@@ -289,16 +348,33 @@ private unsafe def testScheduleSubMsg
   let wat ← findFile files "ScheduleFlow.wat"
   expect (wat.contains "schedule SubMsg reply_on=never")
     "WAT schedule SubMsg comment"
-  expect (wat.contains "SubMsg shape:") "WAT SubMsg shape comment"
+  expect (wat.contains "SubMsg shape (Binary msg):")
+    "WAT SubMsg Binary shape comment"
   expect (wat.contains "\"reply_on\":\"never\"") "WAT SubMsg reply_on=never shape"
   expect (wat.contains "\"contract_addr\":\"ledger.daily\"")
     "WAT contract_addr stub = QN join"
-  expect (wat.contains "\"msg\":{\"daily\":") "WAT execute method key in msg"
+  -- Binary msg: outer envelope opens a JSON *string* for msg, not a nested object.
+  expect (wat.contains "\",\"msg\":\"")
+    "WAT execute msg is Binary string (opens quote after msg key)"
+  -- Must NOT emit nested object shape for WasmMsg::Execute.msg.
+  expect (!wat.contains "\"msg\":{\"daily\":")
+    "WAT must not use nested JSON object for Binary msg field"
   expect (wat.contains "\"funds\":[]") "WAT empty funds"
   expect (wat.contains "\"id\":0") "WAT SubMsg id=0 (UNUSED_MSG_ID)"
-  expect (wat.contains "$pf_msg_byte") "WAT SubMsg byte builder"
-  expect (wat.contains "$pf_msg_u64") "WAT SubMsg arg decimal encoder"
+  -- Base64 + inner JSON builders present (runtime Binary path).
+  expect (wat.contains "$pf_base64_encode") "WAT $pf_base64_encode helper"
+  expect (wat.contains "$pf_b64_char") "WAT $pf_b64_char alphabet lookup"
+  expect (wat.contains "$pf_msg_b64") "WAT $pf_msg_b64 Binary append"
+  expect (wat.contains "$pf_inner_byte") "WAT $pf_inner_byte inner JSON builder"
+  expect (wat.contains "$pf_inner_u64") "WAT $pf_inner_u64 arg decimal into inner JSON"
+  expect (wat.contains "$pf_inner_reset") "WAT $pf_inner_reset"
   expect (wat.contains "$msg_len") "WAT messages buffer length global"
+  expect (wat.contains "$inner_len") "WAT inner JSON length global"
+  expect (wat.contains "call $pf_msg_b64") "WAT schedule calls pf_msg_b64"
+  -- Inner JSON still carries method key + a0 field spelling in byte immediates path
+  -- (shape comment documents base64 of {"daily":{...}}).
+  expect (wat.contains "base64(UTF-8 of {\"daily\":")
+    "WAT documents Binary = base64 of method-keyed JSON"
   -- Uppercase QN fails receiver-stub grammar (no silent case fold).
   let badSrc := wrapProgram "ScheduleBad" <|
     "  state count : UInt64\n\n" ++
@@ -319,7 +395,7 @@ private unsafe def testScheduleSubMsg
       throw <| IO.userError s!"schedule uppercase: expected planInvariant, got {other.render}"
   | .ok _ =>
       throw <| IO.userError "schedule uppercase: expected planInvariant fail-closed"
-  IO.println "  ✓ schedule SubMsg reply_on=never Plan/IR/WAT"
+  IO.println "  ✓ schedule SubMsg Binary (base64) reply_on=never Plan/IR/WAT"
 
 private unsafe def testMultiWidthFc
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -461,6 +537,7 @@ unsafe def run : IO Unit := do
   testCounterIRAndWat session
   testMultiField session
   testCallStillFailClosed session
+  testBase64HelperMatrix
   testScheduleSubMsg session
   testMultiWidthFc session
   testNamedAggregateFc session
