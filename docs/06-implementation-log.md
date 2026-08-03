@@ -13617,10 +13617,14 @@ normative: false
   引用路径），故本地 provision 始终通过而 Linux CI 失败。实证：x86_64 VM 下
   rust-lld 与 GNU ld **均**失败（`-C linker-features=-lld` 无效，已证伪该方向）；
   wasmer 官方修复（PR #5690 vendored shim）只在 wasmer 6.1+/7.x，wasmer 5 不可用。
-- 修复：`toolchain_assets.py` 支持 cargo-git 资产级可选 `rustToolchain`
-  （MAJOR.MINOR[.PATCH] 校验 + provision 时 `rustup toolchain install` +
-  `cargo +<v> build`）；两平台 cosmwasm-check 资产钉 **`rustToolchain: "1.88"`**
-  （变更前最后工具链时代）——构建官方 tag 源码与其 committed lockfile，不改依赖图。
-- 验证：x86_64 colima VM（Rosetta）实测 `cargo +1.88 build --release -p
-  cosmwasm-check` **链接通过**（对照：默认 1.97 复现 CI 同款 probestack 失败）；
-  `just toolchains-validate` / self-test 绿。非 formal。
+- 修复：Tool Lock v4 保持 closed schema，不加入未声明的 nested 字段；
+  `toolchain_assets.py` 以 package-owned exact `(asset id, commit)` compatibility policy
+  仅为该 CosmWasm 资产选择 Rust **`1.88.0`**。构建使用 staging-owned
+  `HOME`/`CARGO_HOME`、独立 rustup root，并清除 ambient Rust/linker flags；只读
+  policy marker 绑定 cache，缺失、可写或 symlink marker 均 fail closed。正式
+  per-asset Rust compiler identity 留待独立 Tool Lock v5。
+- 修复同时同步两平台 embedded raw digest、typed Tool Lock KAT 与 package-file pin，
+  避免 stale `.olean` 掩盖 lock-byte 漂移。
+- 验证：原生真实 source-build 以 Rust `1.88.0` 链接并报告
+  `Contract checking 3.0.9`；对照默认 Rust 1.97 复现 CI 同款 probestack 失败；
+  `just toolchains-validate`、core shard 与普通 `just ci` 通过。非 formal。
