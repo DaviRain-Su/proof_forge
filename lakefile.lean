@@ -127,6 +127,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramExportAcceptance,
     `Tests.Language.ProgramCommandAcceptance,
     `Tests.Language.InlineProofAuthoringV1,
+    `Tests.Language.TheoremInventoryV1,
     `Tests.Language.ProgramSyntax,
     `Tests.Language.ProgramV1Declarations,
     `Tests.Language.ProgramV1DeclarationNegatives,

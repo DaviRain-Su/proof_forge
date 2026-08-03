@@ -42,6 +42,7 @@ import Tests.Language.ProgramExportAcceptance
 import Tests.Language.ProgramExportAcceptanceEmpty
 import Tests.Language.ProgramCommandAcceptance
 import Tests.Language.InlineProofAuthoringV1
+import Tests.Language.TheoremInventoryV1
 import Tests.Language.ProgramSyntax
 import Tests.Language.ProgramV1Declarations
 import Tests.Language.ProgramV1DeclarationNegatives
@@ -224,6 +225,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramExportAcceptanceEmpty.run
   Tests.Language.ProgramCommandAcceptance.run
   Tests.Language.InlineProofAuthoringV1.run
+  Tests.Language.TheoremInventoryV1.run
   Tests.Language.ProgramSyntax.run
   Tests.Language.ProgramV1Declarations.run
   Tests.Language.ProgramV1DeclarationNegatives.run

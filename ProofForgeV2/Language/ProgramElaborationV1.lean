@@ -51,9 +51,13 @@ private def elaborateProofObligations
     return
   let carrier ← match normalizeProgramV1 source with
     | .ok value => pure value
-    | .error error =>
-        throwError
-          "inline proof subject normalization failed; product normalization must accept the program before theorem elaboration ({repr error})"
+    | .error _ =>
+        -- Program export remains available for source/parser fixtures outside
+        -- the current Normalize closure. Such a program cannot expose a
+        -- theorem obligation alias, so an adjacent theorem still fails closed
+        -- at name elaboration; product check/build will report the located
+        -- Normalize diagnostic before certification.
+        return
   let bytesExpr ← Lean.Elab.liftMacroM <| quoteByteArray carrier.canonicalBytes
   let proofNamespace := mkIdent `Proof
   let subjectName := mkIdent `subjectProgramV1

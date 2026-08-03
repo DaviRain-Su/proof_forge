@@ -4,6 +4,7 @@ import Std.Data.HashSet
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Language.TheoremInventoryV1
 import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.SpanJoinV1
 
@@ -13,6 +14,7 @@ open Lean Parser ProofForgeV2
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
+open ProofForgeV2.Language.TheoremInventoryV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.QualifiedNameV1
@@ -200,23 +202,44 @@ private def parseSourceQualifiedInput (environment : Environment)
   | .ok name => pure name
   | .error message => throw <| invalidL s!"invalid {label}: {message}"
 
-/- ProgramV1 product command walker, retaining the original command syntax for span joining. -/
-private def processCommandsV1WithSyntax (source : String)
+/-- Whether the command walker collects same-file adjacent theorem inventory.
+
+    * `legacy` — historical portable surface: theorems are outside the DSL
+      (proof refs without adjacent theorems keep working).
+    * `inventory` — after each program, consume exact proof-order theorems
+      `theorem QN : Program.Proof.Inv := by …`; any proof requires full
+      invariant/proof/theorem bijection; no proof forbids adjacent theorems. -/
+private inductive TheoremCollectMode where
+  | legacy
+  | inventory
+  deriving Inhabited, BEq
+
+private def theoremInventoryError (e : TheoremInventoryErrorV1) : LoaderError :=
+  invalidL (renderTheoremInventoryErrorV1 e)
+
+/- ProgramV1 product command walker, retaining the original command syntax for span joining.
+   When `mode = .inventory`, also collects per-program adjacent theorem inventories. -/
+private def processCommandsV1WithSyntaxAndTheorems (source : String)
     (moduleName : SourceQualifiedNameV1)
-    (commands : Array Syntax) :
-    Except LoaderError (Array (ValidatedSourceV1 × Syntax)) := do
+    (commands : Array Syntax)
+    (mode : TheoremCollectMode) :
+    Except LoaderError (Array (ValidatedSourceV1 × Syntax × TheoremInventoryV1)) := do
   let mut scopes : Array NamespaceFrame := #[]
   let mut namespaceState : NamespaceState := .bounded .anonymous 0
-  let mut programs : Array (ValidatedSourceV1 × Syntax) := #[]
+  let mut programs : Array (ValidatedSourceV1 × Syntax × TheoremInventoryV1) := #[]
   let mut programKeys : Std.HashSet String := {}
-  for command in commands do
+  let mut idx : Nat := 0
+  while idx < commands.size do
+    let command := commands[idx]!
+    idx := idx + 1
     if command.isOfKind ``Parser.Command.eoi then
       continue
     match command with
     | `(program $_name:ident where $_items:pfItem*) =>
         let moduleNameLean := sourceQualifiedNameV1ToLeanName moduleName
         let currentNamespace := match namespaceState with
-          | .bounded name _ => Language.ProgramNamespace.bounded (name.replacePrefix moduleNameLean .anonymous)
+          | .bounded nsName _ =>
+              Language.ProgramNamespace.bounded (nsName.replacePrefix moduleNameLean .anonymous)
           | .overLimit _ _ => Language.ProgramNamespace.overLimit
         let validated ←
           match Language.decodeProgramCommandV1Checked moduleName currentNamespace command with
@@ -228,7 +251,22 @@ private def processCommandsV1WithSyntax (source : String)
           let span? := commandSpan? source command
           throw <| .duplicateProgram validated.programIdentity span?
         programKeys := updatedKeys
-        programs := programs.push (validated, command)
+        let inventory ← match mode with
+          | .legacy => pure emptyTheoremInventoryV1
+          | .inventory => do
+              let expected ←
+                match expectedTheoremsFromProgramV1 validated.program.name.raw validated with
+                | .ok value => pure value
+                | .error e => throw <| theoremInventoryError e
+              -- Remaining commands after this program (excluding already-advanced idx).
+              let remaining := commands.extract idx commands.size
+              match consumeAdjacentTheoremsV1 expected remaining with
+              | .error e => throw <| theoremInventoryError e
+              | .ok (bindings, tail) =>
+                  -- Advance idx past consumed theorems.
+                  idx := commands.size - tail.size
+                  pure (mintTheoremInventoryV1 bindings)
+        programs := programs.push (validated, command, inventory)
     | `(command| open ProofForgeV2.Language) => pure ()
     | `(command| namespace $name:ident) =>
         let declared := name.getId
@@ -263,6 +301,13 @@ private def processCommandsV1WithSyntax (source : String)
   unless scopes.isEmpty do
     throw <| invalidL "unterminated namespace"
   pure programs
+
+private def processCommandsV1WithSyntax (source : String)
+    (moduleName : SourceQualifiedNameV1)
+    (commands : Array Syntax) :
+    Except LoaderError (Array (ValidatedSourceV1 × Syntax)) := do
+  let units ← processCommandsV1WithSyntaxAndTheorems source moduleName commands .legacy
+  pure (units.map fun (src, stx, _) => (src, stx))
 
 private def processCommandsV1 (source : String)
     (moduleName : SourceQualifiedNameV1)
@@ -399,6 +444,42 @@ private unsafe def parseProgramsV1WithEnvironmentWithSyntax (environment : Envir
   let result ← parseProgramsV1WithEnvironmentWithSyntax' environment source fileName moduleInput
   pure (result.mapError toCompileError)
 
+private unsafe def parseProgramsV1WithEnvironmentWithTheorems'
+    (environment : Environment) (source fileName moduleInput : String) :
+    IO (Except LoaderError (Array (ValidatedSourceV1 × Syntax × TheoremInventoryV1))) := do
+  if let .error error := checkSourceSize source then
+    return .error error
+  let moduleName ← match parseSourceQualifiedInput environment "--module" moduleInput with
+    | .ok moduleName => pure moduleName
+    | .error error => return .error error
+  match ← parseModuleV1 environment source fileName with
+  | .error error => return .error error
+  | .ok (moduleStx, commands) =>
+      match moduleStx.getArgs with
+      | #[header, _] =>
+          return do
+            validateHeader header
+            processCommandsV1WithSyntaxAndTheorems source moduleName commands .inventory
+      | _ => return .error <| invalidL "Lean parser returned an invalid module syntax tree"
+
+private def selectParsedProgramV1WithTheorems (environment : Environment)
+    (parsed : Except LoaderError (Array (ValidatedSourceV1 × Syntax × TheoremInventoryV1)))
+    (requested : Option String) :
+    Except LoaderError (ValidatedSourceV1 × Syntax × TheoremInventoryV1) := do
+  let programs ← parsed
+  match requested with
+  | some input =>
+      let requestedName ← parseSourceQualifiedInput environment "--program" input
+      match programs.find? (fun (src, _, _) => src.programIdentity == requestedName) with
+      | some unit => pure unit
+      | none => throw <| invalidL s!"program '{input}' was not found"
+  | none =>
+      match programs with
+      | #[unit] => pure unit
+      | #[] => throw <| invalidL "source contains no program"
+      | _ => throw <| invalidL (
+          "source contains multiple programs; pass --program <qualified-name>")
+
 /-- Immutable locked Lean parser environment for parsing multiple independent
 sources without repeatedly importing the frontend module. Create a session on
 one control thread before sharing/reusing it; concurrent creation is unsupported. -/
@@ -524,6 +605,62 @@ unsafe def selectProgramV1Product (session : ParserSession)
           | .ok inv => pure (.ok (src, inv))
           | .error _ => pure (.error (internalJoinBundle "originJoin"))
 
+/-- Additive inventory-aware multi-program parse.
+
+    Single parse; after each program consumes exact proof-order adjacent theorems
+    when any proof exists. Returns private-ctor `ProgramTheoremSnapshotV1`.
+    ProgramV1 canonical bytes / sourceHash / identity are unchanged from legacy
+    parse of the same program command. Non-product library surface. -/
+unsafe def parseProgramsV1WithTheoremInventory (session : ParserSession)
+    (source fileName moduleName : String) :
+    IO (Except CompileError ProgramTheoremSnapshotV1) := do
+  match ← parseProgramsV1WithEnvironmentWithTheorems'
+      session.environment source fileName moduleName with
+  | .error error => return .error (toCompileError error)
+  | .ok units =>
+      let pairs := units.map fun (src, _, inv) => (src, inv)
+      return .ok (mintProgramTheoremSnapshotV1 pairs)
+
+/-- Additive inventory-aware select.
+
+    Same single-parse inventory rules as `parseProgramsV1WithTheoremInventory`,
+    then select by optional `--program`. Returns validated source plus opaque
+    theorem inventory for the selected program. -/
+unsafe def selectProgramV1WithTheoremInventory (session : ParserSession)
+    (source fileName moduleName : String) (requested : Option String) :
+    IO (Except CompileError (ValidatedSourceV1 × TheoremInventoryV1)) := do
+  let parsed ← parseProgramsV1WithEnvironmentWithTheorems'
+    session.environment source fileName moduleName
+  match selectParsedProgramV1WithTheorems session.environment parsed requested with
+  | .error error => return .error (toCompileError error)
+  | .ok (src, _, inv) => return .ok (src, inv)
+
+/-- Additive product-shaped inventory entry: product origin join + theorem inventory.
+
+    Parses once under inventory mode, selects, SpanJoins/OriginJoins the program
+    command only (theorem commands do not enter ProgramV1 span/origin tables),
+    and returns `(source × origins × theorems)`. Non-product until CLI cutover. -/
+unsafe def selectProgramV1ProductWithTheoremInventory (session : ParserSession)
+    (source logicalSourcePath moduleName : String) (requested : Option String) :
+    IO (DiagnosticResultV1
+      (ValidatedSourceV1 × OriginInventoryV1 × TheoremInventoryV1)) := do
+  let parsed ← parseProgramsV1WithEnvironmentWithTheorems'
+    session.environment source logicalSourcePath moduleName
+  match selectParsedProgramV1WithTheorems session.environment parsed requested with
+  | .error err => pure (.error (loaderErrorBundle logicalSourcePath err))
+  | .ok (src, commandStx, theorems) =>
+      match spanJoinV1 source commandStx src.program with
+      | .error _ => pure (.error (internalJoinBundle "spanJoin"))
+      | .ok spans =>
+          match parseProjectRelativePath logicalSourcePath with
+          | .error detail =>
+              pure (.error (mkFailureBundleV1 #[
+                DiagnosticV1.make .sourceInvalid detail]))
+          | .ok sourcePath =>
+              match joinOriginsV1 src sourcePath spans with
+              | .ok origins => pure (.ok (src, origins, theorems))
+              | .error _ => pure (.error (internalJoinBundle "originJoin"))
+
 end ParserSession
 
 unsafe def parseProgramsV1 (source fileName moduleName : String) :
@@ -563,5 +700,28 @@ unsafe def selectProgramV1Product (source logicalSourcePath moduleName : String)
     IO (DiagnosticResultV1 (ValidatedSourceV1 × OriginInventoryV1)) := do
   let session ← ParserSession.create
   session.selectProgramV1Product source logicalSourcePath moduleName requested
+
+/-- Top-level additive inventory parse; see ParserSession method. -/
+unsafe def parseProgramsV1WithTheoremInventory
+    (source fileName moduleName : String) :
+    IO (Except CompileError ProgramTheoremSnapshotV1) := do
+  let session ← ParserSession.create
+  session.parseProgramsV1WithTheoremInventory source fileName moduleName
+
+/-- Top-level additive inventory select; see ParserSession method. -/
+unsafe def selectProgramV1WithTheoremInventory
+    (source fileName moduleName : String) (requested : Option String) :
+    IO (Except CompileError (ValidatedSourceV1 × TheoremInventoryV1)) := do
+  let session ← ParserSession.create
+  session.selectProgramV1WithTheoremInventory source fileName moduleName requested
+
+/-- Top-level additive product inventory entry; see ParserSession method. -/
+unsafe def selectProgramV1ProductWithTheoremInventory
+    (source logicalSourcePath moduleName : String) (requested : Option String) :
+    IO (DiagnosticResultV1
+      (ValidatedSourceV1 × OriginInventoryV1 × TheoremInventoryV1)) := do
+  let session ← ParserSession.create
+  session.selectProgramV1ProductWithTheoremInventory
+    source logicalSourcePath moduleName requested
 
 end ProofForgeV2.Language.Loader
