@@ -15,11 +15,6 @@ namespace ProofForgeV2.Language.ProgramExport
 
 deriving instance Repr for ByteArray
 
-/-- Opaque byte-array carrier used only for expression-level decoding. The
-actual canonical bytes are recovered by `decodeByteArray` from the hex string
-argument; this function is never evaluated at runtime. -/
-opaque programExportBytesFromHex (hex : String) : ByteArray
-
 private def hexDigitToNat (c : Char) : Option Nat :=
   if '0' ≤ c && c ≤ '9' then some (c.toNat - '0'.toNat)
   else if 'a' ≤ c && c ≤ 'f' then some (c.toNat - 'a'.toNat + 10)
@@ -39,6 +34,16 @@ private def byteArrayFromHex (hex : String) : Except String ByteArray := do
         | _, _ => throw "invalid hex character"
     | [_] => throw "hex string must have even length"
   loop ByteArray.empty chars
+
+/-- Transparent hex → bytes used by ProgramExport payloads and inline proof
+    subjects. Expression-level reconstruction still prefers `decodeByteArray`
+    on the hex argument; runtime evaluation now recovers exact product bytes
+    (required for inline `subjectProgramV1` validation and proof linkage).
+    Invalid hex fails closed to empty rather than inventing non-canonical data. -/
+def programExportBytesFromHex (hex : String) : ByteArray :=
+  match byteArrayFromHex hex with
+  | .ok bytes => bytes
+  | .error _ => ByteArray.empty
 
 structure ProgramExportPayloadV2 where
   schema : String

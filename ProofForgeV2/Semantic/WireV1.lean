@@ -483,6 +483,75 @@ theorem validateSemanticProgramV1_eq_ok_of_identity
   simp only [validateSemanticProgramV1, hdecode, hencode, hidentity, hstructure,
     ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure]
 
+/-- Reflexivity of `ByteArray` boolean equality (sole production `BEq`). -/
+theorem byteArray_beq_self_v1 (bytes : ByteArray) : (bytes == bytes) = true := by
+  cases bytes with
+  | mk data =>
+      change (data == data) = true
+      exact beq_self_eq_true data
+
+/-- Peel a successful Unit-discarding monadic step from the production
+    `Except` encoder. Used only to recover gates already executed by
+    `encodeSemanticProgramDataV1`; no alternate encoder. -/
+private theorem except_bind_unit_ok_v1 {ε α}
+    {x : Except ε Unit} {y : Except ε α} {a : α}
+    (h : x >>= (fun _ => y) = .ok a) : x = .ok () ∧ y = .ok a := by
+  cases x with
+  | error e =>
+      simp only [Bind.bind, Except.bind] at h
+      cases h
+  | ok u =>
+      cases u
+      simp only [Bind.bind, Except.bind] at h
+      exact ⟨rfl, h⟩
+
+/-- Successful structure-gated encode implies the explicit structure gate
+    already returned `.ok ()`. Parametric over every admitted program data. -/
+theorem encodeSemanticProgramDataV1_ok_implies_structure
+    (data : SemanticProgramDataV1) (bytes : ByteArray)
+    (h : encodeSemanticProgramDataV1 data = .ok bytes) :
+    validateSemanticProgramStructureV1 data = .ok () := by
+  simp only [encodeSemanticProgramDataV1] at h
+  obtain ⟨_, h⟩ := except_bind_unit_ok_v1 h
+  obtain ⟨_, h⟩ := except_bind_unit_ok_v1 h
+  obtain ⟨_, h⟩ := except_bind_unit_ok_v1 h
+  obtain ⟨_, h⟩ := except_bind_unit_ok_v1 h
+  obtain ⟨_, h⟩ := except_bind_unit_ok_v1 h
+  obtain ⟨_, h⟩ := except_bind_unit_ok_v1 h
+  obtain ⟨_, h⟩ := except_bind_unit_ok_v1 h
+  obtain ⟨_, h⟩ := except_bind_unit_ok_v1 h
+  obtain ⟨hstructure, _⟩ := except_bind_unit_ok_v1 h
+  exact hstructure
+
+/-- Parametric carrier validation from sole production encode + transport
+    decode of the exact same data. Closes `validateSemanticProgramV1` without
+    replaying structure phase-by-phase when the author already has both
+    encode/decode witnesses (Normalize encode path + decode refinement).
+
+    Full parametric `decode ∘ encode = id` remains a separate gap; this lemma
+    consumes that witness rather than inventing a second semantic model. -/
+theorem validateSemanticProgramV1_eq_ok_of_encode_decode
+    (data : SemanticProgramDataV1) (bytes : ByteArray)
+    (hencode : encodeSemanticProgramDataV1 data = .ok bytes)
+    (hdecode : decodeSemanticProgramDataV1 bytes = .ok data) :
+    validateSemanticProgramV1 ⟨bytes⟩ = .ok data :=
+  validateSemanticProgramV1_eq_ok_of_identity
+    ⟨bytes⟩ data bytes hdecode hencode
+    (byteArray_beq_self_v1 bytes)
+    (encodeSemanticProgramDataV1_ok_implies_structure data bytes hencode)
+
+/-- When transport decode recovers the same data that re-encodes to different
+    bytes, validation fails closed with `.nonCanonical`. Sound byte-mutation
+    negative for any encode/decode pair. -/
+theorem validateSemanticProgramV1_eq_error_of_encode_decode_mismatch
+    (data : SemanticProgramDataV1) (bytes mutated : ByteArray)
+    (hencode : encodeSemanticProgramDataV1 data = .ok bytes)
+    (hdecode : decodeSemanticProgramDataV1 mutated = .ok data)
+    (hmismatch : (bytes == mutated) = false) :
+    validateSemanticProgramV1 ⟨mutated⟩ = .error .nonCanonical := by
+  simp only [validateSemanticProgramV1, hdecode, hencode, hmismatch,
+    Bool.false_eq_true, ↓reduceIte, Bind.bind, Except.bind, err]
+
 def semanticHashV1 (p : SemanticProgramV1) : Except SemanticWireErrorV1 Digest := do
   let _ ← validateSemanticProgramV1 p
   pure (sha256Bytes p.canonicalBytes)
@@ -491,6 +560,13 @@ def SemanticProgramV1.invariants (p : SemanticProgramV1) : Array InvariantDeclV1
   match validateSemanticProgramV1 p with
   | .ok data => data.invariants
   | .error _ => #[]
+
+/-- Successful validation recovers the exact invariants table. -/
+theorem SemanticProgramV1.invariants_eq_of_validate
+    (program : SemanticProgramV1) (data : SemanticProgramDataV1)
+    (h : validateSemanticProgramV1 program = .ok data) :
+    program.invariants = data.invariants := by
+  simp only [SemanticProgramV1.invariants, h]
 
 /-- Encode the provenance companion **envelope only** (magic + SemanticProvenance.Data).
 

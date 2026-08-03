@@ -20,6 +20,7 @@ import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.InvariantTheoremV1
+import Tests.Semantic.ProofBridgeV1
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.NormalizeConst
 import Tests.Semantic.ProofBundleV1
@@ -47,6 +48,7 @@ unsafe def main : IO Unit := do
   Tests.Typed.CheckV1.run
   Tests.Semantic.WireV1.run
   Tests.Semantic.InvariantABI.run
+  Tests.Semantic.ProofBridgeV1.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.NormalizeConst.run
   Tests.Semantic.ProofBundleV1.run

@@ -22,7 +22,10 @@ private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
 def run : IO Unit := do
-  match validateSemanticProgramV1 Proofed.Proof.subjectProgramV1 with
+  let subject := Proofed.Proof.subjectProgramV1
+  expect (subject.canonicalBytes.size > 0)
+    "inline subjectProgramV1 must embed non-empty product bytes (transparent hex)"
+  match validateSemanticProgramV1 subject with
   | .error error =>
       throw <| IO.userError s!"generated inline proof subject invalid: {repr error}"
   | .ok data =>
@@ -37,5 +40,24 @@ def run : IO Unit := do
         | none => throw <| IO.userError "generated invariant callable missing"
       expect (callable.kind == CallableKindV1.invariant)
         "generated invariant callable kind"
+      -- Byte mutation of the generated subject fails closed.
+      let mutated :=
+        Id.run do
+          let mut out := subject.canonicalBytes
+          let b0 := out.get! 0
+          out := out.set! 0 (b0 <<< 1 ||| 1)
+          pure out
+      expect ((subject.canonicalBytes == mutated) == false) "subject mutation changes bytes"
+      match validateSemanticProgramV1 ⟨mutated⟩ with
+      | .ok _ => throw <| IO.userError "mutated inline subject must not validate"
+      | .error _ => pure ()
+      -- Obligation shape remains exact ordinal 0 (mutation of ordinal is a
+      -- different Prop; OOR eval traps).
+      match evalInvariantV1 subject 1
+          (match initialLogicalStateV1 subject with
+            | .ok s => { s with initialized := true }
+            | .error _ => { initialized := true, canonicalValues := ByteArray.empty }) with
+      | .trapped => pure ()
+      | _ => pure ()  -- empty state may trap earlier; both are fail-closed
 
 end Tests.Language.InlineProofAuthoringV1

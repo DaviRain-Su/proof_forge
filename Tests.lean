@@ -31,6 +31,7 @@ import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.InvariantTheoremV1
+import Tests.Semantic.ProofBridgeV1
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.ProofBundleV1
 import Tests.Semantic.ProofSubjectV1
@@ -146,6 +147,7 @@ import Tests.CLI.ResourceFlagsV1
 private unsafe def runSemanticTests : IO Unit := do
   Tests.Semantic.WireV1.run
   Tests.Semantic.InvariantABI.run
+  Tests.Semantic.ProofBridgeV1.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.ProofBundleV1.run
   Tests.Semantic.ProofSubjectV1.run

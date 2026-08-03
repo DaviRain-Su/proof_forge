@@ -3858,6 +3858,30 @@ def encodeCarrierV1 (data : SemanticProgramDataV1) :
   | .ok bytes => pure ⟨bytes⟩
   | .error e => .error (.wire e)
 
+/-- Successful carrier encode is exactly the production wire encode of `data`
+    packaged as `SemanticProgramV1`. Proof authors use this to recover the
+    encode witness without a second encoder. -/
+theorem encodeCarrierV1_eq_ok_of_encode
+    (data : SemanticProgramDataV1) (bytes : ByteArray)
+    (hencode : encodeSemanticProgramDataV1 data = .ok bytes) :
+    encodeCarrierV1 data = .ok ⟨bytes⟩ := by
+  simp only [encodeCarrierV1, hencode, Pure.pure, Except.pure]
+
+/-- Invert a successful `encodeCarrierV1`: the carrier bytes are the sole
+    production encode of the same data. -/
+theorem encodeCarrierV1_ok_implies_encode
+    (data : SemanticProgramDataV1) (program : SemanticProgramV1)
+    (h : encodeCarrierV1 data = .ok program) :
+    encodeSemanticProgramDataV1 data = .ok program.canonicalBytes := by
+  simp only [encodeCarrierV1] at h
+  split at h
+  · next bytes hencode =>
+      simp only [Pure.pure, Except.pure] at h
+      cases h
+      exact hencode
+  · next e he =>
+      cases h
+
 /-- Non-product S1/S2 normalizer entry: unlocated CheckV1 gate → lower → encode.
 
   Hand-built fixtures and provenance helpers only. Product Compiler/CLI must use

@@ -62,6 +62,7 @@ import ProofForgeV2.Typed.ContextExtensionCheckV1
 import ProofForgeV2.Typed.RequirementsInferV1
 import ProofForgeV2.Typed.CheckV1
 import ProofForgeV2.Semantic.WireV1
+import ProofForgeV2.Semantic.ProofBridgeV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Semantic.ProofBundleV1
