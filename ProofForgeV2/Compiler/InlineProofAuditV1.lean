@@ -84,10 +84,42 @@ def allowedBaseAxiomNamesV1 : Array Name :=
 def isAllowedBaseAxiomNameV1 (name : Name) : Bool :=
   allowedBaseAxiomNamesV1.any (· == name)
 
-/-- Reject implemented_by / extern / initializer attributes on a constant. -/
+/-- Fixed trusted package module roots whose imported declarations may carry
+    host ABI (`extern` / `implemented_by` / initializer) without failing the
+    product audit. User main-module declarations are never trusted this way.
+
+    Membership is by *importing module name* (not declaration name prefix), so
+    prelude roots such as `ByteArray.beq` (module `Init.Data.ByteArray`) and
+    package constants under `ProofForgeV2.*` are covered without a blanket
+    "any imported name" relaxation. -/
+def trustedImportedPackageModuleRootsV1 : Array Name :=
+  #[`Init, `Lean, `Std, `ProofForgeV2]
+
+/-- True when `name` is an imported constant from a fixed trusted package
+    module (Init / Lean / Std / ProofForgeV2). Main-module declarations always
+    return false. -/
+def isTrustedImportedPackageDeclV1 (env : Environment) (name : Name) : Bool :=
+  match env.getModuleIdxFor? name with
+  | none => false
+  | some idx =>
+      let modules := env.header.moduleNames
+      if h : idx.toNat < modules.size then
+        let modName := modules[idx.toNat]
+        trustedImportedPackageModuleRootsV1.any fun root =>
+          modName == root || root.isPrefixOf modName
+      else
+        false
+
+/-- Reject implemented_by / extern / initializer attributes on a constant.
+
+    Imported declarations from the fixed trusted package module roots may keep
+    host ABI attributes (ByteArray externs, package native helpers). User
+    main-module declarations are always rejected for these attributes. -/
 private def rejectForbiddenAttrs
     (env : Environment) (name : Name) :
     Except InlineProofAuditErrorV1 Unit := do
+  if isTrustedImportedPackageDeclV1 env name then
+    return
   unless (Compiler.getImplementedBy? env name).isNone do
     return ← err (.forbiddenAttribute name "implemented_by")
   unless (getExternAttrData? env name).isNone do

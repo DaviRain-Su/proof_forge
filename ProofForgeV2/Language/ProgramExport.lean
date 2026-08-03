@@ -159,9 +159,9 @@ private def decodeArray (decode : Expr → Except String α) (expr : Expr) :
   pure result
 
 private partial def decodeByteArray (expr : Expr) : Except String ByteArray := do
-  match appView expr with
+  match appView expr.consumeMData with
   | some (``programExportBytesFromHex, [hexExpr]) =>
-      byteArrayFromHex (← decodeString hexExpr)
+      byteArrayFromHex (← decodeString hexExpr.consumeMData)
   | some (``ByteArray.empty, []) => pure ByteArray.empty
   | some (``ByteArray.push, [arrExpr, byteExpr]) => do
       let arr ← decodeByteArray arrExpr
@@ -170,6 +170,19 @@ private partial def decodeByteArray (expr : Expr) : Except String ByteArray := d
   | some (``ByteArray.mk, [data]) =>
       ByteArray.mk <$> decodeArray decodeUInt8 data
   | _ => unsupported
+
+/-- Strict bounded structural decoder for transparent `ByteArray` expression
+    shapes used by ProgramExport payloads and generated inline-proof subjects
+    (`programExportBytesFromHex`, `ByteArray.mk`/`push`/`empty`). Never
+    evaluates arbitrary `Expr`. Shared by export reconstruction and the
+    product certifier's subject-byte identity check. -/
+def decodeBoundedByteArrayExprV1 (expr : Expr) : Except String ByteArray :=
+  decodeByteArray expr
+
+/-- Bounded node-count precheck for declaration values before structural
+    byte decoding (shared with ProgramExport payload reconstruction). -/
+def checkExportRawNodeBoundV1 (root : Expr) : Except String Unit :=
+  checkRawNodeBound root
 
 private def decodePayloadV2 (expr : Expr) : Except String ProgramExportPayloadV2 := do
   match appView expr with

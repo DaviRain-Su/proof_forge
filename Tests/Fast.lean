@@ -4,6 +4,7 @@ import Tests.Compiler.DiagnosticPipelineV1
 import Tests.Compiler.InlineProofProtocolV1
 import Tests.Compiler.InlineProofAuditV1
 import Tests.Compiler.InlineProofElaborationV1
+import Tests.Compiler.InlineProofCertifierV1
 import Tests.Typed.NameResolutionV1
 import Tests.Typed.DiagnosticLocationsV1
 import Tests.Typed.TypeCheckExpressionsV1
@@ -97,6 +98,7 @@ unsafe def main : IO Unit := do
   Tests.Compiler.InlineProofProtocolV1.run
   Tests.Compiler.InlineProofAuditV1.run
   Tests.Compiler.InlineProofElaborationV1.run
+  Tests.Compiler.InlineProofCertifierV1.run
   Tests.Typed.NameResolutionV1.run
   Tests.Typed.DiagnosticLocationsV1.run
   Tests.Typed.TypeCheckExpressionsV1.run
