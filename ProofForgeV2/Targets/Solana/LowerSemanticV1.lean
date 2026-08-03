@@ -30,7 +30,9 @@ def stateHeaderBytes : Nat := 8
     ≥ 2^64), `0x1002` bare assert failure, `0x1003` static loop-bound exceeded
     (reference `boundExceeded` at the latch back edge), `0x1004` invalid shift
     count (reference `invalidShift` when the UInt32 count is ≥ 64 for `shl`/
-    `shr`), and `declaredErrorBase + i` for declared program errors. -/
+    `shr`), `0x1006` CPI return-data short/missing (result-bearing sync call),
+    and `declaredErrorBase + i` for declared program errors.
+    CPI callee program errors propagate natively (not remapped onto 0x1001..0x1005). -/
 def arithmeticOverflowError : Nat := 0x1001
 def assertionFailedError : Nat := 0x1002
 /-- Static `for ... bounded N` exceeded: the (N+1)-th body has executed and the
@@ -41,6 +43,9 @@ def loopBoundExceededError : Nat := 0x1003
     overflow; `shl` may still raise `arithmeticOverflowError` when the shifted
     result does not fit in UInt64. -/
 def invalidShiftError : Nat := 0x1004
+/-- Result-bearing CPI: `sol_get_return_data` length &lt; 8 after a successful
+    invoke. Distinct from DSL arithmetic/assert/loop/shift codes. -/
+def cpiReturnDataError : Nat := 0x1006
 
 inductive Endianness where
   | little
@@ -196,7 +201,7 @@ inductive Expr where
   | wideCompare (bitWidth : Nat) (op : ComparisonOp) (lhs rhs : Expr)
   | signedCompare (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnIndex : Nat) (args : Array Expr)
-  /-- Plan-level loop induction temporary (bound by `Statement.forLoop`). -/
+  /-- Plan-level temporary (loop induction or materialised external-call result). -/
   | temp (id : Nat)
   /-- Checked add at `bitWidth ∈ {8,16,32}` (body multi-width). UInt64 keeps
       historical `checkedAdd` so plan/IR goldens stay byte-identical. -/
@@ -251,14 +256,18 @@ inductive Statement where
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
   | revertError (errorIndex : Nat) (args : Array Expr)
-  /-- Sync external call (void). `callee` is the static QualifiedName component
-      array (≥2). Program id for the CPI-shaped site is the first 32 bytes of
-      SHA-256(UTF-8 of the target path = all-but-last components joined by
-      "."); method is the last component. Not a dynamic pubkey ValueId
+  /-- Sync external call (void). Real CPI via `sol_invoke_signed_c` with empty
+      AccountMeta list; return data discarded. Program id = SHA-256(target
+      path); method disc = product ABI over UInt64 args. Not a dynamic pubkey
       (B-3 Principal remains fail-closed). -/
   | externalCall (callee : Array String) (args : Array Expr)
-  /-- Async fire-and-forget schedule (void). Same static-callee program-id
-      derivation; no response channel (matches Reference schedule). -/
+  /-- Result-bearing sync external call (N-CALL-RET). Real CPI; materialises
+      8B LE return data into plan temp `resultTemp` once (subsequent uses are
+      `.temp resultTemp`, never re-invoke). Separate from void `externalCall`
+      so existing two-arg plan matches stay source-compatible. -/
+  | externalCallResult (callee : Array String) (args : Array Expr) (resultTemp : Nat)
+  /-- Async fire-and-forget schedule (void). Same real CPI as sync void call;
+      results ignored (Reference has no schedule response cursor). -/
   | schedule (callee : Array String) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
@@ -403,6 +412,32 @@ def signature (name : String) (params : Array Param) : String :=
 def instructionDiscriminator (name : String) (params : Array Param) : String :=
   ((Crypto.sha256Hex (discriminatorDomain ++ signature name params).toUTF8).take
     (2 * discriminatorBytes)).copy
+
+/-- Static-callee program id stub: SHA-256(UTF-8 of target path) as 64 hex
+    chars (32 bytes). Target path = all-but-last QN components joined by `.`.
+    Deployment must rewrite to a real program id; honesty class matches the
+    prior AddressBearing hash stub. -/
+def externalCalleeProgramIdHex (callee : Array String) : String :=
+  let targetParts := callee.extract 0 (callee.size - 1)
+  let targetPath := String.intercalate "." targetParts.toList
+  Crypto.sha256Hex targetPath.toUTF8
+
+/-- Method discriminator for an external call/schedule with `argCount` UInt64
+    arguments. Reuses the product handler domain so a product-built callee
+    with the same method name/arity would match. -/
+def externalMethodDiscriminator (method : String) (argCount : Nat) : String :=
+  let params : Array Param := Id.run do
+    let mut ps : Array Param := #[]
+    for i in [:argCount] do
+      ps := ps.push {
+        sourceId := i
+        name := "a"
+        dataOffset := discriminatorBytes + i * 8
+        byteWidth := 8
+        endianness := .little
+      }
+    pure ps
+  instructionDiscriminator method params
 
 def accessFor (account : StateAccount) (mode : HandlerMode) : AccountAccess := {
   accountIndex := account.index
@@ -1685,43 +1720,58 @@ private def buildPureFnTableV1
     i := i + 1
   pure { byCallableId, paramCounts, resultIsBool, resultIsInt }
 
+/-- Consume a sink root. Two cases:
+    1. Root is in the current segment → full segment DAG reachability (historical).
+    2. Root is a prior pure leaf (empty deps; e.g. materialised CPI result /
+       dominating SSA) and the current segment is empty → re-use the leaf
+       without re-entering a closed segment (BL-27 multi-use of call results). -/
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
     (blockEntry segmentStart : Nat)
     (root : ValueIdV1) : CompileResult Expr := do
-  let rootValue ← currentValueV1 values blockEntry segmentStart root
-  let segmentCount := values.size - segmentStart
-  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
-  let mut stack : Array Nat := #[]
-  -- Only walk in-block segment values; dominating SSA is already closed.
-  if root.toNat >= segmentStart then
-    stack := stack.push root.toNat
-  let mut visitedCount := 0
-  while !stack.isEmpty do
-    let index := stack.back!
-    stack := stack.pop
-    unless segmentStart <= index && index < values.size do
+  let index := root.toNat
+  if index < segmentStart then
+    unless segmentStart == values.size do
       throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: sink references a stale ValueId"
-    let localIndex := index - segmentStart
-    if visited[localIndex]? == some false then
-      visited := visited.set! localIndex true
-      visitedCount := visitedCount + 1
-      let value := values[index]!
-      for dependency in value.dependencies do
-        let dependencyIndex := dependency.toNat
-        if dependencyIndex >= segmentStart then
-          unless dependencyIndex < values.size do
+        "unsupported Solana semantic shape: dead or reordered value instructions"
+    let rootValue ← findValueV1 values root
+    unless rootValue.dependencies.isEmpty do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
+    pure rootValue.expr
+  else
+    let rootValue ← currentValueV1 values blockEntry segmentStart root
+    let segmentCount := values.size - segmentStart
+    let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+    let mut stack : Array Nat := #[]
+    -- Only walk in-block segment values; dominating SSA is already closed.
+    stack := stack.push root.toNat
+    let mut visitedCount := 0
+    while !stack.isEmpty do
+      let index := stack.back!
+      stack := stack.pop
+      unless segmentStart ≤ index && index < values.size do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: sink references a stale ValueId"
+      let localIndex := index - segmentStart
+      if visited[localIndex]? == some false then
+        visited := visited.set! localIndex true
+        visitedCount := visitedCount + 1
+        let value := values[index]!
+        for dependency in value.dependencies do
+          let dependencyIndex := dependency.toNat
+          if dependencyIndex >= segmentStart then
+            unless dependencyIndex < values.size do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: expression crosses an effect boundary"
+            stack := stack.push dependencyIndex
+          else if dependencyIndex >= blockEntry then
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: expression crosses an effect boundary"
-          stack := stack.push dependencyIndex
-        else if dependencyIndex >= blockEntry then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: expression crosses an effect boundary"
-  unless visitedCount == segmentCount do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: dead or reordered value instructions"
-  pure rootValue.expr
+    unless visitedCount == segmentCount do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: dead or reordered value instructions"
+    pure rootValue.expr
 
 /-- B-RET-ABI: segment consume that returns the full `LoweredValueV1` (with
 aggregate leaves) instead of just the head expr. Same segment discipline as
@@ -1730,38 +1780,48 @@ private def consumeCurrentSegmentValueV1
     (values : Array LoweredValueV1)
     (blockEntry segmentStart : Nat)
     (root : ValueIdV1) : CompileResult LoweredValueV1 := do
-  let rootValue ← currentValueV1 values blockEntry segmentStart root
-  let segmentCount := values.size - segmentStart
-  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
-  let mut stack : Array Nat := #[]
-  if root.toNat >= segmentStart then
-    stack := stack.push root.toNat
-  let mut visitedCount := 0
-  while !stack.isEmpty do
-    let index := stack.back!
-    stack := stack.pop
-    unless segmentStart <= index && index < values.size do
+  let index := root.toNat
+  if index < segmentStart then
+    unless segmentStart == values.size do
       throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: sink references a stale ValueId"
-    let localIndex := index - segmentStart
-    if visited[localIndex]? == some false then
-      visited := visited.set! localIndex true
-      visitedCount := visitedCount + 1
-      let value := values[index]!
-      for dependency in value.dependencies do
-        let dependencyIndex := dependency.toNat
-        if dependencyIndex >= segmentStart then
-          unless dependencyIndex < values.size do
+        "unsupported Solana semantic shape: dead or reordered value instructions"
+    let rootValue ← findValueV1 values root
+    unless rootValue.dependencies.isEmpty do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
+    pure rootValue
+  else
+    let rootValue ← currentValueV1 values blockEntry segmentStart root
+    let segmentCount := values.size - segmentStart
+    let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+    let mut stack : Array Nat := #[]
+    stack := stack.push root.toNat
+    let mut visitedCount := 0
+    while !stack.isEmpty do
+      let index := stack.back!
+      stack := stack.pop
+      unless segmentStart ≤ index && index < values.size do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: sink references a stale ValueId"
+      let localIndex := index - segmentStart
+      if visited[localIndex]? == some false then
+        visited := visited.set! localIndex true
+        visitedCount := visitedCount + 1
+        let value := values[index]!
+        for dependency in value.dependencies do
+          let dependencyIndex := dependency.toNat
+          if dependencyIndex >= segmentStart then
+            unless dependencyIndex < values.size do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: expression crosses an effect boundary"
+            stack := stack.push dependencyIndex
+          else if dependencyIndex >= blockEntry then
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: expression crosses an effect boundary"
-          stack := stack.push dependencyIndex
-        else if dependencyIndex >= blockEntry then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: expression crosses an effect boundary"
-  unless visitedCount == segmentCount do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: dead or reordered value instructions"
-  pure rootValue
+    unless visitedCount == segmentCount do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: dead or reordered value instructions"
+    pure rootValue
 
 /-- Multi-root effect-boundary consumption (event/revert argument lists):
     every value produced in the current segment must be reachable from at
@@ -2377,8 +2437,9 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    -- AddressBearing: static QualifiedName callees (wire takes QN, not a
-    -- ValueId pubkey). Principal remains fail-closed. View banned.
+    -- AddressBearing + B-CALL-SEM (BL-27): static QN → real CPI. Principal
+    -- remains fail-closed. View banned. Void statement form discards return
+    -- data; value-position (N-CALL-RET) binds UInt64 from sol_get_return_data.
     | .externalCall _effectId callee argIds, none =>
         if mode == .view then
           throw <| .planInvariant .solana
@@ -2402,6 +2463,49 @@ private def lowerBlockInstructionsV1
         body := body.push (.externalCall components argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
+    | .externalCall _effectId callee argIds, some result =>
+        if mode == .view then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: view callable makes an external call"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: external call callee must have at least two components"
+        for c in components do
+          unless isIdentifier c do
+            throw <| .planInvariant .solana
+              s!"unsupported Solana semantic shape: external call callee component '{c}' is not a safe identifier"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: result-bearing external call must be public UInt64"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+          unless !root.isBool && !root.isInt && root.bitWidth == 64 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: external call arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        -- Effect boundary for args, then materialise the CPI result as a
+        -- fresh leaf temp in the *next* segment (empty deps so later store/
+        -- return can consumeCurrentSegment on the result alone).
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
+        segmentStart := values.size
+        let tempId := result.valueId.toNat
+        body := body.push (.externalCallResult components argExprs tempId)
+        let value : LoweredValueV1 := {
+          expr := .temp tempId
+          depth := 1
+          expandedNodes := 1
+          -- Empty deps: the CPI result is a plan-temp leaf, not a tree over
+          -- pre-call segment values (those were closed by consumeSegmentRoots).
+          dependencies := #[]
+          isBool := false
+          bitWidth := 64
+        }
+        values := ← appendResultValueV1 types.uint64TypeId values result value
+        -- Keep segmentStart pinned *before* the result so it remains the live
+        -- root of the current segment (do not re-close past it here).
     | .schedule _effectId callee argIds, none =>
         if mode == .view then
           throw <| .planInvariant .solana
@@ -2425,9 +2529,9 @@ private def lowerBlockInstructionsV1
         body := body.push (.schedule components argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    | .externalCall _ _ _, some _ | .schedule _ _ _, some _ =>
+    | .schedule _ _ _, some _ =>
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: external call/schedule must be void"
+          "unsupported Solana semantic shape: schedule must be void"
     -- Array construct N args, Map.empty, Option.none/some, or named Struct/Enum.
     -- Bytes has no source constructor (Normalize never emits `.construct` for
     -- Bytes); the gate below is a defensive fail-closed boundary.

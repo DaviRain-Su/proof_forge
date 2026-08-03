@@ -336,7 +336,7 @@ private partial def checkHandlerStatementsV1
         unless exprIsBoolCompatibleV1 fns condition do
           throw <| .planInvariant .solana "handler assert condition must be a Bool expression"
         total ← addPlanExprNodes account params fns total condition
-    | .externalCall callee args =>
+    | .externalCall callee args | .externalCallResult callee args _resultTemp =>
         if isView then
           throw <| .planInvariant .solana "view handler makes an external call"
         unless callee.size ≥ 2 do
