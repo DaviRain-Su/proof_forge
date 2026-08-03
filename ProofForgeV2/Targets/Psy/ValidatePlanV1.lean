@@ -64,6 +64,16 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
         match validateExprNodes value with
         | some _ => pure ()
         | none => planError "Psy plan expression exceeds the depth/node limit"
+    | .returnAggregate leaves leafIsInt => do
+        -- B-RET-ABI: 1..8 leaves, UInt64/Int64 words only (byteWidth checked on ResultKind).
+        unless leaves.size > 0 && leaves.size ≤ 8 do
+          planError "Psy returnAggregate leaf count must be in 1..8 (B-RET-ABI)"
+        unless leafIsInt.size == leaves.size do
+          planError "Psy returnAggregate leafIsInt length must match leaves"
+        for leaf in leaves do
+          match validateExprNodes leaf with
+          | some _ => pure ()
+          | none => planError "Psy plan expression exceeds the depth/node limit"
     | .returnNone | .bareRevert => pure ()
     | .assert condition => do
         match validateExprNodes condition with
@@ -96,6 +106,60 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
         unless args.isEmpty do
           planError "unsupported Psy semantic shape: revert with error arguments cannot be expressed on the Psy surface"
 
+/-- B-RET-ABI depth defense: return form must match resultKind; aggregate
+    leaves are 1..8 × 8-byte UInt64/Int64 words only. -/
+private partial def checkReturnFormsV1
+    (fnName : String) (resultKind : ResultKind)
+    (stmts : Array Statement) : CompileResult Unit := do
+  for s in stmts do
+    match s with
+    | .returnValue _ =>
+        match resultKind with
+        | .aggregate _ =>
+            planError s!"function '{fnName}' aggregate resultKind must use returnAggregate, not returnValue"
+        | _ => pure ()
+    | .returnAggregate leaves leafIsInt =>
+        match resultKind with
+        | .aggregate expected =>
+            unless leaves.size == expected.size && leafIsInt.size == expected.size do
+              planError s!"function '{fnName}' returnAggregate leaf count mismatch"
+            for i in [0:expected.size] do
+              let some exp := expected[i]? |
+                planError "returnAggregate expected leaf missing"
+              let some gotInt := leafIsInt[i]? |
+                planError "returnAggregate leafIsInt missing"
+              unless exp.byteWidth == 8 do
+                planError s!"function '{fnName}' aggregate leaf {i} must be 8-byte UInt64/Int64"
+              unless gotInt == exp.isInt do
+                planError s!"function '{fnName}' returnAggregate leaf {i} isInt mismatch"
+        | _ =>
+            planError s!"function '{fnName}' returnAggregate requires an aggregate resultKind"
+    | .ifThenElse _ t e =>
+        checkReturnFormsV1 fnName resultKind t
+        checkReturnFormsV1 fnName resultKind e
+    | .switchOn _ cases defaultBody =>
+        for (_, body) in cases do
+          checkReturnFormsV1 fnName resultKind body
+        checkReturnFormsV1 fnName resultKind defaultBody
+    | .forLoop _ _ _ body =>
+        checkReturnFormsV1 fnName resultKind body
+    | _ => pure ()
+
+private def validateResultKind (fn : PlanFunction) : CompileResult Unit := do
+  match fn.resultKind with
+  | .felt | .bool | .unit | .u32 => pure ()
+  | .aggregate leaves =>
+      unless leaves.size > 0 && leaves.size ≤ 8 do
+        planError s!"function '{fn.name}' aggregate resultKind leaf count must be in 1..8 (B-RET-ABI)"
+      for leaf in leaves do
+        unless leaf.byteWidth == 8 do
+          planError s!"function '{fn.name}' aggregate leaves must be 8-byte UInt64/Int64 only"
+      -- pureFn aggregate stays fail closed even if a hand-built plan slips through.
+      if fn.kind == .pureHelper then
+        planError s!"pureFn '{fn.name}' cannot carry an aggregate resultKind"
+      if fn.resultIsBool || fn.resultIsUnit || fn.resultIsU32 then
+        planError s!"function '{fn.name}' aggregate resultKind conflicts with scalar result flags"
+
 def validatePlan (plan : Plan) : CompileResult Unit := do
   if plan.functions.size > maxFunctions then
     planError "Psy plan exceeds the function limit"
@@ -112,7 +176,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     for param in fn.params do
       if isReserved param.name then
         planError s!"Psy parameter '{param.name}' collides with a reserved Psy word"
+    validateResultKind fn
     validateStatements fn.body
+    checkReturnFormsV1 fn.name fn.resultKind fn.body
   for ev in plan.events do
     if isReserved ev.name then
       planError s!"Psy event identifier '{ev.name}' collides with a reserved Psy word"
