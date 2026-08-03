@@ -300,6 +300,10 @@ private def testDuplicateObligations : IO Unit := do
   expectErrContains "dup-ordinal" "duplicate ordinal"
     (mkInlineProofRequestV1 path "M" none "x".toUTF8
       sourceHash semanticHash provenance #[a, c])
+  let d ← lift "d" (mkInlineProofObligationV1 "other" 1 theoremName "other")
+  expectErrContains "dup-theorem" "duplicate theorem name"
+    (mkInlineProofRequestV1 path "M" none "x".toUTF8
+      sourceHash semanticHash provenance #[a, d])
 
 private def testWrongTagAndFieldCount : IO Unit := do
   let request ← sampleRequest

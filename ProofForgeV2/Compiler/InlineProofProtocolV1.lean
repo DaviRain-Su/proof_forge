@@ -1,4 +1,5 @@
 import ProofForgeV2.Core.Common
+import ProofForgeV2.Semantic.InlineProofPolicyV1
 import ProofForgeV2.Source.WireCodecV1
 import ProofForgeV2.Source.WireDecodeV1
 
@@ -31,6 +32,7 @@ import ProofForgeV2.Source.WireDecodeV1
 namespace ProofForgeV2.Compiler.InlineProofProtocolV1
 
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Semantic.InlineProofPolicyV1
 open ProofForgeV2.Source.WireCodecV1
 open ProofForgeV2.Source.WireDecodeV1
 
@@ -50,26 +52,15 @@ def maxObligationsV1 : Nat := 4096
 def requestDigestDomainV1 : String := "proof-forge.inline-proof-request.v1"
 def theoremSetDigestDomainV1 : String := "proof-forge.inline-proof-theorem-set.v1"
 def certificationDigestDomainV1 : String := "proof-forge.inline-proof-certification.v1"
-def policyDigestDomainV1 : String := "proof-forge.inline-proof-policy.v1"
 
-/-- Fixed certifier policy payload. Callers cannot substitute another policy. -/
-def fixedInlineProofPolicyPayloadV1 : ByteArray :=
-  ("schema=proof-forge.inline-proof-policy.v1;" ++
-    "allowArbitraryTermElaboration=false;" ++
-    "allowBundleAxioms=false;" ++
-    "allowEnvironmentExtensions=false;" ++
-    "allowExtern=false;" ++
-    "allowImplementedBy=false;" ++
-    "allowInitializers=false;" ++
-    "allowNativeArtifacts=false;" ++
-    "allowPartial=false;" ++
-    "allowSyntaxOrElaborators=false;" ++
-    "allowUnsafe=false;" ++
-    "allowedBaseAxioms=Classical.choice,Quot.sound,propext").toUTF8
-
-/-- Sole fixed policy digest bound into every legal request. -/
+/-- Sole fixed trust-policy digest bound into every request. Policy bytes and
+    digest are owned only by `Semantic.InlineProofPolicyV1`; the protocol maps
+    its closed error into the wire layer's String error without re-declaring a
+    second policy payload. -/
 def fixedInlineProofPolicyDigestV1 : Except String Digest :=
-  domainSeparatedSha256 policyDigestDomainV1 fixedInlineProofPolicyPayloadV1
+  match inlineProofPolicyDigestV1 with
+  | .ok digest => .ok digest
+  | .error (.internal detail) => .error detail
 
 private def tagRequestV1 : String := "InlineProof.Req.v1"
 private def tagSuccessV1 : String := "InlineProof.Ok.v1"
@@ -288,13 +279,17 @@ private def validateObligationUniqueness
     (obligations : Array InlineProofObligationV1) : Except String Unit := do
   let mut names : Array String := #[]
   let mut ordinals : Array UInt32 := #[]
+  let mut theoremNames : Array QualifiedName := #[]
   for obligation in obligations do
     if names.any (· == obligation.invariantName_) then
       return ← fail "duplicate invariant name in theorem obligations"
     if ordinals.any (· == obligation.ordinal_) then
       return ← fail "duplicate ordinal in theorem obligations"
+    if theoremNames.any (· == obligation.theoremName_) then
+      return ← fail "duplicate theorem name in theorem obligations"
     names := names.push obligation.invariantName_
     ordinals := ordinals.push obligation.ordinal_
+    theoremNames := theoremNames.push obligation.theoremName_
   pure ()
 
 /-- Opaque request. Policy is always the fixed digest; callers cannot choose it. -/

@@ -51,12 +51,28 @@ inductive InlineProofAuditErrorV1 where
   | internal (detail : String)
   deriving BEq, Repr
 
-/-- Successful audit summary (policy identity + audited root names). -/
+/-- Successful audit summary (policy identity + audited root names).
+    Private construction prevents callers from forging an audit result without
+    traversing the Environment through `auditExpectedTheoremsV1`. -/
 structure InlineProofAuditReportV1 where
-  policyDigest : Digest
-  policyVersion : String
-  audited : Array Name
+  private mk ::
+  private policyDigest_ : Digest
+  private policyVersion_ : String
+  private audited_ : Array Name
   deriving Repr
+
+namespace InlineProofAuditReportV1
+
+def policyDigest (report : InlineProofAuditReportV1) : Digest :=
+  report.policyDigest_
+
+def policyVersion (report : InlineProofAuditReportV1) : String :=
+  report.policyVersion_
+
+def audited (report : InlineProofAuditReportV1) : Array Name :=
+  report.audited_
+
+end InlineProofAuditReportV1
 
 private def err (e : InlineProofAuditErrorV1) : Except InlineProofAuditErrorV1 α :=
   .error e
@@ -225,10 +241,6 @@ def auditExpectedTheoremsV1
   let mut audited : Array Name := #[]
   for row in expected do
     audited := audited.push (← auditOneExpectedV1 env row)
-  pure {
-    policyDigest := policy.digest
-    policyVersion := policy.version
-    audited
-  }
+  pure ⟨policy.digest, policy.version, audited⟩
 
 end ProofForgeV2.Compiler.InlineProofAuditV1

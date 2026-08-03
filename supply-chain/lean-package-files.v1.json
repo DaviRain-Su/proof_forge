@@ -21,14 +21,14 @@
       "sha256": "525f46b00382670b05894e798d75ab74abe30db007824c62e8f719d9e2d4e9b8"
     },
     {
-      "bytes": 8304,
+      "bytes": 8778,
       "path": "ProofForgeV2/Compiler/InlineProofAuditV1.lean",
-      "sha256": "829e8976e20b2fd965b57d0e4580b964176848215b3d398a3096f749ba9f12da"
+      "sha256": "474f6b8420bf0e622b29d133f4b112950a6839748a85665e97e833b098425ea5"
     },
     {
-      "bytes": 25074,
+      "bytes": 24974,
       "path": "ProofForgeV2/Compiler/InlineProofProtocolV1.lean",
-      "sha256": "ec770547d4042b2d38587b73732727eba2e5d65016f1a69dec401d47cc8c950b"
+      "sha256": "8eb45aaa96ba90326b32f26ad8f5f7fd73d824abb101ccb4b4f85c7cea0181a4"
     },
     {
       "bytes": 15817,
