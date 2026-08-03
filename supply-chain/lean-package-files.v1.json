@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 4942,
+      "bytes": 4993,
       "path": "ProofForgeV2.lean",
-      "sha256": "f53e0140f1cd744b94cdcd45517ef56f2111f03aa7a3867e4461f0461b47c205"
+      "sha256": "3435eebe05c1c2c4661e223bd13b9983d7004eb657a779c7bb09213cfdf0467a"
     },
     {
       "bytes": 80509,
@@ -321,6 +321,11 @@
       "sha256": "17ccfa93e0de356bfbf9911fd9b60118780c54ba45eee07fa38baeb310b8a78a"
     },
     {
+      "bytes": 17753,
+      "path": "ProofForgeV2/Semantic/SimpleClosureDecodeV1.lean",
+      "sha256": "10bbc4c592deff66c8a31bc305e55bdd91faf3e025c61089a1eeb2941dcfc3d5"
+    },
+    {
       "bytes": 22421,
       "path": "ProofForgeV2/Semantic/SimpleClosureEncodeV1.lean",
       "sha256": "c0a728c09d8fccf42b33d97421b2edfea0eb4ffc727f37aa415918ba973f6056"
@@ -331,9 +336,9 @@
       "sha256": "3ce4a87ba3559d49e75bffd2bd32c38924d7ecff2b5bfde2cc754c754df2b78f"
     },
     {
-      "bytes": 16742,
+      "bytes": 16898,
       "path": "ProofForgeV2/Semantic/SimpleClosureTraceV1.lean",
-      "sha256": "b6496550809be36810a9116c6f2bee9fb69751776da49b8ac0acd1132cc50e10"
+      "sha256": "06dd59c4045257e3dd7d7ce67cbab283f75bc87b2d7e94e09133351400e88443"
     },
     {
       "bytes": 23536,
@@ -344,6 +349,11 @@
       "bytes": 43704,
       "path": "ProofForgeV2/Semantic/Wire/CfgTypingV1.lean",
       "sha256": "035722d9a281741225a43c758ac053ef7261d366cf30b569e9b98c48786cddf7"
+    },
+    {
+      "bytes": 22505,
+      "path": "ProofForgeV2/Semantic/Wire/CodecRoundtripV1.lean",
+      "sha256": "54f2d496c2e85ebfd4e35169655b483e675d569b080de708ab9e7435361655a5"
     },
     {
       "bytes": 135358,
@@ -391,9 +401,9 @@
       "sha256": "2416f0ff27c9a0b882e298f69e47c2addbcefc66f360b4888de9f7f4b4183a37"
     },
     {
-      "bytes": 45923,
+      "bytes": 45974,
       "path": "ProofForgeV2/Semantic/WireV1.lean",
-      "sha256": "c497e1d4ae7564f94353f5c4e83c96557cadfc415d9cedd1a3730c72b66d400b"
+      "sha256": "80a48c3ee41ab5e714574c73bcb4ebff22e730f9dfb1480176402f7a18f6a4c1"
     },
     {
       "bytes": 1200,
