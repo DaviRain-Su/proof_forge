@@ -3302,8 +3302,8 @@ unsafe def run : IO Unit := do
             (e.render).contains "Principal")
           s!"B-ctx caller {target} message must cite ContextRead/caller boundary, got {e.render}"
 
-  -- B-RET-ABI: named Struct view return. EVM + Noir admit (multi-leaf ABI);
-  -- Solana/NEAR/Aleo/Psy must fail closed (scalar return ABI only).
+  -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR admit
+  -- (multi-leaf ABI); Aleo/Psy must fail closed (scalar return ABI only).
   let pairRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3327,8 +3327,12 @@ unsafe def run : IO Unit := do
   let _evmPair ← liftResult <| planEvm pairCompiled
   -- Noir admits: plan has .returnAggregate.
   let _noirPair ← liftResult <| planNoir pairCompiled
-  -- Solana/NEAR/Aleo/Psy must decline aggregate return.
-  for target in [TargetId.solana, TargetId.near, TargetId.aleo, TargetId.psy] do
+  -- Solana admits: plan has .aggregate resultKind (B-RET-ABI).
+  let _solanaPair ← liftResult <| planSolana pairCompiled
+  -- NEAR admits: plan has .aggregate resultKind (B-RET-ABI).
+  let _nearPair ← liftResult <| planNear pairCompiled
+  -- Aleo/Psy must decline aggregate return.
+  for target in [TargetId.aleo, TargetId.psy] do
     match materializeSelected target pairCompiled with
     | .ok _ =>
         throw <| IO.userError s!"B-RET-ABI: {target} must decline named-aggregate return"
