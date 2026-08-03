@@ -429,10 +429,20 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
   | .error e =>
       throw <| IO.userError
         s!"anonymous-result: near must admit Array UInt64 2 return, got {e.render}"
+  -- Psy admits anonymous Array UInt64 N (N≤8) returns (BL-25).
+  match materializeSelected TargetId.psy compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: psy must admit Array UInt64 2 return, got {e.render}"
+  -- Noir admits anonymous Array UInt64 N (N≤8) returns (BL-21).
+  match materializeSelected TargetId.noir compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: noir must admit Array UInt64 2 return, got {e.render}"
   for (target, kind, marker) in #[
-      (TargetId.noir, TargetKind.noir, "named Struct/Enum aggregate"),
-      (TargetId.aleo, TargetKind.aleo, "return of anonymous aggregate is outside"),
-      (TargetId.psy, TargetKind.psy, "cannot return multi-leaf aggregate")] do
+      (TargetId.aleo, TargetKind.aleo, "return of anonymous aggregate is outside")] do
     expectMaterializePlanInvariantV1 "anonymous-result" target kind compiled marker
 
 private def testSemanticPlanSourceAuthority : IO Unit := do
