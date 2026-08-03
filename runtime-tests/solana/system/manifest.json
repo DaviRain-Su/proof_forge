@@ -1,0 +1,68 @@
+{
+  "schema": "proof-forge.solana.cpi-system-runtime.v1",
+  "issue": 121,
+  "sbpf": "0.2.2",
+  "runtimeOracle": {
+    "molluskSvm": "0.13.4",
+    "agaveSyscalls": "4.0.0",
+    "solanaProgramRuntime": "4.0.0"
+  },
+  "fixture": {
+    "path": "runtime-tests/solana/fixtures/SystemCpi.lean",
+    "module": "Examples.SystemCpi",
+    "sourceSha256": "02efaf633a51aa6aa702e88d0eec48a894a3138f6dae90a030181022db7d4bd0",
+    "sourceSize": 2262
+  },
+  "profile": {
+    "id": "solana-sbpf-cpi-elf-v1",
+    "digest": "0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1"
+  },
+  "extension": {
+    "id": "solana.cpi.accounts",
+    "version": "1.0.0",
+    "digest": "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
+  },
+  "boundary": {
+    "productArtifact": false,
+    "testPreactivation": true,
+    "activationDenied": true
+  },
+  "programIdHex": "5656565656565656565656565656565656565656565656565656565656565656",
+  "system": {
+    "package": "system-v1",
+    "programIdHex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "executionClass": "nativeSystem",
+    "artifactBinding": "runtime-native",
+    "agaveCommit": "2a165e7a90af75c76426d1e031ed0284211d5d1e",
+    "instructionSurface": {
+      "transferDataBytes": 12,
+      "createAccountDataBytes": 52,
+      "createOwner": "current-program-id",
+      "maxSpace": 4096
+    }
+  },
+  "handlers": {
+    "init": 0,
+    "transfer": 1,
+    "createPdaAccount": 2,
+    "transferThenOverflow": 3,
+    "createThenOverflow": 4,
+    "inspect": 5
+  },
+  "pda": {
+    "recipe": "current-program-tagged-v1",
+    "seed0Utf8": "proof-forge:pda:v1",
+    "seed0Hex": "70726f6f662d666f7267653a7064613a7631",
+    "canonicalBumpSearch": "255..1",
+    "bump0Rejected": true
+  },
+  "expectedAssembly": {
+    "sha256": "eac15e4f65edf2af6c179c396185881ad1c72cd471e1a6ee1def31745e29aa89",
+    "size": 101762
+  },
+  "expectedElf": {
+    "sha256": "e92259e5065ba4b181b8822afbce7c2194724e463a856d506c341271b5ca314e",
+    "size": 41576
+  },
+  "reproducibilityNote": "Generated through the production System CPI authority/emitter chain and assembled with locked sbpf 0.2.2 against Mollusk-native System Program. This is same-host engineering test-preactivation evidence only: not proof-forge.output.v1, not an activated CPI artifact, #122+ Token/ATA/product sync still pending, and not formal/hermetic evidence."
+}

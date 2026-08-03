@@ -73,7 +73,25 @@
 > 准确称谓是 production-code-generated **test-preactivation PDA-signed CPI ELF**，
 > **不是** `OutputFile`/产品 artifact/activated sync；legacy profiles 仍 fail closed；
 > ordinary resolver 在 #125 前不 advertise/mint 产品 sync；
-> 不把 Principal 全局等同 Solana pubkey；非 formal/hermetic/deploy maturity；#121+ 仍 pending。
+> 不把 Principal 全局等同 Solana pubkey；非 formal/hermetic/deploy maturity；#121 见下；#122+ 仍 pending。
+>
+> **2026-08-04 Solana #121 native System CPI update**：独立 `CpiSystemIRV1` +
+> `EmitCpiSystemSbpfV1` 在仍为 activationDenied/test-preactivation 的 opt-in
+> `solana-sbpf-cpi-elf-v1` lane 上，对 exact native System program 发射真实 System CPI：
+> frozen identity `system-v1` **zero program id** + runtimeNative Agave commit pin；
+> **transfer** 12B instruction（unsigned / 零 signer groups）与 **createPdaAccount** 52B
+> （owner=current caller、canonical PDA/bump 复用、space≤4096）；**不重写、不加载 fake System ELF**
+> （native runtime System only）。locked `sbpf 0.2.2` 产出 assembly **101762** bytes
+> sha `eac15e4f65edf2af6c179c396185881ad1c72cd471e1a6ee1def31745e29aa89`、ELF **41576** bytes
+> sha `e92259e5065ba4b181b8822afbce7c2194724e463a856d506c341271b5ca314e`。Mollusk focused
+> **35/35**（native transfer/create 效果、inner failure、privilege/role/PDA/space 负例、
+> 成功 transfer/create 后 caller overflow 全账户回滚）。#118 no-invoke / #119 unsigned / #120 PDA
+> 链保持独立。准确称谓是 production-code-generated **test-preactivation native-System CPI ELF**，
+> **不是** `OutputFile`/产品 artifact/activated sync；legacy profiles 与 ordinary resolver 仍 fail closed；
+> #125 前不 advertise/mint；不把 Principal 全局等同 Solana pubkey；非 formal/hermetic/deploy；
+> **#121 工程切片已闭合**（已通过 `just docs-check`、SBOM 185、`just solana-runtime`（10 binaries/190 active，`cpi_system` 35/35；Mollusk **不属于** ordinary `just ci`，为单独运行）、`just test-targets`、`just dev-check`、ordinary `just ci` 全 exit 0；独立审计无 P0/P1）。
+> **Active 明确为 #122** classic Token（仍受 package-owned locked ELF blocker）；#123–#124 仍 pending。
+> 非 formal/Stage-0/release；Mollusk/`just solana-runtime` 属独立门禁，**不**并入 ordinary `just ci` 计次。
 >
 > **2026-08-02 invariant lowering update**：`NormalizeV1` 现将 source `invariant` 降为
 > source-order Semantic `.invariant` callables 与 dense `InvariantDecl`，并复用 Wire sole closure membership/

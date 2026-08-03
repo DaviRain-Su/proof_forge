@@ -207,6 +207,19 @@ fi
 pda_out="$(cd "$pda_out" && pwd -P)"
 export PROOF_FORGE_CPI_PDA_OUT="$pda_out"
 
+# #121 production-code-generated native System CPI ELF (test-preactivation).
+# Mollusk native System Program only; no generated System ELF; no product OutputFile.
+system_out="${PROOF_FORGE_CPI_SYSTEM_OUT:-$root/build/v2/solana-cpi-system}"
+export PROOF_FORGE_CPI_SYSTEM_OUT="$system_out"
+echo "solana-runtime-test: CPI System build → $system_out"
+if ! bash "$root/scripts/solana_cpi_system_build.sh"; then
+  die "Solana CPI System build failed"
+fi
+[[ -f "$system_out/system_cpi.s" ]] || die "CPI System assembly missing"
+[[ -f "$system_out/system_cpi.so" ]] || die "CPI System ELF missing"
+system_out="$(cd "$system_out" && pwd -P)"
+export PROOF_FORGE_CPI_SYSTEM_OUT="$system_out"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"

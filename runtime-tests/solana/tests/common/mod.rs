@@ -2191,3 +2191,386 @@ pub fn cpi_pda_simple_ix_data(handler_id: u64, params: &[u64]) -> Vec<u8> {
     }
     data
 }
+
+// ---------------------------------------------------------------------------
+// #121 production-code-generated native System CPI evidence
+// (test-preactivation only; not product OutputFile / activated sync)
+// ---------------------------------------------------------------------------
+
+/// Frozen caller program id for #121 System CPI lane (independent of #115–#120).
+pub const CPI_SYSTEM_PROGRAM_ID_BYTES: [u8; 32] = [0x56; 32];
+pub const CPI_SYSTEM_INIT_HANDLER_ID: u64 = 0;
+pub const CPI_SYSTEM_TRANSFER_HANDLER_ID: u64 = 1;
+pub const CPI_SYSTEM_CREATE_PDA_HANDLER_ID: u64 = 2;
+pub const CPI_SYSTEM_TRANSFER_THEN_OVERFLOW_HANDLER_ID: u64 = 3;
+pub const CPI_SYSTEM_CREATE_THEN_OVERFLOW_HANDLER_ID: u64 = 4;
+pub const CPI_SYSTEM_INSPECT_HANDLER_ID: u64 = 5;
+/// Outer transfer/overflow layout: handlerId u64 + lamports u64.
+pub const CPI_SYSTEM_TRANSFER_IX_LEN: usize = 16;
+/// Outer createPdaAccount layout:
+/// handlerId u64 + seedTag u64 + bump u8 + lamports u64 + space u64.
+pub const CPI_SYSTEM_CREATE_IX_LEN: usize = 33;
+/// Frozen System Instruction.Transfer data length (inner CPI payload).
+pub const SYSTEM_TRANSFER_DATA_BYTES: usize = 12;
+/// Frozen System Instruction.CreateAccount data length (inner CPI payload).
+pub const SYSTEM_CREATE_ACCOUNT_DATA_BYTES: usize = 52;
+/// createPdaAccount preflight ceiling (inclusive).
+pub const SYSTEM_CREATE_MAX_SPACE: u64 = 4096;
+/// `SystemError::AccountAlreadyInUse` → `ProgramError::Custom(0)`.
+pub const SYSTEM_ERR_ACCOUNT_ALREADY_IN_USE: u32 = 0;
+/// `SystemError::ResultWithNegativeLamports` → `ProgramError::Custom(1)`.
+/// Native System transfer insufficient-lamports path (pinned Agave 4.0.0).
+pub const SYSTEM_ERR_RESULT_WITH_NEGATIVE_LAMPORTS: u32 = 1;
+const CPI_SYSTEM_STEM: &str = "system_cpi";
+const CPI_SYSTEM_ASSEMBLY_SHA256: &str =
+    "eac15e4f65edf2af6c179c396185881ad1c72cd471e1a6ee1def31745e29aa89";
+const CPI_SYSTEM_ASSEMBLY_SIZE: u64 = 101762;
+const CPI_SYSTEM_ELF_SHA256: &str =
+    "e92259e5065ba4b181b8822afbce7c2194724e463a856d506c341271b5ca314e";
+const CPI_SYSTEM_ELF_SIZE: u64 = 41576;
+const CPI_SYSTEM_AGAVE_COMMIT: &str = "2a165e7a90af75c76426d1e031ed0284211d5d1e";
+const CPI_SYSTEM_FIXTURE_SHA256: &str =
+    "02efaf633a51aa6aa702e88d0eec48a894a3138f6dae90a030181022db7d4bd0";
+const CPI_SYSTEM_FIXTURE_SIZE: u64 = 2262;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiSystemManifestV1 {
+    schema: String,
+    issue: u64,
+    sbpf: String,
+    runtime_oracle: CpiPreflightRuntimeOracleV1,
+    fixture: CpiPreflightFixtureV1,
+    profile: CpiPreflightIdentityV1,
+    extension: CpiPreflightExtensionV1,
+    boundary: CpiPreflightBoundaryV1,
+    program_id_hex: String,
+    system: CpiSystemNativeV1,
+    handlers: CpiSystemHandlersV1,
+    pda: CpiPdaRecipeV1,
+    expected_assembly: CpiPreflightArtifactPinV1,
+    expected_elf: CpiPreflightArtifactPinV1,
+    reproducibility_note: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiSystemNativeV1 {
+    package: String,
+    program_id_hex: String,
+    execution_class: String,
+    artifact_binding: String,
+    agave_commit: String,
+    instruction_surface: CpiSystemInstructionSurfaceV1,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiSystemInstructionSurfaceV1 {
+    transfer_data_bytes: u64,
+    create_account_data_bytes: u64,
+    create_owner: String,
+    max_space: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiSystemHandlersV1 {
+    init: u64,
+    transfer: u64,
+    create_pda_account: u64,
+    transfer_then_overflow: u64,
+    create_then_overflow: u64,
+    inspect: u64,
+}
+
+fn decode_cpi_system_manifest(bytes: &[u8]) -> Result<CpiSystemManifestV1, String> {
+    let manifest: CpiSystemManifestV1 = serde_json::from_slice(bytes)
+        .map_err(|error| format!("decode CPI system manifest: {error}"))?;
+    let expect = |condition: bool, message: &str| {
+        if condition {
+            Ok(())
+        } else {
+            Err(message.to_string())
+        }
+    };
+    expect(
+        manifest.schema == "proof-forge.solana.cpi-system-runtime.v1",
+        "schema",
+    )?;
+    expect(manifest.issue == 121, "issue")?;
+    expect(manifest.sbpf == "0.2.2", "sbpf")?;
+    expect(
+        manifest.runtime_oracle.mollusk_svm == "0.13.4"
+            && manifest.runtime_oracle.agave_syscalls == "4.0.0"
+            && manifest.runtime_oracle.solana_program_runtime == "4.0.0",
+        "runtime oracle",
+    )?;
+    expect(
+        manifest.fixture.path == "runtime-tests/solana/fixtures/SystemCpi.lean"
+            && manifest.fixture.module == "Examples.SystemCpi"
+            && manifest.fixture.source_sha256 == CPI_SYSTEM_FIXTURE_SHA256
+            && manifest.fixture.source_size == CPI_SYSTEM_FIXTURE_SIZE,
+        "fixture identity",
+    )?;
+    expect(
+        manifest.profile.id == "solana-sbpf-cpi-elf-v1"
+            && manifest.profile.digest
+                == "0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1",
+        "profile identity",
+    )?;
+    expect(
+        manifest.extension.id == "solana.cpi.accounts"
+            && manifest.extension.version == "1.0.0"
+            && manifest.extension.digest
+                == "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020",
+        "extension identity",
+    )?;
+    expect(
+        !manifest.boundary.product_artifact
+            && manifest.boundary.test_preactivation
+            && manifest.boundary.activation_denied,
+        "preactivation boundary",
+    )?;
+    expect(
+        manifest.program_id_hex == hex::encode(CPI_SYSTEM_PROGRAM_ID_BYTES),
+        "program id",
+    )?;
+    expect(
+        manifest.system.package == "system-v1"
+            && manifest.system.program_id_hex == "00".repeat(32)
+            && manifest.system.execution_class == "nativeSystem"
+            && manifest.system.artifact_binding == "runtime-native"
+            && manifest.system.agave_commit == CPI_SYSTEM_AGAVE_COMMIT
+            && manifest.system.instruction_surface.transfer_data_bytes
+                == SYSTEM_TRANSFER_DATA_BYTES as u64
+            && manifest
+                .system
+                .instruction_surface
+                .create_account_data_bytes
+                == SYSTEM_CREATE_ACCOUNT_DATA_BYTES as u64
+            && manifest.system.instruction_surface.create_owner == "current-program-id"
+            && manifest.system.instruction_surface.max_space == SYSTEM_CREATE_MAX_SPACE,
+        "native System identity",
+    )?;
+    expect(
+        manifest.handlers.init == CPI_SYSTEM_INIT_HANDLER_ID
+            && manifest.handlers.transfer == CPI_SYSTEM_TRANSFER_HANDLER_ID
+            && manifest.handlers.create_pda_account == CPI_SYSTEM_CREATE_PDA_HANDLER_ID
+            && manifest.handlers.transfer_then_overflow
+                == CPI_SYSTEM_TRANSFER_THEN_OVERFLOW_HANDLER_ID
+            && manifest.handlers.create_then_overflow == CPI_SYSTEM_CREATE_THEN_OVERFLOW_HANDLER_ID
+            && manifest.handlers.inspect == CPI_SYSTEM_INSPECT_HANDLER_ID,
+        "handler ids",
+    )?;
+    expect(
+        manifest.pda.recipe == "current-program-tagged-v1"
+            && manifest.pda.seed0_utf8 == "proof-forge:pda:v1"
+            && manifest.pda.seed0_hex == hex::encode(HARNESS_PDA_SEED0)
+            && manifest.pda.canonical_bump_search == "255..1"
+            && manifest.pda.bump0_rejected,
+        "PDA recipe",
+    )?;
+    expect(
+        manifest.expected_assembly.sha256 == CPI_SYSTEM_ASSEMBLY_SHA256
+            && manifest.expected_assembly.size == CPI_SYSTEM_ASSEMBLY_SIZE,
+        "exact System assembly pin",
+    )?;
+    expect(
+        manifest.expected_elf.sha256 == CPI_SYSTEM_ELF_SHA256
+            && manifest.expected_elf.size == CPI_SYSTEM_ELF_SIZE,
+        "exact System ELF pin",
+    )?;
+    expect(
+        manifest
+            .reproducibility_note
+            .contains("not proof-forge.output.v1")
+            && manifest
+                .reproducibility_note
+                .contains("not an activated CPI artifact"),
+        "preactivation reproducibility note",
+    )?;
+    Ok(manifest)
+}
+
+pub fn validate_cpi_system_manifest_bytes(bytes: &[u8]) -> Result<(), String> {
+    decode_cpi_system_manifest(bytes).map(|_| ())
+}
+
+pub fn committed_cpi_system_manifest_bytes() -> Vec<u8> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("system/manifest.json");
+    stable_read_harness_file(&path, "CPI system committed manifest")
+}
+
+pub fn cpi_system_out_dir() -> PathBuf {
+    PathBuf::from(env::var("PROOF_FORGE_CPI_SYSTEM_OUT").expect(
+        "PROOF_FORGE_CPI_SYSTEM_OUT must point at scripts/solana_cpi_system_build.sh output \
+         (requires Tests/Materialization/SolanaCpiSystemExportV1.lean + System emitter)",
+    ))
+}
+
+fn read_cpi_system_bound_file(
+    suffix: &str,
+    expected: &CpiPreflightArtifactPinV1,
+    label: &str,
+) -> Vec<u8> {
+    let out = cpi_system_out_dir();
+    let committed_manifest = committed_cpi_system_manifest_bytes();
+    let output_manifest =
+        stable_read_harness_file(&out.join("manifest.json"), "CPI system output manifest");
+    assert_eq!(
+        output_manifest, committed_manifest,
+        "CPI system output manifest must be exact committed bytes"
+    );
+    let manifest =
+        decode_cpi_system_manifest(&committed_manifest).unwrap_or_else(|error| panic!("{error}"));
+    let selected = match suffix {
+        "s" => &manifest.expected_assembly,
+        "so" => &manifest.expected_elf,
+        _ => panic!("unknown CPI system artifact suffix {suffix}"),
+    };
+    assert_eq!(selected.size, expected.size, "{label} selected size pin");
+    assert_eq!(
+        selected.sha256, expected.sha256,
+        "{label} selected hash pin"
+    );
+
+    let path = out.join(format!("{CPI_SYSTEM_STEM}.{suffix}"));
+    let size_bytes = stable_read_harness_file(
+        &out.join(format!("{CPI_SYSTEM_STEM}.{suffix}.size")),
+        &format!("{label} size sidecar"),
+    );
+    let hash_bytes = stable_read_harness_file(
+        &out.join(format!("{CPI_SYSTEM_STEM}.{suffix}.sha256")),
+        &format!("{label} hash sidecar"),
+    );
+    let sidecar_size: u64 = std::str::from_utf8(&size_bytes)
+        .expect("UTF-8 system size sidecar")
+        .trim()
+        .parse()
+        .unwrap_or_else(|error| panic!("parse system size sidecar: {error}"));
+    let sidecar_hash = std::str::from_utf8(&hash_bytes)
+        .expect("UTF-8 system hash sidecar")
+        .trim();
+    assert_eq!(sidecar_size, expected.size, "{label} sidecar size");
+    assert_eq!(sidecar_hash, expected.sha256, "{label} sidecar hash");
+
+    let bytes = stable_read_harness_file(&path, label);
+    assert_eq!(bytes.len() as u64, expected.size, "{label} size");
+    assert_eq!(
+        hex::encode(Sha256::digest(&bytes)),
+        expected.sha256,
+        "{label} sha256"
+    );
+    bytes
+}
+
+pub fn read_cpi_system_assembly() -> Vec<u8> {
+    let manifest_bytes = committed_cpi_system_manifest_bytes();
+    let manifest =
+        decode_cpi_system_manifest(&manifest_bytes).unwrap_or_else(|error| panic!("{error}"));
+    let bytes = read_cpi_system_bound_file("s", &manifest.expected_assembly, "CPI system assembly");
+    assert!(
+        bytes
+            .windows(b"TEST-PREACTIVATION ONLY".len())
+            .any(|window| window == b"TEST-PREACTIVATION ONLY"),
+        "system assembly boundary banner"
+    );
+    for required in [
+        b"sol_invoke_signed_c" as &[u8],
+        b"sol_try_find_program_address",
+        b"sol_set_return_data",
+    ] {
+        assert!(
+            bytes
+                .windows(required.len())
+                .any(|window| window == required),
+            "#121 system assembly must contain {}",
+            String::from_utf8_lossy(required)
+        );
+    }
+    assert!(
+        !bytes
+            .windows(b"0xec01".len())
+            .any(|window| window == b"0xec01"),
+        "#121 system assembly must not contain 0xec01 stub"
+    );
+    bytes
+}
+
+pub fn read_cpi_system_elf() -> Vec<u8> {
+    let manifest_bytes = committed_cpi_system_manifest_bytes();
+    let manifest =
+        decode_cpi_system_manifest(&manifest_bytes).unwrap_or_else(|error| panic!("{error}"));
+    let bytes = read_cpi_system_bound_file("so", &manifest.expected_elf, "CPI system ELF");
+    assert!(
+        bytes.starts_with(b"\x7fELF"),
+        "CPI system output must be ELF"
+    );
+    bytes
+}
+
+pub fn cpi_system_program_id() -> Pubkey {
+    Pubkey::new_from_array(CPI_SYSTEM_PROGRAM_ID_BYTES)
+}
+
+/// Caller-only Mollusk registration. System Program is the native builtin from
+/// `Mollusk::default()` — never a generated System ELF.
+pub fn make_cpi_system_mollusk() -> (Mollusk, Pubkey) {
+    let program_id = cpi_system_program_id();
+    let caller_elf = read_cpi_system_elf();
+    let mut mollusk = Mollusk::default();
+    mollusk.add_program_with_loader_and_elf(
+        &program_id,
+        &mollusk_svm::program::loader_keys::LOADER_V3,
+        &caller_elf,
+    );
+    (mollusk, program_id)
+}
+
+/// Outer transfer / transferThenOverflow ix data: handlerId + lamports.
+pub fn cpi_system_transfer_ix_data(handler_id: u64, lamports: u64) -> Vec<u8> {
+    let mut data = Vec::with_capacity(CPI_SYSTEM_TRANSFER_IX_LEN);
+    data.extend_from_slice(&handler_id.to_le_bytes());
+    data.extend_from_slice(&lamports.to_le_bytes());
+    debug_assert_eq!(data.len(), CPI_SYSTEM_TRANSFER_IX_LEN);
+    data
+}
+
+/// Outer createPdaAccount ix data: handlerId + seedTag + bump + lamports + space.
+pub fn cpi_system_create_ix_data(
+    handler_id: u64,
+    seed_tag: u64,
+    bump: u8,
+    lamports: u64,
+    space: u64,
+) -> Vec<u8> {
+    let mut data = Vec::with_capacity(CPI_SYSTEM_CREATE_IX_LEN);
+    data.extend_from_slice(&handler_id.to_le_bytes());
+    data.extend_from_slice(&seed_tag.to_le_bytes());
+    data.push(bump);
+    data.extend_from_slice(&lamports.to_le_bytes());
+    data.extend_from_slice(&space.to_le_bytes());
+    debug_assert_eq!(data.len(), CPI_SYSTEM_CREATE_IX_LEN);
+    data
+}
+
+/// Init / inspect probe: handlerId u64 LE + optional trailing UInt64 params.
+pub fn cpi_system_simple_ix_data(handler_id: u64, params: &[u64]) -> Vec<u8> {
+    let mut data = Vec::with_capacity(8 + params.len() * 8);
+    data.extend_from_slice(&handler_id.to_le_bytes());
+    for p in params {
+        data.extend_from_slice(&p.to_le_bytes());
+    }
+    data
+}
+
+/// Pinned Mollusk helper: native System Program account (NativeLoader owner).
+pub fn system_program_keyed_account() -> (Pubkey, Account) {
+    mollusk_svm::program::keyed_account_for_system_program()
+}
+
+/// Unused System-owned create target: 0 lamports, 0 data, non-executable.
+pub fn unused_system_create_target_account() -> Account {
+    Account::new(0, 0, &Pubkey::default())
+}
