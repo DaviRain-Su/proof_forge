@@ -162,6 +162,54 @@ structure EmitReceiptV1 where
   deployable : Bool
   deriving BEq, Repr
 
+/-- One SPEC-CLI `--resource-limit <stage>.<field>=<n>` override (D3-E5).
+Stage/field use CLI spelling (`compiler-core`, `wall-ms`, …). Hoisted before
+`emitProgram` so the publisher can consume the same array for published-byte
+and pre-rename wall gates without a second authority. -/
+structure ResourceLimitOverrideV1 where
+  stage : String
+  field : String
+  value : UInt64
+  deriving BEq, Repr, Inhabited
+
+/-- RES-1B effective artifact-output published-byte cap. A legal CLI
+    override is lower-only; omission uses the frozen hard output maximum. -/
+def effectivePublishedBytesLimitV1
+    (limits : Array ResourceLimitOverrideV1) : UInt64 :=
+  match limits.find? fun l =>
+      l.stage == "artifact-output" && l.field == "published-bytes" with
+  | some lim => lim.value
+  | none => hardOutputProfile.maxPublishedBytes
+
+/-- First `stage.wall-ms` override value if present (RES-1). -/
+def wallMsOverrideV1
+    (limits : Array ResourceLimitOverrideV1) (stage : String) : Option UInt64 :=
+  match limits.find? (fun l => l.stage == stage && l.field == "wall-ms") with
+  | some lim => some lim.value
+  | none => none
+
+/-- RES-1 pure wall-clock gate: when a `wall-ms` override is present for `stage`,
+    `elapsedMs` must be ≤ the override. Fail closed with a stable PF-RESOURCE-TIME
+    message (exit 6 at product boundary). No override ⇒ ok. -/
+def enforceWallMsLimitV1
+    (stage : String) (limit? : Option UInt64) (elapsedMs : UInt64) :
+    Except String Unit :=
+  match limit? with
+  | none => pure ()
+  | some lim =>
+      if elapsedMs > lim then
+        .error s!"PF-RESOURCE-TIME: {stage}.wall-ms limit {lim} exceeded (elapsed {elapsedMs} ms)"
+      else
+        pure ()
+
+/-- Enforce all present wall-ms overrides against one measured elapsed budget.
+    Product path measures load+compile (+ materialize for build) as one wall. -/
+def enforceAllWallMsLimitsV1
+    (limits : Array ResourceLimitOverrideV1) (elapsedMs : UInt64) :
+    Except String Unit := do
+  for stage in #["frontend", "compiler-core", "external-tool", "artifact-output"] do
+    enforceWallMsLimitV1 stage (wallMsOverrideV1 limits stage) elapsedMs
+
 /-- RES-1B engineering published-byte observation: all scanned base/finalized
     artifact bytes plus the exact UTF-8 bytes of both fixed sidecars. The sole
     physical artifact-size observations remain `ArtifactContentV1`; this helper
@@ -286,11 +334,19 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
 /-- Product emit path: private engineering capability only.
     Mints engineering `EngineeringOutputSetV1` after finalization and publishes
     `proof-forge.output.v1` manifest + evidence sidecars. No public
-    `(selection, compiled)` overload. Not formal OutputSetV1. -/
+    `(selection, compiled)` overload. Not formal OutputSetV1.
+
+    Third argument is the CLI resource-limit array (defaults empty ⇒ hard
+    published-byte max, no wall overrides). Optional `wallStartedMs` enables
+    RES-1 wall enforcement immediately before atomic rename so over-budget
+    builds throw, clean staging, and never publish. Two-argument callers remain
+    compatible. -/
 def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
     (outputDir : FilePath)
-    (publishedBytesLimit : UInt64 := hardOutputProfile.maxPublishedBytes) :
+    (resourceLimits : Array ResourceLimitOverrideV1 := #[])
+    (wallStartedMs : Option Nat := none) :
     IO EmitReceiptV1 := do
+  let publishedBytesLimit := effectivePublishedBytesLimitV1 resourceLimits
   let compiled := Targets.ResolvedEngineeringBuildV1.compiledOf capability
   let programName := CompiledSemanticV1.artifactProgramNameOf compiled
   -- Reject unsafe artifact identity before entering a target materializer. A
@@ -323,6 +379,17 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
   try
     let receipt ←
       renderIntoStaging capability compiled artifacts publishedBytesLimit staging
+    -- RES-1: wall before rename. Over-budget throws; catch cleans staging so
+    -- destination is never published. Stage/order of enforceAllWallMsLimitsV1
+    -- is unchanged (frontend → compiler-core → external-tool → artifact-output).
+    match wallStartedMs with
+    | none => pure ()
+    | some startedMs =>
+        let now ← IO.monoMsNow
+        let elapsed := UInt64.ofNat (now - startedMs)
+        match enforceAllWallMsLimitsV1 resourceLimits elapsed with
+        | .ok () => pure ()
+        | .error msg => throw <| IO.userError msg
     -- Recheck immediately before publish. This closes the cooperative writer
     -- race and ensures a build without an explicit future `--force` mode never
     -- replaces user data. A non-empty destination created by another process
@@ -336,20 +403,13 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
     removePathIfPresent staging
     throw error
 
-/-- One SPEC-CLI `--resource-limit <stage>.<field>=<n>` override (D3-E5).
-Stage/field use CLI spelling (`compiler-core`, `wall-ms`, …). -/
-structure ResourceLimitOverrideV1 where
-  stage : String
-  field : String
-  value : UInt64
-  deriving BEq, Repr, Inhabited
-
 /-- Full build/check option bag (CLI internal + test-facing parse).
 `output`/`root` are `Option` so duplicate flags are detectable (defaults applied
 at product path: `build/v2` and `.`). `json` selects PF-JCS stdout.
 D3-E5: `resourceLimits` / `minimumEvidence` / proof-bundle pair are parsed and
-validated fail-closed before source open. RES-1 enforces wall clocks; the
-RES-1B output-only slice enforces `artifact-output.published-bytes` before
+validated fail-closed before source open. RES-1 enforces wall clocks (build:
+pre-rename inside emitProgram; check: post-success path). The RES-1B
+output-only slice enforces `artifact-output.published-bytes` before
 publication. Memory/process/protocol/stderr remain observation-only gaps. -/
 structure BuildOptions where
   source : Option String := none
@@ -526,44 +586,6 @@ def validateBuildOptionsCliV1
       -- ProofReferenceJoinV1 (unused pair / missing pair / export join fail closed).
       pure ()
   pure options
-
-/-- RES-1B effective artifact-output published-byte cap. A legal CLI
-    override is lower-only; omission uses the frozen hard output maximum. -/
-def effectivePublishedBytesLimitV1
-    (limits : Array ResourceLimitOverrideV1) : UInt64 :=
-  match limits.find? fun l =>
-      l.stage == "artifact-output" && l.field == "published-bytes" with
-  | some lim => lim.value
-  | none => hardOutputProfile.maxPublishedBytes
-
-/-- First `stage.wall-ms` override value if present (RES-1). -/
-def wallMsOverrideV1
-    (limits : Array ResourceLimitOverrideV1) (stage : String) : Option UInt64 :=
-  match limits.find? (fun l => l.stage == stage && l.field == "wall-ms") with
-  | some lim => some lim.value
-  | none => none
-
-/-- RES-1 pure wall-clock gate: when a `wall-ms` override is present for `stage`,
-    `elapsedMs` must be ≤ the override. Fail closed with a stable PF-RESOURCE-TIME
-    message (exit 6 at product boundary). No override ⇒ ok. -/
-def enforceWallMsLimitV1
-    (stage : String) (limit? : Option UInt64) (elapsedMs : UInt64) :
-    Except String Unit :=
-  match limit? with
-  | none => pure ()
-  | some lim =>
-      if elapsedMs > lim then
-        .error s!"PF-RESOURCE-TIME: {stage}.wall-ms limit {lim} exceeded (elapsed {elapsedMs} ms)"
-      else
-        pure ()
-
-/-- Enforce all present wall-ms overrides against one measured elapsed budget.
-    Product path measures load+compile (+ materialize for build) as one wall. -/
-def enforceAllWallMsLimitsV1
-    (limits : Array ResourceLimitOverrideV1) (elapsedMs : UInt64) :
-    Except String Unit := do
-  for stage in #["frontend", "compiler-core", "external-tool", "artifact-output"] do
-    enforceWallMsLimitV1 stage (wallMsOverrideV1 limits stage) elapsedMs
 
 /-- Shared build/check argument parser (pure Except).
 `--network` and any other unknown dashed option fail as usage errors.

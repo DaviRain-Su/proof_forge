@@ -219,6 +219,31 @@ def run : IO Unit := do
       e.fileName.startsWith ".res1b-published-limit.staging-"
     expect stagingLeft.isEmpty
       "RES-1B: output limit must clean the sibling staging directory"
+
+    -- RES-1 wall zero-publish: wall-ms over during product build must exit 6
+    -- with PF-RESOURCE-TIME and must not leave a published destination (or
+    -- sibling staging). Pin before rename, not after atomic publish.
+    let wallOut := FilePath.mk "build/v2/res1-wall-zero-publish"
+    if ← wallOut.pathExists then IO.FS.removeDirAll wallOut
+    let wall ← IO.Process.output {
+      cmd := absoluteCli.toString
+      args := #["build", "Examples/Counter.lean",
+        "--module", "Examples.Counter", "--target", "solana",
+        "--output", wallOut.toString,
+        "--resource-limit", "artifact-output.wall-ms=1"]
+    }
+    expect (wall.exitCode == 6)
+      s!"RES-1 wall zero-publish: wall-ms=1 build must exit 6, got {wall.exitCode}"
+    let wallCombined := wall.stdout ++ "\n" ++ wall.stderr
+    expect (hasSubstr wallCombined "PF-RESOURCE-TIME")
+      s!"RES-1 wall zero-publish: must emit PF-RESOURCE-TIME, got:\n{wallCombined}"
+    expect (!(← wallOut.pathExists))
+      "RES-1 wall zero-publish: wall limit must not publish a destination"
+    let wallParentEntries ← (FilePath.mk "build/v2").readDir
+    let wallStagingLeft := wallParentEntries.filter fun e =>
+      e.fileName.startsWith ".res1-wall-zero-publish.staging-"
+    expect wallStagingLeft.isEmpty
+      "RES-1 wall zero-publish: wall limit must clean sibling staging"
   else
     IO.println "Tests.CLI.ResourceFlagsV1: skip product resource CLI (binary absent)"
 

@@ -275,18 +275,21 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
       let requestedOutput := FilePath.mk (options.output.getD "build/v2")
       let outputPath :=
         if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
-      let publishedLimit := effectivePublishedBytesLimitV1 options.resourceLimits
+      -- RES-1 wall is enforced inside emitProgram immediately before rename so
+      -- over-budget cleans staging and never publishes; check keeps post-success
+      -- enforcement below. published-bytes still gates pre-sidecar-write.
       let receipt ←
         try
-          emitProgram capability outputPath publishedLimit
+          emitProgram capability outputPath options.resourceLimits (some startedMs)
         catch
         | .userError msg =>
             if msg.startsWith "PF-RESOURCE-OUTPUT:" then
               failResourceOutput msg
+            else if msg.startsWith "PF-RESOURCE-TIME:" then
+              failResourceTime msg
             else
               throw <| IO.userError msg
         | error => throw error
-      enforceWallBudgetV1 options startedMs
       if options.json then
         IO.println (← liftCompileResult
           (renderBuildOkJsonV1 receipt options.resourceLimits options.minimumEvidence))
