@@ -147,10 +147,11 @@ validated declaration mint row，Provenance 将 declaration node 绑定到 requi
 3. 按 Semantic callable/block/instruction source order扫描 CPI sites；每 site 先扫描 callee program，再按
    frozen meta order扫描 fixed program metas；同 package 复用其首次建立的 fixed role。
 
-role IDs 必须 dense `0..n-1`。outer account 数量 exact 等于 role count且 `≤16`；每个 role 都必须是
+global role schema IDs 必须 dense `0..n-1`；每个 handler 的 local ABIv1 positions 另行 dense
+`0..m-1` 且 `m≤16`。outer account 数量 exact 等于该 handler local role count；每个 role 都必须是
 ABIv1 full marker `0xff`。extra、missing、duplicate marker、duplicate key、optional 与 remaining account
-全部拒绝。每次 CPI 的 `SolAccountInfo[]` 固定为**全部 outer roles 按 role-id order，各一次**，长度 exact
-等于 role count；禁止 emitter 自行过滤、重排或去重。
+全部拒绝。每次 CPI 的 `SolAccountInfo[]` 固定为**该 handler 的全部 outer roles 按 local position order，
+各一次**，其中 role ref仍是 global ID；禁止 emitter 按 global ID重排、自行过滤或去重。
 
 ### 4.2 Structural checks 与 site-local checks
 
@@ -511,6 +512,29 @@ Plan/IR/IDL identities：
 
 该 observation 只证明可观察的 inert contract surface，不是 CPI Plan/IR、invoke、PDA product lowering，
 也不提高 target maturity。
+
+#### #117 structural Plan/IR/IDL observation（2026-08-03）
+
+- `CpiContractV1` 投影 exact 32-byte pubkey、四 package/八 static APIs、两 PDA rules 与 closed account/
+  privilege/alias policy；base58 仅 presentation，portable Principal identity不变。
+- `CpiPlanV1` 将 global role schema 与 per-handler local uses分离，精确验证 dense/source order、
+  handler-local AccountInfo全量顺序、site predicates、privilege join、caps与 package admission；只有
+  private-constructor structural carrier持有 PF-JCS canonical bytes与 Plan digest。
+- `CpiIRV1` 精确保留 Plan/profile/catalog identity、state schemas、PDA rules、compute assumptions、
+  role key/constraint/alias/direct+effective privilege、Plan-owned AccountInfo role sequence、preflight-first
+  operations，以及 extension中 Loader V3 direct-map/pointer-table与五个 C layout的 exact fields。
+  `CpiIdlV1` 是同一 Plan的 inspect-only projection，包含 state、account privilege provenance、codec、
+  metas、outer-only、PDA和site policy；两者均无 emitter、平台调用 surface或 `OutputFile` mint。
+- 全八 API、mutation/phase order、IR digest recompute与 IDL projection 已注册 ordinary tests；legacy
+  Counter Plan digest与 `.sbpf-plan`/`.idl.json` exact bytes保持 pre-#117 pins。IDL仅有 canonical
+  inspect bytes，不另 mint domain digest；其内容由 retained Plan digest与 exact projection验证。
+- extension 中 `all-outer-roles-in-dense-role-id-order` 在 global-schema/per-handler-use 模型下精确定义为
+  **handler-local dense ABIv1 position order**；`accountInfoRoleIds` 是该顺序中的 global role references，
+  不按 global numeric roleId重新排序。#118 parser/emitter必须直接消费该 Plan顺序。
+- **Authority boundary**：本切片只做 caller DTO 的 exact structural validation，不把其中的
+  Semantic anchor/ValueId声明为 retained-program事实。#118 必须由 exact resolved CPI capability与
+  retained `SemanticProgramV1` sole-derive，并逐 anchor/value/type join；在该 join及后续 parser/invoke
+  gates前，任意 structural carrier均不能授权 materialization。profile仍在 legacy Plan前 fail closed。
 
 ### Schema mutation obligations
 

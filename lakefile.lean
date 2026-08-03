@@ -244,6 +244,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.NoirRelationModel,
     `Tests.Materialization.NoirCompileAcceptance,
     `Tests.Materialization.SolanaPlanV1,
+    `Tests.Materialization.SolanaCpiPlanV1,
     `Tests.Targets.SolanaAsmV1,
     `Tests.Targets.SolanaElfV1,
     `Tests.Targets.EvmCancunV1,

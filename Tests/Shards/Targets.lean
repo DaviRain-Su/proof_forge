@@ -24,6 +24,7 @@ import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.NoirCompileAcceptance
 import Tests.Materialization.SolanaPlanV1
+import Tests.Materialization.SolanaCpiPlanV1
 import Tests.Targets.SolanaAsmV1
 import Tests.Targets.SolanaElfV1
 import Tests.Targets.EvmCancunV1
@@ -89,6 +90,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.NoirRelationModel.run
   IO.eprintln "CP run"
   Tests.Materialization.SolanaPlanV1.run
+  IO.eprintln "CP run"
+  Tests.Materialization.SolanaCpiPlanV1.run
   IO.eprintln "CP run"
   Tests.Materialization.PsySourceV1.run
   IO.eprintln "CP run"

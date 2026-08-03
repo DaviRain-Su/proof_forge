@@ -452,8 +452,9 @@ private def testProfileSelection : IO Unit := do
   expect (containsSubstr manifest "solana-sbpf-plan-v1")
     s!"manifest must bind selected profile: {manifest}"
 
-  -- ADR-0024 profile is selectable but inert until target-owned CPI Plan/IR.
-  -- The failure must occur before publisher staging, leaving zero output tree.
+  -- ADR-0024 profile is selectable but remains inert until the product
+  -- Semantic/capability join and later activation gates. Failure precedes
+  -- publisher staging and leaves a zero output tree.
   let cpiOutDir := FilePath.mk "build/v2/diagnostic-profile-sbpf-cpi-inert"
   if ← cpiOutDir.pathExists then IO.FS.removeDirAll cpiOutDir
   let (cpiEc, cpiStdout, cpiStderr) ← runCli #[

@@ -77,6 +77,7 @@ import Tests.Materialization.NearWasmAcceptance
 import Tests.Materialization.PsyAcceptance
 import Tests.Materialization.QuintSourceV1
 import Tests.Materialization.SolanaPlanV1
+import Tests.Materialization.SolanaCpiPlanV1
 
 import Tests.Materialization.Targets
 import Tests.Materialization.NearHostModel
@@ -171,6 +172,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.PsyAcceptance.run
   Tests.Materialization.QuintSourceV1.run
   Tests.Materialization.SolanaPlanV1.run
+  Tests.Materialization.SolanaCpiPlanV1.run
 
   Tests.Materialization.TargetRegistryV1.run
   Tests.Materialization.RequirementResolverV1.run

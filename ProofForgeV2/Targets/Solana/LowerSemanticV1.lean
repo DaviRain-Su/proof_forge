@@ -3781,7 +3781,7 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
   if ResolvedEngineeringBuildV1.codegenProfileOf capability ==
       CodegenProfileId.solanaSbpfCpiElfV1 then
     throw <| .planInvariant .solana
-      "solana-sbpf-cpi-elf-v1 is inert (ADR-0024): no Plan/IR/artifact mint until the target-owned CPI Plan exists"
+      "solana-sbpf-cpi-elf-v1 is inert (ADR-0024): no product Semantic/capability join or artifact mint before #118+"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
   makePlanFromSemanticV1 source
