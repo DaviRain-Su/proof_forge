@@ -1,5 +1,6 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Canonical
+import ProofForgeV2.Core.ToolLockV4
 
 /-
   ProofForgeV2.Semantic.ProofBundleV1 — engineering in-memory validation for
@@ -20,13 +21,14 @@ import ProofForgeV2.Core.Canonical
   decoder/validator.  Still out of scope:
     * contained worker / empty LEAN_PATH / `.olean` importing
     * trust-policy axiom graph / ambient olean search
-    * ToolLock digest join / product check-build wiring
+    * trusted `.olean` inventory / product check-build importer wiring
     * formal evidence ceremony
 -/
 
 namespace ProofForgeV2.Semantic.ProofBundleV1
 
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.ToolLockV4
 
 /-- Wire schema for the proof-bundle manifest. -/
 def proofBundleSchemaV1 : String := "proof-forge.proof-bundle.v1"
@@ -66,6 +68,7 @@ def proofTrustPolicyPayloadV1 : PfJson := .object #[
 /-- Closed load/validation errors (engineering). -/
 inductive ProofBundleErrorV1 where
   | malformed (detail : String)
+  | toolchainLockMismatch (detail : String)
   | digestMismatch (detail : String)
   | missingModule (path : String)
   | extraModule (path : String)
@@ -523,6 +526,12 @@ def validateProofBundleManifestV1 (m : ProofBundleManifestV1) :
   let expectedTrustPolicyDigest ← proofTrustPolicyDigestV1
   unless m.proofAbi.trustPolicyDigest.bytes == expectedTrustPolicyDigest.bytes do
     return ← err (.malformed "proofAbi.trustPolicyDigest does not match fixed policy")
+  let expectedToolLock ← match embeddedToolLockV4Identity with
+    | .ok identity => pure identity
+    | .error e => return ← err (.internal s!"embedded Tool Lock v4 authority: {e}")
+  unless m.toolchainLockDigest.bytes == expectedToolLock.digest.bytes do
+    return ← err (.toolchainLockMismatch
+      s!"manifest does not match embedded {expectedToolLock.platform.wire} Tool Lock v4")
   -- Module order is the authority order used by the later exact filesystem
   -- map and importer. Strict order also supplies uniqueness.
   let mods := NonEmptyArray.toArray m.modules

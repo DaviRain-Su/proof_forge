@@ -74,6 +74,9 @@ private def openMatchingBundle
   let trustPolicyDigest ← match proofTrustPolicyDigestV1 with
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"trust policy: {repr error}"
+  let toolchainLockDigest ← match ProofForgeV2.Core.ToolLockV4.embeddedToolLockV4Identity with
+    | .ok identity => pure identity.digest
+    | .error error => throw <| IO.userError s!"Tool Lock v4: {error}"
   let oleanPath := "modules/Bundle/Root.olean"
   let oleanBytes := "proof-subject-join-olean".toUTF8
   let proofModule : ProofModuleV1 := {
@@ -100,7 +103,7 @@ private def openMatchingBundle
     sourceHash
     semanticHash
     semanticProvenanceDigest := provenanceDigest
-    toolchainLockDigest := sha256Bytes "toolchain".toUTF8
+    toolchainLockDigest
     proofAbi := {
       semanticSchema := proofAbiSemanticSchemaV1
       moduleName := abiModuleName

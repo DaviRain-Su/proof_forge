@@ -523,7 +523,7 @@ missing/extra/orphan/self-edge/cycle 或 same-count edge-kind substitution。
 
 closure schema 固定为 `proof-forge.supply-chain-closure.v1`；candidate 是 SPEC-CAP-001 完整
 `CandidateIdentity`，`candidateArchive` 恰为 `{size,sha256}`，positive safe integer size 与 raw sha256
-必须等于外部 archive observation/`candidate.archiveDigest`。`toolchainLockDigest` 是 canonical `ToolLockV2Digest`，
+必须等于外部 archive observation/`candidate.archiveDigest`。`toolchainLockDigest` 是 canonical `ToolLockV4Digest`，
 `toolchainLockSha256` 是 candidate 内 retained lock exact bytes 的 raw SHA-256。closure 不自含 digest：
 
 ```text
@@ -691,7 +691,7 @@ root/nested object 只允许上述字段；schema 固定 `proof-forge.sbom-relea
 `candidateArchive` 恰为 `{size,sha256}` 且与 closure/candidate exact。三项 input path 固定为
 `toolchains.lock.json`、`docs/supply-chain/license-policy.v1.json`、
 `docs/supply-chain/supply-chain-inventory.v1.json`，均为 candidate-relative；size/sha256 是 retained
-exact file bytes，digest 分别是 `ToolLockV2Digest`、`LicensePolicyV1Digest` 与
+exact file bytes，digest 分别是 `ToolLockV4Digest`、`LicensePolicyV1Digest` 与
 `SupplyChainInventoryV1Digest`。
 
 `cycloneDxSchema` 是 closure 中同一完整 `CycloneDxSchemaIdentityV1`，`spdxStandards` 是同一完整

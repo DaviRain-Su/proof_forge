@@ -237,6 +237,7 @@ def renderProofReferenceJoinErrorV1 (e : ProofReferenceJoinErrorV1) : String :=
   | .bundleOpen pe =>
       match pe with
       | .malformed d => s!"proof-bundle malformed: {d}"
+      | .toolchainLockMismatch d => s!"proof-bundle Tool Lock mismatch: {d}"
       | .digestMismatch d => s!"proof-bundle module digest: {d}"
       | .missingModule p => s!"proof-bundle missing module file: {p}"
       | .extraModule p => s!"proof-bundle extra module file: {p}"

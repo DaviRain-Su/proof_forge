@@ -10,11 +10,13 @@ import Lean.Data.Json.FromToJson
 import Lean.Data.Json.Parser
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.Crypto
+import ProofForgeV2.Core.ToolLockV4
 
 namespace ProofForgeV2.Materialization.LockedToolchainV1
 
 open Lean ProofForgeV2 System
 open ProofForgeV2.Crypto
+open ProofForgeV2.Core.ToolLockV4
 
 structure LockedRuntimeFile where
   path : String
@@ -96,8 +98,6 @@ structure VerifiedTool where
   processEnvironment : Array (String × String)
   deriving Repr
 
-private def embeddedLockDarwin : String := include_str "../../toolchains.lock.json"
-private def embeddedLockLinux : String := include_str "../../toolchains-linux-x86_64.lock.json"
 private def embeddedHostLock : String := include_str "../../host-profiles.lock.json"
 
 private def isDarwinHost : Bool := System.Platform.isOSX
@@ -107,7 +107,9 @@ private def isDarwinHost : Bool := System.Platform.isOSX
 private def expectedLockSchema : String := "proof-forge.toolchains.v4"
 
 private def loadLock : Except String LockFile := do
-  let embedded := if isDarwinHost then embeddedLockDarwin else embeddedLockLinux
+  let platform ← activeToolLockPlatformV4
+  let _ ← toolLockV4IdentityForPlatform platform
+  let embedded := embeddedToolLockV4Text platform
   let lock : LockFile ← Json.parse embedded >>= fromJson?
   unless lock.schema == expectedLockSchema do
     throw s!"unsupported toolchain lock schema '{lock.schema}'"

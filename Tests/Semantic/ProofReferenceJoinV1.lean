@@ -70,6 +70,11 @@ private def fixedTrustPolicyDigest : IO Digest :=
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"trust policy: {repr error}"
 
+private def fixedToolLockDigest : IO Digest :=
+  match ProofForgeV2.Core.ToolLockV4.embeddedToolLockV4Identity with
+  | .ok identity => pure identity.digest
+  | .error error => throw <| IO.userError s!"Tool Lock v4: {error}"
+
 private def block (statements : Array StmtV1) : BlockV1 := { statements }
 private def ret (value : ExprV1) : BlockV1 := block #[.return_ (some value)]
 private def u (value : Nat) : ExprV1 := .literal (.integer value)
@@ -131,6 +136,7 @@ private def mkMatchingBundle
   let exportThm ← qn theoremComps
   let moduleName ← qn #["Bundle", "Root"]
   let trustPolicyDigest ← fixedTrustPolicyDigest
+  let toolchainLockDigest ← fixedToolLockDigest
   let mod : ProofModuleV1 := {
     moduleName
     oleanPath
@@ -157,7 +163,7 @@ private def mkMatchingBundle
     sourceHash
     semanticHash
     semanticProvenanceDigest := fixedDigest 0x33
-    toolchainLockDigest := fixedDigest 0x44
+    toolchainLockDigest
     proofAbi := {
       semanticSchema := proofAbiSemanticSchemaV1
       moduleName := abiModuleName
