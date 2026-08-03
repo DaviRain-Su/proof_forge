@@ -1964,3 +1964,333 @@ fn principal_store_same_compares_all_parameter_leaves() {
         &[Check::success(), Check::return_data(&[0])],
     );
 }
+
+// ─── PairRet (BL-12 / B-RET-ABI: named Struct multi-leaf return) ─────────────
+
+/// Named Struct state `p : Pair { a, b : UInt64 }` flattens to preorder leaves
+/// `p_a`, `p_b` sharing `source_id` 0 (one logical state, two storage leaves).
+fn pair_ret_fields() -> Vec<StateField> {
+    vec![
+        StateField {
+            source_id: 0,
+            name: "p_a",
+            byte_offset: STATE_HEADER_BYTES,
+            byte_width: 8,
+        },
+        StateField {
+            source_id: 0,
+            name: "p_b",
+            byte_offset: STATE_HEADER_BYTES + 8,
+            byte_width: 8,
+        },
+    ]
+}
+
+fn pair_ret_state(initialized: bool, a: u64, b: u64) -> Vec<u8> {
+    state_data(&pair_ret_fields(), initialized, &[a, b])
+}
+
+/// Independent oracle: N×8 little-endian packing of preorder aggregate leaves.
+fn multi_return_le(leaves: &[u64]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(leaves.len() * 8);
+    for leaf in leaves {
+        out.extend_from_slice(&leaf.to_le_bytes());
+    }
+    out
+}
+
+fn assert_pair_ret_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("PairRet"),
+        &[
+            ("initialize", 2),
+            ("setPair", 2),
+            ("getPair", 0),
+        ],
+    );
+    let fields = pair_ret_fields();
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, "p_a");
+    assert_eq!(fields[1].name, "p_b");
+    assert_eq!(fields[0].source_id, fields[1].source_id);
+    // Distinct from MultiField two-state layout (different names + source_ids).
+    let pair_marker = layout_marker(&fields);
+    let multi_marker = layout_marker(&two_fields("a", "b"));
+    assert_ne!(pair_marker, 0);
+    assert_ne!(pair_marker, multi_marker);
+}
+
+#[test]
+fn pair_ret_initialize_stores_both_leaves() {
+    assert_pair_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "PairRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("initialize", 2);
+    let a = 3u64;
+    let b = 7u64;
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[a, b], true, true),
+        &[(
+            state_key,
+            state_account(&program_id, pair_ret_state(false, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::account(&state_key)
+                .data(&pair_ret_state(true, a, b))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn pair_ret_get_pair_returns_16_le_bytes() {
+    assert_pair_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "PairRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("getPair", 0);
+    let a = 0x1122_3344_5566_7788u64;
+    let b = 0xaabb_ccdd_eeff_0011u64;
+    let expected = multi_return_le(&[a, b]);
+    assert_eq!(expected.len(), 16);
+    // Exact preorder leaf order: a then b (not swapped).
+    assert_eq!(&expected[..8], &a.to_le_bytes());
+    assert_eq!(&expected[8..], &b.to_le_bytes());
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, pair_ret_state(true, a, b)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            // View must not mutate state.
+            Check::account(&state_key)
+                .data(&pair_ret_state(true, a, b))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn pair_ret_set_pair_updates_and_returns_multi() {
+    assert_pair_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "PairRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("setPair", 2);
+    let x = 99u64;
+    let y = 42u64;
+    let expected = multi_return_le(&[x, y]);
+    assert_eq!(expected.len(), 16);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[x, y], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, pair_ret_state(true, 1, 2)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&pair_ret_state(true, x, y))
+                .build(),
+        ],
+    );
+}
+
+// ─── MaybeRet (BL-12 / B-RET-ABI: named Enum tag + max-payload return) ───────
+
+/// Named Enum state `m : Maybe` flattens to tag + max-payload slots:
+/// `m_tag`, `m_p0` (shared source_id 0). None tag=0; Some tag=1.
+fn maybe_ret_fields() -> Vec<StateField> {
+    vec![
+        StateField {
+            source_id: 0,
+            name: "m_tag",
+            byte_offset: STATE_HEADER_BYTES,
+            byte_width: 8,
+        },
+        StateField {
+            source_id: 0,
+            name: "m_p0",
+            byte_offset: STATE_HEADER_BYTES + 8,
+            byte_width: 8,
+        },
+    ]
+}
+
+fn maybe_ret_state(initialized: bool, tag: u64, payload: u64) -> Vec<u8> {
+    state_data(&maybe_ret_fields(), initialized, &[tag, payload])
+}
+
+fn assert_maybe_ret_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("MaybeRet"),
+        &[
+            ("initialize", 0),
+            ("put", 1),
+            ("clear", 0),
+            ("peek", 0),
+        ],
+    );
+    let fields = maybe_ret_fields();
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, "m_tag");
+    assert_eq!(fields[1].name, "m_p0");
+    let maybe_marker = layout_marker(&fields);
+    let pair_marker = layout_marker(&pair_ret_fields());
+    assert_ne!(maybe_marker, 0);
+    assert_ne!(maybe_marker, pair_marker);
+}
+
+#[test]
+fn maybe_ret_initialize_none() {
+    assert_maybe_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MaybeRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("initialize", 0);
+    // None = tag 0, payload pad 0.
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, true),
+        &[(
+            state_key,
+            state_account(&program_id, maybe_ret_state(false, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::account(&state_key)
+                .data(&maybe_ret_state(true, 0, 0))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn maybe_ret_peek_none_returns_tag_zero_pad() {
+    assert_maybe_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MaybeRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("peek", 0);
+    let expected = multi_return_le(&[0, 0]);
+    assert_eq!(expected.len(), 16);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, maybe_ret_state(true, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&maybe_ret_state(true, 0, 0))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn maybe_ret_put_some_returns_tag_one_and_payload() {
+    assert_maybe_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MaybeRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("put", 1);
+    let v = 0xdead_beef_cafe_u64;
+    // Some(v) = tag 1 + payload v (max-payload pad is exactly one slot here).
+    let expected = multi_return_le(&[1, v]);
+    assert_eq!(expected.len(), 16);
+    assert_eq!(&expected[..8], &1u64.to_le_bytes());
+    assert_eq!(&expected[8..], &v.to_le_bytes());
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[v], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, maybe_ret_state(true, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&maybe_ret_state(true, 1, v))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn maybe_ret_clear_resets_to_none_pad_zero() {
+    assert_maybe_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MaybeRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("clear", 0);
+    // Clear must write None leaves: tag 0 and zero-padded payload slot
+    // (not leave stale Some payload in the pad).
+    let expected = multi_return_le(&[0, 0]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, maybe_ret_state(true, 1, 0x99)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&maybe_ret_state(true, 0, 0))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn maybe_ret_peek_some_after_put() {
+    assert_maybe_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MaybeRet");
+    let state_key = Pubkey::new_unique();
+    let put_disc = instruction_discriminator("put", 1);
+    let peek_disc = instruction_discriminator("peek", 0);
+    let v = 55u64;
+    let expected = multi_return_le(&[1, v]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &put_disc, &[v], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, maybe_ret_state(true, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&maybe_ret_state(true, 1, v))
+                .build(),
+        ],
+    );
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &peek_disc, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, maybe_ret_state(true, 1, v)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+        ],
+    );
+}
