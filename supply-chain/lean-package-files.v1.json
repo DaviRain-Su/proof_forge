@@ -326,9 +326,9 @@
       "sha256": "239871e9a186012c2540e3c906f6590ae84e931861d654ee49af87599311e89f"
     },
     {
-      "bytes": 50168,
+      "bytes": 54276,
       "path": "ProofForgeV2/Semantic/Wire/InvariantClosureV1.lean",
-      "sha256": "4615561ea9a06d07382857f2f2b3e119ee86b1f4a6077caab3f2368388d871f5"
+      "sha256": "b102b835d7721ef6cfe47ccc16c38350f0633b4388799b452daa0132fa4235bf"
     },
     {
       "bytes": 19247,
@@ -341,9 +341,9 @@
       "sha256": "fc57bb710fb8a89ebe68b68e163e9ba74d7ee37c1ef2a34cad857b642ea75315"
     },
     {
-      "bytes": 8293,
+      "bytes": 10154,
       "path": "ProofForgeV2/Semantic/Wire/RequirementsGateV1.lean",
-      "sha256": "28c0a59037a92ef14f16d8fc5d62aee36ecf808ad5f60c665ad00123a48be349"
+      "sha256": "b962952115407817f7a0c1d3f06635675a5e9731c9d52c188a056e30f906eea9"
     },
     {
       "bytes": 14203,

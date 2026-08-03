@@ -741,6 +741,43 @@ theorem validateInvariantClosureDagPhasesV1_eq_ok
   simp only [validateInvariantClosureDagPhasesV1, hMembership, hDag, Pure.pure,
     Except.pure, Bind.bind, Except.bind]
 
+/-- Two-callable (view + invariant simple closure) PureFn metadata scan: neither
+    callable is a PureFn, so membership bits cannot disagree with carried fuel. -/
+theorem validatePureFnInvariantClosureMembershipTwoV1
+    (c0 c1 : CallableV1)
+    (h0 : (c0.kind == .pureFn) = false)
+    (h1 : (c1.kind == .pureFn) = false) :
+    validatePureFnInvariantClosureMembershipWithMembersV1
+      #[c0, c1] #[false, true] = .ok () := by
+  simp [validatePureFnInvariantClosureMembershipWithMembersV1,
+    validatePureFnInvariantClosureMembershipWorkerV1, h0, h1,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Exact graph/ready/Kahn refinement seam for a two-callable simple closure
+    (Normalize view + single invariant root). Graph has no PureCall edges:
+    indegree `#[0,0]`, empty adjacency, one member; ready is `#[1]`; Kahn
+    processes that sole member. -/
+theorem validateInvariantClosureDagCanonicalTwoV1
+    (callables : Array CallableV1)
+    (hGraph : buildInvariantClosureDagGraphWorkerV1 callables
+      #[false, true] 0
+      (Array.mk (List.replicate callables.size 0))
+      (Array.mk (List.replicate callables.size #[])) 0 callables.size =
+      .ok (#[0, 0], #[#[], #[]], 1))
+    (hReady : collectInvariantClosureDagReadyWorkerV1
+      #[false, true] #[0, 0] 0 #[] callables.size = .ok #[1])
+    (hKahn : validateInvariantClosureDagReadyWorkerV1 0 0 #[0, 0]
+      #[#[], #[]] #[1] 1 callables.size = .ok 1) :
+    validateInvariantClosureCallGraphDagWithMembersV1 callables
+      #[false, true] = .ok () := by
+  simp only [validateInvariantClosureCallGraphDagWithMembersV1]
+  rw [hGraph]
+  simp only [Bind.bind, Except.bind]
+  rw [hReady]
+  simp only []
+  rw [hKahn]
+  rfl
+
 /-- Exact graph/ready/Kahn refinement seam for a four-callable canonical
     closure. The premises pin the production workers' states: graph
     `(#[0,1,0,0], #[#[],#[],#[1],#[]], 3)`, ready `#[2,3]`, and Kahn count 3. -/
@@ -764,6 +801,25 @@ theorem validateInvariantClosureDagCanonicalFourV1
   simp only []
   rw [hKahn]
   rfl
+
+/-- Post-DAG acyclicity + PureFn-ops for the two-callable simple closure.
+    Only the invariant root is a member; it has one back-edge-free block and is
+    not a PureFn, so the PureFn allowlist is vacuously empty. -/
+theorem validateInvariantClosurePostDagCanonicalTwoV1
+    (c0 c1 : CallableV1) (b1 : BlockV1)
+    (hC1Blocks : c1.blocks = #[b1])
+    (hC1BackEdges : cfgBackEdges #[b1] 1 = #[])
+    (_hC0Kind : (c0.kind == .pureFn) = false)
+    (hC1Kind : (c1.kind == .pureFn) = false) :
+    validateInvariantClosureCfgAcyclicWithMembersV1
+        #[c0, c1] #[false, true] = .ok () ∧
+      validateInvariantClosurePureFnOpsWithMembersV1
+        #[c0, c1] #[false, true] = .ok () := by
+  constructor <;>
+    simp [validateInvariantClosureCfgAcyclicWithMembersV1,
+      validateInvariantClosurePureFnOpsWithMembersV1, hC1Blocks,
+      hC1BackEdges, hC1Kind, Pure.pure, Except.pure,
+      Bind.bind, Except.bind]
 
 /-- Refinement of the two post-DAG closure checkers for the canonical
     four-callable shape. Callable zero is outside the closure. Callables one,
@@ -808,6 +864,39 @@ theorem validateInvariantClosurePhasesV1_eq_ok
     validateInvariantClosurePhasesV1 callables = .ok members := by
   simp only [validateInvariantClosurePhasesV1, hDag, hCfg, hOps,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Exact production-fuel refinement for the two-callable simple closure.
+    One invariant root with a single Bool-literal instruction carries intrinsic
+    total 3 (`1 + (1+1)`), no PureCall edges, ready `#[1]`, and Kahn processes
+    that sole member against carried `some 3`. -/
+theorem validateInvariantFuelCanonicalTwoV1
+    (callables : Array CallableV1)
+    (hSize : callables.size = 2)
+    (hGraph : buildInvariantFuelGraphWorkerV1 callables
+      #[false, true] 0
+      (Array.mk (List.replicate callables.size 0))
+      (Array.mk (List.replicate callables.size #[]))
+      (Array.mk (List.replicate callables.size (0 : UInt64))) 0 callables.size =
+      .ok (#[0, 0], #[#[], #[]], #[0, 3], 1))
+    (hReady : collectInvariantFuelReadyWorkerV1 #[false, true]
+      #[0, 0] 0 #[] callables.size = .ok #[1])
+    (hKahn : validateInvariantFuelKahnWorkerV1 0 0 #[0, 0]
+      #[#[], #[]] #[0, 3] #[1] 1 callables
+      callables.size = .ok (1, #[0, 0], #[0, 3], #[1]))
+    (hCeiling : validateInvariantStepsIntrinsicCeilingWorkerV1 callables 0
+      callables.size = .ok ()) :
+    validateInvariantFuelPhasesV1 callables #[false, true] = .ok () := by
+  simp only [validateInvariantFuelPhasesV1]
+  rw [if_pos (by simp [hSize])]
+  simp only [validateInvariantStepsExactWithMembersV1]
+  rw [if_pos (by simp [hSize])]
+  rw [hGraph]
+  simp only [Bind.bind, Except.bind]
+  rw [hReady]
+  simp only []
+  rw [hKahn]
+  simp only [beq_self_eq_true, ↓reduceIte, Pure.pure, Except.pure]
+  exact hCeiling
 
 /-- Exact production-fuel refinement for the canonical four-callable closure.
     The premises expose only identities of the private production workers:
