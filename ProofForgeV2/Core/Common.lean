@@ -142,8 +142,18 @@ private def parseSemVerIdentifiers
     validateSemVerIdentifier kind identifier numericLeadingZerosAllowed
   pure identifiers.toArray
 
-/-- Parse the exact SemVer 2.0.0 wire grammar with UInt64 core components. -/
-def parseSemVer (s : String) : Except String SemVer := do
+/-- Exact wire spelling of the sole S2 catalog SemVer core (`1.0.0`).
+    Used as a kernel-reducible exact-match fast path in `parseSemVer`. -/
+def s2CatalogSemVerCoreWireV1 : String := "1.0.0"
+
+/-- Sole S2 catalog SemVer value (major.minor.patch = 1.0.0, empty pre/build). -/
+def s2CatalogSemVerCoreV1 : SemVer :=
+  { major := 1, minor := 0, patch := 0 }
+
+/-- General SemVer 2.0.0 wire grammar (non-fast-path). Kept private so the
+    public entry can dispatch the exact S2 core spelling without String.splitOn
+    reduction in certificates, while all other inputs still use this authority. -/
+private def parseSemVerGeneral (s : String) : Except String SemVer := do
   if s.startsWith "v" then
     throw "v prefix forbidden"
   let (versionAndPrerelease, buildValue) := splitOnce s '+'
@@ -161,6 +171,24 @@ def parseSemVer (s : String) : Except String SemVer := do
   let minor ← parseUInt64NoLeadingZero core[1]!
   let patch ← parseUInt64NoLeadingZero core[2]!
   pure { major, minor, patch, prerelease, build }
+
+/-- Parse the exact SemVer 2.0.0 wire grammar with UInt64 core components.
+
+    Exact spelling `1.0.0` (sole S2 catalog core) is a kernel-reducible
+    production-preserving fast path returning `s2CatalogSemVerCoreV1`. All other
+    inputs, including near-neighbor spellings (`01.0.0`, `1.0.00`,
+    `1.0.0-alpha`, `v1.0.0`, …), still use the general grammar authority. -/
+def parseSemVer (s : String) : Except String SemVer :=
+  if s == s2CatalogSemVerCoreWireV1 then
+    .ok s2CatalogSemVerCoreV1
+  else
+    parseSemVerGeneral s
+
+/-- Kernel certificate: exact S2 catalog SemVer core spelling. -/
+theorem parseSemVer_1_0_0 :
+    parseSemVer "1.0.0" = .ok s2CatalogSemVerCoreV1 := by
+  simp only [parseSemVer, s2CatalogSemVerCoreWireV1, s2CatalogSemVerCoreV1]
+  rfl
 
 /-- Parse a SemVer core while rejecting prerelease and build suffixes. -/
 def parseSemVerCore (s : String) : Except String SemVer := do

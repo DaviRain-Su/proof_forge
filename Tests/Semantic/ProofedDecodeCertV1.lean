@@ -12,6 +12,7 @@
 import Tests.Semantic.ProofedCertV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Semantic.RequirementsV1
+import ProofForgeV2.Semantic.RequirementIdsV1
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
 
@@ -22,6 +23,7 @@ namespace Tests.Semantic.ProofedDecodeCertV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
+open ProofForgeV2.Semantic.RequirementIdsV1
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
 open Tests.Semantic.ProofedCertV1
@@ -1056,20 +1058,300 @@ theorem decodeInvariants_proofed :
     ⟨proofedWireBytes, 690, 1⟩
     readInvariantsCount_proofed decodeInvariantDecl_proofed
 
-/-! ### Status
+/-! ### ProgramRequirements (value.bool singleton) 690→802 -/
 
-  Closed (kernel, transport-only, elaborator `proofedBytes`):
-  - magic/root, 4-component QN, Bool+UInt64 types, 4 empty tables
-  - callables: view `alive` + invariant `safe` (literal-true blocks)
-  - invariants: single `safe` → callableId 1
-  - cursor after invariants: **690**
+/-- Exact wire requirement row for `value.bool` (transparent S2 digest spine). -/
+def wireBoolReq : RequirementRequestV1 := {
+  id := "value.bool"
+  version := s2RequirementVersionV1
+  digest := {
+    algorithm := .sha256
+    bytes := ProofForgeV2.Semantic.RequirementsV1.s2ValueBoolDigestBytesV1
+  }
+  predicates := #[]
+}
 
-  Remaining for `decodeData_proofed`:
-  - ProgramRequirements 690→802 (`value.bool` / SemVer `1.0.0` / 32-byte digest)
-    **blocked**: kernel certificate for `parseSemVer "1.0.0"` and
-    `boolReq` ↔ wire digest (`engineeringRequirementDigestV1`, pure SHA-256)
-    without `native_decide` / `ofReduceBool`
-  - finish at 802; framing composition to `proofedData`
--/
+theorem s2Version_eq_catalogCore :
+    s2RequirementVersionV1 = s2CatalogSemVerCoreV1 := rfl
+
+theorem isS2_value_bool :
+    ProofForgeV2.Semantic.RequirementsV1.isS2CatalogIdV1 "value.bool" = true := by
+  unfold ProofForgeV2.Semantic.RequirementsV1.isS2CatalogIdV1
+  change s2CatalogIdsWireOrderListV1.contains "value.bool" = true
+  unfold s2CatalogIdsWireOrderListV1
+  simp only [s2EffectAsyncWorkflowIdV1, s2EffectEventIdV1, s2EffectSyncCallIdV1,
+    s2FailureAtomicRollbackIdV1, s2StatePersistentIdV1, s2ValueBoolIdV1,
+    s2ValueCheckedArithmeticIdV1]
+  decide
+
+theorem dig_value_bool :
+    ProofForgeV2.Semantic.RequirementsV1.engineeringRequirementDigestV1 "value.bool" =
+      .ok {
+        algorithm := .sha256
+        bytes := ProofForgeV2.Semantic.RequirementsV1.s2ValueBoolDigestBytesV1
+      } := by
+  unfold ProofForgeV2.Semantic.RequirementsV1.engineeringRequirementDigestV1
+  simp only [s2EffectAsyncWorkflowIdV1, s2EffectEventIdV1, s2EffectSyncCallIdV1,
+    s2FailureAtomicRollbackIdV1, s2StatePersistentIdV1, s2ValueBoolIdV1,
+    s2ValueCheckedArithmeticIdV1]
+  rfl
+
+theorem mkS2_value_bool :
+    ProofForgeV2.Semantic.RequirementsV1.mkS2RequirementRequestV1 "value.bool" =
+      .ok wireBoolReq := by
+  unfold ProofForgeV2.Semantic.RequirementsV1.mkS2RequirementRequestV1
+  simp only [isS2_value_bool, dig_value_bool, wireBoolReq, ↓reduceIte,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+theorem boolReq_eq_wire : boolReq = wireBoolReq := by
+  unfold boolReq
+  simp only [mkS2_value_bool]
+
+theorem expectProgramRequirements_proofed :
+    expectTag "ProgramRequirements" 1 ⟨proofedWireBytes, 690, 2⟩ =
+      .ok ((), ⟨proofedWireBytes, 715, 2⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 690
+      (ByteArray.mk [80, 114, 111, 103, 114, 97, 109, 82, 101, 113, 117, 105, 114, 101,
+        109, 101, 110, 116, 115].toArray) 1 = .ok 715
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [proofedSpine_length]
+  rfl
+
+theorem readRequirementsCount_proofed :
+    readArrayCountAtV1 proofedWireBytes 715 maxArrayElements = .ok (1, 719) := by
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 715 maxArrayElements =
+    .ok (1, 719)
+  rw [readArrayCountAtV1_refinesSpine]
+  rfl
+
+theorem expectRequirementRequest_proofed :
+    expectTag "RequirementRequest" 4 ⟨proofedWireBytes, 719, 3⟩ =
+      .ok ((), ⟨proofedWireBytes, 743, 3⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 719
+      (ByteArray.mk [82, 101, 113, 117, 105, 114, 101, 109, 101, 110, 116, 82, 101, 113,
+        117, 101, 115, 116].toArray) 4 = .ok 743
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [proofedSpine_length]
+  rfl
+
+theorem readReqId_proofed :
+    readSizedBytesAtV1 proofedWireBytes 743 maxStringBytes =
+      .ok (ByteArray.mk [118, 97, 108, 117, 101, 46, 98, 111, 111, 108].toArray, 757) := by
+  apply readSized_proofed
+  apply readSizedSpineBytesV1_eq_of_parts proofedSpine
+      [118, 97, 108, 117, 101, 46, 98, 111, 111, 108] 743 maxStringBytes 10 747
+  · rfl
+  · decide
+  · decide
+  · unfold takeSpineBytesV1 spineRemainingV1
+    rw [proofedSpine_length]
+    rfl
+
+theorem decodeReqId_proofed :
+    decodeString ⟨proofedWireBytes, 743, 3⟩ =
+      .ok ("value.bool", ⟨proofedWireBytes, 757, 3⟩) :=
+  decodeAsciiString_of_read proofedWireBytes 743 757
+    [118, 97, 108, 117, 101, 46, 98, 111, 111, 108] "value.bool" 3
+    readReqId_proofed (by rfl) (by rfl)
+
+theorem readReqVersion_proofed :
+    readSizedBytesAtV1 proofedWireBytes 757 maxStringBytes =
+      .ok (ByteArray.mk [49, 46, 48, 46, 48].toArray, 766) := by
+  apply readSized_proofed
+  apply readSizedSpineBytesV1_eq_of_parts proofedSpine
+      [49, 46, 48, 46, 48] 757 maxStringBytes 5 761
+  · rfl
+  · decide
+  · decide
+  · unfold takeSpineBytesV1 spineRemainingV1
+    rw [proofedSpine_length]
+    rfl
+
+theorem decodeReqVersionString_proofed :
+    decodeString ⟨proofedWireBytes, 757, 3⟩ =
+      .ok ("1.0.0", ⟨proofedWireBytes, 766, 3⟩) :=
+  decodeAsciiString_of_read proofedWireBytes 757 766
+    [49, 46, 48, 46, 48] "1.0.0" 3
+    readReqVersion_proofed (by rfl) (by rfl)
+
+theorem decodeReqVersion_proofed :
+    decodeSemVer ⟨proofedWireBytes, 757, 3⟩ =
+      .ok (s2RequirementVersionV1, ⟨proofedWireBytes, 766, 3⟩) := by
+  apply decodeSemVer_eq_of_stringV1 _ _ _ s2RequirementVersionV1
+    decodeReqVersionString_proofed
+  · -- parseSemVer "1.0.0" = .ok s2CatalogSemVerCoreV1 = .ok s2RequirementVersionV1
+    have h := parseSemVer_1_0_0
+    rw [s2Version_eq_catalogCore.symm] at h
+    exact h
+
+private def valueBoolDigestSpine : TransparentByteSpineV1 :=
+  [237, 52, 225, 6, 29, 14, 102, 99, 155, 106, 118, 55, 29, 216, 166, 193,
+    204, 215, 46, 122, 154, 20, 116, 84, 218, 122, 83, 193, 167, 71, 84, 124]
+
+theorem valueBoolDigestSpine_length : valueBoolDigestSpine.length = 32 := by rfl
+
+private abbrev valueBoolDigestBytes : ByteArray :=
+  ProofForgeV2.Semantic.RequirementsV1.s2ValueBoolDigestBytesV1
+
+theorem valueBoolDigestSpine_eq_bytes :
+    ByteArray.mk valueBoolDigestSpine.toArray = valueBoolDigestBytes := by
+  unfold valueBoolDigestBytes
+    ProofForgeV2.Semantic.RequirementsV1.s2ValueBoolDigestBytesV1
+    valueBoolDigestSpine
+  rfl
+
+theorem takeDigest_proofed :
+    takeBytesAtV1 proofedWireBytes 766 32 = .ok valueBoolDigestBytes := by
+  have hspine : takeSpineBytesV1 proofedSpine 766 32 = .ok valueBoolDigestSpine := by
+    unfold takeSpineBytesV1 spineRemainingV1 valueBoolDigestSpine
+    rw [proofedSpine_length]
+    rfl
+  have htake :
+      takeBytesAtV1 (ByteArray.mk proofedSpine.toArray) 766 valueBoolDigestSpine.length =
+        .ok (ByteArray.mk valueBoolDigestSpine.toArray) :=
+    takeBytesAtV1_eq_of_spine proofedSpine valueBoolDigestSpine 766 hspine
+  rw [valueBoolDigestSpine_length, valueBoolDigestSpine_eq_bytes] at htake
+  exact htake
+
+theorem valueBoolDigestBytes_size :
+    valueBoolDigestBytes.size = 32 := by
+  rw [← valueBoolDigestSpine_eq_bytes]
+  -- size(ByteArray.mk xs.toArray) = xs.length, and spine length is 32.
+  have h : (ByteArray.mk valueBoolDigestSpine.toArray).size = valueBoolDigestSpine.length := by
+    rfl
+  rw [h, valueBoolDigestSpine_length]
+
+theorem validateDigest_valueBool :
+    validateDigest { algorithm := .sha256, bytes := valueBoolDigestBytes } = .ok () := by
+  simp only [validateDigest, valueBoolDigestBytes_size, ↓reduceIte, Pure.pure, Except.pure]
+
+theorem decodeDigest_proofed :
+    decodeDigest ⟨proofedWireBytes, 766, 3⟩ =
+      .ok ({ algorithm := .sha256, bytes := valueBoolDigestBytes },
+        ⟨proofedWireBytes, 798, 3⟩) :=
+  decodeDigest_eq_of_takeV1 ⟨proofedWireBytes, 766, 3⟩ valueBoolDigestBytes
+    takeDigest_proofed validateDigest_valueBool
+
+theorem decodeReqPredicates_proofed :
+    decodeArray maxArrayElements decodeRequirementPredicateV1
+        ⟨proofedWireBytes, 798, 3⟩ =
+      .ok (#[], ⟨proofedWireBytes, 802, 3⟩) := by
+  apply decodeArray_zeroV1
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 798 maxArrayElements =
+    .ok (0, 802)
+  rw [readArrayCountAtV1_refinesSpine]
+  rfl
+
+theorem decodeRequirementRequest_proofed :
+    decodeRequirementRequestV1 ⟨proofedWireBytes, 719, 2⟩ =
+      .ok (wireBoolReq, ⟨proofedWireBytes, 802, 2⟩) := by
+  unfold decodeRequirementRequestV1 withTaggedNesting
+  have hdepth : (2 : Nat) < maxNesting := by decide
+  -- Body runs at `nesting + 1` (= 3); restate field successes at that cursor.
+  have htag :
+      expectTag "RequirementRequest" 4 ⟨proofedWireBytes, 719, 2 + 1⟩ =
+        .ok ((), ⟨proofedWireBytes, 743, 2 + 1⟩) := by
+    simpa using expectRequirementRequest_proofed
+  have hid :
+      decodeString ⟨proofedWireBytes, 743, 2 + 1⟩ =
+        .ok ("value.bool", ⟨proofedWireBytes, 757, 2 + 1⟩) := by
+    simpa using decodeReqId_proofed
+  have hver :
+      decodeSemVer ⟨proofedWireBytes, 757, 2 + 1⟩ =
+        .ok (s2RequirementVersionV1, ⟨proofedWireBytes, 766, 2 + 1⟩) := by
+    simpa using decodeReqVersion_proofed
+  have hdig :
+      decodeDigest ⟨proofedWireBytes, 766, 2 + 1⟩ =
+        .ok ({ algorithm := .sha256, bytes := valueBoolDigestBytes },
+          ⟨proofedWireBytes, 798, 2 + 1⟩) := by
+    simpa using decodeDigest_proofed
+  have hpred :
+      decodeArray maxArrayElements decodeRequirementPredicateV1
+          ⟨proofedWireBytes, 798, 2 + 1⟩ =
+        .ok (#[], ⟨proofedWireBytes, 802, 2 + 1⟩) := by
+    simpa using decodeReqPredicates_proofed
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure,
+    htag, hid, hver, hdig, hpred, wireBoolReq]
+
+theorem decodeRequirements_proofed :
+    decodeProgramRequirementsV1 ⟨proofedWireBytes, 690, 1⟩ =
+      .ok ({ items := #[wireBoolReq] }, ⟨proofedWireBytes, 802, 1⟩) := by
+  refine decodeProgramRequirementsV1_eq_of_bodyV1 ⟨proofedWireBytes, 690, 1⟩
+    { items := #[wireBoolReq] } ⟨proofedWireBytes, 802, 2⟩ (by decide) ?_
+  apply decodeProgramRequirementsBodyV1_eq_of_fields
+  · exact expectProgramRequirements_proofed
+  · exact decodeArray_oneV1 maxArrayElements decodeRequirementRequestV1
+      ⟨proofedWireBytes, 715, 2⟩ 719 wireBoolReq ⟨proofedWireBytes, 802, 2⟩
+      readRequirementsCount_proofed decodeRequirementRequest_proofed
+
+/-! ### Full transport framing → `proofedData` -/
+
+theorem decodeTaggedData_proofed :
+    decodeSemanticProgramDataTaggedV1 ⟨proofedWireBytes, 15, 0⟩ =
+      .ok (proofedData, ⟨proofedWireBytes, 802, 0⟩) := by
+  have h := decodeSemanticProgramDataTaggedV1_eq_of_fields
+    ⟨proofedWireBytes, 15, 0⟩ ⟨proofedWireBytes, 41, 1⟩
+    ⟨proofedWireBytes, 103, 1⟩ ⟨proofedWireBytes, 177, 1⟩
+    ⟨proofedWireBytes, 181, 1⟩ ⟨proofedWireBytes, 185, 1⟩
+    ⟨proofedWireBytes, 189, 1⟩ ⟨proofedWireBytes, 193, 1⟩
+    ⟨proofedWireBytes, 651, 1⟩ ⟨proofedWireBytes, 690, 1⟩
+    ⟨proofedWireBytes, 802, 1⟩ qn #[boolT, u64T] #[] #[] #[] #[]
+    #[viewC, invC] #[{ id := 0, name := "safe", callableId := 1 }]
+    { items := #[wireBoolReq] } (by decide)
+    expectRootTag_proofed decodeQualifiedName_proofed decodeTypes_proofed
+    decodeConstants_proofed decodeLogicalState_proofed decodeEvents_proofed
+    decodeErrors_proofed decodeCallables_proofed decodeInvariants_proofed
+    decodeRequirements_proofed
+  -- Align requirements items with `proofedData` (boolReq = wireBoolReq).
+  have hreq : ({ items := #[wireBoolReq] } : ProgramRequirementsV1) =
+      proofedData.requirements := by
+    simp only [proofedData, boolReq_eq_wire]
+  -- Align full data record.
+  have hdata :
+      ({
+        qualifiedName := qn
+        types := #[boolT, u64T]
+        constants := #[]
+        logicalState := #[]
+        events := #[]
+        errors := #[]
+        callables := #[viewC, invC]
+        invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+        requirements := { items := #[wireBoolReq] }
+      } : SemanticProgramDataV1) = proofedData := by
+    simp only [proofedData, boolReq_eq_wire]
+  simpa [hdata] using h
+
+theorem finish_proofed :
+    finish ⟨proofedWireBytes, 802, 0⟩ = .ok () := by
+  apply finish_eq_ok_of_offset_sizeV1
+  change 802 = proofedSpine.length
+  exact proofedSpine_length.symm
+
+/-- Decode-only kernel certificate: elaborator `proofedBytes` transport-decodes
+    to exact `proofedData` (no structure gate). -/
+theorem decodeData_proofed :
+    decodeSemanticProgramDataV1 proofedBytes = .ok proofedData := by
+  have hwire : proofedBytes = proofedWireBytes := proofedBytes_eq_spine
+  rw [hwire]
+  apply decodeSemanticProgramDataV1_eq_of_framing proofedWireBytes
+    ⟨proofedWireBytes, 15, 0⟩ ⟨proofedWireBytes, 802, 0⟩ proofedData
+  · change proofedSpine.length ≤ maxCanonicalProgramBytes
+    rw [proofedSpine_length]
+    decide
+  · exact consumeMagic_proofed
+  · exact decodeTaggedData_proofed
+  · exact finish_proofed
+
+/-- Same statement with elaborator name explicit. -/
+theorem decodeData_subjectBytesV1 :
+    decodeSemanticProgramDataV1 Proofed.Proof.subjectBytesV1 = .ok proofedData := by
+  simpa [proofedBytes] using decodeData_proofed
 
 end Tests.Semantic.ProofedDecodeCertV1

@@ -76,6 +76,41 @@ def run : IO Unit := do
   expectOk "semver core" (parseSemVerCore "1.2.3") { major := 1, minor := 2, patch := 3 }
   expectErr "semver v prefix" (parseSemVerCore "v1.2.3")
   expectErr "semver leading zero" (parseSemVerCore "01.2.3")
+  -- S2 catalog SemVer core exact fast path: production-preserving `1.0.0`.
+  expectOk "semver s2 core fast path" (parseSemVer "1.0.0")
+    { major := 1, minor := 0, patch := 0, prerelease := #[], build := #[] }
+  expectOk "semver s2 core via parseSemVerCore" (parseSemVerCore "1.0.0")
+    { major := 1, minor := 0, patch := 0, prerelease := #[], build := #[] }
+  match parseSemVer "1.0.0" with
+  | .ok v =>
+    match renderSemVer v with
+    | .ok rendered =>
+      unless rendered == "1.0.0" do
+        throw <| IO.userError
+          s!"semver s2 core render must be exact 1.0.0, got {rendered}"
+      unless v.prerelease.isEmpty && v.build.isEmpty do
+        throw <| IO.userError "semver s2 core must have empty prerelease/build"
+      unless v == s2CatalogSemVerCoreV1 do
+        throw <| IO.userError "semver s2 core must equal s2CatalogSemVerCoreV1"
+    | .error e =>
+      throw <| IO.userError s!"semver s2 core renderer rejected: {e}"
+  | .error e =>
+    throw <| IO.userError s!"semver s2 core fast path failed: {e}"
+  -- Near-neighbor spellings still use / reject via the general path.
+  expectErr "semver near leading zero major" (parseSemVer "01.0.0")
+  expectErr "semver near leading zero minor" (parseSemVer "1.00.0")
+  expectErr "semver near leading zero patch" (parseSemVer "1.0.00")
+  expectErr "semver near v prefix" (parseSemVer "v1.0.0")
+  expectErr "semver near missing patch" (parseSemVer "1.0")
+  expectErr "semver near trailing dot" (parseSemVer "1.0.0.")
+  expectOk "semver near prerelease not exact core"
+    (parseSemVer "1.0.0-alpha")
+    { major := 1, minor := 0, patch := 0, prerelease := #["alpha"], build := #[] }
+  expectOk "semver near build not exact core"
+    (parseSemVer "1.0.0+build")
+    { major := 1, minor := 0, patch := 0, prerelease := #[], build := #["build"] }
+  expectOk "semver near different patch" (parseSemVer "1.0.1")
+    { major := 1, minor := 0, patch := 1, prerelease := #[], build := #[] }
   expectOk "semver prerelease and build"
     (parseSemVer "1.2.3-alpha.1+build.005")
     { major := (1 : UInt64)
