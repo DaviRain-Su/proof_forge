@@ -1127,37 +1127,229 @@ unsafe def testNamedEnumReturn : IO Unit := do
   expect (psy.contains "return [")
     "MaybeRet source must emit array-literal return"
 
-/-- Fail-closed: anonymous Array return, >8 leaves, pureFn aggregate. -/
-unsafe def testAggregateReturnFailClosed : IO Unit := do
+/-- N-ANON-RESULT: anonymous Array UInt64 2 view return → `[Felt; 2]`. -/
+unsafe def testAnonymousArrayReturn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  -- Anonymous Array entry return stays fail-closed (B-RET-ABI named-only).
-  let arrSource :=
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program ArrayRet where\n" ++
     "  state slots : Array UInt64 2\n" ++
+    "  init(a : UInt64, b : UInt64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "  entry setArr(a : UInt64, b : UInt64) : Array UInt64 2 do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "    return slots\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-array-ret>" "Tests.ArrayRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let some getArr := plan.functions.find? (·.name == "getArr") |
+    throw <| IO.userError "ArrayRet plan must carry getArr"
+  match getArr.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrayRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "ArrayRet leaves must be 8-byte u64"
+  | other =>
+      throw <| IO.userError
+        s!"ArrayRet getArr resultKind must be .aggregate, got {repr other}"
+  match getArr.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt == #[false, false])
+        "ArrayRet returnAggregate must have 2 u64 leaves"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad 0, .stateLoad 1 => pure ()
+      | _, _ =>
+          throw <| IO.userError
+            "ArrayRet returnAggregate leaves must be stateLoad of slots_0/slots_1"
+  | _ =>
+      throw <| IO.userError "ArrayRet getArr body must be .returnAggregate"
+  let some setArr := plan.functions.find? (·.name == "setArr") |
+    throw <| IO.userError "ArrayRet plan must carry setArr"
+  match setArr.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2) "ArrayRet setArr must also return 2-leaf Array"
+  | _ =>
+      throw <| IO.userError "ArrayRet setArr resultKind must be .aggregate"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "ArrayRet.psy") |
+    throw <| IO.userError "psy: missing ArrayRet.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub fn getArr() -> [Felt; 2]")
+    s!"ArrayRet getArr must declare -> [Felt; 2], got:\n{psy}"
+  expect (psy.contains "pub fn setArr(p0: Felt, p1: Felt) -> [Felt; 2]")
+    s!"ArrayRet setArr must declare -> [Felt; 2], got:\n{psy}"
+  expect (psy.contains "return [")
+    "ArrayRet source must emit array-literal return"
+
+/-- N-ANON-RESULT: anonymous Option UInt64 entry/view → `[Felt; 2]` tag+payload. -/
+unsafe def testAnonymousOptionReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptionRet where\n" ++
+    "  state seed : UInt64\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    seed := x\n" ++
+    "  entry asSome(v : UInt64) : Option UInt64 do\n" ++
+    "    return Option.some(v)\n" ++
+    "  view asNone() : Option UInt64 do\n" ++
+    "    return Option.none()\n" ++
+    "  view asSomeOfSeed() : Option UInt64 do\n" ++
+    "    return Option.some(seed)\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-option-ret>" "Tests.OptionRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let some asNone := plan.functions.find? (·.name == "asNone") |
+    throw <| IO.userError "OptionRet plan must carry asNone"
+  match asNone.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptionRet asNone must be tag+payload (2), got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"OptionRet asNone resultKind must be .aggregate, got {repr other}"
+  match asNone.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt == #[false, false])
+        "OptionRet asNone returnAggregate must have 2 u64 leaves"
+      match leaves[0]!, leaves[1]! with
+      | .literal 0, .literal 0 => pure ()
+      | _, _ =>
+          throw <| IO.userError
+            "OptionRet asNone leaves must be literal 0,0 (none)"
+  | _ =>
+      throw <| IO.userError "OptionRet asNone body must be .returnAggregate"
+  let some asSome := plan.functions.find? (·.name == "asSome") |
+    throw <| IO.userError "OptionRet plan must carry asSome"
+  match asSome.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2) "OptionRet asSome must return 2-leaf Option"
+  | _ =>
+      throw <| IO.userError "OptionRet asSome resultKind must be .aggregate"
+  match asSome.body[0]! with
+  | .returnAggregate leaves _ =>
+      match leaves[0]!, leaves[1]! with
+      | .literal 1, .param 0 => pure ()
+      | _, _ =>
+          throw <| IO.userError
+            "OptionRet asSome leaves must be literal 1 + param 0"
+  | _ =>
+      throw <| IO.userError "OptionRet asSome body must be .returnAggregate"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "OptionRet.psy") |
+    throw <| IO.userError "psy: missing OptionRet.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub fn asNone() -> [Felt; 2]")
+    s!"OptionRet asNone must declare -> [Felt; 2], got:\n{psy}"
+  expect (psy.contains "pub fn asSome(p0: Felt) -> [Felt; 2]")
+    s!"OptionRet asSome must declare -> [Felt; 2], got:\n{psy}"
+  expect (psy.contains "return [")
+    "OptionRet source must emit array-literal return"
+
+/-- Fail-closed matrix: Map/Bytes returns, >8 leaves, pureFn aggregate,
+    non-UInt64 Array element, N>8 Array. -/
+unsafe def testAggregateReturnFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- Anonymous Map return stays fail-closed.
+  let mapSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapRet where\n" ++
+    "  state seed : UInt64\n" ++
+    "  init() do\n" ++
+    "    seed := 0\n" ++
+    "  view getMap() : Map UInt64 UInt64 do\n" ++
+    "    return Map.empty()\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          mapSource "<psy-map-ret>" "Tests.MapRet" none)
+        let c ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planPsy c with
+      | .error e =>
+          expect (e.render.contains "Map" || e.render.contains "aggregate" ||
+              e.render.contains "B-RET" || e.render.contains "container")
+            s!"MapRet error must cite Map/aggregate, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Psy anonymous Map return must fail closed (N-ANON-RESULT)"
+  -- Anonymous Bytes return stays fail-closed.
+  let bytesSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRet where\n" ++
+    "  state seed : UInt64\n" ++
+    "  init() do\n" ++
+    "    seed := 0\n" ++
+    "  view getBytes() : Bytes 4 do\n" ++
+    "    return 0x00000000\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          bytesSource "<psy-bytes-ret>" "Tests.BytesRet" none)
+        let c ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planPsy c with
+      | .error e =>
+          expect (e.render.contains "Bytes" || e.render.contains "aggregate" ||
+              e.render.contains "B-RET" || e.render.contains "container")
+            s!"BytesRet error must cite Bytes/aggregate, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Psy anonymous Bytes return must fail closed (N-ANON-RESULT)"
+  -- Array UInt64 9 exceeds B-RET-ABI leaf cap.
+  let arr9Source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Arr9Ret where\n" ++
+    "  state slots : Array UInt64 9\n" ++
     "  init() do\n" ++
     "    slots[0] := 0\n" ++
     "    slots[1] := 0\n" ++
-    "  view getArr() : Array UInt64 2 do\n" ++
+    "    slots[2] := 0\n" ++
+    "    slots[3] := 0\n" ++
+    "    slots[4] := 0\n" ++
+    "    slots[5] := 0\n" ++
+    "    slots[6] := 0\n" ++
+    "    slots[7] := 0\n" ++
+    "    slots[8] := 0\n" ++
+    "  view getArr() : Array UInt64 9 do\n" ++
     "    return slots\n"
   match ← (do
       try
         let parsed ← liftResult (← session.selectProgramV1
-          arrSource "<psy-array-ret>" "Tests.ArrayRet" none)
+          arr9Source "<psy-arr9-ret>" "Tests.Arr9Ret" none)
         let c ← liftResult <| Compiler.compileValidatedSourceV1 parsed
         pure (some c)
       catch _ => pure none) with
-  | none => pure ()  -- may fail at Normalize/typed
+  | none => pure ()
   | some c =>
       match planPsy c with
       | .error e =>
-          expect (e.render.contains "aggregate" || e.render.contains "Array" ||
-              e.render.contains "container" || e.render.contains "B-RET")
-            s!"ArrayRet error must cite aggregate/Array/container, got: {e.render}"
+          expect (e.render.contains "8" || e.render.contains "leaf" ||
+              e.render.contains "aggregate")
+            s!"Arr9Ret leaf-cap error must cite cap/leaf/aggregate, got: {e.render}"
       | .ok _ =>
           throw <| IO.userError
-            "Psy anonymous Array return must fail closed (B-RET-ABI named-only)"
+            "Psy Array UInt64 9 return must fail closed (cap-8)"
   -- Cap-8: Struct with 9 UInt64 fields exceeds B-RET-ABI leaf cap.
   let mut fields := ""
   let mut args := ""
@@ -1259,6 +1451,8 @@ unsafe def run : IO Unit := do
   testArrayStateLowered
   testNamedStructReturn
   testNamedEnumReturn
+  testAnonymousArrayReturn
+  testAnonymousOptionReturn
   testAggregateReturnFailClosed
   IO.println "Tests.Materialization.PsySourceV1: ok"
 

@@ -48,8 +48,17 @@ Named Struct/Enum **entry/view** results flatten to 1..8 preorder UInt64/Int64
 leaves (`ResultKind.aggregate` + `Statement.returnAggregate`, appended at the
 end of the Statement ctor space). Emission packs leaves as one honest Psy
 `[Felt; N]` return (`-> [Felt; N]` + `return [e0, …];`), verified against
-real dargo/psyup. Anonymous Array/Map/Bytes/Option returns, named aggregate
-params, pureFn aggregate returns, and >8 leaves stay fail closed.
+real dargo/psyup. Named aggregate params, pureFn aggregate returns, and >8
+leaves stay fail closed.
+
+## N-ANON-RESULT anonymous Array/Option entry/view returns (BL-25)
+
+Anonymous `Array UInt64 N` (1..8) and `Option UInt64` entry/view results reuse
+the same preorder-leaf + `[Felt; N]` path: Array → N Felt leaves; Option →
+`[Felt; 2]` tag+payload (`none=[0,0]`, `some=[1,v]`). Map/Bytes/nested/
+non-UInt64-element anonymous returns stay fail closed. Option is admitted as a
+body intermediate via container policy `ArrayMap` (Map **state** remains
+fail-closed at layout); Option **state** is never flattened.
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -168,9 +177,10 @@ inductive Statement where
   | externalCall (callee : Array String) (args : Array Expr)
   | schedule (callee : Array String) (args : Array Expr)
   /-- B-RET-ABI (appended; never renumber prior ctors): multi-leaf named
-      Struct/Enum return. `leaves` are preorder flatten expressions;
-      `leafIsInt` is parallel (i64 vs u64 ABI). Emission packs as one Psy
-      `[Felt; N]` return value (honest multi-leaf form on the Psy surface). -/
+      Struct/Enum or admitted anonymous Array/Option return. `leaves` are
+      preorder flatten expressions; `leafIsInt` is parallel (i64 vs u64 ABI).
+      Emission packs as one Psy `[Felt; N]` return value (honest multi-leaf
+      form on the Psy surface). -/
   | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   deriving BEq, Inhabited, Repr
 
@@ -184,14 +194,15 @@ structure LeafAbiType where
 /-- Entry/view/pureFn result ABI kind. Scalar UInt{8,16,32,64}/Int64/Field all
     render as Felt (narrow = single Felt with documented `resultUintWidth`);
     B-RET-ABI `.aggregate` packs 1..8 UInt64/Int64 leaves as one Psy
-    `[Felt; N]` return. Anonymous Array/Map/Bytes/Option stay FC. -/
+    `[Felt; N]` return (named Struct/Enum + admitted anonymous Array UInt64 N /
+    Option UInt64). Map/Bytes/nested stay FC. -/
 inductive ResultKind where
   /-- Scalar Felt (UInt{8,16,32,64}/Int64/Goldilocks Field). -/
   | felt
   | bool
   | unit
-  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` is preorder
-  flatten order (1..8). -/
+  /-- B-RET-ABI: named Struct/Enum or admitted anonymous Array/Option
+  aggregate return. `leaves` is preorder flatten order (1..8). -/
   | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
@@ -280,14 +291,19 @@ def isNarrowUintWidth (bitWidth : Nat) : Bool :=
 /-- Psy pilot accepts anonymous UInt{8,16,32,64}/Unit/Bool/Int64 under the T8
     multi-width + Int64 policies, plus **named Struct/Enum** and **Array**
     (H3 PsyAleoAggregate: flatten-to-Felt leaves). Field is Goldilocks only.
-    Map/Bytes/Option/Principal/UInt128/256/narrow Int fail closed. -/
+    Container policy is **ArrayMap** so anonymous `Option` may appear as a body
+    intermediate for N-ANON-RESULT returns (shared Envelope gate keys Option on
+    `admitMap`); Map **state** still fail-closes at layout. Bytes/Principal/
+    UInt128/256/narrow Int stay fail closed. -/
 private def validatePsyTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult PsyTypeClosureV1 :=
   validatePilotTypeClosure psyPlanErr psyTypeClosureWording types
     pilotUintWidthPolicyPsyBody
     (fieldPolicy := pilotFieldPolicyGoldilocks)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyArrayOnly)
+    -- ArrayMap (not ArrayOnly): admits Option body intermediates for
+    -- N-ANON-RESULT; Map state remains FC in makeStateLayoutV1.
+    (containerPolicy := pilotContainerStatePolicyArrayMap)
 
 -- ---------------------------------------------------------------------------
 -- Wire semantic → target-owned Plan lowering
@@ -512,9 +528,9 @@ private def leafCountOfTypeV1
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
 
-/-- B-RET-ABI return flatten: only UInt64/Int64 + named Struct/Enum
-    (preorder; Enum = tag + max-payload pad). Anonymous Array/Map/Bytes/
-    Option/Principal fail closed (not named aggregates). -/
+/-- B-RET-ABI return flatten for named Struct/Enum leaves: only UInt64/Int64 +
+    nested named Struct/Enum (preorder; Enum = tag + max-payload pad).
+    Anonymous containers are handled separately by `anonymousReturnLeafAbiV1`. -/
 private partial def flattenReturnLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Array LeafAbiType) := do
@@ -556,14 +572,67 @@ private partial def flattenReturnLeafAbiV1
   else
     planError "unsupported Psy semantic shape: aggregate return leaf must be UInt64, Int64, or named Struct/Enum"
 
-/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
-`ResultKind`. Enforces 1..8 leaves. Anonymous containers fail closed. -/
+/-- N-ANON-RESULT (Psy ABI): anonymous result leaf layout for admitted
+container returns. `Array UInt64 N` → N×Felt leaves; `Option UInt64` →
+tag+payload (`none=[0,0]`, `some=[1,v]`). Map/Bytes throw for precise FC. -/
+private def anonymousReturnLeafAbiV1
+    (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        planError
+          "unsupported Psy semantic shape: anonymous Array return requires UInt64 elements"
+      let n := len.toNat
+      unless n ≥ 1 do
+        planError
+          "unsupported Psy semantic shape: anonymous Array return length must be ≥ 1"
+      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
+  | some { shape := .option elTid, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        planError
+          "unsupported Psy semantic shape: anonymous Option return requires UInt64 payload"
+      pure (some #[{ isInt := false, byteWidth := 8 }, { isInt := false, byteWidth := 8 }])
+  | some { shape := .map .., name := none, .. } =>
+      planError
+        "unsupported Psy semantic shape: anonymous Map return is outside the Psy B-RET ABI"
+  | some { shape := .bytes .., name := none, .. } =>
+      planError
+        "unsupported Psy semantic shape: anonymous Bytes return is outside the Psy B-RET ABI"
+  | some { shape := .array .., .. } | some { shape := .option .., .. } =>
+      pure none
+  | _ => pure none
+
+/-- True when `typeId` should be resolved through the aggregate result path
+(named Struct/Enum or anonymous Array/Map/Bytes/Option, so Map/Bytes get
+precise fail-closed diagnostics instead of a scalar fallthrough). -/
+private def isAggregateResultCandidateV1
+    (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
+    (typeId : TypeIdV1) : Bool :=
+  if types.isNamedAggregate typeId then true
+  else
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .array .., name := none, .. }
+    | some { shape := .option .., name := none, .. }
+    | some { shape := .map .., name := none, .. }
+    | some { shape := .bytes .., name := none, .. } => true
+    | _ => false
+
+/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option
+result TypeId into an aggregate `ResultKind`. Enforces 1..8 leaves.
+Map/Bytes/nested/narrow-element anonymous containers fail closed. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
-  unless types.isNamedAggregate typeId do
-    planError s!"{owner} does not return a named Struct/Enum aggregate"
-  let leaves ← flattenReturnLeafAbiV1 typeDecls types typeId
+  let leaves ←
+    if types.isNamedAggregate typeId then
+      flattenReturnLeafAbiV1 typeDecls types typeId
+    else
+      match ← anonymousReturnLeafAbiV1 typeDecls types typeId with
+      | some ls => pure ls
+      | none =>
+          planError
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
   let n := leaves.size
   unless n > 0 do
     planError s!"{owner} aggregate return must have at least one leaf"
@@ -1135,57 +1204,91 @@ private partial def lowerRegion
                 leafExprs := leafExprs.push arg.expr
               env := envInsertVal env valueDef.valueId (mkAggregateVal leafExprs)
             else
-              unless layout.types.isNamedAggregate typeId do
-                planError "unsupported Psy semantic shape: construct requires named Struct/Enum or Array"
-              let some decl := layout.typeDecls[typeId.toNat]? |
-                planError "unsupported Psy semantic shape: construct TypeDecl missing"
-              match decl.shape with
-              | .struct fields => do
-                  unless ctorIdx.toNat == 0 do
-                    planError "unsupported Psy semantic shape: struct construct ctorIdx must be 0"
-                  unless argIds.size == fields.size do
-                    planError "unsupported Psy semantic shape: struct construct arity mismatch"
-                  let mut leaves : Array Expr := #[]
-                  for i in [0:argIds.size] do
-                    let some argId := argIds[i]? |
-                      planError "struct construct arg missing"
-                    let some field := fields[i]? |
-                      planError "struct construct field missing"
-                    let arg ← match envLookup env argId with
-                      | some v => pure v
-                      | none => planError "struct construct undefined arg"
-                    let expected ← leafCountOfTypeV1 layout.typeDecls layout.types field.typeId
-                    let argLeaves := arg.leafExprs
-                    unless argLeaves.size == expected do
-                      planError "unsupported Psy semantic shape: struct construct field leaf count mismatch"
-                    leaves := leaves ++ argLeaves
-                  env := envInsertVal env valueDef.valueId (mkAggregateVal leaves)
-              | .enum variants => do
-                  let vi := ctorIdx.toNat
-                  let some variant := variants[vi]? |
-                    planError "unsupported Psy semantic shape: enum construct variant out of range"
-                  unless argIds.size == variant.payloadTypes.size do
-                    planError "unsupported Psy semantic shape: enum construct arity mismatch"
-                  let maxPay ← enumMaxPayloadLeavesV1 layout.typeDecls layout.types variants
-                  let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
-                  for i in [0:argIds.size] do
-                    let some argId := argIds[i]? |
-                      planError "enum construct arg missing"
-                    let some pt := variant.payloadTypes[i]? |
-                      planError "enum construct payload type missing"
-                    let arg ← match envLookup env argId with
-                      | some v => pure v
-                      | none => planError "enum construct undefined arg"
-                    let expected ← leafCountOfTypeV1 layout.typeDecls layout.types pt
-                    let argLeaves := arg.leafExprs
-                    unless argLeaves.size == expected do
-                      planError "unsupported Psy semantic shape: enum construct payload leaf count mismatch"
-                    leaves := leaves ++ argLeaves
-                  while leaves.size < 1 + maxPay do
-                    leaves := leaves.push (.literal 0)
-                  env := envInsertVal env valueDef.valueId (mkAggregateVal leaves)
-              | _ =>
-                  planError "unsupported Psy semantic shape: construct requires Struct or Enum shape"
+              -- Option UInt64 construct (none/some) for anonymous-result returns;
+              -- named Struct/Enum construct remains the other non-container path.
+              match layout.typeDecls[typeId.toNat]? with
+              | some { shape := .option elTid, name := none, .. } => do
+                  unless elTid == layout.types.uint64TypeId do
+                    planError
+                      "unsupported Psy semantic shape: Option construct requires UInt64 payload"
+                  match ctorIdx.toNat with
+                  | 0 =>
+                      -- Option.none → (tag=0, payload=0)
+                      unless argIds.isEmpty do
+                        planError
+                          "unsupported Psy semantic shape: Option.none construct takes no args"
+                      env := envInsertVal env valueDef.valueId
+                        (mkAggregateVal #[.literal 0, .literal 0])
+                  | 1 =>
+                      -- Option.some(v) → (tag=1, payload=v)
+                      unless argIds.size == 1 do
+                        planError
+                          "unsupported Psy semantic shape: Option.some construct takes one arg"
+                      let some argId := argIds[0]? |
+                        planError "Option.some construct arg missing"
+                      let arg ← match envLookup env argId with
+                        | some v => pure v
+                        | none => planError "unsupported Psy semantic shape: Option.some undefined arg"
+                      unless !arg.isAggregate do
+                        planError
+                          "unsupported Psy semantic shape: Option.some arg must be scalar UInt64"
+                      env := envInsertVal env valueDef.valueId
+                        (mkAggregateVal #[.literal 1, arg.expr])
+                  | _ =>
+                      planError
+                        "unsupported Psy semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+              | _ => do
+                  unless layout.types.isNamedAggregate typeId do
+                    planError "unsupported Psy semantic shape: construct admits only Array UInt64, Option UInt64, or named Struct/Enum on Psy"
+                  let some decl := layout.typeDecls[typeId.toNat]? |
+                    planError "unsupported Psy semantic shape: construct TypeDecl missing"
+                  match decl.shape with
+                  | .struct fields => do
+                      unless ctorIdx.toNat == 0 do
+                        planError "unsupported Psy semantic shape: struct construct ctorIdx must be 0"
+                      unless argIds.size == fields.size do
+                        planError "unsupported Psy semantic shape: struct construct arity mismatch"
+                      let mut leaves : Array Expr := #[]
+                      for i in [0:argIds.size] do
+                        let some argId := argIds[i]? |
+                          planError "struct construct arg missing"
+                        let some field := fields[i]? |
+                          planError "struct construct field missing"
+                        let arg ← match envLookup env argId with
+                          | some v => pure v
+                          | none => planError "struct construct undefined arg"
+                        let expected ← leafCountOfTypeV1 layout.typeDecls layout.types field.typeId
+                        let argLeaves := arg.leafExprs
+                        unless argLeaves.size == expected do
+                          planError "unsupported Psy semantic shape: struct construct field leaf count mismatch"
+                        leaves := leaves ++ argLeaves
+                      env := envInsertVal env valueDef.valueId (mkAggregateVal leaves)
+                  | .enum variants => do
+                      let vi := ctorIdx.toNat
+                      let some variant := variants[vi]? |
+                        planError "unsupported Psy semantic shape: enum construct variant out of range"
+                      unless argIds.size == variant.payloadTypes.size do
+                        planError "unsupported Psy semantic shape: enum construct arity mismatch"
+                      let maxPay ← enumMaxPayloadLeavesV1 layout.typeDecls layout.types variants
+                      let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
+                      for i in [0:argIds.size] do
+                        let some argId := argIds[i]? |
+                          planError "enum construct arg missing"
+                        let some pt := variant.payloadTypes[i]? |
+                          planError "enum construct payload type missing"
+                        let arg ← match envLookup env argId with
+                          | some v => pure v
+                          | none => planError "enum construct undefined arg"
+                        let expected ← leafCountOfTypeV1 layout.typeDecls layout.types pt
+                        let argLeaves := arg.leafExprs
+                        unless argLeaves.size == expected do
+                          planError "unsupported Psy semantic shape: enum construct payload leaf count mismatch"
+                        leaves := leaves ++ argLeaves
+                      while leaves.size < 1 + maxPay do
+                        leaves := leaves.push (.literal 0)
+                      env := envInsertVal env valueDef.valueId (mkAggregateVal leaves)
+                  | _ =>
+                      planError "unsupported Psy semantic shape: construct requires Struct or Enum shape"
     | .fieldGet baseId fieldIndex => do
         match instr.result with
         | none => planError "unsupported Psy semantic shape: fieldGet must produce a value"
@@ -1452,9 +1555,9 @@ private partial def lowerRegion
             | some v =>
                 match expectedAggregateLeaves with
                 | some expectedLeaves =>
-                    -- B-RET-ABI: named Struct/Enum only (containers stay FC).
+                    -- B-RET-ABI: named Struct/Enum or admitted anonymous Array/Option.
                     unless v.isAggregate do
-                      planError "unsupported Psy semantic shape: aggregate return value must be a named aggregate"
+                      planError "unsupported Psy semantic shape: aggregate return value must be a multi-leaf aggregate"
                     let gotLeaves := v.leafExprs
                     unless gotLeaves.size == expectedLeaves.size do
                       planError s!"unsupported Psy semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
@@ -1466,7 +1569,7 @@ private partial def lowerRegion
                     pure (ls.stmts.push (.returnAggregate gotLeaves leafIsInt))
                 | none =>
                     if v.isAggregate then
-                      planError "unsupported Psy semantic shape: return of aggregate is outside the Psy scalar result envelope (B-RET-ABI: anonymous containers and multi-leaf non-named results stay fail-closed; named Struct/Enum entry/view returns are admitted)"
+                      planError "unsupported Psy semantic shape: return of aggregate is outside the Psy scalar result envelope (B-RET-ABI: named Struct/Enum and admitted anonymous Array/Option entry/view returns only; Map/Bytes and pureFn aggregates stay fail-closed)"
                     pure (ls.stmts.push (.returnValue v.expr))
             | none => planError "unsupported Psy semantic shape: return references an undefined value"
       pure { stmts, join? := none }
@@ -1563,8 +1666,9 @@ end
 
 /-- Resolve callable result to Plan scalar flags + resultUintWidth + ResultKind.
     UInt{8,16,32,64} all emit as Felt (narrow width documented on PlanFunction).
-    Named Struct/Enum entry/view results become `.aggregate` (cap-8). pureFn
-    aggregate is rejected by the pureFn gate below; anonymous containers FC. -/
+    Named Struct/Enum and admitted anonymous Array UInt64 N / Option UInt64
+    entry/view results become `.aggregate` (cap-8). pureFn aggregate is
+    rejected by the pureFn gate below; Map/Bytes/nested stay FC. -/
 private def resultShape (data : SemanticProgramDataV1) (types : PsyTypeClosureV1)
     (typeDecls : Array TypeDeclV1) (callable : CallableV1) (owner : String) :
     CompileResult (Bool × Bool × Nat × ResultKind) := do
@@ -1576,13 +1680,11 @@ private def resultShape (data : SemanticProgramDataV1) (types : PsyTypeClosureV1
     else pure (false, false, 64, .felt)
   else if isGoldilocksFieldType types callable.result.typeId then pure (false, false, 0, .felt)
   else if isUnitType data callable.result.typeId then pure (false, true, 0, .unit)
-  else if types.isNamedAggregate callable.result.typeId then
+  else if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
     let kind ← aggregateResultKindOfV1 typeDecls types owner callable.result.typeId
     pure (false, false, 0, kind)
-  else if types.isContainer callable.result.typeId then
-    planError s!"{owner} cannot return multi-leaf aggregate (Array/anonymous container); Psy B-RET-ABI admits only named Struct/Enum (cap-8 leaves)"
   else
-    planError s!"{owner} result is outside the public UInt8/16/32/64/Int64/Bool/Goldilocks-Field/Unit/named-Struct-Enum envelope"
+    planError s!"{owner} result is outside the public UInt8/16/32/64/Int64/Bool/Goldilocks-Field/Unit/named-Struct-Enum/anonymous-Array-Option envelope"
 
 private def lowerCallable
     (data : SemanticProgramDataV1) (layout : PsyLowerLayoutV1) (callable : CallableV1)
@@ -1661,9 +1763,9 @@ private def lowerCallable
   | .aggregate _ =>
       match callable.kind with
       | .pureFn =>
-          planError s!"pureFn '{name}' cannot return a named aggregate (B-RET-ABI: pureFn aggregate returns stay fail-closed)"
+          planError s!"pureFn '{name}' cannot return an aggregate (B-RET-ABI: pureFn aggregate returns stay fail-closed; named Struct/Enum and anonymous Array/Option returns are entry/view only)"
       | .initializer =>
-          planError "initializer cannot return a named aggregate"
+          planError "initializer cannot return an aggregate"
       | _ => pure ()
   | _ => pure ()
   let expectedAggregateLeaves : Option (Array LeafAbiType) :=

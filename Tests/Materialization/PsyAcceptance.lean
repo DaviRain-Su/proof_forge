@@ -265,6 +265,37 @@ private def pairRetSourceText : String :=
   "  view getPair() : Pair do\n" ++
   "    return p\n"
 
+/-- N-ANON-RESULT ArrayRet: anonymous Array UInt64 2 → `-> [Felt; 2]`. -/
+private def arrayRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program ArrayRet where\n" ++
+  "  state slots : Array UInt64 2\n" ++
+  "  init(a : UInt64, b : UInt64) do\n" ++
+  "    slots[0] := a\n" ++
+  "    slots[1] := b\n" ++
+  "  entry setArr(a : UInt64, b : UInt64) : Array UInt64 2 do\n" ++
+  "    slots[0] := a\n" ++
+  "    slots[1] := b\n" ++
+  "    return slots\n" ++
+  "  view getArr() : Array UInt64 2 do\n" ++
+  "    return slots\n"
+
+/-- N-ANON-RESULT OptionRet: anonymous Option UInt64 → `-> [Felt; 2]` tag+payload. -/
+private def optionRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program OptionRet where\n" ++
+  "  state seed : UInt64\n" ++
+  "  init(x : UInt64) do\n" ++
+  "    seed := x\n" ++
+  "  entry asSome(v : UInt64) : Option UInt64 do\n" ++
+  "    return Option.some(v)\n" ++
+  "  view asNone() : Option UInt64 do\n" ++
+  "    return Option.none()\n" ++
+  "  view asSomeOfSeed() : Option UInt64 do\n" ++
+  "    return Option.some(seed)\n"
+
 /-- Suite entry. Skips cleanly when psyup/dargo/std are unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.PsyAcceptance: start"
@@ -305,6 +336,12 @@ unsafe def run : IO Unit := do
         acceptProgram tc staging "PairRet"
           pairRetSourceText "Tests.PsyAccept.PairRet"
           "PairRet.psy" "pair_ret"
+        acceptProgram tc staging "ArrayRet"
+          arrayRetSourceText "Tests.PsyAccept.ArrayRet"
+          "ArrayRet.psy" "array_ret"
+        acceptProgram tc staging "OptionRet"
+          optionRetSourceText "Tests.PsyAccept.OptionRet"
+          "OptionRet.psy" "option_ret"
         IO.println "Tests.Materialization.PsyAcceptance: ok"
       finally
         if ← staging.pathExists then IO.FS.removeDirAll staging
