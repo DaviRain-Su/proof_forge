@@ -365,6 +365,33 @@ private def pairStoreSourceText : String :=
   "    p := Pair.new(x, y)\n" ++
   "    return p\n"
 
+/-- N-ANON-RESULT: anonymous Array UInt64 2 Final entry return (state
+    IndexSet + StateLoad; source has no Array value constructor). Plan form
+    is `.array`; Final evaluates leaves and drops. `leo build` must accept. -/
+private def arrayRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program ArrayRet where\n" ++
+  "  state slots : Array UInt64 2\n" ++
+  "  init() do\n" ++
+  "    slots[0] := 0\n" ++
+  "    slots[1] := 0\n" ++
+  "  entry setArr(a : UInt64, b : UInt64) : Array UInt64 2 do\n" ++
+  "    slots[0] := a\n" ++
+  "    slots[1] := b\n" ++
+  "    return slots\n"
+
+/-- N-ANON-RESULT: anonymous Option UInt64 non-state entries as Leo
+    `(bool, u64)`. Verified end-to-end by `leo build`. -/
+private def optionRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program OptionRet where\n" ++
+  "  entry put(v : UInt64) : Option UInt64 do\n" ++
+  "    return Option.some(v)\n" ++
+  "  entry clear() : Option UInt64 do\n" ++
+  "    return Option.none()\n"
+
 /-- Suite entry. Skips cleanly when leo is unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.AleoAcceptance: start"
@@ -409,6 +436,10 @@ unsafe def run : IO Unit := do
           maybeRetSourceText "Tests.AleoAccept.MaybeRet" "mayberet.aleo"
         acceptProgram leo leoHome tmp "PairStore"
           pairStoreSourceText "Tests.AleoAccept.PairStore" "pairstore.aleo"
+        acceptProgram leo leoHome tmp "ArrayRet"
+          arrayRetSourceText "Tests.AleoAccept.ArrayRet" "arrayret.aleo"
+        acceptProgram leo leoHome tmp "OptionRet"
+          optionRetSourceText "Tests.AleoAccept.OptionRet" "optionret.aleo"
         IO.println "Tests.Materialization.AleoAcceptance: ok"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp

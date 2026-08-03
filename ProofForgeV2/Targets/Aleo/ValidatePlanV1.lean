@@ -268,7 +268,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       planError "Aleo final function exceeds the Leo mapping-set budget (32 per final block)"
     if fn.resultIsInt && fn.resultIsBool then
       planError "Aleo function result cannot be both Bool and Int64"
-    -- B-RET-ABI: aggregate result is mutually exclusive with scalar flags.
+    -- B-RET-ABI / N-ANON-RESULT: aggregate result is mutually exclusive with
+    -- scalar flags; form must match leaf shape.
     match fn.resultAggregateLeaves with
     | some leaves =>
         unless leaves.size > 0 && leaves.size ≤ 8 do
@@ -284,6 +285,16 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         if fn.isPureHelper then
           planError
             s!"function '{fn.name}' pure helper cannot return an aggregate (B-RET-ABI)"
+        match fn.resultAggregateForm with
+        | .array =>
+            unless leaves.all (fun l => !l.isInt) do
+              planError
+                s!"function '{fn.name}' array aggregate result leaves must be unsigned u64"
+        | .option =>
+            unless leaves.size == 2 && leaves.all (fun l => !l.isInt) do
+              planError
+                s!"function '{fn.name}' option aggregate result must be exactly 2 unsigned leaves"
+        | .named => pure ()
     | none => pure ()
     checkReturnFormsV1 fn.name fn.resultAggregateLeaves fn.body
     if fn.resultDropped && fn.kind != .mutate then
