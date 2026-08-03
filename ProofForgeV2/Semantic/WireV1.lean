@@ -218,19 +218,12 @@ namespace ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
 
-def encodeSemanticProgramDataV1 (p : SemanticProgramDataV1) :
+/-- Sole production post-gate body for `SemanticProgram.Data`: nine field
+    encoders + tagged framing + magic prefix + canonical size cap.
+    **Not** a second codec — this is the exact body historically inlined inside
+    `encodeSemanticProgramDataV1`. Root encode runs pre-gates then calls this. -/
+def encodeSemanticProgramDataBodyV1 (p : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 ByteArray := do
-  -- Root identity shape has stable precedence over even table-size failures.
-  validateProgramQualifiedNameShapeV1 p.qualifiedName
-  checkTableSize p.types.size
-  checkTableSize p.constants.size
-  checkTableSize p.logicalState.size
-  checkTableSize p.events.size
-  checkTableSize p.errors.size
-  checkTableSize p.callables.size
-  checkTableSize p.invariants.size
-  -- SPEC §6.2: encoder validates structure before emitting any program bytes.
-  validateSemanticProgramStructureV1 p
   let qnB ← encodeQualifiedName p.qualifiedName
   let typesB ← encodeArray encodeTypeDeclV1 p.types
   let constantsB ← encodeArray encodeConstantV1 p.constants
@@ -247,6 +240,65 @@ def encodeSemanticProgramDataV1 (p : SemanticProgramDataV1) :
   unless out.size ≤ maxCanonicalProgramBytes do
     return ← err .limitExceeded
   pure out
+
+/-- Root production encoder: QN-shape + table-size + structure gates, then the
+    sole `encodeSemanticProgramDataBodyV1` body. -/
+def encodeSemanticProgramDataV1 (p : SemanticProgramDataV1) :
+    Except SemanticWireErrorV1 ByteArray := do
+  -- Root identity shape has stable precedence over even table-size failures.
+  validateProgramQualifiedNameShapeV1 p.qualifiedName
+  checkTableSize p.types.size
+  checkTableSize p.constants.size
+  checkTableSize p.logicalState.size
+  checkTableSize p.events.size
+  checkTableSize p.errors.size
+  checkTableSize p.callables.size
+  checkTableSize p.invariants.size
+  -- SPEC §6.2: encoder validates structure before emitting any program bytes.
+  validateSemanticProgramStructureV1 p
+  encodeSemanticProgramDataBodyV1 p
+
+/-- Under successful pre-gates, root encode is definitionally the sole body. -/
+theorem encodeSemanticProgramDataV1_eq_body_of_gates
+    (p : SemanticProgramDataV1)
+    (hnameShape : validateProgramQualifiedNameShapeV1 p.qualifiedName = .ok ())
+    (htypesSize : checkTableSize p.types.size = .ok ())
+    (hconstantsSize : checkTableSize p.constants.size = .ok ())
+    (hstateSize : checkTableSize p.logicalState.size = .ok ())
+    (heventsSize : checkTableSize p.events.size = .ok ())
+    (herrorsSize : checkTableSize p.errors.size = .ok ())
+    (hcallablesSize : checkTableSize p.callables.size = .ok ())
+    (hinvariantsSize : checkTableSize p.invariants.size = .ok ())
+    (hstructure : validateSemanticProgramStructureV1 p = .ok ()) :
+    encodeSemanticProgramDataV1 p = encodeSemanticProgramDataBodyV1 p := by
+  simp only [encodeSemanticProgramDataV1, hnameShape, htypesSize, hconstantsSize,
+    hstateSize, heventsSize, herrorsSize, hcallablesSize, hinvariantsSize, hstructure,
+    Bind.bind, Except.bind]
+
+/-- Compose a successful sole body from the exact results of every field
+    encoder and root framing. -/
+theorem encodeSemanticProgramDataBodyV1_eq_of_fields
+    (p : SemanticProgramDataV1)
+    (qualifiedNameB typesB constantsB stateB eventsB errorsB callablesB invariantsB
+      requirementsB body : ByteArray)
+    (hname : encodeQualifiedName p.qualifiedName = .ok qualifiedNameB)
+    (htypes : encodeArray encodeTypeDeclV1 p.types = .ok typesB)
+    (hconstants : encodeArray encodeConstantV1 p.constants = .ok constantsB)
+    (hstate : encodeArray encodeStateDeclV1 p.logicalState = .ok stateB)
+    (hevents : encodeArray encodeEventDeclV1 p.events = .ok eventsB)
+    (herrors : encodeArray encodeErrorDeclV1 p.errors = .ok errorsB)
+    (hcallables : encodeArray encodeCallableV1 p.callables = .ok callablesB)
+    (hinvariants : encodeArray encodeInvariantDeclV1 p.invariants = .ok invariantsB)
+    (hrequirements : encodeProgramRequirementsV1 p.requirements = .ok requirementsB)
+    (hbody : encodeTagged "SemanticProgram.Data" #[qualifiedNameB, typesB, constantsB,
+      stateB, eventsB, errorsB, callablesB, invariantsB, requirementsB] = .ok body)
+    (houtSize : ((encodeMagicPrefix semanticProgramMagicV1).append body).size ≤
+      maxCanonicalProgramBytes) :
+    encodeSemanticProgramDataBodyV1 p =
+      .ok ((encodeMagicPrefix semanticProgramMagicV1).append body) := by
+  simp only [encodeSemanticProgramDataBodyV1, hname, htypes, hconstants, hstate,
+    hevents, herrors, hcallables, hinvariants, hrequirements, hbody, houtSize,
+    ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure]
 
 /-- Compose a successful root encoding from the exact results of every sole
     production gate and field encoder. This theorem exposes no alternate
@@ -280,11 +332,13 @@ theorem encodeSemanticProgramDataV1_eq_of_fields
       maxCanonicalProgramBytes) :
     encodeSemanticProgramDataV1 p =
       .ok ((encodeMagicPrefix semanticProgramMagicV1).append body) := by
-  simp only [encodeSemanticProgramDataV1, hnameShape, htypesSize, hconstantsSize,
-    hstateSize, heventsSize, herrorsSize, hcallablesSize, hinvariantsSize, hstructure,
-    hname, htypes, hconstants, hstate, hevents, herrors, hcallables, hinvariants,
-    hrequirements, hbody, houtSize, ↓reduceIte, Bind.bind, Pure.pure, Except.bind,
-    Except.pure]
+  rw [encodeSemanticProgramDataV1_eq_body_of_gates p hnameShape htypesSize
+    hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
+    hinvariantsSize hstructure]
+  exact encodeSemanticProgramDataBodyV1_eq_of_fields p qualifiedNameB typesB
+    constantsB stateB eventsB errorsB callablesB invariantsB requirementsB body
+    hname htypes hconstants hstate hevents herrors hcallables hinvariants
+    hrequirements hbody houtSize
 
 /-- Sole production body for the nine-field `SemanticProgram.Data` record. -/
 def decodeSemanticProgramDataBodyV1 : Decoder SemanticProgramDataV1 := fun c => do

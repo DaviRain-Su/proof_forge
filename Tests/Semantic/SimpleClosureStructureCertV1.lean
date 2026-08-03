@@ -87,6 +87,7 @@ private theorem demo_ident_safe :
 theorem demo_legal : SimpleClosureParamsLegalV1 demoParams := by
   refine {
     hqnSize := by decide
+    hqnCap := by decide
     hdistinct := by decide
     hqnHead := demo_ident_Demo
     hqnTail := ?_
@@ -171,6 +172,7 @@ private theorem alt_ident_holds :
 theorem alt_legal : SimpleClosureParamsLegalV1 altParams := by
   refine {
     hqnSize := by decide
+    hqnCap := by decide
     hdistinct := by decide
     hqnHead := alt_ident_Acme
     hqnTail := ?_

@@ -62,29 +62,48 @@ def encodeOption (encode : α → Except SemanticWireErrorV1 ByteArray) :
       let payload ← encode value
       pure ((encodeU8 1).append payload)
 
+/-- Source-order chunk concatenation worker for the sole array encoder.
+    Named so certificates can induct on the list spine without a second
+    public array codec. -/
+def encodeArrayChunksV1 (encode : α → Except SemanticWireErrorV1 ByteArray) :
+    List α → ByteArray → Except SemanticWireErrorV1 ByteArray
+  | [], acc => pure acc
+  | x :: xs, acc => do
+      let chunk ← encode x
+      encodeArrayChunksV1 encode xs (acc.append chunk)
+
 def encodeArray (encode : α → Except SemanticWireErrorV1 ByteArray)
     (values : Array α) : Except SemanticWireErrorV1 ByteArray := do
   unless values.size ≤ maxArrayElements do
     return ← err .limitExceeded
   let header ← encodeNatAsU32le values.size
-  let mut payload := ByteArray.empty
-  for value in values do
-    let chunk ← encode value
-    payload := payload.append chunk
+  let payload ← encodeArrayChunksV1 encode values.toList ByteArray.empty
   pure (header.append payload)
+
+theorem encodeArrayChunksV1_nil (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (acc : ByteArray) :
+    encodeArrayChunksV1 encode [] acc = .ok acc := by
+  rfl
+
+theorem encodeArrayChunksV1_cons (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (x : α) (xs : List α) (acc chunk out : ByteArray)
+    (hx : encode x = .ok chunk)
+    (htail : encodeArrayChunksV1 encode xs (acc.append chunk) = .ok out) :
+    encodeArrayChunksV1 encode (x :: xs) acc = .ok out := by
+  simp only [encodeArrayChunksV1, hx, htail, Bind.bind, Except.bind]
 
 /-- Fixed-size success refinements for the sole production array encoder.
     These expose its exact source-order concatenation without defining a
     second traversal. -/
 theorem encodeArray_zeroV1 (encode : α → Except SemanticWireErrorV1 ByteArray) :
     encodeArray encode #[] = .ok (encodeU32le 0) := by
-  simp [encodeArray]
+  simp [encodeArray, encodeArrayChunksV1]
   rfl
 
 theorem encodeArray_oneV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
     (v0 : α) (b0 : ByteArray) (h0 : encode v0 = .ok b0) :
     encodeArray encode #[v0] = .ok ((encodeU32le 1).append b0) := by
-  simp [encodeArray, h0]
+  simp [encodeArray, encodeArrayChunksV1, h0]
   rfl
 
 theorem encodeArray_twoV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
@@ -92,7 +111,7 @@ theorem encodeArray_twoV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
     (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1) :
     encodeArray encode #[v0, v1] =
       .ok ((encodeU32le 2).append (b0.append b1)) := by
-  simp [encodeArray, h0, h1]
+  simp [encodeArray, encodeArrayChunksV1, h0, h1]
   rfl
 
 theorem encodeArray_threeV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
@@ -101,7 +120,7 @@ theorem encodeArray_threeV1 (encode : α → Except SemanticWireErrorV1 ByteArra
     (h2 : encode v2 = .ok b2) :
     encodeArray encode #[v0, v1, v2] =
       .ok ((encodeU32le 3).append ((b0.append b1).append b2)) := by
-  simp [encodeArray, h0, h1, h2]
+  simp [encodeArray, encodeArrayChunksV1, h0, h1, h2]
   rfl
 
 theorem encodeArray_fourV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
@@ -110,8 +129,41 @@ theorem encodeArray_fourV1 (encode : α → Except SemanticWireErrorV1 ByteArray
     (h2 : encode v2 = .ok b2) (h3 : encode v3 = .ok b3) :
     encodeArray encode #[v0, v1, v2, v3] =
       .ok ((encodeU32le 4).append (((b0.append b1).append b2).append b3)) := by
-  simp [encodeArray, h0, h1, h2, h3]
+  simp [encodeArray, encodeArrayChunksV1, h0, h1, h2, h3]
   rfl
+
+/-- Parametric list induction: every element encodes ⇒ chunk concat succeeds. -/
+theorem encodeArrayChunksV1_ok_of_forall
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (xs : List α) (acc : ByteArray)
+    (h : ∀ x ∈ xs, ∃ b, encode x = .ok b) :
+    ∃ payload, encodeArrayChunksV1 encode xs acc = .ok payload := by
+  induction xs generalizing acc with
+  | nil => exact ⟨acc, rfl⟩
+  | cons x xs ih =>
+      have hxmem : x ∈ x :: xs := by
+        exact List.Mem.head xs
+      obtain ⟨chunk, hchunk⟩ := h x hxmem
+      have hrest : ∀ y ∈ xs, ∃ b, encode y = .ok b := by
+        intro y hy
+        exact h y (List.Mem.tail x hy)
+      obtain ⟨payload, hpayload⟩ := ih (acc.append chunk) hrest
+      exact ⟨payload, by
+        simp only [encodeArrayChunksV1, hchunk, hpayload, Bind.bind, Except.bind]⟩
+
+/-- Parametric array success through the sole production encoder. -/
+theorem encodeArray_ok_of_forall
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (values : Array α)
+    (hsize : values.size ≤ maxArrayElements)
+    (hsizeU32 : values.size ≤ UInt32.size - 1)
+    (h : ∀ x ∈ values.toList, ∃ b, encode x = .ok b) :
+    ∃ payload, encodeArray encode values = .ok payload := by
+  obtain ⟨chunks, hchunks⟩ :=
+    encodeArrayChunksV1_ok_of_forall encode values.toList ByteArray.empty h
+  refine ⟨(encodeU32le (UInt32.ofNat values.size)).append chunks, ?_⟩
+  simp only [encodeArray, hsize, encodeNatAsU32le, hsizeU32, hchunks, ↓reduceIte,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
 
 def encodeByteArray (value : ByteArray) : Except SemanticWireErrorV1 ByteArray := do
   unless value.size ≤ maxCanonicalProgramBytes do

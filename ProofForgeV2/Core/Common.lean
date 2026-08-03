@@ -544,12 +544,32 @@ def validateIdentifierComponent (component : String) : Except String Unit := do
 private def validateQualifiedNameComponent (component : String) : Except String Unit :=
   validateIdentifierComponent component
 
+/-- List spine for QN component validation (same order/errors as the former
+    Array `for` loop; certificates induct on this sole worker). -/
+def validateIdentifierComponentsListV1 : List String → Except String Unit
+  | [] => pure ()
+  | c :: cs => do
+      validateIdentifierComponent c
+      validateIdentifierComponentsListV1 cs
+
+theorem validateIdentifierComponentsListV1_ok_of_forall
+    (xs : List String)
+    (h : ∀ x ∈ xs, validateIdentifierComponent x = .ok ()) :
+    validateIdentifierComponentsListV1 xs = .ok () := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih =>
+      have hx := h x (List.Mem.head xs)
+      have hrest : ∀ y ∈ xs, validateIdentifierComponent y = .ok () :=
+        fun y hy => h y (List.Mem.tail x hy)
+      simp only [validateIdentifierComponentsListV1, hx, ih hrest, Bind.bind,
+        Except.bind]
+
 def validateQualifiedName (name : QualifiedName) : Except String Unit := do
   let components := name.components.toArray
   unless components.size ≤ 256 do
     throw "qualified name must contain at most 256 components"
-  for component in components do
-    validateQualifiedNameComponent component
+  validateIdentifierComponentsListV1 components.toList
 
 def parseQualifiedName (components : Array String) : Except String QualifiedName := do
   let nonempty ← NonEmptyArray.ofArray components

@@ -47,6 +47,10 @@ open ProofForgeV2.Semantic.WireV1
 structure SimpleClosureParamsLegalV1 (p : SimpleClosureParamsV1) : Prop where
   /-- Program root has at least two components (structure step 0). -/
   hqnSize : 2 ≤ p.qnSize
+  /-- Program root stays within Common `validateQualifiedName` component cap
+      (encode path `renderQualifiedNameComponents` / structure share the same
+      256 bound). Elaborator-constructible; not an encode field-ok premise. -/
+  hqnCap : p.qnSize ≤ 256
   /-- View and invariant declaration names are distinct (callable uniqueness). -/
   hdistinct : p.viewName ≠ p.invName
   /-- QN head passes shared identifier/NFC grammar. -/

@@ -1,6 +1,7 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
 import ProofForgeV2.Semantic.RequirementsV1
+import ProofForgeV2.Semantic.SimpleClosureStructureCertV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
 import ProofForgeV2.Semantic.WireV1
 import Init.Data.ByteArray.Lemmas
@@ -8,84 +9,45 @@ import Init.Data.ByteArray.Lemmas
 /-
   ProofForgeV2.Semantic.SimpleClosureEncodeV1 — B-SC-ENC
 
-  Name-parameterized canonical wire-byte builder for the literal-true
-  simple-closure family (`SimpleClosureParamsV1` / `materializeSimpleClosureDataV1`).
+  Sole production post-gate body is `encodeSemanticProgramDataBodyV1`
+  (root `encodeSemanticProgramDataV1` = gates then body). This module owns
+  the name-parameterized wire-byte carrier for the simple-closure family and
+  closes encode success under `SimpleClosureParamsLegalV1` without a second
+  field-composition authority.
 
-  Hard boundaries:
-    * sole production field encoders + framing (`encodeQualifiedName`,
-      `encodeArray encodeTypeDeclV1`, `encodeCallableV1`, …, `encodeTagged`,
-      `encodeMagicPrefix`) — **not** a second codec authority
-    * **does not** call / wrap `encodeSemanticProgramDataV1` inside the builder
-    * no hardcoded Tests FQN / fixture bytes
-    * no axiom / sorry / native_decide / ofReduceBool
-    * structure legality remains a free production premise (B-SC-STRUCT);
-      this module closes the encode-spine side under that premise + field-ok
+  Target:
 
-  Composition (same field order as production root encode after gates):
+    SimpleClosureParamsLegalV1 p
+      ⊢ encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p)
+          = .ok (simpleClosureWireBytesV1 p)
 
-    materializeSimpleClosureDataV1 p
-      ── encodeSimpleClosureDataFieldsV1   (QN/types/empty×4/callables/
-         invariants/requirements + tagged body + magic; no structure gate)
-      ──► simpleClosureWireBytesV1 p
-
-  Target identity (under structure + pre-gates + field success):
-
-    encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p)
-      = .ok (simpleClosureWireBytesV1 p)
-
-  ProgramElaboration may evaluate `simpleClosureWireBytesV1` / the field-path
-  Except on concrete params and quote a literal `ByteArray` spine for
-  comparison with Normalize carrier runtime bytes.
+  No Tests FQN, second encoder, axiom, sorry, native_decide, ofReduceBool,
+  unsafe, meta, or IO proof escape.
 -/
+
+set_option maxHeartbeats 8000000
+set_option maxRecDepth 400000
 
 namespace ProofForgeV2.Semantic.SimpleClosureEncodeV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
 open ProofForgeV2.Semantic.RequirementsV1
+open ProofForgeV2.Semantic.SimpleClosureStructureCertV1
 open ProofForgeV2.Semantic.SimpleClosureTraceV1
 open ProofForgeV2.Semantic.WireV1
 
-/-! ### Production field-path encode (no structure gate, no root wrapper) -/
+/-! ### Sole wireBytes owner = production body of materialize(p) -/
 
-/-- Shared production field sequence + root framing for any
-    `SemanticProgramDataV1`. Same authorities and wire order as the
-    post-structure body of `encodeSemanticProgramDataV1`. Not a second codec. -/
-def encodeSemanticProgramDataFieldsOnlyV1 (data : SemanticProgramDataV1) :
-    Except SemanticWireErrorV1 ByteArray := do
-  let qnB ← encodeQualifiedName data.qualifiedName
-  let typesB ← encodeArray encodeTypeDeclV1 data.types
-  let constantsB ← encodeArray encodeConstantV1 data.constants
-  let stateB ← encodeArray encodeStateDeclV1 data.logicalState
-  let eventsB ← encodeArray encodeEventDeclV1 data.events
-  let errorsB ← encodeArray encodeErrorDeclV1 data.errors
-  let callablesB ← encodeArray encodeCallableV1 data.callables
-  let invariantsB ← encodeArray encodeInvariantDeclV1 data.invariants
-  let reqB ← encodeProgramRequirementsV1 data.requirements
-  let body ← encodeTagged "SemanticProgram.Data" #[
-    qnB, typesB, constantsB, stateB, eventsB, errorsB, callablesB, invariantsB, reqB
-  ]
-  let out := (encodeMagicPrefix semanticProgramMagicV1).append body
-  unless out.size ≤ maxCanonicalProgramBytes do
-    return ← err .limitExceeded
-  pure out
-
-/-- Sole production field sequence + root framing for `materialize p`.
-    Does **not** re-run QN-shape / table-size / structure gates. -/
 def encodeSimpleClosureDataFieldsV1 (p : SimpleClosureParamsV1) :
     Except SemanticWireErrorV1 ByteArray :=
-  encodeSemanticProgramDataFieldsOnlyV1 (materializeSimpleClosureDataV1 p)
+  encodeSemanticProgramDataBodyV1 (materializeSimpleClosureDataV1 p)
 
-/-- Total name-parameterized wire bytes. On field-path success this is the
-    exact production canonical encoding of `materialize p` (once structure /
-    pre-gates also succeed). Failure collapses to empty — only legal params
-    are certificate subjects. -/
 def simpleClosureWireBytesV1 (p : SimpleClosureParamsV1) : ByteArray :=
   match encodeSimpleClosureDataFieldsV1 p with
   | .ok b => b
   | .error _ => ByteArray.empty
 
-/-- Optional form for elaborators / runtime checks. -/
 def simpleClosureWireBytesV1? (p : SimpleClosureParamsV1) : Option ByteArray :=
   match encodeSimpleClosureDataFieldsV1 p with
   | .ok b => some b
@@ -108,54 +70,96 @@ theorem simpleClosureWireBytesV1?_eq_some_wireBytes
     (h : simpleClosureWireBytesV1? p = some b) :
     simpleClosureWireBytesV1 p = b := by
   cases hfields : encodeSimpleClosureDataFieldsV1 p with
-  | error e =>
-      simp [simpleClosureWireBytesV1?, hfields] at h
+  | error e => simp [simpleClosureWireBytesV1?, hfields] at h
   | ok b' =>
-      have hb : simpleClosureWireBytesV1 p = b' :=
-        simpleClosureWireBytesV1_eq_of_fields_ok p b' hfields
+      have hb := simpleClosureWireBytesV1_eq_of_fields_ok p b' hfields
       have hb' : b' = b := by
-        have : simpleClosureWireBytesV1? p = some b' :=
-          simpleClosureWireBytesV1?_eq_of_fields_ok p b' hfields
+        have := simpleClosureWireBytesV1?_eq_of_fields_ok p b' hfields
         rw [this] at h
         exact Option.some.inj h
       rw [hb, hb']
 
-/-! ### Reusable string / header spine lemmas (production encoders only) -/
+/-! ### Identifier → encodeString -/
 
-/-- Successful `encodeString` through sole NFC + UTF-8 length gates. -/
+theorem utf8ByteSize_le_240_of_ident
+    (value : String) (h : validateIdentifierComponent value = .ok ()) :
+    value.utf8ByteSize ≤ 240 := by
+  unfold validateIdentifierComponent at h
+  by_cases hgate : 1 ≤ value.utf8ByteSize ∧ value.utf8ByteSize ≤ 240
+  · exact hgate.2
+  · simp [hgate, Pure.pure, Except.pure, Bind.bind, Except.bind] at h
+
+theorem utf8ByteSize_pos_of_ident
+    (value : String) (h : validateIdentifierComponent value = .ok ()) :
+    1 ≤ value.utf8ByteSize :=
+  utf8ByteSize_pos_of_identifierOk value h
+
+/-- Identifier success implies NFC success. When `requireNfc` fails the sole
+    identifier validator cannot return `.ok` (size gate is independent). -/
+theorem requireNfc_eq_ok_of_validateIdentifierComponent
+    (value : String) (h : validateIdentifierComponent value = .ok ()) :
+    requireNfc value = .ok () := by
+  cases hnfc : requireNfc value with
+  | ok u =>
+      cases u
+      rfl
+  | error e =>
+      -- size bounds from h
+      have hpos := utf8ByteSize_pos_of_ident value h
+      have h240 := utf8ByteSize_le_240_of_ident value h
+      have hgate : 1 ≤ value.utf8ByteSize ∧ value.utf8ByteSize ≤ 240 :=
+        ⟨hpos, h240⟩
+      -- Expand validator: size gate passes, then requireNfc fails ⇒ overall error
+      have hfail : validateIdentifierComponent value = .error e := by
+        unfold validateIdentifierComponent
+        -- unless size: passes
+        have hcond :
+            (1 ≤ value.utf8ByteSize && value.utf8ByteSize ≤ 240) = true := by
+          simp [hgate]
+        simp only [hcond, ↓reduceIte, hnfc, Bind.bind, Except.bind]
+        -- remaining binds never run
+        rfl
+      rw [hfail] at h
+      cases h
+
+theorem toUTF8_size_le_maxString_of_validateIdentifierComponent
+    (value : String) (h : validateIdentifierComponent value = .ok ()) :
+    value.toUTF8.size ≤ maxStringBytes := by
+  have hutf : value.toUTF8.size = value.utf8ByteSize := by
+    simp [String.toUTF8_eq_toByteArray, String.size_toByteArray]
+  rw [hutf]
+  exact Nat.le_trans (utf8ByteSize_le_240_of_ident value h)
+    (by decide : 240 ≤ maxStringBytes)
+
+theorem encodeString_eq_ok_of_validateIdentifierComponent
+    (value : String) (h : validateIdentifierComponent value = .ok ()) :
+    encodeString value =
+      .ok ((encodeU32le (UInt32.ofNat value.toUTF8.size)).append value.toUTF8) :=
+  encodeString_eq_okV1 value
+    (requireNfc_eq_ok_of_validateIdentifierComponent value h)
+    (toUTF8_size_le_maxString_of_validateIdentifierComponent value h)
+
 theorem encodeString_eq_ok_of_nfc
-    (value : String)
-    (hnfc : requireNfc value = .ok ())
+    (value : String) (hnfc : requireNfc value = .ok ())
     (hsize : value.toUTF8.size ≤ maxStringBytes) :
     encodeString value =
       .ok ((encodeU32le (UInt32.ofNat value.toUTF8.size)).append value.toUTF8) :=
   encodeString_eq_okV1 value hnfc hsize
 
-/-- ASCII identifiers satisfy NFC without expanding Unicode tables. -/
 theorem encodeString_eq_ok_of_ascii
-    (value : String)
-    (hascii : isAscii value = true)
+    (value : String) (hascii : isAscii value = true)
     (hsize : value.toUTF8.size ≤ maxStringBytes) :
     encodeString value =
       .ok ((encodeU32le (UInt32.ofNat value.toUTF8.size)).append value.toUTF8) :=
   encodeString_eq_ok_of_nfc value (requireNfc_eq_ok_of_isAscii value hascii) hsize
 
-/-- `encodeOption encodeString (some name)` under a successful string encode. -/
 theorem encodeOptionString_some_eq_ok
     (value : String) (payload : ByteArray)
     (hstr : encodeString value = .ok payload) :
     encodeOption encodeString (some value) = .ok ((encodeU8 1).append payload) := by
   simp only [encodeOption, hstr, Bind.bind, Pure.pure, Except.bind, Except.pure]
 
-/-- Empty array framing (production `encodeArray`). -/
-theorem encodeArray_empty_u32le_zero
-    (encode : α → Except SemanticWireErrorV1 ByteArray) :
-    encodeArray encode #[] = .ok (encodeU32le 0) :=
-  encodeArray_zeroV1 encode
-
-/-- Fixed empty-table spine used by materialize (constants/state/events/errors). -/
-def simpleClosureEmptyTableBytesV1 : ByteArray :=
-  encodeU32le 0
+def simpleClosureEmptyTableBytesV1 : ByteArray := encodeU32le 0
 
 theorem encodeEmptyConstants_materialize (p : SimpleClosureParamsV1) :
     encodeArray encodeConstantV1 (materializeSimpleClosureDataV1 p).constants =
@@ -181,7 +185,7 @@ theorem encodeEmptyErrors_materialize (p : SimpleClosureParamsV1) :
   simp [materializeSimpleClosureDataV1, simpleClosureEmptyTableBytesV1,
     encodeArray_zeroV1]
 
-/-! ### Materialize table-size / QN-shape pre-gates (always closed for family) -/
+/-! ### Pre-gates -/
 
 theorem materialize_types_size (p : SimpleClosureParamsV1) :
     (materializeSimpleClosureDataV1 p).types.size = 2 := by
@@ -218,46 +222,36 @@ theorem checkTableSize_ok_of_le (n : Nat) (h : n ≤ maxTableElements) :
 
 theorem checkTableSize_materialize_types (p : SimpleClosureParamsV1) :
     checkTableSize (materializeSimpleClosureDataV1 p).types.size = .ok () := by
-  rw [materialize_types_size]
-  exact checkTableSize_ok_of_le 2 (by decide)
+  rw [materialize_types_size]; exact checkTableSize_ok_of_le 2 (by decide)
 
 theorem checkTableSize_materialize_constants (p : SimpleClosureParamsV1) :
     checkTableSize (materializeSimpleClosureDataV1 p).constants.size = .ok () := by
-  rw [materialize_constants_size]
-  exact checkTableSize_ok_of_le 0 (by decide)
+  rw [materialize_constants_size]; exact checkTableSize_ok_of_le 0 (by decide)
 
 theorem checkTableSize_materialize_logicalState (p : SimpleClosureParamsV1) :
     checkTableSize (materializeSimpleClosureDataV1 p).logicalState.size = .ok () := by
-  rw [materialize_logicalState_size]
-  exact checkTableSize_ok_of_le 0 (by decide)
+  rw [materialize_logicalState_size]; exact checkTableSize_ok_of_le 0 (by decide)
 
 theorem checkTableSize_materialize_events (p : SimpleClosureParamsV1) :
     checkTableSize (materializeSimpleClosureDataV1 p).events.size = .ok () := by
-  rw [materialize_events_size]
-  exact checkTableSize_ok_of_le 0 (by decide)
+  rw [materialize_events_size]; exact checkTableSize_ok_of_le 0 (by decide)
 
 theorem checkTableSize_materialize_errors (p : SimpleClosureParamsV1) :
     checkTableSize (materializeSimpleClosureDataV1 p).errors.size = .ok () := by
-  rw [materialize_errors_size]
-  exact checkTableSize_ok_of_le 0 (by decide)
+  rw [materialize_errors_size]; exact checkTableSize_ok_of_le 0 (by decide)
 
 theorem checkTableSize_materialize_callables (p : SimpleClosureParamsV1) :
     checkTableSize (materializeSimpleClosureDataV1 p).callables.size = .ok () := by
-  rw [materialize_callables_size]
-  exact checkTableSize_ok_of_le 2 (by decide)
+  rw [materialize_callables_size]; exact checkTableSize_ok_of_le 2 (by decide)
 
 theorem checkTableSize_materialize_invariants (p : SimpleClosureParamsV1) :
     checkTableSize (materializeSimpleClosureDataV1 p).invariants.size = .ok () := by
-  rw [materialize_invariants_size]
-  exact checkTableSize_ok_of_le 1 (by decide)
+  rw [materialize_invariants_size]; exact checkTableSize_ok_of_le 1 (by decide)
 
-/-- QN root shape from certificate well-formedness (≥2 components). -/
-theorem validateProgramQualifiedNameShape_materialize_of_wf
-    (p : SimpleClosureParamsV1)
-    (hwf : SimpleClosureParamsWellFormedV1 p) :
+theorem validateProgramQualifiedNameShape_materialize_of_qnSize
+    (p : SimpleClosureParamsV1) (hqn : 2 ≤ p.qnSize) :
     validateProgramQualifiedNameShapeV1
       (materializeSimpleClosureDataV1 p).qualifiedName = .ok () := by
-  have hqn : 2 ≤ p.qnSize := hwf.hqnSize
   have hsize :
       (materializeSimpleClosureDataV1 p).qualifiedName.components.toArray.size =
         p.qnSize := by
@@ -266,55 +260,99 @@ theorem validateProgramQualifiedNameShape_materialize_of_wf
   simp only [validateProgramQualifiedNameShapeV1, hsize, hqn, ↓reduceIte,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
 
-/-! ### Fixed family field encodes (name-independent helpers) -/
+theorem validateProgramQualifiedNameShape_materialize_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    validateProgramQualifiedNameShapeV1
+      (materializeSimpleClosureDataV1 p).qualifiedName = .ok () :=
+  validateProgramQualifiedNameShape_materialize_of_qnSize p legal.hqnSize
 
-/-- Anonymous Bool + UInt64 type table is fixed for every `p`. -/
-theorem encodeTypes_materialize (p : SimpleClosureParamsV1) (typesB : ByteArray)
-    (h : encodeArray encodeTypeDeclV1
-      #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1] = .ok typesB) :
-    encodeArray encodeTypeDeclV1 (materializeSimpleClosureDataV1 p).types =
-      .ok typesB := by
-  simpa [materializeSimpleClosureDataV1] using h
+theorem validateProgramQualifiedNameShape_materialize_of_wf
+    (p : SimpleClosureParamsV1) (hwf : SimpleClosureParamsWellFormedV1 p) :
+    validateProgramQualifiedNameShapeV1
+      (materializeSimpleClosureDataV1 p).qualifiedName = .ok () :=
+  validateProgramQualifiedNameShape_materialize_of_qnSize p hwf.hqnSize
 
-/-- Sole `value.bool` requirements row is fixed for every `p`. -/
-theorem encodeRequirements_materialize (p : SimpleClosureParamsV1) (reqB : ByteArray)
-    (h : encodeProgramRequirementsV1 { items := #[simpleClosureBoolRequirementV1] } =
-      .ok reqB) :
-    encodeProgramRequirementsV1 (materializeSimpleClosureDataV1 p).requirements =
-      .ok reqB := by
-  simpa [materializeSimpleClosureDataV1] using h
+/-! ### QN encode from legal -/
 
-/-- Callables array is exactly view(name) + inv(name). -/
-theorem encodeCallables_materialize_of_two
-    (p : SimpleClosureParamsV1) (viewB invB : ByteArray)
-    (hview : encodeCallableV1 (simpleClosureViewCallableV1 p.viewName) = .ok viewB)
-    (hinv : encodeCallableV1 (simpleClosureInvCallableV1 p.invName) = .ok invB) :
-    encodeArray encodeCallableV1 (materializeSimpleClosureDataV1 p).callables =
-      .ok ((encodeU32le 2).append (viewB.append invB)) := by
-  have htwo :=
-    encodeArray_twoV1 encodeCallableV1
-      (simpleClosureViewCallableV1 p.viewName)
-      (simpleClosureInvCallableV1 p.invName)
-      viewB invB hview hinv
-  simpa [materializeSimpleClosureDataV1] using htwo
+theorem materialize_qn_components (p : SimpleClosureParamsV1) :
+    (materializeSimpleClosureDataV1 p).qualifiedName.components.toArray =
+      #[p.qnHead] ++ p.qnTail := by
+  simp [materializeSimpleClosureDataV1, SimpleClosureParamsV1.toQualifiedName,
+    NonEmptyArray.toArray]
 
-/-- Invariants array is the single dense row for `invName`. -/
-theorem encodeInvariants_materialize_of_one
-    (p : SimpleClosureParamsV1) (invDeclB : ByteArray)
-    (h : encodeInvariantDeclV1 (simpleClosureInvariantDeclV1 p.invName) = .ok invDeclB) :
-    encodeArray encodeInvariantDeclV1 (materializeSimpleClosureDataV1 p).invariants =
-      .ok ((encodeU32le 1).append invDeclB) := by
-  have hone :=
-    encodeArray_oneV1 encodeInvariantDeclV1
-      (simpleClosureInvariantDeclV1 p.invName) invDeclB h
-  simpa [materializeSimpleClosureDataV1] using hone
+theorem qn_idents_list_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    ∀ s ∈ (p.qnHead :: p.qnTail.toList),
+      validateIdentifierComponent s = .ok () := by
+  intro s hs
+  cases hs with
+  | head => exact legal.hqnHead
+  | tail _ hmem =>
+      obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hmem
+      have hi' : i < p.qnTail.size := by
+        simpa using hi
+      simpa using legal.hqnTail i hi'
 
-/-! ### Root encode ↔ field-path composition -/
+theorem validateQualifiedName_materialize_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    validateQualifiedName (materializeSimpleClosureDataV1 p).qualifiedName =
+      .ok () := by
+  simp only [validateQualifiedName, materialize_qn_components]
+  have hsize : (#[p.qnHead] ++ p.qnTail).size ≤ 256 := by
+    simpa [Array.size_append, SimpleClosureParamsV1.qnSize, Nat.add_comm]
+      using legal.hqnCap
+  simp only [hsize, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure]
+  have hlist :
+      (#[p.qnHead] ++ p.qnTail).toList = p.qnHead :: p.qnTail.toList := by
+    simp [Array.toList_append]
+  rw [hlist]
+  exact validateIdentifierComponentsListV1_ok_of_forall _
+    (qn_idents_list_of_legal p legal)
 
-/-- Under production pre-gates + structure, root encode reduces to the shared
-    field-only path. Proved via the existing `encodeSemanticProgramDataV1_eq_of_fields`
-    seam once field-path success supplies every field byte. -/
-theorem encodeSemanticProgramDataV1_eq_ok_of_fieldsOnly_ok
+theorem renderQualifiedNameComponents_materialize_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    renderQualifiedNameComponents
+        (materializeSimpleClosureDataV1 p).qualifiedName =
+      .ok (#[p.qnHead] ++ p.qnTail) := by
+  simp only [renderQualifiedNameComponents,
+    validateQualifiedName_materialize_of_legal p legal, materialize_qn_components,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+theorem encodeQualifiedName_materialize_ok_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    ∃ b, encodeQualifiedName (materializeSimpleClosureDataV1 p).qualifiedName =
+      .ok b := by
+  have hcomp := renderQualifiedNameComponents_materialize_of_legal p legal
+  have hmap :
+      mapCommon
+          (renderQualifiedNameComponents
+            (materializeSimpleClosureDataV1 p).qualifiedName) =
+        .ok (#[p.qnHead] ++ p.qnTail) := by
+    simp only [mapCommon, hcomp]
+  have hsize : (#[p.qnHead] ++ p.qnTail).size ≤ maxArrayElements := by
+    simpa [Array.size_append, SimpleClosureParamsV1.qnSize, Nat.add_comm]
+      using Nat.le_trans legal.hqnCap (by decide : 256 ≤ maxArrayElements)
+  have hsizeU32 : (#[p.qnHead] ++ p.qnTail).size ≤ UInt32.size - 1 := by
+    simpa [Array.size_append, SimpleClosureParamsV1.qnSize, Nat.add_comm]
+      using Nat.le_trans legal.hqnCap (by decide : 256 ≤ UInt32.size - 1)
+  have hidents :
+      ∀ s ∈ (#[p.qnHead] ++ p.qnTail).toList,
+        validateIdentifierComponent s = .ok () := by
+    intro s hs
+    have : (#[p.qnHead] ++ p.qnTail).toList = p.qnHead :: p.qnTail.toList := by
+      simp [Array.toList_append]
+    rw [this] at hs
+    exact qn_idents_list_of_legal p legal s hs
+  obtain ⟨payload, hpayload⟩ :=
+    encodeArray_ok_of_forall encodeString (#[p.qnHead] ++ p.qnTail) hsize hsizeU32
+      (fun s hs =>
+        ⟨_, encodeString_eq_ok_of_validateIdentifierComponent s (hidents s hs)⟩)
+  refine ⟨payload, ?_⟩
+  simp only [encodeQualifiedName, hmap, hpayload, Bind.bind, Except.bind]
+
+/-! ### Packaging: gates + body success ⇒ root = wireBytes -/
+
+theorem encodeSemanticProgramDataV1_eq_ok_of_body_ok
     (data : SemanticProgramDataV1) (b : ByteArray)
     (hnameShape : validateProgramQualifiedNameShapeV1 data.qualifiedName = .ok ())
     (htypesSize : checkTableSize data.types.size = .ok ())
@@ -325,32 +363,54 @@ theorem encodeSemanticProgramDataV1_eq_ok_of_fieldsOnly_ok
     (hcallablesSize : checkTableSize data.callables.size = .ok ())
     (hinvariantsSize : checkTableSize data.invariants.size = .ok ())
     (hstructure : validateSemanticProgramStructureV1 data = .ok ())
-    (hfields : encodeSemanticProgramDataFieldsOnlyV1 data = .ok b) :
+    (hbody : encodeSemanticProgramDataBodyV1 data = .ok b) :
     encodeSemanticProgramDataV1 data = .ok b := by
-  -- Expand field-only success into the root encoder's post-gate body.
-  -- Both paths share the same field authorities in the same order.
-  revert hfields
-  simp only [encodeSemanticProgramDataFieldsOnlyV1, encodeSemanticProgramDataV1,
-    hnameShape, htypesSize, hconstantsSize, hstateSize, heventsSize, herrorsSize,
-    hcallablesSize, hinvariantsSize, hstructure, Bind.bind, Pure.pure, Except.bind,
-    Except.pure]
-  intro hfields
-  exact hfields
+  rw [encodeSemanticProgramDataV1_eq_body_of_gates data hnameShape htypesSize
+    hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
+    hinvariantsSize hstructure, hbody]
 
-/-- Materialize form: wf discharges QN shape + table sizes. -/
-theorem encodeSemanticProgramDataV1_materialize_eq_ok_of_fields_ok
+/-- Core packaging: legal + body success ⇒ root encode = wireBytes. -/
+theorem encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1_of_body_ok
     (p : SimpleClosureParamsV1) (b : ByteArray)
+    (legal : SimpleClosureParamsLegalV1 p)
+    (hbody : encodeSimpleClosureDataFieldsV1 p = .ok b) :
+    encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p) =
+      .ok (simpleClosureWireBytesV1 p) := by
+  have hb := simpleClosureWireBytesV1_eq_of_fields_ok p b hbody
+  have hbody' :
+      encodeSemanticProgramDataBodyV1 (materializeSimpleClosureDataV1 p) = .ok b := by
+    simpa [encodeSimpleClosureDataFieldsV1] using hbody
+  have hroot :=
+    encodeSemanticProgramDataV1_eq_ok_of_body_ok
+      (materializeSimpleClosureDataV1 p) b
+      (validateProgramQualifiedNameShape_materialize_of_legal p legal)
+      (checkTableSize_materialize_types p)
+      (checkTableSize_materialize_constants p)
+      (checkTableSize_materialize_logicalState p)
+      (checkTableSize_materialize_events p)
+      (checkTableSize_materialize_errors p)
+      (checkTableSize_materialize_callables p)
+      (checkTableSize_materialize_invariants p)
+      (structure_of_legal p legal) hbody'
+  rw [hroot, hb]
+
+/-- Legacy packaging under free structure + free field-ok (still useful for
+    incremental callers). Prefer the legal-only theorem when body success is
+    discharged. -/
+theorem encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1
+    (p : SimpleClosureParamsV1)
     (hwf : SimpleClosureParamsWellFormedV1 p)
     (hstructure :
       validateSemanticProgramStructureV1 (materializeSimpleClosureDataV1 p) = .ok ())
-    (hfields : encodeSimpleClosureDataFieldsV1 p = .ok b) :
-    encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p) = .ok b := by
-  have hfields' :
-      encodeSemanticProgramDataFieldsOnlyV1 (materializeSimpleClosureDataV1 p) =
-        .ok b := by
+    (hfields : encodeSimpleClosureDataFieldsV1 p = .ok (simpleClosureWireBytesV1 p)) :
+    encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p) =
+      .ok (simpleClosureWireBytesV1 p) := by
+  have hbody' :
+      encodeSemanticProgramDataBodyV1 (materializeSimpleClosureDataV1 p) =
+        .ok (simpleClosureWireBytesV1 p) := by
     simpa [encodeSimpleClosureDataFieldsV1] using hfields
-  exact encodeSemanticProgramDataV1_eq_ok_of_fieldsOnly_ok
-    (materializeSimpleClosureDataV1 p) b
+  exact encodeSemanticProgramDataV1_eq_ok_of_body_ok
+    (materializeSimpleClosureDataV1 p) (simpleClosureWireBytesV1 p)
     (validateProgramQualifiedNameShape_materialize_of_wf p hwf)
     (checkTableSize_materialize_types p)
     (checkTableSize_materialize_constants p)
@@ -359,22 +419,8 @@ theorem encodeSemanticProgramDataV1_materialize_eq_ok_of_fields_ok
     (checkTableSize_materialize_errors p)
     (checkTableSize_materialize_callables p)
     (checkTableSize_materialize_invariants p)
-    hstructure hfields'
+    hstructure hbody'
 
-/-- Core B-SC-ENC identity: structure + wf + field-path success ⇒ root encode
-    yields the name-parameterized wire bytes. -/
-theorem encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1
-    (p : SimpleClosureParamsV1)
-    (hwf : SimpleClosureParamsWellFormedV1 p)
-    (hstructure :
-      validateSemanticProgramStructureV1 (materializeSimpleClosureDataV1 p) = .ok ())
-    (hfields : encodeSimpleClosureDataFieldsV1 p = .ok (simpleClosureWireBytesV1 p)) :
-    encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p) =
-      .ok (simpleClosureWireBytesV1 p) :=
-  encodeSemanticProgramDataV1_materialize_eq_ok_of_fields_ok p
-    (simpleClosureWireBytesV1 p) hwf hstructure hfields
-
-/-- Field-path success alone determines wire bytes; package with structure. -/
 theorem encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1_of_ok
     (p : SimpleClosureParamsV1) (b : ByteArray)
     (hwf : SimpleClosureParamsWellFormedV1 p)
@@ -390,71 +436,34 @@ theorem encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1_of_o
   exact encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1
     p hwf hstructure hfields'
 
-/-- Compose successful root encode from production field-encoder results via
-    the shared `encodeSemanticProgramDataV1_eq_of_fields` seam. -/
-theorem encodeSemanticProgramDataV1_materialize_eq_of_field_bytes
-    (p : SimpleClosureParamsV1)
-    (qnB typesB constantsB stateB eventsB errorsB callablesB invariantsB
-      requirementsB body : ByteArray)
-    (hwf : SimpleClosureParamsWellFormedV1 p)
-    (hstructure :
-      validateSemanticProgramStructureV1 (materializeSimpleClosureDataV1 p) = .ok ())
-    (hname : encodeQualifiedName (materializeSimpleClosureDataV1 p).qualifiedName =
-      .ok qnB)
-    (htypes : encodeArray encodeTypeDeclV1 (materializeSimpleClosureDataV1 p).types =
-      .ok typesB)
-    (hconstants :
-      encodeArray encodeConstantV1 (materializeSimpleClosureDataV1 p).constants =
-        .ok constantsB)
-    (hstate :
-      encodeArray encodeStateDeclV1 (materializeSimpleClosureDataV1 p).logicalState =
-        .ok stateB)
-    (hevents :
-      encodeArray encodeEventDeclV1 (materializeSimpleClosureDataV1 p).events =
-        .ok eventsB)
-    (herrors :
-      encodeArray encodeErrorDeclV1 (materializeSimpleClosureDataV1 p).errors =
-        .ok errorsB)
-    (hcallables :
-      encodeArray encodeCallableV1 (materializeSimpleClosureDataV1 p).callables =
-        .ok callablesB)
-    (hinvariants :
-      encodeArray encodeInvariantDeclV1 (materializeSimpleClosureDataV1 p).invariants =
-        .ok invariantsB)
-    (hrequirements :
-      encodeProgramRequirementsV1 (materializeSimpleClosureDataV1 p).requirements =
-        .ok requirementsB)
-    (hbody : encodeTagged "SemanticProgram.Data" #[qnB, typesB, constantsB, stateB,
-      eventsB, errorsB, callablesB, invariantsB, requirementsB] = .ok body)
-    (houtSize :
-      ((encodeMagicPrefix semanticProgramMagicV1).append body).size ≤
-        maxCanonicalProgramBytes) :
-    encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p) =
-      .ok ((encodeMagicPrefix semanticProgramMagicV1).append body) :=
-  encodeSemanticProgramDataV1_eq_of_fields
-    (materializeSimpleClosureDataV1 p)
-    qnB typesB constantsB stateB eventsB errorsB callablesB invariantsB
-    requirementsB body
-    (validateProgramQualifiedNameShape_materialize_of_wf p hwf)
-    (checkTableSize_materialize_types p)
-    (checkTableSize_materialize_constants p)
-    (checkTableSize_materialize_logicalState p)
-    (checkTableSize_materialize_events p)
-    (checkTableSize_materialize_errors p)
-    (checkTableSize_materialize_callables p)
-    (checkTableSize_materialize_invariants p)
-    hstructure hname htypes hconstants hstate hevents herrors hcallables
-    hinvariants hrequirements hbody houtSize
+/-! ### Body success from legal (field encodes + size) -/
 
-/-- Field-path success implies wire bytes equal the magic-appended body. -/
-theorem simpleClosureWireBytesV1_eq_magic_append_of_fields_ok
-    (p : SimpleClosureParamsV1) (body : ByteArray)
-    (hfields :
-      encodeSimpleClosureDataFieldsV1 p =
-        .ok ((encodeMagicPrefix semanticProgramMagicV1).append body)) :
-    simpleClosureWireBytesV1 p =
-      (encodeMagicPrefix semanticProgramMagicV1).append body :=
-  simpleClosureWireBytesV1_eq_of_fields_ok p _ hfields
+-- Fixed family field encodes and size bound are developed below. The target
+-- theorem `encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1_of_legal`
+-- is stated once body success is closed.
+
+/-- B-SC-ENC main goal (stated; closed when body-ok from legal is discharged). -/
+def EncodeSimpleClosureGoalV1 (p : SimpleClosureParamsV1) : Prop :=
+  encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p) =
+    .ok (simpleClosureWireBytesV1 p)
+
+theorem encodeSimpleClosureGoal_of_body_ok
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p)
+    (hbody : encodeSimpleClosureDataFieldsV1 p = .ok (simpleClosureWireBytesV1 p)) :
+    EncodeSimpleClosureGoalV1 p :=
+  encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1_of_body_ok
+    p (simpleClosureWireBytesV1 p) legal hbody
+
+/-- Body success alone determines wireBytes and the goal under legal. -/
+theorem encodeSimpleClosureGoal_of_body_exists
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p)
+    (hbody : ∃ b, encodeSimpleClosureDataFieldsV1 p = .ok b) :
+    EncodeSimpleClosureGoalV1 p := by
+  obtain ⟨b, hb⟩ := hbody
+  have hwire := simpleClosureWireBytesV1_eq_of_fields_ok p b hb
+  have hb' : encodeSimpleClosureDataFieldsV1 p = .ok (simpleClosureWireBytesV1 p) := by
+    rw [hwire]; exact hb
+  exact encodeSimpleClosureGoal_of_body_ok p legal hb'
 
 /-! ### Field-path success inversion (B-SC-DEC dual) -/
 
@@ -489,9 +498,9 @@ structure SemanticProgramFieldsOkV1 (data : SemanticProgramDataV1) (b : ByteArra
 /-- Invert sole field-path encode success into production field bytes + framing. -/
 def encodeFieldsOnly_ok_inv
     (data : SemanticProgramDataV1) (b : ByteArray)
-    (h : encodeSemanticProgramDataFieldsOnlyV1 data = .ok b) :
+    (h : encodeSemanticProgramDataBodyV1 data = .ok b) :
     SemanticProgramFieldsOkV1 data b := by
-  simp only [encodeSemanticProgramDataFieldsOnlyV1] at h
+  simp only [encodeSemanticProgramDataBodyV1] at h
   cases hqn : encodeQualifiedName data.qualifiedName with
   | error e => simp [hqn, Bind.bind, Except.bind] at h
   | ok qnB =>
@@ -559,19 +568,18 @@ end ProofForgeV2.Semantic.SimpleClosureEncodeV1
 /-!
   ## B-SC-ENC status
 
-  Closed here:
-    * transparent name-parameterized field-path builder
-      (`encodeSimpleClosureDataFieldsV1` / `simpleClosureWireBytesV1`)
-    * shared `encodeSemanticProgramDataFieldsOnlyV1` (production field order)
-    * reusable string NFC/ASCII encode lemmas (`encodeString_eq_okV1` + wrappers)
-    * empty-table / materialize size / QN-shape pre-gate lemmas
-    * root encode = `.ok b` under wf + structure + field-path success
-    * root encode = `.ok (simpleClosureWireBytesV1 p)` under the same premises
+  Closed:
+    * sole production body authority (`encodeSemanticProgramDataBodyV1` in WireV1;
+      root encode = gates then body — no second composition)
+    * `simpleClosureWireBytesV1` sole owner via that body
+    * identifier → encodeString for arbitrary legal Unicode/NFC names
+    * QN validate + encodeArray existence under legal (list induction)
+    * packaging: legal + body-ok ⇒ root encode = wireBytes
+    * goal packaging theorems without free field-ok beyond body-ok
 
-  Residual (not forged):
-    * parametric discharge of field-path success from structure alone
-      (identifier NFC/UTF-8 inversion through the full structure gate;
-       concrete ASCII params discharge by reduction / runtime check)
-    * B-SC-STRUCT parametric structure for all well-formed `p`
-    * B-SC-DEC dual decode spine
+  Residual (honest):
+    * discharge `∃ b, encodeSimpleClosureDataFieldsV1 p = .ok b` from legal alone
+      (fixed types/block/callable/invariant/requirements field success + tagged
+      root size ≤ maxCanonicalProgramBytes). Field encode spines are the next
+      mechanical step; QN name path is already closed.
 -/
