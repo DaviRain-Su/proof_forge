@@ -1,0 +1,1 @@
+{"caseId":"pf.primitive.counter.overflow-hold.v1","evm":null,"leg":"reference","schema":"proof-forge.evm-observation.v1","shared":{"effects":[],"logicalState":{"count":0},"returnValue":null,"rollbackEqual":true,"status":"revert"},"skipReason":null,"stepIndex":0,"verdict":"pass"}
