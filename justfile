@@ -32,6 +32,7 @@ test: build
     lake build \
       proof_forge_next_tests_shard_core \
       proof_forge_next_tests_shard_typed \
+      proof_forge_next_tests_shard_language \
       proof_forge_next_tests_shard_language_b \
       proof_forge_next_tests_shard_language_c \
       proof_forge_next_tests_shard_aggregate \
@@ -46,6 +47,7 @@ test: build
     shards=(
       proof-forge-next-tests-shard-core
       proof-forge-next-tests-shard-typed
+      proof-forge-next-tests-shard-language
       proof-forge-next-tests-shard-language-b
       proof-forge-next-tests-shard-language-c
       proof-forge-next-tests-shard-aggregate
@@ -81,15 +83,15 @@ test-frontend-worker: build-frontend-worker
     lake env .lake/build/bin/proof-forge-next-tests-shard-worker
 
 # Focused shard: `just test-shard core` → proof-forge-next-tests-shard-core.
-# Names: core typed language-b language-c aggregate language-heavy source source-b targets
+# Names: core typed language language-b language-c aggregate language-heavy source source-b targets
 # No recipe dependency on `build`: validate the name before any lake work.
 test-shard name:
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{name}}" in
-      core|typed|language-b|language-c|aggregate|language-heavy|source|source-b|targets) ;;
+      core|typed|language|language-b|language-c|aggregate|language-heavy|source|source-b|targets) ;;
       *)
-        echo "test-shard: unknown name '{{name}}' (want core|typed|language-b|language-c|aggregate|language-heavy|source|source-b|targets)" >&2
+        echo "test-shard: unknown name '{{name}}' (want core|typed|language|language-b|language-c|aggregate|language-heavy|source|source-b|targets)" >&2
         exit 2
         ;;
     esac
