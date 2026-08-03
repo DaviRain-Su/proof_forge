@@ -91,8 +91,10 @@ inductive ResultKind where
   /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
   | u128
   | u256
-  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` is preorder
-  flatten order (1..8). Anonymous Array/Map/Bytes/Option stay fail-closed. -/
+  /-- B-RET-ABI: multi-leaf aggregate return. `leaves` is preorder flatten
+  order (1..8). Admitted shapes: named Struct/Enum, anonymous `Array UInt64 N`
+  (1 ≤ N ≤ 8), anonymous `Option UInt64` (tag + payload). Map/Bytes/nested/
+  non-UInt64 element/Principal stay fail-closed. -/
   | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
@@ -444,7 +446,9 @@ private def solanaPlanErr (message : String) : CompileError :=
     `pilotNamedAggregateStatePolicyAdmit` (N3 flatten to UInt64/Int64 leaves).
     UInt128/256 multiword limbs. T12: Principal storage identity only
     (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. B-RET-ABI:
-    named Struct/Enum entry/view returns are admitted (≤8 UInt64/Int64 leaves). -/
+    named Struct/Enum, anonymous `Array UInt64 N` (N ≤ 8), and anonymous
+    `Option UInt64` entry/view returns are admitted (≤8 UInt64/Int64 leaves);
+    Map/Bytes/nested/Principal returns stay fail-closed. -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
@@ -657,27 +661,80 @@ private def leafCountOfTypeV1
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
 
-/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
-`ResultKind`. Leaves come from `flattenTypeLeafSpecsV1` (preorder, UInt64/Int64
-words). Enforces 1..8 leaves. Anonymous containers fail closed (not named). -/
+/-- True when `typeId` is an anonymous Option TypeDecl (not named; not in
+    `containerTypeIds` — Option is admitted only as Map IndexGet intermediate
+    / N-ANON-RESULT return shape). -/
+private def isAnonymousOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, name := none, .. } => true
+  | _ => false
+
+/-- B-RET-ABI: resolve a result TypeId into an aggregate `ResultKind`.
+    Admitted:
+    * named Struct/Enum → preorder UInt64/Int64 leaves via `flattenTypeLeafSpecsV1`
+    * anonymous `Array UInt64 N` → N UInt64 leaves (1 ≤ N ≤ 8)
+    * anonymous `Option UInt64` → tag + payload (2 UInt64 leaves; none=(0,0), some=(1,v))
+    Fail-closed: Map, Bytes, nested containers, non-UInt64 Array/Option element,
+    Principal, N > 8, N = 0. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
-  unless types.isNamedAggregate typeId do
+  if types.isNamedAggregate typeId then
+    let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+    let n := specs.size
+    unless n > 0 do
+      throw <| .planInvariant .solana
+        s!"{owner} aggregate return must have at least one leaf"
+    unless n <= 8 do
+      throw <| .planInvariant .solana
+        s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+    let mut leaves : Array LeafAbiType := #[]
+    for (_, isInt) in specs do
+      leaves := leaves.push { isInt, byteWidth := 8 }
+    pure (.aggregate leaves)
+  else if types.isContainer typeId then
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .array elTid len, .. } =>
+        unless elTid == types.uint64TypeId do
+          throw <| .planInvariant .solana
+            s!"{owner} anonymous Array return element must be UInt64"
+        let n := len.toNat
+        unless n > 0 do
+          throw <| .planInvariant .solana
+            s!"{owner} aggregate return must have at least one leaf"
+        unless n <= 8 do
+          throw <| .planInvariant .solana
+            s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+        let mut leaves : Array LeafAbiType := #[]
+        for _ in [0:n] do
+          leaves := leaves.push { isInt := false, byteWidth := 8 }
+        pure (.aggregate leaves)
+    | some { shape := .map _ _, .. } =>
+        throw <| .planInvariant .solana
+          s!"{owner} cannot return anonymous Map; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
+    | some { shape := .bytes _, .. } =>
+        throw <| .planInvariant .solana
+          s!"{owner} cannot return anonymous Bytes; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
+    | _ =>
+        throw <| .planInvariant .solana
+          s!"{owner} container return TypeId is not Array/Map/Bytes"
+  else if isAnonymousOptionTypeIdV1 typeDecls typeId then
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .option elTid, .. } =>
+        unless elTid == types.uint64TypeId do
+          throw <| .planInvariant .solana
+            s!"{owner} anonymous Option return element must be UInt64"
+        -- none = (0, 0), some v = (1, v): always two UInt64 leaves.
+        pure (.aggregate #[
+          { isInt := false, byteWidth := 8 },
+          { isInt := false, byteWidth := 8 }])
+    | _ =>
+        throw <| .planInvariant .solana
+          s!"{owner} Option return TypeDecl missing"
+  else
     throw <| .planInvariant .solana
-      s!"{owner} does not return a named Struct/Enum aggregate"
-  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
-  let n := specs.size
-  unless n > 0 do
-    throw <| .planInvariant .solana
-      s!"{owner} aggregate return must have at least one leaf"
-  unless n <= 8 do
-    throw <| .planInvariant .solana
-      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
-  let mut leaves : Array LeafAbiType := #[]
-  for (_, isInt) in specs do
-    leaves := leaves.push { isInt, byteWidth := 8 }
-  pure (.aggregate leaves)
+      s!"{owner} does not return a named Struct/Enum, Array UInt64 N≤8, or Option UInt64 aggregate"
 
 /-- Struct field leaf range (start, length) within the flattened leaf vector. -/
 private def structFieldLeafRangeV1
@@ -2371,7 +2428,7 @@ private def lowerBlockInstructionsV1
     | .externalCall _ _ _, some _ | .schedule _ _ _, some _ =>
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: external call/schedule must be void"
-    -- Array construct N args, Map.empty, or named Struct/Enum construct.
+    -- Array construct N args, Map.empty, Option.none/some, or named Struct/Enum.
     -- Bytes has no source constructor (Normalize never emits `.construct` for
     -- Bytes); the gate below is a defensive fail-closed boundary.
     | .construct typeId ctorIdx argIds, some result => do
@@ -2494,9 +2551,42 @@ private def lowerBlockInstructionsV1
           | _ =>
               throw <| .planInvariant .solana
                 "unsupported Solana semantic shape: construct requires Struct or Enum shape"
+        else if isAnonymousOptionTypeIdV1 typeDecls typeId then
+          -- N-ANON-RESULT / B-RET-ABI: Option UInt64 → [tag, payload].
+          -- ctorIdx 0 = none → (0, 0); ctorIdx 1 = some → (1, v).
+          match typeDecls[typeId.toNat]? with
+          | some { shape := .option elTid, .. } => do
+              unless elTid == types.uint64TypeId do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Option construct element must be UInt64"
+              if ctorIdx == 0 then
+                unless argIds.isEmpty do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: Option.none construct must have zero args"
+                let value := mkAggregateValueV1 #[.literal 0, .literal 0] #[] 1 2
+                values := ← appendResultValueV1 typeId values result value
+              else if ctorIdx == 1 then
+                unless argIds.size == 1 do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: Option.some construct must have one arg"
+                let some argId := argIds[0]? |
+                  throw <| .planInvariant .solana "Option.some arg missing"
+                let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                unless !arg.isBool && !arg.isInt && !arg.isAggregate && arg.bitWidth == 64 do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: Option.some payload must be scalar UInt64"
+                let value := mkAggregateValueV1 #[.literal 1, arg.expr] #[argId]
+                  (arg.depth + 1) (arg.expandedNodes + 2)
+                values := ← appendResultValueV1 typeId values result value
+              else
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+          | _ =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Option construct TypeDecl missing"
         else
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: construct admits only Array/Map UInt64 or named Struct/Enum on Solana"
+            "unsupported Solana semantic shape: construct admits only Array/Map UInt64, Option UInt64, or named Struct/Enum on Solana"
     | .indexGet baseId idxId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
         unless base.isAggregate do
@@ -2991,20 +3081,20 @@ private partial def emitRegionV1
           let returned ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
           match expectedAggregateLeaves with
           | some expectedLeaves =>
-              -- B-RET-ABI: named Struct/Enum only (containers/Principal still FC).
+              -- B-RET-ABI: named Struct/Enum, Array UInt64 N, Option UInt64.
+              -- ResultKind already gated the admitted shape; require multi-leaf
+              -- 8-byte words matching the declared leaf count.
               unless returned.isAggregate do
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: aggregate return value must be a named aggregate"
+                  "unsupported Solana semantic shape: aggregate return value must be a multi-leaf aggregate"
               let gotLeaves := returned.leafExprs
               unless gotLeaves.size == expectedLeaves.size do
                 throw <| .planInvariant .solana
                   s!"unsupported Solana semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
-              -- Anonymous containers also produce aggregateLeaves; reject when
-              -- leafByteWidth is not 8 (Bytes) or when Principal/Array without
-              -- named-aggregate ResultKind. Cap-8 is already on ResultKind.
+              -- Bytes leaves have leafByteWidth=1; reject non-word returns here.
               unless returned.leafByteWidth == 8 do
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal/Struct/Enum) cannot be returned (ABI is scalar; B-RET-ABI: Solana does not support named-aggregate return)"
+                  "unsupported Solana semantic shape: aggregate return leaves must be 8-byte words (Bytes return stays fail-closed)"
               let consumed ← consumeCurrentSegmentValueV1 values blockEntry segmentStart valueId
               let mut leafIsInt : Array Bool := #[]
               for leaf in expectedLeaves do
@@ -3013,7 +3103,7 @@ private partial def emitRegionV1
           | none =>
               if returned.isAggregate then
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal/Struct/Enum) cannot be returned (ABI is scalar; B-RET-ABI: anonymous/Principal return stay fail-closed)"
+                  "unsupported Solana semantic shape: multi-leaf aggregate cannot be returned on a scalar result (B-RET-ABI: ResultKind must be .aggregate)"
               unless returned.isBool == expectsBoolReturn do
                 throw <| .planInvariant .solana
                   (if expectsBoolReturn then
@@ -3414,7 +3504,7 @@ private def makeEntryV1
     | some 256 => pure .u256
     | some _ =>
         throw <| .planInvariant .solana
-          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or named Struct/Enum aggregate"
+          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or aggregate"
     | none =>
         match types.intWidthOf callable.result.typeId with
         | some 8 => pure .i8
@@ -3427,15 +3517,19 @@ private def makeEntryV1
         | none =>
           if types.boolTypeId == some callable.result.typeId then
             pure .bool
-          else if types.isNamedAggregate callable.result.typeId then
-            aggregateResultKindOfV1 typeDecls types s!"entry '{name}'" callable.result.typeId
-          else if types.isContainer callable.result.typeId ||
-              types.isPrincipal callable.result.typeId then
+          else if types.isNamedAggregate callable.result.typeId ||
+              types.isContainer callable.result.typeId ||
+              isAnonymousOptionTypeIdV1 typeDecls callable.result.typeId then
+            -- B-RET-ABI: named Struct/Enum + anonymous Array UInt64 N≤8 +
+            -- Option UInt64. Map/Bytes/Principal FC inside resolver.
+            aggregateResultKindOfV1 typeDecls types s!"entry '{name}'"
+              callable.result.typeId
+          else if types.isPrincipal callable.result.typeId then
             throw <| .planInvariant .solana
-              s!"entry '{name}' cannot return multi-leaf aggregate (Array/Principal/anonymous container); Solana B-RET-ABI admits only named Struct/Enum (cap-8 leaves)"
+              s!"entry '{name}' cannot return Principal; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64 (cap-8 leaves)"
           else
             throw <| .planInvariant .solana
-              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or named Struct/Enum aggregate"
+              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view

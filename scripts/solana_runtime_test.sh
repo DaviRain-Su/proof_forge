@@ -75,6 +75,8 @@ fixtures=(
   WideMul
   PairRet
   MaybeRet
+  ArrayRet
+  OptionRet
 )
 
 echo "solana-runtime-test: building proof-forge-next (lake build proof_forge_next)"
