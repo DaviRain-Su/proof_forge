@@ -558,21 +558,24 @@ private abbrev TonTypeClosureV1 := PilotTypeClosureV1
 private def tonPlanErr (message : String) : CompileError :=
   .planInvariant .ton message
 
-/-- Ton MVP admits UInt64 (+ UInt32 shift-count temps) and Int64, plus named
-    Struct/Enum aggregates (state flatten + B-RET-ABI view returns, cap-8
-    UInt64/Int64 leaves). Multi-width UInt8/16/32/128/256, Principal (identity
-    storage only where wired), anonymous containers, Field, String fail closed
-    at type closure unless separately admitted. -/
-private def tonUintWidthPolicyV1 : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32]
+/-- Ton multi-width policy (BL-14 / T8 pattern): UInt{8,16,32,64} for body and
+    state/param ABI. UInt128/256 stay fail closed (no multiword TVM path).
+    Reuses the named NearAbi width set without admitting 128/256. -/
+private def tonUintWidthPolicyV1 : PilotUintWidthPolicy :=
+  pilotUintWidthPolicyNearAbi
+
+/-- Body/ABI UInt width gate for Ton: `{8,16,32,64}` only (not NearBody 128/256). -/
+private def isTonBodyUintWidth (w : Nat) : Bool := isPilotBodyUintWidth w
+
+private def isTonAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
 
 private def tonTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Ton"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64 and Int64 integer types are supported (MVP; multi-width fail closed)"
+    "only anonymous UInt{8,16,32,64} and Int64 integer types are supported (UInt128/256 and narrow Int fail closed)"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32 (shift-count), Int64, Unit, Bool, and named Struct/Enum are supported (no Field/Principal/anonymous containers)"
+    "only UInt{8,16,32,64}, Int64, Unit, Bool, and named Struct/Enum are supported (no Field/Principal/anonymous containers; UInt128/256 fail closed)"
 
 private def validateTonTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult TonTypeClosureV1 :=
@@ -644,25 +647,25 @@ private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
     leaves := leaves.push (.literal (UInt64.ofNat word))
   pure leaves
 
-/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8). -/
+/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8).
+    Ton admits only UInt{8,16,32,64}/Int64 (UInt128/256 and narrow Int FC). -/
 private def abiByteWidthOfTypeV1
     (types : TonTypeClosureV1) (typeId : TypeIdV1) : CompileResult Nat := do
   match types.uintWidthOf typeId with
   | some w =>
-      unless isNearAbiUintWidth w do
+      unless isTonAbiUintWidth w do
         throw <| .planInvariant .ton
           s!"unsupported Ton semantic shape: ABI UInt{w} is not admitted"
       pure (byteWidthOfBitWidth w)
   | none =>
       match types.intWidthOf typeId with
+      | some 64 => pure 8
       | some w =>
-          unless isAbiIntWidth w do
-            throw <| .planInvariant .ton
-              s!"unsupported Ton semantic shape: ABI Int{w} is not admitted"
-          pure (byteWidthOfBitWidth w)
+          throw <| .planInvariant .ton
+            s!"unsupported Ton semantic shape: ABI Int{w} is not admitted (Int64 only)"
       | none =>
           throw <| .planInvariant .ton
-            "unsupported Ton semantic shape: ABI type must be UInt8/16/32/64/128/256 or Int8/16/32/64"
+            "unsupported Ton semantic shape: ABI type must be UInt8/16/32/64 or Int64"
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
 private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat) : Expr :=
@@ -1073,9 +1076,9 @@ private def makeStorageLayoutV1
             }
           stateLeaves := stateLeaves.push leaves
         else
-          -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
-          -- KV keys stay one-per-field (no packing); value length is the ABI width.
-          requirePublicUInt64OrInt64State tonPlanErr types state (allowNonPublic := true)
+          -- BL-14/T8b: scalar state admits UInt{8,16,32,64} / Int64 with
+          -- byteWidth 1/2/4/8. Cell fields use exact bit width at emit.
+          requirePublicUintAbiOrInt64State tonPlanErr types state (allowNonPublic := true)
           let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
           let fi := fields.size
           fields := fields.push {
@@ -1264,8 +1267,9 @@ private def makeParamsV1 (owner : String) (types : TonTypeClosureV1)
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
         (leafByteWidth := 1))
     else
-      -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8..64}; cumulative pitch.
-      requirePublicUInt64OrInt64Param tonPlanErr types owner param
+      -- BL-14/T8b: ABI params admit UInt{8,16,32,64}/Int64; pitch is 8-byte
+      -- slots (narrow values occupy low bits of a 64-bit input word).
+      requirePublicUintAbiOrInt64Param tonPlanErr types owner param
         (allowNonPublic := true)
       let isInt := (types.intWidthOf param.typeId).isSome
       let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
@@ -1594,7 +1598,7 @@ private def admitUIntWidthResultTypeV1
     CompileResult (TypeIdV1 × TonValueKindV1 × Nat) := do
   match types.uintWidthOf resultTypeId with
   | some w =>
-      unless isNearBodyUintWidth w do
+      unless isTonBodyUintWidth w do
         throw <| .planInvariant .ton
           s!"unsupported Ton semantic shape: arithmetic/bitwise result UInt{w} is not admitted"
       match uintKindOfWidthV1 w with
@@ -1808,7 +1812,7 @@ private def lowerBlockInstructionsV1
             dependencies := #[]
           }
         else if let some bitWidth := types.uintWidthOf typeId then
-          unless isNearBodyUintWidth bitWidth do
+          unless isTonBodyUintWidth bitWidth do
             throw <| .planInvariant .ton
               s!"unsupported Ton semantic shape: UInt{bitWidth} literal is not admitted"
           let kind ← match uintKindOfWidthV1 bitWidth with
@@ -1921,7 +1925,7 @@ private def lowerBlockInstructionsV1
             if isInt then pure 64
             else match types.uintWidthOf result.typeId with
               | some w =>
-                  unless isNearAbiUintWidth w do
+                  unless isTonAbiUintWidth w do
                     throw <| .planInvariant .ton
                       s!"unsupported Ton semantic shape: state load UInt{w} is not admitted"
                   pure w
@@ -2127,18 +2131,16 @@ private def lowerBlockInstructionsV1
             let some bitWidth := widthOfUintKindV1 lhs.kind |
               throw <| .planInvariant .ton
                 "unsupported Ton semantic shape: binary operands must be admitted UInt width"
-            unless isNearBodyUintWidth bitWidth do
+            unless isTonBodyUintWidth bitWidth do
               throw <| .planInvariant .ton
                 s!"unsupported Ton semantic shape: UInt{bitWidth} is not an admitted body width"
             if op == .add || op == .sub || op == .mul || op == .div ||
                 op == .mod || op == .bitAnd || op == .bitOr || op == .bitXor then
-              -- Multiword div/mod are not implemented: the wide surface is
-              -- add/sub/mul (schoolbook) plus compare/bitwise. Failing closed
-              -- here keeps a single-limb `i64.div_u` from silently corrupting
-              -- the high limbs of a UInt128/256 value.
-              if bitWidth > 64 && (op == .div || op == .mod) then
+              -- UInt128/256 multiword is fail-closed on Ton (type policy + body
+              -- gate). Single-limb int257 path covers UInt{8,16,32,64} only.
+              if bitWidth > 64 then
                 throw <| .planInvariant .ton
-                  "unsupported Ton semantic shape: multiword div/mod is fail-closed on Ton (only multiword add/sub/mul are implemented)"
+                  "unsupported Ton semantic shape: multiword UInt is fail-closed on Ton"
               let (widthTid, kind, w) ← admitUIntWidthResultTypeV1 types result.typeId
               unless kind == lhs.kind && w == bitWidth do
                 throw <| .planInvariant .ton
@@ -2333,7 +2335,7 @@ private def lowerBlockInstructionsV1
             unless valueWidth == expectedBitWidth do
               throw <| .planInvariant .ton
                 s!"unsupported Ton semantic shape: state store value width {valueWidth} must match field bitWidth {expectedBitWidth}"
-            unless isNearAbiUintWidth valueWidth do
+            unless isTonAbiUintWidth valueWidth do
               throw <| .planInvariant .ton
                 "unsupported Ton semantic shape: state store value must be admitted UInt width or Int64"
           let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
@@ -3424,24 +3426,27 @@ private def makeEntryV1
       throw <| .planInvariant .ton
         s!"entry '{name}' cannot return multi-leaf aggregate (Array/Principal/anonymous container); Ton B-RET-ABI admits only named Struct/Enum view returns (cap-8 leaves)"
     else
-      -- Ton MVP: scalar ABI is UInt64 / Bool / Int64 only (multi-width FC).
+      -- BL-14: scalar ABI is UInt{8,16,32,64} / Bool / Int64 (UInt128/256 FC).
       match types.uintWidthOf callable.result.typeId with
+      | some 8 => pure (MethodResultKind.uint8, ExpectedReturnV1.scalar .uint8)
+      | some 16 => pure (MethodResultKind.uint16, ExpectedReturnV1.scalar .uint16)
+      | some 32 => pure (MethodResultKind.uint32, ExpectedReturnV1.scalar .uint32)
       | some 64 => pure (MethodResultKind.uint64, ExpectedReturnV1.scalar .uint64)
       | some w =>
           throw <| .planInvariant .ton
-            s!"entry '{name}' does not return public UInt64 (UInt{w} multi-width fail closed at Ton MVP)"
+            s!"entry '{name}' does not return public UInt8/16/32/64 (UInt{w} fail closed on Ton)"
       | none =>
           match types.intWidthOf callable.result.typeId with
           | some 64 => pure (MethodResultKind.int64, ExpectedReturnV1.scalar .int64)
           | some w =>
               throw <| .planInvariant .ton
-                s!"entry '{name}' does not return public Int64 (Int{w} multi-width fail closed at Ton MVP)"
+                s!"entry '{name}' does not return public Int64 (Int{w} fail closed on Ton)"
           | none =>
             if types.boolTypeId == some callable.result.typeId then
               pure (MethodResultKind.bool, ExpectedReturnV1.scalar .bool)
             else
               throw <| .planInvariant .ton
-                s!"entry '{name}' does not return public UInt64, Int64, Bool, or named Struct/Enum view aggregate"
+                s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or named Struct/Enum view aggregate"
   let mode : MethodMode := match semanticMode with
     | .mutate => .mutate
     | .view => .view

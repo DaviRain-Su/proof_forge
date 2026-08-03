@@ -26,7 +26,13 @@ open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 
-/-- Stable exit codes for the UInt64 pilot (TVM exception codes). -/
+/-- Stable exit codes for the UInt pilot (TVM exception codes).
+
+    Shared across UInt64 and narrow UInt{8,16,32} (BL-14): overflow/underflow
+    of the declared width, divide-by-zero, and invalid shift counts all reuse
+    these codes so the error-code table stays deterministic and compact.
+    Narrow widths do **not** get separate codes — the guard is width-parameterized
+    (`assert (0 <= t && t < (1 << bitWidth)) throw 100`). -/
 def errOverflow : Nat := 100
 def errDivZero : Nat := 101
 def errInvalidShift : Nat := 102
@@ -89,6 +95,21 @@ inductive Operation where
   | shl (destination lhs rhs : Nat)
   | shr (destination lhs rhs : Nat)
   | bitNot (destination source : Nat)
+  /-- Narrow body checked arithmetic (`bitWidth ∈ {8,16,32}`); UInt64 keeps
+      historical `checked*`. Emit attaches `assert (0 ≤ t < 2^bitWidth)`. -/
+  | narrowCheckedAdd (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedSub (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedMul (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedDiv (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedMod (bitWidth destination lhs rhs : Nat)
+  | narrowBitAnd (bitWidth destination lhs rhs : Nat)
+  | narrowBitOr (bitWidth destination lhs rhs : Nat)
+  | narrowBitXor (bitWidth destination lhs rhs : Nat)
+  | narrowBitNot (bitWidth destination source : Nat)
+  /-- Count ≥ 64 trap; shl; result high bits above bitWidth must be 0. -/
+  | narrowShl (bitWidth destination lhs rhs : Nat)
+  /-- Count ≥ 64 trap; logical shr (result auto in-range for unsigned). -/
+  | narrowShr (bitWidth destination lhs rhs : Nat)
   | boolNot (destination source : Nat)
   | boolAnd (destination lhs rhs : Nat)
   | boolOr (destination lhs rhs : Nat)
@@ -266,47 +287,69 @@ private partial def lowerExpr (next : Nat)
       let op := lowerExpr next paramAsTemp localEnv operand
       { operations := op.operations ++ #[.bitNot op.next op.value]
         value := op.next, next := op.next + 1 }
-  | .narrowCheckedAdd _ lhs rhs | .narrowCheckedSub _ lhs rhs
-  | .narrowCheckedMul _ lhs rhs | .narrowCheckedDiv _ lhs rhs
-  | .narrowCheckedMod _ lhs rhs =>
+  | .narrowCheckedAdd bitWidth lhs rhs =>
       let lhs := lowerExpr next paramAsTemp localEnv lhs
       let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.checkedAdd rhs.next lhs.value rhs.value]
+          #[.narrowCheckedAdd bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .narrowBitAnd _ lhs rhs =>
+  | .narrowCheckedSub bitWidth lhs rhs =>
       let lhs := lowerExpr next paramAsTemp localEnv lhs
       let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.bitAnd rhs.next lhs.value rhs.value]
+          #[.narrowCheckedSub bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .narrowBitOr _ lhs rhs =>
+  | .narrowCheckedMul bitWidth lhs rhs =>
       let lhs := lowerExpr next paramAsTemp localEnv lhs
       let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.bitOr rhs.next lhs.value rhs.value]
+          #[.narrowCheckedMul bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .narrowBitXor _ lhs rhs =>
+  | .narrowCheckedDiv bitWidth lhs rhs =>
       let lhs := lowerExpr next paramAsTemp localEnv lhs
       let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.bitXor rhs.next lhs.value rhs.value]
+          #[.narrowCheckedDiv bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .narrowBitNot _ operand =>
+  | .narrowCheckedMod bitWidth lhs rhs =>
+      let lhs := lowerExpr next paramAsTemp localEnv lhs
+      let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedMod bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowBitAnd bitWidth lhs rhs =>
+      let lhs := lowerExpr next paramAsTemp localEnv lhs
+      let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitAnd bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowBitOr bitWidth lhs rhs =>
+      let lhs := lowerExpr next paramAsTemp localEnv lhs
+      let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitOr bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowBitXor bitWidth lhs rhs =>
+      let lhs := lowerExpr next paramAsTemp localEnv lhs
+      let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitXor bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowBitNot bitWidth operand =>
       let op := lowerExpr next paramAsTemp localEnv operand
-      { operations := op.operations ++ #[.bitNot op.next op.value]
+      { operations := op.operations ++ #[.narrowBitNot bitWidth op.next op.value]
         value := op.next, next := op.next + 1 }
-  | .narrowShl _ lhs rhs =>
+  | .narrowShl bitWidth lhs rhs =>
       let lhs := lowerExpr next paramAsTemp localEnv lhs
       let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.shl rhs.next lhs.value rhs.value]
+          #[.narrowShl bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .narrowShr _ lhs rhs =>
+  | .narrowShr bitWidth lhs rhs =>
       let lhs := lowerExpr next paramAsTemp localEnv lhs
       let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
-          #[.shr rhs.next lhs.value rhs.value]
+          #[.narrowShr bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
   | .boolNot operand =>
       let op := lowerExpr next paramAsTemp localEnv operand
@@ -623,9 +666,29 @@ private def cmpOp : ComparisonOp → String
 private def uint64RangeCheck (dst : String) : String :=
   s!"assert (0 <= {dst} && {dst} < (1 << 64)) throw {errOverflow};"
 
+/-- Width-parameterized unsigned range check for UInt{8,16,32,64} on int257.
+    Same `errOverflow` code as UInt64; high bits above `bitWidth` must be 0. -/
+private def uintWidthRangeCheck (bitWidth : Nat) (dst : String) : String :=
+  s!"assert (0 <= {dst} && {dst} < (1 << {bitWidth})) throw {errOverflow};"
+
+/-- Mask to low `bitWidth` bits (bitwise/not results). -/
+private def uintWidthMask (bitWidth : Nat) : String :=
+  s!"((1 << {bitWidth}) - 1)"
+
 private def int64RangeCheck (dst : String) : String :=
   -- signed Int64 range on int257
   s!"assert (-(1 << 63) <= {dst} && {dst} < (1 << 63)) throw {errOverflow};"
+
+/-- Tolk storage field type from physical byte width. -/
+private def storageFieldTolkType (byteWidth : Nat) : String :=
+  match byteWidth with
+  | 1 => "uint8"
+  | 2 => "uint16"
+  | 4 => "uint32"
+  | _ => "uint64"
+
+/-- Message-body load bit width from param physical byte width. -/
+private def paramLoadBits (byteWidth : Nat) : Nat := byteWidth * 8
 
 private partial def renderOps (plan : Plan) (method? : Option MethodIR)
     (fn? : Option FnIR) (ops : Array Operation) (depth : Nat)
@@ -741,6 +804,51 @@ private partial def renderOps (plan : Plan) (method? : Option MethodIR)
         out := out ++ pad ++
           s!"val {tempName dest} = {tempName lhs} >> {tempName rhs};\n"
     | .sar dest lhs rhs =>
+        out := out ++ pad ++
+          s!"assert (0 <= {tempName rhs} && {tempName rhs} < 64) throw {errInvalidShift};\n"
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} >> {tempName rhs};\n"
+    | .narrowCheckedAdd bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} + {tempName rhs};\n"
+        out := out ++ pad ++ uintWidthRangeCheck bitWidth (tempName dest) ++ "\n"
+    | .narrowCheckedSub bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} - {tempName rhs};\n"
+        out := out ++ pad ++ uintWidthRangeCheck bitWidth (tempName dest) ++ "\n"
+    | .narrowCheckedMul bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} * {tempName rhs};\n"
+        out := out ++ pad ++ uintWidthRangeCheck bitWidth (tempName dest) ++ "\n"
+    | .narrowCheckedDiv _bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"assert ({tempName rhs} != 0) throw {errDivZero};\n"
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} / {tempName rhs};\n"
+    | .narrowCheckedMod _bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"assert ({tempName rhs} != 0) throw {errDivZero};\n"
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} % {tempName rhs};\n"
+    | .narrowBitAnd bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"val {tempName dest} = ({tempName lhs} & {tempName rhs}) & {uintWidthMask bitWidth};\n"
+    | .narrowBitOr bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"val {tempName dest} = ({tempName lhs} | {tempName rhs}) & {uintWidthMask bitWidth};\n"
+    | .narrowBitXor bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"val {tempName dest} = ({tempName lhs} ^ {tempName rhs}) & {uintWidthMask bitWidth};\n"
+    | .narrowBitNot bitWidth dest source =>
+        out := out ++ pad ++
+          s!"val {tempName dest} = (~{tempName source}) & {uintWidthMask bitWidth};\n"
+    | .narrowShl bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"assert (0 <= {tempName rhs} && {tempName rhs} < 64) throw {errInvalidShift};\n"
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} << {tempName rhs};\n"
+        out := out ++ pad ++ uintWidthRangeCheck bitWidth (tempName dest) ++ "\n"
+    | .narrowShr _bitWidth dest lhs rhs =>
         out := out ++ pad ++
           s!"assert (0 <= {tempName rhs} && {tempName rhs} < 64) throw {errInvalidShift};\n"
         out := out ++ pad ++
@@ -874,7 +982,9 @@ private def renderStorageStruct (plan : Plan) : String := Id.run do
   let mut out := "struct Storage {\n"
   out := out ++ "    __layout: uint64\n"
   for field in plan.storage.fields do
-    out := out ++ s!"    {field.name}: uint64\n"
+    -- BL-14: exact-width cell fields (uint8/16/32/64) via storeUint/loadUint
+    -- of field.bitWidth when serializing the c4 Storage cell.
+    out := out ++ s!"    {field.name}: {storageFieldTolkType field.byteWidth}\n"
   out := out ++ "}\n\n"
   out := out ++ "fun Storage.load(): Storage {\n"
   out := out ++ "    return Storage.fromCell(contract.getData());\n"
@@ -929,7 +1039,11 @@ private def renderMessageHandler (plan : Plan) (method : MethodIR) : String := I
   let mut out := s!"// op {method.opCode} → {method.name}\n"
   out := out ++ s!"if (op == {method.opCode}) \{\n"
   for p in method.params do
-    out := out ++ s!"    val {p.name} = body.loadUint(64);\n"
+    -- BL-14: exact-width param load (loadUint(8/16/32/64)); values zero-extend
+    -- into int temps for body arithmetic. Slot pitch remains 8-byte logical
+    -- input offsets in the Plan; message body packs consecutive exact widths.
+    let bits := paramLoadBits p.byteWidth
+    out := out ++ s!"    val {p.name} = body.loadUint({bits});\n"
   out := out ++ "    var storage = Storage.load();\n"
   let (body, dirty) := renderOps plan (some method) none method.operations 1 "storage" false
   out := out ++ body
@@ -1001,9 +1115,16 @@ private def renderResultKindJson : MethodResultKind → String
   | .aggregate leaves =>
       "[" ++ String.intercalate "," (leaves.map renderLeafAbiJson).toList ++ "]"
 
+private def abiJsonTypeOfByteWidth (byteWidth : Nat) : String :=
+  match byteWidth with
+  | 1 => "uint8"
+  | 2 => "uint16"
+  | 4 => "uint32"
+  | _ => "uint64"
+
 private def renderPfAbi (plan : Plan) (ir : IR) : String := Id.run do
   let fields := String.intercalate "," (plan.storage.fields.toList.map fun f =>
-    s!"\{\"name\":\"{Targets.escapeJson f.name}\",\"type\":\"uint64\"}")
+    s!"\{\"name\":\"{Targets.escapeJson f.name}\",\"type\":\"{abiJsonTypeOfByteWidth f.byteWidth}\"}")
   let mut methodsJson : List String := []
   for m in ir.methods do
     let mode :=
@@ -1012,7 +1133,7 @@ private def renderPfAbi (plan : Plan) (ir : IR) : String := Id.run do
       | .mutate => "entry"
       | .view => "view"
     let params := String.intercalate "," (m.params.toList.map fun p =>
-      s!"\{\"name\":\"{Targets.escapeJson p.name}\",\"type\":\"uint64\"}")
+      s!"\{\"name\":\"{Targets.escapeJson p.name}\",\"type\":\"{abiJsonTypeOfByteWidth p.byteWidth}\"}")
     let returns := renderResultKindJson m.resultKind
     methodsJson := methodsJson ++ [
       s!"\{\"name\":\"{Targets.escapeJson m.name}\",\"mode\":\"{mode}\",\"op\":{m.opCode},\"params\":[{params}],\"returns\":{returns}}"
@@ -1025,7 +1146,7 @@ private def renderPfAbi (plan : Plan) (ir : IR) : String := Id.run do
     s!"  \"codegenProfile\": \"{plan.codegenProfile}\",\n" ++
     s!"  \"hostAbi\": \"{plan.hostAbi}\",\n" ++
     s!"  \"encoding\": \"{plan.inputAbi}\",\n" ++
-    "  \"messageEnvelope\": {\"opBits\":32,\"queryIdBits\":64,\"paramBits\":64},\n" ++
+    "  \"messageEnvelope\": {\"opBits\":32,\"queryIdBits\":64,\"paramBitsExact\":true},\n" ++
     "  \"storage\": {\"kind\":\"c4-flat-struct\",\"fields\":[" ++ fields ++
     s!",\"layoutMarker\":{plan.storage.markerValue}]" ++ "},\n" ++
     "  \"methods\": [\n    " ++ methods ++ "\n  ],\n" ++
