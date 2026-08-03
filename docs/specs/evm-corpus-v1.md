@@ -61,7 +61,8 @@ schema 对 corpus harness 仍是 sole closed authority。后续导航接线任�
 | `safe-id` | 1–256 ASCII；首尾字母或数字；中间仅 `A-Za-z0-9._:+-` |
 | `case-id` | 同 safe-id，且至少含一个 `.`（dotted case identity） |
 | `relative-path` | 非空、已是 NFC、POSIX 相对路径；禁止 absolute、`\`、空/`.`/`..` 组件、control、尾 `/` |
-| `hex-bytes` | `0x` + 偶数字母小写 hex（可 `0x` 空） |
+| `hex-bytes` | `0x` + 偶数字母小写 hex（可 `0x` 空）；用于 calldata/returndata/topics/log data 等 variable-width 字节串 |
+| `storage-word32` | `0x` + **恰好** 64 位小写 hex（32 raw bytes）；**仅**用于 EVM `storageSlots[].slot` 与 `storageSlots[].value`（真实 EVM storage word；禁止短写/大写/奇数长度） |
 | `address20` | `0x` + 40 小写 hex |
 | `uint-decimal` | 无符号十进制整数字符串，无前导零（`0` 除外），值可超过 JSON safe int |
 
@@ -265,7 +266,7 @@ adapter **不** 产生 family/ABI/standard credit（由 `claims` 强制）。允
   "reason": string,                   // 1..128 UTF-8 bytes, exact match surface
   "reasonKind": "planInvariant" | "capabilityMissing" | "unsupportedShape",
   "diagnosticPatterns": [string, ...], // 0..8; each 1..128 UTF-8 bytes
-  "forbiddenEarlyFailure": [          // must be present; closed set
+  "forbiddenEarlyFailure": [          // must be present; exact fixed contract order
     "toolchain-mismatch",
     "parse-error",
     "unrelated-type-error",
@@ -274,8 +275,10 @@ adapter **不** 产生 family/ABI/standard credit（由 `claims` 强制）。允
 }
 ```
 
-- `forbiddenEarlyFailure` 必须 **恰好** 为上表四项的升序数组（固定合同，防止把 unrelated early
-  failure 当 blocked pass）。
+- `forbiddenEarlyFailure` 必须 **恰好** 等于上表四元组的 **固定合同序**（exact tuple order，
+  **不是** ASCII 升序、也不是 set 重排）。任何缺项、多项、置换或拼写变化一律
+  `PF-CORPUS-INVARIANT`。该合同防止把 toolchain-mismatch / parse-error /
+  unrelated-type-error / missing-tool 等 early failure 记为 blocked pass。
 - `runner` 建议 `lean-focused`；schema 不强制，但 product CLI closed diagnostic 未冻结前不得把
   blocked case 记为 runtime pass。
 
@@ -290,6 +293,8 @@ adapter **不** 产生 family/ABI/standard credit（由 `claims` 强制）。允
 ```
 
 研究建议 / draft 决策不得使用 `decisionStatus="accepted"` 以外的值（其他值直接拒绝）。
+schema 形状自检 fixture（如 `case-oos-shape.json`）仅证明结构可解码；输出
+`claims-not-verified`，**不**构成产品 OOS  closure 或 accepted-decision 业务证据。
 
 ## Root: `proof-forge.evm-observation.v1`
 
@@ -346,7 +351,10 @@ gas **默认不在** shared 面；未来 gas claim 必须升版本观察面。
 {
   "calldata": hex-bytes,
   "returndata": hex-bytes,
-  "storageSlots": [ { "slot": hex-bytes, "value": hex-bytes }, ... ],  // unique slot ascending
+  "storageSlots": [
+    { "slot": storage-word32, "value": storage-word32 },
+    ...
+  ],
   "logs": [ { "address": address20, "topics": [hex-bytes,..≤4], "data": hex-bytes }, ... ], // ≤32
   "revertData": hex-bytes | null,
   "externalCalls": [
@@ -361,6 +369,14 @@ gas **默认不在** shared 面；未来 gas claim 必须升版本观察面。
   "balances": [ { "id": safe-id, "wei": uint-decimal }, ... ]  // unique id ascending
 }
 ```
+
+`storageSlots` 规则（真实 EVM storage word，非 variable-width blob）：
+
+- `slot` 与 `value` 均为 `storage-word32`：`0x` + 恰好 64 位 **小写** hex（32 bytes）；
+  拒绝 `0x1`、奇数长度、大写、缺 `0x`、超/短于 32 bytes。
+- `slot` 在数组内唯一。
+- 数组按 `slot` 的 **exact wire 字符串** ASCII/UTF-8 字节升序排序（对固定 64-hex 左零填充
+  形式，该序等于 unsigned big-endian 数值序）。乱序 → `PF-CORPUS-INVARIANT`。
 
 ## 校验器与 fixtures
 

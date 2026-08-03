@@ -71,11 +71,35 @@ SHA256_RE = re.compile(r"[0-9a-f]{64}")
 GIT_OBJECT_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._:+-]{0,254}[A-Za-z0-9])?")
 HEX_BYTES_RE = re.compile(r"0x(?:[0-9a-f]{2})*")
+# Exact EVM storage word: 32 raw bytes as 0x + 64 lowercase hex digits.
+STORAGE_WORD32_RE = re.compile(r"0x[0-9a-f]{64}")
 ADDRESS20_RE = re.compile(r"0x[0-9a-f]{40}")
 UINT_DECIMAL_RE = re.compile(r"0|[1-9][0-9]*")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = REPO_ROOT / "testdata" / "evm-corpus" / "v1" / "schema-tests"
+
+# Disk negative fixtures: basename → exact expected CorpusError.code.
+# Any other code (or acceptance) fails the self-test.
+NEGATIVE_FIXTURE_CODES: dict[str, str] = {
+    "case-abi-no-same-call-bytes.json": "PF-CORPUS-INVARIANT",
+    "case-adapter-family-credit.json": "PF-CORPUS-INVARIANT",
+    "case-blocked-missing.json": "PF-CORPUS-INVARIANT",
+    "case-duplicate-actor.json": "PF-CORPUS-INVARIANT",
+    "case-duplicate-key.json": "PF-CORPUS-DUPLICATE-KEY",
+    "case-invalid-class.json": "PF-CORPUS-SCHEMA",
+    "case-non-canonical.json": "PF-CORPUS-CANONICAL",
+    "case-oos-draft-decision.json": "PF-CORPUS-INVARIANT",
+    "case-oversize.json": "PF-CORPUS-LIMIT",
+    "case-oz-missing-projection.json": "PF-CORPUS-INVARIANT",
+    "case-path-traversal.json": "PF-CORPUS-PATH",
+    "case-skip-as-pass.json": "PF-CORPUS-INVARIANT",
+    "case-unknown-field.json": "PF-CORPUS-SCHEMA",
+    "obs-reference-with-evm.json": "PF-CORPUS-INVARIANT",
+    "obs-skip-as-pass.json": "PF-CORPUS-INVARIANT",
+    "obs-storage-slot-wrong-width.json": "PF-CORPUS-SCHEMA",
+    "obs-storage-slots-unsorted.json": "PF-CORPUS-INVARIANT",
+}
 
 
 class CorpusError(RuntimeError):
@@ -229,6 +253,11 @@ def require_case_id(value: object, where: str) -> str:
 
 def require_hex_bytes(value: object, where: str) -> str:
     return require_pattern(value, HEX_BYTES_RE, where)
+
+
+def require_storage_word32(value: object, where: str) -> str:
+    """Exact 32-byte EVM storage slot or value (0x + 64 lowercase hex)."""
+    return require_pattern(value, STORAGE_WORD32_RE, where)
 
 
 def require_address20(value: object, where: str) -> str:
@@ -841,8 +870,9 @@ def _validate_blocked_body(value: object) -> dict[str, object]:
     if early_text != list(FORBIDDEN_EARLY_FAILURE):
         fail(
             "PF-CORPUS-INVARIANT",
-            f"{where}.forbiddenEarlyFailure must be exactly "
-            f"{list(FORBIDDEN_EARLY_FAILURE)}",
+            f"{where}.forbiddenEarlyFailure must equal the fixed contract "
+            f"tuple order {list(FORBIDDEN_EARLY_FAILURE)} "
+            f"(not ASCII sort / not a reorderable set)",
         )
     return obj
 
@@ -970,15 +1000,17 @@ def _validate_evm_observation(value: object, where: str) -> dict[str, object]:
     for index, slot in enumerate(slots):
         slot_where = f"{where}.storageSlots[{index}]"
         slot_obj = require_keys(slot, {"slot", "value"}, slot_where)
-        key = require_hex_bytes(slot_obj["slot"], _where(slot_where, "slot"))
-        require_hex_bytes(slot_obj["value"], _where(slot_where, "value"))
+        key = require_storage_word32(slot_obj["slot"], _where(slot_where, "slot"))
+        require_storage_word32(slot_obj["value"], _where(slot_where, "value"))
         slot_keys.append(key)
     if len(set(slot_keys)) != len(slot_keys):
         fail("PF-CORPUS-INVARIANT", f"{where}.storageSlots has duplicate slots")
+    # Lexicographic order of exact storage-word32 wire strings (fixed 64-hex
+    # left-zero-padded form ⇒ equals unsigned big-endian numeric slot order).
     if slot_keys != sorted(slot_keys):
         fail(
             "PF-CORPUS-INVARIANT",
-            f"{where}.storageSlots must be sorted by slot ascending",
+            f"{where}.storageSlots must be sorted by slot wire string ascending",
         )
     logs = require_array(obj["logs"], _where(where, "logs"))
     if len(logs) > MAX_LOGS:
@@ -1416,7 +1448,7 @@ def make_pf_anvil_observation() -> dict[str, object]:
             "returndata": "0x",
             "storageSlots": [
                 {
-                    "slot": "0x" + "00" * 32,
+                    "slot": "0x" + "00" * 32,  # storage-word32: 32 zero bytes
                     "value": "0x" + "00" * 32,
                 }
             ],
@@ -1456,12 +1488,420 @@ def _roundtrip_obs(obs: dict[str, object]) -> None:
     assert dumps_canonical(decoded) == raw
 
 
-def _mutate(case: dict[str, object], mutator: Callable[[dict[str, object]], None]) -> dict[str, object]:
+def _mutate(
+    obj: dict[str, object], mutator: Callable[[dict[str, object]], None]
+) -> dict[str, object]:
     import copy
 
-    cloned = copy.deepcopy(case)
+    cloned = copy.deepcopy(obj)
     mutator(cloned)
     return cloned
+
+
+def _storage_word(byte_value: int = 0) -> str:
+    return "0x" + format(byte_value, "064x")
+
+
+def _probe_negative_fixture(path: Path) -> str:
+    """Decode+validate a negative fixture; return the raised CorpusError.code."""
+    data = path.read_bytes()
+    name = path.name
+    try:
+        if name.startswith("obs-"):
+            # Observation negatives are under obs byte cap unless named oversize.
+            value = decode_json(data, max_bytes=MAX_OBS_BYTES)
+            encoded = dumps_canonical(value)
+            if encoded != data:
+                decode_canonical(data, max_bytes=MAX_OBS_BYTES)
+            else:
+                validate_observation(value)
+        elif len(data) > MAX_CASE_BYTES:
+            decode_canonical(data, max_bytes=MAX_CASE_BYTES)
+        else:
+            value = decode_json(data, max_bytes=MAX_CASE_BYTES)
+            encoded = dumps_canonical(value)
+            if encoded != data:
+                decode_canonical(data, max_bytes=MAX_CASE_BYTES)
+            else:
+                validate_case(value)
+    except CorpusError as exc:
+        return exc.code
+    raise AssertionError(f"negative fixture unexpectedly accepted: {path}")
+
+
+def _actors(n: int) -> list[dict[str, object]]:
+    # ids a00.. sorted ascending for n<=100
+    return [{"id": f"a{index:02d}", "role": "eoa"} for index in range(n)]
+
+
+def _steps(n: int, actor: str = "a00") -> list[dict[str, object]]:
+    return [
+        _step(index, actor=actor, entry="inc") for index in range(n)
+    ]
+
+
+def _logs(n: int) -> list[dict[str, object]]:
+    # empty topics/data; address null allowed on case expectedLogs
+    return [{"address": None, "topics": [], "data": None} for _ in range(n)]
+
+
+def _topics(n: int) -> list[str]:
+    return ["0x" + format(index, "064x") for index in range(n)]
+
+
+def _diag_patterns(n: int, *, item: str = "p") -> list[str]:
+    # ascending unique short patterns
+    return [f"{item}{index:02d}" for index in range(n)]
+
+
+def _utf8_of_len(n: int, unit: str = "x") -> str:
+    """Build a string whose UTF-8 encoding is exactly n bytes using `unit`."""
+    unit_bytes = unit.encode("utf-8")
+    if n % len(unit_bytes) != 0:
+        raise AssertionError(
+            f"utf8 pad unit {unit!r} ({len(unit_bytes)} bytes) does not divide {n}"
+        )
+    return unit * (n // len(unit_bytes))
+
+
+def _padded_case_bytes(target_len: int) -> bytes:
+    """Return canonical case bytes with len == target_len via pad field."""
+    base = make_primitive_case()
+    base["initialLogicalState"] = {"pad": ""}
+    empty = dumps_canonical(base)
+    # {"pad":""} contributes fixed overhead; grow the pad string.
+    # dumps: ... "pad":"<PAD>" ...
+    overhead = len(empty)
+    if target_len < overhead:
+        raise AssertionError(f"target_len {target_len} < overhead {overhead}")
+    pad_len = target_len - overhead
+    # each pad char 'x' is one UTF-8 byte; json string has no extra escape
+    base["initialLogicalState"] = {"pad": "x" * pad_len}
+    raw = dumps_canonical(base)
+    if len(raw) != target_len:
+        # json may not need escapes for 'x'; adjust if mismatch (should not)
+        delta = target_len - len(raw)
+        if delta == 0:
+            return raw
+        base["initialLogicalState"] = {"pad": "x" * (pad_len + delta)}
+        raw = dumps_canonical(base)
+    if len(raw) != target_len:
+        raise AssertionError(
+            f"failed to build case of length {target_len}, got {len(raw)}"
+        )
+    return raw
+
+
+def _padded_obs_bytes(target_len: int) -> bytes:
+    base = make_reference_observation()
+    base["shared"] = {
+        "status": "success",
+        "returnValue": None,
+        "logicalState": {"pad": ""},
+        "effects": [],
+        "rollbackEqual": True,
+    }
+    empty = dumps_canonical(base)
+    overhead = len(empty)
+    if target_len < overhead:
+        raise AssertionError(f"target_len {target_len} < overhead {overhead}")
+    pad_len = target_len - overhead
+    base["shared"] = {
+        "status": "success",
+        "returnValue": None,
+        "logicalState": {"pad": "x" * pad_len},
+        "effects": [],
+        "rollbackEqual": True,
+    }
+    raw = dumps_canonical(base)
+    if len(raw) != target_len:
+        delta = target_len - len(raw)
+        base["shared"] = {
+            "status": "success",
+            "returnValue": None,
+            "logicalState": {"pad": "x" * (pad_len + delta)},
+            "effects": [],
+            "rollbackEqual": True,
+        }
+        raw = dumps_canonical(base)
+    if len(raw) != target_len:
+        raise AssertionError(
+            f"failed to build obs of length {target_len}, got {len(raw)}"
+        )
+    return raw
+
+
+def _run_resource_boundary_tests() -> None:
+    # --- actors 8 accept / 9 reject ---
+    case8 = make_primitive_case()
+    case8["actors"] = _actors(8)
+    case8["steps"] = _steps(1, actor="a00")
+    validate_case(case8)
+    case9 = make_primitive_case()
+    case9["actors"] = _actors(9)
+    case9["steps"] = _steps(1, actor="a00")
+    _expect_error(
+        "actors-9",
+        "PF-CORPUS-LIMIT",
+        lambda: validate_case(case9),
+    )
+
+    # --- steps 32 accept / 33 reject ---
+    case32 = make_primitive_case()
+    case32["actors"] = [{"id": "a00", "role": "eoa"}]
+    case32["steps"] = _steps(32, actor="a00")
+    validate_case(case32)
+    case33 = make_primitive_case()
+    case33["actors"] = [{"id": "a00", "role": "eoa"}]
+    case33["steps"] = _steps(33, actor="a00")
+    _expect_error(
+        "steps-33",
+        "PF-CORPUS-LIMIT",
+        lambda: validate_case(case33),
+    )
+
+    # --- expectedLogs 32 accept / 33 reject ---
+    case_logs32 = make_primitive_case()
+    step = dict(case_logs32["steps"][0])  # type: ignore[index]
+    step["expectedLogs"] = _logs(32)
+    case_logs32["steps"] = [step]
+    validate_case(case_logs32)
+    case_logs33 = make_primitive_case()
+    step33 = dict(case_logs33["steps"][0])  # type: ignore[index]
+    step33["expectedLogs"] = _logs(33)
+    case_logs33["steps"] = [step33]
+    _expect_error(
+        "logs-33",
+        "PF-CORPUS-LIMIT",
+        lambda: validate_case(case_logs33),
+    )
+
+    # --- topics 4 accept / 5 reject (case expectedLogs) ---
+    case_t4 = make_primitive_case()
+    st4 = dict(case_t4["steps"][0])  # type: ignore[index]
+    st4["expectedLogs"] = [{"address": None, "topics": _topics(4), "data": None}]
+    case_t4["steps"] = [st4]
+    validate_case(case_t4)
+    case_t5 = make_primitive_case()
+    st5 = dict(case_t5["steps"][0])  # type: ignore[index]
+    st5["expectedLogs"] = [{"address": None, "topics": _topics(5), "data": None}]
+    case_t5["steps"] = [st5]
+    _expect_error(
+        "topics-5",
+        "PF-CORPUS-LIMIT",
+        lambda: validate_case(case_t5),
+    )
+
+    # --- diagnosticPatterns 8 accept / 9 reject ---
+    blocked8 = make_blocked_case()
+    body8 = dict(blocked8["blocked"])  # type: ignore[arg-type]
+    body8["diagnosticPatterns"] = _diag_patterns(8)
+    blocked8["blocked"] = body8
+    validate_case(blocked8)
+    blocked9 = make_blocked_case()
+    body9 = dict(blocked9["blocked"])  # type: ignore[arg-type]
+    body9["diagnosticPatterns"] = _diag_patterns(9)
+    blocked9["blocked"] = body9
+    _expect_error(
+        "diag-patterns-9",
+        "PF-CORPUS-LIMIT",
+        lambda: validate_case(blocked9),
+    )
+
+    # --- reason UTF-8 byte cap 128 accept / 129 reject (ASCII) ---
+    blocked_r = make_blocked_case()
+    body_r = dict(blocked_r["blocked"])  # type: ignore[arg-type]
+    body_r["reason"] = _utf8_of_len(MAX_REASON_BYTES, "r")
+    blocked_r["blocked"] = body_r
+    validate_case(blocked_r)
+    body_r2 = dict(body_r)
+    body_r2["reason"] = _utf8_of_len(MAX_REASON_BYTES + 1, "r")
+    blocked_r["blocked"] = body_r2
+    _expect_error(
+        "reason-129",
+        "PF-CORPUS-LIMIT",
+        lambda: validate_case(blocked_r),
+    )
+
+    # --- reason multi-byte UTF-8 (U+00E9 = 2 bytes) 128 accept / 130 reject ---
+    # 64 * 2-byte chars = 128; 65 * 2 = 130 > 128
+    blocked_mb = make_blocked_case()
+    body_mb = dict(blocked_mb["blocked"])  # type: ignore[arg-type]
+    body_mb["reason"] = _utf8_of_len(MAX_REASON_BYTES, "é")
+    assert len(body_mb["reason"].encode("utf-8")) == MAX_REASON_BYTES
+    blocked_mb["blocked"] = body_mb
+    validate_case(blocked_mb)
+    body_mb2 = dict(body_mb)
+    body_mb2["reason"] = "é" * ((MAX_REASON_BYTES // 2) + 1)
+    assert len(body_mb2["reason"].encode("utf-8")) == MAX_REASON_BYTES + 2
+    blocked_mb["blocked"] = body_mb2
+    _expect_error(
+        "reason-multibyte-over",
+        "PF-CORPUS-LIMIT",
+        lambda: validate_case(blocked_mb),
+    )
+
+    # --- diagnostic pattern item 128 accept / 129 reject (multi-byte) ---
+    blocked_p = make_blocked_case()
+    body_p = dict(blocked_p["blocked"])  # type: ignore[arg-type]
+    body_p["diagnosticPatterns"] = [_utf8_of_len(MAX_DIAG_PATTERN_BYTES, "é")]
+    blocked_p["blocked"] = body_p
+    validate_case(blocked_p)
+    body_p2 = dict(body_p)
+    body_p2["diagnosticPatterns"] = ["é" * ((MAX_DIAG_PATTERN_BYTES // 2) + 1)]
+    blocked_p["blocked"] = body_p2
+    _expect_error(
+        "diag-pattern-multibyte-over",
+        "PF-CORPUS-LIMIT",
+        lambda: validate_case(blocked_p),
+    )
+
+    # --- case raw byte cap: exact MAX accept, MAX+1 reject ---
+    exact_case = _padded_case_bytes(MAX_CASE_BYTES)
+    assert len(exact_case) == MAX_CASE_BYTES
+    validate_case(decode_canonical(exact_case, max_bytes=MAX_CASE_BYTES))
+    over_case = _padded_case_bytes(MAX_CASE_BYTES + 1)
+    assert len(over_case) == MAX_CASE_BYTES + 1
+    _expect_error(
+        "case-bytes-max-plus-one",
+        "PF-CORPUS-LIMIT",
+        lambda: decode_canonical(over_case, max_bytes=MAX_CASE_BYTES),
+    )
+
+    # --- observation raw byte cap: exact MAX accept, MAX+1 reject ---
+    # 256 KiB is fine as a one-shot in-memory self-test.
+    exact_obs = _padded_obs_bytes(MAX_OBS_BYTES)
+    assert len(exact_obs) == MAX_OBS_BYTES
+    validate_observation(decode_canonical(exact_obs, max_bytes=MAX_OBS_BYTES))
+    over_obs = _padded_obs_bytes(MAX_OBS_BYTES + 1)
+    assert len(over_obs) == MAX_OBS_BYTES + 1
+    _expect_error(
+        "obs-bytes-max-plus-one",
+        "PF-CORPUS-LIMIT",
+        lambda: decode_canonical(over_obs, max_bytes=MAX_OBS_BYTES),
+    )
+
+    # --- obs logs 32 accept / 33 reject ---
+    obs_l32 = make_pf_anvil_observation()
+    evm32 = dict(obs_l32["evm"])  # type: ignore[arg-type]
+    evm32["logs"] = [
+        {
+            "address": "0x" + "11" * 20,
+            "topics": [],
+            "data": "0x",
+        }
+        for _ in range(32)
+    ]
+    obs_l32["evm"] = evm32
+    validate_observation(obs_l32)
+    obs_l33 = make_pf_anvil_observation()
+    evm33 = dict(obs_l33["evm"])  # type: ignore[arg-type]
+    evm33["logs"] = [
+        {
+            "address": "0x" + "11" * 20,
+            "topics": [],
+            "data": "0x",
+        }
+        for _ in range(33)
+    ]
+    obs_l33["evm"] = evm33
+    _expect_error(
+        "obs-logs-33",
+        "PF-CORPUS-LIMIT",
+        lambda: validate_observation(obs_l33),
+    )
+
+    # --- obs topics 4 accept / 5 reject ---
+    obs_t4 = make_pf_anvil_observation()
+    evm_t4 = dict(obs_t4["evm"])  # type: ignore[arg-type]
+    evm_t4["logs"] = [
+        {
+            "address": "0x" + "11" * 20,
+            "topics": _topics(4),
+            "data": "0x",
+        }
+    ]
+    obs_t4["evm"] = evm_t4
+    validate_observation(obs_t4)
+    obs_t5 = make_pf_anvil_observation()
+    evm_t5 = dict(obs_t5["evm"])  # type: ignore[arg-type]
+    evm_t5["logs"] = [
+        {
+            "address": "0x" + "11" * 20,
+            "topics": _topics(5),
+            "data": "0x",
+        }
+    ]
+    obs_t5["evm"] = evm_t5
+    _expect_error(
+        "obs-topics-5",
+        "PF-CORPUS-LIMIT",
+        lambda: validate_observation(obs_t5),
+    )
+
+
+def _run_storage_word_tests() -> None:
+    # accept two slots sorted by wire string
+    obs = make_pf_anvil_observation()
+    evm = dict(obs["evm"])  # type: ignore[arg-type]
+    evm["storageSlots"] = [
+        {"slot": _storage_word(1), "value": _storage_word(10)},
+        {"slot": _storage_word(2), "value": _storage_word(20)},
+    ]
+    obs["evm"] = evm
+    validate_observation(obs)
+
+    # wrong width (2 bytes) rejected
+    bad = make_pf_anvil_observation()
+    evm_bad = dict(bad["evm"])  # type: ignore[arg-type]
+    evm_bad["storageSlots"] = [{"slot": "0x01", "value": _storage_word(0)}]
+    bad["evm"] = evm_bad
+    _expect_error(
+        "storage-slot-short",
+        "PF-CORPUS-SCHEMA",
+        lambda: validate_observation(bad),
+    )
+
+    # uppercase rejected
+    bad_u = make_pf_anvil_observation()
+    evm_u = dict(bad_u["evm"])  # type: ignore[arg-type]
+    evm_u["storageSlots"] = [
+        {"slot": "0x" + "0A" + "00" * 31, "value": _storage_word(0)}
+    ]
+    bad_u["evm"] = evm_u
+    _expect_error(
+        "storage-slot-upper",
+        "PF-CORPUS-SCHEMA",
+        lambda: validate_observation(bad_u),
+    )
+
+    # unsorted rejected
+    unsorted = make_pf_anvil_observation()
+    evm_us = dict(unsorted["evm"])  # type: ignore[arg-type]
+    evm_us["storageSlots"] = [
+        {"slot": _storage_word(2), "value": _storage_word(0)},
+        {"slot": _storage_word(1), "value": _storage_word(0)},
+    ]
+    unsorted["evm"] = evm_us
+    _expect_error(
+        "storage-slots-unsorted",
+        "PF-CORPUS-INVARIANT",
+        lambda: validate_observation(unsorted),
+    )
+
+
+def _run_forbidden_early_order_test() -> None:
+    # ASCII-sorted permutation is NOT the fixed contract order.
+    blocked = make_blocked_case()
+    body = dict(blocked["blocked"])  # type: ignore[arg-type]
+    body["forbiddenEarlyFailure"] = sorted(FORBIDDEN_EARLY_FAILURE)
+    assert body["forbiddenEarlyFailure"] != list(FORBIDDEN_EARLY_FAILURE)
+    blocked["blocked"] = body
+    _expect_error(
+        "forbidden-early-ascii-sort",
+        "PF-CORPUS-INVARIANT",
+        lambda: validate_case(blocked),
+    )
 
 
 def run_self_tests() -> None:
@@ -1479,8 +1919,10 @@ def run_self_tests() -> None:
     _roundtrip_obs(make_pf_anvil_observation())
 
     # Disk fixtures when present.
-    if FIXTURE_ROOT.is_dir():
-        for path in sorted((FIXTURE_ROOT / "positive").glob("*.json")):
+    positive_dir = FIXTURE_ROOT / "positive"
+    negative_dir = FIXTURE_ROOT / "negative"
+    if positive_dir.is_dir():
+        for path in sorted(positive_dir.glob("*.json")):
             data = path.read_bytes()
             value = decode_canonical(
                 data,
@@ -1496,29 +1938,29 @@ def run_self_tests() -> None:
                 assert len(data) <= MAX_OBS_BYTES
             else:
                 raise AssertionError(f"unknown fixture schema in {path}")
-        for path in sorted((FIXTURE_ROOT / "negative").glob("*.json")):
-            data = path.read_bytes()
-            try:
-                # Negatives may be non-canonical or oversized; try decode+validate.
-                if len(data) > MAX_CASE_BYTES and path.name.startswith("case-"):
-                    decode_canonical(data, max_bytes=MAX_CASE_BYTES)
-                elif path.name.startswith("obs-"):
-                    value = decode_json(data, max_bytes=MAX_OBS_BYTES)
-                    if dumps_canonical(value) == data:
-                        validate_observation(value)
-                    else:
-                        decode_canonical(data, max_bytes=MAX_OBS_BYTES)
-                else:
-                    value = decode_json(data, max_bytes=MAX_CASE_BYTES)
-                    if dumps_canonical(value) == data:
-                        validate_case(value)
-                    else:
-                        decode_canonical(data, max_bytes=MAX_CASE_BYTES)
-            except CorpusError:
-                continue
-            raise AssertionError(f"negative fixture unexpectedly accepted: {path}")
 
-    # Unknown field.
+    if negative_dir.is_dir():
+        on_disk = {path.name for path in negative_dir.glob("*.json")}
+        expected_names = set(NEGATIVE_FIXTURE_CODES)
+        missing = sorted(expected_names - on_disk)
+        extra = sorted(on_disk - expected_names)
+        if missing:
+            raise AssertionError(
+                f"missing negative fixtures for code map: {missing}"
+            )
+        if extra:
+            raise AssertionError(
+                f"negative fixtures without exact code map entries: {extra}"
+            )
+        for name, expected_code in sorted(NEGATIVE_FIXTURE_CODES.items()):
+            path = negative_dir / name
+            actual = _probe_negative_fixture(path)
+            if actual != expected_code:
+                raise AssertionError(
+                    f"{name}: expected {expected_code}, got {actual}"
+                )
+
+    # Programmatic adversarial probes (duplicate of disk where useful).
     _expect_error(
         "unknown-field",
         "PF-CORPUS-SCHEMA",
@@ -1527,7 +1969,6 @@ def run_self_tests() -> None:
         ),
     )
 
-    # Duplicate actor ids.
     def dup_actors(c: dict[str, object]) -> None:
         c["actors"] = [
             {"id": "deployer", "role": "eoa"},
@@ -1540,7 +1981,6 @@ def run_self_tests() -> None:
         lambda: validate_case(_mutate(make_primitive_case(), dup_actors)),
     )
 
-    # Oversize case.
     huge = make_primitive_case()
     huge["initialLogicalState"] = {"pad": "x" * (MAX_CASE_BYTES)}
     raw_huge = dumps_canonical(huge)
@@ -1551,7 +1991,6 @@ def run_self_tests() -> None:
         lambda: decode_canonical(raw_huge, max_bytes=MAX_CASE_BYTES),
     )
 
-    # Invalid class.
     _expect_error(
         "invalid-class",
         "PF-CORPUS-SCHEMA",
@@ -1560,7 +1999,6 @@ def run_self_tests() -> None:
         ),
     )
 
-    # Reference leg with EVM raw fields.
     def ref_with_evm(o: dict[str, object]) -> None:
         o["evm"] = make_pf_anvil_observation()["evm"]
 
@@ -1572,7 +2010,6 @@ def run_self_tests() -> None:
         ),
     )
 
-    # skip-as-pass: requiredToolFailure cannot be skip.
     def skip_as_pass(c: dict[str, object]) -> None:
         policy = dict(c["skipPolicy"])  # type: ignore[arg-type]
         policy["requiredToolFailure"] = "skip"
@@ -1584,7 +2021,6 @@ def run_self_tests() -> None:
         lambda: validate_case(_mutate(make_primitive_case(), skip_as_pass)),
     )
 
-    # skip-as-pass: verdict pass with skipReason.
     def pass_with_skip(o: dict[str, object]) -> None:
         o["skipReason"] = "optional tool missing"
 
@@ -1596,7 +2032,6 @@ def run_self_tests() -> None:
         ),
     )
 
-    # Path traversal.
     def traversal(c: dict[str, object]) -> None:
         pins = dict(c["pins"])  # type: ignore[arg-type]
         pins["sourcePath"] = "../secret.lean"
@@ -1608,7 +2043,6 @@ def run_self_tests() -> None:
         lambda: validate_case(_mutate(make_primitive_case(), traversal)),
     )
 
-    # adapter family credit forbidden.
     def adapter_credit(c: dict[str, object]) -> None:
         c["claims"] = _claims(family=True)
 
@@ -1618,7 +2052,6 @@ def run_self_tests() -> None:
         lambda: validate_case(_mutate(make_adapter_case(), adapter_credit)),
     )
 
-    # oz-behavior missing projection.
     def drop_projection(c: dict[str, object]) -> None:
         c["sharedProjection"] = None
 
@@ -1628,7 +2061,6 @@ def run_self_tests() -> None:
         lambda: validate_case(_mutate(make_oz_behavior_case(), drop_projection)),
     )
 
-    # abi without sameCallBytes.
     def abi_no_same(c: dict[str, object]) -> None:
         oracle = dict(c["oracle"])  # type: ignore[arg-type]
         oracle["sameCallBytes"] = False
@@ -1640,7 +2072,6 @@ def run_self_tests() -> None:
         lambda: validate_case(_mutate(make_abi_case(), abi_no_same)),
     )
 
-    # blocked missing reason body.
     def drop_blocked(c: dict[str, object]) -> None:
         c["blocked"] = None
 
@@ -1650,7 +2081,6 @@ def run_self_tests() -> None:
         lambda: validate_case(_mutate(make_blocked_case(), drop_blocked)),
     )
 
-    # oos without accepted decision.
     def oos_draft(c: dict[str, object]) -> None:
         body = dict(c["oos"])  # type: ignore[arg-type]
         body["decisionStatus"] = "draft"
@@ -1662,7 +2092,6 @@ def run_self_tests() -> None:
         lambda: validate_case(_mutate(make_oos_case(), oos_draft)),
     )
 
-    # Non-canonical whitespace rejected.
     raw = dumps_canonical(make_primitive_case())
     _expect_error(
         "non-canonical",
@@ -1670,12 +2099,15 @@ def run_self_tests() -> None:
         lambda: decode_canonical(raw + b"\n", max_bytes=MAX_CASE_BYTES),
     )
 
-    # Duplicate JSON key.
     _expect_error(
         "duplicate-key",
         "PF-CORPUS-DUPLICATE-KEY",
         lambda: decode_json(b'{"a":1,"a":2}', max_bytes=MAX_CASE_BYTES),
     )
+
+    _run_resource_boundary_tests()
+    _run_storage_word_tests()
+    _run_forbidden_early_order_test()
 
     print("evm-corpus-v1: self-test ok")
 
