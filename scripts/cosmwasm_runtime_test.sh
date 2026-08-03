@@ -92,6 +92,7 @@ programs=(
   "runtime-tests/cosmwasm/fixtures/EventFlow.lean:Examples.EventFlow:EventFlow"
   "runtime-tests/cosmwasm/fixtures/IntMul.lean:Examples.IntMul:IntMul"
   "runtime-tests/cosmwasm/fixtures/EmitLoop.lean:Examples.EmitLoop:EmitLoop"
+  "runtime-tests/cosmwasm/fixtures/ScheduleFlow.lean:Examples.ScheduleFlow:ScheduleFlow"
 )
 
 echo "cosmwasm-runtime-test: building proof-forge-next (lake build proof_forge_next)"
