@@ -68,20 +68,15 @@ def s2RequirementVersionV1 : SemVer :=
   { major := 1, minor := 0, patch := 0 }
 
 /-- Closed S2 catalog IDs in SPEC wire order (UTF-8 ascending).
-    Sole spelling source: `RequirementIdsV1.s2CatalogIdsWireOrderV1`. -/
+    Sole spelling/order source: `RequirementIdsV1.s2CatalogIdsWireOrderListV1`
+    (this Array is that list's `.toArray` projection). -/
 def s2CatalogIdsWireOrderV1 : Array String :=
   RequirementIdsV1.s2CatalogIdsWireOrderV1
 
-/-- Closed-catalog membership by exact id equality (if-chain so kernel
-    certificates reduce; equivalent to `s2CatalogIdsWireOrderV1.contains`). -/
+/-- Closed-catalog membership via sole list authority exact `List.contains`
+    (kernel-reducible; no second enumerated if-chain). -/
 def isS2CatalogIdV1 (id : String) : Bool :=
-  id == RequirementIdsV1.s2EffectAsyncWorkflowIdV1 ||
-  id == RequirementIdsV1.s2EffectEventIdV1 ||
-  id == RequirementIdsV1.s2EffectSyncCallIdV1 ||
-  id == RequirementIdsV1.s2FailureAtomicRollbackIdV1 ||
-  id == RequirementIdsV1.s2StatePersistentIdV1 ||
-  id == RequirementIdsV1.s2ValueBoolIdV1 ||
-  id == RequirementIdsV1.s2ValueCheckedArithmeticIdV1
+  RequirementIdsV1.s2CatalogIdsWireOrderListV1.contains id
 
 /-! ### Kernel-transparent S2 catalog digests
 
