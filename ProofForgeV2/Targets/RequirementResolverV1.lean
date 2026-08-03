@@ -221,22 +221,21 @@ private def mkImplementedRow
     evm×2, near, noir, psy, quint, solana×2, ton). EVM carries both
     `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1` (ASCII ascending;
     default remains legacy v1). Solana carries both `solana-sbpf-elf-v1`
-    and `solana-sbpf-plan-v1` (ASCII ascending); both share the same S2
-    capability set. Capability gates are per target: EVM/Solana admit both call
-    keys via static QualifiedName callees (AddressBearing: wire
-    Op.ExternalCall/Schedule take compile-time QN, not a dynamic address
-    ValueId — no Principal→20B/32B map). Their `schedule` is a **fire-and-forget
-    same-transaction** interpretation: the dispatch executes synchronously
-    (EVM `CALL` / Solana CPI) and the outcome is discarded, matching the
-    Reference no-response-cursor contract — never a cross-transaction deferral
-    claim (same admission discipline as the CW-4 SubMsg note below). EVM
-    result-bearing sync calls read `RETURNDATA` as one UInt64 word behind a
-    size/range guard (BL-28; wider result types stay fail closed; the callee
-    address is a keccak-of-QN stub pending deployment wiring). Solana lowers
-    both keys to a real CPI (`sol_invoke_signed_c`, BL-27) with an empty
-    AccountMeta array and a QN→SHA-256 program-id stub — the outer
-    multi-account layout and real program-id wiring are pending, and the
-    ADR-0024 lane supersedes this transitional stub; NEAR has no synchronous external calls
+    and `solana-sbpf-plan-v1` (ASCII ascending); both share the same non-call
+    S2 capability set and **decline both call families** (capability-honesty:
+    the transitional empty-AccountMeta CPI / log marker was not exact CPI or
+    scheduling; a versioned CPI profile owns the future contract). Capability
+    gates are per target: EVM admits both call keys via static QualifiedName
+    callees (AddressBearing: wire Op.ExternalCall/Schedule take compile-time
+    QN, not a dynamic address ValueId — no Principal→20B/32B map). EVM
+    `schedule` is a **fire-and-forget same-transaction** interpretation: the
+    dispatch executes synchronously (`CALL`) and the outcome is discarded,
+    matching the Reference no-response-cursor contract — never a
+    cross-transaction deferral claim (same admission discipline as the CW-4
+    SubMsg note below). EVM result-bearing sync calls read `RETURNDATA` as one
+    UInt64 word behind a size/range guard (BL-28; wider result types stay fail
+    closed; the callee address is a keccak-of-QN stub pending deployment
+    wiring). NEAR has no synchronous external calls
     but owns async workflow promises, so it declines sync and supports
     `effect.asynchronous-workflow`; Noir admits both call keys as a
     **witness-binding relation** (B-CALL-SEM honesty, 2026-08-04 review):
@@ -294,6 +293,13 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     r.id != Semantic.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
+  -- Legacy Solana profiles decline both call families. The old transitional
+  -- CPI / log marker was neither exact CPI nor scheduling and is not a
+  -- supported effect; a versioned CPI profile owns the future contract.
+  -- Filter only the two call keys so expanded catalog entries stay intact.
+  let withoutCallFamilies := catalogRequests.filter fun r =>
+    r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
@@ -306,8 +312,8 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
     mkImplementedRow .quint CodegenProfileId.quintSourceU64ModelV1 quintRequests,
-    mkImplementedRow .solana CodegenProfileId.solanaSbpfElfV1 catalogRequests,
-    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 catalogRequests,
+    mkImplementedRow .solana CodegenProfileId.solanaSbpfElfV1 withoutCallFamilies,
+    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 withoutCallFamilies,
     mkImplementedRow .ton CodegenProfileId.tonTolkBocV1 withoutSync
   ]
 

@@ -1891,13 +1891,12 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       b := emit b s!"  add64 r1, -{tempStackOff descKeyPtr}"
       b := emit b "  lddw r2, 2"
       pure (emit b "  call sol_log_data")
-  | .externalCall callee programIdHex args resultDest =>
-      emitCpiInvoke b tempBase callee programIdHex args resultDest
-        (kindNote := "external_call")
-  | .schedule callee programIdHex args =>
-      -- Fire-and-forget: same real CPI, discard return data.
-      emitCpiInvoke b tempBase callee programIdHex args none
-        (kindNote := "schedule")
+  | .externalCall .. =>
+      return ← asmError
+        "legacy Solana profiles do not emit external-call stubs; use a versioned CPI profile"
+  | .schedule .. =>
+      return ← asmError
+        "legacy Solana profiles do not emit schedule stubs"
 
 /-- Emit a sequence of operations, threading the assembly buffer. -/
 private partial def emitOperations (b0 : AsmBuf) (ir : IR) (tempBase : Nat)

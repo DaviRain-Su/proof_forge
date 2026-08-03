@@ -24,13 +24,12 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 - state/param/result **UInt8/16/32/64 与窄 Int** ABI/body 子集（UInt128/256 软件多字已开 T9e）；
 - **`EmitSbpfAsmV1`** 完整 Operation 表面 → 锁定 `sbpf` 汇编为 deployable Solana ELF `.so`
   （`solana-sbpf-elf-v1` profile；默认仍可走 plan-only profile）；
-- **Mollusk 运行时差分**（`runtime-tests/solana`：Counter + 19 fixtures = 20 programs，
-  89 个 Rust tests 全 active；含 body 多宽、聚合/匿名返回、Option state 与 CPI fail-closed 边界）；
-- **AddressBearing static-callee call/schedule 已开并发射真实 CPI**（B-CALL-SEM followup：callee
-  为 static QualifiedName，program id = SHA-256(targetPath) 32B；SBPF 调用
-  `sol_invoke_signed_c`，result-bearing sync call 再读 `sol_get_return_data`）。当前 CPI 使用空
-  AccountMeta；Agave 仍要求 callee program account 出现在外层 instruction metas，而产品单账户
-  layout 尚无该槽，因此 Mollusk 固定到真实 invoke 后的 `MissingAccount`，不声称成功 CPI；
+- **Mollusk 运行时差分**（`runtime-tests/solana`：Counter + 18 fixtures = 19 programs；
+  含 body 多宽、聚合/匿名返回、Option state；legacy call 已从 runtime 面移除）；
+- **legacy call/schedule 已恢复 fail closed**（#111）：`solana-sbpf-plan-v1` 与
+  `solana-sbpf-elf-v1` 均不声明 sync/async requirement，Plan/IR/SBPF 纵深拒绝旧节点；static
+  QualifiedName 不再经 SHA-256 冒充 program id；真实多账户/PDA/bump/CPI 由 opt-in versioned
+  profile epic [#110](https://github.com/DaviRain-Su/proof_forge/issues/110) 分批实现；
 - **dense Map UInt64 cap-8 pilot** 已进入 opt-in ELF + Mollusk；`storeAggregate` → structural CSE →
   `storeStateMulti` 令同一 StateStore 的 24 叶先基于旧 account snapshot 求值、再统一写入，且保持
   177 temp / 1424B < 4096B frame。`put_into_empty` 已解除 ignore 并转绿；WideMul 另以

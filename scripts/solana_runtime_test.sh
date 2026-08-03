@@ -52,6 +52,13 @@ fi
 if ! command -v cargo >/dev/null 2>&1; then
   missing "cargo not on PATH (install Rust toolchain)"
 fi
+if [[ -x /usr/bin/python3 ]]; then
+  python_bin=/usr/bin/python3
+elif command -v python3 >/dev/null 2>&1; then
+  python_bin="$(command -v python3)"
+else
+  missing "python3 not found (required for independent artifact closure validation)"
+fi
 
 cli="$root/.lake/build/bin/proof-forge-next"
 out_dir="${PROOF_FORGE_RUNTIME_OUT:-$root/build/v2/solana-runtime}"
@@ -78,8 +85,23 @@ fixtures=(
   ArrayRet
   OptionRet
   OptionState
-  CpiCaller
 )
+
+bind_output() {
+  local tree="$1"
+  local name="$2"
+  echo "solana-runtime-test: inspect exact closure $name"
+  if ! lake env "$cli" inspect --output-dir "$tree" --json >/dev/null; then
+    die "product inspect failed for $name under $tree"
+  fi
+  if ! "$python_bin" -I -S scripts/solana_runtime_bind_output.py "$tree" "$name"; then
+    die "independent artifact binding failed for $name under $tree"
+  fi
+}
+
+echo "solana-runtime-test: artifact binding self-test"
+"$python_bin" -I -S scripts/solana_runtime_bind_output_self_test.py \
+  || die "artifact binding self-test failed"
 
 echo "solana-runtime-test: building proof-forge-next (lake build proof_forge_next)"
 # Lean exe target is `proof_forge_next`; on-disk name is `proof-forge-next`.
@@ -101,26 +123,12 @@ if ! lake env "$cli" build Examples/Counter.lean --module Examples.Counter \
   die "proof-forge-next build Counter failed"
 fi
 
-so_path=""
-plan_path=""
-if [[ -f "$out_dir/Counter/Counter.so" ]]; then
-  so_path="$out_dir/Counter/Counter.so"
-elif [[ -f "$out_dir/Counter/deploy/Counter.so" ]]; then
-  so_path="$out_dir/Counter/deploy/Counter.so"
-else
-  so_path="$(find "$out_dir/Counter" -name 'Counter.so' -type f 2>/dev/null | head -n 1 || true)"
-fi
-if [[ -f "$out_dir/Counter/Counter.sbpf-plan" ]]; then
-  plan_path="$out_dir/Counter/Counter.sbpf-plan"
-else
-  plan_path="$(find "$out_dir/Counter" -name 'Counter.sbpf-plan' -type f 2>/dev/null | head -n 1 || true)"
-fi
-
-[[ -n "$so_path" && -f "$so_path" ]] || die "Counter.so not found under $out_dir/Counter"
-[[ -n "$plan_path" && -f "$plan_path" ]] || die "Counter.sbpf-plan not found under $out_dir/Counter"
-
-so_dir="$(cd "$(dirname "$so_path")" && pwd)"
-plan_path="$(cd "$(dirname "$plan_path")" && pwd)/$(basename "$plan_path")"
+counter_out="$out_dir/Counter"
+bind_output "$counter_out" "Counter"
+so_path="$counter_out/Counter.so"
+plan_path="$counter_out/Counter.sbpf-plan"
+[[ -f "$so_path" ]] || die "manifest-bound Counter.so missing: $so_path"
+[[ -f "$plan_path" ]] || die "manifest-bound Counter.sbpf-plan missing: $plan_path"
 
 echo "solana-runtime-test: Counter.so=$so_path ($(wc -c <"$so_path" | tr -d ' ') bytes)"
 echo "solana-runtime-test: plan=$plan_path"
@@ -140,80 +148,22 @@ for name in "${fixtures[@]}"; do
     die "proof-forge-next build failed for fixture $name"
   fi
 
-  fixture_so=""
-  fixture_plan=""
-  if [[ -f "$fixture_out/${name}.so" ]]; then
-    fixture_so="$fixture_out/${name}.so"
-  elif [[ -f "$fixture_out/deploy/${name}.so" ]]; then
-    fixture_so="$fixture_out/deploy/${name}.so"
-  else
-    fixture_so="$(find "$fixture_out" -name "${name}.so" -type f 2>/dev/null | head -n 1 || true)"
-  fi
-  if [[ -f "$fixture_out/${name}.sbpf-plan" ]]; then
-    fixture_plan="$fixture_out/${name}.sbpf-plan"
-  else
-    fixture_plan="$(find "$fixture_out" -name "${name}.sbpf-plan" -type f 2>/dev/null | head -n 1 || true)"
-  fi
-  [[ -n "$fixture_so" && -f "$fixture_so" ]] || die "${name}.so not found under $fixture_out"
-  [[ -n "$fixture_plan" && -f "$fixture_plan" ]] || die "${name}.sbpf-plan not found under $fixture_out"
-
-  # Normalize layout for Rust: PROOF_FORGE_FIXTURES_DIR/<Name>/<Name>.{so,sbpf-plan}
-  # If sbpf stages under deploy/, copy/link into the fixture root for stable env paths.
-  if [[ "$(cd "$(dirname "$fixture_so")" && pwd)" != "$(cd "$fixture_out" && pwd)" ]]; then
-    cp -f "$fixture_so" "$fixture_out/${name}.so"
-  fi
-  if [[ "$(cd "$(dirname "$fixture_plan")" && pwd)" != "$(cd "$fixture_out" && pwd)" ]]; then
-    cp -f "$fixture_plan" "$fixture_out/${name}.sbpf-plan"
-  fi
-  # BL-27: keep .s next to .so for CPI plan/asm marker pins (when ELF profile).
-  if [[ -f "$fixture_out/${name}.s" ]]; then
-    :
-  elif [[ -f "$fixture_out/deploy/${name}.s" ]]; then
-    cp -f "$fixture_out/deploy/${name}.s" "$fixture_out/${name}.s"
-  else
-    fixture_s="$(find "$fixture_out" -name "${name}.s" -type f 2>/dev/null | head -n 1 || true)"
-    if [[ -n "$fixture_s" && -f "$fixture_s" ]]; then
-      cp -f "$fixture_s" "$fixture_out/${name}.s"
-    fi
-  fi
-  [[ -f "$fixture_out/${name}.so" ]] || die "normalized ${name}.so missing"
-  [[ -f "$fixture_out/${name}.sbpf-plan" ]] || die "normalized ${name}.sbpf-plan missing"
-  echo "solana-runtime-test: ${name}.so=$(wc -c <"$fixture_out/${name}.so" | tr -d ' ') bytes"
+  bind_output "$fixture_out" "$name"
+  fixture_so="$fixture_out/${name}.so"
+  fixture_plan="$fixture_out/${name}.sbpf-plan"
+  [[ -f "$fixture_so" ]] || die "manifest-bound ${name}.so missing"
+  [[ -f "$fixture_plan" ]] || die "manifest-bound ${name}.sbpf-plan missing"
+  echo "solana-runtime-test: ${name}.so=$(wc -c <"$fixture_so" | tr -d ' ') bytes"
 done
-
-# BL-27: assemble zero-account mock CPI callee (SBPF assembly via locked sbpf).
-mock_src="$crate_dir/mock-callee"
-mock_so=""
-echo "solana-runtime-test: build mock-callee (sbpf)"
-if ! (
-  cd "$mock_src"
-  "$sbpf_bin" build
-); then
-  die "sbpf build mock-callee failed"
-fi
-if [[ -f "$mock_src/deploy/mock-callee.so" ]]; then
-  mock_so="$mock_src/deploy/mock-callee.so"
-elif [[ -f "$mock_src/target/deploy/mock-callee.so" ]]; then
-  mock_so="$mock_src/target/deploy/mock-callee.so"
-else
-  mock_so="$(find "$mock_src" -name 'mock-callee.so' -type f 2>/dev/null | head -n 1 || true)"
-fi
-[[ -n "$mock_so" && -f "$mock_so" ]] || die "mock-callee.so not found under $mock_src"
-# Stage next to fixtures for stable env path.
-cp -f "$mock_so" "$out_dir/mock-callee.so"
-mock_so="$out_dir/mock-callee.so"
-echo "solana-runtime-test: mock-callee.so=$mock_so ($(wc -c <"$mock_so" | tr -d ' ') bytes)"
 
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
-export PROOF_FORGE_SO_DIR="$so_dir"
-export PROOF_FORGE_PLAN="$plan_path"
+export PROOF_FORGE_COUNTER_OUT="$counter_out"
 export PROOF_FORGE_FIXTURES_DIR="$out_dir"
-export PROOF_FORGE_MOCK_CALLEE_SO="$mock_so"
 
 if ! (
   cd "$crate_dir"
-  cargo test -- --nocapture
+  cargo test --locked -- --nocapture
 ); then
   die "cargo test failed (see output above)"
 fi

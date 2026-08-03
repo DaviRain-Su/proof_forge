@@ -55,9 +55,10 @@ Metaplex、Bubblegum、PDA、CPI metas 等 Solana 专属契约错误塞入 targe
 
 ### 1.3 最大的当前正确性问题
 
-Solana resolver 当前接纳 `effect.synchronous-call` 与 `effect.asynchronous-workflow`，Plan/IR 也保留
-static `QualifiedName` call/schedule 形状；但 SBPF emitter 仅使用 `sol_log_data` 记录标签与参数，
-**没有真实 CPI、account metas、返回值或异步调度**：
+**2026-08-03 implementation update（#111）**：两个 legacy Solana profiles 已删除
+`effect.synchronous-call` 与 `effect.asynchronous-workflow` support claim；Plan/IR/SBPF 对旧节点纵深
+fail closed，static `QualifiedName` 不再经 SHA-256 冒充 program id，原 `sol_log_data` call/schedule
+观测桩不可达。以下段落保留研究时发现的问题，真实 CPI/account metas 仍由 epic #110 实现：
 
 - [`RequirementResolverV1.lean`](../../ProofForgeV2/Targets/RequirementResolverV1.lean)
 - [`EmitSbpfAsmV1.lean`](../../ProofForgeV2/Targets/Solana/EmitSbpfAsmV1.lean)

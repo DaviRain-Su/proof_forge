@@ -33,6 +33,23 @@ private def liftResult (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
 
+/-- Source-level deletion pin: legacy call/schedule observability tags and
+    comments must not return to the SBPF emitter. `sol_log_data` remains legal
+    only for declared events. -/
+private def testLegacyCallStubDeleted : IO Unit := do
+  let source ← IO.FS.readFile
+    (System.FilePath.mk "ProofForgeV2/Targets/Solana/EmitSbpfAsmV1.lean")
+  for forbidden in #["0xec01", "0x5c01",
+      "external_call {note}", "schedule {note}"] do
+    expect (!source.contains forbidden)
+      s!"legacy Solana call/schedule log stub returned: {forbidden}"
+  expect (source.contains
+      "legacy Solana profiles do not emit external-call stubs")
+    "SBPF emitter must retain an explicit external-call fail-closed branch"
+  expect (source.contains
+      "legacy Solana profiles do not emit schedule stubs")
+    "SBPF emitter must retain an explicit schedule fail-closed branch"
+
 private unsafe def compileSource (session : Language.Loader.ParserSession)
     (source moduleName path : String) : IO CompiledSemanticV1 := do
   let validated ← liftResult (← session.selectProgramV1 source path moduleName none)
@@ -987,6 +1004,7 @@ private unsafe def testFrameBudgetFailClosed
           s!"oversized-frame: error must mention frame budget or depth, got: {msg}"
 
 unsafe def run : IO Unit := do
+  testLegacyCallStubDeleted
   testLayoutExact16
   testLayoutVariesWithDataLen
   testDiscriminatorLe

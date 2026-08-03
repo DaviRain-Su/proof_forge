@@ -5,11 +5,13 @@
 //! `ProofForgeV2/Examples/Counter.lean`.
 //!
 //! Env (required; no hard-coded product paths):
-//! - `PROOF_FORGE_SO_DIR`  — directory containing `Counter.so`
-//! - `PROOF_FORGE_PLAN`    — path to `Counter.sbpf-plan` (discriminator cross-check)
+//! - `PROOF_FORGE_COUNTER_OUT` — complete published Counter output tree.
+//!
+//! Both `Counter.so` and `Counter.sbpf-plan` are resolved from exact manifest
+//! descriptors and rehashed immediately before use.
 //!
 //! Mollusk API used (mollusk-svm 0.13.4 / mollusk-svm-result 0.13.4):
-//! - `Mollusk::new(&program_id, program_name)` loads `{program_name}.so`
+//! - verified ELF bytes are registered with `add_program_with_loader_and_elf`
 //! - `process_and_validate_instruction(ix, accounts, checks)`
 //! - `Check::success()`, `Check::err(ProgramError::Custom(code))`,
 //!   `Check::return_data(&[u8])`, `Check::account(&pk).data(&[u8]).build()`
@@ -24,7 +26,6 @@ use {
     solana_instruction::{AccountMeta, Instruction},
     solana_program_error::ProgramError,
     solana_pubkey::Pubkey,
-    std::{fs, path::Path},
 };
 
 fn counter_fields() -> [StateField; 1] {
@@ -37,7 +38,7 @@ fn counter_state(initialized: bool, count: u64) -> Vec<u8> {
 
 fn assert_counter_plan() {
     assert_discriminators_match_plan(
-        &counter_plan_path(),
+        &counter_plan_bytes(),
         &[("initialize", 1), ("increment", 1), ("get", 0)],
     );
 }
@@ -247,14 +248,20 @@ fn counter_reference_trace_chain() {
     );
 }
 
-/// Sanity: product plan path is readable and SO dir contains ELF magic.
+/// Sanity: the manifest-bound Plan is nonempty and ELF bytes have ELF magic.
 #[test]
 fn product_artifacts_present() {
-    let so = counter_so_dir().join("Counter.so");
-    let bytes = fs::read(&so).expect("read Counter.so");
+    let output = counter_output_dir();
+    let bytes = read_manifest_leaf_bytes(
+        &output,
+        "Counter",
+        "Counter.so",
+        "finalized-extra",
+    )
+    .expect("Counter ELF binding");
     assert!(bytes.len() > 64, "Counter.so too small: {}", bytes.len());
     assert_eq!(&bytes[..4], b"\x7fELF", "Counter.so is not ELF");
-    assert!(Path::new(&counter_plan_path()).is_file(), "plan missing");
+    assert!(!counter_plan_bytes().is_empty(), "plan missing or empty");
     assert_counter_plan();
     assert_ne!(layout_marker(&counter_fields()), 0);
 }

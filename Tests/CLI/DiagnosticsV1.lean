@@ -216,6 +216,69 @@ private def testParserBoundaryExit3 : IO Unit := do
   expect (!(← outDir.pathExists))
     "parser failure must not create output"
 
+/-- Legacy Solana profiles must reject call/schedule at capability resolution
+    before any output tree is created. Both default plan and explicit ELF
+    profiles carry the same fail-closed support row. -/
+private def testSolanaLegacyCallsFailClosed : IO Unit := do
+  let fixtureDir := FilePath.mk "build/v2"
+  IO.FS.createDirAll fixtureDir
+  let callPath := fixtureDir / "diagnostic-solana-call-fail.lean"
+  let schedulePath := fixtureDir / "diagnostic-solana-schedule-fail.lean"
+  let callSource :=
+    "import ProofForgeV2\n" ++
+    "namespace Tests.CLI\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program SolanaCallFail where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    return count\n" ++
+    "end Tests.CLI\n"
+  let scheduleSource :=
+    "import ProofForgeV2\n" ++
+    "namespace Tests.CLI\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program SolanaScheduleFail where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    schedule Ledger.daily(count)\n" ++
+    "    return count\n" ++
+    "end Tests.CLI\n"
+  IO.FS.writeFile callPath callSource
+  IO.FS.writeFile schedulePath scheduleSource
+  let cases : Array (String × FilePath × String × String) := #[
+    ("call", callPath, "Tests.CLI.SolanaCallFail", "effect.synchronous-call"),
+    ("schedule", schedulePath, "Tests.CLI.SolanaScheduleFail",
+      "effect.asynchronous-workflow")
+  ]
+  let profiles := #["solana-sbpf-plan-v1", "solana-sbpf-elf-v1"]
+  for (kind, sourcePath, moduleName, requirementId) in cases do
+    for profile in profiles do
+      let outDir := fixtureDir / s!"diagnostic-solana-{kind}-{profile}-output"
+      if ← outDir.pathExists then IO.FS.removeDirAll outDir
+      let (ec, stdout, stderr) ← runCli #[
+        "build", sourcePath.toString,
+        "--module", moduleName,
+        "--target", "solana",
+        "--profile", profile,
+        "-o", outDir.toString
+      ]
+      expect (ec != 0)
+        s!"legacy Solana {kind}/{profile} must fail, got exit {ec}\n{stdout}\n{stderr}"
+      expect (containsSubstr stderr "PF-REQ-UNSUPPORTED" &&
+          containsSubstr stderr requirementId)
+        s!"legacy Solana {kind}/{profile} diagnostic must name {requirementId}: {stderr}"
+      expect (!containsSubstr stdout "built target=")
+        s!"legacy Solana {kind}/{profile} must not print build success"
+      expect (!(← outDir.pathExists))
+        s!"legacy Solana {kind}/{profile} must create zero output tree"
+  if ← callPath.pathExists then IO.FS.removeFile callPath
+  if ← schedulePath.pathExists then IO.FS.removeFile schedulePath
+
 private def testBuildCounterSuccess : IO Unit := do
   let outDir := FilePath.mk "build/v2/diagnostic-build-counter-ok"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
@@ -750,6 +813,7 @@ unsafe def run : IO Unit := do
   testLanguageVersionSelection
   testMultiErrorProductCli
   testParserBoundaryExit3
+  testSolanaLegacyCallsFailClosed
   testBuildCounterSuccess
   testCheckOkAndFail
   testInspectDigests

@@ -336,38 +336,12 @@ private partial def checkHandlerStatementsV1
         unless exprIsBoolCompatibleV1 fns condition do
           throw <| .planInvariant .solana "handler assert condition must be a Bool expression"
         total ← addPlanExprNodes account params fns total condition
-    | .externalCall callee args | .externalCallResult callee args _resultTemp =>
-        if isView then
-          throw <| .planInvariant .solana "view handler makes an external call"
-        unless callee.size ≥ 2 do
-          throw <| .planInvariant .solana
-            "handler external call callee must have at least two components"
-        for c in callee do
-          unless isIdentifier c do
-            throw <| .planInvariant .solana
-              s!"handler external call callee component '{c}' is not a safe identifier"
-        for arg in args do
-          unless exprIsUInt64CompatibleV1 fns arg do
-            throw <| .planInvariant .solana
-              "handler external call arguments must be UInt64 expressions"
-          total ← addPlanExprNodes account params fns total arg
-        total := total + 1
-    | .schedule callee args =>
-        if isView then
-          throw <| .planInvariant .solana "view handler schedules a workflow"
-        unless callee.size ≥ 2 do
-          throw <| .planInvariant .solana
-            "handler schedule callee must have at least two components"
-        for c in callee do
-          unless isIdentifier c do
-            throw <| .planInvariant .solana
-              s!"handler schedule callee component '{c}' is not a safe identifier"
-        for arg in args do
-          unless exprIsUInt64CompatibleV1 fns arg do
-            throw <| .planInvariant .solana
-              "handler schedule arguments must be UInt64 expressions"
-          total ← addPlanExprNodes account params fns total arg
-        total := total + 1
+    | .externalCall .. | .externalCallResult .. =>
+        throw <| .planInvariant .solana
+          "legacy Solana profiles do not support external calls; select a versioned CPI profile"
+    | .schedule .. =>
+        throw <| .planInvariant .solana
+          "legacy Solana profiles do not support scheduled workflows"
     | .ifThenElse condition thenBody elseBody =>
         total ← addPlanExprNodes account params fns total condition
         total := total + 1

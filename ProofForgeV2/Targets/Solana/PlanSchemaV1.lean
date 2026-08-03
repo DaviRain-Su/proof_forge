@@ -249,7 +249,7 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       out := out.append (← encodeNatAsU32le body.size)
       for s in body do out := out.append (← encodeStatement s)
       pure out
-  -- AddressBearing: static QualifiedName external call / schedule (tags 9/10).
+  -- Reserved legacy tags 9/10; validatePlan rejects both for shipped profiles.
   | .externalCall callee args => do
       let mut out := encodeU8 9
       out := out.append (← encodeNatAsU32le callee.size)

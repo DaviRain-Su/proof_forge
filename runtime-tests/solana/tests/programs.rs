@@ -1,7 +1,8 @@
 //! S3b Mollusk runtime differentials for S1b emission surface fixtures.
 //!
-//! Env: `PROOF_FORGE_FIXTURES_DIR/<Name>/<Name>.so` + `<Name>.sbpf-plan`.
-//! Expected values are computed independently in Rust (not copied from plan).
+//! Env: `PROOF_FORGE_FIXTURES_DIR/<Name>/` is a complete published output tree.
+//! The ELF and plan are selected only through exact manifest descriptors and
+//! rehashed before use. Expected values are computed independently in Rust.
 //!
 //! Mollusk log API (0.13.4):
 //! - `Check` has **no** logs variant; `InstructionResult` has no logs field.
@@ -43,7 +44,7 @@ fn expected_loop_sum(n: u64) -> u64 {
 
 fn assert_loop_sum_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("LoopSum"),
+        &fixture_plan_bytes("LoopSum"),
         &[("initialize", 1), ("sum", 1), ("get", 0)],
     );
 }
@@ -168,7 +169,7 @@ fn expected_run(x: u64, y: u64) -> u64 {
 
 fn assert_math_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("MathOps"),
+        &fixture_plan_bytes("MathOps"),
         &[
             ("initialize", 1),
             ("run", 2),
@@ -350,7 +351,7 @@ fn expected_fn_run(x: u64, y: u64, g: u64) -> u64 {
 
 fn assert_fn_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("FnCall"),
+        &fixture_plan_bytes("FnCall"),
         &[("initialize", 1), ("run", 3), ("get", 0)],
     );
 }
@@ -443,7 +444,7 @@ fn events_state(initialized: bool, bal: u64) -> Vec<u8> {
 
 fn assert_events_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("Events"),
+        &fixture_plan_bytes("Events"),
         &[("initialize", 1), ("move", 1), ("get", 0)],
     );
 }
@@ -551,7 +552,7 @@ fn multi_state(initialized: bool, a: u64, b: u64) -> Vec<u8> {
 
 fn assert_multi_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("MultiField"),
+        &fixture_plan_bytes("MultiField"),
         &[
             ("initialize", 2),
             ("swap", 2),
@@ -701,7 +702,7 @@ fn expected_classify(x: u64) -> u64 {
 
 fn assert_match_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("MatchOps"),
+        &fixture_plan_bytes("MatchOps"),
         &[("initialize", 1), ("classify", 1), ("get", 0)],
     );
 }
@@ -808,7 +809,7 @@ fn narrow_state(initialized: bool, count: u64) -> Vec<u8> {
 
 fn assert_narrow_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("NarrowGates"),
+        &fixture_plan_bytes("NarrowGates"),
         &[
             ("initialize", 1),
             ("u8AddOk", 0),
@@ -971,7 +972,7 @@ fn narrow_abi_state(initialized: bool, a: u8, b: u16, c: u32) -> Vec<u8> {
 
 fn assert_narrow_abi_plan() {
     assert_discriminators_match_plan_widths(
-        &fixture_plan_path("NarrowAbi"),
+        &fixture_plan_bytes("NarrowAbi"),
         &[
             ("initialize", vec![1, 2, 4]),
             ("bump8", vec![1]),
@@ -1139,7 +1140,7 @@ fn narrow_abi_discriminator_differs_from_u64() {
 
 fn assert_narrow_result_plan() {
     assert_discriminators_match_plan_widths(
-        &fixture_plan_path("NarrowResult"),
+        &fixture_plan_bytes("NarrowResult"),
         &[
             ("initialize", vec![8]),
             ("get8", vec![1]),
@@ -1273,7 +1274,7 @@ fn array_slots_state(initialized: bool, v0: u64, v1: u64) -> Vec<u8> {
 
 fn assert_array_slots_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("ArraySlots"),
+        &fixture_plan_bytes("ArraySlots"),
         &[
             ("initialize", 2),
             ("set0", 1),
@@ -1438,7 +1439,7 @@ fn map_mini_state(entries: &[(u64, u64)]) -> Vec<u8> {
 
 fn assert_map_mini_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("MapMini"),
+        &fixture_plan_bytes("MapMini"),
         &[("initialize", 0), ("put", 2), ("get", 1)],
     );
 }
@@ -1579,7 +1580,7 @@ fn checked_mul_limbs<const N: usize>(lhs: [u64; N], rhs: [u64; N]) -> Option<[u6
 
 fn assert_wide_mul_plan() {
     assert_discriminators_match_plan_widths(
-        &fixture_plan_path("WideMul"),
+        &fixture_plan_bytes("WideMul"),
         &[
             ("initialize", vec![]),
             ("mul128", vec![16, 16]),
@@ -1792,7 +1793,7 @@ fn principal_store_state(initialized: bool, owner: [u64; 9]) -> Vec<u8> {
 
 fn assert_principal_store_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("PrincipalStore"),
+        &fixture_plan_bytes("PrincipalStore"),
         &[
             ("initialize", 9),
             ("setOwner", 9),
@@ -2001,7 +2002,7 @@ fn multi_return_le(leaves: &[u64]) -> Vec<u8> {
 
 fn assert_pair_ret_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("PairRet"),
+        &fixture_plan_bytes("PairRet"),
         &[
             ("initialize", 2),
             ("setPair", 2),
@@ -2132,7 +2133,7 @@ fn maybe_ret_state(initialized: bool, tag: u64, payload: u64) -> Vec<u8> {
 
 fn assert_maybe_ret_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("MaybeRet"),
+        &fixture_plan_bytes("MaybeRet"),
         &[
             ("initialize", 0),
             ("put", 1),
@@ -2309,7 +2310,7 @@ fn array_ret_state(initialized: bool, a: u64, b: u64) -> Vec<u8> {
 
 fn assert_array_ret_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("ArrayRet"),
+        &fixture_plan_bytes("ArrayRet"),
         &[
             ("initialize", 2),
             ("setArr", 2),
@@ -2425,7 +2426,7 @@ fn option_ret_state(initialized: bool, pad: u64) -> Vec<u8> {
 
 fn assert_option_ret_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("OptionRet"),
+        &fixture_plan_bytes("OptionRet"),
         &[
             ("initialize", 0),
             ("putSome", 1),
@@ -2611,7 +2612,7 @@ fn option_state_account(initialized: bool, tag: u64, payload: u64) -> Vec<u8> {
 
 fn assert_option_state_plan() {
     assert_discriminators_match_plan(
-        &fixture_plan_path("OptionState"),
+        &fixture_plan_bytes("OptionState"),
         &[
             ("initialize", 0),
             ("set", 1),

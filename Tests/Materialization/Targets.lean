@@ -1727,9 +1727,9 @@ private def laterFlowSourceTextV1 : String :=
   "  view get() : UInt64 do\n" ++
   "    return count\n"
 
-/-- AddressBearing capability matrix: sync call is EVM+Solana+Noir+Psy
-    (static QN callees; NEAR still declines sync); async workflow is
-    EVM+Solana+NEAR+Noir. Each supported surface keeps its exact form. -/
+/-- Capability matrix honesty: legacy Solana profiles decline sync call and
+    async workflow until the opt-in CPI contract. EVM/Noir/Psy keep current
+    sync behavior; EVM/NEAR/Noir keep current async behavior. -/
 private unsafe def testCallScheduleSemanticPlans : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
@@ -1759,22 +1759,18 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
     throw <| IO.userError "call-schedule: missing ExtFlow.yul"
   expect (yul.contents.contains "call(gas(), 0x")
     "EVM Yul must render CALL to the static keccak-derived address"
-  -- Solana static QN call → external_call in plan text.
+  -- Legacy Solana profiles must decline the sync key before Plan mint.
   let solSelection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
-  let solCapability ← liftResult <|
-    Targets.resolveEngineeringRequirementsV1 solSelection compiled
-  let solPlan ← liftResult <| Targets.Solana.planFromCapability solCapability
-  match solPlan.entries[0]!.body[1]? with
-  | some (stmt : Targets.Solana.Statement) =>
-      match stmt with
-      | .externalCall #["Oracle", "feed"] #[.stateLoad 0 8] => pure ()
-      | _ => throw <| IO.userError "Solana bump must keep externalCall Oracle.feed"
-  | none => throw <| IO.userError "Solana bump body is too short"
-  let solOutput ← liftResult <| materializeSelected TargetId.solana compiled
-  let some sbpf := solOutput.files.find? (·.path.endsWith ".sbpf-plan") |
-    throw <| IO.userError "call-schedule: missing ExtFlow.sbpf-plan"
-  expect (sbpf.contents.contains "external_call Oracle.feed program_id=0x")
-    "Solana sbpf-plan must render static external_call"
+  match Targets.resolveEngineeringRequirementsV1 solSelection compiled with
+  | .error e =>
+      -- ExtFlow requests both call families; canonical requirement wire order
+      -- reports asynchronous-workflow first. Call-only exact rejection is
+      -- pinned in SolanaPlanV1 for both legacy profiles.
+      expect (e.code == "PF-REQ-UNSUPPORTED" &&
+          e.message.contains "effect.asynchronous-workflow")
+        s!"legacy Solana must reject the first unsupported call family, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "legacy Solana unexpectedly supports external effects"
   let noirSelection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
   let noirCapability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 noirSelection compiled
@@ -1790,7 +1786,7 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
       noirInputs[8]!.name == "call_e1_a0")
     "Noir bump envelope must bind the status witness and call arg slot"
 
-  -- LaterFlow is schedule-only: EVM, Solana, NEAR, Noir support it.
+  -- LaterFlow is schedule-only: EVM, NEAR, and Noir support it; legacy Solana rejects it.
   let laterSource ← liftResult (← session.selectProgramV1
     laterFlowSourceTextV1 "<targets-later-flow>" "Tests.Targets.LaterFlow" none)
   let laterCompiled ← liftResult <| Compiler.compileValidatedSourceV1 laterSource
@@ -1805,15 +1801,13 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
       | _ => throw <| IO.userError "EVM later must keep schedule ledger.daily"
   | none => throw <| IO.userError "EVM later body is too short"
   let solLaterSel ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
-  let solLaterCap ← liftResult <|
-    Targets.resolveEngineeringRequirementsV1 solLaterSel laterCompiled
-  let solLaterPlan ← liftResult <| Targets.Solana.planFromCapability solLaterCap
-  match solLaterPlan.entries[0]!.body[0]? with
-  | some (stmt : Targets.Solana.Statement) =>
-      match stmt with
-      | .schedule #["ledger", "daily"] #[.stateLoad 0 8] => pure ()
-      | _ => throw <| IO.userError "Solana later must keep schedule ledger.daily"
-  | none => throw <| IO.userError "Solana later body is too short"
+  match Targets.resolveEngineeringRequirementsV1 solLaterSel laterCompiled with
+  | .error e =>
+      expect (e.code == "PF-REQ-UNSUPPORTED" &&
+          e.message.contains "effect.asynchronous-workflow")
+        s!"legacy Solana must reject async workflow exactly, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "legacy Solana unexpectedly supports schedule"
   let nearSelection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
   let nearCapability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 nearSelection laterCompiled

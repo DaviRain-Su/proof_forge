@@ -121,6 +121,11 @@ private def testSupportAndDescriptor : IO Unit := do
     "support: elf and plan share the same S2 capability set size"
   expect (elfRow.supported.map (·.id) == planRow.supported.map (·.id))
     "support: elf and plan share exact S2 id list"
+  let ids := planRow.supported.map (·.id)
+  expect (ids.size == 5 &&
+      !ids.contains "effect.synchronous-call" &&
+      !ids.contains "effect.asynchronous-workflow")
+    "support: both legacy profiles decline call/schedule until the opt-in CPI profile"
   let desc := Targets.Solana.descriptor
   expect (desc.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
     "descriptor: residual binds plan profile"

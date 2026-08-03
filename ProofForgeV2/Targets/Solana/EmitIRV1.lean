@@ -65,13 +65,10 @@ inductive Operation where
   | assert (condition : Nat) (errorCode : Nat)
   | emitEvent (eventIndex : Nat) (args : Array Nat)
   | revertError (errorIndex : Nat) (args : Array Nat)
-  /-- Static-callee external call (real CPI). `callee` is the QualifiedName
-      component array; `programIdHex` is SHA-256(target path) as 64 hex chars;
-      `args` are UInt64 temps; `resultDest=some d` binds 8B LE return data into
-      temp `d` (void calls use `none` and discard return data). -/
+  /-- Reserved legacy IR node. `validateIR` rejects it for shipped profiles. -/
   | externalCall (callee : Array String) (programIdHex : String) (args : Array Nat)
       (resultDest : Option Nat)
-  /-- Static-callee schedule (fire-and-forget CPI; results ignored). -/
+  /-- Reserved legacy IR node. `validateIR` rejects it for shipped profiles. -/
   | schedule (callee : Array String) (programIdHex : String) (args : Array Nat)
   | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
@@ -1000,42 +997,18 @@ private partial def lowerBodyOps
           next := value.next
         operations := operations.push (.revertError errorIndex argTemps)
         next := nextBase
-    | .externalCall callee args =>
-        let programIdHex := externalCalleeProgramIdHex callee
-        let mut argTemps : Array Nat := #[]
-        for arg in args do
-          let value := lowerExpr overflowError tempMap next arg
-          operations := operations ++ value.operations
-          argTemps := argTemps.push value.value
-          next := value.next
-        operations := operations.push
-          (.externalCall callee programIdHex argTemps none)
+    | .externalCall callee _ =>
+        -- Unreachable after validatePlan. If a private bypass is introduced,
+        -- produce an invalid sentinel that validateIR rejects; never derive a
+        -- program id from QualifiedName bytes.
+        operations := operations.push (.externalCall callee "" #[] none)
         next := nextBase
-    | .externalCallResult callee args planTemp =>
-        let programIdHex := externalCalleeProgramIdHex callee
-        let mut argTemps : Array Nat := #[]
-        for arg in args do
-          let value := lowerExpr overflowError tempMap next arg
-          operations := operations ++ value.operations
-          argTemps := argTemps.push value.value
-          next := value.next
-        -- Materialise once into IR temp; bind plan temp for later `.temp`.
-        -- Raise nextBase so later recycle cannot overwrite the result.
-        let irTemp := next
-        operations := operations.push
-          (.externalCall callee programIdHex argTemps (some irTemp))
-        tempMap := (planTemp, irTemp) :: tempMap
-        next := irTemp + 1
-        nextBase := next
-    | .schedule callee args =>
-        let programIdHex := externalCalleeProgramIdHex callee
-        let mut argTemps : Array Nat := #[]
-        for arg in args do
-          let value := lowerExpr overflowError tempMap next arg
-          operations := operations ++ value.operations
-          argTemps := argTemps.push value.value
-          next := value.next
-        operations := operations.push (.schedule callee programIdHex argTemps)
+    | .externalCallResult callee _ _ =>
+        operations := operations.push (.externalCall callee "" #[] none)
+        next := nextBase
+    | .schedule callee _ =>
+        -- Unreachable after validatePlan; scheduling has no legacy lowering.
+        operations := operations.push (.schedule callee "" #[])
         next := nextBase
     | .assert condition =>
         let value := lowerExpr overflowError tempMap next condition
@@ -1464,17 +1437,13 @@ private partial def validateOperationSequence
             args.size == plan.events[eventIndex]!.fieldCount &&
             args.all (· < next) do
           throw <| .planInvariant .solana "typed Solana IR event emission is invalid"
-    | .externalCall callee programIdHex args _resultDest =>
-        -- resultDest numbering is owned by the generic tempDestination? pass.
-        unless handler.mode != .view && callee.size ≥ 2 &&
-            programIdHex.length == 64 &&
-            args.all (· < destBound) do
-          throw <| .planInvariant .solana "typed Solana IR external call is invalid"
-    | .schedule callee programIdHex args =>
-        unless handler.mode != .view && callee.size ≥ 2 &&
-            programIdHex.length == 64 &&
-            args.all (· < destBound) do
-          throw <| .planInvariant .solana "typed Solana IR schedule is invalid"
+    | .externalCall .. =>
+        throw <| .planInvariant .solana
+          "legacy Solana IR does not support external calls"
+    | .schedule .. =>
+        throw <| .planInvariant .solana
+          "legacy Solana IR does not support scheduled workflows"
+| .planInvariant .solana "typed Solana IR schedule is invalid"
     | .revertError errorIndex args =>
         unless errorIndex < plan.errors.size &&
             args.size == plan.errors[errorIndex]!.fieldCount &&

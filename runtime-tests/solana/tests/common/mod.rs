@@ -5,6 +5,7 @@
 
 use {
     mollusk_svm::Mollusk,
+    serde::Deserialize,
     sha2::{Digest, Sha256},
     solana_account::Account,
     solana_instruction::{AccountMeta, Instruction},
@@ -13,6 +14,7 @@ use {
     std::{
         collections::BTreeMap,
         env, fs,
+        os::unix::fs::MetadataExt,
         path::{Path, PathBuf},
     },
 };
@@ -36,6 +38,225 @@ pub const DECLARED_ERROR_BASE: u32 = 0x2000;
 /// Check failure / unknown discriminator exit.
 pub const CHECK_OR_UNKNOWN: u32 = 1;
 pub const BASE_LAMPORTS: u64 = 10 * LAMPORTS_PER_SOL;
+
+const OUTPUT_SCHEMA: &str = "proof-forge.output.v1";
+const SOLANA_ELF_PROFILE: &str = "solana-sbpf-elf-v1";
+const MATERIALIZED_BASE: &str = "materialized-base";
+const FINALIZED_EXTRA: &str = "finalized-extra";
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[allow(dead_code)]
+struct OutputManifest {
+    schema_version: String,
+    target: String,
+    codegen_profile: String,
+    artifact_program_name: String,
+    source_hash: String,
+    semantic_hash: String,
+    build_identity_digest: String,
+    plan_digest: String,
+    support_claim_digest: String,
+    engineering_registry_root_digest: String,
+    output_set_digest: String,
+    evidence_sha256: String,
+    deployable: bool,
+    files: Vec<ArtifactDescriptor>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ArtifactDescriptor {
+    role: String,
+    path: String,
+    size: u64,
+    content_sha256: String,
+}
+
+fn is_lower_hex_64(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn require_regular_single_link(path: &Path, label: &str) -> Result<std::fs::Metadata, String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("{label}: metadata {}: {error}", path.display()))?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+        return Err(format!(
+            "{label}: expected regular non-symlink file {}",
+            path.display()
+        ));
+    }
+    if metadata.nlink() != 1 {
+        return Err(format!(
+            "{label}: expected single-link file {}, got nlink={}",
+            path.display(),
+            metadata.nlink()
+        ));
+    }
+    Ok(metadata)
+}
+
+fn manifest_for_output(output_dir: &Path, program_name: &str) -> Result<OutputManifest, String> {
+    let root_metadata = fs::symlink_metadata(output_dir)
+        .map_err(|error| format!("output root {}: {error}", output_dir.display()))?;
+    if root_metadata.file_type().is_symlink() || !root_metadata.file_type().is_dir() {
+        return Err(format!(
+            "output root must be a non-symlink directory: {}",
+            output_dir.display()
+        ));
+    }
+    let manifest_path = output_dir.join("manifest.json");
+    require_regular_single_link(&manifest_path, "manifest")?;
+    let bytes = fs::read(&manifest_path)
+        .map_err(|error| format!("read {}: {error}", manifest_path.display()))?;
+    let manifest: OutputManifest = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("decode {}: {error}", manifest_path.display()))?;
+    if manifest.schema_version != OUTPUT_SCHEMA {
+        return Err(format!(
+            "manifest schema mismatch: {:?}",
+            manifest.schema_version
+        ));
+    }
+    if manifest.target != "solana"
+        || manifest.codegen_profile != SOLANA_ELF_PROFILE
+        || manifest.artifact_program_name != program_name
+        || !manifest.deployable
+    {
+        return Err(format!(
+            "manifest identity mismatch for {program_name}: target={:?} profile={:?} artifact={:?} deployable={}",
+            manifest.target,
+            manifest.codegen_profile,
+            manifest.artifact_program_name,
+            manifest.deployable
+        ));
+    }
+    for (field, value) in [
+        ("sourceHash", &manifest.source_hash),
+        ("semanticHash", &manifest.semantic_hash),
+        ("buildIdentityDigest", &manifest.build_identity_digest),
+        ("planDigest", &manifest.plan_digest),
+        ("supportClaimDigest", &manifest.support_claim_digest),
+        (
+            "engineeringRegistryRootDigest",
+            &manifest.engineering_registry_root_digest,
+        ),
+        ("outputSetDigest", &manifest.output_set_digest),
+        ("evidenceSha256", &manifest.evidence_sha256),
+    ] {
+        if !is_lower_hex_64(value) {
+            return Err(format!("manifest {field} must be 64 lowercase hex digits"));
+        }
+    }
+
+    let expected = [
+        (format!("{program_name}.idl.json"), MATERIALIZED_BASE),
+        (format!("{program_name}.s"), MATERIALIZED_BASE),
+        (format!("{program_name}.sbpf-plan"), MATERIALIZED_BASE),
+        (format!("{program_name}.so"), FINALIZED_EXTRA),
+    ];
+    if manifest.files.len() != expected.len() {
+        return Err(format!(
+            "manifest files must contain exactly four Solana ELF leaves, got {}",
+            manifest.files.len()
+        ));
+    }
+    let mut descriptors: BTreeMap<&str, &ArtifactDescriptor> = BTreeMap::new();
+    for descriptor in &manifest.files {
+        if descriptors.insert(&descriptor.path, descriptor).is_some() {
+            return Err(format!(
+                "manifest contains duplicate artifact path {:?}",
+                descriptor.path
+            ));
+        }
+        if !is_lower_hex_64(&descriptor.content_sha256) {
+            return Err(format!(
+                "manifest contentSha256 for {:?} must be 64 lowercase hex digits",
+                descriptor.path
+            ));
+        }
+    }
+    for (path, role) in expected {
+        let descriptor = descriptors
+            .get(path.as_str())
+            .ok_or_else(|| format!("manifest missing exact artifact path {path:?}"))?;
+        if descriptor.role != role {
+            return Err(format!(
+                "manifest role mismatch for {path:?}: {:?} != {role:?}",
+                descriptor.role
+            ));
+        }
+    }
+    Ok(manifest)
+}
+
+/// Resolve one exact manifest descriptor and return the same bytes that were
+/// size/hash checked under a stable-read observation. Runtime consumers must
+/// use these bytes directly rather than reopening or searching for the path.
+/// Product inspect + the Python gate already validate full tree closure.
+pub fn read_manifest_leaf_bytes(
+    output_dir: &Path,
+    program_name: &str,
+    relative_path: &str,
+    expected_role: &str,
+) -> Result<Vec<u8>, String> {
+    let manifest = manifest_for_output(output_dir, program_name)?;
+    let matches: Vec<&ArtifactDescriptor> = manifest
+        .files
+        .iter()
+        .filter(|descriptor| descriptor.path == relative_path)
+        .collect();
+    if matches.len() != 1 {
+        return Err(format!(
+            "manifest path {relative_path:?} must occur exactly once, got {}",
+            matches.len()
+        ));
+    }
+    let descriptor = matches[0];
+    if descriptor.role != expected_role {
+        return Err(format!(
+            "manifest role mismatch for {relative_path:?}: {:?} != {expected_role:?}",
+            descriptor.role
+        ));
+    }
+    let path = output_dir.join(relative_path);
+    let before = require_regular_single_link(&path, "artifact")?;
+    if before.len() != descriptor.size {
+        return Err(format!(
+            "artifact size mismatch for {relative_path:?}: {} != {}",
+            before.len(),
+            descriptor.size
+        ));
+    }
+    let bytes = fs::read(&path).map_err(|error| format!("read {}: {error}", path.display()))?;
+    let after = require_regular_single_link(&path, "artifact post-read")?;
+    if before.dev() != after.dev()
+        || before.ino() != after.ino()
+        || before.len() != after.len()
+        || before.mtime() != after.mtime()
+        || before.mtime_nsec() != after.mtime_nsec()
+    {
+        return Err(format!(
+            "artifact changed during stable read: {relative_path:?}"
+        ));
+    }
+    if bytes.len() as u64 != descriptor.size {
+        return Err(format!(
+            "artifact byte length mismatch for {relative_path:?}: {} != {}",
+            bytes.len(),
+            descriptor.size
+        ));
+    }
+    let digest = hex::encode(Sha256::digest(&bytes));
+    if digest != descriptor.content_sha256 {
+        return Err(format!(
+            "artifact contentSha256 mismatch for {relative_path:?}"
+        ));
+    }
+    Ok(bytes)
+}
 
 /// One state field for layout-marker / account packing (declaration order).
 /// `byte_width` is the physical ABI width (1/2/4/8/16/32); widths through 8
@@ -243,24 +464,24 @@ pub fn parse_plan_handlers(plan_text: &str) -> BTreeMap<String, String> {
     out
 }
 
-/// Cross-check independent Rust discriminators against the product plan.
-/// All params assumed u64 (historical fixtures).
-pub fn assert_discriminators_match_plan(plan_path: &Path, expected: &[(&str, usize)]) {
+/// Cross-check independent Rust discriminators against manifest-bound product
+/// plan bytes. All params assumed u64 (historical fixtures).
+pub fn assert_discriminators_match_plan(plan_bytes: &[u8], expected: &[(&str, usize)]) {
     let expected_w: Vec<(&str, Vec<usize>)> = expected
         .iter()
         .map(|(name, arity)| (*name, vec![8usize; *arity]))
         .collect();
-    assert_discriminators_match_plan_widths(plan_path, &expected_w);
+    assert_discriminators_match_plan_widths(plan_bytes, &expected_w);
 }
 
 /// Cross-check discriminators with explicit per-handler param widths (T8b).
 pub fn assert_discriminators_match_plan_widths(
-    plan_path: &Path,
+    plan_bytes: &[u8],
     expected: &[(&str, Vec<usize>)],
 ) {
-    let plan = fs::read_to_string(plan_path)
-        .unwrap_or_else(|e| panic!("read plan {}: {e}", plan_path.display()));
-    let from_plan = parse_plan_handlers(&plan);
+    let plan = std::str::from_utf8(plan_bytes)
+        .unwrap_or_else(|error| panic!("manifest-bound plan is not UTF-8: {error}"));
+    let from_plan = parse_plan_handlers(plan);
     for (name, widths) in expected {
         let independent = instruction_discriminator_with_widths(name, widths);
         let plan_hex = from_plan
@@ -341,6 +562,66 @@ pub fn state_account(program_id: &Pubkey, data: Vec<u8>) -> Account {
     account
 }
 
+/// Byte-exact account observation used by future multi-account/CPI tests.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PresentAccountSnapshot {
+    pub lamports: u64,
+    pub data: Vec<u8>,
+    pub owner: Pubkey,
+    pub executable: bool,
+    pub rent_epoch: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AccountPresenceSnapshot {
+    Absent,
+    Present(PresentAccountSnapshot),
+}
+
+pub type ExactAccountSnapshot = BTreeMap<Pubkey, AccountPresenceSnapshot>;
+
+/// Snapshot an explicitly enumerated account universe. Every expected key must
+/// appear exactly once in `observed`; `None` records an explicit absence. Extra,
+/// duplicate, or omitted keys fail instead of being silently ignored.
+pub fn snapshot_exact_accounts(
+    expected_keys: &[Pubkey],
+    observed: &[(Pubkey, Option<Account>)],
+) -> Result<ExactAccountSnapshot, String> {
+    let mut expected: BTreeMap<Pubkey, ()> = BTreeMap::new();
+    for key in expected_keys {
+        if expected.insert(*key, ()).is_some() {
+            return Err(format!("duplicate expected account key {key}"));
+        }
+    }
+    let mut snapshot = BTreeMap::new();
+    for (key, account) in observed {
+        if !expected.contains_key(key) {
+            return Err(format!("unexpected account key {key}"));
+        }
+        let value = match account {
+            None => AccountPresenceSnapshot::Absent,
+            Some(account) => AccountPresenceSnapshot::Present(PresentAccountSnapshot {
+                lamports: account.lamports,
+                data: account.data.clone(),
+                owner: account.owner,
+                executable: account.executable,
+                rent_epoch: account.rent_epoch,
+            }),
+        };
+        if snapshot.insert(*key, value).is_some() {
+            return Err(format!("duplicate observed account key {key}"));
+        }
+    }
+    for key in expected.keys() {
+        if !snapshot.contains_key(key) {
+            return Err(format!(
+                "missing explicit present/absent observation for account key {key}"
+            ));
+        }
+    }
+    Ok(snapshot)
+}
+
 pub fn build_ix(
     program_id: Pubkey,
     state_key: Pubkey,
@@ -377,58 +658,63 @@ pub fn build_ix_limbs(
     )
 }
 
-/// Counter product env (S3a): `PROOF_FORGE_SO_DIR` + `PROOF_FORGE_PLAN`.
-pub fn counter_so_dir() -> PathBuf {
-    PathBuf::from(
-        env::var("PROOF_FORGE_SO_DIR")
-            .expect("PROOF_FORGE_SO_DIR must point at the directory containing Counter.so"),
-    )
+/// Counter product env (S3a): the complete published output tree.
+pub fn counter_output_dir() -> PathBuf {
+    PathBuf::from(env::var("PROOF_FORGE_COUNTER_OUT").expect(
+        "PROOF_FORGE_COUNTER_OUT must point at the published Counter output tree",
+    ))
 }
 
-pub fn counter_plan_path() -> PathBuf {
-    PathBuf::from(
-        env::var("PROOF_FORGE_PLAN").expect("PROOF_FORGE_PLAN must point at Counter.sbpf-plan"),
+pub fn counter_plan_bytes() -> Vec<u8> {
+    let output = counter_output_dir();
+    read_manifest_leaf_bytes(
+        &output,
+        "Counter",
+        "Counter.sbpf-plan",
+        MATERIALIZED_BASE,
     )
+    .unwrap_or_else(|error| panic!("Counter plan binding failed: {error}"))
 }
 
 /// Fixture product env (S3b): `PROOF_FORGE_FIXTURES_DIR/<Name>/`.
 pub fn fixtures_dir() -> PathBuf {
     PathBuf::from(env::var("PROOF_FORGE_FIXTURES_DIR").expect(
-        "PROOF_FORGE_FIXTURES_DIR must point at the directory containing per-program fixture builds",
+        "PROOF_FORGE_FIXTURES_DIR must point at the directory containing published fixture trees",
     ))
 }
 
-pub fn fixture_so_dir(program: &str) -> PathBuf {
-    let dir = fixtures_dir().join(program);
-    assert!(
-        dir.join(format!("{program}.so")).is_file(),
-        "{program}.so missing under {}",
-        dir.display()
-    );
-    dir
+pub fn fixture_output_dir(program: &str) -> PathBuf {
+    fixtures_dir().join(program)
 }
 
-pub fn fixture_plan_path(program: &str) -> PathBuf {
-    let path = fixtures_dir().join(program).join(format!("{program}.sbpf-plan"));
-    assert!(path.is_file(), "plan missing: {}", path.display());
-    path
-}
-
-pub fn make_mollusk(program_id: &Pubkey, so_dir: &Path, program_stem: &str) -> Mollusk {
-    let so = so_dir.join(format!("{program_stem}.so"));
-    assert!(so.is_file(), "{program_stem}.so missing under {}", so_dir.display());
-    // Absolute program_name so load_program_elf finds `{name}.so` via Path::join.
-    let program_name = so_dir.join(program_stem);
-    Mollusk::new(
-        program_id,
-        program_name.to_str().expect("utf-8 so path"),
+pub fn fixture_plan_bytes(program: &str) -> Vec<u8> {
+    let output = fixture_output_dir(program);
+    read_manifest_leaf_bytes(
+        &output,
+        program,
+        &format!("{program}.sbpf-plan"),
+        MATERIALIZED_BASE,
     )
+    .unwrap_or_else(|error| panic!("{program} plan binding failed: {error}"))
+}
+
+pub fn make_mollusk(program_id: &Pubkey, output_dir: &Path, program_stem: &str) -> Mollusk {
+    let relative_so = format!("{program_stem}.so");
+    let elf = read_manifest_leaf_bytes(output_dir, program_stem, &relative_so, FINALIZED_EXTRA)
+        .unwrap_or_else(|error| panic!("{program_stem} ELF binding failed: {error}"));
+    let mut mollusk = Mollusk::default();
+    mollusk.add_program_with_loader_and_elf(
+        program_id,
+        &mollusk_svm::program::loader_keys::LOADER_V3,
+        &elf,
+    );
+    mollusk
 }
 
 pub fn make_counter_mollusk(program_id: &Pubkey) -> Mollusk {
-    make_mollusk(program_id, &counter_so_dir(), "Counter")
+    make_mollusk(program_id, &counter_output_dir(), "Counter")
 }
 
 pub fn make_fixture_mollusk(program_id: &Pubkey, program: &str) -> Mollusk {
-    make_mollusk(program_id, &fixture_so_dir(program), program)
+    make_mollusk(program_id, &fixture_output_dir(program), program)
 }

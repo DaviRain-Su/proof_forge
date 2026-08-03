@@ -56,9 +56,10 @@ normative: false
 **0/56 whole-example strict equivalence**。更重要的是，它为真实 CPI 提供了更权威的
 callee 合同：System、classic Token 和 ATA 应成为 P1 forcing oracles。
 
-当前 ProofForge Solana backend 仍是单 state-account 模型，`call`/`schedule` 在 SBPF 中只发
-`sol_log_data`，没有 account metas、`invoke`/`invoke_signed` 或 inner rollback。因此当前不能声称
-能够调用、替代或对等实现本组织中的任何真实 platform program。
+当前 ProofForge Solana backend 仍是单 state-account 模型。2026-08-03 的 #111 honesty cut 已让
+两个 legacy profile 对 `call`/`schedule` 双键 fail closed，并删除可达的 `sol_log_data` 观测桩；
+但仍没有 account metas、`invoke`/`invoke_signed` 或 inner rollback。因此当前不能声称能够调用、
+替代或对等实现本组织中的任何真实 platform program。
 
 ## 2. 快照方法与角色分类
 

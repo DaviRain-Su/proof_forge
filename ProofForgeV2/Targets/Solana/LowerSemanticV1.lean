@@ -256,18 +256,12 @@ inductive Statement where
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
   | revertError (errorIndex : Nat) (args : Array Expr)
-  /-- Sync external call (void). Real CPI via `sol_invoke_signed_c` with empty
-      AccountMeta list; return data discarded. Program id = SHA-256(target
-      path); method disc = product ABI over UInt64 args. Not a dynamic pubkey
-      (B-3 Principal remains fail-closed). -/
+  /-- Reserved legacy node. `validatePlan` rejects it for both shipped profiles;
+      the future CPI profile uses a versioned account/callee contract instead. -/
   | externalCall (callee : Array String) (args : Array Expr)
-  /-- Result-bearing sync external call (N-CALL-RET). Real CPI; materialises
-      8B LE return data into plan temp `resultTemp` once (subsequent uses are
-      `.temp resultTemp`, never re-invoke). Separate from void `externalCall`
-      so existing two-arg plan matches stay source-compatible. -/
+  /-- Reserved legacy node (N-CALL-RET). Rejected for shipped legacy profiles. -/
   | externalCallResult (callee : Array String) (args : Array Expr) (resultTemp : Nat)
-  /-- Async fire-and-forget schedule (void). Same real CPI as sync void call;
-      results ignored (Reference has no schedule response cursor). -/
+  /-- Reserved legacy node. Solana scheduling remains unsupported on legacy profiles. -/
   | schedule (callee : Array String) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
@@ -2509,100 +2503,17 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    -- AddressBearing + B-CALL-SEM (BL-27): static QN → real CPI. Principal
-    -- remains fail-closed. View banned. Void statement form discards return
-    -- data; value-position (N-CALL-RET) binds UInt64 from sol_get_return_data.
-    | .externalCall _effectId callee argIds, none =>
-        if mode == .view then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: view callable makes an external call"
-        let components := callee.components.toArray
-        unless components.size ≥ 2 do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: external call callee must have at least two components"
-        for c in components do
-          unless isIdentifier c do
-            throw <| .planInvariant .solana
-              s!"unsupported Solana semantic shape: external call callee component '{c}' is not a safe identifier"
-        let mut argExprs : Array Expr := #[]
-        for argId in argIds do
-          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-          unless !root.isBool && !root.isInt && root.bitWidth == 64 do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: external call arguments must be UInt64"
-          argExprs := argExprs.push root.expr
-        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
-        body := body.push (.externalCall components argExprs)
-        armReadables := promoteDominatingPureV1 blockEntry values armReadables
-        segmentStart := values.size
-    | .externalCall _effectId callee argIds, some result =>
-        if mode == .view then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: view callable makes an external call"
-        let components := callee.components.toArray
-        unless components.size ≥ 2 do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: external call callee must have at least two components"
-        for c in components do
-          unless isIdentifier c do
-            throw <| .planInvariant .solana
-              s!"unsupported Solana semantic shape: external call callee component '{c}' is not a safe identifier"
-        unless result.typeId == types.uint64TypeId do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: result-bearing external call must be public UInt64"
-        let mut argExprs : Array Expr := #[]
-        for argId in argIds do
-          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-          unless !root.isBool && !root.isInt && root.bitWidth == 64 do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: external call arguments must be UInt64"
-          argExprs := argExprs.push root.expr
-        -- Effect boundary for args, then materialise the CPI result as a
-        -- fresh leaf temp in the *next* segment (empty deps so later store/
-        -- return can consumeCurrentSegment on the result alone).
-        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
-        armReadables := promoteDominatingPureV1 blockEntry values armReadables
-        segmentStart := values.size
-        let tempId := result.valueId.toNat
-        body := body.push (.externalCallResult components argExprs tempId)
-        let value : LoweredValueV1 := {
-          expr := .temp tempId
-          depth := 1
-          expandedNodes := 1
-          -- Empty deps: the CPI result is a plan-temp leaf, not a tree over
-          -- pre-call segment values (those were closed by consumeSegmentRoots).
-          dependencies := #[]
-          isBool := false
-          bitWidth := 64
-        }
-        values := ← appendResultValueV1 types.uint64TypeId values result value
-        -- Keep segmentStart pinned *before* the result so it remains the live
-        -- root of the current segment (do not re-close past it here).
-    | .schedule _effectId callee argIds, none =>
-        if mode == .view then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: view callable schedules a workflow"
-        let components := callee.components.toArray
-        unless components.size ≥ 2 do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: schedule callee must have at least two components"
-        for c in components do
-          unless isIdentifier c do
-            throw <| .planInvariant .solana
-              s!"unsupported Solana semantic shape: schedule callee component '{c}' is not a safe identifier"
-        let mut argExprs : Array Expr := #[]
-        for argId in argIds do
-          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-          unless !root.isBool && !root.isInt && root.bitWidth == 64 do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: schedule arguments must be UInt64"
-          argExprs := argExprs.push root.expr
-        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
-        body := body.push (.schedule components argExprs)
-        armReadables := promoteDominatingPureV1 blockEntry values armReadables
-        segmentStart := values.size
-    | .schedule _ _ _, some _ =>
+    -- Legacy profiles deliberately decline both external effect families
+    -- (and result-bearing sync). A future opt-in CPI profile owns its own
+    -- exact account/callee contract; generic Semantic QualifiedName values
+    -- are not Solana program IDs.
+    | .externalCall _ _ _, _ =>
         throw <| .planInvariant .solana
+          "legacy Solana profiles do not support external calls; select a versioned CPI profile"
+    | .schedule _ _ _, _ =>
+        throw <| .planInvariant .solana
+          "legacy Solana profiles do not support scheduled workflows"
+| .planInvariant .solana
           "unsupported Solana semantic shape: schedule must be void"
     -- Array construct N args, Map.empty, Option.none/some, or named Struct/Enum.
     -- Bytes has no source constructor (Normalize never emits `.construct` for

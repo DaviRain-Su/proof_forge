@@ -352,8 +352,8 @@ private def testSupportTable : IO Unit := do
     ("noir", "noir-source-u64-relations-v1", 7),
     ("psy", "psy-dargo-u64-v1", 6),
     ("quint", "quint-source-u64-model-v1", 4),
-    ("solana", "solana-sbpf-elf-v1", 7),
-    ("solana", "solana-sbpf-plan-v1", 7),
+    ("solana", "solana-sbpf-elf-v1", 5),
+    ("solana", "solana-sbpf-plan-v1", 5),
     ("ton", "ton-tolk-boc-v1", 6)
   ]
   let mut i : Nat := 0
@@ -364,9 +364,9 @@ private def testSupportTable : IO Unit := do
         expect (row.codegenProfile.toString == prof) s!"row {i} profile"
         expect (row.supported.size == supportCount)
           s!"row {i} support count"
-        -- Every row is a wire-order subset of the S2 catalog; EVM/Solana/Noir
-        -- admit both external-call keys (AddressBearing static QN), NEAR the
-        -- async one, Psy the sync one.
+        -- Every row is a wire-order subset of the S2 catalog; EVM/Noir admit
+        -- both external-call keys (AddressBearing static QN), NEAR the async
+        -- one, Psy the sync one. Legacy Solana declines both call families.
         let ids := row.supported.map (·.id)
         expect (ids.all isS2CatalogIdV1) s!"row {i} ids are catalog members"
         expect (row.supported.all fun item =>
@@ -374,10 +374,10 @@ private def testSupportTable : IO Unit := do
           s!"row {i} version/predicates"
         let expectSync :=
           row.targetId == TargetId.noir || row.targetId == TargetId.psy ||
-            row.targetId == TargetId.evm || row.targetId == TargetId.solana
+            row.targetId == TargetId.evm
         let expectAsync :=
           row.targetId == TargetId.noir || row.targetId == TargetId.near ||
-            row.targetId == TargetId.evm || row.targetId == TargetId.solana ||
+            row.targetId == TargetId.evm ||
             row.targetId == TargetId.ton || row.targetId == TargetId.cosmwasm
         expect ((ids.contains "effect.synchronous-call") == expectSync &&
             (ids.contains "effect.asynchronous-workflow") == expectAsync)
