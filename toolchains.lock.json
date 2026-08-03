@@ -9,8 +9,7 @@
       "format": "cargo-git",
       "package": "cosmwasm-check",
       "bin": "cosmwasm-check",
-      "version": "3.0.9",
-      "rustToolchain": "1.88"
+      "version": "3.0.9"
     },
     {
       "id": "foundry-v0.3.0-darwin-arm64",

@@ -76,6 +76,19 @@ SAFE_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,254}[A-Za-z0-9]
 FORMATS = {"file", "tar.gz", "zip", "cargo-git"}
 DOWNLOAD_FORMATS = {"file", "tar.gz", "zip"}
 TOOL_LOCK_SCHEMA_V4 = "proof-forge.toolchains.v4"
+CARGO_GIT_BUILD_POLICY_SCHEMA = "proof-forge.cargo-git-build-policy.v1"
+CARGO_GIT_BUILD_POLICY_MARKER = ".proof-forge-cargo-git-build-policy"
+# Engineering compatibility policy outside Tool Lock v4 identity. The exact
+# pinned CosmWasm source uses Wasmer 5.0.6, which references Rust's former
+# __rust_probestack symbol and cannot link with Rust 1.89 or newer. Keep this
+# exact asset/commit override fail-closed until an honest Tool Lock v5 carries
+# per-asset source-build toolchain identity.
+CARGO_GIT_RUST_TOOLCHAIN_OVERRIDES = {
+    (
+        "cosmwasm-check-3.0.9-git-fe5b55d283f5",
+        "fe5b55d283f5987c7fa0f95d5ad923be7a3d9283",
+    ): "1.88.0",
+}
 LEGACY_TOOL_LOCK_SCHEMAS = {
     "proof-forge.toolchains.v2",
     "proof-forge.toolchains.v3",
@@ -442,7 +455,7 @@ def validate_tool_lock(lock: dict) -> dict:
         if format_value == "cargo-git":
             require_keys(asset, {
                 "id", "url", "commit", "format", "package", "bin", "version",
-            }, f"assets[{index}]", {"rustToolchain"})
+            }, f"assets[{index}]")
             asset_id = require_safe_asset_id(asset.get("id"), f"assets[{index}].id")
             require_https_url(asset.get("url"), f"asset {asset_id}.url")
             commit = require_string(asset.get("commit"), f"asset {asset_id}.commit")
@@ -451,12 +464,6 @@ def validate_tool_lock(lock: dict) -> dict:
             require_safe_identifier(asset.get("package"), f"asset {asset_id}.package")
             require_safe_identifier(asset.get("bin"), f"asset {asset_id}.bin")
             require_semver(asset.get("version"), f"asset {asset_id}.version")
-            rust_toolchain = asset.get("rustToolchain")
-            if rust_toolchain is not None:
-                rust_toolchain = require_string(
-                    rust_toolchain, f"asset {asset_id}.rustToolchain")
-                if re.fullmatch(r"[0-9]+\.[0-9]+(\.[0-9]+)?", rust_toolchain) is None:
-                    fail(f"asset {asset_id}.rustToolchain must be MAJOR.MINOR[.PATCH]")
         elif format_value in DOWNLOAD_FORMATS:
             require_keys(asset, {"id", "url", "size", "sha256", "format"},
                          f"assets[{index}]", {"auth"})
@@ -1124,6 +1131,78 @@ def cargo_git_binary_path(asset: dict) -> Path:
     return cargo_git_cache_root(asset) / "target" / "release" / asset["bin"]
 
 
+def cargo_git_compatibility_rust_toolchain(asset: dict) -> str | None:
+    """Return an exact engineering-only Rust compatibility override, if any."""
+
+    return CARGO_GIT_RUST_TOOLCHAIN_OVERRIDES.get(
+        (asset.get("id"), asset.get("commit"))
+    )
+
+
+def cargo_git_build_environment(staging: Path, rustup_home: Path,
+                                rust_toolchain: str | None,
+                                host_path: str) -> dict[str, str]:
+    """Build without user Cargo config or inherited Rust/linker flags."""
+
+    environment = {
+        "LC_ALL": "C",
+        "TZ": "UTC",
+        "HOME": str(staging / ".proof-forge-home"),
+        "PATH": host_path,
+        "CARGO_HOME": str(staging / ".proof-forge-cargo-home"),
+        "RUSTUP_HOME": str(rustup_home),
+    }
+    if rust_toolchain is not None:
+        environment["RUSTUP_TOOLCHAIN"] = rust_toolchain
+    return environment
+
+
+def cargo_git_build_policy_bytes(asset: dict) -> bytes | None:
+    rust_toolchain = cargo_git_compatibility_rust_toolchain(asset)
+    if rust_toolchain is None:
+        return None
+    return (
+        f"{CARGO_GIT_BUILD_POLICY_SCHEMA}\n"
+        f"rust-toolchain={rust_toolchain}\n"
+    ).encode("ascii")
+
+
+def cargo_git_cached_policy_matches(asset: dict, cache_dir: Path) -> bool:
+    expected = cargo_git_build_policy_bytes(asset)
+    if expected is None:
+        return True
+    marker = cache_dir / CARGO_GIT_BUILD_POLICY_MARKER
+    try:
+        metadata = marker.lstat()
+    except FileNotFoundError:
+        return False
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or stat.S_ISLNK(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or metadata.st_nlink != 1
+        or stat.S_IMODE(metadata.st_mode) != 0o444
+        or metadata.st_size != len(expected)
+    ):
+        return False
+    try:
+        return marker.read_bytes() == expected
+    except OSError:
+        return False
+
+
+def write_cargo_git_build_policy(asset: dict, staging: Path) -> None:
+    content = cargo_git_build_policy_bytes(asset)
+    if content is None:
+        return
+    marker = staging / CARGO_GIT_BUILD_POLICY_MARKER
+    with marker.open("xb") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(marker, 0o444)
+
+
 def validate_owned_directory(path: Path, where: str) -> None:
     try:
         metadata = path.lstat()
@@ -1281,6 +1360,7 @@ def provision_cargo_git_asset(asset: dict) -> Path:
     commit = asset["commit"]
     package = asset["package"]
     binary_name = asset["bin"]
+    rust_toolchain = cargo_git_compatibility_rust_toolchain(asset)
     cache_dir = cargo_git_cache_root(asset)
     binary = cargo_git_binary_path(asset)
     # Ensure cache parents exist with owned-directory checks.
@@ -1303,10 +1383,11 @@ def provision_cargo_git_asset(asset: dict) -> Path:
             return False
         if not os.access(binary, os.X_OK):
             return False
-        return True
+        return cargo_git_cached_policy_matches(asset, cache_dir)
 
     if cache_dir.is_dir() and binary_usable():
-        print(f"toolchain-assets: cached cargo-git {asset_id} commit={commit}")
+        policy = f" rust={rust_toolchain}" if rust_toolchain is not None else ""
+        print(f"toolchain-assets: cached cargo-git {asset_id} commit={commit}{policy}")
         return binary
 
     staging = cache_dir.parent / (
@@ -1410,40 +1491,77 @@ def provision_cargo_git_asset(asset: dict) -> Path:
                 f"cargo-git HEAD mismatch for {asset_id}: "
                 f"expected {commit}, got {head.stdout.strip()!r}"
             )
-        cargo = shutil.which("cargo")
-        if cargo is None:
-            fail(f"cargo is required to provision cargo-git asset {asset_id}")
-        build_env = {
-            "LC_ALL": "C",
-            "TZ": "UTC",
-            "HOME": os.environ.get("HOME", "/var/empty"),
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-            "CARGO_HOME": os.environ.get(
-                "CARGO_HOME", str(Path.home() / ".cargo")),
-            "RUSTUP_HOME": os.environ.get(
-                "RUSTUP_HOME", str(Path.home() / ".rustup")),
-        }
-        # Optional per-asset pinned Rust toolchain (e.g. wasmer 5.x references
-        # `__rust_probestack`, which Rust >= 1.89 no longer exports — the build
-        # must use the toolchain era the pinned source was written for).
-        rust_toolchain = asset.get("rustToolchain")
+        host_path = os.environ.get("PATH", "/usr/bin:/bin")
+        if rust_toolchain is None:
+            cargo = shutil.which("cargo")
+            if cargo is None:
+                fail(f"cargo is required to provision cargo-git asset {asset_id}")
+            rustup_home = Path(os.environ.get(
+                "RUSTUP_HOME", str(Path.home() / ".rustup")))
+            build_command = [cargo, "build", "--release", "-p", package]
+        else:
+            rustup = shutil.which("rustup")
+            if rustup is None:
+                fail(
+                    f"rustup is required to provision cargo-git asset {asset_id} "
+                    f"with Rust {rust_toolchain}"
+                )
+            rustup_home = cache_root() / "rustup"
+            try:
+                rustup_home.mkdir(mode=0o700)
+            except FileExistsError:
+                pass
+            validate_owned_directory(
+                rustup_home, f"cargo-git rustup root for {asset_id}")
+            build_command = [
+                rustup, "run", rust_toolchain, "cargo",
+                "build", "--release", "-p", package,
+            ]
+
+        build_env = cargo_git_build_environment(
+            staging, rustup_home, rust_toolchain, host_path
+        )
+        for name in ("HOME", "CARGO_HOME"):
+            directory = Path(build_env[name])
+            directory.mkdir(mode=0o700)
+            validate_owned_directory(
+                directory, f"cargo-git isolated {name} for {asset_id}")
+
         if rust_toolchain is not None:
             install = subprocess.run(
-                ["rustup", "toolchain", "install", rust_toolchain,
-                 "--profile", "minimal"],
-                check=False, capture_output=True, text=True,
-                env=build_env, timeout=900,
+                [
+                    rustup, "toolchain", "install", rust_toolchain,
+                    "--profile", "minimal", "--no-self-update",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=build_env,
+                timeout=900,
             )
             if install.returncode != 0:
                 fail(
                     f"rustup toolchain install {rust_toolchain} failed for "
                     f"{asset_id}: {install.stderr.strip() or install.stdout.strip()}"
                 )
-            cargo = [cargo, f"+{rust_toolchain}"]
-        else:
-            cargo = [cargo]
+            version = subprocess.run(
+                [rustup, "run", rust_toolchain, "rustc", "--version"],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=build_env,
+                timeout=30,
+            )
+            expected_version = f"rustc {rust_toolchain} "
+            if version.returncode != 0 or not version.stdout.startswith(expected_version):
+                observed = version.stdout.strip() or version.stderr.strip()
+                fail(
+                    f"Rust toolchain mismatch for {asset_id}: expected "
+                    f"{rust_toolchain}, got {observed!r}"
+                )
+
         build = subprocess.run(
-            cargo + ["build", "--release", "-p", package],
+            build_command,
             check=False,
             capture_output=True,
             text=True,
@@ -1452,8 +1570,11 @@ def provision_cargo_git_asset(asset: dict) -> Path:
             timeout=1800,
         )
         if build.returncode != 0:
+            policy = (
+                f" with Rust {rust_toolchain}" if rust_toolchain is not None else ""
+            )
             fail(
-                f"cargo build --release -p {package} failed for {asset_id}: "
+                f"cargo build --release -p {package}{policy} failed for {asset_id}: "
                 f"{build.stderr.strip() or build.stdout.strip()}"
             )
         built = staging / "target" / "release" / binary_name
@@ -1467,6 +1588,7 @@ def provision_cargo_git_asset(asset: dict) -> Path:
         if not stat.S_ISREG(built_meta.st_mode):
             fail(f"cargo-git product for {asset_id} is not a regular file")
         os.chmod(built, 0o755)
+        write_cargo_git_build_policy(asset, staging)
         # Atomic publish: replace any incomplete previous cache tree.
         if cache_dir.exists() or cache_dir.is_symlink():
             if cache_dir.is_dir() and not cache_dir.is_symlink():
@@ -1484,7 +1606,11 @@ def provision_cargo_git_asset(asset: dict) -> Path:
             shutil.rmtree(staging, ignore_errors=True)
     if not binary_usable():
         fail(f"cargo-git provision for {asset_id} did not leave a usable binary")
-    print(f"toolchain-assets: provisioned cargo-git {asset_id} commit={commit}")
+    policy = f" rust={rust_toolchain}" if rust_toolchain is not None else ""
+    print(
+        f"toolchain-assets: provisioned cargo-git {asset_id} "
+        f"commit={commit}{policy}"
+    )
     return binary
 
 
@@ -2511,6 +2637,11 @@ def materialize_source_build_tools(lock: dict, staging: Path) -> None:
             )
         if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
             fail(f"cargo-git product for {asset['id']} is not a regular file")
+        if not cargo_git_cached_policy_matches(asset, cargo_git_cache_root(asset)):
+            fail(
+                f"cargo-git build policy mismatch for {asset['id']}; "
+                "run toolchain-assets provision --group external"
+            )
         output = staging / tool["executable"]
         output.parent.mkdir(parents=True, exist_ok=True)
         # Copy without hash pin; size is whatever cargo produced.
@@ -4478,6 +4609,74 @@ def self_test_tool_lock(lock: dict, host_lock: dict) -> None:
         self_test_linux_tool_lock(lock, host_lock)
 
 
+def self_test_cargo_git_build_policy(lock: dict) -> None:
+    cosmwasm = next(
+        asset for asset in lock["assets"]
+        if asset["id"] == "cosmwasm-check-3.0.9-git-fe5b55d283f5"
+    )
+    if cargo_git_compatibility_rust_toolchain(cosmwasm) != "1.88.0":
+        fail("self-test did not select the pinned cosmwasm-check Rust toolchain")
+    sbpf = next(
+        asset for asset in lock["assets"]
+        if asset["id"] == "sbpf-0.2.2-git-d835bc6e638e"
+    )
+    if cargo_git_compatibility_rust_toolchain(sbpf) is not None:
+        fail("self-test unexpectedly overrode the sbpf Rust toolchain")
+
+    staging = Path("/proof-forge/cargo-git-staging")
+    rustup_home = Path("/proof-forge/rustup")
+    pinned_env = cargo_git_build_environment(
+        staging, rustup_home, "1.88.0", "/host/bin"
+    )
+    expected_pinned_env = {
+        "LC_ALL": "C",
+        "TZ": "UTC",
+        "HOME": str(staging / ".proof-forge-home"),
+        "PATH": "/host/bin",
+        "CARGO_HOME": str(staging / ".proof-forge-cargo-home"),
+        "RUSTUP_HOME": str(rustup_home),
+        "RUSTUP_TOOLCHAIN": "1.88.0",
+    }
+    if pinned_env != expected_pinned_env:
+        fail("self-test observed a non-isolated pinned cargo-git build environment")
+    ambient_env = cargo_git_build_environment(
+        staging, rustup_home, None, "/host/bin"
+    )
+    expected_ambient_env = dict(expected_pinned_env)
+    del expected_ambient_env["RUSTUP_TOOLCHAIN"]
+    if ambient_env != expected_ambient_env:
+        fail("self-test observed a non-isolated ambient cargo-git build environment")
+
+    expected_marker = (
+        b"proof-forge.cargo-git-build-policy.v1\n"
+        b"rust-toolchain=1.88.0\n"
+    )
+    if cargo_git_build_policy_bytes(cosmwasm) != expected_marker:
+        fail("self-test observed the wrong cosmwasm-check build-policy marker")
+    if cargo_git_build_policy_bytes(sbpf) is not None:
+        fail("self-test unexpectedly created an sbpf build-policy marker")
+
+    with tempfile.TemporaryDirectory() as temporary:
+        cache_dir = Path(temporary)
+        if cargo_git_cached_policy_matches(cosmwasm, cache_dir):
+            fail("self-test accepted a missing cargo-git build-policy marker")
+        marker = cache_dir / CARGO_GIT_BUILD_POLICY_MARKER
+        marker.write_bytes(expected_marker)
+        os.chmod(marker, 0o444)
+        if not cargo_git_cached_policy_matches(cosmwasm, cache_dir):
+            fail("self-test rejected the exact cargo-git build-policy marker")
+        os.chmod(marker, 0o644)
+        if cargo_git_cached_policy_matches(cosmwasm, cache_dir):
+            fail("self-test accepted a writable cargo-git build-policy marker")
+        marker.unlink()
+        target = cache_dir / "marker-target"
+        target.write_bytes(expected_marker)
+        os.chmod(target, 0o444)
+        marker.symlink_to(target.name)
+        if cargo_git_cached_policy_matches(cosmwasm, cache_dir):
+            fail("self-test accepted a symlink cargo-git build-policy marker")
+
+
 def self_test_cargo_git_mutations(lock: dict) -> None:
     mutations: list[tuple[str, dict]] = []
     bad_commit = copy.deepcopy(lock)
@@ -4533,6 +4732,7 @@ def self_test_cargo_git_mutations(lock: dict) -> None:
         except AssetError:
             continue
         fail(f"self-test failed to reject {name}")
+    self_test_cargo_git_build_policy(lock)
 
 
 def self_test_darwin_tool_lock(lock: dict, host_lock: dict) -> None:
