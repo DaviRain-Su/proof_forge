@@ -162,6 +162,25 @@ structure EmitReceiptV1 where
   deployable : Bool
   deriving BEq, Repr
 
+/-- RES-1B engineering published-byte observation: all scanned base/finalized
+    artifact bytes plus the exact UTF-8 bytes of both fixed sidecars. The sole
+    physical artifact-size observations remain `ArtifactContentV1`; this helper
+    only combines those sizes with sidecar bytes already rendered in memory. -/
+def engineeringPublishedBytesV1
+    (artifactSizes : Array Nat) (evidence manifest : String) : Nat :=
+  artifactSizes.foldl (init := 0) (· + ·) +
+    evidence.toUTF8.size + manifest.toUTF8.size
+
+/-- RES-1B lower-only artifact-output gate. Equality is accepted; the first
+    byte over the effective limit fails with the resource diagnostic family,
+    distinct from the fixed S7c `PF-OUTPUT-LIMIT` closure defense. -/
+def enforcePublishedBytesLimitV1
+    (limit : UInt64) (publishedBytes : Nat) : Except String Unit :=
+  if publishedBytes > limit.toNat then
+    .error s!"PF-RESOURCE-OUTPUT: artifact-output.published-bytes limit {limit} exceeded (published {publishedBytes} bytes)"
+  else
+    pure ()
+
 /-- Publisher dual-defense for finalized extra paths (D3/S7b + S7c).
 
     Mirrors `validateMaterializedCarrier` path ownership: safety, uniqueness vs
@@ -193,13 +212,14 @@ def validateFinalizedExtraPathsForPublishV1
     manifest/evidence rendering. Finalization authority (tools, deployability,
     notes) is sole Registry `finalizeMaterializedArtifactsV1` → target adapters
     → `FinalizedArtifactsV1`. Write order: base → finalize extras → artifact-only
-    scan → pure OutputSet mint → render evidence → render manifest → write
-    evidence → write manifest last → full scan with sidecars → exact pre/post
-    inventory compare → verify evidence bytes digest → rename.
-    Sole content walker/hash is ArtifactContentV1. Not formal OutputSetV1. -/
+    scan → pure OutputSet mint → render evidence → render manifest → enforce
+    effective published-byte limit → write evidence → write manifest last →
+    full scan with sidecars → exact pre/post inventory compare → verify evidence
+    bytes digest → rename. Sole content walker/hash is ArtifactContentV1.
+    Not formal OutputSetV1 or memory/process containment. -/
 private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     (compiled : CompiledSemanticV1) (artifacts : MaterializedArtifactsV1)
-    (stagingDir : FilePath) : IO EmitReceiptV1 := do
+    (publishedBytesLimit : UInt64) (stagingDir : FilePath) : IO EmitReceiptV1 := do
   -- Dual-defense: compiled digests still gate before any disk write.
   let _ ← digestHexForOutputV1 "source" (CompiledSemanticV1.sourceDigestOf compiled)
   let _ ← digestHexForOutputV1 "semantic" (CompiledSemanticV1.semanticDigestOf compiled)
@@ -224,6 +244,14 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     | .ok value => pure value
     | .error error =>
         throw <| IO.userError s!"PF-OUTPUT-MANIFEST: output-set manifest render failed: {error}"
+  -- RES-1B: enforce the lower-only effective cap after all artifact sizes and
+  -- exact sidecar bytes are known, but before either sidecar write or rename.
+  let artifactSizes :=
+    (ArtifactContentInventoryV1.descriptorsOf preInv).map (·.size)
+  let publishedBytes := engineeringPublishedBytesV1 artifactSizes evidence manifest
+  match enforcePublishedBytesLimitV1 publishedBytesLimit publishedBytes with
+  | .ok () => pure ()
+  | .error error => throw <| IO.userError error
   -- Dual-defense: rendered evidence UTF-8 digest must match mint-time evidenceSha256.
   let evidenceDigest := sha256Bytes evidence.toUTF8
   let recordedEvidence := EngineeringOutputSetV1.evidenceSha256Of outputSet
@@ -260,7 +288,9 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     `proof-forge.output.v1` manifest + evidence sidecars. No public
     `(selection, compiled)` overload. Not formal OutputSetV1. -/
 def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
-    (outputDir : FilePath) : IO EmitReceiptV1 := do
+    (outputDir : FilePath)
+    (publishedBytesLimit : UInt64 := hardOutputProfile.maxPublishedBytes) :
+    IO EmitReceiptV1 := do
   let compiled := Targets.ResolvedEngineeringBuildV1.compiledOf capability
   let programName := CompiledSemanticV1.artifactProgramNameOf compiled
   -- Reject unsafe artifact identity before entering a target materializer. A
@@ -291,7 +321,8 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
   let pid ← IO.Process.getPID
   let staging ← createSiblingStaging parent name pid.toNat 0
   try
-    let receipt ← renderIntoStaging capability compiled artifacts staging
+    let receipt ←
+      renderIntoStaging capability compiled artifacts publishedBytesLimit staging
     -- Recheck immediately before publish. This closes the cooperative writer
     -- race and ensures a build without an explicit future `--force` mode never
     -- replaces user data. A non-empty destination created by another process
@@ -317,8 +348,9 @@ structure ResourceLimitOverrideV1 where
 `output`/`root` are `Option` so duplicate flags are detectable (defaults applied
 at product path: `build/v2` and `.`). `json` selects PF-JCS stdout.
 D3-E5: `resourceLimits` / `minimumEvidence` / proof-bundle pair are parsed and
-validated fail-closed before source open; enforcement of wall clocks is still
-NFR/RES-1 (effective limits are carried for observation + hard-max reject). -/
+validated fail-closed before source open. RES-1 enforces wall clocks; the
+RES-1B output-only slice enforces `artifact-output.published-bytes` before
+publication. Memory/process/protocol/stderr remain observation-only gaps. -/
 structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
@@ -494,6 +526,15 @@ def validateBuildOptionsCliV1
       -- ProofReferenceJoinV1 (unused pair / missing pair / export join fail closed).
       pure ()
   pure options
+
+/-- RES-1B effective artifact-output published-byte cap. A legal CLI
+    override is lower-only; omission uses the frozen hard output maximum. -/
+def effectivePublishedBytesLimitV1
+    (limits : Array ResourceLimitOverrideV1) : UInt64 :=
+  match limits.find? fun l =>
+      l.stage == "artifact-output" && l.field == "published-bytes" with
+  | some lim => lim.value
+  | none => hardOutputProfile.maxPublishedBytes
 
 /-- First `stage.wall-ms` override value if present (RES-1). -/
 def wallMsOverrideV1

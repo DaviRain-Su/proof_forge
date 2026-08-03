@@ -36,7 +36,7 @@ private def usage : String :=
   "Notes:\n" ++
   "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
   "  --network is not supported (no network registry); it is a usage error.\n" ++
-  "  --resource-limit is a lower-only override (stage.field=n); check rejects external-tool/artifact-output; wall-ms is enforced in-process (RES-1).\n" ++
+  "  --resource-limit is lower-only; check rejects external-tool/artifact-output; wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B).\n" ++
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
   "  --proof-bundle pair joins source `proof … using …` to a digest-pinned ProofBundleV1 (INV-1 engineering; no ambient Lean term).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build.\n" ++
@@ -230,6 +230,12 @@ private def failResourceTime (message : String) : IO α := do
   IO.eprintln message
   IO.Process.exit 6
 
+/-- RES-1B output-only slice: the publisher has already removed staging;
+    classify the stable resource error at the CLI boundary as exit 6. -/
+private def failResourceOutput (message : String) : IO α := do
+  IO.eprintln message
+  IO.Process.exit 6
+
 /-- RES-1: enforce any configured stage.wall-ms overrides against elapsed mono ms. -/
 private def enforceWallBudgetV1
     (options : BuildOptions) (startedMs : Nat) : IO Unit := do
@@ -269,7 +275,17 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
       let requestedOutput := FilePath.mk (options.output.getD "build/v2")
       let outputPath :=
         if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
-      let receipt ← emitProgram capability outputPath
+      let publishedLimit := effectivePublishedBytesLimitV1 options.resourceLimits
+      let receipt ←
+        try
+          emitProgram capability outputPath publishedLimit
+        catch
+        | .userError msg =>
+            if msg.startsWith "PF-RESOURCE-OUTPUT:" then
+              failResourceOutput msg
+            else
+              throw <| IO.userError msg
+        | error => throw error
       enforceWallBudgetV1 options startedMs
       if options.json then
         IO.println (← liftCompileResult

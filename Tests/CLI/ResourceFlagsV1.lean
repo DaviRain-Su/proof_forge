@@ -1,11 +1,12 @@
 /-
   Tests.CLI.ResourceFlagsV1 — D3-E5 SPEC-CLI resource/evidence/proof-bundle flags
-  plus RES-1 pure wall-ms enforce + product CLI PF-RESOURCE-TIME pin.
+  plus RES-1 pure wall-ms enforce/product CLI PF-RESOURCE-TIME and RES-1B
+  artifact-output published-bytes enforcement/PF-RESOURCE-OUTPUT pins.
 
   Drives shipped pure parse + product preflight (`parseProductCliCommandV1` /
-  `parseBuildArgsExcept` / `validateBuildOptionsCliV1` / `parseResourceLimitSpecV1`)
-  and shipped `enforceWallMsLimitV1` / `enforceAllWallMsLimitsV1`.
-  Not formal SPEC-CLI / NFR-008 host receipt.
+  `parseBuildArgsExcept` / `validateBuildOptionsCliV1` / `parseResourceLimitSpecV1`),
+  wall gates, and the pre-publish artifacts+sidecars byte gate.
+  Not formal SPEC-CLI / NFR-008 host receipt or memory containment.
 -/
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Core.Common
@@ -52,9 +53,18 @@ def run : IO Unit := do
   -- Unknown stage/field
   expectErr "bad stage" (parseResourceLimitSpecV1 "nope.wall-ms=1") "unknown resource-limit stage"
   expectErr "bad field" (parseResourceLimitSpecV1 "frontend.nope=1") "unknown resource-limit field"
-  -- published-bytes hard 0 on frontend
+  -- published-bytes hard 0 on frontend; artifact-output accepts lower-only.
   expectErr "published zero hard"
     (parseResourceLimitSpecV1 "frontend.published-bytes=1") "hard maximum is 0"
+  let publishedLimit ← expectOk "parse output published"
+    (parseResourceLimitSpecV1 "artifact-output.published-bytes=123")
+  expect (publishedLimit.value == 123) "published override value"
+  expect
+    (effectivePublishedBytesLimitV1 #[publishedLimit] == 123)
+    "published override must become the effective limit"
+  expect
+    (effectivePublishedBytesLimitV1 #[] == hardOutputProfile.maxPublishedBytes)
+    "omitted published override must use the hard output maximum"
 
   -- Build args: accept resource-limit + minimum-evidence
   let buildOpts ← expectOk "build parse"
@@ -158,6 +168,16 @@ def run : IO Unit := do
   | .error msg =>
       expect (hasSubstr msg "compiler-core") s!"stage in message: {msg}"
 
+  -- RES-1B pure published total: artifact bytes plus exact UTF-8 sidecars.
+  -- `é` is two UTF-8 bytes, so 100 + 20 + 2 + 1 = 123.
+  let publishedTotal := engineeringPublishedBytesV1 #[100, 20] "é" "x"
+  expect (publishedTotal == 123) s!"published total must include UTF-8 sidecars: {publishedTotal}"
+  match enforcePublishedBytesLimitV1 123 publishedTotal with
+  | .error e => throw <| IO.userError s!"published exact limit must pass: {e}"
+  | .ok () => pure ()
+  expectErr "published over" (enforcePublishedBytesLimitV1 122 publishedTotal)
+    "PF-RESOURCE-OUTPUT"
+
   -- RES-1 product CLI: Counter check with frontend.wall-ms=1 must fail closed.
   let cliBin := FilePath.mk ".lake/build/bin/proof-forge-next"
   if ← cliBin.pathExists then
@@ -173,8 +193,34 @@ def run : IO Unit := do
     let combined := out.stdout ++ "\n" ++ out.stderr
     expect (hasSubstr combined "PF-RESOURCE-TIME")
       s!"RES-1: product must emit PF-RESOURCE-TIME, got:\n{combined}"
+
+    -- RES-1B product build: a lower-only published cap must fire before
+    -- atomic rename, classify as exit 6, and leave no destination/staging.
+    let publishedOut := FilePath.mk "build/v2/res1b-published-limit"
+    if ← publishedOut.pathExists then IO.FS.removeDirAll publishedOut
+    let published ← IO.Process.output {
+      cmd := absoluteCli.toString
+      args := #["build", "Examples/Counter.lean",
+        "--module", "Examples.Counter", "--target", "solana",
+        "--output", publishedOut.toString,
+        "--resource-limit", "artifact-output.published-bytes=1"]
+    }
+    expect (published.exitCode == 6)
+      s!"RES-1B: published-bytes=1 build must exit 6, got {published.exitCode}"
+    let publishedCombined := published.stdout ++ "\n" ++ published.stderr
+    expect (hasSubstr publishedCombined "PF-RESOURCE-OUTPUT")
+      s!"RES-1B: product must emit PF-RESOURCE-OUTPUT, got:\n{publishedCombined}"
+    expect (!hasSubstr publishedCombined "PF-OUTPUT-LIMIT")
+      s!"RES-1B: lower-only override must not use PF-OUTPUT-LIMIT, got:\n{publishedCombined}"
+    expect (!(← publishedOut.pathExists))
+      "RES-1B: output limit must not publish a destination"
+    let parentEntries ← (FilePath.mk "build/v2").readDir
+    let stagingLeft := parentEntries.filter fun e =>
+      e.fileName.startsWith ".res1b-published-limit.staging-"
+    expect stagingLeft.isEmpty
+      "RES-1B: output limit must clean the sibling staging directory"
   else
-    IO.println "Tests.CLI.ResourceFlagsV1: skip product wall CLI (binary absent)"
+    IO.println "Tests.CLI.ResourceFlagsV1: skip product resource CLI (binary absent)"
 
   IO.println "Tests.CLI.ResourceFlagsV1: ok"
 
