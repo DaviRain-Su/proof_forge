@@ -9,8 +9,10 @@
       leo build --offline --disable-update-check
 
   The suite prefers the materialized Tool Lock root, then known host
-  candidates/PATH. If no `leo` is available it SKIP-passes with a clear log;
-  once resolved, any non-zero compiler exit fails closed.
+  candidates/PATH. Each compiler invocation uses a suite-owned HOME with an
+  explicit empty `.aleo` directory, so ambient user configuration cannot make
+  a clean runner pass or fail. If no `leo` is available it SKIP-passes with a
+  clear log; once resolved, any non-zero compiler exit fails closed.
 
   Not formal Stage-0 / hermetic Tool Lock verification / snarkVM prove-deploy.
   Maturity remains source-package + engineering compilation acceptance — not
@@ -91,8 +93,8 @@ private def programStem (aleoPath : String) : String :=
   if aleoPath.endsWith ".aleo" then (aleoPath.dropEnd 5).copy else aleoPath
 
 /-- Write a Leo 4 package around product-emitted source and run `leo build`. -/
-private def runLeoBuild (leo : String) (pkgRoot : FilePath) (programId : String)
-    (leoSource : String) (label : String) : IO Unit := do
+private def runLeoBuild (leo : String) (leoHome pkgRoot : FilePath)
+    (programId : String) (leoSource : String) (label : String) : IO Unit := do
   IO.FS.createDirAll (pkgRoot / "src")
   -- program.json must match the `program {id}.aleo` declaration.
   let programJson :=
@@ -116,6 +118,8 @@ private def runLeoBuild (leo : String) (pkgRoot : FilePath) (programId : String)
     cmd := leo
     args := #["build", "--offline", "--disable-update-check"]
     cwd := some pkgRoot
+    env := #[("HOME", leoHome.toString)]
+    inheritEnv := true
   }
   unless process.exitCode == 0 do
     throw <| IO.userError
@@ -128,7 +132,7 @@ private def runLeoBuild (leo : String) (pkgRoot : FilePath) (programId : String)
   IO.println s!"  leo build ok: {label} ({programId}.aleo)"
 
 private unsafe def acceptProgram
-    (leo : String) (tmp : FilePath)
+    (leo : String) (leoHome tmp : FilePath)
     (label : String) (sourceText : String) (moduleName : String)
     (aleoFileName : String) : IO Unit := do
   let (source, path) ← materializeAleo label sourceText moduleName aleoFileName
@@ -136,7 +140,7 @@ private unsafe def acceptProgram
   let pkg := tmp / programId
   if ← pkg.pathExists then IO.FS.removeDirAll pkg
   IO.FS.createDirAll pkg
-  runLeoBuild leo pkg programId source label
+  runLeoBuild leo leoHome pkg programId source label
 
 /-- Named Struct flatten-to-mapping leaves (H3 Aleo aggregate surface).
     Program id must not contain the substring "aleo" (Leo ENV03711001). -/
@@ -303,22 +307,25 @@ unsafe def run : IO Unit := do
       let tmp := FilePath.mk "build/v2/aleo-acceptance"
       if ← tmp.pathExists then IO.FS.removeDirAll tmp
       IO.FS.createDirAll tmp
+      let leoHomePath := tmp / "home"
+      IO.FS.createDirAll (leoHomePath / ".aleo")
+      let leoHome ← IO.FS.realPath leoHomePath
       try
-        acceptProgram leo tmp "Counter"
+        acceptProgram leo leoHome tmp "Counter"
           Examples.counterSourceText Examples.counterModuleNameV1 "counter.aleo"
-        acceptProgram leo tmp "DualField"
+        acceptProgram leo leoHome tmp "DualField"
           dualFieldSourceText "Tests.AleoAccept.DualField" "dualfield.aleo"
-        acceptProgram leo tmp "Token"
+        acceptProgram leo leoHome tmp "Token"
           tokenMapSourceText "Tests.AleoAccept.Token" "token.aleo"
-        acceptProgram leo tmp "PointBox"
+        acceptProgram leo leoHome tmp "PointBox"
           pointBoxSourceText "Tests.AleoAccept.PointBox" "pointbox.aleo"
-        acceptProgram leo tmp "ArrBox"
+        acceptProgram leo leoHome tmp "ArrBox"
           arrayStateSourceText "Tests.AleoAccept.ArrBox" "arrbox.aleo"
-        acceptProgram leo tmp "IntBox"
+        acceptProgram leo leoHome tmp "IntBox"
           int64SourceText "Tests.AleoAccept.IntBox" "intbox.aleo"
-        acceptProgram leo tmp "LoopSum"
+        acceptProgram leo leoHome tmp "LoopSum"
           loopSumSourceText "Tests.AleoAccept.LoopSum" "loopsum.aleo"
-        acceptProgram leo tmp "BytesBox"
+        acceptProgram leo leoHome tmp "BytesBox"
           bytesBoxSourceText "Tests.AleoAccept.BytesBox" "bytesbox.aleo"
         IO.println "Tests.Materialization.AleoAcceptance: ok"
       finally
