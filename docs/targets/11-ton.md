@@ -37,13 +37,14 @@ differential 已接线**（TON-3：`runtime-tests/ton` `@ton/sandbox@0.44.0` loc
 exit 100 + state 不变（bounceable 与 non-bounceable）、emit external out 解码、Cap
 revert exit 200、compute/action/bounce 五相位分离；非主网/formal/runtime 完成）。
 callback/promise_then 走编排层（用户第二 entry），不升 Reference schema。
-Static dossier ceiling：`research`
+Static dossier ceiling：`research`（formal 静态上限不变；工程 MVP ≠ formal maturity 升格）。
 
-> **研究期边界（ADR-0017）**：本 dossier 只有资料与 family 归类。没有 decision-complete
-> descriptor、没有 `TargetDescriptor`/capability/extension、没有 Plan/IR 实现、没有制品或
-> 运行证据。不得写成 specified/prototype 或更高 maturity，不得驱动 `TASK-*`。
-> `TargetId` 枚举与 `Registry.lean` 本期不变；编译器对 `ton` 继续不可寻址、fail closed。
-> 来源以官方文档 URL 引用；本期**不**登记 `SRC-*`/`CLM-*`（见 ADR-0017 §6）。
+> **Historical / superseded research boundary（ADR-0017 研究期原文）**：下列句子描述的是
+> 实现前的研究边界，**已被 2026-08-03 TON-1/2/3 工程 MVP 取代**，仅保留作历史对照——
+> 「本 dossier 只有资料与 family 归类；没有 `TargetDescriptor`/capability；没有 Plan/IR；
+> 编译器对 `ton` 不可寻址」。**当前事实以本节 §0 正文为准**：`ton` 已登记、可寻址、
+> 有 Plan/IR/Tolk/BoC/sandbox；registry maturity 仍为 `source-only`，不得写成 formal/
+> hermetic/主网完成。
 
 ## 1. 身份与来源
 
@@ -123,7 +124,7 @@ FunC/Tact 作为产品默认。
 
 ## 3. Portable fragment 与扩展
 
-### Portable 候选（研究期，非 capability 声明）
+### Portable 候选与当前工程映射
 
 | Portable / Semantic 面 | TON 诚实映射（候选） |
 |---|---|
@@ -145,75 +146,76 @@ FunC/Tact 作为产品默认。
 - **非确定性 `RAND` 等**：不得进入可重放 Semantic 子集。
 - FunC/Tact 默认路径、手写 TVM 汇编作为产品 emitter：研究期明确不采用。
 
-### 扩展（未来 CodegenProfile / extension，本期不注册）
+### 扩展（后续 CodegenProfile / extension）
 
 消息 op 表、send mode 位图、bounce 格式选择、storage cell schema 版本、get-method 表、
 jetton/NFT 等生态消息惯例、GlobalVersion-gated 指令、Acton/Blueprint 脚手架约定。每种
-schema 必须 exact 版本化；NetworkProfile 只声明兼容，不定义 schema。
+schema 必须 exact 版本化；NetworkProfile 只声明兼容，不定义 schema。MVP 未打开 schedule
+destination/send-mode Plan 发射。
 
-## 4. `TonPlan` schema（研究期草稿）
+## 4. `TonPlan` schema（工程 MVP 已接线）
 
 ```text
 TonPlan {
-  profile,                 -- CodegenProfileId（未来 pin：tolk 版本 / GlobalVersion 假设）
-  receivers,               -- op → handler：internal/external 分发表
-  storageLayout,           -- c4 cell / dict key 布局与初始化策略
-  getMethods,              -- 链下只读方法表（名、参数、结果形状）
-  outActions,              -- SENDRAWMSG 等：destination、value、body、sendMode
-  errorCodes,              -- 稳定 exit / 业务错误码表
+  profile,                 -- CodegenProfileId ton-tolk-boc-v1（tolk 1.4.2 工程 pin）
+  receivers,               -- op → handler：internal message 分发（32-bit op + query_id）
+  storageLayout,           -- c4 扁平 struct cell（MVP 无 dict）
+  getMethods,              -- 链下只读方法表
+  outActions,              -- emit → external out；schedule destination/send-mode **Plan 仍 FC**
+  errorCodes,              -- 稳定 exit / 业务错误码表（100–105/200+）
   events,                  -- external out 日志形状
-  bouncePolicy,            -- 旧/新 bounce 前缀与处理责任
-  resourceAssumptions      -- gas + cell + max actions(255) 上界
+  bouncePolicy,            -- sandbox 已分阶段观察；产品 Plan 完整 bounce 策略仍后续
+  resourceAssumptions      -- gas + cell + max actions(255) 上界（部分工程钉测）
 }
 ```
 
-约束（研究期即写死，避免实现时偷换）：
+约束：
 
 - `TonPlan` **不得**复用 `EvmPlan` / `SolanaPlan` / `NearPlan` / 任何 Wasm host Plan。
 - 不得把异步消息编码成“伪同步 call + 忽略返回值”。
 - renderer 不得回读 `SemanticProgram` 重推业务逻辑；Plan 必须自包含 receiver、layout、
   out-action 与错误表。
-- 本期 **不** 在 Lean 中声明该类型；本节仅为未来独立实现 ADR 的输入草稿。
+- Lean `Targets/Ton/**` 已声明 Plan/IR/emitter；**resolver 开 async ≠ Plan schedule 已 lower**。
 
 ## 5. Target IR 与制品
 
-推荐路径（研究结论）：
+工程路径（已实现）：
 
 ```text
-TonPlan → Tolk 源码发射 → .tolk → (tolk) → .fif + BoC + abi.json (+ manifest/evidence)
+TonPlan → Tolk 源码发射 → .tolk → (tolk 1.4.2) → .fif + abi.json + symbolTypes.json
+  → companion fift（env 侧，非 tool-root）→ real BoC
+  → @ton/sandbox@0.44.0 engineering differential
 ```
 
-- **Tolk 源码发射**为推荐产品路径；不把手写 TVM 汇编或 FunC 作为默认 IR。
-- 预期制品：`*.tolk`（审计）、编译产物（`.fif` / BoC）、`abi.json`（op / get-method）、
-  storage layout 说明、capability/manifest 侧车。
-- 当前 **不创建** emitter、不产出任何二进制、不注册 Tool Lock 条目。
+- **Tolk 源码发射**为产品路径；不把手写 TVM 汇编或 FunC 作为默认 IR。
+- 制品：`*.tolk`、`.fif`/BoC、`abi.json`、manifest/evidence；Counter e2e
+  `deployable=true` + inspect exact closure。
+- sandbox 差分是工程门，**不是** 主网/formal/hermetic 完成。
 
 ## 6. 工具链
 
-实现前必须冻结（研究期清单，非现网 pin）：
-
-| 工具 | 研究快照 / 方向 |
+| 工具 | 工程状态（2026-08-03） |
 |---|---|
-| `tolk` binary | `tolk-1.4.2`（2026-06-21）；平台 binary + sha256；与节点 monorepo release 对齐策略待定 |
-| 节点 / smartcont 库 | `ton-blockchain/ton` `v2026.06`（2026-07-15）及同捆 stdlib / smartcont |
-| 本地仿真 | `@ton/sandbox@0.44.0`（底层 `@ton/emulator`）；Blueprint 0.45.0 为存量支持，非强制产品默认 |
-| 脚手架 | Acton（官方新项目推荐）；是否进入 CodegenProfile 由后续 ADR 决定 |
+| `tolk` binary | locked **1.4.2**（Tool Lock / Finalize 路径） |
+| companion `fift` + libs | env：`PROOF_FORGE_TON_TOOLS` / `PROOF_FORGE_TOLK_STDLIB` / `PROOF_FORGE_FIFT` / `PROOF_FORGE_FIFTLIB`——**不得**放进 tool-root |
+| 本地仿真 | `@ton/sandbox@0.44.0` lockfile pin（`runtime-tests/ton` + `scripts/ton_runtime_test.sh`） |
+| 脚手架 | Acton 仍为可选生态；未进入 CodegenProfile 强制默认 |
 
-纪律：content-addressed pin + lockfile（对齐 ADR-0013/0015）；missing/version/hash
-mismatch fail closed。研究期 **不** 写入 Tool Lock 或 SBOM。
+纪律：missing/version mismatch fail closed。sandbox/compile 成功 **不得** 写成 formal
+Reference 差分或 Stage-0 证据。
 
 ## 7. 部署流程
 
-研究期验收构想（实现后才有证据；本期无运行）：
+工程验收（已有部分）与后续：
 
-1. Tolk 编译产物结构门（BoC / ABI 形状）。
-2. `@ton/sandbox` 五阶段断言：storage/credit/compute/action/bounce 分阶段可观察。
-3. Counter 类最小合约：init data cell、内部消息 inc、get-method 读回。
-4. 消息序列 + callback/`query_id` 往返（证明无同步 call）。
-5. bounce / action-fail / exit-code 负例。
-6. 可选 testnet 部署（network gate；非 Phase 1）。
+1. Tolk 编译产物结构门（BoC / ABI 形状）— **已接线**。
+2. `@ton/sandbox` 五阶段断言（Counter/EventFlowTon 7/7 工程差分）— **已接线**；**非** formal。
+3. Counter：init data cell、内部消息 inc、get-method 读回 — **已接线**。
+4. 消息序列 + callback/`query_id` 往返 — **未** 作为完整产品 schedule Plan。
+5. bounce / action-fail / exit-code 负例 — sandbox 子集已观察。
+6. 可选 testnet 部署 — 未做（network gate；非 Phase 1 工程声明）。
 
-禁止把“Tolk 编译成功”写成部署或运行完成。
+禁止把“Tolk 编译成功”或“sandbox 通过”写成部署、主网或 formal 完成。
 
 ## 8. 安全
 
@@ -232,37 +234,39 @@ mismatch fail closed。研究期 **不** 写入 Tool Lock 或 SBOM。
 ## 9. 验证阶梯
 
 ```text
-Tolk compile (结构/ABI)
-  → sandbox Counter (c4 + 单消息 + get-method)
-  → 消息序列 / callback + query_id
-  → bounce / exit-code / action 上限负例
-  → 可选 testnet evidence
+Tolk compile (结构/ABI)                    ✅ 工程
+  → sandbox Counter (c4 + 单消息 + get-method)  ✅ 工程（TON-3）
+  → 消息序列 / callback + query_id             ⏳ Plan schedule 仍 FC
+  → bounce / exit-code / action 上限负例      ⚠️ sandbox 子集
+  → 可选 testnet evidence                     ❌
 ```
 
-每一级独立 fail closed；上级通过不蕴含下级。研究期只定义阶梯，不声称任何一级已执行。
+每一级独立 fail closed；上级通过不蕴含下级。sandbox/compile **不是** formal Reference
+差分或 hermetic Stage-0。
 
 ## 10. 不支持、风险与成熟度退出
 
-### 当前明确不支持
+### 当前明确不支持 / fail closed
 
-- 任何代码生成、Plan/IR、registry 构造子、CLI `--target ton`。
-- 同步跨合约 `call`、IBC 式跨链 Plan 复用、Field/Principal 同构、非确定性 RAND。
-- FunC/Tact 作为默认发射、手写 TVM 汇编产品路径。
-- formal Reference 差分、Tool Lock、deploy/runtime 证据。
+- 同步跨合约 `call`（resolver + Plan 双 FC）。
+- **Plan-level `schedule` 发射**（resolver 开 async，destination/send-mode 未接线 → Plan FC）。
+- multi-width UInt8..256、named Struct/Enum、Array/Map/Bytes/Option、Field/Principal/String、
+  ContextRead/Commit、nonempty invariants/constants、masterchain/library/extra currencies。
+- FunC/Tact 默认发射、手写 TVM 汇编产品路径。
+- formal Reference 差分、主网 deploy 证据。
 
 ### 风险
 
 - GlobalVersion / codepage 演进导致指令面漂移。
-- 异步-only 与 ProofForge portable `call` 矩阵冲突（必须保持 fail closed，参见工程
-  backlog 对跨平台 call 过度声明的纪律）。
+- resolver async open 与 Plan schedule FC 的 **capability mismatch** 必须诚实写清，禁止
+  写成“跨合约 async 已完成”。
 - Cell/dict 布局一旦在生态中“约定俗成”却未写入 Plan，会造成 layout confusion。
 - Sandbox 与主网 GlobalVersion 不一致导致假绿。
 
-### 成熟度退出（离开 `research` 之前）
+### 成熟度边界
 
-1. 独立实现 ADR：冻结 `TargetDescriptor`、capability/extension、`TonPlan`/`Ton IR` schema。
-2. 将 `ton` 构造子加入 `TargetId` 与 `Registry.lean` 的 researched/descriptor/materialize 轴。
-3. 按 ADR-0013 补齐 `SRC-*`/`CLM-*` 与工具 digest pin。
-4. 按 `GOV-TASK-FREEZE-001` 立项后才能 in_progress；不得从本 dossier 直接跳到实现。
-
-在上述完成前，static ceiling 保持 **`research`**；本文件不得作为 specified 输入。
+- 工程 MVP **已** 使 `ton` 可寻址并产出 BoC + sandbox 差分；registry maturity 标签仍为
+  **`source-only`**（不在本切片改 wire label）。
+- Static dossier ceiling 保持 **`research`**；工程 sandbox/compile **不得** 升 formal
+  `specified`/`prototype` 或冒充 Stage-0。
+- formal maturity 升格仍要求独立 evaluator / gate catalog 路径（不在本用户侧文档切片）。

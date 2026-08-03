@@ -24,10 +24,12 @@ normative: true
 ## 当前恢复执行指针
 
 当前产品开发由根级 [`RECOVERY.md`](../RECOVERY.md) / [`AGENTS.md`](../AGENTS.md) 驱动：
-ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → 六个现有 materializer
-（EVM/Solana/NEAR/Noir/Aleo/Psy）capability Plan/IR 的**工程纵切面**；engineering registry
-另含 CosmWasm A0 selection/descriptor/resolver，但 `CW-A1` 前没有其 Plan/IR/materializer
-（Counter/Accumulator 为验收向量，非唯一可编译程序）。日常缺口队列见
+ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → **八个 materializer**
+（EVM/Solana/NEAR/Noir/Aleo/Psy/CosmWasm/TON）capability Plan/IR 的**工程纵切面**。
+工程 registry **11 = 8 implemented + 3 design-only**（Soroban/ICP/OpenVM）。CosmWasm
+工程面为 WAT + locked `wat2wasm` + `cosmwasm-check` + cosmwasm-vm mock（sync call FC、
+async SubMsg 同 tx）；TON 工程面为 Tolk + real BoC + `@ton/sandbox`（resolver 开 async、
+Plan schedule 仍 FC）。以上均为工程观察，**非** formal/hermetic。日常缺口队列见
 [`engineering-backlog.md`](engineering-backlog.md)。下表中的 task/evidence 文档继续保存
 历史 release-qualification 权威，但不再作为 development completion 的前置条件。
 

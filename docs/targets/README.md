@@ -24,14 +24,20 @@ normative: true
 | `evm` | contract VM | Phase 1 implement | `specified` | retained-V1 Plan + Yul/locked-solc bytecode + EvmSolc + G4 Anvil 工程差分；**非** formal maturity / Reference↔Anvil 闭包 | [EVM](01-evm.md) |
 | `solana` | explicit-account SVM | Phase 1 implement | `specified` | retained-V1 Plan + SBPF asm → ELF `.so` + Mollusk runtime 差分；**非** formal Stage-0/hermetic | [Solana](02-solana.md) |
 | `near` | Wasm host | Phase 1 implement | `specified` | retained-V1 Plan + locked `wat2wasm` 结构编译 / host-optional runtime load + locked near-sandbox 2.13.0 deploy/init/mutate/view receipt 工程门与 deterministic HostModel；**非** formal Reference↔sandbox / Stage-0 | [NEAR](03-near.md) |
-| `cosmwasm` | Wasm host | engineering registry A0（accepted scope 仍 design） | `research` | registry/profile/descriptor/resolver + CLI label `wasm-validated-alpha` 已接；**无** Plan/IR/materializer/Wasm artifact，build FC；CW-A1 由 `CW-ABI-FREEZE` 阻塞 | [CosmWasm](04-cosmwasm.md) |
+| `cosmwasm` | Wasm host | Phase 1 implement（工程 MVP） | `research` | retained-V1 Plan/IR → WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 差分；registry label `wasm-validated-alpha`；**sync call FC**、async→`SubMsg{reply_on:never}`（同 tx savepoint，子消息失败打爆整笔 tx，非跨 tx async）；**非** wasmd/链上/formal | [CosmWasm](04-cosmwasm.md) |
 | `soroban` | Wasm host | design only | `research` | design-only；无产品 backend | [Soroban](05-soroban.md) |
 | `icp` | Wasm actor host | design only | `research` | design-only；无产品 backend | [ICP](06-icp.md) |
 | `noir` | circuit compiler | Phase 1 implement | `specified` | retained-V1 Plan + relation source packages + locked nargo 1.0.0-beta.26 compile-only 门；**无** ACIR/witness/prove/verify，仍 source-only | [Noir](07-noir.md) |
 | `openvm` | zkVM | design only | `research` | design-only；无产品 backend | [OpenVM](08-openvm.md) |
 | `aleo` | ZK application chain | Phase 1 implement（工程 source leaf） | `specified` | 工程 source-only leaf；locked leo 4.0.2 compile-only 验收；无 VM/prove/deploy | [Aleo](09-aleo.md) |
 | `psy` | ZK application chain | Phase 1 implement（工程 source leaf） | `specified` | 工程 source-only leaf；host tool 可用时 optional compile，但无 Tool Lock/VM/proof | [Psy](10-psy.md) |
-| `ton` | TVM Stack-Account | research only | `research` | ADR-0017 研究期：dossier + family 归类 only；**无** TargetDescriptor/capability/制品；`TargetId` 枚举未登记，编译器不可寻址 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
+| `ton` | TVM Stack-Account | Phase 1 implement（工程 MVP） | `research` | retained-V1 Plan/IR → Tolk + real BoC + `@ton/sandbox` 工程差分；registry label `source-only`；resolver 开 `effect.asynchronous-workflow`/event、**Plan schedule 仍 FC**（destination/send-mode 未接线）；sync call 显式 FC；**非** 主网/formal | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
+
+> **Registry 计数（工程事实，2026-08-03）**：**11 = 8 implemented + 3 design-only**。
+> 八个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` / `psy` / `cosmwasm` /
+> `ton`。三个 design-only：`soroban` / `icp` / `openvm`。registry maturity 标签
+> （如 CosmWasm `wasm-validated-alpha`、TON `source-only`）不变；compile / mock / sandbox
+> 不得写成 formal 或 hermetic 完成。
 
 ## Family 视图
 

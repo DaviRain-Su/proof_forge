@@ -24,14 +24,13 @@ normative: false
 数据来源：产品测试（EvmSmoke/Mollusk/NoirRelationModel 等）+ LowerSemanticV1 代码扫描。
 **初版可能不精确**——每个 wave worker 须核对并修正自己 target 行的真实边界。
 
-> **CosmWasm A0 边界（2026-08-03）**：engineering registry/descriptor/resolver/CLI 已把
-> `cosmwasm` 标为 implemented，但尚无 `Targets/CosmWasm*` Plan/IR/emitter/finalizer，且
-> `Registry.materializeResult` 无 `.cosmwasm` dispatch。因此下列 op×target 与验收表只列六个
-> **现有 materializer**；CosmWasm 的全部 materialization/acceptance 格子均为 **GAP（CW-A1）**，
-> 不能按 CLI 的 `wasm-validated-alpha` label 记为 LOWERED 或已验证，也不能写成 target Plan
-> FAIL-CLOSED（目前是在 registry dispatch 前以 `PF-TARGET-NOT-IMPLEMENTED` 拒绝）。
+> **Registry 计数（2026-08-03，`integrate/ton-2` 后）**：工程 registry **11 = 8
+> implemented + 3 design-only**。八个 materializer 均有 `materializeResult` dispatch：
+> EVM / Solana / NEAR / Noir / Aleo / Psy / **CosmWasm** / **TON**。下列 §1 主表保留
+> 原六 target 细格；**CosmWasm 与 TON 的真实 MVP 范围见 §1b**（勿再写成 A0-only 或
+> research-unaddressable）。compile / mock / sandbox **不是** formal 或 hermetic。
 
-## 1. 语义 op 覆盖矩阵（wire Op × target）
+## 1. 语义 op 覆盖矩阵（wire Op × target；原六 materializer 细格）
 
 | wire Op / feature | EVM | Solana | NEAR | Noir | Psy | Aleo |
 |---|---|---|---|---|---|---|
@@ -72,14 +71,47 @@ normative: false
 | **UInt128 state/param/body** | LOWERED(T9b 原生 word) | LOWERED(T9e 2×u64 multiword；**mul 真 schoolbook B-SOL-MUL**；div/mod low64 FC) | LOWERED(T9e 2×i64 multiword；**mul 真 schoolbook NEAR lane**；div/mod/shift FC) | LOWERED(T11 原生 u128 / multi-limb analogue；mul/div/mod FC；UInt256 FC) | FAIL-CLOSED | FAIL-CLOSED |
 | **UInt256 state/param/body** | LOWERED(T9b) | LOWERED(T9e 4×u64；**mul 真 schoolbook B-SOL-MUL**；div/mod low64 FC) | LOWERED(T9e 4×i64；**mul 真 schoolbook NEAR lane**；div/mod/shift FC) | LOWERED(T13；add/sub/cmp/bit；mul/div/mod FC) | FAIL-CLOSED | FAIL-CLOSED |
 
+## 1b. CosmWasm / TON 工程 MVP 真实范围（第八 materializer 对）
+
+> 两列均已有 target-owned Plan/IR/emitter/finalizer + 产品 `build` 路径。下列为 **MVP
+> 精确边界**，不是 formal SupportClaim，也不是完整语言面。
+
+### CosmWasm（`cosmwasm-wasm-u64-v1`，label `wasm-validated-alpha`）
+
+| 面 | 状态 | 说明 |
+|---|---|---|
+| 标量 public UInt64 state / init / entry / view | **LOWERED** | KV → `env.db_*`；instantiate/execute/query |
+| checked + − × / % · unary · shift/bitwise/logical · eq/order | **LOWERED** | MVP UInt64 算术与控制 |
+| if / match / bounded for / pureFn | **LOWERED** | 多块 CFG；match 多臂同构造器随 Normalize |
+| emit / revert / bare assert | **LOWERED** | attributes / `ContractResult::Err` |
+| schedule（async） | **LOWERED（语义 PARTIAL）** | → `SubMsg{reply_on:never,id:0,WasmMsg::Execute}`；**同 tx savepoint**；子消息失败打爆整笔 tx；`contract_addr` 为静态 QN stub；**非**跨 tx async |
+| externalCall（sync） | **FAIL-CLOSED** | resolver + Plan 双拒；不得 alias 为 sync CALL |
+| named Struct/Enum · Array/Map/Bytes/Option/String · Field/Principal | **FAIL-CLOSED** | MVP 不开放 |
+| ContextRead / Commit · nonempty invariants · multi-width ABI · named 聚合返回 | **FAIL-CLOSED** | |
+| 制品 / 验收 | WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 14 tests | **非** wasmd / 链上 / formal |
+
+### TON（`ton-tolk-boc-v1`，label `source-only`）
+
+| 面 | 状态 | 说明 |
+|---|---|---|
+| 标量 public UInt64 c4 扁平 cell state / init / mutate / view | **LOWERED** | op 分发 32-bit op + 64-bit query_id；get methods |
+| checked 算术 · unary · shift/bitwise/logical · eq/order | **LOWERED** | TVM int257 上显式 UInt64 范围检查 |
+| if / match / bounded for / pureFn | **LOWERED** | |
+| emit / revert / bare assert | **LOWERED** | external out / throw |
+| externalCall（sync） | **FAIL-CLOSED** | 纯异步 actor；resolver 拒 sync |
+| schedule（async） | **resolver OPEN · Plan FAIL-CLOSED** | capability 开 `effect.asynchronous-workflow`，但 destination/send-mode Plan 发射仍 FC——**必须写清 mismatch** |
+| named Struct/Enum · Array/Map/Bytes/Option/String · Field/Principal | **FAIL-CLOSED** | MVP 无 dict 大面 |
+| ContextRead / Commit · nonempty invariants/constants · multi-width | **FAIL-CLOSED** | |
+| 制品 / 验收 | Tolk 1.4.2 → `.fif` + real BoC + `@ton/sandbox` 7/7 工程差分 | **非** 主网 / formal / hermetic |
+
 ## 2. 验收/差分覆盖矩阵
 
-| 验收门 | EVM | Solana | NEAR | Noir | Psy | Aleo |
-|---|---|---|---|---|---|---|
-| Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A |
-| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: locked wat2wasm + host-optional wasm-interp/wasmtime/wasmer load) | ✅(NoirCompileAcceptance: nargo 1.0.0-beta.26 compile-only；G123；缺席 skip；**非** prove/verify) | ❌(source-only) | ✅(AleoAcceptance: leo 4.0.2 Tool Lock pin（G123）；缺席 skip；非 prove/deploy) |
-| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow overflow state-hold + emit 日志；**非** formal C-3) | ✅(S3b Mollusk 工程差分；**非** formal Stage-0 / Reference↔target closure) | ⚠️(WABT dummy env + 可选 near-sandbox 2.13.0 receipt 工程门（G123：deploy/init/mutate/view）；非 Reference↔Wasm formal) | ❌ | ❌ | ❌ |
+| 验收门 | EVM | Solana | NEAR | Noir | Psy | Aleo | CosmWasm | TON |
+|---|---|---|---|---|---|---|---|---|
+| Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A | N/A | N/A |
+| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: locked wat2wasm + host-optional wasm-interp/wasmtime/wasmer load) | ✅(NoirCompileAcceptance: nargo 1.0.0-beta.26 compile-only；G123；缺席 skip；**非** prove/verify) | ❌(source-only) | ✅(AleoAcceptance: leo 4.0.2 Tool Lock pin（G123）；缺席 skip；非 prove/deploy) | ✅(locked wat2wasm + cosmwasm-check 3.0.9；**非** wasmd) | ✅(tolk 1.4.2 → real BoC；**非** 主网) |
+| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow overflow state-hold + emit 日志；**非** formal C-3) | ✅(S3b Mollusk 工程差分；**非** formal Stage-0 / Reference↔target closure) | ⚠️(WABT dummy env + 可选 near-sandbox 2.13.0 receipt 工程门（G123：deploy/init/mutate/view）；非 Reference↔Wasm formal) | ❌ | ❌ | ❌ | ⚠️(cosmwasm-vm mock 14 tests；**非** wasmd/formal) | ⚠️(@ton/sandbox 7/7 工程；**非** formal/主网) |
 
 ## 3. 工程轨道未实现 feature 全清单（A/B/C/D 组）
 
@@ -137,8 +169,8 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **D-1** | registry target 表 | **已随 A0 重开并闭合事实同步**：engineering seed = 7 registry-implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`cosmwasm`）+ 3 design-only（`soroban`/`icp`/`openvm`）；其中 CosmWasm 仅 A0、无 materializer，accepted Phase-1 四-target 范围的 reconciliation 仍由 `DOC-ADR-SCOPE` 阻塞 | MatrixSync + CosmWasm A0 |
-| **D-2** | 成熟度声明 | **已闭合并随 G123/A0 刷新**：EVM 有 locked solc + G4 工程 Anvil 差分；NEAR 有 locked `wat2wasm` 结构编译、host-optional runtime load + locked near-sandbox receipt 工程门；Solana 有 SBPF+Mollusk；Noir 有 locked nargo compile-only、Aleo 有 locked leo compile-only，但 Noir/Aleo/Psy 仍是 source-only，且 Psy 无锁定 compiler/VM，三者均无 proof/deploy 闭环。CosmWasm 的 `wasm-validated-alpha` 仅为 registry label，CW-A1 前无 artifact/runtime gate。以上均非 formal/hermetic/Stage-0 maturity | MatrixSync + G123 + CosmWasm A0 |
+| **D-1** | registry target 表 | **已随 integrate/ton-2 刷新（本切片）**：engineering seed = **8** registry-implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`cosmwasm`/`ton`）+ **3** design-only（`soroban`/`icp`/`openvm`）= **11**；八 materializer 均有 Plan/IR/dispatch。accepted Phase-1 四-target 范围的 reconciliation 仍由 `DOC-ADR-SCOPE` 阻塞（不在本切片改 ADR） | MatrixSync + CW/TON MVP docs |
+| **D-2** | 成熟度声明 | **已闭合并随 G123 + CW/TON MVP 刷新**：EVM locked solc + G4 Anvil 工程差分；NEAR locked `wat2wasm` + near-sandbox receipt；Solana SBPF+Mollusk；Noir locked nargo compile-only、Aleo locked leo compile-only、Psy host-optional；**CosmWasm** WAT+wat2wasm+check+mock（label 仍 `wasm-validated-alpha`）；**TON** Tolk/BoC+sandbox（label 仍 `source-only`；resolver async vs Plan schedule FC mismatch 须诚实）。以上均**非** formal/hermetic/Stage-0 maturity | MatrixSync + G123 + CW/TON MVP |
 
 ## 4. Wave 队列（按优先级 + 可并行性）
 

@@ -139,9 +139,11 @@ layout: center
 | Noir | relation `.nr` packages + locked nargo compile-only | ACIR / witness / proof / VK / verify |
 | Aleo | Leo source + locked leo compile-only | VM / proof / deploy |
 | Psy | Dargo/Psy source + host-optional compile | Locked VM / prover |
+| CosmWasm | WAT + locked `wat2wasm` + `cosmwasm-check` + mock VM | wasmd / on-chain / formal; sync call stays FC |
+| TON | Tolk → real BoC + `@ton/sandbox` engineering differential | Mainnet / formal; Plan schedule still FC |
 
 <div class="mt-6 text-center text-sm opacity-80">
-Honest maturity: all artifacts share one semantic hash.
+Engineering registry 11 = 8 materializers + 3 design-only. Compile/mock/sandbox ≠ formal/hermetic.
 </div>
 
 ---
@@ -217,7 +219,7 @@ backgroundSize: contain
 # Roadmap & target landscape
 
 <div class="mt-80 text-center text-sm opacity-80">
-Historical landscape image; current engineering registry has seven implemented entries, but CosmWasm is registry-only A0. See the preceding table.
+Historical landscape image; current engineering registry is 11 = 8 implemented materializers + 3 design-only. See the preceding table.
 </div>
 
 ---
@@ -228,11 +230,11 @@ layout: center
 
 <v-clicks>
 
-- Engineering path: one Semantic carrier → six target-owned Plan/IR leaves
-- CosmWasm is registry-only A0; CW-A1 waits on a versioned runtime/ABI freeze
-- Current validation: EVM Anvil, Solana Mollusk, NEAR sandbox happy path, Noir/Aleo compile-only
+- Engineering path: one Semantic carrier → **eight** target-owned Plan/IR leaves
+- CosmWasm: WAT + wat2wasm + check + mock VM (sync FC; async SubMsg same-tx)
+- TON: Tolk/BoC + sandbox (resolver async open; Plan schedule still FC)
+- Current validation also: EVM Anvil, Solana Mollusk, NEAR sandbox, Noir/Aleo compile-only
 - Formal D1–D4 qualification remains separate and pending
-- Product decisions remain for call semantics, evidence grades, and accepted scope
 - Design-only: Soroban, ICP, OpenVM
 
 </v-clicks>

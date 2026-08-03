@@ -9,11 +9,15 @@
 
 ProofForge V2 is a **Lean 4** multi-target compiler (`proof-forge-next`): authors write a
 single `program … where` program; the compiler infers semantic **requirements**, then
-`--target` selects materialization for **EVM, Solana, NEAR, Noir** (and later platforms).
+`--target` selects materialization. Engineering registry is **11 = 8 implemented + 3
+design-only**; eight targets own Plan/IR/materializer leaves today (EVM, Solana, NEAR,
+Noir, Aleo, Psy, CosmWasm, TON).
 
 ProofForge V2 是用 **Lean 4** 实现的多目标编译器：作者只写统一的
 `program … where` 源码；编译器从源码推导语义需求（requirements），再由
-`--target` 选择 **EVM / Solana / NEAR / Noir**（及后续平台）的物化方式。
+`--target` 选择物化方式。工程 registry **11 = 8 implemented + 3 design-only**；当前
+八个 target 各有 target-owned Plan/IR/materializer（EVM / Solana / NEAR / Noir / Aleo /
+Psy / CosmWasm / TON）。
 
 - **改 target 只能改制品与物化**，不能改整数语义、状态迁移、回滚、调用顺序、
   授权或信息披露语义。
@@ -92,10 +96,12 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 
 ### 一源多目标（Phase 1 engineering）
 
-同一 `Counter` 语义；`--target` 只改变物化与制品编码。当前 registry 标记七个 implemented
-target：EVM、Solana、NEAR、Noir、Aleo、Psy 已有 target-owned materializer；CosmWasm 目前仅
-A0 selection/descriptor/resolver，A1 Plan/IR/materializer pending，不能 build。下图是早期四目标
-架构示意；当前事实以本页诚实表与 [`docs/targets/README.md`](docs/targets/README.md) 为准。
+同一 `Counter` 语义；`--target` 只改变物化与制品编码。工程 registry **11 = 8 implemented +
+3 design-only**：八个 materializer 为 EVM、Solana、NEAR、Noir、Aleo、Psy、CosmWasm、TON；
+design-only 为 Soroban、ICP、OpenVM。CosmWasm 工程面为 WAT + locked `wat2wasm` +
+`cosmwasm-check` + cosmwasm-vm mock；TON 工程面为 Tolk + real BoC + `@ton/sandbox`。
+下图是早期四目标架构示意；当前事实以本页诚实表与
+[`docs/targets/README.md`](docs/targets/README.md) 为准。
 
 ![Original four-target architecture illustration](docs/diagrams/03-one-program-four-targets.png)
 
@@ -164,8 +170,9 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 | `noir` | circuit | Phase 1 | target-owned Plan/relation IR → `.nr` packages + locked nargo compile-only；**无** ACIR/witness/proof/VK/verify |
 | `aleo` | ZK application chain | Phase 1 | target-owned Plan/IR → Leo source + locked leo compile-only；**无** VM/prove/deploy |
 | `psy` | ZK application chain | Phase 1 | target-owned Plan/IR → Dargo/Psy source；host-optional compile，无 locked VM/prover |
-| `cosmwasm` | Wasm host | Phase 1 registry A0 | profile/descriptor/resolver 已接；CLI label=`wasm-validated-alpha`，但无 Plan/IR/materializer，build fail closed |
-| Soroban / ICP / OpenVM | — | design / research | 仅档案与路线图，**无** 产品 backend |
+| `cosmwasm` | Wasm host | Phase 1 | target-owned Plan/IR → WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 差分；registry label=`wasm-validated-alpha`；sync call FC、async→SubMsg（同 tx savepoint，非跨 tx）；**非** wasmd/链上/formal |
+| `ton` | TVM stack-account | Phase 1 | target-owned Plan/IR → Tolk + real BoC + `@ton/sandbox` 工程差分；registry label=`source-only`；resolver 开 async/event、**Plan schedule 仍 FC**（destination/send-mode 未接线）；**非** 主网/formal |
+| Soroban / ICP / OpenVM | — | design only | 仅档案与路线图，**无** 产品 backend（design-only 3） |
 
 详情：[`docs/targets/README.md`](docs/targets/README.md)。
 

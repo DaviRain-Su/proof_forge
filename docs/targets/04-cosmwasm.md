@@ -89,7 +89,15 @@ Plan 必须表达 SubMsg id、reply policy、result decoding 与保存点；不�
 
 ## 5. Target IR 与制品
 
-`CosmWasmPlan → CosmWasmModuleRecipe → shared Wasm encoder`。预期输出 Wasm、JSON schema、manifest、capability declaration 和 migration metadata。当前不创建 emitter。
+```text
+CosmWasmPlan → CosmWasm IR (WAT recipe) → locked wat2wasm → {name}.wasm
+  + cosmwasm-check@3.0.9 static ABI 门
+  + cosmwasm-vm@3.0.9 mock runtime 差分（engineering）
+```
+
+工程制品：WAT 文本、Wasm、JSON message 形状、manifest/evidence。`cosmwasm-check` 与
+mock VM 均为工程验收，**不是** wasmd 链上 runtime 或 formal 差分。migration metadata /
+IBC handler 未接线。
 
 ## 6. 工具链（已冻结，2026-08-03 / CW-ABI-FREEZE 闭合）
 
