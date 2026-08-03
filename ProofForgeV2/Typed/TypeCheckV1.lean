@@ -41,8 +41,9 @@
     * MapBytesAssign (N-A3): assign targets whose outermost place step is an
       index use the wire IndexSet slot type — `Array` → element, `Bytes` →
       `UInt8`, `Map` → value (not `Option V`). Rvalue Map index stays
-      `Option V`. Nested assign through a Map element (`m[k].x := v`) remains
-      fail closed at TypeCheck (field on Option) and Normalize.
+      `Option V`. N-NEST-IDX: nested penetration `m[k].x := v` / `m[k][j] := v`
+      is admitted with trap-on-absent-key semantics (Normalize unwraps via
+      `VariantPayload`; Bytes elements stay fail closed — UInt8 leaves).
 
   Deliberately outside this slice (fail closed with a type-mismatch
   diagnostic):
@@ -1312,27 +1313,58 @@ def typeCheckExpr (scope : TypeCheckScopeV1)
     TypeCheckResultV1 :=
   eraseResult (typeCheckExprDrafts scope tables expected? #[] none expr)
 
-/-- Assign-target place typing (MapBytesAssign / N-A3).
+/-- Assign-target place typing (MapBytesAssign / N-A3 + N-NEST-IDX).
 
     Wire IndexSet uses the element/slot type, not the IndexGet result type:
       * Array index assign → element type (same as rvalue)
       * Bytes index assign → UInt8 (same as rvalue)
       * Map index assign → value type (rvalue Map index is `Option V`)
 
-    Only the outermost place constructor is special-cased when it is `.index`.
-    Nested field/index chains still use ordinary rvalue place typing, so
-    `m[k].x := v` stays fail closed (field on Option). Bases of an outermost
-    index (including `s.m[k]`) are typed as ordinary places. -/
+    N-NEST-IDX: a Map index step **anywhere** in an assign-target chain (not
+    only the outermost) also yields the value type — penetration
+    `m[k].x := v` / `m[k][j] := v` is admitted with trap-on-absent-key
+    semantics (Normalize lowers the unwrap via `VariantPayload`, which reverts
+    `invalidCore` when the key is absent). Rvalue Map index stays `Option V`. -/
 partial def typeCheckAssignTargetDrafts (scope : TypeCheckScopeV1)
     (tables : TypedDeclTablesV1)
     (placePath? : Option NormalizedSyntacticPathV1)
     (place : PlaceV1) : TypeCheckResultDraftV1 :=
   match place with
+  | .field base fieldName =>
+      let (bp?, pathDs) := resolveDirect placePath? "Place.Field" "base"
+      let baseRes := typeCheckAssignTargetDrafts scope tables bp? base
+      if !baseRes.drafts.isEmpty then
+        resultDraft baseRes.type (pathDs ++ baseRes.drafts) none
+      else
+        match baseRes.type with
+        | .named structName =>
+            match tables.struct.find? structName with
+            | some structDecl =>
+                match structDecl.2.fields.find? (fun f => f.name == fieldName) with
+                | some fieldDecl =>
+                    let origin? := structFieldPath? tables structName fieldName
+                    resultDraft fieldDecl.type_ (pathDs ++ baseRes.drafts) origin?
+                | none =>
+                    let related :=
+                      optRelatedPath (itemPathForNamed? tables .struct structName)
+                    resultDraft .unit (pathDs ++ baseRes.drafts ++ #[locateDraft
+                      (expectedActualDiagnosticDraft
+                        (s!"field '{renderSourceNameComponentV1 fieldName}' of {typeName baseRes.type}")
+                        (typeName baseRes.type))
+                      placePath? related])
+            | none =>
+                resultDraft .unit (pathDs ++ baseRes.drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft "struct type" (typeName baseRes.type))
+                  placePath? #[]])
+        | other =>
+            resultDraft .unit (pathDs ++ baseRes.drafts ++ #[locateDraft
+              (expectedActualDiagnosticDraft "struct type" (typeName other))
+              placePath? #[]])
   | .index base idx =>
       let (bp?, pathDs1) := resolveDirect placePath? "Place.Index" "base"
       let (ip?, pathDs2) := resolveDirect placePath? "Place.Index" "index"
       let pathDs := pathDs1 ++ pathDs2
-      let baseRes := typeCheckPlaceDrafts scope tables bp? base
+      let baseRes := typeCheckAssignTargetDrafts scope tables bp? base
       if !baseRes.drafts.isEmpty then
         resultDraft baseRes.type (pathDs ++ baseRes.drafts) none
       else

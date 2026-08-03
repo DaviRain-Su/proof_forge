@@ -4576,6 +4576,103 @@ private unsafe def testMapBytesAssignNormalizeReference
         "map-ref-assign-put: returns written value"
   | _ => throw <| IO.userError "map-ref-assign-put: expected returned"
 
+/-- N-NEST-IDX: penetrating Map-element assign (`m[k].x := v`) — present key
+    upserts through the payload; absent key traps `invalidCore` (no silent
+    fabricated value). Product Normalize → Reference. -/
+private unsafe def testMapNestedAssignNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "MapNestedAssign" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state m : Map UInt64 Point\n" ++
+    "  init() do\n" ++
+    "    m[0] := Point.new(0, 0)\n" ++
+    "  entry setX(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k].x := v\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(p) => do\n" ++
+    "      return p.x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "  view getX(k : UInt64) : UInt64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(p) => do\n" ++
+    "      return p.x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "map-nested-assign" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"map-nested-assign: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"map-nested-assign: validate: {repr e}"
+  -- Structural pin: the setX body must contain IndexGet → VariantPayload →
+  -- FieldSet → IndexSet (the N-NEST-IDX unwrap-update-writeback chain).
+  let some setX := data.callables.find? (fun c => c.name == some "setX") |
+    throw <| IO.userError "map-nested-assign: missing setX"
+  let ops := setX.blocks.foldl (fun acc b => acc ++ b.instructions.map (·.op)) #[]
+  let findIdx (pred : ProofForgeV2.Semantic.WireV1.SemanticOpV1 → Bool) : Option Nat :=
+    ops.findIdx? pred
+  let some getIdx := findIdx (fun o => match o with | .indexGet _ _ => true | _ => false) |
+    throw <| IO.userError "map-nested-assign: missing IndexGet"
+  let some vpIdx := findIdx (fun o => match o with
+      | .variantPayload _ 1 _ => true | _ => false) |
+    throw <| IO.userError "map-nested-assign: missing VariantPayload unwrap"
+  let some fsIdx := findIdx (fun o => match o with | .fieldSet _ _ _ => true | _ => false) |
+    throw <| IO.userError "map-nested-assign: missing FieldSet"
+  let some setIdx := findIdx (fun o => match o with | .indexSet _ _ _ => true | _ => false) |
+    throw <| IO.userError "map-nested-assign: missing IndexSet"
+  expect (getIdx < vpIdx && vpIdx < fsIdx && fsIdx < setIdx)
+    "map-nested-assign: IndexGet→VariantPayload→FieldSet→IndexSet order"
+  let admitted ← admitOk "map-nested-assign" carrier
+  let u64Tid ← match data.types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => pure (UInt32.ofNat i)
+    | none => throw <| IO.userError "map-nested-assign: missing UInt64"
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"map-nested-assign: initial: {repr e}"
+  let afterInit :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[]) emptyResponses
+  let postInit ← match afterInit with
+    | .returned post _ _ => pure post
+    | _ => throw <| IO.userError "map-nested-assign: init must return"
+  -- Present key: m[0].x := 7 upserts through the payload, returns 7.
+  let afterPresent :=
+    stepReferenceSliceV1 admitted postInit
+      (inv 1 #[refU64 u64Tid 0, refU64 u64Tid 7]) emptyResponses
+  let postPresent ← match afterPresent with
+    | .returned post val _ =>
+        expect (optionRefEq val (some (refU64 u64Tid 7)))
+          "map-nested-assign: present key returns 7"
+        pure post
+    | _ => throw <| IO.userError "map-nested-assign: present key must return"
+  -- getX(0) == 7 confirms the write-through persisted.
+  let afterGet :=
+    stepReferenceSliceV1 admitted postPresent
+      (inv 2 #[refU64 u64Tid 0]) emptyResponses
+  match afterGet with
+  | .returned _ val _ =>
+      expect (optionRefEq val (some (refU64 u64Tid 7)))
+        "map-nested-assign: getX(0) == 7 after penetration"
+  | _ => throw <| IO.userError "map-nested-assign: getX must return"
+  -- Absent key: m[3].x := 9 traps invalidCore (VariantPayload on none) with
+  -- exact fault and pre-state preservation.
+  let afterAbsent :=
+    stepReferenceSliceV1 admitted postPresent
+      (inv 1 #[refU64 u64Tid 3, refU64 u64Tid 9]) emptyResponses
+  expectTrapped "map-nested-absent" afterAbsent .invalidCore postPresent
+  let afterAbsentGet :=
+    stepReferenceSliceV1 admitted postPresent
+      (inv 2 #[refU64 u64Tid 0]) emptyResponses
+  match afterAbsentGet with
+  | .returned _ val _ =>
+      expect (optionRefEq val (some (refU64 u64Tid 7)))
+        "map-nested-assign: getX(0) == 7 after absent-key trap"
+  | _ => throw <| IO.userError "map-nested-assign: getX after trap must return"
+
 /-- R-1: Option state product Normalize → admit → step (none default + some assign). -/
 private unsafe def testOptionStateNormalizeReference
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -4832,6 +4929,8 @@ unsafe def run : IO Unit := do
   testContextCallerNormalizeReference session
   -- N-A3 / R-1: Map/Bytes single-step index assign product path + Map admit
   testMapBytesAssignNormalizeReference session
+  -- N-NEST-IDX: Map-element penetrating assign + absent-key invalidCore trap
+  testMapNestedAssignNormalizeReference session
   -- R-1: Option state product admit + step
   testOptionStateNormalizeReference session
   -- N-ANON-RESULT: exact canonical container return bytes + Array PureCall

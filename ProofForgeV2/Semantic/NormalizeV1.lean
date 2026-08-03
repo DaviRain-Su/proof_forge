@@ -144,8 +144,10 @@
       state admitted; Option default is none-tag `0x00` via InvariantFoundation),
       multi-arg nonempty Map *Construct* (product nonempty = empty default /
       `Map.empty` + IndexSet upsert — N-1; Wire Construct remains empty-only),
-      nested assign through Map/Bytes elements (single-step Map/Bytes
-      index assign is open; deeper `m[k].…` / `b[i].…` fail closed),
+      nested assign through Bytes elements (fail closed — Bytes elements are
+      UInt8 leaves with no deeper structure); nested assign through **Map**
+      elements is open (N-NEST-IDX: `IndexGet` → `VariantPayload` some-unwrap
+      (absent key traps `invalidCore`) → payload update → `IndexSet`),
       identical multi-arm same-outer patterns (structural duplicate keys),
       param-root bare/field/index assign (params immutable; lets mutable N-6),
       target-specific String event/error ABI materialization (shared Semantic and
@@ -1955,10 +1957,26 @@ private partial def applyNestedUpdateV1
             failUnsupported
               "S1 nested assign through Bytes element is not supported"
         | some (.map keyTid valTid) => do
-            let _ := keyTid
-            let _ := valTid
-            failUnsupported
-              "S1 nested assign through Map element is not supported"
+            -- N-NEST-IDX: penetrating assign through a Map element
+            -- (`m[k].x := v` / deeper). `IndexGet` yields `Option V`; unwrap
+            -- via `VariantPayload (some)` — wire semantics trap `invalidCore`
+            -- when the key is absent (standard revert, no silent insert of a
+            -- fabricated value), then update the payload and `IndexSet` back.
+            let (idxVid, idxTid, st1) ←
+              lowerExpr idxExpr keyTid st states fns
+            unless idxTid == keyTid do
+              return ← failUnsupported "S1 Map index type mismatch"
+            let (iOpt, optTid) := internShape st1.interner (.option valTid)
+            let stOpt := { st1 with interner := iOpt }
+            let (st2, optVid) :=
+              emitValue stOpt optTid (.indexGet baseVid idxVid)
+            let (st3, midVid) :=
+              emitValue st2 valTid (.variantPayload optVid 1 (UInt32.ofNat 0))
+            let (newMid, st4) ←
+              applyNestedUpdateV1 midVid valTid rest value st3 states fns
+            let (st5, newBase) :=
+              emitValue st4 baseTid (.indexSet baseVid idxVid newMid)
+            pure (newBase, st5)
         | _ =>
             failUnsupported "S1 index place requires Array, Bytes, or Map base"
 

@@ -5510,6 +5510,56 @@ private unsafe def testMapStateIndexAssign
   expect hasIndexGet "map-index-assign: IndexGet into Option let"
   expect hasStore "map-index-assign: StateStore"
 
+/-- N-NEST-IDX: nested Map-element penetration is admitted at TypeCheck
+    (`m[k].x := v` / `m[k][j] := v`); wrong Map index type stays a typed
+    error. -/
+private unsafe def testMapNestedAssignTyped
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "MapNestedTyped" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state m : Map UInt64 Point\n" ++
+    "  init() do\n" ++
+    "    m[0] := Point.new(0, 0)\n" ++
+    "  entry setX(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k].x := v\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(p) => do\n" ++
+    "      return p.x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "map-nested-typed" src
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok
+    s!"map-nested-typed: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  -- Map of Map deeper penetration also admitted (payload Map index again).
+  let deepSrc := wrap "MapNestedDeep" <|
+    "  state mm : Map UInt64 Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    mm[0][0] := 0\n" ++
+    "  entry put(k : UInt64, j : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    mm[k][j] := v\n" ++
+    "    return v\n"
+  let deepValidated ← loadSource session "map-nested-deep" deepSrc
+  let deepTyped := checkProgramTypedResultV1 deepValidated
+  expect deepTyped.ok
+    s!"map-nested-deep: CheckV1.ok diags={deepTyped.diagnostics.map (·.message)}"
+  -- Wrong key type for the Map index in penetration stays a typed error.
+  let badSrc := wrap "MapNestedBadKey" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state m : Map UInt64 Point\n" ++
+    "  init() do\n" ++
+    "    m[0] := Point.new(0, 0)\n" ++
+    "  entry setX(b : Bool, v : UInt64) : UInt64 do\n" ++
+    "    m[b].x := v\n" ++
+    "    return v\n"
+  let badValidated ← loadSource session "map-nested-bad-key" badSrc
+  let badTyped := checkProgramTypedResultV1 badValidated
+  expect (!badTyped.ok) "map-nested-bad-key: Bool Map index must fail typed"
+
 /-- N-1: nonempty product Map = empty state default + multi-key IndexSet
     (insert, second key, overwrite) + get as Option + match Option.some.
     Wire multi-arg Map Construct stays closed; Map.empty() is reserved for
@@ -5585,7 +5635,9 @@ private unsafe def testMapIndexAssignValueMismatch
   expect (msgs.any fun m => m.contains "UInt64" && m.contains "Bool")
     s!"map-bad-val: expected UInt64/Bool mismatch, got {msgs}"
 
-/-- N-A3: nested assign through Map element remains fail closed (field on Option). -/
+/-- N-NEST-IDX: nested Map-element penetration is admitted; its remaining
+    fail-closed boundaries are unknown field names and field value type
+    mismatch through the penetration path. -/
 private unsafe def testMapNestedFieldAssignFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "MapNested" <|
@@ -5595,7 +5647,7 @@ private unsafe def testMapNestedFieldAssignFailClosed
     "  init() do\n" ++
     "    m[0] := Point.new(0)\n" ++
     "  entry bump(k : UInt64, v : UInt64) : UInt64 do\n" ++
-    "    m[k].x := v\n" ++
+    "    m[k].y := v\n" ++
     "    return 0\n"
   let validated ← loadSource session "map-nested-assign" source
   let typed := checkProgramTypedResultV1 validated
@@ -5604,6 +5656,22 @@ private unsafe def testMapNestedFieldAssignFailClosed
   expect (msgs.any fun m =>
       m.contains "struct" || m.contains "Option" || m.contains "field")
     s!"map-nested-assign: expected struct/Option diagnostic, got {msgs}"
+  -- Field value type mismatch through penetration stays a typed error.
+  let badVal := wrap "MapNestedBadVal" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "  state m : Map UInt64 Point\n" ++
+    "  init() do\n" ++
+    "    m[0] := Point.new(0)\n" ++
+    "  entry bump(k : UInt64) : UInt64 do\n" ++
+    "    m[k].x := true\n" ++
+    "    return 0\n"
+  let badValValidated ← loadSource session "map-nested-bad-val" badVal
+  let badValTyped := checkProgramTypedResultV1 badValValidated
+  expect (!badValTyped.ok) "map-nested-bad-val: expected TypeCheck failure"
+  let badValMsgs := badValTyped.diagnostics.map (·.message)
+  expect (badValMsgs.any fun m => m.contains "UInt64" && m.contains "Bool")
+    s!"map-nested-bad-val: expected UInt64/Bool mismatch, got {badValMsgs}"
 
 /-- ArrayState: Bytes state declaration admitted (no index assign). -/
 private unsafe def testBytesStateAdmitted
@@ -7562,6 +7630,7 @@ unsafe def run : IO Unit := do
   testMapStateAdmitted session
   -- N-A3 MapBytesAssign: Map/Bytes single-step index assign + negatives
   testMapStateIndexAssign session
+  testMapNestedAssignTyped session
   testMapNonemptyProductPath session
   testMapIndexAssignValueMismatch session
   testMapNestedFieldAssignFailClosed session
