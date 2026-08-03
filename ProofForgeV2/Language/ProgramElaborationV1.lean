@@ -1,12 +1,16 @@
 import ProofForgeV2.Language.Syntax
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
+import ProofForgeV2.Semantic.SimpleClosureTraceV1
+import ProofForgeV2.Semantic.WireV1
 
 open Lean Parser Command
 open Lean.Elab.Command
 open ProofForgeV2
 open ProofForgeV2.Language.ProgramExport
 open ProofForgeV2.Semantic.NormalizeV1
+open ProofForgeV2.Semantic.SimpleClosureTraceV1
+open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.ValidatedSourceV1
@@ -28,6 +32,32 @@ private def quoteByteArraySpine (bytes : ByteArray) : MacroM (TSyntax `term) := 
     elems := elems.push (quote b.toNat)
   `(ByteArray.mk (List.toArray [$elems,*]))
 
+/-- Quote a `String` array as `#[…]` for certificate param emission. -/
+private def quoteStringArray (xs : Array String) : MacroM (TSyntax `term) := do
+  let mut elems : Array (TSyntax `term) := #[]
+  for s in xs do
+    elems := elems.push (quote s)
+  `(#[$elems,*])
+
+/-- Quote name-parameterized simple-closure certificate params (no bytes). -/
+private def quoteSimpleClosureParams
+    (p : SimpleClosureParamsV1) : MacroM (TSyntax `term) := do
+  let tail ← quoteStringArray p.qnTail
+  `(ProofForgeV2.Semantic.SimpleClosureTraceV1.SimpleClosureParamsV1.mk
+      $(quote p.qnHead) $tail $(quote p.viewName) $(quote p.invName))
+
+/-- Recover simple-closure certificate params from Normalize product bytes.
+    Fail closed (none) when the carrier is outside the literal-true family. -/
+private def extractSimpleClosureParamsFromCarrierV1
+    (carrier : SemanticProgramV1) : Option SimpleClosureParamsV1 :=
+  match decodeSemanticProgramDataV1 carrier.canonicalBytes with
+  | .error _ => none
+  | .ok data =>
+      if isSimpleClosureFamilyDataV1 data then
+        extractSimpleClosureParamsV1 data
+      else
+        none
+
 private def proofInvariantNames
     (source : ValidatedSourceV1) : Except String (Array String) := do
   let invariants := source.program.items.filterMap fun item =>
@@ -45,7 +75,9 @@ private def proofInvariantNames
   for invariantName in invariants do
     unless proofs.any (· == invariantName) do
       throw s!"inline proof program is missing proof reference for invariant '{invariantName}'"
-    if invariantName == "subjectProgramV1" || invariantName == "subjectBytesV1" then
+    if invariantName == "subjectProgramV1" || invariantName == "subjectBytesV1" ||
+        invariantName == "simpleClosureParamsV1" ||
+        invariantName == "simpleClosureDataV1" then
       throw s!"invariant name '{invariantName}' is reserved by the inline proof surface"
   for proofName in proofs do
     unless invariants.any (· == proofName) do
@@ -88,6 +120,24 @@ private def elaborateProofObligations
     Lean.Elab.Command.elabCommand (← `(abbrev $invariantIdent : Prop :=
       ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1
         $subjectName $ordinalTerm))
+  -- Name/module-parameterized certificate AST for the literal-true simple-
+  -- closure family. Emitted only when Normalize data matches the family; does
+  -- **not** mint a complete theorem (encode/decode parametric closure still
+  -- open — see SimpleClosureTraceV1 blockers). Authors may reference these
+  -- constructors from same-file theorems without hardcoding Tests FQNs/bytes.
+  match extractSimpleClosureParamsFromCarrierV1 carrier with
+  | none => pure ()
+  | some params => do
+      let paramsName := mkIdent `simpleClosureParamsV1
+      let dataName := mkIdent `simpleClosureDataV1
+      let paramsExpr ← Lean.Elab.liftMacroM <| quoteSimpleClosureParams params
+      Lean.Elab.Command.elabCommand (← `(def $paramsName :
+          ProofForgeV2.Semantic.SimpleClosureTraceV1.SimpleClosureParamsV1 :=
+        $paramsExpr))
+      Lean.Elab.Command.elabCommand (← `(def $dataName :
+          ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1 :=
+        ProofForgeV2.Semantic.SimpleClosureTraceV1.materializeSimpleClosureDataV1
+          $paramsName))
   Lean.Elab.Command.elabCommand (← `(end $proofNamespace))
   Lean.Elab.Command.elabCommand (← `(end $programName))
 elab_rules : command

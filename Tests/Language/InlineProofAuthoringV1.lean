@@ -19,6 +19,10 @@ example : Proofed.Proof.safe =
     InvariantTheoremV1 Proofed.Proof.subjectProgramV1 0 := rfl
 
 #check Proofed.Proof.subjectBytesV1
+-- Name/module-parameterized certificate AST emitted for the literal-true
+-- simple-closure family (foundation for product-positive cert generation).
+#check Proofed.Proof.simpleClosureParamsV1
+#check Proofed.Proof.simpleClosureDataV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message

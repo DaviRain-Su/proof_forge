@@ -115,6 +115,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Semantic.ProofedDecodeCertV1,
     `Tests.Semantic.SimpleClosureCertV1,
     `Tests.Semantic.AuthorWireCertV1,
+    `Tests.Semantic.SimpleClosureTraceV1,
     `Tests.Semantic.ProofedClosedCertV1,
     `Tests.Semantic.ReferenceV1,
     `Tests.Semantic.NormalizeConst,

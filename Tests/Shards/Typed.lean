@@ -29,6 +29,7 @@ import Tests.Semantic.ProofBridgeV1
 import Tests.Semantic.ProofedCertV1
 import Tests.Semantic.SimpleClosureCertV1
 import Tests.Semantic.AuthorWireCertV1
+import Tests.Semantic.SimpleClosureTraceV1
 import Tests.Semantic.ProofedEncodeCertV1
 import Tests.Semantic.ProofedDecodeCertV1
 import Tests.Semantic.ProofedClosedCertV1
@@ -65,6 +66,7 @@ unsafe def main : IO Unit := do
   Tests.Semantic.WireV1.run
   Tests.Semantic.InvariantABI.run
   Tests.Semantic.ProofBridgeV1.run
+  Tests.Semantic.SimpleClosureTraceV1.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.NormalizeConst.run
   Tests.Semantic.ProofBundleV1.run
