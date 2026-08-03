@@ -1,18 +1,24 @@
+import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
 import ProofForgeV2.Semantic.Wire.CodecV1
+import Init.Data.ByteArray.Lemmas
+import Init.Data.Array.Lemmas
 
 /-!
   ProofForgeV2.Semantic.Wire.CodecRoundtripV1 — reusable encode→decode
   transport composition lemmas for Semantic wire (B-SC-DEC foundation).
 
   Purpose: replace per-program 1k-line fixture decode scripts with parametric
-  spine constructors and mid-offset refinements over transparent List spines.
+  spine constructors and mid-offset refinements over transparent List spines
+  **and** production ByteArray mid-offset encode→decode composition.
 
   Scope (this slice):
     * mid-offset List get / single-byte / u16 / u32 spine reads
     * fixed small LE values used by SimpleClosure (0/1/2/3/4/9/64)
     * array-count header success from a u32le spine
     * sized UTF-8/ASCII string decode composition (NFC via isAscii)
+    * **production** ByteArray mid-offset: u32 encode/decode, extract/take,
+      general NFC UTF-8 string sized decode (not just ASCII), identifier→NFC/size
     * option none/some marker composition
     * nullary/fixed tagged header composition
     * root framing glue already in WireV1 (`decodeSemanticProgramDataV1_eq_of_framing`)
@@ -22,13 +28,13 @@ import ProofForgeV2.Semantic.Wire.CodecV1
       decodeSemanticProgramDataV1 bytes = .ok data` for arbitrary data
       (needs inductive field-level roundtrips across every record family)
     * structure gate / re-encode identity (B-SC-STRUCT / carrier)
-    * name grammar / NFC non-ASCII tables
 
   No axiom / sorry / native_decide / ofReduceBool / run_tac / unsafe / meta / IO.
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
 
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
 
 /-! ### Mid-offset transparent-spine byte access -/
@@ -508,5 +514,356 @@ theorem decodeFieldCount_nine_mid (left right : List UInt8) (nesting : Nat) :
         left.length = .ok (9, left.length + 2) := by
     rw [readU16leAtV1_refinesSpine, readSpineU16leV1_nine_mid]
   exact decodeFieldCount_eq_of_readU16leV1 9 _ 9 (left.length + 2) hread
+
+/-! ### Production ByteArray mid-offset encode→decode (B-SC-DEC) -/
+
+/-- Mid-offset data membership of payload byte `i`. -/
+theorem data_get_mid_payloadV1 (left payload right : ByteArray) (i : Nat)
+    (hi : i < payload.size) :
+    (left ++ payload ++ right).data[left.size + i]? = payload.data[i]? := by
+  have hassoc : left ++ payload ++ right = left ++ (payload ++ right) := by
+    simp [ByteArray.append_assoc]
+  rw [hassoc, ByteArray.data_append]
+  have : left.size = left.data.size := rfl
+  rw [this, Array.getElem?_append_right (Nat.le_add_right _ _)]
+  simp only [Nat.add_sub_cancel_left]
+  rw [ByteArray.data_append, Array.getElem?_append_left hi]
+
+/-- Production single-byte read of payload[i] at mid offset. -/
+theorem readByte_mid_payloadV1 (left payload right : ByteArray) (i : Nat) (b : UInt8)
+    (hi : i < payload.size) (hb : payload.data[i]? = some b) :
+    readByteAtV1 (left ++ payload ++ right) (left.size + i) = .ok b := by
+  change
+    (match (left ++ payload ++ right).data[left.size + i]? with
+     | some byte => Except.ok byte
+     | none => Except.error SemanticWireErrorV1.truncated) = Except.ok b
+  rw [data_get_mid_payloadV1 left payload right i hi, hb]
+
+theorem encodeU32le_sizeV1 (v : UInt32) : (encodeU32le v).size = 4 := by
+  simp [encodeU32le, ByteArray.size_push, ByteArray.size_empty]
+
+theorem encodeU32le_data0V1 (v : UInt32) :
+    (encodeU32le v).data[0]? = some (UInt8.ofNat (v.toNat % 256)) := by
+  simp [encodeU32le, ByteArray.data_push, ByteArray.data_empty]
+
+theorem encodeU32le_data1V1 (v : UInt32) :
+    (encodeU32le v).data[1]? = some (UInt8.ofNat ((v.toNat / 256) % 256)) := by
+  simp [encodeU32le, ByteArray.data_push, ByteArray.data_empty]
+
+theorem encodeU32le_data2V1 (v : UInt32) :
+    (encodeU32le v).data[2]? = some (UInt8.ofNat ((v.toNat / 65536) % 256)) := by
+  simp [encodeU32le, ByteArray.data_push, ByteArray.data_empty]
+
+theorem encodeU32le_data3V1 (v : UInt32) :
+    (encodeU32le v).data[3]? = some (UInt8.ofNat ((v.toNat / 16777216) % 256)) := by
+  simp [encodeU32le, ByteArray.data_push, ByteArray.data_empty]
+
+theorem UInt8_toNat_ofNat_mod256V1 (n : Nat) :
+    (UInt8.ofNat (n % 256)).toNat = n % 256 := by
+  have : n % 256 < 256 := Nat.mod_lt _ (by decide)
+  simp [UInt8.toNat, UInt8.ofNat, Nat.mod_eq_of_lt this]
+
+/-- Little-endian u32 encode/decode identity on the reconstructed Nat. -/
+theorem u32le_roundtripV1 (v : UInt32) :
+    UInt32.ofNat
+      ((UInt8.ofNat (v.toNat % 256)).toNat +
+       (UInt8.ofNat ((v.toNat / 256) % 256)).toNat * 256 +
+       (UInt8.ofNat ((v.toNat / 65536) % 256)).toNat * 65536 +
+       (UInt8.ofNat ((v.toNat / 16777216) % 256)).toNat * 16777216) = v := by
+  simp only [UInt8_toNat_ofNat_mod256V1]
+  have hv : v.toNat < 4294967296 := UInt32.toNat_lt_size v
+  have h :
+      v.toNat % 256 +
+      (v.toNat / 256) % 256 * 256 +
+      (v.toNat / 65536) % 256 * 65536 +
+      (v.toNat / 16777216) % 256 * 16777216 = v.toNat := by
+    omega
+  rw [h, UInt32.ofNat_toNat]
+
+/-- Production u32le mid-offset: decode of `encodeU32le v` recovers `v`. -/
+theorem readU32le_encode_midV1 (left right : ByteArray) (v : UInt32) :
+    readU32leAtV1 (left ++ encodeU32le v ++ right) left.size =
+      .ok (v, left.size + 4) := by
+  have hs : (encodeU32le v).size = 4 := encodeU32le_sizeV1 v
+  have h0 : readByteAtV1 (left ++ encodeU32le v ++ right) (left.size + 0) =
+      .ok (UInt8.ofNat (v.toNat % 256)) :=
+    readByte_mid_payloadV1 left (encodeU32le v) right 0 _
+      (by rw [hs]; decide) (encodeU32le_data0V1 v)
+  have h1 : readByteAtV1 (left ++ encodeU32le v ++ right) (left.size + 1) =
+      .ok (UInt8.ofNat ((v.toNat / 256) % 256)) :=
+    readByte_mid_payloadV1 left (encodeU32le v) right 1 _
+      (by rw [hs]; decide) (encodeU32le_data1V1 v)
+  have h2 : readByteAtV1 (left ++ encodeU32le v ++ right) (left.size + 2) =
+      .ok (UInt8.ofNat ((v.toNat / 65536) % 256)) :=
+    readByte_mid_payloadV1 left (encodeU32le v) right 2 _
+      (by rw [hs]; decide) (encodeU32le_data2V1 v)
+  have h3 : readByteAtV1 (left ++ encodeU32le v ++ right) (left.size + 3) =
+      .ok (UInt8.ofNat ((v.toNat / 16777216) % 256)) :=
+    readByte_mid_payloadV1 left (encodeU32le v) right 3 _
+      (by rw [hs]; decide) (encodeU32le_data3V1 v)
+  have h0' : readByteAtV1 (left ++ encodeU32le v ++ right) left.size =
+      .ok (UInt8.ofNat (v.toNat % 256)) := by
+    simpa using h0
+  unfold readU32leAtV1
+  simp only [h0', h1, h2, h3, Bind.bind, Pure.pure, Except.bind, Except.pure,
+    u32le_roundtripV1]
+
+/-- Mid-offset extract of an exact payload slice. -/
+theorem extract_mid_payloadV1 (left payload right : ByteArray) :
+    (left ++ payload ++ right).extract left.size (left.size + payload.size) =
+      payload := by
+  have hassoc : left ++ payload ++ right = left ++ (payload ++ right) := by
+    simp [ByteArray.append_assoc]
+  rw [hassoc]
+  have heq := ByteArray.extract_append_size_add (a := left) (b := payload ++ right)
+    (i := 0) (j := payload.size)
+  simp only [Nat.add_zero] at heq
+  rw [heq]
+  exact ByteArray.extract_append_eq_left (a := payload) (b := right) rfl
+
+/-- Production takeBytes of an exact mid payload. -/
+theorem takeBytes_mid_payloadV1 (left payload right : ByteArray) :
+    takeBytesAtV1 (left ++ payload ++ right) left.size payload.size = .ok payload := by
+  unfold takeBytesAtV1
+  have hrem :
+      payload.size ≤ remainingBytesAtV1 (left ++ payload ++ right) left.size := by
+    simp [remainingBytesAtV1, ByteArray.size_append]
+    omega
+  simp only [if_pos hrem]
+  rw [extract_mid_payloadV1]
+
+/-- UTF-8 roundtrip: every Lean String re-decodes from its own toUTF8 bytes. -/
+theorem fromUTF8?_toUTF8V1 (s : String) : String.fromUTF8? s.toUTF8 = some s := by
+  simp [String.fromUTF8?, String.toUTF8, String.fromUTF8, s.isValidUTF8]
+
+/-- Production string payload = u32le length header ++ UTF-8 body. -/
+def stringPayloadBytesV1 (s : String) : ByteArray :=
+  (encodeU32le (UInt32.ofNat s.toUTF8.size)).append s.toUTF8
+
+theorem stringPayloadBytesV1_eq (s : String) :
+    stringPayloadBytesV1 s =
+      encodeU32le (UInt32.ofNat s.toUTF8.size) ++ s.toUTF8 := by
+  simp [stringPayloadBytesV1, ByteArray.append_eq]
+
+/-- Production sized-byte read of a length-prefixed UTF-8 string payload. -/
+theorem readSizedBytes_string_midV1 (left right : ByteArray) (s : String)
+    (hsize : s.toUTF8.size ≤ maxStringBytes) :
+    readSizedBytesAtV1 (left ++ stringPayloadBytesV1 s ++ right) left.size
+        maxStringBytes =
+      .ok (s.toUTF8, left.size + 4 + s.toUTF8.size) := by
+  rw [stringPayloadBytesV1_eq]
+  have hassoc :
+      left ++ (encodeU32le (UInt32.ofNat s.toUTF8.size) ++ s.toUTF8) ++ right =
+        left ++ encodeU32le (UInt32.ofNat s.toUTF8.size) ++ (s.toUTF8 ++ right) := by
+    simp [ByteArray.append_assoc]
+  rw [hassoc]
+  have hread :=
+    readU32le_encode_midV1 left (s.toUTF8 ++ right) (UInt32.ofNat s.toUTF8.size)
+  unfold readSizedBytesAtV1
+  simp only [hread]
+  have hfit : (UInt32.ofNat s.toUTF8.size).toNat = s.toUTF8.size := by
+    have : s.toUTF8.size ≤ UInt32.size - 1 :=
+      Nat.le_trans hsize (by decide : maxStringBytes ≤ UInt32.size - 1)
+    exact Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt this (by decide))
+  simp only [hfit]
+  have hlim : ¬(s.toUTF8.size > maxStringBytes) := Nat.not_lt.mpr hsize
+  simp only [hlim, ↓reduceIte]
+  have htake :
+      takeBytesAtV1
+          (left ++ encodeU32le (UInt32.ofNat s.toUTF8.size) ++ (s.toUTF8 ++ right))
+          (left.size + 4) s.toUTF8.size = .ok s.toUTF8 := by
+    have hs4 : (encodeU32le (UInt32.ofNat s.toUTF8.size)).size = 4 :=
+      encodeU32le_sizeV1 _
+    have hoff :
+        (left ++ encodeU32le (UInt32.ofNat s.toUTF8.size)).size = left.size + 4 := by
+      rw [ByteArray.size_append, hs4]
+    have hA :
+        left ++ encodeU32le (UInt32.ofNat s.toUTF8.size) ++ (s.toUTF8 ++ right) =
+          (left ++ encodeU32le (UInt32.ofNat s.toUTF8.size)) ++ s.toUTF8 ++ right := by
+      simp [ByteArray.append_assoc]
+    rw [hA, ← hoff]
+    exact takeBytes_mid_payloadV1 _ s.toUTF8 right
+  simp only [htake]
+
+/-- General NFC UTF-8 string decode at a production mid-offset payload.
+    Not restricted to ASCII — only requires `requireNfc` + size. -/
+theorem decodeString_nfc_midV1 (left right : ByteArray) (s : String) (nesting : Nat)
+    (hnfc : requireNfc s = .ok ())
+    (hsize : s.toUTF8.size ≤ maxStringBytes) :
+    decodeString ⟨left ++ stringPayloadBytesV1 s ++ right, left.size, nesting⟩ =
+      .ok (s,
+        ⟨left ++ stringPayloadBytesV1 s ++ right,
+          left.size + 4 + s.toUTF8.size, nesting⟩) := by
+  have hread := readSizedBytes_string_midV1 left right s hsize
+  exact decodeString_eq_of_valueV1 _ s.toUTF8 (left.size + 4 + s.toUTF8.size) s
+    hread (fromUTF8?_toUTF8V1 s) hnfc
+
+/-- Successful encodeString yields the production string payload bytes. -/
+theorem encodeString_eq_stringPayloadV1 (s : String)
+    (hnfc : requireNfc s = .ok ())
+    (hsize : s.toUTF8.size ≤ maxStringBytes) :
+    encodeString s = .ok (stringPayloadBytesV1 s) := by
+  rw [encodeString_eq_okV1 s hnfc hsize, stringPayloadBytesV1_eq]
+  rfl
+
+/-- Identifier component success implies NFC (transport string gate). -/
+theorem requireNfc_of_identifierV1 (s : String)
+    (h : validateIdentifierComponent s = .ok ()) :
+    requireNfc s = .ok () := by
+  unfold validateIdentifierComponent at h
+  match hsz : (decide (1 ≤ s.utf8ByteSize) && decide (s.utf8ByteSize ≤ 240)) with
+  | false =>
+      simp [hsz, Bind.bind, Pure.pure, Except.bind, Except.pure] at h
+  | true =>
+      simp [hsz, Bind.bind, Pure.pure, Except.bind, Except.pure] at h
+      cases hnfc : requireNfc s with
+      | error e => simp [hnfc] at h
+      | ok u => rfl
+
+/-- Identifier component success implies UTF-8 size ≤ maxStringBytes. -/
+theorem utf8_size_le_maxString_of_identifierV1 (s : String)
+    (h : validateIdentifierComponent s = .ok ()) :
+    s.toUTF8.size ≤ maxStringBytes := by
+  unfold validateIdentifierComponent at h
+  by_cases hgate : 1 ≤ s.utf8ByteSize ∧ s.utf8ByteSize ≤ 240
+  · have hsz : s.toUTF8.size = s.utf8ByteSize := rfl
+    rw [hsz]
+    exact Nat.le_trans hgate.2 (by decide : 240 ≤ maxStringBytes)
+  · simp [hgate, Pure.pure, Except.pure, Bind.bind, Except.bind] at h
+
+/-- Identifier-legal strings decode at production mid-offset payloads. -/
+theorem decodeString_of_identifier_midV1 (left right : ByteArray) (s : String)
+    (nesting : Nat) (h : validateIdentifierComponent s = .ok ()) :
+    decodeString ⟨left ++ stringPayloadBytesV1 s ++ right, left.size, nesting⟩ =
+      .ok (s,
+        ⟨left ++ stringPayloadBytesV1 s ++ right,
+          left.size + 4 + s.toUTF8.size, nesting⟩) :=
+  decodeString_nfc_midV1 left right s nesting
+    (requireNfc_of_identifierV1 s h)
+    (utf8_size_le_maxString_of_identifierV1 s h)
+
+/-- Identifier-legal strings encode to the production payload. -/
+theorem encodeString_of_identifierV1 (s : String)
+    (h : validateIdentifierComponent s = .ok ()) :
+    encodeString s = .ok (stringPayloadBytesV1 s) :=
+  encodeString_eq_stringPayloadV1 s
+    (requireNfc_of_identifierV1 s h)
+    (utf8_size_le_maxString_of_identifierV1 s h)
+
+/-- Decode u32le at production mid-offset of `encodeU32le v`. -/
+theorem decodeU32le_encode_midV1 (left right : ByteArray) (v : UInt32)
+    (nesting : Nat) :
+    decodeU32le ⟨left ++ encodeU32le v ++ right, left.size, nesting⟩ =
+      .ok (v, ⟨left ++ encodeU32le v ++ right, left.size + 4, nesting⟩) := by
+  apply decodeU32le_eq_of_readV1
+  exact readU32le_encode_midV1 left right v
+
+/-- Array count header from production `encodeU32le n` when `n ≤ maxCount`. -/
+theorem readArrayCount_encode_midV1 (left right : ByteArray) (n maxCount : Nat)
+    (hfit : n ≤ UInt32.size - 1) (hle : n ≤ maxCount) :
+    readArrayCountAtV1
+        (left ++ encodeU32le (UInt32.ofNat n) ++ right) left.size maxCount =
+      .ok (n, left.size + 4) := by
+  unfold readArrayCountAtV1
+  have hread :=
+    readU32le_encode_midV1 left right (UInt32.ofNat n)
+  simp only [hread]
+  have hto : (UInt32.ofNat n).toNat = n :=
+    Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hfit (by decide))
+  simp only [hto]
+  have hle' : ¬(n > maxCount) := Nat.not_lt.mpr hle
+  simp only [hle', ↓reduceIte]
+
+/-- Zero-count array decode from production `encodeU32le 0` mid-offset. -/
+theorem decodeArray_encode_zero_midV1 (maxCount : Nat) (decode : Decoder α)
+    (left right : ByteArray) (nesting : Nat) :
+    decodeArray maxCount decode
+        ⟨left ++ encodeU32le 0 ++ right, left.size, nesting⟩ =
+      .ok (#[], ⟨left ++ encodeU32le 0 ++ right, left.size + 4, nesting⟩) := by
+  apply decodeArray_zeroV1
+  have hread := readU32le_encode_midV1 left right 0
+  unfold readArrayCountAtV1
+  simp only [hread]
+  have : ¬((0 : Nat) > maxCount) := Nat.not_lt.mpr (Nat.zero_le _)
+  simp only [UInt32.toNat_ofNat, Nat.zero_mod, this, ↓reduceIte]
+
+/-- Option.some string mid-offset: marker 1 ++ string payload. -/
+def someStringPayloadBytesV1 (s : String) : ByteArray :=
+  (encodeU8 1).append (stringPayloadBytesV1 s)
+
+theorem someStringPayloadBytesV1_eq (s : String) :
+    someStringPayloadBytesV1 s =
+      ByteArray.empty.push 1 ++ stringPayloadBytesV1 s := by
+  simp [someStringPayloadBytesV1, encodeU8, ByteArray.append_eq]
+
+/-- Marker-1 decode at production mid-offset of `empty.push 1`. -/
+theorem decodeU8_one_payload_midV1 (left right : ByteArray) (nesting : Nat) :
+    decodeU8 ⟨left ++ ByteArray.empty.push 1 ++ right, left.size, nesting⟩ =
+      .ok (1, ⟨left ++ ByteArray.empty.push 1 ++ right, left.size + 1, nesting⟩) := by
+  have hone : (ByteArray.empty.push 1).size = 1 := by
+    simp [ByteArray.size_push, ByteArray.size_empty]
+  have hget : (ByteArray.empty.push 1).data[0]? = some 1 := by
+    simp [ByteArray.data_push, ByteArray.data_empty]
+  apply decodeU8_eq_of_readV1
+  exact readByte_mid_payloadV1 left (ByteArray.empty.push 1) right 0 1
+    (by simp [hone]) hget
+
+/-- Option.some of an identifier-legal string at production mid-offset.
+    Composes `decodeOption_someV1` from production marker + string payload. -/
+theorem decodeOptionString_some_identifier_midV1
+    (left right : ByteArray) (s : String) (nesting : Nat)
+    (h : validateIdentifierComponent s = .ok ()) :
+    decodeOption decodeString
+        ⟨left ++ someStringPayloadBytesV1 s ++ right, left.size, nesting⟩ =
+      .ok (some s,
+        ⟨left ++ someStringPayloadBytesV1 s ++ right,
+          left.size + 1 + 4 + s.toUTF8.size, nesting⟩) := by
+  -- Normalize wire shape to `left ++ push1 ++ stringPayload ++ right`.
+  have hin :
+      left ++ someStringPayloadBytesV1 s ++ right =
+        left ++ ByteArray.empty.push 1 ++ stringPayloadBytesV1 s ++ right := by
+    simp [someStringPayloadBytesV1_eq, ByteArray.append_assoc]
+  rw [hin]
+  have hassoc :
+      left ++ ByteArray.empty.push 1 ++ stringPayloadBytesV1 s ++ right =
+        left ++ ByteArray.empty.push 1 ++ (stringPayloadBytesV1 s ++ right) := by
+    simp [ByteArray.append_assoc]
+  -- Marker at left.size.
+  have hmarker :
+      decodeU8
+          ⟨left ++ ByteArray.empty.push 1 ++ stringPayloadBytesV1 s ++ right,
+            left.size, nesting⟩ =
+        .ok (1,
+          ⟨left ++ ByteArray.empty.push 1 ++ stringPayloadBytesV1 s ++ right,
+            left.size + 1, nesting⟩) := by
+    rw [hassoc]
+    simpa [ByteArray.append_assoc] using
+      decodeU8_one_payload_midV1 left (stringPayloadBytesV1 s ++ right) nesting
+  -- String at left.size + 1 via left' = left ++ push1.
+  have hleft1 : (left ++ ByteArray.empty.push 1).size = left.size + 1 := by
+    simp [ByteArray.size_append, ByteArray.size_push, ByteArray.size_empty]
+  have hin2 :
+      left ++ ByteArray.empty.push 1 ++ stringPayloadBytesV1 s ++ right =
+        (left ++ ByteArray.empty.push 1) ++ stringPayloadBytesV1 s ++ right := by
+    simp [ByteArray.append_assoc]
+  have hstr :
+      decodeString
+          ⟨left ++ ByteArray.empty.push 1 ++ stringPayloadBytesV1 s ++ right,
+            left.size + 1, nesting⟩ =
+        .ok (s,
+          ⟨left ++ ByteArray.empty.push 1 ++ stringPayloadBytesV1 s ++ right,
+            left.size + 1 + 4 + s.toUTF8.size, nesting⟩) := by
+    rw [hin2]
+    have hdec :=
+      decodeString_of_identifier_midV1 (left ++ ByteArray.empty.push 1) right s nesting h
+    simpa [hleft1] using hdec
+  exact decodeOption_someV1 decodeString
+    ⟨left ++ ByteArray.empty.push 1 ++ stringPayloadBytesV1 s ++ right,
+      left.size, nesting⟩
+    ⟨left ++ ByteArray.empty.push 1 ++ stringPayloadBytesV1 s ++ right,
+      left.size + 1, nesting⟩
+    ⟨left ++ ByteArray.empty.push 1 ++ stringPayloadBytesV1 s ++ right,
+      left.size + 1 + 4 + s.toUTF8.size, nesting⟩
+    s hmarker hstr
 
 end ProofForgeV2.Semantic.WireV1
