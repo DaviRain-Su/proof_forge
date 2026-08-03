@@ -38,7 +38,8 @@ claim **均未实现、不因本 ADR 成立**。实现必须在后续 target-own
   （B-3 PrincipalAddr pin + AddressBearing static QN）。
 - EVM `LowerSemanticV1` 对 `context.caller` / `unix-time-seconds` **显式 fail closed**
   （注释钉死：naive `caller()` 会把 20B address 泄漏进 Principal slot，违反
-  PrincipalAddr pin）。B-ctx 六 target ContextRead Plan 均为 FAIL-CLOSED。
+  PrincipalAddr pin）。B-ctx：各 target ContextRead Plan 均为 FAIL-CLOSED（不依赖
+  implemented 计数）。
 
 OpenZeppelin 审计（`docs/research/17-openzeppelin-ethereum-coverage-audit.md`）将
 **EVM address/caller 精确关系**列为 P0 产品决策门；F01 Ownable 在 caller 物化前保持
@@ -111,7 +112,7 @@ behavior / observation 条件满足（本 ADR 不改 family status 表）。
 | Source / Typed / Normalize / Wire / Requirements | 已支持 `context.caller` → Principal ContextRead |
 | Reference invocation | 已要求 context 提供 canonical Principal valueBytes；**不** 绑定 EVM 20B |
 | EVM Plan/IR/Yul | **继续 fail closed**（`LowerSemanticV1` 显式 planInvariant） |
-| 其他六 implemented target ContextRead Plan | **继续 fail closed**（B-ctx） |
+| 全部 target 的 ContextRead Plan | **继续 fail closed**（EVM 亦然；非 EVM materializer 各自等待 target-owned 决策与原子 cutover。B-ctx 钉测覆盖现有 materialize decline 路径；CosmWasm/TON 等 registry 或 source-only 身份 **不** 因本表获得 ContextRead/制品 maturity 升格） |
 | T10 Principal state/param storage | **不变**（wire identity leaf；≠ address ABI） |
 
 后续实现必须 **原子** 交付：target-owned Plan schema/Expr（若需）、IR/Yul
@@ -190,7 +191,7 @@ runtime）Anvil 差分。禁止半开 surface 或 best-effort。
 | left-padded 32B 当 Principal body | 与 CALLER 20B 不等价；引入 pad/truncate 诱惑 |
 | hash(path) 或 storage slot 当 caller | 不是 `msg.sender`；Ownable 语义错误 |
 | 打开 Solidity `address` ABI 与本切片一并交付 | 范围膨胀；ABI claim 需独立决策 |
-| 六 target 同时打开 ContextRead | 非均匀 capability 未设计；违反 fail-closed |
+| 全部 target 同时打开 ContextRead | 非均匀 capability 未设计；违反 fail-closed |
 
 ## 参考
 
