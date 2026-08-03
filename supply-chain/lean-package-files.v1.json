@@ -591,9 +591,9 @@
       "sha256": "4c3719ff54dd4427a961da4589b0abd08360235a2c34acfe8dc2018552d5c89b"
     },
     {
-      "bytes": 84300,
+      "bytes": 86124,
       "path": "ProofForgeV2/Targets/CosmWasm/EmitIRV1.lean",
-      "sha256": "ae1484def8840096992b367713f8d701ed479574c4d7e3eb201693eea190c867"
+      "sha256": "24aabbc62014bb7b95e8efdcbdea8c0ac479a463cb25c35b725baa6a53114d8d"
     },
     {
       "bytes": 2955,

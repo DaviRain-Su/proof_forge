@@ -965,6 +965,12 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then (br $num_done)))\n" ++
   s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
   s!"        (br_if $num_done (i32.or (i32.lt_u (local.get $c) (i32.const 48)) (i32.gt_u (local.get $c) (i32.const 57))))\n" ++
+  -- P0-2 fix: reject silently wrapping decimal accumulation. Before
+  -- v = v*10 + digit, require v < floor((2^64-1)/10) == 1844674407370955161,
+  -- or v == that bound with digit ≤ 5 (2^64-1 ends in 5). Anything larger
+  -- cannot be an exact UInt64 and must trap, never wrap.
+  s!"        (if (i64.gt_u (local.get $v) (i64.const 1844674407370955161)) (then unreachable))\n" ++
+  s!"        (if (i64.eq (local.get $v) (i64.const 1844674407370955161)) (then (if (i32.gt_u (i32.sub (local.get $c) (i32.const 48)) (i32.const 5)) (then unreachable))))\n" ++
   s!"        (local.set $v (i64.add (i64.mul (local.get $v) (i64.const 10)) (i64.extend_i32_u (i32.sub (local.get $c) (i32.const 48)))))\n" ++
   s!"        (local.set $any (i32.const 1))\n" ++
   s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
@@ -1006,6 +1012,9 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- append decimal of i64 to messages buffer (reuses pf_fmt_u64)
   s!"  (func $pf_msg_u64 (param $v i64)\n" ++
   s!"    (local $p i32) (local $n i32)\n" ++
+  -- P0-4 fix: the messages buffer has a fixed 1536-byte capacity by layout
+  -- (msg..valueCell). Trap instead of bleeding into the value cell.
+  s!"    (if (i32.gt_u (i32.add (global.get $msg_len) (i32.const 24)) (i32.const 1536)) (then unreachable))\n" ++
   s!"    (local.set $p (i32.add (i32.const {msgBase}) (global.get $msg_len)))\n" ++
   s!"    (local.set $n (call $pf_fmt_u64 (local.get $v) (local.get $p)))\n" ++
   s!"    (global.set $msg_len (i32.add (global.get $msg_len) (local.get $n)))\n" ++
@@ -1013,6 +1022,10 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- append attribute {"key":"K","value":"V"} where V is decimal of u64 temp
   s!"  (func $pf_push_attr_u64 (param $key_off i32) (param $key_len i32) (param $v i64)\n" ++
   s!"    (local $p i32) (local $n i32) (local $i i32)\n" ++
+  -- P0-4 fix: the attribute buffer has a fixed 512-byte capacity by layout
+  -- (attr..msg). Each entry costs key_len + ≤48 overhead; trap instead of
+  -- silently overflowing into the messages buffer (bounded-for emit loops).
+  s!"    (if (i32.gt_u (i32.add (i32.add (global.get $attr_len) (local.get $key_len)) (i32.const 48)) (i32.const 512)) (then unreachable))\n" ++
   s!"    (local.set $p (i32.add (i32.const {attrBase}) (global.get $attr_len)))\n" ++
   s!"    (if (i32.ne (global.get $attr_len) (i32.const 0)) (then\n" ++
   s!"      (i32.store8 (local.get $p) (i32.const 44))\n" ++
@@ -1106,6 +1119,10 @@ private partial def renderOperation (memory : MemoryLayout)
       s!"{indent}(local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
         s!"{indent}(if (i64.lt_s (i64.and (i64.xor (local.get $t{lhs}) (local.get $t{rhs})) (i64.xor (local.get $t{lhs}) (local.get $t{destination}))) (i64.const 0)) (then unreachable))\n"
   | .signedCheckedMul destination lhs rhs =>
+      -- P0-3 fix: (-1) × Int64.min silently wrapped (result min, unrepresentable
+      -- as +min). Guard the single hole before the multiply; the existing
+      -- divide-round-trip check covers every other lhs.
+      s!"{indent}(if (i64.eq (local.get $t{lhs}) (i64.const -1)) (then (if (i64.eq (local.get $t{rhs}) (i64.const -9223372036854775808)) (then unreachable))))\n" ++
       s!"{indent}(local.set $t{destination} (i64.mul (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
         s!"{indent}(if (i64.ne (local.get $t{lhs}) (i64.const 0)) (then (if (i64.ne (local.get $t{lhs}) (i64.const -1)) (then (if (i64.ne (i64.div_s (local.get $t{destination}) (local.get $t{lhs})) (local.get $t{rhs})) (then unreachable))))))\n"
   | .signedCheckedDiv destination lhs rhs =>
@@ -1328,43 +1345,42 @@ private def renderMethodBody (ir : IR) (method : MethodIR) : String :=
     "    (call $pf_reset_result)\n" ++
     operations ++ epilogue ++ "  )\n"
 
-/-- Static data: key strings + quoted method/param names for JSON scan. -/
-private def renderDataSection (ir : IR) : String := Id.run do
+/-- Static data: key strings + quoted method/param needles for JSON scan.
+    P0-1 fix: needles live in `[3000, 4096)` — a compile-time capacity gate
+    must prove keysEnd ≤ 3000 and every needle end ≤ 4096 (bump heap base),
+    failing closed at Plan/IR emission instead of silently overlapping the
+    heap for long/many method names. -/
+private def renderDataSectionV2 (ir : IR) (keysEnd : Nat) : Except CompileError (String × Array (String × Nat × Nat) × Array (String × Nat × Nat)) := do
+  let needleBase := 3000
+  let heapBase := 4096
+  if keysEnd > needleBase then
+    throw <| .planInvariant .cosmwasm
+      s!"static key data end {keysEnd} overlaps needle base {needleBase}"
   let mut out := ""
   for key in ir.keys do
     out := out ++ s!"  (data (i32.const {key.offset}) \"{key.key}\")\n"
-  -- Place method name needles at 3000+ for JSON dispatch (after keys, before heap)
-  let mut off := 3000
+  let mut off := needleBase
+  let mut methodNeedles : Array (String × Nat × Nat) := #[]
   for method in ir.methods do
-    -- store `"name"` including quotes for find
-    let needle := s!"\"{method.name}\""
-    out := out ++ s!"  (data (i32.const {off}) \"{Targets.escapeJson needle}\")\n"
-    -- Actually escapeJson is wrong for data strings — method names are identifiers
-    out := out  -- keep; rewrite below properly
-  pure out
-
-/-- Rebuild data section correctly (identifiers only, no JSON escape). -/
-private def renderDataSectionV2 (ir : IR) : String × Array (String × Nat × Nat) × Array (String × Nat × Nat) :=
-  Id.run do
-    let mut out := ""
-    for key in ir.keys do
-      out := out ++ s!"  (data (i32.const {key.offset}) \"{key.key}\")\n"
-    let mut off := 3000
-    let mut methodNeedles : Array (String × Nat × Nat) := #[]
-    for method in ir.methods do
-      -- WAT string containing the bytes of `"name"` (quotes included for JSON find).
-      let needleBytes := s!"\"{method.name}\"".toUTF8
-      out := out ++ s!"  (data (i32.const {off}) \"\\\"{method.name}\\\"\")\n"
-      methodNeedles := methodNeedles.push (method.name, off, needleBytes.size)
+    -- WAT string containing the bytes of `"name"` (quotes included for JSON find).
+    let needleBytes := s!"\"{method.name}\"".toUTF8
+    if off + needleBytes.size + 1 > heapBase then
+      throw <| .planInvariant .cosmwasm
+        s!"method needle '{method.name}' would overlap bump heap at {heapBase}"
+    out := out ++ s!"  (data (i32.const {off}) \"\\\"{method.name}\\\"\")\n"
+    methodNeedles := methodNeedles.push (method.name, off, needleBytes.size)
+    off := off + needleBytes.size + 1
+  let mut paramNeedles : Array (String × Nat × Nat) := #[]
+  for method in ir.methods do
+    for p in method.params do
+      let needleBytes := s!"\"{p.name}\"".toUTF8
+      if off + needleBytes.size + 1 > heapBase then
+        throw <| .planInvariant .cosmwasm
+          s!"param needle '{method.name}.{p.name}' would overlap bump heap at {heapBase}"
+      out := out ++ s!"  (data (i32.const {off}) \"\\\"{p.name}\\\"\")\n"
+      paramNeedles := paramNeedles.push (s!"{method.name}.{p.name}", off, needleBytes.size)
       off := off + needleBytes.size + 1
-    let mut paramNeedles : Array (String × Nat × Nat) := #[]
-    for method in ir.methods do
-      for p in method.params do
-        let needleBytes := s!"\"{p.name}\"".toUTF8
-        out := out ++ s!"  (data (i32.const {off}) \"\\\"{p.name}\\\"\")\n"
-        paramNeedles := paramNeedles.push (s!"{method.name}.{p.name}", off, needleBytes.size)
-        off := off + needleBytes.size + 1
-    pure (out, methodNeedles, paramNeedles)
+  pure (out, methodNeedles, paramNeedles)
 
 private def findNeedle (needles : Array (String × Nat × Nat)) (key : String) : Nat × Nat :=
   match needles.find? (fun p => p.1 == key) with
@@ -1455,9 +1471,10 @@ private def renderQuery (ir : IR) (methodNeedles paramNeedles : Array (String ×
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++
         "  )\n"
 
-private def renderWat (ir : IR) : String :=
+private def renderWat (ir : IR) : Except CompileError String := do
+  let keysEnd := ir.keys.foldl (fun acc key => max acc (key.offset + key.length)) 64
+  let (dataSec, methodNeedles, paramNeedles) ← renderDataSectionV2 ir keysEnd
   let imports := String.intercalate "" <| ir.imports.toList.map renderImport
-  let (dataSec, methodNeedles, paramNeedles) := renderDataSectionV2 ir
   let helpers := renderRuntimeHelpers ir.memory
   let fns := String.intercalate "" <| ir.fns.toList.map (renderFn ir)
   let methodBodies := String.intercalate "" <| ir.methods.toList.map (renderMethodBody ir)
@@ -1473,7 +1490,7 @@ private def renderWat (ir : IR) : String :=
     "  (func (export \"interface_version_8\") (result i32)\n" ++
     "    (i32.const 8)\n" ++
     "  )\n"
-  "(module\n" ++ imports ++
+  pure ("(module\n" ++ imports ++
     "  (memory (export \"memory\") 1)\n" ++
     dataSec ++
     helpers ++
@@ -1482,7 +1499,7 @@ private def renderWat (ir : IR) : String :=
     renderInstantiate ir paramNeedles ++
     renderExecute ir methodNeedles paramNeedles ++
     renderQuery ir methodNeedles paramNeedles ++
-    ")\n"
+    ")\n")
 
 private def renderMode : MethodMode → String
   | .initialize => "instantiate"
@@ -1532,11 +1549,12 @@ private def renderAbi (plan : Plan) : String :=
 
 private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
   validateIR ir
+  let wat ← renderWat ir
   return #[
     {
       path := s!"{ir.name}.wat"
       mediaType := "application/wasm-text"
-      contents := renderWat ir
+      contents := wat
     },
     {
       path := s!"{ir.name}.cosmwasm-abi.json"

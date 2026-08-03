@@ -90,6 +90,8 @@ programs=(
   "Examples/Counter.lean:Examples.Counter:Counter"
   "Examples/Accumulator.lean:Examples.Accumulator:Accumulator"
   "runtime-tests/cosmwasm/fixtures/EventFlow.lean:Examples.EventFlow:EventFlow"
+  "runtime-tests/cosmwasm/fixtures/IntMul.lean:Examples.IntMul:IntMul"
+  "runtime-tests/cosmwasm/fixtures/EmitLoop.lean:Examples.EmitLoop:EmitLoop"
 )
 
 echo "cosmwasm-runtime-test: building proof-forge-next (lake build proof_forge_next)"

@@ -13472,3 +13472,33 @@ normative: false
   开放（sync 仍拒），CosmWasmPlanV1 钉 SubMsg Plan/IR/WAT 形状与 sync FC。
 - 边界：mock host≠wasmd；msg 字段为 JSON 形状钉测（生产前需 Binary）；不声称跨 tx
   async、reply 入口、wasmd runtime 或 formal 完成。
+
+### 2026-08-03 — CosmWasm A1 严格修复（独立审计 P0 全数属实并修复）
+
+> 背景：main 会话的三路审计将 A1 隔离（`24e7d4902`），认定四个 P0 候选与
+> CW-ABI-FREEZE 流程缺口。主代理逐项代码复核确认全部属实后在 branch 上严格修复；
+> 合并前置为「完整 design-exit」（CW-ABI-FREEZE），由产品决策推进。
+
+- **P0-1 静态内存重叠**：`renderDataSectionV2` 增加编译期容量门——keysEnd ≤ 3000
+  （needle base）且每个 method/param needle 端 ≤ 4096（bump heap base），越界
+  `PF-PLAN-INVARIANT` fail closed；删除残留的错误 `renderDataSection` V1。
+  `CosmWasmPlanV1.testStaticLayoutCapacityFc` 双负例（200 state keysEnd=3569 与
+  5×243B method needles）钉死。
+- **P0-2 JSON UInt64 溢出**：`pf_parse_u64_field` 在 `v = v*10+digit` 前加精确界
+  （v > 1844674407370955161 或等于且 digit > 5 → `unreachable`）；runtime 钉
+  max 接受、max+1 与 10^20 trap（`tests/hardening.rs` p02×3）。
+- **P0-3 Int64 `(-1) × min`**：`signedCheckedMul` 在乘法前加
+  `lhs == -1 && rhs == min → unreachable`；`fixtures/IntMul.lean`（let 计算 min
+  后单 store 前 trap）runtime 钉 x 不变（p03）。附注：cosmwasm-vm mock 层
+  **pre-trap store 不回滚**（rollback 属 wasmd tx 边界，非 VM），测试按 trap-
+  before-store 设计并记录该语义。
+- **P0-4 缓冲区容量**：`pf_push_attr_u64` 加 attr ≤512B（key_len+48 余量）与
+  `pf_msg_u64` 加 msg ≤1536B（24 余量）守卫；`fixtures/EmitLoop.lean` 40 次 emit
+  runtime trap、n 不变（p04）。
+- **验收硬化**：`cosmwasm_check_acceptance.sh` 产品层在 CLI 存在但 build 失败/
+  无制品时**硬失败**（exit 1）；skip-clean 仅限工具/CLI/源码缺席。
+- 验证：lake build、shard-targets（含新增 P0-1 双钉）、runtime 14/14（含
+  hardening 5）、cosmwasm-check acceptance（fixtures+product）、docs-check、
+  git diff --check 全绿。CW-ABI-FREEZE（SRC-CW-002 快照、cosmwasm-std/vm/check
+  3.0.9 + wasmvm 3.0.7 + wasmd 版本冻结、SubMsg/savepoint 语义、dossier 修订）
+  为合并前置，另切片完成。

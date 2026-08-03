@@ -408,6 +408,51 @@ private unsafe def testMaterializeAggregate
     "artifact program name"
   IO.println "  ✓ Registry materializeResult cosmwasm"
 
+/-- A1-repair P0-1: static layout capacity gates must fail closed at Plan/IR
+    emission (never silently overlap heap). keysEnd > 3000 via many state
+    fields; needles > 4096 via many long method names. -/
+private unsafe def testStaticLayoutCapacityFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- (a) keysEnd overflow: 200 × 16-char state fields ⇒ keysEnd ≈ 3264 > 3000.
+  let states := String.intercalate "" <|
+    (List.range 200).map (fun i =>
+      let name := "s" ++ String.mk (List.replicate 15 (Char.ofNat ('a'.toNat + i % 26)))
+      s!"  state {name}{i} : UInt64\n")
+  let keysSrc := wrapProgram "KeysOverflow" <|
+    states ++
+    "  init() do\n" ++
+    "    saaaaaaaaaaaaaaa0 := 0\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return saaaaaaaaaaaaaaa0\n"
+  let keysCompiled ← compileSource session keysSrc
+    "Examples.KeysOverflow" "<cw-keys-overflow>"
+  match cosmwasmCapability keysCompiled with
+  | .error e => throw <| IO.userError s!"keys-overflow capability: {e.render}"
+  | .ok capability =>
+      expectPlanErrorContaining "keysEnd gate" "overlaps needle base"
+        (buildFromCapability capability)
+  -- (b) needle overflow: init + 5 entries with 240-char names (identifier
+  -- limit) ⇒ needles ≈ 5 × 243 = 1215 bytes from 3000, crossing 4096.
+  let longName := "m" ++ String.mk (List.replicate 238 'x')
+  let entries := String.intercalate "" <|
+    (List.range 5).map (fun i =>
+      s!"  entry {longName}{i}() : UInt64 do\n    return {i}\n\n")
+  let needleSrc := wrapProgram "NeedleOverflow" <|
+    "  state count : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    count := 0\n\n" ++
+    entries ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session needleSrc
+    "Examples.NeedleOverflow" "<cw-needle-overflow>"
+  match cosmwasmCapability compiled with
+  | .error e => throw <| IO.userError s!"needle-overflow capability: {e.render}"
+  | .ok capability =>
+      expectPlanErrorContaining "needle gate" "would overlap bump heap"
+        (buildFromCapability capability)
+  IO.println "  ✓ static layout capacity fail closed (P0-1)"
+
 /-- Entry point for manual / future shard registration. -/
 unsafe def run : IO Unit := do
   IO.println "CosmWasmPlanV1"
@@ -421,6 +466,7 @@ unsafe def run : IO Unit := do
   testNamedAggregateFc session
   testInvariantFc session
   testMaterializeAggregate session
+  testStaticLayoutCapacityFc session
   IO.println "CosmWasmPlanV1: all checks passed"
 
 end Tests.Materialization.CosmWasmPlanV1

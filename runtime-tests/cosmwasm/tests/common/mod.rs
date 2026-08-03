@@ -152,6 +152,14 @@ pub fn execute_trap(instance: &mut CwInstance, msg: &[u8]) -> VmError {
     }
 }
 
+/// Instantiate that is expected to trap (P0-2 parse overflow hardening).
+pub fn instantiate_trap(instance: &mut CwInstance, msg: &[u8]) -> VmError {
+    match call_instantiate::<_, _, _, Empty>(instance, &mock_env(), &creator_info(), msg) {
+        Err(e) => e,
+        Ok(cr) => panic!("expected Wasm trap VmError, got ContractResult {cr:?}"),
+    }
+}
+
 /// Raw query JSON (MVP `{"ok":"<decimal>"}` is not cosmwasm-std Binary base64).
 pub fn query_raw(instance: &mut CwInstance, msg: &[u8]) -> Vec<u8> {
     let env = to_json_vec(&mock_env()).expect("env json");
@@ -228,6 +236,25 @@ pub fn read_state0_u64(instance: &mut CwInstance) -> Option<u64> {
             }))
         })
         .expect("with_storage")
+}
+
+/// Read an arbitrary state key as little-endian u64 (MockStorage direct).
+pub fn read_state_u64_named(instance: &mut CwInstance, key: &str) -> Option<u64> {
+    instance
+        .with_storage(|store| {
+            let (val, _gas) = store.get(key.as_bytes());
+            let val = val.map_err(VmError::from)?;
+            Ok(val.map(|bytes| {
+                assert_eq!(bytes.len(), 8, "state value must be 8 bytes");
+                u64::from_le_bytes(bytes.try_into().unwrap())
+            }))
+        })
+        .expect("with_storage")
+}
+
+/// Read state field 0 as little-endian i64 (Int64 fixtures; MockStorage direct).
+pub fn read_state0_i64(instance: &mut CwInstance) -> Option<i64> {
+    read_state_u64_named(instance, STATE_KEY_0).map(|v| v as i64)
 }
 
 /// Read layout marker presence.

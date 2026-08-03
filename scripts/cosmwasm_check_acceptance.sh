@@ -299,10 +299,13 @@ build_rc=$?
 set -e
 
 if [[ "$build_rc" -ne 0 ]]; then
-  product_skip "build --target cosmwasm failed (exit $build_rc; A1 emitter may be unmerged)"
-  echo "$build_out" | head -20 || true
-  echo "cosmwasm-check-acceptance: ok (fixtures only)"
-  exit 0
+  # Acceptance hardening (A1-repair): when the product CLI exists, a failed
+  # product build is a REAL defect (emitter present in tree), not an
+  # environment absence — hard fail. Skip-clean is reserved for missing
+  # tools/CLI/source only.
+  echo "FAIL: build --target cosmwasm failed (exit $build_rc)" >&2
+  echo "$build_out" | head -20 >&2 || true
+  exit 1
 fi
 
 # Find any .wasm under product output (bash 3.2-safe: no mapfile).
@@ -318,9 +321,8 @@ if [[ "${#product_wasms[@]}" -eq 0 ]]; then
     [[ -n "$line" ]] && product_wats+=("$line")
   done < <(find "$PRODUCT_OUT" -type f -name '*.wat' | sort)
   if [[ "${#product_wats[@]}" -eq 0 ]]; then
-    product_skip "no .wasm/.wat in product output"
-    echo "cosmwasm-check-acceptance: ok (fixtures only)"
-    exit 0
+    echo "FAIL: no .wasm/.wat in product output" >&2
+    exit 1
   fi
   for wat in "${product_wats[@]}"; do
     wasm="${wat%.wat}.wasm"
