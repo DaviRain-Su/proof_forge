@@ -1104,8 +1104,9 @@ theorem mkS2_value_bool :
     Bind.bind, Pure.pure, Except.bind, Except.pure]
 
 theorem boolReq_eq_wire : boolReq = wireBoolReq := by
-  unfold boolReq
-  simp only [mkS2_value_bool]
+  -- Both sides use the transparent `s2ValueBoolDigestBytesV1` spine.
+  unfold boolReq wireBoolReq
+  rfl
 
 theorem expectProgramRequirements_proofed :
     expectTag "ProgramRequirements" 1 ⟨proofedWireBytes, 690, 2⟩ =

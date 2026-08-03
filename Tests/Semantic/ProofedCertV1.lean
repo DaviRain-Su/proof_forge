@@ -54,12 +54,13 @@ def invC : CallableV1 := {
   loopBounds := #[], invariantSteps := some 3
 }
 
-/-- Engineering digest for closed S2 `value.bool` (structure gate ignores
-    digest content for a singleton row; encode identity is out of scope). -/
-private def boolReqDigest : Digest :=
-  match engineeringRequirementDigestV1 "value.bool" with
-  | .ok d => d
-  | .error _ => { algorithm := .sha256, bytes := ByteArray.empty }
+/-- Engineering digest for closed S2 `value.bool`. Transparent precomputed
+    spine (exact `s2ValueBoolDigestBytesV1`) so encode/decode certificates
+    can join by definitional equality without reducing SHA. -/
+private def boolReqDigest : Digest := {
+  algorithm := .sha256
+  bytes := s2ValueBoolDigestBytesV1
+}
 
 /-- Closed singleton `value.bool` row used by the Normalize simple-closure
     carrier. Id/version/predicates are definitionally fixed for structure. -/
