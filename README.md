@@ -94,12 +94,18 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 
 ![Compilation pipeline](docs/diagrams/02-compilation-pipeline.png)
 
-### 一源多目标（Phase 1 engineering）
+### 一源多目标（accepted Phase 1 vs engineering registry）
 
-同一 `Counter` 语义；`--target` 只改变物化与制品编码。工程 registry **11 = 8 implemented +
-3 design-only**：八个 materializer 为 EVM、Solana、NEAR、Noir、Aleo、Psy、CosmWasm、TON；
-design-only 为 Soroban、ICP、OpenVM。CosmWasm 工程面为 WAT + locked `wat2wasm` +
-`cosmwasm-check` + cosmwasm-vm mock；TON 工程面为 Tolk + real BoC + `@ton/sandbox`。
+同一 `Counter` 语义；`--target` 只改变物化与制品编码。
+
+- **Accepted PRD Phase 1 范围（四目标）**：EVM / Solana / NEAR / Noir。工程 registry
+  扩大到 Aleo / Psy / CosmWasm / TON 的 reconciliation 仍由 **`DOC-ADR-SCOPE`** 跟踪，
+  **不得**把后四者静默读成 accepted Phase 1 范围扩张。
+- **Engineering registry（代码事实）**：**11 = 8 implemented + 3 design-only**。八个
+  materializer：EVM、Solana、NEAR、Noir、Aleo、Psy、CosmWasm、TON；design-only：
+  Soroban、ICP、OpenVM。CosmWasm 工程面为 WAT + locked `wat2wasm` + `cosmwasm-check` +
+  cosmwasm-vm mock；TON 工程面为 Tolk + real BoC + `@ton/sandbox`。
+
 下图是早期四目标架构示意；当前事实以本页诚实表与
 [`docs/targets/README.md`](docs/targets/README.md) 为准。
 
@@ -162,16 +168,20 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 
 ## 目标与成熟度（诚实表）
 
+> **双轨**：表中「本阶段」区分 **accepted PRD Phase 1 四目标**（EVM/Solana/NEAR/Noir）与
+> **engineering implemented leaves**（Aleo/Psy/CosmWasm/TON；scope ADR 仍 open，见
+> `DOC-ADR-SCOPE`）。后四行 **不是** accepted Phase 1 范围扩张。
+
 | Target | 角色 | 本阶段 | 证据状态（不得夸大） |
 |---|---|---|---|
-| `evm` | contract VM | Phase 1 | retained-Semantic Plan/IR → Yul + locked `solc` bytecode；G4 Anvil 工程差分；**非** formal Reference↔Anvil / D4 完成 |
-| `solana` | explicit-account SVM | Phase 1 | target-owned Plan/IR → SBPF asm + locked assembler ELF `.so`；Mollusk 工程差分；**非** formal Stage-0/hermetic |
-| `near` | Wasm host | Phase 1 | WAT/Wasm + locked `wat2wasm` / host-optional runtime load；locked near-sandbox Counter receipt happy path；**非** formal Reference↔sandbox / D6 完成 |
-| `noir` | circuit | Phase 1 | target-owned Plan/relation IR → `.nr` packages + locked nargo compile-only；**无** ACIR/witness/proof/VK/verify |
-| `aleo` | ZK application chain | Phase 1 | target-owned Plan/IR → Leo source + locked leo compile-only；**无** VM/prove/deploy |
-| `psy` | ZK application chain | Phase 1 | target-owned Plan/IR → Dargo/Psy source；host-optional compile，无 locked VM/prover |
-| `cosmwasm` | Wasm host | Phase 1 | target-owned Plan/IR → WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 差分；registry label=`wasm-validated-alpha`；sync call FC、async→SubMsg（同 tx savepoint，非跨 tx）；**非** wasmd/链上/formal |
-| `ton` | TVM stack-account | Phase 1 | target-owned Plan/IR → Tolk + real BoC + `@ton/sandbox` 工程差分；registry label=`source-only`；resolver 开 async/event、**Plan schedule 仍 FC**（destination/send-mode 未接线）；**非** 主网/formal |
+| `evm` | contract VM | accepted Phase 1 | retained-Semantic Plan/IR → Yul + locked `solc` bytecode；G4 Anvil 工程差分；**非** formal Reference↔Anvil / D4 完成 |
+| `solana` | explicit-account SVM | accepted Phase 1 | target-owned Plan/IR → SBPF asm + locked assembler ELF `.so`；Mollusk 工程差分；**非** formal Stage-0/hermetic |
+| `near` | Wasm host | accepted Phase 1 | WAT/Wasm + locked `wat2wasm` / host-optional runtime load；locked near-sandbox Counter receipt happy path；**非** formal Reference↔sandbox / D6 完成 |
+| `noir` | circuit | accepted Phase 1 | target-owned Plan/relation IR → `.nr` packages + locked nargo compile-only；**无** ACIR/witness/proof/VK/verify |
+| `aleo` | ZK application chain | engineering implemented (scope ADR open) | target-owned Plan/IR → Leo source + locked leo compile-only；**无** VM/prove/deploy |
+| `psy` | ZK application chain | engineering implemented (scope ADR open) | target-owned Plan/IR → Dargo/Psy source；host-optional compile，无 locked VM/prover |
+| `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | target-owned Plan/IR → WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 差分；registry label=`wasm-validated-alpha`；sync call FC、async→SubMsg（同 tx savepoint，非跨 tx）；**非** wasmd/链上/formal |
+| `ton` | TVM stack-account | engineering implemented (scope ADR open) | target-owned Plan/IR → Tolk + real BoC + `@ton/sandbox` 工程差分；registry label=`source-only`；resolver 开 async/event、**Plan schedule 仍 FC**（destination/send-mode 未接线）；**非** 主网/formal |
 | Soroban / ICP / OpenVM | — | design only | 仅档案与路线图，**无** 产品 backend（design-only 3） |
 
 详情：[`docs/targets/README.md`](docs/targets/README.md)。

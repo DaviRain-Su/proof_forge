@@ -29,9 +29,11 @@ ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → **八个 materializ
 工程 registry **11 = 8 implemented + 3 design-only**（Soroban/ICP/OpenVM）。CosmWasm
 工程面为 WAT + locked `wat2wasm` + `cosmwasm-check` + cosmwasm-vm mock（sync call FC、
 async SubMsg 同 tx）；TON 工程面为 Tolk + real BoC + `@ton/sandbox`（resolver 开 async、
-Plan schedule 仍 FC）。以上均为工程观察，**非** formal/hermetic。日常缺口队列见
-[`engineering-backlog.md`](engineering-backlog.md)。下表中的 task/evidence 文档继续保存
-历史 release-qualification 权威，但不再作为 development completion 的前置条件。
+Plan schedule 仍 FC）。以上均为工程观察，**非** formal/hermetic。
+**Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；后四个 engineering
+leaves 的产品范围 reconciliation 仍待 **`DOC-ADR-SCOPE`**，不得静默扩 accepted scope。
+日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。下表中的 task/evidence
+文档继续保存历史 release-qualification 权威，但不再作为 development completion 的前置条件。
 
 ## 当前索引
 

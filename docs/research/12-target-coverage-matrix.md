@@ -29,6 +29,9 @@ normative: false
 > EVM / Solana / NEAR / Noir / Aleo / Psy / **CosmWasm** / **TON**。下列 §1 主表保留
 > 原六 target 细格；**CosmWasm 与 TON 的真实 MVP 范围见 §1b**（勿再写成 A0-only 或
 > research-unaddressable）。compile / mock / sandbox **不是** formal 或 hermetic。
+>
+> **双轨**：accepted PRD Phase 1 范围仍为 **EVM/Solana/NEAR/Noir**；Aleo/Psy/CosmWasm/TON
+> 为 engineering leaves，**不**自动扩 accepted scope（`DOC-ADR-SCOPE` 仍 open）。
 
 ## 1. 语义 op 覆盖矩阵（wire Op × target；原六 materializer 细格）
 

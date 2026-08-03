@@ -11,11 +11,13 @@ normative: true
 
 状态：`draft`
 Target ID：`cosmwasm`
-Phase 1：**MVP 已实现**（2026-08-03，见 §0；此前 A0→隔离→修复/design-exit 的完整过程见 §0.1）
+工程 MVP：**已实现**（2026-08-03，见 §0；此前 A0→隔离→修复/design-exit 的完整过程见 §0.1）。
+**Engineering only**——**非** accepted PRD Phase 1 四目标范围；accepted scope reconciliation
+见 **`DOC-ADR-SCOPE`**。
 
 ## 0. 工程状态（2026-08-03，当前）
 
-**已实现（MVP，merge `integrate/ton-2`）**：registry 晋升 implemented
+**已实现（engineering MVP，merge `integrate/ton-2`）**：registry 晋升 implemented
 （profile `cosmwasm-wasm-u64-v1`，maturity `wasm-validated-alpha`）；`Targets/CosmWasm/**`
 target-owned Plan/IR/WAT emitter（public UInt64 多字段 KV state→`env.db_*`、init/entry/view
 →`instantiate`/`execute`/`query`、`allocate`/`deallocate`/`interface_version_8`、有界最小

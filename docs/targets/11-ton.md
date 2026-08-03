@@ -11,11 +11,12 @@ normative: true
 
 状态：`draft`
 Target ID：`ton`
-Phase 1：**MVP 已实现**（2026-08-03，见 §0）
+工程 MVP：**已实现**（2026-08-03，见 §0）。**Engineering only**——**非** accepted PRD
+Phase 1 四目标范围；accepted scope reconciliation 见 **`DOC-ADR-SCOPE`**。
 
 ## 0. 工程状态（2026-08-03）
 
-**已实现（TON-1/TON-2，branch `integrate/ton-2`）**：ADR-0024 提升为 implemented
+**已实现（engineering TON-1/TON-2，branch `integrate/ton-2`）**：ADR-0024 提升为 implemented
 （8 implemented + 3 design-only；profile `ton-tolk-boc-v1`；六轴 `tvm`/`transactionAtomic`/
 `cellHashmap`/`asynchronousActor`/`noProof`/`tonChain`）；`Targets/Ton/**` target-owned
 Plan/IR/Tolk emitter——c4 扁平 struct cell 状态（无 dict）、`onInternalMessage` op 分发

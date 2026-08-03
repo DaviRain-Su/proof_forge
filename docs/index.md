@@ -20,8 +20,9 @@ CheckV1/Normalize → `CompiledSemanticV1` → capability Plan/IR → 工程制�
 工程 registry **11 = 8 implemented + 3 design-only**；**八个 materializer**
 （EVM/Solana/NEAR/Noir/Aleo/Psy/CosmWasm/TON）均直连 retained `SemanticProgramV1`。
 CosmWasm：WAT + `wat2wasm` + check + mock VM；TON：Tolk/BoC + sandbox（Plan schedule 仍
-FC）。Normalize 为扩展中的子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于
-2026-08-01 移除。
+FC）。**Accepted PRD Phase 1 仍为四目标**（EVM/Solana/NEAR/Noir）；Aleo/Psy/CosmWasm/TON
+为 engineering leaves，范围 reconciliation 待 **`DOC-ADR-SCOPE`**。Normalize 为扩展中的
+子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 
 **日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。  
 **Goal 全队列执行**：[`.grok/goals/prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md)（[`QUEUE.md`](../.grok/goals/QUEUE.md) + [`slices/`](../.grok/goals/slices/)）。  
