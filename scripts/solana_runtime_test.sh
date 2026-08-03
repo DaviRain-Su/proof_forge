@@ -73,6 +73,8 @@ fixtures=(
   MapMini
   PrincipalStore
   WideMul
+  PairRet
+  MaybeRet
 )
 
 echo "solana-runtime-test: building proof-forge-next (lake build proof_forge_next)"
