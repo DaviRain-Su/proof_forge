@@ -53,7 +53,9 @@ Ops: literal, loadParam, loadState, checkedAdd/Sub/Mul/Div/Mod,
 bitAnd/Or/Xor/Not, checkedShl/Shr, boolNot/And/Or, zeroState, storeState,
 storeStateMulti, setHeader, setReturnData (u64 LE / bool / multi-leaf B-RET-ABI),
 compare, assert, returnNone, revertError, ifRegion, switchRegion, forRegion,
-callFn (inline expand), emitEvent (`sol_log_data`).
+callFn (inline expand), emitEvent (`sol_log_data`), externalCall/schedule
+(real CPI via `sol_invoke_signed_c`, empty AccountMeta; result-bearing call
+reads `sol_get_return_data`).
 
 ## Fail closed
 
@@ -232,7 +234,8 @@ private def opResultLimbCount : Operation → Nat
   | .signedCompare .. | .checkedSar ..
   | .bitAnd .. | .bitOr .. | .bitXor .. | .checkedShl .. | .checkedShr ..
   | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
-  | .compare .. | .wideCompare .. | .callFn .. => 1
+  | .compare .. | .wideCompare .. | .callFn ..
+  | .externalCall _ _ _ (some _) => 1
   | _ => 0
 
 /-- Destination temp of a value-producing op, if any. -/
@@ -259,6 +262,7 @@ private def opDestination? : Operation → Option Nat
       .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
       .compare destination .. | .wideCompare _ destination .. |
       .callFn _ destination _ => some destination
+  | .externalCall _ _ _ (some destination) => some destination
   | _ => none
 
 /-- Max destination+1 over an op sequence (canonical temp count). -/
@@ -1303,6 +1307,124 @@ private structure InlineCtx where
       body op writing temp `t < arity` can never clobber a param slot. -/
   paramBase : Nat
 
+/-- Parse limb `limb` (0..3) of a 64-hex-char program id as LE u64 value. -/
+private def programIdLimbLeV1 (hex64 : String) (limb : Nat) : CompileResult Nat := do
+  unless hex64.length == 64 do
+    return ← asmError s!"S1b program_id must be 64 hex chars, got length {hex64.length}"
+  unless limb < 4 do
+    return ← asmError s!"S1b program_id limb index {limb} out of range"
+  let chars := hex64.toList
+  let base := limb * 16
+  let mut value : Nat := 0
+  for i in [:8] do
+    let some hi := hexDigitValue chars[base + 2 * i]! |
+      return ← asmError s!"S1b program_id has non-hex at index {base + 2 * i}"
+    let some lo := hexDigitValue chars[base + 2 * i + 1]! |
+      return ← asmError s!"S1b program_id has non-hex at index {base + 2 * i + 1}"
+    let byte := hi * 16 + lo
+    value := value + byte * (Nat.pow 2 (8 * i))
+  pure value
+
+/-- BL-27: emit real CPI via `sol_invoke_signed_c` with empty AccountMeta list.
+    Instruction data = method discriminator (product ABI) + LE UInt64 args.
+    When `resultDest` is set, read 8B LE return data via `sol_get_return_data`
+    (short/missing → `cpiReturnDataError` 0x1006). Frame budget still enforced
+    via the shared cursor/allocTemps path. -/
+private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
+    (callee : Array String) (programIdHex : String) (args : Array Nat)
+    (resultDest : Option Nat) (kindNote : String) : CompileResult AsmBuf := do
+  unless callee.size ≥ 2 do
+    return ← asmError s!"S1b {kindNote} callee must have ≥2 components"
+  let method := callee[callee.size - 1]!
+  let note := String.intercalate "." callee.toList
+  let n := args.size
+  let discHex := externalMethodDiscriminator method n
+  let discLe ← discriminatorToLeU64V1 discHex
+  -- Stack layout (absolute temps, each 8B):
+  --   pid[4] | data[1+n] | ix[5] | [retbuf 1 | pidOut 4] if result
+  let pidBaseSlots := 4
+  let dataSlots := 1 + n
+  let ixSlots := 5
+  let resultSlots := match resultDest with | some _ => 5 | none => 0
+  let need := pidBaseSlots + dataSlots + ixSlots + resultSlots
+  let (b1, bufBase) := allocTemps b0 need
+  let pidBase := bufBase
+  let dataBase := bufBase + pidBaseSlots
+  let ixBase := dataBase + dataSlots
+  let retBase := ixBase + ixSlots
+  let pidOutBase := retBase + 1
+  let mut b := emit b1
+    s!"  ; {kindNote} {note} program_id=0x{programIdHex} ({n} args) via sol_invoke_signed_c"
+  b := emit b s!"  ; method disc={discHex} (product ABI, empty AccountMeta)"
+  b := emit b "  ; stack temps grow downward: reverse-pack multi-word structs"
+  -- program_id: 4 LE u64 limbs in *increasing* memory (= decreasing temp index).
+  -- limb0 at highest temp (lowest addr) … limb3 at pidBase (highest addr).
+  for limb in [:4] do
+    let v ← programIdLimbLeV1 programIdHex limb
+    b := emit b s!"  lddw r1, {hexImm v}"
+    b := storeTempAbs b (pidBase + 3 - limb) "r1"
+  let pidPtrTemp := pidBase + 3
+  -- instruction data: disc then args, reverse-packed so disc is at lowest addr.
+  -- dataSlots = 1+n; disc at dataBase+n, arg i at dataBase+n-1-i.
+  b := emit b s!"  lddw r1, {hexImm discLe.toNat}"
+  b := storeTempAbs b (dataBase + n) "r1"
+  for i in [:n] do
+    b := loadTemp b "r1" tempBase args[i]!
+    b := storeTempAbs b (dataBase + n - 1 - i) "r1"
+  let dataPtrTemp := dataBase + n
+  -- SolInstruction fields reverse-packed into ixBase..ixBase+4:
+  --   ixBase+4 program_id_addr (lowest addr = &SolInstruction)
+  --   ixBase+3 accounts_addr
+  --   ixBase+2 accounts_len
+  --   ixBase+1 data_addr
+  --   ixBase+0 data_len
+  b := emit b "  mov64 r1, r10"
+  b := emit b s!"  add64 r1, -{tempStackOff pidPtrTemp}"
+  b := storeTempAbs b (ixBase + 4) "r1"
+  b := emit b "  lddw r1, 0"
+  b := storeTempAbs b (ixBase + 3) "r1"  -- accounts_addr (unused, len=0)
+  b := emit b "  lddw r1, 0"
+  b := storeTempAbs b (ixBase + 2) "r1"  -- accounts_len = 0
+  b := emit b "  mov64 r1, r10"
+  b := emit b s!"  add64 r1, -{tempStackOff dataPtrTemp}"
+  b := storeTempAbs b (ixBase + 1) "r1"
+  b := emit b s!"  lddw r1, {hexImm (8 * dataSlots)}"
+  b := storeTempAbs b ixBase "r1"
+  let ixPtrTemp := ixBase + 4
+  -- invoke: r1=&SolInstruction, r2=account_infos, r3=infos_len,
+  --         r4=signers, r5=signers_len
+  b := emit b "  mov64 r1, r10"
+  b := emit b s!"  add64 r1, -{tempStackOff ixPtrTemp}"
+  b := emit b "  lddw r2, 0"
+  b := emit b "  lddw r3, 0"
+  b := emit b "  lddw r4, 0"
+  b := emit b "  lddw r5, 0"
+  b := emit b "  call sol_invoke_signed_c"
+  -- Callee program error aborts natively before return. On success r0=0.
+  match resultDest with
+  | none => pure b
+  | some dest =>
+      -- sol_get_return_data(buf, 8, program_id_out) → r0 = full length.
+      -- retBase holds the 8B result; pidOutBase..+3 hold program_id out
+      -- (reverse-pack so &pidOutBase+3 is the 32B buffer start).
+      let (b2, shortLab) := fresh b "cpi_ret_short"
+      let (b3, okLab) := fresh b2 "cpi_ret_ok"
+      b := b3
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff retBase}"
+      b := emit b "  lddw r2, 8"
+      b := emit b "  mov64 r3, r10"
+      b := emit b s!"  add64 r3, -{tempStackOff (pidOutBase + 3)}"
+      b := emit b "  call sol_get_return_data"
+      b := emit b s!"  jlt r0, 8, {shortLab}"
+      b := loadTempAbs b "r1" retBase
+      b := storeTemp b tempBase dest "r1"
+      b := emit b s!"  ja {okLab}"
+      b := emit b s!"{shortLab}:"
+      b := emit b s!"  lddw r0, {hexImm cpiReturnDataError}"
+      b := emit b "  exit"
+      pure (emit b s!"{okLab}:")
+
 mutual
 /-- Emit a single Operation. `inlineCtx=none` is a handler body (syscalls + exit). -/
 private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
@@ -1769,76 +1891,13 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       b := emit b s!"  add64 r1, -{tempStackOff descKeyPtr}"
       b := emit b "  lddw r2, 2"
       pure (emit b "  call sol_log_data")
-  | .externalCall callee programIdHex args =>
-      -- AddressBearing pilot: log static-callee site via sol_log_data.
-      -- Full CPI (`invoke_signed`) needs account metas beyond the static QN
-      -- surface; deployable CPI is a follow-on. Plan profile renders
-      -- `external_call`; ELF remains assembleable.
-      let note := String.intercalate "." callee.toList
-      let n := args.size
-      let need := n + 5
-      let (b0, bufBase) := allocTemps b need
-      let keySlot := bufBase
-      let mut b := emit b0 s!"  ; external_call {note} program_id=0x{programIdHex} ({n} args) via sol_log_data"
-      -- Fixed key tag 0xEC01 for sync external call observability.
-      b := emit b "  lddw r1, 0xec01"
-      b := storeTempAbs b keySlot "r1"
-      for i in [:n] do
-        let slot := bufBase + n - i
-        b := loadTemp b "r1" tempBase args[i]!
-        b := storeTempAbs b slot "r1"
-      let dataHighSlot := if n == 0 then bufBase else bufBase + n
-      let descKeyPtr := bufBase + n + 1
-      let descKeyLen := bufBase + n + 2
-      let descDataPtr := bufBase + n + 3
-      let descDataLen := bufBase + n + 4
-      b := emit b "  mov64 r1, r10"
-      b := emit b s!"  add64 r1, -{tempStackOff keySlot}"
-      b := storeTempAbs b descKeyPtr "r1"
-      b := emit b "  lddw r1, 8"
-      b := storeTempAbs b descKeyLen "r1"
-      b := emit b "  mov64 r1, r10"
-      b := emit b s!"  add64 r1, -{tempStackOff dataHighSlot}"
-      b := storeTempAbs b descDataPtr "r1"
-      b := emit b s!"  lddw r1, {hexImm (8 * n)}"
-      b := storeTempAbs b descDataLen "r1"
-      b := emit b "  mov64 r1, r10"
-      b := emit b s!"  add64 r1, -{tempStackOff descKeyPtr}"
-      b := emit b "  lddw r2, 2"
-      pure (emit b "  call sol_log_data")
+  | .externalCall callee programIdHex args resultDest =>
+      emitCpiInvoke b tempBase callee programIdHex args resultDest
+        (kindNote := "external_call")
   | .schedule callee programIdHex args =>
-      let note := String.intercalate "." callee.toList
-      let n := args.size
-      let need := n + 5
-      let (b0, bufBase) := allocTemps b need
-      let keySlot := bufBase
-      let mut b := emit b0 s!"  ; schedule {note} program_id=0x{programIdHex} ({n} args) via sol_log_data"
-      -- Fixed key tag 0x5C01 for schedule observability (distinct from call).
-      b := emit b "  lddw r1, 0x5c01"
-      b := storeTempAbs b keySlot "r1"
-      for i in [:n] do
-        let slot := bufBase + n - i
-        b := loadTemp b "r1" tempBase args[i]!
-        b := storeTempAbs b slot "r1"
-      let dataHighSlot := if n == 0 then bufBase else bufBase + n
-      let descKeyPtr := bufBase + n + 1
-      let descKeyLen := bufBase + n + 2
-      let descDataPtr := bufBase + n + 3
-      let descDataLen := bufBase + n + 4
-      b := emit b "  mov64 r1, r10"
-      b := emit b s!"  add64 r1, -{tempStackOff keySlot}"
-      b := storeTempAbs b descKeyPtr "r1"
-      b := emit b "  lddw r1, 8"
-      b := storeTempAbs b descKeyLen "r1"
-      b := emit b "  mov64 r1, r10"
-      b := emit b s!"  add64 r1, -{tempStackOff dataHighSlot}"
-      b := storeTempAbs b descDataPtr "r1"
-      b := emit b s!"  lddw r1, {hexImm (8 * n)}"
-      b := storeTempAbs b descDataLen "r1"
-      b := emit b "  mov64 r1, r10"
-      b := emit b s!"  add64 r1, -{tempStackOff descKeyPtr}"
-      b := emit b "  lddw r2, 2"
-      pure (emit b "  call sol_log_data")
+      -- Fire-and-forget: same real CPI, discard return data.
+      emitCpiInvoke b tempBase callee programIdHex args none
+        (kindNote := "schedule")
 
 /-- Emit a sequence of operations, threading the assembly buffer. -/
 private partial def emitOperations (b0 : AsmBuf) (ir : IR) (tempBase : Nat)

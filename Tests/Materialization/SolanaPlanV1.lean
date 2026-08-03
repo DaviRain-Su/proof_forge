@@ -1457,9 +1457,10 @@ private unsafe def testShiftBitwiseLogical
   let ir2 ← liftResult <| irSolana compiled
   expect (ir == ir2) "BitLogic IR rebuild must be structure-identical"
 
-/-- AddressBearing: Solana admits static QualifiedName call/schedule. Plan
-    carries externalCall/schedule; default plan profile renders program_id=
-    (SHA-256 of target path). Principal remains fail-closed. -/
+/-- AddressBearing + BL-27: Solana admits static QN call/schedule as real CPI.
+    Plan carries externalCall/schedule; plan text renders program_id= (SHA-256
+    of target path); SBPF emits `sol_invoke_signed_c` (not sol_log_data).
+    Principal remains fail-closed. -/
 private unsafe def testExternalCallGate
     (session : Language.Loader.ParserSession) : IO Unit := do
   let callText := wrapProgram "CallGate" <|
@@ -1482,13 +1483,27 @@ private unsafe def testExternalCallGate
   | some (stmt : Statement) =>
       match stmt with
       | .externalCall #["Oracle", "feed"] #[.stateLoad 0 8] => pure ()
-      | _ => throw <| IO.userError "CallGate must start with externalCall Oracle.feed"
+      | _ => throw <| IO.userError "CallGate must start with void externalCall Oracle.feed"
   | none => throw <| IO.userError "CallGate bump body is empty"
   let callFiles ← liftResult <| Targets.Solana.buildFromCapability callCap
   let some planFile := callFiles.find? (·.path.endsWith ".sbpf-plan") |
     throw <| IO.userError "CallGate: missing .sbpf-plan"
   expect (planFile.contents.contains "external_call Oracle.feed program_id=0x")
     "CallGate sbpf-plan must render static external_call with program_id"
+  -- ELF profile: real CPI, not sol_log_data observation stub.
+  let elfSelection ← liftResult <|
+    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfElfV1)
+  let elfCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 elfSelection callCompiled
+  let elfFiles ← liftResult <| Targets.Solana.buildFromCapability elfCap
+  let some asmFile := elfFiles.find? (·.path.endsWith ".s") |
+    throw <| IO.userError "CallGate ELF profile: missing .s"
+  expect (asmFile.contents.contains "sol_invoke_signed_c")
+    "CallGate SBPF must emit sol_invoke_signed_c for void sync call"
+  expect (!asmFile.contents.contains "via sol_log_data")
+    "CallGate call path must not comment via sol_log_data stub"
+  expect (!asmFile.contents.contains "0xec01")
+    "CallGate must not emit legacy 0xec01 log-key tag"
 
   let scheduleText := wrapProgram "ScheduleGate" <|
     "  state count : UInt64\n\n" ++
@@ -1517,6 +1532,62 @@ private unsafe def testExternalCallGate
     throw <| IO.userError "ScheduleGate: missing .sbpf-plan"
   expect (sPlan.contents.contains "schedule Ledger.daily program_id=0x")
     "ScheduleGate sbpf-plan must render static schedule with program_id"
+  let sElfSel ← liftResult <|
+    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfElfV1)
+  let sElfCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 sElfSel scheduleCompiled
+  let sElfFiles ← liftResult <| Targets.Solana.buildFromCapability sElfCap
+  let some sAsm := sElfFiles.find? (·.path.endsWith ".s") |
+    throw <| IO.userError "ScheduleGate ELF: missing .s"
+  expect (sAsm.contents.contains "sol_invoke_signed_c")
+    "ScheduleGate SBPF must emit sol_invoke_signed_c"
+  expect (!sAsm.contents.contains "0x5c01")
+    "ScheduleGate must not emit legacy 0x5c01 log-key tag"
+
+  -- Result-bearing sync call: Plan binds resultTemp; SBPF reads return data.
+  let retText := wrapProgram "CallRetGate" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry run(k : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := call ledger.get(k)\n" ++
+    "    count := x\n" ++
+    "    return x\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let retCompiled ← compileSource session retText
+    "Examples.CallRetGate" "<solana-call-ret-gate>"
+  let retSel ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
+  let retCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 retSel retCompiled
+  let retPlan ← liftResult <| Targets.Solana.planFromCapability retCap
+  match retPlan.entries[0]!.body[0]? with
+  | some (stmt : Statement) =>
+      match stmt with
+      | .externalCallResult #["ledger", "get"] #[.param 8] _ => pure ()
+      | _ =>
+          throw <| IO.userError
+            "CallRetGate expected externalCallResult ledger.get"
+  | none => throw <| IO.userError "CallRetGate run body is empty"
+  let retElfSel ← liftResult <|
+    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfElfV1)
+  let retElfCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 retElfSel retCompiled
+  let retElfFiles ← liftResult <| Targets.Solana.buildFromCapability retElfCap
+  let some retAsm := retElfFiles.find? (·.path.endsWith ".s") |
+    throw <| IO.userError "CallRetGate ELF: missing .s"
+  expect (retAsm.contents.contains "sol_invoke_signed_c")
+    "CallRetGate must CPI via sol_invoke_signed_c"
+  expect (retAsm.contents.contains "sol_get_return_data")
+    "CallRetGate must read return data via sol_get_return_data"
+  expect (retAsm.contents.contains "0x1006" ||
+      retAsm.contents.contains (toString Targets.Solana.cpiReturnDataError))
+    "CallRetGate must guard short return data with cpiReturnDataError 0x1006"
+  let some retPlanFile := retElfFiles.find? (·.path.endsWith ".sbpf-plan") |
+    throw <| IO.userError "CallRetGate: missing .sbpf-plan"
+  expect (retPlanFile.contents.contains "%0 = external_call" ||
+      retPlanFile.contents.contains " = external_call ledger.get")
+    "CallRetGate plan must render result-binding external_call"
 
 /-- Unit/void entry (`entry run() do`) fails closed at makeEntryV1. -/
 private unsafe def testVoidEntryRejected

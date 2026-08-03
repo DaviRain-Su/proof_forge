@@ -65,11 +65,13 @@ inductive Operation where
   | assert (condition : Nat) (errorCode : Nat)
   | emitEvent (eventIndex : Nat) (args : Array Nat)
   | revertError (errorIndex : Nat) (args : Array Nat)
-  /-- Static-callee external call: `callee` is the QualifiedName component array;
-      `programIdHex` is the first 32 bytes of SHA-256(UTF-8 target path) as 64
-      lower-case hex chars; `args` are UInt64 temps. -/
+  /-- Static-callee external call (real CPI). `callee` is the QualifiedName
+      component array; `programIdHex` is SHA-256(target path) as 64 hex chars;
+      `args` are UInt64 temps; `resultDest=some d` binds 8B LE return data into
+      temp `d` (void calls use `none` and discard return data). -/
   | externalCall (callee : Array String) (programIdHex : String) (args : Array Nat)
-  /-- Static-callee schedule (fire-and-forget); same program-id derivation. -/
+      (resultDest : Option Nat)
+  /-- Static-callee schedule (fire-and-forget CPI; results ignored). -/
   | schedule (callee : Array String) (programIdHex : String) (args : Array Nat)
   | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
@@ -828,7 +830,7 @@ private partial def statementListClosesV1 : List Statement → Bool
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
       | .store _ | .storeAggregate _ | .assert _ | .emitEvent .. | .externalCall ..
-      | .schedule .. | .forLoop .. => false
+      | .externalCallResult .. | .schedule .. | .forLoop .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard exit after a closed region arm, unless the arm already
@@ -868,6 +870,7 @@ private def tempDestination? : Operation → Option Nat
       .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
       .compare destination .. | .wideCompare _ destination .. |
       .callFn _ destination _ => some destination
+  | .externalCall _ _ _ (some destination) => some destination
   | _ => none
 
 /-- Peak temp count over a (possibly nested) operation array. Used by the
@@ -894,22 +897,21 @@ private partial def opsPeakTemp (ops : Array Operation) : Nat :=
 
 private partial def lowerBodyOps
     (overflowError : Nat) (resultKind : ResultKind) (assertErr boundErr : Nat)
-    (tempMap : List (Nat × Nat))
+    (tempMap0 : List (Nat × Nat))
     (next : Nat) (statements : Array Statement) : Array Operation × Nat := Id.run do
   let mut operations : Array Operation := #[]
   -- `nextBase` is the sequence entry point. Each Statement lowers an
   -- independent Expr tree; no cross-statement temp reference exists outside
-  -- forLoop bodies (where `.temp` binds only the loop variable, which lives
-  -- below `nextBase`). After a consuming statement (store/return/emit/revert/
-  -- call/schedule/assert) all temps allocated for that statement's Expr(s)
-  -- are dead, so we recycle `next` back to `nextBase`. This keeps the IR
-  -- peak temp count at the deepest single-statement tree rather than the
-  -- linear sum of all statements — critical for the dense Map cap-8 pilot
-  -- whose 24 occ/key/val leaf stores would otherwise exceed the 4096-byte
-  -- SBPF frame budget. The IR validator (`validateOperationSequence`) applies
-  -- the same recycling rule so canonical numbering stays consistent.
-  let nextBase := next
+  -- forLoop bodies and result-bearing externalCall (where `.temp` binds a
+  -- plan temp below or at the live range). After a consuming statement
+  -- (store/return/emit/revert/void-call/schedule/assert) temps for that
+  -- statement's Expr(s) are dead, so we recycle `next` back to `nextBase`
+  -- — except result-bearing externalCall, which keeps its result temp live.
+  -- Critical for the dense Map cap-8 pilot (frame budget). The IR validator
+  -- applies the same recycling rule so canonical numbering stays consistent.
+  let mut nextBase := next
   let mut next := next
+  let mut tempMap := tempMap0
   for statement in statements do
     match statement with
     | .store store =>
@@ -999,21 +1001,34 @@ private partial def lowerBodyOps
         operations := operations.push (.revertError errorIndex argTemps)
         next := nextBase
     | .externalCall callee args =>
-        let targetParts := callee.extract 0 (callee.size - 1)
-        let targetPath := String.intercalate "." targetParts.toList
-        let programIdHex := Crypto.sha256Hex targetPath.toUTF8
+        let programIdHex := externalCalleeProgramIdHex callee
         let mut argTemps : Array Nat := #[]
         for arg in args do
           let value := lowerExpr overflowError tempMap next arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
-        operations := operations.push (.externalCall callee programIdHex argTemps)
+        operations := operations.push
+          (.externalCall callee programIdHex argTemps none)
         next := nextBase
+    | .externalCallResult callee args planTemp =>
+        let programIdHex := externalCalleeProgramIdHex callee
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr overflowError tempMap next arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        -- Materialise once into IR temp; bind plan temp for later `.temp`.
+        -- Raise nextBase so later recycle cannot overwrite the result.
+        let irTemp := next
+        operations := operations.push
+          (.externalCall callee programIdHex argTemps (some irTemp))
+        tempMap := (planTemp, irTemp) :: tempMap
+        next := irTemp + 1
+        nextBase := next
     | .schedule callee args =>
-        let targetParts := callee.extract 0 (callee.size - 1)
-        let targetPath := String.intercalate "." targetParts.toList
-        let programIdHex := Crypto.sha256Hex targetPath.toUTF8
+        let programIdHex := externalCalleeProgramIdHex callee
         let mut argTemps : Array Nat := #[]
         for arg in args do
           let value := lowerExpr overflowError tempMap next arg
@@ -1151,7 +1166,8 @@ private def opResultLimbCount : Operation → Nat
   | .signedCompare .. | .checkedSar ..
   | .bitAnd .. | .bitOr .. | .bitXor .. | .checkedShl .. | .checkedShr ..
   | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
-  | .compare .. | .wideCompare .. | .callFn .. => 1
+  | .compare .. | .wideCompare .. | .callFn ..
+  | .externalCall _ _ _ (some _) => 1
   | _ => 0
 
 private def lowerFn (plan : Plan) (fn : FnBinding) : FnIR := Id.run do
@@ -1186,7 +1202,7 @@ private partial def validateOperationSequence
   -- `recycle=false` disables this for fixed dense sequences (e.g. for-loop
   -- bound-check ops) that are hand-built with consecutive temps including an
   -- intermediate assert that must NOT trigger recycling.
-  let nextBase := next
+  let mut nextBase := next
   let mut next := next
   let mut returned := false
   let mut initialized := false
@@ -1200,6 +1216,10 @@ private partial def validateOperationSequence
         throw <| .planInvariant .solana "typed Solana IR temporary numbering is not canonical"
       let limbs := opResultLimbCount operation
       next := next + (if limbs == 0 then 1 else limbs)
+      -- Result-bearing externalCall raises the recycle floor (BL-27).
+      match operation with
+      | .externalCall _ _ _ (some _) => nextBase := next
+      | _ => pure ()
     match operation with
     | .returnNone =>
         -- The hard exit terminates an arm after set_return_data (or the
@@ -1444,7 +1464,8 @@ private partial def validateOperationSequence
             args.size == plan.events[eventIndex]!.fieldCount &&
             args.all (· < next) do
           throw <| .planInvariant .solana "typed Solana IR event emission is invalid"
-    | .externalCall callee programIdHex args =>
+    | .externalCall callee programIdHex args _resultDest =>
+        -- resultDest numbering is owned by the generic tempDestination? pass.
         unless handler.mode != .view && callee.size ≥ 2 &&
             programIdHex.length == 64 &&
             args.all (· < destBound) do
@@ -1554,16 +1575,15 @@ private partial def validateOperationSequence
           throw <| .planInvariant .solana "typed Solana IR for-region update is invalid"
         next := if recycle then nextBase else next
     -- Recycle temps after consuming operations (matching lowerBodyOps).
-    -- These operations consume their operand temps; no subsequent statement
-    -- references them (cross-statement .temp is only for forLoop vars which
-    -- live below nextBase). Resetting keeps canonical numbering consistent.
+    -- Void externalCall/schedule recycle; result-bearing externalCall keeps
+    -- its resultDest live for subsequent `.temp` uses (BL-27).
     -- Disabled when recycle=false (fixed dense sequences like bound-checks).
     if recycle then
       match operation with
       | .storeState .. | .narrowStoreState .. | .storeStateMulti ..
       | .setReturnData .. | .setReturnDataBool .. | .setReturnDataMulti ..
       | .assert .. | .emitEvent .. | .revertError ..
-      | .externalCall .. | .schedule .. | .returnNone =>
+      | .externalCall _ _ _ none | .schedule .. | .returnNone =>
           next := nextBase
       | _ => pure ()
   pure (next, returned, initialized)
@@ -1875,13 +1895,17 @@ private partial def renderOperation (indent : String)
   | .emitEvent eventIndex args =>
       let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))
       s!"{indent}emit_event {events[eventIndex]!.name} {argText}\n"
-  | .externalCall callee programIdHex args =>
+  | .externalCall callee programIdHex args resultDest =>
       let note := String.intercalate "." callee.toList
       let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))
-      if args.isEmpty then
-        s!"{indent}external_call {note} program_id=0x{programIdHex}\n"
-      else
-        s!"{indent}external_call {note} program_id=0x{programIdHex} {argText}\n"
+      let callCore :=
+        if args.isEmpty then
+          s!"external_call {note} program_id=0x{programIdHex}"
+        else
+          s!"external_call {note} program_id=0x{programIdHex} {argText}"
+      match resultDest with
+      | some d => s!"{indent}%{d} = {callCore}\n"
+      | none => s!"{indent}{callCore}\n"
   | .schedule callee programIdHex args =>
       let note := String.intercalate "." callee.toList
       let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))

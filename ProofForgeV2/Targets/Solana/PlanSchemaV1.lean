@@ -264,6 +264,15 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       out := out.append (← encodeNatAsU32le args.size)
       for a in args do out := out.append (← encodeExpr a)
       pure out
+  -- BL-27: result-bearing external call (tag 12) = void shape + resultTemp.
+  | .externalCallResult callee args resultTemp => do
+      let mut out := encodeU8 12
+      out := out.append (← encodeNatAsU32le callee.size)
+      for c in callee do out := out.append (← encodeString c)
+      out := out.append (← encodeNatAsU32le args.size)
+      for a in args do out := out.append (← encodeExpr a)
+      out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
   -- Atomic aggregate multi-leaf store (tag 11): count + N × store payload.
   | .storeAggregate leaves => do
       let mut out := (encodeU8 11).append (← encodeNatAsU32le leaves.size)
