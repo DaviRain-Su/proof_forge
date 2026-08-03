@@ -416,7 +416,7 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
       (TargetId.solana, TargetKind.solana, "cannot return multi-leaf aggregate"),
       (TargetId.near, TargetKind.near, "does not return public"),
       (TargetId.noir, TargetKind.noir, "named Struct/Enum aggregate"),
-      (TargetId.aleo, TargetKind.aleo, "return of aggregate is outside"),
+      (TargetId.aleo, TargetKind.aleo, "return of anonymous aggregate is outside"),
       (TargetId.psy, TargetKind.psy, "return of aggregate is outside")] do
     expectMaterializePlanInvariantV1 "anonymous-result" target kind compiled marker
 
@@ -3303,7 +3303,9 @@ unsafe def run : IO Unit := do
           s!"B-ctx caller {target} message must cite ContextRead/caller boundary, got {e.render}"
 
   -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR admit
-  -- (multi-leaf ABI); Aleo/Psy must fail closed (scalar return ABI only).
+  -- (multi-leaf ABI); Aleo admits non-state entry aggregate returns (native
+  -- Leo tuple) while view-over-state stays fail closed; Psy must fail closed
+  -- (scalar return ABI only).
   let pairRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3331,17 +3333,44 @@ unsafe def run : IO Unit := do
   let _solanaPair ← liftResult <| planSolana pairCompiled
   -- NEAR admits: plan has .aggregate resultKind (B-RET-ABI).
   let _nearPair ← liftResult <| planNear pairCompiled
-  -- Aleo/Psy must decline aggregate return.
-  for target in [TargetId.aleo, TargetId.psy] do
-    match materializeSelected target pairCompiled with
-    | .ok _ =>
-        throw <| IO.userError s!"B-RET-ABI: {target} must decline named-aggregate return"
-    | .error e =>
-        expect ((e.render).contains "aggregate" ||
-            (e.render).contains "scalar" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "envelope")
-          s!"B-RET-ABI {target} message must cite aggregate/scalar boundary, got {e.render}"
+  -- Aleo: view-over-state aggregate return is fail closed via the
+  -- computed-view gate (only bare public-state reads map to leo query).
+  match materializeSelected TargetId.aleo pairCompiled with
+  | .ok _ =>
+      throw <| IO.userError "B-RET-ABI: aleo must decline view-over-state aggregate return"
+  | .error e =>
+      expect ((e.render).contains "leo query" ||
+          (e.render).contains "fail closed" ||
+          (e.render).contains "aggregate")
+        s!"B-RET-ABI aleo message must cite the computed-view/aggregate boundary, got {e.render}"
+  -- Aleo admits non-state entry aggregate returns (native Leo tuple).
+  let aleoPairEntrySource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PairRetEntry where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n\n" ++
+    "  entry makePair(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    return Pair.new(x, y)\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let pairEntryV1 ← match ← session.selectProgramV1 aleoPairEntrySource
+      "<targets-b-ret-abi-aleo>" "Examples.PairRetEntry" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"B-RET-ABI aleo-entry select: {e.render}"
+  let pairEntryCompiled ← liftResult <| Compiler.compileValidatedSourceV1 pairEntryV1
+  let _aleoPair ← liftResult <| planAleo pairEntryCompiled
+  -- Psy must decline aggregate return.
+  match materializeSelected TargetId.psy pairCompiled with
+  | .ok _ =>
+      throw <| IO.userError "B-RET-ABI: psy must decline named-aggregate return"
+  | .error e =>
+      expect ((e.render).contains "aggregate" ||
+          (e.render).contains "scalar" ||
+          (e.render).contains "unsupported" ||
+          (e.render).contains "envelope")
+        s!"B-RET-ABI psy message must cite aggregate/scalar boundary, got {e.render}"
 
 
 end Tests.Materialization
