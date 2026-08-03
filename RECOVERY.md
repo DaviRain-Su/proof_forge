@@ -13,8 +13,7 @@ ValidatedSourceV1
 ```
 
 当前可运行的 Counter/Accumulator（及更广 Normalize 子集）路径已由单一 `CompiledSemanticV1` 保留
-structure-valid `SemanticProgramV1`，并直接构造六个现有 materializer 的 target-owned Plan；CosmWasm
-当前仅为 registry A0，尚无 Plan leaf。产品编译、resolver 与 artifact identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
+structure-valid `SemanticProgramV1`，并直接构造八个 materializer 的 target-owned Plan（EVM/Solana/NEAR/Noir/Aleo/Psy/CosmWasm/TON）。产品编译、resolver 与 artifact identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
 Materialized/Finalized/content-descriptor/disk-closure 与全工程 planDigest 槽位绑定；D3-E9 后
 `TargetDescriptor` 六轴直接复用 registry V1 authority，并在 capability/artifact/inspect 前 exact join。但 formal `registryDigest` /
 formal SupportClaim / formal BuildIdentity mint / formal `OutputSetV1` 与完整 Phase-1 语言/runtime DoD
@@ -94,7 +93,7 @@ formal `OutputSetV1` 或 `TASK-D3-05` 完成。
    不再仅是 Counter-like S1（**当前**：Normalize 已扩多宽/控制流/fn/for/call 等，完整语言面仍未闭合）。
 3. `CompiledSemanticV1` 是唯一产品编译成功 carrier；alpha Typed/Semantic lowering与 residual accessors 无产品调用。
 4. `ProgramRequirementsV1` 是唯一产品 requirement authority；target-neutral contribution engine 只向该 authority供给，不存在第二套 AST walker、alpha parity或 caller override。
-5. EVM/Solana/NEAR/Noir/Aleo/Psy 六个 Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
+5. 八个 materializer（EVM/Solana/NEAR/Noir/Aleo/Psy/CosmWasm/TON）Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
 6. 产品 identity/output 不再依赖 transitional parallel authority：frozen registry membership/axes、
    engineering SupportClaim/BuildIdentity/PlanDigest 与 content-bound engineering `proof-forge.output.v1`
    publish/inspect 已接线。按 D3-E1，formal-layout `registryDigest` 不进入当前产品路径；formal
@@ -127,7 +126,7 @@ Wave 1  D1 ProgramV1 CLI source path + DiagnosticV1 product cutover
 `Frontend/ProtocolV1` 与 `WorkerV1` 协议面可仍存在于树中供测试/残留，**不是**产品 CLI 源权威。
 D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表面。
 
-**当前 wave = Wave 2 / D2 扩面**：六 target Plan body 已直连 retained `SemanticProgramV1`；
+**当前 wave = Wave 2 / D2 扩面**：八个 materializer Plan body 已直连 retained `SemanticProgramV1`；
 `CompiledSemanticV1` + `ProgramRequirementsV1` sole freeze + engineering resolver/capability
 已接线；alpha Core 与产品 consumer 已删。sole Normalize 已超出最初 Counter-like S1（多宽 UInt/Int、
 比较/assert、if/match、revert/emit、fn、let/for、shift/bitwise、call/schedule、部分聚合/Field 等），
@@ -151,15 +150,15 @@ D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表�
 - ProgramV1 expression 与 pattern integer literal 共用 sole decoder：unsigned decimal 或
   lowercase-prefix `0x` hexadecimal（hex digits 可大小写），拒绝 `0X`/binary/octal/underscore，
   范围 `0..2^256-1`；等值 spelling → 相同 AST/canonical bytes/sourceHash（D1-04 工程切片）。
-- Counter/Accumulator 等真实 source 可经 CLI 产出六个现有 materializer 的工程制品；EVM 使用 digest-pinned
+- Counter/Accumulator 等真实 source 可经 CLI 产出八个 materializer 的工程制品；EVM 使用 digest-pinned
   `solc 0.8.34` 生成 bytecode，并有 EvmSolc 与 G4 Anvil 工程差分（**非** formal Reference↔Anvil）。
   Solana 有 SBPF→ELF + Mollusk 运行时差分工程链路；NEAR 有 locked `wat2wasm` 结构编译、
   host-optional runtime load 与 locked
   near-sandbox 2.13.0 Counter receipt happy path（非 formal differential）；Noir 为 relation source
   package + locked nargo compile-only（无 ACIR/witness/prove/verify）；Aleo 为 source-only package +
-  locked leo compile-only，Psy 为 source-only + host-optional compile。CosmWasm A0 已进入 registry/
-  descriptor/resolver，但无 Plan/IR/materializer，故第七个 registry target 的 build 仍 fail closed。
-  六个现有 materializer 的 Plan body 均由 retained `SemanticProgramV1` 经 capability 构造；工程 output 已接 S7a–S7c + D3-E7
+  locked leo compile-only，Psy 为 source-only + host-optional compile。CosmWasm/TON 已 capability Plan/IR/materialize/finalize
+  （CW：sync 拒、async SubMsg 子集；TON：resolver admit async、Plan schedule FC；均非 formal/wasmd/主网）。
+  八个 materializer 的 Plan body 均由 retained `SemanticProgramV1` 经 capability 构造；工程 output 已接 S7a–S7c + D3-E7
   descriptors/evidence digest/post-publish inspect closure，仍非 formal D1–D4 / formal OutputSetV1 完成。
 - Legacy Source source-reading 与 v1 export decoder 已删除；command/export 仅 ProgramV1 v2。
   `selectProgramV1Product` 为产品 CLI 使用的 Loader 入口；`selectProgramV1*` /
@@ -199,12 +198,12 @@ CLI真实走完 `SemanticProgramV1 → exact resolver → target Plan/IR → Out
 private-ctor `CompiledSemanticV1` 单 carrier + engineering exact requirement resolver capability
 （`resolveEngineeringRequirementsV1 (selection, compiled)` → private
 `ResolvedEngineeringBuildV1`，exact retained SemanticProgramV1 `data.requirements`，
-无 caller request override；静态七行 S2 target/profile support index）。**精确边界**：shipped
+无 caller request override；静态九行 S2 target/profile support index）。**精确边界**：shipped
 aggregate/CLI `materialize`/`emit` 仅接受 capability；EVM/Solana/NEAR/Noir/Aleo/Psy 均在 capability 后读取
 retained `SemanticProgramV1`，经各自 private S1 lowering构造 target-owned Plan，再进入各自 IR/emission；
 residual alpha不再参与 Plan body。**D3/S6 工程**：public residual Common resolve / validateResolved /
 public makePlan 与 `TargetDescriptor.supportedRequirements` 字段/membership acceptance 已关闭；
-cycle-free `EngineeringBuildV1` leaf sole mint；六 target 仅 capability-gated
+cycle-free `EngineeringBuildV1` leaf sole mint；八 materializer 仅 capability-gated
 `planFromCapability`/`irFromCapability`/`buildFromCapability`（+ descriptor/
 validatePlan/validateIR inspection）；Registry 直接 capability dispatch；public
 `namespace Residual` 与 `planFromAlpha`/`lowerPlan`/`filesFromIR` 完整
@@ -219,7 +218,7 @@ ProgramV1 source Digest + `semanticHashV1` Digest + ordered files）；已删 pu
 `s7-output-envelope-deletion-gate` 已接入 dev/ci。**D3/S7b 工程**：locked-tool
 finalization 已迁出 CLI：`Materialization/LockedToolchainV1`（无 Core.Source/CLI）；
 private-ctor `FinalizedArtifactsV1` sole mint；Registry sole
-`finalizeMaterializedArtifactsV1` → Evm/Near/Solana/Noir/Aleo/Psy FinalizeV1 adapters；
+`finalizeMaterializedArtifactsV1` → 八 materializer FinalizeV1 adapters；
 CLI/Emit publisher-only；已删 `CLI/Toolchain` 与 `finalizeEvm`/`finalizeNear`；
 engineering `proof-forge.output.v1`/tool bytes 保持；`s7b-finalize-authority-deletion-gate` 已接入
 dev/ci。**D3/S7c + D3-E7 工程**：`ArtifactContentV1` sole physical walker/stable-read/hash
@@ -229,8 +228,8 @@ dev/ci。**D3/S7c + D3-E7 工程**：`ArtifactContentV1` sole physical walker/st
 重验 no-follow bounded closure（limits 1024/64MiB/256MiB）；`inspect <output-dir>` stable-read sidecars/
 listed artifacts、重走 closure并逐 descriptor 比对；Python validator同样拒绝 symlink/hardlink/额外或
 缺失 leaf并重算 digest；`s7c-disk-closure-gate` 已接入 dev/ci。**D3-E9 工程**：
-`TargetDescriptor` 直接复用 registry-owned 六轴，七个 registry-implemented descriptors 从 frozen
-`semanticsAxesOfKindV1` seed 派生；其中 CosmWasm 仅 A0 descriptor/profile、无 materializer Plan leaf。
+`TargetDescriptor` 直接复用 registry-owned 六轴，八个 registry-implemented descriptors 从 frozen
+`semanticsAxesOfKindV1` seed 派生（含 CosmWasm/TON Plan/materializer leaf）。
 capability resolve、artifact mint 与 CLI inspect 前逐轴 exact join，Protocol 重复轴类型已删除。
 仍**不是 formal** SupportClaim/formal resolver/formal BuildIdentity/formal `OutputSetV1`/
 ToolchainIdentity/race-free formal closure/hermetic publisher/完整 SemanticProgramV1 lowering

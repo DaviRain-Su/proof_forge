@@ -86,11 +86,12 @@ formal / release ──────────────────► 04/05
 **索引状态**：`research/README.md` 已登记 11/12/13 与后续 toolchain research；DOC-2 已关闭。
 
 **产品现状一句话**：CLI 进程内 `Loader → Normalize → CompiledSemanticV1 → capability Plan/IR →
-Materialized/Finalized + disk closure` 已通；sole Normalize 与六个现有 materializer 已覆盖非均匀的
-多宽算术、控制流、fn、let/for、shift/bitwise、call/schedule、聚合与 Field 子集；EVM/Solana/NEAR
-有工程 runtime 门，Noir/Aleo 有 compile-only 门，Psy 仍 source-only。CosmWasm 已被 registry A0
-标为 implemented 并接 descriptor/resolver，但没有 Plan/IR/materializer（CW-A1）；**完整语言面、平台语义与
-formal 资格仍未闭合**，D1–D4 = 0/27 done。
+Materialized/Finalized + disk closure` 已通；sole Normalize 与**八个 materializer**（EVM/Solana/NEAR/Noir/
+Aleo/Psy/CosmWasm/TON）已覆盖非均匀的多宽算术、控制流、fn、let/for、shift/bitwise、call/schedule、
+聚合与 Field 子集；EVM/Solana/NEAR/CosmWasm/TON 有工程 runtime 门，Noir/Aleo 有 compile-only 门，Psy
+仍 source-only。registry = **11 targets / 8 implemented + 3 design-only / 9 resolver rows**；CW：sync 拒、
+async SubMsg 子集；TON：resolver admit async、Plan schedule FC；**完整语言面、平台语义与 formal 资格仍未闭合**，
+D1–D4 = 0/27 done。
 
 ---
 
@@ -106,8 +107,8 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 | FR-004 SemanticProgram + requirements | structure-gated + S2 freeze 工程子集 | N-*、D3-E* |
 | FR-005 target 不改语义 | 架构遵守；跨 target reference trace 矩阵未做满 | R-1、C-* |
 | FR-006 exact capability | engineering resolver 有；formal SupportClaim 未 | D3-E2、B-3 |
-| FR-007 typed Plan/IR | 六个现有 materializer 有 target-owned 类型；CosmWasm A0 无 Plan/IR（CW-A1）；formal schema/hash 不齐 | CW-A1、D4-E*、T9d |
-| FR-008 accepted 四-target + runtime/proof | 工程 registry 已扩七 target（其中 CosmWasm 仅 A0 registry/descriptor/resolver，accepted scope 债见 DOC-ADR-SCOPE）；EVM/Solana runtime 较强、NEAR 仅 sandbox happy path、Noir 无 prove | CW-A1、C-1/C-4/C-6、DOC-ADR-SCOPE、PRD-DoD |
+| FR-007 typed Plan/IR | 八个 materializer 有 target-owned 类型（含 CosmWasm/TON）；formal schema/hash 不齐 | D4-E*、T9d、B-CALL-SEM |
+| FR-008 accepted 四-target + runtime/proof | accepted PRD 仍四目标；工程 registry 已 8 implemented + 3 design-only（含 CosmWasm/TON materializer；scope 债见 DOC-ADR-SCOPE）；EVM/Solana runtime 较强、NEAR/CosmWasm/TON 有工程 runtime 门、Noir 无 prove | C-1/C-4/C-6、DOC-ADR-SCOPE、PRD-DoD、B-CALL-SEM |
 | FR-009 manifest 全 hash 链 | engineering output 部分；plan/IR/tool 不齐 | D3-E3/E4、T9d |
 | FR-010 multi-program `--program` | Loader 有 | 回归保持 |
 | FR-011 CLI JSON | 主命令有；flag 面未满 | D3-E5 |
@@ -241,8 +242,8 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 | **B-OPT-STATE** | 六 target Option state Plan | target leaf | N-A4 只开 Normalize admit；Plan 全 FC | pending |
 | **B-COMMIT-ZK** | Commit × Noir/Psy | target leaf | EVM/Solana/NEAR/Aleo 身份透传已开；Noir/Psy FC | pending |
 | **B-CALL-SEM** | call/schedule capability 与真实平台语义对齐 | 产品决策 + target leaf | resolver 当前对若干键过度声明：EVM sync 为 static-hash CALL、async 为同步 CALL+丢结果；Solana 双键仅 `sol_log_data` stub（非 CPI）；Noir 双键是 relation status/arg slots；Aleo/Psy 边界亦需逐项复核。必须选择：降级 support claim/fail closed，或实现满足 Reference 契约的真实语义；禁止继续用“LOWERED”掩盖 stub/partial | pending（**先产品决策**） |
-| **CW-ABI-FREEZE** | CosmWasm A1 runtime/ABI design-exit | 产品/target semantics 决策 | dossier §6/§10 明确要求 implementation 前冻结 Rust-independent Wasm ABI、`cosmwasm-vm`/`wasmd` 版本、allowed capabilities、Cosmos SDK/schema conventions、transaction/SubMsg/reply savepoint 语义与 ABI/local-chain fixture；`SRC-CW-002` 仍 provisional。须选择并批准 versioned profile，或正式修订 dossier 允许仅 structural WAT 的工程先导并下调/限定 `wasm-validated-alpha` 声明。未合入 A2 候选 `ed2401e72` 的 locked `cosmwasm-check`+手写 fixture 仅是 static-shape 子集，不满足上述退出条件；在此之前 CW-A1 不得把行业常识或 NEAR ABI 当作冻结事实 | pending（**产品决策；阻塞 CW-A1**） |
-| **DOC-ADR-SCOPE** | accepted 范围与工程控制面 reconciliation | 文档/产品决策 | accepted PRD 仍以 EVM/Solana/NEAR/Noir 为 Phase 1，registry/CLI 已额外标记 Aleo/Psy/CosmWasm implemented（CosmWasm 目前仅 A0、无 materializer）；accepted ADR-0022/架构仍要求 contained frontend，而 B11/B12 已删除。不得直接重写 accepted 文档；需新增 accepted ADR 或正式修订，明确 4→7 registry target、CosmWasm A0→A1 门槛与 frontend assurance 取舍 | pending（**产品决策**） |
+| **CW-ABI-FREEZE** | CosmWasm A1 runtime/ABI design-exit | 产品/target semantics 决策 | 已由 **CW-5** 闭合：versioned std/vm/check 3.0.9 + wasmvm 3.0.7 + wasmd v0.70.3 dispatcher 语义冻结；structural-WAT 工程先导批准；`wasm-validated-alpha` 限定 mock 子集。历史 A0/no-dispatch 叙述作废 | **done**（见 CW-5；非 formal） |
+| **DOC-ADR-SCOPE** | accepted 范围与工程控制面 reconciliation | 文档/产品决策 | accepted PRD 仍以 EVM/Solana/NEAR/Noir 为 Phase 1，工程 registry 已 8 implemented（Aleo/Psy/CosmWasm/TON 含 materializer）+ 3 design-only；accepted ADR-0022/架构仍要求 contained frontend，而 B11/B12 已删除。不得直接重写 accepted 文档；需新增 accepted ADR 或正式修订，明确 4→8 implemented registry target 与 frontend assurance 取舍 | pending（**产品决策**） |
 | **DOC-JUST-CONTROL** | 文档引用不存在的 governance/release recipes | 文档/发布决策 | `AGENTS`/`RECOVERY`/README/CONTRIBUTING/qualification inventory 曾把 `just governance-check` / `just release-check` 写成当前命令，但本分支及已知 `origin/main` 的 `justfile` 均无 recipe。现已纠正当前文档为“不可执行”；若要恢复，必须显式设计 recipe、测试与资格边界，禁止临时拼装命令冒充 gate | pending（**产品/发布决策**） |
 | **B-FIELD-CATALOG** | Field 真 catalog 接通 Aleo(BLS12-377)/Psy(Goldilocks) | 共享核+leaf | DOC-CODE-1 已决策：**真做 T14**；Wire FieldSpec catalog sole bn254 → 三 spec（bn254/BLS12-377/Goldilocks，exact id+modulusBE membership，无任意 modulus）+ TypeKey allowlist + Source/TypeCheck Field id + Normalize catalog 镜像 + Aleo bls12_377_fr→Leo field + Psy goldilocks→Felt + Reference fieldModulus 参数化 | **done**（2026-08-02；T14 lane 0f4d9e294 + field-id 测试修复；typed/targets/source shard 绿） |
 | **B-SOL-MUL** | Solana UInt128/256 schoolbook 多字 mul + fail-closed div/mod | target leaf | SBPF emit `narrowCheckedMul` 128/256 → 真 schoolbook 多字乘（32-bit digit split、lane-ordered carry、高肢 overflow trap）；div/mod 仍 low64 + 高肢零检查 FC（err_mwdiv/err_mwmod）；WideMul 以独立 base-2^64 Rust oracle 验证高肢/跨肢成功与 `0x1001` 溢出全 state 回滚 | **done**（production `9bb6fe1ad`；runtime `de72b46fa`；WideMul 4/4 + current full Mollusk 60/60，2026-08-03；非 formal） |
@@ -286,7 +287,7 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 | **B-1d2** | Solana named Struct/Enum + Bytes state | Solana/** | **done**（2026-08-03：L2 lane `integrate/w1-all`；named 聚合 flatten + Bytes N×UInt8 state/params + atomic storeAggregate/storeStateMulti；4096B frame 硬门保持、plan/ELF 绿；聚合返回值/Option state/Bytes construct/ContextRead 仍 FC） |
 | **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2；**Map UInt64 dense pilot** cap-8 + Token deployable；Option-from-Map；EVM/Solana/NEAR/Noir/Aleo Map 横向已开并闭合 aggregate snapshot hazard） |
 | **B-1f** | Noir Map multi-leaf public inputs | Noir/** | **done**（2026-08-02：Map UInt64 cap-8 occ/key/val public-input leaves + IndexGet→Option + IndexSet upsert + Token relations；Array 已开放，Bytes 随 B-1b2 开放 fixed state + literal IndexGet/Set；Option/String state 与 Bytes construct/param/动态索引仍 FC） |
-| **CW-A1** | CosmWasm target-owned Plan/IR/materializer after registry A0 | `Targets/CosmWasm*` + Registry/umbrella/tests/SBOM | **blocked / high（CW-ABI-FREEZE）**：main 的 `Registry.materializeResult` 无 `.cosmwasm` dispatch，产品 build 仍 `PF-TARGET-NOT-IMPLEMENTED`。未合入候选 `48e8bffad` 已被三路只读审计判为不可合：流程/范围审计确认缺少 ABI/scope 授权且 dossier 自相矛盾；独立代码审计另认定 key/needle/heap 静态内存重叠、JSON UInt64 overflow wrap、Int64 `min * -1` 漏 guard、attribute/heap 无界四类 P0 候选，并发现 product-build soft-skip acceptance。产品决策完成后须在当前 main 上重新建立或严格修复 target-owned public-UInt64 leaf；只可共享 Wasm AST/encoder，不得复用 NearPlan，并先写 product RED/target tests |
+| **CW-A1** | CosmWasm target-owned Plan/IR/materializer after registry A0 | `Targets/CosmWasm*` + Registry/umbrella/tests/SBOM | **done**（见 §10 **CW-1**：`Registry.materializeResult` 已有 `.cosmwasm` dispatch；Counter 纵切 Plan/IR/WAT+Wasm；sync 拒、async SubMsg 子集见 CW-4；ABI freeze 见 CW-5；非 formal） |
 | **B-3** | Principal/address-bearing 与 EVM/Solana call/schedule | Envelope + EVM/Solana | **done**（2026-08-02：PrincipalAddr 先固定 wire Principal ≠ EVM 20B / Solana 32B pubkey，不做 approximate 映射；后续 AddressBearing 以 static QualifiedName callee 独立开放 EVM/Solana 双键，仍非 dynamic address，Solana 仍非真实 CPI；完整语义债见 B-CALL-SEM） |
 | **B-ctx** | ContextRead 各 target Plan：保持 fail-closed 并补齐负向测 | 六 target | **done**（2026-08-02 起：unixTime + caller 的 implemented target materialize decline 钉测；当前 coverage matrix 六 target FC） |
 
@@ -320,7 +321,7 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 | **D3-E6** | stage supervisor / receipt（compiler-core/tool/output）——与 D1 监督层移除决策协调 | **done**（2026-08-02：**永久进程内** — 不恢复 SafeOpen/supervisor 产品路径；sole Loader 进程内；RES-1 wall 与 RES-1B published-bytes 均进程内，其余 resource producer 仍 pending；见 `RECOVERY.md` D3-E6） |
 | **D3-E7** | artifact 内容绑定与 post-publish inspect closure | **done**（2026-08-03：`ArtifactContentV1` sole walker/stable-read/hash → private canonical inventory；engineering manifest `files` 原子迁为 `role/path/size/contentSha256` descriptor，并绑定 exact evidence UTF-8 `evidenceSha256`；pure OutputSet mint；publisher sidecar 前后 inventory compare + manifest-last closure；`inspect <output-dir>` 重开 artifacts并重走 no-follow/single-link exact disk closure；legacy path-only fail closed；Python validator同构；**仅 stable observation，非 race-free/hermetic/formal OutputSetV1**） |
 | **D3-E8** | `--minimum-evidence` 进入 resolver/claim | pending：当前只解析、白名单和 JSON 回显，不参与 support decision、claim 或 manifest identity；需先冻结 evidence grade 语义，禁止把回显写成门禁 |
-| **D3-E9** | Protocol descriptor axes ↔ TargetRegistry axes 一致性门 | **done**（2026-08-03：`TargetDescriptor` 直接复用 registry-owned `*V1` 六轴；`semanticsAxesOfKindV1` 为 frozen product seed，七个 registry-implemented descriptors 补 profile/artifact-encoding metadata，其中 CosmWasm 仅 A0 descriptor、无 S6 Plan/materializer；`validateDescriptorAxesJoinV1` 在 capability resolve、artifact mint、CLI target inspect 前 exact join；Protocol 重复 axis inductive 物理删除并由 `TargetRegistryV1` suite/deletion gate 固定；**非** formal TargetSemantics payload/digest） |
+| **D3-E9** | Protocol descriptor axes ↔ TargetRegistry axes 一致性门 | **done**（2026-08-03：`TargetDescriptor` 直接复用 registry-owned `*V1` 六轴；`semanticsAxesOfKindV1` 为 frozen product seed，八个 registry-implemented descriptors（含 CosmWasm/TON Plan/materializer leaf）补 profile/artifact-encoding metadata；`validateDescriptorAxesJoinV1` 在 capability resolve、artifact mint、CLI target inspect 前 exact join；Protocol 重复 axis inductive 物理删除并由 `TargetRegistryV1` suite/deletion gate 固定；**非** formal TargetSemantics payload/digest） |
 
 ---
 
@@ -374,7 +375,7 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
    - BUILD-10：六个 ordinary-CI 漏注册 suite 接入 Typed/Targets shard
    - proposed current-path 文档：删除 B12 现状误述，保留 accepted ADR 决策债
    - B-SOL-MAP-UPSERT：EVM/Solana/NEAR/Noir/Aleo 五个 target-local snapshot 修复；Solana 真实 Mollusk 转绿
-2. **必须先决策**：CW-ABI-FREEZE（阻塞 CW-A1）+ B-CALL-SEM（降 support 或实现真实 call/schedule）+ DOC-ADR-SCOPE（accepted 4 target → engineering 7 target / frontend assurance）
+2. **必须先决策**：B-CALL-SEM（降 support 或实现真实 call/schedule）+ DOC-ADR-SCOPE（accepted 4 target → engineering 8 implemented + TON / frontend assurance）；~~CW-ABI-FREEZE / CW-A1~~ 已闭合（见 CW-1/CW-5）
 3. ~~N-INVARIANT-IR（消除 invariant 静默丢弃）~~已完成；~~D3-E7（artifact 内容 hash/inspect closure）~~与~~D3-E9（descriptor axes exact join）~~已完成；identity residual 仅余 D3-E8，且需先冻结 evidence-grade 语义
 4. ~~N-CONST-REF~~、~~N-STR-EVENT~~、~~N-FOR-INT~~与~~N-ANON-RESULT~~已完成；**剩余串行语言面**：N-CALL-RET（需 schema 决策）→ N-NEST-IDX（需缺键语义决策）→ N-MAP-CONSTRUCT（需 Wire schema 决策）
 5. **可并行 target leaf（接口冻结后）**：B-OPT-STATE / B-COMMIT-ZK / B-CTX-OPEN（需产品决策）
@@ -406,6 +407,7 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 | 2026-08-02 | **文档↔代码三方复核**（SPEC×Normalize / op×target 矩阵 / backlog done 声明）：§2.4 剩余缺口登记（15 新 ID + DOC-CODE-1）；research/12 约 9 格修正（Aleo Map/Bytes/aggregate/Array、Noir Array）；research/13 §1-§6 刷新对齐 HEAD；NEAR/Solana/Aleo/Psy dossier 工程状态段修正；**AGENTS.md T14 假声明修正**（Field catalog 仍 sole bn254；30df771f2 commit message 与 diff 不符，挂 DOC-CODE-1 待产品决策）；推荐序重排为当前批 4 lane + 下一串行主轴 |
 | 2026-08-03 | **D3-E7 工程闭合**：content descriptors + evidence digest 进入 engineering OutputSet identity；publisher pre/post inventory 与 inspect exact closure 接线；明确 stable-observation-only、formal D3-05 仍 pending |
 | 2026-08-03 | **NFR-REPEAT 工程门**：Counter × Solana default plan/Noir default 各连续两次产品构建，sidecars exact-byte + descriptor content closure 相等；进入 ordinary CI；非 formal NFR-001/clean-room |
+| 2026-08-03 | **控制面事实同步**：live present-tense 对齐 11 targets / 8 implemented + 3 design-only / 8 materializers / 9 resolver rows；修正 A0/no-dispatch 假事实；CW/TON capability 已接线；D2-07 evalInvariant 工程存在 formal pending |
 | 2026-08-03 | **D3-E9 工程闭合**：Protocol 重复六轴删除；registry V1 六轴成为 descriptor sole seed；resolve/mint/inspect 三处 exact join；非 formal TargetSemantics payload/digest |
 
 ---
