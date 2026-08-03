@@ -3160,7 +3160,12 @@ def _require_allowed_source_path(source_path: str, *, where: str) -> str:
 
 
 def _collect_case_source_paths(repo: Path, corpus_expected: set[str]) -> set[str]:
-    """Decode business cases from fixed cases/ authority only (not arbitrary listed)."""
+    """Decode business cases from fixed cases/ authority only (not arbitrary listed).
+
+    Case bytes are opened via `_stable_read_regular` (O_NOFOLLOW descriptor path)
+    after symlink-component checks — never `Path.read_bytes()` / race-follow.
+    Standalone `load_and_validate_case` / `validate-case` CLI remain unchanged.
+    """
     cases_dir = repo / CASES_REL
     if cases_dir.is_symlink():
         fail("PF-CORPUS-PATH", f"cases dir must not be a symlink: {cases_dir}")
@@ -3171,21 +3176,29 @@ def _collect_case_source_paths(repo: Path, corpus_expected: set[str]) -> set[str
     for case_file in sorted(cases_dir.iterdir()):
         if case_file.name.startswith("."):
             continue
-        # Only regular *.json; symlink/nonregular rejected.
+        # Only regular *.json; symlink/nonregular rejected before open.
         rel = case_file.relative_to(repo).as_posix()
         if case_file.is_symlink():
             fail("PF-CORPUS-PATH", f"symlink case file rejected: {rel}")
-        if not case_file.is_file() or not case_file.name.endswith(".json"):
-            # Non-json regular files under cases/ are still corpus inventory;
-            # they fail role mapping elsewhere if listed. Skip non-cases here.
+        if not case_file.name.endswith(".json"):
+            # Non-json under cases/ is still corpus inventory; skip non-cases here.
             continue
         if rel not in corpus_expected:
             fail(
                 "PF-CORPUS-INVARIANT",
                 f"case file not in corpus inventory walk: {rel}",
             )
-        _reject_symlink_components(repo, rel, where=f"case[{rel}]")
-        case = load_and_validate_case(case_file)
+        where = f"case[{rel}]"
+        _reject_symlink_components(repo, rel, where=where)
+        # O_NOFOLLOW stable observation — rejects hardlink (nlink!=1) / nonregular.
+        data, size, _digest = _stable_read_regular(case_file, where=where)
+        if size > MAX_CASE_BYTES:
+            fail(
+                "PF-CORPUS-LIMIT",
+                f"{where}: case exceeds {MAX_CASE_BYTES} bytes ({size})",
+            )
+        value = decode_canonical(data, max_bytes=MAX_CASE_BYTES)
+        case = validate_case(value)
         case_id = str(case["id"])
         stem = case_file.stem
         if case_id != stem:
@@ -3763,7 +3776,7 @@ def _run_manifest_self_tests() -> None:
             if real_examples.exists() and not examples.exists():
                 real_examples.rename(examples)
 
-        # Hardlink of a listed file rejected when nlink>1.
+        # Hardlink of a listed external source rejected when nlink>1.
         shutil.rmtree(repo)
         repo.mkdir()
         _copy_minimal_repo(repo)
@@ -3782,6 +3795,34 @@ def _run_manifest_self_tests() -> None:
         finally:
             if hard.exists():
                 hard.unlink()
+
+        # Case-file hardlink (alias outside corpus) raises nlink on the case
+        # authority during allowlist-build stable read — not Path.read_bytes.
+        shutil.rmtree(repo)
+        repo.mkdir()
+        _copy_minimal_repo(repo)
+        case_target = next((repo / CASES_REL).glob("*.json"))
+        # Keep alias outside corpus walk so inventory join does not fire first.
+        case_hard = repo / "case-hardlink-alias.json"
+        try:
+            os.link(case_target, case_hard)
+            try:
+                validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+                raise AssertionError("case hardlink nlink>1 must fail")
+            except CorpusError as err:
+                if err.code != "PF-CORPUS-PATH":
+                    raise AssertionError(
+                        f"case hardlink wrong code {err.code}: {err}"
+                    ) from err
+                if "hardlink" not in str(err) and "nlink" not in str(err):
+                    raise AssertionError(
+                        f"case hardlink error must cite hardlink/nlink: {err}"
+                    ) from err
+        except OSError:
+            pass
+        finally:
+            if case_hard.exists():
+                case_hard.unlink()
 
 
 def _cmd_validate_case(path: Path) -> None:
