@@ -15,6 +15,12 @@ open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 
 inductive Check where
+  /-- Serialized input `num_accounts` must equal `count` (V1 single-state ABI: 1).
+      Must precede every fixed-offset account/instruction load. -/
+  | numAccounts (count : Nat)
+  /-- Account `accountIndex` non-duplicate marker byte must be `0xff`
+      (full account encoding, not a 1-byte alias). Index 0 only in V1. -/
+  | accountNonDuplicate (accountIndex : Nat)
   | instructionDataLen (bytes : Nat)
   | ownerCurrentProgram (accountIndex : Nat)
   | accountDataLen (accountIndex bytes : Nat)
@@ -800,7 +806,11 @@ private def checksFor (discriminatorWidth : Nat) (account : StateAccount)
     | .mustBeInitialized => account.initializedMarker
   let paramBytes := handler.params.foldl (init := 0) fun acc p =>
     acc + slotPitchOfByteWidth p.byteWidth
+  -- Account-list shape first: fixed ACC0_*/INSTRUCTION_* offsets are only
+  -- valid for exactly one non-duplicate serialized account (V1 ABI).
   let mut checks := #[
+    .numAccounts 1,
+    .accountNonDuplicate access.accountIndex,
     .instructionDataLen (discriminatorWidth + paramBytes),
     .ownerCurrentProgram access.accountIndex,
     .accountDataLen access.accountIndex access.exactDataLen
@@ -1719,6 +1729,9 @@ private def uint64Hex (value : UInt64) : String :=
   String.ofList (List.replicate (16 - raw.length) '0') ++ raw
 
 private def renderCheck : Check → String
+  | .numAccounts count => s!"  check num_accounts == {count}\n"
+  | .accountNonDuplicate accountIndex =>
+      s!"  check account[{accountIndex}].dup_marker == 0xff\n"
   | .instructionDataLen bytes => s!"  check instruction_data_len == {bytes}\n"
   | .ownerCurrentProgram accountIndex =>
       s!"  check account[{accountIndex}].owner == current_program\n"

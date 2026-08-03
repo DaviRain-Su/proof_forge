@@ -147,6 +147,24 @@ private unsafe def testCounterAsm
   expect (asm.contains ".globl entrypoint") "asm: globl entrypoint"
   expect (asm.contains "entrypoint:") "asm: entrypoint label"
   expect (asm.contains "mov64 r6, r1") "asm: save input base to r6"
+  -- Entrypoint account-list shape before any fixed INSTRUCTION_*/ACC0_* load
+  expect (asm.contains "ldxdw r1, [r6 + NUM_ACCOUNTS]")
+    "asm: entrypoint reads NUM_ACCOUNTS"
+  expect (asm.contains "jne r1, 1, err_unknown_disc")
+    "asm: entrypoint num_accounts == 1"
+  expect (asm.contains "ldxb r1, [r6 + ACC0_HEADER + 0]")
+    "asm: entrypoint non-dup marker at ACC0_HEADER+0"
+  expect (asm.contains "jne r1, 0xff, err_unknown_disc")
+    "asm: entrypoint non-dup == 0xff"
+  -- Shape pair must appear before the first fixed instruction_data_len load.
+  let beforeIx :=
+    match asm.splitOn "ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]" with
+    | head :: _ => head
+    | [] => ""
+  expect (beforeIx.contains "ldxdw r1, [r6 + NUM_ACCOUNTS]")
+    "asm: NUM_ACCOUNTS load must precede first INSTRUCTION_DATA_LEN load"
+  expect (beforeIx.contains "ldxb r1, [r6 + ACC0_HEADER + 0]")
+    "asm: ACC0_HEADER+0 load must precede first INSTRUCTION_DATA_LEN load"
   -- S1b dispatch guard
   expect (asm.contains "ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]")
     "asm: dispatch reads ix len"
@@ -1003,6 +1021,96 @@ private unsafe def testFrameBudgetFailClosed
         expect (msg.contains "frame budget exceeded" || msg.contains "exceeds depth")
           s!"oversized-frame: error must mention frame budget or depth, got: {msg}"
 
+/-- #113: V1 single-state IR checks start with account-list shape; forged
+    missing/reordered shape checks fail validateIR; plan text and asm emit the
+    pair before fixed instruction/owner/data loads. -/
+private unsafe def testAccountListShapeChecks
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session counterSourceText counterModuleNameV1
+    "<solana-asm-account-list-shape>"
+  let ir ← liftResult <| irSolana compiled
+  let initH ← match ir.handlers.find? (·.name == "initialize") with
+    | some h => pure h
+    | none => throw <| IO.userError "account-list: missing initialize handler"
+  let getH ← match ir.handlers.find? (·.name == "get") with
+    | some h => pure h
+    | none => throw <| IO.userError "account-list: missing get handler"
+  -- Canonical order prefix for every handler: numAccounts 1, nonDup 0, …
+  expect (initH.checks.size >= 4)
+    s!"account-list: initialize checks too short ({initH.checks.size})"
+  expect (initH.checks[0]! == .numAccounts 1)
+    s!"account-list: checks[0] must be numAccounts 1, got {repr initH.checks[0]!}"
+  expect (initH.checks[1]! == .accountNonDuplicate 0)
+    s!"account-list: checks[1] must be accountNonDuplicate 0, got {repr initH.checks[1]!}"
+  expect (initH.checks[2]! == .instructionDataLen 16)
+    s!"account-list: checks[2] must be instructionDataLen 16 (disc+u64), got {repr initH.checks[2]!}"
+  expect (getH.checks[0]! == .numAccounts 1)
+    "account-list: get checks[0] must be numAccounts 1"
+  expect (getH.checks[1]! == .accountNonDuplicate 0)
+    "account-list: get checks[1] must be accountNonDuplicate 0"
+  -- Plan audit text
+  let files ← liftResult <| filesSolana compiled
+  let planText ← match files.find? (·.path == "Counter.sbpf-plan") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "account-list: missing Counter.sbpf-plan"
+  expect (planText.contains "check num_accounts == 1")
+    "account-list: plan must render num_accounts == 1"
+  expect (planText.contains "check account[0].dup_marker == 0xff")
+    "account-list: plan must render non-dup marker"
+  -- num_accounts line must appear before instruction_data_len in plan text order.
+  let beforeIxCheck :=
+    match planText.splitOn "check instruction_data_len" with
+    | head :: _ => head
+    | [] => ""
+  expect (beforeIxCheck.contains "check num_accounts == 1")
+    "account-list: plan num_accounts before instruction_data_len"
+  expect (beforeIxCheck.contains "check account[0].dup_marker == 0xff")
+    "account-list: plan non-dup before instruction_data_len"
+  -- Forged missing first check (drop numAccounts)
+  let missing := withHandlers ir (ir.handlers.map fun h =>
+    { h with checks := h.checks.extract 1 h.checks.size })
+  match validateIR missing with
+  | .ok _ =>
+      throw <| IO.userError "account-list: validateIR must reject missing numAccounts check"
+  | .error e =>
+      expect (e.render.contains "checks are incomplete" ||
+          e.render.contains "out of order")
+        s!"account-list: missing-check error must mention incomplete/order, got: {e.render}"
+  -- Forged reorder: put instructionDataLen before the shape pair
+  let reordered := withHandlers ir (ir.handlers.map fun h =>
+    if h.checks.size < 3 then h
+    else
+      let c0 := h.checks[0]!
+      let c1 := h.checks[1]!
+      let c2 := h.checks[2]!
+      let rest := h.checks.extract 3 h.checks.size
+      { h with checks := #[c2, c0, c1] ++ rest })
+  match validateIR reordered with
+  | .ok _ =>
+      throw <| IO.userError "account-list: validateIR must reject reordered shape checks"
+  | .error e =>
+      expect (e.render.contains "checks are incomplete" ||
+          e.render.contains "out of order")
+        s!"account-list: reorder error must mention incomplete/order, got: {e.render}"
+  -- Forged drop non-dup only (keep numAccounts, skip index 1)
+  let dropNonDup := withHandlers ir (ir.handlers.map fun h =>
+    if h.checks.size < 2 then h
+    else
+      let c0 := h.checks[0]!
+      let rest := h.checks.extract 2 h.checks.size
+      { h with checks := #[c0] ++ rest })
+  match validateIR dropNonDup with
+  | .ok _ =>
+      throw <| IO.userError "account-list: validateIR must reject missing non-dup check"
+  | .error e =>
+      expect (e.render.contains "checks are incomplete" ||
+          e.render.contains "out of order")
+        s!"account-list: drop-non-dup error must mention incomplete/order, got: {e.render}"
+  -- Asm still deterministic with shape guards
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  let asm2 ← liftResult <| emitSbpfAsmV1 ir
+  expect (asm == asm2) "account-list: asm deterministic with shape checks"
+
 unsafe def run : IO Unit := do
   testLegacyCallStubDeleted
   testLayoutExact16
@@ -1011,6 +1119,7 @@ unsafe def run : IO Unit := do
   testFrameBudgetConstant
   let session ← Tests.Language.ParserSession.shared
   testCounterAsm session
+  testAccountListShapeChecks session
   testProductEmitUnchanged session
   testGuardedCounterAsm session
   testMultiFieldLayout session

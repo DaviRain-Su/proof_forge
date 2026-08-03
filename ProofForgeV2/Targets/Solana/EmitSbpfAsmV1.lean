@@ -46,8 +46,11 @@ allocates return-data slots, event buffers, and callee frames.
 
 ## S1b support surface
 
-Checks: instruction_data_len, owner==current_program, data_len, signer,
-writable, headerEquals (account[0] only).
+Checks (handler order): num_accounts==1, account[0] non-dup `0xff`,
+instruction_data_len, owner==current_program, data_len, signer, writable,
+headerEquals (account[0] only). Entrypoint re-emits the account-list shape
+pair before any fixed `INSTRUCTION_*` / `ACC0_*` load so 0/2-account and
+duplicate encodings fail closed with program_error 1.
 
 Ops: literal, loadParam, loadState, checkedAdd/Sub/Mul/Div/Mod,
 bitAnd/Or/Xor/Not, checkedShl/Shr, boolNot/And/Or, zeroState, storeState,
@@ -286,10 +289,36 @@ private partial def tempCountOf (ops : Array Operation) : Nat :=
         Nat.max acc (Nat.max m1 m2)
     | _ => acc
 
+/-- Emit account-list shape pair (num_accounts==1, account[0] dup==0xff).
+    Offsets `NUM_ACCOUNTS` / `ACC0_HEADER+0` are layout-prefix constants and do
+    not depend on `exactDataLen`. Must run before any fixed post-account load. -/
+private def emitAccountListShapeChecks (b0 : AsmBuf) (errLab : String) : AsmBuf :=
+  let b := emit b0 "  ; check num_accounts == 1"
+  let b := emit b "  ldxdw r1, [r6 + NUM_ACCOUNTS]"
+  let b := emit b s!"  jne r1, 1, {errLab}"
+  let b := emit b "  ; check account[0].dup_marker == 0xff"
+  let b := emit b "  ldxb r1, [r6 + ACC0_HEADER + 0]"
+  let b := emit b s!"  jne r1, 0xff, {errLab}"
+  b
+
 /-- Emit check instructions; on failure jump to `errLab` (must lddw/exit). -/
 private def emitCheck (b : AsmBuf) (check : Check) (errLab : String) :
     CompileResult AsmBuf := do
   match check with
+  | .numAccounts count =>
+      unless count == 1 do
+        return ← asmError "S1b numAccounts check supports only count=1"
+      let b := emit b "  ; check num_accounts == 1"
+      let b := emit b "  ldxdw r1, [r6 + NUM_ACCOUNTS]"
+      let b := emit b s!"  jne r1, 1, {errLab}"
+      pure b
+  | .accountNonDuplicate accountIndex =>
+      unless accountIndex == 0 do
+        return ← asmError "S1b non-duplicate check supports only account[0]"
+      let b := emit b "  ; check account[0].dup_marker == 0xff"
+      let b := emit b "  ldxb r1, [r6 + ACC0_HEADER + 0]"
+      let b := emit b s!"  jne r1, 0xff, {errLab}"
+      pure b
   | .instructionDataLen bytes =>
       let b := emit b s!"  ; check instruction_data_len == {bytes}"
       let b := emit b "  ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]"
@@ -1926,6 +1955,9 @@ private def emitDispatch (b0 : AsmBuf) (handlers : Array HandlerIR) :
     CompileResult AsmBuf := do
   let mut b := emit b0 "entrypoint:"
   b := emit b "  mov64 r6, r1"
+  -- V1 single-state ABI: require exactly one non-duplicate account before any
+  -- fixed INSTRUCTION_*/ACC0_* absolute load (layout assumes one full account).
+  b := emitAccountListShapeChecks b "err_unknown_disc"
   -- Require at least 8 bytes of instruction data for the discriminator.
   b := emit b "  ; guard: instruction_data_len >= 8"
   b := emit b "  ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]"
@@ -1937,7 +1969,7 @@ private def emitDispatch (b0 : AsmBuf) (handlers : Array HandlerIR) :
     let lab := asmLabel handler.name
     b := emit b s!"  lddw r2, {hexImm disc.toNat}"
     b := emit b s!"  jeq r1, r2, {lab}"
-  -- fallthrough: unknown discriminator
+  -- fallthrough: unknown discriminator / account-list shape failure → Custom(1)
   b := emit b "err_unknown_disc:"
   b := emit b "  lddw r0, 1"
   b := emit b "  exit"

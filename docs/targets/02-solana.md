@@ -35,6 +35,8 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
   177 temp / 1424B < 4096B frame。`put_into_empty` 已解除 ignore 并转绿；WideMul 另以
   独立 base-2^64 oracle 钉住 UInt128/256 成功与 `0x1001` 溢出回滚；PrincipalStore 固定
   `len + 8×UInt64` identity state/param、逐叶 equality 与短值覆盖高位清零（非 pubkey）；
+- **#113 V1 单 state-account 安全矩阵**：IR/SBPF `num_accounts==1` + non-dup `0xff` 先于固定偏移；
+  Mollusk 负例 Custom(1)+完整 exact snapshot；manifest-bound ELF/Plan 字节；
 - **Option UInt64 state（BL-29）**：`slot_tag`/`slot_p0` 双 u64-LE leaf，`none` 清零 stale payload，
   assign 走多叶原子 store；Option params、非 UInt64 payload与 nested Option 仍 fail-closed；
 - **≤8 叶聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 经单次
@@ -85,9 +87,20 @@ little-endian参数布局；discriminator 固定为
 `SHA-256("proof-forge-solana-v1:" || canonical-signature)[0..8]`，避免按声明序编号造成 ABI 漂移。
 
 当前单账户 provisioning policy 要求 `initialize` 时 state account 自身为 signer、program-owned、
-writable 且 header 为 zero；成功后写入版本化 initialized marker。mutate 不再要求 signer，view
-声明 readonly。这个 signer 是 Solana 账户创建/初始化绑定，不是从业务 DSL 推导出的 authority；
-未来引入 PDA/authority 扩展时必须用新的显式 Plan policy/version，不能静默替换。
+writable 且 header 为 zero；成功后写入版本化 initialized marker。**V1 初始化消费的是已存在的
+program-owned account（caller 预先 create/allocate/assign）**，不是 System Program
+create/allocate/assign 或 PDA 派生。mutate 不再要求 signer，view 声明 readonly。这个 signer 是
+Solana 账户创建/初始化绑定，不是从业务 DSL 推导出的 authority；未来引入 PDA/authority 扩展时
+必须用新的显式 Plan policy/version，不能静默替换。
+
+**V1 序列化输入形态（#113 工程 hardening，非 multi-account/CPI）**：IR `checks` 以
+`num_accounts == 1` 与 `account[0].dup_marker == 0xff` 打头，再做 instruction_data 精确长度、
+owner==current_program、exact data_len、可选 signer/writable、headerEquals。SBPF entrypoint
+在任何固定 `INSTRUCTION_*`/`ACC0_*` 绝对偏移加载前复检该 account-list shape；失败与未知
+discriminator 同为 `program_error` / `Custom(1)`。固定 layout 仍由 `computeInputLayoutV1`
+从单一 full account 推导。Mollusk 负例矩阵覆盖 missing signer、not writable、double init、
+uninitialized/malformed marker、wrong owner、short/long data、0/2 accounts、duplicate meta、
+instruction 长度 0/7/短参/trailing，且每例用完整 exact account snapshot（#112 helper）证明无提交。
 
 initialized marker 是
 `SHA-256("proof-forge-solana-layout-v1:" || canonical-account-layout)[0..8]` 对应的 target

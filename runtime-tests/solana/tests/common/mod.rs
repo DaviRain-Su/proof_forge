@@ -4,12 +4,13 @@
 //! computed independently of the product plan (plan is only cross-checked).
 
 use {
-    mollusk_svm::Mollusk,
+    mollusk_svm::{result::Check, Mollusk},
     serde::Deserialize,
     sha2::{Digest, Sha256},
     solana_account::Account,
     solana_instruction::{AccountMeta, Instruction},
     solana_native_token::LAMPORTS_PER_SOL,
+    solana_program_error::ProgramError,
     solana_pubkey::Pubkey,
     std::{
         collections::BTreeMap,
@@ -717,4 +718,40 @@ pub fn make_counter_mollusk(program_id: &Pubkey) -> Mollusk {
 
 pub fn make_fixture_mollusk(program_id: &Pubkey, program: &str) -> Mollusk {
     make_mollusk(program_id, &fixture_output_dir(program), program)
+}
+
+/// #113 / #112: failed check path must return `Custom(CHECK_OR_UNKNOWN)` and
+/// preserve the full exact account snapshot (key set + lamports/data/owner/
+/// executable/rent_epoch), not just account data bytes.
+pub fn assert_custom1_preserves_exact_accounts(
+    mollusk: &Mollusk,
+    ix: &Instruction,
+    accounts: &[(Pubkey, Account)],
+) {
+    let expected_keys: Vec<Pubkey> = accounts.iter().map(|(k, _)| *k).collect();
+    let pre_obs: Vec<(Pubkey, Option<Account>)> = accounts
+        .iter()
+        .map(|(k, a)| (*k, Some(a.clone())))
+        .collect();
+    let pre = snapshot_exact_accounts(&expected_keys, &pre_obs)
+        .unwrap_or_else(|e| panic!("pre exact snapshot: {e}"));
+
+    let result = mollusk.process_and_validate_instruction(
+        ix,
+        accounts,
+        &[Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN))],
+    );
+
+    let post_obs: Vec<(Pubkey, Option<Account>)> = result
+        .resulting_accounts
+        .iter()
+        .map(|(key, account)| (*key, Some(account.clone())))
+        .collect();
+    let post = snapshot_exact_accounts(&expected_keys, &post_obs)
+        .unwrap_or_else(|e| panic!("post exact snapshot: {e}"));
+    assert_eq!(
+        pre, post,
+        "Custom({CHECK_OR_UNKNOWN}) failure must preserve full account snapshot \
+         (lamports/data/owner/executable/rent_epoch for every key)"
+    );
 }
