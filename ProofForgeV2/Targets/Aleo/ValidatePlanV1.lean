@@ -57,16 +57,9 @@ private def validateExprNodes (expr : Expr) (depth : Nat) : Option Nat :=
   if depth > maxExprDepth then none
   else
   match expr with
-  | .literal _ | .i64Literal _ | .u8Literal _ | .boolLiteral _ | .fieldLiteral _
+  | .literal _ | .i64Literal _ | .uintLiteral _ _ | .boolLiteral _ | .fieldLiteral _
   | .param _ | .loopVar _ | .stateLoad _ =>
       some 1
-  | .u8To64 o | .narrow8 o => do
-      let do' ← validateExprNodes o (depth + 1)
-      some (do' + 1)
-  | .u8Shl l r | .u8Shr l r => do
-      let dl ← validateExprNodes l (depth + 1)
-      let dr ← validateExprNodes r (depth + 1)
-      some (dl + dr + 1)
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
   | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
@@ -74,6 +67,10 @@ private def validateExprNodes (expr : Expr) (depth : Nat) : Option Nat :=
   | .signedCheckedDiv l r | .signedCheckedMod l r
   | .signedShl l r | .signedShr l r
   | .signedBitAnd l r | .signedBitOr l r | .signedBitXor l r
+  | .narrowCheckedAdd _ l r | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r
+  | .narrowCheckedDiv _ l r | .narrowCheckedMod _ l r
+  | .narrowBitAnd _ l r | .narrowBitOr _ l r | .narrowBitXor _ l r
+  | .narrowShl _ l r | .narrowShr _ l r
   | .fieldBinary _ l r | .fieldCompare _ l r => do
       let dl ← validateExprNodes l (depth + 1)
       let dr ← validateExprNodes r (depth + 1)
@@ -82,7 +79,7 @@ private def validateExprNodes (expr : Expr) (depth : Nat) : Option Nat :=
       let dl ← validateExprNodes l (depth + 1)
       let dr ← validateExprNodes r (depth + 1)
       some (dl + dr + 1)
-  | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o | .u8BitNot o
+  | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o | .narrowBitNot _ o
   | .fieldNeg o => do
       let do' ← validateExprNodes o (depth + 1)
       some (do' + 1)
@@ -236,12 +233,17 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "Aleo plan exceeds the state mapping limit"
   unless plan.stateFieldIsInt.size == plan.stateFieldNames.size do
     planError "Aleo plan state signedness table must match the state field count"
-  unless plan.stateFieldIsU8.size == plan.stateFieldNames.size do
-    planError "Aleo plan state u8 table must match the state field count"
-  -- A leaf is either the u64/i64 scalar lane or the Bytes u8 lane, not both.
+  unless plan.stateFieldUintWidth.size == plan.stateFieldNames.size do
+    planError "Aleo plan state uint-width table must match the state field count"
+  -- A leaf cannot be both Int64 and a narrow/unsigned width, or Field+narrow.
   for i in [0:plan.stateFieldNames.size] do
-    if plan.stateFieldIsU8.getD i false && plan.stateFieldIsInt.getD i false then
-      planError "Aleo state leaf cannot be both UInt8 and Int64"
+    let w : Nat := plan.stateFieldUintWidth.getD i 0
+    if w != 0 && w != 8 && w != 16 && w != 32 && w != 64 then
+      planError s!"Aleo state leaf uint width {w} is outside 0/8/16/32/64"
+    if plan.stateFieldIsInt.getD i false && isNarrowUintWidth w then
+      planError "Aleo state leaf cannot be both Int64 and narrow UInt"
+    if plan.stateFieldIsField.getD i false && isNarrowUintWidth w then
+      planError "Aleo state leaf cannot be both Field and narrow UInt"
   let names := plan.functions.map (·.name) ++ plan.views.map (·.name)
   for name in names do
     if isReserved name then
@@ -254,6 +256,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         planError s!"Aleo parameter '{param.name}' collides with a reserved Leo word"
       if param.isInt && param.isBool then
         planError "Aleo parameter cannot be both Bool and Int64"
+      if param.isInt && isNarrowUintWidth param.uintWidth then
+        planError "Aleo parameter cannot be both Int64 and narrow UInt"
+      if param.isField && isNarrowUintWidth param.uintWidth then
+        planError "Aleo parameter cannot be both Field and narrow UInt"
     validateStatements fn.body plan.stateFieldNames.size
     -- Leo ECMP0376015: >32 mapping sets in one final block is invalid Leo.
     -- Fail closed at plan time (the dense Map upsert emits 3×capacity sets
@@ -271,7 +277,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         unless leaves.all (fun l => l.byteWidth == 8) do
           planError
             s!"function '{fn.name}' aggregate result leaves must be 8-byte UInt64/Int64"
-        if fn.resultIsBool || fn.resultIsInt || fn.resultIsU8 || fn.resultIsField then
+        if fn.resultIsBool || fn.resultIsInt || fn.resultIsField ||
+            isNarrowUintWidth fn.resultUintWidth then
           planError
             s!"function '{fn.name}' aggregate result cannot also set scalar result flags"
         if fn.isPureHelper then

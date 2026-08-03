@@ -277,7 +277,7 @@ unsafe def testPlanValidation : IO Unit := do
     programName := "Tiny"
     stateFieldNames := #["count"]
     stateFieldIsInt := #[false]
-    stateFieldIsU8 := #[false]
+    stateFieldUintWidth := #[0]
     stateFieldIsField := #[false]
     functions := #[pureFn]
     views := #[]
@@ -302,7 +302,7 @@ unsafe def testPlanValidation : IO Unit := do
     programName := "Tiny"
     stateFieldNames := #["count"]
     stateFieldIsInt := #[false]
-    stateFieldIsU8 := #[false]
+    stateFieldUintWidth := #[0]
     stateFieldIsField := #[false]
     functions := #[reservedFn]
     views := #[]
@@ -1593,8 +1593,8 @@ unsafe def testMapSetBudgetFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"Spendy: expected set-budget decline, got {e.render}"
   | .ok _ => throw <| IO.userError "Spendy must fail closed at the Leo mapping-set budget"
 
-/-- Fixed Bytes N: N×`u8 => u8` mappings, u8 params/results, checked u8
-    arithmetic via widen → u64 op → checked `as u8` narrow. -/
+/-- Fixed Bytes N: N×`u8 => u8` mappings, u8 params/results, native u8
+    checked arithmetic (Leo trap-on-overflow; T8 multi-width). -/
 unsafe def testBytesStateLeo : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1621,12 +1621,12 @@ unsafe def testBytesStateLeo : IO Unit := do
   let plan ← liftResult <| planAleo compiled
   expect (plan.stateFieldNames == #["b_0", "b_1"])
     s!"Bytes must flatten to b_0/b_1 leaves, got {plan.stateFieldNames}"
-  expect (plan.stateFieldIsU8 == #[true, true])
-    "Bytes leaves must be marked u8"
+  expect (plan.stateFieldUintWidth == #[8, 8])
+    "Bytes leaves must be width-8"
   let set0 := plan.functions.find? (·.name == "set0")
   match set0 with
   | some fn =>
-      expect (fn.resultIsU8 && fn.params.all (·.isU8))
+      expect (fn.resultUintWidth == 8 && fn.params.all (·.uintWidth == 8))
         "Bytes entry must take and return UInt8"
   | none => throw <| IO.userError "missing set0"
   liftResult <| Targets.Aleo.validatePlan plan
@@ -1641,36 +1641,135 @@ unsafe def testBytesStateLeo : IO Unit := do
     "Bytes entry must render a u8 public param"
   expect (leo.contains "let pf_return: u8 =")
     "Bytes dropped return must bind u8"
-  expect (leo.contains " as u64)")
-    "u8 arithmetic must widen operands to u64"
-  expect (leo.contains " as u8)")
-    "u8 arithmetic must narrow the result with a checked cast"
+  -- T8: native u8 arithmetic (no widen→u64→narrow cast dance).
+  expect (leo.contains ": u8 = (")
+    "u8 arithmetic must bind native u8 results"
+  expect (!leo.contains " as u64)")
+    "native u8 path must not widen operands to u64"
   expect (leo.contains ": u8 = (!")
     "Bytes bitwise not must bind a u8 !"
 
-/-- Bytes fail-closed: mixed lane stores and UInt8 scalar state decline. -/
-unsafe def testBytesFailClosed : IO Unit := do
+/-- T8 multi-width: scalar UInt8/16/32 state + params + body native Leo ops. -/
+unsafe def testNarrowUintStateLeo : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  -- UInt8 scalar *state* stays fail-closed (only the Bytes element lane is
-  -- open): Normalize admits UInt8 state, the Aleo type closure does not.
-  let u8StateSource :=
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program U8State where\n" ++
-    "  state x : UInt8\n" ++
-    "  init(seed : UInt8) do\n" ++
+    "program NarrowBox where\n" ++
+    "  state a : UInt8\n" ++
+    "  state b : UInt16\n" ++
+    "  state c : UInt32\n" ++
+    "  init(seed8 : UInt8, seed16 : UInt16, seed32 : UInt32) do\n" ++
+    "    a := seed8\n" ++
+    "    b := seed16\n" ++
+    "    c := seed32\n" ++
+    "  entry bump8(d : UInt8) : UInt8 do\n" ++
+    "    a := a + d\n" ++
+    "    return a\n" ++
+    "  entry bump16(d : UInt16) : UInt16 do\n" ++
+    "    b := b + d\n" ++
+    "    return b\n" ++
+    "  entry bump32(d : UInt32) : UInt32 do\n" ++
+    "    c := c + d\n" ++
+    "    return c\n" ++
+    "  entry flip8() : UInt8 do\n" ++
+    "    return ~a\n" ++
+    "  entry shift8(v : UInt8) : UInt8 do\n" ++
+    "    return v << 1\n" ++
+    "  view get8() : UInt8 do\n" ++
+    "    return a\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-narrow>" "Tests.AleoNarrow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  expect (plan.stateFieldUintWidth == #[8, 16, 32])
+    s!"narrow state widths must be 8/16/32, got {plan.stateFieldUintWidth}"
+  let bump8 := plan.functions.find? (·.name == "bump8")
+  match bump8 with
+  | some fn =>
+      expect (fn.resultUintWidth == 8 && fn.params.all (·.uintWidth == 8))
+        "bump8 must take/return UInt8"
+  | none => throw <| IO.userError "missing bump8"
+  let bump16 := plan.functions.find? (·.name == "bump16")
+  match bump16 with
+  | some fn =>
+      expect (fn.resultUintWidth == 16 && fn.params.all (·.uintWidth == 16))
+        "bump16 must take/return UInt16"
+  | none => throw <| IO.userError "missing bump16"
+  let bump32 := plan.functions.find? (·.name == "bump32")
+  match bump32 with
+  | some fn =>
+      expect (fn.resultUintWidth == 32 && fn.params.all (·.uintWidth == 32))
+        "bump32 must take/return UInt32"
+  | none => throw <| IO.userError "missing bump32"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "narrowbox.aleo") |
+    throw <| IO.userError "aleo: missing narrowbox.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "mapping pf_state_0: u8 => u8;")
+    "UInt8 state must render u8 => u8 mapping"
+  expect (leo.contains "mapping pf_state_1: u8 => u16;")
+    "UInt16 state must render u8 => u16 mapping"
+  expect (leo.contains "mapping pf_state_2: u8 => u32;")
+    "UInt32 state must render u8 => u32 mapping"
+  expect (leo.contains "fn bump8(public p0: u8) -> Final {")
+    "bump8 must take a public u8 param"
+  expect (leo.contains "fn bump16(public p0: u16) -> Final {")
+    "bump16 must take a public u16 param"
+  expect (leo.contains "fn bump32(public p0: u32) -> Final {")
+    "bump32 must take a public u32 param"
+  expect (leo.contains ": u8 = (")
+    "UInt8 body ops must bind native u8"
+  expect (leo.contains ": u16 = (")
+    "UInt16 body ops must bind native u16"
+  expect (leo.contains ": u32 = (")
+    "UInt32 body ops must bind native u32"
+  expect (leo.contains ": u8 = (!")
+    "UInt8 bitNot must bind u8 !"
+  expect (leo.contains " as u8)")
+    "narrow shifts must cast the count to u8"
+
+/-- T8 fail-closed: UInt128 / narrow Int stay outside the Aleo envelope. -/
+unsafe def testNarrowUintFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let u128Source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Wide where\n" ++
+    "  state x : UInt128\n" ++
+    "  init(seed : UInt128) do\n" ++
     "    x := seed\n" ++
-    "  entry get() : UInt8 do\n" ++
+    "  entry get() : UInt128 do\n" ++
     "    return x\n"
   let parsed ← liftResult (← session.selectProgramV1
-    u8StateSource "<aleo-u8state>" "Tests.AleoU8State" none)
+    u128Source "<aleo-u128>" "Tests.AleoU128" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planAleo compiled with
   | .error (.planInvariant .aleo msg) =>
-      expect (msg.contains "UInt64" || msg.contains "width" || msg.contains "u8")
-        s!"UInt8 state decline must cite the width boundary, got: {msg}"
-  | .error e => throw <| IO.userError s!"UInt8 state: expected decline, got {e.render}"
-  | .ok _ => throw <| IO.userError "UInt8 scalar state must fail closed at Aleo plan"
+      expect (msg.contains "UInt" || msg.contains "width" || msg.contains "128")
+        s!"UInt128 decline must cite the width boundary, got: {msg}"
+  | .error e => throw <| IO.userError s!"UInt128: expected decline, got {e.render}"
+  | .ok _ => throw <| IO.userError "UInt128 state must fail closed at Aleo plan"
+  let i8Source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NarrowInt where\n" ++
+    "  state x : Int8\n" ++
+    "  init(seed : Int8) do\n" ++
+    "    x := seed\n" ++
+    "  entry get() : Int8 do\n" ++
+    "    return x\n"
+  let parsedI ← liftResult (← session.selectProgramV1
+    i8Source "<aleo-i8>" "Tests.AleoI8" none)
+  let compiledI ← liftResult <| Compiler.compileValidatedSourceV1 parsedI
+  match planAleo compiledI with
+  | .error (.planInvariant .aleo msg) =>
+      expect (msg.contains "Int" || msg.contains "width" || msg.contains "8")
+        s!"Int8 decline must cite the width boundary, got: {msg}"
+  | .error e => throw <| IO.userError s!"Int8: expected decline, got {e.render}"
+  | .ok _ => throw <| IO.userError "Int8 state must fail closed at Aleo plan"
 
 /-- B-RET-ABI: named Struct entry return flattens to 2 UInt64 leaves and
     emits a native Leo `(u64, u64)` tuple (non-Final, no state). -/
@@ -2008,7 +2107,8 @@ unsafe def run : IO Unit := do
   testMapUpsertFailClosed
   testMapSetBudgetFailClosed
   testBytesStateLeo
-  testBytesFailClosed
+  testNarrowUintStateLeo
+  testNarrowUintFailClosed
   testNamedStructReturn
   testNamedEnumReturn
   testNamedStructReturnFinalDropped
