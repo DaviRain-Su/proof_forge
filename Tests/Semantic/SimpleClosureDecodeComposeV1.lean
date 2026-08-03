@@ -2,8 +2,8 @@
   Tests.Semantic.SimpleClosureDecodeComposeV1 — B-SC-DEC final composition suite.
 
   Covers:
-    * parameterized kernel: Legal + field-path encode ⇒ full transport decode
-      recovers materialize (no free intermediate decode premises)
+    * parameterized kernel: Legal alone ⇒ production encode + full transport
+      decode recover materialize and close ordinal-0 InvariantTheoremV1
     * demo Legal kernel discharge + QN encode/parse
     * Unicode-runtime encode/decode parity
     * tagged body recovery at post-magic offset
@@ -24,6 +24,7 @@ namespace Tests.Semantic.SimpleClosureDecodeComposeV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
+open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 open ProofForgeV2.Semantic.SimpleClosureEncodeV1
 open ProofForgeV2.Semantic.SimpleClosureStructureCertV1
@@ -67,6 +68,19 @@ theorem kernel_decode_goal
     DecodeSimpleClosureGoalV1 p :=
   decodeSimpleClosureGoal_of_fields_ok_legal p b legal hfields
 
+/-- Legal alone closes production transport decode; no encode premise remains. -/
+theorem kernel_decode_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    decodeSemanticProgramDataV1 (simpleClosureWireBytesV1 p) =
+      .ok (materializeSimpleClosureDataV1 p) :=
+  decodeSimpleClosure_of_legal p legal
+
+/-- Legal alone closes the exact ordinal-0 invariant theorem. -/
+theorem kernel_invariant_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    InvariantTheoremV1 { canonicalBytes := simpleClosureWireBytesV1 p } 0 :=
+  invariantTheoremV1_of_simpleClosure_legal p legal
+
 theorem demo_tagged_body
     (b : ByteArray)
     (hfields : encodeSimpleClosureDataFieldsV1 demoParamsV1 = .ok b) :
@@ -85,6 +99,15 @@ theorem demo_full_decode
     decodeSemanticProgramDataV1 b =
       .ok (materializeSimpleClosureDataV1 demoParamsV1) :=
   decodeSimpleClosure_of_fields_ok_legal demoParamsV1 b demoParams_legal hfields
+
+theorem demo_full_decode_legal_only :
+    decodeSemanticProgramDataV1 (simpleClosureWireBytesV1 demoParamsV1) =
+      .ok (materializeSimpleClosureDataV1 demoParamsV1) :=
+  decodeSimpleClosure_of_legal demoParamsV1 demoParams_legal
+
+theorem demo_invariant_legal_only :
+    InvariantTheoremV1 { canonicalBytes := simpleClosureWireBytesV1 demoParamsV1 } 0 :=
+  invariantTheoremV1_of_simpleClosure_legal demoParamsV1 demoParams_legal
 
 /-! ### Runtime: demo + unicode parity -/
 
@@ -145,7 +168,7 @@ def run : IO Unit := do
   testDemoKernelCompose
   testUnicodeCompose
   IO.println "Tests.Semantic.SimpleClosureDecodeComposeV1: ok"
-  IO.println "  kernel: Legal + hfields ⇒ decodeSemanticProgramDataV1 = materialize"
+  IO.println "  kernel: Legal alone ⇒ encode/decode + ordinal-0 invariant theorem"
   IO.println "  demo + unicode runtime transport decode parity closed"
   IO.println "  QN encode payload + parse under Legal closed (no free hparse)"
 

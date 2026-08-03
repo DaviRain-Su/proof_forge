@@ -5,6 +5,7 @@ import ProofForgeV2.Semantic.SimpleClosureDecodeFixedFieldsV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeRootQnV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeV1
 import ProofForgeV2.Semantic.SimpleClosureEncodeV1
+import ProofForgeV2.Semantic.SimpleClosureEncodeFieldsV1
 import ProofForgeV2.Semantic.SimpleClosureStructureCertV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
 import ProofForgeV2.Semantic.Wire.CodecRoundtripV1
@@ -41,8 +42,11 @@ namespace ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
+open ProofForgeV2.Semantic.InvariantABI
+open ProofForgeV2.Semantic.SimpleClosureCertV1
 open ProofForgeV2.Semantic.SimpleClosureDecodeV1
 open ProofForgeV2.Semantic.SimpleClosureEncodeV1
+open ProofForgeV2.Semantic.SimpleClosureEncodeFieldsV1
 open ProofForgeV2.Semantic.SimpleClosureStructureCertV1
 open ProofForgeV2.Semantic.SimpleClosureTraceV1
 open ProofForgeV2.Semantic.WireV1
@@ -68,84 +72,6 @@ open ProofForgeV2.Semantic.SimpleClosureDecodeFixedFieldsV1
 open ProofForgeV2.Semantic.SimpleClosureDecodeCallableV1
   (callablesArrayBytesV1 encode_callablesArray_of_legal
     decodeCallableArrayV1_simpleClosure_of_legal)
-
-/-! ### ASCII length pin for private encodeNatAsU32le (via public encodeString) -/
-
-theorem utf8ByteSize_ofList_replicate_a (n : Nat) :
-    (String.ofList (List.replicate n 'a')).utf8ByteSize = n := by
-  induction n with
-  | zero => rfl
-  | succ n ih =>
-      rw [List.replicate_succ, String.ofList_cons, String.utf8ByteSize_append,
-        String.utf8ByteSize_singleton]
-      change 1 + (String.ofList (List.replicate n 'a')).utf8ByteSize = n + 1
-      rw [ih]; omega
-
-theorem isAscii_ofList_replicate_a (n : Nat) :
-    isAscii (String.ofList (List.replicate n 'a')) = true := by
-  simp only [isAscii]
-  have hlist : (String.ofList (List.replicate n 'a')).toList = List.replicate n 'a' :=
-    String.toList_ofList
-  rw [hlist, List.all_eq_true]
-  intro c hc
-  have : c = 'a' := List.eq_of_mem_replicate hc
-  subst this
-  decide
-
-theorem toUTF8_size_replicate_a (n : Nat) :
-    (String.ofList (List.replicate n 'a')).toUTF8.size = n := by
-  rw [String.toUTF8_eq_toByteArray, String.size_toByteArray,
-    utf8ByteSize_ofList_replicate_a]
-
-/-- Public shape of a successful sole array encode once chunk concat is known.
-    Pins the private `encodeNatAsU32le` header via encodeString's public path
-    (ASCII string of length = count) without naming the private constant. -/
-theorem encodeArray_eq_header_chunks
-    (encode : α → Except SemanticWireErrorV1 ByteArray)
-    (values : Array α) (chunks : ByteArray)
-    (hsize : values.size ≤ maxArrayElements)
-    (_hsizeU32 : values.size ≤ UInt32.size - 1)
-    (hstr : values.size ≤ maxStringBytes)
-    (hchunks : encodeArrayChunksV1 encode values.toList ByteArray.empty = .ok chunks) :
-    encodeArray encode values =
-      .ok (encodeU32le (UInt32.ofNat values.size) ++ chunks) := by
-  let s := String.ofList (List.replicate values.size 'a')
-  have hascii : isAscii s = true := isAscii_ofList_replicate_a values.size
-  have hnfc : requireNfc s = .ok () := requireNfc_eq_ok_of_isAscii s hascii
-  have hszUTF : s.toUTF8.size = values.size := toUTF8_size_replicate_a values.size
-  have hsz : s.toUTF8.size ≤ maxStringBytes := by rw [hszUTF]; exact hstr
-  have hs :
-      encodeString s =
-        .ok ((encodeU32le (UInt32.ofNat values.size)).append s.toUTF8) := by
-    have h0 := encodeString_eq_okV1 s hnfc hsz
-    rw [hszUTF] at h0
-    exact h0
-  have hs_unf := hs
-  simp only [encodeString, mapCommon, hnfc, Bind.bind, Pure.pure, Except.bind,
-    Except.pure] at hs_unf
-  simp only [hsz, ↓reduceIte] at hs_unf
-  rw [hszUTF] at hs_unf
-  simp only [encodeArray, hsize, hchunks, ↓reduceIte, Bind.bind, Pure.pure,
-    Except.bind, Except.pure]
-  split
-  · rename_i e he
-    split at hs_unf
-    · cases hs_unf
-    · rename_i v hv
-      rw [he] at hv; cases hv
-  · rename_i v hv
-    split at hs_unf
-    · rename_i e he
-      rw [he] at hv; cases hv
-    · rename_i v2 hv2
-      have hbody : v2.append s.toUTF8 =
-          (encodeU32le (UInt32.ofNat values.size)).append s.toUTF8 :=
-        Except.ok.inj hs_unf
-      have hv2_eq : v2 = encodeU32le (UInt32.ofNat values.size) :=
-        (ByteArray.append_left_inj s.toUTF8).1 hbody
-      have hv_eq : v = v2 := Except.ok.inj (hv.symm.trans hv2)
-      rw [hv_eq, hv2_eq]
-      rfl
 
 /-! ### QN encode: production encodeArrayChunks → stringArrayPayload -/
 
@@ -212,9 +138,6 @@ theorem encodeArray_qnComponents_of_legal
   have hsizeU32 : (#[p.qnHead] ++ p.qnTail).size ≤ UInt32.size - 1 := by
     have h := Nat.le_trans legal.hqnCap (by decide : 256 ≤ UInt32.size - 1)
     simpa [qnComponents_size p] using h
-  have hstr : (#[p.qnHead] ++ p.qnTail).size ≤ maxStringBytes := by
-    have h := Nat.le_trans legal.hqnCap (by decide : 256 ≤ maxStringBytes)
-    simpa [qnComponents_size p] using h
   have hlist := qn_idents_list_of_legal p legal
   have hchunks :
       encodeArrayChunksV1 encodeString (#[p.qnHead] ++ p.qnTail).toList ByteArray.empty =
@@ -228,15 +151,16 @@ theorem encodeArray_qnComponents_of_legal
       (#[p.qnHead] ++ p.qnTail).toList hlegal'
     simpa [qnComponents_toList] using h
   have henc :=
-    encodeArray_eq_header_chunks encodeString (#[p.qnHead] ++ p.qnTail)
+    encodeArray_eq_of_chunksV1 encodeString (#[p.qnHead] ++ p.qnTail)
       (stringArrayPayloadV1 (p.qnHead :: p.qnTail.toList))
-      hsize hsizeU32 hstr hchunks
+      hsize hsizeU32 hchunks
   have hsz : (#[p.qnHead] ++ p.qnTail).size = p.qnSize := qnComponents_size p
   have hpay :
       qualifiedNamePayloadV1 p =
         encodeU32le (UInt32.ofNat p.qnSize) ++
           stringArrayPayloadV1 (p.qnHead :: p.qnTail.toList) := rfl
   rw [henc, hpay, hsz]
+  simp only [ByteArray.append_eq]
 
 theorem encodeQualifiedName_materialize_eq_payload_of_legal
     (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
@@ -886,6 +810,49 @@ theorem decodeSimpleClosureGoal_of_fields_ok_legal
   unfold DecodeSimpleClosureGoalV1 canonicalWireBytesV1
   rw [hb]
   exact hdec
+
+/-- B-SC-DEC legal-only close. The sole body encoder is proven successful by
+    `SimpleClosureEncodeFieldsV1`; no encode/decode premise remains. -/
+theorem decodeSimpleClosureGoal_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    DecodeSimpleClosureGoalV1 p := by
+  obtain ⟨b, hfields⟩ := encodeSimpleClosureDataFields_ok_of_legal p legal
+  exact decodeSimpleClosureGoal_of_fields_ok_legal p b legal hfields
+
+/-- Expanded legal-only transport equality. -/
+theorem decodeSimpleClosure_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    decodeSemanticProgramDataV1 (simpleClosureWireBytesV1 p) =
+      .ok (materializeSimpleClosureDataV1 p) := by
+  simpa [DecodeSimpleClosureGoalV1, canonicalWireBytesV1] using
+    decodeSimpleClosureGoal_of_legal p legal
+
+/-- Fully closed ordinal-0 invariant theorem for every legal simple-closure
+    parameter set. This composes only production encode/decode equalities and
+    the literal-true witness; it does not require a caller-supplied wire trace. -/
+theorem invariantTheoremV1_of_simpleClosure_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    InvariantTheoremV1 { canonicalBytes := simpleClosureWireBytesV1 p } 0 := by
+  let data := materializeSimpleClosureDataV1 p
+  let bytes := simpleClosureWireBytesV1 p
+  have hencode : encodeSemanticProgramDataV1 data = .ok bytes := by
+    simpa [data, bytes, EncodeSimpleClosureGoalV1] using
+      encodeSimpleClosure_of_legal p legal
+  have hdecode : decodeSemanticProgramDataV1 bytes = .ok data := by
+    simpa [data, bytes] using decodeSimpleClosure_of_legal p legal
+  have hwitness :
+      LiteralTrueInvariantWitnessV1 data 0
+        (simpleClosureInvariantDeclV1 p.invName)
+        0 (some p.invName) .public_ none := by
+    simpa [data] using literalTrueWitness_of_materialize p
+  let cert :=
+    ProofForgeV2.Semantic.AuthorWireCertV1.LiteralTrueAuthorWireCertV1.ofParts
+      data bytes 0 (simpleClosureInvariantDeclV1 p.invName)
+      0 (some p.invName) .public_ none hencode hdecode hwitness
+  exact
+    ProofForgeV2.Semantic.AuthorWireCertV1.invariantTheoremV1_of_literalTrueAuthorWireCert
+      data bytes 0 (simpleClosureInvariantDeclV1 p.invName)
+      0 (some p.invName) .public_ none cert
 
 /-! ### Demo + Unicode kernel witnesses (no Tests FQN) -/
 
