@@ -1672,6 +1672,305 @@ unsafe def testBytesFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"UInt8 state: expected decline, got {e.render}"
   | .ok _ => throw <| IO.userError "UInt8 scalar state must fail closed at Aleo plan"
 
+/-- B-RET-ABI: named Struct entry return flattens to 2 UInt64 leaves and
+    emits a native Leo `(u64, u64)` tuple (non-Final, no state). -/
+unsafe def testNamedStructReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PairRet where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  entry makePair(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    return Pair.new(x, y)\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-pair-ret>" "Tests.AleoPairRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  let some makePair := plan.functions.find? (·.name == "makePair") |
+    throw <| IO.userError "PairRet: missing makePair"
+  match makePair.resultAggregateLeaves with
+  | some leaves =>
+      expect (leaves.size == 2)
+        s!"PairRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "PairRet leaves must be u64 (not Int)"
+      expect (leaves.all (·.byteWidth == 8))
+        "PairRet leaves must be 8-byte words"
+  | none =>
+      throw <| IO.userError "PairRet makePair must set resultAggregateLeaves"
+  match makePair.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2) "PairRet resultKind.aggregate must have 2 leaves"
+  | other =>
+      throw <| IO.userError
+        s!"PairRet resultKind must be .aggregate, got {repr other}"
+  expect (!makePair.touchesState && !makePair.resultDropped)
+    "PairRet makePair must be non-Final (no state) and keep its result"
+  expect (makePair.body.size == 1) "PairRet makePair body must be one return"
+  match makePair.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2)
+        s!"returnAggregate must have 2 leaves, got {leaves.size}"
+      expect (leafIsInt == #[false, false])
+        "returnAggregate leafIsInt must be #[false, false]"
+      match leaves[0]!, leaves[1]! with
+      | .param 0, .param 1 => pure ()
+      | _, _ =>
+          throw <| IO.userError
+            "PairRet returnAggregate leaves must be param 0 / param 1"
+  | _ =>
+      throw <| IO.userError "PairRet makePair body must be .returnAggregate"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let ir ← liftResult <| irAleo compiled
+  let some leoFn := ir.program.functions.find? (·.name == "makePair") |
+    throw <| IO.userError "PairRet IR missing makePair"
+  match leoFn.resultAggregateLeaves with
+  | some leaves =>
+      expect (leaves.size == 2) "PairRet Leo IR must carry 2 aggregate leaves"
+  | none =>
+      throw <| IO.userError "PairRet Leo IR must set resultAggregateLeaves"
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "pairret.aleo") |
+    throw <| IO.userError "aleo: missing pairret.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "fn makePair(public p0: u64, public p1: u64) -> (u64, u64) {")
+    s!"PairRet must emit Leo tuple return type, got:\n{leo}"
+  expect (leo.contains "return (")
+    s!"PairRet must emit Leo tuple return value, got:\n{leo}"
+  expect (!leo.contains "return final")
+    "PairRet non-state entry must not be Final"
+  IO.println "  PairRet named Struct return Plan/IR/Leo pin ok"
+
+/-- B-RET-ABI: named Enum return = tag + max-payload slots (Maybe = 2 leaves).
+    Non-state entry constructs and returns the Enum as a Leo tuple. -/
+unsafe def testNamedEnumReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeRet where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  entry put(v : UInt64) : Maybe do\n" ++
+    "    return Maybe.Some(v)\n" ++
+    "  entry clear() : Maybe do\n" ++
+    "    return Maybe.None()\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-maybe-ret>" "Tests.AleoMaybeRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  let some put := plan.functions.find? (·.name == "put") |
+    throw <| IO.userError "MaybeRet: missing put"
+  match put.resultAggregateLeaves with
+  | some leaves =>
+      expect (leaves.size == 2)
+        s!"MaybeRet Enum return must be tag+payload (2), got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "MaybeRet leaves must be unsigned 8-byte words"
+  | none =>
+      throw <| IO.userError "MaybeRet put must set resultAggregateLeaves"
+  match put.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt.size == 2)
+        "MaybeRet returnAggregate must have 2 leaves"
+  | _ =>
+      throw <| IO.userError "MaybeRet put body must be .returnAggregate"
+  let some clear := plan.functions.find? (·.name == "clear") |
+    throw <| IO.userError "MaybeRet: missing clear"
+  match clear.resultAggregateLeaves with
+  | some leaves =>
+      expect (leaves.size == 2) "MaybeRet clear must also return 2-leaf Maybe"
+  | none =>
+      throw <| IO.userError "MaybeRet clear must set resultAggregateLeaves"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "mayberet.aleo") |
+    throw <| IO.userError "aleo: missing mayberet.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "fn put(public p0: u64) -> (u64, u64) {")
+    s!"MaybeRet put must emit Leo tuple return, got:\n{leo}"
+  expect (leo.contains "fn clear() -> (u64, u64) {")
+    s!"MaybeRet clear must emit Leo tuple return, got:\n{leo}"
+  IO.println "  MaybeRet named Enum return Plan/IR/Leo pin ok"
+
+/-- B-RET-ABI: Final (state-touching) entry that returns a named Struct still
+    evaluates leaves for failure semantics but drops them (`resultDropped`). -/
+unsafe def testNamedStructReturnFinalDropped : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PairStore where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n" ++
+    "  entry setPair(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    p := Pair.new(x, y)\n" ++
+    "    return p\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-pair-store>" "Tests.AleoPairStore" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  let some setPair := plan.functions.find? (·.name == "setPair") |
+    throw <| IO.userError "PairStore: missing setPair"
+  match setPair.resultAggregateLeaves with
+  | some leaves =>
+      expect (leaves.size == 2) "PairStore setPair must return 2-leaf Pair"
+  | none =>
+      throw <| IO.userError "PairStore setPair must set resultAggregateLeaves"
+  expect (setPair.touchesState && setPair.resultDropped)
+    "PairStore setPair must be Final and drop the aggregate result"
+  match setPair.body.back? with
+  | some (.returnAggregate leaves _) =>
+      expect (leaves.size == 2) "PairStore final return must be returnAggregate"
+  | _ =>
+      throw <| IO.userError "PairStore setPair must end in returnAggregate"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "pairstore.aleo") |
+    throw <| IO.userError "aleo: missing pairstore.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "fn setPair(public p0: u64, public p1: u64) -> Final {")
+    s!"PairStore setPair must be Final, got:\n{leo}"
+  expect (leo.contains "let pf_return_0: u64 =")
+    s!"PairStore Final must evaluate leaf 0, got:\n{leo}"
+  expect (leo.contains "let pf_return_1: u64 =")
+    s!"PairStore Final must evaluate leaf 1, got:\n{leo}"
+  IO.println "  PairStore Final aggregate drop pin ok"
+
+/-- B-RET-ABI fail-closed: anonymous Array return, 9-leaf Struct, named param. -/
+unsafe def testAggregateReturnFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- Anonymous Array entry return stays fail-closed.
+  let arrSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayRet where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          arrSource "<aleo-array-ret>" "Tests.AleoArrayRet" none)
+        let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some compiled)
+      catch _ => pure none) with
+  | none => pure ()  -- may fail at Normalize/typed
+  | some c =>
+      match planAleo c with
+      | .error e =>
+          expect ((e.render).contains "return" ||
+              (e.render).contains "Array" ||
+              (e.render).contains "aggregate" ||
+              (e.render).contains "container" ||
+              (e.render).contains "B-RET" ||
+              (e.render).contains "unsupported")
+            s!"ArrayRet: FC message must cite return/container surface, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "ArrayRet: Aleo must fail closed on anonymous Array entry return"
+  -- Cap-8: Struct with 9 UInt64 fields exceeds B-RET-ABI leaf cap.
+  let mut fields := ""
+  for i in [0:9] do
+    fields := fields ++ s!"    f{i} : UInt64\n"
+  let wideSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideRet where\n" ++
+    "  struct Wide where\n" ++
+    fields ++
+    "  entry makeWide() : Wide do\n" ++
+    "    return Wide.new(0, 0, 0, 0, 0, 0, 0, 0, 0)\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          wideSource "<aleo-wide-ret>" "Tests.AleoWideRet" none)
+        let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some compiled)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planAleo c with
+      | .error e =>
+          expect (e.render.contains "8" || e.render.contains "leaf" ||
+              e.render.contains "cap" || e.render.contains "aggregate")
+            s!"WideRet leaf-cap error must cite cap/leaf/aggregate, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "WideRet: Aleo 9-leaf aggregate return must fail closed (cap-8)"
+  -- Named Struct param stays fail closed.
+  let paramSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StructParam where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  entry take(p : Pair) : UInt64 do\n" ++
+    "    return p.a\n"
+  let paramParsed ← liftResult (← session.selectProgramV1
+    paramSource "<aleo-struct-param>" "Tests.AleoStructParam" none)
+  let paramCompiled ← liftResult <| Compiler.compileValidatedSourceV1 paramParsed
+  match planAleo paramCompiled with
+  | .error e =>
+      expect ((e.render).contains "parameter" ||
+          (e.render).contains "Pair" ||
+          (e.render).contains "aggregate" ||
+          (e.render).contains "envelope" ||
+          (e.render).contains "unsupported")
+        s!"StructParam: FC must cite parameter boundary, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "StructParam: Aleo must fail closed on named Struct params"
+  -- pureFn aggregate return stays fail closed.
+  let pureSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PurePair where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  fn mk(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    return Pair.new(x, y)\n" ++
+    "  entry use(x : UInt64, y : UInt64) : UInt64 do\n" ++
+    "    let p : Pair := mk(x, y)\n" ++
+    "    return p.a\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          pureSource "<aleo-pure-pair>" "Tests.AleoPurePair" none)
+        let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some compiled)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planAleo c with
+      | .error e =>
+          expect ((e.render).contains "pureFn" ||
+              (e.render).contains "aggregate" ||
+              (e.render).contains "helper" ||
+              (e.render).contains "scalar" ||
+              (e.render).contains "B-RET")
+            s!"PurePair: FC must cite pureFn/aggregate, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "PurePair: Aleo pureFn aggregate return must fail closed"
+  IO.println "  aggregate return fail-closed boundaries ok"
+
 unsafe def run : IO Unit := do
   testCounterPlanAndLeo
   testPureOpsAndShifts
@@ -1710,6 +2009,10 @@ unsafe def run : IO Unit := do
   testMapSetBudgetFailClosed
   testBytesStateLeo
   testBytesFailClosed
+  testNamedStructReturn
+  testNamedEnumReturn
+  testNamedStructReturnFinalDropped
+  testAggregateReturnFailClosed
   IO.println "Tests.Materialization.Aleo: ok"
 
 end Tests.Materialization.Aleo

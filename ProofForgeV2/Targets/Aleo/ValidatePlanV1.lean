@@ -133,6 +133,13 @@ private partial def validateStatements
           budget ← chargeExpr budget store.value
     | .returnValue value => do
         budget ← chargeExpr budget value
+    | .returnAggregate leaves leafIsInt => do
+        unless leaves.size > 0 && leaves.size ≤ 8 do
+          planError "Aleo returnAggregate leaf count must be in 1..8 (B-RET-ABI)"
+        unless leafIsInt.size == leaves.size do
+          planError "Aleo returnAggregate leafIsInt length must match leaves"
+        for leaf in leaves do
+          budget ← chargeExpr budget leaf
     | .returnNone => pure ()
     | .assert condition => do
         budget ← chargeExpr budget condition
@@ -158,6 +165,46 @@ private partial def validateStatements
     | .revertError _ args =>
         unless args.isEmpty do
           planError "Aleo does not support revert payloads: Leo 4.0.2 cannot represent error arguments"
+
+/-- B-RET-ABI depth defense: return form must match resultAggregateLeaves. -/
+private partial def checkReturnFormsV1
+    (fnName : String) (aggregateLeaves : Option (Array LeafAbiType))
+    (stmts : Array Statement) : CompileResult Unit := do
+  for s in stmts do
+    match s with
+    | .returnValue _ =>
+        match aggregateLeaves with
+        | some _ =>
+            planError
+              s!"function '{fnName}' aggregate result must use returnAggregate, not returnValue"
+        | none => pure ()
+    | .returnAggregate leaves leafIsInt =>
+        match aggregateLeaves with
+        | some expected =>
+            unless leaves.size == expected.size && leafIsInt.size == expected.size do
+              planError
+                s!"function '{fnName}' returnAggregate leaf count mismatch"
+            for i in [0:expected.size] do
+              let some exp := expected[i]? |
+                planError "returnAggregate expected leaf missing"
+              let some gotInt := leafIsInt[i]? |
+                planError "returnAggregate leafIsInt missing"
+              unless gotInt == exp.isInt && exp.byteWidth == 8 do
+                planError
+                  s!"function '{fnName}' returnAggregate leaf {i} ABI mismatch"
+        | none =>
+            planError
+              s!"function '{fnName}' returnAggregate requires an aggregate result kind"
+    | .ifThenElse _ t e =>
+        checkReturnFormsV1 fnName aggregateLeaves t
+        checkReturnFormsV1 fnName aggregateLeaves e
+    | .switchOn _ cases defaultBody =>
+        for (_, body) in cases do
+          checkReturnFormsV1 fnName aggregateLeaves body
+        checkReturnFormsV1 fnName aggregateLeaves defaultBody
+    | .forLoop _ _ _ body =>
+        checkReturnFormsV1 fnName aggregateLeaves body
+    | _ => pure ()
 
 /-- Leo 4.0.2 hard limit: a `final` block allows at most 32 mapping
     `set`/`remove` commands (spike-verified ECMP0376015). Leo counts the
@@ -215,6 +262,23 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       planError "Aleo final function exceeds the Leo mapping-set budget (32 per final block)"
     if fn.resultIsInt && fn.resultIsBool then
       planError "Aleo function result cannot be both Bool and Int64"
+    -- B-RET-ABI: aggregate result is mutually exclusive with scalar flags.
+    match fn.resultAggregateLeaves with
+    | some leaves =>
+        unless leaves.size > 0 && leaves.size ≤ 8 do
+          planError
+            s!"function '{fn.name}' aggregate result leaf count must be in 1..8"
+        unless leaves.all (fun l => l.byteWidth == 8) do
+          planError
+            s!"function '{fn.name}' aggregate result leaves must be 8-byte UInt64/Int64"
+        if fn.resultIsBool || fn.resultIsInt || fn.resultIsU8 || fn.resultIsField then
+          planError
+            s!"function '{fn.name}' aggregate result cannot also set scalar result flags"
+        if fn.isPureHelper then
+          planError
+            s!"function '{fn.name}' pure helper cannot return an aggregate (B-RET-ABI)"
+    | none => pure ()
+    checkReturnFormsV1 fn.name fn.resultAggregateLeaves fn.body
     if fn.resultDropped && fn.kind != .mutate then
       planError "resultDropped is only valid on state-touching entries"
     if fn.resultDropped && !fn.touchesState then
