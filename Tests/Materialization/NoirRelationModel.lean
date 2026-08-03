@@ -3415,26 +3415,157 @@ private unsafe def checkAggregateReturnProduct : IO Unit := do
     pure values
   expectAccept "PairBox getPair returns (3,5)" getPair getInputs
 
-/-- B-RET-ABI: anonymous container (Array) result type stays fail-closed. -/
-private unsafe def checkAnonymousContainerReturnFailClosed : IO Unit := do
+/-- N-ANON-RESULT (Noir ABI): anonymous Array UInt64 2 entry/view return →
+    2 resultLeaf verifier inputs + returnAggregate; relation model accepts
+    getArr/setArr leaf frames. -/
+private unsafe def checkAnonymousArrayReturn : IO Unit := do
   let sourceText :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
     "open ProofForgeV2.Language\n\n" ++
     "program ArrayRet where\n" ++
     "  state slots : Array UInt64 2\n\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n\n" ++
+    "  init(a : UInt64, b : UInt64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n\n" ++
+    "  entry setArr(a : UInt64, b : UInt64) : Array UInt64 2 do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "    return slots\n\n" ++
     "  view getArr() : Array UInt64 2 do\n" ++
     "    return slots\n\n" ++
     "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.ArrayRet" "<noir-array-ret>"
+  expect (ir.sourcePlan.states.size == 2)
+    s!"array-ret: Array UInt64 2 → 2 state leaves, got {ir.sourcePlan.states.size}"
+  let getArr ← findRelation ir "getArr"
+  let resultLeaves := getArr.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (resultLeaves.size == 2)
+    s!"array-ret: getArr must have 2 resultLeaf inputs, got {resultLeaves.size}"
+  let hasReturnAggregate := getArr.sourceRelation.body.any fun stmt =>
+    match stmt with | .returnAggregate leaves => leaves.size == 2 | _ => false
+  expect hasReturnAggregate
+    "array-ret: getArr body must contain .returnAggregate of 2 leaves"
+  -- Model: init(7,9) then getArr → result_0=7, result_1=9.
+  let getInputs ← liftModel "ArrayRet getArr inputs" do
+    let mut values : Array ModelValue := #[]
+    for input in getArr.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 7)
+      | .preState 1 => values := values.push (.u64 9)
+      | .postState 0 => values := values.push (.u64 7)
+      | .postState 1 => values := values.push (.u64 9)
+      | .postInitialized => values := values.push (.bool true)
+      | .resultLeaf 0 => values := values.push (.u64 7)
+      | .resultLeaf 1 => values := values.push (.u64 9)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "ArrayRet getArr returns (7,9)" getArr getInputs
+  let setArr ← findRelation ir "setArr"
+  let setInputs ← liftModel "ArrayRet setArr inputs" do
+    let mut values : Array ModelValue := #[]
+    for input in setArr.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 7)
+      | .preState 1 => values := values.push (.u64 9)
+      | .parameter 0 => values := values.push (.u64 11)
+      | .parameter 1 => values := values.push (.u64 22)
+      | .postState 0 => values := values.push (.u64 11)
+      | .postState 1 => values := values.push (.u64 22)
+      | .postInitialized => values := values.push (.bool true)
+      | .resultLeaf 0 => values := values.push (.u64 11)
+      | .resultLeaf 1 => values := values.push (.u64 22)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "ArrayRet setArr returns (11,22)" setArr setInputs
+
+/-- N-ANON-RESULT (Noir ABI): anonymous Option UInt64 none/some via construct
+    → tag+payload resultLeaf pair (0,0)/(1,v). -/
+private unsafe def checkAnonymousOptionReturn : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptionRet where\n" ++
+    "  state seed : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    seed := x\n\n" ++
+    "  entry asSome(v : UInt64) : Option UInt64 do\n" ++
+    "    return Option.some(v)\n\n" ++
+    "  view asNone() : Option UInt64 do\n" ++
+    "    return Option.none()\n\n" ++
+    "  view asSomeOfSeed() : Option UInt64 do\n" ++
+    "    return Option.some(seed)\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.OptionRet" "<noir-option-ret>"
+  let asNone ← findRelation ir "asNone"
+  let noneLeaves := asNone.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (noneLeaves.size == 2)
+    s!"option-ret: asNone must have 2 resultLeaf inputs (tag+payload), got {noneLeaves.size}"
+  let hasReturnAggregate := asNone.sourceRelation.body.any fun stmt =>
+    match stmt with | .returnAggregate leaves => leaves.size == 2 | _ => false
+  expect hasReturnAggregate
+    "option-ret: asNone body must contain .returnAggregate of 2 leaves"
+  -- Model: asNone → (0,0)
+  let noneInputs ← liftModel "OptionRet asNone inputs" do
+    let mut values : Array ModelValue := #[]
+    for input in asNone.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 42)
+      | .postState 0 => values := values.push (.u64 42)
+      | .postInitialized => values := values.push (.bool true)
+      | .resultLeaf 0 => values := values.push (.u64 0)
+      | .resultLeaf 1 => values := values.push (.u64 0)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "OptionRet asNone returns (0,0)" asNone noneInputs
+  let asSome ← findRelation ir "asSome"
+  let someInputs ← liftModel "OptionRet asSome inputs" do
+    let mut values : Array ModelValue := #[]
+    for input in asSome.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 42)
+      | .parameter 0 => values := values.push (.u64 99)
+      | .postState 0 => values := values.push (.u64 42)
+      | .postInitialized => values := values.push (.bool true)
+      | .resultLeaf 0 => values := values.push (.u64 1)
+      | .resultLeaf 1 => values := values.push (.u64 99)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "OptionRet asSome(99) returns (1,99)" asSome someInputs
+  let asSomeSeed ← findRelation ir "asSomeOfSeed"
+  let seedInputs ← liftModel "OptionRet asSomeOfSeed inputs" do
+    let mut values : Array ModelValue := #[]
+    for input in asSomeSeed.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 42)
+      | .postState 0 => values := values.push (.u64 42)
+      | .postInitialized => values := values.push (.bool true)
+      | .resultLeaf 0 => values := values.push (.u64 1)
+      | .resultLeaf 1 => values := values.push (.u64 42)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "OptionRet asSomeOfSeed returns (1,42)" asSomeSeed seedInputs
+
+/-- N-ANON-RESULT FC boundaries: Bytes, Map, Array-of-9, nested Option stay closed. -/
+private unsafe def expectAnonymousReturnFailClosed
+    (label moduleName sourceText : String)
+    (messageNeedles : Array String) : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  match ← session.selectProgramV1 sourceText "<noir-array-ret>" "Examples.ArrayRet" none with
+  match ← session.selectProgramV1 sourceText s!"<noir-{label}>" moduleName none with
   | .error _ => pure ()
   | .ok source =>
     match Compiler.compileValidatedSourceV1 source with
-    | .error _ => pure ()
+    | .error _ => pure ()  -- Normalize/Check may reject first.
     | .ok compiled =>
       match resolveBuildSelectionV1 TargetId.noir none with
       | .error _ => pure ()
@@ -3443,10 +3574,77 @@ private unsafe def checkAnonymousContainerReturnFailClosed : IO Unit := do
         | .error _ => pure ()
         | .ok cap =>
           match Targets.Noir.planFromCapability cap with
-          | .error _ => pure ()
+          | .error e =>
+              let msg := e.render
+              let hit := messageNeedles.any (fun n => msg.contains n)
+              expect hit
+                s!"{label}: FC message must cite {messageNeedles}, got {msg}"
           | .ok _ =>
               throw <| IO.userError
-                "Noir anonymous container return must fail closed, not produce a plan"
+                s!"{label}: Noir must fail closed on this anonymous return shape"
+
+private unsafe def checkAnonymousReturnFailClosed : IO Unit := do
+  -- Bytes N return remains fail closed.
+  expectAnonymousReturnFailClosed "bytes-ret" "Examples.BytesRet"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program BytesRet where\n" ++
+      "  state payload : Bytes 2\n\n" ++
+      "  init() do\n" ++
+      "    payload[0] := 1\n" ++
+      "    payload[1] := 2\n\n" ++
+      "  view getBytes() : Bytes 2 do\n" ++
+      "    return payload\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Bytes", "return", "B-RET", "unsupported", "anonymous"]
+  -- Map return remains fail closed.
+  expectAnonymousReturnFailClosed "map-ret" "Examples.MapRet"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program MapRet where\n" ++
+      "  state table : Map UInt64 UInt64\n\n" ++
+      "  init() do\n" ++
+      "    table[0] := 1\n\n" ++
+      "  view getMap() : Map UInt64 UInt64 do\n" ++
+      "    return table\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Map", "return", "B-RET", "unsupported", "anonymous"]
+  -- Array UInt64 9 exceeds leaf cap-8.
+  expectAnonymousReturnFailClosed "array9-ret" "Examples.Array9Ret"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program Array9Ret where\n" ++
+      "  state slots : Array UInt64 9\n\n" ++
+      "  init() do\n" ++
+      "    slots[0] := 0\n" ++
+      "    slots[1] := 0\n" ++
+      "    slots[2] := 0\n" ++
+      "    slots[3] := 0\n" ++
+      "    slots[4] := 0\n" ++
+      "    slots[5] := 0\n" ++
+      "    slots[6] := 0\n" ++
+      "    slots[7] := 0\n" ++
+      "    slots[8] := 0\n\n" ++
+      "  view getArr() : Array UInt64 9 do\n" ++
+      "    return slots\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["8", "leaf", "cap", "9", "exceeding", "aggregate"]
+  -- Nested anonymous Option (Array …) remains fail closed (non-UInt64 payload).
+  expectAnonymousReturnFailClosed "nested-opt-ret" "Examples.NestedOptRet"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program NestedOptRet where\n" ++
+      "  state seed : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    seed := 0\n\n" ++
+      "  view getNested() : Option Array UInt64 2 do\n" ++
+      "    return Option.none()\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Option", "UInt64", "payload", "return", "unsupported", "anonymous", "Array"]
 
 unsafe def run : IO Unit := do
   runCheckedSubFast
@@ -3498,7 +3696,9 @@ unsafe def run : IO Unit := do
   checkUInt128Negatives
   checkNamedAggregateProduct
   checkAggregateReturnProduct
-  checkAnonymousContainerReturnFailClosed
+  checkAnonymousArrayReturn
+  checkAnonymousOptionReturn
+  checkAnonymousReturnFailClosed
   checkMapEmptyUpsertProduct
   checkArrayStateProduct
   checkBytesStateProduct
