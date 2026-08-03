@@ -441,6 +441,12 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
   | .error e =>
       throw <| IO.userError
         s!"anonymous-result: noir must admit Array UInt64 2 return, got {e.render}"
+  -- TON admits anonymous Array UInt64 N (N≤8) view returns (BL-23).
+  match materializeSelected TargetId.ton compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: ton must admit Array UInt64 2 view return, got {e.render}"
   for (target, kind, marker) in #[
       (TargetId.aleo, TargetKind.aleo, "return of anonymous aggregate is outside")] do
     expectMaterializePlanInvariantV1 "anonymous-result" target kind compiled marker
