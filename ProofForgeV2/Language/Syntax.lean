@@ -1061,33 +1061,4 @@ end ProgramV1Decoder
 
 export ProgramV1Decoder (decodeProgramCommandV1Checked)
 
-
-private def quoteByteArray (bytes : ByteArray) : MacroM (TSyntax `term) := do
-  let hex := bytes.foldl (fun acc byte =>
-    (acc.push (Nat.digitChar (byte.toNat / 16))).push (Nat.digitChar (byte.toNat % 16))) ""
-  `(ProofForgeV2.Language.ProgramExport.programExportBytesFromHex $(quote hex))
-
-elab_rules : command
-  | `(program $name:ident where $items:pfItem*) => do
-      let env ← getEnv
-      let moduleName ← match sourceQualifiedNameV1FromLeanName env.mainModule with
-        | .ok value => pure value
-        | .error message => throwError message
-      let currentNamespace ← getCurrNamespace
-      let relativeNamespace := currentNamespace.replacePrefix env.mainModule .anonymous
-      let commandStx ← `(program $name:ident where $items:pfItem*)
-      let source ← match decodeProgramCommandV1Checked moduleName (.bounded relativeNamespace) commandStx with
-        | .error error => throwError error.render
-        | .ok source => pure source
-      let bytes ← match canonicalValidatedSourceAstBytesV1 source with
-        | .error message => throwError message
-        | .ok bytes => pure bytes
-      let bytesExpr ← Lean.Elab.liftMacroM <| quoteByteArray bytes
-      let expanded ← `(@[proof_forge_program]
-        def $name : ProgramExportPayloadV2 := {
-          schema := $(Syntax.mkStrLit programExportSchemaV2),
-          bytes := $bytesExpr
-        })
-      Lean.Elab.Command.elabCommand expanded
-
 end ProofForgeV2.Language

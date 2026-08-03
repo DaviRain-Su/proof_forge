@@ -1,6 +1,6 @@
 import Tests.Language.ParserSession
 import ProofForgeV2.Language.ProgramExport
-import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Language.ProgramElaborationV1
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.ValidatedSourceV1

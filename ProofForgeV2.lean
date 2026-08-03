@@ -75,6 +75,7 @@ import ProofForgeV2.Compiler.ProofWorkerControlV2
 import ProofForgeV2.Compiler.ProofWorkerSupervisorV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Language.ProgramElaborationV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Materialization.Protocol
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
