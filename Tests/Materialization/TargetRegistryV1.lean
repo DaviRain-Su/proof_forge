@@ -40,13 +40,13 @@ private def digestBytesEq (a b : Digest) : Bool :=
 private def testSoleMembershipSource : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 10) "10 registrations"
+  expect (regs.size == 11) "11 registrations"
   let impl := implementedRegistrationsV1 registry
   let design := designOnlyRegistrationsV1 registry
-  expect (impl.size == 7) "7 implemented"
+  expect (impl.size == 8) "8 implemented"
   expect (design.size == 3) "3 design-only"
   let expectedIds :=
-    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "solana", "soroban"]
+    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "solana", "soroban", "ton"]
   expect (regs.map (·.targetId.toString) == expectedIds) "canonical TargetId order"
   -- Product selection binds the same frozen seed.
   for reg in impl do

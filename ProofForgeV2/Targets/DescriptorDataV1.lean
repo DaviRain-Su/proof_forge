@@ -69,6 +69,13 @@ def psy : TargetDescriptor :=
 def cosmwasm : TargetDescriptor :=
   descriptorFromRegistryAxes .cosmwasm .wasmText CodegenProfileId.cosmwasmWasmU64V1
 
+/-- TON emits Tolk source compiled by the locked `tolk` to Fift/BoC
+    (`ton-tolk-boc-v1`). Pure-async actor model: synchronous external calls
+    fail closed; schedule maps to raw async out-messages. Plan/IR/state cell
+    layout are TON-owned (family-tvm-stack-account; no Wasm/EVM Plan sharing). -/
+def ton : TargetDescriptor :=
+  descriptorFromRegistryAxes .ton .tolkSource CodegenProfileId.tonTolkBocV1
+
 /-- Engineering descriptor for an implemented kind. Design-only kinds → none. -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .evm => some evm
@@ -78,6 +85,7 @@ def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .aleo => some aleo
   | .psy => some psy
   | .cosmwasm => some cosmwasm
+  | .ton => some ton
   | _ => none
 
 /-- Exact registry-owned six-axis join for an implemented descriptor.

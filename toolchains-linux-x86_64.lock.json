@@ -70,6 +70,13 @@
       "format": "file"
     },
     {
+      "id": "tolk-1.4.2-linux-x86_64",
+      "url": "https://github.com/ton-blockchain/ton/releases/download/tolk-1.4.2/tolk-linux-x86_64",
+      "size": 3942904,
+      "sha256": "542869781fdb1dbf17524ac5d31e64e9e6e9125fb28c993c90cdd9d304437940",
+      "format": "file"
+    },
+    {
       "id": "wabt-1.0.41-linux-x64",
       "url": "https://github.com/WebAssembly/wabt/releases/download/1.0.41/wabt-1.0.41-linux-x64.tar.gz",
       "size": 5076269,
@@ -169,6 +176,14 @@
       "member": null,
       "size": 16865544,
       "sha256": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
+      "mode": "0555"
+    },
+    {
+      "path": "tolk",
+      "assetId": "tolk-1.4.2-linux-x86_64",
+      "member": null,
+      "size": 3942904,
+      "sha256": "542869781fdb1dbf17524ac5d31e64e9e6e9125fb28c993c90cdd9d304437940",
       "mode": "0555"
     },
     {
@@ -353,6 +368,11 @@
       },
       {
         "path": "solc",
+        "needed": [],
+        "runpath": null
+      },
+      {
+        "path": "tolk",
         "needed": [],
         "runpath": null
       },
@@ -563,6 +583,27 @@
       "licenseSpdx": "GPL-3.0-or-later",
       "requiredByProfiles": [
         "evm-yul-solc-0.8.34-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "tolk",
+      "version": "1.4.2",
+      "sourceUrl": "https://github.com/ton-blockchain/ton/releases/tag/tolk-1.4.2",
+      "platform": "linux-x86_64",
+      "assetId": "tolk-1.4.2-linux-x86_64",
+      "executable": "tolk",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/tolk",
+      "executableSha256": "542869781fdb1dbf17524ac5d31e64e9e6e9125fb28c993c90cdd9d304437940",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "1.4.1",
+      "licenseSpdx": "MIT",
+      "requiredByProfiles": [
+        "ton-tolk-boc-v1"
       ],
       "sourceBuild": null
     },

@@ -13435,3 +13435,22 @@ normative: false
   **不是** wasmd/cosmwasm-vm runtime、SubMsg/reply、IBC、JSON 全集或 formal D3/D4 完成；
   call/schedule/iterator/migrate/聚合/多宽 ABI/ContextRead/Commit/nonempty invariants 全部
   fail closed 且有钉测。
+
+### 2026-08-03 — TON registry 集成（TON-1，ADR-0024）
+
+- ADR-0024 决定 `ton` 由研究期提升为 capability-gated implemented target（第 8 个）：
+  `TargetKind.ton`/`TargetId.ton`/`CodegenProfileId.tonTolkBocV1`（`ton-tolk-boc-v1`）；
+  六轴 closed enums 扩 `ExecutionHostV1.tvm`/`StateBindingV1.cellHashmap`/
+  `SettlementModelV1.tonChain`，复用 `transactionAtomic`/`asynchronousActor`/`noProof`；
+  `DescriptorDataV1.ton`（`ArtifactEncoding.tolkSource`）；membership 8 implemented +
+  3 design-only；maturity `source-only`；acceptance `phase1.ton-u64.v1`。
+- Capability honest 6-key：state/event/async 开、**sync call 显式拒绝**（TON 纯异步
+  actor，callback+query_id 属后续工作流，不伪装 sync CALL；B-CALL-SEM 同级诚实）。
+- Tool Lock：`tolk-1.4.2` 官方 binary 入 `tools[]`（darwin `52c00e29…1740` / linux
+  `54286978…7940` 实测下载核对；binary 自报 `Tolk compiler v1.4.1` 故 expectedVersion
+  钉 `1.4.1`；darwin Mach-O system-only 闭包、linux static-pie 无 NEEDED）。
+- 测试钉同步：membership 8+3、resolver 九行（ton 6-key + expectAsync）、
+  IdentityChain claims=9、RegistryRoot 1759-byte golden+digest、tamper/drop 计数、
+  list-targets 精确行。shard-targets 全绿。
+- 边界：`ton` materializer leaf 属 TON-2；当前 `--target ton` 在 materialize dispatch
+  显式失败（无 leaf、不静默降级）；formal TASK/TST 与 release 轴不变。

@@ -37,7 +37,7 @@ def reservedFutureProfiles : Array String :=
 
 inductive ExecutionHostV1 where
   | evm | svm | nearWasm | cosmWasm | sorobanWasm | icpCanister
-  | noirCircuit | openvmGuest | aleoVm | psyDpn
+  | noirCircuit | openvmGuest | aleoVm | psyDpn | tvm
   deriving BEq, DecidableEq, Repr
 
 inductive CommitModelV1 where
@@ -49,7 +49,7 @@ inductive CommitModelV1 where
 inductive StateBindingV1 where
   | contractStorage | explicitAccounts | contractKeyValue | instanceKeyValue
   | ttlScopedStorage | canisterHeapStable | externalPublicPrePost
-  | guestMemoryIo | recordsMappings | userPartitioned
+  | guestMemoryIo | recordsMappings | userPartitioned | cellHashmap
   deriving BEq, DecidableEq, Repr
 
 inductive CallModelV1 where
@@ -65,7 +65,7 @@ inductive ProofModelV1 where
 
 inductive SettlementModelV1 where
   | evmChain | solanaChain | nearChain | cosmosChain | stellarChain
-  | icpSubnet | externalVerifier | aleoChain | psyNetwork
+  | icpSubnet | externalVerifier | aleoChain | psyNetwork | tonChain
   deriving BEq, DecidableEq, Repr
 
 namespace ExecutionHostV1
@@ -80,6 +80,7 @@ def toWire : ExecutionHostV1 → String
   | .openvmGuest => "openvm-guest"
   | .aleoVm => "aleo-vm"
   | .psyDpn => "psy-dpn"
+  | .tvm => "tvm"
 instance : ToString ExecutionHostV1 := ⟨toWire⟩
 end ExecutionHostV1
 
@@ -109,6 +110,7 @@ def toWire : StateBindingV1 → String
   | .guestMemoryIo => "guest-memory-io"
   | .recordsMappings => "records-mappings"
   | .userPartitioned => "user-partitioned"
+  | .cellHashmap => "cell-hashmap"
 instance : ToString StateBindingV1 := ⟨toWire⟩
 end StateBindingV1
 
@@ -148,6 +150,7 @@ def toWire : SettlementModelV1 → String
   | .externalVerifier => "external-verifier"
   | .aleoChain => "aleo-chain"
   | .psyNetwork => "psy-network"
+  | .tonChain => "ton-chain"
 instance : ToString SettlementModelV1 := ⟨toWire⟩
 end SettlementModelV1
 
@@ -257,7 +260,7 @@ private def containsProfile (profiles : Array CodegenProfileId) (p : CodegenProf
 
 /-- Closed kind → exact product implemented flag (sole membership policy). -/
 def expectedImplementedOfKindV1 : TargetKind → Bool
-  | .evm | .solana | .near | .noir | .aleo | .psy | .cosmwasm => true
+  | .evm | .solana | .near | .noir | .aleo | .psy | .cosmwasm | .ton => true
   | .soroban | .icp | .openvm => false
 
 /-- Closed kind → exact list/describe maturity label. -/
@@ -269,6 +272,7 @@ def expectedMaturityLabelOfKindV1 : TargetKind → String
   | .aleo => "source-only"
   | .psy => "source-only"
   | .cosmwasm => "wasm-validated-alpha"
+  | .ton => "source-only"
   | .soroban | .icp | .openvm => "research-only"
 
 /-- Closed kind → exact acceptance profile id string. -/
@@ -279,6 +283,7 @@ def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
   | .noir => "phase1.noir-u64-private-sum.v1"
   | .aleo => "phase1.aleo-u64.v1"
   | .cosmwasm => "phase1.cosmwasm-u64.v1"
+  | .ton => "phase1.ton-u64.v1"
   | .soroban => "research.soroban.v1"
   | .icp => "research.icp.v1"
   | .openvm => "research.openvm.v1"
@@ -296,6 +301,7 @@ def expectedDisplayNameOfKindV1 : TargetKind → String
   | .openvm => "OpenVM"
   | .aleo => "Aleo"
   | .psy => "Psy"
+  | .ton => "TON"
 
 private def validateDisplayNameV1 (name : String) : CompileResult Unit := do
   let n := name.utf8ByteSize
@@ -492,6 +498,9 @@ def semanticsAxesOfKindV1 : TargetKind → TargetSemanticsAxesV1
   | .psy =>
       axes TargetId.psy .psyDpn .recursiveNetwork .userPartitioned
         .recursiveProofPipeline .recursiveAggregation .psyNetwork
+  | .ton =>
+      axes TargetId.ton .tvm .transactionAtomic .cellHashmap
+        .asynchronousActor .noProof .tonChain
 
 private def row
     (kind : TargetKind)
@@ -540,7 +549,10 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
       (some CodegenProfileId.aleoLeoU64V1),
     row .psy (semanticsAxesOfKindV1 .psy)
       #[CodegenProfileId.psyDargoU64V1]
-      (some CodegenProfileId.psyDargoU64V1)
+      (some CodegenProfileId.psyDargoU64V1),
+    row .ton (semanticsAxesOfKindV1 .ton)
+      #[CodegenProfileId.tonTolkBocV1]
+      (some CodegenProfileId.tonTolkBocV1)
   ]
 
 /-- Frozen product registry seed. Sole membership authority.

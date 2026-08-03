@@ -210,20 +210,20 @@ private def testGrammar : IO Unit := do
 private def testRegistrySeedMembership : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 10) "initial registry must contain 7 implemented + 3 design-only"
+  expect (regs.size == 11) "initial registry must contain 8 implemented + 3 design-only"
   match createTargetRegistryV1 initialRegistrationRowsV1 with
   | .ok rebuilt =>
-      expect (rebuilt.toArray.size == 10) "rebuilt seed registry size"
+      expect (rebuilt.toArray.size == 11) "rebuilt seed registry size"
   | .error e => throw <| IO.userError s!"initialRegistrationRowsV1 must validate: {e.render}"
   let impl ← liftResult implementedRegistrations
   let design ← liftResult designOnlyRegistrations
-  expect (impl.size == 7) "exactly seven implemented targets"
+  expect (impl.size == 8) "exactly eight implemented targets"
   expect (design.size == 3) "exactly three design-only targets"
   let expectedIds :=
-    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "solana", "soroban"]
+    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "solana", "soroban", "ton"]
   let ids := regs.map (·.targetId.toString)
   expect (ids == expectedIds) s!"exact closed target id set, got {ids}"
-  let expectedImpl := #["aleo", "cosmwasm", "evm", "near", "noir", "psy", "solana"]
+  let expectedImpl := #["aleo", "cosmwasm", "evm", "near", "noir", "psy", "solana", "ton"]
   expect (impl.map (·.targetId.toString) == expectedImpl)
     s!"exact implemented set, got {impl.map (·.targetId.toString)}"
   let expectedDesign := #["icp", "openvm", "soroban"]
@@ -468,10 +468,10 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (msg == "duplicate --target") "success seed duplicate --target"
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
-  expect (defaultList.size == 7) "default list-targets is implemented-only"
+  expect (defaultList.size == 8) "default list-targets is implemented-only"
   expect (defaultList == #["aleo\tsource-only", "cosmwasm\twasm-validated-alpha",
       "evm\truntime-validated-alpha", "near\twasm-validated-alpha", "noir\tsource-only",
-      "psy\tsource-only", "solana\tplan-only"])
+      "psy\tsource-only", "solana\tplan-only", "ton\tsource-only"])
     s!"default list-targets exact lines, got {defaultList}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
   expect (allList == #[
@@ -484,7 +484,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       "openvm\tresearch-only",
       "psy\tsource-only",
       "solana\tplan-only",
-      "soroban\tresearch-only"])
+      "soroban\tresearch-only",
+      "ton\tsource-only"])
     s!"list-targets --all canonical TargetId order, got {allList}"
   match ProofForgeV2.CLI.parseCliCommandV1 ["list-targets"] with
   | .ok (.listTargets opts) =>

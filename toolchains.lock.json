@@ -83,6 +83,13 @@
       "format": "file"
     },
     {
+      "id": "tolk-1.4.2-mac-arm64",
+      "url": "https://github.com/ton-blockchain/ton/releases/download/tolk-1.4.2/tolk-mac-arm64",
+      "size": 2298280,
+      "sha256": "52c00e29aacfdd89a8bde02dba0b921ee29a8655e0166364c34da114e1e31740",
+      "format": "file"
+    },
+    {
       "id": "wabt-1.0.41-macos-arm64",
       "url": "https://github.com/WebAssembly/wabt/releases/download/1.0.41/wabt-1.0.41-macos-arm64.tar.gz",
       "size": 3871425,
@@ -214,6 +221,14 @@
       "mode": "0555"
     },
     {
+      "path": "tolk",
+      "assetId": "tolk-1.4.2-mac-arm64",
+      "member": null,
+      "size": 2298280,
+      "sha256": "52c00e29aacfdd89a8bde02dba0b921ee29a8655e0166364c34da114e1e31740",
+      "mode": "0555"
+    },
+    {
       "path": "wat2wasm",
       "assetId": "wabt-1.0.41-macos-arm64",
       "member": "wabt-1.0.41/bin/wat2wasm",
@@ -275,6 +290,11 @@
       },
       {
         "path": "solc",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "tolk",
         "installId": null,
         "externalLoads": []
       },
@@ -486,6 +506,27 @@
       "licenseSpdx": "GPL-3.0-or-later",
       "requiredByProfiles": [
         "evm-yul-solc-0.8.34-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "tolk",
+      "version": "1.4.2",
+      "sourceUrl": "https://github.com/ton-blockchain/ton/releases/tag/tolk-1.4.2",
+      "platform": "darwin-arm64",
+      "assetId": "tolk-1.4.2-mac-arm64",
+      "executable": "tolk",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/tolk",
+      "executableSha256": "52c00e29aacfdd89a8bde02dba0b921ee29a8655e0166364c34da114e1e31740",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "1.4.1",
+      "licenseSpdx": "MIT",
+      "requiredByProfiles": [
+        "ton-tolk-boc-v1"
       ],
       "sourceBuild": null
     },
