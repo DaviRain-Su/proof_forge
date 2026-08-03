@@ -7,14 +7,17 @@
   * Only `context.caller` and `context.unixTimeSeconds` are admitted ContextRead
     surfaces (Source.ContextCommitSurfaceV1). Any other `context.*` place is
     fail-closed with `reqPrecondition`.
-  * Declared `requires extension …` items are not yet product-supported on the
-    engineering Check path → `ext001` fail-closed (NameResolution still accepts
-    table shape).
+  * Exactly one engineering extension identity is admitted:
+    `solana.cpi.accounts@1.0.0` with the frozen ADR-0024 digest. Unknown ids
+    fail with `ext001`; a known id with the wrong version/digest fails with
+    `extensionVersion`. Admission only carries the declaration into Semantic;
+    it does not advertise target support or permit artifact minting.
 
-  Not formal extension catalog / full context key matrix.
+  Not a formal extension catalog / full context key matrix.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.DiagnosticV1
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.AstSpineV1
@@ -29,6 +32,7 @@ namespace ProofForgeV2.Typed.ContextExtensionCheckV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticV1
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.AstSpineV1
@@ -110,11 +114,38 @@ def checkContextExtensionDraftsV1
   else
     Id.run do
       let mut drafts : Array TypedDiagnosticDraftV1 := #[]
-      -- Extension declarations: engineering Check does not admit product extensions.
-      if tables.extensionReq.size > 0 then
-        let d := DiagnosticV1.make .ext001
-          "extension requirements are not admitted on the engineering Check path"
-        drafts := drafts.push { diagnostic := d, location := none }
+      -- ADR-0024 engineering extension identity. This gate is target-neutral:
+      -- it recognizes only exact source bytes and does not import TargetId or
+      -- any Solana target module. Resolver/profile support remains separate.
+      for (item, itemIndex) in program.items.zipIdx do
+        match item with
+        | .extensionReq declaration =>
+            match programItemPathV1 itemIndex with
+            | .error detail => drafts := drafts.push (pathInternalDraft detail)
+            | .ok itemPath =>
+                let id := sourceQualifiedNameV1ToString declaration.id
+                if id != solanaCpiAccountsExtensionSourceIdV1 then
+                  drafts := drafts.push <| makeLocated .ext001
+                    s!"unsupported extension requirement '{id}'"
+                    itemPath
+                    (expected := some (.string solanaCpiAccountsExtensionSourceIdV1))
+                    (actual := some (.string id))
+                    (stableContext := some "extension.id.unsupported")
+                else if declaration.version != solanaCpiAccountsExtensionVersionV1 ||
+                    declaration.digest != solanaCpiAccountsExtensionDigestV1 then
+                  drafts := drafts.push <| makeLocated .extensionVersion
+                    "Solana CPI extension version/digest does not match the frozen contract"
+                    itemPath
+                    (expected := some (.object #[
+                      ("digest", .string solanaCpiAccountsExtensionDigestV1),
+                      ("version", .string solanaCpiAccountsExtensionVersionV1)]))
+                    (actual := some (.object #[
+                      ("digest", .string declaration.digest),
+                      ("version", .string declaration.version)]))
+                    (stableContext := some "extension.solana-cpi-accounts.version-digest")
+                else
+                  pure ()
+        | _ => pure ()
       -- Unknown context.* surfaces in any callable body.
       for item in program.items do
         let bad :=

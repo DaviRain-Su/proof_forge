@@ -44,7 +44,7 @@
   pending.
 -/
 import ProofForgeV2.Core.Common
-import ProofForgeV2.Semantic.RequirementIdsV1
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.ValidatedSourceV1
@@ -53,7 +53,7 @@ import ProofForgeV2.Typed.RequirementsInferV1
 namespace ProofForgeV2.Semantic.RequirementsV1
 
 open ProofForgeV2.Core.Common
-open ProofForgeV2.Semantic.RequirementIdsV1
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.ValidatedSourceV1
@@ -68,10 +68,14 @@ def s2RequirementVersionV1 : SemVer :=
   { major := 1, minor := 0, patch := 0 }
 
 /-- Closed S2 catalog IDs in SPEC wire order (UTF-8 ascending).
+<<<<<<< HEAD
     Sole spelling/order source: `RequirementIdsV1.s2CatalogIdsWireOrderListV1`
     (this Array is that list's `.toArray` projection). -/
+=======
+    Sole spelling source: `ProofForgeV2.Core.RequirementIdsV1.s2CatalogIdsWireOrderV1`. -/
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
 def s2CatalogIdsWireOrderV1 : Array String :=
-  RequirementIdsV1.s2CatalogIdsWireOrderV1
+  ProofForgeV2.Core.RequirementIdsV1.s2CatalogIdsWireOrderV1
 
 /-- Closed-catalog membership via sole list authority exact `List.contains`
     (kernel-reducible; no second enumerated if-chain). -/
@@ -229,13 +233,14 @@ private def isSkippedInferDisclosureIdV1 (id : String) : Bool :=
   id == inferDisclosurePrivateStateIdV1 ||
   id == inferDisclosureCommitmentStateIdV1
 
-/-- T-3: ContextRead / Commit contribution ids use wire spellings. Normalize
-    merges exact wire requirement rows after S2 freeze; freeze must skip them
-    so they never invent S2 catalog rows. -/
-private def isSkippedWireContextCommitIdV1 (id : String) : Bool :=
+/-- ContextRead / Commit / exact extension contribution ids use wire-owned
+    identities. Normalize merges their exact rows after S2 freeze; freeze must
+    skip them so they never invent S2 catalog rows or digest domains. -/
+private def isSkippedWireOwnedIdV1 (id : String) : Bool :=
   id == wireContextUnixTimeSecondsIdV1 ||
   id == wireContextCallerIdV1 ||
-  id == wireCommitmentDisclosureIdV1
+  id == wireCommitmentDisclosureIdV1 ||
+  id == wireExtensionSolanaCpiAccountsIdV1
 
 /-- Infer-only Field type contribution. Field arithmetic is exact modular
     (no overflow); product arithmetic is covered by the existing S2 key
@@ -260,7 +265,7 @@ def freezeProgramRequirementsV1 (program : ProgramV1) :
   for contribution in contributions do
     let id := RequirementContributionV1.idOf contribution
     if isSkippedInferDisclosureIdV1 id || isSkippedInferFieldIdV1 id ||
-        isSkippedWireContextCommitIdV1 id then
+        isSkippedWireOwnedIdV1 id then
       pure ()
     else do
       unless isS2CatalogIdV1 id do

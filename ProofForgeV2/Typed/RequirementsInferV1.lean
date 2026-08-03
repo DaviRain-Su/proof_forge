@@ -15,7 +15,7 @@
   Formal TASK-D2-05 / RequirementRef / predicate merge / contribution origins
   remain pending.
 -/
-import ProofForgeV2.Semantic.RequirementIdsV1
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramV1
@@ -29,7 +29,7 @@ import ProofForgeV2.Source.ValidatedSourceV1
 
 namespace ProofForgeV2.Typed.RequirementsInferV1
 
-open ProofForgeV2.Semantic.RequirementIdsV1
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1

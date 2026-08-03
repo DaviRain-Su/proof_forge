@@ -66,9 +66,10 @@ fail closed，static `QualifiedName` 不再经 SHA-256 冒充 program id，原 `
 
 因此 P0 必须先使 capability claim 与真实物化一致；在此之前不得把 static-QN stub 写成 CPI 支持。
 
-**2026-08-03 #115 engineering update**：harness-only caller/companion 已在 pinned Mollusk 上真实执行
-multi-account ABIv1、canonical PDA/bump、`invoke`/`invoke_signed` success/failure、return-data 与 rollback。
-该结果只证明新合同可实现；产品 profile/Plan/IR/resolver 尚未接线，System/Token/ATA 也未 admission，
+**2026-08-03 #115/#116 engineering update**：harness-only caller/companion 已在 pinned Mollusk 上真实执行
+multi-account ABIv1、canonical PDA/bump、`invoke`/`invoke_signed` success/failure、return-data 与 rollback；
+随后 exact extension requirement/provenance 与 `solana-sbpf-cpi-elf-v1` membership 已接线。该 profile仍不含
+sync/async support，并在 legacy Plan生成前 fail closed、零制品；System/Token/ATA 也未 admission，
 所以 whole-example strict equivalence 仍为 **0/56**。
 
 ## 2. 方法与分母
@@ -300,11 +301,11 @@ length、current-program owner、exact data length、初始化 header，以及�
 
 | 能力 | 当前事实 |
 |---|---|
-| Multi-account / order / alias | Plan 无通用模型；runtime harness 固定单 meta |
-| PDA / seeds / bump / signer | 缺失 |
+| Multi-account / order / alias | 产品 Plan 无通用模型；#115 harness-only 最多 16 roles |
+| PDA / seeds / bump / signer | 产品缺失；#115 仅 pinned-runtime golden/feasibility |
 | System create/transfer/close/realloc | 缺失 |
 | Lamports 语义 | assembly 只有布局常量，无读写/转账 |
-| True CPI | 缺失；call/schedule 是 log stub |
+| True CPI | 产品缺失且三个 profile均 fail closed；#115 仅 harness-only real invoke feasibility |
 | Classic SPL / ATA | 缺失 |
 | Token-2022 / Metaplex | 缺失 |
 | Clock/Rent/Instructions sysvar | shared ContextRead 部分存在，Solana Plan fail closed |

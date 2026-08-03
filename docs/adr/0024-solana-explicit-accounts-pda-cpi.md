@@ -13,8 +13,8 @@ normative: true
 
 `proposed`。本文是 issue #114 的 decision-complete 冻结候选；在 owner 按
 [`document-status.md`](../document-status.md) 记录批准前，不得写成 `accepted`，也不得据此开启产品
-sync capability。#115 只可先做 pinned-runtime、harness-only feasibility spike；它不能绕过本文的
-inert/deny 状态。
+sync capability。#115 的 pinned-runtime harness 与 #116 的 exact extension/inert profile membership
+都不能绕过本文的 artifact-mint/sync deny 状态。
 
 ## 背景与范围
 
@@ -117,8 +117,9 @@ requires extension solana.cpi.accounts version "1.0.0"
   sorted-unique union；缺失任一 origin fail closed；
 - generic call 仍独立贡献 `effect.synchronous-call` 与 rollback requirements，extension row不替代它们。
 
-#116 必须原子替换当前 `ContextExtensionCheckV1` 的 blanket deny：只承认上述 exact triple，其余 extension
-仍返回 `PF-EXT-001`；Normalize 只从该 validated declaration mint row。
+#116 已原子替换 `ContextExtensionCheckV1` 的 blanket deny：只承认上述 exact triple；unknown ID 返回
+`PF-EXT-001`，known ID 的 wrong version/digest 返回 `PF-EXTENSION-VERSION`。Normalize 只从该
+validated declaration mint row，Provenance 将 declaration node 绑定到 requirement entity；这不开放 call。
 
 ### 3.2 Account-bound Principal
 
@@ -492,8 +493,24 @@ Plan/IR/IDL identities：
 - 7 ABI + 5 PDA + 25 CPI 聚焦测试全 active；构建脚本与测试进程均绑定 committed manifest，不接受仅替换
   自洽 sidecars；临时 deploy tree在退出时删除。
 
-这只是 pinned-runtime engineering feasibility。`solana-sbpf-cpi-elf-v1` 仍未注册产品 membership，
-resolver仍不 advertise sync，generic product build仍 fail closed；#116–#125 与 formal D5/TST-SOL 状态不变。
+这只是 pinned-runtime engineering feasibility。#116 随后注册了 `solana-sbpf-cpi-elf-v1` membership
+并接通 exact extension row，但 resolver仍不 advertise sync/async，capability→Plan 与 generic product build
+在任何 OutputFile/输出目录前 fail closed；#117–#125 与 formal D5/TST-SOL 状态不变。
+
+#### #116 inert membership observation（2026-08-03）
+
+- exact `solana.cpi.accounts@1.0.0` + frozen digest 通过 ContextExtension Check；unknown ID 与 wrong
+  version/digest 分别稳定为 `PF-EXT-001` / `PF-EXTENSION-VERSION`；
+- Normalize 在无 call 时也 canonical merge 单一 `extension.solana-cpi-accounts@1.0.0` row，且
+  SemanticProvenance 的 requirement origin 精确落在 `ExtensionReq` declaration node；
+- registry 的 Solana profiles 固定 ASCII 顺序 `cpi-elf < elf < plan`，default仍为 plan；support index为
+  9 行，仅 CPI profile含 exact extension row，三个 Solana rows均不含 sync/async；
+- `planFromCapability` / `irFromCapability` / `buildFromCapability` / aggregate materialize 与 CLI build
+  对 CPI profile 均在 legacy Plan生成前返回 `PF-PLAN-INVARIANT`，CLI不创建输出目录；legacy plan/elf
+  行为与制品保持不变。
+
+该 observation 只证明可观察的 inert contract surface，不是 CPI Plan/IR、invoke、PDA product lowering，
+也不提高 target maturity。
 
 ### Schema mutation obligations
 

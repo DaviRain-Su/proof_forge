@@ -1491,7 +1491,8 @@ private unsafe def testExternalCallFailClosed
   let scheduleCompiled ← compileSource session scheduleText
     "Examples.ScheduleGate" "<solana-schedule-gate>"
   let profiles : Array (Option CodegenProfileId) :=
-    #[none, some CodegenProfileId.solanaSbpfElfV1]
+    #[none, some CodegenProfileId.solanaSbpfCpiElfV1,
+      some CodegenProfileId.solanaSbpfElfV1]
   for profile? in profiles do
     let callSelection ← liftResult <|
       resolveBuildSelectionV1 TargetId.solana profile?

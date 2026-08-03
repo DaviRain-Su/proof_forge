@@ -1,6 +1,6 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
-import ProofForgeV2.Semantic.RequirementIdsV1
+import ProofForgeV2.Core.RequirementIdsV1
 
 /-!
   ProofForgeV2.Semantic.Wire.ModelV1 — closed SemanticProgramV1 data model,
@@ -66,22 +66,28 @@ def callerContextKeyV1 : SchemaId :=
   { value := "proof-forge.context.caller.v1" }
 
 /-- Requirement identity bound to the unix-time ContextRead key.
-    Thin alias of `RequirementIdsV1.wireContextUnixTimeSecondsIdV1`
+    Thin alias of `ProofForgeV2.Core.RequirementIdsV1.wireContextUnixTimeSecondsIdV1`
     (domain `pf.context-read-requirement.v1`). -/
 def unixTimeSecondsContextRequirementIdV1 : String :=
-  RequirementIdsV1.wireContextUnixTimeSecondsIdV1
+  ProofForgeV2.Core.RequirementIdsV1.wireContextUnixTimeSecondsIdV1
 
 /-- Requirement identity bound to the caller ContextRead key (N-2). -/
 def callerContextRequirementIdV1 : String :=
-  RequirementIdsV1.wireContextCallerIdV1
+  ProofForgeV2.Core.RequirementIdsV1.wireContextCallerIdV1
 
 /-- Exact requirement identity contributed by every v1 Commit operation.
-    Thin alias of `RequirementIdsV1.wireCommitmentDisclosureIdV1`
+    Thin alias of `ProofForgeV2.Core.RequirementIdsV1.wireCommitmentDisclosureIdV1`
     (domain `pf.commit-requirement.v1`). Same spelling as the infer-only
     `inferDisclosureCommitmentIdV1` contribution — dual meaning; see
     `RequirementIdsV1` module doc. -/
 def commitmentDisclosureRequirementIdV1 : String :=
-  RequirementIdsV1.wireCommitmentDisclosureIdV1
+  ProofForgeV2.Core.RequirementIdsV1.wireCommitmentDisclosureIdV1
+
+/-- Exact requirement identity contributed by the frozen ADR-0024 Solana CPI
+    extension declaration. Recognition does not imply target support. -/
+def solanaCpiAccountsExtensionRequirementIdV1 : String :=
+  ProofForgeV2.Core.RequirementIdsV1.wireExtensionSolanaCpiAccountsIdV1
+
 /-- Exact bn254 Fr modulus big-endian bytes (SPEC-SEM-WIRE-001 §5). -/
 def bn254FrModulusBEV1 : ByteArray :=
   ByteArray.mk #[
@@ -417,6 +423,21 @@ def commitmentDisclosureRequirementV1 : Except String RequirementRequestV1 := do
   pure {
     id := commitmentDisclosureRequirementIdV1
     version := { major := 1, minor := 0, patch := 0 }
+    digest
+    predicates := #[]
+  }
+
+/-- Exact requirement row for the ADR-0024 Solana CPI extension declaration.
+    The digest is the frozen `pf.extension-semantics.v1` digest of the exact
+    extension JCS, not `SHA-256(id)`. Recognition alone does not advertise
+    synchronous-call support or permit artifact minting. -/
+def solanaCpiAccountsExtensionRequirementV1 :
+    Except String RequirementRequestV1 := do
+  let version ← parseSemVer ProofForgeV2.Core.RequirementIdsV1.solanaCpiAccountsExtensionVersionV1
+  let digest ← parseDigest ProofForgeV2.Core.RequirementIdsV1.solanaCpiAccountsExtensionDigestV1
+  pure {
+    id := solanaCpiAccountsExtensionRequirementIdV1
+    version
     digest
     predicates := #[]
   }

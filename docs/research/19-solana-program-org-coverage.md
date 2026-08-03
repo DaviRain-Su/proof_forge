@@ -56,16 +56,17 @@ normative: false
 **0/56 whole-example strict equivalence**。更重要的是，它为真实 CPI 提供了更权威的
 callee 合同：System、classic Token 和 ATA 应成为 P1 forcing oracles。
 
-当前 ProofForge Solana backend 仍是单 state-account 模型。2026-08-03 的 #111 honesty cut 已让
+当前可物化的 ProofForge Solana backend 仍是单 state-account 模型。2026-08-03 的 #111 honesty cut 已让
 两个 legacy profile 对 `call`/`schedule` 双键 fail closed，并删除可达的 `sol_log_data` 观测桩；
 但产品仍没有 account metas、`invoke`/`invoke_signed` 或 inner rollback。因此当前不能声称能够调用、
 替代或对等实现本组织中的任何真实 platform program。
 
-**2026-08-03 #115 engineering update**：独立 harness-only caller/companion 已在 locked SBPF + Mollusk 上
+**2026-08-03 #115/#116 engineering update**：独立 harness-only caller/companion 已在 locked SBPF + Mollusk 上
 验证最多 16 个 outer roles 的 ABIv1 walk、canonical PDA/bump、真实 unsigned/signed CPI、return-data 与
-failure rollback（37 项聚焦测试）。这只解除后端方案的 feasibility 风险；它没有进入
-`solana-sbpf-cpi-elf-v1` 产品 profile、Plan/IR、resolver 或官方 System/Token/ATA catalog admission，
-所以本报告的 strict-equivalence 与 callee-readiness 结论不变。
+failure rollback（37 项聚焦测试）。随后 exact extension requirement/provenance 与
+`solana-sbpf-cpi-elf-v1` registry membership 已接线；只有该 profile接受 extension row，但三个 Solana
+profiles均不支持 sync/async，且新 profile在 Plan前 fail closed、零制品。它仍没有 target-owned CPI
+Plan/IR 或官方 System/Token/ATA catalog admission，所以 strict-equivalence 与 callee-readiness 结论不变。
 
 ## 2. 快照方法与角色分类
 
@@ -169,11 +170,11 @@ failure rollback（37 项聚焦测试）。这只解除后端方案的 feasibili
 
 | 合同 | 当前事实 | 对组织仓库的影响 |
 |---|---|---|
-| Explicit multi-account roles/order | Plan 只有 state account index 0 | 不能构造 System/Token/ATA CPI metas |
+| Explicit multi-account roles/order | 可物化 Plan 只有 state account index 0；#115 harness-only 最多 16 roles | 不能构造产品 System/Token/ATA CPI metas |
 | Solana pubkey identity | Principal 是 wire identity，非 32-byte pubkey | 不能把 Principal 当 program/account address |
-| PDA/seeds/bump | 缺失 | ATA、stake pool、metadata、compression 等均阻塞 |
-| True synchronous CPI | `call` 只 `sol_log_data` | 不能声称调用任何 official program |
-| `invoke_signed` | 缺失 | PDA authority/custody 阻塞 |
+| PDA/seeds/bump | 产品缺失；#115 仅 harness golden | ATA、stake pool、metadata、compression 等均阻塞 |
+| True synchronous CPI | 三个 profile均无 sync support；#115 仅 harness real invoke | 不能声称调用任何 official program |
+| `invoke_signed` | 产品缺失；#115 仅 harness feasibility | PDA authority/custody 阻塞 |
 | System lifecycle/lamports | 缺失 | create/allocate/assign/transfer/close 阻塞 |
 | Classic Token/ATA | 缺失 | P1 forcing callees 尚不可用 |
 | Token-2022/interfaces | 缺失 | 必须保持 versioned pack fail closed |
@@ -299,8 +300,8 @@ fail-closed 测试。本文不批准其中任何 pack。
 | 清单闭包 | 38 行逐项 + 角色计数 | `19+3+6+2+6+1+1=38` |
 | archived | GitHub metadata | `alpenglow-vote` |
 | Metadata 边界 | repo title/README | SPL interface，非 Metaplex product |
-| 当前 CPI | 本地 `EmitSbpfAsmV1` | call/schedule 均为 `sol_log_data` stub |
-| 当前 account model | 本地 Lower/Validate/ASM | 单 state account index 0 |
+| 当前产品 CPI | resolver + `materializePlanFromCapabilityV1` | 三 profile均无 sync/async；inert CPI profile在 Plan前拒绝 |
+| 当前 account model | 本地 Lower/Validate/ASM + #115 harness | 产品单 state account index 0；harness-only 16 roles |
 | formal 状态 | `docs/04-task-breakdown.md` | `TASK-D5-01..05` 全 pending |
 
 限制：
@@ -325,6 +326,7 @@ catalog**，而不是第二份应用示例清单。
 4. tx/deploy 能力单独报告；
 5. 工具、示例、归档和 network-governance 项不充当 coverage numerator。
 
-按这个口径，ProofForge 当前有真实的单账户 SBPF/Mollusk 工程纵切，但离 Solana platform completeness
-仍缺 multi-account、PDA、真实 CPI、System、classic Token/ATA、sysvars 与独立 tx/deploy 合同；
+按这个口径，ProofForge 当前有真实的单账户 SBPF/Mollusk 工程纵切、harness-only multi-account/PDA/CPI
+feasibility 与 inert extension/profile surface，但离 Solana platform completeness 的产品面仍缺 multi-account
+Plan/IR、PDA、真实 CPI、System、classic Token/ATA、sysvars 与独立 tx/deploy 合同；
 Token-2022、staking、crypto/ZK、compression 等应在这些基础能力之后以版本化 pack 处理。

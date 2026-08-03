@@ -216,10 +216,10 @@ private def testParserBoundaryExit3 : IO Unit := do
   expect (!(← outDir.pathExists))
     "parser failure must not create output"
 
-/-- Legacy Solana profiles must reject call/schedule at capability resolution
-    before any output tree is created. Both default plan and explicit ELF
-    profiles carry the same fail-closed support row. -/
-private def testSolanaLegacyCallsFailClosed : IO Unit := do
+/-- Every registered Solana profile rejects call/schedule at capability
+    resolution before any output tree is created. The inert CPI profile admits
+    only its declaration row; sync/async stay closed until #125. -/
+private def testSolanaCallsFailClosed : IO Unit := do
   let fixtureDir := FilePath.mk "build/v2"
   IO.FS.createDirAll fixtureDir
   let callPath := fixtureDir / "diagnostic-solana-call-fail.lean"
@@ -255,7 +255,8 @@ private def testSolanaLegacyCallsFailClosed : IO Unit := do
     ("schedule", schedulePath, "Tests.CLI.SolanaScheduleFail",
       "effect.asynchronous-workflow")
   ]
-  let profiles := #["solana-sbpf-plan-v1", "solana-sbpf-elf-v1"]
+  let profiles := #["solana-sbpf-cpi-elf-v1", "solana-sbpf-elf-v1",
+    "solana-sbpf-plan-v1"]
   for (kind, sourcePath, moduleName, requirementId) in cases do
     for profile in profiles do
       let outDir := fixtureDir / s!"diagnostic-solana-{kind}-{profile}-output"
@@ -268,14 +269,14 @@ private def testSolanaLegacyCallsFailClosed : IO Unit := do
         "-o", outDir.toString
       ]
       expect (ec != 0)
-        s!"legacy Solana {kind}/{profile} must fail, got exit {ec}\n{stdout}\n{stderr}"
+        s!"registered Solana {kind}/{profile} must fail, got exit {ec}\n{stdout}\n{stderr}"
       expect (containsSubstr stderr "PF-REQ-UNSUPPORTED" &&
           containsSubstr stderr requirementId)
-        s!"legacy Solana {kind}/{profile} diagnostic must name {requirementId}: {stderr}"
+        s!"registered Solana {kind}/{profile} diagnostic must name {requirementId}: {stderr}"
       expect (!containsSubstr stdout "built target=")
-        s!"legacy Solana {kind}/{profile} must not print build success"
+        s!"registered Solana {kind}/{profile} must not print build success"
       expect (!(← outDir.pathExists))
-        s!"legacy Solana {kind}/{profile} must create zero output tree"
+        s!"registered Solana {kind}/{profile} must create zero output tree"
   if ← callPath.pathExists then IO.FS.removeFile callPath
   if ← schedulePath.pathExists then IO.FS.removeFile schedulePath
 
@@ -450,6 +451,28 @@ private def testProfileSelection : IO Unit := do
   let manifest ← IO.FS.readFile (outDir / "manifest.json")
   expect (containsSubstr manifest "solana-sbpf-plan-v1")
     s!"manifest must bind selected profile: {manifest}"
+
+  -- ADR-0024 profile is selectable but inert until target-owned CPI Plan/IR.
+  -- The failure must occur before publisher staging, leaving zero output tree.
+  let cpiOutDir := FilePath.mk "build/v2/diagnostic-profile-sbpf-cpi-inert"
+  if ← cpiOutDir.pathExists then IO.FS.removeDirAll cpiOutDir
+  let (cpiEc, cpiStdout, cpiStderr) ← runCli #[
+    "build", "Examples/Counter.lean",
+    "--module", "Examples.Counter",
+    "--target", "solana",
+    "--profile", "solana-sbpf-cpi-elf-v1",
+    "-o", cpiOutDir.toString
+  ]
+  expect (cpiEc != 0)
+    s!"inert solana cpi profile must fail, got {cpiEc}\n{cpiStderr}\n{cpiStdout}"
+  expect (containsSubstr cpiStderr "PF-PLAN-INVARIANT" &&
+      containsSubstr cpiStderr "inert")
+    s!"inert cpi diagnostic: {cpiStderr}"
+  expect (!containsSubstr cpiStdout "built target=")
+    "inert cpi profile must not print success"
+  expect (!(← cpiOutDir.pathExists))
+    "inert cpi profile must create zero output tree"
+
   let (ec2, _stdout2, stderr2) ← runCli #[
     "check", "Examples/Counter.lean",
     "--module", "Examples.Counter",
@@ -813,7 +836,7 @@ unsafe def run : IO Unit := do
   testLanguageVersionSelection
   testMultiErrorProductCli
   testParserBoundaryExit3
-  testSolanaLegacyCallsFailClosed
+  testSolanaCallsFailClosed
   testBuildCounterSuccess
   testCheckOkAndFail
   testInspectDigests

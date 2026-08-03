@@ -6,9 +6,15 @@
   BuildIdentity, formal registry root digest, claimDigest, predicate implication,
   or OutputSetV1.
 
+<<<<<<< HEAD
   Static rows cover exactly the implemented (targetId, codegenProfile) pairs
   from the frozen TargetRegistry membership table, in canonical (targetId,
   profile) ASCII order. Each row supports a per-target subset of the
+=======
+  Static rows are exactly the nine implemented (targetId, codegenProfile)
+  pairs from the frozen TargetRegistry membership table, in canonical
+  (targetId, profile) ASCII order. Each row supports a per-target subset of the
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   S2 seven RequirementRequestV1 keys in wire order:
     effect.asynchronous-workflow, effect.event, effect.synchronous-call,
     failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic
@@ -25,7 +31,7 @@
 -/
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.TargetIdentityV1
-import ProofForgeV2.Semantic.RequirementIdsV1
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -101,11 +107,13 @@ private def s2CatalogRequests : CompileResult (Array RequirementRequestV1) := do
     | .error e => throw <| .registryInvalid s!"engineering S2 request seed failed: {e}"
   pure items
 
-/-- Validate one supported-requirements array: unique ids, S2 catalog
-    membership (any subset — per-target capability gates), exact
-    version/digest, empty predicates, and SPEC wire order. -/
+/-- Validate one supported-requirements array: unique ids, exact S2
+    catalog rows (any subset — per-target capability gates), plus the sole
+    profile-scoped ADR-0024 extension row on `solana-sbpf-cpi-elf-v1` only.
+    All rows use strict ASCII id order and empty predicates. -/
 private def validateSupportedRequests
-    (label : String) (supported : Array RequirementRequestV1) : CompileResult Unit := do
+    (label : String) (targetId : TargetId) (profile : CodegenProfileId)
+    (supported : Array RequirementRequestV1) : CompileResult Unit := do
   let ids := supported.map (·.id)
   if let some dup := findDuplicateString ids then
     throw <| .registryDuplicate
@@ -113,31 +121,50 @@ private def validateSupportedRequests
   unless isStrictlyAscendingAscii ids do
     throw <| .registryInvalid
       s!"support requirements for '{label}' must be in SPEC wire order"
+  let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error e =>
+        throw <| .registryInvalid
+          s!"Solana CPI extension requirement seed failed: {e}"
   let mut i : Nat := 0
   while i < supported.size do
     match supported[i]? with
     | some item =>
-        unless isS2CatalogIdV1 item.id do
-          throw <| .registryInvalid
-            s!"support row '{label}' unknown requirement id '{item.id}'"
-        unless item.version == s2RequirementVersionV1 do
-          throw <| .registryInvalid
-            s!"support row '{label}' requirement '{item.id}' version must be 1.0.0"
-        let expectedDigest ← match engineeringRequirementDigestV1 item.id with
-          | .ok d => pure d
-          | .error e =>
-              throw <| .registryInvalid
-                s!"support row '{label}' requirement '{item.id}' digest unavailable: {e}"
-        unless item.digest == expectedDigest do
-          throw <| .registryInvalid
-            s!"support row '{label}' requirement '{item.id}' digest mismatch"
-        unless item.predicates.isEmpty do
-          throw <| .registryInvalid
-            s!"support row '{label}' requirement '{item.id}' must have empty predicates"
+        if item.id == solanaCpiAccountsExtensionRequirementIdV1 then
+          unless targetId == TargetId.solana &&
+              profile == CodegenProfileId.solanaSbpfCpiElfV1 do
+            throw <| .registryInvalid
+              s!"support row '{label}' cannot advertise the Solana CPI extension"
+          unless item == extensionRow do
+            throw <| .registryInvalid
+              s!"support row '{label}' Solana CPI extension row mismatch"
+        else do
+          unless isS2CatalogIdV1 item.id do
+            throw <| .registryInvalid
+              s!"support row '{label}' unknown requirement id '{item.id}'"
+          unless item.version == s2RequirementVersionV1 do
+            throw <| .registryInvalid
+              s!"support row '{label}' requirement '{item.id}' version must be 1.0.0"
+          let expectedDigest ← match engineeringRequirementDigestV1 item.id with
+            | .ok d => pure d
+            | .error e =>
+                throw <| .registryInvalid
+                  s!"support row '{label}' requirement '{item.id}' digest unavailable: {e}"
+          unless item.digest == expectedDigest do
+            throw <| .registryInvalid
+              s!"support row '{label}' requirement '{item.id}' digest mismatch"
+          unless item.predicates.isEmpty do
+            throw <| .registryInvalid
+              s!"support row '{label}' requirement '{item.id}' must have empty predicates"
     | none =>
         throw <| .registryInvalid
           s!"support row '{label}' requirement index out of range"
     i := i + 1
+  if targetId == TargetId.solana &&
+      profile == CodegenProfileId.solanaSbpfCpiElfV1 then
+    unless ids.contains solanaCpiAccountsExtensionRequirementIdV1 do
+      throw <| .registryInvalid
+        s!"support row '{label}' must carry the exact Solana CPI extension"
 
 /-- Implemented (targetId, profile, kind) triple carrier (avoids nested Prod). -/
 private structure ImplementedPairV1 where
@@ -201,7 +228,8 @@ def createStaticRequirementSupportIndexV1
         unless row.kind.toString == row.targetId.toString do
           throw <| .registryInvalid
             s!"support row '{rowKey row}' kind does not match targetId"
-        validateSupportedRequests (rowKey row) row.supported
+        validateSupportedRequests (rowKey row) row.targetId row.codegenProfile
+          row.supported
     | _, _ =>
         throw <| .registryInvalid "support row index out of range"
     i := i + 1
@@ -217,6 +245,7 @@ private def mkImplementedRow
     supported
   }
 
+<<<<<<< HEAD
 /-- Shipped eleven-row seed body (canonical targetId order: aleo, cosmwasm,
     evm×2, near, noir, psy, quint, solana×2, ton). EVM carries both
     `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1` (ASCII ascending;
@@ -266,20 +295,44 @@ private def mkImplementedRow
     `effect.asynchronous-workflow` maps to raw async out-messages (bounce and
     value/gas attachment are materializer concerns, never a hidden sync
     fallback). Its `effect.event` maps to external out-messages. -/
+=======
+/-- Shipped nine-row seed body (canonical targetId order: aleo, cosmwasm, evm,
+    near, noir, psy, solana×3). Solana carries inert CPI, legacy ELF, and plan
+    profiles in ASCII order. All three decline both call families; only the
+    inert CPI row additionally carries the exact ADR-0024 extension request.
+    Capability gates are per
+    target: EVM admits both call keys via a static QualifiedName callee;
+    NEAR has no synchronous external calls but owns async workflow promises, so
+    it declines sync and supports `effect.asynchronous-workflow`; Noir's
+    verifier-witness response model supports both. The opt-in Solana CPI
+    profile additionally admits only the exact ADR-0024 extension requirement
+    row, but still declines both call keys and remains artifact-inert. Aleo
+    declines both call families (no static-callee Plan open) and `effect.event`
+    (Leo 4.0.2 has no
+    on-chain event log — emit fails closed at the materializer); Psy supports
+    sync calls and events but declines `effect.asynchronous-workflow` (no
+    emitted deferred crosscall form — schedule fails closed at the materializer).
+    CosmWasm declines both call families at MVP: its `WasmMsg::Execute` is a
+    same-transaction submessage with a savepoint, **not** an EVM-style
+    synchronous CALL, and SubMsg fire-and-forget is **not** a cross-transaction
+    async workflow — aliasing either would overclaim the platform semantics
+    (B-CALL-SEM discipline). Its `effect.event` maps to Response attributes. -/
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
   let catalogRequests ← s2CatalogRequests
   -- Capability filters reference closed S2 id spellings from RequirementIdsV1
   -- (not bare literals). s2CatalogIdsWireOrderV1 stays RequirementsV1 public.
   let withoutSync := catalogRequests.filter fun r =>
-    r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   let aleoRequests := catalogRequests.filter fun r =>
-    r.id != Semantic.RequirementIdsV1.s2EffectEventIdV1 &&
-      r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
-      r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   -- Psy supports sync crosscalls (__invoke_sync#<Felt>) and events (__emit),
   -- but has no emitted deferred-crosscall form, so schedule fails closed and
   -- effect.asynchronous-workflow is declined here (never alias sync semantics).
   let psyRequests := catalogRequests.filter fun r =>
+<<<<<<< HEAD
     r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
   -- CosmWasm MVP+CW-4: sync declined (WasmMsg::Execute savepoint is not a
   -- sync CALL); async admitted via SubMsg reply_on=never (same-tx dispatch,
@@ -297,9 +350,22 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- CPI / log marker was neither exact CPI nor scheduling and is not a
   -- supported effect; a versioned CPI profile owns the future contract.
   -- Filter only the two call keys so expanded catalog entries stay intact.
+=======
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
+  -- Legacy Solana profiles and CosmWasm MVP decline both call families. For
+  -- Solana this is the capability-honesty cut: the old `sol_log_data` marker
+  -- was neither CPI nor scheduling and is not a supported effect.
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   let withoutCallFamilies := catalogRequests.filter fun r =>
-    r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
-      r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
+  let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error e =>
+        throw <| .registryInvalid
+          s!"Solana CPI extension requirement seed failed: {e}"
+  let solanaCpiRequests :=
+    (withoutCallFamilies.push extensionRow).qsort fun a b => a.id < b.id
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
@@ -311,7 +377,11 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
+<<<<<<< HEAD
     mkImplementedRow .quint CodegenProfileId.quintSourceU64ModelV1 quintRequests,
+=======
+    mkImplementedRow .solana CodegenProfileId.solanaSbpfCpiElfV1 solanaCpiRequests,
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
     mkImplementedRow .solana CodegenProfileId.solanaSbpfElfV1 withoutCallFamilies,
     mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 withoutCallFamilies,
     mkImplementedRow .ton CodegenProfileId.tonTolkBocV1 withoutSync
@@ -403,10 +473,11 @@ private def requestSupportedExact
     sole mint always feeds retained SemanticProgramV1 requirements instead.
     Phase order after uniqueness:
     1. strictly ascending request ids (SPEC/S2 wire order) → `PF-REQ-UNSUPPORTED`;
-    2. N5 wire-owned ContextRead/Commit exact rows accepted without support matrix;
-    3. per-row known S2 catalog id → `PF-REQ-UNSUPPORTED` (before predicates);
-    4. empty predicates only → `PF-REQ-PRECONDITION` for nonempty (known S2 only);
-    5. version / digest / exact support row match → `PF-REQ-UNSUPPORTED`.
+    2. wire-owned ContextRead/Commit exact rows accepted without support matrix;
+    3. exact Solana CPI extension row requires support-row membership;
+    4. per-row known S2 catalog id → `PF-REQ-UNSUPPORTED` (before predicates);
+    5. empty predicates only → `PF-REQ-PRECONDITION` for nonempty (known S2 only);
+    6. version / digest / exact support row match → `PF-REQ-UNSUPPORTED`.
     Duplicate request id → `PF-REQ-UNSUPPORTED`. No predicate implication. -/
 def inspectResolveRequestsV1
     (supported : Array RequirementRequestV1)
@@ -426,10 +497,10 @@ def inspectResolveRequestsV1
     throw <| .unsupportedRequirementV1
       "requirement requests must be in SPEC wire order (strictly ascending ids)"
   for item in items do
-    -- N5: wire-owned ContextRead/Commit exact rows are structure-gate binders
-    -- (domains `pf.context-read-requirement.v1` / `pf.commit-requirement.v1`),
-    -- not S2 engineering catalog members. Accept the exact mint only; do not
-    -- require target support-matrix membership. Other non-S2 ids still fail.
+    -- ContextRead/Commit exact rows are structure-gate binders and remain
+    -- target-independent. The Solana CPI extension row is also wire-owned but
+    -- is accepted only through exact support-row membership, so no other
+    -- target or legacy Solana profile can inherit it.
     if item.id == unixTimeSecondsContextRequirementIdV1 ||
         item.id == callerContextRequirementIdV1 ||
         item.id == commitmentDisclosureRequirementIdV1 then
@@ -456,6 +527,18 @@ def inspectResolveRequestsV1
         throw <| .unsupportedRequirementV1
           s!"requirement '{item.id}' is not the exact wire-owned row"
       pure ()
+    else if item.id == solanaCpiAccountsExtensionRequirementIdV1 then
+      let expected ← match solanaCpiAccountsExtensionRequirementV1 with
+        | .ok row => pure row
+        | .error e =>
+            throw <| .unsupportedRequirementV1
+              s!"Solana CPI extension requirement row unavailable: {e}"
+      unless item == expected do
+        throw <| .unsupportedRequirementV1
+          s!"requirement '{item.id}' is not the exact wire-owned extension row"
+      unless requestSupportedExact supported item do
+        throw <| .unsupportedRequirementV1
+          s!"no exact engineering support for requirement '{item.id}'"
     else do
       -- Known S2 catalog membership before predicates so non-catalog + nonempty
       -- predicates report PF-REQ-UNSUPPORTED (unknown class), not PRECONDITION.

@@ -1,5 +1,5 @@
 /-
-  ProofForgeV2.Semantic.RequirementIdsV1 — closed string constants for every
+  ProofForgeV2.Core.RequirementIdsV1 — closed string constants for every
   requirement identity used on the engineering product path.
 
   Single source of id spellings. Consumers must reference these defs; do not
@@ -31,6 +31,15 @@
     Bound only by `WireV1.commitmentDisclosureRequirementV1`.
     Not part of the S2 freeze catalog.
 
+  Wire-owned Solana CPI extension binding (ADR-0024 engineering row)
+    Extension source id: `solana.cpi.accounts`
+    Version: `1.0.0`
+    Domain tag: `pf.extension-semantics.v1`
+    Id: `extension.solana-cpi-accounts`
+      (`wireExtensionSolanaCpiAccountsIdV1`)
+    Digest is the frozen extension JCS domain digest, not a digest of the id.
+    Not part of the S2 freeze catalog and does not advertise target support.
+
   Infer-only contributions (RequirementsInferV1)
     No engineering digest is minted for these ids today. They appear as
     contribution identities from ProgramV1 visibility/type surfaces.
@@ -55,7 +64,7 @@
     `disclosure.commitment` to the S2 catalog without a formal CAP decision.
 -/
 
-namespace ProofForgeV2.Semantic.RequirementIdsV1
+namespace ProofForgeV2.Core.RequirementIdsV1
 
 /-! ### S2 closed catalog ids (domain `pf.requirement-key.engineering.v1`) -/
 
@@ -107,10 +116,27 @@ def wireContextCallerIdV1 : String := "context.caller"
     module doc. -/
 def wireCommitmentDisclosureIdV1 : String := "disclosure.commitment"
 
-/-- Closed wire-owned requirement ids (ContextRead + Commit bindings). -/
+/-- Frozen source declaration id for ADR-0024's opt-in Solana CPI extension. -/
+def solanaCpiAccountsExtensionSourceIdV1 : String := "solana.cpi.accounts"
+
+/-- Frozen canonical SemVer spelling for the Solana CPI extension declaration. -/
+def solanaCpiAccountsExtensionVersionV1 : String := "1.0.0"
+
+/-- Frozen domain-separated digest of the exact Solana CPI extension JCS.
+    This is intentionally not derived from the requirement id. -/
+def solanaCpiAccountsExtensionDigestV1 : String :=
+  "sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
+
+/-- Wire exact-row id for the Solana CPI extension declaration
+    (domain `pf.extension-semantics.v1`). -/
+def wireExtensionSolanaCpiAccountsIdV1 : String :=
+  "extension.solana-cpi-accounts"
+
+/-- Closed wire-owned requirement ids (ContextRead + Commit + exact extension
+    bindings). Membership here does not imply support by any target/profile. -/
 def wireOwnedRequirementIdsV1 : Array String :=
   #[wireContextUnixTimeSecondsIdV1, wireContextCallerIdV1,
-    wireCommitmentDisclosureIdV1]
+    wireCommitmentDisclosureIdV1, wireExtensionSolanaCpiAccountsIdV1]
 
 /-! ### Infer-only contribution ids (S2 freeze rejects; no engineering digest) -/
 
@@ -151,4 +177,4 @@ def inferOnlyRequirementIdsV1 : Array String :=
     inferValueFieldBn254FrIdV1, inferValueFieldBls12377FrIdV1,
     inferValueFieldGoldilocksIdV1]
 
-end ProofForgeV2.Semantic.RequirementIdsV1
+end ProofForgeV2.Core.RequirementIdsV1

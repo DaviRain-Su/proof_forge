@@ -41,9 +41,10 @@ def evm : TargetDescriptor :=
   descriptorFromRegistryAxes .evm .evmYul CodegenProfileId.evmYulSolc0834V1
 
 def solana : TargetDescriptor :=
-  -- Residual descriptor binds the default plan profile. The explicit ELF
-  -- profile (`solana-sbpf-elf-v1`) is accepted by `acceptsCodegenProfile`
-  -- without inventing a second TargetDescriptor table.
+  -- Residual descriptor binds the default plan profile. The explicit ELF and
+  -- inert ADR-0024 CPI profiles are accepted by `acceptsCodegenProfile`
+  -- without inventing a second TargetDescriptor table. CPI artifact minting
+  -- remains separately fail-closed until its target-owned Plan/IR exists.
   descriptorFromRegistryAxes .solana .sbpfPlanText CodegenProfileId.solanaSbpfPlanV1
 
 /-- Residual descriptor profile acceptance for multi-profile targets.
@@ -52,8 +53,14 @@ def solana : TargetDescriptor :=
     capability mint and artifact identity can bind them without a second row. -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
+<<<<<<< HEAD
     (descriptor.targetId == TargetId.evm && profile == CodegenProfileId.evmYulSolc0834CancunV1) ||
     (descriptor.targetId == TargetId.solana && profile == CodegenProfileId.solanaSbpfElfV1)
+=======
+    (descriptor.targetId == TargetId.solana &&
+      (profile == CodegenProfileId.solanaSbpfCpiElfV1 ||
+        profile == CodegenProfileId.solanaSbpfElfV1))
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
 
 def near : TargetDescriptor :=
   descriptorFromRegistryAxes .near .wasmText CodegenProfileId.nearWasmRawU64V1

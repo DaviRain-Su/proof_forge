@@ -342,6 +342,7 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
+<<<<<<< HEAD
   expect (rows.size == 11) "exactly eleven support rows"
   let expectedKeys := #[
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4),
@@ -358,20 +359,47 @@ private def testSupportTable : IO Unit := do
   ]
   let mut i : Nat := 0
   while i < expectedKeys.size do
+=======
+  expect (rows.size == 9) "exactly nine support rows"
+  let expectedExtension ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError error
+  let expectedKeys := #[
+    ("aleo", "aleo-leo-4.0.2-u64-v1", 4, false),
+    ("cosmwasm", "cosmwasm-wasm-u64-v1", 5, false),
+    ("evm", "evm-yul-solc-0.8.34-v1", 7, false),
+    ("near", "near-wasm-raw-u64-v1", 6, false),
+    ("noir", "noir-source-u64-relations-v1", 7, false),
+    ("psy", "psy-dargo-u64-v1", 6, false),
+    ("solana", "solana-sbpf-cpi-elf-v1", 6, true),
+    ("solana", "solana-sbpf-elf-v1", 5, false),
+    ("solana", "solana-sbpf-plan-v1", 5, false)
+  ]
+  let mut i : Nat := 0
+  while i < rows.size do
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
     match rows[i]?, expectedKeys[i]? with
-    | some row, some (tid, prof, supportCount) =>
+    | some row, some (tid, prof, supportCount, expectsExtension) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"
         expect (row.codegenProfile.toString == prof) s!"row {i} profile"
         expect (row.supported.size == supportCount)
           s!"row {i} support count"
+<<<<<<< HEAD
         -- Every row is a wire-order subset of the S2 catalog; EVM/Noir admit
         -- both external-call keys (AddressBearing static QN), NEAR the async
         -- one, Psy the sync one. Legacy Solana declines both call families.
+=======
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
         let ids := row.supported.map (·.id)
-        expect (ids.all isS2CatalogIdV1) s!"row {i} ids are catalog members"
-        expect (row.supported.all fun item =>
-            item.version == s2RequirementVersionV1 && item.predicates.isEmpty)
-          s!"row {i} version/predicates"
+        expect (ids.all fun id => isS2CatalogIdV1 id ||
+            id == solanaCpiAccountsExtensionRequirementIdV1)
+          s!"row {i} ids are S2 or the exact extension"
+        expect (row.supported.all fun item => item.predicates.isEmpty)
+          s!"row {i} predicates"
+        let extensionRows := row.supported.filter fun item =>
+          item.id == solanaCpiAccountsExtensionRequirementIdV1
+        expect ((extensionRows == #[expectedExtension]) == expectsExtension)
+          s!"row {i} extension scope"
         let expectSync :=
           row.targetId == TargetId.noir || row.targetId == TargetId.psy ||
             row.targetId == TargetId.evm
@@ -387,15 +415,26 @@ private def testSupportTable : IO Unit := do
               "value.bool", "value.checked-arithmetic"])
             "Quint Q0 support row must be the exact four-key model subset"
         for item in row.supported do
-          match engineeringRequirementDigestV1 item.id with
-          | .ok d => expect (item.digest == d) s!"row {i} digest for {item.id}"
-          | .error e => throw <| IO.userError e
+          if item.id == solanaCpiAccountsExtensionRequirementIdV1 then
+            expect (item == expectedExtension) s!"row {i} exact extension row"
+          else
+            match engineeringRequirementDigestV1 item.id with
+            | .ok d =>
+                expect (item.version == s2RequirementVersionV1 && item.digest == d)
+                  s!"row {i} S2 identity for {item.id}"
+            | .error e => throw <| IO.userError e
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
+<<<<<<< HEAD
 /-- Canonical 11-row (target,profile) skeleton matching the shipped index shape.
     `evmSupported` replaces both EVM rows' supported lists for content negatives. -/
 private def elevenRowSkeleton
+=======
+/-- Canonical 9-row (target,profile) skeleton matching the shipped index shape.
+    `evmSupported` replaces the EVM row's supported list for content negatives. -/
+private def nineRowSkeleton
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
     Array StaticRequirementSupportRowV1 :=
@@ -407,7 +446,11 @@ private def elevenRowSkeleton
     mkRow .near CodegenProfileId.nearWasmRawU64V1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
     mkRow .psy CodegenProfileId.psyDargoU64V1 base,
+<<<<<<< HEAD
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 base,
+=======
+    mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 base,
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
     mkRow .solana CodegenProfileId.solanaSbpfElfV1 base,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 base,
     mkRow .ton CodegenProfileId.tonTolkBocV1 base
@@ -461,9 +504,15 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .openvm CodegenProfileId.evmYulSolc0834V1 trio
   ]
+<<<<<<< HEAD
   -- Size-extra first (12 rows vs expected 11):
   let extra :=
     (elevenRowSkeleton trio trio).push
+=======
+  -- Size-extra first (10 rows vs expected 9):
+  let extra :=
+    (nineRowSkeleton trio trio).push
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
       (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)
   expectErrorCode (createStaticRequirementSupportIndexV1 extra)
     "PF-REGISTRY-INVALID" "extra design-only row"
@@ -510,30 +559,50 @@ private def testIndexValidationNegatives : IO Unit := do
   let r1 ← match trio[1]? with | some r => pure r | none => throw <| IO.userError "trio1"
   let r2 ← match trio[2]? with | some r => pure r | none => throw <| IO.userError "trio2"
   let reversed := #[r2, r1, r0]
+<<<<<<< HEAD
   let revRows := elevenRowSkeleton trio reversed
+=======
+  let revRows := nineRowSkeleton trio reversed
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   expectErrorCode (createStaticRequirementSupportIndexV1 revRows)
     "PF-REGISTRY-INVALID" "non-canonical requirement order"
   -- Duplicate requirement id
   let dupReq := #[r0, r0, r1]
+<<<<<<< HEAD
   let dupReqRows := elevenRowSkeleton trio dupReq
+=======
+  let dupReqRows := nineRowSkeleton trio dupReq
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   expectErrorCode (createStaticRequirementSupportIndexV1 dupReqRows)
     "PF-REGISTRY-DUPLICATE" "duplicate requirement in support row"
   -- Wrong version
   let badVer := { r0 with version := { major := 2, minor := 0, patch := 0 } }
   let badVerTrio := #[badVer, r1, r2]
+<<<<<<< HEAD
   let badVerRows := elevenRowSkeleton trio badVerTrio
+=======
+  let badVerRows := nineRowSkeleton trio badVerTrio
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   expectErrorCode (createStaticRequirementSupportIndexV1 badVerRows)
     "PF-REGISTRY-INVALID" "wrong requirement version in support row"
   -- Wrong digest
   let badDig := { r0 with digest := zeroDigest }
   let badDigTrio := #[badDig, r1, r2]
+<<<<<<< HEAD
   let badDigRows := elevenRowSkeleton trio badDigTrio
+=======
+  let badDigRows := nineRowSkeleton trio badDigTrio
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   expectErrorCode (createStaticRequirementSupportIndexV1 badDigRows)
     "PF-REGISTRY-INVALID" "wrong requirement digest in support row"
   -- Nonempty predicates
   let withPred := { r0 with predicates := #[.boolEquals "x" true] }
   let predTrio := #[withPred, r1, r2]
+<<<<<<< HEAD
   let predRows := elevenRowSkeleton trio predTrio
+=======
+  let predRows := nineRowSkeleton trio predTrio
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   expectErrorCode (createStaticRequirementSupportIndexV1 predRows)
     "PF-REGISTRY-INVALID" "nonempty predicates in support row"
   -- Unknown requirement id (swap the last item for a non-catalog id that
@@ -549,9 +618,28 @@ private def testIndexValidationNegatives : IO Unit := do
     let some first := full[0]? | throw <| IO.userError "trio0"
     let some second := full[1]? | throw <| IO.userError "trio1"
     pure #[first, second, unknown]
+<<<<<<< HEAD
   let unkRows := elevenRowSkeleton unkTrio unkTrio
+=======
+  let unkRows := nineRowSkeleton unkTrio unkTrio
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   expectErrorCode (createStaticRequirementSupportIndexV1 unkRows)
     "PF-REGISTRY-INVALID" "unknown requirement id in support row"
+  -- The one non-S2 row is legal only on the inert Solana CPI profile.
+  let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError error
+  let evmWithExtension :=
+    (trio.push extensionRow).qsort fun left right => left.id < right.id
+  let wrongExtensionScope := nineRowSkeleton trio evmWithExtension
+  expectErrorCode (createStaticRequirementSupportIndexV1 wrongExtensionScope)
+    "PF-REGISTRY-INVALID" "Solana CPI extension cannot appear on EVM support row"
+  -- The inert CPI profile is an exact capability boundary, not merely the only
+  -- place where the extension is allowed. Its support row must carry the exact
+  -- frozen extension request.
+  let missingExtension := nineRowSkeleton trio trio
+  expectErrorCode (createStaticRequirementSupportIndexV1 missingExtension)
+    "PF-REGISTRY-INVALID" "Solana CPI profile requires its exact extension row"
 
 private def testSeedPrecedence : IO Unit := do
   let sentinel : CompileResult StaticRequirementSupportIndexV1 :=
@@ -604,6 +692,41 @@ private def testRequestInspectionErrors : IO Unit := do
   -- Aleo still declines external-call keys (first row seed).
   expectErrorCode (inspectResolveRequestsV1 supported { items := trio })
     "PF-REQ-UNSUPPORTED" "aleo declines external-call keys"
+
+  -- ADR-0024 extension is exact and profile-scoped: only the inert Solana CPI
+  -- row accepts it; both legacy Solana rows and all other targets reject it.
+  let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError error
+  let cpiSupported ← match rows.find? fun row =>
+      row.targetId == TargetId.solana &&
+        row.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 with
+    | some row => pure row.supported
+    | none => throw <| IO.userError "missing inert Solana CPI support row"
+  match inspectResolveRequestsV1 cpiSupported { items := #[extensionRow] } with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError s!"exact extension on CPI profile: {error.render}"
+  for legacyProfile in #[CodegenProfileId.solanaSbpfElfV1,
+      CodegenProfileId.solanaSbpfPlanV1] do
+    let legacySupported ← match rows.find? fun row =>
+        row.targetId == TargetId.solana && row.codegenProfile == legacyProfile with
+      | some row => pure row.supported
+      | none => throw <| IO.userError s!"missing legacy row {legacyProfile}"
+    expectErrorCode
+      (inspectResolveRequestsV1 legacySupported { items := #[extensionRow] })
+      "PF-REQ-UNSUPPORTED" s!"legacy {legacyProfile} declines CPI extension"
+  let extensionBadVersion := {
+    extensionRow with version := { major := 1, minor := 0, patch := 1 } }
+  let extensionBadDigest := { extensionRow with digest := zeroDigest }
+  let extensionBadPredicate := {
+    extensionRow with predicates := #[.boolEquals "enabled" true] }
+  for (label, bad) in #[
+      ("version", extensionBadVersion),
+      ("digest", extensionBadDigest),
+      ("predicate", extensionBadPredicate)] do
+    expectErrorCode (inspectResolveRequestsV1 cpiSupported { items := #[bad] })
+      "PF-REQ-UNSUPPORTED" s!"CPI extension wrong {label}"
   -- Unknown id
   let unknown : RequirementRequestV1 := {
     id := "disclosure.private-witness"
@@ -867,6 +990,27 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (hasSubstr text "supportClaimDigest=sha256:")
         "inspect includes support claim"
   | .error e => throw <| IO.userError e.render
+<<<<<<< HEAD
+=======
+  match ProofForgeV2.CLI.inspectTargetText "solana" with
+  | .ok text =>
+      expect (hasSubstr text
+          "target=solana\nprofile=solana-sbpf-plan-v1\nrequirements=#[effect.event, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
+        s!"inspect exact legacy Solana default capability set, got {text}"
+      expect (hasSubstr text
+          "profiles=#[solana-sbpf-cpi-elf-v1, solana-sbpf-elf-v1, solana-sbpf-plan-v1]")
+        s!"inspect must expose exact inert/legacy profile membership, got {text}"
+      expect (!hasSubstr text "effect.synchronous-call" &&
+          !hasSubstr text "effect.asynchronous-workflow")
+        "inspect default Solana support must not advertise call families"
+  | .error e => throw <| IO.userError e.render
+  match ProofForgeV2.CLI.inspectTargetText "solana" true with
+  | .ok json =>
+      expect (hasSubstr json
+          "\"profiles\":[\"solana-sbpf-cpi-elf-v1\",\"solana-sbpf-elf-v1\",\"solana-sbpf-plan-v1\"]")
+        s!"inspect Solana JSON profiles, got {json}"
+  | .error e => throw <| IO.userError e.render
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   match ProofForgeV2.CLI.inspectTargetText "noir" with
   | .ok text =>
       expect (hasSubstr text "failure.atomic-rollback") "noir inspect S2"

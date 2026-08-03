@@ -44,7 +44,7 @@
   Formal TASK-D2-06 remains pending.
 -/
 import ProofForgeV2.Core.Common
-import ProofForgeV2.Semantic.RequirementIdsV1
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramItemV1
@@ -66,7 +66,7 @@ import Std.Data.HashMap
 namespace ProofForgeV2.Semantic.ProvenanceV1
 
 open ProofForgeV2.Core.Common
-open ProofForgeV2.Semantic.RequirementIdsV1
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
@@ -1653,8 +1653,9 @@ private def attributeCounterEntitiesV1
         -- are bound above (N-CONST-REF). Proof is certification-only.
         pure ()
     | .extensionReq _ =>
-        return ← failUnsupported
-          "S2 provenance does not support extensionReq"
+        -- Declaration has no business entity; its exact requirement row is
+        -- attributed below to the ExtensionReq source node.
+        pure ()
     itemIdx := itemIdx + 1
   unless callableId == data.callables.size do
     return ← failUnsupported "S2 provenance: callable count mismatch"
@@ -1782,6 +1783,8 @@ private def attributeCounterEntitiesV1
         | .bool =>
             rs := reqPush rs s2ValueBoolIdV1 (directChild itemPath "FnDecl" "result")
         | _ => pure ()
+    | .extensionReq _ =>
+        rs := reqPush rs wireExtensionSolanaCpiAccountsIdV1 itemPath
     | _ => pure ()
     itemIdx := itemIdx + 1
   itemIdx := 0

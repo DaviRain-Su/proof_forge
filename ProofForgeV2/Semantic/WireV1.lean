@@ -1,6 +1,6 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
-import ProofForgeV2.Semantic.RequirementIdsV1
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Semantic.Wire.ModelV1
 import ProofForgeV2.Semantic.Wire.CodecV1
 import ProofForgeV2.Semantic.Wire.CodecRoundtripV1

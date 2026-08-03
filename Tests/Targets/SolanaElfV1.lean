@@ -17,9 +17,11 @@ import Tests.Language.ParserSession
 # Tests.Targets.SolanaElfV1 — S2a solana-sbpf-elf-v1 profile
 
 Pins:
-* registry membership of `solana-sbpf-elf-v1` with default still plan-v1
-* requirement-support row for the elf profile
-* residual descriptor stays plan-v1 but accepts elf via acceptsCodegenProfile
+* registry membership of legacy `solana-sbpf-elf-v1` plus inert
+  `solana-sbpf-cpi-elf-v1`, with default still plan-v1
+* profile-scoped requirement-support rows: only cpi profile carries the exact
+  extension row, and all three profiles still decline sync/async
+* residual descriptor stays plan-v1 but accepts both opt-in profiles
 * buildFromCapability under elf emits `.s` + plan + IDL; plan profile unchanged
 * `.s` contents match `emitSbpfAsmV1` and are deterministic
 * FinalizeV1 plan profile stays zero-tool
@@ -52,6 +54,15 @@ private def liftResult (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
 
+private def expectCompileErrorContains
+    (label code detail : String) (result : CompileResult α) : IO Unit :=
+  match result with
+  | .ok _ => throw <| IO.userError s!"{label}: expected failure"
+  | .error error =>
+      let rendered := error.render
+      expect (rendered.contains code && rendered.contains detail)
+        s!"{label}: expected {code} and '{detail}', got {rendered}"
+
 private def expectIoErrorContains (label expected : String) (action : IO Unit) : IO Unit := do
   try
     action
@@ -72,24 +83,20 @@ private def solanaCapability
   let selection ← resolveBuildSelectionV1 TargetId.solana profile?
   Targets.resolveEngineeringRequirementsV1 selection compiled
 
-/-- Registry: elf profile is a member; default remains plan; not reserved. -/
+/-- Registry: cpi/elf/plan are exact members; default remains plan. -/
 private def testRegistryMembership : IO Unit := do
   let reg ← liftResult <| registration? TargetId.solana
   let reg ← match reg with
     | some r => pure r
     | none => throw <| IO.userError "solana registration missing"
-  expect (reg.profiles.any (· == CodegenProfileId.solanaSbpfElfV1))
-    "registry: solana profiles include solana-sbpf-elf-v1"
-  expect (reg.profiles.any (· == CodegenProfileId.solanaSbpfPlanV1))
-    "registry: solana profiles include solana-sbpf-plan-v1"
+  expect (reg.profiles == #[CodegenProfileId.solanaSbpfCpiElfV1,
+      CodegenProfileId.solanaSbpfElfV1, CodegenProfileId.solanaSbpfPlanV1])
+    s!"registry: exact cpi/elf/plan profile order, got {reg.profiles.map (·.toString)}"
   expect (reg.defaultProfile == some CodegenProfileId.solanaSbpfPlanV1)
     "registry: default profile remains solana-sbpf-plan-v1"
-  -- Strict ASCII ascending: elf < plan
-  match reg.profiles[0]?, reg.profiles[1]? with
-  | some p0, some p1 =>
-      expect (p0 == CodegenProfileId.solanaSbpfElfV1) "registry: ascending first is elf"
-      expect (p1 == CodegenProfileId.solanaSbpfPlanV1) "registry: ascending second is plan"
-  | _, _ => throw <| IO.userError "registry: expected exactly two solana profiles"
+  expect (!(ProofForgeV2.Targets.BuildSelectionV1.reservedFutureProfiles.contains
+      "solana-sbpf-cpi-elf-v1"))
+    "registry: solana-sbpf-cpi-elf-v1 is an opt-in inert member"
   expect (!(ProofForgeV2.Targets.BuildSelectionV1.reservedFutureProfiles.contains
       "solana-sbpf-elf-v1"))
     "registry: solana-sbpf-elf-v1 is no longer reserved"
@@ -99,14 +106,23 @@ private def testRegistryMembership : IO Unit := do
   let defaultSel ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
   expect (defaultSel.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
     "resolve: default selection is plan profile"
+  let cpiSel ← liftResult <|
+    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfCpiElfV1)
+  expect (cpiSel.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
+    "resolve: explicit inert cpi selection"
   let elfSel ← liftResult <|
     resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfElfV1)
   expect (elfSel.codegenProfile == CodegenProfileId.solanaSbpfElfV1)
     "resolve: explicit elf selection"
 
-/-- Requirement support row for both solana profiles; descriptor residual stays plan. -/
+/-- Profile-scoped extension support; descriptor residual stays plan. -/
 private def testSupportAndDescriptor : IO Unit := do
   let rows ← liftResult productSupportRowsV1
+  let cpiRow ← match rows.find? (fun r =>
+      r.targetId == TargetId.solana &&
+        r.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1) with
+    | some r => pure r
+    | none => throw <| IO.userError "missing inert solana cpi support row"
   let elfRow ← match rows.find? (fun r =>
       r.targetId == TargetId.solana &&
         r.codegenProfile == CodegenProfileId.solanaSbpfElfV1) with
@@ -117,15 +133,29 @@ private def testSupportAndDescriptor : IO Unit := do
         r.codegenProfile == CodegenProfileId.solanaSbpfPlanV1) with
     | some r => pure r
     | none => throw <| IO.userError "missing solana plan support row"
-  expect (elfRow.supported.size == planRow.supported.size)
-    "support: elf and plan share the same S2 capability set size"
   expect (elfRow.supported.map (·.id) == planRow.supported.map (·.id))
-    "support: elf and plan share exact S2 id list"
-  let ids := planRow.supported.map (·.id)
-  expect (ids.size == 5 &&
-      !ids.contains "effect.synchronous-call" &&
-      !ids.contains "effect.asynchronous-workflow")
-    "support: both legacy profiles decline call/schedule until the opt-in CPI profile"
+    "support: legacy elf and plan retain the exact S2 id list"
+  let legacyIds := planRow.supported.map (·.id)
+  expect (legacyIds.size == 5 &&
+      !legacyIds.contains "effect.synchronous-call" &&
+      !legacyIds.contains "effect.asynchronous-workflow" &&
+      !legacyIds.contains "extension.solana-cpi-accounts")
+    "support: legacy profiles decline call/schedule and the opt-in extension"
+  let cpiIds := cpiRow.supported.map (·.id)
+  expect (cpiIds.size == 6 &&
+      !cpiIds.contains "effect.synchronous-call" &&
+      !cpiIds.contains "effect.asynchronous-workflow")
+    "support: inert cpi profile still declines both call families"
+  let expectedExtension ← match
+      ProofForgeV2.Semantic.WireV1.solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError s!"extension row: {error}"
+  expect (cpiRow.supported.filter (·.id == "extension.solana-cpi-accounts") ==
+      #[expectedExtension])
+    "support: inert cpi profile carries one exact extension row"
+  expect (!(elfRow.supported.any (·.id == "extension.solana-cpi-accounts")) &&
+      !(planRow.supported.any (·.id == "extension.solana-cpi-accounts")))
+    "support: extension row must be scoped to the cpi profile"
   let desc := Targets.Solana.descriptor
   expect (desc.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
     "descriptor: residual binds plan profile"
@@ -133,6 +163,8 @@ private def testSupportAndDescriptor : IO Unit := do
     "descriptor: accepts plan"
   expect (acceptsCodegenProfile desc CodegenProfileId.solanaSbpfElfV1)
     "descriptor: accepts elf"
+  expect (acceptsCodegenProfile desc CodegenProfileId.solanaSbpfCpiElfV1)
+    "descriptor: accepts inert cpi profile"
   expect (!acceptsCodegenProfile desc CodegenProfileId.evmYulSolc0834V1)
     "descriptor: rejects foreign profile"
 
@@ -194,6 +226,44 @@ private unsafe def testEmitProfiles
     "materialize: carrier profile is elf"
   let matPaths := (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
   expect (matPaths.any (· == "Counter.s")) "materialize: includes .s"
+
+  -- Inert CPI profile: selection and capability mint succeed for Counter, but
+  -- every Plan/IR/file entry rejects before an OutputFile can be constructed.
+  let cpiCap ← liftResult <|
+    solanaCapability compiled (some CodegenProfileId.solanaSbpfCpiElfV1)
+  expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf cpiCap ==
+      CodegenProfileId.solanaSbpfCpiElfV1)
+    "cpi capability binds the opt-in profile"
+  expectCompileErrorContains "cpi plan" "PF-PLAN-INVARIANT" "inert"
+    (planFromCapability cpiCap)
+  expectCompileErrorContains "cpi ir" "PF-PLAN-INVARIANT" "inert"
+    (irFromCapability cpiCap)
+  expectCompileErrorContains "cpi files" "PF-PLAN-INVARIANT" "inert"
+    (buildFromCapability cpiCap)
+  expectCompileErrorContains "cpi materialize" "PF-PLAN-INVARIANT" "inert"
+    (Targets.materializeResult cpiCap)
+
+private unsafe def testExtensionProfileResolution
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CpiDeclared where\n" ++
+    "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
+    "    digest \"sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020\"\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let compiled ← compileSource session source "Tests.CpiDeclared"
+    "<solana-cpi-declared>"
+  let cpiCap ← liftResult <|
+    solanaCapability compiled (some CodegenProfileId.solanaSbpfCpiElfV1)
+  expectCompileErrorContains "declared cpi materialize" "PF-PLAN-INVARIANT" "inert"
+    (Targets.materializeResult cpiCap)
+  for legacy in #[CodegenProfileId.solanaSbpfElfV1,
+      CodegenProfileId.solanaSbpfPlanV1] do
+    expectCompileErrorContains s!"declared extension on {legacy}"
+      "PF-REQ-UNSUPPORTED" "extension.solana-cpi-accounts"
+      (solanaCapability compiled (some legacy))
 
 /-- Finalize pure helpers + plan stub regression + missing-tool path. -/
 private unsafe def testFinalize
@@ -264,6 +334,7 @@ unsafe def run : IO Unit := do
   testSupportAndDescriptor
   let session ← Tests.Language.ParserSession.shared
   testEmitProfiles session
+  testExtensionProfileResolution session
   testFinalize session
   IO.println "Tests.Targets.SolanaElfV1: ok"
 

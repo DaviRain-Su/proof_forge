@@ -162,6 +162,7 @@ import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Semantic.ProvenanceV1
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.AstDeclV1
@@ -186,6 +187,7 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Semantic.ProvenanceV1
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.AstProgramItemV1
@@ -229,6 +231,20 @@ private def failIdentity (detail : String) : Except NormalizeErrorV1 α :=
   .error (.identity detail)
 
 private def raw (n : SourceNameComponentV1) : String := n.raw
+
+private def sourceQualifiedNameStringV1 (name : SourceQualifiedNameV1) : String :=
+  String.intercalate "."
+    ((NonEmptyArray.toArray name.components).map (·.raw) |>.toList)
+
+/-- Exact target-neutral ADR-0024 extension declaration identity. Recognition
+    here mints only a wire-owned requirement row; target/profile admission is
+    owned by RequirementResolverV1. -/
+private def isExactSolanaCpiExtensionV1
+    (declaration : ProofForgeV2.Source.AstDeclV1.ExtensionReqV1) : Bool :=
+  sourceQualifiedNameStringV1 declaration.id ==
+      solanaCpiAccountsExtensionSourceIdV1 &&
+    declaration.version == solanaCpiAccountsExtensionVersionV1 &&
+    declaration.digest == solanaCpiAccountsExtensionDigestV1
 
 /-- Map source program identity to Common.QualifiedName (≥2 components for Wire). -/
 def programIdentityToQualifiedNameV1 (identity : SourceQualifiedNameV1) :
@@ -3507,9 +3523,9 @@ private def assignExactInvariantStepsV1
         return ← failUnsupported "S1 invariant steps index out of range"
   pure out
 
-/-- Insert a requirement row into a UTF-8 id-ordered array (stable for equal
-    keys: new row after existing with the same id so wire exact-match still
-    finds it). Local to N5 wire-owned merge; does not invent a second freeze. -/
+/-- Insert a requirement row into a UTF-8 id-ordered array. An existing row
+    with the same id wins; exact wire-owned row validation remains authoritative.
+    Local to N5 wire-owned merge; does not invent a second freeze. -/
 private def insertRequirementSortedV1
     (items : Array RequirementRequestV1) (row : RequirementRequestV1) :
     Array RequirementRequestV1 := Id.run do
@@ -3530,12 +3546,13 @@ private def insertRequirementSortedV1
     out := out.push row
   pure out
 
-/-- Merge wire-owned ContextRead/Commit exact rows into the S2 freeze result.
-    Only when the corresponding ops were emitted; empty predicates, exact
-    SemVer 1.0.0, domain-separated digests from Wire ModelV1. -/
+/-- Merge wire-owned ContextRead/Commit/extension exact rows into the S2
+    freeze result. Context/Commit rows appear only when the corresponding ops
+    were emitted; the extension row appears when its exact declaration exists,
+    even without a call. All rows retain their own non-S2 digest domains. -/
 private def mergeWireOwnedRequirementsV1
     (s2 : ProgramRequirementsV1)
-    (usedUnixTime usedCaller usedCommit : Bool) :
+    (usedUnixTime usedCaller usedCommit usedSolanaCpiExtension : Bool) :
     Except NormalizeErrorV1 ProgramRequirementsV1 := do
   let mut items := s2.items
   if usedUnixTime then
@@ -3550,6 +3567,10 @@ private def mergeWireOwnedRequirementsV1
     match commitmentDisclosureRequirementV1 with
     | .ok row => items := insertRequirementSortedV1 items row
     | .error e => return ← failUnsupported s!"Commit requirement row: {e}"
+  if usedSolanaCpiExtension then
+    match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => items := insertRequirementSortedV1 items row
+    | .error e => return ← failUnsupported s!"Solana CPI extension requirement row: {e}"
   pure { items }
 
 /-- Compile-time constant evaluator for `const` declarations (engineering
@@ -3757,6 +3778,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   let mut usedContextUnixTime := false
   let mut usedContextCaller := false
   let mut usedCommit := false
+  let mut usedSolanaCpiExtension := false
   for item in program.items do
     match item with
     | .state _ => pure ()
@@ -3862,8 +3884,11 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
           callableId := cid
         } : WireV1.InvariantDeclV1)
         callableId := callableId + 1
-    | .extensionReq _ =>
-        return ← failUnsupported "S1 normalizer does not support extension"
+    | .extensionReq declaration =>
+        unless isExactSolanaCpiExtensionV1 declaration do
+          return ← failUnsupported
+            "S1 normalizer admits only the exact solana.cpi.accounts@1.0.0 extension contract"
+        usedSolanaCpiExtension := true
     | .proof _ =>
         -- INV-1: proof references are certification metadata only; they never
         -- enter Semantic IR / business execution (SPEC-TYPE / SPEC-LANG).
@@ -3886,9 +3911,11 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   let s2Reqs ← match freezeProgramRequirementsV1 program with
     | .ok r => pure r
     | .error detail => failUnsupported s!"S2 requirements freeze: {detail}"
-  -- N5: merge wire-owned ContextRead/Commit exact rows (non-S2 digest domains)
-  -- when those ops were emitted. Sort by UTF-8 id so structure gate order holds.
-  let requirements ← mergeWireOwnedRequirementsV1 s2Reqs usedContextUnixTime usedContextCaller usedCommit
+  -- Merge wire-owned ContextRead/Commit/extension exact rows (non-S2 digest
+  -- domains). The exact extension declaration mints its row even without a
+  -- call. Sort by UTF-8 id so the structure gate order holds.
+  let requirements ← mergeWireOwnedRequirementsV1 s2Reqs usedContextUnixTime
+    usedContextCaller usedCommit usedSolanaCpiExtension
   pure {
     qualifiedName := qn
     types := interner.types

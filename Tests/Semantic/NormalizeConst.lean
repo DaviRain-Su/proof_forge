@@ -35,7 +35,7 @@ import ProofForgeV2.Core.Common
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.ProvenanceV1
-import ProofForgeV2.Semantic.RequirementIdsV1
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Source.OriginJoinV1
@@ -49,7 +49,7 @@ open ProofForgeV2
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.ProvenanceV1
-open ProofForgeV2.Semantic.RequirementIdsV1
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.NodeAssignmentV1
 open ProofForgeV2.Source.OriginJoinV1

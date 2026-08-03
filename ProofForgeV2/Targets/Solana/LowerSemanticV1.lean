@@ -2503,13 +2503,20 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
+<<<<<<< HEAD
     -- Legacy profiles deliberately decline both external effect families
     -- (and result-bearing sync). A future opt-in CPI profile owns its own
     -- exact account/callee contract; generic Semantic QualifiedName values
     -- are not Solana program IDs.
+=======
+    -- Every shipped Solana profile deliberately declines both external effect
+    -- families. The opt-in CPI profile remains inert until its target-owned
+    -- account/callee Plan exists; generic QualifiedName values are not Solana
+    -- program IDs.
+>>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
     | .externalCall _ _ _, _ =>
         throw <| .planInvariant .solana
-          "legacy Solana profiles do not support external calls; select a versioned CPI profile"
+          "no Solana profile currently admits external calls; the opt-in CPI profile remains inert"
     | .schedule _ _ _, _ =>
         throw <| .planInvariant .solana
           "legacy Solana profiles do not support scheduled workflows"
@@ -3771,6 +3778,10 @@ private def makePlanFromSemanticV1
 def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
     throw <| .planInvariant .solana "engineering capability kind is not Solana"
+  if ResolvedEngineeringBuildV1.codegenProfileOf capability ==
+      CodegenProfileId.solanaSbpfCpiElfV1 then
+    throw <| .planInvariant .solana
+      "solana-sbpf-cpi-elf-v1 is inert (ADR-0024): no Plan/IR/artifact mint until the target-owned CPI Plan exists"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
   makePlanFromSemanticV1 source

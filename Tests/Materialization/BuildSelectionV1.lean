@@ -197,6 +197,9 @@ private def testGrammar : IO Unit := do
     "well-known evm cancun profile constant"
   expect (CodegenProfileId.solanaSbpfPlanV1 == (← parseProfile "solana-sbpf-plan-v1"))
     "well-known solana plan profile constant"
+  expect (CodegenProfileId.solanaSbpfCpiElfV1 ==
+      (← parseProfile "solana-sbpf-cpi-elf-v1"))
+    "well-known inert solana cpi profile constant"
   expect (CodegenProfileId.solanaSbpfElfV1 == (← parseProfile "solana-sbpf-elf-v1"))
     "well-known solana elf profile constant"
   expect (CodegenProfileId.nearWasmRawU64V1 == (← parseProfile "near-wasm-raw-u64-v1"))
@@ -271,6 +274,12 @@ private def testRegistrySeedMembership : IO Unit := do
     | none => throw <| IO.userError s!"missing registration {tid}"
   expectDefault TargetId.evm "evm-yul-solc-0.8.34-v1"
   expectDefault TargetId.solana "solana-sbpf-plan-v1"
+  match ← liftResult (registration? TargetId.solana) with
+  | some reg =>
+      expect (reg.profiles == #[CodegenProfileId.solanaSbpfCpiElfV1,
+          CodegenProfileId.solanaSbpfElfV1, CodegenProfileId.solanaSbpfPlanV1])
+        s!"Solana profiles must be cpi/elf/plan in ASCII order, got {reg.profiles.map (·.toString)}"
+  | none => throw <| IO.userError "missing Solana registration"
   expectDefault TargetId.near "near-wasm-raw-u64-v1"
   expectDefault TargetId.noir "noir-source-u64-relations-v1"
   expectDefault TargetId.quint "quint-source-u64-model-v1"
@@ -442,6 +451,11 @@ private def testResolve : IO ResolvedBuildSelectionV1 := do
   let cosmwasmDefault ← liftResult <| resolveBuildSelectionV1 TargetId.cosmwasm none
   expect (cosmwasmDefault.codegenProfile == CodegenProfileId.cosmwasmWasmU64V1)
     "cosmwasm default profile after promotion"
+  let solanaCpi ← liftResult <| resolveBuildSelectionV1 TargetId.solana
+    (some CodegenProfileId.solanaSbpfCpiElfV1)
+  expect (solanaCpi.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 &&
+      solanaCpi.kind == .solana)
+    "inert Solana CPI profile resolves as a registered selection"
   expectErrorCode
     (resolveBuildSelectionV1 TargetId.evm
       (some CodegenProfileId.nearWasmRawU64V1))
