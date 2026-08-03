@@ -31,8 +31,12 @@ Finalize 经 locked `tolk 1.4.2` 产 `.fif` + `abi.json` + `symbolTypes.json`，
 **仍 fail closed**：multi-width UInt8..256、named Struct/Enum、Array/Map/Bytes/Option、
 Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、
 masterchain/library/extra currencies。
-**maturity**：`source-only`（BoC 已产但 sandbox 验收未接——TON-3）；不是主网/runtime/
-formal。callback/promise_then 走编排层（用户第二 entry），不升 Reference schema。
+**maturity**：`source-only`（registry 标签不变）；BoC 已产且 **engineering sandbox
+differential 已接线**（TON-3：`runtime-tests/ton` `@ton/sandbox@0.44.0` lockfile pin +
+`scripts/ton_runtime_test.sh`——Counter/EventFlowTon 7/7：init/mutate/get、overflow
+exit 100 + state 不变（bounceable 与 non-bounceable）、emit external out 解码、Cap
+revert exit 200、compute/action/bounce 五相位分离；非主网/formal/runtime 完成）。
+callback/promise_then 走编排层（用户第二 entry），不升 Reference schema。
 Static dossier ceiling：`research`
 
 > **研究期边界（ADR-0017）**：本 dossier 只有资料与 family 归类。没有 decision-complete

@@ -13525,3 +13525,16 @@ normative: false
   **schedule 的 Plan 发射仍 FC**（capability 开但 destination/send-mode 未接线）；
   多宽/聚合/Field/Principal/String/ContextRead/Commit/nonempty invariants/masterchain/
   library/extra currencies 全部 FC；不声称主网/runtime/formal。
+
+### 2026-08-03 — TON `@ton/sandbox` 运行时验收（TON-3）
+
+- `runtime-tests/ton`：`@ton/sandbox@0.44.0` + `@ton/core@0.63.1` package-lock 精确 pin，
+  Node 内置 `node --test`，决定性 seed/now 固定；`scripts/ton_runtime_test.sh` 经产品 CLI
+  产 `Counter.compiled.boc`（166B）与 `EventFlowTon.compiled.boc`（213B）后执行。
+- 七项真实断言全过：Counter init(7)+increment(5)（compute exit=0、get==12、c4 data==12）；
+  overflow bounceable（exit=100、aborted、bouncePhase ok、data 不变）与 non-bounceable
+  （exit=100、无 bounce、state 不变）；EventFlowTon bump(5) external out 解码
+  `op=0 src=0 dst=5`（Moved）；bump(11/12) 超 Cap exit=200、无 external、state 不变；
+  五相位分离（成功=compute+action、失败=compute+bounce、无 action）。
+- 边界：engineering sandbox differential；**非**主网/wasmd 级主机/formal Stage-0/
+  TST-SEM/hermetic；registry maturity 标签保持 `source-only`，不升格 runtime/formal。
