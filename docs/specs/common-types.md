@@ -3,18 +3,19 @@ id: SPEC-COMMON-001
 title: 公共类型、规范编码与资源 Profile
 status: proposed
 owner: architecture
-updated: 2026-08-02
+updated: 2026-08-03
 normative: true
 ---
 
 # 公共类型、规范编码与资源 Profile
 
-> **当前工程覆盖（2026-08-02）**：`ResourceProfileV1` 类型、hard maxima、lower-only
-> override 校验仍存在，但产品 CLI 目前只实际强制各 stage 的 `wall-ms`；memory/process/
-> protocol/stderr/published-byte 字段尚无 controller enforcement。B11/B12 safe-open/supervisor
-> 实现已于 2026-08-01 删除，当前 source path 为进程内 `IO.FS.readFile` →
-> `Loader.selectProgramV1Product`，不产出 receipts 或 containment assurance。下文 B11/B12
-> 实现段落是 superseded 历史快照；controller/receipt 条款仍是 proposed 目标。
+> **当前工程覆盖（2026-08-03）**：`ResourceProfileV1` 类型、hard maxima 与 lower-only
+> override 校验仍存在；产品 CLI 进程内强制各 stage 的 `wall-ms`，并对 build 的
+> `artifact-output.published-bytes` 在 sidecar 写入/atomic rename 前按 artifacts + exact
+> evidence/manifest UTF-8 总量强制。memory/process/protocol/stderr 尚无产品 producer。
+> B11/B12 safe-open/supervisor 已于 2026-08-01 删除，当前 source path 为进程内
+> `IO.FS.readFile` → `Loader.selectProgramV1Product`，不产出 receipts 或 containment assurance。
+> 下文 B11/B12 是 superseded 历史快照；controller/receipt 条款仍是 proposed 目标。
 
 本文件是所有 normative schema 的 primitive authority。其他规格可以缩窄值域，不能重新定义
 同名类型、wire form、比较或 hash 规则。

@@ -70,6 +70,12 @@
 > 相等。该门仅是 same-host/zero-tool engineering subset，不是 hermetic/clean-room/multi-host/full-target/
 > formal NFR-001 或 release evidence。
 >
+> **2026-08-03 RES-1B output-only update**：build 的
+> `artifact-output.published-bytes` lower-only cap 现于 sidecar write/rename 前按 base+extra artifacts
+> 与 exact evidence/manifest UTF-8 总量强制；equal 接受，over 以 `PF-RESOURCE-OUTPUT`/exit 6
+> 清理 staging 且不发布 destination。memory/process/protocol/stderr、receipts/containment 与 formal
+> NFR-008 仍 pending，禁止把该子切片写成完整 RES-1B。
+>
 > **Capability caveat（2026-08-02 audit）**：`call` / `schedule` 的 resolver support 不能等同于
 > 完整平台语义。当前 EVM sync 是 static-qualified-name→hashed-address `CALL`，EVM async 为同步
 > `CALL` 后忽略结果；Solana 两键在 SBPF 仍为 `sol_log_data` 观测桩（非 CPI）；Noir 为 relation

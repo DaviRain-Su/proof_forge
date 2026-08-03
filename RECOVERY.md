@@ -40,8 +40,9 @@ DarwinSupervisor / frontend-worker 监督层 **保持删除**。sole 产品源�
 | Contained frontend worker + native safe-open as product authority | 产品决策已 supersede；contained formal 资格不再适用 |
 | Compiler-core / tool / output stage supervisor receipts as product mint | 与进程内路径冲突；formal TASK-D1-08 仍独立 pending，不阻塞工程 |
 
-资源 wall/memory 执行若需要（NFR-008 / **RES-1**），在 **进程内** 路径上加
-`--resource-limit` 已由 **D3-E5** 解析/硬上限；**不**借此重开 supervisor 产品面。
+资源 wall/memory/output 执行若需要（NFR-008 / **RES-1/RES-1B**），在 **进程内** 路径上加。
+`--resource-limit` 已由 **D3-E5** 解析/硬上限；wall 与 build published-bytes 已进程内强制，
+memory/process/protocol/stderr 仍 pending；**不**借此重开 supervisor 产品面。
 `Frontend/ProtocolV1` / `WorkerV1` 模块可保留作非产品面，但不得重新成为 CLI `build`/`check`
 sole authority。
 

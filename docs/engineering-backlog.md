@@ -126,7 +126,7 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 | NFR 工程债（常被 research 漏） | backlog |
 |---|---|
 | NFR-007 check 性能 profile 测量 | **PERF-1** |
-| NFR-008 显式 resource limit flags | D3-E5 / **RES-1** |
+| NFR-008 显式 resource limit flags | D3-E5 / **RES-1 / RES-1B** |
 | NFR-009 release SBOM ceremony | Q-*（release） |
 
 ---
@@ -246,7 +246,7 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 | **DOC-JUST-CONTROL** | 文档引用不存在的 governance/release recipes | 文档/发布决策 | `AGENTS`/`RECOVERY`/README/CONTRIBUTING/qualification inventory 曾把 `just governance-check` / `just release-check` 写成当前命令，但本分支及已知 `origin/main` 的 `justfile` 均无 recipe。现已纠正当前文档为“不可执行”；若要恢复，必须显式设计 recipe、测试与资格边界，禁止临时拼装命令冒充 gate | pending（**产品/发布决策**） |
 | **B-FIELD-CATALOG** | Field 真 catalog 接通 Aleo(BLS12-377)/Psy(Goldilocks) | 共享核+leaf | DOC-CODE-1 已决策：**真做 T14**；Wire FieldSpec catalog sole bn254 → 三 spec（bn254/BLS12-377/Goldilocks，exact id+modulusBE membership，无任意 modulus）+ TypeKey allowlist + Source/TypeCheck Field id + Normalize catalog 镜像 + Aleo bls12_377_fr→Leo field + Psy goldilocks→Felt + Reference fieldModulus 参数化 | **done**（2026-08-02；T14 lane 0f4d9e294 + field-id 测试修复；typed/targets/source shard 绿） |
 | **B-SOL-MUL** | Solana UInt128/256 schoolbook 多字 mul + fail-closed div/mod | target leaf | SBPF emit `narrowCheckedMul` 128/256 → 真 schoolbook 多字乘（32-bit digit split、lane-ordered carry、高肢 overflow trap）；div/mod 仍 low64 + 高肢零检查 FC（err_mwdiv/err_mwmod）；WideMul 以独立 base-2^64 Rust oracle 验证高肢/跨肢成功与 `0x1001` 溢出全 state 回滚 | **done**（production `9bb6fe1ad`；runtime `de72b46fa`；WideMul 4/4 + current full Mollusk 60/60，2026-08-03；非 formal） |
-| **RES-1B** | memory/output 运行时 limit | NFR | RES-1 只有 wall-ms | pending |
+| **RES-1B** | memory/output 运行时 limit | NFR | **output-only 子切片已交付**：build `artifact-output.published-bytes` lower-only effective cap，按 pre-scan base+extra 与 exact evidence/manifest UTF-8 总量在 sidecar write/rename 前强制；over → `PF-RESOURCE-OUTPUT`/exit 6、清 staging、零 destination。memory/process/protocol/stderr 与 receipts/containment 仍无 producer | pending（output-only done；其余 pending） |
 | **B-SOL-MAP-UPSERT** | 聚合 StateStore 顺序 store-then-read hazard（Map empty upsert） | target leaf（正确性） | 已实证 EVM/Solana/NEAR/Noir cap-8 与 Aleo cap-2 同构：leaf Expr live-read 已部分写 state。五 target 均改为 target-owned atomic aggregate store：同一 Semantic StateStore 全叶先基于 pre-store snapshot 求值、再统一写；不同 StateStore 保持顺序可见。Solana structural CSE 保持 1424B frame，`map_mini_put_into_empty` 真实 Mollusk 转绿；EVM Yul 顺序、NEAR HostModel、Noir relation model、Aleo Leo get-before-set 均钉测 | **done**（2026-08-02；非 formal） |
 | **B-MAP-STRUCT-PIN** | Map atomic-store 结构与跨 batch 可见性补钉 | target tests（P2） | Solana MapMini production Plan/IR 固定单个 24-leaf `storeAggregate`/`storeStateMulti` 且无 scalar store；Token 固定多个独立 24-leaf batch，并要求 batch 间重新 load。EVM Token 同样固定多个 `storeAtomic(24)`，每批内部无 `sload`、批间重新 `sload`；Solana SBPF 继续守 4096B frame gate | **done**（2026-08-02；commit `ff61d3e13`，非 formal） |
 | **NFR-REPEAT** | NFR-001 决定性 repeat gate（连续构建 hash 相同） | NFR | `scripts/nfr_repeat_gate.py` 同机同 binary 连续构建 Counter：Solana 默认 `solana-sbpf-plan-v1` ×2 + Noir 默认 profile ×2；每树独立重验 exact closure/descriptors/evidence，再要求 `manifest.json`/`evidence.json` exact bytes；no-tool mutation self-test；`just nfr-repeat` 进入 ordinary `ci-target-smoke` | **done**（2026-08-03；仅 engineering subset，非 hermetic/clean-room/multi-host/full-target/formal NFR-001/TST） |
@@ -316,8 +316,8 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 | **D3-E2** | SupportClaim/decision 全字段与 resolver 决策面 | **done**（2026-08-02：**工程** `EngineeringSupportClaimV1` + `mintEngineeringSupportClaimsV1` + resolver/describe-target `claimDigest` + `Tests/Materialization/IdentityChainV1`；domain `pf.support-claim.engineering.v1`；**非** formal SupportClaim/predicate/evidence grade） |
 | **D3-E3** | 可达 BuildIdentity mint + Plan/IR digest 全 target（T9d 子集） | **done**（2026-08-02：工程 `mintEngineeringBuildIdentityV1` + EVM/Solana/NEAR/Noir planDigest；Aleo/Psy engineering-absent slot；`IdentityChainV1` 钉四 target 匹配 + absent；**非** formal BuildIdentity） |
 | **D3-E4** | formal `OutputSetV1` 字段齐套；退役 transitional v2alpha1 残留 | **done**（2026-08-02：**工程** on-disk 已是 `proof-forge.output.v1` + `mintEngineeringOutputSetV1`；legacy `proof-forge-output/v2alpha1` renderer 已删并由 OutputSetV1 suite 钉零；`sourceHash`/`semanticHash` 键名仅为兼容；**非** formal OutputSetV1 字段齐套） |
-| **D3-E5** | CLI 剩余 flag：evidence/resource override 等 SPEC-CLI 面 | **done**（2026-08-02：`--resource-limit` lower-only hard-max/dup/stage 校验；check 拒 external-tool/artifact-output；`--minimum-evidence` build-only 四 grade；proof-bundle pair 已由 **INV-1** 产品 join；check/build JSON 可观测 `resourceLimits`；`Tests.CLI.ResourceFlagsV1`；非 RES-1 wall 执行/formal SPEC-CLI） |
-| **D3-E6** | stage supervisor / receipt（compiler-core/tool/output）——与 D1 监督层移除决策协调 | **done**（2026-08-02：**永久进程内** — 不恢复 SafeOpen/supervisor 产品路径；sole Loader 进程内；RES-1 若做也在进程内；见 `RECOVERY.md` D3-E6） |
+| **D3-E5** | CLI 剩余 flag：evidence/resource override 等 SPEC-CLI 面 | **done**（2026-08-02：`--resource-limit` lower-only hard-max/dup/stage 校验；check 拒 external-tool/artifact-output；`--minimum-evidence` build-only 四 grade；proof-bundle pair 已由 **INV-1** 产品 join；check/build JSON 可观测 `resourceLimits`；`Tests.CLI.ResourceFlagsV1`；runtime enforcement 由 RES-1/RES-1B 子切片承担，非 formal SPEC-CLI） |
+| **D3-E6** | stage supervisor / receipt（compiler-core/tool/output）——与 D1 监督层移除决策协调 | **done**（2026-08-02：**永久进程内** — 不恢复 SafeOpen/supervisor 产品路径；sole Loader 进程内；RES-1 wall 与 RES-1B published-bytes 均进程内，其余 resource producer 仍 pending；见 `RECOVERY.md` D3-E6） |
 | **D3-E7** | artifact 内容绑定与 post-publish inspect closure | **done**（2026-08-03：`ArtifactContentV1` sole walker/stable-read/hash → private canonical inventory；engineering manifest `files` 原子迁为 `role/path/size/contentSha256` descriptor，并绑定 exact evidence UTF-8 `evidenceSha256`；pure OutputSet mint；publisher sidecar 前后 inventory compare + manifest-last closure；`inspect <output-dir>` 重开 artifacts并重走 no-follow/single-link exact disk closure；legacy path-only fail closed；Python validator同构；**仅 stable observation，非 race-free/hermetic/formal OutputSetV1**） |
 | **D3-E8** | `--minimum-evidence` 进入 resolver/claim | pending：当前只解析、白名单和 JSON 回显，不参与 support decision、claim 或 manifest identity；需先冻结 evidence grade 语义，禁止把回显写成门禁 |
 | **D3-E9** | Protocol descriptor axes ↔ TargetRegistry axes 一致性门 | **done**（2026-08-03：`TargetDescriptor` 直接复用 registry-owned `*V1` 六轴；`semanticsAxesOfKindV1` 为 frozen product seed，七个 registry-implemented descriptors 补 profile/artifact-encoding metadata，其中 CosmWasm 仅 A0 descriptor、无 S6 Plan/materializer；`validateDescriptorAxesJoinV1` 在 capability resolve、artifact mint、CLI target inspect 前 exact join；Protocol 重复 axis inductive 物理删除并由 `TargetRegistryV1` suite/deletion gate 固定；**非** formal TargetSemantics payload/digest） |
@@ -353,7 +353,7 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 | ID | 项 | 状态 |
 |---|---|---|
 | **PERF-1** | NFR-007：`PerformanceProfileV1` 上 1000-node check 测量 harness（不宣称增量编译） | **done**（2026-08-02：`scripts/perf_check_harness.py` + `Tests.Product.PerfCheckHarnessV1`；工程 cold-sample p50/p95 报告、**不**声称 NFR-007 预算 / formal TST-PERF-001 / 增量编译） |
-| **RES-1** | NFR-008：check/build 显式 time/memory/output limit flags（与 D1 监督层移除后的进程内路径协调） | **done**（2026-08-02：进程内 wall-ms 强制 `enforceWallMsLimitV1` 于 check/build 成功路径；`PF-RESOURCE-TIME` exit 6；ResourceFlagsV1 pure+CLI pin；**非** memory/process/output 运行时采样 / formal NFR-008） |
+| **RES-1** | NFR-008：check/build 显式 time/memory/output limit flags（与 D1 监督层移除后的进程内路径协调） | **done**（2026-08-02：进程内 wall-ms 强制 `enforceWallMsLimitV1` 于 check/build 成功路径；`PF-RESOURCE-TIME` exit 6；ResourceFlagsV1 pure+CLI pin。2026-08-03 published-bytes 由 RES-1B output-only 子切片补入；memory/process/protocol/stderr 与 formal NFR-008 仍未闭合） |
 
 ---
 
@@ -378,7 +378,7 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 3. ~~N-INVARIANT-IR（消除 invariant 静默丢弃）~~已完成；~~D3-E7（artifact 内容 hash/inspect closure）~~与~~D3-E9（descriptor axes exact join）~~已完成；identity residual 仅余 D3-E8，且需先冻结 evidence-grade 语义
 4. ~~N-CONST-REF~~、~~N-STR-EVENT~~、~~N-FOR-INT~~与~~N-ANON-RESULT~~已完成；**剩余串行语言面**：N-CALL-RET（需 schema 决策）→ N-NEST-IDX（需缺键语义决策）→ N-MAP-CONSTRUCT（需 Wire schema 决策）
 5. **可并行 target leaf（接口冻结后）**：B-OPT-STATE / B-COMMIT-ZK / B-CTX-OPEN（需产品决策）
-6. **NFR / identity residual**：D3-E8 → RES-1B；~~D3-E9~~与~~NFR-REPEAT~~已完成（后者为同机双 target 工程子集）
+6. **NFR / identity residual**：D3-E8 → RES-1B memory/process/protocol/stderr residual（published-bytes output-only 已完成）；~~D3-E9~~与~~NFR-REPEAT~~已完成（后者为同机双 target 工程子集）
 7. 语言面够用后：NS-2 / EXT-CRYPTO（仍 language-gated）
 ```
 

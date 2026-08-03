@@ -3,18 +3,19 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-08-02
+updated: 2026-08-03
 normative: true
 ---
 
 # CLI 契约
 
-> **当前实现状态（2026-08-02）**：产品 `check` / `build` 已回到进程内
+> **当前实现状态（2026-08-03）**：产品 `check` / `build` 已回到进程内
 > `IO.FS.readFile` → `Loader.selectProgramV1Product`，不经过 B11/B12 safe-open/supervisor，
 > 不输出 supervised `receipts`，且不按 Darwin/非 Darwin 区分可用性。六类
-> `--resource-limit` 目前只有各 stage 的 `wall-ms` 在产品 CLI 中实际强制；其余字段虽被
-> 解析和回显，尚未形成对应 controller enforcement。以下 receipt/containment 条款保留为
-> proposed 目标，不能当作 shipped 行为。
+> `--resource-limit` 中各 stage 的 `wall-ms` 已实际强制；build 的
+> `artifact-output.published-bytes` 也在 sidecar 写入/rename 前按 base+finalized-extra artifacts
+> 与 exact evidence/manifest UTF-8 的完整总量强制；超限为 `PF-RESOURCE-OUTPUT`/exit 6 且不发布 destination。memory/process/protocol/stderr
+> 仍只有解析/回显与 hard-max 校验。以下 receipt/containment 条款是 proposed 目标。
 
 可执行文件固定 `proof-forge-next`。所有命令 non-interactive；JSON 输出 stdout，日志和
 human diagnostics 到 stderr。

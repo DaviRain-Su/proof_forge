@@ -3,17 +3,18 @@ id: SPEC-DIAG-001
 title: 稳定诊断规格
 status: proposed
 owner: frontend
-updated: 2026-08-02
+updated: 2026-08-03
 normative: true
 ---
 
 # 稳定诊断规格
 
-> **当前工程覆盖（2026-08-02）**：结构化 `DiagnosticBundleV1`、located
+> **当前工程覆盖（2026-08-03）**：结构化 `DiagnosticBundleV1`、located
 > Check/Normalize/Compiler 链和 CLI full-bundle human render 仍在；B11/B12 supervised source
 > authority 已删除。当前 CLI 进程内读源并调用 `Loader.selectProgramV1Product`，没有 supervisor
-> receipt，也没有 controller-backed `PF-RESOURCE-*` 生产者。下文相关条款是 proposed / 历史
-> 设计，不是当前产品 assurance。
+> receipt 或 controller-backed resource attribution；但已有 in-process `PF-RESOURCE-TIME`，以及
+> build published-byte gate 的 `PF-RESOURCE-OUTPUT` producer。memory/process 与 supervised
+> protocol/stderr output attribution 仍未实现。下文 controller 条款是 proposed / 历史设计。
 
 本规格对齐 [`ADR-0022`](../adr/0022-d1-diagnostics-contained-frontend-contract.md) 的 D1
 diagnostic / contained-frontend 工程契约（proposed；非 formal approval）。
@@ -151,7 +152,7 @@ requiredness 失败使用 `PF-INTERNAL`，因为 emitter 生成非法自身协�
 | `PF-RESOURCE-TIME` | compiler stage 超过 effective monotonic wall budget；当前产品仅实现 in-process wall enforcement，不代表 containment |
 | `PF-RESOURCE-MEMORY` | 规划中的 controller/supervisor memory budget 超限；当前产品无 producer |
 | `PF-RESOURCE-PROCESS` | 规划中的 controller process/session budget 超限；当前产品无 producer |
-| `PF-RESOURCE-OUTPUT` | 规划中的 supervised protocol/stdout/stderr budget 超限；当前产品无 producer |
+| `PF-RESOURCE-OUTPUT` | 当前 build 在 `artifact-output.published-bytes` effective limit 超限时于 publish 前产生；supervised protocol/stdout/stderr attribution 仍无 producer |
 | `PF-FRONTEND-PROTOCOL` | retained worker protocol 或未来 supervisor 的异常；当前 CLI source path 不经过 worker |
 | `PF-LANGUAGE-VERSION-UNKNOWN` | 请求的 exact DSL parser version 未登记 |
 | `PF-LANGUAGE-VERSION-DISABLED` | parser version 已禁用/撤销 |
@@ -191,7 +192,7 @@ requiredness 失败使用 `PF-INTERNAL`，因为 emitter 生成非法自身协�
 | `PF-SETTLEMENT-UNAVAILABLE` | 无 settlement adapter |
 | `PF-OUTPUT-PATH` | output path/containment/symlink 违规 |
 | `PF-OUTPUT-COLLISION` | destination/artifact path/casefold 冲突 |
-| `PF-OUTPUT-LIMIT` | file/count/path/published byte limit 超限 |
+| `PF-OUTPUT-LIMIT` | 固定 disk-closure 的 file/count/path/per-file/total byte cap 超限；CLI lower-only published cap 使用 `PF-RESOURCE-OUTPUT` |
 | `PF-OUTPUT-ATOMICITY` | staging/fsync/rename/rollback 失败 |
 | `PF-DIAG-LIMIT` | 超过 100 条诊断后的唯一截断 sentinel |
 | `PF-INTERNAL` | compiler bug；永不用于用户输入错误 |

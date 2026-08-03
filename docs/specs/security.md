@@ -3,7 +3,7 @@ id: SPEC-SEC-001
 title: 安全与隐私规格
 status: proposed
 owner: security
-updated: 2026-08-02
+updated: 2026-08-03
 normative: true
 ---
 
@@ -167,10 +167,11 @@ writable/order/PDA；NEAR predecessor/signer、attached value、Promise callback
 ## 安全失败
 
 安全检查失败一律 error，不允许 warning override。Syntax/identity 资源超限
-`PF-BOUND-001`，CLI source 16 MiB 超限 `PF-SRC-INVALID`。当前 in-process CLI 只实际强制
-stage `wall-ms` 并以 `PF-RESOURCE-TIME` 失败；`PF-RESOURCE-MEMORY`、
-`PF-RESOURCE-PROCESS`、`PF-RESOURCE-OUTPUT` 与 supervised
-`PF-FRONTEND-PROTOCOL` 仍是尚无产品 controller producer 的 catalog/规划语义。不可信工具
+`PF-BOUND-001`，CLI source 16 MiB 超限 `PF-SRC-INVALID`。当前 in-process CLI 强制
+stage `wall-ms` 并以 `PF-RESOURCE-TIME` 失败；build 另在 sidecar 写入/rename 前强制
+`artifact-output.published-bytes`，超限以 `PF-RESOURCE-OUTPUT`/exit 6 清理 staging 且不发布。
+`PF-RESOURCE-MEMORY`、`PF-RESOURCE-PROCESS`、supervised protocol/stderr attribution 与
+`PF-FRONTEND-PROTOCOL` 仍无产品 controller producer。不可信工具
 `PF-TOOL-UNTRUSTED`，路径 `PF-OUTPUT-PATH`，披露 `PF-VIS-001`。`--force` 只允许替换输出
 目录，不绕过任何安全/语义/版本检查。
 

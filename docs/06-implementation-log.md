@@ -13442,3 +13442,21 @@ normative: false
   `2b7039731` 后的 ordinary `just ci` 全部通过；代码 commit `c45abff73`。
 - Boundary：engineering ELF/runtime coverage only；非 formal Reference↔Mollusk、Stage-0、hermetic、
   release 或 deploy evidence；PrincipalAddr/CPI 产品决策仍未开放。
+
+### 2026-08-03 — RES-1B artifact-output published-byte enforcement
+
+- Tests-first：`Tests.CLI.ResourceFlagsV1` 先因缺失 `effectivePublishedBytesLimitV1`、
+  `engineeringPublishedBytesV1` 与 `enforcePublishedBytesLimitV1` 稳定编译 RED；随后固定 omitted→
+  256 MiB hard、lower-only override、UTF-8 sidecar 计数、equal/over 与真实产品子进程路径。
+- Publisher：复用 `ArtifactContentV1` sole pre-scan inventory 的 base/finalized-extra sizes，加 exact
+  rendered `evidence.json`/`manifest.json` UTF-8 bytes；不新增 walker、不把 CLI override 塞入
+  OutputSet mint。gate 位于两份 sidecar write 与 atomic rename 前，固定 S7c `PF-OUTPUT-LIMIT`
+  防御仍独立保留。
+- Product：Main 将 validated `artifact-output.published-bytes` override（省略时 hard 256 MiB）传入
+  capability-only `emitProgram`；over 返回 `PF-RESOURCE-OUTPUT`/exit 6。`emitProgram` 先清理 sibling
+  staging 再 rethrow，故失败不创建 destination；测试另固定不得退化成 `PF-OUTPUT-LIMIT`。
+- Verification：targets shard（含真实 product CLI `published-bytes=1`、exit 6、零 destination/staging）
+  两轮通过，fresh 171-file package pin、独立只读 P0/P1 review、`git diff --check` 与最终 ordinary
+  `just ci` 全部通过；代码 commit `b24f435e5`。
+- Boundary：仅 engineering output-only RES-1B 子切片；memory/process/protocol/stderr、receipt、
+  containment 与 formal NFR-008/TST-RESOURCE 状态不变，`RES-1B` 总项继续 pending。
