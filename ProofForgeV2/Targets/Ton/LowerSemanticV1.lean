@@ -208,14 +208,50 @@ inductive Statement where
       while `i < end ≤ UInt64.max`. -/
   | forLoop (varTemp : Nat) (initial : Expr) (condition : Expr) (update : Expr)
       (maxIterations : Nat) (body : Array Statement)
-  /-- Async fire-and-forget cross-contract schedule lowered to a Ton promise.
-      `receiver` is the callee QualifiedName components joined by `.` (verbatim;
-      must pass the Ton account-id grammar — no silent case fold). `method` is
-      the last component. `args` are public UInt64 values serialized in the WAT
-      as a deterministic little-endian payload (each arg 8-byte LE, in source
-      order). Failure never propagates to the caller (matches schedule's
-      no-response channel and Ton promise semantics). Deposit/gas are not
-      carried on the Plan; the WAT emits explicit zero placeholders. -/
+  /-- Async fire-and-forget cross-contract schedule → TON internal out-message.
+
+      ## Reference mapping
+
+      ReferenceV1 `Op.Schedule` is an ordered effect with **no response cursor**.
+      TON has no synchronous cross-contract return; the honest native surface is
+      an async internal message (`createMessage` + `send`). Sync
+      `Op.ExternalCall` remains fail-closed on this target.
+
+      ## Plan fields
+
+      * `receiver` — static QualifiedName **target path** = all components
+        except the last, joined by `.` (verbatim; no silent case fold). Must
+        pass the schedule-receiver stub grammar below. Emit derives the
+        destination account id as
+        `SHA-256(UTF-8(receiver))` → basechain workchain `0` + 256-bit hash
+        (`dest: (0, 0x… as uint256)`). **This is a deterministic stub of the
+        same honesty class as EVM keccak-addr / Solana sha256-program-id /
+        NEAR receiver / CosmWasm contract_addr stubs** — it is **not** a real
+        on-chain address; production deployment must rewrite to the true
+        account id before use.
+      * `method` — last QN component (safe identifier). Emit encodes a 32-bit
+        op as the first 4 bytes (big-endian) of `SHA-256(UTF-8(method))`.
+      * `args` — anonymous public UInt64 expressions (Normalize schedule
+        surface). Body layout matches the product internal-message envelope:
+        `storeUint(op,32) · storeUint(query_id=0,64) · storeUint(arg_i,64)*`
+        in source order. `query_id` is fixed 0 (no correlation / no callback
+        channel on this MVP).
+
+      ## Bounce / send-mode / value (materializer fixed policy)
+
+      * **bounce = `BounceMode.NoBounce`**. Schedule has no response channel;
+        a bounce reverse-message would be an unexpected inbound that the
+        caller does not handle. With MVP `value = 0` there is also no
+        application-value recovery role for bounce. This matches
+        "failure never propagates to the caller" (Reference schedule and the
+        existing promiseAccount comment).
+      * **send mode = `SEND_MODE_PAY_FEES_SEPARATELY`** (same as product emit
+        external-log path). Fees are paid from the sender balance separately
+        from message value.
+      * **value = 0**. MVP does not attach GRAM/tokens to schedule messages.
+        **Message value economics are a later slice** — not modeled here.
+
+      Deposit/gas are not Plan fields; emit hard-codes the constants above. -/
   | promiseAccount (receiver : String) (method : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
@@ -362,11 +398,14 @@ def canonicalRegisters : RegisterLayout := {
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
-/-- Ton account-id grammar for schedule receivers (pilot): lowercase ASCII
-    letters, digits, `_`, `-`, `.`; UTF-8 length 2..64; no leading or trailing
-    `.`. Uppercase is rejected (never case-normalized). This is intentionally
-    stricter than DSL identifier components and matches the Ton account-id
-    character set for this envelope. -/
+/-- Schedule **receiver stub** grammar (pilot): lowercase ASCII letters, digits,
+    `_`, `-`, `.`; UTF-8 length 2..64; no leading or trailing `.`. Uppercase is
+    rejected (never case-normalized).
+
+    This is **not** TON friendly/raw address validation. The joined static QN
+    target path is a deterministic identity stub hashed at emit time; production
+    deployment must rewrite to a real account id. Name retained as
+    `isNearAccountId` for NEAR-shared lowering text parity on this leaf. -/
 def isNearAccountId (value : String) : Bool :=
   let n := value.toUTF8.size
   let chars := value.toList.toArray
@@ -378,15 +417,33 @@ def isNearAccountId (value : String) : Bool :=
           (48 ≤ code && code ≤ 57) ||
           character == '_' || character == '-' || character == '.'
 
-/-- Sole schedule-receiver account-id error text (lowering + validatePlan). -/
+/-- Sole schedule-receiver stub error text (lowering + validatePlan). -/
 def nearAccountIdError (receiver : String) : String :=
-  s!"schedule receiver '{receiver}' is not a valid Ton account id (lowercase letters, digits, underscore, hyphen or dot, length 2..64, no leading/trailing dot)"
+  s!"schedule receiver '{receiver}' is not a valid Ton schedule-receiver stub (lowercase letters, digits, underscore, hyphen or dot, length 2..64, no leading/trailing dot)"
 
 /-- Sole view/pureFn schedule-disallow error text (lowering + validatePlan).
     `kind` is the richer lowering form, e.g. `"view callable schedules a workflow"`
     or `"pureFn cannot schedule workflows"`. -/
 def nearScheduleDisallowedError (kind : String) : String :=
   s!"unsupported Ton semantic shape: {kind}"
+
+/-- Deterministic destination account-id hash for a schedule target path
+    (SHA-256 of UTF-8 path → 64 lower-case hex chars). Same honesty class as
+    Solana `programIdHex` / EVM keccak address stubs. -/
+def scheduleDestHashHexV1 (targetPath : String) : String :=
+  Crypto.sha256Hex targetPath.toUTF8
+
+/-- Deterministic 32-bit op code for a schedule method name: first 4 bytes of
+    SHA-256(UTF-8 method) interpreted big-endian. Stub encoding — not CRC32 of
+    a TL-B type name; real ABI rewrite is a later slice. -/
+def scheduleMethodOpCodeV1 (method : String) : UInt32 :=
+  let digest := Crypto.sha256 method.toUTF8
+  let b0 := digest[0]!.toUInt32
+  let b1 := digest[1]!.toUInt32
+  let b2 := digest[2]!.toUInt32
+  let b3 := digest[3]!.toUInt32
+  UInt32.shiftLeft b0 24 ||| UInt32.shiftLeft b1 16 |||
+    UInt32.shiftLeft b2 8 ||| b3
 
 def stateKey (sourceId : Nat) : String :=
   s!"pf:ton:v1:state:{sourceId}"
@@ -2227,11 +2284,39 @@ private def lowerBlockInstructionsV1
         -- declines effect.synchronous-call; this is the defensive plan gate.
         throw <| .planInvariant .ton
           "call/sync external call is outside the Ton MVP envelope (TON has no synchronous cross-contract return; use schedule/callback)"
-    | .schedule _effectId _callee _argIds, none =>
-        -- TON-2 Counter MVP: async out-message schedule is capability-open but
-        -- plan lowering still fail-closed (send-mode / destination ABI deferred).
-        throw <| .planInvariant .ton
-          "schedule/async out-message is outside the TON-2 Counter MVP envelope (destination/send-mode Plan not opened)"
+    | .schedule _effectId callee argIds, none =>
+        -- schedule → async internal out-message (createMessage + send).
+        -- See Statement.promiseAccount docstring for bounce/send-mode/value
+        -- and destination-hash stub decisions.
+        if mode == .view then
+          throw <| .planInvariant .ton
+            (nearScheduleDisallowedError "view callable schedules a workflow")
+        if mode == .pureFn then
+          throw <| .planInvariant .ton
+            (nearScheduleDisallowedError "pureFn cannot schedule workflows")
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .ton
+            "unsupported Ton semantic shape: schedule callee must have at least two components"
+        let targetParts := components.extract 0 (components.size - 1)
+        let receiver := String.intercalate "." targetParts.toList
+        unless isNearAccountId receiver do
+          throw <| .planInvariant .ton (nearAccountIdError receiver)
+        let method := components[components.size - 1]!
+        unless isIdentifier method do
+          throw <| .planInvariant .ton
+            s!"schedule method '{method}' is not a safe identifier"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: schedule arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+        body := body.push (.promiseAccount receiver method argExprs)
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
+        segmentStart := values.size
     -- Array construct N args, Map.empty (ctor 0, 0 args → dense zero leaves),
     -- or named Struct/Enum construct (field/payload leaf assembly).
     -- Bytes has no source constructor (Normalize never emits `.construct` for

@@ -9,6 +9,10 @@ TON-owned TVM/Tolk recipe IR:
 * view: `get fun` methods
 * arithmetic: TVM int257 + explicit UInt64 range checks (`assert … throw`)
 * emit → `createExternalLogMessage` + `SEND_MODE_PAY_FEES_SEPARATELY`
+* schedule → `createMessage` internal out-message:
+    bounce=`BounceMode.NoBounce`, value=`0`, send=`SEND_MODE_PAY_FEES_SEPARATELY`,
+    dest=`(0, SHA-256(UTF-8 target path) as uint256)` stub, body=
+    `op32 · query_id=0 · arg64*` (see `Statement.promiseAccount` docstring)
 * revert → `throw(error_code)`
 
 Not sandbox/mainnet runtime (TON-3). Not formal D4.
@@ -58,6 +62,12 @@ inductive Operation where
   | assert (condition : Nat)
   | emitEvent (eventIndex : Nat) (args : Array Nat)
   | revertError (errorIndex : Nat) (args : Array Nat)
+  /-- Schedule → async internal out-message.
+      `receiver` is the static QN target path; `destHashHex` is the 64-char
+      lower-case SHA-256 hex of UTF-8(receiver); `methodOp` is the 32-bit op
+      derived from the method name; `args` are UInt64 temps for the body. -/
+  | promiseAccount (receiver : String) (destHashHex : String) (method : String)
+      (methodOp : UInt32) (args : Array Nat)
   | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
@@ -380,7 +390,17 @@ private partial def lowerBodyOps (next : Nat)
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.revertError errorIndex argTemps)
-    | .promiseAccount .. => pure ()
+    | .promiseAccount receiver method args =>
+        let destHashHex := scheduleDestHashHexV1 receiver
+        let methodOp := scheduleMethodOpCodeV1 method
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr next fnMode localEnv arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        operations := operations.push
+          (.promiseAccount receiver destHashHex method methodOp argTemps)
     | .ifThenElse condition thenBody elseBody =>
         let value := lowerExpr next fnMode localEnv condition
         operations := operations ++ value.operations
@@ -734,6 +754,32 @@ private partial def renderOps (plan : Plan) (method? : Option MethodIR)
         out := out ++ pad ++
           "createExternalLogMessage({ dest: createAddressNone(), body: __pf_eb })" ++
           ".send(SEND_MODE_PAY_FEES_SEPARATELY);\n"
+    | .promiseAccount receiver destHashHex method methodOp args =>
+        -- Async internal out-message (schedule). Fixed policy documented on
+        -- Plan Statement.promiseAccount:
+        --   bounce = NoBounce; value = 0; send = PAY_FEES_SEPARATELY;
+        --   dest = (0, SHA-256(UTF-8 receiver)) stub — not a live address;
+        --   body = op32 · query_id=0 · arg64* (product internal-msg envelope).
+        -- Message value economics are a later slice (MVP value is always 0).
+        let _ := method  -- method name retained for audit; op is hash-derived
+        let _ := receiver
+        out := out ++ pad ++ "val __pf_sb = beginCell().storeUint(" ++
+          s!"{methodOp}, 32).storeUint(0, 64)"
+        for a in args do
+          out := out ++ s!".storeUint({tempName a}, 64)"
+        out := out ++ ".endCell();\n"
+        out := out ++ pad ++
+          "createMessage({\n"
+        out := out ++ pad ++
+          "    bounce: BounceMode.NoBounce,\n"
+        out := out ++ pad ++
+          "    value: 0,\n"
+        out := out ++ pad ++
+          s!"    dest: (0, 0x{destHashHex} as uint256),\n"
+        out := out ++ pad ++
+          "    body: __pf_sb\n"
+        out := out ++ pad ++
+          "}).send(SEND_MODE_PAY_FEES_SEPARATELY);\n"
     | .revertError errorIndex _args =>
         out := out ++ pad ++ s!"throw {errUserBase + errorIndex};\n"
     | .setReturnData value =>
