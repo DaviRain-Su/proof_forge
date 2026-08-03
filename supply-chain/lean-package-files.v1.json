@@ -16,9 +16,9 @@
       "sha256": "f2ea59a97963f9d3fc26676fda1f4ea206164eca5f85612e38ea4a77dd1ea838"
     },
     {
-      "bytes": 19095,
+      "bytes": 19316,
       "path": "ProofForgeV2/CLI/Main.lean",
-      "sha256": "185dc1e7789dd123134fca9bf9d59381a440dc8ebd622b897a03c17378147688"
+      "sha256": "873f6eae0bafd8a4f059625f4acf9239c3e0459c1cb3cafc8187166d0c71ebba"
     },
     {
       "bytes": 15817,
@@ -36,9 +36,9 @@
       "sha256": "77313d3a8c96a69fe0c68d74fe4160fbd0ff389d3455ee5ce7eaf5dc5b4a95ce"
     },
     {
-      "bytes": 9002,
+      "bytes": 9932,
       "path": "ProofForgeV2/Compiler/Pipeline.lean",
-      "sha256": "5035be25256ca5a6e8e776ec81f4906abcac35ccb55e18ad515355e5780ba797"
+      "sha256": "35a28e2d878ad88535416192db82ba63aeb53f2391cf797442fb2d8c6d02aeb9"
     },
     {
       "bytes": 2459,
@@ -226,9 +226,9 @@
       "sha256": "37ef760eb3394977b5232029526caa768e4a17781cf410715468f7130b1707ed"
     },
     {
-      "bytes": 193062,
+      "bytes": 194940,
       "path": "ProofForgeV2/Semantic/NormalizeV1.lean",
-      "sha256": "d564b5ea6576e9c81011e2b4f6ff71e918a23dd62e7786ccca86a49205978b0b"
+      "sha256": "a95608c0fcd770e9f3c211816da968529701be5c167e00af0a34494b10da0951"
     },
     {
       "bytes": 29855,
@@ -236,19 +236,19 @@
       "sha256": "2b768bb013324a31f4a7e3e0e776a58e6ca29f908f7a8c01219d6124d6c2d131"
     },
     {
-      "bytes": 9863,
+      "bytes": 9950,
       "path": "ProofForgeV2/Semantic/ProofReferenceJoinV1.lean",
-      "sha256": "698af313137caef56ac22c78bf8ea2f8f95864ea4dbb38f5ee4a0e5855c9bcef"
+      "sha256": "8c4b29906049d34a9700168e2c5934d5f2865e4d499a93163ec94cb7cd172d54"
     },
     {
-      "bytes": 3879,
+      "bytes": 5659,
       "path": "ProofForgeV2/Semantic/ProofSubjectV1.lean",
-      "sha256": "abb960e4b85429ed193b3fd0eb0a9ddd08a90d7b0eaf8f13635eed01dc5fb275"
+      "sha256": "a17fa38e09e9a84fc188dcb086fc0c745eaa6b0f807e6edc7945c00109375e3c"
     },
     {
-      "bytes": 81759,
+      "bytes": 81895,
       "path": "ProofForgeV2/Semantic/ProvenanceV1.lean",
-      "sha256": "48ba273910c08d19331e4332a629cee98e70583bbab1f427af99a7424936dd86"
+      "sha256": "e89013faa799e89858bc2b7f2ed748a3ffc6c5d4a3fdded52943be904c6b60c8"
     },
     {
       "bytes": 105322,

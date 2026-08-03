@@ -117,9 +117,11 @@
       `Op.Commit` label-only identity. Wire-owned requirement rows merged
       after S2 freeze (UTF-8 id order).
     * S2 exact ProgramRequirementsV1 freeze (Counter catalog, SPEC wire order)
-      before encode/hash; companion provenance only via
-      `normalizeProgramWithProvenanceV1` (source+path+spans rebuild inventory;
-      public authority validate/digest never accept caller inventory)
+      before encode/hash; non-product companion provenance uses
+      `normalizeProgramWithProvenanceV1` (source+path+spans), while product
+      proof joining uses `buildSemanticProvenanceFromOriginInventoryV1` with
+      Source's opaque inventory and located normalization. Neither authority
+      accepts a caller-built `SourceNodeInventoryV1`.
 
   Product ownership (S3 + B8b):
     * Product path: `normalizeProgramLocatedV1` consumes
@@ -130,6 +132,8 @@
       sort/dedupe/cap). Does **not** re-run unlocated CheckV1.
     * Non-product library: `normalizeProgramV1` remains for hand-built fixtures
       and provenance helpers; product Compiler/CLI must not call it.
+    * Proof-bearing product calls may re-run `normalizeProgramLocatedV1` with
+      the same opaque inventory to close the retained semantic/provenance join.
     * This module owns the target-neutral structure gate only; it does not own
       residual alpha `Semantic.Program`, Registry, or target Plan/IR.
 
@@ -3890,6 +3894,36 @@ private def mapProvenanceError (e : ProvenanceBuildErrorV1) :
   | .inventory d => .unsupported s!"provenance inventory: {d}"
   | .unsupported d => .unsupported d
   | .wire w => .wire w
+
+/-- Build source-bound provenance from the opaque production origin inventory.
+
+    Unlike the low-level provenance builder, callers cannot construct or alter
+    this inventory: `OriginInventoryV1` is minted only by Source's exact
+    same-snapshot path/span join. The retained semantic carrier must also be
+    byte-identical to normalization of that source. -/
+def buildSemanticProvenanceFromOriginInventoryV1
+    (source : ValidatedSourceV1)
+    (inventory : OriginInventoryV1)
+    (program : SemanticProgramV1) :
+    Except NormalizeErrorV1 SemanticProvenanceV1 := do
+  let sourceHash ← match sourceHashV1 source with
+    | .ok value => pure value
+    | .error detail => return ← failIdentity detail
+  unless sourceHash == originInventorySourceHashV1 inventory do
+    return ← failIdentity "source does not match production origin inventory"
+  let expectedProgram ← match normalizeProgramLocatedV1 source inventory with
+    | .ok value => pure value
+    | .error _ => .error (.identity
+        "located normalization failed while closing proof-subject authority")
+  unless expectedProgram.canonicalBytes == program.canonicalBytes do
+    return ← failIdentity
+      "semantic carrier does not match located normalization of source snapshot"
+  let trustedInventory : SourceNodeInventoryV1 := {
+    sourceHash := originInventorySourceHashV1 inventory
+    nodes := originInventoryOriginsV1 inventory }
+  match buildSemanticProvenanceV1 source program trustedInventory with
+  | .ok provenance => pure provenance
+  | .error error => .error (mapProvenanceError error)
 
 /-- Internally rebuild production inventory from immutable frontend inputs.
 

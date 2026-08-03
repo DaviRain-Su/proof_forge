@@ -504,6 +504,20 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > subject。三项digest逐项mutation均fail closed。旧CLI compile-digest engineering入口保持兼容且不被
 > 升格；本增量时filesystem/contained builder与`.olean` kernel loader仍pending（filesystem见下一增量）。
 
+> 2026-08-03 proof-subject产品接线增量：product Loader产出的opaque `OriginInventoryV1`现可直接投影为
+> source-bound provenance authority；新builder要求inventory source hash与`ValidatedSourceV1`一致，并要求
+> retained `SemanticProgramV1`与该source重新Normalize后的canonical bytes精确一致，再canonical
+> encode/decode provenance并mint sealed `ProofSubjectV1`。Compiler wrapper额外join
+> `CompiledSemanticV1`的source/semantic digests；CLI仅在存在proof references时构建subject，并已从
+> transitional two-digest join切换到`joinValidatedProofSubjectV1`，因此产品路径现强制manifest
+> `semanticProvenanceDigest`。测试固定trusted path/spans builder、opaque inventory builder及compiled wrapper
+> 三者digest parity，并拒绝foreign opaque inventory。旧join仅保留为non-product focused compatibility helper。
+> 本增量仍无`.olean` import/header、ABI authority、trusted-base inventory、candidate package、policy/defeq、
+> kernel replay或contained worker；TST-PROOF-001与TASK-D2-07继续pending。
+> 本条明确取代上方TASK-D2-06长表中“权威仅为source+path+spans API”的旧限定：non-product仍走
+> source+path+spans rebuild；product proof join仅走opaque `OriginInventoryV1` + located Normalize，二者均
+> 不接受caller-built `SourceNodeInventoryV1`。
+
 > 2026-08-02 proof-subject filesystem工程增量：新增compiler-core-owned
 > `ProofSubjectFilesV1`与package C primitive，不恢复已删除的Frontend safe-open/supervisor架构。API只接受
 > trusted absolute root及source/path/spans，文件名固定为`proof-subject.pfsem/.pfprov`。native从`/`

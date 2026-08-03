@@ -150,7 +150,9 @@ private def exactBindingExportJoin
     i := i + 1
   pure ()
 
-/-- Product join: opened bundle + CLI digest pin + compile digests + source bindings.
+/-- Transitional non-product join retained for focused compatibility tests.
+    Production CLI uses `joinValidatedProofSubjectV1` below so provenance cannot
+    be omitted.
 
     Rules (engineering subset of SPEC-CLI / SPEC-SEM-001):
     * expectedBundleDigest == opened.bundleDigest

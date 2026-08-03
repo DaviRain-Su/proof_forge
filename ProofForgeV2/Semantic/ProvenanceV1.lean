@@ -31,11 +31,13 @@
       does **not** re-check path/start/end against spans)
     * Wire `validateSemanticProvenanceJoinV1` / `semanticProvenanceDigestJoinV1`
 
-  Source-bound authority is exclusively
+  Non-product source/path/span authority is
   `NormalizeV1.validateSemanticProvenanceV1` /
   `NormalizeV1.semanticProvenanceDigestV1` /
-  `NormalizeV1.normalizeProgramWithProvenanceV1`, which rebuild inventory from
-  trusted `sourcePath + spans` and never accept a caller inventory.
+  `NormalizeV1.normalizeProgramWithProvenanceV1`. Product proof joining instead
+  uses `NormalizeV1.buildSemanticProvenanceFromOriginInventoryV1` with Source's
+  opaque `OriginInventoryV1` and located normalization. Neither path accepts a
+  caller-built `SourceNodeInventoryV1`.
   Formal TASK-D2-06 remains pending.
 -/
 import ProofForgeV2.Core.Common
