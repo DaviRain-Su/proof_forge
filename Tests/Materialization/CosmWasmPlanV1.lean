@@ -5,8 +5,9 @@
   allocate/deallocate/interface_version_8), Region/JSON markers, db_* imports,
   CW-4 schedule → SubMsg reply_on=never with Binary (base64) execute msg
   (Plan/IR/WAT shape), pure Lean base64 encode matrix (empty / 1 / 2 / 3+
-  bytes + typical JSON), sync call still fail closed, and other FC boundaries
-  (multi-width, aggregates, invariants).
+  bytes + typical JSON), B-RET-ABI named Struct/Enum entry/view returns
+  (PairRet/MaybeRet Plan/IR/WAT/ABI pins + param/>8/pureFn FC), sync call still
+  fail closed, and other FC boundaries (multi-width, invariants).
 
   Schedule positive coverage uses product capability resolve (async admitted)
   plus engineering Plan/IR entry points. Not wasmd chain (A2). Not formal D4.
@@ -419,30 +420,188 @@ private unsafe def testMultiWidthFc
           expectPlanError "UInt8 state" (planFromCapability capability)
   IO.println "  ✓ multi-width UInt8 fail closed"
 
-private unsafe def testNamedAggregateFc
+/-- B-RET-ABI: named Struct view return flattens to 2×UInt64 leaves via
+`returnAggregate` / `setReturnDataMulti` / JSON decimal array wire. -/
+private unsafe def testNamedStructReturn
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let src := wrapProgram "NamedAgg" <|
-    "  struct Point where\n" ++
-    "    x : UInt64\n" ++
-    "    y : UInt64\n\n" ++
-    "  state p : Point\n\n" ++
+  let source := wrapProgram "PairRet" <|
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n\n" ++
+    "  entry setPair(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    p := Pair.new(x, y)\n" ++
+    "    return p\n\n" ++
+    "  view getPair() : Pair do\n" ++
+    "    return p\n"
+  let compiled ← compileSource session source "Examples.PairRet" "<cw-pair-ret>"
+  let plan ← liftResult <| planCw compiled
+  expect (plan.storage.fields.size == 2) "PairRet Pair flattens to 2 KV leaves"
+  let some getPair := plan.entries.find? (·.name == "getPair") |
+    throw <| IO.userError "PairRet missing getPair"
+  match getPair.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"PairRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "PairRet leaves must be u64 (not Int)"
+      expect (leaves.all (·.byteWidth == 8))
+        "PairRet leaves must be 8-byte words"
+  | other =>
+      throw <| IO.userError
+        s!"PairRet getPair resultKind must be .aggregate, got {repr other}"
+  expect (getPair.body.size == 1) "PairRet getPair body must be one return"
+  match getPair.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2)
+        s!"returnAggregate must have 2 leaves, got {leaves.size}"
+      expect (leafIsInt == #[false, false])
+        "returnAggregate leafIsInt must be #[false, false]"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad 0, .stateLoad 1 => pure ()
+      | _, _ =>
+          throw <| IO.userError
+            "PairRet returnAggregate leaves must be stateLoad of p fields"
+  | _ =>
+      throw <| IO.userError "PairRet getPair body must be .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"PairRet plan must validate: {e.render}"
+  let ir ← liftResult <| irCw compiled
+  let some getPairIR := ir.methods.find? (·.name == "getPair") |
+    throw <| IO.userError "PairRet IR missing getPair"
+  expect (getPairIR.resultKind == getPair.resultKind)
+    "PairRet IR resultKind must match Plan"
+  let mut sawMulti := false
+  for op in getPairIR.operations do
+    match op with
+    | .setReturnDataMulti temps =>
+        expect (temps.size == 2)
+          s!"setReturnDataMulti must have 2 temps, got {temps.size}"
+        sawMulti := true
+    | .setReturnData _ =>
+        throw <| IO.userError "PairRet must not emit scalar setReturnData"
+    | _ => pure ()
+  expect sawMulti "PairRet IR must emit setReturnDataMulti"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "PairRet.wat"
+  expect (wat.contains "$ret_count") "PairRet WAT ret_count global"
+  expect (wat.contains "$pf_query_ok_agg") "PairRet WAT multi-leaf query helper"
+  expect (wat.contains "(global.set $ret_kind (i32.const 4))")
+    "PairRet WAT setReturnDataMulti ret_kind=4"
+  let abi ← findFile files "PairRet.cosmwasm-abi.json"
+  expect (abi.contains "\"returns\":[\"u64\",\"u64\"]")
+    s!"PairRet ABI must declare leaf tuple [\"u64\",\"u64\"], got: {abi}"
+  IO.println "  ✓ PairRet named Struct return Plan/IR/WAT/ABI pin"
+
+/-- B-RET-ABI: named Enum return = tag + max-payload slots (Maybe = 2 leaves). -/
+private unsafe def testNamedEnumReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "MaybeRet" <|
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n\n" ++
     "  init() do\n" ++
-    "    p := Point.new(0, 0)\n\n" ++
-    "  entry setX(v : UInt64) : UInt64 do\n" ++
-    "    p.x := v\n" ++
-    "    return p.x\n\n" ++
-    "  view getX() : UInt64 do\n" ++
-    "    return p.x\n"
-  let validated ← liftResult (← session.selectProgramV1 src
-    "<cw-named-fc>" "Examples.NamedAgg" none)
-  match Compiler.compileValidatedSourceV1 validated with
-  | .error _ => pure ()  -- normalize or type may reject before plan
-  | .ok compiled =>
-      match cosmwasmCapability compiled with
-      | .error _ => pure ()
-      | .ok capability =>
-          expectPlanError "named Struct state" (planFromCapability capability)
-  IO.println "  ✓ named Struct state fail closed"
+    "    m := Maybe.None()\n\n" ++
+    "  entry setSome(v : UInt64) : Maybe do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return m\n\n" ++
+    "  view peek() : Maybe do\n" ++
+    "    return m\n"
+  let compiled ← compileSource session source "Examples.MaybeRet" "<cw-maybe-ret>"
+  let plan ← liftResult <| planCw compiled
+  let some peek := plan.entries.find? (·.name == "peek") |
+    throw <| IO.userError "MaybeRet missing peek"
+  match peek.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"MaybeRet peek must have 2 leaves (tag+payload), got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"MaybeRet peek resultKind must be .aggregate, got {repr other}"
+  let mut sawAgg := false
+  for stmt in peek.body do
+    match stmt with
+    | .returnAggregate leaves leafIsInt =>
+        expect (leaves.size == 2) "MaybeRet returnAggregate 2 leaves"
+        expect (leafIsInt.size == 2) "MaybeRet leafIsInt 2"
+        sawAgg := true
+    | .ifThenElse _ thenBody elseBody =>
+        for s in thenBody ++ elseBody do
+          match s with
+          | .returnAggregate .. => sawAgg := true
+          | _ => pure ()
+    | _ => pure ()
+  expect sawAgg "MaybeRet must emit returnAggregate on some path"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MaybeRet plan must validate: {e.render}"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "MaybeRet.wat"
+  expect (wat.contains "$pf_query_ok_agg" || wat.contains "ret_kind")
+    "MaybeRet WAT multi-leaf return surface"
+  let abi ← findFile files "MaybeRet.cosmwasm-abi.json"
+  expect (abi.contains "\"returns\":[\"u64\",\"u64\"]")
+    s!"MaybeRet ABI leaf tuple, got: {abi}"
+  IO.println "  ✓ MaybeRet named Enum return Plan/IR/WAT/ABI pin"
+
+/-- B-RET-ABI fail-closed: named aggregate params, >8 leaves, pureFn aggregate. -/
+private unsafe def testAggregateReturnFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Named aggregate param stays FC.
+  let paramSrc := wrapProgram "AggParam" <|
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state s : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    s := x\n\n" ++
+    "  entry take(p : Pair) : UInt64 do\n" ++
+    "    return p.a\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return s\n"
+  let paramCompiled ← compileSource session paramSrc "Examples.AggParam" "<cw-agg-param>"
+  expectPlanErrorContaining "named aggregate param" "parameter"
+    (planCw paramCompiled)
+  -- >8 leaves (9-field Struct) stays FC.
+  let wideSrc := wrapProgram "WideRet" <|
+    "  struct Wide where\n" ++
+    "    a0 : UInt64\n" ++
+    "    a1 : UInt64\n" ++
+    "    a2 : UInt64\n" ++
+    "    a3 : UInt64\n" ++
+    "    a4 : UInt64\n" ++
+    "    a5 : UInt64\n" ++
+    "    a6 : UInt64\n" ++
+    "    a7 : UInt64\n" ++
+    "    a8 : UInt64\n" ++
+    "  state s : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    s := x\n\n" ++
+    "  view getWide() : Wide do\n" ++
+    "    return Wide.new(0, 0, 0, 0, 0, 0, 0, 0, 0)\n"
+  let wideCompiled ← compileSource session wideSrc "Examples.WideRet" "<cw-wide-ret>"
+  expectPlanErrorContaining "wide-ret cap-8" "8"
+    (planCw wideCompiled)
+  -- pureFn aggregate return stays FC.
+  let pureSrc := wrapProgram "PureAgg" <|
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state s : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    s := x\n\n" ++
+    "  fn mk(x : UInt64) : Pair do\n" ++
+    "    return Pair.new(x, x)\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return s\n"
+  let pureCompiled ← compileSource session pureSrc "Examples.PureAgg" "<cw-pure-agg>"
+  expectPlanErrorContaining "pureFn aggregate" "pureFn"
+    (planCw pureCompiled)
+  IO.println "  ✓ aggregate return FC boundaries (param / >8 / pureFn)"
 
 private unsafe def testInvariantFc
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -540,7 +699,9 @@ unsafe def run : IO Unit := do
   testBase64HelperMatrix
   testScheduleSubMsg session
   testMultiWidthFc session
-  testNamedAggregateFc session
+  testNamedStructReturn session
+  testNamedEnumReturn session
+  testAggregateReturnFc session
   testInvariantFc session
   testMaterializeAggregate session
   testStaticLayoutCapacityFc session

@@ -56,6 +56,10 @@ inductive Operation where
   | storeState (field : KeyRegion) (value : Nat)
   | setLayout (marker : KeyRegion) (value : UInt64)
   | setReturnData (value : Nat)
+  /-- B-RET-ABI: multi-leaf return. Each temp is one UInt64/Int64 word;
+  packed as a JSON array of decimals into the execute result attribute
+  (or query `ok` string), matching the existing scalar decimal JSON ABI. -/
+  | setReturnDataMulti (values : Array Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat)
   | emitEvent (eventIndex : Nat) (args : Array Nat)
@@ -418,6 +422,19 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
         else
           operations := operations.push (.setReturnData value.value)
         next := value.next
+    | .returnAggregate leaves _leafIsInt =>
+        -- B-RET-ABI: lower each leaf expr, then one multi-word setReturnDataMulti.
+        let mut temps : Array Nat := #[]
+        for leaf in leaves do
+          let value := lowerExpr keys next fnMode localEnv leaf
+          operations := operations ++ value.operations
+          temps := temps.push value.value
+          next := value.next
+        if fnMode then
+          -- pureFn must not emit aggregate return (validated); fall closed.
+          operations := operations.push (.returnValue (temps[0]?.getD 0))
+        else
+          operations := operations.push (.setReturnDataMulti temps)
     | .returnNone =>
         operations := operations.push .returnNone
     | .assert condition =>
@@ -537,7 +554,7 @@ private def expectedFns (plan : Plan) (keys : Array KeyRegion) : Array FnIR :=
 private partial def opIsMethodOnlyV1 : Operation → Bool
   | .requireLayoutAbsent _ | .requireLayout _ _
   | .zeroState _ | .loadState _ _ | .storeState _ _
-  | .setLayout _ _ | .setReturnData _ | .loadParam _ _ => true
+  | .setLayout _ _ | .setReturnData _ | .setReturnDataMulti _ | .loadParam _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
   | .switchRegion _ cases defaultOps =>
@@ -649,8 +666,10 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"  (global $attr_len (mut i32) (i32.const 0))\n" ++
   s!"  (global $msg_len (mut i32) (i32.const 0))\n" ++
   s!"  (global $inner_len (mut i32) (i32.const 0))\n" ++
-  s!"  (global $ret_kind (mut i32) (i32.const 0))\n" ++  -- 0=none 1=u64 2=bool 3=i64
+  s!"  (global $ret_kind (mut i32) (i32.const 0))\n" ++  -- 0=none 1=scalar 4=aggregate
   s!"  (global $ret_val (mut i64) (i64.const 0))\n" ++
+  s!"  (global $ret_count (mut i32) (i32.const 0))\n" ++  -- B-RET-ABI leaf count (1..8)
+  -- ret_leaves live at valueCell (8×i64 = 64B); capacity-guarded by ret_count≤8
   -- allocate(size) -> region_ptr: Region{offset=data, capacity=size, length=size}
   "  (func $pf_allocate (param $size i32) (result i32)\n" ++
   "    (local $region i32) (local $data i32) (local $h i32)\n" ++
@@ -829,6 +848,7 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"        (br $acopy)))\n" ++
   s!"    (local.set $p (i32.add (local.get $p) (local.get $alen)))\n" ++
   -- if return value present, append result attribute
+  -- scalar (ret_kind=1): value="<decimal>"; aggregate (ret_kind=4): value="[d0,d1,...]"
   s!"    (if (i32.ne (global.get $ret_kind) (i32.const 0)) (then\n" ++
   s!"      (if (i32.ne (local.get $alen) (i32.const 0)) (then\n" ++
   s!"        (i32.store8 (local.get $p) (i32.const 44))\n" ++
@@ -860,8 +880,29 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"      (i32.store8 offset=23 (local.get $p) (i32.const 58))\n" ++
   s!"      (i32.store8 offset=24 (local.get $p) (i32.const 34))\n" ++
   s!"      (local.set $p (i32.add (local.get $p) (i32.const 25)))\n" ++
-  s!"      (local.set $n (call $pf_fmt_u64 (global.get $ret_val) (local.get $p)))\n" ++
-  s!"      (local.set $p (i32.add (local.get $p) (local.get $n)))\n" ++
+  -- B-RET-ABI: aggregate → JSON array of decimals inside the attribute value string
+  s!"      (if (i32.eq (global.get $ret_kind) (i32.const 4)) (then\n" ++
+  s!"        (i32.store8 (local.get $p) (i32.const 91))\n" ++  -- '['
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (local.set $i (i32.const 0))\n" ++
+  s!"        (block $agg_done\n" ++
+  s!"          (loop $agg_loop\n" ++
+  s!"            (br_if $agg_done (i32.ge_u (local.get $i) (global.get $ret_count)))\n" ++
+  s!"            (if (i32.ne (local.get $i) (i32.const 0)) (then\n" ++
+  s!"              (i32.store8 (local.get $p) (i32.const 44))\n" ++
+  s!"              (local.set $p (i32.add (local.get $p) (i32.const 1)))))\n" ++
+  -- capacity guard: leave room for max 20-digit decimal + closing `"]}`
+  s!"            (if (i32.gt_u (i32.sub (i32.add (local.get $data) (i32.const 3000)) (local.get $p)) (i32.const 24)) (then\n" ++
+  s!"              (local.set $n (call $pf_fmt_u64 (i64.load (i32.add (i32.const {valueCell}) (i32.shl (local.get $i) (i32.const 3)))) (local.get $p)))\n" ++
+  s!"              (local.set $p (i32.add (local.get $p) (local.get $n))))\n" ++
+  s!"              (else unreachable))\n" ++
+  s!"            (local.set $i (i32.add (local.get $i) (i32.const 1)))\n" ++
+  s!"            (br $agg_loop)))\n" ++
+  s!"        (i32.store8 (local.get $p) (i32.const 93))\n" ++  -- ']'
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1))))\n" ++
+  s!"      (else\n" ++
+  s!"        (local.set $n (call $pf_fmt_u64 (global.get $ret_val) (local.get $p)))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (local.get $n)))))\n" ++
   s!"      (i32.store8 (local.get $p) (i32.const 34))\n" ++
   s!"      (i32.store8 offset=1 (local.get $p) (i32.const 125))\n" ++
   s!"      (local.set $p (i32.add (local.get $p) (i32.const 2)))))\n" ++
@@ -915,6 +956,43 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (i32.store8 (local.get $p) (i32.const 34))\n" ++
   s!"    (i32.store8 offset=1 (local.get $p) (i32.const 125))\n" ++
   s!"    (i32.store offset=8 (local.get $region) (i32.add (local.get $n) (i32.const 9)))\n" ++
+  s!"    (local.get $region)\n" ++
+  "  )\n" ++
+  -- B-RET-ABI query ok: {"ok":"[d0,d1,...]"} — ok value is a JSON-array-as-string
+  -- (same shape class as scalar {"ok":"<decimal>"}; multi-leaf generalized).
+  -- Cap: 8×20-digit + commas + framing ≤ 256B allocated.
+  s!"  (func $pf_query_ok_agg (result i32)\n" ++
+  s!"    (local $region i32) (local $data i32) (local $p i32) (local $n i32) (local $i i32)\n" ++
+  s!"    (local.set $region (call $pf_allocate (i32.const 256)))\n" ++
+  s!"    (local.set $data (i32.load (local.get $region)))\n" ++
+  s!"    (i32.store8 (local.get $data) (i32.const 123))\n" ++
+  s!"    (i32.store8 offset=1 (local.get $data) (i32.const 34))\n" ++
+  s!"    (i32.store8 offset=2 (local.get $data) (i32.const 111))\n" ++
+  s!"    (i32.store8 offset=3 (local.get $data) (i32.const 107))\n" ++
+  s!"    (i32.store8 offset=4 (local.get $data) (i32.const 34))\n" ++
+  s!"    (i32.store8 offset=5 (local.get $data) (i32.const 58))\n" ++
+  s!"    (i32.store8 offset=6 (local.get $data) (i32.const 34))\n" ++
+  s!"    (i32.store8 offset=7 (local.get $data) (i32.const 91))\n" ++  -- '["
+  s!"    (local.set $p (i32.add (local.get $data) (i32.const 8)))\n" ++
+  s!"    (local.set $i (i32.const 0))\n" ++
+  s!"    (block $qagg_done\n" ++
+  s!"      (loop $qagg_loop\n" ++
+  s!"        (br_if $qagg_done (i32.ge_u (local.get $i) (global.get $ret_count)))\n" ++
+  s!"        (if (i32.ne (local.get $i) (i32.const 0)) (then\n" ++
+  s!"          (i32.store8 (local.get $p) (i32.const 44))\n" ++
+  s!"          (local.set $p (i32.add (local.get $p) (i32.const 1)))))\n" ++
+  -- capacity: 256B region, leave ≥24B for decimal + closing `"]}`
+  s!"        (if (i32.gt_u (i32.sub (i32.add (local.get $data) (i32.const 256)) (local.get $p)) (i32.const 24))\n" ++
+  s!"          (then\n" ++
+  s!"            (local.set $n (call $pf_fmt_u64 (i64.load (i32.add (i32.const {valueCell}) (i32.shl (local.get $i) (i32.const 3)))) (local.get $p)))\n" ++
+  s!"            (local.set $p (i32.add (local.get $p) (local.get $n))))\n" ++
+  s!"          (else unreachable))\n" ++
+  s!"        (local.set $i (i32.add (local.get $i) (i32.const 1)))\n" ++
+  s!"        (br $qagg_loop)))\n" ++
+  s!"    (i32.store8 (local.get $p) (i32.const 93))\n" ++  -- ']'
+  s!"    (i32.store8 offset=1 (local.get $p) (i32.const 34))\n" ++
+  s!"    (i32.store8 offset=2 (local.get $p) (i32.const 125))\n" ++
+  s!"    (i32.store offset=8 (local.get $region) (i32.add (i32.sub (local.get $p) (local.get $data)) (i32.const 3)))\n" ++
   s!"    (local.get $region)\n" ++
   "  )\n" ++
   -- find substring needle in haystack (byte compare); return start index or 0xFFFFFFFF
@@ -994,6 +1072,7 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (global.set $inner_len (i32.const 0))\n" ++
   s!"    (global.set $ret_kind (i32.const 0))\n" ++
   s!"    (global.set $ret_val (i64.const 0))\n" ++
+  s!"    (global.set $ret_count (i32.const 0))\n" ++
   "  )\n" ++
   -- append one raw byte to the messages buffer (CW-4 SubMsg JSON builder)
   s!"  (func $pf_msg_byte (param $b i32)\n" ++
@@ -1195,6 +1274,21 @@ private partial def renderOperation (memory : MemoryLayout)
   | .setReturnData value =>
       s!"{indent}(global.set $ret_kind (i32.const 1))\n" ++
         s!"{indent}(global.set $ret_val (local.get $t{value}))\n"
+  | .setReturnDataMulti values =>
+      -- B-RET-ABI: store N leaf temps into valueCell (8B each), ret_kind=4.
+      -- Capacity guard: N must be 1..8 (Plan validate); trap if >8.
+      Id.run do
+        let n := values.size
+        let mut out :=
+          s!"{indent}(if (i32.gt_u (i32.const {n}) (i32.const 8)) (then unreachable))\n" ++
+          s!"{indent}(global.set $ret_kind (i32.const 4))\n" ++
+          s!"{indent}(global.set $ret_count (i32.const {n}))\n"
+        for i in [0:n] do
+          let temp := values[i]!
+          let off := i * 8
+          out := out ++
+            s!"{indent}(i64.store offset={off} (i32.const {memory.valueOffset}) (local.get $t{temp}))\n"
+        pure out
   | .returnNone =>
       s!"{indent};; return none\n"
   | .returnValue value =>
@@ -1457,10 +1551,14 @@ private def renderMethodBody (ir : IR) (method : MethodIR) : String :=
   let operations := String.intercalate "" <| method.operations.toList.map
     (renderOperation ir.memory ir.sourcePlan.events ir.sourcePlan.errors fnNames "    ")
   -- Methods return i32 region ptr for ContractResult (via setReturnData globals + pf_ok_result)
+  -- View: scalar → pf_query_ok(ret_val); aggregate (ret_kind=4) → pf_query_ok_agg.
   let epilogue :=
     match method.mode with
     | .view =>
-        "    (return (call $pf_query_ok (global.get $ret_val)))\n"
+        -- Typed if (result i32): aggregate vs scalar query ok builders.
+        "    (return (if (result i32) (i32.eq (global.get $ret_kind) (i32.const 4))\n" ++
+        "      (then (call $pf_query_ok_agg))\n" ++
+        "      (else (call $pf_query_ok (global.get $ret_val)))))\n"
     | .initialize | .mutate =>
         "    (return (call $pf_ok_result))\n"
   s!"  (func $m_{method.name}{paramLocals} (result i32){temps}\n" ++
@@ -1638,6 +1736,12 @@ private def renderMethodJson (method : Method) : String :=
     | .uint64 => "\"u64\""
     | .bool => "\"bool\""
     | .int64 => "\"i64\""
+    -- B-RET-ABI: leaf tuple as a JSON array of leaf type strings
+    -- (execute result attr / query ok = decimal JSON array string).
+    | .aggregate leaves =>
+        let parts := leaves.toList.map fun (leaf : LeafAbiType) =>
+          if leaf.isInt then "\"i64\"" else "\"u64\""
+        "[" ++ String.intercalate "," parts ++ "]"
     | _ => "\"u64\""
   "{" ++
     s!"\"name\":\"{Targets.escapeJson method.name}\"," ++
