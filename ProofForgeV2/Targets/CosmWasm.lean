@@ -31,6 +31,13 @@ def planFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult
   validatePlan plan
   return plan
 
+/-- Engineering Plan from retained Semantic (CW-4 schedule pin tests while the
+    CosmWasm resolver still declines `effect.asynchronous-workflow`). Not product. -/
+def engineeringPlanFromCompiled (compiled : CompiledSemanticV1) : CompileResult Plan := do
+  let plan ← engineeringPlanFromSemanticV1 (CompiledSemanticV1.semanticV1Of compiled)
+  validatePlan plan
+  return plan
+
 instance : Materializer .cosmwasm where
   Plan := Plan
   TargetIR := IR

@@ -1,13 +1,14 @@
 /-
-  CosmWasm Plan/IR/WAT engineering suite (MVP leaf).
+  CosmWasm Plan/IR/WAT engineering suite (MVP leaf + CW-4 schedule SubMsg).
 
   Pins Counter plan shape, CosmWasm ABI exports (instantiate/execute/query/
   allocate/deallocate/interface_version_8), Region/JSON markers, db_* imports,
-  and explicit fail-closed boundaries (call/schedule, multi-width, aggregates,
-  invariants, Field/Principal/String).
+  CW-4 schedule → SubMsg reply_on=never (Plan/IR/WAT shape), sync call still
+  fail closed, and other FC boundaries (multi-width, aggregates, invariants).
 
-  Not registered in Tests/Shards/* — main agent must register the shard.
-  Not wasmd runtime / cosmwasm-check (A2). Not formal D4.
+  Product capability resolve still declines effect.asynchronous-workflow until
+  main-agent integration; schedule positive coverage uses engineering Plan/IR
+  entry points that bypass resolve. Not wasmd runtime (A2). Not formal D4.
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.CosmWasm
@@ -204,15 +205,15 @@ private unsafe def testMultiField
   expect (wat.contains "pf:cw:v1:state:1") "state key 1"
   IO.println "  ✓ multi-field state KV"
 
-private unsafe def testCallScheduleFc
+private unsafe def testCallStillFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Resolver declines both call keys; plan layer also FC if capability forced.
+  -- Sync call remains FC at plan layer (WasmMsg::Execute is SubMsg, not CALL).
   let callSrc := wrapProgram "CallFc" <|
     "  state s : UInt64\n\n" ++
     "  init(x : UInt64) do\n" ++
     "    s := x\n\n" ++
     "  entry go() : UInt64 do\n" ++
-    "    call Other.method(s)\n" ++
+    "    call other.method(s)\n" ++
     "    return s\n\n" ++
     "  view peek() : UInt64 do\n" ++
     "    return s\n"
@@ -220,32 +221,105 @@ private unsafe def testCallScheduleFc
     "<cw-call-fc>" "Examples.CallFc" none)
   match Compiler.compileValidatedSourceV1 validated with
   | .error _ =>
-      -- May fail at normalize/check before plan; either is FC.
+      -- May fail at normalize/check/capability before plan; either is FC.
       pure ()
   | .ok compiled =>
       match cosmwasmCapability compiled with
       | .error _ => pure ()  -- resolver FC on effect.synchronous-call
       | .ok capability =>
           expectPlanErrorContaining "call plan" "call" (planFromCapability capability)
-  let schedSrc := wrapProgram "SchedFc" <|
-    "  state s : UInt64\n\n" ++
+      -- Engineering path (bypass resolve): plan layer still rejects sync call.
+      expectPlanErrorContaining "call eng plan" "call"
+        (engineeringPlanFromCompiled compiled)
+  IO.println "  ✓ call/sync still fail closed"
+
+private unsafe def testScheduleSubMsg
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- CW-4: schedule → SubMsg reply_on=never Plan/IR/WAT pin.
+  -- Resolver async key is open (integration): capability resolve succeeds and
+  -- produces the same SubMsg plan as the engineering entry.
+  let schedSrc := wrapProgram "ScheduleFlow" <|
+    "  state count : UInt64\n\n" ++
     "  init(x : UInt64) do\n" ++
-    "    s := x\n\n" ++
-    "  entry go() : UInt64 do\n" ++
-    "    schedule Other.method(s)\n" ++
-    "    return s\n\n" ++
+    "    count := x\n\n" ++
+    "  entry later() : UInt64 do\n" ++
+    "    schedule ledger.daily(count)\n" ++
+    "    count := count + 1\n" ++
+    "    return count\n\n" ++
     "  view peek() : UInt64 do\n" ++
-    "    return s\n"
-  let validated2 ← liftResult (← session.selectProgramV1 schedSrc
-    "<cw-sched-fc>" "Examples.SchedFc" none)
-  match Compiler.compileValidatedSourceV1 validated2 with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match cosmwasmCapability compiled with
-      | .error _ => pure ()
-      | .ok capability =>
-          expectPlanErrorContaining "schedule plan" "schedule" (planFromCapability capability)
-  IO.println "  ✓ call/schedule fail closed"
+    "    return count\n"
+  let compiled ← compileSource session schedSrc
+    "Examples.ScheduleFlow" "<cw-schedule-flow>"
+  -- Capability resolve now admits async (sync still declined, pinned above).
+  let capability ← match cosmwasmCapability compiled with
+    | .error e =>
+        throw <| IO.userError
+          s!"schedule: capability resolve must admit async after CW-4 integration, got {e.render}"
+    | .ok capability => pure capability
+  let plan ← liftResult <| planFromCapability capability
+  expect (plan.programName == "ScheduleFlow") "schedule program name"
+  expect (plan.hostImports == canonicalImports)
+    "schedule keeps db_*/abort imports (no promise hosts)"
+  let some later := plan.entries.find? (·.name == "later") |
+    throw <| IO.userError "schedule: missing later entry"
+  let hasPromise := later.body.any fun s =>
+    match s with
+    | .promiseAccount receiver method args =>
+        receiver == "ledger.daily" && method == "daily" && args.size == 1
+    | _ => false
+  expect hasPromise
+    "schedule: later must lower promiseAccount(ledger.daily, daily, count)"
+  -- schedule + state write coexist in body order
+  let kinds := later.body.map fun s =>
+    match s with
+    | .promiseAccount .. => "promise"
+    | .store .. => "store"
+    | .returnValue _ => "ret"
+    | _ => "other"
+  expect (kinds.contains "promise" && kinds.contains "store" && kinds.contains "ret")
+    s!"schedule+state body kinds, got {kinds}"
+  let ir ← liftResult <| engineeringIrFromPlan plan
+  let irHasPromise := ir.methods.any fun m =>
+    m.operations.any fun op =>
+      match op with
+      | .promiseAccount r meth _ => r == "ledger.daily" && meth == "daily"
+      | _ => false
+  expect irHasPromise "schedule IR must contain promiseAccount"
+  let files ← liftResult <| engineeringFilesFromPlan plan
+  let wat ← findFile files "ScheduleFlow.wat"
+  expect (wat.contains "schedule SubMsg reply_on=never")
+    "WAT schedule SubMsg comment"
+  expect (wat.contains "SubMsg shape:") "WAT SubMsg shape comment"
+  expect (wat.contains "\"reply_on\":\"never\"") "WAT SubMsg reply_on=never shape"
+  expect (wat.contains "\"contract_addr\":\"ledger.daily\"")
+    "WAT contract_addr stub = QN join"
+  expect (wat.contains "\"msg\":{\"daily\":") "WAT execute method key in msg"
+  expect (wat.contains "\"funds\":[]") "WAT empty funds"
+  expect (wat.contains "\"id\":0") "WAT SubMsg id=0 (UNUSED_MSG_ID)"
+  expect (wat.contains "$pf_msg_byte") "WAT SubMsg byte builder"
+  expect (wat.contains "$pf_msg_u64") "WAT SubMsg arg decimal encoder"
+  expect (wat.contains "$msg_len") "WAT messages buffer length global"
+  -- Uppercase QN fails receiver-stub grammar (no silent case fold).
+  let badSrc := wrapProgram "ScheduleBad" <|
+    "  state count : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    count := x\n\n" ++
+    "  entry later() : UInt64 do\n" ++
+    "    schedule Ledger.daily(count)\n" ++
+    "    return count\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return count\n"
+  let badCompiled ← compileSource session badSrc
+    "Examples.ScheduleBad" "<cw-schedule-bad>"
+  match engineeringPlanFromCompiled badCompiled with
+  | .error (.planInvariant .cosmwasm msg) =>
+      expect (msg.contains "account id" || msg.contains "schedule receiver")
+        s!"schedule uppercase must fail account-id gate, got {msg}"
+  | .error other =>
+      throw <| IO.userError s!"schedule uppercase: expected planInvariant, got {other.render}"
+  | .ok _ =>
+      throw <| IO.userError "schedule uppercase: expected planInvariant fail-closed"
+  IO.println "  ✓ schedule SubMsg reply_on=never Plan/IR/WAT"
 
 private unsafe def testMultiWidthFc
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -341,7 +415,8 @@ unsafe def run : IO Unit := do
   testCounterPlan session
   testCounterIRAndWat session
   testMultiField session
-  testCallScheduleFc session
+  testCallStillFailClosed session
+  testScheduleSubMsg session
   testMultiWidthFc session
   testNamedAggregateFc session
   testInvariantFc session

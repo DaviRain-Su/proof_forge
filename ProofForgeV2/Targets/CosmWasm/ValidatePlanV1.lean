@@ -263,9 +263,28 @@ private partial def checkMethodStatementsV1
           total ← addPlanExprNodes limits layout params fns total arg
           methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
         total := total + 1
-    | .promiseAccount .. =>
-        throw <| .planInvariant .cosmwasm
-          "schedule/async workflow is outside the CosmWasm MVP envelope (call/schedule fail closed)"
+    | .promiseAccount receiver method args =>
+        -- CW-4: schedule → SubMsg reply_on=never admitted on mutate/init only.
+        if isView then
+          throw <| .planInvariant .cosmwasm
+            (nearScheduleDisallowedError "view callable schedules a workflow")
+        if isPureFn then
+          throw <| .planInvariant .cosmwasm
+            (nearScheduleDisallowedError "pureFn cannot schedule workflows")
+        unless isNearAccountId receiver do
+          throw <| .planInvariant .cosmwasm (nearAccountIdError receiver)
+        unless isIdentifier method do
+          throw <| .planInvariant .cosmwasm
+            s!"schedule method '{method}' is not a safe identifier"
+        for arg in args do
+          -- UInt64-compatible trees cover public UInt64 and the shared i64
+          -- signed arithmetic surface (excludes Bool/compare results).
+          unless exprIsUInt64CompatibleV1 fns arg do
+            throw <| .planInvariant .cosmwasm
+              "method schedule arguments must be UInt64 or Int64 expressions"
+          total ← addPlanExprNodes limits layout params fns total arg
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
+        total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
           throw <| .planInvariant .cosmwasm "method reverts with an unknown error"

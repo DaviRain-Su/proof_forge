@@ -413,8 +413,8 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **CW-0** | CosmWasm registry 晋升 implemented（A0） | **done**（`dd607de72`：profile `cosmwasm-wasm-u64-v1`、resolver 第八行五键、descriptor wasmText、全部钉测同步） |
 | **CW-1** | CosmWasm MVP leaf（A1） | **done**（`integrate/cosmwasm-a1`：Counter 纵切 Plan/IR/WAT、locked wat2wasm deployable、产品 `.wasm` 过 `cosmwasm-check 3.0.9` 真实验收；call/schedule/iterator/IBC/migrate/聚合/ContextRead/多宽 ABI FC） |
 | **CW-2** | cosmwasm-check Tool Lock 验收门（A2） | **done**（cargo-git 3.0.9 入 `tools[]`；fixture 矩阵 + 产品条件式验收脚本 + suite 注册） |
-| **CW-3** | CosmWasm runtime 差分（cosmwasm-vm mock / cw-multi-test / wasmd） | pending（Tier B/C 验收；先冻结 JSON ABI 与 Region 布局 pin） |
-| **CW-4** | CosmWasm SubMsg/reply 语义评估与 schedule 候选 | pending（需产品决策：是否开 `reply_on=Never` 近似 schedule；禁止别名为跨 tx async） |
+| **CW-3** | CosmWasm runtime 差分（cosmwasm-vm mock / cw-multi-test / wasmd） | **done**（2026-08-03：`runtime-tests/cosmwasm` cosmwasm-vm 3.0.9 mock harness + `scripts/cosmwasm_runtime_test.sh`；Counter/Accumulator/EventFlow 9 tests：init/increment/query、overflow trap+state hold、emit attributes、revert Err；trap≠ContractResult::Err 已钉；mock≠wasmd 不声称 runtime/formal） |
+| **CW-4** | CosmWasm SubMsg/reply 语义评估与 schedule 候选 | **done**（2026-08-03：schedule→`SubMsg{reply_on:never,id:0,WasmMsg::Execute}`；resolver async 键开放、sync 仍拒；诚实边界钉死：同事务分发、子失败打爆整 tx、contract_addr QN stub、msg JSON 待 Binary 升级；**不是**跨 tx async） |
 | **TON-0** | TON 研究期 dossier + family（ADR-0017 遗留，B0） | **done**（`integrate/cosmwasm-a2-b0`：`docs/targets/11-ton.md` + `family-tvm-stack-account.md` + README 索引；research ceiling） |
 | **TON-1** | TON 实现 ADR + TargetId/registry/descriptor/capability（B1） | pending（先决：SRC/CLM 注册、六轴 descriptor、sync call FC 矩阵；主代理串行） |
 | **TON-2** | TON Tolk emitter Counter 纵切（B2） | pending（B1 后；`.tolk`→`.fif`+BoC+`abi.json`） |

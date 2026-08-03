@@ -210,14 +210,62 @@ inductive Statement where
       while `i < end ≤ UInt64.max`. -/
   | forLoop (varTemp : Nat) (initial : Expr) (condition : Expr) (update : Expr)
       (maxIterations : Nat) (body : Array Statement)
-  /-- Async fire-and-forget cross-contract schedule lowered to a CosmWasm promise.
-      `receiver` is the callee QualifiedName components joined by `.` (verbatim;
-      must pass the CosmWasm account-id grammar — no silent case fold). `method` is
-      the last component. `args` are public UInt64 values serialized in the WAT
-      as a deterministic little-endian payload (each arg 8-byte LE, in source
-      order). Failure never propagates to the caller (matches schedule's
-      no-response channel and CosmWasm promise semantics). Deposit/gas are not
-      carried on the Plan; the WAT emits explicit zero placeholders. -/
+  /-- Async workflow schedule lowered to a CosmWasm `SubMsg` with
+      `reply_on = never` (CW-4).
+
+      Plan fields:
+      * `receiver` — callee QualifiedName components joined by `.` (verbatim;
+        must pass the CosmWasm receiver-stub grammar — no silent case fold).
+        Emit uses this string as `WasmMsg::Execute.contract_addr`. **It is a
+        static QN identity stub, not a bech32 AccAddress**; deploy-time rewrite
+        is required (same honesty class as EVM keccak-addr / Solana
+        sha256-program-id stubs).
+      * `method` — last QN component (safe identifier); becomes the execute
+        message object key in the SubMsg JSON payload.
+      * `args` — anonymous public UInt64/Int64 values (Normalize schedule
+        surface); encoded as decimal JSON fields `a0`..`aN-1` in source order.
+
+      ## wasmd `reply_on=Never` semantics (verified, wasmd ≥0.54 / main)
+
+      Sources:
+      * `x/wasm/keeper/msg_dispatcher.go` `MessageDispatcher.DispatchSubmessages`
+        (wasmd main / v0.54+ same control flow):
+        - Each SubMsg runs in `ctx.CacheContext()` savepoint.
+        - On success: `commit()` submsg state; no reply callback when
+          `ReplyOn == ReplyNever` (continue to next SubMsg).
+        - On failure: discard savepoint (submsg state NOT committed); for
+          `ReplyNever`, **return `err` to the parent dispatch**
+          (`if (ReplySuccess || ReplyNever) && err != nil { return nil, err }`).
+          Parent tx therefore fails; parent contract state is rolled back with
+          the atomic Cosmos SDK transaction. This is **not**
+          "parent continues / parent state retained on submsg failure".
+        - Unit coverage: `msg_dispatcher_test.go` case
+          `"never reply - with error"` → `expErr: true`, `expCommits: false`.
+      * `packages/std/src/results/submessages.rs` (`cosmwasm-std`):
+        - `ReplyOn::Never` = "Never make a callback - this is like the original
+          CosmosMsg semantics"; `SubMsg::reply_never` / `UNUSED_MSG_ID = 0`.
+        - Struct doc: on error, submessage partial state reverts; calling
+          contract state is preserved **only when a reply path handles the
+          error** (ReplyError/Always/Success). ReplyNever has no reply path, so
+          the dispatcher propagates the error instead.
+
+      ## Mapping to ReferenceV1 `Op.Schedule`
+
+      Reference records schedule as an ordered effect with **no response cursor**
+      (`ReferenceMachineV1` schedule arm: push `.schedule` effect, continue;
+      no external-response wait). CosmWasm `reply_on=never` matches the
+      **no-reply / no response channel** half of that model.
+
+      Honest caveats (B-CALL-SEM / not full platform async):
+      1. **Same-transaction sequential dispatch**, not cross-tx async (unlike
+         NEAR `promise_batch_*` fire-and-forget across receipts).
+      2. **Submsg failure fails the whole tx** under ReplyNever (see wasmd
+         above) — stronger coupling than Reference schedule, which never waits
+         on the receiver.
+      3. `contract_addr` is a QN stub, not a real chain address.
+
+      Deposit/gas are not Plan fields; emit uses empty `funds: []` and omits
+      `gas_limit` (None / unlimited within parent gas). -/
   | promiseAccount (receiver : String) (method : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
@@ -346,7 +394,8 @@ def canonicalResourceLimits : ResourceLimits := {
   wasmMemoryPages := 1
 }
 
-/-- Fixed CosmWasm MVP host import set (independent of schedule — schedule FC). -/
+/-- Fixed CosmWasm MVP host import set. Schedule → SubMsg is pure Response JSON
+    (no extra host imports; unlike NEAR promise_batch_*). -/
 def canonicalImports : Array HostImport := #[
   .dbRead, .dbWrite, .dbRemove, .abort
 ]
@@ -364,11 +413,14 @@ def canonicalRegisters : RegisterLayout := {
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
-/-- CosmWasm account-id grammar for schedule receivers (pilot): lowercase ASCII
+/-- CosmWasm schedule **receiver stub** grammar (pilot): lowercase ASCII
     letters, digits, `_`, `-`, `.`; UTF-8 length 2..64; no leading or trailing
-    `.`. Uppercase is rejected (never case-normalized). This is intentionally
-    stricter than DSL identifier components and matches the CosmWasm account-id
-    character set for this envelope. -/
+    `.`. Uppercase is rejected (never case-normalized).
+
+    This is **not** bech32 AccAddress validation. The joined static QN is stored
+    as `contract_addr` stub for deterministic engineering artifacts; production
+    deployment must rewrite to a real chain address. Name retained as
+    `isNearAccountId` for NEAR-shared lowering text parity on this leaf. -/
 def isNearAccountId (value : String) : Bool :=
   let n := value.toUTF8.size
   let chars := value.toList.toArray
@@ -380,7 +432,7 @@ def isNearAccountId (value : String) : Bool :=
           (48 ≤ code && code ≤ 57) ||
           character == '_' || character == '-' || character == '.'
 
-/-- Sole schedule-receiver account-id error text (lowering + validatePlan). -/
+/-- Sole schedule-receiver stub error text (lowering + validatePlan). -/
 def nearAccountIdError (receiver : String) : String :=
   s!"schedule receiver '{receiver}' is not a valid CosmWasm account id (lowercase letters, digits, underscore, hyphen or dot, length 2..64, no leading/trailing dot)"
 
@@ -2225,15 +2277,43 @@ private def lowerBlockInstructionsV1
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
     | .externalCall _effectId _callee _argIds, none =>
-        -- CosmWasm has no synchronous cross-contract calls. The S2 resolver already
-        -- declines effect.synchronous-call; this is the defensive plan gate.
+        -- CosmWasm has no synchronous cross-contract CALL. WasmMsg::Execute is a
+        -- same-tx SubMsg savepoint (see promiseAccount wasmd notes), not EVM CALL.
+        -- S2 resolver declines effect.synchronous-call; this is the defensive gate.
         throw <| .planInvariant .cosmwasm
-          "call/sync external call is outside the CosmWasm MVP envelope (WasmMsg::Execute is SubMsg savepoint, not sync CALL; call/schedule fail closed)"
-    | .schedule _effectId _callee _argIds, none =>
-        -- CosmWasm SubMsg is same-tx savepoint, not cross-tx async workflow.
-        -- Resolver declines effect.asynchronous-workflow; plan gate matches.
-        throw <| .planInvariant .cosmwasm
-          "schedule/async workflow is outside the CosmWasm MVP envelope (SubMsg/reply not opened; call/schedule fail closed)"
+          "call/sync external call is outside the CosmWasm MVP envelope (WasmMsg::Execute is SubMsg savepoint, not sync CALL; call fail closed)"
+    | .schedule _effectId callee argIds, none =>
+        -- CW-4: schedule → SubMsg { reply_on: never, id: 0, WasmMsg::Execute }.
+        -- See Statement.promiseAccount docstring for wasmd ReplyNever verification
+        -- and same-tx / failure-propagation caveats vs Reference fire-and-forget.
+        if mode == .view then
+          throw <| .planInvariant .cosmwasm
+            (nearScheduleDisallowedError "view callable schedules a workflow")
+        if mode == .pureFn then
+          throw <| .planInvariant .cosmwasm
+            (nearScheduleDisallowedError "pureFn cannot schedule workflows")
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: schedule callee must have at least two components"
+        let receiver := String.intercalate "." components.toList
+        unless isNearAccountId receiver do
+          throw <| .planInvariant .cosmwasm (nearAccountIdError receiver)
+        let method := components[components.size - 1]!
+        unless isIdentifier method do
+          throw <| .planInvariant .cosmwasm
+            s!"schedule method '{method}' is not a safe identifier"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+          unless root.kind == .uint64 || root.kind == .int64 do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: schedule arguments must be UInt64 or Int64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+        body := body.push (.promiseAccount receiver method argExprs)
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
+        segmentStart := values.size
     -- Array construct N args, Map.empty (ctor 0, 0 args → dense zero leaves),
     -- or named Struct/Enum construct (field/payload leaf assembly).
     -- Bytes has no source constructor (Normalize never emits `.construct` for
@@ -3420,6 +3500,15 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
     throw <| .planInvariant .cosmwasm "engineering capability kind is not CosmWasm"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
+  makePlanFromSemanticV1 source
+
+/-- Engineering Plan-layer entry that bypasses capability resolve.
+
+    Used by CW-4 schedule Plan/IR/WAT pin tests while the CosmWasm resolver
+    still declines `effect.asynchronous-workflow` (main agent re-opens the key
+    at integration). **Not** a product path — product remains
+    `planFromCapability` after capability resolve. -/
+def engineeringPlanFromSemanticV1 (source : SemanticProgramV1) : CompileResult Plan :=
   makePlanFromSemanticV1 source
 
 end ProofForgeV2.Targets.CosmWasm

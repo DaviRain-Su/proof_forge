@@ -21,13 +21,26 @@ target-owned Plan/IR/WAT emitter（public UInt64 多字段 KV state→`env.db_*`
 →`instantiate`/`execute`/`query`、`allocate`/`deallocate`/`interface_version_8`、有界最小
 JSON 子集、emit→attributes、revert→`ContractResult::Err`、if/match/bounded for/fn、
 mul/div/mod/unary/shift/bitwise/logical）；Finalize 经 locked `wat2wasm` 产 `{name}.wasm`
-（deployable=true）；resolver 五键拒绝双 call family（`WasmMsg::Execute` savepoint 非
-sync CALL、SubMsg fire-and-forget 非跨 tx async）；**`cosmwasm-check 3.0.9` Tool Lock
-静态验收门**（fixture 矩阵 + 产品 Counter `.wasm` 真实通过）。
-**仍 fail closed**：call/schedule、iterator（db_scan/db_next）、IBC、migrate、named
+（deployable=true）；**`cosmwasm-check 3.0.9` Tool Lock 静态验收门**（fixture 矩阵 + 产品
+Counter `.wasm` 真实通过）。
+
+**CW-3 runtime 差分（2026-08-03）**：`runtime-tests/cosmwasm`（cosmwasm-vm 3.0.9 mock
+storage/api/querier）+ `scripts/cosmwasm_runtime_test.sh`：Counter/Accumulator/EventFlow
+9 tests——init/increment/query、overflow `unreachable` trap 且 state 不变（trap ≠
+`ContractResult::Err`）、emit attributes、revert `{"error":...}`。mock host ≠ wasmd，
+不声称链上 runtime/formal。
+
+**CW-4 schedule（2026-08-03）**：`schedule` → `SubMsg{reply_on:never, id:0,
+WasmMsg::Execute}`；resolver `effect.asynchronous-workflow` 已开放（sync call 仍拒）。
+**诚实边界**：同事务 savepoint 分发（非跨 tx async）；子消息失败按 wasmd
+`DispatchSubmessages` **打爆整笔交易**（父状态随 tx 回滚，不是「父继续」）；
+`contract_addr` 为静态 QN stub（部署前必须替换真实链上地址）；`msg` 字段暂为 JSON
+对象形状钉测（wasmd 正式期望 Binary，生产前需 Binary 升级）。
+
+**仍 fail closed**：sync call、iterator（db_scan/db_next）、IBC、migrate、named
 Struct/Enum、Array/Map/Bytes/Option、Field/Principal/String、ContextRead/Commit、
 nonempty invariants、multi-width UInt8..256 ABI、named 聚合返回值。
-**未做**：wasmd/cosmwasm-vm runtime 差分、SubMsg/reply 语义、JSON 全集。
+**未做**：wasmd/cosmwasm-vm runtime 差分以外的链上门、SubMsg/reply 入口、JSON 全集。
 
 ## 1. 身份与来源
 

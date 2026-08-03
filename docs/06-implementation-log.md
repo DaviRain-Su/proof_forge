@@ -13454,3 +13454,21 @@ normative: false
   list-targets 精确行。shard-targets 全绿。
 - 边界：`ton` materializer leaf 属 TON-2；当前 `--target ton` 在 materialize dispatch
   显式失败（无 leaf、不静默降级）；formal TASK/TST 与 release 轴不变。
+
+### 2026-08-03 — CosmWasm runtime 差分（CW-3）与 SubMsg schedule（CW-4）
+
+- CW-3：`runtime-tests/cosmwasm`（cosmwasm-vm 3.0.9 MockStorage/MockApi/MockQuerier，与
+  cosmwasm-check 同 monorepo 版本）+ `scripts/cosmwasm_runtime_test.sh`。九项真实测试：
+  Counter init(7)/increment(5)/get==12、multi-increment attributes、unknown method Err、
+  Accumulator seed/add/current、两例 overflow `unreachable` trap 且 MockStorage 不变
+  （trap ≠ `ContractResult::Err`，显式 revert 才是）、EventFlow `Moved` attribute 与
+  `Cap` revert `{"error":"Cap"}`。engineering mock-runtime differential，非 wasmd/formal。
+- CW-4：`schedule` → `SubMsg{reply_on:never, id:0, WasmMsg::Execute{contract_addr,
+  msg, funds:[]}}`；`contract_addr`/`method` 由 static QN 派生（与 NEAR receiver 同级
+  stub，部署前必须替换真实链上地址）。wasmd 语义核实写入注释：`DispatchSubmessages`
+  对 ReplyNever 子失败把错误返回父 dispatch、整 tx 失败（**不是**父状态保留）——
+  与 ReferenceV1 schedule 的吻合点（无 reply/无 response cursor）与 caveat（同事务
+  分发非跨 tx async、子失败强耦合）均显式记录。resolver `effect.asynchronous-workflow`
+  开放（sync 仍拒），CosmWasmPlanV1 钉 SubMsg Plan/IR/WAT 形状与 sync FC。
+- 边界：mock host≠wasmd；msg 字段为 JSON 形状钉测（生产前需 Binary）；不声称跨 tx
+  async、reply 入口、wasmd runtime 或 formal 完成。

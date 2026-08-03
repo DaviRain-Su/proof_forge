@@ -345,7 +345,7 @@ private def testFourRowTable : IO Unit := do
   expect (rows.size == 9) "exactly nine support rows"
   let expectedKeys := #[
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4),
-    ("cosmwasm", "cosmwasm-wasm-u64-v1", 5),
+    ("cosmwasm", "cosmwasm-wasm-u64-v1", 6),
     ("evm", "evm-yul-solc-0.8.34-v1", 7),
     ("near", "near-wasm-raw-u64-v1", 6),
     ("noir", "noir-source-u64-relations-v1", 7),
@@ -376,7 +376,7 @@ private def testFourRowTable : IO Unit := do
         let expectAsync :=
           row.targetId == TargetId.noir || row.targetId == TargetId.near ||
             row.targetId == TargetId.evm || row.targetId == TargetId.solana ||
-            row.targetId == TargetId.ton
+            row.targetId == TargetId.ton || row.targetId == TargetId.cosmwasm
         expect ((ids.contains "effect.synchronous-call") == expectSync &&
             (ids.contains "effect.asynchronous-workflow") == expectAsync)
           s!"row {i} capability gate shape"

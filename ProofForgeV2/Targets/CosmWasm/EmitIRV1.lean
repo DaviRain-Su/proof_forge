@@ -11,10 +11,15 @@ CosmWasm-owned host-call recipe IR with Region/JSON entry ABI:
 * Region = 12-byte `{offset:u32, capacity:u32, length:u32}`
 * entry JSON subset: flat instantiate params; execute/query
   `{"method":{...params...}}` with decimal integer fields
-* results: `ContractResult` JSON (`ok` Response with attributes, or `error`)
-* emit → Response attributes; revert → `{"error":...}` / `abort`
+* results: `ContractResult` JSON (`ok` Response with attributes + messages, or `error`)
+* emit → Response attributes; schedule → Response `messages: [SubMsg]` with
+  `reply_on: "never"`; revert → `{"error":...}` / `abort`
 
-Not wasmd runtime / cosmwasm-check acceptance (A2). Not formal D4.
+CW-4 schedule notes (wasmd ≥0.54 `DispatchSubmessages` + cosmwasm-std
+`ReplyOn::Never`): same-tx SubMsg savepoint; no reply callback; submsg failure
+propagates and fails the parent tx (not parent-continues). `contract_addr` is
+a static QN stub, not bech32. Not wasmd runtime / cosmwasm-check acceptance
+(A2). Not formal D4.
 -/
 
 namespace ProofForgeV2.Targets.CosmWasm
@@ -52,6 +57,11 @@ inductive Operation where
   | assert (condition : Nat)
   | emitEvent (eventIndex : Nat) (args : Array Nat)
   | revertError (errorIndex : Nat) (args : Array Nat)
+  /-- Schedule → Response SubMsg (`reply_on: never`, `id: 0`, WasmMsg::Execute).
+      `receiver` is the static QN stub used as `contract_addr` (not bech32).
+      `method` is the execute-message object key. `args` are i64 temps encoded
+      as decimal JSON fields `a0`.. in source order. -/
+  | promiseAccount (receiver : String) (method : String) (args : Array Nat)
   | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
@@ -123,7 +133,8 @@ private def makeKeyRegions (plan : Plan) : Array KeyRegion := Id.run do
   return regions
 
 /-- CosmWasm memory: one page min, no maximum (exported). Static key data in low
-    memory; bump heap starts at 4096; JSON/result scratch at 2048. -/
+    memory; bump heap starts at 4096; JSON/result scratch after keys.
+    Layout: [scratch 1536 | attr 512 | msg 1536 | value cell …]. -/
 private def makeMemoryLayout (plan : Plan) (keys : Array KeyRegion) : MemoryLayout :=
   let keysEnd := keys.foldl (fun current key => max current (key.offset + key.length)) 64
   let scratchOffset := align8 (max keysEnd 256)
@@ -131,9 +142,14 @@ private def makeMemoryLayout (plan : Plan) (keys : Array KeyRegion) : MemoryLayo
     minPages := plan.resourceLimits.wasmMemoryPages
     inputOffset := scratchOffset          -- reused as JSON/result scratch base
     inputCapacity := 1536
-    depositOffset := scratchOffset + 1536 -- attribute buffer base
-    valueOffset := scratchOffset + 1536 + 512  -- 8-byte value cell / region temp
+    depositOffset := scratchOffset + 1536 -- attribute buffer base (512 bytes)
+    -- value cell sits after attribute (512) + messages (1536) buffers
+    valueOffset := scratchOffset + 1536 + 512 + 1536
   }
+
+/-- Messages buffer base: immediately after the 512-byte attribute buffer. -/
+private def msgBufferBase (memory : MemoryLayout) : Nat :=
+  memory.depositOffset + 512
 
 private structure LoweredExpr where
   operations : Array Operation
@@ -420,9 +436,14 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.revertError errorIndex argTemps)
-    | .promiseAccount .. =>
-        -- Plan validate rejects; defensive no-op sink.
-        pure ()
+    | .promiseAccount receiver method args =>
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr keys next fnMode localEnv arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        operations := operations.push (.promiseAccount receiver method argTemps)
     | .ifThenElse condition thenBody elseBody =>
         let value := lowerExpr keys next fnMode localEnv condition
         operations := operations ++ value.operations
@@ -616,10 +637,12 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   let heapInit := 4096
   let scratch := memory.inputOffset
   let attrBase := memory.depositOffset
+  let msgBase := msgBufferBase memory
   let valueCell := memory.valueOffset
-  -- Keep helpers compact but complete for Counter MVP.
+  -- Keep helpers compact but complete for Counter MVP + CW-4 SubMsg schedule.
   s!"  (global $heap (mut i32) (i32.const {heapInit}))\n" ++
   s!"  (global $attr_len (mut i32) (i32.const 0))\n" ++
+  s!"  (global $msg_len (mut i32) (i32.const 0))\n" ++
   s!"  (global $ret_kind (mut i32) (i32.const 0))\n" ++  -- 0=none 1=u64 2=bool 3=i64
   s!"  (global $ret_val (mut i64) (i64.const 0))\n" ++
   -- allocate(size) -> region_ptr: Region{offset=data, capacity=size, length=size}
@@ -735,21 +758,21 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- build ok Response JSON with attributes buffer + optional result attribute
   -- attributes are pre-built at attrBase as comma-separated {"key":"...","value":"..."} items
   s!"  (func $pf_ok_result (result i32)\n" ++
-  s!"    (local $region i32) (local $data i32) (local $p i32) (local $n i32) (local $alen i32) (local $i i32)\n" ++
-  "    ;; prefix: ok Response JSON with attributes array\n" ++
-  s!"    (local.set $region (call $pf_allocate (i32.const 1024)))\n" ++
+  s!"    (local $region i32) (local $data i32) (local $p i32) (local $n i32) (local $alen i32) (local $mlen i32) (local $i i32)\n" ++
+  "    ;; ok Response JSON: messages from msg buffer, attributes from attr buffer\n" ++
+  s!"    (local.set $region (call $pf_allocate (i32.const 3072)))\n" ++
   s!"    (local.set $data (i32.load (local.get $region)))\n" ++
   s!"    (local.set $p (local.get $data))\n" ++
-  -- write fixed prefix via i32 stores of ASCII
-  s!"    (i32.store8 (local.get $p) (i32.const 123))\n" ++  -- {
+  -- {"ok":{"messages":[
+  s!"    (i32.store8 (local.get $p) (i32.const 123))\n" ++
   s!"    (i32.store8 offset=1 (local.get $p) (i32.const 34))\n" ++
-  s!"    (i32.store8 offset=2 (local.get $p) (i32.const 111))\n" ++  -- o
-  s!"    (i32.store8 offset=3 (local.get $p) (i32.const 107))\n" ++  -- k
+  s!"    (i32.store8 offset=2 (local.get $p) (i32.const 111))\n" ++
+  s!"    (i32.store8 offset=3 (local.get $p) (i32.const 107))\n" ++
   s!"    (i32.store8 offset=4 (local.get $p) (i32.const 34))\n" ++
   s!"    (i32.store8 offset=5 (local.get $p) (i32.const 58))\n" ++
   s!"    (i32.store8 offset=6 (local.get $p) (i32.const 123))\n" ++
   s!"    (i32.store8 offset=7 (local.get $p) (i32.const 34))\n" ++
-  s!"    (i32.store8 offset=8 (local.get $p) (i32.const 109))\n" ++  -- messages
+  s!"    (i32.store8 offset=8 (local.get $p) (i32.const 109))\n" ++
   s!"    (i32.store8 offset=9 (local.get $p) (i32.const 101))\n" ++
   s!"    (i32.store8 offset=10 (local.get $p) (i32.const 115))\n" ++
   s!"    (i32.store8 offset=11 (local.get $p) (i32.const 115))\n" ++
@@ -760,23 +783,35 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (i32.store8 offset=16 (local.get $p) (i32.const 34))\n" ++
   s!"    (i32.store8 offset=17 (local.get $p) (i32.const 58))\n" ++
   s!"    (i32.store8 offset=18 (local.get $p) (i32.const 91))\n" ++
-  s!"    (i32.store8 offset=19 (local.get $p) (i32.const 93))\n" ++
-  s!"    (i32.store8 offset=20 (local.get $p) (i32.const 44))\n" ++
-  s!"    (i32.store8 offset=21 (local.get $p) (i32.const 34))\n" ++
-  s!"    (i32.store8 offset=22 (local.get $p) (i32.const 97))\n" ++  -- attributes
-  s!"    (i32.store8 offset=23 (local.get $p) (i32.const 116))\n" ++
-  s!"    (i32.store8 offset=24 (local.get $p) (i32.const 116))\n" ++
-  s!"    (i32.store8 offset=25 (local.get $p) (i32.const 114))\n" ++
-  s!"    (i32.store8 offset=26 (local.get $p) (i32.const 105))\n" ++
-  s!"    (i32.store8 offset=27 (local.get $p) (i32.const 98))\n" ++
-  s!"    (i32.store8 offset=28 (local.get $p) (i32.const 117))\n" ++
-  s!"    (i32.store8 offset=29 (local.get $p) (i32.const 116))\n" ++
-  s!"    (i32.store8 offset=30 (local.get $p) (i32.const 101))\n" ++
-  s!"    (i32.store8 offset=31 (local.get $p) (i32.const 115))\n" ++
-  s!"    (i32.store8 offset=32 (local.get $p) (i32.const 34))\n" ++
-  s!"    (i32.store8 offset=33 (local.get $p) (i32.const 58))\n" ++
-  s!"    (i32.store8 offset=34 (local.get $p) (i32.const 91))\n" ++
-  s!"    (local.set $p (i32.add (local.get $p) (i32.const 35)))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (i32.const 19)))\n" ++
+  -- append collected SubMsg JSON objects
+  s!"    (local.set $mlen (global.get $msg_len))\n" ++
+  s!"    (local.set $i (i32.const 0))\n" ++
+  s!"    (block $mcopy_done\n" ++
+  s!"      (loop $mcopy\n" ++
+  s!"        (br_if $mcopy_done (i32.ge_u (local.get $i) (local.get $mlen)))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $p) (local.get $i)) (i32.load8_u (i32.add (i32.const {msgBase}) (local.get $i))))\n" ++
+  s!"        (local.set $i (i32.add (local.get $i) (i32.const 1)))\n" ++
+  s!"        (br $mcopy)))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (local.get $mlen)))\n" ++
+  -- ],"attributes":[
+  s!"    (i32.store8 (local.get $p) (i32.const 93))\n" ++
+  s!"    (i32.store8 offset=1 (local.get $p) (i32.const 44))\n" ++
+  s!"    (i32.store8 offset=2 (local.get $p) (i32.const 34))\n" ++
+  s!"    (i32.store8 offset=3 (local.get $p) (i32.const 97))\n" ++
+  s!"    (i32.store8 offset=4 (local.get $p) (i32.const 116))\n" ++
+  s!"    (i32.store8 offset=5 (local.get $p) (i32.const 116))\n" ++
+  s!"    (i32.store8 offset=6 (local.get $p) (i32.const 114))\n" ++
+  s!"    (i32.store8 offset=7 (local.get $p) (i32.const 105))\n" ++
+  s!"    (i32.store8 offset=8 (local.get $p) (i32.const 98))\n" ++
+  s!"    (i32.store8 offset=9 (local.get $p) (i32.const 117))\n" ++
+  s!"    (i32.store8 offset=10 (local.get $p) (i32.const 116))\n" ++
+  s!"    (i32.store8 offset=11 (local.get $p) (i32.const 101))\n" ++
+  s!"    (i32.store8 offset=12 (local.get $p) (i32.const 115))\n" ++
+  s!"    (i32.store8 offset=13 (local.get $p) (i32.const 34))\n" ++
+  s!"    (i32.store8 offset=14 (local.get $p) (i32.const 58))\n" ++
+  s!"    (i32.store8 offset=15 (local.get $p) (i32.const 91))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (i32.const 16)))\n" ++
   -- append collected attributes
   s!"    (local.set $alen (global.get $attr_len))\n" ++
   s!"    (local.set $i (i32.const 0))\n" ++
@@ -940,11 +975,40 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- region payload view: (offset, length) from region ptr
   s!"  (func $pf_region_off (param $r i32) (result i32) (i32.load (local.get $r)))\n" ++
   s!"  (func $pf_region_len (param $r i32) (result i32) (i32.load offset=8 (local.get $r)))\n" ++
-  -- reset per-entry attribute/return state
+  -- reset per-entry attribute/messages/return state
   s!"  (func $pf_reset_result\n" ++
   s!"    (global.set $attr_len (i32.const 0))\n" ++
+  s!"    (global.set $msg_len (i32.const 0))\n" ++
   s!"    (global.set $ret_kind (i32.const 0))\n" ++
   s!"    (global.set $ret_val (i64.const 0))\n" ++
+  "  )\n" ++
+  -- append one raw byte to the messages buffer (CW-4 SubMsg JSON builder)
+  s!"  (func $pf_msg_byte (param $b i32)\n" ++
+  s!"    (local $p i32)\n" ++
+  s!"    (local.set $p (i32.add (i32.const {msgBase}) (global.get $msg_len)))\n" ++
+  s!"    (i32.store8 (local.get $p) (local.get $b))\n" ++
+  s!"    (global.set $msg_len (i32.add (global.get $msg_len) (i32.const 1)))\n" ++
+  "  )\n" ++
+  -- append ASCII string from linear memory to messages buffer
+  s!"  (func $pf_msg_bytes (param $off i32) (param $len i32)\n" ++
+  s!"    (local $i i32) (local $p i32)\n" ++
+  s!"    (local.set $p (i32.add (i32.const {msgBase}) (global.get $msg_len)))\n" ++
+  s!"    (local.set $i (i32.const 0))\n" ++
+  s!"    (block $done\n" ++
+  s!"      (loop $copy\n" ++
+  s!"        (br_if $done (i32.ge_u (local.get $i) (local.get $len)))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $p) (local.get $i))\n" ++
+  s!"          (i32.load8_u (i32.add (local.get $off) (local.get $i))))\n" ++
+  s!"        (local.set $i (i32.add (local.get $i) (i32.const 1)))\n" ++
+  s!"        (br $copy)))\n" ++
+  s!"    (global.set $msg_len (i32.add (global.get $msg_len) (local.get $len)))\n" ++
+  "  )\n" ++
+  -- append decimal of i64 to messages buffer (reuses pf_fmt_u64)
+  s!"  (func $pf_msg_u64 (param $v i64)\n" ++
+  s!"    (local $p i32) (local $n i32)\n" ++
+  s!"    (local.set $p (i32.add (i32.const {msgBase}) (global.get $msg_len)))\n" ++
+  s!"    (local.set $n (call $pf_fmt_u64 (local.get $v) (local.get $p)))\n" ++
+  s!"    (global.set $msg_len (i32.add (global.get $msg_len) (local.get $n)))\n" ++
   "  )\n" ++
   -- append attribute {"key":"K","value":"V"} where V is decimal of u64 temp
   s!"  (func $pf_push_attr_u64 (param $key_off i32) (param $key_len i32) (param $v i64)\n" ++
@@ -989,7 +1053,7 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (i32.store8 offset=1 (local.get $p) (i32.const 125))\n" ++
   s!"    (global.set $attr_len (i32.sub (i32.add (local.get $p) (i32.const 2)) (i32.const {attrBase})))\n" ++
   "  )\n" ++
-  s!"  ;; scratch base marker (unused direct; value cell at {valueCell})\n"
+  s!"  ;; buffers: attr@{attrBase} msg@{msgBase} valueCell@{valueCell} scratch@{scratch}\n"
 
 private partial def renderOperation (memory : MemoryLayout)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
@@ -1113,6 +1177,53 @@ private partial def renderOperation (memory : MemoryLayout)
           out := out ++
             s!"{indent}(call $pf_push_attr_u64 (i32.const {nameOff}) (i32.const {nameBytes.size}) (local.get $t{args[0]!}))\n"
           pure out
+  | .promiseAccount receiver method args =>
+      -- CW-4 SubMsg JSON into messages buffer:
+      -- {"id":0,"msg":{"wasm":{"execute":{"contract_addr":"<receiver>",
+      --   "msg":{"<method>":{"a0":N,...}},"funds":[]}}},"reply_on":"never"}
+      --
+      -- Honesty:
+      -- * contract_addr = static QN join (receiver); NOT bech32 AccAddress.
+      -- * msg is a JSON object (engineering shape pin). wasmd/wasmvm expects
+      --   Binary (base64) for WasmMsg::Execute.msg — Binary upgrade is future.
+      -- * gas_limit omitted (= None). id=0 = cosmwasm_std::UNUSED_MSG_ID.
+      -- * reply_on=never: no reply entrypoint; same-tx dispatch; submsg failure
+      --   fails parent tx (wasmd DispatchSubmessages). See Plan docstring.
+      Id.run do
+        let _ := events
+        let _ := errors
+        let _ := fnNames
+        -- Full shape comment (searchable in WAT; bytes also via pf_msg_byte).
+        let shapeHint :=
+          "{\"id\":0,\"msg\":{\"wasm\":{\"execute\":{\"contract_addr\":\"" ++
+          receiver ++ "\",\"msg\":{\"" ++ method ++
+          "\":{...args a0..}},\"funds\":[]}}},\"reply_on\":\"never\"}"
+        let mut out :=
+          s!"{indent};; schedule SubMsg reply_on=never → {receiver} / {method}\n" ++
+          s!"{indent};; SubMsg shape: {shapeHint}\n"
+        -- Leading comma when messages buffer already non-empty
+        out := out ++
+          s!"{indent}(if (i32.ne (global.get $msg_len) (i32.const 0)) (then\n" ++
+          s!"{indent}  (call $pf_msg_byte (i32.const 44))))\n"
+        -- Helper: emit a fixed ASCII string via pf_msg_byte immediates
+        let emitLit (s : String) : String := Id.run do
+          let bytes := s.toUTF8
+          let mut t := ""
+          for i in [0:bytes.size] do
+            t := t ++ s!"{indent}(call $pf_msg_byte (i32.const {bytes[i]!.toNat}))\n"
+          pure t
+        out := out ++ emitLit "{\"id\":0,\"msg\":{\"wasm\":{\"execute\":{\"contract_addr\":\""
+        out := out ++ emitLit receiver
+        out := out ++ emitLit "\",\"msg\":{\""
+        out := out ++ emitLit method
+        out := out ++ emitLit "\":{"
+        for i in [0:args.size] do
+          if i > 0 then
+            out := out ++ emitLit ","
+          out := out ++ emitLit s!"\"a{i}\":"
+          out := out ++ s!"{indent}(call $pf_msg_u64 (local.get $t{args[i]!}))\n"
+        out := out ++ emitLit "}},\"funds\":[]}}},\"reply_on\":\"never\"}"
+        pure out
   | .revertError errorIndex args =>
       let binding := errors[errorIndex]!
       let nameBytes := binding.name.toUTF8
@@ -1442,6 +1553,16 @@ def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult I
 def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     CompileResult (Array OutputFile) := do
   let ir ← irFromCapability capability
+  emitFromIR ir
+
+/-- Engineering Plan → IR (CW-4 schedule pin tests; not product capability path). -/
+def engineeringIrFromPlan (plan : Plan) : CompileResult IR := do
+  validatePlan plan
+  lower plan
+
+/-- Engineering Plan → WAT/ABI files (CW-4 schedule pin tests). -/
+def engineeringFilesFromPlan (plan : Plan) : CompileResult (Array OutputFile) := do
+  let ir ← engineeringIrFromPlan plan
   emitFromIR ir
 
 end ProofForgeV2.Targets.CosmWasm
