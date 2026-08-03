@@ -142,8 +142,10 @@ private def validateStorageLayout (limits : ResourceLimits)
     throw <| .planInvariant .ton "state field count is outside the profile limits"
   for index in [0:layout.fields.size] do
     let field := layout.fields[index]!
-    -- Ton MVP: public UInt64/Int64 leaves only (8-byte).
-    let admittedWidth := field.byteWidth == 8
+    -- BL-14: public UInt{8,16,32,64}/Int64 leaves (1/2/4/8-byte). UInt128/256 FC.
+    let admittedWidth :=
+      field.byteWidth == 1 || field.byteWidth == 2 ||
+      field.byteWidth == 4 || field.byteWidth == 8
     unless field.sourceId == index && isIdentifier field.name &&
         field.key == stateKey index && admittedWidth &&
         field.endianness == .little do
@@ -164,10 +166,10 @@ private def validateParams (limits : ResourceLimits) (owner : String)
   let mut expectedOffset : Nat := 0
   for index in [0:params.size] do
     let param := params[index]!
+    -- BL-14: UInt{8,16,32,64}/Int64 only (1/2/4/8). UInt128/256 stay FC.
     let admittedWidth :=
       param.byteWidth == 1 || param.byteWidth == 2 ||
-      param.byteWidth == 4 || param.byteWidth == 8 ||
-      param.byteWidth == 16 || param.byteWidth == 32
+      param.byteWidth == 4 || param.byteWidth == 8
     unless param.sourceId == index && isIdentifier param.name &&
         param.inputOffset == expectedOffset && admittedWidth &&
         param.endianness == .little do
