@@ -78,11 +78,12 @@
 ## 第 8 页 · What works now?（3:30–4:00）
 
 > 当前完成度方面，我们必须诚实说：
-> EVM 已经有 `solc` bytecode，并在 Anvil 本地跑通了 Counter 的 increment 和 overflow revert；
-> Solana 目前只有 `.sbpf-plan` 和 IDL，**还没有 sBPF ELF 或 runtime**；
-> NEAR 有 WAT/Wasm 通过 `wat2wasm` 结构验证，**但还没跑 sandbox receipt**；
-> Noir 有 Plan 和关系 IR，能输出 `.nr` 包，**但还没有 ACIR、proof、VK**。
-> 所有目标共享同一个 semantic hash，成熟度不人为升级。
+> EVM 已有 locked `solc` bytecode，并以四个产品程序完成 Anvil 工程差分；
+> Solana 已能把产品计划汇编为真实 sBPF ELF，并由 Mollusk 跑工程运行时差分；
+> NEAR 有 locked `wat2wasm` 结构编译、host-optional runtime load，以及 Counter 的 near-sandbox happy path；
+> Noir 与 Aleo 分别只有 locked nargo/leo compile-only 门，尚无 prove/verify 或 VM/deploy 闭环；Psy 仍 source-only；
+> CosmWasm 目前只是 registry A0，没有 Plan/IR/materializer 或 Wasm artifact。
+> 这些都是工程门，不是 formal、hermetic 或 release evidence；成熟度不人为升级。
 
 ---
 
@@ -124,18 +125,19 @@
 ## 第 13 页 · Roadmap & target landscape（6:00–6:30）
 
 > 路线图分两块：
-> Phase 1 要实现 EVM、Solana、NEAR、Noir 四个目标，并且按成熟度阶梯推进；
-> 设计/研究阶段还有 CosmWasm、Soroban、ICP、OpenVM、Aleo、Psy 等。
-> 我们不会让不同平台共用一个虚假的通用 Plan，每个目标都保持自己的 Plan 和 IR。
+> accepted Phase 1 范围仍是 EVM、Solana、NEAR、Noir 四个目标；
+> 工程 registry 已额外标记 Aleo、Psy 与 CosmWasm implemented，但前两者仍 source-only，CosmWasm 仅 A0 registry 面；
+> Soroban、ICP、OpenVM 仍 design-only。这个 4→7 偏离需要正式的 scope reconciliation。
+> 我们不会让不同平台共用一个虚假的通用 Plan，每个 materializer 都保持自己的 Plan 和 IR。
 
 ---
 
 ## 第 14 页 · Team & next steps（6:30–6:55）
 
-> 团队节奏上：D0 基本收尾，D0-10 在收尾 task qualification verifier；
-> 下一步 D1 做完整 parser 和 type/effect 系统；D2 加 struct、event、函数调用、proof reference；
-> 然后四个 Phase 1 目标要分别推向 runtime 或 proof 验证；
-> 路线图和里程碑都已经文档化，可检查、可追踪。
+> 团队节奏上，当前产品恢复已形成单一 ProgramV1→Typed/Normalize→Semantic→六个 target-owned materializer 纵切面；
+> 下一步继续闭合无需决策的 shared/target 缺口，而 CosmWasm CW-A1 必须先冻结 versioned runtime/ABI 语义；
+> formal D1–D4 qualification 与日常产品工程保持独立，仍按真实条件 pending；
+> 路线图和里程碑都已文档化，可检查、可追踪。
 
 ---
 

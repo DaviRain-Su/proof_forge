@@ -3,7 +3,7 @@ id: RPT-015
 title: C-2 Aleo/Psy compiler and VM availability research
 status: draft
 owner: engineering
-updated: 2026-08-02
+updated: 2026-08-03
 normative: false
 ---
 
@@ -22,7 +22,23 @@ Code-first audit of in-tree target leaves and product materialize path
 `10-psy.md` and coverage matrix `12-target-coverage-matrix.md`.  
 **No** live network deploys; **no** claim of hermetic tool lock.
 
-## Aleo (`TargetId.aleo`)
+## 2026-08-03 follow-up（当前状态）
+
+Wave 1 / G123 supersedes this snapshot's Aleo compile-only deferral: Leo
+`4.0.2` is now pinned in both Tool Lock v4 files, and the registered
+`AleoAcceptance` suite prefers the materialized locked tool to run product Leo
+sources through `leo build --offline`（tool 未物化时 clean skip）。This remains
+an engineering compile-only gate: no Aleo VM, proof, deploy, record-custody, or
+formal/hermetic Stage-0 claim follows. Psy is unchanged: host-optional source
+compile only, with no Tool Lock/VM/prover gate.
+
+The Aleo/Psy tables below are retained as the 2026-08-02 audit snapshot; current
+feature coverage (including the later T14 Field catalog and aggregate work) is
+authoritative in `12-target-coverage-matrix.md`. For this report's toolchain
+decision, Aleo's “no Leo pin / no compile gate” conclusion is superseded, while
+the no-VM/no-proof boundary and Psy toolchain conclusion remain current.
+
+## Aleo (`TargetId.aleo`)（2026-08-02 历史快照）
 
 ### In-tree engineering facts
 
@@ -78,7 +94,7 @@ Code-first audit of in-tree target leaves and product materialize path
 - Revisit only after: stable versioned schema, licensed tool pin, and a
   minimal local MWE that can be skip-clean or fail-closed in ordinary CI.
 
-## Decision table (C-2 outcome)
+## Decision table（C-2 historical outcome；Aleo compile-only override above）
 
 | Target | Promote acceptance gate now? | Maturity stays |
 |---|---|---|
@@ -91,7 +107,7 @@ Code-first audit of in-tree target leaves and product materialize path
 - Not a claim that Leo/Psy cannot be productized later.
 - Not an upgrade of AGENTS maturity beyond “source-only” for Aleo/Psy.
 
-## Follow-on (not this slice)
+## Follow-on recorded by the 2026-08-02 slice
 
 1. If Aleo is prioritized: Tool Lock asset + `AleoLeoAcceptance` suite ID.
 2. If Psy is prioritized: re-open dossier with live tool MWE before any gate.

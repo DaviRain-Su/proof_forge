@@ -456,6 +456,16 @@ registry digest。
 | `aleo` | — | `research.aleo.v1` | design | `research` | Aleo Instructions/records+mappings/private+final/Aleo settlement |
 | `psy` | `psy-dargo-u64-v1` | `phase1.psy-u64.v1` | implemented | `source-only` | DPN/user-partitioned state/recursive proof/Psy settlement; `.psy` source for the official dargo toolchain, no digest-pinned compiler yet |
 
+> **当前工程偏离（2026-08-03；不构成本规范或 accepted scope 的升格）**：engineering
+> `TargetRegistryV1` seed 已变为 7 registry-implemented + 3 design-only，并为 CosmWasm 加入
+> `cosmwasm-wasm-u64-v1`、descriptor、五键 support row 与 CLI `wasm-validated-alpha` label。
+> 该 A0 变更尚无 target-owned Plan/IR/emitter/finalizer，产品 build 仍在 registry dispatch 以
+> `PF-TARGET-NOT-IMPLEMENTED` 拒绝。`CW-A1` 跟踪 materializer 缺口并由 `CW-ABI-FREEZE`
+>（versioned runtime/ABI/capability/schema/savepoint 语义）阻塞；`DOC-ADR-SCOPE` 跟踪 accepted
+> Phase-1 四-target 范围与 engineering 七-target seed 的正式 reconciliation；在
+> accepted ADR 或本规范正式修订前，不得据 A0 label 推断 artifact/runtime maturity，也不得静默
+> 改写本节 Initial Registry。
+
 初始/保留 profile 的 artifact completeness 与 ZK security contract 约束固定如下；每个 cell 表示
 `ArtifactEncoding.primaryGroups` 的 alternative group，role 后是 exact media type：
 

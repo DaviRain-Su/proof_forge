@@ -8,13 +8,13 @@
 
       leo build --offline --disable-update-check
 
-  When `leo` is absent from PATH the suite SKIP-passes with a clear log line so
-  ordinary Linux CI stays green. When leo is present the suite is fail-closed
-  on any non-zero exit.
+  The suite prefers the materialized Tool Lock root, then known host
+  candidates/PATH. If no `leo` is available it SKIP-passes with a clear log;
+  once resolved, any non-zero compiler exit fails closed.
 
-  Not formal Stage-0 / hermetic Tool Lock pin / snarkVM prove-deploy.
-  Maturity remains source-package + toolchain compilation acceptance when leo
-  is available — not runtime VM / proof completion.
+  Not formal Stage-0 / hermetic Tool Lock verification / snarkVM prove-deploy.
+  Maturity remains source-package + engineering compilation acceptance — not
+  runtime VM / proof completion.
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.Counter

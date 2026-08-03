@@ -10,9 +10,10 @@
   `scripts/validate_artifacts.py` continues to reject proof-stage leaves.
 
   When `nargo` is absent the suite SKIP-passes. Not formal Stage-0 / hermetic
-  Tool Lock verify / Noir prove path.
+  Tool Lock verification / Noir prove path.
 
-  **Not registered in a Tests.Shards/* suite** — main agent must register.
+  Registered in `Tests.Shards.Targets`; ordinary runs exercise it when the
+  locked nargo asset has been materialized.
 
   Note: product `Nargo.toml` intentionally omits `compiler_version`. Pin is
   Tool Lock `nargo` `1.0.0-beta.26`; whether emitters should pin

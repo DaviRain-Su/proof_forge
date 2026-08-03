@@ -40,7 +40,7 @@ normative: false
 | **NormalizeV1** | ProgramV1 → SemanticProgramV1 | **子集 lowering**；其余 `.unsupported` | **主瓶颈**（本文重点） |
 | WireV1 structure | 完整 op/CFG 契约 | structure gate 宽于 Normalize | 可装更多；Normalize 未降 |
 | ReferenceV1 | admitted `step` 子集 | 工程 admitted；非 formal step | R-1.. |
-| Targets | Plan/IR per capability | 四 target 跟 Normalize 子集 | 12 矩阵 |
+| Targets | Plan/IR per capability | 六个现有 materializer 各自消费 Normalize 子集，能力非均匀；CosmWasm A0 尚无 Plan consumer | 12 矩阵 |
 
 ---
 

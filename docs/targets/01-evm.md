@@ -3,7 +3,7 @@ id: TARGET-EVM
 title: EVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-02
+updated: 2026-08-03
 normative: true
 ---
 
@@ -27,9 +27,10 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   aggregate `StateStore` 以 `storeAtomic` 两阶段 Yul（全部 leaf Expr/sload 先物化，再连续 sstore），
   `EvmSmoke` 已固定 empty Map upsert 顺序并由 `solc --strict-assembly` 回归；
 - Yul + digest-pinned `solc` bytecode；**EvmSolc** `solc --strict-assembly` 验收门（工具缺席干净跳过）；
-- engineering planDigest 可绑 BuildIdentity/OutputSet；历史 Anvil Counter/overflow smoke 存在。
+- engineering planDigest 可绑 BuildIdentity/OutputSet；G4 `evm_anvil_differential.sh` 从产品 CLI
+  制品运行 Counter/Accumulator/ArithOps/EventFlow，固定 overflow state-hold 与 emit 日志。
 
-**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead（EVM Plan 显式 fail-closed）；Option state 仍 fail-closed（仅作 Map IndexGet 中间值）；formal Plan/IR/Build/Output identity 与 Reference↔Anvil formal differential；不得写成 D4 / formal TASK 完成。
+**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead（EVM Plan 显式 fail-closed）；Option state 仍 fail-closed（仅作 Map IndexGet 中间值）；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成。
 
 ## 1. 身份与来源
 

@@ -13369,8 +13369,9 @@ normative: false
   HostModel PointBox/EnumBox 端到端。聚合返回值/Option state/ContextRead/sync call 仍 FC。
 - **L2 Solana named 聚合 + Bytes**：named Struct/Enum state flatten + Bytes N×UInt8
   state/params + literal IndexGet/Set；`storeAggregate`→`storeStateMulti`（pre-store
-  snapshot + CSE）；4096B SBPF frame 硬门保持，plan profile 绿，solana-runtime 44/44 绿。
-  聚合/Array/Principal 返回值、named params、Bytes construct、Array/Map params、Option
+  snapshot + CSE）；4096B SBPF frame 硬门保持，plan profile 绿；L2 lane-local runtime 当时 44/44，
+  集成树叠加既有 WideMul 后的当前完整 suite 为 56/56。聚合/Array/Principal 返回值、named
+  params、Bytes construct、Array/Map params、Option
   state、ContextRead 仍 FC；CPI/call/schedule 保持现状 stub（B-CALL-SEM 独立轨道）。
 - **N3 并集**：`Tests.Materialization.Targets` named Struct state 钉测改为六 target 全
   admit（EVM/Solana/NEAR/Noir/Psy/Aleo flatten-to-leaf）。

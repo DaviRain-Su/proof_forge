@@ -3,7 +3,7 @@ id: TARGET-NOIR
 title: Noir target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-02
+updated: 2026-08-03
 normative: true
 ---
 
@@ -22,22 +22,27 @@ Digest 在 Plan 边界派生（engineering identity，非 formal BuildIdentity�
 **工程已接线（摘）**：
 
 - Normalize 当前子集 + Field(bn254) 原生算术路径；UInt8/16/32/64 与窄 Int ABI/body；
-  named Struct/Enum construct/field/variant、Array UInt64 与 dense Map UInt64 cap-8 aggregate state
-  flatten；Map/aggregate StateStore 经 `storeAggregate` 两阶段 relation lowering固定 pre-state snapshot，
-  `NoirRelationModel` 已覆盖 empty upsert；Bytes/Option/String state 仍 FAIL-CLOSED；
+  named Struct/Enum construct/field/variant、Array UInt64、dense Map UInt64 cap-8 与 fixed Bytes N
+  aggregate state flatten；Map/aggregate StateStore 经 `storeAggregate` 两阶段 relation lowering固定
+  pre-state snapshot，`NoirRelationModel` 已覆盖 empty upsert；Bytes literal IndexGet/Set 已开，
+  Bytes construct/param/动态索引及 Option/String state 仍 FAIL-CLOSED；
 - call/schedule 持 capability（status/arg slot）；私有 state/params 走 private-witness 输入；
-- 产物：typed relation IR + Noir source packages（host model / relation tests）。
+- 产物：typed relation IR + Noir source packages；locked nargo 1.0.0-beta.26 对产品 Counter
+  relation packages 执行 compile-only 工程验收。
 
-**明确未闭合**：**无** Nargo/ACIR/witness/proof/VK/prove/verify 验收门；
-formal Noir milestone；完整 Semantic 面。不得写成 circuit proof 完成。
+**明确未闭合**：**无** ACIR/witness/proof/VK/prove/verify 验收门或产品制品；无锁定
+proving backend、CRS/security profile；formal Noir milestone；完整 Semantic 面。不得把
+compile-only 写成 circuit proof 完成。
 
-### C-4 研究结论（2026-08-02 / RPT-016）
+### C-4 研究与 G123 follow-up（2026-08-02—2026-08-03）
 
-**不**在本波次升格 prove/verify 验收门：`supply-chain` / Tool Lock **无** nargo 或
-proving-backend pin；产物校验为 **source-only** 且拒绝 proof-stage 叶子；本机 PATH
-亦无 `nargo`。成熟度保持 **source-only** relations + Lean relation model。
-未来若产品优先：独立 `NoirProveAcceptance` + Tool Lock pin + CRS/soundness contract，
-再开 profile 超越 `noir-source-u64-relations-v1`。
+RPT-016/RPT-017 在 2026-08-02 基线作出的“无 nargo pin”观察，已由 G123 的最小
+compile-only follow-up supersede：两平台 Tool Lock v4 现固定 nargo `1.0.0-beta.26`，
+`NoirCompileAcceptance` 已注册并可在锁定工具物化时执行 `nargo compile`。但
+Barretenberg/backend、CRS/soundness contract、witness/prove/verify 与 proof artifact binding
+仍为空；产物校验继续拒绝 proof-stage 叶子。成熟度保持 **source-only** relations。
+未来若产品优先：独立 `NoirProveAcceptance` + backend/CRS/security contract，再评审
+超越 `noir-source-u64-relations-v1` 的 successor profile。
 
 ## 1. 身份与来源
 
@@ -128,10 +133,11 @@ proof-stage artifact 必须绑定 semantic/profile/catalog hash。
 
 ## 6. 工具链
 
-最终必须固定 `nargo/noirc` 与选定 proving backend（如 Barretenberg）的 exact version、
-binary digest 和 CRS/profile。当前 lock 未包含 Nargo/Barretenberg，本机也没有可作为证据的
-批准工具链；package 因此不写会被误解为 binary pin 的宽松 prerelease version range。
-当前 intermediate profile 的 `securityContract=null`。未来 `noir-acir-proof-v1` 必须引用
+两平台 Tool Lock v4 已固定 nargo `1.0.0-beta.26`，仅用于外置的
+compile-only 工程验收；Noir `FinalizeV1` 仍为 zero-tool，package 也不写会被误解为
+proof-profile binding 的 `compiler_version`。选定 proving backend（如 Barretenberg）的 exact
+version/binary digest、CRS/profile 与 soundness contract 仍未固定，当前 intermediate profile
+的 `securityContract=null`。未来 `noir-acir-proof-v1` 必须引用
 [`SPEC-SEC-001`](../specs/security.md) 的 exact `ZkBackendSecurityProfileV1`，并在当前
 `CandidateIdentity`/`BuildIdentity` 上验证未过期、未撤销的 formal `ZkSecurityApprovalV1`；只锁
 Nargo/backend binary 而缺少 arithmetic、CRS、soundness、proof binding 与 privacy contract 时仍
@@ -139,9 +145,10 @@ Nargo/backend binary 而缺少 arithmetic、CRS、soundness、proof binding 与 
 
 ## 7. 证明流程
 
-目标流程是 compile → execute/witness → prove → verify。当前只完成 compile 之前的 typed
-relation/source materialization，并用纯 Lean relation model 验证约束结构；该模型不是 Nargo、
-ACIR execution、proof 或 verifier 证据。Counter/Accumulator 的 logical pre/post state 都是
+目标流程是 compile → execute/witness → prove → verify。当前完成 typed relation/source
+materialization，并以 locked nargo 对产品 Counter relation packages 做 compile-only 工程验收；
+纯 Lean relation model 继续验证约束结构。二者都不是 ACIR execution、witness、proof 或 verifier
+证据。Counter/Accumulator 的 logical pre/post state 都是
 external public relation inputs；ProofForge 不声称 proof 自动更新任何链。若未来增加
 settlement adapter，作为独立 target/profile 评审。
 
@@ -154,7 +161,7 @@ settlement adapter，作为独立 target/profile 评审。
 1. Plan/typed IR/source/interface exact tests（当前已覆盖 Counter、Accumulator、PrivateSum4）。
 2. 纯 Lean relation model 的 lifecycle、wrong result/state 与 `UInt64.max + 1` negatives
    （当前已覆盖，但不是 Noir runtime evidence）。
-3. pinned Nargo compile + valid/invalid witness（未完成）。
+3. pinned Nargo compile-only（Counter relation packages 工程门已完成）；valid/invalid witness 未完成。
 4. exact ZK security profile/approval resolution 与 allowlist/CRS/substitution negatives（未完成）。
 5. pinned backend prove/verify 与 proof/VK/public-input binding 检查（未完成）。
 6. Counter 四目标差分和 UInt64 PrivateSum4 不泄露 witness（proof 部分未完成）。

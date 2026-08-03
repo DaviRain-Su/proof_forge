@@ -90,12 +90,14 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 
 ![Compilation pipeline](docs/diagrams/02-compilation-pipeline.png)
 
-### 一源四目标（Phase 1）
+### 一源多目标（Phase 1 engineering）
 
-同一 `Counter` 语义；`--target` 只改变物化与制品编码。成熟度必须诚实标注
-（runtime / plan-only / wasm / source-only）。
+同一 `Counter` 语义；`--target` 只改变物化与制品编码。当前 registry 标记七个 implemented
+target：EVM、Solana、NEAR、Noir、Aleo、Psy 已有 target-owned materializer；CosmWasm 目前仅
+A0 selection/descriptor/resolver，A1 Plan/IR/materializer pending，不能 build。下图是早期四目标
+架构示意；当前事实以本页诚实表与 [`docs/targets/README.md`](docs/targets/README.md) 为准。
 
-![One program, four targets](docs/diagrams/03-one-program-four-targets.png)
+![Original four-target architecture illustration](docs/diagrams/03-one-program-four-targets.png)
 
 ### 更多图
 
@@ -156,11 +158,14 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 
 | Target | 角色 | 本阶段 | 证据状态（不得夸大） |
 |---|---|---|---|
-| `evm` | contract VM | Phase 1 | Counter bytecode + Anvil 初始化/increment/overflow；**非**完整 EVM 后端 |
-| `solana` | explicit-account SVM | Phase 1 | typed `.sbpf-plan` + IDL；**无** sBPF object / ELF / runtime |
-| `near` | Wasm host | Phase 1 | raw-u64 Counter/Accumulator WAT/Wasm + `wat2wasm`；**无** sandbox receipt |
-| `noir` | circuit | Phase 1 | target-owned Plan / relation IR → `.nr` packages；**无** Nargo/ACIR/proof/VK |
-| CosmWasm / Soroban / ICP / OpenVM / Aleo / Psy | — | design / research | 仅档案与路线图，**无** 产品后端宣称 |
+| `evm` | contract VM | Phase 1 | retained-Semantic Plan/IR → Yul + locked `solc` bytecode；G4 Anvil 工程差分；**非** formal Reference↔Anvil / D4 完成 |
+| `solana` | explicit-account SVM | Phase 1 | target-owned Plan/IR → SBPF asm + locked assembler ELF `.so`；Mollusk 工程差分；**非** formal Stage-0/hermetic |
+| `near` | Wasm host | Phase 1 | WAT/Wasm + locked `wat2wasm` / host-optional runtime load；locked near-sandbox Counter receipt happy path；**非** formal Reference↔sandbox / D6 完成 |
+| `noir` | circuit | Phase 1 | target-owned Plan/relation IR → `.nr` packages + locked nargo compile-only；**无** ACIR/witness/proof/VK/verify |
+| `aleo` | ZK application chain | Phase 1 | target-owned Plan/IR → Leo source + locked leo compile-only；**无** VM/prove/deploy |
+| `psy` | ZK application chain | Phase 1 | target-owned Plan/IR → Dargo/Psy source；host-optional compile，无 locked VM/prover |
+| `cosmwasm` | Wasm host | Phase 1 registry A0 | profile/descriptor/resolver 已接；CLI label=`wasm-validated-alpha`，但无 Plan/IR/materializer，build fail closed |
+| Soroban / ICP / OpenVM | — | design / research | 仅档案与路线图，**无** 产品 backend |
 
 详情：[`docs/targets/README.md`](docs/targets/README.md)。
 

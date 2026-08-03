@@ -3,14 +3,14 @@ id: RESEARCH-INDEX
 title: 调研证据索引
 status: draft
 owner: research
-updated: 2026-08-02
+updated: 2026-08-03
 normative: false
 ---
 
 # 调研证据索引
 
 状态：`draft`
-更新日期：2026-08-02
+更新日期：2026-08-03
 
 本目录保存 ProofForge V2 的非规范性研究材料。研究结论不能越过已接受的 ADR、PRD、架构和技术规格；它们的作用是说明“为什么这样设计”，而不是暗中改变产品语义。
 
@@ -35,8 +35,9 @@ normative: false
 14. [`12-target-coverage-matrix.md`](12-target-coverage-matrix.md)：wire Op × target LOWERED/FAIL-CLOSED/GAP 矩阵（工程覆盖权威格子）。
 15. [`13-spec-normalize-diff.md`](13-spec-normalize-diff.md)：SPEC-LANG/SEM/TYPE × NormalizeV1 机械对账（DOC-SPEC-AUDIT）。
 16. [`14-n5-call-return-schema.md`](14-n5-call-return-schema.md)：N-5 external call 返回值 schema 影响（void ExternalCall 直至共享核 cutover）。
-17. [`15-aleo-psy-compiler-vm.md`](15-aleo-psy-compiler-vm.md)：C-2 Aleo Leo / Psy VM 可用性——**不**升格 compiler/VM 验收门；成熟度保持 source-only。
-18. [`16-noir-prove-path.md`](16-noir-prove-path.md)：C-4 Noir nargo/prove 路径——**不**升格 prove/verify 验收门；无 Tool Lock pin；保持 source-only relations。
+17. [`15-aleo-psy-compiler-vm.md`](15-aleo-psy-compiler-vm.md)：C-2 Aleo/Psy 历史研究 + G123 follow-up——Aleo 已有 locked leo compile-only 门，Psy 仍无 Tool Lock/VM；二者成熟度保持 source-only，均未升格 VM/prove/deploy。
+18. [`16-noir-prove-path.md`](16-noir-prove-path.md)：C-4 Noir prove/verify 路径——G123 后 nargo compile-only 已锁定并接门，但无 Barretenberg/CRS/proof binding，故**不**升格 prove/verify；保持 source-only relations。
+19. [`13-noir-toolchain-research.md`](13-noir-toolchain-research.md)：RPT-017 的 2026-08-02 J1 历史快照及 2026-08-03 follow-up；明确哪些“无 nargo pin”结论已被 compile-only gate supersede，哪些 prove/verify 阻塞仍有效。
 
 ## 证据等级
 

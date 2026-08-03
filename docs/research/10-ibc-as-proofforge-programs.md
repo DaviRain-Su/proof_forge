@@ -3,7 +3,7 @@ id: RPT-010
 title: IBC 作为 ProofForge 程序的可行性研究
 status: draft
 owner: research
-updated: 2026-08-02
+updated: 2026-08-03
 normative: false
 ---
 
@@ -21,12 +21,25 @@ normative: false
 本文为非规范性研究。结论不能越过已接受的 ADR、PRD、架构和技术规格；其作用是说明
 "为什么这条路值得 / 不值得、以及若要走需要补什么"，而不是暗中改变产品语义或目标范围。
 
+## 2026-08-03 工程 follow-up
+
+本文最初的“当前状态/前置缺口”快照早于同日后续扩面。当前 registry 标记七个 implemented
+target，其中 EVM/Solana/NEAR/Noir/Aleo/Psy 有 materializer，CosmWasm 仅 A0 descriptor/resolver、
+尚不能 build；sole Normalize/Reference 已接 aggregates、Array/Map/Bytes/Option、Principal、
+ContextRead/Commit 与 Token dense-Map 工程子集，五个 target 有非均匀 Map lowering，Psy 仍
+fail closed。这个进展**没有**使完整 IBC 可实现：`extension.crypto`/IBC light-client catalog
+仍不存在，packet/proof 的通用动态 Bytes/protobuf 面未闭合，ContextRead 在六 target Plan 仍
+fail closed，call/schedule 平台语义债 `B-CALL-SEM` 未决，authority/custody 与 protocol profile
+也不完整。下文的 2026-08-02 gap 文字按历史快照阅读；当前 op×target 事实以
+[`12-target-coverage-matrix.md`](12-target-coverage-matrix.md) 为准。
+
 ## 动机与定位
 
-当前 Phase-1 target（`evm`/`solana`/`near`/`noir`）没有一个原生支持 IBC：
-EVM 链无原生 IBC，Solana / NEAR 无原生 IBC（NEAR 走 Rainbow Bridge，另一套），
-Noir 是电路无持久状态。Cosmos 链才有原生 IBC，但 `cosmwasm` 为 design-only、未接。
-因此"靠链原生 IBC"在当前 target 集上不成立。
+当前六个可物化 target（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）没有一个能让
+ProofForge 直接复用原生 IBC：EVM、Solana、NEAR 的宿主模型不同，Noir 是无原生持久状态的
+电路，Aleo/Psy 是独立 ZK 应用链模型。Cosmos 生态虽有原生 IBC，CosmWasm 也已被 engineering
+registry 标为 implemented，但当前仅 A0 descriptor/resolver、没有 Plan/IR/materializer。因此
+“靠链原生 IBC”在当前产品可构建 target 集上仍不成立。
 
 用户提出的方向是相反的：**不依赖宿主链原生 IBC，而是把 IBC 协议状态机本身写成
 ProofForge 程序，编译成各链合约部署**。这是"在非原生 IBC 链上用合约实现 IBC"路线，
@@ -68,18 +81,19 @@ light client 验证是共享硬依赖，crypto 是命脉。
 
 | IBC 需求 | 对应 requirement 域 | 当前状态 |
 |---|---|---|
-| 持久结构化状态（connection/channel/client state） | `state.*` | state 仍 UInt64-only；aggregates/Map 未进产品 Normalize |
-| 收/发包、ack、timeout | `effect.*`（external.call.sync / workflow.schedule） | Wave I call/schedule 已接四个 target |
-| 对方链高度/时间（timeout 判定） | `context.*` | deferred |
-| Port/Channel owner 权限 | `authority.*` | deferred |
+| 持久结构化状态（connection/channel/client state） | `state.*` | aggregates/Map/Bytes/Principal 已进 Normalize/Reference 工程子集；target lowering 非均匀，动态协议 payload 仍缺 |
+| 收/发包、ack、timeout | `effect.*`（external.call.sync / workflow.schedule） | static-QN call/schedule 能力非均匀，但真实平台语义仍受 `B-CALL-SEM` 阻塞 |
+| 对方链高度/时间（timeout 判定） | `context.*` | Normalize 有 caller/time；六 target Plan 仍 fail closed |
+| Port/Channel owner 权限 | `authority.*` | 只有 caller-based engineering 子集；完整 custody/capability 未闭合 |
 | Packet 转发可见性 | `disclosure.*` | disclosure 已接 CheckV1 |
 | 失败原子回滚 | `failure.*` | revert 已接 |
 | Crypto（hash/Merkle/签名） | 拟议 `extension.crypto` | 无任何 crypto 原语 |
 | 轻客户端验证 | 拟议 `extension.ibc-client` | 不存在 |
 
-## 语言与编译器前置缺口
+## 语言与编译器前置缺口（2026-08-02 快照）
 
-当前产品路径完全无法表达 IBC。诚实清单：
+以下清单记录最初快照；其中状态/容器/Principal 条目已有工程进展，但完整 IBC 仍因 crypto、
+protocol payload、authority 与真实跨平台 effect/context 语义而不可安全表达：
 
 1. **无 crypto 原语**。IBC 安全性全靠 light client 证明验证——SHA-256、ICS-23 Merkle
    proof、签名验证（Tendermint 用 ed25519，Ethereum 用 secp256k1）。语言里一个 hash
@@ -124,13 +138,13 @@ light client 验证是共享硬依赖，crypto 是命脉。
 2. **加 crypto 原语**：至少 SHA-256 + Merkle 验证，作为 `extension.crypto` requirement，
    capability matrix 按 target 物化。独立有价值，是 IBC 命脉。
 3. **先证明模型，做 Fungible Token**：用补好的语言写一个 `program Token where`，
-   跑通四 target 物化。这是"写一次跨链物化"是否真 work 的最小验证，比 IBC 便宜得多。
+   固定七个 registry target 的精确 lower/fail-closed outcome（CosmWasm A0 当前无 materializer）。这是"写一次跨链物化"是否真 work 的最小验证，比 IBC 便宜得多。
    Token 本身也对应 IBC transfer app 的内核。
-   **2026-08-02 工程 NS-1 进度**：`Examples/Token.lean`（Map UInt64→UInt64 余额 +
-   mint/transfer/balanceOf）已进产品 `check`；Normalize/Map 路径可用。四 target
-   `build` 仍因 **Map Plan FAIL-CLOSED**（container-state pilot）拒绝——这是诚实的
-   capability 边界，不是 silent fallback。下一步 leaf：Map state Plan lower 至少
-   一 target，再考虑 Principal 键。
+   **2026-08-03 工程 NS-1 进度**：`Examples/Token.lean`（Map UInt64→UInt64 余额 +
+   mint/transfer/balanceOf）已进产品；EVM/Solana/NEAR/Noir cap-8 Map lowering 已接线
+   （EVM/NEAR deployable 工程制品、Solana opt-in ELF+Mollusk、Noir multi-leaf relation），
+   Aleo 另有 cap-2 Map，Psy fail closed。该 demo 仍不含 Principal 键、crypto、IBC packet
+   或 formal cross-target equivalence。
 4. **做一个 IBC-flavored 最小件**：不直接上全套 IBC，先做一个 "packet mailbox"——
    存消息、nonce、timeout、emit 事件给 relayer。一个能跑的 IBC 子集，验证 cross-chain
    message 表达力。
@@ -142,8 +156,9 @@ light client 验证是共享硬依赖，crypto 是命脉。
 
 - IBC-as-ProofForge-programs 方向**概念上契合**（IBC 状态机正是 ProofForge 语义域），
   且"在非原生 IBC 链上用合约实现 IBC"有真实业界对应物。
-- 但**当前语言面完全无法表达**（无 crypto / Bytes / aggregates / Map / Principal /
-  async-context），且 IBC 是协议栈而非单合约。
+- 状态/容器/Principal 的工程子集虽已有明显进展，但**完整 IBC 仍无法安全表达**：缺
+  crypto/light-client catalog、通用 packet/proof payload、target-open context、真实跨平台
+  call/schedule 语义与完整 authority/custody；且 IBC 是协议栈而非单合约。
 - **可移植性边界**：状态机 + transfer app 可移植；light client 验证算法可移植但依赖
   crypto 与 counterparty 共识；relayer 异步交互依赖 `context.*`。
 - **战略定位**：建议把 IBC 作为长期北极星，把 Fungible Token 作为近期试金石。两者
@@ -154,6 +169,6 @@ light client 验证是共享硬依赖，crypto 是命脉。
 ## 待补充
 
 - 各 ICS 模块的精确状态机规格与 ProofForge callable/block 映射草图。
-- `extension.crypto` / `extension.ibc-client` 的 requirement catalog 草案与四 target
+- `extension.crypto` / `extension.ibc-client` 的 requirement catalog 草案与七个 registry target
   capability 物化路径。
-- packet mailbox 最小件的语言表面草案与四 target 物化可行性核对。
+- packet mailbox 最小件的语言表面草案与七个 registry target 非均匀物化可行性核对。

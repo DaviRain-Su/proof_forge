@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-02
+updated: 2026-08-03
 normative: true
 ---
 
@@ -23,15 +23,18 @@ Phase 1：实现
 - Normalize 当前子集：算术/比较/assert、控制流、fn、let/for、shift/bitwise、revert/emit 等；
 - state/param **UInt8/16/32/64 与窄 Int** ABI/body 子集；**UInt128/256 软件多字（T9e）**；
   schedule → 原生 promise；sync call 在 capability 矩阵上 fail-closed；
-- **Array + dense Map UInt64 cap-8 + fixed Bytes N** flatten-to-KV；聚合 `StateStore` 使用
-  `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel 已固定 empty Map upsert 与连续两个
-  Map StateStore 的可见性；named Struct/Enum state/construct/field ops 与 Option state 仍 fail-closed；
+- **Array + dense Map UInt64 cap-8 + fixed Bytes N + named Struct/Enum** flatten-to-KV；聚合
+  `StateStore` 使用 `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel 已固定 empty Map
+  upsert、连续 Map StateStore 可见性及 PointBox/EnumBox；Option state 与聚合返回仍 fail-closed；
 - **Principal 9×KV leaf 存储（T12）**（wire identity 原样；**非** account-id）；
-- WAT 发射 + **`wat2wasm` + `wasm-interp` 工程验收门（C-1 已闭合：NearWasmAcceptance，工具缺席 skip）**。
+- WAT 发射 + locked `wat2wasm` 结构编译；`NearWasmAcceptance` 另需 host-optional
+  `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 对产品
+  Counter 做 deploy/init(7)/increment(5)/view==12 receipt happy-path 工程验收。
 
-**明确未闭合**：**非** NEAR sandbox receipt / **非** Reference↔Wasm formal 差分；
-named Struct/Enum 与 Option state 仍 fail-closed；ContextRead 各 target Plan fail-closed（B-ctx 有意钉死）；
-formal identity/OutputSet / D6 milestone。不得写成 runtime-validated 完成。
+**明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分，只覆盖 Counter happy
+path，不覆盖 corrupt storage、bad input、overflow unchanged-state 或 gas/profile；Option state、
+聚合返回与 ContextRead 仍 fail-closed；formal identity/OutputSet / D6 milestone 未完成。不得写成
+formal runtime-validated。
 
 ## 1. 身份与来源
 
@@ -106,18 +109,21 @@ transaction 调用不属于此 profile 的承诺。
 
 ## 6. 工具链
 
-本切片只允许工具链 lock 中固定 absolute pathname、version 与 executable digest 的
-`wat2wasm`。missing、PATH shadow、version/hash mismatch、unknown host import/export 或
-structural validation failure 必须 fail closed。`wat2wasm` 只把已验证 WAT 编码并做 Wasm 结构
-检查；它不执行 NEAR host semantics，也不能替代 sandbox/workspaces 或 protocol profile。
+两平台 Tool Lock v4 固定 `wat2wasm` 与 near-sandbox `2.13.0` 的资产、executable
+digest/version probe（Darwin near-sandbox 另闭合 xz/liblzma runtime）；`wasm-interp`、
+`wasmtime`、`wasmer` 不在 Tool Lock，NearWasmAcceptance 只把它们作为 host-optional runtime
+load engine。missing、PATH shadow、version/hash mismatch、unknown host import/export 或结构失败
+必须 fail closed。WABT 编译不能替代 NEAR host semantics；near-sandbox acceptance 也只是外置
+Counter receipt happy path，不能替代完整 protocol profile、Reference differential 或 formal
+Stage-0 evidence。
 
 ## 7. 部署/证明流程
 
-Phase 1 完整目标仍是在独立 JSON profile 冻结后部署到 NEAR sandbox，调用 init/mutate/view，
-校验 ABI、storage、receipt status 和 overflow 时当前 receipt 状态不变。`TASK-A0-15` 的
-raw-u64 Accumulator 首切片即使通过，也只建立 Plan/recipe/WAT/Wasm 的静态编译路径，
-不满足本节部署验收。
-真实 testnet receipt 证据属于后续 network gate。
+G123 已完成产品 Counter 的 near-sandbox deploy/init/mutate/view happy path，并观测 receipt
+成功与 view 值；这只覆盖固定 raw-u64 正向路径。Phase 1 完整目标仍需独立 protocol/ABI
+profile、Reference 对照、bad input/corrupt storage/overflow unchanged-state negatives、gas/resource
+约束与 identity-bound evidence。`TASK-A0-15` 的历史静态切片及当前 G123 happy path 都不足以
+关闭该完整部署验收。真实 testnet receipt 证据属于后续 network gate。
 
 ## 8. 安全
 
@@ -135,20 +141,22 @@ gas allocation、跨 receipt workflow 和 upgrade/migration 不得通过隐式�
 4. sandbox deploy/call/receipt/storage/rollback evidence。
 5. 真实网络 receipt 与 gas band 后才 network-validated。
 
-第 1-2 级通过只构成静态 artifact evidence。当前没有第 3-5 级证据，尤其没有 sandbox
-receipt、NEAR runtime 执行或 overflow rollback 观测。
+第 1-2 级构成静态 artifact evidence。G123 现在为 Counter happy path 提供第 4 级的一个
+工程子集（deploy/init/increment/view receipt），但没有第 3 级 Reference↔Wasm differential，
+也没有第 4 级的 bad-input/corrupt-storage/overflow rollback negatives，更没有第 5 级证据。
 
-`TASK-A0-15` / `EV-20260716-0020` 已让 Counter 与 Accumulator 通过第 1-2 级：Plan/recipe
-mutation、raw ABI/WAT golden、锁定 `wat2wasm`、Wasm header/size/digest 和双轮复现均通过。
-补充的 deterministic host model 只解释 typed recipe，并把 trap 后恢复调用前 snapshot 作为
-模型假设；它不构成本阶梯第 3 级的 Wasm host interpreter，更不构成第 4 级 receipt 观测。
+`TASK-A0-15` / `EV-20260716-0020` 的历史切片让 Counter 与 Accumulator 通过第 1-2 级；
+deterministic HostModel 只解释 typed recipe，并把 trap 后恢复调用前 snapshot 作为模型假设。
+G123 receipt 门新增真实 sandbox happy-path 观测，但两者都不构成 formal Reference differential
+或完整 rollback 证明。
 
 ## 10. 不支持、风险与成熟度退出
 
 通用 UInt64 首切片不支持 JSON ABI、Promise/callback、跨 receipt workflow、protocol calls、
 attached-deposit 业务语义、upgrade migration 或任意 NEAR SDK surface。它只在 typed Plan/recipe
 中表达 receipt-local rollback 要求；trap/write 顺序和 `wat2wasm` 成功不是 rollback 观测。
-在 sandbox differential 取得 init、Accumulator mutate/view、corrupt storage、bad input 和
-overflow unchanged-state receipt 之前，不得声称 runtime validated、receipt validated 或 JSON
-compatible。退出条件仍是合法 Wasm、sandbox receipt、状态与 rollback、artifact
-repeatability、unknown host/unsupported sync-call 负例全部通过。
+当前只能声称 **Counter sandbox receipt happy path 的工程观测**。在 Reference-bound sandbox
+differential 取得 Accumulator mutate/view、corrupt storage、bad input 和 overflow
+unchanged-state negatives 之前，不得声称完整 runtime validated、rollback validated 或 JSON
+compatible。退出条件仍是合法 Wasm、完整 sandbox 状态/rollback、artifact repeatability、unknown
+host/unsupported sync-call 负例全部通过。

@@ -586,9 +586,9 @@
       "sha256": "269f8a5dece988c4b892333e1a5975463fe137bf77e9d6fb98cf302b3d9acc51"
     },
     {
-      "bytes": 5427,
+      "bytes": 5553,
       "path": "ProofForgeV2/Targets/DescriptorDataV1.lean",
-      "sha256": "95c612c45927fe986d714e0959a1e343b209a7d3e6be8159c0cbe4e74e9450b7"
+      "sha256": "2e653e99feaa4e93871f759334b990cfe2a479b7df9cc7e9c5022f33e2674e62"
     },
     {
       "bytes": 9308,

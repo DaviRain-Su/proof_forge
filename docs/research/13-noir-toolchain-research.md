@@ -3,7 +3,7 @@ id: RPT-017
 title: J1 Noir toolchain (nargo/bb) availability — acceptance gate decision
 status: draft
 owner: engineering
-updated: 2026-08-02
+updated: 2026-08-03
 normative: false
 ---
 
@@ -27,7 +27,23 @@ This note re-verifies host and in-tree facts on 2026-08-02 (worktree base
 C-4 research outcome in [`16-noir-prove-path.md`](16-noir-prove-path.md)
 (RPT-016) and adds emit-surface / install-path detail for a future gate.
 
-## Method
+## 2026-08-03 follow-up（当前状态）
+
+Wave 1 / G123 后续已实现本报告当时拒绝的**最小 compile-only 子集**：nargo
+`1.0.0-beta.26` 已进入 darwin-arm64 与 linux-x86_64 Tool Lock v4，
+`scripts/noir_compile_acceptance.sh` 与已注册的
+`Tests.Materialization.NoirCompileAcceptance` 会把产品 Counter relation packages 交给
+`nargo compile`（锁定工具未物化时 clean skip）。因此下文在 base `bc7568ef3` 上的
+“host 无 nargo / Tool Lock 无 nargo / compile gate 未实现”只作为历史快照，不再描述当前
+HEAD。
+
+该 follow-up **没有**加入 Barretenberg（`bb`）或其他 proving backend、CRS/security
+profile、witness execution、prove/verify、ACIR/proof/VK 制品，也没有改变 source-only profile、
+`proofStatus=not-produced`、non-deployable finalization 或 artifact validator 对 proof-stage
+叶子的拒绝。故本报告关于**不升格 prove/verify**、不声明 formal/hermetic/Stage-0 证据的结论
+仍有效。
+
+## Method（2026-08-02 历史快照）
 
 | Check | Result |
 |---|---|
@@ -41,7 +57,7 @@ C-4 research outcome in [`16-noir-prove-path.md`](16-noir-prove-path.md)
 | `scripts/validate_artifacts.py` Noir path | **forbids** `.acir`/`.proof`/`.vk`/`.witness`; non-deployable |
 | Network install of toolchain in this slice | **not performed** (no ad-hoc PATH pin) |
 
-## In-tree engineering facts
+## In-tree engineering facts at `bc7568ef3`（历史快照）
 
 ### Product surface
 
@@ -111,15 +127,21 @@ proof-stage leaves without a coordinated validator + profile + Tool Lock change.
 | `noirc` | Compiler backend invoked by nargo | Bundled with nargo distribution |
 | `bb` (Barretenberg CLI) | Common proving backend for Noir | Aztec/Barretenberg releases; selected **separately** from nargo |
 
-Exact versions, binary digests, CRS/profile, and soundness contract are
-**not** frozen in this repo. Dossier `docs/targets/07-noir.md` already requires
-future `noir-acir-proof-v1` to carry arithmetic / CRS / soundness / proof-binding
-/ privacy contract — bare binary alone is insufficient for product registry.
+At the 2026-08-02 snapshot, none of these versions or contracts were frozen.
+The 2026-08-03 follow-up freezes nargo `1.0.0-beta.26` only for the engineering
+compile gate; proving-backend version/digest, CRS/profile, and soundness contract
+remain unfrozen. Dossier `docs/targets/07-noir.md` requires future
+`noir-acir-proof-v1` to carry arithmetic / CRS / soundness / proof-binding /
+privacy contract — a pinned compiler alone is insufficient for a proof-capable
+product profile.
 
-## What an acceptance suite would look like (deferred design)
+## Acceptance-suite design recorded by J1（compile subset subsequently implemented）
 
-Pattern parallel to `Tests/Materialization/EvmSolcAcceptance.lean` + optional
-`scripts/noir_acceptance.sh`:
+J1 recorded the following pattern, parallel to
+`Tests/Materialization/EvmSolcAcceptance.lean`. G123 subsequently implemented
+steps 1–3 for Counter as `NoirCompileAcceptance` +
+`scripts/noir_compile_acceptance.sh`; steps 4 and the proof-capable profile remain
+deferred:
 
 1. **Probe**: `command -v nargo` (and later `bb` for prove path); if absent →
    print skip and exit 0 (clean skip, not fail).
@@ -135,20 +157,23 @@ Pattern parallel to `Tests/Materialization/EvmSolcAcceptance.lean` + optional
 5. **CI wiring**: shard registration + optional recipe (justfile change is a
    separate integrator decision); never invent fake proofs when tools absent.
 
-**Not** done this wave: no suite, no script, no justfile recipe, no Tool Lock
-asset, no profile promotion.
+**J1 snapshot outcome (2026-08-02)**：该波次没有 suite、script、Tool Lock
+asset 或 profile promotion。2026-08-03 G123 只 supersede 其中的 nargo
+compile-only 部分；proof-capable profile 仍未开放。
 
-## Recommendation (decision)
+## Recommendation（J1 snapshot decision）
 
-**Do not promote** a Noir nargo/bb acceptance gate in the J1 wave.
+**Do not promote** a Noir nargo/bb acceptance gate in the J1 wave. This remains
+the historical J1 decision; the 2026-08-03 follow-up later admitted only the
+compile-only half.
 
 | Decision | Detail |
 |---|---|
 | Maturity stays | **source-only** Plan/IR + relation source packages + Lean relation model |
 | Why | Host has no `nargo`/`bb`; Tool Lock has no pin; SPEC `unresolved` still lists nargo/barretenberg; validator intentionally rejects proof-stage leaves; Finalize is zero-tool |
-| Compile-only alone | Still **no** — no pin means CI cannot claim a reproducible toolchain; ad-hoc PATH tool would be best-effort, forbidden by product boundaries |
-| Prove/verify | Still **no** — depends on compile pin + CRS/soundness contract (RPT-016) |
-| Follow-on | When product prioritizes: new ID `NoirCompileAcceptance` (nargo pin + compile skip/fail-closed) and/or `NoirProveAcceptance` (nargo+bb+CRS); then open profile past source-only |
+| Compile-only alone | J1: **no** because no pin；**superseded by G123** locked nargo + engineering `NoirCompileAcceptance` |
+| Prove/verify | Still **no** — compile pin now exists, but backend + CRS/soundness contract remain absent (RPT-016) |
+| Follow-on | `NoirCompileAcceptance` 已由 G123 完成；剩余仅在产品决策后设计 `NoirProveAcceptance`（backend+CRS）并评审 successor profile |
 
 ## Explicit non-claims
 
@@ -158,13 +183,13 @@ asset, no profile promotion.
 - Does **not** change emitters to emit ACIR/proof/VK/witness.
 - Does **not** invent a second acceptance authority or PATH fallback pin.
 
-## Decision table (J1 outcome)
+## Decision table（J1 historical outcome；current override above）
 
 | Gate | Promote now? | Notes |
 |---|---|---|
-| `nargo compile` acceptance suite | **No** | no host tool, no Tool Lock pin |
-| `nargo execute` / witness | **No** | same |
-| `nargo prove` / `bb` / verify | **No** | same + no CRS contract |
+| `nargo compile` acceptance suite | **No（J1）→ superseded** | G123 现有 locked nargo compile-only engineering gate |
+| `nargo execute` / witness | **No** | G123 未实现；无 witness/backend contract |
+| `nargo prove` / `bb` / verify | **No** | 无 backend pin + CRS/security contract |
 | Lean relation model only | **Keep** | engineering structure check only |
 | Maturity label | **source-only** (unchanged) | coverage matrix §2 remains ❌ |
 

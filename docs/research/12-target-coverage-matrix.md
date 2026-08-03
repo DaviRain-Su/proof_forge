@@ -24,6 +24,13 @@ normative: false
 数据来源：产品测试（EvmSmoke/Mollusk/NoirRelationModel 等）+ LowerSemanticV1 代码扫描。
 **初版可能不精确**——每个 wave worker 须核对并修正自己 target 行的真实边界。
 
+> **CosmWasm A0 边界（2026-08-03）**：engineering registry/descriptor/resolver/CLI 已把
+> `cosmwasm` 标为 implemented，但尚无 `Targets/CosmWasm*` Plan/IR/emitter/finalizer，且
+> `Registry.materializeResult` 无 `.cosmwasm` dispatch。因此下列 op×target 与验收表只列六个
+> **现有 materializer**；CosmWasm 的全部 materialization/acceptance 格子均为 **GAP（CW-A1）**，
+> 不能按 CLI 的 `wasm-validated-alpha` label 记为 LOWERED 或已验证，也不能写成 target Plan
+> FAIL-CLOSED（目前是在 registry dispatch 前以 `PF-TARGET-NOT-IMPLEMENTED` 拒绝）。
+
 ## 1. 语义 op 覆盖矩阵（wire Op × target）
 
 | wire Op / feature | EVM | Solana | NEAR | Noir | Psy | Aleo |
@@ -71,7 +78,7 @@ normative: false
 |---|---|---|---|---|---|---|
 | Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A |
-| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: wat2wasm+wasm-interp) | ✅(NoirCompileAcceptance: nargo 1.0.0-beta.26 compile-only；G123；缺席 skip；**非** prove/verify) | ❌(source-only) | ✅(AleoAcceptance: leo 4.0.2 Tool Lock pin（G123）；缺席 skip；非 prove/deploy) |
+| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: locked wat2wasm + host-optional wasm-interp/wasmtime/wasmer load) | ✅(NoirCompileAcceptance: nargo 1.0.0-beta.26 compile-only；G123；缺席 skip；**非** prove/verify) | ❌(source-only) | ✅(AleoAcceptance: leo 4.0.2 Tool Lock pin（G123）；缺席 skip；非 prove/deploy) |
 | 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow overflow state-hold + emit 日志；**非** formal C-3) | ✅(S3b Mollusk) | ⚠️(WABT dummy env + 可选 near-sandbox 2.13.0 receipt 工程门（G123：deploy/init/mutate/view）；非 Reference↔Wasm formal) | ❌ | ❌ | ❌ |
 
 ## 3. 工程轨道未实现 feature 全清单（A/B/C/D 组）
@@ -86,7 +93,7 @@ normative: false
 | ID | 缺口 | 现状 | 影响范围 | wave 归属 |
 |---|---|---|---|---|
 | **N-A1** | EVM String match-switch | **已闭合(EvmStringMatch)**：EVM Lower 将 `match String` desugar 为 leaf-wise eq + nested ifThenElse（Plan `switchOn` 仍仅 UInt64 case）；catch-all fallthrough；非 String aggregate switch 与非 String pattern 仍 fail-closed | EVM | EvmStringMatch ✅ |
-| **N-A2** | 多臂同构造器 match 细化 | **已闭合(MultiArmCtor)**：Normalize 允许同外构造器多臂，子模式可区分时 first-match 嵌套 guard（nested ctor→VariantTag eq，nested lit→value eq；fallthrough→outer catch-all 或 trap.unreachable）；结构 pattern key 重复（bind≡wildcard、ctor by vIdx、lit by valueBytes）仍 fail-closed；TypeCheck 同源 duplicate pattern 诊断；四 target 经 sole Normalize 继承 | 全 target | MultiArmCtor ✅ |
+| **N-A2** | 多臂同构造器 match 细化 | **已闭合(MultiArmCtor)**：Normalize 允许同外构造器多臂，子模式可区分时 first-match 嵌套 guard（nested ctor→VariantTag eq，nested lit→value eq；fallthrough→outer catch-all 或 trap.unreachable）；结构 pattern key 重复（bind≡wildcard、ctor by vIdx、lit by valueBytes）仍 fail-closed；TypeCheck 同源 duplicate pattern 诊断；六 target 经 sole Normalize 继承 | 全 target | MultiArmCtor ✅ |
 | **N-A3** | Map/Bytes 穿透元素赋值 | **已闭合(MapBytesAssign)**：TypeCheck/Normalize 单步 `m[k]:=v`/`b[i]:=u8` → IndexSet（load→set→store）；Reference 已有 Map/Bytes step。target 覆盖非均匀：EVM Map+Bytes、Solana Map、NEAR Map 与 fixed Bytes state、Noir Map、Aleo Map+Bytes 已部分 LOWERED，Psy 与其余组合按上表 FAIL-CLOSED；五个 Map-capable target 的 aggregate StateStore snapshot hazard 已修。Map 整程序 Reference 仍受 maxMapEntries 保守资源门；**嵌套穿透** `m[k].x:=v` 仍 fail-closed | 全 target Normalize；target 见 op 表 | MapBytesAssign + B-SOL-MAP-UPSERT ✅ |
 | **N-A4** | Option state | **闭合**：Normalize+Reference default none；全 target Plan **FAIL-CLOSED**+测 | 全 target | OptionState ✅ |
 
@@ -97,9 +104,9 @@ normative: false
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
 | **B-1a** | NEAR 聚合与容器 | **闭合（L1）**：Array UInt、dense Map cap-8、fixed Bytes N 与 **named Struct/Enum** 已 flatten-to-KV（construct/fieldGet/fieldSet/variant ops + atomic storeAtomic；HostModel 端到端）；聚合返回值仍 FAIL-CLOSED（B-RET-ABI） | NearAggregate + NS-1 + Bytes + L1 |
-| **B-1b** | Noir named 聚合 | **闭合(NoirAggregate)**：named Struct/Enum + **Map UInt64 dense pilot**（cap-8 occ/key/val multi-leaf PI + IndexGet→Option + IndexSet；`storeAggregate` 两阶段 snapshot 与 empty-upsert relation model）+ **Array UInt64 state flatten**；Bytes 仍 FAIL-CLOSED | NoirAggregate + NoirMap + NoirContainer + MapSnapshot |
-| **B-1c** | Aleo 全功能 | **AleoCoverage + H3/NS-1/Bytes/Int64/T14**：标量、named Struct/Enum、Array、dense Map cap-2、fixed Bytes N、Commit 身份透传与 **BLS12-377 Fr** 已 LOWERED；Map aggregate StateStore 以 get-all-before-set two-phase 修复 empty upsert。bn254/Goldilocks、Option/Principal/String/ContextRead/externalCall/schedule/emit 仍 FAIL-CLOSED。compiler 仅 optional host `leo build`，无 Tool Lock pin | AleoCoverage + T14 + MapSnapshot |
-| **B-1d** | Solana Map/Bytes/Option state | **Map pilot 已进 ELF+Mollusk**；`storeAggregate` structural CSE + `storeStateMulti` 固定 pre-store snapshot，峰值 177 temp/1424B，`put_into_empty` 已解除 ignore，MapMini 4/4 runtime 通过；Bytes/Option state 仍 FAIL-CLOSED | SolanaMapPilot + B-SOL-MAP-ELF + B-SOL-MAP-UPSERT ✅ |
+| **B-1b** | Noir named 聚合 | **闭合(NoirAggregate + L3)**：named Struct/Enum + **Map UInt64 dense pilot**（cap-8 occ/key/val multi-leaf PI + IndexGet→Option + IndexSet；`storeAggregate` 两阶段 snapshot 与 empty-upsert relation model）+ **Array UInt64 state flatten** + **fixed Bytes N**（N×UInt8 leaves、literal IndexGet/Set、atomic store）；Bytes construct/param/动态索引与 Option/String state 仍 FAIL-CLOSED | NoirAggregate + NoirMap + NoirContainer + MapSnapshot + L3 ✅ |
+| **B-1c** | Aleo 全功能 | **AleoCoverage + H3/NS-1/Bytes/Int64/T14 + G123**：标量、named Struct/Enum、Array、dense Map cap-2、fixed Bytes N、Commit 身份透传与 **BLS12-377 Fr** 已 LOWERED；Map aggregate StateStore 以 get-all-before-set two-phase 修复 empty upsert。bn254/Goldilocks、Option/Principal/String/ContextRead/externalCall/schedule/emit 仍 FAIL-CLOSED。Leo 4.0.2 已进入两平台 Tool Lock，`AleoAcceptance` 做 compile-only 验收；无 VM/prove/deploy 门 | AleoCoverage + T14 + MapSnapshot + G123 ✅ |
+| **B-1d** | Solana Map/Bytes/Option state | **Map pilot + L2 已闭合**：Map 已进 ELF+Mollusk；named Struct/Enum 与 fixed Bytes N（N×UInt8 state/params、literal IndexGet/Set）已 flatten；`storeAggregate` structural CSE + `storeStateMulti` 固定 pre-store snapshot，峰值 177 temp/1424B，`put_into_empty` 已解除 ignore，MapMini 4/4 runtime 通过；Option state、Bytes construct 与动态索引仍 FAIL-CLOSED | SolanaMapPilot + B-SOL-MAP-ELF + B-SOL-MAP-UPSERT + L2 ✅ |
 | **B-1e** | EVM Map/Bytes/Option state | **闭合(Map pilot)**：Array + Bytes + **Map UInt64 cap-8** deployable Token；aggregate `storeAtomic` 保证 leaf Expr/sload 全先于 sstore，EvmSmoke+solc 回归；Option-from-Map IndexGet | EvmMapPilot + MapSnapshot ✅ |
 
 #### B-2：Normalize 语义细化（= A 组，N 家族串行）
@@ -120,18 +127,18 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **C-1** | NEAR Wasm 运行时差分 | **已闭合(NearWasmAcceptance 工程切片)**：产品 path 物化 Counter/DualField（多字段 public UInt64 KV；named Struct 仍 NEAR Plan FC）/LoopSum → `.wat` → 主机 `wat2wasm` + `wasm-interp --dummy-import-func`（或 wasmtime compile / wasmer validate）实例化；工具缺席干净 skip；**非** NEAR sandbox receipt / Reference↔Wasm formal 差分 | NearWasmAcceptance ✅ |
-| **C-2** | Aleo/Psy compiler/VM 验收研究 | **研究闭合（2026-08-02，RPT-015）** + **J2 AleoEmissionFix（2026-08-02）**：`leo 4.0.2` 主机可用时 `AleoAcceptance` 对产品 `.aleo` 做 `leo build --offline` 验收（缺席 skip；**无** Tool Lock pin / 非 prove-deploy）；EmitIRV1 已对齐 Leo 4 语法（`bool`、`return final {…};`、shift `as u8`、pureFn 文件级 helper、闭合 constructor）。Psy 仍无 VM 门。Aleo Field≠bn254 仍 FAIL-CLOSED。成熟度：**source package + optional host leo compile**，**非** hermetic/runtime | AleoPsyResearch ✅ / AleoEmissionFix |
-| **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + 历史 Anvil Counter，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
-| **C-4** | Noir prove/verify 验收门 | **已闭合研究（2026-08-02，RPT-016）**：**不**升格。无 nargo/backend Tool Lock pin；host 无 nargo；`validate_artifacts` 故意拒绝 proof-stage 叶子；成熟度保持 **source-only** relations + Lean relation model。跟进需独立 `NoirProveAcceptance` + pin | NoirProveResearch ✅ |
+| **C-1** | NEAR Wasm 运行时差分 | **已闭合工程子集**：`NearWasmAcceptance` 将产品 Counter/DualField/LoopSum `.wat` 交给 locked `wat2wasm` 编译，并以 host-optional `wasm-interp`/`wasmtime`/`wasmer` 做 runtime load；后续 **C-6/G123** 又以 locked near-sandbox 2.13.0 对 Counter 做 deploy/init/mutate/view receipt 工程验收。工具未物化或 host runtime 缺席时 clean skip；两门都**不是** formal Reference↔Wasm/sandbox 差分或 Stage-0 证据 | NearWasmAcceptance + NearSandboxAcceptance ✅ |
+| **C-2** | Aleo/Psy compiler/VM 验收研究 | **研究闭合（2026-08-02，RPT-015）** + **J2/G123 follow-up**：EmitIRV1 已对齐 Leo 4 语法；Leo 4.0.2 已进入两平台 Tool Lock，`AleoAcceptance` 对产品 `.aleo` 做 `leo build --offline` compile-only 验收（工具未物化时 clean skip）。Psy 仍无锁定 compiler/VM 门；两者均无 prove/deploy runtime 闭环。成熟度保持 source-only，**非** hermetic/runtime/formal | AleoPsyResearch + AleoEmissionFix + C-2-pin ✅ |
+| **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + G4 工程 Anvil 差分，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
+| **C-4** | Noir prove/verify 验收门 | **prove/verify 研究结论仍为不升格**：G123 已将 nargo 1.0.0-beta.26 纳入两平台 Tool Lock，并由 `NoirCompileAcceptance` 对产品 Counter relation packages 做 compile-only 验收；但 Barretenberg/backend、CRS/security profile、witness/prove/verify 与 proof artifact binding 均未锁定，`validate_artifacts` 继续拒绝 proof-stage 叶子。成熟度保持 **source-only** relations；后续仅余独立 `NoirProveAcceptance` 决策与实现 | NoirProveResearch + NoirCompileAcceptance ✅（prove/verify 仍未实现） |
 | **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + 12 fixtures 均产 ELF 并进入 Mollusk；当前 56 个 Rust tests 全 active/通过。MapMini 4/4 覆盖 empty upsert，WideMul 4/4 覆盖 UInt128/256 高肢/跨肢成功与 `0x1001` rollback；Option/Context/Principal/call 等运行覆盖仍待扩 | MolluskFixtures |
 
 ### D 组：文档/checkpoint 同步缺口
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **D-1** | Phase 1 targets 表 | **已闭合（MatrixSync）**：AGENTS.md Phase 1 targets = 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；Design-only = `cosmwasm`/`soroban`/`icp`/`openvm`；`MIGRATION_MATRIX` D3-02 seed 同步为 6+4 | MatrixSync |
-| **D-2** | 成熟度声明 | **已闭合（MatrixSync）**：AGENTS 成熟度声明写明 EvmSolc 真实 solc 验收 + 历史 Anvil smoke；NEAR `wat2wasm` + `wasm-interp` 结构/实例化门（非 sandbox）；Solana SBPF+Mollusk；Noir/Aleo/Psy source-only（Aleo/Psy 仅 host-optional compile、无 Tool Lock/VM/proof）；coverage §2 验收矩阵与之一致 | MatrixSync |
+| **D-1** | registry target 表 | **已随 A0 重开并闭合事实同步**：engineering seed = 7 registry-implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`cosmwasm`）+ 3 design-only（`soroban`/`icp`/`openvm`）；其中 CosmWasm 仅 A0、无 materializer，accepted Phase-1 四-target 范围的 reconciliation 仍由 `DOC-ADR-SCOPE` 阻塞 | MatrixSync + CosmWasm A0 |
+| **D-2** | 成熟度声明 | **已闭合并随 G123/A0 刷新**：EVM 有 locked solc + G4 工程 Anvil 差分；NEAR 有 locked `wat2wasm` 结构编译、host-optional runtime load + locked near-sandbox receipt 工程门；Solana 有 SBPF+Mollusk；Noir 有 locked nargo compile-only、Aleo 有 locked leo compile-only，但 Noir/Aleo/Psy 仍是 source-only，且 Psy 无锁定 compiler/VM，三者均无 proof/deploy 闭环。CosmWasm 的 `wasm-validated-alpha` 仅为 registry label，CW-A1 前无 artifact/runtime gate。以上均非 formal/hermetic/Stage-0 maturity | MatrixSync + G123 + CosmWasm A0 |
 
 ## 4. Wave 队列（按优先级 + 可并行性）
 
@@ -152,7 +159,7 @@ normative: false
 - **AddressBearing**（B-3 followup）：**已闭合（static-callee open）** — research 确认 callee 为 static QN 非 dynamic address；EVM/Solana resolver 七键 + Plan/IR/emitter 打开；Principal→address 仍 fail closed
 - **T10 EVM Principal storage**：**已闭合** — EVM `pilotPrincipalPolicyAdmit` + N4-isomorphic leaf storage（len+8×UInt64）；params/state/eq/ne；非 address；多宽 return 仍 fail closed
 - **T12 NEAR/Solana/Noir Principal storage**：**已闭合** — 三 target `pilotPrincipalPolicyAdmit` + 同构 9-leaf layout（Solana account pitch / NEAR 9×KV / Noir 9×u64 inputs）；params/state/eq/ne；非 pubkey/account-id/Field；多宽 return 仍 fail closed；Aleo/Psy 仍 fail closed
-- **NearWasmAcceptance**（C-1）：**已闭合** — `Tests/Materialization/NearWasmAcceptance.lean` + `scripts/near_wasm_acceptance.sh`；WABT wat2wasm+wasm-interp dummy-import 门
+- **NearWasmAcceptance**（C-1）：**已闭合工程子集** — `Tests/Materialization/NearWasmAcceptance.lean`；locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` runtime-load 门
 - **AleoPsyResearch**（C-2）：**已闭合** — `docs/research/15-aleo-psy-compiler-vm.md`（不升格门）
 - **NoirProveResearch**（C-4）：**已闭合** — `docs/research/16-noir-prove-path.md`（不升格 prove/verify）
 - **MolluskFixtures**（C-5）：ongoing fixture growth under `runtime-tests/solana`

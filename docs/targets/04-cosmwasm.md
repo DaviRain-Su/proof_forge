@@ -3,7 +3,7 @@ id: TARGET-COSMWASM
 title: CosmWasm target dossier
 status: draft
 owner: architecture
-updated: 2026-07-15
+updated: 2026-08-03
 normative: true
 ---
 
@@ -11,7 +11,24 @@ normative: true
 
 状态：`draft`
 Target ID：`cosmwasm`
-Phase 1：设计，不实现
+Phase 1（规范/dossier）：设计，不实现
+
+## 当前工程偏离（A0 registry slice，非 formal / 非 dossier 升格）
+
+commit `dd607de72` 已把 CosmWasm 标为 engineering registry `implemented`，加入 profile
+`cosmwasm-wasm-u64-v1`、descriptor、五键 requirement support row 与 CLI list/inspect；两类
+call requirement 继续拒绝。**但当前没有** `ProofForgeV2/Targets/CosmWasm*` target-owned
+Plan/IR/emitter/finalizer，`Registry.materializeResult` 也没有 `.cosmwasm` dispatch，因此产品
+`build --target cosmwasm` 仍以 `PF-TARGET-NOT-IMPLEMENTED` fail closed。CLI 的
+`wasm-validated-alpha` 是 A0 registry label，不是已有 Wasm artifact/runtime evidence。
+
+CW-A1 必须在不复用 `NearPlan` 的前提下补 target-owned Plan/IR/materializer 与产品正/负测试，
+但目前先由 `CW-ABI-FREEZE` 阻塞：下述 §6/§10 要求 implementation 前冻结 versioned runtime、
+Rust-independent ABI、capability/SDK/schema 及 transaction/SubMsg/reply savepoint 语义，且
+`SRC-CW-002` 仍 provisional。除非产品正式修订本 dossier 以批准 structural-only 先导并限定
+`wasm-validated-alpha` 声明，否则不得先按行业常识落码。在此之前不得把 A0 写成 Phase-1 backend
+完成。该工程 promotion 还扩大了 `DOC-ADR-SCOPE`（accepted 四目标 vs engineering 七个
+registry-implemented target）文档决策债。
 
 ## 1. 身份与来源
 

@@ -59,15 +59,16 @@ pnpm export
 | 11 | Business model & ecosystem | 5:00 | 开源核心 + 企业服务 + 生态价值 |
 | 12 | Why us? | 5:30 | fail-closed 是核心壁垒 |
 | 13 | Roadmap & landscape | 6:00 | Phase 1 + design-only 目标 |
-| 14 | Team & next steps | 6:30 | D0→D1→D2 清晰规划 |
+| 14 | Team & next steps | 6:30 | engineering 现状与 formal/product-decision 下一步分离 |
 | 15 | Closing + Q&A | 6:55 | 收尾与互动 |
 
 ## 诚实宣称边界
 
-- EVM：已验证 bytecode + Anvil runtime（Counter + overflow revert），但不等于完整 EVM 后端。
-- Solana：仅 plan/IDL，无 ELF/runtime。
-- NEAR：仅 `wat2wasm` 结构验证，无 sandbox receipt。
-- Noir：仅 Plan/relation IR + `.nr` 包，无 ACIR/proof/VK。
+- EVM：locked `solc` bytecode + G4 Anvil 工程差分，但不是 formal Reference↔Anvil / 完整后端。
+- Solana：SBPF asm → ELF `.so` + Mollusk 工程差分；非 formal Stage-0，call/schedule 仍非真实 CPI。
+- NEAR：locked `wat2wasm` + host-optional runtime load + Counter near-sandbox receipt happy path；非 formal differential/rollback closure。
+- Noir：Plan/relation IR + `.nr` 包 + locked nargo compile-only；无 ACIR/witness/proof/VK/verify。
+- Aleo：Leo source + locked leo compile-only；无 VM/prove/deploy。Psy 仍是 source-only + host-optional compile。
 - AI：未用于编译器核心，定位为确定性验证层。
 
 演讲时请严格按以上边界表达。

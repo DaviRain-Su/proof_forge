@@ -13,8 +13,8 @@ ValidatedSourceV1
 ```
 
 当前可运行的 Counter/Accumulator（及更广 Normalize 子集）路径已由单一 `CompiledSemanticV1` 保留
-structure-valid `SemanticProgramV1`，并直接构造六个 implemented target Plan；产品编译、resolver 与 artifact
-identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
+structure-valid `SemanticProgramV1`，并直接构造六个现有 materializer 的 target-owned Plan；CosmWasm
+当前仅为 registry A0，尚无 Plan leaf。产品编译、resolver 与 artifact identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
 Materialized/Finalized/content-descriptor/disk-closure 与全工程 planDigest 槽位绑定；D3-E9 后
 `TargetDescriptor` 六轴直接复用 registry V1 authority，并在 capability/artifact/inspect 前 exact join。但 formal `registryDigest` /
 formal SupportClaim / formal BuildIdentity mint / formal `OutputSetV1` 与完整 Phase-1 语言/runtime DoD
@@ -150,11 +150,16 @@ D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表�
 - ProgramV1 expression 与 pattern integer literal 共用 sole decoder：unsigned decimal 或
   lowercase-prefix `0x` hexadecimal（hex digits 可大小写），拒绝 `0X`/binary/octal/underscore，
   范围 `0..2^256-1`；等值 spelling → 相同 AST/canonical bytes/sourceHash（D1-04 工程切片）。
-- Counter/Accumulator 等真实 source 可经 CLI 产出六 target 工程制品；EVM 使用 digest-pinned
-  `solc 0.8.34` 生成 bytecode，另有 EvmSolc 验收门与历史 Anvil smoke（**非** formal Reference↔Anvil）。
-  Solana 有 SBPF→ELF + Mollusk 运行时差分工程链路；NEAR 主要为 `wat2wasm` 结构验证；Noir 为
-  relation source package（无 prove/verify）；Aleo/Psy 为 source-only package。六 target Plan body 均由 retained `SemanticProgramV1`
-  经 capability 构造；工程 output 已接 S7a–S7c + D3-E7 descriptors/evidence digest/post-publish inspect closure，仍非 formal D1–D4 / formal OutputSetV1 完成。
+- Counter/Accumulator 等真实 source 可经 CLI 产出六个现有 materializer 的工程制品；EVM 使用 digest-pinned
+  `solc 0.8.34` 生成 bytecode，并有 EvmSolc 与 G4 Anvil 工程差分（**非** formal Reference↔Anvil）。
+  Solana 有 SBPF→ELF + Mollusk 运行时差分工程链路；NEAR 有 locked `wat2wasm` 结构编译、
+  host-optional runtime load 与 locked
+  near-sandbox 2.13.0 Counter receipt happy path（非 formal differential）；Noir 为 relation source
+  package + locked nargo compile-only（无 ACIR/witness/prove/verify）；Aleo 为 source-only package +
+  locked leo compile-only，Psy 为 source-only + host-optional compile。CosmWasm A0 已进入 registry/
+  descriptor/resolver，但无 Plan/IR/materializer，故第七个 registry target 的 build 仍 fail closed。
+  六个现有 materializer 的 Plan body 均由 retained `SemanticProgramV1` 经 capability 构造；工程 output 已接 S7a–S7c + D3-E7
+  descriptors/evidence digest/post-publish inspect closure，仍非 formal D1–D4 / formal OutputSetV1 完成。
 - Legacy Source source-reading 与 v1 export decoder 已删除；command/export 仅 ProgramV1 v2。
   `selectProgramV1Product` 为产品 CLI 使用的 Loader 入口；`selectProgramV1*` /
   `compileValidatedSourceV1` 仍可为测试/库 API。alpha Core 模块与产品 import 已删/门禁禁止；
@@ -223,9 +228,9 @@ dev/ci。**D3/S7c + D3-E7 工程**：`ArtifactContentV1` sole physical walker/st
 重验 no-follow bounded closure（limits 1024/64MiB/256MiB）；`inspect <output-dir>` stable-read sidecars/
 listed artifacts、重走 closure并逐 descriptor 比对；Python validator同样拒绝 symlink/hardlink/额外或
 缺失 leaf并重算 digest；`s7c-disk-closure-gate` 已接入 dev/ci。**D3-E9 工程**：
-`TargetDescriptor` 直接复用 registry-owned 六轴，六 implemented descriptors 从 frozen
-`semanticsAxesOfKindV1` seed 派生；capability resolve、artifact mint 与 CLI inspect 前逐轴 exact join，
-Protocol 重复轴类型已删除。
+`TargetDescriptor` 直接复用 registry-owned 六轴，七个 registry-implemented descriptors 从 frozen
+`semanticsAxesOfKindV1` seed 派生；其中 CosmWasm 仅 A0 descriptor/profile、无 materializer Plan leaf。
+capability resolve、artifact mint 与 CLI inspect 前逐轴 exact join，Protocol 重复轴类型已删除。
 仍**不是 formal** SupportClaim/formal resolver/formal BuildIdentity/formal `OutputSetV1`/
 ToolchainIdentity/race-free formal closure/hermetic publisher/完整 SemanticProgramV1 lowering
 完成态。formal task状态与 release qualification仍按各自真实条件变化，不由本恢复文档代签。

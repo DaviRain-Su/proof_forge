@@ -119,11 +119,11 @@ layout: center
 
 | What others do | What we do |
 | --- | --- |
-| Best-effort transpiler | **Exact** requirement → SupportClaim resolver |
-| Source coupled to target | Target-neutral `Semantic.Program` |
+| Best-effort transpiler | Exact engineering requirement resolver; formal SupportClaim still pending |
+| Source coupled to target | Target-neutral retained `SemanticProgramV1` |
 | Plan as string / JSON | Typed `Plan` + `TargetIR` per target |
 | Silent fallback | **Fail-closed** diagnostics |
-| Trust environment | Deterministic, reproducible, clean-room build |
+| Trust environment | Deterministic engineering outputs; formal clean-room qualification stays separate |
 
 ---
 layout: center
@@ -133,10 +133,12 @@ layout: center
 
 | Target | Evidence | Not yet claimed |
 | --- | --- | --- |
-| EVM | `solc` bytecode + Anvil runtime | Complete EVM backend |
-| Solana | typed `.sbpf-plan` + IDL | sBPF object / ELF / runtime |
-| NEAR | raw-u64 WAT/Wasm via `wat2wasm` | Sandbox receipt |
-| Noir | target-owned Plan + relation IR + `.nr` | ACIR / proof / VK |
+| EVM | locked `solc` bytecode + G4 Anvil engineering differential | Formal Reference↔Anvil / D4 closure |
+| Solana | SBPF asm → ELF `.so` + Mollusk engineering differential | Formal Stage-0; real CPI call semantics |
+| NEAR | locked `wat2wasm` + Counter near-sandbox receipt happy path | Reference differential + negative/rollback corpus |
+| Noir | relation `.nr` packages + locked nargo compile-only | ACIR / witness / proof / VK / verify |
+| Aleo | Leo source + locked leo compile-only | VM / proof / deploy |
+| Psy | Dargo/Psy source + host-optional compile | Locked VM / prover |
 
 <div class="mt-6 text-center text-sm opacity-80">
 Honest maturity: all artifacts share one semantic hash.
@@ -214,6 +216,10 @@ backgroundSize: contain
 
 # Roadmap & target landscape
 
+<div class="mt-80 text-center text-sm opacity-80">
+Historical landscape image; current engineering registry has seven implemented entries, but CosmWasm is registry-only A0. See the preceding table.
+</div>
+
 ---
 layout: center
 ---
@@ -222,11 +228,12 @@ layout: center
 
 <v-clicks>
 
-- D0 closeout: independent compiler, docs, specs, SBOM
-- D1: full parser + type/effect system
-- D2: structs, events, fn calls, proof references
-- Phase 1: EVM runtime, Solana ELF, NEAR sandbox, Noir proof
-- Design-only: CosmWasm, Soroban, ICP, OpenVM, Aleo, Psy
+- Engineering path: one Semantic carrier → six target-owned Plan/IR leaves
+- CosmWasm is registry-only A0; CW-A1 waits on a versioned runtime/ABI freeze
+- Current validation: EVM Anvil, Solana Mollusk, NEAR sandbox happy path, Noir/Aleo compile-only
+- Formal D1–D4 qualification remains separate and pending
+- Product decisions remain for call semantics, evidence grades, and accepted scope
+- Design-only: Soroban, ICP, OpenVM
 
 </v-clicks>
 

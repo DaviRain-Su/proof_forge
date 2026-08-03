@@ -1,9 +1,10 @@
 /-
-  Shared engineering TargetDescriptor data for the six implemented targets.
+  Shared engineering TargetDescriptor data for seven registry-implemented entries.
 
   Registry-owned `semanticsAxesOfKindV1` is the sole six-axis seed. This module
-  adds only materializer/profile metadata and exposes the exact descriptor ↔
+  adds profile/artifact-encoding metadata and exposes the exact descriptor ↔
   registration join used before capability/artifact identity and inspection.
+  Six entries have materializers; CosmWasm is currently A0 selection metadata only.
   Requirement support is intentionally absent: the engineering resolver index
   remains the sole current authority, while formal SupportClaim is pending.
 -/
@@ -62,10 +63,10 @@ def aleo : TargetDescriptor :=
 def psy : TargetDescriptor :=
   descriptorFromRegistryAxes .psy .psySource CodegenProfileId.psyDargoU64V1
 
-/-- CosmWasm emits WAT text assembled by the locked `wat2wasm` (same Wasm
-    binary encoder family as NEAR — shared encoding, target-owned Plan per
-    ADR-0007). The Plan/IR/host bindings (db_*, Region, JSON entries,
-    SubMsg/reply fail-closed at MVP) are CosmWasm-owned. -/
+/-- CosmWasm A0 descriptor/profile metadata only. No Plan/IR/emitter/finalizer
+    exists yet, so product build remains fail-closed. Any CW-A1 implementation
+    must use a CosmWasm-owned Plan and may share only deterministic Wasm encoding
+    per ADR-0007; runtime/ABI details remain blocked on `CW-ABI-FREEZE`. -/
 def cosmwasm : TargetDescriptor :=
   descriptorFromRegistryAxes .cosmwasm .wasmText CodegenProfileId.cosmwasmWasmU64V1
 

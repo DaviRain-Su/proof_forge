@@ -10,9 +10,10 @@
 
   When `near-sandbox` (or wat2wasm / python cryptography stack required by the
   helper) is absent the suite SKIP-passes. Not formal Stage-0 / hermetic Tool
-  Lock verify / Reference↔sandbox differential.
+  Lock verification / Reference↔sandbox differential.
 
-  **Not registered in a Tests.Shards/* suite** — main agent must register.
+  Registered in `Tests.Shards.Targets`; ordinary runs exercise it when the
+  locked tools and host prerequisites have been materialized.
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.Counter
