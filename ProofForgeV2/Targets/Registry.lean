@@ -3,10 +3,14 @@ import ProofForgeV2.Targets.Evm.PlanSchemaV1
 import ProofForgeV2.Targets.Solana.PlanSchemaV1
 import ProofForgeV2.Targets.Near.PlanSchemaV1
 import ProofForgeV2.Targets.Noir.PlanSchemaV1
+import ProofForgeV2.Targets.CosmWasm.PlanSchemaV1
+import ProofForgeV2.Targets.Ton.PlanSchemaV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Near
 import ProofForgeV2.Targets.Noir
+import ProofForgeV2.Targets.CosmWasm
+import ProofForgeV2.Targets.Ton
 import ProofForgeV2.Targets.Psy
 import ProofForgeV2.Targets.Psy.FinalizeV1
 import ProofForgeV2.Targets.Aleo
@@ -15,6 +19,8 @@ import ProofForgeV2.Targets.Evm.FinalizeV1
 import ProofForgeV2.Targets.Near.FinalizeV1
 import ProofForgeV2.Targets.Solana.FinalizeV1
 import ProofForgeV2.Targets.Noir.FinalizeV1
+import ProofForgeV2.Targets.CosmWasm.FinalizeV1
+import ProofForgeV2.Targets.Ton.FinalizeV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Targets.RequirementResolverV1
@@ -91,6 +97,18 @@ private def planDigestForCapabilityV1
       | .ok d => pure (d : Digest)
       | .error e =>
           throw <| .invalidProgram s!"materialize: Noir plan digest failed: {e}"
+  | .cosmwasm =>
+      let plan ← CosmWasm.planFromCapability capability
+      match CosmWasm.engineeringCosmWasmPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: CosmWasm plan digest failed: {e}"
+  | .ton =>
+      let plan ← Ton.planFromCapability capability
+      match Ton.engineeringTonPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: Ton plan digest failed: {e}"
   | _ =>
       match engineeringAbsentPlanDigestV1
           selection.targetId selection.codegenProfile with
@@ -125,6 +143,12 @@ def materializeResult (capability : ResolvedEngineeringBuildV1) :
   | .noir =>
       let files ← Noir.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Noir.descriptor files planDigest
+  | .cosmwasm =>
+      let files ← CosmWasm.buildFromCapability capability
+      mintMaterializedArtifactsV1 capability CosmWasm.descriptor files planDigest
+  | .ton =>
+      let files ← Ton.buildFromCapability capability
+      mintMaterializedArtifactsV1 capability Ton.descriptor files planDigest
   | .aleo =>
       let files ← Aleo.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Aleo.descriptor files planDigest
@@ -174,6 +198,10 @@ def finalizeMaterializedArtifactsV1
         Solana.FinalizeV1.finalize capability artifacts stagingDir
     | .noir =>
         Noir.FinalizeV1.finalize capability artifacts stagingDir
+    | .cosmwasm =>
+        CosmWasm.FinalizeV1.finalize capability artifacts stagingDir
+    | .ton =>
+        Ton.FinalizeV1.finalize capability artifacts stagingDir
     | .aleo =>
         Aleo.FinalizeV1.finalize capability artifacts stagingDir
     | .psy =>

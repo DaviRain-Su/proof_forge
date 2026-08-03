@@ -3,6 +3,15 @@
   "platform": "linux-x86_64",
   "assets": [
     {
+      "id": "cosmwasm-check-3.0.9-git-fe5b55d283f5",
+      "url": "https://github.com/CosmWasm/cosmwasm",
+      "commit": "fe5b55d283f5987c7fa0f95d5ad923be7a3d9283",
+      "format": "cargo-git",
+      "package": "cosmwasm-check",
+      "bin": "cosmwasm-check",
+      "version": "3.0.9"
+    },
+    {
       "id": "foundry-v0.3.0-linux-amd64",
       "url": "https://github.com/foundry-rs/foundry/releases/download/v0.3.0/foundry_v0.3.0_linux_amd64.tar.gz",
       "size": 57892933,
@@ -58,6 +67,13 @@
       "url": "https://github.com/argotorg/solidity/releases/download/v0.8.34/solc-static-linux",
       "size": 16865544,
       "sha256": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
+      "format": "file"
+    },
+    {
+      "id": "tolk-1.4.2-linux-x86_64",
+      "url": "https://github.com/ton-blockchain/ton/releases/download/tolk-1.4.2/tolk-linux-x86_64",
+      "size": 3942904,
+      "sha256": "542869781fdb1dbf17524ac5d31e64e9e6e9125fb28c993c90cdd9d304437940",
       "format": "file"
     },
     {
@@ -160,6 +176,14 @@
       "member": null,
       "size": 16865544,
       "sha256": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
+      "mode": "0555"
+    },
+    {
+      "path": "tolk",
+      "assetId": "tolk-1.4.2-linux-x86_64",
+      "member": null,
+      "size": 3942904,
+      "sha256": "542869781fdb1dbf17524ac5d31e64e9e6e9125fb28c993c90cdd9d304437940",
       "mode": "0555"
     },
     {
@@ -348,6 +372,11 @@
         "runpath": null
       },
       {
+        "path": "tolk",
+        "needed": [],
+        "runpath": null
+      },
+      {
         "path": "wat2wasm",
         "needed": [
           {
@@ -405,6 +434,29 @@
         "evm-yul-solc-0.8.34-v1-runtime"
       ],
       "sourceBuild": null
+    },
+    {
+      "id": "cosmwasm-check",
+      "version": "3.0.9",
+      "sourceUrl": "https://github.com/CosmWasm/cosmwasm",
+      "platform": "linux-x86_64",
+      "assetId": "cosmwasm-check-3.0.9-git-fe5b55d283f5",
+      "executable": "cosmwasm-check",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/cosmwasm-check",
+      "executableSha256": null,
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "3.0.9",
+      "licenseSpdx": "Apache-2.0",
+      "requiredByProfiles": [
+        "cosmwasm-wasm-u64-v1"
+      ],
+      "sourceBuild": {
+        "assetId": "cosmwasm-check-3.0.9-git-fe5b55d283f5"
+      }
     },
     {
       "id": "jv",
@@ -531,6 +583,27 @@
       "licenseSpdx": "GPL-3.0-or-later",
       "requiredByProfiles": [
         "evm-yul-solc-0.8.34-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "tolk",
+      "version": "1.4.2",
+      "sourceUrl": "https://github.com/ton-blockchain/ton/releases/tag/tolk-1.4.2",
+      "platform": "linux-x86_64",
+      "assetId": "tolk-1.4.2-linux-x86_64",
+      "executable": "tolk",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/tolk",
+      "executableSha256": "542869781fdb1dbf17524ac5d31e64e9e6e9125fb28c993c90cdd9d304437940",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "1.4.1",
+      "licenseSpdx": "MIT",
+      "requiredByProfiles": [
+        "ton-tolk-boc-v1"
       ],
       "sourceBuild": null
     },

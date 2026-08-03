@@ -407,3 +407,20 @@ formal 资格仍未闭合**，D1–D4 = 0/27 done。
 | 2026-08-03 | **D3-E7 工程闭合**：content descriptors + evidence digest 进入 engineering OutputSet identity；publisher pre/post inventory 与 inspect exact closure 接线；明确 stable-observation-only、formal D3-05 仍 pending |
 | 2026-08-03 | **NFR-REPEAT 工程门**：Counter × Solana default plan/Noir default 各连续两次产品构建，sidecars exact-byte + descriptor content closure 相等；进入 ordinary CI；非 formal NFR-001/clean-room |
 | 2026-08-03 | **D3-E9 工程闭合**：Protocol 重复六轴删除；registry V1 六轴成为 descriptor sole seed；resolve/mint/inspect 三处 exact join；非 formal TargetSemantics payload/digest |
+
+---
+
+## 10. 新 target 波次（2026-08-03 起）
+
+| ID | 项 | 状态 |
+|---|---|---|
+| **CW-0** | CosmWasm registry 晋升 implemented（A0） | **done**（`dd607de72`：profile `cosmwasm-wasm-u64-v1`、resolver 第八行五键、descriptor wasmText、全部钉测同步） |
+| **CW-1** | CosmWasm MVP leaf（A1） | **done**（`integrate/cosmwasm-a1`：Counter 纵切 Plan/IR/WAT、locked wat2wasm deployable、产品 `.wasm` 过 `cosmwasm-check 3.0.9` 真实验收；call/schedule/iterator/IBC/migrate/聚合/ContextRead/多宽 ABI FC） |
+| **CW-2** | cosmwasm-check Tool Lock 验收门（A2） | **done**（cargo-git 3.0.9 入 `tools[]`；fixture 矩阵 + 产品条件式验收脚本 + suite 注册） |
+| **CW-3** | CosmWasm runtime 差分（cosmwasm-vm mock / cw-multi-test / wasmd） | **done**（2026-08-03：`runtime-tests/cosmwasm` cosmwasm-vm 3.0.9 mock harness + `scripts/cosmwasm_runtime_test.sh`；Counter/Accumulator/EventFlow 9 tests：init/increment/query、overflow trap+state hold、emit attributes、revert Err；trap≠ContractResult::Err 已钉；mock≠wasmd 不声称 runtime/formal） |
+| **CW-4** | CosmWasm SubMsg/reply 语义评估与 schedule 候选 | **done**（2026-08-03：schedule→`SubMsg{reply_on:never,id:0,WasmMsg::Execute}`；resolver async 键开放、sync 仍拒；诚实边界钉死：同事务分发、子失败打爆整 tx、contract_addr QN stub、msg JSON 待 Binary 升级；**不是**跨 tx async） |
+| **TON-0** | TON 研究期 dossier + family（ADR-0017 遗留，B0） | **done**（`integrate/cosmwasm-a2-b0`：`docs/targets/11-ton.md` + `family-tvm-stack-account.md` + README 索引；research ceiling） |
+| **TON-1** | TON 实现 ADR + TargetId/registry/descriptor/capability（B1） | **done**（2026-08-03：ADR-0024；8 implemented+3 design-only；resolver 九行 sync 拒/async+event 开；tolk 1.4.2 入 `tools[]`；全部钉测同步） |
+| **TON-2** | TON Tolk emitter Counter 纵切（B2） | **done**（2026-08-03：`Targets/Ton/**` + Registry dispatch + `TonPlanV1` 注册；c4 struct cell + op 分发 + int257 显式守卫；locked tolk→`.fif`+abi、companion fift→真实 BoC；Counter e2e `deployable=true` + inspect closure；schedule Plan 发射仍 FC） |
+| **TON-3** | TON `@ton/sandbox` 验收门（B3） | **done**（2026-08-03：`runtime-tests/ton`（sandbox 0.44.0 + core 0.63.1 lockfile）+ `scripts/ton_runtime_test.sh`；Counter/EventFlowTon **7/7**：overflow exit 100 + state 不变（bounce 开关两态）、emit external out op/载荷、Cap exit 200、五相位分离；工具缺席 skip-clean；engineering differential，非主网/formal） |
+| **CW-5** | CW-ABI-FREEZE 完整 design-exit（合并前置） | **done**（2026-08-03：§6 版本冻结——cosmwasm-std/vm/check 3.0.9 + wasmvm 3.0.7 + wasmd v0.70.3 dispatcher 语义；Rust-independent ABI 与 allowed capabilities（MVP 无 requires_*）；SubMsg/savepoint 语义按 pinned 源固定（ReplyNever 失败=整 tx 失败）；`SRC-CW-002` provisional→verified（dispatcher 快照）、`SRC-CW-003/004` 登记、`CLM-CW-001..004` 登记；§10 批准 structural-WAT 工程先导（bounded ABI subset）为首个 accepted profile，`wasm-validated-alpha` 声明限定为 WAT+wat2wasm+cosmwasm-check+cosmwasm-vm mock，不含 wasmd/formal） |

@@ -217,24 +217,35 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped eight-row seed body (canonical targetId order: aleo, cosmwasm, evm,
-    near, noir, psy, solana×2). Solana carries both `solana-sbpf-elf-v1` and
-    `solana-sbpf-plan-v1` (ASCII ascending); both share the same S2 capability set.
-    Capability gates are per target: EVM/Solana admit both call keys via static
-    QualifiedName callees (AddressBearing: wire Op.ExternalCall/Schedule take
-    compile-time QN, not a dynamic address ValueId — no Principal→20B/32B map);
-    NEAR has no synchronous external calls but owns async workflow promises, so
-    it declines sync and supports `effect.asynchronous-workflow`; Noir's
-    verifier-witness response model supports both; Aleo declines both call
-    families (no static-callee Plan open) and `effect.event` (Leo 4.0.2 has no
-    on-chain event log — emit fails closed at the materializer); Psy supports
-    sync calls and events but declines `effect.asynchronous-workflow` (no
-    emitted deferred crosscall form — schedule fails closed at the materializer).
-    CosmWasm declines both call families at MVP: its `WasmMsg::Execute` is a
-    same-transaction submessage with a savepoint, **not** an EVM-style
-    synchronous CALL, and SubMsg fire-and-forget is **not** a cross-transaction
-    async workflow — aliasing either would overclaim the platform semantics
-    (B-CALL-SEM discipline). Its `effect.event` maps to Response attributes. -/
+/-- Shipped nine-row seed body (canonical targetId order: aleo, cosmwasm, evm,
+    near, noir, psy, solana×2, ton). Solana carries both `solana-sbpf-elf-v1`
+    and `solana-sbpf-plan-v1` (ASCII ascending); both share the same S2
+    capability set. Capability gates are per target: EVM/Solana admit both call
+    keys via static QualifiedName callees (AddressBearing: wire
+    Op.ExternalCall/Schedule take compile-time QN, not a dynamic address
+    ValueId — no Principal→20B/32B map); NEAR has no synchronous external calls
+    but owns async workflow promises, so it declines sync and supports
+    `effect.asynchronous-workflow`; Noir's verifier-witness response model
+    supports both; Aleo declines both call families (no static-callee Plan
+    open) and `effect.event` (Leo 4.0.2 has no on-chain event log — emit fails
+    closed at the materializer); Psy supports sync calls and events but
+    declines `effect.asynchronous-workflow` (no emitted deferred crosscall
+    form — schedule fails closed at the materializer). CosmWasm declined both
+    call families at MVP: its `WasmMsg::Execute` is a same-transaction
+    submessage with a savepoint, **not** an EVM-style synchronous CALL, and
+    SubMsg fire-and-forget is **not** a cross-transaction async workflow —
+    aliasing either would overclaim the platform semantics (B-CALL-SEM
+    discipline). Its `effect.event` maps to Response attributes. CW-4 follow-up:
+    `effect.asynchronous-workflow` is now admitted — schedule lowers to
+    `SubMsg{reply_on:never, id:0, WasmMsg::Execute}` (no reply channel, same-tx
+    savepoint dispatch; submessage failure aborts the whole transaction per
+    wasmd `DispatchSubmessages`; `contract_addr` is a static QN stub pending
+    deployment wiring — never a cross-tx async claim). TON is a
+    pure-async actor chain: cross-contract interaction exists only as async
+    internal messages, so `effect.synchronous-call` is declined outright while
+    `effect.asynchronous-workflow` maps to raw async out-messages (bounce and
+    value/gas attachment are materializer concerns, never a hidden sync
+    fallback). Its `effect.event` maps to external out-messages. -/
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
   let catalogRequests ← s2CatalogRequests
   -- Capability filters reference closed S2 id spellings from RequirementIdsV1
@@ -250,11 +261,11 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- effect.asynchronous-workflow is declined here (never alias sync semantics).
   let psyRequests := catalogRequests.filter fun r =>
     r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
-  -- CosmWasm MVP: decline both call families (no sync CALL, no cross-tx async);
-  -- state/event/arithmetic/rollback keys stay admitted.
+  -- CosmWasm MVP+CW-4: sync declined (WasmMsg::Execute savepoint is not a
+  -- sync CALL); async admitted via SubMsg reply_on=never (same-tx dispatch,
+  -- whole-tx abort on submessage failure — not cross-tx async).
   let cosmwasmRequests := catalogRequests.filter fun r =>
-    r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
-      r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
+    r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
@@ -264,7 +275,8 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
     mkImplementedRow .solana CodegenProfileId.solanaSbpfElfV1 catalogRequests,
-    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 catalogRequests
+    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 catalogRequests,
+    mkImplementedRow .ton CodegenProfileId.tonTolkBocV1 withoutSync
   ]
 
 /-- Frozen product seed as `CompileResult`. Binders surface seed errors first —

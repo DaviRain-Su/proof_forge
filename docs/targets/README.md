@@ -31,6 +31,7 @@ normative: true
 | `openvm` | zkVM | design only | `research` | design-only；无产品 backend | [OpenVM](08-openvm.md) |
 | `aleo` | ZK application chain | Phase 1 implement（工程 source leaf） | `specified` | 工程 source-only leaf；locked leo 4.0.2 compile-only 验收；无 VM/prove/deploy | [Aleo](09-aleo.md) |
 | `psy` | ZK application chain | Phase 1 implement（工程 source leaf） | `specified` | 工程 source-only leaf；host tool 可用时 optional compile，但无 Tool Lock/VM/proof | [Psy](10-psy.md) |
+| `ton` | TVM Stack-Account | research only | `research` | ADR-0017 研究期：dossier + family 归类 only；**无** TargetDescriptor/capability/制品；`TargetId` 枚举未登记，编译器不可寻址 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
 
 ## Family 视图
 
@@ -40,6 +41,7 @@ normative: true
 - [ZK circuit](family-zk-circuit.md)
 - [zkVM](family-zkvm.md)
 - [ZK application chain](family-zk-application-chain.md)
+- [TVM Stack-Account](family-tvm-stack-account.md)
 
 ## 通用状态规则
 

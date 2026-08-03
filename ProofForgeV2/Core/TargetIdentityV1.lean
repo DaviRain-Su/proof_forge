@@ -41,6 +41,7 @@ inductive TargetKind where
   | openvm
   | aleo
   | psy
+  | ton
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 namespace TargetKind
@@ -56,6 +57,7 @@ def toString : TargetKind → String
   | .openvm => "openvm"
   | .aleo => "aleo"
   | .psy => "psy"
+  | .ton => "ton"
 
 instance : ToString TargetKind := ⟨toString⟩
 
@@ -138,6 +140,7 @@ def noir : TargetId := ⟨"noir"⟩
 def openvm : TargetId := ⟨"openvm"⟩
 def aleo : TargetId := ⟨"aleo"⟩
 def psy : TargetId := ⟨"psy"⟩
+def ton : TargetId := ⟨"ton"⟩
 
 /-- Map internal `TargetKind` to its well-known `TargetId`.
 Not a product string parser — closed kind constructors only; no panic, no
@@ -154,6 +157,7 @@ def ofKind : TargetKind → TargetId
   | .openvm => openvm
   | .aleo => aleo
   | .psy => psy
+  | .ton => ton
 
 end TargetId
 
@@ -184,6 +188,7 @@ def noirSourceU64RelationsV1 : CodegenProfileId := ⟨"noir-source-u64-relations
 def aleoLeoU64V1 : CodegenProfileId := ⟨"aleo-leo-4.0.2-u64-v1"⟩
 def psyDargoU64V1 : CodegenProfileId := ⟨"psy-dargo-u64-v1"⟩
 def cosmwasmWasmU64V1 : CodegenProfileId := ⟨"cosmwasm-wasm-u64-v1"⟩
+def tonTolkBocV1 : CodegenProfileId := ⟨"ton-tolk-boc-v1"⟩
 
 end CodegenProfileId
 

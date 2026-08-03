@@ -13460,3 +13460,147 @@ normative: false
   `just ci` 全部通过；代码 commit `b24f435e5`。
 - Boundary：仅 engineering output-only RES-1B 子切片；memory/process/protocol/stderr、receipt、
   containment 与 formal NFR-008/TST-RESOURCE 状态不变，`RES-1B` 总项继续 pending。
+
+### 2026-08-03 — CosmWasm target 第一波：registry 晋升 + check 工具门 + TON 研究文档（branch `integrate/cosmwasm-a2-b0`）
+
+- **A0 registry 晋升**（`dd607de72`，已先合 main）：`CodegenProfileId.cosmwasmWasmU64V1`；
+  membership 7 implemented + 3 design-only；resolver 第八行五键（双 call family 拒绝——
+  `WasmMsg::Execute` savepoint 非 sync CALL、SubMsg fire-and-forget 非跨 tx async，B-CALL-SEM
+  纪律）；`DescriptorDataV1.cosmwasm`（artifactEncoding wasmText，ADR-0007 共享编码、
+  target-owned Plan）；membership/list-targets/resolver/IdentityChain/RegistryRoot（1618B
+  golden + digest）全部钉测同步。
+- **A2 cosmwasm-check Tool Lock**：`cosmwasm-check 3.0.9` 以 `cargo-git` + `sourceBuild`
+  入 `tools[]`（CosmWasm monorepo `fe5b55d2…9283`；version probe 权威、无 binary digest
+  编造）。`scripts/cosmwasm_check_acceptance.sh` + `CosmWasmCheckAcceptance` 套件（注册
+  shard-targets）：locked wat2wasm 生成 4 个手写 fixture——minimal ABI（allocate/deallocate/
+  interface_version_8/三 entry/db_*）正向通过；missing interface_version、multi-memory、
+  memory-with-maximum 三负例拒绝（本机真实运行）。float 在 3.0.9 静态检查不拒，已诚实
+  记录。产品 Counter 条件式验收当前 skip-clean（A1 emitter 未合并）。
+- **B0 TON 研究期文档（ADR-0017 遗留执行）**：新增 `docs/targets/11-ton.md`（研究期
+  dossier：TVM/int257/cell、纯异步消息、Tolk 推荐路径、sandbox 验收阶梯、sync call 必须
+  FC、research ceiling）与 `docs/targets/family-tvm-stack-account.md`（不与 EVM/SVM/Wasm
+  共享 Plan）；`docs/targets/README.md` 索引增 `ton` 与 TVM family。编译器零改动，`ton`
+  仍不可寻址 fail closed；SRC/CLM 注册留待独立后续。
+- 边界：均非 formal；CosmWasm 尚无 emitter（A1 进行中）；TON 无 TargetId/registry。
+
+### 2026-08-03 — CosmWasm MVP leaf 工程切片（A1 lane，branch `integrate/cosmwasm-a1`）
+
+- Plan/IR：`Targets/CosmWasm/**`（LowerSemantic/ValidatePlan/PlanSchema/EmitIR/Finalize +
+  facade）+ Registry dispatch；public UInt64 多字段 KV state→`env.db_read/db_write/db_remove`，
+  init/entry/view→`instantiate`/`execute`/`query`，`allocate`/`deallocate`（bump allocator）/
+  `interface_version_8`，单 memory 无 maximum，12B Region；有界最小 JSON 子集（flat 单方法+
+  整数参数，非子集显式 Err）；emit→Response attributes；revert→`{"error":...}` Region；
+  if/match/bounded for/fn/mul/div/mod/unary/shift/bitwise/logical 镜像 NEAR 守卫。
+- Finalize：locked `wat2wasm` → `{name}.wasm`（deployable=true）+ ABI JSON + evidence/
+  manifest（proof-forge.output.v1 既有闭包）。
+- 验收：`CosmWasmPlanV1` 套件注册 shard-targets（Counter Plan/IR/WAT/ABI 形状 + FC 边界 +
+  Registry materialize dispatch）；`cosmwasm_check_acceptance.sh` 产品层由 skip 转为
+  **真实通过**（`Counter.wasm` 经 `cosmwasm-check 3.0.9`；脚本修复相对源码路径、
+  `lake env` 前缀与 PF-OUTPUT-COLLISION 新鲜目录语义）。
+- 边界：`wasm-validated-alpha` 只表示 WAT+locked wat2wasm 制品链与静态 ABI 验收；
+  **不是** wasmd/cosmwasm-vm runtime、SubMsg/reply、IBC、JSON 全集或 formal D3/D4 完成；
+  call/schedule/iterator/migrate/聚合/多宽 ABI/ContextRead/Commit/nonempty invariants 全部
+  fail closed 且有钉测。
+
+### 2026-08-03 — TON registry 集成（TON-1，ADR-0024）
+
+- ADR-0024 决定 `ton` 由研究期提升为 capability-gated implemented target（第 8 个）：
+  `TargetKind.ton`/`TargetId.ton`/`CodegenProfileId.tonTolkBocV1`（`ton-tolk-boc-v1`）；
+  六轴 closed enums 扩 `ExecutionHostV1.tvm`/`StateBindingV1.cellHashmap`/
+  `SettlementModelV1.tonChain`，复用 `transactionAtomic`/`asynchronousActor`/`noProof`；
+  `DescriptorDataV1.ton`（`ArtifactEncoding.tolkSource`）；membership 8 implemented +
+  3 design-only；maturity `source-only`；acceptance `phase1.ton-u64.v1`。
+- Capability honest 6-key：state/event/async 开、**sync call 显式拒绝**（TON 纯异步
+  actor，callback+query_id 属后续工作流，不伪装 sync CALL；B-CALL-SEM 同级诚实）。
+- Tool Lock：`tolk-1.4.2` 官方 binary 入 `tools[]`（darwin `52c00e29…1740` / linux
+  `54286978…7940` 实测下载核对；binary 自报 `Tolk compiler v1.4.1` 故 expectedVersion
+  钉 `1.4.1`；darwin Mach-O system-only 闭包、linux static-pie 无 NEEDED）。
+- 测试钉同步：membership 8+3、resolver 九行（ton 6-key + expectAsync）、
+  IdentityChain claims=9、RegistryRoot 1759-byte golden+digest、tamper/drop 计数、
+  list-targets 精确行。shard-targets 全绿。
+- 边界：`ton` materializer leaf 属 TON-2；当前 `--target ton` 在 materialize dispatch
+  显式失败（无 leaf、不静默降级）；formal TASK/TST 与 release 轴不变。
+
+### 2026-08-03 — CosmWasm runtime 差分（CW-3）与 SubMsg schedule（CW-4）
+
+- CW-3：`runtime-tests/cosmwasm`（cosmwasm-vm 3.0.9 MockStorage/MockApi/MockQuerier，与
+  cosmwasm-check 同 monorepo 版本）+ `scripts/cosmwasm_runtime_test.sh`。九项真实测试：
+  Counter init(7)/increment(5)/get==12、multi-increment attributes、unknown method Err、
+  Accumulator seed/add/current、两例 overflow `unreachable` trap 且 MockStorage 不变
+  （trap ≠ `ContractResult::Err`，显式 revert 才是）、EventFlow `Moved` attribute 与
+  `Cap` revert `{"error":"Cap"}`。engineering mock-runtime differential，非 wasmd/formal。
+- CW-4：`schedule` → `SubMsg{reply_on:never, id:0, WasmMsg::Execute{contract_addr,
+  msg, funds:[]}}`；`contract_addr`/`method` 由 static QN 派生（与 NEAR receiver 同级
+  stub，部署前必须替换真实链上地址）。wasmd 语义核实写入注释：`DispatchSubmessages`
+  对 ReplyNever 子失败把错误返回父 dispatch、整 tx 失败（**不是**父状态保留）——
+  与 ReferenceV1 schedule 的吻合点（无 reply/无 response cursor）与 caveat（同事务
+  分发非跨 tx async、子失败强耦合）均显式记录。resolver `effect.asynchronous-workflow`
+  开放（sync 仍拒），CosmWasmPlanV1 钉 SubMsg Plan/IR/WAT 形状与 sync FC。
+- 边界：mock host≠wasmd；msg 字段为 JSON 形状钉测（生产前需 Binary）；不声称跨 tx
+  async、reply 入口、wasmd runtime 或 formal 完成。
+
+### 2026-08-03 — CosmWasm A1 严格修复（独立审计 P0 全数属实并修复）
+
+> 背景：main 会话的三路审计将 A1 隔离（`24e7d4902`），认定四个 P0 候选与
+> CW-ABI-FREEZE 流程缺口。主代理逐项代码复核确认全部属实后在 branch 上严格修复；
+> 合并前置为「完整 design-exit」（CW-ABI-FREEZE），由产品决策推进。
+
+- **P0-1 静态内存重叠**：`renderDataSectionV2` 增加编译期容量门——keysEnd ≤ 3000
+  （needle base）且每个 method/param needle 端 ≤ 4096（bump heap base），越界
+  `PF-PLAN-INVARIANT` fail closed；删除残留的错误 `renderDataSection` V1。
+  `CosmWasmPlanV1.testStaticLayoutCapacityFc` 双负例（200 state keysEnd=3569 与
+  5×243B method needles）钉死。
+- **P0-2 JSON UInt64 溢出**：`pf_parse_u64_field` 在 `v = v*10+digit` 前加精确界
+  （v > 1844674407370955161 或等于且 digit > 5 → `unreachable`）；runtime 钉
+  max 接受、max+1 与 10^20 trap（`tests/hardening.rs` p02×3）。
+- **P0-3 Int64 `(-1) × min`**：`signedCheckedMul` 在乘法前加
+  `lhs == -1 && rhs == min → unreachable`；`fixtures/IntMul.lean`（let 计算 min
+  后单 store 前 trap）runtime 钉 x 不变（p03）。附注：cosmwasm-vm mock 层
+  **pre-trap store 不回滚**（rollback 属 wasmd tx 边界，非 VM），测试按 trap-
+  before-store 设计并记录该语义。
+- **P0-4 缓冲区容量**：`pf_push_attr_u64` 加 attr ≤512B（key_len+48 余量）与
+  `pf_msg_u64` 加 msg ≤1536B（24 余量）守卫；`fixtures/EmitLoop.lean` 40 次 emit
+  runtime trap、n 不变（p04）。
+- **验收硬化**：`cosmwasm_check_acceptance.sh` 产品层在 CLI 存在但 build 失败/
+  无制品时**硬失败**（exit 1）；skip-clean 仅限工具/CLI/源码缺席。
+- 验证：lake build、shard-targets（含新增 P0-1 双钉）、runtime 14/14（含
+  hardening 5）、cosmwasm-check acceptance（fixtures+product）、docs-check、
+  git diff --check 全绿。CW-ABI-FREEZE（SRC-CW-002 快照、cosmwasm-std/vm/check
+  3.0.9 + wasmvm 3.0.7 + wasmd 版本冻结、SubMsg/savepoint 语义、dossier 修订）
+  为合并前置，另切片完成。
+
+### 2026-08-03 — TON Tolk emitter 工程切片（TON-2，branch `integrate/ton-2`）
+
+- Plan/IR：`Targets/Ton/**`（LowerSemantic/ValidatePlan/PlanSchema/EmitIR/Finalize +
+  facade）+ Registry dispatch。状态为 c4 扁平 struct cell（`__layout` marker + uint64
+  字段，`Storage.fromCell`/`setData`）；`onInternalMessage` 32-bit op + 64-bit query_id +
+  `loadUint(64)` 分发（init→op 0、entries→plan 序、未知 op 忽略保 bounce 安全）；
+  view → `get fun`（栈 int 返回）。
+- 算术/控制：TVM int257 上 UInt64 显式范围检查（`0 <= r < 2^64`；error code 表
+  100 溢出/101 零除/102 shift/103 assert/104 loopBound/105 layout/200+ 用户 revert）；
+  if/match/bounded for（emitter 计数+throw）/pureFn/`~` 64 位掩码；
+  emit → `createExternalLogMessage` + `SEND_MODE_PAY_FEES_SEPARATELY`；revert → `throw`。
+- Finalize：locked `tolk 1.4.2`（Tool Lock）→ `.fif` + `abi.json` + `symbolTypes.json`；
+  companion `fift`/`fiftlib`（env `PROOF_FORGE_TON_TOOLS`/`PROOF_FORGE_TOLK_STDLIB`/
+  `PROOF_FORGE_FIFT`/`PROOF_FORGE_FIFTLIB`，**不得**放进 tool-root——`unexpected node`
+  守卫）→ 真实 `Counter.compiled.boc`；Counter e2e `deployable=true`，`inspect`
+  exact disk closure 通过；evidence 含 tolk/boc sha256。
+- 测试：`Tests.Materialization.TonPlanV1` 注册 shard-targets（Counter plan/IR/tolk
+  形状、多字段、call/schedule FC、多宽 FC、Registry dispatch）；shard 全绿。
+- 边界：`source-only` maturity 不变（sandbox 属 TON-3）；sync call 继续显式 FC；
+  **schedule 的 Plan 发射仍 FC**（capability 开但 destination/send-mode 未接线）；
+  多宽/聚合/Field/Principal/String/ContextRead/Commit/nonempty invariants/masterchain/
+  library/extra currencies 全部 FC；不声称主网/runtime/formal。
+
+### 2026-08-03 — TON `@ton/sandbox` 运行时验收（TON-3）
+
+- `runtime-tests/ton`：`@ton/sandbox@0.44.0` + `@ton/core@0.63.1` package-lock 精确 pin，
+  Node 内置 `node --test`，决定性 seed/now 固定；`scripts/ton_runtime_test.sh` 经产品 CLI
+  产 `Counter.compiled.boc`（166B）与 `EventFlowTon.compiled.boc`（213B）后执行。
+- 七项真实断言全过：Counter init(7)+increment(5)（compute exit=0、get==12、c4 data==12）；
+  overflow bounceable（exit=100、aborted、bouncePhase ok、data 不变）与 non-bounceable
+  （exit=100、无 bounce、state 不变）；EventFlowTon bump(5) external out 解码
+  `op=0 src=0 dst=5`（Moved）；bump(11/12) 超 Cap exit=200、无 external、state 不变；
+  五相位分离（成功=compute+action、失败=compute+bounce、无 action）。
+- 边界：engineering sandbox differential；**非**主网/wasmd 级主机/formal Stage-0/
+  TST-SEM/hermetic；registry maturity 标签保持 `source-only`，不升格 runtime/formal。
