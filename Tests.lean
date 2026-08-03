@@ -12,6 +12,7 @@ import Tests.Compiler.DiagnosticPipelineV1
 import Tests.Compiler.ProofSubjectFilesV1
 import Tests.Compiler.ProofWorkerV1
 import Tests.Compiler.ProofWorkerSupervisorV1
+import Tests.Compiler.InlineProofProtocolV1
 import Tests.Typed.NameResolutionV1
 import Tests.Typed.DiagnosticLocationsV1
 import Tests.Typed.TypeCheckExpressionsV1
@@ -196,6 +197,7 @@ unsafe def main : IO Unit := do
   Tests.Compiler.ProofSubjectFilesV1.run
   Tests.Compiler.ProofWorkerV1.run
   Tests.Compiler.ProofWorkerSupervisorV1.run
+  Tests.Compiler.InlineProofProtocolV1.run
   Tests.Typed.NameResolutionV1.run
   Tests.Typed.DiagnosticLocationsV1.run
   Tests.Typed.TypeCheckExpressionsV1.run
