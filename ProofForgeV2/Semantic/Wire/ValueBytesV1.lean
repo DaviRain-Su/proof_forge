@@ -703,5 +703,20 @@ def validateCallablesValueBytesV1 (types : Array TypeDeclV1)
       budget ← validateTerminatorValueBytesV1 types block.terminator budget
   pure budget
 
+/-- Two single-block callables each carrying one value-producing op (Normalize
+    view+invariant literal-true closure). Composes the sole production walker. -/
+theorem validateCallablesValueBytesV1_two_single_op
+    (types : Array TypeDeclV1) (c0 c1 : CallableV1)
+    (b0 b1 : BlockV1) (i0 i1 : InstructionV1)
+    (budget budget1 budget2 : Nat)
+    (hB0 : c0.blocks = #[b0]) (hB1 : c1.blocks = #[b1])
+    (hI0 : b0.instructions = #[i0]) (hI1 : b1.instructions = #[i1])
+    (hT0 : validateTerminatorValueBytesV1 types b0.terminator budget1 = .ok budget1)
+    (hT1 : validateTerminatorValueBytesV1 types b1.terminator budget2 = .ok budget2)
+    (hOp0 : validateOpValueBytesV1 types i0.op budget = .ok budget1)
+    (hOp1 : validateOpValueBytesV1 types i1.op budget1 = .ok budget2) :
+    validateCallablesValueBytesV1 types #[c0, c1] budget = .ok budget2 := by
+  simp [validateCallablesValueBytesV1, hB0, hB1, hI0, hI1, hOp0, hOp1, hT0, hT1,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 end ProofForgeV2.Semantic.WireV1

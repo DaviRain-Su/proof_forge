@@ -18,13 +18,17 @@ program Proofed where
 example : Proofed.Proof.safe =
     InvariantTheoremV1 Proofed.Proof.subjectProgramV1 0 := rfl
 
+#check Proofed.Proof.subjectBytesV1
+
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
 def run : IO Unit := do
   let subject := Proofed.Proof.subjectProgramV1
   expect (subject.canonicalBytes.size > 0)
-    "inline subjectProgramV1 must embed non-empty product bytes (transparent hex)"
+    "inline subjectProgramV1 must embed non-empty product bytes (transparent spine)"
+  expect (Proofed.Proof.subjectBytesV1.size == subject.canonicalBytes.size)
+    "subjectBytesV1 matches subjectProgramV1 carrier"
   match validateSemanticProgramV1 subject with
   | .error error =>
       throw <| IO.userError s!"generated inline proof subject invalid: {repr error}"
@@ -40,6 +44,15 @@ def run : IO Unit := do
         | none => throw <| IO.userError "generated invariant callable missing"
       expect (callable.kind == CallableKindV1.invariant)
         "generated invariant callable kind"
+      expect (callable.invariantSteps == some 3) "literal-true invariant fuel is 3"
+      -- Happy path: ordinal 0 returns true on initialized empty state.
+      let st ← match initialLogicalStateV1 subject with
+        | .ok s => pure { s with initialized := true }
+        | .error e => throw <| IO.userError s!"initial state: {repr e}"
+      expect (stateConformsBoolV1 subject st) "conforming empty state"
+      match evalInvariantV1 subject 0 st with
+      | .returnedTrue => pure ()
+      | other => throw <| IO.userError s!"safe ordinal must return true: {repr other}"
       -- Byte mutation of the generated subject fails closed.
       let mutated :=
         Id.run do
@@ -51,13 +64,9 @@ def run : IO Unit := do
       match validateSemanticProgramV1 ⟨mutated⟩ with
       | .ok _ => throw <| IO.userError "mutated inline subject must not validate"
       | .error _ => pure ()
-      -- Obligation shape remains exact ordinal 0 (mutation of ordinal is a
-      -- different Prop; OOR eval traps).
-      match evalInvariantV1 subject 1
-          (match initialLogicalStateV1 subject with
-            | .ok s => { s with initialized := true }
-            | .error _ => { initialized := true, canonicalValues := ByteArray.empty }) with
+      -- Ordinal mutation: OOR traps.
+      match evalInvariantV1 subject 1 st with
       | .trapped => pure ()
-      | _ => pure ()  -- empty state may trap earlier; both are fail-closed
+      | other => throw <| IO.userError s!"OOR ordinal must trap: {repr other}"
 
 end Tests.Language.InlineProofAuthoringV1

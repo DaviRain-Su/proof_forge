@@ -936,6 +936,23 @@ def validateGenericCfgPhasesV1 (data : SemanticProgramDataV1) :
     validateCallableCfgShape callable data.types.size data.types data
   validateContextReadCatalogV1 data.types data.callables
 
+/-- Compose the exact generic `.cfg` phase for a two-callable source-order
+    table (Normalize view+invariant simple closure) while preserving the
+    production ContextRead catalog result. -/
+theorem validateGenericCfgPhasesV1_two_eq_ok
+    (data : SemanticProgramDataV1) (c0 c1 : CallableV1)
+    (hCallables : data.callables = #[c0, c1])
+    (h0 : validateCallableCfgShape c0 data.types.size data.types data = .ok ())
+    (h1 : validateCallableCfgShape c1 data.types.size data.types data = .ok ())
+    (hContext : validateContextReadCatalogV1 data.types data.callables = .ok ()) :
+    validateGenericCfgPhasesV1 data = .ok () := by
+  have hContext' :
+      validateContextReadCatalogV1 data.types #[c0, c1] = .ok () := by
+    rw [← hCallables]
+    exact hContext
+  simp [validateGenericCfgPhasesV1, hCallables, h0, h1, hContext',
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Compose the exact generic `.cfg` phase for a four-callable source-order
     table while preserving the production ContextRead catalog result. -/
 theorem validateGenericCfgPhasesV1_four_eq_ok

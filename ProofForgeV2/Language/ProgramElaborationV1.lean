@@ -19,6 +19,15 @@ private def quoteByteArray (bytes : ByteArray) : MacroM (TSyntax `term) := do
       (Nat.digitChar (byte.toNat % 16))) ""
   `(ProofForgeV2.Language.ProgramExport.programExportBytesFromHex $(quote hex))
 
+/-- Transparent `ByteArray.mk (List.toArray […])` form for proof subjects.
+    Definitional equality with certificate `TransparentByteSpineV1` lists
+    avoids hex reduction while preserving exact product bytes from Normalize. -/
+private def quoteByteArraySpine (bytes : ByteArray) : MacroM (TSyntax `term) := do
+  let mut elems : Array (TSyntax `term) := #[]
+  for b in bytes do
+    elems := elems.push (quote b.toNat)
+  `(ByteArray.mk (List.toArray [$elems,*]))
+
 private def proofInvariantNames
     (source : ValidatedSourceV1) : Except String (Array String) := do
   let invariants := source.program.items.filterMap fun item =>
@@ -36,8 +45,8 @@ private def proofInvariantNames
   for invariantName in invariants do
     unless proofs.any (· == invariantName) do
       throw s!"inline proof program is missing proof reference for invariant '{invariantName}'"
-    if invariantName == "subjectProgramV1" then
-      throw "invariant name 'subjectProgramV1' is reserved by the inline proof surface"
+    if invariantName == "subjectProgramV1" || invariantName == "subjectBytesV1" then
+      throw s!"invariant name '{invariantName}' is reserved by the inline proof surface"
   for proofName in proofs do
     unless invariants.any (· == proofName) do
       throw s!"proof reference names unknown invariant '{proofName}'"
@@ -58,14 +67,18 @@ private def elaborateProofObligations
         -- at name elaboration; product check/build will report the located
         -- Normalize diagnostic before certification.
         return
-  let bytesExpr ← Lean.Elab.liftMacroM <| quoteByteArray carrier.canonicalBytes
+  -- Proof subjects use a transparent spine so certificate modules can link
+  -- by definitional equality without hex reduction OOM.
+  let bytesExpr ← Lean.Elab.liftMacroM <| quoteByteArraySpine carrier.canonicalBytes
   let proofNamespace := mkIdent `Proof
   let subjectName := mkIdent `subjectProgramV1
+  let subjectBytesName := mkIdent `subjectBytesV1
   Lean.Elab.Command.elabCommand (← `(namespace $programName))
   Lean.Elab.Command.elabCommand (← `(namespace $proofNamespace))
+  Lean.Elab.Command.elabCommand (← `(def $subjectBytesName : ByteArray := $bytesExpr))
   Lean.Elab.Command.elabCommand (← `(def $subjectName :
       ProofForgeV2.Semantic.WireV1.SemanticProgramV1 :=
-    { canonicalBytes := $bytesExpr }))
+    { canonicalBytes := $subjectBytesName }))
   for (invariantName, ordinal) in invariantNames.zipIdx do
     let invariantIdent := mkIdent (Name.str .anonymous invariantName)
     let ordinalTerm : TSyntax `term := ⟨Syntax.mkNumLit (toString ordinal)⟩

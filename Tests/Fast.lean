@@ -22,8 +22,8 @@ import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.ProofBridgeV1
-import Tests.Semantic.ReferenceV1
-import Tests.Semantic.ProofBundleV1
+import Tests.Semantic.ProofedCertV1
+import Tests.Semantic.ReferenceV1,import Tests.Semantic.ProofBundleV1
 import Tests.Semantic.ProofReferenceJoinV1
 import Tests.Language.InlineProofAuthoringV1
 import Tests.Language.TheoremInventoryV1
