@@ -926,6 +926,12 @@ theorem decodeU32le_eq_of_readV1 (c : Cursor) (value : UInt32) (offset : Nat)
     decodeU32le c = .ok (value, ⟨c.input, offset, c.nesting⟩) := by
   simp only [decodeU32le, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
 
+/-- Compose u16 decoding through the sole production offset reader. -/
+theorem decodeU16le_eq_of_readV1 (c : Cursor) (value : UInt16) (offset : Nat)
+    (hread : readU16leAtV1 c.input c.offset = .ok (value, offset)) :
+    decodeU16le c = .ok (value, ⟨c.input, offset, c.nesting⟩) := by
+  simp only [decodeU16le, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
 /-- Compose u64 decoding through the sole production offset reader. -/
 theorem decodeU64le_eq_of_readV1 (c : Cursor) (value : UInt64) (offset : Nat)
     (hread : readU64leAtV1 c.input c.offset = .ok (value, offset)) :
@@ -1458,6 +1464,16 @@ theorem decodeTypeShapeBodyV1_string (c afterTag afterFields : Cursor)
   simp only [decodeTypeShapeBodyV1, htag, hfields, Bind.bind, Pure.pure,
     Except.bind, Except.pure]
 
+/-- UInt branch through the actual tag, field-count, and width decoders. -/
+theorem decodeTypeShapeBodyV1_uint (c afterTag afterFields afterWidth : Cursor)
+    (w : UInt16)
+    (htag : decodeTag c = .ok ("Type.UInt", afterTag))
+    (hfields : decodeFieldCount 1 afterTag = .ok ((), afterFields))
+    (hwidth : decodeU16le afterFields = .ok (w, afterWidth)) :
+    decodeTypeShapeBodyV1 c = .ok (.uint w, afterWidth) := by
+  simp only [decodeTypeShapeBodyV1, htag, hfields, hwidth, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
 def encodeTypeDeclV1 (d : TypeDeclV1) : Except SemanticWireErrorV1 ByteArray := do
   let idB := encodeU32le d.id
   let nameB ← encodeOption encodeString d.name
@@ -1650,6 +1666,14 @@ theorem decodeCallableKindBodyV1_invariant (c afterTag afterFields : Cursor)
     (htag : decodeTag c = .ok ("Callable.Invariant", afterTag))
     (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
     decodeCallableKindBodyV1 c = .ok (.invariant, afterFields) := by
+  simp only [decodeCallableKindBodyV1, htag, hfields, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- View branch through the actual tag and field-count decoders. -/
+theorem decodeCallableKindBodyV1_view (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Callable.View", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeCallableKindBodyV1 c = .ok (.view, afterFields) := by
   simp only [decodeCallableKindBodyV1, htag, hfields, Bind.bind, Pure.pure,
     Except.bind, Except.pure]
 
@@ -2706,6 +2730,45 @@ theorem decodeProgramRequirementsV1_eq_of_bodyV1 (c : Cursor)
       .ok (requirements, ⟨c'.input, c'.offset, c.nesting⟩) := by
   unfold decodeProgramRequirementsV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+/-- Compose Digest through the sole fixed-width take and validateDigest authorities. -/
+theorem decodeDigest_eq_of_takeV1 (c : Cursor) (bytes : ByteArray)
+    (hread : takeBytesAtV1 c.input c.offset 32 = .ok bytes)
+    (hvalidate : validateDigest { algorithm := .sha256, bytes } = .ok ()) :
+    decodeDigest c =
+      .ok ({ algorithm := .sha256, bytes }, ⟨c.input, c.offset + 32, c.nesting⟩) := by
+  simp only [decodeDigest, takeBytes, hread, hvalidate, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose SemVer through the sole string decoder and shared Common parser. -/
+theorem decodeSemVer_eq_of_stringV1 (c afterString : Cursor) (s : String) (version : SemVer)
+    (hs : decodeString c = .ok (s, afterString))
+    (hparse : parseSemVer s = .ok version) :
+    decodeSemVer c = .ok (version, afterString) := by
+  simp only [decodeSemVer, hs, hparse, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+/-- Exact-slice composition for a successful fixed-count take on a transparent spine. -/
+theorem takeBytesAtV1_eq_of_spine (input payload : TransparentByteSpineV1) (offset : Nat)
+    (h : takeSpineBytesV1 input offset payload.length = .ok payload) :
+    takeBytesAtV1 (ByteArray.mk input.toArray) offset payload.length =
+      .ok (ByteArray.mk payload.toArray) := by
+  have href := takeBytesAtV1_refinesSpine input offset payload.length
+  rw [h] at href
+  cases hproduction : takeBytesAtV1 (ByteArray.mk input.toArray) offset payload.length with
+  | error e =>
+      simp only [hproduction, Except.map] at href
+      cases href
+  | ok slice =>
+      simp only [hproduction, Except.map] at href
+      have hlist : slice.data.toList = payload := by
+        simpa using href
+      have : slice = ByteArray.mk payload.toArray := by
+        apply ByteArray.ext
+        have harr : slice.data = payload.toArray := by
+          have := congrArg List.toArray hlist
+          simpa using this
+        simpa using harr
+      simpa [this]
 
 def encodeSemanticEntityRefV1 : SemanticEntityRefV1 → Except SemanticWireErrorV1 ByteArray
   | .typeRef id => encodeTagged "Entity.Type" #[encodeU32le id]
