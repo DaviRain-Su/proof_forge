@@ -17,6 +17,12 @@
 # Hard fail (exit 1) when tools+CLI are present but required product builds or
 # the Anvil matrix assertions fail. NEVER fabricate Anvil results.
 # NEVER claim formal Reference↔Anvil closure.
+#
+# Optional explicit Cancun path (EVMOZ-001):
+#   PF_EVM_PROFILE=evm-yul-solc-0.8.34-cancun-v1
+#   → product build uses --profile evm-yul-solc-0.8.34-cancun-v1
+#   → smoke_evm.sh starts anvil with --hardfork cancun
+# Empty / legacy profile keeps historical default (no --profile, no hardfork flag).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -36,6 +42,21 @@ esac
 foundry_bin="${FOUNDRY_BIN:-${PROOF_FORGE_TOOL_ROOT:-$default_tool_root}}"
 anvil_path="$foundry_bin/anvil"
 cast_path="$foundry_bin/cast"
+evm_profile="${PF_EVM_PROFILE:-}"
+build_profile_args=()
+case "$evm_profile" in
+  "")
+    : # default product profile (legacy evm-yul-solc-0.8.34-v1)
+    ;;
+  "evm-yul-solc-0.8.34-v1"|"evm-yul-solc-0.8.34-cancun-v1")
+    build_profile_args+=(--profile "$evm_profile")
+    echo "evm-anvil-differential: explicit profile=$evm_profile" >&2
+    ;;
+  *)
+    echo "evm-anvil-differential: unsupported PF_EVM_PROFILE='$evm_profile'" >&2
+    exit 1
+    ;;
+esac
 
 if [[ ! -x "$anvil_path" ]]; then
   if command -v anvil >/dev/null 2>&1; then
@@ -121,15 +142,24 @@ ensure_build() {
     echo "evm-anvil-differential: reuse $bin_path" >&2
     return 0
   fi
-  echo "evm-anvil-differential: product build $module → $out_dir" >&2
+  echo "evm-anvil-differential: product build $module → $out_dir${evm_profile:+ (profile=$evm_profile)}" >&2
   # Product CLI refuses non-empty existing -o dirs (PF-OUTPUT-COLLISION).
   rm -rf "$root/$out_dir"
   mkdir -p "$(dirname "$root/$out_dir")"
-  run_cli build "$src" --module "$module" --target evm -o "$out_dir"
+  run_cli build "$src" --module "$module" --target evm "${build_profile_args[@]}" -o "$out_dir"
   [[ -f "$bin_path" ]] || {
     echo "evm-anvil-differential: product build missing $bin_path" >&2
     return 1
   }
+  if [[ "$evm_profile" == "evm-yul-solc-0.8.34-cancun-v1" ]]; then
+    # Observability: Cancun finalize must record the hardfork pin in evidence.
+    if [[ -f "$root/$out_dir/evidence.json" ]]; then
+      if ! grep -q 'evm-version=cancun' "$root/$out_dir/evidence.json"; then
+        echo "evm-anvil-differential: cancun profile evidence missing evm-version=cancun" >&2
+        return 1
+      fi
+    fi
+  fi
 }
 
 # Required programs for the differential matrix.
@@ -180,10 +210,10 @@ LEAN
 
 # Source path must be project-relative under repo root.
 if [[ ! -f "$root/build/v2/evm-eventflow/EventFlow.bin" ]]; then
-  echo "evm-anvil-differential: product build EventFlow → build/v2/evm-eventflow" >&2
+  echo "evm-anvil-differential: product build EventFlow → build/v2/evm-eventflow${evm_profile:+ (profile=$evm_profile)}" >&2
   rm -rf "$root/build/v2/evm-eventflow"
   run_cli build build/v2/_eventflow_src/EventFlow.lean --module EventFlow --target evm \
-    -o build/v2/evm-eventflow || {
+    "${build_profile_args[@]}" -o build/v2/evm-eventflow || {
     echo "evm-anvil-differential: EventFlow build failed (hard — emit coverage required when tools present)" >&2
     exit 1
   }
@@ -195,8 +225,10 @@ else
   echo "evm-anvil-differential: reuse build/v2/evm-eventflow/EventFlow.bin" >&2
 fi
 
-echo "evm-anvil-differential: running scripts/smoke_evm.sh via FOUNDRY_BIN=$FOUNDRY_BIN" >&2
+echo "evm-anvil-differential: running scripts/smoke_evm.sh via FOUNDRY_BIN=$FOUNDRY_BIN${evm_profile:+ profile=$evm_profile}" >&2
 echo "evm-anvil-differential: engineering runtime only; not formal Reference↔Anvil closure" >&2
+# Propagate profile so smoke_evm pins anvil --hardfork cancun when requested.
+export PF_EVM_PROFILE="$evm_profile"
 bash "$root/scripts/smoke_evm.sh"
 
 # Token: best-effort companion (Map pilot may exceed initcode limits → skip-clean).

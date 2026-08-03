@@ -328,6 +328,7 @@
       "expectedVersion": "0.3.0 (5a8bd89",
       "licenseSpdx": "MIT OR Apache-2.0",
       "requiredByProfiles": [
+        "evm-yul-solc-0.8.34-cancun-v1-runtime",
         "evm-yul-solc-0.8.34-v1-runtime"
       ],
       "sourceBuild": null
@@ -349,6 +350,7 @@
       "expectedVersion": "0.3.0 (5a8bd89",
       "licenseSpdx": "MIT OR Apache-2.0",
       "requiredByProfiles": [
+        "evm-yul-solc-0.8.34-cancun-v1-runtime",
         "evm-yul-solc-0.8.34-v1-runtime"
       ],
       "sourceBuild": null
@@ -505,6 +507,7 @@
       "expectedVersion": "0.8.34+commit.80d5c536",
       "licenseSpdx": "GPL-3.0-or-later",
       "requiredByProfiles": [
+        "evm-yul-solc-0.8.34-cancun-v1",
         "evm-yul-solc-0.8.34-v1"
       ],
       "sourceBuild": null

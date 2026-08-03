@@ -13628,3 +13628,20 @@ normative: false
 - 验证：原生真实 source-build 以 Rust `1.88.0` 链接并报告
   `Contract checking 3.0.9`；对照默认 Rust 1.97 复现 CI 同款 probestack 失败；
   `just toolchains-validate`、core shard 与普通 `just ci` 通过。非 formal。
+## 2026-08-03 — EVMOZ-001 explicit Cancun EVM profile
+
+- Slice: shared-core `evm-yul-solc-0.8.34-cancun-v1` (not formal TASK / OZ claim).
+- Product:
+  - `CodegenProfileId.evmYulSolc0834CancunV1`; registry EVM profiles ascending
+    cancun-v1 < v1; **default remains** `evm-yul-solc-0.8.34-v1`.
+  - Descriptor residual stays legacy v1; `acceptsCodegenProfile` admits Cancun.
+  - Requirement support: ten-row index (both EVM profiles share full S2 catalog).
+  - `Evm.FinalizeV1`: capability profile selects solc argv; Cancun only adds
+    `--evm-version cancun`; evidence note appends `evm-version=cancun`.
+  - Tool Lock: solc/anvil/cast `requiredByProfiles` include cancun (+ runtime)
+    without upgrading binaries/URL/hash; raw digest pins + ToolLockV4 KAT updated.
+  - Runtime: `PF_EVM_PROFILE=evm-yul-solc-0.8.34-cancun-v1` → product
+    `--profile …cancun-v1` + `anvil --hardfork cancun` (legacy path unchanged).
+- Tests: `Tests.Targets.EvmCancunV1` + registry/support/count/golden updates.
+- Non-claims: not OZ compatibility, not formal D4, not release/hermetic evidence;
+  no tool binary upgrade; no silent rewrite of legacy default profile.

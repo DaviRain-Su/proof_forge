@@ -35,6 +35,9 @@ private def descriptorFromRegistryAxes
   }
 
 def evm : TargetDescriptor :=
+  -- Residual descriptor binds the default legacy solc profile. The explicit
+  -- Cancun profile (`evm-yul-solc-0.8.34-cancun-v1`) is accepted by
+  -- `acceptsCodegenProfile` without inventing a second TargetDescriptor table.
   descriptorFromRegistryAxes .evm .evmYul CodegenProfileId.evmYulSolc0834V1
 
 def solana : TargetDescriptor :=
@@ -49,6 +52,7 @@ def solana : TargetDescriptor :=
     capability mint and artifact identity can bind them without a second row. -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
+    (descriptor.targetId == TargetId.evm && profile == CodegenProfileId.evmYulSolc0834CancunV1) ||
     (descriptor.targetId == TargetId.solana && profile == CodegenProfileId.solanaSbpfElfV1)
 
 def near : TargetDescriptor :=

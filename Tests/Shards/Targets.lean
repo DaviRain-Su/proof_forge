@@ -26,6 +26,7 @@ import Tests.Materialization.NoirCompileAcceptance
 import Tests.Materialization.SolanaPlanV1
 import Tests.Targets.SolanaAsmV1
 import Tests.Targets.SolanaElfV1
+import Tests.Targets.EvmCancunV1
 import Tests.Materialization.PsySourceV1
 import Tests.Materialization.PsyAcceptance
 import Tests.CLI.Emit
@@ -92,6 +93,8 @@ unsafe def main : IO Unit := do
   Tests.Targets.SolanaAsmV1.run
   IO.eprintln "CP run"
   Tests.Targets.SolanaElfV1.run
+  IO.eprintln "CP run"
+  Tests.Targets.EvmCancunV1.run
   IO.eprintln "CP run"
   Tests.CLI.Emit.run
   IO.eprintln "CP run"

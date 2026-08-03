@@ -14,6 +14,10 @@
 #
 # NOT formal TASK-D4-05 / TST-EVM-005 / Reference↔Anvil closure (C-3).
 # This is an engineering local_runtime gate only.
+#
+# Optional Cancun hardfork pin (EVMOZ-001):
+#   PF_EVM_PROFILE=evm-yul-solc-0.8.34-cancun-v1 → anvil --hardfork cancun
+# Legacy/default path keeps historical anvil args (no ambient hardfork flag).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,6 +44,22 @@ rpc="http://127.0.0.1:$port"
 private_key="${PF_EVM_PRIVATE_KEY:-ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 log="$root/build/v2/anvil.log"
 UINT64_MAX="18446744073709551615"
+# Optional product profile → runtime hardfork pin. Empty = legacy anvil args.
+evm_profile="${PF_EVM_PROFILE:-}"
+anvil_extra_args=()
+case "$evm_profile" in
+  ""|"evm-yul-solc-0.8.34-v1")
+    : # legacy default: do not pass ambient --hardfork
+    ;;
+  "evm-yul-solc-0.8.34-cancun-v1")
+    anvil_extra_args+=(--hardfork cancun)
+    echo "evm-smoke: profile=$evm_profile → anvil --hardfork cancun" >&2
+    ;;
+  *)
+    echo "evm-smoke: unsupported PF_EVM_PROFILE='$evm_profile' (expected empty, evm-yul-solc-0.8.34-v1, or evm-yul-solc-0.8.34-cancun-v1)" >&2
+    exit 2
+    ;;
+esac
 
 die() {
   echo "evm-smoke: $*" >&2
@@ -153,7 +173,7 @@ mkdir -p "$root/build/v2"
 if "$cast" chain-id --rpc-url "$rpc" >/dev/null 2>&1; then
   die "RPC endpoint $rpc is already occupied"
 fi
-"$anvil" --host 127.0.0.1 --port "$port" --chain-id "$chain_id" --silent >"$log" 2>&1 &
+"$anvil" --host 127.0.0.1 --port "$port" --chain-id "$chain_id" "${anvil_extra_args[@]}" --silent >"$log" 2>&1 &
 anvil_pid=$!
 cleanup() {
   kill "$anvil_pid" 2>/dev/null || true

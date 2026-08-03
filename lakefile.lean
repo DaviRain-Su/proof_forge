@@ -223,6 +223,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.SolanaPlanV1,
     `Tests.Targets.SolanaAsmV1,
     `Tests.Targets.SolanaElfV1,
+    `Tests.Targets.EvmCancunV1,
     `Tests.Product.CounterV1Evm,
     `Tests.Product.PrivateSum4PrivacyV1,
     `Tests.Product.PerfCheckHarnessV1,

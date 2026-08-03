@@ -305,6 +305,7 @@ D1–D4 = 0/27 done。
 | **C-8** | NEAR sandbox 全差分 harness（Counter + 聚合返回 + overflow） | **done**（2026-08-03；`971e27a76`：`runtime-tests/near` 薄 Python JSON-RPC/borsh-Ed25519 客户端（pin cryptography 47.0.0 + base58 2.1.1）+ `scripts/near_runtime_test.sh`；Counter init/increment/get + overflow state-hold + recovery；PairRet BL-4 聚合返回 e2e 精确 16B LE 断言；独立 sandbox homes、skip-clean；engineering differential，非 testnet/mainnet/formal） |
 | **C-7** | Noir nargo compile-only 工程门（G123；RPT-017 最小路径） | **done**（2026-08-03：nargo 1.0.0-beta.26 入 `tools[]`；`scripts/noir_compile_acceptance.sh` 产品 Counter 三 relation 包真实 compile 通过；`NoirCompileAcceptance` 注册 shard-targets；barretenberg 仍 null，**不**升格 prove/verify；`validate_artifacts.py` 仍拒 proof-stage 叶） |
 | **C-8** | EVM Anvil 工程差分加固（G4） | **done**（2026-08-03：Counter/Accumulator/ArithOps/EventFlow 产品 CLI 制品 + overflow revert 状态不变（view+storage 双读）+ EventFlow emit 日志断言真实通过；Token companion 因 solc StackTooDeep（Map pilot）skip-clean；非 formal C-3） |
+| **EVMOZ-001** | 显式 Cancun EVM profile（shared） | **done**（2026-08-03：`evm-yul-solc-0.8.34-cancun-v1` 进入 registry/descriptor/resolver/Tool Lock；Finalize 仅 Cancun 加 `--evm-version cancun`；runtime `PF_EVM_PROFILE` → `anvil --hardfork cancun`；默认 legacy v1 不改写；同一 solc 0.8.34/Anvil 0.3.0；**非** OZ claim / formal D4 / 工具升级） |
 | **C-2-pin** | leo 4.0.2 Tool Lock pin（G123） | **done**（2026-08-03：leo 4.0.2 入 `tools[]`（darwin+linux）；`aleo_acceptance.sh` 优先 Tool Lock 解析；仍 source-only + optional compile，非 prove/deploy） |
 
 ---

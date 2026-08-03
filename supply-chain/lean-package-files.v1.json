@@ -116,14 +116,14 @@
       "sha256": "bfc81a32ec55e77510d32cc4eb29635179c2931cb933788606893f70ca9ff56d"
     },
     {
-      "bytes": 6980,
+      "bytes": 7326,
       "path": "ProofForgeV2/Core/TargetIdentityV1.lean",
-      "sha256": "ea3aeb819592997f67d22937fc89b6fe61e69ac43fa5509883bdbbb494f77c0a"
+      "sha256": "74ea9cc663a705692c60ad639c33fdd9a616050d18f8886c449b024b290dafc7"
     },
     {
       "bytes": 5654,
       "path": "ProofForgeV2/Core/ToolLockV4.lean",
-      "sha256": "0f35383f2cfcf53b725e8a64697e1be5278e44ee0794a9850d60272276bbf9e7"
+      "sha256": "f1b242ab4493cbd40ce8230db0a66e86d39ffc911083478e23a956d70d3faeab"
     },
     {
       "bytes": 8444,
@@ -621,9 +621,9 @@
       "sha256": "620dbd5e17f2b50a029e69ff52ff33afe7aabd0b97acb3e0619df024d65bc753"
     },
     {
-      "bytes": 5984,
+      "bytes": 6309,
       "path": "ProofForgeV2/Targets/DescriptorDataV1.lean",
-      "sha256": "93384fb963b87f05f33999b6ebc1615895a680f3b07bf3fa824e7c8054030dec"
+      "sha256": "32cefd338da5889f53a2635e780579edd14fd27f24327726db94f38f66907701"
     },
     {
       "bytes": 9308,
@@ -651,9 +651,9 @@
       "sha256": "e6e41521f684848c4b3c048611c3c0efee2c33f298607505b814e5b7b7bb2686"
     },
     {
-      "bytes": 2267,
+      "bytes": 3381,
       "path": "ProofForgeV2/Targets/Evm/FinalizeV1.lean",
-      "sha256": "948a4eb9c1d297833800b12da239dc7edbdabf4a94ac7c23d76012ec72020e20"
+      "sha256": "79e2489baf89f82885a1ad45454b409babd158394e6b247245abce70b351ed40"
     },
     {
       "bytes": 5004,
@@ -776,9 +776,9 @@
       "sha256": "9e5bd4ff47f8ba07c2fa40d0fd2bdd3c07d0ad97a4eae00c49e23afd36f9d74a"
     },
     {
-      "bytes": 21857,
+      "bytes": 22211,
       "path": "ProofForgeV2/Targets/RequirementResolverV1.lean",
-      "sha256": "9fc7366f162476376bcc2fd18d6141e10da2c8a0d1124f949f1d462fae13e74b"
+      "sha256": "955aaebb53f5506ce9b8043ee26bc26cfd6d8a5721de91225c4f231d50911788"
     },
     {
       "bytes": 1605,
@@ -821,9 +821,9 @@
       "sha256": "0c2ef1db0efea01981317694a262d79399825da8d6638da61364e71899977aca"
     },
     {
-      "bytes": 22685,
+      "bytes": 22802,
       "path": "ProofForgeV2/Targets/TargetRegistryV1.lean",
-      "sha256": "cd3b51c94a60291efed1347e35f171d74f3423e6dc833e41082039979331dde2"
+      "sha256": "c0fae4c338315fee98ef4b9e75eef08a32012fdb0394896edb3eb15dc88bc907"
     },
     {
       "bytes": 1375,

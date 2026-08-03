@@ -217,8 +217,10 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped nine-row seed body (canonical targetId order: aleo, cosmwasm, evm,
-    near, noir, psy, solana×2, ton). Solana carries both `solana-sbpf-elf-v1`
+/-- Shipped ten-row seed body (canonical targetId order: aleo, cosmwasm, evm×2,
+    near, noir, psy, solana×2, ton). EVM carries both
+    `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1` (ASCII ascending;
+    default remains legacy v1). Solana carries both `solana-sbpf-elf-v1`
     and `solana-sbpf-plan-v1` (ASCII ascending); both share the same S2
     capability set. Capability gates are per target: EVM/Solana admit both call
     keys via static QualifiedName callees (AddressBearing: wire
@@ -270,6 +272,9 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
     -- AddressBearing: full seven keys — static QN call/schedule Plan open.
+    -- Both EVM profiles share the same S2 capability set; hardfork is a
+    -- Finalize/runtime pin, not a requirement-gate difference.
+    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834CancunV1 catalogRequests,
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 catalogRequests,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,

@@ -472,6 +472,7 @@ registry digest。
 | CodegenProfileId | Primary group alternatives | Group deployability | `securityContract` |
 |---|---|---|---|
 | `evm-yul-solc-0.8.34-v1` | `{deploy-bytecode: application/vnd.proof-forge.evm-bytecode}` **or** `{runtime-bytecode: application/vnd.proof-forge.evm-bytecode}` | `deployable` | `null` |
+| `evm-yul-solc-0.8.34-cancun-v1` | same as legacy v1; Finalize pins `solc --evm-version cancun` | `deployable` | `null` |
 | `solana-sbpf-plan-v1` | `{sbpf-plan: application/vnd.proof-forge.sbpf-plan}` | `intermediate-only` | `null` |
 | `near-wasm-raw-u64-v1` | `{contract-wasm: application/wasm}` | `deployable` | `null` |
 | `noir-source-u64-relations-v1` | `{noir-source-package: application/vnd.proof-forge.noir-package}` | `intermediate-only` | `null` |

@@ -523,7 +523,8 @@ private def row
 def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
   #[
     row .evm (semanticsAxesOfKindV1 .evm)
-      #[CodegenProfileId.evmYulSolc0834V1]
+      -- Strictly ASCII-ascending: cancun-v1 < v1. Default stays legacy v1.
+      #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1]
       (some CodegenProfileId.evmYulSolc0834V1),
     row .solana (semanticsAxesOfKindV1 .solana)
       -- Strictly ASCII-ascending: elf-v1 < plan-v1. Default stays plan-v1.

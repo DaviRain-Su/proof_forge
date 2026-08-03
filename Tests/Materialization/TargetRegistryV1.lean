@@ -153,7 +153,9 @@ private def testValidationAndLookup : IO Unit := do
   | none => throw <| IO.userError "missing evm"
   let insp ← liftResult (inspectTargetV1 registry TargetId.evm)
   expect insp.implemented "inspect implemented"
-  expect (insp.profiles == #[CodegenProfileId.evmYulSolc0834V1]) "inspect profiles"
+  expect (insp.profiles ==
+      #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1])
+    "inspect profiles (cancun-v1 < v1 ascending; default remains v1)"
   -- Inspection-only engineering digest is deterministic and non-product.
   let dig1 ← match findRegistrationV1 registry TargetId.evm with
     | none => throw <| IO.userError "missing evm for dig"

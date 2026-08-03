@@ -506,14 +506,20 @@ gas 默认排除，因为优化和 compiler 版本会改变 gas；只有未来�
 
 ### 9.3 Hardfork 不一致
 
-- 仓库事实：PF locked solc 为 0.8.34，`FinalizeV1` 未传 `--evm-version`；审计主机观察其默认产物面为 Osaka。
-- 仓库事实：Anvil 脚本未固定 hardfork；审计主机上的 locked Anvil 0.3.0 `latest` 观察为 Cancun，
+- 仓库事实（审计时）：PF locked solc 为 0.8.34，默认 profile 的 `FinalizeV1` 未传 `--evm-version`；
+  审计主机观察其默认产物面为 Osaka。
+- 仓库事实（审计时）：Anvil 脚本未固定 hardfork；审计主机上的 locked Anvil 0.3.0 `latest` 观察为 Cancun，
   且拒绝 `--hardfork osaka`。后两项是 host observation，不是源码不变式。
+- **工程 follow-on（EVMOZ-001，post-audit）**：已原子增加显式 profile
+  `evm-yul-solc-0.8.34-cancun-v1`（同一 solc 0.8.34 / Anvil 0.3.0；Finalize 加
+  `--evm-version cancun`；runtime 经 `PF_EVM_PROFILE` 启动 `--hardfork cancun`）。
+  默认 `evm-yul-solc-0.8.34-v1` 语义保持不变。该切片**不是** OZ hardfork 对齐，也不产生 family claim。
 - OZ 配置事实：Hardhat 使用 solc 0.8.35、optimizer 200、hardfork/EVM `osaka`。
 - OZ 配置事实：Foundry 使用 solc 0.8.31、optimizer 200、EVM `osaka`。
 
-因此当前不能建立共享 hardfork 下的 PF↔OZ 正向 runtime oracle。该偏差不影响静态 first-blocker 结论，
-但任何未来正向结果都必须先固定相同 hardfork 或明确证明 opcode/precompile 差异不相关。
+因此当前不能建立共享 hardfork 下的 PF↔OZ 正向 runtime oracle（OZ 仍为 Osaka + 不同 solc）。
+该偏差不影响静态 first-blocker 结论；任何未来正向结果都必须先固定相同 hardfork 或明确证明
+opcode/precompile 差异不相关。
 
 ### 9.4 OpenZeppelin runtime 未执行
 

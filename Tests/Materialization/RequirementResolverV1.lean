@@ -342,10 +342,11 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testFourRowTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 9) "exactly nine support rows"
+  expect (rows.size == 10) "exactly ten support rows"
   let expectedKeys := #[
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4),
     ("cosmwasm", "cosmwasm-wasm-u64-v1", 6),
+    ("evm", "evm-yul-solc-0.8.34-cancun-v1", 7),
     ("evm", "evm-yul-solc-0.8.34-v1", 7),
     ("near", "near-wasm-raw-u64-v1", 6),
     ("noir", "noir-source-u64-relations-v1", 7),
@@ -355,7 +356,7 @@ private def testFourRowTable : IO Unit := do
     ("ton", "ton-tolk-boc-v1", 6)
   ]
   let mut i : Nat := 0
-  while i < 9 do
+  while i < 10 do
     match rows[i]?, expectedKeys[i]? with
     | some row, some (tid, prof, supportCount) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"
@@ -387,15 +388,16 @@ private def testFourRowTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 9-row (target,profile) skeleton matching the shipped index shape.
-    `evmSupported` replaces the EVM row's supported list for content negatives. -/
-private def nineRowSkeleton
+/-- Canonical 10-row (target,profile) skeleton matching the shipped index shape.
+    `evmSupported` replaces both EVM rows' supported lists for content negatives. -/
+private def tenRowSkeleton
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
     Array StaticRequirementSupportRowV1 :=
   #[
     mkRow .aleo CodegenProfileId.aleoLeoU64V1 base,
     mkRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 base,
+    mkRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmSupported,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
@@ -404,6 +406,13 @@ private def nineRowSkeleton
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 base,
     mkRow .ton CodegenProfileId.tonTolkBocV1 base
   ]
+
+/-- Backward-compatible alias used by older negative fixtures in this suite. -/
+private def nineRowSkeleton
+    (base : Array RequirementRequestV1)
+    (evmSupported : Array RequirementRequestV1) :
+    Array StaticRequirementSupportRowV1 :=
+  tenRowSkeleton base evmSupported
 
 private def testIndexValidationNegatives : IO Unit := do
   let trio ← s2Trio
@@ -446,9 +455,9 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .openvm CodegenProfileId.evmYulSolc0834V1 trio
   ]
-  -- Size-extra first (10 rows vs expected 9):
+  -- Size-extra first (11 rows vs expected 10):
   let extra :=
-    (nineRowSkeleton trio trio).push
+    (tenRowSkeleton trio trio).push
       (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)
   expectErrorCode (createStaticRequirementSupportIndexV1 extra)
     "PF-REGISTRY-INVALID" "extra design-only row"
@@ -573,7 +582,8 @@ private def testRequestInspectionErrors : IO Unit := do
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"zero reqs should succeed: {e.render}"
   -- Full S2 catalog succeeds against all-capable Noir and EVM (AddressBearing).
-  let noirSupported ← match rows[4]? with
+  -- Row order: aleo=0, cosmwasm=1, evm-cancun=2, evm-legacy=3, near=4, noir=5, …
+  let noirSupported ← match rows[5]? with
     | some row => pure row.supported
     | none => throw <| IO.userError "missing noir support row"
   match inspectResolveRequestsV1 noirSupported { items := trio } with
@@ -581,7 +591,7 @@ private def testRequestInspectionErrors : IO Unit := do
   | .error e => throw <| IO.userError s!"full trio on noir should succeed: {e.render}"
   let evmSupported ← match rows[2]? with
     | some row => pure row.supported
-    | none => throw <| IO.userError "missing evm support row"
+    | none => throw <| IO.userError "missing evm cancun support row"
   match inspectResolveRequestsV1 evmSupported { items := trio } with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"full trio on evm should succeed: {e.render}"

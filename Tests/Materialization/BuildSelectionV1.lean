@@ -192,6 +192,9 @@ private def testGrammar : IO Unit := do
   expectParseNetwork "Main" false
   expect (CodegenProfileId.evmYulSolc0834V1 == (← parseProfile "evm-yul-solc-0.8.34-v1"))
     "well-known evm profile constant"
+  expect (CodegenProfileId.evmYulSolc0834CancunV1 ==
+      (← parseProfile "evm-yul-solc-0.8.34-cancun-v1"))
+    "well-known evm cancun profile constant"
   expect (CodegenProfileId.solanaSbpfPlanV1 == (← parseProfile "solana-sbpf-plan-v1"))
     "well-known solana plan profile constant"
   expect (CodegenProfileId.solanaSbpfElfV1 == (← parseProfile "solana-sbpf-elf-v1"))
@@ -417,6 +420,12 @@ private def testResolve : IO ResolvedBuildSelectionV1 := do
   let evmExplicit ← liftResult <| resolveBuildSelectionV1 TargetId.evm
     (some CodegenProfileId.evmYulSolc0834V1)
   expect (evmExplicit.codegenProfile == evmDefault.codegenProfile) "explicit default member"
+  let evmCancun ← liftResult <| resolveBuildSelectionV1 TargetId.evm
+    (some CodegenProfileId.evmYulSolc0834CancunV1)
+  expect (evmCancun.codegenProfile == CodegenProfileId.evmYulSolc0834CancunV1)
+    "explicit cancun profile resolves"
+  expect (evmCancun.codegenProfile != evmDefault.codegenProfile)
+    "cancun profile is not the default"
   expect (TargetId.parse? "EVM").isNone "target lookup is case-sensitive at parse"
   let ghost ← match TargetId.parse? "ghost-target" with
     | some id => pure id

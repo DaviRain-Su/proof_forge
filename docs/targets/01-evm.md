@@ -29,8 +29,12 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 - Yul + digest-pinned `solc` bytecode；**EvmSolc** `solc --strict-assembly` 验收门（工具缺席干净跳过）；
 - engineering planDigest 可绑 BuildIdentity/OutputSet；G4 `evm_anvil_differential.sh` 从产品 CLI
   制品运行 Counter/Accumulator/ArithOps/EventFlow，固定 overflow state-hold 与 emit 日志。
+- **双 profile（EVMOZ-001）**：默认 `evm-yul-solc-0.8.34-v1`（历史 solc 参数，无 ambient
+  `--evm-version`）；显式 `evm-yul-solc-0.8.34-cancun-v1` 在 Finalize 加
+  `solc --evm-version cancun`，runtime 经 `PF_EVM_PROFILE=…cancun-v1` 启动
+  `anvil --hardfork cancun`。两 profile 共用锁定 solc 0.8.34 / Anvil 0.3.0，不升级工具。
 
-**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead（EVM Plan 显式 fail-closed）；Option state 仍 fail-closed（仅作 Map IndexGet 中间值）；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成。
+**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead（EVM Plan 显式 fail-closed）；Option state 仍 fail-closed（仅作 Map IndexGet 中间值）；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合。
 
 ## 1. 身份与来源
 
@@ -78,13 +82,15 @@ Phase-1 当前通用 lowering 切片只接收 verifier-visible `UInt64` 状态�
 还把每个 `stateStore` 与最终 `return` 视为 effect segment sink：该 sink必须消费自上一 store 后产生的
 全部 value definitions，且依赖不得指向旧 segment；dead、reordered、stale 或跨 effect-boundary value
 均 fail closed。该约束是当前 public-UInt64 evaluation-order合同，不应被泛化成完整 CFG lowering语义。
-当前 `evm-yul-solc-0.8.34-v1` profile 在 selector hashing 前只接受 ASCII
+当前 EVM profiles（默认 `evm-yul-solc-0.8.34-v1`，显式
+`evm-yul-solc-0.8.34-cancun-v1`）在 selector hashing 前只接受 ASCII
 `[A-Za-z_][A-Za-z0-9_]*` identifier，byte length 限制为 240，
 program artifact stem 因 `.abi.json` 后缀限制为 231 bytes；state/entry 各 1024、每 callable
 参数 256、body statements 4096、表达式深度 256、整份 Plan nodes 100000。当前 V1 lowering
 对表达式同时计算 SSA dependency depth 与**展开后的树节点数**，因此共享 ValueId 不能把实际
 重复发射成本伪装成较小 DAG；超限不进入 Keccak/Yul lowering。CLI 另对所有 target 的完整
-artifact relative path 强制 240-byte 上限。
+artifact relative path 强制 240-byte 上限。Cancun profile 只改变 solc/Anvil hardfork 引脚，
+不改变 Plan schema 或 identifier 规则。
 
 ## 5. Target IR 与制品
 
