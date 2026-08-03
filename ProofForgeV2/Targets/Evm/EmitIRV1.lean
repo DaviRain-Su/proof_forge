@@ -868,6 +868,28 @@ private def renderMaskedSstore (indent : String) (slot : Nat) (value : String)
     let mask := yulUintMask (byteWidth * 8)
     s!"{indent}sstore({slot}, and({value}, {mask}))\n"
 
+/-- Reserved high memory base for `storeAtomic` leaf spill (B-EVM-MAP-STACK).
+
+    Layout: leaf `i` lands at `base + 32*i` (one EVM word per leaf).
+    Dense Map pilot uses 24 leaves → span `[0x10000, 0x10000 + 24*32) =
+    [0x10000, 0x10300)`. Principal is 9 leaves; Array/Bytes N ≤ product caps.
+
+    Safety (does not overwrite live expression data in this emitter):
+    * ABI / return / event / external-call scratch uses **low** absolute
+      addresses only: `mstore(0, …)`, `mstore(32*i, …)`, `mstore(4+32*i, …)`.
+    * Solidity free-memory pointer slot `0x40` is unused for persistent data
+      by this emitter (no free-mem bump for returns/events/calls).
+    * Spill→sstore finishes before the next statement, so the same base is
+      safely reused across consecutive `storeAtomic` batches and after return
+      to low-address ABI encoding.
+
+    Fixed base (not free-mem alloc): keeps addresses deterministic, avoids
+    free-pointer interaction, and never changes call/return/event ABI layout. -/
+private def storeAtomicSpillBaseV1 : Nat := 0x10000
+
+private def storeAtomicSpillAddrV1 (leafIndex : Nat) : Nat :=
+  storeAtomicSpillBaseV1 + 32 * leafIndex
+
 private def renderStores (indent paramPrefix : String) (stores : Array Store) : String := Id.run do
   let mut output := ""
   let mut next := 0
@@ -926,20 +948,35 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           renderMaskedSstore indent store.slot rendered.value store.byteWidth
         next := rendered.next
     | .storeAtomic operations =>
-        -- Phase 1: evaluate every leaf against the pre-batch storage snapshot.
-        -- Phase 2: sstore all leaves (no re-sload of this batch mid-write).
-        let mut values : Array String := #[]
-        for store in operations do
-          let rendered := renderExpr indent paramPrefix next store.value
-          output := output ++ rendered.code
-          values := values.push rendered.value
-          next := rendered.next
+        -- B-EVM-MAP-STACK / B-MAP-STRUCT-PIN:
+        -- Phase 1 (compute + spill): each leaf `renderExpr` runs in its own
+        -- nested Yul block, then immediately `mstore`s to the reserved high
+        -- spill region. Block exit releases intermediate `let`s so solc does
+        -- not keep 24 dense-Map leaf DAGs live on the stack (StackTooDeep).
+        -- All leaves still evaluate against the same pre-batch storage
+        -- snapshot — no `sstore` of this batch has run yet.
+        -- Phase 2 (commit): contiguous `sstore(slot, mload(spill))` with no
+        -- mid-batch `sload`. Distinct `storeAtomic` statements remain ordered
+        -- (later batches re-sload and observe earlier writes).
+        let nested := indent ++ "  "
         for i in [0:operations.size] do
-          match operations[i]?, values[i]? with
-          | some store, some v =>
+          match operations[i]? with
+          | none => pure ()
+          | some store =>
+              let rendered := renderExpr nested paramPrefix next store.value
+              let addr := storeAtomicSpillAddrV1 i
+              output := output ++ s!"{indent}\{\n" ++
+                rendered.code ++
+                s!"{nested}mstore({addr}, {rendered.value})\n" ++
+                s!"{indent}}\n"
+              next := rendered.next
+        for i in [0:operations.size] do
+          match operations[i]? with
+          | none => pure ()
+          | some store =>
+              let loaded := s!"mload({storeAtomicSpillAddrV1 i})"
               output := output ++
-                renderMaskedSstore indent store.slot v store.byteWidth
-          | _, _ => pure ()
+                renderMaskedSstore indent store.slot loaded store.byteWidth
     | .assert condition =>
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code ++

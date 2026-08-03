@@ -76,7 +76,8 @@ private unsafe def materializeYul
     s!"{label}: Yul must start with top-level object"
   pure (yulFile.contents, expectedYulPath)
 
-/-- Run `solc --strict-assembly --bin <file>` in `cwd`; fail closed on error. -/
+/-- Run `solc --strict-assembly --bin <file>` in `cwd`; fail closed on error.
+    B-EVM-MAP-STACK: stderr must never report StackTooDeep (dense Map/Token). -/
 private def runSolc (solc : String) (cwd : FilePath) (yulFileName : String)
     (label : String) : IO Unit := do
   let process ← IO.Process.output {
@@ -84,6 +85,9 @@ private def runSolc (solc : String) (cwd : FilePath) (yulFileName : String)
     args := #["--strict-assembly", "--bin", yulFileName]
     cwd := some cwd
   }
+  let combined := process.stdout ++ "\n" ++ process.stderr
+  expect (!combined.contains "StackTooDeep" && !combined.contains "Stack too deep")
+    s!"{label}: solc reported StackTooDeep (B-EVM-MAP-STACK regression)\n{combined}"
   unless process.exitCode == 0 do
     throw <| IO.userError
       (label ++ ": solc --strict-assembly --bin failed (exit " ++
@@ -185,6 +189,16 @@ private def strBoxSourceText : String :=
   "  view get() : UInt64 do\n" ++
   "    return pad\n"
 
+/-- B-EVM-MAP-STACK: shipped Token dense Map must pass locked solc without
+    StackTooDeep (24-leaf storeAtomic spill). Reads `Examples/Token.lean`. -/
+private unsafe def acceptShippedToken
+    (solc : String) (tmp : FilePath) : IO Unit := do
+  let path := FilePath.mk "Examples/Token.lean"
+  unless ← path.pathExists do
+    throw <| IO.userError "Examples/Token.lean missing (B-EVM-MAP-STACK vector)"
+  let text ← IO.FS.readFile path
+  acceptProgram solc tmp "Token" text "Examples.Token" "Token.yul"
+
 /-- Suite entry. Skips cleanly when solc is unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.EvmSolcAcceptance: start"
@@ -211,6 +225,8 @@ unsafe def run : IO Unit := do
           strBoxSourceText "Tests.EvmSolc.StrBox" "StrBox.yul"
         acceptProgram solc tmp "LoopSum"
           loopSumSourceText "Tests.EvmSolc.LoopSum" "LoopSum.yul"
+        -- Dense Map 24-leaf storeAtomic: spill must keep solc stack depth finite.
+        acceptShippedToken solc tmp
         IO.println "Tests.Materialization.EvmSolcAcceptance: ok"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp
