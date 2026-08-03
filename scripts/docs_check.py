@@ -79,6 +79,21 @@ INLINE_LINK_RE = re.compile(r"(!?)\[[^\]]*\]\(([^)]+)\)")
 MAX_JSON_NESTING = 256
 MAX_LINK_TARGET_LENGTH = 2048
 MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
+SOLANA_CPI_ADR_ID = "ADR-0024"
+SOLANA_CPI_FROZEN_PAYLOADS = (
+    (
+        "docs/specs/solana-cpi-extension-v1.json",
+        b"pf.extension-semantics.v1\x00",
+    ),
+    (
+        "docs/specs/solana-cpi-callee-catalog-v1.json",
+        b"pf.solana.callee-catalog.v1\x00",
+    ),
+    (
+        "docs/specs/solana-cpi-profile-v1.json",
+        b"pf.solana.cpi-profile.v1\x00",
+    ),
+)
 UNRESOLVED_MARKER_RE = re.compile(
     r"\b(?:TODO|TBD)\b|待补充|待决定|待锁",
     re.IGNORECASE,
@@ -695,6 +710,312 @@ def load_json(root: Path, path: Path) -> Any:
     except (OSError, UnicodeError, json.JSONDecodeError, NonStandardJsonConstant,
             RecursionError, MemoryError, OverflowError) as error:
         raise_error("PF-DOC-JSON", rel, str(error))
+
+
+def _validate_sol_cpi_jcs_value(value: Any, path: str) -> None:
+    """Restrict frozen contract payloads to deterministic I-JSON scalars."""
+    if value is None or type(value) is bool or type(value) is str:
+        return
+    if type(value) is int:
+        if value < -(2**53 - 1) or value > 2**53 - 1:
+            raise_error(
+                "PF-DOC-SOLANA-CPI-CONTRACT", path,
+                "integer is outside the interoperable JCS range")
+        return
+    if type(value) is list:
+        for item in value:
+            _validate_sol_cpi_jcs_value(item, path)
+        return
+    if type(value) is dict:
+        for key, item in value.items():
+            if type(key) is not str:
+                raise_error(
+                    "PF-DOC-SOLANA-CPI-CONTRACT", path,
+                    "object key is not a string")
+            _validate_sol_cpi_jcs_value(item, path)
+        return
+    raise_error(
+        "PF-DOC-SOLANA-CPI-CONTRACT", path,
+        f"non-I-JSON scalar {type(value).__name__} is not permitted")
+
+
+def _sol_cpi_canonical_jcs(value: Any, path: str) -> bytes:
+    _validate_sol_cpi_jcs_value(value, path)
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8", errors="strict")
+    except (UnicodeError, ValueError, TypeError, RecursionError, MemoryError) as error:
+        raise_error("PF-DOC-SOLANA-CPI-CONTRACT", path, str(error))
+
+
+def _expect_sol_cpi(condition: bool, path: str, detail: str) -> None:
+    if not condition:
+        raise_error("PF-DOC-SOLANA-CPI-CONTRACT", path, detail)
+
+
+def _sol_cpi_adr_digest_pair(
+        adr: Document, filename: str) -> tuple[str, str]:
+    pattern = re.compile(
+        rf"^\|\s*\[[^]]+\]\([^)]*{re.escape(filename)}\)\s*\|\s*"
+        rf"`([0-9a-f]{{64}})`\s*\|\s*`sha256:([0-9a-f]{{64}})`\s*\|$",
+        re.MULTILINE,
+    )
+    matches = pattern.findall(adr.text)
+    _expect_sol_cpi(
+        len(matches) == 1, adr.relative,
+        f"expected exactly one digest-table row for {filename}")
+    return matches[0]
+
+
+def validate_sol_cpi_contract(
+        root: Path,
+        json_values: dict[str, Any],
+        by_id: dict[str, Document],
+) -> None:
+    """Validate ADR-0024's canonical payloads and critical closed joins."""
+    adr = by_id.get(SOLANA_CPI_ADR_ID)
+    _expect_sol_cpi(adr is not None, "docs/adr", "ADR-0024 is missing")
+    assert adr is not None
+
+    payloads: dict[str, Any] = {}
+    domain_digests: dict[str, str] = {}
+    for relative_path, domain in SOLANA_CPI_FROZEN_PAYLOADS:
+        value = json_values.get(relative_path)
+        _expect_sol_cpi(value is not None, relative_path, "frozen payload is missing")
+        raw = read_repository_regular_bytes(root, root / relative_path, relative_path)
+        canonical = _sol_cpi_canonical_jcs(value, relative_path)
+        _expect_sol_cpi(
+            raw == canonical, relative_path,
+            "payload is not exact canonical JCS or has a BOM/trailing newline")
+        raw_digest = hashlib.sha256(raw).hexdigest()
+        domain_digest = hashlib.sha256(domain + raw).hexdigest()
+        expected_raw, expected_domain = _sol_cpi_adr_digest_pair(
+            adr, Path(relative_path).name)
+        _expect_sol_cpi(
+            raw_digest == expected_raw, relative_path,
+            f"raw SHA-256 {raw_digest} does not match ADR-0024")
+        _expect_sol_cpi(
+            domain_digest == expected_domain, relative_path,
+            f"domain digest {domain_digest} does not match ADR-0024")
+        payloads[relative_path] = value
+        domain_digests[relative_path] = f"sha256:{domain_digest}"
+
+    extension_path = "docs/specs/solana-cpi-extension-v1.json"
+    catalog_path = "docs/specs/solana-cpi-callee-catalog-v1.json"
+    profile_path = "docs/specs/solana-cpi-profile-v1.json"
+    extension = payloads[extension_path]
+    catalog = payloads[catalog_path]
+    profile = payloads[profile_path]
+    _expect_sol_cpi(type(extension) is dict, extension_path, "root must be an object")
+    _expect_sol_cpi(type(catalog) is dict, catalog_path, "root must be an object")
+    _expect_sol_cpi(type(profile) is dict, profile_path, "root must be an object")
+
+    extension_digest = domain_digests[extension_path]
+    _expect_sol_cpi(
+        extension.get("schema") == "proof-forge.solana.cpi-extension.v1"
+        and extension.get("extensionId") == "solana.cpi.accounts"
+        and extension.get("profileId") == "solana-sbpf-cpi-elf-v1"
+        and extension.get("version") == "1.0.0",
+        extension_path, "extension root identity is not exact")
+    requirement = extension.get("requirementContract")
+    _expect_sol_cpi(
+        type(requirement) is dict
+        and requirement.get("id") == "extension.solana-cpi-accounts"
+        and requirement.get("version") == "1.0.0"
+        and requirement.get("predicates") == []
+        and requirement.get("digestDomain") == "pf.extension-semantics.v1",
+        extension_path, "extension requirement contract is not exact")
+
+    profile_requirement = profile.get("extensionRequirement")
+    _expect_sol_cpi(
+        profile.get("schema") == "proof-forge.solana.cpi-profile.v1"
+        and profile.get("profileId") == "solana-sbpf-cpi-elf-v1"
+        and type(profile_requirement) is dict
+        and profile_requirement == {
+            "digest": extension_digest,
+            "id": "extension.solana-cpi-accounts",
+            "predicates": [],
+            "version": "1.0.0",
+        },
+        profile_path, "profile does not bind the exact extension requirement")
+    catalog_ref = profile.get("calleeCatalog")
+    _expect_sol_cpi(
+        type(catalog_ref) is dict
+        and catalog_ref.get("schema") == "proof-forge.solana.callee-catalog.v1"
+        and catalog_ref.get("version") == "1.0.0"
+        and catalog_ref.get("digestDomain") == "pf.solana.callee-catalog.v1",
+        profile_path, "profile callee-catalog contract is not exact")
+    _expect_sol_cpi(
+        profile.get("runtimeCompatibility") == catalog.get("runtime"),
+        profile_path, "profile runtimeCompatibility differs from the catalog runtime")
+
+    packages = catalog.get("packages")
+    _expect_sol_cpi(type(packages) is list, catalog_path, "packages must be an array")
+    package_by_id: dict[str, dict[str, Any]] = {}
+    for package in packages:
+        _expect_sol_cpi(type(package) is dict, catalog_path, "package row must be an object")
+        package_id = package.get("packageId")
+        _expect_sol_cpi(
+            type(package_id) is str and package_id not in package_by_id,
+            catalog_path, "package IDs must be unique strings")
+        program_id = package.get("programIdHex")
+        _expect_sol_cpi(
+            type(program_id) is str
+            and re.fullmatch(r"[0-9a-f]{64}", program_id) is not None,
+            catalog_path, f"package {package_id} has an invalid raw program ID")
+        binding = package.get("artifactBinding")
+        admitted = package.get("admittedForMaterialization")
+        _expect_sol_cpi(
+            type(admitted) is bool and type(binding) is dict,
+            catalog_path, f"package {package_id} has an invalid admission row")
+        _expect_sol_cpi(
+            not admitted or binding.get("kind") != "absent",
+            catalog_path, f"package {package_id} admits an absent artifact")
+        _expect_sol_cpi(
+            binding.get("kind") != "absent" or admitted is False,
+            catalog_path, f"package {package_id} leaves an absent artifact admitted")
+        package_by_id[package_id] = package
+
+    _expect_sol_cpi(
+        set(package_by_id) == {
+            "companion-v1", "system-v1", "token-classic-v1", "ata-classic-v1"
+        },
+        catalog_path, "callee package set is not the frozen v1 set")
+    companion_interface = package_by_id["companion-v1"].get("interfaceBinding")
+    _expect_sol_cpi(
+        type(companion_interface) is dict
+        and companion_interface.get("extensionDigest") == extension_digest,
+        catalog_path, "companion package does not bind the extension digest")
+
+    account_abi = extension.get("accountAbi")
+    cpi_contract = extension.get("cpiContract")
+    _expect_sol_cpi(
+        type(account_abi) is dict
+        and account_abi.get("accountDataDirectMapping") is True
+        and account_abi.get("directAccountPointersInProgramInput") is True
+        and account_abi.get("virtualAddressSpaceAdjustments") is True,
+        extension_path, "ABIv1 direct-mapping feature triple is not exact")
+    syscall = cpi_contract.get("syscall") if type(cpi_contract) is dict else None
+    layouts = syscall.get("layouts") if type(syscall) is dict else None
+    _expect_sol_cpi(
+        type(syscall) is dict
+        and syscall.get("symbol") == "sol_invoke_signed_c"
+        and type(layouts) is dict
+        and layouts.get("SolInstruction", {}).get("size") == 40
+        and layouts.get("SolAccountMeta", {}).get("size") == 16
+        and layouts.get("SolAccountInfo", {}).get("size") == 56
+        and layouts.get("SolSignerSeed", {}).get("size") == 16
+        and layouts.get("SolSignerSeeds", {}).get("size") == 16,
+        extension_path, "C CPI ABI layouts are not exact")
+
+    bump = extension.get("bumpContract")
+    canonical_search = bump.get("canonicalSearch") if type(bump) is dict else None
+    _expect_sol_cpi(
+        type(canonical_search) is dict
+        and canonical_search.get("first") == 255
+        and canonical_search.get("last") == 1
+        and canonical_search.get("attempts") == 255
+        and bump.get("explicitNonCanonicalBump") == "unsupported-including-bump-zero",
+        extension_path, "canonical bump contract is not exact 255 through 1")
+
+    apis = extension.get("apis")
+    _expect_sol_cpi(type(apis) is list, extension_path, "apis must be an array")
+    expected_qns = [
+        "solana.companion.invoke",
+        "solana.companion.fail",
+        "solana.companion.invokeSigned",
+        "solana.system.transfer",
+        "solana.system.createPdaAccount",
+        "solana.token.transferChecked",
+        "solana.token.transferCheckedPda",
+        "solana.ata.createIdempotent",
+    ]
+    _expect_sol_cpi(
+        [api.get("qn") for api in apis if type(api) is dict] == expected_qns,
+        extension_path, "API QN order/set is not the frozen v1 surface")
+
+    for api in apis:
+        qn = api.get("qn")
+        args = api.get("args")
+        metas = api.get("metas")
+        outer_only = api.get("outerOnlyAccounts")
+        groups = api.get("signerGroups")
+        codec = api.get("instructionCodec")
+        _expect_sol_cpi(
+            type(args) is list and type(metas) is list
+            and type(outer_only) is list and type(groups) is list
+            and all(type(item) is dict for item in args)
+            and all(type(item) is dict for item in metas)
+            and all(type(item) is dict for item in outer_only)
+            and all(type(item) is dict for item in groups)
+            and len(metas) <= 16 and len(groups) <= 4
+            and type(codec) is dict and type(codec.get("length")) is int
+            and type(codec.get("segments")) is list,
+            extension_path, f"API {qn} has an incomplete digest-bound contract")
+        arg_names = [item.get("name") for item in args if type(item) is dict]
+        _expect_sol_cpi(
+            len(arg_names) == len(args) and len(set(arg_names)) == len(arg_names),
+            extension_path, f"API {qn} has duplicate or malformed args")
+        account_args = {
+            item["name"] for item in args
+            if item.get("source") == "bare-direct-public-principal-parameter"
+        }
+        bound_arg_list = (
+            [item.get("arg") for item in metas if "arg" in item]
+            + [item.get("arg") for item in outer_only]
+        )
+        bound_args = set(bound_arg_list)
+        _expect_sol_cpi(
+            account_args == bound_args
+            and len(bound_arg_list) == len(account_args),
+            extension_path, f"API {qn} does not bind every account Principal exactly once")
+        fixed_program = api.get("fixedProgram")
+        callee_role = api.get("calleeRole")
+        _expect_sol_cpi(
+            fixed_program in package_by_id
+            and type(callee_role) is dict
+            and callee_role.get("fixedProgram") == fixed_program,
+            extension_path, f"API {qn} has a malformed callee role")
+        group_ids = [item.get("id") for item in groups if type(item) is dict]
+        _expect_sol_cpi(
+            group_ids == list(range(len(groups))),
+            extension_path, f"API {qn} signer group IDs are not dense")
+        group_by_id = {item["id"]: item for item in groups}
+        used_groups: set[int] = set()
+        for item in metas:
+            fixed_meta = item.get("fixedProgram")
+            if fixed_meta is not None:
+                _expect_sol_cpi(
+                    fixed_meta in package_by_id,
+                    extension_path, f"API {qn} references unknown fixed meta package")
+            group_id = item.get("signerGroupId")
+            if group_id is not None:
+                _expect_sol_cpi(
+                    group_id in group_by_id
+                    and item.get("arg") == group_by_id[group_id].get("metaArg")
+                    and item.get("cpiSigner") is True
+                    and item.get("outerSignerContribution") is False,
+                    extension_path, f"API {qn} has a malformed PDA signer group join")
+                used_groups.add(group_id)
+            if item.get("cpiSigner") is True:
+                _expect_sol_cpi(
+                    item.get("outerSignerContribution") is True or group_id is not None,
+                    extension_path, f"API {qn} has an unbacked CPI signer")
+        _expect_sol_cpi(
+            used_groups == set(group_by_id),
+            extension_path, f"API {qn} has an unused signer group")
+
+    ata = apis[-1]
+    _expect_sol_cpi(
+        len(ata["metas"]) == 6
+        and ata["metas"][4].get("fixedProgram") == "system-v1"
+        and ata["metas"][5].get("fixedProgram") == "token-classic-v1",
+        extension_path, "ATA CreateIdempotent must carry System and Token metas 5/6")
 
 
 def clean_cell(cell: str) -> str:
@@ -3792,6 +4113,7 @@ def check(root: Path, profile: str = "development") -> None:
         by_id.setdefault(meta["id"], document)
         documents.append(document)
 
+    validate_sol_cpi_contract(root, json_values, by_id)
     check_links(root, docs_root, documents, by_id)
 
 
