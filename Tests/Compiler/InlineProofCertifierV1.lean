@@ -7,14 +7,17 @@
     * wrong subject bytes (mixed compile carrier) → subject failure
     * forged empty inventory with proof items → obligation failure (not noProof)
     * dual-invariant forged partial/reorder inventories fail closed
-    * raw same-file simple-closure positive (planned author theorem name
-      `<Program>.Proof.simpleClosure_invariantTheorem`):
+    * raw same-file simple-closure product-positive (strict; red until production
+      closes generated helper + encode/decode):
+        - inventory author theorem is ordinary adjacent `SimpleProof.safe`
+        - body `exact <Program>.Proof.simpleClosure_invariantTheorem` (generated
+          helper name — never redeclared as the inventory theorem)
         - Loader → compileProgramProductV1 → certifyInlineProofV1
-        - expects `.certified`, theoremCount=1, nonempty proofCertificationDigest
-        - theorem-body-only rewrite keeps sourceDigest/semanticDigest, may
-          change proofCertificationDigest when certification succeeds
-      If production B-SC-ENC/DEC/ELAB-THM is still open, the suite records a
-      single EXPECTED-RED and continues without forging CertifiedInlineProofV1.
+        - requires `.certified`, theoremCount=1, present proofCertificationDigest
+        - alternate allowlisted body (`apply` vs `exact` on the same helper)
+          keeps source/semantic digests equal and **must** change
+          proofCertificationDigest (raw source is in the certification request)
+      This suite hard-fails on missing `.certified` (isolation red-test branch).
       Never uses Tests.Semantic.ProofedClosedCertV1 or hand-minted carriers.
 
   Fixture programs:
@@ -89,42 +92,33 @@ private def falseTheoremBody (theoremName typeName : String) : String :=
   "theorem " ++ theoremName ++ " : " ++ typeName ++ " := by\n" ++
   "  rfl\n"
 
-/-- Literal-true simple-closure family (Normalize/subject match for B-SC).
-    Author theorem uses the planned product name
-    `<Program>.Proof.simpleClosure_invariantTheorem`. Body applies the
-    production encode/decode soundness surface; residual subgoals are the
-    open B-SC-ENC/DEC discharge (not a forged success). -/
+/-- Literal-true simple-closure family. Inventory author theorem is ordinary
+    adjacent `SimpleProof.safe` (not the generated helper name). The body
+    `exact`s planned generated helper `<Program>.Proof.simpleClosure_invariantTheorem`. -/
 private def simpleClosureProgram
-    (programName : String) (theoremBody : String) : String :=
+    (programName authorTheorem theoremBody : String) : String :=
   header ++
   "program " ++ programName ++ " where\n" ++
   "  view alive() : Bool do\n" ++
   "    return true\n" ++
   "  invariant safe : true\n" ++
-  "  proof safe using " ++ programName ++
-    ".Proof.simpleClosure_invariantTheorem\n" ++
+  "  proof safe using " ++ authorTheorem ++ "\n" ++
   theoremBody
 
-/-- Planned author theorem body: production soundness apply, allowlisted
-    tactics only. Incomplete residual goals ⇒ elaboration fail closed until
-    B-SC-ENC/DEC (or generated theorem mint) closes. -/
-private def plannedSimpleClosureTheoremBody (programName : String) : String :=
-  "theorem " ++ programName ++
-    ".Proof.simpleClosure_invariantTheorem : " ++ programName ++
+/-- Primary author body: exact the planned generated helper (allowlisted). -/
+private def simpleClosureAuthorBodyExact
+    (authorTheorem programName : String) : String :=
+  "theorem " ++ authorTheorem ++ " : " ++ programName ++
     ".Proof.safe := by\n" ++
-  "  apply ProofForgeV2.Semantic.SimpleClosureDecodeV1." ++
-    "invariantTheorem_of_simpleClosure_encode_decode\n" ++
-  "  exact " ++ programName ++ ".Proof.simpleClosureParamsV1\n"
+  "  exact " ++ programName ++ ".Proof.simpleClosure_invariantTheorem\n"
 
-/-- Adjacent theorem body rewrite only (same program items / proof binding). -/
-private def plannedSimpleClosureTheoremBodyAlt (programName : String) : String :=
-  "theorem " ++ programName ++
-    ".Proof.simpleClosure_invariantTheorem : " ++ programName ++
+/-- Alternate allowlisted body with distinct raw source (not comment-only).
+    `simpa` / `simp only [lemma]` emit disallowed simpLemma syntax; use `apply`. -/
+private def simpleClosureAuthorBodyApply
+    (authorTheorem programName : String) : String :=
+  "theorem " ++ authorTheorem ++ " : " ++ programName ++
     ".Proof.safe := by\n" ++
-  "  apply ProofForgeV2.Semantic.SimpleClosureDecodeV1." ++
-    "invariantTheorem_of_simpleClosure_encode_decode\n" ++
-  "  exact " ++ programName ++ ".Proof.simpleClosureParamsV1\n" ++
-  "  -- body-only delta (comment) for raw-source certification digest binding\n"
+  "  apply " ++ programName ++ ".Proof.simpleClosure_invariantTheorem\n"
 
 private def parsePath (s : String) : IO ProjectRelativePath :=
   match parseProjectRelativePath s with
@@ -316,16 +310,19 @@ private def expectCertifiedCarrier
   expect ((CertifiedInlineProofV1.audited c).size == 1)
     s!"{label}: audited theorem set size must be 1"
 
-/-- (1) Loader → compile → certify simple-closure with planned theorem name.
-    (3) Adjacent theorem body rewrite keeps source/semantic digests.
-    Never hand-mints CertifiedInlineProofV1 / ProductProofStatusV1. -/
+/-- (1) Loader → compile → certify simple-closure with ordinary author theorem
+    that `exact`s planned generated helper `Simple.Proof.simpleClosure_invariantTheorem`.
+    (3) Alternate allowlisted body keeps source/semantic digests and **must**
+    change proofCertificationDigest (request binds raw source).
+    Hard-fails unless both outcomes are `.certified`. Never hand-mints carriers. -/
 private unsafe def testSimpleClosureProductPositive
     (session : ParserSession) : IO Unit := do
   let programName := "Simple"
-  let bodyA := plannedSimpleClosureTheoremBody programName
-  let bodyB := plannedSimpleClosureTheoremBodyAlt programName
-  let srcA := simpleClosureProgram programName bodyA
-  let srcB := simpleClosureProgram programName bodyB
+  let authorTheorem := "SimpleProof.safe"
+  let bodyA := simpleClosureAuthorBodyExact authorTheorem programName
+  let bodyB := simpleClosureAuthorBodyApply authorTheorem programName
+  let srcA := simpleClosureProgram programName authorTheorem bodyA
+  let srcB := simpleClosureProgram programName authorTheorem bodyB
   expect (srcA != srcB) "theorem-body rewrite must change raw source"
   let pathA ← parsePath "tests/inline-proof/simple-closure-a.pf"
   let pathB ← parsePath "tests/inline-proof/simple-closure-b.pf"
@@ -333,16 +330,19 @@ private unsafe def testSimpleClosureProductPositive
       "tests/inline-proof/simple-closure-a.pf" "Root"
   let (sourceB, originB, thmInvB) ← loadProduct session srcB
       "tests/inline-proof/simple-closure-b.pf" "Root"
-  -- Inventory: planned author theorem FQN + Prop alias type components.
+  -- Inventory: ordinary adjacent author theorem + Prop alias type components.
   let bindingsA := theoremInventoryBindingsV1 thmInvA
   expect (bindingsA.size == 1) "simple-closure inventory size"
   let b0 := bindingsA[0]!
   expect (b0.invariantName == "safe") "simple-closure invariant name"
-  expect (b0.theoremComponents ==
-      #[programName, "Proof", "simpleClosure_invariantTheorem"])
-    s!"planned theorem components: {b0.theoremComponents}"
+  expect (b0.theoremComponents == #["SimpleProof", "safe"])
+    s!"author theorem components: {b0.theoremComponents}"
   expect (b0.typeComponents == #[programName, "Proof", "safe"])
-    s!"planned type components: {b0.typeComponents}"
+    s!"type components: {b0.typeComponents}"
+  -- Author theorem must not collide with generated helper name components.
+  expect (b0.theoremComponents !=
+      #[programName, "Proof", "simpleClosure_invariantTheorem"])
+    "inventory author theorem must not redeclare generated helper name"
   expect ((theoremInventoryBindingsV1 thmInvB).size == 1)
     "alt body inventory size"
   -- Product compile (structure-gated Normalize) for both sources.
@@ -352,7 +352,7 @@ private unsafe def testSimpleClosureProductPositive
   let srcDigB := CompiledSemanticV1.sourceDigestOf compiledB
   let semDigA := CompiledSemanticV1.semanticDigestOf compiledA
   let semDigB := CompiledSemanticV1.semanticDigestOf compiledB
-  -- (3) ProgramV1 / semantic identity ignore adjacent theorem body.
+  -- (3 partial) ProgramV1 / semantic identity ignore adjacent theorem body.
   expect (srcDigA == srcDigB)
     "sourceDigest must be independent of adjacent theorem body"
   expect (semDigA == semDigB)
@@ -365,44 +365,37 @@ private unsafe def testSimpleClosureProductPositive
       pathA "Root" none
   let outcomeB ← certifyInlineProofV1 srcB sourceB originB thmInvB compiledB
       pathB "Root" none
-  -- Never accept noProof for a nonempty proof surface.
-  match outcomeA with
-  | .noProof =>
-      throw <| IO.userError
-        "simple-closure with proof items must not return noProof"
-  | .certified cA =>
-      expectCertifiedCarrier "simple-closure-A" cA
-      match outcomeB with
-      | .certified cB =>
-          expectCertifiedCarrier "simple-closure-B" cB
-          -- proofCertificationDigest binds raw source; body rewrite may change it.
-          let digA := CertifiedInlineProofV1.proofCertificationDigest cA
-          let digB := CertifiedInlineProofV1.proofCertificationDigest cB
-          expect (digestPresent digA && digestPresent digB)
-            "both certification digests present"
-          -- Digests may be equal only if protocol ignores body; either is honest
-          -- as long as source/semantic stayed equal (asserted above).
-          pure ()
-      | .noProof =>
-          throw <| IO.userError "alt body must not return noProof"
-      | .failed phase detail =>
-          throw <| IO.userError
-            s!"simple-closure-A certified but B failed: {repr phase}/{repr detail}"
-      IO.println
-        "Tests.Compiler.InlineProofCertifierV1: simple-closure product-positive CERTIFIED"
-  | .failed phase detail =>
-      -- Unique expected-red until B-SC-ENC/DEC + author/elab theorem closes.
-      -- Do not forge CertifiedInlineProofV1. Structural preconditions above
-      -- already passed (load/compile/inventory/hash independence).
-      expect (phase == .certification || phase == .subject)
-        s!"unexpected failure phase for simple-closure: {repr phase}/{repr detail}"
-      IO.println
-        ("EXPECTED-RED B-SC-PRODUCT: certifyInlineProofV1 failed " ++
-          s!"phase={repr phase} detail={repr detail}; " ++
-          "planned theorem Simple.Proof.simpleClosure_invariantTheorem; " ++
-          "requires unconditional encode/decode (or generated theorem mint) " ++
-          "to close InvariantTheoremV1 on raw same-file simple-closure. " ++
-          "Never forged certified. sourceDigest/semanticDigest hash independence OK.")
+  -- Strict product-positive: require `.certified` on both bodies.
+  let cA ← match outcomeA with
+    | .certified c => pure c
+    | .noProof =>
+        throw <| IO.userError
+          "simple-closure with proof items must not return noProof"
+    | .failed phase detail =>
+        throw <| IO.userError
+          ("simple-closure product-positive requires .certified; got failed " ++
+            s!"phase={repr phase} detail={repr detail} " ++
+            "(author SimpleProof.safe exacts generated " ++
+            "Simple.Proof.simpleClosure_invariantTheorem)")
+  expectCertifiedCarrier "simple-closure-A" cA
+  let cB ← match outcomeB with
+    | .certified c => pure c
+    | .noProof =>
+        throw <| IO.userError "alt body must not return noProof"
+    | .failed phase detail =>
+        throw <| IO.userError
+          ("simple-closure alt body requires .certified; got failed " ++
+            s!"phase={repr phase} detail={repr detail}")
+  expectCertifiedCarrier "simple-closure-B" cB
+  -- proofCertificationDigest binds raw source → body rewrite must change it.
+  let digA := CertifiedInlineProofV1.proofCertificationDigest cA
+  let digB := CertifiedInlineProofV1.proofCertificationDigest cB
+  expect (digestPresent digA && digestPresent digB)
+    "both certification digests present"
+  expect (digA != digB)
+    "proofCertificationDigest must change when adjacent theorem body changes"
+  IO.println
+    "Tests.Compiler.InlineProofCertifierV1: simple-closure product-positive CERTIFIED"
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared

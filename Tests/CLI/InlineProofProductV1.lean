@@ -8,17 +8,19 @@
       zero output directory (certifier before TargetRegistry resolve/materialize)
     * false theorem + valid target on build: fails before staging, no output
     * legacy `--proof-bundle*` flags remain unknown options
-    * raw same-file simple-closure positive (planned
-      `<Program>.Proof.simpleClosure_invariantTheorem`):
+    * raw same-file simple-closure product-positive (strict red until production
+      mints generated helper + closes encode/decode):
+        author inventory theorem is ordinary `SimpleProof.safe`; body exacts
+        generated `<Program>.Proof.simpleClosure_invariantTheorem` (never
+        redeclared as the inventory theorem)
         (2) CLI check human+JSON → certified, count=1, nonempty digest
-        (3) theorem-body-only rewrite: source/semantic digests stable; cert digest
-            may change (binds raw source)
+        (3) alternate allowlisted body (`apply` vs `exact`): source/semantic digests
+            stable; proofCertificationDigest **must** change (raw source bound)
         (4) certified then unknown target → unknown target, zero output
         (5) repeat check → same proofCertificationDigest
         (6) certified + legal target → materializer nonempty-invariant fail closed,
             no destination/staging
-      If B-SC-PRODUCT is still open, records a single EXPECTED-RED and skips
-      certified-dependent CLI assertions without forging certified.
+      Hard-fails when check is not certified (isolation red-test branch).
 
   No sorry / axiom / native_decide / unsafe proof escape / forged positive.
   Does not import or proxy Tests.Semantic.ProofedClosedCertV1.
@@ -99,28 +101,32 @@ private def falseTheoremSource : String :=
   "theorem ProofedProof.safe : Proofed.Proof.safe := by\n" ++
   "  rfl\n"
 
-/-- Literal-true simple-closure + planned author theorem name. -/
-private def simpleClosureSource (programName bodyExtra : String) : String :=
+/-- Literal-true simple-closure: ordinary adjacent author theorem + body that
+    exacts planned generated helper (not redeclared under that name). -/
+private def simpleClosureSource
+    (programName authorTheorem bodyExtra : String) : String :=
   fixtureHeader ++
   "program " ++ programName ++ " where\n" ++
   "  view alive() : Bool do\n" ++
   "    return true\n" ++
   "  invariant safe : true\n" ++
-  "  proof safe using " ++ programName ++
-    ".Proof.simpleClosure_invariantTheorem\n" ++
+  "  proof safe using " ++ authorTheorem ++ "\n" ++
   bodyExtra
 
-private def plannedTheoremBody (programName : String) : String :=
-  "theorem " ++ programName ++
-    ".Proof.simpleClosure_invariantTheorem : " ++ programName ++
+/-- Primary author body (allowlisted `exact`). -/
+private def simpleClosureAuthorBodyExact
+    (authorTheorem programName : String) : String :=
+  "theorem " ++ authorTheorem ++ " : " ++ programName ++
     ".Proof.safe := by\n" ++
-  "  apply ProofForgeV2.Semantic.SimpleClosureDecodeV1." ++
-    "invariantTheorem_of_simpleClosure_encode_decode\n" ++
-  "  exact " ++ programName ++ ".Proof.simpleClosureParamsV1\n"
+  "  exact " ++ programName ++ ".Proof.simpleClosure_invariantTheorem\n"
 
-private def plannedTheoremBodyAlt (programName : String) : String :=
-  plannedTheoremBody programName ++
-  "  -- adjacent theorem body delta only\n"
+/-- Alternate allowlisted body with distinct raw source.
+    `simpa` / `simp only [lemma]` emit disallowed simpLemma; use `apply`. -/
+private def simpleClosureAuthorBodyApply
+    (authorTheorem programName : String) : String :=
+  "theorem " ++ authorTheorem ++ " : " ++ programName ++
+    ".Proof.safe := by\n" ++
+  "  apply " ++ programName ++ ".Proof.simpleClosure_invariantTheorem\n"
 
 private def writeFixture (name body : String) : IO FilePath := do
   IO.FS.createDirAll fixtureRoot
@@ -326,12 +332,16 @@ private def testRenderProofStatusFields : IO Unit := do
       expect (hasSubstr text "proofCertificationDigest=sha256:")
         "human cert digest"
 
-/-- (2)(3)(5) simple-closure check positive + hash independence + digest stability.
-    (4) unknown target after certified. (6) materializer FC on nonempty invariant. -/
+/-- (2)(3)(5) simple-closure check positive + hash independence + digest change.
+    (4) unknown target after certified. (6) materializer FC on nonempty invariant.
+    Strict: hard-fails unless check exits 0 with proofStatus=certified. -/
 private def testSimpleClosureProductPositiveCli : IO Unit := do
   let programName := "Simple"
-  let srcA := simpleClosureSource programName (plannedTheoremBody programName)
-  let srcB := simpleClosureSource programName (plannedTheoremBodyAlt programName)
+  let authorTheorem := "SimpleProof.safe"
+  let srcA := simpleClosureSource programName authorTheorem
+    (simpleClosureAuthorBodyExact authorTheorem programName)
+  let srcB := simpleClosureSource programName authorTheorem
+    (simpleClosureAuthorBodyApply authorTheorem programName)
   expect (srcA != srcB) "CLI fixtures must differ only in theorem body"
   let _ ← writeFixture "simple-closure-a.lean" srcA
   let _ ← writeFixture "simple-closure-b.lean" srcB
@@ -339,22 +349,9 @@ private def testSimpleClosureProductPositiveCli : IO Unit := do
   let relB := relativeFixture "simple-closure-b.lean"
 
   let (ecA, stdoutA, stderrA) ← runCli #["check", relA, "--module", "Root"]
-  if ecA != 0 then
-    -- Unique expected-red: product certifier cannot close planned theorem yet.
-    expect (ecA == 3)
-      s!"simple-closure check expected exit 3 while red, got {ecA}\n{stderrA}\n{stdoutA}"
-    expect (hasSubstr stderrA "PF-SRC-INVALID" ||
-        hasSubstr stderrA "inline proof certification failed")
-      s!"EXPECTED-RED must be proof failure, not usage:\n{stderrA}"
-    expect (!hasSubstr stdoutA "proofStatus=certified")
-      "must never print certified on failure"
-    IO.println
-      ("EXPECTED-RED B-SC-PRODUCT: CLI check not certified for " ++
-        "Simple.Proof.simpleClosure_invariantTheorem; " ++
-        s!"exit={ecA}; stderr head records certifier failure. " ++
-        "Skipping certified-dependent CLI coverages (2 full/4/5/6). " ++
-        "No forged certified. Negatives remain authoritative.")
-    return
+  -- Strict product-positive: no soft-green / skip on failure.
+  expect (ecA == 0)
+    s!"simple-closure check must exit 0 certified, got {ecA}\nstderr={stderrA}\nstdout={stdoutA}"
 
   -- (2) human certified
   expect (hasSubstr stdoutA "ok\n") s!"check ok:\n{stdoutA}"
@@ -393,7 +390,7 @@ private def testSimpleClosureProductPositiveCli : IO Unit := do
     | some d => pure d
     | none => throw <| IO.userError s!"json cert digest missing: {stdoutJ}"
 
-  -- (3) theorem-body rewrite: source/semantic stable; cert may change
+  -- (3) theorem-body rewrite: source/semantic stable; cert digest **must** change
   let (ecB, stdoutB, stderrB) ← runCli #[
     "check", relB, "--module", "Root", "--json"
   ]
@@ -412,12 +409,13 @@ private def testSimpleClosureProductPositiveCli : IO Unit := do
     s!"sourceDigest independent of theorem body:\nA={srcDigA}\nB={srcDigB}"
   expect (semDigA == semDigB)
     s!"semanticDigest independent of theorem body:\nA={semDigA}\nB={semDigB}"
-  -- proofCertificationDigest binds raw source (may differ); both nonempty.
   let certDigB ← match jsonStringField? stdoutB "proofCertificationDigest" with
     | some d => pure d
     | none => throw <| IO.userError s!"alt cert digest: {stdoutB}"
   expect (hasSubstr certDigJ "sha256:" && hasSubstr certDigB "sha256:")
     "cert digests must be sha256 wires"
+  expect (certDigJ != certDigB)
+    s!"proofCertificationDigest must change with theorem body:\nA={certDigJ}\nB={certDigB}"
 
   -- (5) repeat check digest stable
   let (ecR, stdoutR, stderrR) ← runCli #[
