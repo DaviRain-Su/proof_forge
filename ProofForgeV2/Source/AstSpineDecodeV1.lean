@@ -31,7 +31,7 @@ private def placeFieldCount (tag : String) : Except String Nat :=
 /-- Closed Expr tag table. Dispatch completes before field-count decoding. -/
 private def exprFieldCount (tag : String) : Except String Nat :=
   match tag with
-  | "Expr.Literal" | "Expr.Place" => pure 1
+  | "Expr.Literal" | "Expr.Place" | "Expr.ExternalCall" => pure 1
   | "Expr.Constructor" | "Expr.Unary" | "Expr.LocalCall" | "Expr.Match" => pure 2
   | "Expr.Binary" => pure 3
   | _ => fail s!"unknown expr tag '{tag}'"
@@ -161,6 +161,9 @@ mutual
               budget := b'
               c := c'
             pure ((.match_ scrut arms, budget), c)
+        | "Expr.ExternalCall" => do
+            let ((call, budget), c) ← decodeExternalCallExprV1 remainingDepth budget c
+            pure ((.externalCall call, budget), c)
         | _ => fail "unreachable expr dispatch"
     termination_by d => d
 

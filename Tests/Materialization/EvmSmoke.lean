@@ -3522,6 +3522,32 @@ private unsafe def testAnonymousOptionUInt64Return : IO Unit := do
   expect (abi.contains "(uint64,uint64)")
     s!"OptionRet ABI must declare tuple (uint64,uint64), got: {abi}"
 
+/-- N-CALL-RET: result-bearing external call stays fail closed on EVM with an
+    explicit pilot message (return-data lowering is a later slice). -/
+private unsafe def testCallReturnEvmFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallRetEvm where\n" ++
+    "  entry probe(k : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := call ledger.get(k)\n" ++
+    "    return x + 1\n"
+  let cSrc ← match ← session.selectProgramV1
+      src "<evm-call-ret>" "Tests.EvmCallRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CallRetEvm select: {e.render}"
+  match Compiler.compileValidatedSourceV1 cSrc with
+  | .error _ => throw <| IO.userError "CallRetEvm must compile through located Normalize"
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect (e.render.contains "result-bearing external call")
+            s!"EVM call-return FC must cite result-bearing external call, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "EVM result-bearing call must fail closed, not produce a plan"
+
 /-- BL-18: Bytes / Map / Array UInt64 9 / nested Array stay fail-closed. -/
 private unsafe def testAnonymousReturnFailClosedBoundaries : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -3720,6 +3746,7 @@ unsafe def run : IO Unit := do
   testAggregateStructReturn
   testAnonymousArrayUInt64Return
   testAnonymousOptionUInt64Return
+  testCallReturnEvmFailClosed
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed
   let session ← Tests.Language.ParserSession.shared

@@ -86,6 +86,7 @@ private def childCardinality? : String → String → Option ChildCardinality
   | "Expr.LocalCall", "args" => some .array
   | "Expr.Match", "scrutinee" => some .direct
   | "Expr.Match", "arms" => some .array
+  | "Expr.ExternalCall", "call" => some .direct
   | "Place.Field", "base" => some .direct
   | "Place.Index", "base" => some .direct
   | "Place.Index", "index" => some .direct
@@ -109,7 +110,7 @@ private def isStatementTag (tag : String) : Bool :=
 
 private def isExpressionTag (tag : String) : Bool :=
   #["Expr.Literal", "Expr.Place", "Expr.Constructor", "Expr.Unary",
-    "Expr.Binary", "Expr.LocalCall", "Expr.Match"].contains tag
+    "Expr.Binary", "Expr.LocalCall", "Expr.Match", "Expr.ExternalCall"].contains tag
 
 private def isPlaceTag (tag : String) : Bool :=
   #["Place.Name", "Place.Field", "Place.Index"].contains tag
@@ -180,7 +181,8 @@ private def permitsChildTag
   | "Stmt.Match", "arms" => childTag == "StmtMatchArm"
   | "Expr.Match", "arms" => childTag == "ExprMatchArm"
   | "Stmt.Call", "call"
-  | "Stmt.Schedule", "call" => childTag == "ExternalCallExpr"
+  | "Stmt.Schedule", "call"
+  | "Expr.ExternalCall", "call" => childTag == "ExternalCallExpr"
   | "Stmt.Assign", "target"
   | "Expr.Place", "place"
   | "Place.Field", "base"

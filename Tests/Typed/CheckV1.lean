@@ -5619,6 +5619,66 @@ private unsafe def testMapNonemptyProductPath
       | _ => false
   expect hasVariantTag "map-nonempty: Option match uses VariantTag"
 
+/-- N-CALL-RET: value-position `call` typing and Normalize. Annotated lets
+    type and lower to a result-bearing ExternalCall; unannotated calls fail
+    typed; `schedule` in expression position fails at the parser boundary;
+    non-scalar result types fail at Normalize. -/
+private unsafe def testCallReturnTyped
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "CallRetTyped" <|
+    "  entry probe(k : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := call ledger.get(k)\n" ++
+    "    return x + 1\n"
+  let validated ← loadSource session "call-ret-typed" src
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok
+    s!"call-ret-typed: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"call-ret-typed: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"call-ret-typed: validate: {repr e}"
+  let some probe := data.callables.find? (fun c => c.name == some "probe") |
+    throw <| IO.userError "call-ret-typed: missing probe"
+  let hasResultCall := probe.blocks.any fun b =>
+    b.instructions.any fun i =>
+      match i.op, i.result with
+      | .externalCall _ _ _, some _ => true
+      | _, _ => false
+  expect hasResultCall "call-ret-typed: result-bearing ExternalCall lowered"
+  -- Unannotated value-position call fails typed (result type required).
+  let noAnnSrc := wrap "CallRetNoAnn" <|
+    "  entry probe(k : UInt64) : UInt64 do\n" ++
+    "    let x := call ledger.get(k)\n" ++
+    "    return x\n"
+  let noAnnValidated ← loadSource session "call-ret-no-ann" noAnnSrc
+  let noAnnTyped := checkProgramTypedResultV1 noAnnValidated
+  expect (!noAnnTyped.ok) "call-ret-no-ann: expected TypeCheck failure"
+  -- Non-serializable result type passes typed but fails Normalize.
+  let mapSrc := wrap "CallRetMap" <|
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m[0] := 0\n" ++
+    "  entry probe(k : UInt64) : UInt64 do\n" ++
+    "    let x : Map UInt64 UInt64 := call ledger.getAll(k)\n" ++
+    "    return k\n"
+  let mapValidated ← loadSource session "call-ret-map" mapSrc
+  match normalizeProgramV1 mapValidated with
+  | .ok _ =>
+      throw <| IO.userError "call-ret-map: Normalize must fail closed on Map result"
+  | .error _ => pure ()
+  -- `schedule` in expression position fails at the parser boundary.
+  let schedSrc := wrap "CallRetSched" <|
+    "  entry probe(k : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := schedule ledger.get(k)\n" ++
+    "    return x\n"
+  let schedResult ← session.selectProgramV1 schedSrc "call-ret-sched" "Tests.CallRetSched" none
+  match schedResult with
+  | .ok _ =>
+      throw <| IO.userError "call-ret-sched: schedule expression must fail at parser boundary"
+  | .error _ => pure ()
+
 /-- N-MAP-CONSTRUCT: `Map.of(k0, v0, ...)` variadic constructor typing —
     flattened key/value pairs against the enclosing expected Map type;
     literal and runtime-computed keys both admitted; odd arity, wrong
@@ -7685,6 +7745,7 @@ unsafe def run : IO Unit := do
   testMapStateIndexAssign session
   testMapNestedAssignTyped session
   testMapOfConstructTyped session
+  testCallReturnTyped session
   testMapNonemptyProductPath session
   testMapIndexAssignValueMismatch session
   testMapNestedFieldAssignFailClosed session

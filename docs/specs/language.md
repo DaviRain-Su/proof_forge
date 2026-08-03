@@ -95,6 +95,7 @@ ExprMatchArm  ::= "|" Pattern "=>" Expr
 LocalFnCall   ::= Ident "(" ExprList? ")"
 ExternalCallExpr ::= QualifiedId "(" ExprList? ")"
 ConstructorExpr ::= QualifiedId "(" ExprList? ")"
+CallExpr      ::= "call" ExternalCallExpr
 MatchExpr     ::= "match" Expr "with" ExprMatchArm+
 Place         ::= Ident PlaceSuffix*
 PlaceSuffix   ::= "." Ident | "[" Expr "]"
@@ -112,7 +113,7 @@ ShiftExpr     ::= AddExpr (("<<" | ">>") AddExpr)*
 AddExpr       ::= MulExpr (("+" | "-") MulExpr)*
 MulExpr       ::= UnaryExpr (("*" | "/" | "%") UnaryExpr)*
 UnaryExpr     ::= ("-" | "!" | "~") UnaryExpr | PrimaryExpr
-PrimaryExpr   ::= Literal | ConstructorExpr | LocalFnCall | Place | "(" Expr ")"
+PrimaryExpr   ::= Literal | ConstructorExpr | LocalFnCall | CallExpr | Place | "(" Expr ")"
 Literal       ::= "true" | "false" | IntegerLiteral | StringLiteral
 QualifiedId   ::= Ident "." Ident ("." Ident)*
 QualifiedName ::= Ident ("." Ident)+
@@ -122,6 +123,12 @@ QualifiedName ::= Ident ("." Ident)+
 `call StringLiteral`不进入ProgramV1 reader；迁移不得按`.`猜测拆分任意字符串、虚构component或丢弃
 arguments。旧alpha source只有在调用者显式提供string→QualifiedId mapping时才可由独立migration tool
 转换，歧义/缺失mapping使用`PF-MIGRATION-FAILED`且不修改原文件。
+
+N-CALL-RET 起，`CallExpr` 允许 statement `call` 出现在值位置（let 标注值、return 值、任意 operand），
+产生 `Op.ExternalCall` 的 result value；其类型由外围 expected type（annotation / result / operand
+context）唯一确定，无 expected type 是 typed error。result 类型必须是可序列化标量（Bool / 合法
+UInt/Int 宽度 / Bytes），聚合与 Unit 在 Normalize fail closed。`schedule` 不进入值位置（保持
+statement-only，无返回通道语义）。Statement `call` 的 void 形式不变。
 
 `Primitive` 为 `Bool`、`UInt8/16/32/64/128/256`、`Int8/16/32/64/128/256`、
 `Principal`、`Unit`。数组长度、Bytes 长度和 loop bound 必须是 0..4096 的十进制常量。

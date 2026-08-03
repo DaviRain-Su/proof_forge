@@ -574,6 +574,12 @@ private partial def walkExprV1
         let subVisits ← walkExprMatchArmV1 source childPath arm armStx
         armVisits := armVisits ++ subVisits
       pure (visits ++ scrutVisits ++ armVisits)
+  | .externalCall ec => do
+      let childPath := path.push {
+        parentTag := "Expr.ExternalCall", fieldTag := "call", index := 0
+      }
+      let callVisits ← walkExternalCallV1 source childPath ec stx
+      pure (#[{ path, tag := "Expr.ExternalCall", span }] ++ callVisits)
 
 private partial def walkExprMatchArmV1
     (source : String) (path : NormalizedSyntacticPathV1)

@@ -314,6 +314,23 @@ mutual
             | none => pure none
             | some ep => childOrFail ep "Expr.LocalCall" "args" i
           collectExpr tables scope ap? arg
+    | .externalCall call => do
+        -- N-CALL-RET: value-position sync call contributes the same
+        -- synchronous-call effect as statement call.
+        match exprPath? with
+        | none =>
+            call.args.forM (collectExpr tables scope none)
+            emitEffect .externalCallSync
+        | some ep => do
+            match ← directOrFail ep "Expr.ExternalCall" "call" with
+            | none =>
+                call.args.forM (collectExpr tables scope none)
+            | some cp =>
+                for (arg, i) in call.args.zipIdx do
+                  match ← childOrFail cp "ExternalCallExpr" "args" i with
+                  | none => collectExpr tables scope none arg
+                  | some ap => collectExpr tables scope (some ap) arg
+            emitOccurrence .externalCallSync ep
     | .match_ scrutinee arms => do
         let sp? ← match exprPath? with
           | none => pure none

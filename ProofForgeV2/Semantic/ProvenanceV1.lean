@@ -628,6 +628,29 @@ private partial def attrExpr
         acc := acc2
       })
   | .match_ _ _ => failUnsupported "S2 provenance does not support match expr"
+  | .externalCall call => do
+      -- N-CALL-RET: ExternalCall instruction and its result bind the call
+      -- expression; each argument attributes in call order (mirroring the
+      -- normalizer). Path shape: Expr.ExternalCall → call → args.
+      let callPath := directChild exprPath "Expr.ExternalCall" "call"
+      let mut st' := st
+      let mut i := 0
+      for arg in call.args do
+        let argPath := childPath callPath "ExternalCallExpr" "args" i
+        let (_avid, st1) ← attrExpr callableId arg argPath st' states idx
+        st' := st1
+        i := i + 1
+      let vid := st'.nextValueId
+      let instrEntity :=
+        SemanticEntityRefV1.instruction callableId (UInt32.ofNat st'.blockId) (UInt32.ofNat st'.nextInstr)
+      let valEntity := SemanticEntityRefV1.value callableId vid
+      let acc1 ← attrPushPath st'.acc idx instrEntity exprPath
+      let acc2 ← attrPushPath acc1 idx valEntity exprPath
+      pure (vid, { st' with
+        nextValueId := vid + 1
+        nextInstr := st'.nextInstr + 1
+        acc := acc2
+      })
 
 mutual
 
@@ -1180,6 +1203,19 @@ mutual
             let armPath := childPath exprPath "Expr.Match" "arms" i
             r := reqExprSites arm.value
               (directChild armPath "ExprMatchArm" "value") r
+            i := i + 1
+          pure r
+    | .externalCall call =>
+        Id.run do
+          -- Mirror RequirementsInferV1: value-position sync call contributes
+          -- effect.synchronous-call + failure.atomic-rollback at the expr path.
+          let mut r := reqPush rs s2EffectSyncCallIdV1 exprPath
+          r := reqPush r s2FailureAtomicRollbackIdV1 exprPath
+          let callPath := directChild exprPath "Expr.ExternalCall" "call"
+          let mut i := 0
+          for a in call.args do
+            r := reqExprSites a
+              (childPath callPath "ExternalCallExpr" "args" i) r
             i := i + 1
           pure r
 

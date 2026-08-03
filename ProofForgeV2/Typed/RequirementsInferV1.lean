@@ -153,6 +153,10 @@ mutual
     | .match_ scrutinee arms =>
         exprContributions scrutinee ++
           arms.flatMap (fun arm => exprContributions arm.value)
+    | .externalCall call =>
+        -- N-CALL-RET: value-position sync call contributes the same
+        -- synchronous-call + rollback requirements as statement call.
+        call.args.flatMap exprContributions ++ #[synchronousCall, transactionalRollback]
 
   private partial def stmtContributions : StmtV1 → Array RequirementContributionV1
     | .let_ _ typeAnn? value =>

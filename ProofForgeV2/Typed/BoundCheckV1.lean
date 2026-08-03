@@ -206,6 +206,7 @@ mutual
         walkExpr _label lhs
         walkExpr _label rhs
     | .localCall _ args => args.forM (walkExpr _label)
+    | .externalCall call => call.args.forM (walkExpr _label)
     | .match_ scrutinee arms => do
         walkExpr _label scrutinee
         for arm in arms do

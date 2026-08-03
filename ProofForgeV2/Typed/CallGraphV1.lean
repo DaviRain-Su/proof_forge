@@ -136,6 +136,16 @@ mutual
           match ← childOrFail exprPath "Expr.LocalCall" "args" i with
           | none => pure ()
           | some ap => collectExprEdges tables scope ap arg
+    | .externalCall call => do
+        -- N-CALL-RET: external callee is a qualified name, not a local fn:
+        -- no call-graph edge, only walk args.
+        match ← directOrFail exprPath "Expr.ExternalCall" "call" with
+        | none => pure ()
+        | some cp =>
+            for (arg, i) in call.args.zipIdx do
+              match ← childOrFail cp "ExternalCallExpr" "args" i with
+              | none => pure ()
+              | some ap => collectExprEdges tables scope ap arg
     | .match_ scrutinee arms => do
         match ← directOrFail exprPath "Expr.Match" "scrutinee" with
         | none => pure ()

@@ -1060,6 +1060,8 @@ private partial def countExprMatchJoinsInExprV1 (expr : SrcExpr) : Nat :=
   | .unary _ operand => countExprMatchJoinsInExprV1 operand
   | .localCall _ args =>
       args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
+  | .externalCall call =>
+      call.args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
   | .constructor _ args =>
       args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
   | .place p => countExprMatchJoinsInPlaceV1 p
@@ -1276,6 +1278,11 @@ private partial def synthLetExpectedV1
       match arms[0]? with
       | none => failUnsupported "S1 match expression requires at least one arm"
       | some arm => synthLetExpectedV1 arm.value st states fns
+  | .externalCall _ =>
+      -- Value-position call cannot synthesize a result type from nothing:
+      -- the type must come from the let annotation or an enclosing expected
+      -- context (N-CALL-RET).
+      failUnsupported "S1 value-position call requires a type annotation"
 
 /-- Infer comparison operand TypeId (TypeCheck order: lhs first, then rhs under
     that type). When lhs is not a place, use rhs place (env/state/const) so
@@ -2633,6 +2640,49 @@ private partial def lowerExpr
           env := savedEnv
         }
         pure (joinVid, expectedTid, stJoin)
+    | .externalCall call => do
+        -- N-CALL-RET: value-position sync call → result-bearing
+        -- Op.ExternalCall. Callee/args share the statement discipline
+        -- (anonymous integer args; bare integer literals default UInt64); the
+        -- result type is the enclosing expected type and must be a
+        -- serializable scalar.
+        let calleeComponents := (NonEmptyArray.toArray call.callee.components).map (·.raw)
+        unless calleeComponents.size ≥ 2 do
+          return ← failUnsupported
+            "S1 call callee must have at least two components"
+        let qn ← match parseQualifiedName calleeComponents with
+          | .ok qn => pure qn
+          | .error e => failUnsupported s!"S1 call callee: {e}"
+        let resultLegal :=
+          match shapeOf? st.interner.types expectedTid with
+          | some .bool => true
+          | some (.uint w) | some (.int w) =>
+              w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
+          | some (.bytes n) => n.toNat ≤ maxTypeLengthV1
+          | _ => false
+        unless resultLegal do
+          return ← failUnsupported
+            "S1 call result type must be Bool, a legal UInt/Int width, or Bytes"
+        let mut st' := st
+        let mut argIds : Array ValueIdV1 := #[]
+        for arg in call.args do
+          let (i1, expectedArgTid) ← match arg with
+            | .place p => synthPlaceTypeV1 p st'.interner st'.env states st'.constants
+            | .literal (.integer _) => pure (internShape st'.interner (.uint 64))
+            | _ =>
+                match synthLetExpectedV1 arg st' states fns with
+                | .ok pair => pure pair
+                | .error _ => pure (internShape st'.interner (.uint 64))
+          requireAnonymousIntegerTypeId i1.types expectedArgTid
+            "call argument"
+          let st0 := { st' with interner := i1 }
+          let (vid, argTid, st1) ← lowerExpr arg expectedArgTid st0 states fns
+          unless argTid == expectedArgTid do
+            return ← failUnsupported "S1 call argument type mismatch"
+          argIds := argIds.push vid
+          st' := st1
+        let (st1, vid) := emitValue st' expectedTid (.externalCall st'.nextEffectId qn argIds)
+        pure (vid, expectedTid, { st1 with nextEffectId := st1.nextEffectId + 1 })
 
 /-- Lower a positional argument list under expected TypeIds (arity already
     checked by the caller). Evaluation order is source order; each argument's

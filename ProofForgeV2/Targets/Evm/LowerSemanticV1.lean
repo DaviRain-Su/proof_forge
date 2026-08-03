@@ -3255,6 +3255,9 @@ private def lowerBlockInstructionsV1
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: ContextRead (unix-time-seconds) is not admitted by pilot context policy (PlanSchema frozen; Yul timestamp() mapping deferred)"
+    | .externalCall _effectId _ _, some _ =>
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: result-bearing external call is outside the current EVM pilot (N-CALL-RET shared schema; EVM return-data lowering is a later slice)"
     | _, _ =>
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: instruction op/result is outside the current UInt64 pilot"

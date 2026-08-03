@@ -357,6 +357,14 @@ mutual
                   | none => pure ()
                   | some vp =>
                       resolveExpr tables { scope with locals := binders ++ scope.locals } vp arm.value
+    | .externalCall call => do
+        match ← directOrInternal exprPath "Expr.ExternalCall" "call" with
+        | none => pure ()
+        | some cp =>
+            for (arg, i) in call.args.zipIdx do
+              match ← childOrInternal cp "ExternalCallExpr" "args" i with
+              | none => pure ()
+              | some ap => resolveExpr tables scope ap arg
 
   partial def resolveBlock (tables : TypedDeclTablesV1) (scope : Scope)
       (blockPath : NormalizedSyntacticPathV1) (block : BlockV1) : M Unit := do

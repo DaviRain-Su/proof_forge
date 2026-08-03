@@ -552,8 +552,10 @@ semanticProvenanceDigestV1 = SHA-256(canonicalSemanticProvenanceBytesV1)
 
 `Instruction.result` 必须为：产生 value 的 `Literal/Constant/StateLoad/Construct/FieldGet/FieldSet/`
 `VariantTag/VariantPayload/IndexGet/IndexSet/CheckedCast/Unary/Binary/PureCall/ContextRead/Commit` 恰有一个 result；
-`StateStore/Assert/Emit/ExternalCall/Schedule` 必须为 `none`。v1 external call 是 statement effect，
-没有隐式 return value；将来增加 typed return 是 schema 变化。
+`StateStore/Assert/Emit/Schedule` 必须为 `none`。`Op.ExternalCall` 的 result 是**可选**的（N-CALL-RET）：
+`none` 表示 statement effect 的 void call；`some` 表示 value-position sync call 的返回值，此时 result
+typeId 必须解析为可序列化标量（Bool / 合法 UInt/Int 宽度 {8,16,32,64,128,256} / Bytes ≤ maxTypeLengthV1），
+其他形状（Unit/Map/Struct/Enum/Option/Array/Principal/Field/String）均为 `.badCfg`。
 
 ### 4.4 Terminator、trap 与 entity tags
 
@@ -744,7 +746,8 @@ interning 保证 Bool、UInt8、UInt32 和 `Option V` 各有唯一 TypeId。每�
 | Commit | input serializable且 disclosure rule/requirement通过 | type(value) |
 | Assert | condition Bool；error/args按 ErrorDecl exact | no result |
 | Emit | args逐项匹配 EventDecl fields | no result |
-| ExternalCall/Schedule | args 全部 canonical serializable；callee 至少两个 components | no result |
+| ExternalCall | args 全部 canonical serializable；callee 至少两个 components | `none`，或 `some`（N-CALL-RET）result 为 Bool/合法 UInt/Int 宽度/Bytes 标量 |
+| Schedule | args 全部 canonical serializable；callee 至少两个 components | no result |
 
 表中 “declared resultType” 仍必须是 `Instruction.result` 的实际 TypeId；不存在由 host 推断的 hidden type。
 同一 program 内所有 `Op.ContextRead` 的相同 key 必须使用同一 result TypeId；不同 callable/branch 对

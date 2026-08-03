@@ -2715,6 +2715,9 @@ private def lowerBlockInstructionsV1
             s!"unsupported Noir semantic shape: unknown ContextRead key '{key.value}'"
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: ContextRead is not admitted by pilot context policy"
+    | .externalCall _ _ _, some _ =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: result-bearing external call is outside the current Noir pilot (N-CALL-RET shared schema; Noir return-value relation lowering is a later slice)"
     | _, _ =>
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: instruction op/result is outside the current UInt64 pilot"
