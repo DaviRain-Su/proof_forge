@@ -2507,7 +2507,8 @@ private theorem ident_safe : validateIdentifierComponent "safe" = .ok () := by
 
 theorem demoParams_legal : SimpleClosureParamsLegalV1 demoParamsV1 := by
   refine {
-    hqnSize := by decide, hdistinct := by decide, hqnHead := ident_Module,
+    hqnSize := by decide, hqnCap := by decide, hdistinct := by decide,
+    hqnHead := ident_Module,
     hqnTail := ?_, hview := ident_alive, hinv := ident_safe }
   intro i hi
   have : i = 0 := by simp [demoParamsV1] at hi; omega

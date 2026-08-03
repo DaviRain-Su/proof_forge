@@ -1688,6 +1688,7 @@ private theorem ident_safe :
 theorem demoParams_legal : SimpleClosureParamsLegalV1 demoParamsV1 := by
   refine {
     hqnSize := by decide
+    hqnCap := by decide
     hdistinct := by decide
     hqnHead := ident_Module
     hqnTail := ?_
