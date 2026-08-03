@@ -192,6 +192,13 @@ inductive Statement where
       `.store`. -/
   | storeAtomic (leaves : Array Store)
   | returnValue (value : Expr)
+  /-- B-RET-ABI: multi-leaf named Struct/Enum view return. `leaves` are preorder
+  flatten expressions (UInt64/Int64 only, ≤8); `leafIsInt` is parallel ABI
+  signedness. Emitted as a TVM get-method multi-stack return
+  (`get fun f(): (int, int, …) { return (t0, t1, …); }`). Entry (mutate)
+  aggregate returns stay fail-closed — TON async actors have no return channel
+  on internal messages. -/
+  | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
@@ -255,10 +262,20 @@ inductive Statement where
   | promiseAccount (receiver : String) (method : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
+/-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
+UInt64/Int64 words carried on TVM int257 with explicit range guards
+(`isInt` selects signed Int64 vs unsigned UInt64); `byteWidth` is 8. -/
+structure LeafAbiType where
+  isInt : Bool
+  byteWidth : Nat
+  deriving BEq, Inhabited, Repr
+
 /-- Result kind of a Ton method export. Init is always unit; entry/view may be
 UInt{8,16,32,64}/Bool/Int64 (T9a). UInt64/Int64/Bool wire as 8-byte little-endian
 i64 (Bool is 0/1); UInt{8,16,32} wire as 1/2/4-byte LE payloads. ABI JSON
-`returns` distinguishes the declared type. -/
+`returns` distinguishes the declared type. B-RET-ABI adds `.aggregate` for
+**view-only** named Struct/Enum returns: preorder UInt64/Int64 leaves (1..8)
+as a multi-stack get-method return; entry aggregate stays fail-closed. -/
 inductive MethodResultKind where
   | unit
   | uint64
@@ -273,6 +290,10 @@ inductive MethodResultKind where
   /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
   | uint128
   | uint256
+  /-- B-RET-ABI: named Struct/Enum aggregate view return. `leaves` is preorder
+  flatten order (1..8). Anonymous Array/Map/Bytes/Option stay fail-closed.
+  Only `.view` methods may carry this kind (entry async has no return channel). -/
+  | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
 structure Method where
@@ -537,9 +558,11 @@ private abbrev TonTypeClosureV1 := PilotTypeClosureV1
 private def tonPlanErr (message : String) : CompileError :=
   .planInvariant .ton message
 
-/-- Ton MVP admits UInt64 (+ UInt32 shift-count temps) and Int64 only.
-    Multi-width UInt8/16/32/128/256, Principal, named aggregates, containers,
-    Field, String all fail closed at type closure. -/
+/-- Ton MVP admits UInt64 (+ UInt32 shift-count temps) and Int64, plus named
+    Struct/Enum aggregates (state flatten + B-RET-ABI view returns, cap-8
+    UInt64/Int64 leaves). Multi-width UInt8/16/32/128/256, Principal (identity
+    storage only where wired), anonymous containers, Field, String fail closed
+    at type closure unless separately admitted. -/
 private def tonUintWidthPolicyV1 : PilotUintWidthPolicy where
   admittedWidths := #[64, 32]
 
@@ -549,7 +572,7 @@ private def tonTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64 and Int64 integer types are supported (MVP; multi-width fail closed)"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32 (shift-count), Int64, Unit, and Bool are supported (no Field/Principal/aggregates/containers)"
+    "only UInt64, UInt32 (shift-count), Int64, Unit, Bool, and named Struct/Enum are supported (no Field/Principal/anonymous containers)"
 
 private def validateTonTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult TonTypeClosureV1 :=
@@ -557,7 +580,7 @@ private def validateTonTypeClosureV1
     tonUintWidthPolicyV1
     (intPolicy := pilotIntWidthPolicyI64)
     (principalPolicy := pilotPrincipalPolicyNone)
-    (namedAggregatePolicy := pilotNamedAggregateStatePolicyNone)
+    (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyNone)
 
 /-- Ton pilot Principal storage layout (T12, isomorphic to EVM T10):
@@ -762,6 +785,80 @@ private def leafCountOfTypeV1
     (typeId : TypeIdV1) : CompileResult Nat := do
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
+
+/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into per-leaf ABI
+types (preorder UInt64/Int64). Enum tag is unsigned; payload pad slots are
+unsigned zero-fill (variant max-payload layout). -/
+private partial def flattenTypeLeafAbiV1
+    (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Array LeafAbiType) := do
+  if typeId == types.uint64TypeId then
+    pure #[{ isInt := false, byteWidth := 8 }]
+  else if types.int64TypeId == some typeId then
+    pure #[{ isInt := true, byteWidth := 8 }]
+  else if types.isNamedAggregate typeId then
+    match typeDecls[typeId.toNat]? with
+    | none =>
+        throw <| .planInvariant .ton
+          s!"unsupported Ton semantic shape: missing TypeDecl for aggregate {typeId}"
+    | some decl =>
+        match decl.shape with
+        | .struct fields => do
+            unless fields.size > 0 do
+              throw <| .planInvariant .ton
+                "unsupported Ton semantic shape: named Struct requires at least one field"
+            let mut out : Array LeafAbiType := #[]
+            for f in fields do
+              let sub ← flattenTypeLeafAbiV1 typeDecls types f.typeId
+              out := out ++ sub
+            pure out
+        | .enum variants => do
+            unless variants.size > 0 do
+              throw <| .planInvariant .ton
+                "unsupported Ton semantic shape: named Enum requires at least one variant"
+            let mut maxPay : Nat := 0
+            for v in variants do
+              let mut n : Nat := 0
+              for pt in v.payloadTypes do
+                let sub ← flattenTypeLeafAbiV1 typeDecls types pt
+                n := n + sub.size
+              if n > maxPay then maxPay := n
+            -- Tag is always unsigned UInt64; payload pad slots are unsigned.
+            let mut out : Array LeafAbiType := #[{ isInt := false, byteWidth := 8 }]
+            for _ in [0:maxPay] do
+              out := out.push { isInt := false, byteWidth := 8 }
+            pure out
+        | _ =>
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: named type must be Struct or Enum"
+  else
+    throw <| .planInvariant .ton
+      "unsupported Ton semantic shape: aggregate leaf must be UInt64, Int64, or named Struct/Enum"
+
+/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
+`MethodResultKind`. Enforces 1..8 leaves. Anonymous containers fail closed. -/
+private def aggregateResultKindOfV1
+    (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
+    (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
+  unless types.isNamedAggregate typeId do
+    throw <| .planInvariant .ton
+      s!"{owner} does not return a named Struct/Enum aggregate"
+  let leaves ← flattenTypeLeafAbiV1 typeDecls types typeId
+  let n := leaves.size
+  unless n > 0 do
+    throw <| .planInvariant .ton
+      s!"{owner} aggregate return must have at least one leaf"
+  unless n ≤ 8 do
+    throw <| .planInvariant .ton
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+  pure (.aggregate leaves)
+
+/-- Expected return shape for region emission (scalar vs B-RET aggregate). -/
+private inductive ExpectedReturnV1 where
+  | none_
+  | scalar (kind : TonValueKindV1)
+  | aggregate (leaves : Array LeafAbiType)
+  deriving Inhabited
 
 /-- Struct field leaf range (start, length) within the flattened leaf vector. -/
 private def structFieldLeafRangeV1
@@ -2831,7 +2928,7 @@ private def validateCallableLoopsV1
 private partial def emitRegionV1
     (owner : String)
     (mode : SemanticCallableModeV1)
-    (expectedReturn : Option TonValueKindV1)
+    (expectedReturn : ExpectedReturnV1)
     (types : TonTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
@@ -2883,34 +2980,52 @@ private partial def emitRegionV1
       | .initialize =>
           throw <| .planInvariant .ton "initializer cannot return a value"
       | .mutate | .view | .pureFn =>
-          let expectedKind ← match expectedReturn with
-            | some kind => pure kind
-            | none =>
-                throw <| .planInvariant .ton
-                  "unsupported Ton semantic shape: entry/view/pureFn is missing expected return kind"
           let root ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
-          if root.isAggregate then
-            throw <| .planInvariant .ton
-              "unsupported Ton semantic shape: multi-leaf aggregate cannot be returned (ABI is scalar; B-RET-ABI: Ton does not support named-aggregate return)"
-          unless root.kind == expectedKind do
-            let expectedLabel :=
-              match expectedKind with
-              | .uint64 => "UInt64"
-              | .uint32 => "UInt32"
-              | .uint16 => "UInt16"
-              | .uint8 => "UInt8"
-              | .uint128 => "UInt128"
-              | .uint256 => "UInt256"
-              | .bool => "Bool"
-              | .int64 => "Int64"
-            throw <| .planInvariant .ton
-              s!"unsupported Ton semantic shape: return value must be {expectedLabel}"
-          let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
-          pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
+          match expectedReturn with
+          | .none_ =>
+              throw <| .planInvariant .ton
+                "unsupported Ton semantic shape: entry/view/pureFn is missing expected return kind"
+          | .scalar expectedKind =>
+              if root.isAggregate then
+                throw <| .planInvariant .ton
+                  "unsupported Ton semantic shape: multi-leaf aggregate cannot be returned as scalar"
+              unless root.kind == expectedKind do
+                let expectedLabel :=
+                  match expectedKind with
+                  | .uint64 => "UInt64"
+                  | .uint32 => "UInt32"
+                  | .uint16 => "UInt16"
+                  | .uint8 => "UInt8"
+                  | .uint128 => "UInt128"
+                  | .uint256 => "UInt256"
+                  | .bool => "Bool"
+                  | .int64 => "Int64"
+                throw <| .planInvariant .ton
+                  s!"unsupported Ton semantic shape: return value must be {expectedLabel}"
+              let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
+              pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
+          | .aggregate expectedLeaves =>
+              -- B-RET-ABI: named Struct/Enum view-only (entry FC at makeEntry).
+              unless root.isAggregate do
+                throw <| .planInvariant .ton
+                  "unsupported Ton semantic shape: aggregate return value must be a named aggregate"
+              unless root.leafByteWidth == 8 do
+                throw <| .planInvariant .ton
+                  "unsupported Ton semantic shape: aggregate return leaves must be 8-byte UInt64/Int64 words"
+              let returnedLeaves := root.leafExprs
+              unless returnedLeaves.size == expectedLeaves.size do
+                throw <| .planInvariant .ton
+                  s!"unsupported Ton semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {returnedLeaves.size})"
+              let leafIsInt := expectedLeaves.map (·.isInt)
+              let _ ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
+              pure (instrs.push (.returnAggregate returnedLeaves leafIsInt),
+                values, nextLocal0, .closed)
   | .return_ none =>
-      unless expectedReturn.isNone do
-        throw <| .planInvariant .ton
-          "unsupported Ton semantic shape: initializer expected-return kind is non-empty"
+      match expectedReturn with
+      | .none_ => pure ()
+      | .scalar _ | .aggregate _ =>
+          throw <| .planInvariant .ton
+            "unsupported Ton semantic shape: initializer expected-return kind is non-empty"
       unless segmentStart == values.size do
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: block has unconsumed values"
@@ -3171,7 +3286,7 @@ private partial def emitRegionV1
 private def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
-    (expectedReturn : Option TonValueKindV1)
+    (expectedReturn : ExpectedReturnV1)
     (types : TonTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
@@ -3246,7 +3361,7 @@ private def makeInitializerV1
     throw <| .planInvariant .ton
       "unsupported Ton semantic shape: initializer result is not Unit"
   let lowered ←
-    lowerCallableV1 "initializer" .initialize none types typeDecls layout fnEnv callable
+    lowerCallableV1 "initializer" .initialize .none_ types typeDecls layout fnEnv callable
   pure {
     name := "init"
     params := lowered.params
@@ -3271,36 +3386,54 @@ private def makeEntryV1
     throw <| .planInvariant .ton s!"entry name '{name}' is not a safe identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .ton s!"entry '{name}' does not return a public result"
-  -- B-RET-ABI: named Struct/Enum entry/view returns stay fail closed (scalar
-  -- ABI only). Surface the aggregate boundary before the generic scalar-width
-  -- reject so product tests can pin the message.
-  if types.isNamedAggregate callable.result.typeId then
-    throw <| .planInvariant .ton
-      s!"unsupported Ton semantic shape: entry '{name}' cannot return named aggregate (ABI is scalar; B-RET-ABI)"
-  -- Ton MVP: scalar ABI is UInt64 / Bool / Int64 only (multi-width FC).
-  let (resultKind, expectedReturn) ←
-    match types.uintWidthOf callable.result.typeId with
-    | some 64 => pure (MethodResultKind.uint64, some TonValueKindV1.uint64)
-    | some w =>
-        throw <| .planInvariant .ton
-          s!"entry '{name}' does not return public UInt64 (UInt{w} multi-width fail closed at Ton MVP)"
-    | none =>
-        match types.intWidthOf callable.result.typeId with
-        | some 64 => pure (MethodResultKind.int64, some TonValueKindV1.int64)
-        | some w =>
-            throw <| .planInvariant .ton
-              s!"entry '{name}' does not return public Int64 (Int{w} multi-width fail closed at Ton MVP)"
-        | none =>
-          if types.boolTypeId == some callable.result.typeId then
-            pure (MethodResultKind.bool, some TonValueKindV1.bool)
-          else
-            throw <| .planInvariant .ton
-              s!"entry '{name}' does not return public UInt64, Int64, or Bool"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
     | _ => throw (.planInvariant .ton
         "unsupported Ton semantic shape: callable is not an entry or view")
+  -- B-RET-ABI: named Struct/Enum **view** returns admitted (multi-stack get
+  -- method). Entry (mutate) aggregate stays fail closed — TON async actors
+  -- have no return channel on internal messages.
+  let (resultKind, expectedReturn) ←
+    if types.isNamedAggregate callable.result.typeId then
+      match semanticMode with
+      | .view => do
+          let kind ←
+            aggregateResultKindOfV1 typeDecls types s!"view '{name}'" callable.result.typeId
+          match kind with
+          | .aggregate leaves => pure (kind, ExpectedReturnV1.aggregate leaves)
+          | _ =>
+              throw <| .planInvariant .ton
+                s!"view '{name}' aggregate result kind resolution failed"
+      | .mutate =>
+          throw <| .planInvariant .ton
+            s!"unsupported Ton semantic shape: entry '{name}' cannot return named aggregate (TON async actor has no return channel; B-RET-ABI admits view-only)"
+      | _ =>
+          throw <| .planInvariant .ton
+            s!"unsupported Ton semantic shape: entry '{name}' cannot return named aggregate"
+    else if types.isContainer callable.result.typeId ||
+        types.isPrincipal callable.result.typeId then
+      throw <| .planInvariant .ton
+        s!"entry '{name}' cannot return multi-leaf aggregate (Array/Principal/anonymous container); Ton B-RET-ABI admits only named Struct/Enum view returns (cap-8 leaves)"
+    else
+      -- Ton MVP: scalar ABI is UInt64 / Bool / Int64 only (multi-width FC).
+      match types.uintWidthOf callable.result.typeId with
+      | some 64 => pure (MethodResultKind.uint64, ExpectedReturnV1.scalar .uint64)
+      | some w =>
+          throw <| .planInvariant .ton
+            s!"entry '{name}' does not return public UInt64 (UInt{w} multi-width fail closed at Ton MVP)"
+      | none =>
+          match types.intWidthOf callable.result.typeId with
+          | some 64 => pure (MethodResultKind.int64, ExpectedReturnV1.scalar .int64)
+          | some w =>
+              throw <| .planInvariant .ton
+                s!"entry '{name}' does not return public Int64 (Int{w} multi-width fail closed at Ton MVP)"
+          | none =>
+            if types.boolTypeId == some callable.result.typeId then
+              pure (MethodResultKind.bool, ExpectedReturnV1.scalar .bool)
+            else
+              throw <| .planInvariant .ton
+                s!"entry '{name}' does not return public UInt64, Int64, Bool, or named Struct/Enum view aggregate"
   let mode : MethodMode := match semanticMode with
     | .mutate => .mutate
     | .view => .view
@@ -3333,16 +3466,22 @@ private def makePureFnV1
     throw <| .planInvariant .ton s!"pureFn name '{name}' is not a safe identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .ton s!"pureFn '{name}' does not return a public result"
+  -- pureFn aggregate returns stay fail closed (B-RET-ABI view-only).
+  if types.isNamedAggregate callable.result.typeId ||
+      types.isContainer callable.result.typeId ||
+      types.isPrincipal callable.result.typeId then
+    throw <| .planInvariant .ton
+      s!"pureFn '{name}' cannot return a named aggregate (B-RET-ABI: pureFn aggregate returns stay fail-closed)"
   let (resultIsBool, expectedReturn) ←
     if callable.result.typeId == types.uint64TypeId then
-      pure (false, TonValueKindV1.uint64)
+      pure (false, ExpectedReturnV1.scalar .uint64)
     else if types.boolTypeId == some callable.result.typeId then
-      pure (true, TonValueKindV1.bool)
+      pure (true, ExpectedReturnV1.scalar .bool)
     else
       throw <| .planInvariant .ton
         s!"pureFn '{name}' does not return public UInt64 or Bool"
   let lowered ←
-    lowerCallableV1 s!"pureFn '{name}'" .pureFn (some expectedReturn) types typeDecls layout fnEnv
+    lowerCallableV1 s!"pureFn '{name}'" .pureFn expectedReturn types typeDecls layout fnEnv
       callable
   pure {
     name
@@ -3363,8 +3502,8 @@ partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
         statementsUsePromiseV1 defaultBody ||
           cases.any fun (_, caseBody) => statementsUsePromiseV1 caseBody
     | .forLoop _ _ _ _ _ body => statementsUsePromiseV1 body
-    | .store _ | .storeAtomic _ | .returnValue _ | .returnNone | .assert _
-    | .emitEvent .. | .revertError .. => false
+    | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
+    | .returnNone | .assert _ | .emitEvent .. | .revertError .. => false
 
 def planUsesPromiseV1 (plan : Plan) : Bool :=
   statementsUsePromiseV1 plan.initializer.body ||
