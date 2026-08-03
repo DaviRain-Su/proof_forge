@@ -22,6 +22,9 @@ import Tests.Semantic.InvariantABI
 import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ProofBridgeV1
 import Tests.Semantic.ProofedCertV1
+import Tests.Semantic.SimpleClosureCertV1
+import Tests.Semantic.AuthorWireCertV1
+import Tests.Semantic.ProofedEncodeCertV1
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.NormalizeConst
 import Tests.Semantic.ProofBundleV1

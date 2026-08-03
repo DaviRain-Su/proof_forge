@@ -65,6 +65,7 @@ import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Semantic.ProofBridgeV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.SimpleClosureCertV1
+import ProofForgeV2.Semantic.AuthorWireCertV1
 import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Semantic.ProofBundleV1
 import ProofForgeV2.Semantic.InlineProofPolicyV1

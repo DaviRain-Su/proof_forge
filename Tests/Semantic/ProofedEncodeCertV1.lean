@@ -300,4 +300,19 @@ theorem encodeData_subjectBytesV1_of_structure
       .ok Proofed.Proof.subjectBytesV1 := by
   simpa [proofedBytes] using encodeData_proofed_of_structure hstructure
 
+/-! ### Unconditional encode (structure lane discharged) -/
+
+/-- Encode-only certificate with structure closed by `structure_proofed`.
+    Sole remaining free premise for a full wire validate is transport decode
+    (sibling decode lane; not forged here). -/
+theorem encodeData_proofed :
+    encodeSemanticProgramDataV1 proofedData = .ok proofedBytes :=
+  encodeData_proofed_of_structure structure_proofed
+
+/-- Same statement with elaborator subject bytes name explicit. -/
+theorem encodeData_subjectBytesV1 :
+    encodeSemanticProgramDataV1 proofedData =
+      .ok Proofed.Proof.subjectBytesV1 := by
+  simpa [proofedBytes] using encodeData_proofed
+
 end Tests.Semantic.ProofedEncodeCertV1
