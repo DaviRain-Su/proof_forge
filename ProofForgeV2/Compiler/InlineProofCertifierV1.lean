@@ -3,6 +3,7 @@ import ProofForgeV2.Compiler.InlineProofAuditV1
 import ProofForgeV2.Compiler.InlineProofElaborationV1
 import ProofForgeV2.Compiler.InlineProofProtocolV1
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.ProgramExport
 import ProofForgeV2.Language.TheoremInventoryV1
 import ProofForgeV2.Semantic.ProofSubjectV1
@@ -45,6 +46,7 @@ open ProofForgeV2.Compiler.InlineProofAuditV1
 open ProofForgeV2.Compiler.InlineProofElaborationV1
 open ProofForgeV2.Compiler.InlineProofProtocolV1
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Language.Loader
 open ProofForgeV2.Language.ProgramExport
 open ProofForgeV2.Language.TheoremInventoryV1
 open ProofForgeV2.Semantic.ProofSubjectV1
@@ -130,13 +132,36 @@ private def fail
   .failed phase detail
 
 private def componentsToLeanName (components : Array String) : Name :=
-  components.foldl (init := Name.anonymous) fun acc part => Name.str acc part
+  components.foldl (fun acc part => Name.str acc part) Name.anonymous
 
 private def leanNameFromSelector (selector : String) : Name :=
   if selector.isEmpty then
     Name.anonymous
   else
     componentsToLeanName (selector.splitOn ".").toArray
+
+private def isForbiddenMainModuleV1 (name : Name) : Bool :=
+  name.isAnonymous || trustedImportedPackageModuleRootsV1.any fun root =>
+    name == root || root.isPrefixOf name
+
+/-- Product-generated subjects, aliases, helpers, and author theorems must be
+    declarations added while elaborating this source module. Imported/preloaded
+    declarations always carry a module index and cannot satisfy this gate. -/
+private def requireCurrentMainDeclarationV1
+    (env : Environment) (name : Name)
+    (failure : InlineProofCertifierDetailV1) :
+    Except InlineProofCertifierDetailV1 Unit :=
+  match env.getModuleIdxFor? name with
+  | none => pure ()
+  | some _ => .error failure
+
+private def uint32LiteralExprV1 (value : UInt32) : Expr :=
+  mkApp (mkConst ``UInt32.ofNat) (mkNatLit value.toNat)
+
+private def exactInvariantAliasBodyV1
+    (subjectName : Name) (ordinal : UInt32) : Expr :=
+  mkApp2 (mkConst ``ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1)
+    (mkConst subjectName) (uint32LiteralExprV1 ordinal)
 
 /-- Drop the final program-name component of `programIdentity` to recover the
     ambient namespace under which adjacent theorems are elaborated. -/
@@ -210,17 +235,18 @@ private def obligationsFromInventoryV1
     obligations := obligations.push obligation
   pure obligations
 
-/-- Conservative presence/shape gate for generated Prop aliases
-    (`abbrev Inv : Prop := InvariantTheoremV1 …`). Accepts only safe, non-extern
-    definitions whose type is exactly `Prop`. Does **not** use `info.type` as the
-    expected proposition (that is only `Prop`); the expected expression is
-    always `mkConst typeName`. -/
+/-- Exact generated Prop-alias gate. The declaration must be a safe
+    current-main-module definition whose type is `Prop` and whose body is
+    kernel-definitionally equal to
+    `InvariantTheoremV1 <exact subjectProgramV1> <exact ordinal>`.
+    A merely safe alias to `True` is rejected. -/
 private def requireGeneratedPropAliasV1
-    (env : Environment) (typeName : Name) :
+    (env : Environment) (typeName subjectName : Name) (ordinal : UInt32) :
     Except InlineProofCertifierDetailV1 Unit := do
   match env.find? typeName with
   | none => .error .missingExpectedType
   | some (.defnInfo info) =>
+      requireCurrentMainDeclarationV1 env typeName .missingExpectedType
       -- `Prop` elaborates as `Expr.sort 0` (not `mkConst \`Prop`).
       unless info.type.consumeMData == .sort 0 do
         return ← .error .missingExpectedType
@@ -231,33 +257,60 @@ private def requireGeneratedPropAliasV1
         return ← .error .missingExpectedType
       unless (Lean.getExternAttrData? env typeName).isNone do
         return ← .error .missingExpectedType
-      pure ()
+      if info.type.hasSorry || info.value.hasSorry || env.hasUnsafe info.value then
+        return ← .error .missingExpectedType
+      match Kernel.isDefEq env {} info.value
+          (exactInvariantAliasBodyV1 subjectName ordinal) with
+      | .ok true => pure ()
+      | .ok false | .error _ => .error .missingExpectedType
   | some _ => .error .missingExpectedType
 
-/-- Build Environment expected-theorem rows: FQN =
-    ambient program namespace + inventory theorem components; expected type is
-    `mkConst <programIdentity>.Proof.<inv>` (the generated Prop alias name),
-    never the alias declaration's `info.type` (`Prop`). -/
+private structure ExpectedAuditSetV1 where
+  authors : Array ExpectedInlineTheoremV1
+  generatedHelpers : Array ExpectedInlineTheoremV1
+
+/-- Build exact author/helper audit roots. Every declaration must have been
+    added by this source module. Each alias body is bound to the exact generated
+    subject and source-order invariant ordinal before either theorem is audited. -/
 private def expectedTheoremsForAuditV1
     (env : Environment)
     (source : ValidatedSourceV1)
     (inventory : TheoremInventoryV1) :
-    Except InlineProofCertifierDetailV1 (Array ExpectedInlineTheoremV1) := do
+    Except InlineProofCertifierDetailV1 ExpectedAuditSetV1 := do
   let ambient ← programAmbientComponentsV1 source
   let programComps :=
     (NonEmptyArray.toArray source.programIdentity.components).map (·.raw)
+  let subjectName :=
+    componentsToLeanName (programComps ++ #["Proof", "subjectProgramV1"])
+  let invNames := invariantNamesSourceOrderV1 source
   let bindings := theoremInventoryBindingsV1 inventory
-  let mut expected : Array ExpectedInlineTheoremV1 := Array.mkEmpty bindings.size
+  let mut authors : Array ExpectedInlineTheoremV1 := Array.mkEmpty bindings.size
+  let mut helpers : Array ExpectedInlineTheoremV1 := Array.mkEmpty bindings.size
   for binding in bindings do
+    let ordinalNat ← match invNames.idxOf? binding.invariantName with
+      | some value => pure value
+      | none => return ← .error .obligationMap
+    unless ordinalNat ≤ UInt32.size - 1 do
+      return ← .error .obligationMap
+    let ordinal := UInt32.ofNat ordinalNat
     let thmName := componentsToLeanName (ambient ++ binding.theoremComponents)
     unless env.contains thmName do
       return ← .error .missingTheorem
+    requireCurrentMainDeclarationV1 env thmName .missingTheorem
     let typeName :=
       componentsToLeanName (programComps ++ #["Proof", binding.invariantName])
-    requireGeneratedPropAliasV1 env typeName
-    -- Expected proposition is the alias constant itself, not its type `Prop`.
-    expected := expected.push { name := thmName, expectedType := mkConst typeName }
-  pure expected
+    requireGeneratedPropAliasV1 env typeName subjectName ordinal
+    let expectedType := mkConst typeName
+    authors := authors.push { name := thmName, expectedType }
+    let helperBase :=
+      ProofForgeV2.Language.generatedSimpleClosureTheoremNameV1 binding.invariantName
+    let helperName :=
+      componentsToLeanName (programComps ++ #["Proof", helperBase])
+    unless env.contains helperName do
+      return ← .error .missingTheorem
+    requireCurrentMainDeclarationV1 env helperName .missingTheorem
+    helpers := helpers.push { name := helperName, expectedType }
+  pure { authors, generatedHelpers := helpers }
 
 /-- Decode generated `<program>.Proof.subjectProgramV1` definition value to
     exact canonical semantic bytes. Accepts only
@@ -269,6 +322,7 @@ private def decodeGeneratedSubjectBytesV1
   match env.find? decl with
   | none => .error .missingSubjectDecl
   | some (.defnInfo info) =>
+      requireCurrentMainDeclarationV1 env decl .missingSubjectDecl
       unless info.type.consumeMData == mkConst ``SemanticProgramV1 do
         return ← .error .subjectBytes
       match info.safety with
@@ -324,6 +378,7 @@ private def decodeGeneratedSubjectBytesV1
 /-- Core product certifier. Never opens files, never spawns a worker, never
     prints diagnostics. -/
 unsafe def certifyInlineProofV1
+    (productSession : ProductParserSessionV1)
     (rawSource : String)
     (source : ValidatedSourceV1)
     (originInventory : OriginInventoryV1)
@@ -368,7 +423,11 @@ unsafe def certifyInlineProofV1
     | .ok value => pure value
     | .error _ => pure "<inline-proof>"
   let mainModule := leanNameFromSelector moduleSelector
-  let elabResult ← elaborateInlineProofSourceV1 rawSource fileName mainModule
+  if isForbiddenMainModuleV1 mainModule then
+    return fail .certification .elaborate
+  let baseEnvironment := ProductParserSessionV1.sessionEnvironment productSession
+  let elabResult ← elaborateInlineProofSourceV1
+    baseEnvironment rawSource fileName mainModule
   let elabEnv ← match elabResult with
     | .ok value => pure value
     | .error _ => return fail .certification .elaborate
@@ -387,11 +446,12 @@ unsafe def certifyInlineProofV1
   unless generatedBytes == expectedBytes do
     return fail .subject .subjectBytes
 
-  -- 6) Audit each user theorem against generated Prop aliases.
+  -- 6) Audit each author theorem and the compiler-generated helper it uses.
   let expected ← match expectedTheoremsForAuditV1 env source theoremInventory with
     | .ok value => pure value
     | .error detail => return fail .certification detail
-  let auditReport ← match auditExpectedTheoremsV1 env expected with
+  let auditReport ← match auditExpectedTheoremsWithRequiredV1
+      env expected.authors expected.generatedHelpers with
     | .ok report => pure report
     | .error _ => return fail .certification .audit
 

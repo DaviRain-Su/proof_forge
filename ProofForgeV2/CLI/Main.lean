@@ -17,6 +17,7 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Frontend.ProtocolV1
+open ProofForgeV2.Language.Loader
 open ProofForgeV2.Language.TheoremInventoryV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
@@ -123,16 +124,19 @@ private unsafe def loadSourceProduct
     (sourcePath : ProjectRelativePath)
     (moduleSelector : String)
     (programSelector : Option String) :
-    IO (String × ValidatedSourceV1 × OriginInventoryV1 × TheoremInventoryV1) := do
+    IO (ProductParserSessionV1 × String × ValidatedSourceV1 ×
+      OriginInventoryV1 × TheoremInventoryV1) := do
   let logicalPath ← match renderProjectRelativePath sourcePath with
     | .ok path => pure path
     | .error _ => failUsage "source path is not canonical"
   let sourceFile := projectRoot / FilePath.mk logicalPath
   let rawSource ← IO.FS.readFile sourceFile
-  match ← ProofForgeV2.Language.Loader.selectProgramV1ProductWithTheoremInventory
+  let productSession ← ProductParserSessionV1.create
+  match ← productSession.selectProgramV1ProductWithTheoremInventory
       rawSource logicalPath moduleSelector programSelector with
   | .error bundle => failBundle bundle
-  | .ok (source, origins, theorems) => pure (rawSource, source, origins, theorems)
+  | .ok (source, origins, theorems) =>
+      pure (productSession, rawSource, source, origins, theorems)
 
 /-- Stable phase tag for product PF-SRC-INVALID proof failures. -/
 private def inlineProofPhaseTagV1 : InlineProofFailurePhaseV1 → String
@@ -177,6 +181,7 @@ private def failInlineProofV1
     `.noProof` → explicit ProductProofStatusV1.notRequired (never forged certified).
     `.certified` → accepts only the private CertifiedInlineProofV1 capability. -/
 private unsafe def certifyProductInlineProofV1
+    (productSession : ProductParserSessionV1)
     (rawSource : String)
     (sourceProgram : ValidatedSourceV1)
     (origins : OriginInventoryV1)
@@ -187,7 +192,7 @@ private unsafe def certifyProductInlineProofV1
     (programSelector : Option String) :
     IO ProductProofStatusV1 := do
   let outcome ← certifyInlineProofV1
-    rawSource sourceProgram origins theorems compiled
+    productSession rawSource sourceProgram origins theorems compiled
     sourcePath moduleSelector programSelector
   match outcome with
   | .failed phase detail => failInlineProofV1 sourcePath phase detail
@@ -272,7 +277,7 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
     | none => failUsage "--module is required for canonical ProgramV1 identity"
   let sourcePath ← validateSourceArgument source
   let root ← resolveProjectRoot (options.root.getD ".")
-  let (rawSource, sourceProgram, origins, theorems) ←
+  let (productSession, rawSource, sourceProgram, origins, theorems) ←
     loadSourceProduct root sourcePath moduleName options.programName
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
@@ -280,7 +285,7 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
       -- Inline certifier owns product proof gating (private capability only).
       -- Structural ambient ProofBundle join remains deleted.
       let _proofStatus ← certifyProductInlineProofV1
-        rawSource sourceProgram origins theorems compiled
+        productSession rawSource sourceProgram origins theorems compiled
         sourcePath moduleName options.programName
       let selection ← resolveBuildSelectionForCli options
       -- Product phase: capability → emit/finalize/disk closure.
@@ -333,13 +338,13 @@ private unsafe def checkSource (options : BuildOptions) : IO Unit := do
     | none => failUsage "--module is required for canonical ProgramV1 identity"
   let sourcePath ← validateSourceArgument source
   let root ← resolveProjectRoot (options.root.getD ".")
-  let (rawSource, sourceProgram, origins, theorems) ←
+  let (productSession, rawSource, sourceProgram, origins, theorems) ←
     loadSourceProduct root sourcePath moduleName options.programName
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>
       let proofStatus ← certifyProductInlineProofV1
-        rawSource sourceProgram origins theorems compiled
+        productSession rawSource sourceProgram origins theorems compiled
         sourcePath moduleName options.programName
       let selection? ← resolveOptionalSelectionForCheck options
       let target? := selection?.map ResolvedBuildSelectionV1.targetIdOf

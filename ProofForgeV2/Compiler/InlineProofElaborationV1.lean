@@ -1,6 +1,6 @@
 import Lean.Elab.Frontend
 import Lean.Parser.Module
-import Lean.Util.Path
+import ProofForgeV2.Language.ProgramElaborationV1
 
 /-!
 # InlineProofElaborationV1
@@ -8,11 +8,12 @@ import Lean.Util.Path
 In-process Lean 4.31 elaboration for fixed-import proof modules.
 
 * Consumes an already-held raw source `String` (never re-reads files).
-* Pipeline: `parseHeader` → header gate → `Elab.processHeader` →
-  `Elab.IO.processCommands`.
-* Captures `MessageLog`; does not print diagnostics or write `.olean`.
-* Requires exact single plain `import ProofForgeV2`; `plugins := #[]`; no
-  output path.
+* Pipeline: `parseHeader` → header gate → reuse the package-owned immutable
+  Loader Environment → `Elab.IO.processCommands`.
+* Captures `MessageLog`; does not print diagnostics, write `.olean`, mutate the
+  search path, or execute import initializers during certification.
+* Requires exact single plain `import ProofForgeV2`; the already-loaded locked
+  frontend module is the only elaboration base.
 * Permanent in-process path (D3-E6 product decision: do not restore product
   supervisor/worker). **Not** a containment boundary and **not** a
   hostile-code sandbox.
@@ -89,43 +90,43 @@ private def validateHeaderGate (header : Syntax) : Bool :=
 
 /-- In-process elaborate a raw proof-module source already held in memory.
 
-    Never opens or re-reads the source from disk. Does not write `.olean`, does
-    not print messages, and does not load plugins. Header must be exactly one
-    plain `import ProofForgeV2`. Ordinary in-process elaboration only — not
-    containment. -/
+    `baseEnvironment` must be the immutable environment minted by Loader's
+    private `ProductParserSessionV1`; this function performs no import or search
+    path resolution. It never opens/re-reads source, writes `.olean`, prints
+    messages, loads plugins, or executes import initializers. Header must be
+    exactly one plain `import ProofForgeV2`. Ordinary in-process elaboration
+    only — not containment. -/
 unsafe def elaborateInlineProofSourceV1
+    (baseEnvironment : Environment)
     (source : String)
     (fileName : String := "<inline-proof>")
     (mainModule : Name := `InlineProof) :
     IO (Except InlineProofElabFaultV1 InlineProofElabEnvV1) := do
-  enableInitializersExecution
-  initSearchPath (← findSysroot "lean")
   let inputCtx := mkInputContext source fileName
   let (header, parserState, parseMessages) ← parseHeader inputCtx
   if parseMessages.hasErrors then
     return .error (mkFault .headerParse parseMessages)
   unless validateHeaderGate header.raw do
     return .error (mkFault .headerGate parseMessages)
-  let (env, headerMessages) ← processHeader header {} parseMessages inputCtx
-    (trustLevel := 0) (plugins := #[]) (leakEnv := false)
-    (mainModule := mainModule)
-  if headerMessages.hasErrors then
-    return .error (mkFault .headerImport headerMessages)
-  let commandState := Command.mkState env headerMessages {}
+  unless baseEnvironment.header.moduleNames.any
+      (· == `ProofForgeV2.Language.ProgramElaborationV1) do
+    return .error (mkFault .headerImport parseMessages)
+  let env := baseEnvironment.setMainModule mainModule
+  let commandState := Command.mkState env parseMessages {}
   let cmdResult ←
     try
-      let state ← IO.processCommands inputCtx parserState commandState
-      pure (some state)
+      let processed ← IO.processCommands inputCtx parserState commandState
+      pure (some processed)
     catch _ =>
       pure none
   match cmdResult with
   | none =>
-      return .error (mkFault .commands headerMessages)
-  | some state =>
-      let finalMessages := state.commandState.messages
+      return .error (mkFault .commands parseMessages)
+  | some processed =>
+      let finalMessages := processed.commandState.messages
       if finalMessages.hasErrors then
         return .error (mkFault .commands finalMessages)
       else
-        return .ok (mkEnv state.commandState.env finalMessages)
+        return .ok (mkEnv processed.commandState.env finalMessages)
 
 end ProofForgeV2.Compiler.InlineProofElaborationV1

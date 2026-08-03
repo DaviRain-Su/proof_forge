@@ -663,6 +663,86 @@ unsafe def selectProgramV1ProductWithTheoremInventory (session : ParserSession)
 
 end ParserSession
 
+/-- Product parser/elaboration session whose package module root is derived from
+    the running executable layout, never from `LEAN_PATH`. The constructor is
+    private so callers cannot relabel an ambient development `ParserSession` as
+    product authority. The trusted Lean sysroot remains part of the compiler
+    runtime TCB; user/project `.olean` search entries are excluded. -/
+structure ProductParserSessionV1 where
+  private mk ::
+  private session_ : ParserSession
+
+namespace ProductParserSessionV1
+
+/-- Locked module imported for both ProgramV1 inventory parsing and adjacent
+    theorem elaboration. It contains the `program` elaborator plus the exact
+    proof ABI, without relying on a caller-resolved umbrella `.olean`. -/
+def lockedFrontendModuleV1 : Name :=
+  `ProofForgeV2.Language.ProgramElaborationV1
+
+private def packageOleanRootV1 : IO System.FilePath := do
+  let appDir ← IO.appDir
+  let buildDir ← match appDir.parent with
+    | some value => pure value
+    | none => throw (IO.userError
+        "PF-INTERNAL: product executable has no build-root parent")
+  let root := buildDir / "lib" / "lean"
+  let moduleFile := root / "ProofForgeV2" / "Language" /
+    "ProgramElaborationV1.olean"
+  unless ← moduleFile.pathExists do
+    throw (IO.userError
+      "PF-INTERNAL: package-owned inline-proof frontend module is missing")
+  let rootMetadata ← root.symlinkMetadata
+  unless rootMetadata.type == .dir do
+    throw (IO.userError
+      "PF-INTERNAL: package-owned inline-proof module root is not a directory")
+  let realRoot ← IO.FS.realPath root
+  unless realRoot == root do
+    throw (IO.userError
+      "PF-INTERNAL: package-owned inline-proof module root must not traverse a symlink")
+  pure root
+
+/-- Read-only ParserSession projection. The opaque product wrapper remains the
+    authority passed to the certifier. -/
+def parserSession (value : ProductParserSessionV1) : ParserSession :=
+  value.session_
+
+/-- Exact immutable Environment shared by product Loader parsing and proof
+    command elaboration. -/
+def sessionEnvironment (value : ProductParserSessionV1) : Environment :=
+  ParserSession.sessionEnvironment value.session_
+
+/-- Mint the product session from an executable-sibling package module root and
+    the trusted Lean runtime sysroot. This writes the process-global search path
+    exactly once on the caller's control thread and deliberately ignores
+    `LEAN_PATH`; concurrent session creation remains unsupported. -/
+unsafe def create : IO ProductParserSessionV1 := do
+  let packageRoot ← packageOleanRootV1
+  let leanSysroot ← findSysroot "lean"
+  let builtinRoots ← getBuiltinSearchPath leanSysroot
+  searchPathRef.set ([packageRoot] ++ builtinRoots)
+  enableInitializersExecution
+  let environment ← importModules #[{ module := lockedFrontendModuleV1 }] {} 0
+    (loadExts := true)
+  pure ⟨{ environment }⟩
+
+unsafe def selectProgramV1Product
+    (session : ProductParserSessionV1)
+    (source logicalSourcePath moduleName : String) (requested : Option String) :
+    IO (DiagnosticResultV1 (ValidatedSourceV1 × OriginInventoryV1)) :=
+  session.session_.selectProgramV1Product
+    source logicalSourcePath moduleName requested
+
+unsafe def selectProgramV1ProductWithTheoremInventory
+    (session : ProductParserSessionV1)
+    (source logicalSourcePath moduleName : String) (requested : Option String) :
+    IO (DiagnosticResultV1
+      (ValidatedSourceV1 × OriginInventoryV1 × TheoremInventoryV1)) :=
+  session.session_.selectProgramV1ProductWithTheoremInventory
+    source logicalSourcePath moduleName requested
+
+end ProductParserSessionV1
+
 unsafe def parseProgramsV1 (source fileName moduleName : String) :
     IO (Except CompileError (Array ValidatedSourceV1)) := do
   if let .error error := checkSourceSize source then
@@ -694,11 +774,12 @@ unsafe def selectProgramV1FrontendPayload
   let session ← ParserSession.create
   session.selectProgramV1FrontendPayload source logicalSourcePath moduleName requested
 
-/-- Top-level product Loader entry; see `ParserSession.selectProgramV1Product`. -/
+/-- Top-level product Loader entry; uses the package-owned product parser
+    authority and excludes ambient `LEAN_PATH`. -/
 unsafe def selectProgramV1Product (source logicalSourcePath moduleName : String)
     (requested : Option String) :
     IO (DiagnosticResultV1 (ValidatedSourceV1 × OriginInventoryV1)) := do
-  let session ← ParserSession.create
+  let session ← ProductParserSessionV1.create
   session.selectProgramV1Product source logicalSourcePath moduleName requested
 
 /-- Top-level additive inventory parse; see ParserSession method. -/
@@ -715,12 +796,15 @@ unsafe def selectProgramV1WithTheoremInventory
   let session ← ParserSession.create
   session.selectProgramV1WithTheoremInventory source fileName moduleName requested
 
-/-- Top-level additive product inventory entry; see ParserSession method. -/
+/-- Top-level product inventory entry; uses the package-owned product parser
+    authority and excludes ambient `LEAN_PATH`. Callers that also certify an
+    adjacent theorem must retain an explicitly created `ProductParserSessionV1`
+    so parsing and elaboration share the same immutable Environment. -/
 unsafe def selectProgramV1ProductWithTheoremInventory
     (source logicalSourcePath moduleName : String) (requested : Option String) :
     IO (DiagnosticResultV1
       (ValidatedSourceV1 × OriginInventoryV1 × TheoremInventoryV1)) := do
-  let session ← ParserSession.create
+  let session ← ProductParserSessionV1.create
   session.selectProgramV1ProductWithTheoremInventory
     source logicalSourcePath moduleName requested
 

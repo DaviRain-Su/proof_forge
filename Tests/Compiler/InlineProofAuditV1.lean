@@ -357,6 +357,16 @@ private def runAuditCases (env : Environment) : IO Unit := do
       | .forbiddenAxiom owner ax =>
           owner == syntheticUsesUserAxiomName && ax == syntheticUserAxiomName
       | _ => false
+  -- Compiler-generated helpers are explicit required roots: a clean author
+  -- theorem cannot hide a forbidden transitive dependency behind its helper.
+  expectErr "required_helper_user_axiom"
+    (auditExpectedTheoremsWithRequiredV1 env
+      #[← expectedOf env ``audit_good_true]
+      #[← expectedOf env syntheticUsesUserAxiomName])
+    fun
+      | .forbiddenAxiom owner ax =>
+          owner == syntheticUsesUserAxiomName && ax == syntheticUserAxiomName
+      | _ => false
   expectErr "sorry"
     (auditExpectedTheoremsV1 env #[← expectedOf env syntheticSorryTrueName])
     fun

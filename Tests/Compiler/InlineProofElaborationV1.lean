@@ -4,11 +4,13 @@
   Not a containment or hostile-code sandbox claim.
 -/
 import ProofForgeV2.Compiler.InlineProofElaborationV1
+import ProofForgeV2.Language.Loader
 
 namespace Tests.Compiler.InlineProofElaborationV1
 
 open Lean
 open ProofForgeV2.Compiler.InlineProofElaborationV1
+open ProofForgeV2.Language.Loader
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -39,8 +41,8 @@ private def malformedCommandSource : String :=
   "import ProofForgeV2\n\n" ++
   "theorem inlineBroken : True :=\n"
 
-private unsafe def expectSuccessDecl : IO Unit := do
-  match ← elaborateInlineProofSourceV1 successSource with
+private unsafe def expectSuccessDecl (base : Environment) : IO Unit := do
+  match ← elaborateInlineProofSourceV1 base successSource with
   | .error fault =>
       throw <| IO.userError
         s!"success source failed: {repr (InlineProofElabFaultV1.phase fault)}"
@@ -50,27 +52,29 @@ private unsafe def expectSuccessDecl : IO Unit := do
       expect (not (InlineProofElabEnvV1.messages carrier).hasErrors)
         "success must not retain error messages"
 
-private unsafe def expectFalseProofFails : IO Unit := do
-  match ← elaborateInlineProofSourceV1 falseProofSource with
+private unsafe def expectFalseProofFails (base : Environment) : IO Unit := do
+  match ← elaborateInlineProofSourceV1 base falseProofSource with
   | .ok _ => throw <| IO.userError "false proof unexpectedly succeeded"
   | .error fault => expectPhase fault .commands "false proof"
 
-private unsafe def expectExtraImportFails : IO Unit := do
-  match ← elaborateInlineProofSourceV1 extraImportSource with
+private unsafe def expectExtraImportFails (base : Environment) : IO Unit := do
+  match ← elaborateInlineProofSourceV1 base extraImportSource with
   | .ok _ => throw <| IO.userError "extra import unexpectedly succeeded"
   | .error fault => expectPhase fault .headerGate "extra import"
 
-private unsafe def expectMalformedFails : IO Unit := do
-  match ← elaborateInlineProofSourceV1 malformedCommandSource with
+private unsafe def expectMalformedFails (base : Environment) : IO Unit := do
+  match ← elaborateInlineProofSourceV1 base malformedCommandSource with
   | .ok _ => throw <| IO.userError "malformed command unexpectedly succeeded"
   | .error fault => expectPhase fault .commands "malformed command"
 
 /-- Same in-memory String surface for every case (no disk re-read path). -/
 unsafe def run : IO Unit := do
-  expectSuccessDecl
-  expectFalseProofFails
-  expectExtraImportFails
-  expectMalformedFails
+  let productSession ← ProductParserSessionV1.create
+  let base := ProductParserSessionV1.sessionEnvironment productSession
+  expectSuccessDecl base
+  expectFalseProofFails base
+  expectExtraImportFails base
+  expectMalformedFails base
   IO.println "Tests.Compiler.InlineProofElaborationV1: ok"
 
 end Tests.Compiler.InlineProofElaborationV1

@@ -278,4 +278,17 @@ def auditExpectedTheoremsV1
     audited := audited.push (← auditOneExpectedV1 env row)
   pure ⟨policy.digest, policy.version, audited⟩
 
+/-- Audit user-facing theorem roots plus compiler-generated helper roots. The
+    report intentionally exposes only the user theorem set (the protocol count
+    and digest are defined over author obligations), while every required
+    helper is independently kind/type/closure audited before success. -/
+def auditExpectedTheoremsWithRequiredV1
+    (env : Environment)
+    (expected required : Array ExpectedInlineTheoremV1) :
+    Except InlineProofAuditErrorV1 InlineProofAuditReportV1 := do
+  let report ← auditExpectedTheoremsV1 env expected
+  for row in required do
+    let _ ← auditOneExpectedV1 env row
+  pure report
+
 end ProofForgeV2.Compiler.InlineProofAuditV1

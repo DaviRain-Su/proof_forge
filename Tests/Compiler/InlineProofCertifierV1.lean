@@ -34,7 +34,6 @@ import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.TheoremInventoryV1
 import ProofForgeV2.Source.ValidatedSourceV1
-import Tests.Language.ParserSession
 
 namespace Tests.Compiler.InlineProofCertifierV1
 
@@ -129,7 +128,7 @@ private def parsePath (s : String) : IO ProjectRelativePath :=
   | .error e => throw <| IO.userError s!"path: {e}"
 
 private unsafe def loadProduct
-    (session : ParserSession) (src fileName moduleName : String)
+    (session : ProductParserSessionV1) (src fileName moduleName : String)
     (requested : Option String := none) :
     IO (ValidatedSourceV1 ×
         ProofForgeV2.Source.OriginJoinV1.OriginInventoryV1 ×
@@ -157,20 +156,20 @@ private def digestPresent (d : Digest) : Bool :=
   d.bytes.size == 32
 
 /-- No proof items: certifier must return explicit `noProof`, never success. -/
-private unsafe def testNoProofBypass (session : ParserSession) : IO Unit := do
+private unsafe def testNoProofBypass (session : ProductParserSessionV1) : IO Unit := do
   let path ← parsePath "tests/inline-proof/bare.pf"
   let (source, origin, thmInv) ← loadProduct session bareProgram
       "tests/inline-proof/bare.pf" "Root"
   expect (theoremInventoryBindingsV1 thmInv).isEmpty "bare inventory empty"
   let compiled ← compileOf source origin
-  let outcome ← certifyInlineProofV1 bareProgram source origin thmInv compiled
+  let outcome ← certifyInlineProofV1 session bareProgram source origin thmInv compiled
       path "Root" none
   expectOutcome "noProof" outcome fun
     | .noProof => true
     | _ => false
 
 /-- Structurally legal inventory + false theorem body fails at elaboration. -/
-private unsafe def testFalseTheoremElab (session : ParserSession) : IO Unit := do
+private unsafe def testFalseTheoremElab (session : ProductParserSessionV1) : IO Unit := do
   let src := proofProgram "Proofed" "ProofedProof.safe"
       (falseTheoremBody "ProofedProof.safe" "Proofed.Proof.safe")
   let path ← parsePath "tests/inline-proof/false.pf"
@@ -178,15 +177,32 @@ private unsafe def testFalseTheoremElab (session : ParserSession) : IO Unit := d
       "tests/inline-proof/false.pf" "Root"
   expect ((theoremInventoryBindingsV1 thmInv).size == 1) "false binding count"
   let compiled ← compileOf source origin
-  let outcome ← certifyInlineProofV1 src source origin thmInv compiled
+  let outcome ← certifyInlineProofV1 session src source origin thmInv compiled
       path "Root" none
   expectOutcome "false theorem" outcome fun
     | .failed phase detail =>
         phase == .certification && detail == .elaborate
     | _ => false
 
+/-- Trusted package module roots cannot be reused as the user main-module
+    identity. Rejection happens before command elaboration/audit. -/
+private unsafe def testForbiddenMainModule
+    (session : ProductParserSessionV1) : IO Unit := do
+  let src := proofProgram "Proofed" "ProofedProof.safe"
+      (falseTheoremBody "ProofedProof.safe" "Proofed.Proof.safe")
+  let path ← parsePath "tests/inline-proof/forbidden-module.pf"
+  let (source, origin, thmInv) ← loadProduct session src
+      "tests/inline-proof/forbidden-module.pf" "ProofForgeV2"
+  let compiled ← compileOf source origin
+  let outcome ← certifyInlineProofV1 session src source origin thmInv compiled
+      path "ProofForgeV2" none
+  expectOutcome "forbidden main module" outcome fun
+    | .failed phase detail =>
+        phase == .certification && detail == .elaborate
+    | _ => false
+
 /-- Mix compiled carrier from another program → subject identity fails closed. -/
-private unsafe def testWrongSubjectBytes (session : ParserSession) : IO Unit := do
+private unsafe def testWrongSubjectBytes (session : ProductParserSessionV1) : IO Unit := do
   let src := proofProgram "Proofed" "ProofedProof.safe"
       (falseTheoremBody "ProofedProof.safe" "Proofed.Proof.safe")
   let other := proofProgram "Other" "OtherProof.safe"
@@ -197,7 +213,7 @@ private unsafe def testWrongSubjectBytes (session : ParserSession) : IO Unit := 
   let (otherSource, otherOrigin, _) ← loadProduct session other
       "tests/inline-proof/other.pf" "Root"
   let otherCompiled ← compileOf otherSource otherOrigin
-  let outcome ← certifyInlineProofV1 src source origin thmInv otherCompiled
+  let outcome ← certifyInlineProofV1 session src source origin thmInv otherCompiled
       path "Root" none
   expectOutcome "wrong subject" outcome fun
     | .failed phase detail =>
@@ -209,7 +225,7 @@ private unsafe def testWrongSubjectBytes (session : ParserSession) : IO Unit := 
 
 /-- Empty inventory with proof items still present (forged empty inventory)
     must not skip as noProof. -/
-private unsafe def testEmptyInventoryWithProofs (session : ParserSession) : IO Unit := do
+private unsafe def testEmptyInventoryWithProofs (session : ProductParserSessionV1) : IO Unit := do
   let src := proofProgram "Proofed" "ProofedProof.safe"
       (falseTheoremBody "ProofedProof.safe" "Proofed.Proof.safe")
   let path ← parsePath "tests/inline-proof/forged-empty.pf"
@@ -217,7 +233,7 @@ private unsafe def testEmptyInventoryWithProofs (session : ParserSession) : IO U
       "tests/inline-proof/forged-empty.pf" "Root"
   let compiled ← compileOf source origin
   let forgedEmpty := emptyTheoremInventoryV1
-  let outcome ← certifyInlineProofV1 src source origin forgedEmpty compiled
+  let outcome ← certifyInlineProofV1 session src source origin forgedEmpty compiled
       path "Root" none
   expectOutcome "forged empty inventory" outcome fun
     | .failed phase detail =>
@@ -227,7 +243,7 @@ private unsafe def testEmptyInventoryWithProofs (session : ParserSession) : IO U
 
 /-- Dual-invariant program with two proofs; forged partial inventory (one of two
     bindings) must fail closed at obligation bijection — not noProof/certified. -/
-private unsafe def testForgedPartialDualInvariant (session : ParserSession) : IO Unit := do
+private unsafe def testForgedPartialDualInvariant (session : ProductParserSessionV1) : IO Unit := do
   let src :=
     header ++
     "program Dual where\n" ++
@@ -253,7 +269,7 @@ private unsafe def testForgedPartialDualInvariant (session : ParserSession) : IO
   let compiled ← compileOf source origin
   -- Forged partial: keep only the first binding.
   let partialInv := mintTheoremInventoryV1 #[fullBindings[0]!]
-  let outcomePartial ← certifyInlineProofV1 src source origin partialInv compiled
+  let outcomePartial ← certifyInlineProofV1 session src source origin partialInv compiled
       path "Root" none
   expectOutcome "forged partial dual" outcomePartial fun
     | .failed phase detail =>
@@ -263,7 +279,7 @@ private unsafe def testForgedPartialDualInvariant (session : ParserSession) : IO
   -- Forged reordered: swap the two bindings.
   let reorderedInv :=
     mintTheoremInventoryV1 #[fullBindings[1]!, fullBindings[0]!]
-  let outcomeReorder ← certifyInlineProofV1 src source origin reorderedInv compiled
+  let outcomeReorder ← certifyInlineProofV1 session src source origin reorderedInv compiled
       path "Root" none
   expectOutcome "forged reorder dual" outcomeReorder fun
     | .failed phase detail =>
@@ -276,7 +292,7 @@ private unsafe def testForgedPartialDualInvariant (session : ParserSession) : IO
   let (bareSrc, bareOrigin, _) ← loadProduct session bareProgram
       "tests/inline-proof/bare-extra.pf" "Root"
   let bareCompiled ← compileOf bareSrc bareOrigin
-  let outcomeExtra ← certifyInlineProofV1 bareProgram bareSrc bareOrigin extraOnBare
+  let outcomeExtra ← certifyInlineProofV1 session bareProgram bareSrc bareOrigin extraOnBare
       bareCompiled pathBare "Root" none
   expectOutcome "forged extra on bare" outcomeExtra fun
     | .failed phase detail =>
@@ -287,12 +303,12 @@ private unsafe def testForgedPartialDualInvariant (session : ParserSession) : IO
 /-- Protocol success mint is not a product capability: only the private carrier
     from `certifyInlineProofV1` is accepted. Runtime checks that noProof/fail
     paths never yield certified. -/
-private unsafe def testNoForgedSuccess (session : ParserSession) : IO Unit := do
+private unsafe def testNoForgedSuccess (session : ProductParserSessionV1) : IO Unit := do
   let path ← parsePath "tests/inline-proof/no-forge.pf"
   let (source, origin, thmInv) ← loadProduct session bareProgram
       "tests/inline-proof/no-forge.pf" "Root"
   let compiled ← compileOf source origin
-  let outcome ← certifyInlineProofV1 bareProgram source origin thmInv compiled
+  let outcome ← certifyInlineProofV1 session bareProgram source origin thmInv compiled
       path "Root" none
   match outcome with
   | .certified _ =>
@@ -319,7 +335,7 @@ private def expectCertifiedCarrier
     change proofCertificationDigest (request binds raw source).
     Hard-fails unless both outcomes are `.certified`. Never hand-mints carriers. -/
 private unsafe def testSimpleClosureProductPositive
-    (session : ParserSession) : IO Unit := do
+    (session : ProductParserSessionV1) : IO Unit := do
   let programName := "Simple"
   let authorTheorem := "SimpleProof.safe"
   let bodyA := simpleClosureAuthorBodyExact authorTheorem programName
@@ -383,9 +399,9 @@ private unsafe def testSimpleClosureProductPositive
       (CompiledSemanticV1.semanticV1Of compiledB).canonicalBytes)
     "semantic bytes must match across theorem-body rewrite"
   -- Sole product certifier on held raw source (no re-read, no forge).
-  let outcomeA ← certifyInlineProofV1 srcA sourceA originA thmInvA compiledA
+  let outcomeA ← certifyInlineProofV1 session srcA sourceA originA thmInvA compiledA
       pathA "Root" none
-  let outcomeB ← certifyInlineProofV1 srcB sourceB originB thmInvB compiledB
+  let outcomeB ← certifyInlineProofV1 session srcB sourceB originB thmInvB compiledB
       pathB "Root" none
   -- Strict product-positive: require `.certified` on both bodies.
   let cA ← match outcomeA with
@@ -420,9 +436,10 @@ private unsafe def testSimpleClosureProductPositive
     "Tests.Compiler.InlineProofCertifierV1: simple-closure product-positive CERTIFIED"
 
 unsafe def run : IO Unit := do
-  let session ← Tests.Language.ParserSession.shared
+  let session ← ProductParserSessionV1.create
   testNoProofBypass session
   testFalseTheoremElab session
+  testForbiddenMainModule session
   testWrongSubjectBytes session
   testEmptyInventoryWithProofs session
   testForgedPartialDualInvariant session
