@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -32,8 +32,10 @@ async SubMsg 同 tx）；TON 工程面为 Tolk + real BoC + `@ton/sandbox`（res
 Plan schedule 仍 FC）。以上均为工程观察，**非** formal/hermetic。
 **Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；后四个 engineering
 leaves 的产品范围 reconciliation 仍待 **`DOC-ADR-SCOPE`**，不得静默扩 accepted scope。
-日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。下表中的 task/evidence
-文档继续保存历史 release-qualification 权威，但不再作为 development completion 的前置条件。
+日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。**ADR-0026**
+（`proposed`）冻结 inline same-file theorem certification 的 engineering 边界（非 formal/
+hermetic/release）。下表中的 task/evidence 文档继续保存历史 release-qualification 权威，
+但不再作为 development completion 的前置条件。
 
 ## 当前索引
 

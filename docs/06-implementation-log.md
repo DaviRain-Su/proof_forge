@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-03
+updated: 2026-08-04
 normative: false
 ---
 
@@ -11,6 +11,25 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+## 2026-08-04 — ADR-0026 inline same-file theorem certification（文档 only）
+
+- Decision：新增 `docs/adr/0026-inline-same-file-theorem-certification.md`（`proposed`），
+  冻结 engineering product certification 边界：single in-memory source snapshot；
+  ProgramV1/`semanticHash` 不含 adjacent theorem body；ordinary same-file Lean theorem；
+  in-process elaboration **不是** sandbox；Environment declaration-kind / defeq /
+  dependency / axiom audit；固定允许 axiom `Classical.choice` / `Quot.sound` / `propext`；
+  不信任用户 `.olean`；proof gate 早于 target resolve / materialize / staging；当前仅
+  `InvariantTheoremV1`（∀ `StateConformsV1` → `evalInvariantV1 = .returnedTrue`），明确
+  不声称 reachability / init-step safety / target refinement / formal TST 闭合。
+- Specs/docs：对齐 `02-architecture`、`03-technical-spec`、`SPEC-LANG-001`、`SPEC-SEM-001`、
+  `SPEC-SEM-WIRE-001`、`SPEC-CLI-001`、`SPEC-SEC-001`、`05-test-spec`（新增 engineering
+  `TST-PROOF-INLINE-E1` 叙述，**不** 关闭 formal `TST-PROOF-001`）、ADR index、
+  `document-status`/`index`、`MIGRATION_MATRIX`、`AGENTS.md`。
+- Code reality（已存在、本切片不改代码）：`TheoremInventoryV1`、`InlineProofPolicyV1`、
+  `InlineProofProtocolV1`、`InlineProofAuditV1`、`InlineProofCertifierV1` 等工程模块在树中；
+  CLI 全产品 wiring 与 formal task 状态不由本文档代签。
+- Gates：`just docs-check`、`git diff --check`。边界：文档-only；非 formal/hermetic/release。
 
 ## 2026-08-03 — D3-E9 registry-owned descriptor semantics axes
 

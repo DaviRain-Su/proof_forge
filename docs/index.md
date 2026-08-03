@@ -3,7 +3,7 @@ id: DOC-INDEX
 title: ProofForge V2 文档导航
 status: proposed
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -30,6 +30,11 @@ FC）。**Accepted PRD Phase 1 仍为四目标**（EVM/Solana/NEAR/Noir）；Ale
 Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。
 
 既有 formal task 与 TaskQualification 资料继续如实保留，但不冒充工程实现完成度，也不阻塞日常开发。
+
+**Inline proof（ADR-0026，`proposed`）**：engineering certification 为同文件 adjacent theorem +
+in-process Environment audit（非 sandbox）；hash 不含 theorem body；仅
+`InvariantTheoremV1`/`StateConformsV1`；gate 在 materialize 前。见
+[`adr/0026-inline-same-file-theorem-certification.md`](adr/0026-inline-same-file-theorem-certification.md)。
 
 ## 生命周期
 

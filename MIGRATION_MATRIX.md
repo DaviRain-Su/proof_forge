@@ -4,7 +4,7 @@
 
 - Original audit baseline date: `2026-07-26`
 - Original audit baseline commit: `8b42f7ebeb60652d1789e495f23247e5685b1e22`
-- Engineering fact updates through: `2026-08-03`（含 D3-E7/NFR-REPEAT/D3-E9/N-ANON-RESULT；**控制面同步**：11 targets / 8 implemented + 3 design-only / 8 materializers / 9 resolver rows；CosmWasm/TON capability Plan/IR/materialize/finalize；D2-07 `evalInvariantV1`/`InvariantTheoremV1` 工程已存在、formal pending；后续增量见本矩阵与 `docs/06-implementation-log.md`；原始审计基线 commit 见上）
+- Engineering fact updates through: `2026-08-04`（含 D3-E7/NFR-REPEAT/D3-E9/N-ANON-RESULT + **ADR-0026 inline same-file theorem certification 文档契约**；**控制面同步**：11 targets / 8 implemented + 3 design-only / 8 materializers / 9 resolver rows；CosmWasm/TON capability Plan/IR/materialize/finalize；D2-07 `evalInvariantV1`/`InvariantTheoremV1` 工程已存在、formal pending；后续增量见本矩阵与 `docs/06-implementation-log.md`；原始审计基线 commit 见上）
 - Formal task source: [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)
 - Test requirement source: [`docs/05-test-spec.md`](docs/05-test-spec.md)
 - Product migration decision: [`docs/adr/0019-single-programv1-source-authority.md`](docs/adr/0019-single-programv1-source-authority.md)
@@ -35,6 +35,17 @@ D1–D4 共 27 个 formal task，当前仍为：
 > value/terminator；`.proof` 继续不进入业务 IR，因此同一 program 有/无 proof 的 semantic bytes/hash
 > 相同。八个 materializer 仍对 nonempty invariants fail closed；formal D2-06/D2-07 与
 > TST-SEM-001/002/003 仍 pending。
+
+> **2026-08-04 ADR-0026 inline same-file theorem certification（文档）**：proposed ADR 冻结
+> engineering product certification 边界——single in-memory source snapshot；ProgramV1/
+> semantic hash **不含** adjacent theorem body；ordinary same-file Lean theorem；
+> **in-process elaboration 不是 sandbox**；Environment kind/defeq/dependency/axiom audit；
+> 固定允许 axiom `Classical.choice`/`Quot.sound`/`propext`；不信任用户 `.olean`；proof gate
+> 早于 target resolve/materialize/staging；当前仅 `InvariantTheoremV1`（∀ `StateConformsV1` →
+> `evalInvariantV1 = returnedTrue`），**不** 声称 reachability/init-step safety/target
+> refinement/formal `TST-PROOF-001` 闭合。工程模块
+> `TheoremInventoryV1`/`InlineProofPolicyV1`/`InlineProofAuditV1`/`InlineProofCertifierV1` 等
+> 已存在于树中；CLI 全产品接线与 formal task 状态仍独立，不得用本文档更新代签。
 
 > **2026-08-02 N-CONST-REF 增量**：constants rows 仍由 sole `evalConstDeclValueV1` 生成 canonical
 > valueBytes；新增 complete source-order lookup 位于 fn signature type interning 后、任何 callable body

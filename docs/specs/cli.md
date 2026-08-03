@@ -3,19 +3,24 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
 # CLI 契约
 
-> **当前实现状态（2026-08-03）**：产品 `check` / `build` 已回到进程内
+> **当前实现状态（2026-08-04）**：产品 `check` / `build` 已回到进程内
 > `IO.FS.readFile` → `Loader.selectProgramV1Product`，不经过 B11/B12 safe-open/supervisor，
 > 不输出 supervised `receipts`，且不按 Darwin/非 Darwin 区分可用性。六类
 > `--resource-limit` 中各 stage 的 `wall-ms` 已实际强制；build 的
 > `artifact-output.published-bytes` 也在 sidecar 写入/rename 前按 base+finalized-extra artifacts
 > 与 exact evidence/manifest UTF-8 的完整总量强制；超限为 `PF-RESOURCE-OUTPUT`/exit 6 且不发布 destination。memory/process/protocol/stderr
 > 仍只有解析/回显与 hard-max 校验。以下 receipt/containment 条款是 proposed 目标。
+>
+> **Inline proof（ADR-0026，engineering）**：主 certification 面为同一 in-memory source 上的
+> adjacent ordinary Lean theorem + Environment audit；**不是** sandbox。proof gate 必须在
+> target resolve / materialize / staging **之前**；ProgramV1/`semanticHash` 不含 theorem body；
+> 当前仅 `InvariantTheoremV1`/`StateConformsV1` 全称量化，不声称 formal TST/release。
 
 可执行文件固定 `proof-forge-next`。所有命令 non-interactive；JSON 输出 stdout，日志和
 human diagnostics 到 stderr。
@@ -89,25 +94,52 @@ selection 后未执行的 target-specific external tool 仍可带合法 override
 receipt 记录全部 effective limits 与 override source。target execution gas/compute/proof limits 属于
 target semantics/Plan，不得通过这些 compiler-operation flags 改写。
 
-## Proof bundle input
+## Proof certification input
 
-`--proof-bundle` 只用于 `check/build` 验证 source 中的 `proof ... using ...` certification reference；
-它与 Noir `prove --inputs` 产生的 ZK proof 完全不同。`--proof-bundle` 与
-`--proof-bundle-digest` 必须成对且各出现一次；digest 使用 SPEC-COMMON-001 的 exact lowercase
-SHA-256 wire form。缺一、重复、空值或把这两个 flag 传给其他 command，均在访问 source/bundle
-前作为 usage error、exit 2 拒绝。
+### Inline same-file gate（ADR-0026 engineering product path）
 
-source 没有 proof reference 时禁止提供 bundle pair；source 有至少一个 proof reference 时必须提供
-恰好一个 pair，且 bundle manifest exports 必须与 source reference 的
+`check` / `build` 在成功 compile 到 `CompiledSemanticV1` 之后、target resolve /
+materialization / staging **之前**，对同一 in-memory source snapshot 运行 inline proof gate：
+
+1. theorem inventory 与 program `proof` / invariant 做 exact bijection；空表面 → 显式
+   `noProof`（非失败），可继续后续 resolve；
+2. 以 held raw source 做 **in-process** elaboration（**不是** sandbox / contained worker）；
+3. Environment 审计 root theorem kind、kernel defeq 到
+   `InvariantTheoremV1` / 生成 Prop alias、dependency 闭包与固定 trust policy
+   （仅 `Classical.choice` / `Quot.sound` / `propext`）；
+4. **禁止** 把用户 `.olean`、ambient lake 或 `LEAN_PATH` 搜索当作 theorem authority；
+5. 失败 fail closed：零 Plan、零 output 变更；成功 summary 可含
+   request/theorem-set/proofCertification/policy digest 与
+   `(invariantName,ordinal,theoremName)` 序，**不得** 含 theorem body、Environment 转储、
+   host path 或 private value，且 **不参与** `sourceHash` / `semanticHash` /
+   `semanticProvenanceDigest`。
+
+Adjacent theorem body **不** 进入 ProgramV1 wire/`sourceHash`；**永不** 进入 semantic hash。
+当前命题仅覆盖全体 `StateConformsV1` 状态上的 invariant truth，不声称 reachability /
+init-step safety / target refinement / formal `TST-PROOF-001`。
+
+### External ProofBundle pair（historical / alternate surface）
+
+`--proof-bundle` 只用于 `check/build` 在 **非 inline** 或显式 alternate 面上验证 source
+`proof ... using ...` 对 digest-pinned `ProofBundleV1` 的 join；它与 Noir
+`prove --inputs` 产生的 ZK proof 完全不同，也 **不得** 与 ADR-0026 inline path 静默 fallback。
+`--proof-bundle` 与 `--proof-bundle-digest` 必须成对且各出现一次；digest 使用 SPEC-COMMON-001
+的 exact lowercase SHA-256 wire form。缺一、重复、空值或把这两个 flag 传给其他 command，
+均在访问 source/bundle 前作为 usage error、exit 2 拒绝。
+
+source 没有 proof reference 时禁止提供 bundle pair；source 有至少一个 proof reference 且走
+bundle 面时必须提供恰好一个 pair，且 bundle manifest exports 必须与 source reference 的
 `(invariantName,theoremQualifiedName)` 集合一一 exact 相等，不允许遗漏、额外 export、短名或
 跨 bundle fallback。缺 bundle 或 theorem 使用 `PF-TYPE-002`/exit 3；source 无 reference 却提供
 bundle 是 usage error/exit 2。
 
-执行顺序固定为：frontend parse/decode → type/effect/bound/disclosure → canonical
-`SemanticProgramV1` normalize/validate/serialize/hash → ProofBundleV1 safe load/closed expected-type
-validation → target resolution/materialization。CLI 只能把当前 canonical program、其 semanticHash、
-当前 sourceHash、validated semanticProvenanceDigest、source proof bindings、bundle dirfd 和 expected bundle digest 传给 SPEC-SEM-001
-proof loader；不得把 source/import environment 或 ambient path 传入。bundle manifest sourceHash/
+执行顺序固定为：in-process parse/decode → type/effect/bound/disclosure → canonical
+`SemanticProgramV1` normalize/validate/serialize/hash → **proof gate**（inline 优先 per
+ADR-0026，或显式 alternate ProofBundleV1 safe load/closed expected-type validation）→
+target resolution/materialization。bundle 面若启用，CLI 只能把当前 canonical program、其
+semanticHash、当前 sourceHash、validated semanticProvenanceDigest、source proof bindings、
+bundle dirfd 和 expected bundle digest 传给 SPEC-SEM-001 proof loader；不得把
+source/import environment 或 ambient path 传入。bundle manifest sourceHash/
 semanticHash/semanticProvenanceDigest、toolchain lock、ABI、
 trusted base closure、trust policy、module closure、files 和 CLI digest 必须全部 exact match。
 
@@ -119,8 +151,9 @@ declaration 使用 `PF-ARTIFACT-INVALID`/exit 6；export name/ordinal 不存在�
 `PF-TYPE-001`/exit 3。所有失败都不得进入 target Plan、不得创建/替换 output，也不得读取其他
 `.olean` 或 retry/fallback。成功结果的 certification summary 固定包含 sourceHash、semanticHash、
 semanticProvenanceDigest、
-proofBundleDigest，以及按 invariant name 排序的 `(invariantName,invariantOrdinal,theoremName)`；
-不得包含 theorem body、Environment、host path 或 private value，且该 summary 不参与
+proofBundleDigest（bundle 面）或 inline certification digests（inline 面），以及按 invariant
+name 排序的 `(invariantName,invariantOrdinal,theoremName)`；不得包含 theorem body、Environment、
+host path 或 private value，且该 summary 不参与
 sourceHash/semanticHash/semanticProvenanceDigest。
 
 ## JSON Results

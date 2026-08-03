@@ -3,7 +3,7 @@ id: SPEC-SEM-WIRE-001
 title: SemanticProgramV1 Canonical Model、Wire 与 Proof Subject
 status: proposed
 owner: semantics
-updated: 2026-07-16
+updated: 2026-08-04
 normative: true
 ---
 
@@ -29,8 +29,10 @@ acceptance 或 evaluator observable behavior 的变化都必须发布新的 sche
 
 `SemanticProgramV1` 不包含 `sourceHash`、`SourceOrigin`、origin map、source path/span，也不包含
 `TargetId`、`CodegenProfileId`、`NetworkProfileId`、ABI selector、storage slot、
-account meta、Wasm import、circuit opcode、deploy address 或 proof result。proof reference/bundle identity
-也不进入本模型。`ProgramRequirementsV1` 的业务 request key/predicate 是 normalization 的最终输出
+account meta、Wasm import、circuit opcode、deploy address 或 proof result。proof reference、
+adjacent theorem body、inline certification digest 与 external proof-bundle identity 都是
+certification metadata，**不进入** 本模型（[`ADR-0026`](../adr/0026-inline-same-file-theorem-certification.md)）。
+`ProgramRequirementsV1` 的业务 request key/predicate 是 normalization 的最终输出
 之一，在 v1 中作为 `SemanticProgramDataV1.requirements` 的必需字段进入 canonical bytes；requirement
 inference、predicate merge 和 canonical sort 必须在 semantic serialization、`semanticHash` 以及 proof
 validation 之前完成，之后不得追加、删除或改写 requirement。requirement 的 source origins 与其他
@@ -958,6 +960,14 @@ def InvariantTheoremV1
 `evalInvariantV1` 依次 validate program、ordinal、state、invariant/callable closure，再以
 `computedInvariantSteps(root)` 执行；任一步失败或 ordinal 越界均 `.trapped`。它不能调用通用
 `step` 并注入伪 external response，也不能把 revert/trap 当 true。
+
+**Engineering certification scope（ADR-0026）**：inline same-file theorem 与 formal-oriented
+bundle export 当前都只服务上述 `InvariantTheoremV1` 命题——即在 **全部**
+`StateConformsV1 program state` 的 logical state 上 predicate 返回 true。该命题 **不是**
+reachability、init/`step` inductive safety、target refinement 或 formal
+`TST-SEM-002`/`TST-SEM-003`/`TST-PROOF-001` 闭合声明。subject identity 仍由 checked-in /
+compiled `.pfsem` 的 closed `SemanticProgramV1` value 承担；theorem body 与 certification
+digest 不得改变 `semanticHash`。
 
 ## 9. Checked-in canonical proof subject 与 definitional equality
 

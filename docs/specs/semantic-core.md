@@ -3,7 +3,7 @@ id: SPEC-SEM-001
 title: 目标中立语义核心
 status: proposed
 owner: semantics
-updated: 2026-07-17
+updated: 2026-08-04
 normative: true
 ---
 
@@ -22,8 +22,10 @@ program 或成为 target resolution 输入。
 `invariants` 是按 source declaration traversal 进入 canonicalization、再随其他 ID 一起稳定重编号的
 array。每项包含 NFC name 与 typed Bool predicate CFG entry；其 source origin 只存在于 companion
 provenance。`InvariantOrdinalV1`
-就是 canonical array 的 zero-based `UInt32` index。proof reference 和 proof bundle identity 是
-certification metadata，不进入 `SemanticProgramV1`，因此不会改变 business `semanticHash`。
+就是 canonical array 的 zero-based `UInt32` index。proof reference、adjacent theorem body、
+inline certification digest 与外部 proof-bundle identity 都是 certification metadata，
+**不进入** `SemanticProgramV1`，因此不会改变 business `semanticHash`（见
+[`ADR-0026`](../adr/0026-inline-same-file-theorem-certification.md)）。
 
 proof ABI 与 reference interpreter 共用 `SPEC-SEM-WIRE-001`/`ProofForgeV2.Semantic.InvariantABI`
 唯一声明的 `LogicalStateV1` closed state carrier；不得在本文件、proof bundle 或 target backend
@@ -233,15 +235,38 @@ external responses 与 ordered effect buffer 恒为空。Bool true/false 分别�
 
 对 `proof x using N`，compiler 在上述 canonical program 中按 exact NFC name 找到唯一 invariant
 ordinal `i`，构造 closed expected type
-`ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1 program i`。bundle export `N` 的 type 只在
-展开 ABI `abbrev` 和 bundle 中显式标为 reducible 的 closed value abbreviation 后做 definitional
-equality；不得用 semantic hash equality、propositional cast、未解 metavariable 或任意 term
-elaboration 替代。成功只增加 certification result；program、requirements、semantic serialization
-和 target selection 保持不变。
+`ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1 program i`。该命题 **精确** 表示：
 
-## ProofBundleV1
+```text
+ordinal 合法 ∧ ∀ state, StateConformsV1 program state →
+  evalInvariantV1 program ordinal state = .returnedTrue
+```
 
-`check/build` 消费的 proof bundle 是 source-specific、只读、content-addressed input。directory
+**不** 蕴含 state 可达性、init/`step` 后自动保持、target refinement 或 formal reference corpus
+闭合。type 检查（inline Environment defeq 或 historical bundle export）只在展开 ABI / 显式
+reducible closed program abbreviation 后做 definitional equality；不得用 semantic hash equality、
+propositional cast、未解 metavariable 或任意 term elaboration 替代。成功只增加 certification
+result；program、requirements、semantic serialization 和 target selection 保持不变。
+
+## Inline same-file certification（ADR-0026 engineering）
+
+工程产品路径以 **同一 in-memory source snapshot** 上的 adjacent ordinary Lean theorem 为
+主 certification 面：
+
+1. 在 Check/Normalize/`CompiledSemanticV1` 之后、requirement resolve / materialize **之前** 运行；
+2. in-process elaboration **不是** sandbox / contained worker / hermetic runner；
+3. Environment 审计 declaration kind（root theorem）、kernel defeq、dependency 闭包与固定
+   allowed base axioms `Classical.choice` / `Quot.sound` / `propext`；
+4. **不信任** 用户 `.olean`；不得 ambient lake/`LEAN_PATH` fallback；
+5. theorem body 永不写入 semantic bytes/hash；subject program literal 若生成，其 bytes 必须
+   exact 等于当前 compiled `SemanticProgramV1.canonicalBytes`。
+
+空 proof 表面为显式 skip；失败 fail closed，不得进入 target Plan。
+
+## ProofBundleV1（historical / alternate / formal-oriented）
+
+外部 digest-pinned proof bundle 是 source-specific、只读、content-addressed **alternate**
+input，不得与 ADR-0026 inline path 静默互替。directory
 layout 唯一为 `proof-bundle.json` 与 `modules/<QualifiedName components>.olean`；component 逐级作为
 文件名，最后一段追加 `.olean`。禁止 source、`.ilean`、native library、plugin、bytecode、临时文件
 或其他额外 entry。manifest 的逻辑 schema 为：

@@ -45,6 +45,15 @@
 > 继续只属 certification metadata，不改变 semantic bytes/hash。八个 materializer 对 nonempty invariants 继续
 > fail closed；formal TASK-D2-06/07 与 TST-SEM-001/002/003 状态不变。
 >
+> **2026-08-04 ADR-0026 inline same-file theorem certification（文档）**：proposed 工程契约——
+> single in-memory source snapshot；ProgramV1/`semanticHash` **不含** theorem body；ordinary
+> adjacent Lean theorem；**in-process elaboration 不是 sandbox**；Environment kind/defeq/
+> dependency/axiom audit；固定允许 `Classical.choice`/`Quot.sound`/`propext`；不信任用户
+> `.olean`；proof gate 早于 target resolve/materialize/staging；当前仅证明
+> `InvariantTheoremV1`（∀ `StateConformsV1` → `evalInvariantV1 = .returnedTrue`），**不** 声称
+> reachability/init-step safety/target refinement/formal TST-PROOF 闭合。详见
+> [`docs/adr/0026-inline-same-file-theorem-certification.md`](docs/adr/0026-inline-same-file-theorem-certification.md)。
+>
 > **2026-08-02 const reference update**：`NormalizeV1` 现于 fn signatures 后、callable bodies 前
 > 建完整 source-order constant lookup；body bare const 每次降为独立 `Op.Constant`，支持 forward ref、
 > locals/params shadow、窄 UInt expected type 与 entry/view/pureFn/invariant。Provenance 精确绑定
