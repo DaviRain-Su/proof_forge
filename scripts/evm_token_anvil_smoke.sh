@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Engineering Token mint/transfer (+ overflow / over-transfer hold) smoke on Anvil.
-# Not formal Reference↔Anvil (C-3). Dense Map pilot may exceed EIP-3860
-# initcode limits — that path skip-cleans (exit 0), never fabricates pass.
+# Adapter observation for pf.adapter.token.conservation.v1 (EVMOZ-004).
+# Not formal Reference↔Anvil (C-3). Not OZ/family/ABI/standard credit.
+#
+# Dense Map pilot may hit solc StackTooDeep or EIP-3860 initcode limits —
+# those paths are **explicit skip** (exit 0 + skip observation when OBS dir set),
+# never silent pass and never skip-as-pass on assertion failure after deploy.
 #
 # Requires Foundry anvil/cast. Builds Token.bin via product CLI when missing.
 #
@@ -11,6 +15,55 @@
 #   evm-yul-solc-0.8.34-cancun-v1 → build/v2/token-evm-cancun + anvil --hardfork cancun
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+corpus_obs_dir="${PF_EVM_CORPUS_OBS_DIR:-}"
+case_id="pf.adapter.token.conservation.v1"
+
+write_token_skip_obs() {
+  local reason="$1"
+  [[ -n "$corpus_obs_dir" ]] || return 0
+  mkdir -p "$corpus_obs_dir/$case_id"
+  local out="$corpus_obs_dir/$case_id/pf-anvil-step-0.json"
+  CORPUS_VALIDATOR="$root/scripts/evm_corpus_v1.py" \
+  /usr/bin/python3 -I -S - "$out" "$case_id" "$reason" <<'PY'
+import importlib.util, os, sys
+from pathlib import Path
+out, case_id, reason = sys.argv[1], sys.argv[2], sys.argv[3]
+# skipReason ≤128 UTF-8 bytes
+if len(reason.encode()) > 128:
+    reason = reason[:120] + "..."
+spec = importlib.util.spec_from_file_location("evm_corpus_v1", os.environ["CORPUS_VALIDATOR"])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+obs = {
+    "schema": mod.SCHEMA_OBS,
+    "caseId": case_id,
+    "leg": "pf-anvil",
+    "stepIndex": 0,
+    "verdict": "skip",
+    "skipReason": reason,
+    "shared": {
+        "status": "success",
+        "returnValue": None,
+        "logicalState": {},
+        "effects": [],
+        "rollbackEqual": True,
+    },
+    "evm": {
+        "balances": [],
+        "calldata": "0x",
+        "externalCalls": [],
+        "logs": [],
+        "returndata": "0x",
+        "revertData": None,
+        "storageSlots": [],
+    },
+}
+mod.validate_observation(obs)
+Path(out).write_bytes(mod.dumps_canonical(obs))
+print(f"evm-token-anvil: wrote skip observation {out}", file=sys.stderr)
+PY
+}
+
 case "$(uname -s)" in
   Darwin) default_tool_root="$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64" ;;
   Linux) default_tool_root="$HOME/.cache/proof-forge-v2/tool-root/linux-$(uname -m)" ;;
@@ -28,6 +81,7 @@ fi
 if [[ ! -x "${anvil_path:-}" || ! -x "${cast_path:-}" ]]; then
   echo "evm-token-anvil: skipped: anvil/cast unavailable" >&2
   echo "evm-token-anvil: engineering only; not formal Reference↔Anvil" >&2
+  write_token_skip_obs "missing-optional-tool:anvil-or-cast"
   exit 0
 fi
 
@@ -90,39 +144,55 @@ if ! token_tree_matches_profile "$token_bin"; then
   if [[ -x "$root/.lake/build/bin/proof-forge-next" ]] && command -v lake >/dev/null 2>&1; then
     # Product CLI refuses non-empty existing -o dirs (PF-OUTPUT-COLLISION).
     rm -rf "$token_out"
+    build_log="$(mktemp "${TMPDIR:-/tmp}/pf-token-build.XXXXXX.log")"
+    set +e
     if [[ ${#build_profile_args[@]} -gt 0 ]]; then
       (cd "$root" && lake env .lake/build/bin/proof-forge-next build \
         Examples/Token.lean --module Examples.Token --target evm \
-        "${build_profile_args[@]}" -o "$token_out_rel") || {
-        echo "evm-token-anvil: skipped: Token EVM build failed (profile=$expected_profile_wire)" >&2
-        exit 0
-      }
+        "${build_profile_args[@]}" -o "$token_out_rel") >"$build_log" 2>&1
+      build_rc=$?
     else
       (cd "$root" && lake env .lake/build/bin/proof-forge-next build \
         Examples/Token.lean --module Examples.Token --target evm \
-        -o "$token_out_rel") || {
-        echo "evm-token-anvil: skipped: Token EVM build failed (profile=$expected_profile_wire)" >&2
-        exit 0
-      }
+        -o "$token_out_rel") >"$build_log" 2>&1
+      build_rc=$?
     fi
+    set -e
+    if [[ "$build_rc" -ne 0 ]]; then
+      if grep -qiE 'StackTooDeep|stack too deep' "$build_log" 2>/dev/null; then
+        echo "evm-token-anvil: explicit skip: solc StackTooDeep on dense Map pilot (profile=$expected_profile_wire; adapter case; not pass)" >&2
+        write_token_skip_obs "solc-StackTooDeep:dense-Map-cap8-pilot"
+        rm -f "$build_log"
+        exit 0
+      fi
+      echo "evm-token-anvil: Token EVM build failed (hard when tools present; profile=$expected_profile_wire)" >&2
+      tail -40 "$build_log" >&2 || true
+      rm -f "$build_log"
+      exit 1
+    fi
+    rm -f "$build_log"
   else
     echo "evm-token-anvil: skipped: product CLI unavailable to build Token" >&2
+    write_token_skip_obs "missing-optional-tool:product-cli"
     exit 0
   fi
   token_bin="$token_out/Token.bin"
   [[ -f "$token_bin" ]] || {
-    echo "evm-token-anvil: skipped: Token.bin missing after build" >&2
-    exit 0
+    echo "evm-token-anvil: Token.bin missing after successful build (hard)" >&2
+    exit 1
   }
   if ! token_tree_matches_profile "$token_bin"; then
-    echo "evm-token-anvil: skipped: Token tree failed post-build profile validation" >&2
-    exit 0
+    echo "evm-token-anvil: Token tree failed post-build profile validation (hard)" >&2
+    exit 1
   fi
 fi
-echo "evm-token-anvil: engineering Token smoke (mint/balanceOf/transfer/overflow-hold; profile=$expected_profile_wire); not formal" >&2
+echo "evm-token-anvil: engineering Token adapter smoke (mint/balanceOf/transfer/overflow-hold; profile=$expected_profile_wire); not formal; no OZ/family credit" >&2
 export FOUNDRY_BIN="$(cd "$(dirname "$anvil_path")" && pwd)"
 abi="$(dirname "$token_bin")/Token.abi.json"
-if [[ ! -f "$abi" ]]; then echo "evm-token-anvil: skipped: missing ABI" >&2; exit 0; fi
+if [[ ! -f "$abi" ]]; then
+  echo "evm-token-anvil: missing ABI after build (hard)" >&2
+  exit 1
+fi
 port=$((18545 + RANDOM % 1000))
 if ((${#anvil_extra_args[@]})); then
   "$anvil_path" --port "$port" "${anvil_extra_args[@]}" --silent >/tmp/pf-token-anvil.log 2>&1 &
@@ -158,7 +228,8 @@ except Exception:
   print("")' || true)
 if [[ -z "$addr" || "$addr" == "null" ]]; then
   if grep -qiE 'initcode|max code|code size|oversized' "$create_err" 2>/dev/null; then
-    echo "evm-token-anvil: skipped: bytecode exceeds Anvil create/initcode limit (Map pilot Yul; engineering only)" >&2
+    echo "evm-token-anvil: explicit skip: bytecode exceeds Anvil create/initcode limit (Map pilot; adapter; not pass)" >&2
+    write_token_skip_obs "anvil-initcode-limit:dense-Map-cap8-pilot"
     exit 0
   fi
   tx=$("$cast_path" send --rpc-url "$rpc" --private-key "$pk" --create "0x$binhex" 2>/dev/null | tail -1 || true)
@@ -171,10 +242,14 @@ except Exception:
   fi
 fi
 if [[ -z "$addr" || "$addr" == "null" ]]; then
-  # Dense Map pilot Yul can exceed EIP-3860 initcode / create limits on Anvil;
-  # treat as engineering skip (not product build failure).
-  echo "evm-token-anvil: skipped: deploy failed (initcode/create; see /tmp/pf-token-anvil.log)" >&2
-  exit 0
+  if grep -qiE 'initcode|max code|code size|oversized|StackTooDeep' "$create_err" 2>/dev/null \
+      || grep -qiE 'initcode|max code|code size|oversized' /tmp/pf-token-anvil.log 2>/dev/null; then
+    echo "evm-token-anvil: explicit skip: deploy initcode/create limit (Map pilot; adapter; not pass)" >&2
+    write_token_skip_obs "anvil-deploy-limit:dense-Map-cap8-pilot"
+    exit 0
+  fi
+  echo "evm-token-anvil: deploy failed (hard; see /tmp/pf-token-anvil.log and $create_err)" >&2
+  exit 1
 fi
 # Normalize cast call output to decimal UInt64 when possible.
 to_dec() {
@@ -247,5 +322,56 @@ if [[ "$bal1d" != "60" || "$bal2d" != "40" ]]; then
   exit 1
 fi
 
-echo "evm-token-anvil: ok mint/transfer/balanceOf/overflow-hold on $addr (1→60, 2→40)" >&2
-echo "evm-token-anvil: engineering only; not formal Reference↔Anvil"
+# Adapter corpus observations (shared projection: conservation/balances/rollback).
+if [[ -n "$corpus_obs_dir" ]]; then
+  mkdir -p "$corpus_obs_dir/$case_id"
+  CORPUS_VALIDATOR="$root/scripts/evm_corpus_v1.py" \
+  /usr/bin/python3 -I -S - "$corpus_obs_dir/$case_id" "$case_id" "$addr" <<'PY'
+import importlib.util, json, os, sys
+from pathlib import Path
+obs_dir, case_id, addr = Path(sys.argv[1]), sys.argv[2], sys.argv[3].lower()
+spec = importlib.util.spec_from_file_location("evm_corpus_v1", os.environ["CORPUS_VALIDATOR"])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+def write(step, status, logical, ret, rollback, *, logs=None):
+    obs = {
+        "schema": mod.SCHEMA_OBS,
+        "caseId": case_id,
+        "leg": "pf-anvil",
+        "stepIndex": step,
+        "verdict": "pass",
+        "skipReason": None,
+        "shared": {
+            "status": status,
+            "returnValue": ret,
+            "logicalState": logical,
+            "effects": [],
+            "rollbackEqual": rollback,
+        },
+        "evm": {
+            "balances": [{"id": "alice", "wei": "0"}, {"id": "bob", "wei": "0"}, {"id": "deployer", "wei": "0"}],
+            "calldata": "0x",
+            "externalCalls": [],
+            "logs": logs or [],
+            "returndata": "0x",
+            "revertData": None if status == "success" else "0x",
+            "storageSlots": [],
+        },
+    }
+    mod.validate_observation(obs)
+    path = obs_dir / f"pf-anvil-step-{step}.json"
+    path.write_bytes(mod.dumps_canonical(obs))
+    print(f"evm-token-anvil: wrote {path}", file=sys.stderr)
+
+# Post-transfer conserved state: supply=100, 1→60, 2→40
+conserved = {"balances": {"1": 60, "2": 40}, "supply": 100}
+write(4, "success", conserved, True, True)
+# Overflow mint rollback (step 7) and over-transfer rollback (step 8)
+write(7, "revert", conserved, None, True)
+write(8, "revert", conserved, None, True)
+PY
+fi
+
+echo "evm-token-anvil: ok mint/transfer/balanceOf/overflow-hold on $addr (1→60, 2→40; adapter conservation)" >&2
+echo "evm-token-anvil: engineering only; not formal Reference↔Anvil; no OZ/family/ABI credit"
