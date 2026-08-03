@@ -194,10 +194,11 @@ inductive Statement where
       `.store`. -/
   | storeAtomic (leaves : Array Store)
   | returnValue (value : Expr)
-  /-- B-RET-ABI: multi-leaf aggregate return. `leaves` are per-leaf expressions
-      in preorder flatten order; `leafIsInt` is parallel. Emitted as one JSON
-      array of decimal strings (execute result attribute / query `ok` string),
-      matching the existing scalar decimal JSON ABI idiom. -/
+  /-- B-RET-ABI: multi-leaf aggregate return (named Struct/Enum or admitted
+      anonymous Array/Option). `leaves` are per-leaf expressions in preorder
+      flatten order; `leafIsInt` is parallel. Emitted as one JSON array of
+      decimal strings (execute result attribute / query `ok` string), matching
+      the existing scalar decimal JSON ABI idiom. -/
   | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | assert (condition : Expr)
@@ -304,8 +305,9 @@ inductive MethodResultKind where
   /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
   | uint128
   | uint256
-  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` is preorder
-  flatten order (1..8). Anonymous Array/Map/Bytes/Option stay fail-closed. -/
+  /-- B-RET-ABI: named Struct/Enum or admitted anonymous Array/Option aggregate
+  return. `leaves` is preorder flatten order (1..8). Map/Bytes/nested/narrow
+  anonymous containers stay fail-closed. -/
   | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
@@ -556,10 +558,16 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
 
 /-- CosmWasm admits body+ABI multi-width UInt{8,16,32,64} (BL-15 / T8 pattern)
     plus Int64 and named Struct/Enum (B-RET-ABI + state flatten).
-    UInt128/256, narrow Int{8,16,32}, Principal, anonymous containers, Field,
-    String fail closed at type closure. Named aggregate params and pureFn
-    aggregate returns stay fail closed at callable lowering; anonymous
-    Array/Map/Bytes/Option returns stay FC.
+    Array + Map container state via `pilotContainerStatePolicyArrayMap`
+    (Array → N×UInt64 leaves; Map → capacity-8×(occ,key,val); Option admitted
+    only as Map IndexGet intermediate / N-ANON-RESULT return shape — never as
+    container state). Bytes, Principal, Field, String, UInt128/256, narrow
+    Int{8,16,32} fail closed at type closure.
+    **N-ANON-RESULT (CosmWasm ABI)**: anonymous `Array UInt64 N` (1..8) and
+    `Option UInt64` entry/view returns reuse B-RET-ABI multi-leaf JSON decimal
+    arrays (execute `result` attr + query `{"ok":"[d0,...]"}`); Map/Bytes/
+    nested/narrow-element anonymous returns stay fail closed. Named aggregate
+    params and pureFn aggregate returns stay fail closed at callable lowering.
 
     Physical KV honesty: CosmWasm always stores scalar state as an 8-byte LE
     Region value (`pf_db_store_u64`). Narrow Plan `field.byteWidth` records the
@@ -576,7 +584,7 @@ private def cosmwasmTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt{8,16,32,64} and Int64 integer types are supported (UInt128/256 and narrow Int fail closed)"
   unsupportedShapeDetail :=
-    "only UInt{8,16,32,64}, Int64, Unit, Bool, and named Struct/Enum are supported (no Field/Principal/anonymous containers)"
+    "only UInt{8,16,32,64}, Int64, Unit, Bool, named Struct/Enum, and admitted Array/Map containers are supported (no Field/Principal/Bytes)"
 
 private def validateCosmWasmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult CosmWasmTypeClosureV1 :=
@@ -585,7 +593,7 @@ private def validateCosmWasmTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (principalPolicy := pilotPrincipalPolicyNone)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyNone)
+    (containerPolicy := pilotContainerStatePolicyArrayMap)
 
 /-- CosmWasm pilot Principal storage layout (T12, isomorphic to EVM T10):
     * leaf 0: wire body length (`UInt64`)
@@ -793,26 +801,78 @@ private def leafCountOfTypeV1
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
 
-/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
-`MethodResultKind`. Leaves come from `flattenTypeLeafSpecsV1` (preorder,
-UInt64/Int64 words). Enforces 1..8 leaves. Anonymous containers fail closed. -/
+/-- N-ANON-RESULT (CosmWasm ABI): anonymous result leaf layout for admitted
+container returns. `Array UInt64 N` → N×u64 leaves; `Option UInt64` →
+tag+payload (none=(0,0), some v=(1,v)). Map/Bytes throw for precise FC. -/
+private def anonymousReturnLeafAbiV1
+    (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .cosmwasm
+          "unsupported CosmWasm semantic shape: anonymous Array return requires UInt64 elements"
+      let n := len.toNat
+      unless n ≥ 1 do
+        throw <| .planInvariant .cosmwasm
+          "unsupported CosmWasm semantic shape: anonymous Array return length must be ≥ 1"
+      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
+  | some { shape := .option elTid, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .cosmwasm
+          "unsupported CosmWasm semantic shape: anonymous Option return requires UInt64 payload"
+      pure (some #[{ isInt := false, byteWidth := 8 }, { isInt := false, byteWidth := 8 }])
+  | some { shape := .map .., name := none, .. } =>
+      throw <| .planInvariant .cosmwasm
+        "unsupported CosmWasm semantic shape: anonymous Map return is outside the CosmWasm B-RET ABI"
+  | some { shape := .bytes .., name := none, .. } =>
+      throw <| .planInvariant .cosmwasm
+        "unsupported CosmWasm semantic shape: anonymous Bytes return is outside the CosmWasm B-RET ABI"
+  | some { shape := .array .., .. } | some { shape := .option .., .. } =>
+      pure none
+  | _ => pure none
+
+/-- True when `typeId` should resolve through the aggregate result path
+(named Struct/Enum or anonymous Array/Map/Bytes/Option, so Map/Bytes get
+precise fail-closed diagnostics instead of a scalar fallthrough). -/
+private def isAggregateResultCandidateV1
+    (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
+    (typeId : TypeIdV1) : Bool :=
+  if types.isNamedAggregate typeId then true
+  else
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .array .., name := none, .. }
+    | some { shape := .option .., name := none, .. }
+    | some { shape := .map .., name := none, .. }
+    | some { shape := .bytes .., name := none, .. } => true
+    | _ => false
+
+/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option
+result TypeId into an aggregate `MethodResultKind`. Enforces 1..8 leaves.
+Map/Bytes/nested/narrow-element anonymous containers fail closed. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
-  unless types.isNamedAggregate typeId do
-    throw <| .planInvariant .cosmwasm
-      s!"{owner} does not return a named Struct/Enum aggregate"
-  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
-  let n := specs.size
+  let leaves ←
+    if types.isNamedAggregate typeId then
+      let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+      let mut out : Array LeafAbiType := #[]
+      for (_, isInt) in specs do
+        out := out.push { isInt, byteWidth := 8 }
+      pure out
+    else
+      match ← anonymousReturnLeafAbiV1 typeDecls types typeId with
+      | some ls => pure ls
+      | none =>
+          throw <| .planInvariant .cosmwasm
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
+  let n := leaves.size
   unless n > 0 do
     throw <| .planInvariant .cosmwasm
       s!"{owner} aggregate return must have at least one leaf"
   unless n ≤ 8 do
     throw <| .planInvariant .cosmwasm
       s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
-  let mut leaves : Array LeafAbiType := #[]
-  for (_, isInt) in specs do
-    leaves := leaves.push { isInt, byteWidth := 8 }
   pure (.aggregate leaves)
 
 /-- Struct field leaf range (start, length) within the flattened leaf vector. -/
@@ -2438,76 +2498,111 @@ private def lowerBlockInstructionsV1
               let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
               values := ← appendResultValueV1 result.typeId values result value
         | none => do
-            unless types.isNamedAggregate typeId do
-              throw <| .planInvariant .cosmwasm
-                "unsupported CosmWasm semantic shape: construct admits only Array/Map UInt64 or named Struct/Enum on CosmWasm"
-            let some decl := typeDecls[typeId.toNat]? |
-              throw <| .planInvariant .cosmwasm
-                "unsupported CosmWasm semantic shape: construct TypeDecl missing"
-            match decl.shape with
-            | .struct fields => do
-                unless ctorIdx.toNat == 0 do
+            -- Option UInt64 construct (none/some) for anonymous-result returns;
+            -- named Struct/Enum construct remains the other non-container path.
+            match typeDecls[typeId.toNat]? with
+            | some { shape := .option elTid, name := none, .. } => do
+                unless elTid == types.uint64TypeId do
                   throw <| .planInvariant .cosmwasm
-                    "unsupported CosmWasm semantic shape: struct construct ctorIdx must be 0"
-                unless argIds.size == fields.size do
-                  throw <| .planInvariant .cosmwasm
-                    "unsupported CosmWasm semantic shape: struct construct arity mismatch"
-                let mut leaves : Array Expr := #[]
-                let mut deps : Array ValueIdV1 := #[]
-                let mut depth : Nat := 1
-                let mut nodes : Nat := 1
-                for i in [0:argIds.size] do
-                  let some argId := argIds[i]? |
-                    throw <| .planInvariant .cosmwasm "struct construct arg missing"
-                  let some field := fields[i]? |
-                    throw <| .planInvariant .cosmwasm "struct construct field missing"
-                  let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-                  let expectedLeaves ← leafCountOfTypeV1 typeDecls types field.typeId
-                  let argLeaves := arg.leafExprs
-                  unless argLeaves.size == expectedLeaves do
+                    "unsupported CosmWasm semantic shape: Option construct requires UInt64 payload"
+                match ctorIdx.toNat with
+                | 0 =>
+                    -- Option.none → (tag=0, payload=0)
+                    unless argIds.isEmpty do
+                      throw <| .planInvariant .cosmwasm
+                        "unsupported CosmWasm semantic shape: Option.none construct takes no args"
+                    let leaves : Array Expr := #[.literal 0, .literal 0]
+                    let value := mkAggregateValueV1 leaves #[] 1 2
+                    values := ← appendResultValueV1 result.typeId values result value
+                | 1 =>
+                    -- Option.some(v) → (tag=1, payload=v)
+                    unless argIds.size == 1 do
+                      throw <| .planInvariant .cosmwasm
+                        "unsupported CosmWasm semantic shape: Option.some construct takes one arg"
+                    let some argId := argIds[0]? |
+                      throw <| .planInvariant .cosmwasm "Option.some construct arg missing"
+                    let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                    unless !arg.isAggregate && arg.kind == .uint64 do
+                      throw <| .planInvariant .cosmwasm
+                        "unsupported CosmWasm semantic shape: Option.some arg must be scalar UInt64"
+                    let leaves : Array Expr := #[.literal 1, arg.expr]
+                    let value := mkAggregateValueV1 leaves #[argId]
+                      (arg.depth + 1) (arg.expandedNodes + 2)
+                    values := ← appendResultValueV1 result.typeId values result value
+                | _ =>
                     throw <| .planInvariant .cosmwasm
-                      "unsupported CosmWasm semantic shape: struct construct field leaf count mismatch"
-                  leaves := leaves ++ argLeaves
-                  deps := deps.push argId
-                  depth := Nat.max depth (arg.depth + 1)
-                  nodes := nodes + arg.expandedNodes
-                let value := mkAggregateValueV1 leaves deps depth nodes
-                values := ← appendResultValueV1 typeId values result value
-            | .enum variants => do
-                let vi := ctorIdx.toNat
-                let some variant := variants[vi]? |
+                      "unsupported CosmWasm semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+            | _ => do
+                unless types.isNamedAggregate typeId do
                   throw <| .planInvariant .cosmwasm
-                    "unsupported CosmWasm semantic shape: enum construct variant out of range"
-                unless argIds.size == variant.payloadTypes.size do
+                    "unsupported CosmWasm semantic shape: construct admits only Array/Map UInt64, Option UInt64, or named Struct/Enum on CosmWasm"
+                let some decl := typeDecls[typeId.toNat]? |
                   throw <| .planInvariant .cosmwasm
-                    "unsupported CosmWasm semantic shape: enum construct arity mismatch"
-                let maxPay ← enumMaxPayloadLeavesV1 typeDecls types variants
-                let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
-                let mut deps : Array ValueIdV1 := #[]
-                let mut depth : Nat := 1
-                let mut nodes : Nat := 1
-                for i in [0:argIds.size] do
-                  let some argId := argIds[i]? |
-                    throw <| .planInvariant .cosmwasm "enum construct arg missing"
-                  let some pt := variant.payloadTypes[i]? |
-                    throw <| .planInvariant .cosmwasm "enum construct payload type missing"
-                  let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-                  let expectedLeaves ← leafCountOfTypeV1 typeDecls types pt
-                  let argLeaves := arg.leafExprs
-                  unless argLeaves.size == expectedLeaves do
+                    "unsupported CosmWasm semantic shape: construct TypeDecl missing"
+                match decl.shape with
+                | .struct fields => do
+                    unless ctorIdx.toNat == 0 do
+                      throw <| .planInvariant .cosmwasm
+                        "unsupported CosmWasm semantic shape: struct construct ctorIdx must be 0"
+                    unless argIds.size == fields.size do
+                      throw <| .planInvariant .cosmwasm
+                        "unsupported CosmWasm semantic shape: struct construct arity mismatch"
+                    let mut leaves : Array Expr := #[]
+                    let mut deps : Array ValueIdV1 := #[]
+                    let mut depth : Nat := 1
+                    let mut nodes : Nat := 1
+                    for i in [0:argIds.size] do
+                      let some argId := argIds[i]? |
+                        throw <| .planInvariant .cosmwasm "struct construct arg missing"
+                      let some field := fields[i]? |
+                        throw <| .planInvariant .cosmwasm "struct construct field missing"
+                      let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                      let expectedLeaves ← leafCountOfTypeV1 typeDecls types field.typeId
+                      let argLeaves := arg.leafExprs
+                      unless argLeaves.size == expectedLeaves do
+                        throw <| .planInvariant .cosmwasm
+                          "unsupported CosmWasm semantic shape: struct construct field leaf count mismatch"
+                      leaves := leaves ++ argLeaves
+                      deps := deps.push argId
+                      depth := Nat.max depth (arg.depth + 1)
+                      nodes := nodes + arg.expandedNodes
+                    let value := mkAggregateValueV1 leaves deps depth nodes
+                    values := ← appendResultValueV1 typeId values result value
+                | .enum variants => do
+                    let vi := ctorIdx.toNat
+                    let some variant := variants[vi]? |
+                      throw <| .planInvariant .cosmwasm
+                        "unsupported CosmWasm semantic shape: enum construct variant out of range"
+                    unless argIds.size == variant.payloadTypes.size do
+                      throw <| .planInvariant .cosmwasm
+                        "unsupported CosmWasm semantic shape: enum construct arity mismatch"
+                    let maxPay ← enumMaxPayloadLeavesV1 typeDecls types variants
+                    let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
+                    let mut deps : Array ValueIdV1 := #[]
+                    let mut depth : Nat := 1
+                    let mut nodes : Nat := 1
+                    for i in [0:argIds.size] do
+                      let some argId := argIds[i]? |
+                        throw <| .planInvariant .cosmwasm "enum construct arg missing"
+                      let some pt := variant.payloadTypes[i]? |
+                        throw <| .planInvariant .cosmwasm "enum construct payload type missing"
+                      let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                      let expectedLeaves ← leafCountOfTypeV1 typeDecls types pt
+                      let argLeaves := arg.leafExprs
+                      unless argLeaves.size == expectedLeaves do
+                        throw <| .planInvariant .cosmwasm
+                          "unsupported CosmWasm semantic shape: enum construct payload leaf count mismatch"
+                      leaves := leaves ++ argLeaves
+                      deps := deps.push argId
+                      depth := Nat.max depth (arg.depth + 1)
+                      nodes := nodes + arg.expandedNodes
+                    while leaves.size < 1 + maxPay do
+                      leaves := leaves.push (.literal 0)
+                    let value := mkAggregateValueV1 leaves deps depth nodes
+                    values := ← appendResultValueV1 typeId values result value
+                | _ =>
                     throw <| .planInvariant .cosmwasm
-                      "unsupported CosmWasm semantic shape: enum construct payload leaf count mismatch"
-                  leaves := leaves ++ argLeaves
-                  deps := deps.push argId
-                  depth := Nat.max depth (arg.depth + 1)
-                  nodes := nodes + arg.expandedNodes
-                while leaves.size < 1 + maxPay do
-                  leaves := leaves.push (.literal 0)
-                let value := mkAggregateValueV1 leaves deps depth nodes
-                values := ← appendResultValueV1 typeId values result value
-            | _ =>
-                throw <| .planInvariant .cosmwasm
-                  "unsupported CosmWasm semantic shape: construct requires Struct or Enum shape"
+                      "unsupported CosmWasm semantic shape: construct requires Struct or Enum shape"
     | .indexGet baseId idxId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
         unless base.isAggregate do
@@ -2966,22 +3061,22 @@ private partial def emitRegionV1
           let root ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
           match expectedAggregateLeaves with
           | some expectedLeaves =>
-              -- B-RET-ABI: named Struct/Enum only (anonymous containers FC).
+              -- B-RET-ABI: named Struct/Enum or admitted anonymous Array/Option.
               -- pureFn aggregate returns stay fail closed (makePureFn never
               -- sets expectedAggregateLeaves; guard here for safety).
               if mode == .pureFn then
                 throw <| .planInvariant .cosmwasm
-                  "unsupported CosmWasm semantic shape: pureFn cannot return named aggregate (B-RET-ABI)"
+                  "unsupported CosmWasm semantic shape: pureFn cannot return aggregate (B-RET-ABI)"
               unless root.isAggregate do
                 throw <| .planInvariant .cosmwasm
-                  "unsupported CosmWasm semantic shape: aggregate return value must be a named aggregate"
+                  "unsupported CosmWasm semantic shape: aggregate return value must be a multi-leaf aggregate"
               let gotLeaves := root.leafExprs
               unless gotLeaves.size == expectedLeaves.size do
                 throw <| .planInvariant .cosmwasm
                   s!"unsupported CosmWasm semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
               unless root.leafByteWidth == 8 do
                 throw <| .planInvariant .cosmwasm
-                  "unsupported CosmWasm semantic shape: multi-leaf aggregate (Array/Bytes) cannot be returned (B-RET-ABI admits only named Struct/Enum)"
+                  "unsupported CosmWasm semantic shape: multi-leaf return requires 8-byte leaves (Bytes/narrow container returns stay fail closed)"
               let consumed ← consumeCurrentSegmentValueV1 values blockEntry segmentStart valueId
               let leafIsInt := expectedLeaves.map (·.isInt)
               pure (instrs.push (.returnAggregate consumed.leafExprs leafIsInt),
@@ -2994,7 +3089,7 @@ private partial def emitRegionV1
                       "unsupported CosmWasm semantic shape: entry/view/pureFn is missing expected return kind"
               if root.isAggregate then
                 throw <| .planInvariant .cosmwasm
-                  "unsupported CosmWasm semantic shape: multi-leaf aggregate cannot be returned (ABI is scalar; B-RET-ABI: CosmWasm admits only named Struct/Enum aggregate return)"
+                  "unsupported CosmWasm semantic shape: multi-leaf aggregate cannot be returned as scalar (B-RET-ABI: named Struct/Enum or admitted anonymous Array/Option only)"
               unless root.kind == expectedKind do
                 let expectedLabel :=
                   match expectedKind with
@@ -3376,38 +3471,40 @@ private def makeEntryV1
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .cosmwasm s!"entry '{name}' does not return a public result"
   -- BL-15: scalar ABI is UInt{8,16,32,64} / Bool / Int64; B-RET-ABI admits named
-  -- Struct/Enum (≤8 UInt64/Int64 leaves). UInt128/256, narrow Int, anonymous
-  -- containers stay FC. JSON result wire remains decimal for all scalar UInt.
+  -- Struct/Enum and anonymous Array UInt64 N / Option UInt64 (≤8 leaves).
+  -- Map/Bytes/nested/narrow-element anonymous returns, UInt128/256, narrow Int
+  -- stay FC. JSON result wire remains decimal for all scalar UInt; multi-leaf
+  -- reuses the JSON-array-of-decimals idiom (BL-9 / N-ANON-RESULT).
   let (resultKind, expectedReturn, expectedAggregateLeaves) ←
-    match types.uintWidthOf callable.result.typeId with
-    | some 8 => pure (MethodResultKind.uint8, some CosmWasmValueKindV1.uint8, none)
-    | some 16 => pure (MethodResultKind.uint16, some CosmWasmValueKindV1.uint16, none)
-    | some 32 => pure (MethodResultKind.uint32, some CosmWasmValueKindV1.uint32, none)
-    | some 64 => pure (MethodResultKind.uint64, some CosmWasmValueKindV1.uint64, none)
-    | some w =>
-        throw <| .planInvariant .cosmwasm
-          s!"entry '{name}' does not return public UInt8/16/32/64 (UInt{w} multi-width fail closed on CosmWasm)"
-    | none =>
-        match types.intWidthOf callable.result.typeId with
-        | some 64 => pure (MethodResultKind.int64, some CosmWasmValueKindV1.int64, none)
-        | some w =>
-            throw <| .planInvariant .cosmwasm
-              s!"entry '{name}' does not return public Int64 (Int{w} multi-width fail closed on CosmWasm)"
-        | none =>
-          if types.boolTypeId == some callable.result.typeId then
-            pure (MethodResultKind.bool, some CosmWasmValueKindV1.bool, none)
-          else if types.isNamedAggregate callable.result.typeId then
-            let kind ← aggregateResultKindOfV1 typeDecls types s!"entry '{name}'"
-              callable.result.typeId
-            pure (kind, none, match kind with
-              | .aggregate leaves => some leaves
-              | _ => none)
-          else if types.isContainer callable.result.typeId then
-            throw <| .planInvariant .cosmwasm
-              s!"entry '{name}' cannot return anonymous container (Array/Map/Bytes/Option); CosmWasm B-RET-ABI admits only named Struct/Enum (cap-8 leaves)"
-          else
-            throw <| .planInvariant .cosmwasm
-              s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or named Struct/Enum aggregate"
+    if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
+      let kind ← aggregateResultKindOfV1 typeDecls types s!"entry '{name}'"
+        callable.result.typeId
+      match kind with
+      | .aggregate leaves => pure (kind, none, some leaves)
+      | _ =>
+          throw <| .planInvariant .cosmwasm
+            s!"entry '{name}' aggregate result kind resolution failed"
+    else
+      match types.uintWidthOf callable.result.typeId with
+      | some 8 => pure (MethodResultKind.uint8, some CosmWasmValueKindV1.uint8, none)
+      | some 16 => pure (MethodResultKind.uint16, some CosmWasmValueKindV1.uint16, none)
+      | some 32 => pure (MethodResultKind.uint32, some CosmWasmValueKindV1.uint32, none)
+      | some 64 => pure (MethodResultKind.uint64, some CosmWasmValueKindV1.uint64, none)
+      | some w =>
+          throw <| .planInvariant .cosmwasm
+            s!"entry '{name}' does not return public UInt8/16/32/64 (UInt{w} multi-width fail closed on CosmWasm)"
+      | none =>
+          match types.intWidthOf callable.result.typeId with
+          | some 64 => pure (MethodResultKind.int64, some CosmWasmValueKindV1.int64, none)
+          | some w =>
+              throw <| .planInvariant .cosmwasm
+                s!"entry '{name}' does not return public Int64 (Int{w} multi-width fail closed on CosmWasm)"
+          | none =>
+            if types.boolTypeId == some callable.result.typeId then
+              pure (MethodResultKind.bool, some CosmWasmValueKindV1.bool, none)
+            else
+              throw <| .planInvariant .cosmwasm
+                s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, named Struct/Enum, or admitted anonymous Array/Option"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -3450,9 +3547,9 @@ private def makePureFnV1
       pure (false, CosmWasmValueKindV1.uint64)
     else if types.boolTypeId == some callable.result.typeId then
       pure (true, CosmWasmValueKindV1.bool)
-    else if types.isNamedAggregate callable.result.typeId then
+    else if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
       throw <| .planInvariant .cosmwasm
-        s!"pureFn '{name}' cannot return named aggregate (B-RET-ABI: pureFn aggregate returns stay fail closed)"
+        s!"pureFn '{name}' cannot return aggregate (B-RET-ABI: pureFn aggregate returns stay fail closed)"
     else
       throw <| .planInvariant .cosmwasm
         s!"pureFn '{name}' does not return public UInt64 or Bool"
