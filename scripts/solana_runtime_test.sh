@@ -220,6 +220,20 @@ fi
 system_out="$(cd "$system_out" && pwd -P)"
 export PROOF_FORGE_CPI_SYSTEM_OUT="$system_out"
 
+# #122 production-code-generated classic Token CPI ELF (test-preactivation).
+# Uses an exact vendored source-built classic Token v9 ELF; no product OutputFile or sync claim.
+token_out="${PROOF_FORGE_CPI_TOKEN_OUT:-$root/build/v2/solana-cpi-token}"
+export PROOF_FORGE_CPI_TOKEN_OUT="$token_out"
+echo "solana-runtime-test: CPI Token build → $token_out"
+if ! bash "$root/scripts/solana_cpi_token_build.sh"; then
+  die "Solana CPI Token build failed"
+fi
+[[ -f "$token_out/token_cpi.s" ]] || die "CPI Token assembly missing"
+[[ -f "$token_out/token_cpi.so" ]] || die "CPI Token caller ELF missing"
+[[ -f "$token_out/token_classic_v1.so" ]] || die "classic Token callee ELF missing"
+token_out="$(cd "$token_out" && pwd -P)"
+export PROOF_FORGE_CPI_TOKEN_OUT="$token_out"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"

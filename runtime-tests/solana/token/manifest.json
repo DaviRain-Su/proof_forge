@@ -1,0 +1,162 @@
+{
+  "schema": "proof-forge.solana.cpi-token-runtime.v1",
+  "issue": 122,
+  "sbpf": "0.2.2",
+  "runtimeOracle": {
+    "molluskSvm": "0.13.4",
+    "agaveSyscalls": "4.0.0",
+    "solanaProgramRuntime": "4.0.0"
+  },
+  "fixture": {
+    "path": "runtime-tests/solana/fixtures/TokenCpi.lean",
+    "module": "Examples.TokenCpi",
+    "sourceSha256": "605a7609254332a232cf4a46f3d2d86d870367dbcb3afcb19b13b8b822a0e76e",
+    "sourceSize": 3075
+  },
+  "profile": {
+    "id": "solana-sbpf-cpi-elf-v1",
+    "digest": "0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1"
+  },
+  "extension": {
+    "id": "solana.cpi.accounts",
+    "version": "1.0.0",
+    "digest": "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
+  },
+  "boundary": {
+    "productArtifact": false,
+    "testPreactivation": true,
+    "activationDenied": true
+  },
+  "programIdHex": "5757575757575757575757575757575757575757575757575757575757575757",
+  "catalogDigest": "0da1837ec10f7acc716c1151bee23a04e019174f99b1fedde635c7d75b4055f5",
+  "token": {
+    "package": "token-classic-v1",
+    "programIdHex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+    "executionClass": "loaderV3Sbpf",
+    "artifactBinding": "absent",
+    "interface": {
+      "repo": "https://github.com/solana-program/token",
+      "tag": "program@v9.0.0",
+      "tagObject": "5c37ac99c248567bd7d50b965af8cbd45b6ced96",
+      "peeledCommit": "dfb260231c761be7d9c8b63728e770a102b86495",
+      "programVersion": "9.0.0",
+      "interfaceVersion": "2.0.0"
+    },
+    "instructionSurface": {
+      "transferCheckedTag": 12,
+      "transferCheckedDataBytes": 10,
+      "mintDataBytes": 82,
+      "tokenAccountDataBytes": 165
+    },
+    "vendoredSourceBuiltElf": {
+      "status": "ready",
+      "path": "runtime-tests/solana/token/token_classic_v1.so",
+      "sha256": "a19be3a2d4778533652da23b8fe31c4a341802f8e8c0c7b941b88581fc92d9d9",
+      "size": 94960,
+      "source": {
+        "repo": "https://github.com/solana-program/token",
+        "tag": "program@v9.0.0",
+        "tagObject": "5c37ac99c248567bd7d50b965af8cbd45b6ced96",
+        "peeledCommit": "dfb260231c761be7d9c8b63728e770a102b86495"
+      },
+      "recipe": {
+        "command": "cargo-build-sbf --manifest-path program/Cargo.toml",
+        "solanaCli": "3.0.0",
+        "cargoBuildSbf": "3.0.0",
+        "platformTools": "v1.51",
+        "sbfRustc": "1.84.1-dev",
+        "sourceRustToolchain": "1.86.0",
+        "host": "Darwin arm64",
+        "recipeManifestDigest": "4af75b0a74ba14daa90a2d3913c71311609b3f3465728e733537dd0e34d8d063",
+        "sameHostRepeat": 2
+      },
+      "nonClaims": [
+        "not mainnet parity",
+        "not cross-host reproducible",
+        "not hermetic",
+        "not formal",
+        "not release",
+        "not proof-forge.output.v1",
+        "not activated sync",
+        "not package-owner-published",
+        "not package-owned locked release asset",
+        "not p-token",
+        "not mollusk-embedded token.so"
+      ],
+      "note": "Vendored source-built classic Token ELF from official solana-program/token program@v9.0.0 (annotated tag object 5c37ac99… peeled to commit dfb26023…). Two clean same-host Darwin builds were byte-identical. Catalog token-classic-v1 remains artifactBinding.absent / admittedForMaterialization=false. This is test-preactivation vendored ELF only."
+    }
+  },
+  "token2022Negative": {
+    "programIdBase58": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "programIdHex": "06ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febdf928d8a18bfc",
+    "note": "Token-2022 program substitution is an explicit fail-closed negative; never admitted as classic callee"
+  },
+  "handlers": {
+    "init": 0,
+    "transferChecked": 1,
+    "transferCheckedPda": 2,
+    "transferCheckedThenOverflow": 3,
+    "transferCheckedPdaThenOverflow": 4,
+    "inspect": 5
+  },
+  "pda": {
+    "recipe": "current-program-tagged-v1",
+    "seed0Utf8": "proof-forge:pda:v1",
+    "seed0Hex": "70726f6f662d666f7267653a7064613a7631",
+    "canonicalBumpSearch": "255..1",
+    "bump0Rejected": true
+  },
+  "generation": {
+    "status": "ready",
+    "blockers": [],
+    "note": "Caller assembly/ELF generated via SolanaCpiTokenExportV1 + locked sbpf 0.2.2 against vendored program@v9.0.0 source-built classic Token ELF. Catalog token-classic-v1 artifactBinding remains absent; product sync still denied."
+  },
+  "expectedAssembly": {
+    "sha256": "3cf744e36b5a91a441dbb06a33050613fcc366b57a03ad2b970f78cbe131e9fd",
+    "size": 160129
+  },
+  "expectedElf": {
+    "sha256": "4c7a10cc7dc5e411a9eec3109722e2080a48ac7a64868c34d4a60f7a813464c7",
+    "size": 67608
+  },
+  "expectedFinalElfCalls": [
+    "sol_invoke_signed_c",
+    "sol_set_return_data",
+    "sol_set_return_data",
+    "sol_try_find_program_address",
+    "sol_invoke_signed_c",
+    "sol_set_return_data",
+    "sol_set_return_data",
+    "sol_invoke_signed_c",
+    "sol_set_return_data",
+    "sol_set_return_data",
+    "sol_try_find_program_address",
+    "sol_invoke_signed_c",
+    "sol_set_return_data",
+    "sol_set_return_data",
+    "sol_set_return_data"
+  ],
+  "forcingMatrix": [
+    "generated_assembly_and_elf_are_exact_preactivation",
+    "transfer_checked_success_exact_balance_delta_and_state_order",
+    "transfer_checked_high_byte_amount_success",
+    "transfer_checked_pda_success_canonical_bump_and_balance_delta",
+    "transfer_checked_then_overflow_full_snapshot_rollback",
+    "transfer_checked_pda_then_overflow_full_snapshot_rollback",
+    "inner_token_failure_precise_status_empty_return_data",
+    "destination_amount_overflow_inner_error_empty_return_snapshot",
+    "inspect_reads_initialized_state",
+    "one_mutation_source_account_negatives",
+    "one_mutation_destination_account_negatives",
+    "one_mutation_mint_account_negatives",
+    "one_mutation_privilege_and_flag_negatives",
+    "one_mutation_alias_negatives",
+    "one_mutation_role_count_negatives",
+    "token2022_wrong_key_substitution_independent",
+    "token_program_account_non_executable_or_wrong_loader_owner",
+    "one_mutation_pda_privilege_negatives",
+    "noncanonical_bump_fails_full_snapshot",
+    "wrong_authority_meta_key_fails_full_snapshot"
+  ],
+  "reproducibilityNote": "Generated through the production Token CPI authority/emitter chain and assembled with locked sbpf 0.2.2 against a vendored source-built classic Token ELF from solana-program/token program@v9.0.0 (tag object 5c37ac99… / peeled dfb26023…). Same-host recipe repeat=2 only. This is engineering test-preactivation evidence only: not proof-forge.output.v1, not an activated CPI artifact, not mainnet parity, not cross-host/hermetic/formal/release, catalog artifactBinding remains absent."
+}

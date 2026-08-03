@@ -891,6 +891,19 @@ def validate_sol_cpi_contract(
         type(companion_interface) is dict
         and companion_interface.get("extensionDigest") == extension_digest,
         catalog_path, "companion package does not bind the extension digest")
+    token_interface = package_by_id["token-classic-v1"].get("interfaceBinding")
+    _expect_sol_cpi(
+        token_interface == {
+            "commit": "dfb260231c761be7d9c8b63728e770a102b86495",
+            "interfaceVersion": "2.0.0",
+            "programVersion": "9.0.0",
+            "repo": "https://github.com/solana-program/token",
+            "tag": "program@v9.0.0",
+            "tagObject": "5c37ac99c248567bd7d50b965af8cbd45b6ced96",
+        },
+        catalog_path,
+        "classic Token interface must distinguish annotated tag object from peeled commit",
+    )
 
     account_abi = extension.get("accountAbi")
     cpi_contract = extension.get("cpiContract")

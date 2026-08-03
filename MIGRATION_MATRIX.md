@@ -127,7 +127,29 @@ D1–D4 共 27 个 formal task，当前仍为：
 > production-code-generated **test-preactivation native-System CPI ELF**，**不是** `OutputFile`/
 > 产品 artifact/activated sync；legacy profiles 与 ordinary resolver 仍 fail closed；#125 前不
 > advertise/mint；不把 Principal 全局等同 Solana pubkey；非 formal/hermetic/deploy；**#121 工程切片已闭合**（已通过 `just docs-check`、SBOM 185、`just solana-runtime`（10 binaries/190 active，`cpi_system` 35/35；Mollusk **不属于** ordinary `just ci`，为单独运行）、`just test-targets`、`just dev-check`、ordinary `just ci` 全 exit 0；独立审计无 P0/P1）。
-> **Active 明确 #122** classic Token（package-owned locked ELF blocker）；#123–#124 仍 pending。
+>
+> **2026-08-04 Solana #122 classic Token CPI 增量**：独立 private `CpiTokenIRV1`/`EmitCpiTokenSbpfV1`
+> 在仍为 activationDenied/test-preactivation 的 opt-in `solana-sbpf-cpi-elf-v1` lane 上，发射真实
+> classic Token CPI：frozen `transferChecked`/`transferCheckedPda`；真实 LoaderV3
+> `sol_invoke_signed_c`/canonical PDA；Token Account **165** / Mint **82** exact site-time
+> predicates。vendored source-built official `program@v9.0.0` ELF **94960** sha
+> `a19be3a2d4778533652da23b8fe31c4a341802f8e8c0c7b941b88581fc92d9d9`，annotated tag object
+> `5c37ac99c248567bd7d50b965af8cbd45b6ced96`→peeled
+> `dfb260231c761be7d9c8b63728e770a102b86495`，same-host clean **repeat2**，recipe digest
+> `4af75b0a74ba14daa90a2d3913c71311609b3f3465728e733537dd0e34d8d063`；caller assembly **160129**
+> sha `3cf744e36b5a91a441dbb06a33050613fcc366b57a03ad2b970f78cbe131e9fd`、caller ELF **67608**
+> sha `4c7a10cc7dc5e411a9eec3109722e2080a48ac7a64868c34d4a60f7a813464c7`。Mollusk focused
+> **31/31**。catalog digest corrected
+> `0da1837ec10f7acc716c1151bee23a04e019174f99b1fedde635c7d75b4055f5`，但 **artifactBinding 仍
+> absent / admitted=false**。#118–#121 回归保持独立。准确称谓是 production-code-generated
+> **test-preactivation classic-Token CPI ELF**，**不是** `OutputFile`/产品 artifact/activated
+> sync；legacy profiles 与 ordinary resolver 仍 fail closed；#125 前不 advertise/mint；**非**
+> mainnet parity / tracked Tool Lock / cross-host / hermetic / formal / release /
+> package-owner-published；Principal 不全局等同 pubkey；**#122 工程切片已闭合**（已通过
+> `just docs-check`、SBOM refresh/check **187**、`just solana-runtime`（**11 binaries/221 active**，
+> `cpi_token` 31/31；Mollusk **不属于** ordinary `just ci`，为单独运行）、`just test-targets`
+> （clean repo-local exact tool root）、focused；`just dev-check`/ordinary `just ci` 全 exit 0；独立审计无 P0/P1）。
+> **Active 明确 #123** classic ATA；#124 escrow 仍 pending；#125 才可 activation。
 > 非 formal/Stage-0/release；Mollusk/`just solana-runtime` 为独立门禁，**不**并入 ordinary `just ci` 计次。
 
 ### D1 Linux frontend supervisor 增量（2026-07-30）
