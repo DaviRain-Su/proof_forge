@@ -2,8 +2,11 @@
   Tests.Materialization.EvmCorpusPrimitiveV1 — engineering Reference leg for
   EVMOZ-004 primitive corpus cases (Counter / Accumulator / ArithOps / EventFlow).
 
-  Unregistered harness (EVMOZ-006 owns CI/justfile/Tests umbrella). Invoke via:
+  Top-level `main` harness (not a lake import root — avoids global main clash).
+  EVMOZ-006 wires ordinary CI via `just evm-corpus-reference` /
+  `just evm-corpus-static` (not Tests.lean import). Invoke via:
     lake env lean --run Tests/Materialization/EvmCorpusPrimitiveV1.lean -- <out-dir>
+
 
   Real path: Loader → NormalizeV1 → admitReferenceProgramSliceV1 →
   stepReferenceSliceV1. Writes intermediate shared JSON (not PF-JCS); Python

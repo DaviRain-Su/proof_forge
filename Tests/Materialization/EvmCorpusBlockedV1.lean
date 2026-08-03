@@ -1,29 +1,34 @@
 /-
   Tests.Materialization.EvmCorpusBlockedV1 — EVMOZ-005 Ownable/context.caller
-  executable blocked case (class=`blocked`).
+  executable blocked case (class=`blocked`); EVMOZ-006 registers + pin locks.
 
   Authority:
     * fixture `testdata/evm-corpus/v1/programs/OwnableLike.lean`
     * case `testdata/evm-corpus/v1/cases/oz.f01.ownable.onlyowner.blocked.v1.json`
+      (bytes bound by `testdata/evm-corpus/v1/manifest.json`)
     * product Loader → Normalize → Semantic/Reference → EVM planFromCapability
 
   Proves:
     1. Loader/Typed/Normalize succeed on the honest Ownable-like fixture
-    2. Semantic retains caller ContextRead + exact `context.caller` requirement
-    3. Reference with ADR-0025 canonical `u32le(20)||address20` context:
+    2. Exact case pins: pfCommit baseline, Darwin ToolLockV4Digest, and
+       Loader/Normalize `sourceHash`/`semanticHash` (no EVM caller lowering)
+    3. Semantic retains caller ContextRead + exact `context.caller` requirement
+    4. Reference with ADR-0025 canonical `u32le(20)||address20` context:
        authorized mutation succeeds; unauthorized assert rolls back pre-state
-    4. EVM capability resolve succeeds; plan fails with typed
+    5. EVM capability resolve succeeds; plan fails with typed
        `.planInvariant .evm` whose reason contains `ContextRead` + `caller`
        (before Finalize/ToolLock/Anvil/artifact mint)
-    5. Forbidden early failures (toolchain-mismatch / parse-error /
+    6. Forbidden early failures (toolchain-mismatch / parse-error /
        unrelated-type-error / missing-tool) do not satisfy the blocked matcher
 
   Non-claims: no OZ/ABI/family credit; F01 remains Blocked; not formal D2/D4;
-  no Anvil; no artifact mint. Registration of this suite is owned by EVMOZ-006.
+  no Anvil; no artifact mint; no new EVM caller lowering.
 -/
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.Common
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.InvariantABI
+import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.ValidatedSourceV1
@@ -38,7 +43,9 @@ namespace Tests.Materialization.EvmCorpusBlockedV1
 open System
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.InvariantABI
+open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.ValidatedSourceV1
@@ -60,12 +67,36 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
 
+private def digestHex (d : Digest) : IO String :=
+  match renderDigest d with
+  | .ok s =>
+      match s.dropPrefix? "sha256:" with
+      | some rest => pure rest.toString
+      | none => pure s
+  | .error e => throw <| IO.userError e
+
+/-- Case identity pins (hardcoded; case bytes bound by corpus manifest). -/
+private def expectedCaseId : String := "oz.f01.ownable.onlyowner.blocked.v1"
+private def expectedPfCommit : String :=
+  "23798ce65e559134adb0a9dd3504fc2f7e9669b6"
+private def expectedToolLockDigest : String :=
+  "63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf"
+private def expectedSourceHash : String :=
+  "1056bb66a65115bdbbd38655c85e53b5f9abe84a7a13ada2b7f3bed4d2b9db64"
+private def expectedSemanticHash : String :=
+  "4874d5f6e5b589a26f3175920fee6aa06d59009be8d8c38a45bdc3bd8c14dd75"
+private def expectedProfile : String := "evm-yul-solc-0.8.34-cancun-v1"
+private def expectedHardfork : String := "cancun"
+
 /-- Corpus fixture path (project-relative; sole Ownable-like authority). -/
 private def ownableSourcePath : FilePath :=
   FilePath.mk "testdata/evm-corpus/v1/programs/OwnableLike.lean"
 
 private def ownableLogicalPath : String :=
   "testdata/evm-corpus/v1/programs/OwnableLike.lean"
+
+private def ownableCasePath : FilePath :=
+  FilePath.mk "testdata/evm-corpus/v1/cases/oz.f01.ownable.onlyowner.blocked.v1.json"
 
 private def ownableModule : String := "Tests.EvmCorpus.OwnableLike"
 
@@ -170,12 +201,72 @@ private def planEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Evm.planFromCapability capability
 
-/-- Product path: Loader → compile → Semantic has caller ContextRead + requirement. -/
+/-- Case file embeds exact pin surface (bytes also closed by corpus manifest). -/
+private def testOwnableCasePinSurface : IO Unit := do
+  unless ← ownableCasePath.pathExists do
+    throw <| IO.userError s!"missing Ownable blocked case at {ownableCasePath}"
+  let text ← IO.FS.readFile ownableCasePath
+  expect (containsSubstr text expectedCaseId)
+    "blocked case must embed exact case id"
+  expect (containsSubstr text "\"class\":\"blocked\"")
+    "blocked case must declare class=blocked"
+  expect (containsSubstr text expectedPfCommit)
+    "blocked case must pin frozen compiler baseline pfCommit"
+  expect (containsSubstr text expectedToolLockDigest)
+    "blocked case must pin Darwin ToolLockV4Digest (not raw lock SHA)"
+  expect (containsSubstr text expectedSourceHash)
+    "blocked case must pin real Loader sourceHash"
+  expect (containsSubstr text expectedSemanticHash)
+    "blocked case must pin real Normalize semanticHash"
+  expect (containsSubstr text expectedProfile)
+    "blocked case must pin Cancun profile id"
+  expect (containsSubstr text expectedHardfork)
+    "blocked case must pin hardfork=cancun"
+  expect (containsSubstr text "\"runner\":\"lean-focused\"")
+    "blocked case runner must be lean-focused"
+  expect (containsSubstr text "\"phase\":\"plan\"")
+    "blocked body phase must be plan"
+  expect (containsSubstr text "ContextRead")
+    "blocked diagnosticPatterns must include ContextRead"
+  -- Placeholders from pre-EVMOZ-006 draft must not remain.
+  expect (!containsSubstr text "0000000000000000000000000000000000000001")
+    "blocked case must not retain placeholder pfCommit"
+  expect (!containsSubstr text "0000000000000000000000000000000000000000000000000000000000000001")
+    "blocked case must not retain placeholder sourceHash"
+  expect (!containsSubstr text "0000000000000000000000000000000000000000000000000000000000000003")
+    "blocked case must not retain placeholder toolLockDigest"
+
+/-- Product path: Loader → compile → Semantic has caller ContextRead + requirement.
+    Exact sourceHash/semanticHash pins must match case/manifest authority. -/
 private unsafe def testOwnableNormalizeSemantic
     (session : Language.Loader.ParserSession) : IO CompiledSemanticV1 := do
   let validated ← loadOwnable session
+  -- Direct Loader sourceHash pin (pre-compile).
+  let srcHash ← match sourceHashV1 validated with
+    | .ok d => digestHex d
+    | .error e => throw <| IO.userError s!"OwnableLike sourceHash: {e}"
+  expect (srcHash == expectedSourceHash)
+    s!"OwnableLike sourceHash pin mismatch (got {srcHash})"
+  -- Normalize path must agree with compile carrier.
+  let normalized ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"OwnableLike Normalize must succeed: {repr e}"
+  let normSem ← match semanticHashV1 normalized with
+    | .ok d => digestHex d
+    | .error e => throw <| IO.userError s!"OwnableLike semanticHash: {repr e}"
+  expect (normSem == expectedSemanticHash)
+    s!"OwnableLike Normalize semanticHash pin mismatch (got {normSem})"
   let compiled ← liftResult "compile OwnableLike" <|
     compileValidatedSourceV1 validated
+  let srcHex ← liftResult "compiled sourceHash" <|
+    CompiledSemanticV1.artifactSourceHashHexOf compiled
+  let semHex ← liftResult "compiled semanticHash" <|
+    CompiledSemanticV1.artifactSemanticHashHexOf compiled
+  expect (srcHex == expectedSourceHash)
+    s!"compiled sourceHash pin mismatch (got {srcHex})"
+  expect (semHex == expectedSemanticHash)
+    s!"compiled semanticHash pin mismatch (got {semHex})"
   let carrier := CompiledSemanticV1.semanticV1Of compiled
   let data ← match validateSemanticProgramV1 carrier with
     | .ok d => pure d
@@ -358,8 +449,9 @@ private unsafe def testForbiddenEarlyFailuresDoNotMatch
                 containsSubstr e.message "caller"))
             s!"type-bad must not be the ContextRead/caller planInvariant, got {e.render}"
 
-/-- Suite entry. Independent: register later under EVMOZ-006. -/
+/-- Suite entry (registered under EVMOZ-006 in Fast / Targets / aggregate). -/
 unsafe def run : IO Unit := do
+  testOwnableCasePinSurface
   let session ← Tests.Language.ParserSession.shared
   let compiled ← testOwnableNormalizeSemantic session
   testOwnableReferenceAuthorizedUnauthorized compiled

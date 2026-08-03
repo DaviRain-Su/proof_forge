@@ -49,7 +49,7 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 | 不解锁 | Solidity `address` ABI、indexed address event/error、dynamic CALL/callee、payable/value、proxy；T10 Principal **storage** 仍为 wire-identity leaf（≠ 20B address slot） |
 | Reference | invocation 对 caller key 使用 **同一** Principal canonical bytes；equality 为完整 valueBytes byte-exact；TargetId **不**改写业务语义 |
 | 他 target | Solana/NEAR/Noir/Aleo/Psy ContextRead Plan **保持 FC**；各自 identity 长度/字节须另决策 |
-| Ownable F01 | **仍 Blocked**；无 OZ / ABI / formal / release claim |
+| Ownable F01 | **仍 Blocked**（EVMOZ-005/006：Lean corpus case exact planInvariant ContextRead+caller；真实 source/semantic pins + closed manifest；无 OZ / ABI / formal / release claim） |
 
 B-3 PrincipalAddr pin（wire Principal ≠ 固定 EVM address type；CALL 非 dynamic Principal 地址）与
 AddressBearing static-QN CALL **继续有效**；本 contract 只约束 **ContextRead caller 物化拼写**，

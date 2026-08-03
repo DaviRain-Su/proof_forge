@@ -13,10 +13,11 @@ normative: false
 
 - `proof-forge.evm-corpus-case.v1`
 - `proof-forge.evm-observation.v1`
+- `proof-forge.evm-corpus-manifest.v1`
 
 工程 schema foundation。它实现
 [`docs/research/17-openzeppelin-ethereum-coverage-audit.md`](../research/17-openzeppelin-ethereum-coverage-audit.md)
-§8 的可执行契约，由 `scripts/evm_corpus_v1.py` 做 pure structural validation。
+§8 的可执行契约，由 `scripts/evm_corpus_v1.py` 做 pure structural validation + closed inventory join。
 
 本文件 `normative: false` 仅因当前 docs 导航尚未从 `docs/index.md` 接达（本切片禁止改 index）；
 schema 对 corpus harness 仍是 sole closed authority。后续导航接线任务不得改写本 schema 语义。
@@ -72,6 +73,8 @@ schema 对 corpus harness 仍是 sole closed authority。后续导航接线任�
 |---|---|---|
 | case 原始 UTF-8 bytes | 64 KiB（65536） | 输入 byte 长度 |
 | observation 原始 UTF-8 bytes | 256 KiB（262144） | 输入 byte 长度 |
+| manifest 原始 UTF-8 bytes | 256 KiB（262144） | 输入 byte 长度 |
+| `manifest.files` | 256 | 数组长度 |
 | `actors` | 8 | 数组长度 |
 | `steps` | 32 | 数组长度 |
 | `steps[].expectedLogs` / observation `evm.logs` | 32 / step | 数组长度 |
@@ -388,16 +391,82 @@ gas **默认不在** shared 面；未来 gas claim 必须升版本观察面。
 - 数组按 `slot` 的 **exact wire 字符串** ASCII/UTF-8 字节升序排序（对固定 64-hex 左零填充
   形式，该序等于 unsigned big-endian 数值序）。乱序 → `PF-CORPUS-INVARIANT`。
 
+## Root: `proof-forge.evm-corpus-manifest.v1`
+
+Sole canonical path：`testdata/evm-corpus/v1/manifest.json`。
+
+根 object **恰好**含：
+
+```text
+{
+  "schema": "proof-forge.evm-corpus-manifest.v1",
+  "files": [
+    {
+      "path": relative-path,   // project-relative POSIX; path-ascending unique
+      "role": "case" | "source" | "schema-fixture" | "runner",
+      "size": non-negative safe int,
+      "sha256": sha256
+    },
+    ...
+  ]                              // 1..256
+}
+```
+
+### 闭合范围（exact inventory）
+
+1. `testdata/evm-corpus/v1/**` 下全部 **regular** authority 文件，**除 manifest 自身**
+   （禁止自引用；`path == testdata/evm-corpus/v1/manifest.json` → `PF-CORPUS-INVARIANT`）。
+2. 全部 business case 的 `pins.sourcePath`（含外部 `Examples/Counter|Accumulator|Token.lean`
+   与 `testdata/valid/ArithOps.lean`）。
+3. Sole harness：`scripts/evm_corpus_v1.py`、`scripts/evm_corpus_reference.sh`、
+   `scripts/evm_corpus_runtime.sh`、`Tests/Materialization/EvmCorpusPrimitiveV1.lean`、
+   `Tests/Materialization/EvmCorpusBlockedV1.lean`（role=`runner`）。
+
+### 角色与 join
+
+| role | 用途 |
+|---|---|
+| `case` | `testdata/evm-corpus/v1/cases/<id>.json`；`id` 必须等于 filename stem |
+| `source` | program / external source 文本；每个 case `sourcePath` 必须 listed 且 role=source |
+| `schema-fixture` | `schema-tests/**` 形状自检 |
+| `runner` | 上表 sole validator/runner/Lean harness |
+
+未知 role / duplicate path / 非升序 path → fail closed。corpus 树内 **禁止** symlink、
+hardlink（`nlink != 1`）、非 regular；stable read 在读前后 `lstat` 比较
+`(ino,dev,mode,size,nlink,mtime_ns)` 并要求 `size == len(bytes)` 与 sha256 exact。
+manifest 对 corpus 树是 exact：缺列或列了不存在/多余的 corpus 路径均 `PF-CORPUS-INVARIANT`。
+
+**Manifest 不是 formal evidence**，也不替代 `proof-forge.evidence.v1` / OutputSet。
+
 ## 校验器与 fixtures
 
 - 实现：`scripts/evm_corpus_v1.py`（`/usr/bin/python3 -I -S`，无第三方包）。
 - 命令：
   - `validate-case PATH`
   - `validate-observation PATH`
-  - `self-test`（内建 + `testdata/evm-corpus/v1/schema-tests/**`）
-- 成功：stdout `corpus-schema-validated ...` 且 exit 0。
+  - `validate-manifest PATH`（sole path = `testdata/evm-corpus/v1/manifest.json`）
+  - `list-runnable-cases CASES_DIR`（exact 4 primitive + 1 adapter pin join）
+  - `self-test`（内建 + `schema-tests/**` + manifest positive/negatives）
+- just 入口（EVMOZ-006）：
+  - `just evm-corpus-schema`：self-test + validate-manifest + 全部 business cases + runnable
+  - `just evm-corpus-reference`：build 后 safe-clean OBS + Reference；exact 23 reference obs
+  - `just evm-corpus-static`：schema + reference 聚合（接 `dev-check` / `ci-lean-product`）
+  - `just evm-corpus-runtime`：手动 toolful Cancun full harness（**不**进 ordinary CI）
+- 成功：stdout `corpus-schema-validated ...` / `corpus-manifest-validated ...` 且 exit 0。
 - 失败：stderr `PF-CORPUS-...: ...` 且 exit 1。
 - 输入必须已是 canonical PF-JCS bytes；validator 不做 publish canonicalize。
+
+### 已实现工程边界（EVMOZ-002..006）
+
+| 层 | 状态 |
+|---|---|
+| case/observation schema + schema-tests | 已实现 |
+| business cases：4 primitive + 1 Token adapter + 1 Ownable blocked | 已实现 |
+| closed manifest inventory | 已实现（EVMOZ-006） |
+| Reference leg（23 obs）+ pin join | 已实现 |
+| Ownable blocked Lean suite（Loader/Normalize/Reference + planInvariant） | 已实现并注册 |
+| PF-Anvil Cancun full runtime harness | 手动 `evm-corpus-runtime`；Token 可 skip，不得 pass 冒充 |
+| OZ leg / family·ABI·standard credit | **未**实现；Exact 0 / Partial 0 / Blocked 20 不变 |
 
 ### 错误码
 
@@ -408,14 +477,15 @@ gas **默认不在** shared 面；未来 gas claim 必须升版本观察面。
 | `PF-CORPUS-NUMBER` | float / 非有限 / 超 safe int |
 | `PF-CORPUS-KEY` | 非 ASCII-graphic / 超长 key |
 | `PF-CORPUS-SCHEMA` | 缺字段 / 未知字段 / 类型 / enum |
-| `PF-CORPUS-INVARIANT` | class-leg / claims / projection / skip 代数 / 排序唯一性 |
-| `PF-CORPUS-PATH` | 路径 traversal / 非 NFC / 非相对 |
+| `PF-CORPUS-INVARIANT` | class-leg / claims / projection / skip 代数 / 排序唯一性 / manifest inventory |
+| `PF-CORPUS-PATH` | 路径 traversal / 非 NFC / 非相对 / symlink / hardlink / 非 regular |
 | `PF-CORPUS-LIMIT` | 资源上限 |
 | `PF-CORPUS-CANONICAL` | 输入 bytes ≠ canonical re-encode |
 
 ## 非声明
 
-- 本切片 **不** 实现 Anvil/OZ runner、manifest、业务 case corpus、family 计分或 formal evidence。
-- schema-tests 通过 **不** 表示 OZ 兼容、Reference↔Anvil formal closure 或 maturity 提升。
-- 不绑定 `proof-forge.output.v1` product publisher。
+- schema-tests / manifest / Reference 通过 **不** 表示 OZ 兼容、Reference↔Anvil formal
+  closure、Cancun=OZ hardfork 对齐，或 maturity / formal TASK 提升。
+- 不绑定 `proof-forge.output.v1` product publisher；manifest **不是** formal evidence。
 - CosmWasm / 其他 target 不在本 schema 范围。
+- Ownable F01 保持 **Blocked**；无 EVM `context.caller` Plan/ABI lowering。

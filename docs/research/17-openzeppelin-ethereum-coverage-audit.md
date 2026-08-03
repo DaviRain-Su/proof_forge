@@ -347,7 +347,14 @@ Map 容量以实际定义 `evmMapPilotCapacityV1 := 8` 为准；相邻源码注�
 
 ## 8. 可执行验证设计
 
-当前仓库还没有下面的统一 schema/harness；本节是可落地的设计，不是已有 gate。
+> **工程落地状态（2026-08-03，EVMOZ-002..006）**：closed case/observation schema、
+> closed inventory manifest、4 primitive + 1 Token adapter + 1 Ownable blocked business
+> case、Reference leg（exact 23 observations）、Ownable Lean blocked suite，以及
+> `just evm-corpus-{schema,reference,static,runtime}` 已进入仓库。下列 class/oracle
+> 规则仍是权威契约；**OZ leg / family·ABI·standard credit 仍未实现**，
+> **Exact 0 / Partial 0 / Blocked 20 不变**。Cancun profile 是 PF engineering hardfork
+> pin，**不是** OZ hardfork 对齐。详见
+> [`docs/specs/evm-corpus-v1.md`](../specs/evm-corpus-v1.md)。
 
 ### 8.1 Case 分类
 
@@ -358,20 +365,26 @@ Map 容量以实际定义 `evmMapPilotCapacityV1 := 8` 为准；相邻源码注�
 | `primitive` | PF primitive 在 EVM 上保持 shared semantics | ReferenceV1 ↔ PF Anvil；禁止 OZ claim |
 | `adapter` | 仅声明的业务投影相同，不计 family 状态 | 每个 leg 可有不同 driver；只比较显式 projection，禁止 ABI/standard claim |
 | `oz-behavior` | 一个 OZ family 行为场景等价，但不声明 ABI | ReferenceV1 ↔ PF Anvil ↔ OZ Anvil 的 shared business projection；不得丢弃场景关键字段 |
-| `abi` | 标准 ABI + observable behavior | ReferenceV1 ↔ PF Anvil ↔ OZ Anvil；PF/OZ 使用相同 EVM call bytes，禁止 adapter 隐藏差异 |
+| `abi` | 标准 ABI + descriptor behavior | ReferenceV1 ↔ PF Anvil ↔ OZ Anvil；PF/OZ 使用相同 EVM call bytes，禁止 adapter 隐藏差异 |
 | `blocked` | 当前精确 fail-closed | typed phase/target/reason contract；不得把 unrelated early failure 当 pass |
 | `oos` | 已接受的产品边界 | 必须引用 accepted decision；研究建议不可使用 |
 
-建议 case 绑定：PF commit/sourceHash/semanticHash、OZ commit、target/profile、Tool Lock digest、solc/anvil
+case 绑定：PF commit/sourceHash/semanticHash、OZ commit、target/profile、Tool Lock digest、solc/anvil
 版本、hardfork、actors、initial state、step sequence、expected observations、oracle legs 和显式 skip policy。
+sole inventory：`proof-forge.evm-corpus-manifest.v1`（`testdata/evm-corpus/v1/manifest.json`）
+以 path 升序 + exact size/sha256 闭合 corpus 权威文件（除 manifest 自引用）、外部 source 与
+sole validator/runner/Lean harness；禁止 unknown role、duplicate path、traversal、symlink、
+hardlink、non-regular。
 
-建议资源上限：case JSON 64 KiB、observation 256 KiB、32 steps、8 actors、每步 32 logs、每 log 4 topics，
-以及至多 8 个长度 128 的 diagnostic patterns。未知字段、未知 enum、越界或非 canonical input 一律拒绝。
+资源上限：case JSON 64 KiB、observation 256 KiB、manifest 256 KiB / ≤256 files、32 steps、8 actors、
+每步 32 logs、每 log 4 topics，以及至多 8 个长度 128 的 diagnostic patterns。未知字段、未知 enum、
+越界或非 canonical input 一律拒绝。
 
 当前 EVM lowering 多数边界表现为 typed `CompileError.planInvariant(.evm, message)`，CLI message 仍含 free text，
-尚不存在稳定的 case-bound capability diagnostic code。因此 W2 blocked catalog 应分两步：先在 Lean focused
-case 中匹配 typed phase/target + bounded exact reason；再冻结 closed diagnostic discriminator 后接产品 CLI。
-在此之前 §8 仍是 proposal，不能声称已有稳定 blocked harness。
+尚不存在稳定的 case-bound capability diagnostic code。W2 blocked catalog 分两步：
+**第一步已交付**——`Tests.Materialization.EvmCorpusBlockedV1` 匹配 typed phase/target +
+bounded reason（ContextRead+caller），并 pin 真实 source/semantic hash；**第二步仍 pending**——
+冻结 closed diagnostic discriminator 后接产品 CLI。
 
 ### 8.2 分层观察面
 
@@ -414,27 +427,35 @@ gas 默认排除，因为优化和 compiler 版本会改变 gas；只有未来�
 
 ### 8.4 三个具体 case
 
-#### A. 现有 primitive 迁移
+#### A. 现有 primitive 迁移（EVMOZ-004 已交付 engineering）
 
-`pf.primitive.counter.overflow-hold.v1`
+`pf.primitive.counter.overflow-hold.v1`（以及 Accumulator / ArithOps / EventFlow 同族）
 
 - class：`primitive`
-- 输入：`Examples/Counter.lean`
-- 现有证据映射：`Tests/Semantic/ReferenceV1.lean`、`scripts/evm_anvil_differential.sh`、
-  `scripts/smoke_evm.sh`
-- 断言：overflow revert；logical/raw state 不变；没有 committed logs；balance 不变。
-- 当前状态：工程逻辑已有，但本次产品 build/Anvil leg 被 Tool Lock mismatch 阻断，不能记 pass。
+- 输入：`Examples/Counter.lean` 等；pins 绑定真实 sourceHash/semanticHash 与 Darwin
+  ToolLockV4Digest / Cancun profile。
+- 证据：`Tests/Materialization/EvmCorpusPrimitiveV1.lean`（`lean --run`；**不**进 lake roots，
+  避免 top-level `main` 冲突）→ exact 23 reference observations；
+  `just evm-corpus-reference` / full `evm-corpus-runtime` 经 Cancun Anvil 做
+  **engineering** Reference↔PF-Anvil shared closure。
+- 断言：overflow revert；logical/raw state 不变；没有 committed logs 等（per case）。
+- **非声明**：不是 formal C-3 / OZ credit；不是 OZ hardfork 对齐。
 
-#### B. 可执行 blocker
+#### B. 可执行 blocker（EVMOZ-005 语义 + EVMOZ-006 注册/真实 pin）
 
 `oz.f01.ownable.onlyowner.blocked.v1`
 
 - class：`blocked`
-- 输入：包含 `context.caller` 的最小 Ownable-like PF program。
-- 当前可执行形态：Lean focused case 在 EVM capability/Plan 阶段匹配
-  `CompileError.planInvariant(.evm, boundedReason)`，拒绝 caller/address mapping；不产生 artifact，不启动 Anvil。
-- 产品 CLI successor 必须等待 closed diagnostic discriminator；`PF-TOOLCHAIN-MISMATCH`、parse failure 或
-  unrelated type error 均不能满足该 case。
+- 输入：`testdata/evm-corpus/v1/programs/OwnableLike.lean`（`context.caller` only-owner）。
+- 可执行形态：`Tests.Materialization.EvmCorpusBlockedV1`（已注册 Fast / Targets / aggregate）
+  — Loader/Normalize 成功并 exact pin sourceHash/semanticHash；Reference 授权/未授权；
+  EVM `planFromCapability` 以 typed `.planInvariant .evm`（ContextRead+caller）fail closed；
+  不产生 artifact，不启动 Anvil。
+- pins：`pfCommit=23798ce65e55…`（compiler baseline）、canonical
+  `toolLockDigest=63eadb99…`、真实 Loader/Normalize hashes；placeholder 已清除。
+- 产品 CLI successor 仍须等待 closed diagnostic discriminator；`PF-TOOLCHAIN-MISMATCH`、
+  parse failure 或 unrelated type error **均不能满足**该 case。
+- **F01 仍 Blocked**；无 OZ/ABI/family credit。
 
 #### C. 未来 ERC20 ABI claim
 
@@ -447,29 +468,27 @@ gas 默认排除，因为优化和 compiler 版本会改变 gas；只有未来�
 - insufficient-balance custom error bytes；
 - revert 后 state/log/balance 全部回滚。
 
-当前 Token 只能有单独的 `adapter` case，不能重命名或复用为此 ABI case。
+当前 Token 只有 `pf.adapter.token.conservation.v1`（optional adapter；runtime 可因
+solc StackTooDeep **skip**，**不得**记 pass）；不能重命名或复用为 ABI case。
 
 ### 8.5 CI 分层
 
-> **以下整张表与 W0–W4 均为 proposal，当前仓库尚未注册该 schema/harness/cases，不得引用为现有 CI。**
+| 层 | 内容 | 仓库状态（EVMOZ-006） | 失败策略 |
+|---|---|---|---|
+| Fast/static | schema、manifest、case IDs、Ownable blocked suite、PF Source/Typed/Normalize/Wire | **已接线**：`just evm-corpus-schema` + `EvmCorpusBlockedV1` 在 Fast/Targets；聚合 `evm-corpus-static` 进 `dev-check` / `ci-lean-product` | always-on hard fail |
+| PF engineering | Reference 23 obs、EVM Plan/IR/Yul、solc acceptance | **已接线**：`just evm-corpus-reference`（no EVM tools） | ordinary CI；不冒充 runtime/formal |
+| EVM runtime | locked solc + Cancun Anvil，primitive/adapter PF leg | **手动** `just evm-corpus-runtime`；**不**进 ordinary CI/GitHub | 缺 required tools hard fail；Token skip 允许但不得 pass |
+| OZ oracle | 隔离 OZ checkout + hardfork 对齐 tests | **未实现**；无 OZ leg | n/a |
+| Sequence/property | bounded sequences / failure injection | **未实现** | n/a |
+| Release/formal | independent identity/evidence | **未**由本 corpus 触达 | 普通 CI ≠ release/formal |
 
-| 层 | 内容 | 失败策略 |
-|---|---|---|
-| Fast/static | schema、manifest、case IDs、blocked diagnostics、PF Source/Typed/Normalize/Wire | always-on；任何非预期拒绝 hard fail |
-| PF engineering | Reference cases、EVM Plan/IR/Yul、solc acceptance | ordinary CI；不冒充 runtime/formal |
-| EVM runtime | locked solc + fixed-hardfork Anvil，执行 primitive/adapter/ABI PF leg | 工具已物化时 hard fail；不得 silent skip |
-| OZ oracle | 隔离 checkout 固定 commit，安装 lockfile、生成 exposed contracts、固定 hardfork执行选定 tests | 不进入 PF 产品 import graph；结果绑定 commit/tool hashes |
-| Sequence/property | bounded action sequences、failure injection、rollback/invariant | 基础 ABI case 稳定后加入 |
-| Release/formal | 独立 identity/evidence 与 eligible-host 流程 | 普通 CI 通过不等于 release/formal |
+波次进度：
 
-建议波次：
-
-- W0：把 Counter/Accumulator/ArithOps/EventFlow 迁成 `primitive` cases。
-- W1：把 Token 固定为明确 `adapter`，加入 capacity/rollback/双账户序列。
-- W2：先为 Ownable/ERC20/Vesting/Permit/Timelock/Proxy/ERC2771/ERC4337 建 Lean typed `blocked` catalog；
-  closed diagnostic 冻结后再接产品 CLI。
-- W3：primitive 和 hardfork 冻结后才增加 `abi` cases。
-- W4：加入 bounded state-machine/property sequences，而不是只跑 happy path。
+- W0：**done**（Counter/Accumulator/ArithOps/EventFlow → `primitive`）。
+- W1：**done**（Token → explicit `adapter`；capacity/rollback/双账户在 case steps）。
+- W2：**partial**——Ownable Lean typed `blocked` 已交付；其余 family blocked catalog 与
+  closed CLI diagnostic 仍 pending。
+- W3/W4：仍 proposal（无 `abi` / property corpus）。
 
 ## 9. 本次可执行验证记录与限制
 
@@ -543,11 +562,16 @@ modifier、library 或 assembly 全部搬进共享 core。
 
 ## 11. 盲区与非声明
 
-- 没有执行 OZ 官方 runtime tests。
-- 当前 HEAD 的 product CLI/Anvil 正向路径被 Tool Lock mismatch 阻断。
-- PF 与 OZ 的 compiler/runtime hardfork 尚未对齐。
+- 没有执行 OZ 官方 runtime tests；**无 OZ leg**，不得把 Cancun 写成 OZ hardfork 对齐。
+- 审计当时的 Tool Lock raw digest mismatch / 无 schema·harness 观察 **已被 EVMOZ-001..006
+  工程 follow-on 部分 supersede**（显式 Cancun profile、closed corpus schema/manifest、
+  Reference+blocked harness、手动 Cancun runtime）。**不**因此改变
+  Exact 0 / Partial 0 / Blocked 20 或 formal maturity。
+- PF 与 OZ 的 compiler/runtime hardfork **仍未**对齐（OZ 仍 Osaka + 不同 solc）。
 - 仓库还没有统一 ABI byte-level、storage-layout 或 standard-conformance corpus。
-- 没有 dynamic caller/value/callback/proxy/precompile 的 PF 产品 EVM 行为证据。
+- 没有 dynamic caller/value/callback/proxy/precompile 的 PF 产品 EVM 行为证据；
+  Ownable F01 精确 **Blocked**（ContextRead planInvariant），无 caller→address ABI。
+- Token adapter 在 full runtime 上可因 solc StackTooDeep **skip**（不得 pass）。
 - 完整 Governor extension delta、crypto failure matrix 与 7 个 draft 实现未逐对象行为分类。
 - 64 个 library 只做能力语料；本报告没有把每个纯算法库逐一判为 Exact/Blocked。
 - gas/stipend/63-of-64 默认不在观察面。

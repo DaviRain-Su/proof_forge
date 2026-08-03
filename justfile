@@ -607,7 +607,8 @@ s1-target-semantic-plan-deletion-gate:
 # lake against the shared `.lake/` tree, so gates always run **serially** (fail-closed
 # with `FAIL gate: <name>`). PROOF_FORGE_GATE_JOBS is accepted for forward-compat but
 # values >1 are forced to 1 with a warning (no concurrent lake on one worktree).
-dev-check: docs-check sbom-package-files-check build test-fast run-deletion-gates
+# EVMOZ-006: corpus static (schema + Reference) after test-fast; serial lake only.
+dev-check: docs-check sbom-package-files-check build test-fast evm-corpus-static run-deletion-gates
 
 gate_jobs := env_var_or_default("PROOF_FORGE_GATE_JOBS", "1")
 
@@ -1111,6 +1112,58 @@ output-security: build
 evm-runtime: target-smoke
     bash scripts/smoke_evm.sh
 
+# EVMOZ-006: closed corpus schema + inventory (no EVM tools / no lake).
+# Self-test includes validate-manifest negatives; then live manifest + all
+# business cases + exact runnable set pin join.
+evm-corpus-schema:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(pwd)"
+    validator="$root/scripts/evm_corpus_v1.py"
+    cases_dir="$root/testdata/evm-corpus/v1/cases"
+    manifest="$root/testdata/evm-corpus/v1/manifest.json"
+    /usr/bin/python3 -I -S "$validator" self-test
+    /usr/bin/python3 -I -S "$validator" validate-manifest "$manifest"
+    case_count=0
+    while IFS= read -r case_path; do
+      [[ -n "$case_path" ]] || continue
+      /usr/bin/python3 -I -S "$validator" validate-case "$case_path"
+      case_count=$((case_count + 1))
+    done < <(find "$cases_dir" -maxdepth 1 -type f -name '*.json' | sort)
+    [[ "$case_count" -eq 6 ]] || {
+      echo "evm-corpus-schema: expected 6 business cases, got $case_count" >&2
+      exit 1
+    }
+    runnable="$(/usr/bin/python3 -I -S "$validator" list-runnable-cases "$cases_dir")"
+    runnable_count="$(printf '%s\n' "$runnable" | grep -c . || true)"
+    [[ "$runnable_count" -eq 5 ]] || {
+      echo "evm-corpus-schema: expected 5 runnable cases, got $runnable_count" >&2
+      exit 1
+    }
+    echo "evm-corpus-schema: ok (self-test + manifest + $case_count cases + $runnable_count runnable)"
+
+# EVMOZ-006: Reference leg only (depends on build; no solc/anvil).
+# Safe-clean fixed OBS root under build/, run Loader→Normalize→Reference.
+# scripts/evm_corpus_reference.sh enforces exact 23 reference obs and no PF/OZ legs.
+evm-corpus-reference: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(pwd)"
+    validator="$root/scripts/evm_corpus_v1.py"
+    obs_requested="$root/build/v2/evm-corpus-obs"
+    obs_root="$(/usr/bin/python3 -I -S "$validator" safe-obs-root "$root" "$obs_requested")"
+    rm -rf "$obs_root"
+    mkdir -p "$obs_root"
+    export PF_EVM_CORPUS_OBS_DIR="$obs_root"
+    bash "$root/scripts/evm_corpus_reference.sh"
+
+# Aggregate static corpus gate (schema + reference). Serial; no concurrent lake.
+evm-corpus-static: evm-corpus-schema evm-corpus-reference
+
+# Manual toolful Cancun full harness (required tools hard-fail). NOT ordinary CI.
+evm-corpus-runtime: build
+    bash scripts/evm_corpus_runtime.sh
+
 # Solana S3a: Mollusk runtime differential for Counter.so (requires materialised sbpf + Rust).
 solana-runtime:
     bash scripts/solana_runtime_test.sh
@@ -1122,7 +1175,8 @@ solana-runtime:
 # lean-product: unit/product Lean tests + deletion gates (no target CLI smoke).
 # target-smoke: target-cli-positive + target-negative + zero-tool NFR repeat gate.
 # Full `ci` keeps the historical one-shot path for local machines.
-ci-lean-product: docs-check sbom-package-files-check build test product-negative source-bounds run-deletion-gates alpha-deletion-gate
+# EVMOZ-006: evm-corpus-static after build/test (serial; avoids concurrent lake).
+ci-lean-product: docs-check sbom-package-files-check build test product-negative source-bounds evm-corpus-static run-deletion-gates alpha-deletion-gate
 
 ci-target-smoke: build target-cli-positive target-negative nfr-repeat
 

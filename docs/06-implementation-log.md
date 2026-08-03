@@ -13655,3 +13655,56 @@ normative: false
 - EventFlow and Token companion inherit the same `PF_EVM_PROFILE` / hardfork pin
   (Token still skip-cleans on pre-existing Map StackTooDeep).
 - Empty-array `set -u` bash 3.2 safe expansions for optional profile/hardfork args.
+
+## 2026-08-03 — EVMOZ-006 final corpus integration (manifest + CI + Ownable pins)
+
+- Slice: engineering only; **not** formal TASK / OZ family·ABI·standard credit;
+  Exact 0 / Partial 0 / Blocked 20 unchanged; Cancun ≠ OZ hardfork 对齐.
+- Manifest authority:
+  - sole `testdata/evm-corpus/v1/manifest.json` schema
+    `proof-forge.evm-corpus-manifest.v1` (path-ascending, exact size+sha256,
+    closed role enum case|source|schema-fixture|runner).
+  - Closes all regular files under `testdata/evm-corpus/v1/**` except the
+    manifest itself; business-case external sources
+    (Counter/Accumulator/Token/ArithOps); sole validator + reference/runtime
+    scripts + `EvmCorpusPrimitiveV1` / `EvmCorpusBlockedV1` Lean suites.
+  - Rejects unknown/duplicate/path-escape/symlink/hardlink/non-regular;
+    stable read before/after lstat; **not** formal evidence.
+- Validator: `scripts/evm_corpus_v1.py validate-manifest PATH` + self-test
+  negatives (stale hash/size, missing/extra, duplicate/unknown role, symlink,
+  hardlink, path escape, manifest self-list). Self-test remains
+  `/usr/bin/python3 -I -S`.
+- Ownable blocked pins (placeholders removed):
+  - `pfCommit=23798ce65e559134adb0a9dd3504fc2f7e9669b6` (compiler baseline)
+  - `toolLockDigest=63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf`
+  - real Loader/Normalize `sourceHash` /
+    `semanticHash=1056bb66… / 4874d5f6…`
+  - `Tests.Materialization.EvmCorpusBlockedV1` exact-asserts pins + planInvariant;
+    no new EVM caller lowering; F01 remains Blocked.
+- Registration: `EvmCorpusBlockedV1` → lakefile roots, `Tests.lean`,
+  `Tests/Fast.lean`, `Tests/Shards/Targets.lean` (no Anvil/solc dep).
+  Primitive suite keeps top-level `main` and stays off lake import graphs.
+- just recipes:
+  - `evm-corpus-schema` (no EVM tools)
+  - `evm-corpus-reference` (build; exact 23 reference obs; no PF/OZ legs)
+  - `evm-corpus-static` aggregate → `dev-check` + `ci-lean-product`
+  - `evm-corpus-runtime` manual toolful Cancun harness (**not** ordinary CI)
+- Spec/docs: `docs/specs/evm-corpus-v1.md` manifest+boundaries; audit §8/8.4/8.5
+  + limitations; backlog EVMOZ-002..006 done rows; `docs/targets/01-evm.md`
+  Ownable blocked one-liner.
+- Non-claims: no OZ pass in claim register; no ProofForgeV2 product change;
+  no formal maturity elevation.
+
+### Host isolation note (TokenV1 EVM)
+
+- On this Darwin host, `Tests.Product.TokenV1` product `build --target evm` fails
+  with solc `StackTooDeep` (dense Map pilot), matching the EVMOZ-004 / C-8 Token
+  Anvil companion skip-clean policy. Counter/Accumulator/ArithOps/EventFlow EVM
+  builds remain deployable; corpus runtime closes 4 primitives pass + Token adapter
+  explicit skip (not pass).
+- This failure is **out of EVMOZ-006 scope** (no `ProofForgeV2/**` change; no
+  TokenYul rewrite). Isolated: `just evm-corpus-static`, targets shard
+  (`EvmCorpusBlockedV1: ok`), focused Ownable suite, runtime harness, docs-check,
+  sbom package pin (183 files, no package-file diff) all green. Full
+  `just dev-check` / `just ci` remain blocked by that pre-existing Token solc path
+  until a separate product slice fixes Map Yul stack depth or TokenV1 expectations.

@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Closed validator for proof-forge.evm-corpus-case.v1 / evm-observation.v1.
+"""Closed validator for proof-forge.evm-corpus-case.v1 / observation / manifest.v1.
 
-Pure structural schema foundation (EVMOZ-002). Not an evidence envelope, not a
-product import, not an OZ/family claim oracle.
+Pure structural schema foundation (EVMOZ-002) plus EVMOZ-006 closed inventory
+manifest authority. Not an evidence envelope, not a product import, not an
+OZ/family claim oracle.
 
 Requires isolated no-site Python: /usr/bin/python3 -I -S
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import posixpath
 import re
+import stat as stat_mod
 import sys
 import unicodedata
 from pathlib import Path
@@ -20,6 +24,22 @@ from typing import Callable, NoReturn
 
 SCHEMA_CASE = "proof-forge.evm-corpus-case.v1"
 SCHEMA_OBS = "proof-forge.evm-observation.v1"
+SCHEMA_MANIFEST = "proof-forge.evm-corpus-manifest.v1"
+
+MAX_MANIFEST_BYTES = 256 * 1024
+MAX_MANIFEST_FILES = 256
+MANIFEST_ROLES = frozenset({"case", "source", "schema-fixture", "runner"})
+MANIFEST_REL_PATH = "testdata/evm-corpus/v1/manifest.json"
+CORPUS_V1_REL = "testdata/evm-corpus/v1"
+CASES_REL = "testdata/evm-corpus/v1/cases"
+REQUIRED_RUNNER_PATHS = (
+    "scripts/evm_corpus_v1.py",
+    "scripts/evm_corpus_reference.sh",
+    "scripts/evm_corpus_runtime.sh",
+    "Tests/Materialization/EvmCorpusPrimitiveV1.lean",
+    "Tests/Materialization/EvmCorpusBlockedV1.lean",
+)
+EXPECTED_REFERENCE_OBS_COUNT = 23
 
 MAX_CASE_BYTES = 64 * 1024
 MAX_OBS_BYTES = 256 * 1024
@@ -2538,6 +2558,7 @@ def run_self_tests() -> None:
     _run_forbidden_early_order_test()
     _run_close_case_negative_tests()
     _run_tool_lock_and_obs_root_tests()
+    _run_manifest_self_tests()
 
     print("evm-corpus-v1: self-test ok")
 
@@ -2862,6 +2883,533 @@ def _run_tool_lock_and_obs_root_tests() -> None:
             raise AssertionError("obs-root checks must not delete sentinel")
 
 
+
+# ---------------------------------------------------------------------------
+# Manifest authority (EVMOZ-006) — closed inventory; not formal evidence.
+# ---------------------------------------------------------------------------
+
+
+def validate_manifest_document(value: object) -> dict[str, object]:
+    """Structural validate of decoded manifest object (no disk I/O)."""
+    obj = require_keys(value, {"schema", "files"}, "manifest")
+    schema = require_text(obj["schema"], "manifest.schema", ascii_only=True)
+    if schema != SCHEMA_MANIFEST:
+        fail("PF-CORPUS-SCHEMA", f"manifest.schema must be {SCHEMA_MANIFEST}")
+    files = require_array(obj["files"], "manifest.files")
+    if len(files) == 0:
+        fail("PF-CORPUS-INVARIANT", "manifest.files must be nonempty")
+    if len(files) > MAX_MANIFEST_FILES:
+        fail(
+            "PF-CORPUS-LIMIT",
+            f"manifest.files exceeds {MAX_MANIFEST_FILES} entries",
+        )
+    out_files: list[dict[str, object]] = []
+    paths: list[str] = []
+    for index, item in enumerate(files):
+        where = f"manifest.files[{index}]"
+        entry = require_keys(item, {"path", "role", "size", "sha256"}, where)
+        path = require_relative_path(entry["path"], f"{where}.path")
+        role = require_text(entry["role"], f"{where}.role", ascii_only=True)
+        if role not in MANIFEST_ROLES:
+            fail(
+                "PF-CORPUS-SCHEMA",
+                f"{where}.role unknown (closed enum): {role!r}",
+            )
+        size = entry["size"]
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+            fail("PF-CORPUS-SCHEMA", f"{where}.size must be a non-negative integer")
+        if size > MAX_SAFE_INTEGER:
+            fail("PF-CORPUS-NUMBER", f"{where}.size exceeds safe integer range")
+        digest = require_sha256(entry["sha256"], f"{where}.sha256")
+        if path == MANIFEST_REL_PATH:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                "manifest must not list itself (self-reference forbidden)",
+            )
+        out_files.append(
+            {"path": path, "role": role, "size": size, "sha256": digest}
+        )
+        paths.append(path)
+    if len(set(paths)) != len(paths):
+        fail("PF-CORPUS-INVARIANT", "manifest.files contains duplicate path")
+    if paths != sorted(paths):
+        fail(
+            "PF-CORPUS-INVARIANT",
+            "manifest.files must be strictly path-ascending",
+        )
+    return {"schema": SCHEMA_MANIFEST, "files": out_files}
+
+
+def _stable_read_regular(abs_path: Path, *, where: str) -> tuple[bytes, int, str]:
+    """Stable read of a regular single-link file; reject symlink/hardlink/nonregular.
+
+    Stats before and after the read; requires exact size, nlink==1, and
+    unchanged (mode, size, mtime_ns, ino, dev) identity across the read.
+    """
+    if abs_path.is_symlink():
+        fail("PF-CORPUS-PATH", f"{where}: symlink rejected: {abs_path}")
+    try:
+        st0 = abs_path.lstat()
+    except OSError as exc:
+        fail("PF-CORPUS-PATH", f"{where}: cannot lstat {abs_path}: {exc}")
+    if not stat_mod.S_ISREG(st0.st_mode):
+        fail("PF-CORPUS-PATH", f"{where}: non-regular file rejected: {abs_path}")
+    if st0.st_nlink != 1:
+        fail(
+            "PF-CORPUS-PATH",
+            f"{where}: hardlink (nlink={st0.st_nlink}) rejected: {abs_path}",
+        )
+    try:
+        data = abs_path.read_bytes()
+    except OSError as exc:
+        fail("PF-CORPUS-PATH", f"{where}: cannot read {abs_path}: {exc}")
+    try:
+        st1 = abs_path.lstat()
+    except OSError as exc:
+        fail("PF-CORPUS-PATH", f"{where}: cannot re-lstat {abs_path}: {exc}")
+    if abs_path.is_symlink() or not stat_mod.S_ISREG(st1.st_mode):
+        fail("PF-CORPUS-PATH", f"{where}: type changed during read: {abs_path}")
+    if (
+        st0.st_ino != st1.st_ino
+        or st0.st_dev != st1.st_dev
+        or st0.st_mode != st1.st_mode
+        or st0.st_size != st1.st_size
+        or st0.st_nlink != st1.st_nlink
+        or st0.st_mtime_ns != st1.st_mtime_ns
+    ):
+        fail(
+            "PF-CORPUS-INVARIANT",
+            f"{where}: file changed during stable read: {abs_path}",
+        )
+    if st0.st_size != len(data):
+        fail(
+            "PF-CORPUS-INVARIANT",
+            f"{where}: size {st0.st_size} != len(bytes) {len(data)}",
+        )
+    digest = hashlib.sha256(data).hexdigest()
+    return data, st0.st_size, digest
+
+
+def _walk_corpus_regular_files(repo: Path) -> set[str]:
+    """Project-relative paths of every regular file under corpus v1 (no follow)."""
+    corpus = repo / CORPUS_V1_REL
+    if not corpus.is_dir() or corpus.is_symlink():
+        fail("PF-CORPUS-PATH", f"corpus root missing or symlink: {corpus}")
+    found: set[str] = set()
+    for dirpath, dirnames, filenames in os.walk(corpus, followlinks=False):
+        # Reject symlink directories encountered during walk.
+        base = Path(dirpath)
+        if base.is_symlink():
+            fail("PF-CORPUS-PATH", f"symlink directory rejected: {base}")
+        dirnames.sort()
+        for name in sorted(filenames):
+            p = base / name
+            rel = p.relative_to(repo).as_posix()
+            if p.is_symlink():
+                fail("PF-CORPUS-PATH", f"symlink under corpus rejected: {rel}")
+            if not p.is_file():
+                fail("PF-CORPUS-PATH", f"non-regular under corpus rejected: {rel}")
+            found.add(rel)
+    return found
+
+
+def _role_for_corpus_path(rel: str) -> str:
+    if rel.startswith(f"{CASES_REL}/") and rel.endswith(".json"):
+        return "case"
+    if rel.startswith(f"{CORPUS_V1_REL}/programs/"):
+        return "source"
+    if rel.startswith(f"{CORPUS_V1_REL}/schema-tests/"):
+        return "schema-fixture"
+    fail(
+        "PF-CORPUS-INVARIANT",
+        f"corpus path has no closed role mapping: {rel}",
+    )
+
+
+def validate_manifest_at(manifest_path: Path, repo_root: Path | None = None) -> dict[str, object]:
+    """Load + structure-validate manifest and exact-join against disk inventory.
+
+    Closes:
+      * every regular authority file under testdata/evm-corpus/v1/** except
+        the manifest itself;
+      * every business-case pins.sourcePath;
+      * required runner/validator/Lean harness paths;
+      * exact size+sha256 via stable read;
+      * case id ↔ filename ↔ manifest path ↔ sourcePath join.
+    """
+    repo = (repo_root or REPO_ROOT).resolve()
+    man_abs = manifest_path if manifest_path.is_absolute() else (repo / manifest_path)
+    man_abs = man_abs.resolve()
+    try:
+        man_rel = man_abs.relative_to(repo).as_posix()
+    except ValueError:
+        fail("PF-CORPUS-PATH", f"manifest path escapes repo: {man_abs}")
+    if man_rel != MANIFEST_REL_PATH:
+        fail(
+            "PF-CORPUS-PATH",
+            f"sole canonical manifest path is {MANIFEST_REL_PATH}, got {man_rel}",
+        )
+
+    raw, size, _ = _stable_read_regular(man_abs, where="manifest")
+    if size > MAX_MANIFEST_BYTES:
+        fail(
+            "PF-CORPUS-LIMIT",
+            f"manifest exceeds {MAX_MANIFEST_BYTES} bytes ({size})",
+        )
+    value = decode_canonical(raw, max_bytes=MAX_MANIFEST_BYTES)
+    manifest = validate_manifest_document(value)
+
+    listed: dict[str, dict[str, object]] = {}
+    for entry in manifest["files"]:  # type: ignore[index]
+        listed[str(entry["path"])] = entry  # type: ignore[index]
+
+    # Exact corpus inventory (exclude manifest self).
+    corpus_files = _walk_corpus_regular_files(repo)
+    corpus_expected = {p for p in corpus_files if p != MANIFEST_REL_PATH}
+    listed_under_corpus = {
+        p for p in listed if p == CORPUS_V1_REL or p.startswith(CORPUS_V1_REL + "/")
+    }
+    missing_corpus = sorted(corpus_expected - listed_under_corpus)
+    extra_corpus = sorted(listed_under_corpus - corpus_expected)
+    if missing_corpus:
+        fail(
+            "PF-CORPUS-INVARIANT",
+            f"manifest missing corpus file(s): {missing_corpus[:5]}",
+        )
+    if extra_corpus:
+        fail(
+            "PF-CORPUS-INVARIANT",
+            f"manifest lists extra/nonexistent corpus path(s): {extra_corpus[:5]}",
+        )
+
+    # Every listed path: stable read + exact size/hash; role rules.
+    for path, entry in listed.items():
+        abs_p = repo / path
+        # Path escape already blocked by require_relative_path, but resolve check.
+        try:
+            resolved = abs_p.resolve(strict=False)
+            resolved.relative_to(repo)
+        except Exception:
+            fail("PF-CORPUS-PATH", f"listed path escapes repo: {path}")
+        if not abs_p.exists():
+            fail("PF-CORPUS-INVARIANT", f"manifest path missing on disk: {path}")
+        data, disk_size, disk_sha = _stable_read_regular(abs_p, where=f"file[{path}]")
+        if disk_size != entry["size"]:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"size mismatch for {path}: disk={disk_size} manifest={entry['size']}",
+            )
+        if disk_sha != entry["sha256"]:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"sha256 mismatch for {path}: disk={disk_sha} manifest={entry['sha256']}",
+            )
+        # Role consistency for corpus-owned paths.
+        if path in corpus_expected:
+            expected_role = _role_for_corpus_path(path)
+            if entry["role"] != expected_role:
+                fail(
+                    "PF-CORPUS-INVARIANT",
+                    f"role for {path} must be {expected_role}, got {entry['role']}",
+                )
+
+    # Business case join: cases/*.json under cases dir.
+    cases_dir = repo / CASES_REL
+    if not cases_dir.is_dir():
+        fail("PF-CORPUS-PATH", f"missing cases dir {cases_dir}")
+    case_ids: set[str] = set()
+    required_sources: set[str] = set()
+    for case_file in sorted(cases_dir.glob("*.json")):
+        rel = case_file.relative_to(repo).as_posix()
+        if rel not in listed:
+            fail("PF-CORPUS-INVARIANT", f"case file not listed in manifest: {rel}")
+        if listed[rel]["role"] != "case":
+            fail("PF-CORPUS-INVARIANT", f"case file role must be case: {rel}")
+        case = load_and_validate_case(case_file)
+        case_id = str(case["id"])
+        stem = case_file.stem
+        if case_id != stem:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"case id {case_id!r} must equal filename stem {stem!r}",
+            )
+        if case_id in case_ids:
+            fail("PF-CORPUS-INVARIANT", f"duplicate case id {case_id}")
+        case_ids.add(case_id)
+        source_path = str(case["pins"]["sourcePath"])  # type: ignore[index]
+        required_sources.add(source_path)
+        if source_path not in listed:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"case {case_id} sourcePath not listed: {source_path}",
+            )
+        if listed[source_path]["role"] != "source":
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"sourcePath role must be source: {source_path}",
+            )
+
+    # Every listed case role must correspond to an existing cases/*.json.
+    for path, entry in listed.items():
+        if entry["role"] == "case":
+            if not path.startswith(f"{CASES_REL}/") or not path.endswith(".json"):
+                fail(
+                    "PF-CORPUS-INVARIANT",
+                    f"case role path must live under {CASES_REL}/: {path}",
+                )
+
+    # Required runners must be listed as role=runner.
+    for runner in REQUIRED_RUNNER_PATHS:
+        if runner not in listed:
+            fail("PF-CORPUS-INVARIANT", f"required runner not listed: {runner}")
+        if listed[runner]["role"] != "runner":
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"runner path role must be runner: {runner}",
+            )
+
+    # All role=source entries that are business-case sources must be covered;
+    # extra sources under programs/ are ok.
+    for src in required_sources:
+        if listed[src]["role"] != "source":
+            fail("PF-CORPUS-INVARIANT", f"required source bad role: {src}")
+
+    return manifest
+
+
+def _cmd_validate_manifest(path: Path) -> None:
+    validate_manifest_at(path, REPO_ROOT)
+    print(
+        f"corpus-manifest-validated {path.as_posix()} "
+        f"claims-not-verified (engineering inventory; not formal evidence)"
+    )
+
+
+def _run_manifest_self_tests() -> None:
+    """Negative + positive validate-manifest coverage (temp trees)."""
+    import shutil
+    import tempfile
+
+    # Positive: committed repo manifest must validate.
+    man = REPO_ROOT / MANIFEST_REL_PATH
+    if not man.is_file():
+        raise AssertionError(f"committed manifest missing: {man}")
+    validate_manifest_at(man, REPO_ROOT)
+
+    def _copy_minimal_repo(dst: Path) -> None:
+        # Copy just enough for inventory: corpus tree + external sources + runners.
+        for rel in [
+            CORPUS_V1_REL,
+            "Examples/Counter.lean",
+            "Examples/Accumulator.lean",
+            "Examples/Token.lean",
+            "testdata/valid/ArithOps.lean",
+            *REQUIRED_RUNNER_PATHS,
+        ]:
+            src = REPO_ROOT / rel
+            target = dst / rel
+            if src.is_dir():
+                shutil.copytree(src, target, symlinks=False)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, target)
+
+    def _rewrite_manifest(repo: Path, mutate) -> Path:
+        man_path = repo / MANIFEST_REL_PATH
+        data = json.loads(man_path.read_text(encoding="utf-8"))
+        mutate(data)
+        raw = canonical_bytes(data)
+        man_path.write_bytes(raw)
+        return man_path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        repo.mkdir()
+        _copy_minimal_repo(repo)
+        # Baseline must pass.
+        validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+
+        # Stale hash.
+        def stale_hash(data):
+            data["files"][0]["sha256"] = "0" * 64
+
+        _rewrite_manifest(repo, stale_hash)
+        try:
+            validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+            raise AssertionError("stale hash must fail")
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-INVARIANT":
+                raise AssertionError(f"stale hash wrong code {err.code}") from err
+
+        # Restore from original for next tests.
+        shutil.rmtree(repo)
+        repo.mkdir()
+        _copy_minimal_repo(repo)
+
+        # Stale size.
+        def stale_size(data):
+            data["files"][0]["size"] = int(data["files"][0]["size"]) + 1
+
+        _rewrite_manifest(repo, stale_size)
+        try:
+            validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+            raise AssertionError("stale size must fail")
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-INVARIANT":
+                raise AssertionError(f"stale size wrong code {err.code}") from err
+
+        shutil.rmtree(repo)
+        repo.mkdir()
+        _copy_minimal_repo(repo)
+
+        # Missing listed path (delete a source).
+        victim = repo / "Examples/Counter.lean"
+        victim.unlink()
+        try:
+            validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+            raise AssertionError("missing path must fail")
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-INVARIANT":
+                raise AssertionError(f"missing path wrong code {err.code}") from err
+
+        shutil.rmtree(repo)
+        repo.mkdir()
+        _copy_minimal_repo(repo)
+
+        # Extra corpus file not listed.
+        extra = repo / CORPUS_V1_REL / "cases" / "extra.evil.json"
+        extra.write_text("{}", encoding="utf-8")
+        try:
+            validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+            raise AssertionError("extra corpus file must fail")
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-INVARIANT":
+                raise AssertionError(f"extra corpus wrong code {err.code}") from err
+
+        shutil.rmtree(repo)
+        repo.mkdir()
+        _copy_minimal_repo(repo)
+
+        # Duplicate path entries.
+        def dup_path(data):
+            files = list(data["files"])
+            files.append(dict(files[0]))
+            files.sort(key=lambda e: e["path"])
+            data["files"] = files
+
+        _rewrite_manifest(repo, dup_path)
+        try:
+            validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+            raise AssertionError("duplicate path must fail")
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-INVARIANT":
+                raise AssertionError(f"dup path wrong code {err.code}") from err
+
+        shutil.rmtree(repo)
+        repo.mkdir()
+        _copy_minimal_repo(repo)
+
+        # Unknown role.
+        def unknown_role(data):
+            data["files"][0]["role"] = "oracle"
+
+        _rewrite_manifest(repo, unknown_role)
+        try:
+            validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+            raise AssertionError("unknown role must fail")
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-SCHEMA":
+                raise AssertionError(f"unknown role wrong code {err.code}") from err
+
+        shutil.rmtree(repo)
+        repo.mkdir()
+        _copy_minimal_repo(repo)
+
+        # Manifest self-list.
+        def self_list(data):
+            self_entry = {
+                "path": MANIFEST_REL_PATH,
+                "role": "runner",
+                "size": 1,
+                "sha256": "0" * 64,
+            }
+            files = list(data["files"]) + [self_entry]
+            files.sort(key=lambda e: e["path"])
+            data["files"] = files
+
+        _rewrite_manifest(repo, self_list)
+        try:
+            validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+            raise AssertionError("manifest self-list must fail")
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-INVARIANT":
+                raise AssertionError(f"self-list wrong code {err.code}") from err
+
+        shutil.rmtree(repo)
+        repo.mkdir()
+        _copy_minimal_repo(repo)
+
+        # Path escape via .. component is rejected at document decode.
+        try:
+            validate_manifest_document(
+                {
+                    "schema": SCHEMA_MANIFEST,
+                    "files": [
+                        {
+                            "path": "../secret",
+                            "role": "source",
+                            "size": 1,
+                            "sha256": "0" * 64,
+                        }
+                    ],
+                }
+            )
+            raise AssertionError("path escape must fail")
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-PATH":
+                raise AssertionError(f"path escape wrong code {err.code}") from err
+
+        # Symlink under corpus rejected.
+        link = repo / CORPUS_V1_REL / "cases" / "link-case.json"
+        try:
+            if link.exists():
+                link.unlink()
+            link.symlink_to(repo / CORPUS_V1_REL / "cases" / list((repo / CASES_REL).glob('*.json'))[0].name)
+            # Also need to re-add link into inventory expectation via walk.
+            try:
+                validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+                raise AssertionError("symlink under corpus must fail")
+            except CorpusError as err:
+                if err.code != "PF-CORPUS-PATH":
+                    raise AssertionError(f"symlink wrong code {err.code}") from err
+        except OSError:
+            pass  # platform without symlink support
+        finally:
+            if link.is_symlink() or link.exists():
+                link.unlink()
+
+        # Hardlink of a listed file rejected when nlink>1.
+        shutil.rmtree(repo)
+        repo.mkdir()
+        _copy_minimal_repo(repo)
+        target = repo / "Examples/Counter.lean"
+        hard = repo / "Examples/Counter.hardlink.lean"
+        try:
+            os.link(target, hard)
+            # Manifest still lists Counter; hardlink raises nlink on Counter.
+            try:
+                validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
+                raise AssertionError("hardlink nlink>1 must fail")
+            except CorpusError as err:
+                if err.code != "PF-CORPUS-PATH":
+                    raise AssertionError(f"hardlink wrong code {err.code}") from err
+        except OSError:
+            pass  # FS may not support hardlinks
+        finally:
+            if hard.exists():
+                hard.unlink()
+
+
 def _cmd_validate_case(path: Path) -> None:
     load_and_validate_case(path)
     print(f"corpus-schema-validated case {path.as_posix()} claims-not-verified")
@@ -2934,10 +3482,14 @@ def main(argv: list[str] | None = None) -> None:
     if len(args) == 2 and args[0] == "list-runnable-cases":
         _cmd_list_runnable(Path(args[1]))
         return
+    if len(args) == 2 and args[0] == "validate-manifest":
+        _cmd_validate_manifest(Path(args[1]))
+        return
     print(
         "usage: evm_corpus_v1.py self-test"
         " | validate-case PATH"
         " | validate-observation PATH"
+        " | validate-manifest PATH"
         " | close-case CASE.json OBS_DIR"
         " | safe-obs-root REPO OBS"
         " | tool-lock-digest LOCK.json"
