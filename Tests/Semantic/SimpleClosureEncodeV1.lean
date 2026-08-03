@@ -15,6 +15,7 @@
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
+import ProofForgeV2.Semantic.SimpleClosureEncodeFieldsV1
 import ProofForgeV2.Semantic.SimpleClosureEncodeV1
 import ProofForgeV2.Semantic.SimpleClosureStructureCertV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
@@ -25,6 +26,7 @@ namespace Tests.Semantic.SimpleClosureEncodeV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
+open ProofForgeV2.Semantic.SimpleClosureEncodeFieldsV1
 open ProofForgeV2.Semantic.SimpleClosureEncodeV1
 open ProofForgeV2.Semantic.SimpleClosureStructureCertV1
 open ProofForgeV2.Semantic.SimpleClosureTraceV1
@@ -163,7 +165,116 @@ theorem encode_eq_wireBytes_of_legal_and_body
   encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1_of_body_ok
     p (simpleClosureWireBytesV1 p) legal hbody
 
-/-! ### Runtime checks (parametric + elaborator) -/
+/-- Legal-only main theorem (no body-ok premise). -/
+theorem encode_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p) =
+      .ok (simpleClosureWireBytesV1 p) :=
+  encodeSimpleClosure_of_legal p legal
+
+theorem demo_encode_of_legal :
+    encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 demoParams) =
+      .ok (simpleClosureWireBytesV1 demoParams) :=
+  encodeSimpleClosure_of_legal demoParams demo_legal
+
+theorem demoParamsV1_encode :
+    encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 demoParamsV1) =
+      .ok (simpleClosureWireBytesV1 demoParamsV1) :=
+  encodeSimpleClosure_demo
+
+/-! ### Proofed legal + encode kernel theorem (no extra premises) -/
+
+private theorem proofed_ident_Tests :
+    validateIdentifierComponent "Tests" = .ok () := by
+  unfold validateIdentifierComponent
+  rw [if_pos (by decide)]
+  simp only [requireNfc_eq_ok_of_isAscii "Tests" (by decide), Bind.bind, Except.bind]
+  rw [if_neg (by decide)]
+  simp only [Pure.pure, Except.pure]
+  rfl
+
+private theorem proofed_ident_Language :
+    validateIdentifierComponent "Language" = .ok () := by
+  unfold validateIdentifierComponent
+  rw [if_pos (by decide)]
+  simp only [requireNfc_eq_ok_of_isAscii "Language" (by decide), Bind.bind, Except.bind]
+  rw [if_neg (by decide)]
+  simp only [Pure.pure, Except.pure]
+  rfl
+
+private theorem proofed_ident_InlineProofAuthoringV1 :
+    validateIdentifierComponent "InlineProofAuthoringV1" = .ok () := by
+  unfold validateIdentifierComponent
+  rw [if_pos (by decide)]
+  simp only [requireNfc_eq_ok_of_isAscii "InlineProofAuthoringV1" (by decide),
+    Bind.bind, Except.bind]
+  rw [if_neg (by decide)]
+  simp only [Pure.pure, Except.pure]
+  rfl
+
+private theorem proofed_ident_Proofed :
+    validateIdentifierComponent "Proofed" = .ok () := by
+  unfold validateIdentifierComponent
+  rw [if_pos (by decide)]
+  simp only [requireNfc_eq_ok_of_isAscii "Proofed" (by decide), Bind.bind, Except.bind]
+  rw [if_neg (by decide)]
+  simp only [Pure.pure, Except.pure]
+  rfl
+
+private theorem proofed_ident_alive :
+    validateIdentifierComponent "alive" = .ok () := by
+  unfold validateIdentifierComponent
+  rw [if_pos (by decide)]
+  simp only [requireNfc_eq_ok_of_isAscii "alive" (by decide), Bind.bind, Except.bind]
+  rw [if_neg (by decide)]
+  simp only [Pure.pure, Except.pure]
+  rfl
+
+private theorem proofed_ident_safe :
+    validateIdentifierComponent "safe" = .ok () := by
+  unfold validateIdentifierComponent
+  rw [if_pos (by decide)]
+  simp only [requireNfc_eq_ok_of_isAscii "safe" (by decide), Bind.bind, Except.bind]
+  rw [if_neg (by decide)]
+  simp only [Pure.pure, Except.pure]
+  rfl
+
+theorem proofed_legal :
+    SimpleClosureParamsLegalV1 Proofed.Proof.simpleClosureParamsV1 := by
+  have hparams :
+      Proofed.Proof.simpleClosureParamsV1 =
+        {
+          qnHead := "Tests"
+          qnTail := #["Language", "InlineProofAuthoringV1", "Proofed"]
+          viewName := "alive"
+          invName := "safe"
+        } := by
+    rfl
+  refine {
+    hqnSize := by simp only [hparams]; decide
+    hqnCap := by simp only [hparams]; decide
+    hdistinct := by simp only [hparams]; decide
+    hqnHead := by simpa [hparams] using proofed_ident_Tests
+    hqnTail := ?_
+    hview := by simpa [hparams] using proofed_ident_alive
+    hinv := by simpa [hparams] using proofed_ident_safe
+  }
+  intro i hi
+  have hlt : i < 3 := by simpa [hparams] using hi
+  match i with
+  | 0 => simpa [hparams] using proofed_ident_Language
+  | 1 => simpa [hparams] using proofed_ident_InlineProofAuthoringV1
+  | 2 => simpa [hparams] using proofed_ident_Proofed
+  | n + 3 => omega
+
+/-- Proofed kernel theorem: legal alone ⇒ encode = wireBytes; no body-ok. -/
+theorem proofed_encode_of_legal :
+    encodeSemanticProgramDataV1
+        (materializeSimpleClosureDataV1 Proofed.Proof.simpleClosureParamsV1) =
+      .ok (simpleClosureWireBytesV1 Proofed.Proof.simpleClosureParamsV1) :=
+  encodeSimpleClosure_of_legal Proofed.Proof.simpleClosureParamsV1 proofed_legal
+
+/-! ### Runtime checks (parametric + elaborator + Unicode names) -/
 
 private def testEncodeEqualsWireBytes (p : SimpleClosureParamsV1) (label : String) :
     IO Unit := do
@@ -216,8 +327,24 @@ private def testDemoAndProofed : IO Unit := do
       expect (simpleClosureWireBytesV1 Proofed.Proof.simpleClosureParamsV1 == b)
         "wireBytes == body ok payload"
 
+/-- Runtime Unicode identifier encode (Greek α): legal path is not ASCII-only. -/
+private def testUnicodeEncode : IO Unit := do
+  match validateIdentifierComponent "α" with
+  | .error e => throw <| IO.userError s!"unicode α ident: {e}"
+  | .ok () => pure ()
+  let p : SimpleClosureParamsV1 :=
+    {
+      qnHead := "α"
+      qnTail := #["Module"]
+      viewName := "alive"
+      invName := "safe"
+    }
+  -- Distinctness: α ≠ Module ≠ alive ≠ safe
+  testEncodeEqualsWireBytes p "unicode-alpha"
+
 def run : IO Unit := do
   testDemoAndProofed
+  testUnicodeEncode
   IO.println "Tests.Semantic.SimpleClosureEncodeV1: ok"
 
 end Tests.Semantic.SimpleClosureEncodeV1

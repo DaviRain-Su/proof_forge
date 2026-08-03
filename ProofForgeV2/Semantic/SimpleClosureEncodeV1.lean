@@ -436,13 +436,10 @@ theorem encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1_of_o
   exact encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1
     p hwf hstructure hfields'
 
-/-! ### Body success from legal (field encodes + size) -/
+/-! ### Body success packaging (legal-only discharge lives in EncodeFieldsV1) -/
 
--- Fixed family field encodes and size bound are developed below. The target
--- theorem `encodeSemanticProgramDataV1_materialize_eq_simpleClosureWireBytesV1_of_legal`
--- is stated once body success is closed.
-
-/-- B-SC-ENC main goal (stated; closed when body-ok from legal is discharged). -/
+/-- B-SC-ENC main goal. Closed by `SimpleClosureEncodeFieldsV1.encodeSimpleClosure_of_legal`
+    from `SimpleClosureParamsLegalV1` alone (no body-ok / field-ok / size free premises). -/
 def EncodeSimpleClosureGoalV1 (p : SimpleClosureParamsV1) : Prop :=
   encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p) =
     .ok (simpleClosureWireBytesV1 p)
@@ -568,18 +565,14 @@ end ProofForgeV2.Semantic.SimpleClosureEncodeV1
 /-!
   ## B-SC-ENC status
 
-  Closed:
-    * sole production body authority (`encodeSemanticProgramDataBodyV1` in WireV1;
-      root encode = gates then body — no second composition)
+  Closed (see `SimpleClosureEncodeFieldsV1`):
+    * sole production body authority (`encodeSemanticProgramDataBodyV1` in WireV1)
     * `simpleClosureWireBytesV1` sole owner via that body
-    * identifier → encodeString for arbitrary legal Unicode/NFC names
-    * QN validate + encodeArray existence under legal (list induction)
-    * packaging: legal + body-ok ⇒ root encode = wireBytes
-    * goal packaging theorems without free field-ok beyond body-ok
-
-  Residual (honest):
-    * discharge `∃ b, encodeSimpleClosureDataFieldsV1 p = .ok b` from legal alone
-      (fixed types/block/callable/invariant/requirements field success + tagged
-      root size ≤ maxCanonicalProgramBytes). Field encode spines are the next
-      mechanical step; QN name path is already closed.
+    * identifier → encodeString for arbitrary legal Unicode/NFC names (UTF-8 ≤240)
+    * fixed Bool/UInt64 types, lit-true block, view+inv callables, InvariantDecl,
+      value.bool requirements encode success under legal
+    * tagged root + magic size ≤ maxCanonicalProgramBytes via qnCap ≤256
+    * **legal-only main**: `encodeSimpleClosure_of_legal` /
+      `EncodeSimpleClosureGoalV1` with no body-ok/field-ok/size free premises
+    * Demo kernel instance; parametric Unicode capability (no ASCII restriction)
 -/
