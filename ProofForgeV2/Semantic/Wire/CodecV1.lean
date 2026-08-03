@@ -127,6 +127,19 @@ def encodeString (value : String) : Except SemanticWireErrorV1 ByteArray := do
   let header ← encodeNatAsU32le raw.size
   pure (header.append raw)
 
+/-- Successful string framing through the sole NFC + UTF-8 length authorities.
+    Exposes exact production header++payload bytes for name-parameterized
+    spines without a second string codec. -/
+theorem encodeString_eq_okV1 (value : String)
+    (hnfc : requireNfc value = .ok ())
+    (hsize : value.toUTF8.size ≤ maxStringBytes) :
+    encodeString value =
+      .ok ((encodeU32le (UInt32.ofNat value.toUTF8.size)).append value.toUTF8) := by
+  have hsizeU32 : value.toUTF8.size ≤ UInt32.size - 1 :=
+    Nat.le_trans hsize (by decide : maxStringBytes ≤ UInt32.size - 1)
+  simp only [encodeString, mapCommon, hnfc, hsize, encodeNatAsU32le, hsizeU32,
+    Bind.bind, Pure.pure, Except.bind, Except.pure, ↓reduceIte]
+
 def encodeDigest (digest : Digest) : Except SemanticWireErrorV1 ByteArray := do
   mapCommon (validateDigest digest)
   pure digest.bytes

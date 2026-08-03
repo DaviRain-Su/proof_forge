@@ -383,7 +383,7 @@ end ProofForgeV2.Semantic.SimpleClosureTraceV1
   | ID | Blocker | Why not closed here |
   |---|---|---|
   | B-SC-STRUCT | Parametric `validateSemanticProgramStructureV1 (materialize p) = ok` under `SimpleClosureParamsLegalV1` | **Closed** in `SimpleClosureStructureCertV1` (identifier/NFC + distinct names + fixed CFG/signature/fuel/requirement phases) |
-  | B-SC-ENC | Parametric `encode (materialize p) = ok (encodeSpine p)` | Field encoders depend on UTF-8 name spines; need name-parameterized spine lemmas (not 1k-line per program) |
+  | B-SC-ENC | Parametric `encode (materialize p) = ok (simpleClosureWireBytesV1 p)` | **Partial** in `SimpleClosureEncodeV1`: transparent production-field builder + string/empty/QN-size lemmas + root equality under legality/structure/field-ok; residual = discharge field-ok from legal params without a duplicate encoder authority |
   | B-SC-DEC | Parametric `decode (encodeSpine p) = ok (materialize p)` | Dual of encode; fixture decode is ~1.3k lines for one spine |
   | B-SC-ELAB-THM | ProgramElaboration mint of a complete theorem value | Depends on B-SC-ENC + B-SC-DEC (or equivalent) so generated `exact` terms typecheck without free hyps |
   | B-SC-PRODUCT | Raw-source certifier + CLI check positive | Depends on B-SC-ELAB-THM (or same-file author theorem using closed production lemmas) |
