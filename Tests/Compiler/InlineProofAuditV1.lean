@@ -6,9 +6,13 @@ import ProofForgeV2.Core.Common
 /-
   Focused engineering tests for InlineProofPolicyV1 + InlineProofAuditV1.
 
-  Trusted test command constructs Environment declarations in this module, then
-  audits them via structured Environment APIs (no `#print axioms` text, no
-  user `.olean` reads, no CLI/Loader).
+  Trusted test command audits Environment declarations via structured APIs
+  (no `#print axioms` text, no user `.olean` reads, no CLI/Loader).
+
+  Malicious axiom/sorry dependency coverage is injected via kernel
+  `Environment.addDeclCore` into a synthetic Environment copy — never as
+  source-level `axiom` / `sorry` / `sorryAx` declarations in this module
+  (avoids Lean `declaration uses sorry` warnings without weakening policy).
 -/
 
 open Lean
@@ -51,19 +55,11 @@ private def typeOf! (env : Environment) (name : Name) : IO Expr :=
 private def expectedOf (env : Environment) (name : Name) : IO ExpectedInlineTheoremV1 := do
   pure { name, expectedType := (← typeOf! env name) }
 
-/-! ### Trusted Environment fixtures -/
+/-! ### Trusted Environment fixtures (source-clean; no axiom/sorry) -/
 
 theorem audit_good_true : True := trivial
 
 theorem audit_uses_choice (h : Nonempty True) : True := Classical.choice h
-
-axiom audit_user_axiom : True
-
-theorem audit_uses_user_axiom : True := audit_user_axiom
-
--- Direct sorryAx application (not `by sorry`) so the declaration value is
--- inspectable without synthetic-sorry command evaluation side channels.
-theorem audit_sorry_true : True := sorryAx True false
 
 def audit_impl_target : Nat := 0
 
@@ -99,6 +95,82 @@ theorem audit_via_alias : audit_prop_alias := trivial
 opaque audit_opaque_root : True := trivial
 
 private def trueType : Expr := mkConst ``True
+
+/-- Fully-qualified synthetic fixture names (single-backtick; no ambient constant). -/
+private def syntheticUserAxiomName : Name :=
+  `Tests.Compiler.InlineProofAuditV1.audit_user_axiom
+
+private def syntheticUsesUserAxiomName : Name :=
+  `Tests.Compiler.InlineProofAuditV1.audit_uses_user_axiom
+
+private def syntheticSorryTrueName : Name :=
+  `Tests.Compiler.InlineProofAuditV1.audit_sorry_true
+
+/-- Heartbeats budget for kernel-checking synthetic malicious fixtures. -/
+private def syntheticAddHeartbeats : USize := 200000
+
+/-- Map kernel rejection to a stable test IO error (no MessageData plumbing). -/
+private def addDeclOrThrow
+    (env : Environment) (decl : Declaration) (label : String) : IO Environment :=
+  match env.addDeclCore syntheticAddHeartbeats decl none with
+  | .ok e => pure e
+  | .error (.other msg) =>
+      throw <| IO.userError s!"{label}: {msg}"
+  | .error (.alreadyDeclared _ n) =>
+      throw <| IO.userError s!"{label}: already declared {n}"
+  | .error (.unknownConstant _ n) =>
+      throw <| IO.userError s!"{label}: unknown constant {n}"
+  | .error (.thmTypeIsNotProp _ n _) =>
+      throw <| IO.userError s!"{label}: theorem type is not Prop {n}"
+  | .error (.declTypeMismatch _ _ _) =>
+      throw <| IO.userError s!"{label}: declaration type mismatch"
+  | .error _ =>
+      throw <| IO.userError s!"{label}: kernel rejected synthetic declaration"
+
+/--
+  Inject malicious axiom / sorry-dependent theorems into a *copy* of `env`
+  without source-level `axiom`/`sorry` declarations.
+
+  Names match the historical fixtures so audit error predicates stay stable:
+  * `audit_user_axiom` — user axiom root (kind reject + closure seed)
+  * `audit_uses_user_axiom` — theorem whose value is that axiom
+  * `audit_sorry_true` — theorem value `sorryAx True false` (non-synthetic)
+-/
+private def withSyntheticMaliciousFixtures (env : Environment) : IO Environment := do
+  let trueTy := trueType
+  let axiomName := syntheticUserAxiomName
+  let usesAxiomName := syntheticUsesUserAxiomName
+  let sorryName := syntheticSorryTrueName
+  let env ← addDeclOrThrow env
+    (.axiomDecl {
+      name := axiomName
+      levelParams := []
+      type := trueTy
+      isUnsafe := false
+    })
+    "synthetic audit_user_axiom"
+  let env ← addDeclOrThrow env
+    (.thmDecl {
+      name := usesAxiomName
+      levelParams := []
+      type := trueTy
+      value := mkConst axiomName
+      all := [usesAxiomName]
+    })
+    "synthetic audit_uses_user_axiom"
+  -- Direct `sorryAx True false` (same shape as prior source fixture; not `by sorry`).
+  let sorryVal :=
+    mkApp2 (mkConst ``sorryAx [Level.zero]) trueTy (mkConst ``Bool.false)
+  let env ← addDeclOrThrow env
+    (.thmDecl {
+      name := sorryName
+      levelParams := []
+      type := trueTy
+      value := sorryVal
+      all := [sorryName]
+    })
+    "synthetic audit_sorry_true"
+  pure env
 
 private def runPolicyPins : IO Unit := do
   let policy ← match mintInlineProofPolicyV1 with
@@ -161,9 +233,9 @@ private def runAuditCases (env : Environment) : IO Unit := do
       | .typeNotDefEq n => n == ``audit_type_nat
       | _ => false
   expectErr "root_axiom"
-    (auditExpectedTheoremsV1 env #[← expectedOf env ``audit_user_axiom])
+    (auditExpectedTheoremsV1 env #[← expectedOf env syntheticUserAxiomName])
     fun
-      | .kindRejected n _ => n == ``audit_user_axiom
+      | .kindRejected n _ => n == syntheticUserAxiomName
       | _ => false
   expectErr "root_opaque"
     (auditExpectedTheoremsV1 env
@@ -172,15 +244,15 @@ private def runAuditCases (env : Environment) : IO Unit := do
       | .kindRejected n _ => n == ``audit_opaque_root
       | _ => false
   expectErr "user_axiom_closure"
-    (auditExpectedTheoremsV1 env #[← expectedOf env ``audit_uses_user_axiom])
+    (auditExpectedTheoremsV1 env #[← expectedOf env syntheticUsesUserAxiomName])
     fun
       | .forbiddenAxiom owner ax =>
-          owner == ``audit_uses_user_axiom && ax == ``audit_user_axiom
+          owner == syntheticUsesUserAxiomName && ax == syntheticUserAxiomName
       | _ => false
   expectErr "sorry"
-    (auditExpectedTheoremsV1 env #[← expectedOf env ``audit_sorry_true])
+    (auditExpectedTheoremsV1 env #[← expectedOf env syntheticSorryTrueName])
     fun
-      | .sorryInDecl n => n == ``audit_sorry_true
+      | .sorryInDecl n => n == syntheticSorryTrueName
       | .forbiddenAxiom _ ax => ax == ``sorryAx
       | _ => false
   expectErr "implemented_by"
@@ -218,7 +290,8 @@ private def runAuditCases (env : Environment) : IO Unit := do
       expect (report.audited == #[``audit_good_true]) "report audited names"
 
 run_cmd do
-  let env ← getEnv
+  let env0 ← getEnv
+  let env ← liftIO (withSyntheticMaliciousFixtures env0)
   liftIO runPolicyPins
   liftIO (runAuditCases env)
 
