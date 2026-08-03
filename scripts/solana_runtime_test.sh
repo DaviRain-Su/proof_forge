@@ -181,6 +181,19 @@ fi
 preflight_out="$(cd "$preflight_out" && pwd -P)"
 export PROOF_FORGE_CPI_PREFLIGHT_OUT="$preflight_out"
 
+# #119 production-code-generated unsigned companion CPI ELF (test-preactivation).
+# Independent of #118; dual-program with #115 companion; no product OutputFile.
+unsigned_out="${PROOF_FORGE_CPI_UNSIGNED_OUT:-$root/build/v2/solana-cpi-unsigned}"
+export PROOF_FORGE_CPI_UNSIGNED_OUT="$unsigned_out"
+echo "solana-runtime-test: CPI unsigned build → $unsigned_out"
+if ! bash "$root/scripts/solana_cpi_unsigned_build.sh"; then
+  die "Solana CPI unsigned build failed"
+fi
+[[ -f "$unsigned_out/companion_cpi_unsigned.s" ]]   || die "CPI unsigned assembly missing"
+[[ -f "$unsigned_out/companion_cpi_unsigned.so" ]]   || die "CPI unsigned ELF missing"
+unsigned_out="$(cd "$unsigned_out" && pwd -P)"
+export PROOF_FORGE_CPI_UNSIGNED_OUT="$unsigned_out"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"

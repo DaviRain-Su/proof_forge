@@ -1549,3 +1549,293 @@ pub fn make_cpi_preflight_mollusk() -> (Mollusk, Pubkey) {
 pub fn cpi_preflight_ix_data(handler_id: u64) -> [u8; 8] {
     handler_id.to_le_bytes()
 }
+
+// ---------------------------------------------------------------------------
+// #119 production-code-generated unsigned companion CPI evidence (preactivation)
+// ---------------------------------------------------------------------------
+
+pub const CPI_UNSIGNED_PROGRAM_ID_BYTES: [u8; 32] = [0x55; 32];
+pub const CPI_UNSIGNED_INIT_HANDLER_ID: u64 = 0;
+pub const CPI_UNSIGNED_INVOKE_ONCE_HANDLER_ID: u64 = 1;
+pub const CPI_UNSIGNED_FAIL_ONCE_HANDLER_ID: u64 = 2;
+pub const CPI_UNSIGNED_INSPECT_HANDLER_ID: u64 = 3;
+const CPI_UNSIGNED_STEM: &str = "companion_cpi_unsigned";
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiUnsignedManifestV1 {
+    schema: String,
+    issue: u64,
+    sbpf: String,
+    runtime_oracle: CpiPreflightRuntimeOracleV1,
+    fixture: CpiPreflightFixtureV1,
+    profile: CpiPreflightIdentityV1,
+    extension: CpiPreflightExtensionV1,
+    boundary: CpiPreflightBoundaryV1,
+    program_id_hex: String,
+    companion_program_id_hex: String,
+    companion: CpiUnsignedCompanionV1,
+    handlers: CpiUnsignedHandlersV1,
+    expected_assembly: CpiPreflightArtifactPinV1,
+    expected_elf: CpiPreflightArtifactPinV1,
+    reproducibility_note: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiUnsignedCompanionV1 {
+    package: String,
+    program_id_hex: String,
+    elf_sha256: String,
+    elf_size: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiUnsignedHandlersV1 {
+    init: u64,
+    invoke_once: u64,
+    fail_once: u64,
+    inspect: u64,
+}
+
+fn decode_cpi_unsigned_manifest(bytes: &[u8]) -> Result<CpiUnsignedManifestV1, String> {
+    let manifest: CpiUnsignedManifestV1 = serde_json::from_slice(bytes)
+        .map_err(|error| format!("decode CPI unsigned manifest: {error}"))?;
+    let expect = |condition: bool, message: &str| {
+        if condition {
+            Ok(())
+        } else {
+            Err(message.to_string())
+        }
+    };
+    expect(
+        manifest.schema == "proof-forge.solana.cpi-unsigned-runtime.v1",
+        "schema",
+    )?;
+    expect(manifest.issue == 119, "issue")?;
+    expect(manifest.sbpf == "0.2.2", "sbpf")?;
+    expect(
+        manifest.runtime_oracle.mollusk_svm == "0.13.4"
+            && manifest.runtime_oracle.agave_syscalls == "4.0.0"
+            && manifest.runtime_oracle.solana_program_runtime == "4.0.0",
+        "runtime oracle",
+    )?;
+    expect(
+        manifest.fixture.path == "runtime-tests/solana/fixtures/CompanionCpi.lean"
+            && manifest.fixture.module == "Examples.CompanionCpi"
+            && is_lower_hex_64(&manifest.fixture.source_sha256)
+            && manifest.fixture.source_size > 0,
+        "fixture identity",
+    )?;
+    expect(
+        manifest.profile.id == "solana-sbpf-cpi-elf-v1"
+            && manifest.profile.digest
+                == "0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1",
+        "profile identity",
+    )?;
+    expect(
+        manifest.extension.id == "solana.cpi.accounts"
+            && manifest.extension.version == "1.0.0"
+            && manifest.extension.digest
+                == "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020",
+        "extension identity",
+    )?;
+    expect(
+        !manifest.boundary.product_artifact
+            && manifest.boundary.test_preactivation
+            && manifest.boundary.activation_denied,
+        "preactivation boundary",
+    )?;
+    expect(
+        manifest.program_id_hex == hex::encode(CPI_UNSIGNED_PROGRAM_ID_BYTES),
+        "program id",
+    )?;
+    expect(
+        manifest.companion_program_id_hex == hex::encode(HARNESS_COMPANION_ID_BYTES)
+            && manifest.companion.package == "companion-v1"
+            && manifest.companion.program_id_hex == hex::encode(HARNESS_COMPANION_ID_BYTES)
+            && is_lower_hex_64(&manifest.companion.elf_sha256)
+            && manifest.companion.elf_size > 0,
+        "companion identity",
+    )?;
+    expect(
+        manifest.handlers.init == CPI_UNSIGNED_INIT_HANDLER_ID
+            && manifest.handlers.invoke_once == CPI_UNSIGNED_INVOKE_ONCE_HANDLER_ID
+            && manifest.handlers.fail_once == CPI_UNSIGNED_FAIL_ONCE_HANDLER_ID
+            && manifest.handlers.inspect == CPI_UNSIGNED_INSPECT_HANDLER_ID,
+        "handler ids",
+    )?;
+    expect(
+        is_lower_hex_64(&manifest.expected_assembly.sha256) && manifest.expected_assembly.size > 0,
+        "assembly pin",
+    )?;
+    expect(
+        is_lower_hex_64(&manifest.expected_elf.sha256) && manifest.expected_elf.size > 0,
+        "ELF pin",
+    )?;
+    expect(
+        manifest
+            .reproducibility_note
+            .contains("not proof-forge.output.v1")
+            && manifest
+                .reproducibility_note
+                .contains("not an activated CPI artifact"),
+        "preactivation reproducibility note",
+    )?;
+    Ok(manifest)
+}
+
+pub fn validate_cpi_unsigned_manifest_bytes(bytes: &[u8]) -> Result<(), String> {
+    decode_cpi_unsigned_manifest(bytes).map(|_| ())
+}
+
+pub fn committed_cpi_unsigned_manifest_bytes() -> Vec<u8> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("unsigned/manifest.json");
+    stable_read_harness_file(&path, "CPI unsigned committed manifest")
+}
+
+pub fn cpi_unsigned_out_dir() -> PathBuf {
+    PathBuf::from(env::var("PROOF_FORGE_CPI_UNSIGNED_OUT").expect(
+        "PROOF_FORGE_CPI_UNSIGNED_OUT must point at scripts/solana_cpi_unsigned_build.sh output",
+    ))
+}
+
+fn read_cpi_unsigned_bound_file(
+    suffix: &str,
+    expected: &CpiPreflightArtifactPinV1,
+    label: &str,
+) -> Vec<u8> {
+    let out = cpi_unsigned_out_dir();
+    let committed_manifest = committed_cpi_unsigned_manifest_bytes();
+    let output_manifest =
+        stable_read_harness_file(&out.join("manifest.json"), "CPI unsigned output manifest");
+    assert_eq!(
+        output_manifest, committed_manifest,
+        "CPI unsigned output manifest must be exact committed bytes"
+    );
+    let manifest = decode_cpi_unsigned_manifest(&committed_manifest)
+        .unwrap_or_else(|error| panic!("{error}"));
+    let selected = match suffix {
+        "s" => &manifest.expected_assembly,
+        "so" => &manifest.expected_elf,
+        _ => panic!("unknown CPI unsigned artifact suffix {suffix}"),
+    };
+    assert_eq!(selected.size, expected.size, "{label} selected size pin");
+    assert_eq!(
+        selected.sha256, expected.sha256,
+        "{label} selected hash pin"
+    );
+
+    let path = out.join(format!("{CPI_UNSIGNED_STEM}.{suffix}"));
+    let size_bytes = stable_read_harness_file(
+        &out.join(format!("{CPI_UNSIGNED_STEM}.{suffix}.size")),
+        &format!("{label} size sidecar"),
+    );
+    let hash_bytes = stable_read_harness_file(
+        &out.join(format!("{CPI_UNSIGNED_STEM}.{suffix}.sha256")),
+        &format!("{label} hash sidecar"),
+    );
+    let sidecar_size: u64 = std::str::from_utf8(&size_bytes)
+        .expect("UTF-8 unsigned size sidecar")
+        .trim()
+        .parse()
+        .unwrap_or_else(|error| panic!("parse unsigned size sidecar: {error}"));
+    let sidecar_hash = std::str::from_utf8(&hash_bytes)
+        .expect("UTF-8 unsigned hash sidecar")
+        .trim();
+    assert_eq!(sidecar_size, expected.size, "{label} sidecar size");
+    assert_eq!(sidecar_hash, expected.sha256, "{label} sidecar hash");
+
+    let bytes = stable_read_harness_file(&path, label);
+    assert_eq!(bytes.len() as u64, expected.size, "{label} size");
+    assert_eq!(
+        hex::encode(Sha256::digest(&bytes)),
+        expected.sha256,
+        "{label} sha256"
+    );
+    bytes
+}
+
+pub fn read_cpi_unsigned_assembly() -> Vec<u8> {
+    let manifest_bytes = committed_cpi_unsigned_manifest_bytes();
+    let manifest =
+        decode_cpi_unsigned_manifest(&manifest_bytes).unwrap_or_else(|error| panic!("{error}"));
+    let bytes =
+        read_cpi_unsigned_bound_file("s", &manifest.expected_assembly, "CPI unsigned assembly");
+    assert!(
+        bytes
+            .windows(b"TEST-PREACTIVATION ONLY".len())
+            .any(|window| window == b"TEST-PREACTIVATION ONLY"),
+        "unsigned assembly boundary banner"
+    );
+    assert!(
+        bytes
+            .windows(b"sol_invoke_signed_c".len())
+            .any(|window| window == b"sol_invoke_signed_c"),
+        "#119 unsigned assembly must call sol_invoke_signed_c"
+    );
+    assert!(
+        !bytes.windows(b"0xec01".len()).any(|window| window == b"0xec01"),
+        "#119 unsigned assembly must not contain 0xec01 stub"
+    );
+    bytes
+}
+
+pub fn read_cpi_unsigned_elf() -> Vec<u8> {
+    let manifest_bytes = committed_cpi_unsigned_manifest_bytes();
+    let manifest =
+        decode_cpi_unsigned_manifest(&manifest_bytes).unwrap_or_else(|error| panic!("{error}"));
+    let bytes = read_cpi_unsigned_bound_file("so", &manifest.expected_elf, "CPI unsigned ELF");
+    assert!(
+        bytes.starts_with(b"\x7fELF"),
+        "CPI unsigned output must be ELF"
+    );
+    // Companion pin must match #115 harness ELF bytes.
+    let companion_elf = read_harness_elf("companion");
+    assert_eq!(
+        manifest.companion.elf_sha256,
+        hex::encode(Sha256::digest(&companion_elf)),
+        "unsigned companion pin must equal harness companion ELF bytes"
+    );
+    assert_eq!(
+        manifest.companion.elf_size,
+        companion_elf.len() as u64,
+        "unsigned companion size pin"
+    );
+    bytes
+}
+
+pub fn cpi_unsigned_program_id() -> Pubkey {
+    Pubkey::new_from_array(CPI_UNSIGNED_PROGRAM_ID_BYTES)
+}
+
+/// Dual-program Mollusk: #119 caller ELF + #115 companion ELF.
+pub fn make_cpi_unsigned_mollusk() -> (Mollusk, Pubkey, Pubkey) {
+    let program_id = cpi_unsigned_program_id();
+    let companion_id = harness_companion_id();
+    let caller_elf = read_cpi_unsigned_elf();
+    let companion_elf = read_harness_elf("companion");
+    let mut mollusk = Mollusk::default();
+    mollusk.add_program_with_loader_and_elf(
+        &program_id,
+        &mollusk_svm::program::loader_keys::LOADER_V3,
+        &caller_elf,
+    );
+    mollusk.add_program_with_loader_and_elf(
+        &companion_id,
+        &mollusk_svm::program::loader_keys::LOADER_V3,
+        &companion_elf,
+    );
+    (mollusk, program_id, companion_id)
+}
+
+/// Probe instruction data: handlerId u64 LE + trailing non-Principal UInt64 params.
+pub fn cpi_unsigned_ix_data(handler_id: u64, params: &[u64]) -> Vec<u8> {
+    let mut data = Vec::with_capacity(8 + params.len() * 8);
+    data.extend_from_slice(&handler_id.to_le_bytes());
+    for p in params {
+        data.extend_from_slice(&p.to_le_bytes());
+    }
+    data
+}

@@ -52,6 +52,14 @@
 > production-code-generated **test-preactivation ELF**，不是 `OutputFile`/产品 artifact；ordinary resolver
 > 仍拒 sync，#119–#125 与 formal D5 均 pending。
 >
+> **2026-08-04 Solana #119 unsigned companion CPI update**：独立 `CpiUnsignedIRV1` +
+> `EmitCpiUnsignedSbpfV1` 在仍为 activationDenied/test-preactivation 的 lane 上，对 pinned
+> companion-v1 发射真实 unsigned `sol_invoke_signed_c`（零 signer groups）与成功路径
+> `sol_set_return_data(0,0)`；#118 no-invoke 链保持独立。`CompanionCpi` fixture 证明
+> state write → CPI → post-call write 的 source order，以及 fail 路径完整 snapshot rollback +
+> `fail:v1!` 保留。committed unsigned manifest 绑定 source/profile/extension 与 #115 companion
+> ELF pin；ordinary resolver 仍拒 sync，无 OutputFile；#120+ 与 formal D5 仍 pending。
+>
 > **2026-08-02 invariant lowering update**：`NormalizeV1` 现将 source `invariant` 降为
 > source-order Semantic `.invariant` callables 与 dense `InvariantDecl`，并复用 Wire sole closure membership/
 > exact `invariantSteps` 公式；Provenance 对 multi-block predicate CFG 做 exact entity coverage。`.proof`

@@ -27,6 +27,7 @@ import Tests.Materialization.SolanaPlanV1
 import Tests.Materialization.SolanaCpiPlanV1
 import Tests.Materialization.SolanaCpiDeriveV1
 import Tests.Materialization.SolanaCpiPreflightV1
+import Tests.Materialization.SolanaCpiUnsignedV1
 import Tests.Targets.SolanaAsmV1
 import Tests.Targets.SolanaElfV1
 import Tests.Targets.EvmCancunV1
@@ -98,6 +99,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.SolanaCpiDeriveV1.run
   IO.eprintln "CP run"
   Tests.Materialization.SolanaCpiPreflightV1.run
+  Tests.Materialization.SolanaCpiUnsignedV1.run
   IO.eprintln "CP run"
   Tests.Materialization.PsySourceV1.run
   IO.eprintln "CP run"

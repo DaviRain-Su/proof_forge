@@ -1,0 +1,53 @@
+{
+  "schema": "proof-forge.solana.cpi-unsigned-runtime.v1",
+  "issue": 119,
+  "sbpf": "0.2.2",
+  "runtimeOracle": {
+    "molluskSvm": "0.13.4",
+    "agaveSyscalls": "4.0.0",
+    "solanaProgramRuntime": "4.0.0"
+  },
+  "fixture": {
+    "path": "runtime-tests/solana/fixtures/CompanionCpi.lean",
+    "module": "Examples.CompanionCpi",
+    "sourceSha256": "68e25cd743124f16a03bd92341b7cef0e78a21e4629469851d59a7a5e12f9e29",
+    "sourceSize": 1023
+  },
+  "profile": {
+    "id": "solana-sbpf-cpi-elf-v1",
+    "digest": "0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1"
+  },
+  "extension": {
+    "id": "solana.cpi.accounts",
+    "version": "1.0.0",
+    "digest": "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
+  },
+  "boundary": {
+    "productArtifact": false,
+    "testPreactivation": true,
+    "activationDenied": true
+  },
+  "programIdHex": "5555555555555555555555555555555555555555555555555555555555555555",
+  "companionProgramIdHex": "4343434343434343434343434343434343434343434343434343434343434343",
+  "companion": {
+    "package": "companion-v1",
+    "programIdHex": "4343434343434343434343434343434343434343434343434343434343434343",
+    "elfSha256": "c8738f1220c49c309ffe820ca397ae25540d6be29c6153934abd8548fa08c4b9",
+    "elfSize": 1776
+  },
+  "handlers": {
+    "init": 0,
+    "invokeOnce": 1,
+    "failOnce": 2,
+    "inspect": 3
+  },
+  "expectedAssembly": {
+    "sha256": "54d7865e7ed1f4ed4fb5dab485e02112a323722f98d2a47c856c3bed6f4e0f70",
+    "size": 40754
+  },
+  "expectedElf": {
+    "sha256": "e543b564368091b76d0c4563f826d4d2abb7e3b9e91339e977aecb50308b8c55",
+    "size": 15536
+  },
+  "reproducibilityNote": "Generated through the production unsigned-CPI authority/emitter chain and assembled with locked sbpf 0.2.2. This is same-host engineering test-preactivation evidence only: not proof-forge.output.v1, not an activated CPI artifact, #120+ PDA/System/Token still pending, and not formal/hermetic evidence."
+}

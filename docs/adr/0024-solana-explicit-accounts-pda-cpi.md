@@ -571,6 +571,34 @@ Plan/IR/IDL identities：
   `proof-forge.output.v1`、不是产品 artifact，也不调用任何 callee。#119 unsigned invoke、#120 PDA/bump/
   `invoke_signed` 与 #121–#124 forcing gates仍未实现；#125 前 resolver support和产品 artifact mint继续关闭。
 
+#### #119 unsigned companion CPI observation（2026-08-04）
+
+- 在仍为 `activationDenied`/test-preactivation 的 opt-in `solana-sbpf-cpi-elf-v1` lane 中，
+  新增独立 authority-bound 模块 `CpiUnsignedIRV1` + `EmitCpiUnsignedSbpfV1`；**不**原地把
+  #118 preflight emitter 改成 invoke。唯一 emitter authority 来自
+  `ResolvedSolanaCpiPreflightIRV1` → `ResolvedSolanaCpiUnsignedIRV1` 的 retained Semantic
+  private chain；public structural Plan/IR 仍不能授权发射。
+- 首切片只支持 `solana.companion.invoke` / `.fail`；System、PDA/nonempty signer groups、
+  Token、ATA、schedule、dynamic CPI 与 typed returns 继续 fail closed。CFG gate 要求
+  single-block straight-line callable。数字 CPI arg 只接受 direct public UInt64 param 或
+  canonical UInt64 literal；Principal 为 direct public Principal param→handler-local role
+  key，并从 probe instruction data 省略。
+- 执行 IR 在同一 ordered body 中至少支持 narrow public UInt64
+  `param/literal/stateLoad/checkedAdd/stateStore/externalCall/returnU64|returnNone`，以证明
+  caller state write → CPI → post-call op 的 source order。site predicates 在每个 invoke 前
+  以 `siteChecks` 立即执行（不永久 hoist）。失败时原样 exit syscall status，不 clear、不执行
+  后续 op；成功后 `sol_set_return_data(0,0)` 再继续。`sol_invoke_signed_c` 零 signer ABI 精确
+  为 r1 SolInstruction*、r2 full handler-local `SolAccountInfo[]`、r3 localRoleCount、r4=0、r5=0。
+- `CompanionCpi.lean` 经真实链生成 assembly/ELF；committed
+  `runtime-tests/solana/unsigned/manifest.json` 绑定 source/profile/extension/boundary、
+  #115 companion program ID 与 harness companion ELF pin。locked `sbpf 0.2.2` disassemble
+  证明 final ELF 含 exact `sol_invoke_signed_c`/`sol_set_return_data` 且无 `0xec01` stub。
+  Mollusk 双程序覆盖 success 单次 companion 修改 + caller pre/post state commit、
+  companion.fail 全量 snapshot rollback 且保留 `fail:v1!`、以及 missing writable / unexpected
+  signer / program substitution / permutation / alias / high-byte delta 等 negatives。
+- 准确称谓是 **production-code-generated test-preactivation unsigned-CPI ELF**。不是
+  `OutputFile` / `proof-forge.output.v1`，ordinary resolver 仍拒 sync，#120+ 与 formal D5 仍 pending。
+
 ### Schema mutation obligations
 
 profile/extension/catalog/Plan每个 behavior field至少有一个 one-field mutation改变 digest，并在最早正确边界
