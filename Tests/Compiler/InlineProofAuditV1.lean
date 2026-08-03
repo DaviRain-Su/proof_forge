@@ -44,6 +44,10 @@ private def typeOf! (env : Environment) (name : Name) : IO Expr :=
   | some info => pure info.type
   | none => throw <| IO.userError s!"missing fixture type: {name}"
 
+/-- Product-style expected row: theorem type is the named proposition itself
+    (`mkConst name` of the theorem's type constant when it is a named alias),
+    not a declaration's `info.type` when that declaration is an alias of type
+    `Prop`. For ordinary `True` theorems the type expression is `True`. -/
 private def expectedOf (env : Environment) (name : Name) : IO ExpectedInlineTheoremV1 := do
   pure { name, expectedType := (← typeOf! env name) }
 
@@ -84,6 +88,16 @@ unsafe def audit_unsafe_true : True := trivial
 
 theorem audit_type_nat : True := trivial
 
+/-- Product Prop-alias shape: `abbrev Alias : Prop := True`. Expected audit type
+    must be `mkConst ``audit_prop_alias`, never the alias decl's `info.type`
+    (`Prop`). -/
+abbrev audit_prop_alias : Prop := True
+
+theorem audit_via_alias : audit_prop_alias := trivial
+
+/-- Opaque root with a value — product audit must reject (theorem roots only). -/
+opaque audit_opaque_root : True := trivial
+
 private def trueType : Expr := mkConst ``True
 
 private def runPolicyPins : IO Unit := do
@@ -119,6 +133,21 @@ private def runAuditCases (env : Environment) : IO Unit := do
     auditExpectedTheoremsV1 env #[← expectedOf env ``audit_good_true]
   expectOk "uses_choice" <|
     auditExpectedTheoremsV1 env #[← expectedOf env ``audit_uses_choice]
+  -- Kernel-defeq positive: expected expression is `mkConst <alias>`, matching
+  -- product certifier construction (not the alias declaration's type `Prop`).
+  expectOk "alias_mkConst" <|
+    auditExpectedTheoremsV1 env
+      #[{ name := ``audit_via_alias, expectedType := mkConst ``audit_prop_alias }]
+  -- Using the alias declaration's `info.type` (`Prop`) must fail defeq against
+  -- the theorem's type (`audit_prop_alias`).
+  let aliasDeclType ← typeOf! env ``audit_prop_alias
+  expect (aliasDeclType.consumeMData == .sort 0) "alias decl type is Prop (sort 0)"
+  expectErr "alias_decl_type_not_expected"
+    (auditExpectedTheoremsV1 env
+      #[{ name := ``audit_via_alias, expectedType := aliasDeclType }])
+    fun
+      | .typeNotDefEq n => n == ``audit_via_alias
+      | _ => false
   expectErr "missing"
     (auditExpectedTheoremsV1 env
       #[{ name := `AuditMissingDoesNotExist, expectedType := trueType }])
@@ -135,6 +164,12 @@ private def runAuditCases (env : Environment) : IO Unit := do
     (auditExpectedTheoremsV1 env #[← expectedOf env ``audit_user_axiom])
     fun
       | .kindRejected n _ => n == ``audit_user_axiom
+      | _ => false
+  expectErr "root_opaque"
+    (auditExpectedTheoremsV1 env
+      #[{ name := ``audit_opaque_root, expectedType := trueType }])
+    fun
+      | .kindRejected n _ => n == ``audit_opaque_root
       | _ => false
   expectErr "user_axiom_closure"
     (auditExpectedTheoremsV1 env #[← expectedOf env ``audit_uses_user_axiom])

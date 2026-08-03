@@ -128,18 +128,21 @@ private def rejectForbiddenAttrs
     return ← err (.forbiddenAttribute name "initializer")
   pure ()
 
-/-- Root export kind: theorem or opaque definition with a value. -/
+/-- Product root export kind: theorem only. Opaque roots are rejected even when
+    they carry a value; dependency closure may still traverse opaque constants
+    that appear under a theorem root (subject to the same policy attrs/axioms). -/
 private def rootValue?
     (info : ConstantInfo) : Except InlineProofAuditErrorV1 Expr :=
   match info with
   | .thmInfo v => pure v.value
-  | .opaqueInfo v => pure v.value
+  | .opaqueInfo _ =>
+      err (.kindRejected info.name "product root must be a theorem (opaque rejected)")
   | .defnInfo _ =>
-      err (.kindRejected info.name "root must be theorem or opaque definition")
+      err (.kindRejected info.name "product root must be a theorem")
   | .axiomInfo _ =>
       err (.kindRejected info.name "root must not be an axiom")
   | .quotInfo _ | .inductInfo _ | .ctorInfo _ | .recInfo _ =>
-      err (.kindRejected info.name "root must be theorem or opaque definition")
+      err (.kindRejected info.name "product root must be a theorem")
 
 /-- Collect type/value expressions that feed the dependency walk. -/
 private def constantExprs (info : ConstantInfo) : Array Expr :=

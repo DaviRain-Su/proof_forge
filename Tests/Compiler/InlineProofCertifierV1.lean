@@ -180,6 +180,65 @@ private unsafe def testEmptyInventoryWithProofs (session : ParserSession) : IO U
     | .noProof => false
     | .certified _ => false
 
+/-- Dual-invariant program with two proofs; forged partial inventory (one of two
+    bindings) must fail closed at obligation bijection — not noProof/certified. -/
+private unsafe def testForgedPartialDualInvariant (session : ParserSession) : IO Unit := do
+  let src :=
+    header ++
+    "program Dual where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n" ++
+    "  invariant first : true\n" ++
+    "  invariant second : true\n" ++
+    "  proof first using DualProof.first\n" ++
+    "  proof second using DualProof.second\n" ++
+    falseTheoremBody "DualProof.first" "Dual.Proof.first" ++
+    falseTheoremBody "DualProof.second" "Dual.Proof.second"
+  let path ← parsePath "tests/inline-proof/dual-partial.pf"
+  let (source, origin, fullInv) ← loadProduct session src
+      "tests/inline-proof/dual-partial.pf" "Root"
+  let fullBindings := theoremInventoryBindingsV1 fullInv
+  expect (fullBindings.size == 2) "dual full binding count"
+  let compiled ← compileOf source origin
+  -- Forged partial: keep only the first binding.
+  let partialInv := mintTheoremInventoryV1 #[fullBindings[0]!]
+  let outcomePartial ← certifyInlineProofV1 src source origin partialInv compiled
+      path "Root" none
+  expectOutcome "forged partial dual" outcomePartial fun
+    | .failed phase detail =>
+        phase == .obligation && detail == .obligationMap
+    | .noProof => false
+    | .certified _ => false
+  -- Forged reordered: swap the two bindings.
+  let reorderedInv :=
+    mintTheoremInventoryV1 #[fullBindings[1]!, fullBindings[0]!]
+  let outcomeReorder ← certifyInlineProofV1 src source origin reorderedInv compiled
+      path "Root" none
+  expectOutcome "forged reorder dual" outcomeReorder fun
+    | .failed phase detail =>
+        phase == .obligation && detail == .obligationMap
+    | .noProof => false
+    | .certified _ => false
+  -- Forged extra on bare program (no proofs expected).
+  let extraOnBare := mintTheoremInventoryV1 #[fullBindings[0]!]
+  let pathBare ← parsePath "tests/inline-proof/bare-extra.pf"
+  let (bareSrc, bareOrigin, _) ← loadProduct session bareProgram
+      "tests/inline-proof/bare-extra.pf" "Root"
+  let bareCompiled ← compileOf bareSrc bareOrigin
+  let outcomeExtra ← certifyInlineProofV1 bareProgram bareSrc bareOrigin extraOnBare
+      bareCompiled pathBare "Root" none
+  expectOutcome "forged extra on bare" outcomeExtra fun
+    | .failed phase detail =>
+        phase == .obligation && detail == .obligationMap
+    | .noProof => false
+    | .certified _ => false
+
 /-- Protocol success mint is not a product capability: only the private carrier
     from `certifyInlineProofV1` is accepted. Runtime checks that noProof/fail
     paths never yield certified. -/
@@ -216,6 +275,7 @@ unsafe def run : IO Unit := do
   testFalseTheoremElab session
   testWrongSubjectBytes session
   testEmptyInventoryWithProofs session
+  testForgedPartialDualInvariant session
   testNoForgedSuccess session
   documentOpenGaps
   IO.println "Tests.Compiler.InlineProofCertifierV1: ok"

@@ -157,14 +157,32 @@ private def invariantNamesSourceOrderV1 (source : ValidatedSourceV1) : Array Str
       | _ => pure ()
     pure names
 
-private def programHasProofItemsV1 (source : ValidatedSourceV1) : Bool :=
-  source.program.items.any fun item =>
-    match item with
-    | .proof _ => true
-    | _ => false
+/-- Treat theorem inventory as untrusted: recompute the sole expected binding
+    table from `source.program.items` via `expectedTheoremsFromProgramV1` and
+    require exact count/order/name/invariant/typeComponents bijection. Rejects
+    forged empty, partial, extra, reordered, or name-swapped inventories. -/
+private def validateTheoremInventoryBijectionV1
+    (source : ValidatedSourceV1) (inventory : TheoremInventoryV1) :
+    Except InlineProofCertifierDetailV1 (Array ExpectedTheoremV1) := do
+  let programName := source.program.name.raw
+  let expected ← match expectedTheoremsFromProgramV1 programName source with
+    | .ok value => pure value
+    | .error _ => return ← .error .obligationMap
+  let bindings := theoremInventoryBindingsV1 inventory
+  unless bindings.size == expected.size do
+    return ← .error .obligationMap
+  for i in [:expected.size] do
+    let exp := expected[i]!
+    let got := bindings[i]!
+    unless got.theoremComponents == exp.theoremComponents &&
+        got.invariantName == exp.invariantName &&
+        got.typeComponents == exp.typeComponents do
+      return ← .error .obligationMap
+  pure expected
 
-/-- Map theorem inventory onto protocol obligations using invariant declaration
-    source-order ordinals (not proof-item order). -/
+/-- Map validated inventory bindings onto protocol obligations using invariant
+    declaration source-order ordinals (not proof-item order). Caller must have
+    already enforced inventory↔program bijection. -/
 private def obligationsFromInventoryV1
     (source : ValidatedSourceV1) (inventory : TheoremInventoryV1) :
     Except InlineProofCertifierDetailV1 (Array InlineProofObligationV1) := do
@@ -192,9 +210,34 @@ private def obligationsFromInventoryV1
     obligations := obligations.push obligation
   pure obligations
 
+/-- Conservative presence/shape gate for generated Prop aliases
+    (`abbrev Inv : Prop := InvariantTheoremV1 …`). Accepts only safe, non-extern
+    definitions whose type is exactly `Prop`. Does **not** use `info.type` as the
+    expected proposition (that is only `Prop`); the expected expression is
+    always `mkConst typeName`. -/
+private def requireGeneratedPropAliasV1
+    (env : Environment) (typeName : Name) :
+    Except InlineProofCertifierDetailV1 Unit := do
+  match env.find? typeName with
+  | none => .error .missingExpectedType
+  | some (.defnInfo info) =>
+      -- `Prop` elaborates as `Expr.sort 0` (not `mkConst \`Prop`).
+      unless info.type.consumeMData == .sort 0 do
+        return ← .error .missingExpectedType
+      match info.safety with
+      | .safe => pure ()
+      | _ => return ← .error .missingExpectedType
+      unless (Lean.Compiler.getImplementedBy? env typeName).isNone do
+        return ← .error .missingExpectedType
+      unless (Lean.getExternAttrData? env typeName).isNone do
+        return ← .error .missingExpectedType
+      pure ()
+  | some _ => .error .missingExpectedType
+
 /-- Build Environment expected-theorem rows: FQN =
     ambient program namespace + inventory theorem components; expected type is
-    the generated `<programIdentity>.Proof.<inv>` Prop alias. -/
+    `mkConst <programIdentity>.Proof.<inv>` (the generated Prop alias name),
+    never the alias declaration's `info.type` (`Prop`). -/
 private def expectedTheoremsForAuditV1
     (env : Environment)
     (source : ValidatedSourceV1)
@@ -211,10 +254,9 @@ private def expectedTheoremsForAuditV1
       return ← .error .missingTheorem
     let typeName :=
       componentsToLeanName (programComps ++ #["Proof", binding.invariantName])
-    let expectedType ← match env.find? typeName with
-      | some info => pure info.type
-      | none => return ← .error .missingExpectedType
-    expected := expected.push { name := thmName, expectedType }
+    requireGeneratedPropAliasV1 env typeName
+    -- Expected proposition is the alias constant itself, not its type `Prop`.
+    expected := expected.push { name := thmName, expectedType := mkConst typeName }
   pure expected
 
 /-- Decode generated `<program>.Proof.subjectProgramV1` definition value to
@@ -291,13 +333,15 @@ unsafe def certifyInlineProofV1
     (moduleSelector : String)
     (programSelector : Option String) :
     IO InlineProofCertifierOutcomeV1 := do
-  let bindings := theoremInventoryBindingsV1 theoremInventory
-  -- Empty inventory: explicit skip when the program has no proof surface.
-  if bindings.isEmpty then
-    if programHasProofItemsV1 source then
-      return fail .obligation .obligationMap
-    else
-      return .noProof
+  -- 0) Inventory is untrusted: recompute expected bindings from source items
+  --    and require exact bijection before any noProof / certification path.
+  let expectedBindings ← match
+      validateTheoremInventoryBijectionV1 source theoremInventory with
+    | .ok value => pure value
+    | .error detail => return fail .obligation detail
+  -- Empty expected proof surface: explicit skip (never forged success).
+  if expectedBindings.isEmpty then
+    return .noProof
 
   -- 1) Exact production proof subject from retained compile carrier.
   let subject ← match proofSubjectOfCompiledSemanticV1
