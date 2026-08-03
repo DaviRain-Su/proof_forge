@@ -121,9 +121,9 @@
       "sha256": "486ee29547c2b9022278262f17f9f5443342201cb2e665cea53f39b32a7244f4"
     },
     {
-      "bytes": 4808,
+      "bytes": 5654,
       "path": "ProofForgeV2/Core/ToolLockV4.lean",
-      "sha256": "0b9242f2cc1858821e9a26bd6f117a8699e8d182d84af5cac159242ba50a9aca"
+      "sha256": "7f8105e5a0d6d40779c6822848997ec5ccb7f8a768fc931562796f9b8b44fb46"
     },
     {
       "bytes": 8444,
@@ -561,9 +561,9 @@
       "sha256": "23a7c3be40495f3d4a24d5a074a5b5940ff050862e6a6383bbc30863f4aedc10"
     },
     {
-      "bytes": 1104,
+      "bytes": 1157,
       "path": "ProofForgeV2/Targets/Aleo/FinalizeV1.lean",
-      "sha256": "11797d0fc08a7dfef09577900ec7554e1c4cba693bd75c552636f353e7b81a0d"
+      "sha256": "e01ce0b993060b38b9a8c02b3c74a274b2a7cf6e63269901aebdcadc24755a99"
     },
     {
       "bytes": 99320,

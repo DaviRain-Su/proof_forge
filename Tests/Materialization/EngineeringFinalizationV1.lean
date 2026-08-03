@@ -83,6 +83,9 @@ private def solanaNote : String :=
 private def noirNote : String :=
   "no approved and digest-pinned Noir compiler/proving backend is configured; relation source/schema were emitted without ACIR, witness execution, proof, or verification"
 
+private def aleoNote : String :=
+  "product finalization does not invoke the locked Leo compiler or a proving backend; emitted Leo source carries no leo build, execution, proof, or deployment evidence"
+
 /-- Expect an IO error whose message contains `needle`. -/
 private def expectIoErrorContains (label needle : String) (act : IO Unit) : IO Unit := do
   try
@@ -261,7 +264,7 @@ private unsafe def testNonDeployablePhases : IO Unit := do
   IO.FS.writeBinFile (staging / "Counter.wasm") validHeader
   Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "Counter.wasm")
 
-/-- Four-target exact finalization paths/deployable/note via product path. -/
+/-- Exact finalization paths/deployable/evidence notes via the product path. -/
 private unsafe def testFourTargetFinalization : IO Unit := do
   let compiled ← compileCounter
   let sourceHash ← liftResult "derive Counter source hash"
@@ -304,6 +307,22 @@ private unsafe def testFourTargetFinalization : IO Unit := do
       expect (disk == f.contents) s!"noir base byte preservation {f.path}"
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
     expect ((evidence.splitOn noirNote).length > 1) "noir exact note on disk"
+  -- Aleo: product finalization remains zero-tool even though compile-only
+  -- acceptance can resolve locked Leo 4.0.2 independently.
+  do
+    let selection ← liftResult "select aleo" (resolveBuildSelectionV1 TargetId.aleo none)
+    let capability ← liftResult "resolve aleo"
+      (Targets.resolveEngineeringRequirementsV1 selection compiled)
+    let outDir := FilePath.mk "build/v2/finalization-aleo"
+    if ← outDir.pathExists then IO.FS.removeDirAll outDir
+    let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
+    expect (receipt.deployable == false) "aleo emit non-deployable"
+    expect (receipt.target == TargetId.aleo) "aleo emit target"
+    expect (!(← (outDir / "Counter.wasm").pathExists)) "aleo no compiled wasm"
+    let evidence ← IO.FS.readFile (outDir / "evidence.json")
+    expect ((evidence.splitOn aleoNote).length > 1) "aleo exact zero-tool note on disk"
+    expect ((evidence.splitOn "no approved and digest-pinned Leo compiler").length == 1)
+      "aleo evidence must not deny the separate locked Leo acceptance tool"
   -- EVM: real solc .bin extra + base preservation.
   do
     let selection ← liftResult "select evm" (resolveBuildSelectionV1 TargetId.evm none)

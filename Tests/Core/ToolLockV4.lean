@@ -18,18 +18,22 @@ private def identityWire (platform : ToolLockPlatformV4) : IO String := do
 
 def run : IO Unit := do
   expect ((← identityWire .darwinArm64) ==
-    "sha256:fcedacff401cec84e5bab69f703b83fcebeeaa37f09d33dae82a2c01b827203b")
+    "sha256:c077b3365bf0b904be8a2bbfdbc1a64a265173b4a4385ca73d034304d0fc26d9")
     "Darwin Tool Lock v4 KAT"
   expect ((← identityWire .linuxX86_64) ==
-    "sha256:0330667b6707df8aface6242503d887956beab0ab6174c0aabf03f5fcf5bbc30")
+    "sha256:b81500d18bba90d344de41b15c175f351c7c87c54c59c929a4afb641376ef191")
     "Linux Tool Lock v4 KAT"
-  expect (toolLockPlatformForTarget? "aarch64-apple-darwin" == some .darwinArm64)
-    "Darwin target selection"
+  for target in #["aarch64-apple-darwin", "arm64-apple-darwin",
+      "aarch64-apple-darwin24.6.0", "arm64-apple-darwin24.6.0"] do
+    expect (toolLockPlatformForTarget? target == some .darwinArm64)
+      s!"Darwin target selection: {target}"
   expect (toolLockPlatformForTarget? "x86_64-unknown-linux-gnu" == some .linuxX86_64)
     "Linux target selection"
   for target in #["x86_64-apple-darwin", "aarch64-unknown-linux-gnu",
       "x86_64-pc-windows-msvc", "aarch64-darwin",
       "aarch64-evil-darwin-junk", "aarch64-unknown-darwin-linux",
+      "arm64-apple-darwin24..6", "arm64-apple-darwin24.6.",
+      "arm64-apple-darwin.24", "arm64-apple-darwin24x6",
       "x86_64-linux", "x86_64-evil-linux-darwin", "unknown"] do
     expect (toolLockPlatformForTarget? target == none) s!"unsupported target: {target}"
   let active ← match embeddedToolLockV4Identity with

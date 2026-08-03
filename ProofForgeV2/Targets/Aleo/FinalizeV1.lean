@@ -1,9 +1,10 @@
 /-
   Aleo engineering finalization adapter (D3/S7b).
 
-  Zero tools; exact non-deployable note. Leo 4.0.2 source is emitted without a
-  digest-pinned `leo` compiler, so no build/execute/proof/deploy evidence is
-  claimed. Separate from pure `Targets.Aleo` Plan/IR core.
+  Zero tools; exact non-deployable note. Product finalization does not invoke
+  the separately locked Leo 4.0.2 compiler used by compile-only acceptance, so
+  no build/execute/proof/deploy evidence is claimed. Separate from pure
+  `Targets.Aleo` Plan/IR core.
   Not formal ToolchainIdentity / OutputSetV1.
 -/
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
@@ -24,7 +25,7 @@ def finalize
     deployable := false
     extraFiles := #[]
     evidenceNote :=
-      "no approved and digest-pinned Leo compiler/proving backend is configured; Leo source was emitted without leo build, execution, proof, or deployment evidence"
+      "product finalization does not invoke the locked Leo compiler or a proving backend; emitted Leo source carries no leo build, execution, proof, or deployment evidence"
   }
 
 end ProofForgeV2.Targets.Aleo.FinalizeV1

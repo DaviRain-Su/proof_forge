@@ -38,20 +38,43 @@ def embeddedToolLockV4Text : ToolLockPlatformV4 → String
 
 private def expectedRawDigestWire : ToolLockPlatformV4 → String
   | .darwinArm64 =>
-      "sha256:ca07c39bcb188546816c9da91d5b2fceb7b43955255264663246cffaa06aa612"
+      "sha256:018989d100eee97ffabd03a2a7c99df12c3d55c27012ef3f06255173f8c79526"
   | .linuxX86_64 =>
-      "sha256:9e34c53b34cd46d8f14daebb33fc546393a6f7198ccd18d3deb9b8eae407ad35"
+      "sha256:8d870368c8a4dbb1637ac011811a7b2c05e418250489d6a992e1408fb54c45f2"
 
 /-- Raw retained-file identity, kept distinct from ToolLockV4Digest. -/
 def embeddedToolLockV4RawDigest (platform : ToolLockPlatformV4) : Digest :=
   sha256Bytes (embeddedToolLockV4Text platform).toUTF8
 
+private def isAsciiDecimalComponent (value : String) : Bool :=
+  !value.isEmpty && value.toList.all fun c => '0' ≤ c && c ≤ '9'
+
+private def isDarwinOsComponent (value : String) : Bool :=
+  if value == "darwin" then
+    true
+  else if value.startsWith "darwin" then
+    let suffix := (value.drop 6).copy
+    !suffix.isEmpty && (suffix.splitOn ".").all isAsciiDecimalComponent
+  else
+    false
+
 /-- Exact supported-target selection; unknown architectures/OSes do not fall
-    back to a different platform lock. -/
+    back to a different platform lock. Lean's Darwin target includes the host
+    kernel version (for example `arm64-apple-darwin24.6.0`), so that suffix is
+    admitted only as nonempty dot-separated decimal components. -/
 def toolLockPlatformForTarget? (target : String) : Option ToolLockPlatformV4 :=
-  match target with
-  | "aarch64-apple-darwin" => some .darwinArm64
-  | "x86_64-unknown-linux-gnu" => some .linuxX86_64
+  match target.splitOn "-" with
+  | [arch, vendor, os] =>
+      if (arch == "aarch64" || arch == "arm64") && vendor == "apple" &&
+          isDarwinOsComponent os then
+        some .darwinArm64
+      else
+        none
+  | [arch, vendor, os, abi] =>
+      if arch == "x86_64" && vendor == "unknown" && os == "linux" && abi == "gnu" then
+        some .linuxX86_64
+      else
+        none
   | _ => none
 
 private def requireSingleStringField
