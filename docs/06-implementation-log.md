@@ -12,6 +12,33 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-03 — Quint Q0 executable-model engineering target
+
+- History/recovery：从已删除 `active/ProofForge/Backend/Quint/**` 的 Git 对象确认历史 backend
+  曾包含 model emitter、scenario/invariant、ITF 与 replay；当前实现未恢复任何 v1 import/adapter，
+  而是从 retained `SemanticProgramV1` 重新接入独立 target-owned Plan/structured IR。
+- Registry/capability：新增 `quint` / `quint-source-u64-model-v1` / `quintSource` 与六轴
+  `quint-model`、`relation-external`、`external-public-pre-post`、`no-native-call`、`no-proof`、
+  `no-settlement`；控制面为 12 targets / 9 implemented + 3 design-only / 9 materializers /
+  11 resolver rows（EVM×2 Cancun+legacy + Solana×2 + Quint 四键）。resolver 仅承认 rollback/state/Bool/checked-arithmetic 四键；aggregate
+  Registry 绑定 target Plan digest、materialize 与 zero-tool finalize。
+- Q0 lowering：仅 anonymous UInt64/Bool/Unit、public UInt64 state/params、public scalar result、
+  single-block CFG；支持 state load/store、checked +−×/%、比较、Bool、pureCall、bare assert 与
+  zero-param read-only Bool invariant与 zero-payload declared revert（failure code=`256+ErrorId`）。输入为
+  完整 `0..2^64-1`；失败调用始终更新 outcome instrumentation 且 business state stutter，不使用
+  blocked action。source 名称进入 target-owned namespace，init StateLoad 从 canonical zero overlay
+  读取，重复 StateStore 为 last-write-wins；pureFn fully-expanded op、fallible-check cascade 与
+  rendered-expression node budget（含 div/mod totalization duplication）均有界，未调用 pureFn 也经过
+  完整 target validation；Plan/digest gate 另重验 expression type/reference 与 terminal-revert iff。
+- Artifacts/verification：产单一 `.qnt`（`text/x-quint`），`deployable=false`，product finalize
+  不运行 Quint/Apalache/TLC/Java。真实 CLI build + output inspect exact closure 已通过；host-optional
+  `QuintAcceptance` 在本机 exact Quint 0.32.0 自动 typecheck Counter、Arithmetic（五类算术 + nested div）、
+  Stopper（zero-payload revert）与 Logic（Bool/pureFn/invariant），并运行 TypeScript evaluator 最小 sampled smoke；`QuintSourceV1`
+  覆盖 overlay、first-failure/stutter、revert identity、expression budget 与 fail-closed。以上是
+  engineering/host observations，非全 UInt64 域执行、Reference differential、Tool Lock、
+  ITF/MBT/verify、formal D3/D4 或
+  accepted PRD Phase 1 扩面。
+
 ## 2026-08-03 — D3-E9 registry-owned descriptor semantics axes
 
 - Production：`Materialization.Protocol.TargetDescriptor` 删除自有六套 closed enum，直接复用

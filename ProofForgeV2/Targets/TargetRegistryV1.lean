@@ -1,8 +1,8 @@
 /-
   ProofForgeV2.Targets.TargetRegistryV1 — D3 engineering registry kernel (repair B)
 
-  **Sole** opaque static membership authority for the closed ten-target set
-  (6 implemented + 4 design-only). Product selection (`BuildSelectionV1`)
+  **Sole** opaque static membership authority for the closed twelve-target set
+  (9 implemented + 3 design-only). Product selection (`BuildSelectionV1`)
   consumes this seed; there is no second static index.
 
   **Not** formal TASK-D3-02:
@@ -37,7 +37,7 @@ def reservedFutureProfiles : Array String :=
 
 inductive ExecutionHostV1 where
   | evm | svm | nearWasm | cosmWasm | sorobanWasm | icpCanister
-  | noirCircuit | openvmGuest | aleoVm | psyDpn | tvm
+  | noirCircuit | openvmGuest | aleoVm | psyDpn | quintModel | tvm
   deriving BEq, DecidableEq, Repr
 
 inductive CommitModelV1 where
@@ -65,7 +65,7 @@ inductive ProofModelV1 where
 
 inductive SettlementModelV1 where
   | evmChain | solanaChain | nearChain | cosmosChain | stellarChain
-  | icpSubnet | externalVerifier | aleoChain | psyNetwork | tonChain
+  | icpSubnet | externalVerifier | aleoChain | psyNetwork | noSettlement | tonChain
   deriving BEq, DecidableEq, Repr
 
 namespace ExecutionHostV1
@@ -80,6 +80,7 @@ def toWire : ExecutionHostV1 → String
   | .openvmGuest => "openvm-guest"
   | .aleoVm => "aleo-vm"
   | .psyDpn => "psy-dpn"
+  | .quintModel => "quint-model"
   | .tvm => "tvm"
 instance : ToString ExecutionHostV1 := ⟨toWire⟩
 end ExecutionHostV1
@@ -150,6 +151,7 @@ def toWire : SettlementModelV1 → String
   | .externalVerifier => "external-verifier"
   | .aleoChain => "aleo-chain"
   | .psyNetwork => "psy-network"
+  | .noSettlement => "no-settlement"
   | .tonChain => "ton-chain"
 instance : ToString SettlementModelV1 := ⟨toWire⟩
 end SettlementModelV1
@@ -260,7 +262,7 @@ private def containsProfile (profiles : Array CodegenProfileId) (p : CodegenProf
 
 /-- Closed kind → exact product implemented flag (sole membership policy). -/
 def expectedImplementedOfKindV1 : TargetKind → Bool
-  | .evm | .solana | .near | .noir | .aleo | .psy | .cosmwasm | .ton => true
+  | .evm | .solana | .near | .noir | .aleo | .psy | .quint | .cosmwasm | .ton => true
   | .soroban | .icp | .openvm => false
 
 /-- Closed kind → exact list/describe maturity label. -/
@@ -271,6 +273,7 @@ def expectedMaturityLabelOfKindV1 : TargetKind → String
   | .noir => "source-only"
   | .aleo => "source-only"
   | .psy => "source-only"
+  | .quint => "source-only"
   | .cosmwasm => "wasm-validated-alpha"
   | .ton => "source-only"
   | .soroban | .icp | .openvm => "research-only"
@@ -288,6 +291,7 @@ def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
   | .icp => "research.icp.v1"
   | .openvm => "research.openvm.v1"
   | .psy => "phase1.psy-u64.v1"
+  | .quint => "research.quint.v1"
 
 /-- Closed kind → exact displayName. -/
 def expectedDisplayNameOfKindV1 : TargetKind → String
@@ -301,6 +305,7 @@ def expectedDisplayNameOfKindV1 : TargetKind → String
   | .openvm => "OpenVM"
   | .aleo => "Aleo"
   | .psy => "Psy"
+  | .quint => "Quint"
   | .ton => "TON"
 
 private def validateDisplayNameV1 (name : String) : CompileResult Unit := do
@@ -452,7 +457,7 @@ def listTargetInspectionsV1 (registry : TargetRegistryV1) :
     inspectTargetV1 registry reg.targetId
 
 -- ---------------------------------------------------------------------------
--- Frozen seed: sole 10-target membership table
+-- Frozen seed: sole 12-target membership table
 -- ---------------------------------------------------------------------------
 
 private def axes
@@ -498,6 +503,9 @@ def semanticsAxesOfKindV1 : TargetKind → TargetSemanticsAxesV1
   | .psy =>
       axes TargetId.psy .psyDpn .recursiveNetwork .userPartitioned
         .recursiveProofPipeline .recursiveAggregation .psyNetwork
+  | .quint =>
+      axes TargetId.quint .quintModel .relationExternal .externalPublicPrePost
+        .noNativeCall .noProof .noSettlement
   | .ton =>
       axes TargetId.ton .tvm .transactionAtomic .cellHashmap
         .asynchronousActor .noProof .tonChain
@@ -551,6 +559,9 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
     row .psy (semanticsAxesOfKindV1 .psy)
       #[CodegenProfileId.psyDargoU64V1]
       (some CodegenProfileId.psyDargoU64V1),
+    row .quint (semanticsAxesOfKindV1 .quint)
+      #[CodegenProfileId.quintSourceU64ModelV1]
+      (some CodegenProfileId.quintSourceU64ModelV1),
     row .ton (semanticsAxesOfKindV1 .ton)
       #[CodegenProfileId.tonTolkBocV1]
       (some CodegenProfileId.tonTolkBocV1)

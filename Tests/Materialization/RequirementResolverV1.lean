@@ -340,9 +340,9 @@ private def zeroDigest : Digest :=
 
 private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
-private def testFourRowTable : IO Unit := do
+private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 10) "exactly ten support rows"
+  expect (rows.size == 11) "exactly eleven support rows"
   let expectedKeys := #[
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4),
     ("cosmwasm", "cosmwasm-wasm-u64-v1", 6),
@@ -351,12 +351,13 @@ private def testFourRowTable : IO Unit := do
     ("near", "near-wasm-raw-u64-v1", 6),
     ("noir", "noir-source-u64-relations-v1", 7),
     ("psy", "psy-dargo-u64-v1", 6),
+    ("quint", "quint-source-u64-model-v1", 4),
     ("solana", "solana-sbpf-elf-v1", 7),
     ("solana", "solana-sbpf-plan-v1", 7),
     ("ton", "ton-tolk-boc-v1", 6)
   ]
   let mut i : Nat := 0
-  while i < 10 do
+  while i < expectedKeys.size do
     match rows[i]?, expectedKeys[i]? with
     | some row, some (tid, prof, supportCount) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"
@@ -381,6 +382,10 @@ private def testFourRowTable : IO Unit := do
         expect ((ids.contains "effect.synchronous-call") == expectSync &&
             (ids.contains "effect.asynchronous-workflow") == expectAsync)
           s!"row {i} capability gate shape"
+        if row.targetId == TargetId.quint then
+          expect (ids == #["failure.atomic-rollback", "state.persistent",
+              "value.bool", "value.checked-arithmetic"])
+            "Quint Q0 support row must be the exact four-key model subset"
         for item in row.supported do
           match engineeringRequirementDigestV1 item.id with
           | .ok d => expect (item.digest == d) s!"row {i} digest for {item.id}"
@@ -388,9 +393,9 @@ private def testFourRowTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 10-row (target,profile) skeleton matching the shipped index shape.
+/-- Canonical 11-row (target,profile) skeleton matching the shipped index shape.
     `evmSupported` replaces both EVM rows' supported lists for content negatives. -/
-private def tenRowSkeleton
+private def elevenRowSkeleton
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
     Array StaticRequirementSupportRowV1 :=
@@ -402,6 +407,7 @@ private def tenRowSkeleton
     mkRow .near CodegenProfileId.nearWasmRawU64V1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
     mkRow .psy CodegenProfileId.psyDargoU64V1 base,
+    mkRow .quint CodegenProfileId.quintSourceU64ModelV1 base,
     mkRow .solana CodegenProfileId.solanaSbpfElfV1 base,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 base,
     mkRow .ton CodegenProfileId.tonTolkBocV1 base
@@ -412,7 +418,7 @@ private def nineRowSkeleton
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
     Array StaticRequirementSupportRowV1 :=
-  tenRowSkeleton base evmSupported
+  elevenRowSkeleton base evmSupported
 
 private def testIndexValidationNegatives : IO Unit := do
   let trio ← s2Trio
@@ -455,9 +461,9 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .openvm CodegenProfileId.evmYulSolc0834V1 trio
   ]
-  -- Size-extra first (11 rows vs expected 10):
+  -- Size-extra first (12 rows vs expected 11):
   let extra :=
-    (tenRowSkeleton trio trio).push
+    (elevenRowSkeleton trio trio).push
       (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)
   expectErrorCode (createStaticRequirementSupportIndexV1 extra)
     "PF-REGISTRY-INVALID" "extra design-only row"
@@ -504,30 +510,30 @@ private def testIndexValidationNegatives : IO Unit := do
   let r1 ← match trio[1]? with | some r => pure r | none => throw <| IO.userError "trio1"
   let r2 ← match trio[2]? with | some r => pure r | none => throw <| IO.userError "trio2"
   let reversed := #[r2, r1, r0]
-  let revRows := nineRowSkeleton trio reversed
+  let revRows := elevenRowSkeleton trio reversed
   expectErrorCode (createStaticRequirementSupportIndexV1 revRows)
     "PF-REGISTRY-INVALID" "non-canonical requirement order"
   -- Duplicate requirement id
   let dupReq := #[r0, r0, r1]
-  let dupReqRows := nineRowSkeleton trio dupReq
+  let dupReqRows := elevenRowSkeleton trio dupReq
   expectErrorCode (createStaticRequirementSupportIndexV1 dupReqRows)
     "PF-REGISTRY-DUPLICATE" "duplicate requirement in support row"
   -- Wrong version
   let badVer := { r0 with version := { major := 2, minor := 0, patch := 0 } }
   let badVerTrio := #[badVer, r1, r2]
-  let badVerRows := nineRowSkeleton trio badVerTrio
+  let badVerRows := elevenRowSkeleton trio badVerTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 badVerRows)
     "PF-REGISTRY-INVALID" "wrong requirement version in support row"
   -- Wrong digest
   let badDig := { r0 with digest := zeroDigest }
   let badDigTrio := #[badDig, r1, r2]
-  let badDigRows := nineRowSkeleton trio badDigTrio
+  let badDigRows := elevenRowSkeleton trio badDigTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 badDigRows)
     "PF-REGISTRY-INVALID" "wrong requirement digest in support row"
   -- Nonempty predicates
   let withPred := { r0 with predicates := #[.boolEquals "x" true] }
   let predTrio := #[withPred, r1, r2]
-  let predRows := nineRowSkeleton trio predTrio
+  let predRows := elevenRowSkeleton trio predTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 predRows)
     "PF-REGISTRY-INVALID" "nonempty predicates in support row"
   -- Unknown requirement id (swap the last item for a non-catalog id that
@@ -543,7 +549,7 @@ private def testIndexValidationNegatives : IO Unit := do
     let some first := full[0]? | throw <| IO.userError "trio0"
     let some second := full[1]? | throw <| IO.userError "trio1"
     pure #[first, second, unknown]
-  let unkRows := nineRowSkeleton unkTrio unkTrio
+  let unkRows := elevenRowSkeleton unkTrio unkTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 unkRows)
     "PF-REGISTRY-INVALID" "unknown requirement id in support row"
 
@@ -1111,7 +1117,7 @@ private unsafe def testCapabilityMintUniqueness : IO Unit := do
     "sole-mint capability.requirements == retained freeze"
 
 unsafe def run : IO Unit := do
-  testFourRowTable
+  testSupportTable
   testIndexValidationNegatives
   testSeedPrecedence
   testRequestInspectionErrors

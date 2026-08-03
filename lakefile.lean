@@ -210,6 +210,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.AleoAcceptance,
     `Tests.Materialization.PsySourceV1,
     `Tests.Materialization.PsyAcceptance,
+    `Tests.Materialization.QuintSourceV1,
+    `Tests.Materialization.QuintAcceptance,
     `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.EvmSolcAcceptance,
     `Tests.Materialization.NearWasmAcceptance,

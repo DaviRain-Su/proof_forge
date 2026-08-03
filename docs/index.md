@@ -17,10 +17,11 @@ normative: true
 
 **当前工程路径（非 formal 完成）**：CLI 进程内 `Loader.selectProgramV1Product` →
 CheckV1/Normalize → `CompiledSemanticV1` → capability Plan/IR → 工程制品/disk closure。
-工程 registry **11 = 8 implemented + 3 design-only**；**八个 materializer**
-（EVM/Solana/NEAR/Noir/Aleo/Psy/CosmWasm/TON）均直连 retained `SemanticProgramV1`。
-CosmWasm：WAT + `wat2wasm` + check + mock VM；TON：Tolk/BoC + sandbox（Plan schedule 仍
-FC）。**Accepted PRD Phase 1 仍为四目标**（EVM/Solana/NEAR/Noir）；Aleo/Psy/CosmWasm/TON
+工程 registry **12 = 9 implemented + 3 design-only**；**九个 materializer**
+（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）均直连 retained `SemanticProgramV1`。
+Quint：source-only `.qnt` + zero-tool finalize；CosmWasm：WAT + `wat2wasm` + check + mock VM；
+TON：Tolk/BoC + sandbox（Plan schedule 仍 FC）。**Accepted PRD Phase 1 仍为四目标**
+（EVM/Solana/NEAR/Noir）；Aleo/Psy/Quint/CosmWasm/TON
 为 engineering leaves，范围 reconciliation 待 **`DOC-ADR-SCOPE`**。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 

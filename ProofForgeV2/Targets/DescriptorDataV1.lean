@@ -1,12 +1,12 @@
 /-
-  Shared engineering TargetDescriptor data for seven registry-implemented entries.
+  Shared engineering TargetDescriptor data for nine registry-implemented entries.
 
   Registry-owned `semanticsAxesOfKindV1` is the sole six-axis seed. This module
   adds profile/artifact-encoding metadata and exposes the exact descriptor ↔
   registration join used before capability/artifact identity and inspection.
-  Six entries have materializers; CosmWasm is currently A0 selection metadata only.
-  Requirement support is intentionally absent: the engineering resolver index
-  remains the sole current authority, while formal SupportClaim is pending.
+  All nine entries have target-owned materializers. Requirement support is
+  intentionally absent: the engineering resolver index remains the sole current
+  authority, while formal SupportClaim is pending.
 -/
 import ProofForgeV2.Materialization.Protocol
 import ProofForgeV2.Core.TargetIdentityV1
@@ -67,10 +67,14 @@ def aleo : TargetDescriptor :=
 def psy : TargetDescriptor :=
   descriptorFromRegistryAxes .psy .psySource CodegenProfileId.psyDargoU64V1
 
-/-- CosmWasm A0 descriptor/profile metadata only. No Plan/IR/emitter/finalizer
-    exists yet, so product build remains fail-closed. Any CW-A1 implementation
-    must use a CosmWasm-owned Plan and may share only deterministic Wasm encoding
-    per ADR-0007; runtime/ABI details remain blocked on `CW-ABI-FREEZE`. -/
+/-- Quint is a source-only executable state-model target. Product finalization
+    emits `.qnt` but does not run Quint, Apalache, TLC, or a JVM. -/
+def quint : TargetDescriptor :=
+  descriptorFromRegistryAxes .quint .quintSource CodegenProfileId.quintSourceU64ModelV1
+
+/-- CosmWasm descriptor for its target-owned Plan/IR/WAT materializer.
+    It may share only deterministic Wasm encoding per ADR-0007; host/runtime
+    semantics remain CosmWasm-owned and must not reuse the NEAR Plan. -/
 def cosmwasm : TargetDescriptor :=
   descriptorFromRegistryAxes .cosmwasm .wasmText CodegenProfileId.cosmwasmWasmU64V1
 
@@ -89,6 +93,7 @@ def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .noir => some noir
   | .aleo => some aleo
   | .psy => some psy
+  | .quint => some quint
   | .cosmwasm => some cosmwasm
   | .ton => some ton
   | _ => none

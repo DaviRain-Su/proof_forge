@@ -6,9 +6,9 @@
   BuildIdentity, formal registry root digest, claimDigest, predicate implication,
   or OutputSetV1.
 
-  Static rows are exactly the four currently implemented (targetId, codegenProfile)
-  pairs from the frozen TargetRegistry membership table, in canonical
-  (targetId, profile) ASCII order. Each row supports a per-target subset of the
+  Static rows cover exactly the implemented (targetId, codegenProfile) pairs
+  from the frozen TargetRegistry membership table, in canonical (targetId,
+  profile) ASCII order. Each row supports a per-target subset of the
   S2 seven RequirementRequestV1 keys in wire order:
     effect.asynchronous-workflow, effect.event, effect.synchronous-call,
     failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic
@@ -217,8 +217,8 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped ten-row seed body (canonical targetId order: aleo, cosmwasm, evm×2,
-    near, noir, psy, solana×2, ton). EVM carries both
+/-- Shipped eleven-row seed body (canonical targetId order: aleo, cosmwasm,
+    evm×2, near, noir, psy, quint, solana×2, ton). EVM carries both
     `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1` (ASCII ascending;
     default remains legacy v1). Solana carries both `solana-sbpf-elf-v1`
     and `solana-sbpf-plan-v1` (ASCII ascending); both share the same S2
@@ -268,6 +268,13 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- whole-tx abort on submessage failure — not cross-tx async).
   let cosmwasmRequests := catalogRequests.filter fun r =>
     r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
+  -- Quint Q0 is an executable state-model projection, not a deployment target.
+  -- It models persistent state, Bool, checked arithmetic, and explicit
+  -- rollback outcomes; event/call/schedule effects remain fail closed.
+  let quintRequests := catalogRequests.filter fun r =>
+    r.id != Semantic.RequirementIdsV1.s2EffectEventIdV1 &&
+      r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
@@ -279,6 +286,7 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
+    mkImplementedRow .quint CodegenProfileId.quintSourceU64ModelV1 quintRequests,
     mkImplementedRow .solana CodegenProfileId.solanaSbpfElfV1 catalogRequests,
     mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 catalogRequests,
     mkImplementedRow .ton CodegenProfileId.tonTolkBocV1 withoutSync

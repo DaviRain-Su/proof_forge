@@ -40,13 +40,13 @@ private def digestBytesEq (a b : Digest) : Bool :=
 private def testSoleMembershipSource : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 11) "11 registrations"
+  expect (regs.size == 12) "12 registrations"
   let impl := implementedRegistrationsV1 registry
   let design := designOnlyRegistrationsV1 registry
-  expect (impl.size == 8) "8 implemented"
+  expect (impl.size == 9) "9 implemented"
   expect (design.size == 3) "3 design-only"
   let expectedIds :=
-    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "solana", "soroban", "ton"]
+    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
   expect (regs.map (·.targetId.toString) == expectedIds) "canonical TargetId order"
   -- Product selection binds the same frozen seed.
   for reg in impl do
@@ -91,6 +91,8 @@ private def testClosedAxesWires : IO Unit := do
     "program-proof-final" "application-chain-proof" "aleo-chain"
   expectAxes TargetId.psy "psy-dpn" "recursive-network" "user-partitioned"
     "recursive-proof-pipeline" "recursive-aggregation" "psy-network"
+  expectAxes TargetId.quint "quint-model" "relation-external" "external-public-pre-post"
+    "no-native-call" "no-proof" "no-settlement"
   -- Closed enum constructors are the only construction path (no String parse API).
   expect (ExecutionHostV1.evm.toWire == "evm") "ExecutionHostV1.evm wire"
   expect (ProofModelV1.noProof.toWire == "no-proof") "ProofModelV1.noProof wire"

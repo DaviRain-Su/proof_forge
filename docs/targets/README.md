@@ -22,9 +22,10 @@ normative: true
 > **双轨（显著）**：
 >
 > 1. **Accepted PRD Phase 1 范围**仍为 **四目标**：`evm` / `solana` / `near` / `noir`。
-> 2. **Engineering implemented leaves** 另有 `aleo` / `psy` / `cosmwasm` / `ton`（代码可
->    build，**不**等于 accepted 产品范围已扩）。二者 reconciliation 由 **`DOC-ADR-SCOPE`**
->    跟踪；不得因表格「implement」字样静默扩大 accepted scope。
+> 2. **Engineering implemented leaves** 另有 `aleo` / `psy` / `cosmwasm` / `ton` /
+>    `quint`（工程已可寻址并 materialize，**不**等于 accepted 产品范围已扩）。二者
+>    reconciliation 由 **`DOC-ADR-SCOPE`** 跟踪；不得因表格「implement」字样静默扩大
+>    accepted scope。`quint` 为 ADR-0026 冻结并已接线的 source-only model surface。
 
 | Target | 视图 | 本阶段 | Static dossier ceiling | 当前证据与限制（工程观察，非 formal binding） | Dossier |
 |---|---|---|---|---|---|
@@ -39,13 +40,15 @@ normative: true
 | `aleo` | ZK application chain | engineering implemented (scope ADR open) | `specified` | 工程 source-only leaf；locked leo 4.0.2 compile-only 验收；无 VM/prove/deploy；**非** accepted Phase 1 范围 | [Aleo](09-aleo.md) |
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | `specified` | 工程 source-only leaf；host tool 可用时 optional compile，但无 Tool Lock/VM/proof；**非** accepted Phase 1 范围 | [Psy](10-psy.md) |
 | `ton` | TVM Stack-Account | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → Tolk + real BoC + `@ton/sandbox` 工程差分；registry label `source-only`；resolver 开 `effect.asynchronous-workflow`/event、**Plan schedule 仍 FC**（destination/send-mode 未接线）；sync call 显式 FC；**非** 主网/formal；**非** accepted Phase 1 范围 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
+| `quint` | executable specification / model | engineering implemented (scope ADR open) | `research` | retained-V1 Q0 Plan/IR → `.qnt` + **zero-tool** finalize；profile `quint-source-u64-model-v1`；resolver 仅 4-key；完整 UInt64 域；失败=显式 outcome+business-state stutter；zero-param Bool invariant→`val`；本机 Quint 0.32 typecheck/run 仅 host observation，非 locked gate；ITF/MBT/verify 未声称；不可部署、非 accepted Phase 1/formal D3/D4 | [Quint](12-quint.md) · [ADR-0026](../adr/0026-quint-target-integration.md) |
 
-> **Registry 计数（工程事实，2026-08-03）**：**11 = 8 implemented + 3 design-only**。
-> 八个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` / `psy` / `cosmwasm` /
-> `ton`。三个 design-only：`soroban` / `icp` / `openvm`。其中 **accepted PRD Phase 1** 仍
-> 仅前四；后四为 engineering leaves，`DOC-ADR-SCOPE` 未闭合前不得写成 accepted 范围。
-> registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON `source-only`）不变；
-> compile / mock / sandbox 不得写成 formal 或 hermetic 完成。
+> **Registry 计数（当前工程事实，2026-08-03）**：**12 = 9 implemented + 3
+> design-only**。九个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
+> `psy` / `quint` / `cosmwasm` / `ton`。三个 design-only：`soroban` / `icp` /
+> `openvm`。其中 **accepted PRD Phase 1** 仍仅前四；`aleo`/`psy`/`quint`/`cosmwasm`/
+> `ton` 为 engineering leaves，`DOC-ADR-SCOPE` 未闭合前不得写成 accepted 范围。
+> Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint
+> `source-only`）不变；compile / mock / sandbox / 模型检查不得写成 formal 或 hermetic 完成。
 
 ## Family 视图
 
@@ -56,6 +59,7 @@ normative: true
 - [zkVM](family-zkvm.md)
 - [ZK application chain](family-zk-application-chain.md)
 - [TVM Stack-Account](family-tvm-stack-account.md)
+- Quint executable specification / model surface（见 [12-quint.md](12-quint.md)；无独立 family 文档）
 
 ## 通用状态规则
 

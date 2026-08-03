@@ -62,6 +62,7 @@ import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.EvmCorpusBlockedV1
 import Tests.Materialization.NearWasmAcceptance
 import Tests.Materialization.PsyAcceptance
+import Tests.Materialization.QuintSourceV1
 import Tests.Materialization.SolanaPlanV1
 
 import Tests.Materialization.Targets
@@ -147,6 +148,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.EvmCorpusBlockedV1.run
   Tests.Materialization.NearWasmAcceptance.run
   Tests.Materialization.PsyAcceptance.run
+  Tests.Materialization.QuintSourceV1.run
   Tests.Materialization.SolanaPlanV1.run
 
   Tests.Materialization.TargetRegistryV1.run

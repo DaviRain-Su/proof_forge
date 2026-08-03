@@ -13,6 +13,7 @@ inductive ArtifactEncoding where
   | noirSource
   | leoSource
   | psySource
+  | quintSource
   | tolkSource
   | researchOnly
   deriving BEq, Inhabited, Repr
