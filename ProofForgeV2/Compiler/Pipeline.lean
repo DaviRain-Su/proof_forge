@@ -1,5 +1,6 @@
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Semantic.NormalizeV1
+import ProofForgeV2.Semantic.ProofSubjectV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.OriginJoinV1
@@ -11,6 +12,7 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Semantic.NormalizeV1
+open ProofForgeV2.Semantic.ProofSubjectV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.OriginJoinV1
@@ -134,6 +136,22 @@ def artifactSemanticHashHexOf (compiled : CompiledSemanticV1) : CompileResult St
   digestHexV1 "compiled semantic" compiled.semanticDigest
 
 end CompiledSemanticV1
+
+/-- Close the production source/semantic/provenance proof subject from the
+    exact Loader origin inventory and retained compiler semantic carrier. -/
+def proofSubjectOfCompiledSemanticV1
+    (source : ValidatedSourceV1)
+    (inventory : OriginInventoryV1)
+    (compiled : CompiledSemanticV1) :
+    Except ProofSubjectErrorV1 ProofSubjectV1 := do
+  let subject ← buildProofSubjectFromOriginInventoryV1
+    source inventory (CompiledSemanticV1.semanticV1Of compiled)
+  unless subject.sourceHash == CompiledSemanticV1.sourceDigestOf compiled do
+    return ← .error (.sourceHash "compiled source identity diverged from proof subject")
+  unless subject.semanticHash == CompiledSemanticV1.semanticDigestOf compiled do
+    return ← .error (.authority (.identity
+      "compiled semantic identity diverged from proof subject"))
+  pure subject
 
 /-- Shared post-Normalize success path and sole `CompiledSemanticV1` mint.
     It performs only identity/digest joins over the retained semantic carrier;

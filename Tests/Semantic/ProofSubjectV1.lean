@@ -7,18 +7,23 @@
 -/
 import Tests.Language.ParserSession
 import Tests.Semantic.ProofSubjectGeneratedFixtureV1
+import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Compiler.ProofBundleFilesV1
 import ProofForgeV2.Semantic.ProofReferenceJoinV1
 import ProofForgeV2.Semantic.ProofSubjectV1
 
 namespace Tests.Semantic.ProofSubjectV1
 
 open ProofForgeV2
+open System
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Compiler.ProofBundleFilesV1
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.ProofBundleV1
 open ProofForgeV2.Semantic.ProofReferenceJoinV1
 open ProofForgeV2.Semantic.ProofSubjectV1
 open ProofForgeV2.Semantic.WireV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.SpanV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireV1
@@ -40,6 +45,15 @@ private def sourceText (name : String) (literal : Nat) : String :=
   "program " ++ name ++ " where\n" ++
   "  entry truth() : UInt64 do\n" ++
   "    return " ++ toString literal ++ "\n"
+
+private def proofSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program ProofSubjectCli where\n" ++
+  "  entry get() : UInt64 do\n" ++
+  "    return 7\n" ++
+  "  invariant truth : true\n" ++
+  "  proof truth using Bundle.Thm\n"
 
 private unsafe def loadSourceWithSpans
     (session : Language.Loader.ParserSession) (label name : String) (literal : Nat) :
@@ -178,6 +192,28 @@ private unsafe def testPositiveAndClosedSource
   let (_, _, _, repeated) ← buildPositive source path spans
   expect (repeated.closedLeanSource == subject.closedLeanSource)
     "positive: source generation deterministic"
+  let inventory ← match joinOriginsV1 source path spans with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"positive inventory: {repr error}"
+  let inventorySubject ← match buildProofSubjectFromOriginInventoryV1
+      source inventory carrier with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"inventory subject: {repr error}"
+  expect (inventorySubject.program == subject.program)
+    "positive: inventory subject program parity"
+  expect (inventorySubject.provenance == subject.provenance)
+    "positive: inventory subject provenance parity"
+  expect (inventorySubject.semanticProvenanceDigest == subject.semanticProvenanceDigest)
+    "positive: inventory subject digest parity"
+  let compiled ← match ProofForgeV2.Compiler.compileProgramProductV1 source inventory with
+    | .ok value => pure value
+    | .error _ => throw <| IO.userError "product compile failed"
+  let compiledSubject ← match
+      ProofForgeV2.Compiler.proofSubjectOfCompiledSemanticV1 source inventory compiled with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"compiled subject: {repr error}"
+  expect (compiledSubject.semanticProvenanceDigest == subject.semanticProvenanceDigest)
+    "positive: compiled subject provenance parity"
 
 private unsafe def testTransportPriorityAndAuthority
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -218,6 +254,24 @@ private unsafe def testTransportPriorityAndAuthority
       source path spans carrier.canonicalBytes otherPfprov with
     | .error (.authority _) => true
     | _ => false) "authority: canonical provenance substitution rejected"
+  let otherInventory ← match joinOriginsV1 otherSource otherPath otherSpans with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"foreign inventory: {repr error}"
+  expect (match buildProofSubjectFromOriginInventoryV1
+      source otherInventory carrier with
+    | .error (.authority _) => true
+    | _ => false) "authority: foreign opaque origin inventory rejected"
+  let inventory ← match joinOriginsV1 source path spans with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"source inventory: {repr error}"
+  let otherCompiled ← match
+      ProofForgeV2.Compiler.compileProgramProductV1 otherSource otherInventory with
+    | .ok value => pure value
+    | .error _ => throw <| IO.userError "foreign product compile failed"
+  expect (match ProofForgeV2.Compiler.proofSubjectOfCompiledSemanticV1
+      source inventory otherCompiled with
+    | .error (.authority _) => true
+    | _ => false) "authority: foreign compiled semantic rejected"
 
 private unsafe def testManifestDigestJoin
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -250,11 +304,84 @@ private unsafe def testManifestDigestJoin
     | .error .semanticProvenanceDigestMismatch => true
     | _ => false) "manifest join: provenance digest claim rejected"
 
+private unsafe def testProductCliProvenanceJoin
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let cli := FilePath.mk ".lake/build/bin/proof-forge-next"
+  unless ← cli.pathExists do
+    throw <| IO.userError "product CLI binary is required by typed shard"
+  let cli ← IO.FS.realPath cli
+  let base := (← IO.currentDir) / "build/proof-subject-product-cli"
+  try IO.FS.removeDirAll base catch _ => pure ()
+  IO.FS.createDirAll base
+  let sourceRelative := "build/proof-subject-product-cli/source.lean"
+  let sourceFile := (← IO.currentDir) / sourceRelative
+  IO.FS.writeFile sourceFile proofSourceText
+  let (source, spans) ← match ← session.selectProgramV1WithSpans
+      proofSourceText sourceRelative "Tests.ProofSubjectCli" none with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"CLI source load: {error.render}"
+  let path ← match parseProjectRelativePath sourceRelative with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"CLI source path: {error}"
+  let inventory ← match joinOriginsV1 source path spans with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"CLI origin inventory: {repr error}"
+  let compiled ← match ProofForgeV2.Compiler.compileProgramProductV1 source inventory with
+    | .ok value => pure value
+    | .error _ => throw <| IO.userError "CLI product compile failed"
+  let subject ← match
+      ProofForgeV2.Compiler.proofSubjectOfCompiledSemanticV1 source inventory compiled with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"CLI proof subject: {repr error}"
+  let writeBundle (label : String) (provenanceDigest : Digest) :
+      IO (FilePath × Digest) := do
+    let root := base / label
+    IO.FS.createDirAll (root / "modules/Bundle")
+    let opened ← openMatchingBundle subject.sourceHash subject.semanticHash provenanceDigest
+    let manifestBytes ← match encodeProofBundleManifestV1 opened.manifest with
+      | .ok value => pure value.toUTF8
+      | .error error => throw <| IO.userError s!"CLI manifest encode: {repr error}"
+    IO.FS.writeBinFile (root / proofBundleManifestFileNameV1) manifestBytes
+    IO.FS.writeBinFile (root / "modules/Bundle/Root.olean")
+      "proof-subject-join-olean".toUTF8
+    pure (root, opened.bundleDigest)
+  let (matchingRoot, matchingDigest) ←
+    writeBundle "matching" subject.semanticProvenanceDigest
+  let matchingWire ← match renderDigest matchingDigest with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let matching ← IO.Process.output {
+    cmd := cli.toString
+    args := #["check", sourceRelative, "--module", "Tests.ProofSubjectCli",
+      "--proof-bundle", matchingRoot.toString,
+      "--proof-bundle-digest", matchingWire]
+  }
+  expect (matching.exitCode == 0)
+    s!"product CLI matching provenance failed: {matching.stderr}"
+  let staleDigest := sha256Bytes "stale-product-provenance".toUTF8
+  let (staleRoot, staleBundleDigest) ← writeBundle "stale" staleDigest
+  let staleWire ← match renderDigest staleBundleDigest with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let output := base / "must-not-exist"
+  let stale ← IO.Process.output {
+    cmd := cli.toString
+    args := #["build", sourceRelative, "--module", "Tests.ProofSubjectCli",
+      "--target", "evm", "-o", output.toString,
+      "--proof-bundle", staleRoot.toString,
+      "--proof-bundle-digest", staleWire]
+  }
+  expect (stale.exitCode != 0) "product CLI stale provenance accepted"
+  expect ((stale.stdout ++ stale.stderr).contains "semanticProvenanceDigest")
+    s!"product CLI stale provenance error: {stale.stderr}"
+  expect (!(← output.pathExists)) "stale provenance materialized build output"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testPositiveAndClosedSource session
   testTransportPriorityAndAuthority session
   testManifestDigestJoin session
+  testProductCliProvenanceJoin session
   IO.println "Tests.Semantic.ProofSubjectV1: ok"
 
 end Tests.Semantic.ProofSubjectV1

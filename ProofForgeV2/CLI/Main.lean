@@ -155,11 +155,13 @@ private def openProofBundleDirectoryV1 (dir : FilePath) :
   | .error (.bundle pe) => pure (.error (.bundleOpen pe))
   | .error error => pure (.error (.bundleOpen (.malformed s!"safe bundle load: {repr error}")))
 
-/-- After successful product compile: gate + optional ProofBundle join.
+/-- After successful product compile: build the source-bound proof subject,
+    then gate + optionally join the ProofBundle including provenance identity.
     Order matches SPEC-CLI: normalize/hash first, then proof-bundle join.
     Does not load ambient theorems; join is name/digest structural only. -/
 private def applyProofBundleProductGateV1
     (sourceProgram : ValidatedSourceV1)
+    (origins : OriginInventoryV1)
     (compiled : CompiledSemanticV1)
     (options : BuildOptions) : IO Unit := do
   let bindings := collectSourceProofBindingsV1 sourceProgram.program
@@ -180,12 +182,14 @@ private def applyProofBundleProductGateV1
       | .ok d => pure d
       | .error detail =>
           failProofJoin (.digestMismatch s!"invalid --proof-bundle-digest: {detail}")
+    let subject ← match proofSubjectOfCompiledSemanticV1 sourceProgram origins compiled with
+      | .ok value => pure value
+      | .error _ => failProofJoin (.internal
+          "source-bound proof subject construction failed")
     let opened ← match ← openProofBundleDirectoryV1 dir with
       | .error e => failProofJoin e
       | .ok o => pure o
-    let sourceHash := CompiledSemanticV1.sourceDigestOf compiled
-    let semanticHash := CompiledSemanticV1.semanticDigestOf compiled
-    match joinProofReferencesV1 bindings opened expected sourceHash semanticHash with
+    match joinValidatedProofSubjectV1 bindings opened expected subject with
     | .error e => failProofJoin e
     | .ok () => pure ()
 
@@ -255,7 +259,7 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   | .error bundle => failBundle bundle
   | .ok compiled =>
       -- INV-1: proof-bundle join after compile, before materialize.
-      applyProofBundleProductGateV1 sourceProgram compiled options
+      applyProofBundleProductGateV1 sourceProgram origins compiled options
       -- Product phase: in-process Loader read → located compile → exact
       -- requirement capability → emit/finalize/disk closure.
       -- Selected codegen profile is bound by selection and flows into the
@@ -297,7 +301,7 @@ private unsafe def checkSource (options : BuildOptions) : IO Unit := do
   | .error bundle => failBundle bundle
   | .ok compiled =>
       -- INV-1: proof-bundle join after compile (no materialize).
-      applyProofBundleProductGateV1 sourceProgram compiled options
+      applyProofBundleProductGateV1 sourceProgram origins compiled options
       let target? := selection?.map ResolvedBuildSelectionV1.targetIdOf
       let profile? := selection?.map ResolvedBuildSelectionV1.codegenProfileOf
       match selection? with

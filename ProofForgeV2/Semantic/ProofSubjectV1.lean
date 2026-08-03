@@ -20,6 +20,7 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.SpanV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireV1
 
@@ -86,5 +87,37 @@ def buildProofSubjectV1
     | .error error => return ← .error (.authority error)
   pure ⟨program, provenance, sourceHash, semanticHash,
     semanticProvenanceDigest, renderClosedLeanSourceV1 program.canonicalBytes⟩
+
+/-- Mint the product proof subject directly from Source's opaque production
+    origin inventory and the exact retained semantic carrier. This closes the
+    source/semantic/provenance identity without accepting caller-projected
+    spans, provenance bytes, or digest claims. It still performs no `.olean`
+    loading, trust-policy validation, or kernel replay. -/
+def buildProofSubjectFromOriginInventoryV1
+    (source : ValidatedSourceV1)
+    (inventory : OriginInventoryV1)
+    (program : SemanticProgramV1) :
+    Except ProofSubjectErrorV1 ProofSubjectV1 := do
+  let provenance ← match
+      buildSemanticProvenanceFromOriginInventoryV1 source inventory program with
+    | .ok value => pure value
+    | .error error => return ← .error (.authority error)
+  let provenanceBytes ← match encodeSemanticProvenanceV1 provenance with
+    | .ok value => pure value
+    | .error error => return ← .error (.semanticProvenanceWire error)
+  let canonicalProvenance ← match decodeSemanticProvenanceV1 provenanceBytes with
+    | .ok value => pure value
+    | .error error => return ← .error (.semanticProvenanceWire error)
+  unless canonicalProvenance == provenance do
+    return ← .error (.authority (.identity
+      "encoded provenance did not round-trip to the authoritative value"))
+  let sourceHash ← match sourceHashV1 source with
+    | .ok value => pure value
+    | .error detail => return ← .error (.sourceHash detail)
+  let semanticHash ← match semanticHashV1 program with
+    | .ok value => pure value
+    | .error error => return ← .error (.semanticProgramWire error)
+  pure ⟨program, canonicalProvenance, sourceHash, semanticHash,
+    sha256Bytes provenanceBytes, renderClosedLeanSourceV1 program.canonicalBytes⟩
 
 end ProofForgeV2.Semantic.ProofSubjectV1
