@@ -3,14 +3,14 @@ id: ADR-INDEX
 title: Architecture Decision Records
 status: proposed
 owner: architecture
-updated: 2026-07-29
+updated: 2026-08-03
 normative: true
 ---
 
 # Architecture Decision Records
 
 状态：`proposed`
-更新日期：2026-07-29
+更新日期：2026-08-03
 
 ADR 是 V2 架构决定的最高规范性记录。frontmatter 生命周期统一使用
 `draft | proposed | in_review | accepted | superseded | archived`；未采纳的提案使用 `archived`
@@ -43,3 +43,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0022](0022-d1-diagnostics-contained-frontend-contract.md) | D1 diagnostic / contained-frontend 工程契约（parser 1.0.0 default、containment class、receipts、DiagnosticOriginV1） | proposed |
 | [ADR-0023](0023-aleo-target-integration.md) | Aleo（Leo 4.0.2）capability-gated target 集成（第 5 个 implemented target；source-only） | proposed |
 | [ADR-0024](0024-ton-target-integration.md) | TON（Tolk 1.4.2 / TVM）capability-gated target 集成（第 8 个 implemented target；source-only；sync call fail closed） | proposed |
+| [ADR-0025](0025-evm-caller-principal-realization.md) | EVM `context.caller` Principal realization encoding contract（`u32le(20)\|\|CALLER`；shared wire 不变；Plan 仍 FC 至原子 cutover） | accepted |

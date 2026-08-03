@@ -34,7 +34,26 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   `solc --evm-version cancun`，runtime 经 `PF_EVM_PROFILE=…cancun-v1` 启动
   `anvil --hardfork cancun`。两 profile 共用锁定 solc 0.8.34 / Anvil 0.3.0，不升级工具。
 
-**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead（EVM Plan 显式 fail-closed）；Option state 仍 fail-closed（仅作 Map IndexGet 中间值）；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合。
+**明确未闭合**：完整 SemanticProgramV1 表面；**ContextRead 仍 EVM Plan 显式 fail-closed**（见下节 encoding contract：决策已冻结、物化未交付）；Option state 仍 fail-closed（仅作 Map IndexGet 中间值）；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025 写成 Ownable/OZ/ABI/formal 完成。
+
+## 0.1 `context.caller` Principal encoding contract（ADR-0025；物化未开）
+
+产品决策已冻结（[ADR-0025](../adr/0025-evm-caller-principal-realization.md)），**当前代码路径仍对
+`Op.ContextRead` fail closed**，直至后续 target-owned Plan/IR/Yul + tests 原子 cutover：
+
+| 项 | 合同 |
+|---|---|
+| Shared `Principal` wire | **不变**：`u32le(len) \|\| opaque body`（`1..4096`）；无 Address TypeShape / 第二套 codec |
+| 未来 EVM `context.caller` 结果 | **唯一** canonical valueBytes = `u32le(20) \|\| address20`，其中 `address20` = opcode **`CALLER`** 的 network-order 20 raw bytes |
+| 禁止 | truncate/pad/hash/prefix-strip、bare-20B / left-pad-32B 并行拼写、任意 Principal→address 近似映射、静默 fallback |
+| 不解锁 | Solidity `address` ABI、indexed address event/error、dynamic CALL/callee、payable/value、proxy；T10 Principal **storage** 仍为 wire-identity leaf（≠ 20B address slot） |
+| Reference | invocation 对 caller key 使用 **同一** Principal canonical bytes；equality 为完整 valueBytes byte-exact；TargetId **不**改写业务语义 |
+| 他 target | Solana/NEAR/Noir/Aleo/Psy ContextRead Plan **保持 FC**；各自 identity 长度/字节须另决策 |
+| Ownable F01 | **仍 Blocked**；无 OZ / ABI / formal / release claim |
+
+B-3 PrincipalAddr pin（wire Principal ≠ 固定 EVM address type；CALL 非 dynamic Principal 地址）与
+AddressBearing static-QN CALL **继续有效**；本 contract 只约束 **ContextRead caller 物化拼写**，
+不修复 B-CALL-SEM。
 
 ## 1. 身份与来源
 

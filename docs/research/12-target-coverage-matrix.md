@@ -62,7 +62,7 @@ normative: false
 | pureCall（fn/localCall） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | emit / revert | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | FAIL-CLOSED emit; bare revert LOWERED |
 | assertOp | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
-| contextRead | FAIL-CLOSED(全target) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| contextRead | FAIL-CLOSED(全target；**EVM caller encoding 已冻结 ADR-0025：`u32le(20)\|\|CALLER`，Plan 未开**) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | commit | LOWERED(身份透传) | LOWERED(身份透传) | LOWERED(身份透传) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(身份透传) |
 | externalCall（sync call） | LOWERED(static QN→CALL；语义 PARTIAL) | LOWERED(static QN；SBPF 仅 log stub，非 CPI) | FAIL-CLOSED | LOWERED(relation slots；语义 PARTIAL) | LOWERED(`__invoke_sync` source；语义 PARTIAL) | FAIL-CLOSED(resolver+plan) |
 | schedule（async） | LOWERED(static QN→同步 CALL+忽略结果；语义 stub) | LOWERED(static QN；SBPF 仅 log stub) | LOWERED(promise；fire-and-forget) | LOWERED(relation slots；语义 PARTIAL) | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
@@ -152,7 +152,7 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **B-3** | Principal→address 映射 | **已闭合为 FAIL-CLOSED 研究钉（PrincipalAddr, 2026-08-02）** + **AddressBearing followup 已闭合（static-callee open, 2026-08-02）** + **T10 EVM Principal storage pilot（2026-08-02）** + **T12 Solana/NEAR/Noir Principal storage pilot（2026-08-02）**。Principal valueBytes = `u32le(len)\|body`（`1≤len≤4096`）≠ EVM 20B / Solana 32B pubkey，**无** approximate Principal→address 映射。T10/T12 在 EVM/Solana/NEAR/Noir 开放 **wire identity 原样 leaf 存储**（`pilotPrincipalPolicyAdmit`；len+8×UInt64，≤64B body，与 N4 String 同构；非 20B address / 32B pubkey / account-id / Field）；Aleo/Psy 保持 `pilotPrincipalPolicyNone`。产品 `call`/`schedule` 为 wire `Op.ExternalCall`/`Schedule` 的 **static `QualifiedName` callee**（非 ValueId 地址）。AddressBearing 打开 EVM/Solana 双 call 键：EVM Plan `externalCall`/`schedule` → Yul `CALL` 至 `keccak256(targetPath)` 后 20 字节 + method selector；Solana Plan/IR `externalCall`/`schedule` → program id = SHA-256(targetPath) 32B，plan 文本 `external_call`/`schedule`，SBPF 以 `sol_log_data` 观测桩（完整 `invoke_signed` CPI 需 account metas，另排）。NEAR 仍拒 sync；Noir 七键不变 | PrincipalAddr ✅ + AddressBearing ✅ + T10/T12 storage ✅ |
+| **B-3** | Principal→address 映射 | **已闭合为 FAIL-CLOSED 研究钉（PrincipalAddr, 2026-08-02）** + **AddressBearing followup 已闭合（static-callee open, 2026-08-02）** + **T10 EVM Principal storage pilot（2026-08-02）** + **T12 Solana/NEAR/Noir Principal storage pilot（2026-08-02）** + **EVMOZ-003 / ADR-0025（2026-08-03）冻结 EVM `context.caller` encoding，不改 B-3 pin**。Principal valueBytes = `u32le(len)\|body`（`1≤len≤4096`）共享 wire **不变**；**无** approximate 任意 Principal→address 映射，**无** Address TypeShape。ADR-0025 规定：未来 EVM ContextRead caller 结果 **仅** `u32le(20)\|\|CALLER`（network-order 20B）；**当前六 target ContextRead Plan 仍 FAIL-CLOSED**；不解锁 Solidity `address` ABI / dynamic CALL / Ownable F01。T10/T12 在 EVM/Solana/NEAR/Noir 开放 **wire identity 原样 leaf 存储**（`pilotPrincipalPolicyAdmit`；len+8×UInt64，≤64B body，与 N4 String 同构；非 20B address / 32B pubkey / account-id / Field）；Aleo/Psy 保持 `pilotPrincipalPolicyNone`。产品 `call`/`schedule` 为 wire `Op.ExternalCall`/`Schedule` 的 **static `QualifiedName` callee**（非 ValueId 地址）。AddressBearing 打开 EVM/Solana 双 call 键：EVM Plan `externalCall`/`schedule` → Yul `CALL` 至 `keccak256(targetPath)` 后 20 字节 + method selector；Solana Plan/IR `externalCall`/`schedule` → program id = SHA-256(targetPath) 32B，plan 文本 `external_call`/`schedule`，SBPF 以 `sol_log_data` 观测桩（完整 `invoke_signed` CPI 需 account metas，另排）。NEAR 仍拒 sync；Noir 七键不变 | PrincipalAddr ✅ + AddressBearing ✅ + T10/T12 storage ✅ + ADR-0025 encoding ✅（Plan open 见 B-CTX-OPEN） |
 
 #### B-4：验收门升级（= C 组）
 
@@ -190,8 +190,9 @@ normative: false
 - **OptionState**（N-A4）：NormalizeV1 + Reference + 每 target
 
 ### Phase F（B-3 + C 组，可并行）
-- **PrincipalAddr**（B-3）：**已闭合为 FAIL-CLOSED 研究钉** — wire Principal ≠ EVM/Solana 固定地址；见 §B-3
-- **AddressBearing**（B-3 followup）：**已闭合（static-callee open）** — research 确认 callee 为 static QN 非 dynamic address；EVM/Solana resolver 七键 + Plan/IR/emitter 打开；Principal→address 仍 fail closed
+- **PrincipalAddr**（B-3）：**已闭合为 FAIL-CLOSED 研究钉** — wire Principal ≠ EVM/Solana 固定地址 type；见 §B-3
+- **AddressBearing**（B-3 followup）：**已闭合（static-callee open）** — research 确认 callee 为 static QN 非 dynamic address；EVM/Solana resolver 七键 + Plan/IR/emitter 打开；任意 Principal→CALL 地址仍 fail closed
+- **EVMOZ-003 / ADR-0025 EVM caller encoding**：**encoding 决策已 accepted** — 未来 EVM `context.caller` = `u32le(20)||CALLER`；shared wire 不变；**Plan 仍 FAIL-CLOSED** 至原子 cutover；不解锁 address ABI / Ownable F01 / 他 target
 - **T10 EVM Principal storage**：**已闭合** — EVM `pilotPrincipalPolicyAdmit` + N4-isomorphic leaf storage（len+8×UInt64）；params/state/eq/ne；非 address；多宽 return 仍 fail closed
 - **T12 NEAR/Solana/Noir Principal storage**：**已闭合** — 三 target `pilotPrincipalPolicyAdmit` + 同构 9-leaf layout（Solana account pitch / NEAR 9×KV / Noir 9×u64 inputs）；params/state/eq/ne；非 pubkey/account-id/Field；多宽 return 仍 fail closed；Aleo/Psy 仍 fail closed
 - **NearWasmAcceptance**（C-1）：**已闭合工程子集** — `Tests/Materialization/NearWasmAcceptance.lean`；locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` runtime-load 门
