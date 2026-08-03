@@ -30,6 +30,9 @@ inductive LeoExpr where
   | cast (inner : LeoExpr) (toType : String)
   | mappingGetOrUse (mapping : String) (key : String) (default : LeoExpr)
   | call (name : String) (args : Array LeoExpr)
+  /-- B-RET-ABI: Leo native tuple of preorder aggregate return leaves
+      (`(a, b)` for a 2-leaf Struct). Arity ≥ 2 (Leo rejects unit `()`). -/
+  | tuple (elems : Array LeoExpr)
   deriving BEq, Inhabited, Repr
 
 /-- Leo 4.0.2 statements (final/proof context). Leo `let` requires an explicit
@@ -65,6 +68,9 @@ structure LeoFunction where
   resultIsU8 : Bool := false
   /-- T14 catalog v2 (BLS12-377): Leo `field` result. -/
   resultIsField : Bool := false
+  /-- B-RET-ABI: named Struct/Enum aggregate return leaves (Leo tuple on
+      non-Final). `none` for scalar/Final results. -/
+  resultAggregateLeaves : Option (Array LeafAbiType) := none
   /-- State-touching Final function (body runs in `return final { ... };`). -/
   isFinal : Bool
   /-- Semantic pureFn: emitted outside `program` without input modes. -/
@@ -164,6 +170,9 @@ private partial def renderExpr : LeoExpr → String
   | .call name args =>
       let inner := args.toList.map renderExpr |> String.intercalate ", "
       s!"{name}({inner})"
+  | .tuple elems =>
+      let inner := elems.toList.map renderExpr |> String.intercalate ", "
+      s!"({inner})"
 
 private def indentStr (depth : Nat) : String :=
   String.ofList (List.replicate depth ' ')
@@ -225,12 +234,21 @@ private def renderFunction : LeoFunction → String
       let bodyIndent := if fn.isHelper then 4 else 4
       let signature :=
         (fn.params.toList.map (renderParam fn.isHelper)) |> String.intercalate ", "
-      let resultTy := if fn.isFinal then "Final"
-        else if fn.resultIsBool then "bool"
-        else if fn.resultIsU8 then "u8"
-        else if fn.resultIsInt then "i64"
-        else if fn.resultIsField then "field"
-        else "u64"
+      let resultTy :=
+        if fn.isFinal then "Final"
+        else
+          match fn.resultAggregateLeaves with
+          | some leaves =>
+              -- B-RET-ABI: Leo native tuple of leaf types in preorder.
+              let parts := leaves.toList.map fun leaf =>
+                if leaf.isInt then "i64" else "u64"
+              "(" ++ String.intercalate ", " parts ++ ")"
+          | none =>
+              if fn.resultIsBool then "bool"
+              else if fn.resultIsU8 then "u8"
+              else if fn.resultIsInt then "i64"
+              else if fn.resultIsField then "field"
+              else "u64"
       let body := renderStatements bodyIndent fn.body
       s!"{indent}fn {fn.name}({signature}) -> {resultTy} \{\n" ++
       (if fn.isFinal then
@@ -589,6 +607,31 @@ private partial def emitStatements
         else
           out := out.push (.returnValue leo)
         ctx := ctx1
+    | .returnAggregate leaves leafIsInt => do
+        -- B-RET-ABI: lower each leaf expr, then either drop (Final) or
+        -- return a native Leo tuple (non-Final).
+        unless leaves.size > 0 && leaves.size ≤ 8 do
+          planError "Aleo emission: returnAggregate leaf count must be in 1..8"
+        unless leafIsInt.size == leaves.size do
+          planError "Aleo emission: returnAggregate leafIsInt length must match leaves"
+        let mut leos : Array LeoExpr := #[]
+        let mut ctx' := ctx
+        for leaf in leaves do
+          let (exprStmts, leo, ctx1) ← lowerExprStmt ctx' leaf
+          out := out ++ exprStmts
+          leos := leos.push leo
+          ctx' := ctx1
+        if isFinal then
+          -- Final model cannot return a value; evaluate each leaf for
+          -- failure semantics (same discipline as scalar pf_return).
+          for i in [0:leos.size] do
+            let some leo := leos[i]? |
+              planError "Aleo emission: returnAggregate leaf missing"
+            let ty := if leafIsInt.getD i false then "i64" else "u64"
+            out := out.push (.letBinding s!"pf_return_{i}" ty leo)
+        else
+          out := out.push (.returnValue (.tuple leos))
+        ctx := ctx'
     | .returnNone =>
         if isFinal then
           pure ()
@@ -658,8 +701,22 @@ private partial def emitStatements
 private def needsTrailingReturn (stmts : Array Statement) : Bool :=
   match stmts.back? with
   | none => true
-  | some (.returnValue _) | some .returnNone => false
+  | some (.returnValue _) | some (.returnAggregate ..) | some .returnNone => false
   | some _ => true
+
+/-- Unreachable default return value for a non-Final function (control-flow
+    arms already returned on every path). -/
+private def defaultReturnExpr (fn : PlanFunction) : LeoExpr :=
+  match fn.resultAggregateLeaves with
+  | some leaves =>
+      .tuple (leaves.map fun leaf =>
+        if leaf.isInt then .i64Literal 0 else .u64Literal 0)
+  | none =>
+      if fn.resultIsBool then .boolLiteral false
+      else if fn.resultIsU8 then .u8Literal 0
+      else if fn.resultIsInt then .i64Literal 0
+      else if fn.resultIsField then .fieldLiteral 0
+      else .u64Literal 0
 
 private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
     CompileResult (LeoFunction × EmitCtx) := do
@@ -677,6 +734,9 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
   -- Helpers cannot be Final / touch mappings (Leo places them outside program).
   if isHelper && isFinal then
     planError "Aleo pure helper cannot touch state (Leo helpers are outside program)"
+  -- Helpers cannot return aggregates (B-RET-ABI pureFn stay scalar).
+  if isHelper && fn.resultAggregateLeaves.isSome then
+    planError "Aleo pure helper cannot return an aggregate (B-RET-ABI)"
   let (body0, ctx1) ← emitStatements ctxFn fn.body 0 isFinal
   -- Proof-context functions whose last statement is control flow (all arms
   -- returned) get an unreachable trailing default return so Leo's checker
@@ -684,12 +744,7 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
   let body :=
     if isFinal then body0
     else if needsTrailingReturn fn.body then
-      body0 ++ #[.returnValue (
-        if fn.resultIsBool then .boolLiteral false
-        else if fn.resultIsU8 then .u8Literal 0
-        else if fn.resultIsInt then .i64Literal 0
-        else if fn.resultIsField then .fieldLiteral 0
-        else .u64Literal 0)]
+      body0 ++ #[.returnValue (defaultReturnExpr fn)]
     else body0
   -- Initialize: inject the one-shot guard + final set.
   let body' :=
@@ -707,6 +762,7 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
     resultIsInt := fn.resultIsInt
     resultIsU8 := fn.resultIsU8
     resultIsField := fn.resultIsField
+    resultAggregateLeaves := fn.resultAggregateLeaves
     isFinal
     isHelper
     body := body'

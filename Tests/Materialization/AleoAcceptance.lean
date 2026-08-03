@@ -289,6 +289,49 @@ private def bytesBoxSourceText : String :=
   "    b[0] := b[0] << 1\n" ++
   "    return b[0]\n"
 
+/-- B-RET-ABI: named Struct entry return as a native Leo `(u64, u64)` tuple
+    (non-Final, no state). Verified end-to-end by `leo build`. -/
+private def pairRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program PairRet where\n" ++
+  "  struct Pair where\n" ++
+  "    a : UInt64\n" ++
+  "    b : UInt64\n" ++
+  "  entry makePair(x : UInt64, y : UInt64) : Pair do\n" ++
+  "    return Pair.new(x, y)\n"
+
+/-- B-RET-ABI: named Enum entry return as a Leo `(u64, u64)` tuple
+    (tag + max-payload pad). Verified end-to-end by `leo build`. -/
+private def maybeRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program MaybeRet where\n" ++
+  "  enum Maybe where\n" ++
+  "    | None\n" ++
+  "    | Some(UInt64)\n" ++
+  "  entry put(v : UInt64) : Maybe do\n" ++
+  "    return Maybe.Some(v)\n" ++
+  "  entry clear() : Maybe do\n" ++
+  "    return Maybe.None()\n"
+
+/-- B-RET-ABI: Final state-touching entry that stores and returns a named
+    Struct (result dropped; leaf exprs still evaluated). `leo build` must
+    accept the Final form. -/
+private def pairStoreSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program PairStore where\n" ++
+  "  struct Pair where\n" ++
+  "    a : UInt64\n" ++
+  "    b : UInt64\n" ++
+  "  state p : Pair\n" ++
+  "  init(x : UInt64, y : UInt64) do\n" ++
+  "    p := Pair.new(x, y)\n" ++
+  "  entry setPair(x : UInt64, y : UInt64) : Pair do\n" ++
+  "    p := Pair.new(x, y)\n" ++
+  "    return p\n"
+
 /-- Suite entry. Skips cleanly when leo is unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.AleoAcceptance: start"
@@ -320,6 +363,12 @@ unsafe def run : IO Unit := do
           loopSumSourceText "Tests.AleoAccept.LoopSum" "loopsum.aleo"
         acceptProgram leo tmp "BytesBox"
           bytesBoxSourceText "Tests.AleoAccept.BytesBox" "bytesbox.aleo"
+        acceptProgram leo tmp "PairRet"
+          pairRetSourceText "Tests.AleoAccept.PairRet" "pairret.aleo"
+        acceptProgram leo tmp "MaybeRet"
+          maybeRetSourceText "Tests.AleoAccept.MaybeRet" "mayberet.aleo"
+        acceptProgram leo tmp "PairStore"
+          pairStoreSourceText "Tests.AleoAccept.PairStore" "pairstore.aleo"
         IO.println "Tests.Materialization.AleoAcceptance: ok"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp

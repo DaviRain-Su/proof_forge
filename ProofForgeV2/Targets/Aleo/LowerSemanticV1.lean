@@ -39,7 +39,14 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
     lane) and UInt16/128/256 stay fail-closed.
   * **Computed state-reading views** — only bare public-state reads map to
     the off-chain `leo query` model; `balanceOf`-style match-on-state views
-    fail closed.
+    fail closed. Multi-leaf named-aggregate `view` returns over state also
+    fail closed (not a single leaf mapping query); use non-state entries for
+    real Leo tuple returns, or Final entries that drop the aggregate.
+  * **B-RET-ABI named Struct/Enum entry returns** — admitted: preorder flatten
+    to 1..8 UInt64/Int64 leaves; Leo non-Final surface is a native tuple
+    `(u64|i64, …)`; Final (state-touching) still drops the value after
+    evaluating leaf exprs. Anonymous Array/Map/Bytes/Option returns, >8
+    leaves, named-aggregate params, and pureFn aggregate returns stay FC.
   * **Map shapes other than Map UInt64 UInt64** — declined at type closure.
   * **ContextRead** — no host clock ABI in Leo 4.0.2 Final model for this pilot.
   * **emit / externalCall / schedule / revert-with-args** — no Leo analogue
@@ -168,6 +175,28 @@ structure Store where
   value : Expr
   deriving BEq, Inhabited, Repr
 
+/-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
+UInt64/Int64 words (`isInt` selects Leo `i64` vs `u64`); `byteWidth` is 8. -/
+structure LeafAbiType where
+  isInt : Bool
+  byteWidth : Nat
+  deriving BEq, Inhabited, Repr
+
+/-- Entry/view/pureFn return ABI kind. Scalar kinds mirror the historic
+    `resultIs*` flags; `.aggregate` is B-RET-ABI named Struct/Enum flatten
+    (1..8 UInt64/Int64 leaves, Leo native tuple on non-Final functions). -/
+inductive ResultKind where
+  | u64
+  | bool
+  | i64
+  | u8
+  | field
+  | unit
+  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` is preorder
+  flatten order (1..8). Anonymous Array/Map/Bytes/Option stay fail-closed. -/
+  | aggregate (leaves : Array LeafAbiType)
+  deriving BEq, Inhabited, Repr
+
 inductive Statement where
   /-- Scalar StateStore (single mapping leaf). -/
   | store (fieldIndex : Nat) (value : Expr)
@@ -181,6 +210,11 @@ inductive Statement where
   | storeAggregate (leaves : Array Store)
   | assert (condition : Expr)
   | returnValue (value : Expr)
+  /-- B-RET-ABI: multi-leaf named Struct/Enum return. `leaves` are preorder
+  flatten expressions (UInt64/Int64 only, ≤8); `leafIsInt` is parallel ABI
+  signedness. Non-Final Leo surface is a native tuple; Final evaluates each
+  leaf for failure semantics and drops the value (`resultDropped`). -/
+  | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
@@ -215,7 +249,10 @@ structure PlanParam where
     is still evaluated in the final block for failure semantics.
     `isPureHelper` is true for Semantic `pureFn` callables: Leo 4.0.2 requires
     helper `fn`s outside the `program` block (no input modes) so entry points
-    can call them. -/
+    can call them.
+    B-RET-ABI: when `resultAggregateLeaves` is `some`, the result is a named
+    Struct/Enum flattened to 1..8 UInt64/Int64 leaves (scalar `resultIs*`
+    flags are false); non-Final emission uses a Leo tuple. -/
 structure PlanFunction where
   index : Nat
   name : String
@@ -231,10 +268,25 @@ structure PlanFunction where
   resultIsU8 : Bool := false
   /-- T14 catalog v2 (BLS12-377): native Leo `field` result. -/
   resultIsField : Bool := false
+  /-- B-RET-ABI: named Struct/Enum aggregate return leaves (preorder, 1..8).
+      `none` for scalar/Unit results. -/
+  resultAggregateLeaves : Option (Array LeafAbiType) := none
   resultDropped : Bool
   /-- True when source kind was `pureFn` (Leo helper outside program). -/
   isPureHelper : Bool := false
   deriving BEq, Inhabited, Repr
+
+/-- Derive the closed `ResultKind` for a plan function (scalar flags or
+    B-RET-ABI aggregate). -/
+def PlanFunction.resultKind (fn : PlanFunction) : ResultKind :=
+  match fn.resultAggregateLeaves with
+  | some leaves => .aggregate leaves
+  | none =>
+      if fn.resultIsBool then .bool
+      else if fn.resultIsU8 then .u8
+      else if fn.resultIsInt then .i64
+      else if fn.resultIsField then .field
+      else .u64
 
 /-- Bare public-state read view: materializes as an off-chain mapping query
     (the EVM `eth_call` analogue), never as an on-chain artifact. -/
@@ -1675,8 +1727,31 @@ private partial def lowerRegion
             match envLookup env vid with
             | some v =>
                 if v.isAggregate then
-                  planError "Aleo return of aggregate is outside the scalar result envelope (B-RET-ABI: Aleo does not support named-aggregate return)"
-                pure (ls.stmts.push (.returnValue v.expr))
+                  -- B-RET-ABI: named Struct/Enum only (anonymous containers FC).
+                  unless layout.types.isNamedAggregate callable.result.typeId do
+                    planError
+                      "Aleo return of anonymous aggregate is outside B-RET-ABI (named Struct/Enum only; Array/Map/Bytes/Option stay fail closed)"
+                  let leaves := v.leafExprs
+                  unless leaves.size > 0 do
+                    planError "Aleo aggregate return must have at least one leaf"
+                  unless leaves.size ≤ 8 do
+                    planError
+                      s!"Aleo aggregate return has {leaves.size} leaves, exceeding the B-RET-ABI cap of 8"
+                  -- Leaves must be UInt64/Int64 (no Bytes UInt8 / Field).
+                  let u8Flags := match v.leafIsU8? with
+                    | some f => f
+                    | none => leaves.map (fun _ => false)
+                  if u8Flags.any id then
+                    planError
+                      "Aleo aggregate return leaves must be UInt64/Int64 (not UInt8/Bytes)"
+                  let leafIsInt := match v.leafIsInt? with
+                    | some f => f
+                    | none => leaves.map (fun _ => false)
+                  unless leafIsInt.size == leaves.size do
+                    planError "Aleo aggregate return leafIsInt length must match leaves"
+                  pure (ls.stmts.push (.returnAggregate leaves leafIsInt))
+                else
+                  pure (ls.stmts.push (.returnValue v.expr))
             | none => planError "Aleo return references an undefined value"
       pure { stmts, join? := none }
   | .revert errorId args => do
@@ -1773,18 +1848,56 @@ private partial def lowerLoop
   | _ => planError "Aleo lowering: loop header must end in a branch"
 
 end
-/-- Resolve a callable result to (isBool, isUnit, isInt64, isUInt8). -/
+/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into leaf ABI types
+    (preorder UInt64/Int64 words, 1..8). Anonymous containers / UInt8 leaves
+    fail closed. -/
+private def aggregateResultLeavesOfV1
+    (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
+    (owner : String) (typeId : TypeIdV1) : CompileResult (Array LeafAbiType) := do
+  unless types.isNamedAggregate typeId do
+    planError s!"{owner} does not return a named Struct/Enum aggregate"
+  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+  let n := specs.size
+  unless n > 0 do
+    planError s!"{owner} aggregate return must have at least one leaf"
+  unless n ≤ 8 do
+    planError
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+  let mut leaves : Array LeafAbiType := #[]
+  for (_, isInt, isU8) in specs do
+    if isU8 then
+      planError
+        s!"{owner} aggregate return leaves must be UInt64/Int64 (not UInt8/Bytes)"
+    leaves := leaves.push { isInt, byteWidth := 8 }
+  pure leaves
+
+/-- Resolve a callable result to scalar flags + optional B-RET aggregate leaves.
+    Returns `(isBool, isUnit, isInt64, isUInt8, isField, aggregateLeaves?)`. -/
 private def resultShape (data : SemanticProgramDataV1) (types : AleoTypeClosureV1)
-    (callable : CallableV1) :
-    CompileResult (Bool × Bool × Bool × Bool × Bool) := do
-  if isBoolType data callable.result.typeId then pure (true, false, false, false, false)
-  else if isUInt64Type data callable.result.typeId then pure (false, false, false, false, false)
-  else if isInt64Type data callable.result.typeId then pure (false, false, true, false, false)
-  else if isUInt8Type data callable.result.typeId then pure (false, false, false, true, false)
-  else if isBls12377FieldType types callable.result.typeId then pure (false, false, false, false, true)
+    (typeDecls : Array TypeDeclV1) (callable : CallableV1) (owner : String) :
+    CompileResult (Bool × Bool × Bool × Bool × Bool × Option (Array LeafAbiType)) := do
+  if isBoolType data callable.result.typeId then
+    pure (true, false, false, false, false, none)
+  else if isUInt64Type data callable.result.typeId then
+    pure (false, false, false, false, false, none)
+  else if isInt64Type data callable.result.typeId then
+    pure (false, false, true, false, false, none)
+  else if isUInt8Type data callable.result.typeId then
+    pure (false, false, false, true, false, none)
+  else if isBls12377FieldType types callable.result.typeId then
+    pure (false, false, false, false, true, none)
   else if (match data.types[callable.result.typeId.toNat]? with
-      | some { shape := .unit, .. } => true | _ => false) then pure (false, true, false, false, false)
-  else planError "Aleo callable result is outside the public UInt64/Int64/UInt8/Bool/BLS12-377-Field/Unit envelope"
+      | some { shape := .unit, .. } => true | _ => false) then
+    pure (false, true, false, false, false, none)
+  else if types.isNamedAggregate callable.result.typeId then
+    let leaves ← aggregateResultLeavesOfV1 typeDecls types owner callable.result.typeId
+    pure (false, false, false, false, false, some leaves)
+  else if types.isContainer callable.result.typeId then
+    planError
+      s!"{owner} cannot return anonymous container (Array/Map/Bytes); Aleo B-RET-ABI admits only named Struct/Enum (cap-8 leaves)"
+  else
+    planError
+      s!"{owner} result is outside the public UInt64/Int64/UInt8/Bool/BLS12-377-Field/Unit/named-Struct-Enum envelope"
 
 private partial def touchesStateExpr : Expr → Bool
   | .stateLoad _ => true
@@ -1809,6 +1922,7 @@ private partial def touchesStateStmts (stmts : Array Statement) : Bool :=
     match stmt with
     | .store _ _ | .storeAggregate _ => true
     | .returnValue e => touchesStateExpr e
+    | .returnAggregate leaves _ => leaves.any touchesStateExpr
     | .ifThenElse _ t e => touchesStateStmts t || touchesStateStmts e
     | .switchOn _ cases d => cases.any (fun (_, b) => touchesStateStmts b) || touchesStateStmts d
     | .forLoop _ _ _ b => touchesStateStmts b
@@ -1882,9 +1996,22 @@ private partial def lowerCallable
   unless res.join?.isNone do
     planError "Aleo lowering: callable does not end in return on all paths"
   let body := res.stmts
-  let (resultIsBool, resultIsUnit, resultIsInt, resultIsU8, resultIsField) ←
-    resultShape data layout.types callable
-  -- Bare view: body is exactly `return <stateLoad f>`.
+  let owner := match callable.name with
+    | some n =>
+        match callable.kind with
+        | .entry => s!"entry '{n}'"
+        | .view => s!"view '{n}'"
+        | .pureFn => s!"pureFn '{n}'"
+        | .initializer => "initializer"
+        | .invariant => s!"invariant '{n}'"
+    | none => "initializer"
+  let (resultIsBool, resultIsUnit, resultIsInt, resultIsU8, resultIsField,
+      resultAggregateLeaves) ←
+    resultShape data layout.types data.types callable owner
+  -- B-RET-ABI: pureFn aggregate returns stay fail closed (helpers are scalar).
+  if callable.kind == .pureFn && resultAggregateLeaves.isSome then
+    planError s!"{owner} cannot return a named aggregate (B-RET-ABI pureFn stay scalar)"
+  -- Bare view: body is exactly `return <stateLoad f>` (scalar leaf only).
   let bareView? : Option PlanView :=
     match callable.kind, body.toList with
     | .view, [.returnValue (.stateLoad f)] =>
@@ -1901,7 +2028,8 @@ private partial def lowerCallable
     | _ => FunctionKind.mutate
   let touchesState := touchesStateStmts body
   -- Computed state-reading views fail closed (only bare reads map to the
-  -- off-chain query model).
+  -- off-chain query model). Multi-leaf named-aggregate view returns over
+  -- state also land here (not a single mapping query).
   if callable.kind == .view && touchesState then
     planError "Aleo computed views that read state fail closed: only bare public-state reads map to leo query"
   let resultDropped := !resultIsUnit && touchesState
@@ -1920,6 +2048,7 @@ private partial def lowerCallable
     resultIsInt
     resultIsU8
     resultIsField
+    resultAggregateLeaves
     resultDropped
     isPureHelper
   })
