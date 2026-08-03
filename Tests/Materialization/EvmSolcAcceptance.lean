@@ -189,6 +189,31 @@ private def strBoxSourceText : String :=
   "  view get() : UInt64 do\n" ++
   "    return pad\n"
 
+/-- BL-18: anonymous Array UInt64 2 view return (tuple ABI / returnAggregate). -/
+private def arrayRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program ArrayRet where\n" ++
+  "  state slots : Array UInt64 2\n" ++
+  "  init() do\n" ++
+  "    slots[0] := 0\n" ++
+  "    slots[1] := 0\n" ++
+  "  view getArr() : Array UInt64 2 do\n" ++
+  "    return slots\n"
+
+/-- BL-18: anonymous Option UInt64 none/some view returns (tag+payload tuple). -/
+private def optionRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program OptionRet where\n" ++
+  "  state flag : UInt64\n" ++
+  "  init(f : UInt64) do\n" ++
+  "    flag := f\n" ++
+  "  view getNone() : Option UInt64 do\n" ++
+  "    return Option.none()\n" ++
+  "  view getSome(x : UInt64) : Option UInt64 do\n" ++
+  "    return Option.some(x)\n"
+
 /-- B-EVM-MAP-STACK: shipped Token dense Map must pass the suite-resolved
     host `solc` without StackTooDeep (24-leaf storeAtomic spill). The separate
     `Tests.Product.TokenV1` CLI path remains the locked-solc authority.
@@ -227,6 +252,10 @@ unsafe def run : IO Unit := do
           strBoxSourceText "Tests.EvmSolc.StrBox" "StrBox.yul"
         acceptProgram solc tmp "LoopSum"
           loopSumSourceText "Tests.EvmSolc.LoopSum" "LoopSum.yul"
+        acceptProgram solc tmp "ArrayRet"
+          arrayRetSourceText "Tests.EvmSolc.ArrayRet" "ArrayRet.yul"
+        acceptProgram solc tmp "OptionRet"
+          optionRetSourceText "Tests.EvmSolc.OptionRet" "OptionRet.yul"
         -- Dense Map 24-leaf storeAtomic: spill must keep solc stack depth finite.
         acceptShippedToken solc tmp
         IO.println "Tests.Materialization.EvmSolcAcceptance: ok"
