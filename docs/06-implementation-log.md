@@ -13502,3 +13502,26 @@ normative: false
   git diff --check 全绿。CW-ABI-FREEZE（SRC-CW-002 快照、cosmwasm-std/vm/check
   3.0.9 + wasmvm 3.0.7 + wasmd 版本冻结、SubMsg/savepoint 语义、dossier 修订）
   为合并前置，另切片完成。
+
+### 2026-08-03 — TON Tolk emitter 工程切片（TON-2，branch `integrate/ton-2`）
+
+- Plan/IR：`Targets/Ton/**`（LowerSemantic/ValidatePlan/PlanSchema/EmitIR/Finalize +
+  facade）+ Registry dispatch。状态为 c4 扁平 struct cell（`__layout` marker + uint64
+  字段，`Storage.fromCell`/`setData`）；`onInternalMessage` 32-bit op + 64-bit query_id +
+  `loadUint(64)` 分发（init→op 0、entries→plan 序、未知 op 忽略保 bounce 安全）；
+  view → `get fun`（栈 int 返回）。
+- 算术/控制：TVM int257 上 UInt64 显式范围检查（`0 <= r < 2^64`；error code 表
+  100 溢出/101 零除/102 shift/103 assert/104 loopBound/105 layout/200+ 用户 revert）；
+  if/match/bounded for（emitter 计数+throw）/pureFn/`~` 64 位掩码；
+  emit → `createExternalLogMessage` + `SEND_MODE_PAY_FEES_SEPARATELY`；revert → `throw`。
+- Finalize：locked `tolk 1.4.2`（Tool Lock）→ `.fif` + `abi.json` + `symbolTypes.json`；
+  companion `fift`/`fiftlib`（env `PROOF_FORGE_TON_TOOLS`/`PROOF_FORGE_TOLK_STDLIB`/
+  `PROOF_FORGE_FIFT`/`PROOF_FORGE_FIFTLIB`，**不得**放进 tool-root——`unexpected node`
+  守卫）→ 真实 `Counter.compiled.boc`；Counter e2e `deployable=true`，`inspect`
+  exact disk closure 通过；evidence 含 tolk/boc sha256。
+- 测试：`Tests.Materialization.TonPlanV1` 注册 shard-targets（Counter plan/IR/tolk
+  形状、多字段、call/schedule FC、多宽 FC、Registry dispatch）；shard 全绿。
+- 边界：`source-only` maturity 不变（sandbox 属 TON-3）；sync call 继续显式 FC；
+  **schedule 的 Plan 发射仍 FC**（capability 开但 destination/send-mode 未接线）；
+  多宽/聚合/Field/Principal/String/ContextRead/Commit/nonempty invariants/masterchain/
+  library/extra currencies 全部 FC；不声称主网/runtime/formal。

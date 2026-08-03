@@ -10,6 +10,7 @@ import Tests.Materialization.NearWasmAcceptance
 import Tests.Materialization.NearSandboxAcceptance
 import Tests.Materialization.CosmWasmCheckAcceptance
 import Tests.Materialization.CosmWasmPlanV1
+import Tests.Materialization.TonPlanV1
 import Tests.Materialization.OutputSetV1
 
 import Tests.Materialization.OutputEnvelopeV1
@@ -56,6 +57,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.CosmWasmCheckAcceptance.run
   IO.eprintln "CP run"
   Tests.Materialization.CosmWasmPlanV1.run
+  IO.eprintln "CP run"
+  Tests.Materialization.TonPlanV1.run
   IO.eprintln "CP run"
   Tests.Materialization.OutputSetV1.run
 

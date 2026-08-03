@@ -11,7 +11,28 @@ normative: true
 
 状态：`draft`
 Target ID：`ton`
-Phase 1：研究期候选；不实现
+Phase 1：**MVP 已实现**（2026-08-03，见 §0）
+
+## 0. 工程状态（2026-08-03）
+
+**已实现（TON-1/TON-2，branch `integrate/ton-2`）**：ADR-0024 提升为 implemented
+（8 implemented + 3 design-only；profile `ton-tolk-boc-v1`；六轴 `tvm`/`transactionAtomic`/
+`cellHashmap`/`asynchronousActor`/`noProof`/`tonChain`）；`Targets/Ton/**` target-owned
+Plan/IR/Tolk emitter——c4 扁平 struct cell 状态（无 dict）、`onInternalMessage` op 分发
+（32-bit op + 64-bit query_id + loadUint(64)）、init/mutate/view → op/get methods、
+TVM int257 上 UInt64 显式范围检查（error code 表 100–105/200+）、if/match/bounded for/
+pureFn、emit → external out-message（SEND_MODE_PAY_FEES_SEPARATELY）、revert → throw；
+Finalize 经 locked `tolk 1.4.2` 产 `.fif` + `abi.json` + `symbolTypes.json`，再经 companion
+`fift`（Tool Lock 外 env `PROOF_FORGE_TON_TOOLS`/`PROOF_FORGE_TOLK_STDLIB`/`PROOF_FORGE_FIFT`/
+`PROOF_FORGE_FIFTLIB`——**不得**放进 tool-root）产 **真实 BoC**；Counter e2e
+`deployable=true` + `inspect` exact closure 通过。
+**capability**：sync call 显式 fail closed（纯异步 actor，不伪装）；async/event 开
+（**schedule 的 Plan 发射仍 FC**——destination/send-mode 未接线，属后续切片）。
+**仍 fail closed**：multi-width UInt8..256、named Struct/Enum、Array/Map/Bytes/Option、
+Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、
+masterchain/library/extra currencies。
+**maturity**：`source-only`（BoC 已产但 sandbox 验收未接——TON-3）；不是主网/runtime/
+formal。callback/promise_then 走编排层（用户第二 entry），不升 Reference schema。
 Static dossier ceiling：`research`
 
 > **研究期边界（ADR-0017）**：本 dossier 只有资料与 family 归类。没有 decision-complete

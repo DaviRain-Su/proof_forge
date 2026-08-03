@@ -416,6 +416,6 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **CW-3** | CosmWasm runtime 差分（cosmwasm-vm mock / cw-multi-test / wasmd） | **done**（2026-08-03：`runtime-tests/cosmwasm` cosmwasm-vm 3.0.9 mock harness + `scripts/cosmwasm_runtime_test.sh`；Counter/Accumulator/EventFlow 9 tests：init/increment/query、overflow trap+state hold、emit attributes、revert Err；trap≠ContractResult::Err 已钉；mock≠wasmd 不声称 runtime/formal） |
 | **CW-4** | CosmWasm SubMsg/reply 语义评估与 schedule 候选 | **done**（2026-08-03：schedule→`SubMsg{reply_on:never,id:0,WasmMsg::Execute}`；resolver async 键开放、sync 仍拒；诚实边界钉死：同事务分发、子失败打爆整 tx、contract_addr QN stub、msg JSON 待 Binary 升级；**不是**跨 tx async） |
 | **TON-0** | TON 研究期 dossier + family（ADR-0017 遗留，B0） | **done**（`integrate/cosmwasm-a2-b0`：`docs/targets/11-ton.md` + `family-tvm-stack-account.md` + README 索引；research ceiling） |
-| **TON-1** | TON 实现 ADR + TargetId/registry/descriptor/capability（B1） | pending（先决：SRC/CLM 注册、六轴 descriptor、sync call FC 矩阵；主代理串行） |
-| **TON-2** | TON Tolk emitter Counter 纵切（B2） | pending（B1 后；`.tolk`→`.fif`+BoC+`abi.json`） |
-| **TON-3** | TON `@ton/sandbox` 验收门（B3） | pending（B2 后；runtime-tests/ton + 五阶段断言） |
+| **TON-1** | TON 实现 ADR + TargetId/registry/descriptor/capability（B1） | **done**（2026-08-03：ADR-0024；8 implemented+3 design-only；resolver 九行 sync 拒/async+event 开；tolk 1.4.2 入 `tools[]`；全部钉测同步） |
+| **TON-2** | TON Tolk emitter Counter 纵切（B2） | **done**（2026-08-03：`Targets/Ton/**` + Registry dispatch + `TonPlanV1` 注册；c4 struct cell + op 分发 + int257 显式守卫；locked tolk→`.fif`+abi、companion fift→真实 BoC；Counter e2e `deployable=true` + inspect closure；schedule Plan 发射仍 FC） |
+| **TON-3** | TON `@ton/sandbox` 验收门（B3） | pending（runtime-tests/ton + 五阶段断言；npm lockfile pin） |
