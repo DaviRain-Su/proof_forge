@@ -243,6 +243,24 @@ private partial def checkMethodStatementsV1
         total ← addPlanExprNodes limits layout params fns total value
         methodTemps ← addMethodExprTemps limits layout params fns methodTemps value
         closed := true
+    | .returnAggregate leaves leafIsInt =>
+        if isInitializer then
+          throw <| .planInvariant .ton "initializer cannot return a value"
+        if isPureFn then
+          throw <| .planInvariant .ton "pureFn cannot return an aggregate"
+        -- Entry aggregate is rejected at makeEntry; ValidatePlan also requires
+        -- view-mode for resultKind.aggregate (checked in validateMethod).
+        unless leaves.size > 0 && leaves.size ≤ 8 do
+          throw <| .planInvariant .ton
+            "returnAggregate leaf count must be in 1..8 (B-RET-ABI)"
+        unless leafIsInt.size == leaves.size do
+          throw <| .planInvariant .ton
+            "returnAggregate leafIsInt length must match leaves"
+        for leaf in leaves do
+          total ← addPlanExprNodes limits layout params fns total leaf
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps leaf
+        total := total + 1
+        closed := true
     | .returnNone =>
         unless allowReturnNone do
           throw <| .planInvariant .ton "method has an early bare return inside a branch arm"
@@ -351,6 +369,46 @@ private partial def checkMethodStatementsV1
         closed := false
   pure (total, methodTemps, closed)
 
+/-- B-RET-ABI depth defense: return form must match resultKind. -/
+private partial def checkMethodReturnFormsV1
+    (methodName : String) (resultKind : MethodResultKind)
+    (stmts : Array Statement) : CompileResult Unit := do
+  for s in stmts do
+    match s with
+    | .returnValue _ =>
+        match resultKind with
+        | .aggregate _ =>
+            throw <| .planInvariant .ton
+              s!"method '{methodName}' aggregate resultKind must use returnAggregate, not returnValue"
+        | _ => pure ()
+    | .returnAggregate leaves leafIsInt =>
+        match resultKind with
+        | .aggregate expected =>
+            unless leaves.size == expected.size && leafIsInt.size == expected.size do
+              throw <| .planInvariant .ton
+                s!"method '{methodName}' returnAggregate leaf count mismatch"
+            for i in [0:expected.size] do
+              let some exp := expected[i]? |
+                throw <| .planInvariant .ton "returnAggregate expected leaf missing"
+              let some gotInt := leafIsInt[i]? |
+                throw <| .planInvariant .ton "returnAggregate leafIsInt missing"
+              unless gotInt == exp.isInt do
+                throw <| .planInvariant .ton
+                  s!"method '{methodName}' returnAggregate leaf {i} isInt mismatch"
+        | _ =>
+            throw <| .planInvariant .ton
+              s!"method '{methodName}' returnAggregate requires an aggregate resultKind"
+    | .ifThenElse _ t e =>
+        checkMethodReturnFormsV1 methodName resultKind t
+        checkMethodReturnFormsV1 methodName resultKind e
+    | .switchOn _ cases defaultBody =>
+        for (_, body) in cases do
+          checkMethodReturnFormsV1 methodName resultKind body
+        checkMethodReturnFormsV1 methodName resultKind defaultBody
+    | .forLoop _ _ _ _ _ body =>
+        checkMethodReturnFormsV1 methodName resultKind body
+    | _ => pure ()
+
 private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (fns : Array FnBinding)
@@ -363,14 +421,20 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
       throw <| .planInvariant .ton "initializer export identity is not canonical"
   else if method.mode == .initialize then
     throw <| .planInvariant .ton "entry method cannot use initialize mode"
-  else unless method.resultKind == .uint64 || method.resultKind == .bool ||
-      method.resultKind == .int64 || method.resultKind == .uint8 ||
-      method.resultKind == .uint16 || method.resultKind == .uint32 ||
-      method.resultKind == .uint128 || method.resultKind == .uint256 ||
-      method.resultKind == .int8 || method.resultKind == .int16 ||
-      method.resultKind == .int32 do
-    throw <| .planInvariant .ton
-      s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int64, or Bool"
+  else
+    let resultKindOk :=
+      match method.resultKind with
+      | .uint64 | .bool | .int64 | .uint8 | .uint16 | .uint32
+      | .uint128 | .uint256 | .int8 | .int16 | .int32 => true
+      | .aggregate leaves =>
+          -- B-RET-ABI: 1..8 × 8-byte leaves, view-only (entry has no return channel).
+          method.mode == MethodMode.view &&
+            leaves.size > 0 && leaves.size ≤ 8 &&
+            leaves.all (fun l => l.byteWidth == 8)
+      | .unit => false
+    unless resultKindOk do
+      throw <| CompileError.planInvariant .ton
+        s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or named-aggregate view (1..8 × 8-byte leaves)"
   unless method.depositPolicy ==
       (if method.mode == .view then .queryOnly else .requireZero) do
     throw <| .planInvariant .ton s!"method '{method.name}' deposit policy is not canonical"
@@ -386,6 +450,7 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
   unless closed do
     throw <| .planInvariant .ton
       s!"method '{method.name}' does not terminate on all paths"
+  checkMethodReturnFormsV1 method.name method.resultKind method.body
   return total
 
 private def validateFnBinding (limits : ResourceLimits) (layout : StorageLayout)

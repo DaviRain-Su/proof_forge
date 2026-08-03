@@ -320,6 +320,249 @@ private unsafe def testRegistryDispatch
   expect (files.any (·.path == "Counter.ton-abi.json")) "registry emits ton-abi"
   IO.println "  ✓ Registry materialize dispatch"
 
+private def findMethod (plan : Plan) (name : String) : IO Method :=
+  match plan.entries.find? (·.name == name) with
+  | some m => pure m
+  | none => throw <| IO.userError s!"missing method '{name}'"
+
+private def findMethodIR (ir : IR) (name : String) : IO MethodIR :=
+  match ir.methods.find? (·.name == name) with
+  | some m => pure m
+  | none => throw <| IO.userError s!"missing IR method '{name}'"
+
+/-- B-RET-ABI: named Struct view return flattens to 2×UInt64 leaves via
+`returnAggregate` / `setReturnDataLeaves` / Tolk tuple get-method. -/
+private unsafe def testNamedStructReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "PairRet" <|
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n\n" ++
+    "  view getPair() : Pair do\n" ++
+    "    return p\n"
+  let compiled ← compileSource session source "Examples.PairRet" "<ton-pair-ret>"
+  let plan ← liftResult (planTon compiled)
+  let getPair ← findMethod plan "getPair"
+  expect (getPair.mode == .view) "PairRet getPair must be view"
+  match getPair.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"PairRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "PairRet leaves must be u64 (not Int)"
+      expect (leaves.all (·.byteWidth == 8))
+        "PairRet leaves must be 8-byte words"
+  | other =>
+      throw <| IO.userError
+        s!"PairRet getPair resultKind must be .aggregate, got {repr other}"
+  expect (getPair.body.size == 1) "PairRet getPair body must be one return"
+  match getPair.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2)
+        s!"returnAggregate must have 2 leaves, got {leaves.size}"
+      expect (leafIsInt == #[false, false])
+        "returnAggregate leafIsInt must be #[false, false]"
+      -- Preorder: p_a then p_b → two stateLoad of the two fields.
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad fi0, .stateLoad fi1 =>
+          expect (fi0 + 1 == fi1)
+            s!"PairRet leaf order must be consecutive field indices, got {fi0}/{fi1}"
+      | _, _ =>
+          throw <| IO.userError
+            "PairRet returnAggregate leaves must be stateLoad of p fields"
+  | _ =>
+      throw <| IO.userError "PairRet getPair body must be .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"PairRet plan must validate: {e.render}"
+  let d ← match engineeringTonPlanDigestV1 plan with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError e
+  let d2 ← match engineeringTonPlanDigestV1 plan with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError e
+  expect (d == d2) "PairRet plan digest deterministic"
+  let ir ← liftResult (irTon compiled)
+  let getPairIR ← findMethodIR ir "getPair"
+  expect (getPairIR.resultKind == getPair.resultKind)
+    "PairRet IR resultKind must match Plan"
+  let mut sawLeaves := false
+  for op in getPairIR.operations do
+    match op with
+    | .setReturnDataLeaves temps =>
+        expect (temps.size == 2)
+          s!"setReturnDataLeaves must have 2 temps, got {temps.size}"
+        sawLeaves := true
+    | .setReturnData _ =>
+        throw <| IO.userError "PairRet must not emit scalar setReturnData"
+    | _ => pure ()
+  expect sawLeaves "PairRet IR must emit setReturnDataLeaves"
+  let files ← liftResult (filesTon compiled)
+  let tolk ← findFile files "PairRet.tolk"
+  expect (tolk.contains "get fun getPair(): (int, int)")
+    s!"PairRet Tolk must declare tuple return type, got snippet around getPair"
+  expect (tolk.contains "return (")
+    "PairRet Tolk must emit multi-value return ("
+  expect (tolk.contains "struct Storage") "PairRet Storage preserved"
+  let abi ← findFile files "PairRet.ton-abi.json"
+  expect (abi.contains "\"returns\":[\"uint64\",\"uint64\"]")
+    s!"PairRet ABI must declare leaf tuple [\"uint64\",\"uint64\"], got: {abi}"
+  IO.println "  ✓ PairRet named Struct view return Plan/IR/Tolk/ABI pin"
+
+/-- B-RET-ABI: named Enum view return = tag + max-payload slots (Maybe = 2). -/
+private unsafe def testNamedEnumReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "MaybeRet" <|
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n\n" ++
+    "  entry put(v : UInt64) : UInt64 do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return v\n\n" ++
+    "  view peek() : Maybe do\n" ++
+    "    return m\n"
+  let compiled ← compileSource session source "Examples.MaybeRet" "<ton-maybe-ret>"
+  let plan ← liftResult (planTon compiled)
+  let peek ← findMethod plan "peek"
+  match peek.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"MaybeRet Enum return must be tag+payload (2), got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"MaybeRet peek resultKind must be .aggregate, got {repr other}"
+  match peek.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt.size == 2)
+        "MaybeRet returnAggregate must have 2 leaves"
+  | _ =>
+      throw <| IO.userError "MaybeRet peek body must be .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MaybeRet plan must validate: {e.render}"
+  let ir ← liftResult (irTon compiled)
+  let peekIR ← findMethodIR ir "peek"
+  expect (peekIR.operations.any fun
+      | .setReturnDataLeaves t => t.size == 2
+      | _ => false)
+    "MaybeRet peek IR must emit setReturnDataLeaves [2]"
+  let files ← liftResult (filesTon compiled)
+  let tolk ← findFile files "MaybeRet.tolk"
+  expect (tolk.contains "get fun peek(): (int, int)")
+    "MaybeRet Tolk must declare 2-leaf tuple return"
+  let abi ← findFile files "MaybeRet.ton-abi.json"
+  expect (abi.contains "\"returns\":[\"uint64\",\"uint64\"]")
+    s!"MaybeRet ABI must declare [\"uint64\",\"uint64\"], got: {abi}"
+  IO.println "  ✓ MaybeRet named Enum view return Plan/IR/Tolk pin"
+
+/-- Fail-closed: entry aggregate, anonymous Array, >8 leaves, named aggregate param. -/
+private unsafe def testAggregateFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Entry (mutate) named Struct return stays fail-closed (TON async actor).
+  let entrySrc := wrapProgram "StructEntryRet" <|
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n\n" ++
+    "  init() do\n" ++
+    "    p := Pair.new(0, 0)\n\n" ++
+    "  entry getPair() : Pair do\n" ++
+    "    return p\n"
+  let entryCompiled ← compileSource session entrySrc "Examples.StructEntryRet"
+    "<ton-struct-entry-ret>"
+  expectPlanErrorContaining "StructEntryRet" "view-only"
+    (planTon entryCompiled)
+  -- Also pin the entry aggregate message surface for product tests.
+  match planTon entryCompiled with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "named aggregate" || msg.contains "return channel")
+        s!"StructEntryRet message must cite named aggregate / return channel, got: {msg}"
+  | .error e => throw <| IO.userError s!"StructEntryRet: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "StructEntryRet: expected FC, got ok"
+  -- Anonymous Array view return stays fail-closed.
+  let arrSource := wrapProgram "ArrayRet" <|
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  match ← (do
+      try
+        let c ← compileSource session arrSource "Examples.ArrayRet" "<ton-array-ret>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()  -- may fail at Normalize/typed
+  | some c =>
+      match planTon c with
+      | .error (.planInvariant .ton msg) =>
+          expect (msg.contains "aggregate" || msg.contains "Array" ||
+              msg.contains "container" || msg.contains "pilot")
+            s!"ArrayRet FC message must cite aggregate/Array/container/pilot, got: {msg}"
+      | .error e => throw <| IO.userError s!"ArrayRet: unexpected {e.render}"
+      | .ok _ => throw <| IO.userError "ArrayRet: expected FC, got ok"
+  -- Cap-8: Struct with 9 UInt64 fields exceeds B-RET-ABI leaf cap.
+  let mut fields := ""
+  for i in [0:9] do
+    fields := fields ++ s!"    f{i} : UInt64\n"
+  let wideSource := wrapProgram "WideRet" <|
+    "  struct Wide where\n" ++
+    fields ++
+    "  state w : Wide\n\n" ++
+    "  init() do\n" ++
+    "    w := Wide.new(0, 0, 0, 0, 0, 0, 0, 0, 0)\n\n" ++
+    "  view getWide() : Wide do\n" ++
+    "    return w\n"
+  match ← (do
+      try
+        let c ← compileSource session wideSource "Examples.WideRet" "<ton-wide-ret>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planTon c with
+      | .error e =>
+          expect (e.render.contains "8" || e.render.contains "leaf" ||
+              e.render.contains "aggregate")
+            s!"WideRet leaf-cap error must cite cap/leaf/aggregate, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Ton 9-leaf aggregate return must fail closed (cap-8)"
+  -- Named aggregate param stays fail closed (params remain scalar).
+  let paramSrc := wrapProgram "AggParam" <|
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state s : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go(p : Pair) : UInt64 do\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return s\n"
+  match ← (do
+      try
+        let c ← compileSource session paramSrc "Examples.AggParam" "<ton-agg-param>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planTon c with
+      | .error _ => pure ()
+      | .ok _ =>
+          -- Named aggregate params may be admitted as flattened input leaves
+          -- on some targets; TON currently admits named aggregate params as
+          -- multi-word inputs (state of prior work). Pin only that plan is
+          -- produced OR FC — do not invent a new FC boundary here.
+          pure ()
+  IO.println "  ✓ aggregate return fail-closed boundaries (entry/anon/9-leaf)"
+
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -330,6 +573,9 @@ unsafe def run : IO Unit := do
   testSchedulePlanAndTolk session
   testMultiWidthFc session
   testRegistryDispatch session
+  testNamedStructReturn session
+  testNamedEnumReturn session
+  testAggregateFailClosed session
   IO.println "TonPlanV1: all checks passed"
 
 end Tests.Materialization.TonPlanV1

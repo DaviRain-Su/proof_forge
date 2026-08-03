@@ -58,6 +58,10 @@ inductive Operation where
   | storeState (fieldIndex value : Nat)
   | setLayout (marker : UInt64)
   | setReturnData (value : Nat)
+  /-- B-RET-ABI: multi-leaf view return. Each temp is one UInt64/Int64 leaf in
+  preorder; emitted as `return (t0, t1, …)` on a get-method with tuple type
+  `(int, int, …)`. Message (entry) path must not produce this op. -/
+  | setReturnDataLeaves (temps : Array Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat)
   | emitEvent (eventIndex : Nat) (args : Array Nat)
@@ -368,6 +372,16 @@ private partial def lowerBodyOps (next : Nat)
         else
           operations := operations.push (.setReturnData value.value)
         next := value.next
+    | .returnAggregate leaves _leafIsInt =>
+        -- B-RET-ABI: lower each preorder leaf independently, pack via
+        -- setReturnDataLeaves (temps need not be consecutive).
+        let mut leafTemps : Array Nat := #[]
+        for leaf in leaves do
+          let lowered := lowerExpr next fnMode localEnv leaf
+          operations := operations ++ lowered.operations
+          leafTemps := leafTemps.push lowered.value
+          next := lowered.next
+        operations := operations.push (.setReturnDataLeaves leafTemps)
     | .returnNone =>
         operations := operations.push .returnNone
     | .assert condition =>
@@ -507,7 +521,8 @@ private def expectedFns (plan : Plan) : Array FnIR :=
 private partial def opIsMethodOnlyV1 : Operation → Bool
   | .requireLayoutAbsent | .requireLayout _
   | .zeroState _ | .loadState _ _ | .storeState _ _
-  | .setLayout _ | .setReturnData _ | .loadParam _ _ => true
+  | .setLayout _ | .setReturnData _ | .setReturnDataLeaves _
+  | .loadParam _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
   | .switchRegion _ cases defaultOps =>
@@ -787,6 +802,12 @@ private partial def renderOps (plan : Plan) (method? : Option MethodIR)
         -- Get-methods use a separate render path that returns the value.
         out := out ++ pad ++ s!"// return value {tempName value} (message path: ignored)\n"
         out := out ++ pad ++ s!"val __pf_ret = {tempName value};\n"
+    | .setReturnDataLeaves temps =>
+        -- B-RET-ABI: multi-stack get-method return. On the view path this is a
+        -- real `return (t0, t1, …)`; message (entry) path must not produce it
+        -- (makeEntry fail-closes entry aggregate returns).
+        let parts := String.intercalate ", " (temps.toList.map tempName)
+        out := out ++ pad ++ s!"return ({parts});\n"
     | .returnNone =>
         out := out ++ pad ++ "return;\n"
     | .returnValue value =>
@@ -875,18 +896,32 @@ private def renderPureFn (plan : Plan) (fn : FnIR) : String := Id.run do
   out := out ++ "}\n\n"
   pure out
 
+/-- View get-method return type. Scalars stay `int` (historical). B-RET-ABI
+aggregates render as a Tolk tuple `(int, int, …)` — verified with locked
+tolk 1.4.x (`return (t0, t1)` multi-stack get method). -/
+private def renderViewReturnType (resultKind : MethodResultKind) : String :=
+  match resultKind with
+  | .aggregate leaves =>
+      let parts := List.replicate leaves.size "int"
+      "(" ++ String.intercalate ", " parts ++ ")"
+  | _ => "int"
+
 private def renderViewMethod (plan : Plan) (method : MethodIR) : String := Id.run do
   let mut params := ""
   for i in [0:method.params.size] do
     if i > 0 then params := params ++ ", "
     let p := method.params[i]!
     params := params ++ s!"{p.name}: int"
-  let mut out := s!"get fun {method.name}({params}): int \{\n"
+  let retTy := renderViewReturnType method.resultKind
+  let mut out := s!"get fun {method.name}({params}): {retTy} \{\n"
   out := out ++ "    var storage = Storage.load();\n"
   let (body, _) := renderOps plan (some method) none method.operations 1 "storage" false
   out := out ++ body
-  -- Ensure a return: setReturnData becomes __pf_ret
-  out := out ++ "    return __pf_ret;\n"
+  -- Scalar: setReturnData becomes __pf_ret; aggregate: setReturnDataLeaves
+  -- already emits `return (…)` inside the body.
+  match method.resultKind with
+  | .aggregate _ => pure ()
+  | _ => out := out ++ "    return __pf_ret;\n"
   out := out ++ "}\n\n"
   pure out
 
@@ -944,6 +979,28 @@ private def renderTolk (ir : IR) : String := Id.run do
       out := out ++ renderViewMethod plan method
   pure out
 
+private def renderLeafAbiJson (leaf : LeafAbiType) : String :=
+  if leaf.isInt then "\"int64\"" else "\"uint64\""
+
+/-- ABI `returns` field. Scalars stay a single JSON string (or null for unit).
+B-RET-ABI aggregates emit a JSON array of per-leaf type strings in preorder
+flatten order, e.g. `["uint64","uint64"]` (matches ton-abi storage type idiom). -/
+private def renderResultKindJson : MethodResultKind → String
+  | .unit => "null"
+  | .uint64 => "\"uint64\""
+  | .bool => "\"bool\""
+  | .int64 => "\"int64\""
+  | .uint8 => "\"uint8\""
+  | .uint16 => "\"uint16\""
+  | .uint32 => "\"uint32\""
+  | .int8 => "\"int8\""
+  | .int16 => "\"int16\""
+  | .int32 => "\"int32\""
+  | .uint128 => "\"uint128\""
+  | .uint256 => "\"uint256\""
+  | .aggregate leaves =>
+      "[" ++ String.intercalate "," (leaves.map renderLeafAbiJson).toList ++ "]"
+
 private def renderPfAbi (plan : Plan) (ir : IR) : String := Id.run do
   let fields := String.intercalate "," (plan.storage.fields.toList.map fun f =>
     s!"\{\"name\":\"{Targets.escapeJson f.name}\",\"type\":\"uint64\"}")
@@ -956,8 +1013,9 @@ private def renderPfAbi (plan : Plan) (ir : IR) : String := Id.run do
       | .view => "view"
     let params := String.intercalate "," (m.params.toList.map fun p =>
       s!"\{\"name\":\"{Targets.escapeJson p.name}\",\"type\":\"uint64\"}")
+    let returns := renderResultKindJson m.resultKind
     methodsJson := methodsJson ++ [
-      s!"\{\"name\":\"{Targets.escapeJson m.name}\",\"mode\":\"{mode}\",\"op\":{m.opCode},\"params\":[{params}]}"
+      s!"\{\"name\":\"{Targets.escapeJson m.name}\",\"mode\":\"{mode}\",\"op\":{m.opCode},\"params\":[{params}],\"returns\":{returns}}"
     ]
   let methods := String.intercalate ",\n    " methodsJson
   pure <|
