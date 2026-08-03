@@ -608,6 +608,22 @@ private def requireAnonymousIntegerTypeId
   | none =>
       failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
 
+/-- Target-neutral external `call`/`schedule` argument gate (N-8 + Principal).
+    Admits legal UInt/Int and Principal only. String/Field/aggregates stay
+    fail closed here; target-owned QN/account binding is not consulted. -/
+private def requireAnonymousIntegerOrPrincipalTypeId
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match anonShapeOf? types typeId with
+  | some (.uint w) | some (.int w) =>
+      if legalIntegerWidthV1 w.toNat then pure ()
+      else failUnsupported s!"S1 {context} requires legal UInt/Int/Principal type"
+  | some .principal => pure ()
+  | some _ =>
+      failUnsupported s!"S1 {context} requires anonymous UInt/Int/Principal type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
+
 /-- N-STR-EVENT: target-neutral event/error payloads admit the existing
     canonical String valueBytes shape in addition to legal integer scalars.
     Target-owned interface ABIs remain independently fail closed. -/
@@ -2720,9 +2736,12 @@ private partial def lowerArgs
 end
 
 /-- Lower a statement-level external effect (`call` / `schedule`): qualified
-    callee (≥2 components), legal UInt/Int args (N-8; per-arg type from place
-    or UInt64 default for bare integer literals), void op with the shared
-    EffectId sequence. The only difference between the two is the op ctor. -/
+    callee (≥2 components), legal UInt/Int **or Principal** args (per-arg type
+    from place, UInt64 default for bare integer literals, Principal from place
+    synth only — no Principal literal), void op with the shared EffectId
+    sequence. String/Field/aggregates stay fail closed. Target QN / account
+    binding is not consulted. The only difference between the two is the op
+    ctor. -/
 private partial def lowerExternalEffect
     (label : String)
     (mkOp : EffectIdV1 → QualifiedName → Array ValueIdV1 → SemanticOpV1)
@@ -2744,11 +2763,12 @@ private partial def lowerExternalEffect
       | .place p => synthPlaceTypeV1 p st'.interner st'.env states st'.constants
       | .literal (.integer _) => pure (internShape st'.interner (.uint 64))
       | _ =>
-          -- Fall back to place/synth path; reject non-integer shapes below.
+          -- Fall back to place/synth path; reject non-integer/non-Principal
+          -- shapes below.
           match synthLetExpectedV1 arg st' states fns with
           | .ok pair => pure pair
           | .error _ => pure (internShape st'.interner (.uint 64))
-    requireAnonymousIntegerTypeId i1.types expectedTid
+    requireAnonymousIntegerOrPrincipalTypeId i1.types expectedTid
       s!"{label} argument"
     let st0 := { st' with interner := i1 }
     let (vid, argTid, st1) ← lowerExpr arg expectedTid st0 states fns

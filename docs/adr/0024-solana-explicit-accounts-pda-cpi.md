@@ -486,7 +486,8 @@ Plan/IR/IDL identities：
   0/1/16/17、truncation/overflow、full/duplicate marker、bool、original-data-len、rent、padding、pointer、
   trailing、真实 `repr(C)` size/offset 与 cap validator；真实 caller ELF另执行 pinned Loader 生成输入上的
   0/1/16/17 与 duplicate marker。malformed short/overflow/trailing 属独立 decoder 证据，**不**声称 caller ELF
-  从裸 pointer 获得可信 input-end；#118 产品 parser仍必须实现其可证明的 checked-walk/fail-closed边界；
+  从裸 pointer 获得可信 input-end；后续 #118 已实现其可证明的 checked-walk/fail-closed preflight边界，
+  但仍不发明可信 input-end或产品 artifact；
 - SDK-independent SHA-256 + Ed25519 decompression oracle固定 PDA golden，再与 Solana SDK作第二 oracle；
 - pinned Mollusk 双程序真实执行 unsigned/signed CPI success/callee-failure、canonical PDA preflight、matching
   noncanonical PDA+bump rejection、bump 0、business signer、PDA outer-signer、wrong key/order/executable、
@@ -530,11 +531,45 @@ Plan/IR/IDL identities：
   inspect bytes，不另 mint domain digest；其内容由 retained Plan digest与 exact projection验证。
 - extension 中 `all-outer-roles-in-dense-role-id-order` 在 global-schema/per-handler-use 模型下精确定义为
   **handler-local dense ABIv1 position order**；`accountInfoRoleIds` 是该顺序中的 global role references，
-  不按 global numeric roleId重新排序。#118 parser/emitter必须直接消费该 Plan顺序。
-- **Authority boundary**：本切片只做 caller DTO 的 exact structural validation，不把其中的
-  Semantic anchor/ValueId声明为 retained-program事实。#118 必须由 exact resolved CPI capability与
-  retained `SemanticProgramV1` sole-derive，并逐 anchor/value/type join；在该 join及后续 parser/invoke
-  gates前，任意 structural carrier均不能授权 materialization。profile仍在 legacy Plan前 fail closed。
+  不按 global numeric roleId重新排序。后续 #118 parser/emitter已直接消费该 Plan顺序。
+- **Authority boundary**：本 #117 切片只做 caller DTO 的 exact structural validation，不把其中的
+  Semantic anchor/ValueId声明为 retained-program事实。后续 #118 已由 exact resolved CPI capability与
+  retained `SemanticProgramV1` sole-derive并逐 anchor/value/type join；任意 structural carrier仍不能授权
+  emitter或 materialization，product profile仍在 legacy Plan前 fail closed。
+
+#### #118 Semantic-bound multi-account preflight observation（2026-08-03）
+
+- `ResolvedSolanaCpiPreflightV1` 只接受 exact CPI profile、exact extension row 与 deferred sync requirement；
+  ordinary product resolver仍拒绝 sync。其 private carrier保留 selection + `CompiledSemanticV1` 并固定
+  `activationDenied=true`。
+- `deriveSolanaCpiPlanFromPreflightV1` 是 retained Semantic→CPI Plan 的 sole authority：逐
+  `ExternalCall` join callable/block/instruction/effectId、ValueId、参数类型与 frozen QN API；每个 direct
+  init/entry/view handler均进入 Plan，无 CPI 的 view也保留。nonempty state复用 legacy Solana
+  `StateAccount` 的同一 layout SHA-256 前像，marker等于 digest前 8-byte BE，不建立第二 layout authority。
+  Account-bound Principal只形成静态 `(callable,paramOrdinal,roleId,localIndex)` binding；runtime wire值由
+  物理 role key合成，不伪造第二份 Principal bytes 比较。
+- `ResolvedSolanaCpiPreflightIRV1` 的 private mint只消费上述 authority carrier；structural inspection Plan/IR
+  不能喂给 emitter。IR把 Loader V3/native loader owner、exact key/owner/data/lamports/state header、
+  signer/writable/executable、pairwise distinct与 handler-local role count具体化为闭合 op。PDA、signer
+  groups、System create provisioning、classic Token/ATA data predicates与 `schedule` 在此阶段精确 fail
+  closed，分别留给 #120–#123。
+- `EmitCpiPreflightSbpfV1` 只生成 1088-byte frame 的 ABIv1 role-table walker与 preflight checks；所有 cursor
+  add先做 u64 wrap guard并保留 alignment/padding live registers。测试 probe只接受 exact 8-byte LE
+  handlerId，且无 `sol_invoke*`、PDA或业务写。构建门另以同一锁定 `sbpf 0.2.2 disassemble` 解码最终
+  ELF并要求零 `call` 指令，而非只扫描源汇编。返回 carrier明确
+  `isProductArtifact=false`/`isTestPreactivation=true`，没有 `OutputFile` mint。
+- `AccountRoles.lean` 经真实 Loader→compile→preflight→Plan→IR→emitter生成 36,416-byte assembly
+  （SHA-256 `d3c8d34885b1c8cec9372bc501b1b1332ec261618c3c588f83aa0dca79e9e11a`），locked
+  `sbpf 0.2.2` 产出 14,640-byte ELF（SHA-256
+  `3388c71cc28a63b6c563e5d9a83af59709ee7b47191d7489f6be819f15b87066`）。committed strict manifest同时
+  绑定 source/profile/extension/boundary/text/ELF；Mollusk覆盖 init/route/view正向、0/16/17 walker、exact-8
+  dispatch，以及 33 个 single-mutation role/key/owner/data/header/privilege/order/count negatives（全部相邻
+  swap及 leading/middle/trailing missing/extra），每例 `Custom(1)` 且完整 exact account snapshot不变。
+  独立 raw-image decoder覆盖普通 `AccountMeta` API不能构造的 marker/bool/original-data-len/rent/padding/
+  pointer-table/trailing/truncation/overflow；不把模型负例冒充真实 VM raw-input 注入。
+- 该 ELF 的准确称谓是 **production-code-generated test-preactivation ELF**。它不是
+  `proof-forge.output.v1`、不是产品 artifact，也不调用任何 callee。#119 unsigned invoke、#120 PDA/bump/
+  `invoke_signed` 与 #121–#124 forcing gates仍未实现；#125 前 resolver support和产品 artifact mint继续关闭。
 
 ### Schema mutation obligations
 

@@ -1263,3 +1263,289 @@ pub fn find_pda_current_program_tagged_v1(
     }
     panic!("no canonical PDA bump in 255..1 for current-program-tagged-v1");
 }
+
+// ---------------------------------------------------------------------------
+// #118 production-code-generated preflight evidence (still preactivation)
+// ---------------------------------------------------------------------------
+
+pub const CPI_PREFLIGHT_PROGRAM_ID_BYTES: [u8; 32] = [0x52; 32];
+pub const CPI_PREFLIGHT_INIT_HANDLER_ID: u64 = 0;
+pub const CPI_PREFLIGHT_ROUTE_HANDLER_ID: u64 = 1;
+pub const CPI_PREFLIGHT_INSPECT_HANDLER_ID: u64 = 2;
+const CPI_PREFLIGHT_STEM: &str = "account_roles_preflight";
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiPreflightManifestV1 {
+    schema: String,
+    issue: u64,
+    sbpf: String,
+    runtime_oracle: CpiPreflightRuntimeOracleV1,
+    fixture: CpiPreflightFixtureV1,
+    profile: CpiPreflightIdentityV1,
+    extension: CpiPreflightExtensionV1,
+    boundary: CpiPreflightBoundaryV1,
+    program_id_hex: String,
+    handlers: CpiPreflightHandlersV1,
+    expected_assembly: CpiPreflightArtifactPinV1,
+    expected_elf: CpiPreflightArtifactPinV1,
+    reproducibility_note: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiPreflightRuntimeOracleV1 {
+    mollusk_svm: String,
+    agave_syscalls: String,
+    solana_program_runtime: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiPreflightFixtureV1 {
+    path: String,
+    module: String,
+    source_sha256: String,
+    source_size: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CpiPreflightIdentityV1 {
+    id: String,
+    digest: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CpiPreflightExtensionV1 {
+    id: String,
+    version: String,
+    digest: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CpiPreflightBoundaryV1 {
+    product_artifact: bool,
+    test_preactivation: bool,
+    activation_denied: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CpiPreflightHandlersV1 {
+    init: u64,
+    route: u64,
+    inspect: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CpiPreflightArtifactPinV1 {
+    sha256: String,
+    size: u64,
+}
+
+fn decode_cpi_preflight_manifest(bytes: &[u8]) -> Result<CpiPreflightManifestV1, String> {
+    let manifest: CpiPreflightManifestV1 = serde_json::from_slice(bytes)
+        .map_err(|error| format!("decode CPI preflight manifest: {error}"))?;
+    let expect = |condition: bool, message: &str| {
+        if condition {
+            Ok(())
+        } else {
+            Err(message.to_string())
+        }
+    };
+    expect(
+        manifest.schema == "proof-forge.solana.cpi-preflight-runtime.v1",
+        "schema",
+    )?;
+    expect(manifest.issue == 118, "issue")?;
+    expect(manifest.sbpf == "0.2.2", "sbpf")?;
+    expect(
+        manifest.runtime_oracle.mollusk_svm == "0.13.4"
+            && manifest.runtime_oracle.agave_syscalls == "4.0.0"
+            && manifest.runtime_oracle.solana_program_runtime == "4.0.0",
+        "runtime oracle",
+    )?;
+    expect(
+        manifest.fixture.path == "runtime-tests/solana/fixtures/AccountRoles.lean"
+            && manifest.fixture.module == "Examples.AccountRoles"
+            && manifest.fixture.source_sha256
+                == "9bf45003f14a028320c39890b846d0c3fd16ac01abbb1dc78d1072c6f04cc4f5"
+            && manifest.fixture.source_size == 621,
+        "fixture identity",
+    )?;
+    expect(
+        manifest.profile.id == "solana-sbpf-cpi-elf-v1"
+            && manifest.profile.digest
+                == "0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1",
+        "profile identity",
+    )?;
+    expect(
+        manifest.extension.id == "solana.cpi.accounts"
+            && manifest.extension.version == "1.0.0"
+            && manifest.extension.digest
+                == "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020",
+        "extension identity",
+    )?;
+    expect(
+        !manifest.boundary.product_artifact
+            && manifest.boundary.test_preactivation
+            && manifest.boundary.activation_denied,
+        "preactivation boundary",
+    )?;
+    expect(
+        manifest.program_id_hex == hex::encode(CPI_PREFLIGHT_PROGRAM_ID_BYTES),
+        "program id",
+    )?;
+    expect(
+        manifest.handlers.init == CPI_PREFLIGHT_INIT_HANDLER_ID
+            && manifest.handlers.route == CPI_PREFLIGHT_ROUTE_HANDLER_ID
+            && manifest.handlers.inspect == CPI_PREFLIGHT_INSPECT_HANDLER_ID,
+        "handler ids",
+    )?;
+    expect(
+        is_lower_hex_64(&manifest.expected_assembly.sha256) && manifest.expected_assembly.size > 0,
+        "assembly pin",
+    )?;
+    expect(
+        is_lower_hex_64(&manifest.expected_elf.sha256) && manifest.expected_elf.size > 0,
+        "ELF pin",
+    )?;
+    expect(
+        manifest
+            .reproducibility_note
+            .contains("not proof-forge.output.v1")
+            && manifest
+                .reproducibility_note
+                .contains("not an activated CPI artifact"),
+        "preactivation reproducibility note",
+    )?;
+    Ok(manifest)
+}
+
+pub fn validate_cpi_preflight_manifest_bytes(bytes: &[u8]) -> Result<(), String> {
+    decode_cpi_preflight_manifest(bytes).map(|_| ())
+}
+
+pub fn committed_cpi_preflight_manifest_bytes() -> Vec<u8> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("preflight/manifest.json");
+    stable_read_harness_file(&path, "CPI preflight committed manifest")
+}
+
+pub fn cpi_preflight_out_dir() -> PathBuf {
+    PathBuf::from(env::var("PROOF_FORGE_CPI_PREFLIGHT_OUT").expect(
+        "PROOF_FORGE_CPI_PREFLIGHT_OUT must point at scripts/solana_cpi_preflight_build.sh output",
+    ))
+}
+
+fn read_cpi_preflight_bound_file(
+    suffix: &str,
+    expected: &CpiPreflightArtifactPinV1,
+    label: &str,
+) -> Vec<u8> {
+    let out = cpi_preflight_out_dir();
+    let committed_manifest = committed_cpi_preflight_manifest_bytes();
+    let output_manifest =
+        stable_read_harness_file(&out.join("manifest.json"), "CPI preflight output manifest");
+    assert_eq!(
+        output_manifest, committed_manifest,
+        "CPI preflight output manifest must be exact committed bytes"
+    );
+    let manifest = decode_cpi_preflight_manifest(&committed_manifest)
+        .unwrap_or_else(|error| panic!("{error}"));
+    let selected = match suffix {
+        "s" => &manifest.expected_assembly,
+        "so" => &manifest.expected_elf,
+        _ => panic!("unknown CPI preflight artifact suffix {suffix}"),
+    };
+    assert_eq!(selected.size, expected.size, "{label} selected size pin");
+    assert_eq!(
+        selected.sha256, expected.sha256,
+        "{label} selected hash pin"
+    );
+
+    let path = out.join(format!("{CPI_PREFLIGHT_STEM}.{suffix}"));
+    let size_bytes = stable_read_harness_file(
+        &out.join(format!("{CPI_PREFLIGHT_STEM}.{suffix}.size")),
+        &format!("{label} size sidecar"),
+    );
+    let hash_bytes = stable_read_harness_file(
+        &out.join(format!("{CPI_PREFLIGHT_STEM}.{suffix}.sha256")),
+        &format!("{label} hash sidecar"),
+    );
+    let sidecar_size: u64 = std::str::from_utf8(&size_bytes)
+        .expect("UTF-8 preflight size sidecar")
+        .trim()
+        .parse()
+        .unwrap_or_else(|error| panic!("parse preflight size sidecar: {error}"));
+    let sidecar_hash = std::str::from_utf8(&hash_bytes)
+        .expect("UTF-8 preflight hash sidecar")
+        .trim();
+    assert_eq!(sidecar_size, expected.size, "{label} sidecar size");
+    assert_eq!(sidecar_hash, expected.sha256, "{label} sidecar hash");
+
+    let bytes = stable_read_harness_file(&path, label);
+    assert_eq!(bytes.len() as u64, expected.size, "{label} size");
+    assert_eq!(
+        hex::encode(Sha256::digest(&bytes)),
+        expected.sha256,
+        "{label} sha256"
+    );
+    bytes
+}
+
+pub fn read_cpi_preflight_assembly() -> Vec<u8> {
+    let manifest_bytes = committed_cpi_preflight_manifest_bytes();
+    let manifest =
+        decode_cpi_preflight_manifest(&manifest_bytes).unwrap_or_else(|error| panic!("{error}"));
+    let bytes =
+        read_cpi_preflight_bound_file("s", &manifest.expected_assembly, "CPI preflight assembly");
+    assert!(
+        bytes
+            .windows(b"TEST-PREACTIVATION ONLY".len())
+            .any(|window| window == b"TEST-PREACTIVATION ONLY"),
+        "preflight assembly boundary banner"
+    );
+    assert!(
+        !bytes
+            .windows(b"sol_invoke".len())
+            .any(|window| window == b"sol_invoke"),
+        "#118 preflight assembly must not invoke"
+    );
+    bytes
+}
+
+pub fn read_cpi_preflight_elf() -> Vec<u8> {
+    let manifest_bytes = committed_cpi_preflight_manifest_bytes();
+    let manifest =
+        decode_cpi_preflight_manifest(&manifest_bytes).unwrap_or_else(|error| panic!("{error}"));
+    let bytes = read_cpi_preflight_bound_file("so", &manifest.expected_elf, "CPI preflight ELF");
+    assert!(
+        bytes.starts_with(b"\x7fELF"),
+        "CPI preflight output must be ELF"
+    );
+    bytes
+}
+
+pub fn cpi_preflight_program_id() -> Pubkey {
+    Pubkey::new_from_array(CPI_PREFLIGHT_PROGRAM_ID_BYTES)
+}
+
+pub fn make_cpi_preflight_mollusk() -> (Mollusk, Pubkey) {
+    let program_id = cpi_preflight_program_id();
+    let elf = read_cpi_preflight_elf();
+    let mut mollusk = Mollusk::default();
+    mollusk.add_program_with_loader_and_elf(
+        &program_id,
+        &mollusk_svm::program::loader_keys::LOADER_V3,
+        &elf,
+    );
+    (mollusk, program_id)
+}
+
+pub fn cpi_preflight_ix_data(handler_id: u64) -> [u8; 8] {
+    handler_id.to_le_bytes()
+}

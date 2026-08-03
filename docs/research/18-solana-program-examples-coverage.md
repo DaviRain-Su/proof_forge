@@ -72,6 +72,13 @@ multi-account ABIv1、canonical PDA/bump、`invoke`/`invoke_signed` success/fail
 sync/async support，并在 legacy Plan生成前 fail closed、零制品；System/Token/ATA 也未 admission，
 所以 whole-example strict equivalence 仍为 **0/56**。
 
+**2026-08-03 #117/#118 engineering update**：target-owned CPI Plan/IR/IDL 已由 inspection DTO 扩为
+exact capability + retained Semantic sole-derived authority，并新增 handler-local 16-role ABIv1 preflight
+emitter。`AccountRoles` 的 generated assembly经 locked `sbpf` 与 committed manifest绑定后在 Mollusk通过
+init/route/view、0/16/17 role boundary和 22 个 one-mutation account checks；但该 ELF明确是
+production-code-generated **test-preactivation** evidence，不是产品 artifact，且不含任何 invoke/PDA。
+因此下表中 ACCT 只能标为“preflight engineering subset”，`CPI`/`PDA`与 strict equivalence仍不变。
+
 ## 2. 方法与分母
 
 ### 2.1 分母规则
@@ -301,11 +308,11 @@ length、current-program owner、exact data length、初始化 header，以及�
 
 | 能力 | 当前事实 |
 |---|---|
-| Multi-account / order / alias | 产品 Plan 无通用模型；#115 harness-only 最多 16 roles |
-| PDA / seeds / bump / signer | 产品缺失；#115 仅 pinned-runtime golden/feasibility |
-| System create/transfer/close/realloc | 缺失 |
-| Lamports 语义 | assembly 只有布局常量，无读写/转账 |
-| True CPI | 产品缺失且三个 profile均 fail closed；#115 仅 harness-only real invoke feasibility |
+| Multi-account / order / alias | #118 已有 retained-Semantic-derived target Plan/IR + 16-role preactivation parser/constraints；尚无产品 artifact 或 invoke |
+| PDA / seeds / bump / signer | 产品缺失；#115 仅 pinned-runtime golden/feasibility，#120 pending |
+| System create/transfer/close/realloc | 缺失；#118 只 preflight `transfer` roles，不执行 System CPI |
+| Lamports 语义 | assembly 可做 exact preflight read，无业务读写/转账 |
+| True CPI | 产品缺失且三个 profile均 fail closed；#115 仅 harness-only real invoke feasibility，#119 pending |
 | Classic SPL / ATA | 缺失 |
 | Token-2022 / Metaplex | 缺失 |
 | Clock/Rent/Instructions sysvar | shared ContextRead 部分存在，Solana Plan fail closed |

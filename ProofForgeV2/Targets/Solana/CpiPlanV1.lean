@@ -35,12 +35,18 @@ inductive RoleKeyPolicyV1 where
   | fixedProgram (packageId : String)
   deriving BEq, Repr
 
-/-- One ProofForge-owned state account schema referenced by state roles. -/
+/-- One ProofForge-owned state account schema referenced by state roles.
+
+    `initializedMarker` is the behavioral UInt64 written into the 8-byte state
+    header (must be nonzero). It is exactly the first 8 bytes of
+    `layoutDigest.bytes` interpreted big-endian — the same word as legacy
+    Solana `layoutMarker` — so Plan marker and CPI schema cannot diverge. -/
 structure StateSchemaV1 where
   schemaId : Nat
   name : String
   exactDataLen : Nat
   layoutDigest : Digest
+  initializedMarker : UInt64
   deriving BEq
 
 /-- Global account role schema (shared universe across handlers). -/
@@ -720,6 +726,17 @@ private def encodeRoleKeyPolicy : RoleKeyPolicyV1 → CompileResult PfJson
         ("packageId", .string packageId)
       ])
 
+/-- Fixed 16 lowercase hex digits for a UInt64 (lossless canonical form),
+    shared by Plan/IR/IDL state-schema encoders. -/
+def renderUInt64LowerHex16V1 (value : UInt64) : String :=
+  Id.run do
+    let mut out := ""
+    for i in [0:16] do
+      let shift := (15 - i) * 4
+      let nibble := ((UInt64.shiftRight value shift.toUInt64) &&& (15 : UInt64)).toNat
+      out := out.push (lowerHexDigit nibble)
+    pure out
+
 private def encodeStateSchema (s : StateSchemaV1) : CompileResult PfJson := do
   let id ← pfNat "stateSchema.schemaId" s.schemaId
   let len ← pfNat "stateSchema.exactDataLen" s.exactDataLen
@@ -728,7 +745,8 @@ private def encodeStateSchema (s : StateSchemaV1) : CompileResult PfJson := do
     ("schemaId", id),
     ("name", .string s.name),
     ("exactDataLen", len),
-    ("layoutDigest", .string dig)
+    ("layoutDigest", .string dig),
+    ("initializedMarker", .string (renderUInt64LowerHex16V1 s.initializedMarker))
   ])
 
 private def encodeAccountRole (r : AccountRoleSchemaV1) : CompileResult PfJson := do
@@ -1008,6 +1026,19 @@ private def validateStateAndAssumptions
     match validateDigest s.layoutDigest with
     | .ok () => pure ()
     | .error msg => planFail s!"stateSchema.layoutDigest: {msg}"
+    -- initializedMarker: nonzero and exact first 8 BE bytes of layoutDigest.
+    unless s.initializedMarker != 0 do
+      planFail "stateSchema.initializedMarker must be nonzero"
+    unless s.layoutDigest.bytes.size == 32 do
+      planFail "stateSchema.layoutDigest must be 32 raw bytes"
+    let expectedMarker : UInt64 := Id.run do
+      let mut value : UInt64 := 0
+      for index in [0:8] do
+        value := UInt64.shiftLeft value 8 ||| s.layoutDigest.bytes[index]!.toUInt64
+      pure value
+    unless s.initializedMarker == expectedMarker do
+      planFail
+        "stateSchema.initializedMarker must equal first 8 layoutDigest bytes (BE)"
   unless namesUnique (c.stateSchemas.map (·.name)) do
     planFail "stateSchema names must be unique"
 

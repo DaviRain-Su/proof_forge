@@ -813,7 +813,9 @@ private def encodeStateSchema (s : StateSchemaV1) : CompileResult PfJson := do
     ("schemaId", ← pfNat "stateSchema.schemaId" s.schemaId),
     ("name", .string s.name),
     ("exactDataLen", ← pfNat "stateSchema.exactDataLen" s.exactDataLen),
-    ("layoutDigest", .string dig)
+    ("layoutDigest", .string dig),
+    ("initializedMarker", .string
+      (renderUInt64LowerHex16V1 s.initializedMarker))
   ])
 
 private def encodeComputeAssumptions (c : ComputeAssumptionsV1) :

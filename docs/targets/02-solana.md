@@ -102,6 +102,16 @@ discriminator 同为 `program_error` / `Custom(1)`。固定 layout 仍由 `compu
 uninitialized/malformed marker、wrong owner、short/long data、0/2 accounts、duplicate meta、
 instruction 长度 0/7/短参/trailing，且每例用完整 exact account snapshot（#112 helper）证明无提交。
 
+**CPI profile 预激活输入形态（#118，非产品 artifact/非 CPI）**：handler local roles按 Plan position
+精确密集排列，数量上限 16；walker先检查每个 full marker/ODL/bool/rent，再按 direct-mapped growth span
+和 8-byte alignment做 checked virtual cursor walk，随后核对 program-id 后 zero padding与 pointer table。
+probe instruction data固定为 exact 8-byte LE handlerId。每个 handler在任何业务执行前检查 role key
+pairwise distinct、state/current-program join、fixed callee key/loader owner/executable、site account
+owner/data与 joined signer/writable。测试 emitter不执行业务 body或 CPI，只在全部检查成功后返回 0；
+locked `sbpf disassemble` 还直接要求最终 ELF 零 `call` 指令。raw-image 模型独立覆盖非规范 marker/bool/
+original-data-len/rent/padding/pointer-table/truncation/overflow，Mollusk `AccountMeta` 路径只承诺 canonical
+Loader 输入并执行所有相邻 swap与 leading/middle/trailing missing/extra负例。
+
 initialized marker 是
 `SHA-256("proof-forge-solana-layout-v1:" || canonical-account-layout)[0..8]` 对应的 target
 word，而不是所有合约共用常量；同长度但不同字段 schema 不可复用旧 header。为保持参考语义中

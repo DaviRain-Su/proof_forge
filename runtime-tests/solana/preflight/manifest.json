@@ -1,0 +1,45 @@
+{
+  "schema": "proof-forge.solana.cpi-preflight-runtime.v1",
+  "issue": 118,
+  "sbpf": "0.2.2",
+  "runtimeOracle": {
+    "molluskSvm": "0.13.4",
+    "agaveSyscalls": "4.0.0",
+    "solanaProgramRuntime": "4.0.0"
+  },
+  "fixture": {
+    "path": "runtime-tests/solana/fixtures/AccountRoles.lean",
+    "module": "Examples.AccountRoles",
+    "sourceSha256": "9bf45003f14a028320c39890b846d0c3fd16ac01abbb1dc78d1072c6f04cc4f5",
+    "sourceSize": 621
+  },
+  "profile": {
+    "id": "solana-sbpf-cpi-elf-v1",
+    "digest": "0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1"
+  },
+  "extension": {
+    "id": "solana.cpi.accounts",
+    "version": "1.0.0",
+    "digest": "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
+  },
+  "boundary": {
+    "productArtifact": false,
+    "testPreactivation": true,
+    "activationDenied": true
+  },
+  "programIdHex": "5252525252525252525252525252525252525252525252525252525252525252",
+  "handlers": {
+    "init": 0,
+    "route": 1,
+    "inspect": 2
+  },
+  "expectedAssembly": {
+    "sha256": "d3c8d34885b1c8cec9372bc501b1b1332ec261618c3c588f83aa0dca79e9e11a",
+    "size": 36416
+  },
+  "expectedElf": {
+    "sha256": "3388c71cc28a63b6c563e5d9a83af59709ee7b47191d7489f6be819f15b87066",
+    "size": 14640
+  },
+  "reproducibilityNote": "Generated through the production preflight authority/emitter chain and assembled with locked sbpf 0.2.2. This is same-host engineering test evidence only: not proof-forge.output.v1, not an activated CPI artifact, and not formal/hermetic evidence."
+}

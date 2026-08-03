@@ -674,7 +674,7 @@ def run : IO Unit := do
     ("Stmt.Emit", .emit x #[hostile], "unknown name 'x' (expected event)"),
     ("Stmt.Return", .return_ none, "type mismatch: expected UInt64, got empty return"),
     ("Stmt.Schedule", .schedule { callee := peer, args := #[hostile] },
-      "S1 schedule argument requires anonymous UInt/Int type")]
+      "S1 schedule argument requires anonymous UInt/Int/Principal type")]
   for (tag, statement, want) in stmtCases do
     let bad ← validated moduleName identity demo
       #[.entry (entry runN (block #[statement, .return_ (some (var seed))]) #[param seed])]
@@ -682,7 +682,7 @@ def run : IO Unit := do
   let callArgs ← validated moduleName identity demo #[.entry (entry runN
     (block #[.call { callee := peer, args := #[hostile] }, .return_ (some (var seed))])
       #[param seed])]
-  expectInvalid "call arguments" "S1 call argument requires anonymous UInt/Int type"
+  expectInvalid "call arguments" "S1 call argument requires anonymous UInt/Int/Principal type"
     (Compiler.compileValidatedSourceV1 callArgs)
 
   -- Phase-order priority under CheckV1-first product gate (via Normalize typedNotOk).

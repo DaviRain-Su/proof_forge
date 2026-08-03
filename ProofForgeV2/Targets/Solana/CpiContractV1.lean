@@ -341,6 +341,45 @@ def ataClassicProgramIdV1 : SolanaPubkeyV1 :=
     0x0b, 0x5a, 0x13, 0x99, 0xda, 0xff, 0x10, 0x84,
     0x04, 0x8e, 0x7b, 0xd8, 0xdb, 0xe9, 0xf8, 0x59]⟩
 
+/-! ## Loader-owner pubkeys (account.owner of executable programs)
+
+    Exact raw 32-byte authorities from the pinned canonical Solana IDs. Used by
+    #118 preflight IR when resolving `OwnerPolicy.catalogExecutionClass` into
+    concrete owner-byte checks (not base58 at runtime). -/
+
+/-- Canonical base58 for BPF Loader Upgradeable (Loader V3). -/
+def loaderV3OwnerBase58V1 : String :=
+  "BPFLoaderUpgradeab1e11111111111111111111111"
+
+/-- Canonical base58 for Native Loader. -/
+def nativeLoaderOwnerBase58V1 : String :=
+  "NativeLoader1111111111111111111111111111111"
+
+/-- Loader V3 owner pubkey raw bytes
+    (`BPFLoaderUpgradeab1e11111111111111111111111` →
+    `02a8f6914e88a1b0e210153ef763ae2b00c2b93d16c124d2c0537a1004800000`). -/
+def loaderV3OwnerProgramIdV1 : SolanaPubkeyV1 :=
+  ⟨ByteArray.mk #[
+    0x02, 0xa8, 0xf6, 0x91, 0x4e, 0x88, 0xa1, 0xb0,
+    0xe2, 0x10, 0x15, 0x3e, 0xf7, 0x63, 0xae, 0x2b,
+    0x00, 0xc2, 0xb9, 0x3d, 0x16, 0xc1, 0x24, 0xd2,
+    0xc0, 0x53, 0x7a, 0x10, 0x04, 0x80, 0x00, 0x00]⟩
+
+/-- Native Loader owner pubkey raw bytes
+    (`NativeLoader1111111111111111111111111111111` →
+    `058784bf148ba4282fb012574888a9f153a07dadf765c0455c9a970380000000`). -/
+def nativeLoaderOwnerProgramIdV1 : SolanaPubkeyV1 :=
+  ⟨ByteArray.mk #[
+    0x05, 0x87, 0x84, 0xbf, 0x14, 0x8b, 0xa4, 0x28,
+    0x2f, 0xb0, 0x12, 0x57, 0x48, 0x88, 0xa9, 0xf1,
+    0x53, 0xa0, 0x7d, 0xad, 0xf7, 0x65, 0xc0, 0x45,
+    0x5c, 0x9a, 0x97, 0x03, 0x80, 0x00, 0x00, 0x00]⟩
+
+/-- Total mapping: catalog execution class → exact loader-owner pubkey bytes. -/
+def executionClassOwnerPubkeyV1 : ExecutionClass → SolanaPubkeyV1
+  | .loaderV3Sbpf => loaderV3OwnerProgramIdV1
+  | .nativeSystem => nativeLoaderOwnerProgramIdV1
+
 def frozenCalleePackagesV1 : Array FrozenCalleePackage := #[
   { packageId := "companion-v1"
     programId := companionProgramIdV1

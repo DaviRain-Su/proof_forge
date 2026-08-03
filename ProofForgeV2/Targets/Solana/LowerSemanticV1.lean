@@ -391,14 +391,27 @@ private def layoutFieldSignature (field : StateField) : String :=
 private def layoutSignature (fields : Array StateField) : String :=
   s!"{fields.size}|{String.intercalate "|" (fields.toList.map layoutFieldSignature)}"
 
+/-- First 8 bytes of the internally produced SHA-256 digest, interpreted
+    big-endian as UInt64. Callers never pass arbitrary-width bytes. -/
 private def firstWordBE (bytes : ByteArray) : UInt64 := Id.run do
   let mut value : UInt64 := 0
   for index in [0:8] do
     value := UInt64.shiftLeft value 8 ||| bytes[index]!.toUInt64
   return value
 
+/-- Sole SHA-256 preimage bytes for Solana state layout:
+    `SHA256(UTF8(layoutDomain ++ layoutSignature fields))`. No domain-separated
+    second hash — marker and full Digest both derive from these exact bytes. -/
+def layoutHashBytesV1 (fields : Array StateField) : ByteArray :=
+  Crypto.sha256 (layoutDomain ++ layoutSignature fields).toUTF8
+
+/-- Full 32-byte SHA-256 Digest of the sole layout preimage. -/
+def layoutDigestOfFieldsV1 (fields : Array StateField) : Core.Common.Digest :=
+  { algorithm := .sha256, bytes := layoutHashBytesV1 fields }
+
+/-- First 8 BE bytes of `layoutHashBytesV1` as UInt64 (nonzero after mint). -/
 def layoutMarker (fields : Array StateField) : UInt64 :=
-  firstWordBE <| Crypto.sha256 (layoutDomain ++ layoutSignature fields).toUTF8
+  firstWordBE (layoutHashBytesV1 fields)
 
 def signature (name : String) (params : Array Param) : String :=
   s!"{name}({String.intercalate "," (params.toList.map abiParamTypeString)})"
@@ -1054,6 +1067,21 @@ private def makeStateAccountV1
     fields
     stateLeaves
   }
+
+/-- Narrow #118 target-owned helper: derive the sole legacy `StateAccount` from
+    Semantic logical state via exact `validateSolanaTypeClosureV1` +
+    `makeStateAccountV1`. Empty logical state returns `none` (does not relax
+    legacy Plan empty-state rejection — Plan still requires nonempty state via
+    `makeStateAccountV1` on its own path). Nonempty state reuses the same
+    layoutMarker / exactDataLen authority as product Plan/ELF. -/
+def deriveSolanaStateAccountFromSemanticDataV1
+    (data : SemanticProgramDataV1) : CompileResult (Option StateAccount) := do
+  if data.logicalState.isEmpty then
+    pure none
+  else
+    let types ← validateSolanaTypeClosureV1 data.types
+    let account ← makeStateAccountV1 types data.types data.logicalState
+    pure (some account)
 
 private structure LoweredValueV1 where
   expr : Expr

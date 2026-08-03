@@ -17,9 +17,12 @@ Plan types and Semantic→Plan lowering live in `LowerSemanticV1`
 Plan canonicity lives in `ValidatePlanV1`. IR emission and
 `irFromCapability` live in `EmitIRV1`. Product `buildFromCapability` (plan vs
 elf profile emit) and typed-IR → SBPF assembly (`.s` text) live in
-`EmitSbpfAsmV1`. Registered `solana-sbpf-cpi-elf-v1` remains inert and is
-rejected before Plan construction. `FinalizeV1` remains a separate submodule
-(plan: zero-tool; elf: locked `sbpf` → `{name}.so`).
+`EmitSbpfAsmV1`. Registered `solana-sbpf-cpi-elf-v1` remains inert on this
+product façade and is rejected before legacy Plan construction. #118's
+`CpiPreflight*` modules are deliberately not imported here: they retain an
+activation-denied authority and can only generate test-preactivation assembly,
+not `OutputFile` or product artifacts. `FinalizeV1` remains a separate
+submodule (plan: zero-tool; elf: locked `sbpf` → `{name}.so`).
 -/
 
 namespace ProofForgeV2.Targets.Solana

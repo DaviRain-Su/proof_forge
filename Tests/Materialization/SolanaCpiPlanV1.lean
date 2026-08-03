@@ -286,11 +286,18 @@ private def candidateForApi
     computeAssumptions := frozenComputeAssumptionsV1
   }
 
+private def firstWordBE (bytes : ByteArray) : UInt64 := Id.run do
+  let mut value : UInt64 := 0
+  for index in [0:8] do
+    value := UInt64.shiftLeft value 8 ||| bytes[index]!.toUInt64
+  return value
+
 private def stateOnlyCandidate : Except String SolanaCpiPlanCandidateV1 := do
   let profileDigest ← expectedProfileDigestV1
   let catalogDigest ← expectedCatalogDigestV1
   let extensionRequirement ← expectedExtensionRequirementV1
   let layoutDigest ← domainSeparatedSha256 "pf.test.solana-state-layout.v1" "state".toUTF8
+  let marker := firstWordBE layoutDigest.bytes
   pure {
     schema := planSchemaV1
     profileId := profileIdV1
@@ -303,6 +310,7 @@ private def stateOnlyCandidate : Except String SolanaCpiPlanCandidateV1 := do
       name := "state"
       exactDataLen := 16
       layoutDigest := layoutDigest
+      initializedMarker := marker
     }]
     pdaRules := frozenPdaRulesV1
     accountRoles := #[{
@@ -436,9 +444,19 @@ private def testPlanMutationAndNegativeMatrix : IO Unit := do
   let _ ← expectPlanOk (validateSolanaCpiPlanV1 stateBase) "state plan"
   let some schema := stateBase.stateSchemas[0]? |
     throw <| IO.userError "state schema missing"
+  expect (schema.initializedMarker != 0) "state marker nonzero"
+  expect (schema.initializedMarker == firstWordBE schema.layoutDigest.bytes)
+    "state marker equals first 8 BE layoutDigest bytes"
   expectPlanReject (validateSolanaCpiPlanV1
     { stateBase with stateSchemas := #[{ schema with exactDataLen := 0 }] })
     "zero state layout"
+  expectPlanReject (validateSolanaCpiPlanV1
+    { stateBase with stateSchemas := #[{ schema with initializedMarker := 0 }] })
+    "zero initializedMarker"
+  expectPlanReject (validateSolanaCpiPlanV1
+    { stateBase with stateSchemas :=
+      #[{ schema with initializedMarker := schema.initializedMarker + 1 }] })
+    "marker/digest mismatch"
   let some stateHandler := stateBase.handlers[0]? |
     throw <| IO.userError "state handler missing"
   let some stateUse := stateHandler.accountUses[0]? |

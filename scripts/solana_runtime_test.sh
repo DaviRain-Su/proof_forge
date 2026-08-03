@@ -166,6 +166,21 @@ fi
 [[ -f "$harness_out/caller.so" ]] || die "harness caller.so missing"
 [[ -f "$harness_out/companion.so" ]] || die "harness companion.so missing"
 
+# #118 production-code-generated preflight ELF. This remains a strictly
+# manifest-bound test-preactivation artifact: no product OutputFile or CPI.
+preflight_out="${PROOF_FORGE_CPI_PREFLIGHT_OUT:-$root/build/v2/solana-cpi-preflight}"
+export PROOF_FORGE_CPI_PREFLIGHT_OUT="$preflight_out"
+echo "solana-runtime-test: CPI preflight build → $preflight_out"
+if ! bash "$root/scripts/solana_cpi_preflight_build.sh"; then
+  die "Solana CPI preflight build failed"
+fi
+[[ -f "$preflight_out/account_roles_preflight.s" ]] \
+  || die "CPI preflight assembly missing"
+[[ -f "$preflight_out/account_roles_preflight.so" ]] \
+  || die "CPI preflight ELF missing"
+preflight_out="$(cd "$preflight_out" && pwd -P)"
+export PROOF_FORGE_CPI_PREFLIGHT_OUT="$preflight_out"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"

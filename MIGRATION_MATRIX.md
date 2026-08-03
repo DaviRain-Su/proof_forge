@@ -83,6 +83,17 @@ D1–D4 共 27 个 formal task，当前仍为：
 > 有独立资源门。resolver 仅支持 rollback/state/Bool/checked-arithmetic 四键，其他类型/effect/CFG fail closed；finalize 不运行
 > Quint/Apalache/TLC/Java。ITF/MBT/verify 留独立后续 profile；非 deployable/formal D3/D4 完成。
 
+> **2026-08-03 Solana #118 multi-account preflight 增量**：exact CPI profile/extension 的 private
+> preflight capability现可从 retained `SemanticProgramV1` sole-derive target-owned handler/role/site
+> Plan，并经 private resolved IR authority生成 concrete ABIv1 checks。direct init/entry/view均保留；state
+> schema复用 legacy layout hash前像；account-bound Principal仅静态绑定物理 role key。1088-byte frame
+> emitter实现 16-role direct-mapped virtual walk、pointer table、pairwise key、exact owner/data/header与
+> signer/writable checks；PDA/signer groups/provisioning/Token/ATA继续 fail closed。`AccountRoles` 经该真实
+> authority/emitter生成后由 locked `sbpf 0.2.2` 汇编并在 Mollusk跑正向、0/16/17边界与 22 个 single-
+> mutation rollback negatives。该输出是 manifest-bound production-code-generated test-preactivation ELF，
+> 无 invoke、无 `OutputFile`、无产品 materialization；ordinary resolver仍拒 sync，#119/#120/#121–#125
+> 与 formal D5 均 pending。
+
 ### D1 Linux frontend supervisor 增量（2026-07-30）
 
 > **superseded（2026-08-01）**：本节全部工程切片已随前端监督层产品决策移除（`Frontend/SafeOpen*`/`DarwinSupervisor*`/native C/safe-open worker exe/B12 gate 删除；B10 frontend worker executable 保留为非产品面；CLI 源读取为进程内 `Loader.selectProgramV1ProductWithTheoremInventory`，compile 后经 `certifyInlineProofV1`）。仅保留为历史记录。

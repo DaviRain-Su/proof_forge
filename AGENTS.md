@@ -42,6 +42,16 @@
 > resolver/Plan/IR/SBPF 纵深 fail closed。该工程事实不改变 formal TASK 状态或各 target
 > 成熟度上限。
 >
+> **2026-08-03 Solana #118 preflight update**：exact CPI profile/extension 的 private capability现可
+> 从 retained `SemanticProgramV1` sole-derive handler-local role/site Plan，并经 private resolved IR生成
+> 16-role direct-mapped ABIv1 concrete checks。1088-byte frame emitter只做 role count/walk/pointer/key/
+> owner/data/header/privilege preflight，PDA/Token/ATA/provisioning继续 fail closed，且无 `sol_invoke*`。
+> `AccountRoles` 经真实 authority/emitter生成 36,416-byte assembly，locked `sbpf 0.2.2` 产出
+> 14,640-byte ELF；committed manifest绑定 source/profile/extension/boundary/text/ELF，Mollusk固定
+> init/route/view、0/16/17 与 22 个 one-mutation full-snapshot negatives。该 ELF 只能称
+> production-code-generated **test-preactivation ELF**，不是 `OutputFile`/产品 artifact；ordinary resolver
+> 仍拒 sync，#119–#125 与 formal D5 均 pending。
+>
 > **2026-08-02 invariant lowering update**：`NormalizeV1` 现将 source `invariant` 降为
 > source-order Semantic `.invariant` callables 与 dense `InvariantDecl`，并复用 Wire sole closure membership/
 > exact `invariantSteps` 公式；Provenance 对 multi-block predicate CFG 做 exact entity coverage。`.proof`
