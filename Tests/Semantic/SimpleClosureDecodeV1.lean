@@ -129,6 +129,49 @@ theorem canonical_eq_encode_builder (p : SimpleClosureParamsV1) :
     canonicalWireBytesV1 p = simpleClosureWireBytesV1 p :=
   rfl
 
+/-- Strong interface packaging: sole encode premise + tagged-body residual
+    discharges full transport decode (magic/finish proved from FieldsOk). -/
+theorem demo_decode_of_fields_ok_of_taggedBody
+    (b : ByteArray)
+    (hfields : encodeSimpleClosureDataFieldsV1 demoParamsV1 = .ok b)
+    (hdata :
+      decodeSemanticProgramDataTaggedV1
+          ⟨b, (encodeMagicPrefix semanticProgramMagicV1).size, 0⟩ =
+        .ok (materializeSimpleClosureDataV1 demoParamsV1, ⟨b, b.size, 0⟩)) :
+    decodeSemanticProgramDataV1 b =
+      .ok (materializeSimpleClosureDataV1 demoParamsV1) :=
+  decode_of_simpleClosure_fields_ok_of_taggedBody demoParamsV1 b hfields hdata
+
+/-- Empty tables on materialize are always `encodeU32le 0`. -/
+theorem demo_empty_tables_encode :
+    encodeArray encodeConstantV1
+        (materializeSimpleClosureDataV1 demoParamsV1).constants =
+      .ok (encodeU32le 0) :=
+  (materialize_empty_tables_encode demoParamsV1).1
+
+/-- FieldsOk inversion is total on field-path success. -/
+theorem demo_fieldsOk_of_fields
+    (b : ByteArray)
+    (hfields : encodeSimpleClosureDataFieldsV1 demoParamsV1 = .ok b) :
+    (encodeSimpleClosureFields_ok_inv demoParamsV1 b hfields).hsize =
+      (encodeSimpleClosureFields_ok_inv demoParamsV1 b hfields).hsize :=
+  rfl
+
+/-- Magic consume is closed from FieldsOk (no free decode premise). -/
+theorem demo_magic_of_fields
+    (b : ByteArray)
+    (hfields : encodeSimpleClosureDataFieldsV1 demoParamsV1 = .ok b) :
+    consumeMagic semanticProgramMagicV1 (start b) =
+      .ok ((), ⟨b, (encodeMagicPrefix semanticProgramMagicV1).size, 0⟩) :=
+  consumeMagic_of_fieldsOk _ b (encodeSimpleClosureFields_ok_inv demoParamsV1 b hfields)
+
+/-- Finish at end is closed from FieldsOk. -/
+theorem demo_finish_of_fields
+    (b : ByteArray)
+    (hfields : encodeSimpleClosureDataFieldsV1 demoParamsV1 = .ok b) :
+    finish ⟨b, b.size, 0⟩ = .ok () :=
+  finish_of_fieldsOk_end _ b (encodeSimpleClosureFields_ok_inv demoParamsV1 b hfields)
+
 /-! ### Runtime: demo / unicode / Proofed parity -/
 
 private def testDemoDecodeSurface : IO Unit := do
@@ -195,13 +238,46 @@ private def testProofedParity : IO Unit := do
           expect (data' == materializeSimpleClosureDataV1 p)
             "proofed decode == materialize(p)"
 
+private def testFieldsOkMagicFinish : IO Unit := do
+  -- Production field-path bytes: magic offset + full transport decode == materialize.
+  let check (p : SimpleClosureParamsV1) (label : String) : IO Unit := do
+    match encodeSimpleClosureDataFieldsV1 p with
+    | .error e => throw <| IO.userError s!"{label}: fields encode failed: {repr e}"
+    | .ok b =>
+        expect (b.size ≤ maxCanonicalProgramBytes) s!"{label}: size ≤ max"
+        match consumeMagic semanticProgramMagicV1 (start b) with
+        | .error e => throw <| IO.userError s!"{label}: magic failed: {repr e}"
+        | .ok ((), c) =>
+            expect (c.offset == (encodeMagicPrefix semanticProgramMagicV1).size)
+              s!"{label}: magic offset"
+            match decodeSemanticProgramDataTaggedV1 c with
+            | .error e =>
+                throw <| IO.userError s!"{label}: tagged body failed: {repr e}"
+            | .ok (data, c') =>
+                expect (data == materializeSimpleClosureDataV1 p)
+                  s!"{label}: tagged body == materialize"
+                expect (c'.offset == b.size) s!"{label}: body ends at EOF"
+                match finish c' with
+                | .error e => throw <| IO.userError s!"{label}: finish failed: {repr e}"
+                | .ok () =>
+                    match decodeSemanticProgramDataV1 b with
+                    | .error e =>
+                        throw <| IO.userError s!"{label}: full decode failed: {repr e}"
+                    | .ok data' =>
+                        expect (data' == materializeSimpleClosureDataV1 p)
+                          s!"{label}: full decode == materialize"
+  check demoParamsV1 "demo"
+  check unicodeLegalParamsV1 "unicode"
+  check Proofed.Proof.simpleClosureParamsV1 "proofed"
+
 def run : IO Unit := do
   testDemoDecodeSurface
   testUnicodeLegalRuntime
   testProofedParity
+  testFieldsOkMagicFinish
   IO.println "Tests.Semantic.SimpleClosureDecodeV1: ok"
-  IO.println "  CodecRoundtrip production mid-offset NFC/u32/option/empty closed"
-  IO.println "  QN array induction under Legal + demo/unicode/Proofed parity"
-  IO.println "  DecodeSimpleClosureGoalV1 residual: nested fixed-shape field composition"
+  IO.println "  CodecRoundtrip production mid-offset NFC/u32/option/empty/magic closed"
+  IO.println "  FieldsOk inv + magic/finish; strong interface packaging"
+  IO.println "  Residual kernel: nine-field tagged body encode→decode composition"
 
 end Tests.Semantic.SimpleClosureDecodeV1

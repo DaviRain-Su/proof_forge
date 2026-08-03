@@ -497,19 +497,114 @@ theorem decodeEmptyArray_encode_zero
       .ok (#[], ⟨left ++ encodeU32le 0 ++ right, left.size + 4, nesting⟩) :=
   decodeArray_encode_zero_midV1 maxCount decode left right nesting
 
+/-! ### Strong B-SC-DEC interface (sole encode-side premise) -/
+
+/-- Magic consume on production field-path bytes (`magic ++ body`). -/
+theorem consumeMagic_of_fieldsOk
+    (data : SemanticProgramDataV1) (b : ByteArray)
+    (fok : SemanticProgramFieldsOkV1 data b) :
+    consumeMagic semanticProgramMagicV1 (start b) =
+      .ok ((), ⟨b, (encodeMagicPrefix semanticProgramMagicV1).size, 0⟩) := by
+  have hb : b = encodeMagicPrefix semanticProgramMagicV1 ++ fok.body := by
+    simpa [ByteArray.append_eq] using fok.hb
+  rw [hb]
+  exact consumeMagic_append_bodyV1 semanticProgramMagicV1 fok.body
+
+/-- Finish at exact end of production field-path bytes. -/
+theorem finish_of_fieldsOk_end
+    (data : SemanticProgramDataV1) (b : ByteArray)
+    (_fok : SemanticProgramFieldsOkV1 data b) :
+    finish ⟨b, b.size, 0⟩ = .ok () :=
+  finish_at_endV1 b 0
+
+/-- Package framing once tagged-root body decode is established at post-magic
+    offset. **Public strong interface** discharges magic/finish from `hfields`
+    alone; only the tagged nine-field body remains a production composition
+    residual (see module footer). -/
+theorem decode_of_simpleClosure_fields_ok_of_taggedBody
+    (p : SimpleClosureParamsV1) (b : ByteArray)
+    (hfields : encodeSimpleClosureDataFieldsV1 p = .ok b)
+    (hdata :
+      decodeSemanticProgramDataTaggedV1
+          ⟨b, (encodeMagicPrefix semanticProgramMagicV1).size, 0⟩ =
+        .ok (materializeSimpleClosureDataV1 p, ⟨b, b.size, 0⟩)) :
+    decodeSemanticProgramDataV1 b = .ok (materializeSimpleClosureDataV1 p) := by
+  have fok := encodeSimpleClosureFields_ok_inv p b hfields
+  have hmagic := consumeMagic_of_fieldsOk _ b fok
+  have hfinish := finish_of_fieldsOk_end _ b fok
+  exact decodeSemanticProgramDataV1_eq_of_framing b
+    ⟨b, (encodeMagicPrefix semanticProgramMagicV1).size, 0⟩
+    ⟨b, b.size, 0⟩
+    (materializeSimpleClosureDataV1 p)
+    fok.hsize hmagic hdata hfinish
+
+/-- Target strong B-SC-DEC statement: sole encode-side premise, no intermediate
+    decode hyps in the statement.
+
+    **Proof residual (exact, single production composition):**
+    `decodeSemanticProgramDataTagged_of_simpleClosure_field_bytes` —
+    transport decode of the nine-field `encodeTagged "SemanticProgram.Data"`
+    body produced by `SemanticProgramFieldsOkV1`, recovering
+    `materializeSimpleClosureDataV1 p` at exact end offset.
+
+    Why not closed from transparent defs alone: requires mid-offset
+    `expectTag`/`readTagBytes` for ASCII production tags, then sequential
+    encode→decode for QN / Bool+UInt64 TypeDecl×2 / empty×4 / view+inv
+    Callable×2 (lit-true Block/Instruction) / InvariantDecl / value.bool
+    ProgramRequirements — each nested through `withTaggedNesting`. Field-path
+    inversion + magic + finish are closed above; this residual is the sole
+    remaining body composition. -/
+def DecodeSimpleClosureFieldsOkGoalV1 (p : SimpleClosureParamsV1) (b : ByteArray) :
+    Prop :=
+  encodeSimpleClosureDataFieldsV1 p = .ok b →
+    decodeSemanticProgramDataV1 b = .ok (materializeSimpleClosureDataV1 p)
+
+/-- Empty constants/state/events/errors tables on materialize always encode as
+    `encodeU32le 0` and decode as empty (name-independent). -/
+theorem materialize_empty_tables_encode (p : SimpleClosureParamsV1) :
+    encodeArray encodeConstantV1 (materializeSimpleClosureDataV1 p).constants =
+      .ok (encodeU32le 0) ∧
+    encodeArray encodeStateDeclV1 (materializeSimpleClosureDataV1 p).logicalState =
+      .ok (encodeU32le 0) ∧
+    encodeArray encodeEventDeclV1 (materializeSimpleClosureDataV1 p).events =
+      .ok (encodeU32le 0) ∧
+    encodeArray encodeErrorDeclV1 (materializeSimpleClosureDataV1 p).errors =
+      .ok (encodeU32le 0) := by
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · simpa [materializeSimpleClosureDataV1] using
+      (encodeArray_zeroV1 encodeConstantV1)
+  · simpa [materializeSimpleClosureDataV1] using
+      (encodeArray_zeroV1 encodeStateDeclV1)
+  · simpa [materializeSimpleClosureDataV1] using
+      (encodeArray_zeroV1 encodeEventDeclV1)
+  · simpa [materializeSimpleClosureDataV1] using
+      (encodeArray_zeroV1 encodeErrorDeclV1)
+
+/-- String encode→decode at mid-offset from production encode success. -/
+theorem decodeString_of_encode_ok
+    (left right : ByteArray) (s : String) (payload : ByteArray) (nesting : Nat)
+    (h : encodeString s = .ok payload) :
+    decodeString ⟨left ++ payload ++ right, left.size, nesting⟩ =
+      .ok (s, ⟨left ++ payload ++ right, left.size + payload.size, nesting⟩) :=
+  decodeString_of_encodeString_okV1 left right s payload nesting h
+
 end ProofForgeV2.Semantic.SimpleClosureDecodeV1
 
 /-!
   ## B-SC-DEC status (do not forge)
 
-  | Closed | Residual |
+  | Closed | Residual (exact single production composition) |
   |---|---|
-  | CodecRoundtrip production mid-offset u32/extract/string NFC/identifier/option | Nested TypeDecl/Callable/Block/Instruction/Requirements encode→decode |
-  | QN component-list payload + array-element induction under Legal | parseQualifiedName join + expectTag root + finish for full program |
-  | QN components array decode (count + elements) under Legal | Two callables + InvariantDecl + requirements composition |
-  | Sole builder = Encode `simpleClosureWireBytesV1` / `canonicalWireBytesV1` | Unconditional `DecodeSimpleClosureGoalV1 p` for all Legal p |
-  | Framing / WireTrace packaging; demo legal kernel | B-SC-ENC field-path success under Legal |
+  | CodecRoundtrip production mid-offset u32/u16/string NFC/identifier/option/magic/finish | **`decodeSemanticProgramDataTagged_of_simpleClosure_field_bytes`**: nine-field tagged body transport decode from `SemanticProgramFieldsOkV1` field bytes |
+  | `SemanticProgramFieldsOkV1` / `encodeFieldsOnly_ok_inv` / `encodeSimpleClosureFields_ok_inv` | Nested encode→decode for TypeDecl(Bool,UInt64), Callable(view+inv lit-true CFG), InvariantDecl, ProgramRequirements(value.bool) at mid-offsets inside the tagged body |
+  | Magic consume + finish from FieldsOk; framing package under tagged-body hyp | Public `DecodeSimpleClosureFieldsOkGoalV1` without free decode hyps (discharges once residual body lemma closes) |
+  | QN list induction under Legal; empty-table encode; string-of-encode-ok | B-SC-ENC: Legal → field-path success (separate residual) |
 
-  Next: nested fixed-shape field encode→decode for materialize micro-shapes,
-  then two callables + InvariantDecl + requirements + nine-field root + finish.
+  Residual why not transparent: `expectTag`/`readTagBytes` + nested
+  `withTaggedNesting` field walks for the materialize micro-shapes are not yet
+  composed through production mid-offset lemmas (tag ASCII payloads are not the
+  fixed List spines used by the earlier foundation). No intermediate
+  hmagic/hdata/hfinish appear in the strong goal statement
+  `DecodeSimpleClosureFieldsOkGoalV1`; only encode `hfields` is allowed once
+  the residual body lemma is proved.
 -/

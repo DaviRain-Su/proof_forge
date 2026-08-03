@@ -3,6 +3,7 @@ import ProofForgeV2.Core.Unicode
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
 import ProofForgeV2.Semantic.WireV1
+import Init.Data.ByteArray.Lemmas
 
 /-
   ProofForgeV2.Semantic.SimpleClosureEncodeV1 — B-SC-ENC
@@ -454,6 +455,104 @@ theorem simpleClosureWireBytesV1_eq_magic_append_of_fields_ok
     simpleClosureWireBytesV1 p =
       (encodeMagicPrefix semanticProgramMagicV1).append body :=
   simpleClosureWireBytesV1_eq_of_fields_ok p _ hfields
+
+/-! ### Field-path success inversion (B-SC-DEC dual) -/
+
+/-- Production field-byte witness extracted from a successful field-only encode.
+    Type-valued so ByteArray payloads can be projected. -/
+structure SemanticProgramFieldsOkV1 (data : SemanticProgramDataV1) (b : ByteArray) where
+  qnB : ByteArray
+  typesB : ByteArray
+  constantsB : ByteArray
+  stateB : ByteArray
+  eventsB : ByteArray
+  errorsB : ByteArray
+  callablesB : ByteArray
+  invariantsB : ByteArray
+  requirementsB : ByteArray
+  body : ByteArray
+  hqn : encodeQualifiedName data.qualifiedName = .ok qnB
+  htypes : encodeArray encodeTypeDeclV1 data.types = .ok typesB
+  hconstants : encodeArray encodeConstantV1 data.constants = .ok constantsB
+  hstate : encodeArray encodeStateDeclV1 data.logicalState = .ok stateB
+  hevents : encodeArray encodeEventDeclV1 data.events = .ok eventsB
+  herrors : encodeArray encodeErrorDeclV1 data.errors = .ok errorsB
+  hcallables : encodeArray encodeCallableV1 data.callables = .ok callablesB
+  hinvariants : encodeArray encodeInvariantDeclV1 data.invariants = .ok invariantsB
+  hrequirements : encodeProgramRequirementsV1 data.requirements = .ok requirementsB
+  hbody : encodeTagged "SemanticProgram.Data"
+      #[qnB, typesB, constantsB, stateB, eventsB, errorsB, callablesB,
+        invariantsB, requirementsB] = .ok body
+  hb : b = (encodeMagicPrefix semanticProgramMagicV1).append body
+  hsize : b.size ≤ maxCanonicalProgramBytes
+
+/-- Invert sole field-path encode success into production field bytes + framing. -/
+def encodeFieldsOnly_ok_inv
+    (data : SemanticProgramDataV1) (b : ByteArray)
+    (h : encodeSemanticProgramDataFieldsOnlyV1 data = .ok b) :
+    SemanticProgramFieldsOkV1 data b := by
+  simp only [encodeSemanticProgramDataFieldsOnlyV1] at h
+  cases hqn : encodeQualifiedName data.qualifiedName with
+  | error e => simp [hqn, Bind.bind, Except.bind] at h
+  | ok qnB =>
+  cases htypes : encodeArray encodeTypeDeclV1 data.types with
+  | error e => simp [hqn, htypes, Bind.bind, Except.bind] at h
+  | ok typesB =>
+  cases hconst : encodeArray encodeConstantV1 data.constants with
+  | error e => simp [hqn, htypes, hconst, Bind.bind, Except.bind] at h
+  | ok constantsB =>
+  cases hstate : encodeArray encodeStateDeclV1 data.logicalState with
+  | error e => simp [hqn, htypes, hconst, hstate, Bind.bind, Except.bind] at h
+  | ok stateB =>
+  cases hevents : encodeArray encodeEventDeclV1 data.events with
+  | error e => simp [hqn, htypes, hconst, hstate, hevents, Bind.bind, Except.bind] at h
+  | ok eventsB =>
+  cases herrors : encodeArray encodeErrorDeclV1 data.errors with
+  | error e => simp [hqn, htypes, hconst, hstate, hevents, herrors, Bind.bind, Except.bind] at h
+  | ok errorsB =>
+  cases hcall : encodeArray encodeCallableV1 data.callables with
+  | error e => simp [hqn, htypes, hconst, hstate, hevents, herrors, hcall, Bind.bind, Except.bind] at h
+  | ok callablesB =>
+  cases hinv : encodeArray encodeInvariantDeclV1 data.invariants with
+  | error e => simp [hqn, htypes, hconst, hstate, hevents, herrors, hcall, hinv, Bind.bind, Except.bind] at h
+  | ok invariantsB =>
+  cases hreq : encodeProgramRequirementsV1 data.requirements with
+  | error e => simp [hqn, htypes, hconst, hstate, hevents, herrors, hcall, hinv, hreq, Bind.bind, Except.bind] at h
+  | ok requirementsB =>
+  cases hbody : encodeTagged "SemanticProgram.Data"
+      #[qnB, typesB, constantsB, stateB, eventsB, errorsB, callablesB, invariantsB, requirementsB] with
+  | error e =>
+      simp [hqn, htypes, hconst, hstate, hevents, herrors, hcall, hinv, hreq, hbody,
+        Bind.bind, Except.bind] at h
+  | ok body =>
+  simp [hqn, htypes, hconst, hstate, hevents, herrors, hcall, hinv, hreq, hbody,
+    Bind.bind, Pure.pure, Except.bind, Except.pure, err] at h
+  by_cases hs :
+      (encodeMagicPrefix semanticProgramMagicV1).size + body.size ≤ maxCanonicalProgramBytes
+  · simp only [hs, ↓reduceIte, Except.ok.injEq] at h
+    exact {
+      qnB := qnB, typesB := typesB, constantsB := constantsB, stateB := stateB,
+      eventsB := eventsB, errorsB := errorsB, callablesB := callablesB,
+      invariantsB := invariantsB, requirementsB := requirementsB, body := body,
+      hqn := hqn, htypes := htypes, hconstants := hconst, hstate := hstate,
+      hevents := hevents, herrors := herrors, hcallables := hcall, hinvariants := hinv,
+      hrequirements := hreq, hbody := hbody,
+      hb := by simpa [ByteArray.append_eq] using h.symm
+      hsize := by
+        have hb' : b = encodeMagicPrefix semanticProgramMagicV1 ++ body := by
+          simpa [ByteArray.append_eq] using h.symm
+        rw [hb', ByteArray.size_append]
+        exact hs
+    }
+  · simp only [hs, ↓reduceIte] at h
+    cases h
+
+def encodeSimpleClosureFields_ok_inv
+    (p : SimpleClosureParamsV1) (b : ByteArray)
+    (h : encodeSimpleClosureDataFieldsV1 p = .ok b) :
+    SemanticProgramFieldsOkV1 (materializeSimpleClosureDataV1 p) b :=
+  encodeFieldsOnly_ok_inv (materializeSimpleClosureDataV1 p) b (by
+    simpa [encodeSimpleClosureDataFieldsV1] using h)
 
 end ProofForgeV2.Semantic.SimpleClosureEncodeV1
 

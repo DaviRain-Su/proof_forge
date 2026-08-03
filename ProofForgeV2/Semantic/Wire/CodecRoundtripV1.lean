@@ -866,4 +866,125 @@ theorem decodeOptionString_some_identifier_midV1
       left.size + 1 + 4 + s.toUTF8.size, nesting⟩
     s hmarker hstr
 
+/-! ### Production encode success → decode (string / magic / finish) -/
+
+theorem ByteArray_beq_reflV1 (a : ByteArray) : (a == a) = true := by
+  change (a.data == a.data) = true
+  simp
+
+theorem takeBytes_left_payloadV1 (left right : ByteArray) :
+    takeBytesAtV1 (left ++ right) 0 left.size = .ok left := by
+  unfold takeBytesAtV1
+  have hrem : left.size ≤ remainingBytesAtV1 (left ++ right) 0 := by
+    simp [remainingBytesAtV1, ByteArray.size_append]
+  simp only [if_pos hrem]
+  have hex : (left ++ right).extract 0 (0 + left.size) = left := by
+    have : 0 + left.size = left.size := Nat.zero_add _
+    rw [this]
+    exact ByteArray.extract_append_eq_left rfl
+  rw [hex]
+
+theorem consumeMagicBytes_appendV1 (magic : String) (body : ByteArray) :
+    consumeMagicBytesAtV1 (encodeMagicPrefix magic ++ body) 0
+        (encodeMagicPrefix magic) =
+      .ok (encodeMagicPrefix magic).size := by
+  unfold consumeMagicBytesAtV1
+  have htake := takeBytes_left_payloadV1 (encodeMagicPrefix magic) body
+  have heq : (encodeMagicPrefix magic == encodeMagicPrefix magic) = true :=
+    ByteArray_beq_reflV1 _
+  simp only [htake, heq, ↓reduceIte, Nat.zero_add]
+
+theorem consumeMagic_append_bodyV1 (magic : String) (body : ByteArray) :
+    consumeMagic magic (start (encodeMagicPrefix magic ++ body)) =
+      .ok ((), ⟨encodeMagicPrefix magic ++ body,
+        (encodeMagicPrefix magic).size, 0⟩) := by
+  apply consumeMagic_eq_of_bytesV1
+  exact consumeMagicBytes_appendV1 magic body
+
+theorem finish_at_endV1 (bytes : ByteArray) (nesting : Nat) :
+    finish ⟨bytes, bytes.size, nesting⟩ = .ok () :=
+  finish_eq_ok_of_offset_sizeV1 ⟨bytes, bytes.size, nesting⟩ rfl
+
+/-- Successful `encodeString` yields exact production payload + NFC + size. -/
+theorem encodeString_ok_eq_payloadV1 (s : String) (b : ByteArray)
+    (h : encodeString s = .ok b) :
+    b = stringPayloadBytesV1 s ∧
+      requireNfc s = .ok () ∧
+      s.toUTF8.size ≤ maxStringBytes := by
+  have horig := h
+  have hnfc : requireNfc s = .ok () := by
+    have h' := horig
+    simp only [encodeString, mapCommon] at h'
+    generalize hr : requireNfc s = r at h' ⊢
+    cases r with
+    | error e => simp [Bind.bind, Except.bind] at h'
+    | ok u => cases u; rfl
+  have hsz : s.toUTF8.size ≤ maxStringBytes := by
+    have h' := horig
+    simp only [encodeString, mapCommon, hnfc, Bind.bind, Pure.pure, Except.bind,
+      Except.pure] at h'
+    by_cases hs : s.toUTF8.size ≤ maxStringBytes
+    · exact hs
+    · simp only [hs, ↓reduceIte, err] at h'
+      cases h'
+  have hok := encodeString_eq_okV1 s hnfc hsz
+  have hb : b = (encodeU32le (UInt32.ofNat s.toUTF8.size)).append s.toUTF8 :=
+    Except.ok.inj (horig.symm.trans hok)
+  have hb' : b = stringPayloadBytesV1 s := by
+    rw [hb, stringPayloadBytesV1_eq]; rfl
+  exact And.intro hb' (And.intro hnfc hsz)
+
+/-- Decode recovers any successfully encoded string at a production mid-offset. -/
+theorem decodeString_of_encodeString_okV1
+    (left right : ByteArray) (s : String) (b : ByteArray) (nesting : Nat)
+    (h : encodeString s = .ok b) :
+    decodeString ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (s, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  obtain ⟨hb, hnfc, hsz⟩ := encodeString_ok_eq_payloadV1 s b h
+  subst b
+  have hdec := decodeString_nfc_midV1 left right s nesting hnfc hsz
+  have hszp : left.size + 4 + s.toUTF8.size =
+      left.size + (stringPayloadBytesV1 s).size := by
+    simp [stringPayloadBytesV1, ByteArray.size_append, encodeU32le_sizeV1]
+    omega
+  rw [hszp] at hdec
+  exact hdec
+
+theorem encodeU16le_sizeV1 (v : UInt16) : (encodeU16le v).size = 2 := by
+  simp [encodeU16le, ByteArray.size_push, ByteArray.size_empty]
+
+theorem UInt8_toNat_ofNat_mod256_u16V1 (n : Nat) :
+    (UInt8.ofNat (n % 256)).toNat = n % 256 := by
+  have : n % 256 < 256 := Nat.mod_lt _ (by decide)
+  simp [UInt8.toNat, UInt8.ofNat, Nat.mod_eq_of_lt this]
+
+theorem u16le_roundtripV1 (v : UInt16) :
+    UInt16.ofNat
+      ((UInt8.ofNat (v.toNat % 256)).toNat +
+        (UInt8.ofNat ((v.toNat / 256) % 256)).toNat * 256) = v := by
+  simp only [UInt8_toNat_ofNat_mod256_u16V1]
+  have hv : v.toNat < 65536 := UInt16.toNat_lt_size v
+  have h : v.toNat % 256 + (v.toNat / 256) % 256 * 256 = v.toNat := by omega
+  rw [h, UInt16.ofNat_toNat]
+
+/-- Mid-offset u16le encode/decode identity. -/
+theorem readU16le_encode_midV1 (left right : ByteArray) (v : UInt16) :
+    readU16leAtV1 (left ++ encodeU16le v ++ right) left.size =
+      .ok (v, left.size + 2) := by
+  have hs : (encodeU16le v).size = 2 := encodeU16le_sizeV1 v
+  have h0 : (encodeU16le v).data[0]? =
+      some (UInt8.ofNat (v.toNat % 256)) := by
+    simp [encodeU16le, ByteArray.data_push, ByteArray.data_empty]
+  have h1 : (encodeU16le v).data[1]? =
+      some (UInt8.ofNat ((v.toNat / 256) % 256)) := by
+    simp [encodeU16le, ByteArray.data_push, ByteArray.data_empty]
+  have r0 := readByte_mid_payloadV1 left (encodeU16le v) right 0 _
+    (by rw [hs]; decide) h0
+  have r1 := readByte_mid_payloadV1 left (encodeU16le v) right 1 _
+    (by rw [hs]; decide) h1
+  have r0' : readByteAtV1 (left ++ encodeU16le v ++ right) left.size =
+      .ok (UInt8.ofNat (v.toNat % 256)) := by simpa using r0
+  unfold readU16leAtV1
+  simp only [r0', r1, Bind.bind, Pure.pure, Except.bind, Except.pure, u16le_roundtripV1]
+
 end ProofForgeV2.Semantic.WireV1
