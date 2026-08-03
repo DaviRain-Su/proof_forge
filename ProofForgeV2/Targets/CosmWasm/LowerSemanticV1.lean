@@ -194,6 +194,11 @@ inductive Statement where
       `.store`. -/
   | storeAtomic (leaves : Array Store)
   | returnValue (value : Expr)
+  /-- B-RET-ABI: multi-leaf aggregate return. `leaves` are per-leaf expressions
+      in preorder flatten order; `leafIsInt` is parallel. Emitted as one JSON
+      array of decimal strings (execute result attribute / query `ok` string),
+      matching the existing scalar decimal JSON ABI idiom. -/
+  | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
@@ -271,10 +276,20 @@ inductive Statement where
   | promiseAccount (receiver : String) (method : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
+/-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
+UInt64/Int64 words (`isInt` selects i64 vs u64 in the ABI leaf array);
+`byteWidth` is 8. Wire format reuses the scalar decimal-JSON idiom (see Emit). -/
+structure LeafAbiType where
+  isInt : Bool
+  byteWidth : Nat
+  deriving BEq, Inhabited, Repr
+
 /-- Result kind of a CosmWasm method export. Init is always unit; entry/view may be
-UInt{8,16,32,64}/Bool/Int64 (T9a). UInt64/Int64/Bool wire as 8-byte little-endian
-i64 (Bool is 0/1); UInt{8,16,32} wire as 1/2/4-byte LE payloads. ABI JSON
-`returns` distinguishes the declared type. -/
+UInt{8,16,32,64}/Bool/Int64 (T9a). UInt64/Int64/Bool wire as decimal JSON
+(execute: result attribute; query: `{"ok":"<decimal>"}`); UInt{8,16,32} as
+narrower LE payloads when admitted. B-RET-ABI: `.aggregate` packs 1..8
+UInt64/Int64 leaves as a JSON array of decimals (preorder flatten; Enum =
+tag + max-payload). ABI JSON `returns` distinguishes the declared type. -/
 inductive MethodResultKind where
   | unit
   | uint64
@@ -289,6 +304,9 @@ inductive MethodResultKind where
   /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
   | uint128
   | uint256
+  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` is preorder
+  flatten order (1..8). Anonymous Array/Map/Bytes/Option stay fail-closed. -/
+  | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
 structure Method where
@@ -536,9 +554,11 @@ private abbrev CosmWasmTypeClosureV1 := PilotTypeClosureV1
 private def cosmwasmPlanErr (message : String) : CompileError :=
   .planInvariant .cosmwasm message
 
-/-- CosmWasm MVP admits UInt64 (+ UInt32 shift-count temps) and Int64 only.
-    Multi-width UInt8/16/32/128/256, Principal, named aggregates, containers,
-    Field, String all fail closed at type closure. -/
+/-- CosmWasm admits UInt64 (+ UInt32 shift-count temps), Int64, and named
+    Struct/Enum (B-RET-ABI + state flatten). Multi-width UInt8/16/32/128/256,
+    Principal, anonymous containers, Field, String fail closed at type closure.
+    Named aggregate params and pureFn aggregate returns stay fail closed at
+    callable lowering; anonymous Array/Map/Bytes/Option returns stay FC. -/
 private def cosmwasmUintWidthPolicyV1 : PilotUintWidthPolicy where
   admittedWidths := #[64, 32]
 
@@ -548,7 +568,7 @@ private def cosmwasmTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64 and Int64 integer types are supported (MVP; multi-width fail closed)"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32 (shift-count), Int64, Unit, and Bool are supported (no Field/Principal/aggregates/containers)"
+    "only UInt64, UInt32 (shift-count), Int64, Unit, Bool, and named Struct/Enum are supported (no Field/Principal/anonymous containers)"
 
 private def validateCosmWasmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult CosmWasmTypeClosureV1 :=
@@ -556,7 +576,7 @@ private def validateCosmWasmTypeClosureV1
     cosmwasmUintWidthPolicyV1
     (intPolicy := pilotIntWidthPolicyI64)
     (principalPolicy := pilotPrincipalPolicyNone)
-    (namedAggregatePolicy := pilotNamedAggregateStatePolicyNone)
+    (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyNone)
 
 /-- CosmWasm pilot Principal storage layout (T12, isomorphic to EVM T10):
@@ -690,19 +710,19 @@ private def containerLeafLayoutV1
       throw <| .planInvariant .cosmwasm
         "unsupported CosmWasm semantic shape: container TypeId is not Array/Map/Bytes"
 
-/-- Flatten a type into ordered leaf names under CosmWasm named-aggregate policy.
-    Scalars inside aggregates: UInt64 / Int64 only (matching EVM N3 / Psy H3).
-    Named Struct: field preorder. Named Enum: tag (UInt64) + max-payload slots
-    (`_tag`, `_p0`…). Nested containers / narrow UInt / Bool / Field as leaves
+/-- Flatten a type into ordered `(name, isInt)` pairs under CosmWasm named-aggregate
+    policy. Scalars inside aggregates: UInt64 / Int64 only (matching EVM N3 / Psy H3).
+    Named Struct: field preorder. Named Enum: tag (UInt64, isInt=false) + max-payload
+    slots (`_tag`, `_p0`…). Nested containers / narrow UInt / Bool / Field as leaves
     fail closed. -/
 private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
-    CompileResult (Array String) := do
+    CompileResult (Array (String × Bool)) := do
   if typeId == types.uint64TypeId then
-    pure #[namePrefix]
+    pure #[(namePrefix, false)]
   else if types.int64TypeId == some typeId then
-    pure #[namePrefix]
+    pure #[(namePrefix, true)]
   else if types.isNamedAggregate typeId then
     match typeDecls[typeId.toNat]? with
     | none =>
@@ -714,7 +734,7 @@ private partial def flattenTypeLeafSpecsV1
             unless fields.size > 0 do
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: named Struct requires at least one field"
-            let mut out : Array String := #[]
+            let mut out : Array (String × Bool) := #[]
             for f in fields do
               let subName :=
                 if namePrefix.isEmpty then f.name else namePrefix ++ "_" ++ f.name
@@ -740,14 +760,15 @@ private partial def flattenTypeLeafSpecsV1
                 let sub ← flattenTypeLeafSpecsV1 typeDecls types pt "tmp"
                 n := n + sub.size
               if n > maxPay then maxPay := n
-            let mut out : Array String := #[tagName]
+            -- Tag is UInt64; pad slots are UInt64 zero-fill (not Int).
+            let mut out : Array (String × Bool) := #[(tagName, false)]
             for i in [0:maxPay] do
               let pName :=
                 if namePrefix.isEmpty then s!"p{i}" else namePrefix ++ "_p" ++ toString i
               unless isIdentifier pName do
                 throw <| .planInvariant .cosmwasm
                   s!"state name '{pName}' is not a safe identifier"
-              out := out.push pName
+              out := out.push (pName, false)
             pure out
         | _ =>
             throw <| .planInvariant .cosmwasm
@@ -761,6 +782,28 @@ private def leafCountOfTypeV1
     (typeId : TypeIdV1) : CompileResult Nat := do
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
+
+/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
+`MethodResultKind`. Leaves come from `flattenTypeLeafSpecsV1` (preorder,
+UInt64/Int64 words). Enforces 1..8 leaves. Anonymous containers fail closed. -/
+private def aggregateResultKindOfV1
+    (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
+    (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
+  unless types.isNamedAggregate typeId do
+    throw <| .planInvariant .cosmwasm
+      s!"{owner} does not return a named Struct/Enum aggregate"
+  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+  let n := specs.size
+  unless n > 0 do
+    throw <| .planInvariant .cosmwasm
+      s!"{owner} aggregate return must have at least one leaf"
+  unless n ≤ 8 do
+    throw <| .planInvariant .cosmwasm
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+  let mut leaves : Array LeafAbiType := #[]
+  for (_, isInt) in specs do
+    leaves := leaves.push { isInt, byteWidth := 8 }
+  pure (.aggregate leaves)
 
 /-- Struct field leaf range (start, length) within the flattened leaf vector. -/
 private def structFieldLeafRangeV1
@@ -942,7 +985,7 @@ private def makeStorageLayoutV1
           if fields.size + leafSpecs.size > maxStateFields then
             throw <| .planInvariant .cosmwasm "state count is outside the profile limits"
           let mut leaves : Array Nat := #[]
-          for leafName in leafSpecs do
+          for (leafName, _) in leafSpecs do
             let fi := fields.size
             leaves := leaves.push fi
             fields := fields.push {
@@ -1105,33 +1148,10 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
         nextInputOffset := nextInputOffset + 8
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
     else if types.isNamedAggregate param.typeId then
-      -- Named Struct/Enum param: flatten to 8-byte UInt64 input words (leaf
-      -- tuple); field/variant access on the aggregate is leaf-level only.
-      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
-        cosmwasmPlanErr types owner param (allowNonPublic := true)
-      let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types param.typeId param.name
-      if leafSpecs.isEmpty then
-        throw <| .planInvariant .cosmwasm
-          s!"parameter '{param.name}' in {owner} produced zero named-aggregate leaves"
-      if planned.size + leafSpecs.size > maxParams then
-        throw <| .planInvariant .cosmwasm
-          s!"parameter count in {owner} exceeds profile limit {maxParams}"
-      let mut leafExprs : Array Expr := #[]
-      for leafName in leafSpecs do
-        unless isIdentifier leafName do
-          throw <| .planInvariant .cosmwasm
-            s!"parameter name '{leafName}' in {owner} is not a safe identifier"
-        let binding : Param := {
-          sourceId := planned.size
-          name := leafName
-          inputOffset := nextInputOffset
-          byteWidth := 8
-          endianness := .little
-        }
-        planned := planned.push binding
-        leafExprs := leafExprs.push (.param nextInputOffset)
-        nextInputOffset := nextInputOffset + 8
-      values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+      -- B-RET-ABI residual: named Struct/Enum params stay fail closed on
+      -- CosmWasm (state + entry/view returns are admitted; params are not).
+      throw <| .planInvariant .cosmwasm
+        s!"unsupported CosmWasm semantic shape: named Struct/Enum parameter '{param.name}' in {owner} is outside the B-RET-ABI surface (params stay fail closed)"
     else if types.isContainer param.typeId then
       -- Bytes N param: flatten to N×UInt8 input words (read-only aggregate;
       -- IndexGet on the leaves is the only access — params are immutable).
@@ -1545,6 +1565,46 @@ private def consumeCurrentSegmentV1
     throw <| .planInvariant .cosmwasm
       "unsupported CosmWasm semantic shape: dead or reordered value instructions"
   pure rootValue.expr
+
+/-- B-RET-ABI: segment consume that returns the full `LoweredValueV1` (with
+aggregate leaves) instead of just the head expr. Same segment discipline as
+`consumeCurrentSegmentV1`. -/
+private def consumeCurrentSegmentValueV1
+    (values : Array LoweredValueV1)
+    (blockEntry segmentStart : Nat)
+    (root : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let rootValue ← currentValueV1 values blockEntry segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  if root.toNat >= segmentStart then
+    stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .cosmwasm
+        "unsupported CosmWasm semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= segmentStart then
+          unless dependencyIndex < values.size do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+        else if dependencyIndex >= blockEntry then
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: expression crosses an effect boundary"
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .cosmwasm
+      "unsupported CosmWasm semantic shape: dead or reordered value instructions"
+  pure rootValue
 
 /-- Multi-root effect-boundary consumption (event/revert argument lists):
     every value produced in the current segment must be reachable from at
@@ -2839,6 +2899,7 @@ private partial def emitRegionV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectedReturn : Option CosmWasmValueKindV1)
+    (expectedAggregateLeaves : Option (Array LeafAbiType))
     (types : CosmWasmTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
@@ -2890,30 +2951,53 @@ private partial def emitRegionV1
       | .initialize =>
           throw <| .planInvariant .cosmwasm "initializer cannot return a value"
       | .mutate | .view | .pureFn =>
-          let expectedKind ← match expectedReturn with
-            | some kind => pure kind
-            | none =>
-                throw <| .planInvariant .cosmwasm
-                  "unsupported CosmWasm semantic shape: entry/view/pureFn is missing expected return kind"
           let root ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
-          if root.isAggregate then
-            throw <| .planInvariant .cosmwasm
-              "unsupported CosmWasm semantic shape: multi-leaf aggregate cannot be returned (ABI is scalar; B-RET-ABI: CosmWasm does not support named-aggregate return)"
-          unless root.kind == expectedKind do
-            let expectedLabel :=
-              match expectedKind with
-              | .uint64 => "UInt64"
-              | .uint32 => "UInt32"
-              | .uint16 => "UInt16"
-              | .uint8 => "UInt8"
-              | .uint128 => "UInt128"
-              | .uint256 => "UInt256"
-              | .bool => "Bool"
-              | .int64 => "Int64"
-            throw <| .planInvariant .cosmwasm
-              s!"unsupported CosmWasm semantic shape: return value must be {expectedLabel}"
-          let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
-          pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
+          match expectedAggregateLeaves with
+          | some expectedLeaves =>
+              -- B-RET-ABI: named Struct/Enum only (anonymous containers FC).
+              -- pureFn aggregate returns stay fail closed (makePureFn never
+              -- sets expectedAggregateLeaves; guard here for safety).
+              if mode == .pureFn then
+                throw <| .planInvariant .cosmwasm
+                  "unsupported CosmWasm semantic shape: pureFn cannot return named aggregate (B-RET-ABI)"
+              unless root.isAggregate do
+                throw <| .planInvariant .cosmwasm
+                  "unsupported CosmWasm semantic shape: aggregate return value must be a named aggregate"
+              let gotLeaves := root.leafExprs
+              unless gotLeaves.size == expectedLeaves.size do
+                throw <| .planInvariant .cosmwasm
+                  s!"unsupported CosmWasm semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
+              unless root.leafByteWidth == 8 do
+                throw <| .planInvariant .cosmwasm
+                  "unsupported CosmWasm semantic shape: multi-leaf aggregate (Array/Bytes) cannot be returned (B-RET-ABI admits only named Struct/Enum)"
+              let consumed ← consumeCurrentSegmentValueV1 values blockEntry segmentStart valueId
+              let leafIsInt := expectedLeaves.map (·.isInt)
+              pure (instrs.push (.returnAggregate consumed.leafExprs leafIsInt),
+                values, nextLocal0, .closed)
+          | none =>
+              let expectedKind ← match expectedReturn with
+                | some kind => pure kind
+                | none =>
+                    throw <| .planInvariant .cosmwasm
+                      "unsupported CosmWasm semantic shape: entry/view/pureFn is missing expected return kind"
+              if root.isAggregate then
+                throw <| .planInvariant .cosmwasm
+                  "unsupported CosmWasm semantic shape: multi-leaf aggregate cannot be returned (ABI is scalar; B-RET-ABI: CosmWasm admits only named Struct/Enum aggregate return)"
+              unless root.kind == expectedKind do
+                let expectedLabel :=
+                  match expectedKind with
+                  | .uint64 => "UInt64"
+                  | .uint32 => "UInt32"
+                  | .uint16 => "UInt16"
+                  | .uint8 => "UInt8"
+                  | .uint128 => "UInt128"
+                  | .uint256 => "UInt256"
+                  | .bool => "Bool"
+                  | .int64 => "Int64"
+                throw <| .planInvariant .cosmwasm
+                  s!"unsupported CosmWasm semantic shape: return value must be {expectedLabel}"
+              let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
+              pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
   | .return_ none =>
       unless expectedReturn.isNone do
         throw <| .planInvariant .cosmwasm
@@ -2999,7 +3083,7 @@ private partial def emitRegionV1
                   "unsupported CosmWasm semantic shape: loop branch targets must carry empty args"
               -- Body region ends at the latch (jump back to this header).
               let (bodyStmts, valuesB, nextLocal2, bodyCont) ←
-                emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
                   loopStable nextLocal1 (some targetId) freeHeader (fuel - 1)
                   thenT.blockId.toNat valuesH
               let updateArgs ← match bodyCont with
@@ -3024,7 +3108,7 @@ private partial def emitRegionV1
                 .forLoop varTemp initial cond update lb.maxIterations.toNat bodyStmts
               -- Continue the enclosing walk at the exit (else target).
               let (rest, valuesE, nextLocal3, exitCont) ←
-                emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
                   loopStable nextLocal2 enclosingHeader freeHeader (fuel - 1)
                   elseT.blockId.toNat valuesB
               pure (instrs ++ #[forStmt] ++ rest, valuesE, nextLocal3, exitCont)
@@ -3048,7 +3132,7 @@ private partial def emitRegionV1
           "unsupported CosmWasm semantic shape: branch condition must be Bool"
       let cond ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
       let (thenBody, values1, nextLocal1, thenNext) ←
-        emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+        emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
           stableCount nextLocal0 enclosingHeader freeAfter (fuel - 1)
           thenT.blockId.toNat values
       -- A latch may only arise on the then-arm of a loop header (handled
@@ -3063,12 +3147,12 @@ private partial def emitRegionV1
       | some j =>
           if elseT.blockId.toNat == j then
             let (rest, values2, nextLocal2, next) ←
-              emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+              emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
                 stableCount nextLocal1 enclosingHeader freeAfter (fuel - 1) j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, nextLocal2, next)
           else
             let (elseBody, values2, nextLocal2, elseNext) ←
-              emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+              emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
                 stableCount nextLocal1 enclosingHeader freeAfter (fuel - 1)
                 elseT.blockId.toNat values1
             let elseJoin ← match elseNext with
@@ -3083,19 +3167,19 @@ private partial def emitRegionV1
                   throw <| .planInvariant .cosmwasm
                     "unsupported CosmWasm semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, nextLocal3, next) ←
-                  emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                  emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
                     stableCount nextLocal2 enclosingHeader freeAfter (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
                   values3, nextLocal3, next)
             | none =>
                 let (rest, values3, nextLocal3, next) ←
-                  emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                  emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
                     stableCount nextLocal2 enclosingHeader freeAfter (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
                   values3, nextLocal3, next)
       | none =>
           let (elseBody, values2, nextLocal2, elseNext) ←
-            emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+            emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
               stableCount nextLocal1 enclosingHeader freeAfter (fuel - 1)
               elseT.blockId.toNat values1
           match elseNext with
@@ -3122,7 +3206,7 @@ private partial def emitRegionV1
       for switchCase in cases do
         let caseValue ← decodeSwitchCaseValueV1 scrutIsBool scrutIsUInt32 switchCase.valueBytes
         let (body, values1, nextLocal1, armNext) ←
-          emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+          emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
             stableCount nextLocalA enclosingHeader armFree (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
@@ -3139,7 +3223,7 @@ private partial def emitRegionV1
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: switch arms converge on divergent joins"
       let (defaultBody, values2, nextLocal2, defaultNext) ←
-        emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+        emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
           stableCount nextLocalA enclosingHeader armFree (fuel - 1)
           defaultT.blockId.toNat valuesA
       match defaultNext, joinAcc with
@@ -3157,7 +3241,7 @@ private partial def emitRegionV1
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, nextLocal2, .closed)
       | some j =>
           let (rest, values3, nextLocal3, next) ←
-            emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+            emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv blocks loopBounds
               stableCount nextLocal2 enclosingHeader freeAfter (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
             values3, nextLocal3, next)
@@ -3179,6 +3263,7 @@ private def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectedReturn : Option CosmWasmValueKindV1)
+    (expectedAggregateLeaves : Option (Array LeafAbiType))
     (types : CosmWasmTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (layout : StorageLayout)
@@ -3203,7 +3288,7 @@ private def lowerCallableV1
     }
   let stableCount0 := valuesInit.size
   let (body0, values0, _nextLocal0, cont0) ←
-    emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv callable.blocks
+    emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv callable.blocks
       callable.loopBounds stableCount0 0 none #[] callable.blocks.size 0 valuesInit
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
@@ -3220,7 +3305,7 @@ private def lowerCallableV1
           "unsupported CosmWasm semantic shape: loop latch escaped its body walk"
     | .join j =>
         let (rest, values1, nextLocal1, next1) ←
-          emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv callable.blocks
+          emitRegionV1 owner mode expectedReturn expectedAggregateLeaves types typeDecls layout fnEnv callable.blocks
             callable.loopBounds stableCount0 nextLocal none #[]
             callable.blocks.size j values
         body := body ++ rest
@@ -3253,7 +3338,7 @@ private def makeInitializerV1
     throw <| .planInvariant .cosmwasm
       "unsupported CosmWasm semantic shape: initializer result is not Unit"
   let lowered ←
-    lowerCallableV1 "initializer" .initialize none types typeDecls layout fnEnv callable
+    lowerCallableV1 "initializer" .initialize none none types typeDecls layout fnEnv callable
   pure {
     name := "init"
     params := lowered.params
@@ -3278,31 +3363,35 @@ private def makeEntryV1
     throw <| .planInvariant .cosmwasm s!"entry name '{name}' is not a safe identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .cosmwasm s!"entry '{name}' does not return a public result"
-  -- B-RET-ABI: named Struct/Enum entry/view returns stay fail closed (scalar
-  -- ABI only). Surface the aggregate boundary before the generic scalar-width
-  -- reject so product tests can pin the message.
-  if types.isNamedAggregate callable.result.typeId then
-    throw <| .planInvariant .cosmwasm
-      s!"unsupported CosmWasm semantic shape: entry '{name}' cannot return named aggregate (ABI is scalar; B-RET-ABI)"
-  -- CosmWasm MVP: scalar ABI is UInt64 / Bool / Int64 only (multi-width FC).
-  let (resultKind, expectedReturn) ←
+  -- CosmWasm MVP: scalar ABI is UInt64 / Bool / Int64; B-RET-ABI admits named
+  -- Struct/Enum (≤8 UInt64/Int64 leaves). Multi-width and anonymous containers FC.
+  let (resultKind, expectedReturn, expectedAggregateLeaves) ←
     match types.uintWidthOf callable.result.typeId with
-    | some 64 => pure (MethodResultKind.uint64, some CosmWasmValueKindV1.uint64)
+    | some 64 => pure (MethodResultKind.uint64, some CosmWasmValueKindV1.uint64, none)
     | some w =>
         throw <| .planInvariant .cosmwasm
           s!"entry '{name}' does not return public UInt64 (UInt{w} multi-width fail closed at CosmWasm MVP)"
     | none =>
         match types.intWidthOf callable.result.typeId with
-        | some 64 => pure (MethodResultKind.int64, some CosmWasmValueKindV1.int64)
+        | some 64 => pure (MethodResultKind.int64, some CosmWasmValueKindV1.int64, none)
         | some w =>
             throw <| .planInvariant .cosmwasm
               s!"entry '{name}' does not return public Int64 (Int{w} multi-width fail closed at CosmWasm MVP)"
         | none =>
           if types.boolTypeId == some callable.result.typeId then
-            pure (MethodResultKind.bool, some CosmWasmValueKindV1.bool)
+            pure (MethodResultKind.bool, some CosmWasmValueKindV1.bool, none)
+          else if types.isNamedAggregate callable.result.typeId then
+            let kind ← aggregateResultKindOfV1 typeDecls types s!"entry '{name}'"
+              callable.result.typeId
+            pure (kind, none, match kind with
+              | .aggregate leaves => some leaves
+              | _ => none)
+          else if types.isContainer callable.result.typeId then
+            throw <| .planInvariant .cosmwasm
+              s!"entry '{name}' cannot return anonymous container (Array/Map/Bytes/Option); CosmWasm B-RET-ABI admits only named Struct/Enum (cap-8 leaves)"
           else
             throw <| .planInvariant .cosmwasm
-              s!"entry '{name}' does not return public UInt64, Int64, or Bool"
+              s!"entry '{name}' does not return public UInt64, Int64, Bool, or named Struct/Enum aggregate"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -3314,8 +3403,8 @@ private def makeEntryV1
     | .initialize => .initialize
     | .pureFn => .mutate
   let lowered ←
-    lowerCallableV1 s!"entry '{name}'" semanticMode expectedReturn types typeDecls layout fnEnv
-      callable
+    lowerCallableV1 s!"entry '{name}'" semanticMode expectedReturn expectedAggregateLeaves
+      types typeDecls layout fnEnv callable
   pure {
     name
     params := lowered.params
@@ -3345,11 +3434,14 @@ private def makePureFnV1
       pure (false, CosmWasmValueKindV1.uint64)
     else if types.boolTypeId == some callable.result.typeId then
       pure (true, CosmWasmValueKindV1.bool)
+    else if types.isNamedAggregate callable.result.typeId then
+      throw <| .planInvariant .cosmwasm
+        s!"pureFn '{name}' cannot return named aggregate (B-RET-ABI: pureFn aggregate returns stay fail closed)"
     else
       throw <| .planInvariant .cosmwasm
         s!"pureFn '{name}' does not return public UInt64 or Bool"
   let lowered ←
-    lowerCallableV1 s!"pureFn '{name}'" .pureFn (some expectedReturn) types typeDecls layout fnEnv
+    lowerCallableV1 s!"pureFn '{name}'" .pureFn (some expectedReturn) none types typeDecls layout fnEnv
       callable
   pure {
     name
@@ -3370,8 +3462,8 @@ partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
         statementsUsePromiseV1 defaultBody ||
           cases.any fun (_, caseBody) => statementsUsePromiseV1 caseBody
     | .forLoop _ _ _ _ _ body => statementsUsePromiseV1 body
-    | .store _ | .storeAtomic _ | .returnValue _ | .returnNone | .assert _
-    | .emitEvent .. | .revertError .. => false
+    | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate .. | .returnNone
+    | .assert _ | .emitEvent .. | .revertError .. => false
 
 def planUsesPromiseV1 (plan : Plan) : Bool :=
   statementsUsePromiseV1 plan.initializer.body ||

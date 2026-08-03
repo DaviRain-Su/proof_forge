@@ -243,6 +243,26 @@ private partial def checkMethodStatementsV1
         total ← addPlanExprNodes limits layout params fns total value
         methodTemps ← addMethodExprTemps limits layout params fns methodTemps value
         closed := true
+    | .returnAggregate leaves leafIsInt =>
+        if isInitializer then
+          throw <| .planInvariant .cosmwasm "initializer cannot return a value"
+        if isPureFn then
+          throw <| .planInvariant .cosmwasm
+            "pureFn cannot returnAggregate (B-RET-ABI: pureFn aggregate returns stay fail closed)"
+        unless leaves.size > 0 && leaves.size ≤ 8 do
+          throw <| .planInvariant .cosmwasm
+            "method returnAggregate leaf count must be in 1..8 (B-RET-ABI)"
+        unless leafIsInt.size == leaves.size do
+          throw <| .planInvariant .cosmwasm
+            "method returnAggregate leafIsInt length must match leaves"
+        for leaf in leaves do
+          unless exprIsUInt64CompatibleV1 fns leaf do
+            throw <| .planInvariant .cosmwasm
+              "method returnAggregate leaves must be integer expressions"
+          total ← addPlanExprNodes limits layout params fns total leaf
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps leaf
+        total := total + 1
+        closed := true
     | .returnNone =>
         unless allowReturnNone do
           throw <| .planInvariant .cosmwasm "method has an early bare return inside a branch arm"
@@ -366,14 +386,18 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
       throw <| .planInvariant .cosmwasm "initializer export identity is not canonical"
   else if method.mode == .initialize then
     throw <| .planInvariant .cosmwasm "entry method cannot use initialize mode"
-  else unless method.resultKind == .uint64 || method.resultKind == .bool ||
-      method.resultKind == .int64 || method.resultKind == .uint8 ||
-      method.resultKind == .uint16 || method.resultKind == .uint32 ||
-      method.resultKind == .uint128 || method.resultKind == .uint256 ||
-      method.resultKind == .int8 || method.resultKind == .int16 ||
-      method.resultKind == .int32 do
-    throw <| .planInvariant .cosmwasm
-      s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int64, or Bool"
+  else
+    let resultKindOk :=
+      match method.resultKind with
+      | .uint64 | .bool | .int64 | .uint8 | .uint16 | .uint32
+      | .uint128 | .uint256 | .int8 | .int16 | .int32 => true
+      | .aggregate leaves =>
+          leaves.size > 0 && leaves.size ≤ 8 &&
+            leaves.all (fun l => l.byteWidth == 8)
+      | .unit => false
+    unless resultKindOk do
+      throw <| .planInvariant .cosmwasm
+        s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int64, Bool, or aggregate (1..8×UInt64/Int64 leaves)"
   unless method.depositPolicy ==
       (if method.mode == .view then .queryOnly else .requireZero) do
     throw <| .planInvariant .cosmwasm s!"method '{method.name}' deposit policy is not canonical"
