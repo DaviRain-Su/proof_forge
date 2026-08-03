@@ -72,12 +72,96 @@ def s2RequirementVersionV1 : SemVer :=
 def s2CatalogIdsWireOrderV1 : Array String :=
   RequirementIdsV1.s2CatalogIdsWireOrderV1
 
+/-- Closed-catalog membership by exact id equality (if-chain so kernel
+    certificates reduce; equivalent to `s2CatalogIdsWireOrderV1.contains`). -/
 def isS2CatalogIdV1 (id : String) : Bool :=
-  s2CatalogIdsWireOrderV1.contains id
+  id == RequirementIdsV1.s2EffectAsyncWorkflowIdV1 ||
+  id == RequirementIdsV1.s2EffectEventIdV1 ||
+  id == RequirementIdsV1.s2EffectSyncCallIdV1 ||
+  id == RequirementIdsV1.s2FailureAtomicRollbackIdV1 ||
+  id == RequirementIdsV1.s2StatePersistentIdV1 ||
+  id == RequirementIdsV1.s2ValueBoolIdV1 ||
+  id == RequirementIdsV1.s2ValueCheckedArithmeticIdV1
 
-/-- Engineering content-address digest for a closed catalog requirement id. -/
+/-! ### Kernel-transparent S2 catalog digests
+
+    `domainSeparatedSha256` is pure Lean SHA-256 via `Id.run`/`forIn` and does
+    not reduce in the kernel. Closed S2 catalog digests are therefore pinned as
+    transparent spines equal to
+    `domainSeparatedSha256("pf.requirement-key.engineering.v1", UTF-8(id))`
+    so encode/structure certificates can refine by definitional equality without
+    whole-tree SHA reduction. Runtime identity is preserved byte-for-byte. -/
+
+/-- Exact engineering digest bytes for `effect.asynchronous-workflow`. -/
+def s2EffectAsyncWorkflowDigestBytesV1 : ByteArray :=
+  ByteArray.mk (List.toArray [
+    253, 112, 194, 166, 25, 80, 63, 79, 195, 43, 44, 203, 95, 222, 24, 104,
+    200, 202, 145, 32, 121, 67, 113, 158, 205, 251, 243, 100, 114, 61, 100, 133
+  ])
+
+/-- Exact engineering digest bytes for `effect.event`. -/
+def s2EffectEventDigestBytesV1 : ByteArray :=
+  ByteArray.mk (List.toArray [
+    74, 184, 221, 219, 124, 134, 3, 223, 226, 120, 126, 108, 126, 53, 221, 204,
+    64, 225, 81, 219, 53, 54, 235, 193, 137, 171, 147, 108, 190, 111, 146, 136
+  ])
+
+/-- Exact engineering digest bytes for `effect.synchronous-call`. -/
+def s2EffectSyncCallDigestBytesV1 : ByteArray :=
+  ByteArray.mk (List.toArray [
+    205, 152, 134, 50, 128, 130, 148, 206, 97, 200, 156, 186, 47, 47, 190, 5,
+    66, 36, 251, 190, 144, 39, 18, 1, 61, 62, 132, 220, 11, 232, 139, 83
+  ])
+
+/-- Exact engineering digest bytes for `failure.atomic-rollback`. -/
+def s2FailureAtomicRollbackDigestBytesV1 : ByteArray :=
+  ByteArray.mk (List.toArray [
+    254, 98, 216, 232, 64, 20, 227, 236, 31, 23, 247, 108, 127, 85, 250, 195,
+    25, 2, 68, 236, 163, 173, 18, 77, 208, 78, 23, 195, 201, 209, 17, 101
+  ])
+
+/-- Exact engineering digest bytes for `state.persistent`. -/
+def s2StatePersistentDigestBytesV1 : ByteArray :=
+  ByteArray.mk (List.toArray [
+    2, 63, 255, 245, 41, 95, 167, 238, 77, 158, 78, 73, 144, 154, 62, 183,
+    241, 252, 12, 86, 31, 142, 126, 160, 111, 18, 66, 52, 12, 20, 110, 229
+  ])
+
+/-- Exact engineering digest bytes for `value.bool`. -/
+def s2ValueBoolDigestBytesV1 : ByteArray :=
+  ByteArray.mk (List.toArray [
+    237, 52, 225, 6, 29, 14, 102, 99, 155, 106, 118, 55, 29, 216, 166, 193,
+    204, 215, 46, 122, 154, 20, 116, 84, 218, 122, 83, 193, 167, 71, 84, 124
+  ])
+
+/-- Exact engineering digest bytes for `value.checked-arithmetic`. -/
+def s2ValueCheckedArithmeticDigestBytesV1 : ByteArray :=
+  ByteArray.mk (List.toArray [
+    226, 24, 107, 1, 207, 88, 19, 81, 17, 247, 78, 197, 106, 83, 227, 51,
+    135, 188, 48, 22, 72, 104, 7, 27, 31, 82, 74, 242, 34, 184, 191, 205
+  ])
+
+/-- Engineering content-address digest for a closed catalog requirement id.
+    Closed S2 ids use transparent precomputed spines (exact
+    `domainSeparatedSha256` results); unknown ids still compute via the pure
+    SHA path. -/
 def engineeringRequirementDigestV1 (id : String) : Except String Digest :=
-  domainSeparatedSha256 engineeringRequirementKeyDomainV1 id.toUTF8
+  if id == RequirementIdsV1.s2EffectAsyncWorkflowIdV1 then
+    pure { algorithm := .sha256, bytes := s2EffectAsyncWorkflowDigestBytesV1 }
+  else if id == RequirementIdsV1.s2EffectEventIdV1 then
+    pure { algorithm := .sha256, bytes := s2EffectEventDigestBytesV1 }
+  else if id == RequirementIdsV1.s2EffectSyncCallIdV1 then
+    pure { algorithm := .sha256, bytes := s2EffectSyncCallDigestBytesV1 }
+  else if id == RequirementIdsV1.s2FailureAtomicRollbackIdV1 then
+    pure { algorithm := .sha256, bytes := s2FailureAtomicRollbackDigestBytesV1 }
+  else if id == RequirementIdsV1.s2StatePersistentIdV1 then
+    pure { algorithm := .sha256, bytes := s2StatePersistentDigestBytesV1 }
+  else if id == RequirementIdsV1.s2ValueBoolIdV1 then
+    pure { algorithm := .sha256, bytes := s2ValueBoolDigestBytesV1 }
+  else if id == RequirementIdsV1.s2ValueCheckedArithmeticIdV1 then
+    pure { algorithm := .sha256, bytes := s2ValueCheckedArithmeticDigestBytesV1 }
+  else
+    domainSeparatedSha256 engineeringRequirementKeyDomainV1 id.toUTF8
 
 /-- Build one RequirementRequestV1 for a catalog id (empty predicates). -/
 def mkS2RequirementRequestV1 (id : String) : Except String RequirementRequestV1 := do
