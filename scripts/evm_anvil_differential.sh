@@ -157,8 +157,12 @@ else
   echo "evm-anvil-differential: note: forge not required and not found (ok)" >&2
 fi
 
+# CLI discovery: PROOF_FORGE_CLI → local .lake → PATH (export selection downstream).
 cli=""
-if [[ -x "$root/.lake/build/bin/proof-forge-next" ]]; then
+if [[ -n "${PROOF_FORGE_CLI:-}" && -x "${PROOF_FORGE_CLI}" ]]; then
+  cli="$PROOF_FORGE_CLI"
+  echo "evm-anvil-differential: using PROOF_FORGE_CLI=$cli" >&2
+elif [[ -x "$root/.lake/build/bin/proof-forge-next" ]]; then
   cli="$root/.lake/build/bin/proof-forge-next"
 elif command -v proof-forge-next >/dev/null 2>&1; then
   cli="$(command -v proof-forge-next)"
@@ -181,11 +185,14 @@ if [[ -z "${cli:-}" || ! -x "$cli" ]]; then
   echo "evm-anvil-differential: engineering only; not formal Reference↔Anvil closure" >&2
   exit 0
 fi
+export PROOF_FORGE_CLI="$cli"
 
 run_cli() {
   # Prefer lake env so Lean runtime dylibs resolve; fall back to bare binary.
+  # When PF_LAKE_ROOT is set (worktree without oleans), use that package root.
+  local lake_root="${PF_LAKE_ROOT:-$root}"
   if command -v lake >/dev/null 2>&1; then
-    (cd "$root" && lake env "$cli" "$@")
+    (cd "$lake_root" && lake env bash -c "cd '$root' && exec \"\$@\"" _ "$cli" "$@")
   else
     (cd "$root" && "$cli" "$@")
   fi

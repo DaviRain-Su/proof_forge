@@ -68,7 +68,11 @@ PY
 case "$(uname -s)" in
   Darwin) default_tool_root="$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64" ;;
   Linux) default_tool_root="$HOME/.cache/proof-forge-v2/tool-root/linux-$(uname -m)" ;;
-  *) echo "evm-token-anvil: skipped: unsupported host" >&2; exit 0 ;;
+  *)
+    echo "evm-token-anvil: explicit skip: unsupported host (optional adapter leg; not pass)" >&2
+    write_token_skip_obs "missing-optional-tool:unsupported-host"
+    exit 0
+    ;;
 esac
 foundry_bin="${FOUNDRY_BIN:-${PROOF_FORGE_TOOL_ROOT:-$default_tool_root}}"
 anvil_path="$foundry_bin/anvil"; cast_path="$foundry_bin/cast"
@@ -80,7 +84,7 @@ if [[ ! -x "${cast_path:-}" ]] && command -v cast >/dev/null 2>&1; then
   cast_path="$(command -v cast)"
 fi
 if [[ ! -x "${anvil_path:-}" || ! -x "${cast_path:-}" ]]; then
-  echo "evm-token-anvil: skipped: anvil/cast unavailable" >&2
+  echo "evm-token-anvil: explicit skip: anvil/cast unavailable (optional adapter leg; not pass)" >&2
   echo "evm-token-anvil: engineering only; not formal Reference↔Anvil" >&2
   write_token_skip_obs "missing-optional-tool:anvil-or-cast"
   exit 0
@@ -107,7 +111,8 @@ case "$evm_profile" in
     echo "evm-token-anvil: profile=$evm_profile → anvil --hardfork cancun" >&2
     ;;
   *)
-    echo "evm-token-anvil: skipped: unsupported PF_EVM_PROFILE='$evm_profile' (refuse silent default mix)" >&2
+    echo "evm-token-anvil: explicit skip: unsupported PF_EVM_PROFILE='$evm_profile' (optional adapter; not pass)" >&2
+    write_token_skip_obs "missing-optional-tool:unsupported-profile"
     exit 0
     ;;
 esac
@@ -142,11 +147,14 @@ token_tree_matches_profile() {
 
 if ! token_tree_matches_profile "$token_bin"; then
   echo "evm-token-anvil: building Token EVM artifact → $token_out_rel (profile=$expected_profile_wire)..." >&2
+  # CLI discovery: PROOF_FORGE_CLI → local .lake → PATH
   token_cli=""
-  if [[ -x "${PROOF_FORGE_CLI:-}" ]]; then
+  if [[ -n "${PROOF_FORGE_CLI:-}" && -x "${PROOF_FORGE_CLI}" ]]; then
     token_cli="$PROOF_FORGE_CLI"
   elif [[ -x "$root/.lake/build/bin/proof-forge-next" ]]; then
     token_cli="$root/.lake/build/bin/proof-forge-next"
+  elif command -v proof-forge-next >/dev/null 2>&1; then
+    token_cli="$(command -v proof-forge-next)"
   fi
   if [[ -n "$token_cli" ]] && command -v lake >/dev/null 2>&1; then
     # Product CLI refuses non-empty existing -o dirs (PF-OUTPUT-COLLISION).
@@ -202,13 +210,19 @@ if [[ ! -f "$abi" ]]; then
   exit 1
 fi
 port=$((18545 + RANDOM % 1000))
+anvil_log="$(mktemp "${TMPDIR:-/tmp}/pf-token-anvil.XXXXXX.log")"
+create_err="$(mktemp "${TMPDIR:-/tmp}/pf-token-anvil-create.XXXXXX.err")"
+cleanup_token() {
+  kill "${anvil_pid:-}" 2>/dev/null || true
+  rm -f "$anvil_log" "$create_err"
+}
+trap cleanup_token EXIT
 if ((${#anvil_extra_args[@]})); then
-  "$anvil_path" --port "$port" "${anvil_extra_args[@]}" --silent >/tmp/pf-token-anvil.log 2>&1 &
+  "$anvil_path" --port "$port" "${anvil_extra_args[@]}" --silent >"$anvil_log" 2>&1 &
 else
-  "$anvil_path" --port "$port" --silent >/tmp/pf-token-anvil.log 2>&1 &
+  "$anvil_path" --port "$port" --silent >"$anvil_log" 2>&1 &
 fi
 anvil_pid=$!
-trap 'kill $anvil_pid 2>/dev/null || true' EXIT
 # Wait for RPC readiness (avoid fixed sleep races).
 rpc="http://127.0.0.1:$port"
 ready=0
@@ -220,7 +234,8 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [[ "$ready" != 1 ]]; then
-  echo "evm-token-anvil: skipped: anvil failed to start (see /tmp/pf-token-anvil.log)" >&2
+  echo "evm-token-anvil: explicit skip: anvil failed to start (optional adapter; not pass; see $anvil_log)" >&2
+  write_token_skip_obs "missing-optional-tool:anvil-start-failed"
   exit 0
 fi
 # Anvil default key
@@ -228,8 +243,7 @@ pk=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 # Deploy create
 binhex=$(xxd -p -c 1000000 "$token_bin" | tr -d '\n')
 # Token Map pilot bytecode can exceed Anvil/EIP-3860 initcode limits (~49KiB).
-create_err=/tmp/pf-token-anvil-create.err
-addr=$("$cast_path" send --rpc-url "$rpc" --private-key "$pk" --create "0x$binhex" --json 2>"$create_err" | python3 -c 'import sys,json
+addr=$("$cast_path" send --rpc-url "$rpc" --private-key "$pk" --create "0x$binhex" --json 2>"$create_err" | /usr/bin/python3 -I -S -c 'import sys,json
 try:
   print(json.load(sys.stdin).get("contractAddress",""))
 except Exception:
@@ -242,7 +256,7 @@ if [[ -z "$addr" || "$addr" == "null" ]]; then
   fi
   tx=$("$cast_path" send --rpc-url "$rpc" --private-key "$pk" --create "0x$binhex" 2>/dev/null | tail -1 || true)
   if [[ -n "${tx:-}" ]]; then
-    addr=$("$cast_path" receipt --rpc-url "$rpc" "$tx" --json 2>/dev/null | python3 -c 'import sys,json
+    addr=$("$cast_path" receipt --rpc-url "$rpc" "$tx" --json 2>/dev/null | /usr/bin/python3 -I -S -c 'import sys,json
 try:
   print(json.load(sys.stdin).get("contractAddress",""))
 except Exception:
@@ -251,12 +265,12 @@ except Exception:
 fi
 if [[ -z "$addr" || "$addr" == "null" ]]; then
   if grep -qiE 'initcode|max code|code size|oversized|StackTooDeep' "$create_err" 2>/dev/null \
-      || grep -qiE 'initcode|max code|code size|oversized' /tmp/pf-token-anvil.log 2>/dev/null; then
+      || grep -qiE 'initcode|max code|code size|oversized' "$anvil_log" 2>/dev/null; then
     echo "evm-token-anvil: explicit skip: deploy initcode/create limit (Map pilot; adapter; not pass)" >&2
     write_token_skip_obs "anvil-deploy-limit:dense-Map-cap8-pilot"
     exit 0
   fi
-  echo "evm-token-anvil: deploy failed (hard; see /tmp/pf-token-anvil.log and $create_err)" >&2
+  echo "evm-token-anvil: deploy failed (hard; see $anvil_log and $create_err)" >&2
   exit 1
 fi
 # Normalize cast call output to decimal UInt64 when possible.
@@ -266,7 +280,7 @@ to_dec() {
   x="${x// /}"
   if [[ -z "$x" ]]; then echo ""; return; fi
   if [[ "$x" == 0x* || "$x" == 0X* ]]; then
-    python3 -c "print(int('$x', 16))" 2>/dev/null || echo "$x"
+    /usr/bin/python3 -I -S -c "print(int('$x', 16))" 2>/dev/null || echo "$x"
   else
     # cast may print plain decimal
     echo "$x"

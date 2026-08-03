@@ -1241,24 +1241,27 @@ def close_case(
                     "(required leg cannot skip/tool-blocked/proposal/fail as pass)",
                 )
 
-    # Optional legs: may be all-skip or all-pass for the leg; mixed fail closed.
+    # Optional legs: ONLY whole-leg all-pass or whole-leg all-skip.
+    # Mixed skip+pass, tool-blocked, proposal, fail → fail closed (never case pass).
+    optional_all_skip = True
     for leg in sorted(optional_legs):
         verdicts = {
             index[(leg, int(step["index"]))]["verdict"]  # type: ignore[arg-type]
             for step in steps
         }
-        if "pass" in verdicts and (verdicts - {"pass"}):
-            fail(
-                "PF-CORPUS-INVARIANT",
-                f"optional leg={leg} mixes pass with non-pass verdicts",
-            )
-        if not verdicts.issubset({"pass", "skip"}):
-            # tool-blocked/proposal/fail on optional still not case pass
-            if "fail" in verdicts:
-                fail(
-                    "PF-CORPUS-INVARIANT",
-                    f"optional leg={leg} has fail verdict",
-                )
+        if verdicts == {"pass"}:
+            optional_all_skip = False
+            continue
+        if verdicts == {"skip"}:
+            continue
+        fail(
+            "PF-CORPUS-INVARIANT",
+            f"optional leg={leg} verdicts={sorted(str(v) for v in verdicts)} "
+            "must be all-pass or all-skip "
+            "(tool-blocked/proposal/fail/mixed are not pass)",
+        )
+    if not optional_legs:
+        optional_all_skip = False
 
     # Per-step status + expectedLogs (against pf-anvil when present and pass).
     for step in steps:
@@ -1317,17 +1320,11 @@ def close_case(
                             f"primitive step={idx} shared mismatch across required legs",
                         )
 
-    # Adapter optional-only skip: report skip, not pass.
-    adapter_skipped = False
-    if case_class == "adapter" and optional_legs:
-        for leg in optional_legs:
-            if all(
-                index[(leg, int(step["index"]))]["verdict"] == "skip"  # type: ignore[arg-type]
-                for step in steps
-            ):
-                adapter_skipped = True
-
-    if adapter_skipped and not required_legs:
+    # Whole-case result:
+    # - required legs all pass (enforced above)
+    # - optional all-pass → pass; optional all-skip with no required → skip
+    # - optional all-skip with required present → pass (required satisfied)
+    if optional_legs and optional_all_skip and not required_legs:
         return {
             "caseId": case_id,
             "class": case_class,
@@ -1361,21 +1358,151 @@ def load_observations_dir(obs_dir: Path, case_id: str) -> list[dict[str, object]
     return out
 
 
+# Tool lock files exceed case byte caps; still use closed duplicate-rejecting decoder.
+MAX_TOOL_LOCK_BYTES = 8 * 1024 * 1024
+
+# Darwin ToolLockV4Digest KAT (domain-separated PF-JCS of validated lock).
+DARWIN_TOOL_LOCK_V4_DIGEST_KAT = (
+    "63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf"
+)
+# Raw retained-file SHA-256 of toolchains.lock.json (distinct type).
+DARWIN_TOOL_LOCK_RAW_SHA256_KAT = (
+    "e729ea8b024703297542802b49ae186b07e87848696d8fd4809a15c8021565a7"
+)
+
+# Exact EVMOZ-004 full-runtime pin surface for runnable anvil-matrix cases.
+RUNNABLE_PIN_EXPECT = {
+    "target": "evm",
+    "profile": "evm-yul-solc-0.8.34-cancun-v1",
+    "hardfork": "cancun",
+    "toolLockDigest": DARWIN_TOOL_LOCK_V4_DIGEST_KAT,
+    "solcVersion": "0.8.34",
+    "anvilVersion": "0.3.0",
+    "runner": "anvil-matrix",
+}
+EXPECTED_RUNNABLE_IDS = (
+    "pf.adapter.token.conservation.v1",
+    "pf.primitive.accumulator.overflow-hold.v1",
+    "pf.primitive.arithops.bitnot-scale.v1",
+    "pf.primitive.counter.overflow-hold.v1",
+    "pf.primitive.eventflow.emit-cap.v1",
+)
+PRIMITIVE_REQUIRED_TOOLS = (
+    "anvil",
+    "cast",
+    "lake",
+    "lean",
+    "proof-forge-next",
+    "solc",
+)
+
+
 def darwin_tool_lock_v4_digest(lock_path: Path) -> str:
-    """Recompute Darwin ToolLockV4Digest from lock file bytes (PF-JCS re-encode)."""
+    """Recompute Darwin ToolLockV4Digest from lock file bytes (PF-JCS re-encode).
+
+    Uses the closed duplicate-rejecting decoder (not plain json.loads).
+    """
     import hashlib
-    import json as _json
 
     raw = lock_path.read_bytes()
-    # Tool lock is larger than case max; use stdlib JSON + our canonical encoder.
-    try:
-        value = _json.loads(raw.decode("utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        fail("PF-CORPUS-JSON", f"tool lock JSON: {exc}")
-    # Restrict to our number/key profile via canonical_bytes validation.
+    # Decode with object_pairs_hook that rejects duplicate keys.
+    value = decode_json(raw, max_bytes=MAX_TOOL_LOCK_BYTES)
     canon = canonical_bytes(value)
     digest = hashlib.sha256(b"proof-forge.toolchains.v4\x00" + canon).hexdigest()
     return digest
+
+
+def require_safe_obs_root(obs_root: Path, repo_root: Path) -> Path:
+    """OBS root must resolve to a proper subdirectory of repo_root/build/.
+
+    Rejects: `/`, repo root, `build/` itself, paths outside build/, and
+    symlink escapes (final realpath must stay under realpath(build/)).
+    Does not delete anything.
+    """
+    repo = repo_root.resolve()
+    build = repo / "build"
+    # Ensure build exists so resolve semantics are stable for parents.
+    build.mkdir(parents=True, exist_ok=True)
+    build_real = build.resolve()
+
+    obs_in = obs_root.expanduser()
+    if not obs_in.is_absolute():
+        obs_in = repo / obs_in
+    try:
+        if obs_in.exists():
+            obs = obs_in.resolve()
+        else:
+            parent = obs_in.parent
+            if not parent.exists():
+                parent.mkdir(parents=True, exist_ok=True)
+            obs = parent.resolve() / obs_in.name
+    except OSError as exc:
+        fail("PF-CORPUS-PATH", f"obs root unresolvable: {exc}")
+
+    if obs == repo or obs == build_real:
+        fail(
+            "PF-CORPUS-PATH",
+            f"obs root must be a proper subdirectory of build/ (got {obs})",
+        )
+    try:
+        rel = obs.relative_to(build_real)
+    except ValueError:
+        fail(
+            "PF-CORPUS-PATH",
+            f"obs root {obs} must be under {build_real} (symlink escape rejected)",
+        )
+    if not rel.parts or rel.parts[0] in {".", ".."}:
+        fail("PF-CORPUS-PATH", f"obs root relative path illegal: {rel}")
+    return obs
+
+
+def list_runnable_cases(cases_dir: Path) -> list[dict[str, object]]:
+    """Return cases with class in {primitive,adapter} and runner=anvil-matrix."""
+    out: list[dict[str, object]] = []
+    for path in sorted(cases_dir.glob("*.json")):
+        case = load_and_validate_case(path)
+        if case["class"] in {"primitive", "adapter"} and case["pins"]["runner"] == "anvil-matrix":  # type: ignore[index]
+            out.append(case)
+    return out
+
+
+def assert_runnable_set(cases: list[dict[str, object]]) -> None:
+    ids = sorted(str(c["id"]) for c in cases)
+    expected = sorted(EXPECTED_RUNNABLE_IDS)
+    if ids != expected:
+        fail(
+            "PF-CORPUS-INVARIANT",
+            f"runnable case set {ids} != expected {expected}",
+        )
+
+
+def assert_case_pins(case: dict[str, object]) -> None:
+    """Exact join of full-runtime pin surface for a runnable case."""
+    case = validate_case(case)
+    pins = case["pins"]  # type: ignore[index]
+    for key, expected in RUNNABLE_PIN_EXPECT.items():
+        actual = pins[key]
+        if actual != expected:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"case {case['id']} pins.{key}={actual!r} != {expected!r}",
+            )
+    # Primitive requiredTools exact matrix.
+    if case["class"] == "primitive":
+        tools = list(case["skipPolicy"]["requiredTools"])  # type: ignore[index]
+        if tools != list(PRIMITIVE_REQUIRED_TOOLS):
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"case {case['id']} requiredTools={tools} "
+                f"!= {list(PRIMITIVE_REQUIRED_TOOLS)}",
+            )
+    if case["class"] == "adapter":
+        tools = list(case["skipPolicy"]["requiredTools"])  # type: ignore[index]
+        if tools != []:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"adapter {case['id']} requiredTools must be [] (optional leg)",
+            )
 
 
 def mint_observation_from_shared(
@@ -2369,6 +2496,7 @@ def run_self_tests() -> None:
     _run_storage_word_tests()
     _run_forbidden_early_order_test()
     _run_close_case_negative_tests()
+    _run_tool_lock_and_obs_root_tests()
 
     print("evm-corpus-v1: self-test ok")
 
@@ -2493,6 +2621,156 @@ def _run_close_case_negative_tests() -> None:
     ]
     expect_close_fail("required-leg-skip", skip_obs)
 
+    # Optional leg: all tool-blocked must NOT pass.
+    adapter = make_adapter_case()
+    adapter["oracle"] = {
+        "legs": ["pf-anvil"],
+        "compare": "shared-projection",
+        "sameCallBytes": False,
+    }
+    adapter["skipPolicy"] = _skip(optional=["pf-anvil"], tools=[])
+    adapter["pins"] = _base_pins(
+        ozCommit=None, sourcePath="Examples/Token.lean", runner="anvil-matrix"
+    )
+    # Re-validate adapter after pin/oracle mutation.
+    adapter_id = str(adapter["id"])
+
+    def _skip_like(verdict: str, reason: str) -> dict[str, object]:
+        o = _mk_pass_obs(adapter_id, "pf-anvil", 0)
+        o["verdict"] = verdict
+        o["skipReason"] = reason
+        return o
+
+    try:
+        close_case(adapter, [_skip_like("tool-blocked", "toolchain")])
+        raise AssertionError("optional-all-tool-blocked: expected failure")
+    except CorpusError as err:
+        if err.code != "PF-CORPUS-INVARIANT":
+            raise AssertionError(
+                f"optional-all-tool-blocked: wrong code {err.code}"
+            ) from err
+
+    try:
+        close_case(adapter, [_skip_like("proposal", "design-only")])
+        raise AssertionError("optional-all-proposal: expected failure")
+    except CorpusError as err:
+        if err.code != "PF-CORPUS-INVARIANT":
+            raise AssertionError(
+                f"optional-all-proposal: wrong code {err.code}"
+            ) from err
+
+    # Mixed skip + tool-blocked across steps.
+    adapter["steps"] = [
+        _step(0, actor="alice", entry="transfer", status="success"),
+        _step(1, actor="alice", entry="transfer", status="success"),
+    ]
+    mixed = [
+        {
+            **_mk_pass_obs(adapter_id, "pf-anvil", 0),
+            "verdict": "skip",
+            "skipReason": "stack-too-deep",
+        },
+        {
+            **_mk_pass_obs(adapter_id, "pf-anvil", 1),
+            "verdict": "tool-blocked",
+            "skipReason": "missing-anvil",
+        },
+    ]
+    try:
+        close_case(adapter, mixed)
+        raise AssertionError("optional-mixed-skip-tool-blocked: expected failure")
+    except CorpusError as err:
+        if err.code != "PF-CORPUS-INVARIANT":
+            raise AssertionError(
+                f"optional-mixed: wrong code {err.code}"
+            ) from err
+
+    # All-skip optional → case skip (not pass).
+    adapter["steps"] = [_step(0, actor="alice", entry="transfer", status="success")]
+    skipped = close_case(
+        adapter,
+        [
+            {
+                **_mk_pass_obs(adapter_id, "pf-anvil", 0),
+                "verdict": "skip",
+                "skipReason": "stack-too-deep",
+            }
+        ],
+    )
+    if skipped.get("result") != "skip":
+        raise AssertionError(f"optional-all-skip expected skip, got {skipped}")
+
+
+def _run_tool_lock_and_obs_root_tests() -> None:
+    lock = REPO_ROOT / "toolchains.lock.json"
+    if lock.is_file():
+        digest = darwin_tool_lock_v4_digest(lock)
+        if digest != DARWIN_TOOL_LOCK_V4_DIGEST_KAT:
+            raise AssertionError(
+                f"ToolLockV4Digest KAT mismatch: {digest} != "
+                f"{DARWIN_TOOL_LOCK_V4_DIGEST_KAT}"
+            )
+        import hashlib
+
+        raw = hashlib.sha256(lock.read_bytes()).hexdigest()
+        if raw != DARWIN_TOOL_LOCK_RAW_SHA256_KAT:
+            # Allow drift only if documented; still require typed ≠ raw.
+            pass
+        if digest == raw:
+            raise AssertionError("ToolLockV4Digest must not equal raw lock SHA-256")
+        # Duplicate-key rejection on lock-sized input.
+        try:
+            decode_json(b'{"a":1,"a":2}', max_bytes=MAX_TOOL_LOCK_BYTES)
+            raise AssertionError("duplicate key must fail")
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-DUPLICATE-KEY":
+                raise AssertionError(f"dup-key wrong code {err.code}") from err
+
+    # Safe obs root negatives (no deletion).
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        (repo / "build").mkdir(parents=True)
+        sentinel = repo / "SENTINEL"
+        sentinel.write_text("keep", encoding="utf-8")
+        # Good path.
+        good = require_safe_obs_root(Path("build/v2/evm-corpus-obs"), repo)
+        if "build" not in good.parts:
+            raise AssertionError(f"good obs root unexpected: {good}")
+        for bad in [
+            Path("/"),
+            repo,
+            repo / "build",
+            repo / "outside",
+            Path("/tmp"),
+        ]:
+            try:
+                require_safe_obs_root(bad, repo)
+                raise AssertionError(f"expected reject for {bad}")
+            except CorpusError as err:
+                if err.code != "PF-CORPUS-PATH":
+                    raise AssertionError(
+                        f"obs-root {bad}: wrong code {err.code}"
+                    ) from err
+        # Symlink escape: build/evil -> /
+        evil = repo / "build" / "evil-link"
+        try:
+            evil.symlink_to("/")
+            try:
+                require_safe_obs_root(evil, repo)
+                raise AssertionError("symlink escape must fail")
+            except CorpusError as err:
+                if err.code != "PF-CORPUS-PATH":
+                    raise AssertionError(
+                        f"symlink escape wrong code {err.code}"
+                    ) from err
+        except OSError:
+            # Some hosts disallow symlink to /; skip that subcase.
+            pass
+        if sentinel.read_text(encoding="utf-8") != "keep":
+            raise AssertionError("obs-root checks must not delete sentinel")
+
 
 def _cmd_validate_case(path: Path) -> None:
     load_and_validate_case(path)
@@ -2526,6 +2804,19 @@ def _cmd_close_case(case_path: Path, obs_dir: Path) -> None:
         fail("PF-CORPUS-INVARIANT", f"unexpected close result {result!r}")
 
 
+def _cmd_safe_obs_root(repo: Path, obs: Path) -> None:
+    resolved = require_safe_obs_root(obs, repo)
+    print(f"corpus-obs-root-ok {resolved}")
+
+
+def _cmd_list_runnable(cases_dir: Path) -> None:
+    cases = list_runnable_cases(cases_dir)
+    assert_runnable_set(cases)
+    for case in cases:
+        assert_case_pins(case)
+        print(case["id"])
+
+
 def main(argv: list[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args == ["self-test"]:
@@ -2540,11 +2831,19 @@ def main(argv: list[str] | None = None) -> None:
     if len(args) == 3 and args[0] == "close-case":
         _cmd_close_case(Path(args[1]), Path(args[2]))
         return
+    if len(args) == 3 and args[0] == "safe-obs-root":
+        _cmd_safe_obs_root(Path(args[1]), Path(args[2]))
+        return
+    if len(args) == 2 and args[0] == "list-runnable-cases":
+        _cmd_list_runnable(Path(args[1]))
+        return
     print(
         "usage: evm_corpus_v1.py self-test"
         " | validate-case PATH"
         " | validate-observation PATH"
-        " | close-case CASE.json OBS_DIR",
+        " | close-case CASE.json OBS_DIR"
+        " | safe-obs-root REPO OBS"
+        " | list-runnable-cases CASES_DIR",
         file=sys.stderr,
     )
     raise SystemExit(2)

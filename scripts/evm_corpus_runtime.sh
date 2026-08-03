@@ -2,15 +2,14 @@
 # EVMOZ-004 full corpus runtime (engineering closure; not formal C-3 / OZ credit).
 #
 # full phase (default):
-#   1) schema-validate all cases
-#   2) Darwin-only ToolLockV4Digest + profile/hardfork pin fail-closed
-#   3) required tools present (anvil/solc/lean/lake/CLI) — else HARD FAIL
-#   4) Reference leg (real stepReferenceSliceV1)
-#   5) product Cancun Anvil differential + all-step pf-anvil observations
-#   6) case-level exact closure (shared equality, status, logs)
+#   1) schema-validate ALL business cases under cases/ (incl. blocked)
+#   2) select runnable set: class∈{primitive,adapter} ∧ runner=anvil-matrix
+#      (exact 4 primitive + 1 adapter; blocked never closed as pass/skip)
+#   3) Darwin-only ToolLockV4Digest + per-case pin exact join
+#   4) required tools hard-fail; export PROOF_FORGE_CLI to downstream
+#   5) safe OBS root (under build/) then Reference + Anvil + close-case
 #
 # validate-only: case schema only (no tools).
-# Token adapter: optional pf-anvil may explicit-skip (StackTooDeep); never pass-as-skip.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,7 +18,7 @@ cd "$root"
 cases_dir="$root/testdata/evm-corpus/v1/cases"
 programs_dir="$root/testdata/evm-corpus/v1/programs"
 validator="$root/scripts/evm_corpus_v1.py"
-obs_root="${PF_EVM_CORPUS_OBS_DIR:-$root/build/v2/evm-corpus-obs}"
+obs_requested="${PF_EVM_CORPUS_OBS_DIR:-$root/build/v2/evm-corpus-obs}"
 export PF_EVM_PROFILE="${PF_EVM_PROFILE:-evm-yul-solc-0.8.34-cancun-v1}"
 phase="${PF_EVM_CORPUS_PHASE:-full}" # full | validate-only
 
@@ -32,7 +31,7 @@ echo "evm-corpus-runtime: phase=$phase profile=$PF_EVM_PROFILE" >&2
 [[ -f "$programs_dir/EventFlow.lean" ]] || die "missing EventFlow fixture"
 
 # ---------------------------------------------------------------------------
-# 1) Schema-validate every case
+# 1) Schema-validate every case file (including blocked/lean-focused)
 # ---------------------------------------------------------------------------
 case_count=0
 while IFS= read -r case_path; do
@@ -50,7 +49,19 @@ if [[ "$phase" == "validate-only" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2) Host / ToolLock / profile pin fail-closed (Darwin-pinned cases)
+# 2) Runnable set + pin join (never close blocked as runtime pass)
+# ---------------------------------------------------------------------------
+runnable_list="$(/usr/bin/python3 -I -S "$validator" list-runnable-cases "$cases_dir")" || \
+  die "list-runnable-cases / pin join failed"
+echo "evm-corpus-runtime: runnable cases:" >&2
+echo "$runnable_list" | sed 's/^/  /' >&2
+primitive_count="$(echo "$runnable_list" | grep -c '^pf\.primitive\.' || true)"
+adapter_count="$(echo "$runnable_list" | grep -c '^pf\.adapter\.' || true)"
+[[ "$primitive_count" -eq 4 ]] || die "expected 4 primitive runnables, got $primitive_count"
+[[ "$adapter_count" -eq 1 ]] || die "expected 1 adapter runnable, got $adapter_count"
+
+# ---------------------------------------------------------------------------
+# 3) Host / ToolLock / profile fail-closed
 # ---------------------------------------------------------------------------
 case "$(uname -s)" in
   Darwin)
@@ -73,20 +84,13 @@ spec=importlib.util.spec_from_file_location('m', Path(r'''$validator'''))
 m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 print(m.darwin_tool_lock_v4_digest(Path(r'''$lock_file''')))
 ")"
-# All primitive cases pin this Darwin ToolLockV4Digest.
-case_pin="$(/usr/bin/python3 -I -S -c "
-import json
-from pathlib import Path
-c=json.loads(Path(r'''$cases_dir/pf.primitive.counter.overflow-hold.v1.json''').read_text())
-print(c['pins']['toolLockDigest'])
-")"
-[[ "$expected_digest" == "$case_pin" ]] || \
-  die "ToolLockV4Digest mismatch host=$expected_digest case=$case_pin"
+[[ "$expected_digest" == "63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf" ]] || \
+  die "host ToolLockV4Digest $expected_digest != Darwin KAT"
 [[ "$PF_EVM_PROFILE" == "evm-yul-solc-0.8.34-cancun-v1" ]] || \
   die "full runtime requires Cancun profile (got $PF_EVM_PROFILE)"
 
 # ---------------------------------------------------------------------------
-# 3) Required tools — HARD FAIL if missing (primitive required legs)
+# 4) Required tools — HARD FAIL if missing; export PROOF_FORGE_CLI
 # ---------------------------------------------------------------------------
 foundry_bin="${FOUNDRY_BIN:-${PROOF_FORGE_TOOL_ROOT:-$default_tool_root}}"
 anvil="$foundry_bin/anvil"
@@ -97,53 +101,76 @@ solc="$foundry_bin/solc"
 [[ -x "$solc" ]] || die "required tool missing: solc"
 command -v lake >/dev/null 2>&1 || die "required tool missing: lake"
 command -v lean >/dev/null 2>&1 || die "required tool missing: lean"
+
+# CLI discovery: PROOF_FORGE_CLI → local .lake → PATH
 cli=""
-if [[ -x "$root/.lake/build/bin/proof-forge-next" ]]; then
+if [[ -n "${PROOF_FORGE_CLI:-}" && -x "${PROOF_FORGE_CLI}" ]]; then
+  cli="$PROOF_FORGE_CLI"
+elif [[ -x "$root/.lake/build/bin/proof-forge-next" ]]; then
   cli="$root/.lake/build/bin/proof-forge-next"
 elif command -v proof-forge-next >/dev/null 2>&1; then
   cli="$(command -v proof-forge-next)"
 fi
-# Allow parent worktree binary when worktree has no local build.
-if [[ -z "$cli" && -x "${PROOF_FORGE_CLI:-}" ]]; then
-  cli="$PROOF_FORGE_CLI"
-fi
 [[ -n "$cli" && -x "$cli" ]] || die "required tool missing: proof-forge-next CLI"
+export PROOF_FORGE_CLI="$cli"
 export FOUNDRY_BIN="$(cd "$(dirname "$anvil")" && pwd)"
+echo "evm-corpus-runtime: PROOF_FORGE_CLI=$PROOF_FORGE_CLI" >&2
 
 # ---------------------------------------------------------------------------
-# 4) Reference leg (hard fail)
+# 5) Safe OBS root (must be under build/; never rm -rf arbitrary paths)
 # ---------------------------------------------------------------------------
+obs_root="$(/usr/bin/python3 -I -S "$validator" safe-obs-root "$root" "$obs_requested" | awk '{print $2}')"
+[[ -n "$obs_root" ]] || die "safe-obs-root failed for $obs_requested"
+# Destroy only the validated path.
 rm -rf "$obs_root"
 mkdir -p "$obs_root"
 export PF_EVM_CORPUS_OBS_DIR="$obs_root"
+
+# ---------------------------------------------------------------------------
+# 6) Reference leg (hard fail) + Token pin check via Lean runner
+# ---------------------------------------------------------------------------
 bash "$root/scripts/evm_corpus_reference.sh" || die "Reference leg failed"
 
 # ---------------------------------------------------------------------------
-# 5) Product Cancun builds + Anvil matrix with all-step pf-anvil observations
+# 7) Product Cancun Anvil differential + pf-anvil observations
 # ---------------------------------------------------------------------------
 bash "$root/scripts/evm_anvil_differential.sh" || die "Anvil differential failed"
 
 # ---------------------------------------------------------------------------
-# 6) Case-level exact closure
+# 8) Case-level exact closure on runnable cases only
 # ---------------------------------------------------------------------------
 primitive_pass=0
-while IFS= read -r case_path; do
-  [[ -n "$case_path" ]] || continue
-  base="$(basename "$case_path")"
-  # Token adapter may skip — close-case reports skip vs pass.
+adapter_closed=0
+while IFS= read -r case_id; do
+  [[ -n "$case_id" ]] || continue
+  case_path="$cases_dir/${case_id}.json"
+  [[ -f "$case_path" ]] || die "missing case file for runnable id $case_id"
   out="$(/usr/bin/python3 -I -S "$validator" close-case "$case_path" "$obs_root" 2>&1)" || {
     echo "$out" >&2
-    die "close-case failed for $base"
+    die "close-case failed for $case_id"
   }
   echo "$out" >&2
   if echo "$out" | grep -q 'corpus-case-closed-pass'; then
-    if [[ "$base" == pf.primitive.* ]]; then
+    if [[ "$case_id" == pf.primitive.* ]]; then
       primitive_pass=$((primitive_pass + 1))
     fi
+    if [[ "$case_id" == pf.adapter.* ]]; then
+      adapter_closed=$((adapter_closed + 1))
+    fi
+  elif echo "$out" | grep -q 'corpus-case-closed-skip'; then
+    if [[ "$case_id" == pf.adapter.* ]]; then
+      adapter_closed=$((adapter_closed + 1))
+    else
+      die "primitive case must not skip: $case_id"
+    fi
+  else
+    die "unexpected close-case output for $case_id"
   fi
-done < <(find "$cases_dir" -maxdepth 1 -type f -name '*.json' | sort)
+done <<<"$runnable_list"
 
 [[ "$primitive_pass" -eq 4 ]] || \
   die "expected 4 primitive case pass closures, got $primitive_pass"
+[[ "$adapter_closed" -eq 1 ]] || \
+  die "expected 1 adapter close (pass or explicit skip), got $adapter_closed"
 
 echo "evm-corpus-runtime: ok (engineering corpus closure; not formal C-3; no OZ family/ABI/standard credit)" >&2

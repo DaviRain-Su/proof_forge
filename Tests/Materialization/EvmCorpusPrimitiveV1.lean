@@ -484,6 +484,40 @@ private unsafe def runEventFlow
   writeSharedStep outDir caseId 4 st4 ret4 "count" v4 eff4 rb4
   IO.println s!"reference-leg ok {caseId}"
 
+/-- Adapter Token pin recheck only (no Reference observations for Map adapter).
+    Loader → Normalize → sourceHash/semanticHash; does not admit/step Reference. -/
+private unsafe def runTokenPinCheck
+    (session : Language.Loader.ParserSession) (repoRoot : System.FilePath) : IO Unit := do
+  let caseId := "pf.adapter.token.conservation.v1"
+  let sourcePath := "Examples/Token.lean"
+  let moduleName := "Examples.Token"
+  let expectedSourceHash :=
+    "3b60c7a05865886dc4eae7ce1898577c4dc718f10080c36ac8a9c9dcb04eca23"
+  let expectedSemanticHash :=
+    "667f76924ca4554e18cfcd1aa51d26cf8cb584ea1abbc50ff7720e1ada6bc17a"
+  let absPath := repoRoot / sourcePath
+  let src ← IO.FS.readFile absPath
+  match ← session.selectProgramV1 src sourcePath moduleName none with
+  | .error e => throw <| IO.userError s!"{caseId}: load: {e.render}"
+  | .ok validated =>
+    let srcHash ←
+      match sourceHashV1 validated with
+      | .ok d => digestHex d
+      | .error e => throw <| IO.userError s!"{caseId}: sourceHash: {e}"
+    expect (srcHash == expectedSourceHash)
+      s!"{caseId}: sourceHash pin mismatch (got {srcHash})"
+    let carrier ←
+      match normalizeProgramV1 validated with
+      | .ok c => pure c
+      | .error e => throw <| IO.userError s!"{caseId}: normalize: {repr e}"
+    let semHash ←
+      match semanticHashV1 carrier with
+      | .ok d => digestHex d
+      | .error e => throw <| IO.userError s!"{caseId}: semanticHash: {repr e}"
+    expect (semHash == expectedSemanticHash)
+      s!"{caseId}: semanticHash pin mismatch (got {semHash})"
+    IO.println s!"token-pin-ok {caseId} sourceHash={srcHash} semanticHash={semHash}"
+
 /-- Entry:
   `lake env lean --run Tests/Materialization/EvmCorpusPrimitiveV1.lean -- <repo-root> <out-dir>`
 -/
@@ -504,6 +538,7 @@ unsafe def runAll (args : List String) : IO UInt32 := do
   runAccumulator session repoRoot outDir
   runArithOps session repoRoot outDir
   runEventFlow session repoRoot outDir
+  runTokenPinCheck session repoRoot
   IO.println s!"EvmCorpusPrimitiveV1: reference legs written under {outDir}"
   pure 0
 
