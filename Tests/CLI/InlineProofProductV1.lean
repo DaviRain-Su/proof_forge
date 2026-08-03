@@ -9,18 +9,20 @@
     * false theorem + valid target on build: fails before staging, no output
     * legacy `--proof-bundle*` flags remain unknown options
     * raw same-file simple-closure product-positive (strict red until production
-      mints generated helper + closes encode/decode):
+      mints unconditional `generatedSafeV1` + closes encode/decode):
         author inventory theorem is ordinary `SimpleProof.safe`; body exacts
         generated `<Program>.Proof.generatedSafeV1` (never
         redeclared as the inventory theorem)
-        (2) CLI check human+JSON → certified, count=1, nonempty digest
+        (2) CLI check human+JSON → certified, count=1, nonempty digest;
+            human digest wire exact-equals JSON digest
         (3) alternate allowlisted body (`apply` vs `exact`): source/semantic digests
             stable; proofCertificationDigest **must** change (raw source bound)
         (4) certified then unknown target → unknown target, zero output
         (5) repeat check → same proofCertificationDigest
         (6) certified + legal target → materializer nonempty-invariant fail closed,
             no destination/staging
-      Hard-fails when check is not certified (isolation red-test branch).
+      Hard-fails when check is not certified (no soft skip / EXPECTED-RED).
+      Product binary is required; absence fails the suite (not skipped).
 
   No sorry / axiom / native_decide / unsafe proof escape / forged positive.
   Does not import or proxy Tests.Semantic.ProofedClosedCertV1.
@@ -389,6 +391,9 @@ private def testSimpleClosureProductPositiveCli : IO Unit := do
   let certDigJ ← match jsonStringField? stdoutJ "proofCertificationDigest" with
     | some d => pure d
     | none => throw <| IO.userError s!"json cert digest missing: {stdoutJ}"
+  -- human and JSON must observe the same certification digest wire.
+  expect (digA == certDigJ)
+    s!"human/JSON proofCertificationDigest must match:\nhuman={digA}\njson={certDigJ}"
 
   -- (3) theorem-body rewrite: source/semantic stable; cert digest **must** change
   let (ecB, stdoutB, stderrB) ← runCli #[
@@ -483,14 +488,15 @@ private def testSimpleClosureProductPositiveCli : IO Unit := do
 def run : IO Unit := do
   testRenderProofStatusFields
   testLegacyProofBundleFlagsUnknown
-  if ← cliBin.pathExists then
-    testCounterCheckNoProof
-    testFalseTheoremCheckFails
-    testFalseTheoremBuildBeforeInvalidTarget
-    testFalseTheoremBuildBeforeMaterialize
-    testSimpleClosureProductPositiveCli
-  else
-    IO.println "Tests.CLI.InlineProofProductV1: skip product CLI (binary absent)"
+  -- Product-positive CLI path hard-requires the built binary (no soft skip).
+  unless ← cliBin.pathExists do
+    throw <| IO.userError
+      "proof-forge-next missing: product-positive CLI suite requires built binary"
+  testCounterCheckNoProof
+  testFalseTheoremCheckFails
+  testFalseTheoremBuildBeforeInvalidTarget
+  testFalseTheoremBuildBeforeMaterialize
+  testSimpleClosureProductPositiveCli
   IO.println "Tests.CLI.InlineProofProductV1: ok"
 
 end Tests.CLI.InlineProofProductV1

@@ -8,16 +8,18 @@
     * forged empty inventory with proof items → obligation failure (not noProof)
     * dual-invariant forged partial/reorder inventories fail closed
     * raw same-file simple-closure product-positive (strict; red until production
-      closes generated helper + encode/decode):
+      mints unconditional `generatedSafeV1` + closes encode/decode):
         - inventory author theorem is ordinary adjacent `SimpleProof.safe`
         - body `exact <Program>.Proof.generatedSafeV1` (generated
           helper name — never redeclared as the inventory theorem)
-        - Loader → compileProgramProductV1 → certifyInlineProofV1
+        - single Loader snapshot → compileProgramProductV1 → certifyInlineProofV1
+        - ProgramV1 canonical AST bytes + sourceHashV1 + compiled source/semantic
+          digests independent of adjacent theorem body
         - requires `.certified`, theoremCount=1, present proofCertificationDigest
         - alternate allowlisted body (`apply` vs `exact` on the same helper)
-          keeps source/semantic digests equal and **must** change
+          keeps ProgramV1/source/semantic identity equal and **must** change
           proofCertificationDigest (raw source is in the certification request)
-      This suite hard-fails on missing `.certified` (isolation red-test branch).
+      Hard-fails on missing `.certified` (no soft skip / EXPECTED-RED).
       Never uses Tests.Semantic.ProofedClosedCertV1 or hand-minted carriers.
 
   Fixture programs:
@@ -31,6 +33,7 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.TheoremInventoryV1
+import ProofForgeV2.Source.ValidatedSourceV1
 import Tests.Language.ParserSession
 
 namespace Tests.Compiler.InlineProofCertifierV1
@@ -353,6 +356,25 @@ private unsafe def testSimpleClosureProductPositive
   let semDigA := CompiledSemanticV1.semanticDigestOf compiledA
   let semDigB := CompiledSemanticV1.semanticDigestOf compiledB
   -- (3 partial) ProgramV1 / semantic identity ignore adjacent theorem body.
+  -- Explicit ProgramV1 canonical AST bytes (not only their sourceHash digest).
+  let canA ← match canonicalValidatedSourceAstBytesV1 sourceA with
+    | .ok b => pure b
+    | .error e => throw <| IO.userError s!"canonical A: {e}"
+  let canB ← match canonicalValidatedSourceAstBytesV1 sourceB with
+    | .ok b => pure b
+    | .error e => throw <| IO.userError s!"canonical B: {e}"
+  expect (canA == canB)
+    "ProgramV1 canonical AST bytes must be independent of adjacent theorem body"
+  let hashA ← match sourceHashV1 sourceA with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"sourceHash A: {e}"
+  let hashB ← match sourceHashV1 sourceB with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"sourceHash B: {e}"
+  expect (hashA == hashB)
+    "ProgramV1 sourceHashV1 must be independent of adjacent theorem body"
+  expect (hashA == srcDigA && hashB == srcDigB)
+    "compiled sourceDigest must equal Loader sourceHashV1 (single-snapshot identity)"
   expect (srcDigA == srcDigB)
     "sourceDigest must be independent of adjacent theorem body"
   expect (semDigA == semDigB)
