@@ -11,9 +11,10 @@
       theorem orchestration is covered by InlineProofElaborationV1 /
       InlineProofAuditV1 only — **not** product invariant certification.
 
-  Fixture programs use Counter-shaped UInt64 state + Bool invariant so
-  proof-subject provenance joins (Bool-only view programs currently fail
-  subject mint on TypeId provenance — tracked as open gap, not relaxed here).
+  Fixture programs use Counter-shaped UInt64 state + Bool invariant (stable
+  product surface for certifier obligation/subject identity negatives).
+  Bool-only view+invariant proof-subject mint is covered by
+  Tests.Semantic.ProofSubjectV1 (anonymous Bool + envelope UInt64 TypeId join).
 
   No axiom / sorry / native_decide. No CLI. No file re-read by the certifier.
 -/
@@ -261,11 +262,7 @@ private unsafe def testNoForgedSuccess (session : ParserSession) : IO Unit := do
     The parametric bridge does not yet ship a general authoring theorem for
     arbitrary Normalize carriers. Controlled `True` theorems exercise
     elaboration/audit orchestration in sibling suites only — **not** product
-    invariant positive. Prefer bridge-lane theorems when available.
-
-    Secondary gap: Bool-only view programs (no UInt64 state) currently fail
-    `proofSubjectOfCompiledSemanticV1` provenance TypeId binding; Counter-
-    shaped fixtures avoid that path. -/
+    invariant positive. Prefer bridge-lane theorems when available. -/
 private def documentOpenGaps : IO Unit :=
   pure ()
 

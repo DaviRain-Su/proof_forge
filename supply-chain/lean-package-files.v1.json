@@ -286,9 +286,9 @@
       "sha256": "a17fa38e09e9a84fc188dcb086fc0c745eaa6b0f807e6edc7945c00109375e3c"
     },
     {
-      "bytes": 81895,
+      "bytes": 84718,
       "path": "ProofForgeV2/Semantic/ProvenanceV1.lean",
-      "sha256": "e89013faa799e89858bc2b7f2ed748a3ffc6c5d4a3fdded52943be904c6b60c8"
+      "sha256": "790213f5a41987f95fab12ab5524a8bfe9f22e7ac8be1f7e87a0862985a257d8"
     },
     {
       "bytes": 113027,

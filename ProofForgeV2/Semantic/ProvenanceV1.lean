@@ -14,6 +14,9 @@
   requirements collect every producing site and sort uniquely by SourceOrigin
   wire key. Synthetic Unit types and implicit init return terminators bind the
   nearest producing declaration/block node — never an arbitrary inventory pick.
+  Completely unreferenced TypeIds (Normalize PilotTypeClosure force-intern of
+  anonymous UInt64 when never used) bind the Program root the same way;
+  referenced TypeIds still require a real type annotation or expression origin.
 
   Inventory construction is exact and Source-owned: `buildSourceNodeInventoryV1`
   is a thin projection of `Source.OriginJoinV1.joinOriginsV1`. Duplicate span
@@ -1293,6 +1296,49 @@ private def tryBindType
   else
     pure (acc, typeBound)
 
+/-- Whether any non-type entity of `data` references `tid`. Used to distinguish
+    annotation/body-produced types from Normalize envelope-only table padding
+    (force-interned anonymous UInt64 for PilotTypeClosure when never used). -/
+private def typeIdReferencedInDataV1
+    (data : SemanticProgramDataV1) (tid : TypeIdV1) : Bool :=
+  Id.run do
+    for s in data.logicalState do
+      if s.typeId == tid then return true
+    for c in data.constants do
+      if c.typeId == tid then return true
+    for e in data.events do
+      for f in e.fields do
+        if f.typeId == tid then return true
+    for e in data.errors do
+      for f in e.fields do
+        if f.typeId == tid then return true
+    for c in data.callables do
+      if c.result.typeId == tid then return true
+      for p in c.params do
+        if p.typeId == tid then return true
+      for blk in c.blocks do
+        for bp in blk.params do
+          if bp.typeId == tid then return true
+        for instr in blk.instructions do
+          match instr.result with
+          | some r => if r.typeId == tid then return true
+          | none => pure ()
+    -- Named type bodies may reference child TypeIds (struct/enum/array/map/option).
+    for t in data.types do
+      match t.shape with
+      | .struct fields =>
+          for f in fields do
+            if f.typeId == tid then return true
+      | .enum variants =>
+          for v in variants do
+            for p in v.payloadTypes do
+              if p == tid then return true
+      | .array elem _ => if elem == tid then return true
+      | .map k v => if k == tid || v == tid then return true
+      | .option elem => if elem == tid then return true
+      | _ => pure ()
+    pure false
+
 /-- Attribute all S1 Counter-surface entities from source AST + semantic data. -/
 private def attributeCounterEntitiesV1
     (source : ValidatedSourceV1)
@@ -1337,13 +1383,19 @@ private def attributeCounterEntitiesV1
     return ← failUnsupported
       "S2 provenance: error count mismatch vs semantic errors"
 
-  -- Types: first-seen UInt64 from first public state type node; Unit from first
-  -- init decl (nearest producing; no source Type.Unit on S1 init result).
+  -- Types: first-seen anonymous shape binds to the first producing type
+  -- annotation path (state/param/result/const/event/error field). Unit from
+  -- init is synthetic (nearest producer = InitDecl; no source Type.Unit).
+  -- Bool result annotations (ViewDecl/EntryDecl/FnDecl.result) and Bool
+  -- literals bind via annotation / instruction passes below. Normalize may
+  -- also force-intern unreferenced anonymous UInt64 for PilotTypeClosure;
+  -- that padding is closed after the instruction pass (Program root only when
+  -- the TypeId is completely unreferenced — never a foreign/sentinel NodeId).
   let mut typeBound : Array Bool := Array.replicate data.types.size false
 
   -- Declaration attribution order mirrors Normalize pass groups:
   -- state → event → error → constants → callables (not source item interleave).
-  -- States + first UInt64 type
+  -- States + first-seen type annotation on StateDecl.type
   let mut si : Nat := 0
   for itemI in stateItemIdxs do
     let itemPath := childPath #[] "Program" "items" itemI
@@ -1351,15 +1403,9 @@ private def attributeCounterEntitiesV1
       return ← failUnsupported "S2 provenance: missing logicalState row"
     acc ← attrPushPath acc idx (.state stateRow.id) itemPath
     let typePath := directChild itemPath "StateDecl" "type"
-    match program.items[itemI]? with
-    | some (.state s) =>
-        match s.type_ with
-        | .uint 64 =>
-            let (acc', tb) ← tryBindType acc idx typeBound stateRow.typeId typePath
-            acc := acc'
-            typeBound := tb
-        | _ => pure ()
-    | _ => pure ()
+    let (acc', tb) ← tryBindType acc idx typeBound stateRow.typeId typePath
+    acc := acc'
+    typeBound := tb
     si := si + 1
 
   -- Events + errors: declaration entities and first-seen field type nodes.
@@ -1372,17 +1418,14 @@ private def attributeCounterEntitiesV1
     match program.items[itemI]? with
     | some (.event d) =>
         let mut fi : Nat := 0
-        for f in d.params do
+        for _f in d.params do
           let some sf := eventRow.fields[fi]? |
             return ← failUnsupported "S2 provenance: event field count mismatch"
           let fieldPath := directChild
             (childPath itemPath "EventDecl" "params" fi) "Param" "type"
-          match f.type_ with
-          | .uint 64 =>
-              let (accF, tbF) ← tryBindType acc idx typeBound sf.typeId fieldPath
-              acc := accF
-              typeBound := tbF
-          | _ => pure ()
+          let (accF, tbF) ← tryBindType acc idx typeBound sf.typeId fieldPath
+          acc := accF
+          typeBound := tbF
           fi := fi + 1
     | _ => pure ()
     ei := ei + 1
@@ -1395,17 +1438,14 @@ private def attributeCounterEntitiesV1
     match program.items[itemI]? with
     | some (.error d) =>
         let mut fi : Nat := 0
-        for f in d.params do
+        for _f in d.params do
           let some sf := errorRow.fields[fi]? |
             return ← failUnsupported "S2 provenance: error field count mismatch"
           let fieldPath := directChild
             (childPath itemPath "ErrorDecl" "params" fi) "Param" "type"
-          match f.type_ with
-          | .uint 64 =>
-              let (accF, tbF) ← tryBindType acc idx typeBound sf.typeId fieldPath
-              acc := accF
-              typeBound := tbF
-          | _ => pure ()
+          let (accF, tbF) ← tryBindType acc idx typeBound sf.typeId fieldPath
+          acc := accF
+          typeBound := tbF
           fi := fi + 1
     | _ => pure ()
     zi := zi + 1
@@ -1588,9 +1628,10 @@ private def attributeCounterEntitiesV1
   -- Implicitly body-interned types (Bool from comparisons/Bool literals) have
   -- no annotation node: bind each unbound type to the first producing
   -- instruction's recorded origin, in canonical callable/block/instruction
-  -- order. Annotation-bound types (UInt64/Unit) are already marked, so this
-  -- is a no-op for comparison-free programs and never moves their
-  -- attribution.
+  -- order. Annotation-bound types (UInt*/Int*/Bool/Unit/…) are already
+  -- marked, so this is a no-op for comparison-free programs and never moves
+  -- their attribution. Origins are the real expression NodeIds already
+  -- recorded on the producing instruction — never a foreign/sentinel id.
   for c in data.callables do
     for blk in c.blocks do
       let mut ii : Nat := 0
@@ -1619,11 +1660,22 @@ private def attributeCounterEntitiesV1
             else pure ()
         ii := ii + 1
 
-  -- Ensure every type got a binding (fail closed if interned type unused).
+  -- Close every TypeId. Referenced-but-unbound types still fail closed.
+  -- Completely unreferenced TypeIds are Normalize envelope padding (today:
+  -- force-interned anonymous UInt64 for PilotTypeClosure when the program
+  -- never uses UInt64). Bind those solely to the Program root — a real
+  -- inventory NodeId, same "nearest producing declaration" pattern as
+  -- synthetic Unit → InitDecl. Foreign/caller inventory and synthetic
+  -- NodeIds remain rejected by attrPushPath/originAt.
   for i in [:data.types.size] do
     unless typeBound[i]! do
-      return ← failUnsupported
-        s!"S2 provenance: type TypeId {i} has no producing source node"
+      let tid : TypeIdV1 := UInt32.ofNat i
+      if typeIdReferencedInDataV1 data tid then
+        return ← failUnsupported
+          s!"S2 provenance: type TypeId {i} has no producing source node"
+      else
+        acc ← attrPushPath acc idx (.typeRef tid) #[]
+        typeBound := typeBound.set! i true
 
   -- Requirements: collect all producing sites, map catalog id → requirement index.
   let mut rs := emptyReqSites
