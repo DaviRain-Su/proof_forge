@@ -80,6 +80,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Core.CommonRemaining,
     `Tests.Core.CommonScalars,
     `Tests.Core.Unicode,
+    `Tests.Core.ToolLockV4,
     `Tests.Compiler.ValidatedSourceV1Pipeline,
     `Tests.Compiler.CheckV1ProductGate,
     `Tests.Compiler.DiagnosticPipelineV1,

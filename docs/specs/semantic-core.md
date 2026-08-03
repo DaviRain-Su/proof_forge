@@ -300,9 +300,11 @@ proofBundleDigest = SHA-256(
 ```
 
 manifest 的每个 `oleanDigest` 是对应 regular file bytes 的 SHA-256。`toolchainLockDigest` 必须精确
-等于 SPEC-TOOL-001 从已验证完整 Tool Lock v2 payload 产生的唯一 `ToolLockV2Digest`；raw
+等于 SPEC-TOOL-001 从当前平台已验证完整 Tool Lock v4 payload 产生的唯一 `ToolLockV4Digest`；raw
 `toolchainLockSha256`、legacy `proof-forge.toolchain-lock.v1` domain 或其他同长摘要替代都以
 `PF-TOOLCHAIN-MISMATCH` 拒绝，不得 dual-read。`abiOleanDigest` 必须等于当前 candidate 自带 ABI `.olean`。
+该 Tool Lock join 只固定当前平台工具链身份，不提供 per-module `.olean` inventory、ABI digest
+或 trusted-base closure authority；后三者仍须由独立 candidate package manifest 建立。
 trusted base 只包括该 candidate 的 ABI/Semantic Core closure 与 lock 中 Lean kernel/core `.olean`
 closure，按 module name 排序并以
 `SHA-256("proof-forge.trusted-olean-closure.v1" || 0x00 || JCS([{moduleName,oleanDigest,imports}...]))`

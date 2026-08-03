@@ -38,6 +38,9 @@ private def manifest (path : String) (contents : ByteArray) : IO ProofBundleMani
   let trustPolicyDigest ← match proofTrustPolicyDigestV1 with
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"trust policy: {repr error}"
+  let toolchainLockDigest ← match ProofForgeV2.Core.ToolLockV4.embeddedToolLockV4Identity with
+    | .ok identity => pure identity.digest
+    | .error error => throw <| IO.userError s!"Tool Lock v4: {error}"
   let moduleRow : ProofModuleV1 := {
     moduleName, oleanPath := path, oleanDigest := sha256Bytes contents, imports := #[] }
   let exportRow : ProofExportV1 := {
@@ -56,7 +59,7 @@ private def manifest (path : String) (contents : ByteArray) : IO ProofBundleMani
     sourceHash := digest 0x11
     semanticHash := digest 0x22
     semanticProvenanceDigest := digest 0x33
-    toolchainLockDigest := digest 0x44
+    toolchainLockDigest
     proofAbi := {
       semanticSchema := proofAbiSemanticSchemaV1
       moduleName := abiModuleName
@@ -70,6 +73,23 @@ private def manifestBytes (path : String) (contents : ByteArray) : IO ByteArray 
   match encodeProofBundleManifestV1 (← manifest path contents) with
   | .ok text => pure text.toUTF8
   | .error error => throw <| IO.userError s!"manifest encode: {repr error}"
+
+private def manifestBytesWithMismatchedToolLock
+    (path : String) (contents : ByteArray) (wrongDigest : Digest) : IO ByteArray := do
+  let valid ← manifest path contents
+  let validText ← match encodeProofBundleManifestV1 valid with
+    | .ok text => pure text
+    | .error error => throw <| IO.userError s!"manifest encode: {repr error}"
+  let validWire ← match renderDigest valid.toolchainLockDigest with
+    | .ok wire => pure wire
+    | .error error => throw <| IO.userError s!"valid Tool Lock digest: {error}"
+  let wrongWire ← match renderDigest wrongDigest with
+    | .ok wire => pure wire
+    | .error error => throw <| IO.userError s!"wrong Tool Lock digest: {error}"
+  let replaced := validText.replace validWire wrongWire
+  unless replaced != validText do
+    throw <| IO.userError "Tool Lock digest fixture replacement failed"
+  pure replaced.toUTF8
 
 private def reset (root : FilePath) : IO FilePath := do
   try IO.FS.removeDirAll root catch _ => pure ()
@@ -191,6 +211,33 @@ private def testExactTreeAndMalformed (base : FilePath) : IO Unit := do
   expect (match ← loadProofBundleFilesV1 root with
     | .error (.bundle _) => true | _ => false) "NUL module path rejected by decoder"
 
+private def testToolLockMismatch (base : FilePath) : IO Unit := do
+  let path := "modules/Bundle/Root.olean"
+  let contents := "olean".toUTF8
+  let activePlatform ← match ProofForgeV2.Core.ToolLockV4.activeToolLockPlatformV4 with
+    | .ok platform => pure platform
+    | .error error => throw <| IO.userError error
+  let otherPlatform := match activePlatform with
+    | .darwinArm64 => ProofForgeV2.Core.ToolLockV4.ToolLockPlatformV4.linuxX86_64
+    | .linuxX86_64 => ProofForgeV2.Core.ToolLockV4.ToolLockPlatformV4.darwinArm64
+  let otherIdentity ← match
+      ProofForgeV2.Core.ToolLockV4.toolLockV4IdentityForPlatform otherPlatform with
+    | .ok identity => pure identity
+    | .error error => throw <| IO.userError error
+  let cases := #[
+    ("arbitrary", digest 0x99),
+    ("raw", ProofForgeV2.Core.ToolLockV4.embeddedToolLockV4RawDigest activePlatform),
+    ("foreign", otherIdentity.digest)]
+  for (label, wrongDigest) in cases do
+    let root ← reset (base / s!"tool-lock-{label}")
+    writeBundle root path contents
+    IO.FS.writeBinFile (root / proofBundleManifestFileNameV1)
+      (← manifestBytesWithMismatchedToolLock path contents wrongDigest)
+    match ← loadProofBundleFilesV1 root with
+    | .error (.bundle (.toolchainLockMismatch _)) => pure ()
+    | .error error => throw <| IO.userError s!"{label} Tool Lock mismatch: {repr error}"
+    | .ok _ => throw <| IO.userError s!"{label} Tool Lock mismatch accepted"
+
 private def testCanonicalCycleManifest (base : FilePath) : IO Unit := do
   let root ← reset (base / "canonical-cycle")
   let a ← qn #["Bundle", "A"]
@@ -235,6 +282,7 @@ unsafe def run : IO Unit := do
   testManifestKinds base
   testModuleKinds base
   testExactTreeAndMalformed base
+  testToolLockMismatch base
   testCanonicalCycleManifest base
   IO.println "Tests.Compiler.ProofBundleFilesV1: ok"
 

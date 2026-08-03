@@ -37,12 +37,18 @@ private def fixedTrustPolicyDigest : IO Digest :=
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"trust policy: {repr error}"
 
+private def fixedToolLockDigest : IO Digest :=
+  match ProofForgeV2.Core.ToolLockV4.embeddedToolLockV4Identity with
+  | .ok identity => pure identity.digest
+  | .error error => throw <| IO.userError s!"Tool Lock v4: {error}"
+
 private def mkMinimalManifest (oleanPath : String) (oleanDigest : Digest) :
     IO ProofBundleManifestV1 := do
   let abiModuleName ← qn proofAbiModuleComponentsV1
   let theoremName ← qn proofAbiTheoremComponentsV1
   let moduleName ← qn #["Bundle", "Root"]
   let trustPolicyDigest ← fixedTrustPolicyDigest
+  let toolchainLockDigest ← fixedToolLockDigest
   let mod : ProofModuleV1 := {
     moduleName
     oleanPath
@@ -69,7 +75,7 @@ private def mkMinimalManifest (oleanPath : String) (oleanDigest : Digest) :
     sourceHash := fixedDigest 0x11
     semanticHash := fixedDigest 0x22
     semanticProvenanceDigest := fixedDigest 0x33
-    toolchainLockDigest := fixedDigest 0x44
+    toolchainLockDigest
     proofAbi := {
       semanticSchema := proofAbiSemanticSchemaV1
       moduleName := abiModuleName
@@ -286,6 +292,45 @@ private def testManifestAuthorityShape : IO Unit := do
   expectManifestMalformed "foreign trust policy" { base with
       proofAbi := { base.proofAbi with trustPolicyDigest := fixedDigest 0x66 } }
     "trustPolicyDigest"
+  let foreignToolLock := { base with toolchainLockDigest := fixedDigest 0x44 }
+  match validateProofBundleManifestV1 foreignToolLock with
+  | .error (.toolchainLockMismatch _) => pure ()
+  | .error error => throw <| IO.userError s!"foreign Tool Lock: {repr error}"
+  | .ok () => throw <| IO.userError "foreign Tool Lock unexpectedly accepted"
+  match proofBundleDigestV1 foreignToolLock with
+  | .error (.toolchainLockMismatch _) => pure ()
+  | .error error => throw <| IO.userError s!"foreign Tool Lock digest: {repr error}"
+  | .ok _ => throw <| IO.userError "foreign Tool Lock minted bundle digest"
+  let foreignToolLockBytes ← encodeManifestBytes foreignToolLock
+  match decodeProofBundleManifestV1 foreignToolLockBytes with
+  | .error (.toolchainLockMismatch _) => pure ()
+  | .error error => throw <| IO.userError s!"foreign Tool Lock decode: {repr error}"
+  | .ok _ => throw <| IO.userError "foreign Tool Lock decoded"
+  match openProofBundleV1 foreignToolLockBytes #[(path, bytes)] with
+  | .error (.toolchainLockMismatch _) => pure ()
+  | .error error => throw <| IO.userError s!"foreign Tool Lock open: {repr error}"
+  | .ok _ => throw <| IO.userError "foreign Tool Lock opened"
+  let activePlatform ← match ProofForgeV2.Core.ToolLockV4.activeToolLockPlatformV4 with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  let rawToolLockDigest :=
+    ProofForgeV2.Core.ToolLockV4.embeddedToolLockV4RawDigest activePlatform
+  match validateProofBundleManifestV1
+      { base with toolchainLockDigest := rawToolLockDigest } with
+  | .error (.toolchainLockMismatch _) => pure ()
+  | .error error => throw <| IO.userError s!"raw Tool Lock digest: {repr error}"
+  | .ok () => throw <| IO.userError "raw Tool Lock digest accepted as typed identity"
+  let otherPlatform := match activePlatform with
+    | .darwinArm64 => ProofForgeV2.Core.ToolLockV4.ToolLockPlatformV4.linuxX86_64
+    | .linuxX86_64 => ProofForgeV2.Core.ToolLockV4.ToolLockPlatformV4.darwinArm64
+  let otherIdentity ← match ProofForgeV2.Core.ToolLockV4.toolLockV4IdentityForPlatform otherPlatform with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error
+  match validateProofBundleManifestV1
+      { base with toolchainLockDigest := otherIdentity.digest } with
+  | .error (.toolchainLockMismatch _) => pure ()
+  | .error error => throw <| IO.userError s!"other-platform Tool Lock: {repr error}"
+  | .ok () => throw <| IO.userError "other-platform Tool Lock accepted"
   let baseModule := base.modules.head
   expect (proofModuleOleanPathV1 baseModule.moduleName == path)
     "module path derived from qualified name"
