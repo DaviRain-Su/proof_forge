@@ -4369,8 +4369,9 @@ private unsafe def testNamedEnumAggregateReturn
   expectContains abi.contents "\"returns\":[\"u64-le\",\"u64-le\"]"
     "enum-ret ABI leaf array"
 
-/-- B-RET-ABI: anonymous Array result stays fail closed. -/
-private unsafe def testAnonymousContainerReturnFailClosed
+/-- N-ANON-RESULT (NEAR ABI): anonymous Array UInt64 2 entry/view return →
+    2×u64-le leaves via setReturnDataLeaves (HostModel e2e). -/
+private unsafe def testAnonymousArrayReturn
     (session : Language.Loader.ParserSession) : IO Unit := do
   let sourceText :=
     "import ProofForgeV2\n\n" ++
@@ -4378,16 +4379,156 @@ private unsafe def testAnonymousContainerReturnFailClosed
     "open ProofForgeV2.Language\n\n" ++
     "program ArrayRet where\n" ++
     "  state slots : Array UInt64 2\n\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n\n" ++
+    "  init(a : UInt64, b : UInt64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n\n" ++
+    "  entry setArr(a : UInt64, b : UInt64) : Array UInt64 2 do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "    return slots\n\n" ++
     "  view getArr() : Array UInt64 2 do\n" ++
     "    return slots\n\n" ++
     "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-array-ret>" "Examples.ArrayRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.size == 2) "array-ret: Array UInt64 2 → 2 KV leaves"
+  let some getArr := plan.entries.find? (·.name == "getArr") |
+    throw <| IO.userError "array-ret: missing getArr"
+  match getArr.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"array-ret: getArr must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "array-ret: Array leaves must be UInt64 (isInt=false)"
+  | other =>
+      throw <| IO.userError
+        s!"array-ret: getArr resultKind must be .aggregate, got {repr other}"
+  match getArr.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2) "array-ret: returnAggregate 2 leaves"
+      expect (leafIsInt == #[false, false]) "array-ret: leafIsInt #[false,false]"
+  | _ =>
+      throw <| IO.userError "array-ret: getArr body must be .returnAggregate"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let getArrIR ← findMethod ir "getArr"
+  let setArrIR ← findMethod ir "setArr"
+  let initIR ← findMethod ir "init"
+  let kinds := operationKinds getArrIR.operations
+  expect (kinds.contains "setReturnDataLeaves")
+    s!"array-ret: getArr IR must emit setReturnDataLeaves, got {kinds}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "array-ret: missing .wat"
+  expectContains wat.contents "(call $pf_value_return (i64.const 16)"
+    "array-ret WAT return length 16 (2×8)"
+  let some abi := files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "array-ret: missing near-abi.json"
+  expectContains abi.contents "\"returns\":[\"u64-le\",\"u64-le\"]"
+    "array-ret ABI leaf array [u64-le,u64-le]"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "array-ret init"
+    (execute initIR empty (encodeUInt64LE 7 ++ encodeUInt64LE 9) zero)
+  let (_, leaves0, _) ← requireSuccessLeaves "array-ret getArr"
+    (execute getArrIR storage0 ByteArray.empty zero)
+  expect (leaves0 == #[(7 : U64), (9 : U64)])
+    s!"array-ret: getArr must return [7,9], got {leaves0}"
+  let (storage1, leaves1, _) ← requireSuccessLeaves "array-ret setArr"
+    (execute setArrIR storage0 (encodeUInt64LE 11 ++ encodeUInt64LE 22) zero)
+  expect (leaves1 == #[(11 : U64), (22 : U64)])
+    s!"array-ret: setArr must return [11,22], got {leaves1}"
+  let (_, leaves2, _) ← requireSuccessLeaves "array-ret getArr after set"
+    (execute getArrIR storage1 ByteArray.empty zero)
+  expect (leaves2 == #[(11 : U64), (22 : U64)])
+    s!"array-ret: getArr after set must return [11,22], got {leaves2}"
+
+/-- N-ANON-RESULT (NEAR ABI): anonymous Option UInt64 none/some via construct
+    + setReturnDataLeaves (tag,payload) = (0,0)/(1,v). -/
+private unsafe def testAnonymousOptionReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptionRet where\n" ++
+    "  state seed : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    seed := x\n\n" ++
+    "  entry asSome(v : UInt64) : Option UInt64 do\n" ++
+    "    return Option.some(v)\n\n" ++
+    "  view asNone() : Option UInt64 do\n" ++
+    "    return Option.none()\n\n" ++
+    "  view asSomeOfSeed() : Option UInt64 do\n" ++
+    "    return Option.some(seed)\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-option-ret>" "Examples.OptionRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some asNone := plan.entries.find? (·.name == "asNone") |
+    throw <| IO.userError "option-ret: missing asNone"
+  match asNone.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"option-ret: asNone must have 2 leaves (tag+payload), got {leaves.size}"
+  | _ =>
+      throw <| IO.userError "option-ret: asNone must be .aggregate"
+  match asNone.body[0]! with
+  | .returnAggregate leaves _ =>
+      expect (leaves.size == 2) "option-ret: returnAggregate 2 leaves"
+  | _ =>
+      throw <| IO.userError "option-ret: asNone body must be returnAggregate"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let asNoneIR ← findMethod ir "asNone"
+  let asSomeIR ← findMethod ir "asSome"
+  let asSomeSeedIR ← findMethod ir "asSomeOfSeed"
+  let kinds := operationKinds asNoneIR.operations
+  expect (kinds.contains "setReturnDataLeaves")
+    s!"option-ret: asNone IR must emit setReturnDataLeaves, got {kinds}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some abi := files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "option-ret: missing near-abi.json"
+  expectContains abi.contents "\"returns\":[\"u64-le\",\"u64-le\"]"
+    "option-ret ABI leaf array [u64-le,u64-le]"
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "option-ret: missing .wat"
+  expectContains wat.contents "(call $pf_value_return (i64.const 16)"
+    "option-ret WAT return length 16 (2×8)"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "option-ret init"
+    (execute initIR empty (encodeUInt64LE 42) zero)
+  let (_, noneLeaves, _) ← requireSuccessLeaves "option-ret asNone"
+    (execute asNoneIR storage0 ByteArray.empty zero)
+  expect (noneLeaves == #[(0 : U64), (0 : U64)])
+    s!"option-ret: asNone must return [0,0], got {noneLeaves}"
+  let (_, someLeaves, _) ← requireSuccessLeaves "option-ret asSome"
+    (execute asSomeIR storage0 (encodeUInt64LE 99) zero)
+  expect (someLeaves == #[(1 : U64), (99 : U64)])
+    s!"option-ret: asSome(99) must return [1,99], got {someLeaves}"
+  let (_, seedLeaves, _) ← requireSuccessLeaves "option-ret asSomeOfSeed"
+    (execute asSomeSeedIR storage0 ByteArray.empty zero)
+  expect (seedLeaves == #[(1 : U64), (42 : U64)])
+    s!"option-ret: asSomeOfSeed must return [1,42], got {seedLeaves}"
+
+/-- N-ANON-RESULT FC boundaries: Bytes, Map, Array-of-9, nested Array stay closed. -/
+private unsafe def expectAnonymousReturnFailClosed
+    (session : Language.Loader.ParserSession)
+    (label moduleName sourceText : String)
+    (messageNeedles : Array String) : IO Unit := do
   let source ← match ← session.selectProgramV1
-    sourceText "<near-array-ret>" "Examples.ArrayRet" none with
+    sourceText s!"<near-{label}>" moduleName none with
     | .ok v => pure v
-    | .error e => throw <| IO.userError s!"array-ret select: {e.render}"
+    | .error e => throw <| IO.userError s!"{label} select: {e.render}"
   match Compiler.compileValidatedSourceV1 source with
   | .error _ => pure ()  -- Normalize/Check may reject first.
   | .ok compiled =>
@@ -4396,17 +4537,77 @@ private unsafe def testAnonymousContainerReturnFailClosed
         Targets.resolveEngineeringRequirementsV1 selection compiled
       match Targets.Near.planFromCapability capability with
       | .error e =>
-          expect ((e.render).contains "return" ||
-              (e.render).contains "Array" ||
-              (e.render).contains "aggregate" ||
-              (e.render).contains "UInt" ||
-              (e.render).contains "Bool" ||
-              (e.render).contains "public" ||
-              (e.render).contains "unsupported")
-            s!"array-ret: FC message must cite return/container surface, got {e.render}"
+          let msg := e.render
+          let hit := messageNeedles.any (fun n => msg.contains n)
+          expect hit
+            s!"{label}: FC message must cite {messageNeedles}, got {msg}"
       | .ok _ =>
           throw <| IO.userError
-            "array-ret: NEAR must fail closed on anonymous Array entry/view return"
+            s!"{label}: NEAR must fail closed on this anonymous return shape"
+
+private unsafe def testAnonymousReturnFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Bytes N return remains fail closed.
+  expectAnonymousReturnFailClosed session "bytes-ret" "Examples.BytesRet"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program BytesRet where\n" ++
+      "  state payload : Bytes 2\n\n" ++
+      "  init() do\n" ++
+      "    payload[0] := 1\n" ++
+      "    payload[1] := 2\n\n" ++
+      "  view getBytes() : Bytes 2 do\n" ++
+      "    return payload\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Bytes", "return", "B-RET", "unsupported", "anonymous"]
+  -- Map return remains fail closed.
+  expectAnonymousReturnFailClosed session "map-ret" "Examples.MapRet"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program MapRet where\n" ++
+      "  state table : Map UInt64 UInt64\n\n" ++
+      "  init() do\n" ++
+      "    table[0] := 1\n\n" ++
+      "  view getMap() : Map UInt64 UInt64 do\n" ++
+      "    return table\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Map", "return", "B-RET", "unsupported", "anonymous"]
+  -- Array UInt64 9 exceeds leaf cap-8.
+  expectAnonymousReturnFailClosed session "array9-ret" "Examples.Array9Ret"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program Array9Ret where\n" ++
+      "  state slots : Array UInt64 9\n\n" ++
+      "  init() do\n" ++
+      "    slots[0] := 0\n" ++
+      "    slots[1] := 0\n" ++
+      "    slots[2] := 0\n" ++
+      "    slots[3] := 0\n" ++
+      "    slots[4] := 0\n" ++
+      "    slots[5] := 0\n" ++
+      "    slots[6] := 0\n" ++
+      "    slots[7] := 0\n" ++
+      "    slots[8] := 0\n\n" ++
+      "  view getArr() : Array UInt64 9 do\n" ++
+      "    return slots\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["8", "leaf", "cap", "9", "exceeding", "aggregate"]
+  -- Nested anonymous Option (Array …) remains fail closed (non-UInt64 payload).
+  expectAnonymousReturnFailClosed session "nested-opt-ret" "Examples.NestedOptRet"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program NestedOptRet where\n" ++
+      "  state seed : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    seed := 0\n\n" ++
+      "  view getNested() : Option Array UInt64 2 do\n" ++
+      "    return Option.none()\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Option", "UInt64", "payload", "return", "unsupported", "anonymous", "Array"]
 
 /-- B-RET-ABI: leaf count exceeding cap-8 stays fail closed. -/
 private unsafe def testAggregateLeafCapFailClosed
@@ -4482,7 +4683,9 @@ unsafe def run : IO Unit := do
   testNamedEnumProductPath session
   testNamedStructAggregateReturn session
   testNamedEnumAggregateReturn session
-  testAnonymousContainerReturnFailClosed session
+  testAnonymousArrayReturn session
+  testAnonymousOptionReturn session
+  testAnonymousReturnFailClosed session
   testAggregateLeafCapFailClosed session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"

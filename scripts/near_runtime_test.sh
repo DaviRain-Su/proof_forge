@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# NEAR near-sandbox engineering runtime differential (BL-13):
-#   product CLI build → Counter.wasm + PairRet.wasm (wat2wasm finalize)
+# NEAR near-sandbox engineering runtime differential (BL-13 / BL-20):
+#   product CLI build → Counter/PairRet/ArrayRet/OptionRet.wasm (wat2wasm)
 #   → near-sandbox init/run → JSON-RPC deploy/call/view assert → kill sandbox
 #
 # Covers:
 #   Counter: init(7) / increment(5) / get==12 / overflow state-hold / recovery
 #   PairRet: named Struct aggregate return (init + setPair/getPair N×8 LE)
+#   ArrayRet: anonymous Array UInt64 2 return (init + setArr/getArr N×8 LE)
+#   OptionRet: anonymous Option UInt64 none/some (2×8 LE tag+payload)
 #
 # Not testnet, not mainnet, not formal Stage-0 / hermetic release evidence /
 # Reference↔sandbox formal differential (main agent decides just recipe wiring).
@@ -125,6 +127,8 @@ crate_dir="$root/runtime-tests/near"
 programs=(
   "Examples/Counter.lean:Examples.Counter:Counter"
   "runtime-tests/near/fixtures/PairRet.lean:Examples.PairRet:PairRet"
+  "runtime-tests/near/fixtures/ArrayRet.lean:Examples.ArrayRet:ArrayRet"
+  "runtime-tests/near/fixtures/OptionRet.lean:Examples.OptionRet:OptionRet"
 )
 
 echo "near-runtime-test: engineering near-sandbox differential (not formal/testnet)"
@@ -208,8 +212,12 @@ done
 
 counter_wasm="$out_dir/Counter/Counter.wasm"
 pairret_wasm="$out_dir/PairRet/PairRet.wasm"
+arrayret_wasm="$out_dir/ArrayRet/ArrayRet.wasm"
+optionret_wasm="$out_dir/OptionRet/OptionRet.wasm"
 [[ -f "$counter_wasm" ]] || die "missing $counter_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
+[[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
+[[ -f "$optionret_wasm" ]] || die "missing $optionret_wasm"
 
 # --- sandbox helpers --------------------------------------------------------
 
@@ -224,7 +232,7 @@ PY
 }
 
 # Run one suite against a fresh near-sandbox home (avoids state key collisions
-# between Counter and PairRet on the same account without subaccount machinery).
+# between fixtures on the same account without subaccount machinery).
 run_suite() {
   local suite_name="$1"
   local wasm_path="$2"
@@ -321,5 +329,11 @@ run_suite counter "$counter_wasm" || die "Counter suite failed"
 echo "near-runtime-test: running PairRet suite against near-sandbox"
 run_suite pairret "$pairret_wasm" || die "PairRet suite failed"
 
-echo "near-runtime-test: PASS (Counter + PairRet engineering sandbox differential)"
+echo "near-runtime-test: running ArrayRet suite against near-sandbox"
+run_suite arrayret "$arrayret_wasm" || die "ArrayRet suite failed"
+
+echo "near-runtime-test: running OptionRet suite against near-sandbox"
+run_suite optionret "$optionret_wasm" || die "OptionRet suite failed"
+
+echo "near-runtime-test: PASS (Counter + PairRet + ArrayRet + OptionRet engineering sandbox differential)"
 exit 0
