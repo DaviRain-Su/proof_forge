@@ -236,7 +236,31 @@ InvariantTheoremV1 program ordinal :=
 | `docs/05-test-spec.md` | engineering 覆盖 vs formal TST-PROOF-001 |
 | `MIGRATION_MATRIX` / `AGENTS.md` / log | engineering 事实与非 formal 措辞 |
 
+## Engineering status snapshot（2026-08-04；非 formal）
+
+| 层 | 状态 | 说明 |
+|---|---|---|
+| Product CLI sole path | **wired** | 单次 read → inventory → compile → `certifyInlineProofV1` → resolve/materialize；无 `--proof-bundle*` |
+| Kernel certificate | **closed（engineering）** | structure→encode→decode→`ProofedProof.safe` |
+| Production simple-closure bridge | **closed（engineering）** | legal-only `SimpleClosureCertV1` / `LiteralTrueInvariantWitnessV1` encode/decode path |
+| Exact ordinal-0 theorem | **closed（engineering）** | nullary literal-true micro-shape closes `InvariantTheoremV1 program 0` under production witness premises |
+| Product `check` positive | **remaining** | literal-true / public-Bool-view narrow family **same-file ordinary Lean theorem** 经 inline gate 得 `proofStatus=certified`；**未过门槛不得标 feature done** |
+| Formal TST / release | **open** | 不关闭 `TST-PROOF-001`、TASK-D2-06/07、hermetic/Stage-0 |
+
+**Product-check positive 验证门槛**（全部通过前不得写 feature done）：
+
+1. CLI `check` 正例：same-file source 含 narrow invariant + adjacent ordinary theorem →
+   `proofStatus=certified`、nonzero theorem count、certification digest present；
+2. Fail-closed 负例：false theorem / inventory bijection failure / disallowed axiom →
+   `PF-SRC-INVALID` / exit 3，零 Plan / 零 staging；
+3. Gate 顺序：proof fail 严格早于 target resolve / materialize（cert 失败不得触达 materialize）；
+4. Hash 边界：仅改 theorem body 时 `sourceHash` 与 `semanticHash` 不变；
+5. Authority：不信任用户 `.olean`；in-process elaboration **不是** sandbox；
+6. Axiom policy：闭包仅 `Classical.choice` / `Quot.sound` / `propext`；
+7. 正交：nonempty invariant materializer 仍可 fail closed；不声称 reachability /
+   init-step safety / target refinement。
+
 ## 状态
 
-`proposed`。落地实现与 ordinary CI 通过后，仍只记为 **engineering** 完成；formal
-acceptance 需要独立 owner 流程，不由本 ADR 自动授予。
+`proposed`。kernel/simple-closure 工程闭合 **不** 自动授予 product-check feature done
+或 formal acceptance；后者需独立 owner 流程与上表门槛 / TST，不由本 ADR 自动授予。

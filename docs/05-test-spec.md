@@ -349,6 +349,25 @@ theorem expected-type mismatch 的 stable diagnostic 必须为 `PF-TYPE-001`。�
    被误写成已证明 reachability、init-step safety 或 target refinement。
 6. **非 sandbox**：测试与文档不得把 in-process elaboration 标记为 contained/hermetic。
 
+**Engineering 分层（2026-08-04）**——kernel 闭合 ≠ product feature done：
+
+| 子层 | Engineering 状态 | 验收提示 |
+|---|---|---|
+| structure→encode→decode→`ProofedProof.safe` | closed（kernel suite） | 不单独代签 CLI certified |
+| legal-only production simple-closure encode/decode + ordinal-0 `InvariantTheoremV1` | closed（`SimpleClosureCertV1` / related cert suites） | 仅 nullary literal-true micro-shape |
+| same-file ordinary theorem product `check` positive | **remaining** | literal-true / public-Bool-view narrow family |
+
+**Product `check` positive 门槛**（全部通过前不得写 feature done；属 `TST-PROOF-INLINE-E1`
+engineering 正/负例，**非** formal）：
+
+1. CLI `check` 正例：same-file source + adjacent ordinary theorem → `proofStatus=certified`、
+   nonzero theorem count、certification digest present；
+2. Fail-closed：false theorem / inventory bijection / disallowed axiom → `PF-SRC-INVALID` /
+   exit 3，零 Plan / 零 staging；
+3. Gate 顺序：proof fail 严格早于 target resolve/materialize；
+4. Hash / authority / axiom / 非 sandbox 边界同上述 1–6；
+5. nonempty invariant materializer 仍可 fail closed（与 proof gate 正交）。
+
 ### Resource test ownership
 
 `TST-RESOURCE-001` 只关闭 D1-08 的 source safe-open、frontend worker、parser/decode protocol 与

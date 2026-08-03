@@ -119,7 +119,8 @@ Wave 1  D1 ProgramV1 CLI source path + DiagnosticV1 product cutover
   → Wave 2  [done] freeze S1 Semantic + EVM/Solana/NEAR/Noir V1 Plan leaf + single carrier
            → [current] expand sole Normalize/Reference/target beyond S1
              （多宽/控制流/fn/for/call/部分聚合已接线；完整语言面未闭合；inline proof wiring
-              工程已接，raw-source product-positive certified 仍可 open）
+              + simple-closure/ordinal-0 kernel cert 工程已闭合；literal-true/public-Bool-view
+              same-file ordinary theorem 的 product check positive 仍待验证门槛）
   → Wave 3  identity + output 闭合（工程 S4–S7c + D3-E7 content closure + D3-E9 descriptor-axis exact join 已接线；formal carriers 仍 pending）
   → Wave 4  D4 EVM first → D5 Solana + D6 NEAR + D7 Noir target completion
   → Wave 5  D8 aggregate/security/repro/clean-room/review
@@ -153,8 +154,8 @@ ProgramV1 command/export/v2 仍为 sole 源表面。
   `failed` → `PF-SRC-INVALID`/exit 3；check 输出 proofStatus/count/digest，build 只门禁）→
   engineering `resolveEngineeringRequirementsV1` → capability Plan/IR/finalize → OutputSet →
   manifest-last/exact disk closure。**无** `--proof-bundle*`。失败走 `DiagnosticBundleV1` /
-  `selectExitCode`。全链不构造 legacy `Source.Program`。raw-source product-positive certified
-  与 formal TST 仍不由 wiring 代签。
+  `selectExitCode`。全链不构造 legacy `Source.Program`。simple-closure/ordinal-0 kernel cert
+  不代签 product `check` certified 正例；product positive 与 formal TST 均不由 wiring 代签。
 - **历史 frontend 监督层（已移除）**：B9 Protocol / B10 worker / B11 SafeOpen+supervisor / B12 CLI
   切over 曾完成工程接线；**2026-08-01 产品决策整体删除**该层。详情与 superseded 说明见
   `MIGRATION_MATRIX` D1-08 与 AGENTS checkpoint；不得再写成当前产品路径。

@@ -12,6 +12,27 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-04 — docs: inline proof kernel-closed vs remaining product check positive
+
+- Status correction：已验证 **kernel closed（engineering）**——(1) structure→encode→decode
+  →`ProofedProof.safe`；(2) legal-only production simple-closure encode/decode
+  （`SimpleClosureCertV1` / `LiteralTrueInvariantWitnessV1`）；(3) exact ordinal-0
+  `InvariantTheoremV1` on nullary literal-true micro-shape。替换过时
+  “raw-source product-positive certified still open” 笼统措辞。
+- **剩余产品切片（未过门槛不得标 feature done）**：literal-true / public-Bool-view
+  narrow family 的 same-file ordinary Lean theorem 经 `certifyInlineProofV1` 的 product
+  `check` certified 正例。验证门槛：CLI `check` 正例（`proofStatus=certified` +
+  count/digest）；false theorem / inventory bijection / disallowed axiom →
+  `PF-SRC-INVALID`/exit 3 且零 Plan/staging；proof fail 严格早于 target resolve/
+  materialize；theorem body 不改 `sourceHash`/`semanticHash`；不信任用户 `.olean`；
+  in-process elab ≠ sandbox；allowed axioms 仅 `Classical.choice`/`Quot.sound`/`propext`。
+- 边界不变：nonempty invariant materializer 仍 FC；**不** 声称 formal TASK/TST-PROOF-001、
+  reachability、target refinement、hermetic/release。
+- Docs：`AGENTS`/`RECOVERY`/`MIGRATION_MATRIX`、`docs/index`、`document-status`、
+  `engineering-backlog`（INV-1/FR-002）、`SPEC-CLI-001`、`MOD-CLI-001`、ADR-0026 status
+  snapshot、`05-test-spec` product-check gates。Gates：`just docs-check`、`git diff --check`。
+  文档-only；非 formal/hermetic/release。
+
 ## 2026-08-04 — docs follow-up: product CLI sole inline proof（no ProofBundle flags）
 
 - Correction vs prior ADR-0026 docs commit：独立复核确认 **产品** CLI 已删除
@@ -22,9 +43,10 @@ normative: false
 - Observation surface：check 输出 `proofStatus` / `proofTheoremCount` /
   `proofCertificationDigest`；build 只门禁、成功输出不带 proof 字段。nonempty invariant
   materializer 仍 fail closed。
-- Kernel cert engineering：structure + encode + decode + `ProofedProof.safe` certificate
-  链可记为已闭合；**raw-source ProgramElaboration 生成证书 / product-positive certified**
-  仍并行收尾——**不得** 宣称 feature 完成或 formal `TST-PROOF-001`。
+- Kernel cert engineering（当时记录）：structure + encode + decode + `ProofedProof.safe`
+  certificate 链可记为已闭合；后续 simple-closure/ordinal-0 与 product-check 正例分层
+  见上条 2026-08-04 status correction——**不得** 宣称 feature 完成或 formal
+  `TST-PROOF-001`。
 - Docs：`SPEC-CLI-001`、ADR-0026 关系段、`language`/`semantic-core`/`03-technical-spec`、
   `MOD-CLI-001`、`engineering-backlog`（INV-1 superseded）、`RECOVERY`/`AGENTS`/
   `MIGRATION_MATRIX` 控制面同步。Gates：`just docs-check`、`git diff --check`。文档-only

@@ -45,10 +45,17 @@ D1–D4 共 27 个 formal task，当前仍为：
 > `proofCertificationDigest`；build 只门禁、成功输出不带 proof 字段。ProgramV1/semantic hash
 > 不含 theorem body；in-process elab **不是** sandbox；固定 axiom
 > `Classical.choice`/`Quot.sound`/`propext`；不信任用户 `.olean`；当前仅
-> `InvariantTheoremV1`（∀ `StateConformsV1`）。**结构+encode+decode+`ProofedProof.safe` kernel
-> certificate 链已闭合**（engineering）；**raw-source ProgramElaboration 生成证书 /
-> product-positive certified** 仍可在并行收尾——**不得** 宣称 feature 完成或 formal
-> `TST-PROOF-001` 闭合。nonempty invariant materializer 仍 fail closed。
+> `InvariantTheoremV1`（∀ `StateConformsV1`）。**Kernel closed（engineering）**：
+> structure→encode→decode→`ProofedProof.safe`；legal-only production simple-closure
+> encode/decode（`SimpleClosureCertV1` / `LiteralTrueInvariantWitnessV1`）；exact ordinal-0
+> `InvariantTheoremV1` on nullary literal-true micro-shape。**剩余产品切片（未经验证门槛
+> 不得标 feature done）**：literal-true / public-Bool-view narrow family 的 same-file
+> ordinary Lean theorem 经 `certifyInlineProofV1` 的 product `check` positive
+> （`proofStatus=certified` + count/digest）。验证门槛：CLI check 正例；false theorem /
+> inventory bijection / disallowed axiom → `PF-SRC-INVALID`/exit 3 且零 Plan/staging；proof
+> fail 严格早于 target resolve/materialize；theorem body 不改 `sourceHash`/`semanticHash`；
+> 不信任用户 `.olean`。nonempty invariant materializer 仍 fail closed。**不** 声称 formal
+> `TST-PROOF-001`、reachability、target refinement、hermetic/release。
 
 > **2026-08-02 N-CONST-REF 增量**：constants rows 仍由 sole `evalConstDeclValueV1` 生成 canonical
 > valueBytes；新增 complete source-order lookup 位于 fn signature type interning 后、任何 callable body
