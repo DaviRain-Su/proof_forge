@@ -3302,10 +3302,11 @@ unsafe def run : IO Unit := do
             (e.render).contains "Principal")
           s!"B-ctx caller {target} message must cite ContextRead/caller boundary, got {e.render}"
 
-  -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy
-  -- admit (multi-leaf ABI; Psy as [Felt; N]); Aleo admits non-state entry
-  -- aggregate returns (native Leo tuple) while view-over-state stays fail
-  -- closed.
+  -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy +
+  -- CosmWasm + TON admit (multi-leaf ABI: EVM tuple / Noir leaves /
+  -- N×8 LE / [Felt; N] / JSON decimals / get-method stack); Aleo admits
+  -- non-state entry aggregate returns (native Leo tuple) while
+  -- view-over-state stays fail closed.
   let pairRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3363,6 +3364,18 @@ unsafe def run : IO Unit := do
   let _aleoPair ← liftResult <| planAleo pairEntryCompiled
   -- Psy admits: view aggregate return lowers to [Felt; N] (B-RET-ABI).
   let _psyPair ← liftResult <| planPsy pairCompiled
+  -- CosmWasm admits view aggregate return (JSON array of decimals).
+  match materializeSelected TargetId.cosmwasm pairCompiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"B-RET-ABI: cosmwasm must admit view aggregate return, got {e.render}"
+  -- TON admits view aggregate return (multi-stack get method).
+  match materializeSelected TargetId.ton pairCompiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"B-RET-ABI: ton must admit view aggregate return, got {e.render}"
 
 
 end Tests.Materialization
