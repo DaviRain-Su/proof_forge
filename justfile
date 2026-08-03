@@ -512,8 +512,9 @@ s7c-disk-closure-gate:
 # the frozen public-UInt64 envelope retains exact checked add/sub semantics.
 # Product CLI must not reintroduce structural ProofBundle join/flags.
 # Non-product Semantic/Compiler ProofBundle modules and library tests remain.
-# After this gate: proof-bearing programs temporarily have no product proof gate
-# until the inline certifier lane wires product gating (integration dependency).
+# Inline certifier is product-wired (in-process certifyInlineProofV1 after
+# compile, before TargetRegistry resolve/materialize). Structural ambient
+# bundle join/flags stay deleted; legacy --proof-bundle* remain unknown options.
 cli-structural-proof-bundle-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -551,8 +552,11 @@ cli-structural-proof-bundle-deletion-gate:
       --forbid ProofForgeV2.Semantic.ProofBundleV1 \
       --forbid ProofForgeV2.Semantic.ProofReferenceJoinV1 \
       --forbid ProofForgeV2.Compiler.ProofBundleFilesV1
+    # Certifier must be product-wired (not a reintroduced ambient bundle gate).
+    rg -q 'certifyInlineProofV1' ProofForgeV2/CLI/Main.lean
+    rg -q 'selectProgramV1ProductWithTheoremInventory' ProofForgeV2/CLI/Main.lean
     lake build ProofForgeV2.CLI.Main ProofForgeV2.CLI.Emit ProofForgeV2.CLI.Exe \
-      Tests.CLI.ResourceFlagsV1
+      Tests.CLI.ResourceFlagsV1 Tests.CLI.InlineProofProductV1
     echo "cli-structural-proof-bundle-deletion-gate: ok"
 
 s1-evm-semantic-plan-deletion-gate:

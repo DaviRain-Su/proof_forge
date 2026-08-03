@@ -411,7 +411,7 @@ before source open. RES-1 enforces wall clocks (build: pre-rename inside
 emitProgram; check: post-success path). The RES-1B output-only slice enforces
 `artifact-output.published-bytes` before publication. Memory/process/protocol/
 stderr remain observation-only gaps. Structural ambient ProofBundle product
-flags are intentionally absent (inline certifier integration dependency). -/
+flags remain deleted; product proof gating is the in-process inline certifier. -/
 structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
@@ -425,6 +425,31 @@ structure BuildOptions where
   resourceLimits : Array ResourceLimitOverrideV1 := #[]
   minimumEvidence : Option String := none
   deriving Repr
+
+/-- Product-facing inline proof observation for check success output.
+    `notRequired` is the explicit no-proof skip (never forged certified).
+    `certified` carries theorem count + proofCertificationDigest only — never
+    mutates ProgramV1 source/semantic digests or the semantic carrier. -/
+inductive ProductProofStatusV1 where
+  | notRequired
+  | certified (theoremCount : UInt32) (certificationDigest : Digest)
+  deriving Repr
+
+namespace ProductProofStatusV1
+
+def statusWire : ProductProofStatusV1 → String
+  | .notRequired => "not-required"
+  | .certified _ _ => "certified"
+
+def theoremCount : ProductProofStatusV1 → UInt32
+  | .notRequired => 0
+  | .certified n _ => n
+
+def certificationDigest? : ProductProofStatusV1 → Option Digest
+  | .notRequired => none
+  | .certified _ d => some d
+
+end ProductProofStatusV1
 
 /-- Product command kind for post-parse resource/evidence flag validation. -/
 inductive CliBuildCommandKindV1 where
@@ -566,7 +591,8 @@ def validateBuildOptionsCliV1
 `--network` and any other unknown dashed option fail as usage errors.
 `--json` is a bare flag. Duplicate selection and common flags fail closed.
 D3-E5: `--resource-limit` (repeatable), `--minimum-evidence`.
-Legacy structural ambient ProofBundle product flags are unknown options. -/
+Legacy structural ambient ProofBundle product flags remain unknown options
+(inline certifier is the sole product proof gate). -/
 partial def parseBuildArgsExcept (args : List String) (options : BuildOptions := {}) :
     Except String BuildOptions := do
   match args with
@@ -941,18 +967,26 @@ def inspectTargetWithSeedV1
 def inspectTargetText (value : String) (json : Bool := false) : CompileResult String :=
   inspectTargetWithSeedV1 initialTargetRegistryV1Result value json
 
-/-- Product check success human body. -/
+/-- Product check success human body (includes explicit proof status). -/
 def renderCheckOkHumanV1
     (programName : String) (sourceDigest semanticDigest : Digest)
-    (target? : Option TargetId) (profile? : Option CodegenProfileId) :
+    (target? : Option TargetId) (profile? : Option CodegenProfileId)
+    (proofStatus : ProductProofStatusV1 := .notRequired) :
     CompileResult String := do
   let sourceWire ← digestWireCompile "source" sourceDigest
   let semanticWire ← digestWireCompile "semantic" semanticDigest
+  let proofDigestWire ←
+    match ProductProofStatusV1.certificationDigest? proofStatus with
+    | none => pure "none"
+    | some dig => digestWireCompile "proofCertification" dig
   let mut lines :=
     #["ok",
       s!"program={programName}",
       s!"sourceDigest={sourceWire}",
-      s!"semanticDigest={semanticWire}"]
+      s!"semanticDigest={semanticWire}",
+      s!"proofStatus={ProductProofStatusV1.statusWire proofStatus}",
+      s!"proofTheoremCount={ProductProofStatusV1.theoremCount proofStatus}",
+      s!"proofCertificationDigest={proofDigestWire}"]
   match target?, profile? with
   | some tid, some pid =>
       lines := lines.push s!"target={tid}"
@@ -970,11 +1004,13 @@ private def renderResourceLimitJsonV1 (lim : ResourceLimitOverrideV1) : PfJson :
     ("value", .int (Int.ofNat lim.value.toNat))
   ]
 
-/-- Product check success JSON (`proof-forge.cli.check.v1`). -/
+/-- Product check success JSON (`proof-forge.cli.check.v1`).
+    Additive proof observation fields do not alter source/semantic digests. -/
 def renderCheckOkJsonV1
     (programName : String) (sourceDigest semanticDigest : Digest)
     (target? : Option TargetId) (profile? : Option CodegenProfileId)
-    (resourceLimits : Array ResourceLimitOverrideV1 := #[]) :
+    (resourceLimits : Array ResourceLimitOverrideV1 := #[])
+    (proofStatus : ProductProofStatusV1 := .notRequired) :
     CompileResult String := do
   let sourceWire ← digestWireCompile "source" sourceDigest
   let semanticWire ← digestWireCompile "semantic" semanticDigest
@@ -987,6 +1023,11 @@ def renderCheckOkJsonV1
     | some pid => PfJson.string pid.toString
     | none => PfJson.null
   let limitsJson := PfJson.array (resourceLimits.map renderResourceLimitJsonV1)
+  let proofDigestJson ←
+    match ProductProofStatusV1.certificationDigest? proofStatus with
+    | none => pure PfJson.null
+    | some dig =>
+        pure (PfJson.string (← digestWireCompile "proofCertification" dig))
   renderCliJsonV1 <|
     PfJson.object #[
       ("schema", .string "proof-forge.cli.check.v1"),
@@ -996,7 +1037,11 @@ def renderCheckOkJsonV1
       ("semanticDigest", .string semanticWire),
       ("target", targetJson),
       ("codegenProfile", profileJson),
-      ("resourceLimits", limitsJson)
+      ("resourceLimits", limitsJson),
+      ("proofStatus", .string (ProductProofStatusV1.statusWire proofStatus)),
+      ("proofTheoremCount",
+        .int (Int.ofNat (ProductProofStatusV1.theoremCount proofStatus).toNat)),
+      ("proofCertificationDigest", proofDigestJson)
     ]
 
 /-- Product build success human body (includes selected profile). -/

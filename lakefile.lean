@@ -242,6 +242,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.CLI.ToolchainPolicy,
     `Tests.CLI.DiagnosticsV1,
     `Tests.CLI.ResourceFlagsV1,
+    `Tests.CLI.InlineProofProductV1,
     `Tests.Core.DiagnosticV1,
     `Tests.Core.DiagnosticBundleV1,
     `Tests.Frontend.ProtocolV1,

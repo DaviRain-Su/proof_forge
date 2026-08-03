@@ -147,6 +147,7 @@ import Tests.Materialization.EngineeringFinalizationV1
 import Tests.Materialization.EngineeringDiskClosureV1
 import Tests.CLI.DiagnosticsV1
 import Tests.CLI.ResourceFlagsV1
+import Tests.CLI.InlineProofProductV1
 
 private unsafe def runSemanticTests : IO Unit := do
   Tests.Semantic.WireV1.run
@@ -188,6 +189,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.CLI.ToolchainPolicy.run
   Tests.CLI.DiagnosticsV1.run
   Tests.CLI.ResourceFlagsV1.run
+  Tests.CLI.InlineProofProductV1.run
 
 unsafe def main : IO Unit := do
   Tests.Core.Common.run

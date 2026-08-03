@@ -7,7 +7,7 @@
   `parseBuildArgsExcept` / `validateBuildOptionsCliV1` / `parseResourceLimitSpecV1`),
   wall gates, and the pre-publish artifacts+sidecars byte gate.
   Structural `--proof-bundle` / `--proof-bundle-digest` are unknown options
-  (product bypass removed; inline certifier is a separate integration lane).
+  (product bypass removed; inline certifier owns product proof gating).
   Not formal SPEC-CLI / NFR-008 host receipt or memory containment.
 -/
 import ProofForgeV2.CLI.Emit

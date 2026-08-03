@@ -88,6 +88,7 @@ import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.CLI.DiagnosticsV1
 import Tests.CLI.ResourceFlagsV1
+import Tests.CLI.InlineProofProductV1
 -- S1 NormalizeV1 suite is defined in Tests/Typed/CheckV1.lean under namespace
 -- Tests.Semantic.NormalizeV1 and invoked from Tests.Typed.CheckV1.run (ordinary
 -- CI + fast path both hit that root).
@@ -177,6 +178,7 @@ unsafe def main : IO Unit := do
   Tests.CLI.ToolchainPolicy.run
   Tests.CLI.DiagnosticsV1.run
   Tests.CLI.ResourceFlagsV1.run
+  Tests.CLI.InlineProofProductV1.run
   -- Keep target-leaf regressions after child-process wall-budget suites so
   -- their retained Plan fixtures cannot perturb host scheduling. The two
   -- lightweight model entries prove checked-sub success/underflow execution;
