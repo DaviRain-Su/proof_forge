@@ -417,7 +417,7 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
       (TargetId.near, TargetKind.near, "does not return public"),
       (TargetId.noir, TargetKind.noir, "named Struct/Enum aggregate"),
       (TargetId.aleo, TargetKind.aleo, "return of anonymous aggregate is outside"),
-      (TargetId.psy, TargetKind.psy, "return of aggregate is outside")] do
+      (TargetId.psy, TargetKind.psy, "cannot return multi-leaf aggregate")] do
     expectMaterializePlanInvariantV1 "anonymous-result" target kind compiled marker
 
 private def testSemanticPlanSourceAuthority : IO Unit := do
@@ -3302,10 +3302,10 @@ unsafe def run : IO Unit := do
             (e.render).contains "Principal")
           s!"B-ctx caller {target} message must cite ContextRead/caller boundary, got {e.render}"
 
-  -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR admit
-  -- (multi-leaf ABI); Aleo admits non-state entry aggregate returns (native
-  -- Leo tuple) while view-over-state stays fail closed; Psy must fail closed
-  -- (scalar return ABI only).
+  -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy
+  -- admit (multi-leaf ABI; Psy as [Felt; N]); Aleo admits non-state entry
+  -- aggregate returns (native Leo tuple) while view-over-state stays fail
+  -- closed.
   let pairRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3361,16 +3361,8 @@ unsafe def run : IO Unit := do
     | .error e => throw <| IO.userError s!"B-RET-ABI aleo-entry select: {e.render}"
   let pairEntryCompiled ← liftResult <| Compiler.compileValidatedSourceV1 pairEntryV1
   let _aleoPair ← liftResult <| planAleo pairEntryCompiled
-  -- Psy must decline aggregate return.
-  match materializeSelected TargetId.psy pairCompiled with
-  | .ok _ =>
-      throw <| IO.userError "B-RET-ABI: psy must decline named-aggregate return"
-  | .error e =>
-      expect ((e.render).contains "aggregate" ||
-          (e.render).contains "scalar" ||
-          (e.render).contains "unsupported" ||
-          (e.render).contains "envelope")
-        s!"B-RET-ABI psy message must cite aggregate/scalar boundary, got {e.render}"
+  -- Psy admits: view aggregate return lowers to [Felt; N] (B-RET-ABI).
+  let _psyPair ← liftResult <| planPsy pairCompiled
 
 
 end Tests.Materialization
