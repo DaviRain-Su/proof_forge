@@ -162,15 +162,16 @@ if ! token_tree_matches_profile "$token_bin"; then
     build_log="$(mktemp "${TMPDIR:-/tmp}/pf-token-build.XXXXXX.log")"
     lake_root="${PF_LAKE_ROOT:-$root}"
     set +e
+    # Fixed single-quoted bash -c + positional args (no path injection into -c source).
     if [[ ${#build_profile_args[@]} -gt 0 ]]; then
-      (cd "$lake_root" && lake env bash -c "cd '$root' && '$token_cli' build \
-        Examples/Token.lean --module Examples.Token --target evm \
-        ${build_profile_args[*]} -o '$token_out_rel'") >"$build_log" 2>&1
+      (cd "$lake_root" && lake env bash -c 'cd "$1"; shift; exec "$@"' _ "$root" \
+        "$token_cli" build Examples/Token.lean --module Examples.Token --target evm \
+        "${build_profile_args[@]}" -o "$token_out_rel") >"$build_log" 2>&1
       build_rc=$?
     else
-      (cd "$lake_root" && lake env bash -c "cd '$root' && '$token_cli' build \
-        Examples/Token.lean --module Examples.Token --target evm \
-        -o '$token_out_rel'") >"$build_log" 2>&1
+      (cd "$lake_root" && lake env bash -c 'cd "$1"; shift; exec "$@"' _ "$root" \
+        "$token_cli" build Examples/Token.lean --module Examples.Token --target evm \
+        -o "$token_out_rel") >"$build_log" 2>&1
       build_rc=$?
     fi
     set -e

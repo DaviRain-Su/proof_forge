@@ -1413,47 +1413,88 @@ def darwin_tool_lock_v4_digest(lock_path: Path) -> str:
 
 
 def require_safe_obs_root(obs_root: Path, repo_root: Path) -> Path:
-    """OBS root must resolve to a proper subdirectory of repo_root/build/.
+    """OBS root must be a proper subdirectory of repo_root/build/.
 
-    Rejects: `/`, repo root, `build/` itself, paths outside build/, and
-    symlink escapes (final realpath must stay under realpath(build/)).
-    Does not delete anything.
+    Zero external side effects before validation completes, except:
+    - may create a *real* directory ``repo/build`` when it does not exist
+    - never creates parents of the candidate obs path
+    - if ``build`` exists as a symlink or non-directory → reject immediately
+
+    Uses lexical absolute paths for membership, rejects any existing symlink
+    component on the path from build/ to obs (even if the target stays inside
+    build/), and rechecks final resolve (strict=False) stays under build.
     """
+    import os
+
+    if not repo_root.exists() or not repo_root.is_dir():
+        fail("PF-CORPUS-PATH", f"repo root is not a directory: {repo_root}")
     repo = repo_root.resolve()
     build = repo / "build"
-    # Ensure build exists so resolve semantics are stable for parents.
-    build.mkdir(parents=True, exist_ok=True)
+
+    if build.is_symlink():
+        fail("PF-CORPUS-PATH", "repo build/ must not be a symlink")
+    if build.exists() and not build.is_dir():
+        fail("PF-CORPUS-PATH", "repo build/ exists and is not a directory")
+    if not build.exists():
+        # Only create the real build/ directory itself (not obs parents).
+        build.mkdir(mode=0o755)
+
+    build_abs = Path(os.path.abspath(str(build)))
     build_real = build.resolve()
 
-    obs_in = obs_root.expanduser()
+    obs_in = Path(os.path.expanduser(str(obs_root)))
     if not obs_in.is_absolute():
         obs_in = repo / obs_in
-    try:
-        if obs_in.exists():
-            obs = obs_in.resolve()
-        else:
-            parent = obs_in.parent
-            if not parent.exists():
-                parent.mkdir(parents=True, exist_ok=True)
-            obs = parent.resolve() / obs_in.name
-    except OSError as exc:
-        fail("PF-CORPUS-PATH", f"obs root unresolvable: {exc}")
+    obs_abs = Path(os.path.abspath(str(obs_in)))
 
-    if obs == repo or obs == build_real:
+    if obs_abs == repo or obs_abs == build_abs:
         fail(
             "PF-CORPUS-PATH",
-            f"obs root must be a proper subdirectory of build/ (got {obs})",
+            f"obs root must be a proper subdirectory of build/ (got {obs_abs})",
         )
     try:
-        rel = obs.relative_to(build_real)
+        rel = obs_abs.relative_to(build_abs)
     except ValueError:
         fail(
             "PF-CORPUS-PATH",
-            f"obs root {obs} must be under {build_real} (symlink escape rejected)",
+            f"obs root {obs_abs} must be under {build_abs}",
         )
-    if not rel.parts or rel.parts[0] in {".", ".."}:
+    if not rel.parts or any(part in {".", ".."} for part in rel.parts):
         fail("PF-CORPUS-PATH", f"obs root relative path illegal: {rel}")
-    return obs
+
+    # Reject any existing symlink component on build → obs (including inside build).
+    cursor = build_abs
+    for part in rel.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            fail(
+                "PF-CORPUS-PATH",
+                f"symlink component rejected on obs path: {cursor}",
+            )
+
+    # Final resolve check (strict=False semantics): nonexistent leaf OK.
+    if obs_abs.exists():
+        obs_real = obs_abs.resolve()
+    else:
+        parent = obs_abs.parent
+        if parent.exists():
+            if parent.is_symlink():
+                fail(
+                    "PF-CORPUS-PATH",
+                    f"symlink parent rejected on obs path: {parent}",
+                )
+            obs_real = parent.resolve() / obs_abs.name
+        else:
+            # Parent missing: membership already lexical under build; do not create.
+            obs_real = obs_abs
+    try:
+        obs_real.relative_to(build_real)
+    except ValueError:
+        fail(
+            "PF-CORPUS-PATH",
+            f"resolved obs root {obs_real} escapes {build_real}",
+        )
+    return obs_abs
 
 
 def list_runnable_cases(cases_dir: Path) -> list[dict[str, object]]:
@@ -2714,8 +2755,10 @@ def _run_tool_lock_and_obs_root_tests() -> None:
 
         raw = hashlib.sha256(lock.read_bytes()).hexdigest()
         if raw != DARWIN_TOOL_LOCK_RAW_SHA256_KAT:
-            # Allow drift only if documented; still require typed ≠ raw.
-            pass
+            raise AssertionError(
+                f"raw toolchains.lock.json SHA-256 mismatch: {raw} != "
+                f"{DARWIN_TOOL_LOCK_RAW_SHA256_KAT}"
+            )
         if digest == raw:
             raise AssertionError("ToolLockV4Digest must not equal raw lock SHA-256")
         # Duplicate-key rejection on lock-sized input.
@@ -2726,18 +2769,34 @@ def _run_tool_lock_and_obs_root_tests() -> None:
             if err.code != "PF-CORPUS-DUPLICATE-KEY":
                 raise AssertionError(f"dup-key wrong code {err.code}") from err
 
-    # Safe obs root negatives (no deletion).
+    # Safe obs root negatives (no deletion / no outside parent creation).
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp) / "repo"
-        (repo / "build").mkdir(parents=True)
+        repo.mkdir()
+        (repo / "build").mkdir()
         sentinel = repo / "SENTINEL"
         sentinel.write_text("keep", encoding="utf-8")
-        # Good path.
-        good = require_safe_obs_root(Path("build/v2/evm-corpus-obs"), repo)
-        if "build" not in good.parts:
-            raise AssertionError(f"good obs root unexpected: {good}")
+        # Good path (spaces) round-trip.
+        spaced = Path("build/v2/my obs dir")
+        good = require_safe_obs_root(spaced, repo)
+        if "my obs dir" not in str(good):
+            raise AssertionError(f"spaces path lost: {good}")
+        # Outside nonexistent parent must remain nonexistent after reject.
+        outside_parent = repo / "nope-parent" / "child"
+        if outside_parent.parent.exists():
+            raise AssertionError("precondition: outside parent must not exist")
+        try:
+            require_safe_obs_root(outside_parent, repo)
+            raise AssertionError("expected reject for outside nonexistent parent")
+        except CorpusError as err:
+            if err.code != "PF-CORPUS-PATH":
+                raise AssertionError(f"outside parent wrong code {err.code}") from err
+        if outside_parent.parent.exists():
+            raise AssertionError(
+                "require_safe_obs_root must not create outside parent directories"
+            )
         for bad in [
             Path("/"),
             repo,
@@ -2766,7 +2825,38 @@ def _run_tool_lock_and_obs_root_tests() -> None:
                         f"symlink escape wrong code {err.code}"
                     ) from err
         except OSError:
-            # Some hosts disallow symlink to /; skip that subcase.
+            pass
+        # build itself as symlink (temp fixture; never touch real repo build)
+        repo2 = Path(tmp) / "repo2"
+        repo2.mkdir()
+        (repo2 / "real-build").mkdir()
+        try:
+            (repo2 / "build").symlink_to(repo2 / "real-build")
+            try:
+                require_safe_obs_root(Path("build/v2/x"), repo2)
+                raise AssertionError("build symlink must fail")
+            except CorpusError as err:
+                if err.code != "PF-CORPUS-PATH":
+                    raise AssertionError(
+                        f"build symlink wrong code {err.code}"
+                    ) from err
+        except OSError:
+            pass
+        # In-build symlink component rejected even if target stays in build.
+        inner = repo / "build" / "real-sub"
+        inner.mkdir()
+        link = repo / "build" / "link-sub"
+        try:
+            link.symlink_to(inner)
+            try:
+                require_safe_obs_root(link / "leaf", repo)
+                raise AssertionError("in-build symlink component must fail")
+            except CorpusError as err:
+                if err.code != "PF-CORPUS-PATH":
+                    raise AssertionError(
+                        f"in-build symlink wrong code {err.code}"
+                    ) from err
+        except OSError:
             pass
         if sentinel.read_text(encoding="utf-8") != "keep":
             raise AssertionError("obs-root checks must not delete sentinel")
@@ -2805,8 +2895,12 @@ def _cmd_close_case(case_path: Path, obs_dir: Path) -> None:
 
 
 def _cmd_safe_obs_root(repo: Path, obs: Path) -> None:
-    resolved = require_safe_obs_root(obs, repo)
-    print(f"corpus-obs-root-ok {resolved}")
+    # Sole stdout line: resolved path (spaces-safe; no banner prefix).
+    print(require_safe_obs_root(obs, repo))
+
+
+def _cmd_tool_lock_digest(lock_path: Path) -> None:
+    print(darwin_tool_lock_v4_digest(lock_path))
 
 
 def _cmd_list_runnable(cases_dir: Path) -> None:
@@ -2834,6 +2928,9 @@ def main(argv: list[str] | None = None) -> None:
     if len(args) == 3 and args[0] == "safe-obs-root":
         _cmd_safe_obs_root(Path(args[1]), Path(args[2]))
         return
+    if len(args) == 2 and args[0] == "tool-lock-digest":
+        _cmd_tool_lock_digest(Path(args[1]))
+        return
     if len(args) == 2 and args[0] == "list-runnable-cases":
         _cmd_list_runnable(Path(args[1]))
         return
@@ -2843,6 +2940,7 @@ def main(argv: list[str] | None = None) -> None:
         " | validate-observation PATH"
         " | close-case CASE.json OBS_DIR"
         " | safe-obs-root REPO OBS"
+        " | tool-lock-digest LOCK.json"
         " | list-runnable-cases CASES_DIR",
         file=sys.stderr,
     )

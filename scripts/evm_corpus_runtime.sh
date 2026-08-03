@@ -24,6 +24,13 @@ phase="${PF_EVM_CORPUS_PHASE:-full}" # full | validate-only
 
 die() { echo "evm-corpus-runtime: $*" >&2; exit 1; }
 
+case "$phase" in
+  full|validate-only) ;;
+  *)
+    die "unknown PF_EVM_CORPUS_PHASE='$phase' (only full|validate-only)"
+    ;;
+esac
+
 echo "evm-corpus-runtime: phase=$phase profile=$PF_EVM_PROFILE" >&2
 
 [[ -f "$validator" ]] || die "missing $validator"
@@ -77,13 +84,8 @@ case "$(uname -s)" in
 esac
 
 [[ -f "$lock_file" ]] || die "missing $lock_file"
-expected_digest="$(/usr/bin/python3 -I -S -c "
-import importlib.util
-from pathlib import Path
-spec=importlib.util.spec_from_file_location('m', Path(r'''$validator'''))
-m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-print(m.darwin_tool_lock_v4_digest(Path(r'''$lock_file''')))
-")"
+expected_digest="$(/usr/bin/python3 -I -S "$validator" tool-lock-digest "$lock_file")" \
+  || die "tool-lock-digest failed for $lock_file"
 [[ "$expected_digest" == "63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf" ]] || \
   die "host ToolLockV4Digest $expected_digest != Darwin KAT"
 [[ "$PF_EVM_PROFILE" == "evm-yul-solc-0.8.34-cancun-v1" ]] || \
@@ -119,8 +121,10 @@ echo "evm-corpus-runtime: PROOF_FORGE_CLI=$PROOF_FORGE_CLI" >&2
 # ---------------------------------------------------------------------------
 # 5) Safe OBS root (must be under build/; never rm -rf arbitrary paths)
 # ---------------------------------------------------------------------------
-obs_root="$(/usr/bin/python3 -I -S "$validator" safe-obs-root "$root" "$obs_requested" | awk '{print $2}')"
-[[ -n "$obs_root" ]] || die "safe-obs-root failed for $obs_requested"
+# Sole stdout line is the resolved path (spaces-safe; no awk field split).
+obs_root="$(/usr/bin/python3 -I -S "$validator" safe-obs-root "$root" "$obs_requested")" \
+  || die "safe-obs-root failed for $obs_requested"
+[[ -n "$obs_root" ]] || die "safe-obs-root returned empty path for $obs_requested"
 # Destroy only the validated path.
 rm -rf "$obs_root"
 mkdir -p "$obs_root"

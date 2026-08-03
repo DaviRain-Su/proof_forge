@@ -190,9 +190,10 @@ export PROOF_FORGE_CLI="$cli"
 run_cli() {
   # Prefer lake env so Lean runtime dylibs resolve; fall back to bare binary.
   # When PF_LAKE_ROOT is set (worktree without oleans), use that package root.
+  # Fixed single-quoted script + positional args — no path/command interpolation.
   local lake_root="${PF_LAKE_ROOT:-$root}"
   if command -v lake >/dev/null 2>&1; then
-    (cd "$lake_root" && lake env bash -c "cd '$root' && exec \"\$@\"" _ "$cli" "$@")
+    (cd "$lake_root" && lake env bash -c 'cd "$1"; shift; exec "$@"' _ "$root" "$cli" "$@")
   else
     (cd "$root" && "$cli" "$@")
   fi
