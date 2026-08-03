@@ -7,7 +7,8 @@
   (Plan/IR/WAT shape), pure Lean base64 encode matrix (empty / 1 / 2 / 3+
   bytes + typical JSON), B-RET-ABI named Struct/Enum entry/view returns
   (PairRet/MaybeRet Plan/IR/WAT/ABI pins + param/>8/pureFn FC), sync call still
-  fail closed, and other FC boundaries (multi-width, invariants).
+  fail closed, multi-width UInt8/16/32 pins (body guards / param range /
+  8-byte narrow state slots), and other FC boundaries (UInt128, invariants).
 
   Schedule positive coverage uses product capability resolve (async admitted)
   plus engineering Plan/IR entry points. Not wasmd chain (A2). Not formal D4.
@@ -398,27 +399,164 @@ private unsafe def testScheduleSubMsg
       throw <| IO.userError "schedule uppercase: expected planInvariant fail-closed"
   IO.println "  ✓ schedule SubMsg Binary (base64) reply_on=never Plan/IR/WAT"
 
+/-- Collect Plan body evidence for narrow UInt8 Counter (no nested mut walk). -/
+private def collectNarrowUInt8BodyFlags (body : Array Statement) :
+    Bool × Bool × Bool × Bool := Id.run do
+  let mut sawNarrowAdd := false
+  let mut sawNarrowLoad := false
+  let mut sawFullAdd := false
+  let mut storeBw1 := false
+  for stmt in body do
+    match stmt with
+    | .store store =>
+        if store.byteWidth == 1 then storeBw1 := true
+        match store.value with
+        | .narrowCheckedAdd 8
+            (.narrowStateLoad 8 _)
+            (.narrowParam 8 _) =>
+            sawNarrowAdd := true
+            sawNarrowLoad := true
+        | .narrowCheckedAdd 8 l r =>
+            sawNarrowAdd := true
+            match l with | .narrowStateLoad 8 _ => sawNarrowLoad := true | _ => pure ()
+            match r with | .narrowParam 8 _ => pure () | _ => pure ()
+        | .checkedAdd _ _ => sawFullAdd := true
+        | .narrowStateLoad 8 _ => sawNarrowLoad := true
+        | .narrowParam 8 _ => pure ()
+        | _ => pure ()
+    | .returnValue (.narrowStateLoad 8 _) => sawNarrowLoad := true
+    | .returnValue (.narrowCheckedAdd 8 _ _) => sawNarrowAdd := true
+    | .returnValue (.checkedAdd _ _) => sawFullAdd := true
+    | _ => pure ()
+  pure (sawNarrowAdd, sawNarrowLoad, sawFullAdd, storeBw1)
+
+/-- BL-15: UInt8 Counter plan/IR/WAT pins — narrow body high-bit guards,
+    JSON param range-check (exact width, no silent truncation), and
+    8-byte physical state slots with high-bytes-zero load guard. -/
+private unsafe def testMultiWidthUInt8
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "NarrowCounter" <|
+    "  state count : UInt8\n\n" ++
+    "  init(initial : UInt8) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry increment(delta : UInt8) : UInt8 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt8 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session src
+    "Examples.NarrowCounter" "<cw-u8-narrow>"
+  let plan ← liftResult <| planCw compiled
+  expect (plan.storage.fields.size == 1) "NarrowCounter one state field"
+  expect (plan.storage.fields[0]!.byteWidth == 1)
+    s!"NarrowCounter state semantic byteWidth=1, got {plan.storage.fields[0]!.byteWidth}"
+  expect (plan.initializer.params.size == 1) "init one param"
+  expect (plan.initializer.params[0]!.byteWidth == 1)
+    "init param semantic byteWidth=1"
+  let some inc := plan.entries.find? (·.name == "increment") |
+    throw <| IO.userError "NarrowCounter missing increment"
+  expect (inc.resultKind == .uint8) "increment returns UInt8"
+  expect (inc.params.size == 1 && inc.params[0]!.byteWidth == 1)
+    "increment param byteWidth=1"
+  let (sawNarrowAdd, sawNarrowLoad, sawFullAdd, storeBw1) :=
+    collectNarrowUInt8BodyFlags inc.body
+  expect storeBw1 "store semantic byteWidth=1"
+  expect sawNarrowAdd "increment body must lower UInt8 + to narrowCheckedAdd 8"
+  expect sawNarrowLoad "increment body must load count via narrowStateLoad 8"
+  expect (!sawFullAdd) "UInt8 add must not use full-width checkedAdd"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "NarrowCounter.wat"
+  -- Body high-bit guard after narrow add: shr_u by 8 then trap if nonzero.
+  expect (wat.contains "(i64.const 8)")
+    "NarrowCounter WAT must emit bitWidth=8 high-bit guards"
+  expect (wat.contains "i64.shr_u")
+    "NarrowCounter WAT must use shr_u for high-bit / range guards"
+  -- Param range-check after JSON parse (init initial : UInt8).
+  expect (wat.contains "pf_parse_u64_field") "JSON parse still used"
+  -- Physical store remains 8-byte Region helper (not variable-length KV).
+  expect (wat.contains "$pf_db_store_u64") "physical 8-byte Region store"
+  expect (wat.contains "$pf_db_load_u64") "physical 8-byte Region load"
+  let abi ← findFile files "NarrowCounter.cosmwasm-abi.json"
+  expect (abi.contains "\"type\":\"u8\"")
+    s!"ABI must declare u8 for narrow fields/params, got: {abi}"
+  expect (abi.contains "\"returns\":\"u8\"")
+    s!"ABI returns must be u8, got: {abi}"
+  IO.println "  ✓ multi-width UInt8 Plan/IR/WAT/ABI pins (body guards + range + 8B slot)"
+
+/-- BL-15: UInt16/UInt32 also admit with matching Plan widths. -/
+private unsafe def testMultiWidthUInt16UInt32
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  for (w, bw, kindLabel) in #[(16, 2, "UInt16"), (32, 4, "UInt32")] do
+    let name := s!"Narrow{kindLabel}"
+    let src := wrapProgram name <|
+      s!"  state s : {kindLabel}\n\n" ++
+      s!"  init(x : {kindLabel}) do\n" ++
+      "    s := x\n\n" ++
+      s!"  entry bump(d : {kindLabel}) : {kindLabel} do\n" ++
+      "    s := s + d\n" ++
+      "    return s\n\n" ++
+      s!"  view get() : {kindLabel} do\n" ++
+      "    return s\n"
+    let compiled ← compileSource session src s!"Examples.{name}" s!"<cw-{kindLabel}>"
+    let plan ← liftResult <| planCw compiled
+    expect (plan.storage.fields[0]!.byteWidth == bw)
+      s!"{kindLabel} state byteWidth={bw}"
+    expect (plan.initializer.params[0]!.byteWidth == bw)
+      s!"{kindLabel} param byteWidth={bw}"
+    let some bump := plan.entries.find? (·.name == "bump") |
+      throw <| IO.userError s!"{name} missing bump"
+    let expectedKind :=
+      if w == 16 then MethodResultKind.uint16 else MethodResultKind.uint32
+    expect (bump.resultKind == expectedKind)
+      s!"{kindLabel} result kind"
+    let files ← liftResult <| filesCw compiled
+    let wat ← findFile files s!"{name}.wat"
+    expect (wat.contains s!"(i64.const {w})")
+      s!"{kindLabel} WAT high-bit guard bitWidth={w}"
+  IO.println "  ✓ multi-width UInt16/UInt32 Plan/WAT pins"
+
+/-- BL-15 FC: UInt128 / Int8 stay fail closed on CosmWasm. -/
 private unsafe def testMultiWidthFc
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let src := wrapProgram "Narrow" <|
-    "  state s : UInt8\n\n" ++
-    "  init(x : UInt8) do\n" ++
+  let u128 := wrapProgram "Wide128" <|
+    "  state s : UInt128\n\n" ++
+    "  init(x : UInt128) do\n" ++
     "    s := x\n\n" ++
-    "  entry bump(d : UInt8) : UInt8 do\n" ++
+    "  entry bump(d : UInt128) : UInt128 do\n" ++
     "    s := s + d\n" ++
     "    return s\n\n" ++
-    "  view get() : UInt8 do\n" ++
+    "  view get() : UInt128 do\n" ++
     "    return s\n"
-  let validated ← liftResult (← session.selectProgramV1 src
-    "<cw-u8-fc>" "Examples.Narrow" none)
-  match Compiler.compileValidatedSourceV1 validated with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match cosmwasmCapability compiled with
+  match ← session.selectProgramV1 u128 "<cw-u128-fc>" "Examples.Wide128" none with
+  | .error _ => pure ()  -- may fail at compile/normalize
+  | .ok validated =>
+      match Compiler.compileValidatedSourceV1 validated with
       | .error _ => pure ()
-      | .ok capability =>
-          expectPlanError "UInt8 state" (planFromCapability capability)
-  IO.println "  ✓ multi-width UInt8 fail closed"
+      | .ok compiled =>
+          match cosmwasmCapability compiled with
+          | .error _ => pure ()
+          | .ok capability =>
+              expectPlanError "UInt128 state" (planFromCapability capability)
+  let i8src := wrapProgram "NarrowI8" <|
+    "  state s : Int8\n\n" ++
+    "  init(x : Int8) do\n" ++
+    "    s := x\n\n" ++
+    "  entry bump(d : Int8) : Int8 do\n" ++
+    "    s := s + d\n" ++
+    "    return s\n\n" ++
+    "  view get() : Int8 do\n" ++
+    "    return s\n"
+  match ← session.selectProgramV1 i8src "<cw-i8-fc>" "Examples.NarrowI8" none with
+  | .error _ => pure ()
+  | .ok validated =>
+      match Compiler.compileValidatedSourceV1 validated with
+      | .error _ => pure ()
+      | .ok compiled =>
+          match cosmwasmCapability compiled with
+          | .error _ => pure ()
+          | .ok capability =>
+              expectPlanError "Int8 state" (planFromCapability capability)
+  IO.println "  ✓ multi-width UInt128/Int8 fail closed"
 
 /-- B-RET-ABI: named Struct view return flattens to 2×UInt64 leaves via
 `returnAggregate` / `setReturnDataMulti` / JSON decimal array wire. -/
@@ -698,6 +836,8 @@ unsafe def run : IO Unit := do
   testCallStillFailClosed session
   testBase64HelperMatrix
   testScheduleSubMsg session
+  testMultiWidthUInt8 session
+  testMultiWidthUInt16UInt32 session
   testMultiWidthFc session
   testNamedStructReturn session
   testNamedEnumReturn session
