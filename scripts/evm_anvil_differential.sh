@@ -44,19 +44,78 @@ anvil_path="$foundry_bin/anvil"
 cast_path="$foundry_bin/cast"
 evm_profile="${PF_EVM_PROFILE:-}"
 build_profile_args=()
+# Profile-keyed output trees (must match smoke_evm.sh artifact_dir):
+#   legacy/default → build/v2/evm, … (no suffix; historical paths)
+#   cancun         → build/v2/evm-cancun, …
+artifact_suffix=""
+expected_profile_wire="evm-yul-solc-0.8.34-v1"
 case "$evm_profile" in
   "")
-    : # default product profile (legacy evm-yul-solc-0.8.34-v1)
+    : # default product profile (legacy); keep historical output dirs
     ;;
-  "evm-yul-solc-0.8.34-v1"|"evm-yul-solc-0.8.34-cancun-v1")
+  "evm-yul-solc-0.8.34-v1")
     build_profile_args+=(--profile "$evm_profile")
+    expected_profile_wire="evm-yul-solc-0.8.34-v1"
     echo "evm-anvil-differential: explicit profile=$evm_profile" >&2
+    ;;
+  "evm-yul-solc-0.8.34-cancun-v1")
+    build_profile_args+=(--profile "$evm_profile")
+    artifact_suffix="-cancun"
+    expected_profile_wire="evm-yul-solc-0.8.34-cancun-v1"
+    echo "evm-anvil-differential: explicit profile=$evm_profile (artifact suffix=$artifact_suffix)" >&2
     ;;
   *)
     echo "evm-anvil-differential: unsupported PF_EVM_PROFILE='$evm_profile'" >&2
     exit 1
     ;;
 esac
+
+# Logical base dir name → product -o path (relative to repo root).
+profile_out_dir() {
+  echo "build/v2/${1}${artifact_suffix}"
+}
+
+# Refuse to reuse bins that do not match the requested profile/hardfork pin.
+# Cancun: require evidence note + manifest profile identity.
+# Legacy: refuse trees whose evidence claims cancun (would mix hardforks).
+validate_profile_tree() {
+  local out_dir="$1"
+  local bin_name="$2"
+  local bin_path="$root/$out_dir/$bin_name"
+  local evidence="$root/$out_dir/evidence.json"
+  local manifest="$root/$out_dir/manifest.json"
+  [[ -f "$bin_path" ]] || return 1
+  if [[ "$expected_profile_wire" == "evm-yul-solc-0.8.34-cancun-v1" ]]; then
+    [[ -f "$evidence" ]] || {
+      echo "evm-anvil-differential: refuse reuse $out_dir: missing evidence.json" >&2
+      return 1
+    }
+    grep -q 'evm-version=cancun' "$evidence" || {
+      echo "evm-anvil-differential: refuse reuse $out_dir: evidence missing evm-version=cancun" >&2
+      return 1
+    }
+    [[ -f "$manifest" ]] || {
+      echo "evm-anvil-differential: refuse reuse $out_dir: missing manifest.json" >&2
+      return 1
+    }
+    grep -q "\"codegenProfile\": \"$expected_profile_wire\"" "$manifest" ||
+      grep -q "\"codegenProfile\":\"$expected_profile_wire\"" "$manifest" || {
+        echo "evm-anvil-differential: refuse reuse $out_dir: manifest codegenProfile != $expected_profile_wire" >&2
+        return 1
+      }
+  else
+    # Legacy/default: never reuse a Cancun-finalized tree under a legacy path.
+    if [[ -f "$evidence" ]] && grep -q 'evm-version=cancun' "$evidence"; then
+      echo "evm-anvil-differential: refuse reuse $out_dir: cancun evidence under legacy path" >&2
+      return 1
+    fi
+    if [[ -f "$manifest" ]] && grep -q 'evm-yul-solc-0.8.34-cancun-v1' "$manifest"; then
+      echo "evm-anvil-differential: refuse reuse $out_dir: cancun profile under legacy path" >&2
+      return 1
+    fi
+  fi
+  return 0
+}
 
 if [[ ! -x "$anvil_path" ]]; then
   if command -v anvil >/dev/null 2>&1; then
@@ -135,40 +194,45 @@ run_cli() {
 ensure_build() {
   local src="$1"
   local module="$2"
-  local out_dir="$3"
+  local logical_dir="$3" # e.g. evm, evm-accumulator (suffix applied here)
   local bin_name="$4"
+  local out_dir
+  out_dir="$(profile_out_dir "$logical_dir")"
   local bin_path="$root/$out_dir/$bin_name"
-  if [[ -f "$bin_path" ]]; then
-    echo "evm-anvil-differential: reuse $bin_path" >&2
+  if validate_profile_tree "$out_dir" "$bin_name"; then
+    echo "evm-anvil-differential: reuse $bin_path (profile=$expected_profile_wire)" >&2
     return 0
   fi
-  echo "evm-anvil-differential: product build $module → $out_dir${evm_profile:+ (profile=$evm_profile)}" >&2
+  if [[ -f "$bin_path" ]]; then
+    echo "evm-anvil-differential: rebuild $out_dir (existing tree failed profile validation)" >&2
+  fi
+  echo "evm-anvil-differential: product build $module → $out_dir (profile=$expected_profile_wire)" >&2
   # Product CLI refuses non-empty existing -o dirs (PF-OUTPUT-COLLISION).
   rm -rf "$root/$out_dir"
   mkdir -p "$(dirname "$root/$out_dir")"
-  run_cli build "$src" --module "$module" --target evm "${build_profile_args[@]}" -o "$out_dir"
+  # set -u: empty array expansion is unbound on some bashes; only expand when set.
+  if [[ ${#build_profile_args[@]} -gt 0 ]]; then
+    run_cli build "$src" --module "$module" --target evm "${build_profile_args[@]}" -o "$out_dir"
+  else
+    run_cli build "$src" --module "$module" --target evm -o "$out_dir"
+  fi
   [[ -f "$bin_path" ]] || {
     echo "evm-anvil-differential: product build missing $bin_path" >&2
     return 1
   }
-  if [[ "$evm_profile" == "evm-yul-solc-0.8.34-cancun-v1" ]]; then
-    # Observability: Cancun finalize must record the hardfork pin in evidence.
-    if [[ -f "$root/$out_dir/evidence.json" ]]; then
-      if ! grep -q 'evm-version=cancun' "$root/$out_dir/evidence.json"; then
-        echo "evm-anvil-differential: cancun profile evidence missing evm-version=cancun" >&2
-        return 1
-      fi
-    fi
-  fi
+  validate_profile_tree "$out_dir" "$bin_name" || {
+    echo "evm-anvil-differential: post-build profile validation failed for $out_dir" >&2
+    return 1
+  }
 }
 
-# Required programs for the differential matrix.
-ensure_build Examples/Counter.lean Examples.Counter build/v2/evm Counter.bin
-ensure_build Examples/Accumulator.lean Examples.Accumulator build/v2/evm-accumulator Accumulator.bin
+# Required programs for the differential matrix (profile-keyed dirs).
+ensure_build Examples/Counter.lean Examples.Counter evm Counter.bin
+ensure_build Examples/Accumulator.lean Examples.Accumulator evm-accumulator Accumulator.bin
 
 # Optional but expected when testdata is present (target-smoke parity).
 if [[ -f "$root/testdata/valid/ArithOps.lean" ]]; then
-  ensure_build testdata/valid/ArithOps.lean ArithOps build/v2/evm-arithops ArithOps.bin \
+  ensure_build testdata/valid/ArithOps.lean ArithOps evm-arithops ArithOps.bin \
     || {
       echo "evm-anvil-differential: ArithOps build failed (hard)" >&2
       exit 1
@@ -179,6 +243,7 @@ fi
 # Product surface only — module EventFlow, single public-UInt64 event + error.
 eventflow_src_dir="$root/build/v2/_eventflow_src"
 eventflow_src="$eventflow_src_dir/EventFlow.lean"
+eventflow_out="$(profile_out_dir evm-eventflow)"
 mkdir -p "$eventflow_src_dir"
 cat >"$eventflow_src" <<'LEAN'
 import ProofForgeV2
@@ -208,33 +273,47 @@ program EventFlow where
     return count
 LEAN
 
-# Source path must be project-relative under repo root.
-if [[ ! -f "$root/build/v2/evm-eventflow/EventFlow.bin" ]]; then
-  echo "evm-anvil-differential: product build EventFlow → build/v2/evm-eventflow${evm_profile:+ (profile=$evm_profile)}" >&2
-  rm -rf "$root/build/v2/evm-eventflow"
-  run_cli build build/v2/_eventflow_src/EventFlow.lean --module EventFlow --target evm \
-    "${build_profile_args[@]}" -o build/v2/evm-eventflow || {
-    echo "evm-anvil-differential: EventFlow build failed (hard — emit coverage required when tools present)" >&2
-    exit 1
-  }
-  [[ -f "$root/build/v2/evm-eventflow/EventFlow.bin" ]] || {
+# Source path must be project-relative under repo root. Reuse only when bin +
+# evidence/manifest match the active profile (Cancun requires both markers).
+if validate_profile_tree "$eventflow_out" "EventFlow.bin"; then
+  echo "evm-anvil-differential: reuse $eventflow_out/EventFlow.bin (profile=$expected_profile_wire)" >&2
+else
+  echo "evm-anvil-differential: product build EventFlow → $eventflow_out (profile=$expected_profile_wire)" >&2
+  rm -rf "$root/$eventflow_out"
+  if [[ ${#build_profile_args[@]} -gt 0 ]]; then
+    run_cli build build/v2/_eventflow_src/EventFlow.lean --module EventFlow --target evm \
+      "${build_profile_args[@]}" -o "$eventflow_out" || {
+      echo "evm-anvil-differential: EventFlow build failed (hard — emit coverage required when tools present)" >&2
+      exit 1
+    }
+  else
+    run_cli build build/v2/_eventflow_src/EventFlow.lean --module EventFlow --target evm \
+      -o "$eventflow_out" || {
+      echo "evm-anvil-differential: EventFlow build failed (hard — emit coverage required when tools present)" >&2
+      exit 1
+    }
+  fi
+  [[ -f "$root/$eventflow_out/EventFlow.bin" ]] || {
     echo "evm-anvil-differential: missing EventFlow.bin after build" >&2
     exit 1
   }
-else
-  echo "evm-anvil-differential: reuse build/v2/evm-eventflow/EventFlow.bin" >&2
+  validate_profile_tree "$eventflow_out" "EventFlow.bin" || {
+    echo "evm-anvil-differential: EventFlow post-build profile validation failed" >&2
+    exit 1
+  }
 fi
 
-echo "evm-anvil-differential: running scripts/smoke_evm.sh via FOUNDRY_BIN=$FOUNDRY_BIN${evm_profile:+ profile=$evm_profile}" >&2
+echo "evm-anvil-differential: running scripts/smoke_evm.sh via FOUNDRY_BIN=$FOUNDRY_BIN profile=$expected_profile_wire" >&2
 echo "evm-anvil-differential: engineering runtime only; not formal Reference↔Anvil closure" >&2
-# Propagate profile so smoke_evm pins anvil --hardfork cancun when requested.
+# Propagate profile so smoke_evm pins hardfork + profile-keyed artifact dirs.
 export PF_EVM_PROFILE="$evm_profile"
 bash "$root/scripts/smoke_evm.sh"
 
 # Token: best-effort companion (Map pilot may exceed initcode limits → skip-clean).
+# Must inherit the same PF_EVM_PROFILE (no silent default-profile mix).
 if [[ -x "$root/scripts/evm_token_anvil_smoke.sh" ]]; then
-  echo "evm-anvil-differential: companion Token smoke (skip-clean on initcode/deploy limits)" >&2
-  bash "$root/scripts/evm_token_anvil_smoke.sh" || {
+  echo "evm-anvil-differential: companion Token smoke (skip-clean on initcode/deploy limits; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_token_anvil_smoke.sh" || {
     # Token script exits 0 on skip and 1 on real assertion failure.
     echo "evm-anvil-differential: Token smoke failed (hard)" >&2
     exit 1

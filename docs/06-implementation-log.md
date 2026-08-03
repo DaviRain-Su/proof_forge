@@ -13645,3 +13645,13 @@ normative: false
 - Tests: `Tests.Targets.EvmCancunV1` + registry/support/count/golden updates.
 - Non-claims: not OZ compatibility, not formal D4, not release/hermetic evidence;
   no tool binary upgrade; no silent rewrite of legacy default profile.
+
+## 2026-08-03 — EVMOZ-001 review follow-up (profile reuse + fail-closed Finalize)
+
+- `FinalizeV1.solcArgsForProfile` / `evidenceHardforkNote`: explicit legacy|cancun
+  branches only; foreign profile → `Except` error (capability defense in depth).
+- Runtime: profile-keyed artifact trees (`*-cancun` suffix); reuse only after
+  evidence + manifest profile validation; legacy refuses cancun trees.
+- EventFlow and Token companion inherit the same `PF_EVM_PROFILE` / hardfork pin
+  (Token still skip-cleans on pre-existing Map StackTooDeep).
+- Empty-array `set -u` bash 3.2 safe expansions for optional profile/hardfork args.

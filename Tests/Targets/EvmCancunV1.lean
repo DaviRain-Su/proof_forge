@@ -108,19 +108,36 @@ private def testSupportAndDescriptor : IO Unit := do
 
 /-- Pure Finalize argv + evidence note are profile-gated (no tool invocation). -/
 private def testFinalizeArgsAndNote : IO Unit := do
-  let legacyArgs := FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834V1 "Counter.yul"
-  expect (legacyArgs == #["--strict-assembly", "--bin", "Counter.yul"])
-    "legacy solc args keep historical wire (no ambient --evm-version)"
-  let cancunArgs :=
-    FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834CancunV1 "Counter.yul"
-  expect (cancunArgs ==
-      #["--strict-assembly", "--evm-version", "cancun", "--bin", "Counter.yul"])
-    "cancun solc args pin --evm-version cancun"
-  expect (FinalizeV1.evidenceHardforkNote CodegenProfileId.evmYulSolc0834V1 == "")
-    "legacy evidence note has no hardfork fragment"
-  expect (FinalizeV1.evidenceHardforkNote CodegenProfileId.evmYulSolc0834CancunV1 ==
-      " evm-version=cancun")
-    "cancun evidence note observes hardfork pin"
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834V1 "Counter.yul" with
+  | .ok legacyArgs =>
+      expect (legacyArgs == #["--strict-assembly", "--bin", "Counter.yul"])
+        "legacy solc args keep historical wire (no ambient --evm-version)"
+  | .error e => throw <| IO.userError s!"legacy solcArgs must succeed: {e}"
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834CancunV1 "Counter.yul" with
+  | .ok cancunArgs =>
+      expect (cancunArgs ==
+          #["--strict-assembly", "--evm-version", "cancun", "--bin", "Counter.yul"])
+        "cancun solc args pin --evm-version cancun"
+  | .error e => throw <| IO.userError s!"cancun solcArgs must succeed: {e}"
+  -- Unknown profile fail closed (open-else would silently treat as legacy).
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.solanaSbpfPlanV1 "Counter.yul" with
+  | .ok _ => throw <| IO.userError "foreign profile solcArgs must fail closed"
+  | .error e =>
+      expect (e.contains "unsupported EVM finalize profile")
+        s!"foreign solcArgs error must name unsupported profile, got: {e}"
+  match FinalizeV1.evidenceHardforkNote CodegenProfileId.evmYulSolc0834V1 with
+  | .ok note => expect (note == "") "legacy evidence note has no hardfork fragment"
+  | .error e => throw <| IO.userError s!"legacy hardfork note must succeed: {e}"
+  match FinalizeV1.evidenceHardforkNote CodegenProfileId.evmYulSolc0834CancunV1 with
+  | .ok note =>
+      expect (note == " evm-version=cancun")
+        "cancun evidence note observes hardfork pin"
+  | .error e => throw <| IO.userError s!"cancun hardfork note must succeed: {e}"
+  match FinalizeV1.evidenceHardforkNote CodegenProfileId.nearWasmRawU64V1 with
+  | .ok _ => throw <| IO.userError "foreign profile hardfork note must fail closed"
+  | .error e =>
+      expect (e.contains "unsupported EVM finalize profile")
+        s!"foreign hardfork note error must name unsupported profile, got: {e}"
 
 /-- Capability mint + materialize succeed for both profiles on Counter. -/
 private unsafe def testCapabilityMint : IO Unit := do

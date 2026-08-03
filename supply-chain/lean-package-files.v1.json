@@ -651,9 +651,9 @@
       "sha256": "e6e41521f684848c4b3c048611c3c0efee2c33f298607505b814e5b7b7bb2686"
     },
     {
-      "bytes": 3381,
+      "bytes": 4049,
       "path": "ProofForgeV2/Targets/Evm/FinalizeV1.lean",
-      "sha256": "79e2489baf89f82885a1ad45454b409babd158394e6b247245abce70b351ed40"
+      "sha256": "58dd0511805c23822277f94f4c017b2214d6f1d851a1b9c2303eea11cadbba6f"
     },
     {
       "bytes": 5004,

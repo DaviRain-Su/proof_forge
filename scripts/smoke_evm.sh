@@ -44,22 +44,32 @@ rpc="http://127.0.0.1:$port"
 private_key="${PF_EVM_PRIVATE_KEY:-ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 log="$root/build/v2/anvil.log"
 UINT64_MAX="18446744073709551615"
-# Optional product profile → runtime hardfork pin. Empty = legacy anvil args.
+# Optional product profile → runtime hardfork pin + profile-keyed artifact trees.
+# Empty / legacy: build/v2/evm, build/v2/evm-accumulator, … (historical paths).
+# Cancun: build/v2/evm-cancun, build/v2/evm-accumulator-cancun, …
+# Must match scripts/evm_anvil_differential.sh so Cancun never reuses legacy bins.
 evm_profile="${PF_EVM_PROFILE:-}"
 anvil_extra_args=()
+artifact_suffix=""
 case "$evm_profile" in
   ""|"evm-yul-solc-0.8.34-v1")
-    : # legacy default: do not pass ambient --hardfork
+    : # legacy default: do not pass ambient --hardfork; no path suffix
     ;;
   "evm-yul-solc-0.8.34-cancun-v1")
     anvil_extra_args+=(--hardfork cancun)
-    echo "evm-smoke: profile=$evm_profile → anvil --hardfork cancun" >&2
+    artifact_suffix="-cancun"
+    echo "evm-smoke: profile=$evm_profile → anvil --hardfork cancun; artifacts *${artifact_suffix}" >&2
     ;;
   *)
     echo "evm-smoke: unsupported PF_EVM_PROFILE='$evm_profile' (expected empty, evm-yul-solc-0.8.34-v1, or evm-yul-solc-0.8.34-cancun-v1)" >&2
     exit 2
     ;;
 esac
+
+# Logical program dir name → absolute tree: build/v2/<name>${artifact_suffix}
+artifact_dir() {
+  echo "$root/build/v2/${1}${artifact_suffix}"
+}
 
 die() {
   echo "evm-smoke: $*" >&2
@@ -173,7 +183,14 @@ mkdir -p "$root/build/v2"
 if "$cast" chain-id --rpc-url "$rpc" >/dev/null 2>&1; then
   die "RPC endpoint $rpc is already occupied"
 fi
-"$anvil" --host 127.0.0.1 --port "$port" --chain-id "$chain_id" "${anvil_extra_args[@]}" --silent >"$log" 2>&1 &
+# set -u + empty array: expand only when non-empty (bash 3.2/macOS).
+if ((${#anvil_extra_args[@]})); then
+  "$anvil" --host 127.0.0.1 --port "$port" --chain-id "$chain_id" \
+    "${anvil_extra_args[@]}" --silent >"$log" 2>&1 &
+else
+  "$anvil" --host 127.0.0.1 --port "$port" --chain-id "$chain_id" \
+    --silent >"$log" 2>&1 &
+fi
 anvil_pid=$!
 cleanup() {
   kill "$anvil_pid" 2>/dev/null || true
@@ -222,7 +239,7 @@ deploy() {
     evm-eventflow) artifact=EventFlow ;;
     *) echo "evm-smoke: unknown program artifact '$program'" >&2; return 2 ;;
   esac
-  local bin_path="$root/build/v2/$program/$artifact.bin"
+  local bin_path="$(artifact_dir "$program")/$artifact.bin"
   [[ -f "$bin_path" ]] || die "missing artifact $bin_path"
   bytecode="$(tr -d '\n\r ' < "$bin_path")"
   # All current fixtures take a single uint64 constructor arg.
@@ -234,8 +251,8 @@ deploy() {
 # ---------------------------------------------------------------------------
 # Counter — view + storage dual-read, increment, overflow state hold
 # ---------------------------------------------------------------------------
-[[ -f "$root/build/v2/evm/Counter.bin" ]] \
-  || die "missing Counter artifact (required by differential matrix)"
+[[ -f "$(artifact_dir evm)/Counter.bin" ]] \
+  || die "missing Counter artifact (required by differential matrix) at $(artifact_dir evm)/Counter.bin"
 
 counter="$(deploy evm 7)"
 before="$($cast call --rpc-url "$rpc" "$counter" 'get()(uint64)')"
@@ -257,7 +274,7 @@ require_storage_uint "$counter" 0 "12" "Counter increment state mismatch (storag
 balance="$($cast balance --rpc-url "$rpc" "$counter")"
 require_equal "$balance" "0" "Counter accepted native value"
 
-bytecode="$(tr -d '\n\r ' < "$root/build/v2/evm/Counter.bin")"
+bytecode="$(tr -d '\n\r ' < "$(artifact_dir evm)/Counter.bin")"
 encoded="$($cast abi-encode 'constructor(uint64)' 7)"
 if "$cast" send --rpc-url "$rpc" --private-key "$private_key" --value 1 --create \
     "0x${bytecode}${encoded#0x}" >/dev/null 2>&1; then
@@ -274,8 +291,8 @@ require_uint_equal "$($cast call --rpc-url "$rpc" "$max_counter" 'get()(uint64)'
 # ---------------------------------------------------------------------------
 # Accumulator — same matrix as Counter (add entry)
 # ---------------------------------------------------------------------------
-[[ -f "$root/build/v2/evm-accumulator/Accumulator.bin" ]] \
-  || die "missing Accumulator artifact (required by differential matrix)"
+[[ -f "$(artifact_dir evm-accumulator)/Accumulator.bin" ]] \
+  || die "missing Accumulator artifact at $(artifact_dir evm-accumulator)/Accumulator.bin"
 
 accumulator="$(deploy evm-accumulator 7)"
 accumulator_before="$($cast call --rpc-url "$rpc" "$accumulator" 'current()(uint64)')"
@@ -299,7 +316,7 @@ require_uint_equal "$($cast call --rpc-url "$rpc" "$max_accumulator" 'current()(
 # ---------------------------------------------------------------------------
 # ArithOps (optional — present when target-smoke / differential built it)
 # ---------------------------------------------------------------------------
-if [[ -f "$root/build/v2/evm-arithops/ArithOps.bin" ]]; then
+if [[ -f "$(artifact_dir evm-arithops)/ArithOps.bin" ]]; then
   # ArithOps differential: masked bitNot (`~x = 2^64-1-x`) and checkedMul
   # overflow (scale with count = UInt64.max and factor = 2 must revert).
   arith="$(deploy evm-arithops 7)"
@@ -321,7 +338,7 @@ fi
 # ---------------------------------------------------------------------------
 # EventFlow (optional — product CLI build of emit/revert surface)
 # ---------------------------------------------------------------------------
-if [[ -f "$root/build/v2/evm-eventflow/EventFlow.bin" ]]; then
+if [[ -f "$(artifact_dir evm-eventflow)/EventFlow.bin" ]]; then
   # EventFlow: emit Moved(src,dst) as log1; Cap(limit) ABI custom-error revert.
   # Deploy with count=0 so bump(5) takes the success arm (count > delta is false).
   eventflow="$(deploy evm-eventflow 0)"
@@ -378,6 +395,6 @@ print("EventFlow: Moved(0,5) log ok")
 fi
 
 covered="Counter + Accumulator"
-[[ -f "$root/build/v2/evm-arithops/ArithOps.bin" ]] && covered+=" + ArithOps"
-[[ -f "$root/build/v2/evm-eventflow/EventFlow.bin" ]] && covered+=" + EventFlow"
+[[ -f "$(artifact_dir evm-arithops)/ArithOps.bin" ]] && covered+=" + ArithOps"
+[[ -f "$(artifact_dir evm-eventflow)/EventFlow.bin" ]] && covered+=" + EventFlow"
 echo "evm-smoke: ok ($covered; view+storage dual-read; overflow/Cap revert state hold; engineering only — not formal Reference↔Anvil)"

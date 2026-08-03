@@ -4,6 +4,11 @@
 # initcode limits — that path skip-cleans (exit 0), never fabricates pass.
 #
 # Requires Foundry anvil/cast. Builds Token.bin via product CLI when missing.
+#
+# Profile inheritance (EVMOZ-001): honors PF_EVM_PROFILE so Cancun differential
+# cannot silently mix default-profile bytecode with --hardfork cancun.
+#   empty / evm-yul-solc-0.8.34-v1 → build/v2/token-evm + historical anvil args
+#   evm-yul-solc-0.8.34-cancun-v1 → build/v2/token-evm-cancun + anvil --hardfork cancun
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 case "$(uname -s)" in
@@ -25,35 +30,105 @@ if [[ ! -x "${anvil_path:-}" || ! -x "${cast_path:-}" ]]; then
   echo "evm-token-anvil: engineering only; not formal Reference↔Anvil" >&2
   exit 0
 fi
-token_bin="${TOKEN_BIN:-$root/build/v2/token-evm/Token.bin}"
-if [[ ! -f "$token_bin" ]]; then
-  echo "evm-token-anvil: building Token EVM artifact..." >&2
-  mkdir -p "$root/build/v2/token-evm"
+
+evm_profile="${PF_EVM_PROFILE:-}"
+build_profile_args=()
+artifact_suffix=""
+anvil_extra_args=()
+expected_profile_wire="evm-yul-solc-0.8.34-v1"
+case "$evm_profile" in
+  "")
+    : # default product profile
+    ;;
+  "evm-yul-solc-0.8.34-v1")
+    build_profile_args+=(--profile "$evm_profile")
+    expected_profile_wire="evm-yul-solc-0.8.34-v1"
+    ;;
+  "evm-yul-solc-0.8.34-cancun-v1")
+    build_profile_args+=(--profile "$evm_profile")
+    artifact_suffix="-cancun"
+    anvil_extra_args+=(--hardfork cancun)
+    expected_profile_wire="evm-yul-solc-0.8.34-cancun-v1"
+    echo "evm-token-anvil: profile=$evm_profile → anvil --hardfork cancun" >&2
+    ;;
+  *)
+    echo "evm-token-anvil: skipped: unsupported PF_EVM_PROFILE='$evm_profile' (refuse silent default mix)" >&2
+    exit 0
+    ;;
+esac
+
+token_out_rel="build/v2/token-evm${artifact_suffix}"
+token_out="$root/$token_out_rel"
+# TOKEN_BIN override still allowed; default is profile-keyed.
+token_bin="${TOKEN_BIN:-$token_out/Token.bin}"
+
+token_tree_matches_profile() {
+  local bin="$1"
+  local dir
+  dir="$(dirname "$bin")"
+  local evidence="$dir/evidence.json"
+  local manifest="$dir/manifest.json"
+  [[ -f "$bin" ]] || return 1
+  if [[ "$expected_profile_wire" == "evm-yul-solc-0.8.34-cancun-v1" ]]; then
+    [[ -f "$evidence" ]] && grep -q 'evm-version=cancun' "$evidence" || return 1
+    [[ -f "$manifest" ]] || return 1
+    grep -q "\"codegenProfile\": \"$expected_profile_wire\"" "$manifest" ||
+      grep -q "\"codegenProfile\":\"$expected_profile_wire\"" "$manifest" || return 1
+  else
+    if [[ -f "$evidence" ]] && grep -q 'evm-version=cancun' "$evidence"; then
+      return 1
+    fi
+    if [[ -f "$manifest" ]] && grep -q 'evm-yul-solc-0.8.34-cancun-v1' "$manifest"; then
+      return 1
+    fi
+  fi
+  return 0
+}
+
+if ! token_tree_matches_profile "$token_bin"; then
+  echo "evm-token-anvil: building Token EVM artifact → $token_out_rel (profile=$expected_profile_wire)..." >&2
   if [[ -x "$root/.lake/build/bin/proof-forge-next" ]] && command -v lake >/dev/null 2>&1; then
     # Product CLI refuses non-empty existing -o dirs (PF-OUTPUT-COLLISION).
-    rm -rf "$root/build/v2/token-evm"
-    (cd "$root" && lake env .lake/build/bin/proof-forge-next build \
-      Examples/Token.lean --module Examples.Token --target evm -o build/v2/token-evm) || {
-      echo "evm-token-anvil: skipped: Token EVM build failed" >&2
-      exit 0
-    }
+    rm -rf "$token_out"
+    if [[ ${#build_profile_args[@]} -gt 0 ]]; then
+      (cd "$root" && lake env .lake/build/bin/proof-forge-next build \
+        Examples/Token.lean --module Examples.Token --target evm \
+        "${build_profile_args[@]}" -o "$token_out_rel") || {
+        echo "evm-token-anvil: skipped: Token EVM build failed (profile=$expected_profile_wire)" >&2
+        exit 0
+      }
+    else
+      (cd "$root" && lake env .lake/build/bin/proof-forge-next build \
+        Examples/Token.lean --module Examples.Token --target evm \
+        -o "$token_out_rel") || {
+        echo "evm-token-anvil: skipped: Token EVM build failed (profile=$expected_profile_wire)" >&2
+        exit 0
+      }
+    fi
   else
     echo "evm-token-anvil: skipped: product CLI unavailable to build Token" >&2
     exit 0
   fi
-  token_bin="$root/build/v2/token-evm/Token.bin"
+  token_bin="$token_out/Token.bin"
   [[ -f "$token_bin" ]] || {
     echo "evm-token-anvil: skipped: Token.bin missing after build" >&2
     exit 0
   }
+  if ! token_tree_matches_profile "$token_bin"; then
+    echo "evm-token-anvil: skipped: Token tree failed post-build profile validation" >&2
+    exit 0
+  fi
 fi
-echo "evm-token-anvil: engineering Token smoke (mint/balanceOf/transfer/overflow-hold); not formal" >&2
+echo "evm-token-anvil: engineering Token smoke (mint/balanceOf/transfer/overflow-hold; profile=$expected_profile_wire); not formal" >&2
 export FOUNDRY_BIN="$(cd "$(dirname "$anvil_path")" && pwd)"
-abi="$root/build/v2/token-evm/Token.abi.json"
-[[ -f "$abi" ]] || abi="$(dirname "$token_bin")/Token.abi.json"
+abi="$(dirname "$token_bin")/Token.abi.json"
 if [[ ! -f "$abi" ]]; then echo "evm-token-anvil: skipped: missing ABI" >&2; exit 0; fi
 port=$((18545 + RANDOM % 1000))
-"$anvil_path" --port "$port" --silent >/tmp/pf-token-anvil.log 2>&1 &
+if ((${#anvil_extra_args[@]})); then
+  "$anvil_path" --port "$port" "${anvil_extra_args[@]}" --silent >/tmp/pf-token-anvil.log 2>&1 &
+else
+  "$anvil_path" --port "$port" --silent >/tmp/pf-token-anvil.log 2>&1 &
+fi
 anvil_pid=$!
 trap 'kill $anvil_pid 2>/dev/null || true' EXIT
 # Wait for RPC readiness (avoid fixed sleep races).

@@ -31,20 +31,27 @@ def requireNonemptySolcBytecode (binary : String) : IO Unit := do
   if binary.isEmpty then
     throw <| IO.userError "PF-ARTIFACT-NONDEPLOYABLE: solc returned no bytecode"
 
-/-- Pure solc argv for a codegen profile. Cancun profile pins `--evm-version cancun`;
-    legacy default profile keeps historical args without an ambient hardfork flag. -/
-def solcArgsForProfile (profile : CodegenProfileId) (source : String) : Array String :=
+/-- Pure solc argv for a known EVM codegen profile.
+    Explicit branches only: Cancun pins `--evm-version cancun`; legacy keeps
+    historical args. Unknown profiles fail closed (defense in depth; capability
+    selection should already reject them). -/
+def solcArgsForProfile (profile : CodegenProfileId) (source : String) :
+    Except String (Array String) :=
   if profile == CodegenProfileId.evmYulSolc0834CancunV1 then
-    #["--strict-assembly", "--evm-version", "cancun", "--bin", source]
+    pure #["--strict-assembly", "--evm-version", "cancun", "--bin", source]
+  else if profile == CodegenProfileId.evmYulSolc0834V1 then
+    pure #["--strict-assembly", "--bin", source]
   else
-    #["--strict-assembly", "--bin", source]
+    throw s!"unsupported EVM finalize profile '{profile}'"
 
-/-- Pure evidence-note fragment for the profile's hardfork pin (observability). -/
-def evidenceHardforkNote (profile : CodegenProfileId) : String :=
+/-- Pure evidence-note fragment for a known EVM profile's hardfork pin. -/
+def evidenceHardforkNote (profile : CodegenProfileId) : Except String String :=
   if profile == CodegenProfileId.evmYulSolc0834CancunV1 then
-    " evm-version=cancun"
+    pure " evm-version=cancun"
+  else if profile == CodegenProfileId.evmYulSolc0834V1 then
+    pure ""
   else
-    ""
+    throw s!"unsupported EVM finalize profile '{profile}'"
 
 /-- Exact EVM solc finalization: write `{programName}.bin` under stagingDir.
     Requires base `{programName}.yul` already present (CLI publisher writes base
@@ -56,8 +63,15 @@ def finalize
   let programName := MaterializedArtifactsV1.artifactProgramNameOf artifacts
   let source := s!"{programName}.yul"
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
+  let args ← match solcArgsForProfile profile source with
+    | .ok value => pure value
+    | .error message =>
+        throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: {message}"
+  let hardforkNote ← match evidenceHardforkNote profile with
+    | .ok value => pure value
+    | .error message =>
+        throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: {message}"
   let solc ← resolve "solc"
-  let args := solcArgsForProfile profile source
   let process ← solc.run args (some stagingDir)
   if process.exitCode == 0 then
     let binary := (process.stdout.splitOn "Binary representation:\n").getLast!.trimAscii.copy
@@ -67,7 +81,7 @@ def finalize
       deployable := true
       extraFiles := #[s!"{programName}.bin"]
       evidenceNote :=
-        s!"solc {solc.version} sha256={solc.executableSha256} completed successfully{evidenceHardforkNote profile}"
+        s!"solc {solc.version} sha256={solc.executableSha256} completed successfully{hardforkNote}"
     }
   else
     throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: solc failed\n{process.stderr}"
