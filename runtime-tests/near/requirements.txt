@@ -1,0 +1,4 @@
+# Pinned for near-sandbox 2.13.0 JSON-RPC engineering harness (BL-13).
+# cryptography: Ed25519 tx signing; base58: NEAR key wire encoding.
+cryptography==47.0.0
+base58==2.1.1
