@@ -265,9 +265,9 @@ private def loopSumSourceText : String :=
   "      count := count + i\n" ++
   "    return count\n"
 
-/-- Fixed Bytes N: N×`u8 => u8` mappings with u8 params/results, checked
-    u8 arithmetic (widen → u64 op → checked `as u8` narrow), verified
-    end-to-end by `leo build`. -/
+/-- Fixed Bytes N: N×`u8 => u8` mappings with u8 params/results, native u8
+    checked arithmetic (Leo trap-on-overflow), verified end-to-end by
+    `leo build`. -/
 private def bytesBoxSourceText : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
@@ -287,6 +287,40 @@ private def bytesBoxSourceText : String :=
   "  entry shift(v : UInt8) : UInt8 do\n" ++
   "    b[0] := b[0] << 1\n" ++
   "    return b[0]\n"
+
+/-- T8 multi-width: scalar UInt8 counter with native Leo u8 state/params/body,
+    verified end-to-end by `leo build`. -/
+private def u8CounterSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program U8Ctr where\n" ++
+  "  state count : UInt8\n" ++
+  "  init(seed : UInt8) do\n" ++
+  "    count := seed\n" ++
+  "  entry increment(delta : UInt8) : UInt8 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n" ++
+  "  entry flip() : UInt8 do\n" ++
+  "    return ~count\n" ++
+  "  view get() : UInt8 do\n" ++
+  "    return count\n"
+
+/-- T8 multi-width: UInt16 + UInt32 dual state, verified by `leo build`. -/
+private def multiWidthSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program MultiW where\n" ++
+  "  state a : UInt16\n" ++
+  "  state b : UInt32\n" ++
+  "  init(x : UInt16, y : UInt32) do\n" ++
+  "    a := x\n" ++
+  "    b := y\n" ++
+  "  entry add16(d : UInt16) : UInt16 do\n" ++
+  "    a := a + d\n" ++
+  "    return a\n" ++
+  "  entry add32(d : UInt32) : UInt32 do\n" ++
+  "    b := b + d\n" ++
+  "    return b\n"
 
 /-- B-RET-ABI: named Struct entry return as a native Leo `(u64, u64)` tuple
     (non-Final, no state). Verified end-to-end by `leo build`. -/
@@ -365,6 +399,10 @@ unsafe def run : IO Unit := do
           loopSumSourceText "Tests.AleoAccept.LoopSum" "loopsum.aleo"
         acceptProgram leo leoHome tmp "BytesBox"
           bytesBoxSourceText "Tests.AleoAccept.BytesBox" "bytesbox.aleo"
+        acceptProgram leo leoHome tmp "U8Ctr"
+          u8CounterSourceText "Tests.AleoAccept.U8Ctr" "u8ctr.aleo"
+        acceptProgram leo leoHome tmp "MultiW"
+          multiWidthSourceText "Tests.AleoAccept.MultiW" "multiw.aleo"
         acceptProgram leo leoHome tmp "PairRet"
           pairRetSourceText "Tests.AleoAccept.PairRet" "pairret.aleo"
         acceptProgram leo leoHome tmp "MaybeRet"
