@@ -41,7 +41,8 @@ import ProofForgeV2.Semantic.WireV1
     * no hardcoded Tests FQN / fixture bytes
     * theorem bodies never enter ProgramV1 / sourceHash / semanticHash
     * does not trust user .olean
-    * does not claim parametric encode/decode/structure closure yet
+    * structure under `SimpleClosureParamsLegalV1` is closed by
+      `SimpleClosureStructureCertV1` (B-SC-STRUCT); encode/decode remain open
       (exact blockers documented at module end)
 
   Not yet product-positive: raw-source certifier still needs unconditional
@@ -381,12 +382,13 @@ end ProofForgeV2.Semantic.SimpleClosureTraceV1
 
   | ID | Blocker | Why not closed here |
   |---|---|---|
-  | B-SC-STRUCT | Parametric `validateSemanticProgramStructureV1 (materialize p) = ok` for all well-formed `p` | Structure phases still fixture-closed in Tests for one QN; need identifier-grammar + signature/CFG family lemmas |
+  | B-SC-STRUCT | Parametric `validateSemanticProgramStructureV1 (materialize p) = ok` under `SimpleClosureParamsLegalV1` | **Closed** in `SimpleClosureStructureCertV1` (identifier/NFC + distinct names + fixed CFG/signature/fuel/requirement phases) |
   | B-SC-ENC | Parametric `encode (materialize p) = ok (encodeSpine p)` | Field encoders depend on UTF-8 name spines; need name-parameterized spine lemmas (not 1k-line per program) |
   | B-SC-DEC | Parametric `decode (encodeSpine p) = ok (materialize p)` | Dual of encode; fixture decode is ~1.3k lines for one spine |
   | B-SC-ELAB-THM | ProgramElaboration mint of a complete theorem value | Depends on B-SC-ENC + B-SC-DEC (or equivalent) so generated `exact` terms typecheck without free hyps |
   | B-SC-PRODUCT | Raw-source certifier + CLI check positive | Depends on B-SC-ELAB-THM (or same-file author theorem using closed production lemmas) |
 
   This module closes: parametric AST, materialize, extract, witness, wire-trace
-  soundness composition. It does **not** claim product-positive certification.
+  soundness composition. Structure is closed by `SimpleClosureStructureCertV1`.
+  It does **not** claim product-positive certification.
 -/
