@@ -417,8 +417,13 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
   | .error e =>
       throw <| IO.userError
         s!"anonymous-result: evm must admit Array UInt64 2 return, got {e.render}"
+  -- Solana admits anonymous Array UInt64 N (N≤8) returns (BL-19).
+  match materializeSelected TargetId.solana compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: solana must admit Array UInt64 2 return, got {e.render}"
   for (target, kind, marker) in #[
-      (TargetId.solana, TargetKind.solana, "cannot return multi-leaf aggregate"),
       (TargetId.near, TargetKind.near, "does not return public"),
       (TargetId.noir, TargetKind.noir, "named Struct/Enum aggregate"),
       (TargetId.aleo, TargetKind.aleo, "return of anonymous aggregate is outside"),
