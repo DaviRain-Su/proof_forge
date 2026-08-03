@@ -3,6 +3,11 @@ import Tests.Compiler.CheckV1ProductGate
 import Tests.Compiler.DiagnosticPipelineV1
 import Tests.Compiler.ProofBundleFilesV1
 import Tests.Compiler.InlineProofAuditV1
+import Tests.Compiler.InlineProofProtocolV1
+import Tests.Compiler.InlineProofElaborationV1
+import Tests.Compiler.InlineProofCertifierV1
+import Tests.Language.InlineProofAuthoringV1
+import Tests.Language.TheoremInventoryV1
 import Tests.Typed.NameResolutionV1
 import Tests.Typed.DiagnosticLocationsV1
 import Tests.Typed.TypeCheckExpressionsV1
@@ -25,6 +30,8 @@ import Tests.Semantic.ProofedCertV1
 import Tests.Semantic.SimpleClosureCertV1
 import Tests.Semantic.AuthorWireCertV1
 import Tests.Semantic.ProofedEncodeCertV1
+import Tests.Semantic.ProofedDecodeCertV1
+import Tests.Semantic.ProofedClosedCertV1
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.NormalizeConst
 import Tests.Semantic.ProofBundleV1
@@ -36,6 +43,11 @@ unsafe def main : IO Unit := do
   Tests.Compiler.DiagnosticPipelineV1.run
   Tests.Compiler.ProofBundleFilesV1.run
   Tests.Compiler.InlineProofAuditV1.run
+  Tests.Compiler.InlineProofProtocolV1.run
+  Tests.Compiler.InlineProofElaborationV1.run
+  Tests.Compiler.InlineProofCertifierV1.run
+  Tests.Language.InlineProofAuthoringV1.run
+  Tests.Language.TheoremInventoryV1.run
   Tests.Typed.NameResolutionV1.run
   Tests.Typed.DiagnosticLocationsV1.run
   Tests.Typed.TypeCheckExpressionsV1.run
