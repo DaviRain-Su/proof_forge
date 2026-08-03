@@ -1,7 +1,9 @@
 import ProofForgeV2.Language.ProgramElaborationV1
+import ProofForgeV2.Semantic.SimpleClosureTraceV1
 
 open ProofForgeV2.Language
 open ProofForgeV2.Semantic.InvariantABI
+open ProofForgeV2.Semantic.SimpleClosureTraceV1
 open ProofForgeV2.Semantic.WireV1
 
 namespace Tests.Language.InlineProofAuthoringV1
@@ -24,6 +26,31 @@ example : Proofed.Proof.safe =
 #check Proofed.Proof.simpleClosureParamsV1
 #check Proofed.Proof.simpleClosureDataV1
 
+-- B-SC-ELAB-THM prep: naming + hypothesis-honest bridge (not unconditional
+-- generatedSafeV1 — B-SC-ENC/DEC still open; do not forge).
+#check Proofed.Proof.generatedSafeV1Name
+#check Proofed.Proof.generatedSafeV1_of_wireTrace
+
+example : Proofed.Proof.generatedSafeV1Name = "generatedSafeV1" := rfl
+
+example : generatedSimpleClosureTheoremNameV1 "safe" = "generatedSafeV1" := rfl
+example : generatedSimpleClosureTheoremNameV1 "balance" = "generatedBalanceV1" := rfl
+example : generatedSimpleClosureTheoremBridgeNameV1 "safe" =
+    "generatedSafeV1_of_wireTrace" := rfl
+example : generatedSimpleClosureTheoremNameDefV1 "safe" =
+    "generatedSafeV1Name" := rfl
+
+/-- Bridge has the exact product Prop-alias conclusion under a wire-trace
+    premise (no free hyps beyond `t`). -/
+example :
+    (Proofed.Proof.generatedSafeV1_of_wireTrace :
+      SimpleClosureWireTraceV1
+          Proofed.Proof.simpleClosureParamsV1
+          Proofed.Proof.subjectBytesV1 →
+        Proofed.Proof.safe) =
+      Proofed.Proof.generatedSafeV1_of_wireTrace :=
+  rfl
+
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
@@ -33,6 +60,11 @@ def run : IO Unit := do
     "inline subjectProgramV1 must embed non-empty product bytes (transparent spine)"
   expect (Proofed.Proof.subjectBytesV1.size == subject.canonicalBytes.size)
     "subjectBytesV1 matches subjectProgramV1 carrier"
+  expect (Proofed.Proof.generatedSafeV1Name == "generatedSafeV1")
+    "generated theorem product name for inv safe"
+  expect (generatedSimpleClosureTheoremNameV1 "safe" ==
+      Proofed.Proof.generatedSafeV1Name)
+    "naming helper matches elaborator Name def"
   match validateSemanticProgramV1 subject with
   | .error error =>
       throw <| IO.userError s!"generated inline proof subject invalid: {repr error}"
@@ -72,5 +104,6 @@ def run : IO Unit := do
       match evalInvariantV1 subject 1 st with
       | .trapped => pure ()
       | other => throw <| IO.userError s!"OOR ordinal must trap: {repr other}"
+  IO.println "Tests.Language.InlineProofAuthoringV1: ok"
 
 end Tests.Language.InlineProofAuthoringV1

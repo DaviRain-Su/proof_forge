@@ -191,9 +191,9 @@
       "sha256": "cb4d26da286e2da54be1569e777cca01217b376e64dbb73c732cbe4acd5f73a0"
     },
     {
-      "bytes": 8290,
+      "bytes": 15389,
       "path": "ProofForgeV2/Language/ProgramElaborationV1.lean",
-      "sha256": "57e15330e3b8aef4ecf7efc0a671e5951da52d3582e44d9844693cb4dfc583a3"
+      "sha256": "5df6bd21311a346e14e82e74d0d8f80de4672b57c7573f1e5fba0ded036b273f"
     },
     {
       "bytes": 14310,
