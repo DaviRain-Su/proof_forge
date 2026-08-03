@@ -9,9 +9,18 @@ the V2 envelope) and capability-internal `lower`/`emitFromIR`.
 Checked u64 arithmetic is realized with explicit assert guards. Psy `Felt`
 is Goldilocks (p = 2^64−2^32+1): every decimal literal is reduced into
 `0..p-1`, and overflow uses field-wrap detection (`sum >= lhs` for add;
-exact inverse for mul) rather than an illegal `2^64` bound. Bitwise/shift
-use native Psy Felt operators; `count < 64` guards protect shifts. Revert →
-`assert(false, ...)`. Emit → `__emit([...])`. Call/schedule →
+exact inverse for mul) rather than an illegal `2^64` bound.
+
+**T8 multi-width (UInt{8,16,32})**: values are Felt-carried (not native Psy
+uN — dargo u32 arith/shift is unfaithful to Reference). After each add/mul/
+shl the emitter asserts `result < 2^w`; sub checks underflow; shifts check
+`count < w`; bitNot is `x ^ (2^w−1)` as Felt. Narrow ops cannot wrap mod p
+when operands are in-range (`(2^32−1)^2 < p`), so width bounds alone recover
+checked semantics. Entry params with `uintWidth ∈ {8,16,32}` get a range
+assert at method start. Results are `-> Felt` (single Felt, documented width).
+
+Bitwise/shift use native Psy Felt operators; UInt64 shifts use `count < 64`.
+Revert → `assert(false, ...)`. Emit → `__emit([...])`. Call/schedule →
 `__invoke_sync#<Felt>(targetHash, methodHash, [args])` with deterministic
 component hashes reduced mod p (V2 qualified callees have no runtime Felt
 contract/method ids).
@@ -83,8 +92,8 @@ end
 structure PsyParam where
   name : String
   isBool : Bool
-  /-- Native Psy `u32` parameter (2026-08-02 u32 slice). -/
-  isU32 : Bool := false
+  /-- Entry range-check width for Felt-carried narrow params (8/16/32); 0 = none. -/
+  uintWidth : Nat := 0
   deriving BEq, Inhabited, Repr
 
 structure PsyMethod where
@@ -92,8 +101,6 @@ structure PsyMethod where
   params : Array PsyParam
   resultIsBool : Bool
   resultIsUnit : Bool
-  /-- Native Psy `u32` result (2026-08-02 u32 slice; `-> u32`). -/
-  resultIsU32 : Bool := false
   /-- B-RET-ABI: `some N` → method signature `-> [Felt; N]` (multi-leaf
       aggregate return). Mutually exclusive with the scalar flags. -/
   resultLeafCount : Option Nat := none
@@ -235,14 +242,14 @@ mutual
 end
 
 private def renderParam (p : PsyParam) : String :=
-  s!"{p.name}: {if p.isBool then "bool" else if p.isU32 then "u32" else "Felt"}"
+  -- All non-Bool params are Felt (narrow UInt{8,16,32} are Felt-carried).
+  s!"{p.name}: {if p.isBool then "bool" else "Felt"}"
 
-/-- Method return type suffix. B-RET-ABI aggregates render as `-> [Felt; N]`
-    (honest multi-leaf Psy form verified against dargo). -/
+/-- Method return type suffix. UInt{8,16,32,64} and Field are `-> Felt`;
+    B-RET-ABI aggregates render as `-> [Felt; N]` (honest multi-leaf form). -/
 private def renderReturnSuffix (m : PsyMethod) : String :=
   if m.resultIsUnit then ""
   else if m.resultIsBool then " -> bool"
-  else if m.resultIsU32 then " -> u32"
   else match m.resultLeafCount with
     | some n => s!" -> [Felt; {n}]"
     | none => " -> Felt"
@@ -346,13 +353,27 @@ private def hashCallee (comps : Array String) : PsyExpr × PsyExpr × String :=
     | none => feltLit 0
   (target, method, note)
 
+/-- 2^bitWidth as a Felt-legal Nat (only called for w ∈ {8,16,32}). -/
+private def narrowBound (bitWidth : Nat) : Nat :=
+  match bitWidth with
+  | 8 => 256
+  | 16 => 65536
+  | 32 => 4294967296
+  | _ => 0
+
+/-- (2^bitWidth − 1) all-ones mask as Felt-legal Nat. -/
+private def narrowMask (bitWidth : Nat) : Nat :=
+  match bitWidth with
+  | 8 => 255
+  | 16 => 65535
+  | 32 => 4294967295
+  | _ => 0
+
 private def exprTypeName : Expr → String
   | .boolLiteral _ => "bool"
   | .compare _ _ _ | .signedCompare _ _ _ => "bool"
   | .logicalAnd _ _ | .logicalOr _ _ => "bool"
   | .boolNot _ => "bool"
-  | .bitNot _ => "u32"
-  | .checkedBitNot _ => "Felt"
   | .u32Literal _ => "u32"
   | _ => "Felt"
 
@@ -423,12 +444,93 @@ private partial def lowerExprStmt
         #[.assert (.binary r' .ne (feltLit 0)) "u64 mod by zero",
           .letBind name "Felt" (.binary l' .mod r')],
         .local name, ctx3)
+  -- T8 multi-width: Felt-carried UInt{8,16,32}. Max product of two UInt32
+  -- values is (2^32−1)^2 < Goldilocks p, so field wrap cannot occur when
+  -- operands are in-range — only an explicit `result < 2^w` width guard is
+  -- required (vs u64 field-wrap detection).
+  | .narrowCheckedAdd w l r => do
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (name, ctx3) := freshName ctx2
+      let bound := feltLit (narrowBound w)
+      pure (ls1 ++ ls2 ++
+        #[.letBind name "Felt" (.binary l' .add r'),
+          .assert (.binary (.local name) .lt bound) s!"u{w} add overflow"],
+        .local name, ctx3)
+  | .narrowCheckedSub w l r => do
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (name, ctx3) := freshName ctx2
+      pure (ls1 ++ ls2 ++
+        #[.assert (.binary l' .ge r') s!"u{w} sub underflow",
+          .letBind name "Felt" (.binary l' .sub r')],
+        .local name, ctx3)
+  | .narrowCheckedMul w l r => do
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (name, ctx3) := freshName ctx2
+      let bound := feltLit (narrowBound w)
+      pure (ls1 ++ ls2 ++
+        #[.letBind name "Felt" (.binary l' .mul r'),
+          .assert (.binary (.local name) .lt bound) s!"u{w} mul overflow"],
+        .local name, ctx3)
+  | .narrowCheckedDiv w l r => do
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (name, ctx3) := freshName ctx2
+      pure (ls1 ++ ls2 ++
+        #[.assert (.binary r' .ne (feltLit 0)) s!"u{w} div by zero",
+          .letBind name "Felt" (.binary l' .div r')],
+        .local name, ctx3)
+  | .narrowCheckedMod w l r => do
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (name, ctx3) := freshName ctx2
+      pure (ls1 ++ ls2 ++
+        #[.assert (.binary r' .ne (feltLit 0)) s!"u{w} mod by zero",
+          .letBind name "Felt" (.binary l' .mod r')],
+        .local name, ctx3)
+  | .narrowBitAnd _w l r | .narrowBitOr _w l r | .narrowBitXor _w l r => do
+      let psyOp := match expr with
+        | .narrowBitAnd _ _ _ => PsyBinaryOp.bitAnd
+        | .narrowBitOr _ _ _ => .bitOr
+        | _ => .bitXor
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (name, ctx3) := freshName ctx2
+      pure (ls1 ++ ls2 ++
+        #[.letBind name "Felt" (.binary l' psyOp r')],
+        .local name, ctx3)
+  | .narrowShl w l r => do
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (name, ctx3) := freshName ctx2
+      let bound := feltLit (narrowBound w)
+      pure (ls1 ++ ls2 ++
+        #[.assert (.binary r' .lt (feltLit w)) s!"invalidShift: count >= {w}",
+          .letBind name "Felt" (.binary l' .shiftLeft r'),
+          .assert (.binary (.local name) .lt bound) s!"u{w} shl overflow"],
+        .local name, ctx3)
+  | .narrowShr w l r => do
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (name, ctx3) := freshName ctx2
+      pure (ls1 ++ ls2 ++
+        #[.assert (.binary r' .lt (feltLit w)) s!"invalidShift: count >= {w}",
+          .letBind name "Felt" (.binary l' .shiftRight r')],
+        .local name, ctx3)
+  | .narrowBitNot w operand => do
+      -- Felt-carried mask XOR: `x ^ (2^w−1)`. Mask is always a legal Felt
+      -- literal (255 / 65535 / 4294967295 all < p). Not native u32 — dargo
+      -- u32 sub is buggy and native uN is not the T8 surface.
+      let (ls1, o', ctx1) ← lowerExprStmt ctx operand
+      let (name, ctx2) := freshName ctx1
+      pure (ls1 ++
+        #[.letBind name "Felt" (.binary o' .bitXor (feltLit (narrowMask w)))],
+        .local name, ctx2)
   | .shl l r => do
       -- Count < 64 only. The prior product < 2^64 bound was not a legal Felt
       -- literal under Goldilocks; field wrap of the shift is left to the VM.
-      -- A UInt32 literal count (u32 slice) is folded to its Felt value here
-      -- (the Felt shift op needs a Felt count; the lowerer admits only
-      -- literal UInt32 counts).
       let (ls1, l', ctx1) ← lowerExprStmt ctx l
       let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
       let (name, ctx3) := freshName ctx2
@@ -462,18 +564,6 @@ private partial def lowerExprStmt
       pure (ls1 ++ ls2 ++
         #[.letBind name "bool" (.binary l' psyOp r')],
         .local name, ctx3)
-  | .bitNot operand => do
-      -- UInt32 bitwise-not as `x ^ 4294967295u32` (XOR with the 2^32−1 mask;
-      -- the `u32` suffix is required so dargo types the literal as u32, and
-      -- the result is verified faithful on the real VM: 5→4294967290,
-      -- 4294967295→0, 0→4294967295). Mask-subtraction is NOT used — the VM's
-      -- u32 sub is checked with a bug and panics on `4294967295u32 -
-      -- 4294967295u32` ("u32 sub value too low").
-      let (ls1, o', ctx1) ← lowerExprStmt ctx operand
-      let (name, ctx2) := freshName ctx1
-      pure (ls1 ++
-        #[.letBind name "u32" (.binary o' .bitXor (.literal (.u32 4294967295)))],
-        .local name, ctx2)
   | .checkedBitNot operand => do
       -- Exact UInt64 bitNot with Felt representability guard.
       -- bitNot x = (2^64−1) − x is a legal Felt iff x ≥ 2^32−1 (result < p).
@@ -756,18 +846,27 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
   unless isSafeIdent fn.name do
     planError s!"Psy function name '{fn.name}' is not a safe identifier"
   let params := fn.params.map fun p =>
-    { name := s!"p{p.sourceIndex}", isBool := p.isBool, isU32 := p.isU32 }
+    { name := s!"p{p.sourceIndex}", isBool := p.isBool, uintWidth := p.uintWidth }
   let resultLeafCount : Option Nat :=
     match fn.resultKind with
     | .aggregate leaves => some leaves.size
     | _ => none
-  let (body, ctx1) ← emitStatements ctx fn.body 0
+  let (bodyCore, ctx1) ← emitStatements ctx fn.body 0
+  -- Entry range checks for Felt-carried narrow params: reject high bits so
+  -- external inputs cannot silently exceed the documented width.
+  let mut rangeGuards : Array PsyStmt := #[]
+  for p in params do
+    if isNarrowUintWidth p.uintWidth then
+      let bound := feltLit (narrowBound p.uintWidth)
+      rangeGuards := rangeGuards.push
+        (.assert (.binary (.local p.name) .lt bound)
+          s!"u{p.uintWidth} param out of range")
+  let body := rangeGuards ++ bodyCore
   pure ({
     name := fn.name
     params
     resultIsBool := fn.resultIsBool
     resultIsUnit := fn.resultIsUnit
-    resultIsU32 := fn.resultIsU32
     resultLeafCount
     isContractMethod := fn.kind != .pureHelper
     body

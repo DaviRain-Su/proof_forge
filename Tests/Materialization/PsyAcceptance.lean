@@ -224,15 +224,31 @@ private def arrayStateSourceText : String :=
   "    slots[0] := v\n" ++
   "    return slots[0]\n"
 
-/-- u32 slice (2026-08-02): bitNot lowers to `x ^ 4294967295u32` (XOR mask,
-    verified faithful on the real dargo VM). The acceptance gate compiles the
-    emitted `.psy` with the real dargo toolchain. -/
+/-- T8 multi-width: UInt32 bitNot as Felt-carried XOR mask (not native u32).
+    The acceptance gate compiles the emitted `.psy` with the real dargo toolchain. -/
 private def u32BitNotSourceText : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program PsyFlip32 where\n" ++
   "  entry flip(x : UInt32) : UInt32 do\n" ++
   "    return ~x\n"
+
+/-- T8 multi-width: scalar UInt8 counter with Felt-carried state/params/body
+    and explicit width guards. Real psyup must accept the emitted source. -/
+private def u8CounterSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program U8Ctr where\n" ++
+  "  state count : UInt8\n" ++
+  "  init(seed : UInt8) do\n" ++
+  "    count := seed\n" ++
+  "  entry increment(delta : UInt8) : UInt8 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n" ++
+  "  entry flip() : UInt8 do\n" ++
+  "    return ~count\n" ++
+  "  view get() : UInt8 do\n" ++
+  "    return count\n"
 
 /-- B-RET-ABI PairRet: named Struct view return emitted as `-> [Felt; 2]`.
     Real psyup/dargo must accept the multi-leaf array return form. -/
@@ -283,6 +299,9 @@ unsafe def run : IO Unit := do
         acceptProgram tc staging "PsyFlip32"
           u32BitNotSourceText "Tests.PsyAccept.PsyFlip32"
           "PsyFlip32.psy" "psy_flip32"
+        acceptProgram tc staging "U8Ctr"
+          u8CounterSourceText "Tests.PsyAccept.U8Ctr"
+          "U8Ctr.psy" "u8ctr"
         acceptProgram tc staging "PairRet"
           pairRetSourceText "Tests.PsyAccept.PairRet"
           "PairRet.psy" "pair_ret"
