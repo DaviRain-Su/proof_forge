@@ -482,6 +482,12 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
   | .error e =>
       throw <| IO.userError
         s!"anonymous-result: aleo must admit entry Array UInt64 2 return, got {e.render}"
+  -- CosmWasm admits anonymous Array UInt64 N (N≤8) view returns (BL-22).
+  match materializeSelected TargetId.cosmwasm compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: cosmwasm must admit Array UInt64 2 view return, got {e.render}"
 
 private def testSemanticPlanSourceAuthority : IO Unit := do
   for target in #["Evm", "Solana", "Near", "Noir"] do
