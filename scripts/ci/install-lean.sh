@@ -9,7 +9,21 @@ toolchain="$(cat "$ROOT/lean-toolchain")"
 curl --retry 5 --retry-all-errors --connect-timeout 20 -sSfL \
   https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
   -o /tmp/proof-forge-elan-init.sh
-sh /tmp/proof-forge-elan-init.sh -y --default-toolchain "$toolchain"
+
+# elan-init.sh downloads the elan binary with its own unguarded curl; wrap the
+# whole invocation so transient CDN 5xx recovers instead of failing the job.
+for attempt in 1 2 3; do
+  if sh /tmp/proof-forge-elan-init.sh -y --default-toolchain "$toolchain"; then
+    break
+  fi
+  if [ "$attempt" -lt 3 ]; then
+    echo "elan-init attempt $attempt failed; retrying..." >&2
+    sleep $((attempt * 5))
+  else
+    echo "elan-init failed after 3 attempts" >&2
+    exit 1
+  fi
+done
 
 export PATH="$HOME/.elan/bin:$PATH"
 if elan toolchain list | awk '{print $1}' | grep -Fx "$toolchain" >/dev/null; then

@@ -125,7 +125,8 @@ nullable 语义，必须升 schema。darwin **不能**占用 v3（v3 已专指 l
 
 数组按 ID/path 排序；ID 唯一；download 资产的 size 是正整数；所有声明的 SHA-256 是 64 位
 小写十六进制；URL 必须 HTTPS；member/path 必须相对且不能含 `.`、`..`、NUL、symlink 或特殊
-文件。普通 build 不自动下载/构建。
+文件。普通 build 不自动下载/构建。下载层对瞬时错误（HTTP 429/5xx、连接/超时错误）做有界
+重试（4 次尝试、2/5/10s 固定退避）；4xx 与其他错误立即失败，不做 best-effort 降级。
 
 ### 历史 schema（拒绝）
 

@@ -1311,10 +1311,42 @@ class StrictHTTPSRedirectHandler(urllib.request.HTTPRedirectHandler):
         return redirected
 
 
+TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
+SAFE_HTTPS_OPEN_ATTEMPTS = 4
+SAFE_HTTPS_OPEN_BACKOFF_SECONDS = (2, 5, 10)
+
+
 def safe_https_open(request: urllib.request.Request, timeout: int):
     https_origin(request.full_url)
-    opener = urllib.request.build_opener(StrictHTTPSRedirectHandler())
-    response = opener.open(request, timeout=timeout)  # noqa: S310 - HTTPS enforced above
+    # Transient CDN/gateway errors (429/5xx, connection resets, timeouts) are
+    # retried with a small fixed backoff; 4xx and all other failures fail fast.
+    for attempt in range(SAFE_HTTPS_OPEN_ATTEMPTS):
+        try:
+            opener = urllib.request.build_opener(StrictHTTPSRedirectHandler())
+            response = opener.open(request, timeout=timeout)  # noqa: S310 - HTTPS enforced above
+            break
+        except urllib.error.HTTPError as error:
+            if error.code in TRANSIENT_HTTP_STATUSES and attempt + 1 < SAFE_HTTPS_OPEN_ATTEMPTS:
+                delay = SAFE_HTTPS_OPEN_BACKOFF_SECONDS[attempt]
+                print(
+                    f"toolchain-assets: HTTP {error.code}; retrying in {delay}s "
+                    f"(attempt {attempt + 2}/{SAFE_HTTPS_OPEN_ATTEMPTS})",
+                    file=sys.stderr,
+                )
+                time.sleep(delay)
+                continue
+            raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            if attempt + 1 < SAFE_HTTPS_OPEN_ATTEMPTS:
+                delay = SAFE_HTTPS_OPEN_BACKOFF_SECONDS[attempt]
+                print(
+                    f"toolchain-assets: {type(error).__name__}; retrying in {delay}s "
+                    f"(attempt {attempt + 2}/{SAFE_HTTPS_OPEN_ATTEMPTS})",
+                    file=sys.stderr,
+                )
+                time.sleep(delay)
+                continue
+            raise
     try:
         https_origin(response.geturl())
     except Exception:
