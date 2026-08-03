@@ -58,6 +58,9 @@ private def elaborateProofObligations
     (invariantNames : Array String) : CommandElabM Unit := do
   if invariantNames.isEmpty then
     return
+  -- Export/parser fixtures may carry proof items without product Normalize
+  -- success. Skip proof aliases on Normalize failure (fail closed later at
+  -- certifier elab when aliases are missing); never hard-error export.
   let carrier ← match normalizeProgramV1 source with
     | .ok value => pure value
     | .error _ =>
@@ -87,7 +90,6 @@ private def elaborateProofObligations
         $subjectName $ordinalTerm))
   Lean.Elab.Command.elabCommand (← `(end $proofNamespace))
   Lean.Elab.Command.elabCommand (← `(end $programName))
-
 elab_rules : command
   | `(program $name:ident where $items:pfItem*) => do
       let env ← getEnv

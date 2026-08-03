@@ -35,7 +35,8 @@ import Tests.Semantic.InvariantABI
 import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ProofBridgeV1
 import Tests.Semantic.ProofedCertV1
-import Tests.Semantic.ReferenceV1,import Tests.Semantic.ProofBundleV1
+import Tests.Semantic.ReferenceV1
+import Tests.Semantic.ProofBundleV1
 import Tests.Semantic.ProofSubjectV1
 import Tests.Semantic.ProofReferenceJoinV1
 import Tests.Language.ProgramExports
