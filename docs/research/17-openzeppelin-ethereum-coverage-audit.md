@@ -365,7 +365,7 @@ Map 容量以实际定义 `evmMapPilotCapacityV1 := 8` 为准；相邻源码注�
 | `primitive` | PF primitive 在 EVM 上保持 shared semantics | ReferenceV1 ↔ PF Anvil；禁止 OZ claim |
 | `adapter` | 仅声明的业务投影相同，不计 family 状态 | 每个 leg 可有不同 driver；只比较显式 projection，禁止 ABI/standard claim |
 | `oz-behavior` | 一个 OZ family 行为场景等价，但不声明 ABI | ReferenceV1 ↔ PF Anvil ↔ OZ Anvil 的 shared business projection；不得丢弃场景关键字段 |
-| `abi` | 标准 ABI + descriptor behavior | ReferenceV1 ↔ PF Anvil ↔ OZ Anvil；PF/OZ 使用相同 EVM call bytes，禁止 adapter 隐藏差异 |
+| `abi` | 标准 ABI + observable behavior | ReferenceV1 ↔ PF Anvil ↔ OZ Anvil；PF/OZ 使用相同 EVM call bytes，禁止 adapter 隐藏差异 |
 | `blocked` | 当前精确 fail-closed | typed phase/target/reason contract；不得把 unrelated early failure 当 pass |
 | `oos` | 已接受的产品边界 | 必须引用 accepted decision；研究建议不可使用 |
 
@@ -476,7 +476,8 @@ solc StackTooDeep **skip**，**不得**记 pass）；不能重命名或复用为
 | 层 | 内容 | 仓库状态（EVMOZ-006） | 失败策略 |
 |---|---|---|---|
 | Fast/static | schema、manifest、case IDs、Ownable blocked suite、PF Source/Typed/Normalize/Wire | **已接线**：`just evm-corpus-schema` + `EvmCorpusBlockedV1` 在 Fast/Targets；聚合 `evm-corpus-static` 进 `dev-check` / `ci-lean-product` | always-on hard fail |
-| PF engineering | Reference 23 obs、EVM Plan/IR/Yul、solc acceptance | **已接线**：`just evm-corpus-reference`（no EVM tools） | ordinary CI；不冒充 runtime/formal |
+| PF engineering — Reference | Loader→Normalize→Reference；exact 23 reference observations；no PF/OZ legs | **已接线**：`just evm-corpus-reference`（依赖 build；**无** solc/Anvil） | ordinary CI；不冒充 runtime/formal |
+| PF engineering — target gates | 既有 EVM Plan/IR/Yul、solc acceptance 等 product/target suites | **既有** ordinary Lean/target gates（与 corpus reference recipe **分开**） | ordinary CI |
 | EVM runtime | locked solc + Cancun Anvil，primitive/adapter PF leg | **手动** `just evm-corpus-runtime`；**不**进 ordinary CI/GitHub | 缺 required tools hard fail；Token skip 允许但不得 pass |
 | OZ oracle | 隔离 OZ checkout + hardfork 对齐 tests | **未实现**；无 OZ leg | n/a |
 | Sequence/property | bounded sequences / failure injection | **未实现** | n/a |
@@ -485,7 +486,9 @@ solc StackTooDeep **skip**，**不得**记 pass）；不能重命名或复用为
 波次进度：
 
 - W0：**done**（Counter/Accumulator/ArithOps/EventFlow → `primitive`）。
-- W1：**done**（Token → explicit `adapter`；capacity/rollback/双账户在 case steps）。
+- W1：**partial**——Token 已有 explicit `adapter` case，覆盖双账户 transfer 序列、conservation
+  与 rollback steps；**未**交付 cap-8 fill boundary / capacity 边界 corpus；full runtime 上
+  Token 因 solc StackTooDeep **skip**（不得记 pass）。
 - W2：**partial**——Ownable Lean typed `blocked` 已交付；其余 family blocked catalog 与
   closed CLI diagnostic 仍 pending。
 - W3/W4：仍 proposal（无 `abi` / property corpus）。

@@ -13665,22 +13665,28 @@ normative: false
     `proof-forge.evm-corpus-manifest.v1` (path-ascending, exact size+sha256,
     closed role enum case|source|schema-fixture|runner).
   - Closes all regular files under `testdata/evm-corpus/v1/**` except the
-    manifest itself; business-case external sources
-    (Counter/Accumulator/Token/ArithOps); sole validator + reference/runtime
-    scripts + `EvmCorpusPrimitiveV1` / `EvmCorpusBlockedV1` Lean suites.
+    manifest itself; business-case `sourcePath`s
+    (Counter/Accumulator/Token/ArithOps + corpus programs); exact **9** runners:
+    `evm_corpus_v1.py`, `evm_corpus_reference.sh`, `evm_corpus_runtime.sh`,
+    `evm_corpus_obs_write.py`, `evm_anvil_differential.sh`, `smoke_evm.sh`,
+    `evm_token_anvil_smoke.sh`, `EvmCorpusPrimitiveV1.lean`,
+    `EvmCorpusBlockedV1.lean` (**46** inventory entries total).
   - Rejects unknown/duplicate/path-escape/symlink/hardlink/non-regular;
-    stable read before/after lstat; **not** formal evidence.
+    allowlist-before-read (no arbitrary `.env` listed-path reads); stable open
+    via `O_NOFOLLOW`+fstat where available; **not** formal / race-free evidence.
 - Validator: `scripts/evm_corpus_v1.py validate-manifest PATH` + self-test
-  negatives (stale hash/size, missing/extra, duplicate/unknown role, symlink,
-  hardlink, path escape, manifest self-list). Self-test remains
+  negatives (stale hash/size, missing/extra, duplicate/unknown role, symlink file
+  + symlink directory + parent symlink, hardlink, path escape, manifest self-list,
+  malicious `.env` extra/runner-disguise/case sourcePath). Self-test remains
   `/usr/bin/python3 -I -S`.
 - Ownable blocked pins (placeholders removed):
   - `pfCommit=23798ce65e559134adb0a9dd3504fc2f7e9669b6` (compiler baseline)
   - `toolLockDigest=63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf`
-  - real Loader/Normalize `sourceHash` /
-    `semanticHash=1056bb66… / 4874d5f6…`
-  - `Tests.Materialization.EvmCorpusBlockedV1` exact-asserts pins + planInvariant;
-    no new EVM caller lowering; F01 remains Blocked.
+  - `sourceHash=1056bb66a65115bdbbd38655c85e53b5f9abe84a7a13ada2b7f3bed4d2b9db64`
+  - `semanticHash=4874d5f6e5b589a26f3175920fee6aa06d59009be8d8c38a45bdc3bd8c14dd75`
+  - `Tests.Materialization.EvmCorpusBlockedV1` exact-asserts pins + planInvariant
+    (hardfork via exact `"hardfork":"cancun"` substring); no new EVM caller lowering;
+    F01 remains Blocked.
 - Registration: `EvmCorpusBlockedV1` → lakefile roots, `Tests.lean`,
   `Tests/Fast.lean`, `Tests/Shards/Targets.lean` (no Anvil/solc dep).
   Primitive suite keeps top-level `main` and stays off lake import graphs.
@@ -13708,3 +13714,16 @@ normative: false
   sbom package pin (183 files, no package-file diff) all green. Full
   `just dev-check` / `just ci` remain blocked by that pre-existing Token solc path
   until a separate product slice fixes Map Yul stack depth or TokenV1 expectations.
+
+## 2026-08-03 — EVMOZ-006 follow-up (manifest allowlist + full harness pins)
+
+- P1: expand `REQUIRED_RUNNER_PATHS` + manifest to 9 runners (obs_write / anvil
+  differential / smoke_evm / token_anvil_smoke + prior five); inventory 46.
+- P1: allowlist-before-read — corpus walk + cases/ authority → sources/runners;
+  listed must equal allowlist before any external stable-read; `.env` extra /
+  case sourcePath / runner-disguise negatives prove no secret read.
+- P1: reject symlink directories in walk `dirnames`; reject any symlink component
+  repo→leaf; stable open via `O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK` + fstat/read/fstat.
+- P1: Ownable Lean pin uses exact `"hardfork":"cancun"`.
+- Docs: harness list/count; audit abi wording + W1 partial + CI table split;
+  Ownable hash labels corrected.

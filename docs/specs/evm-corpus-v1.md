@@ -418,23 +418,41 @@ Sole canonical path：`testdata/evm-corpus/v1/manifest.json`。
    （禁止自引用；`path == testdata/evm-corpus/v1/manifest.json` → `PF-CORPUS-INVARIANT`）。
 2. 全部 business case 的 `pins.sourcePath`（含外部 `Examples/Counter|Accumulator|Token.lean`
    与 `testdata/valid/ArithOps.lean`）。
-3. Sole harness：`scripts/evm_corpus_v1.py`、`scripts/evm_corpus_reference.sh`、
-   `scripts/evm_corpus_runtime.sh`、`Tests/Materialization/EvmCorpusPrimitiveV1.lean`、
-   `Tests/Materialization/EvmCorpusBlockedV1.lean`（role=`runner`）。
+3. Sole full-runtime harness（role=`runner`，exact 9 路径）：
+   - `scripts/evm_corpus_v1.py`
+   - `scripts/evm_corpus_reference.sh`
+   - `scripts/evm_corpus_runtime.sh`
+   - `scripts/evm_corpus_obs_write.py`
+   - `scripts/evm_anvil_differential.sh`
+   - `scripts/smoke_evm.sh`
+   - `scripts/evm_token_anvil_smoke.sh`
+   - `Tests/Materialization/EvmCorpusPrimitiveV1.lean`
+   - `Tests/Materialization/EvmCorpusBlockedV1.lean`
+
+当前 closed inventory 合计 **46** 条目（corpus authority 除 manifest 自身 + case
+`sourcePath` + 上表 9 runners）。
 
 ### 角色与 join
 
 | role | 用途 |
 |---|---|
 | `case` | `testdata/evm-corpus/v1/cases/<id>.json`；`id` 必须等于 filename stem |
-| `source` | program / external source 文本；每个 case `sourcePath` 必须 listed 且 role=source |
+| `source` | program / external source 文本；每个 case `sourcePath` 必须 listed 且 role=source；`sourcePath` 仅 `.lean` 且位于 closed roots `Examples/`、`testdata/valid/`、`testdata/evm-corpus/v1/programs/` |
 | `schema-fixture` | `schema-tests/**` 形状自检 |
-| `runner` | 上表 sole validator/runner/Lean harness |
+| `runner` | 上表 exact 9 harness 路径 |
 
-未知 role / duplicate path / 非升序 path → fail closed。corpus 树内 **禁止** symlink、
-hardlink（`nlink != 1`）、非 regular；stable read 在读前后 `lstat` 比较
-`(ino,dev,mode,size,nlink,mtime_ns)` 并要求 `size == len(bytes)` 与 sha256 exact。
-manifest 对 corpus 树是 exact：缺列或列了不存在/多余的 corpus 路径均 `PF-CORPUS-INVARIANT`。
+未知 role / duplicate path / 非升序 path → fail closed。
+
+**Allowlist-before-read**：validator 先从 corpus walk + 固定 `cases/` authority 解码出
+`required_sources` 与 `REQUIRED_RUNNER_PATHS`，构造 exact allowlist；`listed` 必须恰等于
+该集合（extra 含 `.env` 等恶意路径在读取前 `PF-CORPUS-INVARIANT`）。仅 allowlist 通过后
+才对 listed 路径做 stable observation。
+
+corpus 树与 listed 路径 **禁止** symlink（含 dirnames 中的 symlink 目录与 repo→leaf 任意
+component）、hardlink（`nlink != 1`）、非 regular。stable read 使用
+`O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK`（平台可用时）+ fstat/read/fstat 比较
+`(ino,dev,mode,size,nlink,mtime_ns)`，要求 `size == len(bytes)` 与 sha256 exact。
+这是 engineering stable observation，**不**声称 race-free/hermetic。
 
 **Manifest 不是 formal evidence**，也不替代 `proof-forge.evidence.v1` / OutputSet。
 

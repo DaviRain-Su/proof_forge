@@ -86,7 +86,6 @@ private def expectedSourceHash : String :=
 private def expectedSemanticHash : String :=
   "4874d5f6e5b589a26f3175920fee6aa06d59009be8d8c38a45bdc3bd8c14dd75"
 private def expectedProfile : String := "evm-yul-solc-0.8.34-cancun-v1"
-private def expectedHardfork : String := "cancun"
 
 /-- Corpus fixture path (project-relative; sole Ownable-like authority). -/
 private def ownableSourcePath : FilePath :=
@@ -220,8 +219,8 @@ private def testOwnableCasePinSurface : IO Unit := do
     "blocked case must pin real Normalize semanticHash"
   expect (containsSubstr text expectedProfile)
     "blocked case must pin Cancun profile id"
-  expect (containsSubstr text expectedHardfork)
-    "blocked case must pin hardfork=cancun"
+  expect (containsSubstr text "\"hardfork\":\"cancun\"")
+    "blocked case must pin exact hardfork field (not only profile substring)"
   expect (containsSubstr text "\"runner\":\"lean-focused\"")
     "blocked case runner must be lean-focused"
   expect (containsSubstr text "\"phase\":\"plan\"")
