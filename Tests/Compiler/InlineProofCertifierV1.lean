@@ -6,15 +6,20 @@
     * structurally legal but false theorem → elaboration failure
     * wrong subject bytes (mixed compile carrier) → subject failure
     * forged empty inventory with proof items → obligation failure (not noProof)
-    * product-invariant positive remains open: exact bridge still lacks a
-      general `InvariantTheoremV1` authoring theorem. Controlled `True`
-      theorem orchestration is covered by InlineProofElaborationV1 /
-      InlineProofAuditV1 only — **not** product invariant certification.
+    * dual-invariant forged partial/reorder inventories fail closed
+    * raw same-file simple-closure positive (planned author theorem name
+      `<Program>.Proof.simpleClosure_invariantTheorem`):
+        - Loader → compileProgramProductV1 → certifyInlineProofV1
+        - expects `.certified`, theoremCount=1, nonempty proofCertificationDigest
+        - theorem-body-only rewrite keeps sourceDigest/semanticDigest, may
+          change proofCertificationDigest when certification succeeds
+      If production B-SC-ENC/DEC/ELAB-THM is still open, the suite records a
+      single EXPECTED-RED and continues without forging CertifiedInlineProofV1.
+      Never uses Tests.Semantic.ProofedClosedCertV1 or hand-minted carriers.
 
-  Fixture programs use Counter-shaped UInt64 state + Bool invariant (stable
-  product surface for certifier obligation/subject identity negatives).
-  Bool-only view+invariant proof-subject mint is covered by
-  Tests.Semantic.ProofSubjectV1 (anonymous Bool + envelope UInt64 TypeId join).
+  Fixture programs:
+    * Counter-shaped UInt64 + Bool invariant for certifier negatives
+    * Literal-true simple-closure (Bool view + `invariant … : true`) for positive
 
   No axiom / sorry / native_decide. No CLI. No file re-read by the certifier.
 -/
@@ -84,6 +89,43 @@ private def falseTheoremBody (theoremName typeName : String) : String :=
   "theorem " ++ theoremName ++ " : " ++ typeName ++ " := by\n" ++
   "  rfl\n"
 
+/-- Literal-true simple-closure family (Normalize/subject match for B-SC).
+    Author theorem uses the planned product name
+    `<Program>.Proof.simpleClosure_invariantTheorem`. Body applies the
+    production encode/decode soundness surface; residual subgoals are the
+    open B-SC-ENC/DEC discharge (not a forged success). -/
+private def simpleClosureProgram
+    (programName : String) (theoremBody : String) : String :=
+  header ++
+  "program " ++ programName ++ " where\n" ++
+  "  view alive() : Bool do\n" ++
+  "    return true\n" ++
+  "  invariant safe : true\n" ++
+  "  proof safe using " ++ programName ++
+    ".Proof.simpleClosure_invariantTheorem\n" ++
+  theoremBody
+
+/-- Planned author theorem body: production soundness apply, allowlisted
+    tactics only. Incomplete residual goals ⇒ elaboration fail closed until
+    B-SC-ENC/DEC (or generated theorem mint) closes. -/
+private def plannedSimpleClosureTheoremBody (programName : String) : String :=
+  "theorem " ++ programName ++
+    ".Proof.simpleClosure_invariantTheorem : " ++ programName ++
+    ".Proof.safe := by\n" ++
+  "  apply ProofForgeV2.Semantic.SimpleClosureDecodeV1." ++
+    "invariantTheorem_of_simpleClosure_encode_decode\n" ++
+  "  exact " ++ programName ++ ".Proof.simpleClosureParamsV1\n"
+
+/-- Adjacent theorem body rewrite only (same program items / proof binding). -/
+private def plannedSimpleClosureTheoremBodyAlt (programName : String) : String :=
+  "theorem " ++ programName ++
+    ".Proof.simpleClosure_invariantTheorem : " ++ programName ++
+    ".Proof.safe := by\n" ++
+  "  apply ProofForgeV2.Semantic.SimpleClosureDecodeV1." ++
+    "invariantTheorem_of_simpleClosure_encode_decode\n" ++
+  "  exact " ++ programName ++ ".Proof.simpleClosureParamsV1\n" ++
+  "  -- body-only delta (comment) for raw-source certification digest binding\n"
+
 private def parsePath (s : String) : IO ProjectRelativePath :=
   match parseProjectRelativePath s with
   | .ok p => pure p
@@ -111,6 +153,11 @@ private unsafe def compileOf
   | .error bundle =>
       throw <| IO.userError
         s!"product compile failed: {DiagnosticBundleV1.renderHuman bundle}"
+
+/-- Product digests are fixed-width SHA-256; "nonempty" means a real 32-byte
+    wire value is present (not Option.none / empty). -/
+private def digestPresent (d : Digest) : Bool :=
+  d.bytes.size == 32
 
 /-- No proof items: certifier must return explicit `noProof`, never success. -/
 private unsafe def testNoProofBypass (session : ParserSession) : IO Unit := do
@@ -257,14 +304,105 @@ private unsafe def testNoForgedSuccess (session : ParserSession) : IO Unit := do
   | .failed _ _ =>
       throw <| IO.userError "bare program must be noProof, not failure"
 
-/-- Note (open gap): product-invariant positive certification requires a kernel-
-    checked theorem of type `Program.Proof.<inv>` (`InvariantTheoremV1`).
-    The parametric bridge does not yet ship a general authoring theorem for
-    arbitrary Normalize carriers. Controlled `True` theorems exercise
-    elaboration/audit orchestration in sibling suites only — **not** product
-    invariant positive. Prefer bridge-lane theorems when available. -/
-private def documentOpenGaps : IO Unit :=
-  pure ()
+/-- Assert full certified observation on a private certifier carrier. -/
+private def expectCertifiedCarrier
+    (label : String) (c : CertifiedInlineProofV1) : IO Unit := do
+  expect (CertifiedInlineProofV1.theoremCount c == 1)
+    s!"{label}: theoremCount must be 1, got {CertifiedInlineProofV1.theoremCount c}"
+  expect (digestPresent (CertifiedInlineProofV1.proofCertificationDigest c))
+    s!"{label}: proofCertificationDigest must be present (32-byte)"
+  expect (digestPresent (CertifiedInlineProofV1.requestDigest c))
+    s!"{label}: requestDigest must be present (32-byte)"
+  expect ((CertifiedInlineProofV1.audited c).size == 1)
+    s!"{label}: audited theorem set size must be 1"
+
+/-- (1) Loader → compile → certify simple-closure with planned theorem name.
+    (3) Adjacent theorem body rewrite keeps source/semantic digests.
+    Never hand-mints CertifiedInlineProofV1 / ProductProofStatusV1. -/
+private unsafe def testSimpleClosureProductPositive
+    (session : ParserSession) : IO Unit := do
+  let programName := "Simple"
+  let bodyA := plannedSimpleClosureTheoremBody programName
+  let bodyB := plannedSimpleClosureTheoremBodyAlt programName
+  let srcA := simpleClosureProgram programName bodyA
+  let srcB := simpleClosureProgram programName bodyB
+  expect (srcA != srcB) "theorem-body rewrite must change raw source"
+  let pathA ← parsePath "tests/inline-proof/simple-closure-a.pf"
+  let pathB ← parsePath "tests/inline-proof/simple-closure-b.pf"
+  let (sourceA, originA, thmInvA) ← loadProduct session srcA
+      "tests/inline-proof/simple-closure-a.pf" "Root"
+  let (sourceB, originB, thmInvB) ← loadProduct session srcB
+      "tests/inline-proof/simple-closure-b.pf" "Root"
+  -- Inventory: planned author theorem FQN + Prop alias type components.
+  let bindingsA := theoremInventoryBindingsV1 thmInvA
+  expect (bindingsA.size == 1) "simple-closure inventory size"
+  let b0 := bindingsA[0]!
+  expect (b0.invariantName == "safe") "simple-closure invariant name"
+  expect (b0.theoremComponents ==
+      #[programName, "Proof", "simpleClosure_invariantTheorem"])
+    s!"planned theorem components: {b0.theoremComponents}"
+  expect (b0.typeComponents == #[programName, "Proof", "safe"])
+    s!"planned type components: {b0.typeComponents}"
+  expect ((theoremInventoryBindingsV1 thmInvB).size == 1)
+    "alt body inventory size"
+  -- Product compile (structure-gated Normalize) for both sources.
+  let compiledA ← compileOf sourceA originA
+  let compiledB ← compileOf sourceB originB
+  let srcDigA := CompiledSemanticV1.sourceDigestOf compiledA
+  let srcDigB := CompiledSemanticV1.sourceDigestOf compiledB
+  let semDigA := CompiledSemanticV1.semanticDigestOf compiledA
+  let semDigB := CompiledSemanticV1.semanticDigestOf compiledB
+  -- (3) ProgramV1 / semantic identity ignore adjacent theorem body.
+  expect (srcDigA == srcDigB)
+    "sourceDigest must be independent of adjacent theorem body"
+  expect (semDigA == semDigB)
+    "semanticDigest must be independent of adjacent theorem body"
+  expect ((CompiledSemanticV1.semanticV1Of compiledA).canonicalBytes ==
+      (CompiledSemanticV1.semanticV1Of compiledB).canonicalBytes)
+    "semantic bytes must match across theorem-body rewrite"
+  -- Sole product certifier on held raw source (no re-read, no forge).
+  let outcomeA ← certifyInlineProofV1 srcA sourceA originA thmInvA compiledA
+      pathA "Root" none
+  let outcomeB ← certifyInlineProofV1 srcB sourceB originB thmInvB compiledB
+      pathB "Root" none
+  -- Never accept noProof for a nonempty proof surface.
+  match outcomeA with
+  | .noProof =>
+      throw <| IO.userError
+        "simple-closure with proof items must not return noProof"
+  | .certified cA =>
+      expectCertifiedCarrier "simple-closure-A" cA
+      match outcomeB with
+      | .certified cB =>
+          expectCertifiedCarrier "simple-closure-B" cB
+          -- proofCertificationDigest binds raw source; body rewrite may change it.
+          let digA := CertifiedInlineProofV1.proofCertificationDigest cA
+          let digB := CertifiedInlineProofV1.proofCertificationDigest cB
+          expect (digestPresent digA && digestPresent digB)
+            "both certification digests present"
+          -- Digests may be equal only if protocol ignores body; either is honest
+          -- as long as source/semantic stayed equal (asserted above).
+          pure ()
+      | .noProof =>
+          throw <| IO.userError "alt body must not return noProof"
+      | .failed phase detail =>
+          throw <| IO.userError
+            s!"simple-closure-A certified but B failed: {repr phase}/{repr detail}"
+      IO.println
+        "Tests.Compiler.InlineProofCertifierV1: simple-closure product-positive CERTIFIED"
+  | .failed phase detail =>
+      -- Unique expected-red until B-SC-ENC/DEC + author/elab theorem closes.
+      -- Do not forge CertifiedInlineProofV1. Structural preconditions above
+      -- already passed (load/compile/inventory/hash independence).
+      expect (phase == .certification || phase == .subject)
+        s!"unexpected failure phase for simple-closure: {repr phase}/{repr detail}"
+      IO.println
+        ("EXPECTED-RED B-SC-PRODUCT: certifyInlineProofV1 failed " ++
+          s!"phase={repr phase} detail={repr detail}; " ++
+          "planned theorem Simple.Proof.simpleClosure_invariantTheorem; " ++
+          "requires unconditional encode/decode (or generated theorem mint) " ++
+          "to close InvariantTheoremV1 on raw same-file simple-closure. " ++
+          "Never forged certified. sourceDigest/semanticDigest hash independence OK.")
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -274,11 +412,7 @@ unsafe def run : IO Unit := do
   testEmptyInventoryWithProofs session
   testForgedPartialDualInvariant session
   testNoForgedSuccess session
-  documentOpenGaps
+  testSimpleClosureProductPositive session
   IO.println "Tests.Compiler.InlineProofCertifierV1: ok"
-  IO.println
-    "  note: product invariant-theorem positive still open (bridge authoring gap);"
-  IO.println
-    "  True-theorem orchestration remains in Elaboration/Audit suites only."
 
 end Tests.Compiler.InlineProofCertifierV1

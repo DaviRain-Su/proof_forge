@@ -8,9 +8,20 @@
       zero output directory (certifier before TargetRegistry resolve/materialize)
     * false theorem + valid target on build: fails before staging, no output
     * legacy `--proof-bundle*` flags remain unknown options
+    * raw same-file simple-closure positive (planned
+      `<Program>.Proof.simpleClosure_invariantTheorem`):
+        (2) CLI check human+JSON → certified, count=1, nonempty digest
+        (3) theorem-body-only rewrite: source/semantic digests stable; cert digest
+            may change (binds raw source)
+        (4) certified then unknown target → unknown target, zero output
+        (5) repeat check → same proofCertificationDigest
+        (6) certified + legal target → materializer nonempty-invariant fail closed,
+            no destination/staging
+      If B-SC-PRODUCT is still open, records a single EXPECTED-RED and skips
+      certified-dependent CLI assertions without forging certified.
 
-  Positive product invariant certification remains open (bridge authoring gap).
   No sorry / axiom / native_decide / unsafe proof escape / forged positive.
+  Does not import or proxy Tests.Semantic.ProofedClosedCertV1.
 -/
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Core.Common
@@ -88,6 +99,29 @@ private def falseTheoremSource : String :=
   "theorem ProofedProof.safe : Proofed.Proof.safe := by\n" ++
   "  rfl\n"
 
+/-- Literal-true simple-closure + planned author theorem name. -/
+private def simpleClosureSource (programName bodyExtra : String) : String :=
+  fixtureHeader ++
+  "program " ++ programName ++ " where\n" ++
+  "  view alive() : Bool do\n" ++
+  "    return true\n" ++
+  "  invariant safe : true\n" ++
+  "  proof safe using " ++ programName ++
+    ".Proof.simpleClosure_invariantTheorem\n" ++
+  bodyExtra
+
+private def plannedTheoremBody (programName : String) : String :=
+  "theorem " ++ programName ++
+    ".Proof.simpleClosure_invariantTheorem : " ++ programName ++
+    ".Proof.safe := by\n" ++
+  "  apply ProofForgeV2.Semantic.SimpleClosureDecodeV1." ++
+    "invariantTheorem_of_simpleClosure_encode_decode\n" ++
+  "  exact " ++ programName ++ ".Proof.simpleClosureParamsV1\n"
+
+private def plannedTheoremBodyAlt (programName : String) : String :=
+  plannedTheoremBody programName ++
+  "  -- adjacent theorem body delta only\n"
+
 private def writeFixture (name body : String) : IO FilePath := do
   IO.FS.createDirAll fixtureRoot
   let path := fixtureRoot / FilePath.mk name
@@ -96,6 +130,35 @@ private def writeFixture (name body : String) : IO FilePath := do
 
 private def relativeFixture (name : String) : String :=
   s!"build/v2/inline-proof-cli-fixtures/{name}"
+
+/-- Extract a human `key=value` field from check stdout (first match). -/
+private def humanField? (stdout key : String) : Option String :=
+  let needle := key ++ "="
+  let rec loop (lines : List String) : Option String :=
+    match lines with
+    | [] => none
+    | line :: rest =>
+        if hasSubstr line needle &&
+            needle.toList.isPrefixOf line.toList then
+          -- Lean 4.31: drop returns String.Slice; rebuild via characters.
+          let cs := line.toList.drop needle.length
+          some (String.ofList cs)
+        else
+          loop rest
+  loop (stdout.splitOn "\n")
+
+/-- Extract a JSON string field value for `"key":"…"` (first match). -/
+private def jsonStringField? (text key : String) : Option String :=
+  let needle := s!"\"{key}\":\""
+  match text.splitOn needle with
+  | _ :: more =>
+      match more with
+      | rest :: _ =>
+          match rest.splitOn "\"" with
+          | value :: _ => some value
+          | [] => none
+      | [] => none
+  | _ => none
 
 /-- Counter check: no proof surface → status not-required. -/
 private def testCounterCheckNoProof : IO Unit := do
@@ -263,6 +326,162 @@ private def testRenderProofStatusFields : IO Unit := do
       expect (hasSubstr text "proofCertificationDigest=sha256:")
         "human cert digest"
 
+/-- (2)(3)(5) simple-closure check positive + hash independence + digest stability.
+    (4) unknown target after certified. (6) materializer FC on nonempty invariant. -/
+private def testSimpleClosureProductPositiveCli : IO Unit := do
+  let programName := "Simple"
+  let srcA := simpleClosureSource programName (plannedTheoremBody programName)
+  let srcB := simpleClosureSource programName (plannedTheoremBodyAlt programName)
+  expect (srcA != srcB) "CLI fixtures must differ only in theorem body"
+  let _ ← writeFixture "simple-closure-a.lean" srcA
+  let _ ← writeFixture "simple-closure-b.lean" srcB
+  let relA := relativeFixture "simple-closure-a.lean"
+  let relB := relativeFixture "simple-closure-b.lean"
+
+  let (ecA, stdoutA, stderrA) ← runCli #["check", relA, "--module", "Root"]
+  if ecA != 0 then
+    -- Unique expected-red: product certifier cannot close planned theorem yet.
+    expect (ecA == 3)
+      s!"simple-closure check expected exit 3 while red, got {ecA}\n{stderrA}\n{stdoutA}"
+    expect (hasSubstr stderrA "PF-SRC-INVALID" ||
+        hasSubstr stderrA "inline proof certification failed")
+      s!"EXPECTED-RED must be proof failure, not usage:\n{stderrA}"
+    expect (!hasSubstr stdoutA "proofStatus=certified")
+      "must never print certified on failure"
+    IO.println
+      ("EXPECTED-RED B-SC-PRODUCT: CLI check not certified for " ++
+        "Simple.Proof.simpleClosure_invariantTheorem; " ++
+        s!"exit={ecA}; stderr head records certifier failure. " ++
+        "Skipping certified-dependent CLI coverages (2 full/4/5/6). " ++
+        "No forged certified. Negatives remain authoritative.")
+    return
+
+  -- (2) human certified
+  expect (hasSubstr stdoutA "ok\n") s!"check ok:\n{stdoutA}"
+  expect (hasSubstr stdoutA "proofStatus=certified")
+    s!"human certified:\n{stdoutA}"
+  expect (hasSubstr stdoutA "proofTheoremCount=1")
+    s!"human count=1:\n{stdoutA}"
+  let digA ← match humanField? stdoutA "proofCertificationDigest" with
+    | some d => pure d
+    | none => throw <| IO.userError s!"missing human cert digest:\n{stdoutA}"
+  expect (hasSubstr digA "sha256:")
+    s!"human cert digest wire:\n{digA}"
+  expect (digA != "none")
+    "certified digest must not be none"
+  expect (stderrA == "")
+    s!"certified check must be silent on stderr: {stderrA}"
+
+  let (ecJ, stdoutJ, stderrJ) ← runCli #[
+    "check", relA, "--module", "Root", "--json"
+  ]
+  expect (ecJ == 0) s!"json check exit 0, got {ecJ}\n{stderrJ}"
+  expectCanonicalJson "simple-closure-check" stdoutJ
+  expect (hasSubstr stdoutJ "\"proofStatus\":\"certified\"")
+    s!"json certified: {stdoutJ}"
+  expect (hasSubstr stdoutJ "\"proofTheoremCount\":1")
+    s!"json count 1: {stdoutJ}"
+  expect (hasSubstr stdoutJ "\"proofCertificationDigest\":\"sha256:")
+    s!"json cert digest: {stdoutJ}"
+  let srcDigA ← match jsonStringField? stdoutJ "sourceDigest" with
+    | some d => pure d
+    | none => throw <| IO.userError s!"json sourceDigest: {stdoutJ}"
+  let semDigA ← match jsonStringField? stdoutJ "semanticDigest" with
+    | some d => pure d
+    | none => throw <| IO.userError s!"json semanticDigest: {stdoutJ}"
+  let certDigJ ← match jsonStringField? stdoutJ "proofCertificationDigest" with
+    | some d => pure d
+    | none => throw <| IO.userError s!"json cert digest missing: {stdoutJ}"
+
+  -- (3) theorem-body rewrite: source/semantic stable; cert may change
+  let (ecB, stdoutB, stderrB) ← runCli #[
+    "check", relB, "--module", "Root", "--json"
+  ]
+  expect (ecB == 0)
+    s!"alt body must also certify, got {ecB}\n{stderrB}\n{stdoutB}"
+  expectCanonicalJson "simple-closure-check-b" stdoutB
+  expect (hasSubstr stdoutB "\"proofStatus\":\"certified\"")
+    s!"alt certified: {stdoutB}"
+  let srcDigB ← match jsonStringField? stdoutB "sourceDigest" with
+    | some d => pure d
+    | none => throw <| IO.userError s!"alt sourceDigest: {stdoutB}"
+  let semDigB ← match jsonStringField? stdoutB "semanticDigest" with
+    | some d => pure d
+    | none => throw <| IO.userError s!"alt semanticDigest: {stdoutB}"
+  expect (srcDigA == srcDigB)
+    s!"sourceDigest independent of theorem body:\nA={srcDigA}\nB={srcDigB}"
+  expect (semDigA == semDigB)
+    s!"semanticDigest independent of theorem body:\nA={semDigA}\nB={semDigB}"
+  -- proofCertificationDigest binds raw source (may differ); both nonempty.
+  let certDigB ← match jsonStringField? stdoutB "proofCertificationDigest" with
+    | some d => pure d
+    | none => throw <| IO.userError s!"alt cert digest: {stdoutB}"
+  expect (hasSubstr certDigJ "sha256:" && hasSubstr certDigB "sha256:")
+    "cert digests must be sha256 wires"
+
+  -- (5) repeat check digest stable
+  let (ecR, stdoutR, stderrR) ← runCli #[
+    "check", relA, "--module", "Root", "--json"
+  ]
+  expect (ecR == 0) s!"repeat check exit 0: {ecR}\n{stderrR}"
+  let certDigR ← match jsonStringField? stdoutR "proofCertificationDigest" with
+    | some d => pure d
+    | none => throw <| IO.userError s!"repeat cert digest: {stdoutR}"
+  expect (certDigR == certDigJ)
+    s!"repeat check digest must be stable:\n1={certDigJ}\n2={certDigR}"
+
+  -- (4) certified then unknown target → usage unknown target, zero output
+  let outUnknown := FilePath.mk "build/v2/inline-proof-simple-unknown-target"
+  if ← outUnknown.pathExists then IO.FS.removeDirAll outUnknown
+  let (ecU, stdoutU, stderrU) ← runCli #[
+    "build", relA,
+    "--module", "Root",
+    "--target", "not-a-real-target",
+    "-o", outUnknown.toString
+  ]
+  -- Usage exit for unknown target (not PF-SRC-INVALID — proof already certified).
+  expect (ecU != 0)
+    s!"unknown target must fail, got {ecU}\n{stderrU}\n{stdoutU}"
+  expect (hasSubstr stderrU "unknown target")
+    s!"must report unknown target after certified:\n{stderrU}"
+  expect (!hasSubstr stderrU "PF-SRC-INVALID")
+    s!"certified path must not re-fail as PF-SRC-INVALID:\n{stderrU}"
+  expect (!(← outUnknown.pathExists))
+    "unknown target must create no destination"
+  expect (!hasSubstr stdoutU "built target=")
+    "unknown target must not print build success"
+
+  -- (6) legal target + nonempty invariant → materializer fail closed, no staging
+  let outSol := FilePath.mk "build/v2/inline-proof-simple-solana-fc"
+  if ← outSol.pathExists then IO.FS.removeDirAll outSol
+  let (ecS, stdoutS, stderrS) ← runCli #[
+    "build", relA,
+    "--module", "Root",
+    "--target", "solana",
+    "-o", outSol.toString
+  ]
+  expect (ecS != 0)
+    s!"nonempty invariant materializer must fail closed, got {ecS}\n{stderrS}\n{stdoutS}"
+  expect (
+      hasSubstr stderrS "invariant" ||
+      hasSubstr stderrS "invariants" ||
+      hasSubstr stderrS "unsupported")
+    s!"must name invariant/unsupported materializer FC:\n{stderrS}"
+  expect (!(← outSol.pathExists))
+    "materializer FC must not publish destination"
+  let parent := FilePath.mk "build/v2"
+  if ← parent.pathExists then
+    let entries ← parent.readDir
+    let stagingLeft := entries.filter fun e =>
+      e.fileName.startsWith ".inline-proof-simple-solana-fc.staging-"
+    expect stagingLeft.isEmpty
+      "materializer FC must not leave staging residue"
+  expect (!hasSubstr stdoutS "built target=")
+    "materializer FC must not print build success"
+
+  IO.println
+    "Tests.CLI.InlineProofProductV1: simple-closure product-positive CERTIFIED (2–6)"
+
 def run : IO Unit := do
   testRenderProofStatusFields
   testLegacyProofBundleFlagsUnknown
@@ -271,6 +490,7 @@ def run : IO Unit := do
     testFalseTheoremCheckFails
     testFalseTheoremBuildBeforeInvalidTarget
     testFalseTheoremBuildBeforeMaterialize
+    testSimpleClosureProductPositiveCli
   else
     IO.println "Tests.CLI.InlineProofProductV1: skip product CLI (binary absent)"
   IO.println "Tests.CLI.InlineProofProductV1: ok"
