@@ -99,8 +99,13 @@ jobs:
       - name: Prune stale olean artifacts
         run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
 
-      - name: Lean product gate (nine non-target shards)
-        run: just ci-lean-product
+      - name: Lean non-target shards
+        env:
+          PROOF_FORGE_TEST_JOBS: "9"
+        run: just test-nontarget
+
+      - name: Lean product and deletion gates
+        run: just ci-lean-gates
 
   target-smoke:
     name: target-smoke
@@ -147,8 +152,11 @@ jobs:
       - name: Prune stale olean artifacts
         run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
 
-      - name: Serial target shard and CLI smoke
-        run: just ci-target-smoke
+      - name: Serial target shard
+        run: just test-targets
+
+      - name: Target CLI and NFR smoke
+        run: just ci-target-cli-smoke
 
   # BUILD-4: Solana Mollusk runtime is a separate job so Lean product CI failures
   # surface without waiting on Rust, and Solana failures do not hide Lean green.
