@@ -215,6 +215,9 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .narrowSar bitWidth lhs rhs =>
       pure ((((encodeU8 58).append (← encodeNatAsU32le bitWidth)).append
         (← encodeExpr lhs)).append (← encodeExpr rhs))
+  -- B-CTX-OPEN: block timestamp seconds (tag 59 appended; prior tags
+  -- byte-identical).
+  | .timestamp => pure (encodeU8 59)
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

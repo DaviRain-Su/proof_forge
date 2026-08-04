@@ -80,6 +80,9 @@ inductive HostImport where
       are explicit zero placeholders in the emitted WAT — not economics. Only
       present on Plans that lower at least one schedule. -/
   | promiseBatchActionFunctionCall
+  /-- B-CTX-OPEN: host `block_timestamp` (nanoseconds → i64). Only present on
+      Plans that lower at least one `context.unixTimeSeconds` read. -/
+  | blockTimestamp
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -183,6 +186,10 @@ inductive Expr where
   /-- Mutable plan-local (loop induction). Index is method-local and unique per
       forLoop; IR lowering maps it to a stable Wasm temp rewritten each latch. -/
   | localTemp (index : Nat)
+  /-- B-CTX-OPEN: block timestamp in whole seconds. NEAR host `block_timestamp`
+      returns nanoseconds; the IR divides by 10^9 (truncating) so the DSL
+      `context.unixTimeSeconds` semantics hold exactly. UInt64-typed. -/
+  | blockTimestampSeconds
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -390,8 +397,10 @@ private def promiseHostImports : Array HostImport := #[
   .promiseBatchCreate, .promiseBatchActionFunctionCall
 ]
 
-def hostImportsFor (usesPromise : Bool) : Array HostImport :=
-  if usesPromise then canonicalImports ++ promiseHostImports else canonicalImports
+def hostImportsFor (usesPromise usesTimestamp : Bool) : Array HostImport :=
+  let base :=
+    if usesPromise then canonicalImports ++ promiseHostImports else canonicalImports
+  if usesTimestamp then base ++ #[.blockTimestamp] else base
 
 def canonicalRegisters : RegisterLayout := {
   input := 0
@@ -2955,12 +2964,27 @@ private def lowerBlockInstructionsV1
           dependencies := operand.dependencies.push valueId
           aggregateLeaves := operand.aggregateLeaves
         }
-    | .contextRead key, some _ =>
+    | .contextRead key, some result =>
+        -- B-CTX-OPEN (NEAR): `context.unixTimeSeconds` lowers to host
+        -- `block_timestamp()` (nanoseconds) divided by 10^9 (truncating) —
+        -- see Expr.blockTimestampSeconds. `context.caller` and unknown keys
+        -- stay fail closed.
+        if key == callerContextKeyV1 then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: ContextRead (context.caller) is not admitted (account-id to Principal identity mapping deferred)"
         unless key == unixTimeSecondsContextKeyV1 do
           throw <| .planInvariant .near
             s!"unsupported NEAR semantic shape: unknown ContextRead key '{key.value}'"
-        throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: ContextRead is not admitted by pilot context policy"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: ContextRead unix-time-seconds result must be UInt64"
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := .blockTimestampSeconds
+          kind := .uint64
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
     | _, _ =>
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: instruction op/result is outside the current UInt64 pilot"
@@ -3599,6 +3623,55 @@ private def makePureFnV1
     body := lowered.body
   }
 
+/-- B-CTX-OPEN: does an expression tree reference the block timestamp?
+    Conservative structural scan driving the `block_timestamp` host import. -/
+partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
+  match expr with
+  | .blockTimestampSeconds => true
+  | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ => false
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      exprUsesTimestampV1 l || exprUsesTimestampV1 r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      exprUsesTimestampV1 e
+  | .callFn _ args => args.any exprUsesTimestampV1
+
+/-- Does any statement tree in the list reference the block timestamp? -/
+partial def statementsUseTimestampV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .store op => exprUsesTimestampV1 op.value
+    | .storeAtomic leaves => leaves.any fun leaf => exprUsesTimestampV1 leaf.value
+    | .returnValue value => exprUsesTimestampV1 value
+    | .returnAggregate leaves _ => leaves.any exprUsesTimestampV1
+    | .assert condition => exprUsesTimestampV1 condition
+    | .emitEvent _ args => args.any exprUsesTimestampV1
+    | .revertError _ args => args.any exprUsesTimestampV1
+    | .promiseAccount _ _ args => args.any exprUsesTimestampV1
+    | .ifThenElse condition thenBody elseBody =>
+        exprUsesTimestampV1 condition ||
+          statementsUseTimestampV1 thenBody || statementsUseTimestampV1 elseBody
+    | .switchOn scrutinee cases defaultBody =>
+        exprUsesTimestampV1 scrutinee || statementsUseTimestampV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseTimestampV1 caseBody
+    | .forLoop _ initial cond update _ body =>
+        exprUsesTimestampV1 initial || exprUsesTimestampV1 cond ||
+          exprUsesTimestampV1 update || statementsUseTimestampV1 body
+    | .returnNone => false
+
+def planUsesTimestampV1 (plan : Plan) : Bool :=
+  statementsUseTimestampV1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUseTimestampV1 m.body) ||
+    plan.fns.any (fun f => statementsUseTimestampV1 f.body)
+
 /-- UInt64-compatible plan expression (comparison / boolNot / boolAnd / boolOr /
     Bool callFn results are not; shift/bitwise trees are). -/
 partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
@@ -3712,6 +3785,10 @@ private def makePlanFromSemanticDataV1
     statementsUsePromiseV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUsePromiseV1 m.body) ||
       fns.any (fun f => statementsUsePromiseV1 f.body)
+  let usesTimestamp :=
+    statementsUseTimestampV1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUseTimestampV1 m.body) ||
+      fns.any (fun f => statementsUseTimestampV1 f.body)
   let plan : Plan := {
     targetDescriptor := descriptor
     semanticSchemaVersion := semanticProgramSchemaVersionV1
@@ -3719,7 +3796,7 @@ private def makePlanFromSemanticDataV1
     hostAbi := hostAbiVersion
     inputAbi := rawInputAbi
     layoutDomain := stateLayoutDomain
-    hostImports := hostImportsFor usesPromise
+    hostImports := hostImportsFor usesPromise usesTimestamp
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits

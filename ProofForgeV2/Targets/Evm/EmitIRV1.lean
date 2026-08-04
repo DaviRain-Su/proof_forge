@@ -60,6 +60,7 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
   | .narrowParam bitWidth wordIndex =>
       s!"and({paramPrefix}{wordIndex}, {yulUintMask bitWidth})"
   | .temp tempIndex => s!"t{tempIndex}"
+  | .timestamp => "timestamp()"
   | .storageLoad slot => s!"sload({slot})"
   | .narrowStorageLoad bitWidth slot =>
       s!"and(sload({slot}), {yulUintMask bitWidth})"
@@ -252,6 +253,13 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
   | .temp tempIndex =>
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := t{tempIndex}\n", value := name, next := next + 1 }
+  | .timestamp =>
+      -- B-CTX-OPEN: block timestamp seconds with the UInt64 range guard
+      -- (same discipline as storageLoad).
+      let name := s!"expr{next}"
+      { code := s!"{indent}let {name} := timestamp()\n" ++
+          s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
+        value := name, next := next + 1 }
   | .storageLoad slot =>
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := sload({slot})\n" ++

@@ -227,8 +227,14 @@ private def mkImplementedRow
     Op.ExternalCall/Schedule take compile-time QN, not a dynamic address
     ValueId — no Principal→20B/32B map); NEAR has no synchronous external calls
     but owns async workflow promises, so it declines sync and supports
-    `effect.asynchronous-workflow`; Noir's verifier-witness response model
-    supports both; Aleo declines both call families (no static-callee Plan
+    `effect.asynchronous-workflow`; Noir admits both call keys as a
+    **witness-binding relation** (B-CALL-SEM honesty, 2026-08-04 review):
+    call/schedule args become public-input slots asserted equal to the
+    computed values, and the outcome is a `callStatus` witness — the circuit
+    executes **no** external call and the proof does **not** attest that any
+    on-chain call happened; a caller-side executor must perform the call and
+    supply the response. Result-bearing calls (N-CALL-RET) stay fail closed
+    pending a response-witness contract. Aleo declines both call families (no static-callee Plan
     open) and `effect.event` (Leo 4.0.2 has no on-chain event log — emit fails
     closed at the materializer); Psy supports sync calls and events but
     declines `effect.asynchronous-workflow` (no emitted deferred crosscall

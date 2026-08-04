@@ -185,6 +185,9 @@ inductive Expr where
   /-- ArrayState: evaluate `index`, revert when `index ≥ length`, return index.
       Used so runtime IndexSet rebinds can share a single bounds gate. -/
   | boundsCheckedIndex (index : Expr) (length : Nat)
+  /-- B-CTX-OPEN: block timestamp seconds (EVM `timestamp()` opcode). Carries
+      the unix-time-seconds ContextRead; UInt64-typed. -/
+  | timestamp
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -3301,31 +3304,25 @@ private def lowerBlockInstructionsV1
           aggregateLeaves := operand.aggregateLeaves
           aggregateLeafIsInt := operand.aggregateLeafIsInt
         }
-    | .contextRead key, some _ =>
-        -- Research pin (EVM ContextRead decision): the two admitted closed
-        -- wire keys would naively map to EVM opcodes — `unix-time-seconds`
-        -- to the `timestamp()` opcode and `caller` to the `caller()` opcode —
-        -- but that is intentionally NOT done in this slice.
-        --   * `context.unixTimeSeconds` → `timestamp()` changes the EVM
-        --     semantic surface (a nonce-like block-context read) and would
-        --     require a new PlanSchema Expr tag; PlanSchema/ValidatePlan are
-        --     frozen against new tags here, and there is no established
-        --     EVM-side differential for block timestamp semantics.
-        --   * `context.caller` → `caller()` requires an address-bearing type
-        --     (20-byte address ABI) which B-3 `PrincipalAddr` explicitly keeps
-        --     fail-closed (no CALL/CPI unlock); a naive `caller()` read would
-        --     leak a 20-byte EVM address into a 32-byte Principal slot.
-        -- Decision: keep fail-closed for BOTH keys pending a separate EVM
-        -- ContextRead decision (TIMESTAMP/CALLER mapping). This is the
-        -- conservative boundary, not a silent fallback.
+    | .contextRead key, some result =>
+        -- B-CTX-OPEN (EVM): `context.unixTimeSeconds` lowers to the
+        -- `timestamp()` opcode (block-context read, UInt64-typed). This was
+        -- previously deferred pending a PlanSchema Expr tag (now tag 59) and
+        -- an Anvil differential (now present).
+        -- `context.caller` stays fail closed: B-3 PrincipalAddr pins the wire
+        -- Principal ≠ 20-byte address, and a naive `caller()` read would leak
+        -- a 20-byte EVM address into a 32-byte Principal slot.
         if key == callerContextKeyV1 then
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: ContextRead (context.caller) is not admitted by pilot context policy (B-3 PrincipalAddr pinned fail-closed; caller() address mapping deferred)"
         unless key == unixTimeSecondsContextKeyV1 do
           throw <| .planInvariant .evm
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: ContextRead (unix-time-seconds) is not admitted by pilot context policy (PlanSchema frozen; Yul timestamp() mapping deferred)"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: ContextRead unix-time-seconds result must be UInt64"
+        values := ← appendResultValueV1 result.typeId values result
+          (mkScalarValueV1 .timestamp #[] false false 64 1 1)
     | .externalCall _effectId callee argIds, some result =>
         -- N-CALL-RET/B-CALL-SEM: result-bearing sync call → real CALL +
         -- returndata read (see Statement.externalCallResult). Pilot admits
