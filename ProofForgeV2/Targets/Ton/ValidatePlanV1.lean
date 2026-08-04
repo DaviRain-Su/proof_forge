@@ -59,6 +59,8 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .stateLoad fieldIndex | .narrowStateLoad _ fieldIndex =>
         if fieldIndex < layout.fields.size then some 1 else none
     | .localTemp _ => some 1
+    -- B-CTX-OPEN: Tolk `blockchain.now()` leaf — arity 1 (mirrors EVM/NEAR).
+    | .blockUnixTimeSeconds => some 1
     | .checkedAdd lhs rhs => binaryNodes lhs rhs
     | .checkedSub lhs rhs => binaryNodes lhs rhs
     | .checkedMul lhs rhs => binaryNodes lhs rhs
