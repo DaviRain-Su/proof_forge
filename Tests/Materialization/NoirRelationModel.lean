@@ -3205,8 +3205,8 @@ private unsafe def checkMapEmptyUpsertProduct : IO Unit := do
   expectAccept "MapBox get(7) after put returns 42" get getOk
 
 /-- Array UInt64 N + Bytes N are open on Noir (flatten-to-leaf public inputs).
-    Option container state remains fail-closed. Map UInt64 dense pilot: see
-    `checkMapEmptyUpsertProduct` + TokenV1 product builds. -/
+    Option UInt64 state: see `checkOptionStateProduct` (B-OPT-STATE). Map UInt64
+    dense pilot: see `checkMapEmptyUpsertProduct` + TokenV1 product builds. -/
 private unsafe def checkArrayStateProduct : IO Unit := do
   let arrayText :=
     "import ProofForgeV2\n\n" ++
@@ -3242,7 +3242,7 @@ private unsafe def checkArrayStateProduct : IO Unit := do
 
 /-- Bytes N state: N×u8 public-input leaves, IndexGet/IndexSet (UInt32 index,
     UInt8 value), atomic storeAggregate for multi-leaf StateStore so sibling
-    pre-store snapshot is not polluted. Option state stays fail-closed. -/
+    pre-store snapshot is not polluted. -/
 private unsafe def checkBytesStateProduct : IO Unit := do
   let sourceText :=
     "import ProofForgeV2\n\n" ++
@@ -3332,30 +3332,215 @@ private unsafe def checkBytesStateProduct : IO Unit := do
       setNr.contents.contains "post_s1: pub u8")
     "ByteBox set0 .nr must declare both post-state leaves as pub u8"
 
-/-- Option state remains fail-closed on Noir (no Option state leaf layout). -/
-private unsafe def checkOptionStateFailClosed : IO Unit := do
-  let optionText :=
+/-- B-OPT-STATE / BL-32: Option UInt64 state = Enum-shaped 2-leaf layout
+    (`slot_tag` + `slot_p0`); none default zeros both; some/none assign via
+    construct + storeAggregate (none zeroes payload); match read via
+    VariantTag/VariantPayload; getSlot returns 2-leaf aggregate. -/
+private unsafe def checkOptionStateProduct : IO Unit := do
+  let sourceText :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
     "open ProofForgeV2.Language\n\n" ++
-    "program OptBox where\n" ++
+    "program OptionState where\n" ++
     "  state slot : Option UInt64\n\n" ++
     "  init() do\n" ++
     "    slot := Option.none()\n\n" ++
-    "  view get() : UInt64 do\n" ++
+    "  entry set(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  entry clear() : UInt64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
     "    match slot with\n" ++
     "    | Option.some(x) => do\n" ++
     "      return x\n" ++
     "    | _ => do\n" ++
     "      return 0\n\n" ++
+    "  view getSlot() : Option UInt64 do\n" ++
+    "    return slot\n\n" ++
     "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.OptionState" "<noir-option-state>"
+  -- Option UInt64 → tag + payload public-input leaves (Enum-shaped names).
+  expect (ir.sourcePlan.states.size == 2)
+    s!"OptionState must flatten Option UInt64 to 2 leaves, got {ir.sourcePlan.states.size}"
+  expect (ir.sourcePlan.states.any fun f => f.name == "slot_tag" && f.inputType == .u64)
+    "OptionState must have slot_tag u64 leaf"
+  expect (ir.sourcePlan.states.any fun f => f.name == "slot_p0" && f.inputType == .u64)
+    "OptionState must have slot_p0 u64 leaf"
+  let initializer ← findRelation ir "init"
+  let setR ← findRelation ir "set"
+  let clearR ← findRelation ir "clear"
+  let peekR ← findRelation ir "peek"
+  let getSlot ← findRelation ir "getSlot"
+  -- Init none → storeAggregate of 2 leaves (tag=0, payload=0).
+  let initAgg := initializer.sourceRelation.body.any fun stmt =>
+    match stmt with | .storeAggregate leaves => leaves.size == 2 | _ => false
+  expect initAgg
+    "OptionState init must storeAggregate Option.none as 2 leaves"
+  -- set some → storeAggregate.
+  let setAgg := setR.sourceRelation.body.any fun stmt =>
+    match stmt with | .storeAggregate leaves => leaves.size == 2 | _ => false
+  expect setAgg
+    "OptionState set must storeAggregate Option.some as 2 leaves"
+  -- clear none-reset → storeAggregate (stale payload must not survive).
+  let clearAgg := clearR.sourceRelation.body.any fun stmt =>
+    match stmt with | .storeAggregate leaves => leaves.size == 2 | _ => false
+  expect clearAgg
+    "OptionState clear must storeAggregate Option.none as 2 leaves"
+  -- getSlot return of stored Option → 2-leaf returnAggregate.
+  let hasReturnAggregate := getSlot.sourceRelation.body.any fun stmt =>
+    match stmt with | .returnAggregate leaves => leaves.size == 2 | _ => false
+  expect hasReturnAggregate
+    "OptionState getSlot must returnAggregate 2 leaves"
+  -- Model: init post both leaves 0 (none). Initialize mode has no pre-state.
+  let initOk ← liftModel "OptionState init none" do
+    let mut values : Array ModelValue := #[]
+    for input in initializer.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool false)
+      | .postState _ => values := values.push (.u64 0)
+      | .postInitialized => values := values.push (.bool true)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "OptionState init none → (0,0)" initializer initOk
+  -- set(99) from none: pre (0,0) → post (1,99), result 99.
+  let setOk ← liftModel "OptionState set some" do
+    let mut values : Array ModelValue := #[]
+    for input in setR.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 0)
+      | .preState 1 => values := values.push (.u64 0)
+      | .parameter 0 => values := values.push (.u64 99)
+      | .postState 0 => values := values.push (.u64 1)
+      | .postState 1 => values := values.push (.u64 99)
+      | .postInitialized => values := values.push (.bool true)
+      | .result => values := values.push (.u64 99)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "OptionState set(99) → tag=1 payload=99" setR setOk
+  -- Wrong payload after set must reject.
+  let setWrong ← liftModel "OptionState set wrong payload" do
+    let mut values : Array ModelValue := #[]
+    for input in setR.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 0)
+      | .preState 1 => values := values.push (.u64 0)
+      | .parameter 0 => values := values.push (.u64 99)
+      | .postState 0 => values := values.push (.u64 1)
+      | .postState 1 => values := values.push (.u64 0)  -- polluted
+      | .postInitialized => values := values.push (.bool true)
+      | .result => values := values.push (.u64 99)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectReject "OptionState set rejects zero payload after some" setR setWrong
+  -- peek after some(99) returns 99 (VariantTag/VariantPayload match path).
+  let peekOk ← liftModel "OptionState peek some" do
+    let mut values : Array ModelValue := #[]
+    for input in peekR.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 1)
+      | .preState 1 => values := values.push (.u64 99)
+      | .postState 0 => values := values.push (.u64 1)
+      | .postState 1 => values := values.push (.u64 99)
+      | .postInitialized => values := values.push (.bool true)
+      | .result => values := values.push (.u64 99)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "OptionState peek after some returns 99" peekR peekOk
+  -- peek on none returns 0.
+  let peekNone ← liftModel "OptionState peek none" do
+    let mut values : Array ModelValue := #[]
+    for input in peekR.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState _ => values := values.push (.u64 0)
+      | .postState _ => values := values.push (.u64 0)
+      | .postInitialized => values := values.push (.bool true)
+      | .result => values := values.push (.u64 0)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "OptionState peek on none returns 0" peekR peekNone
+  -- clear from some(99): post both leaves 0 (payload zeroed pin).
+  let clearOk ← liftModel "OptionState clear zeroes payload" do
+    let mut values : Array ModelValue := #[]
+    for input in clearR.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 1)
+      | .preState 1 => values := values.push (.u64 99)
+      | .postState 0 => values := values.push (.u64 0)
+      | .postState 1 => values := values.push (.u64 0)
+      | .postInitialized => values := values.push (.bool true)
+      | .result => values := values.push (.u64 0)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "OptionState clear → (0,0) payload zeroed" clearR clearOk
+  -- Stale payload after clear must reject.
+  let clearStale ← liftModel "OptionState clear stale payload" do
+    let mut values : Array ModelValue := #[]
+    for input in clearR.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 1)
+      | .preState 1 => values := values.push (.u64 99)
+      | .postState 0 => values := values.push (.u64 0)
+      | .postState 1 => values := values.push (.u64 99)  -- polluted: stale
+      | .postInitialized => values := values.push (.bool true)
+      | .result => values := values.push (.u64 0)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectReject "OptionState clear rejects stale payload 99" clearR clearStale
+  -- getSlot after some returns (1,99) as 2 result leaves.
+  let getSome ← liftModel "OptionState getSlot some" do
+    let mut values : Array ModelValue := #[]
+    for input in getSlot.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 1)
+      | .preState 1 => values := values.push (.u64 99)
+      | .postState 0 => values := values.push (.u64 1)
+      | .postState 1 => values := values.push (.u64 99)
+      | .postInitialized => values := values.push (.bool true)
+      | .resultLeaf 0 => values := values.push (.u64 1)
+      | .resultLeaf 1 => values := values.push (.u64 99)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "OptionState getSlot after some returns (1,99)" getSlot getSome
+  -- .nr surface: two pre/post state leaves for set.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 sourceText
+      "<noir-option-state-emit>" "Examples.OptionState" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some setNr := files.find? (fun file =>
+      file.path.endsWith "r1-set/src/main.nr") |
+    throw <| IO.userError "OptionState missing set main.nr"
+  expect (setNr.contents.contains "pre_s0: pub u64" &&
+      setNr.contents.contains "pre_s1: pub u64")
+    "OptionState set .nr must declare both pre-state leaf public inputs"
+  expect (setNr.contents.contains "post_s0: pub u64" &&
+      setNr.contents.contains "post_s1: pub u64")
+    "OptionState set .nr must declare both post-state leaf public inputs"
+
+/-- B-OPT-STATE FC: Option of non-UInt64, nested Option, Option params stay closed. -/
+private unsafe def expectOptionStateFailClosed
+    (label moduleName sourceText : String)
+    (messageNeedles : Array String) : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  match ← session.selectProgramV1 optionText
-      "<noir-option-state>" "Examples.OptBox" none with
-  | .error _ => pure ()  -- may fail earlier (typed/normalize)
+  match ← session.selectProgramV1 sourceText s!"<noir-{label}>" moduleName none with
+  | .error _ => pure ()  -- may fail at Loader/typed
   | .ok source =>
     match Compiler.compileValidatedSourceV1 source with
-    | .error _ => pure ()
+    | .error _ => pure ()  -- Normalize/Check may reject first
     | .ok compiled =>
       match resolveBuildSelectionV1 TargetId.noir none with
       | .error _ => pure ()
@@ -3364,10 +3549,59 @@ private unsafe def checkOptionStateFailClosed : IO Unit := do
         | .error _ => pure ()
         | .ok cap =>
           match Targets.Noir.planFromCapability cap with
-          | .error _ => pure ()
+          | .error e =>
+              let msg := e.render
+              let hit := messageNeedles.any (fun n => msg.contains n)
+              expect hit
+                s!"{label}: FC message must cite {messageNeedles}, got {msg}"
           | .ok _ =>
               throw <| IO.userError
-                "Noir Option state must fail closed, not produce a plan"
+                s!"{label}: Noir must fail closed on this Option state/param shape"
+
+private unsafe def checkOptionStateFailClosed : IO Unit := do
+  -- Option Bool state remains fail closed (payload not UInt64).
+  expectOptionStateFailClosed "opt-bool-state" "Examples.OptBoolState"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program OptBoolState where\n" ++
+      "  state flag : Option Bool\n\n" ++
+      "  init() do\n" ++
+      "    flag := Option.none()\n\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    return 0\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Option", "UInt64", "payload", "unsupported", "state"]
+  -- Nested Option (Option Array …) state remains fail closed.
+  expectOptionStateFailClosed "opt-nested-state" "Examples.OptNestedState"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program OptNestedState where\n" ++
+      "  state nested : Option Array UInt64 2\n\n" ++
+      "  init() do\n" ++
+      "    nested := Option.none()\n\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    return 0\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Option", "UInt64", "payload", "unsupported", "state", "Array"]
+  -- Option UInt64 param stays fail closed (state-only; do not extend Enum params).
+  expectOptionStateFailClosed "opt-param" "Examples.OptParam"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program OptParam where\n" ++
+      "  state seed : UInt64\n\n" ++
+      "  init(x : UInt64) do\n" ++
+      "    seed := x\n\n" ++
+      "  entry take(o : Option UInt64) : UInt64 do\n" ++
+      "    match o with\n" ++
+      "    | Option.some(v) => do\n" ++
+      "      return v\n" ++
+      "    | _ => do\n" ++
+      "      return 0\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Option", "parameter", "param", "unsupported", "state-only"]
 
 /-- B-RET-ABI: named Struct view return lowers to `.returnAggregate` with
 two resultLeaf verifier inputs (preorder leaves). -/
@@ -3702,6 +3936,7 @@ unsafe def run : IO Unit := do
   checkMapEmptyUpsertProduct
   checkArrayStateProduct
   checkBytesStateProduct
+  checkOptionStateProduct
   checkOptionStateFailClosed
 
 end Tests.Materialization.NoirRelationModel

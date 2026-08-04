@@ -1813,11 +1813,12 @@ private partial def renderOperation (relation : Relation) (indent : String) :
       let renderArm := fun operations =>
         String.intercalate "" <|
           operations.toList.map (renderOperation relation (indent ++ "  "))
+      -- Lean s! : `{indent}}` yields one closing brace (not `{indent}}}`).
       s!"{indent}if {renderAssertCondition relation condition} \{\n" ++
         renderArm thenOps ++
-        s!"{indent}}} else \{\n" ++
+        s!"{indent}} else \{\n" ++
         renderArm elseOps ++
-        s!"{indent}}}\n"
+        s!"{indent}}\n"
   | .switchRegion scrutinee scrutIsBool cases defaultOps =>
       let scrut := renderValue relation scrutinee
       let renderArm := fun operations =>
@@ -1832,11 +1833,11 @@ private partial def renderOperation (relation : Relation) (indent : String) :
         let keyword := if index == 0 then s!"{indent}if" else " else if"
         s!"{keyword} {scrut} == {renderCaseValue caseValue} \{\n" ++
           renderArm caseOps ++
-          s!"{indent}}}"
+          s!"{indent}}"
       String.intercalate "" branches ++
         s!" else \{\n" ++
         renderArm defaultOps ++
-        s!"{indent}}}\n"
+        s!"{indent}}\n"
   | .selectRegion destination condition resultIsBool thenOps thenValue elseOps elseValue =>
       let renderArm := fun operations =>
         String.intercalate "" <|
@@ -1845,10 +1846,10 @@ private partial def renderOperation (relation : Relation) (indent : String) :
       s!"{indent}let t{destination}: {type} = if {renderAssertCondition relation condition} \{\n" ++
         renderArm thenOps ++
         s!"{indent}  {renderValue relation thenValue}\n" ++
-        s!"{indent}}} else \{\n" ++
+        s!"{indent}} else \{\n" ++
         renderArm elseOps ++
         s!"{indent}  {renderValue relation elseValue}\n" ++
-        s!"{indent}}};\n"
+        s!"{indent}};\n"
   | .selectSwitch destination scrutinee scrutIsBool resultIsBool cases defaultOps defaultValue =>
       let scrut := renderValue relation scrutinee
       let renderArm := fun operations =>
@@ -1865,13 +1866,13 @@ private partial def renderOperation (relation : Relation) (indent : String) :
         s!"{keyword} {scrut} == {renderCaseValue caseValue} \{\n" ++
           renderArm caseOps ++
           s!"{indent}  {renderValue relation caseResult}\n" ++
-          s!"{indent}}}"
+          s!"{indent}}"
       s!"{indent}let t{destination}: {type} = " ++
         String.intercalate "" branches ++
         s!" else \{\n" ++
         renderArm defaultOps ++
         s!"{indent}  {renderValue relation defaultValue}\n" ++
-        s!"{indent}}};\n"
+        s!"{indent}};\n"
 
 private def renderInputType : InputType → String
   | .u64 => "u64"
