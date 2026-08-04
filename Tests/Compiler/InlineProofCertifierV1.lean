@@ -480,8 +480,9 @@ private unsafe def testModulePrefixedNamespaceProductPositive
         s!"module-prefixed namespace proof failed phase={repr phase} detail={repr detail}"
 
 /-- A namespace unrelated to `--module Root` uses the relative declaration
-    candidate (`Nested.Scoped`) while Loader retains the full product identity
-    (`Root.Nested.Scoped`). This pins multi-component author theorem lookup. -/
+    candidate (`Nested.NestedScoped`) while Loader retains the full product
+    identity (`Root.Nested.NestedScoped`). This pins multi-component author
+    theorem lookup. -/
 private unsafe def testRelativeNestedNamespaceProductPositive
     (session : ProductParserSessionV1) : IO Unit := do
   let programName := "NestedScoped"
