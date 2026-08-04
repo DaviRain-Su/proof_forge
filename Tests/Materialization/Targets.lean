@@ -3242,9 +3242,10 @@ unsafe def run : IO Unit := do
   -- NoirContainer: Noir admits Array UInt64 flatten-to-leaf (same as Solana/NEAR/Psy/Aleo).
   let _ ← liftResult <| materializeSelected TargetId.noir arrayCompiled
 
-  -- N-A4: Option state Normalize-admitted. EVM (BL-31), NEAR (BL-30) and
-  -- Solana (BL-29) admit Option UInt64 state (Enum-shaped 2-leaf layout);
-  -- other targets fail closed.
+  -- N-A4: Option state Normalize-admitted. All eight materializers admit
+  -- Option UInt64 state (Enum-shaped 2-leaf layout): EVM (BL-31), NEAR
+  -- (BL-30), Solana (BL-29), Aleo (BL-35), CosmWasm (BL-33), Psy (BL-36),
+  -- Noir (BL-32), TON (BL-34). Quint has no admit path and stays fail closed.
   let optionStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3271,18 +3272,10 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm optCompiled
   -- Psy admits Option UInt64 state (BL-36).
   let _ ← liftResult <| materializeSelected TargetId.psy optCompiled
-  for target in [TargetId.noir] do
-    match materializeSelected target optCompiled with
-    | .ok _ =>
-        throw <| IO.userError s!"N-A4: {target} must decline Option state"
-    | .error e =>
-        expect ((e.render).contains "Option" ||
-            (e.render).contains "container" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "pilot" ||
-            (e.render).contains "shape" ||
-            (e.render).contains "UInt64")
-          s!"N-A4 {target} message must cite Option/container boundary, got {e.render}"
+  -- Noir admits Option UInt64 state (BL-32).
+  let _ ← liftResult <| materializeSelected TargetId.noir optCompiled
+  -- TON admits Option UInt64 state (BL-34).
+  let _ ← liftResult <| materializeSelected TargetId.ton optCompiled
 
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
