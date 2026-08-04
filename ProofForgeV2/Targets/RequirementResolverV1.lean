@@ -18,7 +18,7 @@
   `effect.synchronous-call` (async workflow promises are native), Noir
   supports all seven. Both legacy Solana profiles decline sync call and async
   workflow. The opt-in `solana-sbpf-cpi-elf-v1` row (#125) admits exact
-  `effect.synchronous-call` plus the ADR-0024 extension, and still declines
+  `effect.synchronous-call` plus the ADR-0028 extension, and still declines
   async.
 
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.
@@ -105,7 +105,7 @@ private def s2CatalogRequests : CompileResult (Array RequirementRequestV1) := do
 
 /-- Validate one supported-requirements array: unique ids, exact S2
     catalog rows (any subset — per-target capability gates), plus the sole
-    profile-scoped ADR-0024 extension row on `solana-sbpf-cpi-elf-v1` only.
+    profile-scoped ADR-0028 extension row on `solana-sbpf-cpi-elf-v1` only.
     All rows use strict ASCII id order and empty predicates. -/
 private def validateSupportedRequests
     (label : String) (targetId : TargetId) (profile : CodegenProfileId)
@@ -247,8 +247,8 @@ private def mkImplementedRow
     default remains legacy v1). Solana carries `solana-sbpf-cpi-elf-v1`,
     `solana-sbpf-elf-v1`, and `solana-sbpf-plan-v1` (ASCII ascending). Both legacy
     Solana profiles share the same non-call S2 capability set and **decline both
-    call families** plus the ADR-0024 extension. The opt-in CPI profile (#125)
-    admits exact `effect.synchronous-call` plus the exact ADR-0024 extension and
+    call families** plus the ADR-0028 extension. The opt-in CPI profile (#125)
+    admits exact `effect.synchronous-call` plus the exact ADR-0028 extension and
     still declines `effect.asynchronous-workflow`. Capability gates are per
     target: EVM admits both call keys via static QualifiedName callees
     (AddressBearing: wire Op.ExternalCall/Schedule take compile-time QN, not a

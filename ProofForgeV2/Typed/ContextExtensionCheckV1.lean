@@ -114,7 +114,7 @@ def checkContextExtensionDraftsV1
   else
     Id.run do
       let mut drafts : Array TypedDiagnosticDraftV1 := #[]
-      -- ADR-0024 engineering extension identity. This gate is target-neutral:
+      -- ADR-0028 engineering extension identity. This gate is target-neutral:
       -- it recognizes only exact source bytes and does not import TargetId or
       -- any Solana target module. Resolver/profile support remains separate.
       for (item, itemIndex) in program.items.zipIdx do

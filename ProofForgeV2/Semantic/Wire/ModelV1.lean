@@ -83,7 +83,7 @@ def callerContextRequirementIdV1 : String :=
 def commitmentDisclosureRequirementIdV1 : String :=
   ProofForgeV2.Core.RequirementIdsV1.wireCommitmentDisclosureIdV1
 
-/-- Exact requirement identity contributed by the frozen ADR-0024 Solana CPI
+/-- Exact requirement identity contributed by the frozen ADR-0028 Solana CPI
     extension declaration. Recognition does not imply target support. -/
 def solanaCpiAccountsExtensionRequirementIdV1 : String :=
   ProofForgeV2.Core.RequirementIdsV1.wireExtensionSolanaCpiAccountsIdV1
@@ -427,7 +427,7 @@ def commitmentDisclosureRequirementV1 : Except String RequirementRequestV1 := do
     predicates := #[]
   }
 
-/-- Exact requirement row for the ADR-0024 Solana CPI extension declaration.
+/-- Exact requirement row for the ADR-0028 Solana CPI extension declaration.
     The digest is the frozen `pf.extension-semantics.v1` digest of the exact
     extension JCS, not `SHA-256(id)`. Recognition alone does not advertise
     synchronous-call support or permit artifact minting. -/

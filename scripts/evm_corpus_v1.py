@@ -1399,7 +1399,7 @@ DARWIN_TOOL_LOCK_V4_DIGEST_KAT = (
 )
 # Raw retained-file SHA-256 of toolchains.lock.json (distinct type).
 DARWIN_TOOL_LOCK_RAW_SHA256_KAT = (
-    "e729ea8b024703297542802b49ae186b07e87848696d8fd4809a15c8021565a7"
+    "80e5d3aaf792f2f7fb80cde4d95d0df9a6f89e4f9c37fd178d94456688f12255"
 )
 
 # Exact EVMOZ-004 full-runtime pin surface for runnable anvil-matrix cases.

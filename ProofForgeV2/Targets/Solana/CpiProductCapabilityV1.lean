@@ -8,7 +8,7 @@
 
   Accepts only exact `(solana, solana-sbpf-cpi-elf-v1)` selection whose retained
   Semantic requirements and engineering SupportClaim both contain the active
-  exact `effect.synchronous-call` S2 row and the ADR-0024 extension row, and
+  exact `effect.synchronous-call` S2 row and the ADR-0028 extension row, and
   neither contains `effect.asynchronous-workflow`. Retained Semantic /
   requirements bytes are never rewritten.
 
@@ -94,7 +94,7 @@ private def hasRequestId (items : Array RequirementRequestV1) (id : String) : Bo
     2. retained Semantic structure-validate;
     3. retained requirements must equal the engineering capability freeze;
     4. require exact deferred `effect.synchronous-call` in requested AND support claim;
-    5. require exact ADR-0024 extension in requested AND support claim;
+    5. require exact ADR-0028 extension in requested AND support claim;
     6. reject `effect.asynchronous-workflow` in requested AND support claim;
     7. mint private product capability (no activationDenied, no preflight conversion).
 -/

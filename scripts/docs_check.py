@@ -79,7 +79,7 @@ INLINE_LINK_RE = re.compile(r"(!?)\[[^\]]*\]\(([^)]+)\)")
 MAX_JSON_NESTING = 256
 MAX_LINK_TARGET_LENGTH = 2048
 MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
-SOLANA_CPI_ADR_ID = "ADR-0024"
+SOLANA_CPI_ADR_ID = "ADR-0028"
 # Historical #114–#124 preactivation freeze (unchanged pins).
 SOLANA_CPI_FROZEN_PAYLOADS = (
     (
@@ -839,7 +839,7 @@ def validate_solana_cpi_active_contract(root: Path, by_id: dict[str, Document]) 
     SOLANA_CPI_FROZEN_PAYLOADS and are not replaced here.
     """
     adr = by_id.get(SOLANA_CPI_ADR_ID)
-    _expect_sol_cpi(adr is not None, "docs/adr", "ADR-0024 is missing")
+    _expect_sol_cpi(adr is not None, "docs/adr", "ADR-0028 is missing")
     assert adr is not None
 
     active_domain: dict[str, str] = {}
@@ -863,10 +863,10 @@ def validate_solana_cpi_active_contract(root: Path, by_id: dict[str, Document]) 
             adr, Path(relative_path).name)
         _expect_sol_cpi(
             raw_digest == expected_raw, relative_path,
-            f"active raw SHA-256 {raw_digest} does not match ADR-0024")
+            f"active raw SHA-256 {raw_digest} does not match ADR-0028")
         _expect_sol_cpi(
             domain_digest == expected_domain, relative_path,
-            f"active domain digest {domain_digest} does not match ADR-0024")
+            f"active domain digest {domain_digest} does not match ADR-0028")
         active_domain[relative_path] = domain_digest
         active_payloads[relative_path] = value
 
@@ -1354,7 +1354,7 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
     for rel in (
         "MIGRATION_MATRIX.md",
         "docs/engineering-backlog.md",
-        "docs/adr/0024-solana-explicit-accounts-pda-cpi.md",
+        "docs/adr/0028-solana-explicit-accounts-pda-cpi.md",
         "docs/targets/02-solana.md",
         "docs/research/12-target-coverage-matrix.md",
     ):
@@ -1377,7 +1377,7 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         if rel in (
             "MIGRATION_MATRIX.md",
             "docs/engineering-backlog.md",
-            "docs/adr/0024-solana-explicit-accounts-pda-cpi.md",
+            "docs/adr/0028-solana-explicit-accounts-pda-cpi.md",
         ):
             if "CpiEscrowIRV1" not in body and "composite escrow" not in body.lower():
                 raise_error(
@@ -1399,9 +1399,9 @@ def validate_sol_cpi_contract(
         json_values: dict[str, Any],
         by_id: dict[str, Document],
 ) -> None:
-    """Validate ADR-0024's canonical payloads and critical closed joins."""
+    """Validate ADR-0028's canonical payloads and critical closed joins."""
     adr = by_id.get(SOLANA_CPI_ADR_ID)
-    _expect_sol_cpi(adr is not None, "docs/adr", "ADR-0024 is missing")
+    _expect_sol_cpi(adr is not None, "docs/adr", "ADR-0028 is missing")
     assert adr is not None
 
     payloads: dict[str, Any] = {}
@@ -1420,10 +1420,10 @@ def validate_sol_cpi_contract(
             adr, Path(relative_path).name)
         _expect_sol_cpi(
             raw_digest == expected_raw, relative_path,
-            f"raw SHA-256 {raw_digest} does not match ADR-0024")
+            f"raw SHA-256 {raw_digest} does not match ADR-0028")
         _expect_sol_cpi(
             domain_digest == expected_domain, relative_path,
-            f"domain digest {domain_digest} does not match ADR-0024")
+            f"domain digest {domain_digest} does not match ADR-0028")
         payloads[relative_path] = value
         domain_digests[relative_path] = f"sha256:{domain_digest}"
 

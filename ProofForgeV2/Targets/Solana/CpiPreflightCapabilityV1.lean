@@ -6,7 +6,7 @@
 
   Sole mint: `resolveSolanaCpiPreflightV1`. Accepts only
   `(solana, solana-sbpf-cpi-elf-v1)` selection plus retained Semantic whose
-  exact ProgramRequirements contain the ADR-0024 extension row and the
+  exact ProgramRequirements contain the ADR-0028 extension row and the
   deferred exact `effect.synchronous-call` S2 row. All other requested rows
   are resolved solely through product `RequirementResolverV1` support +
   `inspectResolveRequestsV1` (no second support-predicate algorithm).
@@ -82,7 +82,7 @@ private def requestExact
     3. product support row via `inspectSupportForSelectionV1`;
     4. require exact deferred `effect.synchronous-call` S2 row in requested;
     5. reject `effect.asynchronous-workflow` if present;
-    6. require exact ADR-0024 extension row in requested;
+    6. require exact ADR-0028 extension row in requested;
     7. resolve every requested row **except** the deferred sync row through
        sole `inspectResolveRequestsV1` against the product support row;
     8. mint private carrier with `activationDenied := true`.

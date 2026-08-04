@@ -189,7 +189,7 @@ def evmYulSolc0834V1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-v1"⟩
     Same locked solc 0.8.34 / Anvil 0.3.0 binaries as the default profile. -/
 def evmYulSolc0834CancunV1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-cancun-v1"⟩
 def solanaSbpfPlanV1 : CodegenProfileId := ⟨"solana-sbpf-plan-v1"⟩
-/-- ADR-0024 opt-in Solana explicit-account/PDA/CPI profile. Registered but
+/-- ADR-0028 opt-in Solana explicit-account/PDA/CPI profile. Registered but
     intentionally inert until its target-owned Plan/IR is implemented. -/
 def solanaSbpfCpiElfV1 : CodegenProfileId := ⟨"solana-sbpf-cpi-elf-v1"⟩
 /-- Explicit Solana sBPF assembly → ELF profile (not the default; plan profile remains default). -/

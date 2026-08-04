@@ -233,3 +233,5 @@ normative: false
 - wave 集成时由 integrator 把矩阵更新合入提交
 - GAP → LOWERED 或 GAP → FAIL-CLOSED 都算闭合
 - 新发现的 GAP 加到组里并排队 wave
+
+> **Solana CPI epic #111–#125 engineering closed** (#110 engineering epic complete): legacy profiles fail closed on call/schedule; exact `solana-sbpf-cpi-elf-v1` advertises sync+extension (async still FC); CpiEscrowIRV1 composite escrow remains test-preactivation history; product activation is ordinary-resolver product capability (not formal TASK-D5).

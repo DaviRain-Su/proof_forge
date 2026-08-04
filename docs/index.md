@@ -42,7 +42,7 @@ legal-only simple-closure encode/decode + ordinal-0 `InvariantTheoremV1` + liter
 public-Bool-view same-file ordinary theorem 的真实 product `check` certified 正例；theorem
 body 不改 source/semantic identity但改变 certification digest。formal TST、reachability、
 target refinement、sandbox/hermetic/release 仍 open。见
-[`adr/0027-inline-same-file-theorem-certification.md`](adr/0027-inline-same-file-theorem-certification.md)。
+[`adr/0027-inline-same-file-theorem-certification.md`](adr/0027-inline-same-file-theorem-certification.md)、[`adr/0028-solana-explicit-accounts-pda-cpi.md`](adr/0028-solana-explicit-accounts-pda-cpi.md)。
 
 ## 生命周期
 

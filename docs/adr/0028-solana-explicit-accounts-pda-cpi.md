@@ -1,5 +1,5 @@
 ---
-id: ADR-0024
+id: ADR-0028
 title: Solana 显式账户、PDA/bump 与真实同步 CPI v1 合同
 status: accepted
 owner: architecture
@@ -12,7 +12,7 @@ reviewLink: https://github.com/DaviRain-Su/proof_forge/issues/125
 openFindings: none
 ---
 
-# ADR-0024：Solana 显式账户、PDA/bump 与真实同步 CPI v1 合同
+# ADR-0028：Solana 显式账户、PDA/bump 与真实同步 CPI v1 合同
 
 ## 状态
 

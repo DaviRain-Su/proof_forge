@@ -31,7 +31,7 @@
     Bound only by `WireV1.commitmentDisclosureRequirementV1`.
     Not part of the S2 freeze catalog.
 
-  Wire-owned Solana CPI extension binding (ADR-0024 engineering row)
+  Wire-owned Solana CPI extension binding (ADR-0028 engineering row)
     Extension source id: `solana.cpi.accounts`
     Version: `1.0.0`
     Domain tag: `pf.extension-semantics.v1`
@@ -116,7 +116,7 @@ def wireContextCallerIdV1 : String := "context.caller"
     module doc. -/
 def wireCommitmentDisclosureIdV1 : String := "disclosure.commitment"
 
-/-- Frozen source declaration id for ADR-0024's opt-in Solana CPI extension. -/
+/-- Frozen source declaration id for ADR-0028's opt-in Solana CPI extension. -/
 def solanaCpiAccountsExtensionSourceIdV1 : String := "solana.cpi.accounts"
 
 /-- Frozen canonical SemVer spelling for the Solana CPI extension declaration. -/

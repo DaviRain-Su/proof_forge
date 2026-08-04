@@ -306,7 +306,7 @@ private def expect (condition : Bool) (message : String) : IO Unit :=
 private def liftResult (result : CompileResult α) : IO α :=
   match result with
   | .ok value => pure value
-  | .error error => throw <| IO.userError error
+  | .error error => throw <| IO.userError error.render
 
 private def expectErrorCode (result : CompileResult α) (code : String) (message : String) :
     IO Unit :=
@@ -645,7 +645,7 @@ private def testRequestInspectionErrors : IO Unit := do
   expectErrorCode (inspectResolveRequestsV1 supported { items := trio })
     "PF-REQ-UNSUPPORTED" "aleo declines external-call keys"
 
-  -- ADR-0024 extension is exact and profile-scoped: only the Solana CPI
+  -- ADR-0028 extension is exact and profile-scoped: only the Solana CPI
   -- row accepts it; both legacy Solana rows and all other targets reject it.
   -- #125: CPI also admits exact effect.synchronous-call and still declines async.
   let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with

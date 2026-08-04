@@ -236,7 +236,7 @@ private def sourceQualifiedNameStringV1 (name : SourceQualifiedNameV1) : String 
   String.intercalate "."
     ((NonEmptyArray.toArray name.components).map (·.raw) |>.toList)
 
-/-- Exact target-neutral ADR-0024 extension declaration identity. Recognition
+/-- Exact target-neutral ADR-0028 extension declaration identity. Recognition
     here mints only a wire-owned requirement row; target/profile admission is
     owned by RequirementResolverV1. -/
 private def isExactSolanaCpiExtensionV1

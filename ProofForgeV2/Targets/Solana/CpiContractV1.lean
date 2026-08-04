@@ -3,7 +3,7 @@
 
   Namespace: `ProofForgeV2.Targets.Solana.CpiV1`.
 
-  Frozen projection of ADR-0024 / solana-cpi-extension-v1.json /
+  Frozen projection of ADR-0028 / solana-cpi-extension-v1.json /
   solana-cpi-callee-catalog-v1.json / solana-cpi-profile-v1.json into Lean types.
   No Source/Typed/Semantic/TargetId imports. No Plan/IR/emitter/syscall surface.
 -/

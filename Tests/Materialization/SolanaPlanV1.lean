@@ -84,6 +84,18 @@ private def expectPlanError (label : String) (result : CompileResult α) : IO Un
   | .error e => throw <| IO.userError s!"{label}: expected solana planInvariant, got {e.render}"
   | .ok _ => throw <| IO.userError s!"{label}: expected failure, got ok"
 
+
+private def expectUnsupportedRequirement (label requirementId : String)
+    (result : CompileResult α) : IO Unit :=
+  match result with
+  | .error error =>
+      expect (error.code == "PF-REQ-UNSUPPORTED" &&
+          error.message.contains requirementId)
+        s!"{label}: expected PF-REQ-UNSUPPORTED for {requirementId}, got {error.render}"
+  | .ok _ =>
+      throw <| IO.userError s!"{label}: expected unsupported requirement {requirementId}"
+
+
 private def expectCompileFailure (label : String) (result : CompileResult α) : IO Unit :=
   match result with
   | .error _ => pure ()
