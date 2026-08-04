@@ -164,7 +164,38 @@ unsafe def run : IO Unit := do
           optionRetText "Examples.OptionRet" (tmp / "OptionRet")
         for pkg in optionPkgs do
           runNargoCompile nargo pkg pkg.toString
-        let total := counterPkgs.size + arrayPkgs.size + optionPkgs.size
+        -- B-OPT-STATE: Option UInt64 state (tag+payload leaves) must emit
+        -- nargo-clean packages (same multi-leaf pre/post public inputs as
+        -- named Enum state).
+        let optionStateText :=
+          "import ProofForgeV2\n\n" ++
+          "namespace ProofForgeV2.Examples\n\n" ++
+          "open ProofForgeV2.Language\n\n" ++
+          "program OptionState where\n" ++
+          "  state slot : Option UInt64\n\n" ++
+          "  init() do\n" ++
+          "    slot := Option.none()\n\n" ++
+          "  entry set(v : UInt64) : UInt64 do\n" ++
+          "    slot := Option.some(v)\n" ++
+          "    return v\n\n" ++
+          "  entry clear() : UInt64 do\n" ++
+          "    slot := Option.none()\n" ++
+          "    return 0\n\n" ++
+          "  view peek() : UInt64 do\n" ++
+          "    match slot with\n" ++
+          "    | Option.some(x) => do\n" ++
+          "      return x\n" ++
+          "    | _ => do\n" ++
+          "      return 0\n\n" ++
+          "  view getSlot() : Option UInt64 do\n" ++
+          "    return slot\n\n" ++
+          "end ProofForgeV2.Examples\n"
+        let optionStatePkgs ← materializeNoirPackages "OptionState"
+          optionStateText "Examples.OptionState" (tmp / "OptionState")
+        for pkg in optionStatePkgs do
+          runNargoCompile nargo pkg pkg.toString
+        let total := counterPkgs.size + arrayPkgs.size + optionPkgs.size +
+          optionStatePkgs.size
         IO.println s!"Tests.Materialization.NoirCompileAcceptance: ok ({total} package(s))"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp
