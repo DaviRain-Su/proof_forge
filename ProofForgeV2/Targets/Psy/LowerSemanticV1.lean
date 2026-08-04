@@ -39,7 +39,7 @@ Named Struct/Enum and fixed-length `Array UInt64 N` are **LOWERED** by
 flattening to consecutive Felt storage leaves (`name_field` / `name_i`).
 Plan Expr remains scalar-only: construct/fieldGet/fieldSet/variantTag/
 variantPayload/indexGet/indexSet operate in the lowering value env only.
-Map/Bytes/Option/String/Principal stay fail-closed. Array IndexGet/IndexSet
+Map/Bytes/String/Principal stay fail-closed. Array IndexGet/IndexSet
 require a compile-time UInt literal index (no dynamic select surface on Psy).
 
 ## B-RET-ABI named Struct/Enum entry/view returns (2026-08-03)
@@ -58,7 +58,16 @@ the same preorder-leaf + `[Felt; N]` path: Array → N Felt leaves; Option →
 `[Felt; 2]` tag+payload (`none=[0,0]`, `some=[1,v]`). Map/Bytes/nested/
 non-UInt64-element anonymous returns stay fail closed. Option is admitted as a
 body intermediate via container policy `ArrayMap` (Map **state** remains
-fail-closed at layout); Option **state** is never flattened.
+fail-closed at layout).
+
+## B-OPT-STATE Option UInt64 state (BL-36)
+
+Anonymous `Option UInt64` **state** is admitted as Enum-shaped 2-leaf Felt
+storage (`name_tag` + `name_p0`; `none=(0,0)`, `some=(1,v)`; none-assign
+zeroes payload). Default zero-init matches none. Reads go through the existing
+VariantTag/VariantPayload path (Option payload fallback when the base is not a
+named Enum). Non-UInt64 payload, nested Option, and Option params stay fail
+closed (mirrors Enum param policy).
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -292,9 +301,10 @@ def isNarrowUintWidth (bitWidth : Nat) : Bool :=
     multi-width + Int64 policies, plus **named Struct/Enum** and **Array**
     (H3 PsyAleoAggregate: flatten-to-Felt leaves). Field is Goldilocks only.
     Container policy is **ArrayMap** so anonymous `Option` may appear as a body
-    intermediate for N-ANON-RESULT returns (shared Envelope gate keys Option on
-    `admitMap`); Map **state** still fail-closes at layout. Bytes/Principal/
-    UInt128/256/narrow Int stay fail closed. -/
+    intermediate for N-ANON-RESULT returns and (B-OPT-STATE) as `Option UInt64`
+    storage (shared Envelope gate keys Option on `admitMap`; Option is never
+    pushed to `containerTypeIds`). Map **state** still fail-closes at layout.
+    Bytes/Principal/UInt128/256/narrow Int stay fail closed. -/
 private def validatePsyTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult PsyTypeClosureV1 :=
   validatePilotTypeClosure psyPlanErr psyTypeClosureWording types
@@ -302,7 +312,8 @@ private def validatePsyTypeClosureV1
     (fieldPolicy := pilotFieldPolicyGoldilocks)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     -- ArrayMap (not ArrayOnly): admits Option body intermediates for
-    -- N-ANON-RESULT; Map state remains FC in makeStateLayoutV1.
+    -- N-ANON-RESULT + B-OPT-STATE Option UInt64 storage layout; Map state
+    -- remains FC in makeStateLayoutV1.
     (containerPolicy := pilotContainerStatePolicyArrayMap)
 
 -- ---------------------------------------------------------------------------
@@ -700,6 +711,30 @@ private def arrayUInt64LeafCountV1
   | _ =>
       planError "unsupported Psy semantic shape: container TypeId is not Array/Map/Bytes"
 
+/-- True when `typeId` is an anonymous Option TypeDecl (not named; not in
+    `containerTypeIds`). Admitted surfaces: N-ANON-RESULT / B-RET-ABI return
+    intermediates and B-OPT-STATE `Option UInt64` storage (2-leaf Enum-shaped
+    layout). Element-type gates remain at each use site. -/
+private def isAnonymousOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, name := none, .. } => true
+  | _ => false
+
+/-- B-OPT-STATE: `Option UInt64` storage leaves mirror named 2-variant Enum —
+    `{prefix}_tag` + `{prefix}_p0` (tag 0=none / 1=some; payload zeroed on none). -/
+private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
+    CompileResult (Array String) := do
+  let tagName :=
+    if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
+  let pName :=
+    if namePrefix.isEmpty then "p0" else namePrefix ++ "_p0"
+  unless isIdentifier tagName do
+    planError s!"state name '{tagName}' is not a safe identifier"
+  unless isIdentifier pName do
+    planError s!"state name '{pName}' is not a safe identifier"
+  pure #[tagName, pName]
+
 private def makeStateLayoutV1
     (types : PsyTypeClosureV1) (typeDecls : Array TypeDeclV1)
     (states : Array StateDeclV1) : CompileResult PsyLowerLayoutV1 := do
@@ -719,6 +754,27 @@ private def makeStateLayoutV1
         leaves := leaves.push fieldNames.size
         fieldNames := fieldNames.push name
       stateLeaves := stateLeaves.push leaves
+    else if isAnonymousOptionTypeIdV1 typeDecls state.typeId then
+      -- B-OPT-STATE / BL-36: Option UInt64 → tag + payload (2 Felt leaves),
+      -- same physical shape as a 1-payload Enum. Names follow Enum convention
+      -- (`name_tag` / `name_p0`). Default zero fields = Option.none; multi-leaf
+      -- store writes both leaves; none construct zeroes payload (pin).
+      match typeDecls[state.typeId.toNat]? with
+      | some { shape := .option elTid, name := none, .. } =>
+          unless elTid == types.uint64TypeId do
+            planError
+              s!"unsupported Psy semantic shape: Option state '{state.name}' requires UInt64 payload"
+      | _ =>
+          planError
+            s!"unsupported Psy semantic shape: state '{state.name}' is not anonymous Option UInt64"
+      let leafSpecs ← flattenOptionUInt64LeafSpecsV1 state.name
+      if fieldNames.size + leafSpecs.size > maxStateLeafFields then
+        planError "unsupported Psy semantic shape: state leaf count exceeds Psy profile limit"
+      let mut leaves : Array Nat := #[]
+      for name in leafSpecs do
+        leaves := leaves.push fieldNames.size
+        fieldNames := fieldNames.push name
+      stateLeaves := stateLeaves.push leaves
     else if state.typeId == types.uint64TypeId
         || (match types.uintWidthOf state.typeId with
             | some w => isNarrowUintWidth w
@@ -729,7 +785,7 @@ private def makeStateLayoutV1
       fieldNames := fieldNames.push state.name
       stateLeaves := stateLeaves.push #[leafIdx]
     else
-      planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64}, Int64, Goldilocks Field, named Struct/Enum, or Array UInt64 (Map/Bytes/Option/Principal/UInt128/256 declined)"
+      planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64}, Int64, Goldilocks Field, named Struct/Enum, Array UInt64, or Option UInt64 (Map/Bytes/Principal/UInt128/256 declined)"
   pure { fieldNames, stateLeaves, typeDecls, types }
 
 private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
@@ -1204,8 +1260,9 @@ private partial def lowerRegion
                 leafExprs := leafExprs.push arg.expr
               env := envInsertVal env valueDef.valueId (mkAggregateVal leafExprs)
             else
-              -- Option UInt64 construct (none/some) for anonymous-result returns;
-              -- named Struct/Enum construct remains the other non-container path.
+              -- Option UInt64 construct (none/some) for N-ANON-RESULT returns
+              -- and B-OPT-STATE store RHS; named Struct/Enum remains the other
+              -- non-container path. none zeroes payload (stale-payload pin).
               match layout.typeDecls[typeId.toNat]? with
               | some { shape := .option elTid, name := none, .. } => do
                   unless elTid == layout.types.uint64TypeId do
@@ -1384,10 +1441,13 @@ private partial def lowerRegion
               | some v => pure v
               | none => planError "variantTag base undefined"
             unless base.isAggregate do
-              planError "unsupported Psy semantic shape: variantTag base must be a named Enum aggregate"
+              planError "unsupported Psy semantic shape: variantTag base must be an Enum or Option aggregate"
             let some tag := base.leafExprs[0]? |
               planError "variantTag missing tag leaf"
-            env := envInsert env valueDef.valueId tag
+            -- Semantic VariantTag is UInt32 (Normalize match switch cases are
+            -- 4-byte LE). Carry as Felt-narrow so switch case decoding uses
+            -- decodeUInt32LiteralV1 rather than requiring 8-byte UInt64.
+            env := envInsertNarrow env valueDef.valueId 32 tag
     | .variantPayload baseId variantIndex payloadIndex => do
         match instr.result with
         | none => planError "variantPayload must produce a value"
@@ -1396,7 +1456,7 @@ private partial def lowerRegion
               | some v => pure v
               | none => planError "variantPayload base undefined"
             unless base.isAggregate do
-              planError "unsupported Psy semantic shape: variantPayload base must be a named Enum aggregate"
+              planError "unsupported Psy semantic shape: variantPayload base must be an aggregate (Enum or Option)"
             let baseLeaves := base.leafExprs
             let mut hit : Option (Nat × Nat × Bool) := none
             for tid in layout.types.namedTypeIds do
@@ -1412,7 +1472,18 @@ private partial def lowerRegion
               | _ => pure ()
             let (start, len, asAgg) ← match hit with
               | some r => pure r
-              | none => planError "unsupported Psy semantic shape: variantPayload could not resolve range"
+              | none =>
+                  -- B-OPT-STATE / N-ANON-RESULT: Option is 2-leaf [tag, payload].
+                  -- some (variant 1) payload 0 is leaf 1; none has empty payload.
+                  if variantIndex.toNat == 1 && payloadIndex.toNat == 0 &&
+                      baseLeaves.size == 2 then
+                    pure (1, 1, layout.types.isNamedAggregate valueDef.typeId)
+                  else if variantIndex.toNat == 0 then
+                    planError
+                      "unsupported Psy semantic shape: variantPayload of Option.none is empty"
+                  else
+                    planError
+                      "unsupported Psy semantic shape: variantPayload could not resolve range"
             unless start + len <= baseLeaves.size do
               planError "unsupported Psy semantic shape: variantPayload leaf range out of bounds"
             let mut outLeaves : Array Expr := #[]
@@ -1711,6 +1782,16 @@ private def lowerCallable
     unless blk.params.isEmpty ||
         callable.loopBounds.any (fun lb => lb.header == blk.id) do
       planError "unsupported Psy semantic shape: block parameters are only supported on loop headers"
+  let name ← match callable.name with
+    | some n => pure n
+    | none => pure "initialize"
+  let owner :=
+    match callable.kind with
+    | .initializer => "initializer"
+    | .pureFn => s!"pureFn '{name}'"
+    | .entry => s!"entry '{name}'"
+    | .view => s!"view '{name}'"
+    | .invariant => s!"invariant '{name}'"
   let mut params : Array PlanParam := #[]
   let mut paramIndex : Nat := 0
   let types := layout.types
@@ -1721,6 +1802,11 @@ private def lowerCallable
           | some w => isNarrowUintWidth w || w == 64
           | none => false then pure false
       else if isGoldilocksFieldType types p.typeId then pure false
+      else if types.isNamedAggregate p.typeId then
+        planError s!"unsupported Psy semantic shape: named Struct/Enum parameter '{p.name}' in {owner} is outside the Psy pilot (named aggregates are state-only; B-RET-ABI scalar)"
+      else if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
+        -- B-OPT-STATE mirrors Enum: Option is state-only (params stay fail closed).
+        planError s!"unsupported Psy semantic shape: Option parameter '{p.name}' in {owner} is outside the Psy pilot (Option is state-only; B-RET-ABI scalar)"
       else planError "unsupported Psy semantic shape: callable parameter is outside the UInt8/16/32/64/Int64/Bool/Goldilocks-Field envelope"
     let uintWidth :=
       match uintWidthOfType data p.typeId with
@@ -1746,16 +1832,6 @@ private def lowerCallable
         else
           env0 := envInsert env0 p.valueId (.param paramOrdinal)
     paramOrdinal := paramOrdinal + 1
-  let name ← match callable.name with
-    | some n => pure n
-    | none => pure "initialize"
-  let owner :=
-    match callable.kind with
-    | .initializer => "initializer"
-    | .pureFn => s!"pureFn '{name}'"
-    | .entry => s!"entry '{name}'"
-    | .view => s!"view '{name}'"
-    | .invariant => s!"invariant '{name}'"
   let (resultIsBool, resultIsUnit, resultUintWidth, resultKind) ←
     resultShape data layout.types layout.typeDecls callable owner
   -- pureFn aggregate returns stay fail closed (B-RET-ABI entry/view only).

@@ -3262,11 +3262,14 @@ unsafe def run : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"N-A4 Option select: {e.render}"
   let optCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optV1
-  -- EVM/NEAR/Solana admit Option UInt64 state.
+  -- EVM/NEAR/Solana/Aleo admit Option UInt64 state.
   let _ ← liftResult <| materializeSelected TargetId.evm optCompiled
   let _ ← liftResult <| materializeSelected TargetId.near optCompiled
   let _ ← liftResult <| materializeSelected TargetId.solana optCompiled
-  for target in [TargetId.noir, TargetId.psy, TargetId.aleo] do
+  let _ ← liftResult <| materializeSelected TargetId.aleo optCompiled
+  -- CosmWasm admits Option UInt64 state (BL-33).
+  let _ ← liftResult <| materializeSelected TargetId.cosmwasm optCompiled
+  for target in [TargetId.noir, TargetId.psy] do
     match materializeSelected target optCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N-A4: {target} must decline Option state"

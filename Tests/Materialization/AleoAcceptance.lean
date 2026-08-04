@@ -392,6 +392,29 @@ private def optionRetSourceText : String :=
   "  entry clear() : Option UInt64 do\n" ++
   "    return Option.none()\n"
 
+/-- B-OPT-STATE / BL-35: Option UInt64 state as 2 mapping leaves
+    (tag + payload). Match-on-state is an entry (computed views stay FC on
+    Aleo). Verified end-to-end by `leo build`. -/
+private def optionStateSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program OptionState where\n" ++
+  "  state slot : Option UInt64\n" ++
+  "  init() do\n" ++
+  "    slot := Option.none()\n" ++
+  "  entry setSome(v : UInt64) : UInt64 do\n" ++
+  "    slot := Option.some(v)\n" ++
+  "    return v\n" ++
+  "  entry clear() : UInt64 do\n" ++
+  "    slot := Option.none()\n" ++
+  "    return 0\n" ++
+  "  entry peek() : UInt64 do\n" ++
+  "    match slot with\n" ++
+  "    | Option.some(x) => do\n" ++
+  "      return x\n" ++
+  "    | _ => do\n" ++
+  "      return 0\n"
+
 /-- Suite entry. Skips cleanly when leo is unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.AleoAcceptance: start"
@@ -440,6 +463,8 @@ unsafe def run : IO Unit := do
           arrayRetSourceText "Tests.AleoAccept.ArrayRet" "arrayret.aleo"
         acceptProgram leo leoHome tmp "OptionRet"
           optionRetSourceText "Tests.AleoAccept.OptionRet" "optionret.aleo"
+        acceptProgram leo leoHome tmp "OptionState"
+          optionStateSourceText "Tests.AleoAccept.OptionState" "optionstate.aleo"
         IO.println "Tests.Materialization.AleoAcceptance: ok"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp

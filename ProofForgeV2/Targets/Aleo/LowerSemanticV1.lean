@@ -35,8 +35,13 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
   * **Field (bn254 Fr)** — research pin: Aleo native `field` is the BLS12-377
     scalar field (Edwards BLS Fr = BLS12-377 Fr), **not** catalog bn254 Fr.
     Mapping would be a silent wrong modulus. Keep `pilotFieldPolicyNone`.
-  * **Option-state/String/Principal state** — outside the Array/Map/Bytes
-    container pilot; UInt128/256 and Int{8,16,32}/Int128/256 stay fail-closed.
+  * **B-OPT-STATE / BL-35**: anonymous `Option UInt64` state is admitted as an
+    Enum-shaped 2-leaf layout (`name_tag` + `name_p0`; none=(0,0), some=(1,v);
+    none-assign zeroes the payload via the shared construct path). Read via
+    existing VariantTag/VariantPayload match (entry only — computed views and
+    multi-leaf view-over-state stay fail-closed). Option of non-UInt64,
+    nested Option, and Option params stay fail-closed. String/Principal state,
+    UInt128/256 and Int{8,16,32}/Int128/256 stay fail-closed.
   * **Computed state-reading views** — only bare public-state reads map to
     the off-chain `leo query` model; `balanceOf`-style match-on-state views
     fail closed. Multi-leaf aggregate `view` returns over state also
@@ -375,7 +380,7 @@ private def aleoTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, UInt16, UInt8, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, and Bytes N are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option-state/Principal/String stay fail-closed; UInt128/256 and narrow Int stay fail-closed)"
+    "only UInt64, UInt32, UInt16, UInt8, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + Principal/String stay fail-closed; UInt128/256 and narrow Int stay fail-closed)"
 
 /-- Aleo T8 multi-width policy: UInt{8,16,32,64} body + ABI (native Leo
     `u8`/`u16`/`u32`/`u64`). UInt128/256 stay fail-closed. -/
@@ -385,8 +390,9 @@ private def pilotUintWidthPolicyAleoBody : PilotUintWidthPolicy where
 /-- Aleo pilot type-closure: UInt{8,16,32,64} + Int64 + Unit/Bool + named
     Struct/Enum + Array UInt64 + dense **Map UInt64 UInt64** (capacity-2
     occ/key/val leaves, NS-1 pattern) + fixed **Bytes N** (N UInt8 leaves)
-    + Option body intermediate (Map IndexGet result). Field is BLS12-377 Fr
-    only. Principal/String/Option-state/UInt128/256/narrow Int stay FC. -/
+    + Option body intermediate (Map IndexGet) + B-OPT-STATE Option UInt64
+    state (never in `containerTypeIds`). Field is BLS12-377 Fr only.
+    Principal/String/Option-of-non-UInt64/UInt128/256/narrow Int stay FC. -/
 private def validateAleoTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult PilotTypeClosureV1 :=
   validatePilotTypeClosure aleoPlanErr aleoTypeClosureWording types
@@ -775,6 +781,30 @@ private def arrayUInt64LeafCountV1
   | _ =>
       planError "unsupported Aleo semantic shape: container TypeId is not Array/Map/Bytes"
 
+/-- True when `typeId` is an anonymous Option TypeDecl. Option is admitted by
+    the Map container policy as a Map IndexGet intermediate, as N-ANON-RESULT
+    return, and (B-OPT-STATE) as state layout — it is **never** pushed to
+    `containerTypeIds`. -/
+private def isAnonymousOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, name := none, .. } => true
+  | _ => false
+
+/-- B-OPT-STATE: `Option UInt64` storage leaves mirror named 2-variant Enum —
+    `{prefix}_tag` + `{prefix}_p0` (tag 0=none / 1=some; payload zeroed on none). -/
+private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
+    CompileResult (Array (String × Bool × Nat)) := do
+  let tagName :=
+    if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
+  let pName :=
+    if namePrefix.isEmpty then "p0" else namePrefix ++ "_p0"
+  unless isIdentifier tagName do
+    planError s!"state name '{tagName}' is not a safe identifier"
+  unless isIdentifier pName do
+    planError s!"state name '{pName}' is not a safe identifier"
+  pure #[(tagName, false, 0), (pName, false, 0)]
+
 /-- Dense Map IndexGet → Option UInt64 as `[tag, payload]` (unrolled; the
     EVM/NEAR pattern). Leo is type-strict, so every selector is a typed
     ternary (`cond ? thenV : elseV` with Bool condition and same-typed u64
@@ -876,6 +906,31 @@ private def makeStateLayoutV1
         fieldUintWidth := fieldUintWidth.push uintWidth
         fieldIsField := fieldIsField.push false
       stateLeaves := stateLeaves.push leaves
+    else if isAnonymousOptionTypeIdV1 typeDecls state.typeId then do
+      -- B-OPT-STATE / BL-35: Option UInt64 → tag + payload (2 u64 mapping
+      -- leaves), same physical shape as a 1-payload Enum. Names follow Enum
+      -- convention (`name_tag` / `name_p0`). Default zero mappings =
+      -- Option.none; storeAggregate writes both leaves; none construct zeroes
+      -- payload (pin). Non-UInt64 Option payload fails closed above.
+      match typeDecls[state.typeId.toNat]? with
+      | some { shape := .option elTid, name := none, .. } =>
+          unless elTid == types.uint64TypeId do
+            planError
+              s!"unsupported Aleo semantic shape: Option state '{state.name}' requires UInt64 payload"
+      | _ =>
+          planError
+            s!"unsupported Aleo semantic shape: state '{state.name}' is not anonymous Option UInt64"
+      let leafSpecs ← flattenOptionUInt64LeafSpecsV1 state.name
+      if fieldNames.size + leafSpecs.size > maxStateLeafFields then
+        planError "unsupported Aleo semantic shape: state leaf count exceeds Aleo profile limit"
+      let mut leaves : Array Nat := #[]
+      for (name, isInt, uintWidth) in leafSpecs do
+        leaves := leaves.push fieldNames.size
+        fieldNames := fieldNames.push name
+        fieldIsInt := fieldIsInt.push isInt
+        fieldUintWidth := fieldUintWidth.push uintWidth
+        fieldIsField := fieldIsField.push false
+      stateLeaves := stateLeaves.push leaves
     else if state.typeId == types.uint64TypeId then
       let leafIdx := fieldNames.size
       fieldNames := fieldNames.push state.name
@@ -920,7 +975,7 @@ private def makeStateLayoutV1
       fieldIsField := fieldIsField.push true
       stateLeaves := stateLeaves.push #[leafIdx]
     else
-      planError "Aleo state must be UInt{8,16,32,64}, Int64, BLS12-377 Field, named Struct/Enum, Array UInt64, Map UInt64 UInt64, or Bytes N (Option/bn254-fr/Goldilocks declined)"
+      planError "Aleo state must be UInt{8,16,32,64}, Int64, BLS12-377 Field, named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, or Option UInt64 (Option of non-UInt64/nested + Principal/String/bn254-fr/Goldilocks declined)"
   pure { fieldNames, fieldIsInt, fieldUintWidth, fieldIsField, stateLeaves, typeDecls, types }
 
 private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
@@ -1455,9 +1510,9 @@ private partial def lowerRegion
                   leafExprs := leafExprs.push arg.expr
                 env := envInsertVal env valueDef.valueId (mkAggregateVal leafExprs)
             else
-              -- N-ANON-RESULT: Option UInt64 construct (none/some) for
-              -- anonymous-result returns; named Struct/Enum remains the
-              -- other non-container path. Option state stays fail closed.
+              -- N-ANON-RESULT + B-OPT-STATE: Option UInt64 construct (none/some)
+              -- for anonymous-result returns and Option state assignment;
+              -- named Struct/Enum remains the other non-container path.
               match layout.typeDecls[typeId.toNat]? with
               | some { shape := .option elTid, name := none, .. } => do
                   unless elTid == layout.types.uint64TypeId do
@@ -2240,6 +2295,10 @@ private partial def lowerCallable
   let mut params : Array PlanParam := #[]
   let mut paramIndex : Nat := 0
   for p in callable.params do
+    -- B-OPT-STATE: Option is state-only (mirrors named Enum / aggregate params).
+    if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
+      planError
+        s!"unsupported Aleo semantic shape: Option parameter '{p.name}' is outside the Aleo pilot (Option is state-only; B-RET-ABI scalar)"
     let isBool ← if isBoolType data p.typeId then pure true
       else if isUInt64Type data p.typeId then pure false
       else if isInt64Type data p.typeId then pure false

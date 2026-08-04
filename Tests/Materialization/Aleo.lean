@@ -2334,6 +2334,197 @@ unsafe def testAggregateReturnFailClosed : IO Unit := do
             "PurePair: Aleo pureFn aggregate return must fail closed"
   IO.println "  aggregate return fail-closed boundaries ok"
 
+/-- B-OPT-STATE / BL-35: `state slot : Option UInt64` is 2 mapping leaves
+    (`slot_tag` + `slot_p0`), Enum-identical layout. Pins:
+    * none default / none-assign zeroes payload via storeAggregate (0,0)
+    * some writes tag=1 + payload via storeAggregate
+    * match read via VariantTag/VariantPayload (entry; computed views FC)
+    * FC: Option of non-UInt64, nested Option, Option params -/
+unsafe def testOptionState : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptionState where\n" ++
+    "  state slot : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n" ++
+    "  entry clear() : UInt64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n" ++
+    "  entry peek() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-option-state>" "Tests.AleoOptionState" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  -- Layout: Enum-shaped 2-leaf names.
+  expect (plan.stateFieldNames == #["slot_tag", "slot_p0"])
+    s!"OptionState must flatten to slot_tag/slot_p0, got {plan.stateFieldNames}"
+  expect (plan.stateFieldIsInt == #[false, false])
+    "OptionState leaves must be unsigned u64"
+  expect (plan.stateFieldUintWidth == #[0, 0])
+    "OptionState leaves must be full u64 width"
+  -- Helper: walk storeAggregate of size 2 with expected leaf values.
+  let rec findStoreAgg2 (stmts : Array Targets.Aleo.Statement) :
+      Option (Array Targets.Aleo.Store) :=
+    stmts.findSome? fun stmt =>
+      match stmt with
+      | .storeAggregate leaves =>
+          if leaves.size == 2 then some leaves else none
+      | .ifThenElse _ t e =>
+          match findStoreAgg2 t with
+          | some v => some v
+          | none => findStoreAgg2 e
+      | .switchOn _ cases d =>
+          match findStoreAgg2 d with
+          | some v => some v
+          | none =>
+              cases.findSome? fun (_, b) => findStoreAgg2 b
+      | .forLoop _ _ _ b => findStoreAgg2 b
+      | _ => none
+  -- Init none → storeAggregate (tag=0, payload=0).
+  let some initFn := plan.functions.find? (·.name == "initialize") |
+    throw <| IO.userError "OptionState: missing initialize"
+  match findStoreAgg2 initFn.body with
+  | some leaves =>
+      expect (leaves[0]!.fieldIndex == 0 && leaves[1]!.fieldIndex == 1)
+        "Option.none storeAggregate must target leaves 0/1"
+      expect (leaves[0]!.value == .literal 0 && leaves[1]!.value == .literal 0)
+        "Option.none must zero tag and payload (stale-payload pin)"
+  | none =>
+      throw <| IO.userError
+        "OptionState init must emit 2-leaf storeAggregate for Option.none"
+  -- setSome → storeAggregate (1, param 0).
+  let some setSome := plan.functions.find? (·.name == "setSome") |
+    throw <| IO.userError "OptionState: missing setSome"
+  match findStoreAgg2 setSome.body with
+  | some leaves =>
+      expect (leaves[0]!.value == .literal 1)
+        "setSome tag leaf must be literal 1"
+      expect (leaves[1]!.value == .param 0)
+        "setSome payload leaf must be the UInt64 param"
+  | none =>
+      throw <| IO.userError
+        "OptionState setSome must emit 2-leaf storeAggregate for Option.some"
+  -- clear none-reset zeros both leaves.
+  let some clear := plan.functions.find? (·.name == "clear") |
+    throw <| IO.userError "OptionState: missing clear"
+  match findStoreAgg2 clear.body with
+  | some leaves =>
+      expect (leaves[0]!.value == .literal 0 && leaves[1]!.value == .literal 0)
+        "clear Option.none must zero tag and payload"
+  | none =>
+      throw <| IO.userError
+        "OptionState clear must emit 2-leaf storeAggregate for Option.none"
+  -- peek match → reads both state leaves (VariantTag/VariantPayload path).
+  let some peek := plan.functions.find? (·.name == "peek") |
+    throw <| IO.userError "OptionState: missing peek"
+  let peekRepr := toString (repr peek.body)
+  expect (peekRepr.contains "stateLoad 0")
+    s!"peek match must load Option tag leaf, body={peekRepr}"
+  expect (peekRepr.contains "stateLoad 1")
+    s!"peek match must load Option payload leaf, body={peekRepr}"
+  expect (peekRepr.contains "ifThenElse" || peekRepr.contains "switchOn")
+    s!"peek match must lower to ifThenElse/switchOn, body={peekRepr}"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "optionstate.aleo") |
+    throw <| IO.userError "aleo: missing optionstate.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "mapping pf_state_0: u8 => u64;")
+    "OptionState must emit pf_state_0 for tag"
+  expect (leo.contains "mapping pf_state_1: u8 => u64;")
+    "OptionState must emit pf_state_1 for payload"
+  expect (leo.contains "pf_state_0.set(0u8,")
+    "OptionState must write the tag mapping"
+  expect (leo.contains "pf_state_1.set(0u8,")
+    "OptionState must write the payload mapping (none zeroes payload)"
+  expect (leo.contains "if (")
+    "OptionState peek match must render a Leo if on the tag"
+  IO.println "  OptionState Option UInt64 state Plan/IR/Leo pin ok"
+
+  -- FC: Option of non-UInt64 (Bool payload).
+  let badBool :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptBool where\n" ++
+    "  state o : Option Bool\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry set() : UInt64 do\n" ++
+    "    o := Option.some(true)\n" ++
+    "    return 1\n"
+  let badBoolSrc ← liftResult (← session.selectProgramV1
+    badBool "<aleo-opt-bool>" "Tests.AleoOptBool" none)
+  let badBoolCompiled ← liftResult <|
+    Compiler.compileValidatedSourceV1 badBoolSrc
+  match planAleo badBoolCompiled with
+  | .ok _ =>
+      throw <| IO.userError "Aleo Option Bool state must fail closed"
+  | .error e =>
+      expect (e.render.contains "Option" || e.render.contains "UInt64" ||
+          e.render.contains "payload" || e.render.contains "shape")
+        s!"Option Bool FC must cite Option/UInt64/payload, got: {e.render}"
+
+  -- FC: nested Option (Option of Option UInt64).
+  let badNested :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptNested where\n" ++
+    "  state o : Option Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry set(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(Option.some(v))\n" ++
+    "    return v\n"
+  let badNestedSrc ← liftResult (← session.selectProgramV1
+    badNested "<aleo-opt-nested>" "Tests.AleoOptNested" none)
+  let badNestedCompiled ← liftResult <|
+    Compiler.compileValidatedSourceV1 badNestedSrc
+  match planAleo badNestedCompiled with
+  | .ok _ =>
+      throw <| IO.userError "Aleo nested Option state must fail closed"
+  | .error e =>
+      expect (e.render.contains "Option" || e.render.contains "UInt64" ||
+          e.render.contains "payload" || e.render.contains "shape")
+        s!"nested Option FC must cite Option/UInt64/payload, got: {e.render}"
+
+  -- FC: Option params (state-only admission).
+  let badParam :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptParam where\n" ++
+    "  state x : UInt64\n" ++
+    "  init() do\n" ++
+    "    x := 0\n" ++
+    "  entry take(o : Option UInt64) : UInt64 do\n" ++
+    "    match o with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let badParamSrc ← liftResult (← session.selectProgramV1
+    badParam "<aleo-opt-param>" "Tests.AleoOptParam" none)
+  let badParamCompiled ← liftResult <|
+    Compiler.compileValidatedSourceV1 badParamSrc
+  match planAleo badParamCompiled with
+  | .ok _ =>
+      throw <| IO.userError "Aleo Option params must fail closed"
+  | .error e =>
+      expect (e.render.contains "Option" || e.render.contains "parameter" ||
+          e.render.contains "param" || e.render.contains "state-only")
+        s!"Option param FC must cite parameter/Option boundary, got: {e.render}"
+  IO.println "  OptionState fail-closed matrix ok"
+
 unsafe def run : IO Unit := do
   testCounterPlanAndLeo
   testPureOpsAndShifts
@@ -2380,6 +2571,7 @@ unsafe def run : IO Unit := do
   testAnonymousOptionReturn
   testMultiLeafViewOverStateFailClosed
   testAggregateReturnFailClosed
+  testOptionState
   IO.println "Tests.Materialization.Aleo: ok"
 
 end Tests.Materialization.Aleo
