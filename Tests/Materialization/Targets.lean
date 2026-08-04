@@ -3269,7 +3269,9 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.aleo optCompiled
   -- CosmWasm admits Option UInt64 state (BL-33).
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm optCompiled
-  for target in [TargetId.noir, TargetId.psy] do
+  -- Psy admits Option UInt64 state (BL-36).
+  let _ ← liftResult <| materializeSelected TargetId.psy optCompiled
+  for target in [TargetId.noir] do
     match materializeSelected target optCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N-A4: {target} must decline Option state"
