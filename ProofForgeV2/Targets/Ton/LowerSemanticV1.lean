@@ -171,6 +171,12 @@ inductive Expr where
   /-- Mutable plan-local (loop induction). Index is method-local and unique per
       forLoop; IR lowering maps it to a stable Wasm temp rewritten each latch. -/
   | localTemp (index : Nat)
+  /-- B-CTX-OPEN: block unix time in whole seconds. Tolk stdlib
+      `blockchain.now()` (TVM `NOW`) returns the current block unixtime as
+      `int` (~1.7e9 today, always far inside UInt64), so the IR emits it
+      directly with no range guard. Carries `context.unixTimeSeconds`;
+      UInt64-typed. -/
+  | blockUnixTimeSeconds
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -3010,7 +3016,7 @@ private def lowerBlockInstructionsV1
               dependencies := #[baseId]
             }
         values := ← appendResultValueV1 result.typeId values result value
-    -- N5: Commit = identity passthrough; ContextRead declined (no clock ABI).
+    -- N5: Commit = identity passthrough; ContextRead admits unixTimeSeconds only.
     | .commit valueId, some result => do
         unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
           throw <| .planInvariant .ton
@@ -3024,12 +3030,28 @@ private def lowerBlockInstructionsV1
           dependencies := operand.dependencies.push valueId
           aggregateLeaves := operand.aggregateLeaves
         }
-    | .contextRead key, some _ =>
+    | .contextRead key, some result =>
+        -- B-CTX-OPEN (TON): `context.unixTimeSeconds` lowers to Tolk
+        -- `blockchain.now()` (block unixtime as int, always ≪ 2^64 — no
+        -- range guard). See Expr.blockUnixTimeSeconds. `context.caller` and
+        -- unknown keys stay fail closed (Principal ≠ TON address mapping
+        -- deferred).
+        if key == callerContextKeyV1 then
+          throw <| .planInvariant .ton
+            "unsupported Ton semantic shape: ContextRead (context.caller) is not admitted by pilot context policy (Principal to TON address mapping deferred)"
         unless key == unixTimeSecondsContextKeyV1 do
           throw <| .planInvariant .ton
             s!"unsupported Ton semantic shape: unknown ContextRead key '{key.value}'"
-        throw <| .planInvariant .ton
-          "unsupported Ton semantic shape: ContextRead is not admitted by pilot context policy"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .ton
+            "unsupported Ton semantic shape: ContextRead unix-time-seconds result must be UInt64"
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := .blockUnixTimeSeconds
+          kind := .uint64
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
     | _, _ =>
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: instruction op/result is outside the current UInt64 pilot"

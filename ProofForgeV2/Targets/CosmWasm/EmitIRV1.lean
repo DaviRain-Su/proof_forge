@@ -38,6 +38,10 @@ inductive Operation where
   | requireLayout (marker : KeyRegion) (value : UInt64)
   | zeroState (field : KeyRegion)
   | literal (destination : Nat) (value : UInt64)
+  /-- B-CTX-OPEN: load pre-parsed env.block.time.seconds() into a temp.
+      Entry points fill global `$pf_block_time_secs` from Env JSON `"time"`
+      (nanoseconds string ÷ 10^9 truncating) before calling method bodies. -/
+  | blockTimeSeconds (destination : Nat)
   | loadParam (destination inputOffset : Nat)
   /-- Narrow ABI param copy (`bitWidth ∈ {8,16,32}`); params already
       range-checked at JSON entry (see `renderParamRangeGuard`). -/
@@ -192,6 +196,8 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
   | .bigLiteral _ value =>
       -- Multiword FC at plan; defensive: truncate to low 64.
       { operations := #[.literal next (UInt64.ofNat value)], value := next, next := next + 1 }
+  | .blockTimeSeconds =>
+      { operations := #[.blockTimeSeconds next], value := next, next := next + 1 }
   | .param inputOffset =>
       if paramAsTemp then
         { operations := #[], value := inputOffset / 8, next := next }
@@ -710,6 +716,8 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"  (global $ret_kind (mut i32) (i32.const 0))\n" ++  -- 0=none 1=scalar 4=aggregate
   s!"  (global $ret_val (mut i64) (i64.const 0))\n" ++
   s!"  (global $ret_count (mut i32) (i32.const 0))\n" ++  -- B-RET-ABI leaf count (1..8)
+  -- B-CTX-OPEN: whole-second block time from Env JSON (set at entry when used).
+  s!"  (global $pf_block_time_secs (mut i64) (i64.const 0))\n" ++
   -- ret_leaves live at valueCell (8×i64 = 64B); capacity-guarded by ret_count≤8
   -- allocate(size) -> region_ptr: Region{offset=data, capacity=size, length=size}
   "  (func $pf_allocate (param $size i32) (result i32)\n" ++
@@ -1106,6 +1114,63 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- region payload view: (offset, length) from region ptr
   s!"  (func $pf_region_off (param $r i32) (result i32) (i32.load (local.get $r)))\n" ++
   s!"  (func $pf_region_len (param $r i32) (result i32) (i32.load offset=8 (local.get $r)))\n" ++
+  -- B-CTX-OPEN: parse cosmwasm-std Timestamp JSON string field after name needle.
+  -- Shape: `"time":"1571797419879305533"` (quoted decimal nanoseconds). Optional
+  -- leading quote after ':' is skipped; bare digits also accepted. Overflow
+  -- discipline matches $pf_parse_u64_field.
+  s!"  (func $pf_parse_u64_string_field (param $hay i32) (param $hay_len i32) (param $name i32) (param $name_len i32) (result i64)\n" ++
+  s!"    (local $idx i32) (local $p i32) (local $end i32) (local $c i32) (local $v i64) (local $any i32)\n" ++
+  s!"    (local.set $idx (call $pf_find (local.get $hay) (local.get $hay_len) (local.get $name) (local.get $name_len)))\n" ++
+  s!"    (if (i32.eq (local.get $idx) (i32.const -1)) (then unreachable))\n" ++
+  s!"    (local.set $p (i32.add (i32.add (local.get $hay) (local.get $idx)) (local.get $name_len)))\n" ++
+  s!"    (local.set $end (i32.add (local.get $hay) (local.get $hay_len)))\n" ++
+  s!"    (block $find_colon\n" ++
+  s!"      (loop $sc\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then unreachable))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br_if $find_colon (i32.eq (local.get $c) (i32.const 58)))\n" ++
+  s!"        (br $sc)))\n" ++
+  s!"    (block $skip_sp\n" ++
+  s!"      (loop $sp\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then (br $skip_sp)))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (br_if $skip_sp (i32.ne (local.get $c) (i32.const 32)))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br $sp)))\n" ++
+  -- optional leading quote (cosmwasm-std Timestamp / Uint64 JSON string form)
+  s!"    (if (i32.lt_u (local.get $p) (local.get $end)) (then\n" ++
+  s!"      (if (i32.eq (i32.load8_u (local.get $p)) (i32.const 34)) (then\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))))))\n" ++
+  s!"    (local.set $v (i64.const 0))\n" ++
+  s!"    (local.set $any (i32.const 0))\n" ++
+  s!"    (block $num_done\n" ++
+  s!"      (loop $num\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then (br $num_done)))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (br_if $num_done (i32.or (i32.lt_u (local.get $c) (i32.const 48)) (i32.gt_u (local.get $c) (i32.const 57))))\n" ++
+  s!"        (if (i64.gt_u (local.get $v) (i64.const 1844674407370955161)) (then unreachable))\n" ++
+  s!"        (if (i64.eq (local.get $v) (i64.const 1844674407370955161)) (then (if (i32.gt_u (i32.sub (local.get $c) (i32.const 48)) (i32.const 5)) (then unreachable))))\n" ++
+  s!"        (local.set $v (i64.add (i64.mul (local.get $v) (i64.const 10)) (i64.extend_i32_u (i32.sub (local.get $c) (i32.const 48)))))\n" ++
+  s!"        (local.set $any (i32.const 1))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br $num)))\n" ++
+  s!"    (if (i32.eqz (local.get $any)) (then unreachable))\n" ++
+  s!"    (local.get $v)\n" ++
+  "  )\n" ++
+  -- B-CTX-OPEN: Env Region → block time whole seconds.
+  -- cosmwasm-std Env.block.time is Timestamp = nanoseconds since epoch as a
+  -- JSON string field `"time"`. Divide by 10^9 truncating (same discipline as
+  -- NEAR host block_timestamp). `.seconds()` is already u64 — exact UInt64
+  -- fit, NO range guard (unlike EVM 256-bit timestamp()).
+  -- Needle for `"time"` is fixed at offset 3000 length 6 (see renderDataSectionV2).
+  s!"  (func $pf_env_block_time_seconds (param $env_ptr i32) (result i64)\n" ++
+  s!"    (local $off i32) (local $len i32) (local $ns i64)\n" ++
+  s!"    (local.set $off (call $pf_region_off (local.get $env_ptr)))\n" ++
+  s!"    (local.set $len (call $pf_region_len (local.get $env_ptr)))\n" ++
+  s!"    (local.set $ns (call $pf_parse_u64_string_field (local.get $off) (local.get $len) (i32.const 3000) (i32.const 6)))\n" ++
+  s!"    (i64.div_u (local.get $ns) (i64.const 1000000000))\n" ++
+  "  )\n" ++
   -- reset per-entry attribute/messages/return/inner-json state
   s!"  (func $pf_reset_result\n" ++
   s!"    (global.set $attr_len (i32.const 0))\n" ++
@@ -1303,6 +1368,10 @@ private partial def renderOperation (memory : MemoryLayout)
       s!"{indent}(call $pf_db_store_u64 (i32.const {field.offset}) (i32.const {field.length}) (i64.const 0))\n"
   | .literal destination value =>
       s!"{indent}(local.set $t{destination} (i64.const {value.toNat}))\n"
+  | .blockTimeSeconds destination =>
+      -- B-CTX-OPEN: env.block.time.seconds() pre-parsed into global at entry.
+      -- CosmWasm Timestamp.seconds() is u64 — exact UInt64 fit, no range guard.
+      s!"{indent}(local.set $t{destination} (global.get $pf_block_time_secs))\n"
   | .loadParam destination inputOffset =>
       -- Params live in locals $p{inputOffset/8} filled by JSON parse before body.
       s!"{indent}(local.set $t{destination} (local.get $p{inputOffset / 8}))\n"
@@ -1671,6 +1740,19 @@ private def renderDataSectionV2 (ir : IR) (keysEnd : Nat) : Except CompileError 
   for key in ir.keys do
     out := out ++ s!"  (data (i32.const {key.offset}) \"{key.key}\")\n"
   let mut off := needleBase
+  -- B-CTX-OPEN: fixed first needle `"time"` for Env.block.time Timestamp parse.
+  -- cosmwasm-std serializes Timestamp/Uint64 as a JSON string of nanoseconds.
+  -- Length 6 (`"time"`); reserved even when unused so offsets stay stable.
+  let timeNeedleBytes := "\"time\"".toUTF8
+  if off + timeNeedleBytes.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      s!"time needle would overlap bump heap at {heapBase}"
+  out := out ++ s!"  (data (i32.const {off}) \"\\\"time\\\"\")\n"
+  -- Helper $pf_env_block_time_seconds hard-codes this offset/len (must stay 3000/6).
+  unless off == 3000 && timeNeedleBytes.size == 6 do
+    throw <| .planInvariant .cosmwasm
+      "internal: time needle must be at offset 3000 with length 6"
+  off := off + timeNeedleBytes.size + 1
   let mut methodNeedles : Array (String × Nat × Nat) := #[]
   for method in ir.methods do
     -- WAT string containing the bytes of `"name"` (quotes included for JSON find).
@@ -1708,6 +1790,12 @@ private def renderParamRangeGuard (indent : String) (i : Nat) (byteWidth : Nat) 
   else
     s!"{indent}(if (i64.ne (i64.shr_u (local.get $p{i}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
 
+/-- B-CTX-OPEN: capture env.block.time.seconds into the shared global before
+    method bodies that may read `context.unixTimeSeconds`. Always set so any
+    Plan using `.blockTimeSeconds` sees a fresh value per entry call. -/
+private def renderLoadBlockTime (indent : String) : String :=
+  s!"{indent}(global.set $pf_block_time_secs (call $pf_env_block_time_seconds (local.get $env_ptr)))\n"
+
 private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × Nat)) : String :=
   Id.run do
     let init := ir.methods[0]!  -- initializer is always first
@@ -1727,6 +1815,7 @@ private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × 
         "    (local $msg_off i32) (local $msg_len i32)" ++ paramLocals ++ "\n" ++
         "    (local.set $msg_off (call $pf_region_off (local.get $msg_ptr)))\n" ++
         "    (local.set $msg_len (call $pf_region_len (local.get $msg_ptr)))\n" ++
+        renderLoadBlockTime "    " ++
         parse ++
         s!"    (return (call $m_{init.name} {args}))\n" ++
         "  )\n"
@@ -1759,6 +1848,7 @@ private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String 
         "    (local $msg_off i32) (local $msg_len i32)" ++ paramLocals ++ "\n" ++
         "    (local.set $msg_off (call $pf_region_off (local.get $msg_ptr)))\n" ++
         "    (local.set $msg_len (call $pf_region_len (local.get $msg_ptr)))\n" ++
+        renderLoadBlockTime "    " ++
         dispatch ++
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++
         "  )\n"
@@ -1791,6 +1881,7 @@ private def renderQuery (ir : IR) (methodNeedles paramNeedles : Array (String ×
         "    (local $msg_off i32) (local $msg_len i32)" ++ paramLocals ++ "\n" ++
         "    (local.set $msg_off (call $pf_region_off (local.get $msg_ptr)))\n" ++
         "    (local.set $msg_len (call $pf_region_len (local.get $msg_ptr)))\n" ++
+        renderLoadBlockTime "    " ++
         dispatch ++
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++
         "  )\n"

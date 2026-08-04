@@ -1,7 +1,8 @@
 /-
   Ton Plan/IR/Tolk engineering suite (TON-2 Counter leaf + BL-1 schedule +
   BL-10 named aggregate view returns + BL-23 anonymous Array/Option view
-  returns + BL-34 / B-OPT-STATE Option UInt64 state).
+  returns + BL-34 / B-OPT-STATE Option UInt64 state + BL-38 / B-CTX-OPEN
+  unixTimeSeconds → Tolk blockchain.now()).
 
   Pins Counter plan shape, Tolk surface (Storage/onInternalMessage/get fun),
   op+query_id envelope, UInt64 range-check markers, schedule→createMessage
@@ -11,9 +12,11 @@
   B-RET-ABI named Struct/Enum view multi-stack returns, N-ANON-RESULT
   anonymous Array UInt64 N / Option UInt64 view returns (entry aggregate FC),
   B-OPT-STATE Option UInt64 state (Enum-shaped 2-leaf c4 layout, none default,
-  payload zeroing, match read, tolk→fif), and explicit fail-closed boundaries
-  (sync call, UInt128/256, Map/Bytes returns, N>8, nested/narrow-element
-  containers, Option non-UInt64 / Option params, invariants, Field/Principal).
+  payload zeroing, match read, tolk→fif), B-CTX-OPEN context.unixTimeSeconds
+  → Plan blockUnixTimeSeconds / Tolk blockchain.now() (entry+view;
+  caller/unknown FC), and explicit fail-closed boundaries (sync call,
+  UInt128/256, Map/Bytes returns, N>8, nested/narrow-element containers,
+  Option non-UInt64 / Option params, invariants, Field/Principal).
 
   Registered in Tests/Shards/Targets. Not @ton/sandbox runtime (TON-3).
   Not formal D4.
@@ -1266,6 +1269,167 @@ private unsafe def testOptionState
     IO.println "  · OptionState tolk→fif skipped (tool-root/tolk or stdlib absent)"
   IO.println "  ✓ OptionState Option UInt64 state Plan/IR/Tolk pin"
 
+/-- B-CTX-OPEN (BL-38): `context.unixTimeSeconds` lowers on TON to Tolk
+    `blockchain.now()` (Plan Expr tag 51 / `blockUnixTimeSeconds`);
+    `context.caller` and unknown ContextRead keys stay fail closed. Locked
+    tolk → .fif when tool-root + stdlib are present (same optional path as
+    OptionState). -/
+private unsafe def testContextReadUnixTime
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ClockBox" <|
+    "  state t : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    t := 0\n\n" ++
+    "  entry stamp() : UInt64 do\n" ++
+    "    t := context.unixTimeSeconds\n" ++
+    "    return t\n\n" ++
+    "  view last() : UInt64 do\n" ++
+    "    return t\n\n" ++
+    "  view peekNow() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n"
+  let compiled ← compileSource session source "Examples.ClockBox" "<ton-clock-box>"
+  let plan ← liftResult (planTon compiled)
+  -- (a) Plan body: stamp stores blockUnixTimeSeconds; peekNow returns it.
+  let stamp ← findMethod plan "stamp"
+  let hasTsStore := stamp.body.any fun s =>
+    match s with
+    | .store op =>
+        match op.value with
+        | .blockUnixTimeSeconds => true
+        | _ => false
+    | _ => false
+  expect hasTsStore "ClockBox: stamp must store blockUnixTimeSeconds"
+  let peekNow ← findMethod plan "peekNow"
+  let hasTsRet := peekNow.body.any fun s =>
+    match s with
+    | .returnValue .blockUnixTimeSeconds => true
+    | _ => false
+  expect hasTsRet "ClockBox: peekNow must return blockUnixTimeSeconds"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ClockBox plan must validate: {e.render}"
+  -- IR carries the op on both entry and view paths.
+  let ir ← liftResult (irTon compiled)
+  let stampIR ← findMethodIR ir "stamp"
+  expect (stampIR.operations.any fun
+      | .blockUnixTimeSeconds _ => true
+      | _ => false)
+    "ClockBox stamp IR must carry blockUnixTimeSeconds"
+  let peekIR ← findMethodIR ir "peekNow"
+  expect (peekIR.operations.any fun
+      | .blockUnixTimeSeconds _ => true
+      | _ => false)
+    "ClockBox peekNow IR must carry blockUnixTimeSeconds (view path)"
+  -- (b) Emitted Tolk contains blockchain.now() on both method bodies.
+  let files ← liftResult (filesTon compiled)
+  let tolk ← findFile files "ClockBox.tolk"
+  expect (tolk.contains "blockchain.now()")
+    "ClockBox Tolk must contain blockchain.now()"
+  expect (tolk.contains "fun onInternalMessage" || tolk.contains "onInternalMessage")
+    "ClockBox Tolk must keep onInternalMessage entry surface"
+  expect (tolk.contains "get fun last()" || tolk.contains "get fun peekNow()")
+    "ClockBox Tolk must declare a get-method view"
+  -- stamp (entry) + peekNow (view) each emit blockchain.now() → ≥ 2.
+  let nowCount := (tolk.splitOn "blockchain.now()").length - 1
+  expect (nowCount >= 2)
+    s!"ClockBox Tolk must emit blockchain.now() in entry and view (got {nowCount})"
+  -- (c) Locked tolk → real .fif (host-optional; same pattern as OptionState).
+  let home ← IO.getEnv "HOME"
+  let toolRoot ← match ← IO.getEnv "PROOF_FORGE_TOOL_ROOT" with
+    | some r => pure r
+    | none =>
+        match home with
+        | some h => pure s!"{h}/.cache/proof-forge-v2/tool-root/darwin-arm64"
+        | none => pure ""
+  let stdlib ← match ← IO.getEnv "PROOF_FORGE_TOLK_STDLIB" with
+    | some p => pure p
+    | none =>
+        match ← IO.getEnv "PROOF_FORGE_TON_TOOLS" with
+        | some root => pure s!"{root}/tolk-stdlib"
+        | none =>
+            match home with
+            | some h => pure s!"{h}/.cache/proof-forge-v2/ton-tools/tolk-stdlib"
+            | none => pure ""
+  let tolkBin := System.FilePath.mk (toolRoot ++ "/tolk")
+  let stdlibPath := System.FilePath.mk stdlib
+  if (← tolkBin.pathExists) && (← stdlibPath.pathExists) then
+    let tmp ← IO.Process.output {
+      cmd := "mktemp"
+      args := #["-d", "/tmp/pf-ton-clock-box.XXXXXX"]
+    }
+    unless tmp.exitCode == 0 do
+      throw <| IO.userError s!"mktemp failed: {tmp.stderr}"
+    let staging := (tmp.stdout.trim)
+    try
+      IO.FS.writeFile (System.FilePath.mk staging / "ClockBox.tolk") tolk
+      let proc ← IO.Process.output {
+        cmd := tolkBin.toString
+        args := #["-o", "ClockBox.fif", "ClockBox.tolk"]
+        cwd := some (System.FilePath.mk staging)
+        env := #[("TOLK_STDLIB", stdlib), ("LC_ALL", "C"), ("TZ", "UTC")]
+      }
+      unless proc.exitCode == 0 do
+        throw <| IO.userError
+          s!"locked tolk failed to compile ClockBox.tolk:\n{proc.stderr}{proc.stdout}"
+      let fifPath := System.FilePath.mk staging / "ClockBox.fif"
+      unless ← fifPath.pathExists do
+        throw <| IO.userError "tolk returned no ClockBox.fif"
+      let fifBytes ← IO.FS.readFile fifPath
+      expect (fifBytes.length > 0) "ClockBox.fif must be non-empty"
+      IO.println "  ✓ ClockBox locked tolk → .fif"
+    finally
+      let _ ← IO.Process.output {
+        cmd := "rm"
+        args := #["-rf", staging]
+      }
+  else
+    IO.println "  · ClockBox tolk→fif skipped (tool-root/tolk or stdlib absent)"
+  -- (d) context.caller stays fail closed. TON type-closure is
+  -- `pilotPrincipalPolicyNone`, so Principal from `context.caller` is rejected
+  -- at type closure (message cites Principal) before the ContextRead arm —
+  -- still fail closed. LowerSemantic keeps an explicit ContextRead/caller arm
+  -- for defense-in-depth if Principal storage is later admitted.
+  let callerSrc := wrapProgram "CallerBox" <|
+    "  entry who() : UInt64 do\n" ++
+    "    let c : Principal := context.caller\n" ++
+    "    return 0\n"
+  let clCompiled ← compileSource session callerSrc "Examples.CallerBox"
+    "<ton-caller-box>"
+  match planTon clCompiled with
+  | .error e =>
+      expect (e.render.contains "ContextRead" || e.render.contains "caller" ||
+          e.render.contains "Principal")
+        s!"caller FC must cite ContextRead/caller/Principal boundary, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "TON context.caller must fail closed"
+  -- (e) Unknown context key still FC. Source admits only the closed two-key
+  -- catalog; novel `context.<field>` fails at Normalize before Plan (message
+  -- cites the context boundary). Plan still keeps the unknown-key arm for
+  -- non-catalog Semantic ContextRead keys (not product-reachable).
+  let unknownSrc := wrapProgram "UnknownCtx" <|
+    "  entry go() : UInt64 do\n" ++
+    "    return context.blockHeight\n"
+  match ← session.selectProgramV1 unknownSrc
+      "<ton-unknown-ctx>" "Examples.UnknownCtx" none with
+  | .error e =>
+      expect (e.render.contains "context" || e.render.contains "Context")
+        s!"unknown context key must cite context boundary at select, got: {e.render}"
+  | .ok validated =>
+      match Compiler.compileValidatedSourceV1 validated with
+      | .error e =>
+          expect (e.render.contains "context" || e.render.contains "Context" ||
+              e.render.contains "blockHeight" || e.render.contains "unsupported")
+            s!"unknown context key must fail closed citing context, got: {e.render}"
+      | .ok compiled =>
+          match planTon compiled with
+          | .error e =>
+              expect (e.render.contains "ContextRead" || e.render.contains "context")
+                s!"unknown ContextRead plan FC must cite ContextRead/context, got: {e.render}"
+          | .ok _ =>
+              throw <| IO.userError
+                "unknown context key must fail closed (Normalize or Plan)"
+  IO.println "  ✓ B-CTX-OPEN unixTimeSeconds → blockchain.now(); caller/unknown FC"
+
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -1284,6 +1448,7 @@ unsafe def run : IO Unit := do
   testAnonymousOptionReturn session
   testOptionState session
   testAggregateFailClosed session
+  testContextReadUnixTime session
   IO.println "TonPlanV1: all checks passed"
 
 end Tests.Materialization.TonPlanV1
