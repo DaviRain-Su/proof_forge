@@ -149,6 +149,7 @@ import Tests.Materialization.SolanaCpiSystemV1
 import Tests.Materialization.SolanaCpiTokenV1
 import Tests.Materialization.SolanaCpiAtaV1
 import Tests.Materialization.SolanaCpiEscrowV1
+import Tests.Materialization.SolanaCpiPfAssetsV1
 import Tests.Materialization.SolanaCpiActivationV1
 import Tests.Targets.SolanaAsmV1
 import Tests.Targets.SolanaElfV1
@@ -161,6 +162,7 @@ import Tests.Product.TokenV1
 import Tests.Product.TipJarQuintV1
 import Tests.Product.TipJarEvmV1
 import Tests.Materialization.EvmPfAssetsV1
+import Tests.Product.TipJarSolanaV1
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.Materialization.EngineeringFinalizationV1
@@ -208,6 +210,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Materialization.SolanaCpiTokenV1.run
   Tests.Materialization.SolanaCpiAtaV1.run
   Tests.Materialization.SolanaCpiEscrowV1.run
+  Tests.Materialization.SolanaCpiPfAssetsV1.run
   Tests.Materialization.SolanaCpiActivationV1.run
   Tests.Targets.SolanaAsmV1.run
   Tests.Targets.SolanaElfV1.run
@@ -220,6 +223,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Product.TipJarQuintV1.run
   Tests.Product.TipJarEvmV1.run
   Tests.Materialization.EvmPfAssetsV1.run
+  Tests.Product.TipJarSolanaV1.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run
   Tests.CLI.DiagnosticsV1.run

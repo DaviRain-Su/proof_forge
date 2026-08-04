@@ -361,8 +361,8 @@ private def testSupportTable : IO Unit := do
     ("psy", "psy-dargo-u64-v1", 6, false, false),
     -- Phase A5: Quint = 5 S2 keys (incl sync-call) + exact extension.pf-assets
     ("quint", "quint-source-u64-model-v1", 6, false, true),
-    -- #125: CPI row = 6 S2 (incl sync, excl async) + exact extension = 7
-    ("solana", "solana-sbpf-cpi-elf-v1", 7, true, false),
+    -- #125 + B1: CPI row = 6 S2 (incl sync, excl async) + solana.cpi + pf.assets = 8
+    ("solana", "solana-sbpf-cpi-elf-v1", 8, true, true),
     ("solana", "solana-sbpf-elf-v1", 5, false, false),
     ("solana", "solana-sbpf-plan-v1", 5, false, false),
     ("ton", "ton-tolk-boc-v1", 6, false, false)
@@ -623,21 +623,33 @@ private def testIndexValidationNegatives : IO Unit := do
       noirPfAssetsRows := noirPfAssetsRows.push row
   expectErrorCode (createStaticRequirementSupportIndexV1 noirPfAssetsRows)
     "PF-REGISTRY-INVALID" "pf.assets extension cannot appear on Noir support row"
-  -- pf.assets on Solana CPI profile (wrong permit) also fails closed: start
-  -- from the product index and inject the exact seed on the CPI row only.
+  -- pf.assets on Solana legacy plan profile (not CPI) fails closed.
   let baseRows ← liftResult productSupportRowsV1
-  let mut solanaPfAssetsRows : Array StaticRequirementSupportRowV1 := #[]
+  let mut solanaLegacyPfAssetsRows : Array StaticRequirementSupportRowV1 := #[]
   for row in baseRows do
     if row.targetId == TargetId.solana &&
-        row.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 then
-      solanaPfAssetsRows := solanaPfAssetsRows.push {
+        row.codegenProfile == CodegenProfileId.solanaSbpfPlanV1 then
+      solanaLegacyPfAssetsRows := solanaLegacyPfAssetsRows.push {
         row with supported :=
           (row.supported.push pfAssetsRow).qsort fun a b => a.id < b.id
       }
     else
-      solanaPfAssetsRows := solanaPfAssetsRows.push row
-  expectErrorCode (createStaticRequirementSupportIndexV1 solanaPfAssetsRows)
-    "PF-REGISTRY-INVALID" "pf.assets extension cannot appear on Solana CPI row"
+      solanaLegacyPfAssetsRows := solanaLegacyPfAssetsRows.push row
+  expectErrorCode (createStaticRequirementSupportIndexV1 solanaLegacyPfAssetsRows)
+    "PF-REGISTRY-INVALID" "pf.assets extension cannot appear on Solana legacy plan row"
+  -- Solana CPI missing pf.assets (B1 requires both closed extensions) fails closed.
+  let mut solanaCpiMissingPf : Array StaticRequirementSupportRowV1 := #[]
+  for row in baseRows do
+    if row.targetId == TargetId.solana &&
+        row.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 then
+      solanaCpiMissingPf := solanaCpiMissingPf.push {
+        row with supported :=
+          row.supported.filter (·.id != pfAssetsExtensionRequirementIdV1)
+      }
+    else
+      solanaCpiMissingPf := solanaCpiMissingPf.push row
+  expectErrorCode (createStaticRequirementSupportIndexV1 solanaCpiMissingPf)
+    "PF-REGISTRY-INVALID" "Solana CPI profile requires exact extension.pf-assets"
   -- Permitted owners must carry their exact extension seed (presence gate).
   let missingExtension := nineRowSkeleton trio trio
   expectErrorCode (createStaticRequirementSupportIndexV1 missingExtension)
@@ -756,13 +768,16 @@ private def testRequestInspectionErrors : IO Unit := do
   | .ok () => pure ()
   | .error error =>
       throw <| IO.userError s!"exact pf.assets on Quint profile: {error.render}"
-  -- Cross-scope resolve: Solana extension on Quint / pf.assets on CPI fail closed.
+  -- Cross-scope resolve: Solana extension on Quint fails closed.
+  -- Phase B1: pf.assets on Solana CPI is now admitted (exact seed).
   expectErrorCode
     (inspectResolveRequestsV1 quintSupported { items := #[solanaExtensionRow] })
     "PF-REQ-UNSUPPORTED" "Quint declines Solana CPI extension"
-  expectErrorCode
-    (inspectResolveRequestsV1 cpiSupported { items := #[pfAssetsRow] })
-    "PF-REQ-UNSUPPORTED" "Solana CPI declines pf.assets extension"
+  match inspectResolveRequestsV1 cpiSupported { items := #[pfAssetsRow] } with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"exact pf.assets on Solana CPI profile (B1): {error.render}"
   -- Exact sync request resolves on CPI and Quint; async does not.
   let syncReq ← match mkS2RequirementRequestV1 "effect.synchronous-call" with
     | .ok r => pure r
@@ -828,6 +843,14 @@ private def testRequestInspectionErrors : IO Unit := do
   expectErrorCode
     (inspectResolveRequestsV1 noirSupported { items := #[solanaExtensionRow] })
     "PF-REQ-UNSUPPORTED" "Noir declines Solana CPI extension"
+  -- Non-permitted targets (near/ton/cosmwasm/aleo/psy) decline pf.assets.
+  for tid in #["near", "ton", "cosmwasm", "aleo", "psy"] do
+    let otherSupported ← match rows.find? fun row => row.targetId.toString == tid with
+      | some row => pure row.supported
+      | none => throw <| IO.userError s!"missing {tid} support row"
+    expectErrorCode
+      (inspectResolveRequestsV1 otherSupported { items := #[pfAssetsRow] })
+      "PF-REQ-UNSUPPORTED" s!"{tid} declines pf.assets (not Quint/EVM/Solana CPI)"
   let extensionBadVersion := {
     solanaExtensionRow with version := { major := 1, minor := 0, patch := 1 } }
   let extensionBadDigest := { solanaExtensionRow with digest := zeroDigest }

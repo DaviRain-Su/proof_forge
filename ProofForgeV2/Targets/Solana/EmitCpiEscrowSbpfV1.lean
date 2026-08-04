@@ -625,6 +625,328 @@ private def emitInvokeSystemTransfer
     b := emit b "  jne r0, 0, cpi_failed"
     pure b
 
+/-- Write vault seed0 = ASCII `proof-forge:vault:v1` (20 bytes) at [r9+64]. -/
+private def emitVaultSeed0 (b0 : AsmBuf) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b "  ; seed0 = proof-forge:vault:v1 (20 bytes)"
+    b := emit b "  lddw r4, 0x6f662d666f6f7270"
+    b := emit b "  stxdw [r9 + 64], r4"
+    b := emit b "  lddw r4, 0x6c7561763a656772"
+    b := emit b "  stxdw [r9 + 72], r4"
+    b := emit b "  lddw r4, 0x31763a74"
+    b := emit b "  stxdw [r9 + 80], r4"
+    pure b
+
+/-- ADR-0029 B1 deposit: idempotent vault ensure (System createPda, space=0,
+    rent-exempt) then System transfer caller → vault (unsigned). -/
+private def emitInvokeNativeDeposit
+    (b0 : AsmBuf) (inv : CpiEscrowInvokeV1) (labSuffix : String) :
+    CompileResult AsmBuf := do
+  unless inv.kind == .nativeDeposit do
+    emitFail "emit nativeDeposit requires nativeDeposit kind"
+  unless inv.packageId == "system-v1" && inv.qn == "pf.assets.native.deposit" do
+    emitFail "emit nativeDeposit requires pf.assets.native.deposit / system-v1"
+  unless inv.dataLen == 12 && inv.metas.size == 2 do
+    emitFail "nativeDeposit dataLen/metas must be 12/2"
+  unless inv.outerOnly.isEmpty && inv.signerGroupId.isNone do
+    emitFail "nativeDeposit requires zero outer-only and zero signer groups"
+  unless inv.pdaRule == some vaultPdaRuleIdV1 do
+    emitFail "nativeDeposit requires vault PDA rule"
+  let some payer := inv.payer | emitFail "nativeDeposit payer (caller) missing"
+  let some vault := inv.destination | emitFail "nativeDeposit vault missing"
+  let some lamports := inv.lamports | emitFail "nativeDeposit amount missing"
+  let meta0 := inv.metas[0]!
+  let meta1 := inv.metas[1]!
+  unless meta0.roleId == payer.roleId && meta0.localIndex == payer.localIndex &&
+      meta1.roleId == vault.roleId && meta1.localIndex == vault.localIndex do
+    emitFail "nativeDeposit Principal/meta join diverged"
+  unless inv.accountInfoCount ≤ escrowMaxRolesV1 do
+    emitFail "accountInfoCount exceeds max roles"
+  let n := inv.accountInfoCount
+  let infosOff := 256
+  let keyOutOff := 256 + 56 * n
+  let bumpOutOff := 288 + 56 * n
+  let ensureLab := s!"vault_ensure_{labSuffix}"
+  let skipLab := s!"vault_skip_{labSuffix}"
+  let xferLab := s!"vault_xfer_{labSuffix}"
+  pure <| Id.run do
+    let mut b := b0
+    b := emit b s!"  ; --- invokeEscrow nativeDeposit site={inv.siteId} ---"
+    b := emit b "  mov64 r9, r10"
+    b := emit b "  lddw r4, CPI_BASE"
+    b := emit b "  sub64 r9, r4"
+    -- Idempotent ensure: if vault data_len == 0 and owner == system, create.
+    b := emitRoleSlotAddr b vault.localIndex
+    b := emit b "  ldxdw r1, [r2 + ROLE_DATA_LEN]"
+    b := emit b "  ldxdw r3, [r1 + 0]"
+    b := emit b s!"  jne r3, 0, {skipLab}"
+    b := emitRoleSlotAddr b vault.localIndex
+    b := emit b "  ldxdw r1, [r2 + ROLE_OWNER]"
+    b := emitRoleSlotAddr b inv.programLocalIndex
+    b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+    -- system program is zero key; compare owner to system (all zeros)
+    b := emit b "  lddw r4, 0"
+    for word in [0:4] do
+      b := emit b s!"  ldxdw r3, [r1 + {word * 8}]"
+      b := emit b s!"  jne r3, r4, {skipLab}"
+    b := emit b s!"{ensureLab}:"
+    -- CreateAccount data 52B: disc0 + rent + space0 + current program id
+    b := emit b "  lddw r4, 0"
+    for off in [0:64:8] do
+      b := emit b s!"  stxdw [r9 + {off}], r4"
+    b := emit b "  stxw [r9 + 0], r4"
+    b := emit b s!"  lddw r4, {vaultCreateRentExemptLamportsV1.toNat}"
+    b := emit b "  stxdw [r9 + 4], r4"
+    b := emit b "  lddw r4, 0"
+    b := emit b "  stxdw [r9 + 12], r4                 ; space = 0"
+    b := emit b "  ldxdw r1, [r10 - SLOT_PROGRAM_ID]"
+    for word in [0:4] do
+      b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+      b := emit b s!"  stxdw [r9 + {20 + word * 8}], r4"
+    b := emitVaultSeed0 b
+    -- find bump over seed0 only
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 64"
+    b := emit b "  stxdw [r9 + 104], r5"
+    b := emit b "  lddw r4, 20"
+    b := emit b "  stxdw [r9 + 112], r4                ; SEED0_LEN=20"
+    b := emit b "  mov64 r1, r9"
+    b := emit b "  add64 r1, 104"
+    b := emit b "  lddw r2, 1"
+    b := emit b "  ldxdw r3, [r10 - SLOT_PROGRAM_ID]"
+    b := emit b "  mov64 r4, r9"
+    b := emit b s!"  add64 r4, {keyOutOff}"
+    b := emit b "  mov64 r5, r9"
+    b := emit b s!"  add64 r5, {bumpOutOff}"
+    b := emit b "  call sol_try_find_program_address"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emit b s!"  ldxb r1, [r9 + {bumpOutOff}]"
+    b := emit b "  jeq r1, 0, err_shape"
+    b := emit b "  stxdw [r9 + 96], r1                 ; bump byte"
+    -- SolSignerSeed[2]: seed0 + bump
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 64"
+    b := emit b "  stxdw [r9 + 104], r5"
+    b := emit b "  lddw r4, 20"
+    b := emit b "  stxdw [r9 + 112], r4"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 96"
+    b := emit b "  stxdw [r9 + 120], r5"
+    b := emit b "  lddw r4, 1"
+    b := emit b "  stxdw [r9 + 128], r4"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 104"
+    b := emit b "  stxdw [r9 + 168], r5"
+    b := emit b "  lddw r4, 2"
+    b := emit b "  stxdw [r9 + 176], r4"
+    -- join found key to vault role key
+    b := emitRoleSlotAddr b vault.localIndex
+    b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+    b := emit b "  mov64 r1, r9"
+    b := emit b s!"  add64 r1, {keyOutOff}"
+    for word in [0:4] do
+      b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
+      b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+      b := emit b s!"  jne r3, r4, err_shape"
+    -- metas + invoke_signed create
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 184"
+    b := emitWriteMeta b "r5" 0 payer.localIndex true true
+    b := emitWriteMeta b "r5" 1 vault.localIndex true true
+    b := emit b "  mov64 r8, r9"
+    b := emit b "  add64 r8, 216"
+    b := emitRoleSlotAddr b inv.programLocalIndex
+    b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
+    b := emit b "  stxdw [r8 + 0], r4"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 184"
+    b := emit b "  stxdw [r8 + 8], r4"
+    b := emit b "  lddw r4, 2"
+    b := emit b "  stxdw [r8 + 16], r4"
+    b := emit b "  stxdw [r8 + 24], r9"
+    b := emit b "  lddw r4, 52"
+    b := emit b "  stxdw [r8 + 32], r4"
+    b := emitFillAccountInfos b n infosOff (labSuffix ++ "_e")
+    b := emit b "  mov64 r1, r8"
+    b := emit b "  mov64 r2, r9"
+    b := emit b s!"  add64 r2, {infosOff}"
+    b := emit b s!"  lddw r3, {n}"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 168"
+    b := emit b "  lddw r5, 1"
+    b := emit b "  call sol_invoke_signed_c"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emit b s!"{skipLab}:"
+    b := emit b s!"{xferLab}:"
+    -- System transfer caller → vault (unsigned), scratch layout as transfer
+    b := emit b "  mov64 r9, r10"
+    b := emit b "  lddw r4, CPI_BASE"
+    b := emit b "  sub64 r9, r4"
+    b := emit b "  lddw r4, 0"
+    b := emit b "  stxdw [r9 + 0], r4"
+    b := emit b "  stxdw [r9 + 8], r4"
+    b := emit b "  lddw r4, 2"
+    b := emit b "  stxw [r9 + 0], r4"
+    b := emitResolveU64Source b lamports "r4"
+    b := emit b "  stxdw [r9 + 4], r4"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 16"
+    b := emitWriteMeta b "r5" 0 meta0.localIndex meta0.cpiWritable meta0.cpiSigner
+    b := emitWriteMeta b "r5" 1 meta1.localIndex meta1.cpiWritable meta1.cpiSigner
+    b := emit b "  mov64 r8, r9"
+    b := emit b "  add64 r8, 48"
+    b := emitRoleSlotAddr b inv.programLocalIndex
+    b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
+    b := emit b "  stxdw [r8 + 0], r4"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 16"
+    b := emit b "  stxdw [r8 + 8], r4"
+    b := emit b "  lddw r4, 2"
+    b := emit b "  stxdw [r8 + 16], r4"
+    b := emit b "  stxdw [r8 + 24], r9"
+    b := emit b "  lddw r4, 12"
+    b := emit b "  stxdw [r8 + 32], r4"
+    let xferInfos := 88
+    b := emitFillAccountInfos b n xferInfos (labSuffix ++ "_x")
+    b := emit b "  mov64 r1, r8"
+    b := emit b "  mov64 r2, r9"
+    b := emit b s!"  add64 r2, {xferInfos}"
+    b := emit b s!"  lddw r3, {n}"
+    b := emit b "  lddw r4, 0"
+    b := emit b "  lddw r5, 0"
+    b := emit b "  call sol_invoke_signed_c"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emit b "  lddw r1, 0"
+    b := emit b "  lddw r2, 0"
+    b := emit b "  call sol_set_return_data"
+    b := emit b "  jne r0, 0, cpi_failed"
+    pure b
+
+/-- ADR-0029 B1 transfer: System transfer vault → dst with vault PDA invoke_signed. -/
+private def emitInvokeNativeTransfer
+    (b0 : AsmBuf) (inv : CpiEscrowInvokeV1) (labSuffix : String) :
+    CompileResult AsmBuf := do
+  unless inv.kind == .nativeTransfer do
+    emitFail "emit nativeTransfer requires nativeTransfer kind"
+  unless inv.packageId == "system-v1" && inv.qn == "pf.assets.native.transfer" do
+    emitFail "emit nativeTransfer requires pf.assets.native.transfer / system-v1"
+  unless inv.dataLen == 12 && inv.metas.size == 2 do
+    emitFail "nativeTransfer dataLen/metas must be 12/2"
+  unless inv.outerOnly.isEmpty && inv.signerGroupId == some 0 do
+    emitFail "nativeTransfer requires zero outer-only and signer group 0"
+  unless inv.pdaRule == some vaultPdaRuleIdV1 do
+    emitFail "nativeTransfer requires vault PDA rule"
+  let some vault := inv.payer | emitFail "nativeTransfer vault payer missing"
+  let some dst := inv.destination | emitFail "nativeTransfer dst missing"
+  let some lamports := inv.lamports | emitFail "nativeTransfer amount missing"
+  let meta0 := inv.metas[0]!
+  let meta1 := inv.metas[1]!
+  unless meta0.roleId == vault.roleId && meta0.localIndex == vault.localIndex &&
+      meta1.roleId == dst.roleId && meta1.localIndex == dst.localIndex do
+    emitFail "nativeTransfer Principal/meta join diverged"
+  unless inv.accountInfoCount ≤ escrowMaxRolesV1 do
+    emitFail "accountInfoCount exceeds max roles"
+  let n := inv.accountInfoCount
+  let infosOff := 256
+  let keyOutOff := 256 + 56 * n
+  let bumpOutOff := 288 + 56 * n
+  pure <| Id.run do
+    let mut b := b0
+    b := emit b s!"  ; --- invokeEscrow nativeTransfer site={inv.siteId} ---"
+    b := emit b "  mov64 r9, r10"
+    b := emit b "  lddw r4, CPI_BASE"
+    b := emit b "  sub64 r9, r4"
+    -- find vault PDA bump over seed0
+    b := emit b "  lddw r4, 0"
+    for off in [0:64:8] do
+      b := emit b s!"  stxdw [r9 + {off}], r4"
+    b := emitVaultSeed0 b
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 64"
+    b := emit b "  stxdw [r9 + 104], r5"
+    b := emit b "  lddw r4, 20"
+    b := emit b "  stxdw [r9 + 112], r4"
+    b := emit b "  mov64 r1, r9"
+    b := emit b "  add64 r1, 104"
+    b := emit b "  lddw r2, 1"
+    b := emit b "  ldxdw r3, [r10 - SLOT_PROGRAM_ID]"
+    b := emit b "  mov64 r4, r9"
+    b := emit b s!"  add64 r4, {keyOutOff}"
+    b := emit b "  mov64 r5, r9"
+    b := emit b s!"  add64 r5, {bumpOutOff}"
+    b := emit b "  call sol_try_find_program_address"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emit b s!"  ldxb r1, [r9 + {bumpOutOff}]"
+    b := emit b "  jeq r1, 0, err_shape"
+    b := emit b "  stxdw [r9 + 96], r1"
+    -- join found key == vault role key
+    b := emitRoleSlotAddr b vault.localIndex
+    b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+    b := emit b "  mov64 r1, r9"
+    b := emit b s!"  add64 r1, {keyOutOff}"
+    for word in [0:4] do
+      b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
+      b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+      b := emit b s!"  jne r3, r4, err_shape"
+    -- transfer data at +0
+    b := emit b "  lddw r4, 0"
+    b := emit b "  stxdw [r9 + 0], r4"
+    b := emit b "  stxdw [r9 + 8], r4"
+    b := emit b "  lddw r4, 2"
+    b := emit b "  stxw [r9 + 0], r4"
+    b := emitResolveU64Source b lamports "r4"
+    b := emit b "  stxdw [r9 + 4], r4"
+    -- signer seeds: seed0 + bump
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 64"
+    b := emit b "  stxdw [r9 + 104], r5"
+    b := emit b "  lddw r4, 20"
+    b := emit b "  stxdw [r9 + 112], r4"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 96"
+    b := emit b "  stxdw [r9 + 120], r5"
+    b := emit b "  lddw r4, 1"
+    b := emit b "  stxdw [r9 + 128], r4"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 104"
+    b := emit b "  stxdw [r9 + 168], r5"
+    b := emit b "  lddw r4, 2"
+    b := emit b "  stxdw [r9 + 176], r4"
+    -- metas at +184
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 184"
+    b := emitWriteMeta b "r5" 0 meta0.localIndex meta0.cpiWritable meta0.cpiSigner
+    b := emitWriteMeta b "r5" 1 meta1.localIndex meta1.cpiWritable meta1.cpiSigner
+    b := emit b "  mov64 r8, r9"
+    b := emit b "  add64 r8, 216"
+    b := emitRoleSlotAddr b inv.programLocalIndex
+    b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
+    b := emit b "  stxdw [r8 + 0], r4"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 184"
+    b := emit b "  stxdw [r8 + 8], r4"
+    b := emit b "  lddw r4, 2"
+    b := emit b "  stxdw [r8 + 16], r4"
+    b := emit b "  stxdw [r8 + 24], r9"
+    b := emit b "  lddw r4, 12"
+    b := emit b "  stxdw [r8 + 32], r4"
+    b := emitFillAccountInfos b n infosOff labSuffix
+    b := emit b "  mov64 r1, r8"
+    b := emit b "  mov64 r2, r9"
+    b := emit b s!"  add64 r2, {infosOff}"
+    b := emit b s!"  lddw r3, {n}"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 168"
+    b := emit b "  lddw r5, 1"
+    b := emit b "  call sol_invoke_signed_c"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emit b "  lddw r1, 0"
+    b := emit b "  lddw r2, 0"
+    b := emit b "  call sol_set_return_data"
+    b := emit b "  jne r0, 0, cpi_failed"
+    pure b
+
 /-- Emit Token transferChecked: zero signer groups. -/
 private def emitInvokeTransferChecked
     (b0 : AsmBuf) (inv : CpiEscrowInvokeV1) (labSuffix : String) :
@@ -1389,6 +1711,8 @@ private def emitBodyOp
       | .transferCheckedPda => emitInvokeTransferCheckedPda b0 inv labSuffix
       | .createPdaAccount => emitInvokeCreatePdaAccount b0 inv labSuffix
       | .createIdempotent => emitInvokeCreateIdempotent b0 inv labSuffix
+      | .nativeDeposit => emitInvokeNativeDeposit b0 inv labSuffix
+      | .nativeTransfer => emitInvokeNativeTransfer b0 inv labSuffix
   | .returnU64 srcTemp =>
       pure <| Id.run do
         let mut b := b0

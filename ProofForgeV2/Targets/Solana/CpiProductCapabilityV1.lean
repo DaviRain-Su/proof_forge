@@ -8,14 +8,17 @@
 
   Accepts only exact `(solana, solana-sbpf-cpi-elf-v1)` selection whose retained
   Semantic requirements and engineering SupportClaim both contain the active
-  exact `effect.synchronous-call` S2 row and the ADR-0028 extension row, and
-  neither contains `effect.asynchronous-workflow`. Retained Semantic /
-  requirements bytes are never rewritten.
+  exact `effect.synchronous-call` S2 row and **at least one** closed extension:
+  ADR-0028 `extension.solana-cpi-accounts` and/or ADR-0029 `extension.pf-assets`,
+  and neither contains `effect.asynchronous-workflow`. Each requested extension
+  must also appear on the SupportClaim. Retained Semantic / requirements bytes
+  are never rewritten.
 
   No conversion function exists to/from `ResolvedSolanaCpiPreflightV1`
   (activationDenied preflight lane stays independent). Ordinary resolution
-  advertises sync+extension only for this exact profile; this refine succeeds
-  only when that engineering capability already carries both rows.
+  advertises sync + both closed extensions for this exact profile; this refine
+  succeeds when the capability carries sync plus whichever extension(s) the
+  program actually freezes.
 -/
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.TargetIdentityV1
@@ -94,7 +97,8 @@ private def hasRequestId (items : Array RequirementRequestV1) (id : String) : Bo
     2. retained Semantic structure-validate;
     3. retained requirements must equal the engineering capability freeze;
     4. require exact deferred `effect.synchronous-call` in requested AND support claim;
-    5. require exact ADR-0028 extension in requested AND support claim;
+    5. require at least one closed extension (solana.cpi.accounts and/or pf.assets)
+       in requested; each present extension must also be on the SupportClaim;
     6. reject `effect.asynchronous-workflow` in requested AND support claim;
     7. mint private product capability (no activationDenied, no preflight conversion).
 -/
@@ -132,10 +136,14 @@ def resolveSolanaCpiProductCapabilityV1
     | .ok r => pure r
     | .error e =>
         productCapFail s!"Solana CPI product: async requirement seed failed: {e}"
-  let extensionReq ← match solanaCpiAccountsExtensionRequirementV1 with
+  let solanaExtReq ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok r => pure r
     | .error e =>
-        productCapFail s!"Solana CPI product: extension requirement seed failed: {e}"
+        productCapFail s!"Solana CPI product: solana.cpi.accounts seed failed: {e}"
+  let pfAssetsReq ← match pfAssetsExtensionRequirementV1 with
+    | .ok r => pure r
+    | .error e =>
+        productCapFail s!"Solana CPI product: pf.assets seed failed: {e}"
 
   unless requestExact requested.items syncReq do
     productCapFail
@@ -144,18 +152,25 @@ def resolveSolanaCpiProductCapabilityV1
       hasRequestId requested.items s2EffectAsyncWorkflowIdV1 then
     productCapFail
       s!"Solana CPI product rejects '{s2EffectAsyncWorkflowIdV1}'"
-  unless requestExact requested.items extensionReq do
+  let hasSolanaExt := requestExact requested.items solanaExtReq
+  let hasPfAssets := requestExact requested.items pfAssetsReq
+  unless hasSolanaExt || hasPfAssets do
     productCapFail
-      s!"Solana CPI product requires exact extension requirement '{extensionReq.id}'"
+      "Solana CPI product requires exact extension.solana-cpi-accounts and/or extension.pf-assets"
 
   let claim := ResolvedEngineeringBuildV1.supportClaimOf engineering
   let supported := EngineeringSupportClaimV1.supportedOf claim
   unless requestExact supported syncReq do
     productCapFail
       s!"Solana CPI product SupportClaim must include exact '{s2EffectSyncCallIdV1}'"
-  unless requestExact supported extensionReq do
-    productCapFail
-      s!"Solana CPI product SupportClaim must include exact extension '{extensionReq.id}'"
+  if hasSolanaExt then
+    unless requestExact supported solanaExtReq do
+      productCapFail
+        s!"Solana CPI product SupportClaim must include exact '{solanaExtReq.id}'"
+  if hasPfAssets then
+    unless requestExact supported pfAssetsReq do
+      productCapFail
+        s!"Solana CPI product SupportClaim must include exact '{pfAssetsReq.id}'"
   if requestExact supported asyncReq ||
       hasRequestId supported s2EffectAsyncWorkflowIdV1 then
     productCapFail

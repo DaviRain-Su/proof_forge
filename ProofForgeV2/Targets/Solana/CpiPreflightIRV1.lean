@@ -340,7 +340,7 @@ private def resolveProvisioning
 /-- Package id context for catalogExecutionClass / fixed-program owner on a handle. -/
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
-  | .state _ | .accountParameter .. => none
+  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller => none
 
 /-- Project one AccountConstraint into concrete ops (role or site predicate). -/
 private def projectConstraintOps
@@ -380,7 +380,7 @@ private def projectHandlerOps
   for site in sites do
     match site.pda with
     | .none => pure ()
-    | .signer .. | .addressCheckOnly .. =>
+    | .signer .. | .addressCheckOnly .. | .vaultPdaSigner _ =>
         pfFail
           s!"preflight IR rejects non-none PDA use at site {site.siteId} (PDA deferred)"
     unless site.signerGroups.isEmpty do
@@ -424,7 +424,7 @@ private def projectHandlerOps
           roleId := handle.roleId
           localIndex := i
         }
-    | .state _schemaId =>
+    | .state _schemaId | .vaultPda | .handlerCaller =>
         pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas

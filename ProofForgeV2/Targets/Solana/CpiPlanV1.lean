@@ -33,6 +33,10 @@ inductive RoleKeyPolicyV1 where
   | state (schemaId : Nat)
   | accountParameter (callableId : Nat) (paramOrdinal : Nat)
   | fixedProgram (packageId : String)
+  /-- ADR-0029 B1: synthetic self-vault PDA (derived at runtime; not an ix param). -/
+  | vaultPda
+  /-- ADR-0029 B1: synthetic outer-signer caller for deposit. -/
+  | handlerCaller
   deriving BEq, Repr
 
 /-- One ProofForge-owned state account schema referenced by state roles.
@@ -248,10 +252,11 @@ def activeComputeAssumptionsV1 : ComputeAssumptionsV1 where
     "every-referenced-callee-package-is-admitted-with-an-exact-artifact-or-runtime-native-binding"
   implementationState := activeProfileImplementationStateV1
 
-/-- Approved product ExternalCall QNs (#125). Companion three APIs are excluded.
-    Authority table is `activeProductApiQnsV1` from contract. -/
+/-- Approved product ExternalCall QNs (#125 L2 five + ADR-0029 B1 L1 two).
+    Companion three APIs are excluded. L2 authority remains `activeProductApiQnsV1`
+    (docs_check five-element pin); L1 pf.assets is additive. -/
 def isApprovedProductApiV1 (qn : String) : Bool :=
-  activeProductApiQnsV1.any (· == qn)
+  activeProductApiQnsV1.any (· == qn) || isPfAssetsSolanaProductApiV1 qn
 
 def isCompanionApiV1 (qn : String) : Bool :=
   qn == "solana.companion.invoke" ||
@@ -464,7 +469,8 @@ private def deriveHandlerRoleIds
           acc := pushUnique acc site.programRoleId
           for metaSlot in site.metas do
             match metaSlot.spec.binding with
-            | .fixedProgram _ => acc := pushUnique acc metaSlot.roleId
+            | .fixedProgram _ | .vaultPda | .handlerCaller =>
+                acc := pushUnique acc metaSlot.roleId
             | .arg _ => pure ()
     return acc
 
@@ -649,6 +655,8 @@ private def encodeMetaBinding : MetaBinding → PfJson
         ("kind", .string "fixedProgram"),
         ("packageId", .string packageId)
       ]
+  | .vaultPda => .object #[("kind", .string "vaultPda")]
+  | .handlerCaller => .object #[("kind", .string "handlerCaller")]
 
 private def encodeFrozenMetaSpec (s : FrozenMetaSpec) : CompileResult PfJson := do
   let constraint ← encodeConstraint s.constraint
@@ -695,6 +703,8 @@ private def encodeFrozenPdaUse : FrozenPdaUse → PfJson
         ("walletArg", .string walletArg),
         ("mintArg", .string mintArg)
       ]
+  | .vaultPdaSigner rule =>
+      .object #[("kind", .string "vaultPdaSigner"), ("rule", .string rule)]
 
 private def encodeFrozenSignerGroup (g : FrozenSignerGroup) :
     CompileResult PfJson := do
@@ -768,6 +778,8 @@ private def encodeRoleKeyPolicy : RoleKeyPolicyV1 → CompileResult PfJson
         ("kind", .string "fixedProgram"),
         ("packageId", .string packageId)
       ])
+  | .vaultPda => pure (.object #[("kind", .string "vaultPda")])
+  | .handlerCaller => pure (.object #[("kind", .string "handlerCaller")])
 
 /-- Fixed 16 lowercase hex digits for a UInt64 (lossless canonical form),
     shared by Plan/IR/IDL state-schema encoders. -/
@@ -1033,11 +1045,21 @@ private def validateIdentity (c : SolanaCpiPlanCandidateV1) : CompileResult Unit
   unless digestsEqual c.calleeCatalogDigest expectedCatalog do
     planFail "calleeCatalogDigest must equal frozen pf.solana.callee-catalog.v1 digest"
   let expectedExt ← mapExcept expectedExtensionRequirementV1 "extensionRequirement"
-  unless c.extensionRequirement.id == expectedExt.id &&
+  let expectedPf ← match pfAssetsExtensionRequirementV1 with
+    | .ok r => pure r
+    | .error e => planFail s!"pf.assets extension seed: {e}"
+  let extOk :=
+    (c.extensionRequirement.id == expectedExt.id &&
       c.extensionRequirement.version == expectedExt.version &&
       digestsEqual c.extensionRequirement.digest expectedExt.digest &&
-      c.extensionRequirement.predicates == expectedExt.predicates do
-    planFail "extensionRequirement must equal exact solanaCpiAccountsExtensionRequirementV1"
+      c.extensionRequirement.predicates == expectedExt.predicates) ||
+    (c.extensionRequirement.id == expectedPf.id &&
+      c.extensionRequirement.version == expectedPf.version &&
+      digestsEqual c.extensionRequirement.digest expectedPf.digest &&
+      c.extensionRequirement.predicates == expectedPf.predicates)
+  unless extOk do
+    planFail
+      "extensionRequirement must equal exact solanaCpiAccounts or pf.assets extension seed"
   match validateIdentifierComponent c.programName with
   | .ok () => pure ()
   | .error msg => planFail s!"programName: {msg}"
@@ -1142,6 +1164,12 @@ private def validateRoles (c : SolanaCpiPlanCandidateV1) : CompileResult Unit :=
         if fixedPackages.any (· == packageId) then
           planFail s!"duplicate fixedProgram role for package '{packageId}'"
         fixedPackages := fixedPackages.push packageId
+    | .vaultPda =>
+        unless role.name == "pf_vault" do
+          planFail "vaultPda role name must be pf_vault"
+    | .handlerCaller =>
+        unless role.name == "pf_caller" do
+          planFail "handlerCaller role name must be pf_caller"
   unless natPairsUnique accountParamKeys do
     planFail "accountParameter (callableId,paramOrdinal) must be unique"
   -- each state schema has exactly one state role (no unused)
@@ -1374,6 +1402,8 @@ private def validateOneSite
                 planFail "principal cpi arg must not bind a state role"
             | .fixedProgram _ =>
                 planFail "principal cpi arg must not bind a fixedProgram role"
+            | .vaultPda | .handlerCaller =>
+                planFail "principal cpi arg must not bind a synthetic vault/caller role"
             unless handler.accountUses.any (fun u => u.roleId == roleId) do
               planFail "principal cpi arg role must appear in handler accountUses"
     | .uint64 | .uint8 | .unit =>
@@ -1402,10 +1432,8 @@ private def validateOneSite
     metaRoleIds := metaRoleIds.push metaSlot.roleId
     if metaSlot.roleId == s.programRoleId then
       match expected.binding with
-      | .fixedProgram _ =>
-          -- fixed meta may reuse a different package role, not the callee program role
+      | .fixedProgram _ | .arg _ | .vaultPda | .handlerCaller =>
           planFail "cpiSite meta role must not equal programRoleId"
-      | .arg _ => planFail "cpiSite meta role must not equal programRoleId"
     let role ← match findRole? c.accountRoles metaSlot.roleId with
       | some r => pure r
       | none => planFail "cpiSite meta roleId out of range"
@@ -1433,6 +1461,14 @@ private def validateOneSite
             unless p == packageId do
               planFail "fixedProgram meta role package must match meta binding"
         | _ => planFail "fixedProgram meta must bind a fixedProgram role"
+    | .vaultPda =>
+        match role.keyPolicy with
+        | .vaultPda => pure ()
+        | _ => planFail "vaultPda meta must bind a vaultPda role"
+    | .handlerCaller =>
+        match role.keyPolicy with
+        | .handlerCaller => pure ()
+        | _ => planFail "handlerCaller meta must bind a handlerCaller role"
 
   -- Outer-only exact match; principal roles already pairwise with metas/program.
   unless s.outerOnlyAccounts.size == api.outerOnlyAccounts.size do
@@ -1575,8 +1611,11 @@ private def validatePrivilegeJoin
               | .arg name =>
                   unless group.metaArg == name do
                     planFail "signer group metaArg must equal meta arg binding name"
-              | .fixedProgram _ =>
-                  planFail "signer group cannot attach to fixedProgram meta"
+              | .vaultPda =>
+                  unless group.metaArg == "vault" do
+                    planFail "vaultPda signer group metaArg must be 'vault'"
+              | .fixedProgram _ | .handlerCaller =>
+                  planFail "signer group cannot attach to fixedProgram/handlerCaller meta"
               match site.pda with
               | .signer rule _ _ _ _ _ =>
                   unless group.pdaRule == rule do
@@ -1584,6 +1623,9 @@ private def validatePrivilegeJoin
               | .addressCheckOnly rule _ _ _ =>
                   unless group.pdaRule == rule do
                     planFail "signer group pdaRule must equal site PDA rule"
+              | .vaultPdaSigner rule =>
+                  unless group.pdaRule == rule && rule == vaultPdaRuleIdV1 do
+                    planFail "vaultPdaSigner group must use proof-forge:vault:v1"
               | .none =>
                   planFail "signer group requires site PDA rule"
 
@@ -1688,11 +1730,21 @@ private def validateProductIdentity
   unless digestsEqual c.calleeCatalogDigest expectedCatalog do
     planFail "product calleeCatalogDigest must equal active catalog digest"
   let expectedExt ← mapExcept expectedExtensionRequirementV1 "extensionRequirement"
-  unless c.extensionRequirement.id == expectedExt.id &&
+  let expectedPf ← match pfAssetsExtensionRequirementV1 with
+    | .ok r => pure r
+    | .error e => planFail s!"pf.assets extension seed: {e}"
+  let extOk :=
+    (c.extensionRequirement.id == expectedExt.id &&
       c.extensionRequirement.version == expectedExt.version &&
       digestsEqual c.extensionRequirement.digest expectedExt.digest &&
-      c.extensionRequirement.predicates == expectedExt.predicates do
-    planFail "extensionRequirement must equal exact solanaCpiAccountsExtensionRequirementV1"
+      c.extensionRequirement.predicates == expectedExt.predicates) ||
+    (c.extensionRequirement.id == expectedPf.id &&
+      c.extensionRequirement.version == expectedPf.version &&
+      digestsEqual c.extensionRequirement.digest expectedPf.digest &&
+      c.extensionRequirement.predicates == expectedPf.predicates)
+  unless extOk do
+    planFail
+      "extensionRequirement must equal exact solanaCpiAccounts or pf.assets extension seed"
   match validateIdentifierComponent c.programName with
   | .ok () => pure ()
   | .error msg => planFail s!"programName: {msg}"

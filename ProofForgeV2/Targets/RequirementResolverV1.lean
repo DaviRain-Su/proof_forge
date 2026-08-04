@@ -29,11 +29,14 @@
       (ADR-0029 Phase A)
     * `extension.pf-assets` → (evm, evm-yul-solc-0.8.34-cancun-v1) and
       (evm, evm-yul-solc-0.8.34-v1) (ADR-0029 Phase B2 native deposit/transfer)
-  ADR-0029 Phase A5/B2: Quint and both EVM profiles advertise exact
-  `extension.pf-assets` **and** `effect.synchronous-call` (sync pf.assets
+    * `extension.pf-assets` → (solana, solana-sbpf-cpi-elf-v1)
+      (ADR-0029 Phase B1 Solana vault-PDA + System CPI binding)
+  ADR-0029 Phase A5/B1/B2: Quint, both EVM profiles and Solana CPI advertise
+  exact `extension.pf-assets` **and** `effect.synchronous-call` (sync pf.assets
   native deposit/transfer). Non-catalog QNs and async/token pf.assets QNs
   still fail closed at Plan/lowering; async workflow remains declined on
-  Quint (EVM keeps schedule as fire-and-forget same-tx).
+  Quint (EVM keeps schedule as fire-and-forget same-tx; Solana CPI declines
+  async).
 
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.
   Dependency-injected seams return index rows or
@@ -118,9 +121,10 @@ private def s2CatalogRequests : CompileResult (Array RequirementRequestV1) := do
   pure items
 
 /-- Closed (extension wire id → admitted target+profile + exact seed) table.
-    One extension id may admit multiple (target, profile) rows (ADR-0029 B2:
-    Quint + both EVM profiles for `extension.pf-assets`). Solana CPI remains
-    ADR-0028 profile-scoped. Any other (target, profile) advertising an
+    One extension id may admit multiple (target, profile) rows (ADR-0029:
+    Quint + both EVM profiles + Solana CPI for `extension.pf-assets`).
+    Solana CPI remains ADR-0028 profile-scoped. Any other (target, profile)
+    advertising an
     extension row fails closed at index construction. -/
 private structure ExtensionAdvertisePermitV1 where
   rowId : String
@@ -158,6 +162,11 @@ private def closedExtensionAdvertiseTableV1 :
     { rowId := pfAssetsExtensionRequirementIdV1
       targetId := TargetId.evm
       profile := CodegenProfileId.evmYulSolc0834V1
+      expected := pfAssets },
+    -- ADR-0029 Phase B1: Solana CPI product profile also advertises pf.assets.
+    { rowId := pfAssetsExtensionRequirementIdV1
+      targetId := TargetId.solana
+      profile := CodegenProfileId.solanaSbpfCpiElfV1
       expected := pfAssets }
   ]
 
@@ -313,14 +322,15 @@ private def mkImplementedRow
     admits exact `effect.synchronous-call` plus the exact ADR-0028 extension and
     still declines `effect.asynchronous-workflow`.
 
-    **ADR-0029 Phase A5/B2 extension advertise**: closed table (see
-    `closedExtensionAdvertiseTableV1`) — Quint `quint-source-u64-model-v1` and
-    both EVM profiles advertise exact `extension.pf-assets`. Quint keeps the
-    Q0 four S2 keys plus sync-call (vault-modeled native deposit/transfer only;
-    non-catalog / async / token QNs fail closed at Plan/lowering). EVM keeps
-    the full seven S2 keys plus the extension (native deposit/transfer
-    materialization; async/token QNs fail closed at Plan/lowering). Solana CPI
-    remains the sole ADR-0028 extension owner. All other targets/profiles fail
+    **ADR-0029 Phase A5/B1/B2 extension advertise**: closed table (see
+    `closedExtensionAdvertiseTableV1`) — Quint `quint-source-u64-model-v1`,
+    both EVM profiles and Solana `solana-sbpf-cpi-elf-v1` advertise exact
+    `extension.pf-assets`. Quint keeps the Q0 four S2 keys plus sync-call
+    (vault-modeled native deposit/transfer only; non-catalog / async / token
+    QNs fail closed at Plan/lowering). EVM keeps the full seven S2 keys plus
+    the extension (native deposit/transfer materialization; async/token QNs
+    fail closed at Plan/lowering). Solana CPI keeps sync+ADR-0028 extension
+    and adds pf.assets (vault-PDA System CPI). All other targets/profiles fail
     closed if they advertise either extension row.
 
     Capability gates are per target: EVM admits both call keys via static
@@ -406,13 +416,15 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     | .error e =>
         throw <| .registryInvalid
           s!"Solana CPI extension requirement seed failed: {e}"
-  let solanaCpiRequests :=
-    (withoutAsync.push solanaExtensionRow).qsort fun a b => a.id < b.id
   let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
     | .ok row => pure row
     | .error e =>
         throw <| .registryInvalid
           s!"pf.assets extension requirement seed failed: {e}"
+  -- #125 + ADR-0029 B1: CPI profile = S2 sans async + solana.cpi.accounts + pf.assets.
+  let solanaCpiRequests :=
+    ((withoutAsync.push solanaExtensionRow).push pfAssetsRow).qsort
+      fun a b => a.id < b.id
   -- Phase A5: exact extension.pf-assets + effect.synchronous-call on Quint.
   let quintRequests :=
     (quintBaseRequests.push pfAssetsRow).qsort fun a b => a.id < b.id

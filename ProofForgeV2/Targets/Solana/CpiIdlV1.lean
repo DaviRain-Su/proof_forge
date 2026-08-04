@@ -391,6 +391,8 @@ private def encodeRoleKeyPolicy : RoleKeyPolicyV1 → CompileResult PfJson
         ("kind", .string "fixedProgram"),
         ("packageId", .string packageId)
       ])
+  | .vaultPda => pure (.object #[("kind", .string "vaultPda")])
+  | .handlerCaller => pure (.object #[("kind", .string "handlerCaller")])
 
 private def encodeHandlerMode : HandlerModeV1 → PfJson
   | .initialize => .string "initialize"
@@ -440,6 +442,8 @@ private def encodeMetaBinding : MetaBinding → PfJson
         ("kind", .string "fixedProgram"),
         ("packageId", .string packageId)
       ]
+  | .vaultPda => .object #[("kind", .string "vaultPda")]
+  | .handlerCaller => .object #[("kind", .string "handlerCaller")]
 
 private def encodeFrozenMetaSpec (s : FrozenMetaSpec) : CompileResult PfJson := do
   let constraint ← encodeConstraint s.constraint
@@ -485,6 +489,8 @@ private def encodeFrozenPdaUse : FrozenPdaUse → PfJson
         ("walletArg", .string walletArg),
         ("mintArg", .string mintArg)
       ]
+  | .vaultPdaSigner rule =>
+      .object #[("kind", .string "vaultPdaSigner"), ("rule", .string rule)]
 
 private def encodeFrozenSignerGroup (g : FrozenSignerGroup) :
     CompileResult PfJson := do

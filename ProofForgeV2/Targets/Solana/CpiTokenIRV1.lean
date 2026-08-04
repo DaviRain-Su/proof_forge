@@ -309,7 +309,7 @@ private def findStateSchema?
 
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
-  | .state _ | .accountParameter .. => none
+  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller => none
 
 private def requireTokenPackage : CompileResult FrozenCalleePackage := do
   match findCalleePackage? "token-classic-v1" with
@@ -501,7 +501,7 @@ private def projectEntryGlobalOps
           roleId := handle.roleId
           localIndex := i
         }
-    | .state _ => pure ()
+    | .state _ | .vaultPda | .handlerCaller => pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas
     ops := ops ++ constraintOps
@@ -888,7 +888,7 @@ private def validateTokenSiteShape (site : CpiIRSiteV1) : CompileResult Unit := 
             tFail s!"site {site.siteId}: PDA arg names must match frozen transferCheckedPda"
       | .none =>
           tFail s!"transferCheckedPda requires PDA signer use at site {site.siteId}"
-      | .addressCheckOnly .. =>
+      | .addressCheckOnly .. | .vaultPdaSigner _ =>
           tFail s!"Token CPI rejects addressCheckOnly at site {site.siteId}"
       unless site.signerGroups.size == 1 do
         tFail s!"site {site.siteId}: exact one signer group required"

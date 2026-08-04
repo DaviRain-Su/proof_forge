@@ -28,6 +28,7 @@
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Diagnostic
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Semantic.WireV1
@@ -41,6 +42,7 @@ namespace ProofForgeV2.Targets.Solana.CpiV1
 
 open ProofForgeV2
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.Solana
@@ -368,6 +370,8 @@ private inductive RoleKeyV1 where
   | state (schemaId : Nat)
   | accountParam (callableId : Nat) (paramOrdinal : Nat)
   | fixedProgram (packageId : String)
+  | vaultPda
+  | handlerCaller
   deriving BEq
 
 private def roleKeyEq (a b : RoleKeyV1) : Bool :=
@@ -375,6 +379,8 @@ private def roleKeyEq (a b : RoleKeyV1) : Bool :=
   | .state s1, .state s2 => s1 == s2
   | .accountParam c1 o1, .accountParam c2 o2 => c1 == c2 && o1 == o2
   | .fixedProgram p1, .fixedProgram p2 => p1 == p2
+  | .vaultPda, .vaultPda => true
+  | .handlerCaller, .handlerCaller => true
   | _, _ => false
 
 private def findRoleId? (keys : Array RoleKeyV1) (want : RoleKeyV1) : Option Nat :=
@@ -396,6 +402,8 @@ private def ensureRole
         | .state schemaId => RoleKeyPolicyV1.state schemaId
         | .accountParam cid ord => RoleKeyPolicyV1.accountParameter cid ord
         | .fixedProgram pkg => RoleKeyPolicyV1.fixedProgram pkg
+        | .vaultPda => RoleKeyPolicyV1.vaultPda
+        | .handlerCaller => RoleKeyPolicyV1.handlerCaller
       let role : AccountRoleSchemaV1 := {
         roleId := id
         name
@@ -404,6 +412,28 @@ private def ensureRole
         aliasPolicy := frozenAliasPolicyV1
       }
       pure (keys.push want, roles.push role, id)
+
+private def hasPfAssetsExtensionRow (data : SemanticProgramDataV1) : Bool :=
+  data.requirements.items.any (·.id == wireExtensionPfAssetsIdV1)
+
+private def hasSolanaCpiExtensionRow (data : SemanticProgramDataV1) : Bool :=
+  data.requirements.items.any (·.id == wireExtensionSolanaCpiAccountsIdV1)
+
+/-- Vault role constraint template (owned by current program after ensure). -/
+private def vaultRoleConstraintV1 : AccountConstraint where
+  owner := .currentProgram
+  executable := .forbidden
+  data := .exactLength 0
+  initialization := .existing
+  provisioning := .mustExist
+
+/-- Deposit caller: System-owned empty data, outer signer. -/
+private def handlerCallerRoleConstraintV1 : AccountConstraint where
+  owner := .fixedProgram "system-v1"
+  executable := .forbidden
+  data := .exactLength 0
+  initialization := .existing
+  provisioning := .mustExist
 
 /-- Account-parameter role name: prefer `handlerName_paramName`; fall back to
     a short unique form when the preferred name exceeds the 240-byte identifier
@@ -453,6 +483,8 @@ private def buildSiteBindings
     (raw : RawSiteV1)
     (principalRoleByArgIndex : Array (Nat × Nat))
     (fixedRoleByPackage : Array (String × Nat))
+    (vaultRoleId? : Option Nat)
+    (callerRoleId? : Option Nat)
     (programRoleId : Nat) (programKey : SolanaPubkeyV1)
     (siteId handlerId : Nat) : CompileResult CpiSitePlanV1 := do
   let api := raw.api
@@ -489,6 +521,14 @@ private def buildSiteBindings
           match fixedRoleByPackage.find? (fun p => p.1 == packageId) with
           | some (_, rid) => pure rid
           | none => deriveFail s!"meta fixedProgram '{packageId}' missing role"
+      | MetaBinding.vaultPda =>
+          match vaultRoleId? with
+          | some rid => pure rid
+          | none => deriveFail "meta vaultPda missing vault role"
+      | MetaBinding.handlerCaller =>
+          match callerRoleId? with
+          | some rid => pure rid
+          | none => deriveFail "meta handlerCaller missing caller role"
     metas := metas.push { metaIndex, roleId, spec }
   let mut outerOnly : Array CpiOuterOnlyPlanV1 := #[]
   for spec in api.outerOnlyAccounts do
@@ -560,12 +600,20 @@ structure DerivePlanSnapshotV1 where
   productApiFilter : Bool
 
 /-- Collect raw ExternalCall sites. When `productApiFilter`, companion and
-    non-approved QNs fail closed at discovery. -/
+    non-approved QNs fail closed at discovery.
+
+    ADR-0029 Phase B1 QN gate:
+    * catalog pf.assets QN ⇒ retained freeze must carry exact `extension.pf-assets`
+      (else fail closed with a stable diagnostic);
+    * only `pf.assets.native.deposit` / `pf.assets.native.transfer` enter this
+      lane (other three catalog QNs fail closed as Phase B scope);
+    * non-catalog QNs keep existing CPI profile product filter behaviour. -/
 private def collectRawSitesFiltered
     (data : SemanticProgramDataV1) (productApiFilter : Bool) :
     CompileResult (Array RawSiteV1) := do
   unless data.invariants.isEmpty do
     deriveFail "CPI derive rejects nonempty invariants table"
+  let pfAssetsDeclared := hasPfAssetsExtensionRow data
   let mut out : Array RawSiteV1 := #[]
   for callable in data.callables do
     let callableId := callable.id.toNat
@@ -585,6 +633,13 @@ private def collectRawSitesFiltered
             let mode ← handlerModeOf callable.kind
             let hname ← handlerNameOf callable
             let qn ← qnDotted callee
+            if isPfAssetsCatalogQnV1 qn then
+              unless pfAssetsDeclared do
+                deriveFail
+                  s!"CPI derive: pf.assets catalog call '{qn}' requires extension.pf-assets declaration"
+              unless isPfAssetsSolanaProductApiV1 qn do
+                deriveFail
+                  s!"CPI derive: pf.assets QN '{qn}' is outside Phase B Solana native vault scope (async/token fail closed)"
             if productApiFilter then
               if isCompanionApiV1 qn then
                 deriveFail
@@ -662,6 +717,9 @@ def deriveSolanaCpiPlanCandidateCoreV1
     let hname := handler.name
     let hSites : Array RawSiteV1 :=
       rawSites.filter (fun s => s.callableId == callableId)
+    let needsVault := hSites.any (fun s =>
+      s.qn == "pf.assets.native.deposit" || s.qn == "pf.assets.native.transfer")
+    let needsCaller := hSites.any (fun s => s.qn == "pf.assets.native.deposit")
     let mut usedOrds : Array Nat := #[]
     for site in hSites do
       for (_, ord) in site.principalParams do
@@ -675,9 +733,13 @@ def deriveSolanaCpiPlanCandidateCoreV1
         (RoleKeyV1.accountParam callableId ord) rname accountBoundRoleConstraintV1
       roleKeys := k'
       roles := r'
+    -- Synthetic vault/caller roles are ensured at first meta use so global
+    -- first-use order matches dense roleId assignment (Plan first-use gate).
     let mut siteIdsForHandler : Array Nat := #[]
     for site in hSites do
       let siteId := builtSites.size
+      -- pf.assets APIs are not in the frozen callee package QN lists; resolve
+      -- package by fixedProgram id so catalog digests stay stable.
       let pkg ← match findCalleePackage? site.api.fixedProgram with
         | some p => pure p
         | none => deriveFail s!"missing package '{site.api.fixedProgram}'"
@@ -694,6 +756,16 @@ def deriveSolanaCpiPlanCandidateCoreV1
               (packageRoleName packageId) calleeRoleConstraintV1
             roleKeys := k2
             roles := r2
+        | MetaBinding.vaultPda =>
+            let (kV, rV, _) ← ensureRole roleKeys roles
+              RoleKeyV1.vaultPda "pf_vault" vaultRoleConstraintV1
+            roleKeys := kV
+            roles := rV
+        | MetaBinding.handlerCaller =>
+            let (kC, rC, _) ← ensureRole roleKeys roles
+              RoleKeyV1.handlerCaller "pf_caller" handlerCallerRoleConstraintV1
+            roleKeys := kC
+            roles := rC
         | MetaBinding.arg _ => pure ()
       let mut principalRoleByArgIndex : Array (Nat × Nat) := #[]
       for (argIdx, ord) in site.principalParams do
@@ -716,12 +788,19 @@ def deriveSolanaCpiPlanCandidateCoreV1
               | some rid =>
                   fixedRoleByPackage := fixedRoleByPackage.push (packageId, rid)
               | none => deriveFail s!"fixed role missing for '{packageId}'"
-        | MetaBinding.arg _ => pure ()
+        | MetaBinding.arg _ | MetaBinding.vaultPda | MetaBinding.handlerCaller =>
+            pure ()
+      let vaultRoleId? := findRoleId? roleKeys RoleKeyV1.vaultPda
+      let callerRoleId? := findRoleId? roleKeys RoleKeyV1.handlerCaller
       let sitePlan ← buildSiteBindings site principalRoleByArgIndex
-        fixedRoleByPackage programRoleId pkg.programId siteId handlerId
+        fixedRoleByPackage vaultRoleId? callerRoleId?
+        programRoleId pkg.programId siteId handlerId
       builtSites := builtSites.push sitePlan
       siteIdsForHandler := siteIdsForHandler.push siteId
 
+    -- Local ABI role order must match Plan `deriveHandlerRoleIds`:
+    -- state → consumed accountParameter (param ordinal) → per-site program
+    -- then fixedProgram/vaultPda/handlerCaller metas in site/meta source order.
     let mut localRoles : Array Nat := #[]
     let pushUnique (acc : Array Nat) (id : Nat) : Array Nat :=
       if acc.any (· == id) then acc else acc.push id
@@ -737,7 +816,8 @@ def deriveSolanaCpiPlanCandidateCoreV1
       localRoles := pushUnique localRoles site.programRoleId
       for metaSlot in site.metas do
         match metaSlot.spec.binding with
-        | MetaBinding.fixedProgram _ =>
+        | MetaBinding.fixedProgram _ | MetaBinding.vaultPda
+        | MetaBinding.handlerCaller =>
             localRoles := pushUnique localRoles metaSlot.roleId
         | MetaBinding.arg _ => pure ()
 
@@ -766,6 +846,15 @@ def deriveSolanaCpiPlanCandidateCoreV1
         outerWritable := writable
       }
 
+    -- Deposit caller convention: handlers that use deposit must have exactly
+    -- one outer signer role (the synthetic pf_caller).
+    if needsCaller then
+      let outerSignerCount := uses.foldl (fun n u =>
+        if u.outerSigner then n + 1 else n) 0
+      unless outerSignerCount == 1 do
+        deriveFail
+          s!"CPI derive: handler '{hname}' deposit requires exactly one outer signer (caller), got {outerSignerCount}"
+
     for siteId in siteIdsForHandler do
       let site : CpiSitePlanV1 ← getArr builtSites siteId "builtSites"
       builtSites := builtSites.set! siteId {
@@ -781,8 +870,17 @@ def deriveSolanaCpiPlanCandidateCoreV1
       cpiSiteIds := siteIdsForHandler
     }
 
+  -- Plan carries a single extensionRequirement field: prefer solana.cpi.accounts
+  -- when present (L2 / dual), else pf.assets (L1-only TipJar path).
   let extensionRequirement ←
-    mapExcept expectedExtensionRequirementV1 "extension requirement"
+    if hasSolanaCpiExtensionRow data then
+      mapExcept expectedExtensionRequirementV1 "extension requirement"
+    else if hasPfAssetsExtensionRow data then
+      match pfAssetsExtensionRequirementV1 with
+      | .ok r => pure r
+      | .error e => deriveFail s!"pf.assets extension seed: {e}"
+    else
+      mapExcept expectedExtensionRequirementV1 "extension requirement"
 
   let components := data.qualifiedName.components.toArray
   let qnTail ← match components.back? with

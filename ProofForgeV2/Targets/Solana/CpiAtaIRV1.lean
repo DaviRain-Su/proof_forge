@@ -287,7 +287,7 @@ private def findStateSchema?
 
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
-  | .state _ | .accountParameter .. => none
+  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller => none
 
 private def requireAbsentLoaderPackage
     (packageId : String) (programId : SolanaPubkeyV1) :
@@ -494,7 +494,7 @@ private def projectEntryGlobalOps
           roleId := handle.roleId
           localIndex := i
         }
-    | .state _ => pure ()
+    | .state _ | .vaultPda | .handlerCaller => pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas
     ops := ops ++ constraintOps
@@ -835,7 +835,7 @@ private def validateAtaSiteShape (site : CpiIRSiteV1) : CompileResult Unit := do
       unless rule == "ata-classic-v1" && targetArg == "ata" &&
           walletArg == "wallet" && mintArg == "mint" do
         tFail s!"site {site.siteId}: ATA addressCheckOnly args/rule diverged"
-  | .none | .signer .. =>
+  | .none | .signer .. | .vaultPdaSigner _ =>
       tFail s!"site {site.siteId}: ATA requires addressCheckOnly ata-classic-v1"
   unless site.signerGroups.isEmpty do
     tFail s!"site {site.siteId}: ATA createIdempotent requires zero signer groups"

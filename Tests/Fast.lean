@@ -73,6 +73,7 @@ import Tests.Product.TokenV1
 import Tests.Product.TipJarQuintV1
 import Tests.Product.TipJarEvmV1
 import Tests.Materialization.EvmPfAssetsV1
+import Tests.Product.TipJarSolanaV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.EvmCorpusBlockedV1
@@ -89,6 +90,7 @@ import Tests.Materialization.SolanaCpiSystemV1
 import Tests.Materialization.SolanaCpiTokenV1
 import Tests.Materialization.SolanaCpiAtaV1
 import Tests.Materialization.SolanaCpiEscrowV1
+import Tests.Materialization.SolanaCpiPfAssetsV1
 import Tests.Materialization.SolanaCpiActivationV1
 
 import Tests.Materialization.Targets
@@ -180,6 +182,7 @@ unsafe def main : IO Unit := do
   Tests.Product.TipJarQuintV1.run
   Tests.Product.TipJarEvmV1.run
   Tests.Materialization.EvmPfAssetsV1.run
+  Tests.Product.TipJarSolanaV1.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.EvmSolcAcceptance.run
   Tests.Materialization.EvmCorpusBlockedV1.run
@@ -196,6 +199,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.SolanaCpiTokenV1.run
   Tests.Materialization.SolanaCpiAtaV1.run
   Tests.Materialization.SolanaCpiEscrowV1.run
+  Tests.Materialization.SolanaCpiPfAssetsV1.run
   Tests.Materialization.SolanaCpiActivationV1.run
 
   Tests.Materialization.TargetRegistryV1.run

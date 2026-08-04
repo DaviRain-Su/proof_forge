@@ -84,6 +84,16 @@ def pdaMarkerHexV1 : String := "50726f6772616d4465726976656441646472657373"
 /-- Current-program tagged PDA seed[0] hex: ASCII `proof-forge:pda:v1`. -/
 def currentProgramPdaTagHexV1 : String := "70726f6f662d666f7267653a7064613a7631"
 
+/-- ADR-0029 Phase B1 self-vault PDA seed[0] hex: ASCII `proof-forge:vault:v1` (20 B). -/
+def vaultPdaSeedHexV1 : String := "70726f6f662d666f7267653a7661756c743a7631"
+
+/-- Frozen vault PDA rule id (Solana-owned lowering; not a source QN). -/
+def vaultPdaRuleIdV1 : String := "proof-forge:vault:v1"
+
+/-- Rent-exempt lamports for a zero-data account under the pinned Agave rent
+    schedule used by Mollusk / runtime tests (exact 890880). -/
+def vaultCreateRentExemptLamportsV1 : UInt64 := UInt64.ofNat 890880
+
 /-! ## Strict 32-byte Solana pubkey carrier (no Principal conversion) -/
 
 /-- Exact-32-byte program/account key. Private constructor; mint via `ofBytes` /
@@ -574,7 +584,10 @@ def findActiveCalleePackageByQn? (qn : String) : Option ActiveCalleePackageV1 :=
 def activeProductPackageIdsV1 : Array String :=
   #["system-v1", "token-classic-v1", "ata-classic-v1"]
 
-/-- Approved product QN closure (five APIs; companion three remain test-only). -/
+/-- Approved product QN closure (five L2 APIs; companion three remain test-only).
+    docs_check triangles this exact five-element list; L1 pf.assets QNs are
+    approved separately via `isPfAssetsSolanaProductApiV1` and must **not** be
+    appended here without a coordinated docs/catalog digest cutover. -/
 def activeProductApiQnsV1 : Array String := #[
   "solana.system.transfer",
   "solana.system.createPdaAccount",
@@ -582,6 +595,23 @@ def activeProductApiQnsV1 : Array String := #[
   "solana.token.transferCheckedPda",
   "solana.ata.createIdempotent"
 ]
+
+/-- ADR-0029 Phase B1 Solana-admitted L1 pf.assets native APIs (sync only).
+    Async/token catalog QNs stay fail closed at product derive. -/
+def pfAssetsSolanaProductApiQnsV1 : Array String := #[
+  "pf.assets.native.deposit",
+  "pf.assets.native.transfer"
+]
+
+def isPfAssetsSolanaProductApiV1 (qn : String) : Bool :=
+  pfAssetsSolanaProductApiQnsV1.any (· == qn)
+
+def isPfAssetsCatalogQnV1 (qn : String) : Bool :=
+  qn == "pf.assets.native.deposit" ||
+    qn == "pf.assets.native.transfer" ||
+    qn == "pf.assets.native.transferAsync" ||
+    qn == "pf.assets.token.transfer" ||
+    qn == "pf.assets.token.transferAsync"
 
 /-- Exact structural validation of the #125 active package table. -/
 def validateActiveCalleePackagesV1 : Except String Unit := do
@@ -723,6 +753,11 @@ structure InstructionCodec where
 inductive MetaBinding where
   | arg (name : String)
   | fixedProgram (packageId : String)
+  /-- ADR-0029 B1: synthetic self-vault PDA role (not a Principal parameter). -/
+  | vaultPda
+  /-- ADR-0029 B1: synthetic outer-signer caller role for deposit (exactly one
+      outer signer per handler that uses deposit). -/
+  | handlerCaller
   deriving BEq, Repr
 
 structure FrozenMetaSpec where
@@ -756,6 +791,9 @@ inductive FrozenPdaUse where
       (targetArg : String)
       (walletArg : String)
       (mintArg : String)
+  /-- ADR-0029 B1: vault PDA is a synthetic role (no Principal seed args).
+      `rule` must be `proof-forge:vault:v1`; seeds = seed0 + canonical bump. -/
+  | vaultPdaSigner (rule : String)
   deriving BEq, Repr
 
 structure FrozenSignerGroup where
@@ -821,6 +859,25 @@ private def constraintSystemPayer : AccountConstraint where
   executable := .forbidden
   data := .exactLength 0
   initialization := .existing
+  provisioning := .mustExist
+
+/-- Deposit caller: outer signer, System-owned empty data (pays vault ensure + deposit). -/
+private def constraintHandlerCaller : AccountConstraint := constraintSystemPayer
+
+/-- Vault after ensure / for transfer out: current-program owned, zero data. -/
+private def constraintVaultOwned : AccountConstraint where
+  owner := .currentProgram
+  executable := .forbidden
+  data := .exactLength 0
+  initialization := .existing
+  provisioning := .mustExist
+
+/-- Vault recipient during deposit transfer: not read (lamports credit only). -/
+private def constraintVaultDepositRecipient : AccountConstraint where
+  owner := .any
+  executable := .forbidden
+  data := .notRead
+  initialization := .any
   provisioning := .mustExist
 
 private def constraintSystemCreateTarget : AccountConstraint where
@@ -894,6 +951,29 @@ private def metaFixed
     cpiWritable := false
     outerSignerContribution := false
     outerWritableContribution := false
+    signerGroupId := none }
+
+private def metaVaultPda
+    (constraint : AccountConstraint)
+    (cpiSigner cpiWritable outerSigner outerWritable : Bool)
+    (signerGroupId : Option Nat := none) : FrozenMetaSpec :=
+  { binding := .vaultPda
+    constraint
+    cpiSigner
+    cpiWritable
+    outerSignerContribution := outerSigner
+    outerWritableContribution := outerWritable
+    signerGroupId }
+
+private def metaHandlerCaller
+    (constraint : AccountConstraint)
+    (cpiSigner cpiWritable outerSigner outerWritable : Bool) : FrozenMetaSpec :=
+  { binding := .handlerCaller
+    constraint
+    cpiSigner
+    cpiWritable
+    outerSignerContribution := outerSigner
+    outerWritableContribution := outerWritable
     signerGroupId := none }
 
 private def outerOnly
@@ -1091,7 +1171,53 @@ def apiAtaCreateIdempotentV1 : FrozenApi where
   preflight := #[]
   result := .unit
 
-/-- Extension-order frozen API table (deterministic). -/
+/-! ### ADR-0029 Phase B1 L1 pf.assets APIs (Solana vault PDA + System CPI)
+
+    Not members of the ADR-0028 callee-catalog QN lists (catalog digest frozen).
+    packageId still `system-v1` for materialization eligibility. -/
+
+/-- `pf.assets.native.deposit(amount)` → System transfer: handlerCaller → vault PDA.
+    Caller convention: exactly one outer signer role on the handler = caller.
+    Vault ensure (idempotent createPda) is IR/emitter-owned, not a separate site. -/
+def apiPfAssetsNativeDepositV1 : FrozenApi where
+  qn := "pf.assets.native.deposit"
+  args := #[exprU64 "amount"]
+  fixedProgram := "system-v1"
+  instructionCodec := {
+    length := 12
+    segments := #[hexSeg "02000000", .arg "amount" .uint64Le]
+  }
+  metas := #[
+    metaHandlerCaller constraintHandlerCaller true true true true,
+    metaVaultPda constraintVaultDepositRecipient false true false true
+  ]
+  outerOnlyAccounts := #[]
+  pda := .none
+  signerGroups := #[]
+  preflight := #[]
+  result := .unit
+
+/-- `pf.assets.native.transfer(dst, amount)` → System transfer: vault PDA → dst
+    with `invoke_signed` under `proof-forge:vault:v1` (seed0 + canonical bump). -/
+def apiPfAssetsNativeTransferV1 : FrozenApi where
+  qn := "pf.assets.native.transfer"
+  args := #[principalArg "dst", exprU64 "amount"]
+  fixedProgram := "system-v1"
+  instructionCodec := {
+    length := 12
+    segments := #[hexSeg "02000000", .arg "amount" .uint64Le]
+  }
+  metas := #[
+    metaVaultPda constraintVaultOwned true true false true (some 0),
+    metaArg "dst" constraintNotReadAny false true false true
+  ]
+  outerOnlyAccounts := #[]
+  pda := .vaultPdaSigner vaultPdaRuleIdV1
+  signerGroups := #[{ id := 0, metaArg := "vault", pdaRule := vaultPdaRuleIdV1 }]
+  preflight := #[]
+  result := .unit
+
+/-- Extension-order frozen API table (deterministic). ADR-0028 eight APIs. -/
 def frozenApisV1 : Array FrozenApi := #[
   apiCompanionInvokeV1,
   apiCompanionFailV1,
@@ -1103,8 +1229,17 @@ def frozenApisV1 : Array FrozenApi := #[
   apiAtaCreateIdempotentV1
 ]
 
+/-- L1 pf.assets Solana product APIs (Phase B1). Separate from frozenApisV1 so
+    ADR-0028 catalog digests and docs_check five-QN pins stay unchanged. -/
+def pfAssetsSolanaFrozenApisV1 : Array FrozenApi := #[
+  apiPfAssetsNativeDepositV1,
+  apiPfAssetsNativeTransferV1
+]
+
 def findFrozenApi? (qn : String) : Option FrozenApi :=
-  frozenApisV1.find? (fun api => api.qn == qn)
+  match frozenApisV1.find? (fun api => api.qn == qn) with
+  | some a => some a
+  | none => pfAssetsSolanaFrozenApisV1.find? (fun api => api.qn == qn)
 
 def frozenApiQnsV1 : Array String :=
   frozenApisV1.map (·.qn)
@@ -1162,14 +1297,29 @@ def frozenPdaRuleAtaClassicV1 : FrozenPdaRule where
   search := .canonical255Through1
   signerEligible := false
 
-/-- Exact frozen PDA rule templates (product v1). -/
+/-- ADR-0029 B1 self-vault: seed0 = `proof-forge:vault:v1`, bump via 255..1.
+    Kept out of `frozenPdaRulesV1` so ADR-0028 plan digests stay stable; product
+    sites reference this rule via `FrozenPdaUse.vaultPdaSigner` and emitters
+    pin the seed constants directly. -/
+def frozenPdaRuleVaultV1 : FrozenPdaRule where
+  ruleId := vaultPdaRuleIdV1
+  derivationProgram := .currentProgram
+  seeds := #[
+    .literalHex vaultPdaSeedHexV1,
+    .uint8 "bump"
+  ]
+  search := .canonical255Through1
+  signerEligible := true
+
+/-- Exact frozen PDA rule templates (product v1; ADR-0028 two recipes only). -/
 def frozenPdaRulesV1 : Array FrozenPdaRule := #[
   frozenPdaRuleCurrentProgramTaggedV1,
   frozenPdaRuleAtaClassicV1
 ]
 
 def findFrozenPdaRule? (ruleId : String) : Option FrozenPdaRule :=
-  frozenPdaRulesV1.find? (fun r => r.ruleId == ruleId)
+  if ruleId == vaultPdaRuleIdV1 then some frozenPdaRuleVaultV1
+  else frozenPdaRulesV1.find? (fun r => r.ruleId == ruleId)
 
 /-- State-role constraint template from the extension account contract. -/
 def stateRoleConstraintV1 : AccountConstraint where

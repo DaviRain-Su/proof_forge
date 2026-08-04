@@ -248,7 +248,7 @@ private def findStateSchema?
 
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
-  | .state _ | .accountParameter .. => none
+  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller => none
 
 /-- Reuse #118 owner resolution (exact owner / current program / none). -/
 private def resolveOwnerOps
@@ -410,7 +410,7 @@ private def projectEntryGlobalOps
           roleId := handle.roleId
           localIndex := i
         }
-    | .state _ => pure ()
+    | .state _ | .vaultPda | .handlerCaller => pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas
     ops := ops ++ constraintOps
@@ -665,7 +665,7 @@ private def projectUnsignedHandler
       uFail "site handlerId mismatch"
     match site.pda with
     | .none => pure ()
-    | .signer .. | .addressCheckOnly .. =>
+    | .signer .. | .addressCheckOnly .. | .vaultPdaSigner _ =>
         uFail s!"unsigned CPI IR rejects PDA at site {site.siteId}"
     unless site.signerGroups.isEmpty do
       uFail s!"unsigned CPI IR rejects signerGroups at site {site.siteId}"

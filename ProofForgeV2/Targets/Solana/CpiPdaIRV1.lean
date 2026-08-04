@@ -260,7 +260,7 @@ private def findStateSchema?
 
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
-  | .state _ | .accountParameter .. => none
+  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller => none
 
 /-- PDA-aware owner resolution (same as #119 for admitted owners). -/
 private def resolveOwnerOps
@@ -423,7 +423,7 @@ private def projectEntryGlobalOps
           roleId := handle.roleId
           localIndex := i
         }
-    | .state _ => pure ()
+    | .state _ | .vaultPda | .handlerCaller => pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas
     ops := ops ++ constraintOps
@@ -711,8 +711,8 @@ private def projectPdaHandler
           pFail s!"site {site.siteId}: PDA arg names must match frozen invokeSigned"
     | .none =>
         pFail s!"PDA CPI requires PDA signer use at site {site.siteId}"
-    | .addressCheckOnly .. =>
-        pFail s!"PDA CPI rejects addressCheckOnly at site {site.siteId}"
+    | .addressCheckOnly .. | .vaultPdaSigner _ =>
+        pFail s!"PDA CPI rejects non-signer PDA use at site {site.siteId}"
     unless site.signerGroups.size == 1 do
       pFail s!"site {site.siteId}: exact one signer group required"
     let group ← getArr site.signerGroups 0 s!"site {site.siteId}.signerGroups"

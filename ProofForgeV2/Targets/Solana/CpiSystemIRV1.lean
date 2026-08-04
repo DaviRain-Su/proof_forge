@@ -282,7 +282,7 @@ private def findStateSchema?
 
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
-  | .state _ | .accountParameter .. => none
+  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller => none
 
 private def requireSystemPackage : CompileResult FrozenCalleePackage := do
   match findCalleePackage? "system-v1" with
@@ -462,7 +462,7 @@ private def projectEntryGlobalOps
           roleId := handle.roleId
           localIndex := i
         }
-    | .state _ => pure ()
+    | .state _ | .vaultPda | .handlerCaller => pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas
     ops := ops ++ constraintOps
@@ -817,8 +817,8 @@ private def projectSystemHandler
               sFail s!"site {site.siteId}: PDA arg names must match frozen createPdaAccount"
         | .none =>
             sFail s!"createPdaAccount requires PDA signer use at site {site.siteId}"
-        | .addressCheckOnly .. =>
-            sFail s!"System CPI rejects addressCheckOnly at site {site.siteId}"
+        | .addressCheckOnly .. | .vaultPdaSigner _ =>
+            sFail s!"System CPI rejects non-signer PDA use at site {site.siteId}"
         unless site.signerGroups.size == 1 do
           sFail s!"site {site.siteId}: exact one signer group required"
         let group ← getArr site.signerGroups 0 s!"site {site.siteId}.signerGroups"
