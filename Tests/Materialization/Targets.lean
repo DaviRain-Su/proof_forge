@@ -3329,11 +3329,17 @@ unsafe def run : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"N5 context select: {e.render}"
   let ctxCompiled ← liftResult <| Compiler.compileValidatedSourceV1 ctxV1
-  -- B-CTX-OPEN (2026-08-04): EVM (timestamp()) and NEAR (block_timestamp/1e9)
-  -- admit unixTimeSeconds; Solana/Noir/Psy keep the fail-closed pin.
+  -- B-CTX-OPEN (2026-08-04): EVM (timestamp()), NEAR (block_timestamp/1e9),
+  -- CosmWasm (Env "time" ns /1e9, BL-37) and TON (blockchain.now(), BL-38)
+  -- admit unixTimeSeconds; Solana/Noir/Psy/Aleo keep the fail-closed pin
+  -- (2026-08-04 user decision: circuit-domain targets stay FC until a real
+  -- chain-anchor design exists — unanchored public-input injection would only
+  -- prove "the program used T", never "T is the real chain time").
   let _ ← liftResult <| materializeSelected TargetId.evm ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.near ctxCompiled
-  for target in [TargetId.solana, TargetId.noir, TargetId.psy] do
+  let _ ← liftResult <| materializeSelected TargetId.cosmwasm ctxCompiled
+  let _ ← liftResult <| materializeSelected TargetId.ton ctxCompiled
+  for target in [TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo] do
     match materializeSelected target ctxCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N5 context: {target} must decline ContextRead"
