@@ -116,7 +116,7 @@ source declaration 使用 extension domain digest。
 | API | portable 语义契约 | Solana | EVM | NEAR | CW | TON |
 |---|---|---|---|---|---|---|
 | `pf.assets.native.deposit(amount)` | entry 内从 caller 向 self vault 转入 `amount`；成功后 caller 减、vault 增；failure 传播 | System CPI：outer-signer caller 账户 → vault PDA（复用 account-bound Principal 机制，ABI 细节留 Plan） | `msg.value` 精确校验（== 或 ≥ 于 acceptance 钉死）；无 deposit 的 entry 生成 `msg.value==0` 检查 | attached_deposit 校验 | message funds 校验 | inbound value 校验 |
-| `pf.assets.native.transfer(dst, amount)` | 从 self vault 扣 `amount` 记入 `dst`；sync、随交易原子、failure 传播；对接收方是否执行代码**不作承诺**（opaque external effect） | System transfer：vault PDA → dst，`invoke_signed` | value `CALL`（合约 balance；接收方 fallback 可能执行——见下文"诚实注记"） | **fail closed**（Promise 为 async；可绑 `transferAsync`） | `BankMsg::Send`（需 reply_on_error 语义；当前 CW 纪律为 reply_on=never，须另立 versioned contract） | **fail closed**（async message；可绑 `transferAsync`） |
+| `pf.assets.native.transfer(dst, amount)` | 从 self vault 扣 `amount` 记入 `dst`；sync、随交易原子、failure 传播；对接收方是否执行代码**不作承诺**（opaque external effect） | vault PDA → dst（**B1 修正**：program 直接 lamports debit/credit + PDA key join——System 程序依法不能 debit program-owned 账户（`ExternalAccountLamportSpend`），出金腿不是 System CPI；vault 为 program-owned PDA，seeds/bump 见 B1） | value `CALL`（合约 balance；接收方 fallback 可能执行——见下文"诚实注记"） | **fail closed**（Promise 为 async；可绑 `transferAsync`） | `BankMsg::Send`（需 reply_on_error 语义；当前 CW 纪律为 reply_on=never，须另立 versioned contract） | **fail closed**（async message；可绑 `transferAsync`） |
 | `pf.assets.token.transfer(mint, dst, amount)` | self vault 的 `mint` 代币转 `amount`（base units）给 `dst`；sync 原子 | classic Token `transferChecked`（vault ATA → dst ATA；dst ATA 缺失时先行 `createIdempotent`——幂等 ensure 是实现细节） | ERC-20 `transfer`（返回值/无返回值兼容策略入 catalog predicate） | **fail closed**（NEP-141 async；可绑 `transferAsync`） | CW20 `Transfer` / `BankMsg::Send`（denom 绑定入 catalog） | **fail closed**（jetton async；可绑 `transferAsync`） |
 | `pf.assets.*.transferAsync(...)` | fire-and-forget；不观测结果、不传播异步失败 | —（Solana sync 天然满足更强保证，**不**提供弱语义 variant，避免假异步） | —（同理） | native `Promise` / NEP-141 | SubMsg reply_on=never（现纪律） | out-message（现纪律） |
 
@@ -312,7 +312,7 @@ callback 状态机、TON message mode/flag。这些暴露的是目标链执行�
 | 期 | 内容 | 性质 | 状态 |
 |---|---|---|---|
 | **A** | L1 registry 机制（exact triple/provenance）+ `pf.assets` payload 冻结 + Reference 语义 + **Quint 绑定** | **shared core，串行 cutover**；Quint 是不可部署的 executable-model target，作为最便宜的语义验证场（vault 扣账/入账、failure 传播、rollback 先钉死在模型里） | **done（2026-08-04）** |
-| **B** | **Solana 先导 → EVM** | target leaf lane：Solana 复用 ADR-0028 既有机器重新绑定到链无关 QN（vault PDA≈`createPdaAccount`/`invoke_signed`、出币≈`transferCheckedPda`、ATA ensure≈`createIdempotent`）；EVM 新增 `interface-standard` artifactBinding、deposit/msg.value 校验与 value `CALL` lowering | pending |
+| **B** | **Solana 先导 → EVM** | target leaf lane：Solana 复用 ADR-0028 既有机器重新绑定到链无关 QN（vault PDA≈`createPdaAccount`/幂等 ensure、出金为 program-direct lamports move——B1 修正，见 API 矩阵；ATA ensure≈`createIdempotent`）；EVM 新增 `interface-standard` artifactBinding、deposit/msg.value 校验与 value `CALL` lowering | **done（2026-08-05）** |
 | **C** | **CosmWasm + NEAR** | CW 争取完整 sync 绑定（`BankMsg::Send`/CW20 SubMsg 同交易原子，需 reply 语义新 versioned contract）；NEAR 结构上仅 `deposit` + `transferAsync`（Promise 为 async，sync 永久不可绑） | pending |
 | **D** | TON、Psy、**Aleo 单独立项** | TON async-only（`deposit` + `transferAsync`）；Psy source-only 无 VM 门，最后；**Aleo 资产为 record 而非账户余额，custody 模型不同，vault 概念需 v2 单独设计，不与 Psy 并列** | pending |
 | — | **Noir 对 `pf.assets` 永久 fail closed** | 电路不搬资产，sync/async 均无意义；这是诚实边界，不是欠债 | permanent FC |
@@ -329,6 +329,27 @@ async/token/非 catalog/无 declaration 均 fail closed）。产品 demo
 `build --target quint` → `proof-forge.output.v1` + `inspect` exact disk closure；
 其它 target 对 `extension.pf-assets` PF-REQ-UNSUPPORTED 零制品。**非** formal
 TASK/TST、**非** 主网、**仅** 模型层工程证据；Quint 仍为 non-deployable model target。
+
+**Phase B 工程事实（2026-08-05）**：`pf.assets` native deposit/transfer 已绑定两条
+部署型 target（resolver permit 表扩为 Quint + EVM×2 profiles + Solana CPI）。
+**EVM**（B2）：deposit → exact `callvalue()==amount`（无 deposit 的 entry 强制
+`callvalue()==0`；无 payable entry 的程序 Yul 字节不变）；transfer → full-gas value
+`CALL`（空 calldata，failure → revert 传播）；dst Principal 运行时须 exact wire shape
+`u32le(20)||addr20`（高肢清零，B-3 storage pin 不破）；`interface-standard`
+artifactBinding 骨架就位（native 用 `runtimeNative`，ERC-20 留后续）。Anvil 工程门
+真跑（`scripts/evm_tipjar_anvil_smoke.sh` + differential leg）：deploy+tip+余额断言
+与 callvalue/wire-shape/非 payable/失败传播四类负例全过。**Solana**（B1）：vault 为
+program-owned PDA（frozen seed `proof-forge:vault:v1`、canonical bump 255..1、
+rent-exempt 890880 lamports）；deposit → 幂等 ensure（fresh System vault 经
+createPdaAccount，三态 closed alternatives）+ caller→vault System CPI（`pf_caller`
+恰好一个 outer signer，多/零 FC）；transfer → **program 直接 lamports debit/credit**
+（B1 修正：System 不能 debit program-owned 账户 `ExternalAccountLamportSpend`，
+出金腿非 System CPI；PDA key join + 下溢 FC）。Mollusk 工程门真跑
+（`runtime-tests/solana` **15** binaries / **324** active，`tipjar_assets` **12/12**：
+init/view/tip 成功/幂等 ensure/underfunded 完整 snapshot rollback/错误 PDA/多·零
+signer 拒绝）。两 lane 均只开 sync native 两 API；token/async 全 target 保持 FC。
+**非** formal TASK/TST、**非** 主网/mainnet parity；Anvil/Mollusk 为工程
+local_runtime 门，Reference 仍 opaque void（无 vault 解释器、无重入模型）。
 
 **并行纪律**（遵循 Recovery Execution Protocol）：
 

@@ -42,6 +42,21 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
   assign 走多叶原子 store；Option params、非 UInt64 payload与 nested Option 仍 fail-closed；
 - **≤8 叶聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 经单次
   `sol_set_return_data` 发 N×8-byte LE；Map/Bytes/nested/非 UInt64元素返回仍 fail-closed。
+- **`pf.assets` native binding（ADR-0029 Phase B1，2026-08-05）**：`solana-sbpf-cpi-elf-v1`
+  advertise exact `extension.pf-assets`（resolver multi-permit；产品 capability = sync +
+  至少一个 closed extension 且各 requested extension 须落 SupportClaim）。vault 为
+  program-owned PDA（frozen seed `proof-forge:vault:v1`、canonical bump 255..1、
+  rent-exempt 890880 lamports、zero data）。`pf.assets.native.deposit` → 幂等 ensure
+  （fresh System vault 经 `createPdaAccount`，owner 三态 closed alternatives：
+  current-program skip / System-fresh create / 其余 FC）+ caller→vault System CPI
+  （synthetic `pf_caller`：该 handler 恰好一个 outer signer，多/零 FC）；
+  `pf.assets.native.transfer` → vault→dst **program 直接 lamports debit/credit**
+  （System 依法不能 debit program-owned 账户 `ExternalAccountLamportSpend`；
+  PDA key join + 下溢 FC）。QN 门：catalog QN 须 exact `extension.pf-assets` row；
+  token/async 与 generic 非 catalog 保持 FC。Mollusk 工程门 `runtime-tests/solana`
+  **15** binaries / **324** active（`tipjar_assets` **12/12**：init/view/tip 成功/
+  幂等 ensure/underfunded 完整 snapshot rollback/错误 PDA/多·零 signer 拒绝）；
+  产品纵切 `Tests/Product/TipJarSolanaV1`（`TipJar.so` + exact closure）。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
 完整 Normalize 表面；active CPI profile 之外的任意动态 program address/remaining accounts 与更广

@@ -43,6 +43,17 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   `--evm-version`）；显式 `evm-yul-solc-0.8.34-cancun-v1` 在 Finalize 加
   `solc --evm-version cancun`，runtime 经 `PF_EVM_PROFILE=…cancun-v1` 启动
   `anvil --hardfork cancun`。两 profile 共用锁定 solc 0.8.34 / Anvil 0.3.0，不升级工具。
+- **`pf.assets` native binding（ADR-0029 Phase B2，2026-08-05）**：两 profile 均 advertise
+  exact `extension.pf-assets`（resolver multi-permit）。`pf.assets.native.deposit` →
+  exact `callvalue()==amount`（无 deposit 的 entry 强制 `callvalue()==0`；无 payable
+  entry 的程序 Yul 字节不变）；`pf.assets.native.transfer` → full-gas value `CALL`
+  （空 calldata，failure → revert 传播）；dst Principal 运行时须 exact wire shape
+  `u32le(20)||addr20`（高肢清零；B-3 wire-identity 存储 pin 不破）。重入诚实注记：
+  value CALL 可能执行接收方代码（含重入），Reference 无重入模型，属 opaque-effect
+  契约。`PfAssetsCatalogV1` 含 `interface-standard` artifactBinding 骨架（native 用
+  `runtimeNative`；ERC-20 留后续）。token/async 保持 FC。Anvil 工程门
+  `scripts/evm_tipjar_anvil_smoke.sh` 已真跑（deploy/tip/余额 + 四类负例全过）；
+  产品纵切 `Tests/Product/TipJarEvmV1`（`TipJar.bin` solc 0.8.34 + exact closure）。
 
 **明确未闭合**：完整 SemanticProgramV1 表面；**ContextRead 仍 EVM Plan 显式 fail-closed**（见下节 encoding contract：决策已冻结、物化未交付）；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025 写成 Ownable/OZ/ABI/formal 完成。
 
