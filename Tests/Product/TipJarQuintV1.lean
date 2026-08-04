@@ -6,8 +6,9 @@
     * product `build --target quint` emits proof-forge.output.v1 (zero-tool)
     * `inspect <out> --json` revalidates exact disk closure
     * pins target=quint, profile=quint-source-u64-model-v1, TipJar.qnt vault model
-    * product `build` for evm/solana/near/noir fails closed on extension.pf-assets
-      with zero published artifacts
+    * product `build` for solana/near/noir fails closed on extension.pf-assets
+      (or sync-call) with zero published artifacts; EVM is Phase B2
+      (`Tests.Product.TipJarEvmV1`)
     * engineering model-layer only: non-formal, non-mainnet, deployable=false
 -/
 import ProofForgeV2.Compiler.Pipeline
@@ -219,10 +220,12 @@ private def testQuintBuildAndInspect : IO Unit := do
     s!"human inspect validation, got={hstdout}"
   -- Leave tree for manual review; suite is idempotent on next run (rm first).
 
-/-- Same demo must fail closed on targets that do not advertise pf.assets. -/
+/-- Same demo must fail closed on targets that do not advertise pf.assets.
+    ADR-0029 Phase B2 opens EVM; Quint remains the model-layer vertical here.
+    EVM product vertical lives in `Tests.Product.TipJarEvmV1`. -/
 private def testOtherTargetsFailClosed : IO Unit := do
   assertShape (← readShipped)
-  let targets := #["evm", "solana", "near", "noir"]
+  let targets := #["solana", "near", "noir"]
   for tid in targets do
     let outDir := FilePath.mk s!"build/v2/tipjar-{tid}-negative"
     try IO.FS.removeDirAll outDir catch _ => pure ()
@@ -238,9 +241,8 @@ private def testOtherTargetsFailClosed : IO Unit := do
       s!"TipJar on {tid} must surface PF-REQ-UNSUPPORTED, got={combined}"
     -- TipJar freezes both effect.synchronous-call (from call sites) and
     -- extension.pf-assets. Resolve reports the first unsupported id in wire
-    -- order: EVM/Noir typically hit extension.pf-assets (they advertise sync
-    -- call); Solana/NEAR default profiles hit effect.synchronous-call first.
-    -- Either is correct fail-closed evidence that the demo is Quint-only.
+    -- order: Noir hits extension.pf-assets (advertises sync call); Solana/NEAR
+    -- default profiles hit effect.synchronous-call first.
     expect (containsSubstr combined "extension.pf-assets" ||
         containsSubstr combined "pf-assets" ||
         containsSubstr combined "pf.assets" ||

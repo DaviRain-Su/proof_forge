@@ -61,7 +61,7 @@ private def encodeComparisonOp : ComparisonOp → UInt8
   | .eq => 0 | .ne => 1 | .lt => 2 | .le => 3 | .gt => 4 | .ge => 5
 
 private def encodeMutability : Mutability → UInt8
-  | .nonpayable => 0 | .view => 1
+  | .nonpayable => 0 | .view => 1 | .payable => 2
 
 private def encodeLeafAbiType (leaf : LeafAbiType) : Except String ByteArray := do
   pure ((encodeBool leaf.isInt).append (← encodeNatAsU32le leaf.byteWidth))
@@ -304,6 +304,16 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       out := out.append (← encodeNatAsU32le args.size)
       for arg in args do out := out.append (← encodeExpr arg)
       out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
+  -- Tag 13 (ADR-0029 B2): pf.assets.native.deposit(amount).
+  | .nativeDeposit amount => do
+      pure ((encodeU8 13).append (← encodeExpr amount))
+  -- Tag 14 (ADR-0029 B2): pf.assets.native.transfer(dst, amount).
+  | .nativeTransfer dstLen dstBodyWords amount => do
+      let mut out := (encodeU8 14).append (← encodeExpr dstLen)
+      out := out.append (← encodeNatAsU32le dstBodyWords.size)
+      for w in dstBodyWords do out := out.append (← encodeExpr w)
+      out := out.append (← encodeExpr amount)
       pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do

@@ -3,8 +3,10 @@ import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.EnvelopeV1
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.Evm.Keccak
+import ProofForgeV2.Targets.Evm.PfAssetsCatalogV1
 
 /-!
 # Evm LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
@@ -22,15 +24,41 @@ storage layout exactly matching a named 2-variant Enum (tag 0/1 + payload;
 payload zeroed on none). Read via existing VariantTag/VariantPayload match
 path. Option of non-UInt64, Option params, nested/Bytes/Map options stay
 fail-closed. Bytes / Map / non-UInt64 Array elements stay fail-closed.
+
+## ADR-0029 Phase B2 — `pf.assets` native binding
+
+Void `Op.ExternalCall` whose callee is in the closed `pf.assets` catalog is
+admitted only when the retained freeze carries exact `extension.pf-assets`,
+and only for the Phase B native subset:
+
+* `pf.assets.native.deposit(amount)` — entry becomes payable; Yul exact
+  `eq(callvalue(), amount)` (not `>=`); no logical-state transition (contract
+  balance naturally increases by `msg.value`).
+* `pf.assets.native.transfer(dst, amount)` — value `CALL` with empty calldata,
+  full remaining gas, success checked; `dst` Principal must be exact wire
+  shape `u32le(20)||addr20` (ADR-0025 discipline). B-3 Principal wire identity
+  ≠ 20-byte address remains pinned for storage/other uses.
+
+Async / token catalog QNs fail closed (Phase B scope). Non-catalog QNs keep
+the existing static-QN CALL path. Entries without any deposit keep non-payable
+`callvalue() == 0` discipline.
+
+**Reentrancy honesty**: value CALL may execute recipient code (including
+re-entrancy into the caller). Reference has no re-entrancy model; the EVM
+binding is an opaque external effect. Programs must not depend on mid-entry
+state after a transfer. Source order is not reordered. See
+`PfAssetsCatalogV1.nativeValueLoweringContractV1`.
 -/
 
 namespace ProofForgeV2.Targets.Evm
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
+open ProofForgeV2.Targets.Evm.PfAssetsCatalogV1
 
 /-- Target-owned binding from a semantic state identity to an EVM storage slot.
     `byteWidth ∈ {1,2,4,8,32}` is the physical storage width (narrow values live
@@ -233,6 +261,16 @@ inductive Statement where
       derivation as `externalCall`, but CALL success is ignored (no response
       channel — matches Reference schedule semantics). -/
   | schedule (callee : Array String) (args : Array Expr)
+  /-- ADR-0029 B2: `pf.assets.native.deposit(amount)`. Yul exact
+      `eq(callvalue(), amount)`; entry mutability becomes `payable`. -/
+  | nativeDeposit (amount : Expr)
+  /-- ADR-0029 B2: `pf.assets.native.transfer(dst, amount)`.
+      `dstLen` + 8 LE body words are the Principal wire identity leaves
+      (`len + 8×UInt64`); runtime requires exact `len==20` and high limbs zero,
+      assembles a 20-byte network-order address, then
+      `call(gas(), addr, amount, 0, 0, 0, 0)` with success check.
+      Opaque external effect (recipient code / re-entrancy possible). -/
+  | nativeTransfer (dstLen : Expr) (dstBodyWords : Array Expr) (amount : Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
@@ -259,6 +297,8 @@ structure Constructor where
 inductive Mutability where
   | nonpayable
   | view
+  /-- ADR-0029 B2: entry contains at least one `nativeDeposit`. -/
+  | payable
   deriving BEq, Inhabited, Repr
 
 /-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
@@ -433,6 +473,9 @@ private structure EvmLowerLayoutV1 where
   stateLeaves : Array (Array Nat)
   typeDecls : Array TypeDeclV1
   mapStaticKeys : Array UInt64 := #[]
+  /-- Exact `extension.pf-assets` row present in retained requirements
+      (ADR-0029 B2 QN gate). -/
+  pfAssetsDeclared : Bool := false
   deriving Inhabited
 
 /-- Resolve admitted scalar state/param TypeId to physical byte width
@@ -1022,7 +1065,8 @@ private def makeStorageLayoutV1
     (types : EvmTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (states : Array StateDeclV1)
-    (mapStaticKeys : Array UInt64) : CompileResult EvmLowerLayoutV1 := do
+    (mapStaticKeys : Array UInt64)
+    (pfAssetsDeclared : Bool := false) : CompileResult EvmLowerLayoutV1 := do
   if states.size > maxStorageBindings then
     throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
   let mut bindings : Array StorageBinding := #[]
@@ -1139,7 +1183,7 @@ private def makeStorageLayoutV1
                     byteWidth
                   }
                   stateLeaves := stateLeaves.push #[slot]
-  pure { bindings, stateLeaves, typeDecls, mapStaticKeys }
+  pure { bindings, stateLeaves, typeDecls, mapStaticKeys, pfAssetsDeclared }
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
 private def mkParamExpr (bitWidth : Nat) (wordIndex : Nat) : Expr :=
@@ -2702,7 +2746,9 @@ private def lowerBlockInstructionsV1
         segmentStart := values.size
     -- AddressBearing: static QualifiedName callees (wire Op.ExternalCall/
     -- Schedule take QN, not a ValueId address). T10 admits Principal storage
-    -- only — CALL target is never a Principal ValueId (wire ≠ 20-byte address).
+    -- only — CALL target is never a Principal ValueId (wire ≠ 20-byte address)
+    -- except ADR-0029 B2 pf.assets.native.transfer, which requires exact
+    -- `u32le(20)||addr20` Principal wire identity at runtime.
     -- View/pureFn banned.
     | .externalCall _effectId callee argIds, none =>
         if mode == .view then
@@ -2711,6 +2757,9 @@ private def lowerBlockInstructionsV1
         if mode == .pureFn then
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: pureFn cannot make external calls"
+        if mode == .constructor then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: constructor cannot make external calls"
         let components := callee.components.toArray
         unless components.size ≥ 2 do
           throw <| .planInvariant .evm
@@ -2719,18 +2768,85 @@ private def lowerBlockInstructionsV1
           unless isIdentifier c do
             throw <| .planInvariant .evm
               s!"unsupported EVM semantic shape: external call callee component '{c}' is not a safe identifier"
-        let mut argExprs : Array Expr := #[]
-        for argId in argIds do
-          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-          unless !root.isBool && root.bitWidth == 64 do
+        let qn := String.intercalate "." components.toList
+        if isPfAssetsCatalogQnV1 qn then
+          -- ADR-0029 B2 QN gate: catalog QN requires exact extension.pf-assets.
+          unless layout.pfAssetsDeclared do
             throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: external call arguments must be UInt64"
-          argExprs := argExprs.push root.expr
-        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
-        body := body.push (.externalCall components argExprs)
-        hasAssert := true
-        armReadables := promoteDominatingPureV1 paramCount values armReadables
-        segmentStart := values.size
+              "unsupported EVM semantic shape: pf.assets catalog call requires extension.pf-assets declaration"
+          if qn == "pf.assets.native.deposit" then
+            unless argIds.size == 1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.deposit requires one UInt64 arg"
+            let some amountId := argIds[0]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.deposit arg missing"
+            let amountRoot ← currentValueWithArmsV1 values paramCount segmentStart
+              armReadables amountId
+            unless !amountRoot.isBool && !amountRoot.isInt && !amountRoot.isField &&
+                !amountRoot.isAggregate && amountRoot.bitWidth == 64 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.deposit amount must be UInt64"
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+            body := body.push (.nativeDeposit amountRoot.expr)
+            hasAssert := true
+            armReadables := promoteDominatingPureV1 paramCount values armReadables
+            segmentStart := values.size
+          else if qn == "pf.assets.native.transfer" then
+            unless argIds.size == 2 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.transfer requires Principal + UInt64 args"
+            let some dstId := argIds[0]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.transfer dst missing"
+            let some amountId := argIds[1]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.transfer amount missing"
+            let dstRoot ← currentValueWithArmsV1 values paramCount segmentStart
+              armReadables dstId
+            unless dstRoot.isAggregate do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.transfer dst must be Principal"
+            let dstLeaves := dstRoot.leafExprs
+            -- Principal pilot layout: len + 8 data words.
+            unless dstLeaves.size == 1 + evmPrincipalDataWordCountV1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.transfer dst Principal leaf count mismatch"
+            let some dstLen := dstLeaves[0]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.transfer dst len missing"
+            let dstWords := dstLeaves.extract 1 dstLeaves.size
+            unless dstWords.size == evmPrincipalDataWordCountV1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.transfer dst body words mismatch"
+            let amountRoot ← currentValueWithArmsV1 values paramCount segmentStart
+              armReadables amountId
+            unless !amountRoot.isBool && !amountRoot.isInt && !amountRoot.isField &&
+                !amountRoot.isAggregate && amountRoot.bitWidth == 64 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.native.transfer amount must be UInt64"
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+            body := body.push (.nativeTransfer dstLen dstWords amountRoot.expr)
+            hasAssert := true
+            armReadables := promoteDominatingPureV1 paramCount values armReadables
+            segmentStart := values.size
+          else
+            throw <| .planInvariant .evm
+              s!"unsupported EVM semantic shape: pf.assets QN '{qn}' is outside Phase B native scope (async/token fail closed)"
+        else
+          -- Non-catalog: existing static-QN CALL (AddressBearing).
+          let mut argExprs : Array Expr := #[]
+          for argId in argIds do
+            let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+            unless !root.isBool && root.bitWidth == 64 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: external call arguments must be UInt64"
+            argExprs := argExprs.push root.expr
+          let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+          body := body.push (.externalCall components argExprs)
+          hasAssert := true
+          armReadables := promoteDominatingPureV1 paramCount values armReadables
+          segmentStart := values.size
     | .schedule _effectId callee argIds, none =>
         if mode == .view then
           throw <| .planInvariant .evm
@@ -4083,6 +4199,19 @@ private def makeConstructorV1
     body := lowered.body
   }
 
+/-- True when any statement in the tree is `nativeDeposit` (nested if/switch/for). -/
+private partial def statementsContainNativeDepositV1 (stmts : Array Statement) : Bool :=
+  stmts.any fun s =>
+    match s with
+    | .nativeDeposit _ => true
+    | .ifThenElse _ t e =>
+        statementsContainNativeDepositV1 t || statementsContainNativeDepositV1 e
+    | .switchOn _ cases defaultBody =>
+        cases.any (fun c => statementsContainNativeDepositV1 c.2) ||
+          statementsContainNativeDepositV1 defaultBody
+    | .forLoop _ _ _ _ _ _ body => statementsContainNativeDepositV1 body
+    | _ => false
+
 private def makeEntryV1
     (types : EvmTypeClosureV1)
     (layout : EvmLowerLayoutV1)
@@ -4138,12 +4267,15 @@ private def makeEntryV1
     | .view => pure .view
     | _ => throw (.planInvariant .evm
         "unsupported EVM semantic shape: callable is not an entry or view")
-  let mutability : Mutability := match mode with
-    | .entry => .nonpayable
-    | .view => .view
-    | .constructor | .pureFn => .nonpayable
   let lowered ← lowerCallableV1 s!"entry '{name}'" mode types layout
     fnIndexByCallableId fns callable (some resultKind)
+  -- ADR-0029 B2: any nativeDeposit in the entry body ⇒ payable; views stay view.
+  let mutability : Mutability := match mode with
+    | .view => .view
+    | .entry =>
+        if statementsContainNativeDepositV1 lowered.body then .payable
+        else .nonpayable
+    | .constructor | .pureFn => .nonpayable
   pure {
     name
     selector := Keccak.selector name
@@ -4231,8 +4363,11 @@ private def makePlanFromSemanticDataV1
   let types ← validateEvmTypeClosureV1 source.types
   let mapStaticKeys ←
     collectMapUInt64StaticKeysV1 source.types types source.callables
+  let pfAssetsDeclared :=
+    source.requirements.items.any (·.id == wireExtensionPfAssetsIdV1)
   let storageLayout ←
     makeStorageLayoutV1 types source.types source.logicalState mapStaticKeys
+      pfAssetsDeclared
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>

@@ -1105,6 +1105,64 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++
           s!"{indent}let {okName} := call(gas(), 0x{addr20}, 0, 0, {4 + 32 * args.size}, 0, 0)\n" ++
           s!"{indent}pop({okName})\n"
+    | .nativeDeposit amount =>
+        -- ADR-0029 B2: exact callvalue == amount (pinned; not >=).
+        let rendered := renderExpr indent paramPrefix next amount
+        output := output ++ rendered.code
+        next := rendered.next
+        output := output ++
+          s!"{indent}if iszero(eq(callvalue(), {rendered.value})) \{ revert(0, 0) }\n"
+    | .nativeTransfer dstLen dstBodyWords amount =>
+        -- ADR-0029 B2: Principal wire identity → 20B address + value CALL.
+        -- loweringContract: full gas, empty calldata, success-checked;
+        -- dst must be exact u32le(20)||addr20; opaque-effect reentrancy honesty.
+        let lenR := renderExpr indent paramPrefix next dstLen
+        output := output ++ lenR.code
+        next := lenR.next
+        output := output ++
+          s!"{indent}if iszero(eq({lenR.value}, 20)) \{ revert(0, 0) }\n"
+        -- Render 8 body words (LE-packed opaque Principal body).
+        let mut bodyVals : Array String := #[]
+        for w in dstBodyWords do
+          let wr := renderExpr indent paramPrefix next w
+          output := output ++ wr.code
+          next := wr.next
+          bodyVals := bodyVals.push wr.value
+        -- High limbs past 20 body bytes must be zero (exact shape gate).
+        -- w2 high 32 bits + w3..w7.
+        if bodyVals.size == 8 then
+          output := output ++
+            s!"{indent}if iszero(eq(shr(32, {bodyVals[2]!}), 0)) \{ revert(0, 0) }\n"
+          for i in [3:8] do
+            output := output ++
+              s!"{indent}if iszero(eq({bodyVals[i]!}, 0)) \{ revert(0, 0) }\n"
+          -- Assemble network-order 20B address into a right-aligned 32B word.
+          output := output ++ s!"{indent}mstore(0, 0)\n"
+          for i in [0:8] do
+            output := output ++
+              s!"{indent}mstore8({12 + i}, and(shr({8 * i}, {bodyVals[0]!}), 0xff))\n"
+          for i in [0:8] do
+            output := output ++
+              s!"{indent}mstore8({20 + i}, and(shr({8 * i}, {bodyVals[1]!}), 0xff))\n"
+          for i in [0:4] do
+            output := output ++
+              s!"{indent}mstore8({28 + i}, and(shr({8 * i}, {bodyVals[2]!}), 0xff))\n"
+          let addrName := s!"xferAddr{next}"
+          next := next + 1
+          output := output ++ s!"{indent}let {addrName} := mload(0)\n"
+          let amtR := renderExpr indent paramPrefix next amount
+          output := output ++ amtR.code
+          next := amtR.next
+          let okName := s!"xferOk{next}"
+          next := next + 1
+          -- Full gas + empty calldata; success=false → revert (failure propagate).
+          -- Recipient code may execute (re-entrancy possible); opaque effect.
+          output := output ++
+            s!"{indent}let {okName} := call(gas(), {addrName}, {amtR.value}, 0, 0, 0, 0)\n" ++
+            s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n"
+        else
+          -- Defensive: Plan validation should have fixed 8 body words.
+          output := output ++ s!"{indent}revert(0, 0)\n"
     | .ifThenElse condition thenBody elseBody =>
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code
@@ -1224,11 +1282,22 @@ private def renderConstructor (plan : Plan) : String := Id.run do
     s!"    datacopy(0, dataoffset(\"{plan.runtimeObjectName}\"), datasize(\"{plan.runtimeObjectName}\"))\n" ++
     s!"    return(0, datasize(\"{plan.runtimeObjectName}\"))\n"
 
-private def renderEntry (plan : Plan) (entry : Entry) : String := Id.run do
+/-- True when any entry is payable (ADR-0029 B2 deposit). When true the global
+    runtime callvalue guard is removed and non-payable/view entries each get
+    an entry-local `callvalue() == 0` check so existing non-payable programs
+    stay byte-identical (global guard path). -/
+private def planHasPayableEntry (plan : Plan) : Bool :=
+  plan.entries.any (·.mutability == .payable)
+
+private def renderEntry (plan : Plan) (entry : Entry) (hasPayable : Bool) : String := Id.run do
   let calldataBytes := 4 + entry.params.size * 32
   let mut output :=
     s!"      case 0x{entry.selector} \{\n" ++
     s!"        if iszero(eq(calldatasize(), {calldataBytes})) \{ revert(0, 0) }\n"
+  -- Per-entry non-payable discipline when the program also has payable entries
+  -- (global runtime guard is then absent).
+  if hasPayable && entry.mutability != .payable then
+    output := output ++ "        if callvalue() { revert(0, 0) }\n"
   for param in entry.params do
     let offset := 4 + param.wordIndex * 32
     let raw := s!"calldataload({offset})"
@@ -1249,14 +1318,22 @@ private def renderEntry (plan : Plan) (entry : Entry) : String := Id.run do
   return output ++ "      }\n"
 
 private def renderYul (plan : Plan) : String :=
-  let entries := plan.entries.foldl (fun output entry => output ++ renderEntry plan entry) ""
+  let hasPayable := planHasPayableEntry plan
+  let entries := plan.entries.foldl
+    (fun output entry => output ++ renderEntry plan entry hasPayable) ""
   let ctorFns := renderFnDefs "    " plan
   let runtimeFns := renderFnDefs "      " plan
+  -- Keep global callvalue guard when no entry is payable (byte-identical with
+  -- historical Counter/Guarded goldens). Payable programs drop the global
+  -- guard; non-payable/view arms carry entry-local guards instead.
+  let runtimeCallvalueGuard :=
+    if hasPayable then ""
+    else "      if callvalue() { revert(0, 0) }\n"
   s!"object \"{plan.objectName}\" \{\n  code \{\n" ++
     renderConstructor plan ++
     ctorFns ++
     s!"  }\n  object \"{plan.runtimeObjectName}\" \{\n    code \{\n" ++
-    "      if callvalue() { revert(0, 0) }\n" ++
+    runtimeCallvalueGuard ++
     "      if lt(calldatasize(), 4) { revert(0, 0) }\n" ++
     "      switch shr(224, calldataload(0))\n" ++
     entries ++
@@ -1312,6 +1389,7 @@ private def renderEntryAbi (entry : Entry) : String :=
   let mutability := match entry.mutability with
     | .nonpayable => "nonpayable"
     | .view => "view"
+    | .payable => "payable"
   "{\"type\":\"function\",\"name\":\"" ++ Targets.escapeJson entry.name ++
     "\",\"stateMutability\":\"" ++ mutability ++ "\",\"inputs\":[" ++
     renderParamsJson entry.params ++

@@ -263,6 +263,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Product.PerfCheckHarnessV1,
     `Tests.Product.TokenV1,
     `Tests.Product.TipJarQuintV1,
+    `Tests.Product.TipJarEvmV1,
+    `Tests.Materialization.EvmPfAssetsV1,
     `Tests.CLI.Emit,
     `Tests.CLI.ToolchainPolicy,
     `Tests.CLI.DiagnosticsV1,

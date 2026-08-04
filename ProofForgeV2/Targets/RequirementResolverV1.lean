@@ -22,16 +22,18 @@
   async.
 
   Extension rows are **not** S2 catalog members. A closed advertise table maps
-  each extension wire id to exactly one (target, profile):
+  each extension wire id to admitted (target, profile) pairs:
     * `extension.solana-cpi-accounts` → (solana, solana-sbpf-cpi-elf-v1)
       (ADR-0028 / #125)
     * `extension.pf-assets` → (quint, quint-source-u64-model-v1)
-      (ADR-0029 Phase A sole L1 binding; other targets stay fail closed until
-      later binding slices)
-  ADR-0029 Phase A5: Quint advertises exact `extension.pf-assets` **and**
-  `effect.synchronous-call` (sync pf.assets native deposit/transfer vault
-  lowering). Non-catalog QNs and async/token pf.assets QNs still fail closed
-  at Quint Plan/lowering; async workflow remains declined.
+      (ADR-0029 Phase A)
+    * `extension.pf-assets` → (evm, evm-yul-solc-0.8.34-cancun-v1) and
+      (evm, evm-yul-solc-0.8.34-v1) (ADR-0029 Phase B2 native deposit/transfer)
+  ADR-0029 Phase A5/B2: Quint and both EVM profiles advertise exact
+  `extension.pf-assets` **and** `effect.synchronous-call` (sync pf.assets
+  native deposit/transfer). Non-catalog QNs and async/token pf.assets QNs
+  still fail closed at Plan/lowering; async workflow remains declined on
+  Quint (EVM keeps schedule as fire-and-forget same-tx).
 
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.
   Dependency-injected seams return index rows or
@@ -115,10 +117,11 @@ private def s2CatalogRequests : CompileResult (Array RequirementRequestV1) := do
     | .error e => throw <| .registryInvalid s!"engineering S2 request seed failed: {e}"
   pure items
 
-/-- Closed (extension wire id → sole allowed target+profile + exact seed) table.
-    ADR-0029 Phase A: Quint is the sole L1 `extension.pf-assets` advertise;
-    Solana CPI remains ADR-0028 profile-scoped. Any other (target, profile)
-    advertising either extension row fails closed at index construction. -/
+/-- Closed (extension wire id → admitted target+profile + exact seed) table.
+    One extension id may admit multiple (target, profile) rows (ADR-0029 B2:
+    Quint + both EVM profiles for `extension.pf-assets`). Solana CPI remains
+    ADR-0028 profile-scoped. Any other (target, profile) advertising an
+    extension row fails closed at index construction. -/
 private structure ExtensionAdvertisePermitV1 where
   rowId : String
   targetId : TargetId
@@ -145,6 +148,16 @@ private def closedExtensionAdvertiseTableV1 :
     { rowId := pfAssetsExtensionRequirementIdV1
       targetId := TargetId.quint
       profile := CodegenProfileId.quintSourceU64ModelV1
+      expected := pfAssets },
+    -- ADR-0029 Phase B2: both EVM profiles advertise exact extension.pf-assets
+    -- (same capability set; hardfork is Finalize/runtime pin only).
+    { rowId := pfAssetsExtensionRequirementIdV1
+      targetId := TargetId.evm
+      profile := CodegenProfileId.evmYulSolc0834CancunV1
+      expected := pfAssets },
+    { rowId := pfAssetsExtensionRequirementIdV1
+      targetId := TargetId.evm
+      profile := CodegenProfileId.evmYulSolc0834V1
       expected := pfAssets }
   ]
 
@@ -168,15 +181,8 @@ private def validateSupportedRequests
   while i < supported.size do
     match supported[i]? with
     | some item =>
-        match permits.find? (·.rowId == item.id) with
-        | some permit =>
-            unless targetId == permit.targetId && profile == permit.profile do
-              throw <| .registryInvalid
-                s!"support row '{label}' cannot advertise extension '{item.id}'"
-            unless item == permit.expected do
-              throw <| .registryInvalid
-                s!"support row '{label}' extension '{item.id}' row mismatch"
-        | none => do
+        let matching := permits.filter (·.rowId == item.id)
+        if matching.isEmpty then
           unless isS2CatalogIdV1 item.id do
             throw <| .registryInvalid
               s!"support row '{label}' unknown requirement id '{item.id}'"
@@ -194,6 +200,18 @@ private def validateSupportedRequests
           unless item.predicates.isEmpty do
             throw <| .registryInvalid
               s!"support row '{label}' requirement '{item.id}' must have empty predicates"
+        else
+          unless matching.any (fun p =>
+              p.targetId == targetId && p.profile == profile) do
+            throw <| .registryInvalid
+              s!"support row '{label}' cannot advertise extension '{item.id}'"
+          -- All permits for a given rowId share the exact seed.
+          let some permit0 := matching[0]? |
+            throw <| .registryInvalid
+              s!"support row '{label}' extension '{item.id}' permit table empty"
+          unless item == permit0.expected do
+            throw <| .registryInvalid
+              s!"support row '{label}' extension '{item.id}' row mismatch"
     | none =>
         throw <| .registryInvalid
           s!"support row '{label}' requirement index out of range"
@@ -295,14 +313,15 @@ private def mkImplementedRow
     admits exact `effect.synchronous-call` plus the exact ADR-0028 extension and
     still declines `effect.asynchronous-workflow`.
 
-    **ADR-0029 Phase A5 extension advertise**: closed table (see
-    `closedExtensionAdvertiseTableV1`) — Quint `quint-source-u64-model-v1` is
-    the sole L1 binding that advertises exact `extension.pf-assets`. It keeps
-    the Q0 four S2 keys (rollback/state/Bool/checked-arithmetic) and, as of A5,
-    also exact `effect.synchronous-call` (vault-modeled native deposit/transfer
-    only; non-catalog / async / token QNs fail closed at Plan/lowering). Solana
-    CPI remains the sole ADR-0028 extension owner. All other targets/profiles
-    fail closed if they advertise either extension row.
+    **ADR-0029 Phase A5/B2 extension advertise**: closed table (see
+    `closedExtensionAdvertiseTableV1`) — Quint `quint-source-u64-model-v1` and
+    both EVM profiles advertise exact `extension.pf-assets`. Quint keeps the
+    Q0 four S2 keys plus sync-call (vault-modeled native deposit/transfer only;
+    non-catalog / async / token QNs fail closed at Plan/lowering). EVM keeps
+    the full seven S2 keys plus the extension (native deposit/transfer
+    materialization; async/token QNs fail closed at Plan/lowering). Solana CPI
+    remains the sole ADR-0028 extension owner. All other targets/profiles fail
+    closed if they advertise either extension row.
 
     Capability gates are per target: EVM admits both call keys via static
     QualifiedName callees (AddressBearing: wire Op.ExternalCall/Schedule take
@@ -397,14 +416,17 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- Phase A5: exact extension.pf-assets + effect.synchronous-call on Quint.
   let quintRequests :=
     (quintBaseRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
+  -- Phase B2: both EVM profiles carry full S2 seven keys + exact extension.pf-assets.
+  let evmRequests :=
+    (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
     -- AddressBearing: full seven keys — static QN call/schedule Plan open.
-    -- Both EVM profiles share the same S2 capability set; hardfork is a
-    -- Finalize/runtime pin, not a requirement-gate difference.
-    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834CancunV1 catalogRequests,
-    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 catalogRequests,
+    -- Both EVM profiles share the same S2+extension capability set; hardfork
+    -- is a Finalize/runtime pin, not a requirement-gate difference.
+    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmRequests,
+    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 evmRequests,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,

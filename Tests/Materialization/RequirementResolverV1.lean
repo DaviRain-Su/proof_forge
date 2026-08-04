@@ -353,8 +353,9 @@ private def testSupportTable : IO Unit := do
   let expectedKeys := #[
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4, false, false),
     ("cosmwasm", "cosmwasm-wasm-u64-v1", 6, false, false),
-    ("evm", "evm-yul-solc-0.8.34-cancun-v1", 7, false, false),
-    ("evm", "evm-yul-solc-0.8.34-v1", 7, false, false),
+    -- Phase B2: EVM = 7 S2 keys + exact extension.pf-assets
+    ("evm", "evm-yul-solc-0.8.34-cancun-v1", 8, false, true),
+    ("evm", "evm-yul-solc-0.8.34-v1", 8, false, true),
     ("near", "near-wasm-raw-u64-v1", 6, false, false),
     ("noir", "noir-source-u64-relations-v1", 7, false, false),
     ("psy", "psy-dargo-u64-v1", 6, false, false),
@@ -609,11 +610,19 @@ private def testIndexValidationNegatives : IO Unit := do
   let wrongSolanaExtensionScope := nineRowSkeleton trio evmWithSolanaExt
   expectErrorCode (createStaticRequirementSupportIndexV1 wrongSolanaExtensionScope)
     "PF-REGISTRY-INVALID" "Solana CPI extension cannot appear on EVM support row"
-  let evmWithPfAssets :=
-    (trio.push pfAssetsRow).qsort fun left right => left.id < right.id
-  let wrongPfAssetsOnEvm := nineRowSkeleton trio evmWithPfAssets
-  expectErrorCode (createStaticRequirementSupportIndexV1 wrongPfAssetsOnEvm)
-    "PF-REGISTRY-INVALID" "pf.assets extension cannot appear on EVM support row"
+  -- pf.assets on Noir (wrong permit) fails closed: start from product index
+  -- and inject the exact seed only on the Noir row.
+  let mut noirPfAssetsRows : Array StaticRequirementSupportRowV1 := #[]
+  for row in (← liftResult productSupportRowsV1) do
+    if row.targetId == TargetId.noir then
+      noirPfAssetsRows := noirPfAssetsRows.push {
+        row with supported :=
+          (row.supported.push pfAssetsRow).qsort fun a b => a.id < b.id
+      }
+    else
+      noirPfAssetsRows := noirPfAssetsRows.push row
+  expectErrorCode (createStaticRequirementSupportIndexV1 noirPfAssetsRows)
+    "PF-REGISTRY-INVALID" "pf.assets extension cannot appear on Noir support row"
   -- pf.assets on Solana CPI profile (wrong permit) also fails closed: start
   -- from the product index and inject the exact seed on the CPI row only.
   let baseRows ← liftResult productSupportRowsV1
@@ -646,6 +655,18 @@ private def testIndexValidationNegatives : IO Unit := do
       quintMissingRows := quintMissingRows.push row
   expectErrorCode (createStaticRequirementSupportIndexV1 quintMissingRows)
     "PF-REGISTRY-INVALID" "Quint profile requires exact extension.pf-assets"
+  -- Phase B2: both EVM profiles must carry exact extension.pf-assets.
+  let mut evmMissingRows : Array StaticRequirementSupportRowV1 := #[]
+  for row in baseRows do
+    if row.targetId == TargetId.evm then
+      evmMissingRows := evmMissingRows.push {
+        row with supported :=
+          row.supported.filter (·.id != pfAssetsExtensionRequirementIdV1)
+      }
+    else
+      evmMissingRows := evmMissingRows.push row
+  expectErrorCode (createStaticRequirementSupportIndexV1 evmMissingRows)
+    "PF-REGISTRY-INVALID" "EVM profiles require exact extension.pf-assets"
 
 private def testSeedPrecedence : IO Unit := do
   let sentinel : CompileResult StaticRequirementSupportIndexV1 :=
@@ -664,11 +685,13 @@ private def testSeedPrecedence : IO Unit := do
     inspectSupportWithSeedV1 initialStaticRequirementSupportIndexV1Result
       TargetId.evm CodegenProfileId.evmYulSolc0834V1
   expect (insp.targetId == TargetId.evm) "DI inspection target"
-  -- AddressBearing: EVM admits both external-call keys (full seven catalog ids).
-  expect (insp.supported.size == 7 &&
+  -- AddressBearing: EVM admits both external-call keys + Phase B2 pf.assets
+  -- (7 S2 catalog ids + extension.pf-assets = 8).
+  expect (insp.supported.size == 8 &&
       insp.supported.any (·.id == "effect.synchronous-call") &&
-      insp.supported.any (·.id == "effect.asynchronous-workflow"))
-    "DI inspection EVM capability gate"
+      insp.supported.any (·.id == "effect.asynchronous-workflow") &&
+      insp.supported.any (·.id == pfAssetsExtensionRequirementIdV1))
+    "DI inspection EVM capability gate (S2 seven + extension.pf-assets)"
 
 private def testRequestInspectionErrors : IO Unit := do
   let trio ← s2Trio
@@ -780,17 +803,31 @@ private def testRequestInspectionErrors : IO Unit := do
     expectErrorCode
       (inspectResolveRequestsV1 legacySupported { items := #[syncReq] })
       "PF-REQ-UNSUPPORTED" s!"legacy {legacyProfile} declines sync call"
-  -- EVM/Noir decline both closed extension rows (no Phase A/B advertise yet).
-  for tid in #[TargetId.evm, TargetId.noir] do
-    let otherSupported ← match rows.find? fun row => row.targetId == tid with
+  -- Phase B2: both EVM profiles accept exact pf.assets; still decline Solana CPI.
+  for profile in #[CodegenProfileId.evmYulSolc0834CancunV1,
+      CodegenProfileId.evmYulSolc0834V1] do
+    let evmSupported ← match rows.find? fun row =>
+        row.targetId == TargetId.evm && row.codegenProfile == profile with
       | some row => pure row.supported
-      | none => throw <| IO.userError s!"missing {tid} support row"
+      | none => throw <| IO.userError s!"missing EVM row {profile}"
+    match inspectResolveRequestsV1 evmSupported { items := #[pfAssetsRow] } with
+    | .ok () => pure ()
+    | .error error =>
+        throw <| IO.userError
+          s!"exact pf.assets on EVM {profile} (B2): {error.render}"
     expectErrorCode
-      (inspectResolveRequestsV1 otherSupported { items := #[pfAssetsRow] })
-      "PF-REQ-UNSUPPORTED" s!"{tid} declines pf.assets (Phase A Quint-only)"
-    expectErrorCode
-      (inspectResolveRequestsV1 otherSupported { items := #[solanaExtensionRow] })
-      "PF-REQ-UNSUPPORTED" s!"{tid} declines Solana CPI extension"
+      (inspectResolveRequestsV1 evmSupported { items := #[solanaExtensionRow] })
+      "PF-REQ-UNSUPPORTED" s!"EVM {profile} declines Solana CPI extension"
+  -- Noir declines both closed extension rows.
+  let noirSupported ← match rows.find? fun row => row.targetId == TargetId.noir with
+    | some row => pure row.supported
+    | none => throw <| IO.userError "missing noir support row"
+  expectErrorCode
+    (inspectResolveRequestsV1 noirSupported { items := #[pfAssetsRow] })
+    "PF-REQ-UNSUPPORTED" "Noir declines pf.assets (no Phase B advertise)"
+  expectErrorCode
+    (inspectResolveRequestsV1 noirSupported { items := #[solanaExtensionRow] })
+    "PF-REQ-UNSUPPORTED" "Noir declines Solana CPI extension"
   let extensionBadVersion := {
     solanaExtensionRow with version := { major := 1, minor := 0, patch := 1 } }
   let extensionBadDigest := { solanaExtensionRow with digest := zeroDigest }
@@ -1069,12 +1106,14 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
     "CLI emit profile"
   match ProofForgeV2.CLI.inspectTargetText "evm" with
   | .ok text =>
-      -- AddressBearing: EVM admits full seven-key S2 catalog (static QN callees).
-      let expectedIds := String.intercalate ", " s2CatalogIdsWireOrderV1.toList
+      -- AddressBearing: EVM admits full seven-key S2 catalog (static QN callees)
+      -- plus Phase B2 exact extension.pf-assets (ASCII order among support ids).
+      let expectedIds :=
+        "effect.asynchronous-workflow, effect.event, effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic"
       expect
         (hasSubstr text
           s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
-        s!"inspect exact S2 prefix, got {text}"
+        s!"inspect exact S2+pf-assets support row, got {text}"
       expect (hasSubstr text "registryRootDigest=sha256:")
         "inspect includes registry root"
       expect (hasSubstr text "supportClaimDigest=sha256:")
@@ -1106,14 +1145,15 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (!hasSubstr text "ProgramRequirement")
         "noir inspect uses S2 ids"
   | .error e => throw <| IO.userError e.render
-  -- Pure three-line helper remains exact for S2 wire-order pinning.
+  -- Pure three-line helper remains exact for S2 wire-order + B2 pf-assets pin.
   match ProofForgeV2.CLI.describeTargetText "evm" with
   | .ok text =>
-      let expectedIds := String.intercalate ", " s2CatalogIdsWireOrderV1.toList
+      let expectedIds :=
+        "effect.asynchronous-workflow, effect.event, effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic"
       expect
         (text ==
           s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
-        s!"describe helper exact S2, got {text}"
+        s!"describe helper exact S2+pf-assets, got {text}"
   | .error e => throw <| IO.userError e.render
 
 private def testDescriptorParityNegatives : IO Unit := do

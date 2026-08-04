@@ -404,6 +404,38 @@ private partial def checkPlanStatementsV1
               s!"{owner} schedule arguments must be UInt64 expressions"
           total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
+    | .nativeDeposit amount =>
+        if isView then
+          throw <| .planInvariant .evm s!"{owner} uses nativeDeposit in a view context"
+        if isConstructor then
+          throw <| .planInvariant .evm s!"{owner} uses nativeDeposit in a constructor"
+        unless exprIsUInt64CompatibleV1 fns amount do
+          throw <| .planInvariant .evm
+            s!"{owner} nativeDeposit amount must be a UInt64 expression"
+        total ← addPlanExprNodes slots paramCount total fns amount
+        total := total + 1
+    | .nativeTransfer dstLen dstBodyWords amount =>
+        if isView then
+          throw <| .planInvariant .evm s!"{owner} uses nativeTransfer in a view context"
+        if isConstructor then
+          throw <| .planInvariant .evm s!"{owner} uses nativeTransfer in a constructor"
+        unless dstBodyWords.size == 8 do
+          throw <| .planInvariant .evm
+            s!"{owner} nativeTransfer requires exactly 8 Principal body words"
+        unless exprIsUInt64CompatibleV1 fns dstLen do
+          throw <| .planInvariant .evm
+            s!"{owner} nativeTransfer dstLen must be a UInt64 expression"
+        total ← addPlanExprNodes slots paramCount total fns dstLen
+        for w in dstBodyWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .evm
+              s!"{owner} nativeTransfer dst body words must be UInt64 expressions"
+          total ← addPlanExprNodes slots paramCount total fns w
+        unless exprIsUInt64CompatibleV1 fns amount do
+          throw <| .planInvariant .evm
+            s!"{owner} nativeTransfer amount must be a UInt64 expression"
+        total ← addPlanExprNodes slots paramCount total fns amount
+        total := total + 1
     | .ifThenElse condition thenBody elseBody =>
         unless exprIsBoolCompatibleV1 fns condition do
           throw <| .planInvariant .evm

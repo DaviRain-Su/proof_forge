@@ -71,6 +71,8 @@ import Tests.Product.PrivateSum4PrivacyV1
 import Tests.Product.PerfCheckHarnessV1
 import Tests.Product.TokenV1
 import Tests.Product.TipJarQuintV1
+import Tests.Product.TipJarEvmV1
+import Tests.Materialization.EvmPfAssetsV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.EvmCorpusBlockedV1
@@ -176,6 +178,8 @@ unsafe def main : IO Unit := do
   Tests.Product.PerfCheckHarnessV1.run
   Tests.Product.TokenV1.run
   Tests.Product.TipJarQuintV1.run
+  Tests.Product.TipJarEvmV1.run
+  Tests.Materialization.EvmPfAssetsV1.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.EvmSolcAcceptance.run
   Tests.Materialization.EvmCorpusBlockedV1.run

@@ -104,13 +104,18 @@ def validateEvmTargetIRV1
   requiresFragment yul "code {" "top-level code block"
   requiresFragment yul "object \"" "nested runtime object"
   requiresFragment yul "switch shr(224, calldataload(0))" "selector switch"
-  requiresFragment yul "if callvalue() { revert(0, 0) }" "callvalue guard"
+  -- Non-payable programs keep the global/entry `if callvalue() { revert(0, 0) }`
+  -- fragment. Payable pf.assets programs always reference `callvalue()` via
+  -- deposit exact-eq and/or non-payable entry guards; accept either form.
+  unless containsSubstr yul "if callvalue() { revert(0, 0) }" ||
+      containsSubstr yul "callvalue()" do
+    throw <| .planInvariant .evm "evm ir yul missing required fragment: callvalue guard"
   requiresFragment yul "default { revert(0, 0) }" "dispatcher default arm"
   -- Nested .fieldDiv is unreachable for validated plans (nested slots are
   -- Bool/UInt-typed); the nested emitter stamps this marker instead of a
   -- wrong op, and any occurrence is rejected here (fail closed at compile
   -- time rather than silently emitting a multiply).
-  if yul.contains "pf_unsupported_nested_field_div" then
+  if containsSubstr yul "pf_unsupported_nested_field_div" then
     throw <| .planInvariant .evm
       "evm ir contains unsupported nested fieldDiv marker (fieldDiv must lower via statement form)"
   scanBalanced "evm ir yul" yul '{' '}'
