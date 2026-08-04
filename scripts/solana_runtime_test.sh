@@ -250,6 +250,24 @@ fi
 ata_out="$(cd "$ata_out" && pwd -P)"
 export PROOF_FORGE_CPI_ATA_OUT="$ata_out"
 
+# #124 production-code-generated composite escrow CPI ELF (test-preactivation).
+# Forces native System + official classic ATA/Token in one generated caller;
+# still no product OutputFile or activated sync claim.
+escrow_out="${PROOF_FORGE_CPI_ESCROW_OUT:-$root/build/v2/solana-cpi-escrow}"
+export PROOF_FORGE_CPI_ESCROW_OUT="$escrow_out"
+echo "solana-runtime-test: CPI escrow build → $escrow_out"
+if ! bash "$root/scripts/solana_cpi_escrow_build.sh"; then
+  die "Solana CPI escrow build failed"
+fi
+[[ -f "$escrow_out/escrow_cpi.s" ]] || die "CPI escrow assembly missing"
+[[ -f "$escrow_out/escrow_cpi.so" ]] || die "CPI escrow caller ELF missing"
+[[ -f "$escrow_out/escrow_cpi.calls.json" ]] || die "CPI escrow call inventory missing"
+[[ -f "$escrow_out/ata_classic_v1.so" ]] || die "classic ATA dependency ELF missing"
+[[ -f "$escrow_out/token_classic_v1.so" ]] || die "classic Token dependency ELF missing"
+[[ -f "$escrow_out/manifest.json" ]] || die "CPI escrow manifest missing"
+escrow_out="$(cd "$escrow_out" && pwd -P)"
+export PROOF_FORGE_CPI_ESCROW_OUT="$escrow_out"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"

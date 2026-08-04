@@ -92,7 +92,7 @@ D1–D4 共 27 个 formal task，当前仍为：
 > authority/emitter生成后由 locked `sbpf 0.2.2` 汇编并在 Mollusk跑正向、0/16/17边界与 22 个 single-
 > mutation rollback negatives。该输出是 manifest-bound production-code-generated test-preactivation ELF，
 > 无 invoke、无 `OutputFile`、无产品 materialization；ordinary resolver仍拒 sync。#119/#120 已在同 opt-in
-> lane 链接 real invoke（见下）；#121–#125 与 formal D5 仍 pending。
+> lane 链接 real invoke（见下）；#121–#124 工程 leaf 已闭合；#125 activation 与 formal D5 仍 pending。
 
 > **2026-08-04 Solana #119 unsigned companion CPI 增量**：独立 `CpiUnsignedIRV1`/`EmitCpiUnsignedSbpfV1`
 > 在仍为 activationDenied/test-preactivation 的 `solana-sbpf-cpi-elf-v1` lane 上，对 pinned companion-v1
@@ -181,7 +181,28 @@ D1–D4 共 27 个 formal task，当前仍为：
 > pubkey；**#123 工程切片已闭合**（已通过 `just docs-check`、SBOM refresh/check **189**、
 > `just solana-runtime`、focused Lean/Rust、`just test-targets`（clean repo-local exact tool
 > root）、`just dev-check`/ordinary `just ci` 全 exit 0；两轮独立审计最终无 P0/P1）。
-> **#111–#123 已闭合**；**Active 明确 #124** escrow；#125 才可 activation。非 formal/Stage-0/release。
+> **#111–#123 已闭合**（历史 Active 曾为 #124；见下 #124 闭合）。非 formal/Stage-0/release。
+>
+> **2026-08-04 Solana #124 composite escrow CPI 增量**：独立 private `CpiEscrowIRV1`/
+> `EmitCpiEscrowSbpfV1` 在仍为 activationDenied/test-preactivation 的 opt-in
+> `solana-sbpf-cpi-elf-v1` lane 上，闭合 composite escrow forcing golden：真实
+> **System → ATA → Token** CPI；fixture **5378** B sha
+> `0424045e7cdc7e3c57b79d95c144e6047819db91b46c39607e42bf256b7c33bf`；assembly
+> **366006** B sha `577f40646abb0a355bedebb76dd6b208ff39ae802bea1dab21ce4795ba5d102b`；
+> caller ELF **158536** B sha `28744d799b9a58208a54066d730a97a45e4363ae4f407132cf49c0bc7782b5f9`；
+> final ELF **37** calls 仅 `sol_try_find_program_address`/`sol_invoke_signed_c`/
+> `sol_set_return_data`；frame **maxScratch793→reserve800→CPI_BASE2024→2824**。
+> Mollusk focused **36/36**；full `just solana-runtime` exit 0（**13** binaries /
+> **282** active，`cpi_escrow` 36/36；Mollusk **不属于** ordinary `just ci`）。
+> SBOM **191**。ATA/Token artifactBinding 仍 absent/admitted=false。**sequential world
+> overlay** 不是多顶层 transaction atomicity。准确称谓 production-code-generated
+> **test-preactivation composite-escrow CPI ELF**，**不是** OutputFile/产品
+> artifact/activated sync；legacy profiles 与 ordinary resolver 仍 fail closed；#125 前
+> 不 advertise/mint；**非** mainnet parity/tracked Tool Lock/cross-host/hermetic/formal/
+> release/package-owner-published；**#124 工程切片已闭合**。**#111–#124 已闭合**；
+> **Active 明确 #125** activation；formal/GitHub issue 状态不因本工程收口而改变。
+> 非 formal/Stage-0/release。
+
 
 ### D1 Linux frontend supervisor 增量（2026-07-30）
 

@@ -497,7 +497,7 @@ Plan/IR/IDL identities：
 
 这只是 pinned-runtime engineering feasibility。#116 随后注册了 `solana-sbpf-cpi-elf-v1` membership
 并接通 exact extension row，但 resolver仍不 advertise sync/async，capability→Plan 与 generic product build
-在任何 OutputFile/输出目录前 fail closed；#117–#125 与 formal D5/TST-SOL 状态不变。
+在任何 OutputFile/输出目录前 fail closed；#117–#124 为 engineering test-preactivation；#125 与 formal D5/TST-SOL 状态不变。
 
 #### #116 inert membership observation（2026-08-03）
 
@@ -569,7 +569,7 @@ Plan/IR/IDL identities：
   pointer-table/trailing/truncation/overflow；不把模型负例冒充真实 VM raw-input 注入。
 - 该 ELF 的准确称谓是 **production-code-generated test-preactivation ELF**。它不是
   `proof-forge.output.v1`、不是产品 artifact，也不调用任何 callee。#119 unsigned invoke、#120 PDA/bump/
-  `invoke_signed` 与 #121–#124 forcing gates仍未实现；#125 前 resolver support和产品 artifact mint继续关闭。
+  `invoke_signed` 与 #121–#124 forcing gates 已在 test-preactivation lane 闭合；#125 前 resolver support 和产品 artifact mint 继续关闭。
 
 #### #119 unsigned companion CPI observation（2026-08-04）
 
@@ -632,7 +632,7 @@ Plan/IR/IDL identities：
 - 准确称谓是 **production-code-generated test-preactivation classic-Token CPI ELF**。不是
   `OutputFile` / `proof-forge.output.v1` / activated sync；**不是** mainnet parity、tracked Tool
   Lock、cross-host、hermetic、formal、release 或 package-owner-published。ordinary resolver 与
-  legacy profiles 仍 fail closed；#123 见下；#124 escrow 仍 pending；#125 前不 advertise/mint。
+  legacy profiles 仍 fail closed；#123/#124 见下；#125 前不 advertise/mint。
   可声称门：`just docs-check`、SBOM refresh/check **187**、`just test-targets`（clean
   repo-local exact tool root）、`just solana-runtime`、focused、`just dev-check`、ordinary
   `just ci` 全 exit 0；独立审计无 P0/P1。
@@ -686,9 +686,47 @@ Plan/IR/IDL identities：
 - 准确称谓是 **production-code-generated test-preactivation classic-ATA CPI ELF**。不是
   `OutputFile` / `proof-forge.output.v1` / activated sync；**不是** mainnet parity、tracked
   Tool Lock、cross-host、hermetic、formal、release 或 package-owner-published。ordinary
-  resolver 与 legacy profiles 仍 fail closed；**#123 工程切片已闭合**；**#111–#123 closed**；
-  **Active #124** escrow；#125 前不 advertise/mint。catalog domain 当前 requalification 为
+  resolver 与 legacy profiles 仍 fail closed；**#123 工程切片已闭合**；**#111–#123 closed**（历史 Active
+  曾为 #124；见下 #124 闭合）。catalog domain 当前 requalification 为
   `41ace268…`（#122 历史 `0da183…` 保留为当时事实）。
+
+#### #124 composite escrow CPI engineering observation（2026-08-04）
+
+- 在仍为 `activationDenied`/test-preactivation 的 opt-in `solana-sbpf-cpi-elf-v1` lane 中，
+  新增独立 private authority-bound 模块 `CpiEscrowIRV1` + `EmitCpiEscrowSbpfV1`；**不**原地
+  把 #118–#123 emitter 改成 composite escrow 面。唯一 emitter authority 来自 retained
+  Semantic → private preflight/escrow IR 链；public structural Plan/IR 仍不能授权发射。
+- composite forcing golden 发射真实 **System → ATA → Token** CPI 序：native System
+  createPdaAccount、classic ATA `createIdempotent`、classic Token
+  `transferChecked`/`transferCheckedPda`；真实 `sol_try_find_program_address` +
+  `sol_invoke_signed_c` + 成功路径 `sol_set_return_data`。canonical PDA/ATA 与
+  #120–#123 既有 recipe/prestate 约束复用；Token-2022/dynamic/remaining/multisig 继续
+  fail closed。
+- final fixture `runtime-tests/solana/fixtures/EscrowCpi.lean`：**5378** bytes，SHA-256
+  `0424045e7cdc7e3c57b79d95c144e6047819db91b46c39607e42bf256b7c33bf`。caller assembly
+  **366006** SHA-256 `577f40646abb0a355bedebb76dd6b208ff39ae802bea1dab21ce4795ba5d102b`、
+  caller ELF **158536** SHA-256
+  `28744d799b9a58208a54066d730a97a45e4363ae4f407132cf49c0bc7782b5f9`。final ELF **37**
+  calls 仅 `sol_try_find_program_address` / `sol_invoke_signed_c` /
+  `sol_set_return_data`。frame budget：**maxScratch 793 → reserve 800 → CPI_BASE 2024
+  → 2824** bytes。
+- Mollusk focused **36/36** active（success initialize/deposit/release/refund 序、
+  post-CPI overflow ordered logs+full snapshot rollback、inner System/Token failure
+  full snapshot、one-mutation matrix、independent PDA/ATA oracles；见
+  `runtime-tests/solana/tests/cpi_escrow.rs` 与 `escrow/manifest.json` `forcingMatrix`）。
+- full `just solana-runtime` exit 0：**13** integration binaries / **282** active tests，
+  `cpi_escrow` 36/36（Mollusk **不属于** ordinary `just ci`，为单独运行）。SBOM package-file
+  pin 当前 **191** files。
+- **sequential world overlay**：同 world 内 source-order CPI 状态叠加与 failure full
+  snapshot rollback；**不是** 多顶层 transaction atomicity。
+- ATA/Token catalog **`artifactBinding=absent` / `admittedForMaterialization=false`
+  保持不变**。准确称谓是 **production-code-generated test-preactivation composite-escrow
+  CPI ELF**。不是 `OutputFile` / `proof-forge.output.v1` / activated sync；**不是**
+  mainnet parity、tracked Tool Lock、cross-host、hermetic、formal、release 或
+  package-owner-published。ordinary resolver 与 legacy profiles 仍 fail closed；
+  **#124 工程切片已闭合**；**#111–#124 closed**；**Active #125** activation；#125 前不
+  advertise/mint。formal 状态与 GitHub issue 状态不因本工程收口而改变。
+
 
 ### Schema mutation obligations
 
@@ -704,7 +742,7 @@ source-order visibility与 rollback policy。
    resolver仍不 advertise sync。
 3. #117–#120 实现 target Plan/IR、multi-account parser、invoke与 PDA/invoke_signed。
 4. #121–#123 按 package生成新的 exact catalog instance；缺 artifact/admission的 package继续拒绝。
-5. #124 escrow forcing golden全绿后，#125 才增加新 profile的 exact sync support claim。
+5. #124 escrow forcing golden 已工程闭合（test-preactivation）；#125 才增加新 profile 的 exact sync support claim。
 6. ordinary CI/Mollusk是工程证据；formal D5、Stage-0、hermetic/mainnet parity仍 pending。
 
 ## 14. Rejected alternatives

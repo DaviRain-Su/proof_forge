@@ -149,8 +149,33 @@
 > Principal 不全局等同 pubkey；**#123 工程切片已闭合**（已通过 `just docs-check`、SBOM
 > refresh/check **189**、`just solana-runtime`、focused Lean/Rust、`just test-targets`
 > （clean repo-local exact tool root）、`just dev-check`/ordinary `just ci` 全 exit 0；两轮
-> 独立审计最终无 P0/P1）。**#111–#123 已闭合**；**Active 明确为 #124** escrow；#125 才可
-> activation。非 formal/Stage-0/release。
+> 独立审计最终无 P0/P1）。**#111–#123 已闭合**（历史 Active 曾为 #124；见下 #124 闭合）。非 formal/Stage-0/release。
+>
+> **2026-08-04 Solana #124 composite escrow CPI update**：独立 private `CpiEscrowIRV1` +
+> `EmitCpiEscrowSbpfV1` 在仍为 activationDenied/test-preactivation 的 opt-in
+> `solana-sbpf-cpi-elf-v1` lane 上，闭合 composite escrow forcing golden：真实 **System → ATA →
+> Token** CPI 序（native System createPdaAccount + classic ATA `createIdempotent` + classic
+> Token `transferChecked`/`transferCheckedPda`；真实 `sol_try_find_program_address` /
+> `sol_invoke_signed_c` / `sol_set_return_data`）。final fixture `EscrowCpi.lean` **5378** B
+> SHA-256 `0424045e7cdc7e3c57b79d95c144e6047819db91b46c39607e42bf256b7c33bf`；assembly
+> **366006** B SHA-256 `577f40646abb0a355bedebb76dd6b208ff39ae802bea1dab21ce4795ba5d102b`；
+> caller ELF **158536** B SHA-256 `28744d799b9a58208a54066d730a97a45e4363ae4f407132cf49c0bc7782b5f9`；
+> final ELF **37** calls 仅 `sol_try_find_program_address`/`sol_invoke_signed_c`/
+> `sol_set_return_data`；frame **maxScratch793→reserve800→CPI_BASE2024→2824** bytes。
+> Mollusk focused **36/36**；full `just solana-runtime` exit 0（**13** integration binaries /
+> **282** active tests，`cpi_escrow` 36/36；Mollusk **不属于** ordinary `just ci`，为单独运行）。
+> SBOM package-file pin 当前 **191** files。ATA/Token **artifactBinding 仍 absent/admitted=false**。
+> **sequential world overlay** 语义：同 world 内 source-order CPI 叠加与 failure full snapshot
+> rollback，**不是** 多顶层 transaction atomicity。#118–#123 链保持独立。准确称谓是
+> production-code-generated **test-preactivation composite-escrow CPI ELF**，**不是**
+> `OutputFile`/产品 artifact/activated sync；legacy profiles 与 ordinary resolver 仍 fail closed；
+> #125 前不 advertise/mint；**非** mainnet parity / tracked Tool Lock / cross-host / hermetic /
+> formal / release / package-owner-published；Principal 不全局等同 pubkey；**#124 工程切片已闭合**
+> （`just docs-check`、SBOM **191**、`just solana-runtime` 13/282、focused Lean/Rust、
+> `just test-targets`、`just dev-check`/ordinary `just ci` 全 exit 0 为工程门，非 formal）。
+> **#111–#124 已闭合**；**Active 明确为 #125** activation gate；formal 状态与 GitHub issue 状态
+> 不因本工程收口而改变。非 formal/Stage-0/release。
+
 >
 > **2026-08-02 invariant lowering update**：`NormalizeV1` 现将 source `invariant` 降为
 > source-order Semantic `.invariant` callables 与 dense `InvariantDecl`，并复用 Wire sole closure membership/

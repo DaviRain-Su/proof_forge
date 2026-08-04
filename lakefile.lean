@@ -252,6 +252,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.SolanaCpiSystemV1,
     `Tests.Materialization.SolanaCpiTokenV1,
     `Tests.Materialization.SolanaCpiAtaV1,
+    `Tests.Materialization.SolanaCpiEscrowV1,
     `Tests.Targets.SolanaAsmV1,
     `Tests.Targets.SolanaElfV1,
     `Tests.Targets.EvmCancunV1,

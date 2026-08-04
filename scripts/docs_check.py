@@ -772,6 +772,159 @@ def _sol_cpi_adr_digest_pair(
     return matches[0]
 
 
+
+def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
+    """Minimal stable anchors for Solana CPI epic #111–#124 engineering status.
+
+    Avoids fragile full-paragraph duplication: only issue-range/Active pointers,
+    escrow manifest pin SHAs, and solana-runtime test inventory shape.
+    Does not claim formal TASK or GitHub issue state.
+    """
+    agents_path = root / "AGENTS.md"
+    ensure_repository_path(root, agents_path, "AGENTS.md")
+    agents = read_repository_text(
+        root, agents_path, "AGENTS.md", encoding_code="PF-DOC-CHECKPOINT")
+
+    if not re.search(r"#111[–-]#124", agents):
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "must record engineering closed range #111–#124")
+    active_row = None
+    for line in agents.splitlines():
+        if line.startswith("| Active task |"):
+            active_row = line
+            break
+    if active_row is None:
+        raise_error("PF-DOC-CHECKPOINT", "AGENTS.md", "missing Active task checkpoint row")
+    if re.search(r"Active\s*(明确(为|\s)?)?\s*#124\b", active_row):
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "Active task must not still name #124 as current Active (use #125)")
+    if "#125" not in active_row:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "Active task row must name #125")
+    if "CpiEscrowIRV1" not in agents and "composite escrow" not in agents.lower():
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "must name CpiEscrowIRV1 or composite escrow for #124")
+
+    manifest_rel = "runtime-tests/solana/escrow/manifest.json"
+    manifest_path = root / manifest_rel
+    ensure_repository_path(root, manifest_path, manifest_rel)
+    if not manifest_path.is_file():
+        raise_error("PF-DOC-CHECKPOINT", manifest_rel, "escrow runtime manifest missing")
+    payload = load_json(root, manifest_path)
+    if not isinstance(payload, dict):
+        raise_error("PF-DOC-CHECKPOINT", manifest_rel, "manifest root must be object")
+    if payload.get("issue") != 124:
+        raise_error("PF-DOC-CHECKPOINT", manifest_rel, "issue must be 124")
+    boundary = payload.get("boundary")
+    if not isinstance(boundary, dict):
+        raise_error("PF-DOC-CHECKPOINT", manifest_rel, "boundary must be object")
+    for key, expected in (
+        ("productArtifact", False),
+        ("testPreactivation", True),
+        ("activationDenied", True),
+    ):
+        if boundary.get(key) is not expected:
+            raise_error(
+                "PF-DOC-CHECKPOINT", manifest_rel,
+                f"boundary.{key} must be {expected!r}")
+    fixture = payload.get("fixture")
+    if not isinstance(fixture, dict):
+        raise_error("PF-DOC-CHECKPOINT", manifest_rel, "fixture must be object")
+    if fixture.get("sourceSize") != 5378:
+        raise_error("PF-DOC-CHECKPOINT", manifest_rel, "fixture.sourceSize must be 5378")
+    if fixture.get("sourceSha256") != (
+        "0424045e7cdc7e3c57b79d95c144e6047819db91b46c39607e42bf256b7c33bf"
+    ):
+        raise_error("PF-DOC-CHECKPOINT", manifest_rel, "fixture.sourceSha256 pin mismatch")
+    expected_asm = payload.get("expectedAssembly")
+    expected_elf = payload.get("expectedElf")
+    if not isinstance(expected_asm, dict) or not isinstance(expected_elf, dict):
+        raise_error("PF-DOC-CHECKPOINT", manifest_rel, "expectedAssembly/expectedElf required")
+    if expected_asm.get("size") != 366006 or expected_asm.get("sha256") != (
+        "577f40646abb0a355bedebb76dd6b208ff39ae802bea1dab21ce4795ba5d102b"
+    ):
+        raise_error("PF-DOC-CHECKPOINT", manifest_rel, "expectedAssembly pin mismatch")
+    if expected_elf.get("size") != 158536 or expected_elf.get("sha256") != (
+        "28744d799b9a58208a54066d730a97a45e4363ae4f407132cf49c0bc7782b5f9"
+    ):
+        raise_error("PF-DOC-CHECKPOINT", manifest_rel, "expectedElf pin mismatch")
+    calls = payload.get("expectedFinalElfCalls")
+    if not isinstance(calls, list) or len(calls) != 37:
+        raise_error(
+            "PF-DOC-CHECKPOINT", manifest_rel,
+            "expectedFinalElfCalls must be length 37")
+    allowed = {
+        "sol_try_find_program_address",
+        "sol_invoke_signed_c",
+        "sol_set_return_data",
+    }
+    if any(not isinstance(c, str) or c not in allowed for c in calls):
+        raise_error(
+            "PF-DOC-CHECKPOINT", manifest_rel,
+            "expectedFinalElfCalls must only use find/invoke/set_return syscalls")
+    non_claims = payload.get("nonClaims")
+    if (not isinstance(non_claims, list)
+            or "not multi-top-level transaction atomicity" not in non_claims):
+        raise_error(
+            "PF-DOC-CHECKPOINT", manifest_rel,
+            "nonClaims must include not multi-top-level transaction atomicity")
+
+    tests_dir = root / "runtime-tests" / "solana" / "tests"
+    ensure_repository_path(root, tests_dir, "runtime-tests/solana/tests")
+    binaries = sorted(
+        path.stem for path in tests_dir.iterdir()
+        if path.is_file() and path.suffix == ".rs"
+    )
+    if len(binaries) != 13:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
+            f"expected 13 integration test binaries, found {len(binaries)}: {binaries}")
+    if "cpi_escrow" not in binaries:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
+            "missing cpi_escrow integration binary")
+    escrow_rs = tests_dir / "cpi_escrow.rs"
+    ensure_repository_path(root, escrow_rs, "runtime-tests/solana/tests/cpi_escrow.rs")
+    escrow_text = read_repository_text(
+        root, escrow_rs, "runtime-tests/solana/tests/cpi_escrow.rs",
+        encoding_code="PF-DOC-CHECKPOINT")
+    test_fns = re.findall(
+        r"#\[test\]\s*(?:\n\s*#\[[^\]]+\]\s*)*\n\s*fn\s+(\w+)",
+        escrow_text,
+    )
+    if len(test_fns) != 36:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests/cpi_escrow.rs",
+            f"expected 36 #[test] functions, found {len(test_fns)}")
+
+    for rel in (
+        "MIGRATION_MATRIX.md",
+        "docs/engineering-backlog.md",
+        "docs/adr/0024-solana-explicit-accounts-pda-cpi.md",
+    ):
+        doc_path = root / rel
+        ensure_repository_path(root, doc_path, rel)
+        body = read_repository_text(
+            root, doc_path, rel, encoding_code="PF-DOC-CHECKPOINT")
+        if not re.search(r"#111[–-]#124", body):
+            raise_error(
+                "PF-DOC-CHECKPOINT", rel,
+                "must record engineering closed range #111–#124")
+        if "CpiEscrowIRV1" not in body and "composite escrow" not in body.lower():
+            raise_error(
+                "PF-DOC-CHECKPOINT", rel,
+                "must name CpiEscrowIRV1 or composite escrow for #124")
+        if re.search(r"\*\*Active\s*(明确)?\s*#124\*\*", body):
+            raise_error(
+                "PF-DOC-CHECKPOINT", rel,
+                "must not still bold-mark #124 as Active (use #125)")
+
+
+
 def validate_sol_cpi_contract(
         root: Path,
         json_values: dict[str, Any],
@@ -4140,6 +4293,7 @@ def check(root: Path, profile: str = "development") -> None:
         documents.append(document)
 
     validate_sol_cpi_contract(root, json_values, by_id)
+    validate_solana_cpi_epic_checkpoint(root)
     check_links(root, docs_root, documents, by_id)
 
 
