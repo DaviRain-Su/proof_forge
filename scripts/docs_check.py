@@ -129,6 +129,17 @@ SOLANA_CPI_COMPANION_TEST_ONLY_QNS = (
 )
 SOLANA_CPI_CONTRACT_LEAN = "ProofForgeV2/Targets/Solana/CpiContractV1.lean"
 SOLANA_CPI_ASSETS_MANIFEST = "supply-chain/solana-cpi-assets/v1/manifest.json"
+# ADR-0029 Phase A: frozen L1 portable extension payload (chain-agnostic).
+# Domain formula matches ADR-0028 extension semantics:
+#   SHA-256("pf.extension-semantics.v1" || NUL || JCS bytes)
+PF_ASSETS_EXTENSION_REL = "docs/specs/pf-assets-extension-v1.json"
+PF_ASSETS_EXTENSION_DOMAIN = b"pf.extension-semantics.v1\x00"
+PF_ASSETS_EXTENSION_RAW_SHA256 = (
+    "fe12c5667bc4e30541fe16d201a02afbf0a00da0333777369e38ddb74a02d4fc"
+)
+PF_ASSETS_EXTENSION_DOMAIN_DIGEST = (
+    "97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+)
 UNRESOLVED_MARKER_RE = re.compile(
     r"\b(?:TODO|TBD)\b|待补充|待决定|待锁",
     re.IGNORECASE,
@@ -791,6 +802,117 @@ def _sol_cpi_canonical_jcs(value: Any, path: str) -> bytes:
 def _expect_sol_cpi(condition: bool, path: str, detail: str) -> None:
     if not condition:
         raise_error("PF-DOC-SOLANA-CPI-CONTRACT", path, detail)
+
+
+def _expect_pf_assets(condition: bool, path: str, detail: str) -> None:
+    if not condition:
+        raise_error("PF-DOC-PF-ASSETS-CONTRACT", path, detail)
+
+
+def validate_pf_assets_extension_contract(
+        root: Path,
+        json_values: dict[str, Any],
+) -> None:
+    """Recompute raw SHA-256 + domain digest for ADR-0029 pf.assets payload.
+
+    Mirrors the SOLANA_CPI frozen-payload recompute pattern: exact canonical JCS
+    (UTF-8, no BOM, no trailing newline, object keys UTF-8 ascending, I-JSON
+    scalars only) and domain SHA-256("pf.extension-semantics.v1" || NUL || JCS).
+    Expected digests are package-pinned constants (ADR body update is separate).
+    """
+    relative_path = PF_ASSETS_EXTENSION_REL
+    value = json_values.get(relative_path)
+    _expect_pf_assets(value is not None, relative_path, "frozen payload is missing")
+    raw = read_repository_regular_bytes(root, root / relative_path, relative_path)
+    # Reuse the same JCS encoder discipline as SOLANA_CPI payloads; route I-JSON
+    # / encode failures through the pf.assets error code via local re-encode.
+    try:
+        # Validate I-JSON shape first (bool/str/int/list/dict/None only).
+        def _ijson(node: Any) -> None:
+            if node is None or type(node) is bool or type(node) is str:
+                return
+            if type(node) is int:
+                if node < -(2**53 - 1) or node > 2**53 - 1:
+                    raise ValueError("integer is outside the interoperable JCS range")
+                return
+            if type(node) is list:
+                for item in node:
+                    _ijson(item)
+                return
+            if type(node) is dict:
+                for key, item in node.items():
+                    if type(key) is not str:
+                        raise ValueError("object key is not a string")
+                    _ijson(item)
+                return
+            raise ValueError(
+                f"non-I-JSON scalar {type(node).__name__} is not permitted")
+
+        _ijson(value)
+        canonical = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8", errors="strict")
+    except (UnicodeError, ValueError, TypeError, RecursionError, MemoryError) as error:
+        raise_error("PF-DOC-PF-ASSETS-CONTRACT", relative_path, str(error))
+    _expect_pf_assets(
+        raw == canonical, relative_path,
+        "payload is not exact canonical JCS or has a BOM/trailing newline")
+    raw_digest = hashlib.sha256(raw).hexdigest()
+    domain_digest = hashlib.sha256(PF_ASSETS_EXTENSION_DOMAIN + raw).hexdigest()
+    _expect_pf_assets(
+        raw_digest == PF_ASSETS_EXTENSION_RAW_SHA256, relative_path,
+        f"raw SHA-256 {raw_digest} does not match pinned constant")
+    _expect_pf_assets(
+        domain_digest == PF_ASSETS_EXTENSION_DOMAIN_DIGEST, relative_path,
+        f"domain digest {domain_digest} does not match pinned constant")
+
+    _expect_pf_assets(type(value) is dict, relative_path, "root must be an object")
+    _expect_pf_assets(
+        value.get("schema") == "proof-forge.pf-assets-extension.v1"
+        and value.get("extensionId") == "pf.assets"
+        and value.get("version") == "1.0.0",
+        relative_path, "extension root identity is not exact")
+    requirement = value.get("requirementContract")
+    _expect_pf_assets(
+        type(requirement) is dict
+        and requirement.get("id") == "extension.pf-assets"
+        and requirement.get("version") == "1.0.0"
+        and requirement.get("predicates") == []
+        and requirement.get("digestDomain") == "pf.extension-semantics.v1",
+        relative_path, "extension requirement contract is not exact")
+    apis = value.get("apis")
+    _expect_pf_assets(
+        type(apis) is list and len(apis) == 5, relative_path,
+        "apis must be exactly five portable L1 rows")
+    expected_qns = [
+        "pf.assets.native.deposit",
+        "pf.assets.native.transfer",
+        "pf.assets.native.transferAsync",
+        "pf.assets.token.transfer",
+        "pf.assets.token.transferAsync",
+    ]
+    for index, api in enumerate(apis):
+        _expect_pf_assets(type(api) is dict, relative_path, f"api[{index}] must be an object")
+        _expect_pf_assets(
+            api.get("qn") == expected_qns[index] and api.get("result") == "Unit",
+            relative_path, f"api[{index}] qn/result is not exact")
+        for arg in api.get("args") or []:
+            _expect_pf_assets(
+                type(arg) is dict
+                and arg.get("source") == "typed-expression"
+                and arg.get("type") in ("UInt64", "Principal"),
+                relative_path, f"api[{index}] arg source/type is not portable")
+    restrictions = value.get("sourceRestrictions")
+    _expect_pf_assets(
+        type(restrictions) is dict
+        and restrictions.get("typedCallReturn") is False
+        and restrictions.get("schedule") is False
+        and restrictions.get("targetImportsInFrontendOrSemantic") is False,
+        relative_path, "sourceRestrictions are not exact")
 
 
 def _sol_cpi_adr_digest_pair(
@@ -4790,6 +4912,7 @@ def check(root: Path, profile: str = "development") -> None:
     validate_sol_cpi_contract(root, json_values, by_id)
     validate_solana_cpi_active_contract(root, by_id)
     validate_solana_cpi_epic_checkpoint(root)
+    validate_pf_assets_extension_contract(root, json_values)
     check_links(root, docs_root, documents, by_id)
 
 
