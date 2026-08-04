@@ -9,6 +9,8 @@
 #   4. Token dense-Map companion via scripts/evm_token_anvil_smoke.sh:
 #      product build/solc failures are hard; only post-build deployment/initcode
 #      limits may explicit-skip the optional adapter leg.
+#   5. TipJar pf.assets companion via scripts/evm_tipjar_anvil_smoke.sh:
+#      product build/solc failures are hard; missing tools skip-clean inside leg.
 #
 # Skip-clean (exit 0) when:
 #   - host platform unsupported
@@ -303,6 +305,22 @@ if [[ -x "$root/scripts/evm_token_anvil_smoke.sh" ]]; then
     echo "evm-anvil-differential: Token smoke failed (hard)" >&2
     exit 1
   }
+fi
+
+# TipJar: ADR-0029 B2 pf.assets native deposit/transfer companion. Product
+# build/solc failures are hard; missing script or tool skip is handled inside
+# the companion (exit 0). Must inherit the same PF_EVM_PROFILE.
+if [[ -x "$root/scripts/evm_tipjar_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion TipJar pf.assets smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_tipjar_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: TipJar smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_tipjar_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: TipJar smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: TipJar companion script missing (skip leg)" >&2
 fi
 
 echo "evm-anvil-differential: ok (engineering Anvil state differential; not formal C-3)" >&2
