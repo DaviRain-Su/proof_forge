@@ -560,9 +560,13 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     plus Int64 and named Struct/Enum (B-RET-ABI + state flatten).
     Array + Map container state via `pilotContainerStatePolicyArrayMap`
     (Array → N×UInt64 leaves; Map → capacity-8×(occ,key,val); Option admitted
-    only as Map IndexGet intermediate / N-ANON-RESULT return shape — never as
-    container state). Bytes, Principal, Field, String, UInt128/256, narrow
-    Int{8,16,32} fail closed at type closure.
+    as Map IndexGet intermediate / N-ANON-RESULT return shape — never pushed to
+    `containerTypeIds`). **B-OPT-STATE / BL-33**: anonymous `Option UInt64`
+    **state** admitted as Enum-shaped tag+payload KV leaves (`name_tag`/
+    `name_p0`; none default = zero fields; storeAtomic on assign; match via
+    VariantTag/VariantPayload). Option of non-UInt64, nested Option, Option
+    params stay fail closed. Bytes, Principal, Field, String, UInt128/256,
+    narrow Int{8,16,32} fail closed at type closure.
     **N-ANON-RESULT (CosmWasm ABI)**: anonymous `Array UInt64 N` (1..8) and
     `Option UInt64` entry/view returns reuse B-RET-ABI multi-leaf JSON decimal
     arrays (execute `result` attr + query `{"ok":"[d0,...]"}`); Map/Bytes/
@@ -800,6 +804,29 @@ private def leafCountOfTypeV1
     (typeId : TypeIdV1) : CompileResult Nat := do
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
+
+/-- True when `typeId` is an anonymous Option TypeDecl. Option is admitted by
+    the Map container policy as a Map IndexGet intermediate and (B-OPT-STATE)
+    as state layout — it is **never** pushed to `containerTypeIds`. -/
+private def isAnonymousOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, name := none, .. } => true
+  | _ => false
+
+/-- B-OPT-STATE: admit only anonymous `Option UInt64` for state (tag+payload).
+    Non-UInt64 / nested / named Option stay fail closed. -/
+private def requireOptionUInt64StateV1
+    (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
+    (typeId : TypeIdV1) (stateName : String) : CompileResult Unit := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option elTid, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .cosmwasm
+          s!"unsupported CosmWasm semantic shape: Option state '{stateName}' requires UInt64 payload"
+  | _ =>
+      throw <| .planInvariant .cosmwasm
+        s!"unsupported CosmWasm semantic shape: state '{stateName}' is not anonymous Option UInt64"
 
 /-- N-ANON-RESULT (CosmWasm ABI): anonymous result leaf layout for admitted
 container returns. `Array UInt64 N` → N×u64 leaves; `Option UInt64` →
@@ -1042,7 +1069,36 @@ private def makeStorageLayoutV1
           }
         stateLeaves := stateLeaves.push leaves
     | none =>
-        if types.isNamedAggregate state.typeId then
+        if isAnonymousOptionTypeIdV1 typeDecls state.typeId then
+          -- B-OPT-STATE / BL-33: Option UInt64 → tag + payload (2×8-byte KV
+          -- leaves), same physical shape as a 1-payload Enum. Names follow
+          -- Enum convention (`name_tag` / `name_p0`). Default zero fields =
+          -- Option.none; storeAtomic writes both leaves; none construct zeroes
+          -- payload (pin). Non-UInt64 Option payload fails closed above.
+          requireOptionUInt64StateV1 typeDecls types state.typeId state.name
+          let tagName := state.name ++ "_tag"
+          let pName := state.name ++ "_p0"
+          unless isIdentifier tagName do
+            throw <| .planInvariant .cosmwasm
+              s!"state name '{tagName}' is not a safe identifier"
+          unless isIdentifier pName do
+            throw <| .planInvariant .cosmwasm
+              s!"state name '{pName}' is not a safe identifier"
+          if fields.size + 2 > maxStateFields then
+            throw <| .planInvariant .cosmwasm "state count is outside the profile limits"
+          let mut leaves : Array Nat := #[]
+          for leafName in #[tagName, pName] do
+            let fi := fields.size
+            leaves := leaves.push fi
+            fields := fields.push {
+              sourceId := fi
+              name := leafName
+              key := stateKey fi
+              byteWidth := 8
+              endianness := .little
+            }
+          stateLeaves := stateLeaves.push leaves
+        else if types.isNamedAggregate state.typeId then
           -- Named Struct/Enum: preorder UInt64/Int64 leaves as separate 8-byte
           -- KV fields (`name_field` / `name_tag` / `name_p0`…). Atomic
           -- storeAtomic for StateStore (same store-then-read hazard fix as Map).
@@ -1122,11 +1178,12 @@ private structure LoweredValueV1 where
   dependencies : Array ValueIdV1
   /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-8
       occ/key/val, Bytes N (1-byte UInt8 leaves), named Struct/Enum (preorder
-      UInt64/Int64 leaves), or Option `[tag,payload]` from Map IndexGet.
+      UInt64/Int64 leaves), or Option `[tag,payload]` (Map IndexGet intermediate
+      or B-OPT-STATE Option UInt64 state / construct).
       `expr` mirrors `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none
   /-- Physical byte width of each leaf KV value: 8 for UInt64 leaves
-      (Array/Map/Principal/named Struct/Enum), 1 for Bytes leaves (UInt8).
+      (Array/Map/Principal/named Struct/Enum/Option), 1 for Bytes leaves (UInt8).
       Scalar values keep 8. -/
   leafByteWidth : Nat := 8
   deriving Inhabited
@@ -1218,6 +1275,11 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
         leafExprs := leafExprs.push (.param nextInputOffset)
         nextInputOffset := nextInputOffset + 8
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+    else if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
+      -- B-OPT-STATE residual: Option params stay fail closed (mirror Enum
+      -- policy — state + entry/view Option returns are admitted; params not).
+      throw <| .planInvariant .cosmwasm
+        s!"unsupported CosmWasm semantic shape: Option parameter '{param.name}' in {owner} is outside the CosmWasm pilot (params stay fail closed)"
     else if types.isNamedAggregate param.typeId then
       -- B-RET-ABI residual: named Struct/Enum params stay fail closed on
       -- CosmWasm (state + entry/view returns are admitted; params are not).
@@ -1925,6 +1987,17 @@ private def lowerBlockInstructionsV1
             leafExprs := leafExprs.push (.stateLoad fi)
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 result.typeId values result value
+        else if isAnonymousOptionTypeIdV1 typeDecls result.typeId then
+          -- B-OPT-STATE: Option UInt64 state load → 2-leaf aggregate (tag, payload).
+          requireOptionUInt64StateV1 typeDecls types result.typeId "load"
+          unless leafIdxs.size == 2 do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: Option state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          for fi in leafIdxs do
+            leafExprs := leafExprs.push (.stateLoad fi)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
         else if types.isNamedAggregate result.typeId then
           let n ← leafCountOfTypeV1 typeDecls types result.typeId
           unless leafIdxs.size == n do
@@ -1961,7 +2034,7 @@ private def lowerBlockInstructionsV1
                   pure w
               | none =>
                   throw <| .planInvariant .cosmwasm
-                    "unsupported CosmWasm semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, named Struct/Enum, or Array/Map"
+                    "unsupported CosmWasm semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, named Struct/Enum, Array/Map, or Option UInt64"
           unless field.byteWidth == byteWidthOfBitWidth bitWidth do
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: state load width does not match field layout"
@@ -2308,10 +2381,10 @@ private def lowerBlockInstructionsV1
           | none => pure #[stateId.toNat]
         let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         if root.isAggregate then
-          -- Principal / Array / Map / Bytes / named Struct/Enum multi-leaf store
-          -- as one atomic unit. Soft: dual Map stores leave pure values for a
-          -- later store (Token). Atomic: all leaf Exprs share the pre-store KV
-          -- snapshot at IR lower (store-then-read hazard on sequential leaves).
+          -- Principal / Array / Map / Bytes / named Struct/Enum / Option UInt64
+          -- multi-leaf store as one atomic unit. Soft: dual Map stores leave pure
+          -- values for a later store (Token). Atomic: all leaf Exprs share the
+          -- pre-store KV snapshot at IR lower (store-then-read hazard).
           let leaves := root.leafExprs
           unless leaves.size == leafIdxs.size do
             throw <| .planInvariant .cosmwasm
