@@ -984,7 +984,7 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         s!"inspect exact legacy Solana default capability set, got {text}"
       expect (hasSubstr text
           "profiles=#[solana-sbpf-cpi-elf-v1, solana-sbpf-elf-v1, solana-sbpf-plan-v1]")
-        s!"inspect must expose exact inert/legacy profile membership, got {text}"
+        s!"inspect must expose exact opt-in/legacy profile membership, got {text}"
       expect (!hasSubstr text "effect.synchronous-call" &&
           !hasSubstr text "effect.asynchronous-workflow")
         "inspect default Solana support must not advertise call families"
