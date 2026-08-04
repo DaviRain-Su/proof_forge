@@ -50,6 +50,21 @@ pub fn require_sha256_wire(field: &str, s: &str) -> Result<String, ClientError> 
     Ok(bare.to_string())
 }
 
+/// Require a `sha256:` wire digest equals an expected bare lowercase 64-hex.
+pub fn require_digest_wire_eq(
+    field: &str,
+    actual_wire: &str,
+    expected_hex: &str,
+) -> Result<(), ClientError> {
+    let bare = require_sha256_wire(field, actual_wire)?;
+    if bare != expected_hex {
+        return Err(ClientError::AbiJoin(format!(
+            "{field} digest mismatch: actual=sha256:{bare} expected=sha256:{expected_hex}"
+        )));
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Strict JSON: reject duplicate object keys at every nesting level
 // ---------------------------------------------------------------------------

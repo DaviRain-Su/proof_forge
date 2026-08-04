@@ -4,17 +4,25 @@ use std::path::Path;
 
 use serde_json::json;
 
-use crate::artifact::{verify_transfer_sol_artifact, VerifiedArtifact};
+use crate::artifact::{verify_solana_artifact_with_adapter, VerifiedArtifact};
 use crate::error::ClientError;
+use crate::program_adapter::ProgramAdapterId;
 
-pub fn run_verify_artifacts(artifact_dir: &Path) -> Result<VerifiedArtifact, ClientError> {
-    verify_transfer_sol_artifact(artifact_dir)
+pub fn run_verify_artifacts(
+    artifact_dir: &Path,
+    program_adapter: Option<ProgramAdapterId>,
+) -> Result<VerifiedArtifact, ClientError> {
+    verify_solana_artifact_with_adapter(artifact_dir, program_adapter)
 }
 
 pub fn print_verify_json(v: &VerifiedArtifact) -> Result<(), ClientError> {
     let out = json!({
         "ok": true,
         "command": "verify-artifacts",
+        "verificationScope": v.verification_scope,
+        "profileAdapter": v.profile_id,
+        "programAdapter": v.program_adapter,
+        "trustAnchor": v.trust_anchor,
         "artifactDir": v.dir.display().to_string(),
         "programName": v.manifest.artifact_program_name,
         "target": v.manifest.target,
@@ -28,13 +36,14 @@ pub fn print_verify_json(v: &VerifiedArtifact) -> Result<(), ClientError> {
         "irDigest": v.ir_digest_hex,
         "outputSetDigest": v.manifest.output_set_digest,
         "soSha256": v.so_sha256_hex,
-        "soPath": v.so_path.display().to_string(),
+        "soPath": v.so_path.as_ref().map(|p| p.display().to_string()),
         "maturity": {
             "formal": false,
             "hermetic": false,
             "networkWrite": false,
             "deploymentPerformed": false,
-            "note": "Offline OutputSet exact-closure + domain digests + ABI join only. Local execution is verified separately by Mollusk."
+            "signedProvenance": false,
+            "note": "Offline OutputSet exact-closure + known profile joins only. Not signed provenance, formal proof, or hermetic attestation. Local execution is verified separately by Mollusk for product fixtures."
         }
     });
     println!(

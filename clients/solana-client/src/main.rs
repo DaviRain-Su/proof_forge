@@ -1,7 +1,9 @@
 //! Offline `proof-forge-solana-client` artifact verifier entrypoint.
 
 use clap::Parser;
-use proof_forge_solana_client::{print_verify_json, run_verify_artifacts, Cli, ClientError, Commands};
+use proof_forge_solana_client::{
+    print_verify_json, run_verify_artifacts, Cli, ClientError, Commands, ProgramAdapterId,
+};
 
 fn main() {
     let cli = match Cli::try_parse() {
@@ -20,8 +22,15 @@ fn main() {
 
 fn dispatch(cli: Cli) -> Result<(), ClientError> {
     match cli.command {
-        Commands::VerifyArtifacts { artifact_dir } => {
-            let verified = run_verify_artifacts(&artifact_dir)?;
+        Commands::VerifyArtifacts {
+            artifact_dir,
+            program_adapter,
+        } => {
+            let adapter = match program_adapter {
+                Some(s) => Some(ProgramAdapterId::parse(&s)?),
+                None => None,
+            };
+            let verified = run_verify_artifacts(&artifact_dir, adapter)?;
             print_verify_json(&verified)
         }
     }

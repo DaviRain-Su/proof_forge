@@ -25,6 +25,10 @@ pub enum Commands {
         /// Path to the product OutputSet directory (manifest.json + evidence + profile leaves).
         #[arg(long)]
         artifact_dir: PathBuf,
+
+        /// Optional program adapter (e.g. `transfer-sol-v1`). Default: none (generic only).
+        #[arg(long)]
+        program_adapter: Option<String>,
     },
 }
 
@@ -42,8 +46,32 @@ mod tests {
         ])
         .unwrap();
         match cli.command {
-            Commands::VerifyArtifacts { artifact_dir } => {
+            Commands::VerifyArtifacts {
+                artifact_dir,
+                program_adapter,
+            } => {
                 assert_eq!(artifact_dir, PathBuf::from("build/out"));
+                assert!(program_adapter.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn accepts_optional_program_adapter() {
+        let cli = Cli::try_parse_from([
+            "proof-forge-solana-client",
+            "verify-artifacts",
+            "--artifact-dir",
+            "build/out",
+            "--program-adapter",
+            "transfer-sol-v1",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::VerifyArtifacts {
+                program_adapter, ..
+            } => {
+                assert_eq!(program_adapter.as_deref(), Some("transfer-sol-v1"));
             }
         }
     }

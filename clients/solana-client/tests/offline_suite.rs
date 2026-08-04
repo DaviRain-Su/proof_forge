@@ -1,18 +1,23 @@
 //! Offline tests only: no network, no airdrop, no send.
-//! Constructs minimal exact TransferSol OutputSet trees with real domain digests.
+//! Covers generic OutputSet path, profile dispatch, and TransferSol adapter pins.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use proof_forge_solana_client::artifact::{
-    read_regular_single_link_file, verify_transfer_sol_artifact,
-    verify_transfer_sol_artifact_with_source_hash, CANONICAL_LEAVES, IR_DIGEST_DOMAIN,
-    MAX_FILE_BYTES, PLAN_DIGEST_DOMAIN,
+    read_regular_single_link_file, verify_solana_artifact, verify_solana_artifact_with_adapter,
+    verify_transfer_sol_artifact, verify_transfer_sol_artifact_with_source_hash, CANONICAL_LEAVES,
+    IR_DIGEST_DOMAIN, MAX_FILE_BYTES, PLAN_DIGEST_DOMAIN,
 };
 use proof_forge_solana_client::constants::{
     CATALOG_DIGEST_HEX, DEFAULT_EXPECTED_SOURCE_HASH, EXTENSION_DIGEST_HEX, EXTENSION_ID,
-    EXTENSION_VERSION, PROFILE_DIGEST_HEX, SYSTEM_RUNTIME_NATIVE_BINDING,
+    EXTENSION_VERSION, PROFILE_CPI_ELF_V1, PROFILE_DIGEST_HEX, PROFILE_ELF_V1, PROFILE_PLAN_V1,
+    SYSTEM_RUNTIME_NATIVE_BINDING, TRANSFER_SOL_PROGRAM_NAME,
 };
+use proof_forge_solana_client::output_set::{
+    cpi_elf_expected_leaves, elf_expected_leaves, plan_expected_leaves,
+};
+use proof_forge_solana_client::program_adapter::ProgramAdapterId;
 use proof_forge_solana_client::sha256_hex;
 use proof_forge_solana_client::util::{
     domain_separated_sha256_hex, encode_string_framed, encode_u32le, encode_u64le,
@@ -25,15 +30,16 @@ const BUILD_ID: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 const SUPPORT: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 const REGISTRY: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const SOURCE_IR: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+const OTHER_SOURCE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 fn write(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
 }
 
-fn plan_json() -> String {
+fn plan_json(program_name: &str, handler_name: &str) -> String {
     serde_json::json!({
         "schema": "proof-forge.solana.cpi-plan.v1",
-        "programName": "TransferSol",
+        "programName": program_name,
         "profileId": "solana-sbpf-cpi-elf-v1",
         "profileDigest": format!("sha256:{PROFILE_DIGEST_HEX}"),
         "calleeCatalogDigest": format!("sha256:{CATALOG_DIGEST_HEX}"),
@@ -66,7 +72,7 @@ fn plan_json() -> String {
         "handlers": [{
             "handlerId": 0,
             "callableId": 0,
-            "name": "transfer",
+            "name": handler_name,
             "mode": "entry",
             "cpiSiteIds": [0],
             "accountUses": [
@@ -113,16 +119,16 @@ fn plan_json() -> String {
     .to_string()
 }
 
-fn idl_json(plan_digest: &str) -> String {
+fn idl_json(program_name: &str, handler_name: &str, plan_digest: &str) -> String {
     serde_json::json!({
         "schema": "proof-forge.solana.cpi-idl.v1",
-        "programName": "TransferSol",
+        "programName": program_name,
         "profileId": "solana-sbpf-cpi-elf-v1",
         "profileDigest": format!("sha256:{PROFILE_DIGEST_HEX}"),
         "catalogDigest": format!("sha256:{CATALOG_DIGEST_HEX}"),
         "planDigest": format!("sha256:{plan_digest}"),
         "instructions": [{
-            "name": "transfer",
+            "name": handler_name,
             "mode": "entry",
             "handlerId": 0,
             "cpiSiteIds": [0],
@@ -165,7 +171,7 @@ fn bindings_json(plan_digest: &str, ir_digest: &str) -> String {
     .to_string()
 }
 
-fn ir_text(plan_digest: &str) -> String {
+fn ir_text(plan_digest: &str, handler_name: &str) -> String {
     format!(
         "schema=proof-forge.solana.cpi-product-ir.v1\n\
 sourcePlanDigest=sha256:{plan_digest}\n\
@@ -175,7 +181,7 @@ profileDigest=sha256:{PROFILE_DIGEST_HEX}\n\
 catalogDigest=sha256:{CATALOG_DIGEST_HEX}\n\
 maxOuterRoles=16\n\
 maxFrameBytes=4096\n\
-handler:0:0:transfer:entry:roles3:probe16:temps1:entry[]:body[loadParamU64:0@8;invokeEscrow:0:transfer:solana.system.transfer:system-v1:prog2:len12;returnU64:0]\n"
+handler:0:0:{handler_name}:entry:roles3:probe16:temps1:entry[]:body[loadParamU64:0@8;invokeEscrow:0:transfer:solana.system.transfer:system-v1:prog2:len12;returnU64:0]\n"
     )
 }
 
@@ -189,7 +195,7 @@ fn recompute_output_set(
     target: &str,
     profile: &str,
     name: &str,
-    files: &[(String, String, u64, String)], // role, path, size, contentSha256
+    files: &[(String, String, u64, String)],
     source: &str,
     semantic: &str,
     registry: &str,
@@ -223,75 +229,77 @@ fn recompute_output_set(
     domain_separated_sha256_hex("pf.output-set.engineering.v1", &payload)
 }
 
-/// Build a minimal exact TransferSol OutputSet under `dir` with real domain digests.
-fn build_minimal_artifact_tree(dir: &Path, source_hash: &str) -> PathBuf {
-    let plan = plan_json();
+/// Build a minimal exact CPI OutputSet under `dir` with real domain digests.
+fn build_cpi_artifact_tree(
+    dir: &Path,
+    program_name: &str,
+    handler_name: &str,
+    source_hash: &str,
+) -> PathBuf {
+    let plan = plan_json(program_name, handler_name);
     let plan_bytes = plan.as_bytes();
     let plan_digest = domain_separated_sha256_hex(PLAN_DIGEST_DOMAIN, plan_bytes);
 
-    let ir = ir_text(&plan_digest);
+    let ir = ir_text(&plan_digest, handler_name);
     let ir_bytes = ir.as_bytes();
     let ir_digest = domain_separated_sha256_hex(IR_DIGEST_DOMAIN, ir_bytes);
 
-    let idl = idl_json(&plan_digest);
+    let idl = idl_json(program_name, handler_name, &plan_digest);
     let bindings = bindings_json(&plan_digest, &ir_digest);
     let asm = asm_text();
     let so: Vec<u8> = {
         let mut v = b"\x7fELF".to_vec();
-        v.extend_from_slice(b" minimal transfer so offline test only!!!!");
+        v.extend_from_slice(b" minimal offline test so payload bytes!!!!");
         v
     };
 
-    let leaves: Vec<(&str, &[u8], &str)> = vec![
+    let leaves = cpi_elf_expected_leaves(program_name);
+    let leaf_data: Vec<(String, Vec<u8>, String)> = vec![
         (
-            "TransferSol.cpi-bindings.json",
-            bindings.as_bytes(),
-            "materialized-base",
+            leaves[0].0.clone(),
+            bindings.as_bytes().to_vec(),
+            leaves[0].1.clone(),
         ),
-        ("TransferSol.cpi-ir.json", ir_bytes, "materialized-base"),
-        ("TransferSol.cpi-plan.json", plan_bytes, "materialized-base"),
-        ("TransferSol.idl.json", idl.as_bytes(), "materialized-base"),
-        ("TransferSol.s", asm.as_bytes(), "materialized-base"),
-        ("TransferSol.so", &so, "finalized-extra"),
+        (leaves[1].0.clone(), ir_bytes.to_vec(), leaves[1].1.clone()),
+        (
+            leaves[2].0.clone(),
+            plan_bytes.to_vec(),
+            leaves[2].1.clone(),
+        ),
+        (
+            leaves[3].0.clone(),
+            idl.as_bytes().to_vec(),
+            leaves[3].1.clone(),
+        ),
+        (
+            leaves[4].0.clone(),
+            asm.as_bytes().to_vec(),
+            leaves[4].1.clone(),
+        ),
+        (leaves[5].0.clone(), so, leaves[5].1.clone()),
     ];
-    assert_eq!(leaves.len(), CANONICAL_LEAVES.len());
 
     let mut files_meta = Vec::new();
-    for (name, bytes, role) in &leaves {
+    for (name, bytes, role) in &leaf_data {
         write(&dir.join(name), bytes);
         let hash = sha256_hex(bytes);
-        files_meta.push((
-            (*role).to_string(),
-            (*name).to_string(),
-            bytes.len() as u64,
-            hash,
-        ));
+        files_meta.push((role.clone(), name.clone(), bytes.len() as u64, hash));
     }
 
     let evidence_note = format!(
         "solana-sbpf-cpi-elf-v1 profile=solana-sbpf-cpi-elf-v1 profileDigest=sha256:{PROFILE_DIGEST_HEX} catalogDigest=sha256:{CATALOG_DIGEST_HEX} planDigest=sha256:{plan_digest} irDigest=sha256:{ir_digest} completed successfully"
     );
-    let evidence = serde_json::json!({
-        "target": "solana",
-        "sourceHash": source_hash,
-        "semanticHash": SEMANTIC_HASH,
-        "deployable": true,
-        "note": evidence_note
-    });
-    // Pretty evidence matching product-ish single-line note is fine; hash exact UTF-8 of rendered body.
-    // Use compact deterministic rendering without trailing newline variance: serde_json to_string + manual format like Lean.
     let evidence_body = format!(
         "{{\n  \"target\": \"solana\",\n  \"sourceHash\": \"{source_hash}\",\n  \"semanticHash\": \"{SEMANTIC_HASH}\",\n  \"deployable\": true,\n  \"note\": \"{evidence_note}\"\n}}\n"
     );
     write(&dir.join("evidence.json"), evidence_body.as_bytes());
     let evidence_sha = sha256_hex(evidence_body.as_bytes());
-    let _ = evidence;
 
     let osd = recompute_output_set(
         "proof-forge.output.v1",
         "solana",
-        "solana-sbpf-cpi-elf-v1",
-        "TransferSol",
+        PROFILE_CPI_ELF_V1,
+        program_name,
         &files_meta,
         source_hash,
         SEMANTIC_HASH,
@@ -318,8 +326,8 @@ fn build_minimal_artifact_tree(dir: &Path, source_hash: &str) -> PathBuf {
     let manifest = serde_json::json!({
         "schemaVersion": "proof-forge.output.v1",
         "target": "solana",
-        "codegenProfile": "solana-sbpf-cpi-elf-v1",
-        "artifactProgramName": "TransferSol",
+        "codegenProfile": PROFILE_CPI_ELF_V1,
+        "artifactProgramName": program_name,
         "sourceHash": source_hash,
         "semanticHash": SEMANTIC_HASH,
         "buildIdentityDigest": BUILD_ID,
@@ -331,7 +339,157 @@ fn build_minimal_artifact_tree(dir: &Path, source_hash: &str) -> PathBuf {
         "deployable": true,
         "files": files_json
     });
-    // Use serde compact enough but keys must match deny_unknown - pretty is fine.
+    write(
+        &dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap().as_bytes(),
+    );
+    dir.to_path_buf()
+}
+
+fn build_minimal_artifact_tree(dir: &Path, source_hash: &str) -> PathBuf {
+    build_cpi_artifact_tree(dir, TRANSFER_SOL_PROGRAM_NAME, "transfer", source_hash)
+}
+
+fn build_plan_profile_tree(dir: &Path, program_name: &str) -> PathBuf {
+    let leaves = plan_expected_leaves(program_name);
+    let idl = serde_json::json!({
+        "programName": program_name,
+        "instructions": []
+    })
+    .to_string();
+    let plan = format!("sbpf-plan for {program_name}\n");
+    let leaf_data = vec![
+        (
+            leaves[0].0.clone(),
+            idl.as_bytes().to_vec(),
+            leaves[0].1.clone(),
+        ),
+        (
+            leaves[1].0.clone(),
+            plan.as_bytes().to_vec(),
+            leaves[1].1.clone(),
+        ),
+    ];
+    write_simple_tree(
+        dir,
+        program_name,
+        PROFILE_PLAN_V1,
+        false,
+        &leaf_data,
+        "no pinned/approved sBPF assembler is configured; typed plan and IDL artifacts are non-executable",
+        "0".repeat(64),
+    )
+}
+
+fn build_elf_profile_tree(dir: &Path, program_name: &str) -> PathBuf {
+    let leaves = elf_expected_leaves(program_name);
+    let idl = serde_json::json!({
+        "programName": program_name,
+        "instructions": []
+    })
+    .to_string();
+    let plan = format!("sbpf-plan for {program_name}\n");
+    let asm = ".text\n; assembly\n";
+    let so = {
+        let mut v = b"\x7fELF".to_vec();
+        v.extend_from_slice(b" elf profile test so");
+        v
+    };
+    let leaf_data = vec![
+        (
+            leaves[0].0.clone(),
+            idl.as_bytes().to_vec(),
+            leaves[0].1.clone(),
+        ),
+        (
+            leaves[1].0.clone(),
+            asm.as_bytes().to_vec(),
+            leaves[1].1.clone(),
+        ),
+        (
+            leaves[2].0.clone(),
+            plan.as_bytes().to_vec(),
+            leaves[2].1.clone(),
+        ),
+        (leaves[3].0.clone(), so, leaves[3].1.clone()),
+    ];
+    write_simple_tree(
+        dir,
+        program_name,
+        PROFILE_ELF_V1,
+        true,
+        &leaf_data,
+        "sbpf 0.2.2 completed successfully",
+        "1".repeat(64),
+    )
+}
+
+fn write_simple_tree(
+    dir: &Path,
+    program_name: &str,
+    profile: &str,
+    deployable: bool,
+    leaf_data: &[(String, Vec<u8>, String)],
+    evidence_note: &str,
+    plan_digest: String,
+) -> PathBuf {
+    let mut files_meta = Vec::new();
+    for (name, bytes, role) in leaf_data {
+        write(&dir.join(name), bytes);
+        files_meta.push((
+            role.clone(),
+            name.clone(),
+            bytes.len() as u64,
+            sha256_hex(bytes),
+        ));
+    }
+    let evidence_body = format!(
+        "{{\n  \"target\": \"solana\",\n  \"sourceHash\": \"{OTHER_SOURCE}\",\n  \"semanticHash\": \"{SEMANTIC_HASH}\",\n  \"deployable\": {deployable},\n  \"note\": \"{evidence_note}\"\n}}\n"
+    );
+    write(&dir.join("evidence.json"), evidence_body.as_bytes());
+    let evidence_sha = sha256_hex(evidence_body.as_bytes());
+    let osd = recompute_output_set(
+        "proof-forge.output.v1",
+        "solana",
+        profile,
+        program_name,
+        &files_meta,
+        OTHER_SOURCE,
+        SEMANTIC_HASH,
+        REGISTRY,
+        SUPPORT,
+        BUILD_ID,
+        &plan_digest,
+        deployable,
+        &evidence_sha,
+    );
+    let files_json: Vec<_> = files_meta
+        .iter()
+        .map(|(role, path, size, hash)| {
+            serde_json::json!({
+                "role": role,
+                "path": path,
+                "size": size,
+                "contentSha256": hash,
+            })
+        })
+        .collect();
+    let manifest = serde_json::json!({
+        "schemaVersion": "proof-forge.output.v1",
+        "target": "solana",
+        "codegenProfile": profile,
+        "artifactProgramName": program_name,
+        "sourceHash": OTHER_SOURCE,
+        "semanticHash": SEMANTIC_HASH,
+        "buildIdentityDigest": BUILD_ID,
+        "planDigest": plan_digest,
+        "supportClaimDigest": SUPPORT,
+        "engineeringRegistryRootDigest": REGISTRY,
+        "outputSetDigest": osd,
+        "evidenceSha256": evidence_sha,
+        "deployable": deployable,
+        "files": files_json
+    });
     write(
         &dir.join("manifest.json"),
         serde_json::to_string_pretty(&manifest).unwrap().as_bytes(),
@@ -340,7 +498,116 @@ fn build_minimal_artifact_tree(dir: &Path, source_hash: &str) -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// Artifact exact-closure tests
+// Generic path + profile dispatch
+// ---------------------------------------------------------------------------
+
+#[test]
+fn generic_path_accepts_non_transfer_sol_cpi_output_set() {
+    let dir = tempdir().unwrap();
+    build_cpi_artifact_tree(dir.path(), "DemoCounter", "increment", OTHER_SOURCE);
+    let v = verify_solana_artifact(dir.path()).unwrap();
+    assert_eq!(v.manifest.artifact_program_name, "DemoCounter");
+    assert_eq!(v.profile_id, PROFILE_CPI_ELF_V1);
+    assert!(v.program_adapter.is_none());
+    assert!(v.trust_anchor.contains("self-consistency"));
+    assert!(v.verification_scope.contains("output-set-self-consistency"));
+    assert_eq!(v.profile_digest_hex.as_deref(), Some(PROFILE_DIGEST_HEX));
+}
+
+#[test]
+fn transfer_sol_adapter_rejects_non_transfer_program() {
+    let dir = tempdir().unwrap();
+    build_cpi_artifact_tree(dir.path(), "DemoCounter", "increment", OTHER_SOURCE);
+    let err =
+        verify_solana_artifact_with_adapter(dir.path(), Some(ProgramAdapterId::TransferSolV1))
+            .unwrap_err();
+    assert!(
+        err.to_string().contains("artifactProgramName=TransferSol")
+            || err.to_string().contains("transfer-sol-v1"),
+        "{err}"
+    );
+}
+
+#[test]
+fn unknown_profile_fail_closed() {
+    let dir = tempdir().unwrap();
+    build_plan_profile_tree(dir.path(), "DemoPlan");
+    // Tamper profile after seal to an unknown id and recompute OSD only.
+    let mut m: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("manifest.json")).unwrap())
+            .unwrap();
+    m["codegenProfile"] = serde_json::json!("solana-sbpf-unknown-v9");
+    let files_meta: Vec<(String, String, u64, String)> = m["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| {
+            (
+                f["role"].as_str().unwrap().to_string(),
+                f["path"].as_str().unwrap().to_string(),
+                f["size"].as_u64().unwrap(),
+                f["contentSha256"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    let osd = recompute_output_set(
+        "proof-forge.output.v1",
+        "solana",
+        "solana-sbpf-unknown-v9",
+        "DemoPlan",
+        &files_meta,
+        OTHER_SOURCE,
+        SEMANTIC_HASH,
+        REGISTRY,
+        SUPPORT,
+        BUILD_ID,
+        m["planDigest"].as_str().unwrap(),
+        false,
+        m["evidenceSha256"].as_str().unwrap(),
+    );
+    m["outputSetDigest"] = serde_json::json!(osd);
+    write(
+        &dir.path().join("manifest.json"),
+        serde_json::to_string_pretty(&m).unwrap().as_bytes(),
+    );
+    let err = verify_solana_artifact(dir.path()).unwrap_err();
+    assert!(
+        err.to_string().contains("unknown Solana codegenProfile"),
+        "{err}"
+    );
+}
+
+#[test]
+fn plan_profile_leaf_shape_accepted() {
+    let dir = tempdir().unwrap();
+    build_plan_profile_tree(dir.path(), "DemoPlan");
+    let v = verify_solana_artifact(dir.path()).unwrap();
+    assert_eq!(v.profile_id, PROFILE_PLAN_V1);
+    assert!(!v.manifest.deployable);
+    assert!(v.so_path.is_none());
+}
+
+#[test]
+fn elf_profile_leaf_shape_accepted() {
+    let dir = tempdir().unwrap();
+    build_elf_profile_tree(dir.path(), "DemoElf");
+    let v = verify_solana_artifact(dir.path()).unwrap();
+    assert_eq!(v.profile_id, PROFILE_ELF_V1);
+    assert!(v.manifest.deployable);
+    assert!(v.so_bytes.as_ref().unwrap().starts_with(b"\x7fELF"));
+}
+
+#[test]
+fn cpi_profile_leaf_shape_for_dynamic_program_name() {
+    let dir = tempdir().unwrap();
+    build_cpi_artifact_tree(dir.path(), "AlphaBeta", "route", OTHER_SOURCE);
+    let v = verify_solana_artifact(dir.path()).unwrap();
+    assert_eq!(v.profile_id, PROFILE_CPI_ELF_V1);
+    assert!(v.so_path.as_ref().unwrap().ends_with("AlphaBeta.so"));
+}
+
+// ---------------------------------------------------------------------------
+// TransferSol adapter regressions (20 security/digest/ABI cases)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -350,8 +617,9 @@ fn verify_artifacts_accepts_minimal_exact_tree() {
     let v = verify_transfer_sol_artifact(dir.path()).unwrap();
     assert_eq!(v.manifest.artifact_program_name, "TransferSol");
     assert!(v.manifest.deployable);
-    assert_eq!(v.profile_digest_hex, PROFILE_DIGEST_HEX);
-    assert_eq!(&v.so_bytes[0..4], b"\x7fELF");
+    assert_eq!(v.profile_digest_hex.as_deref(), Some(PROFILE_DIGEST_HEX));
+    assert_eq!(&v.so_bytes.as_ref().unwrap()[0..4], b"\x7fELF");
+    assert_eq!(v.program_adapter.as_deref(), Some("transfer-sol-v1"));
 }
 
 #[test]
@@ -437,14 +705,16 @@ fn verify_rejects_plan_domain_digest_tamper() {
         serde_json::from_str(&fs::read_to_string(dir.path().join("manifest.json")).unwrap())
             .unwrap();
     m["planDigest"] = serde_json::json!("1".repeat(64));
-    // Also fix evidence note / bindings would fail earlier on plan domain vs plan bytes.
     write(
         &dir.path().join("manifest.json"),
         serde_json::to_string_pretty(&m).unwrap().as_bytes(),
     );
     let err = verify_transfer_sol_artifact(dir.path()).unwrap_err();
+    // planDigest participates in outputSetDigest; either surface is fail-closed.
     assert!(
-        err.to_string().contains("planDigest") || err.to_string().contains("evidence"),
+        err.to_string().contains("planDigest")
+            || err.to_string().contains("evidence")
+            || err.to_string().contains("outputSetDigest"),
         "{err}"
     );
 }
@@ -453,7 +723,6 @@ fn verify_rejects_plan_domain_digest_tamper() {
 fn verify_rejects_ir_domain_digest_mismatch() {
     let dir = tempdir().unwrap();
     build_minimal_artifact_tree(dir.path(), DEFAULT_EXPECTED_SOURCE_HASH);
-    // Tamper bindings.irDigest only (leave IR bytes).
     let mut b: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(dir.path().join("TransferSol.cpi-bindings.json")).unwrap(),
     )
@@ -470,7 +739,6 @@ fn verify_rejects_ir_domain_digest_mismatch() {
 fn verify_rejects_evidence_note_preactivation() {
     let dir = tempdir().unwrap();
     build_minimal_artifact_tree(dir.path(), DEFAULT_EXPECTED_SOURCE_HASH);
-    // Rewrite evidence with preactivation marker and reseal.
     let m: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("manifest.json")).unwrap())
             .unwrap();
@@ -530,7 +798,12 @@ fn verify_rejects_wrong_manifest_role_order() {
         serde_json::to_vec_pretty(&manifest).unwrap().as_slice(),
     );
     let err = verify_transfer_sol_artifact(dir.path()).unwrap_err();
-    assert!(err.to_string().contains("files[0]"), "{err}");
+    assert!(
+        err.to_string().contains("files[0]")
+            || err.to_string().contains("canonical role/path order")
+            || err.to_string().contains("must be role="),
+        "{err}"
+    );
 }
 
 #[test]
