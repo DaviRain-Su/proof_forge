@@ -69,6 +69,11 @@ mutual
     /-- B-RET-ABI: fixed-length Felt array literal `[e0, e1, …]` — honest
         multi-leaf return form on the Psy surface (`-> [Felt; N]`). -/
     | arrayLit (elems : Array PsyExpr)
+    /-- Expression-form if/else (Psy `if cond { a } else { b }` as a value).
+        Used when match/switch arms are pure returns: dargo rejects `return`
+        inside an IfExpr statement, so return-only arms lower to
+        `return if … { … } else { … };` instead. -/
+    | ifExpr (condition thenE elseE : PsyExpr)
     deriving BEq, Inhabited, Repr
 
   inductive PsyStmt where
@@ -190,13 +195,31 @@ mutual
     | .arrayLit elems =>
         let argStr := String.intercalate ", " (elems.map exprStr).toList
         s!"[{argStr}]"
+    | .ifExpr condition thenE elseE =>
+        -- Expression if; braced branches keep nested ifExpr readable.
+        "if " ++ exprStr condition ++ " { " ++ exprStr thenE ++
+          " } else { " ++ exprStr elseE ++ " }"
 
   private partial def operandExpr (e : PsyExpr) : String :=
     match e with
     | .literal _ | .local _ | .storageScalarRead _ | .call _ _ | .crosscallInvoke _ _ _
-    | .arrayLit _ =>
+    | .arrayLit _ | .ifExpr _ _ _ =>
         exprStr e
     | _ => s!"({exprStr e})"
+
+  /-- When a statement body is a pure return (or nested return-only if/else),
+      recover the returned expression so match/switch arms can emit Psy
+      expression-form `return if …` (dargo forbids `return` inside IfExpr). -/
+  private partial def pureReturnExpr (body : Array PsyStmt) : Option PsyExpr :=
+    if body.size != 1 then none
+    else
+      match body[0]! with
+      | .returnExpr e => some e
+      | .ifElse c t e =>
+          match pureReturnExpr t, pureReturnExpr e with
+          | some te, some ee => some (.ifExpr c te ee)
+          | _, _ => none
+      | _ => none
 
   private partial def stmtLines (level : Nat) (s : PsyStmt) : Array String :=
     match s with
@@ -211,15 +234,28 @@ mutual
     | .assertEq lhs rhs message =>
         #[indent level s!"assert_eq({exprStr lhs}, {exprStr rhs}, {stringLiteral message});"]
     | .ifElse condition thenBody elseBody =>
-        let thenLines := thenBody.flatMap (stmtLines (level + 1))
-        let elseLines := elseBody.flatMap (stmtLines (level + 1))
-        let hasElse := !elseBody.isEmpty
-        #[indent level (s!"if {exprStr condition} " ++ "{")]
-          ++ thenLines
-          ++ (if hasElse then
-                #[indent level "} else {"] ++ elseLines
-              else #[])
-          ++ #[indent level "};"]
+        -- Prefer expression-form when both arms are pure returns (match/switch
+        -- on Enum/Option tags). Otherwise emit statement-form if/else without
+        -- a trailing semicolon (statement, not IfExpr expression-statement).
+        match pureReturnExpr thenBody, pureReturnExpr elseBody with
+        | some te, some ee =>
+            -- dargo accepts `let r = if … { a } else { b }; return r;` and
+            -- rejects bare `return` inside IfExpr statement arms.
+            let tmp := "pf_ret"
+            #[indent level
+                ("let " ++ tmp ++ ": Felt = if " ++ exprStr condition ++
+                  " { " ++ exprStr te ++ " } else { " ++ exprStr ee ++ " };"),
+              indent level ("return " ++ tmp ++ ";")]
+        | _, _ =>
+            let thenLines := thenBody.flatMap (stmtLines (level + 1))
+            let elseLines := elseBody.flatMap (stmtLines (level + 1))
+            let hasElse := !elseBody.isEmpty
+            #[indent level (s!"if {exprStr condition} " ++ "{")]
+              ++ thenLines
+              ++ (if hasElse then
+                    #[indent level "} else {"] ++ elseLines
+                  else #[])
+              ++ #[indent level "}"]
     | .boundedFor indexName start stopExclusive body =>
         let bodyLines := body.flatMap (stmtLines (level + 1))
         #[indent level (s!"for {indexName} in {start}u32..{stopExclusive}u32 " ++ "{")]

@@ -1257,10 +1257,183 @@ unsafe def testAnonymousOptionReturn : IO Unit := do
   expect (psy.contains "return [")
     "OptionRet source must emit array-literal return"
 
+/-- BL-36 / B-OPT-STATE: Option UInt64 state = Enum-shaped 2-leaf Felt layout
+    (`slot_tag` + `slot_p0`); construct none zeroes payload; match read via
+    VariantTag/VariantPayload; multi-leaf store on assign. -/
+unsafe def testOptionState : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptionState where\n" ++
+    "  state slot : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    -- entry name must not be `set` (Psy Storage derive owns `set`/`get` members).
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n" ++
+    "  entry clear() : UInt64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n" ++
+    "  view getOpt() : Option UInt64 do\n" ++
+    "    return slot\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-option-state>" "Tests.OptionState" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  expect (plan.stateFieldNames == #["slot_tag", "slot_p0"])
+    s!"OptionState: Option UInt64 must flatten to slot_tag/slot_p0, got {plan.stateFieldNames}"
+  -- Init none → two stores of literal 0 (tag + zeroed payload) + returnNone.
+  let some initFn := plan.functions.find? (·.name == "initialize") |
+    throw <| IO.userError "OptionState plan must carry initialize"
+  expect (initFn.body.any fun
+      | .store 0 (.literal 0) => true
+      | _ => false)
+    "OptionState init must store tag=0"
+  expect (initFn.body.any fun
+      | .store 1 (.literal 0) => true
+      | _ => false)
+    "OptionState init must zero payload (none pin)"
+  -- setSome → store tag=1 + param.
+  let some setFn := plan.functions.find? (·.name == "setSome") |
+    throw <| IO.userError "OptionState plan must carry setSome"
+  expect (setFn.body.any fun
+      | .store 0 (.literal 1) => true
+      | _ => false)
+    "OptionState setSome must store tag=1"
+  expect (setFn.body.any fun
+      | .store 1 (.param 0) => true
+      | _ => false)
+    "OptionState setSome must store payload = param 0"
+  -- clear none-reset → both leaves zeroed (stale payload must not survive).
+  let some clearFn := plan.functions.find? (·.name == "clear") |
+    throw <| IO.userError "OptionState plan must carry clear"
+  expect (clearFn.body.any fun
+      | .store 0 (.literal 0) => true
+      | _ => false)
+    "OptionState clear must store tag=0"
+  expect (clearFn.body.any fun
+      | .store 1 (.literal 0) => true
+      | _ => false)
+    "OptionState clear must zero payload (stale-payload pin)"
+  -- peek match → reads state leaves (VariantTag/VariantPayload path).
+  let some peekFn := plan.functions.find? (·.name == "peek") |
+    throw <| IO.userError "OptionState plan must carry peek"
+  expect (!peekFn.resultIsBool && !peekFn.resultIsUnit)
+    "OptionState peek must return scalar UInt64"
+  expect (peekFn.body.any fun
+      | .ifThenElse .. => true
+      | .switchOn .. => true
+      | _ => false)
+    "OptionState peek must lower match to if/switch on VariantTag"
+  -- Pin: match on Option.some uses tag leaf stateLoad 0 and payload leaf 1.
+  expect (peekFn.body.any fun
+      | .switchOn (.stateLoad 0) cases _ =>
+          cases.any fun (tag, arm) =>
+            tag == 1 && arm.any fun
+              | .returnValue (.stateLoad 1) => true
+              | _ => false
+      | _ => false)
+    "OptionState peek must switch on tag leaf and return payload leaf for some"
+  -- getOpt return of stored Option → 2-leaf aggregate from state.
+  let some getOpt := plan.functions.find? (·.name == "getOpt") |
+    throw <| IO.userError "OptionState plan must carry getOpt"
+  match getOpt.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptionState getOpt must return 2-leaf Option, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"OptionState getOpt resultKind must be .aggregate, got {repr other}"
+  match getOpt.body[getOpt.body.size - 1]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt == #[false, false])
+        "OptionState getOpt returnAggregate must have 2 u64 leaves"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad 0, .stateLoad 1 => pure ()
+      | a, b =>
+          throw <| IO.userError
+            s!"OptionState getOpt leaves must be stateLoad 0/1, got {repr a}/{repr b}"
+  | _ =>
+      throw <| IO.userError "OptionState getOpt must end with .returnAggregate"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "OptionState.psy") |
+    throw <| IO.userError "psy: missing OptionState.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub slot_tag: Felt," && psy.contains "pub slot_p0: Felt,")
+    s!"OptionState source must declare slot_tag/slot_p0 Felt fields, got:\n{psy}"
+  expect (psy.contains "pub fn getOpt() -> [Felt; 2]")
+    s!"OptionState getOpt must declare -> [Felt; 2], got:\n{psy}"
+  expect (psy.contains "slot_tag" && psy.contains "slot_p0")
+    "OptionState emitted source must reference both Option leaves"
+  IO.println "  OptionState Option UInt64 state Plan/emitter pin ok"
+
 /-- Fail-closed matrix: Map/Bytes returns, >8 leaves, pureFn aggregate,
-    non-UInt64 Array element, N>8 Array. -/
+    non-UInt64 Array element, N>8 Array, Option non-UInt64 state, Option params. -/
 unsafe def testAggregateReturnFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
+  -- B-OPT-STATE: Option of non-UInt64 state stays fail closed.
+  let optBadSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptBadEl where\n" ++
+    "  state o : Option UInt8\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          optBadSource "<psy-opt-bad>" "Tests.OptBadEl" none)
+        let c ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planPsy c with
+      | .error e =>
+          expect (e.render.contains "Option" || e.render.contains "UInt64" ||
+              e.render.contains "payload" || e.render.contains "element")
+            s!"OptBadEl must cite Option/UInt64/payload, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Psy Option UInt8 state must fail closed (UInt64 payload only)"
+  -- Option param stays fail closed (state-only; mirrors Enum params).
+  let optParamSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    pad := i\n" ++
+    "  entry take(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          optParamSource "<psy-opt-param>" "Tests.OptParam" none)
+        let c ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planPsy c with
+      | .error e =>
+          expect (e.render.contains "Option" || e.render.contains "parameter" ||
+              e.render.contains "param")
+            s!"OptParam must cite Option/parameter, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Psy Option parameter must fail closed (state-only)"
   -- Anonymous Map return stays fail-closed.
   let mapSource :=
     "import ProofForgeV2\n" ++
@@ -1453,6 +1626,7 @@ unsafe def run : IO Unit := do
   testNamedEnumReturn
   testAnonymousArrayReturn
   testAnonymousOptionReturn
+  testOptionState
   testAggregateReturnFailClosed
   IO.println "Tests.Materialization.PsySourceV1: ok"
 
