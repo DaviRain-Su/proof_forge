@@ -84,11 +84,19 @@
 > 清理 staging 且不发布 destination。memory/process/protocol/stderr、receipts/containment 与 formal
 > NFR-008 仍 pending，禁止把该子切片写成完整 RES-1B。
 >
-> **Capability caveat（2026-08-02 audit）**：`call` / `schedule` 的 resolver support 不能等同于
-> 完整平台语义。当前 EVM sync 是 static-qualified-name→hashed-address `CALL`，EVM async 为同步
-> `CALL` 后忽略结果；Solana 两键在 SBPF 仍为 `sol_log_data` 观测桩（非 CPI）；Noir 为 relation
-> status/arg slots；NEAR schedule 最接近真实 fire-and-forget promise。该过度声明已登记
-> `B-CALL-SEM`，在产品决定“降 support/fail closed”或实现完整契约前不得写成跨平台 call 已完成。
+> **Capability caveat（2026-08-04 B-CALL-SEM 复核更新）**：`call` / `schedule` 的 resolver support
+> 不能等同于完整平台语义。复核后现状：EVM sync 为 static-QN→keccak 地址的真实 `CALL`，
+> result-bearing call 已读 `RETURNDATA`（单 UInt64 word + range guard，BL-28；更宽类型仍 FC，
+> 地址仍是 stub 待部署接线）；Solana 两键已切真 CPI（`sol_invoke_signed_c`，BL-27；空
+> AccountMeta + QN→SHA-256 program-id stub，外层多账户布局待 ADR-0024 lane 取代过渡 stub）；
+> **EVM/Solana 的 `schedule` 是同笔交易内同步执行的 fire-and-forget**（结果丢弃，匹配
+> Reference 无 response cursor 契约，与 CW-4 SubMsg 同一接纳纪律），**不是**跨交易 deferred；
+> Noir 两键为 witness-binding relation（电路不执行调用、证明不 attest 链上调用发生，
+> result-bearing 待 response-witness 契约仍 FC）；NEAR schedule 为原生 promise（无 sync）；
+> TON 为真实异步 out-message（无 sync）；CW 为 same-tx SubMsg（reply_on=never，非跨 tx async）；
+> Psy sync 仅为 `__invoke_sync#<Felt>` 源码面发射（无 VM/proof 验收门），schedule 已 decline +
+> emitter FC；Aleo 双键 + event 全 decline；Quint 全 FC。仍不得写成跨平台 call 已完成：
+> 部署地址接线、Solana 外层账户布局与 Noir response-witness 契约是独立后续。
 
 `docs/04-task-breakdown.md` 与既有 evidence ledger 继续保存 D0/D1 release-qualification
 历史，但不再生成日常产品工作的完成条件。恢复期间禁止新增 `D1-PA-*`、资格协议、

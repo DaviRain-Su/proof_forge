@@ -225,7 +225,18 @@ private def mkImplementedRow
     capability set. Capability gates are per target: EVM/Solana admit both call
     keys via static QualifiedName callees (AddressBearing: wire
     Op.ExternalCall/Schedule take compile-time QN, not a dynamic address
-    ValueId — no Principal→20B/32B map); NEAR has no synchronous external calls
+    ValueId — no Principal→20B/32B map). Their `schedule` is a **fire-and-forget
+    same-transaction** interpretation: the dispatch executes synchronously
+    (EVM `CALL` / Solana CPI) and the outcome is discarded, matching the
+    Reference no-response-cursor contract — never a cross-transaction deferral
+    claim (same admission discipline as the CW-4 SubMsg note below). EVM
+    result-bearing sync calls read `RETURNDATA` as one UInt64 word behind a
+    size/range guard (BL-28; wider result types stay fail closed; the callee
+    address is a keccak-of-QN stub pending deployment wiring). Solana lowers
+    both keys to a real CPI (`sol_invoke_signed_c`, BL-27) with an empty
+    AccountMeta array and a QN→SHA-256 program-id stub — the outer
+    multi-account layout and real program-id wiring are pending, and the
+    ADR-0024 lane supersedes this transitional stub; NEAR has no synchronous external calls
     but owns async workflow promises, so it declines sync and supports
     `effect.asynchronous-workflow`; Noir admits both call keys as a
     **witness-binding relation** (B-CALL-SEM honesty, 2026-08-04 review):
@@ -236,7 +247,9 @@ private def mkImplementedRow
     supply the response. Result-bearing calls (N-CALL-RET) stay fail closed
     pending a response-witness contract. Aleo declines both call families (no static-callee Plan
     open) and `effect.event` (Leo 4.0.2 has no on-chain event log — emit fails
-    closed at the materializer); Psy supports sync calls and events but
+    closed at the materializer); Psy supports sync calls and events — sync
+    support means **source-surface emission** of the `__invoke_sync#<Felt>`
+    host intrinsic, with no VM/proof acceptance gate behind it yet — but
     declines `effect.asynchronous-workflow` (no emitted deferred crosscall
     form — schedule fails closed at the materializer). CosmWasm declined both
     call families at MVP: its `WasmMsg::Execute` is a same-transaction
