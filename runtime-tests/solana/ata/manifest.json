@@ -1,0 +1,179 @@
+{
+  "schema": "proof-forge.solana.cpi-ata-runtime.v1",
+  "issue": 123,
+  "sbpf": "0.2.2",
+  "runtimeOracle": {
+    "molluskSvm": "0.13.4",
+    "agaveSyscalls": "4.0.0",
+    "solanaProgramRuntime": "4.0.0"
+  },
+  "fixture": {
+    "path": "runtime-tests/solana/fixtures/AtaCpi.lean",
+    "module": "Examples.AtaCpi",
+    "sourceSha256": "7262c3400dba450217fb910aee2e3be57e674ef68c5f00c1b1f54c3dbdab454d",
+    "sourceSize": 1447
+  },
+  "profile": {
+    "id": "solana-sbpf-cpi-elf-v1",
+    "digest": "0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1"
+  },
+  "extension": {
+    "id": "solana.cpi.accounts",
+    "version": "1.0.0",
+    "digest": "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
+  },
+  "boundary": {
+    "productArtifact": false,
+    "testPreactivation": true,
+    "activationDenied": true
+  },
+  "programIdHex": "5858585858585858585858585858585858585858585858585858585858585858",
+  "catalogDigest": "41ace268b3bea9837e4a1fc9e456dbfbd36c98a344e51dfd095ab4ffb2086351",
+  "ata": {
+    "package": "ata-classic-v1",
+    "programIdHex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+    "executionClass": "loaderV3Sbpf",
+    "artifactBinding": "absent",
+    "interface": {
+      "repo": "https://github.com/solana-program/associated-token-account",
+      "tag": "program@v8.0.0",
+      "tagObject": "de77f367fdc0341879b1b9f0224c6b86107e1769",
+      "peeledCommit": "0b867b5340cd001e5980d8ca7928effc4e10015c",
+      "programVersion": "8.0.0",
+      "interfaceVersion": "2.0.0"
+    },
+    "instructionSurface": {
+      "createIdempotentTag": 1,
+      "createIdempotentDataBytes": 1,
+      "cpiMetaCount": 6,
+      "outerRoleCount": 8,
+      "mintDataBytes": 82,
+      "tokenAccountDataBytes": 165
+    },
+    "vendoredSourceBuiltElf": {
+      "status": "ready",
+      "path": "runtime-tests/solana/ata/ata_classic_v1.so",
+      "sha256": "d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519",
+      "size": 111136,
+      "source": {
+        "repo": "https://github.com/solana-program/associated-token-account",
+        "tag": "program@v8.0.0",
+        "tagObject": "de77f367fdc0341879b1b9f0224c6b86107e1769",
+        "peeledCommit": "0b867b5340cd001e5980d8ca7928effc4e10015c"
+      },
+      "recipe": {
+        "command": "cargo-build-sbf --manifest-path program/Cargo.toml",
+        "solanaCli": "3.0.0",
+        "cargoBuildSbf": "3.0.0",
+        "platformTools": "v1.51",
+        "sbfRustc": "1.84.1-dev",
+        "sourceRustToolchain": "1.86.0",
+        "host": "Darwin arm64",
+        "recipeManifestDigest": "f7ebe5236730d66ad730df6348b74332eb95e2abfda3377f389a13022e4528e2",
+        "sameHostRepeat": 2
+      },
+      "nonClaims": [
+        "not mainnet parity",
+        "not cross-host reproducible",
+        "not hermetic",
+        "not formal",
+        "not release",
+        "not proof-forge.output.v1",
+        "not activated sync",
+        "not package-owner-published",
+        "not package-owned locked release asset",
+        "not mollusk-embedded ATA program"
+      ],
+      "note": "Vendored source-built official classic ATA program@v8.0.0 ELF. Annotated tag object de77f367… peels to source commit 0b867b53…. Two clean same-host Darwin builds were byte-identical. Catalog ata-classic-v1 remains artifactBinding.absent and admittedForMaterialization=false; these bytes are test-preactivation only."
+    }
+  },
+  "tokenDependency": {
+    "package": "token-classic-v1",
+    "programIdHex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+    "path": "runtime-tests/solana/token/token_classic_v1.so",
+    "sha256": "a19be3a2d4778533652da23b8fe31c4a341802f8e8c0c7b941b88581fc92d9d9",
+    "size": 94960,
+    "tag": "program@v9.0.0",
+    "tagObject": "5c37ac99c248567bd7d50b965af8cbd45b6ced96",
+    "peeledCommit": "dfb260231c761be7d9c8b63728e770a102b86495",
+    "artifactBinding": "absent"
+  },
+  "systemDependency": {
+    "package": "system-v1",
+    "programIdHex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "executionClass": "nativeSystem",
+    "agaveCommit": "2a165e7a90af75c76426d1e031ed0284211d5d1e",
+    "artifactBinding": "runtimeNative"
+  },
+  "token2022Negative": {
+    "programIdBase58": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "programIdHex": "06ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febdf928d8a18bfc",
+    "note": "Token-2022 substitution is fail-closed and never admitted by this classic ATA contract"
+  },
+  "handlers": {
+    "init": 0,
+    "createIdempotent": 1,
+    "createIdempotentThenOverflow": 2,
+    "inspect": 3
+  },
+  "pda": {
+    "recipe": "ata-classic-v1",
+    "seeds": ["wallet", "classicTokenProgramId", "mint"],
+    "derivationProgram": "classicAtaProgramId",
+    "canonicalBumpSearch": "255..1",
+    "bumpInInstructionData": false,
+    "signerEligibleForCaller": false,
+    "golden": {
+      "walletHex": "3131313131313131313131313131313131313131313131313131313131313131",
+      "mintHex": "4141414141414141414141414141414141414141414141414141414141414141",
+      "addressHex": "3af639c2730fe3226143abb59a0e253e3a93991c9b44eb86304943ef75e8668d",
+      "addressBase58": "4yAQm6WURBF5ipetVEtw8sjHF9yHEKfLPyySQ8cARWPE",
+      "bump": 254
+    }
+  },
+  "generation": {
+    "status": "ready",
+    "blockers": [],
+    "note": "Caller assembly/ELF is generated through the private ATA IR/emitter and locked sbpf 0.2.2. ATA and Token catalog artifact bindings remain absent; ordinary product sync remains denied."
+  },
+  "expectedAssembly": {
+    "sha256": "80ea42196a9a37a13012d4bcc720b50d97d6167e42dde88da501ef928d6364b9",
+    "size": 108322
+  },
+  "expectedElf": {
+    "sha256": "9902eb1e8a251b3352a08b4469e32003d7f82b980bc0f33b8557f0cf37d13e37",
+    "size": 46872
+  },
+  "expectedFinalElfCalls": [
+    "sol_try_find_program_address",
+    "sol_invoke_signed_c",
+    "sol_set_return_data",
+    "sol_set_return_data",
+    "sol_try_find_program_address",
+    "sol_invoke_signed_c",
+    "sol_set_return_data",
+    "sol_set_return_data",
+    "sol_set_return_data"
+  ],
+  "forcingMatrix": [
+    "generated_assembly_and_elf_are_exact_preactivation",
+    "create_idempotent_fresh_success_exact_layout_and_state_order",
+    "create_idempotent_replay_is_exactly_idempotent",
+    "created_ata_is_usable_by_classic_token_transfer_checked",
+    "create_idempotent_then_overflow_full_snapshot_rollback",
+    "underfunded_payer_inner_failure_full_snapshot",
+    "inspect_reads_initialized_state",
+    "one_mutation_ata_key_and_fresh_prestate_negatives",
+    "one_mutation_existing_ata_shape_and_join_negatives",
+    "one_mutation_mint_account_negatives",
+    "one_mutation_payer_and_wallet_negatives",
+    "one_mutation_privilege_and_flag_negatives",
+    "one_mutation_alias_negatives",
+    "one_mutation_role_count_and_order_negatives",
+    "ata_program_identity_loader_and_executable_negatives",
+    "classic_token_and_token2022_program_negatives",
+    "native_system_program_identity_negatives",
+    "wrong_wallet_mint_or_token_seed_derivation_fails"
+  ],
+  "reproducibilityNote": "Generated through the production ATA authority/emitter chain and locked sbpf 0.2.2 against vendored source-built official ATA v8 and Token v9 ELF bytes. Same-host repeat=2 only. Engineering test-preactivation evidence only: not proof-forge.output.v1, not activated sync, not mainnet parity, not cross-host/hermetic/formal/release; catalog ATA/Token artifactBinding remains absent."
+}

@@ -84,6 +84,7 @@ import Tests.Materialization.SolanaCpiUnsignedV1
 import Tests.Materialization.SolanaCpiPdaV1
 import Tests.Materialization.SolanaCpiSystemV1
 import Tests.Materialization.SolanaCpiTokenV1
+import Tests.Materialization.SolanaCpiAtaV1
 
 import Tests.Materialization.Targets
 import Tests.Materialization.NearHostModel
@@ -185,6 +186,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.SolanaCpiPdaV1.run
   Tests.Materialization.SolanaCpiSystemV1.run
   Tests.Materialization.SolanaCpiTokenV1.run
+  Tests.Materialization.SolanaCpiAtaV1.run
 
   Tests.Materialization.TargetRegistryV1.run
   Tests.Materialization.RequirementResolverV1.run

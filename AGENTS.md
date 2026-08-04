@@ -113,8 +113,44 @@
 > refresh/check **187**、`just solana-runtime`（**11 binaries/221 active**，`cpi_token` 31/31；
 > Mollusk **不属于** ordinary `just ci`，为单独运行）、`just test-targets`（clean repo-local
 > exact tool root）、focused；`just dev-check`/ordinary `just ci` 全 exit 0；独立审计无 P0/P1）。
-> **Active 明确为 #123** classic ATA；#124 escrow 仍 pending；#125 才可 activation。
+> **#122 工程切片已闭合**；#123 见下；#125 才可 activation。
 > 非 formal/Stage-0/release；Mollusk/`just solana-runtime` 属独立门禁，**不**并入 ordinary `just ci` 计次。
+>
+> **2026-08-04 Solana #123 classic ATA CPI update**：独立 private `CpiAtaIRV1` +
+> `EmitCpiAtaSbpfV1` 在仍为 activationDenied/test-preactivation 的 opt-in
+> `solana-sbpf-cpi-elf-v1` lane 上，发射真实 classic ATA CPI：frozen
+> `createIdempotent`（data byte `01`、六 ordered metas：payer(w+s)/ATA(w)/wallet(ro)/mint(ro)/
+> native System(ro)/classic Token(ro)；零 caller signer groups）；真实 LoaderV3
+> `sol_invoke_signed_c`；canonical ATA address check（seeds wallet/classic-Token/mint under
+> classic ATA program；`sol_try_find_program_address`；bump 非 caller signer group）；atomic
+> **fresh** zero-lamport/zero-data System-owned **or existing** classic Token-owned 165B
+> initialized ATA closed prestate。vendored source-built official
+> `solana-program/associated-token-account program@v8.0.0` ELF **111136** sha
+> `d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519`，annotated tag object
+> `de77f367fdc0341879b1b9f0224c6b86107e1769`→peeled commit
+> `0b867b5340cd001e5980d8ca7928effc4e10015c`，same-host clean **repeat2**，recipe digest
+> `f7ebe5236730d66ad730df6348b74332eb95e2abfda3377f389a13022e4528e2`；caller assembly **108322**
+> sha `80ea42196a9a37a13012d4bcc720b50d97d6167e42dde88da501ef928d6364b9`、caller ELF **46872**
+> sha `9902eb1e8a251b3352a08b4469e32003d7f82b980bc0f33b8557f0cf37d13e37`。catalog raw SHA-256
+> `513c268853e59e5b274457ef95e7b4007f499897d4db50116d43a6be54da1ead` / domain digest
+> `41ace268b3bea9837e4a1fc9e456dbfbd36c98a344e51dfd095ab4ffb2086351`（#122 历史 catalog domain
+> `0da1837ec10f7acc716c1151bee23a04e019174f99b1fedde635c7d75b4055f5`；当前 requalification
+> `41ace…`），但 ATA/Token **artifactBinding 仍 absent / admitted=false**。#118–#122 链保持独立。
+> Mollusk focused **25/25**（fresh exact **2,039,280** rent+layout、full-result replay/payer
+> unchanged、real Token TransferChecked usability、underfunded native System exact log+
+> Custom(1)+empty return+full snapshot、post-CPI overflow ordered logs+full rollback、独立
+> SHA256+curve oracle、完整 single-mutation matrix）。full `just solana-runtime` exit 0
+> （**12** integration binaries / **246** active tests，`cpi_ata` 25/25；Mollusk **不属于**
+> ordinary `just ci`，为单独运行）。strict ATA build manifest 现在逐值绑定 provenance 并有
+> **4** mutation self-tests。准确称谓是 production-code-generated **test-preactivation
+> classic-ATA CPI ELF**，**不是** `OutputFile`/产品 artifact/activated sync；legacy profiles
+> 与 ordinary resolver 仍 fail closed；#125 前不 advertise/mint；**非** mainnet parity /
+> tracked Tool Lock / cross-host / hermetic / formal / release / package-owner-published；
+> Principal 不全局等同 pubkey；**#123 工程切片已闭合**（已通过 `just docs-check`、SBOM
+> refresh/check **189**、`just solana-runtime`、focused Lean/Rust、`just test-targets`
+> （clean repo-local exact tool root）、`just dev-check`/ordinary `just ci` 全 exit 0；两轮
+> 独立审计最终无 P0/P1）。**#111–#123 已闭合**；**Active 明确为 #124** escrow；#125 才可
+> activation。非 formal/Stage-0/release。
 >
 > **2026-08-02 invariant lowering update**：`NormalizeV1` 现将 source `invariant` 降为
 > source-order Semantic `.invariant` callables 与 dense `InvariantDecl`，并复用 Wire sole closure membership/

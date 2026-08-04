@@ -234,6 +234,22 @@ fi
 token_out="$(cd "$token_out" && pwd -P)"
 export PROOF_FORGE_CPI_TOKEN_OUT="$token_out"
 
+# #123 production-code-generated classic ATA CPI ELF (test-preactivation).
+# Vendored official ATA v8 + classic Token v9 ELFs as runtime deps only; no
+# product OutputFile or activated sync claim. Independent of #118–#122 lanes.
+ata_out="${PROOF_FORGE_CPI_ATA_OUT:-$root/build/v2/solana-cpi-ata}"
+export PROOF_FORGE_CPI_ATA_OUT="$ata_out"
+echo "solana-runtime-test: CPI ATA build → $ata_out"
+if ! bash "$root/scripts/solana_cpi_ata_build.sh"; then
+  die "Solana CPI ATA build failed"
+fi
+[[ -f "$ata_out/ata_cpi.s" ]] || die "CPI ATA assembly missing"
+[[ -f "$ata_out/ata_cpi.so" ]] || die "CPI ATA caller ELF missing"
+[[ -f "$ata_out/ata_classic_v1.so" ]] || die "classic ATA callee ELF missing"
+[[ -f "$ata_out/token_classic_v1.so" ]] || die "classic Token dependency ELF missing"
+ata_out="$(cd "$ata_out" && pwd -P)"
+export PROOF_FORGE_CPI_ATA_OUT="$ata_out"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"

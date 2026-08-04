@@ -904,6 +904,19 @@ def validate_sol_cpi_contract(
         catalog_path,
         "classic Token interface must distinguish annotated tag object from peeled commit",
     )
+    ata_interface = package_by_id["ata-classic-v1"].get("interfaceBinding")
+    _expect_sol_cpi(
+        ata_interface == {
+            "commit": "0b867b5340cd001e5980d8ca7928effc4e10015c",
+            "interfaceVersion": "2.0.0",
+            "programVersion": "8.0.0",
+            "repo": "https://github.com/solana-program/associated-token-account",
+            "tag": "program@v8.0.0",
+            "tagObject": "de77f367fdc0341879b1b9f0224c6b86107e1769",
+        },
+        catalog_path,
+        "classic ATA interface must distinguish annotated tag object from peeled commit",
+    )
 
     account_abi = extension.get("accountAbi")
     cpi_contract = extension.get("cpiContract")

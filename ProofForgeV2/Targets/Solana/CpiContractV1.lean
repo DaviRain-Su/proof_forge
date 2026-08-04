@@ -38,7 +38,7 @@ def profileDigestV1 : String :=
 
 /-- Domain-separated callee-catalog digest (`pf.solana.callee-catalog.v1`). -/
 def catalogDigestV1 : String :=
-  "sha256:0da1837ec10f7acc716c1151bee23a04e019174f99b1fedde635c7d75b4055f5"
+  "sha256:41ace268b3bea9837e4a1fc9e456dbfbd36c98a344e51dfd095ab4ffb2086351"
 
 /-! ## Product caps (fail closed before runtime upper bounds) -/
 

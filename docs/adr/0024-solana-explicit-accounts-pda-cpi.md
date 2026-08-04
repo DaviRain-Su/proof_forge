@@ -3,7 +3,7 @@ id: ADR-0024
 title: Solana 显式账户、PDA/bump 与真实同步 CPI v1 合同
 status: proposed
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -76,7 +76,7 @@ merge。target lowering 只能消费已冻结 row，禁止重新遍历 source �
 | 文件 | raw SHA-256 | domain-separated digest |
 |---|---|---|
 | [`solana-cpi-extension-v1.json`](../specs/solana-cpi-extension-v1.json) | `13078a4c60ecf85b9bc66124809782641328e6d0d6268855bfa9e66a55b3622d` | `sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020` |
-| [`solana-cpi-callee-catalog-v1.json`](../specs/solana-cpi-callee-catalog-v1.json) | `f936535d97192254d9c0ec8696566dd03f3dd27e04de0046b63995e43aaba145` | `sha256:0da1837ec10f7acc716c1151bee23a04e019174f99b1fedde635c7d75b4055f5` |
+| [`solana-cpi-callee-catalog-v1.json`](../specs/solana-cpi-callee-catalog-v1.json) | `513c268853e59e5b274457ef95e7b4007f499897d4db50116d43a6be54da1ead` | `sha256:41ace268b3bea9837e4a1fc9e456dbfbd36c98a344e51dfd095ab4ffb2086351` |
 | [`solana-cpi-profile-v1.json`](../specs/solana-cpi-profile-v1.json) | `609d7604cffbaaffbfbe10304015cbaea3d90387674e9c92cad7d616e2b9b307` | `sha256:0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1` |
 
 Digest 公式固定为：
@@ -399,7 +399,7 @@ Base58仅展示；Plan/IR/catalog authority是 raw bytes。
 | companion-v1 | extension digest + three-op closed interface + fixed ID | `absent`，不可 materialize |
 | System | `solana-system-interface 3.1.0` checksum + Agave v4.0.0 native runtime | runtime-native identity存在，但 profile仍 inert |
 | classic Token | `solana-program/token program@v9.0.0`，annotated tag object `5c37ac99c248567bd7d50b965af8cbd45b6ced96` → peeled source commit `dfb260231c761be7d9c8b63728e770a102b86495`，interface 2.0.0 | `absent`，不可 materialize |
-| classic ATA | `solana-program/associated-token-account program@v8.0.0`, commit `de77f367fdc0341879b1b9f0224c6b86107e1769`, interface 2.0.0 | `absent`，不可 materialize |
+| classic ATA | `solana-program/associated-token-account program@v8.0.0`，annotated tag object `de77f367fdc0341879b1b9f0224c6b86107e1769` → peeled source commit `0b867b5340cd001e5980d8ca7928effc4e10015c`，interface 2.0.0 | `absent`，不可 materialize |
 
 `absent` 是 closed fail state。Token/ATA/companion只有在 catalog新 instance提供 package-owned或 locked
 reproducible exact ELF bytes、SHA-256、source/build identity与 runtime registration ID match后才能
@@ -632,10 +632,63 @@ Plan/IR/IDL identities：
 - 准确称谓是 **production-code-generated test-preactivation classic-Token CPI ELF**。不是
   `OutputFile` / `proof-forge.output.v1` / activated sync；**不是** mainnet parity、tracked Tool
   Lock、cross-host、hermetic、formal、release 或 package-owner-published。ordinary resolver 与
-  legacy profiles 仍 fail closed；#123 ATA / #124 escrow 仍 pending；#125 前不 advertise/mint。
+  legacy profiles 仍 fail closed；#123 见下；#124 escrow 仍 pending；#125 前不 advertise/mint。
   可声称门：`just docs-check`、SBOM refresh/check **187**、`just test-targets`（clean
   repo-local exact tool root）、`just solana-runtime`、focused、`just dev-check`、ordinary
   `just ci` 全 exit 0；独立审计无 P0/P1。
+
+#### #123 classic ATA CPI engineering observation（2026-08-04）
+
+- 在仍为 `activationDenied`/test-preactivation 的 opt-in `solana-sbpf-cpi-elf-v1` lane 中，
+  新增独立 private authority-bound 模块 `CpiAtaIRV1` + `EmitCpiAtaSbpfV1`；**不**原地把
+  #118–#122 emitter 改成 ATA 面。唯一 emitter authority 来自 retained Semantic → private
+  preflight/ATA IR 链；public structural Plan/IR 仍不能授权发射。
+- 首切片只冻结 `solana.ata.createIdempotent`（data byte exact `01`；六 ordered metas：
+  payer writable+signer、ATA writable、wallet/mint/native System/classic Token readonly；
+  零 caller signer groups）。真实 LoaderV3 `sol_invoke_signed_c`；ATA callee 自行嵌套
+  System/Token signed CPI。canonical ATA address check：seeds
+  `wallet || classic Token program id || mint` under classic ATA program，经
+  `sol_try_find_program_address` 与 supplied ATA role key 全 32B 相等；返回 bump **不是**
+  caller signer group。atomic closed prestate：ATA 账户必须是 **fresh**
+  zero-lamport/zero-data System-owned **或 existing** classic Token-owned 165B
+  initialized（exact mint+wallet joins）。Token-2022、dynamic CPI、schedule、multisig 与
+  typed returns 继续 fail closed。
+- classic ATA callee 为 vendored **source-built** official
+  `solana-program/associated-token-account program@v8.0.0` ELF（**111136** bytes，SHA-256
+  `d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519`）；annotated tag object
+  `de77f367fdc0341879b1b9f0224c6b86107e1769` → peeled commit
+  `0b867b5340cd001e5980d8ca7928effc4e10015c`；same-host clean **repeat=2**，recipe digest
+  `f7ebe5236730d66ad730df6348b74332eb95e2abfda3377f389a13022e4528e2`。依赖 classic Token
+  vendored ELF pin 不变。callee catalog raw SHA-256
+  `513c268853e59e5b274457ef95e7b4007f499897d4db50116d43a6be54da1ead` / domain digest
+  `sha256:41ace268b3bea9837e4a1fc9e456dbfbd36c98a344e51dfd095ab4ffb2086351`（相对 #122 的
+  `0da183…` 因 ATA interface 补齐 tagObject/peeled commit 字段而更新），但
+  **`artifactBinding=absent` / `admittedForMaterialization=false` 保持不变**——vendored ELF
+  只服务 test-preactivation，不是 package-owner-published / tracked Tool Lock / product
+  materialize authority。
+- caller 经真实 production ATA authority/emitter + locked `sbpf 0.2.2`：assembly **108322**
+  SHA-256 `80ea42196a9a37a13012d4bcc720b50d97d6167e42dde88da501ef928d6364b9`、ELF **46872**
+  SHA-256 `9902eb1e8a251b3352a08b4469e32003d7f82b980bc0f33b8557f0cf37d13e37`。committed
+  `runtime-tests/solana/ata/manifest.json` 绑定 source/profile/extension/boundary/ATA+Token
+  ELF/caller pins 与 forcing 矩阵。final ELF call surface 仅
+  `sol_try_find_program_address` / `sol_invoke_signed_c` / `sol_set_return_data`。
+- Mollusk focused **25/25** active：fresh exact **2,039,280** rent+layout、full-result
+  replay/payer unchanged、real Token TransferChecked usability、underfunded native System
+  exact log+Custom(1)+empty return+full snapshot、post-CPI overflow ordered logs+full
+  rollback、独立 SHA256+curve oracle、完整 single-mutation matrix（见 committed
+  `runtime-tests/solana/tests/cpi_ata.rs` 与 manifest `forcingMatrix`）。
+- full `just solana-runtime` exit 0：**12** integration binaries / **246** active tests，
+  `cpi_ata` 25/25（Mollusk **不属于** ordinary `just ci`，为单独运行）。strict ATA build
+  manifest 现在逐值绑定 provenance，并有 **4** mutation self-tests。
+- 已通过 `just docs-check`、SBOM refresh/check **189**、focused Lean/Rust、
+  `just test-targets`（clean repo-local exact tool root）、`just dev-check`、ordinary
+  `just ci` 全 exit 0；两轮独立审计最终无 P0/P1。
+- 准确称谓是 **production-code-generated test-preactivation classic-ATA CPI ELF**。不是
+  `OutputFile` / `proof-forge.output.v1` / activated sync；**不是** mainnet parity、tracked
+  Tool Lock、cross-host、hermetic、formal、release 或 package-owner-published。ordinary
+  resolver 与 legacy profiles 仍 fail closed；**#123 工程切片已闭合**；**#111–#123 closed**；
+  **Active #124** escrow；#125 前不 advertise/mint。catalog domain 当前 requalification 为
+  `41ace268…`（#122 历史 `0da183…` 保留为当时事实）。
 
 ### Schema mutation obligations
 

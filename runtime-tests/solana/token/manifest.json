@@ -28,7 +28,7 @@
     "activationDenied": true
   },
   "programIdHex": "5757575757575757575757575757575757575757575757575757575757575757",
-  "catalogDigest": "0da1837ec10f7acc716c1151bee23a04e019174f99b1fedde635c7d75b4055f5",
+  "catalogDigest": "41ace268b3bea9837e4a1fc9e456dbfbd36c98a344e51dfd095ab4ffb2086351",
   "token": {
     "package": "token-classic-v1",
     "programIdHex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
