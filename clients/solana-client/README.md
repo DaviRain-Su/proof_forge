@@ -35,6 +35,19 @@ current-profile OutputSet is verified as engineering self-consistency only.
 This is engineering self-consistency, **not** signed provenance, source recompilation, formal
 proof, or hermetic attestation.
 
+## Extension model
+
+The binary is intentionally program-neutral. Its verification path is layered as:
+
+1. `output_set` — target-wide manifest/evidence/filesystem/digest checks;
+2. `profile` — closed dispatch for a registered Solana codegen profile;
+3. `program_adapter` — optional program-specific ABI/source pins.
+
+Add future Solana programs as new `program_adapter` IDs and tests rather than creating another CLI.
+A future local or operator-owned invocation transport can consume the same verified profile result;
+this crate currently remains verify-only and does not silently introduce RPC, signing, deployment,
+or wallet custody.
+
 ## Direct verifier command
 
 ```bash

@@ -50,6 +50,8 @@ pub struct VerifiedArtifact {
 }
 
 const GENERIC_SCOPE: &str = "output-set-self-consistency+known-profile-joins";
+const PROGRAM_ADAPTER_SCOPE: &str =
+    "output-set-self-consistency+known-profile-joins+program-adapter-pins";
 const GENERIC_TRUST: &str = "manifest-bound-self-consistency (not signed provenance)";
 
 /// Generic verification: no program adapter selected.
@@ -75,12 +77,13 @@ fn build_verified(
     profile: ProfileJoinResult,
     program_adapter: Option<ProgramAdapterId>,
 ) -> VerifiedArtifact {
-    let (program_adapter_s, trust) = match program_adapter {
+    let (program_adapter_s, trust, scope) = match program_adapter {
         Some(a) => (
             Some(a.as_str().to_string()),
             a.trust_anchor_note().to_string(),
+            PROGRAM_ADAPTER_SCOPE,
         ),
-        None => (None, GENERIC_TRUST.to_string()),
+        None => (None, GENERIC_TRUST.to_string(), GENERIC_SCOPE),
     };
     let so_path = profile.so_path.as_ref().map(|p| loaded.dir.join(p));
     VerifiedArtifact {
@@ -89,7 +92,7 @@ fn build_verified(
         profile_id: profile.profile_id,
         program_adapter: program_adapter_s,
         trust_anchor: trust,
-        verification_scope: GENERIC_SCOPE.to_string(),
+        verification_scope: scope.to_string(),
         so_path,
         so_bytes: profile.so_bytes,
         so_sha256_hex: profile.so_sha256_hex,

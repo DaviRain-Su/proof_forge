@@ -61,18 +61,11 @@ fn verify_plan_profile(loaded: &LoadedOutputSet) -> Result<ProfileJoinResult, Cl
         .ok_or_else(|| ClientError::Artifact(format!("missing plan leaf {plan_path}")))?;
     let idl = leaf_bytes_by_name(loaded, &idl_path)
         .ok_or_else(|| ClientError::Artifact(format!("missing idl leaf {idl_path}")))?;
-    if plan.is_empty() {
-        return Err(ClientError::Artifact("plan leaf is empty".into()));
-    }
-    // IDL must be valid strict JSON with matching programName when present.
+    let plan_text = String::from_utf8(plan.to_vec())
+        .map_err(|e| ClientError::AbiJoin(format!("legacy plan must be UTF-8: {e}")))?;
+    validate_legacy_plan(&plan_text, name)?;
     let idl_v = parse_json_no_dups(idl)?;
-    if let Some(pn) = idl_v.get("programName").and_then(|v| v.as_str()) {
-        if pn != name {
-            return Err(ClientError::AbiJoin(format!(
-                "idl.programName mismatch: actual={pn} expected={name}"
-            )));
-        }
-    }
+    validate_legacy_idl(&idl_v, name, PROFILE_PLAN_V1, false)?;
     Ok(ProfileJoinResult {
         profile_id: PROFILE_PLAN_V1.into(),
         plan_digest_hex: loaded.manifest.plan_digest.clone(),
@@ -106,20 +99,14 @@ fn verify_elf_profile(loaded: &LoadedOutputSet) -> Result<ProfileJoinResult, Cli
         .ok_or_else(|| ClientError::Artifact(format!("missing assembly leaf {asm_path}")))?;
     let so = leaf_bytes_by_name(loaded, &so_path)
         .ok_or_else(|| ClientError::Artifact(format!("missing ELF leaf {so_path}")))?;
-    if plan.is_empty() {
-        return Err(ClientError::Artifact("plan leaf is empty".into()));
-    }
-    if asm.is_empty() {
-        return Err(ClientError::Artifact("assembly leaf is empty".into()));
-    }
+    let plan_text = String::from_utf8(plan.to_vec())
+        .map_err(|e| ClientError::AbiJoin(format!("legacy plan must be UTF-8: {e}")))?;
+    validate_legacy_plan(&plan_text, name)?;
+    let asm_text = String::from_utf8(asm.to_vec())
+        .map_err(|e| ClientError::AbiJoin(format!("legacy assembly must be UTF-8: {e}")))?;
+    validate_legacy_assembly(&asm_text)?;
     let idl_v = parse_json_no_dups(idl)?;
-    if let Some(pn) = idl_v.get("programName").and_then(|v| v.as_str()) {
-        if pn != name {
-            return Err(ClientError::AbiJoin(format!(
-                "idl.programName mismatch: actual={pn} expected={name}"
-            )));
-        }
-    }
+    validate_legacy_idl(&idl_v, name, PROFILE_ELF_V1, true)?;
     require_elf_magic(so, &so_path)?;
     Ok(ProfileJoinResult {
         profile_id: PROFILE_ELF_V1.into(),
@@ -131,6 +118,64 @@ fn verify_elf_profile(loaded: &LoadedOutputSet) -> Result<ProfileJoinResult, Cli
         so_sha256_hex: Some(crate::util::sha256_hex(so)),
         so_bytes: Some(so.to_vec()),
     })
+}
+
+const LEGACY_IDL_VERSION: &str = "proof-forge-solana-idl/v1";
+const LEGACY_PLAN_PROFILE: &str = "solana-sbpf-plan-v1";
+
+fn validate_legacy_idl(
+    idl: &Value,
+    program_name: &str,
+    profile_id: &str,
+    deployable: bool,
+) -> Result<(), ClientError> {
+    require_str(idl, "version", LEGACY_IDL_VERSION)?;
+    require_str(idl, "name", program_name)?;
+    require_str(idl, "codegenProfile", profile_id)?;
+    if idl.get("deployable").and_then(Value::as_bool) != Some(deployable) {
+        return Err(ClientError::AbiJoin(format!(
+            "idl.deployable mismatch: expected={deployable}"
+        )));
+    }
+    if as_array(idl, "instructions")?.is_empty() {
+        return Err(ClientError::AbiJoin(
+            "idl.instructions must be non-empty".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_legacy_plan(plan: &str, program_name: &str) -> Result<(), ClientError> {
+    let exact_markers = [
+        "; PROOF-FORGE-SBPF-PLAN v1".to_string(),
+        format!("; codegen-profile: {LEGACY_PLAN_PROFILE}"),
+        format!("; program: {program_name}"),
+    ];
+    for marker in exact_markers {
+        if !plan.lines().any(|line| line == marker) {
+            return Err(ClientError::AbiJoin(format!(
+                "legacy plan missing exact marker {marker}"
+            )));
+        }
+    }
+    if !plan
+        .lines()
+        .any(|line| line.starts_with("; PLAN-ONLY NON-EXECUTABLE:"))
+    {
+        return Err(ClientError::AbiJoin(
+            "legacy plan missing non-executable marker".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_legacy_assembly(asm: &str) -> Result<(), ClientError> {
+    if !asm.contains("; PROOF-FORGE-SBPF-ASM v1") {
+        return Err(ClientError::AbiJoin(
+            "legacy assembly missing PROOF-FORGE-SBPF-ASM v1 marker".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn require_elf_magic(so: &[u8], label: &str) -> Result<(), ClientError> {
@@ -314,19 +359,19 @@ fn join_cpi_generic(
             "plan.handlers must be non-empty".into(),
         ));
     }
-    // Structural handler shape only — do not pin handler name/count.
+    // Canonical source order, without pinning any business handler name/count.
     for (i, h) in handlers.iter().enumerate() {
-        if h.get("handlerId").and_then(|v| v.as_u64()).is_none() {
+        if h.get("handlerId").and_then(Value::as_u64) != Some(i as u64) {
             return Err(ClientError::AbiJoin(format!(
-                "handlers[{i}].handlerId must be a number"
+                "handlers[{i}].handlerId must be {i}"
             )));
         }
-        if h.get("name").and_then(|v| v.as_str()).is_none() {
+        if h.get("name").and_then(Value::as_str).is_none() {
             return Err(ClientError::AbiJoin(format!(
                 "handlers[{i}].name must be a string"
             )));
         }
-        if h.get("mode").and_then(|v| v.as_str()).is_none() {
+        if h.get("mode").and_then(Value::as_str).is_none() {
             return Err(ClientError::AbiJoin(format!(
                 "handlers[{i}].mode must be a string"
             )));
@@ -353,16 +398,32 @@ fn join_cpi_generic(
     }
 
     let sites = as_array(plan, "cpiSites")?;
-    // cpiSites may be empty for non-CPI handlers; when present check packageId shape.
+    // CPI sites are dense and point into the generic handler table.
     for (i, site) in sites.iter().enumerate() {
-        if site.get("siteId").and_then(|v| v.as_u64()).is_none() {
+        if site.get("siteId").and_then(Value::as_u64) != Some(i as u64) {
             return Err(ClientError::AbiJoin(format!(
-                "cpiSites[{i}].siteId must be a number"
+                "cpiSites[{i}].siteId must be {i}"
             )));
         }
-        if site.get("packageId").and_then(|v| v.as_str()).is_none() {
+        let handler_id = site
+            .get("handlerId")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                ClientError::AbiJoin(format!("cpiSites[{i}].handlerId must be a number"))
+            })?;
+        if handler_id >= handlers.len() as u64 {
+            return Err(ClientError::AbiJoin(format!(
+                "cpiSites[{i}].handlerId out of range: {handler_id}"
+            )));
+        }
+        if site.get("packageId").and_then(Value::as_str).is_none() {
             return Err(ClientError::AbiJoin(format!(
                 "cpiSites[{i}].packageId must be a string"
+            )));
+        }
+        if site.get("qn").and_then(Value::as_str).is_none() {
+            return Err(ClientError::AbiJoin(format!(
+                "cpiSites[{i}].qn must be a string"
             )));
         }
     }
@@ -453,14 +514,58 @@ fn join_cpi_generic(
         ));
     }
     let instructions = as_array(idl, "instructions")?;
-    if instructions.is_empty() {
-        return Err(ClientError::AbiJoin(
-            "idl.instructions must be non-empty".into(),
-        ));
+    if instructions.len() != handlers.len() {
+        return Err(ClientError::AbiJoin(format!(
+            "idl.instructions length {} must equal plan.handlers length {}",
+            instructions.len(),
+            handlers.len()
+        )));
+    }
+    for (i, (instruction, handler)) in instructions.iter().zip(handlers).enumerate() {
+        if instruction.get("handlerId").and_then(Value::as_u64) != Some(i as u64) {
+            return Err(ClientError::AbiJoin(format!(
+                "idl.instructions[{i}].handlerId must be {i}"
+            )));
+        }
+        for field in ["name", "mode"] {
+            let idl_value = plan_str(instruction, field)?;
+            let plan_value = plan_str(handler, field)?;
+            if idl_value != plan_value {
+                return Err(ClientError::AbiJoin(format!(
+                    "idl.instructions[{i}].{field} diverges from plan.handlers[{i}]"
+                )));
+            }
+        }
+    }
+    let idl_sites = as_array(idl, "cpiSites")?;
+    if idl_sites.len() != sites.len() {
+        return Err(ClientError::AbiJoin(format!(
+            "idl.cpiSites length {} must equal plan.cpiSites length {}",
+            idl_sites.len(),
+            sites.len()
+        )));
+    }
+    for (i, (idl_site, plan_site)) in idl_sites.iter().zip(sites).enumerate() {
+        for field in ["siteId", "handlerId"] {
+            if idl_site.get(field).and_then(Value::as_u64)
+                != plan_site.get(field).and_then(Value::as_u64)
+            {
+                return Err(ClientError::AbiJoin(format!(
+                    "idl.cpiSites[{i}].{field} diverges from plan.cpiSites[{i}]"
+                )));
+            }
+        }
+        for field in ["packageId", "qn"] {
+            if plan_str(idl_site, field)? != plan_str(plan_site, field)? {
+                return Err(ClientError::AbiJoin(format!(
+                    "idl.cpiSites[{i}].{field} diverges from plan.cpiSites[{i}]"
+                )));
+            }
+        }
     }
 
     // ---- IR text ----
-    validate_cpi_ir_text(ir_text, plan_digest)?;
+    validate_cpi_ir_text(ir_text, plan_digest, handlers.len())?;
 
     // ---- Assembly ----
     validate_cpi_assembly(asm_text)?;
@@ -468,7 +573,11 @@ fn join_cpi_generic(
     Ok(())
 }
 
-fn validate_cpi_ir_text(ir_text: &str, plan_digest: &str) -> Result<(), ClientError> {
+fn validate_cpi_ir_text(
+    ir_text: &str,
+    plan_digest: &str,
+    expected_handler_lines: usize,
+) -> Result<(), ClientError> {
     let mut keys: BTreeMap<&str, &str> = BTreeMap::new();
     let mut handler_lines = 0usize;
     for line in ir_text.lines() {
@@ -533,10 +642,10 @@ fn validate_cpi_ir_text(ir_text: &str, plan_digest: &str) -> Result<(), ClientEr
     if keys["maxFrameBytes"] != "4096" {
         return Err(ClientError::AbiJoin("ir maxFrameBytes must be 4096".into()));
     }
-    if handler_lines == 0 {
-        return Err(ClientError::AbiJoin(
-            "ir must contain at least one handler line".into(),
-        ));
+    if handler_lines != expected_handler_lines {
+        return Err(ClientError::AbiJoin(format!(
+            "ir handler line count {handler_lines} must equal plan.handlers length {expected_handler_lines}"
+        )));
     }
     Ok(())
 }

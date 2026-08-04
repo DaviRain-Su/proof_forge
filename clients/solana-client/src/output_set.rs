@@ -25,6 +25,7 @@ use crate::util::{
 };
 
 pub const MAX_ARTIFACT_FILES: usize = 1024;
+pub const MAX_ARTIFACT_PATH_BYTES: usize = 240;
 pub const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 
@@ -259,16 +260,18 @@ fn role_rank(role: &str) -> Result<u8, ClientError> {
 }
 
 fn require_safe_relative_path(path: &str) -> Result<(), ClientError> {
+    let has_control = path.chars().any(|c| (c as u32) < 0x20);
     if path.is_empty()
+        || path.len() > MAX_ARTIFACT_PATH_BYTES
         || path.contains('/')
         || path.contains('\\')
         || path.contains("..")
         || path == "."
         || path == ".."
-        || path.contains('\0')
+        || has_control
     {
         return Err(ClientError::Artifact(format!(
-            "leaf path must be basename only: {path}"
+            "leaf path must be a safe basename of at most {MAX_ARTIFACT_PATH_BYTES} UTF-8 bytes: {path:?}"
         )));
     }
     Ok(())

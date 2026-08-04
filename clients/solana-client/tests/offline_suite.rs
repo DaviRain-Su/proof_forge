@@ -353,11 +353,19 @@ fn build_minimal_artifact_tree(dir: &Path, source_hash: &str) -> PathBuf {
 fn build_plan_profile_tree(dir: &Path, program_name: &str) -> PathBuf {
     let leaves = plan_expected_leaves(program_name);
     let idl = serde_json::json!({
-        "programName": program_name,
-        "instructions": []
+        "version": "proof-forge-solana-idl/v1",
+        "name": program_name,
+        "codegenProfile": PROFILE_PLAN_V1,
+        "deployable": false,
+        "instructions": [{"name": "view", "mode": "view"}]
     })
     .to_string();
-    let plan = format!("sbpf-plan for {program_name}\n");
+    let plan = format!(
+        "; PROOF-FORGE-SBPF-PLAN v1\n\
+; PLAN-ONLY NON-EXECUTABLE: no sBPF instructions, object, or ELF are present\n\
+; codegen-profile: solana-sbpf-plan-v1\n\
+; program: {program_name}\n"
+    );
     let leaf_data = vec![
         (
             leaves[0].0.clone(),
@@ -384,12 +392,20 @@ fn build_plan_profile_tree(dir: &Path, program_name: &str) -> PathBuf {
 fn build_elf_profile_tree(dir: &Path, program_name: &str) -> PathBuf {
     let leaves = elf_expected_leaves(program_name);
     let idl = serde_json::json!({
-        "programName": program_name,
-        "instructions": []
+        "version": "proof-forge-solana-idl/v1",
+        "name": program_name,
+        "codegenProfile": PROFILE_ELF_V1,
+        "deployable": true,
+        "instructions": [{"name": "entry", "mode": "entry"}]
     })
     .to_string();
-    let plan = format!("sbpf-plan for {program_name}\n");
-    let asm = ".text\n; assembly\n";
+    let plan = format!(
+        "; PROOF-FORGE-SBPF-PLAN v1\n\
+; PLAN-ONLY NON-EXECUTABLE: no sBPF instructions, object, or ELF are present\n\
+; codegen-profile: solana-sbpf-plan-v1\n\
+; program: {program_name}\n"
+    );
+    let asm = "; PROOF-FORGE-SBPF-ASM v1 (test)\n.text\n";
     let so = {
         let mut v = b"\x7fELF".to_vec();
         v.extend_from_slice(b" elf profile test so");
@@ -598,6 +614,23 @@ fn elf_profile_leaf_shape_accepted() {
 }
 
 #[test]
+fn generic_output_set_rejects_leaf_path_over_240_utf8_bytes() {
+    let dir = tempdir().unwrap();
+    let long_name = "a".repeat(232);
+    build_plan_profile_tree(dir.path(), &long_name);
+    let err = verify_solana_artifact(dir.path()).unwrap_err();
+    assert!(err.to_string().contains("at most 240 UTF-8 bytes"), "{err}");
+}
+
+#[test]
+fn generic_output_set_rejects_control_character_leaf_path() {
+    let dir = tempdir().unwrap();
+    build_plan_profile_tree(dir.path(), "Bad\nName");
+    let err = verify_solana_artifact(dir.path()).unwrap_err();
+    assert!(err.to_string().contains("safe basename"), "{err}");
+}
+
+#[test]
 fn cpi_profile_leaf_shape_for_dynamic_program_name() {
     let dir = tempdir().unwrap();
     build_cpi_artifact_tree(dir.path(), "AlphaBeta", "route", OTHER_SOURCE);
@@ -620,6 +653,7 @@ fn verify_artifacts_accepts_minimal_exact_tree() {
     assert_eq!(v.profile_digest_hex.as_deref(), Some(PROFILE_DIGEST_HEX));
     assert_eq!(&v.so_bytes.as_ref().unwrap()[0..4], b"\x7fELF");
     assert_eq!(v.program_adapter.as_deref(), Some("transfer-sol-v1"));
+    assert!(v.verification_scope.contains("program-adapter-pins"));
 }
 
 #[test]
