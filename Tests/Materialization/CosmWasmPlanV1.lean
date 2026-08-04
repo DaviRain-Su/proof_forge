@@ -1188,6 +1188,71 @@ private unsafe def testStaticLayoutCapacityFc
         (buildFromCapability capability)
   IO.println "  ✓ static layout capacity fail closed (P0-1)"
 
+/-- B-CTX-OPEN: `context.unixTimeSeconds` lowers on CosmWasm to
+    Env.block.time.seconds() — Plan Expr `.blockTimeSeconds`, WAT parses Env
+    JSON `"time"` (nanoseconds string) and divides by 10^9. `context.caller`
+    and unknown ContextRead keys stay fail closed. -/
+private unsafe def testContextReadUnixTime
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ClockBox" <|
+    "  state t : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    t := 0\n\n" ++
+    "  entry stamp() : UInt64 do\n" ++
+    "    t := context.unixTimeSeconds\n" ++
+    "    return t\n\n" ++
+    "  view last() : UInt64 do\n" ++
+    "    return t\n"
+  let compiled ← compileSource session src "Examples.ClockBox" "<cw-clock-box>"
+  let plan ← liftResult <| planCw compiled
+  let some stamp := plan.entries.find? (·.name == "stamp") |
+    throw <| IO.userError "clock-box: missing stamp entry"
+  let hasBlockTime := stamp.body.any fun s =>
+    match s with
+    | .store op =>
+        match op.value with
+        | .blockTimeSeconds => true
+        | _ => false
+    | _ => false
+  expect hasBlockTime "clock-box: stamp must store blockTimeSeconds"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "ClockBox.wat"
+  -- Exact seconds accessor: Env JSON `"time"` (ns) ÷ 10^9 → whole seconds.
+  expect (wat.contains "$pf_env_block_time_seconds")
+    "clock-box: WAT must contain env block-time seconds helper"
+  expect (wat.contains "i64.div_u")
+    "clock-box: WAT must divide nanoseconds by 1e9"
+  expect (wat.contains "(i64.const 1000000000)")
+    "clock-box: WAT must use exact 10^9 divisor"
+  expect (wat.contains "$pf_block_time_secs")
+    "clock-box: WAT must stage seconds in pf_block_time_secs global"
+  expect (wat.contains "\\\"time\\\"")
+    "clock-box: WAT data must include Env time field needle"
+  -- context.caller stays fail closed. CosmWasm type-closure rejects Principal
+  -- (B-3 AccAddress mapping deferred) before ContextRead lowering; the
+  -- ContextRead (context.caller) arm remains as a second line of defense and
+  -- is reachable only if Principal were later admitted without opening caller.
+  let callerSrc := wrapProgram "CallerBox" <|
+    "  entry who() : UInt64 do\n" ++
+    "    let c : Principal := context.caller\n" ++
+    "    return 0\n"
+  let callerCompiled ← compileSource session callerSrc
+    "Examples.CallerBox" "<cw-caller-box>"
+  match planCw callerCompiled with
+  | .error (.planInvariant .cosmwasm msg) =>
+      expect (msg.contains "Principal" ||
+          (msg.contains "ContextRead" && msg.contains "caller"))
+        s!"caller FC must cite Principal type-gate or ContextRead/caller, got: {msg}"
+  | .error e =>
+      throw <| IO.userError s!"caller FC: expected cosmwasm planInvariant, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "CosmWasm context.caller must fail closed at plan"
+  -- Unknown ContextRead key: wire admits only unixTimeSeconds + caller.
+  -- Source surface cannot spell a third key; the Plan arm still rejects any
+  -- non-unixTime/non-caller SchemaId with "unknown ContextRead key" (mirrors
+  -- the pre-open CosmWasm FC order). Covered by code path + LowerSemantic pin.
+  IO.println "  ✓ ContextRead unixTimeSeconds admit + caller FC (B-CTX-OPEN)"
+
 /-- Entry point for manual / future shard registration. -/
 unsafe def run : IO Unit := do
   IO.println "CosmWasmPlanV1"
@@ -1212,6 +1277,7 @@ unsafe def run : IO Unit := do
   testInvariantFc session
   testMaterializeAggregate session
   testStaticLayoutCapacityFc session
+  testContextReadUnixTime session
   IO.println "CosmWasmPlanV1: all checks passed"
 
 end Tests.Materialization.CosmWasmPlanV1
