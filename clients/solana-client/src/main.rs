@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use proof_forge_solana_client::{
-    print_verify_json, run_verify_artifacts, Cli, ClientError, Commands, ProgramAdapterId,
+    print_verify_json, run_verify_artifacts, Cli, ClientError, Commands,
 };
 
 fn main() {
@@ -26,11 +26,7 @@ fn dispatch(cli: Cli) -> Result<(), ClientError> {
             artifact_dir,
             program_adapter,
         } => {
-            let adapter = match program_adapter {
-                Some(s) => Some(ProgramAdapterId::parse(&s)?),
-                None => None,
-            };
-            let verified = run_verify_artifacts(&artifact_dir, adapter)?;
+            let verified = run_verify_artifacts(&artifact_dir, program_adapter)?;
             print_verify_json(&verified)
         }
     }

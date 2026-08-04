@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use crate::program_adapter::ProgramAdapterId;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "proof-forge-solana-client",
@@ -27,8 +29,8 @@ pub enum Commands {
         artifact_dir: PathBuf,
 
         /// Optional program adapter (e.g. `transfer-sol-v1`). Default: none (generic only).
-        #[arg(long)]
-        program_adapter: Option<String>,
+        #[arg(long, value_enum)]
+        program_adapter: Option<ProgramAdapterId>,
     },
 }
 
@@ -71,7 +73,7 @@ mod tests {
             Commands::VerifyArtifacts {
                 program_adapter, ..
             } => {
-                assert_eq!(program_adapter.as_deref(), Some("transfer-sol-v1"));
+                assert_eq!(program_adapter, Some(ProgramAdapterId::TransferSolV1));
             }
         }
     }
@@ -104,6 +106,14 @@ mod tests {
                 "build/out",
                 "--expected-source-hash",
                 "00",
+            ],
+            vec![
+                "proof-forge-solana-client",
+                "verify-artifacts",
+                "--artifact-dir",
+                "build/out",
+                "--program-adapter",
+                "unknown-v9",
             ],
         ] {
             assert!(Cli::try_parse_from(args).is_err());

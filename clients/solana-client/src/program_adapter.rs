@@ -1,5 +1,6 @@
 //! Optional program adapters (fixture pins). Default verification selects none.
 
+use clap::ValueEnum;
 use serde_json::Value;
 
 use crate::constants::{
@@ -12,9 +13,10 @@ use crate::profile::ProfileJoinResult;
 use crate::util::parse_json_no_dups;
 
 /// Closed program-adapter IDs accepted on the CLI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ProgramAdapterId {
     /// Frozen TransferSol sourceHash + exact handler/accounts/System CPI pins.
+    #[value(name = "transfer-sol-v1")]
     TransferSolV1,
 }
 
