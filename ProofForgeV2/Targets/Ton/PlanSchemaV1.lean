@@ -170,6 +170,9 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
       for arg in args do out := out.append (← encodeExpr arg)
       pure out
   | .localTemp index => pure ((encodeU8 40).append (← encodeNatAsU32le index))
+  -- B-CTX-OPEN: block unix time seconds (tag 51 appended; prior tags
+  -- byte-identical). Tolk `blockchain.now()`; no payload.
+  | .blockUnixTimeSeconds => pure (encodeU8 51)
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

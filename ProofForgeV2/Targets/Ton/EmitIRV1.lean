@@ -46,6 +46,10 @@ inductive Operation where
   | requireLayout (marker : UInt64)
   | zeroState (fieldIndex : Nat)
   | literal (destination : Nat) (value : UInt64)
+  /-- B-CTX-OPEN: block unix time seconds — Tolk `blockchain.now()` (stdlib
+      wrapper over TVM `NOW`). No range guard: unixtime is ~1.7e9 today,
+      always far inside UInt64. -/
+  | blockUnixTimeSeconds (destination : Nat)
   | loadParam (destination inputOffset : Nat)
   | loadState (destination fieldIndex : Nat)
   | checkedAdd (destination lhs rhs : Nat)
@@ -173,6 +177,8 @@ private partial def lowerExpr (next : Nat)
           { operations := #[], value := irTemp, next := next }
       | none =>
           { operations := #[.literal next 0], value := next, next := next + 1 }
+  | .blockUnixTimeSeconds =>
+      { operations := #[.blockUnixTimeSeconds next], value := next, next := next + 1 }
   | .stateLoad fieldIndex =>
       { operations := #[.loadState next fieldIndex], value := next, next := next + 1 }
   | .narrowStateLoad _ fieldIndex =>
@@ -710,6 +716,11 @@ private partial def renderOps (plan : Plan) (method? : Option MethodIR)
         dirty := true
     | .literal dest value =>
         out := out ++ pad ++ s!"val {tempName dest} = {value};\n"
+    | .blockUnixTimeSeconds dest =>
+        -- B-CTX-OPEN: Tolk stdlib `blockchain.now()` (asm NOW) returns block
+        -- unixtime as int (~1.7e9). No UInt64 range guard: always ≪ 2^64.
+        -- (Bare `now()` is not a 1.4 symbol; the stdlib method is authoritative.)
+        out := out ++ pad ++ s!"val {tempName dest} = blockchain.now();\n"
     | .loadParam dest inputOffset =>
         let pname :=
           match method?, fn? with
