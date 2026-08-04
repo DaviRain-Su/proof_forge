@@ -3,7 +3,7 @@ id: TARGET-TON
 title: TON / TVM target dossier
 status: draft
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -14,7 +14,7 @@ Target ID：`ton`
 工程 MVP：**已实现**（2026-08-03，见 §0）。**Engineering only**——**非** accepted PRD
 Phase 1 四目标范围；accepted scope reconciliation 见 **`DOC-ADR-SCOPE`**。
 
-## 0. 工程状态（2026-08-03）
+## 0. 工程状态（2026-08-04）
 
 **已实现（engineering TON-1/TON-2，branch `integrate/ton-2`）**：ADR-0024 接入 TON 时为
 8 implemented + 3 design-only；当前在 ADR-0026/Quint 后为 **9 implemented + 3 design-only**。
@@ -28,18 +28,26 @@ Finalize 经 locked `tolk 1.4.2` 产 `.fif` + `abi.json` + `symbolTypes.json`，
 `fift`（Tool Lock 外 env `PROOF_FORGE_TON_TOOLS`/`PROOF_FORGE_TOLK_STDLIB`/`PROOF_FORGE_FIFT`/
 `PROOF_FORGE_FIFTLIB`——**不得**放进 tool-root）产 **真实 BoC**；Counter e2e
 `deployable=true` + `inspect` exact closure 通过。
-**capability**：sync call 显式 fail closed（纯异步 actor，不伪装）；async/event 开
-（**schedule 的 Plan 发射仍 FC**——destination/send-mode 未接线，属后续切片）。
-**仍 fail closed**：multi-width UInt8..256、named Struct/Enum、Array/Map/Bytes/Option、
-Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、
-masterchain/library/extra currencies。
-**maturity**：`source-only`（registry 标签不变）；BoC 已产且 **engineering sandbox
-differential 已接线**（TON-3：`runtime-tests/ton` `@ton/sandbox@0.44.0` lockfile pin +
-`scripts/ton_runtime_test.sh`——Counter/EventFlowTon 7/7：init/mutate/get、overflow
-exit 100 + state 不变（bounceable 与 non-bounceable）、emit external out 解码、Cap
-revert exit 200、compute/action/bounce 五相位分离；非主网/formal/runtime 完成）。
-callback/promise_then 走编排层（用户第二 entry），不升 Reference schema。
-Static dossier ceiling：`research`（formal 静态上限不变；工程 MVP ≠ formal maturity 升格）。
+**capability**：sync call 显式 fail closed（纯异步 actor，不伪装）；async/event 开。
+TON-4 已把 `schedule` 降为 Plan/IR `promiseAccount` 与 Tolk `createMessage`：NoBounce、
+value=0、`SEND_MODE_PAY_FEES_SEPARATELY`、destination=`(0,SHA-256(UTF-8 target path))`
+stub、body=`op32 · query_id=0 · UInt64 args`；仅 init/mutate，view/pureFn FC。它是诚实的
+最小异步 out-message，但不等于真实地址/value 经济或 callback round-trip。
+
+**后续工程扩面**：UInt8/16/32 state/param/result 与 body narrow guards 已开（UInt128/256
+与窄 Int FC）；named Struct/Enum、`Array UInt64 N`、dense `Map UInt64 UInt64` cap-8 与
+fixed `Bytes N` state 已 flatten 到 c4；named Struct/Enum 以及 anonymous
+`Array UInt64 N`（1..8）/`Option UInt64` **view** 返回已开多栈 get-method。entry aggregate、
+Map/Bytes/nested/非 UInt64元素与 target pureFn aggregate仍 fail closed；Option state、
+Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、masterchain/library/
+extra currencies仍 FC。
+
+**maturity**：`source-only`（registry 标签不变）；BoC 已产且 `runtime-tests/ton`
+`@ton/sandbox@0.44.0` 工程差分当前为 **10/10**：Counter 3 + EventFlowTon 4 +
+ScheduleFlow 3，覆盖 init/mutate/get、overflow state-hold、emit/revert 五阶段区分，以及
+schedule 单 out-message/父状态更新与 Counter 无多余消息回归。非主网/formal/hermetic。
+callback/promise_then 仍由用户第二 entry 编排，不升 Reference schema。Static dossier ceiling
+保持 `research`（工程 MVP ≠ formal maturity 升格）。
 
 > **Historical / superseded research boundary（ADR-0017 研究期原文）**：下列句子描述的是
 > 实现前的研究边界，**已被 2026-08-03 TON-1/2/3 工程 MVP 取代**，仅保留作历史对照——
@@ -152,8 +160,9 @@ FunC/Tact 作为产品默认。
 
 消息 op 表、send mode 位图、bounce 格式选择、storage cell schema 版本、get-method 表、
 jetton/NFT 等生态消息惯例、GlobalVersion-gated 指令、Acton/Blueprint 脚手架约定。每种
-schema 必须 exact 版本化；NetworkProfile 只声明兼容，不定义 schema。MVP 未打开 schedule
-destination/send-mode Plan 发射。
+schema 必须 exact 版本化；NetworkProfile 只声明兼容，不定义 schema。当前 MVP 已用固定
+NoBounce/value=0/send-mode 与 hash destination stub 发射 schedule；真实地址绑定、value 经济与
+callback/query_id 往返仍须新 profile/Plan contract。
 
 ## 4. `TonPlan` schema（工程 MVP 已接线）
 
@@ -163,7 +172,7 @@ TonPlan {
   receivers,               -- op → handler：internal message 分发（32-bit op + query_id）
   storageLayout,           -- c4 扁平 struct cell（MVP 无 dict）
   getMethods,              -- 链下只读方法表
-  outActions,              -- emit → external out；schedule destination/send-mode **Plan 仍 FC**
+  outActions,              -- emit + schedule createMessage（fixed mode/value + hash dest stub）
   errorCodes,              -- 稳定 exit / 业务错误码表（100–105/200+）
   events,                  -- external out 日志形状
   bouncePolicy,            -- sandbox 已分阶段观察；产品 Plan 完整 bounce 策略仍后续
@@ -177,7 +186,8 @@ TonPlan {
 - 不得把异步消息编码成“伪同步 call + 忽略返回值”。
 - renderer 不得回读 `SemanticProgram` 重推业务逻辑；Plan 必须自包含 receiver、layout、
   out-action 与错误表。
-- Lean `Targets/Ton/**` 已声明 Plan/IR/emitter；**resolver 开 async ≠ Plan schedule 已 lower**。
+- Lean `Targets/Ton/**` 已声明 Plan/IR/emitter；resolver 与 Plan 均打开 async schedule，
+  但 fixed hash destination/value/send-mode 仍只是 PARTIAL 平台语义。
 
 ## 5. Target IR 与制品
 
@@ -211,9 +221,9 @@ Reference 差分或 Stage-0 证据。
 工程验收（已有部分）与后续：
 
 1. Tolk 编译产物结构门（BoC / ABI 形状）— **已接线**。
-2. `@ton/sandbox` 五阶段断言（Counter/EventFlowTon 7/7 工程差分）— **已接线**；**非** formal。
+2. `@ton/sandbox` 五阶段断言（Counter/EventFlowTon/ScheduleFlow 10/10 工程差分）— **已接线**；**非** formal。
 3. Counter：init data cell、内部消息 inc、get-method 读回 — **已接线**。
-4. 消息序列 + callback/`query_id` 往返 — **未** 作为完整产品 schedule Plan。
+4. schedule out-message 发射与单消息证据 — **已接线**；callback/`query_id` 往返与真实地址/value 经济仍未闭合。
 5. bounce / action-fail / exit-code 负例 — sandbox 子集已观察。
 6. 可选 testnet 部署 — 未做（network gate；非 Phase 1 工程声明）。
 
@@ -238,7 +248,8 @@ Reference 差分或 Stage-0 证据。
 ```text
 Tolk compile (结构/ABI)                    ✅ 工程
   → sandbox Counter (c4 + 单消息 + get-method)  ✅ 工程（TON-3）
-  → 消息序列 / callback + query_id             ⏳ Plan schedule 仍 FC
+  → schedule out-message / state update         ✅ 工程（TON-4/5）
+  → callback + query_id / real address+value    ⏳ 未闭合
   → bounce / exit-code / action 上限负例      ⚠️ sandbox 子集
   → 可选 testnet evidence                     ❌
 ```
@@ -251,17 +262,18 @@ Tolk compile (结构/ABI)                    ✅ 工程
 ### 当前明确不支持 / fail closed
 
 - 同步跨合约 `call`（resolver + Plan 双 FC）。
-- **Plan-level `schedule` 发射**（resolver 开 async，destination/send-mode 未接线 → Plan FC）。
-- multi-width UInt8..256、named Struct/Enum、Array/Map/Bytes/Option、Field/Principal/String、
-  ContextRead/Commit、nonempty invariants/constants、masterchain/library/extra currencies。
+- schedule 的真实 destination/address binding、非零 value 经济与 callback/`query_id` 往返；当前仅
+  fixed hash destination stub + value=0 + fixed send-mode。
+- UInt128/256、narrow Int、entry aggregate return、Map/Bytes return、Option state、Field/Principal/
+  String interface、ContextRead/Commit、nonempty invariants/constants、masterchain/library/extra currencies。
 - FunC/Tact 默认发射、手写 TVM 汇编产品路径。
 - formal Reference 差分、主网 deploy 证据。
 
 ### 风险
 
 - GlobalVersion / codepage 演进导致指令面漂移。
-- resolver async open 与 Plan schedule FC 的 **capability mismatch** 必须诚实写清，禁止
-  写成“跨合约 async 已完成”。
+- resolver 与 Plan 均已打开 async，但 hash destination/value=0/fixed send-mode 的 **PARTIAL
+  平台语义**必须诚实写清，禁止写成“跨合约 async 已完成”。
 - Cell/dict 布局一旦在生态中“约定俗成”却未写入 Plan，会造成 layout confusion。
 - Sandbox 与主网 GlobalVersion 不一致导致假绿。
 

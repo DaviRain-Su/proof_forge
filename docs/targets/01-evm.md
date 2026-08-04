@@ -3,7 +3,7 @@ id: TARGET-EVM
 title: EVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -27,6 +27,13 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   aggregate `StateStore` 以 `storeAtomic` 两阶段 Yul：每个 leaf 在独立 block 中求值并 spill 到
   reserved memory，全部 leaf 完成后再连续 `sstore`。`EvmSmoke` 固定 empty Map upsert、双 batch
   可见性与 spill 结构；`EvmSolcAcceptance` 检查 host solc，`TokenV1` 产品路径锁定 solc 0.8.34；
+- **Option UInt64 state（BL-31）**：Enum-shaped tag/payload 双 slot；`none` 与 reset 清零 payload，
+  `StateStore` 复用 `storeAtomic`；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；
+- **bounded aggregate return ABI**：named Struct/Enum 与 anonymous `Array UInt64 N`（1..8）/
+  `Option UInt64` 发 Solidity tuple；Map/Bytes/nested/非 UInt64元素与 target pureFn aggregate仍 FC；
+- **static-QN external call/schedule**：sync 发真实 `CALL`；result-bearing UInt64 路径要求
+  `returndatasize ≥ 32`、读取首 word并做 UInt64 range check；schedule 仍同步 CALL+discard。
+  callee 仍为 target-path hash stub，真实 deployment-address binding 未闭合；
 - Token 当前仅恢复到 **locked-solc engineering finalization**：creation bytecode 为 258460 B，
   已超过 EIP-3860 的 49152 B initcode 上限，因此没有 Anvil/mainnet deployment、runtime 或 OZ 声明；
 - Yul + digest-pinned `solc` bytecode；**EvmSolc** `solc --strict-assembly` 验收门（工具缺席干净跳过）；
@@ -37,7 +44,7 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   `solc --evm-version cancun`，runtime 经 `PF_EVM_PROFILE=…cancun-v1` 启动
   `anvil --hardfork cancun`。两 profile 共用锁定 solc 0.8.34 / Anvil 0.3.0，不升级工具。
 
-**明确未闭合**：完整 SemanticProgramV1 表面；**ContextRead 仍 EVM Plan 显式 fail-closed**（见下节 encoding contract：决策已冻结、物化未交付）；Option state 仍 fail-closed（仅作 Map IndexGet 中间值）；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025 写成 Ownable/OZ/ABI/formal 完成。
+**明确未闭合**：完整 SemanticProgramV1 表面；**ContextRead 仍 EVM Plan 显式 fail-closed**（见下节 encoding contract：决策已冻结、物化未交付）；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025 写成 Ownable/OZ/ABI/formal 完成。
 
 ## 0.1 `context.caller` Principal encoding contract（ADR-0025；物化未开）
 

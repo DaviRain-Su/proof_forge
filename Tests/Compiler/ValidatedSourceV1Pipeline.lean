@@ -596,7 +596,8 @@ def run : IO Unit := do
     let bad ← validated moduleName identity demo
       #[.state (state x type_), .entry (entry runN (ret (var seed)) #[param seed])]
     expectInvalid s!"type {tag}" want (Compiler.compileValidatedSourceV1 bad)
-  -- N-A4: Option state compiles (structure-gated carrier); targets still FC.
+  -- N-A4: Option state compiles into the structure-gated carrier. BL-29/30/31
+  -- later admit the narrow Option UInt64 state shape on Solana/NEAR/EVM.
   let optOk ← validated moduleName identity demo
     #[.state (state x (.option (.uint 64))),
       .entry (entry runN (ret (var seed)) #[param seed])]

@@ -3,7 +3,7 @@ id: TARGET-COSMWASM
 title: CosmWasm target dossier
 status: draft
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -15,34 +15,36 @@ Target ID：`cosmwasm`
 **Engineering only**——**非** accepted PRD Phase 1 四目标范围；accepted scope reconciliation
 见 **`DOC-ADR-SCOPE`**。
 
-## 0. 工程状态（2026-08-03，当前）
+## 0. 工程状态（2026-08-04，当前）
 
-**已实现（engineering MVP，merge `integrate/ton-2`）**：registry 晋升 implemented
-（profile `cosmwasm-wasm-u64-v1`，maturity `wasm-validated-alpha`）；`Targets/CosmWasm/**`
-target-owned Plan/IR/WAT emitter（public UInt64 多字段 KV state→`env.db_*`、init/entry/view
-→`instantiate`/`execute`/`query`、`allocate`/`deallocate`/`interface_version_8`、有界最小
-JSON 子集、emit→attributes、revert→`ContractResult::Err`、if/match/bounded for/fn、
-mul/div/mod/unary/shift/bitwise/logical）；Finalize 经 locked `wat2wasm` 产 `{name}.wasm`
-（deployable=true）；**`cosmwasm-check 3.0.9` Tool Lock 静态验收门**（fixture 矩阵 + 产品
-Counter `.wasm` 真实通过）。
+**已实现（engineering MVP）**：registry implemented（profile
+`cosmwasm-wasm-u64-v1`，maturity `wasm-validated-alpha`）；`Targets/CosmWasm/**`
+target-owned Plan/IR/WAT emitter（KV state→`env.db_*`、init/entry/view →
+`instantiate`/`execute`/`query`、有界 JSON、emit attributes、revert
+`ContractResult::Err`、if/match/bounded for/pureFn、checked arithmetic/bit ops）。Finalize
+经 locked `wat2wasm` 产 `{name}.wasm`；`cosmwasm-check 3.0.9` 对 fixtures 与产品制品做
+静态 ABI 验收。
 
-**CW-3 runtime 差分（2026-08-03）**：`runtime-tests/cosmwasm`（cosmwasm-vm 3.0.9 mock
-storage/api/querier）+ `scripts/cosmwasm_runtime_test.sh`：Counter/Accumulator/EventFlow
-+ hardening 14 tests——init/increment/query、overflow `unreachable` trap 且 state 不变
-（trap ≠ `ContractResult::Err`）、emit attributes、revert `{"error":...}`、P0 修复钉测。
-mock host ≠ wasmd，不声称链上 runtime/formal。
+**后续工程扩面**：UInt8/16/32 state/param/result 与 body narrow guards 已开（物理 KV 仍为
+8-byte LE 并检查高位；UInt128/256 与窄 Int FC）；named Struct/Enum state、`Array UInt64 N` state 与 dense `Map UInt64 UInt64` cap-8 state 已开；≤8 个
+UInt64/Int64 leaf 的 named entry/view aggregate return，以及 anonymous `Array UInt64 N`
+（1..8）/`Option UInt64` entry/view return 已开。Map/Bytes return、Option/Bytes state、
+nested/非 UInt64元素、aggregate param/pureFn仍 fail closed。
 
-**CW-4 schedule（2026-08-03）**：`schedule` → `SubMsg{reply_on:never, id:0,
-WasmMsg::Execute}`；resolver `effect.asynchronous-workflow` 已开放（sync call 仍拒）。
-**诚实边界**：同事务 savepoint 分发（非跨 tx async）；子消息失败按 wasmd
-`DispatchSubmessages` **打爆整笔交易**（父状态随 tx 回滚，不是「父继续」）；
-`contract_addr` 为静态 QN stub（部署前必须替换真实链上地址）；`msg` 字段暂为 JSON
-对象形状钉测（wasmd 正式期望 Binary，生产前需 Binary 升级）。
+**runtime rungs**：`runtime-tests/cosmwasm` 的 cosmwasm-vm 3.0.9 mock 当前有 28 个
+`#[test]`，覆盖 Counter/Accumulator/EventFlow、hardening、ScheduleFlow、NarrowCounter、
+PairRet、ArrayRet、OptionRet；另有 `scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3
+Docker 工程 rung，覆盖 Counter 与 ScheduleFlow 子消息失败导致 whole-tx abort。两者都不是
+主网、formal 或 hermetic evidence。
 
-**仍 fail closed**：sync call、iterator（db_scan/db_next）、IBC、migrate、named
-Struct/Enum、Array/Map/Bytes/Option、Field/Principal/String、ContextRead/Commit、
-nonempty invariants、multi-width UInt8..256 ABI、named 聚合返回值。
-**未做**：wasmd/cosmwasm-vm runtime 差分以外的链上门、SubMsg/reply 入口、JSON 全集。
+**schedule**：`schedule` → `SubMsg{reply_on:never,id:0,WasmMsg::Execute}`；`msg` 已由
+CW-6 升级为 UTF-8 method JSON 的 Binary/base64。它仍是同事务 savepoint 分发（非跨 tx
+async），子消息失败打爆整笔交易；`contract_addr` 为静态 QN stub，无 reply entry。sync call
+继续 resolver+Plan 双拒。
+
+**仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Option state、Map/Bytes
+return、Field/Principal/String interface、ContextRead/Commit、nonempty invariants、UInt128/256、
+narrow Int、JSON 全集与 gas model。wasmd smart query 当前仍非 Binary，rung-1 harness 使用 raw state。
 
 ## 0.1 A0→隔离→修复/design-exit 过程记录（2026-08-03）
 
@@ -112,9 +114,9 @@ IBC handler 未接线。
 传 JSON（SRC-CW-004 pinned `compatibility.rs`）。**allowed capabilities（MVP）**：
 仅默认 KV（`db_read/db_write/db_remove`）与 `abort`；`iterator`/`staking`/`stargate`/
 `cosmwasm_1_1..3_0`/`ibc2` 全部不声明（`requires_*` 导出全部缺席）。
-**schema conventions**：消息/状态为 JSON；A1 工程先导实现有界最小 JSON 子集
-（flat instantiate 参数 + `{method:{decimal params}}`，非子集显式 Err），生产升级
-Binary/base64 属后续切片。**transaction/SubMsg/savepoint 语义（已按 pinned 源固定）**：
+**schema conventions**：消息/状态为 JSON；工程先导实现有界最小 JSON 子集
+（flat instantiate 参数 + `{method:{decimal params}}`，非子集显式 Err）；CW-6 已将
+SubMsg `msg` 冻结为该 inner JSON 的 Binary/base64，query response 的完整 Binary 兼容仍未闭合。**transaction/SubMsg/savepoint 语义（已按 pinned 源固定）**：
 子消息经 `CacheContext` savepoint 执行，成功 commit、失败丢弃子状态与事件；
 `reply_on=Never`/`reply_on=Success` 遇失败**直接把错误返回父 dispatch、整笔交易失败**
 （父状态随 tx 回滚，**不是**「父继续」）；`reply_on=Never` 与 `reply_on=Error` 成功
@@ -131,7 +133,7 @@ Binary/base64 属后续切片。**transaction/SubMsg/savepoint 语义（已按 p
 
 ## 9. 验证阶梯
 
-official ABI fixture → Wasm VM static validation → `cosmwasm-vm` unit → local `wasmd` transaction/reply → optional IBC two-chain evidence。当前进度：fixture ✓（A2）、static `cosmwasm-check` ✓（A2）、`cosmwasm-vm` mock unit ✓（CW-3）；wasmd tx/reply 与 IBC 未做。
+official ABI fixture → Wasm VM static validation → `cosmwasm-vm` unit → local `wasmd` transaction/reply → optional IBC two-chain evidence。当前进度：fixture ✓（A2）、static `cosmwasm-check` ✓（A2）、`cosmwasm-vm` mock unit ✓（CW-3）、wasmd v0.70.3 Docker Counter/ScheduleFlow rung-1 ✓（CW-9）；reply entry、完整 tx corpus 与 IBC 未做。
 
 ## 10. 不支持、风险与成熟度退出
 
@@ -139,8 +141,9 @@ official ABI fixture → Wasm VM static validation → `cosmwasm-vm` unit → lo
 **structural-WAT 工程先导**（bounded ABI subset：§0 所列 MVP 面）为首个 accepted
 implementation profile。`wasm-validated-alpha` 的声明就此限定为：WAT 文本 + locked
 `wat2wasm` 制品链 + `cosmwasm-check@3.0.9` 静态 ABI 验收 + `cosmwasm-vm@3.0.9` mock
-runtime 差分；**不**含 wasmd runtime、SubMsg/reply 入口、IBC、JSON 全集或 formal
-完成态。A1 独立审计四个 P0（静态内存重叠/JSON 溢出/Int64 min×-1/缓冲区无界）已修复
-并钉测；`SRC-CW-002` 已由 provisional 升级 verified（pinned dispatcher 快照），
-`SRC-CW-003/004` 同步登记。剩余风险：SubMsg `msg` 字段尚为 JSON 形状钉测（wasmd 正式
-期望 Binary）、`contract_addr` 为静态 QN stub、gas 计量模型未进入验收。
+runtime 差分，并有 wasmd v0.70.3 Docker 的 Counter/ScheduleFlow 工程 rung-1；**不**含
+主网、reply entry、IBC、JSON 全集、formal 或 hermetic 完成态。A1 独立审计四个 P0（静态
+内存重叠/JSON 溢出/Int64 min×-1/缓冲区无界）已修复并钉测；`SRC-CW-002` 已由
+provisional 升级 verified，`SRC-CW-003/004` 同步登记。剩余风险：SubMsg `msg` 已是
+Binary/base64，但 `contract_addr` 仍为静态 QN stub；smart-query Binary兼容与 gas 计量模型
+未进入验收。

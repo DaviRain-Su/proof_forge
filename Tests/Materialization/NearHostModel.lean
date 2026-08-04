@@ -4040,8 +4040,8 @@ private unsafe def testMapTokenDualStoreVisibility
   expect (balDst == some 40) s!"token-dual: balanceOf(dst)=40, got {balDst}"
 
 /-- Named Struct state + construct/fieldGet/fieldSet: flatten to KV leaves
-    `p_x`/`p_y`; setX rebinds leaf 0 via storeAtomic; getX returns scalar
-    field (B-RET-ABI keeps aggregate return fail closed). -/
+    `p_x`/`p_y`; setX rebinds leaf 0 via storeAtomic; getX returns one scalar
+    field. Aggregate-return coverage is exercised separately below. -/
 private unsafe def testNamedStructProductPath (session : Language.Loader.ParserSession) :
     IO Unit := do
   let sourceText :=

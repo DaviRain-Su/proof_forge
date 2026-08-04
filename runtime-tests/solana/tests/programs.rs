@@ -2408,7 +2408,8 @@ fn array_ret_set_arr_updates_and_returns_multi() {
 
 // ─── OptionRet (BL-19: anonymous Option UInt64 tag+payload return) ──────────
 
-/// Scalar pad state only (Option is return-only; Option state stays FC).
+/// This return fixture uses scalar pad state only; Option UInt64 state is covered
+/// separately by the BL-29 `OptionState` fixture below.
 fn option_ret_fields() -> Vec<StateField> {
     vec![StateField {
         source_id: 0,

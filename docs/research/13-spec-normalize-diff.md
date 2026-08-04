@@ -60,7 +60,7 @@ normative: false
 | 算术/位运算/移位/比较/逻辑 | **LOWERED** | Field mod FC；Field/Principal ordering FC | — |
 | unary `- ~ !` | **LOWERED** | UInt `-` → `0-x` | — |
 | fn / localCall pureCall | **LOWERED** | purity 门禁 | — |
-| call / schedule | **LOWERED** | args legal UInt/Int；无返回值 | N-CALL-RET |
+| call / schedule | **LOWERED** | statement call/schedule void；value-position sync call 可携 expected scalar result（N-CALL-RET）；args legal UInt/Int | N-CALL-RET ✅ |
 | revert / emit | **LOWERED** | shared event/error 字段 public UInt/Int/String；target String ABI 全 FC | N-STR-EVENT ✅ |
 | `context.unixTimeSeconds` + `context.caller` | **LOWERED** | 两个 sole wire key（UInt64 / Principal） | N-2 ✅ |
 | `commit(x)` | **LOWERED**（label-only） | disclosure 契约已钉（N-3）；pureFn **FC** | N-3 ✅ |
@@ -83,12 +83,12 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 | IndexGet / IndexSet | yes | Array/Bytes/Map；bounds 运行时 |
 | VariantTag / VariantPayload | yes | match |
 | PureCall | yes | pureFn |
-| Assert / Emit / ExternalCall / Schedule | yes | void；EffectId 序 |
+| Assert / Emit / ExternalCall / Schedule | yes | ExternalCall 可 void 或携 scalar result；其余 void；EffectId 序 |
 | ContextRead | **partial** | `unixTimeSeconds` + `caller` |
 | Commit | **partial** | label-only identity |
 | CheckedCast | 视切片 | structure 可；产品路径以 docstring out-of-scope 为准抽检 |
 | block-param loop / join | yes | for + expr match |
-| invariant callables / exact fuel | yes | Normalize 产 `.invariant` root + dense InvariantDecl，复用 Wire exact closure/fuel；target 全 FC |
+| invariant callables / exact fuel | yes | Normalize 产 `.invariant` root + dense InvariantDecl，复用 Wire exact closure/fuel；Quint Q0 read-only Bool invariant LOWERED；其余八个 target FC |
 
 ---
 
@@ -104,7 +104,7 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 
 ---
 
-## 5. 与 backlog 的校准（2026-08-03 复核更新：本表保留历史 ID 与当前 residual）
+## 5. 与 backlog 的校准（2026-08-04 复核更新：本表保留历史 ID 与当前 residual）
 
 | ID | 2026-08-03 复核结论 | backlog 状态 |
 |---|---|---|
@@ -112,21 +112,21 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 | **N-2** | `context.caller`（Principal）+ unixTimeSeconds 双 key 已接线 | **done** |
 | **N-3** | Commit disclosure 契约已钉（private→commitment declass） | **done** |
 | **N-4** | named Struct/Enum result 已开；target aggregate ABI 仍按 target 矩阵分层 | **done**（子集） |
-| **N-ANON-RESULT** | shared Normalize/Reference 已开 Array/Map/Option/Bytes result 与 Array PureCall；六 target anonymous result ABI 精确 FC | **done**（shared-only） |
-| **N-5** | call 返回值：仅 RPT-014 schema 研究；**产品仍 void，实现 follow-on 未排**（见 backlog 2.4） | **done**（研究） |
+| **N-ANON-RESULT** | shared Normalize/Reference 已开 Array/Map/Option/Bytes result 与 Array PureCall；八个非 Quint materializer 已开 bounded Array/Option entry/view ABI，Map/Bytes、target pureFn aggregate 与 Quint 容器仍 FC | **done**（shared + target ABI 子集） |
+| **N-5 / N-CALL-RET** | value-position sync call 已进入产品 shared core；EVM UInt64 returndata 与 Solana CPI/return-data target 子集已开，完整 callee identity/account ABI与其余 target 见 B-CALL-SEM | **done**（shared；target residual ongoing） |
 | **N-6** | bare `x:=e` env rebind 已开；param immutable | **done** |
 | **N-7** | 嵌套 ctor/lit/bind 子模式已开 | **done** |
 | **N-8** | event/error 与 call/schedule legal UInt/Int 已开；for 的 Int 余量由 N-FOR-INT 闭合 | **done**（子集） |
 | **N-FOR-INT** | shared Normalize/Reference 开同宽 Int bounded-for；六 target Int induction Plan FC | **done**（shared-only） |
 | **N-STR-EVENT** | shared event/error String payload 已开并进 Reference；target ABI 全 FC | **done**（shared-only） |
-| **N-A3** | 单步 IndexSet 已开；**嵌套穿透 `m[k].x` 仍 FC**（余量未排） | **done**（子集） |
-| **N-A4** | Option state Normalize admit 已开；全 target Plan FC | **done**（子集） |
+| **N-A3 / N-NEST-IDX** | 单步 IndexSet 与 Map nested write-through（含 nested Map）已开；absent key trap 保 pre-state；Bytes nested write-through 仍 FC | **done**（Map 子集） |
+| **N-A4** | Option state Normalize/Reference admit 已开；EVM/Solana/NEAR `Option UInt64` target Plan 已由 B-OPT-STATE follow-up LOWERED，其余六 materializer FC | **done**（shared；target follow-up ongoing） |
 | **N-BYTES** | Bytes state+index 已开 | **done** |
 | **DOC-SPEC-AUDIT** | 本文 | **done** |
 
 ---
 
-## 6. 回流 engineering-backlog（2026-08-03 复核更新）
+## 6. 回流 engineering-backlog（2026-08-04 复核更新）
 
 1. 登记本文路径；DOC-SPEC-AUDIT → done（已登记）。
 2. N 家族 done 声明与代码主路径一致；String event payload、Int bounded-for、anonymous container result、zero-arg assert-else 与 invariant IR 已闭合。剩余余量为 call 返回值、嵌套穿透与 multi-entry Map Construct，并继续只在 backlog §2.4 排队。

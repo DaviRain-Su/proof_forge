@@ -3,7 +3,7 @@ id: TARGET-SOLANA
 title: Solana target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -24,18 +24,26 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 - state/param/result **UInt8/16/32/64 与窄 Int** ABI/body 子集（UInt128/256 软件多字已开 T9e）；
 - **`EmitSbpfAsmV1`** 完整 Operation 表面 → 锁定 `sbpf` 汇编为 deployable Solana ELF `.so`
   （`solana-sbpf-elf-v1` profile；默认仍可走 plan-only profile）；
-- **Mollusk 运行时差分**（`runtime-tests/solana`：Counter + 多 fixture，含 body 多宽）；
-- **AddressBearing static-callee call/schedule 已开**（B-3 followup：callee 为 static QualifiedName，
-  program id = SHA-256(targetPath) 32B，SBPF 以 `sol_log_data` 观测桩；完整 `invoke_signed` CPI 另排）；
+- **Mollusk 运行时差分**（`runtime-tests/solana`：Counter + 19 fixtures = 20 programs，
+  89 个 Rust tests 全 active；含 body 多宽、聚合/匿名返回、Option state 与 CPI fail-closed 边界）；
+- **AddressBearing static-callee call/schedule 已开并发射真实 CPI**（B-CALL-SEM followup：callee
+  为 static QualifiedName，program id = SHA-256(targetPath) 32B；SBPF 调用
+  `sol_invoke_signed_c`，result-bearing sync call 再读 `sol_get_return_data`）。当前 CPI 使用空
+  AccountMeta；Agave 仍要求 callee program account 出现在外层 instruction metas，而产品单账户
+  layout 尚无该槽，因此 Mollusk 固定到真实 invoke 后的 `MissingAccount`，不声称成功 CPI；
 - **dense Map UInt64 cap-8 pilot** 已进入 opt-in ELF + Mollusk；`storeAggregate` → structural CSE →
   `storeStateMulti` 令同一 StateStore 的 24 叶先基于旧 account snapshot 求值、再统一写入，且保持
   177 temp / 1424B < 4096B frame。`put_into_empty` 已解除 ignore 并转绿；WideMul 另以
   独立 base-2^64 oracle 钉住 UInt128/256 成功与 `0x1001` 溢出回滚；PrincipalStore 固定
-  `len + 8×UInt64` identity state/param、逐叶 equality 与短值覆盖高位清零（非 pubkey/CPI）。
-  当前 Mollusk 为 14 programs、60 tests 全 active/通过。named 聚合/Bytes/Option state 边界见覆盖矩阵。
+  `len + 8×UInt64` identity state/param、逐叶 equality 与短值覆盖高位清零（非 pubkey）；
+- **Option UInt64 state（BL-29）**：`slot_tag`/`slot_p0` 双 u64-LE leaf，`none` 清零 stale payload，
+  assign 走多叶原子 store；Option params、非 UInt64 payload与 nested Option 仍 fail-closed；
+- **≤8 叶聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 经单次
+  `sol_set_return_data` 发 N×8-byte LE；Map/Bytes/nested/非 UInt64元素返回仍 fail-closed。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
-完整 Normalize 表面。registry 历史标签可能仍显示 `plan-only` 字符串——**工程事实以本段与
+完整 Normalize 表面；CPI 外层多账户布局与成功调用尚未闭合，static-QN program id 仍是 hash stub，
+不是动态 pubkey/address。registry 历史标签可能仍显示 `plan-only` 字符串——**工程事实以本段与
 coverage matrix 为准**。
 
 ## 1. 身份与来源

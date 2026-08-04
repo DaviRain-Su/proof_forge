@@ -28,9 +28,10 @@ ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → **九个 materializ
 （EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）capability Plan/IR 的**工程纵切面**。
 工程 registry **12 = 9 implemented + 3 design-only**（Soroban/ICP/OpenVM）。Quint 是
 zero-tool finalize 的 source-only `.qnt` executable-model target；CosmWasm
-工程面为 WAT + locked `wat2wasm` + `cosmwasm-check` + cosmwasm-vm mock（sync call FC、
-async SubMsg 同 tx）；TON 工程面为 Tolk + real BoC + `@ton/sandbox`（resolver 开 async、
-Plan schedule 仍 FC）。以上均为工程观察，**非** formal/hermetic。
+工程面为 WAT + locked `wat2wasm`/`cosmwasm-check` + mock 28 tests + wasmd Docker rung-1
+（sync call FC、Binary SubMsg same-tx PARTIAL）；TON 工程面为 Tolk + real BoC +
+`@ton/sandbox` 10/10，schedule `createMessage` 为 hash destination/value=0 的 PARTIAL
+语义。以上均为工程观察，**非** formal/hermetic。
 **Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；后五个 engineering
 leaves 的产品范围 reconciliation 仍待 **`DOC-ADR-SCOPE`**，不得静默扩 accepted scope。
 日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。**ADR-0027**

@@ -21,8 +21,8 @@ normative: true
 closure（无 `--proof-bundle*`）。
 工程 registry **12 = 9 implemented + 3 design-only**；**九个 materializer**
 （EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）均直连 retained `SemanticProgramV1`。
-Quint：source-only `.qnt` + zero-tool finalize；CosmWasm：WAT + `wat2wasm` + check + mock VM；
-TON：Tolk/BoC + sandbox（Plan schedule 仍 FC）。**Accepted PRD Phase 1 仍为四目标**
+Quint：source-only `.qnt` + zero-tool finalize；CosmWasm：WAT + locked check + mock 28 tests +
+wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` PARTIAL）。**Accepted PRD Phase 1 仍为四目标**
 （EVM/Solana/NEAR/Noir）；Aleo/Psy/Quint/CosmWasm/TON
 为 engineering leaves，范围 reconciliation 待 **`DOC-ADR-SCOPE`**。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。

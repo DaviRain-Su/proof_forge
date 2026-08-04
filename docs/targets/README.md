@@ -32,17 +32,17 @@ normative: true
 | `evm` | contract VM | accepted Phase 1 implement | `specified` | retained-V1 Plan + Yul/locked-solc bytecode + EvmSolc + G4 Anvil 工程差分；**非** formal maturity / Reference↔Anvil 闭包 | [EVM](01-evm.md) |
 | `solana` | explicit-account SVM | accepted Phase 1 implement | `specified` | retained-V1 Plan + SBPF asm → ELF `.so` + Mollusk runtime 差分；**非** formal Stage-0/hermetic | [Solana](02-solana.md) |
 | `near` | Wasm host | accepted Phase 1 implement | `specified` | retained-V1 Plan + locked `wat2wasm` 结构编译 / host-optional runtime load + locked near-sandbox 2.13.0 deploy/init/mutate/view receipt 工程门与 deterministic HostModel；**非** formal Reference↔sandbox / Stage-0 | [NEAR](03-near.md) |
-| `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 差分；registry label `wasm-validated-alpha`；**sync call FC**、async→`SubMsg{reply_on:never}`（同 tx savepoint，子消息失败打爆整笔 tx，非跨 tx async）；**非** wasmd/链上/formal；**非** accepted Phase 1 范围 | [CosmWasm](04-cosmwasm.md) |
+| `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → WAT + locked `wat2wasm`/`cosmwasm-check` 3.0.9；UInt8/16/32、named state、bounded aggregate/Array/Option return；**sync call FC**、async→Binary `SubMsg{reply_on:never}`（same-tx、QN stub）；cosmwasm-vm 28-test mock + wasmd v0.70.3 Docker rung-1；registry label `wasm-validated-alpha`；**非** 主网/formal；**非** accepted Phase 1 范围 | [CosmWasm](04-cosmwasm.md) |
 | `soroban` | Wasm host | design only | `research` | design-only；无产品 backend | [Soroban](05-soroban.md) |
 | `icp` | Wasm actor host | design only | `research` | design-only；无产品 backend | [ICP](06-icp.md) |
 | `noir` | circuit compiler | accepted Phase 1 implement | `specified` | retained-V1 Plan + relation source packages + locked nargo 1.0.0-beta.26 compile-only 门；**无** ACIR/witness/prove/verify，仍 source-only | [Noir](07-noir.md) |
 | `openvm` | zkVM | design only | `research` | design-only；无产品 backend | [OpenVM](08-openvm.md) |
 | `aleo` | ZK application chain | engineering implemented (scope ADR open) | `specified` | 工程 source-only leaf；locked leo 4.0.2 compile-only 验收；无 VM/prove/deploy；**非** accepted Phase 1 范围 | [Aleo](09-aleo.md) |
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | `specified` | 工程 source-only leaf；host tool 可用时 optional compile，但无 Tool Lock/VM/proof；**非** accepted Phase 1 范围 | [Psy](10-psy.md) |
-| `ton` | TVM Stack-Account | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → Tolk + real BoC + `@ton/sandbox` 工程差分；registry label `source-only`；resolver 开 `effect.asynchronous-workflow`/event、**Plan schedule 仍 FC**（destination/send-mode 未接线）；sync call 显式 FC；**非** 主网/formal；**非** accepted Phase 1 范围 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
+| `ton` | TVM Stack-Account | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → Tolk + real BoC；UInt8/16/32、named state、bounded view aggregate/Array/Option return；async schedule→`createMessage`（hash dest/value=0/fixed mode，PARTIAL），sync call FC；`@ton/sandbox` 10/10；registry label `source-only`；**非** 主网/formal；**非** accepted Phase 1 范围 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | `research` | retained-V1 Q0 Plan/IR → `.qnt` + **zero-tool** finalize；profile `quint-source-u64-model-v1`；resolver 仅 4-key；完整 UInt64 域；失败=显式 outcome+business-state stutter；zero-param Bool invariant→`val`；本机 Quint 0.32 typecheck/run 仅 host observation，非 locked gate；ITF/MBT/verify 未声称；不可部署、非 accepted Phase 1/formal D3/D4 | [Quint](12-quint.md) · [ADR-0026](../adr/0026-quint-target-integration.md) |
 
-> **Registry 计数（当前工程事实，2026-08-03）**：**12 = 9 implemented + 3
+> **Registry 计数（当前工程事实，2026-08-04）**：**12 = 9 implemented + 3
 > design-only**。九个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
 > `psy` / `quint` / `cosmwasm` / `ton`。三个 design-only：`soroban` / `icp` /
 > `openvm`。其中 **accepted PRD Phase 1** 仍仅前四；`aleo`/`psy`/`quint`/`cosmwasm`/
