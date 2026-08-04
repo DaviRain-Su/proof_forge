@@ -23,7 +23,7 @@ normative: false
   `--program-adapter transfer-sol-v1` 另行固定 tracked sourceHash、handler/accounts、System CPI
   codec、Plan/IR/IDL/bindings 与 assembly joins。JSON 区分 generic/program-adapter scope 和 trust
   anchor，不把工程自洽写成 provenance。
-- 本地验证：6 unit + 28 integration tests；真实 Counter plan OutputSet、Counter ELF OutputSet、
+- 本地验证：6 unit + 29 integration tests；真实 Counter plan OutputSet、Counter ELF OutputSet、
   TransferSol CPI OutputSet 的 generic path，以及显式 TransferSol adapter 均通过；strict Clippy、
   release build、`just solana-client-test`、`just solana-transfer-sol-offline` 与
   `just solana-transfer-sol-local`（Mollusk 8/8）通过。crate 仍无 RPC/SDK/wallet/signing/deployment
