@@ -3242,8 +3242,9 @@ unsafe def run : IO Unit := do
   -- NoirContainer: Noir admits Array UInt64 flatten-to-leaf (same as Solana/NEAR/Psy/Aleo).
   let _ ← liftResult <| materializeSelected TargetId.noir arrayCompiled
 
-  -- N-A4: Option state Normalize-admitted; all Phase-1 targets fail closed
-  -- (container policy never admits Option).
+  -- N-A4: Option state Normalize-admitted. EVM (BL-31) and NEAR (BL-30)
+  -- admit Option UInt64 state (Enum-shaped 2-leaf layout); other targets
+  -- fail closed.
   let optionStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3261,7 +3262,10 @@ unsafe def run : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"N-A4 Option select: {e.render}"
   let optCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optV1
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir, TargetId.psy, TargetId.aleo] do
+  -- EVM/NEAR admit Option UInt64 state.
+  let _ ← liftResult <| materializeSelected TargetId.evm optCompiled
+  let _ ← liftResult <| materializeSelected TargetId.near optCompiled
+  for target in [TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo] do
     match materializeSelected target optCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N-A4: {target} must decline Option state"
