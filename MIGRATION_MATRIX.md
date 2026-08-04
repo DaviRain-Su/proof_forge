@@ -48,14 +48,14 @@ D1–D4 共 27 个 formal task，当前仍为：
 > `InvariantTheoremV1`（∀ `StateConformsV1`）。**Kernel closed（engineering）**：
 > structure→encode→decode→`ProofedProof.safe`；legal-only production simple-closure
 > encode/decode（`SimpleClosureCertV1` / `LiteralTrueInvariantWitnessV1`）；exact ordinal-0
-> `InvariantTheoremV1` on nullary literal-true micro-shape。**剩余产品切片（未经验证门槛
-> 不得标 feature done）**：literal-true / public-Bool-view narrow family 的 same-file
-> ordinary Lean theorem 经 `certifyInlineProofV1` 的 product `check` positive
-> （`proofStatus=certified` + count/digest）。验证门槛：CLI check 正例；false theorem /
-> inventory bijection / disallowed axiom → `PF-SRC-INVALID`/exit 3 且零 Plan/staging；proof
-> fail 严格早于 target resolve/materialize；theorem body 不改 `sourceHash`/`semanticHash`；
-> 不信任用户 `.olean`。nonempty invariant materializer 仍 fail closed。**不** 声称 formal
-> `TST-PROOF-001`、reachability、target refinement、hermetic/release。
+> `InvariantTheoremV1` on nullary literal-true micro-shape。**Narrow product positive 已完成
+> engineering 验证**：literal-true / public-Bool-view same-file ordinary Lean theorem 经
+> `certifyInlineProofV1` 的真实 product `check` 得 `proofStatus=certified` + count/digest；
+> false theorem / inventory bijection / disallowed axiom fail closed；proof fail 严格早于
+> target resolve/materialize 且零 destination/staging；theorem body 不改 `sourceHash`/
+> `semanticHash`、但改变 certification digest；package-owned session 不信任 ambient
+> `LEAN_PATH`/用户 `.olean`。nonempty invariant materializer 仍 fail closed。**不** 声称
+> formal `TST-PROOF-001`、reachability、target refinement、hermetic/release。
 
 > **2026-08-02 N-CONST-REF 增量**：constants rows 仍由 sole `evalConstDeclValueV1` 生成 canonical
 > valueBytes；新增 complete source-order lookup 位于 fn signature type interning 后、任何 callable body

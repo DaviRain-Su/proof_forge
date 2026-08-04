@@ -1,6 +1,7 @@
 import ProofForgeV2.Language.Syntax
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
+import ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
 import ProofForgeV2.Semantic.WireV1
 
@@ -9,6 +10,8 @@ open Lean.Elab.Command
 open ProofForgeV2
 open ProofForgeV2.Language.ProgramExport
 open ProofForgeV2.Semantic.NormalizeV1
+open ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
+open ProofForgeV2.Semantic.SimpleClosureStructureCertV1
 open ProofForgeV2.Semantic.SimpleClosureTraceV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.AstProgramItemV1
@@ -28,11 +31,12 @@ namespace ProofForgeV2.Language
   with no free premises, no Tests import, and adjacent theorems writable as
   `exact <Program>.Proof.generated…V1`.
 
-  **Current ship (honest prep):** naming + name-string def + hypothesis-honest
-  `_of_wireTrace` bridge that packages
-  `invariantTheoremV1_of_simpleClosureWireTrace` against elaborator
-  `simpleClosureParamsV1` / `subjectBytesV1`. Unconditional theorem mint is
-  blocked on B-SC-ENC + B-SC-DEC (exact missing lemmas listed at module end).
+  **Current engineering ship:** naming + exact semantic subject + concrete
+  ASCII identifier legality witnesses + hypothesis-honest `_of_wireTrace`
+  bridge + premise-free `generated…V1`. The final theorem is derived only from
+  production legal-only encode/decode composition and the ordinal-0 invariant
+  ABI; unsupported or non-ASCII parameter families emit no helper and fail
+  closed during product certification.
 -/
 
 /-- Product naming for elaborator-minted simple-closure theorems.
@@ -47,8 +51,8 @@ def generatedSimpleClosureTheoremNameV1 (invName : String) : String :=
     let tail := invName.drop 1
     "generated" ++ String.singleton head ++ tail ++ "V1"
 
-/-- Bridge declaration name reserved until encode/decode close the
-    unconditional theorem: `generatedSafeV1_of_wireTrace`. -/
+/-- Compatibility bridge declaration name:
+    `generatedSafeV1_of_wireTrace`. -/
 def generatedSimpleClosureTheoremBridgeNameV1 (invName : String) : String :=
   generatedSimpleClosureTheoremNameV1 invName ++ "_of_wireTrace"
 
@@ -60,7 +64,9 @@ def generatedSimpleClosureTheoremNameDefV1 (invName : String) : String :=
 /-- Fixed elaborator surface names authors must not use as invariant ids. -/
 private def isFixedInlineProofSurfaceNameV1 (name : String) : Bool :=
   name == "subjectProgramV1" || name == "subjectBytesV1" ||
-    name == "simpleClosureParamsV1" || name == "simpleClosureDataV1"
+    name == "simpleClosureParamsV1" || name == "simpleClosureDataV1" ||
+    name == "simpleClosureQnTailLegalV1" ||
+    name == "simpleClosureParamsLegalV1"
 
 /-- Invariant names reserved so elaborator-minted generated-* decls never collide. -/
 private def isReservedInlineProofSurfaceNameV1 (name : String) : Bool :=
@@ -98,6 +104,45 @@ private def quoteSimpleClosureParams
   `(ProofForgeV2.Semantic.SimpleClosureTraceV1.SimpleClosureParamsV1.mk
       $(quote p.qnHead) $tail $(quote p.viewName) $(quote p.invName))
 
+/-- Kernel proof for one concrete ASCII identifier component. Runtime admission
+    below is only a fail-closed precheck; this generated term is rechecked by
+    the Lean kernel and contains no native evaluation or axiom. -/
+private def quoteAsciiIdentifierProofV1
+    (value : String) : MacroM (TSyntax `term) :=
+  `(by
+      change ProofForgeV2.Core.Common.validateIdentifierComponent $(quote value) =
+        .ok ()
+      rfl)
+
+/-- Constructor spine proving every concrete QN tail component legal. -/
+private def quoteIdentifierListLegalV1 :
+    List String → MacroM (TSyntax `term)
+  | [] =>
+      `(ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1.nil)
+  | head :: tail => do
+      let headProof ← quoteAsciiIdentifierProofV1 head
+      let tailProof ← quoteIdentifierListLegalV1 tail
+      `(ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1.cons
+          (head := $(quote head)) $headProof $tailProof)
+
+private def identifierReadyForGeneratedProofV1 (value : String) : Bool :=
+  ProofForgeV2.Core.Unicode.isAscii value &&
+    match ProofForgeV2.Core.Common.validateIdentifierComponent value with
+    | .ok () => true
+    | .error _ => false
+
+/-- Narrow compiler-owned admission for premise-free helper emission. Semantic
+    encode/decode theorems remain Unicode-general; this elaborator slice only
+    emits concrete `rfl` identifier certificates for ASCII portable names. -/
+private def simpleClosureParamsReadyForGeneratedProofV1
+    (p : SimpleClosureParamsV1) : Bool :=
+  decide (2 ≤ p.qnSize) && decide (p.qnSize ≤ 256) &&
+    decide (p.viewName ≠ p.invName) &&
+    identifierReadyForGeneratedProofV1 p.qnHead &&
+    p.qnTail.all identifierReadyForGeneratedProofV1 &&
+    identifierReadyForGeneratedProofV1 p.viewName &&
+    identifierReadyForGeneratedProofV1 p.invName
+
 /-- Recover simple-closure certificate params from Normalize product bytes.
     Fail closed (none) when the carrier is outside the literal-true family. -/
 private def extractSimpleClosureParamsFromCarrierV1
@@ -134,13 +179,25 @@ private def proofInvariantNames
       throw s!"proof reference names unknown invariant '{proofName}'"
   pure invariants
 
-/-- Emit hypothesis-honest generated-theorem bridge for the literal-true
-    simple-closure invariant at ordinal 0 (family shape). Does **not** mint
-    unconditional `generated…V1` (B-SC-ENC / B-SC-DEC still open). -/
-private def elaborateSimpleClosureGeneratedTheoremBridgeV1
+/-- Emit both the hypothesis-honest trace bridge and the premise-free
+    generated theorem for the admitted literal-true simple-closure family.
+    Every generated proof term is kernel checked; unsupported/non-ASCII params
+    emit neither capability and therefore fail closed in the certifier. -/
+private def elaborateSimpleClosureGeneratedTheoremsV1
     (paramsName subjectBytesName : TSyntax `ident)
     (params : SimpleClosureParamsV1)
     (invariantNames : Array String) : CommandElabM Unit := do
+  unless simpleClosureParamsReadyForGeneratedProofV1 params do
+    return
+  let tailArray ← Lean.Elab.liftMacroM <| quoteStringArray params.qnTail
+  let tailProof ← Lean.Elab.liftMacroM <|
+    quoteIdentifierListLegalV1 params.qnTail.toList
+  let headProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.qnHead
+  let viewProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.viewName
+  let invProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.invName
   for (invariantName, ordinal) in invariantNames.zipIdx do
     -- Family soundness is fixed at ordinal 0 / invName = params.invName.
     unless invariantName == params.invName && ordinal == 0 do
@@ -148,35 +205,60 @@ private def elaborateSimpleClosureGeneratedTheoremBridgeV1
     let genBase := generatedSimpleClosureTheoremNameV1 invariantName
     let nameDefStr := generatedSimpleClosureTheoremNameDefV1 invariantName
     let bridgeStr := generatedSimpleClosureTheoremBridgeNameV1 invariantName
-    -- Generated names always start with `generated` and end with `V1`; only
-    -- refuse collision with the fixed subject/params surface, not the
-    -- generated-* reservation pattern applied to user invariant names.
     if isFixedInlineProofSurfaceNameV1 genBase ||
         isFixedInlineProofSurfaceNameV1 nameDefStr ||
         isFixedInlineProofSurfaceNameV1 bridgeStr then
       throwError "generated theorem name '{genBase}' collides with fixed proof surface"
     let nameDefIdent := mkIdent (Name.mkSimple nameDefStr)
     let bridgeIdent := mkIdent (Name.mkSimple bridgeStr)
+    let generatedIdent := mkIdent (Name.mkSimple genBase)
     let invIdent := mkIdent (Name.mkSimple invariantName)
+    let tailLegalIdent := mkIdent `simpleClosureQnTailLegalV1
+    let paramsLegalIdent := mkIdent `simpleClosureParamsLegalV1
     Lean.Elab.Command.elabCommand (← `(
-      /-- Product name reserved for the future unconditional generated theorem
-          (`generated…V1 : Proof.<inv>`). Unconditional mint waits on B-SC-ENC
-          + B-SC-DEC; see `ProgramElaborationV1` module footer. -/
+      /-- Compiler-owned generated theorem name for this invariant. -/
       def $nameDefIdent : String := $(quote genBase)))
-    -- Bridge: wire-trace premise → Prop alias. Compiles under import
-    -- ProofForgeV2 only; no Tests, no sorry/axiom/native_decide.
     Lean.Elab.Command.elabCommand (← `(
-      /-- Hypothesis-honest generated-theorem bridge for the simple-closure
-          family. Adjacent authors may write
-          `exact generated…V1_of_wireTrace t` once they hold a
-          `SimpleClosureWireTraceV1`. Unconditional `generated…V1` requires
-          discharging encode/decode (B-SC-ENC / B-SC-DEC). -/
+      /-- Exact source-order QN-tail legality certificate. -/
+      def $tailLegalIdent :
+          ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1
+            ($paramsName).qnTail.toList := by
+        change
+          ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1
+            ($tailArray).toList
+        exact $tailProof))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Exact legal-parameter certificate for the generated simple closure. -/
+      def $paramsLegalIdent :
+          ProofForgeV2.Semantic.SimpleClosureStructureCertV1.SimpleClosureParamsLegalV1
+            $paramsName := {
+        hqnSize := by decide
+        hqnCap := by decide
+        hdistinct := by decide
+        hqnHead := $headProof
+        hqnTail := fun i hi =>
+          ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1.arrayGetElem
+            $tailLegalIdent i hi
+        hview := $viewProof
+        hinv := $invProof
+      }))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Hypothesis-honest compatibility bridge for explicit wire traces. -/
       theorem $bridgeIdent
           (t : ProofForgeV2.Semantic.SimpleClosureTraceV1.SimpleClosureWireTraceV1
                  $paramsName $subjectBytesName) :
           $invIdent :=
         ProofForgeV2.Semantic.SimpleClosureTraceV1.invariantTheoremV1_of_simpleClosureWireTrace
           $paramsName $subjectBytesName t))
+    Lean.Elab.Command.elabCommand (← `(
+      set_option maxHeartbeats 80000000 in
+      set_option maxRecDepth 400000 in
+      /-- Premise-free compiler-generated theorem for the exact literal-true
+          simple-closure semantic subject at ordinal zero. -/
+      theorem $generatedIdent : $invIdent := by
+        exact
+          ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1.invariantTheoremV1_of_simpleClosure_legal
+            $paramsName $paramsLegalIdent))
 
 private def elaborateProofObligations
     (programName : TSyntax `ident)
@@ -215,11 +297,9 @@ private def elaborateProofObligations
       ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1
         $subjectName $ordinalTerm))
   -- Name/module-parameterized certificate AST for the literal-true simple-
-  -- closure family. Emitted only when Normalize data matches the family; does
-  -- **not** mint a complete unconditional theorem (encode/decode parametric
-  -- closure still open — see module footer / SimpleClosureTraceV1 blockers).
-  -- Authors may reference constructors + the `_of_wireTrace` bridge from
-  -- same-file theorems without hardcoding Tests FQNs/bytes.
+  -- closure family. When Normalize data and concrete ASCII identifiers match
+  -- the admitted shape, this emits both the explicit trace bridge and the
+  -- premise-free generated theorem used by an adjacent ordinary theorem.
   match extractSimpleClosureParamsFromCarrierV1 carrier with
   | none => pure ()
   | some params => do
@@ -233,7 +313,7 @@ private def elaborateProofObligations
           ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1 :=
         ProofForgeV2.Semantic.SimpleClosureTraceV1.materializeSimpleClosureDataV1
           $paramsName))
-      elaborateSimpleClosureGeneratedTheoremBridgeV1
+      elaborateSimpleClosureGeneratedTheoremsV1
         paramsName subjectBytesName params invariantNames
   Lean.Elab.Command.elabCommand (← `(end $proofNamespace))
   Lean.Elab.Command.elabCommand (← `(end $programName))
@@ -269,32 +349,22 @@ elab_rules : command
 end ProofForgeV2.Language
 
 /-!
-  ## B-SC-ELAB-THM status (do not forge)
+  ## B-SC-ELAB-THM engineering status
 
-  Shipped here:
-    * product naming `generatedSimpleClosureTheoremNameV1` (`safe` → `generatedSafeV1`)
-    * elaborator emission of `generated…V1Name : String` under `<Program>.Proof`
-    * elaborator emission of hypothesis-honest
-      `generated…V1_of_wireTrace (t : SimpleClosureWireTraceV1 params bytes) :
-         <Program>.Proof.<inv>`
-      via sole production soundness
-      `invariantTheoremV1_of_simpleClosureWireTrace` (no Tests import)
+  Shipped for the narrow literal-true/public-Bool-view family:
+    * exact generated semantic subject and source-order ordinal-0 Prop alias;
+    * concrete ASCII identifier legality certificates;
+    * hypothesis-honest `generated…V1_of_wireTrace` compatibility bridge;
+    * premise-free `generated…V1 : <Program>.Proof.<inv>` derived from
+      `invariantTheoremV1_of_simpleClosure_legal`;
+    * same-file ordinary theorem authoring such as
+      `exact <Program>.Proof.generatedSafeV1`.
 
-  **Not** shipped (blocked; exact missing production lemmas):
+  Unsupported semantic shapes and non-ASCII generated-proof parameters remain
+  fail closed. This lane does not claim reachability, target refinement,
+  formal TST closure, sandboxing, hermeticity, or release qualification.
 
-  | ID | Missing lemma / witness | Why required for unconditional `generated…V1` |
-  |---|---|---|
-  | B-SC-ENC residual | `encodeSemanticProgramDataV1 (materializeSimpleClosureDataV1 p) = .ok (simpleClosureWireBytesV1 p)` for elaborator `p` without free `hfields`, **or** `= .ok subjectBytesV1` for elaborator spine | Supplies `SimpleClosureWireTraceV1.hencode` |
-  | B-SC-DEC residual | `decodeSemanticProgramDataV1 (simpleClosureWireBytesV1 p) = .ok (materializeSimpleClosureDataV1 p)` / `DecodeSimpleClosureGoalV1 p`, **or** decode of elaborator `subjectBytesV1` | Supplies `SimpleClosureWireTraceV1.hdecode` |
-  | B-SC-ELAB-BYTES (optional join) | `subjectBytesV1 = simpleClosureWireBytesV1 simpleClosureParamsV1` when encode path uses wire-bytes builder | Joins elaborator spine to parametric wire bytes for certifier defeq |
-  | B-SC-ELAB-THM close | Unconditional `theorem generated…V1 : Proof.<inv> := …` with no free hyps | Composition of the above + already-closed structure/witness/soundness |
-
-  Adjacent ordinary theorems may today write
-  `exact <Program>.Proof.generated…V1_of_wireTrace t` only after constructing
-  `t` from production encode/decode certificates (Tests-side Proofed chain is
-  one such construction; product-positive path still open).
-
-  Forbidden in this lane: sorry / axiom / native_decide / Lean.ofReduceBool /
-  run_tac / meta / unsafe / IO proof bodies, Tests imports inside elaborator-
-  emitted declarations.
+  Forbidden in emitted declarations: sorry / axiom / native_decide /
+  Lean.ofReduceBool / run_tac / meta / unsafe / IO proof bodies and Tests
+  imports.
 -/

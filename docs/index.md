@@ -36,10 +36,11 @@ Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target
 **Inline proof（ADR-0026，`proposed`）**：产品 sole gate 为
 `selectProgramV1ProductWithTheoremInventory` → `certifyInlineProofV1`（非 sandbox；无
 `--proof-bundle*`）；hash 不含 theorem body；仅 `InvariantTheoremV1`/`StateConformsV1`；
-check 报告 proofStatus；build 只门禁。**Kernel closed（engineering）**：legal-only
-simple-closure encode/decode + ordinal-0 `InvariantTheoremV1`。**剩余**：literal-true /
-public-Bool-view narrow family same-file ordinary theorem 的 product `check` certified
-正例（验证门槛见 ADR/AGENTS；未过门槛不得标 feature done）。formal TST 仍 open。见
+check 报告 proofStatus；build 只门禁。**Engineering closed（narrow family）**：
+legal-only simple-closure encode/decode + ordinal-0 `InvariantTheoremV1` + literal-true /
+public-Bool-view same-file ordinary theorem 的真实 product `check` certified 正例；theorem
+body 不改 source/semantic identity但改变 certification digest。formal TST、reachability、
+target refinement、sandbox/hermetic/release 仍 open。见
 [`adr/0026-inline-same-file-theorem-certification.md`](adr/0026-inline-same-file-theorem-certification.md)。
 
 ## 生命周期

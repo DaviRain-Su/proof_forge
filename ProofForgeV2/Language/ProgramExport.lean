@@ -134,6 +134,16 @@ private def decodeUInt8 (expr : Expr) : Except String UInt8 := do
   | some (``UInt8.ofNat, [valueExpr]) =>
       let value ← decodeNat valueExpr
       if value < 2 ^ 8 then pure (UInt8.ofNat value) else unsupported
+  | some (``OfNat.ofNat, [type, literal, instanceExpr]) =>
+      unless type.consumeMData == mkConst ``UInt8 do
+        return ← unsupported
+      let value ← decodeRawNat literal.consumeMData
+      match appView instanceExpr.consumeMData with
+      | some (``UInt8.instOfNat, [sameLiteral]) =>
+          unless (← decodeRawNat sameLiteral.consumeMData) == value do
+            return ← unsupported
+          if value < 2 ^ 8 then pure (UInt8.ofNat value) else unsupported
+      | _ => unsupported
   | _ => unsupported
 
 private def decodeString (expr : Expr) : Except String String :=
@@ -149,7 +159,24 @@ private def decodeArray (decode : Expr → Except String α) (expr : Expr) :
   let mut rest := rest0
   let mut result := #[]
   let mut done := false
+  let mut letSteps := 0
   while !done do
+    -- Large quotation splices are elaborated as a transparent, shared chain of
+    -- `let`-bound List chunks. Reduce only those local bindings; never unfold a
+    -- constant or execute a function. Re-check the raw-node cap after every
+    -- substitution so a duplicating let body cannot expand without bound.
+    let mut reducingLets := true
+    while reducingLets do
+      match rest.consumeMData with
+      | .letE _ _ value body _ =>
+          letSteps := letSteps + 1
+          if letSteps > maxLogicalDepth then
+            return ← unsupported
+          rest := body.instantiate1 value
+          checkRawNodeBound rest
+      | normalized =>
+          rest := normalized
+          reducingLets := false
     match appView rest with
     | some (``List.nil, [_type]) => done := true
     | some (``List.cons, [_type, head, tail]) =>
@@ -176,7 +203,8 @@ private partial def decodeByteArray (expr : Expr) : Except String ByteArray := d
     (`programExportBytesFromHex`, `ByteArray.mk`/`push`/`empty`). Never
     evaluates arbitrary `Expr`. Shared by export reconstruction and the
     product certifier's subject-byte identity check. -/
-def decodeBoundedByteArrayExprV1 (expr : Expr) : Except String ByteArray :=
+def decodeBoundedByteArrayExprV1 (expr : Expr) : Except String ByteArray := do
+  checkRawNodeBound expr
   decodeByteArray expr
 
 /-- Bounded node-count precheck for declaration values before structural

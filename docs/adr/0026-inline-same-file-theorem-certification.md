@@ -244,10 +244,10 @@ InvariantTheoremV1 program ordinal :=
 | Kernel certificate | **closed（engineering）** | structure→encode→decode→`ProofedProof.safe` |
 | Production simple-closure bridge | **closed（engineering）** | legal-only `SimpleClosureCertV1` / `LiteralTrueInvariantWitnessV1` encode/decode path |
 | Exact ordinal-0 theorem | **closed（engineering）** | nullary literal-true micro-shape closes `InvariantTheoremV1 program 0` under production witness premises |
-| Product `check` positive | **remaining** | literal-true / public-Bool-view narrow family **same-file ordinary Lean theorem** 经 inline gate 得 `proofStatus=certified`；**未过门槛不得标 feature done** |
+| Product `check` positive | **closed（engineering）** | literal-true / public-Bool-view narrow family的 **same-file ordinary Lean theorem** 经 sole inline gate 得 `proofStatus=certified`、count=1 与稳定 certification digest；仅改 theorem body 保持 source/semantic identity、改变 certification digest |
 | Formal TST / release | **open** | 不关闭 `TST-PROOF-001`、TASK-D2-06/07、hermetic/Stage-0 |
 
-**Product-check positive 验证门槛**（全部通过前不得写 feature done）：
+**已通过的 product-check engineering 门槛（继续作为回归要求）**：
 
 1. CLI `check` 正例：same-file source 含 narrow invariant + adjacent ordinary theorem →
    `proofStatus=certified`、nonzero theorem count、certification digest present；
@@ -260,7 +260,12 @@ InvariantTheoremV1 program ordinal :=
 7. 正交：nonempty invariant materializer 仍可 fail closed；不声称 reachability /
    init-step safety / target refinement。
 
+回归 owner：`Tests.Compiler.InlineProofCertifierV1`（单 snapshot、hash/digest、root 与
+module-prefixed namespace declaration 映射）和 `Tests.CLI.InlineProofProductV1`（human/JSON、
+proof-first target 顺序、零 destination/staging、materializer fail-closed）。
+
 ## 状态
 
-`proposed`。kernel/simple-closure 工程闭合 **不** 自动授予 product-check feature done
-或 formal acceptance；后者需独立 owner 流程与上表门槛 / TST，不由本 ADR 自动授予。
+`proposed`。narrow simple-closure 的 kernel 与 product-check positive 已按上表完成
+engineering 验证；这仍 **不** 授予 formal acceptance、reachability/target-refinement 声明、
+hermetic/contained assurance 或 release qualification。formal TST 与 owner approval 继续独立。

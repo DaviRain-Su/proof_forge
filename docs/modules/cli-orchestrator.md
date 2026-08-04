@@ -16,9 +16,9 @@ normative: true
 > `--proof-bundle-digest` 已删除（unknown option）；`ProofBundleV1` 仅 library。check 成功
 > 输出 `proofStatus` / theorem count / certification digest；build 只门禁、不输出 proof 字段。
 > JSON 不含 public `receipts`，也不声明 contained assurance。simple-closure/ordinal-0
-> kernel cert 已闭合；literal-true/public-Bool-view same-file ordinary theorem 的 product
-> `check` certified 正例仍待验证门槛（未过不得标 feature done）。下文 supervised receipt
-> 条款是尚未实现的 proposed 契约。
+> kernel cert 与 literal-true/public-Bool-view same-file ordinary theorem 的 product `check`
+> certified 正例均已完成 engineering 验证；formal/reachability/target refinement 不随之关闭。
+> 下文 supervised receipt 条款是尚未实现的 proposed 契约。
 
 模块把 argv 转成 typed command，调用 frontend/semantics/resolver/materializer/artifact public
 API，并渲染 human/JSON result。它不 import target Plan/IR 模块，不读取 registry 之外的 target
@@ -58,8 +58,8 @@ exit 3 且零 staging；`noProof` → `not-required`）。随后才 TargetRegist
 materialize。Loader/typed 失败保留 full `DiagnosticBundleV1` 并统一 `selectExitCode`；usage 仍
 exit 2。产品 JSON 不含 `receipts`；check 可观测 proof 字段，build 成功输出不带 proof 字段。
 16 MiB gate 由 Loader 在读入后执行。formal executable identity、supervised `receipts`、
-controller containment、product same-file ordinary-theorem check positive（待门槛）、formal
-`TST-PROOF-001` 仍 out of scope。
+controller containment、formal `TST-PROOF-001`、reachability 与 target refinement 仍
+out of scope；narrow product same-file ordinary-theorem check positive 已由 CLI suite 覆盖。
 
 覆盖全部命令/flags（含 **已删除** `--proof-bundle*` 为 unknown）、multi-program、unknown
 target/profile/network、exit priority、JSON/human、TTY、signals、private file/FD、build network

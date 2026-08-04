@@ -163,14 +163,32 @@ private def exactInvariantAliasBodyV1
   mkApp2 (mkConst ``ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1)
     (mkConst subjectName) (uint32LiteralExprV1 ordinal)
 
-/-- Drop the final program-name component of `programIdentity` to recover the
-    ambient namespace under which adjacent theorems are elaborated. -/
-private def programAmbientComponentsV1 (source : ValidatedSourceV1) :
-    Except InlineProofCertifierDetailV1 (Array String) := do
-  let comps := (NonEmptyArray.toArray source.programIdentity.components).map (·.raw)
-  if comps.size < 2 then
+/-- Recover the only two declaration-name layouts the `program` elaborator can
+    produce from a validated product identity:
+
+    * the module-prefix-stripped relative namespace (`Simple`, `N.Simple`), or
+    * the full identity when the source namespace itself begins with the exact
+      main module (`Root.Simple`).
+
+    Loader identities always include `moduleName`; Lean declaration names do
+    not automatically do so. The certifier resolves these candidates against
+    current-main-module declarations and rejects ambiguity. -/
+private def declarationProgramComponentCandidatesV1
+    (source : ValidatedSourceV1) :
+    Except InlineProofCertifierDetailV1 (Array (Array String)) := do
+  let moduleComps :=
+    (NonEmptyArray.toArray source.moduleName.components).map (·.raw)
+  let identityComps :=
+    (NonEmptyArray.toArray source.programIdentity.components).map (·.raw)
+  unless identityComps.size > moduleComps.size do
     return ← .error .internal
-  pure (comps.extract 0 (comps.size - 1))
+  for i in [:moduleComps.size] do
+    unless identityComps[i]? == moduleComps[i]? do
+      return ← .error .internal
+  let relative := identityComps.extract moduleComps.size identityComps.size
+  unless !relative.isEmpty do
+    return ← .error .internal
+  pure #[relative, identityComps]
 
 /-- Source-order invariant names (declaration order = ordinal). -/
 private def invariantNamesSourceOrderV1 (source : ValidatedSourceV1) : Array String :=
@@ -274,12 +292,13 @@ private structure ExpectedAuditSetV1 where
     subject and source-order invariant ordinal before either theorem is audited. -/
 private def expectedTheoremsForAuditV1
     (env : Environment)
+    (programComps : Array String)
     (source : ValidatedSourceV1)
     (inventory : TheoremInventoryV1) :
     Except InlineProofCertifierDetailV1 ExpectedAuditSetV1 := do
-  let ambient ← programAmbientComponentsV1 source
-  let programComps :=
-    (NonEmptyArray.toArray source.programIdentity.components).map (·.raw)
+  unless programComps.back? == some source.program.name.raw do
+    return ← .error .internal
+  let ambient := programComps.extract 0 (programComps.size - 1)
   let subjectName :=
     componentsToLeanName (programComps ++ #["Proof", "subjectProgramV1"])
   let invNames := invariantNamesSourceOrderV1 source
@@ -312,6 +331,44 @@ private def expectedTheoremsForAuditV1
     helpers := helpers.push { name := helperName, expectedType }
   pure { authors, generatedHelpers := helpers }
 
+/-- Decode either an inline structural ByteArray expression or the exact
+    compiler-generated sibling `subjectBytesV1` transparent definition. This
+    follows at most that one statically named constant and never evaluates an
+    arbitrary term. -/
+private def decodeGeneratedSubjectByteExprV1
+    (env : Environment) (subjectDecl : Name) (bytesExpr : Expr) :
+    Except InlineProofCertifierDetailV1 ByteArray := do
+  match decodeBoundedByteArrayExprV1 bytesExpr.consumeMData with
+  | .ok bytes => pure bytes
+  | .error _ =>
+      let expectedBytesDecl := Name.str subjectDecl.getPrefix "subjectBytesV1"
+      match bytesExpr.consumeMData with
+      | .const bytesDecl levels =>
+          unless levels.isEmpty && bytesDecl == expectedBytesDecl do
+            return ← .error .subjectBytes
+          match env.find? bytesDecl with
+          | some (.defnInfo info) =>
+              requireCurrentMainDeclarationV1 env bytesDecl .subjectBytes
+              unless info.type.consumeMData == mkConst ``ByteArray do
+                return ← .error .subjectBytes
+              match info.safety with
+              | .safe => pure ()
+              | _ => return ← .error .subjectBytes
+              unless (Lean.Compiler.getImplementedBy? env bytesDecl).isNone do
+                return ← .error .subjectBytes
+              unless (Lean.getExternAttrData? env bytesDecl).isNone do
+                return ← .error .subjectBytes
+              if info.type.hasSorry || info.value.hasSorry || env.hasUnsafe info.value then
+                return ← .error .subjectBytes
+              match checkExportRawNodeBoundV1 info.value with
+              | .error _ => return ← .error .subjectBytes
+              | .ok () => pure ()
+              match decodeBoundedByteArrayExprV1 info.value.consumeMData with
+              | .ok bytes => pure bytes
+              | .error _ => .error .subjectBytes
+          | _ => .error .subjectBytes
+      | _ => .error .subjectBytes
+
 /-- Decode generated `<program>.Proof.subjectProgramV1` definition value to
     exact canonical semantic bytes. Accepts only
     `SemanticProgramV1.mk <transparent ByteArray expr>`; never evaluates
@@ -335,7 +392,7 @@ private def decodeGeneratedSubjectBytesV1
       match checkExportRawNodeBoundV1 info.value with
       | .error _ => return ← .error .subjectBytes
       | .ok () => pure ()
-      if env.hasUnsafe info.value then
+      if info.type.hasSorry || info.value.hasSorry || env.hasUnsafe info.value then
         return ← .error .subjectBytes
       let value := info.value.consumeMData
       let bytesExpr? : Option Expr :=
@@ -362,18 +419,36 @@ private def decodeGeneratedSubjectBytesV1
               if name == ``SemanticProgramV1.mk then
                 match value.getAppArgs.back? with
                 | some bytesExpr =>
-                    match decodeBoundedByteArrayExprV1 bytesExpr with
-                    | .ok bytes => pure bytes
-                    | .error _ => .error .subjectBytes
+                    decodeGeneratedSubjectByteExprV1 env decl bytesExpr
                 | none => .error .subjectBytes
               else
                 .error .subjectBytes
           | _ => .error .subjectBytes
       | some bytesExpr =>
-          match decodeBoundedByteArrayExprV1 bytesExpr with
-          | .ok bytes => pure bytes
-          | .error _ => .error .subjectBytes
+          decodeGeneratedSubjectByteExprV1 env decl bytesExpr
   | some _ => .error .missingSubjectDecl
+
+/-- Resolve the unique elaborator-owned subject declaration. Merely finding a
+    same-named imported declaration is insufficient (`decodeGeneratedSubjectBytesV1`
+    enforces current-main provenance); finding both legal layouts is ambiguous
+    and therefore fails closed. -/
+private def resolveGeneratedSubjectV1
+    (env : Environment) (source : ValidatedSourceV1) :
+    Except InlineProofCertifierDetailV1 (Array String × ByteArray) := do
+  let candidates ← declarationProgramComponentCandidatesV1 source
+  let mut selected : Option (Array String × Name) := none
+  for programComps in candidates do
+    let decl :=
+      componentsToLeanName (programComps ++ #["Proof", "subjectProgramV1"])
+    if env.contains decl then
+      match selected with
+      | none => selected := some (programComps, decl)
+      | some _ => return ← .error .subjectBytes
+  let (programComps, decl) ← match selected with
+    | some value => pure value
+    | none => return ← .error .missingSubjectDecl
+  let bytes ← decodeGeneratedSubjectBytesV1 env decl
+  pure (programComps, bytes)
 
 /-- Core product certifier. Never opens files, never spawns a worker, never
     prints diagnostics. -/
@@ -433,21 +508,21 @@ unsafe def certifyInlineProofV1
     | .error _ => return fail .certification .elaborate
   let env := InlineProofElabEnvV1.environment elabEnv
 
-  -- 5) Generated subjectProgramV1 literal bytes == compiled semantic bytes.
-  let programComps :=
-    (NonEmptyArray.toArray source.programIdentity.components).map (·.raw)
-  let subjectDecl :=
-    componentsToLeanName (programComps ++ #["Proof", "subjectProgramV1"])
-  let generatedBytes ← match decodeGeneratedSubjectBytesV1 env subjectDecl with
-    | .ok bytes => pure bytes
+  -- 5) Resolve the unique elaborator declaration namespace, then require its
+  --    literal subject bytes to equal the compiled semantic bytes exactly.
+  let (programComps, generatedBytes) ← match
+      resolveGeneratedSubjectV1 env source with
+    | .ok value => pure value
     | .error detail => return fail .subject detail
   let expectedBytes :=
     (CompiledSemanticV1.semanticV1Of compiled).canonicalBytes
   unless generatedBytes == expectedBytes do
     return fail .subject .subjectBytes
 
-  -- 6) Audit each author theorem and the compiler-generated helper it uses.
-  let expected ← match expectedTheoremsForAuditV1 env source theoremInventory with
+  -- 6) Audit each author theorem and the compiler-generated helper it uses in
+  --    that same uniquely resolved declaration namespace.
+  let expected ← match
+      expectedTheoremsForAuditV1 env programComps source theoremInventory with
     | .ok value => pure value
     | .error detail => return fail .certification detail
   let auditReport ← match auditExpectedTheoremsWithRequiredV1

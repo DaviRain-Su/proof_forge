@@ -7,8 +7,7 @@
     * wrong subject bytes (mixed compile carrier) → subject failure
     * forged empty inventory with proof items → obligation failure (not noProof)
     * dual-invariant forged partial/reorder inventories fail closed
-    * raw same-file simple-closure product-positive (strict; red until production
-      mints unconditional `generatedSafeV1` + closes encode/decode):
+    * raw same-file simple-closure product-positive (strict engineering closure):
         - inventory author theorem is ordinary adjacent `SimpleProof.safe`
         - body `exact <Program>.Proof.generatedSafeV1` (generated
           helper name — never redeclared as the inventory theorem)
@@ -96,7 +95,7 @@ private def falseTheoremBody (theoremName typeName : String) : String :=
 
 /-- Literal-true simple-closure family. Inventory author theorem is ordinary
     adjacent `SimpleProof.safe` (not the generated helper name). The body
-    `exact`s planned generated helper `<Program>.Proof.generatedSafeV1`. -/
+    `exact`s compiler-generated helper `<Program>.Proof.generatedSafeV1`. -/
 private def simpleClosureProgram
     (programName authorTheorem theoremBody : String) : String :=
   header ++
@@ -107,7 +106,22 @@ private def simpleClosureProgram
   "  proof safe using " ++ authorTheorem ++ "\n" ++
   theoremBody
 
-/-- Primary author body: exact the planned generated helper (allowlisted). -/
+/-- Same family inside an explicit namespace. This covers the elaborator case
+    where the source namespace begins with the exact product module name and
+    generated declarations therefore use the full ProgramV1 identity. -/
+private def simpleClosureProgramInNamespace
+    (namespaceName programName authorTheorem theoremBody : String) : String :=
+  header ++
+  "namespace " ++ namespaceName ++ "\n" ++
+  "program " ++ programName ++ " where\n" ++
+  "  view alive() : Bool do\n" ++
+  "    return true\n" ++
+  "  invariant safe : true\n" ++
+  "  proof safe using " ++ authorTheorem ++ "\n" ++
+  theoremBody ++
+  "end " ++ namespaceName ++ "\n"
+
+/-- Primary author body: exact the compiler-generated helper (allowlisted). -/
 private def simpleClosureAuthorBodyExact
     (authorTheorem programName : String) : String :=
   "theorem " ++ authorTheorem ++ " : " ++ programName ++
@@ -330,7 +344,7 @@ private def expectCertifiedCarrier
     s!"{label}: audited theorem set size must be 1"
 
 /-- (1) Loader → compile → certify simple-closure with ordinary author theorem
-    that `exact`s planned generated helper `Simple.Proof.generatedSafeV1`.
+    that `exact`s compiler-generated helper `Simple.Proof.generatedSafeV1`.
     (3) Alternate allowlisted body keeps source/semantic digests and **must**
     change proofCertificationDigest (request binds raw source).
     Hard-fails unless both outcomes are `.certified`. Never hand-mints carriers. -/
@@ -435,6 +449,36 @@ private unsafe def testSimpleClosureProductPositive
   IO.println
     "Tests.Compiler.InlineProofCertifierV1: simple-closure product-positive CERTIFIED"
 
+/-- When `namespace Root` matches `--module Root`, Loader's identity remains
+    `Root.Scoped` and Lean's actual declaration is also `Root.Scoped`. The
+    certifier must select the full-identity candidate (not the root-level
+    module-stripped candidate) and still audit the adjacent theorem exactly. -/
+private unsafe def testModulePrefixedNamespaceProductPositive
+    (session : ProductParserSessionV1) : IO Unit := do
+  let programName := "Scoped"
+  let authorTheorem := "ScopedProof.safe"
+  let body := simpleClosureAuthorBodyExact authorTheorem programName
+  let src := simpleClosureProgramInNamespace
+    "Root" programName authorTheorem body
+  let path ← parsePath "tests/inline-proof/module-prefixed-namespace.pf"
+  let (source, origin, inventory) ← loadProduct session src
+    "tests/inline-proof/module-prefixed-namespace.pf" "Root"
+  let identity :=
+    (NonEmptyArray.toArray source.programIdentity.components).map (·.raw)
+  expect (identity == #["Root", "Scoped"])
+    s!"module-prefixed namespace identity: {identity}"
+  let compiled ← compileOf source origin
+  let outcome ← certifyInlineProofV1 session src source origin inventory compiled
+    path "Root" none
+  match outcome with
+  | .certified carrier =>
+      expectCertifiedCarrier "module-prefixed-namespace" carrier
+  | .noProof =>
+      throw <| IO.userError "module-prefixed namespace proof returned noProof"
+  | .failed phase detail =>
+      throw <| IO.userError
+        s!"module-prefixed namespace proof failed phase={repr phase} detail={repr detail}"
+
 unsafe def run : IO Unit := do
   let session ← ProductParserSessionV1.create
   testNoProofBypass session
@@ -445,6 +489,7 @@ unsafe def run : IO Unit := do
   testForgedPartialDualInvariant session
   testNoForgedSuccess session
   testSimpleClosureProductPositive session
+  testModulePrefixedNamespaceProductPositive session
   IO.println "Tests.Compiler.InlineProofCertifierV1: ok"
 
 end Tests.Compiler.InlineProofCertifierV1

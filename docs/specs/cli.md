@@ -26,10 +26,11 @@ normative: true
 > `proofStatus` / theorem count / certification digest；build 只做门禁、成功输出 **不**
 > 携带 proof 字段。**Kernel closed（engineering）**：legal-only production simple-closure
 > encode/decode + exact ordinal-0 `InvariantTheoremV1`（`SimpleClosureCertV1` /
-> `ProofedProof.safe`）。**剩余产品切片**：literal-true / public-Bool-view narrow family
-> same-file ordinary theorem 经 `certifyInlineProofV1` 的 product `check` certified 正例
-> ——**不得** 仅凭 wiring 或 kernel suite 宣称 feature 完成；须过 CLI check 正例与
-> fail-closed 负例门槛（见下文 / ADR-0026 / TST-PROOF-INLINE-E1）。
+> `ProofedProof.safe`）。**Narrow product positive 已完成 engineering 验证**：literal-true /
+> public-Bool-view same-file ordinary theorem 经 `certifyInlineProofV1` 的真实 product
+> `check` 得 certified/count/digest；body 改写保持 source/semantic identity、改变 cert digest；
+> fail-closed 与 proof-first/零 staging 门槛已进 ordinary shards（见下文 / ADR-0026 /
+> TST-PROOF-INLINE-E1）。
 
 可执行文件固定 `proof-forge-next`。所有命令 non-interactive；JSON 输出 stdout，日志和
 human diagnostics 到 stderr。
@@ -134,10 +135,10 @@ single IO.FS.readFile (project-root-relative source)
 5. 当前命题仅全体 `StateConformsV1` 上 `evalInvariantV1 = .returnedTrue`；不声称
    reachability / init-step safety / target refinement / formal `TST-PROOF-001`；
 6. nonempty invariant 的 **target materializer** 仍可 fail closed（与 proof gate 正交）；
-7. **Engineering 分层**：simple-closure/ordinal-0 kernel cert 已闭合不代签 product
-   `check` certified 正例。后者目标窄家族为 literal-true / public-Bool-view + same-file
-   ordinary theorem；门槛见 ADR-0026 status snapshot / `TST-PROOF-INLINE-E1`（CLI 正例、
-   fail-closed 负例、gate 顺序、hash、无用户 `.olean`）——全部通过前不得标 feature done。
+7. **Engineering 分层**：simple-closure/ordinal-0 kernel cert 与 narrow product
+   `check` certified 正例均已由独立 suites 验证；目标窄家族为 literal-true /
+   public-Bool-view + same-file ordinary theorem。ADR-0026 / `TST-PROOF-INLINE-E1` 的 CLI
+   正例、fail-closed、gate 顺序、hash 与无用户 `.olean` 门槛继续作为回归契约；不升格 formal。
 
 ### check / build 输出差异
 

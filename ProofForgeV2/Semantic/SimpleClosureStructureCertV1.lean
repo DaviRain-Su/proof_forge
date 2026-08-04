@@ -64,6 +64,38 @@ structure SimpleClosureParamsLegalV1 (p : SimpleClosureParamsV1) : Prop where
   /-- Invariant name passes shared identifier/NFC grammar. -/
   hinv : validateIdentifierComponent p.invName = .ok ()
 
+/-- Kernel certificate for a concrete source-order list of identifier
+    components. ProgramElaboration emits this constructor spine from its held
+    validated ASCII names; no unbounded `∀ Nat` decision procedure or native
+    evaluation is required. -/
+inductive IdentifierListLegalV1 : List String → Prop where
+  | nil : IdentifierListLegalV1 []
+  | cons {head : String} {tail : List String}
+      (headOk : validateIdentifierComponent head = .ok ())
+      (tailOk : IdentifierListLegalV1 tail) :
+      IdentifierListLegalV1 (head :: tail)
+
+/-- Select an exact identifier certificate by list index. -/
+theorem IdentifierListLegalV1.getElem
+    {xs : List String} (legal : IdentifierListLegalV1 xs)
+    (i : Nat) (hi : i < xs.length) :
+    validateIdentifierComponent xs[i] = .ok () := by
+  induction legal generalizing i with
+  | nil => simp at hi
+  | @cons head tail headOk tailOk ih =>
+      cases i with
+      | zero => exact headOk
+      | succ j => exact ih j (by simpa using hi)
+
+/-- Transfer a list certificate to the original Array getElem contract used by
+    `SimpleClosureParamsLegalV1.hqnTail`. -/
+theorem IdentifierListLegalV1.arrayGetElem
+    {xs : Array String} (legal : IdentifierListLegalV1 xs.toList)
+    (i : Nat) (hi : i < xs.size) :
+    validateIdentifierComponent xs[i] = .ok () := by
+  rw [← Array.getElem_toList (xs := xs) (i := i) hi]
+  exact legal.getElem i (by simpa using hi)
+
 /-- Identifier success implies positive UTF-8 byte size (hence nonempty name).
     Stronger than `WellFormed`'s character-length field and what elaborators
     already discharge via `validateIdentifierComponent`. -/

@@ -14,6 +14,9 @@ program Proofed where
   invariant safe : true
   proof safe using ProofedProof.safe
 
+theorem ProofedProof.safe : Proofed.Proof.safe := by
+  exact Proofed.Proof.generatedSafeV1
+
 #check Proofed.Proof.subjectProgramV1
 #check Proofed.Proof.safe
 
@@ -26,12 +29,19 @@ example : Proofed.Proof.safe =
 #check Proofed.Proof.simpleClosureParamsV1
 #check Proofed.Proof.simpleClosureDataV1
 
--- B-SC-ELAB-THM prep: naming + hypothesis-honest bridge (not unconditional
--- generatedSafeV1 — B-SC-ENC/DEC still open; do not forge).
+-- B-SC-ELAB-THM close: concrete Legal witness, compatibility bridge, and
+-- premise-free generated theorem consumed by the ordinary adjacent theorem.
+#check Proofed.Proof.simpleClosureQnTailLegalV1
+#check Proofed.Proof.simpleClosureParamsLegalV1
 #check Proofed.Proof.generatedSafeV1Name
 #check Proofed.Proof.generatedSafeV1_of_wireTrace
+#check Proofed.Proof.generatedSafeV1
+#check ProofedProof.safe
 
 example : Proofed.Proof.generatedSafeV1Name = "generatedSafeV1" := rfl
+
+example : Proofed.Proof.safe := Proofed.Proof.generatedSafeV1
+example : Proofed.Proof.safe := ProofedProof.safe
 
 example : generatedSimpleClosureTheoremNameV1 "safe" = "generatedSafeV1" := rfl
 example : generatedSimpleClosureTheoremNameV1 "balance" = "generatedBalanceV1" := rfl

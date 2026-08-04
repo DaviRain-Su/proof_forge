@@ -12,7 +12,34 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-04 — inline same-file theorem narrow product closure（engineering）
+
+- `ProgramElaborationV1` 对 literal-true/public-Bool-view simple closure 生成 concrete ASCII
+  identifier legality witnesses、`SimpleClosureParamsLegalV1` 与 premise-free
+  `generatedSafeV1`；ordinary adjacent theorem 可写
+  `exact <Program>.Proof.generatedSafeV1`。证明项仅依赖 production legal-only
+  encode/decode composition；无 Tests import、sorry/axiom/native evaluation。
+- `InlineProofCertifierV1` 修复 Loader product identity 与 Lean declaration namespace 的
+  exact 映射：仅允许 module-prefix-stripped 或 full-identity 两个 elaborator layout，要求唯一
+  current-main declaration；随后用该 namespace 绑定 subject、Prop alias、generated helper 与
+  author theorem。根 namespace 与 `namespace Root`（匹配 `--module Root`）均有正例。
+- `ProgramExport` 的 shared structural ByteArray decoder 补齐 Lean 大 quotation 产生的有界
+  transparent let-chunk spine与 exact `UInt8` `OfNat` 形状；只做 bounded zeta substitution，
+  每步重查 raw-node cap，不执行任意函数。certifier只跟随 exact sibling `subjectBytesV1`，并审计
+  current-main provenance、safe/type/no-sorry/no-extern/no-implemented-by。
+- 严格产品正例转绿：`Tests.Compiler.InlineProofCertifierV1` 真实执行 single snapshot
+  Loader→compile→certify，得到 theoremCount=1 与 digest；`exact`→`apply` 改写不改变
+  ProgramV1 canonical bytes/sourceHash/semanticHash，但改变 proofCertificationDigest。
+  `Tests.CLI.InlineProofProductV1` 的 human/JSON certified、repeat determinism、proof-first unknown
+  target、nonempty-invariant materializer FC 与零 destination/staging 全部通过。
+- 执行结果：`proof_forge_next_tests_shard_typed` exit 0；
+  `proof_forge_next_tests_shard_targets` exit 0（含真实 target acceptance 及 inline CLI suite）。
+  这是 engineering closure；ADR-0026 仍 `proposed`，formal TST-PROOF-001、reachability、
+  target refinement、sandbox/hermetic/release 与 nonempty invariant materialization 均未关闭。
+
 ## 2026-08-04 — docs: inline proof kernel-closed vs remaining product check positive
+
+> 当时的中间状态记录；其 remaining product slice 已由上方同日 engineering closure 闭合。
 
 - Status correction：已验证 **kernel closed（engineering）**——(1) structure→encode→decode
   →`ProofedProof.safe`；(2) legal-only production simple-closure encode/decode

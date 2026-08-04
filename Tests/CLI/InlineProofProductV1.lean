@@ -8,8 +8,7 @@
       zero output directory (certifier before TargetRegistry resolve/materialize)
     * false theorem + valid target on build: fails before staging, no output
     * legacy `--proof-bundle*` flags remain unknown options
-    * raw same-file simple-closure product-positive (strict red until production
-      mints unconditional `generatedSafeV1` + closes encode/decode):
+    * raw same-file simple-closure product-positive (strict engineering closure):
         author inventory theorem is ordinary `SimpleProof.safe`; body exacts
         generated `<Program>.Proof.generatedSafeV1` (never
         redeclared as the inventory theorem)
@@ -104,7 +103,7 @@ private def falseTheoremSource : String :=
   "  rfl\n"
 
 /-- Literal-true simple-closure: ordinary adjacent author theorem + body that
-    exacts planned generated helper (not redeclared under that name). -/
+    exacts the compiler-generated helper (not redeclared under that name). -/
 private def simpleClosureSource
     (programName authorTheorem bodyExtra : String) : String :=
   fixtureHeader ++

@@ -355,9 +355,9 @@ theorem expected-type mismatch 的 stable diagnostic 必须为 `PF-TYPE-001`。�
 |---|---|---|
 | structure→encode→decode→`ProofedProof.safe` | closed（kernel suite） | 不单独代签 CLI certified |
 | legal-only production simple-closure encode/decode + ordinal-0 `InvariantTheoremV1` | closed（`SimpleClosureCertV1` / related cert suites） | 仅 nullary literal-true micro-shape |
-| same-file ordinary theorem product `check` positive | **remaining** | literal-true / public-Bool-view narrow family |
+| same-file ordinary theorem product `check` positive | **closed（engineering）** | literal-true / public-Bool-view narrow family；human/JSON certified + count/digest + body/hash independence |
 
-**Product `check` positive 门槛**（全部通过前不得写 feature done；属 `TST-PROOF-INLINE-E1`
+**Product `check` positive 回归门槛**（已通过，继续属于 `TST-PROOF-INLINE-E1`
 engineering 正/负例，**非** formal）：
 
 1. CLI `check` 正例：same-file source + adjacent ordinary theorem → `proofStatus=certified`、
@@ -367,6 +367,9 @@ engineering 正/负例，**非** formal）：
 3. Gate 顺序：proof fail 严格早于 target resolve/materialize；
 4. Hash / authority / axiom / 非 sandbox 边界同上述 1–6；
 5. nonempty invariant materializer 仍可 fail closed（与 proof gate 正交）。
+
+实现 owner：`Tests.Compiler.InlineProofCertifierV1` 与
+`Tests.CLI.InlineProofProductV1`；两者分别进入 Typed / Targets ordinary shards。
 
 ### Resource test ownership
 
