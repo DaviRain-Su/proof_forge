@@ -250,7 +250,9 @@ private def opAdmitted (op : SemanticOpV1) : Except ReferenceAdmissionErrorV1 Un
   | .commit _ => pure ()
 
 /-- ExternalCall/Schedule arg type shapes admitted for this slice (no Unit).
-    R-1 / N-8: all legal UInt/Int widths (not only 8/32/64). -/
+    R-1 / N-8: all legal UInt/Int widths (not only 8/32/64) plus Principal
+    (N-8 Normalize call/schedule arg parity — opaque identity only; no
+    address mapping). ADR-0029 A4 pf.assets transfer args use Principal. -/
 private def externalArgShapeAdmitted (shape : TypeShapeV1) :
     Except ReferenceAdmissionErrorV1 Unit :=
   match shape with
@@ -261,6 +263,7 @@ private def externalArgShapeAdmitted (shape : TypeShapeV1) :
       else
         admitFail "unsupported ExternalCall/Schedule integer width"
   | .bytes _ => pure ()
+  | .principal => pure ()
   | .unit =>
       admitFail "unsupported ExternalCall/Schedule Unit argument"
   | _ =>

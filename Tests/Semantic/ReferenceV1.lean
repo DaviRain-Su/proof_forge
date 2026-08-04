@@ -71,12 +71,18 @@
    23. N-ANON-RESULT product path: anonymous Array/Map/Option/Bytes callable
        results preserve exact TypeIds and canonical return valueBytes, including
        an Array-typed PureCall; target ABI materialization remains separate.
+   24. ADR-0029 Phase A4: `pf.assets` catalog calls are Reference-opaque void
+       `Op.ExternalCall` (option a — no vault debit/credit interpreter). Source
+       Normalize → admit → step nails cover deposit/transfer/transferAsync QNs,
+       response cursor, external-revert rollback, multi-call source order,
+       Oracle.feed isomorphism, and dual extension rows (requirements-only).
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
 -/
 import Tests.Language.ParserSession
 import ProofForgeV2.Core.Common
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
@@ -90,6 +96,7 @@ set_option maxRecDepth 4096
 
 open ProofForgeV2
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.ReferenceV1
@@ -420,6 +427,62 @@ private def qn2 (a b : String) : IO QualifiedName := do
   match parseQualifiedName #[a, b] with
   | .ok n => pure n
   | .error e => throw <| IO.userError s!"qn2: {e}"
+
+private def qnParts (parts : Array String) : IO QualifiedName := do
+  match parseQualifiedName parts with
+  | .ok n => pure n
+  | .error e => throw <| IO.userError s!"qnParts: {e}"
+
+/-- ADR-0029 frozen pf.assets extension digest spelling (source declaration). -/
+private def pfAssetsDigestV1 : String :=
+  "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+
+private def solanaCpiDigestV1 : String :=
+  "sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
+
+private def pfAssetsRequiresBlock : String :=
+  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "    digest \"" ++ pfAssetsDigestV1 ++ "\"\n"
+
+private def dualExtensionRequiresBlock : String :=
+  "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
+  "    digest \"" ++ solanaCpiDigestV1 ++ "\"\n" ++
+  pfAssetsRequiresBlock
+
+private def refPrincipal (typeId : TypeIdV1) (body : ByteArray) : ReferenceValueV1 :=
+  { typeId, valueBytes := (encodeU32le (UInt32.ofNat body.size)).append body }
+
+private def findAnonymousTypeId (data : SemanticProgramDataV1)
+    (pred : TypeShapeV1 → Bool) : Option TypeIdV1 :=
+  data.types.findSome? fun decl =>
+    match decl.name with
+    | none => if pred decl.shape then some decl.id else none
+    | some _ => none
+
+/-- Collect every ExternalCall instruction in a callable body (source block order). -/
+private def externalCallsInCallable (c : CallableV1) :
+    Array (EffectIdV1 × QualifiedName × Array ValueIdV1) := Id.run do
+  let mut out : Array (EffectIdV1 × QualifiedName × Array ValueIdV1) := #[]
+  for block in c.blocks do
+    for instr in block.instructions do
+      match instr.op with
+      | .externalCall eid callee args =>
+          out := out.push (eid, callee, args)
+      | _ => pure ()
+  pure out
+
+private def getCallable (label : String) (data : SemanticProgramDataV1)
+    (id : CallableIdV1) : IO CallableV1 := do
+  match data.callables[id.toNat]? with
+  | some c => pure c
+  | none => throw <| IO.userError s!"{label}: missing callable {id}"
+
+private def getXCall (label : String)
+    (xcalls : Array (EffectIdV1 × QualifiedName × Array ValueIdV1))
+    (i : Nat) : IO (EffectIdV1 × QualifiedName × Array ValueIdV1) := do
+  match xcalls[i]? with
+  | some x => pure x
+  | none => throw <| IO.userError s!"{label}: missing ExternalCall at {i}"
 
 /-- NormalizeV1 Counter path: admission, init/entry/view, overflow rollback. -/
 private unsafe def testIfMatchReferenceSlice
@@ -5041,6 +5104,539 @@ private unsafe def testContextCallerNormalizeReference
       (invWithContext 0 #[] ctxRows) emptyResponses)
     pre (some callerVal) #[]
 
+/-- ADR-0029 Phase A4 (option a): `pf.assets` catalog calls are Reference-opaque
+    void `Op.ExternalCall`. No vault debit/credit interpreter — QN is only
+    callee identity, responses cursor / ordered effects / external-revert
+    rollback match generic L0 `call Oracle.feed(...)`.
+
+    Void ExternalCall cursor fact (ReferenceMachineV1): every ExternalCall
+    **consumes exactly one** response row (advances `responseCursor`); void
+    result (`instr.result = none`) continues on `.returned` and **discards**
+    any test-supplied `returnValue?`; `.reverted` →
+    `.reverted (.externalCallReverted occ)` with pre-state rollback; missing /
+    mismatched / trailing responses → `.trapped .invalidExternalResponse`.
+    Schedule does **not** consume responses (orthogonal). -/
+private unsafe def testPfAssetsOpaqueExternalCallReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  ---------------------------------------------------------------------------
+  -- Program shape: extension + state + init/entry/view; entry hosts
+  -- deposit → transfer (Principal, UInt64) → state write, with view.
+  ---------------------------------------------------------------------------
+  let transferSource := wrap "PfAssetsTransferRef" <|
+    pfAssetsRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry transfer(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call pf.assets.native.transfer(dst, amount)\n" ++
+    "    count := count + amount\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "pf-assets-transfer-ref" transferSource
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-transfer: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-transfer: validate failed: {repr e}"
+  -- Extension row is requirements-only; Reference step ignores it.
+  expect (data.requirements.items.any (·.id == wireExtensionPfAssetsIdV1))
+    "pf-assets-transfer: retained freeze carries extension.pf-assets"
+  expect (data.requirements.items.any (·.id == "effect.synchronous-call"))
+    "pf-assets-transfer: call site contributes effect.synchronous-call"
+  let admitted ← admitOk "pf-assets-transfer" carrier
+  let u64Tid ← match findAnonymousTypeId data fun s => match s with
+      | .uint 64 => true | _ => false with
+    | some t => pure t
+    | none => throw <| IO.userError "pf-assets-transfer: missing UInt64 type"
+  let pTid ← match findAnonymousTypeId data fun s => match s with
+      | .principal => true | _ => false with
+    | some t => pure t
+    | none => throw <| IO.userError "pf-assets-transfer: missing Principal type"
+  expect (data.callables.size == 3)
+    "pf-assets-transfer: init + transfer + get"
+  let initId : CallableIdV1 := 0
+  let transferId : CallableIdV1 := 1
+  let getId : CallableIdV1 := 2
+  -- Structure: void ExternalCall, exact 4-component QN, EffectId 0.
+  let transferCallable ← getCallable "pf-assets-transfer" data transferId
+  let xcalls := externalCallsInCallable transferCallable
+  expect (xcalls.size == 1) "pf-assets-transfer: one ExternalCall in entry"
+  let (eid0, callee0, args0) ← getXCall "pf-assets-transfer" xcalls 0
+  expect (eid0 == 0) "pf-assets-transfer: EffectId starts at 0"
+  expect (args0.size == 2) "pf-assets-transfer: Principal + UInt64 args"
+  let transferQn ←
+    qnParts #["pf", "assets", "native", "transfer"]
+  expect (callee0 == transferQn)
+    "pf-assets-transfer: callee is pf.assets.native.transfer"
+  -- Confirm void result on the instruction (not result-bearing).
+  let mut foundVoid := false
+  for block in transferCallable.blocks do
+    for instr in block.instructions do
+      match instr.op, instr.result with
+      | .externalCall _ _ _, none => foundVoid := true
+      | .externalCall _ _ _, some _ =>
+          throw <| IO.userError
+            "pf-assets-transfer: ExternalCall must be void (result=none)"
+      | _, _ => pure ()
+  expect foundVoid "pf-assets-transfer: found void ExternalCall instruction"
+
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-transfer: initialLogicalState: {repr e}"
+  let initPost :=
+    stepReferenceSliceV1 admitted initial (inv initId #[refU64 u64Tid 0])
+      emptyResponses
+  let zeroState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "pf-assets-transfer-init" initPost zeroState none #[]
+
+  let dstBody := ByteArray.mk #[0xab, 0xcd]
+  let dstVal := refPrincipal pTid dstBody
+  let amount : Nat := 5
+  let occCall : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  let okResponses : ExternalResponsesV1 := #[
+    { occurrence := occCall, disposition := .returned }
+  ]
+  -- Opaque void returned: effect commits, subsequent state write publishes.
+  let okOut :=
+    stepReferenceSliceV1 admitted zeroState
+      (inv transferId #[dstVal, refU64 u64Tid amount]) okResponses
+  let fiveState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes amount) }
+  let okEffects : Array OrderedEffectV1 := #[
+    { occurrence := occCall
+      payload := .externalCall transferQn #[dstVal, refU64 u64Tid amount] }
+  ]
+  expectReturned "pf-assets-transfer-returned" okOut fiveState
+    (some (refU64 u64Tid amount)) okEffects
+  -- View observes published state after successful external call.
+  let viewOut :=
+    stepReferenceSliceV1 admitted fiveState (inv getId #[]) emptyResponses
+  expectReturned "pf-assets-transfer-view" viewOut fiveState
+    (some (refU64 u64Tid amount)) #[]
+
+  -- Failure propagation: callee revert → externalCallReverted, pre kept,
+  -- subsequent count := count + amount is unreachable.
+  let revResponses : ExternalResponsesV1 := #[
+    { occurrence := occCall, disposition := .reverted }
+  ]
+  let revOut :=
+    stepReferenceSliceV1 admitted zeroState
+      (inv transferId #[dstVal, refU64 u64Tid amount]) revResponses
+  match revOut with
+  | .reverted (.externalCallReverted o) st =>
+      expect (occurrenceEq o occCall) "pf-assets-transfer-reverted: occurrence"
+      expect (logicalStateEq st zeroState)
+        "pf-assets-transfer-reverted: business state holds pre-state"
+  | other =>
+      throw <| IO.userError
+        s!"pf-assets-transfer-reverted: expected external revert, got {repr other}"
+
+  -- Void call still consumes a response: missing → invalidExternalResponse.
+  let missingOut :=
+    stepReferenceSliceV1 admitted zeroState
+      (inv transferId #[dstVal, refU64 u64Tid amount]) emptyResponses
+  expectTrapped "pf-assets-transfer-missing" missingOut
+    .invalidExternalResponse zeroState
+  -- Void discards any test-supplied return value (still continues).
+  let junkReturn : ExternalResponsesV1 := #[
+    { occurrence := occCall
+      disposition := .returned
+      returnValue? := some (refU64 u64Tid 99) }
+  ]
+  let junkOut :=
+    stepReferenceSliceV1 admitted zeroState
+      (inv transferId #[dstVal, refU64 u64Tid amount]) junkReturn
+  expectReturned "pf-assets-transfer-void-discard-return" junkOut fiveState
+    (some (refU64 u64Tid amount)) okEffects
+  -- Trailing unconsumed response after matched void call traps.
+  let extraResponses : ExternalResponsesV1 := #[
+    { occurrence := occCall, disposition := .returned },
+    { occurrence := { effectId := 9, occurrence := 0 }, disposition := .returned }
+  ]
+  let extraOut :=
+    stepReferenceSliceV1 admitted zeroState
+      (inv transferId #[dstVal, refU64 u64Tid amount]) extraResponses
+  expectTrapped "pf-assets-transfer-extra" extraOut
+    .invalidExternalResponse zeroState
+
+  ---------------------------------------------------------------------------
+  -- Multi-call source order: deposit then transfer; effects EffectId 0 then 1;
+  -- state write after both calls sees prior overlay writes.
+  ---------------------------------------------------------------------------
+  let multiSource := wrap "PfAssetsMultiRef" <|
+    pfAssetsRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry tip(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call pf.assets.native.deposit(amount)\n" ++
+    "    call pf.assets.native.transfer(dst, amount)\n" ++
+    "    count := count + amount\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let multiValidated ← loadSource session "pf-assets-multi-ref" multiSource
+  let multiCarrier ← match normalizeProgramV1 multiValidated with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-multi: normalize failed: {repr e}"
+  let multiData ← match validateSemanticProgramV1 multiCarrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-multi: validate failed: {repr e}"
+  let multiAdmitted ← admitOk "pf-assets-multi" multiCarrier
+  let multiU64 ← match findAnonymousTypeId multiData fun s => match s with
+      | .uint 64 => true | _ => false with
+    | some t => pure t
+    | none => throw <| IO.userError "pf-assets-multi: missing UInt64"
+  let multiP ← match findAnonymousTypeId multiData fun s => match s with
+      | .principal => true | _ => false with
+    | some t => pure t
+    | none => throw <| IO.userError "pf-assets-multi: missing Principal"
+  let multiInit : CallableIdV1 := 0
+  let tipId : CallableIdV1 := 1
+  let tipCallable ← getCallable "pf-assets-multi" multiData tipId
+  let multiXcalls := externalCallsInCallable tipCallable
+  expect (multiXcalls.size == 2) "pf-assets-multi: deposit + transfer"
+  let depositQn ← qnParts #["pf", "assets", "native", "deposit"]
+  let (eidDep, calleeDep, argsDep) ← getXCall "pf-assets-multi" multiXcalls 0
+  let (eidXfer, calleeXfer, argsXfer) ← getXCall "pf-assets-multi" multiXcalls 1
+  expect (eidDep == 0 && eidXfer == 1)
+    "pf-assets-multi: EffectIds contiguous 0 then 1"
+  expect (calleeDep == depositQn) "pf-assets-multi: first call is deposit"
+  expect (calleeXfer == transferQn) "pf-assets-multi: second call is transfer"
+  expect (argsDep.size == 1) "pf-assets-multi: deposit arity 1"
+  expect (argsXfer.size == 2) "pf-assets-multi: transfer arity 2"
+  let multiInitial ← match initialLogicalStateV1 multiCarrier with
+    | .ok s => pure s
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-multi: initial: {repr e}"
+  let multiZeroPost :=
+    stepReferenceSliceV1 multiAdmitted multiInitial
+      (inv multiInit #[refU64 multiU64 0]) emptyResponses
+  let multiZero : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "pf-assets-multi-init" multiZeroPost multiZero none #[]
+  let multiDst := refPrincipal multiP (ByteArray.mk #[0x11])
+  let occDep : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  let occXfer : EffectOccurrenceV1 := { effectId := 1, occurrence := 0 }
+  let multiOkResponses : ExternalResponsesV1 := #[
+    { occurrence := occDep, disposition := .returned },
+    { occurrence := occXfer, disposition := .returned }
+  ]
+  let multiOk :=
+    stepReferenceSliceV1 multiAdmitted multiZero
+      (inv tipId #[multiDst, refU64 multiU64 7]) multiOkResponses
+  let multiSeven : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 7) }
+  let multiEffects : Array OrderedEffectV1 := #[
+    { occurrence := occDep
+      payload := .externalCall depositQn #[refU64 multiU64 7] },
+    { occurrence := occXfer
+      payload := .externalCall transferQn #[multiDst, refU64 multiU64 7] }
+  ]
+  expectReturned "pf-assets-multi-ok" multiOk multiSeven
+    (some (refU64 multiU64 7)) multiEffects
+  -- Second-call revert: first effect was recorded in overlay but whole
+  -- invocation rolls back; committed state stays pre.
+  let multiRevResponses : ExternalResponsesV1 := #[
+    { occurrence := occDep, disposition := .returned },
+    { occurrence := occXfer, disposition := .reverted }
+  ]
+  let multiRev :=
+    stepReferenceSliceV1 multiAdmitted multiZero
+      (inv tipId #[multiDst, refU64 multiU64 7]) multiRevResponses
+  match multiRev with
+  | .reverted (.externalCallReverted o) st =>
+      expect (occurrenceEq o occXfer) "pf-assets-multi-rev: second occurrence"
+      expect (logicalStateEq st multiZero)
+        "pf-assets-multi-rev: full snapshot rollback"
+  | other =>
+      throw <| IO.userError
+        s!"pf-assets-multi-rev: expected second-call revert, got {repr other}"
+
+  ---------------------------------------------------------------------------
+  -- QN is only callee identity: generic Oracle.feed is fully isomorphic.
+  ---------------------------------------------------------------------------
+  let oracleSource := wrap "OracleIsoRef" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry feed(amount : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(amount)\n" ++
+    "    count := count + amount\n" ++
+    "    return count\n"
+  let oracleValidated ← loadSource session "oracle-iso-ref" oracleSource
+  let oracleCarrier ← match normalizeProgramV1 oracleValidated with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"oracle-iso: normalize failed: {repr e}"
+  let oracleData ← match validateSemanticProgramV1 oracleCarrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"oracle-iso: validate failed: {repr e}"
+  -- No extension row invented for generic L0 call.
+  expect (!oracleData.requirements.items.any (·.id == wireExtensionPfAssetsIdV1))
+    "oracle-iso: no extension.pf-assets without declaration"
+  let oracleAdmitted ← admitOk "oracle-iso" oracleCarrier
+  let oracleU64 ← match findAnonymousTypeId oracleData fun s => match s with
+      | .uint 64 => true | _ => false with
+    | some t => pure t
+    | none => throw <| IO.userError "oracle-iso: missing UInt64"
+  let oracleInit : CallableIdV1 := 0
+  let feedId : CallableIdV1 := 1
+  let oracleQn ← qn2 "Oracle" "feed"
+  let oracleZeroPost :=
+    stepReferenceSliceV1 oracleAdmitted
+      (← match initialLogicalStateV1 oracleCarrier with
+        | .ok s => pure s
+        | .error e => throw <| IO.userError s!"oracle-iso: initial: {repr e}")
+      (inv oracleInit #[refU64 oracleU64 0]) emptyResponses
+  let oracleZero : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "oracle-iso-init" oracleZeroPost oracleZero none #[]
+  let occOracle : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  let oracleOkResponses : ExternalResponsesV1 := #[
+    { occurrence := occOracle, disposition := .returned }
+  ]
+  let oracleOk :=
+    stepReferenceSliceV1 oracleAdmitted oracleZero
+      (inv feedId #[refU64 oracleU64 5]) oracleOkResponses
+  let oracleFive : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
+  let oracleEffects : Array OrderedEffectV1 := #[
+    { occurrence := occOracle
+      payload := .externalCall oracleQn #[refU64 oracleU64 5] }
+  ]
+  expectReturned "oracle-iso-returned" oracleOk oracleFive
+    (some (refU64 oracleU64 5)) oracleEffects
+  let oracleRev :=
+    stepReferenceSliceV1 oracleAdmitted oracleZero
+      (inv feedId #[refU64 oracleU64 5])
+      #[{ occurrence := occOracle, disposition := .reverted }]
+  match oracleRev with
+  | .reverted (.externalCallReverted o) st =>
+      expect (occurrenceEq o occOracle) "oracle-iso-rev: occurrence"
+      expect (logicalStateEq st oracleZero) "oracle-iso-rev: pre held"
+  | other =>
+      throw <| IO.userError
+        s!"oracle-iso-rev: expected external revert, got {repr other}"
+  -- deposit-only program mirrors the same void ExternalCall cursor discipline.
+  let depositSource := wrap "PfAssetsDepositRef" <|
+    pfAssetsRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry deposit(amount : UInt64) : UInt64 do\n" ++
+    "    call pf.assets.native.deposit(amount)\n" ++
+    "    count := count + amount\n" ++
+    "    return count\n"
+  let depositValidated ← loadSource session "pf-assets-deposit-ref" depositSource
+  let depositCarrier ← match normalizeProgramV1 depositValidated with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-deposit: normalize failed: {repr e}"
+  let depositData ← match validateSemanticProgramV1 depositCarrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-deposit: validate failed: {repr e}"
+  let depositAdmitted ← admitOk "pf-assets-deposit" depositCarrier
+  let depU64 ← match findAnonymousTypeId depositData fun s => match s with
+      | .uint 64 => true | _ => false with
+    | some t => pure t
+    | none => throw <| IO.userError "pf-assets-deposit: missing UInt64"
+  let depInit : CallableIdV1 := 0
+  let depEntry : CallableIdV1 := 1
+  let depZeroPost :=
+    stepReferenceSliceV1 depositAdmitted
+      (← match initialLogicalStateV1 depositCarrier with
+        | .ok s => pure s
+        | .error e => throw <| IO.userError s!"pf-assets-deposit: initial: {repr e}")
+      (inv depInit #[refU64 depU64 0]) emptyResponses
+  let depZero : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "pf-assets-deposit-init" depZeroPost depZero none #[]
+  let occDepOnly : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  let depOk :=
+    stepReferenceSliceV1 depositAdmitted depZero
+      (inv depEntry #[refU64 depU64 5])
+      #[{ occurrence := occDepOnly, disposition := .returned }]
+  let depFive : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
+  let depEffects : Array OrderedEffectV1 := #[
+    { occurrence := occDepOnly
+      payload := .externalCall depositQn #[refU64 depU64 5] }
+  ]
+  expectReturned "pf-assets-deposit-returned" depOk depFive
+    (some (refU64 depU64 5)) depEffects
+  -- Isomorphism: deposit and Oracle both commit one externalCall effect +
+  -- publish the same subsequent state write on returned responses.
+  expect (logicalStateEq depFive oracleFive)
+    "pf-assets vs Oracle: same post-state shape after opaque void call"
+  expect (depEffects.size == oracleEffects.size)
+    "pf-assets vs Oracle: same ordered-effect arity"
+
+  ---------------------------------------------------------------------------
+  -- transferAsync is spelled `call` (not schedule); Reference sees ExternalCall.
+  ---------------------------------------------------------------------------
+  let asyncSource := wrap "PfAssetsAsyncRef" <|
+    pfAssetsRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry send(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call pf.assets.native.transferAsync(dst, amount)\n" ++
+    "    count := count + amount\n" ++
+    "    return count\n"
+  let asyncValidated ← loadSource session "pf-assets-async-ref" asyncSource
+  let asyncCarrier ← match normalizeProgramV1 asyncValidated with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-async: normalize failed: {repr e}"
+  let asyncData ← match validateSemanticProgramV1 asyncCarrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-async: validate failed: {repr e}"
+  let asyncAdmitted ← admitOk "pf-assets-async" asyncCarrier
+  let asyncU64 ← match findAnonymousTypeId asyncData fun s => match s with
+      | .uint 64 => true | _ => false with
+    | some t => pure t
+    | none => throw <| IO.userError "pf-assets-async: missing UInt64"
+  let asyncP ← match findAnonymousTypeId asyncData fun s => match s with
+      | .principal => true | _ => false with
+    | some t => pure t
+    | none => throw <| IO.userError "pf-assets-async: missing Principal"
+  let asyncEntry : CallableIdV1 := 1
+  let asyncCallable ← getCallable "pf-assets-async" asyncData asyncEntry
+  let asyncXcalls := externalCallsInCallable asyncCallable
+  expect (asyncXcalls.size == 1) "pf-assets-async: one ExternalCall"
+  let asyncQn ← qnParts #["pf", "assets", "native", "transferAsync"]
+  let (asyncEid, asyncCallee, asyncArgs) ← getXCall "pf-assets-async" asyncXcalls 0
+  expect (asyncEid == 0) "pf-assets-async: EffectId 0"
+  expect (asyncCallee == asyncQn)
+    "pf-assets-async: callee is pf.assets.native.transferAsync"
+  expect (asyncArgs.size == 2) "pf-assets-async: Principal + UInt64"
+  -- No Schedule ops for transferAsync (source-layer schedule=false discipline;
+  -- Reference only observes the QN + ExternalCall op).
+  let mut sawSchedule := false
+  for block in asyncCallable.blocks do
+    for instr in block.instructions do
+      match instr.op with
+      | .schedule _ _ _ => sawSchedule := true
+      | _ => pure ()
+  expect (!sawSchedule) "pf-assets-async: no Op.Schedule for transferAsync"
+  let asyncInitial ← match initialLogicalStateV1 asyncCarrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"pf-assets-async: initial: {repr e}"
+  let asyncInitPost :=
+    stepReferenceSliceV1 asyncAdmitted asyncInitial
+      (inv 0 #[refU64 asyncU64 0]) emptyResponses
+  let asyncZero : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "pf-assets-async-init" asyncInitPost asyncZero none #[]
+  let asyncDst := refPrincipal asyncP (ByteArray.mk #[0x22])
+  let occAsync : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  let asyncOk :=
+    stepReferenceSliceV1 asyncAdmitted asyncZero
+      (inv asyncEntry #[asyncDst, refU64 asyncU64 3])
+      #[{ occurrence := occAsync, disposition := .returned }]
+  let asyncThree : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 3) }
+  let asyncEffects : Array OrderedEffectV1 := #[
+    { occurrence := occAsync
+      payload := .externalCall asyncQn #[asyncDst, refU64 asyncU64 3] }
+  ]
+  expectReturned "pf-assets-async-returned" asyncOk asyncThree
+    (some (refU64 asyncU64 3)) asyncEffects
+  let asyncRev :=
+    stepReferenceSliceV1 asyncAdmitted asyncZero
+      (inv asyncEntry #[asyncDst, refU64 asyncU64 3])
+      #[{ occurrence := occAsync, disposition := .reverted }]
+  match asyncRev with
+  | .reverted (.externalCallReverted o) st =>
+      expect (occurrenceEq o occAsync) "pf-assets-async-rev: occurrence"
+      expect (logicalStateEq st asyncZero) "pf-assets-async-rev: pre held"
+  | other =>
+      throw <| IO.userError
+        s!"pf-assets-async-rev: expected external revert, got {repr other}"
+
+  ---------------------------------------------------------------------------
+  -- Dual extension (solana.cpi.accounts + pf.assets): Reference behavior is
+  -- unaffected by extension rows (rows live only on the requirements table).
+  ---------------------------------------------------------------------------
+  let dualSource := wrap "PfAssetsDualExtRef" <|
+    dualExtensionRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry transfer(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call pf.assets.native.transfer(dst, amount)\n" ++
+    "    count := count + amount\n" ++
+    "    return count\n"
+  let dualValidated ← loadSource session "pf-assets-dual-ref" dualSource
+  let dualCarrier ← match normalizeProgramV1 dualValidated with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-dual: normalize failed: {repr e}"
+  let dualData ← match validateSemanticProgramV1 dualCarrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"pf-assets-dual: validate failed: {repr e}"
+  expect (dualData.requirements.items.any (·.id == wireExtensionPfAssetsIdV1))
+    "pf-assets-dual: extension.pf-assets row present"
+  expect (dualData.requirements.items.any
+      (·.id == wireExtensionSolanaCpiAccountsIdV1))
+    "pf-assets-dual: extension.solana-cpi-accounts row present"
+  let dualAdmitted ← admitOk "pf-assets-dual" dualCarrier
+  let dualU64 ← match findAnonymousTypeId dualData fun s => match s with
+      | .uint 64 => true | _ => false with
+    | some t => pure t
+    | none => throw <| IO.userError "pf-assets-dual: missing UInt64"
+  let dualP ← match findAnonymousTypeId dualData fun s => match s with
+      | .principal => true | _ => false with
+    | some t => pure t
+    | none => throw <| IO.userError "pf-assets-dual: missing Principal"
+  let dualZeroPost :=
+    stepReferenceSliceV1 dualAdmitted
+      (← match initialLogicalStateV1 dualCarrier with
+        | .ok s => pure s
+        | .error e => throw <| IO.userError s!"pf-assets-dual: initial: {repr e}")
+      (inv 0 #[refU64 dualU64 0]) emptyResponses
+  let dualZero : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "pf-assets-dual-init" dualZeroPost dualZero none #[]
+  let dualDst := refPrincipal dualP (ByteArray.mk #[0x33])
+  let dualOk :=
+    stepReferenceSliceV1 dualAdmitted dualZero
+      (inv 1 #[dualDst, refU64 dualU64 5])
+      #[{ occurrence := occCall, disposition := .returned }]
+  let dualFive : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
+  let dualEffects : Array OrderedEffectV1 := #[
+    { occurrence := occCall
+      payload := .externalCall transferQn #[dualDst, refU64 dualU64 5] }
+  ]
+  expectReturned "pf-assets-dual-returned" dualOk dualFive
+    (some (refU64 dualU64 5)) dualEffects
+  -- Same external-revert rollback as single-extension transfer (rows unused).
+  let dualRev :=
+    stepReferenceSliceV1 dualAdmitted dualZero
+      (inv 1 #[dualDst, refU64 dualU64 5])
+      #[{ occurrence := occCall, disposition := .reverted }]
+  match dualRev with
+  | .reverted (.externalCallReverted o) st =>
+      expect (occurrenceEq o occCall) "pf-assets-dual-rev: occurrence"
+      expect (logicalStateEq st dualZero) "pf-assets-dual-rev: pre held"
+  | other =>
+      throw <| IO.userError
+        s!"pf-assets-dual-rev: expected external revert, got {repr other}"
+
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -5094,6 +5690,8 @@ unsafe def run : IO Unit := do
   testAnonymousContainerResultNormalizeReference session
   -- R-1: multi-width external call arg admission (N-8 parity)
   testExternalCallUInt16ArgAdmission
+  -- ADR-0029 Phase A4: pf.assets opaque void ExternalCall Reference nails
+  testPfAssetsOpaqueExternalCallReference session
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 
 end Tests.Semantic.ReferenceV1
