@@ -6,13 +6,9 @@ use proof_forge_solana_client::{
 };
 
 fn main() {
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
-        Err(error) => {
-            error.print().ok();
-            std::process::exit(2);
-        }
-    };
+    // `Parser::parse` preserves clap's exit contract: help/version exit 0,
+    // malformed usage exits 2. Runtime verification errors use ClientError.
+    let cli = Cli::parse();
 
     if let Err(error) = dispatch(cli) {
         eprintln!("error: {error}");
