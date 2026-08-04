@@ -1303,13 +1303,17 @@ solana-cpi-product-acceptance:
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
 # selection and S5–S7c deletion gates retain the engineering output closure.
 # BUILD-4 local recipes: three independent lanes (also mapped in CI jobs).
-# lean-product: nine non-target test shards + deletion gates.
-# target-smoke: target shard (serial) + target CLI checks + zero-tool NFR gate.
-# Full `ci` retains all ten test shards; only hosted execution ownership changes.
+# Hosted workflow invokes each `*-gates` / `*-cli-smoke` half as its own step so
+# no single command shares the runner budget with shard compilation/execution.
+# Full local `ci` retains all ten test shards and every existing gate.
 # EVMOZ-006: evm-corpus-static after build/test (serial; avoids concurrent lake).
-ci-lean-product: docs-check sbom-package-files-check build test-nontarget product-negative source-bounds evm-corpus-static run-deletion-gates alpha-deletion-gate
+ci-lean-gates: docs-check sbom-package-files-check build product-negative source-bounds evm-corpus-static run-deletion-gates alpha-deletion-gate
 
-ci-target-smoke: build test-targets target-cli-positive target-negative nfr-repeat
+ci-lean-product: test-nontarget ci-lean-gates
+
+ci-target-cli-smoke: build target-cli-positive target-negative nfr-repeat
+
+ci-target-smoke: test-targets ci-target-cli-smoke
 
 ci: ci-lean-product ci-target-smoke
 
