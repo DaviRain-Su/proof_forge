@@ -21,6 +21,18 @@
   `effect.synchronous-call` plus the ADR-0028 extension, and still declines
   async.
 
+  Extension rows are **not** S2 catalog members. A closed advertise table maps
+  each extension wire id to exactly one (target, profile):
+    * `extension.solana-cpi-accounts` → (solana, solana-sbpf-cpi-elf-v1)
+      (ADR-0028 / #125)
+    * `extension.pf-assets` → (quint, quint-source-u64-model-v1)
+      (ADR-0029 Phase A sole L1 binding; other targets stay fail closed until
+      later binding slices)
+  Advertising `extension.pf-assets` does **not** add `effect.synchronous-call`
+  (A5 + Quint lowering own that honesty boundary: extension-only programs may
+  resolve on Quint; programs with `call pf.assets.*` fail closed on the
+  sync-call key until A5).
+
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.
   Dependency-injected seams return index rows or
   `RequirementResolutionInspectionV1` only — never a materialization capability.
@@ -103,9 +115,43 @@ private def s2CatalogRequests : CompileResult (Array RequirementRequestV1) := do
     | .error e => throw <| .registryInvalid s!"engineering S2 request seed failed: {e}"
   pure items
 
+/-- Closed (extension wire id → sole allowed target+profile + exact seed) table.
+    ADR-0029 Phase A: Quint is the sole L1 `extension.pf-assets` advertise;
+    Solana CPI remains ADR-0028 profile-scoped. Any other (target, profile)
+    advertising either extension row fails closed at index construction. -/
+private structure ExtensionAdvertisePermitV1 where
+  rowId : String
+  targetId : TargetId
+  profile : CodegenProfileId
+  expected : RequirementRequestV1
+
+private def closedExtensionAdvertiseTableV1 :
+    CompileResult (Array ExtensionAdvertisePermitV1) := do
+  let solanaExt ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error e =>
+        throw <| .registryInvalid
+          s!"Solana CPI extension requirement seed failed: {e}"
+  let pfAssets ← match pfAssetsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error e =>
+        throw <| .registryInvalid
+          s!"pf.assets extension requirement seed failed: {e}"
+  pure #[
+    { rowId := solanaCpiAccountsExtensionRequirementIdV1
+      targetId := TargetId.solana
+      profile := CodegenProfileId.solanaSbpfCpiElfV1
+      expected := solanaExt },
+    { rowId := pfAssetsExtensionRequirementIdV1
+      targetId := TargetId.quint
+      profile := CodegenProfileId.quintSourceU64ModelV1
+      expected := pfAssets }
+  ]
+
 /-- Validate one supported-requirements array: unique ids, exact S2
-    catalog rows (any subset — per-target capability gates), plus the sole
-    profile-scoped ADR-0028 extension row on `solana-sbpf-cpi-elf-v1` only.
+    catalog rows (any subset — per-target capability gates), plus closed
+    extension advertise rows from `closedExtensionAdvertiseTableV1`
+    (ADR-0028 Solana CPI profile; ADR-0029 Phase A Quint pf.assets).
     All rows use strict ASCII id order and empty predicates. -/
 private def validateSupportedRequests
     (label : String) (targetId : TargetId) (profile : CodegenProfileId)
@@ -117,24 +163,20 @@ private def validateSupportedRequests
   unless isStrictlyAscendingAscii ids do
     throw <| .registryInvalid
       s!"support requirements for '{label}' must be in SPEC wire order"
-  let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
-    | .ok row => pure row
-    | .error e =>
-        throw <| .registryInvalid
-          s!"Solana CPI extension requirement seed failed: {e}"
+  let permits ← closedExtensionAdvertiseTableV1
   let mut i : Nat := 0
   while i < supported.size do
     match supported[i]? with
     | some item =>
-        if item.id == solanaCpiAccountsExtensionRequirementIdV1 then
-          unless targetId == TargetId.solana &&
-              profile == CodegenProfileId.solanaSbpfCpiElfV1 do
-            throw <| .registryInvalid
-              s!"support row '{label}' cannot advertise the Solana CPI extension"
-          unless item == extensionRow do
-            throw <| .registryInvalid
-              s!"support row '{label}' Solana CPI extension row mismatch"
-        else do
+        match permits.find? (·.rowId == item.id) with
+        | some permit =>
+            unless targetId == permit.targetId && profile == permit.profile do
+              throw <| .registryInvalid
+                s!"support row '{label}' cannot advertise extension '{item.id}'"
+            unless item == permit.expected do
+              throw <| .registryInvalid
+                s!"support row '{label}' extension '{item.id}' row mismatch"
+        | none => do
           unless isS2CatalogIdV1 item.id do
             throw <| .registryInvalid
               s!"support row '{label}' unknown requirement id '{item.id}'"
@@ -156,11 +198,13 @@ private def validateSupportedRequests
         throw <| .registryInvalid
           s!"support row '{label}' requirement index out of range"
     i := i + 1
-  if targetId == TargetId.solana &&
-      profile == CodegenProfileId.solanaSbpfCpiElfV1 then
-    unless ids.contains solanaCpiAccountsExtensionRequirementIdV1 do
-      throw <| .registryInvalid
-        s!"support row '{label}' must carry the exact Solana CPI extension"
+  -- Each permit that owns this (target, profile) must be present exactly
+  -- (seed content already checked above when present).
+  for permit in permits do
+    if targetId == permit.targetId && profile == permit.profile then
+      unless ids.contains permit.rowId do
+        throw <| .registryInvalid
+          s!"support row '{label}' must carry the exact extension '{permit.rowId}'"
 
 /-- Implemented (targetId, profile, kind) triple carrier (avoids nested Prod). -/
 private structure ImplementedPairV1 where
@@ -249,30 +293,39 @@ private def mkImplementedRow
     Solana profiles share the same non-call S2 capability set and **decline both
     call families** plus the ADR-0028 extension. The opt-in CPI profile (#125)
     admits exact `effect.synchronous-call` plus the exact ADR-0028 extension and
-    still declines `effect.asynchronous-workflow`. Capability gates are per
-    target: EVM admits both call keys via static QualifiedName callees
-    (AddressBearing: wire Op.ExternalCall/Schedule take compile-time QN, not a
-    dynamic address ValueId — no Principal→20B/32B map). EVM `schedule` is a
-    **fire-and-forget same-transaction** interpretation: the dispatch executes
-    synchronously (`CALL`) and the outcome is discarded, matching the Reference
-    no-response-cursor contract — never a cross-transaction deferral claim
-    (same admission discipline as the CW-4 SubMsg note below). EVM
-    result-bearing sync calls read `RETURNDATA` as one UInt64 word behind a
-    size/range guard (BL-28; wider result types stay fail closed; the callee
-    address is a keccak-of-QN stub pending deployment wiring). NEAR has no
-    synchronous external calls but owns async workflow promises, so it declines
-    sync and supports `effect.asynchronous-workflow`; Noir admits both call keys
-    as a **witness-binding relation** (B-CALL-SEM honesty, 2026-08-04 review):
-    call/schedule args become public-input slots asserted equal to the computed
-    values, and the outcome is a `callStatus` witness — the circuit executes
-    **no** external call and the proof does **not** attest that any on-chain
-    call happened; a caller-side executor must perform the call and supply the
-    response. Result-bearing calls (N-CALL-RET) stay fail closed pending a
-    response-witness contract. Aleo declines both call families (no
-    static-callee Plan open) and `effect.event` (Leo 4.0.2 has no on-chain event
-    log — emit fails closed at the materializer); Psy supports sync calls and
-    events — sync support means **source-surface emission** of the
-    `__invoke_sync#<Felt>` host intrinsic, with no VM/proof acceptance gate
+    still declines `effect.asynchronous-workflow`.
+
+    **ADR-0029 Phase A extension advertise**: closed table (see
+    `closedExtensionAdvertiseTableV1`) — Quint `quint-source-u64-model-v1` is
+    the sole L1 binding that advertises exact `extension.pf-assets`. It keeps
+    the Q0 four S2 keys (rollback/state/Bool/checked-arithmetic) and does
+    **not** add `effect.synchronous-call` yet (A5 + lowering). Solana CPI
+    remains the sole ADR-0028 extension owner. All other targets/profiles
+    fail closed if they advertise either extension row.
+
+    Capability gates are per target: EVM admits both call keys via static
+    QualifiedName callees (AddressBearing: wire Op.ExternalCall/Schedule take
+    compile-time QN, not a dynamic address ValueId — no Principal→20B/32B map).
+    EVM `schedule` is a **fire-and-forget same-transaction** interpretation:
+    the dispatch executes synchronously (`CALL`) and the outcome is discarded,
+    matching the Reference no-response-cursor contract — never a
+    cross-transaction deferral claim (same admission discipline as the CW-4
+    SubMsg note below). EVM result-bearing sync calls read `RETURNDATA` as one
+    UInt64 word behind a size/range guard (BL-28; wider result types stay fail
+    closed; the callee address is a keccak-of-QN stub pending deployment
+    wiring). NEAR has no synchronous external calls but owns async workflow
+    promises, so it declines sync and supports `effect.asynchronous-workflow`;
+    Noir admits both call keys as a **witness-binding relation** (B-CALL-SEM
+    honesty, 2026-08-04 review): call/schedule args become public-input slots
+    asserted equal to the computed values, and the outcome is a `callStatus`
+    witness — the circuit executes **no** external call and the proof does
+    **not** attest that any on-chain call happened; a caller-side executor must
+    perform the call and supply the response. Result-bearing calls (N-CALL-RET)
+    stay fail closed pending a response-witness contract. Aleo declines both
+    call families (no static-callee Plan open) and `effect.event` (Leo 4.0.2 has
+    no on-chain event log — emit fails closed at the materializer); Psy supports
+    sync calls and events — sync support means **source-surface emission** of
+    the `__invoke_sync#<Felt>` host intrinsic, with no VM/proof acceptance gate
     behind it yet — but declines `effect.asynchronous-workflow` (no emitted
     deferred crosscall form — schedule fails closed at the materializer).
     CosmWasm declined both call families at MVP: its `WasmMsg::Execute` is a
@@ -312,8 +365,10 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   -- Quint Q0 is an executable state-model projection, not a deployment target.
   -- It models persistent state, Bool, checked arithmetic, and explicit
-  -- rollback outcomes; event/call/schedule effects remain fail closed.
-  let quintRequests := catalogRequests.filter fun r =>
+  -- rollback outcomes; event/call/schedule effects remain fail closed on the
+  -- S2 matrix. ADR-0029 Phase A: advertise exact `extension.pf-assets` only
+  -- (no `effect.synchronous-call` until A5 + lowering).
+  let quintBaseRequests := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
@@ -327,13 +382,22 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- #125: exact CPI profile admits sync call + extension; still excludes async.
   let withoutAsync := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
-  let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+  let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error e =>
         throw <| .registryInvalid
           s!"Solana CPI extension requirement seed failed: {e}"
   let solanaCpiRequests :=
-    (withoutAsync.push extensionRow).qsort fun a b => a.id < b.id
+    (withoutAsync.push solanaExtensionRow).qsort fun a b => a.id < b.id
+  let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error e =>
+        throw <| .registryInvalid
+          s!"pf.assets extension requirement seed failed: {e}"
+  -- Phase A sole L1 advertise: exact extension.pf-assets on Quint only.
+  -- Do **not** push effect.synchronous-call here (A5 honesty intermediate).
+  let quintRequests :=
+    (quintBaseRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
@@ -439,7 +503,8 @@ private def requestSupportedExact
     Phase order after uniqueness:
     1. strictly ascending request ids (SPEC/S2 wire order) → `PF-REQ-UNSUPPORTED`;
     2. wire-owned ContextRead/Commit exact rows accepted without support matrix;
-    3. exact Solana CPI extension row requires support-row membership;
+    3. closed extension rows (Solana CPI / pf.assets) require support-row membership
+       (from `closedExtensionAdvertiseTableV1` — profile-scoped advertise);
     4. per-row known S2 catalog id → `PF-REQ-UNSUPPORTED` (before predicates);
     5. empty predicates only → `PF-REQ-PRECONDITION` for nonempty (known S2 only);
     6. version / digest / exact support row match → `PF-REQ-UNSUPPORTED`.
@@ -461,11 +526,14 @@ def inspectResolveRequestsV1
   unless isStrictlyAscendingAscii ids do
     throw <| .unsupportedRequirementV1
       "requirement requests must be in SPEC wire order (strictly ascending ids)"
+  -- Closed extension wire ids (not S2). Membership in the advertise table is
+  -- the sole recognition path; exact seed + support-row membership gate accept.
+  let extensionPermits ← closedExtensionAdvertiseTableV1
   for item in items do
     -- ContextRead/Commit exact rows are structure-gate binders and remain
-    -- target-independent. The Solana CPI extension row is also wire-owned but
-    -- is accepted only through exact support-row membership, so no other
-    -- target or legacy Solana profile can inherit it.
+    -- target-independent. Closed engineering extension rows are also
+    -- wire-owned but accepted only through exact support-row membership, so
+    -- non-permitted targets/profiles cannot inherit them.
     if item.id == unixTimeSecondsContextRequirementIdV1 ||
         item.id == callerContextRequirementIdV1 ||
         item.id == commitmentDisclosureRequirementIdV1 then
@@ -492,13 +560,8 @@ def inspectResolveRequestsV1
         throw <| .unsupportedRequirementV1
           s!"requirement '{item.id}' is not the exact wire-owned row"
       pure ()
-    else if item.id == solanaCpiAccountsExtensionRequirementIdV1 then
-      let expected ← match solanaCpiAccountsExtensionRequirementV1 with
-        | .ok row => pure row
-        | .error e =>
-            throw <| .unsupportedRequirementV1
-              s!"Solana CPI extension requirement row unavailable: {e}"
-      unless item == expected do
+    else if let some permit := extensionPermits.find? (·.rowId == item.id) then
+      unless item == permit.expected do
         throw <| .unsupportedRequirementV1
           s!"requirement '{item.id}' is not the exact wire-owned extension row"
       unless requestSupportedExact supported item do

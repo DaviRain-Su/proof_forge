@@ -343,46 +343,54 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
   expect (rows.size == 12) "exactly twelve support rows"
-  let expectedExtension ← match solanaCpiAccountsExtensionRequirementV1 with
+  let expectedSolanaExtension ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
+  let expectedPfAssets ← match pfAssetsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError error
+  -- expectsSolanaCpi / expectsPfAssets: closed advertise scopes (ADR-0028 / ADR-0029 A3).
   let expectedKeys := #[
-    ("aleo", "aleo-leo-4.0.2-u64-v1", 4, false),
-    ("cosmwasm", "cosmwasm-wasm-u64-v1", 6, false),
-    ("evm", "evm-yul-solc-0.8.34-cancun-v1", 7, false),
-    ("evm", "evm-yul-solc-0.8.34-v1", 7, false),
-    ("near", "near-wasm-raw-u64-v1", 6, false),
-    ("noir", "noir-source-u64-relations-v1", 7, false),
-    ("psy", "psy-dargo-u64-v1", 6, false),
-    ("quint", "quint-source-u64-model-v1", 4, false),
+    ("aleo", "aleo-leo-4.0.2-u64-v1", 4, false, false),
+    ("cosmwasm", "cosmwasm-wasm-u64-v1", 6, false, false),
+    ("evm", "evm-yul-solc-0.8.34-cancun-v1", 7, false, false),
+    ("evm", "evm-yul-solc-0.8.34-v1", 7, false, false),
+    ("near", "near-wasm-raw-u64-v1", 6, false, false),
+    ("noir", "noir-source-u64-relations-v1", 7, false, false),
+    ("psy", "psy-dargo-u64-v1", 6, false, false),
+    -- Phase A: Quint = 4 S2 keys + exact extension.pf-assets (no sync-call)
+    ("quint", "quint-source-u64-model-v1", 5, false, true),
     -- #125: CPI row = 6 S2 (incl sync, excl async) + exact extension = 7
-    ("solana", "solana-sbpf-cpi-elf-v1", 7, true),
-    ("solana", "solana-sbpf-elf-v1", 5, false),
-    ("solana", "solana-sbpf-plan-v1", 5, false),
-    ("ton", "ton-tolk-boc-v1", 6, false)
+    ("solana", "solana-sbpf-cpi-elf-v1", 7, true, false),
+    ("solana", "solana-sbpf-elf-v1", 5, false, false),
+    ("solana", "solana-sbpf-plan-v1", 5, false, false),
+    ("ton", "ton-tolk-boc-v1", 6, false, false)
   ]
   let mut i : Nat := 0
   while i < expectedKeys.size do
     match rows[i]?, expectedKeys[i]? with
-    | some row, some (tid, prof, supportCount, expectsExtension) =>
+    | some row, some (tid, prof, supportCount, expectsSolanaCpi, expectsPfAssets) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"
         expect (row.codegenProfile.toString == prof) s!"row {i} profile"
         expect (row.supported.size == supportCount)
           s!"row {i} support count"
-        -- Every row is a wire-order subset of the S2 catalog (plus optional
-        -- Solana CPI extension on the exact CPI profile). EVM/Noir admit both
-        -- external-call keys; legacy Solana declines both; CPI profile admits
-        -- sync only + extension.
+        -- Every row is a wire-order subset of the S2 catalog plus at most the
+        -- closed extension advertise rows (Solana CPI profile / Quint pf.assets).
         let ids := row.supported.map (·.id)
         expect (ids.all fun id => isS2CatalogIdV1 id ||
-            id == solanaCpiAccountsExtensionRequirementIdV1)
-          s!"row {i} ids are S2 or the exact extension"
+            id == solanaCpiAccountsExtensionRequirementIdV1 ||
+            id == pfAssetsExtensionRequirementIdV1)
+          s!"row {i} ids are S2 or a closed extension"
         expect (row.supported.all fun item => item.predicates.isEmpty)
           s!"row {i} predicates"
-        let extensionRows := row.supported.filter fun item =>
+        let solanaExtRows := row.supported.filter fun item =>
           item.id == solanaCpiAccountsExtensionRequirementIdV1
-        expect ((extensionRows == #[expectedExtension]) == expectsExtension)
-          s!"row {i} extension scope"
+        expect ((solanaExtRows == #[expectedSolanaExtension]) == expectsSolanaCpi)
+          s!"row {i} Solana CPI extension scope"
+        let pfAssetsRows := row.supported.filter fun item =>
+          item.id == pfAssetsExtensionRequirementIdV1
+        expect ((pfAssetsRows == #[expectedPfAssets]) == expectsPfAssets)
+          s!"row {i} pf.assets extension scope"
         let expectSync :=
           row.targetId == TargetId.noir || row.targetId == TargetId.psy ||
             row.targetId == TargetId.evm ||
@@ -396,12 +404,22 @@ private def testSupportTable : IO Unit := do
             (ids.contains "effect.asynchronous-workflow") == expectAsync)
           s!"row {i} capability gate shape"
         if row.targetId == TargetId.quint then
-          expect (ids == #["failure.atomic-rollback", "state.persistent",
+          -- Phase A: four S2 keys + extension.pf-assets (ASCII order); no sync-call.
+          expect (ids == #[pfAssetsExtensionRequirementIdV1,
+              "failure.atomic-rollback", "state.persistent",
               "value.bool", "value.checked-arithmetic"])
-            "Quint Q0 support row must be the exact four-key model subset"
+            "Quint Phase A support row must be four S2 keys + exact pf.assets"
+          expect (!ids.contains "effect.synchronous-call" &&
+              !ids.contains "effect.asynchronous-workflow" &&
+              !ids.contains "effect.event")
+            "Quint must not advertise event/call/schedule S2 keys (A5 owns sync)"
         for item in row.supported do
           if item.id == solanaCpiAccountsExtensionRequirementIdV1 then
-            expect (item == expectedExtension) s!"row {i} exact extension row"
+            expect (item == expectedSolanaExtension)
+              s!"row {i} exact Solana CPI extension row"
+          else if item.id == pfAssetsExtensionRequirementIdV1 then
+            expect (item == expectedPfAssets)
+              s!"row {i} exact pf.assets extension row"
           else
             match engineeringRequirementDigestV1 item.id with
             | .ok d =>
@@ -577,21 +595,56 @@ private def testIndexValidationNegatives : IO Unit := do
   let unkRows := twelveRowSkeleton unkTrio unkTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 unkRows)
     "PF-REGISTRY-INVALID" "unknown requirement id in support row"
-  -- The one non-S2 row is legal only on the exact opt-in Solana CPI product profile.
-  let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+  -- Closed extension advertise table: each extension wire id is legal only on
+  -- its exact (target, profile). Cross-target advertise fails closed.
+  let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
-  let evmWithExtension :=
-    (trio.push extensionRow).qsort fun left right => left.id < right.id
-  let wrongExtensionScope := nineRowSkeleton trio evmWithExtension
-  expectErrorCode (createStaticRequirementSupportIndexV1 wrongExtensionScope)
+  let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError error
+  let evmWithSolanaExt :=
+    (trio.push solanaExtensionRow).qsort fun left right => left.id < right.id
+  let wrongSolanaExtensionScope := nineRowSkeleton trio evmWithSolanaExt
+  expectErrorCode (createStaticRequirementSupportIndexV1 wrongSolanaExtensionScope)
     "PF-REGISTRY-INVALID" "Solana CPI extension cannot appear on EVM support row"
-  -- The active opt-in CPI profile is an exact capability boundary, not merely
-  -- the only place where the extension is allowed. Its support row must carry
-  -- the exact frozen extension request.
+  let evmWithPfAssets :=
+    (trio.push pfAssetsRow).qsort fun left right => left.id < right.id
+  let wrongPfAssetsOnEvm := nineRowSkeleton trio evmWithPfAssets
+  expectErrorCode (createStaticRequirementSupportIndexV1 wrongPfAssetsOnEvm)
+    "PF-REGISTRY-INVALID" "pf.assets extension cannot appear on EVM support row"
+  -- pf.assets on Solana CPI profile (wrong permit) also fails closed: start
+  -- from the product index and inject the exact seed on the CPI row only.
+  let baseRows ← liftResult productSupportRowsV1
+  let mut solanaPfAssetsRows : Array StaticRequirementSupportRowV1 := #[]
+  for row in baseRows do
+    if row.targetId == TargetId.solana &&
+        row.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 then
+      solanaPfAssetsRows := solanaPfAssetsRows.push {
+        row with supported :=
+          (row.supported.push pfAssetsRow).qsort fun a b => a.id < b.id
+      }
+    else
+      solanaPfAssetsRows := solanaPfAssetsRows.push row
+  expectErrorCode (createStaticRequirementSupportIndexV1 solanaPfAssetsRows)
+    "PF-REGISTRY-INVALID" "pf.assets extension cannot appear on Solana CPI row"
+  -- Permitted owners must carry their exact extension seed (presence gate).
   let missingExtension := nineRowSkeleton trio trio
   expectErrorCode (createStaticRequirementSupportIndexV1 missingExtension)
-    "PF-REGISTRY-INVALID" "Solana CPI profile requires its exact extension row"
+    "PF-REGISTRY-INVALID"
+    "permitted profiles (Quint pf.assets / Solana CPI) require exact extension rows"
+  -- Quint missing pf.assets while other rows stay product-correct.
+  let mut quintMissingRows : Array StaticRequirementSupportRowV1 := #[]
+  for row in baseRows do
+    if row.targetId == TargetId.quint then
+      quintMissingRows := quintMissingRows.push {
+        row with supported :=
+          row.supported.filter (·.id != pfAssetsExtensionRequirementIdV1)
+      }
+    else
+      quintMissingRows := quintMissingRows.push row
+  expectErrorCode (createStaticRequirementSupportIndexV1 quintMissingRows)
+    "PF-REGISTRY-INVALID" "Quint profile requires exact extension.pf-assets"
 
 private def testSeedPrecedence : IO Unit := do
   let sentinel : CompileResult StaticRequirementSupportIndexV1 :=
@@ -645,10 +698,15 @@ private def testRequestInspectionErrors : IO Unit := do
   expectErrorCode (inspectResolveRequestsV1 supported { items := trio })
     "PF-REQ-UNSUPPORTED" "aleo declines external-call keys"
 
-  -- ADR-0028 extension is exact and profile-scoped: only the Solana CPI
-  -- row accepts it; both legacy Solana rows and all other targets reject it.
-  -- #125: CPI also admits exact effect.synchronous-call and still declines async.
-  let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+  -- Closed extension advertise: Solana CPI (ADR-0028) and Quint pf.assets
+  -- (ADR-0029 Phase A). Each extension resolves only against its permitted
+  -- support row; other targets/profiles reject. #125: CPI also admits exact
+  -- effect.synchronous-call and still declines async. Quint does **not** admit
+  -- sync-call yet (A5 honesty intermediate).
+  let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError error
+  let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
   let cpiSupported ← match rows.find? fun row =>
@@ -656,15 +714,31 @@ private def testRequestInspectionErrors : IO Unit := do
         row.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 with
     | some row => pure row.supported
     | none => throw <| IO.userError "missing Solana CPI support row"
+  let quintSupported ← match rows.find? fun row =>
+      row.targetId == TargetId.quint &&
+        row.codegenProfile == CodegenProfileId.quintSourceU64ModelV1 with
+    | some row => pure row.supported
+    | none => throw <| IO.userError "missing Quint support row"
   let cpiIds := cpiSupported.map (·.id)
   expect (cpiIds.contains "effect.synchronous-call")
     "CPI profile admits effect.synchronous-call"
   expect (!cpiIds.contains "effect.asynchronous-workflow")
     "CPI profile still declines effect.asynchronous-workflow"
-  match inspectResolveRequestsV1 cpiSupported { items := #[extensionRow] } with
+  match inspectResolveRequestsV1 cpiSupported { items := #[solanaExtensionRow] } with
   | .ok () => pure ()
   | .error error =>
-      throw <| IO.userError s!"exact extension on CPI profile: {error.render}"
+      throw <| IO.userError s!"exact Solana CPI extension on CPI profile: {error.render}"
+  match inspectResolveRequestsV1 quintSupported { items := #[pfAssetsRow] } with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError s!"exact pf.assets on Quint profile: {error.render}"
+  -- Cross-scope resolve: Solana extension on Quint / pf.assets on CPI fail closed.
+  expectErrorCode
+    (inspectResolveRequestsV1 quintSupported { items := #[solanaExtensionRow] })
+    "PF-REQ-UNSUPPORTED" "Quint declines Solana CPI extension"
+  expectErrorCode
+    (inspectResolveRequestsV1 cpiSupported { items := #[pfAssetsRow] })
+    "PF-REQ-UNSUPPORTED" "Solana CPI declines pf.assets extension"
   -- Exact sync request resolves on CPI; async does not.
   let syncReq ← match mkS2RequirementRequestV1 "effect.synchronous-call" with
     | .ok r => pure r
@@ -678,6 +752,8 @@ private def testRequestInspectionErrors : IO Unit := do
       throw <| IO.userError s!"exact sync on CPI profile: {error.render}"
   expectErrorCode (inspectResolveRequestsV1 cpiSupported { items := #[asyncReq] })
     "PF-REQ-UNSUPPORTED" "CPI profile declines async workflow"
+  expectErrorCode (inspectResolveRequestsV1 quintSupported { items := #[syncReq] })
+    "PF-REQ-UNSUPPORTED" "Quint Phase A declines effect.synchronous-call (A5 deferred)"
   for legacyProfile in #[CodegenProfileId.solanaSbpfElfV1,
       CodegenProfileId.solanaSbpfPlanV1] do
     let legacySupported ← match rows.find? fun row =>
@@ -687,25 +763,47 @@ private def testRequestInspectionErrors : IO Unit := do
     let legacyIds := legacySupported.map (·.id)
     expect (!legacyIds.contains "effect.synchronous-call" &&
         !legacyIds.contains "effect.asynchronous-workflow" &&
-        !legacyIds.contains solanaCpiAccountsExtensionRequirementIdV1)
-      s!"legacy {legacyProfile} still declines sync/async/extension"
+        !legacyIds.contains solanaCpiAccountsExtensionRequirementIdV1 &&
+        !legacyIds.contains pfAssetsExtensionRequirementIdV1)
+      s!"legacy {legacyProfile} still declines sync/async/both extensions"
     expectErrorCode
-      (inspectResolveRequestsV1 legacySupported { items := #[extensionRow] })
+      (inspectResolveRequestsV1 legacySupported { items := #[solanaExtensionRow] })
       "PF-REQ-UNSUPPORTED" s!"legacy {legacyProfile} declines CPI extension"
+    expectErrorCode
+      (inspectResolveRequestsV1 legacySupported { items := #[pfAssetsRow] })
+      "PF-REQ-UNSUPPORTED" s!"legacy {legacyProfile} declines pf.assets"
     expectErrorCode
       (inspectResolveRequestsV1 legacySupported { items := #[syncReq] })
       "PF-REQ-UNSUPPORTED" s!"legacy {legacyProfile} declines sync call"
+  -- EVM/Noir decline both closed extension rows (no Phase A/B advertise yet).
+  for tid in #[TargetId.evm, TargetId.noir] do
+    let otherSupported ← match rows.find? fun row => row.targetId == tid with
+      | some row => pure row.supported
+      | none => throw <| IO.userError s!"missing {tid} support row"
+    expectErrorCode
+      (inspectResolveRequestsV1 otherSupported { items := #[pfAssetsRow] })
+      "PF-REQ-UNSUPPORTED" s!"{tid} declines pf.assets (Phase A Quint-only)"
+    expectErrorCode
+      (inspectResolveRequestsV1 otherSupported { items := #[solanaExtensionRow] })
+      "PF-REQ-UNSUPPORTED" s!"{tid} declines Solana CPI extension"
   let extensionBadVersion := {
-    extensionRow with version := { major := 1, minor := 0, patch := 1 } }
-  let extensionBadDigest := { extensionRow with digest := zeroDigest }
+    solanaExtensionRow with version := { major := 1, minor := 0, patch := 1 } }
+  let extensionBadDigest := { solanaExtensionRow with digest := zeroDigest }
   let extensionBadPredicate := {
-    extensionRow with predicates := #[.boolEquals "enabled" true] }
+    solanaExtensionRow with predicates := #[.boolEquals "enabled" true] }
   for (label, bad) in #[
       ("version", extensionBadVersion),
       ("digest", extensionBadDigest),
       ("predicate", extensionBadPredicate)] do
     expectErrorCode (inspectResolveRequestsV1 cpiSupported { items := #[bad] })
       "PF-REQ-UNSUPPORTED" s!"CPI extension wrong {label}"
+  let pfAssetsBadVersion := {
+    pfAssetsRow with version := { major := 1, minor := 0, patch := 1 } }
+  let pfAssetsBadDigest := { pfAssetsRow with digest := zeroDigest }
+  expectErrorCode (inspectResolveRequestsV1 quintSupported { items := #[pfAssetsBadVersion] })
+    "PF-REQ-UNSUPPORTED" "Quint pf.assets wrong version"
+  expectErrorCode (inspectResolveRequestsV1 quintSupported { items := #[pfAssetsBadDigest] })
+    "PF-REQ-UNSUPPORTED" "Quint pf.assets wrong digest"
   -- Wrong version/digest on the sync row must also fail closed on CPI.
   let syncBadVersion := {
     syncReq with version := { major := 1, minor := 0, patch := 1 } }
@@ -1244,6 +1342,82 @@ private unsafe def testCapabilityMintUniqueness : IO Unit := do
   expect (Targets.ResolvedEngineeringBuildV1.requirementsOf capability == frozen)
     "sole-mint capability.requirements == retained freeze"
 
+/-- ADR-0029 Phase A honesty intermediate (A3): Quint advertises
+    `extension.pf-assets` but not `effect.synchronous-call`.
+    * Extension-only program → product resolve on Quint succeeds.
+    * Program with `call pf.assets.native.transfer` → retained freeze carries
+      sync-call → Quint resolve fail closed (A5 owns sync-call + lowering). -/
+private def pfAssetsDigestV1 : String :=
+  "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+
+private def pfAssetsDeclaredOnlySourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program PfAssetsDeclared where\n" ++
+  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "    digest \"" ++ pfAssetsDigestV1 ++ "\"\n\n" ++
+  "  entry run() : UInt64 do\n" ++
+  "    return 0\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def pfAssetsCallTransferSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program PfAssetsCall where\n" ++
+  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "    digest \"" ++ pfAssetsDigestV1 ++ "\"\n\n" ++
+  "  entry transfer(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+  "    call pf.assets.native.transfer(dst, amount)\n" ++
+  "    return amount\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private unsafe def testQuintPfAssetsPhaseAHonesty : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let declared ← liftResult (← session.selectProgramV1
+    pfAssetsDeclaredOnlySourceText "<req-resolver-pf-assets-declared>"
+    "Examples.PfAssetsDeclared" none)
+  let declaredCompiled ← liftResult <| Compiler.compileValidatedSourceV1 declared
+  let declaredSemantic := CompiledSemanticV1.semanticV1Of declaredCompiled
+  let declaredFrozen ← match validateSemanticProgramV1 declaredSemantic with
+    | .ok d => pure d.requirements
+    | .error e =>
+        throw <| IO.userError s!"PfAssetsDeclared SemanticProgramV1 invalid: {repr e}"
+  expect (declaredFrozen.items.any (·.id == pfAssetsExtensionRequirementIdV1))
+    "PfAssetsDeclared retained freeze carries exact extension.pf-assets"
+  expect (!declaredFrozen.items.any (·.id == "effect.synchronous-call"))
+    "PfAssetsDeclared has no call site → no effect.synchronous-call"
+  let quintSelection ← liftResult <|
+    resolveBuildSelectionV1 TargetId.quint none
+  let declaredCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 quintSelection declaredCompiled
+  expect
+    (Targets.ResolvedEngineeringBuildV1.targetIdOf declaredCap == TargetId.quint)
+    "extension-only pf.assets resolves on Quint (Phase A)"
+  expect
+    (Targets.ResolvedEngineeringBuildV1.requirementsOf declaredCap == declaredFrozen)
+    "extension-only capability binds exact retained freeze"
+
+  let withCall ← liftResult (← session.selectProgramV1
+    pfAssetsCallTransferSourceText "<req-resolver-pf-assets-call>"
+    "Examples.PfAssetsCall" none)
+  let callCompiled ← liftResult <| Compiler.compileValidatedSourceV1 withCall
+  let callSemantic := CompiledSemanticV1.semanticV1Of callCompiled
+  let callFrozen ← match validateSemanticProgramV1 callSemantic with
+    | .ok d => pure d.requirements
+    | .error e =>
+        throw <| IO.userError s!"PfAssetsCall SemanticProgramV1 invalid: {repr e}"
+  expect (callFrozen.items.any (·.id == pfAssetsExtensionRequirementIdV1))
+    "PfAssetsCall retained freeze carries extension.pf-assets"
+  expect (callFrozen.items.any (·.id == "effect.synchronous-call"))
+    "PfAssetsCall with call site contributes effect.synchronous-call"
+  -- Honesty intermediate: Quint still declines sync-call until A5.
+  expectErrorCode
+    (Targets.resolveEngineeringRequirementsV1 quintSelection callCompiled)
+    "PF-REQ-UNSUPPORTED"
+    "call pf.assets.native.transfer fails closed on Quint until A5 sync-call"
+
 unsafe def run : IO Unit := do
   testSupportTable
   testIndexValidationNegatives
@@ -1258,6 +1432,7 @@ unsafe def run : IO Unit := do
   testBackendSupportDefense
   testDeletionContract
   testCapabilityMintUniqueness
+  testQuintPfAssetsPhaseAHonesty
   IO.println "Tests.Materialization.RequirementResolverV1: ok"
 
 /-!
