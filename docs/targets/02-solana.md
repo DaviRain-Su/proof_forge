@@ -125,13 +125,14 @@ product materialize authority；product path 另走 active catalog 五 API + pro
 --profile solana-sbpf-cpi-elf-v1` 产出 proof-forge.output.v1：5 base + `.so`；inspect 重走 exact
 closure；manifest/evidence 绑定 active profile/catalog digests。Principal 仍 opaque。
 
-**TransferSol 调用闭环（工程，非 formal）**：`Examples/TransferSol.lean` 只使用
+**TransferSol 本地调用闭环（工程，非 formal）**：`Examples/TransferSol.lean` 只使用
 `solana.system.transfer`，其 manifest-bound 产品 ELF 已由 Mollusk 固定 handler 0、16-byte outer
-ABI、payer/recipient/System 角色、成功余额差值、UInt64 return data 与失败回滚。独立
-`clients/solana-transfer-sol` Rust CLI 会离线重验 OutputSet 与 Plan/IR/IDL/bindings，并提供显式
-opt-in Devnet 调用：仅进程内临时 keypair、Devnet genesis 门、Loader V3 ProgramData ELF 双绑定，
-以及 confirmed receipt 的 outer/inner/fee/balance/return 核对。部署仍由 operator 与标准 Solana
-工具负责；尚未取得具体公开 Program ID 前不声称已执行 live Devnet 交易，RPC 观测也不属于
+ABI、payer/recipient/System 角色、成功余额差值、UInt64 return data、零 lamport recipient 与失败
+回滚。独立 `clients/solana-transfer-sol` Rust CLI 只离线重验 OutputSet 与
+Plan/IR/IDL/bindings；`just solana-transfer-sol-local` 随后在本地 SVM 加载同一 manifest-bound ELF
+并运行 8 个聚焦测试（其中 6 个加载执行 ELF）。该表面不含 RPC、Devnet、airdrop、
+wallet/keypair、Program ID 或部署；
+若需部署，由 operator 在自己的本地 validator 工具链完成。本地 Mollusk 观测不属于
 hermetic/formal 证据。
 
 initialized marker 是

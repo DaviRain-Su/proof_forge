@@ -1303,8 +1303,8 @@ solana-cpi-product-acceptance:
 solana-transfer-sol-build:
     bash scripts/solana_transfer_sol_build.sh
 
-# Standalone Rust client tests are offline and use their own locked dependency graph.
-# Kept out of ordinary CI because the Solana RPC graph is intentionally tool-heavy.
+# Standalone artifact-verifier tests are offline and use a minimal locked graph.
+# The hosted Solana runtime lane separately executes the product ELF under Mollusk.
 solana-transfer-sol-client-test:
     cargo test --manifest-path clients/solana-transfer-sol/Cargo.toml --locked
     cargo clippy --manifest-path clients/solana-transfer-sol/Cargo.toml --locked --all-targets -- -D warnings
@@ -1318,17 +1318,19 @@ solana-transfer-sol-offline:
     cargo run --manifest-path clients/solana-transfer-sol/Cargo.toml --locked -- \
       verify-artifacts --artifact-dir "$out"
 
-# Explicit opt-in Devnet write. The Rust client generates only process-local
-# ephemeral keys, requests bounded Devnet funds, sends one transaction, and
-# validates the confirmed receipt. Deployment remains operator-owned.
-solana-transfer-sol-devnet program_id lamports="1000" rpc_url="https://api.devnet.solana.com":
+# Local-only executable call lane: build and independently verify the product
+# OutputSet, then load its manifest-bound ELF in Mollusk and invoke native System.
+# No RPC, faucet, wallet, Program ID, deployment, or test token is involved.
+solana-transfer-sol-local:
     #!/usr/bin/env bash
     set -euo pipefail
     bash scripts/solana_transfer_sol_build.sh
     out="${PROOF_FORGE_TRANSFER_SOL_OUT:-$PWD/build/v2/solana-transfer-sol-product}"
     cargo run --manifest-path clients/solana-transfer-sol/Cargo.toml --locked -- \
-      devnet-call --artifact-dir "$out" --program-id "{{program_id}}" \
-      --lamports "{{lamports}}" --rpc-url "{{rpc_url}}"
+      verify-artifacts --artifact-dir "$out"
+    PROOF_FORGE_TRANSFER_SOL_OUT="$out" \
+      cargo test --manifest-path runtime-tests/solana/Cargo.toml --locked \
+        --test transfer_sol_product -- --nocapture
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;

@@ -12,7 +12,29 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
-## 2026-08-04 — Solana TransferSol 产品制品消费与 Devnet 调用 CLI（engineering）
+## 2026-08-04 — TransferSol 移除 Devnet 写面，收敛为本地执行（engineering）
+
+- 产品决策：测试币/airdrop 不作为 ProofForge 调用闭环依赖；删除
+  `solana-transfer-sol-devnet`、`devnet-call` 及 Rust RPC/airdrop/signing/Loader
+  ProgramData/confirmed-receipt 模块和对应 Solana 网络依赖。CLI 现在只有离线
+  `verify-artifacts`，不存在 RPC URL、Program ID、wallet/keypair 或 deploy 参数。
+- 保留 tracked `Examples/TransferSol.lean`、ordinary product OutputSet、独立 Rust
+  manifest/Plan/IR/IDL/bindings/assembly/ELF verifier，以及 manifest-bound 产品 ELF 的
+  Mollusk native System CPI 回归。
+- 新增 `just solana-transfer-sol-local`：build → independent artifact verify → 8 个聚焦测试
+  （其中 6 个在本地 SVM 加载执行产品 ELF）；不访问网络、不请求测试币、不部署。operator 如需部署，只在自己的
+  local validator/工具链中处理，不进入 ProofForge 产品 surface。
+- 验证结果：离线 verifier 5 unit + 20 integration = 25 tests、strict Clippy、release build；
+  `just solana-transfer-sol-local`、`just solana-runtime`、`just ci`、`just docs-check`、
+  SBOM package-file check 与 `git diff --check` 全通过；fresh verifier 结论 `PASS`。client lock
+  缩至 451 行且无 `solana-rpc-client`/reqwest/Loader/signing 图。
+- 这是工程产品收敛，不改变 formal D1–D4、whole QuickNode `transfer-sol=NO` 或
+  hermetic/mainnet 声明。
+
+## 2026-08-04 — Solana TransferSol 产品制品消费与 Devnet 调用 CLI（historical，已 superseded）
+
+> 本条记录保留当时已执行事实；其 Devnet/RPC/airdrop 产品面已由上方同日决策删除。
+
 
 - 新增 tracked `Examples/TransferSol.lean`：经 active `solana-sbpf-cpi-elf-v1` profile
   物化 `proof-forge.output.v1`，handler 0 的 outer data 为
