@@ -236,7 +236,8 @@ private def isSkippedWireOwnedIdV1 (id : String) : Bool :=
   id == wireContextUnixTimeSecondsIdV1 ||
   id == wireContextCallerIdV1 ||
   id == wireCommitmentDisclosureIdV1 ||
-  id == wireExtensionSolanaCpiAccountsIdV1
+  id == wireExtensionSolanaCpiAccountsIdV1 ||
+  id == wireExtensionPfAssetsIdV1
 
 /-- Infer-only Field type contribution. Field arithmetic is exact modular
     (no overflow); product arithmetic is covered by the existing S2 key

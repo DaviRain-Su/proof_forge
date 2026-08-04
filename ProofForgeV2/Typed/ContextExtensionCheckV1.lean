@@ -7,11 +7,13 @@
   * Only `context.caller` and `context.unixTimeSeconds` are admitted ContextRead
     surfaces (Source.ContextCommitSurfaceV1). Any other `context.*` place is
     fail-closed with `reqPrecondition`.
-  * Exactly one engineering extension identity is admitted:
-    `solana.cpi.accounts@1.0.0` with the frozen ADR-0028 digest. Unknown ids
+  * Engineering extensions are admitted only from the closed Core table
+    `engineeringExtensionIdentitiesV1` (currently ADR-0028
+    `solana.cpi.accounts@1.0.0` and ADR-0029 `pf.assets@1.0.0`). Unknown ids
     fail with `ext001`; a known id with the wrong version/digest fails with
-    `extensionVersion`. Admission only carries the declaration into Semantic;
-    it does not advertise target support or permit artifact minting.
+    `extensionVersion`. Distinct ids may coexist in one program. Admission only
+    carries the declaration into Semantic; it does not advertise target support
+    or permit artifact minting.
 
   Not a formal extension catalog / full context key matrix.
 -/
@@ -114,9 +116,9 @@ def checkContextExtensionDraftsV1
   else
     Id.run do
       let mut drafts : Array TypedDiagnosticDraftV1 := #[]
-      -- ADR-0028 engineering extension identity. This gate is target-neutral:
-      -- it recognizes only exact source bytes and does not import TargetId or
-      -- any Solana target module. Resolver/profile support remains separate.
+      -- Closed engineering extension identities (ADR-0028/0029). Target-neutral:
+      -- exact source triple only; no TargetId or Targets/* import. Resolver/
+      -- profile support remains separate. Dual distinct ids are legal.
       for (item, itemIndex) in program.items.zipIdx do
         match item with
         | .extensionReq declaration =>
@@ -124,27 +126,33 @@ def checkContextExtensionDraftsV1
             | .error detail => drafts := drafts.push (pathInternalDraft detail)
             | .ok itemPath =>
                 let id := sourceQualifiedNameV1ToString declaration.id
-                if id != solanaCpiAccountsExtensionSourceIdV1 then
-                  drafts := drafts.push <| makeLocated .ext001
-                    s!"unsupported extension requirement '{id}'"
-                    itemPath
-                    (expected := some (.string solanaCpiAccountsExtensionSourceIdV1))
-                    (actual := some (.string id))
-                    (stableContext := some "extension.id.unsupported")
-                else if declaration.version != solanaCpiAccountsExtensionVersionV1 ||
-                    declaration.digest != solanaCpiAccountsExtensionDigestV1 then
-                  drafts := drafts.push <| makeLocated .extensionVersion
-                    "Solana CPI extension version/digest does not match the frozen contract"
-                    itemPath
-                    (expected := some (.object #[
-                      ("digest", .string solanaCpiAccountsExtensionDigestV1),
-                      ("version", .string solanaCpiAccountsExtensionVersionV1)]))
-                    (actual := some (.object #[
-                      ("digest", .string declaration.digest),
-                      ("version", .string declaration.version)]))
-                    (stableContext := some "extension.solana-cpi-accounts.version-digest")
-                else
-                  pure ()
+                match findEngineeringExtensionBySourceIdV1 id with
+                | none =>
+                    -- expected: closed source-id set as a stable UTF-8 list
+                    let closedIds :=
+                      String.intercalate ","
+                        (engineeringExtensionIdentitiesV1.map (·.sourceId) |>.toList)
+                    drafts := drafts.push <| makeLocated .ext001
+                      s!"unsupported extension requirement '{id}'"
+                      itemPath
+                      (expected := some (.string closedIds))
+                      (actual := some (.string id))
+                      (stableContext := some "extension.id.unsupported")
+                | some admitted =>
+                    if declaration.version != admitted.version ||
+                        declaration.digest != admitted.digest then
+                      drafts := drafts.push <| makeLocated .extensionVersion
+                        s!"extension '{id}' version/digest does not match the frozen contract"
+                        itemPath
+                        (expected := some (.object #[
+                          ("digest", .string admitted.digest),
+                          ("version", .string admitted.version)]))
+                        (actual := some (.object #[
+                          ("digest", .string declaration.digest),
+                          ("version", .string declaration.version)]))
+                        (stableContext := some s!"{admitted.wireRequirementId}.version-digest")
+                    else
+                      pure ()
         | _ => pure ()
       -- Unknown context.* surfaces in any callable body.
       for item in program.items do

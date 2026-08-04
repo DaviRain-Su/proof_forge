@@ -1783,8 +1783,20 @@ private def attributeCounterEntitiesV1
         | .bool =>
             rs := reqPush rs s2ValueBoolIdV1 (directChild itemPath "FnDecl" "result")
         | _ => pure ()
-    | .extensionReq _ =>
-        rs := reqPush rs wireExtensionSolanaCpiAccountsIdV1 itemPath
+    | .extensionReq declaration =>
+        -- Mirror Normalize closed-table admission: attribute the declaration
+        -- node to the matching wire-owned extension requirement id. Call-site
+        -- QN→extension provenance is not collected here today (solana CPI is
+        -- declaration-only on the extension row; catalog call sites contribute
+        -- S2 effect.synchronous-call). A2 mirrors that for pf.assets.
+        let sourceId :=
+          String.intercalate "."
+            ((NonEmptyArray.toArray declaration.id.components).map (·.raw) |>.toList)
+        match wireRequirementIdOfExactExtensionTripleV1
+            sourceId declaration.version declaration.digest with
+        | some wireId =>
+            rs := reqPush rs wireId itemPath
+        | none => pure ()
     | _ => pure ()
     itemIdx := itemIdx + 1
   itemIdx := 0

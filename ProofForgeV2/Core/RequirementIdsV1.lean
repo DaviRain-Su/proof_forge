@@ -31,14 +31,21 @@
     Bound only by `WireV1.commitmentDisclosureRequirementV1`.
     Not part of the S2 freeze catalog.
 
-  Wire-owned Solana CPI extension binding (ADR-0028 engineering row)
-    Extension source id: `solana.cpi.accounts`
-    Version: `1.0.0`
+  Wire-owned engineering extension bindings (closed table)
     Domain tag: `pf.extension-semantics.v1`
-    Id: `extension.solana-cpi-accounts`
-      (`wireExtensionSolanaCpiAccountsIdV1`)
     Digest is the frozen extension JCS domain digest, not a digest of the id.
+    Members (`engineeringExtensionIdentitiesV1`):
+      * ADR-0028 Solana CPI:
+          source `solana.cpi.accounts@1.0.0`
+          wire `extension.solana-cpi-accounts`
+          (`wireExtensionSolanaCpiAccountsIdV1`)
+      * ADR-0029 portable assets:
+          source `pf.assets@1.0.0`
+          wire `extension.pf-assets`
+          (`wireExtensionPfAssetsIdV1`)
     Not part of the S2 freeze catalog and does not advertise target support.
+    Recognition mints an exact requirement row only; profile/target admission
+    remains RequirementResolver-owned.
 
   Infer-only contributions (RequirementsInferV1)
     No engineering digest is minted for these ids today. They appear as
@@ -132,11 +139,88 @@ def solanaCpiAccountsExtensionDigestV1 : String :=
 def wireExtensionSolanaCpiAccountsIdV1 : String :=
   "extension.solana-cpi-accounts"
 
+/-- Frozen source declaration id for ADR-0029's portable `pf.assets` extension. -/
+def pfAssetsExtensionSourceIdV1 : String := "pf.assets"
+
+/-- Frozen canonical SemVer spelling for the `pf.assets` extension declaration. -/
+def pfAssetsExtensionVersionV1 : String := "1.0.0"
+
+/-- Frozen domain-separated digest of the exact `pf.assets` extension JCS
+    (`SHA-256("pf.extension-semantics.v1" || NUL || extensionJcs)` over
+    `docs/specs/pf-assets-extension-v1.json`). Not derived from the wire id. -/
+def pfAssetsExtensionDigestV1 : String :=
+  "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+
+/-- Wire exact-row id for the `pf.assets` extension declaration
+    (domain `pf.extension-semantics.v1`). -/
+def wireExtensionPfAssetsIdV1 : String := "extension.pf-assets"
+
+/-- Closed chain-neutral catalog QNs for `pf.assets@1.0.0` (ADR-0029).
+    Target-neutral table lives here so Frontend/Typed/Semantic never import
+    `Targets/`. A2 does not force QN-vs-declaration binding at Normalize;
+    catalog-call lowering remains target/profile owned. -/
+def pfAssetsCatalogQualifiedNamesV1 : Array String :=
+  #["pf.assets.native.deposit", "pf.assets.native.transfer",
+    "pf.assets.native.transferAsync", "pf.assets.token.transfer",
+    "pf.assets.token.transferAsync"]
+
+/-- Closed engineering extension identity: source triple + wire row id. -/
+structure EngineeringExtensionIdentityV1 where
+  sourceId : String
+  version : String
+  digest : String
+  wireRequirementId : String
+  deriving Repr, BEq, Inhabited
+
+/-- Solana CPI extension identity (ADR-0028). -/
+def solanaCpiAccountsExtensionIdentityV1 : EngineeringExtensionIdentityV1 :=
+  { sourceId := solanaCpiAccountsExtensionSourceIdV1
+    version := solanaCpiAccountsExtensionVersionV1
+    digest := solanaCpiAccountsExtensionDigestV1
+    wireRequirementId := wireExtensionSolanaCpiAccountsIdV1 }
+
+/-- Portable assets extension identity (ADR-0029 Phase A). -/
+def pfAssetsExtensionIdentityV1 : EngineeringExtensionIdentityV1 :=
+  { sourceId := pfAssetsExtensionSourceIdV1
+    version := pfAssetsExtensionVersionV1
+    digest := pfAssetsExtensionDigestV1
+    wireRequirementId := wireExtensionPfAssetsIdV1 }
+
+/-- Sole closed table of admitted engineering extension identities.
+    Order is stable for diagnostics (first-known for expected values); membership
+    is exact source-id lookup. Dual distinct ids in one program are legal. -/
+def engineeringExtensionIdentitiesV1 : Array EngineeringExtensionIdentityV1 :=
+  #[solanaCpiAccountsExtensionIdentityV1, pfAssetsExtensionIdentityV1]
+
+/-- Look up a closed engineering extension by exact source declaration id. -/
+def findEngineeringExtensionBySourceIdV1 (sourceId : String) :
+    Option EngineeringExtensionIdentityV1 :=
+  engineeringExtensionIdentitiesV1.find? (·.sourceId == sourceId)
+
+/-- True when `(sourceId, version, digest)` matches a closed table row exactly. -/
+def isExactEngineeringExtensionTripleV1
+    (sourceId version digest : String) : Bool :=
+  match findEngineeringExtensionBySourceIdV1 sourceId with
+  | some id => id.version == version && id.digest == digest
+  | none => false
+
+/-- Wire requirement id for an exact closed extension triple, if any. -/
+def wireRequirementIdOfExactExtensionTripleV1
+    (sourceId version digest : String) : Option String :=
+  match findEngineeringExtensionBySourceIdV1 sourceId with
+  | some id =>
+      if id.version == version && id.digest == digest then
+        some id.wireRequirementId
+      else
+        none
+  | none => none
+
 /-- Closed wire-owned requirement ids (ContextRead + Commit + exact extension
     bindings). Membership here does not imply support by any target/profile. -/
 def wireOwnedRequirementIdsV1 : Array String :=
   #[wireContextUnixTimeSecondsIdV1, wireContextCallerIdV1,
-    wireCommitmentDisclosureIdV1, wireExtensionSolanaCpiAccountsIdV1]
+    wireCommitmentDisclosureIdV1, wireExtensionSolanaCpiAccountsIdV1,
+    wireExtensionPfAssetsIdV1]
 
 /-! ### Infer-only contribution ids (S2 freeze rejects; no engineering digest) -/
 

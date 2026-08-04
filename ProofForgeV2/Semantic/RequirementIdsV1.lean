@@ -24,6 +24,18 @@ export ProofForgeV2.Core.RequirementIdsV1 (
   solanaCpiAccountsExtensionVersionV1
   solanaCpiAccountsExtensionDigestV1
   wireExtensionSolanaCpiAccountsIdV1
+  pfAssetsExtensionSourceIdV1
+  pfAssetsExtensionVersionV1
+  pfAssetsExtensionDigestV1
+  wireExtensionPfAssetsIdV1
+  pfAssetsCatalogQualifiedNamesV1
+  EngineeringExtensionIdentityV1
+  solanaCpiAccountsExtensionIdentityV1
+  pfAssetsExtensionIdentityV1
+  engineeringExtensionIdentitiesV1
+  findEngineeringExtensionBySourceIdV1
+  isExactEngineeringExtensionTripleV1
+  wireRequirementIdOfExactExtensionTripleV1
   wireOwnedRequirementIdsV1
   inferDisclosurePrivateWitnessIdV1
   inferDisclosureCommitmentIdV1

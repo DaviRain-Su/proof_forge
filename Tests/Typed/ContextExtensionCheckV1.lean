@@ -110,6 +110,9 @@ private unsafe def testBadContextSurface (session : ParserSession) : IO Unit := 
 private def solanaCpiDigest : String :=
   "sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
 
+private def pfAssetsDigest : String :=
+  "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+
 private def extensionSource
     (programName extensionId version digest : String) : String :=
   "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
@@ -118,6 +121,69 @@ private def extensionSource
   "    digest \"" ++ digest ++ "\"\n" ++
   "  entry run() : UInt64 do\n" ++
   "    return 0\n"
+
+private def dualExtensionSource (programName : String) : String :=
+  "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+  "program " ++ programName ++ " where\n" ++
+  "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
+  "    digest \"" ++ solanaCpiDigest ++ "\"\n" ++
+  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "    digest \"" ++ pfAssetsDigest ++ "\"\n" ++
+  "  entry run() : UInt64 do\n" ++
+  "    return 0\n"
+
+private unsafe def expectExactExtensionRow
+    (label : String) (items : Array RequirementRequestV1)
+    (wireId : String)
+    (expected : Except String RequirementRequestV1) : IO Unit := do
+  let expectedRow ← match expected with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError s!"{label}: row seed: {error}"
+  let rows := items.filter (·.id == wireId)
+  expect (rows == #[expectedRow])
+    s!"{label}: expected one exact {wireId} row, got count={rows.size}"
+
+private unsafe def expectDeclarationOnlyProvenance
+    (label : String) (validated : ValidatedSourceV1)
+    (spans : Array (NormalizedSyntacticPathV1 × SourceByteSpanV1))
+    (carrier : SemanticProgramV1) (data : SemanticProgramDataV1)
+    (wireId : String) (itemIndex : Nat) : IO Unit := do
+  let path ← match parseProjectRelativePath label with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"{label} path: {error}"
+  let (carrierWithProvenance, provenance) ← match
+      normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok pair => pure pair
+    | .error error =>
+        throw <| IO.userError s!"{label} provenance: {repr error}"
+  expect (carrierWithProvenance.canonicalBytes == carrier.canonicalBytes)
+    s!"{label} provenance: normalization must preserve semantic bytes"
+
+  let mut requirementIndex? : Option Nat := none
+  for (row, index) in data.requirements.items.zipIdx do
+    if row.id == wireId then
+      requirementIndex? := some index
+  let some requirementIndex := requirementIndex? |
+    throw <| IO.userError s!"{label} provenance: missing requirement index for {wireId}"
+  let some binding := provenance.originMap.find? fun candidate =>
+      candidate.entity == .requirement (UInt32.ofNat requirementIndex) |
+    throw <| IO.userError s!"{label} provenance: missing requirement binding for {wireId}"
+  expect (binding.origins.size == 1)
+    s!"{label} provenance: declaration-only row must have one origin, got {binding.origins.size}"
+
+  let assignments ← match assignNodeIdsV1
+      validated.moduleName validated.programIdentity validated.program with
+    | .ok table => pure (nodeAssignmentsPreorderV1 table)
+    | .error error => throw <| IO.userError s!"{label} assignments: {error}"
+  let extensionPath : NormalizedSyntacticPathV1 := #[{
+    parentTag := "Program", fieldTag := "items", index := UInt32.ofNat itemIndex }]
+  let some extensionAssignment := assignments.find? fun assignment =>
+      assignment.path == extensionPath |
+    throw <| IO.userError s!"{label} provenance: missing ExtensionReq assignment at {itemIndex}"
+  let some extensionOrigin := binding.origins[0]? |
+    throw <| IO.userError s!"{label} provenance: missing declaration origin"
+  expect (extensionOrigin.nodeId == extensionAssignment.nodeId)
+    s!"{label} provenance: requirement must bind the ExtensionReq declaration node"
 
 private unsafe def testExactSolanaCpiExtensionOk (session : ParserSession) : IO Unit := do
   let v ← load session
@@ -130,6 +196,24 @@ private unsafe def testExactSolanaCpiExtensionOk (session : ParserSession) : IO 
   expect (composed.ok && composed.analysisComplete)
     "exact Solana CPI extension triple must pass CheckV1 composition"
 
+private unsafe def testExactPfAssetsExtensionOk (session : ParserSession) : IO Unit := do
+  let v ← load session
+    (extensionSource "ExtPfOk" "pf.assets" "1.0.0" pfAssetsDigest)
+    "<ext-pf-ok>" "Tests.ExtPfOk"
+  let r := checkContextExtensionResultV1 v
+  expect (r.ok && r.analysisComplete && r.diagnostics.isEmpty)
+    "exact pf.assets extension triple must pass ContextExtension Check"
+  let composed := checkProgramTypedResultV1 v
+  expect (composed.ok && composed.analysisComplete)
+    "exact pf.assets extension triple must pass CheckV1 composition"
+  -- Closed QN table is present and ordered (target-neutral Core authority).
+  expect (pfAssetsCatalogQualifiedNamesV1.size == 5)
+    "pf.assets catalog must expose five closed QNs"
+  expect (pfAssetsCatalogQualifiedNamesV1[0]! == "pf.assets.native.deposit")
+    "pf.assets catalog QN0"
+  expect (pfAssetsCatalogQualifiedNamesV1[4]! == "pf.assets.token.transferAsync")
+    "pf.assets catalog QN4"
+
 private unsafe def testSolanaCpiExtensionSemanticAndProvenance
     (session : ParserSession) : IO Unit := do
   let label := "tests/solana-cpi-extension-v1.pf"
@@ -141,50 +225,10 @@ private unsafe def testSolanaCpiExtensionSemanticAndProvenance
     | .ok value => pure value
     | .error error =>
         throw <| IO.userError s!"extension semantic: validate failed: {repr error}"
-  let expectedRow ← match solanaCpiAccountsExtensionRequirementV1 with
-    | .ok row => pure row
-    | .error error => throw <| IO.userError s!"extension row: {error}"
-  let extensionRows := data.requirements.items.filter fun row =>
-    row.id == wireExtensionSolanaCpiAccountsIdV1
-  expect (extensionRows == #[expectedRow])
-    s!"extension semantic: expected one exact row, got count={extensionRows.size}"
-
-  let path ← match parseProjectRelativePath label with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError s!"extension path: {error}"
-  let (carrierWithProvenance, provenance) ← match
-      normalizeProgramWithProvenanceV1 validated path spans with
-    | .ok pair => pure pair
-    | .error error =>
-        throw <| IO.userError s!"extension provenance: {repr error}"
-  expect (carrierWithProvenance.canonicalBytes == carrier.canonicalBytes)
-    "extension provenance: normalization must preserve semantic bytes"
-
-  let mut requirementIndex? : Option Nat := none
-  for (row, index) in data.requirements.items.zipIdx do
-    if row.id == wireExtensionSolanaCpiAccountsIdV1 then
-      requirementIndex? := some index
-  let some requirementIndex := requirementIndex? |
-    throw <| IO.userError "extension provenance: missing requirement index"
-  let some binding := provenance.originMap.find? fun candidate =>
-      candidate.entity == .requirement (UInt32.ofNat requirementIndex) |
-    throw <| IO.userError "extension provenance: missing requirement binding"
-  expect (binding.origins.size == 1)
-    s!"extension provenance: declaration-only row must have one origin, got {binding.origins.size}"
-
-  let assignments ← match assignNodeIdsV1
-      validated.moduleName validated.programIdentity validated.program with
-    | .ok table => pure (nodeAssignmentsPreorderV1 table)
-    | .error error => throw <| IO.userError s!"extension assignments: {error}"
-  let extensionPath : NormalizedSyntacticPathV1 := #[{
-    parentTag := "Program", fieldTag := "items", index := 0 }]
-  let some extensionAssignment := assignments.find? fun assignment =>
-      assignment.path == extensionPath |
-    throw <| IO.userError "extension provenance: missing ExtensionReq assignment"
-  let some extensionOrigin := binding.origins[0]? |
-    throw <| IO.userError "extension provenance: missing declaration origin"
-  expect (extensionOrigin.nodeId == extensionAssignment.nodeId)
-    "extension provenance: requirement must bind the ExtensionReq declaration node"
+  expectExactExtensionRow "extension semantic" data.requirements.items
+    wireExtensionSolanaCpiAccountsIdV1 solanaCpiAccountsExtensionRequirementV1
+  expectDeclarationOnlyProvenance label validated spans carrier data
+    wireExtensionSolanaCpiAccountsIdV1 0
 
   let noExtension ← load session
     ("import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
@@ -198,7 +242,69 @@ private unsafe def testSolanaCpiExtensionSemanticAndProvenance
     | .error error => throw <| IO.userError s!"extension absent: {repr error}"
   expect (!(absentData.requirements.items.any fun row =>
       row.id == wireExtensionSolanaCpiAccountsIdV1))
-    "extension absent: normalizer must not invent the extension row"
+    "extension absent: normalizer must not invent the solana extension row"
+  expect (!(absentData.requirements.items.any fun row =>
+      row.id == wireExtensionPfAssetsIdV1))
+    "extension absent: normalizer must not invent the pf.assets extension row"
+
+private unsafe def testPfAssetsExtensionSemanticAndProvenance
+    (session : ParserSession) : IO Unit := do
+  let label := "tests/pf-assets-extension-v1.pf"
+  let source :=
+    extensionSource "ExtPfSemantic" "pf.assets" "1.0.0" pfAssetsDigest
+  let (validated, spans) ← loadWithSpans session source label "Tests.ExtPfSemantic"
+  let carrier ← expectNormalizeOk "pf-assets semantic" (normalizeProgramV1 validated)
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"pf-assets semantic: validate failed: {repr error}"
+  expectExactExtensionRow "pf-assets semantic" data.requirements.items
+    wireExtensionPfAssetsIdV1 pfAssetsExtensionRequirementV1
+  -- No solana row invented from pf.assets alone.
+  expect (!(data.requirements.items.any fun row =>
+      row.id == wireExtensionSolanaCpiAccountsIdV1))
+    "pf-assets alone must not mint solana-cpi-accounts"
+  expectDeclarationOnlyProvenance label validated spans carrier data
+    wireExtensionPfAssetsIdV1 0
+
+private unsafe def testDualExtensionDeclarationOk (session : ParserSession) : IO Unit := do
+  let label := "tests/dual-extension-v1.pf"
+  let source := dualExtensionSource "ExtDual"
+  let v ← load session source ("<" ++ label ++ ">") "Tests.ExtDual"
+  let r := checkContextExtensionResultV1 v
+  expect (r.ok && r.analysisComplete && r.diagnostics.isEmpty)
+    "dual solana+pf.assets declarations must pass ContextExtension"
+  let composed := checkProgramTypedResultV1 v
+  expect (composed.ok && composed.analysisComplete)
+    "dual extension declarations must pass CheckV1 composition"
+
+  let (validated, spans) ← loadWithSpans session source label "Tests.ExtDual"
+  let carrier ← expectNormalizeOk "dual extension semantic" (normalizeProgramV1 validated)
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"dual extension semantic: validate failed: {repr error}"
+  expectExactExtensionRow "dual solana" data.requirements.items
+    wireExtensionSolanaCpiAccountsIdV1 solanaCpiAccountsExtensionRequirementV1
+  expectExactExtensionRow "dual pf-assets" data.requirements.items
+    wireExtensionPfAssetsIdV1 pfAssetsExtensionRequirementV1
+  -- Sorted order: extension.pf-assets before extension.solana-cpi-accounts
+  let mut pfIdx? : Option Nat := none
+  let mut solIdx? : Option Nat := none
+  for (row, index) in data.requirements.items.zipIdx do
+    if row.id == wireExtensionPfAssetsIdV1 then pfIdx? := some index
+    if row.id == wireExtensionSolanaCpiAccountsIdV1 then solIdx? := some index
+  match (pfIdx?, solIdx?) with
+  | (some pfI, some solI) =>
+      expect (pfI < solI)
+        s!"dual extension sort: pf-assets index {pfI} must precede solana index {solI}"
+  | _ => throw <| IO.userError "dual extension sort: missing one of the extension rows"
+
+  -- Provenance: each row binds its own declaration item (0=solana, 1=pf.assets).
+  expectDeclarationOnlyProvenance label validated spans carrier data
+    wireExtensionSolanaCpiAccountsIdV1 0
+  expectDeclarationOnlyProvenance label validated spans carrier data
+    wireExtensionPfAssetsIdV1 1
 
 private unsafe def expectExtensionFailure
     (session : ParserSession) (label programName extensionId version digest : String)
@@ -229,13 +335,21 @@ private unsafe def testExtensionNegativeMatrix (session : ParserSession) : IO Un
     "solana.cpi.accounts" "1.0.1" solanaCpiDigest .extensionVersion
   expectExtensionFailure session "ext-digest" "ExtDigest"
     "solana.cpi.accounts" "1.0.0" zeroDigest .extensionVersion
+  -- pf.assets negatives: known id, wrong version/digest still extensionVersion
+  expectExtensionFailure session "ext-pf-version" "ExtPfVersion"
+    "pf.assets" "1.0.1" pfAssetsDigest .extensionVersion
+  expectExtensionFailure session "ext-pf-digest" "ExtPfDigest"
+    "pf.assets" "1.0.0" zeroDigest .extensionVersion
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testAdmittedCallerOk session
   testBadContextSurface session
   testExactSolanaCpiExtensionOk session
+  testExactPfAssetsExtensionOk session
   testSolanaCpiExtensionSemanticAndProvenance session
+  testPfAssetsExtensionSemanticAndProvenance session
+  testDualExtensionDeclarationOk session
   testExtensionNegativeMatrix session
   IO.println "Tests.Typed.ContextExtensionCheckV1: ok"
 

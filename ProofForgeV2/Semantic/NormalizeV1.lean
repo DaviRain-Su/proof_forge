@@ -236,15 +236,23 @@ private def sourceQualifiedNameStringV1 (name : SourceQualifiedNameV1) : String 
   String.intercalate "."
     ((NonEmptyArray.toArray name.components).map (·.raw) |>.toList)
 
-/-- Exact target-neutral ADR-0028 extension declaration identity. Recognition
-    here mints only a wire-owned requirement row; target/profile admission is
-    owned by RequirementResolverV1. -/
-private def isExactSolanaCpiExtensionV1
+/-- Exact target-neutral engineering extension declaration (closed Core table).
+    Recognition here mints only a wire-owned requirement row; target/profile
+    admission is owned by RequirementResolverV1. -/
+private def isExactEngineeringExtensionV1
     (declaration : ProofForgeV2.Source.AstDeclV1.ExtensionReqV1) : Bool :=
-  sourceQualifiedNameStringV1 declaration.id ==
-      solanaCpiAccountsExtensionSourceIdV1 &&
-    declaration.version == solanaCpiAccountsExtensionVersionV1 &&
-    declaration.digest == solanaCpiAccountsExtensionDigestV1
+  isExactEngineeringExtensionTripleV1
+    (sourceQualifiedNameStringV1 declaration.id)
+    declaration.version
+    declaration.digest
+
+/-- Wire requirement id for an exact closed engineering extension, if any. -/
+private def wireIdOfExactEngineeringExtensionV1
+    (declaration : ProofForgeV2.Source.AstDeclV1.ExtensionReqV1) : Option String :=
+  wireRequirementIdOfExactExtensionTripleV1
+    (sourceQualifiedNameStringV1 declaration.id)
+    declaration.version
+    declaration.digest
 
 /-- Map source program identity to Common.QualifiedName (≥2 components for Wire). -/
 def programIdentityToQualifiedNameV1 (identity : SourceQualifiedNameV1) :
@@ -3568,11 +3576,13 @@ private def insertRequirementSortedV1
 
 /-- Merge wire-owned ContextRead/Commit/extension exact rows into the S2
     freeze result. Context/Commit rows appear only when the corresponding ops
-    were emitted; the extension row appears when its exact declaration exists,
-    even without a call. All rows retain their own non-S2 digest domains. -/
+    were emitted; each closed engineering extension row appears when its exact
+    declaration exists, even without a call. All rows retain their own non-S2
+    digest domains. -/
 private def mergeWireOwnedRequirementsV1
     (s2 : ProgramRequirementsV1)
-    (usedUnixTime usedCaller usedCommit usedSolanaCpiExtension : Bool) :
+    (usedUnixTime usedCaller usedCommit
+      usedSolanaCpiExtension usedPfAssetsExtension : Bool) :
     Except NormalizeErrorV1 ProgramRequirementsV1 := do
   let mut items := s2.items
   if usedUnixTime then
@@ -3591,6 +3601,10 @@ private def mergeWireOwnedRequirementsV1
     match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => items := insertRequirementSortedV1 items row
     | .error e => return ← failUnsupported s!"Solana CPI extension requirement row: {e}"
+  if usedPfAssetsExtension then
+    match pfAssetsExtensionRequirementV1 with
+    | .ok row => items := insertRequirementSortedV1 items row
+    | .error e => return ← failUnsupported s!"pf.assets extension requirement row: {e}"
   pure { items }
 
 /-- Compile-time constant evaluator for `const` declarations (engineering
@@ -3799,6 +3813,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   let mut usedContextCaller := false
   let mut usedCommit := false
   let mut usedSolanaCpiExtension := false
+  let mut usedPfAssetsExtension := false
   for item in program.items do
     match item with
     | .state _ => pure ()
@@ -3905,10 +3920,21 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         } : WireV1.InvariantDeclV1)
         callableId := callableId + 1
     | .extensionReq declaration =>
-        unless isExactSolanaCpiExtensionV1 declaration do
+        unless isExactEngineeringExtensionV1 declaration do
           return ← failUnsupported
-            "S1 normalizer admits only the exact solana.cpi.accounts@1.0.0 extension contract"
-        usedSolanaCpiExtension := true
+            "S1 normalizer admits only exact closed engineering extension contracts (solana.cpi.accounts@1.0.0, pf.assets@1.0.0)"
+        match wireIdOfExactEngineeringExtensionV1 declaration with
+        | some wid =>
+            if wid == wireExtensionSolanaCpiAccountsIdV1 then
+              usedSolanaCpiExtension := true
+            else if wid == wireExtensionPfAssetsIdV1 then
+              usedPfAssetsExtension := true
+            else
+              return ← failUnsupported
+                s!"S1 normalizer closed extension wire id not wired for mint: {wid}"
+        | none =>
+            return ← failUnsupported
+              "S1 normalizer closed extension table rejected after exact-triple check"
     | .proof _ =>
         -- INV-1: proof references are certification metadata only; they never
         -- enter Semantic IR / business execution (SPEC-TYPE / SPEC-LANG).
@@ -3932,10 +3958,10 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     | .ok r => pure r
     | .error detail => failUnsupported s!"S2 requirements freeze: {detail}"
   -- Merge wire-owned ContextRead/Commit/extension exact rows (non-S2 digest
-  -- domains). The exact extension declaration mints its row even without a
+  -- domains). Each exact extension declaration mints its row even without a
   -- call. Sort by UTF-8 id so the structure gate order holds.
   let requirements ← mergeWireOwnedRequirementsV1 s2Reqs usedContextUnixTime
-    usedContextCaller usedCommit usedSolanaCpiExtension
+    usedContextCaller usedCommit usedSolanaCpiExtension usedPfAssetsExtension
   pure {
     qualifiedName := qn
     types := interner.types

@@ -88,6 +88,11 @@ def commitmentDisclosureRequirementIdV1 : String :=
 def solanaCpiAccountsExtensionRequirementIdV1 : String :=
   ProofForgeV2.Core.RequirementIdsV1.wireExtensionSolanaCpiAccountsIdV1
 
+/-- Exact requirement identity contributed by the frozen ADR-0029 `pf.assets`
+    extension declaration. Recognition does not imply target support. -/
+def pfAssetsExtensionRequirementIdV1 : String :=
+  ProofForgeV2.Core.RequirementIdsV1.wireExtensionPfAssetsIdV1
+
 /-- Exact bn254 Fr modulus big-endian bytes (SPEC-SEM-WIRE-001 §5). -/
 def bn254FrModulusBEV1 : ByteArray :=
   ByteArray.mk #[
@@ -437,6 +442,21 @@ def solanaCpiAccountsExtensionRequirementV1 :
   let digest ← parseDigest ProofForgeV2.Core.RequirementIdsV1.solanaCpiAccountsExtensionDigestV1
   pure {
     id := solanaCpiAccountsExtensionRequirementIdV1
+    version
+    digest
+    predicates := #[]
+  }
+
+/-- Exact requirement row for the ADR-0029 `pf.assets` extension declaration.
+    Digest is the frozen domain digest of `pf-assets-extension-v1.json`, not
+    `SHA-256(id)`. Recognition alone does not advertise call/schedule support
+    or permit artifact minting. -/
+def pfAssetsExtensionRequirementV1 :
+    Except String RequirementRequestV1 := do
+  let version ← parseSemVer ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionVersionV1
+  let digest ← parseDigest ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionDigestV1
+  pure {
+    id := pfAssetsExtensionRequirementIdV1
     version
     digest
     predicates := #[]
