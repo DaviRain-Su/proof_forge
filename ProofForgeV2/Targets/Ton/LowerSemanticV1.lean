@@ -184,21 +184,22 @@ structure Store where
 inductive Statement where
   | store (operation : Store)
   /-- Multi-leaf atomic store for one aggregate StateStore (Principal / Array /
-      Map / Bytes / named Struct/Enum). IR lowers as two-phase snapshot: evaluate
-      every leaf Expr against the pre-store KV, then write all leaves. Sequential
-      leaf stores would re-read already-written occ/key/val mid-upsert (empty-Map
-      put hazard). Distinct `storeAtomic` statements remain ordered; later ones
-      see earlier writes (Token dual Map store). Scalar StateStore keeps single
-      `.store`. -/
+      Map / Bytes / named Struct/Enum / B-OPT-STATE Option UInt64). IR lowers as
+      two-phase snapshot: evaluate every leaf Expr against the pre-store KV,
+      then write all leaves. Sequential leaf stores would re-read already-written
+      occ/key/val mid-upsert (empty-Map put hazard). Distinct `storeAtomic`
+      statements remain ordered; later ones see earlier writes (Token dual Map
+      store). Scalar StateStore keeps single `.store`. -/
   | storeAtomic (leaves : Array Store)
   | returnValue (value : Expr)
   /-- B-RET-ABI / N-ANON-RESULT: multi-leaf view return. `leaves` are preorder
   flatten expressions (UInt64/Int64 only, ≤8); `leafIsInt` is parallel ABI
   signedness. Covers named Struct/Enum, anonymous `Array UInt64 N` (1..8),
-  and `Option UInt64` (tag+payload). Emitted as a TVM get-method multi-stack
-  return (`get fun f(): (int, int, …) { return (t0, t1, …); }`). Entry
-  (mutate) aggregate returns stay fail-closed — TON async actors have no
-  return channel on internal messages. -/
+  and `Option UInt64` (tag+payload; B-OPT-STATE state load or construct).
+  Emitted as a TVM get-method multi-stack return
+  (`get fun f(): (int, int, …) { return (t0, t1, …); }`). Entry (mutate)
+  aggregate returns stay fail-closed — TON async actors have no return
+  channel on internal messages. -/
   | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | assert (condition : Expr)
@@ -588,7 +589,11 @@ private def tonTypeClosureWording : PilotTypeClosureWording where
     named-aggregate return** via B-RET-ABI multi-stack get method ≤8 leaves).
     **Anonymous containers** via `pilotContainerStatePolicyArrayMapBytes`
     (Array → N×UInt64 leaves; Map → dense cap-8; Bytes → N×UInt8; Option admitted
-    as body intermediate when Map is on — never as state leaf table entry).
+    as body intermediate when Map is on — never pushed into `containerTypeIds`).
+    **B-OPT-STATE / BL-34**: anonymous `Option UInt64` **state** admitted as
+    Enum-shaped tag+payload c4 leaves (`name_tag`/`name_p0`; none default =
+    zero fields; storeAtomic on assign; match via VariantTag/VariantPayload).
+    Option of non-UInt64, nested Option, Option params stay fail closed.
     **N-ANON-RESULT (TON ABI)**: anonymous `Array UInt64 N` (1..8) and
     `Option UInt64` **view** returns reuse the same multi-stack get-method path;
     entry aggregate stays fail closed (no return channel); Map/Bytes/nested/
@@ -732,6 +737,30 @@ private def containerLeafLayoutV1
   | _ =>
       throw <| .planInvariant .ton
         "unsupported Ton semantic shape: container TypeId is not Array/Map/Bytes"
+
+/-- True when `typeId` is an anonymous Option TypeDecl. Option is admitted by
+    the Map container policy as a Map IndexGet intermediate, by N-ANON-RESULT
+    as a view-return shape, and (B-OPT-STATE) as Enum-shaped state layout —
+    it is **never** pushed to `containerTypeIds`. -/
+private def isAnonymousOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, name := none, .. } => true
+  | _ => false
+
+/-- B-OPT-STATE: admit only anonymous `Option UInt64` for state (tag+payload).
+    Non-UInt64 / nested / named Option stay fail closed. -/
+private def requireOptionUInt64StateV1
+    (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
+    (typeId : TypeIdV1) (stateName : String) : CompileResult Unit := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option elTid, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .ton
+          s!"unsupported Ton semantic shape: Option state '{stateName}' requires UInt64 payload"
+  | _ =>
+      throw <| .planInvariant .ton
+        s!"unsupported Ton semantic shape: state '{stateName}' is not anonymous Option UInt64"
 
 /-- Flatten a type into ordered leaf names under Ton named-aggregate policy.
     Scalars inside aggregates: UInt64 / Int64 only (matching EVM N3 / Psy H3).
@@ -1123,6 +1152,35 @@ private def makeStorageLayoutV1
               endianness := .little
             }
           stateLeaves := stateLeaves.push leaves
+        else if isAnonymousOptionTypeIdV1 typeDecls state.typeId then
+          -- B-OPT-STATE / BL-34: Option UInt64 → tag + payload (2×8-byte c4
+          -- leaves), same physical shape as a 1-payload Enum. Names follow
+          -- Enum convention (`name_tag` / `name_p0`). Default zero fields =
+          -- Option.none; storeAtomic writes both leaves; none construct zeroes
+          -- payload (pin). Non-UInt64 Option payload fails closed above.
+          requireOptionUInt64StateV1 typeDecls types state.typeId state.name
+          let tagName := state.name ++ "_tag"
+          let pName := state.name ++ "_p0"
+          unless isIdentifier tagName do
+            throw <| .planInvariant .ton
+              s!"state name '{tagName}' is not a safe identifier"
+          unless isIdentifier pName do
+            throw <| .planInvariant .ton
+              s!"state name '{pName}' is not a safe identifier"
+          if fields.size + 2 > maxStateFields then
+            throw <| .planInvariant .ton "state count is outside the profile limits"
+          let mut leaves : Array Nat := #[]
+          for leafName in #[tagName, pName] do
+            let fi := fields.size
+            leaves := leaves.push fi
+            fields := fields.push {
+              sourceId := fi
+              name := leafName
+              key := stateKey fi
+              byteWidth := 8
+              endianness := .little
+            }
+          stateLeaves := stateLeaves.push leaves
         else if types.isPrincipal state.typeId then
           -- T12 Principal: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
           -- ValidatePlan requires sourceId == physical field index (dense).
@@ -1178,7 +1236,8 @@ private structure LoweredValueV1 where
   dependencies : Array ValueIdV1
   /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-8
       occ/key/val, Bytes N (1-byte UInt8 leaves), named Struct/Enum (preorder
-      UInt64/Int64 leaves), or Option `[tag,payload]` from Map IndexGet.
+      UInt64/Int64 leaves), or Option `[tag,payload]` (Map IndexGet intermediate,
+      N-ANON-RESULT construct/return, or B-OPT-STATE storage load/store).
       `expr` mirrors `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none
   /-- Physical byte width of each leaf KV value: 8 for UInt64 leaves
@@ -1302,6 +1361,11 @@ private def makeParamsV1 (owner : String) (types : TonTypeClosureV1)
         leafExprs := leafExprs.push (.param nextInputOffset)
         nextInputOffset := nextInputOffset + 8
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+    else if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
+      -- B-OPT-STATE mirrors state-only Option policy: Option params stay FC
+      -- (named Enum params remain admitted separately; Option has no param ABI).
+      throw <| .planInvariant .ton
+        s!"unsupported Ton semantic shape: Option parameter '{param.name}' in {owner} is outside the Ton pilot (Option is state/view-return only)"
     else if types.isContainer param.typeId then
       -- Bytes N param: flatten to N×UInt8 input words (read-only aggregate;
       -- IndexGet on the leaves is the only access — params are immutable).
@@ -1974,6 +2038,17 @@ private def lowerBlockInstructionsV1
             leafExprs := leafExprs.push (.stateLoad fi)
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 result.typeId values result value
+        else if isAnonymousOptionTypeIdV1 typeDecls result.typeId then
+          -- B-OPT-STATE: Option UInt64 state load → 2-leaf aggregate (tag, payload).
+          requireOptionUInt64StateV1 typeDecls types result.typeId "load"
+          unless leafIdxs.size == 2 do
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: Option state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          for fi in leafIdxs do
+            leafExprs := leafExprs.push (.stateLoad fi)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
         else
           let fi ← match leafIdxs[0]? with
             | some i =>
@@ -2000,7 +2075,7 @@ private def lowerBlockInstructionsV1
                   pure w
               | none =>
                   throw <| .planInvariant .ton
-                    "unsupported Ton semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, named Struct/Enum, or Array/Map"
+                    "unsupported Ton semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, named Struct/Enum, Array/Map, or Option UInt64"
           unless field.byteWidth == byteWidthOfBitWidth bitWidth do
             throw <| .planInvariant .ton
               "unsupported Ton semantic shape: state load width does not match field layout"
@@ -2345,10 +2420,11 @@ private def lowerBlockInstructionsV1
           | none => pure #[stateId.toNat]
         let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         if root.isAggregate then
-          -- Principal / Array / Map / Bytes / named Struct/Enum multi-leaf store
-          -- as one atomic unit. Soft: dual Map stores leave pure values for a
-          -- later store (Token). Atomic: all leaf Exprs share the pre-store KV
-          -- snapshot at IR lower (store-then-read hazard on sequential leaves).
+          -- Principal / Array / Map / Bytes / named Struct/Enum / Option UInt64
+          -- multi-leaf store as one atomic unit. Soft: dual Map stores leave
+          -- pure values for a later store (Token). Atomic: all leaf Exprs share
+          -- the pre-store KV snapshot at IR lower (store-then-read hazard on
+          -- sequential leaves). Option.none zeros both tag and payload.
           let leaves := root.leafExprs
           unless leaves.size == leafIdxs.size do
             throw <| .planInvariant .ton
@@ -2535,10 +2611,9 @@ private def lowerBlockInstructionsV1
               let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
               values := ← appendResultValueV1 result.typeId values result value
         | none => do
-            -- Option UInt64 construct (none/some) for anonymous-result view
-            -- returns; named Struct/Enum construct remains the other
-            -- non-container path. Option state stays fail closed
-            -- (never in containerTypeIds / state leaf table).
+            -- Option UInt64 construct (none/some) for B-OPT-STATE storage and
+            -- N-ANON-RESULT view returns; named Struct/Enum construct remains
+            -- the other non-container path. Option is never in containerTypeIds.
             match typeDecls[typeId.toNat]? with
             | some { shape := .option elTid, name := none, .. } => do
                 unless elTid == types.uint64TypeId do
