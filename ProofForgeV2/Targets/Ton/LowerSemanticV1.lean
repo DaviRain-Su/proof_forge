@@ -192,12 +192,13 @@ inductive Statement where
       `.store`. -/
   | storeAtomic (leaves : Array Store)
   | returnValue (value : Expr)
-  /-- B-RET-ABI: multi-leaf named Struct/Enum view return. `leaves` are preorder
+  /-- B-RET-ABI / N-ANON-RESULT: multi-leaf view return. `leaves` are preorder
   flatten expressions (UInt64/Int64 only, ≤8); `leafIsInt` is parallel ABI
-  signedness. Emitted as a TVM get-method multi-stack return
-  (`get fun f(): (int, int, …) { return (t0, t1, …); }`). Entry (mutate)
-  aggregate returns stay fail-closed — TON async actors have no return channel
-  on internal messages. -/
+  signedness. Covers named Struct/Enum, anonymous `Array UInt64 N` (1..8),
+  and `Option UInt64` (tag+payload). Emitted as a TVM get-method multi-stack
+  return (`get fun f(): (int, int, …) { return (t0, t1, …); }`). Entry
+  (mutate) aggregate returns stay fail-closed — TON async actors have no
+  return channel on internal messages. -/
   | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | assert (condition : Expr)
@@ -273,9 +274,11 @@ structure LeafAbiType where
 /-- Result kind of a Ton method export. Init is always unit; entry/view may be
 UInt{8,16,32,64}/Bool/Int64 (T9a). UInt64/Int64/Bool wire as 8-byte little-endian
 i64 (Bool is 0/1); UInt{8,16,32} wire as 1/2/4-byte LE payloads. ABI JSON
-`returns` distinguishes the declared type. B-RET-ABI adds `.aggregate` for
-**view-only** named Struct/Enum returns: preorder UInt64/Int64 leaves (1..8)
-as a multi-stack get-method return; entry aggregate stays fail-closed. -/
+`returns` distinguishes the declared type. B-RET-ABI / N-ANON-RESULT adds
+`.aggregate` for **view-only** named Struct/Enum and admitted anonymous
+`Array UInt64 N` / `Option UInt64` returns: preorder UInt64/Int64 leaves (1..8)
+as a multi-stack get-method return; entry aggregate stays fail-closed. Map /
+Bytes / nested / non-UInt64-element anonymous returns stay fail closed. -/
 inductive MethodResultKind where
   | unit
   | uint64
@@ -290,8 +293,10 @@ inductive MethodResultKind where
   /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
   | uint128
   | uint256
-  /-- B-RET-ABI: named Struct/Enum aggregate view return. `leaves` is preorder
-  flatten order (1..8). Anonymous Array/Map/Bytes/Option stay fail-closed.
+  /-- B-RET-ABI / N-ANON-RESULT: multi-leaf aggregate view return. `leaves` is
+  preorder flatten order (1..8). Covers named Struct/Enum, anonymous
+  `Array UInt64 N` (1..8), and `Option UInt64` (tag+payload). Map/Bytes/
+  nested/non-UInt64 elements stay fail closed at result-kind resolution.
   Only `.view` methods may carry this kind (entry async has no return channel). -/
   | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
@@ -575,8 +580,19 @@ private def tonTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt{8,16,32,64} and Int64 integer types are supported (UInt128/256 and narrow Int fail closed)"
   unsupportedShapeDetail :=
-    "only UInt{8,16,32,64}, Int64, Unit, Bool, and named Struct/Enum are supported (no Field/Principal/anonymous containers; UInt128/256 fail closed)"
+    "only UInt{8,16,32,64}, Int64, Unit, Bool, named Struct/Enum, and anonymous Array/Map/Bytes/Option are supported (no Field/Principal; UInt128/256 fail closed)"
 
+/-- Ton multi-width + aggregate type closure.
+    **Named Struct/Enum** via `pilotNamedAggregateStatePolicyAdmit` (flatten to
+    UInt64/Int64 c4 leaves; construct/fieldGet/fieldSet/variant ops; **view-only
+    named-aggregate return** via B-RET-ABI multi-stack get method ≤8 leaves).
+    **Anonymous containers** via `pilotContainerStatePolicyArrayMapBytes`
+    (Array → N×UInt64 leaves; Map → dense cap-8; Bytes → N×UInt8; Option admitted
+    as body intermediate when Map is on — never as state leaf table entry).
+    **N-ANON-RESULT (TON ABI)**: anonymous `Array UInt64 N` (1..8) and
+    `Option UInt64` **view** returns reuse the same multi-stack get-method path;
+    entry aggregate stays fail closed (no return channel); Map/Bytes/nested/
+    narrow-element anonymous returns stay fail closed. -/
 private def validateTonTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult TonTypeClosureV1 :=
   validatePilotTypeClosure tonPlanErr tonTypeClosureWording types
@@ -584,7 +600,7 @@ private def validateTonTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (principalPolicy := pilotPrincipalPolicyNone)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyNone)
+    (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 /-- Ton pilot Principal storage layout (T12, isomorphic to EVM T10):
     * leaf 0: wire body length (`UInt64`)
@@ -838,15 +854,68 @@ private partial def flattenTypeLeafAbiV1
     throw <| .planInvariant .ton
       "unsupported Ton semantic shape: aggregate leaf must be UInt64, Int64, or named Struct/Enum"
 
-/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
-`MethodResultKind`. Enforces 1..8 leaves. Anonymous containers fail closed. -/
+/-- N-ANON-RESULT (TON ABI): anonymous result leaf layout for admitted
+container **view** returns. `Array UInt64 N` → N×u64 leaves; `Option UInt64` →
+tag+payload (none=(0,0), some v=(1,v)). Map/Bytes throw for precise FC. -/
+private def anonymousReturnLeafAbiV1
+    (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .ton
+          "unsupported Ton semantic shape: anonymous Array return requires UInt64 elements"
+      let n := len.toNat
+      unless n ≥ 1 do
+        throw <| .planInvariant .ton
+          "unsupported Ton semantic shape: anonymous Array return length must be ≥ 1"
+      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
+  | some { shape := .option elTid, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .ton
+          "unsupported Ton semantic shape: anonymous Option return requires UInt64 payload"
+      pure (some #[{ isInt := false, byteWidth := 8 }, { isInt := false, byteWidth := 8 }])
+  | some { shape := .map .., name := none, .. } =>
+      throw <| .planInvariant .ton
+        "unsupported Ton semantic shape: anonymous Map return is outside the Ton B-RET ABI"
+  | some { shape := .bytes .., name := none, .. } =>
+      throw <| .planInvariant .ton
+        "unsupported Ton semantic shape: anonymous Bytes return is outside the Ton B-RET ABI"
+  | some { shape := .array .., .. } | some { shape := .option .., .. } =>
+      pure none
+  | _ => pure none
+
+/-- True when `typeId` should be resolved through the aggregate result path
+(named Struct/Enum or anonymous Array/Map/Bytes/Option, so Map/Bytes get
+precise fail-closed diagnostics instead of a scalar fallthrough). -/
+private def isAggregateResultCandidateV1
+    (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
+    (typeId : TypeIdV1) : Bool :=
+  if types.isNamedAggregate typeId then true
+  else
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .array .., name := none, .. }
+    | some { shape := .option .., name := none, .. }
+    | some { shape := .map .., name := none, .. }
+    | some { shape := .bytes .., name := none, .. } => true
+    | _ => false
+
+/-- B-RET-ABI / N-ANON-RESULT: resolve a named Struct/Enum or admitted
+anonymous Array/Option result TypeId into an aggregate `MethodResultKind`.
+Enforces 1..8 leaves. Map/Bytes/nested/narrow-element anonymous containers
+fail closed. Callers must still enforce view-only (entry has no return channel). -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
-  unless types.isNamedAggregate typeId do
-    throw <| .planInvariant .ton
-      s!"{owner} does not return a named Struct/Enum aggregate"
-  let leaves ← flattenTypeLeafAbiV1 typeDecls types typeId
+  let leaves ←
+    if types.isNamedAggregate typeId then
+      flattenTypeLeafAbiV1 typeDecls types typeId
+    else
+      match ← anonymousReturnLeafAbiV1 typeDecls types typeId with
+      | some ls => pure ls
+      | none =>
+          throw <| .planInvariant .ton
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
   let n := leaves.size
   unless n > 0 do
     throw <| .planInvariant .ton
@@ -2466,76 +2535,113 @@ private def lowerBlockInstructionsV1
               let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
               values := ← appendResultValueV1 result.typeId values result value
         | none => do
-            unless types.isNamedAggregate typeId do
-              throw <| .planInvariant .ton
-                "unsupported Ton semantic shape: construct admits only Array/Map UInt64 or named Struct/Enum on Ton"
-            let some decl := typeDecls[typeId.toNat]? |
-              throw <| .planInvariant .ton
-                "unsupported Ton semantic shape: construct TypeDecl missing"
-            match decl.shape with
-            | .struct fields => do
-                unless ctorIdx.toNat == 0 do
+            -- Option UInt64 construct (none/some) for anonymous-result view
+            -- returns; named Struct/Enum construct remains the other
+            -- non-container path. Option state stays fail closed
+            -- (never in containerTypeIds / state leaf table).
+            match typeDecls[typeId.toNat]? with
+            | some { shape := .option elTid, name := none, .. } => do
+                unless elTid == types.uint64TypeId do
                   throw <| .planInvariant .ton
-                    "unsupported Ton semantic shape: struct construct ctorIdx must be 0"
-                unless argIds.size == fields.size do
-                  throw <| .planInvariant .ton
-                    "unsupported Ton semantic shape: struct construct arity mismatch"
-                let mut leaves : Array Expr := #[]
-                let mut deps : Array ValueIdV1 := #[]
-                let mut depth : Nat := 1
-                let mut nodes : Nat := 1
-                for i in [0:argIds.size] do
-                  let some argId := argIds[i]? |
-                    throw <| .planInvariant .ton "struct construct arg missing"
-                  let some field := fields[i]? |
-                    throw <| .planInvariant .ton "struct construct field missing"
-                  let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-                  let expectedLeaves ← leafCountOfTypeV1 typeDecls types field.typeId
-                  let argLeaves := arg.leafExprs
-                  unless argLeaves.size == expectedLeaves do
+                    "unsupported Ton semantic shape: Option construct requires UInt64 payload"
+                match ctorIdx.toNat with
+                | 0 =>
+                    -- Option.none → (tag=0, payload=0)
+                    unless argIds.isEmpty do
+                      throw <| .planInvariant .ton
+                        "unsupported Ton semantic shape: Option.none construct takes no args"
+                    let leaves : Array Expr := #[.literal 0, .literal 0]
+                    let value := mkAggregateValueV1 leaves #[] 1 2
+                    values := ← appendResultValueV1 result.typeId values result value
+                | 1 =>
+                    -- Option.some(v) → (tag=1, payload=v)
+                    unless argIds.size == 1 do
+                      throw <| .planInvariant .ton
+                        "unsupported Ton semantic shape: Option.some construct takes one arg"
+                    let some argId := argIds[0]? |
+                      throw <| .planInvariant .ton "Option.some construct arg missing"
+                    let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                    unless !arg.isAggregate && arg.kind == .uint64 do
+                      throw <| .planInvariant .ton
+                        "unsupported Ton semantic shape: Option.some arg must be scalar UInt64"
+                    let leaves : Array Expr := #[.literal 1, arg.expr]
+                    let value := mkAggregateValueV1 leaves #[argId]
+                      (arg.depth + 1) (arg.expandedNodes + 2)
+                    values := ← appendResultValueV1 result.typeId values result value
+                | _ =>
                     throw <| .planInvariant .ton
-                      "unsupported Ton semantic shape: struct construct field leaf count mismatch"
-                  leaves := leaves ++ argLeaves
-                  deps := deps.push argId
-                  depth := Nat.max depth (arg.depth + 1)
-                  nodes := nodes + arg.expandedNodes
-                let value := mkAggregateValueV1 leaves deps depth nodes
-                values := ← appendResultValueV1 typeId values result value
-            | .enum variants => do
-                let vi := ctorIdx.toNat
-                let some variant := variants[vi]? |
+                      "unsupported Ton semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+            | _ => do
+                unless types.isNamedAggregate typeId do
                   throw <| .planInvariant .ton
-                    "unsupported Ton semantic shape: enum construct variant out of range"
-                unless argIds.size == variant.payloadTypes.size do
+                    "unsupported Ton semantic shape: construct admits only Array/Map UInt64, Option UInt64, or named Struct/Enum on Ton"
+                let some decl := typeDecls[typeId.toNat]? |
                   throw <| .planInvariant .ton
-                    "unsupported Ton semantic shape: enum construct arity mismatch"
-                let maxPay ← enumMaxPayloadLeavesV1 typeDecls types variants
-                let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
-                let mut deps : Array ValueIdV1 := #[]
-                let mut depth : Nat := 1
-                let mut nodes : Nat := 1
-                for i in [0:argIds.size] do
-                  let some argId := argIds[i]? |
-                    throw <| .planInvariant .ton "enum construct arg missing"
-                  let some pt := variant.payloadTypes[i]? |
-                    throw <| .planInvariant .ton "enum construct payload type missing"
-                  let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-                  let expectedLeaves ← leafCountOfTypeV1 typeDecls types pt
-                  let argLeaves := arg.leafExprs
-                  unless argLeaves.size == expectedLeaves do
+                    "unsupported Ton semantic shape: construct TypeDecl missing"
+                match decl.shape with
+                | .struct fields => do
+                    unless ctorIdx.toNat == 0 do
+                      throw <| .planInvariant .ton
+                        "unsupported Ton semantic shape: struct construct ctorIdx must be 0"
+                    unless argIds.size == fields.size do
+                      throw <| .planInvariant .ton
+                        "unsupported Ton semantic shape: struct construct arity mismatch"
+                    let mut leaves : Array Expr := #[]
+                    let mut deps : Array ValueIdV1 := #[]
+                    let mut depth : Nat := 1
+                    let mut nodes : Nat := 1
+                    for i in [0:argIds.size] do
+                      let some argId := argIds[i]? |
+                        throw <| .planInvariant .ton "struct construct arg missing"
+                      let some field := fields[i]? |
+                        throw <| .planInvariant .ton "struct construct field missing"
+                      let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                      let expectedLeaves ← leafCountOfTypeV1 typeDecls types field.typeId
+                      let argLeaves := arg.leafExprs
+                      unless argLeaves.size == expectedLeaves do
+                        throw <| .planInvariant .ton
+                          "unsupported Ton semantic shape: struct construct field leaf count mismatch"
+                      leaves := leaves ++ argLeaves
+                      deps := deps.push argId
+                      depth := Nat.max depth (arg.depth + 1)
+                      nodes := nodes + arg.expandedNodes
+                    let value := mkAggregateValueV1 leaves deps depth nodes
+                    values := ← appendResultValueV1 typeId values result value
+                | .enum variants => do
+                    let vi := ctorIdx.toNat
+                    let some variant := variants[vi]? |
+                      throw <| .planInvariant .ton
+                        "unsupported Ton semantic shape: enum construct variant out of range"
+                    unless argIds.size == variant.payloadTypes.size do
+                      throw <| .planInvariant .ton
+                        "unsupported Ton semantic shape: enum construct arity mismatch"
+                    let maxPay ← enumMaxPayloadLeavesV1 typeDecls types variants
+                    let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
+                    let mut deps : Array ValueIdV1 := #[]
+                    let mut depth : Nat := 1
+                    let mut nodes : Nat := 1
+                    for i in [0:argIds.size] do
+                      let some argId := argIds[i]? |
+                        throw <| .planInvariant .ton "enum construct arg missing"
+                      let some pt := variant.payloadTypes[i]? |
+                        throw <| .planInvariant .ton "enum construct payload type missing"
+                      let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                      let expectedLeaves ← leafCountOfTypeV1 typeDecls types pt
+                      let argLeaves := arg.leafExprs
+                      unless argLeaves.size == expectedLeaves do
+                        throw <| .planInvariant .ton
+                          "unsupported Ton semantic shape: enum construct payload leaf count mismatch"
+                      leaves := leaves ++ argLeaves
+                      deps := deps.push argId
+                      depth := Nat.max depth (arg.depth + 1)
+                      nodes := nodes + arg.expandedNodes
+                    while leaves.size < 1 + maxPay do
+                      leaves := leaves.push (.literal 0)
+                    let value := mkAggregateValueV1 leaves deps depth nodes
+                    values := ← appendResultValueV1 typeId values result value
+                | _ =>
                     throw <| .planInvariant .ton
-                      "unsupported Ton semantic shape: enum construct payload leaf count mismatch"
-                  leaves := leaves ++ argLeaves
-                  deps := deps.push argId
-                  depth := Nat.max depth (arg.depth + 1)
-                  nodes := nodes + arg.expandedNodes
-                while leaves.size < 1 + maxPay do
-                  leaves := leaves.push (.literal 0)
-                let value := mkAggregateValueV1 leaves deps depth nodes
-                values := ← appendResultValueV1 typeId values result value
-            | _ =>
-                throw <| .planInvariant .ton
-                  "unsupported Ton semantic shape: construct requires Struct or Enum shape"
+                      "unsupported Ton semantic shape: construct requires Struct or Enum shape"
     | .indexGet baseId idxId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
         unless base.isAggregate do
@@ -3015,10 +3121,11 @@ private partial def emitRegionV1
               let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
               pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
           | .aggregate expectedLeaves =>
-              -- B-RET-ABI: named Struct/Enum view-only (entry FC at makeEntry).
+              -- B-RET-ABI / N-ANON-RESULT: named Struct/Enum or admitted
+              -- anonymous Array/Option view-only (entry FC at makeEntry).
               unless root.isAggregate do
                 throw <| .planInvariant .ton
-                  "unsupported Ton semantic shape: aggregate return value must be a named aggregate"
+                  "unsupported Ton semantic shape: aggregate return value must be a multi-leaf aggregate"
               unless root.leafByteWidth == 8 do
                 throw <| .planInvariant .ton
                   "unsupported Ton semantic shape: aggregate return leaves must be 8-byte UInt64/Int64 words"
@@ -3401,11 +3508,14 @@ private def makeEntryV1
     | .view => pure .view
     | _ => throw (.planInvariant .ton
         "unsupported Ton semantic shape: callable is not an entry or view")
-  -- B-RET-ABI: named Struct/Enum **view** returns admitted (multi-stack get
-  -- method). Entry (mutate) aggregate stays fail closed — TON async actors
-  -- have no return channel on internal messages.
+  -- B-RET-ABI / N-ANON-RESULT: named Struct/Enum + admitted anonymous
+  -- Array UInt64 N / Option UInt64 **view** returns (multi-stack get method).
+  -- Entry (mutate) aggregate stays fail closed — TON async actors have no
+  -- return channel on internal messages. Map/Bytes/nested/narrow-element
+  -- anonymous returns fail closed in aggregateResultKindOfV1 with precise
+  -- messages.
   let (resultKind, expectedReturn) ←
-    if types.isNamedAggregate callable.result.typeId then
+    if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
       match semanticMode with
       | .view => do
           let kind ←
@@ -3417,14 +3527,13 @@ private def makeEntryV1
                 s!"view '{name}' aggregate result kind resolution failed"
       | .mutate =>
           throw <| .planInvariant .ton
-            s!"unsupported Ton semantic shape: entry '{name}' cannot return named aggregate (TON async actor has no return channel; B-RET-ABI admits view-only)"
+            s!"unsupported Ton semantic shape: entry '{name}' cannot return multi-leaf aggregate (TON async actor has no return channel; B-RET-ABI admits view-only named Struct/Enum and anonymous Array/Option)"
       | _ =>
           throw <| .planInvariant .ton
-            s!"unsupported Ton semantic shape: entry '{name}' cannot return named aggregate"
-    else if types.isContainer callable.result.typeId ||
-        types.isPrincipal callable.result.typeId then
+            s!"unsupported Ton semantic shape: entry '{name}' cannot return multi-leaf aggregate"
+    else if types.isPrincipal callable.result.typeId then
       throw <| .planInvariant .ton
-        s!"entry '{name}' cannot return multi-leaf aggregate (Array/Principal/anonymous container); Ton B-RET-ABI admits only named Struct/Enum view returns (cap-8 leaves)"
+        s!"entry '{name}' cannot return multi-leaf Principal aggregate (Ton B-RET-ABI admits only named Struct/Enum and anonymous Array/Option view returns, cap-8 leaves)"
     else
       -- BL-14: scalar ABI is UInt{8,16,32,64} / Bool / Int64 (UInt128/256 FC).
       match types.uintWidthOf callable.result.typeId with
@@ -3446,7 +3555,7 @@ private def makeEntryV1
               pure (MethodResultKind.bool, ExpectedReturnV1.scalar .bool)
             else
               throw <| .planInvariant .ton
-                s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or named Struct/Enum view aggregate"
+                s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, named Struct/Enum view aggregate, or admitted anonymous Array/Option view aggregate"
   let mode : MethodMode := match semanticMode with
     | .mutate => .mutate
     | .view => .view
@@ -3479,12 +3588,11 @@ private def makePureFnV1
     throw <| .planInvariant .ton s!"pureFn name '{name}' is not a safe identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .ton s!"pureFn '{name}' does not return a public result"
-  -- pureFn aggregate returns stay fail closed (B-RET-ABI view-only).
-  if types.isNamedAggregate callable.result.typeId ||
-      types.isContainer callable.result.typeId ||
+  -- pureFn aggregate returns stay fail closed (B-RET-ABI / N-ANON-RESULT view-only).
+  if isAggregateResultCandidateV1 typeDecls types callable.result.typeId ||
       types.isPrincipal callable.result.typeId then
     throw <| .planInvariant .ton
-      s!"pureFn '{name}' cannot return a named aggregate (B-RET-ABI: pureFn aggregate returns stay fail-closed)"
+      s!"pureFn '{name}' cannot return a multi-leaf aggregate (B-RET-ABI: pureFn aggregate returns stay fail-closed; view-only named Struct/Enum and anonymous Array/Option)"
   let (resultIsBool, expectedReturn) ←
     if callable.result.typeId == types.uint64TypeId then
       pure (false, ExpectedReturnV1.scalar .uint64)

@@ -48,7 +48,7 @@ structure SemanticRuleRef where
 
 inductive ExecutionHost
   | evm | svm | nearWasm | cosmWasm | sorobanWasm | icpCanister
-  | noirCircuit | openvmGuest | aleoVm | psyDpn
+  | noirCircuit | openvmGuest | aleoVm | psyDpn | quintModel | tvm
 
 inductive CommitModel
   | transactionAtomic | instructionAtomic | receiptLocal | transactionSavepoints
@@ -58,7 +58,7 @@ inductive CommitModel
 inductive StateBinding
   | contractStorage | explicitAccounts | contractKeyValue | instanceKeyValue
   | ttlScopedStorage | canisterHeapStable | externalPublicPrePost
-  | guestMemoryIo | recordsMappings | userPartitioned
+  | guestMemoryIo | recordsMappings | userPartitioned | cellHashmap
 
 inductive CallModel
   | synchronousMessage | synchronousCpi | promiseDag | cosmosSubmessageReply
@@ -71,7 +71,7 @@ inductive ProofModel
 
 inductive SettlementModel
   | evmChain | solanaChain | nearChain | cosmosChain | stellarChain
-  | icpSubnet | externalVerifier | aleoChain | psyNetwork
+  | icpSubnet | externalVerifier | aleoChain | psyNetwork | noSettlement | tonChain
 
 structure TargetSemanticsV1 where
   schema             : SchemaId
@@ -113,12 +113,12 @@ structure TargetDescriptor where
 
 | Type | Canonical wire values（从低 rank 到高 rank） |
 |---|---|
-| `ExecutionHost` | `evm`, `svm`, `near-wasm`, `cosmwasm`, `soroban-wasm`, `icp-canister`, `noir-circuit`, `openvm-guest`, `aleo-vm`, `psy-dpn` |
+| `ExecutionHost` | `evm`, `svm`, `near-wasm`, `cosmwasm`, `soroban-wasm`, `icp-canister`, `noir-circuit`, `openvm-guest`, `aleo-vm`, `psy-dpn`, `quint-model`, `tvm` |
 | `CommitModel` | `transaction-atomic`, `instruction-atomic`, `receipt-local`, `transaction-savepoints`, `await-segmented`, `relation-external`, `guest-external`, `proof-final-dual`, `recursive-network` |
-| `StateBinding` | `contract-storage`, `explicit-accounts`, `contract-key-value`, `instance-key-value`, `ttl-scoped-storage`, `canister-heap-stable`, `external-public-pre-post`, `guest-memory-io`, `records-mappings`, `user-partitioned` |
+| `StateBinding` | `contract-storage`, `explicit-accounts`, `contract-key-value`, `instance-key-value`, `ttl-scoped-storage`, `canister-heap-stable`, `external-public-pre-post`, `guest-memory-io`, `records-mappings`, `user-partitioned`, `cell-hashmap` |
 | `CallModel` | `synchronous-message`, `synchronous-cpi`, `promise-dag`, `cosmos-submessage-reply`, `synchronous-auth-tree`, `asynchronous-actor`, `no-native-call`, `guest-internal`, `program-proof-final`, `recursive-proof-pipeline` |
 | `ProofModel` | `no-proof`, `external-circuit`, `zkvm-execution`, `application-chain-proof`, `recursive-aggregation` |
-| `SettlementModel` | `evm-chain`, `solana-chain`, `near-chain`, `cosmos-chain`, `stellar-chain`, `icp-subnet`, `external-verifier`, `aleo-chain`, `psy-network` |
+| `SettlementModel` | `evm-chain`, `solana-chain`, `near-chain`, `cosmos-chain`, `stellar-chain`, `icp-subnet`, `external-verifier`, `aleo-chain`, `psy-network`, `no-settlement`, `ton-chain` |
 
 这些值只是 digest 内的正交轴，不是 materializer dispatch family；完整 fork/host/commit/failure
 语义仍由 target-owned rule closure 固定，尤其不能从任一 `*-wasm` 或 proof 值选择共享 Plan。

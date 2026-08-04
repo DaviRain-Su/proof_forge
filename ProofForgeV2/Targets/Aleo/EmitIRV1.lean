@@ -34,6 +34,9 @@ inductive LeoExpr where
   /-- B-RET-ABI: Leo native tuple of preorder aggregate return leaves
       (`(a, b)` for a 2-leaf Struct). Arity ≥ 2 (Leo rejects unit `()`). -/
   | tuple (elems : Array LeoExpr)
+  /-- N-ANON-RESULT: Leo fixed array `[e0, e1, …]` for anonymous
+      `Array UInt64 N` returns. Arity ≥ 1. -/
+  | array (elems : Array LeoExpr)
   deriving BEq, Inhabited, Repr
 
 /-- Leo 4.0.2 statements (final/proof context). Leo `let` requires an explicit
@@ -69,9 +72,11 @@ structure LeoFunction where
   resultUintWidth : Nat := 0
   /-- T14 catalog v2 (BLS12-377): Leo `field` result. -/
   resultIsField : Bool := false
-  /-- B-RET-ABI: named Struct/Enum aggregate return leaves (Leo tuple on
-      non-Final). `none` for scalar/Final results. -/
+  /-- B-RET-ABI / N-ANON-RESULT: aggregate return leaves (Leo surface on
+      non-Final selected by `resultAggregateForm`). `none` for scalar. -/
   resultAggregateLeaves : Option (Array LeafAbiType) := none
+  /-- Leo non-Final surface form for aggregate results. -/
+  resultAggregateForm : AggregateReturnForm := .named
   /-- State-touching Final function (body runs in `return final { ... };`). -/
   isFinal : Bool
   /-- Semantic pureFn: emitted outside `program` without input modes. -/
@@ -174,6 +179,9 @@ private partial def renderExpr : LeoExpr → String
   | .tuple elems =>
       let inner := elems.toList.map renderExpr |> String.intercalate ", "
       s!"({inner})"
+  | .array elems =>
+      let inner := elems.toList.map renderExpr |> String.intercalate ", "
+      s!"[{inner}]"
 
 private def indentStr (depth : Nat) : String :=
   String.ofList (List.replicate depth ' ')
@@ -239,10 +247,18 @@ private def renderFunction : LeoFunction → String
         else
           match fn.resultAggregateLeaves with
           | some leaves =>
-              -- B-RET-ABI: Leo native tuple of leaf types in preorder.
-              let parts := leaves.toList.map fun leaf =>
-                if leaf.isInt then "i64" else "u64"
-              "(" ++ String.intercalate ", " parts ++ ")"
+              match fn.resultAggregateForm with
+              | .array =>
+                  -- N-ANON-RESULT: honest Leo fixed array `[u64; N]`.
+                  s!"[u64; {leaves.size}]"
+              | .option =>
+                  -- N-ANON-RESULT: tag is Leo bool, payload is u64.
+                  "(bool, u64)"
+              | .named =>
+                  -- B-RET-ABI: Leo native tuple of leaf types in preorder.
+                  let parts := leaves.toList.map fun leaf =>
+                    if leaf.isInt then "i64" else "u64"
+                  "(" ++ String.intercalate ", " parts ++ ")"
           | none =>
               if fn.resultIsBool then "bool"
               else if fn.resultIsInt then "i64"
@@ -311,6 +327,8 @@ private structure EmitCtx where
   paramIsField : Array Bool := #[]
   /-- Helper result meta: `(name, isInt, uintWidth)`. Unknown → u64. -/
   helperResultMetaByName : Array (String × Bool × Nat) := #[]
+  /-- Current function's aggregate return form (drives returnAggregate Emit). -/
+  aggregateForm : AggregateReturnForm := .named
   deriving Inhabited
 
 private def freshName (ctx : EmitCtx) : String × EmitCtx :=
@@ -621,8 +639,8 @@ private partial def emitStatements
           out := out.push (.returnValue leo)
         ctx := ctx1
     | .returnAggregate leaves leafIsInt => do
-        -- B-RET-ABI: lower each leaf expr, then either drop (Final) or
-        -- return a native Leo tuple (non-Final).
+        -- B-RET-ABI / N-ANON-RESULT: lower each leaf expr, then either drop
+        -- (Final) or return the form-selected Leo surface (non-Final).
         unless leaves.size > 0 && leaves.size ≤ 8 do
           planError "Aleo emission: returnAggregate leaf count must be in 1..8"
         unless leafIsInt.size == leaves.size do
@@ -637,13 +655,33 @@ private partial def emitStatements
         if isFinal then
           -- Final model cannot return a value; evaluate each leaf for
           -- failure semantics (same discipline as scalar pf_return).
+          -- Option tag stays a u64 0/1 here (no bool surface on Final).
           for i in [0:leos.size] do
             let some leo := leos[i]? |
               planError "Aleo emission: returnAggregate leaf missing"
             let ty := if leafIsInt.getD i false then "i64" else "u64"
             out := out.push (.letBinding s!"pf_return_{i}" ty leo)
         else
-          out := out.push (.returnValue (.tuple leos))
+          -- Form is threaded via EmitCtx from the enclosing function.
+          match ctx'.aggregateForm with
+          | .array =>
+              out := out.push (.returnValue (.array leos))
+          | .option =>
+              unless leos.size == 2 do
+                planError "Aleo emission: option return requires exactly 2 leaves"
+              let some tag := leos[0]? |
+                planError "Aleo emission: option tag leaf missing"
+              let some payload := leos[1]? |
+                planError "Aleo emission: option payload leaf missing"
+              -- Plan carries tag as u64 0/1; Leo option surface is bool.
+              let tagBool : LeoExpr :=
+                match tag with
+                | .u64Literal 0 => .boolLiteral false
+                | .u64Literal 1 => .boolLiteral true
+                | _ => .binary "!=" tag (.u64Literal 0)
+              out := out.push (.returnValue (.tuple #[tagBool, payload]))
+          | .named =>
+              out := out.push (.returnValue (.tuple leos))
         ctx := ctx'
     | .returnNone =>
         if isFinal then
@@ -731,8 +769,14 @@ private def needsTrailingReturn (stmts : Array Statement) : Bool :=
 private def defaultReturnExpr (fn : PlanFunction) : LeoExpr :=
   match fn.resultAggregateLeaves with
   | some leaves =>
-      .tuple (leaves.map fun leaf =>
-        if leaf.isInt then .i64Literal 0 else .u64Literal 0)
+      match fn.resultAggregateForm with
+      | .array =>
+          .array (leaves.map fun _ => .u64Literal 0)
+      | .option =>
+          .tuple #[.boolLiteral false, .u64Literal 0]
+      | .named =>
+          .tuple (leaves.map fun leaf =>
+            if leaf.isInt then .i64Literal 0 else .u64Literal 0)
   | none =>
       if fn.resultIsBool then .boolLiteral false
       else if fn.resultIsInt then .i64Literal 0
@@ -751,6 +795,7 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
     paramIsInt := fn.params.map (·.isInt)
     paramUintWidth := fn.params.map (·.uintWidth)
     paramIsField := fn.params.map (·.isField)
+    aggregateForm := fn.resultAggregateForm
   }
   let isFinal := fn.touchesState
   let isHelper := fn.isPureHelper
@@ -786,6 +831,7 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
     resultUintWidth := fn.resultUintWidth
     resultIsField := fn.resultIsField
     resultAggregateLeaves := fn.resultAggregateLeaves
+    resultAggregateForm := fn.resultAggregateForm
     isFinal
     isHelper
     body := body'

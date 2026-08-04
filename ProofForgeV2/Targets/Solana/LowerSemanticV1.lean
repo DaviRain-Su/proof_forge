@@ -30,7 +30,9 @@ def stateHeaderBytes : Nat := 8
     ≥ 2^64), `0x1002` bare assert failure, `0x1003` static loop-bound exceeded
     (reference `boundExceeded` at the latch back edge), `0x1004` invalid shift
     count (reference `invalidShift` when the UInt32 count is ≥ 64 for `shl`/
-    `shr`), and `declaredErrorBase + i` for declared program errors. -/
+    `shr`), `0x1006` CPI return-data short/missing (result-bearing sync call),
+    and `declaredErrorBase + i` for declared program errors.
+    CPI callee program errors propagate natively (not remapped onto 0x1001..0x1005). -/
 def arithmeticOverflowError : Nat := 0x1001
 def assertionFailedError : Nat := 0x1002
 /-- Static `for ... bounded N` exceeded: the (N+1)-th body has executed and the
@@ -41,6 +43,9 @@ def loopBoundExceededError : Nat := 0x1003
     overflow; `shl` may still raise `arithmeticOverflowError` when the shifted
     result does not fit in UInt64. -/
 def invalidShiftError : Nat := 0x1004
+/-- Result-bearing CPI: `sol_get_return_data` length &lt; 8 after a successful
+    invoke. Distinct from DSL arithmetic/assert/loop/shift codes. -/
+def cpiReturnDataError : Nat := 0x1006
 
 inductive Endianness where
   | little
@@ -91,8 +96,10 @@ inductive ResultKind where
   /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
   | u128
   | u256
-  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` is preorder
-  flatten order (1..8). Anonymous Array/Map/Bytes/Option stay fail-closed. -/
+  /-- B-RET-ABI: multi-leaf aggregate return. `leaves` is preorder flatten
+  order (1..8). Admitted shapes: named Struct/Enum, anonymous `Array UInt64 N`
+  (1 ≤ N ≤ 8), anonymous `Option UInt64` (tag + payload). Map/Bytes/nested/
+  non-UInt64 element/Principal stay fail-closed. -/
   | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
@@ -194,7 +201,7 @@ inductive Expr where
   | wideCompare (bitWidth : Nat) (op : ComparisonOp) (lhs rhs : Expr)
   | signedCompare (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnIndex : Nat) (args : Array Expr)
-  /-- Plan-level loop induction temporary (bound by `Statement.forLoop`). -/
+  /-- Plan-level temporary (loop induction or materialised external-call result). -/
   | temp (id : Nat)
   /-- Checked add at `bitWidth ∈ {8,16,32}` (body multi-width). UInt64 keeps
       historical `checkedAdd` so plan/IR goldens stay byte-identical. -/
@@ -249,14 +256,18 @@ inductive Statement where
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
   | revertError (errorIndex : Nat) (args : Array Expr)
-  /-- Sync external call (void). `callee` is the static QualifiedName component
-      array (≥2). Program id for the CPI-shaped site is the first 32 bytes of
-      SHA-256(UTF-8 of the target path = all-but-last components joined by
-      "."); method is the last component. Not a dynamic pubkey ValueId
+  /-- Sync external call (void). Real CPI via `sol_invoke_signed_c` with empty
+      AccountMeta list; return data discarded. Program id = SHA-256(target
+      path); method disc = product ABI over UInt64 args. Not a dynamic pubkey
       (B-3 Principal remains fail-closed). -/
   | externalCall (callee : Array String) (args : Array Expr)
-  /-- Async fire-and-forget schedule (void). Same static-callee program-id
-      derivation; no response channel (matches Reference schedule). -/
+  /-- Result-bearing sync external call (N-CALL-RET). Real CPI; materialises
+      8B LE return data into plan temp `resultTemp` once (subsequent uses are
+      `.temp resultTemp`, never re-invoke). Separate from void `externalCall`
+      so existing two-arg plan matches stay source-compatible. -/
+  | externalCallResult (callee : Array String) (args : Array Expr) (resultTemp : Nat)
+  /-- Async fire-and-forget schedule (void). Same real CPI as sync void call;
+      results ignored (Reference has no schedule response cursor). -/
   | schedule (callee : Array String) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
@@ -402,6 +413,32 @@ def instructionDiscriminator (name : String) (params : Array Param) : String :=
   ((Crypto.sha256Hex (discriminatorDomain ++ signature name params).toUTF8).take
     (2 * discriminatorBytes)).copy
 
+/-- Static-callee program id stub: SHA-256(UTF-8 of target path) as 64 hex
+    chars (32 bytes). Target path = all-but-last QN components joined by `.`.
+    Deployment must rewrite to a real program id; honesty class matches the
+    prior AddressBearing hash stub. -/
+def externalCalleeProgramIdHex (callee : Array String) : String :=
+  let targetParts := callee.extract 0 (callee.size - 1)
+  let targetPath := String.intercalate "." targetParts.toList
+  Crypto.sha256Hex targetPath.toUTF8
+
+/-- Method discriminator for an external call/schedule with `argCount` UInt64
+    arguments. Reuses the product handler domain so a product-built callee
+    with the same method name/arity would match. -/
+def externalMethodDiscriminator (method : String) (argCount : Nat) : String :=
+  let params : Array Param := Id.run do
+    let mut ps : Array Param := #[]
+    for i in [:argCount] do
+      ps := ps.push {
+        sourceId := i
+        name := "a"
+        dataOffset := discriminatorBytes + i * 8
+        byteWidth := 8
+        endianness := .little
+      }
+    pure ps
+  instructionDiscriminator method params
+
 def accessFor (account : StateAccount) (mode : HandlerMode) : AccountAccess := {
   accountIndex := account.index
   ownerPolicy := account.ownerPolicy
@@ -442,9 +479,14 @@ private def solanaPlanErr (message : String) : CompileError :=
     capacity-8×(occ,key,val); Bytes → N×UInt8 leaves with ABI pitch 8;
     Option intermediate for Map IndexGet). **Named Struct/Enum** via
     `pilotNamedAggregateStatePolicyAdmit` (N3 flatten to UInt64/Int64 leaves).
-    UInt128/256 multiword limbs. T12: Principal storage identity only
-    (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. B-RET-ABI:
-    named Struct/Enum entry/view returns are admitted (≤8 UInt64/Int64 leaves). -/
+    **B-OPT-STATE**: anonymous `Option UInt64` state is admitted as Enum-shaped
+    2-leaf layout (`name_tag` + `name_p0`; none=(0,0), some=(1,v); payload
+    zeroed on none). Option of non-UInt64 / nested / Option params stay
+    fail-closed. UInt128/256 multiword limbs. T12: Principal storage identity
+    only (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. B-RET-ABI:
+    named Struct/Enum, anonymous `Array UInt64 N` (N ≤ 8), and anonymous
+    `Option UInt64` entry/view returns are admitted (≤8 UInt64/Int64 leaves);
+    Map/Bytes/nested/Principal returns stay fail-closed. -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
@@ -657,27 +699,97 @@ private def leafCountOfTypeV1
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
 
-/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
-`ResultKind`. Leaves come from `flattenTypeLeafSpecsV1` (preorder, UInt64/Int64
-words). Enforces 1..8 leaves. Anonymous containers fail closed (not named). -/
+/-- True when `typeId` is an anonymous Option TypeDecl (not named; not in
+    `containerTypeIds`). Admitted surfaces: Map IndexGet intermediate,
+    N-ANON-RESULT / B-RET-ABI return, and B-OPT-STATE `Option UInt64` storage
+    (2-leaf Enum-shaped layout). Element-type gates remain at each use site. -/
+private def isAnonymousOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, name := none, .. } => true
+  | _ => false
+
+/-- B-OPT-STATE: `Option UInt64` storage leaves mirror named 2-variant Enum —
+    `{prefix}_tag` + `{prefix}_p0` (tag 0=none / 1=some; payload zeroed on none). -/
+private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
+    CompileResult (Array (String × Bool)) := do
+  let tagName :=
+    if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
+  let pName :=
+    if namePrefix.isEmpty then "p0" else namePrefix ++ "_p0"
+  unless isIdentifier tagName do
+    throw <| .planInvariant .solana
+      s!"state name '{tagName}' is not a safe identifier"
+  unless isIdentifier pName do
+    throw <| .planInvariant .solana
+      s!"state name '{pName}' is not a safe identifier"
+  pure #[(tagName, false), (pName, false)]
+
+/-- B-RET-ABI: resolve a result TypeId into an aggregate `ResultKind`.
+    Admitted:
+    * named Struct/Enum → preorder UInt64/Int64 leaves via `flattenTypeLeafSpecsV1`
+    * anonymous `Array UInt64 N` → N UInt64 leaves (1 ≤ N ≤ 8)
+    * anonymous `Option UInt64` → tag + payload (2 UInt64 leaves; none=(0,0), some=(1,v))
+    Fail-closed: Map, Bytes, nested containers, non-UInt64 Array/Option element,
+    Principal, N > 8, N = 0. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
-  unless types.isNamedAggregate typeId do
+  if types.isNamedAggregate typeId then
+    let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+    let n := specs.size
+    unless n > 0 do
+      throw <| .planInvariant .solana
+        s!"{owner} aggregate return must have at least one leaf"
+    unless n <= 8 do
+      throw <| .planInvariant .solana
+        s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+    let mut leaves : Array LeafAbiType := #[]
+    for (_, isInt) in specs do
+      leaves := leaves.push { isInt, byteWidth := 8 }
+    pure (.aggregate leaves)
+  else if types.isContainer typeId then
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .array elTid len, .. } =>
+        unless elTid == types.uint64TypeId do
+          throw <| .planInvariant .solana
+            s!"{owner} anonymous Array return element must be UInt64"
+        let n := len.toNat
+        unless n > 0 do
+          throw <| .planInvariant .solana
+            s!"{owner} aggregate return must have at least one leaf"
+        unless n <= 8 do
+          throw <| .planInvariant .solana
+            s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+        let mut leaves : Array LeafAbiType := #[]
+        for _ in [0:n] do
+          leaves := leaves.push { isInt := false, byteWidth := 8 }
+        pure (.aggregate leaves)
+    | some { shape := .map _ _, .. } =>
+        throw <| .planInvariant .solana
+          s!"{owner} cannot return anonymous Map; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
+    | some { shape := .bytes _, .. } =>
+        throw <| .planInvariant .solana
+          s!"{owner} cannot return anonymous Bytes; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
+    | _ =>
+        throw <| .planInvariant .solana
+          s!"{owner} container return TypeId is not Array/Map/Bytes"
+  else if isAnonymousOptionTypeIdV1 typeDecls typeId then
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .option elTid, .. } =>
+        unless elTid == types.uint64TypeId do
+          throw <| .planInvariant .solana
+            s!"{owner} anonymous Option return element must be UInt64"
+        -- none = (0, 0), some v = (1, v): always two UInt64 leaves.
+        pure (.aggregate #[
+          { isInt := false, byteWidth := 8 },
+          { isInt := false, byteWidth := 8 }])
+    | _ =>
+        throw <| .planInvariant .solana
+          s!"{owner} Option return TypeDecl missing"
+  else
     throw <| .planInvariant .solana
-      s!"{owner} does not return a named Struct/Enum aggregate"
-  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
-  let n := specs.size
-  unless n > 0 do
-    throw <| .planInvariant .solana
-      s!"{owner} aggregate return must have at least one leaf"
-  unless n <= 8 do
-    throw <| .planInvariant .solana
-      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
-  let mut leaves : Array LeafAbiType := #[]
-  for (_, isInt) in specs do
-    leaves := leaves.push { isInt, byteWidth := 8 }
-  pure (.aggregate leaves)
+      s!"{owner} does not return a named Struct/Enum, Array UInt64 N≤8, or Option UInt64 aggregate"
 
 /-- Struct field leaf range (start, length) within the flattened leaf vector. -/
 private def structFieldLeafRangeV1
@@ -885,6 +997,35 @@ private def makeStateAccountV1
             }
             nextOffset := nextOffset + 8
           stateLeaves := stateLeaves.push leaves
+        else if isAnonymousOptionTypeIdV1 typeDecls state.typeId then
+          -- B-OPT-STATE: Option UInt64 → 2 leaves (tag + payload), Enum-shaped
+          -- names. none default via zeroAllFields; Option.none zeros payload.
+          match typeDecls[state.typeId.toNat]? with
+          | some { shape := .option elTid, .. } =>
+              unless elTid == types.uint64TypeId do
+                throw <| .planInvariant .solana
+                  s!"unsupported Solana semantic shape: Option state '{state.name}' element must be UInt64"
+              -- N1: allowNonPublic like scalar/named/container state (no visibility gate).
+              let leafSpecs ← flattenOptionUInt64LeafSpecsV1 state.name
+              if fields.size + leafSpecs.size > maxStateFields then
+                throw <| .planInvariant .solana "state count is outside the profile limits"
+              let mut leaves : Array Nat := #[]
+              for (leafName, isInt) in leafSpecs do
+                leaves := leaves.push fields.size
+                fields := fields.push {
+                  sourceId := state.id.toNat
+                  name := leafName
+                  accountIndex := 0
+                  byteOffset := nextOffset
+                  byteWidth := 8
+                  endianness := .little
+                  isInt
+                }
+                nextOffset := nextOffset + 8
+              stateLeaves := stateLeaves.push leaves
+          | _ =>
+              throw <| .planInvariant .solana
+                s!"unsupported Solana semantic shape: Option state '{state.name}' TypeDecl missing"
         else
           -- T8b+T9e: scalar state admits UInt{8,16,32,64,128,256}/Int{8,16,32,64}
           -- with byteWidth 1/2/4/8/16/32. Pitch = slotPitchOfByteWidth.
@@ -935,8 +1076,8 @@ private structure LoweredValueV1 where
   bitWidth : Nat := 64
   /-- Multi-leaf carrier: Array UInt64 N, Map capacity-8, Bytes N (UInt8),
       Principal (len+8 words), named Struct/Enum, or Option `[tag,payload]`
-      from Map IndexGet. `expr` mirrors `leaves[0]!` (or literal 0). Scalar
-      values keep `none`. -/
+      (Map IndexGet intermediate, B-RET-ABI return, or B-OPT-STATE storage).
+      `expr` mirrors `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none
   /-- Physical byte width of each leaf: 8 for UInt64 leaves (Array/Map/
       Principal/named), 1 for Bytes leaves (UInt8). Scalar values keep 8. -/
@@ -1068,6 +1209,10 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     else if types.isNamedAggregate param.typeId then
       throw <| .planInvariant .solana
         s!"unsupported Solana semantic shape: named Struct/Enum parameter '{param.name}' in {owner} is outside the Solana pilot (named aggregates are state-only; B-RET-ABI scalar)"
+    else if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
+      -- B-OPT-STATE mirrors Enum: Option is state-only (params stay fail closed).
+      throw <| .planInvariant .solana
+        s!"unsupported Solana semantic shape: Option parameter '{param.name}' in {owner} is outside the Solana pilot (Option is state-only; B-RET-ABI scalar)"
     else
       -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8,16,32,64}.
       requirePublicSolanaUintAbiOrInt64Param solanaPlanErr types owner param
@@ -1628,43 +1773,58 @@ private def buildPureFnTableV1
     i := i + 1
   pure { byCallableId, paramCounts, resultIsBool, resultIsInt }
 
+/-- Consume a sink root. Two cases:
+    1. Root is in the current segment → full segment DAG reachability (historical).
+    2. Root is a prior pure leaf (empty deps; e.g. materialised CPI result /
+       dominating SSA) and the current segment is empty → re-use the leaf
+       without re-entering a closed segment (BL-27 multi-use of call results). -/
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
     (blockEntry segmentStart : Nat)
     (root : ValueIdV1) : CompileResult Expr := do
-  let rootValue ← currentValueV1 values blockEntry segmentStart root
-  let segmentCount := values.size - segmentStart
-  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
-  let mut stack : Array Nat := #[]
-  -- Only walk in-block segment values; dominating SSA is already closed.
-  if root.toNat >= segmentStart then
-    stack := stack.push root.toNat
-  let mut visitedCount := 0
-  while !stack.isEmpty do
-    let index := stack.back!
-    stack := stack.pop
-    unless segmentStart <= index && index < values.size do
+  let index := root.toNat
+  if index < segmentStart then
+    unless segmentStart == values.size do
       throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: sink references a stale ValueId"
-    let localIndex := index - segmentStart
-    if visited[localIndex]? == some false then
-      visited := visited.set! localIndex true
-      visitedCount := visitedCount + 1
-      let value := values[index]!
-      for dependency in value.dependencies do
-        let dependencyIndex := dependency.toNat
-        if dependencyIndex >= segmentStart then
-          unless dependencyIndex < values.size do
+        "unsupported Solana semantic shape: dead or reordered value instructions"
+    let rootValue ← findValueV1 values root
+    unless rootValue.dependencies.isEmpty do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
+    pure rootValue.expr
+  else
+    let rootValue ← currentValueV1 values blockEntry segmentStart root
+    let segmentCount := values.size - segmentStart
+    let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+    let mut stack : Array Nat := #[]
+    -- Only walk in-block segment values; dominating SSA is already closed.
+    stack := stack.push root.toNat
+    let mut visitedCount := 0
+    while !stack.isEmpty do
+      let index := stack.back!
+      stack := stack.pop
+      unless segmentStart ≤ index && index < values.size do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: sink references a stale ValueId"
+      let localIndex := index - segmentStart
+      if visited[localIndex]? == some false then
+        visited := visited.set! localIndex true
+        visitedCount := visitedCount + 1
+        let value := values[index]!
+        for dependency in value.dependencies do
+          let dependencyIndex := dependency.toNat
+          if dependencyIndex >= segmentStart then
+            unless dependencyIndex < values.size do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: expression crosses an effect boundary"
+            stack := stack.push dependencyIndex
+          else if dependencyIndex >= blockEntry then
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: expression crosses an effect boundary"
-          stack := stack.push dependencyIndex
-        else if dependencyIndex >= blockEntry then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: expression crosses an effect boundary"
-  unless visitedCount == segmentCount do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: dead or reordered value instructions"
-  pure rootValue.expr
+    unless visitedCount == segmentCount do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: dead or reordered value instructions"
+    pure rootValue.expr
 
 /-- B-RET-ABI: segment consume that returns the full `LoweredValueV1` (with
 aggregate leaves) instead of just the head expr. Same segment discipline as
@@ -1673,38 +1833,48 @@ private def consumeCurrentSegmentValueV1
     (values : Array LoweredValueV1)
     (blockEntry segmentStart : Nat)
     (root : ValueIdV1) : CompileResult LoweredValueV1 := do
-  let rootValue ← currentValueV1 values blockEntry segmentStart root
-  let segmentCount := values.size - segmentStart
-  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
-  let mut stack : Array Nat := #[]
-  if root.toNat >= segmentStart then
-    stack := stack.push root.toNat
-  let mut visitedCount := 0
-  while !stack.isEmpty do
-    let index := stack.back!
-    stack := stack.pop
-    unless segmentStart <= index && index < values.size do
+  let index := root.toNat
+  if index < segmentStart then
+    unless segmentStart == values.size do
       throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: sink references a stale ValueId"
-    let localIndex := index - segmentStart
-    if visited[localIndex]? == some false then
-      visited := visited.set! localIndex true
-      visitedCount := visitedCount + 1
-      let value := values[index]!
-      for dependency in value.dependencies do
-        let dependencyIndex := dependency.toNat
-        if dependencyIndex >= segmentStart then
-          unless dependencyIndex < values.size do
+        "unsupported Solana semantic shape: dead or reordered value instructions"
+    let rootValue ← findValueV1 values root
+    unless rootValue.dependencies.isEmpty do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
+    pure rootValue
+  else
+    let rootValue ← currentValueV1 values blockEntry segmentStart root
+    let segmentCount := values.size - segmentStart
+    let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+    let mut stack : Array Nat := #[]
+    stack := stack.push root.toNat
+    let mut visitedCount := 0
+    while !stack.isEmpty do
+      let index := stack.back!
+      stack := stack.pop
+      unless segmentStart ≤ index && index < values.size do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: sink references a stale ValueId"
+      let localIndex := index - segmentStart
+      if visited[localIndex]? == some false then
+        visited := visited.set! localIndex true
+        visitedCount := visitedCount + 1
+        let value := values[index]!
+        for dependency in value.dependencies do
+          let dependencyIndex := dependency.toNat
+          if dependencyIndex >= segmentStart then
+            unless dependencyIndex < values.size do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: expression crosses an effect boundary"
+            stack := stack.push dependencyIndex
+          else if dependencyIndex >= blockEntry then
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: expression crosses an effect boundary"
-          stack := stack.push dependencyIndex
-        else if dependencyIndex >= blockEntry then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: expression crosses an effect boundary"
-  unless visitedCount == segmentCount do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: dead or reordered value instructions"
-  pure rootValue
+    unless visitedCount == segmentCount do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: dead or reordered value instructions"
+    pure rootValue
 
 /-- Multi-root effect-boundary consumption (event/revert argument lists):
     every value produced in the current segment must be reachable from at
@@ -1921,6 +2091,25 @@ private def lowerBlockInstructionsV1
           unless leafFields.size == expected do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: named aggregate state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          for field in leafFields do
+            leafExprs := leafExprs.push
+              (.stateLoad field.accountIndex field.byteOffset)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if isAnonymousOptionTypeIdV1 typeDecls result.typeId then
+          -- B-OPT-STATE: Option UInt64 multi-leaf load (tag + payload).
+          match typeDecls[result.typeId.toNat]? with
+          | some { shape := .option elTid, .. } =>
+              unless elTid == types.uint64TypeId do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Option state load element must be UInt64"
+          | _ =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Option state load TypeDecl missing"
+          unless leafFields.size == 2 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Option state load leaf count mismatch"
           let mut leafExprs : Array Expr := #[]
           for field in leafFields do
             leafExprs := leafExprs.push
@@ -2320,8 +2509,9 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    -- AddressBearing: static QualifiedName callees (wire takes QN, not a
-    -- ValueId pubkey). Principal remains fail-closed. View banned.
+    -- AddressBearing + B-CALL-SEM (BL-27): static QN → real CPI. Principal
+    -- remains fail-closed. View banned. Void statement form discards return
+    -- data; value-position (N-CALL-RET) binds UInt64 from sol_get_return_data.
     | .externalCall _effectId callee argIds, none =>
         if mode == .view then
           throw <| .planInvariant .solana
@@ -2345,6 +2535,49 @@ private def lowerBlockInstructionsV1
         body := body.push (.externalCall components argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
+    | .externalCall _effectId callee argIds, some result =>
+        if mode == .view then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: view callable makes an external call"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: external call callee must have at least two components"
+        for c in components do
+          unless isIdentifier c do
+            throw <| .planInvariant .solana
+              s!"unsupported Solana semantic shape: external call callee component '{c}' is not a safe identifier"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: result-bearing external call must be public UInt64"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+          unless !root.isBool && !root.isInt && root.bitWidth == 64 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: external call arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        -- Effect boundary for args, then materialise the CPI result as a
+        -- fresh leaf temp in the *next* segment (empty deps so later store/
+        -- return can consumeCurrentSegment on the result alone).
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
+        segmentStart := values.size
+        let tempId := result.valueId.toNat
+        body := body.push (.externalCallResult components argExprs tempId)
+        let value : LoweredValueV1 := {
+          expr := .temp tempId
+          depth := 1
+          expandedNodes := 1
+          -- Empty deps: the CPI result is a plan-temp leaf, not a tree over
+          -- pre-call segment values (those were closed by consumeSegmentRoots).
+          dependencies := #[]
+          isBool := false
+          bitWidth := 64
+        }
+        values := ← appendResultValueV1 types.uint64TypeId values result value
+        -- Keep segmentStart pinned *before* the result so it remains the live
+        -- root of the current segment (do not re-close past it here).
     | .schedule _effectId callee argIds, none =>
         if mode == .view then
           throw <| .planInvariant .solana
@@ -2368,10 +2601,10 @@ private def lowerBlockInstructionsV1
         body := body.push (.schedule components argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    | .externalCall _ _ _, some _ | .schedule _ _ _, some _ =>
+    | .schedule _ _ _, some _ =>
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: external call/schedule must be void"
-    -- Array construct N args, Map.empty, or named Struct/Enum construct.
+          "unsupported Solana semantic shape: schedule must be void"
+    -- Array construct N args, Map.empty, Option.none/some, or named Struct/Enum.
     -- Bytes has no source constructor (Normalize never emits `.construct` for
     -- Bytes); the gate below is a defensive fail-closed boundary.
     | .construct typeId ctorIdx argIds, some result => do
@@ -2494,9 +2727,42 @@ private def lowerBlockInstructionsV1
           | _ =>
               throw <| .planInvariant .solana
                 "unsupported Solana semantic shape: construct requires Struct or Enum shape"
+        else if isAnonymousOptionTypeIdV1 typeDecls typeId then
+          -- N-ANON-RESULT / B-RET-ABI: Option UInt64 → [tag, payload].
+          -- ctorIdx 0 = none → (0, 0); ctorIdx 1 = some → (1, v).
+          match typeDecls[typeId.toNat]? with
+          | some { shape := .option elTid, .. } => do
+              unless elTid == types.uint64TypeId do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Option construct element must be UInt64"
+              if ctorIdx == 0 then
+                unless argIds.isEmpty do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: Option.none construct must have zero args"
+                let value := mkAggregateValueV1 #[.literal 0, .literal 0] #[] 1 2
+                values := ← appendResultValueV1 typeId values result value
+              else if ctorIdx == 1 then
+                unless argIds.size == 1 do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: Option.some construct must have one arg"
+                let some argId := argIds[0]? |
+                  throw <| .planInvariant .solana "Option.some arg missing"
+                let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+                unless !arg.isBool && !arg.isInt && !arg.isAggregate && arg.bitWidth == 64 do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: Option.some payload must be scalar UInt64"
+                let value := mkAggregateValueV1 #[.literal 1, arg.expr] #[argId]
+                  (arg.depth + 1) (arg.expandedNodes + 2)
+                values := ← appendResultValueV1 typeId values result value
+              else
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+          | _ =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Option construct TypeDecl missing"
         else
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: construct admits only Array/Map UInt64 or named Struct/Enum on Solana"
+            "unsupported Solana semantic shape: construct admits only Array/Map UInt64, Option UInt64, or named Struct/Enum on Solana"
     | .indexGet baseId idxId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
         unless base.isAggregate do
@@ -2991,20 +3257,20 @@ private partial def emitRegionV1
           let returned ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter valueId
           match expectedAggregateLeaves with
           | some expectedLeaves =>
-              -- B-RET-ABI: named Struct/Enum only (containers/Principal still FC).
+              -- B-RET-ABI: named Struct/Enum, Array UInt64 N, Option UInt64.
+              -- ResultKind already gated the admitted shape; require multi-leaf
+              -- 8-byte words matching the declared leaf count.
               unless returned.isAggregate do
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: aggregate return value must be a named aggregate"
+                  "unsupported Solana semantic shape: aggregate return value must be a multi-leaf aggregate"
               let gotLeaves := returned.leafExprs
               unless gotLeaves.size == expectedLeaves.size do
                 throw <| .planInvariant .solana
                   s!"unsupported Solana semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
-              -- Anonymous containers also produce aggregateLeaves; reject when
-              -- leafByteWidth is not 8 (Bytes) or when Principal/Array without
-              -- named-aggregate ResultKind. Cap-8 is already on ResultKind.
+              -- Bytes leaves have leafByteWidth=1; reject non-word returns here.
               unless returned.leafByteWidth == 8 do
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal/Struct/Enum) cannot be returned (ABI is scalar; B-RET-ABI: Solana does not support named-aggregate return)"
+                  "unsupported Solana semantic shape: aggregate return leaves must be 8-byte words (Bytes return stays fail-closed)"
               let consumed ← consumeCurrentSegmentValueV1 values blockEntry segmentStart valueId
               let mut leafIsInt : Array Bool := #[]
               for leaf in expectedLeaves do
@@ -3013,7 +3279,7 @@ private partial def emitRegionV1
           | none =>
               if returned.isAggregate then
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: multi-leaf aggregate (Array/Principal/Struct/Enum) cannot be returned (ABI is scalar; B-RET-ABI: anonymous/Principal return stay fail-closed)"
+                  "unsupported Solana semantic shape: multi-leaf aggregate cannot be returned on a scalar result (B-RET-ABI: ResultKind must be .aggregate)"
               unless returned.isBool == expectsBoolReturn do
                 throw <| .planInvariant .solana
                   (if expectsBoolReturn then
@@ -3414,7 +3680,7 @@ private def makeEntryV1
     | some 256 => pure .u256
     | some _ =>
         throw <| .planInvariant .solana
-          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or named Struct/Enum aggregate"
+          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or aggregate"
     | none =>
         match types.intWidthOf callable.result.typeId with
         | some 8 => pure .i8
@@ -3427,15 +3693,19 @@ private def makeEntryV1
         | none =>
           if types.boolTypeId == some callable.result.typeId then
             pure .bool
-          else if types.isNamedAggregate callable.result.typeId then
-            aggregateResultKindOfV1 typeDecls types s!"entry '{name}'" callable.result.typeId
-          else if types.isContainer callable.result.typeId ||
-              types.isPrincipal callable.result.typeId then
+          else if types.isNamedAggregate callable.result.typeId ||
+              types.isContainer callable.result.typeId ||
+              isAnonymousOptionTypeIdV1 typeDecls callable.result.typeId then
+            -- B-RET-ABI: named Struct/Enum + anonymous Array UInt64 N≤8 +
+            -- Option UInt64. Map/Bytes/Principal FC inside resolver.
+            aggregateResultKindOfV1 typeDecls types s!"entry '{name}'"
+              callable.result.typeId
+          else if types.isPrincipal callable.result.typeId then
             throw <| .planInvariant .solana
-              s!"entry '{name}' cannot return multi-leaf aggregate (Array/Principal/anonymous container); Solana B-RET-ABI admits only named Struct/Enum (cap-8 leaves)"
+              s!"entry '{name}' cannot return Principal; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64 (cap-8 leaves)"
           else
             throw <| .planInvariant .solana
-              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or named Struct/Enum aggregate"
+              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view

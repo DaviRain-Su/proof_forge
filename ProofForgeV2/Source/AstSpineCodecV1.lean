@@ -70,6 +70,9 @@ mutual
         let chunks ← encodeExprMatchArmArrayV1 arms
         let ab ← encodeArray pure chunks
         encodeTagged "Expr.Match" #[sb, ab]
+    | .externalCall call => do
+        let b ← encodeExternalCallExprV1 call
+        encodeTagged "Expr.ExternalCall" #[b]
     termination_by structural e => e
 
   private def encodeExprArrayV1 : Array ExprV1 → Except String (Array ByteArray)

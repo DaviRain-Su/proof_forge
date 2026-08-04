@@ -86,21 +86,34 @@ mutual
             match decEqExprMatchArmArray ax ay with
             | isTrue ha => isTrue (by cases hs; cases ha; rfl)
             | isFalse ha => isFalse (by intro e; injection e with _ e; exact ha e)
+    | .externalCall cx, .externalCall cy =>
+        match decEqExternalCall cx cy with
+        | isTrue hc => isTrue (by cases hc; rfl)
+        | isFalse hc => isFalse (by intro e; injection e with e; exact hc e)
     | .literal _, .place _ | .literal _, .constructor _ _ | .literal _, .unary _ _
     | .literal _, .binary _ _ _ | .literal _, .localCall _ _ | .literal _, .match_ _ _
+    | .literal _, .externalCall _
     | .place _, .literal _ | .place _, .constructor _ _ | .place _, .unary _ _
     | .place _, .binary _ _ _ | .place _, .localCall _ _ | .place _, .match_ _ _
+    | .place _, .externalCall _
     | .constructor _ _, .literal _ | .constructor _ _, .place _ | .constructor _ _, .unary _ _
     | .constructor _ _, .binary _ _ _ | .constructor _ _, .localCall _ _
-    | .constructor _ _, .match_ _ _
+    | .constructor _ _, .match_ _ _ | .constructor _ _, .externalCall _
     | .unary _ _, .literal _ | .unary _ _, .place _ | .unary _ _, .constructor _ _
     | .unary _ _, .binary _ _ _ | .unary _ _, .localCall _ _ | .unary _ _, .match_ _ _
+    | .unary _ _, .externalCall _
     | .binary _ _ _, .literal _ | .binary _ _ _, .place _ | .binary _ _ _, .constructor _ _
     | .binary _ _ _, .unary _ _ | .binary _ _ _, .localCall _ _ | .binary _ _ _, .match_ _ _
+    | .binary _ _ _, .externalCall _
     | .localCall _ _, .literal _ | .localCall _ _, .place _ | .localCall _ _, .constructor _ _
     | .localCall _ _, .unary _ _ | .localCall _ _, .binary _ _ _ | .localCall _ _, .match_ _ _
+    | .localCall _ _, .externalCall _
     | .match_ _ _, .literal _ | .match_ _ _, .place _ | .match_ _ _, .constructor _ _
-    | .match_ _ _, .unary _ _ | .match_ _ _, .binary _ _ _ | .match_ _ _, .localCall _ _ =>
+    | .match_ _ _, .unary _ _ | .match_ _ _, .binary _ _ _ | .match_ _ _, .localCall _ _
+    | .match_ _ _, .externalCall _
+    | .externalCall _, .literal _ | .externalCall _, .place _ | .externalCall _, .constructor _ _
+    | .externalCall _, .unary _ _ | .externalCall _, .binary _ _ _ | .externalCall _, .localCall _ _
+    | .externalCall _, .match_ _ _ =>
         isFalse (by intro h; cases h)
     termination_by structural a
 

@@ -3,7 +3,7 @@ id: SPEC-COMMON-001
 title: 公共类型、规范编码与资源 Profile
 status: proposed
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -14,7 +14,7 @@ normative: true
 > `artifact-output.published-bytes` 在 sidecar 写入/atomic rename 前按 artifacts + exact
 > evidence/manifest UTF-8 总量强制。memory/process/protocol/stderr 尚无产品 producer。
 > B11/B12 safe-open/supervisor 已于 2026-08-01 删除，当前 source path 为进程内
-> `IO.FS.readFile` → `Loader.selectProgramV1Product`，不产出 receipts 或 containment assurance。
+> `IO.FS.readFile` → `Loader.selectProgramV1ProductWithTheoremInventory` → compile → `certifyInlineProofV1`，不产出 receipts 或 containment assurance。
 > 下文 B11/B12 是 superseded 历史快照；controller/receipt 条款仍是 proposed 目标。
 
 本文件是所有 normative schema 的 primitive authority。其他规格可以缩窄值域，不能重新定义

@@ -75,6 +75,10 @@ fixtures=(
   WideMul
   PairRet
   MaybeRet
+  ArrayRet
+  OptionRet
+  OptionState
+  CpiCaller
 )
 
 echo "solana-runtime-test: building proof-forge-next (lake build proof_forge_next)"
@@ -161,16 +165,51 @@ for name in "${fixtures[@]}"; do
   if [[ "$(cd "$(dirname "$fixture_plan")" && pwd)" != "$(cd "$fixture_out" && pwd)" ]]; then
     cp -f "$fixture_plan" "$fixture_out/${name}.sbpf-plan"
   fi
+  # BL-27: keep .s next to .so for CPI plan/asm marker pins (when ELF profile).
+  if [[ -f "$fixture_out/${name}.s" ]]; then
+    :
+  elif [[ -f "$fixture_out/deploy/${name}.s" ]]; then
+    cp -f "$fixture_out/deploy/${name}.s" "$fixture_out/${name}.s"
+  else
+    fixture_s="$(find "$fixture_out" -name "${name}.s" -type f 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$fixture_s" && -f "$fixture_s" ]]; then
+      cp -f "$fixture_s" "$fixture_out/${name}.s"
+    fi
+  fi
   [[ -f "$fixture_out/${name}.so" ]] || die "normalized ${name}.so missing"
   [[ -f "$fixture_out/${name}.sbpf-plan" ]] || die "normalized ${name}.sbpf-plan missing"
   echo "solana-runtime-test: ${name}.so=$(wc -c <"$fixture_out/${name}.so" | tr -d ' ') bytes"
 done
+
+# BL-27: assemble zero-account mock CPI callee (SBPF assembly via locked sbpf).
+mock_src="$crate_dir/mock-callee"
+mock_so=""
+echo "solana-runtime-test: build mock-callee (sbpf)"
+if ! (
+  cd "$mock_src"
+  "$sbpf_bin" build
+); then
+  die "sbpf build mock-callee failed"
+fi
+if [[ -f "$mock_src/deploy/mock-callee.so" ]]; then
+  mock_so="$mock_src/deploy/mock-callee.so"
+elif [[ -f "$mock_src/target/deploy/mock-callee.so" ]]; then
+  mock_so="$mock_src/target/deploy/mock-callee.so"
+else
+  mock_so="$(find "$mock_src" -name 'mock-callee.so' -type f 2>/dev/null | head -n 1 || true)"
+fi
+[[ -n "$mock_so" && -f "$mock_so" ]] || die "mock-callee.so not found under $mock_src"
+# Stage next to fixtures for stable env path.
+cp -f "$mock_so" "$out_dir/mock-callee.so"
+mock_so="$out_dir/mock-callee.so"
+echo "solana-runtime-test: mock-callee.so=$mock_so ($(wc -c <"$mock_so" | tr -d ' ') bytes)"
 
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_SO_DIR="$so_dir"
 export PROOF_FORGE_PLAN="$plan_path"
 export PROOF_FORGE_FIXTURES_DIR="$out_dir"
+export PROOF_FORGE_MOCK_CALLEE_SO="$mock_so"
 
 if ! (
   cd "$crate_dir"

@@ -371,6 +371,22 @@ private partial def checkPlanStatementsV1
               s!"{owner} external call arguments must be UInt64 expressions"
           total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
+    | .externalCallResult callee args _resultTemp =>
+        if isView then
+          throw <| .planInvariant .evm s!"{owner} makes an external call in a view context"
+        unless callee.size ≥ 2 do
+          throw <| .planInvariant .evm
+            s!"{owner} external call callee must have at least two components"
+        for c in callee do
+          unless isIdentifier c do
+            throw <| .planInvariant .evm
+              s!"{owner} external call callee component '{c}' is not a safe identifier"
+        for arg in args do
+          unless exprIsUInt64CompatibleV1 fns arg do
+            throw <| .planInvariant .evm
+              s!"{owner} external call arguments must be UInt64 expressions"
+          total ← addPlanExprNodes slots paramCount total fns arg
+        total := total + 1
     | .schedule callee args =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} schedules a workflow in a view context"

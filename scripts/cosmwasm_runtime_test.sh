@@ -94,6 +94,8 @@ programs=(
   "runtime-tests/cosmwasm/fixtures/EmitLoop.lean:Examples.EmitLoop:EmitLoop"
   "runtime-tests/cosmwasm/fixtures/ScheduleFlow.lean:Examples.ScheduleFlow:ScheduleFlow"
   "runtime-tests/cosmwasm/fixtures/PairRet.lean:Examples.PairRet:PairRet"
+  "runtime-tests/cosmwasm/fixtures/ArrayRet.lean:Examples.ArrayRet:ArrayRet"
+  "runtime-tests/cosmwasm/fixtures/OptionRet.lean:Examples.OptionRet:OptionRet"
   "runtime-tests/cosmwasm/fixtures/NarrowCounter.lean:Examples.NarrowCounter:NarrowCounter"
 )
 

@@ -25,7 +25,7 @@ provenance。`InvariantOrdinalV1`
 就是 canonical array 的 zero-based `UInt32` index。proof reference、adjacent theorem body、
 inline certification digest 与外部 proof-bundle identity 都是 certification metadata，
 **不进入** `SemanticProgramV1`，因此不会改变 business `semanticHash`（见
-[`ADR-0026`](../adr/0026-inline-same-file-theorem-certification.md)）。
+[`ADR-0027`](../adr/0027-inline-same-file-theorem-certification.md)）。
 
 proof ABI 与 reference interpreter 共用 `SPEC-SEM-WIRE-001`/`ProofForgeV2.Semantic.InvariantABI`
 唯一声明的 `LogicalStateV1` closed state carrier；不得在本文件、proof bundle 或 target backend
@@ -248,7 +248,7 @@ reducible closed program abbreviation 后做 definitional equality；不得用 s
 propositional cast、未解 metavariable 或任意 term elaboration 替代。成功只增加 certification
 result；program、requirements、semantic serialization 和 target selection 保持不变。
 
-## Inline same-file certification（ADR-0026 engineering）
+## Inline same-file certification（ADR-0027 engineering）
 
 工程产品路径以 **同一 in-memory source snapshot** 上的 adjacent ordinary Lean theorem 为
 主 certification 面：
@@ -266,7 +266,7 @@ result；program、requirements、semantic serialization 和 target selection �
 ## ProofBundleV1（library / historical / formal-oriented only）
 
 外部 digest-pinned proof bundle 是 source-specific、只读、content-addressed **library**
-schema；**不是** 产品 CLI `check`/`build` surface，不得与 ADR-0026 inline path 互替或
+schema；**不是** 产品 CLI `check`/`build` surface，不得与 ADR-0027 inline path 互替或
 fallback。directory
 layout 唯一为 `proof-bundle.json` 与 `modules/<QualifiedName components>.olean`；component 逐级作为
 文件名，最后一段追加 `.olean`。禁止 source、`.ilean`、native library、plugin、bytecode、临时文件

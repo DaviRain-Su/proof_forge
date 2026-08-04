@@ -139,11 +139,12 @@ layout: center
 | Noir | relation `.nr` packages + locked nargo compile-only | ACIR / witness / proof / VK / verify |
 | Aleo | Leo source + locked leo compile-only | VM / proof / deploy |
 | Psy | Dargo/Psy source + host-optional compile | Locked VM / prover |
+| Quint | `.qnt` executable model + zero-tool finalize | Product toolchain / ITF / MBT / verify / formal |
 | CosmWasm | WAT + locked `wat2wasm` + `cosmwasm-check` + mock VM | wasmd / on-chain / formal; sync call stays FC |
 | TON | Tolk → real BoC + `@ton/sandbox` engineering differential | Mainnet / formal; Plan schedule still FC |
 
 <div class="mt-6 text-center text-sm opacity-80">
-Engineering registry 11 = 8 materializers + 3 design-only. Accepted PRD Phase 1 remains EVM/Solana/NEAR/Noir; Aleo/Psy/CosmWasm/TON are engineering leaves (DOC-ADR-SCOPE open). Compile/mock/sandbox ≠ formal/hermetic.
+Engineering registry 12 = 9 materializers + 3 design-only. Accepted PRD Phase 1 remains EVM/Solana/NEAR/Noir; Aleo/Psy/Quint/CosmWasm/TON are engineering leaves (DOC-ADR-SCOPE open). Compile/mock/sandbox/host-only model smoke ≠ formal/hermetic.
 </div>
 
 ---
@@ -219,7 +220,7 @@ backgroundSize: contain
 # Roadmap & target landscape
 
 <div class="mt-80 text-center text-sm opacity-80">
-Historical landscape image; engineering registry is 11 = 8 implemented materializers + 3 design-only. Accepted PRD Phase 1 is still four targets — scope debt DOC-ADR-SCOPE. See the preceding table.
+Historical landscape image; engineering registry is now 12 = 9 implemented materializers + 3 design-only. Accepted PRD Phase 1 is still four targets — scope debt DOC-ADR-SCOPE. See the preceding table.
 </div>
 
 ---
@@ -230,8 +231,9 @@ layout: center
 
 <v-clicks>
 
-- Engineering path: one Semantic carrier → **eight** target-owned Plan/IR leaves
-- Accepted PRD Phase 1: EVM / Solana / NEAR / Noir only (Aleo/Psy/CW/TON = engineering leaves; DOC-ADR-SCOPE open)
+- Engineering path: one Semantic carrier → **nine** target-owned Plan/IR leaves
+- Accepted PRD Phase 1: EVM / Solana / NEAR / Noir only (Aleo/Psy/Quint/CW/TON = engineering leaves; DOC-ADR-SCOPE open)
+- Quint: `.qnt` source-only executable model + zero-tool finalize (non-deployable; host smoke only)
 - CosmWasm: WAT + wat2wasm + check + mock VM (sync FC; async SubMsg same-tx)
 - TON: Tolk/BoC + sandbox (resolver async open; Plan schedule still FC)
 - Current validation also: EVM Anvil, Solana Mollusk, NEAR sandbox, Noir/Aleo compile-only

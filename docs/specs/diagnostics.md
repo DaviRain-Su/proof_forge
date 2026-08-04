@@ -3,7 +3,7 @@ id: SPEC-DIAG-001
 title: 稳定诊断规格
 status: proposed
 owner: frontend
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -11,7 +11,7 @@ normative: true
 
 > **当前工程覆盖（2026-08-03）**：结构化 `DiagnosticBundleV1`、located
 > Check/Normalize/Compiler 链和 CLI full-bundle human render 仍在；B11/B12 supervised source
-> authority 已删除。当前 CLI 进程内读源并调用 `Loader.selectProgramV1Product`，没有 supervisor
+> authority 已删除。当前 CLI 进程内单次读源并调用 `Loader.selectProgramV1ProductWithTheoremInventory`，compile 后经 `certifyInlineProofV1`；没有 supervisor
 > receipt 或 controller-backed resource attribution；但已有 in-process `PF-RESOURCE-TIME`，以及
 > build published-byte gate 的 `PF-RESOURCE-OUTPUT` producer。memory/process 与 supervised
 > protocol/stderr output attribution 仍未实现。下文 controller 条款是 proposed / 历史设计。
@@ -72,8 +72,8 @@ major version 内稳定。
   `mkFailureBundleV1` 复用 `normalizeDiagnosticBundleV1` + validate/encode、fail-closed 固定
   `PF-INTERNAL`、read-only diagnostics、deterministic human/PF-JCS array render、exit priority
   selection）。**B8b** 已完成 located multi-error compiler cutover。当前 CLI source authority 为
-  进程内 `IO.FS.readFile` → `Loader.selectProgramV1Product` → Normalize
-  `normalizeProgramLocatedV1` → Compiler `compileProgramProductV1`；Loader 与后续 compiler
+  进程内单次 `IO.FS.readFile` → `Loader.selectProgramV1ProductWithTheoremInventory` → Normalize
+  `normalizeProgramLocatedV1` → Compiler `compileProgramProductV1` → `certifyInlineProofV1`；Loader、compiler 与 proof gate
   failures 保留完整 bundle，并统一 full `renderHuman` + `selectExitCode`；usage/config 仍 exit 2
   （无 `PF-CLI-USAGE`）。B11/B12 已删除，因此当前没有 Frontend worker/supervisor abnormal
   producer、receipt 或 controller-backed `PF-RESOURCE-*` producer。非产品兼容面保留 unlocated
@@ -215,8 +215,8 @@ parser/selection producers 与 Typed producers 经 `DiagnosticV1.make` 发出结
 pre-node `nodeId=null`，**B7b**
 工程已完成（含 B7b3d CheckV1 located composition）；**B8a** inert `DiagnosticBundleV1` 地基与
 **B8b** 的 Normalize/Compiler/CLI multi-error cutover 已落地
-（`DiagnosticBundleV1` + in-process `Loader.selectProgramV1Product` +
-`normalizeProgramLocatedV1` + `compileProgramProductV1` + CLI full-bundle render/exit；
+（`DiagnosticBundleV1` + in-process `Loader.selectProgramV1ProductWithTheoremInventory` +
+`normalizeProgramLocatedV1` + `compileProgramProductV1` + `certifyInlineProofV1` + CLI full-bundle render/exit；
 `Tests/CLI/DiagnosticsV1`、`Tests/Compiler/DiagnosticPipelineV1`）；B12 supervised frontend 已删除，
 formal 仍 pending。Syntax preflight 的产品路径以
 `DiagnosticCodeV1.resourceBound` 保留 `PF-BOUND-001`，非产品兼容面仍投影为

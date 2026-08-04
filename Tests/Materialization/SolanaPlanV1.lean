@@ -1457,9 +1457,10 @@ private unsafe def testShiftBitwiseLogical
   let ir2 ← liftResult <| irSolana compiled
   expect (ir == ir2) "BitLogic IR rebuild must be structure-identical"
 
-/-- AddressBearing: Solana admits static QualifiedName call/schedule. Plan
-    carries externalCall/schedule; default plan profile renders program_id=
-    (SHA-256 of target path). Principal remains fail-closed. -/
+/-- AddressBearing + BL-27: Solana admits static QN call/schedule as real CPI.
+    Plan carries externalCall/schedule; plan text renders program_id= (SHA-256
+    of target path); SBPF emits `sol_invoke_signed_c` (not sol_log_data).
+    Principal remains fail-closed. -/
 private unsafe def testExternalCallGate
     (session : Language.Loader.ParserSession) : IO Unit := do
   let callText := wrapProgram "CallGate" <|
@@ -1482,13 +1483,27 @@ private unsafe def testExternalCallGate
   | some (stmt : Statement) =>
       match stmt with
       | .externalCall #["Oracle", "feed"] #[.stateLoad 0 8] => pure ()
-      | _ => throw <| IO.userError "CallGate must start with externalCall Oracle.feed"
+      | _ => throw <| IO.userError "CallGate must start with void externalCall Oracle.feed"
   | none => throw <| IO.userError "CallGate bump body is empty"
   let callFiles ← liftResult <| Targets.Solana.buildFromCapability callCap
   let some planFile := callFiles.find? (·.path.endsWith ".sbpf-plan") |
     throw <| IO.userError "CallGate: missing .sbpf-plan"
   expect (planFile.contents.contains "external_call Oracle.feed program_id=0x")
     "CallGate sbpf-plan must render static external_call with program_id"
+  -- ELF profile: real CPI, not sol_log_data observation stub.
+  let elfSelection ← liftResult <|
+    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfElfV1)
+  let elfCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 elfSelection callCompiled
+  let elfFiles ← liftResult <| Targets.Solana.buildFromCapability elfCap
+  let some asmFile := elfFiles.find? (·.path.endsWith ".s") |
+    throw <| IO.userError "CallGate ELF profile: missing .s"
+  expect (asmFile.contents.contains "sol_invoke_signed_c")
+    "CallGate SBPF must emit sol_invoke_signed_c for void sync call"
+  expect (!asmFile.contents.contains "via sol_log_data")
+    "CallGate call path must not comment via sol_log_data stub"
+  expect (!asmFile.contents.contains "0xec01")
+    "CallGate must not emit legacy 0xec01 log-key tag"
 
   let scheduleText := wrapProgram "ScheduleGate" <|
     "  state count : UInt64\n\n" ++
@@ -1517,6 +1532,62 @@ private unsafe def testExternalCallGate
     throw <| IO.userError "ScheduleGate: missing .sbpf-plan"
   expect (sPlan.contents.contains "schedule Ledger.daily program_id=0x")
     "ScheduleGate sbpf-plan must render static schedule with program_id"
+  let sElfSel ← liftResult <|
+    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfElfV1)
+  let sElfCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 sElfSel scheduleCompiled
+  let sElfFiles ← liftResult <| Targets.Solana.buildFromCapability sElfCap
+  let some sAsm := sElfFiles.find? (·.path.endsWith ".s") |
+    throw <| IO.userError "ScheduleGate ELF: missing .s"
+  expect (sAsm.contents.contains "sol_invoke_signed_c")
+    "ScheduleGate SBPF must emit sol_invoke_signed_c"
+  expect (!sAsm.contents.contains "0x5c01")
+    "ScheduleGate must not emit legacy 0x5c01 log-key tag"
+
+  -- Result-bearing sync call: Plan binds resultTemp; SBPF reads return data.
+  let retText := wrapProgram "CallRetGate" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry run(k : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := call ledger.get(k)\n" ++
+    "    count := x\n" ++
+    "    return x\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let retCompiled ← compileSource session retText
+    "Examples.CallRetGate" "<solana-call-ret-gate>"
+  let retSel ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
+  let retCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 retSel retCompiled
+  let retPlan ← liftResult <| Targets.Solana.planFromCapability retCap
+  match retPlan.entries[0]!.body[0]? with
+  | some (stmt : Statement) =>
+      match stmt with
+      | .externalCallResult #["ledger", "get"] #[.param 8] _ => pure ()
+      | _ =>
+          throw <| IO.userError
+            "CallRetGate expected externalCallResult ledger.get"
+  | none => throw <| IO.userError "CallRetGate run body is empty"
+  let retElfSel ← liftResult <|
+    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfElfV1)
+  let retElfCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 retElfSel retCompiled
+  let retElfFiles ← liftResult <| Targets.Solana.buildFromCapability retElfCap
+  let some retAsm := retElfFiles.find? (·.path.endsWith ".s") |
+    throw <| IO.userError "CallRetGate ELF: missing .s"
+  expect (retAsm.contents.contains "sol_invoke_signed_c")
+    "CallRetGate must CPI via sol_invoke_signed_c"
+  expect (retAsm.contents.contains "sol_get_return_data")
+    "CallRetGate must read return data via sol_get_return_data"
+  expect (retAsm.contents.contains "0x1006" ||
+      retAsm.contents.contains (toString Targets.Solana.cpiReturnDataError))
+    "CallRetGate must guard short return data with cpiReturnDataError 0x1006"
+  let some retPlanFile := retElfFiles.find? (·.path.endsWith ".sbpf-plan") |
+    throw <| IO.userError "CallRetGate: missing .sbpf-plan"
+  expect (retPlanFile.contents.contains "%0 = external_call" ||
+      retPlanFile.contents.contains " = external_call ledger.get")
+    "CallRetGate plan must render result-binding external_call"
 
 /-- Unit/void entry (`entry run() do`) fails closed at makeEntryV1. -/
 private unsafe def testVoidEntryRejected
@@ -2499,24 +2570,141 @@ private unsafe def testNamedEnumReturn
     s!"MaybeRet IDL must declare [\"u64-le\",\"u64-le\"], got: {idl}"
   IO.println "  MaybeRet named Enum return Plan/IR pin ok"
 
-/-- Fail-closed: anonymous container result, cap-8 overflow, Option state, named param. -/
-private unsafe def testAggregateFailClosed
+/-- BL-19 / N-ANON-RESULT Solana ABI: anonymous Array UInt64 2 entry/view return
+    flattens to 2×UInt64 leaves via returnAggregate / setReturnDataMulti. -/
+private unsafe def testAnonymousArrayReturn
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Anonymous Array entry return stays fail-closed (B-RET-ABI named-only).
-  let arrSource := wrapProgram "ArrayRet" <|
+  let source := wrapProgram "ArrayRet" <|
     "  state slots : Array UInt64 2\n\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    slots[0] := x\n" ++
+    "    slots[1] := y\n\n" ++
+    "  entry setArr(x : UInt64, y : UInt64) : Array UInt64 2 do\n" ++
+    "    slots[0] := x\n" ++
+    "    slots[1] := y\n" ++
+    "    return slots\n\n" ++
     "  view getArr() : Array UInt64 2 do\n" ++
     "    return slots\n"
-  match ← (do
-      try
-        let c ← compileSource session arrSource "Examples.ArrayRet" "<solana-array-ret>"
-        pure (some c)
-      catch _ => pure none) with
-  | none => pure ()  -- may fail at Normalize/typed (anonymous result)
-  | some c => expectPlanError "ArrayRet" (planSolana c)
+  let compiled ← compileSource session source "Examples.ArrayRet"
+    "<solana-array-ret>"
+  let plan ← liftResult (planSolana compiled)
+  let getArr ← findHandler plan "getArr"
+  match getArr.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrayRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "ArrayRet leaves must be u64"
+      expect (leaves.all (·.byteWidth == 8))
+        "ArrayRet leaves must be 8-byte words"
+  | other =>
+      throw <| IO.userError
+        s!"ArrayRet getArr resultKind must be .aggregate, got {repr other}"
+  match getArr.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt == #[false, false])
+        "ArrayRet returnAggregate must have 2 u64 leaves"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad 0 off0, .stateLoad 0 off1 =>
+          expect (off0 + 8 == off1)
+            s!"ArrayRet leaf order must be consecutive slots, got {off0}/{off1}"
+      | _, _ =>
+          throw <| IO.userError
+            "ArrayRet returnAggregate leaves must be stateLoad of slots"
+  | _ =>
+      throw <| IO.userError "ArrayRet getArr body must be .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrayRet plan must validate: {e.render}"
+  let ir ← liftResult (irSolana compiled)
+  let getArrIR ← findHandlerIR ir "getArr"
+  expect (getArrIR.operations.any fun
+      | .setReturnDataMulti t => t.size == 2
+      | _ => false)
+    "ArrayRet getArr IR must emit setReturnDataMulti [2]"
+  let asm ← liftResult (emitSbpfAsmV1 ir)
+  expect (asm.contains "sol_set_return_data")
+    "ArrayRet asm must call sol_set_return_data"
+  expect (asm.contains "set_return_data_multi" || asm.contains "lddw r2, 16")
+    "ArrayRet asm must pack 16-byte multi return"
+  let files ← liftResult (filesSolana compiled)
+  let idl ← findFile files "ArrayRet.idl.json"
+  expect (idl.contains "\"returns\":[\"u64-le\",\"u64-le\"]")
+    s!"ArrayRet IDL must declare [\"u64-le\",\"u64-le\"], got: {idl}"
+  IO.println "  ArrayRet anonymous Array return Plan/IR/SBPF/IDL pin ok"
+
+/-- BL-19: anonymous Option UInt64 entry/view return = tag + payload (2 leaves). -/
+private unsafe def testAnonymousOptionReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptionRet" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry putSome(v : UInt64) : Option UInt64 do\n" ++
+    "    pad := v\n" ++
+    "    return Option.some(v)\n\n" ++
+    "  entry putNone() : Option UInt64 do\n" ++
+    "    pad := 0\n" ++
+    "    return Option.none()\n\n" ++
+    "  view peekSome() : Option UInt64 do\n" ++
+    "    return Option.some(pad)\n\n" ++
+    "  view peekNone() : Option UInt64 do\n" ++
+    "    return Option.none()\n"
+  let compiled ← compileSource session source "Examples.OptionRet"
+    "<solana-option-ret>"
+  let plan ← liftResult (planSolana compiled)
+  let peekNone ← findHandler plan "peekNone"
+  match peekNone.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptionRet Enum-like Option return must be tag+payload (2), got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"OptionRet peekNone resultKind must be .aggregate, got {repr other}"
+  match peekNone.body[peekNone.body.size - 1]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt.size == 2)
+        "OptionRet returnAggregate must have 2 leaves"
+      -- none → (0, 0) literals
+      match leaves[0]!, leaves[1]! with
+      | .literal 0, .literal 0 => pure ()
+      | a, b =>
+          throw <| IO.userError
+            s!"OptionRet peekNone leaves must be literal 0/0, got {repr a}/{repr b}"
+  | _ =>
+      throw <| IO.userError "OptionRet peekNone must end with .returnAggregate"
+  let putSome ← findHandler plan "putSome"
+  match putSome.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2) "OptionRet putSome must return 2-leaf Option"
+  | _ =>
+      throw <| IO.userError "OptionRet putSome resultKind must be .aggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptionRet plan must validate: {e.render}"
+  let ir ← liftResult (irSolana compiled)
+  let peekNoneIR ← findHandlerIR ir "peekNone"
+  expect (peekNoneIR.operations.any fun
+      | .setReturnDataMulti t => t.size == 2
+      | _ => false)
+    "OptionRet peekNone IR must emit setReturnDataMulti [2]"
+  let peekSomeIR ← findHandlerIR ir "peekSome"
+  expect (peekSomeIR.operations.any fun
+      | .setReturnDataMulti t => t.size == 2
+      | _ => false)
+    "OptionRet peekSome IR must emit setReturnDataMulti [2]"
+  let asm ← liftResult (emitSbpfAsmV1 ir)
+  expect (asm.contains "sol_set_return_data")
+    "OptionRet asm must call sol_set_return_data"
+  let files ← liftResult (filesSolana compiled)
+  let idl ← findFile files "OptionRet.idl.json"
+  expect (idl.contains "\"returns\":[\"u64-le\",\"u64-le\"]")
+    s!"OptionRet IDL must declare [\"u64-le\",\"u64-le\"], got: {idl}"
+  IO.println "  OptionRet anonymous Option return Plan/IR pin ok"
+
+/-- Fail-closed: Bytes/Map/9-element Array return, nested, Option state, named param. -/
+private unsafe def testAggregateFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
   -- Cap-8: Struct with 9 UInt64 fields exceeds B-RET-ABI leaf cap.
   let mut fields := ""
   for i in [0:9] do
@@ -2544,20 +2732,115 @@ private unsafe def testAggregateFailClosed
       | .ok _ =>
           throw <| IO.userError
             "Solana 9-leaf aggregate return must fail closed (cap-8)"
-  -- Option state remains fail closed (not a container policy admit).
-  let optSource := wrapProgram "OptState" <|
-    "  state o : Option UInt64\n\n" ++
+  -- Array UInt64 9 return exceeds cap-8.
+  let arr9Source := wrapProgram "Array9Ret" <|
+    "  state slots : Array UInt64 9\n\n" ++
     "  init() do\n" ++
-    "    o := none\n\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "    slots[2] := 0\n" ++
+    "    slots[3] := 0\n" ++
+    "    slots[4] := 0\n" ++
+    "    slots[5] := 0\n" ++
+    "    slots[6] := 0\n" ++
+    "    slots[7] := 0\n" ++
+    "    slots[8] := 0\n\n" ++
+    "  view getArr() : Array UInt64 9 do\n" ++
+    "    return slots\n"
+  match ← (do
+      try
+        let c ← compileSource session arr9Source "Examples.Array9Ret" "<solana-arr9>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planSolana c with
+      | .error e =>
+          expect (e.render.contains "8" || e.render.contains "leaf" ||
+              e.render.contains "aggregate" || e.render.contains "9")
+            s!"Array9Ret cap error must cite cap/leaf/aggregate/9, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Solana Array UInt64 9 return must fail closed (cap-8)"
+  -- Bytes N result stays fail-closed.
+  let bytesSource := wrapProgram "BytesRet" <|
+    "  state b : Bytes 2\n\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "    b[1] := 0\n\n" ++
+    "  view getB() : Bytes 2 do\n" ++
+    "    return b\n"
+  match ← (do
+      try
+        let c ← compileSource session bytesSource "Examples.BytesRet" "<solana-bytes-ret>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c => expectPlanError "BytesRet" (planSolana c)
+  -- Map result stays fail-closed.
+  let mapSource := wrapProgram "MapRet" <|
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view getM() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+  match ← (do
+      try
+        let c ← compileSource session mapSource "Examples.MapRet" "<solana-map-ret>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c => expectPlanError "MapRet" (planSolana c)
+  -- Nested anonymous Array element stays fail-closed (element must be UInt64).
+  let nestSource := wrapProgram "NestArrRet" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  view getNest() : Array (Array UInt64 2) 1 do\n" ++
+    "    return Array(Array(0, 0))\n"
+  match ← (do
+      try
+        let c ← compileSource session nestSource "Examples.NestArrRet" "<solana-nest>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()  -- may fail at typed/Normalize
+  | some c => expectPlanError "NestArrRet" (planSolana c)
+  -- B-OPT-STATE: Option of non-UInt64 state stays fail closed.
+  let optBadSource := wrapProgram "OptBadEl" <|
+    "  state o : Option UInt8\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
     "  view get() : UInt64 do\n" ++
     "    return 0\n"
   match ← (do
       try
-        let c ← compileSource session optSource "Examples.OptState" "<solana-opt>"
+        let c ← compileSource session optBadSource "Examples.OptBadEl" "<solana-opt-bad>"
         pure (some c)
       catch _ => pure none) with
   | none => pure ()  -- may fail at Normalize/typed
-  | some c => expectPlanError "OptState" (planSolana c)
+  | some c =>
+      match planSolana c with
+      | .error e =>
+          expect (e.render.contains "Option" || e.render.contains "UInt64" ||
+              e.render.contains "element")
+            s!"OptBadEl must cite Option/UInt64/element, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Solana Option UInt8 state must fail closed (UInt64 element only)"
+  -- Option param stays fail closed (state-only; mirrors Enum params).
+  let optParamSource := wrapProgram "OptParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    pad := i\n\n" ++
+    "  entry take(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  match ← (do
+      try
+        let c ← compileSource session optParamSource "Examples.OptParam" "<solana-opt-param>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c => expectPlanError "OptParam" (planSolana c)
   -- Named Struct param stays fail closed (state-only pilot).
   let paramSource := wrapProgram "StructParam" <|
     "  struct Pair where\n" ++
@@ -2572,6 +2855,124 @@ private unsafe def testAggregateFailClosed
     "<solana-struct-param>"
   expectPlanError "StructParam" (planSolana paramCompiled)
   IO.println "  aggregate fail-closed boundaries ok"
+
+/-- BL-29 / B-OPT-STATE: Option UInt64 state = Enum-shaped 2-leaf layout
+    (`slot_tag` + `slot_p0`); construct none zeros payload; match read via
+    VariantTag/VariantPayload; storeAggregate on assign. -/
+private unsafe def testOptionState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptionState" <|
+    "  state slot : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry set(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  entry clear() : UInt64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "  view getOpt() : Option UInt64 do\n" ++
+    "    return slot\n"
+  let compiled ← compileSource session source "Examples.OptionState"
+    "<solana-option-state>"
+  let plan ← liftResult (planSolana compiled)
+  expect (plan.stateAccount.fields.size == 2)
+    s!"OptionState: Option UInt64 must flatten to tag+payload (2), got {plan.stateAccount.fields.size}"
+  expect (plan.stateAccount.fields.any fun f => f.name == "slot_tag")
+    "OptionState must have slot_tag leaf"
+  expect (plan.stateAccount.fields.any fun f => f.name == "slot_p0")
+    "OptionState must have slot_p0 payload leaf"
+  let some tagF := plan.stateAccount.fields.find? (·.name == "slot_tag") |
+    throw <| IO.userError "OptionState missing slot_tag"
+  let some payF := plan.stateAccount.fields.find? (·.name == "slot_p0") |
+    throw <| IO.userError "OptionState missing slot_p0"
+  expect (tagF.byteWidth == 8 && payF.byteWidth == 8)
+    "OptionState leaves must be 8-byte UInt64 words"
+  expect (payF.byteOffset == tagF.byteOffset + 8)
+    s!"OptionState leaves must be consecutive, offsets {tagF.byteOffset}/{payF.byteOffset}"
+  -- Init none → storeAggregate both leaves (payload zeroed).
+  let (initAgg, initSeq) := countAnyPlanAggregates plan.initializer.body
+  expect (initAgg == 1)
+    s!"OptionState init must storeAggregate Option.none, got {initAgg}"
+  expect (initSeq == 0)
+    s!"OptionState init must not scalar-store Option leaves, got {initSeq}"
+  -- set some → storeAggregate.
+  let setH ← findHandler plan "set"
+  let (setAgg, _) := countAnyPlanAggregates setH.body
+  expect (setAgg == 1)
+    s!"OptionState set must storeAggregate Option.some, got {setAgg}"
+  -- clear none-reset → storeAggregate (stale payload must not survive).
+  let clearH ← findHandler plan "clear"
+  let (clearAgg, _) := countAnyPlanAggregates clearH.body
+  expect (clearAgg == 1)
+    s!"OptionState clear must storeAggregate Option.none, got {clearAgg}"
+  -- peek match → body reads state leaves (VariantTag/VariantPayload path).
+  let peekH ← findHandler plan "peek"
+  expect (peekH.resultKind == .u64)
+    "OptionState peek must return UInt64"
+  -- getOpt return of stored Option → 2-leaf aggregate.
+  let getOpt ← findHandler plan "getOpt"
+  match getOpt.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptionState getOpt must return 2-leaf Option, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"OptionState getOpt resultKind must be .aggregate, got {repr other}"
+  match getOpt.body[getOpt.body.size - 1]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt.size == 2)
+        "OptionState getOpt returnAggregate must have 2 leaves"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad 0 off0, .stateLoad 0 off1 =>
+          expect (off0 + 8 == off1)
+            s!"OptionState getOpt leaves must be consecutive stateLoads, got {off0}/{off1}"
+      | a, b =>
+          throw <| IO.userError
+            s!"OptionState getOpt leaves must be stateLoads, got {repr a}/{repr b}"
+  | _ =>
+      throw <| IO.userError "OptionState getOpt must end with .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptionState plan must validate: {e.render}"
+  let ir ← liftResult (irSolana compiled)
+  let setIR ← findHandlerIR ir "set"
+  let (multi, scalar) := countAnyIrMultiStores setIR.operations
+  expect (multi == 1)
+    s!"OptionState set IR must have one storeStateMulti, got {multi}"
+  expect (scalar == 0)
+    s!"OptionState set IR must not scalar storeState, got {scalar}"
+  let clearIR ← findHandlerIR ir "clear"
+  let (clearMulti, _) := countAnyIrMultiStores clearIR.operations
+  expect (clearMulti == 1)
+    s!"OptionState clear IR must storeStateMulti none-reset, got {clearMulti}"
+  -- none construct must materialize literal 0 payload (not leave stale).
+  let initIR ← findHandlerIR ir "initialize"
+  let (initMulti, _) := countAnyIrMultiStores initIR.operations
+  expect (initMulti == 1)
+    s!"OptionState init IR must storeStateMulti none, got {initMulti}"
+  let getOptIR ← findHandlerIR ir "getOpt"
+  expect (getOptIR.operations.any fun
+      | .setReturnDataMulti t => t.size == 2
+      | _ => false)
+    "OptionState getOpt IR must emit setReturnDataMulti [2]"
+  let asm ← liftResult (emitSbpfAsmV1 ir)
+  expect (asm.contains "set:") "OptionState asm must contain set"
+  expect (asm.contains "clear:") "OptionState asm must contain clear"
+  expect (asm.contains "temps=")
+    "OptionState asm must annotate temps"
+  let files ← liftResult (filesSolana compiled)
+  let _ ← findFile files "OptionState.sbpf-plan"
+  let idl ← findFile files "OptionState.idl.json"
+  expect (idl.contains "getOpt")
+    s!"OptionState IDL must declare getOpt, got: {idl}"
+  IO.println "  OptionState Option UInt64 state Plan/IR/SBPF pin ok"
 
 unsafe def run : IO Unit := do
   testNarrowIntAbi
@@ -2615,6 +3016,9 @@ unsafe def run : IO Unit := do
   testBytesStateIndexOps session
   testNamedStructReturn session
   testNamedEnumReturn session
+  testAnonymousArrayReturn session
+  testAnonymousOptionReturn session
+  testOptionState session
   testAggregateFailClosed session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 

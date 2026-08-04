@@ -15,7 +15,7 @@ normative: true
 > 归因均 **未由当前产品路径实现**。Loader 仍在读入后执行 16 MiB source gate。下文 B11/B12
 > 实现叙述只作为 superseded 历史记录；accepted 安全/架构意图是否修订仍需 ADR 决策。
 >
-> **Inline proof（2026-08-04，ADR-0026）**：engineering certification 在 **同一 compiler
+> **Inline proof（2026-08-04，ADR-0027）**：engineering certification 在 **同一 compiler
 > 进程内** 对 held raw source 做 elaboration + Environment audit。该路径 **不是** sandbox、
 > **不是** contained worker、**不是** hermetic/Stage-0 evidence。不得把 inline cert 成功
 > 升格为 formal process containment 或 release qualification。
@@ -32,7 +32,7 @@ Lean kernel/toolchain 与已校验 V2 source 是最小 TCB；外部 packager、p
 runtime、RPC、network profile 和父项目均不可信。编译器默认不执行 source 任意 Lean code、
 动态 plugin、build script 或 network fetch。
 
-**Inline theorem certification 例外（ADR-0026，engineering）**：当 source 携带
+**Inline theorem certification 例外（ADR-0027，engineering）**：当 source 携带
 `proof … using …` / adjacent theorem 时，产品可在 **当前进程**  elaboration 该 snapshot
 并审计 Environment。此扩大 TCB 的范围必须显式承认：
 

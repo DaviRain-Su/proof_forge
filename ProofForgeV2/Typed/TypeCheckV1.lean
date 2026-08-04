@@ -1282,6 +1282,29 @@ mutual
             let (type_, drafts) :=
               checkExpectedDraft fnDecl.result expected? exprPath? expectedRelated drafts
             resultDraft type_ drafts
+    | .externalCall call =>
+        -- N-CALL-RET: value-position sync call. The external callee has no
+        -- intrinsic result type: the enclosing expected type pins it (Syntax
+        -- comment), so without an expected type we fail closed. Args are
+        -- checked in free type context like statement call.
+        let (cp?, pathDs0) := resolveDirect exprPath? "Expr.ExternalCall" "call"
+        let (argDrafts, pathDs) := call.args.zipIdx.foldl
+          (fun (acc, pds) (arg, i) =>
+            let (ap?, pd) := resolveChild cp? "ExternalCallExpr" "args" i
+            let ar := typeCheckExprDrafts scope tables none #[] ap? arg
+            (acc ++ ar.drafts, pds ++ pd))
+          (#[], #[])
+        match expected? with
+        | none =>
+            resultDraft .unit
+              (pathDs0 ++ pathDs ++ argDrafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft "call result type" "external call")
+                exprPath? expectedRelated])
+        | some expected =>
+            let (type_, drafts) :=
+              checkExpectedDraft expected expected? exprPath? expectedRelated
+                (pathDs0 ++ pathDs ++ argDrafts)
+            resultDraft type_ drafts
     | .match_ scrutinee arms =>
         match arms.toList with
         | [] =>

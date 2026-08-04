@@ -118,11 +118,54 @@ unsafe def run : IO Unit := do
       if ← tmp.pathExists then IO.FS.removeDirAll tmp
       IO.FS.createDirAll tmp
       try
-        let pkgs ← materializeNoirPackages "Counter"
+        let counterPkgs ← materializeNoirPackages "Counter"
           Examples.counterSourceText Examples.counterModuleNameV1 tmp
-        for pkg in pkgs do
+        for pkg in counterPkgs do
           runNargoCompile nargo pkg pkg.toString
-        IO.println s!"Tests.Materialization.NoirCompileAcceptance: ok ({pkgs.size} package(s))"
+        -- N-ANON-RESULT: anonymous Array/Option entry/view returns must emit
+        -- nargo-clean packages (same per-leaf public-input surface as named
+        -- B-RET aggregates).
+        let arrayRetText :=
+          "import ProofForgeV2\n\n" ++
+          "namespace ProofForgeV2.Examples\n\n" ++
+          "open ProofForgeV2.Language\n\n" ++
+          "program ArrayRet where\n" ++
+          "  state slots : Array UInt64 2\n\n" ++
+          "  init(a : UInt64, b : UInt64) do\n" ++
+          "    slots[0] := a\n" ++
+          "    slots[1] := b\n\n" ++
+          "  entry setArr(a : UInt64, b : UInt64) : Array UInt64 2 do\n" ++
+          "    slots[0] := a\n" ++
+          "    slots[1] := b\n" ++
+          "    return slots\n\n" ++
+          "  view getArr() : Array UInt64 2 do\n" ++
+          "    return slots\n\n" ++
+          "end ProofForgeV2.Examples\n"
+        let arrayPkgs ← materializeNoirPackages "ArrayRet"
+          arrayRetText "Examples.ArrayRet" (tmp / "ArrayRet")
+        for pkg in arrayPkgs do
+          runNargoCompile nargo pkg pkg.toString
+        let optionRetText :=
+          "import ProofForgeV2\n\n" ++
+          "namespace ProofForgeV2.Examples\n\n" ++
+          "open ProofForgeV2.Language\n\n" ++
+          "program OptionRet where\n" ++
+          "  state seed : UInt64\n\n" ++
+          "  init(x : UInt64) do\n" ++
+          "    seed := x\n\n" ++
+          "  entry asSome(v : UInt64) : Option UInt64 do\n" ++
+          "    return Option.some(v)\n\n" ++
+          "  view asNone() : Option UInt64 do\n" ++
+          "    return Option.none()\n\n" ++
+          "  view asSomeOfSeed() : Option UInt64 do\n" ++
+          "    return Option.some(seed)\n\n" ++
+          "end ProofForgeV2.Examples\n"
+        let optionPkgs ← materializeNoirPackages "OptionRet"
+          optionRetText "Examples.OptionRet" (tmp / "OptionRet")
+        for pkg in optionPkgs do
+          runNargoCompile nargo pkg pkg.toString
+        let total := counterPkgs.size + arrayPkgs.size + optionPkgs.size
+        IO.println s!"Tests.Materialization.NoirCompileAcceptance: ok ({total} package(s))"
       finally
         if ← tmp.pathExists then IO.FS.removeDirAll tmp
 

@@ -7010,10 +7010,16 @@ private def testInvariantRootExternalCallProhibited : IO Unit := do
     forbiddenRoot with
       blocks := #[cfgBlockInstrs 0
         #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
-          cfgInstr (some (cfgValueDef 1)) (.externalCall 0 callee #[])]
+          cfgInstr (some { valueId := 1, typeId := 1 }) (.externalCall 0 callee #[])]
         (.return_ (some 0))]
   }
-  let n2Base ← programWithTypes "InvCallN2Result" cfgBoolTypes #[] #[badResultRoot]
+  -- N-CALL-RET made Bool results on ExternalCall legal, so the generic-CFG
+  -- phase-order pin now uses a non-serializable (Map) result type, which
+  -- still fails at the op-typing step before the invariant-closure phase.
+  let mapResultTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .map 0 0 }]
+  let n2Base ← programWithTypes "InvCallN2Result" mapResultTypes #[] #[badResultRoot]
   let n2 : SemanticProgramDataV1 := {
     n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
   }
@@ -8197,11 +8203,17 @@ private def testInvariantClosurePureFnExternalCallProhibited : IO Unit := do
   let badResultCaller : CallableV1 := {
     caller with
       blocks := #[cfgBlockInstrs 0
-        #[cfgInstr (some (cfgValueDef 0)) (.externalCall 0 callee #[]),
+        #[cfgInstr (some { valueId := 0, typeId := 1 }) (.externalCall 0 callee #[]),
           cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
         (.return_ (some 1))]
   }
-  let n3ResultBase ← programWithTypes "InvClosureCallN3Result" cfgBoolTypes #[]
+  -- N-CALL-RET made Bool results on ExternalCall legal; the generic-CFG
+  -- phase-order pin uses a non-serializable (Map) result type instead, which
+  -- still fails at op typing before the invariant-closure phase.
+  let n3ResultTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .map 0 0 }]
+  let n3ResultBase ← programWithTypes "InvClosureCallN3Result" n3ResultTypes #[]
     #[badResultCaller, root]
   let n3Result : SemanticProgramDataV1 := {
     n3ResultBase with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
@@ -8823,6 +8835,68 @@ private def testCfgMapConstructTyping : IO Unit := do
           (.return_ (some 2))
       ] 0]
   expectCfgErr "N4 Map construct wrong result type" n4
+
+/-- N-CALL-RET: ExternalCall conditional result gate. Serializable scalar
+    result types (Bool / legal UInt width / Bytes) are admitted; Unit, Map,
+    Struct and any Schedule result stay `.badCfg`; void stays admitted. -/
+private def testCfgExternalCallResultTyping : IO Unit := do
+  let types : Array TypeDeclV1 :=
+    #[{ id := 0, name := some "S", shape := .struct #[{ name := "f", typeId := 1 }] },
+      { id := 1, name := none, shape := .bool },
+      { id := 2, name := none, shape := .uint 64 },
+      { id := 3, name := none, shape := .bytes 4 },
+      { id := 4, name := none, shape := .map 1 2 },
+      { id := 5, name := none, shape := .unit }]
+  let callee ← match parseQualifiedName #["mod", "callee"] with
+    | .ok qn => pure qn
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let entryRet (tid : TypeIdV1) (instrs : Array InstructionV1) : CallableV1 :=
+    { (cfgCallableKindName .entry (some "run") (resultTypeId := tid)) with
+      id := 0
+      blocks := #[cfgBlockInstrs 0 instrs (.return_ (some 0))] }
+  -- P1: Bool result.
+  let p1 ← programWithTypes "CallRetP1Bool" types #[]
+    #[entryRet 1 #[cfgInstr (some { valueId := 0, typeId := 1 })
+      (.externalCall 0 callee #[])]]
+  expectCfgOk "P1 ExternalCall Bool result" p1
+  -- P2: UInt64 result.
+  let p2 ← programWithTypes "CallRetP2U64" types #[]
+    #[entryRet 2 #[cfgInstr (some { valueId := 0, typeId := 2 })
+      (.externalCall 0 callee #[])]]
+  expectCfgOk "P2 ExternalCall UInt64 result" p2
+  -- P3: Bytes result.
+  let p3 ← programWithTypes "CallRetP3Bytes" types #[]
+    #[entryRet 3 #[cfgInstr (some { valueId := 0, typeId := 3 })
+      (.externalCall 0 callee #[])]]
+  expectCfgOk "P3 ExternalCall Bytes result" p3
+  -- P4: void regression (result none, Unit return).
+  let p4 ← programWithTypes "CallRetP4Void" types #[]
+    #[{ (cfgCallableKindName .entry (some "run") (resultTypeId := 5)) with
+        id := 0
+        blocks := #[cfgBlockInstrs 0
+          #[cfgInstr none (.externalCall 0 callee #[])]
+          (.return_ none)] }]
+  expectCfgOk "P4 ExternalCall void regression" p4
+  -- N1: Map result.
+  let n1 ← programWithTypes "CallRetN1Map" types #[]
+    #[entryRet 4 #[cfgInstr (some { valueId := 0, typeId := 4 })
+      (.externalCall 0 callee #[])]]
+  expectCfgErr "N1 ExternalCall Map result" n1
+  -- N2: Struct result.
+  let n2 ← programWithTypes "CallRetN2Struct" types #[]
+    #[entryRet 0 #[cfgInstr (some { valueId := 0, typeId := 0 })
+      (.externalCall 0 callee #[])]]
+  expectCfgErr "N2 ExternalCall Struct result" n2
+  -- N3: Unit result.
+  let n3 ← programWithTypes "CallRetN3Unit" types #[]
+    #[entryRet 5 #[cfgInstr (some { valueId := 0, typeId := 5 })
+      (.externalCall 0 callee #[])]]
+  expectCfgErr "N3 ExternalCall Unit result" n3
+  -- N4: Schedule with a result stays void.
+  let n4 ← programWithTypes "CallRetN4Schedule" types #[]
+    #[entryRet 1 #[cfgInstr (some { valueId := 0, typeId := 1 })
+      (.schedule 0 callee #[])]]
+  expectCfgErr "N4 Schedule result stays void" n4
 
 private def testCfgVoidOpResultPresence : IO Unit := do
   let calleeName ← cfgCalleeName
@@ -11205,6 +11279,7 @@ def run : IO Unit := do
   testCfgBlockParamTypeAndTerminatorTyping
   testCfgOpTyping
   testCfgMapConstructTyping
+  testCfgExternalCallResultTyping
   testCfgVoidOpResultPresence
   testCfgValueOpResultPresence
   testCfgFieldSetTyping

@@ -39,14 +39,20 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
     container pilot; UInt128/256 and Int{8,16,32}/Int128/256 stay fail-closed.
   * **Computed state-reading views** — only bare public-state reads map to
     the off-chain `leo query` model; `balanceOf`-style match-on-state views
-    fail closed. Multi-leaf named-aggregate `view` returns over state also
+    fail closed. Multi-leaf aggregate `view` returns over state also
     fail closed (not a single leaf mapping query); use non-state entries for
-    real Leo tuple returns, or Final entries that drop the aggregate.
+    real Leo tuple/array returns, or Final entries that drop the aggregate.
   * **B-RET-ABI named Struct/Enum entry returns** — admitted: preorder flatten
     to 1..8 UInt64/Int64 leaves; Leo non-Final surface is a native tuple
     `(u64|i64, …)`; Final (state-touching) still drops the value after
-    evaluating leaf exprs. Anonymous Array/Map/Bytes/Option returns, >8
-    leaves, named-aggregate params, and pureFn aggregate returns stay FC.
+    evaluating leaf exprs.
+  * **N-ANON-RESULT (Aleo ABI)** — anonymous `Array UInt64 N` (1..8) and
+    `Option UInt64` entry returns admitted on the same multi-leaf path:
+    Array → N preorder u64 leaves, Leo non-Final surface `[u64; N]`;
+    Option → tag+payload (none=(0,0)/false, some=(1,v)/true), Leo non-Final
+    surface `(bool, u64)`. Final still evaluates leaves and drops. Map/Bytes/
+    nested/non-UInt64-element/narrow-width anonymous returns, >8 leaves,
+    named-aggregate params, and pureFn aggregate returns stay FC.
   * **Map shapes other than Map UInt64 UInt64** — declined at type closure.
   * **ContextRead** — no host clock ABI in Leo 4.0.2 Final model for this pilot.
   * **emit / externalCall / schedule / revert-with-args** — no Leo analogue
@@ -181,15 +187,28 @@ structure Store where
   deriving BEq, Inhabited, Repr
 
 /-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
-UInt64/Int64 words (`isInt` selects Leo `i64` vs `u64`); `byteWidth` is 8. -/
+UInt64/Int64 words (`isInt` selects Leo `i64` vs `u64`); `byteWidth` is 8.
+Option tag is a u64 0/1 in Plan and becomes Leo `bool` only at Emit
+(`AggregateReturnForm.option`). -/
 structure LeafAbiType where
   isInt : Bool
   byteWidth : Nat
   deriving BEq, Inhabited, Repr
 
+/-- Leo surface form for a multi-leaf aggregate return (non-Final). Final
+    always evaluates leaves and drops the value regardless of form. -/
+inductive AggregateReturnForm where
+  /-- Named Struct/Enum: Leo native tuple `(T0, T1, …)`. -/
+  | named
+  /-- Anonymous `Array UInt64 N`: Leo fixed array `[u64; N]`. -/
+  | array
+  /-- Anonymous `Option UInt64`: Leo `(bool, u64)` (tag, payload). -/
+  | option
+  deriving BEq, Inhabited, Repr
+
 /-- Entry/view/pureFn return ABI kind. Scalar kinds mirror the historic
     `resultIs*` flags; `.aggregate` is B-RET-ABI named Struct/Enum flatten
-    (1..8 UInt64/Int64 leaves, Leo native tuple on non-Final functions). -/
+    or N-ANON-RESULT Array/Option (1..8 UInt64/Int64 leaves). -/
 inductive ResultKind where
   | u64
   | bool
@@ -199,9 +218,9 @@ inductive ResultKind where
   | u32
   | field
   | unit
-  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` is preorder
-  flatten order (1..8). Anonymous Array/Map/Bytes/Option stay fail-closed. -/
-  | aggregate (leaves : Array LeafAbiType)
+  /-- B-RET-ABI / N-ANON-RESULT: multi-leaf return. `leaves` is preorder
+  flatten order (1..8). `form` selects the Leo non-Final surface. -/
+  | aggregate (leaves : Array LeafAbiType) (form : AggregateReturnForm)
   deriving BEq, Inhabited, Repr
 
 inductive Statement where
@@ -217,10 +236,12 @@ inductive Statement where
   | storeAggregate (leaves : Array Store)
   | assert (condition : Expr)
   | returnValue (value : Expr)
-  /-- B-RET-ABI: multi-leaf named Struct/Enum return. `leaves` are preorder
-  flatten expressions (UInt64/Int64 only, ≤8); `leafIsInt` is parallel ABI
-  signedness. Non-Final Leo surface is a native tuple; Final evaluates each
-  leaf for failure semantics and drops the value (`resultDropped`). -/
+  /-- B-RET-ABI / N-ANON-RESULT: multi-leaf named Struct/Enum or admitted
+  anonymous Array/Option return. `leaves` are preorder flatten expressions
+  (UInt64/Int64 only, ≤8); `leafIsInt` is parallel ABI signedness. Non-Final
+  Leo surface is selected by the function's `resultAggregateForm` (tuple /
+  `[u64; N]` / `(bool, u64)`); Final evaluates each leaf for failure
+  semantics and drops the value (`resultDropped`). -/
   | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
@@ -269,9 +290,11 @@ def isNarrowUintWidth (bitWidth : Nat) : Bool :=
     `isPureHelper` is true for Semantic `pureFn` callables: Leo 4.0.2 requires
     helper `fn`s outside the `program` block (no input modes) so entry points
     can call them.
-    B-RET-ABI: when `resultAggregateLeaves` is `some`, the result is a named
-    Struct/Enum flattened to 1..8 UInt64/Int64 leaves (scalar `resultIs*`
-    flags are false); non-Final emission uses a Leo tuple. -/
+    B-RET-ABI / N-ANON-RESULT: when `resultAggregateLeaves` is `some`, the
+    result is a named Struct/Enum or admitted anonymous Array/Option
+    flattened to 1..8 UInt64/Int64 leaves (scalar `resultIs*` flags are
+    false); non-Final emission uses `resultAggregateForm` (tuple / array /
+    option). -/
 structure PlanFunction where
   index : Nat
   name : String
@@ -287,19 +310,22 @@ structure PlanFunction where
   resultUintWidth : Nat := 0
   /-- T14 catalog v2 (BLS12-377): native Leo `field` result. -/
   resultIsField : Bool := false
-  /-- B-RET-ABI: named Struct/Enum aggregate return leaves (preorder, 1..8).
+  /-- B-RET-ABI / N-ANON-RESULT: aggregate return leaves (preorder, 1..8).
       `none` for scalar/Unit results. -/
   resultAggregateLeaves : Option (Array LeafAbiType) := none
+  /-- Leo non-Final surface form; meaningful only when
+      `resultAggregateLeaves` is `some` (defaults to `.named`). -/
+  resultAggregateForm : AggregateReturnForm := .named
   resultDropped : Bool
   /-- True when source kind was `pureFn` (Leo helper outside program). -/
   isPureHelper : Bool := false
   deriving BEq, Inhabited, Repr
 
 /-- Derive the closed `ResultKind` for a plan function (scalar flags or
-    B-RET-ABI aggregate). -/
+    B-RET-ABI / N-ANON-RESULT aggregate). -/
 def PlanFunction.resultKind (fn : PlanFunction) : ResultKind :=
   match fn.resultAggregateLeaves with
-  | some leaves => .aggregate leaves
+  | some leaves => .aggregate leaves fn.resultAggregateForm
   | none =>
       if fn.resultIsBool then .bool
       else if fn.resultIsInt then .i64
@@ -1429,64 +1455,102 @@ private partial def lowerRegion
                   leafExprs := leafExprs.push arg.expr
                 env := envInsertVal env valueDef.valueId (mkAggregateVal leafExprs)
             else
-              unless layout.types.isNamedAggregate typeId do
-                planError "unsupported Aleo semantic shape: construct requires named Struct/Enum or Array"
-              let some decl := layout.typeDecls[typeId.toNat]? |
-                planError "unsupported Aleo semantic shape: construct TypeDecl missing"
-              match decl.shape with
-              | .struct fields => do
-                  unless ctorIdx.toNat == 0 do
-                    planError "unsupported Aleo semantic shape: struct construct ctorIdx must be 0"
-                  unless argIds.size == fields.size do
-                    planError "unsupported Aleo semantic shape: struct construct arity mismatch"
-                  let mut leaves : Array Expr := #[]
-                  let mut flags : Array Bool := #[]
-                  for i in [0:argIds.size] do
-                    let some argId := argIds[i]? |
-                      planError "struct construct arg missing"
-                    let some field := fields[i]? |
-                      planError "struct construct field missing"
-                    let arg ← match envLookup env argId with
-                      | some v => pure v
-                      | none => planError "struct construct undefined arg"
-                    let expected ← leafCountOfTypeV1 layout.typeDecls layout.types field.typeId
-                    let argLeaves := arg.leafExprs
-                    unless argLeaves.size == expected do
-                      planError "unsupported Aleo semantic shape: struct construct field leaf count mismatch"
-                    leaves := leaves ++ argLeaves
-                    let fieldFlags ← leafFlagsOfTypeV1 layout.typeDecls layout.types field.typeId
-                    flags := flags ++ fieldFlags
-                  env := envInsertVal env valueDef.valueId (mkAggregateValInt leaves flags)
-              | .enum variants => do
-                  let vi := ctorIdx.toNat
-                  let some variant := variants[vi]? |
-                    planError "unsupported Aleo semantic shape: enum construct variant out of range"
-                  unless argIds.size == variant.payloadTypes.size do
-                    planError "unsupported Aleo semantic shape: enum construct arity mismatch"
-                  let maxPay ← enumMaxPayloadLeavesV1 layout.typeDecls layout.types variants
-                  let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
-                  let mut flags : Array Bool := #[false]
-                  for i in [0:argIds.size] do
-                    let some argId := argIds[i]? |
-                      planError "enum construct arg missing"
-                    let some pt := variant.payloadTypes[i]? |
-                      planError "enum construct payload type missing"
-                    let arg ← match envLookup env argId with
-                      | some v => pure v
-                      | none => planError "enum construct undefined arg"
-                    let expected ← leafCountOfTypeV1 layout.typeDecls layout.types pt
-                    let argLeaves := arg.leafExprs
-                    unless argLeaves.size == expected do
-                      planError "unsupported Aleo semantic shape: enum construct payload leaf count mismatch"
-                    leaves := leaves ++ argLeaves
-                    let ptFlags ← leafFlagsOfTypeV1 layout.typeDecls layout.types pt
-                    flags := flags ++ ptFlags
-                  while leaves.size < 1 + maxPay do
-                    leaves := leaves.push (.literal 0)
-                    flags := flags.push false
-                  env := envInsertVal env valueDef.valueId (mkAggregateValInt leaves flags)
-              | _ =>
-                  planError "unsupported Aleo semantic shape: construct requires Struct or Enum shape"
+              -- N-ANON-RESULT: Option UInt64 construct (none/some) for
+              -- anonymous-result returns; named Struct/Enum remains the
+              -- other non-container path. Option state stays fail closed.
+              match layout.typeDecls[typeId.toNat]? with
+              | some { shape := .option elTid, name := none, .. } => do
+                  unless elTid == layout.types.uint64TypeId do
+                    planError
+                      "unsupported Aleo semantic shape: Option construct requires UInt64 payload"
+                  match ctorIdx.toNat with
+                  | 0 =>
+                      -- Option.none → (tag=0, payload=0)
+                      unless argIds.isEmpty do
+                        planError
+                          "unsupported Aleo semantic shape: Option.none construct takes no args"
+                      env := envInsertVal env valueDef.valueId
+                        (mkAggregateVal #[.literal 0, .literal 0])
+                  | 1 =>
+                      -- Option.some(v) → (tag=1, payload=v)
+                      unless argIds.size == 1 do
+                        planError
+                          "unsupported Aleo semantic shape: Option.some construct takes one arg"
+                      let some argId := argIds[0]? |
+                        planError "Option.some construct arg missing"
+                      let arg ← match envLookup env argId with
+                        | some v => pure v
+                        | none => planError "Option.some construct undefined arg"
+                      unless !arg.isAggregate do
+                        planError
+                          "unsupported Aleo semantic shape: Option.some payload must be scalar"
+                      unless !arg.isIntScalar do
+                        planError
+                          "unsupported Aleo semantic shape: Option.some payload must be UInt64"
+                      env := envInsertVal env valueDef.valueId
+                        (mkAggregateVal #[.literal 1, arg.expr])
+                  | _ =>
+                      planError
+                        "unsupported Aleo semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+              | _ => do
+                  unless layout.types.isNamedAggregate typeId do
+                    planError "unsupported Aleo semantic shape: construct admits only Array/Map UInt64, Option UInt64, or named Struct/Enum on Aleo"
+                  let some decl := layout.typeDecls[typeId.toNat]? |
+                    planError "unsupported Aleo semantic shape: construct TypeDecl missing"
+                  match decl.shape with
+                  | .struct fields => do
+                      unless ctorIdx.toNat == 0 do
+                        planError "unsupported Aleo semantic shape: struct construct ctorIdx must be 0"
+                      unless argIds.size == fields.size do
+                        planError "unsupported Aleo semantic shape: struct construct arity mismatch"
+                      let mut leaves : Array Expr := #[]
+                      let mut flags : Array Bool := #[]
+                      for i in [0:argIds.size] do
+                        let some argId := argIds[i]? |
+                          planError "struct construct arg missing"
+                        let some field := fields[i]? |
+                          planError "struct construct field missing"
+                        let arg ← match envLookup env argId with
+                          | some v => pure v
+                          | none => planError "struct construct undefined arg"
+                        let expected ← leafCountOfTypeV1 layout.typeDecls layout.types field.typeId
+                        let argLeaves := arg.leafExprs
+                        unless argLeaves.size == expected do
+                          planError "unsupported Aleo semantic shape: struct construct field leaf count mismatch"
+                        leaves := leaves ++ argLeaves
+                        let fieldFlags ← leafFlagsOfTypeV1 layout.typeDecls layout.types field.typeId
+                        flags := flags ++ fieldFlags
+                      env := envInsertVal env valueDef.valueId (mkAggregateValInt leaves flags)
+                  | .enum variants => do
+                      let vi := ctorIdx.toNat
+                      let some variant := variants[vi]? |
+                        planError "unsupported Aleo semantic shape: enum construct variant out of range"
+                      unless argIds.size == variant.payloadTypes.size do
+                        planError "unsupported Aleo semantic shape: enum construct arity mismatch"
+                      let maxPay ← enumMaxPayloadLeavesV1 layout.typeDecls layout.types variants
+                      let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
+                      let mut flags : Array Bool := #[false]
+                      for i in [0:argIds.size] do
+                        let some argId := argIds[i]? |
+                          planError "enum construct arg missing"
+                        let some pt := variant.payloadTypes[i]? |
+                          planError "enum construct payload type missing"
+                        let arg ← match envLookup env argId with
+                          | some v => pure v
+                          | none => planError "enum construct undefined arg"
+                        let expected ← leafCountOfTypeV1 layout.typeDecls layout.types pt
+                        let argLeaves := arg.leafExprs
+                        unless argLeaves.size == expected do
+                          planError "unsupported Aleo semantic shape: enum construct payload leaf count mismatch"
+                        leaves := leaves ++ argLeaves
+                        let ptFlags ← leafFlagsOfTypeV1 layout.typeDecls layout.types pt
+                        flags := flags ++ ptFlags
+                      while leaves.size < 1 + maxPay do
+                        leaves := leaves.push (.literal 0)
+                        flags := flags.push false
+                      env := envInsertVal env valueDef.valueId (mkAggregateValInt leaves flags)
+                  | _ =>
+                      planError "unsupported Aleo semantic shape: construct requires Struct or Enum shape"
     | .fieldGet baseId fieldIndex => do
         match instr.result with
         | none => planError "unsupported Aleo semantic shape: fieldGet must produce a value"
@@ -1852,10 +1916,21 @@ private partial def lowerRegion
             match envLookup env vid with
             | some v =>
                 if v.isAggregate then
-                  -- B-RET-ABI: named Struct/Enum only (anonymous containers FC).
-                  unless layout.types.isNamedAggregate callable.result.typeId do
+                  -- B-RET-ABI named Struct/Enum + N-ANON-RESULT Array/Option.
+                  -- Map/Bytes/nested/non-UInt64 fail closed at resultShape;
+                  -- here accept any multi-leaf value whose result type is an
+                  -- admitted aggregate candidate (precise FC at resultShape).
+                  let admitted :=
+                    layout.types.isNamedAggregate callable.result.typeId ||
+                    (match layout.typeDecls[callable.result.typeId.toNat]? with
+                      | some { shape := .array .., name := none, .. }
+                      | some { shape := .option .., name := none, .. }
+                      | some { shape := .map .., name := none, .. }
+                      | some { shape := .bytes .., name := none, .. } => true
+                      | _ => false)
+                  unless admitted do
                     planError
-                      "Aleo return of anonymous aggregate is outside B-RET-ABI (named Struct/Enum only; Array/Map/Bytes/Option stay fail closed)"
+                      "Aleo return of multi-leaf value requires named Struct/Enum or admitted anonymous Array/Option result"
                   let leaves := v.leafExprs
                   unless leaves.size > 0 do
                     planError "Aleo aggregate return must have at least one leaf"
@@ -1973,61 +2048,127 @@ private partial def lowerLoop
   | _ => planError "Aleo lowering: loop header must end in a branch"
 
 end
-/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into leaf ABI types
-    (preorder UInt64/Int64 words, 1..8). Anonymous containers / UInt8 leaves
-    fail closed. -/
-private def aggregateResultLeavesOfV1
+/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into preorder
+UInt64/Int64 ABI leaves. Anonymous containers are handled separately by
+`anonymousReturnLeafAbiV1` (Array UInt64 N / Option UInt64 only). -/
+private def flattenNamedReturnLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
-    (owner : String) (typeId : TypeIdV1) : CompileResult (Array LeafAbiType) := do
-  unless types.isNamedAggregate typeId do
-    planError s!"{owner} does not return a named Struct/Enum aggregate"
+    (typeId : TypeIdV1) : CompileResult (Array LeafAbiType) := do
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
-  let n := specs.size
+  let mut leaves : Array LeafAbiType := #[]
+  for (_, isInt, uintWidth) in specs do
+    if isNarrowUintWidth uintWidth then
+      planError
+        "aggregate return leaves must be UInt64/Int64 (not UInt8/Bytes)"
+    leaves := leaves.push { isInt, byteWidth := 8 }
+  pure leaves
+
+/-- N-ANON-RESULT (Aleo ABI): anonymous result leaf layout for admitted
+container returns. `Array UInt64 N` → N×u64 leaves + form `.array`;
+`Option UInt64` → tag+payload (none=(0,0), some v=(1,v)) + form `.option`.
+Map/Bytes throw for precise FC. -/
+private def anonymousReturnLeafAbiV1
+    (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
+    (typeId : TypeIdV1) :
+    CompileResult (Option (Array LeafAbiType × AggregateReturnForm)) := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        planError
+          "unsupported Aleo semantic shape: anonymous Array return requires UInt64 elements"
+      let n := len.toNat
+      unless n ≥ 1 do
+        planError
+          "unsupported Aleo semantic shape: anonymous Array return length must be ≥ 1"
+      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }, .array))
+  | some { shape := .option elTid, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        planError
+          "unsupported Aleo semantic shape: anonymous Option return requires UInt64 payload"
+      pure (some (#[
+        { isInt := false, byteWidth := 8 },
+        { isInt := false, byteWidth := 8 }], .option))
+  | some { shape := .map .., name := none, .. } =>
+      planError
+        "unsupported Aleo semantic shape: anonymous Map return is outside the Aleo B-RET ABI"
+  | some { shape := .bytes .., name := none, .. } =>
+      planError
+        "unsupported Aleo semantic shape: anonymous Bytes return is outside the Aleo B-RET ABI"
+  | some { shape := .array .., .. } | some { shape := .option .., .. } =>
+      pure none
+  | _ => pure none
+
+/-- True when `typeId` should be resolved through the aggregate result path
+(named Struct/Enum or anonymous Array/Map/Bytes/Option, so Map/Bytes get
+precise fail-closed diagnostics instead of a scalar fallthrough). -/
+private def isAggregateResultCandidateV1
+    (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
+    (typeId : TypeIdV1) : Bool :=
+  if types.isNamedAggregate typeId then true
+  else
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .array .., name := none, .. }
+    | some { shape := .option .., name := none, .. }
+    | some { shape := .map .., name := none, .. }
+    | some { shape := .bytes .., name := none, .. } => true
+    | _ => false
+
+/-- B-RET-ABI / N-ANON-RESULT: resolve a named Struct/Enum or admitted
+anonymous Array/Option result TypeId into leaf ABI types + Leo surface form.
+Enforces 1..8 leaves. Map/Bytes/nested/narrow-element fail closed. -/
+private def aggregateResultOfV1
+    (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
+    (owner : String) (typeId : TypeIdV1) :
+    CompileResult (Array LeafAbiType × AggregateReturnForm) := do
+  let (leaves, form) ←
+    if types.isNamedAggregate typeId then
+      let ls ← flattenNamedReturnLeafAbiV1 typeDecls types typeId
+      pure (ls, AggregateReturnForm.named)
+    else
+      match ← anonymousReturnLeafAbiV1 typeDecls types typeId with
+      | some pair => pure pair
+      | none =>
+          planError
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
+  let n := leaves.size
   unless n > 0 do
     planError s!"{owner} aggregate return must have at least one leaf"
   unless n ≤ 8 do
     planError
       s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
-  let mut leaves : Array LeafAbiType := #[]
-  for (_, isInt, uintWidth) in specs do
-    if isNarrowUintWidth uintWidth then
-      planError
-        s!"{owner} aggregate return leaves must be UInt64/Int64 (not UInt8/Bytes)"
-    leaves := leaves.push { isInt, byteWidth := 8 }
-  pure leaves
+  pure (leaves, form)
 
-/-- Resolve a callable result to scalar flags + optional B-RET aggregate leaves.
-    Returns `(isBool, isUnit, isInt64, resultUintWidth, isField, aggregateLeaves?)`.
-    `resultUintWidth` is 0 for u64 default; 8/16/32 for narrow. -/
+/-- Resolve a callable result to scalar flags + optional aggregate leaves/form.
+    Returns `(isBool, isUnit, isInt64, resultUintWidth, isField,
+    aggregateLeaves?, form)`. `resultUintWidth` is 0 for u64 default;
+    8/16/32 for narrow. -/
 private def resultShape (data : SemanticProgramDataV1) (types : AleoTypeClosureV1)
     (typeDecls : Array TypeDeclV1) (callable : CallableV1) (owner : String) :
-    CompileResult (Bool × Bool × Bool × Nat × Bool × Option (Array LeafAbiType)) := do
+    CompileResult (Bool × Bool × Bool × Nat × Bool ×
+      Option (Array LeafAbiType) × AggregateReturnForm) := do
   if isBoolType data callable.result.typeId then
-    pure (true, false, false, 0, false, none)
+    pure (true, false, false, 0, false, none, .named)
   else if isUInt64Type data callable.result.typeId then
-    pure (false, false, false, 0, false, none)
+    pure (false, false, false, 0, false, none, .named)
   else if isInt64Type data callable.result.typeId then
-    pure (false, false, true, 0, false, none)
+    pure (false, false, true, 0, false, none, .named)
   else if isUInt8Type data callable.result.typeId then
-    pure (false, false, false, 8, false, none)
+    pure (false, false, false, 8, false, none, .named)
   else if isUInt16Type data callable.result.typeId then
-    pure (false, false, false, 16, false, none)
+    pure (false, false, false, 16, false, none, .named)
   else if isUInt32Type data callable.result.typeId then
-    pure (false, false, false, 32, false, none)
+    pure (false, false, false, 32, false, none, .named)
   else if isBls12377FieldType types callable.result.typeId then
-    pure (false, false, false, 0, true, none)
+    pure (false, false, false, 0, true, none, .named)
   else if (match data.types[callable.result.typeId.toNat]? with
       | some { shape := .unit, .. } => true | _ => false) then
-    pure (false, true, false, 0, false, none)
-  else if types.isNamedAggregate callable.result.typeId then
-    let leaves ← aggregateResultLeavesOfV1 typeDecls types owner callable.result.typeId
-    pure (false, false, false, 0, false, some leaves)
-  else if types.isContainer callable.result.typeId then
-    planError
-      s!"{owner} cannot return anonymous container (Array/Map/Bytes); Aleo B-RET-ABI admits only named Struct/Enum (cap-8 leaves)"
+    pure (false, true, false, 0, false, none, .named)
+  else if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
+    let (leaves, form) ← aggregateResultOfV1 typeDecls types owner callable.result.typeId
+    pure (false, false, false, 0, false, some leaves, form)
   else
     planError
-      s!"{owner} result is outside the public UInt8/16/32/64/Int64/Bool/BLS12-377-Field/Unit/named-Struct-Enum envelope"
+      s!"{owner} result is outside the public UInt8/16/32/64/Int64/Bool/BLS12-377-Field/Unit/named-Struct-Enum/Array-UInt64/Option-UInt64 envelope"
 
 private partial def touchesStateExpr : Expr → Bool
   | .stateLoad _ => true
@@ -2150,11 +2291,11 @@ private partial def lowerCallable
         | .invariant => s!"invariant '{n}'"
     | none => "initializer"
   let (resultIsBool, resultIsUnit, resultIsInt, resultUintWidth, resultIsField,
-      resultAggregateLeaves) ←
+      resultAggregateLeaves, resultAggregateForm) ←
     resultShape data layout.types data.types callable owner
   -- B-RET-ABI: pureFn aggregate returns stay fail closed (helpers are scalar).
   if callable.kind == .pureFn && resultAggregateLeaves.isSome then
-    planError s!"{owner} cannot return a named aggregate (B-RET-ABI pureFn stay scalar)"
+    planError s!"{owner} cannot return an aggregate (B-RET-ABI pureFn stay scalar)"
   -- Bare view: body is exactly `return <stateLoad f>` (scalar leaf only).
   let bareView? : Option PlanView :=
     match callable.kind, body.toList with
@@ -2172,8 +2313,8 @@ private partial def lowerCallable
     | _ => FunctionKind.mutate
   let touchesState := touchesStateStmts body
   -- Computed state-reading views fail closed (only bare reads map to the
-  -- off-chain query model). Multi-leaf named-aggregate view returns over
-  -- state also land here (not a single mapping query).
+  -- off-chain query model). Multi-leaf aggregate view returns over state
+  -- also land here (not a single mapping query).
   if callable.kind == .view && touchesState then
     planError "Aleo computed views that read state fail closed: only bare public-state reads map to leo query"
   let resultDropped := !resultIsUnit && touchesState
@@ -2193,6 +2334,7 @@ private partial def lowerCallable
     resultUintWidth
     resultIsField
     resultAggregateLeaves
+    resultAggregateForm
     resultDropped
     isPureHelper
   })

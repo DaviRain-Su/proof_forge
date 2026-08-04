@@ -26,6 +26,7 @@ import ProofForgeV2.Targets.Solana.PlanSchemaV1
 import ProofForgeV2.Targets.Near.PlanSchemaV1
 import ProofForgeV2.Targets.Noir.PlanSchemaV1
 import ProofForgeV2.Targets.CosmWasm.PlanSchemaV1
+import ProofForgeV2.Targets.Quint.PlanSchemaV1
 import ProofForgeV2.Targets.Ton.PlanSchemaV1
 import ProofForgeV2.Targets.RegistryRootV1
 import ProofForgeV2.Targets.RequirementResolverV1
@@ -94,8 +95,8 @@ private def testClaimMintCanonicalOrder : IO Unit := do
     StaticRequirementSupportIndexV1.toArray index
   expect (claims.size == rows.size)
     s!"one claim per support row: got {claims.size} want {rows.size}"
-  expect (claims.size == 10)
-    s!"implemented profile count is 10 (aleo/cosmwasm/evm×2/near/noir/psy/solana×2/ton), got {claims.size}"
+  expect (claims.size == 11)
+    s!"implemented profile count is 11 (aleo/cosmwasm/evm×2/near/noir/psy/quint/solana×2/ton), got {claims.size}"
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
   let mut i : Nat := 0
@@ -249,11 +250,11 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
-  -- All eight materializing targets: six real Plan schema digests (Registry
+  -- All nine materializing targets: seven real Plan schema digests (Registry
   -- `planDigestForCapabilityV1`) + Aleo/Psy engineering-absent plan slots.
   for tid in #[
       TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.cosmwasm, TargetId.ton, TargetId.aleo, TargetId.psy] do
+      TargetId.cosmwasm, TargetId.quint, TargetId.ton, TargetId.aleo, TargetId.psy] do
     let (cap, artifacts) ← materializeTarget compiled tid
     let claim := Targets.ResolvedEngineeringBuildV1.supportClaimOf cap
     expect (EngineeringSupportClaimV1.targetIdOf claim == tid)
@@ -291,7 +292,7 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
         (EngineeringBuildIdentityV1.planDigestOf identity))
     expect (EngineeringBuildIdentityV1.identityDigestOf identity == recomputed)
       s!"{tid} identity digest recomputes"
-    -- Registry planDigestForCapabilityV1: EVM/Solana/NEAR/Noir/CosmWasm/TON
+    -- Registry planDigestForCapabilityV1: EVM/Solana/NEAR/Noir/CosmWasm/Quint/TON
     -- recompute target Plan schema digests; Aleo/Psy bind engineering-absent
     -- plan slots (no Plan schema digest in identity).
     let selection ← liftResult s!"select {tid}"
@@ -328,6 +329,12 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
         (Targets.CosmWasm.engineeringCosmWasmPlanDigestV1 plan)
       expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
         s!"{tid} planDigest matches engineeringCosmWasmPlanDigestV1"
+    else if tid == TargetId.quint then
+      let plan ← liftResult s!"plan {tid}" (Targets.Quint.planFromCapability cap)
+      let expected ← liftExcept s!"quint plan digest {tid}"
+        (Targets.Quint.engineeringQuintPlanDigestV1 plan)
+      expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
+        s!"{tid} planDigest matches engineeringQuintPlanDigestV1"
     else if tid == TargetId.ton then
       let plan ← liftResult s!"plan {tid}" (Targets.Ton.planFromCapability cap)
       let expected ← liftExcept s!"ton plan digest {tid}"

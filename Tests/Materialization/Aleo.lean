@@ -1801,11 +1801,14 @@ unsafe def testNamedStructReturn : IO Unit := do
   | none =>
       throw <| IO.userError "PairRet makePair must set resultAggregateLeaves"
   match makePair.resultKind with
-  | .aggregate leaves =>
+  | .aggregate leaves form =>
       expect (leaves.size == 2) "PairRet resultKind.aggregate must have 2 leaves"
+      expect (form == .named) "PairRet form must be .named"
   | other =>
       throw <| IO.userError
         s!"PairRet resultKind must be .aggregate, got {repr other}"
+  expect (makePair.resultAggregateForm == .named)
+    "PairRet resultAggregateForm must be .named"
   expect (!makePair.touchesState && !makePair.resultDropped)
     "PairRet makePair must be non-Final (no state) and keep its result"
   expect (makePair.body.size == 1) "PairRet makePair body must be one return"
@@ -1947,11 +1950,13 @@ unsafe def testNamedStructReturnFinalDropped : IO Unit := do
     s!"PairStore Final must evaluate leaf 1, got:\n{leo}"
   IO.println "  PairStore Final aggregate drop pin ok"
 
-/-- B-RET-ABI fail-closed: anonymous Array return, 9-leaf Struct, named param. -/
-unsafe def testAggregateReturnFailClosed : IO Unit := do
+/-- N-ANON-RESULT: anonymous `Array UInt64 2` entry return via state load
+    (source has no Array value constructor — only state IndexSet/StateLoad
+    produce Array values). Final path evaluates leaves and drops; Plan form
+    is `.array` so a non-Final surface would be Leo `[u64; N]`. -/
+unsafe def testAnonymousArrayReturn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  -- Anonymous Array entry return stays fail-closed.
-  let arrSource :=
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program ArrayRet where\n" ++
@@ -1959,29 +1964,288 @@ unsafe def testAggregateReturnFailClosed : IO Unit := do
     "  init() do\n" ++
     "    slots[0] := 0\n" ++
     "    slots[1] := 0\n" ++
-    "  entry getArr() : Array UInt64 2 do\n" ++
+    "  entry setArr(a : UInt64, b : UInt64) : Array UInt64 2 do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-array-ret>" "Tests.AleoArrayRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  let some setArr := plan.functions.find? (·.name == "setArr") |
+    throw <| IO.userError "ArrayRet: missing setArr"
+  match setArr.resultAggregateLeaves with
+  | some leaves =>
+      expect (leaves.size == 2)
+        s!"ArrayRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "ArrayRet leaves must be unsigned 8-byte words"
+  | none =>
+      throw <| IO.userError "ArrayRet setArr must set resultAggregateLeaves"
+  expect (setArr.resultAggregateForm == .array)
+    "ArrayRet form must be .array"
+  match setArr.resultKind with
+  | .aggregate leaves form =>
+      expect (leaves.size == 2 && form == .array)
+        "ArrayRet resultKind must be .aggregate form=.array"
+  | other =>
+      throw <| IO.userError
+        s!"ArrayRet resultKind must be .aggregate, got {repr other}"
+  expect (setArr.touchesState && setArr.resultDropped)
+    "ArrayRet setArr must be Final (state-touching) and drop the aggregate"
+  match setArr.body.back? with
+  | some (.returnAggregate leaves leafIsInt) =>
+      expect (leaves.size == 2 && leafIsInt == #[false, false])
+        "ArrayRet returnAggregate must be 2 unsigned leaves"
+  | _ =>
+      throw <| IO.userError "ArrayRet setArr must end in .returnAggregate"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let ir ← liftResult <| irAleo compiled
+  let some leoFn := ir.program.functions.find? (·.name == "setArr") |
+    throw <| IO.userError "ArrayRet IR missing setArr"
+  expect (leoFn.resultAggregateForm == .array)
+    "ArrayRet Leo IR form must be .array"
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "arrayret.aleo") |
+    throw <| IO.userError "aleo: missing arrayret.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "fn setArr(public p0: u64, public p1: u64) -> Final {")
+    s!"ArrayRet setArr must be Final, got:\n{leo}"
+  expect (leo.contains "let pf_return_0: u64 =")
+    s!"ArrayRet Final must evaluate leaf 0, got:\n{leo}"
+  expect (leo.contains "let pf_return_1: u64 =")
+    s!"ArrayRet Final must evaluate leaf 1, got:\n{leo}"
+  IO.println "  ArrayRet anonymous Array return Plan/IR/Leo pin ok"
+
+/-- N-ANON-RESULT: anonymous `Option UInt64` non-state entry returns → 2
+    leaves, form `.option`, Leo surface `(bool, u64)`. -/
+unsafe def testAnonymousOptionReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptionRet where\n" ++
+    "  entry put(v : UInt64) : Option UInt64 do\n" ++
+    "    return Option.some(v)\n" ++
+    "  entry clear() : Option UInt64 do\n" ++
+    "    return Option.none()\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-option-ret>" "Tests.AleoOptionRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  let some put := plan.functions.find? (·.name == "put") |
+    throw <| IO.userError "OptionRet: missing put"
+  match put.resultAggregateLeaves with
+  | some leaves =>
+      expect (leaves.size == 2)
+        s!"OptionRet Option return must be tag+payload (2), got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "OptionRet leaves must be unsigned 8-byte words"
+  | none =>
+      throw <| IO.userError "OptionRet put must set resultAggregateLeaves"
+  expect (put.resultAggregateForm == .option)
+    "OptionRet form must be .option"
+  match put.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt.size == 2)
+        "OptionRet put returnAggregate must have 2 leaves"
+      -- some(v) → tag=1, payload=param0
+      match leaves[0]!, leaves[1]! with
+      | .literal 1, .param 0 => pure ()
+      | _, _ =>
+          throw <| IO.userError
+            s!"OptionRet put leaves must be literal 1 / param 0, got {repr leaves}"
+  | _ =>
+      throw <| IO.userError "OptionRet put body must be .returnAggregate"
+  let some clear := plan.functions.find? (·.name == "clear") |
+    throw <| IO.userError "OptionRet: missing clear"
+  expect (clear.resultAggregateForm == .option)
+    "OptionRet clear form must be .option"
+  match clear.body[0]! with
+  | .returnAggregate leaves _ =>
+      match leaves[0]!, leaves[1]! with
+      | .literal 0, .literal 0 => pure ()
+      | _, _ =>
+          throw <| IO.userError
+            s!"OptionRet clear leaves must be (0,0), got {repr leaves}"
+  | _ =>
+      throw <| IO.userError "OptionRet clear body must be .returnAggregate"
+  liftResult <| Targets.Aleo.validatePlan plan
+  let output ← liftResult <| materializeAleo compiled
+  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "optionret.aleo") |
+    throw <| IO.userError "aleo: missing optionret.aleo"
+  let leo := leoFile.contents
+  expect (leo.contains "fn put(public p0: u64) -> (bool, u64) {")
+    s!"OptionRet put must emit Leo (bool, u64) return, got:\n{leo}"
+  expect (leo.contains "fn clear() -> (bool, u64) {")
+    s!"OptionRet clear must emit Leo (bool, u64) return, got:\n{leo}"
+  expect (leo.contains "return (true,")
+    s!"OptionRet put must emit true tag, got:\n{leo}"
+  expect (leo.contains "return (false,")
+    s!"OptionRet clear must emit false tag, got:\n{leo}"
+  IO.println "  OptionRet anonymous Option return Plan/IR/Leo pin ok"
+
+/-- Multi-leaf view-over-state stays fail closed (BL-6 caveat). -/
+unsafe def testMultiLeafViewOverStateFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrView where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-arr-view>" "Tests.AleoArrView" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planAleo compiled with
+  | .error e =>
+      expect ((e.render).contains "view" ||
+          (e.render).contains "state" ||
+          (e.render).contains "query")
+        s!"ArrView: FC must cite view/state boundary, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "ArrView: Aleo multi-leaf view-over-state must fail closed"
+
+/-- B-RET-ABI / N-ANON-RESULT fail-closed matrix: Map/Bytes/narrow/nested/
+    cap-9/Struct-param/pureFn aggregate. -/
+unsafe def testAggregateReturnFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- Anonymous Map entry return stays fail-closed (state load → return).
+  let mapSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapRet where\n" ++
+    "  state table : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    table[0] := 0\n" ++
+    "  entry getMap() : Map UInt64 UInt64 do\n" ++
+    "    return table\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          mapSource "<aleo-map-ret>" "Tests.AleoMapRet" none)
+        let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some compiled)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planAleo c with
+      | .error e =>
+          expect ((e.render).contains "Map" ||
+              (e.render).contains "return" ||
+              (e.render).contains "B-RET" ||
+              (e.render).contains "unsupported" ||
+              (e.render).contains "aggregate")
+            s!"MapRet: FC must cite Map/return boundary, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "MapRet: Aleo must fail closed on anonymous Map entry return"
+  -- Anonymous Bytes return stays fail-closed (state load → return).
+  let bytesSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRet where\n" ++
+    "  state payload : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    payload[0] := 1\n" ++
+    "    payload[1] := 2\n" ++
+    "  entry getBytes() : Bytes 2 do\n" ++
+    "    return payload\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          bytesSource "<aleo-bytes-ret>" "Tests.AleoBytesRet" none)
+        let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some compiled)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planAleo c with
+      | .error e =>
+          expect ((e.render).contains "Bytes" ||
+              (e.render).contains "return" ||
+              (e.render).contains "B-RET" ||
+              (e.render).contains "unsupported" ||
+              (e.render).contains "UInt8" ||
+              (e.render).contains "leaf")
+            s!"BytesRet: FC must cite Bytes/return boundary, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "BytesRet: Aleo must fail closed on anonymous Bytes entry return"
+  -- Narrow element Array stays fail-closed (state load → return).
+  let narrowSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NarrowArr where\n" ++
+    "  state slots : Array UInt8 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry getArr() : Array UInt8 2 do\n" ++
     "    return slots\n"
   match ← (do
       try
         let parsed ← liftResult (← session.selectProgramV1
-          arrSource "<aleo-array-ret>" "Tests.AleoArrayRet" none)
+          narrowSource "<aleo-narrow-arr>" "Tests.AleoNarrowArr" none)
         let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
         pure (some compiled)
       catch _ => pure none) with
-  | none => pure ()  -- may fail at Normalize/typed
+  | none => pure ()
   | some c =>
       match planAleo c with
       | .error e =>
-          expect ((e.render).contains "return" ||
+          expect ((e.render).contains "UInt" ||
               (e.render).contains "Array" ||
-              (e.render).contains "aggregate" ||
-              (e.render).contains "container" ||
-              (e.render).contains "B-RET" ||
-              (e.render).contains "unsupported")
-            s!"ArrayRet: FC message must cite return/container surface, got {e.render}"
+              (e.render).contains "element" ||
+              (e.render).contains "unsupported" ||
+              (e.render).contains "envelope")
+            s!"NarrowArr: FC must cite element/width boundary, got {e.render}"
       | .ok _ =>
           throw <| IO.userError
-            "ArrayRet: Aleo must fail closed on anonymous Array entry return"
+            "NarrowArr: Aleo must fail closed on Array UInt8 return"
+  -- Cap-8: Array UInt64 9 exceeds leaf cap (state load → return).
+  let wideArrSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideArr where\n" ++
+    "  state slots : Array UInt64 9\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "    slots[2] := 0\n" ++
+    "    slots[3] := 0\n" ++
+    "    slots[4] := 0\n" ++
+    "    slots[5] := 0\n" ++
+    "    slots[6] := 0\n" ++
+    "    slots[7] := 0\n" ++
+    "    slots[8] := 0\n" ++
+    "  entry getArr() : Array UInt64 9 do\n" ++
+    "    return slots\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          wideArrSource "<aleo-wide-arr>" "Tests.AleoWideArr" none)
+        let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some compiled)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planAleo c with
+      | .error e =>
+          expect (e.render.contains "8" || e.render.contains "leaf" ||
+              e.render.contains "cap" || e.render.contains "aggregate" ||
+              e.render.contains "Array")
+            s!"WideArr leaf-cap error must cite cap/leaf/Array, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "WideArr: Aleo Array UInt64 9 return must fail closed (cap-8)"
   -- Cap-8: Struct with 9 UInt64 fields exceeds B-RET-ABI leaf cap.
   let mut fields := ""
   for i in [0:9] do
@@ -2112,6 +2376,9 @@ unsafe def run : IO Unit := do
   testNamedStructReturn
   testNamedEnumReturn
   testNamedStructReturnFinalDropped
+  testAnonymousArrayReturn
+  testAnonymousOptionReturn
+  testMultiLeafViewOverStateFailClosed
   testAggregateReturnFailClosed
   IO.println "Tests.Materialization.Aleo: ok"
 

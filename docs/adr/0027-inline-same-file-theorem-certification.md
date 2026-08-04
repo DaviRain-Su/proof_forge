@@ -1,5 +1,5 @@
 ---
-id: ADR-0026
+id: ADR-0027
 title: Inline same-file theorem certification（engineering product path）
 status: proposed
 owner: architecture
@@ -7,7 +7,7 @@ updated: 2026-08-04
 normative: true
 ---
 
-# ADR-0026：Inline same-file theorem certification（engineering product path）
+# ADR-0027：Inline same-file theorem certification（engineering product path）
 
 - 状态：`proposed`
 - 日期：2026-08-04
@@ -188,7 +188,7 @@ InvariantTheoremV1 program ordinal :=
 | Formal `step` / TST-SEM-002/003 | formal reference corpus 仍 pending |
 | Formal TST-PROOF-001 | formal proof-bundle / olean closure 验收仍独立 |
 | Hermetic / contained / Stage-0 / release | 不得用 ordinary CI 或 inline cert 代签 |
-| Nonempty invariant materialization | 八 materializer 对 nonempty invariants 仍可 fail closed |
+| Nonempty invariant materialization | Quint Q0 对 read-only Bool invariant 已独立开放；其余八个 materializer 仍可 fail closed |
 
 ## 与 ProofBundleV1 的关系
 
@@ -219,7 +219,7 @@ InvariantTheoremV1 program ordinal :=
 
 - 不新增 formal `TASK-*` / `EV-*` / freeze package。
 - 不恢复 frontend supervisor 为 proof sandbox。
-- 不解锁 target 对 nonempty invariants 的 materialization。
+- 不因 inline proof 解锁其余八个 target 对 nonempty invariants 的 materialization；Quint Q0 的 read-only Bool invariant 支持是独立 target 能力。
 - 不定义 ZK prove/verify、deploy 或 network 侧 proof。
 - 不把 `proofCertificationDigest` 绑入 formal OutputSetV1。
 
@@ -257,7 +257,7 @@ InvariantTheoremV1 program ordinal :=
 4. Hash 边界：仅改 theorem body 时 `sourceHash` 与 `semanticHash` 不变；
 5. Authority：不信任用户 `.olean`；in-process elaboration **不是** sandbox；
 6. Axiom policy：闭包仅 `Classical.choice` / `Quot.sound` / `propext`；
-7. 正交：nonempty invariant materializer 仍可 fail closed；不声称 reachability /
+7. 正交：除 Quint Q0 的独立 read-only Bool invariant 能力外，其余 materializer 仍可 fail closed；不声称 reachability /
    init-step safety / target refinement。
 
 回归 owner：`Tests.Compiler.InlineProofCertifierV1`（单 snapshot、hash/digest、root /

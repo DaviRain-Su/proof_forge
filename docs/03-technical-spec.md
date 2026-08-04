@@ -25,7 +25,7 @@ SourceFile (single in-memory snapshot)
 → CheckV1 (structure→type→effect→bound→disclosure)
 → normalize → SemanticProgramV1 + SemanticProvenanceV1（ProgramRequirements 嵌入前者）
 → CompiledSemanticV1 sole product carrier
-→ optional inline same-file proof gate (ADR-0026)
+→ optional inline same-file proof gate (ADR-0027)
      · theorem inventory bijection + subject digests
      · in-process elaboration of the same held raw source (not a sandbox)
      · Environment kind/defeq/dependency/axiom audit
@@ -38,7 +38,7 @@ SourceFile (single in-memory snapshot)
 → validate hashes/schema/tool outputs → atomic publish
 ```
 
-> **Engineering note（ADR-0026）**：proof gate **必须** 早于 target resolve、
+> **Engineering note（ADR-0027）**：proof gate **必须** 早于 target resolve、
 > materialization 与 staging/publish。ProgramV1 / `semanticHash` **不含** adjacent
 > theorem body。当前仅证明 `InvariantTheoremV1`（全体 `StateConformsV1` 状态上
 > invariant 为 true），不声称 reachability / init-step safety / target refinement /

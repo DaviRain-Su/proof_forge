@@ -54,6 +54,10 @@ syntax num : pfExpr
 syntax str : pfExpr
 syntax pfPlace : pfExpr
 syntax:max ident "(" pfExpr,* ")" : pfExpr
+/-- N-CALL-RET: value-position synchronous external call. Statement `call`
+    remains the void form; the expression form produces a value whose type is
+    pinned by the enclosing expected type. `schedule` stays statement-only. -/
+syntax "call " ident "(" pfExpr,* ")" : pfExpr
 syntax:75 "-" pfExpr:75 : pfExpr
 syntax:75 "~" pfExpr:75 : pfExpr
 syntax:75 "!" pfExpr:75 : pfExpr
@@ -651,9 +655,12 @@ private partial def decodePatternV1Unchecked : Syntax → Except String PatternV
       pure (.bind (← decodeNameV1 name))
   | _ => throw "unsupported portable pattern"
 
+mutual
 private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
   | `(boolTrueExpr| true) => pure (.literal (.bool true))
   | `(boolFalseExpr| false) => pure (.literal (.bool false))
+  | `(pfExpr| call $callee:ident ($args:pfExpr,*)) => do
+      pure (.externalCall (← decodeExternalCallV1Unchecked callee args))
   | `(pfExpr| $value:num) => do
       pure (.literal (.integer (← decodeIntegerLiteralV1 value)))
   | `(pfExpr| $value:str) => pure (.literal (.string value.getString))
@@ -728,10 +735,9 @@ private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
           return (.binary .bitOr (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
       | _, _ => throw "unsupported portable expression"
 
-private def decodePlaceV1 (stx : Syntax) : Except String PlaceV1 :=
-  decodePlaceV1With decodeExprV1Unchecked stx
-
-private def decodeExternalCallV1Unchecked
+/-- Decode a structured `call QualifiedId(args)` (statement and N-CALL-RET
+    expression positions share the same carrier). -/
+private partial def decodeExternalCallV1Unchecked
     (calleeSyntax : Syntax) (argsSyntax : TSyntaxArray `pfExpr) :
     Except String ExternalCallExprV1 := do
   let callee ← decodePortableQualifiedIdV1 calleeSyntax
@@ -739,6 +745,10 @@ private def decodeExternalCallV1Unchecked
     callee := callee
     args := ← argsSyntax.mapM decodeExprV1Unchecked
   }
+end
+
+private def decodePlaceV1 (stx : Syntax) : Except String PlaceV1 :=
+  decodePlaceV1With decodeExprV1Unchecked stx
 
 private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
   | `(letStmtAnnotated| let $name:ident : $type:pfType := $value:pfExpr) => do

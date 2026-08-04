@@ -231,7 +231,8 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
     throw <| .planInvariant .noir s!"relation '{relation.name}' exceeds parameter limit"
   if relation.body.size > plan.resourceLimits.maxBodyStatements then
     throw <| .planInvariant .noir s!"relation '{relation.name}' exceeds body limit"
-  -- B-RET-ABI: aggregate return produces one result input per leaf
+  -- B-RET-ABI / N-ANON-RESULT: aggregate return (named Struct/Enum or
+  -- admitted anonymous Array/Option) produces one result input per leaf
   -- (resultLeaf bindings) instead of a single .result input.
   let resultInputCount :=
     if relation.mode == .initialize then 0

@@ -694,9 +694,9 @@ def psyTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Psy"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64/UInt32 and Int64 widths are supported"
+    "only anonymous UInt64/UInt32/UInt16/UInt8 and Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, Int64, Unit, Bool, and Field(goldilocks) are supported (Psy Felt is Goldilocks p=2^64-2^32+1=0xFFFFFFFF00000001, exact modulus match; bn254 Fr and BLS12-377 Fr fail closed as wrong modulus; Principal is variable-length identity, not Felt)"
+    "only UInt64, UInt32, UInt16, UInt8, Int64, Unit, Bool, and Field(goldilocks) are supported (Psy Felt is Goldilocks p=2^64-2^32+1=0xFFFFFFFF00000001, exact modulus match; bn254 Fr and BLS12-377 Fr fail closed as wrong modulus; Principal is variable-length identity, not Felt)"
 private def shapeMsg (label detail : String) : String :=
   s!"unsupported {label} semantic shape: {detail}"
 

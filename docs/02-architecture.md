@@ -25,7 +25,7 @@ Author / CI
     ▼
 proof-forge-next
     ├─ in-process source snapshot: Loader → ProgramV1 / CheckV1 → Normalize → CompiledSemanticV1
-    ├─ optional inline same-file proof gate (ADR-0026; before target resolve)
+    ├─ optional inline same-file proof gate (ADR-0027; before target resolve)
     ├─ engineering requirement resolve → capability
     ├─ target Materializer → target Plan → TargetIR
     └─ emitter → engineering OutputSet + provenance
@@ -34,13 +34,13 @@ proof-forge-next
           └─ deploy/prove/verify command (explicit)
 ```
 
-> **Engineering path note（2026-08-04，ADR-0026）**：当前产品源路径是进程内
+> **Engineering path note（2026-08-04，ADR-0027）**：当前产品源路径是进程内
 > **单次** `IO.FS.readFile` → `selectProgramV1ProductWithTheoremInventory` → compile →
 > sole `certifyInlineProofV1` → resolve/materialize；**不是**下图历史 contained worker
 > 形态，也 **不是** `--proof-bundle*` / ProofBundle product surface（flag 已删）。
 > Inline certification 对 **同一 held raw source** 做 in-process elaboration + Environment
 > audit；**不是** sandbox / hermetic/formal evidence。下文 contained worker 措辞仅 historical；
-> 产品实现以 `RECOVERY.md` / `AGENTS.md` 与 ADR-0026 为准。
+> 产品实现以 `RECOVERY.md` / `AGENTS.md` 与 ADR-0027 为准。
 
 编译器是代码生成与语义检查工具，不是链 VM、密钥托管器或默认网络执行器。
 Lean Parser 提供 token/layout/syntax tree；它不替代业务 IR。parser 成功后，每个 portable
@@ -96,7 +96,7 @@ proof reference、theorem body 或 certification digest。独立 `SemanticProven
 exact 绑定 qualifiedName、sourceHash、semanticHash 与 entity origin map；
 它只服务 diagnostics/audit/certification join，不能进入 target-neutral 业务求值或 target 选择。
 
-### Inline same-file theorem certification（ADR-0026，engineering）
+### Inline same-file theorem certification（ADR-0027，engineering）
 
 当 source 在 program 之后声明 ordinary adjacent Lean `theorem`（经 `proof … using …`
 binding / theorem inventory）时，产品在 **requirement resolve 与 materialization 之前**

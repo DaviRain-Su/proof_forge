@@ -76,6 +76,7 @@ private partial def exprBadContextV1 : ExprV1 → Bool
   | .localCall _ args => args.any exprBadContextV1
   | .match_ scrut arms =>
       exprBadContextV1 scrut || arms.any fun a => exprBadContextV1 a.value
+  | .externalCall call => call.args.any exprBadContextV1
   | .literal _ => false
 
 private partial def stmtBadContextV1 : StmtV1 → Bool

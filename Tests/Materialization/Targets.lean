@@ -411,14 +411,83 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
     throw <| IO.userError "anonymous result boundary: missing getArray"
   expect (callable.result.typeId == arrayTid)
     "anonymous result boundary: Normalize must retain anonymous Array result TypeId"
-  for (target, kind, marker) in #[
-      (TargetId.evm, TargetKind.evm, "named Struct/Enum aggregate"),
-      (TargetId.solana, TargetKind.solana, "cannot return multi-leaf aggregate"),
-      (TargetId.near, TargetKind.near, "does not return public"),
-      (TargetId.noir, TargetKind.noir, "named Struct/Enum aggregate"),
-      (TargetId.aleo, TargetKind.aleo, "return of anonymous aggregate is outside"),
-      (TargetId.psy, TargetKind.psy, "cannot return multi-leaf aggregate")] do
-    expectMaterializePlanInvariantV1 "anonymous-result" target kind compiled marker
+  -- EVM admits anonymous Array UInt64 N (N≤8) returns (BL-18).
+  match materializeSelected TargetId.evm compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: evm must admit Array UInt64 2 return, got {e.render}"
+  -- Solana admits anonymous Array UInt64 N (N≤8) returns (BL-19).
+  match materializeSelected TargetId.solana compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: solana must admit Array UInt64 2 return, got {e.render}"
+  -- NEAR admits anonymous Array UInt64 N (N≤8) returns (BL-20).
+  match materializeSelected TargetId.near compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: near must admit Array UInt64 2 return, got {e.render}"
+  -- Psy admits anonymous Array UInt64 N (N≤8) returns (BL-25).
+  match materializeSelected TargetId.psy compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: psy must admit Array UInt64 2 return, got {e.render}"
+  -- Noir admits anonymous Array UInt64 N (N≤8) returns (BL-21).
+  match materializeSelected TargetId.noir compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: noir must admit Array UInt64 2 return, got {e.render}"
+  -- TON admits anonymous Array UInt64 N (N≤8) view returns (BL-23).
+  match materializeSelected TargetId.ton compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: ton must admit Array UInt64 2 view return, got {e.render}"
+  -- Aleo: view-over-state anonymous aggregate return stays fail closed via
+  -- the computed-view gate (only bare public-state reads map to leo query).
+  match materializeSelected TargetId.aleo compiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "anonymous-result: aleo must decline view-over-state aggregate return"
+  | .error e =>
+      expect ((e.render).contains "leo query" ||
+          (e.render).contains "fail closed" ||
+          (e.render).contains "aggregate")
+        s!"anonymous-result aleo message must cite the computed-view/aggregate boundary, got {e.render}"
+  -- Aleo admits state-touching ENTRY anonymous Array returns via the Final
+  -- evaluate-leaves-and-drop path (BL-24).
+  let aleoArrEntrySource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrRetEntry where\n" ++
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    slots[0] := x\n" ++
+    "    slots[1] := y\n\n" ++
+    "  entry getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrEntryV1 ← match ← session.selectProgramV1 aleoArrEntrySource
+      "<targets-anon-result-aleo>" "Examples.ArrRetEntry" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"anon-result aleo-entry select: {e.render}"
+  let arrEntryCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrEntryV1
+  match materializeSelected TargetId.aleo arrEntryCompiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: aleo must admit entry Array UInt64 2 return, got {e.render}"
+  -- CosmWasm admits anonymous Array UInt64 N (N≤8) view returns (BL-22).
+  match materializeSelected TargetId.cosmwasm compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"anonymous-result: cosmwasm must admit Array UInt64 2 view return, got {e.render}"
 
 private def testSemanticPlanSourceAuthority : IO Unit := do
   for target in #["Evm", "Solana", "Near", "Noir"] do
@@ -3173,8 +3242,9 @@ unsafe def run : IO Unit := do
   -- NoirContainer: Noir admits Array UInt64 flatten-to-leaf (same as Solana/NEAR/Psy/Aleo).
   let _ ← liftResult <| materializeSelected TargetId.noir arrayCompiled
 
-  -- N-A4: Option state Normalize-admitted; all Phase-1 targets fail closed
-  -- (container policy never admits Option).
+  -- N-A4: Option state Normalize-admitted. EVM (BL-31), NEAR (BL-30) and
+  -- Solana (BL-29) admit Option UInt64 state (Enum-shaped 2-leaf layout);
+  -- other targets fail closed.
   let optionStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3192,7 +3262,11 @@ unsafe def run : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"N-A4 Option select: {e.render}"
   let optCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optV1
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir, TargetId.psy, TargetId.aleo] do
+  -- EVM/NEAR/Solana admit Option UInt64 state.
+  let _ ← liftResult <| materializeSelected TargetId.evm optCompiled
+  let _ ← liftResult <| materializeSelected TargetId.near optCompiled
+  let _ ← liftResult <| materializeSelected TargetId.solana optCompiled
+  for target in [TargetId.noir, TargetId.psy, TargetId.aleo] do
     match materializeSelected target optCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N-A4: {target} must decline Option state"

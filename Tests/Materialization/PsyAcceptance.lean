@@ -224,15 +224,31 @@ private def arrayStateSourceText : String :=
   "    slots[0] := v\n" ++
   "    return slots[0]\n"
 
-/-- u32 slice (2026-08-02): bitNot lowers to `x ^ 4294967295u32` (XOR mask,
-    verified faithful on the real dargo VM). The acceptance gate compiles the
-    emitted `.psy` with the real dargo toolchain. -/
+/-- T8 multi-width: UInt32 bitNot as Felt-carried XOR mask (not native u32).
+    The acceptance gate compiles the emitted `.psy` with the real dargo toolchain. -/
 private def u32BitNotSourceText : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program PsyFlip32 where\n" ++
   "  entry flip(x : UInt32) : UInt32 do\n" ++
   "    return ~x\n"
+
+/-- T8 multi-width: scalar UInt8 counter with Felt-carried state/params/body
+    and explicit width guards. Real psyup must accept the emitted source. -/
+private def u8CounterSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program U8Ctr where\n" ++
+  "  state count : UInt8\n" ++
+  "  init(seed : UInt8) do\n" ++
+  "    count := seed\n" ++
+  "  entry increment(delta : UInt8) : UInt8 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n" ++
+  "  entry flip() : UInt8 do\n" ++
+  "    return ~count\n" ++
+  "  view get() : UInt8 do\n" ++
+  "    return count\n"
 
 /-- B-RET-ABI PairRet: named Struct view return emitted as `-> [Felt; 2]`.
     Real psyup/dargo must accept the multi-leaf array return form. -/
@@ -248,6 +264,37 @@ private def pairRetSourceText : String :=
   "    p := Pair.new(x, y)\n" ++
   "  view getPair() : Pair do\n" ++
   "    return p\n"
+
+/-- N-ANON-RESULT ArrayRet: anonymous Array UInt64 2 → `-> [Felt; 2]`. -/
+private def arrayRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program ArrayRet where\n" ++
+  "  state slots : Array UInt64 2\n" ++
+  "  init(a : UInt64, b : UInt64) do\n" ++
+  "    slots[0] := a\n" ++
+  "    slots[1] := b\n" ++
+  "  entry setArr(a : UInt64, b : UInt64) : Array UInt64 2 do\n" ++
+  "    slots[0] := a\n" ++
+  "    slots[1] := b\n" ++
+  "    return slots\n" ++
+  "  view getArr() : Array UInt64 2 do\n" ++
+  "    return slots\n"
+
+/-- N-ANON-RESULT OptionRet: anonymous Option UInt64 → `-> [Felt; 2]` tag+payload. -/
+private def optionRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program OptionRet where\n" ++
+  "  state seed : UInt64\n" ++
+  "  init(x : UInt64) do\n" ++
+  "    seed := x\n" ++
+  "  entry asSome(v : UInt64) : Option UInt64 do\n" ++
+  "    return Option.some(v)\n" ++
+  "  view asNone() : Option UInt64 do\n" ++
+  "    return Option.none()\n" ++
+  "  view asSomeOfSeed() : Option UInt64 do\n" ++
+  "    return Option.some(seed)\n"
 
 /-- Suite entry. Skips cleanly when psyup/dargo/std are unavailable. -/
 unsafe def run : IO Unit := do
@@ -283,9 +330,18 @@ unsafe def run : IO Unit := do
         acceptProgram tc staging "PsyFlip32"
           u32BitNotSourceText "Tests.PsyAccept.PsyFlip32"
           "PsyFlip32.psy" "psy_flip32"
+        acceptProgram tc staging "U8Ctr"
+          u8CounterSourceText "Tests.PsyAccept.U8Ctr"
+          "U8Ctr.psy" "u8ctr"
         acceptProgram tc staging "PairRet"
           pairRetSourceText "Tests.PsyAccept.PairRet"
           "PairRet.psy" "pair_ret"
+        acceptProgram tc staging "ArrayRet"
+          arrayRetSourceText "Tests.PsyAccept.ArrayRet"
+          "ArrayRet.psy" "array_ret"
+        acceptProgram tc staging "OptionRet"
+          optionRetSourceText "Tests.PsyAccept.OptionRet"
+          "OptionRet.psy" "option_ret"
         IO.println "Tests.Materialization.PsyAcceptance: ok"
       finally
         if ← staging.pathExists then IO.FS.removeDirAll staging

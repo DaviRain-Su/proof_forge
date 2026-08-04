@@ -32,11 +32,11 @@ normative: false
   Loader→compile→certify，得到 theoremCount=1 与 digest；`exact`→`apply` 改写不改变
   ProgramV1 canonical bytes/sourceHash/semanticHash，但改变 proofCertificationDigest。
   `Tests.CLI.InlineProofProductV1` 的 human/JSON certified、repeat determinism、proof-first unknown
-  target、nonempty-invariant materializer FC 与零 destination/staging 全部通过。
+  target、non-Quint invariant materializer FC 与零 destination/staging 全部通过。
 - 执行结果：`proof_forge_next_tests_shard_typed` exit 0；
   `proof_forge_next_tests_shard_targets` exit 0（含真实 target acceptance 及 inline CLI suite）。
-  这是 engineering closure；ADR-0026 仍 `proposed`，formal TST-PROOF-001、reachability、
-  target refinement、sandbox/hermetic/release 与 nonempty invariant materialization 均未关闭。
+  这是 engineering closure；ADR-0027 仍 `proposed`，formal TST-PROOF-001、reachability、
+  target refinement、sandbox/hermetic/release 与其余八个 target 的 nonempty invariant materialization 均未关闭；Quint Q0 的 read-only Bool invariant 支持来自独立 target 切片。
 
 ## 2026-08-04 — docs: inline proof kernel-closed vs remaining product check positive
 
@@ -54,35 +54,35 @@ normative: false
   `PF-SRC-INVALID`/exit 3 且零 Plan/staging；proof fail 严格早于 target resolve/
   materialize；theorem body 不改 `sourceHash`/`semanticHash`；不信任用户 `.olean`；
   in-process elab ≠ sandbox；allowed axioms 仅 `Classical.choice`/`Quot.sound`/`propext`。
-- 边界不变：nonempty invariant materializer 仍 FC；**不** 声称 formal TASK/TST-PROOF-001、
+- 边界不变：除 Quint Q0 的独立 read-only Bool invariant 能力外，其余八个 materializer 仍 FC；**不** 声称 formal TASK/TST-PROOF-001、
   reachability、target refinement、hermetic/release。
 - Docs：`AGENTS`/`RECOVERY`/`MIGRATION_MATRIX`、`docs/index`、`document-status`、
-  `engineering-backlog`（INV-1/FR-002）、`SPEC-CLI-001`、`MOD-CLI-001`、ADR-0026 status
+  `engineering-backlog`（INV-1/FR-002）、`SPEC-CLI-001`、`MOD-CLI-001`、ADR-0027 status
   snapshot、`05-test-spec` product-check gates。Gates：`just docs-check`、`git diff --check`。
   文档-only；非 formal/hermetic/release。
 
 ## 2026-08-04 — docs follow-up: product CLI sole inline proof（no ProofBundle flags）
 
-- Correction vs prior ADR-0026 docs commit：独立复核确认 **产品** CLI 已删除
+- Correction vs prior ADR-0027 docs commit：独立复核确认 **产品** CLI 已删除
   `--proof-bundle` / `--proof-bundle-digest`（unknown option）；sole 路径为单次 read →
   `selectProgramV1ProductWithTheoremInventory` → compile → `certifyInlineProofV1` →
   target resolve/materialize。`ProofBundleV1` / `ProofReferenceJoinV1` 仅为
   library/historical/formal-oriented，**不是** check/build alternate 或 fallback。
 - Observation surface：check 输出 `proofStatus` / `proofTheoremCount` /
-  `proofCertificationDigest`；build 只门禁、成功输出不带 proof 字段。nonempty invariant
-  materializer 仍 fail closed。
+  `proofCertificationDigest`；build 只门禁、成功输出不带 proof 字段。Quint Q0 对 read-only
+  Bool invariant 已独立开放；其余八个 materializer 仍 fail closed。
 - Kernel cert engineering（当时记录）：structure + encode + decode + `ProofedProof.safe`
   certificate 链可记为已闭合；后续 simple-closure/ordinal-0 与 product-check 正例分层
   见上条 2026-08-04 status correction——**不得** 宣称 feature 完成或 formal
   `TST-PROOF-001`。
-- Docs：`SPEC-CLI-001`、ADR-0026 关系段、`language`/`semantic-core`/`03-technical-spec`、
+- Docs：`SPEC-CLI-001`、ADR-0027 关系段、`language`/`semantic-core`/`03-technical-spec`、
   `MOD-CLI-001`、`engineering-backlog`（INV-1 superseded）、`RECOVERY`/`AGENTS`/
   `MIGRATION_MATRIX` 控制面同步。Gates：`just docs-check`、`git diff --check`。文档-only
   follow-up commit；非 formal/hermetic/release。
 
-## 2026-08-04 — ADR-0026 inline same-file theorem certification（文档 only）
+## 2026-08-04 — ADR-0027 inline same-file theorem certification（文档 only）
 
-- Decision：新增 `docs/adr/0026-inline-same-file-theorem-certification.md`（`proposed`），
+- Decision：新增 `docs/adr/0027-inline-same-file-theorem-certification.md`（`proposed`），
   冻结 engineering product certification 边界：single in-memory source snapshot；
   ProgramV1/`semanticHash` 不含 adjacent theorem body；ordinary same-file Lean theorem；
   in-process elaboration **不是** sandbox；Environment declaration-kind / defeq /
@@ -97,6 +97,32 @@ normative: false
 - 注：同日 follow-up 已纠正「CLI 全产品接线仍独立 / ProofBundle alternate surface」与
   产品事实的冲突（见上条）。
 - Gates：`just docs-check`、`git diff --check`。边界：文档-only；非 formal/hermetic/release。
+## 2026-08-03 — Quint Q0 executable-model engineering target
+
+- History/recovery：从已删除 `active/ProofForge/Backend/Quint/**` 的 Git 对象确认历史 backend
+  曾包含 model emitter、scenario/invariant、ITF 与 replay；当前实现未恢复任何 v1 import/adapter，
+  而是从 retained `SemanticProgramV1` 重新接入独立 target-owned Plan/structured IR。
+- Registry/capability：新增 `quint` / `quint-source-u64-model-v1` / `quintSource` 与六轴
+  `quint-model`、`relation-external`、`external-public-pre-post`、`no-native-call`、`no-proof`、
+  `no-settlement`；控制面为 12 targets / 9 implemented + 3 design-only / 9 materializers /
+  11 resolver rows（EVM×2 Cancun+legacy + Solana×2 + Quint 四键）。resolver 仅承认 rollback/state/Bool/checked-arithmetic 四键；aggregate
+  Registry 绑定 target Plan digest、materialize 与 zero-tool finalize。
+- Q0 lowering：仅 anonymous UInt64/Bool/Unit、public UInt64 state/params、public scalar result、
+  single-block CFG；支持 state load/store、checked +−×/%、比较、Bool、pureCall、bare assert 与
+  zero-param read-only Bool invariant与 zero-payload declared revert（failure code=`256+ErrorId`）。输入为
+  完整 `0..2^64-1`；失败调用始终更新 outcome instrumentation 且 business state stutter，不使用
+  blocked action。source 名称进入 target-owned namespace，init StateLoad 从 canonical zero overlay
+  读取，重复 StateStore 为 last-write-wins；pureFn fully-expanded op、fallible-check cascade 与
+  rendered-expression node budget（含 div/mod totalization duplication）均有界，未调用 pureFn 也经过
+  完整 target validation；Plan/digest gate 另重验 expression type/reference 与 terminal-revert iff。
+- Artifacts/verification：产单一 `.qnt`（`text/x-quint`），`deployable=false`，product finalize
+  不运行 Quint/Apalache/TLC/Java。真实 CLI build + output inspect exact closure 已通过；host-optional
+  `QuintAcceptance` 在本机 exact Quint 0.32.0 自动 typecheck Counter、Arithmetic（五类算术 + nested div）、
+  Stopper（zero-payload revert）与 Logic（Bool/pureFn/invariant），并运行 TypeScript evaluator 最小 sampled smoke；`QuintSourceV1`
+  覆盖 overlay、first-failure/stutter、revert identity、expression budget 与 fail-closed。以上是
+  engineering/host observations，非全 UInt64 域执行、Reference differential、Tool Lock、
+  ITF/MBT/verify、formal D3/D4 或
+  accepted PRD Phase 1 扩面。
 
 ## 2026-08-03 — D3-E9 registry-owned descriptor semantics axes
 

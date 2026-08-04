@@ -11,8 +11,11 @@ Owns the Noir-owned relation Plan surface and Semantic→Plan body.
 
 B-RET-ABI: named Struct/Enum entry/view returns are admitted via
 `Statement.returnAggregate` + per-leaf `InputRole.resultLeaf` verifier inputs
-(≤8 UInt64/Int64 leaves in preorder flatten order). Anonymous container
-returns (Array/Map/Bytes/Option) stay fail-closed.
+(≤8 UInt64/Int64 leaves in preorder flatten order).
+**N-ANON-RESULT (Noir ABI)**: anonymous `Array UInt64 N` (1..8) and
+`Option UInt64` entry/view returns reuse the same per-leaf public-input path
+(none=(0,0), some v=(1,v)). Map/Bytes/nested/narrow-element anonymous
+returns stay fail-closed.
 -/
 
 namespace ProofForgeV2.Targets.Noir
@@ -73,8 +76,10 @@ inductive InputType where
   | i16
   | i32
   | i64
-  /-- B-RET-ABI: named Struct/Enum aggregate result — multi-leaf public
-  output. `leaves` are per-leaf InputTypes in preorder flatten order (≤8). -/
+  /-- B-RET-ABI: named Struct/Enum or admitted anonymous Array UInt64 N /
+  Option UInt64 aggregate result — multi-leaf public output. `leaves` are
+  per-leaf InputTypes in preorder flatten order (≤8). Map/Bytes/nested/
+  non-UInt64-element anonymous containers stay fail-closed. -/
   | aggregate (leaves : Array InputType)
   deriving BEq, Inhabited, Repr
 
@@ -85,8 +90,9 @@ inductive InputRole where
   | postState (sourceId : Nat)
   | postInitialized
   | result
-  /-- B-RET-ABI: one leaf of an aggregate (named Struct/Enum) verifier
-  result. `index` is the preorder leaf position (0-based). -/
+  /-- B-RET-ABI: one leaf of an aggregate (named Struct/Enum or admitted
+  anonymous Array/Option) verifier result. `index` is the preorder leaf
+  position (0-based). -/
   | resultLeaf (index : Nat)
   | eventSlot (emitIndex argIndex : Nat)
   /-- Verifier witness of one static external call's outcome: true when the
@@ -217,8 +223,9 @@ inductive Statement where
   | storeAggregate (leaves : Array Store)
   | returnValue (value : Expr)
   /-- B-RET-ABI: multi-leaf aggregate return. `leaves` are per-leaf
-  expressions in preorder flatten order; each is constrained to its
-  corresponding `resultLeaf` verifier input. -/
+  expressions in preorder flatten order (named Struct/Enum or admitted
+  anonymous Array/Option); each is constrained to its corresponding
+  `resultLeaf` verifier input. -/
   | returnAggregate (leaves : Array Expr)
   | returnNone
   | assert (condition : Expr)
@@ -478,7 +485,11 @@ private def inputTypeOfScalarV1
     Field element. **Array UInt64 N** + **Map UInt64 UInt64** dense pilot +
     **Bytes N** via `pilotContainerStatePolicyArrayMapBytes` (Array → N×u64
     leaves; Map → capacity-8×occ/key/val public-input leaves; **Bytes → N×u8
-    leaves**; Option intermediate for Map IndexGet). -/
+    leaves**; Option intermediate for Map IndexGet).
+    **N-ANON-RESULT (Noir ABI)**: anonymous `Array UInt64 N` (1..8) and
+    `Option UInt64` entry/view returns reuse the same per-leaf public-input
+    result path; Map/Bytes/nested/narrow-element anonymous returns stay fail
+    closed. -/
 private def validateNoirTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 :=
   -- Named aggregates + Array/Map/Bytes container pilot.
@@ -794,6 +805,77 @@ private partial def flattenTypeLeafSpecsV1
   else
     throw <| .planInvariant .noir
       "unsupported Noir semantic shape: aggregate leaf must be UInt64, Int64, Principal, or named Struct/Enum"
+
+/-- N-ANON-RESULT (Noir ABI): anonymous result leaf layout for admitted
+container returns. `Array UInt64 N` → N×u64 leaves; `Option UInt64` →
+tag+payload (none=(0,0), some v=(1,v)). Map/Bytes throw for precise FC. -/
+private def anonymousReturnLeafAbiV1
+    (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option (Array InputType)) := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: anonymous Array return requires UInt64 elements"
+      let n := len.toNat
+      unless n ≥ 1 do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: anonymous Array return length must be ≥ 1"
+      pure (some (Array.replicate n InputType.u64))
+  | some { shape := .option elTid, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: anonymous Option return requires UInt64 payload"
+      pure (some #[.u64, .u64])
+  | some { shape := .map .., name := none, .. } =>
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: anonymous Map return is outside the Noir B-RET ABI"
+  | some { shape := .bytes .., name := none, .. } =>
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: anonymous Bytes return is outside the Noir B-RET ABI"
+  | some { shape := .array .., .. } | some { shape := .option .., .. } =>
+      pure none
+  | _ => pure none
+
+/-- True when `typeId` should be resolved through the aggregate result path
+(named Struct/Enum or anonymous Array/Map/Bytes/Option, so Map/Bytes get
+precise fail-closed diagnostics instead of a scalar fallthrough). -/
+private def isAggregateResultCandidateV1
+    (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
+    (typeId : TypeIdV1) : Bool :=
+  if types.isNamedAggregate typeId then true
+  else
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .array .., name := none, .. }
+    | some { shape := .option .., name := none, .. }
+    | some { shape := .map .., name := none, .. }
+    | some { shape := .bytes .., name := none, .. } => true
+    | _ => false
+
+/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option
+result TypeId into per-leaf `InputType`s. Enforces 1..8 leaves.
+Map/Bytes/nested/narrow-element anonymous containers fail closed. -/
+private def aggregateResultLeafTypesV1
+    (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
+    (owner : String) (typeId : TypeIdV1) : CompileResult (Array InputType) := do
+  let leafTypes ←
+    if types.isNamedAggregate typeId then
+      let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+      pure (specs.map fun (_, isInt) => if isInt then InputType.i64 else .u64)
+    else
+      match ← anonymousReturnLeafAbiV1 typeDecls types typeId with
+      | some ls => pure ls
+      | none =>
+          throw <| .planInvariant .noir
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
+  let n := leafTypes.size
+  unless n > 0 do
+    throw <| .planInvariant .noir
+      s!"{owner} aggregate return must have at least one leaf"
+  unless n ≤ 8 do
+    throw <| .planInvariant .noir
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+  pure leafTypes
 
 /-- Promote pure ValueIds across effect boundaries (Token dual Map store). -/
 private def promoteDominatingPureV1
@@ -2172,80 +2254,120 @@ private def lowerBlockInstructionsV1
             let value := mkAggregateValueV1 leaves zInt deps depth nodes
             values := ← appendResultValueV1 result.typeId values result value
         else do
-          let some decl := layout.typeDecls[typeId.toNat]? |
-            throw <| .planInvariant .noir
-              "unsupported Noir semantic shape: construct TypeDecl missing"
-          match decl.shape with
-          | .struct fields => do
-              unless ctorIdx.toNat == 0 do
+          -- Option UInt64 construct (none/some) for anonymous-result returns;
+          -- named Struct/Enum construct remains the other non-container path.
+          match layout.typeDecls[typeId.toNat]? with
+          | some { shape := .option elTid, name := none, .. } => do
+              unless elTid == types.uint64TypeId do
                 throw <| .planInvariant .noir
-                  "unsupported Noir semantic shape: struct construct ctorIdx must be 0"
-              unless argIds.size == fields.size do
-                throw <| .planInvariant .noir
-                  "unsupported Noir semantic shape: struct construct arity mismatch"
-              let mut leaves : Array Expr := #[]
-              let mut leafIsInt : Array Bool := #[]
-              let mut deps : Array ValueIdV1 := #[]
-              let mut depth : Nat := 1
-              let mut nodes : Nat := 1
-              for i in [0:argIds.size] do
-                let some argId := argIds[i]? |
-                  throw <| .planInvariant .noir "struct construct arg missing"
-                let some field := fields[i]? |
-                  throw <| .planInvariant .noir "struct construct field missing"
-                let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-                let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types field.typeId
-                let argLeaves := arg.leafExprs
-                let argIsInt := arg.leafIsInts
-                unless argLeaves.size == expectedLeaves do
+                  "unsupported Noir semantic shape: Option construct requires UInt64 payload"
+              match ctorIdx.toNat with
+              | 0 =>
+                  -- Option.none → (tag=0, payload=0)
+                  unless argIds.isEmpty do
+                    throw <| .planInvariant .noir
+                      "unsupported Noir semantic shape: Option.none construct takes no args"
+                  let leaves : Array Expr := #[.literal 0, .literal 0]
+                  let zInt : Array Bool := #[false, false]
+                  let value := mkAggregateValueV1 leaves zInt #[] 1 2
+                  values := ← appendResultValueV1 result.typeId values result value
+              | 1 =>
+                  -- Option.some(v) → (tag=1, payload=v)
+                  unless argIds.size == 1 do
+                    throw <| .planInvariant .noir
+                      "unsupported Noir semantic shape: Option.some construct takes one arg"
+                  let some argId := argIds[0]? |
+                    throw <| .planInvariant .noir "Option.some construct arg missing"
+                  let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+                  unless !arg.isAggregate && arg.kind == .uint64 do
+                    throw <| .planInvariant .noir
+                      "unsupported Noir semantic shape: Option.some arg must be scalar UInt64"
+                  let leaves : Array Expr := #[.literal 1, arg.expr]
+                  let zInt : Array Bool := #[false, false]
+                  let value := mkAggregateValueV1 leaves zInt #[argId]
+                    (arg.depth + 1) (arg.expandedNodes + 2)
+                  values := ← appendResultValueV1 result.typeId values result value
+              | _ =>
                   throw <| .planInvariant .noir
-                    "unsupported Noir semantic shape: struct construct field leaf count mismatch"
-                leaves := leaves ++ argLeaves
-                leafIsInt := leafIsInt ++ argIsInt
-                deps := deps.push argId
-                depth := Nat.max depth (arg.depth + 1)
-                nodes := nodes + arg.expandedNodes
-              let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
-              values := ← appendResultValueV1 typeId values result value
-          | .enum variants => do
-              let vi := ctorIdx.toNat
-              let some variant := variants[vi]? |
+                    "unsupported Noir semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+          | _ => do
+              unless types.isNamedAggregate typeId do
                 throw <| .planInvariant .noir
-                  "unsupported Noir semantic shape: enum construct variant out of range"
-              unless argIds.size == variant.payloadTypes.size do
+                  "unsupported Noir semantic shape: construct admits only Array/Map UInt64, Option UInt64, or named Struct/Enum on Noir"
+              let some decl := layout.typeDecls[typeId.toNat]? |
                 throw <| .planInvariant .noir
-                  "unsupported Noir semantic shape: enum construct arity mismatch"
-              let maxPay ← enumMaxPayloadLeavesV1 layout.typeDecls types variants
-              let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
-              let mut leafIsInt : Array Bool := #[false]
-              let mut deps : Array ValueIdV1 := #[]
-              let mut depth : Nat := 1
-              let mut nodes : Nat := 1
-              for i in [0:argIds.size] do
-                let some argId := argIds[i]? |
-                  throw <| .planInvariant .noir "enum construct arg missing"
-                let some pt := variant.payloadTypes[i]? |
-                  throw <| .planInvariant .noir "enum construct payload type missing"
-                let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-                let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types pt
-                let argLeaves := arg.leafExprs
-                let argIsInt := arg.leafIsInts
-                unless argLeaves.size == expectedLeaves do
+                  "unsupported Noir semantic shape: construct TypeDecl missing"
+              match decl.shape with
+              | .struct fields => do
+                  unless ctorIdx.toNat == 0 do
+                    throw <| .planInvariant .noir
+                      "unsupported Noir semantic shape: struct construct ctorIdx must be 0"
+                  unless argIds.size == fields.size do
+                    throw <| .planInvariant .noir
+                      "unsupported Noir semantic shape: struct construct arity mismatch"
+                  let mut leaves : Array Expr := #[]
+                  let mut leafIsInt : Array Bool := #[]
+                  let mut deps : Array ValueIdV1 := #[]
+                  let mut depth : Nat := 1
+                  let mut nodes : Nat := 1
+                  for i in [0:argIds.size] do
+                    let some argId := argIds[i]? |
+                      throw <| .planInvariant .noir "struct construct arg missing"
+                    let some field := fields[i]? |
+                      throw <| .planInvariant .noir "struct construct field missing"
+                    let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+                    let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types field.typeId
+                    let argLeaves := arg.leafExprs
+                    let argIsInt := arg.leafIsInts
+                    unless argLeaves.size == expectedLeaves do
+                      throw <| .planInvariant .noir
+                        "unsupported Noir semantic shape: struct construct field leaf count mismatch"
+                    leaves := leaves ++ argLeaves
+                    leafIsInt := leafIsInt ++ argIsInt
+                    deps := deps.push argId
+                    depth := Nat.max depth (arg.depth + 1)
+                    nodes := nodes + arg.expandedNodes
+                  let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
+                  values := ← appendResultValueV1 typeId values result value
+              | .enum variants => do
+                  let vi := ctorIdx.toNat
+                  let some variant := variants[vi]? |
+                    throw <| .planInvariant .noir
+                      "unsupported Noir semantic shape: enum construct variant out of range"
+                  unless argIds.size == variant.payloadTypes.size do
+                    throw <| .planInvariant .noir
+                      "unsupported Noir semantic shape: enum construct arity mismatch"
+                  let maxPay ← enumMaxPayloadLeavesV1 layout.typeDecls types variants
+                  let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
+                  let mut leafIsInt : Array Bool := #[false]
+                  let mut deps : Array ValueIdV1 := #[]
+                  let mut depth : Nat := 1
+                  let mut nodes : Nat := 1
+                  for i in [0:argIds.size] do
+                    let some argId := argIds[i]? |
+                      throw <| .planInvariant .noir "enum construct arg missing"
+                    let some pt := variant.payloadTypes[i]? |
+                      throw <| .planInvariant .noir "enum construct payload type missing"
+                    let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+                    let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types pt
+                    let argLeaves := arg.leafExprs
+                    let argIsInt := arg.leafIsInts
+                    unless argLeaves.size == expectedLeaves do
+                      throw <| .planInvariant .noir
+                        "unsupported Noir semantic shape: enum construct payload leaf count mismatch"
+                    leaves := leaves ++ argLeaves
+                    leafIsInt := leafIsInt ++ argIsInt
+                    deps := deps.push argId
+                    depth := Nat.max depth (arg.depth + 1)
+                    nodes := nodes + arg.expandedNodes
+                  while leaves.size < 1 + maxPay do
+                    leaves := leaves.push (.literal 0)
+                    leafIsInt := leafIsInt.push false
+                  let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
+                  values := ← appendResultValueV1 typeId values result value
+              | _ =>
                   throw <| .planInvariant .noir
-                    "unsupported Noir semantic shape: enum construct payload leaf count mismatch"
-                leaves := leaves ++ argLeaves
-                leafIsInt := leafIsInt ++ argIsInt
-                deps := deps.push argId
-                depth := Nat.max depth (arg.depth + 1)
-                nodes := nodes + arg.expandedNodes
-              while leaves.size < 1 + maxPay do
-                leaves := leaves.push (.literal 0)
-                leafIsInt := leafIsInt.push false
-              let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
-              values := ← appendResultValueV1 typeId values result value
-          | _ =>
-              throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: construct requires Struct or Enum shape"
+                    "unsupported Noir semantic shape: construct requires Struct or Enum shape"
 
     | .fieldGet baseId fieldIndex, some result => do
         let base ← currentValueWithArmsV1 values paramCount segmentStart armReadables baseId
@@ -2593,6 +2715,9 @@ private def lowerBlockInstructionsV1
             s!"unsupported Noir semantic shape: unknown ContextRead key '{key.value}'"
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: ContextRead is not admitted by pilot context policy"
+    | .externalCall _ _ _, some _ =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: result-bearing external call is outside the current Noir pilot (N-CALL-RET shared schema; Noir return-value relation lowering is a later slice)"
     | _, _ =>
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: instruction op/result is outside the current UInt64 pilot"
@@ -2656,9 +2781,10 @@ private partial def emitRegionV1
                   "unsupported Noir semantic shape: entry/view return kind is missing"
           let root ← currentValueWithArmsV1 values paramCount segmentStart freeAfter valueId
           if expectedKind == .aggregate then
+            -- B-RET-ABI: named Struct/Enum or admitted anonymous Array/Option.
             unless root.isAggregate do
               throw <| .planInvariant .noir
-                s!"unsupported Noir semantic shape: {owner} aggregate return value must be a named aggregate"
+                s!"unsupported Noir semantic shape: {owner} aggregate return value must be a multi-leaf aggregate"
             let _ ← consumeCurrentSegmentValueV1 values paramCount segmentStart freeAfter valueId
             let leaves := root.leafExprs
             pure (instrs.push (.returnAggregate leaves), values, none, none)
@@ -3022,22 +3148,17 @@ private def resolveEntryViewResultV1
         | none =>
         if types.boolTypeId == some callable.result.typeId then
           pure (.bool, .bool)
-        else if types.isNamedAggregate callable.result.typeId then
-          -- B-RET-ABI: named Struct/Enum aggregate return.
-          let specs ← flattenTypeLeafSpecsV1 typeDecls types callable.result.typeId "ret"
-          unless specs.size > 0 do
-            throw <| .planInvariant .noir
-              s!"entry '{name}' aggregate return must have at least one leaf"
-          unless specs.size <= 8 do
-            throw <| .planInvariant .noir
-              s!"entry '{name}' aggregate return has {specs.size} leaves, exceeding B-RET-ABI cap of 8"
-          let mut leafTypes : Array InputType := #[]
-          for (_, isInt) in specs do
-            leafTypes := leafTypes.push (if isInt then .i64 else .u64)
+        else if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
+          -- B-RET-ABI: named Struct/Enum + admitted anonymous Array UInt64 N /
+          -- Option UInt64 entry/view returns via per-leaf public inputs (≤8).
+          -- Map/Bytes/nested/narrow-element anonymous returns fail closed in
+          -- aggregateResultLeafTypesV1 with precise messages.
+          let leafTypes ← aggregateResultLeafTypesV1 typeDecls types
+            s!"entry '{name}'" callable.result.typeId
           pure (.aggregate, .aggregate leafTypes)
         else
           throw <| .planInvariant .noir
-            s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, Field, or named Struct/Enum aggregate"
+            s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, Field, named Struct/Enum, or admitted anonymous Array/Option"
 
 private def makeRelationV1
     (index : Nat)

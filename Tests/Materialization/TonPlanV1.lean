@@ -1,16 +1,20 @@
 /-
-  Ton Plan/IR/Tolk engineering suite (TON-2 Counter leaf + BL-1 schedule).
+  Ton Plan/IR/Tolk engineering suite (TON-2 Counter leaf + BL-1 schedule +
+  BL-10 named aggregate view returns + BL-23 anonymous Array/Option view
+  returns).
 
   Pins Counter plan shape, Tolk surface (Storage/onInternalMessage/get fun),
   op+query_id envelope, UInt64 range-check markers, schedule→createMessage
   out-message emission (dest hash stub / NoBounce / value=0 /
   PAY_FEES_SEPARATELY / op32·query_id·args body), BL-14 multi-width
   UInt{8,16,32} body/state/param (narrow guards + exact cell/param widths),
-  and explicit fail-closed boundaries (sync call, UInt128/256, aggregates,
-  invariants, Field/Principal).
+  B-RET-ABI named Struct/Enum view multi-stack returns, N-ANON-RESULT
+  anonymous Array UInt64 N / Option UInt64 view returns (entry aggregate FC),
+  and explicit fail-closed boundaries (sync call, UInt128/256, Map/Bytes
+  returns, N>8, nested/narrow-element containers, invariants, Field/Principal).
 
-  Not registered in Tests/Shards/* — main agent must register the shard.
-  Not @ton/sandbox runtime (TON-3). Not formal D4.
+  Registered in Tests/Shards/Targets. Not @ton/sandbox runtime (TON-3).
+  Not formal D4.
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.Ton
@@ -608,7 +612,184 @@ private unsafe def testNamedEnumReturn
     s!"MaybeRet ABI must declare [\"uint64\",\"uint64\"], got: {abi}"
   IO.println "  ✓ MaybeRet named Enum view return Plan/IR/Tolk pin"
 
-/-- Fail-closed: entry aggregate, anonymous Array, >8 leaves, named aggregate param. -/
+/-- BL-23 / N-ANON-RESULT (TON ABI): anonymous Array UInt64 2 **view** return
+flattens to 2×UInt64 leaves via `returnAggregate` / `setReturnDataLeaves` /
+Tolk multi-stack get-method (same path as named Struct). Entry aggregate
+stays fail closed (TON async actor has no return channel). -/
+private unsafe def testAnonymousArrayReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ArrayRet" <|
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    slots[0] := x\n" ++
+    "    slots[1] := y\n\n" ++
+    "  entry setArr(x : UInt64, y : UInt64) : UInt64 do\n" ++
+    "    slots[0] := x\n" ++
+    "    slots[1] := y\n" ++
+    "    return x\n\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let compiled ← compileSource session source "Examples.ArrayRet" "<ton-array-ret>"
+  let plan ← liftResult (planTon compiled)
+  expect (plan.storage.fields.size == 2)
+    "ArrayRet: Array UInt64 2 → 2 c4 leaves"
+  let getArr ← findMethod plan "getArr"
+  expect (getArr.mode == .view) "ArrayRet getArr must be view"
+  match getArr.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrayRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "ArrayRet leaves must be u64 (not Int)"
+      expect (leaves.all (·.byteWidth == 8))
+        "ArrayRet leaves must be 8-byte words"
+  | other =>
+      throw <| IO.userError
+        s!"ArrayRet getArr resultKind must be .aggregate, got {repr other}"
+  expect (getArr.body.size == 1) "ArrayRet getArr body must be one return"
+  match getArr.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2)
+        s!"returnAggregate must have 2 leaves, got {leaves.size}"
+      expect (leafIsInt == #[false, false])
+        "returnAggregate leafIsInt must be #[false, false]"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad fi0, .stateLoad fi1 =>
+          expect (fi0 + 1 == fi1)
+            s!"ArrayRet leaf order must be consecutive field indices, got {fi0}/{fi1}"
+      | _, _ =>
+          throw <| IO.userError
+            "ArrayRet returnAggregate leaves must be stateLoad of slots fields"
+  | _ =>
+      throw <| IO.userError "ArrayRet getArr body must be .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrayRet plan must validate: {e.render}"
+  let d ← match engineeringTonPlanDigestV1 plan with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError e
+  let d2 ← match engineeringTonPlanDigestV1 plan with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError e
+  expect (d == d2) "ArrayRet plan digest deterministic"
+  let ir ← liftResult (irTon compiled)
+  let getArrIR ← findMethodIR ir "getArr"
+  expect (getArrIR.resultKind == getArr.resultKind)
+    "ArrayRet IR resultKind must match Plan"
+  let mut sawLeaves := false
+  for op in getArrIR.operations do
+    match op with
+    | .setReturnDataLeaves temps =>
+        expect (temps.size == 2)
+          s!"setReturnDataLeaves must have 2 temps, got {temps.size}"
+        sawLeaves := true
+    | .setReturnData _ =>
+        throw <| IO.userError "ArrayRet must not emit scalar setReturnData"
+    | _ => pure ()
+  expect sawLeaves "ArrayRet IR must emit setReturnDataLeaves"
+  let files ← liftResult (filesTon compiled)
+  let tolk ← findFile files "ArrayRet.tolk"
+  expect (tolk.contains "get fun getArr(): (int, int)")
+    s!"ArrayRet Tolk must declare tuple return type, got snippet around getArr"
+  expect (tolk.contains "return (")
+    "ArrayRet Tolk must emit multi-value return ("
+  expect (tolk.contains "struct Storage") "ArrayRet Storage preserved"
+  let abi ← findFile files "ArrayRet.ton-abi.json"
+  expect (abi.contains "\"returns\":[\"uint64\",\"uint64\"]")
+    s!"ArrayRet ABI must declare leaf tuple [\"uint64\",\"uint64\"], got: {abi}"
+  IO.println "  ✓ ArrayRet anonymous Array view return Plan/IR/Tolk/ABI pin"
+
+/-- BL-23 / N-ANON-RESULT: anonymous Option UInt64 view return = tag + payload
+(none=(0,0), some v=(1,v)); entry Option return stays fail closed. -/
+private unsafe def testAnonymousOptionReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptionRet" <|
+    "  state seed : UInt64\n\n" ++
+    "  init(s : UInt64) do\n" ++
+    "    seed := s\n\n" ++
+    "  entry put(v : UInt64) : UInt64 do\n" ++
+    "    seed := v\n" ++
+    "    return v\n\n" ++
+    "  view asNone() : Option UInt64 do\n" ++
+    "    return Option.none()\n\n" ++
+    "  view asSomeOfSeed() : Option UInt64 do\n" ++
+    "    return Option.some(seed)\n"
+  let compiled ← compileSource session source "Examples.OptionRet"
+    "<ton-option-ret>"
+  let plan ← liftResult (planTon compiled)
+  let asNone ← findMethod plan "asNone"
+  expect (asNone.mode == .view) "OptionRet asNone must be view"
+  match asNone.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptionRet none return must be tag+payload (2), got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "OptionRet leaves must be u64 words"
+  | other =>
+      throw <| IO.userError
+        s!"OptionRet asNone resultKind must be .aggregate, got {repr other}"
+  match asNone.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt == #[false, false])
+        "OptionRet asNone returnAggregate must have 2 u64 leaves"
+      match leaves[0]!, leaves[1]! with
+      | .literal t, .literal p =>
+          expect (t == 0 && p == 0)
+            s!"Option.none must lower to (0,0), got ({t},{p})"
+      | _, _ =>
+          throw <| IO.userError
+            "OptionRet asNone leaves must be literal tag/payload"
+  | _ =>
+      throw <| IO.userError "OptionRet asNone body must be .returnAggregate"
+  let asSome ← findMethod plan "asSomeOfSeed"
+  match asSome.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        "OptionRet some return must be tag+payload (2)"
+  | other =>
+      throw <| IO.userError
+        s!"OptionRet asSomeOfSeed resultKind must be .aggregate, got {repr other}"
+  match asSome.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt == #[false, false])
+        "OptionRet asSomeOfSeed returnAggregate must have 2 u64 leaves"
+      match leaves[0]!, leaves[1]! with
+      | .literal t, .stateLoad _ =>
+          expect (t == 1) s!"Option.some tag must be 1, got {t}"
+      | _, _ =>
+          throw <| IO.userError
+            "OptionRet asSomeOfSeed leaves must be literal 1 + stateLoad seed"
+  | _ =>
+      throw <| IO.userError "OptionRet asSomeOfSeed body must be .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptionRet plan must validate: {e.render}"
+  let ir ← liftResult (irTon compiled)
+  let noneIR ← findMethodIR ir "asNone"
+  expect (noneIR.operations.any fun
+      | .setReturnDataLeaves t => t.size == 2
+      | _ => false)
+    "OptionRet asNone IR must emit setReturnDataLeaves [2]"
+  let someIR ← findMethodIR ir "asSomeOfSeed"
+  expect (someIR.operations.any fun
+      | .setReturnDataLeaves t => t.size == 2
+      | _ => false)
+    "OptionRet asSomeOfSeed IR must emit setReturnDataLeaves [2]"
+  let files ← liftResult (filesTon compiled)
+  let tolk ← findFile files "OptionRet.tolk"
+  expect (tolk.contains "get fun asNone(): (int, int)")
+    "OptionRet Tolk must declare 2-leaf tuple return for asNone"
+  expect (tolk.contains "get fun asSomeOfSeed(): (int, int)")
+    "OptionRet Tolk must declare 2-leaf tuple return for asSomeOfSeed"
+  expect (tolk.contains "return (")
+    "OptionRet Tolk must emit multi-value return ("
+  let abi ← findFile files "OptionRet.ton-abi.json"
+  expect (abi.contains "\"returns\":[\"uint64\",\"uint64\"]")
+    s!"OptionRet ABI must declare [\"uint64\",\"uint64\"], got: {abi}"
+  IO.println "  ✓ OptionRet anonymous Option view return Plan/IR/Tolk/ABI pin"
+
+/-- Fail-closed: entry aggregate (named + anonymous), Map/Bytes returns, >8
+leaves (named + Array), nested Option, non-UInt64 Array element. -/
 private unsafe def testAggregateFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Entry (mutate) named Struct return stays fail-closed (TON async actor).
@@ -625,35 +806,36 @@ private unsafe def testAggregateFailClosed
     "<ton-struct-entry-ret>"
   expectPlanErrorContaining "StructEntryRet" "view-only"
     (planTon entryCompiled)
-  -- Also pin the entry aggregate message surface for product tests.
   match planTon entryCompiled with
   | .error (.planInvariant .ton msg) =>
-      expect (msg.contains "named aggregate" || msg.contains "return channel")
-        s!"StructEntryRet message must cite named aggregate / return channel, got: {msg}"
+      expect (msg.contains "multi-leaf" || msg.contains "return channel" ||
+          msg.contains "named")
+        s!"StructEntryRet message must cite multi-leaf / return channel, got: {msg}"
   | .error e => throw <| IO.userError s!"StructEntryRet: unexpected {e.render}"
   | .ok _ => throw <| IO.userError "StructEntryRet: expected FC, got ok"
-  -- Anonymous Array view return stays fail-closed.
-  let arrSource := wrapProgram "ArrayRet" <|
+  -- Entry (mutate) anonymous Array return stays fail-closed (same honesty).
+  let arrEntrySrc := wrapProgram "ArrayEntryRet" <|
     "  state slots : Array UInt64 2\n\n" ++
     "  init() do\n" ++
     "    slots[0] := 0\n" ++
     "    slots[1] := 0\n\n" ++
-    "  view getArr() : Array UInt64 2 do\n" ++
+    "  entry getArr() : Array UInt64 2 do\n" ++
     "    return slots\n"
-  match ← (do
-      try
-        let c ← compileSource session arrSource "Examples.ArrayRet" "<ton-array-ret>"
-        pure (some c)
-      catch _ => pure none) with
-  | none => pure ()  -- may fail at Normalize/typed
-  | some c =>
-      match planTon c with
-      | .error (.planInvariant .ton msg) =>
-          expect (msg.contains "aggregate" || msg.contains "Array" ||
-              msg.contains "container" || msg.contains "pilot")
-            s!"ArrayRet FC message must cite aggregate/Array/container/pilot, got: {msg}"
-      | .error e => throw <| IO.userError s!"ArrayRet: unexpected {e.render}"
-      | .ok _ => throw <| IO.userError "ArrayRet: expected FC, got ok"
+  let arrEntryCompiled ← compileSource session arrEntrySrc "Examples.ArrayEntryRet"
+    "<ton-array-entry-ret>"
+  expectPlanErrorContaining "ArrayEntryRet" "view-only"
+    (planTon arrEntryCompiled)
+  -- Entry Option return stays fail-closed.
+  let optEntrySrc := wrapProgram "OptionEntryRet" <|
+    "  state seed : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    seed := 0\n\n" ++
+    "  entry getOpt() : Option UInt64 do\n" ++
+    "    return Option.some(seed)\n"
+  let optEntryCompiled ← compileSource session optEntrySrc "Examples.OptionEntryRet"
+    "<ton-option-entry-ret>"
+  expectPlanErrorContaining "OptionEntryRet" "view-only"
+    (planTon optEntryCompiled)
   -- Cap-8: Struct with 9 UInt64 fields exceeds B-RET-ABI leaf cap.
   let mut fields := ""
   for i in [0:9] do
@@ -681,34 +863,126 @@ private unsafe def testAggregateFailClosed
       | .ok _ =>
           throw <| IO.userError
             "Ton 9-leaf aggregate return must fail closed (cap-8)"
-  -- Named aggregate param stays fail closed (params remain scalar).
-  let paramSrc := wrapProgram "AggParam" <|
-    "  struct Pair where\n" ++
-    "    a : UInt64\n" ++
-    "    b : UInt64\n" ++
-    "  state s : UInt64\n\n" ++
-    "  init(x : UInt64) do\n" ++
-    "    s := x\n\n" ++
-    "  entry go(p : Pair) : UInt64 do\n" ++
-    "    return s\n\n" ++
-    "  view peek() : UInt64 do\n" ++
-    "    return s\n"
+  -- Array UInt64 9 exceeds leaf cap-8.
+  let arrWideSrc := wrapProgram "ArrayWideRet" <|
+    "  state slots : Array UInt64 9\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "    slots[2] := 0\n" ++
+    "    slots[3] := 0\n" ++
+    "    slots[4] := 0\n" ++
+    "    slots[5] := 0\n" ++
+    "    slots[6] := 0\n" ++
+    "    slots[7] := 0\n" ++
+    "    slots[8] := 0\n\n" ++
+    "  view getArr() : Array UInt64 9 do\n" ++
+    "    return slots\n"
   match ← (do
       try
-        let c ← compileSource session paramSrc "Examples.AggParam" "<ton-agg-param>"
+        let c ← compileSource session arrWideSrc "Examples.ArrayWideRet"
+          "<ton-array-wide-ret>"
         pure (some c)
       catch _ => pure none) with
   | none => pure ()
   | some c =>
       match planTon c with
-      | .error _ => pure ()
+      | .error e =>
+          expect (e.render.contains "8" || e.render.contains "leaf" ||
+              e.render.contains "aggregate")
+            s!"ArrayWideRet leaf-cap error must cite cap/leaf/aggregate, got: {e.render}"
       | .ok _ =>
-          -- Named aggregate params may be admitted as flattened input leaves
-          -- on some targets; TON currently admits named aggregate params as
-          -- multi-word inputs (state of prior work). Pin only that plan is
-          -- produced OR FC — do not invent a new FC boundary here.
-          pure ()
-  IO.println "  ✓ aggregate return fail-closed boundaries (entry/anon/9-leaf)"
+          throw <| IO.userError
+            "Ton Array UInt64 9 view return must fail closed (cap-8)"
+  -- Map return stays fail closed with precise message.
+  let mapSrc := wrapProgram "MapRet" <|
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m[0] := 0\n\n" ++
+    "  view getMap() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+  match ← (do
+      try
+        let c ← compileSource session mapSrc "Examples.MapRet" "<ton-map-ret>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planTon c with
+      | .error (.planInvariant .ton msg) =>
+          expect (msg.contains "Map" || msg.contains "B-RET" ||
+              msg.contains "outside")
+            s!"MapRet FC message must cite Map/B-RET, got: {msg}"
+      | .error e => throw <| IO.userError s!"MapRet: unexpected {e.render}"
+      | .ok _ => throw <| IO.userError "MapRet: expected FC, got ok"
+  -- Bytes return stays fail closed with precise message.
+  let bytesSrc := wrapProgram "BytesRet" <|
+    "  state b : Bytes 4\n\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n\n" ++
+    "  view getBytes() : Bytes 4 do\n" ++
+    "    return b\n"
+  match ← (do
+      try
+        let c ← compileSource session bytesSrc "Examples.BytesRet" "<ton-bytes-ret>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planTon c with
+      | .error (.planInvariant .ton msg) =>
+          expect (msg.contains "Bytes" || msg.contains "B-RET" ||
+              msg.contains "outside")
+            s!"BytesRet FC message must cite Bytes/B-RET, got: {msg}"
+      | .error e => throw <| IO.userError s!"BytesRet: unexpected {e.render}"
+      | .ok _ => throw <| IO.userError "BytesRet: expected FC, got ok"
+  -- Nested anonymous Option (Array …) remains fail closed (non-UInt64 payload).
+  let nestedSrc := wrapProgram "NestedOptRet" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  view getNested() : Option Array UInt64 2 do\n" ++
+    "    return Option.none()\n"
+  match ← (do
+      try
+        let c ← compileSource session nestedSrc "Examples.NestedOptRet"
+          "<ton-nested-opt-ret>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()  -- may fail earlier at typed/Normalize
+  | some c =>
+      match planTon c with
+      | .error (.planInvariant .ton msg) =>
+          expect (msg.contains "Option" || msg.contains "UInt64" ||
+              msg.contains "payload" || msg.contains "Array" ||
+              msg.contains "anonymous")
+            s!"NestedOptRet FC must cite Option/UInt64/payload, got: {msg}"
+      | .error e => throw <| IO.userError s!"NestedOptRet: unexpected {e.render}"
+      | .ok _ => throw <| IO.userError "NestedOptRet: expected FC, got ok"
+  -- Non-UInt64 Array element stays fail closed.
+  let narrowArrSrc := wrapProgram "NarrowArrRet" <|
+    "  state slots : Array UInt32 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view getArr() : Array UInt32 2 do\n" ++
+    "    return slots\n"
+  match ← (do
+      try
+        let c ← compileSource session narrowArrSrc "Examples.NarrowArrRet"
+          "<ton-narrow-arr-ret>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planTon c with
+      | .error (.planInvariant .ton msg) =>
+          expect (msg.contains "UInt64" || msg.contains "Array" ||
+              msg.contains "element")
+            s!"NarrowArrRet FC must cite UInt64/Array element, got: {msg}"
+      | .error e => throw <| IO.userError s!"NarrowArrRet: unexpected {e.render}"
+      | .ok _ => throw <| IO.userError "NarrowArrRet: expected FC, got ok"
+  IO.println "  ✓ aggregate return fail-closed boundaries (entry/Map/Bytes/9-leaf/nested)"
 
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"
@@ -724,6 +998,8 @@ unsafe def run : IO Unit := do
   testRegistryDispatch session
   testNamedStructReturn session
   testNamedEnumReturn session
+  testAnonymousArrayReturn session
+  testAnonymousOptionReturn session
   testAggregateFailClosed session
   IO.println "TonPlanV1: all checks passed"
 

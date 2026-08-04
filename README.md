@@ -9,15 +9,17 @@
 
 ProofForge V2 is a **Lean 4** multi-target compiler (`proof-forge-next`): authors write a
 single `program … where` program; the compiler infers semantic **requirements**, then
-`--target` selects materialization. Engineering registry is **11 = 8 implemented + 3
-design-only**; eight targets own Plan/IR/materializer leaves today (EVM, Solana, NEAR,
-Noir, Aleo, Psy, CosmWasm, TON).
+`--target` selects materialization. Engineering registry is **12 = 9 implemented + 3
+design-only**; nine targets own Plan/IR/materializer leaves today (EVM, Solana, NEAR,
+Noir, Aleo, Psy, Quint, CosmWasm, TON). Quint is a non-deployable, source-only
+executable-model target; product finalization does not run Quint or Apalache.
 
 ProofForge V2 是用 **Lean 4** 实现的多目标编译器：作者只写统一的
 `program … where` 源码；编译器从源码推导语义需求（requirements），再由
-`--target` 选择物化方式。工程 registry **11 = 8 implemented + 3 design-only**；当前
-八个 target 各有 target-owned Plan/IR/materializer（EVM / Solana / NEAR / Noir / Aleo /
-Psy / CosmWasm / TON）。
+`--target` 选择物化方式。工程 registry **12 = 9 implemented + 3 design-only**；当前
+九个 target 各有 target-owned Plan/IR/materializer（EVM / Solana / NEAR / Noir / Aleo /
+Psy / Quint / CosmWasm / TON）。Quint 是不可部署的 source-only 可执行模型 target；产品
+finalization 不运行 Quint 或 Apalache。
 
 - **改 target 只能改制品与物化**，不能改整数语义、状态迁移、回滚、调用顺序、
   授权或信息披露语义。
@@ -62,6 +64,11 @@ just ci          # 普通开发机 / GitHub CI 的完整产品门禁
 lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
   --module Examples.Counter --target solana -o build/counter-solana
 
+# Quint Q0 是 zero-tool、不可部署的 executable-model source target：
+lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
+  --module Examples.Counter --target quint -o build/counter-quint
+lake env .lake/build/bin/proof-forge-next inspect build/counter-quint --json
+
 # 可选：显式联网 provision 一次，再离线物化锁定工具并生成 EVM bytecode。
 just toolchains-provision-external
 just toolchains-materialize-external "$PWD/build/dev-tool-root"
@@ -99,12 +106,13 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 同一 `Counter` 语义；`--target` 只改变物化与制品编码。
 
 - **Accepted PRD Phase 1 范围（四目标）**：EVM / Solana / NEAR / Noir。工程 registry
-  扩大到 Aleo / Psy / CosmWasm / TON 的 reconciliation 仍由 **`DOC-ADR-SCOPE`** 跟踪，
-  **不得**把后四者静默读成 accepted Phase 1 范围扩张。
-- **Engineering registry（代码事实）**：**11 = 8 implemented + 3 design-only**。八个
-  materializer：EVM、Solana、NEAR、Noir、Aleo、Psy、CosmWasm、TON；design-only：
-  Soroban、ICP、OpenVM。CosmWasm 工程面为 WAT + locked `wat2wasm` + `cosmwasm-check` +
-  cosmwasm-vm mock；TON 工程面为 Tolk + real BoC + `@ton/sandbox`。
+  扩大到 Aleo / Psy / Quint / CosmWasm / TON 的 reconciliation 仍由 **`DOC-ADR-SCOPE`** 跟踪，
+  **不得**把后五者静默读成 accepted Phase 1 范围扩张。
+- **Engineering registry（代码事实）**：**12 = 9 implemented + 3 design-only**。九个
+  materializer：EVM、Solana、NEAR、Noir、Aleo、Psy、Quint、CosmWasm、TON；design-only：
+  Soroban、ICP、OpenVM。Quint 只产 `.qnt` 且 zero-tool finalize；CosmWasm 工程面为 WAT +
+  locked `wat2wasm` + `cosmwasm-check` + cosmwasm-vm mock；TON 工程面为 Tolk + real BoC +
+  `@ton/sandbox`。
 
 下图是早期四目标架构示意；当前事实以本页诚实表与
 [`docs/targets/README.md`](docs/targets/README.md) 为准。
@@ -117,7 +125,7 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 |---|---|---|
 | [PNG](docs/diagrams/04-requirements-support.png) · [Excalidraw](docs/diagrams/04-requirements-support.excalidraw) | Requirements + SupportClaim 求解（fail closed） |
 | [PNG](docs/diagrams/05-target-landscape.png) · [Excalidraw](docs/diagrams/05-target-landscape.excalidraw) | Phase 1 vs design-only + 成熟度阶梯 |
-| [PNG](docs/diagrams/06-repo-layout.png) · [Excalidraw](docs/diagrams/06-repo-layout.excalidraw) | 根 = V2；`active/` = v1 归档 |
+| [PNG](docs/diagrams/06-repo-layout.png) · [Excalidraw](docs/diagrams/06-repo-layout.excalidraw) | 历史布局图；当前根 = V2，v1 `active/` 仅存于 Git 历史 |
 | [PNG](docs/diagrams/07-module-boundaries.png) · [Excalidraw](docs/diagrams/07-module-boundaries.excalidraw) | 模块边界与禁止依赖 |
 
 编辑白板：打开 [excalidraw.com](https://excalidraw.com) → Open 对应 `.excalidraw` →
@@ -169,8 +177,8 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 ## 目标与成熟度（诚实表）
 
 > **双轨**：表中「本阶段」区分 **accepted PRD Phase 1 四目标**（EVM/Solana/NEAR/Noir）与
-> **engineering implemented leaves**（Aleo/Psy/CosmWasm/TON；scope ADR 仍 open，见
-> `DOC-ADR-SCOPE`）。后四行 **不是** accepted Phase 1 范围扩张。
+> **engineering implemented leaves**（Aleo/Psy/Quint/CosmWasm/TON；scope ADR 仍 open，见
+> `DOC-ADR-SCOPE`）。后五行 **不是** accepted Phase 1 范围扩张。
 
 | Target | 角色 | 本阶段 | 证据状态（不得夸大） |
 |---|---|---|---|
@@ -180,6 +188,7 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 | `noir` | circuit | accepted Phase 1 | target-owned Plan/relation IR → `.nr` packages + locked nargo compile-only；**无** ACIR/witness/proof/VK/verify |
 | `aleo` | ZK application chain | engineering implemented (scope ADR open) | target-owned Plan/IR → Leo source + locked leo compile-only；**无** VM/prove/deploy |
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | target-owned Plan/IR → Dargo/Psy source；host-optional compile，无 locked VM/prover |
+| `quint` | executable specification / model | engineering implemented (scope ADR open) | target-owned Q0 Plan/structured IR → `.qnt`；zero-tool finalize、`deployable=false`；host Quint 0.32 仅 optional observation，**非** Tool Lock / ITF / MBT / verify / formal |
 | `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | target-owned Plan/IR → WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 差分；registry label=`wasm-validated-alpha`；sync call FC、async→SubMsg（同 tx savepoint，非跨 tx）；**非** wasmd/链上/formal |
 | `ton` | TVM stack-account | engineering implemented (scope ADR open) | target-owned Plan/IR → Tolk + real BoC + `@ton/sandbox` 工程差分；registry label=`source-only`；resolver 开 async/event、**Plan schedule 仍 FC**（destination/send-mode 未接线）；**非** 主网/formal |
 | Soroban / ICP / OpenVM | — | design only | 仅档案与路线图，**无** 产品 backend（design-only 3） |
@@ -198,9 +207,11 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 ├── docs/                  # PRD · 架构 · 规格 · ADR · diagrams
 ├── scripts/               # CI · clean-room · toolchain · 文档检查
 ├── justfile               # 本地与 CI 门禁入口
-├── active/                # 归档的 v1 全树（研究 only）
 └── AGENTS.md              # 给 agent / 贡献者的控制面
 ```
+
+历史 v1 `active/` 已从工作树删除；如本次 Quint 恢复一样，只能从 Git 对象做研究，
+不得作为 V2 import、adapter 或 runtime fallback。
 
 ---
 
@@ -250,7 +261,7 @@ ADR-0016 后工具链与 host 观察按平台拆分，两台机器都可以直�
   tool root、锁定 git/python 与 Stage-0 分支，consumer 对跨平台文件互相拒绝。
 - `just dev-check` 与 `just ci` 在两个平台都应可运行，且不会进入 Stage-0、custody 或
   formal qualification。2026-08-01 起 B11/B12 frontend supervisor 已删除；macOS/Linux 产品
-  source 路径均为进程内 `IO.FS.readFile` → `Loader.selectProgramV1Product`。这不提供 safe-open、
+  source 路径均为进程内单次 `IO.FS.readFile` → `Loader.selectProgramV1ProductWithTheoremInventory` → compile → `certifyInlineProofV1`。这不提供 safe-open、
   receipt 或 contained assurance。
 - 显式 EVM/NEAR build 可使用锁定的 per-tool development closure；完整 tool-root exact-set、
   clean-room 与 host qualification 只属于独立 release 流程。当前无 `release-check` recipe。

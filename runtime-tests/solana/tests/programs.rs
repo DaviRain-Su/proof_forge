@@ -2294,3 +2294,503 @@ fn maybe_ret_peek_some_after_put() {
         ],
     );
 }
+
+// ─── ArrayRet (BL-19: anonymous Array UInt64 2 multi-leaf return) ────────────
+
+/// Anonymous Array state `slots : Array UInt64 2` flattens to preorder leaves
+/// `slots_0`, `slots_1` sharing `source_id` 0 (same layout as ArraySlots).
+fn array_ret_fields() -> Vec<StateField> {
+    array_u64_leaves(2)
+}
+
+fn array_ret_state(initialized: bool, a: u64, b: u64) -> Vec<u8> {
+    state_data(&array_ret_fields(), initialized, &[a, b])
+}
+
+fn assert_array_ret_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("ArrayRet"),
+        &[
+            ("initialize", 2),
+            ("setArr", 2),
+            ("getArr", 0),
+        ],
+    );
+    let fields = array_ret_fields();
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, "slots_0");
+    assert_eq!(fields[1].name, "slots_1");
+    assert_eq!(fields[0].source_id, fields[1].source_id);
+}
+
+#[test]
+fn array_ret_initialize_stores_both_leaves() {
+    assert_array_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "ArrayRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("initialize", 2);
+    let a = 11u64;
+    let b = 22u64;
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[a, b], true, true),
+        &[(
+            state_key,
+            state_account(&program_id, array_ret_state(false, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::account(&state_key)
+                .data(&array_ret_state(true, a, b))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn array_ret_get_arr_returns_16_le_bytes() {
+    assert_array_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "ArrayRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("getArr", 0);
+    let a = 0x1122_3344_5566_7788u64;
+    let b = 0xaabb_ccdd_eeff_0011u64;
+    let expected = multi_return_le(&[a, b]);
+    assert_eq!(expected.len(), 16);
+    assert_eq!(&expected[..8], &a.to_le_bytes());
+    assert_eq!(&expected[8..], &b.to_le_bytes());
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, array_ret_state(true, a, b)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&array_ret_state(true, a, b))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn array_ret_set_arr_updates_and_returns_multi() {
+    assert_array_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "ArrayRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("setArr", 2);
+    let x = 99u64;
+    let y = 42u64;
+    let expected = multi_return_le(&[x, y]);
+    assert_eq!(expected.len(), 16);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[x, y], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, array_ret_state(true, 1, 2)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&array_ret_state(true, x, y))
+                .build(),
+        ],
+    );
+}
+
+// ─── OptionRet (BL-19: anonymous Option UInt64 tag+payload return) ──────────
+
+/// Scalar pad state only (Option is return-only; Option state stays FC).
+fn option_ret_fields() -> Vec<StateField> {
+    vec![StateField {
+        source_id: 0,
+        name: "pad",
+        byte_offset: STATE_HEADER_BYTES,
+        byte_width: 8,
+    }]
+}
+
+fn option_ret_state(initialized: bool, pad: u64) -> Vec<u8> {
+    state_data(&option_ret_fields(), initialized, &[pad])
+}
+
+fn assert_option_ret_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("OptionRet"),
+        &[
+            ("initialize", 0),
+            ("putSome", 1),
+            ("putNone", 0),
+            ("peekSome", 0),
+            ("peekNone", 0),
+        ],
+    );
+    let fields = option_ret_fields();
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "pad");
+}
+
+#[test]
+fn option_ret_initialize_zero_pad() {
+    assert_option_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("initialize", 0);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, true),
+        &[(
+            state_key,
+            state_account(&program_id, option_ret_state(false, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::account(&state_key)
+                .data(&option_ret_state(true, 0))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn option_ret_peek_none_returns_tag_zero_pad() {
+    assert_option_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("peekNone", 0);
+    // none = (0, 0)
+    let expected = multi_return_le(&[0, 0]);
+    assert_eq!(expected.len(), 16);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_ret_state(true, 7)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            // View must not mutate pad.
+            Check::account(&state_key)
+                .data(&option_ret_state(true, 7))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn option_ret_put_some_returns_tag_one_and_payload() {
+    assert_option_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("putSome", 1);
+    let v = 0xdead_beef_cafe_u64;
+    // some(v) = (1, v)
+    let expected = multi_return_le(&[1, v]);
+    assert_eq!(expected.len(), 16);
+    assert_eq!(&expected[..8], &1u64.to_le_bytes());
+    assert_eq!(&expected[8..], &v.to_le_bytes());
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[v], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_ret_state(true, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&option_ret_state(true, v))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn option_ret_put_none_returns_zeros() {
+    assert_option_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionRet");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("putNone", 0);
+    let expected = multi_return_le(&[0, 0]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_ret_state(true, 0x99)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&option_ret_state(true, 0))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn option_ret_peek_some_after_put() {
+    assert_option_ret_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionRet");
+    let state_key = Pubkey::new_unique();
+    let put_disc = instruction_discriminator("putSome", 1);
+    let peek_disc = instruction_discriminator("peekSome", 0);
+    let v = 55u64;
+    let expected = multi_return_le(&[1, v]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &put_disc, &[v], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_ret_state(true, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&option_ret_state(true, v))
+                .build(),
+        ],
+    );
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &peek_disc, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_ret_state(true, v)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+        ],
+    );
+}
+
+// ─── OptionState (BL-29 / B-OPT-STATE: Option UInt64 2-leaf state) ──────────
+
+/// Option UInt64 state flattens to Enum-shaped leaves: `slot_tag`, `slot_p0`
+/// (shared source_id 0). none tag=0 payload=0; some(v) tag=1 payload=v.
+fn option_state_fields() -> Vec<StateField> {
+    vec![
+        StateField {
+            source_id: 0,
+            name: "slot_tag",
+            byte_offset: STATE_HEADER_BYTES,
+            byte_width: 8,
+        },
+        StateField {
+            source_id: 0,
+            name: "slot_p0",
+            byte_offset: STATE_HEADER_BYTES + 8,
+            byte_width: 8,
+        },
+    ]
+}
+
+fn option_state_account(initialized: bool, tag: u64, payload: u64) -> Vec<u8> {
+    state_data(&option_state_fields(), initialized, &[tag, payload])
+}
+
+fn assert_option_state_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("OptionState"),
+        &[
+            ("initialize", 0),
+            ("set", 1),
+            ("clear", 0),
+            ("peek", 0),
+            ("getOpt", 0),
+        ],
+    );
+    let fields = option_state_fields();
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, "slot_tag");
+    assert_eq!(fields[1].name, "slot_p0");
+    let opt_marker = layout_marker(&fields);
+    let maybe_marker = layout_marker(&maybe_ret_fields());
+    assert_ne!(opt_marker, 0);
+    // Distinct layout from named Maybe (different field names) → different marker.
+    assert_ne!(opt_marker, maybe_marker);
+}
+
+#[test]
+fn option_state_initialize_none_default() {
+    assert_option_state_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionState");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("initialize", 0);
+    // none default: tag 0, payload 0 (zeroAllFields + Option.none construct).
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, true),
+        &[(
+            state_key,
+            state_account(&program_id, option_state_account(false, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::account(&state_key)
+                .data(&option_state_account(true, 0, 0))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn option_state_peek_none_returns_zero() {
+    assert_option_state_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionState");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("peek", 0);
+    let expected = 0u64.to_le_bytes().to_vec();
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_state_account(true, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&option_state_account(true, 0, 0))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn option_state_set_some_write_and_peek() {
+    assert_option_state_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionState");
+    let state_key = Pubkey::new_unique();
+    let set_disc = instruction_discriminator("set", 1);
+    let peek_disc = instruction_discriminator("peek", 0);
+    let v = 0xdead_beef_cafe_u64;
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &set_disc, &[v], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_state_account(true, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&v.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&option_state_account(true, 1, v))
+                .build(),
+        ],
+    );
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &peek_disc, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_state_account(true, 1, v)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&v.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&option_state_account(true, 1, v))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn option_state_clear_zeroes_payload() {
+    assert_option_state_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionState");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("clear", 0);
+    // clear must write none leaves: tag 0 AND zeroed payload (no stale Some).
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], true, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_state_account(true, 1, 0x99)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&option_state_account(true, 0, 0))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn option_state_get_opt_returns_tag_payload() {
+    assert_option_state_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionState");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("getOpt", 0);
+    let v = 55u64;
+    let expected = multi_return_le(&[1, v]);
+    assert_eq!(expected.len(), 16);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_state_account(true, 1, v)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&option_state_account(true, 1, v))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn option_state_get_opt_none_returns_zeros() {
+    assert_option_state_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "OptionState");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("getOpt", 0);
+    let expected = multi_return_le(&[0, 0]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[], false, false),
+        &[(
+            state_key,
+            state_account(&program_id, option_state_account(true, 0, 0)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&expected),
+            Check::account(&state_key)
+                .data(&option_state_account(true, 0, 0))
+                .build(),
+        ],
+    );
+}

@@ -50,7 +50,7 @@ development in-process 路径若发出 observation 投影，assurance class 必�
 （`darwin-development-observed` 永不等于 `contained` / formal evidence；Linux `contained` 仅在
 controller-bound + controller-event attribution 下成立，禁止 silent fallback）。
 
-**当前 B8b + ADR-0026 engineering：** `check` / `build` 解析 canonical root-relative source path；
+**当前 B8b + ADR-0027 engineering：** `check` / `build` 解析 canonical root-relative source path；
 `CLI.Main.loadSourceProduct` 以 **一次** `IO.FS.readFile` 读入并调用
 `Loader.selectProgramV1ProductWithTheoremInventory`，进入 located Normalize /
 `compileProgramProductV1`，再 **`certifyInlineProofV1`**（held raw；失败 `PF-SRC-INVALID`/
@@ -64,5 +64,5 @@ out of scope；narrow product same-file ordinary-theorem check positive 已由 C
 覆盖全部命令/flags（含 **已删除** `--proof-bundle*` 为 unknown）、multi-program、unknown
 target/profile/network、exit priority、JSON/human、TTY、signals、private file/FD、build network
 prohibition、inline proof fail-closed、output force、parser default `1.0.0`、supervised
-`receipts` 形状。关联 `SPEC-CLI-001`、`SPEC-DIAG-001`、`ADR-0022`、`ADR-0026`、`TASK-D3-06`、
+`receipts` 形状。关联 `SPEC-CLI-001`、`SPEC-DIAG-001`、`ADR-0022`、`ADR-0027`、`TASK-D3-06`、
 `TST-CLI-*`、`TST-PROOF-INLINE-E1`。

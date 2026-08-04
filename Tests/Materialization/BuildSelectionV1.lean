@@ -203,6 +203,11 @@ private def testGrammar : IO Unit := do
     "well-known near profile constant"
   expect (CodegenProfileId.noirSourceU64RelationsV1 == (← parseProfile "noir-source-u64-relations-v1"))
     "well-known noir profile constant"
+  expect (CodegenProfileId.quintSourceU64ModelV1 == (← parseProfile "quint-source-u64-model-v1"))
+    "well-known Quint profile constant"
+  expect (TargetId.parse? "quint" == some TargetId.quint)
+    "well-known Quint target constant"
+  expect (TargetId.ofKind .quint == TargetId.quint) "ofKind Quint"
   expect (CodegenProfileId.parse? "A--").isNone "invalid profile parse is none"
   expect (CodegenProfileId.parse? "evm-yul-solc-0.8.34-v1" ==
       some CodegenProfileId.evmYulSolc0834V1)
@@ -213,20 +218,20 @@ private def testGrammar : IO Unit := do
 private def testRegistrySeedMembership : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 11) "initial registry must contain 8 implemented + 3 design-only"
+  expect (regs.size == 12) "initial registry must contain 9 implemented + 3 design-only"
   match createTargetRegistryV1 initialRegistrationRowsV1 with
   | .ok rebuilt =>
-      expect (rebuilt.toArray.size == 11) "rebuilt seed registry size"
+      expect (rebuilt.toArray.size == 12) "rebuilt seed registry size"
   | .error e => throw <| IO.userError s!"initialRegistrationRowsV1 must validate: {e.render}"
   let impl ← liftResult implementedRegistrations
   let design ← liftResult designOnlyRegistrations
-  expect (impl.size == 8) "exactly eight implemented targets"
+  expect (impl.size == 9) "exactly nine implemented targets"
   expect (design.size == 3) "exactly three design-only targets"
   let expectedIds :=
-    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "solana", "soroban", "ton"]
+    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
   let ids := regs.map (·.targetId.toString)
   expect (ids == expectedIds) s!"exact closed target id set, got {ids}"
-  let expectedImpl := #["aleo", "cosmwasm", "evm", "near", "noir", "psy", "solana", "ton"]
+  let expectedImpl := #["aleo", "cosmwasm", "evm", "near", "noir", "psy", "quint", "solana", "ton"]
   expect (impl.map (·.targetId.toString) == expectedImpl)
     s!"exact implemented set, got {impl.map (·.targetId.toString)}"
   let expectedDesign := #["icp", "openvm", "soroban"]
@@ -268,6 +273,7 @@ private def testRegistrySeedMembership : IO Unit := do
   expectDefault TargetId.solana "solana-sbpf-plan-v1"
   expectDefault TargetId.near "near-wasm-raw-u64-v1"
   expectDefault TargetId.noir "noir-source-u64-relations-v1"
+  expectDefault TargetId.quint "quint-source-u64-model-v1"
   expectErrorCode (createTargetRegistryV1 #[])
     "PF-REGISTRY-INVALID" "empty seed never succeeds"
   let sentinel : CompileResult TargetRegistryV1 :=
@@ -477,10 +483,10 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (msg == "duplicate --target") "success seed duplicate --target"
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
-  expect (defaultList.size == 8) "default list-targets is implemented-only"
+  expect (defaultList.size == 9) "default list-targets is implemented-only"
   expect (defaultList == #["aleo\tsource-only", "cosmwasm\twasm-validated-alpha",
       "evm\truntime-validated-alpha", "near\twasm-validated-alpha", "noir\tsource-only",
-      "psy\tsource-only", "solana\tplan-only", "ton\tsource-only"])
+      "psy\tsource-only", "quint\tsource-only", "solana\tplan-only", "ton\tsource-only"])
     s!"default list-targets exact lines, got {defaultList}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
   expect (allList == #[
@@ -492,6 +498,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       "noir\tsource-only",
       "openvm\tresearch-only",
       "psy\tsource-only",
+      "quint\tsource-only",
       "solana\tplan-only",
       "soroban\tresearch-only",
       "ton\tsource-only"])

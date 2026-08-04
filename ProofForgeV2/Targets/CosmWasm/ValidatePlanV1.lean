@@ -401,7 +401,7 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
       | .unit => false
     unless resultKindOk do
       throw <| .planInvariant .cosmwasm
-        s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int64, Bool, or aggregate (1..8×UInt64/Int64 leaves)"
+        s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int64, Bool, or aggregate (named Struct/Enum or anonymous Array/Option; 1..8 × 8-byte leaves)"
   unless method.depositPolicy ==
       (if method.mode == .view then .queryOnly else .requireZero) do
     throw <| .planInvariant .cosmwasm s!"method '{method.name}' deposit policy is not canonical"

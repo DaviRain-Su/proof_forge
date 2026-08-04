@@ -445,6 +445,20 @@ mutual
                   | some ep => childOrFail ep "Expr.LocalCall" "args" i
                 let _ ← exprVisibility tables scope pc ap? a
           pure publicEvidence
+    | .externalCall call => do
+        -- N-CALL-RET: value-position sync call. Args are explicit public sinks
+        -- (same as statement call); the result label is public_.
+        let callPath? ← match exprPath? with
+          | none => pure none
+          | some ep => directOrFail ep "Expr.ExternalCall" "call"
+        for (a, i) in call.args.zipIdx do
+          let ap? ← match callPath? with
+            | none => pure none
+            | some cp => childOrFail cp "ExternalCallExpr" "args" i
+          let v ← exprVisibility tables scope pc ap? a
+          requirePublic pc v ap?
+            (stableUniqueUnion (optPathArray exprPath?) (optPathArray callPath?))
+        pure publicEvidence
     | .match_ scrutinee arms => do
         -- Expression match: result = join(scrutControl, join of arm values) so
         -- the scrutinee control-taints the result (decl causes + scrutinee Expr

@@ -1,0 +1,11 @@
+[package]
+name = "mock-callee"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Tiny zero-account SBPF mock CPI callee for ProofForge BL-27"
+
+[dependencies]
+
+[features]
+test-sbf = []

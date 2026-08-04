@@ -189,6 +189,53 @@ private def strBoxSourceText : String :=
   "  view get() : UInt64 do\n" ++
   "    return pad\n"
 
+/-- BL-18: anonymous Array UInt64 2 view return (tuple ABI / returnAggregate). -/
+private def arrayRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program ArrayRet where\n" ++
+  "  state slots : Array UInt64 2\n" ++
+  "  init() do\n" ++
+  "    slots[0] := 0\n" ++
+  "    slots[1] := 0\n" ++
+  "  view getArr() : Array UInt64 2 do\n" ++
+  "    return slots\n"
+
+/-- BL-18: anonymous Option UInt64 none/some view returns (tag+payload tuple). -/
+private def optionRetSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program OptionRet where\n" ++
+  "  state flag : UInt64\n" ++
+  "  init(f : UInt64) do\n" ++
+  "    flag := f\n" ++
+  "  view getNone() : Option UInt64 do\n" ++
+  "    return Option.none()\n" ++
+  "  view getSome(x : UInt64) : Option UInt64 do\n" ++
+  "    return Option.some(x)\n"
+
+/-- BL-31 / B-OPT-STATE: Option UInt64 state (tag+payload slots) + match read
+    + none reset. Must compile under solc 0.8.34 strict-assembly. -/
+private def optionStateSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program OptionState where\n" ++
+  "  state slot : Option UInt64\n" ++
+  "  init() do\n" ++
+  "    slot := Option.none()\n" ++
+  "  entry setSome(v : UInt64) : UInt64 do\n" ++
+  "    slot := Option.some(v)\n" ++
+  "    return v\n" ++
+  "  entry clear() : UInt64 do\n" ++
+  "    slot := Option.none()\n" ++
+  "    return 0\n" ++
+  "  view peek() : UInt64 do\n" ++
+  "    match slot with\n" ++
+  "    | Option.some(x) => do\n" ++
+  "      return x\n" ++
+  "    | _ => do\n" ++
+  "      return 0\n"
+
 /-- B-EVM-MAP-STACK: shipped Token dense Map must pass the suite-resolved
     host `solc` without StackTooDeep (24-leaf storeAtomic spill). The separate
     `Tests.Product.TokenV1` CLI path remains the locked-solc authority.
@@ -227,7 +274,15 @@ unsafe def run : IO Unit := do
           strBoxSourceText "Tests.EvmSolc.StrBox" "StrBox.yul"
         acceptProgram solc tmp "LoopSum"
           loopSumSourceText "Tests.EvmSolc.LoopSum" "LoopSum.yul"
+        acceptProgram solc tmp "ArrayRet"
+          arrayRetSourceText "Tests.EvmSolc.ArrayRet" "ArrayRet.yul"
+        acceptProgram solc tmp "OptionRet"
+          optionRetSourceText "Tests.EvmSolc.OptionRet" "OptionRet.yul"
+        -- BL-31: Option UInt64 state (2-slot tag+payload) under solc strict-assembly.
+        acceptProgram solc tmp "OptionState"
+          optionStateSourceText "Tests.EvmSolc.OptionState" "OptionState.yul"
         -- Dense Map 24-leaf storeAtomic: spill must keep solc stack depth finite.
+        -- Token stack budget must remain unaffected by Option state admission.
         acceptShippedToken solc tmp
         IO.println "Tests.Materialization.EvmSolcAcceptance: ok"
       finally

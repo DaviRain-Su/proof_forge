@@ -19,10 +19,11 @@ normative: true
 `selectProgramV1ProductWithTheoremInventory` → CheckV1/Normalize →
 `CompiledSemanticV1` → **`certifyInlineProofV1`** → capability Plan/IR → 工程制品/disk
 closure（无 `--proof-bundle*`）。
-工程 registry **11 = 8 implemented + 3 design-only**；**八个 materializer**
-（EVM/Solana/NEAR/Noir/Aleo/Psy/CosmWasm/TON）均直连 retained `SemanticProgramV1`。
-CosmWasm：WAT + `wat2wasm` + check + mock VM；TON：Tolk/BoC + sandbox（Plan schedule 仍
-FC）。**Accepted PRD Phase 1 仍为四目标**（EVM/Solana/NEAR/Noir）；Aleo/Psy/CosmWasm/TON
+工程 registry **12 = 9 implemented + 3 design-only**；**九个 materializer**
+（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）均直连 retained `SemanticProgramV1`。
+Quint：source-only `.qnt` + zero-tool finalize；CosmWasm：WAT + `wat2wasm` + check + mock VM；
+TON：Tolk/BoC + sandbox（Plan schedule 仍 FC）。**Accepted PRD Phase 1 仍为四目标**
+（EVM/Solana/NEAR/Noir）；Aleo/Psy/Quint/CosmWasm/TON
 为 engineering leaves，范围 reconciliation 待 **`DOC-ADR-SCOPE`**。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 
@@ -33,7 +34,7 @@ Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target
 
 既有 formal task 与 TaskQualification 资料继续如实保留，但不冒充工程实现完成度，也不阻塞日常开发。
 
-**Inline proof（ADR-0026，`proposed`）**：产品 sole gate 为
+**Inline proof（ADR-0027，`proposed`）**：产品 sole gate 为
 `selectProgramV1ProductWithTheoremInventory` → `certifyInlineProofV1`（非 sandbox；无
 `--proof-bundle*`）；hash 不含 theorem body；仅 `InvariantTheoremV1`/`StateConformsV1`；
 check 报告 proofStatus；build 只门禁。**Engineering closed（narrow family）**：
@@ -41,7 +42,7 @@ legal-only simple-closure encode/decode + ordinal-0 `InvariantTheoremV1` + liter
 public-Bool-view same-file ordinary theorem 的真实 product `check` certified 正例；theorem
 body 不改 source/semantic identity但改变 certification digest。formal TST、reachability、
 target refinement、sandbox/hermetic/release 仍 open。见
-[`adr/0026-inline-same-file-theorem-certification.md`](adr/0026-inline-same-file-theorem-certification.md)。
+[`adr/0027-inline-same-file-theorem-certification.md`](adr/0027-inline-same-file-theorem-certification.md)。
 
 ## 生命周期
 

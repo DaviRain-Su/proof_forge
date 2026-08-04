@@ -20,7 +20,7 @@ normative: true
 > `artifact-output.published-bytes` 已进程内强制。以下 receipt/containment 条款是
 > proposed 目标。
 >
-> **Inline proof（ADR-0026 sole product gate）**：ProgramV1/`semanticHash` 不含 theorem
+> **Inline proof（ADR-0027 sole product gate）**：ProgramV1/`semanticHash` 不含 theorem
 > body；固定 axiom `Classical.choice`/`Quot.sound`/`propext`；当前仅
 > `InvariantTheoremV1`/`StateConformsV1`；**不** 声称 formal TST/release。check 成功输出
 > `proofStatus` / theorem count / certification digest；build 只做门禁、成功输出 **不**
@@ -29,7 +29,7 @@ normative: true
 > `ProofedProof.safe`）。**Narrow product positive 已完成 engineering 验证**：literal-true /
 > public-Bool-view same-file ordinary theorem 经 `certifyInlineProofV1` 的真实 product
 > `check` 得 certified/count/digest；body 改写保持 source/semantic identity、改变 cert digest；
-> fail-closed 与 proof-first/零 staging 门槛已进 ordinary shards（见下文 / ADR-0026 /
+> fail-closed 与 proof-first/零 staging 门槛已进 ordinary shards（见下文 / ADR-0027 /
 > TST-PROOF-INLINE-E1）。
 
 可执行文件固定 `proof-forge-next`。所有命令 non-interactive；JSON 输出 stdout，日志和
@@ -107,7 +107,7 @@ target semantics/Plan，不得通过这些 compiler-operation flags 改写。
 
 ## Proof certification（sole product gate：inline same-file）
 
-产品 `check` / `build` **唯一** proof 路径是 ADR-0026 inline same-file certification。
+产品 `check` / `build` **唯一** proof 路径是 ADR-0027 inline same-file certification。
 **不存在** 产品 CLI alternate / fallback 到 external `ProofBundleV1`。
 
 ### 固定执行顺序
@@ -134,10 +134,10 @@ single IO.FS.readFile (project-root-relative source)
    `semanticHash`；
 5. 当前命题仅全体 `StateConformsV1` 上 `evalInvariantV1 = .returnedTrue`；不声称
    reachability / init-step safety / target refinement / formal `TST-PROOF-001`；
-6. nonempty invariant 的 **target materializer** 仍可 fail closed（与 proof gate 正交）；
+6. Quint Q0 的 read-only Bool invariant 支持是独立 target 能力；其余 nonempty invariant 的 **target materializer** 仍可 fail closed（与 proof gate 正交）；
 7. **Engineering 分层**：simple-closure/ordinal-0 kernel cert 与 narrow product
    `check` certified 正例均已由独立 suites 验证；目标窄家族为 literal-true /
-   public-Bool-view + same-file ordinary theorem。ADR-0026 / `TST-PROOF-INLINE-E1` 的 CLI
+   public-Bool-view + same-file ordinary theorem。ADR-0027 / `TST-PROOF-INLINE-E1` 的 CLI
    正例、fail-closed、gate 顺序、hash 与无用户 `.olean` 门槛继续作为回归契约；不升格 formal。
 
 ### check / build 输出差异
@@ -206,8 +206,9 @@ human stderr 文本 **不是** `receipts` 的稳定替代 API。
 
 ### B8b product diagnostic exit（engineering）
 
-`check` / `build` 产品路径经进程内 `IO.FS.readFile` →
-`Loader.selectProgramV1Product` → located Normalize → product Compiler；不经过 B10 worker 或
+`check` / `build` 产品路径经进程内单次 `IO.FS.readFile` →
+`Loader.selectProgramV1ProductWithTheoremInventory` → located Normalize → product Compiler →
+`certifyInlineProofV1`；不经过 B10 worker 或
 B11/B12 supervisor。Loader 与后续 compiler 失败在 stderr 一次打印全部
 `DiagnosticBundleV1.renderHuman` 行。exit 为 `DiagnosticBundleV1.selectExitCode`：仅
 `severity=error`；`PF-DIAG-LIMIT` 与 warning/note 中立；`PF-INTERNAL` → 70；phase

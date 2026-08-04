@@ -353,6 +353,9 @@ def canonicalNodeVisitsV1
           visits := visits.push (visit "Expr.Match" current)
           pending ← pushArrayV1 pending current.path "Expr.Match" "arms" arms .exprMatchArm
           pending ← pushDirectV1 pending current.path "Expr.Match" "scrutinee" (.expr scrutinee)
+      | .externalCall call =>
+          visits := visits.push (visit "Expr.ExternalCall" current)
+          pending ← pushDirectV1 pending current.path "Expr.ExternalCall" "call" (.externalCall call)
     | .place value =>
       match value with
       | .name _ => visits := visits.push (visit "Place.Name" current)

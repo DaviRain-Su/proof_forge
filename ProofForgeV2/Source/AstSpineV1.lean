@@ -25,6 +25,7 @@ mutual
     | binary (op : BinaryOpV1) (lhs rhs : ExprV1)
     | localCall (callee : SourceNameComponentV1) (args : Array ExprV1)
     | match_ (scrutinee : ExprV1) (arms : Array ExprMatchArmV1)
+    | externalCall (call : ExternalCallExprV1)
     deriving Repr
 
   structure ExprMatchArmV1 where

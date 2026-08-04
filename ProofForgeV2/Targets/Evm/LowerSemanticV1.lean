@@ -15,7 +15,13 @@ Plan canonicity lives in `ValidatePlanV1`; Yul/ABI emission in `EmitIRV1`.
 B-RET-ABI: named Struct/Enum entry/view returns are admitted via
 `ResultKind.aggregate` + `Statement.returnAggregate` (≤8 UInt64/Int64 leaves
 in preorder flatten order; Solidity tuple ABI with `components`).
-Anonymous container returns (Array/Map/Bytes/Option) stay fail-closed.
+BL-18 / N-ANON-RESULT (EVM ABI): also admits anonymous `Array UInt64 N`
+(N ≤ 8 preorder leaves) and `Option UInt64` (tag + payload, 2 leaves).
+BL-31 / B-OPT-STATE: `state x : Option UInt64` is admitted as a 2-slot
+storage layout exactly matching a named 2-variant Enum (tag 0/1 + payload;
+payload zeroed on none). Read via existing VariantTag/VariantPayload match
+path. Option of non-UInt64, Option params, nested/Bytes/Map options stay
+fail-closed. Bytes / Map / non-UInt64 Array elements stay fail-closed.
 -/
 
 namespace ProofForgeV2.Targets.Evm
@@ -214,6 +220,12 @@ inductive Statement where
       name + `uint64` ABI. Not a dynamic address ValueId (B-3 Principal remains
       fail-closed). Failure reverts the caller. -/
   | externalCall (callee : Array String) (args : Array Expr)
+  /-- N-CALL-RET/B-CALL-SEM: result-bearing sync call. Same static-callee
+      CALL as `externalCall`, then RETURNDATASIZE guard (≥32) + first-word
+      read + UInt64 range check (short data or out-of-range revert with the
+      EVM-bare `revert(0,0)` convention). Failure reverts the caller.
+      `resultTemp` is the ValueId-canonical temp bound to the returned word. -/
+  | externalCallResult (callee : Array String) (args : Array Expr) (resultTemp : Nat)
   /-- Async fire-and-forget schedule (void). Same static-callee address/selector
       derivation as `externalCall`, but CALL success is ignored (no response
       channel — matches Reference schedule semantics). -/
@@ -256,8 +268,9 @@ structure LeafAbiType where
 
 /-- Declared ABI result kind for an entry/view. Results admit
 UInt8/16/32/64/128/256/Bool/Int8/16/32/64/Field (T9a/T9b/T9c). B-RET-ABI
-adds `.aggregate` for named Struct/Enum entry/view returns: leaves are
-emitted as an ABI tuple in preorder flatten order (≤8 leaves). -/
+adds `.aggregate` for named Struct/Enum and admitted anonymous Array/Option
+entry/view returns: leaves are emitted as an ABI tuple in preorder flatten
+order (≤8 leaves). -/
 inductive ResultKind where
   | uint64
   | bool
@@ -275,10 +288,11 @@ inductive ResultKind where
   | int8
   | int16
   | int32
-  /-- B-RET-ABI: named Struct/Enum aggregate return. `leaves` carries the
-  per-leaf ABI type in preorder flatten order (1..8 leaves). Anonymous
-  container result types (Array/Map/Bytes/Option) stay fail-closed at the
-  result-kind resolution boundary (not here). -/
+  /-- B-RET-ABI / BL-18: multi-leaf aggregate return. `leaves` carries the
+  per-leaf ABI type in preorder flatten order (1..8 leaves). Covers named
+  Struct/Enum, anonymous `Array UInt64 N` (N≤8), and `Option UInt64`
+  (tag+payload). Bytes/Map/non-UInt64 Array/nested containers fail closed
+  at result-kind resolution. -/
   | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
@@ -383,9 +397,12 @@ private def evmPlanErr (message : String) : CompileError :=
     admit UInt64/Int64 leaves only** via
     `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*` with
     `allowNonPublic := true` (N3), **Array state** flattens to contiguous
-    scalar slots (element UInt8/16/32/64/128/256), and **Map UInt64 UInt64**
+    scalar slots (element UInt8/16/32/64/128/256), **Map UInt64 UInt64**
     flattens to a dense pilot table (16×(occ,key,val) UInt64 leaves; dynamic
-    keys OK). non-64 Int fail closed.
+    keys OK), and **Option UInt64 state** (BL-31) flattens to tag+payload
+    (2 UInt64 leaves; Enum-identical layout; none zeros payload). Option of
+    non-UInt64 / Option params / nested Option stay fail closed. non-64 Int
+    fail closed.
     T9b admits UInt128/256 on scalar state/param/body/result. T10: Principal
     admitted as **storage identity only** (`pilotPrincipalPolicyAdmit`) —
     fixed leaf layout len+8×UInt64 (≤64B body, same pattern as N4 String);
@@ -603,30 +620,78 @@ private def leafCountOfTypeV1
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
 
-/-- B-RET-ABI: resolve a named Struct/Enum result TypeId into an aggregate
-`ResultKind`. Leaves come from `flattenTypeLeafSpecsV1` (preorder, UInt64/Int64
-ABI words). Enforces 1..8 leaves. String/Principal fields flatten to multi-
-word leaves that exceed the cap-8 bound for any non-trivial payload, so they
-are naturally excluded. Anonymous container result types (Array/Map/Bytes/
-Option) are not named aggregates and fail closed here. -/
+/-- True when `typeId` is an anonymous `.option` TypeDecl. Option is admitted
+    as a Map IndexGet intermediate, as BL-18 entry/view return, and as BL-31
+    Option UInt64 state (tag+payload slots). It is never in `containerTypeIds`. -/
+private def isOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, .. } => true
+  | _ => false
+
+/-- B-RET-ABI / BL-18: resolve a result TypeId into an aggregate `ResultKind`.
+Admits:
+  · named Struct/Enum — preorder flatten via `flattenTypeLeafSpecsV1`
+    (UInt64/Int64 ABI words; 1..8 leaves)
+  · anonymous `Array UInt64 N` with 1 ≤ N ≤ 8 — N UInt64 leaves (exactly like
+    a struct of N UInt64 fields)
+  · anonymous `Option UInt64` — tag + payload (2 UInt64 leaves; none=(0,0),
+    some v=(1,v), same layout as a 2-variant enum)
+
+Fail closed: Bytes (UInt8 width class), Map (runtime key order), Array of
+non-UInt64 elements, Option of non-UInt64, nested anonymous containers,
+N > 8. String/Principal fields of named aggregates exceed cap-8 for any
+non-trivial payload and are naturally excluded. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
-  unless types.isNamedAggregate typeId do
-    throw <| .planInvariant .evm
-      s!"{owner} does not return a named Struct/Enum aggregate"
-  let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
-  let n := specs.size
-  unless n > 0 do
-    throw <| .planInvariant .evm
-      s!"{owner} aggregate return must have at least one leaf"
-  unless n <= 8 do
-    throw <| .planInvariant .evm
-      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
-  let mut leaves : Array LeafAbiType := #[]
-  for (_, isInt) in specs do
-    leaves := leaves.push { isInt, byteWidth := 8 }
-  pure (.aggregate leaves)
+  if types.isNamedAggregate typeId then
+    let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+    let n := specs.size
+    unless n > 0 do
+      throw <| .planInvariant .evm
+        s!"{owner} aggregate return must have at least one leaf"
+    unless n <= 8 do
+      throw <| .planInvariant .evm
+        s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+    let mut leaves : Array LeafAbiType := #[]
+    for (_, isInt) in specs do
+      leaves := leaves.push { isInt, byteWidth := 8 }
+    pure (.aggregate leaves)
+  else
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .array elTid len, .. } => do
+        unless elTid == types.uint64TypeId do
+          throw <| .planInvariant .evm
+            s!"{owner} anonymous Array return admits only UInt64 elements (not other widths)"
+        let n := len.toNat
+        unless n ≥ 1 do
+          throw <| .planInvariant .evm
+            s!"{owner} Array return length must be ≥ 1"
+        unless n ≤ 8 do
+          throw <| .planInvariant .evm
+            s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+        let mut leaves : Array LeafAbiType := #[]
+        for _ in [0:n] do
+          leaves := leaves.push { isInt := false, byteWidth := 8 }
+        pure (.aggregate leaves)
+    | some { shape := .option elTid, .. } => do
+        unless elTid == types.uint64TypeId do
+          throw <| .planInvariant .evm
+            s!"{owner} anonymous Option return admits only UInt64 payload"
+        -- Tag leaf + payload leaf (none = (0,0), some v = (1,v)).
+        pure (.aggregate #[
+          { isInt := false, byteWidth := 8 },
+          { isInt := false, byteWidth := 8 }])
+    | some { shape := .bytes _, .. } =>
+        throw <| .planInvariant .evm
+          s!"{owner} cannot return Bytes (UInt8 leaf width class stays fail closed for multi-leaf returns)"
+    | some { shape := .map .., .. } =>
+        throw <| .planInvariant .evm
+          s!"{owner} cannot return Map (runtime key order; multi-leaf Map return stays fail closed)"
+    | _ =>
+        throw <| .planInvariant .evm
+          s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
 
 /-- Container positive layout: fixed-length `Array UInt8/16/32/64 N` or
     `Bytes N` (flattened as N×UInt8). Returns `(elementBitWidth, N)`.
@@ -690,6 +755,20 @@ private def mapUInt64LeafCountV1
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: Map state admits only Map UInt64 UInt64"
       pure (some evmMapPilotLeafCountV1)
+  | _ => pure none
+
+/-- BL-31 / B-OPT-STATE: admitted Option state leaf count.
+    `Option UInt64` → `some 2` (tag + payload, Enum 2-variant layout).
+    Non-Option → `none`. Option of non-UInt64 / nested → fail closed. -/
+private def optionUInt64StateLeafCountV1
+    (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option elTid, .. } => do
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: Option state admits only UInt64 payload"
+      pure (some 2)
   | _ => pure none
 
 /-- Dense Map IndexGet → Option UInt64 as `[tag, payload]` (unrolled). -/
@@ -997,38 +1076,66 @@ private def makeStorageLayoutV1
               leaves := leaves.push slot
             stateLeaves := stateLeaves.push leaves
         | none =>
-            if types.isNamedAggregate state.typeId || types.isString state.typeId ||
-                types.isPrincipal state.typeId then
-              requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState evmPlanErr types state
-                (allowNonPublic := true)
-              let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
-              if leafSpecs.isEmpty then
-                throw <| .planInvariant .evm s!"state '{state.name}' produced zero storage leaves"
-              if bindings.size + leafSpecs.size > maxStorageBindings then
-                throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
-              let mut leaves : Array Nat := #[]
-              for (leafName, _) in leafSpecs do
-                let slot := bindings.size
-                bindings := bindings.push {
-                  sourceId := slot
-                  name := leafName
-                  slot
-                  byteWidth := 8
-                }
-                leaves := leaves.push slot
-              stateLeaves := stateLeaves.push leaves
-            else
-              requirePublicEvmUintAbiOrInt64OrFieldState evmPlanErr types state
-                (allowNonPublic := true)
-              let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
-              let slot := bindings.size
-              bindings := bindings.push {
-                sourceId := slot
-                name := state.name
-                slot
-                byteWidth
-              }
-              stateLeaves := stateLeaves.push #[slot]
+            match ← optionUInt64StateLeafCountV1 typeDecls types state.typeId with
+            | some n =>
+                -- BL-31 / B-OPT-STATE: Option UInt64 = tag + payload slots,
+                -- named like a 2-variant Enum (`{state}_tag`, `{state}_p0`).
+                -- none default is zero storage (tag=0, payload=0); some writes
+                -- tag=1 + payload; re-assign none zeros both leaves (stale
+                -- payload must not survive).
+                if bindings.size + n > maxStorageBindings then
+                  throw <| .planInvariant .evm
+                    s!"state count exceeds profile limit {maxStorageBindings}"
+                let mut leaves : Array Nat := #[]
+                for i in [0:n] do
+                  let leafName :=
+                    if i == 0 then state.name ++ "_tag"
+                    else state.name ++ "_p" ++ toString (i - 1)
+                  unless isIdentifier leafName do
+                    throw <| .planInvariant .evm
+                      s!"state name '{leafName}' is not an EVM ABI identifier"
+                  let slot := bindings.size
+                  bindings := bindings.push {
+                    sourceId := slot
+                    name := leafName
+                    slot
+                    byteWidth := 8
+                  }
+                  leaves := leaves.push slot
+                stateLeaves := stateLeaves.push leaves
+            | none =>
+                if types.isNamedAggregate state.typeId || types.isString state.typeId ||
+                    types.isPrincipal state.typeId then
+                  requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState evmPlanErr types state
+                    (allowNonPublic := true)
+                  let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
+                  if leafSpecs.isEmpty then
+                    throw <| .planInvariant .evm s!"state '{state.name}' produced zero storage leaves"
+                  if bindings.size + leafSpecs.size > maxStorageBindings then
+                    throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
+                  let mut leaves : Array Nat := #[]
+                  for (leafName, _) in leafSpecs do
+                    let slot := bindings.size
+                    bindings := bindings.push {
+                      sourceId := slot
+                      name := leafName
+                      slot
+                      byteWidth := 8
+                    }
+                    leaves := leaves.push slot
+                  stateLeaves := stateLeaves.push leaves
+                else
+                  requirePublicEvmUintAbiOrInt64OrFieldState evmPlanErr types state
+                    (allowNonPublic := true)
+                  let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
+                  let slot := bindings.size
+                  bindings := bindings.push {
+                    sourceId := slot
+                    name := state.name
+                    slot
+                    byteWidth
+                  }
+                  stateLeaves := stateLeaves.push #[slot]
   pure { bindings, stateLeaves, typeDecls, mapStaticKeys }
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
@@ -2190,6 +2297,21 @@ private def lowerBlockInstructionsV1
             leafIsInt := leafIsInt.push false
           let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leaves.size
           values := ← appendResultValueV1 result.typeId values result value
+        else if isOptionTypeIdV1 layout.typeDecls result.typeId then
+          -- BL-31: Option UInt64 state load → 2-leaf aggregate (tag, payload).
+          -- Payload element width was gated at layout to UInt64 only.
+          unless leaves.size == 2 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: Option state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          for i in [0:leaves.size] do
+            let some slot := leaves[i]? |
+              throw <| .planInvariant .evm "Option state load slot missing"
+            leafExprs := leafExprs.push (.storageLoad slot)
+            leafIsInt := leafIsInt.push false
+          let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leaves.size
+          values := ← appendResultValueV1 result.typeId values result value
         else if types.isNamedAggregate result.typeId || types.isString result.typeId ||
             types.isPrincipal result.typeId then
           -- N3/N4/T10 aggregate load; per-leaf isInt restored from the flatten
@@ -2685,10 +2807,46 @@ private def lowerBlockInstructionsV1
                 nodes := nodes + arg.expandedNodes
               let value := mkAggregateValueV1 leafExprs leafIsInt deps depth (nodes + n)
               values := ← appendResultValueV1 typeId values result value
+        else if isOptionTypeIdV1 layout.typeDecls typeId then
+          -- BL-18: Option UInt64 construct → 2-leaf aggregate (tag, payload).
+          -- none = ctor 0 / (0,0); some = ctor 1 / (1,v). Mirrors Map IndexGet
+          -- Option intermediate layout so returns share returnAggregate ABI.
+          let some { shape := .option elTid, .. } := layout.typeDecls[typeId.toNat]? |
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: Option construct TypeDecl missing"
+          unless elTid == uint64TypeId do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: Option construct admits only UInt64 payload"
+          match ctorIdx.toNat with
+          | 0 => do
+              unless argIds.isEmpty do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: Option.none admits no arguments"
+              let value := mkAggregateValueV1
+                #[.literal 0, .literal 0] #[false, false] #[] 1 2
+              values := ← appendResultValueV1 typeId values result value
+          | 1 => do
+              unless argIds.size == 1 do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: Option.some requires exactly one argument"
+              let some argId := argIds[0]? |
+                throw <| .planInvariant .evm "Option.some arg missing"
+              let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+              unless !arg.isBool && !arg.isInt && !arg.isField && !arg.isAggregate &&
+                  arg.bitWidth == 64 do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: Option.some payload must be scalar UInt64"
+              let value := mkAggregateValueV1
+                #[.literal 1, arg.expr] #[false, false] #[argId]
+                (arg.depth + 1) (arg.expandedNodes + 2)
+              values := ← appendResultValueV1 typeId values result value
+          | _ =>
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
         else
           unless types.isNamedAggregate typeId do
             throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: construct requires named Struct/Enum or Array"
+              "unsupported EVM semantic shape: construct requires named Struct/Enum, Array, or Option"
           let some decl := layout.typeDecls[typeId.toNat]? |
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: construct TypeDecl missing"
@@ -3168,6 +3326,42 @@ private def lowerBlockInstructionsV1
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: ContextRead (unix-time-seconds) is not admitted by pilot context policy (PlanSchema frozen; Yul timestamp() mapping deferred)"
+    | .externalCall _effectId callee argIds, some result =>
+        -- N-CALL-RET/B-CALL-SEM: result-bearing sync call → real CALL +
+        -- returndata read (see Statement.externalCallResult). Pilot admits
+        -- UInt64 results only; other scalar widths stay fail closed.
+        if mode == .view then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: view callable makes an external call"
+        if mode == .pureFn then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pureFn cannot make external calls"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: external call callee must have at least two components"
+        for c in components do
+          unless isIdentifier c do
+            throw <| .planInvariant .evm
+              s!"unsupported EVM semantic shape: external call callee component '{c}' is not a safe identifier"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: result-bearing external call result must be UInt64 (other widths are outside the EVM pilot)"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless !root.isBool && root.bitWidth == 64 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: external call arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        let resultTemp := result.valueId.toNat
+        body := body.push (.externalCallResult components argExprs resultTemp)
+        values := ← appendResultValueV1 result.typeId values result
+          (mkScalarValueV1 (.temp resultTemp) #[] false false 64 1 1)
+        hasAssert := true
+        armReadables := promoteDominatingPureV1 paramCount values armReadables
+        segmentStart := values.size
     | _, _ =>
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: instruction op/result is outside the current UInt64 pilot"
@@ -3455,7 +3649,7 @@ private partial def emitJobV1
               | .aggregate expectedLeaves =>
                   unless returned.isAggregate do
                     throw <| .planInvariant .evm
-                      "unsupported EVM semantic shape: aggregate return value must be a named aggregate"
+                      "unsupported EVM semantic shape: aggregate return value must be a multi-leaf aggregate"
                   let returnedLeaves := returned.leafExprs
                   let returnedIsInt := returned.leafIsInts
                   unless returnedLeaves.size == expectedLeaves.size do
@@ -3932,12 +4126,16 @@ private def makeEntryV1
             pure .bool
           else if types.isField callable.result.typeId then
             pure .field
-          else if types.isNamedAggregate callable.result.typeId then
+          else if types.isNamedAggregate callable.result.typeId ||
+              types.isContainer callable.result.typeId ||
+              isOptionTypeIdV1 layout.typeDecls callable.result.typeId then
+            -- B-RET-ABI named Struct/Enum + BL-18 Array UInt64 N / Option UInt64.
+            -- Bytes/Map/non-UInt64 Array still fail closed inside the resolver.
             aggregateResultKindOfV1 layout.typeDecls types
               s!"entry '{name}'" callable.result.typeId
           else
             throw <| .planInvariant .evm
-              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, Field, or named Struct/Enum aggregate"
+              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, Field, named Struct/Enum, Array UInt64 N (N≤8), or Option UInt64"
   let mode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .entry
     | .view => pure .view

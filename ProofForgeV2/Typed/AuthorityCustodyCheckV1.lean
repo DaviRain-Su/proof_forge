@@ -89,6 +89,7 @@ private partial def exprHasCallerV1 : ExprV1 → Bool
   | .match_ scrut arms =>
       exprHasCallerV1 scrut ||
         arms.any fun a => exprHasCallerV1 a.value
+  | .externalCall call => call.args.any exprHasCallerV1
   | .literal _ => false
 
 private partial def stmtWritesPrivateV1

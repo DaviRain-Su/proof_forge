@@ -4743,6 +4743,91 @@ private unsafe def testMapOfConstructNormalizeReference
         "map-of-ref: runtime key upsert (30 + 5 == 35)"
   | _ => throw <| IO.userError "map-of-ref: fresh-key call must return"
 
+/-- N-CALL-RET: value-position call lowers to a result-bearing ExternalCall;
+    Reference binds the typed response value, reverts on callee revert, and
+    rejects missing or type-mismatched return values. -/
+private unsafe def testCallReturnNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "CallRetRef" <|
+    "  entry probe(k : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := call ledger.get(k)\n" ++
+    "    if x == 41 then\n" ++
+    "      return x + 1\n" ++
+    "    else\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "call-ret-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"call-ret-ref: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"call-ret-ref: validate: {repr e}"
+  -- Structural pin: exactly one result-bearing ExternalCall.
+  let some probe := data.callables.find? (fun c => c.name == some "probe") |
+    throw <| IO.userError "call-ret-ref: missing probe"
+  let resultCalls := probe.blocks.foldl (fun acc b => acc ++ b.instructions.filter
+    (fun (i : InstructionV1) =>
+      match i with
+      | { result := some _, op := .externalCall _ _ _ } => true
+      | _ => false)) #[]
+  expect (resultCalls.size == 1) "call-ret-ref: exactly one result-bearing ExternalCall"
+  let admitted ← admitOk "call-ret-ref" carrier
+  let u64Tid ← match data.types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => pure (UInt32.ofNat i)
+    | none => throw <| IO.userError "call-ret-ref: missing UInt64"
+  let boolTid ← match data.types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .bool => true | _ => false with
+    | some i => pure (UInt32.ofNat i)
+    | none => throw <| IO.userError "call-ret-ref: missing Bool"
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"call-ret-ref: initial: {repr e}"
+  -- Returned response carrying 41 → 41 + 1 == 42.
+  let okResponses : ExternalResponsesV1 :=
+    #[{ occurrence := { effectId := 0, occurrence := 0 }
+        disposition := .returned
+        returnValue? := some (refU64 u64Tid 41) }]
+  let afterOk :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[refU64 u64Tid 7]) okResponses
+  match afterOk with
+  | .returned _ val _ =>
+      expect (optionRefEq val (some (refU64 u64Tid 42)))
+        "call-ret-ref: returned value bound (41 + 1 == 42)"
+  | _ => throw <| IO.userError "call-ret-ref: returned call must return"
+  -- Reverted response → externalCallReverted.
+  let revResponses : ExternalResponsesV1 :=
+    #[{ occurrence := { effectId := 0, occurrence := 0 }, disposition := .reverted }]
+  let afterRevert :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[refU64 u64Tid 7]) revResponses
+  match afterRevert with
+  | .reverted (.externalCallReverted _) st =>
+      expect (logicalStateEq st initial)
+        "call-ret-ref: revert keeps pre-state"
+  | _ => throw <| IO.userError "call-ret-ref: reverted response must revert"
+  -- Bound result with no return value → invalidExternalResponse.
+  let missResponses : ExternalResponsesV1 :=
+    #[{ occurrence := { effectId := 0, occurrence := 0 }, disposition := .returned }]
+  let afterMissing :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[refU64 u64Tid 7]) missResponses
+  match afterMissing with
+  | .trapped .invalidExternalResponse st =>
+      expect (logicalStateEq st initial)
+        "call-ret-ref: missing-return trap keeps pre-state"
+  | _ => throw <| IO.userError "call-ret-ref: missing return must trap invalidExternalResponse"
+  -- Type-mismatched return value → invalidExternalResponse.
+  let wrongResponses : ExternalResponsesV1 :=
+    #[{ occurrence := { effectId := 0, occurrence := 0 }
+        disposition := .returned
+        returnValue? := some (refBool boolTid 1) }]
+  let afterWrong :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[refU64 u64Tid 7]) wrongResponses
+  match afterWrong with
+  | .trapped .invalidExternalResponse st =>
+      expect (logicalStateEq st initial)
+        "call-ret-ref: mismatched-return trap keeps pre-state"
+  | _ => throw <| IO.userError "call-ret-ref: mismatched return must trap invalidExternalResponse"
+
 /-- R-1: Option state product Normalize → admit → step (none default + some assign). -/
 private unsafe def testOptionStateNormalizeReference
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -5002,6 +5087,7 @@ unsafe def run : IO Unit := do
   -- N-NEST-IDX: Map-element penetrating assign + absent-key invalidCore trap
   testMapNestedAssignNormalizeReference session
   testMapOfConstructNormalizeReference session
+  testCallReturnNormalizeReference session
   -- R-1: Option state product admit + step
   testOptionStateNormalizeReference session
   -- N-ANON-RESULT: exact canonical container return bytes + Array PureCall

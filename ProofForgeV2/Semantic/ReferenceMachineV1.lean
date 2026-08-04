@@ -127,6 +127,10 @@ inductive ExternalResponseDispositionV1 where
 structure ExternalResponseV1 where
   occurrence  : EffectOccurrenceV1
   disposition : ExternalResponseDispositionV1
+  /-- N-CALL-RET: value produced by the callee when `disposition = returned`
+      and the program binds the call result; `none` for void calls. Runtime
+      checks the type against the instruction result when bound. -/
+  returnValue? : Option ReferenceValueV1 := none
   deriving BEq, Repr
 
 abbrev ExternalResponsesV1 := Array ExternalResponseV1
@@ -1588,35 +1592,43 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
                   .next { m1 with effects := m1.effects.push eff }
           | _, _ => .done m (.trapped .invalidCore)
   | .externalCall effectId callee args =>
-      match instr.result with
-      | some _ => .done m (.trapped .invalidCore)
-      | none =>
-          match lookupArgs m.env args with
-          | none => .done m (.trapped .invalidCore)
-          | some argVals =>
-              match nextOccurrence m effectId with
-              | none => .done m (.trapped .resourceExhausted)
-              | some (m1, occ) =>
-                  let eff : OrderedEffectV1 := {
-                    occurrence := occ
-                    payload := .externalCall callee argVals
-                  }
-                  let m2 := { m1 with effects := m1.effects.push eff }
-                  match m2.responses[m2.responseCursor]? with
-                  | none => .done m2 (.trapped .invalidExternalResponse)
-                  | some resp =>
-                      let okPair :=
-                        resp.occurrence.effectId == occ.effectId &&
-                        resp.occurrence.occurrence == occ.occurrence
-                      if !okPair then
-                        .done m2 (.trapped .invalidExternalResponse)
-                      else
-                        let m3 :=
-                          { m2 with responseCursor := m2.responseCursor + 1 }
-                        match resp.disposition with
-                        | .returned => .next m3
-                        | .reverted =>
-                            .done m3 (.reverted (.externalCallReverted occ))
+      match lookupArgs m.env args with
+      | none => .done m (.trapped .invalidCore)
+      | some argVals =>
+          match nextOccurrence m effectId with
+          | none => .done m (.trapped .resourceExhausted)
+          | some (m1, occ) =>
+              let eff : OrderedEffectV1 := {
+                occurrence := occ
+                payload := .externalCall callee argVals
+              }
+              let m2 := { m1 with effects := m1.effects.push eff }
+              match m2.responses[m2.responseCursor]? with
+              | none => .done m2 (.trapped .invalidExternalResponse)
+              | some resp =>
+                  let okPair :=
+                    resp.occurrence.effectId == occ.effectId &&
+                    resp.occurrence.occurrence == occ.occurrence
+                  if !okPair then
+                    .done m2 (.trapped .invalidExternalResponse)
+                  else
+                    let m3 :=
+                      { m2 with responseCursor := m2.responseCursor + 1 }
+                    match resp.disposition with
+                    | .reverted =>
+                        .done m3 (.reverted (.externalCallReverted occ))
+                    | .returned =>
+                        -- N-CALL-RET: a bound result requires a typed return
+                        -- value; a void call discards any (test-supplied)
+                        -- return value by contract.
+                        match instr.result, resp.returnValue? with
+                        | some vd, some rv =>
+                            if rv.typeId == vd.typeId then
+                              storeResult m3 vd.valueId rv
+                            else
+                              .done m3 (.trapped .invalidExternalResponse)
+                        | none, _ => .next m3
+                        | some _, none => .done m3 (.trapped .invalidExternalResponse)
   | .schedule effectId callee args =>
       match instr.result with
       | some _ => .done m (.trapped .invalidCore)

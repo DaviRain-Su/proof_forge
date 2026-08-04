@@ -14,7 +14,7 @@ normative: true
 定义唯一、可定位、可确定性 elaboration 的 Lean 自定义 command DSL。作者写业务语义，
 不写目标、VM、部署类别或机器指令。DSL 的 `program … where` 表面不接受任意 Lean term。
 Invariant 证明通过显式 `proof Ident using QualifiedName` binding，并与 **同一文件内、
-program command 之后的 ordinary Lean `theorem`** 配对（[`ADR-0026`](../adr/0026-inline-same-file-theorem-certification.md)
+program command 之后的 ordinary Lean `theorem`** 配对（[`ADR-0027`](../adr/0027-inline-same-file-theorem-certification.md)
 engineering product path）。theorem body 不属于 ProgramV1 AST。
 
 ## 文件与命名
@@ -97,6 +97,7 @@ ExprMatchArm  ::= "|" Pattern "=>" Expr
 LocalFnCall   ::= Ident "(" ExprList? ")"
 ExternalCallExpr ::= QualifiedId "(" ExprList? ")"
 ConstructorExpr ::= QualifiedId "(" ExprList? ")"
+CallExpr      ::= "call" ExternalCallExpr
 MatchExpr     ::= "match" Expr "with" ExprMatchArm+
 Place         ::= Ident PlaceSuffix*
 PlaceSuffix   ::= "." Ident | "[" Expr "]"
@@ -114,7 +115,7 @@ ShiftExpr     ::= AddExpr (("<<" | ">>") AddExpr)*
 AddExpr       ::= MulExpr (("+" | "-") MulExpr)*
 MulExpr       ::= UnaryExpr (("*" | "/" | "%") UnaryExpr)*
 UnaryExpr     ::= ("-" | "!" | "~") UnaryExpr | PrimaryExpr
-PrimaryExpr   ::= Literal | ConstructorExpr | LocalFnCall | Place | "(" Expr ")"
+PrimaryExpr   ::= Literal | ConstructorExpr | LocalFnCall | CallExpr | Place | "(" Expr ")"
 Literal       ::= "true" | "false" | IntegerLiteral | StringLiteral
 QualifiedId   ::= Ident "." Ident ("." Ident)*
 QualifiedName ::= Ident ("." Ident)+
@@ -124,6 +125,12 @@ QualifiedName ::= Ident ("." Ident)+
 `call StringLiteral`不进入ProgramV1 reader；迁移不得按`.`猜测拆分任意字符串、虚构component或丢弃
 arguments。旧alpha source只有在调用者显式提供string→QualifiedId mapping时才可由独立migration tool
 转换，歧义/缺失mapping使用`PF-MIGRATION-FAILED`且不修改原文件。
+
+N-CALL-RET 起，`CallExpr` 允许 statement `call` 出现在值位置（let 标注值、return 值、任意 operand），
+产生 `Op.ExternalCall` 的 result value；其类型由外围 expected type（annotation / result / operand
+context）唯一确定，无 expected type 是 typed error。result 类型必须是可序列化标量（Bool / 合法
+UInt/Int 宽度 / Bytes），聚合与 Unit 在 Normalize fail closed。`schedule` 不进入值位置（保持
+statement-only，无返回通道语义）。Statement `call` 的 void 形式不变。
 
 `Primitive` 为 `Bool`、`UInt8/16/32/64/128/256`、`Int8/16/32/64/128/256`、
 `Principal`、`Unit`。数组长度、Bytes 长度和 loop bound 必须是 0..4096 的十进制常量。
@@ -2042,7 +2049,7 @@ type/arity lookup，不得根据 target 或运行时重新分类。
   匹配均失败。binding 把 `(invariantName, theoremQualifiedName, origin)` 保留为 certification
   metadata；invariant Bool typing 属于 type/effect 检查；theorem Environment audit 必须等
   canonical `SemanticProgramV1` 生成、validate 与 hash 完成后、且在 target resolve 之前执行
-  （ADR-0026）。
+  （ADR-0027）。
 
 ## Pure fn 与 proof reference 契约
 
@@ -2067,7 +2074,7 @@ ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1 program i
 [`SPEC-SEM-WIRE-001`](semantic-program-wire.md) 唯一定义；不得再次从 Source/Typed AST 拼装另一份
 theorem statement，也不得只把 `semanticHash` 当成 proposition。
 
-### Inline same-file theorem（ADR-0026 engineering product path）
+### Inline same-file theorem（ADR-0027 engineering product path）
 
 1. **Adjacent ordinary theorem**：作者在同一 `.lean` 文件、`program` command 之后声明
    ordinary Lean `theorem N : …`，其 expected closed type 为上述
@@ -2224,7 +2231,7 @@ reference count/order 纳入 development source binding。每个 invariant 最�
 先于 unknown invariant 拒绝，unknown 检查按 proof 源码顺序 exact、case-sensitive lookup，允许
 forward-declared invariant，不做 short-name 或 namespace alias fallback。theorem 的
 每个 QualifiedName component 必须先通过同一 DSL reserved-identifier policy，再进入 Common 的
-QualifiedName NFC/字符/长度校验；Common carrier 不拥有或复制 DSL 保留词策略。**ADR-0026
+QualifiedName NFC/字符/长度校验；Common carrier 不拥有或复制 DSL 保留词策略。**ADR-0027
 engineering product path** 在 Normalize/`CompiledSemanticV1` 之后对 **同一 in-memory source**
 上的 adjacent ordinary Lean theorem 做 in-process Environment audit（非 sandbox；不信任用户
 `.olean`；固定允许 axiom Classical.choice/Quot.sound/propext）；theorem body 不进入 ProgramV1/

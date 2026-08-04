@@ -293,6 +293,15 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         out := out.append (← encodeNatAsU32le operation.byteWidth)
         out := out.append (← encodeExpr operation.value)
       pure out
+  -- Tag 12 (N-CALL-RET): result-bearing external call (returndata → temp).
+  | .externalCallResult callee args resultTemp => do
+      let mut out := encodeU8 12
+      out := out.append (← encodeNatAsU32le callee.size)
+      for c in callee do out := out.append (← encodeString c)
+      out := out.append (← encodeNatAsU32le args.size)
+      for arg in args do out := out.append (← encodeExpr arg)
+      out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do
   let mut out := ByteArray.empty

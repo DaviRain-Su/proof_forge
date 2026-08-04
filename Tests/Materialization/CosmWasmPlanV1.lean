@@ -6,7 +6,9 @@
   CW-4 schedule → SubMsg reply_on=never with Binary (base64) execute msg
   (Plan/IR/WAT shape), pure Lean base64 encode matrix (empty / 1 / 2 / 3+
   bytes + typical JSON), B-RET-ABI named Struct/Enum entry/view returns
-  (PairRet/MaybeRet Plan/IR/WAT/ABI pins + param/>8/pureFn FC), sync call still
+  (PairRet/MaybeRet Plan/IR/WAT/ABI pins + param/>8/pureFn FC), N-ANON-RESULT
+  anonymous Array UInt64 N / Option UInt64 entry/view returns (ArrayRet/
+  OptionRet Plan/IR/WAT/ABI pins + Map/Bytes/N>8/nested FC), sync call still
   fail closed, multi-width UInt8/16/32 pins (body guards / param range /
   8-byte narrow state slots), and other FC boundaries (UInt128, invariants).
 
@@ -741,6 +743,215 @@ private unsafe def testAggregateReturnFc
     (planCw pureCompiled)
   IO.println "  ✓ aggregate return FC boundaries (param / >8 / pureFn)"
 
+/-- N-ANON-RESULT (CosmWasm ABI): anonymous Array UInt64 2 → 2×u64 leaves via
+`returnAggregate` / `setReturnDataMulti` / JSON decimal array wire. -/
+private unsafe def testAnonymousArrayReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ArrayRet" <|
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init(a : UInt64, b : UInt64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n\n" ++
+    "  entry setArr(a : UInt64, b : UInt64) : Array UInt64 2 do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "    return slots\n\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let compiled ← compileSource session source "Examples.ArrayRet" "<cw-array-ret>"
+  let plan ← liftResult <| planCw compiled
+  expect (plan.storage.fields.size == 2) "ArrayRet Array UInt64 2 → 2 KV leaves"
+  let some getArr := plan.entries.find? (·.name == "getArr") |
+    throw <| IO.userError "ArrayRet missing getArr"
+  match getArr.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrayRet aggregate return must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "ArrayRet leaves must be u64 (not Int)"
+      expect (leaves.all (·.byteWidth == 8))
+        "ArrayRet leaves must be 8-byte words"
+  | other =>
+      throw <| IO.userError
+        s!"ArrayRet getArr resultKind must be .aggregate, got {repr other}"
+  expect (getArr.body.size == 1) "ArrayRet getArr body must be one return"
+  match getArr.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2)
+        s!"returnAggregate must have 2 leaves, got {leaves.size}"
+      expect (leafIsInt == #[false, false])
+        "returnAggregate leafIsInt must be #[false, false]"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad 0, .stateLoad 1 => pure ()
+      | _, _ =>
+          throw <| IO.userError
+            "ArrayRet returnAggregate leaves must be stateLoad of slots"
+  | _ =>
+      throw <| IO.userError "ArrayRet getArr body must be .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrayRet plan must validate: {e.render}"
+  let ir ← liftResult <| irCw compiled
+  let some getArrIR := ir.methods.find? (·.name == "getArr") |
+    throw <| IO.userError "ArrayRet IR missing getArr"
+  expect (getArrIR.resultKind == getArr.resultKind)
+    "ArrayRet IR resultKind must match Plan"
+  let mut sawMulti := false
+  for op in getArrIR.operations do
+    match op with
+    | .setReturnDataMulti temps =>
+        expect (temps.size == 2)
+          s!"setReturnDataMulti must have 2 temps, got {temps.size}"
+        sawMulti := true
+    | .setReturnData _ =>
+        throw <| IO.userError "ArrayRet must not emit scalar setReturnData"
+    | _ => pure ()
+  expect sawMulti "ArrayRet IR must emit setReturnDataMulti"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "ArrayRet.wat"
+  expect (wat.contains "$ret_count") "ArrayRet WAT ret_count global"
+  expect (wat.contains "$pf_query_ok_agg") "ArrayRet WAT multi-leaf query helper"
+  expect (wat.contains "(global.set $ret_kind (i32.const 4))")
+    "ArrayRet WAT setReturnDataMulti ret_kind=4"
+  let abi ← findFile files "ArrayRet.cosmwasm-abi.json"
+  expect (abi.contains "\"returns\":[\"u64\",\"u64\"]")
+    s!"ArrayRet ABI must declare leaf tuple [\"u64\",\"u64\"], got: {abi}"
+  IO.println "  ✓ ArrayRet anonymous Array return Plan/IR/WAT/ABI pin"
+
+/-- N-ANON-RESULT: anonymous Option UInt64 = tag + payload (2 leaves). -/
+private unsafe def testAnonymousOptionReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptionRet" <|
+    "  state seed : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    seed := x\n\n" ++
+    "  entry asSome(v : UInt64) : Option UInt64 do\n" ++
+    "    return Option.some(v)\n\n" ++
+    "  view asNone() : Option UInt64 do\n" ++
+    "    return Option.none()\n\n" ++
+    "  view asSomeOfSeed() : Option UInt64 do\n" ++
+    "    return Option.some(seed)\n"
+  let compiled ← compileSource session source "Examples.OptionRet" "<cw-option-ret>"
+  let plan ← liftResult <| planCw compiled
+  let some asNone := plan.entries.find? (·.name == "asNone") |
+    throw <| IO.userError "OptionRet missing asNone"
+  match asNone.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptionRet asNone must have 2 leaves (tag+payload), got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt)
+        "OptionRet leaves must be u64"
+  | other =>
+      throw <| IO.userError
+        s!"OptionRet asNone resultKind must be .aggregate, got {repr other}"
+  match asNone.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2) "OptionRet returnAggregate 2 leaves"
+      expect (leafIsInt == #[false, false]) "OptionRet leafIsInt #[false,false]"
+      match leaves[0]!, leaves[1]! with
+      | .literal 0, .literal 0 => pure ()
+      | _, _ =>
+          throw <| IO.userError
+            s!"OptionRet asNone leaves must be literal 0/0, got {repr leaves[0]!}/{repr leaves[1]!}"
+  | _ =>
+      throw <| IO.userError "OptionRet asNone body must be .returnAggregate"
+  let some asSome := plan.entries.find? (·.name == "asSome") |
+    throw <| IO.userError "OptionRet missing asSome"
+  match asSome.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2) "OptionRet asSome must return 2-leaf Option"
+  | _ =>
+      throw <| IO.userError "OptionRet asSome resultKind must be .aggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptionRet plan must validate: {e.render}"
+  let ir ← liftResult <| irCw compiled
+  let some asNoneIR := ir.methods.find? (·.name == "asNone") |
+    throw <| IO.userError "OptionRet IR missing asNone"
+  let mut sawMulti := false
+  for op in asNoneIR.operations do
+    match op with
+    | .setReturnDataMulti temps =>
+        expect (temps.size == 2) "OptionRet setReturnDataMulti [2]"
+        sawMulti := true
+    | _ => pure ()
+  expect sawMulti "OptionRet asNone IR must emit setReturnDataMulti"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "OptionRet.wat"
+  expect (wat.contains "$pf_query_ok_agg" || wat.contains "ret_kind")
+    "OptionRet WAT multi-leaf return surface"
+  let abi ← findFile files "OptionRet.cosmwasm-abi.json"
+  expect (abi.contains "\"returns\":[\"u64\",\"u64\"]")
+    s!"OptionRet ABI leaf tuple, got: {abi}"
+  IO.println "  ✓ OptionRet anonymous Option return Plan/IR/WAT/ABI pin"
+
+/-- N-ANON-RESULT FC: Map/Bytes/Array-of-9/nested Option stay fail closed. -/
+private unsafe def expectAnonymousReturnFc
+    (session : Language.Loader.ParserSession)
+    (label moduleName body : String)
+    (messageNeedles : Array String) : IO Unit := do
+  let source := wrapProgram label body
+  match ← session.selectProgramV1 source s!"<cw-{label}>" moduleName none with
+  | .error e => throw <| IO.userError s!"{label} select: {e.render}"
+  | .ok validated =>
+      match Compiler.compileValidatedSourceV1 validated with
+      | .error _ => pure ()  -- Normalize/Check may reject first.
+      | .ok compiled =>
+          match planCw compiled with
+          | .error e =>
+              let msg := e.render
+              let hit := messageNeedles.any (fun n => msg.contains n)
+              expect hit
+                s!"{label}: FC message must cite {messageNeedles}, got {msg}"
+          | .ok _ =>
+              throw <| IO.userError
+                s!"{label}: CosmWasm must fail closed on this anonymous return shape"
+
+private unsafe def testAnonymousReturnFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Bytes N return remains fail closed (Bytes still outside type-closure pilot).
+  expectAnonymousReturnFc session "BytesRet" "Examples.BytesRet"
+    ("  state payload : Bytes 2\n\n" ++
+      "  init() do\n" ++
+      "    payload[0] := 1\n" ++
+      "    payload[1] := 2\n\n" ++
+      "  view getBytes() : Bytes 2 do\n" ++
+      "    return payload\n")
+    #["Bytes", "return", "B-RET", "unsupported", "anonymous", "container"]
+  -- Map return remains fail closed.
+  expectAnonymousReturnFc session "MapRet" "Examples.MapRet"
+    ("  state table : Map UInt64 UInt64\n\n" ++
+      "  init() do\n" ++
+      "    table[0] := 1\n\n" ++
+      "  view getMap() : Map UInt64 UInt64 do\n" ++
+      "    return table\n")
+    #["Map", "return", "B-RET", "unsupported", "anonymous"]
+  -- Array UInt64 9 exceeds leaf cap-8.
+  expectAnonymousReturnFc session "Array9Ret" "Examples.Array9Ret"
+    ("  state slots : Array UInt64 9\n\n" ++
+      "  init() do\n" ++
+      "    slots[0] := 0\n" ++
+      "    slots[1] := 0\n" ++
+      "    slots[2] := 0\n" ++
+      "    slots[3] := 0\n" ++
+      "    slots[4] := 0\n" ++
+      "    slots[5] := 0\n" ++
+      "    slots[6] := 0\n" ++
+      "    slots[7] := 0\n" ++
+      "    slots[8] := 0\n\n" ++
+      "  view getArr() : Array UInt64 9 do\n" ++
+      "    return slots\n")
+    #["8", "leaf", "cap", "9", "exceeding", "aggregate"]
+  -- Nested anonymous Option (Array …) remains fail closed (non-UInt64 payload).
+  expectAnonymousReturnFc session "NestedOptRet" "Examples.NestedOptRet"
+    ("  state seed : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    seed := 0\n\n" ++
+      "  view getNested() : Option Array UInt64 2 do\n" ++
+      "    return Option.none()\n")
+    #["Option", "UInt64", "payload", "return", "unsupported", "anonymous", "Array"]
+  IO.println "  ✓ anonymous return FC boundaries (Bytes / Map / Array9 / nested Option)"
+
 private unsafe def testInvariantFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "Inv" <|
@@ -842,6 +1053,9 @@ unsafe def run : IO Unit := do
   testNamedStructReturn session
   testNamedEnumReturn session
   testAggregateReturnFc session
+  testAnonymousArrayReturn session
+  testAnonymousOptionReturn session
+  testAnonymousReturnFc session
   testInvariantFc session
   testMaterializeAggregate session
   testStaticLayoutCapacityFc session

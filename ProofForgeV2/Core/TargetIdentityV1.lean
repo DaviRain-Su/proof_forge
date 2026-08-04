@@ -26,9 +26,9 @@ root codec/digest, SupportClaim, and reachable BuildIdentity mint remain pending
 selection.
 -/
 
-/-- Internal dispatch witness for the closed ten-target set. Wire labels match the
-historical alpha enum. Not an external identity authority: product code must not
-parse user strings into `TargetKind`; kind is taken only from a validated
+/-- Internal dispatch witness for the closed twelve-target set. Wire labels match
+registered product identities. Not an external identity authority: product code
+must not parse user strings into `TargetKind`; kind is taken only from a validated
 build-selection registration. -/
 inductive TargetKind where
   | evm
@@ -41,6 +41,7 @@ inductive TargetKind where
   | openvm
   | aleo
   | psy
+  | quint
   | ton
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
@@ -57,6 +58,7 @@ def toString : TargetKind → String
   | .openvm => "openvm"
   | .aleo => "aleo"
   | .psy => "psy"
+  | .quint => "quint"
   | .ton => "ton"
 
 instance : ToString TargetKind := ⟨toString⟩
@@ -140,6 +142,7 @@ def noir : TargetId := ⟨"noir"⟩
 def openvm : TargetId := ⟨"openvm"⟩
 def aleo : TargetId := ⟨"aleo"⟩
 def psy : TargetId := ⟨"psy"⟩
+def quint : TargetId := ⟨"quint"⟩
 def ton : TargetId := ⟨"ton"⟩
 
 /-- Map internal `TargetKind` to its well-known `TargetId`.
@@ -157,6 +160,7 @@ def ofKind : TargetKind → TargetId
   | .openvm => openvm
   | .aleo => aleo
   | .psy => psy
+  | .quint => quint
   | .ton => ton
 
 end TargetId
@@ -192,6 +196,7 @@ def noirSourceU64RelationsV1 : CodegenProfileId := ⟨"noir-source-u64-relations
 def aleoLeoU64V1 : CodegenProfileId := ⟨"aleo-leo-4.0.2-u64-v1"⟩
 def psyDargoU64V1 : CodegenProfileId := ⟨"psy-dargo-u64-v1"⟩
 def cosmwasmWasmU64V1 : CodegenProfileId := ⟨"cosmwasm-wasm-u64-v1"⟩
+def quintSourceU64ModelV1 : CodegenProfileId := ⟨"quint-source-u64-model-v1"⟩
 def tonTolkBocV1 : CodegenProfileId := ⟨"ton-tolk-boc-v1"⟩
 
 end CodegenProfileId
