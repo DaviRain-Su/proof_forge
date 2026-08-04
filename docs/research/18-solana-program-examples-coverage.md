@@ -92,9 +92,11 @@ equivalence 仍为 **0/56**；`CPI`/`PDA` 产品面与 formal D5 不因 #119 改
 **2026-08-04 post-#125 TransferSol engineering update**：active
 `solana-sbpf-cpi-elf-v1` 已可从 tracked `Examples/TransferSol.lean` 经 ordinary resolver 生成
 manifest-bound 产品 ELF；Mollusk 固定真实 native System CPI、成功余额/return data 与失败回滚。
-独立 Rust verifier 离线消费 manifest/Plan/IR/IDL/bindings；原显式 Devnet/RPC/airdrop 调用面已按
-产品决策移除，`just solana-transfer-sol-local` 只在本地 Mollusk 加载同一产品 ELF 并执行 System
-CPI。部署若需要由 operator 在自己的本地 validator 工具链处理，不写成链上闭环。
+通用 `clients/solana-client` Rust client 离线消费 OutputSet，并按当前 Solana profile closed
+分派；TransferSol 的 source/ABI pin 只在显式 `transfer-sol-v1` program adapter 中应用，不再定义
+CLI 身份。原显式 Devnet/RPC/airdrop 调用面已按产品决策移除，
+`just solana-transfer-sol-local` 只在本地 Mollusk 加载同一产品 ELF 并执行 System CPI。部署若需要
+由 operator 在自己的本地 validator 工具链处理，不写成链上闭环。
 本切片只覆盖 QuickNode 的 CPI transfer 路径；上游同例还包含 program-owned lamport 直接变更/
 close 语义（`CLOSE`），因此本报告的 whole-example strict-equivalence 仍为 **0/56**，表中
 `transfer-sol` 继续 `NO`，不得仅因这条 analogue 改为 `SE`。

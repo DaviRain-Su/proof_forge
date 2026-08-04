@@ -1303,20 +1303,21 @@ solana-cpi-product-acceptance:
 solana-transfer-sol-build:
     bash scripts/solana_transfer_sol_build.sh
 
-# Standalone artifact-verifier tests are offline and use a minimal locked graph.
-# The hosted Solana runtime lane separately executes the product ELF under Mollusk.
-solana-transfer-sol-client-test:
-    cargo test --manifest-path clients/solana-transfer-sol/Cargo.toml --locked
-    cargo clippy --manifest-path clients/solana-transfer-sol/Cargo.toml --locked --all-targets -- -D warnings
+# The generic Solana client tests are offline and use a minimal locked graph.
+# The hosted Solana runtime lane separately executes product ELFs under Mollusk.
+solana-client-test:
+    cargo test --manifest-path clients/solana-client/Cargo.toml --locked
+    cargo clippy --manifest-path clients/solana-client/Cargo.toml --locked --all-targets -- -D warnings
 
-# Build the exact product tree, then independently consume and verify all artifacts.
+# Build the exact TransferSol product tree, then apply both the generic Solana
+# profile verifier and the explicit TransferSol program adapter.
 solana-transfer-sol-offline:
     #!/usr/bin/env bash
     set -euo pipefail
     bash scripts/solana_transfer_sol_build.sh
     out="${PROOF_FORGE_TRANSFER_SOL_OUT:-$PWD/build/v2/solana-transfer-sol-product}"
-    cargo run --manifest-path clients/solana-transfer-sol/Cargo.toml --locked -- \
-      verify-artifacts --artifact-dir "$out"
+    cargo run --manifest-path clients/solana-client/Cargo.toml --locked -- \
+      verify-artifacts --artifact-dir "$out" --program-adapter transfer-sol-v1
 
 # Local-only executable call lane: build and independently verify the product
 # OutputSet, then load its manifest-bound ELF in Mollusk and invoke native System.
@@ -1326,8 +1327,8 @@ solana-transfer-sol-local:
     set -euo pipefail
     bash scripts/solana_transfer_sol_build.sh
     out="${PROOF_FORGE_TRANSFER_SOL_OUT:-$PWD/build/v2/solana-transfer-sol-product}"
-    cargo run --manifest-path clients/solana-transfer-sol/Cargo.toml --locked -- \
-      verify-artifacts --artifact-dir "$out"
+    cargo run --manifest-path clients/solana-client/Cargo.toml --locked -- \
+      verify-artifacts --artifact-dir "$out" --program-adapter transfer-sol-v1
     PROOF_FORGE_TRANSFER_SOL_OUT="$out" \
       cargo test --manifest-path runtime-tests/solana/Cargo.toml --locked \
         --test transfer_sol_product -- --nocapture

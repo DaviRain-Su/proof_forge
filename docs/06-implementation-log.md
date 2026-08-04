@@ -12,6 +12,25 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-04 — 通用 ProofForge Solana client 与显式 program adapter（engineering）
+
+- 将独立 Rust 工具从 `clients/solana-transfer-sol` 重命名为 `clients/solana-client`，
+  Cargo package/binary 为 `proof-forge-solana-client`；TransferSol 不再定义工具身份。
+- verifier 拆为三层：program-neutral `proof-forge.output.v1` exact-closure/digest core、当前
+  `solana-sbpf-plan-v1` / `solana-sbpf-elf-v1` / `solana-sbpf-cpi-elf-v1` closed profile
+  dispatch，以及仅显式选择的 program adapter。未知 profile/adapter fail closed，无 fallback。
+- 默认 `verify-artifacts` 不钉程序名、source hash 或业务 ABI；首个
+  `--program-adapter transfer-sol-v1` 另行固定 tracked sourceHash、handler/accounts、System CPI
+  codec、Plan/IR/IDL/bindings 与 assembly joins。JSON 区分 generic/program-adapter scope 和 trust
+  anchor，不把工程自洽写成 provenance。
+- 本地验证：6 unit + 28 integration tests；真实 Counter plan OutputSet、Counter ELF OutputSet、
+  TransferSol CPI OutputSet 的 generic path，以及显式 TransferSol adapter 均通过；strict Clippy、
+  release build、`just solana-client-test`、`just solana-transfer-sol-offline` 与
+  `just solana-transfer-sol-local`（Mollusk 8/8）通过。crate 仍无 RPC/SDK/wallet/signing/deployment
+  依赖或网络写面。
+- 这是通用 client/adapter 工程边界，不新增链上调用、signed provenance、formal、hermetic、
+  mainnet/Devnet 或 whole-example equivalence 声明。
+
 ## 2026-08-04 — TransferSol 移除 Devnet 写面，收敛为本地执行（engineering）
 
 - 产品决策：测试币/airdrop 不作为 ProofForge 调用闭环依赖；删除

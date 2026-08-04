@@ -77,27 +77,36 @@ PROOF_FORGE_TOOL_ROOT="$PWD/build/dev-tool-root" \
     --module Examples.Counter --target evm -o build/counter-evm
 ```
 
-### Solana TransferSol：产品 ELF、独立消费与本地真实调用
+### 通用 Solana client 与 TransferSol 本地真实调用
 
-[`Examples/TransferSol.lean`](Examples/TransferSol.lean) 使用显式 Solana CPI extension 调用
-原生 System Program。独立 Rust verifier 消费 manifest、Plan、IR、IDL、bindings 与 `.so`；
-Mollusk 在本地加载该 manifest-bound ELF 并执行真实 native System CPI：
+[`clients/solana-client`](clients/solana-client) 提供通用的离线
+`proof-forge-solana-client`：它先验证 `proof-forge.output.v1` 闭包，再按已知 Solana profile
+fail-closed 分派；默认路径不硬编码程序名、source hash 或 Transfer ABI。程序级约束由显式
+`--program-adapter` 加载，因此后续 Solana program 可以增加自己的 adapter，而不需要复制 CLI。
+
+[`Examples/TransferSol.lean`](Examples/TransferSol.lean) 是首个 adapter/runtime fixture：它使用显式
+Solana CPI extension 调用原生 System Program，Mollusk 在本地加载 manifest-bound ELF 并执行
+真实 native System CPI。
 
 ```bash
-# 只构建产品树。
+# 运行通用 client 的离线测试与严格 Clippy。
+just solana-client-test
+
+# 只构建 TransferSol 产品树。
 just solana-transfer-sol-build
 
-# 构建并运行独立的离线制品/ABI 校验。
+# 构建并运行通用 profile 校验 + 显式 TransferSol ABI adapter。
 just solana-transfer-sol-offline
 
 # 构建、校验并运行 8 个聚焦测试（其中 6 个加载执行产品 ELF）。
 just solana-transfer-sol-local
 ```
 
-这条链不访问 RPC，不请求测试币，不读取钱包/keypair，也不部署到 Devnet。部署若有需要由
+这些入口不访问 RPC，不请求测试币，不读取钱包/keypair，也不部署到 Devnet。部署若有需要由
 operator 在自己的本地 validator 与工具链中完成；ProofForge 此处只物化、校验并本地执行产品
-ELF。该结果是 engineering runtime observation，不是 mainnet、formal 或 hermetic 证据。完整边界见
-[`clients/solana-transfer-sol/README.md`](clients/solana-transfer-sol/README.md)。
+ELF。该结果是 engineering self-consistency/runtime observation，不是 signed provenance、mainnet、
+formal 或 hermetic 证据。完整边界见
+[`clients/solana-client/README.md`](clients/solana-client/README.md)。
 
 源码 **不** 声明 “合约 / 电路 / zkVM workload” 类别；类别由 `--target` 的物化决定，
 且不得偷偷改业务语义。
