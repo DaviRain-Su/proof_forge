@@ -405,6 +405,13 @@ pub fn load_and_verify_output_set(artifact_dir: &Path) -> Result<LoadedOutputSet
             "manifest.files must be non-empty".into(),
         ));
     }
+    let max_manifest_leaves = MAX_ARTIFACT_FILES.saturating_sub(2);
+    if manifest.files.len() > max_manifest_leaves {
+        return Err(ClientError::Artifact(format!(
+            "manifest declares too many artifact leaves ({} > {max_manifest_leaves}); closure cap includes manifest.json and evidence.json",
+            manifest.files.len()
+        )));
+    }
 
     // Closed roles, safe paths, content digests, and canonical role/path order.
     let mut prev_rank: Option<u8> = None;

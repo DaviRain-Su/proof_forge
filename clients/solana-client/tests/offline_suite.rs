@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use proof_forge_solana_client::artifact::{
     read_regular_single_link_file, verify_solana_artifact, verify_solana_artifact_with_adapter,
     verify_transfer_sol_artifact, verify_transfer_sol_artifact_with_source_hash, CANONICAL_LEAVES,
-    IR_DIGEST_DOMAIN, MAX_FILE_BYTES, PLAN_DIGEST_DOMAIN,
+    IR_DIGEST_DOMAIN, MAX_ARTIFACT_FILES, MAX_FILE_BYTES, PLAN_DIGEST_DOMAIN,
 };
 use proof_forge_solana_client::constants::{
     CATALOG_DIGEST_HEX, DEFAULT_EXPECTED_SOURCE_HASH, EXTENSION_DIGEST_HEX, EXTENSION_ID,
@@ -611,6 +611,35 @@ fn elf_profile_leaf_shape_accepted() {
     assert_eq!(v.profile_id, PROFILE_ELF_V1);
     assert!(v.manifest.deployable);
     assert!(v.so_bytes.as_ref().unwrap().starts_with(b"\x7fELF"));
+}
+
+#[test]
+fn generic_output_set_rejects_manifest_leaf_count_above_closure_cap() {
+    let dir = tempdir().unwrap();
+    build_plan_profile_tree(dir.path(), "TooMany");
+    let manifest_path = dir.path().join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    let entries: Vec<_> = (0..(MAX_ARTIFACT_FILES - 1))
+        .map(|i| {
+            serde_json::json!({
+                "role": "materialized-base",
+                "path": format!("leaf-{i:04}.bin"),
+                "size": 0,
+                "contentSha256": "0".repeat(64),
+            })
+        })
+        .collect();
+    manifest["files"] = serde_json::json!(entries);
+    write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap().as_slice(),
+    );
+    let err = verify_solana_artifact(dir.path()).unwrap_err();
+    assert!(
+        err.to_string().contains("too many artifact leaves"),
+        "{err}"
+    );
 }
 
 #[test]
