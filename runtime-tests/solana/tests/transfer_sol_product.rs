@@ -621,6 +621,35 @@ fn transfer_success_exact_lamport_delta_and_u64_return() {
 }
 
 #[test]
+fn transfer_to_unfunded_recipient_succeeds_and_preserves_system_shape() {
+    let (mollusk, program_id) = make_product_mollusk();
+    let transfer_amount = 42_000u64;
+    // A never-funded writable key is presented to the runtime as a default-shaped
+    // zero-lamport System account. `mustExist` means the outer role is supplied;
+    // the native System transfer may credit this destination without a setup tx.
+    let case = TransferCase::new(BASE_LAMPORTS, 0);
+    let ix = case.instruction(program_id, TRANSFER_HANDLER_ID, transfer_amount);
+    let result = mollusk.process_and_validate_instruction(
+        &ix,
+        &case.accounts,
+        &[
+            Check::success(),
+            Check::return_data(&transfer_amount.to_le_bytes()),
+        ],
+    );
+    let post_recipient = result
+        .resulting_accounts
+        .iter()
+        .find(|(key, _)| *key == case.recipient_key)
+        .map(|(_, account)| account)
+        .expect("recipient");
+    assert_eq!(post_recipient.lamports, transfer_amount);
+    assert_eq!(post_recipient.owner, Pubkey::default());
+    assert!(post_recipient.data.is_empty());
+    assert!(!post_recipient.executable);
+}
+
+#[test]
 fn raw_adjacent_meta_swap_without_privilege_rebinding_fails() {
     let (mollusk, program_id) = make_product_mollusk();
     let case = TransferCase::new(BASE_LAMPORTS, BASE_LAMPORTS);
