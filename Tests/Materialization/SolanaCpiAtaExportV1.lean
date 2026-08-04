@@ -13,7 +13,6 @@ import ProofForgeV2.Targets.Solana.EmitCpiAtaSbpfV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Language.Loader
-import Tests.Language.ParserSession
 
 namespace Tests.Materialization.SolanaCpiAtaExportV1
 
@@ -33,7 +32,7 @@ private def requireCompile {α : Type} (result : CompileResult α)
 
 private unsafe def generateAssembly
     (sourceText sourcePath : String) : IO SolanaCpiAtaAssemblyV1 := do
-  let session ← Tests.Language.ParserSession.shared
+  let session ← Language.Loader.ParserSession.create
   let (source, origins) ← match ← session.selectProgramV1WithOrigins
       sourceText sourcePath "Examples.AtaCpi" none with
     | .ok value => pure value
