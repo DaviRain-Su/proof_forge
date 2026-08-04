@@ -4,8 +4,8 @@ name: CI
 #
 # Required lanes for branch protection (BUILD-4 independent fail isolation):
 #   docs            - documentation control-plane check
-#   lean-product    - Lean build, unit tests, product-negative, deletion gates
-#   target-smoke    - target-cli-positive + target-negative (tool root)
+#   lean-product    - nine non-target test shards, product-negative, deletion gates
+#   target-smoke    - serial target shard + target CLI positive/negative checks
 #   solana-runtime  - Mollusk runtime differential
 #
 # Manual audit lane:
@@ -99,7 +99,7 @@ jobs:
       - name: Prune stale olean artifacts
         run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
 
-      - name: Lean product gate (no target CLI smoke)
+      - name: Lean product gate (nine non-target shards)
         run: just ci-lean-product
 
   target-smoke:
@@ -147,7 +147,7 @@ jobs:
       - name: Prune stale olean artifacts
         run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
 
-      - name: Target CLI positive/negative smoke
+      - name: Serial target shard and CLI smoke
         run: just ci-target-smoke
 
   # BUILD-4: Solana Mollusk runtime is a separate job so Lean product CI failures

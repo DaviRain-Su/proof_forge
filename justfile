@@ -70,6 +70,52 @@ test: build
     export jobs
     printf '%s\n' "${shards[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_shard "$@"' _
 
+# Hosted lean-product lane: run the nine non-target test shards only. The target
+# shard owns external compiler/runtime checks and runs serially in target-smoke;
+# keeping it out of this xargs pool prevents Linux runner starvation/hangs while
+# the default `just test` above retains the complete local suite.
+test-nontarget: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    lake build \
+      proof_forge_next_tests_shard_core \
+      proof_forge_next_tests_shard_typed \
+      proof_forge_next_tests_shard_language \
+      proof_forge_next_tests_shard_language_b \
+      proof_forge_next_tests_shard_language_c \
+      proof_forge_next_tests_shard_aggregate \
+      proof_forge_next_tests_shard_language_heavy \
+      proof_forge_next_tests_shard_source \
+      proof_forge_next_tests_shard_source_b
+    jobs='{{test_jobs}}'
+    if ! [[ "${jobs}" =~ ^[1-9][0-9]*$ ]]; then
+      jobs=4
+    fi
+    shards=(
+      proof-forge-next-tests-shard-core
+      proof-forge-next-tests-shard-typed
+      proof-forge-next-tests-shard-language
+      proof-forge-next-tests-shard-language-b
+      proof-forge-next-tests-shard-language-c
+      proof-forge-next-tests-shard-aggregate
+      proof-forge-next-tests-shard-language-heavy
+      proof-forge-next-tests-shard-source
+      proof-forge-next-tests-shard-source-b
+    )
+    run_shard() {
+      local name="$1"
+      echo "=== shard start: ${name} (jobs=${jobs}) ==="
+      if lake env ".lake/build/bin/${name}"; then
+        echo "=== shard ok: ${name} ==="
+      else
+        echo "FAIL shard: ${name}" >&2
+        exit 1
+      fi
+    }
+    export -f run_shard
+    export jobs
+    printf '%s\n' "${shards[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_shard "$@"' _
+
 # Daily feedback path: prefer `just test-fast` over full `just test`.
 # Does NOT build/run the frontend worker (removed from product CLI path).
 test-fast: build
@@ -1257,13 +1303,13 @@ solana-cpi-product-acceptance:
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
 # selection and S5–S7c deletion gates retain the engineering output closure.
 # BUILD-4 local recipes: three independent lanes (also mapped in CI jobs).
-# lean-product: unit/product Lean tests + deletion gates (no target CLI smoke).
-# target-smoke: target-cli-positive + target-negative + zero-tool NFR repeat gate.
-# Full `ci` keeps the historical one-shot path for local machines.
+# lean-product: nine non-target test shards + deletion gates.
+# target-smoke: target shard (serial) + target CLI checks + zero-tool NFR gate.
+# Full `ci` retains all ten test shards; only hosted execution ownership changes.
 # EVMOZ-006: evm-corpus-static after build/test (serial; avoids concurrent lake).
-ci-lean-product: docs-check sbom-package-files-check build test product-negative source-bounds evm-corpus-static run-deletion-gates alpha-deletion-gate
+ci-lean-product: docs-check sbom-package-files-check build test-nontarget product-negative source-bounds evm-corpus-static run-deletion-gates alpha-deletion-gate
 
-ci-target-smoke: build target-cli-positive target-negative nfr-repeat
+ci-target-smoke: build test-targets target-cli-positive target-negative nfr-repeat
 
 ci: ci-lean-product ci-target-smoke
 
