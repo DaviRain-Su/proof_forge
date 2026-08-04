@@ -529,10 +529,14 @@ private def nearPlanErr (message : String) : CompileError :=
     ArrayState + **Map UInt64 UInt64** dense pilot via
     `pilotContainerStatePolicyArrayMapBytes` (Array → N×UInt64 leaves; Map →
     capacity-8×(occ,key,val); **Bytes N → N×UInt8 leaves**; Option
-    intermediate for Map IndexGet).
+    intermediate for Map IndexGet — not pushed to `containerTypeIds`).
     **Named Struct/Enum** via `pilotNamedAggregateStatePolicyAdmit` (flatten to
     UInt64/Int64 KV leaves; construct/fieldGet/fieldSet/variant ops; entry/view
     **named-aggregate return admitted** via B-RET-ABI preorder leaf flatten ≤8).
+    **B-OPT-STATE / BL-30**: anonymous `Option UInt64` **state** admitted as
+    Enum-shaped tag+payload KV leaves (`name_tag`/`name_p0`; none default =
+    zero fields; storeAtomic on assign; match via VariantTag/VariantPayload).
+    Option of non-UInt64, nested Option, Option params, Map/Bytes Option stay FC.
     **N-ANON-RESULT (NEAR ABI)**: anonymous `Array UInt64 N` (1..8) and
     `Option UInt64` entry/view returns reuse the same N×8 LE value_return path;
     Map/Bytes/nested/narrow-element anonymous returns stay fail closed. -/
@@ -797,6 +801,29 @@ private partial def flattenTypeLeafAbiV1
   else
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: aggregate leaf must be UInt64, Int64, or named Struct/Enum"
+
+/-- True when `typeId` is an anonymous Option TypeDecl. Option is admitted by
+    the Map container policy as a Map IndexGet intermediate and (B-OPT-STATE)
+    as state layout — it is **never** pushed to `containerTypeIds`. -/
+private def isAnonymousOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, name := none, .. } => true
+  | _ => false
+
+/-- B-OPT-STATE: admit only anonymous `Option UInt64` for state (tag+payload).
+    Non-UInt64 / nested / named Option stay fail closed. -/
+private def requireOptionUInt64StateV1
+    (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
+    (typeId : TypeIdV1) (stateName : String) : CompileResult Unit := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option elTid, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .near
+          s!"unsupported NEAR semantic shape: Option state '{stateName}' requires UInt64 payload"
+  | _ =>
+      throw <| .planInvariant .near
+        s!"unsupported NEAR semantic shape: state '{stateName}' is not anonymous Option UInt64"
 
 /-- N-ANON-RESULT (NEAR ABI): anonymous result leaf layout for admitted
 container returns. `Array UInt64 N` → N×u64-le leaves; `Option UInt64` →
@@ -1087,6 +1114,35 @@ private def makeStorageLayoutV1
               endianness := .little
             }
           stateLeaves := stateLeaves.push leaves
+        else if isAnonymousOptionTypeIdV1 typeDecls state.typeId then
+          -- B-OPT-STATE / BL-30: Option UInt64 → tag + payload (2×8-byte KV
+          -- leaves), same physical shape as a 1-payload Enum. Names follow
+          -- Enum convention (`name_tag` / `name_p0`). Default zero fields =
+          -- Option.none; storeAtomic writes both leaves; none construct zeroes
+          -- payload (pin). Non-UInt64 Option payload fails closed above.
+          requireOptionUInt64StateV1 typeDecls types state.typeId state.name
+          let tagName := state.name ++ "_tag"
+          let pName := state.name ++ "_p0"
+          unless isIdentifier tagName do
+            throw <| .planInvariant .near
+              s!"state name '{tagName}' is not a safe identifier"
+          unless isIdentifier pName do
+            throw <| .planInvariant .near
+              s!"state name '{pName}' is not a safe identifier"
+          if fields.size + 2 > maxStateFields then
+            throw <| .planInvariant .near "state count is outside the profile limits"
+          let mut leaves : Array Nat := #[]
+          for leafName in #[tagName, pName] do
+            let fi := fields.size
+            leaves := leaves.push fi
+            fields := fields.push {
+              sourceId := fi
+              name := leafName
+              key := stateKey fi
+              byteWidth := 8
+              endianness := .little
+            }
+          stateLeaves := stateLeaves.push leaves
         else
           -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
           -- KV keys stay one-per-field (no packing); value length is the ABI width.
@@ -1121,11 +1177,12 @@ private structure LoweredValueV1 where
   dependencies : Array ValueIdV1
   /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-8
       occ/key/val, Bytes N (1-byte UInt8 leaves), named Struct/Enum (preorder
-      UInt64/Int64 leaves), or Option `[tag,payload]` from Map IndexGet.
+      UInt64/Int64 leaves), or Option `[tag,payload]` (Map IndexGet intermediate
+      or B-OPT-STATE Option UInt64 state / construct).
       `expr` mirrors `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none
   /-- Physical byte width of each leaf KV value: 8 for UInt64 leaves
-      (Array/Map/Principal/named Struct/Enum), 1 for Bytes leaves (UInt8).
+      (Array/Map/Principal/named Struct/Enum/Option), 1 for Bytes leaves (UInt8).
       Scalar values keep 8. -/
   leafByteWidth : Nat := 8
   deriving Inhabited
@@ -1916,6 +1973,17 @@ private def lowerBlockInstructionsV1
             leafExprs := leafExprs.push (.stateLoad fi)
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 result.typeId values result value
+        else if isAnonymousOptionTypeIdV1 typeDecls result.typeId then
+          -- B-OPT-STATE: Option UInt64 state load → 2-leaf aggregate (tag, payload).
+          requireOptionUInt64StateV1 typeDecls types result.typeId "load"
+          unless leafIdxs.size == 2 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: Option state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          for fi in leafIdxs do
+            leafExprs := leafExprs.push (.stateLoad fi)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
         else
           let fi ← match leafIdxs[0]? with
             | some i =>
@@ -1942,7 +2010,7 @@ private def lowerBlockInstructionsV1
                   pure w
               | none =>
                   throw <| .planInvariant .near
-                    "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, named Struct/Enum, or Array/Map"
+                    "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, named Struct/Enum, Array/Map, or Option UInt64"
           unless field.byteWidth == byteWidthOfBitWidth bitWidth do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: state load width does not match field layout"
@@ -2289,10 +2357,10 @@ private def lowerBlockInstructionsV1
           | none => pure #[stateId.toNat]
         let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         if root.isAggregate then
-          -- Principal / Array / Map / Bytes / named Struct/Enum multi-leaf store
-          -- as one atomic unit. Soft: dual Map stores leave pure values for a
-          -- later store (Token). Atomic: all leaf Exprs share the pre-store KV
-          -- snapshot at IR lower (store-then-read hazard on sequential leaves).
+          -- Principal / Array / Map / Bytes / named Struct/Enum / Option UInt64
+          -- multi-leaf store as one atomic unit. Soft: dual Map stores leave pure
+          -- values for a later store (Token). Atomic: all leaf Exprs share the
+          -- pre-store KV snapshot at IR lower (store-then-read hazard).
           let leaves := root.leafExprs
           unless leaves.size == leafIdxs.size do
             throw <| .planInvariant .near
