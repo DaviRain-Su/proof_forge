@@ -192,9 +192,9 @@ private unsafe def acceptProgram
   runWat2Wasm tc.wat2wasm tmp path wasmName label
   runRuntime tc tmp wasmName label
 
-/-- Multi-field public UInt64 state (NEAR KV aggregate surface). Named Struct
-    state remains fail-closed on NEAR Plan (see Targets N3); scalar multi-field
-    is the shipped aggregate-state path for this acceptance gate. -/
+/-- Multi-field public UInt64 state used by this structural acceptance fixture.
+    Named Struct/Enum state is covered by the separate NearHostModel product-path
+    suite; this fixture intentionally remains scalar multi-field. -/
 private def dualFieldSourceText : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++

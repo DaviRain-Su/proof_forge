@@ -33,7 +33,9 @@ Quint/Apalache/TLC/Java；ITF/MBT/verify 留后续 profile。这是迁移中的�
 
 **Stage / source supervisor 不恢复为产品路径。** 2026-08-01 已移除的 SafeOpen /
 DarwinSupervisor / frontend-worker 监督层 **保持删除**。sole 产品源路径继续是进程内
-`Loader.selectProgramV1Product` → located Normalize → `compileProgramProductV1`。
+`Loader.selectProgramV1ProductWithTheoremInventory` → located Normalize →
+`compileProgramProductV1` → **`certifyInlineProofV1`**（sole product proof gate；
+`--proof-bundle*` 已删除）→ target resolve/materialize。
 
 | 不恢复 | 理由 |
 |---|---|
@@ -87,9 +89,11 @@ formal `OutputSetV1` 或 `TASK-D3-05` 完成。
 当前仍**不是**新架构迁移完成态。只有以下条件全部满足，才能把 engineering migration 写成完成：
 
 1. CLI 产品 source 路径为单一、fail-closed 权威（**当前工程事实**：进程内
-   `Loader.selectProgramV1Product` → located Normalize → `compileProgramProductV1`；
+   `Loader.selectProgramV1ProductWithTheoremInventory` → located Normalize →
+   `compileProgramProductV1` → sole inline `certifyInlineProofV1` → resolve/materialize；
    2026-08-01 起前端监督层 SafeOpen/worker supervisor 已按产品决策移除，不再作为完成条件）。
-   无 dual open、无 embedded Counter fallback、无 legacy Source reader。
+   无 dual open、无 embedded Counter fallback、无 legacy Source reader、无产品
+   `--proof-bundle*` alternate。
 2. shipped ProgramV1 产品表面都经 CheckV1 → NormalizeV1 生成 structure-valid `SemanticProgramV1`，
    不再仅是 Counter-like S1（**当前**：Normalize 已扩多宽/控制流/fn/for/call 等，完整语言面仍未闭合）。
 3. `CompiledSemanticV1` 是唯一产品编译成功 carrier；alpha Typed/Semantic lowering与 residual accessors 无产品调用。
@@ -111,21 +115,27 @@ formal TASK/TST/EV/qualification 是独立轴，不由上述 engineering complet
 ```text
 Wave 1  D1 ProgramV1 CLI source path + DiagnosticV1 product cutover
         [done as engineering] 2026-08-01：监督式 frontend 层按产品决策移除；
-        现 sole 产品源路径 = 进程内 Loader.selectProgramV1Product
+        现 sole 产品源路径 = 进程内 selectProgramV1ProductWithTheoremInventory +
+        certifyInlineProofV1（ProofBundle 产品 flag 已删）
   → Wave 2  [done] freeze S1 Semantic + EVM/Solana/NEAR/Noir V1 Plan leaf + single carrier
            → [current] expand sole Normalize/Reference/target beyond S1
-             （多宽/控制流/fn/for/call/部分聚合已接线；完整语言面未闭合）
+             （多宽/控制流/fn/for/call/部分聚合已接线；完整语言面未闭合；inline proof wiring
+              + simple-closure/ordinal-0 kernel cert + literal-true/public-Bool-view same-file
+              ordinary theorem product check positive 已完成 engineering 验证；formal/target
+              refinement/materializer invariant support仍未闭合）
   → Wave 3  identity + output 闭合（工程 S4–S7c + D3-E7 content closure + D3-E9 descriptor-axis exact join 已接线；formal carriers 仍 pending）
   → Wave 4  D4 EVM first → D5 Solana + D6 NEAR + D7 Noir target completion
   → Wave 5  D8 aggregate/security/repro/clean-room/review
 ```
 
-**Wave 1 / D1 工程路径（2026-08-01 起）**：产品 CLI `build` 经 validated project root 下进程内
-`Loader.selectProgramV1Product` 读源 → `normalizeProgramLocatedV1` → `compileProgramProductV1`。
-历史上的 B9–B12 监督式 SafeOpen/frontend-worker 切片曾接线，**已按产品决策整体移除**
-（模块/exe/gate 删除；contained/host-race formal 资格不再适用；`TASK-D1-08` superseded）。
-`Frontend/ProtocolV1` 与 `WorkerV1` 协议面可仍存在于树中供测试/残留，**不是**产品 CLI 源权威。
-D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表面。
+**Wave 1 / D1 工程路径（2026-08-01 起；2026-08-04 proof 修正）**：产品 CLI `check`/`build`
+经 validated project root 下 **单次** `IO.FS.readFile` →
+`Loader.selectProgramV1ProductWithTheoremInventory` → `normalizeProgramLocatedV1` →
+`compileProgramProductV1` → **`certifyInlineProofV1`**（早于 TargetRegistry resolve /
+materialize）→ capability Plan/publish。历史上的 B9–B12 监督层与 structural
+`--proof-bundle*` product join **均已移除**（后者 unknown option；`ProofBundleV1` 仅 library）。
+`Frontend/ProtocolV1` 与 `WorkerV1` 不是产品 CLI 源权威。D1-04 shared IntegerLiteral 与
+ProgramV1 command/export/v2 仍为 sole 源表面。
 
 **当前 wave = Wave 2 / D2 扩面**：九个 materializer Plan body 已直连 retained `SemanticProgramV1`；
 `CompiledSemanticV1` + `ProgramRequirementsV1` sole freeze + engineering resolver/capability
@@ -140,11 +150,15 @@ D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表�
 - `docs-check`/`dev-check`/`ci` 不运行 Stage-0 或 TaskQualification；当前也没有
   `governance-check` / `release-check` recipe。历史治理数据保持隔离，正式 host 判断只能由
   AGENTS.md 所列直接 Stage-0 命令与外部流程执行。
-- **产品 CLI 源路径（当前）**：`build` 经进程内 `Loader.selectProgramV1Product`（validated project root
-  下 `IO.FS.readFile`）→ `normalizeProgramLocatedV1`（CheckV1 ok∧analysisComplete + structure-gated
-  Semantic）→ `compileProgramProductV1` → private-ctor `CompiledSemanticV1` → engineering
-  `resolveEngineeringRequirementsV1` → target capability Plan/IR/finalize → artifact content inventory + pure OutputSet mint → manifest-last/exact disk closure。
-  失败走 `DiagnosticBundleV1` / `selectExitCode`。全链不构造 legacy `Source.Program`。
+- **产品 CLI 源路径（当前）**：`check`/`build` 经 **单次** `IO.FS.readFile` →
+  `Loader.selectProgramV1ProductWithTheoremInventory` → `normalizeProgramLocatedV1` →
+  `compileProgramProductV1` → **`certifyInlineProofV1`**（held raw；`noProof` 显式 skip；
+  `failed` → `PF-SRC-INVALID`/exit 3；check 输出 proofStatus/count/digest，build 只门禁）→
+  engineering `resolveEngineeringRequirementsV1` → capability Plan/IR/finalize → OutputSet →
+  manifest-last/exact disk closure。**无** `--proof-bundle*`。失败走 `DiagnosticBundleV1` /
+  `selectExitCode`。全链不构造 legacy `Source.Program`。narrow simple-closure/ordinal-0
+  kernel cert 与 product `check` certified 正例均已有独立 engineering 测试；它们不代签
+  formal TST、reachability、target refinement、sandbox/hermetic 或 release qualification。
 - **历史 frontend 监督层（已移除）**：B9 Protocol / B10 worker / B11 SafeOpen+supervisor / B12 CLI
   切over 曾完成工程接线；**2026-08-01 产品决策整体删除**该层。详情与 superseded 说明见
   `MIGRATION_MATRIX` D1-08 与 AGENTS checkpoint；不得再写成当前产品路径。
@@ -164,9 +178,10 @@ D1-04 shared IntegerLiteral 与 ProgramV1 command/export/v2 仍为 sole 源表�
   九个 materializer 的 Plan body 均由 retained `SemanticProgramV1` 经 capability 构造；工程 output 已接 S7a–S7c + D3-E7
   descriptors/evidence digest/post-publish inspect closure，仍非 formal D1–D4 / formal OutputSetV1 完成。
 - Legacy Source source-reading 与 v1 export decoder 已删除；command/export 仅 ProgramV1 v2。
-  `selectProgramV1Product` 为产品 CLI 使用的 Loader 入口；`selectProgramV1*` /
-  `compileValidatedSourceV1` 仍可为测试/库 API。alpha Core 模块与产品 import 已删/门禁禁止；
-  无 adapter、dual reader、第二套 ProgramV1 decoder 或 fallback。
+  `selectProgramV1ProductWithTheoremInventory` 为产品 CLI 使用的 Loader 入口；
+  `selectProgramV1*` / `compileValidatedSourceV1` 仍可为测试/库 API。alpha Core 模块与产品
+  import 已删/门禁禁止；无 adapter、dual reader、第二套 ProgramV1 decoder、产品
+  `--proof-bundle*` 或 ProofBundle fallback。
 - [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md) 记录 D1–D4 formal vs 工程地基；formal 仍 0/27 done。
 - [`docs/engineering-backlog.md`](docs/engineering-backlog.md) 为日常工程可勾选队列。
 - [`QUALIFICATION_INVENTORY.md`](QUALIFICATION_INVENTORY.md) 隔离 qualification 子系统；ordinary

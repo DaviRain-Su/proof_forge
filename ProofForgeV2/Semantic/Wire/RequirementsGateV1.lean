@@ -20,6 +20,12 @@ private def isKnownRequirementDomain (domain : String) : Bool :=
   domain == "authority" || domain == "state-custody" || domain == "failure" ||
   domain == "extension"
 
+/-- Split a requirement id on ASCII `'.'` via `toList`/`List.splitOn` so the
+    domain gate is kernel-reducible for closed catalog ids (proof certificates).
+    Semantically matches `String.splitOn "."` for the S2 catalog surface. -/
+private def requirementIdSegmentsV1 (id : String) : List String :=
+  (id.toList.splitOn '.').map String.ofList
+
 /-- Mechanical RequirementId domain gate (CAP first segment ∈ closed set).
     Requires at least two nonempty dotted segments; unknown domain →
     `.badRequirement`. Full segment grammar remains formal CAP work. -/
@@ -27,7 +33,7 @@ private def validateRequirementIdDomain (id : String) :
     Except SemanticWireErrorV1 Unit := do
   if id.isEmpty then
     return ← err .badRequirement
-  let parts := id.splitOn "."
+  let parts := requirementIdSegmentsV1 id
   unless parts.length ≥ 2 do
     return ← err .badRequirement
   for part in parts do
@@ -126,6 +132,41 @@ def validateProgramRequirementsStructure (reqs : ProgramRequirementsV1) :
       | .eq | .gt => return ← err .badRequirement
     prev? := some item
   pure ()
+
+/-- Empty requirements table is accepted by the production structure gate. -/
+theorem validateProgramRequirementsStructure_empty_eq_ok :
+    validateProgramRequirementsStructure { items := #[] } = .ok () := rfl
+
+private theorem requirementIdSegments_value_bool :
+    requirementIdSegmentsV1 "value.bool" = ["value", "bool"] := by
+  simp [requirementIdSegmentsV1]
+  decide
+
+private theorem validateRequirementIdDomain_value_bool :
+    validateRequirementIdDomain "value.bool" = .ok () := by
+  simp [validateRequirementIdDomain, requirementIdSegments_value_bool,
+    isKnownRequirementDomain, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+private theorem validatePredicatesSorted_empty :
+    validatePredicatesSorted #[] = .ok () := rfl
+
+/-- A singleton row with closed id `value.bool` and empty predicates passes the
+    production requirements structure gate (domain + empty predicate order;
+    no peer-order comparison). Digest/version are ignored when alone. -/
+theorem validateProgramRequirementsStructure_singleton_value_bool_eq_ok
+    (version : SemVer) (digest : Digest) :
+    validateProgramRequirementsStructure {
+      items := #[{
+        id := "value.bool"
+        version := version
+        digest := digest
+        predicates := #[]
+      }]
+    } = .ok () := by
+  simp only [validateProgramRequirementsStructure]
+  have hDom := validateRequirementIdDomain_value_bool
+  have hPred := validatePredicatesSorted_empty
+  simp [hDom, hPred, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 /-- Apply `f` to every instruction in callables → blocks → instructions
     source order. Full scan; no early exit. -/

@@ -3,7 +3,7 @@ id: SPEC-SEC-001
 title: 安全与隐私规格
 status: proposed
 owner: security
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -14,6 +14,11 @@ normative: true
 > pre-read bounded no-follow、regular/single-link、worker process containment 与 controller 资源
 > 归因均 **未由当前产品路径实现**。Loader 仍在读入后执行 16 MiB source gate。下文 B11/B12
 > 实现叙述只作为 superseded 历史记录；accepted 安全/架构意图是否修订仍需 ADR 决策。
+>
+> **Inline proof（2026-08-04，ADR-0027）**：engineering certification 在 **同一 compiler
+> 进程内** 对 held raw source 做 elaboration + Environment audit。该路径 **不是** sandbox、
+> **不是** contained worker、**不是** hermetic/Stage-0 evidence。不得把 inline cert 成功
+> 升格为 formal process containment 或 release qualification。
 
 ## 资产与攻击者
 
@@ -24,8 +29,20 @@ artifact consumer 输入和部分文件系统；不得假定父目录或 PATH �
 ## 信任边界
 
 Lean kernel/toolchain 与已校验 V2 source 是最小 TCB；外部 packager、prover、validator、
-runtime、RPC、network profile 和父项目均不可信。编译器不执行 source 任意 Lean code、
+runtime、RPC、network profile 和父项目均不可信。编译器默认不执行 source 任意 Lean code、
 动态 plugin、build script 或 network fetch。
+
+**Inline theorem certification 例外（ADR-0027，engineering）**：当 source 携带
+`proof … using …` / adjacent theorem 时，产品可在 **当前进程**  elaboration 该 snapshot
+并审计 Environment。此扩大 TCB 的范围必须显式承认：
+
+- 输入仅限同一 in-memory raw source；禁止为证明重读或信任用户 `.olean`；
+- root 必须为 theorem；kernel defeq 到 closed `InvariantTheoremV1`；
+- dependency 闭包仅允许 base axiom `Classical.choice` / `Quot.sound` / `propext`，
+  并拒绝 `sorryAx`、用户 axiom、unsafe/partial/extern/implemented_by/initializer 等
+  （`proof-forge.proof-trust-policy.v1`，全部 capability flags false）；
+- 成功不得写成 sandbox 逃逸免疫或 formal hermetic evidence；
+- proof gate 失败则不得 materialize/publish。
 
 ## 强制控制
 

@@ -1,12 +1,12 @@
 /-
-  Tests.Semantic.ProofReferenceJoinV1 — engineering INV-1 product path pins.
+  Tests.Semantic.ProofReferenceJoinV1 — engineering INV-1 library compatibility pins.
 
-  Drives shipped:
+  Drives shipped library APIs:
     * `collectSourceProofBindingsV1` / `requireProofBundlePairGateV1`
     * `openProofBundleV1` (R-3)
     * `joinProofReferencesV1`
-    * product `compileValidatedSourceV1` on a program with `invariant` + `proof`
-      (Normalize skips both; no ambient Lean theorem)
+    * non-product `compileValidatedSourceV1` on a program with `invariant` + `proof`
+      (no ambient Lean theorem; product CLI instead uses `certifyInlineProofV1`)
 
   Covers:
     * positive: well-formed reference + matching opened bundle + digests
@@ -227,7 +227,7 @@ private def testUnusedBundleGate : IO Unit := do
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"empty+empty must ok: {renderProofReferenceJoinErrorV1 e}"
 
-/-- CLI digest pin mismatch fail closed. -/
+/-- Library caller digest pin mismatch fails closed. -/
 private def testDigestMismatch : IO Unit := do
   let source ← mkProofedCounterSource
   let bindings := collectSourceProofBindingsV1 source.program

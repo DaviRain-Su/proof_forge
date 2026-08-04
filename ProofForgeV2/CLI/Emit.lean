@@ -406,11 +406,12 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
 /-- Full build/check option bag (CLI internal + test-facing parse).
 `output`/`root` are `Option` so duplicate flags are detectable (defaults applied
 at product path: `build/v2` and `.`). `json` selects PF-JCS stdout.
-D3-E5: `resourceLimits` / `minimumEvidence` / proof-bundle pair are parsed and
-validated fail-closed before source open. RES-1 enforces wall clocks (build:
-pre-rename inside emitProgram; check: post-success path). The RES-1B
-output-only slice enforces `artifact-output.published-bytes` before
-publication. Memory/process/protocol/stderr remain observation-only gaps. -/
+D3-E5: `resourceLimits` / `minimumEvidence` are parsed and validated fail-closed
+before source open. RES-1 enforces wall clocks (build: pre-rename inside
+emitProgram; check: post-success path). The RES-1B output-only slice enforces
+`artifact-output.published-bytes` before publication. Memory/process/protocol/
+stderr remain observation-only gaps. Structural ambient ProofBundle product
+flags remain deleted; product proof gating is the in-process inline certifier. -/
 structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
@@ -423,9 +424,32 @@ structure BuildOptions where
   json : Bool := false
   resourceLimits : Array ResourceLimitOverrideV1 := #[]
   minimumEvidence : Option String := none
-  proofBundle : Option String := none
-  proofBundleDigest : Option String := none
   deriving Repr
+
+/-- Product-facing inline proof observation for check success output.
+    `notRequired` is the explicit no-proof skip (never forged certified).
+    `certified` carries theorem count + proofCertificationDigest only — never
+    mutates ProgramV1 source/semantic digests or the semantic carrier. -/
+inductive ProductProofStatusV1 where
+  | notRequired
+  | certified (theoremCount : UInt32) (certificationDigest : Digest)
+  deriving Repr
+
+namespace ProductProofStatusV1
+
+def statusWire : ProductProofStatusV1 → String
+  | .notRequired => "not-required"
+  | .certified _ _ => "certified"
+
+def theoremCount : ProductProofStatusV1 → UInt32
+  | .notRequired => 0
+  | .certified n _ => n
+
+def certificationDigest? : ProductProofStatusV1 → Option Digest
+  | .notRequired => none
+  | .certified _ d => some d
+
+end ProductProofStatusV1
 
 /-- Product command kind for post-parse resource/evidence flag validation. -/
 inductive CliBuildCommandKindV1 where
@@ -532,19 +556,7 @@ def isValidMinimumEvidenceGradeV1 (grade : String) : Bool :=
   grade == "local_runtime" ||
   grade == "network_or_proof_validated"
 
-/-- Exact SPEC-COMMON-001 lowercase SHA-256 wire: `sha256:` + 64 hex digits. -/
-def isValidProofBundleDigestWireV1 (wire : String) : Bool :=
-  let cs := wire.toList
-  let pfx := ("sha256:").toList
-  if !pfx.isPrefixOf cs then false
-  else
-    let hexChars := cs.drop pfx.length
-    if hexChars.length != 64 then false
-    else
-      hexChars.all fun c =>
-        ('0' ≤ c && c ≤ '9') || ('a' ≤ c && c ≤ 'f')
-
-/-- Post-parse validation for check vs build (SPEC-CLI resource/evidence/proof-bundle).
+/-- Post-parse validation for check vs build (SPEC-CLI resource/evidence).
 Runs before source open / materialize. Wall-clock **enforcement** is RES-1
 (`enforceWallMsLimitV1` after product stages). -/
 def validateBuildOptionsCliV1
@@ -573,24 +585,14 @@ def validateBuildOptionsCliV1
       | .build =>
           unless isValidMinimumEvidenceGradeV1 grade do
             throw s!"unknown --minimum-evidence grade '{grade}'"
-  -- proof-bundle pair
-  match options.proofBundle, options.proofBundleDigest with
-  | none, none => pure ()
-  | some _, none => throw "--proof-bundle requires --proof-bundle-digest"
-  | none, some _ => throw "--proof-bundle-digest requires --proof-bundle"
-  | some dir, some dig =>
-      if dir.isEmpty then throw "--proof-bundle path must be nonempty"
-      unless isValidProofBundleDigestWireV1 dig do
-        throw "invalid --proof-bundle-digest (want sha256:<64 lowercase hex>)"
-      -- INV-1: pair shape accepted here; product path joins after compile using
-      -- ProofReferenceJoinV1 (unused pair / missing pair / export join fail closed).
-      pure ()
   pure options
 
 /-- Shared build/check argument parser (pure Except).
 `--network` and any other unknown dashed option fail as usage errors.
 `--json` is a bare flag. Duplicate selection and common flags fail closed.
-D3-E5: `--resource-limit` (repeatable), `--minimum-evidence`, proof-bundle pair. -/
+D3-E5: `--resource-limit` (repeatable), `--minimum-evidence`.
+Legacy structural ambient ProofBundle product flags remain unknown options
+(inline certifier is the sole product proof gate). -/
 partial def parseBuildArgsExcept (args : List String) (options : BuildOptions := {}) :
     Except String BuildOptions := do
   match args with
@@ -628,14 +630,6 @@ partial def parseBuildArgsExcept (args : List String) (options : BuildOptions :=
       if options.minimumEvidence.isSome then throw "duplicate --minimum-evidence"
       if value.startsWith "-" then throw "missing --minimum-evidence value"
       parseBuildArgsExcept rest { options with minimumEvidence := some value }
-  | "--proof-bundle" :: value :: rest =>
-      if options.proofBundle.isSome then throw "duplicate --proof-bundle"
-      if value.startsWith "-" then throw "missing --proof-bundle value"
-      parseBuildArgsExcept rest { options with proofBundle := some value }
-  | "--proof-bundle-digest" :: value :: rest =>
-      if options.proofBundleDigest.isSome then throw "duplicate --proof-bundle-digest"
-      if value.startsWith "-" then throw "missing --proof-bundle-digest value"
-      parseBuildArgsExcept rest { options with proofBundleDigest := some value }
   | value :: rest =>
       if value.startsWith "-" then
         throw s!"unknown option '{value}'"
@@ -973,18 +967,26 @@ def inspectTargetWithSeedV1
 def inspectTargetText (value : String) (json : Bool := false) : CompileResult String :=
   inspectTargetWithSeedV1 initialTargetRegistryV1Result value json
 
-/-- Product check success human body. -/
+/-- Product check success human body (includes explicit proof status). -/
 def renderCheckOkHumanV1
     (programName : String) (sourceDigest semanticDigest : Digest)
-    (target? : Option TargetId) (profile? : Option CodegenProfileId) :
+    (target? : Option TargetId) (profile? : Option CodegenProfileId)
+    (proofStatus : ProductProofStatusV1 := .notRequired) :
     CompileResult String := do
   let sourceWire ← digestWireCompile "source" sourceDigest
   let semanticWire ← digestWireCompile "semantic" semanticDigest
+  let proofDigestWire ←
+    match ProductProofStatusV1.certificationDigest? proofStatus with
+    | none => pure "none"
+    | some dig => digestWireCompile "proofCertification" dig
   let mut lines :=
     #["ok",
       s!"program={programName}",
       s!"sourceDigest={sourceWire}",
-      s!"semanticDigest={semanticWire}"]
+      s!"semanticDigest={semanticWire}",
+      s!"proofStatus={ProductProofStatusV1.statusWire proofStatus}",
+      s!"proofTheoremCount={ProductProofStatusV1.theoremCount proofStatus}",
+      s!"proofCertificationDigest={proofDigestWire}"]
   match target?, profile? with
   | some tid, some pid =>
       lines := lines.push s!"target={tid}"
@@ -1002,11 +1004,13 @@ private def renderResourceLimitJsonV1 (lim : ResourceLimitOverrideV1) : PfJson :
     ("value", .int (Int.ofNat lim.value.toNat))
   ]
 
-/-- Product check success JSON (`proof-forge.cli.check.v1`). -/
+/-- Product check success JSON (`proof-forge.cli.check.v1`).
+    Additive proof observation fields do not alter source/semantic digests. -/
 def renderCheckOkJsonV1
     (programName : String) (sourceDigest semanticDigest : Digest)
     (target? : Option TargetId) (profile? : Option CodegenProfileId)
-    (resourceLimits : Array ResourceLimitOverrideV1 := #[]) :
+    (resourceLimits : Array ResourceLimitOverrideV1 := #[])
+    (proofStatus : ProductProofStatusV1 := .notRequired) :
     CompileResult String := do
   let sourceWire ← digestWireCompile "source" sourceDigest
   let semanticWire ← digestWireCompile "semantic" semanticDigest
@@ -1019,6 +1023,11 @@ def renderCheckOkJsonV1
     | some pid => PfJson.string pid.toString
     | none => PfJson.null
   let limitsJson := PfJson.array (resourceLimits.map renderResourceLimitJsonV1)
+  let proofDigestJson ←
+    match ProductProofStatusV1.certificationDigest? proofStatus with
+    | none => pure PfJson.null
+    | some dig =>
+        pure (PfJson.string (← digestWireCompile "proofCertification" dig))
   renderCliJsonV1 <|
     PfJson.object #[
       ("schema", .string "proof-forge.cli.check.v1"),
@@ -1028,7 +1037,11 @@ def renderCheckOkJsonV1
       ("semanticDigest", .string semanticWire),
       ("target", targetJson),
       ("codegenProfile", profileJson),
-      ("resourceLimits", limitsJson)
+      ("resourceLimits", limitsJson),
+      ("proofStatus", .string (ProductProofStatusV1.statusWire proofStatus)),
+      ("proofTheoremCount",
+        .int (Int.ofNat (ProductProofStatusV1.theoremCount proofStatus).toNat)),
+      ("proofCertificationDigest", proofDigestJson)
     ]
 
 /-- Product build success human body (includes selected profile). -/

@@ -1,4 +1,4 @@
-import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Language.ProgramElaborationV1
 
 namespace Tests.Language.ProgramExportFixtures.Shared
 

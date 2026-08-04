@@ -6,7 +6,8 @@ open ProofForgeV2.Language
 
 -- BL-19 / N-ANON-RESULT Solana ABI: anonymous Option UInt64 entry/view return
 -- = tag + payload (2×UInt64 leaves). none = (0, 0); some v = (1, v).
--- State is a scalar pad only (Option state remains fail-closed).
+-- This return fixture uses scalar pad state only; BL-29 OptionState separately
+-- covers admitted Option UInt64 state.
 program OptionRet where
   state pad : UInt64
 

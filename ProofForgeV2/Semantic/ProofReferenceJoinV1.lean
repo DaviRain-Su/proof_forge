@@ -8,13 +8,14 @@ import ProofForgeV2.Semantic.ProofSubjectV1
 
 /-
   ProofForgeV2.Semantic.ProofReferenceJoinV1 — engineering **INV-1** constrained
-  proof-reference product join (not formal TST-PROOF-001).
+  library-only proof-reference join (not product CLI; not formal TST-PROOF-001).
+  Product `check`/`build` use `Compiler.certifyInlineProofV1` exclusively.
 
   Scope:
     * Collect source-order `proof Inv using QN` bindings from ProgramV1
     * Exact set join of source bindings ↔ ProofBundleV1 exports
       `(invariantName, theoremComponents)`
-    * CLI digest pin + sourceHash + semanticHash must match opened bundle
+    * Caller-supplied expected digest + sourceHash + semanticHash must match opened bundle
     * No ambient Lean term / Environment / definitional equality / olean kernel
 
   Out of scope: trust-policy axiom graph, toolchain lock pin, contained worker,
@@ -37,7 +38,7 @@ structure SourceProofBindingV1 where
   theoremComponents : Array String
   deriving BEq, Repr, Inhabited
 
-/-- Closed product-join errors (engineering). -/
+/-- Closed library-join errors (engineering). -/
 inductive ProofReferenceJoinErrorV1 where
   | unusedBundle
   | missingBundle
@@ -150,11 +151,11 @@ private def exactBindingExportJoin
     i := i + 1
   pure ()
 
-/-- Transitional non-product join retained for focused compatibility tests.
-    Production CLI uses `joinValidatedProofSubjectV1` below so provenance cannot
-    be omitted.
+/-- Transitional, library-only join retained for focused compatibility tests.
+    Product CLI proof certification does not call this module. Library callers
+    that require provenance use `joinValidatedProofSubjectV1` below.
 
-    Rules (engineering subset of SPEC-CLI / SPEC-SEM-001):
+    Rules (engineering library subset of SPEC-SEM-001):
     * expectedBundleDigest == opened.bundleDigest
     * manifest.sourceHash == sourceHash
     * manifest.semanticHash == semanticHash
@@ -171,7 +172,7 @@ def joinProofReferencesV1
   if bindings.isEmpty then
     return ← err .unusedBundle
   unless opened.bundleDigest.bytes == expectedBundleDigest.bytes do
-    return ← err (.digestMismatch "CLI --proof-bundle-digest does not match opened bundle")
+    return ← err (.digestMismatch "expected proof-bundle digest does not match opened bundle")
   unless opened.manifest.sourceHash.bytes == sourceHash.bytes do
     return ← err .sourceHashMismatch
   unless opened.manifest.semanticHash.bytes == semanticHash.bytes do
@@ -193,7 +194,7 @@ def joinValidatedProofSubjectV1
     return ← err .unusedBundle
   unless opened.bundleDigest.bytes == expectedBundleDigest.bytes do
     return ← err (.digestMismatch
-      "CLI --proof-bundle-digest does not match opened bundle")
+      "expected proof-bundle digest does not match opened bundle")
   unless opened.manifest.sourceHash.bytes == subject.sourceHash.bytes do
     return ← err .sourceHashMismatch
   unless opened.manifest.semanticHash.bytes == subject.semanticHash.bytes do
@@ -203,7 +204,7 @@ def joinValidatedProofSubjectV1
     return ← err .semanticProvenanceDigestMismatch
   exactBindingExportJoin bindings (NonEmptyArray.toArray opened.manifest.exports)
 
-/-- Gate after successful product compile: decide whether a bundle is required / forbidden.
+/-- Library compatibility gate: decide whether a bundle is required / forbidden.
 
     Returns:
     * `.ok none` — no proofs and no pair (normal)
@@ -221,13 +222,13 @@ def requireProofBundlePairGateV1
   | false, false => err .missingBundle
   | false, true => pure ()
 
-/-- Human-stable product message (CLI / tests). -/
+/-- Human-stable library diagnostic used by compatibility tests and callers. -/
 def renderProofReferenceJoinErrorV1 (e : ProofReferenceJoinErrorV1) : String :=
   match e with
   | .unusedBundle =>
       "proof-bundle is not accepted: source has no proof references"
   | .missingBundle =>
-      "source proof references require --proof-bundle and --proof-bundle-digest"
+      "source proof references require a proof bundle and expected digest in this library API"
   | .digestMismatch detail => s!"proof-bundle digest mismatch: {detail}"
   | .sourceHashMismatch =>
       "proof-bundle sourceHash does not match compiled source"

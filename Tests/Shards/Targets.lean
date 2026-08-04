@@ -36,6 +36,7 @@ import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.CLI.DiagnosticsV1
 import Tests.CLI.ResourceFlagsV1
+import Tests.CLI.InlineProofProductV1
 unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.BuildSelectionV1.run
@@ -112,4 +113,6 @@ unsafe def main : IO Unit := do
   Tests.CLI.DiagnosticsV1.run
   IO.eprintln "CP run"
   Tests.CLI.ResourceFlagsV1.run
+  IO.eprintln "CP run"
+  Tests.CLI.InlineProofProductV1.run
   IO.println "shard-targets: ok"

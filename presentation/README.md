@@ -65,8 +65,8 @@ pnpm export
 ## 诚实宣称边界
 
 - EVM：locked `solc` bytecode + G4 Anvil 工程差分，但不是 formal Reference↔Anvil / 完整后端。
-- Solana：SBPF asm → ELF `.so` + Mollusk 工程差分；非 formal Stage-0，call/schedule 仍非真实 CPI。
-- NEAR：locked `wat2wasm` + host-optional runtime load + Counter near-sandbox receipt happy path；非 formal differential/rollback closure。
+- Solana：SBPF asm → ELF `.so` + 20-program/89-test Mollusk 工程差分；call/schedule 已发真实 `sol_invoke_signed_c` 最小路径，但外层 callee account/multi-account ABI 未闭合；非 formal Stage-0。
+- NEAR：locked `wat2wasm` + host-optional runtime load + near-sandbox Counter overflow/state-hold、聚合返回与 Option state 工程路径；非 formal Reference differential。
 - Noir：Plan/relation IR + `.nr` 包 + locked nargo compile-only；无 ACIR/witness/proof/VK/verify。
 - Aleo：Leo source + locked leo compile-only；无 VM/prove/deploy。Psy 仍是 source-only + host-optional compile。
 - AI：未用于编译器核心，定位为确定性验证层。

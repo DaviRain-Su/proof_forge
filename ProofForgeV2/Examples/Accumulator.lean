@@ -1,4 +1,4 @@
-import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Language.ProgramElaborationV1
 
 namespace ProofForgeV2.Examples
 

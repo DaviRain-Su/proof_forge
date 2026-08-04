@@ -510,6 +510,55 @@ s7c-disk-closure-gate:
 
 # Wave 2 EVM pilot: target Plan body consumes retained SemanticProgramV1 only;
 # the frozen public-UInt64 envelope retains exact checked add/sub semantics.
+# Product CLI must not reintroduce structural ProofBundle join/flags.
+# Non-product Semantic/Compiler ProofBundle modules and library tests remain.
+# Inline certifier is product-wired (in-process certifyInlineProofV1 after
+# compile, before TargetRegistry resolve/materialize). Structural ambient
+# bundle join/flags stay deleted; legacy --proof-bundle* remain unknown options.
+cli-structural-proof-bundle-deletion-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source scripts/gate_helpers.sh
+    gate="cli-structural-proof-bundle-deletion-gate"
+    cli_paths=(
+      ProofForgeV2/CLI/Main.lean
+      ProofForgeV2/CLI/Emit.lean
+      ProofForgeV2/CLI/Exe.lean
+    )
+    for pat in \
+      'ProofBundleFilesV1' \
+      'ProofBundleV1' \
+      'ProofReferenceJoinV1' \
+      'applyProofBundleProductGateV1' \
+      'failProofJoin' \
+      'openProofBundleDirectoryV1' \
+      'requireProofBundlePairGateV1' \
+      'joinValidatedProofSubjectV1' \
+      'collectSourceProofBindingsV1' \
+      'proofSubjectOfCompiledSemanticV1' \
+      'isValidProofBundleDigestWireV1' \
+      'proofBundleDigest' \
+      'proofBundle\b' \
+      'proof-bundle'
+    do
+      # Leading "--flag" patterns confuse rg as options; match bare spellings.
+      fail_if_match "$gate" "$pat" "${cli_paths[@]}"
+    done
+    # Product import closure must not pull structural bundle join into CLI.
+    /usr/bin/python3 -I -S scripts/check_lean_import_closure.py \
+      --root ProofForgeV2.CLI.Main \
+      --root ProofForgeV2.CLI.Emit \
+      --root ProofForgeV2.CLI.Exe \
+      --forbid ProofForgeV2.Semantic.ProofBundleV1 \
+      --forbid ProofForgeV2.Semantic.ProofReferenceJoinV1 \
+      --forbid ProofForgeV2.Compiler.ProofBundleFilesV1
+    # Certifier must be product-wired (not a reintroduced ambient bundle gate).
+    rg -q 'certifyInlineProofV1' ProofForgeV2/CLI/Main.lean
+    rg -q 'selectProgramV1ProductWithTheoremInventory' ProofForgeV2/CLI/Main.lean
+    lake build ProofForgeV2.CLI.Main ProofForgeV2.CLI.Emit ProofForgeV2.CLI.Exe \
+      Tests.CLI.ResourceFlagsV1 Tests.CLI.InlineProofProductV1
+    echo "cli-structural-proof-bundle-deletion-gate: ok"
+
 s1-evm-semantic-plan-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -632,6 +681,7 @@ run-deletion-gates:
       s7-output-envelope-deletion-gate
       s7b-finalize-authority-deletion-gate
       s7c-disk-closure-gate
+      cli-structural-proof-bundle-deletion-gate
     )
     for name in "${gates[@]}"; do
       echo "=== gate start: ${name} (serial) ==="

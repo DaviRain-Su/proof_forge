@@ -13,7 +13,8 @@
   S2 engineering catalog (RequirementsV1 freeze only)
     Domain tag: `pf.requirement-key.engineering.v1`
     Digest: domainSeparatedSha256(domain, UTF-8(id))
-    Members: the seven ids in `s2CatalogIdsWireOrderV1`.
+    Members: the seven ids in `s2CatalogIdsWireOrderListV1`
+    (Array view: `s2CatalogIdsWireOrderV1`).
     Consumers: RequirementsV1 (sole freeze), RequirementResolverV1 (S2 rows),
     ProvenanceV1 (origin attribution for S2 contributions),
     RequirementsInferV1 (may contribute these ids).
@@ -79,12 +80,18 @@ def s2ValueBoolIdV1 : String := "value.bool"
 /-- S2 catalog: checked arithmetic surface. -/
 def s2ValueCheckedArithmeticIdV1 : String := "value.checked-arithmetic"
 
-/-- Closed S2 catalog IDs in SPEC wire order (UTF-8 ascending).
-    Exact order is part of the engineering freeze contract; do not reorder. -/
-def s2CatalogIdsWireOrderV1 : Array String :=
-  #[s2EffectAsyncWorkflowIdV1, s2EffectEventIdV1, s2EffectSyncCallIdV1,
+/-- Sole closed S2 catalog ID authority in SPEC wire order (UTF-8 ascending).
+    Kernel-reducible `List` so membership certificates reduce by exact `==`
+    without a second enumerated if-chain. Exact order is part of the
+    engineering freeze contract; do not reorder. -/
+def s2CatalogIdsWireOrderListV1 : List String :=
+  [s2EffectAsyncWorkflowIdV1, s2EffectEventIdV1, s2EffectSyncCallIdV1,
     s2FailureAtomicRollbackIdV1, s2StatePersistentIdV1, s2ValueBoolIdV1,
     s2ValueCheckedArithmeticIdV1]
+
+/-- Closed S2 catalog IDs as Array (derived from sole list authority). -/
+def s2CatalogIdsWireOrderV1 : Array String :=
+  s2CatalogIdsWireOrderListV1.toArray
 
 /-! ### Wire-owned requirement ids (non-S2 digest domains) -/
 

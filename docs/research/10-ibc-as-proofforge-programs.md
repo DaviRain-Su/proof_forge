@@ -3,7 +3,7 @@ id: RPT-010
 title: IBC 作为 ProofForge 程序的可行性研究
 status: draft
 owner: research
-updated: 2026-08-03
+updated: 2026-08-04
 normative: false
 ---
 
@@ -21,25 +21,25 @@ normative: false
 本文为非规范性研究。结论不能越过已接受的 ADR、PRD、架构和技术规格；其作用是说明
 "为什么这条路值得 / 不值得、以及若要走需要补什么"，而不是暗中改变产品语义或目标范围。
 
-## 2026-08-03 工程 follow-up
+## 2026-08-04 工程 follow-up
 
-本文最初的“当前状态/前置缺口”快照早于同日后续扩面。当前 registry 标记七个 implemented
-target，其中 EVM/Solana/NEAR/Noir/Aleo/Psy 有 materializer，CosmWasm 仅 A0 descriptor/resolver、
-尚不能 build；sole Normalize/Reference 已接 aggregates、Array/Map/Bytes/Option、Principal、
-ContextRead/Commit 与 Token dense-Map 工程子集，五个 target 有非均匀 Map lowering，Psy 仍
-fail closed。这个进展**没有**使完整 IBC 可实现：`extension.crypto`/IBC light-client catalog
-仍不存在，packet/proof 的通用动态 Bytes/protobuf 面未闭合，ContextRead 在六 target Plan 仍
-fail closed，call/schedule 平台语义债 `B-CALL-SEM` 未决，authority/custody 与 protocol profile
-也不完整。下文的 2026-08-02 gap 文字按历史快照阅读；当前 op×target 事实以
+本文最初的“当前状态/前置缺口”快照早于后续扩面。当前 registry 为 **12 targets = 9
+implemented materializers + 3 design-only**；EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/
+CosmWasm/TON 均有 target-owned Plan/IR/materialize 路径。sole Normalize/Reference 已接
+aggregates、Array/Map/Bytes/Option、Principal、ContextRead/Commit 与 dense-Map 工程子集，
+各 target 覆盖非均匀；CosmWasm/TON 也已分别有 Wasm/BoC 工程制品与 runtime rungs。
+这些进展**没有**使完整 IBC 可实现：`extension.crypto`/IBC light-client catalog 仍不存在，
+packet/proof 的通用动态 Bytes/protobuf 面未闭合，ContextRead 在九 materializer Plan 仍 fail
+closed，call/schedule 平台语义债 `B-CALL-SEM`、authority/custody 与 protocol profile 也不完整。
+下文的 2026-08-02 gap 文字按历史快照阅读；当前 op×target 事实以
 [`12-target-coverage-matrix.md`](12-target-coverage-matrix.md) 为准。
 
 ## 动机与定位
 
-当前六个可物化 target（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）没有一个能让
-ProofForge 直接复用原生 IBC：EVM、Solana、NEAR 的宿主模型不同，Noir 是无原生持久状态的
-电路，Aleo/Psy 是独立 ZK 应用链模型。Cosmos 生态虽有原生 IBC，CosmWasm 也已被 engineering
-registry 标为 implemented，但当前仅 A0 descriptor/resolver、没有 Plan/IR/materializer。因此
-“靠链原生 IBC”在当前产品可构建 target 集上仍不成立。
+当前九个 materializer 没有一个把宿主原生 IBC 暴露为 portable ProofForge capability：EVM、
+Solana、NEAR、TON 的宿主模型不同，Noir/Quint 非部署型，Aleo/Psy 是独立 ZK 应用链模型；
+CosmWasm 虽已有 Plan/IR/Wasm 与 SubMsg 子集，IBC handler/packet/ack 仍显式 fail closed。
+因此“靠链原生 IBC”在当前产品可构建 target 集上仍不成立。
 
 用户提出的方向是相反的：**不依赖宿主链原生 IBC，而是把 IBC 协议状态机本身写成
 ProofForge 程序，编译成各链合约部署**。这是"在非原生 IBC 链上用合约实现 IBC"路线，

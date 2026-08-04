@@ -1,4 +1,5 @@
 import ProofForgeV2.Semantic.InvariantFoundationV1
+import ProofForgeV2.Semantic.ProofBridgeV1
 import ProofForgeV2.Semantic.ReferenceMachineV1
 
 /-
@@ -18,6 +19,7 @@ import ProofForgeV2.Semantic.ReferenceMachineV1
 
 namespace ProofForgeV2.Semantic.InvariantABI
 
+open ProofForgeV2.Semantic.ProofBridgeV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 
@@ -89,5 +91,44 @@ theorem invariantTheoremV1_of_validate_eq_ok
     rw [hvalidate]
     exact hbound
   · exact heval
+
+/-- Close `InvariantTheoremV1` from a proof-carrying validated carrier (exact
+    product program + production validation witness). Authors still prove the
+    evaluator obligation; wire validation is already packaged. -/
+theorem invariantTheoremV1_of_validated
+    (carrier : ValidatedSemanticProgramV1)
+    (invariantOrdinal : InvariantOrdinalV1)
+    (hbound : invariantOrdinal.toNat < carrier.data.invariants.size)
+    (heval : ∀ state : LogicalStateV1,
+      StateConformsV1 carrier.program state →
+      evalInvariantV1 carrier.program invariantOrdinal state = .returnedTrue) :
+    InvariantTheoremV1 carrier.program invariantOrdinal :=
+  invariantTheoremV1_of_validate_eq_ok
+    carrier.program carrier.data invariantOrdinal carrier.hvalidate hbound heval
+
+/-- Out-of-range ordinals never satisfy `InvariantTheoremV1` on a validated
+    carrier (ordinal mutation negative). -/
+theorem not_invariantTheoremV1_of_oob_ordinal
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (invariantOrdinal : InvariantOrdinalV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hoob : ¬ invariantOrdinal.toNat < data.invariants.size) :
+    ¬ InvariantTheoremV1 program invariantOrdinal := by
+  intro htheorem
+  have hbound := htheorem.1
+  have hinv : program.invariants = data.invariants :=
+    SemanticProgramV1.invariants_eq_of_validate program data hvalidate
+  rw [hinv] at hbound
+  exact hoob hbound
+
+/-- Close validation (and therefore the wire half of the theorem bridge) from
+    sole production encode + decode of the same data. -/
+theorem validateSemanticProgramV1_eq_ok_of_encode_decode_bridge
+    (data : SemanticProgramDataV1) (bytes : ByteArray)
+    (hencode : encodeSemanticProgramDataV1 data = .ok bytes)
+    (hdecode : decodeSemanticProgramDataV1 bytes = .ok data) :
+    validateSemanticProgramV1 ⟨bytes⟩ = .ok data :=
+  validateSemanticProgramV1_eq_ok_of_encode_decode data bytes hencode hdecode
 
 end ProofForgeV2.Semantic.InvariantABI

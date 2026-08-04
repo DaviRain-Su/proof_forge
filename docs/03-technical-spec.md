@@ -3,7 +3,7 @@ id: PHASE-3
 title: 技术规格总索引
 status: accepted
 owner: engineering
-updated: 2026-07-17
+updated: 2026-08-04
 normative: true
 approvers: architecture-owner, language-semantics-owner, quality-owner, target-owner
 approvedAt: 2026-07-17
@@ -20,22 +20,36 @@ Phase 3 模块规格，不能只引用系统架构。
 ## 公共数据流
 
 ```text
-SourceFile
-→ Lean Parser → per-program bounded Syntax preflight → ProofForge decode → Source.Program
-→ resolve/type/effect/bound/disclosure → Typed.Program
+SourceFile (single in-memory snapshot)
+→ Lean Parser → per-program bounded Syntax preflight → ProgramV1 decode
+→ CheckV1 (structure→type→effect→bound→disclosure)
 → normalize → SemanticProgramV1 + SemanticProvenanceV1（ProgramRequirements 嵌入前者）
-→ optional proof-reference validation against digest-pinned ProofBundleV1
-→ resolve(TargetId, minimumEvidence) → ResolvedProgram target
-→ Materializer.plan(CodegenProfile) → target Plan
+→ CompiledSemanticV1 sole product carrier
+→ optional inline same-file proof gate (ADR-0027)
+     · theorem inventory bijection + subject digests
+     · in-process elaboration of the same held raw source (not a sandbox)
+     · Environment kind/defeq/dependency/axiom audit
+     · allowed base axioms only Classical.choice / Quot.sound / propext
+     · no user .olean trust; empty surface = explicit noProof
+→ resolve requirements / capability (TargetId, profile, minimumEvidence)
+→ Materializer.plan → target Plan
 → lower → target TargetIR
-→ emit → staged OutputSetV1
+→ emit → staged engineering artifacts / OutputSet
 → validate hashes/schema/tool outputs → atomic publish
 ```
 
+> **Engineering note（ADR-0027）**：proof gate **必须** 早于 target resolve、
+> materialization 与 staging/publish。ProgramV1 / `semanticHash` **不含** adjacent
+> theorem body。当前仅证明 `InvariantTheoremV1`（全体 `StateConformsV1` 状态上
+> invariant 为 true），不声称 reachability / init-step safety / target refinement /
+> formal TST 闭合。产品 sole path 为 inline certifier；`ProofBundleV1` 仅为
+> library/historical/formal-oriented，**不是** CLI alternate surface。
+
 各阶段只能消费前一阶段的成功类型；禁止以 optional/error string 绕过阶段。失败统一
 返回 `DiagnosticBundle`，排序键为 `(file, startByte, code, stableContext)`。
-当前 alpha 的 CLI 不 elaboration 或执行用户 Lean module；Lean command elaborator 与
-non-elaborating loader 共用同一个 syntax decoder，以 AST 等价测试防止双入口漂移。
+Lean command elaborator 与 non-elaborating loader 对 program AST 共用同一 syntax decoder
+家族；inline proof 的 in-process elaboration 是 **certification-only** 附加阶段，不把
+用户 theorem body 写回 ProgramV1/Semantic carrier，也不得生成 formal evidence。
 
 ## 公共类型
 

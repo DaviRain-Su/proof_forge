@@ -1,6 +1,10 @@
 import Tests.Compiler.ValidatedSourceV1Pipeline
 import Tests.Compiler.CheckV1ProductGate
 import Tests.Compiler.DiagnosticPipelineV1
+import Tests.Compiler.InlineProofProtocolV1
+import Tests.Compiler.InlineProofAuditV1
+import Tests.Compiler.InlineProofElaborationV1
+import Tests.Compiler.InlineProofCertifierV1
 import Tests.Typed.NameResolutionV1
 import Tests.Typed.DiagnosticLocationsV1
 import Tests.Typed.TypeCheckExpressionsV1
@@ -17,9 +21,18 @@ import Tests.Typed.RequirementsInferV1
 import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
+import Tests.Semantic.ProofBridgeV1
+import Tests.Semantic.ProofedCertV1
+import Tests.Semantic.ProofedEncodeCertV1
+import Tests.Semantic.ProofedDecodeCertV1
+import Tests.Semantic.SimpleClosureCertV1
+import Tests.Semantic.AuthorWireCertV1
+import Tests.Semantic.ProofedClosedCertV1
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.ProofBundleV1
 import Tests.Semantic.ProofReferenceJoinV1
+import Tests.Language.InlineProofAuthoringV1
+import Tests.Language.TheoremInventoryV1
 import Tests.Language.ProgramV1Declarations
 import Tests.Language.ProgramV1DeclarationNegatives
 import Tests.Language.ProgramV1ExternalStatements
@@ -81,6 +94,7 @@ import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.CLI.DiagnosticsV1
 import Tests.CLI.ResourceFlagsV1
+import Tests.CLI.InlineProofProductV1
 -- S1 NormalizeV1 suite is defined in Tests/Typed/CheckV1.lean under namespace
 -- Tests.Semantic.NormalizeV1 and invoked from Tests.Typed.CheckV1.run (ordinary
 -- CI + fast path both hit that root).
@@ -89,6 +103,10 @@ unsafe def main : IO Unit := do
   Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Compiler.CheckV1ProductGate.run
   Tests.Compiler.DiagnosticPipelineV1.run
+  Tests.Compiler.InlineProofProtocolV1.run
+  Tests.Compiler.InlineProofAuditV1.run
+  Tests.Compiler.InlineProofElaborationV1.run
+  Tests.Compiler.InlineProofCertifierV1.run
   Tests.Typed.NameResolutionV1.run
   Tests.Typed.DiagnosticLocationsV1.run
   Tests.Typed.TypeCheckExpressionsV1.run
@@ -105,9 +123,12 @@ unsafe def main : IO Unit := do
   Tests.Typed.CheckV1.run
   Tests.Semantic.WireV1.run
   Tests.Semantic.InvariantABI.run
+  Tests.Semantic.ProofBridgeV1.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.ProofBundleV1.run
   Tests.Semantic.ProofReferenceJoinV1.run
+  Tests.Language.InlineProofAuthoringV1.run
+  Tests.Language.TheoremInventoryV1.run
   Tests.Language.ProgramV1Declarations.run
   Tests.Language.ProgramV1DeclarationNegatives.run
   Tests.Language.ProgramV1ExternalStatements.run
@@ -164,6 +185,7 @@ unsafe def main : IO Unit := do
   Tests.CLI.ToolchainPolicy.run
   Tests.CLI.DiagnosticsV1.run
   Tests.CLI.ResourceFlagsV1.run
+  Tests.CLI.InlineProofProductV1.run
   -- Keep target-leaf regressions after child-process wall-budget suites so
   -- their retained Plan fixtures cannot perturb host scheduling. The two
   -- lightweight model entries prove checked-sub success/underflow execution;

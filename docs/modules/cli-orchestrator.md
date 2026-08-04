@@ -3,16 +3,22 @@ id: MOD-CLI-001
 title: CliOrchestrator 模块规格
 status: proposed
 owner: cli
-updated: 2026-08-02
+updated: 2026-08-04
 normative: true
 ---
 
 # CliOrchestrator
 
-> **当前工程覆盖（2026-08-02）**：B11/B12 supervisor 产品层已删除。当前 `check` / `build`
-> 在进程内读取 source 并调用 `Loader.selectProgramV1Product`；JSON 结果不含 public
-> `receipts`，也不声明 contained assurance。下文的 supervised receipt 条款是尚未实现的
-> proposed 契约，不是当前代码事实。
+> **当前工程覆盖（2026-08-04）**：B11/B12 supervisor 产品层已删除。`check` / `build`
+> 在进程内 **单次** `IO.FS.readFile` 后调用
+> `Loader.selectProgramV1ProductWithTheoremInventory` → compile → **sole**
+> `certifyInlineProofV1`（早于 target resolve/materialize）。`--proof-bundle` /
+> `--proof-bundle-digest` 已删除（unknown option）；`ProofBundleV1` 仅 library。check 成功
+> 输出 `proofStatus` / theorem count / certification digest；build 只门禁、不输出 proof 字段。
+> JSON 不含 public `receipts`，也不声明 contained assurance。simple-closure/ordinal-0
+> kernel cert 与 literal-true/public-Bool-view same-file ordinary theorem 的 product `check`
+> certified 正例均已完成 engineering 验证；formal/reachability/target refinement 不随之关闭。
+> 下文 supervised receipt 条款是尚未实现的 proposed 契约。
 
 模块把 argv 转成 typed command，调用 frontend/semantics/resolver/materializer/artifact public
 API，并渲染 human/JSON result。它不 import target Plan/IR 模块，不读取 registry 之外的 target
@@ -44,16 +50,19 @@ development in-process 路径若发出 observation 投影，assurance class 必�
 （`darwin-development-observed` 永不等于 `contained` / formal evidence；Linux `contained` 仅在
 controller-bound + controller-event attribution 下成立，禁止 silent fallback）。
 
-**当前 B8b engineering：** `check` / `build` 解析 canonical root-relative source path，
-`CLI.Main.loadSourceProduct` 以 `IO.FS.readFile` 读入 source 后调用
-`Loader.selectProgramV1Product`，再进入 located Normalize 与 `compileProgramProductV1`。Loader/typed
-失败保留 full `DiagnosticBundleV1` 并统一 `selectExitCode`；usage 仍 exit 2。产品 JSON 不含
-`receipts`，没有 Darwin-only 可用性门，也不声明 snapshot/worker/contained assurance。16 MiB gate
-由 Loader 在读入后执行；source-open 的 host I/O fault 仍未完全迁入结构化 bundle。formal
-executable/import identity、public supervised `receipts`、controller-backed containment 与
-Emit/Toolchain typed migration仍 out of scope。
+**当前 B8b + ADR-0027 engineering：** `check` / `build` 解析 canonical root-relative source path；
+`CLI.Main.loadSourceProduct` 以 **一次** `IO.FS.readFile` 读入并调用
+`Loader.selectProgramV1ProductWithTheoremInventory`，进入 located Normalize /
+`compileProgramProductV1`，再 **`certifyInlineProofV1`**（held raw；失败 `PF-SRC-INVALID`/
+exit 3 且零 staging；`noProof` → `not-required`）。随后才 TargetRegistry resolve 与
+materialize。Loader/typed 失败保留 full `DiagnosticBundleV1` 并统一 `selectExitCode`；usage 仍
+exit 2。产品 JSON 不含 `receipts`；check 可观测 proof 字段，build 成功输出不带 proof 字段。
+16 MiB gate 由 Loader 在读入后执行。formal executable identity、supervised `receipts`、
+controller containment、formal `TST-PROOF-001`、reachability 与 target refinement 仍
+out of scope；narrow product same-file ordinary-theorem check positive 已由 CLI suite 覆盖。
 
-覆盖全部命令/flags、multi-program、unknown target/profile/network、exit priority、JSON/human、
-TTY、signals、private file/FD、build network prohibition、deploy bundle revalidation、proof
-mismatch、output force、parser default `1.0.0`、supervised `receipts` 形状。关联
-`SPEC-CLI-001`、`SPEC-DIAG-001`、`ADR-0022`、`TASK-D3-06`、`TST-CLI-*`。
+覆盖全部命令/flags（含 **已删除** `--proof-bundle*` 为 unknown）、multi-program、unknown
+target/profile/network、exit priority、JSON/human、TTY、signals、private file/FD、build network
+prohibition、inline proof fail-closed、output force、parser default `1.0.0`、supervised
+`receipts` 形状。关联 `SPEC-CLI-001`、`SPEC-DIAG-001`、`ADR-0022`、`ADR-0027`、`TASK-D3-06`、
+`TST-CLI-*`、`TST-PROOF-INLINE-E1`。

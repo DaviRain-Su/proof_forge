@@ -1,25 +1,26 @@
 import ProofForgeV2.CLI.Emit
+import ProofForgeV2.Compiler.InlineProofCertifierV1
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Compiler.ProofBundleFilesV1
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Frontend.ProtocolV1
 import ProofForgeV2.Language.Loader
-import ProofForgeV2.Semantic.ProofBundleV1
-import ProofForgeV2.Semantic.ProofReferenceJoinV1
+import ProofForgeV2.Language.TheoremInventoryV1
 import ProofForgeV2.Targets.BuildSelectionV1
 
 namespace ProofForgeV2.CLI
 
 open ProofForgeV2 System
+open ProofForgeV2.Compiler.InlineProofCertifierV1
+open ProofForgeV2.Compiler.InlineProofProtocolV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Frontend.ProtocolV1
+open ProofForgeV2.Language.Loader
+open ProofForgeV2.Language.TheoremInventoryV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
-open ProofForgeV2.Semantic.ProofBundleV1
-open ProofForgeV2.Semantic.ProofReferenceJoinV1
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Compiler
 
@@ -30,15 +31,14 @@ private def usage : String :=
   "  proof-forge-next inspect <target> [--json]\n" ++
   "  proof-forge-next inspect <output-dir> [--json]\n" ++
   "  proof-forge-next inspect --output-dir <dir> [--json]\n" ++
-  "  proof-forge-next check <source.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--resource-limit <stage>.<field>=<n>]... [--proof-bundle <dir> --proof-bundle-digest <sha256:…>] [--json]\n" ++
-  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--resource-limit <stage>.<field>=<n>]... [--proof-bundle <dir> --proof-bundle-digest <sha256:…>] [--json]\n" ++
+  "  proof-forge-next check <source.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
+  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
   "\n" ++
   "Notes:\n" ++
   "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
   "  --network is not supported (no network registry); it is a usage error.\n" ++
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B).\n" ++
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
-  "  --proof-bundle pair joins source `proof … using …` to a digest-pinned ProofBundleV1 (INV-1 engineering; no ambient Lean term).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build.\n" ++
   "  inspect <arg> prefers a registered target id when ambiguous; use --output-dir to force a path.\n" ++
   "  inspect output-dir validates proof-forge.output.v1 artifact-content + exact disk closure.\n" ++
@@ -114,84 +114,98 @@ private def failFrontendDiagnostic
     (stableContext := some stableClass)
   failBundle (mkFailureBundleV1 #[diagnostic])
 
-/-- Sole CLI source authority: in-process Loader read of the source file
-    under the resolved project root. Product compilation consumes the
-    reconstructed ValidatedSourceV1 + OriginInventoryV1 pair. -/
+/-- Sole CLI source authority: one in-process `IO.FS.readFile` under the
+    resolved project root, then a single Loader snapshot that yields
+    ValidatedSourceV1 + OriginInventoryV1 + opaque TheoremInventoryV1.
+    Returns the same raw String held for the inline certifier (no second
+    read, no worker/supervisor). -/
 private unsafe def loadSourceProduct
     (projectRoot : FilePath)
     (sourcePath : ProjectRelativePath)
     (moduleSelector : String)
     (programSelector : Option String) :
-    IO (ValidatedSourceV1 × OriginInventoryV1) := do
+    IO (ProductParserSessionV1 × String × ValidatedSourceV1 ×
+      OriginInventoryV1 × TheoremInventoryV1) := do
   let logicalPath ← match renderProjectRelativePath sourcePath with
     | .ok path => pure path
     | .error _ => failUsage "source path is not canonical"
   let sourceFile := projectRoot / FilePath.mk logicalPath
-  let source ← IO.FS.readFile sourceFile
-  match ← ProofForgeV2.Language.Loader.selectProgramV1Product
-      source logicalPath moduleSelector programSelector with
+  let rawSource ← IO.FS.readFile sourceFile
+  let productSession ← ProductParserSessionV1.create
+  match ← productSession.selectProgramV1ProductWithTheoremInventory
+      rawSource logicalPath moduleSelector programSelector with
   | .error bundle => failBundle bundle
-  | .ok product => pure product
+  | .ok (source, origins, theorems) =>
+      pure (productSession, rawSource, source, origins, theorems)
+
+/-- Stable phase tag for product PF-SRC-INVALID proof failures. -/
+private def inlineProofPhaseTagV1 : InlineProofFailurePhaseV1 → String
+  | .request => "request"
+  | .policy => "policy"
+  | .subject => "subject"
+  | .obligation => "obligation"
+  | .certification => "certification"
+  | .internal => "internal"
+
+/-- Stable detail tag for product PF-SRC-INVALID proof failures. -/
+private def inlineProofDetailTagV1 : InlineProofCertifierDetailV1 → String
+  | .subjectBuild => "subjectBuild"
+  | .obligationMap => "obligationMap"
+  | .requestBuild => "requestBuild"
+  | .elaborate => "elaborate"
+  | .subjectBytes => "subjectBytes"
+  | .missingSubjectDecl => "missingSubjectDecl"
+  | .missingTheorem => "missingTheorem"
+  | .missingExpectedType => "missingExpectedType"
+  | .audit => "audit"
+  | .successMint => "successMint"
+  | .internal => "internal"
+
+/-- Product inline-proof failure: structured PF-SRC-INVALID / catalog exit 3.
+    Never materializes, never resolves targets after this boundary. -/
+private def failInlineProofV1
+    (sourcePath : ProjectRelativePath)
+    (phase : InlineProofFailurePhaseV1)
+    (detail : InlineProofCertifierDetailV1) : IO α := do
+  let diagnostic := DiagnosticV1.make .sourceInvalid
+    s!"inline proof certification failed: phase={inlineProofPhaseTagV1 phase} detail={inlineProofDetailTagV1 detail}"
+    (primary := some (sourceStartOrigin sourcePath))
+    (expected := some (PfJson.string "certified-or-not-required"))
+    (actual := some (PfJson.string
+      s!"failed:{inlineProofPhaseTagV1 phase}:{inlineProofDetailTagV1 detail}"))
+    (stableContext := some "inline-proof-certifier")
+  failBundle (mkFailureBundleV1 #[diagnostic])
+
+/-- Run the product inline certifier on the held raw source + compile carrier.
+    `.failed` → stable PF-SRC-INVALID exit 3.
+    `.noProof` → explicit ProductProofStatusV1.notRequired (never forged certified).
+    `.certified` → accepts only the private CertifiedInlineProofV1 capability. -/
+private unsafe def certifyProductInlineProofV1
+    (productSession : ProductParserSessionV1)
+    (rawSource : String)
+    (sourceProgram : ValidatedSourceV1)
+    (origins : OriginInventoryV1)
+    (theorems : TheoremInventoryV1)
+    (compiled : CompiledSemanticV1)
+    (sourcePath : ProjectRelativePath)
+    (moduleSelector : String)
+    (programSelector : Option String) :
+    IO ProductProofStatusV1 := do
+  let outcome ← certifyInlineProofV1
+    productSession rawSource sourceProgram origins theorems compiled
+    sourcePath moduleSelector programSelector
+  match outcome with
+  | .failed phase detail => failInlineProofV1 sourcePath phase detail
+  | .noProof => pure ProductProofStatusV1.notRequired
+  | .certified certified =>
+      pure (ProductProofStatusV1.certified
+        (CertifiedInlineProofV1.theoremCount certified)
+        (CertifiedInlineProofV1.proofCertificationDigest certified))
 
 private def liftCompileResult (result : Except CompileError α) : IO α :=
   match result with
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
-
-/-- Product proof-join failure: unused pair is usage/exit 2; all other join
-    failures are exit 3 with a stable human message (engineering INV-1). -/
-private def failProofJoin (e : ProofReferenceJoinErrorV1) : IO α := do
-  let msg := renderProofReferenceJoinErrorV1 e
-  match e with
-  | .unusedBundle => failUsage msg
-  | _ =>
-      IO.eprintln msg
-      IO.Process.exit 3
-
-private def openProofBundleDirectoryV1 (dir : FilePath) :
-    IO (Except ProofReferenceJoinErrorV1 OpenedProofBundleV1) := do
-  match ← ProofForgeV2.Compiler.ProofBundleFilesV1.loadProofBundleFilesV1 dir with
-  | .ok opened => pure (.ok opened)
-  | .error (.bundle pe) => pure (.error (.bundleOpen pe))
-  | .error error => pure (.error (.bundleOpen (.malformed s!"safe bundle load: {repr error}")))
-
-/-- After successful product compile: build the source-bound proof subject,
-    then gate + optionally join the ProofBundle including provenance identity.
-    Order matches SPEC-CLI: normalize/hash first, then proof-bundle join.
-    Does not load ambient theorems; join is name/digest structural only. -/
-private def applyProofBundleProductGateV1
-    (sourceProgram : ValidatedSourceV1)
-    (origins : OriginInventoryV1)
-    (compiled : CompiledSemanticV1)
-    (options : BuildOptions) : IO Unit := do
-  let bindings := collectSourceProofBindingsV1 sourceProgram.program
-  let pairPresent := options.proofBundle.isSome
-  match requireProofBundlePairGateV1 bindings pairPresent with
-  | .error e => failProofJoin e
-  | .ok () => pure ()
-  if bindings.isEmpty then
-    pure ()
-  else
-    let dir ← match options.proofBundle with
-      | some d => pure (FilePath.mk d)
-      | none => failProofJoin .missingBundle
-    let digWire ← match options.proofBundleDigest with
-      | some w => pure w
-      | none => failProofJoin .missingBundle
-    let expected ← match parseDigest digWire with
-      | .ok d => pure d
-      | .error detail =>
-          failProofJoin (.digestMismatch s!"invalid --proof-bundle-digest: {detail}")
-    let subject ← match proofSubjectOfCompiledSemanticV1 sourceProgram origins compiled with
-      | .ok value => pure value
-      | .error _ => failProofJoin (.internal
-          "source-bound proof subject construction failed")
-    let opened ← match ← openProofBundleDirectoryV1 dir with
-      | .error e => failProofJoin e
-      | .ok o => pure o
-    match joinValidatedProofSubjectV1 bindings opened expected subject with
-    | .error e => failProofJoin e
-    | .ok () => pure ()
 
 private def resolveLanguageVersionForCli (requested : Option String) : IO SemVer :=
   match resolveLanguageParserDescriptorV1 requested with
@@ -247,9 +261,13 @@ private def enforceWallBudgetV1
   | .error msg => failResourceTime msg
 
 private unsafe def buildSource (options : BuildOptions) : IO Unit := do
-  -- RES-1: wall budget covers load → compile → proof join → materialize.
+  -- RES-1: wall budget covers load → compile → inline cert → materialize.
   let startedMs ← IO.monoMsNow
-  let selection ← resolveBuildSelectionForCli options
+  -- Argv / required-field checks only. Target registry resolve is deferred
+  -- until after the inline certifier so proof failure wins over unknown target
+  -- and never reaches materialize/staging.
+  if options.target.isNone then
+    failUsage "--target is required"
   let _languageVersion ← resolveLanguageVersionForCli options.languageVersion
   let source ← match options.source with
     | some source => pure source
@@ -259,15 +277,18 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
     | none => failUsage "--module is required for canonical ProgramV1 identity"
   let sourcePath ← validateSourceArgument source
   let root ← resolveProjectRoot (options.root.getD ".")
-  let (sourceProgram, origins) ←
+  let (productSession, rawSource, sourceProgram, origins, theorems) ←
     loadSourceProduct root sourcePath moduleName options.programName
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>
-      -- INV-1: proof-bundle join after compile, before materialize.
-      applyProofBundleProductGateV1 sourceProgram origins compiled options
-      -- Product phase: in-process Loader read → located compile → exact
-      -- requirement capability → emit/finalize/disk closure.
+      -- Inline certifier owns product proof gating (private capability only).
+      -- Structural ambient ProofBundle join remains deleted.
+      let _proofStatus ← certifyProductInlineProofV1
+        productSession rawSource sourceProgram origins theorems compiled
+        sourcePath moduleName options.programName
+      let selection ← resolveBuildSelectionForCli options
+      -- Product phase: capability → emit/finalize/disk closure.
       -- Selected codegen profile is bound by selection and flows into the
       -- capability / OutputSet `codegenProfile` field.
       let capability ← liftCompileResult
@@ -298,13 +319,16 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
 
 /-- Product validation without materialization. Same source authority as build.
 Optional `--target`/`--profile` also resolve the engineering requirement
-capability (fail closed) without writing artifacts. -/
+capability (fail closed) without writing artifacts. Inline certifier runs
+after compile and before any TargetRegistry resolve. -/
 private unsafe def checkSource (options : BuildOptions) : IO Unit := do
   if options.output.isSome then
     failUsage "check does not write artifacts; omit -o/--output"
-  -- RES-1: wall budget covers load → compile → proof join → optional resolve.
+  -- RES-1: wall budget covers load → compile → cert → optional resolve.
   let startedMs ← IO.monoMsNow
-  let selection? ← resolveOptionalSelectionForCheck options
+  -- Profile-without-target is pure argv; registry resolve stays post-certifier.
+  if options.target.isNone && options.profile.isSome then
+    failUsage "--profile requires --target"
   let _languageVersion ← resolveLanguageVersionForCli options.languageVersion
   let source ← match options.source with
     | some source => pure source
@@ -314,13 +338,15 @@ private unsafe def checkSource (options : BuildOptions) : IO Unit := do
     | none => failUsage "--module is required for canonical ProgramV1 identity"
   let sourcePath ← validateSourceArgument source
   let root ← resolveProjectRoot (options.root.getD ".")
-  let (sourceProgram, origins) ←
+  let (productSession, rawSource, sourceProgram, origins, theorems) ←
     loadSourceProduct root sourcePath moduleName options.programName
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>
-      -- INV-1: proof-bundle join after compile (no materialize).
-      applyProofBundleProductGateV1 sourceProgram origins compiled options
+      let proofStatus ← certifyProductInlineProofV1
+        productSession rawSource sourceProgram origins theorems compiled
+        sourcePath moduleName options.programName
+      let selection? ← resolveOptionalSelectionForCheck options
       let target? := selection?.map ResolvedBuildSelectionV1.targetIdOf
       let profile? := selection?.map ResolvedBuildSelectionV1.codegenProfileOf
       match selection? with
@@ -336,10 +362,11 @@ private unsafe def checkSource (options : BuildOptions) : IO Unit := do
       if options.json then
         IO.println (← liftCompileResult
           (renderCheckOkJsonV1 programName sourceDigest semanticDigest target? profile?
-            options.resourceLimits))
+            options.resourceLimits proofStatus))
       else
         IO.println (← liftCompileResult
-          (renderCheckOkHumanV1 programName sourceDigest semanticDigest target? profile?))
+          (renderCheckOkHumanV1 programName sourceDigest semanticDigest target? profile?
+            proofStatus))
 
 private def listTargets (options : ListTargetsOptions) : IO Unit := do
   if options.json then

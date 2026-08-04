@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -23,17 +23,21 @@ Phase 1：实现
 - Normalize 当前子集：算术/比较/assert、控制流、fn、let/for、shift/bitwise、revert/emit 等；
 - state/param **UInt8/16/32/64 与窄 Int** ABI/body 子集；**UInt128/256 软件多字（T9e）**；
   schedule → 原生 promise；sync call 在 capability 矩阵上 fail-closed；
-- **Array + dense Map UInt64 cap-8 + fixed Bytes N + named Struct/Enum** flatten-to-KV；聚合
-  `StateStore` 使用 `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel 已固定 empty Map
-  upsert、连续 Map StateStore 可见性及 PointBox/EnumBox；Option state 与聚合返回仍 fail-closed；
+- **Array + dense Map UInt64 cap-8 + fixed Bytes N + named Struct/Enum + Option UInt64 state**
+  flatten-to-KV；聚合 `StateStore` 使用 `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel
+  已固定 empty Map upsert、连续 Map StateStore、PointBox/EnumBox，以及 Option tag/payload 的
+  none/some/reset（reset 清零 stale payload）；Option params、非 UInt64 payload与 nested Option 仍 FC；
+- **≤8 叶聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 经单次 `value_return`
+  发 N×8-byte LE；Map/Bytes/nested/非 UInt64元素返回仍 fail-closed；
 - **Principal 9×KV leaf 存储（T12）**（wire identity 原样；**非** account-id）；
 - WAT 发射 + locked `wat2wasm` 结构编译；`NearWasmAcceptance` 另需 host-optional
-  `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 对产品
-  Counter 做 deploy/init(7)/increment(5)/view==12 receipt happy-path 工程验收。
+  `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 的
+  `runtime-tests/near` 已覆盖 Counter init/mutate/view、overflow state-hold+recovery、PairRet、
+  ArrayRet、OptionRet 与 OptionState 的工程路径。
 
-**明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分，只覆盖 Counter happy
-path，不覆盖 corrupt storage、bad input、overflow unchanged-state 或 gas/profile；Option state、
-聚合返回与 ContextRead 仍 fail-closed；formal identity/OutputSet / D6 milestone 未完成。不得写成
+**明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分，仍不覆盖 corrupt
+storage、bad input 或 gas/profile；Option params、非 UInt64/nested Option、Map/Bytes/nested aggregate
+return 与 ContextRead 仍 fail-closed；formal identity/OutputSet / D6 milestone 未完成。不得写成
 formal runtime-validated。
 
 ## 1. 身份与来源

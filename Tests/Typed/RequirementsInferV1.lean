@@ -16,9 +16,14 @@ import Tests.Language.ParserSession
 namespace Tests.Typed.RequirementsInferV1
 
 open ProofForgeV2
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Typed.RequirementsInferV1
+
+/-- Sole list authority (RequirementIdsV1); Array consumer stays RequirementsV1. -/
+private abbrev s2CatalogList :=
+  ProofForgeV2.Semantic.RequirementIdsV1.s2CatalogIdsWireOrderListV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -239,6 +244,61 @@ private unsafe def testContextCommitContributions
   expectFreezeIds "ctx-commit-freeze" validated
     #["state.persistent"]
 
+/-- Committed runtime parity: pinned S2 digests match independent
+    `domainSeparatedSha256`, catalog Array/List identity, and near-neighbor
+    unknown membership is false. No kernel SHA reduction required. -/
+private def testS2CatalogDigestParity : IO Unit := do
+  -- Sole list authority and Array projection must agree exactly.
+  expect (s2CatalogList.toArray == s2CatalogIdsWireOrderV1)
+    "S2 catalog Array must be List.toArray of sole wire-order list"
+  expect (s2CatalogIdsWireOrderV1.size == 7)
+    s!"S2 catalog size must be 7, got {s2CatalogIdsWireOrderV1.size}"
+  expect (s2CatalogList.length == 7)
+    s!"S2 catalog list length must be 7, got {s2CatalogList.length}"
+  -- Membership positives for every catalog id; negatives for near neighbors.
+  for id in s2CatalogIdsWireOrderV1 do
+    expect (isS2CatalogIdV1 id)
+      s!"catalog member must be accepted: {id}"
+    expect (s2CatalogList.contains id)
+      s!"list authority must contain catalog id: {id}"
+  let unknownNeighbors : Array String := #[
+    "value.boolx", "value.boole", "xvalue.bool", "value.bool ", " value.bool",
+    "Value.bool", "value.Bool", "", "value.bool\n",
+    "effect.asynchronous-workflowx", "effect.event.",
+    "failure.atomic-rollbac", "state.persistents",
+    "value.checked-arithmeti", "value.checked-arithmeticx",
+    -- wire/infer-only ids must not enter the S2 membership gate
+    "disclosure.commitment", "disclosure.private-state",
+    "context.unix-time-seconds", "context.caller",
+    "value.field.bn254-fr"
+  ]
+  for id in unknownNeighbors do
+    expect (!isS2CatalogIdV1 id)
+      s!"near-neighbor/unknown must be rejected: {repr id}"
+    expect (!s2CatalogList.contains id)
+      s!"list authority must reject near-neighbor: {repr id}"
+  -- Pinned engineering digests equal independent pure SHA path (32B sha256).
+  for id in s2CatalogIdsWireOrderV1 do
+    let pinned ← match engineeringRequirementDigestV1 id with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError s!"pinned digest {id}: {e}"
+    let independent ← match
+        domainSeparatedSha256 engineeringRequirementKeyDomainV1 id.toUTF8 with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError s!"independent digest {id}: {e}"
+    expect (pinned.algorithm == DigestAlgorithm.sha256)
+      s!"pinned algorithm must be sha256 for {id}"
+    expect (independent.algorithm == DigestAlgorithm.sha256)
+      s!"independent algorithm must be sha256 for {id}"
+    expect (pinned.bytes.size == 32)
+      s!"pinned digest must be 32 bytes for {id}, got {pinned.bytes.size}"
+    expect (independent.bytes.size == 32)
+      s!"independent digest must be 32 bytes for {id}, got {independent.bytes.size}"
+    expect (pinned == independent)
+      s!"pinned digest must equal domainSeparatedSha256 for {id}"
+    expect (pinned.bytes == independent.bytes)
+      s!"pinned digest bytes must equal independent bytes for {id}"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterLike session
@@ -247,6 +307,7 @@ unsafe def run : IO Unit := do
   testIdempotent session
   testCounterAuthority session
   testContextCommitContributions session
+  testS2CatalogDigestParity
   IO.println "Tests.Typed.RequirementsInferV1: ok"
 
 end Tests.Typed.RequirementsInferV1

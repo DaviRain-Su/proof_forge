@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-03
+updated: 2026-08-04
 normative: false
 ---
 
@@ -12,6 +12,91 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-04 — inline same-file theorem narrow product closure（engineering）
+
+- `ProgramElaborationV1` 对 literal-true/public-Bool-view simple closure 生成 concrete ASCII
+  identifier legality witnesses、`SimpleClosureParamsLegalV1` 与 premise-free
+  `generatedSafeV1`；ordinary adjacent theorem 可写
+  `exact <Program>.Proof.generatedSafeV1`。证明项仅依赖 production legal-only
+  encode/decode composition；无 Tests import、sorry/axiom/native evaluation。
+- `InlineProofCertifierV1` 修复 Loader product identity 与 Lean declaration namespace 的
+  exact 映射：仅允许 module-prefix-stripped 或 full-identity 两个 elaborator layout，要求唯一
+  current-main declaration；随后用该 namespace 绑定 subject、Prop alias、generated helper 与
+  author theorem。根 namespace、普通 `namespace Nested` 与 `namespace Root`（匹配
+  `--module Root`）三种映射均有正例。
+- `ProgramExport` 的 shared structural ByteArray decoder 补齐 Lean 大 quotation 产生的有界
+  transparent let-chunk spine与 exact `UInt8` `OfNat` 形状；只做 bounded zeta substitution，
+  每步重查 raw-node cap，不执行任意函数。certifier只跟随 exact sibling `subjectBytesV1`，并审计
+  current-main provenance、safe/type/no-sorry/no-extern/no-implemented-by。
+- 严格产品正例转绿：`Tests.Compiler.InlineProofCertifierV1` 真实执行 single snapshot
+  Loader→compile→certify，得到 theoremCount=1 与 digest；`exact`→`apply` 改写不改变
+  ProgramV1 canonical bytes/sourceHash/semanticHash，但改变 proofCertificationDigest。
+  `Tests.CLI.InlineProofProductV1` 的 human/JSON certified、repeat determinism、proof-first unknown
+  target、non-Quint invariant materializer FC 与零 destination/staging 全部通过。
+- 执行结果：`proof_forge_next_tests_shard_typed` exit 0；
+  `proof_forge_next_tests_shard_targets` exit 0（含真实 target acceptance 及 inline CLI suite）。
+  这是 engineering closure；ADR-0027 仍 `proposed`，formal TST-PROOF-001、reachability、
+  target refinement、sandbox/hermetic/release 与其余八个 target 的 nonempty invariant materialization 均未关闭；Quint Q0 的 read-only Bool invariant 支持来自独立 target 切片。
+
+## 2026-08-04 — docs: inline proof kernel-closed vs remaining product check positive
+
+> 当时的中间状态记录；其 remaining product slice 已由上方同日 engineering closure 闭合。
+
+- Status correction：已验证 **kernel closed（engineering）**——(1) structure→encode→decode
+  →`ProofedProof.safe`；(2) legal-only production simple-closure encode/decode
+  （`SimpleClosureCertV1` / `LiteralTrueInvariantWitnessV1`）；(3) exact ordinal-0
+  `InvariantTheoremV1` on nullary literal-true micro-shape。替换过时
+  “raw-source product-positive certified still open” 笼统措辞。
+- **剩余产品切片（未过门槛不得标 feature done）**：literal-true / public-Bool-view
+  narrow family 的 same-file ordinary Lean theorem 经 `certifyInlineProofV1` 的 product
+  `check` certified 正例。验证门槛：CLI `check` 正例（`proofStatus=certified` +
+  count/digest）；false theorem / inventory bijection / disallowed axiom →
+  `PF-SRC-INVALID`/exit 3 且零 Plan/staging；proof fail 严格早于 target resolve/
+  materialize；theorem body 不改 `sourceHash`/`semanticHash`；不信任用户 `.olean`；
+  in-process elab ≠ sandbox；allowed axioms 仅 `Classical.choice`/`Quot.sound`/`propext`。
+- 边界不变：除 Quint Q0 的独立 read-only Bool invariant 能力外，其余八个 materializer 仍 FC；**不** 声称 formal TASK/TST-PROOF-001、
+  reachability、target refinement、hermetic/release。
+- Docs：`AGENTS`/`RECOVERY`/`MIGRATION_MATRIX`、`docs/index`、`document-status`、
+  `engineering-backlog`（INV-1/FR-002）、`SPEC-CLI-001`、`MOD-CLI-001`、ADR-0027 status
+  snapshot、`05-test-spec` product-check gates。Gates：`just docs-check`、`git diff --check`。
+  文档-only；非 formal/hermetic/release。
+
+## 2026-08-04 — docs follow-up: product CLI sole inline proof（no ProofBundle flags）
+
+- Correction vs prior ADR-0027 docs commit：独立复核确认 **产品** CLI 已删除
+  `--proof-bundle` / `--proof-bundle-digest`（unknown option）；sole 路径为单次 read →
+  `selectProgramV1ProductWithTheoremInventory` → compile → `certifyInlineProofV1` →
+  target resolve/materialize。`ProofBundleV1` / `ProofReferenceJoinV1` 仅为
+  library/historical/formal-oriented，**不是** check/build alternate 或 fallback。
+- Observation surface：check 输出 `proofStatus` / `proofTheoremCount` /
+  `proofCertificationDigest`；build 只门禁、成功输出不带 proof 字段。Quint Q0 对 read-only
+  Bool invariant 已独立开放；其余八个 materializer 仍 fail closed。
+- Kernel cert engineering（当时记录）：structure + encode + decode + `ProofedProof.safe`
+  certificate 链可记为已闭合；后续 simple-closure/ordinal-0 与 product-check 正例分层
+  见上条 2026-08-04 status correction——**不得** 宣称 feature 完成或 formal
+  `TST-PROOF-001`。
+- Docs：`SPEC-CLI-001`、ADR-0027 关系段、`language`/`semantic-core`/`03-technical-spec`、
+  `MOD-CLI-001`、`engineering-backlog`（INV-1 superseded）、`RECOVERY`/`AGENTS`/
+  `MIGRATION_MATRIX` 控制面同步。Gates：`just docs-check`、`git diff --check`。文档-only
+  follow-up commit；非 formal/hermetic/release。
+
+## 2026-08-04 — ADR-0027 inline same-file theorem certification（文档 only）
+
+- Decision：新增 `docs/adr/0027-inline-same-file-theorem-certification.md`（`proposed`），
+  冻结 engineering product certification 边界：single in-memory source snapshot；
+  ProgramV1/`semanticHash` 不含 adjacent theorem body；ordinary same-file Lean theorem；
+  in-process elaboration **不是** sandbox；Environment declaration-kind / defeq /
+  dependency / axiom audit；固定允许 axiom `Classical.choice` / `Quot.sound` / `propext`；
+  不信任用户 `.olean`；proof gate 早于 target resolve / materialize / staging；当前仅
+  `InvariantTheoremV1`（∀ `StateConformsV1` → `evalInvariantV1 = .returnedTrue`），明确
+  不声称 reachability / init-step safety / target refinement / formal TST 闭合。
+- Specs/docs：对齐 `02-architecture`、`03-technical-spec`、`SPEC-LANG-001`、`SPEC-SEM-001`、
+  `SPEC-SEM-WIRE-001`、`SPEC-CLI-001`、`SPEC-SEC-001`、`05-test-spec`（新增 engineering
+  `TST-PROOF-INLINE-E1` 叙述，**不** 关闭 formal `TST-PROOF-001`）、ADR index、
+  `document-status`/`index`、`MIGRATION_MATRIX`、`AGENTS.md`。
+- 注：同日 follow-up 已纠正「CLI 全产品接线仍独立 / ProofBundle alternate surface」与
+  产品事实的冲突（见上条）。
+- Gates：`just docs-check`、`git diff --check`。边界：文档-only；非 formal/hermetic/release。
 ## 2026-08-03 — Quint Q0 executable-model engineering target
 
 - History/recovery：从已删除 `active/ProofForge/Backend/Quint/**` 的 Git 对象确认历史 backend

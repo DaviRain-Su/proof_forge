@@ -3,7 +3,7 @@ id: PHASE-5
 title: 测试与验收规格
 status: accepted
 owner: quality
-updated: 2026-07-24
+updated: 2026-08-04
 normative: true
 approvers: davirain
 approvedAt: 2026-07-24
@@ -77,7 +77,8 @@ Counter 相同的 parser/type/semantic/resolver/materializer 通用路径，禁�
 | TST-TYPE-001 | widths、Field、map、struct、enum | `Field bn254_fr` exact 映射成功；其他/alternate field ID 与 modulus substitution 精确失败 | property |
 | TST-TYPE-002 | accepted-width duplicate/name index、late lookup 与错误顺序 | 声明序 ID/遮蔽/诊断不变；required hash ops、single state-builder 与已知数组搜索回归受门禁 | unit/structural/complexity |
 | TST-TYPE-003 | 全部 Phase 1 declaration + local fn + proof reference | typed fixture 全覆盖；exact fn lookup/type/effect/acyclicity、Bool invariant 与 proof-reference source binding；不装载 theorem | unit/integration/negative |
-| TST-PROOF-001 | immutable proof bundle + post-canonical theorem signature | exact current Source.Program + `.pfsem`/`.pfprov`/semanticProvenanceDigest + bundle/olean/toolchain/trust-policy join；wrong program/ordinal/provenance/closure/digest/unsafe declaration fail closed | integration/security |
+| TST-PROOF-001 | immutable proof bundle + post-canonical theorem signature（formal） | exact current Source.Program + `.pfsem`/`.pfprov`/semanticProvenanceDigest + bundle/olean/toolchain/trust-policy join；wrong program/ordinal/provenance/closure/digest/unsafe declaration fail closed | integration/security |
+| TST-PROOF-INLINE-E1 | inline same-file theorem certification engineering subset（ADR-0027；**非** formal TST-PROOF-001） | single snapshot；sourceHash/semanticHash 不含 theorem body；in-process elab 非 sandbox；kind/defeq/dependency/axiom audit；仅 Classical.choice/Quot.sound/propext；拒用户 olean；gate 早于 materialize；仅 InvariantTheoremV1∀StateConformsV1；不声称 reachability/init-step/target refinement | unit/integration/security |
 | TST-EFFECT-001 | view 写状态/发 effect | `PF-EFFECT-001` | negative |
 | TST-BOUND-001 | 无界循环/递归 | `PF-BOUND-001` | negative |
 | TST-VIS-001 | private 流入 public/log | `PF-VIS-001` | security |
@@ -163,6 +164,7 @@ Counter 相同的 parser/type/semantic/resolver/materializer 通用路径，禁�
 | TST-TYPE-002 | accepted-width name resolution/complexity |
 | TST-TYPE-003 | Phase 1 declaration typing、local-fn resolution/effect/acyclicity、Bool invariant 与 proof-reference source binding |
 | TST-PROOF-001 | immutable proof-bundle closure 与 post-canonical InvariantTheoremV1 signature |
+| TST-PROOF-INLINE-E1 | ADR-0027 inline same-file engineering subset（非 formal；见上文） |
 | TST-EFFECT-001 | effect restrictions |
 | TST-BOUND-001 | termination/resource bounds |
 | TST-VIS-001 | explicit disclosure flow |
@@ -328,6 +330,46 @@ untrusted program source 中 elaboration 任意 Lean term。
 theorem expected-type mismatch 的 stable diagnostic 必须为 `PF-TYPE-001`。新增、删除或修改
 `ProofDecl` 必须改变 checked-in source bytes/sourceHash，同时保持相同 business program 的
 `.pfsem`/semanticHash 不变；只改变 validation result 不得再次改写任一 hash。
+
+### Inline same-file engineering gate（ADR-0027；非 formal）
+
+`TST-PROOF-INLINE-E1` 是 **engineering** 验收切片，**不** 关闭 formal `TST-PROOF-001`，也不得
+写成 hermetic/release evidence。最小断言：
+
+1. **Single snapshot**：certifier 使用与 ProgramV1 decode/compile 相同的 held raw source；
+   不得为 theorem 重读磁盘或接受用户 `.olean` 作为 authority。
+2. **Hash 边界**：仅改写 adjacent theorem body 时 `sourceHash` 与 `semanticHash` 不变；
+   `semanticHash` 永不因 proof/cert digest 改变。
+3. **Audit**：Environment 上 root 为 theorem、type kernel-defeq 到
+   `InvariantTheoremV1`/生成 alias、dependency 闭包仅允许
+   `Classical.choice`/`Quot.sound`/`propext`，并拒绝 sorry/unsafe/partial/extern/用户 axiom。
+4. **Gate 顺序**：proof 失败时零 target Plan / 零 output；成功或显式 `noProof` 才允许
+   resolve/materialize。
+5. **命题范围**：仅 `∀ state, StateConformsV1 → evalInvariant = returnedTrue`；负向向量不得
+   被误写成已证明 reachability、init-step safety 或 target refinement。
+6. **非 sandbox**：测试与文档不得把 in-process elaboration 标记为 contained/hermetic。
+
+**Engineering 分层（2026-08-04）**——kernel 闭合 ≠ product feature done：
+
+| 子层 | Engineering 状态 | 验收提示 |
+|---|---|---|
+| structure→encode→decode→`ProofedProof.safe` | closed（kernel suite） | 不单独代签 CLI certified |
+| legal-only production simple-closure encode/decode + ordinal-0 `InvariantTheoremV1` | closed（`SimpleClosureCertV1` / related cert suites） | 仅 nullary literal-true micro-shape |
+| same-file ordinary theorem product `check` positive | **closed（engineering）** | literal-true / public-Bool-view narrow family；human/JSON certified + count/digest + body/hash independence |
+
+**Product `check` positive 回归门槛**（已通过，继续属于 `TST-PROOF-INLINE-E1`
+engineering 正/负例，**非** formal）：
+
+1. CLI `check` 正例：same-file source + adjacent ordinary theorem → `proofStatus=certified`、
+   nonzero theorem count、certification digest present；
+2. Fail-closed：false theorem / inventory bijection / disallowed axiom → `PF-SRC-INVALID` /
+   exit 3，零 Plan / 零 staging；
+3. Gate 顺序：proof fail 严格早于 target resolve/materialize；
+4. Hash / authority / axiom / 非 sandbox 边界同上述 1–6；
+5. Quint Q0 的 read-only Bool invariant 支持是独立 target 能力；其余 materializer 仍可 fail closed（与 proof gate 正交）。
+
+实现 owner：`Tests.Compiler.InlineProofCertifierV1` 与
+`Tests.CLI.InlineProofProductV1`；两者分别进入 Typed / Targets ordinary shards。
 
 ### Resource test ownership
 

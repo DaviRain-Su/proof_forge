@@ -43,7 +43,7 @@ normative: false
 | stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | LOWERED(H3 flatten) |
 | stateLoad/stateStore（Map） | LOWERED(cap-8; atomic store) | LOWERED(cap-8; aggregate CSE→storeStateMulti；ELF+Mollusk 4/4) | LOWERED(cap-8; atomic KV store) | LOWERED(cap-8; atomic multi-leaf PI) | FAIL-CLOSED | LOWERED(cap-2; atomic mapping store) |
 | stateLoad/stateStore（Bytes） | LOWERED(D4-E2: N×UInt8 leaves) | LOWERED(L2: N×UInt8 leaves) | LOWERED(N×UInt8 KV leaves) | LOWERED(L3: N×UInt8 leaves) | FAIL-CLOSED | LOWERED(Bytes N: N×u8 mappings) |
-| stateLoad/stateStore（Option） | FAIL-CLOSED（Normalize **admitted** N-A4；target container 永不 admit） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Option） | **LOWERED(BL-31: Option UInt64 only)** | **LOWERED(BL-29: Option UInt64 only)** | **LOWERED(BL-30: Option UInt64 only)** | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（String） | LOWERED(N4) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（Field bn254） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED(非Goldilocks) | FAIL-CLOSED(非BLS12-377) |
 | stateLoad/stateStore（Field BLS12-377） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | **LOWERED(T14)** |
@@ -65,11 +65,11 @@ normative: false
 | assertOp | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | contextRead | FAIL-CLOSED(全target；**EVM caller encoding 已冻结 ADR-0025：`u32le(20)\|\|CALLER`，Plan 未开**) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | commit | LOWERED(身份透传) | LOWERED(身份透传) | LOWERED(身份透传) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(身份透传) |
-| externalCall（sync call） | LOWERED(static QN→CALL；语义 PARTIAL) | LOWERED(static QN；SBPF 仅 log stub，非 CPI) | FAIL-CLOSED | LOWERED(relation slots；语义 PARTIAL) | LOWERED(`__invoke_sync` source；语义 PARTIAL) | FAIL-CLOSED(resolver+plan) |
-| schedule（async） | LOWERED(static QN→同步 CALL+忽略结果；语义 stub) | LOWERED(static QN；SBPF 仅 log stub) | LOWERED(promise；fire-and-forget) | LOWERED(relation slots；语义 PARTIAL) | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
+| externalCall（sync call） | LOWERED(static QN→CALL；result-bearing UInt64 读 returndata；callee address stub，语义 PARTIAL) | LOWERED(static QN→`sol_invoke_signed_c`；result-bearing UInt64 读 `sol_get_return_data`；空 AccountMeta/外层 callee account 未闭合，语义 PARTIAL) | FAIL-CLOSED | LOWERED(relation slots；语义 PARTIAL) | LOWERED(`__invoke_sync` source；语义 PARTIAL) | FAIL-CLOSED(resolver+plan) |
+| schedule（async） | LOWERED(static QN→同步 CALL+忽略结果；语义 stub) | LOWERED(static QN→`sol_invoke_signed_c`；空 AccountMeta/外层 callee account 未闭合，语义 PARTIAL) | LOWERED(promise；fire-and-forget) | LOWERED(relation slots；语义 PARTIAL) | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
 | **match String scrutinee** | LOWERED(N-A1) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
-| **named aggregate entry/view return（B-RET-ABI）** | LOWERED(≤8 UInt64/Int64 叶 tuple ABI) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(per-leaf verifier inputs) | FAIL-CLOSED | FAIL-CLOSED |
-| **anonymous Array/Map/Option/Bytes result（N-ANON-RESULT）** | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| **named aggregate entry/view return（B-RET-ABI）** | LOWERED(≤8 UInt64/Int64 叶 tuple ABI) | LOWERED(≤8 叶 N×8-byte LE) | LOWERED(≤8 叶 N×8-byte LE) | LOWERED(per-leaf verifier inputs) | LOWERED(entry/view `[Felt; N]`) | LOWERED(non-Final entry tuple；computed view-over-state FC) |
+| **anonymous Array/Map/Option/Bytes result（N-ANON-RESULT）** | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes 与 computed view-over-state FC) |
 | **match 多臂同构造器** | LOWERED(N-A2) | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | **Principal state/params** | LOWERED(T10: leaf storage; ≠address) | LOWERED(T12: 9×u64 leaves; ≠32B pubkey) | LOWERED(T12: 9×KV leaves; ≠account-id) | LOWERED(T12: 9×u64 inputs; ≠Field) | FAIL-CLOSED | FAIL-CLOSED |
 | **UInt128 state/param/body** | LOWERED(T9b 原生 word) | LOWERED(T9e 2×u64 multiword；**mul 真 schoolbook B-SOL-MUL**；div/mod low64 FC) | LOWERED(T9e 2×i64 multiword；**mul 真 schoolbook NEAR lane**；div/mod/shift FC) | LOWERED(T11 原生 u128 / multi-limb analogue；mul/div/mod FC；UInt256 FC) | FAIL-CLOSED | FAIL-CLOSED |
@@ -84,29 +84,33 @@ normative: false
 
 | 面 | 状态 | 说明 |
 |---|---|---|
-| 标量 public UInt64 state / init / entry / view | **LOWERED** | KV → `env.db_*`；instantiate/execute/query |
-| checked + − × / % · unary · shift/bitwise/logical · eq/order | **LOWERED** | MVP UInt64 算术与控制 |
-| if / match / bounded for / pureFn | **LOWERED** | 多块 CFG；match 多臂同构造器随 Normalize |
+| public UInt8/16/32/64 state / param / result | **LOWERED** | KV → `env.db_*`；narrow physical slot 仍 8B LE并校验高位；UInt128/256与窄 Int FC |
+| checked + − × / % · unary · shift/bitwise/logical · eq/order | **LOWERED** | UInt64 + narrow UInt body guards |
+| if / match / bounded for / pureFn | **LOWERED** | 多块 CFG；match 多臂同构造器随 Normalize；Int induction FC |
 | emit / revert / bare assert | **LOWERED** | attributes / `ContractResult::Err` |
-| schedule（async） | **LOWERED（语义 PARTIAL）** | → `SubMsg{reply_on:never,id:0,WasmMsg::Execute}`；**同 tx savepoint**；子消息失败打爆整笔 tx；`contract_addr` 为静态 QN stub；**非**跨 tx async |
+| schedule（async） | **LOWERED（语义 PARTIAL）** | → `SubMsg{reply_on:never,id:0,WasmMsg::Execute}`；msg=Binary(base64 inner JSON)；同 tx savepoint，子失败 abort整 tx；QN address stub；非跨 tx async |
 | externalCall（sync） | **FAIL-CLOSED** | resolver + Plan 双拒；不得 alias 为 sync CALL |
-| named Struct/Enum · Array/Map/Bytes/Option/String · Field/Principal | **FAIL-CLOSED** | MVP 不开放 |
-| ContextRead / Commit · nonempty invariants · multi-width ABI · named 聚合返回 | **FAIL-CLOSED** | |
-| 制品 / 验收 | WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 14 tests | **非** wasmd / 链上 / formal |
+| named Struct/Enum state + entry/view return | **LOWERED** | ≤8 UInt64/Int64 leaves；execute/query JSON array；aggregate param/pureFn FC |
+| Array/Map state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；atomic KV store |
+| anonymous Array/Option result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64` entry+view；Map/Bytes/nested/非 UInt64 FC |
+| ContextRead / Commit · nonempty invariants · Option/Bytes state · Field/Principal/String interface | **FAIL-CLOSED** | iterator/IBC/migrate/reply entry亦未开 |
+| 制品 / 验收 | WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 28 tests + wasmd v0.70.3 Docker rung-1 | **非** 主网 / formal / hermetic |
 
 ### TON（`ton-tolk-boc-v1`，label `source-only`）
 
 | 面 | 状态 | 说明 |
 |---|---|---|
-| 标量 public UInt64 c4 扁平 cell state / init / mutate / view | **LOWERED** | op 分发 32-bit op + 64-bit query_id；get methods |
-| checked 算术 · unary · shift/bitwise/logical · eq/order | **LOWERED** | TVM int257 上显式 UInt64 范围检查 |
-| if / match / bounded for / pureFn | **LOWERED** | |
+| public UInt8/16/32/64 c4 state / param / result | **LOWERED** | exact cell bit widths + int257 range guards；UInt128/256与窄 Int FC |
+| checked 算术 · unary · shift/bitwise/logical · eq/order | **LOWERED** | TVM int257 上显式 declared-width 范围检查 |
+| if / match / bounded for / pureFn | **LOWERED** | Int induction 与 aggregate pureFn FC |
 | emit / revert / bare assert | **LOWERED** | external out / throw |
 | externalCall（sync） | **FAIL-CLOSED** | 纯异步 actor；resolver 拒 sync |
-| schedule（async） | **resolver OPEN · Plan FAIL-CLOSED** | capability 开 `effect.asynchronous-workflow`，但 destination/send-mode Plan 发射仍 FC——**必须写清 mismatch** |
-| named Struct/Enum · Array/Map/Bytes/Option/String · Field/Principal | **FAIL-CLOSED** | MVP 无 dict 大面 |
-| ContextRead / Commit · nonempty invariants/constants · multi-width | **FAIL-CLOSED** | |
-| 制品 / 验收 | Tolk 1.4.2 → `.fif` + real BoC + `@ton/sandbox` 7/7 工程差分 | **非** 主网 / formal / hermetic |
+| schedule（async） | **LOWERED（语义 PARTIAL）** | → `createMessage`；NoBounce、value=0、fixed send-mode、hash destination stub；init/mutate only；无 callback round-trip |
+| named Struct/Enum state + aggregate view return | **LOWERED** | view multi-stack tuple≤8 leaves；entry aggregate FC |
+| Array/Map/Bytes state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；fixed Bytes N；c4 flatten |
+| anonymous Array/Option view result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64`；entry、Map/Bytes/nested/非 UInt64 FC |
+| ContextRead / Commit · nonempty invariants/constants · Option state · Field/Principal/String interface | **FAIL-CLOSED** | |
+| 制品 / 验收 | Tolk 1.4.2 → `.fif` + real BoC + `@ton/sandbox` 10/10（含 ScheduleFlow） | **非** 主网 / formal / hermetic |
 
 ## 1c. Quint Q0 executable-model 真实范围（第九 materializer）
 
@@ -128,7 +132,7 @@ normative: false
 | Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A | ✅(structured Q AST) | N/A | N/A |
 | 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: locked wat2wasm + host-optional wasm-interp/wasmtime/wasmer load) | ✅(NoirCompileAcceptance: nargo 1.0.0-beta.26 compile-only；G123；缺席 skip；**非** prove/verify) | ❌(source-only) | ✅(AleoAcceptance: leo 4.0.2 Tool Lock pin（G123）；缺席 skip；非 prove/deploy) | ❌ product toolchain；⚠️ host-only exact Quint 0.32 typecheck（非 Tool Lock/finalize） | ✅(locked wat2wasm + cosmwasm-check 3.0.9；**非** wasmd) | ✅(tolk 1.4.2 → real BoC；**非** 主网) |
-| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow overflow state-hold + emit 日志；**非** formal C-3) | ✅(S3b Mollusk 工程差分；**非** formal Stage-0 / Reference↔target closure) | ⚠️(WABT dummy env + 可选 near-sandbox 2.13.0 receipt 工程门（G123：deploy/init/mutate/view）；非 Reference↔Wasm formal) | ❌ | ❌ | ❌ | ⚠️(TS evaluator smoke；非 Reference differential/verify) | ⚠️(cosmwasm-vm mock 14 tests；**非** wasmd/formal) | ⚠️(@ton/sandbox 7/7 工程；**非** formal/主网) |
+| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow overflow state-hold + emit 日志；**非** formal C-3) | ✅(S3b Mollusk 工程差分；**非** formal Stage-0 / Reference↔target closure) | ⚠️(WABT dummy env + near-sandbox 2.13.0 Counter/aggregate-return/Option-state 工程门；非 Reference↔Wasm formal) | ❌ | ❌ | ❌ | ⚠️(TS evaluator smoke；非 Reference differential/verify) | ⚠️(cosmwasm-vm mock 28 tests + wasmd v0.70.3 Docker rung-1；**非** formal/主网) | ⚠️(@ton/sandbox 10/10 工程，含 ScheduleFlow；**非** formal/主网) |
 
 ## 3. 工程轨道未实现 feature 全清单（A/B/C/D 组）
 
@@ -144,7 +148,7 @@ normative: false
 | **N-A1** | EVM String match-switch | **已闭合(EvmStringMatch)**：EVM Lower 将 `match String` desugar 为 leaf-wise eq + nested ifThenElse（Plan `switchOn` 仍仅 UInt64 case）；catch-all fallthrough；非 String aggregate switch 与非 String pattern 仍 fail-closed | EVM | EvmStringMatch ✅ |
 | **N-A2** | 多臂同构造器 match 细化 | **已闭合(MultiArmCtor)**：Normalize 允许同外构造器多臂，子模式可区分时 first-match 嵌套 guard（nested ctor→VariantTag eq，nested lit→value eq；fallthrough→outer catch-all 或 trap.unreachable）；结构 pattern key 重复（bind≡wildcard、ctor by vIdx、lit by valueBytes）仍 fail-closed；TypeCheck 同源 duplicate pattern 诊断；六 target 经 sole Normalize 继承 | 全 target | MultiArmCtor ✅ |
 | **N-A3** | Map/Bytes 穿透元素赋值 | **已闭合(MapBytesAssign)**：TypeCheck/Normalize 单步 `m[k]:=v`/`b[i]:=u8` → IndexSet（load→set→store）；Reference 已有 Map/Bytes step。target 覆盖非均匀：EVM Map+Bytes、Solana Map、NEAR Map 与 fixed Bytes state、Noir Map、Aleo Map+Bytes 已部分 LOWERED，Psy 与其余组合按上表 FAIL-CLOSED；五个 Map-capable target 的 aggregate StateStore snapshot hazard 已修。Map 整程序 Reference 仍受 maxMapEntries 保守资源门；**嵌套穿透** `m[k].x:=v` 仍 fail-closed | 全 target Normalize；target 见 op 表 | MapBytesAssign + B-SOL-MAP-UPSERT ✅ |
-| **N-A4** | Option state | **闭合**：Normalize+Reference default none；全 target Plan **FAIL-CLOSED**+测 | 全 target | OptionState ✅ |
+| **N-A4** | Option state | **shared 闭合**：Normalize+Reference default none；target follow-up 已开 EVM/Solana/NEAR `Option UInt64` tag+payload state，Noir/Psy/Aleo/Quint/CosmWasm/TON 继续 **FAIL-CLOSED** | 全 target | OptionState ✅ + B-OPT-STATE ongoing |
 
 ### B 组：各 target 的 Plan/IR/emitter 覆盖缺口
 
@@ -152,11 +156,11 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **B-1a** | NEAR 聚合与容器 | **闭合（L1）**：Array UInt、dense Map cap-8、fixed Bytes N 与 **named Struct/Enum** 已 flatten-to-KV（construct/fieldGet/fieldSet/variant ops + atomic storeAtomic；HostModel 端到端）；聚合返回值仍 FAIL-CLOSED（B-RET-ABI） | NearAggregate + NS-1 + Bytes + L1 |
+| **B-1a** | NEAR 聚合与容器 | **闭合（L1 + follow-ups）**：Array UInt、dense Map cap-8、fixed Bytes N、**named Struct/Enum** 与 `Option UInt64` state 已 flatten-to-KV（construct/fieldGet/fieldSet/variant ops + atomic storeAtomic；HostModel 端到端）；named 与 anonymous Array/Option ≤8-leaf aggregate return 已由 B-RET-ABI/N-ANON-RESULT 开放 | NearAggregate + NS-1 + Bytes + L1 + BL-30 |
 | **B-1b** | Noir named 聚合 | **闭合(NoirAggregate + L3)**：named Struct/Enum + **Map UInt64 dense pilot**（cap-8 occ/key/val multi-leaf PI + IndexGet→Option + IndexSet；`storeAggregate` 两阶段 snapshot 与 empty-upsert relation model）+ **Array UInt64 state flatten** + **fixed Bytes N**（N×UInt8 leaves、literal IndexGet/Set、atomic store）；Bytes construct/param/动态索引与 Option/String state 仍 FAIL-CLOSED | NoirAggregate + NoirMap + NoirContainer + MapSnapshot + L3 ✅ |
-| **B-1c** | Aleo 全功能 | **AleoCoverage + H3/NS-1/Bytes/Int64/T14 + G123**：标量、named Struct/Enum、Array、dense Map cap-2、fixed Bytes N、Commit 身份透传与 **BLS12-377 Fr** 已 LOWERED；Map aggregate StateStore 以 get-all-before-set two-phase 修复 empty upsert。bn254/Goldilocks、Option/Principal/String/ContextRead/externalCall/schedule/emit 仍 FAIL-CLOSED。Leo 4.0.2 已进入两平台 Tool Lock，`AleoAcceptance` 做 compile-only 验收；无 VM/prove/deploy 门 | AleoCoverage + T14 + MapSnapshot + G123 ✅ |
-| **B-1d** | Solana Map/Bytes/Option state | **Map pilot + L2 已闭合**：Map 已进 ELF+Mollusk；named Struct/Enum 与 fixed Bytes N（N×UInt8 state/params、literal IndexGet/Set）已 flatten；`storeAggregate` structural CSE + `storeStateMulti` 固定 pre-store snapshot，峰值 177 temp/1424B，`put_into_empty` 已解除 ignore，MapMini 4/4 runtime 通过；Option state、Bytes construct 与动态索引仍 FAIL-CLOSED | SolanaMapPilot + B-SOL-MAP-ELF + B-SOL-MAP-UPSERT + L2 ✅ |
-| **B-1e** | EVM Map/Bytes/Option state | **闭合(Map pilot)**：Array + Bytes + **Map UInt64 cap-8** locked-solc engineering finalization（`deployable=true` 仅为制品标志；258460 B creation bytecode 超 EIP-3860，无 chain/Anvil deploy 声明）；aggregate `storeAtomic` 保证 leaf Expr/sload 全先于 sstore，EvmSmoke+solc 回归；Option-from-Map IndexGet | EvmMapPilot + MapSnapshot + B-EVM-MAP-STACK ✅ |
+| **B-1c** | Aleo 全功能 | **AleoCoverage + H3/NS-1/Bytes/Int64/T14 + G123**：标量、named Struct/Enum、Array、dense Map cap-2、fixed Bytes N、Commit 身份透传与 **BLS12-377 Fr** 已 LOWERED；Map aggregate StateStore 以 get-all-before-set two-phase 修复 empty upsert。bn254/Goldilocks、Option state/Principal/String/ContextRead/externalCall/schedule/emit 仍 FAIL-CLOSED。Leo 4.0.2 已进入两平台 Tool Lock，`AleoAcceptance` 做 compile-only 验收；无 VM/prove/deploy 门 | AleoCoverage + T14 + MapSnapshot + G123 ✅ |
+| **B-1d** | Solana Map/Bytes/Option state | **Map pilot + L2 + BL-29 已闭合**：Map 已进 ELF+Mollusk；named Struct/Enum、fixed Bytes N 与 `Option UInt64` state 已 flatten；`storeAggregate` structural CSE + `storeStateMulti` 固定 pre-store snapshot，峰值 177 temp/1424B，`put_into_empty` 已解除 ignore；Option state 6 项 Mollusk 通过；Option params/非 UInt64/nested、Bytes construct 与动态索引仍 FAIL-CLOSED | SolanaMapPilot + B-SOL-MAP-ELF + B-SOL-MAP-UPSERT + L2 + BL-29 ✅ |
+| **B-1e** | EVM Map/Bytes/Option state | **闭合(Map pilot + BL-31)**：Array + Bytes + **Map UInt64 cap-8** + `Option UInt64` state 进入 locked-solc engineering finalization（`deployable=true` 仅为制品标志；258460 B Token creation bytecode 超 EIP-3860，无 chain/Anvil deploy 声明）；aggregate `storeAtomic` 保证 leaf Expr/sload 全先于 sstore；Option params/非 UInt64/nested 仍 FC | EvmMapPilot + MapSnapshot + B-EVM-MAP-STACK + BL-31 ✅ |
 
 #### B-2：Normalize 语义细化（= A 组，N 家族串行）
 
@@ -180,14 +184,14 @@ normative: false
 | **C-2** | Aleo/Psy compiler/VM 验收研究 | **研究闭合（2026-08-02，RPT-015）** + **J2/G123 follow-up**：EmitIRV1 已对齐 Leo 4 语法；Leo 4.0.2 已进入两平台 Tool Lock，`AleoAcceptance` 对产品 `.aleo` 做 `leo build --offline` compile-only 验收（工具未物化时 clean skip）。Psy 仍无锁定 compiler/VM 门；两者均无 prove/deploy runtime 闭环。成熟度保持 source-only，**非** hermetic/runtime/formal | AleoPsyResearch + AleoEmissionFix + C-2-pin ✅ |
 | **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + G4 工程 Anvil 差分，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
 | **C-4** | Noir prove/verify 验收门 | **prove/verify 研究结论仍为不升格**：G123 已将 nargo 1.0.0-beta.26 纳入两平台 Tool Lock，并由 `NoirCompileAcceptance` 对产品 Counter relation packages 做 compile-only 验收；但 Barretenberg/backend、CRS/security profile、witness/prove/verify 与 proof artifact binding 均未锁定，`validate_artifacts` 继续拒绝 proof-stage 叶子。成熟度保持 **source-only** relations；后续仅余独立 `NoirProveAcceptance` 决策与实现 | NoirProveResearch + NoirCompileAcceptance ✅（prove/verify 仍未实现） |
-| **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + 13 fixtures 均产 ELF 并进入 Mollusk；当前 60 个 Rust tests 全 active/通过。MapMini 4/4 覆盖 empty upsert，WideMul 4/4 覆盖 UInt128/256 高肢/跨肢成功与 `0x1001` rollback，PrincipalStore 4/4 覆盖 `len + 8×UInt64` identity state/param、逐叶 equality 与高位清零（非 pubkey/CPI）；Option/Context/call 等运行覆盖仍待扩 | MolluskFixtures |
+| **C-5** | Solana Mollusk fixture 跟 Normalize 新面 | **ongoing**：Counter + 19 fixtures = 20 programs 均产 ELF 并进入 Mollusk；当前 89 个 Rust tests（`programs.rs` 74 + `counter.rs` 8 + `cpi.rs` 7）全 active/通过。除 MapMini/WideMul/PrincipalStore 外，OptionState 6 项固定 tag/payload state 与 stale-payload clear；CpiCaller 7 项固定真实 `sol_invoke_signed_c`/`sol_get_return_data` 发射并在缺外层 callee account 时 fail closed。ContextRead 与可成功 CPI 的多账户外层 ABI 仍待扩 | MolluskFixtures |
 
 ### D 组：文档/checkpoint 同步缺口
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
 | **D-1** | registry target 表 | **已随 Quint Q0 刷新**：engineering seed = **9** registry-implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`quint`/`cosmwasm`/`ton`）+ **3** design-only（`soroban`/`icp`/`openvm`）= **12**；九 materializer 均有 Plan/IR/dispatch。accepted Phase-1 四-target 范围 reconciliation 仍由 `DOC-ADR-SCOPE` 阻塞 | MatrixSync + Quint/CW/TON MVP docs |
-| **D-2** | 成熟度声明 | **已闭合并随 G123 + CW/TON MVP 刷新**：EVM locked solc + G4 Anvil 工程差分；NEAR locked `wat2wasm` + near-sandbox receipt；Solana SBPF+Mollusk；Noir locked nargo compile-only、Aleo locked leo compile-only、Psy host-optional；**CosmWasm** WAT+wat2wasm+check+mock（label 仍 `wasm-validated-alpha`）；**TON** Tolk/BoC+sandbox（label 仍 `source-only`；resolver async vs Plan schedule FC mismatch 须诚实）；**Quint** `.qnt` + zero-tool finalize（label `source-only`；host-only typecheck/run 非 locked gate）。以上均**非** formal/hermetic/Stage-0 maturity | MatrixSync + G123 + CW/TON MVP |
+| **D-2** | 成熟度声明 | **已闭合并随 G123 + CW/TON MVP 刷新**：EVM locked solc + G4 Anvil 工程差分；NEAR locked `wat2wasm` + near-sandbox receipt；Solana SBPF+Mollusk；Noir locked nargo compile-only、Aleo locked leo compile-only、Psy host-optional；**CosmWasm** WAT+wat2wasm+check+mock 28 tests + wasmd rung-1（label 仍 `wasm-validated-alpha`）；**TON** Tolk/BoC+sandbox 10/10 + schedule createMessage PARTIAL（label 仍 `source-only`）；**Quint** `.qnt` + zero-tool finalize（label `source-only`；host-only typecheck/run 非 locked gate）。以上均**非** formal/hermetic/Stage-0 maturity | MatrixSync + G123 + CW/TON MVP |
 
 ## 4. Wave 队列（按优先级 + 可并行性）
 

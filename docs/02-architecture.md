@@ -3,7 +3,7 @@ id: PHASE-2
 title: 系统架构
 status: accepted
 owner: architecture
-updated: 2026-07-20
+updated: 2026-08-04
 normative: true
 approvers: architecture-owner, davirain, quality-owner, security-owner
 approvedAt: 2026-07-20
@@ -24,28 +24,30 @@ Author / CI
     │ Lean source + explicit CLI target/profile
     ▼
 proof-forge-next
-    ├─ contained frontend worker: Lean Parser → bounded Syntax preflight → declaration decoder/check → Source.Program
-    ├─ contained core worker: name/type/effect checker → Typed.Program
-    ├─ target-neutral normalization → SemanticProgramV1 + SemanticProvenanceV1
-    ├─ Support resolver → ResolvedProgram target
+    ├─ in-process source snapshot: Loader → ProgramV1 / CheckV1 → Normalize → CompiledSemanticV1
+    ├─ optional inline same-file proof gate (ADR-0027; before target resolve)
+    ├─ engineering requirement resolve → capability
     ├─ target Materializer → target Plan → TargetIR
-    └─ emitter → OutputSet + provenance
+    └─ emitter → engineering OutputSet + provenance
           │
           ├─ official packager/validator/runtime
           └─ deploy/prove/verify command (explicit)
 ```
 
+> **Engineering path note（2026-08-04，ADR-0027）**：当前产品源路径是进程内
+> **单次** `IO.FS.readFile` → `selectProgramV1ProductWithTheoremInventory` → compile →
+> sole `certifyInlineProofV1` → resolve/materialize；**不是**下图历史 contained worker
+> 形态，也 **不是** `--proof-bundle*` / ProofBundle product surface（flag 已删）。
+> Inline certification 对 **同一 held raw source** 做 in-process elaboration + Environment
+> audit；**不是** sandbox / hermetic/formal evidence。下文 contained worker 措辞仅 historical；
+> 产品实现以 `RECOVERY.md` / `AGENTS.md` 与 ADR-0027 为准。
+
 编译器是代码生成与语义检查工具，不是链 VM、密钥托管器或默认网络执行器。
 Lean Parser 提供 token/layout/syntax tree；它不替代业务 IR。parser 成功后，每个 portable
-program command 先经过有界、非递归 Syntax preflight，再进入递归 checked decoder。CLI
-orchestration parent 不解析或 elaboration 用户模块，只启动受控 frontend worker；worker 只加载
-受信任的 ProofForge grammar initializer，并拒绝 DSL 白名单之外的 Lean command。parser、
-preflight、decoder 和 declaration validation 位于 frontend worker；返回的 `Source.Program` 再由
-独立 contained core worker 执行唯一 name/type/effect/semantic pipeline。两个 stage 都在 source
-处理前应用各自版本化 time/memory/output/process hard maxima。
-直接 Lean command 路径必须由同等或更严格的 outer build runner 包住整个 Lean process；未受控的
-library/elaborator 调用不接受不可信 source，也不得生成 formal evidence。随后三个互不等同的领域
-类型依次承担 surface、checked source 和 canonical semantics 责任。
+program command 先经过有界、非递归 Syntax preflight，再进入递归 checked decoder。
+**当前工程产品路径**在同一进程内完成 source read → ProgramV1 decode/check → Normalize；
+historical accepted 叙述中的独立 contained frontend/core worker 已非 sole 产品 authority。
+随后三个互不等同的领域类型依次承担 surface、checked source 和 canonical semantics 责任。
 
 Source 标识有三层、不得混用：**(A)** Lean `Name.str` **raw** payload（不含 renderer 添加的外围
 guillemets；raw 本身可含 opening `U+00AB`）；**(B)**
@@ -89,9 +91,28 @@ qualification vocabulary、推导 subset denominator 或满足 `TASK-D8-04`/`TST
 decoded data 包含 qualified name、types、constants、logical state、events/errors、callables、invariants
 和 embedded ProgramRequirements。架构页不重新声明缩减版结构。
 
-`SemanticProgram` 的 canonical bytes 不含 sourceHash、path/span 或 origin。独立
-`SemanticProvenance` companion exact 绑定 qualifiedName、sourceHash、semanticHash 与 entity origin map；
+`SemanticProgram` 的 canonical bytes 不含 sourceHash、path/span 或 origin，也 **不含**
+proof reference、theorem body 或 certification digest。独立 `SemanticProvenance` companion
+exact 绑定 qualifiedName、sourceHash、semanticHash 与 entity origin map；
 它只服务 diagnostics/audit/certification join，不能进入 target-neutral 业务求值或 target 选择。
+
+### Inline same-file theorem certification（ADR-0027，engineering）
+
+当 source 在 program 之后声明 ordinary adjacent Lean `theorem`（经 `proof … using …`
+binding / theorem inventory）时，产品在 **requirement resolve 与 materialization 之前**
+运行 proof gate：
+
+1. 单一 in-memory source snapshot（禁止为证明重读磁盘）；
+2. ProgramV1 / `sourceHash` **不含 theorem body**；`semanticHash` 永不携带 proof；
+3. in-process elaboration（**非** sandbox）+ Environment declaration-kind / defeq /
+   dependency / axiom audit；
+4. 固定允许 base axiom：`Classical.choice` / `Quot.sound` / `propext`；
+5. **不信任** 用户 `.olean` 或 ambient lake 路径作为 theorem authority；
+6. 当前唯一命题为 `InvariantTheoremV1`：在全部 `StateConformsV1` 状态下
+   `evalInvariantV1 = .returnedTrue`。
+
+该 gate **不** 证明 reachability、init/step safety、target refinement，也 **不** 关闭
+formal `TST-PROOF-001` / hermetic / release。失败零制品；空 proof 表面显式 skip。
 
 `SPEC-SEM-001`/public façade `ProofForgeV2.Semantic.ReferenceV1` 唯一定义
 `ReferenceValueV1`、`InvocationV1`、`ExternalResponsesV1`、`OrderedEffectV1`、revert/fault 与

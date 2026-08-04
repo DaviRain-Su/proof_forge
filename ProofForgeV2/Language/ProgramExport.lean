@@ -15,11 +15,6 @@ namespace ProofForgeV2.Language.ProgramExport
 
 deriving instance Repr for ByteArray
 
-/-- Opaque byte-array carrier used only for expression-level decoding. The
-actual canonical bytes are recovered by `decodeByteArray` from the hex string
-argument; this function is never evaluated at runtime. -/
-opaque programExportBytesFromHex (hex : String) : ByteArray
-
 private def hexDigitToNat (c : Char) : Option Nat :=
   if '0' ≤ c && c ≤ '9' then some (c.toNat - '0'.toNat)
   else if 'a' ≤ c && c ≤ 'f' then some (c.toNat - 'a'.toNat + 10)
@@ -39,6 +34,16 @@ private def byteArrayFromHex (hex : String) : Except String ByteArray := do
         | _, _ => throw "invalid hex character"
     | [_] => throw "hex string must have even length"
   loop ByteArray.empty chars
+
+/-- Transparent hex → bytes used by ProgramExport payloads and inline proof
+    subjects. Expression-level reconstruction still prefers `decodeByteArray`
+    on the hex argument; runtime evaluation now recovers exact product bytes
+    (required for inline `subjectProgramV1` validation and proof linkage).
+    Invalid hex fails closed to empty rather than inventing non-canonical data. -/
+def programExportBytesFromHex (hex : String) : ByteArray :=
+  match byteArrayFromHex hex with
+  | .ok bytes => bytes
+  | .error _ => ByteArray.empty
 
 structure ProgramExportPayloadV2 where
   schema : String
@@ -129,6 +134,16 @@ private def decodeUInt8 (expr : Expr) : Except String UInt8 := do
   | some (``UInt8.ofNat, [valueExpr]) =>
       let value ← decodeNat valueExpr
       if value < 2 ^ 8 then pure (UInt8.ofNat value) else unsupported
+  | some (``OfNat.ofNat, [type, literal, instanceExpr]) =>
+      unless type.consumeMData == mkConst ``UInt8 do
+        return ← unsupported
+      let value ← decodeRawNat literal.consumeMData
+      match appView instanceExpr.consumeMData with
+      | some (``UInt8.instOfNat, [sameLiteral]) =>
+          unless (← decodeRawNat sameLiteral.consumeMData) == value do
+            return ← unsupported
+          if value < 2 ^ 8 then pure (UInt8.ofNat value) else unsupported
+      | _ => unsupported
   | _ => unsupported
 
 private def decodeString (expr : Expr) : Except String String :=
@@ -144,7 +159,24 @@ private def decodeArray (decode : Expr → Except String α) (expr : Expr) :
   let mut rest := rest0
   let mut result := #[]
   let mut done := false
+  let mut letSteps := 0
   while !done do
+    -- Large quotation splices are elaborated as a transparent, shared chain of
+    -- `let`-bound List chunks. Reduce only those local bindings; never unfold a
+    -- constant or execute a function. Re-check the raw-node cap after every
+    -- substitution so a duplicating let body cannot expand without bound.
+    let mut reducingLets := true
+    while reducingLets do
+      match rest.consumeMData with
+      | .letE _ _ value body _ =>
+          letSteps := letSteps + 1
+          if letSteps > maxLogicalDepth then
+            return ← unsupported
+          rest := body.instantiate1 value
+          checkRawNodeBound rest
+      | normalized =>
+          rest := normalized
+          reducingLets := false
     match appView rest with
     | some (``List.nil, [_type]) => done := true
     | some (``List.cons, [_type, head, tail]) =>
@@ -154,9 +186,9 @@ private def decodeArray (decode : Expr → Except String α) (expr : Expr) :
   pure result
 
 private partial def decodeByteArray (expr : Expr) : Except String ByteArray := do
-  match appView expr with
+  match appView expr.consumeMData with
   | some (``programExportBytesFromHex, [hexExpr]) =>
-      byteArrayFromHex (← decodeString hexExpr)
+      byteArrayFromHex (← decodeString hexExpr.consumeMData)
   | some (``ByteArray.empty, []) => pure ByteArray.empty
   | some (``ByteArray.push, [arrExpr, byteExpr]) => do
       let arr ← decodeByteArray arrExpr
@@ -165,6 +197,20 @@ private partial def decodeByteArray (expr : Expr) : Except String ByteArray := d
   | some (``ByteArray.mk, [data]) =>
       ByteArray.mk <$> decodeArray decodeUInt8 data
   | _ => unsupported
+
+/-- Strict bounded structural decoder for transparent `ByteArray` expression
+    shapes used by ProgramExport payloads and generated inline-proof subjects
+    (`programExportBytesFromHex`, `ByteArray.mk`/`push`/`empty`). Never
+    evaluates arbitrary `Expr`. Shared by export reconstruction and the
+    product certifier's subject-byte identity check. -/
+def decodeBoundedByteArrayExprV1 (expr : Expr) : Except String ByteArray := do
+  checkRawNodeBound expr
+  decodeByteArray expr
+
+/-- Bounded node-count precheck for declaration values before structural
+    byte decoding (shared with ProgramExport payload reconstruction). -/
+def checkExportRawNodeBoundV1 (root : Expr) : Except String Unit :=
+  checkRawNodeBound root
 
 private def decodePayloadV2 (expr : Expr) : Except String ProgramExportPayloadV2 := do
   match appView expr with

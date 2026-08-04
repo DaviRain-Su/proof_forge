@@ -43,7 +43,7 @@ exact-fuel）。但 `NormalizeV1` 只 lowering 一个子集，`ReferenceV1` 只�
 
 - ✅ 全 13 种 declaration、完整递归 type 表面、完整 statement/expr/place/pattern、
   command/export 已是 V1 唯一路径、wire/hash/NodeId/OriginJoin/SpanJoin。
-- ✅ 前端监督层已按 2026-08-01 产品决策移除；CLI 源读取为进程内 `Loader.selectProgramV1Product`。
+- ✅ 前端监督层已按 2026-08-01 产品决策移除；CLI 源读取为进程内 `Loader.selectProgramV1ProductWithTheoremInventory`，compile 后经 `certifyInlineProofV1`。
 - ❌ formal `TASK-D1-01` 仍 blocked（release qualification 前置，独立轴，不阻塞开发）。
 
 ### L2 Typed CheckV1（D2）—— 五相位完成，三轴缺

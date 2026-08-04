@@ -45,9 +45,17 @@ def checkTypeShapeRefs (shape : TypeShapeV1) (typeCount : Nat) :
       pure ()
 
 /-- Integer widths allowed by SPEC-SEM-WIRE-001 §5. -/
-private def legalIntegerWidthV1 (width : UInt16) : Bool :=
+def legalIntegerWidthV1 (width : UInt16) : Bool :=
   width == 8 || width == 16 || width == 32 || width == 64 ||
   width == 128 || width == 256
+
+/-- Closed legal widths used by Normalize multi-width and simple-closure certs. -/
+theorem legalIntegerWidthV1_64 : legalIntegerWidthV1 64 = true := by decide
+theorem legalIntegerWidthV1_8 : legalIntegerWidthV1 8 = true := by decide
+theorem legalIntegerWidthV1_16 : legalIntegerWidthV1 16 = true := by decide
+theorem legalIntegerWidthV1_32 : legalIntegerWidthV1 32 = true := by decide
+theorem legalIntegerWidthV1_128 : legalIntegerWidthV1 128 = true := by decide
+theorem legalIntegerWidthV1_256 : legalIntegerWidthV1 256 = true := by decide
 
 private def checkUniqueIntraTypeNames (names : Array String) :
     Except SemanticWireErrorV1 Unit := do

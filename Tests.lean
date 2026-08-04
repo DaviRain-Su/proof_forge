@@ -10,8 +10,12 @@ import Tests.Compiler.ValidatedSourceV1Pipeline
 import Tests.Compiler.CheckV1ProductGate
 import Tests.Compiler.DiagnosticPipelineV1
 import Tests.Compiler.ProofSubjectFilesV1
+import Tests.Compiler.InlineProofAuditV1
 import Tests.Compiler.ProofWorkerV1
 import Tests.Compiler.ProofWorkerSupervisorV1
+import Tests.Compiler.InlineProofProtocolV1
+import Tests.Compiler.InlineProofElaborationV1
+import Tests.Compiler.InlineProofCertifierV1
 import Tests.Typed.NameResolutionV1
 import Tests.Typed.DiagnosticLocationsV1
 import Tests.Typed.TypeCheckExpressionsV1
@@ -29,6 +33,13 @@ import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.InvariantTheoremV1
+import Tests.Semantic.ProofBridgeV1
+import Tests.Semantic.ProofedCertV1
+import Tests.Semantic.ProofedEncodeCertV1
+import Tests.Semantic.ProofedDecodeCertV1
+import Tests.Semantic.SimpleClosureCertV1
+import Tests.Semantic.AuthorWireCertV1
+import Tests.Semantic.ProofedClosedCertV1
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.ProofBundleV1
 import Tests.Semantic.ProofSubjectV1
@@ -37,6 +48,8 @@ import Tests.Language.ProgramExports
 import Tests.Language.ProgramExportAcceptance
 import Tests.Language.ProgramExportAcceptanceEmpty
 import Tests.Language.ProgramCommandAcceptance
+import Tests.Language.InlineProofAuthoringV1
+import Tests.Language.TheoremInventoryV1
 import Tests.Language.ProgramSyntax
 import Tests.Language.ProgramV1Declarations
 import Tests.Language.ProgramV1DeclarationNegatives
@@ -141,10 +154,12 @@ import Tests.Materialization.EngineeringFinalizationV1
 import Tests.Materialization.EngineeringDiskClosureV1
 import Tests.CLI.DiagnosticsV1
 import Tests.CLI.ResourceFlagsV1
+import Tests.CLI.InlineProofProductV1
 
 private unsafe def runSemanticTests : IO Unit := do
   Tests.Semantic.WireV1.run
   Tests.Semantic.InvariantABI.run
+  Tests.Semantic.ProofBridgeV1.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.ProofBundleV1.run
   Tests.Semantic.ProofSubjectV1.run
@@ -183,6 +198,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.CLI.ToolchainPolicy.run
   Tests.CLI.DiagnosticsV1.run
   Tests.CLI.ResourceFlagsV1.run
+  Tests.CLI.InlineProofProductV1.run
 
 unsafe def main : IO Unit := do
   Tests.Core.Common.run
@@ -197,8 +213,12 @@ unsafe def main : IO Unit := do
   Tests.Compiler.CheckV1ProductGate.run
   Tests.Compiler.DiagnosticPipelineV1.run
   Tests.Compiler.ProofSubjectFilesV1.run
+  Tests.Compiler.InlineProofAuditV1.run
   Tests.Compiler.ProofWorkerV1.run
   Tests.Compiler.ProofWorkerSupervisorV1.run
+  Tests.Compiler.InlineProofProtocolV1.run
+  Tests.Compiler.InlineProofElaborationV1.run
+  Tests.Compiler.InlineProofCertifierV1.run
   Tests.Typed.NameResolutionV1.run
   Tests.Typed.DiagnosticLocationsV1.run
   Tests.Typed.TypeCheckExpressionsV1.run
@@ -218,6 +238,8 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramExportAcceptance.run
   Tests.Language.ProgramExportAcceptanceEmpty.run
   Tests.Language.ProgramCommandAcceptance.run
+  Tests.Language.InlineProofAuthoringV1.run
+  Tests.Language.TheoremInventoryV1.run
   Tests.Language.ProgramSyntax.run
   Tests.Language.ProgramV1Declarations.run
   Tests.Language.ProgramV1DeclarationNegatives.run

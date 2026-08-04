@@ -1,4 +1,4 @@
-import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Language.ProgramElaborationV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.WireCodecV1
 import ProofForgeV2.Source.WireDecodeV1

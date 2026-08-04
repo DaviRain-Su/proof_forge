@@ -62,29 +62,48 @@ def encodeOption (encode : α → Except SemanticWireErrorV1 ByteArray) :
       let payload ← encode value
       pure ((encodeU8 1).append payload)
 
+/-- Source-order chunk concatenation worker for the sole array encoder.
+    Named so certificates can induct on the list spine without a second
+    public array codec. -/
+def encodeArrayChunksV1 (encode : α → Except SemanticWireErrorV1 ByteArray) :
+    List α → ByteArray → Except SemanticWireErrorV1 ByteArray
+  | [], acc => pure acc
+  | x :: xs, acc => do
+      let chunk ← encode x
+      encodeArrayChunksV1 encode xs (acc.append chunk)
+
 def encodeArray (encode : α → Except SemanticWireErrorV1 ByteArray)
     (values : Array α) : Except SemanticWireErrorV1 ByteArray := do
   unless values.size ≤ maxArrayElements do
     return ← err .limitExceeded
   let header ← encodeNatAsU32le values.size
-  let mut payload := ByteArray.empty
-  for value in values do
-    let chunk ← encode value
-    payload := payload.append chunk
+  let payload ← encodeArrayChunksV1 encode values.toList ByteArray.empty
   pure (header.append payload)
+
+theorem encodeArrayChunksV1_nil (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (acc : ByteArray) :
+    encodeArrayChunksV1 encode [] acc = .ok acc := by
+  rfl
+
+theorem encodeArrayChunksV1_cons (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (x : α) (xs : List α) (acc chunk out : ByteArray)
+    (hx : encode x = .ok chunk)
+    (htail : encodeArrayChunksV1 encode xs (acc.append chunk) = .ok out) :
+    encodeArrayChunksV1 encode (x :: xs) acc = .ok out := by
+  simp only [encodeArrayChunksV1, hx, htail, Bind.bind, Except.bind]
 
 /-- Fixed-size success refinements for the sole production array encoder.
     These expose its exact source-order concatenation without defining a
     second traversal. -/
 theorem encodeArray_zeroV1 (encode : α → Except SemanticWireErrorV1 ByteArray) :
     encodeArray encode #[] = .ok (encodeU32le 0) := by
-  simp [encodeArray]
+  simp [encodeArray, encodeArrayChunksV1]
   rfl
 
 theorem encodeArray_oneV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
     (v0 : α) (b0 : ByteArray) (h0 : encode v0 = .ok b0) :
     encodeArray encode #[v0] = .ok ((encodeU32le 1).append b0) := by
-  simp [encodeArray, h0]
+  simp [encodeArray, encodeArrayChunksV1, h0]
   rfl
 
 theorem encodeArray_twoV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
@@ -92,7 +111,7 @@ theorem encodeArray_twoV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
     (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1) :
     encodeArray encode #[v0, v1] =
       .ok ((encodeU32le 2).append (b0.append b1)) := by
-  simp [encodeArray, h0, h1]
+  simp [encodeArray, encodeArrayChunksV1, h0, h1]
   rfl
 
 theorem encodeArray_threeV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
@@ -101,7 +120,7 @@ theorem encodeArray_threeV1 (encode : α → Except SemanticWireErrorV1 ByteArra
     (h2 : encode v2 = .ok b2) :
     encodeArray encode #[v0, v1, v2] =
       .ok ((encodeU32le 3).append ((b0.append b1).append b2)) := by
-  simp [encodeArray, h0, h1, h2]
+  simp [encodeArray, encodeArrayChunksV1, h0, h1, h2]
   rfl
 
 theorem encodeArray_fourV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
@@ -110,14 +129,68 @@ theorem encodeArray_fourV1 (encode : α → Except SemanticWireErrorV1 ByteArray
     (h2 : encode v2 = .ok b2) (h3 : encode v3 = .ok b3) :
     encodeArray encode #[v0, v1, v2, v3] =
       .ok ((encodeU32le 4).append (((b0.append b1).append b2).append b3)) := by
-  simp [encodeArray, h0, h1, h2, h3]
+  simp [encodeArray, encodeArrayChunksV1, h0, h1, h2, h3]
   rfl
+
+/-- Parametric list induction: every element encodes ⇒ chunk concat succeeds. -/
+theorem encodeArrayChunksV1_ok_of_forall
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (xs : List α) (acc : ByteArray)
+    (h : ∀ x ∈ xs, ∃ b, encode x = .ok b) :
+    ∃ payload, encodeArrayChunksV1 encode xs acc = .ok payload := by
+  induction xs generalizing acc with
+  | nil => exact ⟨acc, rfl⟩
+  | cons x xs ih =>
+      have hxmem : x ∈ x :: xs := by
+        exact List.Mem.head xs
+      obtain ⟨chunk, hchunk⟩ := h x hxmem
+      have hrest : ∀ y ∈ xs, ∃ b, encode y = .ok b := by
+        intro y hy
+        exact h y (List.Mem.tail x hy)
+      obtain ⟨payload, hpayload⟩ := ih (acc.append chunk) hrest
+      exact ⟨payload, by
+        simp only [encodeArrayChunksV1, hchunk, hpayload, Bind.bind, Except.bind]⟩
+
+/-- Parametric array success through the sole production encoder. -/
+theorem encodeArray_ok_of_forall
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (values : Array α)
+    (hsize : values.size ≤ maxArrayElements)
+    (hsizeU32 : values.size ≤ UInt32.size - 1)
+    (h : ∀ x ∈ values.toList, ∃ b, encode x = .ok b) :
+    ∃ payload, encodeArray encode values = .ok payload := by
+  obtain ⟨chunks, hchunks⟩ :=
+    encodeArrayChunksV1_ok_of_forall encode values.toList ByteArray.empty h
+  refine ⟨(encodeU32le (UInt32.ofNat values.size)).append chunks, ?_⟩
+  simp only [encodeArray, hsize, encodeNatAsU32le, hsizeU32, hchunks, ↓reduceIte,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+/-- Successful array encode is exactly u32le count ++ chunk concatenation. -/
+theorem encodeArray_eq_of_chunksV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (values : Array α) (chunks : ByteArray)
+    (hsize : values.size ≤ maxArrayElements)
+    (hsizeU32 : values.size ≤ UInt32.size - 1)
+    (hchunks : encodeArrayChunksV1 encode values.toList ByteArray.empty = .ok chunks) :
+    encodeArray encode values =
+      .ok ((encodeU32le (UInt32.ofNat values.size)).append chunks) := by
+  simp only [encodeArray, hsize, encodeNatAsU32le, hsizeU32, hchunks, ↓reduceIte,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
 
 def encodeByteArray (value : ByteArray) : Except SemanticWireErrorV1 ByteArray := do
   unless value.size ≤ maxCanonicalProgramBytes do
     return ← err .limitExceeded
   let header ← encodeNatAsU32le value.size
   pure (header.append value)
+
+/-- Successful byte-array framing through the sole production encoder. -/
+theorem encodeByteArray_eq_okV1 (value : ByteArray)
+    (hsize : value.size ≤ maxCanonicalProgramBytes)
+    (hsizeU32 : value.size ≤ UInt32.size - 1) :
+    encodeByteArray value =
+      .ok ((encodeU32le (UInt32.ofNat value.size)).append value) := by
+  simp only [encodeByteArray, hsize, encodeNatAsU32le, hsizeU32, ↓reduceIte,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
 
 def encodeString (value : String) : Except SemanticWireErrorV1 ByteArray := do
   mapCommon (requireNfc value)
@@ -126,6 +199,19 @@ def encodeString (value : String) : Except SemanticWireErrorV1 ByteArray := do
     return ← err .limitExceeded
   let header ← encodeNatAsU32le raw.size
   pure (header.append raw)
+
+/-- Successful string framing through the sole NFC + UTF-8 length authorities.
+    Exposes exact production header++payload bytes for name-parameterized
+    spines without a second string codec. -/
+theorem encodeString_eq_okV1 (value : String)
+    (hnfc : requireNfc value = .ok ())
+    (hsize : value.toUTF8.size ≤ maxStringBytes) :
+    encodeString value =
+      .ok ((encodeU32le (UInt32.ofNat value.toUTF8.size)).append value.toUTF8) := by
+  have hsizeU32 : value.toUTF8.size ≤ UInt32.size - 1 :=
+    Nat.le_trans hsize (by decide : maxStringBytes ≤ UInt32.size - 1)
+  simp only [encodeString, mapCommon, hnfc, hsize, encodeNatAsU32le, hsizeU32,
+    Bind.bind, Pure.pure, Except.bind, Except.pure, ↓reduceIte]
 
 def encodeDigest (digest : Digest) : Except SemanticWireErrorV1 ByteArray := do
   mapCommon (validateDigest digest)
@@ -240,6 +326,169 @@ theorem encodeNullary_eq_okV1 (tag : String)
   simp [encodeNullary, encodeTagged, taggedBytesV1, taggedBytesFromBytesV1,
     encodeNatAsU32le, encodeNatAsU16le, hnonempty, hascii, hlimit', hu32'',
     Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-! ### Exact size seams for production framing (certificate use) -/
+
+theorem encodeU8_size (n : UInt8) : (encodeU8 n).size = 1 := by
+  simp [encodeU8]
+
+theorem encodeU16le_size (n : UInt16) : (encodeU16le n).size = 2 := by
+  simp [encodeU16le]
+
+theorem encodeU32le_size (n : UInt32) : (encodeU32le n).size = 4 := by
+  simp [encodeU32le]
+
+theorem encodeU64le_size (n : UInt64) : (encodeU64le n).size = 8 := by
+  simp [encodeU64le]
+
+theorem ByteArray_size_append (a b : ByteArray) :
+    (a.append b).size = a.size + b.size :=
+  ByteArray.size_append
+
+private theorem foldl_add_size_const (a : Nat) (xs : List ByteArray) :
+    xs.foldl (fun n f => n + f.size) a =
+      a + xs.foldl (fun n f => n + f.size) 0 := by
+  induction xs generalizing a with
+  | nil => simp
+  | cons x xs ih =>
+      simp only [List.foldl_cons]
+      rw [ih (a + x.size)]
+      have hx := ih (0 + x.size)
+      rw [hx]
+      omega
+
+private theorem foldl_append_size_list (init : ByteArray) (xs : List ByteArray) :
+    (xs.foldl (fun out f => out.append f) init).size =
+      init.size + xs.foldl (fun n f => n + f.size) 0 := by
+  induction xs generalizing init with
+  | nil => simp
+  | cons x xs ih =>
+      simp only [List.foldl_cons]
+      rw [ih (init.append x), ByteArray_size_append]
+      have h := foldl_add_size_const (0 + x.size) xs
+      rw [h]
+      omega
+
+theorem appendTaggedFieldsV1_size (init : ByteArray) (fields : Array ByteArray) :
+    (appendTaggedFieldsV1 init fields).size =
+      init.size + fields.foldl (fun n f => n + f.size) 0 := by
+  simp only [appendTaggedFieldsV1]
+  have hlist :
+      fields.foldl (fun out field => out.append field) init =
+        fields.toList.foldl (fun out field => out.append field) init := by
+    simp [Array.foldl_toList]
+  have hsum :
+      fields.foldl (fun n f => n + f.size) 0 =
+        fields.toList.foldl (fun n f => n + f.size) 0 := by
+    simp [Array.foldl_toList]
+  rw [hlist, hsum, foldl_append_size_list]
+
+theorem taggedBytesFromBytesV1_size (tagBytes : ByteArray) (fields : Array ByteArray) :
+    (taggedBytesFromBytesV1 tagBytes fields).size =
+      6 + tagBytes.size + fields.foldl (fun n f => n + f.size) 0 := by
+  simp only [taggedBytesFromBytesV1, appendTaggedFieldsV1_size, ByteArray_size_append,
+    encodeU32le_size, encodeU16le_size]
+  omega
+
+
+/-- List foldl size bound under a uniform per-element cap. -/
+theorem foldl_add_size_le_list (xs : List ByteArray) (bound : Nat)
+    (h : ∀ x ∈ xs, x.size ≤ bound) :
+    xs.foldl (fun n f => n + f.size) 0 ≤ xs.length * bound := by
+  induction xs with
+  | nil => simp
+  | cons x xs ih =>
+      have hx : x.size ≤ bound := h x (List.Mem.head xs)
+      have hrest : ∀ y ∈ xs, y.size ≤ bound :=
+        fun y hy => h y (List.Mem.tail x hy)
+      have ih' : xs.foldl (fun n f => n + f.size) 0 ≤ xs.length * bound :=
+        ih hrest
+      -- Expand cons foldl to x.size + foldl tail
+      have hfold :
+          List.foldl (fun n f => n + f.size) 0 (x :: xs) =
+            x.size + List.foldl (fun n f => n + f.size) 0 xs := by
+        have h1 :
+            List.foldl (fun n f => n + f.size) 0 (x :: xs) =
+              List.foldl (fun n f => n + f.size) (0 + x.size) xs := by
+          rfl
+        have h2 :
+            List.foldl (fun n f => n + f.size) (0 + x.size) xs =
+              List.foldl (fun n f => n + f.size) x.size xs := by
+          simp only [Nat.zero_add]
+        have h3 := foldl_add_size_const x.size xs
+        exact h1.trans (h2.trans h3)
+      rw [hfold, List.length_cons]
+      have hsum : x.size + List.foldl (fun n f => n + f.size) 0 xs ≤
+          bound + xs.length * bound :=
+        Nat.add_le_add hx ih'
+      have hmul : bound + xs.length * bound = (xs.length + 1) * bound := by
+        calc bound + xs.length * bound
+            = 1 * bound + xs.length * bound := by rw [Nat.one_mul]
+          _ = (1 + xs.length) * bound := by rw [← Nat.add_mul]
+          _ = (xs.length + 1) * bound := by rw [Nat.add_comm]
+      exact hmul ▸ hsum
+
+theorem appendTaggedFieldsV1_size_le (init : ByteArray) (fields : Array ByteArray)
+    (bound : Nat)
+    (h : ∀ f ∈ fields.toList, f.size ≤ bound) :
+    (appendTaggedFieldsV1 init fields).size ≤ init.size + fields.size * bound := by
+  rw [appendTaggedFieldsV1_size]
+  have hsum := foldl_add_size_le_list fields.toList bound h
+  have hlen : fields.toList.length = fields.size := by simp
+  have heq : fields.foldl (fun n f => n + f.size) 0 =
+      fields.toList.foldl (fun n f => n + f.size) 0 := by
+    simp [Array.foldl_toList]
+  rw [heq]
+  have hbound :
+      init.size + fields.toList.foldl (fun n f => n + f.size) 0 ≤
+        init.size + fields.toList.length * bound :=
+    Nat.add_le_add_left hsum init.size
+  simpa [hlen] using hbound
+
+theorem taggedBytesV1_size_le (tag : String) (fields : Array ByteArray) (bound : Nat)
+    (htag : tag.toUTF8.size ≤ 64)
+    (h : ∀ f ∈ fields.toList, f.size ≤ bound) :
+    (taggedBytesV1 tag fields).size ≤ 6 + 64 + fields.size * bound := by
+  simp only [taggedBytesV1, taggedBytesFromBytesV1]
+  let header :=
+    ((encodeU32le (UInt32.ofNat tag.toUTF8.size)).append tag.toUTF8).append
+      (encodeU16le (UInt16.ofNat fields.size))
+  have hinit : header.size = 6 + tag.toUTF8.size := by
+    simp only [header, ByteArray_size_append, encodeU32le_size, encodeU16le_size]
+    omega
+  have happ : (appendTaggedFieldsV1 header fields).size ≤
+      header.size + fields.size * bound :=
+    appendTaggedFieldsV1_size_le header fields bound h
+  have hstep : header.size + fields.size * bound =
+      6 + tag.toUTF8.size + fields.size * bound := by rw [hinit]
+  have htag' : 6 + tag.toUTF8.size + fields.size * bound ≤
+      6 + 64 + fields.size * bound := by omega
+  exact Nat.le_trans (Nat.le_trans happ (Nat.le_of_eq hstep)) htag'
+
+theorem taggedBytesV1_size (tag : String) (fields : Array ByteArray) :
+    (taggedBytesV1 tag fields).size =
+      6 + tag.toUTF8.size + fields.foldl (fun n f => n + f.size) 0 := by
+  simp only [taggedBytesV1, taggedBytesFromBytesV1_size]
+
+/-- Exact nine-field fold size (SemanticProgram.Data / Callable framing). -/
+theorem foldl_size_nine (a0 a1 a2 a3 a4 a5 a6 a7 a8 : ByteArray) :
+    (#[a0, a1, a2, a3, a4, a5, a6, a7, a8] : Array ByteArray).foldl
+        (fun n f => n + f.size) 0 =
+      a0.size + a1.size + a2.size + a3.size + a4.size + a5.size + a6.size +
+        a7.size + a8.size := by
+  simp [List.foldl]
+
+/-- Exact three-field fold size (InvariantDecl framing). -/
+theorem foldl_size_three (a0 a1 a2 : ByteArray) :
+    (#[a0, a1, a2] : Array ByteArray).foldl (fun n f => n + f.size) 0 =
+      a0.size + a1.size + a2.size := by
+  simp [List.foldl]
+
+/-- Exact four-field fold size (RequirementRequest framing). -/
+theorem foldl_size_four (a0 a1 a2 a3 : ByteArray) :
+    (#[a0, a1, a2, a3] : Array ByteArray).foldl (fun n f => n + f.size) 0 =
+      a0.size + a1.size + a2.size + a3.size := by
+  simp [List.foldl]
 
 /-! ### Primitive decode cursor -/
 
@@ -926,6 +1175,12 @@ theorem decodeU32le_eq_of_readV1 (c : Cursor) (value : UInt32) (offset : Nat)
     decodeU32le c = .ok (value, ⟨c.input, offset, c.nesting⟩) := by
   simp only [decodeU32le, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
 
+/-- Compose u16 decoding through the sole production offset reader. -/
+theorem decodeU16le_eq_of_readV1 (c : Cursor) (value : UInt16) (offset : Nat)
+    (hread : readU16leAtV1 c.input c.offset = .ok (value, offset)) :
+    decodeU16le c = .ok (value, ⟨c.input, offset, c.nesting⟩) := by
+  simp only [decodeU16le, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
 /-- Compose u64 decoding through the sole production offset reader. -/
 theorem decodeU64le_eq_of_readV1 (c : Cursor) (value : UInt64) (offset : Nat)
     (hread : readU64leAtV1 c.input c.offset = .ok (value, offset)) :
@@ -1458,6 +1713,16 @@ theorem decodeTypeShapeBodyV1_string (c afterTag afterFields : Cursor)
   simp only [decodeTypeShapeBodyV1, htag, hfields, Bind.bind, Pure.pure,
     Except.bind, Except.pure]
 
+/-- UInt branch through the actual tag, field-count, and width decoders. -/
+theorem decodeTypeShapeBodyV1_uint (c afterTag afterFields afterWidth : Cursor)
+    (w : UInt16)
+    (htag : decodeTag c = .ok ("Type.UInt", afterTag))
+    (hfields : decodeFieldCount 1 afterTag = .ok ((), afterFields))
+    (hwidth : decodeU16le afterFields = .ok (w, afterWidth)) :
+    decodeTypeShapeBodyV1 c = .ok (.uint w, afterWidth) := by
+  simp only [decodeTypeShapeBodyV1, htag, hfields, hwidth, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
 def encodeTypeDeclV1 (d : TypeDeclV1) : Except SemanticWireErrorV1 ByteArray := do
   let idB := encodeU32le d.id
   let nameB ← encodeOption encodeString d.name
@@ -1650,6 +1915,14 @@ theorem decodeCallableKindBodyV1_invariant (c afterTag afterFields : Cursor)
     (htag : decodeTag c = .ok ("Callable.Invariant", afterTag))
     (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
     decodeCallableKindBodyV1 c = .ok (.invariant, afterFields) := by
+  simp only [decodeCallableKindBodyV1, htag, hfields, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- View branch through the actual tag and field-count decoders. -/
+theorem decodeCallableKindBodyV1_view (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Callable.View", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeCallableKindBodyV1 c = .ok (.view, afterFields) := by
   simp only [decodeCallableKindBodyV1, htag, hfields, Bind.bind, Pure.pure,
     Except.bind, Except.pure]
 
@@ -2707,6 +2980,45 @@ theorem decodeProgramRequirementsV1_eq_of_bodyV1 (c : Cursor)
   unfold decodeProgramRequirementsV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
+/-- Compose Digest through the sole fixed-width take and validateDigest authorities. -/
+theorem decodeDigest_eq_of_takeV1 (c : Cursor) (bytes : ByteArray)
+    (hread : takeBytesAtV1 c.input c.offset 32 = .ok bytes)
+    (hvalidate : validateDigest { algorithm := .sha256, bytes } = .ok ()) :
+    decodeDigest c =
+      .ok ({ algorithm := .sha256, bytes }, ⟨c.input, c.offset + 32, c.nesting⟩) := by
+  simp only [decodeDigest, takeBytes, hread, hvalidate, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose SemVer through the sole string decoder and shared Common parser. -/
+theorem decodeSemVer_eq_of_stringV1 (c afterString : Cursor) (s : String) (version : SemVer)
+    (hs : decodeString c = .ok (s, afterString))
+    (hparse : parseSemVer s = .ok version) :
+    decodeSemVer c = .ok (version, afterString) := by
+  simp only [decodeSemVer, hs, hparse, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+/-- Exact-slice composition for a successful fixed-count take on a transparent spine. -/
+theorem takeBytesAtV1_eq_of_spine (input payload : TransparentByteSpineV1) (offset : Nat)
+    (h : takeSpineBytesV1 input offset payload.length = .ok payload) :
+    takeBytesAtV1 (ByteArray.mk input.toArray) offset payload.length =
+      .ok (ByteArray.mk payload.toArray) := by
+  have href := takeBytesAtV1_refinesSpine input offset payload.length
+  rw [h] at href
+  cases hproduction : takeBytesAtV1 (ByteArray.mk input.toArray) offset payload.length with
+  | error e =>
+      simp only [hproduction, Except.map] at href
+      cases href
+  | ok slice =>
+      simp only [hproduction, Except.map] at href
+      have hlist : slice.data.toList = payload := by
+        simpa using href
+      have : slice = ByteArray.mk payload.toArray := by
+        apply ByteArray.ext
+        have harr : slice.data = payload.toArray := by
+          have := congrArg List.toArray hlist
+          simpa using this
+        simpa using harr
+      simpa [this]
+
 def encodeSemanticEntityRefV1 : SemanticEntityRefV1 → Except SemanticWireErrorV1 ByteArray
   | .typeRef id => encodeTagged "Entity.Type" #[encodeU32le id]
   | .constant id => encodeTagged "Entity.Constant" #[encodeU32le id]
@@ -2809,6 +3121,10 @@ def decodeOriginBindingV1 : Decoder OriginBindingV1 := withTaggedNesting fun c =
 /-- Internal WireV1 magic-prefix encoder (not a public contract). -/
 def encodeMagicPrefix (magic : String) : ByteArray :=
   magic.toUTF8.push 0
+
+theorem encodeMagicPrefix_size (magic : String) :
+    (encodeMagicPrefix magic).size = magic.toUTF8.size + 1 := by
+  simp only [encodeMagicPrefix, ByteArray.size_push]
 
 /-- Internal WireV1 magic-prefix consumer (not a public contract). -/
 def consumeMagic (magic : String) : Decoder Unit := fun c => do

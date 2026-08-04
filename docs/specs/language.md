@@ -3,7 +3,7 @@ id: SPEC-LANG-001
 title: Program DSL 语言规格
 status: proposed
 owner: frontend
-updated: 2026-07-30
+updated: 2026-08-04
 normative: true
 ---
 
@@ -12,8 +12,10 @@ normative: true
 ## 目标与非目标
 
 定义唯一、可定位、可确定性 elaboration 的 Lean 自定义 command DSL。作者写业务语义，
-不写目标、VM、部署类别或机器指令。DSL 不接受任意 Lean term；Lean 证明只能通过
-显式 `proof ... using Qualified.Name` 引用。
+不写目标、VM、部署类别或机器指令。DSL 的 `program … where` 表面不接受任意 Lean term。
+Invariant 证明通过显式 `proof Ident using QualifiedName` binding，并与 **同一文件内、
+program command 之后的 ordinary Lean `theorem`** 配对（[`ADR-0027`](../adr/0027-inline-same-file-theorem-certification.md)
+engineering product path）。theorem body 不属于 ProgramV1 AST。
 
 ## 文件与命名
 
@@ -2044,9 +2046,10 @@ type/arity lookup，不得根据 target 或运行时重新分类。
   `ExternalCallExpr` 不参与 local-fn 名称解析，两者均产生 requirements。
 - `proof x using N` 中 `x` 精确绑定同一 program 内名为 `x` 的 invariant；`x` 不是新的 proof
   名称。每个 invariant 最多一个 proof reference，未知 invariant、重复 reference 或短名/别名
-  匹配均失败。D1 只把 `(invariantName, theoremQualifiedName, origin)` 保存到 `Source.Program`；
-  invariant Bool typing 属于 type/effect 检查；theorem lookup/signature validation 必须等 canonical
-  `SemanticProgramV1` 生成、validate 与 hash 完成后执行。
+  匹配均失败。binding 把 `(invariantName, theoremQualifiedName, origin)` 保留为 certification
+  metadata；invariant Bool typing 属于 type/effect 检查；theorem Environment audit 必须等
+  canonical `SemanticProgramV1` 生成、validate 与 hash 完成后、且在 target resolve 之前执行
+  （ADR-0027）。
 
 ## Pure fn 与 proof reference 契约
 
@@ -2058,7 +2061,7 @@ left-to-right 语义执行；callee 的确定性 failure 原样传播且不提�
 递归以 `PF-BOUND-001` 拒绝。
 
 type/effect 检查先确认 invariant 为 Bool、pure-fn closure 无环且只有允许的 pure failure；随后
-normalization 在不读取 proof bundle 的情况下产生并 validate 唯一 canonical
+normalization 在不读取 proof body / 外部 proof-bundle 的情况下产生并 validate 唯一 canonical
 `program : SemanticProgramV1`。compiler 按 canonical invariant array 的 exact NFC name 找到 `x`
 的 ordinal `i`，expected theorem type 唯一为：
 
@@ -2068,21 +2071,43 @@ ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1 program i
 
 其 state conformance、predicate evaluation、revert/trap 和 closed-program binding 由
 [`SPEC-SEM-001`](semantic-core.md) 与
-[`SPEC-SEM-WIRE-001`](semantic-program-wire.md) 唯一定义；不得再次从 Source/Typed AST 拼装另一份 theorem
-statement，也不得只把 `semanticHash` 当成 proposition。`N` 必须与 CLI digest-pinned
-`ProofBundleV1` 的 exact export 对应；manifest 的 invariant name/ordinal/theorem name、bundle
-sourceHash/semanticHash/semanticProvenanceDigest 与 compiler 当前 canonical source/program/provenance
-必须全部匹配，且 theorem type 与上述 closed
-expected type definitionally equal。proof bundle trust policy、locked `.olean` closure 与 safe loader
-规则同样由 SPEC-SEM-001 拥有。
+[`SPEC-SEM-WIRE-001`](semantic-program-wire.md) 唯一定义；不得再次从 Source/Typed AST 拼装另一份
+theorem statement，也不得只把 `semanticHash` 当成 proposition。
 
-同文件稍后声明、ambient Lean environment、project/parent `.lake`、`LEAN_PATH` 或任意 term
-elaboration 都不能满足 `N`。unknown theorem、bundle 缺失/过期、signature/ordinal/program
-mismatch、axiom/`sorryAx`/`unsafe`/`partial`/extern/initializer/plugin dependency 均 fail closed。
-proof reference 是 `Source.ProgramV1` 的 source-level certification metadata，因此新增、删除或修改
-`ProofDecl` 必须改变 canonical source bytes 与 `sourceHash`。successful validation record 不再改写
-Source.Program 或 `sourceHash`；proof reference 与 validation record 都不得改变 Typed/Semantic 业务执行、
-requirements、`semanticHash` 或 target 选择。失败不得进入 target resolution/Plan。
+### Inline same-file theorem（ADR-0027 engineering product path）
+
+1. **Adjacent ordinary theorem**：作者在同一 `.lean` 文件、`program` command 之后声明
+   ordinary Lean `theorem N : …`，其 expected closed type 为上述
+   `InvariantTheoremV1 program i`（可经 compiler 生成的 program-local Prop alias 对齐）。
+2. **Single in-memory snapshot**：Loader/product 持有的 raw source 是唯一 theorem 数据源；
+   certifier 不得为证明重读文件或切换路径。
+3. **Hash 边界**：adjacent **theorem body 不进入** ProgramV1 canonical AST / `sourceHash`，
+   也不进入 `SemanticProgramV1` / `semanticHash`。仅修改证明项而保持 program 项与
+   `ProofDecl` 不变时，`sourceHash` 与 `semanticHash` 均保持不变。`ProofDecl` 本身是
+   ProgramV1 certification metadata：新增/删除/改名 binding 可改变 source AST/`sourceHash`，
+   但 **仍不得** 改变 `semanticHash`。
+4. **In-process elaboration 不是 sandbox**：engineering certifier 在当前 compiler 进程内
+   elaboration 同一 raw source，随后做 Environment declaration-kind / kernel defeq /
+   dependency / axiom 审计。不得声称 contained worker、hermetic 或 formal evidence。
+5. **固定允许 axiom**：闭包仅 `Classical.choice`、`Quot.sound`、`propext`；拒绝用户 axiom、
+   `sorryAx`、`unsafe`/`partial`、extern/implemented_by/initializer 等（见
+   `proof-forge.proof-trust-policy.v1`）。
+6. **不信任用户 `.olean`**：ambient project/parent `.lake`、`LEAN_PATH` 命中或用户提供的
+   `.olean` 不能单独满足 `N`。
+7. **命题范围**：当前仅证明全体 `StateConformsV1` 状态下
+   `evalInvariantV1 = .returnedTrue`；**不** 声称 reachability、init/step safety、target
+   refinement 或 formal `TST-PROOF-001` 闭合。
+8. **Gate 顺序**：proof certification 成功（或显式空表面 `noProof`）之后，才允许
+   requirement resolve / target Plan；失败零制品。
+
+### Library-only external ProofBundleV1（非产品 CLI）
+
+外部 digest-pinned `ProofBundleV1` + locked `.olean` 规则仍由
+[`SPEC-SEM-001`](semantic-core.md) 描述 library/formal-oriented 面。产品 `check`/`build`
+**不** 接受 `--proof-bundle*`，也 **不** 以 bundle 作 fallback。unknown theorem、
+signature/ordinal/program mismatch、forbidden axiom/attr 在 inline gate 上 fail closed。
+successful certification record 不改写 ProgramV1/`sourceHash`/`semanticHash`，也不改变
+Typed 业务执行、requirements 或 target 选择。
 
 ## Elaboration 与导出
 
@@ -2204,12 +2229,14 @@ extension table 必须在 `Typed.check` fail closed，不能把 Source 声明直
 component array 保存在独立 Source projection，并把 invariant/theorem component count/value/order、
 reference count/order 纳入 development source binding。每个 invariant 最多一个 reference；duplicate
 先于 unknown invariant 拒绝，unknown 检查按 proof 源码顺序 exact、case-sensitive lookup，允许
-forward-declared invariant，不做 short-name、namespace 或 ambient environment fallback。theorem 的
+forward-declared invariant，不做 short-name 或 namespace alias fallback。theorem 的
 每个 QualifiedName component 必须先通过同一 DSL reserved-identifier policy，再进入 Common 的
-QualifiedName NFC/字符/长度校验；Common carrier 不拥有或复制 DSL 保留词策略。该切片不读取
-`.olean`/proof bundle，不查 theorem、不构造 expected theorem type，也不改变业务执行、requirements、
-semanticHash 或 target 选择。完整 origin、invariant ordinal、closed SemanticProgram binding 与 proof
-validation record 尚未实现；任一非空 proof table 必须在 `Typed.check` fail closed。
+QualifiedName NFC/字符/长度校验；Common carrier 不拥有或复制 DSL 保留词策略。**ADR-0027
+engineering product path** 在 Normalize/`CompiledSemanticV1` 之后对 **同一 in-memory source**
+上的 adjacent ordinary Lean theorem 做 in-process Environment audit（非 sandbox；不信任用户
+`.olean`；固定允许 axiom Classical.choice/Quot.sound/propext）；theorem body 不进入 ProgramV1/
+semantic hash，也不改变业务执行、requirements 或 target 选择。historical 仅-bundle 叙述不得
+覆盖该 inline 契约。完整 formal origin/ordinal/bundle TST 仍独立 pending。
 
 为避免 ProofForge import 把 Lean 宿主中的 `struct`/`enum`/`const`/`event`/`error`/`fn`/`invariant`/
 `requires`/`extension`/`version`/`digest`/`proof`/`using` 变成全局 parser keyword，

@@ -3,7 +3,7 @@ id: MOD-SOURCE-001
 title: SourceFrontend 模块规格
 status: proposed
 owner: frontend
-updated: 2026-08-02
+updated: 2026-08-04
 normative: true
 ---
 
@@ -13,7 +13,8 @@ normative: true
 > safe-open / supervisor 层、对应 native 实现、safe-open worker executable 与删除门禁；
 > B10 frontend worker 模块及 standalone optional executable 仍保留。当前 CLI 在进程内以
 > `IO.FS.readFile` 读取已做词法校验的 root-relative path，随后调用
-> `Loader.selectProgramV1Product`；该 frontend worker 不在产品调用链。
+> `Loader.selectProgramV1ProductWithTheoremInventory`；compile 后由 sole `certifyInlineProofV1`
+> 处理 held raw source。该 frontend worker 不在产品调用链。
 > 本文后半部的 B11/B12 细节只保留为 **superseded 历史设计**，不得用于描述当前产品
 > assurance、测试资格或 release 状态。该工程决策与 accepted ADR-0022/架构中的 contained
 > frontend 意图尚待正式 ADR 处置。
@@ -30,11 +31,13 @@ CLI 的唯一产品路径为：
 ```text
 canonical ProjectRelativePath + lexically resolved project root
   → in-process IO.FS.readFile
-  → Loader.selectProgramV1Product / locked Lean parser
+  → Loader.selectProgramV1ProductWithTheoremInventory / locked Lean parser
   → command whitelist / namespace tracking
   → decodeProgramCommandV1Checked(moduleName, namespace, syntax)
-  → validateSourceV1 + SpanJoin + OriginJoin
-  → ValidatedSourceV1 + OriginInventoryV1
+  → validateSourceV1 + SpanJoin + OriginJoin + theorem inventory
+  → ValidatedSourceV1 + OriginInventoryV1 + TheoremInventoryV1
+  → compileProgramProductV1
+  → certifyInlineProofV1 (same held raw source; before target resolve)
 ```
 
 `proof-forge-next build` 必须接收 `--module <Lean.Name>`。Loader 使用锁定 Lean term parser
@@ -53,21 +56,26 @@ Typed/Normalize 与各 target capability gate 决定。parser 可接受但 decod
 
 `ParserSession.create` 只导入锁定的 `ProofForgeV2.Language.Syntax` environment；同一进程在一个
 control thread 创建后复用该 immutable session。sole 产品 Loader API 是
-`selectProgramV1Product(source, logicalSourcePath, moduleName, requested?)`；
-`parseProgramsV1` / `selectProgramV1` 是非产品库面。session 不保存用户 source、program、
-typed/core cache 或 target 状态，因此复用只能称为 same-session full recheck。
+`selectProgramV1ProductWithTheoremInventory(source, logicalSourcePath, moduleName, requested?)`；
+`selectProgramV1Product` / `parseProgramsV1` / `selectProgramV1` 是非产品库面。session 不保存
+跨请求的用户 source、program、typed/core cache 或 target 状态；同一请求的 held raw source 与
+immutable Environment 会由后续 inline proof gate 复用，因此只能称为 same-request in-process
+recheck，**不是** sandbox 或 hermetic execution。
 
 source byte cap 为 16 MiB；每个 program command 在递归 decoder 前执行 100000-node、
 root-inclusive 256-depth preflight。namespace scope 可以临时超过 256 components；Loader 保存可恢复的
-overflow state，并在退回合法 scope 后才构造 identity。CLI 不 elaboration、不执行 `run_cmd` 或其他
-非白名单 Lean command。
+overflow state，并在退回合法 scope 后才构造 identity。Loader inventory pass 不 elaboration、不执行 `run_cmd` 或其他非白名单 Lean command；compile 后的
+`certifyInlineProofV1` 只对同一 held source 执行受审计的 ordinary theorem elaboration，且该路径不是
+sandbox。
 
 ## 迁移与兼容边界
 
 **sole CLI source 入口**为 `CLI.Main.loadSourceProduct`：在 lexically resolved project root 下以
 `IO.FS.readFile` 读取 canonical `ProjectRelativePath`，再调用
-`Loader.selectProgramV1Product`。后者在同一 parser snapshot 上完成 parse/select→SpanJoin→OriginJoin，
-构造 `ValidatedSourceV1 × OriginInventoryV1` 后交给 compiler；不 reparse、不 fallback。
+`Loader.selectProgramV1ProductWithTheoremInventory`。后者在同一 parser snapshot 上完成
+parse/select→SpanJoin→OriginJoin + theorem inventory，构造
+`ValidatedSourceV1 × OriginInventoryV1 × TheoremInventoryV1` 后交给 compiler；compile 后 sole
+`certifyInlineProofV1` 复用 held raw source，不 reparse、不 fallback。
 `Frontend.ProtocolV1` / `WorkerV1` 当前不在产品调用链。其余 **非产品库 API** 为
 `parseProgramsV1` / `selectProgramV1` / `selectProgramV1WithSpans` /
 `selectProgramV1WithOrigins`（`WithOrigins` 在同一 immutable snapshot 上串联 SpanJoin→OriginJoin，
@@ -91,8 +99,8 @@ comment 与 allocation history 不参与 identity/hash。
 2026-08-01 产品决策已 **supersede 并删除** B11a/B11a2/B11b1/B11b2/B12 产品监督层：
 `SafeOpen*`、`DarwinSupervisor*`、native C、safe-open worker executable 与 B12 deletion gate
 均不再存在；B10 frontend worker 模块与 standalone optional executable 保留。当前 CLI source
-authority 是上述进程内 `IO.FS.readFile` →
-`selectProgramV1Product`；16 MiB gate 在 source 已读入后由 Loader 执行。该路径不提供
+authority 是上述进程内单次 `IO.FS.readFile` →
+`selectProgramV1ProductWithTheoremInventory` → compile → `certifyInlineProofV1`；16 MiB gate 在 source 已读入后由 Loader 执行。该路径不提供
 no-follow/single-link snapshot、worker isolation、receipt 或 contained assurance。协议与
 `WorkerV1` 保留作非产品表面；formal `TASK-D1-07/08` 仍 pending，且 contained/formal 资格不能从
 已删除实现推导。
@@ -294,9 +302,9 @@ negotiation、unknown/disabled/nonunique default。**`languageVersion` 永不进
 inventory exact lookup → `nodeId=some`）与 `NodeTraversalV1.childPathV1` sole path helpers。
 **B7b1–B7b3d** 工程已完成：Typed 各 producer 产出 canonical primary/related path drafts，且
 `CheckV1` 提供 additive、`sourceHash`-gated located API（`checkProgramTypedLocated*`）；
-**B8b** 已接线 located multi-error compiler chain；当前 sole CLI source 入口为进程内
-`IO.FS.readFile` → `selectProgramV1Product`，并在 Loader 同一 snapshot 内完成
-parse/select→SpanJoin→OriginJoin。产品路径不使用 raw diagnostic-array carrier、
+**B8b** 已接线 located multi-error compiler chain；当前 sole CLI source 入口为进程内单次
+`IO.FS.readFile` → `selectProgramV1ProductWithTheoremInventory`，并在 Loader 同一 snapshot 内完成
+parse/select→SpanJoin→OriginJoin + theorem inventory；compile 后由 `certifyInlineProofV1` 复用 held raw source。产品路径不使用 raw diagnostic-array carrier、
 `*WithDiagnostics`、第二 decoder 或 fallback；Protocol/Worker 只保留为非产品表面。
 不得把 B8b 工程 cutover 写成 formal D1/D2 完成、release 完成或 contained frontend 完成；
 formal 与 release 仍 unassessed/pending。

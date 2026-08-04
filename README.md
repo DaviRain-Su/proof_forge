@@ -184,13 +184,13 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 |---|---|---|---|
 | `evm` | contract VM | accepted Phase 1 | retained-Semantic Plan/IR → Yul + locked `solc` bytecode；G4 Anvil 工程差分；**非** formal Reference↔Anvil / D4 完成 |
 | `solana` | explicit-account SVM | accepted Phase 1 | target-owned Plan/IR → SBPF asm + locked assembler ELF `.so`；Mollusk 工程差分；**非** formal Stage-0/hermetic |
-| `near` | Wasm host | accepted Phase 1 | WAT/Wasm + locked `wat2wasm` / host-optional runtime load；locked near-sandbox Counter receipt happy path；**非** formal Reference↔sandbox / D6 完成 |
+| `near` | Wasm host | accepted Phase 1 | WAT/Wasm + locked `wat2wasm` / host-optional runtime load；near-sandbox Counter overflow/state-hold、aggregate return 与 Option state 工程 corpus；**非** formal Reference↔sandbox / D6 完成 |
 | `noir` | circuit | accepted Phase 1 | target-owned Plan/relation IR → `.nr` packages + locked nargo compile-only；**无** ACIR/witness/proof/VK/verify |
 | `aleo` | ZK application chain | engineering implemented (scope ADR open) | target-owned Plan/IR → Leo source + locked leo compile-only；**无** VM/prove/deploy |
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | target-owned Plan/IR → Dargo/Psy source；host-optional compile，无 locked VM/prover |
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | target-owned Q0 Plan/structured IR → `.qnt`；zero-tool finalize、`deployable=false`；host Quint 0.32 仅 optional observation，**非** Tool Lock / ITF / MBT / verify / formal |
-| `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | target-owned Plan/IR → WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 差分；registry label=`wasm-validated-alpha`；sync call FC、async→SubMsg（同 tx savepoint，非跨 tx）；**非** wasmd/链上/formal |
-| `ton` | TVM stack-account | engineering implemented (scope ADR open) | target-owned Plan/IR → Tolk + real BoC + `@ton/sandbox` 工程差分；registry label=`source-only`；resolver 开 async/event、**Plan schedule 仍 FC**（destination/send-mode 未接线）；**非** 主网/formal |
+| `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | Plan/IR→WAT；UInt8/16/32、named state、bounded aggregate/Array/Option return；Binary SubMsg PARTIAL；locked check + mock 28 tests + wasmd Docker rung-1；label=`wasm-validated-alpha`；**非** 主网/formal |
+| `ton` | TVM stack-account | engineering implemented (scope ADR open) | Plan/IR→Tolk + real BoC；UInt8/16/32、named/container state、bounded view returns；schedule `createMessage` PARTIAL；sandbox 10/10；label=`source-only`；**非** 主网/formal |
 | Soroban / ICP / OpenVM | — | design only | 仅档案与路线图，**无** 产品 backend（design-only 3） |
 
 详情：[`docs/targets/README.md`](docs/targets/README.md)。
@@ -261,7 +261,7 @@ ADR-0016 后工具链与 host 观察按平台拆分，两台机器都可以直�
   tool root、锁定 git/python 与 Stage-0 分支，consumer 对跨平台文件互相拒绝。
 - `just dev-check` 与 `just ci` 在两个平台都应可运行，且不会进入 Stage-0、custody 或
   formal qualification。2026-08-01 起 B11/B12 frontend supervisor 已删除；macOS/Linux 产品
-  source 路径均为进程内 `IO.FS.readFile` → `Loader.selectProgramV1Product`。这不提供 safe-open、
+  source 路径均为进程内单次 `IO.FS.readFile` → `Loader.selectProgramV1ProductWithTheoremInventory` → compile → `certifyInlineProofV1`。这不提供 safe-open、
   receipt 或 contained assurance。
 - 显式 EVM/NEAR build 可使用锁定的 per-tool development closure；完整 tool-root exact-set、
   clean-room 与 host qualification 只属于独立 release 流程。当前无 `release-check` recipe。

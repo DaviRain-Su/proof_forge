@@ -2269,6 +2269,189 @@ private theorem maxValueIdInCallable_eq_zero_of_single_result_zero
     maxValueIdInCallable callable = 0 := by
   simp [maxValueIdInCallable, hparams, hblocks]
 
+/-- Normalize/source `invariant name : true` shape: nullary invariant with a
+    single Bool literal `true` instruction and exact fuel 3. -/
+theorem runInvariantCallableV1_eq_returnedTrue_of_single_nullary_literal_true
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (overlay : Array ByteArray)
+    (rootId : CallableIdV1)
+    (boolTypeId : TypeIdV1)
+    (rootName : Option String)
+    (visibility : VisibilityV1)
+    (typeName : Option String)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok overlay)
+    (htype : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := typeName, shape := .bool })
+    (hroot : data.callables[rootId.toNat]? = some {
+      id := rootId
+      kind := .invariant
+      name := rootName
+      params := #[]
+      result := { typeId := boolTypeId, visibility }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[{
+          result := some { valueId := 0, typeId := boolTypeId }
+          op := .literal boolTypeId (encodeU8 1)
+        }]
+        terminator := .return_ (some 0)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 3
+    })
+    (hcanonical :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 1) = .ok ()) :
+    runInvariantCallableV1 data rootId state = .returnedTrue := by
+  -- Reduce to the proved pureCall shape by treating the literal body as an
+  -- inlined leaf of fuel 3 (no PureCall). Same private machine path.
+  let root : CallableV1 := {
+    id := rootId
+    kind := .invariant
+    name := rootName
+    params := #[]
+    result := { typeId := boolTypeId, visibility }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := boolTypeId }
+        op := .literal boolTypeId (encodeU8 1)
+      }]
+      terminator := .return_ (some 0)
+    }]
+    loopBounds := #[]
+    invariantSteps := some 3
+  }
+  change data.callables[rootId.toNat]? = some root at hroot
+  have hrootMax : maxValueIdInCallable root = 0 :=
+    maxValueIdInCallable_eq_zero_of_single_result_zero root boolTypeId
+      (.literal boolTypeId (encodeU8 1)) (.return_ (some 0)) (by rfl) (by rfl)
+  have hrootSteps : root.invariantSteps = some 3 := by rfl
+  have hrootKind : root.kind = .invariant := by rfl
+  have hrootParams : root.params = #[] := by rfl
+  have hrootLoops : root.loopBounds = #[] := by rfl
+  have hrootResult : root.result.typeId = boolTypeId := by rfl
+  have hrootEntry : root.entryBlock = 0 := by rfl
+  have hrootBlocks : root.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := boolTypeId }
+        op := .literal boolTypeId (encodeU8 1)
+      }]
+      terminator := .return_ (some 0)
+    }] := by rfl
+  have hbool : isBoolType data root.result.typeId = true := by
+    simp [isBoolType, shapeOf, hrootResult, htype]
+  have hkindBne : (CallableKindV1.invariant != .invariant) = false := by decide
+  have hthree : 3 % 2 ^ 64 = (3 : Nat) := by decide
+  have htrueBytes : (encodeU8 1 == encodeU8 1) = true := by decide
+  rw [runInvariantCallableV1]
+  simp only [hinitialized, Bool.not_true, Bool.false_eq_true, ↓reduceIte, hroot]
+  simp only [hrootSteps, hrootKind, hrootParams, Array.isEmpty_empty,
+    hrootLoops, hbool, Bool.not_true, Bool.or_false]
+  rw [hdecode]
+  simp only [UInt64.toNat_ofNat, hrootMax, hrootEntry, hkindBne, hthree]
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  -- Same rewrite cadence as the pureCall leaf micro-path (literal then return).
+  have henvSize : (emptyEnv 1).size = 1 := by
+    simp [emptyEnv]
+  have hvc :
+      valueCanonical data { typeId := boolTypeId, valueBytes := encodeU8 1 } = true := by
+    simp [valueCanonical, hcanonical]
+  have hstore :
+      storeResult
+        {
+          data
+          pre := state
+          callable := root
+          isInitializer := false
+          context := #[]
+          overlay
+          env := emptyEnv 1
+          effects := #[]
+          occCounts := Array.replicate (maxEffectIdInCallable root + 1) (0 : UInt32)
+          responseCursor := 0
+          responses := #[]
+          loopCounts := #[]
+          blockId := 0
+          instrIdx := 0
+          frames := #[]
+        }
+        0 { typeId := boolTypeId, valueBytes := encodeU8 1 } =
+        .next {
+          data
+          pre := state
+          callable := root
+          isInitializer := false
+          context := #[]
+          overlay
+          env := (emptyEnv 1).set 0
+            (some { typeId := boolTypeId, valueBytes := encodeU8 1 })
+          effects := #[]
+          occCounts := Array.replicate (maxEffectIdInCallable root + 1) (0 : UInt32)
+          responseCursor := 0
+          responses := #[]
+          loopCounts := #[]
+          blockId := 0
+          instrIdx := 0
+          frames := #[]
+        } := by
+    simp [storeResult, hvc, envSet, henvSize]
+  have hexec :
+      execInstruction
+        {
+          data
+          pre := state
+          callable := root
+          isInitializer := false
+          context := #[]
+          overlay
+          env := emptyEnv 1
+          effects := #[]
+          occCounts := Array.replicate (maxEffectIdInCallable root + 1) (0 : UInt32)
+          responseCursor := 0
+          responses := #[]
+          loopCounts := #[]
+          blockId := 0
+          instrIdx := 0
+          frames := #[]
+        }
+        {
+          result := some { valueId := 0, typeId := boolTypeId }
+          op := .literal boolTypeId (encodeU8 1)
+        } =
+        .next {
+          data
+          pre := state
+          callable := root
+          isInitializer := false
+          context := #[]
+          overlay
+          env := (emptyEnv 1).set 0
+            (some { typeId := boolTypeId, valueBytes := encodeU8 1 })
+          effects := #[]
+          occCounts := Array.replicate (maxEffectIdInCallable root + 1) (0 : UInt32)
+          responseCursor := 0
+          responses := #[]
+          loopCounts := #[]
+          blockId := 0
+          instrIdx := 0
+          frames := #[]
+        } := by
+    simp [execInstruction, hvc, hstore]
+  rw [runMachine.eq_def]
+  simp [hrootBlocks, hexec]
+  -- After literal: instrIdx becomes 1, fuel 1, then terminator return.
+  rw [runMachine.eq_def]
+  simp [hrootBlocks, hrootResult, isUnitType, shapeOf, htype, execTerminator,
+    envGet, valueCanonical, hcanonical, htrueBytes]
+
 /-- A controlled refinement of the sole production invariant runner for the
     canonical straight-line proof shape: a nullary invariant calls a nullary
     pure function whose single instruction returns Bool `true`. The theorem

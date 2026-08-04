@@ -3,14 +3,14 @@ id: ADR-INDEX
 title: Architecture Decision Records
 status: proposed
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
 # Architecture Decision Records
 
 状态：`proposed`
-更新日期：2026-08-03
+更新日期：2026-08-04
 
 ADR 是 V2 架构决定的最高规范性记录。frontmatter 生命周期统一使用
 `draft | proposed | in_review | accepted | superseded | archived`；未采纳的提案使用 `archived`
@@ -45,3 +45,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0024](0024-ton-target-integration.md) | TON（Tolk 1.4.2 / TVM）capability-gated target 集成（第 8 个 implemented target；source-only；sync call fail closed） | proposed |
 | [ADR-0025](0025-evm-caller-principal-realization.md) | EVM `context.caller` Principal realization encoding contract（`u32le(20)\|\|CALLER`；shared wire 不变；Plan 仍 FC 至原子 cutover） | accepted |
 | [ADR-0026](0026-quint-target-integration.md) | Quint（executable specification / model surface）capability-gated target 集成（第 9 个 implemented target；source-only；zero-tool finalize；Q0 UInt64 子集） | proposed |
+| [ADR-0027](0027-inline-same-file-theorem-certification.md) | Inline same-file theorem certification（单 snapshot；hash 不含 body；in-process 非 sandbox；固定 axiom；proof gate 早于 materialize；仅 `InvariantTheoremV1`/`StateConformsV1`） | proposed |

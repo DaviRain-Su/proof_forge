@@ -134,14 +134,14 @@ layout: center
 | Target | Evidence | Not yet claimed |
 | --- | --- | --- |
 | EVM | locked `solc` bytecode + G4 Anvil engineering differential | Formal Reference↔Anvil / D4 closure |
-| Solana | SBPF asm → ELF `.so` + Mollusk engineering differential | Formal Stage-0; real CPI call semantics |
-| NEAR | locked `wat2wasm` + Counter near-sandbox receipt happy path | Reference differential + negative/rollback corpus |
+| Solana | SBPF asm → ELF `.so` + 20-program/89-test Mollusk; real `sol_invoke_signed_c` minimal path | Formal Stage-0; successful multi-account CPI + callee identity binding |
+| NEAR | locked `wat2wasm` + near-sandbox Counter overflow/state-hold, aggregate returns, Option state | Formal Reference differential + remaining negative/resource corpus |
 | Noir | relation `.nr` packages + locked nargo compile-only | ACIR / witness / proof / VK / verify |
 | Aleo | Leo source + locked leo compile-only | VM / proof / deploy |
 | Psy | Dargo/Psy source + host-optional compile | Locked VM / prover |
 | Quint | `.qnt` executable model + zero-tool finalize | Product toolchain / ITF / MBT / verify / formal |
-| CosmWasm | WAT + locked `wat2wasm` + `cosmwasm-check` + mock VM | wasmd / on-chain / formal; sync call stays FC |
-| TON | Tolk → real BoC + `@ton/sandbox` engineering differential | Mainnet / formal; Plan schedule still FC |
+| CosmWasm | WAT + locked toolchain + 28-test mock + wasmd Docker rung-1 | Mainnet / reply / formal; sync call stays FC; QN addr stub |
+| TON | Tolk → real BoC + sandbox 10/10; schedule `createMessage` PARTIAL | Mainnet / formal; real address+value / callback round-trip |
 
 <div class="mt-6 text-center text-sm opacity-80">
 Engineering registry 12 = 9 materializers + 3 design-only. Accepted PRD Phase 1 remains EVM/Solana/NEAR/Noir; Aleo/Psy/Quint/CosmWasm/TON are engineering leaves (DOC-ADR-SCOPE open). Compile/mock/sandbox/host-only model smoke ≠ formal/hermetic.
@@ -234,8 +234,8 @@ layout: center
 - Engineering path: one Semantic carrier → **nine** target-owned Plan/IR leaves
 - Accepted PRD Phase 1: EVM / Solana / NEAR / Noir only (Aleo/Psy/Quint/CW/TON = engineering leaves; DOC-ADR-SCOPE open)
 - Quint: `.qnt` source-only executable model + zero-tool finalize (non-deployable; host smoke only)
-- CosmWasm: WAT + wat2wasm + check + mock VM (sync FC; async SubMsg same-tx)
-- TON: Tolk/BoC + sandbox (resolver async open; Plan schedule still FC)
+- CosmWasm: WAT + check + 28-test mock + wasmd rung-1 (sync FC; Binary SubMsg same-tx, QN stub)
+- TON: Tolk/BoC + sandbox 10/10 (schedule createMessage PARTIAL; sync FC)
 - Current validation also: EVM Anvil, Solana Mollusk, NEAR sandbox, Noir/Aleo compile-only
 - Formal D1–D4 qualification remains separate and pending
 - Design-only: Soroban, ICP, OpenVM

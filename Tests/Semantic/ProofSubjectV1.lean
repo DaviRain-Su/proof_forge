@@ -8,7 +8,6 @@
 import Tests.Language.ParserSession
 import Tests.Semantic.ProofSubjectGeneratedFixtureV1
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Compiler.ProofBundleFilesV1
 import ProofForgeV2.Semantic.ProofReferenceJoinV1
 import ProofForgeV2.Semantic.ProofSubjectV1
 
@@ -16,8 +15,9 @@ namespace Tests.Semantic.ProofSubjectV1
 
 open ProofForgeV2
 open System
+open ProofForgeV2.Compiler
 open ProofForgeV2.Core.Common
-open ProofForgeV2.Compiler.ProofBundleFilesV1
+open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.ProofBundleV1
 open ProofForgeV2.Semantic.ProofReferenceJoinV1
@@ -45,15 +45,6 @@ private def sourceText (name : String) (literal : Nat) : String :=
   "program " ++ name ++ " where\n" ++
   "  entry truth() : UInt64 do\n" ++
   "    return " ++ toString literal ++ "\n"
-
-private def proofSourceText : String :=
-  "import ProofForgeV2\n" ++
-  "open ProofForgeV2.Language\n\n" ++
-  "program ProofSubjectCli where\n" ++
-  "  entry get() : UInt64 do\n" ++
-  "    return 7\n" ++
-  "  invariant truth : true\n" ++
-  "  proof truth using Bundle.Thm\n"
 
 private unsafe def loadSourceWithSpans
     (session : Language.Loader.ParserSession) (label name : String) (literal : Nat) :
@@ -304,84 +295,120 @@ private unsafe def testManifestDigestJoin
     | .error .semanticProvenanceDigestMismatch => true
     | _ => false) "manifest join: provenance digest claim rejected"
 
-private unsafe def testProductCliProvenanceJoin
-    (session : Language.Loader.ParserSession) : IO Unit := do
+/-- Product CLI no longer accepts structural ProofBundle flags or joins.
+    Library join (`joinValidatedProofSubjectV1`) remains covered above; product
+    proof gating is an inline-certifier integration dependency. -/
+private unsafe def testProductCliNoStructuralProofBundleBypass : IO Unit := do
   let cli := FilePath.mk ".lake/build/bin/proof-forge-next"
   unless ← cli.pathExists do
     throw <| IO.userError "product CLI binary is required by typed shard"
   let cli ← IO.FS.realPath cli
-  let base := (← IO.currentDir) / "build/proof-subject-product-cli"
-  try IO.FS.removeDirAll base catch _ => pure ()
-  IO.FS.createDirAll base
-  let sourceRelative := "build/proof-subject-product-cli/source.lean"
-  let sourceFile := (← IO.currentDir) / sourceRelative
-  IO.FS.writeFile sourceFile proofSourceText
-  let (source, spans) ← match ← session.selectProgramV1WithSpans
-      proofSourceText sourceRelative "Tests.ProofSubjectCli" none with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError s!"CLI source load: {error.render}"
-  let path ← match parseProjectRelativePath sourceRelative with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError s!"CLI source path: {error}"
-  let inventory ← match joinOriginsV1 source path spans with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError s!"CLI origin inventory: {repr error}"
-  let compiled ← match ProofForgeV2.Compiler.compileProgramProductV1 source inventory with
-    | .ok value => pure value
-    | .error _ => throw <| IO.userError "CLI product compile failed"
-  let subject ← match
-      ProofForgeV2.Compiler.proofSubjectOfCompiledSemanticV1 source inventory compiled with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError s!"CLI proof subject: {repr error}"
-  let writeBundle (label : String) (provenanceDigest : Digest) :
-      IO (FilePath × Digest) := do
-    let root := base / label
-    IO.FS.createDirAll (root / "modules/Bundle")
-    let opened ← openMatchingBundle subject.sourceHash subject.semanticHash provenanceDigest
-    let manifestBytes ← match encodeProofBundleManifestV1 opened.manifest with
-      | .ok value => pure value.toUTF8
-      | .error error => throw <| IO.userError s!"CLI manifest encode: {repr error}"
-    IO.FS.writeBinFile (root / proofBundleManifestFileNameV1) manifestBytes
-    IO.FS.writeBinFile (root / "modules/Bundle/Root.olean")
-      "proof-subject-join-olean".toUTF8
-    pure (root, opened.bundleDigest)
-  let (matchingRoot, matchingDigest) ←
-    writeBundle "matching" subject.semanticProvenanceDigest
-  let matchingWire ← match renderDigest matchingDigest with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError error
-  let matching ← IO.Process.output {
+  let rejected ← IO.Process.output {
     cmd := cli.toString
-    args := #["check", sourceRelative, "--module", "Tests.ProofSubjectCli",
-      "--proof-bundle", matchingRoot.toString,
-      "--proof-bundle-digest", matchingWire]
+    args := #["check", "Examples/Counter.lean", "--module", "Examples.Counter",
+      "--proof-bundle", "/tmp/must-not-open",
+      "--proof-bundle-digest",
+      "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]
   }
-  expect (matching.exitCode == 0)
-    s!"product CLI matching provenance failed: {matching.stderr}"
-  let staleDigest := sha256Bytes "stale-product-provenance".toUTF8
-  let (staleRoot, staleBundleDigest) ← writeBundle "stale" staleDigest
-  let staleWire ← match renderDigest staleBundleDigest with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError error
-  let output := base / "must-not-exist"
-  let stale ← IO.Process.output {
-    cmd := cli.toString
-    args := #["build", sourceRelative, "--module", "Tests.ProofSubjectCli",
-      "--target", "evm", "-o", output.toString,
-      "--proof-bundle", staleRoot.toString,
-      "--proof-bundle-digest", staleWire]
-  }
-  expect (stale.exitCode != 0) "product CLI stale provenance accepted"
-  expect ((stale.stdout ++ stale.stderr).contains "semanticProvenanceDigest")
-    s!"product CLI stale provenance error: {stale.stderr}"
-  expect (!(← output.pathExists)) "stale provenance materialized build output"
+  expect (rejected.exitCode != 0)
+    "product CLI must reject structural --proof-bundle flags"
+  let combined := rejected.stdout ++ "\n" ++ rejected.stderr
+  expect (combined.contains "unknown option")
+    s!"product CLI must report unknown option for --proof-bundle, got:\n{combined}"
+  expect (!combined.contains "semanticProvenanceDigest")
+    "product CLI must not enter structural ProofBundle join"
+
+/-- Bool-only `view alive(): Bool` + `invariant safe : true` product path:
+    Loader inventory → compileProgramProductV1 → proofSubjectOfCompiledSemanticV1
+    must mint with exact source/semantic/provenance digest joins. Anonymous Bool
+    binds from ViewDecl.result (Type.Bool); Normalize may also force-intern
+    unreferenced UInt64 for PilotTypeClosure — provenance closes that padding
+    without relaxing complete join or accepting caller inventory. -/
+private unsafe def testBoolOnlyProofedSubject
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program Alive where\n" ++
+    "  view alive() : Bool do\n" ++
+    "    return true\n" ++
+    "  invariant safe : true\n"
+  let file := "tests/proof-subject-bool-only.pf"
+  match ← session.selectProgramV1Product src file "Root" none with
+  | .error e =>
+      throw <| IO.userError s!"bool-only load: {DiagnosticBundleV1.renderHuman e}"
+  | .ok (source, inventory) =>
+    let compiled ← match compileProgramProductV1 source inventory with
+      | .ok c => pure c
+      | .error e =>
+          throw <| IO.userError
+            s!"bool-only compile: {DiagnosticBundleV1.renderHuman e}"
+    let subject ← match proofSubjectOfCompiledSemanticV1 source inventory compiled with
+      | .ok s => pure s
+      | .error e =>
+          throw <| IO.userError s!"bool-only subject: {toString (repr e)}"
+    let expectedSource ← match sourceHashV1 source with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError e
+    let expectedSemantic ← match semanticHashV1 subject.program with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError s!"{repr e}"
+    expect (subject.sourceHash == expectedSource)
+      "bool-only: sourceHash recomputed"
+    expect (subject.semanticHash == expectedSemantic)
+      "bool-only: semanticHash recomputed"
+    expect (subject.sourceHash == CompiledSemanticV1.sourceDigestOf compiled)
+      "bool-only: source digest binds compiled carrier"
+    expect (subject.semanticHash == CompiledSemanticV1.semanticDigestOf compiled)
+      "bool-only: semantic digest binds compiled carrier"
+    -- Foreign inventory (different program) still fails closed — no caller
+    -- inventory acceptance and no relaxed complete join.
+    let foreignSrc :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program Foreign where\n" ++
+      "  entry truth() : UInt64 do\n" ++
+      "    return 1\n"
+    match ← session.selectProgramV1Product
+        foreignSrc "tests/proof-subject-bool-foreign.pf" "Root" none with
+    | .error e =>
+        throw <| IO.userError
+          s!"bool-only foreign load: {DiagnosticBundleV1.renderHuman e}"
+    | .ok (foreignSource, foreignInv) =>
+        expect (match buildProofSubjectFromOriginInventoryV1
+            source foreignInv subject.program with
+          | .error _ => true
+          | .ok _ => false)
+          "bool-only: foreign origin inventory rejected"
+        let foreignCompiled ← match compileProgramProductV1 foreignSource foreignInv with
+          | .ok c => pure c
+          | .error e =>
+              throw <| IO.userError
+                s!"bool-only foreign compile: {DiagnosticBundleV1.renderHuman e}"
+        expect (match proofSubjectOfCompiledSemanticV1
+            source inventory foreignCompiled with
+          | .error (.authority _) => true
+          | _ => false)
+          "bool-only: foreign compiled semantic rejected"
+    -- Re-mint is deterministic (digest identity stable).
+    let again ← match proofSubjectOfCompiledSemanticV1 source inventory compiled with
+      | .ok s => pure s
+      | .error e =>
+          throw <| IO.userError s!"bool-only remint: {toString (repr e)}"
+    expect (again.semanticProvenanceDigest == subject.semanticProvenanceDigest)
+      "bool-only: provenance digest deterministic"
+    expect (again.sourceHash == subject.sourceHash)
+      "bool-only: sourceHash deterministic"
+    expect (again.semanticHash == subject.semanticHash)
+      "bool-only: semanticHash deterministic"
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testPositiveAndClosedSource session
+  testBoolOnlyProofedSubject session
   testTransportPriorityAndAuthority session
   testManifestDigestJoin session
-  testProductCliProvenanceJoin session
+  testProductCliNoStructuralProofBundleBypass
   IO.println "Tests.Semantic.ProofSubjectV1: ok"
 
 end Tests.Semantic.ProofSubjectV1

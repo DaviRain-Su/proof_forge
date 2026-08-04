@@ -305,8 +305,9 @@ def pilotNamedAggregateStatePolicyAdmit : PilotNamedAggregateStatePolicy where
     Default fail-closed (`none`). A positive lane must pin a concrete layout
     (e.g. Solana: fixed-length `Array UInt64 N` flattened to N consecutive
     8-byte account slots with literal-index IndexGet/IndexSet). Map/Bytes
-    remain optional; Option state is Normalize-admitted (N-A4, default none)
-    but is **never** admitted by this container policy (targets fail closed). -/
+    remain optional. Option state is not represented by this container policy:
+    EVM/Solana/NEAR admit the narrow `Option UInt64` state shape through a
+    separate explicit B-OPT-STATE gate; the other targets remain fail closed. -/
 structure PilotContainerStatePolicy where
   admitArray : Bool
   admitMap : Bool

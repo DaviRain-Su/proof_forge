@@ -3,19 +3,34 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
 # CLI 契约
 
-> **当前实现状态（2026-08-03）**：产品 `check` / `build` 已回到进程内
-> `IO.FS.readFile` → `Loader.selectProgramV1Product`，不经过 B11/B12 safe-open/supervisor，
-> 不输出 supervised `receipts`，且不按 Darwin/非 Darwin 区分可用性。六类
-> `--resource-limit` 中各 stage 的 `wall-ms` 已实际强制；build 的
-> `artifact-output.published-bytes` 也在 sidecar 写入/rename 前按 base+finalized-extra artifacts
-> 与 exact evidence/manifest UTF-8 的完整总量强制；超限为 `PF-RESOURCE-OUTPUT`/exit 6 且不发布 destination。memory/process/protocol/stderr
-> 仍只有解析/回显与 hard-max 校验。以下 receipt/containment 条款是 proposed 目标。
+> **当前实现状态（2026-08-04）**：产品 `check` / `build` 为进程内 **单次**
+> `IO.FS.readFile` → `Loader.selectProgramV1ProductWithTheoremInventory` →
+> `compileProgramProductV1` → **`certifyInlineProofV1`**（held raw source；非 sandbox）→
+> 仅在 cert 成功或显式 `noProof` 后 → target resolve / materialize。不经过 B11/B12
+> supervisor；不输出 supervised `receipts`。`--proof-bundle` / `--proof-bundle-digest`
+> 已从产品 CLI **删除**（unknown option / exit 2）；`ProofBundleV1` /
+> `ProofReferenceJoinV1` 仅 library/historical/formal-oriented，**不是** check/build
+> alternate surface 或 fallback。六类 `--resource-limit` 中 `wall-ms` 与 build
+> `artifact-output.published-bytes` 已进程内强制。以下 receipt/containment 条款是
+> proposed 目标。
+>
+> **Inline proof（ADR-0027 sole product gate）**：ProgramV1/`semanticHash` 不含 theorem
+> body；固定 axiom `Classical.choice`/`Quot.sound`/`propext`；当前仅
+> `InvariantTheoremV1`/`StateConformsV1`；**不** 声称 formal TST/release。check 成功输出
+> `proofStatus` / theorem count / certification digest；build 只做门禁、成功输出 **不**
+> 携带 proof 字段。**Kernel closed（engineering）**：legal-only production simple-closure
+> encode/decode + exact ordinal-0 `InvariantTheoremV1`（`SimpleClosureCertV1` /
+> `ProofedProof.safe`）。**Narrow product positive 已完成 engineering 验证**：literal-true /
+> public-Bool-view same-file ordinary theorem 经 `certifyInlineProofV1` 的真实 product
+> `check` 得 certified/count/digest；body 改写保持 source/semantic identity、改变 cert digest；
+> fail-closed 与 proof-first/零 staging 门槛已进 ordinary shards（见下文 / ADR-0027 /
+> TST-PROOF-INLINE-E1）。
 
 可执行文件固定 `proof-forge-next`。所有命令 non-interactive；JSON 输出 stdout，日志和
 human diagnostics 到 stderr。
@@ -25,12 +40,10 @@ human diagnostics 到 stderr。
 ```text
 proof-forge-next check <source> --module <lean-module-name> [--language-version <semver>]
   [--program <qualified>] [--resource-limit <stage>.<field>=<n>]...
-  [--proof-bundle <dir> --proof-bundle-digest <sha256:64-lowercase-hex>]
   [--format human|json]
 proof-forge-next build <source> --module <lean-module-name> --target <id> [--profile <id>]
   [--language-version <semver>] [--minimum-evidence <grade>]
   [--program <qualified>] [--resource-limit <stage>.<field>=<n>]...
-  [--proof-bundle <dir> --proof-bundle-digest <sha256:64-lowercase-hex>]
   --output <dir> [--force] [--format human|json]
 proof-forge-next inspect <output-dir> [--format human|json]
 proof-forge-next list-targets [--all] [--format human|json]
@@ -41,6 +54,9 @@ proof-forge-next verify <output-dir> --proof <file> --public-inputs <file>
 proof-forge-next deploy <output-dir> --network <network-profile-id>
   --signer-fd <n> [--format human|json]
 ```
+
+**已删除（产品面）**：`--proof-bundle`、`--proof-bundle-digest`。任一出现为 unknown
+option / usage error / exit 2。
 
 Phase 1 required：check/build/inspect/list-targets、Noir prove/verify；deploy 接口可存在但
 仅对通过 target dossier network gate 的 profile 开放，其他返回 stable unavailable。
@@ -89,39 +105,60 @@ selection 后未执行的 target-specific external tool 仍可带合法 override
 receipt 记录全部 effective limits 与 override source。target execution gas/compute/proof limits 属于
 target semantics/Plan，不得通过这些 compiler-operation flags 改写。
 
-## Proof bundle input
+## Proof certification（sole product gate：inline same-file）
 
-`--proof-bundle` 只用于 `check/build` 验证 source 中的 `proof ... using ...` certification reference；
-它与 Noir `prove --inputs` 产生的 ZK proof 完全不同。`--proof-bundle` 与
-`--proof-bundle-digest` 必须成对且各出现一次；digest 使用 SPEC-COMMON-001 的 exact lowercase
-SHA-256 wire form。缺一、重复、空值或把这两个 flag 传给其他 command，均在访问 source/bundle
-前作为 usage error、exit 2 拒绝。
+产品 `check` / `build` **唯一** proof 路径是 ADR-0027 inline same-file certification。
+**不存在** 产品 CLI alternate / fallback 到 external `ProofBundleV1`。
 
-source 没有 proof reference 时禁止提供 bundle pair；source 有至少一个 proof reference 时必须提供
-恰好一个 pair，且 bundle manifest exports 必须与 source reference 的
-`(invariantName,theoremQualifiedName)` 集合一一 exact 相等，不允许遗漏、额外 export、短名或
-跨 bundle fallback。缺 bundle 或 theorem 使用 `PF-TYPE-002`/exit 3；source 无 reference 却提供
-bundle 是 usage error/exit 2。
+### 固定执行顺序
 
-执行顺序固定为：frontend parse/decode → type/effect/bound/disclosure → canonical
-`SemanticProgramV1` normalize/validate/serialize/hash → ProofBundleV1 safe load/closed expected-type
-validation → target resolution/materialization。CLI 只能把当前 canonical program、其 semanticHash、
-当前 sourceHash、validated semanticProvenanceDigest、source proof bindings、bundle dirfd 和 expected bundle digest 传给 SPEC-SEM-001
-proof loader；不得把 source/import environment 或 ambient path 传入。bundle manifest sourceHash/
-semanticHash/semanticProvenanceDigest、toolchain lock、ABI、
-trusted base closure、trust policy、module closure、files 和 CLI digest 必须全部 exact match。
+```text
+single IO.FS.readFile (project-root-relative source)
+  → selectProgramV1ProductWithTheoremInventory (raw held in memory)
+  → CheckV1 / normalizeProgramLocatedV1 / compileProgramProductV1
+  → certifyInlineProofV1 (same held raw source; in-process; not a sandbox)
+       · noProof        → ProductProofStatusV1.notRequired (continue)
+       · certified      → private CertifiedInlineProofV1 only (continue)
+       · failed         → PF-SRC-INVALID / exit 3; zero Plan / zero staging
+  → TargetRegistry resolve / capability / materialize / finalize / publish
+```
 
-bundle path/schema/layout/digest/closure/trust/kernel-load failure、stale sourceHash/semanticHash/
-semanticProvenanceDigest 或 forbidden
-declaration 使用 `PF-ARTIFACT-INVALID`/exit 6；export name/ordinal 不存在使用
-`PF-TYPE-002`/exit 3；theorem type 与
-`InvariantTheoremV1 canonicalProgram ordinal` 不 definitionally equal 使用
-`PF-TYPE-001`/exit 3。所有失败都不得进入 target Plan、不得创建/替换 output，也不得读取其他
-`.olean` 或 retry/fallback。成功结果的 certification summary 固定包含 sourceHash、semanticHash、
-semanticProvenanceDigest、
-proofBundleDigest，以及按 invariant name 排序的 `(invariantName,invariantOrdinal,theoremName)`；
-不得包含 theorem body、Environment、host path 或 private value，且该 summary 不参与
-sourceHash/semanticHash/semanticProvenanceDigest。
+1. theorem inventory 与 program `proof` / invariant exact bijection（inventory untrusted，
+   由 program items 重算对照）；
+2. Environment 审计 root theorem kind、kernel defeq 到 `InvariantTheoremV1` / 生成 Prop
+   alias、dependency 闭包与固定 trust policy（仅 `Classical.choice` / `Quot.sound` /
+   `propext`）；
+3. **禁止** 用户 `.olean`、ambient lake、`LEAN_PATH` 或任何 external bundle 作 theorem
+   authority；
+4. Adjacent theorem body **不** 进入 ProgramV1 wire/`sourceHash`；**永不** 进入
+   `semanticHash`；
+5. 当前命题仅全体 `StateConformsV1` 上 `evalInvariantV1 = .returnedTrue`；不声称
+   reachability / init-step safety / target refinement / formal `TST-PROOF-001`；
+6. Quint Q0 的 read-only Bool invariant 支持是独立 target 能力；其余 nonempty invariant 的 **target materializer** 仍可 fail closed（与 proof gate 正交）；
+7. **Engineering 分层**：simple-closure/ordinal-0 kernel cert 与 narrow product
+   `check` certified 正例均已由独立 suites 验证；目标窄家族为 literal-true /
+   public-Bool-view + same-file ordinary theorem。ADR-0027 / `TST-PROOF-INLINE-E1` 的 CLI
+   正例、fail-closed、gate 顺序、hash 与无用户 `.olean` 门槛继续作为回归契约；不升格 formal。
+
+### check / build 输出差异
+
+| 命令 | proof 观察面 |
+|---|---|
+| `check` 成功 | human/JSON 输出 `proofStatus`（`not-required` \| `certified`）、`proofTheoremCount`、`proofCertificationDigest`（`not-required` 时 none/null） |
+| `build` 成功 | **仅门禁**：proof 失败则不 materialize；成功输出 **不** 携带 proof 字段（artifact identity 仍不含 certification digest） |
+| 任一失败 | 零 destination artifact 变更；proof 失败优先于 unknown target（cert 在 registry resolve 前） |
+
+### Library-only：ProofBundleV1 / ProofReferenceJoinV1（superseded product surface）
+
+`ProofBundleV1`、`ProofReferenceJoinV1`、`openProofBundleV1` 与历史 structural bundle join
+**保留为 library / formal-oriented / historical** 模块与测试资产。它们：
+
+- **不是** 产品 `check`/`build` 入口；
+- **不得** 被 CLI 作为 silent fallback 调用；
+- 产品 argv **不得** 再接受 `--proof-bundle` / `--proof-bundle-digest`（unknown option）。
+
+Formal `TST-PROOF-001`（immutable bundle + olean closure）仍独立 pending，不由 inline
+engineering gate 代签。Noir `prove --inputs` 的 ZK proof 与本 certification 完全不同。
 
 ## JSON Results
 
@@ -169,8 +206,9 @@ human stderr 文本 **不是** `receipts` 的稳定替代 API。
 
 ### B8b product diagnostic exit（engineering）
 
-`check` / `build` 产品路径经进程内 `IO.FS.readFile` →
-`Loader.selectProgramV1Product` → located Normalize → product Compiler；不经过 B10 worker 或
+`check` / `build` 产品路径经进程内单次 `IO.FS.readFile` →
+`Loader.selectProgramV1ProductWithTheoremInventory` → located Normalize → product Compiler →
+`certifyInlineProofV1`；不经过 B10 worker 或
 B11/B12 supervisor。Loader 与后续 compiler 失败在 stderr 一次打印全部
 `DiagnosticBundleV1.renderHuman` 行。exit 为 `DiagnosticBundleV1.selectExitCode`：仅
 `severity=error`；`PF-DIAG-LIMIT` 与 warning/note 中立；`PF-INTERNAL` → 70；phase
@@ -188,22 +226,23 @@ descriptor；range、`latest`、malformed 与 unknown exact 在 source read 前�
 
 ## Secret、Inputs 与副作用
 
-private witness 文件必须 mode 0600、regular file、非 symlink；prove 不复制到 bundle。
-ProofBundleV1 是只读 public certification input，不得放入 private witness、signer material 或
-任意 runtime input；其 safe-open、closure、trust 与 resource 规则由 SPEC-SEM-001 唯一定义。
-signer 只从已打开 FD 读取，CLI/env/JSON 禁止 key。check/build/inspect/list 不访问网络；
-deploy 先验证 network chain identity、artifact/profile/hash，再请求明确确认策略（CI 使用
-预批准 policy file，不使用 prompt）。
+private witness 文件必须 mode 0600、regular file、非 symlink；prove 不复制到 artifact tree。
+产品 proof certification 不接受 external bundle path 作为 CLI input；library-only
+`ProofBundleV1` 若用于 formal-oriented 工具，不得混入 private witness、signer material 或
+runtime input。signer 只从已打开 FD 读取，CLI/env/JSON 禁止 key。check/build/inspect/list
+不访问网络；deploy 先验证 network chain identity、artifact/profile/hash，再请求明确确认策略
+（CI 使用预批准 policy file，不使用 prompt）。
 
 ## 边界与验收
 
-覆盖无/多 source、unknown flag、重复 flag、missing value、`--`、Unicode path/name、
-多 program、unknown target/profile/network、build with network、output exists/force、JSON
-broken pipe、TTY/non-TTY、private file permissions/symlink、bad signer FD、proof mismatch、
-deploy non-deployable、unknown/unsupported language version、malformed/lower-than-profile minimum
-evidence、resource override duplicate/unknown stage-field/zero/equal/over/hard-max、check-with-tool-
-stage、unused build stage receipt、proof-bundle paired flags/unused/missing/stale digest、manifest/
-closure/path mutation、ambient `.olean` poisoning、forbidden declaration/signature mismatch、signals、
-concurrent invocation。关联
-`FR-008/010/011/014`、`NFR-008`、
-`TST-CLI-001..004`；help/version/list JSON golden，所有失败 exit code 和 schema 固定。
+覆盖无/多 source、unknown flag（含 **已删除** 的 `--proof-bundle*`）、重复 flag、missing value、
+`--`、Unicode path/name、多 program、unknown target/profile/network、build with network、
+output exists/force、JSON broken pipe、TTY/non-TTY、private file permissions/symlink、bad signer FD、
+inline proof fail-closed（false theorem / inventory bijection / audit）、check
+`proofStatus`/`proofTheoremCount`/`proofCertificationDigest`、build 无 proof 字段且 proof 失败零
+staging、deploy non-deployable、unknown/unsupported language version、malformed/lower-than-profile
+minimum evidence、resource override duplicate/unknown stage-field/zero/equal/over/hard-max、
+check-with-tool-stage、unused build stage receipt、manifest/closure/path mutation、ambient
+`.olean` 不得充当 theorem authority、forbidden declaration/signature mismatch、signals、
+concurrent invocation。关联 `FR-008/010/011/014`、`NFR-008`、`TST-CLI-001..004`、
+`TST-PROOF-INLINE-E1`；help/version/list JSON golden，所有失败 exit code 和 schema 固定。

@@ -79,10 +79,10 @@
 
 > 当前完成度方面，我们必须诚实说：
 > EVM 已有 locked `solc` bytecode，并以四个产品程序完成 Anvil 工程差分；
-> Solana 已能把产品计划汇编为真实 sBPF ELF，并由 Mollusk 跑工程运行时差分；
-> NEAR 有 locked `wat2wasm` 结构编译、host-optional runtime load，以及 Counter 的 near-sandbox happy path；
-> Noir 与 Aleo 分别只有 locked nargo/leo compile-only 门，尚无 prove/verify 或 VM/deploy 闭环；Psy 仍 source-only；
-> CosmWasm 目前只是 registry A0，没有 Plan/IR/materializer 或 Wasm artifact。
+> Solana 已能把产品计划汇编为真实 sBPF ELF，并由 20-program/89-test Mollusk 工程 corpus 验证；
+> NEAR 有 locked `wat2wasm` 与 near-sandbox Counter overflow、聚合返回、Option state 工程路径；
+> Noir 与 Aleo 只有 compile-only 门，Psy 仍 source-only；Quint 是 zero-tool executable model；
+> CosmWasm 已有 Plan/IR/Wasm、mock 28 tests 与 wasmd rung-1；TON 已有 Tolk/BoC、schedule PARTIAL 与 sandbox 10/10。
 > 这些都是工程门，不是 formal、hermetic 或 release evidence；成熟度不人为升级。
 
 ---
@@ -126,16 +126,16 @@
 
 > 路线图分两块：
 > accepted Phase 1 范围仍是 EVM、Solana、NEAR、Noir 四个目标；
-> 工程 registry 已额外标记 Aleo、Psy 与 CosmWasm implemented，但前两者仍 source-only，CosmWasm 仅 A0 registry 面；
-> Soroban、ICP、OpenVM 仍 design-only。这个 4→7 偏离需要正式的 scope reconciliation。
+> 工程 registry 则是 12 targets：9 implemented materializers 加 3 design-only。Aleo、Psy、Quint、CosmWasm、TON 是 engineering leaves，不自动扩大 accepted scope；
+> Soroban、ICP、OpenVM 仍 design-only。这个 4→9 偏离由 DOC-ADR-SCOPE 跟踪。
 > 我们不会让不同平台共用一个虚假的通用 Plan，每个 materializer 都保持自己的 Plan 和 IR。
 
 ---
 
 ## 第 14 页 · Team & next steps（6:30–6:55）
 
-> 团队节奏上，当前产品恢复已形成单一 ProgramV1→Typed/Normalize→Semantic→六个 target-owned materializer 纵切面；
-> 下一步继续闭合无需决策的 shared/target 缺口，而 CosmWasm CW-A1 必须先冻结 versioned runtime/ABI 语义；
+> 团队节奏上，当前产品恢复已形成单一 ProgramV1→Typed/Normalize→Semantic→九个 target-owned materializer 纵切面；
+> 下一步继续闭合 B-CALL-SEM、B-OPT-STATE 等精确 residual；CosmWasm runtime/ABI design-exit 已冻结，TON schedule 仍以 hash destination/value=0 的 PARTIAL 语义推进；
 > formal D1–D4 qualification 与日常产品工程保持独立，仍按真实条件 pending；
 > 路线图和里程碑都已文档化，可检查、可追踪。
 
