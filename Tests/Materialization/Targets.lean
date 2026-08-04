@@ -3267,6 +3267,8 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.near optCompiled
   let _ ← liftResult <| materializeSelected TargetId.solana optCompiled
   let _ ← liftResult <| materializeSelected TargetId.aleo optCompiled
+  -- CosmWasm admits Option UInt64 state (BL-33).
+  let _ ← liftResult <| materializeSelected TargetId.cosmwasm optCompiled
   for target in [TargetId.noir, TargetId.psy] do
     match materializeSelected target optCompiled with
     | .ok _ =>
