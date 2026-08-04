@@ -1,7 +1,7 @@
 /-
   Ton Plan/IR/Tolk engineering suite (TON-2 Counter leaf + BL-1 schedule +
   BL-10 named aggregate view returns + BL-23 anonymous Array/Option view
-  returns).
+  returns + BL-34 / B-OPT-STATE Option UInt64 state).
 
   Pins Counter plan shape, Tolk surface (Storage/onInternalMessage/get fun),
   op+query_id envelope, UInt64 range-check markers, schedule→createMessage
@@ -10,8 +10,10 @@
   UInt{8,16,32} body/state/param (narrow guards + exact cell/param widths),
   B-RET-ABI named Struct/Enum view multi-stack returns, N-ANON-RESULT
   anonymous Array UInt64 N / Option UInt64 view returns (entry aggregate FC),
-  and explicit fail-closed boundaries (sync call, UInt128/256, Map/Bytes
-  returns, N>8, nested/narrow-element containers, invariants, Field/Principal).
+  B-OPT-STATE Option UInt64 state (Enum-shaped 2-leaf c4 layout, none default,
+  payload zeroing, match read, tolk→fif), and explicit fail-closed boundaries
+  (sync call, UInt128/256, Map/Bytes returns, N>8, nested/narrow-element
+  containers, Option non-UInt64 / Option params, invariants, Field/Principal).
 
   Registered in Tests/Shards/Targets. Not @ton/sandbox runtime (TON-3).
   Not formal D4.
@@ -982,7 +984,287 @@ private unsafe def testAggregateFailClosed
             s!"NarrowArrRet FC must cite UInt64/Array element, got: {msg}"
       | .error e => throw <| IO.userError s!"NarrowArrRet: unexpected {e.render}"
       | .ok _ => throw <| IO.userError "NarrowArrRet: expected FC, got ok"
-  IO.println "  ✓ aggregate return fail-closed boundaries (entry/Map/Bytes/9-leaf/nested)"
+  -- B-OPT-STATE: Option of non-UInt64 state stays fail closed.
+  let optBadSource := wrapProgram "OptBadEl" <|
+    "  state o : Option UInt8\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  match ← (do
+      try
+        let c ← compileSource session optBadSource "Examples.OptBadEl" "<ton-opt-bad>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()  -- may fail at Normalize/typed
+  | some c =>
+      match planTon c with
+      | .error e =>
+          expect (e.render.contains "Option" || e.render.contains "UInt64" ||
+              e.render.contains "payload")
+            s!"OptBadEl must cite Option/UInt64/payload, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Ton Option UInt8 state must fail closed (UInt64 payload only)"
+  -- Option param stays fail closed (state/view-return only).
+  let optParamSource := wrapProgram "OptParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    pad := i\n\n" ++
+    "  entry take(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  match ← (do
+      try
+        let c ← compileSource session optParamSource "Examples.OptParam" "<ton-opt-param>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planTon c with
+      | .error e =>
+          expect (e.render.contains "Option" || e.render.contains "parameter" ||
+              e.render.contains "param")
+            s!"OptParam must cite Option/parameter, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Ton Option parameter must fail closed (state/view-return only)"
+  -- Nested Option state (Option of Option) stays fail closed.
+  let nestOptSrc := wrapProgram "NestOptState" <|
+    "  state o : Option Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  match ← (do
+      try
+        let c ← compileSource session nestOptSrc "Examples.NestOptState" "<ton-nest-opt>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planTon c with
+      | .error e =>
+          expect (e.render.contains "Option" || e.render.contains "UInt64" ||
+              e.render.contains "payload")
+            s!"NestOptState FC must cite Option/UInt64/payload, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Ton nested Option state must fail closed"
+  IO.println "  ✓ aggregate return fail-closed boundaries (entry/Map/Bytes/9-leaf/nested/Option-state)"
+
+/-- BL-34 / B-OPT-STATE: Option UInt64 state = Enum-shaped 2-leaf c4 layout
+    (`slot_tag` + `slot_p0`); construct none zeros payload; match read via
+    VariantTag/VariantPayload; storeAtomic on assign; locked tolk → .fif. -/
+private unsafe def testOptionState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptionState" <|
+    "  state slot : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry set(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  entry clear() : UInt64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "  view getOpt() : Option UInt64 do\n" ++
+    "    return slot\n"
+  let compiled ← compileSource session source "Examples.OptionState"
+    "<ton-option-state>"
+  let plan ← liftResult (planTon compiled)
+  expect (plan.storage.fields.size == 2)
+    s!"OptionState: Option UInt64 must flatten to tag+payload (2), got {plan.storage.fields.size}"
+  expect (plan.storage.fields.any fun f => f.name == "slot_tag")
+    "OptionState must have slot_tag leaf"
+  expect (plan.storage.fields.any fun f => f.name == "slot_p0")
+    "OptionState must have slot_p0 payload leaf"
+  let some tagF := plan.storage.fields.find? (·.name == "slot_tag") |
+    throw <| IO.userError "OptionState missing slot_tag"
+  let some payF := plan.storage.fields.find? (·.name == "slot_p0") |
+    throw <| IO.userError "OptionState missing slot_p0"
+  expect (tagF.byteWidth == 8 && payF.byteWidth == 8)
+    "OptionState leaves must be 8-byte UInt64 words"
+  expect (tagF.sourceId + 1 == payF.sourceId)
+    s!"OptionState leaves must be consecutive sourceIds, got {tagF.sourceId}/{payF.sourceId}"
+  -- Init none → storeAtomic both leaves (payload zeroed).
+  let mut initAtomic := false
+  for stmt in plan.initializer.body do
+    match stmt with
+    | .storeAtomic leaves =>
+        expect (leaves.size == 2)
+          s!"Option.none storeAtomic must write 2 leaves, got {leaves.size}"
+        expect (leaves[0]!.value == .literal 0 && leaves[1]!.value == .literal 0)
+          "Option.none must zero tag and payload (stale-payload pin)"
+        expect (leaves[0]!.fieldIndex == tagF.sourceId &&
+            leaves[1]!.fieldIndex == payF.sourceId)
+          "Option.none must target tag then payload field indices"
+        initAtomic := true
+    | .store _ =>
+        throw <| IO.userError
+          "OptionState init must not scalar-store Option leaves"
+    | _ => pure ()
+  expect initAtomic "OptionState init must emit storeAtomic for Option.none"
+  -- set some → storeAtomic (1, param).
+  let setH ← findMethod plan "set"
+  let mut setAtomic := false
+  for stmt in setH.body do
+    match stmt with
+    | .storeAtomic leaves =>
+        expect (leaves.size == 2) "set storeAtomic must write 2 leaves"
+        expect (leaves[0]!.value == .literal 1)
+          "set Option.some tag must be literal 1"
+        match leaves[1]!.value with
+        | .param _ => pure ()
+        | other =>
+            throw <| IO.userError
+              s!"set Option.some payload must be param, got {repr other}"
+        setAtomic := true
+    | _ => pure ()
+  expect setAtomic "OptionState set must storeAtomic Option.some"
+  -- clear none-reset → storeAtomic zeros both leaves.
+  let clearH ← findMethod plan "clear"
+  let mut clearAtomic := false
+  for stmt in clearH.body do
+    match stmt with
+    | .storeAtomic leaves =>
+        expect (leaves.size == 2) "clear storeAtomic must write 2 leaves"
+        expect (leaves[0]!.value == .literal 0 && leaves[1]!.value == .literal 0)
+          "clear Option.none must zero tag and payload"
+        clearAtomic := true
+    | _ => pure ()
+  expect clearAtomic "OptionState clear must storeAtomic Option.none"
+  -- peek match → body reads both state leaves (VariantTag/VariantPayload path).
+  let peekH ← findMethod plan "peek"
+  expect (peekH.resultKind == .uint64) "OptionState peek must return UInt64"
+  let peekRepr := toString (repr peekH.body)
+  expect (peekRepr.contains "stateLoad" || peekRepr.contains "StateLoad")
+    s!"peek match must stateLoad Option leaves, body={peekRepr}"
+  expect (peekRepr.contains s!"stateLoad {tagF.sourceId}" ||
+      peekRepr.contains s!"StateLoad {tagF.sourceId}" ||
+      peekRepr.contains (toString tagF.sourceId))
+    s!"peek must reference tag field {tagF.sourceId}, body={peekRepr}"
+  expect (peekRepr.contains s!"stateLoad {payF.sourceId}" ||
+      peekRepr.contains s!"StateLoad {payF.sourceId}" ||
+      peekRepr.contains (toString payF.sourceId))
+    s!"peek must reference payload field {payF.sourceId}, body={peekRepr}"
+  expect (peekRepr.contains "ifThenElse" || peekRepr.contains "switchOn" ||
+      peekRepr.contains "IfThenElse" || peekRepr.contains "SwitchOn")
+    s!"peek match must lower to ifThenElse/switchOn, body={peekRepr}"
+  -- getOpt return of stored Option → 2-leaf aggregate.
+  let getOpt ← findMethod plan "getOpt"
+  match getOpt.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptionState getOpt must return 2-leaf Option, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"OptionState getOpt resultKind must be .aggregate, got {repr other}"
+  match getOpt.body[getOpt.body.size - 1]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt.size == 2)
+        "OptionState getOpt returnAggregate must have 2 leaves"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad fi0, .stateLoad fi1 =>
+          expect (fi0 == tagF.sourceId && fi1 == payF.sourceId)
+            s!"OptionState getOpt leaves must be stateLoad tag/payload, got {fi0}/{fi1}"
+      | a, b =>
+          throw <| IO.userError
+            s!"OptionState getOpt leaves must be stateLoads, got {repr a}/{repr b}"
+  | _ =>
+      throw <| IO.userError "OptionState getOpt must end with .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptionState plan must validate: {e.render}"
+  let ir ← liftResult (irTon compiled)
+  let setIR ← findMethodIR ir "set"
+  let mut multiStores := 0
+  for op in setIR.operations do
+    match op with
+    | .storeState _ _ => multiStores := multiStores + 1
+    | _ => pure ()
+  expect (multiStores >= 2)
+    s!"OptionState set IR must storeState both leaves, got {multiStores}"
+  let getOptIR ← findMethodIR ir "getOpt"
+  expect (getOptIR.operations.any fun
+      | .setReturnDataLeaves t => t.size == 2
+      | _ => false)
+    "OptionState getOpt IR must emit setReturnDataLeaves [2]"
+  let files ← liftResult (filesTon compiled)
+  let tolk ← findFile files "OptionState.tolk"
+  expect (tolk.contains "struct Storage") "OptionState Storage struct"
+  expect (tolk.contains "slot_tag: uint64")
+    "OptionState Tolk must declare slot_tag: uint64"
+  expect (tolk.contains "slot_p0: uint64")
+    "OptionState Tolk must declare slot_p0: uint64"
+  expect (tolk.contains "get fun peek()")
+    "OptionState Tolk must declare peek get-method"
+  expect (tolk.contains "get fun getOpt(): (int, int)")
+    "OptionState Tolk must declare 2-leaf tuple return for getOpt"
+  expect (tolk.contains "return (")
+    "OptionState Tolk must emit multi-value return ("
+  let abi ← findFile files "OptionState.ton-abi.json"
+  expect (abi.contains "slot_tag" && abi.contains "slot_p0")
+    s!"OptionState ABI must declare slot_tag/slot_p0, got: {abi}"
+  expect (abi.contains "\"returns\":[\"uint64\",\"uint64\"]")
+    s!"OptionState ABI must declare getOpt [\"uint64\",\"uint64\"], got: {abi}"
+  -- Locked tolk → real .fif (host-optional only when tool root + stdlib present).
+  let home ← IO.getEnv "HOME"
+  let toolRoot ← match ← IO.getEnv "PROOF_FORGE_TOOL_ROOT" with
+    | some r => pure r
+    | none =>
+        match home with
+        | some h => pure s!"{h}/.cache/proof-forge-v2/tool-root/darwin-arm64"
+        | none => pure ""
+  let stdlib ← match ← IO.getEnv "PROOF_FORGE_TOLK_STDLIB" with
+    | some p => pure p
+    | none =>
+        match ← IO.getEnv "PROOF_FORGE_TON_TOOLS" with
+        | some root => pure s!"{root}/tolk-stdlib"
+        | none =>
+            match home with
+            | some h => pure s!"{h}/.cache/proof-forge-v2/ton-tools/tolk-stdlib"
+            | none => pure ""
+  let tolkBin := System.FilePath.mk (toolRoot ++ "/tolk")
+  let stdlibPath := System.FilePath.mk stdlib
+  if (← tolkBin.pathExists) && (← stdlibPath.pathExists) then
+    let tmp ← IO.Process.output {
+      cmd := "mktemp"
+      args := #["-d", "/tmp/pf-ton-option-state.XXXXXX"]
+    }
+    unless tmp.exitCode == 0 do
+      throw <| IO.userError s!"mktemp failed: {tmp.stderr}"
+    let staging := (tmp.stdout.trim)
+    try
+      IO.FS.writeFile (System.FilePath.mk staging / "OptionState.tolk") tolk
+      let proc ← IO.Process.output {
+        cmd := tolkBin.toString
+        args := #["-o", "OptionState.fif", "OptionState.tolk"]
+        cwd := some (System.FilePath.mk staging)
+        env := #[("TOLK_STDLIB", stdlib), ("LC_ALL", "C"), ("TZ", "UTC")]
+      }
+      unless proc.exitCode == 0 do
+        throw <| IO.userError
+          s!"locked tolk failed to compile OptionState.tolk:\n{proc.stderr}{proc.stdout}"
+      let fifPath := System.FilePath.mk staging / "OptionState.fif"
+      unless ← fifPath.pathExists do
+        throw <| IO.userError "tolk returned no OptionState.fif"
+      let fifBytes ← IO.FS.readFile fifPath
+      expect (fifBytes.length > 0) "OptionState.fif must be non-empty"
+      IO.println "  ✓ OptionState locked tolk → .fif"
+    finally
+      let _ ← IO.Process.output {
+        cmd := "rm"
+        args := #["-rf", staging]
+      }
+  else
+    IO.println "  · OptionState tolk→fif skipped (tool-root/tolk or stdlib absent)"
+  IO.println "  ✓ OptionState Option UInt64 state Plan/IR/Tolk pin"
 
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"
@@ -1000,6 +1282,7 @@ unsafe def run : IO Unit := do
   testNamedEnumReturn session
   testAnonymousArrayReturn session
   testAnonymousOptionReturn session
+  testOptionState session
   testAggregateFailClosed session
   IO.println "TonPlanV1: all checks passed"
 

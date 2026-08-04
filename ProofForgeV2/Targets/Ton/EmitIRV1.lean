@@ -906,10 +906,23 @@ private partial def renderOps (plan : Plan) (method? : Option MethodIR)
     | .revertError errorIndex _args =>
         out := out ++ pad ++ s!"throw {errUserBase + errorIndex};\n"
     | .setReturnData value =>
-        -- Message receivers cannot return stack values to callers; persist only.
-        -- Get-methods use a separate render path that returns the value.
-        out := out ++ pad ++ s!"// return value {tempName value} (message path: ignored)\n"
-        out := out ++ pad ++ s!"val __pf_ret = {tempName value};\n"
+        -- Views: emit an early `return t` so multi-arm match/if paths each
+        -- return their own value (Tolk has block-scoped `val`, so a single
+        -- trailing `return __pf_ret` cannot see arm-local assignments).
+        -- Message receivers cannot return stack values; keep a dead assign
+        -- for readability only.
+        match method? with
+        | some m =>
+            if m.mode == .view then
+              out := out ++ pad ++ s!"return {tempName value};\n"
+            else
+              out := out ++ pad ++
+                s!"// return value {tempName value} (message path: ignored)\n"
+              out := out ++ pad ++ s!"val __pf_ret = {tempName value};\n"
+        | none =>
+            out := out ++ pad ++
+              s!"// return value {tempName value} (message path: ignored)\n"
+            out := out ++ pad ++ s!"val __pf_ret = {tempName value};\n"
     | .setReturnDataLeaves temps =>
         -- B-RET-ABI: multi-stack get-method return. On the view path this is a
         -- real `return (t0, t1, …)`; message (entry) path must not produce it
@@ -937,25 +950,24 @@ private partial def renderOps (plan : Plan) (method? : Option MethodIR)
         out := out ++ pad ++ "}\n"
         dirty := d1 || d2
     | .switchRegion scrut cases defaultOps =>
-        out := out ++ pad ++ "do {\n"
+        -- Tolk 1.4 has no break/continue, so emit a pure if/else-if/else chain
+        -- (not the C do-while(false)+break idiom). Same exclusive-arm semantics.
         let mut first := true
         for (caseValue, caseOps) in cases do
           if first then
-            out := out ++ pad ++ s!"    if ({tempName scrut} == {caseValue}) \{\n"
+            out := out ++ pad ++ s!"if ({tempName scrut} == {caseValue}) \{\n"
             first := false
           else
-            out := out ++ pad ++ s!"    else if ({tempName scrut} == {caseValue}) \{\n"
-          let (cBody, dC) := renderOps plan method? fn? caseOps (depth + 2) storageVar dirty
+            out := out ++ pad ++ s!"else if ({tempName scrut} == {caseValue}) \{\n"
+          let (cBody, dC) := renderOps plan method? fn? caseOps (depth + 1) storageVar dirty
           out := out ++ cBody
           dirty := dirty || dC
-          out := out ++ pad ++ "        break;\n"
-          out := out ++ pad ++ "    }\n"
-        out := out ++ pad ++ "    else {\n"
-        let (dBody, dD) := renderOps plan method? fn? defaultOps (depth + 2) storageVar dirty
+          out := out ++ pad ++ "}\n"
+        out := out ++ pad ++ "else {\n"
+        let (dBody, dD) := renderOps plan method? fn? defaultOps (depth + 1) storageVar dirty
         out := out ++ dBody
         dirty := dirty || dD
-        out := out ++ pad ++ "    }\n"
-        out := out ++ pad ++ "} while (false);\n"
+        out := out ++ pad ++ "}\n"
     | .forRegion varTemp initial counterTemp maxIter condOps condTemp
         bodyOps updateOps updateValue =>
         out := out ++ pad ++ s!"var {tempName varTemp} = {tempName initial};\n"
@@ -1027,11 +1039,9 @@ private def renderViewMethod (plan : Plan) (method : MethodIR) : String := Id.ru
   out := out ++ "    var storage = Storage.load();\n"
   let (body, _) := renderOps plan (some method) none method.operations 1 "storage" false
   out := out ++ body
-  -- Scalar: setReturnData becomes __pf_ret; aggregate: setReturnDataLeaves
-  -- already emits `return (…)` inside the body.
-  match method.resultKind with
-  | .aggregate _ => pure ()
-  | _ => out := out ++ "    return __pf_ret;\n"
+  -- Scalar and aggregate views both emit their `return` inside the body
+  -- (setReturnData → `return t`; setReturnDataLeaves → `return (…)`). No
+  -- trailing `__pf_ret` — multi-arm match/if would leave it out of scope.
   out := out ++ "}\n\n"
   pure out
 
