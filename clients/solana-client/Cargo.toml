@@ -1,11 +1,15 @@
 [package]
-name = "solana-transfer-sol"
+name = "proof-forge-solana-client"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Offline verifier for ProofForge TransferSol product artifacts"
+description = "Offline generic Solana OutputSet verifier for ProofForge product artifacts"
 license = "Apache-2.0"
 readme = "README.md"
+
+[[bin]]
+name = "proof-forge-solana-client"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }

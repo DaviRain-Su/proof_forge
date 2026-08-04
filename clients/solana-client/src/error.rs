@@ -1,4 +1,4 @@
-//! Structured errors for the offline TransferSol artifact verifier.
+//! Structured errors for the offline Solana artifact verifier.
 
 use thiserror::Error;
 

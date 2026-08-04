@@ -6,12 +6,12 @@ use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "solana-transfer-sol",
-    about = "Verify ProofForge TransferSol product artifacts offline",
-    long_about = "Offline engineering verifier only. It never deploys, opens an RPC connection, \
-reads a wallet, requests funds, or sends a transaction. Local execution is owned by the \
-repository Mollusk test lane. The sourceHash trust anchor is the frozen \
-Examples/TransferSol.lean product pin and is not overridable."
+    name = "proof-forge-solana-client",
+    about = "Verify ProofForge Solana product artifacts offline",
+    long_about = "Offline engineering verifier for generic Solana OutputSets. It never deploys, \
+opens an RPC connection, reads a wallet, requests funds, or sends a transaction. Local execution \
+is owned by the repository Mollusk test lane. Optional program adapters pin fixture-specific \
+sourceHash and ABI joins; they are not overridable via CLI flags."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -20,9 +20,9 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Pure offline verification of a TransferSol `proof-forge.output.v1` directory.
+    /// Pure offline verification of a Solana `proof-forge.output.v1` directory.
     VerifyArtifacts {
-        /// Path to the product OutputSet directory (manifest.json + evidence + six leaves).
+        /// Path to the product OutputSet directory (manifest.json + evidence + profile leaves).
         #[arg(long)]
         artifact_dir: PathBuf,
     },
@@ -35,7 +35,7 @@ mod tests {
     #[test]
     fn accepts_only_offline_verify_artifacts() {
         let cli = Cli::try_parse_from([
-            "solana-transfer-sol",
+            "proof-forge-solana-client",
             "verify-artifacts",
             "--artifact-dir",
             "build/out",
@@ -51,10 +51,10 @@ mod tests {
     #[test]
     fn network_and_trust_override_surfaces_are_absent() {
         for args in [
-            vec!["solana-transfer-sol", "devnet-call"],
-            vec!["solana-transfer-sol", "deploy"],
+            vec!["proof-forge-solana-client", "devnet-call"],
+            vec!["proof-forge-solana-client", "deploy"],
             vec![
-                "solana-transfer-sol",
+                "proof-forge-solana-client",
                 "verify-artifacts",
                 "--artifact-dir",
                 "build/out",
@@ -62,7 +62,7 @@ mod tests {
                 "https://example.invalid",
             ],
             vec![
-                "solana-transfer-sol",
+                "proof-forge-solana-client",
                 "verify-artifacts",
                 "--artifact-dir",
                 "build/out",
@@ -70,7 +70,7 @@ mod tests {
                 "wallet.json",
             ],
             vec![
-                "solana-transfer-sol",
+                "proof-forge-solana-client",
                 "verify-artifacts",
                 "--artifact-dir",
                 "build/out",

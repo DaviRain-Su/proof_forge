@@ -249,6 +249,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "proof-forge-solana-client"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hex",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -328,20 +342,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
-]
-
-[[package]]
-name = "solana-transfer-sol"
-version = "0.1.0"
-dependencies = [
- "clap",
- "hex",
- "libc",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
 ]
 
 [[package]]

@@ -4,17 +4,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use solana_transfer_sol::artifact::{
+use proof_forge_solana_client::artifact::{
     read_regular_single_link_file, verify_transfer_sol_artifact,
     verify_transfer_sol_artifact_with_source_hash, CANONICAL_LEAVES, IR_DIGEST_DOMAIN,
     MAX_FILE_BYTES, PLAN_DIGEST_DOMAIN,
 };
-use solana_transfer_sol::constants::{
+use proof_forge_solana_client::constants::{
     CATALOG_DIGEST_HEX, DEFAULT_EXPECTED_SOURCE_HASH, EXTENSION_DIGEST_HEX, EXTENSION_ID,
     EXTENSION_VERSION, PROFILE_DIGEST_HEX, SYSTEM_RUNTIME_NATIVE_BINDING,
 };
-use solana_transfer_sol::sha256_hex;
-use solana_transfer_sol::util::{
+use proof_forge_solana_client::sha256_hex;
+use proof_forge_solana_client::util::{
     domain_separated_sha256_hex, encode_string_framed, encode_u32le, encode_u64le,
     parse_json_no_dups,
 };

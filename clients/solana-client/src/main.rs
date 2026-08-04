@@ -1,7 +1,7 @@
-//! Offline `solana-transfer-sol` artifact verifier entrypoint.
+//! Offline `proof-forge-solana-client` artifact verifier entrypoint.
 
 use clap::Parser;
-use solana_transfer_sol::{print_verify_json, run_verify_artifacts, Cli, ClientError, Commands};
+use proof_forge_solana_client::{print_verify_json, run_verify_artifacts, Cli, ClientError, Commands};
 
 fn main() {
     let cli = match Cli::try_parse() {

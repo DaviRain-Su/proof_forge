@@ -1,7 +1,8 @@
-//! ProofForge TransferSol offline engineering artifact verifier.
+//! ProofForge generic Solana offline engineering artifact verifier.
 //!
 //! This crate has no RPC, deployment, faucet, wallet, signing, or network-write surface.
-//! Local executable behavior is exercised by `runtime-tests/solana` under Mollusk.
+//! Local executable behavior for product fixtures is exercised by `runtime-tests/solana`
+//! under Mollusk.
 
 pub mod artifact;
 pub mod cli;

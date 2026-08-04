@@ -1,4 +1,4 @@
-//! Frozen product constants for the offline TransferSol artifact verifier.
+//! Frozen product constants for the offline Solana artifact verifier.
 
 pub const EXPECTED_SCHEMA_VERSION: &str = "proof-forge.output.v1";
 pub const EXPECTED_TARGET: &str = "solana";
