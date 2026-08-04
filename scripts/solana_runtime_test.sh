@@ -77,6 +77,7 @@ fixtures=(
   MaybeRet
   ArrayRet
   OptionRet
+  OptionState
   CpiCaller
 )
 

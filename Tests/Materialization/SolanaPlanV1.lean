@@ -2805,20 +2805,42 @@ private unsafe def testAggregateFailClosed
       catch _ => pure none) with
   | none => pure ()  -- may fail at typed/Normalize
   | some c => expectPlanError "NestArrRet" (planSolana c)
-  -- Option state remains fail closed (not a container policy admit).
-  let optSource := wrapProgram "OptState" <|
-    "  state o : Option UInt64\n\n" ++
+  -- B-OPT-STATE: Option of non-UInt64 state stays fail closed.
+  let optBadSource := wrapProgram "OptBadEl" <|
+    "  state o : Option UInt8\n\n" ++
     "  init() do\n" ++
-    "    o := none\n\n" ++
+    "    o := Option.none()\n\n" ++
     "  view get() : UInt64 do\n" ++
     "    return 0\n"
   match ← (do
       try
-        let c ← compileSource session optSource "Examples.OptState" "<solana-opt>"
+        let c ← compileSource session optBadSource "Examples.OptBadEl" "<solana-opt-bad>"
         pure (some c)
       catch _ => pure none) with
   | none => pure ()  -- may fail at Normalize/typed
-  | some c => expectPlanError "OptState" (planSolana c)
+  | some c =>
+      match planSolana c with
+      | .error e =>
+          expect (e.render.contains "Option" || e.render.contains "UInt64" ||
+              e.render.contains "element")
+            s!"OptBadEl must cite Option/UInt64/element, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Solana Option UInt8 state must fail closed (UInt64 element only)"
+  -- Option param stays fail closed (state-only; mirrors Enum params).
+  let optParamSource := wrapProgram "OptParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    pad := i\n\n" ++
+    "  entry take(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  match ← (do
+      try
+        let c ← compileSource session optParamSource "Examples.OptParam" "<solana-opt-param>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c => expectPlanError "OptParam" (planSolana c)
   -- Named Struct param stays fail closed (state-only pilot).
   let paramSource := wrapProgram "StructParam" <|
     "  struct Pair where\n" ++
@@ -2833,6 +2855,124 @@ private unsafe def testAggregateFailClosed
     "<solana-struct-param>"
   expectPlanError "StructParam" (planSolana paramCompiled)
   IO.println "  aggregate fail-closed boundaries ok"
+
+/-- BL-29 / B-OPT-STATE: Option UInt64 state = Enum-shaped 2-leaf layout
+    (`slot_tag` + `slot_p0`); construct none zeros payload; match read via
+    VariantTag/VariantPayload; storeAggregate on assign. -/
+private unsafe def testOptionState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptionState" <|
+    "  state slot : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry set(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  entry clear() : UInt64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "  view getOpt() : Option UInt64 do\n" ++
+    "    return slot\n"
+  let compiled ← compileSource session source "Examples.OptionState"
+    "<solana-option-state>"
+  let plan ← liftResult (planSolana compiled)
+  expect (plan.stateAccount.fields.size == 2)
+    s!"OptionState: Option UInt64 must flatten to tag+payload (2), got {plan.stateAccount.fields.size}"
+  expect (plan.stateAccount.fields.any fun f => f.name == "slot_tag")
+    "OptionState must have slot_tag leaf"
+  expect (plan.stateAccount.fields.any fun f => f.name == "slot_p0")
+    "OptionState must have slot_p0 payload leaf"
+  let some tagF := plan.stateAccount.fields.find? (·.name == "slot_tag") |
+    throw <| IO.userError "OptionState missing slot_tag"
+  let some payF := plan.stateAccount.fields.find? (·.name == "slot_p0") |
+    throw <| IO.userError "OptionState missing slot_p0"
+  expect (tagF.byteWidth == 8 && payF.byteWidth == 8)
+    "OptionState leaves must be 8-byte UInt64 words"
+  expect (payF.byteOffset == tagF.byteOffset + 8)
+    s!"OptionState leaves must be consecutive, offsets {tagF.byteOffset}/{payF.byteOffset}"
+  -- Init none → storeAggregate both leaves (payload zeroed).
+  let (initAgg, initSeq) := countAnyPlanAggregates plan.initializer.body
+  expect (initAgg == 1)
+    s!"OptionState init must storeAggregate Option.none, got {initAgg}"
+  expect (initSeq == 0)
+    s!"OptionState init must not scalar-store Option leaves, got {initSeq}"
+  -- set some → storeAggregate.
+  let setH ← findHandler plan "set"
+  let (setAgg, _) := countAnyPlanAggregates setH.body
+  expect (setAgg == 1)
+    s!"OptionState set must storeAggregate Option.some, got {setAgg}"
+  -- clear none-reset → storeAggregate (stale payload must not survive).
+  let clearH ← findHandler plan "clear"
+  let (clearAgg, _) := countAnyPlanAggregates clearH.body
+  expect (clearAgg == 1)
+    s!"OptionState clear must storeAggregate Option.none, got {clearAgg}"
+  -- peek match → body reads state leaves (VariantTag/VariantPayload path).
+  let peekH ← findHandler plan "peek"
+  expect (peekH.resultKind == .u64)
+    "OptionState peek must return UInt64"
+  -- getOpt return of stored Option → 2-leaf aggregate.
+  let getOpt ← findHandler plan "getOpt"
+  match getOpt.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptionState getOpt must return 2-leaf Option, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"OptionState getOpt resultKind must be .aggregate, got {repr other}"
+  match getOpt.body[getOpt.body.size - 1]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt.size == 2)
+        "OptionState getOpt returnAggregate must have 2 leaves"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad 0 off0, .stateLoad 0 off1 =>
+          expect (off0 + 8 == off1)
+            s!"OptionState getOpt leaves must be consecutive stateLoads, got {off0}/{off1}"
+      | a, b =>
+          throw <| IO.userError
+            s!"OptionState getOpt leaves must be stateLoads, got {repr a}/{repr b}"
+  | _ =>
+      throw <| IO.userError "OptionState getOpt must end with .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptionState plan must validate: {e.render}"
+  let ir ← liftResult (irSolana compiled)
+  let setIR ← findHandlerIR ir "set"
+  let (multi, scalar) := countAnyIrMultiStores setIR.operations
+  expect (multi == 1)
+    s!"OptionState set IR must have one storeStateMulti, got {multi}"
+  expect (scalar == 0)
+    s!"OptionState set IR must not scalar storeState, got {scalar}"
+  let clearIR ← findHandlerIR ir "clear"
+  let (clearMulti, _) := countAnyIrMultiStores clearIR.operations
+  expect (clearMulti == 1)
+    s!"OptionState clear IR must storeStateMulti none-reset, got {clearMulti}"
+  -- none construct must materialize literal 0 payload (not leave stale).
+  let initIR ← findHandlerIR ir "initialize"
+  let (initMulti, _) := countAnyIrMultiStores initIR.operations
+  expect (initMulti == 1)
+    s!"OptionState init IR must storeStateMulti none, got {initMulti}"
+  let getOptIR ← findHandlerIR ir "getOpt"
+  expect (getOptIR.operations.any fun
+      | .setReturnDataMulti t => t.size == 2
+      | _ => false)
+    "OptionState getOpt IR must emit setReturnDataMulti [2]"
+  let asm ← liftResult (emitSbpfAsmV1 ir)
+  expect (asm.contains "set:") "OptionState asm must contain set"
+  expect (asm.contains "clear:") "OptionState asm must contain clear"
+  expect (asm.contains "temps=")
+    "OptionState asm must annotate temps"
+  let files ← liftResult (filesSolana compiled)
+  let _ ← findFile files "OptionState.sbpf-plan"
+  let idl ← findFile files "OptionState.idl.json"
+  expect (idl.contains "getOpt")
+    s!"OptionState IDL must declare getOpt, got: {idl}"
+  IO.println "  OptionState Option UInt64 state Plan/IR/SBPF pin ok"
 
 unsafe def run : IO Unit := do
   testNarrowIntAbi
@@ -2878,6 +3018,7 @@ unsafe def run : IO Unit := do
   testNamedEnumReturn session
   testAnonymousArrayReturn session
   testAnonymousOptionReturn session
+  testOptionState session
   testAggregateFailClosed session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
