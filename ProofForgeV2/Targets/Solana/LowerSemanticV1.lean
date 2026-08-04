@@ -479,8 +479,11 @@ private def solanaPlanErr (message : String) : CompileError :=
     capacity-8×(occ,key,val); Bytes → N×UInt8 leaves with ABI pitch 8;
     Option intermediate for Map IndexGet). **Named Struct/Enum** via
     `pilotNamedAggregateStatePolicyAdmit` (N3 flatten to UInt64/Int64 leaves).
-    UInt128/256 multiword limbs. T12: Principal storage identity only
-    (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. B-RET-ABI:
+    **B-OPT-STATE**: anonymous `Option UInt64` state is admitted as Enum-shaped
+    2-leaf layout (`name_tag` + `name_p0`; none=(0,0), some=(1,v); payload
+    zeroed on none). Option of non-UInt64 / nested / Option params stay
+    fail-closed. UInt128/256 multiword limbs. T12: Principal storage identity
+    only (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. B-RET-ABI:
     named Struct/Enum, anonymous `Array UInt64 N` (N ≤ 8), and anonymous
     `Option UInt64` entry/view returns are admitted (≤8 UInt64/Int64 leaves);
     Map/Bytes/nested/Principal returns stay fail-closed. -/
@@ -697,13 +700,30 @@ private def leafCountOfTypeV1
   pure specs.size
 
 /-- True when `typeId` is an anonymous Option TypeDecl (not named; not in
-    `containerTypeIds` — Option is admitted only as Map IndexGet intermediate
-    / N-ANON-RESULT return shape). -/
+    `containerTypeIds`). Admitted surfaces: Map IndexGet intermediate,
+    N-ANON-RESULT / B-RET-ABI return, and B-OPT-STATE `Option UInt64` storage
+    (2-leaf Enum-shaped layout). Element-type gates remain at each use site. -/
 private def isAnonymousOptionTypeIdV1
     (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
   match typeDecls[typeId.toNat]? with
   | some { shape := .option _, name := none, .. } => true
   | _ => false
+
+/-- B-OPT-STATE: `Option UInt64` storage leaves mirror named 2-variant Enum —
+    `{prefix}_tag` + `{prefix}_p0` (tag 0=none / 1=some; payload zeroed on none). -/
+private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
+    CompileResult (Array (String × Bool)) := do
+  let tagName :=
+    if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
+  let pName :=
+    if namePrefix.isEmpty then "p0" else namePrefix ++ "_p0"
+  unless isIdentifier tagName do
+    throw <| .planInvariant .solana
+      s!"state name '{tagName}' is not a safe identifier"
+  unless isIdentifier pName do
+    throw <| .planInvariant .solana
+      s!"state name '{pName}' is not a safe identifier"
+  pure #[(tagName, false), (pName, false)]
 
 /-- B-RET-ABI: resolve a result TypeId into an aggregate `ResultKind`.
     Admitted:
@@ -977,6 +997,35 @@ private def makeStateAccountV1
             }
             nextOffset := nextOffset + 8
           stateLeaves := stateLeaves.push leaves
+        else if isAnonymousOptionTypeIdV1 typeDecls state.typeId then
+          -- B-OPT-STATE: Option UInt64 → 2 leaves (tag + payload), Enum-shaped
+          -- names. none default via zeroAllFields; Option.none zeros payload.
+          match typeDecls[state.typeId.toNat]? with
+          | some { shape := .option elTid, .. } =>
+              unless elTid == types.uint64TypeId do
+                throw <| .planInvariant .solana
+                  s!"unsupported Solana semantic shape: Option state '{state.name}' element must be UInt64"
+              -- N1: allowNonPublic like scalar/named/container state (no visibility gate).
+              let leafSpecs ← flattenOptionUInt64LeafSpecsV1 state.name
+              if fields.size + leafSpecs.size > maxStateFields then
+                throw <| .planInvariant .solana "state count is outside the profile limits"
+              let mut leaves : Array Nat := #[]
+              for (leafName, isInt) in leafSpecs do
+                leaves := leaves.push fields.size
+                fields := fields.push {
+                  sourceId := state.id.toNat
+                  name := leafName
+                  accountIndex := 0
+                  byteOffset := nextOffset
+                  byteWidth := 8
+                  endianness := .little
+                  isInt
+                }
+                nextOffset := nextOffset + 8
+              stateLeaves := stateLeaves.push leaves
+          | _ =>
+              throw <| .planInvariant .solana
+                s!"unsupported Solana semantic shape: Option state '{state.name}' TypeDecl missing"
         else
           -- T8b+T9e: scalar state admits UInt{8,16,32,64,128,256}/Int{8,16,32,64}
           -- with byteWidth 1/2/4/8/16/32. Pitch = slotPitchOfByteWidth.
@@ -1027,8 +1076,8 @@ private structure LoweredValueV1 where
   bitWidth : Nat := 64
   /-- Multi-leaf carrier: Array UInt64 N, Map capacity-8, Bytes N (UInt8),
       Principal (len+8 words), named Struct/Enum, or Option `[tag,payload]`
-      from Map IndexGet. `expr` mirrors `leaves[0]!` (or literal 0). Scalar
-      values keep `none`. -/
+      (Map IndexGet intermediate, B-RET-ABI return, or B-OPT-STATE storage).
+      `expr` mirrors `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none
   /-- Physical byte width of each leaf: 8 for UInt64 leaves (Array/Map/
       Principal/named), 1 for Bytes leaves (UInt8). Scalar values keep 8. -/
@@ -1160,6 +1209,10 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     else if types.isNamedAggregate param.typeId then
       throw <| .planInvariant .solana
         s!"unsupported Solana semantic shape: named Struct/Enum parameter '{param.name}' in {owner} is outside the Solana pilot (named aggregates are state-only; B-RET-ABI scalar)"
+    else if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
+      -- B-OPT-STATE mirrors Enum: Option is state-only (params stay fail closed).
+      throw <| .planInvariant .solana
+        s!"unsupported Solana semantic shape: Option parameter '{param.name}' in {owner} is outside the Solana pilot (Option is state-only; B-RET-ABI scalar)"
     else
       -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8,16,32,64}.
       requirePublicSolanaUintAbiOrInt64Param solanaPlanErr types owner param
@@ -2038,6 +2091,25 @@ private def lowerBlockInstructionsV1
           unless leafFields.size == expected do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: named aggregate state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          for field in leafFields do
+            leafExprs := leafExprs.push
+              (.stateLoad field.accountIndex field.byteOffset)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if isAnonymousOptionTypeIdV1 typeDecls result.typeId then
+          -- B-OPT-STATE: Option UInt64 multi-leaf load (tag + payload).
+          match typeDecls[result.typeId.toNat]? with
+          | some { shape := .option elTid, .. } =>
+              unless elTid == types.uint64TypeId do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Option state load element must be UInt64"
+          | _ =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Option state load TypeDecl missing"
+          unless leafFields.size == 2 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Option state load leaf count mismatch"
           let mut leafExprs : Array Expr := #[]
           for field in leafFields do
             leafExprs := leafExprs.push
