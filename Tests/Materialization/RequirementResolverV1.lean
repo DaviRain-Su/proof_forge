@@ -358,8 +358,8 @@ private def testSupportTable : IO Unit := do
     ("near", "near-wasm-raw-u64-v1", 6, false, false),
     ("noir", "noir-source-u64-relations-v1", 7, false, false),
     ("psy", "psy-dargo-u64-v1", 6, false, false),
-    -- Phase A: Quint = 4 S2 keys + exact extension.pf-assets (no sync-call)
-    ("quint", "quint-source-u64-model-v1", 5, false, true),
+    -- Phase A5: Quint = 5 S2 keys (incl sync-call) + exact extension.pf-assets
+    ("quint", "quint-source-u64-model-v1", 6, false, true),
     -- #125: CPI row = 6 S2 (incl sync, excl async) + exact extension = 7
     ("solana", "solana-sbpf-cpi-elf-v1", 7, true, false),
     ("solana", "solana-sbpf-elf-v1", 5, false, false),
@@ -393,7 +393,7 @@ private def testSupportTable : IO Unit := do
           s!"row {i} pf.assets extension scope"
         let expectSync :=
           row.targetId == TargetId.noir || row.targetId == TargetId.psy ||
-            row.targetId == TargetId.evm ||
+            row.targetId == TargetId.evm || row.targetId == TargetId.quint ||
             (row.targetId == TargetId.solana &&
               row.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
         let expectAsync :=
@@ -404,15 +404,16 @@ private def testSupportTable : IO Unit := do
             (ids.contains "effect.asynchronous-workflow") == expectAsync)
           s!"row {i} capability gate shape"
         if row.targetId == TargetId.quint then
-          -- Phase A: four S2 keys + extension.pf-assets (ASCII order); no sync-call.
-          expect (ids == #[pfAssetsExtensionRequirementIdV1,
+          -- Phase A5: five S2 keys (incl sync-call) + extension.pf-assets (ASCII).
+          expect (ids == #["effect.synchronous-call",
+              pfAssetsExtensionRequirementIdV1,
               "failure.atomic-rollback", "state.persistent",
               "value.bool", "value.checked-arithmetic"])
-            "Quint Phase A support row must be four S2 keys + exact pf.assets"
-          expect (!ids.contains "effect.synchronous-call" &&
+            "Quint Phase A5 support row must be five S2 keys + exact pf.assets"
+          expect (ids.contains "effect.synchronous-call" &&
               !ids.contains "effect.asynchronous-workflow" &&
               !ids.contains "effect.event")
-            "Quint must not advertise event/call/schedule S2 keys (A5 owns sync)"
+            "Quint A5 admits sync-call; still declines event/async"
         for item in row.supported do
           if item.id == solanaCpiAccountsExtensionRequirementIdV1 then
             expect (item == expectedSolanaExtension)
@@ -699,10 +700,10 @@ private def testRequestInspectionErrors : IO Unit := do
     "PF-REQ-UNSUPPORTED" "aleo declines external-call keys"
 
   -- Closed extension advertise: Solana CPI (ADR-0028) and Quint pf.assets
-  -- (ADR-0029 Phase A). Each extension resolves only against its permitted
-  -- support row; other targets/profiles reject. #125: CPI also admits exact
-  -- effect.synchronous-call and still declines async. Quint does **not** admit
-  -- sync-call yet (A5 honesty intermediate).
+  -- (ADR-0029 Phase A5). Each extension resolves only against its permitted
+  -- support row; other targets/profiles reject. #125: CPI admits exact
+  -- effect.synchronous-call and still declines async. A5: Quint also admits
+  -- exact effect.synchronous-call (vault pf.assets lowering).
   let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -739,7 +740,7 @@ private def testRequestInspectionErrors : IO Unit := do
   expectErrorCode
     (inspectResolveRequestsV1 cpiSupported { items := #[pfAssetsRow] })
     "PF-REQ-UNSUPPORTED" "Solana CPI declines pf.assets extension"
-  -- Exact sync request resolves on CPI; async does not.
+  -- Exact sync request resolves on CPI and Quint; async does not.
   let syncReq ← match mkS2RequirementRequestV1 "effect.synchronous-call" with
     | .ok r => pure r
     | .error e => throw <| IO.userError e
@@ -752,8 +753,12 @@ private def testRequestInspectionErrors : IO Unit := do
       throw <| IO.userError s!"exact sync on CPI profile: {error.render}"
   expectErrorCode (inspectResolveRequestsV1 cpiSupported { items := #[asyncReq] })
     "PF-REQ-UNSUPPORTED" "CPI profile declines async workflow"
-  expectErrorCode (inspectResolveRequestsV1 quintSupported { items := #[syncReq] })
-    "PF-REQ-UNSUPPORTED" "Quint Phase A declines effect.synchronous-call (A5 deferred)"
+  match inspectResolveRequestsV1 quintSupported { items := #[syncReq] } with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError s!"exact sync on Quint profile (A5): {error.render}"
+  expectErrorCode (inspectResolveRequestsV1 quintSupported { items := #[asyncReq] })
+    "PF-REQ-UNSUPPORTED" "Quint still declines effect.asynchronous-workflow"
   for legacyProfile in #[CodegenProfileId.solanaSbpfElfV1,
       CodegenProfileId.solanaSbpfPlanV1] do
     let legacySupported ← match rows.find? fun row =>
@@ -1342,11 +1347,12 @@ private unsafe def testCapabilityMintUniqueness : IO Unit := do
   expect (Targets.ResolvedEngineeringBuildV1.requirementsOf capability == frozen)
     "sole-mint capability.requirements == retained freeze"
 
-/-- ADR-0029 Phase A honesty intermediate (A3): Quint advertises
-    `extension.pf-assets` but not `effect.synchronous-call`.
+/-- ADR-0029 Phase A5: Quint advertises `extension.pf-assets` **and**
+    `effect.synchronous-call`.
     * Extension-only program → product resolve on Quint succeeds.
-    * Program with `call pf.assets.native.transfer` → retained freeze carries
-      sync-call → Quint resolve fail closed (A5 owns sync-call + lowering). -/
+    * Program with `call pf.assets.native.transfer` → resolve **accepts** (A5).
+    * Non-catalog `call Oracle.feed` → resolve accepts sync-call; Plan/lowering
+      fail closed (pinned in QuintSourceV1). -/
 private def pfAssetsDigestV1 : String :=
   "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
 
@@ -1412,11 +1418,15 @@ private unsafe def testQuintPfAssetsPhaseAHonesty : IO Unit := do
     "PfAssetsCall retained freeze carries extension.pf-assets"
   expect (callFrozen.items.any (·.id == "effect.synchronous-call"))
     "PfAssetsCall with call site contributes effect.synchronous-call"
-  -- Honesty intermediate: Quint still declines sync-call until A5.
-  expectErrorCode
-    (Targets.resolveEngineeringRequirementsV1 quintSelection callCompiled)
-    "PF-REQ-UNSUPPORTED"
-    "call pf.assets.native.transfer fails closed on Quint until A5 sync-call"
+  -- A5: sync-call + pf.assets transfer resolve on Quint.
+  let callCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 quintSelection callCompiled
+  expect
+    (Targets.ResolvedEngineeringBuildV1.targetIdOf callCap == TargetId.quint)
+    "call pf.assets.native.transfer resolves on Quint (A5)"
+  expect
+    (Targets.ResolvedEngineeringBuildV1.requirementsOf callCap == callFrozen)
+    "pf.assets call capability binds exact retained freeze"
 
 unsafe def run : IO Unit := do
   testSupportTable

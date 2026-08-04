@@ -28,10 +28,10 @@
     * `extension.pf-assets` → (quint, quint-source-u64-model-v1)
       (ADR-0029 Phase A sole L1 binding; other targets stay fail closed until
       later binding slices)
-  Advertising `extension.pf-assets` does **not** add `effect.synchronous-call`
-  (A5 + Quint lowering own that honesty boundary: extension-only programs may
-  resolve on Quint; programs with `call pf.assets.*` fail closed on the
-  sync-call key until A5).
+  ADR-0029 Phase A5: Quint advertises exact `extension.pf-assets` **and**
+  `effect.synchronous-call` (sync pf.assets native deposit/transfer vault
+  lowering). Non-catalog QNs and async/token pf.assets QNs still fail closed
+  at Quint Plan/lowering; async workflow remains declined.
 
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.
   Dependency-injected seams return index rows or
@@ -295,12 +295,13 @@ private def mkImplementedRow
     admits exact `effect.synchronous-call` plus the exact ADR-0028 extension and
     still declines `effect.asynchronous-workflow`.
 
-    **ADR-0029 Phase A extension advertise**: closed table (see
+    **ADR-0029 Phase A5 extension advertise**: closed table (see
     `closedExtensionAdvertiseTableV1`) — Quint `quint-source-u64-model-v1` is
     the sole L1 binding that advertises exact `extension.pf-assets`. It keeps
-    the Q0 four S2 keys (rollback/state/Bool/checked-arithmetic) and does
-    **not** add `effect.synchronous-call` yet (A5 + lowering). Solana CPI
-    remains the sole ADR-0028 extension owner. All other targets/profiles
+    the Q0 four S2 keys (rollback/state/Bool/checked-arithmetic) and, as of A5,
+    also exact `effect.synchronous-call` (vault-modeled native deposit/transfer
+    only; non-catalog / async / token QNs fail closed at Plan/lowering). Solana
+    CPI remains the sole ADR-0028 extension owner. All other targets/profiles
     fail closed if they advertise either extension row.
 
     Capability gates are per target: EVM admits both call keys via static
@@ -364,14 +365,13 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   let cosmwasmRequests := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   -- Quint Q0 is an executable state-model projection, not a deployment target.
-  -- It models persistent state, Bool, checked arithmetic, and explicit
-  -- rollback outcomes; event/call/schedule effects remain fail closed on the
-  -- S2 matrix. ADR-0029 Phase A: advertise exact `extension.pf-assets` only
-  -- (no `effect.synchronous-call` until A5 + lowering).
+  -- It models persistent state, Bool, checked arithmetic, explicit rollback,
+  -- and (ADR-0029 Phase A5) sync pf.assets native vault ops. Event/async
+  -- workflow stay fail closed on the S2 matrix; non-catalog / async / token
+  -- QNs fail closed at Quint Plan/lowering.
   let quintBaseRequests := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
-      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
-      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
   -- Legacy Solana profiles decline both call families. The old transitional
   -- CPI / log marker was neither exact CPI nor scheduling and is not a
   -- supported effect; the versioned CPI profile owns the product contract.
@@ -394,8 +394,7 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     | .error e =>
         throw <| .registryInvalid
           s!"pf.assets extension requirement seed failed: {e}"
-  -- Phase A sole L1 advertise: exact extension.pf-assets on Quint only.
-  -- Do **not** push effect.synchronous-call here (A5 honesty intermediate).
+  -- Phase A5: exact extension.pf-assets + effect.synchronous-call on Quint.
   let quintRequests :=
     (quintBaseRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
   pure #[

@@ -1,4 +1,5 @@
 import ProofForgeV2.Core.Common
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.Common
@@ -8,13 +9,28 @@ import ProofForgeV2.Targets.EnvelopeV1
 /-!
 # Quint LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
 
-Q0 source-only Quint target: public UInt64 state, public UInt64 params,
-public Unit/UInt64/Bool results, single-block callables, pureFn inline
-(depth ≤ 64), zero-param Bool invariants. Plan is target-owned and retains
-no Semantic carrier.
+Q0 source-only Quint target: public UInt64 state, public UInt64/Principal
+params (Principal identity-only for pf.assets args), public Unit/UInt64/Bool
+results, single-block callables, pureFn inline (depth ≤ 64), zero-param Bool
+invariants. Plan is target-owned and retains no Semantic carrier.
+
+ADR-0029 Phase A5: void `Op.ExternalCall` whose callee is in the closed
+`pf.assets` catalog is admitted only when the retained freeze carries exact
+`extension.pf-assets`, and only for the Phase A vault subset:
+  * `pf.assets.native.deposit(amount)` — nondet external outcome; success
+    credits target-owned `vaultNative` (checked UInt64 add);
+  * `pf.assets.native.transfer(dst, amount)` — nondet external outcome;
+    success requires `vaultNative ≥ amount` then debits (Q0 explicit-failure
+    discipline: insufficient vault is a first-failure outcome + stutter, not
+    a blocked action).
+Async (`*.transferAsync`) and token (`token.*`) QNs fail closed (no fake
+native alias; token needs mint-keyed Map beyond Q0 Int vault). Non-catalog
+QNs fail closed at Plan lowering (resolver may admit `effect.synchronous-call`
+for them). Whole-entry atomic: any failure stutters business state and vault.
 
 Failure codes (evaluation order, first failure wins at emission):
   overflow=1, underflow=2, division-by-zero=3, assertion=4,
+  externalCallFailed=5, vaultOverflow=6, vaultUnderflow=7,
   zero-payload declared-revert=256+canonical ErrorId
 -/
 
@@ -22,6 +38,7 @@ namespace ProofForgeV2.Targets.Quint
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.EnvelopeV1
 
@@ -47,6 +64,8 @@ private def quintPlanErr (message : String) : CompileError :=
 inductive ExprType where
   | uint64
   | bool
+  /-- Opaque identity for pf.assets destination args; not arithmetic. -/
+  | principal
   deriving BEq, Inhabited, Repr
 
 inductive ComparisonOp where
@@ -63,6 +82,12 @@ inductive FailureKind where
   | underflow
   | divByZero
   | assertion
+  /-- Nondet external callee outcome reverted (Reference responses cursor). -/
+  | externalCallFailed
+  /-- `pf.assets.native.deposit` would overflow UInt64 vault. -/
+  | vaultOverflow
+  /-- `pf.assets.native.transfer` amount exceeds current vault (explicit fail). -/
+  | vaultUnderflow
   /-- Preserve canonical Semantic ErrorId identity for a revert propagated
       through a pureCall. -/
   | declaredRevert (errorIndex : Nat)
@@ -76,6 +101,9 @@ def FailureKind.code : FailureKind → Nat
   | .underflow => 2
   | .divByZero => 3
   | .assertion => 4
+  | .externalCallFailed => 5
+  | .vaultOverflow => 6
+  | .vaultUnderflow => 7
   | .declaredRevert errorIndex | .terminalRevert errorIndex => 256 + errorIndex
 
 /-- Untyped expression nodes; every Plan use-site carries an explicit `ExprType`. -/
@@ -84,11 +112,27 @@ inductive Expr where
   | litBool (value : Bool)
   | param (index : Nat)
   | stateLoad (fieldIndex : Nat)
+  /-- Pre-action target-owned self-vault native balance (UInt64 domain). -/
+  | vaultNative
+  /-- Nondet external outcome for asset op `ordinal` (Bool; emission binds). -/
+  | externalOk (ordinal : Nat)
   | arith (op : ArithOp) (lhs rhs : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
   | boolAnd (lhs rhs : Expr)
   | boolOr (lhs rhs : Expr)
   | boolNot (operand : Expr)
+  deriving BEq, Inhabited, Repr
+
+/-- Phase A Quint-admitted pf.assets vault op (sync native only). -/
+inductive PfAssetsKind where
+  | nativeDeposit
+  | nativeTransfer
+  deriving BEq, Inhabited, Repr
+
+/-- One void pf.assets ExternalCall lowered into vault math + nondet outcome. -/
+structure PfAssetsOp where
+  kind : PfAssetsKind
+  amount : Expr
   deriving BEq, Inhabited, Repr
 
 structure TypedExpr where
@@ -128,9 +172,13 @@ structure PlanEntry where
   actionIndex : Nat
   name : String
   params : Array String
+  /-- Parallel to `params`: true when the parameter is opaque Principal. -/
+  paramIsPrincipal : Array Bool
   resultKind : ResultKind
   checks : Array Check
   stores : Array (Nat × Expr)
+  /-- Source-order pf.assets vault ops (Phase A5). -/
+  assetOps : Array PfAssetsOp
   result? : Option Expr
   /-- True only when the callable terminator is an unconditional zero-payload
       declared revert. This makes non-Unit/no-result Plan states canonical. -/
@@ -160,6 +208,8 @@ structure Plan where
   entries : Array PlanEntry
   views : Array PlanView
   invariants : Array PlanInvariant
+  /-- True when any entry carries pf.assets vault ops (emits `pf_vault_native`). -/
+  usesVaultNative : Bool
   deriving BEq, Inhabited, Repr
 
 -- ---------------------------------------------------------------------------
@@ -172,7 +222,7 @@ private def quintTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64 width is supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Bool, and Unit are supported (Int/Field/aggregates/containers fail closed)"
+    "only anonymous UInt64, Bool, Unit, and Principal (pf.assets identity args only) are supported (Int/Field/aggregates/containers fail closed)"
 
 private def pilotUintWidthPolicyU64Only : PilotUintWidthPolicy where
   admittedWidths := #[64]
@@ -185,6 +235,7 @@ private def validateQuintTypeClosureV1
     pilotUintWidthPolicyU64Only
     (intPolicy := pilotIntWidthPolicyNone)
     (fieldPolicy := pilotFieldPolicyNone)
+    (principalPolicy := pilotPrincipalPolicyAdmit)
 
 private def maxIdentifierBytes : Nat := 200
 private def maxPureInlineDepth : Nat := 64
@@ -224,6 +275,20 @@ private def isBoolType (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :
 
 private def isUnitType (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.unitTypeId == some typeId
+
+private def isPrincipalType (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.principalTypeId == some typeId
+
+private def maxU64Value : UInt64 := UInt64.ofNat 18446744073709551615
+
+private def qnJoined (qn : ProofForgeV2.Core.Common.QualifiedName) : String :=
+  String.intercalate "." (ProofForgeV2.Core.Common.NonEmptyArray.toArray qn.components).toList
+
+private def hasPfAssetsExtensionRow (data : SemanticProgramDataV1) : Bool :=
+  data.requirements.items.any (·.id == wireExtensionPfAssetsIdV1)
+
+private def isPfAssetsCatalogQn (qn : String) : Bool :=
+  pfAssetsCatalogQualifiedNamesV1.contains qn
 
 -- ---------------------------------------------------------------------------
 -- Lowering helpers
@@ -273,8 +338,21 @@ private structure BodyAccum where
   env : ValueEnv
   overlay : StateOverlay
   checks : Array Check
+  assetOps : Array PfAssetsOp
+  /-- Success-path symbolic vault after processed asset ops (starts as vaultNative). -/
+  vaultExpr : Expr
+  vaultExpandedNodes : Nat
   opCount : Nat
   deriving Inhabited
+
+private def emptyBodyAccum (env : ValueEnv) (overlay : StateOverlay) : BodyAccum :=
+  { env
+    overlay
+    checks := #[]
+    assetOps := #[]
+    vaultExpr := .vaultNative
+    vaultExpandedNodes := 1
+    opCount := 0 }
 
 private def pushCheck (acc : BodyAccum) (ck : Check) : CompileResult BodyAccum := do
   if acc.checks.size + 1 > maxBodyChecks then
@@ -291,6 +369,72 @@ private def requireTy (v : TypedExpr) (ty : ExprType) (what : String) :
   unless v.ty == ty do
     planError s!"unsupported Quint semantic shape: {what} type mismatch"
   pure v.expr
+
+/-- Lower void pf.assets ExternalCall into vault math + nondet outcome checks. -/
+private def lowerPfAssetsExternalCall
+    (acc0 : BodyAccum) (qn : String) (argIds : Array ValueIdV1)
+    (forbidChecks : Bool) : CompileResult BodyAccum := do
+  if forbidChecks then
+    planError "unsupported Quint semantic shape: initializer cannot contain external calls"
+  let mut acc := acc0
+  let ordinal := acc.assetOps.size
+  if qn == "pf.assets.native.deposit" then
+    unless argIds.size == 1 do
+      planError "unsupported Quint semantic shape: pf.assets.native.deposit requires one UInt64 arg"
+    let some amountId := argIds[0]? |
+      planError "unsupported Quint semantic shape: pf.assets.native.deposit arg missing"
+    let av ← match envLookup acc.env amountId with
+      | some v => pure v
+      | none => planError "unsupported Quint semantic shape: deposit amount undefined"
+    let amount ← requireTy av .uint64 "pf.assets.native.deposit amount"
+    acc ← pushCheck acc
+      { kind := .externalCallFailed, condition := .externalOk ordinal }
+    let nodes ← checkedExprNodes "vault deposit"
+      (1 + acc.vaultExpandedNodes + av.expandedNodes)
+    let sum : Expr := .arith .add acc.vaultExpr amount
+    let _ ← checkedExprNodes "vault deposit overflow check" (nodes + 2)
+    let ovf : Expr := .compare .le sum (.litU64 maxU64Value)
+    acc ← pushCheck acc { kind := .vaultOverflow, condition := ovf }
+    pure { acc with
+      assetOps := acc.assetOps.push { kind := .nativeDeposit, amount }
+      vaultExpr := sum
+      vaultExpandedNodes := nodes }
+  else if qn == "pf.assets.native.transfer" then
+    unless argIds.size == 2 do
+      planError
+        "unsupported Quint semantic shape: pf.assets.native.transfer requires Principal + UInt64 args"
+    let some dstId := argIds[0]? |
+      planError "unsupported Quint semantic shape: transfer dst missing"
+    let some amountId := argIds[1]? |
+      planError "unsupported Quint semantic shape: transfer amount missing"
+    let dv ← match envLookup acc.env dstId with
+      | some v => pure v
+      | none => planError "unsupported Quint semantic shape: transfer dst undefined"
+    unless dv.ty == .principal do
+      planError "unsupported Quint semantic shape: pf.assets.native.transfer dst must be Principal"
+    let av ← match envLookup acc.env amountId with
+      | some v => pure v
+      | none => planError "unsupported Quint semantic shape: transfer amount undefined"
+    let amount ← requireTy av .uint64 "pf.assets.native.transfer amount"
+    acc ← pushCheck acc
+      { kind := .externalCallFailed, condition := .externalOk ordinal }
+    -- Q0: insufficient vault is an explicit failure outcome (stutter), not a
+    -- blocked action. External nondet failure is ordered before this check.
+    let bal : Expr := .compare .ge acc.vaultExpr amount
+    acc ← pushCheck acc { kind := .vaultUnderflow, condition := bal }
+    let nodes ← checkedExprNodes "vault transfer"
+      (1 + acc.vaultExpandedNodes + av.expandedNodes)
+    let diff : Expr := .arith .sub acc.vaultExpr amount
+    pure { acc with
+      assetOps := acc.assetOps.push { kind := .nativeTransfer, amount }
+      vaultExpr := diff
+      vaultExpandedNodes := nodes }
+  else if isPfAssetsCatalogQn qn then
+    planError
+      s!"unsupported Quint semantic shape: pf.assets QN '{qn}' is outside Phase A Quint vault model (async/token fail closed)"
+  else
+    planError
+      "unsupported Quint semantic shape: externalCall callee is not a Quint-admitted pf.assets QN"
 
 private def lowerLiteral
     (types : QuintTypeClosureV1) (typeId : TypeIdV1) (valueBytes : ByteArray) :
@@ -391,6 +535,8 @@ private def lowerUnary (op : UnaryOpV1) (operand : TypedExpr) :
 
 private structure CallableIndex where
   pureFns : Array (CallableIdV1 × CallableV1)
+  /-- Exact `extension.pf-assets` row present in retained requirements. -/
+  pfAssetsDeclared : Bool
   deriving Inhabited
 
 private def lookupPureFn (idx : CallableIndex) (id : CallableIdV1) :
@@ -505,8 +651,7 @@ private partial def lowerInstructions
           unless isUInt64Type types p.typeId && av.ty == .uint64 do
             planError "unsupported Quint semantic shape: pureFn params must be public UInt64"
           cEnv := envInsert cEnv p.valueId av
-        let cAcc0 : BodyAccum :=
-          { env := cEnv, overlay := { entries := #[] }, checks := #[], opCount := 0 }
+        let cAcc0 : BodyAccum := emptyBodyAccum cEnv { entries := #[] }
         let (cAcc, ret?, _endedRevert) ←
           lowerInstructions data types idx callee
             (allowStateRead := false) (allowStateWrite := false)
@@ -550,10 +695,28 @@ private partial def lowerInstructions
         if forbidChecks then
           planError "unsupported Quint semantic shape: initializer cannot contain fallible checks"
         acc ← pushCheck acc { kind := .assertion, condition := c }
+    | .externalCall _calleeId callee argIds => do
+        -- Void-only; result-bearing externalCall stays fail closed.
+        match instr.result with
+        | some _ =>
+            planError "unsupported Quint semantic shape: result-bearing externalCall is outside Q0"
+        | none => pure ()
+        unless allowStateWrite do
+          planError
+            "unsupported Quint semantic shape: externalCall is only legal in entry (not pureFn/view/invariant)"
+        let qn := qnJoined callee
+        if isPfAssetsCatalogQn qn then
+          unless idx.pfAssetsDeclared do
+            planError
+              "unsupported Quint semantic shape: pf.assets catalog call requires extension.pf-assets declaration"
+          acc ← lowerPfAssetsExternalCall acc qn argIds forbidChecks
+        else
+          planError
+            "unsupported Quint semantic shape: externalCall callee is not a Quint-admitted pf.assets QN"
     | .constant .. | .construct .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
     | .checkedCast .. | .contextRead .. | .commit ..
-    | .emit .. | .externalCall .. | .schedule .. =>
+    | .emit .. | .schedule .. =>
         planError "unsupported Quint semantic shape: op is outside Q0"
   -- Terminator
   match block.terminator with
@@ -577,35 +740,47 @@ private partial def lowerInstructions
 
 private def seedParamEnv
     (types : QuintTypeClosureV1) (callable : CallableV1) :
-    CompileResult (ValueEnv × Array String) := do
+    CompileResult (ValueEnv × Array String × Array Bool) := do
   let mut env : ValueEnv := { entries := #[] }
   let mut names : Array String := #[]
+  let mut isPrincipal : Array Bool := #[]
   let mut i : Nat := 0
   for p in callable.params do
-    unless isUInt64Type types p.typeId do
-      planError "unsupported Quint semantic shape: parameters must be public UInt64"
     unless p.visibility == .public_ do
-      planError "unsupported Quint semantic shape: parameters must be public UInt64"
+      planError "unsupported Quint semantic shape: parameters must be public"
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' is not a safe identifier"
-    env := envInsert env p.valueId {
-      ty := .uint64
-      expr := .param i
-      expandedNodes := 1
-    }
+    if isUInt64Type types p.typeId then
+      env := envInsert env p.valueId {
+        ty := .uint64
+        expr := .param i
+        expandedNodes := 1
+      }
+      isPrincipal := isPrincipal.push false
+    else if isPrincipalType types p.typeId then
+      env := envInsert env p.valueId {
+        ty := .principal
+        expr := .param i
+        expandedNodes := 1
+      }
+      isPrincipal := isPrincipal.push true
+    else
+      planError
+        "unsupported Quint semantic shape: parameters must be public UInt64 or Principal"
     names := names.push p.name
     i := i + 1
   unless names.size ≤ maxParams do
     planError "unsupported Quint semantic shape: parameter count exceeds limit"
-  pure (env, names)
+  pure (env, names, isPrincipal)
 
 private def lowerCallableBody
     (data : SemanticProgramDataV1) (types : QuintTypeClosureV1)
     (idx : CallableIndex) (callable : CallableV1)
     (allowStateRead allowStateWrite forbidChecks initialStateDefaults : Bool) :
     CompileResult
-      (Array String × Array Check × Array (Nat × Expr) × Option TypedExpr × Bool) := do
-  let (env0, paramNames) ← seedParamEnv types callable
+      (Array String × Array Bool × Array Check × Array (Nat × Expr) ×
+        Array PfAssetsOp × Option TypedExpr × Bool) := do
+  let (env0, paramNames, paramIsPrincipal) ← seedParamEnv types callable
   -- Reference initialization starts from canonical UInt64 zero values. Seed
   -- the initializer overlay accordingly so an init StateLoad never refers to
   -- an unconstrained pre-state variable in the Quint initial action.
@@ -617,13 +792,12 @@ private def lowerCallableBody
         expr := .litU64 0
         expandedNodes := 1
       }
-  let acc0 : BodyAccum :=
-    { env := env0, overlay := overlay0, checks := #[], opCount := 0 }
+  let acc0 : BodyAccum := emptyBodyAccum env0 overlay0
   let (acc, ret?, endedRevert) ←
     lowerInstructions data types idx callable
       allowStateRead allowStateWrite forbidChecks 0 acc0
   let stores := overlayFinalStores acc.overlay
-  pure (paramNames, acc.checks, stores, ret?, endedRevert)
+  pure (paramNames, paramIsPrincipal, acc.checks, stores, acc.assetOps, ret?, endedRevert)
 
 private def makePlanFromSemanticDataV1
     (data : SemanticProgramDataV1) (programName : String)
@@ -638,7 +812,7 @@ private def makePlanFromSemanticDataV1
     unless err.fields.isEmpty do
       planError "unsupported Quint semantic shape: declared errors must have zero payload fields"
   let types ← validateQuintTypeClosureV1 data.types
-  -- States: public UInt64 only
+  -- States: public UInt64 only (vault is target-owned, not program logical state)
   let mut states : Array PlanState := #[]
   for st in data.logicalState do
     requirePublicUInt64State quintPlanErr types.uint64TypeId st
@@ -649,17 +823,21 @@ private def makePlanFromSemanticDataV1
     states := states.push { name := st.name }
   unless states.size ≤ maxStateFields do
     planError "unsupported Quint semantic shape: state field count exceeds limit"
-  -- PureFn index for inline
+  -- PureFn index for inline + pf.assets declaration gate for catalog QNs.
   let mut pureFns : Array (CallableIdV1 × CallableV1) := #[]
   for c in data.callables do
     if c.kind == .pureFn then
       pureFns := pureFns.push (c.id, c)
-  let idx : CallableIndex := { pureFns }
+  let idx : CallableIndex := {
+    pureFns
+    pfAssetsDeclared := hasPfAssetsExtensionRow data
+  }
   let mut initializer : Option PlanInit := none
   let mut entries : Array PlanEntry := #[]
   let mut views : Array PlanView := #[]
   let mut invariants : Array PlanInvariant := #[]
   let mut entryActionIndex : Nat := 0
+  let mut usesVaultNative := false
   for callable in data.callables do
     match callable.kind with
     | .pureFn => do
@@ -673,12 +851,16 @@ private def makePlanFromSemanticDataV1
         let rk ← resultKindOf types callable.result.typeId s!"pureFn '{name}'"
         unless callable.result.visibility == .public_ do
           planError s!"pureFn '{name}' result must be public"
-        let (_params, _checks, stores, ret?, endedRevert) ←
+        let (_params, paramIsPrincipal, _checks, stores, assetOps, ret?, endedRevert) ←
           lowerCallableBody data types idx callable
             (allowStateRead := false) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
         unless stores.isEmpty do
           planError s!"pureFn '{name}' cannot write state"
+        unless assetOps.isEmpty do
+          planError s!"pureFn '{name}' cannot perform external calls"
+        if paramIsPrincipal.any id then
+          planError s!"pureFn '{name}' parameters must be public UInt64 (no Principal)"
         match rk, ret?, endedRevert with
         | .unit, none, _ => pure ()
         | .unit, some _, _ =>
@@ -705,7 +887,7 @@ private def makePlanFromSemanticDataV1
           planError "unsupported Quint semantic shape: initializer result must be Unit"
         unless callable.result.visibility == .public_ do
           planError "unsupported Quint semantic shape: initializer result must be public"
-        let (params, checks, stores, ret?, endedRevert) ←
+        let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert) ←
           lowerCallableBody data types idx callable
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := true)
             (initialStateDefaults := true)
@@ -713,6 +895,10 @@ private def makePlanFromSemanticDataV1
           planError "unsupported Quint semantic shape: initializer cannot revert"
         unless checks.isEmpty do
           planError "unsupported Quint semantic shape: initializer cannot contain fallible checks"
+        unless assetOps.isEmpty do
+          planError "unsupported Quint semantic shape: initializer cannot contain external calls"
+        if paramIsPrincipal.any id then
+          planError "unsupported Quint semantic shape: initializer parameters must be public UInt64"
         unless ret?.isNone do
           planError "unsupported Quint semantic shape: initializer must return Unit"
         initializer := some { name, params, stores }
@@ -725,7 +911,7 @@ private def makePlanFromSemanticDataV1
         let rk ← resultKindOf types callable.result.typeId s!"entry '{name}'"
         unless callable.result.visibility == .public_ do
           planError s!"entry '{name}' result must be public"
-        let (params, checks, stores, ret?, endedRevert) ←
+        let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert) ←
           lowerCallableBody data types idx callable
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := false)
             (initialStateDefaults := false)
@@ -746,10 +932,13 @@ private def makePlanFromSemanticDataV1
               planError s!"entry '{name}' non-Unit return is missing"
           | .uint64, some _, true | .bool, some _, true =>
               planError s!"entry '{name}' revert path cannot carry a return value"
+        if !assetOps.isEmpty then
+          usesVaultNative := true
         entryActionIndex := entryActionIndex + 1
         entries := entries.push {
           actionIndex := entryActionIndex
-          name, params, resultKind := rk, checks, stores, result?
+          name, params, paramIsPrincipal, resultKind := rk, checks, stores
+          assetOps, result?
           terminalRevert := endedRevert
         }
     | .view => do
@@ -763,7 +952,7 @@ private def makePlanFromSemanticDataV1
           planError s!"view '{name}' result must be UInt64 or Bool"
         unless callable.result.visibility == .public_ do
           planError s!"view '{name}' result must be public"
-        let (params, checks, stores, ret?, endedRevert) ←
+        let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert) ←
           lowerCallableBody data types idx callable
             (allowStateRead := true) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
@@ -771,6 +960,10 @@ private def makePlanFromSemanticDataV1
           planError s!"view '{name}' cannot revert"
         unless stores.isEmpty do
           planError s!"view '{name}' cannot write state"
+        unless assetOps.isEmpty do
+          planError s!"view '{name}' cannot perform external calls"
+        if paramIsPrincipal.any id then
+          planError s!"view '{name}' parameters must be public UInt64 (no Principal)"
         -- Views may only use checks that are pure observations for invariants-style
         -- AND; for views we fold checks into the value only for invariants.
         -- Spec: views emit pure def of the value; fail closed if body has assert/revert.
@@ -796,7 +989,7 @@ private def makePlanFromSemanticDataV1
           planError s!"invariant '{name}' must return public Bool"
         unless callable.result.visibility == .public_ do
           planError s!"invariant '{name}' result must be public"
-        let (params, checks, stores, ret?, endedRevert) ←
+        let (params, _paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert) ←
           lowerCallableBody data types idx callable
             (allowStateRead := true) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
@@ -806,6 +999,8 @@ private def makePlanFromSemanticDataV1
           planError s!"invariant '{name}' must be zero-parameter"
         unless stores.isEmpty do
           planError s!"invariant '{name}' cannot write state"
+        unless assetOps.isEmpty do
+          planError s!"invariant '{name}' cannot perform external calls"
         let tv ← match ret? with
           | some v => pure v
           | none => planError s!"invariant '{name}' must return Bool"
@@ -822,6 +1017,7 @@ private def makePlanFromSemanticDataV1
     entries
     views
     invariants
+    usesVaultNative
   }
 
 private def makePlanFromSemanticV1

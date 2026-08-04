@@ -136,10 +136,11 @@ private def paramVar (params : Array String) (index : Nat) : CompileResult Strin
 
 /-- Render Plan Expr against a parameter name table and state names.
     State loads read the pre-action business var (or overlay pure name when
-    provided via `overlayNames`). -/
+    provided via `overlayNames`). `externalOkNames[i]` binds asset-op nondet. -/
 private partial def lowerExpr
     (plan : Plan) (params : Array String)
     (overlayNames : Array (Nat × String))
+    (externalOkNames : Array String)
     (e : Expr) : CompileResult QExpr := do
   match e with
   | .litU64 v => pure (u64Lit v)
@@ -153,9 +154,15 @@ private partial def lowerExpr
       | none => do
           let n ← stateVar plan fi
           pure (.name n)
+  | .vaultNative => pure (.name "pf_vault_native")
+  | .externalOk ordinal => do
+      -- Nondet outcome is int {0,1}; Plan treats externalOk as Bool via == 1.
+      match externalOkNames[ordinal]? with
+      | some n => pure (.binary .eq (.name n) (.intLit "1"))
+      | none => planError s!"Quint IR externalOk ordinal {ordinal} out of range"
   | .arith op l r => do
-      let ql ← lowerExpr plan params overlayNames l
-      let qr ← lowerExpr plan params overlayNames r
+      let ql ← lowerExpr plan params overlayNames externalOkNames l
+      let qr ← lowerExpr plan params overlayNames externalOkNames r
       let qop : QBinOp :=
         match op with
         | .add => .add | .sub => .sub | .mul => .mul | .div => .div | .mod => .mod
@@ -168,28 +175,39 @@ private partial def lowerExpr
             (u64Lit 0))
       | _ => pure (.binary qop ql qr)
   | .compare op l r => do
-      let ql ← lowerExpr plan params overlayNames l
-      let qr ← lowerExpr plan params overlayNames r
+      let ql ← lowerExpr plan params overlayNames externalOkNames l
+      let qr ← lowerExpr plan params overlayNames externalOkNames r
       let qop : QBinOp :=
         match op with
         | .eq => .eq | .ne => .ne | .lt => .lt | .le => .le | .gt => .gt | .ge => .ge
       pure (.binary qop ql qr)
   | .boolAnd l r => do
-      let ql ← lowerExpr plan params overlayNames l
-      let qr ← lowerExpr plan params overlayNames r
+      let ql ← lowerExpr plan params overlayNames externalOkNames l
+      let qr ← lowerExpr plan params overlayNames externalOkNames r
       pure (.binary .and ql qr)
   | .boolOr l r => do
-      let ql ← lowerExpr plan params overlayNames l
-      let qr ← lowerExpr plan params overlayNames r
+      let ql ← lowerExpr plan params overlayNames externalOkNames l
+      let qr ← lowerExpr plan params overlayNames externalOkNames r
       pure (.binary .or ql qr)
   | .boolNot o => do
-      let qo ← lowerExpr plan params overlayNames o
+      let qo ← lowerExpr plan params overlayNames externalOkNames o
       pure (.unary .not qo)
 
 private def pfMaxRef : QExpr := .name "PF_MAX_U64"
 
 private def u64Domain : QExpr :=
   .call "oneOf" #[.call "to" #[.intLit "0", pfMaxRef]]
+
+/-- Opaque Principal param domain: singleton token (identity not modeled in Q0). -/
+private def principalOpaqueDomain : QExpr :=
+  .call "oneOf" #[.call "to" #[.intLit "0", .intLit "0"]]
+
+/-- Nondet external outcome domain `{0,1}` (1 = returned / success). -/
+private def externalOutcomeDomain : QExpr :=
+  .call "oneOf" #[.call "to" #[.intLit "0", .intLit "1"]]
+
+private def externalOkName (actionIndex ordinal : Nat) : String :=
+  s!"pf_ext_ok_a{actionIndex}_{ordinal}"
 
 /-- Rewrite overflow/underflow conditions that compare against max U64 literal
     to use `PF_MAX_U64` for the exact product spelling. -/
@@ -206,9 +224,11 @@ private partial def rewriteMaxBound : QExpr → QExpr
 private def freshPure (pfx : String) (n : Nat) : String :=
   s!"{pfx}{n}"
 
-/-- Build first-failure pure cascade: `success`, `failure` pure names. -/
+/-- Build first-failure pure cascade: `success`, `failure` pure names.
+    `externalOk` Plan nodes lower via `externalOkNames` (nondet 0/1 ints
+    compared as Bool through the Plan check conditions). -/
 private def emitCheckCascade
-    (plan : Plan) (params : Array String)
+    (plan : Plan) (params : Array String) (externalOkNames : Array String)
     (checks : Array Check) (pures0 : Array QPureBind) (counter0 : Nat) :
     CompileResult (Array QPureBind × Nat × String × String) := do
   let mut pures := pures0
@@ -216,8 +236,13 @@ private def emitCheckCascade
   let mut ckNames : Array String := #[]
   let mut codes : Array Nat := #[]
   for ck in checks do
-    let qe ← lowerExpr plan params #[] ck.condition
+    let qe ← lowerExpr plan params #[] externalOkNames ck.condition
     let qe := rewriteMaxBound qe
+    -- externalOk is Bool in Plan but emission binds int 0/1 nondets; rewrite
+    -- bare externalOk names to `name == 1` when the check condition is just
+    -- externalOk (lowerExpr already returns the name). For compound
+    -- conditions involving externalOk as Bool, convert name uses:
+    -- we emit externalOk as (name == 1) at the externalOk node.
     let nm := freshPure "ck" counter
     counter := counter + 1
     pures := pures.push { name := nm, value := qe }
@@ -269,15 +294,24 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
   for i in [0:ent.params.size] do
     let name := entryParamName ent.actionIndex i
     emittedParams := emittedParams.push name
-    nondets := nondets.push { name, domain := u64Domain }
+    let domain :=
+      if ent.paramIsPrincipal[i]? == some true then principalOpaqueDomain
+      else u64Domain
+    nondets := nondets.push { name, domain }
+  -- Nondet external outcomes for pf.assets ops (Reference responses cursor).
+  let mut externalOkNames : Array String := #[]
+  for i in [0:ent.assetOps.size] do
+    let n := externalOkName ent.actionIndex i
+    externalOkNames := externalOkNames.push n
+    nondets := nondets.push { name := n, domain := externalOutcomeDomain }
   let (pures, _c, successName, failureName) ←
-    emitCheckCascade plan emittedParams ent.checks #[] 0
+    emitCheckCascade plan emittedParams externalOkNames ent.checks #[] 0
   let mut pures := pures
   -- Optional result pure
   let resultPure? ← match ent.result? with
     | none => pure (none : Option String)
     | some e => do
-        let qe ← lowerExpr plan emittedParams #[] e
+        let qe ← lowerExpr plan emittedParams #[] externalOkNames e
         let qe := rewriteMaxBound qe
         pures := pures.push { name := "resR", value := qe }
         pure (some "resR")
@@ -337,7 +371,7 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
   let mut written : Array Nat := #[]
   for (fi, e) in ent.stores do
     written := written.push fi
-    let post ← lowerExpr plan emittedParams #[] e
+    let post ← lowerExpr plan emittedParams #[] externalOkNames e
     let post := rewriteMaxBound post
     let sn ← stateVar plan fi
     assigns := assigns.push {
@@ -350,6 +384,26 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
       assigns := assigns.push {
         target := sn
         value := .name sn
+      }
+  -- Self-vault: success applies sequential deposit/transfer; failure stutters.
+  -- Entries without asset ops still assign identity so every action covers the var.
+  if plan.usesVaultNative then
+    if ent.assetOps.isEmpty then
+      assigns := assigns.push {
+        target := "pf_vault_native"
+        value := .name "pf_vault_native"
+      }
+    else
+      let mut vaultPost : QExpr := .name "pf_vault_native"
+      for op in ent.assetOps do
+        let amt ← lowerExpr plan emittedParams #[] externalOkNames op.amount
+        let amt := rewriteMaxBound amt
+        match op.kind with
+        | .nativeDeposit => vaultPost := .binary .add vaultPost amt
+        | .nativeTransfer => vaultPost := .binary .sub vaultPost amt
+      assigns := assigns.push {
+        target := "pf_vault_native"
+        value := .ifThenElse (.name successName) vaultPost (.name "pf_vault_native")
       }
   pure { nondets, pures, assigns }
 
@@ -377,7 +431,7 @@ private def emitInitBranch (plan : Plan) (init : PlanInit) :
   let mut written : Array Nat := #[]
   for (fi, e) in init.stores do
     written := written.push fi
-    let post ← lowerExpr plan emittedParams #[] e
+    let post ← lowerExpr plan emittedParams #[] #[] e
     let sn ← stateVar plan fi
     assigns := assigns.push { target := sn, value := post }
   for i in [0:plan.states.size] do
@@ -386,6 +440,11 @@ private def emitInitBranch (plan : Plan) (init : PlanInit) :
       -- Unwritten init fields: leave as primed identity is illegal without
       -- prior value; init must set every field or default 0.
       assigns := assigns.push { target := sn, value := .intLit "0" }
+  if plan.usesVaultNative then
+    assigns := assigns.push {
+      target := "pf_vault_native"
+      value := .intLit "0"
+    }
   -- Stutter entry instrumentation args/results (identity if vars exist)
   for ent in plan.entries do
     for i in [0:ent.params.size] do
@@ -415,6 +474,9 @@ private def lower (plan : Plan) : CompileResult IR := do
   -- cannot collide with Quint built-ins, view names, or instrumentation.
   for st in plan.states do
     decls := decls.push (.varDecl (emittedStateName st.name) "int")
+  -- ADR-0029 Phase A5: target-owned self-vault (not program logical state).
+  if plan.usesVaultNative then
+    decls := decls.push (.varDecl "pf_vault_native" "int")
   -- Instrumentation vars
   decls := decls.push (.varDecl "pf_last_action" "int")
   decls := decls.push (.varDecl "pf_last_ok" "bool")
@@ -435,19 +497,19 @@ private def lower (plan : Plan) : CompileResult IR := do
     let mut emittedParams : Array String := #[]
     for i in [0:v.params.size] do
       emittedParams := emittedParams.push s!"pf_view_arg_{viewIndex}_{i}"
-    let body ← lowerExpr plan emittedParams #[] v.value
+    let body ← lowerExpr plan emittedParams #[] #[] v.value
     let params := emittedParams.map (fun n => (n, "int"))
     let ret := match v.resultKind with
       | .bool => "bool"
       | _ => "int"
     decls := decls.push (.pureDef (emittedViewName v.name) params ret body)
     viewIndex := viewIndex + 1
-  -- Invariants as val (business state only)
+  -- Invariants as val (business state only; vault is not an invariant root)
   for inv in plan.invariants do
-    let mut body ← lowerExpr plan #[] #[] inv.value
+    let mut body ← lowerExpr plan #[] #[] #[] inv.value
     -- AND all check conditions (success conditions)
     for ck in inv.checks do
-      let c ← lowerExpr plan #[] #[] ck.condition
+      let c ← lowerExpr plan #[] #[] #[] ck.condition
       body := .binary .and c body
     body := rewriteMaxBound body
     decls := decls.push (.valDecl (emittedInvariantName inv.name) body)

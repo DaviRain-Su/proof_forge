@@ -723,6 +723,216 @@ unsafe def testBoolPureFnInvariant : IO Unit := do
   expect (qnt.contains "and" || qnt.contains ">")
     "Bool body / pureFn inline must appear in step or val"
 
+/-- ADR-0029 frozen pf.assets extension digest. -/
+private def pfAssetsDigestV1 : String :=
+  "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+
+private def pfAssetsRequiresBlock : String :=
+  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "    digest \"" ++ pfAssetsDigestV1 ++ "\"\n"
+
+/-- A5: native deposit/transfer lower to vault + nondet outcome + stutter. -/
+unsafe def testPfAssetsVaultDepositTransfer : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Tip where\n" ++
+    pfAssetsRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry tip(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call pf.assets.native.deposit(amount)\n" ++
+    "    call pf.assets.native.transfer(dst, amount)\n" ++
+    "    count := count + amount\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-pf-assets-tip>" "Tests.QuintPfAssetsTip" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect plan.usesVaultNative "Tip must enable vaultNative"
+  let some tip := plan.entries[0]? |
+    throw <| IO.userError "Tip must have tip entry"
+  expect (tip.assetOps.size == 2) "tip: deposit + transfer asset ops"
+  expect (tip.paramIsPrincipal == #[true, false])
+    "tip: Principal then UInt64 params"
+  -- Checks: ext0, vaultOverflow, ext1, vaultUnderflow, arith overflow (count+amount)
+  expect (tip.checks.size >= 4)
+    "tip: at least external+vault checks for two ops"
+  let kinds := tip.checks.map (·.kind)
+  expect (kinds.contains .externalCallFailed)
+    "tip: externalCallFailed checks present"
+  expect (kinds.contains .vaultOverflow)
+    "tip: vaultOverflow check for deposit"
+  expect (kinds.contains .vaultUnderflow)
+    "tip: vaultUnderflow check for transfer"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "Tip.qnt") |
+    throw <| IO.userError "quint: missing Tip.qnt"
+  let qnt := qntFile.contents
+  expect (qnt.contains "var pf_vault_native: int")
+    "Tip.qnt must declare pf_vault_native"
+  expect (qnt.contains "nondet pf_ext_ok_a1_0 = oneOf(0.to(1))")
+    "deposit outcome nondet"
+  expect (qnt.contains "nondet pf_ext_ok_a1_1 = oneOf(0.to(1))")
+    "transfer outcome nondet"
+  expect (qnt.contains "pf_vault_native' = if (ok")
+    "vault assignment is success-gated (stutter on failure)"
+  expect (qnt.contains "pf_ext_ok_a1_0 == 1" || qnt.contains "pf_ext_ok_a1_0 ==1")
+    "externalOk lowers to == 1"
+  -- Failure code 5 for external, 6 vault overflow, 7 vault underflow appear.
+  expect (qnt.contains ") 5 else" || qnt.contains ") 5 else 0" ||
+      qnt.contains " 5 else")
+    "externalCallFailed code 5 in first-failure cascade"
+  expect (qnt.contains " 6 else" || qnt.contains ") 6 else")
+    "vaultOverflow code 6"
+  expect (qnt.contains " 7 else" || qnt.contains ") 7 else")
+    "vaultUnderflow code 7"
+
+/-- A5: pf.assets catalog QN without extension declaration fail closed. -/
+unsafe def testPfAssetsRequiresDeclaration : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NoExt where\n" ++
+    "  entry transfer(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call pf.assets.native.transfer(dst, amount)\n" ++
+    "    return amount\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-pf-assets-noext>" "Tests.QuintPfAssetsNoExt" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "extension.pf-assets" || msg.contains "pf.assets catalog")
+        s!"no-declaration must cite extension gate, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
+  | .ok _ => throw <| IO.userError "pf.assets without extension must fail closed"
+
+/-- A5: non-catalog QN (Oracle.feed) resolves sync-call but Plan FC. -/
+unsafe def testNonCatalogExternalCallFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OracleCall where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(x : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(x)\n" ++
+    "    count := count + x\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-oracle>" "Tests.QuintOracle" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  -- Resolver admits effect.synchronous-call on Quint (A5).
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.quint none
+  let cap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  expect (Targets.ResolvedEngineeringBuildV1.targetIdOf cap == TargetId.quint)
+    "Oracle.feed resolves on Quint via sync-call"
+  match Targets.Quint.planFromCapability cap with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "not a Quint-admitted pf.assets" ||
+          msg.contains "externalCall")
+        s!"non-catalog must fail at Plan, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
+  | .ok _ => throw <| IO.userError "Oracle.feed must fail closed at Quint Plan"
+
+/-- A5: async / token pf.assets QNs fail closed (no fake modeling). -/
+unsafe def testPfAssetsAsyncAndTokenFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let asyncSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program AsyncXfer where\n" ++
+    pfAssetsRequiresBlock ++
+    "  entry go(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call pf.assets.native.transferAsync(dst, amount)\n" ++
+    "    return amount\n"
+  let parsedA ← liftResult (← session.selectProgramV1
+    asyncSrc "<quint-async>" "Tests.QuintAsync" none)
+  let compiledA ← liftResult <| Compiler.compileValidatedSourceV1 parsedA
+  match planQuint compiledA with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "transferAsync" || msg.contains "async/token")
+        s!"async must cite Phase A scope, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant async, got {e.render}"
+  | .ok _ => throw <| IO.userError "transferAsync must fail closed"
+  let tokenSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program TokenXfer where\n" ++
+    pfAssetsRequiresBlock ++
+    "  entry go(mint : Principal, dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call pf.assets.token.transfer(mint, dst, amount)\n" ++
+    "    return amount\n"
+  let parsedT ← liftResult (← session.selectProgramV1
+    tokenSrc "<quint-token>" "Tests.QuintToken" none)
+  let compiledT ← liftResult <| Compiler.compileValidatedSourceV1 parsedT
+  match planQuint compiledT with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "token" || msg.contains "async/token")
+        s!"token must cite Phase A scope, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant token, got {e.render}"
+  | .ok _ => throw <| IO.userError "token.transfer must fail closed"
+
+/-- A5: dual extension declaration (solana.cpi + pf.assets) → Quint resolve FC
+    on the Solana CPI row; pf.assets + S2 keys alone still coexist. -/
+unsafe def testDualExtensionResolveFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let solanaDigest :=
+    ProofForgeV2.Core.RequirementIdsV1.solanaCpiAccountsExtensionDigestV1
+  let dualSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program DualExt where\n" ++
+    "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
+    "    digest \"" ++ solanaDigest ++ "\"\n" ++
+    pfAssetsRequiresBlock ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    dualSource "<quint-dual>" "Tests.QuintDual" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.quint none
+  let semantic := CompiledSemanticV1.semanticV1Of compiled
+  let frozen ← match Semantic.WireV1.validateSemanticProgramV1 semantic with
+    | .ok d => pure d.requirements
+    | .error e => throw <| IO.userError s!"dual validate: {repr e}"
+  expect (frozen.items.any (·.id == "extension.solana-cpi-accounts"))
+    "dual freeze carries solana CPI extension"
+  expect (frozen.items.any (·.id == "extension.pf-assets"))
+    "dual freeze carries pf.assets extension"
+  match Targets.resolveEngineeringRequirementsV1 selection compiled with
+  | .error e =>
+      expect (e.code == "PF-REQ-UNSUPPORTED")
+        "dual solana+pf.assets must PF-REQ-UNSUPPORTED on Quint"
+  | .ok _ =>
+      throw <| IO.userError "dual solana extension must not resolve on Quint"
+  -- Coexistence: pf.assets alone with no call site still resolves.
+  let onlyPf :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OnlyPf where\n" ++
+    pfAssetsRequiresBlock ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let parsed2 ← liftResult (← session.selectProgramV1
+    onlyPf "<quint-only-pf>" "Tests.QuintOnlyPf" none)
+  let compiled2 ← liftResult <| Compiler.compileValidatedSourceV1 parsed2
+  let cap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled2
+  expect (Targets.ResolvedEngineeringBuildV1.targetIdOf cap == TargetId.quint)
+    "pf.assets alone still resolves (S2 + extension coexistence)"
+
 unsafe def run : IO Unit := do
   testCounterQuintSource
   testRollbackStutter
@@ -745,6 +955,11 @@ unsafe def run : IO Unit := do
   testCheckCascadeBudget
   testPlanRejectsForgedMissingResult
   testBoolPureFnInvariant
+  testPfAssetsVaultDepositTransfer
+  testPfAssetsRequiresDeclaration
+  testNonCatalogExternalCallFailClosed
+  testPfAssetsAsyncAndTokenFailClosed
+  testDualExtensionResolveFailClosed
   IO.println "Tests.Materialization.QuintSourceV1: ok"
 
 end Tests.Materialization.QuintSourceV1

@@ -35,7 +35,8 @@ def encodeEngineeringQuintPlanBytesV1 (plan : Plan) : Except String ByteArray :=
     reprStr plan.initializer ++ "\u0000" ++
     reprStr plan.entries ++ "\u0000" ++
     reprStr plan.views ++ "\u0000" ++
-    reprStr plan.invariants).toUTF8)
+    reprStr plan.invariants ++ "\u0000" ++
+    reprStr plan.usesVaultNative).toUTF8)
 
 def engineeringQuintPlanDigestV1 (plan : Plan) : Except String Digest := do
   let bytes ← encodeEngineeringQuintPlanBytesV1 plan
