@@ -3522,6 +3522,215 @@ private unsafe def testAnonymousOptionUInt64Return : IO Unit := do
   expect (abi.contains "(uint64,uint64)")
     s!"OptionRet ABI must declare tuple (uint64,uint64), got: {abi}"
 
+/-- BL-31 / B-OPT-STATE: `state o : Option UInt64` is 2 slots (tag + payload),
+    Enum-identical layout. Pins:
+    * storageLayout names `{state}_tag` / `{state}_p0`
+    * init `Option.none` → storeAtomic tag=0 payload=0
+    * entry `Option.some(v)` → storeAtomic tag=1 payload=param
+    * entry reset to none zeros both leaves (stale payload must not survive)
+    * match read via VariantTag/VariantPayload on state load
+    * Yul sstore/sload of both slots + storeAtomic spill idiom
+    FC: Option of non-UInt64, nested Option, Option params. -/
+private unsafe def testOptionUInt64State : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptionState where\n" ++
+    "  state slot : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n" ++
+    "  entry clear() : UInt64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n" ++
+    "  view getOpt() : Option UInt64 do\n" ++
+    "    return slot\n"
+  let source ← liftResult "load OptionState" (← session.selectProgramV1
+    sourceText "<evm-option-state>" "Tests.EvmOptionState" none)
+  let compiled ← liftResult "compile OptionState" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan OptionState" <| planEvm compiled
+  -- Layout: exactly Enum 2-variant naming (tag + p0).
+  expect (plan.storageLayout.size == 2)
+    s!"OptionState must flatten to 2 slots, got {plan.storageLayout.size}"
+  expect (plan.storageLayout[0]!.name == "slot_tag" &&
+      plan.storageLayout[0]!.slot == 0 &&
+      plan.storageLayout[0]!.byteWidth == 8)
+    "OptionState tag leaf must be slot_tag at storage slot 0"
+  expect (plan.storageLayout[1]!.name == "slot_p0" &&
+      plan.storageLayout[1]!.slot == 1 &&
+      plan.storageLayout[1]!.byteWidth == 8)
+    "OptionState payload leaf must be slot_p0 at storage slot 1"
+  -- Init: Option.none → storeAtomic of (0, 0) on the two leaves (body retained
+  -- because multi-leaf storeAtomic cannot flatten into scalar constructor.stores).
+  match plan.constructor with
+  | none => throw <| IO.userError "OptionState must retain constructor"
+  | some ctor =>
+      expect (!ctor.body.isEmpty)
+        "OptionState constructor must keep body (storeAtomic, not store-only flatten)"
+      let mut sawNoneAtomic := false
+      for stmt in ctor.body do
+        match stmt with
+        | Targets.Evm.Statement.storeAtomic ops =>
+            expect (ops.size == 2)
+              s!"Option.none storeAtomic must write 2 leaves, got {ops.size}"
+            expect (ops[0]!.slot == 0 && ops[0]!.byteWidth == 8)
+              "Option.none tag targets slot 0"
+            expect (ops[1]!.slot == 1 && ops[1]!.byteWidth == 8)
+              "Option.none payload targets slot 1"
+            expect (ops[0]!.value == .literal 0 && ops[1]!.value == .literal 0)
+              "Option.none must zero tag and payload (stale-payload pin)"
+            sawNoneAtomic := true
+        | _ => pure ()
+      expect sawNoneAtomic "OptionState init must emit storeAtomic for Option.none"
+  -- setSome: storeAtomic (1, param 0)
+  expect (plan.entries.map (·.name) == #["setSome", "clear", "peek", "getOpt"])
+    "OptionState entry order"
+  let setSome := plan.entries[0]!
+  match setSome.body[0]? with
+  | some (Targets.Evm.Statement.storeAtomic ops) =>
+      expect (ops.size == 2) "setSome storeAtomic must write 2 leaves"
+      expect (ops[0]!.slot == 0 && ops[0]!.value == .literal 1)
+        "setSome tag leaf must be literal 1"
+      expect (ops[1]!.slot == 1 && ops[1]!.value == .param 0)
+        "setSome payload leaf must be the UInt64 param"
+  | some (Targets.Evm.Statement.store s) =>
+      throw <| IO.userError
+        s!"setSome must be storeAtomic for 2-leaf Option, got scalar store slot={s.slot}"
+  | _ => throw <| IO.userError "setSome body[0] must be storeAtomic"
+  -- clear: re-assign none zeros both leaves (payload must not survive).
+  let clear := plan.entries[1]!
+  match clear.body[0]? with
+  | some (Targets.Evm.Statement.storeAtomic ops) =>
+      expect (ops.size == 2) "clear storeAtomic must write 2 leaves"
+      expect (ops[0]!.value == .literal 0 && ops[1]!.value == .literal 0)
+        "clear Option.none must zero tag and payload"
+  | _ => throw <| IO.userError "clear body[0] must be storeAtomic Option.none"
+  -- peek: match on state load → VariantTag (sload tag) + VariantPayload (sload p0)
+  -- on the some arm. Pin via Plan Repr so both storage leaves appear in the
+  -- branch/switch body (not only in a bare returnAggregate).
+  let peek := plan.entries[2]!
+  let peekRepr := toString (repr peek.body)
+  expect (peekRepr.contains "storageLoad 0")
+    s!"peek match must sload Option tag leaf (slot 0), body={peekRepr}"
+  expect (peekRepr.contains "storageLoad 1")
+    s!"peek match must sload Option payload leaf (slot 1), body={peekRepr}"
+  expect (peekRepr.contains "ifThenElse" || peekRepr.contains "switchOn")
+    s!"peek match must lower to ifThenElse/switchOn, body={peekRepr}"
+  -- getOpt: return aggregate of state-loaded tag+payload.
+  let getOpt := plan.entries[3]!
+  match getOpt.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2) "getOpt Option return must have 2 leaves"
+  | _ => throw <| IO.userError "getOpt resultKind must be .aggregate"
+  match getOpt.body[0]? with
+  | some (Targets.Evm.Statement.returnAggregate leaves _) =>
+      expect (leaves.size == 2) "getOpt returnAggregate must have 2 leaves"
+      expect (leaves[0]! == Targets.Evm.Expr.storageLoad 0 &&
+          leaves[1]! == Targets.Evm.Expr.storageLoad 1)
+        "getOpt must return sload(tag), sload(payload)"
+  | _ => throw <| IO.userError "getOpt body must be .returnAggregate of state leaves"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptionState plan must validate: {e.render}"
+  let output ← liftResult "materialize OptionState" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "OptionState.yul") |
+    throw <| IO.userError "OptionState: missing OptionState.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "sstore(0," && yul.contains "sstore(1,")
+    "OptionState Yul must sstore both tag and payload slots"
+  expect (yul.contains "sload(0)" && yul.contains "sload(1)")
+    "OptionState Yul must sload both tag and payload slots"
+  -- storeAtomic spill idiom (B-EVM-MAP-STACK) for the 2-leaf batch.
+  expect (yul.contains "mstore(" && yul.contains "mload(")
+    "OptionState Yul storeAtomic must use memory-spill idiom"
+  let plan2 ← liftResult "plan OptionState again" <| planEvm compiled
+  expect (plan == plan2) "OptionState plan rebuild must be deterministic"
+
+  -- FC: Option of non-UInt64 (Bool payload).
+  let badBool :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptBool where\n" ++
+    "  state o : Option Bool\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry set() : UInt64 do\n" ++
+    "    o := Option.some(true)\n" ++
+    "    return 1\n"
+  let badBoolSrc ← liftResult "load OptBool" (← session.selectProgramV1
+    badBool "<evm-opt-bool>" "Tests.EvmOptBool" none)
+  let badBoolCompiled ← liftResult "compile OptBool" <|
+    Compiler.compileValidatedSourceV1 badBoolSrc
+  match planEvm badBoolCompiled with
+  | .ok _ =>
+      throw <| IO.userError "EVM Option Bool state must fail closed"
+  | .error e =>
+      expect (e.render.contains "Option" || e.render.contains "UInt64" ||
+          e.render.contains "payload" || e.render.contains "shape")
+        s!"Option Bool FC must cite Option/UInt64/payload, got: {e.render}"
+
+  -- FC: nested Option (Option of Option UInt64).
+  let badNested :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptNested where\n" ++
+    "  state o : Option Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry set(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(Option.some(v))\n" ++
+    "    return v\n"
+  let badNestedSrc ← liftResult "load OptNested" (← session.selectProgramV1
+    badNested "<evm-opt-nested>" "Tests.EvmOptNested" none)
+  let badNestedCompiled ← liftResult "compile OptNested" <|
+    Compiler.compileValidatedSourceV1 badNestedSrc
+  match planEvm badNestedCompiled with
+  | .ok _ =>
+      throw <| IO.userError "EVM nested Option state must fail closed"
+  | .error e =>
+      expect (e.render.contains "Option" || e.render.contains "UInt64" ||
+          e.render.contains "payload" || e.render.contains "shape")
+        s!"nested Option FC must cite Option/UInt64/payload, got: {e.render}"
+
+  -- FC: Option params (state-only admission; Enum params admit but Option params stay FC).
+  let badParam :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptParam where\n" ++
+    "  state x : UInt64\n" ++
+    "  init() do\n" ++
+    "    x := 0\n" ++
+    "  entry take(o : Option UInt64) : UInt64 do\n" ++
+    "    match o with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let badParamSrc ← liftResult "load OptParam" (← session.selectProgramV1
+    badParam "<evm-opt-param>" "Tests.EvmOptParam" none)
+  let badParamCompiled ← liftResult "compile OptParam" <|
+    Compiler.compileValidatedSourceV1 badParamSrc
+  match planEvm badParamCompiled with
+  | .ok _ =>
+      throw <| IO.userError "EVM Option params must fail closed"
+  | .error e =>
+      expect (e.render.contains "Option" || e.render.contains "parameter" ||
+          e.render.contains "UInt64" || e.render.contains "shape" ||
+          e.render.contains "public")
+        s!"Option param FC must cite parameter/Option boundary, got: {e.render}"
+
 /-- BL-28: result-bearing external call lowers on EVM to real CALL +
     returndata read (iszero/returndatasize/UInt64 range guards); non-UInt64
     scalar results stay fail closed. -/
@@ -3783,6 +3992,7 @@ unsafe def run : IO Unit := do
   testAggregateStructReturn
   testAnonymousArrayUInt64Return
   testAnonymousOptionUInt64Return
+  testOptionUInt64State
   testCallReturnEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed
