@@ -68,12 +68,8 @@ def s2RequirementVersionV1 : SemVer :=
   { major := 1, minor := 0, patch := 0 }
 
 /-- Closed S2 catalog IDs in SPEC wire order (UTF-8 ascending).
-<<<<<<< HEAD
     Sole spelling/order source: `RequirementIdsV1.s2CatalogIdsWireOrderListV1`
     (this Array is that list's `.toArray` projection). -/
-=======
-    Sole spelling source: `ProofForgeV2.Core.RequirementIdsV1.s2CatalogIdsWireOrderV1`. -/
->>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
 def s2CatalogIdsWireOrderV1 : Array String :=
   ProofForgeV2.Core.RequirementIdsV1.s2CatalogIdsWireOrderV1
 

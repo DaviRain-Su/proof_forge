@@ -1479,20 +1479,12 @@ private unsafe def testShiftBitwiseLogical
   let ir2 ← liftResult <| irSolana compiled
   expect (ir == ir2) "BitLogic IR rebuild must be structure-identical"
 
-<<<<<<< HEAD
-/-- AddressBearing + BL-27: Solana admits static QN call/schedule as real CPI.
-    Plan carries externalCall/schedule; plan text renders program_id= (SHA-256
-    of target path); SBPF emits `sol_invoke_signed_c` (not sol_log_data).
-    Principal remains fail-closed. -/
-/-- Legacy Solana profiles decline call/schedule before Plan mint. The target
-=======
 /-- #125 call/schedule matrix:
     * legacy profiles (default plan / elf) still PF-REQ-UNSUPPORTED for both keys
     * exact CPI profile admits sync at ordinary resolve; unknown Oracle QN fails
       product Plan with PF-PLAN-INVARIANT; schedule still PF-REQ-UNSUPPORTED
->>>>>>> d599de3dc (feat(solana): activate exact CPI product profile)
-    Plan/IR validators and SBPF emitter also reject forged legacy call nodes so
-    no bypass can reproduce the former transitional CPI / log observability stub. -/
+    Principal remains fail-closed for address mapping. Defense-in-depth: forged
+    legacy Plan/IR/SBPF call nodes still fail closed. -/
 private unsafe def testExternalCallFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let callText := wrapProgram "CallGate" <|

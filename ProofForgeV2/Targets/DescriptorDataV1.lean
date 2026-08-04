@@ -56,14 +56,10 @@ def solana : TargetDescriptor :=
     plan/ir/build exhaustive dispatch, not here. -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
-<<<<<<< HEAD
     (descriptor.targetId == TargetId.evm && profile == CodegenProfileId.evmYulSolc0834CancunV1) ||
-    (descriptor.targetId == TargetId.solana && profile == CodegenProfileId.solanaSbpfElfV1)
-=======
     (descriptor.targetId == TargetId.solana &&
       (profile == CodegenProfileId.solanaSbpfCpiElfV1 ||
         profile == CodegenProfileId.solanaSbpfElfV1))
->>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
 
 def near : TargetDescriptor :=
   descriptorFromRegistryAxes .near .wasmText CodegenProfileId.nearWasmRawU64V1

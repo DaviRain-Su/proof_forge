@@ -96,13 +96,8 @@ private def testClaimMintCanonicalOrder : IO Unit := do
     StaticRequirementSupportIndexV1.toArray index
   expect (claims.size == rows.size)
     s!"one claim per support row: got {claims.size} want {rows.size}"
-<<<<<<< HEAD
-  expect (claims.size == 11)
-    s!"implemented profile count is 11 (aleo/cosmwasm/evm×2/near/noir/psy/quint/solana×2/ton), got {claims.size}"
-=======
-  expect (claims.size == 9)
-    s!"implemented profile count is 9 (aleo/cosmwasm/evm/near/noir/psy/solana×3), got {claims.size}"
->>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
+  expect (claims.size == 12)
+    s!"implemented profile count is 12 (aleo/cosmwasm/evm×2/near/noir/psy/quint/solana×3/ton), got {claims.size}"
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
   let mut i : Nat := 0

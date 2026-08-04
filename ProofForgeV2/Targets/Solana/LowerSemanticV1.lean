@@ -2531,18 +2531,10 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-<<<<<<< HEAD
-<<<<<<< HEAD
     -- Legacy profiles deliberately decline both external effect families
-    -- (and result-bearing sync). A future opt-in CPI profile owns its own
-    -- exact account/callee contract; generic Semantic QualifiedName values
-    -- are not Solana program IDs.
-=======
-    -- Every shipped Solana profile deliberately declines both external effect
-    -- families. The opt-in CPI profile remains inert until its target-owned
-    -- account/callee Plan exists; generic QualifiedName values are not Solana
-    -- program IDs.
->>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
+    -- (and result-bearing sync). The exact CPI product profile uses the
+    -- target-owned CPI Plan/IR path instead of this legacy lowering; generic
+    -- Semantic QualifiedName values are not Solana program IDs.
 =======
     -- This legacy Plan family deliberately declines both external effect
     -- families. The exact CPI profile uses the separate product Plan/IR path;

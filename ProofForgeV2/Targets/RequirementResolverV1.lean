@@ -6,33 +6,20 @@
   BuildIdentity, formal registry root digest, claimDigest, predicate implication,
   or OutputSetV1.
 
-<<<<<<< HEAD
   Static rows cover exactly the implemented (targetId, codegenProfile) pairs
   from the frozen TargetRegistry membership table, in canonical (targetId,
   profile) ASCII order. Each row supports a per-target subset of the
-=======
-  Static rows are exactly the nine implemented (targetId, codegenProfile)
-  pairs from the frozen TargetRegistry membership table, in canonical
-  (targetId, profile) ASCII order. Each row supports a per-target subset of the
->>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   S2 seven RequirementRequestV1 keys in wire order:
     effect.asynchronous-workflow, effect.event, effect.synchronous-call,
     failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic
   with SemVer 1.0.0, engineeringRequirementDigestV1, and empty predicates only.
-<<<<<<< HEAD
-  Capability gates: EVM/Solana admit both call keys via **static**
-  `QualifiedName` callees (AddressBearing followup: no dynamic address type;
-  Plan lowers CALL/CPI-shaped sites from compile-time QN). NEAR declines only
-  `effect.synchronous-call` (async workflow promises are native), Noir
-  supports all seven.
-=======
   Capability gates: EVM admits both call keys via static `QualifiedName`
-  callees; NEAR declines only `effect.synchronous-call` (async workflow
-  promises are native), and Noir supports all seven. Both legacy Solana
-  profiles decline sync call and async workflow. The opt-in
-  `solana-sbpf-cpi-elf-v1` row (#125) admits exact `effect.synchronous-call`
-  plus the ADR-0024 extension, and still declines async.
->>>>>>> d599de3dc (feat(solana): activate exact CPI product profile)
+  callees (AddressBearing; no dynamic address type). NEAR declines only
+  `effect.synchronous-call` (async workflow promises are native), Noir
+  supports all seven. Both legacy Solana profiles decline sync call and async
+  workflow. The opt-in `solana-sbpf-cpi-elf-v1` row (#125) admits exact
+  `effect.synchronous-call` plus the ADR-0024 extension, and still declines
+  async.
 
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.
   Dependency-injected seams return index rows or
@@ -254,79 +241,55 @@ private def mkImplementedRow
     supported
   }
 
-<<<<<<< HEAD
-/-- Shipped eleven-row seed body (canonical targetId order: aleo, cosmwasm,
-    evm×2, near, noir, psy, quint, solana×2, ton). EVM carries both
+/-- Shipped twelve-row seed body (canonical targetId order: aleo, cosmwasm,
+    evm×2, near, noir, psy, quint, solana×3, ton). EVM carries both
     `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1` (ASCII ascending;
-    default remains legacy v1). Solana carries both `solana-sbpf-elf-v1`
-    and `solana-sbpf-plan-v1` (ASCII ascending); both share the same non-call
-    S2 capability set and **decline both call families** (capability-honesty:
-    the transitional empty-AccountMeta CPI / log marker was not exact CPI or
-    scheduling; a versioned CPI profile owns the future contract). Capability
-    gates are per target: EVM admits both call keys via static QualifiedName
-    callees (AddressBearing: wire Op.ExternalCall/Schedule take compile-time
-    QN, not a dynamic address ValueId — no Principal→20B/32B map). EVM
-    `schedule` is a **fire-and-forget same-transaction** interpretation: the
-    dispatch executes synchronously (`CALL`) and the outcome is discarded,
-    matching the Reference no-response-cursor contract — never a
-    cross-transaction deferral claim (same admission discipline as the CW-4
-    SubMsg note below). EVM result-bearing sync calls read `RETURNDATA` as one
-    UInt64 word behind a size/range guard (BL-28; wider result types stay fail
-    closed; the callee address is a keccak-of-QN stub pending deployment
-    wiring). NEAR has no synchronous external calls
-    but owns async workflow promises, so it declines sync and supports
-    `effect.asynchronous-workflow`; Noir admits both call keys as a
-    **witness-binding relation** (B-CALL-SEM honesty, 2026-08-04 review):
-    call/schedule args become public-input slots asserted equal to the
-    computed values, and the outcome is a `callStatus` witness — the circuit
-    executes **no** external call and the proof does **not** attest that any
-    on-chain call happened; a caller-side executor must perform the call and
-    supply the response. Result-bearing calls (N-CALL-RET) stay fail closed
-    pending a response-witness contract. Aleo declines both call families (no static-callee Plan
-    open) and `effect.event` (Leo 4.0.2 has no on-chain event log — emit fails
-    closed at the materializer); Psy supports sync calls and events — sync
-    support means **source-surface emission** of the `__invoke_sync#<Felt>`
-    host intrinsic, with no VM/proof acceptance gate behind it yet — but
-    declines `effect.asynchronous-workflow` (no emitted deferred crosscall
-    form — schedule fails closed at the materializer). CosmWasm declined both
-    call families at MVP: its `WasmMsg::Execute` is a same-transaction
-    submessage with a savepoint, **not** an EVM-style synchronous CALL, and
-    SubMsg fire-and-forget is **not** a cross-transaction async workflow —
-    aliasing either would overclaim the platform semantics (B-CALL-SEM
-    discipline). Its `effect.event` maps to Response attributes. CW-4 follow-up:
-    `effect.asynchronous-workflow` is now admitted — schedule lowers to
-    `SubMsg{reply_on:never, id:0, WasmMsg::Execute}` (no reply channel, same-tx
-    savepoint dispatch; submessage failure aborts the whole transaction per
-    wasmd `DispatchSubmessages`; `contract_addr` is a static QN stub pending
-    deployment wiring — never a cross-tx async claim). TON is a
+    default remains legacy v1). Solana carries `solana-sbpf-cpi-elf-v1`,
+    `solana-sbpf-elf-v1`, and `solana-sbpf-plan-v1` (ASCII ascending). Both legacy
+    Solana profiles share the same non-call S2 capability set and **decline both
+    call families** plus the ADR-0024 extension. The opt-in CPI profile (#125)
+    admits exact `effect.synchronous-call` plus the exact ADR-0024 extension and
+    still declines `effect.asynchronous-workflow`. Capability gates are per
+    target: EVM admits both call keys via static QualifiedName callees
+    (AddressBearing: wire Op.ExternalCall/Schedule take compile-time QN, not a
+    dynamic address ValueId — no Principal→20B/32B map). EVM `schedule` is a
+    **fire-and-forget same-transaction** interpretation: the dispatch executes
+    synchronously (`CALL`) and the outcome is discarded, matching the Reference
+    no-response-cursor contract — never a cross-transaction deferral claim
+    (same admission discipline as the CW-4 SubMsg note below). EVM
+    result-bearing sync calls read `RETURNDATA` as one UInt64 word behind a
+    size/range guard (BL-28; wider result types stay fail closed; the callee
+    address is a keccak-of-QN stub pending deployment wiring). NEAR has no
+    synchronous external calls but owns async workflow promises, so it declines
+    sync and supports `effect.asynchronous-workflow`; Noir admits both call keys
+    as a **witness-binding relation** (B-CALL-SEM honesty, 2026-08-04 review):
+    call/schedule args become public-input slots asserted equal to the computed
+    values, and the outcome is a `callStatus` witness — the circuit executes
+    **no** external call and the proof does **not** attest that any on-chain
+    call happened; a caller-side executor must perform the call and supply the
+    response. Result-bearing calls (N-CALL-RET) stay fail closed pending a
+    response-witness contract. Aleo declines both call families (no
+    static-callee Plan open) and `effect.event` (Leo 4.0.2 has no on-chain event
+    log — emit fails closed at the materializer); Psy supports sync calls and
+    events — sync support means **source-surface emission** of the
+    `__invoke_sync#<Felt>` host intrinsic, with no VM/proof acceptance gate
+    behind it yet — but declines `effect.asynchronous-workflow` (no emitted
+    deferred crosscall form — schedule fails closed at the materializer).
+    CosmWasm declined both call families at MVP: its `WasmMsg::Execute` is a
+    same-transaction submessage with a savepoint, **not** an EVM-style
+    synchronous CALL, and SubMsg fire-and-forget is **not** a cross-transaction
+    async workflow — aliasing either would overclaim the platform semantics
+    (B-CALL-SEM discipline). Its `effect.event` maps to Response attributes.
+    CW-4 follow-up: `effect.asynchronous-workflow` is now admitted — schedule
+    lowers to `SubMsg{reply_on:never, id:0, WasmMsg::Execute}` (no reply
+    channel, same-tx savepoint dispatch; submessage failure aborts the whole
+    transaction per wasmd `DispatchSubmessages`; `contract_addr` is a static QN
+    stub pending deployment wiring — never a cross-tx async claim). TON is a
     pure-async actor chain: cross-contract interaction exists only as async
     internal messages, so `effect.synchronous-call` is declined outright while
     `effect.asynchronous-workflow` maps to raw async out-messages (bounce and
     value/gas attachment are materializer concerns, never a hidden sync
     fallback). Its `effect.event` maps to external out-messages. -/
-=======
-/-- Shipped nine-row seed body (canonical targetId order: aleo, cosmwasm, evm,
-    near, noir, psy, solana×3). Solana carries CPI, legacy ELF, and plan
-    profiles in ASCII order. Both legacy Solana rows decline both call
-    families and the ADR-0024 extension (byte-stable relative to pre-#125).
-    The opt-in CPI row (#125) admits exact `effect.synchronous-call` plus the
-    exact ADR-0024 extension, and still declines `effect.asynchronous-workflow`.
-    Capability gates are per
-    target: EVM admits both call keys via a static QualifiedName callee;
-    NEAR has no synchronous external calls but owns async workflow promises, so
-    it declines sync and supports `effect.asynchronous-workflow`; Noir's
-    verifier-witness response model supports both. Aleo
-    declines both call families (no static-callee Plan open) and `effect.event`
-    (Leo 4.0.2 has no
-    on-chain event log — emit fails closed at the materializer); Psy supports
-    sync calls and events but declines `effect.asynchronous-workflow` (no
-    emitted deferred crosscall form — schedule fails closed at the materializer).
-    CosmWasm declines both call families at MVP: its `WasmMsg::Execute` is a
-    same-transaction submessage with a savepoint, **not** an EVM-style
-    synchronous CALL, and SubMsg fire-and-forget is **not** a cross-transaction
-    async workflow — aliasing either would overclaim the platform semantics
-    (B-CALL-SEM discipline). Its `effect.event` maps to Response attributes. -/
->>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
   let catalogRequests ← s2CatalogRequests
   -- Capability filters reference closed S2 id spellings from RequirementIdsV1
@@ -341,30 +304,23 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- but has no emitted deferred-crosscall form, so schedule fails closed and
   -- effect.asynchronous-workflow is declined here (never alias sync semantics).
   let psyRequests := catalogRequests.filter fun r =>
-<<<<<<< HEAD
-    r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
   -- CosmWasm MVP+CW-4: sync declined (WasmMsg::Execute savepoint is not a
   -- sync CALL); async admitted via SubMsg reply_on=never (same-tx dispatch,
   -- whole-tx abort on submessage failure — not cross-tx async).
   let cosmwasmRequests := catalogRequests.filter fun r =>
-    r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   -- Quint Q0 is an executable state-model projection, not a deployment target.
   -- It models persistent state, Bool, checked arithmetic, and explicit
   -- rollback outcomes; event/call/schedule effects remain fail closed.
   let quintRequests := catalogRequests.filter fun r =>
-    r.id != Semantic.RequirementIdsV1.s2EffectEventIdV1 &&
-      r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
-      r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   -- Legacy Solana profiles decline both call families. The old transitional
   -- CPI / log marker was neither exact CPI nor scheduling and is not a
-  -- supported effect; a versioned CPI profile owns the future contract.
+  -- supported effect; the versioned CPI profile owns the product contract.
   -- Filter only the two call keys so expanded catalog entries stay intact.
-=======
-    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
-  -- Legacy Solana profiles and CosmWasm MVP decline both call families. For
-  -- Solana this is the capability-honesty cut: the old `sol_log_data` marker
-  -- was neither CPI nor scheduling and is not a supported effect.
->>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
   let withoutCallFamilies := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
@@ -389,11 +345,8 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
-<<<<<<< HEAD
     mkImplementedRow .quint CodegenProfileId.quintSourceU64ModelV1 quintRequests,
-=======
     mkImplementedRow .solana CodegenProfileId.solanaSbpfCpiElfV1 solanaCpiRequests,
->>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
     mkImplementedRow .solana CodegenProfileId.solanaSbpfElfV1 withoutCallFamilies,
     mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 withoutCallFamilies,
     mkImplementedRow .ton CodegenProfileId.tonTolkBocV1 withoutSync
