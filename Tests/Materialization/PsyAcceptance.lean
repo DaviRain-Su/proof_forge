@@ -296,6 +296,31 @@ private def optionRetSourceText : String :=
   "  view asSomeOfSeed() : Option UInt64 do\n" ++
   "    return Option.some(seed)\n"
 
+/-- B-OPT-STATE / BL-36: Option UInt64 state as 2 Felt leaves (tag+payload);
+    set/clear/peek match + getOpt return. Real psyup must accept emitted source. -/
+private def optionStateSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program OptionState where\n" ++
+  "  state slot : Option UInt64\n" ++
+  "  init() do\n" ++
+  "    slot := Option.none()\n" ++
+  -- entry must not be named `set` (Psy Storage derive owns set/get).
+  "  entry setSome(v : UInt64) : UInt64 do\n" ++
+  "    slot := Option.some(v)\n" ++
+  "    return v\n" ++
+  "  entry clear() : UInt64 do\n" ++
+  "    slot := Option.none()\n" ++
+  "    return 0\n" ++
+  "  view peek() : UInt64 do\n" ++
+  "    match slot with\n" ++
+  "    | Option.some(x) => do\n" ++
+  "      return x\n" ++
+  "    | _ => do\n" ++
+  "      return 0\n" ++
+  "  view getOpt() : Option UInt64 do\n" ++
+  "    return slot\n"
+
 /-- Suite entry. Skips cleanly when psyup/dargo/std are unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.PsyAcceptance: start"
@@ -342,6 +367,9 @@ unsafe def run : IO Unit := do
         acceptProgram tc staging "OptionRet"
           optionRetSourceText "Tests.PsyAccept.OptionRet"
           "OptionRet.psy" "option_ret"
+        acceptProgram tc staging "OptionState"
+          optionStateSourceText "Tests.PsyAccept.OptionState"
+          "OptionState.psy" "option_state"
         IO.println "Tests.Materialization.PsyAcceptance: ok"
       finally
         if ← staging.pathExists then IO.FS.removeDirAll staging
