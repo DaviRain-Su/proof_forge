@@ -2535,19 +2535,12 @@ private def lowerBlockInstructionsV1
     -- (and result-bearing sync). The exact CPI product profile uses the
     -- target-owned CPI Plan/IR path instead of this legacy lowering; generic
     -- Semantic QualifiedName values are not Solana program IDs.
-=======
-    -- This legacy Plan family deliberately declines both external effect
-    -- families. The exact CPI profile uses the separate product Plan/IR path;
-    -- generic QualifiedName values are never treated as Solana program IDs here.
->>>>>>> d599de3dc (feat(solana): activate exact CPI product profile)
     | .externalCall _ _ _, _ =>
         throw <| .planInvariant .solana
           "legacy Solana Plan lowering does not admit external calls; use the exact CPI product profile"
     | .schedule _ _ _, _ =>
         throw <| .planInvariant .solana
           "legacy Solana profiles do not support scheduled workflows"
-| .planInvariant .solana
-          "unsupported Solana semantic shape: schedule must be void"
     -- Array construct N args, Map.empty, Option.none/some, or named Struct/Enum.
     -- Bytes has no source constructor (Normalize never emits `.construct` for
     -- Bytes); the gate below is a defensive fail-closed boundary.

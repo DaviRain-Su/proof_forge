@@ -363,22 +363,6 @@ private def testSupportTable : IO Unit := do
   ]
   let mut i : Nat := 0
   while i < expectedKeys.size do
-| IO.userError error
-  let expectedKeys := #[
-    ("aleo", "aleo-leo-4.0.2-u64-v1", 4, false),
-    ("cosmwasm", "cosmwasm-wasm-u64-v1", 5, false),
-    ("evm", "evm-yul-solc-0.8.34-v1", 7, false),
-    ("near", "near-wasm-raw-u64-v1", 6, false),
-    ("noir", "noir-source-u64-relations-v1", 7, false),
-    ("psy", "psy-dargo-u64-v1", 6, false),
-    -- #125: CPI row = 6 S2 (incl sync, excl async) + exact extension = 7
-    ("solana", "solana-sbpf-cpi-elf-v1", 7, true),
-    ("solana", "solana-sbpf-elf-v1", 5, false),
-    ("solana", "solana-sbpf-plan-v1", 5, false)
-  ]
-  let mut i : Nat := 0
-  while i < rows.size do
->>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
     match rows[i]?, expectedKeys[i]? with
     | some row, some (tid, prof, supportCount, expectsExtension) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"

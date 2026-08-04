@@ -1453,7 +1453,6 @@ private partial def validateOperationSequence
     | .schedule .. =>
         throw <| .planInvariant .solana
           "legacy Solana IR does not support scheduled workflows"
-| .planInvariant .solana "typed Solana IR schedule is invalid"
     | .revertError errorIndex args =>
         unless errorIndex < plan.errors.size &&
             args.size == plan.errors[errorIndex]!.fieldCount &&

@@ -68,7 +68,7 @@ def s2RequirementVersionV1 : SemVer :=
   { major := 1, minor := 0, patch := 0 }
 
 /-- Closed S2 catalog IDs in SPEC wire order (UTF-8 ascending).
-    Sole spelling/order source: `RequirementIdsV1.s2CatalogIdsWireOrderListV1`
+    Sole spelling/order source: `s2CatalogIdsWireOrderListV1`
     (this Array is that list's `.toArray` projection). -/
 def s2CatalogIdsWireOrderV1 : Array String :=
   ProofForgeV2.Core.RequirementIdsV1.s2CatalogIdsWireOrderV1
@@ -76,7 +76,7 @@ def s2CatalogIdsWireOrderV1 : Array String :=
 /-- Closed-catalog membership via sole list authority exact `List.contains`
     (kernel-reducible; no second enumerated if-chain). -/
 def isS2CatalogIdV1 (id : String) : Bool :=
-  RequirementIdsV1.s2CatalogIdsWireOrderListV1.contains id
+  s2CatalogIdsWireOrderListV1.contains id
 
 /-! ### Kernel-transparent S2 catalog digests
 
@@ -141,19 +141,19 @@ def s2ValueCheckedArithmeticDigestBytesV1 : ByteArray :=
     `domainSeparatedSha256` results); unknown ids still compute via the pure
     SHA path. -/
 def engineeringRequirementDigestV1 (id : String) : Except String Digest :=
-  if id == RequirementIdsV1.s2EffectAsyncWorkflowIdV1 then
+  if id == s2EffectAsyncWorkflowIdV1 then
     pure { algorithm := .sha256, bytes := s2EffectAsyncWorkflowDigestBytesV1 }
-  else if id == RequirementIdsV1.s2EffectEventIdV1 then
+  else if id == s2EffectEventIdV1 then
     pure { algorithm := .sha256, bytes := s2EffectEventDigestBytesV1 }
-  else if id == RequirementIdsV1.s2EffectSyncCallIdV1 then
+  else if id == s2EffectSyncCallIdV1 then
     pure { algorithm := .sha256, bytes := s2EffectSyncCallDigestBytesV1 }
-  else if id == RequirementIdsV1.s2FailureAtomicRollbackIdV1 then
+  else if id == s2FailureAtomicRollbackIdV1 then
     pure { algorithm := .sha256, bytes := s2FailureAtomicRollbackDigestBytesV1 }
-  else if id == RequirementIdsV1.s2StatePersistentIdV1 then
+  else if id == s2StatePersistentIdV1 then
     pure { algorithm := .sha256, bytes := s2StatePersistentDigestBytesV1 }
-  else if id == RequirementIdsV1.s2ValueBoolIdV1 then
+  else if id == s2ValueBoolIdV1 then
     pure { algorithm := .sha256, bytes := s2ValueBoolDigestBytesV1 }
-  else if id == RequirementIdsV1.s2ValueCheckedArithmeticIdV1 then
+  else if id == s2ValueCheckedArithmeticIdV1 then
     pure { algorithm := .sha256, bytes := s2ValueCheckedArithmeticDigestBytesV1 }
   else
     domainSeparatedSha256 engineeringRequirementKeyDomainV1 id.toUTF8
