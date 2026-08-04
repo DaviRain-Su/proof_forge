@@ -1121,7 +1121,7 @@ target-cli-positive: build
 	lake env .lake/build/bin/proof-forge-next inspect quint > build/inspect-quint.stdout
 	rg -q '^target=quint$' build/inspect-quint.stdout
 	rg -q '^profile=quint-source-u64-model-v1$' build/inspect-quint.stdout
-	rg -q '^requirements=#\[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-quint.stdout
+	rg -q '^requirements=#\[effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-quint.stdout
 	rg -q '^status=implemented$' build/inspect-quint.stdout
 	rg -q '^maturity=source-only$' build/inspect-quint.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-quint.stdout
