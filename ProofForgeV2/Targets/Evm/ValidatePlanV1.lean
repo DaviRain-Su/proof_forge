@@ -27,6 +27,7 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
           some 1
         else none
     | .temp _ => some 1
+    | .timestamp => some 1
     | .storageLoad slot | .fieldStorageLoad slot =>
         if slots.contains slot then some 1 else none
     | .narrowStorageLoad bitWidth slot =>

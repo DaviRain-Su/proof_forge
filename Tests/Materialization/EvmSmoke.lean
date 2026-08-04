@@ -3249,15 +3249,13 @@ private unsafe def testBytesStateIndexOps : IO Unit := do
   | .error e =>
       throw <| IO.userError s!"EVM must accept Map after I1, got {e.render}"
 
-/-- EVM ContextRead research-pin: both admitted closed wire keys
-    (`context.unixTimeSeconds` → UInt64, `context.caller` → Principal) reach
-    the EVM Plan layer from Normalize (init/entry/view) and MUST fail closed
-    with an explicit ContextRead boundary — never a silent TIMESTAMP/CALLER
-    opcode mapping. `unix-time-seconds` is deferred (PlanSchema frozen); the
-    caller key is pinned fail-closed by the B-3 PrincipalAddr boundary. -/
+/-- EVM ContextRead pin (B-CTX-OPEN, 2026-08-04): `context.unixTimeSeconds`
+    lowers to the `timestamp()` opcode (UInt64, range-guarded); `context.caller`
+    stays fail closed under the B-3 PrincipalAddr boundary — never a silent
+    CALLER opcode mapping. -/
 private unsafe def testContextReadFailClosedBoundary : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  -- unix-time-seconds → UInt64 result.
+  -- unix-time-seconds → UInt64 result is admitted (BL-28-era PlanSchema tag 59).
   let timeSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -3274,13 +3272,15 @@ private unsafe def testContextReadFailClosedBoundary : IO Unit := do
   let timeCompiled ← liftResult "compile CtxTime" <|
     Compiler.compileValidatedSourceV1 timeSrc
   match planEvm timeCompiled with
-  | .error (.planInvariant .evm msg) =>
-      expect (msg.contains "ContextRead" && msg.contains "unix-time-seconds")
-        s!"EVM unix-time ContextRead must cite the ContextRead/unix-time boundary, got: {msg}"
+  | .ok p =>
+      expect (p.entries.any fun e =>
+        e.body.any fun s =>
+          match s with
+          | .returnValue .timestamp => true
+          | _ => false)
+        "EVM unix-time ContextRead must lower to the timestamp expression"
   | .error e =>
-      throw <| IO.userError s!"EVM unix-time ContextRead must fail closed at plan, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError "EVM unix-time ContextRead must not produce a plan"
+      throw <| IO.userError s!"EVM unix-time ContextRead must admit (B-CTX-OPEN), got {e.render}"
   -- context.caller → Principal result (B-3 PrincipalAddr pin).
   let callerSource :=
     "import ProofForgeV2\n" ++
@@ -3794,6 +3794,70 @@ private unsafe def testCallReturnEvm : IO Unit := do
           throw <| IO.userError
             "EVM Bool result call must fail closed in the UInt64 pilot"
 
+/-- B-CTX-OPEN: `context.unixTimeSeconds` lowers on EVM to the `timestamp()`
+    opcode with the UInt64 range guard; `context.caller` stays fail closed. -/
+private unsafe def testContextReadTimestampEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ClockBox where\n" ++
+    "  state t : UInt64\n" ++
+    "  init() do\n" ++
+    "    t := 0\n" ++
+    "  entry stamp() : UInt64 do\n" ++
+    "    t := context.unixTimeSeconds\n" ++
+    "    return t\n" ++
+    "  view last() : UInt64 do\n" ++
+    "    return t\n"
+  let cSrc ← match ← session.selectProgramV1
+      src "<evm-ctx-ts>" "Tests.EvmCtxTs" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CtxTs select: {e.render}"
+  let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+    | .error _ => throw <| IO.userError "CtxTs must compile through located Normalize"
+    | .ok c => pure c
+  let plan ← match planEvm compiled with
+    | .error e => throw <| IO.userError s!"CtxTs must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasTimestamp := plan.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .store op =>
+          match op.value with
+          | .timestamp => true
+          | _ => false
+      | _ => false
+  expect hasTimestamp "CtxTs: plan must contain a timestamp store"
+  let files ← match materializeSelected TargetId.evm compiled with
+    | .error e => throw <| IO.userError s!"CtxTs materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulFile := files.find? (·.path == "ClockBox.yul") |
+    throw <| IO.userError "CtxTs: missing ClockBox.yul"
+  expect (yulFile.contents.contains "timestamp()")
+    "CtxTs: Yul must contain the timestamp() opcode"
+  -- context.caller stays fail closed (B-3 PrincipalAddr).
+  let callerSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallerBox where\n" ++
+    "  entry who() : UInt64 do\n" ++
+    "    let c : Principal := context.caller\n" ++
+    "    return 0\n"
+  let clSrc ← match ← session.selectProgramV1
+      callerSrc "<evm-ctx-caller>" "Tests.EvmCtxCaller" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CtxCaller select: {e.render}"
+  match Compiler.compileValidatedSourceV1 clSrc with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect (e.render.contains "caller")
+            s!"caller FC must cite caller boundary, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "EVM context.caller must fail closed"
+
 /-- BL-18: Bytes / Map / Array UInt64 9 / nested Array stay fail-closed. -/
 private unsafe def testAnonymousReturnFailClosedBoundaries : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -3994,6 +4058,7 @@ unsafe def run : IO Unit := do
   testAnonymousOptionUInt64Return
   testOptionUInt64State
   testCallReturnEvm
+  testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed
   let session ← Tests.Language.ParserSession.shared

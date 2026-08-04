@@ -3331,8 +3331,11 @@ unsafe def run : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"N5 context select: {e.render}"
   let ctxCompiled ← liftResult <| Compiler.compileValidatedSourceV1 ctxV1
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy] do
+  -- B-CTX-OPEN (2026-08-04): EVM (timestamp()) and NEAR (block_timestamp/1e9)
+  -- admit unixTimeSeconds; Solana/Noir/Psy keep the fail-closed pin.
+  let _ ← liftResult <| materializeSelected TargetId.evm ctxCompiled
+  let _ ← liftResult <| materializeSelected TargetId.near ctxCompiled
+  for target in [TargetId.solana, TargetId.noir, TargetId.psy] do
     match materializeSelected target ctxCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N5 context: {target} must decline ContextRead"

@@ -17,6 +17,9 @@ open ProofForgeV2.Targets.EnvelopeV1
 inductive Operation where
   | checkInputLen (bytes : Nat)
   | requireZeroAttachedDeposit
+  /-- B-CTX-OPEN: block timestamp seconds — host `block_timestamp()` (ns)
+      divided by 10^9 (truncating). -/
+  | blockTimestampSeconds (destination : Nat)
   | requireLayoutAbsent (marker : KeyRegion)
   | requireLayout (marker : KeyRegion) (value : UInt64)
   | zeroState (field : KeyRegion)
@@ -235,6 +238,11 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
           -- Unresolved local: allocate a sink temp so validation still binds;
           -- well-formed plans always resolve induction locals via forLoop.
           { operations := #[.literal next 0], value := next, next := next + 1 }
+  | .blockTimestampSeconds =>
+      { operations := #[.blockTimestampSeconds next]
+        value := next
+        next := next + 1
+      }
   | .stateLoad fieldIndex =>
       {
         operations := #[.loadState next (fieldRegion keys fieldIndex)]
@@ -943,6 +951,8 @@ private def renderImport : HostImport → String
       "  (import \"env\" \"log_utf8\" (func $pf_log_utf8 (param i64 i64)))\n"
   | .panicUtf8 =>
       "  (import \"env\" \"panic_utf8\" (func $pf_panic_utf8 (param i64 i64)))\n"
+  | .blockTimestamp =>
+      "  (import \"env\" \"block_timestamp\" (func $pf_block_timestamp (result i64)))\n"
   | .promiseBatchCreate =>
       -- account_id_len, account_id_ptr → promise_index
       "  (import \"env\" \"promise_batch_create\" (func $pf_promise_batch_create (param i64 i64) (result i64)))\n"
@@ -1208,6 +1218,9 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const {bw}) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
   | .literal destination value =>
       s!"{indent}(local.set $t{destination} (i64.const {value.toNat}))\n"
+  | .blockTimestampSeconds destination =>
+      -- B-CTX-OPEN: host block_timestamp (ns) → whole seconds (truncating div).
+      s!"{indent}(local.set $t{destination} (i64.div_u (call $pf_block_timestamp) (i64.const 1000000000)))\n"
   | .loadParam destination inputOffset =>
       s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.inputOffset + inputOffset})))\n"
   | .narrowLoadParam bitWidth destination inputOffset =>

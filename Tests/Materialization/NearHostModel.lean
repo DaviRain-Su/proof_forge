@@ -237,6 +237,10 @@ private partial def step (input : ByteArray) (deposit : Deposit)
           storage := storagePut machine.storage field.key (encodeUIntLE 0 bw) }
   | .literal destination value =>
       writeTemp machine destination value
+  | .blockTimestampSeconds destination =>
+      -- Deterministic HostModel timestamp: fixed 1_700_000_000 seconds
+      -- (B-CTX-OPEN; the sandbox supplies the real block timestamp).
+      writeTemp machine destination (UInt64.ofNat 1700000000)
   | .loadParam destination inputOffset => do
       let value ← match decodeUInt64LEAt input inputOffset with
         | some value => pure value
@@ -1027,6 +1031,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     match op with
     | .checkInputLen _ => "checkInputLen"
     | .requireZeroAttachedDeposit => "requireZeroAttachedDeposit"
+    | .blockTimestampSeconds _ => "blockTimestampSeconds"
     | .requireLayoutAbsent _ => "requireLayoutAbsent"
     | .requireLayout _ _ => "requireLayout"
     | .zeroState _ => "zeroState"
@@ -4039,6 +4044,63 @@ private unsafe def testMapTokenDualStoreVisibility
   expect (balSrc == some 60) s!"token-dual: balanceOf(src)=60, got {balSrc}"
   expect (balDst == some 40) s!"token-dual: balanceOf(dst)=40, got {balDst}"
 
+/-- B-CTX-OPEN: `context.unixTimeSeconds` lowers on NEAR to host
+    `block_timestamp()` with the /10^9 second conversion; the import is
+    present iff the plan uses it; caller stays fail closed. -/
+private unsafe def testContextReadTimestampNear (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ClockBox where\n" ++
+    "  state t : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    t := 0\n\n" ++
+    "  entry stamp() : UInt64 do\n" ++
+    "    t := context.unixTimeSeconds\n" ++
+    "    return t\n\n" ++
+    "  view last() : UInt64 do\n" ++
+    "    return t\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-clock-box>" "Examples.ClockBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.hostImports.contains .blockTimestamp)
+    "clock-box: plan must import block_timestamp"
+  let some stamp := plan.entries.find? (·.name == "stamp") |
+    throw <| IO.userError "clock-box: missing stamp"
+  let hasTs := stamp.body.any fun s =>
+    match s with
+    | .store op =>
+        match op.value with
+        | .blockTimestampSeconds => true
+        | _ => false
+    | _ => false
+  expect hasTs "clock-box: stamp must store blockTimestampSeconds"
+  -- context.caller stays fail closed.
+  let callerSrc :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CallerBox where\n" ++
+    "  entry who() : UInt64 do\n" ++
+    "    let c : Principal := context.caller\n" ++
+    "    return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let clSource ← liftResult (← session.selectProgramV1
+    callerSrc "<near-caller-box>" "Examples.CallerBox" none)
+  let clCompiled ← liftResult <| Compiler.compileValidatedSourceV1 clSource
+  match Targets.Near.planFromCapability
+      (← liftResult <| Targets.resolveEngineeringRequirementsV1 selection clCompiled) with
+  | .error _ => pure ()
+  | .ok _ =>
+      throw <| IO.userError "NEAR context.caller must fail closed"
+
 /-- Named Struct state + construct/fieldGet/fieldSet: flatten to KV leaves
     `p_x`/`p_y`; setX rebinds leaf 0 via storeAtomic; getX returns one scalar
     field. Aggregate-return coverage is exercised separately below. -/
@@ -4866,6 +4928,7 @@ unsafe def run : IO Unit := do
   testMapEmptyPutAtomicStore session
   testMapTokenDualStoreVisibility session
   testNamedStructProductPath session
+  testContextReadTimestampNear session
   testNamedEnumProductPath session
   testOptionStateProductPath session
   testOptionStateFailClosed session

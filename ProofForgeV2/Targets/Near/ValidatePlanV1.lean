@@ -59,6 +59,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .stateLoad fieldIndex | .narrowStateLoad _ fieldIndex =>
         if fieldIndex < layout.fields.size then some 1 else none
     | .localTemp _ => some 1
+    | .blockTimestampSeconds => some 1
     | .checkedAdd lhs rhs => binaryNodes lhs rhs
     | .checkedSub lhs rhs => binaryNodes lhs rhs
     | .checkedMul lhs rhs => binaryNodes lhs rhs
@@ -469,7 +470,7 @@ private def validateFnBinding (limits : ResourceLimits) (layout : StorageLayout)
 
 /-- Whether any statement tree contains a schedule→promise lowering. -/
 def validatePlan (plan : Plan) : CompileResult Unit := do
-  let expectedImports := hostImportsFor (planUsesPromiseV1 plan)
+  let expectedImports := hostImportsFor (planUsesPromiseV1 plan) (planUsesTimestampV1 plan)
   unless plan.targetDescriptor == descriptor &&
       plan.semanticSchemaVersion == semanticProgramSchemaVersionV1 &&
       plan.codegenProfile == descriptor.codegenProfile.toString &&
