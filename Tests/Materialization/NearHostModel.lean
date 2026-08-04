@@ -4447,6 +4447,192 @@ private unsafe def testAnonymousArrayReturn
   expect (leaves2 == #[(11 : U64), (22 : U64)])
     s!"array-ret: getArr after set must return [11,22], got {leaves2}"
 
+/-- B-OPT-STATE / BL-30: Option UInt64 state = tag+payload KV leaves (none
+    default zero; some write/read via match; none-reset zeroes payload). -/
+private unsafe def testOptionStateProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptionState where\n" ++
+    "  state slot : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  entry clear() : UInt64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "  view getSlot() : Option UInt64 do\n" ++
+    "    return slot\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-option-state>" "Examples.OptionState" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  -- Option UInt64 state: tag + payload → 2 leaves (Enum-shaped).
+  expect (plan.storage.fields.size == 2)
+    s!"option-state: must flatten to tag+payload leaves, got {plan.storage.fields.size}"
+  expect (plan.storage.fields.map (·.name) == #["slot_tag", "slot_p0"])
+    s!"option-state: leaf names must be slot_tag/slot_p0, got {plan.storage.fields.map (·.name)}"
+  let some setSome := plan.entries.find? (·.name == "setSome") |
+    throw <| IO.userError "option-state: missing setSome"
+  let hasAtomic := setSome.body.any fun s =>
+    match s with
+    | .storeAtomic leaves => leaves.size == 2
+    | _ => false
+  expect hasAtomic
+    "option-state: setSome construct+store must storeAtomic tag+payload leaves"
+  let some clear := plan.entries.find? (·.name == "clear") |
+    throw <| IO.userError "option-state: missing clear"
+  let clearAtomic := clear.body.any fun s =>
+    match s with
+    | .storeAtomic leaves => leaves.size == 2
+    | _ => false
+  expect clearAtomic
+    "option-state: clear Option.none must storeAtomic 2 leaves"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let setSomeIR ← findMethod ir "setSome"
+  let clearIR ← findMethod ir "clear"
+  let peekIR ← findMethod ir "peek"
+  let getSlotIR ← findMethod ir "getSlot"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "option-state init"
+    (execute initIR empty ByteArray.empty zero)
+  -- none = (tag=0, payload=0) exact storage bytes.
+  expect (storedUInt64? storage0 "pf:v1:state:0" == some 0)
+    "option-state: init none tag=0"
+  expect (storedUInt64? storage0 "pf:v1:state:1" == some 0)
+    "option-state: init none payload=0"
+  let (_, peekNone, _) ← requireSuccess "option-state peek none"
+    (execute peekIR storage0 ByteArray.empty zero)
+  expect (peekNone == some 0)
+    s!"option-state: peek on none must be 0, got {peekNone}"
+  let (_, noneLeaves, _) ← requireSuccessLeaves "option-state getSlot none"
+    (execute getSlotIR storage0 ByteArray.empty zero)
+  expect (noneLeaves == #[(0 : U64), (0 : U64)])
+    s!"option-state: getSlot after init must be [0,0], got {noneLeaves}"
+  let (storage1, retV, _) ← requireSuccess "option-state setSome"
+    (execute setSomeIR storage0 (encodeUInt64LE 42) zero)
+  expect (retV == some 42) s!"option-state: setSome must return v, got {retV}"
+  expect (storedUInt64? storage1 "pf:v1:state:0" == some 1)
+    "option-state: some tag must be 1"
+  expect (storedUInt64? storage1 "pf:v1:state:1" == some 42)
+    "option-state: some payload must be 42"
+  let (_, peekSome, _) ← requireSuccess "option-state peek some"
+    (execute peekIR storage1 ByteArray.empty zero)
+  expect (peekSome == some 42)
+    s!"option-state: peek after some(42) must be 42, got {peekSome}"
+  let (_, someLeaves, _) ← requireSuccessLeaves "option-state getSlot some"
+    (execute getSlotIR storage1 ByteArray.empty zero)
+  expect (someLeaves == #[(1 : U64), (42 : U64)])
+    s!"option-state: getSlot after some must be [1,42], got {someLeaves}"
+  -- none-reset must zero the payload leaf (not leave stale 42).
+  let (storage2, _, _) ← requireSuccess "option-state clear"
+    (execute clearIR storage1 ByteArray.empty zero)
+  expect (storedUInt64? storage2 "pf:v1:state:0" == some 0)
+    "option-state: clear tag must be 0"
+  expect (storedUInt64? storage2 "pf:v1:state:1" == some 0)
+    "option-state: clear must zero payload (pin), not leave stale 42"
+  let (_, peekClear, _) ← requireSuccess "option-state peek clear"
+    (execute peekIR storage2 ByteArray.empty zero)
+  expect (peekClear == some 0)
+    s!"option-state: peek after clear must be 0, got {peekClear}"
+  let (_, clearLeaves, _) ← requireSuccessLeaves "option-state getSlot clear"
+    (execute getSlotIR storage2 ByteArray.empty zero)
+  expect (clearLeaves == #[(0 : U64), (0 : U64)])
+    s!"option-state: getSlot after clear must be [0,0], got {clearLeaves}"
+  -- WAT must bind both Option state keys.
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "option-state: missing .wat"
+  expectContains wat.contents "pf:v1:state:0" "option-state WAT state key 0"
+  expectContains wat.contents "pf:v1:state:1" "option-state WAT state key 1"
+
+/-- B-OPT-STATE FC: Option of non-UInt64, nested Option, Option params stay closed. -/
+private unsafe def expectOptionStateFailClosed
+    (session : Language.Loader.ParserSession)
+    (label moduleName sourceText : String)
+    (messageNeedles : Array String) : IO Unit := do
+  let source ← match ← session.selectProgramV1
+    sourceText s!"<near-{label}>" moduleName none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"{label} select: {e.render}"
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()  -- Normalize/Check may reject first.
+  | .ok compiled =>
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+      let capability ← liftResult <|
+        Targets.resolveEngineeringRequirementsV1 selection compiled
+      match Targets.Near.planFromCapability capability with
+      | .error e =>
+          let msg := e.render
+          let hit := messageNeedles.any (fun n => msg.contains n)
+          expect hit
+            s!"{label}: FC message must cite {messageNeedles}, got {msg}"
+      | .ok _ =>
+          throw <| IO.userError
+            s!"{label}: NEAR must fail closed on this Option state/param shape"
+
+private unsafe def testOptionStateFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Option Bool state remains fail closed (payload not UInt64).
+  expectOptionStateFailClosed session "opt-bool-state" "Examples.OptBoolState"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program OptBoolState where\n" ++
+      "  state flag : Option Bool\n\n" ++
+      "  init() do\n" ++
+      "    flag := Option.none()\n\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    return 0\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Option", "UInt64", "payload", "unsupported", "state"]
+  -- Nested Option (Option Array …) state remains fail closed.
+  expectOptionStateFailClosed session "opt-nested-state" "Examples.OptNestedState"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program OptNestedState where\n" ++
+      "  state nested : Option Array UInt64 2\n\n" ++
+      "  init() do\n" ++
+      "    nested := Option.none()\n\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    return 0\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Option", "UInt64", "payload", "unsupported", "state", "Array"]
+  -- Option UInt64 param stays fail closed (params do not flatten Option).
+  expectOptionStateFailClosed session "opt-param" "Examples.OptParam"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program OptParam where\n" ++
+      "  state seed : UInt64\n\n" ++
+      "  init(x : UInt64) do\n" ++
+      "    seed := x\n\n" ++
+      "  entry take(o : Option UInt64) : UInt64 do\n" ++
+      "    match o with\n" ++
+      "    | Option.some(v) => do\n" ++
+      "      return v\n" ++
+      "    | _ => do\n" ++
+      "      return 0\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    #["Option", "parameter", "param", "unsupported", "UInt"]
+
 /-- N-ANON-RESULT (NEAR ABI): anonymous Option UInt64 none/some via construct
     + setReturnDataLeaves (tag,payload) = (0,0)/(1,v). -/
 private unsafe def testAnonymousOptionReturn
@@ -4681,6 +4867,8 @@ unsafe def run : IO Unit := do
   testMapTokenDualStoreVisibility session
   testNamedStructProductPath session
   testNamedEnumProductPath session
+  testOptionStateProductPath session
+  testOptionStateFailClosed session
   testNamedStructAggregateReturn session
   testNamedEnumAggregateReturn session
   testAnonymousArrayReturn session

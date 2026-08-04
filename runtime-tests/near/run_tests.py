@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""NEAR near-sandbox engineering runtime differential (BL-13 / BL-20).
+"""NEAR near-sandbox engineering runtime differential (BL-13 / BL-20 / BL-30).
 
 Suites:
-  counter   — Examples/Counter: init / increment / get + overflow state-hold
-  pairret   — fixtures/PairRet: named Struct aggregate return (N×8 LE)
-  arrayret  — fixtures/ArrayRet: anonymous Array UInt64 2 return (N×8 LE)
-  optionret — fixtures/OptionRet: anonymous Option UInt64 none/some (2×8 LE)
+  counter     — Examples/Counter: init / increment / get + overflow state-hold
+  pairret     — fixtures/PairRet: named Struct aggregate return (N×8 LE)
+  arrayret    — fixtures/ArrayRet: anonymous Array UInt64 2 return (N×8 LE)
+  optionret   — fixtures/OptionRet: anonymous Option UInt64 none/some (2×8 LE)
+  optionstate — fixtures/OptionState: Option UInt64 state tag+payload (BL-30)
 
 Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
   PF_NEAR_HOME         near-sandbox --home directory (validator_key.json)
   PF_NEAR_WASM         path to product .wasm for the suite
-  PF_NEAR_SUITE        counter | pairret | arrayret | optionret | single
+  PF_NEAR_SUITE        counter | pairret | arrayret | optionret | optionstate | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -195,6 +196,63 @@ def suite_optionret(client: NearClient, wasm: Path) -> None:
     print("suite OptionRet: PASS")
 
 
+def suite_optionstate(client: NearClient, wasm: Path) -> None:
+    print("=== suite: OptionState (Option UInt64 state tag+payload, BL-30) ===")
+    client.deploy(wasm)
+
+    # init() → none default (tag=0, payload=0)
+    client.call("init", b"")
+    tag, payload = client.view_u64_pair("getSlot")
+    if (tag, payload) != (0, 0):
+        raise AssertionError(f"after init: getSlot expected (0,0), got ({tag},{payload})")
+    raw_none = client.view("getSlot")
+    if raw_none[:16] != NearClient.encode_u64_le(0) + NearClient.encode_u64_le(0):
+        raise AssertionError(f"after init: getSlot raw LE mismatch: {raw_none[:16].hex()}")
+    peek = client.view_u64("peek")
+    if peek != 0:
+        raise AssertionError(f"after init: peek expected 0, got {peek}")
+    print("optionstate: init() → getSlot()==(0,0), peek()==0 ok")
+
+    # setSome(99) → tag=1, payload=99
+    set_res = client.call("setSome", NearClient.encode_u64_le(99))
+    sv = NearClient.success_value_bytes(set_res)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"setSome SuccessValue expected ≥8 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u64_le(sv, 0)
+    if ret != 99:
+        raise AssertionError(f"setSome(99) SuccessValue expected 99, got {ret}")
+    tag, payload = client.view_u64_pair("getSlot")
+    if (tag, payload) != (1, 99):
+        raise AssertionError(f"after setSome(99): getSlot expected (1,99), got ({tag},{payload})")
+    raw_some = client.view("getSlot")
+    if raw_some[:16] != NearClient.encode_u64_le(1) + NearClient.encode_u64_le(99):
+        raise AssertionError(
+            f"after setSome: getSlot raw LE mismatch: {raw_some[:16].hex()}"
+        )
+    peek = client.view_u64("peek")
+    if peek != 99:
+        raise AssertionError(f"after setSome(99): peek expected 99, got {peek}")
+    print("optionstate: setSome(99) → getSlot()==(1,99), peek()==99 ok")
+
+    # clear() must zero payload (pin): not leave stale 99 under tag=0
+    client.call("clear", b"")
+    tag, payload = client.view_u64_pair("getSlot")
+    if (tag, payload) != (0, 0):
+        raise AssertionError(
+            f"after clear: getSlot expected (0,0) zeroed payload, got ({tag},{payload})"
+        )
+    raw_clear = client.view("getSlot")
+    if raw_clear[:16] != NearClient.encode_u64_le(0) + NearClient.encode_u64_le(0):
+        raise AssertionError(
+            f"after clear: getSlot raw LE must be all-zero, got {raw_clear[:16].hex()}"
+        )
+    peek = client.view_u64("peek")
+    if peek != 0:
+        raise AssertionError(f"after clear: peek expected 0, got {peek}")
+    print("optionstate: clear() → getSlot()==(0,0) payload zeroed, peek()==0 ok")
+    print("suite OptionState: PASS")
+
+
 def main(argv: list[str]) -> int:
     suite = os.environ.get("PF_NEAR_SUITE", "single").strip().lower()
     rpc = _require_env("PF_NEAR_RPC")
@@ -219,6 +277,9 @@ def main(argv: list[str]) -> int:
         elif suite == "optionret":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_OPTIONRET_WASM"))
             suite_optionret(client, wasm)
+        elif suite == "optionstate":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_OPTIONSTATE_WASM"))
+            suite_optionstate(client, wasm)
         elif suite == "all":
             # Same sandbox / same account: run suites only if
             # caller redeploys after a fresh home (script boots once per suite).
