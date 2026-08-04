@@ -24,8 +24,9 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 - state/param/result **UInt8/16/32/64 与窄 Int** ABI/body 子集（UInt128/256 软件多字已开 T9e）；
 - **`EmitSbpfAsmV1`** 完整 Operation 表面 → 锁定 `sbpf` 汇编为 deployable Solana ELF `.so`
   （`solana-sbpf-elf-v1` profile；默认仍可走 plan-only profile）；
-- **Mollusk 运行时差分**（`runtime-tests/solana`：Counter + 18 fixtures = 19 programs；
-  含 body 多宽、聚合/匿名返回、Option state；legacy call 已从 runtime 面移除）；
+- **Mollusk 运行时差分**（`runtime-tests/solana`：Counter + 18 既有 fixtures +
+  `Examples/TransferSol.lean` 产品 CPI ELF = 20 programs；含 body 多宽、聚合/匿名返回、
+  Option state 与原生 System transfer；legacy call 已从旧 profile runtime 面移除）；
 - **legacy call/schedule 已恢复 fail closed**（#111）：`solana-sbpf-plan-v1` 与
   `solana-sbpf-elf-v1` 均不声明 sync/async requirement，Plan/IR/SBPF 纵深拒绝旧节点；static
   QualifiedName 不再经 SHA-256 冒充 program id；真实多账户/PDA/bump/CPI 由 opt-in versioned
@@ -43,8 +44,10 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
   `sol_set_return_data` 发 N×8-byte LE；Map/Bytes/nested/非 UInt64元素返回仍 fail-closed。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
-完整 Normalize 表面；CPI 外层多账户布局与成功调用尚未闭合，static-QN program id 仍是 hash stub，
-不是动态 pubkey/address。registry 历史标签可能仍显示 `plan-only` 字符串——**工程事实以本段与
+完整 Normalize 表面；active CPI profile 之外的任意动态 program address/remaining accounts 与更广
+callee catalog。legacy profiles 对 call/schedule 继续 fail closed；只有 opt-in
+`solana-sbpf-cpi-elf-v1` 可按 exact catalog/program identity 物化多账户 CPI，不能把它泛化为任意
+static-QN 或动态地址支持。registry 历史标签可能仍显示 `plan-only` 字符串——**工程事实以本段与
 coverage matrix 为准**。
 
 ## 1. 身份与来源
@@ -121,6 +124,15 @@ product materialize authority；product path 另走 active catalog 五 API + pro
 **#125 product acceptance（工程，非 formal）**：ordinary `proof-forge-next build --target solana
 --profile solana-sbpf-cpi-elf-v1` 产出 proof-forge.output.v1：5 base + `.so`；inspect 重走 exact
 closure；manifest/evidence 绑定 active profile/catalog digests。Principal 仍 opaque。
+
+**TransferSol 调用闭环（工程，非 formal）**：`Examples/TransferSol.lean` 只使用
+`solana.system.transfer`，其 manifest-bound 产品 ELF 已由 Mollusk 固定 handler 0、16-byte outer
+ABI、payer/recipient/System 角色、成功余额差值、UInt64 return data 与失败回滚。独立
+`clients/solana-transfer-sol` Rust CLI 会离线重验 OutputSet 与 Plan/IR/IDL/bindings，并提供显式
+opt-in Devnet 调用：仅进程内临时 keypair、Devnet genesis 门、Loader V3 ProgramData ELF 双绑定，
+以及 confirmed receipt 的 outer/inner/fee/balance/return 核对。部署仍由 operator 与标准 Solana
+工具负责；尚未取得具体公开 Program ID 前不声称已执行 live Devnet 交易，RPC 观测也不属于
+hermetic/formal 证据。
 
 initialized marker 是
 `SHA-256("proof-forge-solana-layout-v1:" || canonical-account-layout)[0..8]` 对应的 target

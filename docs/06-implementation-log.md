@@ -12,6 +12,31 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-04 — Solana TransferSol 产品制品消费与 Devnet 调用 CLI（engineering）
+
+- 新增 tracked `Examples/TransferSol.lean`：经 active `solana-sbpf-cpi-elf-v1` profile
+  物化 `proof-forge.output.v1`，handler 0 的 outer data 为
+  `u64le(0) || u64le(lamports)`，角色顺序为 payer(w+s)、recipient(w)、native System(ro)，
+  内层调用为 System transfer `u32le(2) || u64le(lamports)`，并返回 UInt64 lamports。
+- 新增独立 `clients/solana-transfer-sol` Rust CLI/lockfile：`verify-artifacts` 离线消费并
+  fail-closed 连接 manifest/evidence、Plan、product IR、IDL、bindings、assembly 与 ELF；
+  重算 raw leaf/evidence SHA-256 及 domain-separated Plan/IR/output-set digest。leaf 读取使用
+  `O_NOFOLLOW`、lstat/fstat/path identity join、single-link 与 64 MiB descriptor-read 上限。
+- `devnet-call` 仅显式 opt-in：拒绝 wallet/keypair/private-key 输入且不回显 value，生成进程内
+  临时 payer/recipient，锁定 Devnet genesis 与 confirmed commitment；bounded airdrop 后刷新
+  blockhash/LVBH，单次 `maxRetries=0` 发送，send error 只轮询已知本地 signature；Loader V3
+  ProgramData 在 send 前与 confirmed 后均绑定本地 `.so`。回执精确核对本地 signed message、
+  sole outer/inner instruction、System CPI accounts/data、observed fee/余额差、日志与 UInt64 return。
+- Mollusk 直接执行 manifest-bound 产品 ELF：8 个测试覆盖 exact ABI/tree、成功转账/return、
+  零 lamport recipient 直接入账并保持 System shape、raw meta swap、missing signer、wrong System
+  与 underfunded rollback。独立客户端通过 23 unit + 27 integration = 50 个离线测试及严格 Clippy。
+- 验证结果：`just solana-transfer-sol-offline`、`just solana-runtime`、`just ci`、
+  `just docs-check` 与 `git diff --check` 均通过；fresh Round-4 verifier 对工程完成标准给出 PASS。
+- 边界：部署仍由 operator/标准 Solana 工具负责；尚无用户提供的公开 Program ID，因此未执行或
+  声称 live Devnet 交易。OutputSet 校验是工程自洽与 point-in-time endpoint binding，**不是**
+  signed provenance、formal/hermetic evidence、mainnet 或 whole QuickNode `transfer-sol` strict
+  equivalence；RPT-018 仍保持 `0/56` / `transfer-sol=NO`。
+
 ## 2026-08-04 — inline same-file theorem narrow product closure（engineering）
 
 - `ProgramElaborationV1` 对 literal-true/public-Bool-view simple closure 生成 concrete ASCII

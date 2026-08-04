@@ -89,6 +89,15 @@ test-preactivation unsigned-CPI ELF**，不是 `OutputFile`/产品 artifact/acti
 resolver 仍拒 sync。#120 PDA/bump/`invoke_signed` 与 #121+ 仍 pending，whole-example strict
 equivalence 仍为 **0/56**；`CPI`/`PDA` 产品面与 formal D5 不因 #119 改写。
 
+**2026-08-04 post-#125 TransferSol engineering update**：active
+`solana-sbpf-cpi-elf-v1` 已可从 tracked `Examples/TransferSol.lean` 经 ordinary resolver 生成
+manifest-bound 产品 ELF；Mollusk 固定真实 native System CPI、成功余额/return data 与失败回滚。
+独立 Rust client 消费 manifest/Plan/IR/IDL/bindings，并预留显式 Devnet 调用与 Loader V3/receipt
+核对；部署和具体公开 Program ID 仍由 operator 提供，未执行 live Devnet 前不写成链上闭环。
+本切片只覆盖 QuickNode 的 CPI transfer 路径；上游同例还包含 program-owned lamport 直接变更/
+close 语义（`CLOSE`），因此本报告的 whole-example strict-equivalence 仍为 **0/56**，表中
+`transfer-sol` 继续 `NO`，不得仅因这条 analogue 改为 `SE`。
+
 ## 2. 方法与分母
 
 ### 2.1 分母规则

@@ -77,6 +77,29 @@ PROOF_FORGE_TOOL_ROOT="$PWD/build/dev-tool-root" \
     --module Examples.Counter --target evm -o build/counter-evm
 ```
 
+### Solana TransferSol：产品 ELF、离线消费与真实 Devnet 调用
+
+[`Examples/TransferSol.lean`](Examples/TransferSol.lean) 使用显式 Solana CPI extension 调用
+原生 System Program。以下命令先生成并校验 `proof-forge.output.v1`，再由独立 Rust CLI
+消费 manifest、Plan、IR、IDL、bindings 与 `.so`：
+
+```bash
+# 只构建产品树；不访问 Solana RPC。
+just solana-transfer-sol-build
+
+# 构建并运行独立的离线制品/ABI 校验。
+just solana-transfer-sol-offline
+
+# 部署仍由 operator 使用标准 Solana 工具完成；取得公开 Program ID 后，
+# 下面这个显式 opt-in 命令才会请求 Devnet airdrop 并发送一笔真实交易。
+just solana-transfer-sol-devnet <PROGRAM_ID> 1000
+```
+
+`devnet` recipe 只生成进程内临时 payer/recipient，不读取钱包或 keypair 文件；它绑定链上
+Loader V3 ProgramData ELF，确认交易后核对 outer instruction、inner System CPI、fee、余额差值
+和 return data。该结果是 endpoint-relative 的 Devnet 工程观测，不是部署服务、mainnet 或 formal
+证据。完整边界见 [`clients/solana-transfer-sol/README.md`](clients/solana-transfer-sol/README.md)。
+
 源码 **不** 声明 “合约 / 电路 / zkVM workload” 类别；类别由 `--target` 的物化决定，
 且不得偷偷改业务语义。
 
