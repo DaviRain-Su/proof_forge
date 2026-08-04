@@ -22,7 +22,8 @@ normative: false
 - `InlineProofCertifierV1` 修复 Loader product identity 与 Lean declaration namespace 的
   exact 映射：仅允许 module-prefix-stripped 或 full-identity 两个 elaborator layout，要求唯一
   current-main declaration；随后用该 namespace 绑定 subject、Prop alias、generated helper 与
-  author theorem。根 namespace 与 `namespace Root`（匹配 `--module Root`）均有正例。
+  author theorem。根 namespace、普通 `namespace Nested` 与 `namespace Root`（匹配
+  `--module Root`）三种映射均有正例。
 - `ProgramExport` 的 shared structural ByteArray decoder 补齐 Lean 大 quotation 产生的有界
   transparent let-chunk spine与 exact `UInt8` `OfNat` 形状；只做 bounded zeta substitution，
   每步重查 raw-node cap，不执行任意函数。certifier只跟随 exact sibling `subjectBytesV1`，并审计

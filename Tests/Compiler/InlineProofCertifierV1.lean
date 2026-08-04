@@ -479,6 +479,35 @@ private unsafe def testModulePrefixedNamespaceProductPositive
       throw <| IO.userError
         s!"module-prefixed namespace proof failed phase={repr phase} detail={repr detail}"
 
+/-- A namespace unrelated to `--module Root` uses the relative declaration
+    candidate (`Nested.Scoped`) while Loader retains the full product identity
+    (`Root.Nested.Scoped`). This pins multi-component author theorem lookup. -/
+private unsafe def testRelativeNestedNamespaceProductPositive
+    (session : ProductParserSessionV1) : IO Unit := do
+  let programName := "NestedScoped"
+  let authorTheorem := "NestedScopedProof.safe"
+  let body := simpleClosureAuthorBodyExact authorTheorem programName
+  let src := simpleClosureProgramInNamespace
+    "Nested" programName authorTheorem body
+  let path ← parsePath "tests/inline-proof/relative-nested-namespace.pf"
+  let (source, origin, inventory) ← loadProduct session src
+    "tests/inline-proof/relative-nested-namespace.pf" "Root"
+  let identity :=
+    (NonEmptyArray.toArray source.programIdentity.components).map (·.raw)
+  expect (identity == #["Root", "Nested", "NestedScoped"])
+    s!"relative nested namespace identity: {identity}"
+  let compiled ← compileOf source origin
+  let outcome ← certifyInlineProofV1 session src source origin inventory compiled
+    path "Root" none
+  match outcome with
+  | .certified carrier =>
+      expectCertifiedCarrier "relative-nested-namespace" carrier
+  | .noProof =>
+      throw <| IO.userError "relative nested namespace proof returned noProof"
+  | .failed phase detail =>
+      throw <| IO.userError
+        s!"relative nested namespace proof failed phase={repr phase} detail={repr detail}"
+
 unsafe def run : IO Unit := do
   let session ← ProductParserSessionV1.create
   testNoProofBypass session
@@ -490,6 +519,7 @@ unsafe def run : IO Unit := do
   testNoForgedSuccess session
   testSimpleClosureProductPositive session
   testModulePrefixedNamespaceProductPositive session
+  testRelativeNestedNamespaceProductPositive session
   IO.println "Tests.Compiler.InlineProofCertifierV1: ok"
 
 end Tests.Compiler.InlineProofCertifierV1

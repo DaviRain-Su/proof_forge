@@ -260,8 +260,9 @@ InvariantTheoremV1 program ordinal :=
 7. 正交：nonempty invariant materializer 仍可 fail closed；不声称 reachability /
    init-step safety / target refinement。
 
-回归 owner：`Tests.Compiler.InlineProofCertifierV1`（单 snapshot、hash/digest、root 与
-module-prefixed namespace declaration 映射）和 `Tests.CLI.InlineProofProductV1`（human/JSON、
+回归 owner：`Tests.Compiler.InlineProofCertifierV1`（单 snapshot、hash/digest、root /
+relative nested / module-prefixed namespace declaration 映射）和
+`Tests.CLI.InlineProofProductV1`（human/JSON、
 proof-first target 顺序、零 destination/staging、materializer fail-closed）。
 
 ## 状态
