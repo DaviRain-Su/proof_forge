@@ -173,6 +173,12 @@ inductive Expr where
   /-- Mutable plan-local (loop induction). Index is method-local and unique per
       forLoop; IR lowering maps it to a stable Wasm temp rewritten each latch. -/
   | localTemp (index : Nat)
+  /-- B-CTX-OPEN: CosmWasm `env.block.time.seconds()` — host Env JSON field
+      `"time"` is a Timestamp of **nanoseconds** (cosmwasm-std string); IR divides
+      by 10^9 (truncating) so DSL `context.unixTimeSeconds` holds exactly.
+      Result is u64 from `.seconds()` — exact UInt64 fit, **no** range guard
+      (unlike EVM's 256-bit `timestamp()` word). UInt64-typed. -/
+  | blockTimeSeconds
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -2969,7 +2975,7 @@ private def lowerBlockInstructionsV1
               dependencies := #[baseId]
             }
         values := ← appendResultValueV1 result.typeId values result value
-    -- N5: Commit = identity passthrough; ContextRead declined (no clock ABI).
+    -- N5: Commit = identity passthrough; ContextRead unix-time admitted (B-CTX-OPEN).
     | .commit valueId, some result => do
         unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
           throw <| .planInvariant .cosmwasm
@@ -2983,12 +2989,29 @@ private def lowerBlockInstructionsV1
           dependencies := operand.dependencies.push valueId
           aggregateLeaves := operand.aggregateLeaves
         }
-    | .contextRead key, some _ =>
+    | .contextRead key, some result =>
+        -- B-CTX-OPEN (CosmWasm): `context.unixTimeSeconds` lowers to
+        -- Env.block.time.seconds() — Env JSON `"time"` is nanoseconds
+        -- (cosmwasm-std Timestamp string); IR divides by 10^9 (truncating).
+        -- `.seconds()` is already u64 → exact UInt64, no range guard.
+        -- `context.caller` and unknown keys stay fail closed (B-3 PrincipalAddr /
+        -- AccAddress mapping deferred).
+        if key == callerContextKeyV1 then
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: ContextRead (context.caller) is not admitted (AccAddress to Principal identity mapping deferred)"
         unless key == unixTimeSecondsContextKeyV1 do
           throw <| .planInvariant .cosmwasm
             s!"unsupported CosmWasm semantic shape: unknown ContextRead key '{key.value}'"
-        throw <| .planInvariant .cosmwasm
-          "unsupported CosmWasm semantic shape: ContextRead is not admitted by pilot context policy"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: ContextRead unix-time-seconds result must be UInt64"
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := .blockTimeSeconds
+          kind := .uint64
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
     | _, _ =>
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: instruction op/result is outside the current UInt64 pilot"
