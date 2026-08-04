@@ -8,9 +8,11 @@
   bytes + typical JSON), B-RET-ABI named Struct/Enum entry/view returns
   (PairRet/MaybeRet Plan/IR/WAT/ABI pins + param/>8/pureFn FC), N-ANON-RESULT
   anonymous Array UInt64 N / Option UInt64 entry/view returns (ArrayRet/
-  OptionRet Plan/IR/WAT/ABI pins + Map/Bytes/N>8/nested FC), sync call still
-  fail closed, multi-width UInt8/16/32 pins (body guards / param range /
-  8-byte narrow state slots), and other FC boundaries (UInt128, invariants).
+  OptionRet Plan/IR/WAT/ABI pins + Map/Bytes/N>8/nested FC), B-OPT-STATE
+  Option UInt64 state (OptionState tag+payload / storeAtomic / none zeroing +
+  non-UInt64/nested/param FC), sync call still fail closed, multi-width
+  UInt8/16/32 pins (body guards / param range / 8-byte narrow state slots),
+  and other FC boundaries (UInt128, invariants).
 
   Schedule positive coverage uses product capability resolve (async admitted)
   plus engineering Plan/IR entry points. Not wasmd chain (A2). Not formal D4.
@@ -952,6 +954,155 @@ private unsafe def testAnonymousReturnFc
     #["Option", "UInt64", "payload", "return", "unsupported", "anonymous", "Array"]
   IO.println "  ✓ anonymous return FC boundaries (Bytes / Map / Array9 / nested Option)"
 
+/-- B-OPT-STATE / BL-33: Option UInt64 state = Enum-shaped 2-leaf layout
+    (`slot_tag` + `slot_p0`); construct none zeros payload; match read via
+    VariantTag/VariantPayload; storeAtomic on assign. -/
+private unsafe def testOptionState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptionState" <|
+    "  state slot : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry set(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  entry clear() : UInt64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "  view getOpt() : Option UInt64 do\n" ++
+    "    return slot\n"
+  let compiled ← compileSource session source "Examples.OptionState"
+    "<cw-option-state>"
+  let plan ← liftResult <| planCw compiled
+  expect (plan.storage.fields.size == 2)
+    s!"OptionState: Option UInt64 must flatten to tag+payload (2), got {plan.storage.fields.size}"
+  expect (plan.storage.fields.map (·.name) == #["slot_tag", "slot_p0"])
+    s!"OptionState: leaf names must be slot_tag/slot_p0, got {plan.storage.fields.map (·.name)}"
+  expect (plan.storage.fields.all (·.byteWidth == 8))
+    "OptionState leaves must be 8-byte UInt64 KV words"
+  let some set := plan.entries.find? (·.name == "set") |
+    throw <| IO.userError "OptionState missing set"
+  let hasAtomic := set.body.any fun s =>
+    match s with
+    | .storeAtomic leaves => leaves.size == 2
+    | _ => false
+  expect hasAtomic
+    "OptionState set construct+store must storeAtomic tag+payload leaves"
+  let some clear := plan.entries.find? (·.name == "clear") |
+    throw <| IO.userError "OptionState missing clear"
+  let clearAtomic := clear.body.any fun s =>
+    match s with
+    | .storeAtomic leaves => leaves.size == 2
+    | _ => false
+  expect clearAtomic
+    "OptionState clear Option.none must storeAtomic 2 leaves"
+  let initAtomic := plan.initializer.body.any fun s =>
+    match s with
+    | .storeAtomic leaves => leaves.size == 2
+    | _ => false
+  expect initAtomic
+    "OptionState init Option.none must storeAtomic 2 leaves"
+  let some peek := plan.entries.find? (·.name == "peek") |
+    throw <| IO.userError "OptionState missing peek"
+  expect (peek.mode == .view && peek.resultKind == .uint64)
+    "OptionState peek must be view UInt64"
+  -- getOpt return of stored Option → 2-leaf aggregate.
+  let some getOpt := plan.entries.find? (·.name == "getOpt") |
+    throw <| IO.userError "OptionState missing getOpt"
+  expect (getOpt.mode == .view) "OptionState getOpt must be view"
+  match getOpt.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptionState getOpt must return 2-leaf Option, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"OptionState getOpt resultKind must be .aggregate, got {repr other}"
+  match getOpt.body[getOpt.body.size - 1]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 2 && leafIsInt.size == 2)
+        "OptionState getOpt returnAggregate must have 2 leaves"
+      match leaves[0]!, leaves[1]! with
+      | .stateLoad 0, .stateLoad 1 => pure ()
+      | a, b =>
+          throw <| IO.userError
+            s!"OptionState getOpt leaves must be stateLoad 0/1, got {repr a}/{repr b}"
+  | _ =>
+      throw <| IO.userError "OptionState getOpt must end with .returnAggregate"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptionState plan must validate: {e.render}"
+  let _ir ← liftResult <| irCw compiled
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "OptionState.wat"
+  expect (wat.contains "pf:cw:v1:state:0") "OptionState WAT state key 0"
+  expect (wat.contains "pf:cw:v1:state:1") "OptionState WAT state key 1"
+  expect (wat.contains "$pf_query_ok_agg" || wat.contains "ret_kind")
+    "OptionState WAT multi-leaf return surface for getOpt"
+  let abi ← findFile files "OptionState.cosmwasm-abi.json"
+  expect (abi.contains "getOpt")
+    s!"OptionState ABI must declare getOpt, got: {abi}"
+  IO.println "  ✓ OptionState Option UInt64 state Plan/IR/WAT/ABI pin"
+
+/-- B-OPT-STATE FC: Option of non-UInt64, nested Option, Option params stay closed. -/
+private unsafe def expectOptionStateFailClosed
+    (session : Language.Loader.ParserSession)
+    (label moduleName body : String)
+    (messageNeedles : Array String) : IO Unit := do
+  let source := wrapProgram label body
+  match ← session.selectProgramV1 source s!"<cw-{label}>" moduleName none with
+  | .error e => throw <| IO.userError s!"{label} select: {e.render}"
+  | .ok validated =>
+      match Compiler.compileValidatedSourceV1 validated with
+      | .error _ => pure ()  -- Normalize/Check may reject first.
+      | .ok compiled =>
+          match planCw compiled with
+          | .error e =>
+              let msg := e.render
+              let hit := messageNeedles.any (fun n => msg.contains n)
+              expect hit
+                s!"{label}: FC message must cite {messageNeedles}, got {msg}"
+          | .ok _ =>
+              throw <| IO.userError
+                s!"{label}: CosmWasm must fail closed on this Option state/param shape"
+
+private unsafe def testOptionStateFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Option Bool state remains fail closed (payload not UInt64).
+  expectOptionStateFailClosed session "OptBoolState" "Examples.OptBoolState"
+    ("  state flag : Option Bool\n\n" ++
+      "  init() do\n" ++
+      "    flag := Option.none()\n\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    return 0\n")
+    #["Option", "UInt64", "payload", "unsupported", "state"]
+  -- Nested Option (Option Array …) state remains fail closed.
+  expectOptionStateFailClosed session "OptNestedState" "Examples.OptNestedState"
+    ("  state nested : Option Array UInt64 2\n\n" ++
+      "  init() do\n" ++
+      "    nested := Option.none()\n\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    return 0\n")
+    #["Option", "UInt64", "payload", "unsupported", "state", "Array"]
+  -- Option UInt64 param stays fail closed (params do not flatten Option).
+  expectOptionStateFailClosed session "OptParam" "Examples.OptParam"
+    ("  state seed : UInt64\n\n" ++
+      "  init(x : UInt64) do\n" ++
+      "    seed := x\n\n" ++
+      "  entry take(o : Option UInt64) : UInt64 do\n" ++
+      "    match o with\n" ++
+      "    | Option.some(v) => do\n" ++
+      "      return v\n" ++
+      "    | _ => do\n" ++
+      "      return 0\n")
+    #["Option", "parameter", "param", "unsupported"]
+  IO.println "  ✓ Option state FC boundaries (Bool / nested / param)"
+
 private unsafe def testInvariantFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "Inv" <|
@@ -1056,6 +1207,8 @@ unsafe def run : IO Unit := do
   testAnonymousArrayReturn session
   testAnonymousOptionReturn session
   testAnonymousReturnFc session
+  testOptionState session
+  testOptionStateFailClosed session
   testInvariantFc session
   testMaterializeAggregate session
   testStaticLayoutCapacityFc session
