@@ -17,7 +17,11 @@ B-RET-ABI: named Struct/Enum entry/view returns are admitted via
 in preorder flatten order; Solidity tuple ABI with `components`).
 BL-18 / N-ANON-RESULT (EVM ABI): also admits anonymous `Array UInt64 N`
 (N ≤ 8 preorder leaves) and `Option UInt64` (tag + payload, 2 leaves).
-Bytes / Map / non-UInt64 Array elements / nested containers stay fail-closed.
+BL-31 / B-OPT-STATE: `state x : Option UInt64` is admitted as a 2-slot
+storage layout exactly matching a named 2-variant Enum (tag 0/1 + payload;
+payload zeroed on none). Read via existing VariantTag/VariantPayload match
+path. Option of non-UInt64, Option params, nested/Bytes/Map options stay
+fail-closed. Bytes / Map / non-UInt64 Array elements stay fail-closed.
 -/
 
 namespace ProofForgeV2.Targets.Evm
@@ -393,9 +397,12 @@ private def evmPlanErr (message : String) : CompileError :=
     admit UInt64/Int64 leaves only** via
     `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*` with
     `allowNonPublic := true` (N3), **Array state** flattens to contiguous
-    scalar slots (element UInt8/16/32/64/128/256), and **Map UInt64 UInt64**
+    scalar slots (element UInt8/16/32/64/128/256), **Map UInt64 UInt64**
     flattens to a dense pilot table (16×(occ,key,val) UInt64 leaves; dynamic
-    keys OK). non-64 Int fail closed.
+    keys OK), and **Option UInt64 state** (BL-31) flattens to tag+payload
+    (2 UInt64 leaves; Enum-identical layout; none zeros payload). Option of
+    non-UInt64 / Option params / nested Option stay fail closed. non-64 Int
+    fail closed.
     T9b admits UInt128/256 on scalar state/param/body/result. T10: Principal
     admitted as **storage identity only** (`pilotPrincipalPolicyAdmit`) —
     fixed leaf layout len+8×UInt64 (≤64B body, same pattern as N4 String);
@@ -613,8 +620,9 @@ private def leafCountOfTypeV1
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
 
-/-- True when `typeId` is an anonymous `.option` TypeDecl (Option is admitted
-    as a Map IndexGet intermediate but is never in `containerTypeIds`). -/
+/-- True when `typeId` is an anonymous `.option` TypeDecl. Option is admitted
+    as a Map IndexGet intermediate, as BL-18 entry/view return, and as BL-31
+    Option UInt64 state (tag+payload slots). It is never in `containerTypeIds`. -/
 private def isOptionTypeIdV1
     (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
   match typeDecls[typeId.toNat]? with
@@ -747,6 +755,20 @@ private def mapUInt64LeafCountV1
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: Map state admits only Map UInt64 UInt64"
       pure (some evmMapPilotLeafCountV1)
+  | _ => pure none
+
+/-- BL-31 / B-OPT-STATE: admitted Option state leaf count.
+    `Option UInt64` → `some 2` (tag + payload, Enum 2-variant layout).
+    Non-Option → `none`. Option of non-UInt64 / nested → fail closed. -/
+private def optionUInt64StateLeafCountV1
+    (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option elTid, .. } => do
+      unless elTid == types.uint64TypeId do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: Option state admits only UInt64 payload"
+      pure (some 2)
   | _ => pure none
 
 /-- Dense Map IndexGet → Option UInt64 as `[tag, payload]` (unrolled). -/
@@ -1054,38 +1076,66 @@ private def makeStorageLayoutV1
               leaves := leaves.push slot
             stateLeaves := stateLeaves.push leaves
         | none =>
-            if types.isNamedAggregate state.typeId || types.isString state.typeId ||
-                types.isPrincipal state.typeId then
-              requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState evmPlanErr types state
-                (allowNonPublic := true)
-              let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
-              if leafSpecs.isEmpty then
-                throw <| .planInvariant .evm s!"state '{state.name}' produced zero storage leaves"
-              if bindings.size + leafSpecs.size > maxStorageBindings then
-                throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
-              let mut leaves : Array Nat := #[]
-              for (leafName, _) in leafSpecs do
-                let slot := bindings.size
-                bindings := bindings.push {
-                  sourceId := slot
-                  name := leafName
-                  slot
-                  byteWidth := 8
-                }
-                leaves := leaves.push slot
-              stateLeaves := stateLeaves.push leaves
-            else
-              requirePublicEvmUintAbiOrInt64OrFieldState evmPlanErr types state
-                (allowNonPublic := true)
-              let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
-              let slot := bindings.size
-              bindings := bindings.push {
-                sourceId := slot
-                name := state.name
-                slot
-                byteWidth
-              }
-              stateLeaves := stateLeaves.push #[slot]
+            match ← optionUInt64StateLeafCountV1 typeDecls types state.typeId with
+            | some n =>
+                -- BL-31 / B-OPT-STATE: Option UInt64 = tag + payload slots,
+                -- named like a 2-variant Enum (`{state}_tag`, `{state}_p0`).
+                -- none default is zero storage (tag=0, payload=0); some writes
+                -- tag=1 + payload; re-assign none zeros both leaves (stale
+                -- payload must not survive).
+                if bindings.size + n > maxStorageBindings then
+                  throw <| .planInvariant .evm
+                    s!"state count exceeds profile limit {maxStorageBindings}"
+                let mut leaves : Array Nat := #[]
+                for i in [0:n] do
+                  let leafName :=
+                    if i == 0 then state.name ++ "_tag"
+                    else state.name ++ "_p" ++ toString (i - 1)
+                  unless isIdentifier leafName do
+                    throw <| .planInvariant .evm
+                      s!"state name '{leafName}' is not an EVM ABI identifier"
+                  let slot := bindings.size
+                  bindings := bindings.push {
+                    sourceId := slot
+                    name := leafName
+                    slot
+                    byteWidth := 8
+                  }
+                  leaves := leaves.push slot
+                stateLeaves := stateLeaves.push leaves
+            | none =>
+                if types.isNamedAggregate state.typeId || types.isString state.typeId ||
+                    types.isPrincipal state.typeId then
+                  requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState evmPlanErr types state
+                    (allowNonPublic := true)
+                  let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
+                  if leafSpecs.isEmpty then
+                    throw <| .planInvariant .evm s!"state '{state.name}' produced zero storage leaves"
+                  if bindings.size + leafSpecs.size > maxStorageBindings then
+                    throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
+                  let mut leaves : Array Nat := #[]
+                  for (leafName, _) in leafSpecs do
+                    let slot := bindings.size
+                    bindings := bindings.push {
+                      sourceId := slot
+                      name := leafName
+                      slot
+                      byteWidth := 8
+                    }
+                    leaves := leaves.push slot
+                  stateLeaves := stateLeaves.push leaves
+                else
+                  requirePublicEvmUintAbiOrInt64OrFieldState evmPlanErr types state
+                    (allowNonPublic := true)
+                  let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
+                  let slot := bindings.size
+                  bindings := bindings.push {
+                    sourceId := slot
+                    name := state.name
+                    slot
+                    byteWidth
+                  }
+                  stateLeaves := stateLeaves.push #[slot]
   pure { bindings, stateLeaves, typeDecls, mapStaticKeys }
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
@@ -2244,6 +2294,21 @@ private def lowerBlockInstructionsV1
             let some slot := leaves[i]? |
               throw <| .planInvariant .evm "container state load slot missing"
             leafExprs := leafExprs.push (mkStorageLoadExpr bitWidth slot)
+            leafIsInt := leafIsInt.push false
+          let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leaves.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if isOptionTypeIdV1 layout.typeDecls result.typeId then
+          -- BL-31: Option UInt64 state load → 2-leaf aggregate (tag, payload).
+          -- Payload element width was gated at layout to UInt64 only.
+          unless leaves.size == 2 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: Option state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          for i in [0:leaves.size] do
+            let some slot := leaves[i]? |
+              throw <| .planInvariant .evm "Option state load slot missing"
+            leafExprs := leafExprs.push (.storageLoad slot)
             leafIsInt := leafIsInt.push false
           let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leaves.size
           values := ← appendResultValueV1 result.typeId values result value
