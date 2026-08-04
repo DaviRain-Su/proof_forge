@@ -4,33 +4,19 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use solana_pubkey::Pubkey;
 use solana_transfer_sol::artifact::{
     read_regular_single_link_file, verify_transfer_sol_artifact,
     verify_transfer_sol_artifact_with_source_hash, CANONICAL_LEAVES, IR_DIGEST_DOMAIN,
     MAX_FILE_BYTES, PLAN_DIGEST_DOMAIN,
 };
-use solana_transfer_sol::cli::{
-    is_forbidden_secret_flag, reject_secret_argv, validate_devnet_bounds,
-};
 use solana_transfer_sol::constants::{
     CATALOG_DIGEST_HEX, DEFAULT_EXPECTED_SOURCE_HASH, EXTENSION_DIGEST_HEX, EXTENSION_ID,
-    EXTENSION_VERSION, MAX_AIRDROP_LAMPORTS, PROFILE_DIGEST_HEX, SYSTEM_RUNTIME_NATIVE_BINDING,
-    TOCTOU_NOTE,
-};
-use solana_transfer_sol::loader_v3::{
-    bind_deployed_program, bind_programdata_elf_to_local_bytes, decode_loader_v3_program_account,
-    decode_loader_v3_programdata_account, program_data_address, synth_program_account,
-    synth_programdata_account, system_program_id,
-};
-use solana_transfer_sol::receipt::{
-    check_outer_transfer_ix, synth_confirmed_transfer_tx, synth_local_facts,
-    validate_transfer_receipt, ExpectedOuterTransferIx,
+    EXTENSION_VERSION, PROFILE_DIGEST_HEX, SYSTEM_RUNTIME_NATIVE_BINDING,
 };
 use solana_transfer_sol::sha256_hex;
 use solana_transfer_sol::util::{
-    display_endpoint, domain_separated_sha256_hex, encode_string_framed, encode_u32le,
-    encode_u64le, parse_json_no_dups,
+    domain_separated_sha256_hex, encode_string_framed, encode_u32le, encode_u64le,
+    parse_json_no_dups,
 };
 use tempfile::tempdir;
 
@@ -661,122 +647,8 @@ fn reseal_hashes_only(dir: &Path, source_hash: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// Loader / receipt / secrets / redaction
+// Offline parser / bounded-file utility regression
 // ---------------------------------------------------------------------------
-
-#[test]
-fn loader_bind_success_and_mutation_and_padding() {
-    let program_id = Pubkey::new_unique();
-    let pd_addr = program_data_address(&program_id);
-    let local = b"\x7fELF-local-bind-fixture!!!!";
-    let prog_acc = synth_program_account(pd_addr, 1);
-    let pd_acc = synth_programdata_account(42, Some(Pubkey::new_unique()), local, 32, 1);
-    let (prog, pd, bind) = bind_deployed_program(&program_id, &prog_acc, &pd_acc, local).unwrap();
-    assert!(prog.addresses_match);
-    assert_eq!(pd.slot, 42);
-    assert!(bind.prefix_bytes_equal && bind.trailing_zeros);
-    assert_eq!(
-        solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata(),
-        45
-    );
-
-    let mut bad = local.to_vec();
-    bad[3] ^= 0xff;
-    let pd_acc = synth_programdata_account(1, None, &bad, 0, 1);
-    let pd = decode_loader_v3_programdata_account(&pd_acc).unwrap();
-    assert!(bind_programdata_elf_to_local_bytes(&pd, local).is_err());
-}
-
-#[test]
-fn loader_program_rejects_wrong_owner() {
-    let program_id = Pubkey::new_unique();
-    let pd_addr = program_data_address(&program_id);
-    let mut acc = synth_program_account(pd_addr, 1);
-    acc.owner = system_program_id();
-    assert!(decode_loader_v3_program_account(&program_id, &acc).is_err());
-}
-
-#[test]
-fn receipt_positive_full_path() {
-    let program_id = Pubkey::new_unique();
-    let payer = Pubkey::new_unique();
-    let recipient = Pubkey::new_unique();
-    let lamports = 1_000u64;
-    let fee = 5000u64;
-    let sig = "SigTest1111111111111111111111111111111111111111111111111111111";
-    let ret = lamports.to_le_bytes();
-    let tx = synth_confirmed_transfer_tx(
-        sig, 99, program_id, payer, recipient, lamports, fee, 10_000_000, 0, &ret,
-    );
-    let expected = ExpectedOuterTransferIx::transfer_sol(program_id, payer, recipient, lamports);
-    let local = synth_local_facts(sig, program_id, payer, recipient, lamports);
-    let r = validate_transfer_receipt(
-        &tx,
-        &expected,
-        fee,
-        &ret,
-        "offline",
-        None,
-        1,
-        "aa",
-        TOCTOU_NOTE,
-        &local,
-    )
-    .unwrap();
-    assert_eq!(r.fee_lamports, fee);
-    assert_eq!(r.outer_data_len, 16);
-    assert!(r.inner_system_transfer_found);
-    assert_eq!(r.payer_index, 0);
-}
-
-#[test]
-fn receipt_negative_outer_program() {
-    let program_id = Pubkey::new_unique();
-    let other = Pubkey::new_unique();
-    let payer = Pubkey::new_unique();
-    let recipient = Pubkey::new_unique();
-    let tx = synth_confirmed_transfer_tx(
-        "s",
-        1,
-        program_id,
-        payer,
-        recipient,
-        10,
-        5000,
-        1_000_000,
-        0,
-        &10u64.to_le_bytes(),
-    );
-    let expected = ExpectedOuterTransferIx::transfer_sol(other, payer, recipient, 10);
-    assert!(check_outer_transfer_ix(&tx, &expected).is_err());
-}
-
-#[test]
-fn secret_flags_rejected() {
-    assert!(is_forbidden_secret_flag("--keypair"));
-    assert!(reject_secret_argv(&["--private-key".into()]).is_err());
-    assert!(reject_secret_argv(&["--expected-source-hash".into()]).is_err());
-}
-
-#[test]
-fn devnet_config_bounds() {
-    assert!(validate_devnet_bounds(1, 1, 1).is_ok());
-    assert!(validate_devnet_bounds(0, 30, 120).is_err());
-    assert!(validate_devnet_bounds(MAX_AIRDROP_LAMPORTS, 30, 120).is_err());
-    assert!(validate_devnet_bounds(100, 0, 120).is_err());
-    assert!(validate_devnet_bounds(100, 30, 301).is_err());
-}
-
-#[test]
-fn rpc_url_redaction() {
-    let d = display_endpoint("https://example.quiknode.pro/secret-token/path");
-    assert_eq!(d, "https://example.quiknode.pro/<redacted>");
-    assert!(!d.contains("secret"));
-    assert_eq!(
-        display_endpoint("https://api.devnet.solana.com"),
-        "https://api.devnet.solana.com"
-    );
-}
 
 #[test]
 fn duplicate_json_keys_rejected() {

@@ -325,7 +325,7 @@ pub fn verify_transfer_sol_artifact_with_source_hash(
     )?;
     if !manifest.deployable {
         return Err(ClientError::Artifact(
-            "deployable must be true for TransferSol product call path".into(),
+            "deployable must be true for TransferSol product ELF verification".into(),
         ));
     }
 

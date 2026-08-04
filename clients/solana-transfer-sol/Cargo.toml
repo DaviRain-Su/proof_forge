@@ -3,49 +3,18 @@ name = "solana-transfer-sol"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Engineering CLI: verify ProofForge TransferSol OutputSet and opt-in Solana Devnet call"
+description = "Offline verifier for ProofForge TransferSol product artifacts"
 license = "Apache-2.0"
 readme = "README.md"
 
 [dependencies]
-# Empirically locked graph from Round-2 rpc-client-probe (solana-rpc-client 4.1.2).
-# Newer modular leaves pull wincode 0.6 and fail to compile against 4.1.2 — keep exact pins.
-solana-rpc-client = { version = "=4.1.2", default-features = true }
-solana-rpc-client-api = { version = "=4.1.2" }
-solana-commitment-config = "3.1"
-solana-pubkey = { version = "=4.2.0", features = ["std"] }
-solana-hash = "=4.5.0"
-solana-keypair = "3.1"
-solana-signer = "3.0"
-solana-instruction = "=3.4.0"
-solana-message = "=4.4.0"
-solana-transaction = "=4.1.5"
-solana-system-interface = { version = "=3.2.0", features = ["bincode"] }
-solana-account = "=4.3.1"
-solana-signature = { version = "=3.4.1", features = ["std"] }
-solana-address = "=2.6.1"
-solana-short-vec = "=3.2.2"
-solana-reward-info = "=6.2.0"
-
-# Loader V3 state + PDA — pin 7.0 to match solana-rpc-client 4.1.2 graph (no 6+7 dual).
-solana-loader-v3-interface = { version = "=7.0.0", features = ["serde", "bincode"] }
-solana-sdk-ids = "3.0"
-
-base64 = "0.22"
-bincode = "1.3"
-bs58 = "0.5"
+clap = { version = "4.5", features = ["derive"] }
 hex = "0.4"
 libc = "=0.2.189"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 thiserror = "1"
-clap = { version = "4.5", features = ["derive"] }
-url = "2.5"
 
 [dev-dependencies]
 tempfile = "3.10"
-
-[profile.dev]
-opt-level = 0

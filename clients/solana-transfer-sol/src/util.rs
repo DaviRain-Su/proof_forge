@@ -50,33 +50,6 @@ pub fn require_sha256_wire(field: &str, s: &str) -> Result<String, ClientError> 
     Ok(bare.to_string())
 }
 
-/// Display-safe endpoint: `scheme://host[:port]` + `/<redacted>` if path/query/userinfo present.
-/// Never returns secrets from path/query/userinfo.
-pub fn display_endpoint(url: &str) -> String {
-    match url::Url::parse(url) {
-        Ok(u) => {
-            let host = u.host_str().unwrap_or("invalid-host");
-            let mut out = format!("{}://{}", u.scheme(), host);
-            if let Some(port) = u.port() {
-                out.push(':');
-                out.push_str(&port.to_string());
-            }
-            let has_user = !u.username().is_empty() || u.password().is_some();
-            let has_path = {
-                let p = u.path();
-                !p.is_empty() && p != "/"
-            };
-            let has_query = u.query().is_some();
-            let has_frag = u.fragment().is_some();
-            if has_user || has_path || has_query || has_frag {
-                out.push_str("/<redacted>");
-            }
-            out
-        }
-        Err(_) => "<invalid-endpoint>".to_string(),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Strict JSON: reject duplicate object keys at every nesting level
 // ---------------------------------------------------------------------------
@@ -233,14 +206,5 @@ mod tests {
         assert!(parse_json_no_dups(bad).is_err());
         let nested = br#"{"o":{"x":1,"x":2}}"#;
         assert!(parse_json_no_dups(nested).is_err());
-    }
-
-    #[test]
-    fn redact_url_path_and_token() {
-        let d = display_endpoint("https://example.quiknode.pro/abc123/token?x=1");
-        assert_eq!(d, "https://example.quiknode.pro/<redacted>");
-        assert!(!d.contains("abc123"));
-        let plain = display_endpoint("https://api.devnet.solana.com");
-        assert_eq!(plain, "https://api.devnet.solana.com");
     }
 }

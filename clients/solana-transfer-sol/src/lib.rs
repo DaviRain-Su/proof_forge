@@ -1,26 +1,20 @@
-//! ProofForge TransferSol engineering client library.
+//! ProofForge TransferSol offline engineering artifact verifier.
 //!
-//! Offline OutputSet verification + explicit opt-in Devnet call helpers.
-//! Not formal, not hermetic, not a deployment tool.
+//! This crate has no RPC, deployment, faucet, wallet, signing, or network-write surface.
+//! Local executable behavior is exercised by `runtime-tests/solana` under Mollusk.
 
 pub mod artifact;
 pub mod cli;
 pub mod constants;
-pub mod devnet;
 pub mod error;
-pub mod ix;
-pub mod loader_v3;
-pub mod receipt;
-pub mod rpc;
+pub mod output;
 pub mod util;
 
 pub use artifact::{
     verify_transfer_sol_artifact, verify_transfer_sol_artifact_with_source_hash, VerifiedArtifact,
 };
-pub use cli::{reject_secret_argv, validate_devnet_bounds, Cli, Commands};
+pub use cli::{Cli, Commands};
 pub use constants::*;
-pub use devnet::{
-    print_receipt_json, print_verify_json, run_devnet_call, run_verify_artifacts, DevnetCallArgs,
-};
 pub use error::ClientError;
+pub use output::{print_verify_json, run_verify_artifacts};
 pub use util::sha256_hex;
