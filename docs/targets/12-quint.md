@@ -3,7 +3,7 @@ id: TARGET-QUINT
 title: Quint executable-specification target dossier
 status: draft
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-04
 normative: true
 ---
 
@@ -15,7 +15,7 @@ Target ID：`quint`
 **Engineering only**——**非** accepted PRD Phase 1 四目标范围；accepted scope
 reconciliation 见 **`DOC-ADR-SCOPE`**。
 
-## 0. 工程状态（2026-08-03）
+## 0. 工程状态（2026-08-03 / A6 2026-08-04）
 
 **设计冻结（Q0，见 [ADR-0026](../adr/0026-quint-target-integration.md)）**：
 
@@ -40,25 +40,40 @@ reconciliation 见 **`DOC-ADR-SCOPE`**。
 | `proof` | `no-proof` |
 | `settlement` | `no-settlement` |
 
-**Resolver（honest 4-key）**：仅
+**Resolver（honest 6-key after ADR-0029 Phase A）**：
+`effect.synchronous-call` / `extension.pf-assets` /
 `failure.atomic-rollback` / `state.persistent` / `value.bool` /
-`value.checked-arithmetic`。event / sync-call / async-workflow 及其余 S2 键 **fail
-closed**。
+`value.checked-arithmetic`。event / async-workflow 及其余 S2 键 **fail closed**。
+`extension.pf-assets` 仅本 profile 精确 advertise（exact triple 与
+[`pf-assets-extension-v1.json`](../specs/pf-assets-extension-v1.json) 对齐）；其它
+target 对使用该 extension 的程序 **PF-REQ-UNSUPPORTED**。
 
-**Q0 合法 Semantic 子集**：anonymous `UInt64`/`Bool`/`Unit`；public `UInt64`
+**Q0 合法 Semantic 子集**：anonymous `UInt64`/`Bool`/`Unit`/`Principal`（Principal 仅作
+pf.assets identity 参数，不可算术）；public `UInt64`
 state/params；target Plan 合法面为 public `Unit`/`UInt64`/`Bool` result（当前 source Normalize
 尚不物化 bare-Unit entry return，产品可达 Unit 主要是 initializer）；zero-parameter public-Bool、只读
 Q0 invariant；view 仅 check-free 只读表达式；至少一个 entry，且 **single-block CFG**（无 loop /
 branch / switch / block params）；op 面限 literal、state load+store、checked `UInt64` 算术、比较、Bool
-and/or/not、`pureCall`、bare assert、zero-payload declared revert（failure code=`256+ErrorId`）。
+and/or/not、`pureCall`、bare assert、zero-payload declared revert（failure code=`256+ErrorId`）、
+以及 Phase A 准入的 void `ExternalCall` vault 子集（见下）。
 **完整 `UInt64`
 输入域**，禁止小域近似。其它形状一律 fail closed。
 
 **失败语义**：失败 = **显式 outcome + 业务状态 stutter**；禁止用 blocked action
 掩盖业务失败。
 
+### ADR-0029 Phase A：`pf.assets` vault 建模（工程，2026-08-04）
+
+| 项 | 工程事实 |
+|---|---|
+| 准入 QN | `pf.assets.native.deposit(amount)`、`pf.assets.native.transfer(dst, amount)` |
+| 拒绝 | `*.transferAsync`、`token.*`、非 catalog QN、无 `requires extension pf.assets` 声明 |
+| 模型 | target-owned `pf_vault_native`；nondet external outcome；success 时 credit/debit；failure 与 vault 溢出/不足均 first-failure + 业务/vault stutter |
+| 产品 demo | [`Examples/TipJar.lean`](../../Examples/TipJar.lean) → CLI `build --target quint` → `TipJar.qnt` + `proof-forge.output.v1`；`inspect` exact disk closure（`Tests.Product.TipJarQuintV1`） |
+| 明确边界 | **非** formal TASK/TST、**非** 主网、**仅** 模型层证据；非 deployable；Reference 仍为 opaque void（无 vault 解释器） |
+
 **明确未声称**：ITF 导出、MBT、`quint verify`、Apalache/TLC pin、Tool Lock、
-Reference↔Quint formal 差分、formal D3/D4 完成、accepted PRD 扩面。
+Reference↔Quint formal 差分、formal D3/D4 完成、accepted PRD 扩面、跨 target 资产互通完成。
 
 > Lean registry、resolver、`Targets/Quint/**` materializer 与聚合 dispatch 已落地；
 > 当前 registry 为 **12 = 9 implemented + 3 design-only**、**9 materializers**。
@@ -99,8 +114,12 @@ Wasm host / TVM Stack-Account / ZK circuit / zkVM / ZK application chain，也�
 
 ### 调用
 
-- `call=no-native-call`：本 profile **无** 原生跨合约 / 跨模型 call 面。
-- portable `call` / `schedule` 在 resolver 与 Plan **双 fail closed**。
+- `call=no-native-call`：本 profile **无** 原生跨合约 / 跨模型 call 面（轴值不变）。
+- resolver 现 advertise `effect.synchronous-call` **仅** 为 ADR-0029 `pf.assets` vault
+  子集服务；generic 非 catalog QN 可过 resolve 但在 Plan **fail closed**。
+- `schedule` / async 仍 **fail closed**。
+- Phase A 准入：`pf.assets.native.deposit` / `pf.assets.native.transfer` → vault 建模；
+  async/token FC（见 §0）。
 - `pureCall`（纯本地 pureFn）在 Q0 允许，不得引入 effectful 外部 callee。
 
 ### 失败
@@ -134,6 +153,8 @@ Wasm host / TVM Stack-Account / ZK circuit / zkVM / ZK application chain，也�
 | bare assert | 失败 → 显式 outcome + stutter（**非** 静默 block） |
 | zero-payload declared revert | `failure=256+ErrorId` + stutter；nonzero payload FC |
 | `failure.atomic-rollback` | 失败路径不提交业务 store |
+| `pf.assets.native.deposit` / `transfer`（exact extension） | vault `pf_vault_native` + nondet external outcome；async/token/无声明 FC |
+| generic external `call` / `schedule` | Plan fail closed（非 vault catalog） |
 
 ### 必须 fail closed / 非 Q0
 

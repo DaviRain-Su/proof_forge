@@ -158,6 +158,7 @@ import Tests.Product.CounterV1Evm
 import Tests.Product.PrivateSum4PrivacyV1
 import Tests.Product.PerfCheckHarnessV1
 import Tests.Product.TokenV1
+import Tests.Product.TipJarQuintV1
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.Materialization.EngineeringFinalizationV1
@@ -214,6 +215,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Product.PrivateSum4PrivacyV1.run
   Tests.Product.PerfCheckHarnessV1.run
   Tests.Product.TokenV1.run
+  Tests.Product.TipJarQuintV1.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run
   Tests.CLI.DiagnosticsV1.run
