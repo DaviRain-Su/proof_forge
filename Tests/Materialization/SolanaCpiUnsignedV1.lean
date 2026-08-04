@@ -7,13 +7,16 @@
 
   Pins: companion.invoke/.fail only, single-block gate, siteChecks immediately
   before invoke, sol_invoke_signed_c + sol_set_return_data surface, no 0xec01,
-  System/PDA rejection, ordinary resolver still rejects sync.
+  System/PDA rejection. #125: ordinary resolver admits sync, but product Plan
+  fails PF-PLAN-INVARIANT (active catalog companion denied); preactivation lane
+  still succeeds (isProductArtifact=false pins unchanged).
 -/
 import ProofForgeV2.Targets.Solana.CpiContractV1
 import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.CpiIRV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiDeriveV1
+import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.CpiPreflightIRV1
 import ProofForgeV2.Targets.Solana.CpiUnsignedIRV1
 import ProofForgeV2.Targets.Solana.EmitCpiUnsignedSbpfV1
@@ -356,15 +359,17 @@ unsafe def run : IO Unit := do
     (resolveSolanaCpiUnsignedIRV1 brPfIr)
     "single-block" "multi-block rejected by unsigned IR"
 
-  -- Ordinary product resolver still rejects sync on the call program.
+  -- #125: ordinary product resolver admits companion sync; product Plan fails
+  -- closed because active catalog denies companion package. Preactivation lane
+  -- above remains successful (isProductArtifact=false).
   let resolverCompiled ← compileSource session companionCpiSource
     "Examples.CompanionCpi" "runtime-tests/solana/fixtures/CompanionCpi.lean"
-  match resolveEngineeringRequirementsV1 selection resolverCompiled with
-  | .error error =>
-      expect (error.code == "PF-REQ-UNSUPPORTED")
-        s!"ordinary resolver must PF-REQ-UNSUPPORTED, got {error.render}"
-  | .ok _ =>
-      throw <| IO.userError "ordinary resolver unexpectedly accepted sync program"
+  let capability ← expectPlanOk
+    (resolveEngineeringRequirementsV1 selection resolverCompiled)
+    "ordinary resolver admits companion unsigned sync"
+  expectPlanRejectContains
+    (productPlanFromCapabilityV1 capability)
+    "companion" "product Plan denies companion catalog package"
 
   IO.println "Tests.Materialization.SolanaCpiUnsignedV1: ok"
 

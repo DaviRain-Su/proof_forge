@@ -1,27 +1,20 @@
 /-
-  ProofForgeV2.Targets.Solana.EmitCpiEscrowSbpfV1 — #124 composite escrow SBPF.
+  ProofForgeV2.Targets.Solana.EmitCpiEscrowSbpfV1 — #124/#125 composite SBPF.
 
   Namespace: `ProofForgeV2.Targets.Solana.CpiV1`.
 
-  Sole emitter for production-code-generated **test-preactivation composite
-  escrow CPI ELF** text. Accepts only `ResolvedSolanaCpiEscrowIRV1`. Public
-  structural Plan/IR cannot feed this emitter.
+  Shared emit core for the five composite APIs (system.transfer,
+  system.createPdaAccount, token.transferChecked/transferCheckedPda,
+  ata.createIdempotent). Two private wrappers:
 
-  Emits:
-  * ABIv1 multi-account walker + handler-entry global preflight;
-  * ordered body: UInt64/UInt8 param/literal/stateLoad/checkedAdd/stateStore;
-  * per site: siteArgChecks → siteChecks → invoke (strict source order);
-  * System createPdaAccount (52B, canonical PDA, invoke_signed group0);
-  * Token transferChecked / transferCheckedPda (10B 0x0c codec);
-  * ATA createIdempotent (data byte 01, six metas, zero signer groups);
-  * exact site-time Token/ATA field predicates;
-  * every nonzero syscall status propagates immediately;
-  * success clears return data via sol_set_return_data(0,0).
+  * `SolanaCpiEscrowAssemblyV1` — #124 test-preactivation; sole mint
+    `emitCpiEscrowSbpfV1` from `ResolvedSolanaCpiEscrowIRV1`; keeps
+    TEST-PREACTIVATION banner, isProductArtifact=false, fixed caller pin.
+  * `SolanaCpiProductAssemblyV1` — #125 product; sole mint
+    `emitCpiProductSbpfV1` from `ResolvedSolanaCpiProductIRV1`; no
+    preactivation banner, isProductArtifact=true, no fixed caller id.
 
-  Final call surface only: sol_try_find_program_address,
-  sol_invoke_signed_c, sol_set_return_data. No 0xec01 / callx / ACC0_.
-
-  Caller program id pin (runtime): all-0x59. Not OutputFile / product path.
+  Public structural Plan/IR cannot feed either emitter.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Diagnostic
@@ -39,7 +32,7 @@ namespace ProofForgeV2.Targets.Solana.CpiV1
 open ProofForgeV2
 open ProofForgeV2.Core.Common
 
-/-! ## Private assembly carrier -/
+/-! ## Private assembly carriers -/
 
 /-- Private test-preactivation assembly carrier. isProductArtifact=false. -/
 structure SolanaCpiEscrowAssemblyV1 where
@@ -58,6 +51,24 @@ def isProductArtifact (_ : SolanaCpiEscrowAssemblyV1) : Bool := false
 def isTestPreactivation (_ : SolanaCpiEscrowAssemblyV1) : Bool := true
 
 end SolanaCpiEscrowAssemblyV1
+
+/-- Private product assembly carrier. isProductArtifact=true. -/
+structure SolanaCpiProductAssemblyV1 where
+  private mk ::
+  resolved : ResolvedSolanaCpiProductIRV1
+  text : String
+  frameBytes : Nat
+
+namespace SolanaCpiProductAssemblyV1
+
+def textOf (a : SolanaCpiProductAssemblyV1) : String := a.text
+def frameBytesOf (a : SolanaCpiProductAssemblyV1) : Nat := a.frameBytes
+def resolvedOf (a : SolanaCpiProductAssemblyV1) : ResolvedSolanaCpiProductIRV1 :=
+  a.resolved
+def isProductArtifact (_ : SolanaCpiProductAssemblyV1) : Bool := true
+def isTestPreactivation (_ : SolanaCpiProductAssemblyV1) : Bool := false
+
+end SolanaCpiProductAssemblyV1
 
 /-! ## Frame layout (shared role table / temps with #118–#123) -/
 
@@ -105,18 +116,28 @@ private def hasSubstr (haystack needle : String) : Bool :=
 private def tempSlot (tempId : Nat) : Nat :=
   escrowTempBaseV1 + tempId * 8
 
-private def emitHeader
-    (b0 : AsmBuf) (handlerCount frameBytes cpiBase : Nat) : AsmBuf :=
+private def emitHeaderCore
+    (b0 : AsmBuf) (handlerCount frameBytes cpiBase : Nat)
+    (productMode : Bool) : AsmBuf :=
   Id.run do
     let mut b := b0
-    b := emit b "; proof-forge solana composite escrow CPI SBPF (#124)"
-    b := emit b "; TEST-PREACTIVATION ONLY — production-code-generated composite escrow CPI ELF"
-    b := emit b "; not a product artifact; activationDenied; no OutputFile"
-    b := emit b "; Direct-mapped Loader V3 ABIv1 walker + role table (16 x 64 = 1024B)"
-    b := emit b "; Packages: system-v1 runtime-native; token-classic-v1/ata-classic-v1 absent"
-    b := emit b "; createPdaAccount + transferChecked + transferCheckedPda + createIdempotent"
-    b := emit b "; PDA rule: current-program-tagged-v1 (seed0=proof-forge:pda:v1); ATA ata-classic-v1"
-    b := emit b "; caller program id pin (runtime): all-0x59; not OutputFile"
+    if productMode then
+      b := emit b "; proof-forge solana composite product CPI SBPF (#125)"
+      b := emit b "; PRODUCT ARTIFACT — composite CPI product lane"
+      b := emit b "; isProductArtifact=true; active snapshot Plan/IR bound"
+      b := emit b "; Direct-mapped Loader V3 ABIv1 walker + role table (16 x 64 = 1024B)"
+      b := emit b "; Approved APIs: system.transfer/createPdaAccount; token.transferChecked/Pda; ata.createIdempotent"
+      b := emit b "; PDA rule: current-program-tagged-v1; ATA ata-classic-v1"
+      b := emit b "; No fixed caller program id pin (runtime ABIv1 program id)"
+    else
+      b := emit b "; proof-forge solana composite escrow CPI SBPF (#124)"
+      b := emit b "; TEST-PREACTIVATION ONLY — production-code-generated composite escrow CPI ELF"
+      b := emit b "; not a product artifact; activationDenied; no OutputFile"
+      b := emit b "; Direct-mapped Loader V3 ABIv1 walker + role table (16 x 64 = 1024B)"
+      b := emit b "; Packages: system-v1 runtime-native; token-classic-v1/ata-classic-v1 absent"
+      b := emit b "; createPdaAccount + transferChecked + transferCheckedPda + createIdempotent"
+      b := emit b "; PDA rule: current-program-tagged-v1 (seed0=proof-forge:pda:v1); ATA ata-classic-v1"
+      b := emit b "; caller program id pin (runtime): all-0x59; not OutputFile"
     b := emit b "; Failure: exit with syscall status immediately (no clear, no later op)"
     b := emit b "; Success: sol_set_return_data(0,0) then continue body"
     b := emit b s!"; Handlers: {handlerCount}; frameBytes={frameBytes} (<= {escrowMaxFrameBytesV1})"
@@ -146,6 +167,10 @@ private def emitHeader
     b := emit b s!".equ SEED0_LEN, {escrowSeed0LenV1}"
     b := emitBlank b
     pure b
+
+private def emitHeader
+    (b0 : AsmBuf) (handlerCount frameBytes cpiBase : Nat) : AsmBuf :=
+  emitHeaderCore b0 handlerCount frameBytes cpiBase false
 
 private def emitErrShape (b0 : AsmBuf) : AsmBuf :=
   let b := emit b0 "err_shape:"
@@ -526,6 +551,78 @@ private def emitWriteMeta
     b := emit b "  lddw r4, 0"
     for pad in [10:16] do
       b := emit b s!"  stxb [{metaBaseReg} + {off + pad}], r4"
+    pure b
+
+/-- Emit System transfer: zero signer groups, 12B data. -/
+private def emitInvokeSystemTransfer
+    (b0 : AsmBuf) (inv : CpiEscrowInvokeV1) (labSuffix : String) :
+    CompileResult AsmBuf := do
+  unless inv.kind == .transfer do
+    emitFail "emit system.transfer requires transfer kind"
+  unless inv.packageId == "system-v1" && inv.qn == "solana.system.transfer" do
+    emitFail "emit system.transfer requires system.transfer / system-v1"
+  unless inv.dataLen == 12 && inv.metas.size == 2 do
+    emitFail "system.transfer dataLen/metas must be 12/2"
+  unless inv.outerOnly.isEmpty && inv.signerGroupId.isNone do
+    emitFail "system.transfer requires zero outer-only and zero signer groups"
+  let some payer := inv.payer | emitFail "system.transfer payer missing"
+  let some recipient := inv.destination |
+    emitFail "system.transfer recipient missing"
+  let some lamports := inv.lamports | emitFail "system.transfer lamports missing"
+  let meta0 := inv.metas[0]!
+  let meta1 := inv.metas[1]!
+  unless meta0.roleId == payer.roleId &&
+      meta0.localIndex == payer.localIndex &&
+      meta1.roleId == recipient.roleId &&
+      meta1.localIndex == recipient.localIndex do
+    emitFail "system.transfer Principal/meta join diverged"
+  unless inv.accountInfoCount ≤ escrowMaxRolesV1 do
+    emitFail "accountInfoCount exceeds max roles"
+  let n := inv.accountInfoCount
+  let infosOff := 88
+  pure <| Id.run do
+    let mut b := b0
+    b := emit b s!"  ; --- invokeEscrow system.transfer site={inv.siteId} ---"
+    b := emit b "  mov64 r9, r10"
+    b := emit b "  lddw r4, CPI_BASE"
+    b := emit b "  sub64 r9, r4                       ; r9 = cpi scratch base"
+    b := emit b "  lddw r4, 0"
+    b := emit b "  stxdw [r9 + 0], r4"
+    b := emit b "  stxdw [r9 + 8], r4"
+    b := emit b "  lddw r4, 2"
+    b := emit b "  stxw [r9 + 0], r4                  ; SystemInstruction::Transfer"
+    b := emitResolveU64Source b lamports "r4"
+    b := emit b "  stxdw [r9 + 4], r4                 ; lamports u64le"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 16                       ; metas"
+    b := emitWriteMeta b "r5" 0 meta0.localIndex meta0.cpiWritable meta0.cpiSigner
+    b := emitWriteMeta b "r5" 1 meta1.localIndex meta1.cpiWritable meta1.cpiSigner
+    b := emit b "  mov64 r8, r9"
+    b := emit b "  add64 r8, 48"
+    b := emitRoleSlotAddr b inv.programLocalIndex
+    b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
+    b := emit b "  stxdw [r8 + 0], r4                 ; program_id (system zero)"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 16"
+    b := emit b "  stxdw [r8 + 8], r4                 ; accounts"
+    b := emit b "  lddw r4, 2"
+    b := emit b "  stxdw [r8 + 16], r4                ; accounts_len"
+    b := emit b "  stxdw [r8 + 24], r9                ; data"
+    b := emit b "  lddw r4, 12"
+    b := emit b "  stxdw [r8 + 32], r4                ; data_len"
+    b := emitFillAccountInfos b n infosOff labSuffix
+    b := emit b "  mov64 r1, r8"
+    b := emit b "  mov64 r2, r9"
+    b := emit b s!"  add64 r2, {infosOff}"
+    b := emit b s!"  lddw r3, {n}"
+    b := emit b "  lddw r4, 0"
+    b := emit b "  lddw r5, 0"
+    b := emit b "  call sol_invoke_signed_c"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emit b "  lddw r1, 0"
+    b := emit b "  lddw r2, 0"
+    b := emit b "  call sol_set_return_data"
+    b := emit b "  jne r0, 0, cpi_failed"
     pure b
 
 /-- Emit Token transferChecked: zero signer groups. -/
@@ -1287,6 +1384,7 @@ private def emitBodyOp
       pure b
   | .invokeEscrow inv =>
       match inv.kind with
+      | .transfer => emitInvokeSystemTransfer b0 inv labSuffix
       | .transferChecked => emitInvokeTransferChecked b0 inv labSuffix
       | .transferCheckedPda => emitInvokeTransferCheckedPda b0 inv labSuffix
       | .createPdaAccount => emitInvokeCreatePdaAccount b0 inv labSuffix
@@ -1344,13 +1442,17 @@ private def emitHandlerSection
   pure b
 
 private def emitProbeEntrypoint
-    (b0 : AsmBuf) (handlers : Array CpiEscrowHandlerIRV1) : AsmBuf :=
+    (b0 : AsmBuf) (handlers : Array CpiEscrowHandlerIRV1)
+    (productMode : Bool) : AsmBuf :=
   Id.run do
     let mut b := b0
     let fullPrefix := frozenLoaderV3AbiLayoutV1.fullPrefixBytes
     let growth := frozenLoaderV3AbiLayoutV1.maxPermittedDataIncrease
     b := emitBlank b
-    b := emit b "; ----- test-preactivation entrypoint (NOT a product artifact) -----"
+    b := emit b (if productMode then
+      "; ----- product CPI entrypoint -----"
+    else
+      "; ----- test-preactivation entrypoint (NOT a product artifact) -----")
     b := emit b "; Instruction data: handlerId u64 LE + non-Principal UInt64/UInt8 params."
     b := emit b "; Per-handler exact length enforced after dispatch."
     b := emit b ".globl entrypoint"
@@ -1486,10 +1588,9 @@ private def emitProbeEntrypoint
 private def alignUp8 (n : Nat) : Nat :=
   ((n + 7) / 8) * 8
 
-def emitCpiEscrowSbpfV1
-    (resolved : ResolvedSolanaCpiEscrowIRV1) :
-    CompileResult SolanaCpiEscrowAssemblyV1 := do
-  let cand := ResolvedSolanaCpiEscrowIRV1.candidateOf resolved
+private def emitCompositeAssemblyText
+    (cand : SolanaCpiEscrowIRCandidateV1) (productMode : Bool) :
+    CompileResult (String × Nat) := do
   unless cand.maxOuterRoles == escrowMaxRolesV1 do
     emitFail s!"maxOuterRoles must be {escrowMaxRolesV1}"
   unless cand.maxFrameBytes == escrowMaxFrameBytesV1 do
@@ -1510,8 +1611,8 @@ def emitCpiEscrowSbpfV1
   unless cpiBase ≥ escrowTempRegionEndV1 + scratchReserve do
     emitFail "CPI scratch overlaps temp/role region"
   let mut b := emptyBuf
-  b := emitHeader b cand.handlers.size frameBytes cpiBase
-  b := emitProbeEntrypoint b cand.handlers
+  b := emitHeaderCore b cand.handlers.size frameBytes cpiBase productMode
+  b := emitProbeEntrypoint b cand.handlers productMode
   for h in cand.handlers do
     b ← emitHandlerSection b h
   b := emitBlank b
@@ -1531,10 +1632,32 @@ def emitCpiEscrowSbpfV1
     emitFail "Escrow assembly must contain sol_invoke_signed_c"
   unless hasSubstr text "call sol_set_return_data" do
     emitFail "Escrow assembly must contain sol_set_return_data"
+  pure (text, frameBytes)
+
+def emitCpiEscrowSbpfV1
+    (resolved : ResolvedSolanaCpiEscrowIRV1) :
+    CompileResult SolanaCpiEscrowAssemblyV1 := do
+  let cand := ResolvedSolanaCpiEscrowIRV1.candidateOf resolved
+  let (text, frameBytes) ← emitCompositeAssemblyText cand false
   unless hasSubstr text "TEST-PREACTIVATION ONLY" do
     emitFail "Escrow assembly missing preactivation banner"
   unless hasSubstr text "not a product artifact" do
     emitFail "Escrow assembly missing product-boundary banner"
+  pure ⟨resolved, text, frameBytes⟩
+
+/-- Sole #125 product emitter. Accepts only `ResolvedSolanaCpiProductIRV1`.
+    No TEST-PREACTIVATION / activationDenied banner; isProductArtifact=true. -/
+def emitCpiProductSbpfV1
+    (resolved : ResolvedSolanaCpiProductIRV1) :
+    CompileResult SolanaCpiProductAssemblyV1 := do
+  let cand := ResolvedSolanaCpiProductIRV1.candidateOf resolved
+  let (text, frameBytes) ← emitCompositeAssemblyText cand true
+  if hasSubstr text "TEST-PREACTIVATION ONLY" then
+    emitFail "Product assembly must not contain preactivation banner"
+  if hasSubstr text "activationDenied" then
+    emitFail "Product assembly must not claim activationDenied"
+  unless hasSubstr text "PRODUCT ARTIFACT" do
+    emitFail "Product assembly missing product banner"
   pure ⟨resolved, text, frameBytes⟩
 
 end ProofForgeV2.Targets.Solana.CpiV1

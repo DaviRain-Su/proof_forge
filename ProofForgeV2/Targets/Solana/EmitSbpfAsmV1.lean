@@ -1,4 +1,6 @@
 import ProofForgeV2.Targets.Solana.EmitIRV1
+import ProofForgeV2.Targets.Solana.CpiProductV1
+import ProofForgeV2.Core.TargetIdentityV1
 
 /-!
 # Solana EmitSbpfAsmV1 — typed IR → SBPF assembly (.s) text (S1b)
@@ -9,10 +11,13 @@ ELF. No blueshift extension mnemonics (`hor64`/`lmul64`/`uhmul64`/`udiv64`/
 `urem64`/`shmul64`/`srem64`).
 
 Authority: typed `IR` / `Operation` / `Check` from `EmitIRV1` (not `.sbpf-plan`
-text). Product `buildFromCapability` publishes `.sbpf-plan` + IDL for the plan
-profile and additionally `{name}.s` under `solana-sbpf-elf-v1`;
-`.s` remains additive. Registered `solana-sbpf-cpi-elf-v1` is stopped in
-`materializePlanFromCapabilityV1` before legacy Plan/IR construction.
+text). Product `buildFromCapability` is profile-exhaustive (#125):
+* `solana-sbpf-plan-v1` → legacy `.sbpf-plan` + IDL
+* `solana-sbpf-elf-v1` → legacy plan/IDL + `{name}.s`
+* `solana-sbpf-cpi-elf-v1` → product base files via `productBaseFilesFromCapabilityV1`
+  (never legacy Plan/IR/emitter)
+* unknown profile → fail closed
+Legacy ExternalCall/Schedule ops remain unreachable in this emitter.
 
 ## Input account layout (single non-dup state account)
 
@@ -2003,10 +2008,11 @@ def emitSbpfAsmV1 (ir : IR) : CompileResult String := do
     b := emitBlank b
   pure b.text
 
-/-- Convenience: emit assembly from a capability-bound IR build path. -/
+/-- Convenience: emit legacy SBPF assembly from a capability-bound IR path.
+    CPI profile must not call this (product assembly is product-core owned). -/
 def emitSbpfAsmFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) :
     CompileResult String := do
-  let ir ← irFromCapability capability
+  let ir ← legacyIrFromCapabilityV1 capability
   emitSbpfAsmV1 ir
 
 /-- ELF-profile product emit: assembly text + plan + IDL. -/
@@ -2021,19 +2027,34 @@ private def emitElfFromIR
     contents := asm
   }
 
-/-- Capability-gated public materialize entry (S6).
-    Profile `solana-sbpf-elf-v1` publishes `.s` + plan + IDL; the default
-    `solana-sbpf-plan-v1` stays plan+IDL only. The registered ADR-0024 CPI
-    profile is rejected by the shared capability→Plan gate before this emitter.
-    Lives here (not EmitIRV1) so the `.s` branch can call `emitSbpfAsmV1`
-    without a circular import. -/
+private def buildUnknownProfileFail (profile : CodegenProfileId) :
+    CompileResult (Array OutputFile) :=
+  throw <| .planInvariant .solana
+    s!"unknown Solana codegen profile '{profile}' (exhaustive plan/elf/cpi only)"
+
+/-- Capability-gated public materialize entry (S6 / #125).
+    Exhaustive profile dispatch:
+    * `solana-sbpf-plan-v1` → legacy plan+IDL only
+    * `solana-sbpf-elf-v1` → legacy plan+IDL+`.s`
+    * `solana-sbpf-cpi-elf-v1` → product base files (CpiV1 product core)
+    * unknown → fail closed (no silent else fallback)
+    CPI never enters legacy Plan/IR/emitter. Lives here (not EmitIRV1) so the
+    `.s` branch can call `emitSbpfAsmV1` without a circular import. -/
 def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     CompileResult (Array OutputFile) := do
-  let ir ← irFromCapability capability
+  unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
+    throw <| .planInvariant .solana "engineering capability kind is not Solana"
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
-  if profile == CodegenProfileId.solanaSbpfElfV1 then
-    emitElfFromIR capability ir
-  else
+  if profile == CodegenProfileId.solanaSbpfPlanV1 then
+    let ir ← legacyIrFromCapabilityV1 capability
     emitPlanAndIdlFromIR capability ir
+  else if profile == CodegenProfileId.solanaSbpfElfV1 then
+    let ir ← legacyIrFromCapabilityV1 capability
+    emitElfFromIR capability ir
+  else if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
+    -- Product core sole base-file authority; never legacy emit.
+    CpiV1.productBaseFilesFromCapabilityV1 capability
+  else
+    buildUnknownProfileFail profile
 
 end ProofForgeV2.Targets.Solana

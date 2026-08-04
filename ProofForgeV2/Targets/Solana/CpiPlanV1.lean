@@ -221,6 +221,43 @@ def frozenComputeAssumptionsV1 : ComputeAssumptionsV1 where
     "every-referenced-callee-package-is-admitted-with-an-exact-artifact-or-runtime-native-binding"
   implementationState := "inert-contract-only-no-artifact-mint"
 
+/-! ## #125 active product snapshot (consumes CpiContractV1 pins)
+
+    Preactivation `profileDigestV1` / `catalogDigestV1` / `frozenCalleePackagesV1` /
+    `frozenComputeAssumptionsV1` remain the sole inert authority and are never
+    mutated here. Product Plan digests bind `activeProfileDigestV1` /
+    `activeCatalogDigestV1` / `activeCalleePackagesV1` from `CpiContractV1`. -/
+
+/-- Exact active product compute assumptions. Caps/policies match frozen product
+    caps; implementation state is the active profile product-exact-sync label. -/
+def activeComputeAssumptionsV1 : ComputeAssumptionsV1 where
+  maxOuterRoles := maxOuterRolesV1
+  maxCpiAccountInfos := maxCpiAccountInfosV1
+  maxCpiMetas := maxCpiMetasV1
+  maxCpiSitesPerHandler := maxCpiSitesPerHandlerV1
+  maxSignerGroupsPerCpi := maxSignerGroupsPerCpiV1
+  maxSeedsIncludingBump := maxSeedsIncludingBumpV1
+  maxSeedBytes := maxSeedBytesV1
+  maxInstructionDataBytes := maxInstructionDataBytesV1
+  maxPdaSpaceBytes := maxPdaSpaceBytesV1
+  instructionStackDepth := 9
+  returnDataPolicy :=
+    "runtime-clears-before-callee;profile-clears-to-empty-after-each-successful-cpi"
+  failurePolicy := "return-immediately-and-fail-outer-instruction"
+  activationRule :=
+    "every-referenced-callee-package-is-admitted-with-an-exact-artifact-or-runtime-native-binding"
+  implementationState := activeProfileImplementationStateV1
+
+/-- Approved product ExternalCall QNs (#125). Companion three APIs are excluded.
+    Authority table is `activeProductApiQnsV1` from contract. -/
+def isApprovedProductApiV1 (qn : String) : Bool :=
+  activeProductApiQnsV1.any (· == qn)
+
+def isCompanionApiV1 (qn : String) : Bool :=
+  qn == "solana.companion.invoke" ||
+    qn == "solana.companion.fail" ||
+    qn == "solana.companion.invokeSigned"
+
 /-- Public inspection candidate for a Solana CPI plan (not yet validated). -/
 structure SolanaCpiPlanCandidateV1 where
   schema : String
@@ -257,6 +294,12 @@ def expectedProfileDigestV1 : Except String Digest :=
 
 def expectedCatalogDigestV1 : Except String Digest :=
   parseDigest catalogDigestV1
+
+def expectedActiveProfileDigestV1 : Except String Digest :=
+  parseDigest activeProfileDigestV1
+
+def expectedActiveCatalogDigestV1 : Except String Digest :=
+  parseDigest activeCatalogDigestV1
 
 def expectedExtensionRequirementV1 : Except String RequirementRequestV1 :=
   solanaCpiAccountsExtensionRequirementV1
@@ -1608,5 +1651,158 @@ def checkSolanaCpiMaterializationEligibilityV1
         | .runtimeNative _ => pure ()
   planFail
     "solana-sbpf-cpi-elf-v1 is inert-contract-only; materialization is not eligible"
+
+/-! ## #125 product Plan validate + eligibility (active snapshot) -/
+
+private def collectReferencedPackageIds
+    (c : SolanaCpiPlanCandidateV1) : Array String :=
+  Id.run do
+    let mut packages : Array String := #[]
+    for role in c.accountRoles do
+      match role.keyPolicy with
+      | .fixedProgram packageId =>
+          if !(packages.any (· == packageId)) then
+            packages := packages.push packageId
+      | _ => pure ()
+    for site in c.cpiSites do
+      if !(packages.any (· == site.packageId)) then
+        packages := packages.push site.packageId
+      for metaSlot in site.metas do
+        match metaSlot.spec.binding with
+        | .fixedProgram packageId =>
+            if !(packages.any (· == packageId)) then
+              packages := packages.push packageId
+        | _ => pure ()
+    pure packages
+
+private def validateProductIdentity
+    (c : SolanaCpiPlanCandidateV1) : CompileResult Unit := do
+  unless c.schema == planSchemaV1 do
+    planFail s!"schema must be exact {planSchemaV1}"
+  unless c.profileId == profileIdV1 do
+    planFail s!"profileId must be exact {profileIdV1}"
+  let expectedProfile ← mapExcept expectedActiveProfileDigestV1 "active profileDigest"
+  unless digestsEqual c.profileDigest expectedProfile do
+    planFail "product profileDigest must equal active pf.solana.cpi-profile.v1 digest"
+  let expectedCatalog ← mapExcept expectedActiveCatalogDigestV1 "active catalogDigest"
+  unless digestsEqual c.calleeCatalogDigest expectedCatalog do
+    planFail "product calleeCatalogDigest must equal active catalog digest"
+  let expectedExt ← mapExcept expectedExtensionRequirementV1 "extensionRequirement"
+  unless c.extensionRequirement.id == expectedExt.id &&
+      c.extensionRequirement.version == expectedExt.version &&
+      digestsEqual c.extensionRequirement.digest expectedExt.digest &&
+      c.extensionRequirement.predicates == expectedExt.predicates do
+    planFail "extensionRequirement must equal exact solanaCpiAccountsExtensionRequirementV1"
+  match validateIdentifierComponent c.programName with
+  | .ok () => pure ()
+  | .error msg => planFail s!"programName: {msg}"
+
+private def validateProductStateAndAssumptions
+    (c : SolanaCpiPlanCandidateV1) : CompileResult Unit := do
+  unless c.pdaRules == frozenPdaRulesV1 do
+    planFail "pdaRules must equal exact frozenPdaRulesV1"
+  unless c.computeAssumptions == activeComputeAssumptionsV1 do
+    planFail "product computeAssumptions must equal exact activeComputeAssumptionsV1"
+  -- Reuse frozen state-schema gates by temporarily accepting only the shared
+  -- state validation path: call the same checks as validateStateAndAssumptions
+  -- except computeAssumptions (already checked above).
+  unless c.stateSchemas.size ≤ 1 do
+    planFail "stateSchemas size must be ≤ 1"
+  let schemaIds := c.stateSchemas.map (·.schemaId)
+  unless arrayDenseFromZero schemaIds do
+    planFail "stateSchemas schemaIds must be dense 0..n-1"
+  for i in [0:c.stateSchemas.size] do
+    let s ← getArr c.stateSchemas i "stateSchemas"
+    unless s.schemaId == i do
+      planFail "stateSchemas must appear in dense schemaId order"
+    requireUInt32 "stateSchema.schemaId" s.schemaId
+    if s.name.utf8ByteSize == 0 then
+      planFail "stateSchema name must be nonempty"
+    match validateIdentifierComponent s.name with
+    | .ok () => pure ()
+    | .error msg => planFail s!"stateSchema name: {msg}"
+    unless 1 ≤ s.exactDataLen && s.exactDataLen ≤ 4096 do
+      planFail "stateSchema.exactDataLen must be in 1..4096"
+    requireUInt32 "stateSchema.exactDataLen" s.exactDataLen
+    match validateDigest s.layoutDigest with
+    | .ok () => pure ()
+    | .error msg => planFail s!"stateSchema.layoutDigest: {msg}"
+    unless s.initializedMarker != 0 do
+      planFail "stateSchema.initializedMarker must be nonzero"
+    unless s.layoutDigest.bytes.size == 32 do
+      planFail "stateSchema.layoutDigest must be 32 raw bytes"
+    let expectedMarker : UInt64 := Id.run do
+      let mut value : UInt64 := 0
+      for index in [0:8] do
+        value := UInt64.shiftLeft value 8 ||| s.layoutDigest.bytes[index]!.toUInt64
+      pure value
+    unless s.initializedMarker == expectedMarker do
+      planFail
+        "stateSchema.initializedMarker must equal first 8 layoutDigest bytes (BE)"
+  unless namesUnique (c.stateSchemas.map (·.name)) do
+    planFail "stateSchema names must be unique"
+
+private def validateProductApprovedApis
+    (c : SolanaCpiPlanCandidateV1) : CompileResult Unit := do
+  for site in c.cpiSites do
+    if isCompanionApiV1 site.qn then
+      planFail s!"product Plan rejects companion API '{site.qn}'"
+    unless isApprovedProductApiV1 site.qn do
+      planFail s!"product Plan rejects non-approved API '{site.qn}'"
+
+/-- Sole #125 product structural validation. Binds active profile/catalog digests
+    and active compute assumptions into canonical bytes/digest. Companion and
+    non-approved APIs fail closed. Does not mint OutputFile. -/
+def validateSolanaCpiProductPlanV1
+    (candidate : SolanaCpiPlanCandidateV1) :
+    CompileResult ValidatedSolanaCpiPlanV1 := do
+  validateProductIdentity candidate
+  validateProductStateAndAssumptions candidate
+  validateRoles candidate
+  validateHandlers candidate
+  validateSites candidate
+  validatePrivilegeJoin candidate
+  validateProductApprovedApis candidate
+  let canonicalBytes ← encodeCandidateCanonical candidate
+  let digest ← mapExcept
+    (domainSeparatedSha256 planDigestDomainV1 canonicalBytes)
+    "product plan digest"
+  pure ⟨candidate, canonicalBytes, digest⟩
+
+/-- #125 product materialization eligibility: only packages in
+    `activeCalleePackagesV1` with admitted=true and non-absent artifact
+    binding; every site must be an approved product API. Succeeds when the
+    active snapshot admits every referenced package (unlike inert eligibility,
+    which always fails closed). -/
+def checkSolanaCpiProductMaterializationEligibilityV1
+    (plan : ValidatedSolanaCpiPlanV1) : CompileResult Unit := do
+  let c := plan.candidate
+  let expectedProfile ← mapExcept expectedActiveProfileDigestV1 "active profileDigest"
+  unless digestsEqual c.profileDigest expectedProfile do
+    planFail "product eligibility requires active profileDigest"
+  let expectedCatalog ← mapExcept expectedActiveCatalogDigestV1 "active catalogDigest"
+  unless digestsEqual c.calleeCatalogDigest expectedCatalog do
+    planFail "product eligibility requires active catalogDigest"
+  unless c.computeAssumptions == activeComputeAssumptionsV1 do
+    planFail "product eligibility requires activeComputeAssumptionsV1"
+  for site in c.cpiSites do
+    unless isApprovedProductApiV1 site.qn do
+      planFail s!"product eligibility rejects API '{site.qn}'"
+  let packages := collectReferencedPackageIds c
+  for packageId in packages do
+    match findActiveCalleePackage? packageId with
+    | none =>
+        planFail
+          s!"product materialization rejects package '{packageId}' not in active catalog"
+    | some pkg =>
+        unless pkg.admittedForMaterialization do
+          planFail
+            s!"product materialization rejects package '{packageId}' with admitted=false"
+        match pkg.artifactBinding with
+        | .absent =>
+            planFail
+              s!"product materialization rejects package '{packageId}' with artifactBinding=absent"
+        | .runtimeNative _ => pure ()
+        | .loaderV3Elf _ => pure ()
 
 end ProofForgeV2.Targets.Solana.CpiV1

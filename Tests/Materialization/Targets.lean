@@ -48,10 +48,15 @@ private def planEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Evm.planFromCapability capability
 
+/-- Legacy-only helper: unwraps Solana `planFromCapability` `.legacy` carrier. -/
 private def planSolana (compiled : CompiledSemanticV1) : CompileResult Targets.Solana.Plan := do
   let selection ← resolveBuildSelectionV1 TargetId.solana none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
-  Targets.Solana.planFromCapability capability
+  match ← Targets.Solana.planFromCapability capability with
+  | .legacy plan => pure plan
+  | .cpi _ =>
+      throw <| .planInvariant .solana
+        "test helper planSolana: expected .legacy Plan, got .cpi"
 
 private def planNear (compiled : CompiledSemanticV1) : CompileResult Targets.Near.Plan := do
   let selection ← resolveBuildSelectionV1 TargetId.near none
@@ -79,10 +84,15 @@ private def irEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.IR
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Evm.irFromCapability capability
 
+/-- Legacy-only helper: unwraps Solana `irFromCapability` `.legacy` carrier. -/
 private def irSolana (compiled : CompiledSemanticV1) : CompileResult Targets.Solana.IR := do
   let selection ← resolveBuildSelectionV1 TargetId.solana none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
-  Targets.Solana.irFromCapability capability
+  match ← Targets.Solana.irFromCapability capability with
+  | .legacy ir => pure ir
+  | .cpi _ =>
+      throw <| .planInvariant .solana
+        "test helper irSolana: expected .legacy IR, got .cpi"
 
 private def irNear (compiled : CompiledSemanticV1) : CompileResult Targets.Near.IR := do
   let selection ← resolveBuildSelectionV1 TargetId.near none
@@ -1727,9 +1737,10 @@ private def laterFlowSourceTextV1 : String :=
   "  view get() : UInt64 do\n" ++
   "    return count\n"
 
-/-- Capability matrix honesty: legacy Solana profiles decline sync call and
-    async workflow until the opt-in CPI contract. EVM/Noir/Psy keep current
-    sync behavior; EVM/NEAR/Noir keep current async behavior. -/
+/-- Capability matrix honesty: legacy Solana profiles still decline sync call and
+    async workflow. Exact CPI profile (#125) admits sync but still declines async
+    (Escrow product positive is covered by SolanaCpiActivationV1). EVM/Noir/Psy
+    keep current sync behavior; EVM/NEAR/Noir keep current async behavior. -/
 private unsafe def testCallScheduleSemanticPlans : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
@@ -1759,18 +1770,30 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
     throw <| IO.userError "call-schedule: missing ExtFlow.yul"
   expect (yul.contents.contains "call(gas(), 0x")
     "EVM Yul must render CALL to the static keccak-derived address"
-  -- Legacy Solana profiles must decline the sync key before Plan mint.
+  -- Legacy Solana profiles must decline external-effect keys before Plan mint.
+  -- ExtFlow requests both call families; canonical requirement wire order
+  -- reports asynchronous-workflow first. Call-only exact rejection is pinned
+  -- in SolanaPlanV1 for both legacy profiles.
   let solSelection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
   match Targets.resolveEngineeringRequirementsV1 solSelection compiled with
   | .error e =>
-      -- ExtFlow requests both call families; canonical requirement wire order
-      -- reports asynchronous-workflow first. Call-only exact rejection is
-      -- pinned in SolanaPlanV1 for both legacy profiles.
       expect (e.code == "PF-REQ-UNSUPPORTED" &&
           e.message.contains "effect.asynchronous-workflow")
         s!"legacy Solana must reject the first unsupported call family, got {e.render}"
   | .ok _ =>
       throw <| IO.userError "legacy Solana unexpectedly supports external effects"
+  -- #125: exact CPI profile admits sync; ExtFlow still fails closed because it
+  -- also requests async (unsupported) — report async first.
+  let solCpiSel ← liftResult <|
+    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfCpiElfV1)
+  match Targets.resolveEngineeringRequirementsV1 solCpiSel compiled with
+  | .error e =>
+      expect (e.code == "PF-REQ-UNSUPPORTED" &&
+          e.message.contains "effect.asynchronous-workflow")
+        s!"cpi Solana ExtFlow must still reject async first, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "cpi Solana unexpectedly accepted ExtFlow (includes async workflow)"
   let noirSelection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
   let noirCapability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 noirSelection compiled

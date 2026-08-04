@@ -94,18 +94,30 @@ private unsafe def compileSource (session : Language.Loader.ParserSession)
   let validated ← liftResult (← session.selectProgramV1 source path moduleName none)
   liftResult <| Compiler.compileValidatedSourceV1 validated
 
-private def solanaCapability (compiled : CompiledSemanticV1) :
+private def solanaCapability (compiled : CompiledSemanticV1)
+    (profile? : Option CodegenProfileId := none) :
     CompileResult Targets.ResolvedEngineeringBuildV1 := do
-  let selection ← resolveBuildSelectionV1 TargetId.solana none
+  let selection ← resolveBuildSelectionV1 TargetId.solana profile?
   Targets.resolveEngineeringRequirementsV1 selection compiled
 
+/-- Legacy-only helper: unwraps `planFromCapability` `.legacy` carrier.
+    Fails the CompileResult if the CPI branch is returned (test theater guard). -/
 private def planSolana (compiled : CompiledSemanticV1) : CompileResult Plan := do
   let capability ← solanaCapability compiled
-  planFromCapability capability
+  match ← planFromCapability capability with
+  | .legacy plan => pure plan
+  | .cpi _ =>
+      throw <| .planInvariant .solana
+        "test helper planSolana: expected .legacy Plan, got .cpi"
 
+/-- Legacy-only helper: unwraps `irFromCapability` `.legacy` carrier. -/
 private def irSolana (compiled : CompiledSemanticV1) : CompileResult IR := do
   let capability ← solanaCapability compiled
-  irFromCapability capability
+  match ← irFromCapability capability with
+  | .legacy ir => pure ir
+  | .cpi _ =>
+      throw <| .planInvariant .solana
+        "test helper irSolana: expected .legacy IR, got .cpi"
 
 private def filesSolana (compiled : CompiledSemanticV1) : CompileResult (Array OutputFile) := do
   let capability ← solanaCapability compiled
@@ -413,8 +425,13 @@ private unsafe def testBoolPredicateEndToEnd
     "Examples.BoolPredicate" "<solana-bool-predicate>"
   let plan ← liftResult <| planSolana compiled
   let capability ← liftResult <| solanaCapability compiled
-  let planCap ← liftResult <| planFromCapability capability
-  expect (plan == planCap) "planFromCapability must match planSolana helper"
+  let planCapSum ← liftResult <| planFromCapability capability
+  let planCap ← match planCapSum with
+    | .legacy p => pure p
+    | .cpi _ =>
+        throw <| IO.userError
+          "bool-predicate: planFromCapability must return .legacy for default profile"
+  expect (plan == planCap) "planFromCapability .legacy must match planSolana helper"
   let bump ← findHandler plan "bump"
   expect (bump.mode == .mutate && bump.resultKind == .u64)
     "bump must remain a UInt64 mutate entry"
@@ -429,7 +446,12 @@ private unsafe def testBoolPredicateEndToEnd
       equalsCount.body == #[
         .returnValue (.compare .eq (.stateLoad 0 8) (.param 8))])
     "equalsCount must be Bool entry returning eq(load,param)"
-  let ir ← liftResult <| irFromCapability capability
+  let irSum ← liftResult <| irFromCapability capability
+  let ir ← match irSum with
+    | .legacy i => pure i
+    | .cpi _ =>
+        throw <| IO.userError
+          "bool-predicate: irFromCapability must return .legacy for default profile"
   let positiveIR ← findHandlerIR ir "positive"
   expect (positiveIR.operations == #[
       .loadState 0 0 8,
@@ -1457,11 +1479,18 @@ private unsafe def testShiftBitwiseLogical
   let ir2 ← liftResult <| irSolana compiled
   expect (ir == ir2) "BitLogic IR rebuild must be structure-identical"
 
+<<<<<<< HEAD
 /-- AddressBearing + BL-27: Solana admits static QN call/schedule as real CPI.
     Plan carries externalCall/schedule; plan text renders program_id= (SHA-256
     of target path); SBPF emits `sol_invoke_signed_c` (not sol_log_data).
     Principal remains fail-closed. -/
 /-- Legacy Solana profiles decline call/schedule before Plan mint. The target
+=======
+/-- #125 call/schedule matrix:
+    * legacy profiles (default plan / elf) still PF-REQ-UNSUPPORTED for both keys
+    * exact CPI profile admits sync at ordinary resolve; unknown Oracle QN fails
+      product Plan with PF-PLAN-INVARIANT; schedule still PF-REQ-UNSUPPORTED
+>>>>>>> d599de3dc (feat(solana): activate exact CPI product profile)
     Plan/IR validators and SBPF emitter also reject forged legacy call nodes so
     no bypass can reproduce the former transitional CPI / log observability stub. -/
 private unsafe def testExternalCallFailClosed
@@ -1490,20 +1519,73 @@ private unsafe def testExternalCallFailClosed
     "    return count\n"
   let scheduleCompiled ← compileSource session scheduleText
     "Examples.ScheduleGate" "<solana-schedule-gate>"
-  let profiles : Array (Option CodegenProfileId) :=
-    #[none, some CodegenProfileId.solanaSbpfCpiElfV1,
-      some CodegenProfileId.solanaSbpfElfV1]
-  for profile? in profiles do
+  -- Legacy profiles still reject both keys before capability mint.
+  for profile? in #[none, some CodegenProfileId.solanaSbpfElfV1] do
     let callSelection ← liftResult <|
       resolveBuildSelectionV1 TargetId.solana profile?
-    expectUnsupportedRequirement s!"call profile={callSelection.codegenProfile}"
+    expectUnsupportedRequirement s!"call legacy profile={callSelection.codegenProfile}"
       "effect.synchronous-call"
       (Targets.resolveEngineeringRequirementsV1 callSelection callCompiled)
     let scheduleSelection ← liftResult <|
       resolveBuildSelectionV1 TargetId.solana profile?
-    expectUnsupportedRequirement s!"schedule profile={scheduleSelection.codegenProfile}"
+    expectUnsupportedRequirement s!"schedule legacy profile={scheduleSelection.codegenProfile}"
       "effect.asynchronous-workflow"
       (Targets.resolveEngineeringRequirementsV1 scheduleSelection scheduleCompiled)
+  -- Exact CPI profile: ordinary resolve admits sync. Unknown Oracle without
+  -- extension fails product Plan (extension required). With exact extension,
+  -- non-approved Oracle QN fails product Plan with PF-PLAN-INVARIANT.
+  let cpiCallSel ← liftResult <|
+    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfCpiElfV1)
+  let cpiCallCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 cpiCallSel callCompiled
+  match planFromCapability cpiCallCap with
+  | .ok (.cpi _) =>
+      throw <| IO.userError
+        "cpi unknown Oracle.feed must not mint product Plan"
+  | .ok (.legacy _) =>
+      throw <| IO.userError
+        "cpi profile must not enter legacy Plan for sync call program"
+  | .error e =>
+      expect (e.code == "PF-PLAN-INVARIANT" || e.code == "PF-REQ-UNSUPPORTED")
+        s!"cpi unknown call product Plan must fail closed, got {e.render}"
+  -- Same unknown QN with exact extension → ordinary resolve + PF-PLAN-INVARIANT.
+  let cpiCallExtText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CallGateExt where\n" ++
+    "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
+    "    digest \"sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020\"\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let cpiCallExtCompiled ← compileSource session cpiCallExtText
+    "Examples.CallGateExt" "<solana-call-gate-ext>"
+  let cpiCallExtCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 cpiCallSel cpiCallExtCompiled
+  match planFromCapability cpiCallExtCap with
+  | .ok (.cpi _) =>
+      throw <| IO.userError
+        "cpi Oracle.feed with extension must not mint product Plan"
+  | .ok (.legacy _) =>
+      throw <| IO.userError
+        "cpi profile must not enter legacy Plan for Oracle.feed"
+  | .error e =>
+      expect (e.code == "PF-PLAN-INVARIANT")
+        s!"cpi non-approved API product Plan must PF-PLAN-INVARIANT, got {e.render}"
+  -- Exact CPI profile: schedule (async) still unsupported at ordinary resolve.
+  let cpiSchedSel ← liftResult <|
+    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfCpiElfV1)
+  expectUnsupportedRequirement "schedule cpi profile"
+    "effect.asynchronous-workflow"
+    (Targets.resolveEngineeringRequirementsV1 cpiSchedSel scheduleCompiled)
 
   -- Defense in depth: legacy public Plan nodes cannot pass validation.
   let baselineCompiled ← compileSource session guardedCounterSourceText

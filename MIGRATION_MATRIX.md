@@ -92,7 +92,7 @@ D1–D4 共 27 个 formal task，当前仍为：
 > authority/emitter生成后由 locked `sbpf 0.2.2` 汇编并在 Mollusk跑正向、0/16/17边界与 22 个 single-
 > mutation rollback negatives。该输出是 manifest-bound production-code-generated test-preactivation ELF，
 > 无 invoke、无 `OutputFile`、无产品 materialization；ordinary resolver仍拒 sync。#119/#120 已在同 opt-in
-> lane 链接 real invoke（见下）；#121–#124 工程 leaf 已闭合；#125 activation 与 formal D5 仍 pending。
+> lane 链接 real invoke（见下）；#121–#124 工程 leaf 已闭合；#125 工程已闭合；formal D5 仍 pending。
 
 > **2026-08-04 Solana #119 unsigned companion CPI 增量**：独立 `CpiUnsignedIRV1`/`EmitCpiUnsignedSbpfV1`
 > 在仍为 activationDenied/test-preactivation 的 `solana-sbpf-cpi-elf-v1` lane 上，对 pinned companion-v1
@@ -112,7 +112,7 @@ D1–D4 共 27 个 formal task，当前仍为：
 > （单 signer group / 4 seeds）；#118 no-invoke 与 #119 unsigned 回归保持独立。Mollusk focused
 > **21/21**。准确称谓是 production-code-generated **test-preactivation PDA-signed CPI ELF**，
 > **不是** `OutputFile`/产品 artifact/activated sync；legacy profiles 仍 fail closed；ordinary
-> resolver 在 #125 前不 advertise/mint；不把 Principal 全局等同 Solana pubkey；非
+> resolver 在 #125 已激活 product sync（async 仍 FC）；不把 Principal 全局等同 Solana pubkey；非
 > formal/hermetic/deploy maturity；#121 见下；#122+ 仍 pending。
 >
 > **2026-08-04 Solana #121 native System CPI 增量**：独立 `CpiSystemIRV1`/`EmitCpiSystemSbpfV1`
@@ -125,8 +125,7 @@ D1–D4 共 27 个 formal task，当前仍为：
 > **35/35**（native transfer/create 效果、inner failure、privilege/role/PDA/space 负例、成功
 > transfer/create 后 caller overflow 全账户回滚）。#118/#119/#120 回归保持独立。准确称谓是
 > production-code-generated **test-preactivation native-System CPI ELF**，**不是** `OutputFile`/
-> 产品 artifact/activated sync；legacy profiles 与 ordinary resolver 仍 fail closed；#125 前不
-> advertise/mint；不把 Principal 全局等同 Solana pubkey；非 formal/hermetic/deploy；**#121 工程切片已闭合**（已通过 `just docs-check`、SBOM 185、`just solana-runtime`（10 binaries/190 active，`cpi_system` 35/35；Mollusk **不属于** ordinary `just ci`，为单独运行）、`just test-targets`、`just dev-check`、ordinary `just ci` 全 exit 0；独立审计无 P0/P1）。
+> 产品 artifact/activated sync；legacy profiles 与 legacy profiles 对 call/schedule 仍 FC；#125 CPI profile 已激活 product sync；不把 Principal 全局等同 Solana pubkey；非 formal/hermetic/deploy；**#121 工程切片已闭合**（已通过 `just docs-check`、SBOM 185、`just solana-runtime`（10 binaries/190 active，`cpi_system` 35/35；Mollusk **不属于** ordinary `just ci`，为单独运行）、`just test-targets`、`just dev-check`、ordinary `just ci` 全 exit 0；独立审计无 P0/P1）。
 >
 > **2026-08-04 Solana #122 classic Token CPI 增量**：独立 private `CpiTokenIRV1`/`EmitCpiTokenSbpfV1`
 > 在仍为 activationDenied/test-preactivation 的 opt-in `solana-sbpf-cpi-elf-v1` lane 上，发射真实
@@ -143,7 +142,7 @@ D1–D4 共 27 个 formal task，当前仍为：
 > `0da1837ec10f7acc716c1151bee23a04e019174f99b1fedde635c7d75b4055f5`，但 **artifactBinding 仍
 > absent / admitted=false**。#118–#121 回归保持独立。准确称谓是 production-code-generated
 > **test-preactivation classic-Token CPI ELF**，**不是** `OutputFile`/产品 artifact/activated
-> sync；legacy profiles 与 ordinary resolver 仍 fail closed；#125 前不 advertise/mint；**非**
+> sync；legacy profiles 与 legacy ordinary path 对 call/schedule 仍 FC；#125 CPI profile 已激活 product sync（async 仍 FC）；**非**
 > mainnet parity / tracked Tool Lock / cross-host / hermetic / formal / release /
 > package-owner-published；Principal 不全局等同 pubkey；**#122 工程切片已闭合**（已通过
 > `just docs-check`、SBOM refresh/check **187**、`just solana-runtime`（**11 binaries/221 active**，
@@ -176,7 +175,7 @@ D1–D4 共 27 个 formal task，当前仍为：
 > ordinary `just ci`，为单独运行）。strict ATA build manifest 逐值绑定 provenance + **4**
 > mutation self-tests。准确称谓是 production-code-generated **test-preactivation classic-ATA
 > CPI ELF**，**不是** `OutputFile`/产品 artifact/activated sync；legacy profiles 与 ordinary
-> resolver 仍 fail closed；#125 前不 advertise/mint；**非** mainnet parity / tracked Tool Lock /
+> resolver 仍 fail closed；#125 已激活 product sync（async 仍 FC）；**非** mainnet parity / tracked Tool Lock /
 > cross-host / hermetic / formal / release / package-owner-published；Principal 不全局等同
 > pubkey；**#123 工程切片已闭合**（已通过 `just docs-check`、SBOM refresh/check **189**、
 > `just solana-runtime`、focused Lean/Rust、`just test-targets`（clean repo-local exact tool
@@ -197,10 +196,9 @@ D1–D4 共 27 个 formal task，当前仍为：
 > SBOM **191**。ATA/Token artifactBinding 仍 absent/admitted=false。**sequential world
 > overlay** 不是多顶层 transaction atomicity。准确称谓 production-code-generated
 > **test-preactivation composite-escrow CPI ELF**，**不是** OutputFile/产品
-> artifact/activated sync；legacy profiles 与 ordinary resolver 仍 fail closed；#125 前
-> 不 advertise/mint；**非** mainnet parity/tracked Tool Lock/cross-host/hermetic/formal/
-> release/package-owner-published；**#124 工程切片已闭合**。**#111–#124 已闭合**；
-> **Active 明确 #125** activation；formal/GitHub issue 状态不因本工程收口而改变。
+> artifact/activated sync；legacy profiles 与 legacy profiles 对 call/schedule 仍 FC；#125 CPI profile 已激活 product sync；**非** mainnet parity/tracked Tool Lock/cross-host/hermetic/formal/
+> release/package-owner-published；**#124 工程切片已闭合**。**#111–#125 已闭合**；
+> **#125 product activation 已闭合**；formal/GitHub issue 状态不因本工程收口而改变。
 > 非 formal/Stage-0/release。
 
 
@@ -570,6 +568,19 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 | `TASK-D4-03` | pending | EvmPlan → validated TargetIR/Yul + ABI | 有 typed IR、dynamic Keccak selector、Yul/ABI renderer、工程 `PlanSchemaV1`/planDigest 与 `validateEvmTargetIRV1` 结构门；仍不是 formal TargetIR grammar/hash/trace contract | `EvmPlanSchemaV1`、`EvmSmoke`、artifact validator 与 EvmSolc 固定 selectors/ABI/Yul/IR 结构 | **工程 validator 已接线，可大量复用** | 将工程 Plan/IR validator 迁入 formal schema/canonical hash/trace 与 identity binding；不得把工程 D4-E1/E3 写成 formal TASK-D4-03 done |
 | `TASK-D4-04` | pending | locked solc bytecode packaging到OutputSetV1 | 真实source已通过digest-pinned solc 0.8.34生成bytecode；selected-tool closure已修复。**S7b**：solc 由 `Targets/Evm/FinalizeV1` + Registry `finalizeMaterializedArtifactsV1` 执行（不再 CLI inline）；on-disk 已为 engineering `proof-forge.output.v1` manifest/evidence（仍非 formal OutputSetV1） | `ToolchainPolicy`、`EngineeringFinalizationV1`、target-smoke、solc-only root positive/full release-root negative通过 | **功能型 alpha** | 将ToolchainIdentity、bytecode validation和artifact roles移入 formal OutputSetV1；禁止命名 formal D4-04 done |
 | `TASK-D4-05` | pending | Anvil Counter与reference interpreter differential | G4 `scripts/evm_anvil_differential.sh` 已从产品 CLI 制品驱动 Counter/Accumulator/ArithOps/EventFlow，验证 init/mutate/read、UInt64 overflow rollback/state-hold 与 emit 日志；尚未与正式 Reference `step` corpus 做 identity-bound differential | 当前开发机真实 Anvil 工程差分通过；不是 formal TST closure | **功能型 alpha** | formal D2/D3/D4 唯一路径与 Reference corpus 冻结后重跑并绑定 identity/evidence；工程结果不得冒充 formal D4-05 done |
+
+> **2026-08-04 Solana #125 product activation**：ordinary resolver **仅** `solana-sbpf-cpi-elf-v1`
+> advertise exact sync+extension（async/schedule 仍 FC）；legacy plan/elf 继续 call+schedule FC；default 仍 plan。
+> 单一 materializer tagged legacy/CPI Plan/IR；product-only private capability，不转换 preflight。
+> active 5 APIs=System transfer/createPdaAccount、Token transferChecked/Pda、ATA createIdempotent；
+> companion 三 API test-only denied。active profile domain
+> `b0f3f5bc7f3973daf176c308cc4ca310f8ad5b51ea33a33c9d1bd3e4d3e91b04`
+> （`irSchema=proof-forge.solana.cpi-product-ir.v1`）；active catalog
+> `e2c2ebac5e690b99ad50fb7f8a5f6ecfdb8295bb43f3913229c2fd48d2820419`；extension 仍 `df7d…`；
+> historical `0b306…`/`41ace…` 与 #124 assembly/ELF pins 不变。System runtimeNative；Token/ATA
+> package-owned 94960/`a19be3…` 与 111136/`d3f6…`。Product CLI 5 base + `.so` exact closure；
+> Mollusk 13/282；SBOM **194**。**#111–#125 closed**；**#110 engineering epic complete**。
+> formal TASK-D5/TST-SOL 仍 pending；不预先声称 ordinary dev-check/ci。
 
 ## 共享迁移依赖
 

@@ -1,20 +1,29 @@
 ---
 id: ADR-0024
 title: Solana 显式账户、PDA/bump 与真实同步 CPI v1 合同
-status: proposed
+status: accepted
 owner: architecture
 updated: 2026-08-04
 normative: true
+approvers: architecture-owner, davirain
+approvedAt: 2026-08-04
+reviewCommit: ebf41a01f772dbe7287c671627762e9959bb0610
+reviewLink: https://github.com/DaviRain-Su/proof_forge/issues/125
+openFindings: none
 ---
 
 # ADR-0024：Solana 显式账户、PDA/bump 与真实同步 CPI v1 合同
 
 ## 状态
 
-`proposed`。本文是 issue #114 的 decision-complete 冻结候选；在 owner 按
-[`document-status.md`](../document-status.md) 记录批准前，不得写成 `accepted`，也不得据此开启产品
-sync capability。#115 的 pinned-runtime harness 与 #116 的 exact extension/inert profile membership
-都不能绕过本文的 artifact-mint/sync deny 状态。
+`accepted`（2026-08-04）。本 acceptance **仅**覆盖 versioned **engineering product contract**：
+opt-in profile `solana-sbpf-cpi-elf-v1` 在 ordinary resolver 上 advertise exact
+`effect.synchronous-call` + ADR extension（async/schedule 仍 fail closed）；active profile/catalog
+domain digests、五条 approved product API、package-owned Token/ATA ELF 与 runtime-native System 绑定；
+单一 materializer 的 legacy/CPI tagged Plan/IR 与 product-only private capability（不转换 preflight）。
+**不**覆盖 formal TASK-D5 / TST-SOL、mainnet byte parity、hermetic Stage-0、package-owner-published
+supply chain 或全 Solana 生态 CPI。历史 #114–#124 preactivation payload（profile/catalog domain
+`0b306…` / `41ace…`）与 #124 escrow assembly/ELF pins 保持不变，继续服务 test-preactivation lane。
 
 ## 背景与范围
 
@@ -78,6 +87,8 @@ merge。target lowering 只能消费已冻结 row，禁止重新遍历 source �
 | [`solana-cpi-extension-v1.json`](../specs/solana-cpi-extension-v1.json) | `13078a4c60ecf85b9bc66124809782641328e6d0d6268855bfa9e66a55b3622d` | `sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020` |
 | [`solana-cpi-callee-catalog-v1.json`](../specs/solana-cpi-callee-catalog-v1.json) | `513c268853e59e5b274457ef95e7b4007f499897d4db50116d43a6be54da1ead` | `sha256:41ace268b3bea9837e4a1fc9e456dbfbd36c98a344e51dfd095ab4ffb2086351` |
 | [`solana-cpi-profile-v1.json`](../specs/solana-cpi-profile-v1.json) | `609d7604cffbaaffbfbe10304015cbaea3d90387674e9c92cad7d616e2b9b307` | `sha256:0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1` |
+| [`solana-cpi-callee-catalog-active-v1.json`](../specs/solana-cpi-callee-catalog-active-v1.json) | `2ec33a976bb0a475a7ef2366452e9126c3aac372e465b9c384971e2e2a1cb68b` | `sha256:e2c2ebac5e690b99ad50fb7f8a5f6ecfdb8295bb43f3913229c2fd48d2820419` |
+| [`solana-cpi-profile-active-v1.json`](../specs/solana-cpi-profile-active-v1.json) | `8c6e7021b4e52ba369426b43cfe9f93d0041a39f371ed145fe3fe416817c7ea3` | `sha256:b0f3f5bc7f3973daf176c308cc4ca310f8ad5b51ea33a33c9d1bd3e4d3e91b04` |
 
 Digest 公式固定为：
 
@@ -87,11 +98,19 @@ catalogDigest   = SHA-256("pf.solana.callee-catalog.v1" || NUL || catalogJcs)
 profileDigest   = SHA-256("pf.solana.cpi-profile.v1" || NUL || profileJcs)
 ```
 
-source declaration 使用 extension domain digest。Profile payload绑定 catalog schema/version/runtime equality
-rule；每次 BuildIdentity、Plan、evidence 与 output manifest 还必须绑定实际 selected catalog digest。当前
-catalog 中四个 package 均 `admittedForMaterialization=false`，是 exact deny，不是待运行时自动补值。
+source declaration 使用 extension domain digest（**#125 后仍为 `df7d…`，extension payload 未改**）。
+Historical rows（catalog `41ace…` / profile `0b306…`）继续绑定 #114–#124 test-preactivation lane。
+**#125 product path** 只消费 active rows：catalog domain `e2c2…`（version `1.1.0`）、profile domain
+`b0f3…`（`irSchema=proof-forge.solana.cpi-product-ir.v1`、
+`implementationState=product-exact-synchronous-call-active-v1`、scheduleSupported=false）。
+Active profile 的 `calleeCatalog.digest` 必须 exact 等于 active catalog domain digest；BuildIdentity、
+Plan、evidence 与 output manifest 绑定 selected active catalog digest。Active catalog 中：
+`system-v1` runtime-native admitted；`token-classic-v1`/`ata-classic-v1` package-owned loader-v3 ELF
+admitted（exact size/sha/path 见 §9.2）；`companion-v1` 仍 `absent` / admitted=false（三 companion API
+仅 test-only）。
 
-`scripts/docs_check.py` 必须重算 canonical bytes、raw/domain digests、ADR 表与 profile/catalog cross-link；
+`scripts/docs_check.py` 必须重算 canonical bytes、raw/domain digests、ADR 表、active↔historical 分离、
+Lean `CpiContractV1` active digest 三角与 package-owned asset/ELF/Tool Lock sbpf profiles；
 任一不一致使 ordinary `just docs-check` 失败。后续 contract revision 必须原子更新 payload、ADR digest 与
 checker 可观察关系。
 
@@ -394,20 +413,21 @@ Base58仅展示；Plan/IR/catalog authority是 raw bytes。
 
 ### 9.2 Interface pins and activation
 
-| package | exact interface/source pin | current artifact state |
-|---|---|---|
-| companion-v1 | extension digest + three-op closed interface + fixed ID | `absent`，不可 materialize |
-| System | `solana-system-interface 3.1.0` checksum + Agave v4.0.0 native runtime | runtime-native identity存在，但 profile仍 inert |
-| classic Token | `solana-program/token program@v9.0.0`，annotated tag object `5c37ac99c248567bd7d50b965af8cbd45b6ced96` → peeled source commit `dfb260231c761be7d9c8b63728e770a102b86495`，interface 2.0.0 | `absent`，不可 materialize |
-| classic ATA | `solana-program/associated-token-account program@v8.0.0`，annotated tag object `de77f367fdc0341879b1b9f0224c6b86107e1769` → peeled source commit `0b867b5340cd001e5980d8ca7928effc4e10015c`，interface 2.0.0 | `absent`，不可 materialize |
+| package | exact interface/source pin | historical catalog (#114–#124) | active catalog (#125) |
+|---|---|---|---|
+| companion-v1 | extension digest + three-op closed interface + fixed ID | `absent` / admitted=false | **仍** `absent` / admitted=false（三 companion API 仅 test-only denied） |
+| System | Agave v4.0.0 native runtime（commit `2a165e7a90af75c76426d1e031ed0284211d5d1e`） | runtime-native identity；profile 曾 inert | **admitted** `runtime-native`（不伪造 ELF hash） |
+| classic Token | `solana-program/token program@v9.0.0`，tag object `5c37ac99…` → peeled `dfb26023…`，interface 2.0.0 | historical catalog admitted=false / absent | **admitted** package-owned loader-v3 ELF **94960** sha `a19be3a2d4778533652da23b8fe31c4a341802f8e8c0c7b941b88581fc92d9d9` at `supply-chain/solana-cpi-assets/v1/token_classic_v1.so` |
+| classic ATA | `solana-program/associated-token-account program@v8.0.0`，tag object `de77f367…` → peeled `0b867b53…`，interface 2.0.0 | historical catalog admitted=false / absent | **admitted** package-owned loader-v3 ELF **111136** sha `d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519` at `supply-chain/solana-cpi-assets/v1/ata_classic_v1.so` |
 
-`absent` 是 closed fail state。Token/ATA/companion只有在 catalog新 instance提供 package-owned或 locked
-reproducible exact ELF bytes、SHA-256、source/build identity与 runtime registration ID match后才能
-`admitted=true`。若采用 cluster snapshot，还必须绑定 ProgramData address、slot、提取过程与 byte digest；
-mutable mainnet dump永不成为隐式 authority。System是 runtime-native package，不伪造 ELF hash。
-
-Token v1只开放 single-owner/no-delegate `TransferChecked`；multisig、mint/burn/close 与 Token-2022拒绝。
-ATA只开放 `CreateIdempotent`，且 classic Token ID同时是 seed和第六个 meta。
+Active product API 闭合（`activeProductApiQnsV1`）仅五条：`solana.system.transfer`、
+`solana.system.createPdaAccount`、`solana.token.transferChecked`、
+`solana.token.transferCheckedPda`、`solana.ata.createIdempotent`。companion 三 API 仍可解析但
+**不得** product-admit。package-owned assets 是 tracked repo ELF 的 exact byte 副本，**不是**
+mainnet parity、hermetic cross-host 或 package-owner-published supply chain。System 保持
+runtime-native。Token v1 只开放 single-owner/no-delegate `TransferChecked`；multisig、
+mint/burn/close 与 Token-2022 拒绝。ATA 只开放 `CreateIdempotent`，classic Token ID 同时是
+seed 与第六个 meta。
 
 ## 10. Solana Plan / IR contract
 
@@ -434,12 +454,16 @@ effectId duplicate、unused role、role OOR、privilege conflict、predicate mis
 
 Plan/IR/IDL identities：
 
-- `proof-forge.solana.cpi-plan.v1` / domain `pf.solana.cpi-plan.v1`；
-- `proof-forge.solana.cpi-ir.v1` / domain `pf.solana.cpi-ir.v1`；
+- `proof-forge.solana.cpi-plan.v1` / domain `pf.solana.cpi-plan.v1`（legacy inspection 与 product 共享 plan schema 名）；
+- historical / test-preactivation IR：`proof-forge.solana.cpi-ir.v1` / domain `pf.solana.cpi-ir.v1`；
+- **#125 product IR**：`proof-forge.solana.cpi-product-ir.v1` / domain `pf.solana.cpi-product-ir.v1`
+  （active profile `irSchema` 必须 exact 等于该值）；
 - `proof-forge.solana.cpi-idl.v1`。
 
-所有 behaviorally relevant field必须进入 Plan canonical bytes/digest；assembler text、IDL或 runtime harness不能
-成为隐藏的第二账户 authority。
+单一 Solana materializer 对 legacy vs CPI Plan/IR 做 tagged dispatch；product-only private capability
+（`ResolvedSolanaCpiProductCapabilityV1`）**不**转换 preflight/activationDenied carrier。所有
+behaviorally relevant field 必须进入 Plan canonical bytes/digest；assembler text、IDL 或 runtime
+harness 不能成为隐藏的第二账户 authority。
 
 ## 11. Fail-closed and deletion gates
 
@@ -454,9 +478,12 @@ Plan/IR/IDL identities：
 - unknown catalog QN、remaining/optional account、role/meta alias；
 - malformed direct-mapping ABI被按 contiguous buffer读取；
 - Rust AccountInfo layout替代 frozen C ABI；
-- package `artifactBinding=absent` 或 `admitted=false` 时生成 output；
+- package `artifactBinding=absent` 或 `admitted=false` 时生成 output（active product path 仅允许
+  admitted System/Token/ATA；companion 与任意 absent 行继续拒绝）；
 - CPI failure后继续执行，或 top-level failure后保留任何账户变化；
-- #125 composite gate前在 resolver advertise sync support。
+- 在非 `solana-sbpf-cpi-elf-v1` profile 上 advertise sync，或对该 profile advertise async/schedule；
+- 把 companion 三 API 或任意非五条 approved product API 标为 product-admitted；
+- 把 preflight/test-preactivation carrier 转换为 product capability 或 `OutputFile`。
 
 ## 12. Required tests
 
@@ -496,8 +523,9 @@ Plan/IR/IDL identities：
   自洽 sidecars；临时 deploy tree在退出时删除。
 
 这只是 pinned-runtime engineering feasibility。#116 随后注册了 `solana-sbpf-cpi-elf-v1` membership
-并接通 exact extension row，但 resolver仍不 advertise sync/async，capability→Plan 与 generic product build
-在任何 OutputFile/输出目录前 fail closed；#117–#124 为 engineering test-preactivation；#125 与 formal D5/TST-SOL 状态不变。
+并接通 exact extension row；当时 resolver 仍不 advertise sync/async，capability→Plan 与 generic product
+build 在任何 OutputFile 前 fail closed。#117–#124 为 engineering test-preactivation（历史 lane 保留）。
+**#125 工程 product activation 已闭合**（见下 #125 observation）；formal D5/TST-SOL 仍 pending。
 
 #### #116 inert membership observation（2026-08-03）
 
@@ -569,7 +597,8 @@ Plan/IR/IDL identities：
   pointer-table/trailing/truncation/overflow；不把模型负例冒充真实 VM raw-input 注入。
 - 该 ELF 的准确称谓是 **production-code-generated test-preactivation ELF**。它不是
   `proof-forge.output.v1`、不是产品 artifact，也不调用任何 callee。#119 unsigned invoke、#120 PDA/bump/
-  `invoke_signed` 与 #121–#124 forcing gates 已在 test-preactivation lane 闭合；#125 前 resolver support 和产品 artifact mint 继续关闭。
+  `invoke_signed` 与 #121–#124 forcing gates 已在 test-preactivation lane 闭合；**#125** 另开
+  product path（见下 #125 observation），preflight lane 保持独立且不转换。
 
 #### #119 unsigned companion CPI observation（2026-08-04）
 
@@ -597,7 +626,7 @@ Plan/IR/IDL identities：
   companion.fail 全量 snapshot rollback 且保留 `fail:v1!`、以及 missing writable / unexpected
   signer / program substitution / permutation / alias / high-byte delta 等 negatives。
 - 准确称谓是 **production-code-generated test-preactivation unsigned-CPI ELF**。不是
-  `OutputFile` / `proof-forge.output.v1`，ordinary resolver 仍拒 sync，#120+ 与 formal D5 仍 pending。
+  `OutputFile` / `proof-forge.output.v1`；该 lane 在 #125 后仍为 test-preactivation 保留；formal D5 仍 pending。
 
 #### #122 classic Token CPI engineering observation（2026-08-04）
 
@@ -630,12 +659,10 @@ Plan/IR/IDL identities：
   then-overflow full snapshot rollback、inner Token failure、Account/Mint/privilege/alias/role
   /Token-2022 负例等）。full `just solana-runtime` 现为 **11 binaries / 221 active**。
 - 准确称谓是 **production-code-generated test-preactivation classic-Token CPI ELF**。不是
-  `OutputFile` / `proof-forge.output.v1` / activated sync；**不是** mainnet parity、tracked Tool
-  Lock、cross-host、hermetic、formal、release 或 package-owner-published。ordinary resolver 与
-  legacy profiles 仍 fail closed；#123/#124 见下；#125 前不 advertise/mint。
-  可声称门：`just docs-check`、SBOM refresh/check **187**、`just test-targets`（clean
-  repo-local exact tool root）、`just solana-runtime`、focused、`just dev-check`、ordinary
-  `just ci` 全 exit 0；独立审计无 P0/P1。
+  `OutputFile` / `proof-forge.output.v1`；**不是** mainnet parity、tracked Tool Lock、cross-host、
+  hermetic、formal、release 或 package-owner-published。historical catalog 下 artifactBinding 仍
+  absent；#125 active catalog 另将 Token 升为 package-owned admitted asset（见 §9.2 / #125）。
+  #123/#124 见下。可声称工程门以当时日志为准（SBOM 187 等）。
 
 #### #123 classic ATA CPI engineering observation（2026-08-04）
 
@@ -684,11 +711,10 @@ Plan/IR/IDL identities：
   `just test-targets`（clean repo-local exact tool root）、`just dev-check`、ordinary
   `just ci` 全 exit 0；两轮独立审计最终无 P0/P1。
 - 准确称谓是 **production-code-generated test-preactivation classic-ATA CPI ELF**。不是
-  `OutputFile` / `proof-forge.output.v1` / activated sync；**不是** mainnet parity、tracked
-  Tool Lock、cross-host、hermetic、formal、release 或 package-owner-published。ordinary
-  resolver 与 legacy profiles 仍 fail closed；**#123 工程切片已闭合**；**#111–#123 closed**（历史 Active
-  曾为 #124；见下 #124 闭合）。catalog domain 当前 requalification 为
-  `41ace268…`（#122 历史 `0da183…` 保留为当时事实）。
+  `OutputFile` / `proof-forge.output.v1`；**不是** mainnet parity、tracked Tool Lock、cross-host、
+  hermetic、formal、release 或 package-owner-published。**#123 工程切片已闭合**。historical catalog
+  domain requalification 为 `41ace268…`（#122 历史 `0da183…` 保留为当时事实）；#125 active catalog
+  另将 ATA 升为 package-owned admitted asset。
 
 #### #124 composite escrow CPI engineering observation（2026-08-04）
 
@@ -719,14 +745,41 @@ Plan/IR/IDL identities：
   pin 当前 **191** files。
 - **sequential world overlay**：同 world 内 source-order CPI 状态叠加与 failure full
   snapshot rollback；**不是** 多顶层 transaction atomicity。
-- ATA/Token catalog **`artifactBinding=absent` / `admittedForMaterialization=false`
-  保持不变**。准确称谓是 **production-code-generated test-preactivation composite-escrow
-  CPI ELF**。不是 `OutputFile` / `proof-forge.output.v1` / activated sync；**不是**
-  mainnet parity、tracked Tool Lock、cross-host、hermetic、formal、release 或
-  package-owner-published。ordinary resolver 与 legacy profiles 仍 fail closed；
-  **#124 工程切片已闭合**；**#111–#124 closed**；**Active #125** activation；#125 前不
-  advertise/mint。formal 状态与 GitHub issue 状态不因本工程收口而改变。
+- 在 **historical** catalog 下 ATA/Token **`artifactBinding=absent` /
+  `admittedForMaterialization=false` 保持不变**（#124 test-preactivation lane 保留）。准确称谓是
+  **production-code-generated test-preactivation composite-escrow CPI ELF**。不是当时的
+  product `OutputFile` 路径；**不是** mainnet parity、tracked Tool Lock、cross-host、hermetic、
+  formal、release 或 package-owner-published。**#124 工程切片已闭合**。**#111–#125 closed**；
+  #125 product activation 见下；formal 状态与 GitHub issue 状态不因工程收口而改变。
 
+#### #125 product activation engineering observation（2026-08-04）
+
+- ordinary resolver **仅**在 exact profile `solana-sbpf-cpi-elf-v1` 行 advertise
+  `effect.synchronous-call` + exact extension；**async/schedule 仍 fail closed**。legacy
+  `solana-sbpf-plan-v1` / `solana-sbpf-elf-v1` 继续对 call+schedule 纵深 FC；default profile
+  仍为 plan。
+- 单一 Solana materializer tagged legacy/CPI Plan/IR；product-only private capability
+  （`CpiProductCapabilityV1` / `CpiProductV1`）**不**转换 preflight carrier。#118–#124
+  test-preactivation lane 与 historical profile/catalog digests（`0b306…` / `41ace…`）及
+  #124 assembly/ELF pins **不变**。
+- active approved product APIs（5）：System `transfer` / `createPdaAccount`、Token
+  `transferChecked` / `transferCheckedPda`、ATA `createIdempotent`。companion 三 API 仍
+  test-only denied。
+- active profile JSON：`irSchema=proof-forge.solana.cpi-product-ir.v1`、
+  `implementationState=product-exact-synchronous-call-active-v1`、domain digest
+  `b0f3f5bc7f3973daf176c308cc4ca310f8ad5b51ea33a33c9d1bd3e4d3e91b04`；active catalog domain
+  `e2c2ebac5e690b99ad50fb7f8a5f6ecfdb8295bb43f3913229c2fd48d2820419`；extension 仍 `df7d…`。
+- active System runtimeNative Agave；Token/ATA package-owned tracked assets exact
+  94960/`a19be3…` 与 111136/`d3f6…`。**非** mainnet byte parity / hermetic / formal /
+  package-owner-published。
+- Product CLI 已真实 build/inspect exact closure：5 base
+  （`.cpi-plan.json` / `.cpi-ir.json` / `.idl.json` / `.s` / `.cpi-bindings.json`）+ `.so`
+  finalized extra；locked `sbpf`；deployable 工程制品；manifest/evidence 绑定 active
+  profile/catalog/Plan/IR。Mollusk `just solana-runtime` 仍 **13** binaries / **282** active
+  + product acceptance 前门；SBOM **194**。ordinary `just dev-check` / `just ci` 由主线程
+  最终运行，本 observation **不**预先声称其结果。
+- **#111–#125 工程 closed**；**#110 engineering epic complete**。formal TASK-D5 / TST-SOL 仍
+  pending。Principal 仍 opaque 非全局 pubkey；仅 extension bare public Principal account binding。
 
 ### Schema mutation obligations
 
@@ -738,12 +791,13 @@ source-order visibility与 rollback policy。
 ## 13. Consequences and sequencing
 
 1. #115 可在 harness-only code验证 ABI，不注册产品 profile。
-2. #116 接入 exact extension/requirement/provenance 与 profile membership，但 profile仍不可 mint artifact，
-   resolver仍不 advertise sync。
-3. #117–#120 实现 target Plan/IR、multi-account parser、invoke与 PDA/invoke_signed。
-4. #121–#123 按 package生成新的 exact catalog instance；缺 artifact/admission的 package继续拒绝。
-5. #124 escrow forcing golden 已工程闭合（test-preactivation）；#125 才增加新 profile 的 exact sync support claim。
-6. ordinary CI/Mollusk是工程证据；formal D5、Stage-0、hermetic/mainnet parity仍 pending。
+2. #116 接入 exact extension/requirement/provenance 与 profile membership（当时 still inert）。
+3. #117–#120 实现 target Plan/IR、multi-account parser、invoke与 PDA/invoke_signed（test-preactivation）。
+4. #121–#123 按 package 生成 exact catalog 接口 pins；historical catalog 下 Token/ATA 仍 absent。
+5. #124 escrow forcing golden 已工程闭合（test-preactivation lane 保留）。
+6. **#125** 激活 active profile/catalog：ordinary resolver 仅对该 profile advertise exact sync+extension；
+   product materialize 五 base + `.so`；companion 仍 denied；async/schedule 与 legacy profiles 仍 FC。
+7. ordinary CI/Mollusk/product acceptance 是工程证据；formal D5、Stage-0、hermetic/mainnet parity 仍 pending。
 
 ## 14. Rejected alternatives
 

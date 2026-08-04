@@ -371,7 +371,8 @@ private def testSupportTable : IO Unit := do
     ("near", "near-wasm-raw-u64-v1", 6, false),
     ("noir", "noir-source-u64-relations-v1", 7, false),
     ("psy", "psy-dargo-u64-v1", 6, false),
-    ("solana", "solana-sbpf-cpi-elf-v1", 6, true),
+    -- #125: CPI row = 6 S2 (incl sync, excl async) + exact extension = 7
+    ("solana", "solana-sbpf-cpi-elf-v1", 7, true),
     ("solana", "solana-sbpf-elf-v1", 5, false),
     ("solana", "solana-sbpf-plan-v1", 5, false)
   ]
@@ -402,7 +403,9 @@ private def testSupportTable : IO Unit := do
           s!"row {i} extension scope"
         let expectSync :=
           row.targetId == TargetId.noir || row.targetId == TargetId.psy ||
-            row.targetId == TargetId.evm
+            row.targetId == TargetId.evm ||
+            (row.targetId == TargetId.solana &&
+              row.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
         let expectAsync :=
           row.targetId == TargetId.noir || row.targetId == TargetId.near ||
             row.targetId == TargetId.evm ||
@@ -693,8 +696,9 @@ private def testRequestInspectionErrors : IO Unit := do
   expectErrorCode (inspectResolveRequestsV1 supported { items := trio })
     "PF-REQ-UNSUPPORTED" "aleo declines external-call keys"
 
-  -- ADR-0024 extension is exact and profile-scoped: only the inert Solana CPI
+  -- ADR-0024 extension is exact and profile-scoped: only the Solana CPI
   -- row accepts it; both legacy Solana rows and all other targets reject it.
+  -- #125: CPI also admits exact effect.synchronous-call and still declines async.
   let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -702,20 +706,46 @@ private def testRequestInspectionErrors : IO Unit := do
       row.targetId == TargetId.solana &&
         row.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 with
     | some row => pure row.supported
-    | none => throw <| IO.userError "missing inert Solana CPI support row"
+    | none => throw <| IO.userError "missing Solana CPI support row"
+  let cpiIds := cpiSupported.map (·.id)
+  expect (cpiIds.contains "effect.synchronous-call")
+    "CPI profile admits effect.synchronous-call"
+  expect (!cpiIds.contains "effect.asynchronous-workflow")
+    "CPI profile still declines effect.asynchronous-workflow"
   match inspectResolveRequestsV1 cpiSupported { items := #[extensionRow] } with
   | .ok () => pure ()
   | .error error =>
       throw <| IO.userError s!"exact extension on CPI profile: {error.render}"
+  -- Exact sync request resolves on CPI; async does not.
+  let syncReq ← match mkS2RequirementRequestV1 "effect.synchronous-call" with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError e
+  let asyncReq ← match mkS2RequirementRequestV1 "effect.asynchronous-workflow" with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError e
+  match inspectResolveRequestsV1 cpiSupported { items := #[syncReq] } with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError s!"exact sync on CPI profile: {error.render}"
+  expectErrorCode (inspectResolveRequestsV1 cpiSupported { items := #[asyncReq] })
+    "PF-REQ-UNSUPPORTED" "CPI profile declines async workflow"
   for legacyProfile in #[CodegenProfileId.solanaSbpfElfV1,
       CodegenProfileId.solanaSbpfPlanV1] do
     let legacySupported ← match rows.find? fun row =>
         row.targetId == TargetId.solana && row.codegenProfile == legacyProfile with
       | some row => pure row.supported
       | none => throw <| IO.userError s!"missing legacy row {legacyProfile}"
+    let legacyIds := legacySupported.map (·.id)
+    expect (!legacyIds.contains "effect.synchronous-call" &&
+        !legacyIds.contains "effect.asynchronous-workflow" &&
+        !legacyIds.contains solanaCpiAccountsExtensionRequirementIdV1)
+      s!"legacy {legacyProfile} still declines sync/async/extension"
     expectErrorCode
       (inspectResolveRequestsV1 legacySupported { items := #[extensionRow] })
       "PF-REQ-UNSUPPORTED" s!"legacy {legacyProfile} declines CPI extension"
+    expectErrorCode
+      (inspectResolveRequestsV1 legacySupported { items := #[syncReq] })
+      "PF-REQ-UNSUPPORTED" s!"legacy {legacyProfile} declines sync call"
   let extensionBadVersion := {
     extensionRow with version := { major := 1, minor := 0, patch := 1 } }
   let extensionBadDigest := { extensionRow with digest := zeroDigest }
@@ -727,6 +757,14 @@ private def testRequestInspectionErrors : IO Unit := do
       ("predicate", extensionBadPredicate)] do
     expectErrorCode (inspectResolveRequestsV1 cpiSupported { items := #[bad] })
       "PF-REQ-UNSUPPORTED" s!"CPI extension wrong {label}"
+  -- Wrong version/digest on the sync row must also fail closed on CPI.
+  let syncBadVersion := {
+    syncReq with version := { major := 1, minor := 0, patch := 1 } }
+  let syncBadDigest := { syncReq with digest := zeroDigest }
+  expectErrorCode (inspectResolveRequestsV1 cpiSupported { items := #[syncBadVersion] })
+    "PF-REQ-UNSUPPORTED" "CPI sync wrong version"
+  expectErrorCode (inspectResolveRequestsV1 cpiSupported { items := #[syncBadDigest] })
+    "PF-REQ-UNSUPPORTED" "CPI sync wrong digest"
   -- Unknown id
   let unknown : RequirementRequestV1 := {
     id := "disclosure.private-witness"
@@ -1281,7 +1319,10 @@ unsafe def run : IO Unit := do
 
 Public product declarations under `ProofForgeV2` whose `ConstantInfo.type`
 mentions **both** carrier FQNames (directly or via abbrev/`@[reducible]` alias)
-may only be `ProofForgeV2.Targets.resolveEngineeringRequirementsV1`.
+may only be the exact allowlist:
+`ProofForgeV2.Targets.resolveEngineeringRequirementsV1` (product mint) and
+`ProofForgeV2.Targets.Solana.CpiV1.resolveSolanaCpiPreflightV1` (#118
+activation-denied preflight dual-arg, not OutputFile mint).
 
 - Environment: library umbrella + shipped CLI root (`CLI.Main`)
 - Public = name prefix + not private-mangled (`isPrivateName`)
@@ -1305,6 +1346,12 @@ private def dualArgCompiledCarrierN : Name :=
 private def dualArgProductAllowedN : Name :=
   ``ProofForgeV2.Targets.resolveEngineeringRequirementsV1
 
+/-- #118 activation-denied preflight dual-arg mint (not product OutputFile mint).
+    Visible under `ProofForgeV2` once Solana product CPI modules import the
+    preflight capability authority; keep allowlisted so the product dual-arg
+    gate stays exact rather than inventing a second product mint. -/
+private def dualArgSolanaCpiPreflightAllowedN : Name :=
+  ``ProofForgeV2.Targets.Solana.CpiV1.resolveSolanaCpiPreflightV1
 /-- Umbrella library coverage witness (ReferenceV1; outside old selected imports). -/
 private def dualArgUmbrellaCoverageWitnessN : Name :=
   ``ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1
@@ -1523,7 +1570,8 @@ private def assertPrivateCapabilityCtorFiltered
     else
       .ok ()
 
-/-- Product gate: only the sole dual-arg mint under `ProofForgeV2`. -/
+/-- Product gate: exact dual-arg public surface under `ProofForgeV2`
+    (product mint + known non-product preflight dual-arg). -/
 private def assertProductDualArgSurface (env : Environment) : Except String Unit :=
   match assertEnvironmentCoverage env with
   | .error e => .error e
@@ -1534,7 +1582,8 @@ private def assertProductDualArgSurface (env : Environment) : Except String Unit
           match assertPrivateCapabilityCtorFiltered env hits with
           | .error e => .error e
           | .ok () =>
-              let allowed := #[dualArgProductAllowedN].qsort Name.lt
+              let allowed :=
+                #[dualArgProductAllowedN, dualArgSolanaCpiPreflightAllowedN].qsort Name.lt
               let unexpected := dualArgUnexpected hits allowed
               let missing := dualArgMissing hits allowed
               if !unexpected.isEmpty then

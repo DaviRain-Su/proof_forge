@@ -41,16 +41,19 @@ def evm : TargetDescriptor :=
   descriptorFromRegistryAxes .evm .evmYul CodegenProfileId.evmYulSolc0834V1
 
 def solana : TargetDescriptor :=
-  -- Residual descriptor binds the default plan profile. The explicit ELF and
-  -- inert ADR-0024 CPI profiles are accepted by `acceptsCodegenProfile`
-  -- without inventing a second TargetDescriptor table. CPI artifact minting
-  -- remains separately fail-closed until its target-owned Plan/IR exists.
+  -- Residual descriptor binds the default plan profile. Explicit ELF and
+  -- #125 product CPI (`solana-sbpf-cpi-elf-v1`) profiles are accepted by
+  -- `acceptsCodegenProfile` without inventing a second TargetDescriptor
+  -- table. CPI materialize/finalize is the single `.solana` Materializer
+  -- tagged-sum path (legacy Plan/IR | product CPI); no second TargetKind.
   descriptorFromRegistryAxes .solana .sbpfPlanText CodegenProfileId.solanaSbpfPlanV1
 
 /-- Residual descriptor profile acceptance for multi-profile targets.
     `TargetDescriptor.codegenProfile` is the default encoding profile.
     Additional registered profiles for the same target are accepted here so
-    capability mint and artifact identity can bind them without a second row. -/
+    capability mint and artifact identity can bind them without a second row.
+    Solana: plan (default) + elf + cpi-elf; unknown profiles fail closed at
+    plan/ir/build exhaustive dispatch, not here. -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
 <<<<<<< HEAD

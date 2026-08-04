@@ -1,16 +1,17 @@
 /-
-  ProofForgeV2.Targets.Solana.CpiDeriveV1 — #118 lane A sole Semantic→CPI Plan
-  derivation under a resolved preflight carrier.
+  ProofForgeV2.Targets.Solana.CpiDeriveV1 — #118/#125 Semantic→CPI Plan derive.
 
   Namespace: `ProofForgeV2.Targets.Solana.CpiV1`.
 
-  Public entry: `deriveSolanaCpiPlanFromPreflightV1`. Consumes only
-  `ResolvedSolanaCpiPreflightV1` + its retained validated Semantic. Builds a
-  #117 `SolanaCpiPlanCandidateV1` from exact ExternalCall sites and every
-  direct initializer/entry/view handler, then calls sole
-  `validateSolanaCpiPlanV1`. Returns private-ctor `SolanaCpiPreflightPlanV1`
-  retaining preflight + validated Plan. No raw Semantic bypass, no product
-  materialization, no Registry/Emit/CLI imports.
+  Authority-free core: `deriveSolanaCpiPlanCandidateCoreV1` builds a
+  `SolanaCpiPlanCandidateV1` from validated Semantic + snapshot digests/
+  compute assumptions + optional product-API filter.
+
+  Two private carriers (no conversion between them):
+  * `SolanaCpiPreflightPlanV1` — #118 activationDenied; frozen snapshot;
+    `validateSolanaCpiPlanV1`; admits all frozen APIs including companion.
+  * `SolanaCpiProductPlanV1` — #125 product; active snapshot;
+    `validateSolanaCpiProductPlanV1`; companion three APIs fail closed.
 
   Arg source rules (frozen API specs):
   * Principal → direct public Principal parameter of the owning callable;
@@ -33,6 +34,7 @@ import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.Solana.CpiContractV1
 import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
+import ProofForgeV2.Targets.Solana.CpiProductCapabilityV1
 import ProofForgeV2.Targets.Solana.LowerSemanticV1
 
 namespace ProofForgeV2.Targets.Solana.CpiV1
@@ -43,7 +45,7 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.Solana
 
-/-! ## #118 authority carrier -/
+/-! ## #118 preflight authority carrier -/
 
 /-- Private product-join carrier for #118: resolved preflight capability plus
     structurally validated CPI Plan. Sole mint is
@@ -65,6 +67,37 @@ def candidateOf (c : SolanaCpiPreflightPlanV1) : SolanaCpiPlanCandidateV1 :=
   c.plan.candidate
 
 end SolanaCpiPreflightPlanV1
+
+/-! ## #125 product authority carrier -/
+
+/-- Private product-join carrier for #125: resolved product capability plus
+    active-snapshot validated CPI Plan. Sole mint is
+    `deriveSolanaCpiPlanFromProductCapabilityV1`. No conversion from/to
+    preflight carriers. -/
+structure SolanaCpiProductPlanV1 where
+  private mk ::
+  capability : ResolvedSolanaCpiProductCapabilityV1
+  plan : ValidatedSolanaCpiPlanV1
+
+namespace SolanaCpiProductPlanV1
+
+def capabilityOf (c : SolanaCpiProductPlanV1) :
+    ResolvedSolanaCpiProductCapabilityV1 :=
+  c.capability
+
+def planOf (c : SolanaCpiProductPlanV1) : ValidatedSolanaCpiPlanV1 :=
+  c.plan
+
+def candidateOf (c : SolanaCpiProductPlanV1) : SolanaCpiPlanCandidateV1 :=
+  c.plan.candidate
+
+def digestOf (c : SolanaCpiProductPlanV1) : Digest :=
+  c.plan.digest
+
+def canonicalBytesOf (c : SolanaCpiProductPlanV1) : ByteArray :=
+  c.plan.canonicalBytes
+
+end SolanaCpiProductPlanV1
 
 private def deriveFail (detail : String) : CompileResult α :=
   throw (.planInvariant .solana detail)
@@ -516,49 +549,98 @@ private def buildSiteBindings
     failurePolicy := propagateImmediatelyFailurePolicyV1
   }
 
-/-- Sole #118 lane A derive: preflight carrier → authority Plan carrier. -/
-def deriveSolanaCpiPlanFromPreflightV1
-    (preflight : ResolvedSolanaCpiPreflightV1) :
-    CompileResult SolanaCpiPreflightPlanV1 := do
-  unless ResolvedSolanaCpiPreflightV1.activationDeniedOf preflight do
-    deriveFail "CPI derive requires activationDenied preflight carrier"
-  let selection := ResolvedSolanaCpiPreflightV1.selectionOf preflight
-  unless selection.targetId == TargetId.solana &&
-      selection.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 do
-    deriveFail "CPI derive selection must be solana + solana-sbpf-cpi-elf-v1"
-  let compiled := ResolvedSolanaCpiPreflightV1.compiledOf preflight
-  let data ← match validateSemanticProgramV1
-      (CompiledSemanticV1.semanticV1Of compiled) with
-    | .ok v => pure v
-    | .error _ =>
-        deriveFail "CPI derive: retained SemanticProgramV1 failed structure validation"
+/-! ## Authority-free core (shared by preflight + product carriers) -/
 
+/-- Snapshot parameters that differ between preactivation and product Plans. -/
+structure DerivePlanSnapshotV1 where
+  profileDigest : Digest
+  catalogDigest : Digest
+  computeAssumptions : ComputeAssumptionsV1
+  /-- When `true`, reject companion and non-approved product APIs. -/
+  productApiFilter : Bool
+
+/-- Collect raw ExternalCall sites. When `productApiFilter`, companion and
+    non-approved QNs fail closed at discovery. -/
+private def collectRawSitesFiltered
+    (data : SemanticProgramDataV1) (productApiFilter : Bool) :
+    CompileResult (Array RawSiteV1) := do
+  unless data.invariants.isEmpty do
+    deriveFail "CPI derive rejects nonempty invariants table"
+  let mut out : Array RawSiteV1 := #[]
+  for callable in data.callables do
+    let callableId := callable.id.toNat
+    let isHandler :=
+      callable.kind == .initializer ||
+        callable.kind == .entry ||
+        callable.kind == .view
+    for blk in callable.blocks do
+      for (instr, instrIdx) in blk.instructions.zipIdx do
+        match instr.op with
+        | .schedule _effectId _callee _args =>
+            deriveFail "CPI derive rejects schedule (async workflow stays fail closed)"
+        | .externalCall effectId callee args =>
+            unless isHandler do
+              deriveFail
+                "CPI derive rejects ExternalCall outside initializer/entry/view"
+            let mode ← handlerModeOf callable.kind
+            let hname ← handlerNameOf callable
+            let qn ← qnDotted callee
+            if productApiFilter then
+              if isCompanionApiV1 qn then
+                deriveFail
+                  s!"CPI product derive rejects companion API '{qn}'"
+              unless isApprovedProductApiV1 qn do
+                deriveFail
+                  s!"CPI product derive rejects non-approved API '{qn}'"
+            let api ← match findFrozenApi? qn with
+              | some a => pure a
+              | none =>
+                  deriveFail s!"CPI derive rejects unknown callee QN '{qn}'"
+            let principals ← validateArgSources data.types callable api args
+            out := out.push {
+              callableId
+              handlerMode := mode
+              handlerName := hname
+              blockId := blk.id.toNat
+              instructionIndex := instrIdx
+              effectId := effectId.toNat
+              qn
+              api
+              argValueIds := args
+              principalParams := principals
+            }
+        | _ => pure ()
+  pure out
+
+/-- Authority-free core: Semantic data + programName + snapshot → Plan candidate.
+    Does not mint carriers, does not validate, does not import Registry/Emit. -/
+def deriveSolanaCpiPlanCandidateCoreV1
+    (data : SemanticProgramDataV1)
+    (programName : String)
+    (snapshot : DerivePlanSnapshotV1) :
+    CompileResult SolanaCpiPlanCandidateV1 := do
   let directHandlers ← collectDirectHandlers data
-  let rawSites ← collectRawSites data
+  let rawSites ← collectRawSitesFiltered data snapshot.productApiFilter
   unless rawSites.size > 0 do
     deriveFail "CPI derive requires at least one ExternalCall site"
 
-  -- Sole legacy StateAccount (none for empty logical state).
   let stateAccount? ← deriveSolanaStateAccountFromSemanticDataV1 data
   let stateSchemas : Array StateSchemaV1 ←
     match stateAccount? with
-    | none => pure #[]
+    | none => pure (Array.empty : Array StateSchemaV1)
     | some account =>
         unless directHandlers.any (fun h => h.mode == .initialize) do
           deriveFail
             "CPI derive requires an initializer when logical state is nonempty"
-        pure #[{
+        let schema : StateSchemaV1 := {
           schemaId := 0
           name := account.name
           exactDataLen := account.exactDataLen
           layoutDigest := layoutDigestOfFieldsV1 account.fields
           initializedMarker := account.initializedMarker
-        }]
+        }
+        pure #[schema]
 
-  -- Global roles + sites: walk every direct handler in Semantic source order
-  -- (including zero-CPI handlers). Role first-use order is dense 0..n-1:
-  -- state role 0 first (if any), then per-handler principal params, then
-  -- site program/fixed roles.
   let mut roleKeys : Array RoleKeyV1 := #[]
   let mut roles : Array AccountRoleSchemaV1 := #[]
   let mut builtSites : Array CpiSitePlanV1 := #[]
@@ -580,7 +662,6 @@ def deriveSolanaCpiPlanFromPreflightV1
     let hname := handler.name
     let hSites : Array RawSiteV1 :=
       rawSites.filter (fun s => s.callableId == callableId)
-    -- 1) used Principal params by param ordinal (stable unique).
     let mut usedOrds : Array Nat := #[]
     for site in hSites do
       for (_, ord) in site.principalParams do
@@ -594,7 +675,6 @@ def deriveSolanaCpiPlanFromPreflightV1
         (RoleKeyV1.accountParam callableId ord) rname accountBoundRoleConstraintV1
       roleKeys := k'
       roles := r'
-    -- 2) per site: program + fixed metas (source order)
     let mut siteIdsForHandler : Array Nat := #[]
     for site in hSites do
       let siteId := builtSites.size
@@ -615,7 +695,6 @@ def deriveSolanaCpiPlanFromPreflightV1
             roleKeys := k2
             roles := r2
         | MetaBinding.arg _ => pure ()
-      -- Build principal role map for this site.
       let mut principalRoleByArgIndex : Array (Nat × Nat) := #[]
       for (argIdx, ord) in site.principalParams do
         match findRoleId? roleKeys (RoleKeyV1.accountParam callableId ord) with
@@ -643,8 +722,6 @@ def deriveSolanaCpiPlanFromPreflightV1
       builtSites := builtSites.push sitePlan
       siteIdsForHandler := siteIdsForHandler.push siteId
 
-    -- Handler local role subset: state first (if any), then used Principal
-    -- params by ordinal, then sites' program+fixed metas in source order.
     let mut localRoles : Array Nat := #[]
     let pushUnique (acc : Array Nat) (id : Nat) : Array Nat :=
       if acc.any (· == id) then acc else acc.push id
@@ -664,11 +741,9 @@ def deriveSolanaCpiPlanFromPreflightV1
             localRoles := pushUnique localRoles metaSlot.roleId
         | MetaBinding.arg _ => pure ()
 
-    -- Privilege join: state uses direct mode matrix; non-state direct=false
-    -- and outer = site contributions only.
     let mut uses : Array HandlerAccountUseV1 := #[]
     for (roleId, position) in localRoles.zipIdx do
-      let isState :=
+      let isState : Bool :=
         match stateRoleId? with
         | some sid => roleId == sid
         | none => false
@@ -691,7 +766,6 @@ def deriveSolanaCpiPlanFromPreflightV1
         outerWritable := writable
       }
 
-    -- Patch accountInfoRoleIds on sites to handler local order.
     for siteId in siteIdsForHandler do
       let site : CpiSitePlanV1 ← getArr builtSites siteId "builtSites"
       builtSites := builtSites.set! siteId {
@@ -707,13 +781,9 @@ def deriveSolanaCpiPlanFromPreflightV1
       cpiSiteIds := siteIdsForHandler
     }
 
-  let profileDigest ← mapExcept expectedProfileDigestV1 "profile digest"
-  let catalogDigest ← mapExcept expectedCatalogDigestV1 "catalog digest"
   let extensionRequirement ←
     mapExcept expectedExtensionRequirementV1 "extension requirement"
 
-  -- programName: sole artifact name with QN-tail equality defense.
-  let programName := CompiledSemanticV1.artifactProgramNameOf compiled
   let components := data.qualifiedName.components.toArray
   let qnTail ← match components.back? with
     | some n => pure n
@@ -722,21 +792,80 @@ def deriveSolanaCpiPlanFromPreflightV1
     deriveFail
       s!"CPI derive: artifactProgramName '{programName}' diverges from semantic QN tail '{qnTail}'"
 
-  let candidate : SolanaCpiPlanCandidateV1 := {
+  pure {
     schema := planSchemaV1
     profileId := profileIdV1
-    profileDigest
+    profileDigest := snapshot.profileDigest
     extensionRequirement
-    calleeCatalogDigest := catalogDigest
+    calleeCatalogDigest := snapshot.catalogDigest
     programName
     stateSchemas
     pdaRules := frozenPdaRulesV1
     accountRoles := roles
     handlers
     cpiSites := builtSites
+    computeAssumptions := snapshot.computeAssumptions
+  }
+
+/-- Sole #118 lane A derive: preflight carrier → authority Plan carrier.
+    Uses frozen profile/catalog digests + frozenComputeAssumptionsV1. -/
+def deriveSolanaCpiPlanFromPreflightV1
+    (preflight : ResolvedSolanaCpiPreflightV1) :
+    CompileResult SolanaCpiPreflightPlanV1 := do
+  unless ResolvedSolanaCpiPreflightV1.activationDeniedOf preflight do
+    deriveFail "CPI derive requires activationDenied preflight carrier"
+  let selection := ResolvedSolanaCpiPreflightV1.selectionOf preflight
+  unless selection.targetId == TargetId.solana &&
+      selection.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 do
+    deriveFail "CPI derive selection must be solana + solana-sbpf-cpi-elf-v1"
+  let compiled := ResolvedSolanaCpiPreflightV1.compiledOf preflight
+  let data ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of compiled) with
+    | .ok v => pure v
+    | .error _ =>
+        deriveFail "CPI derive: retained SemanticProgramV1 failed structure validation"
+  let profileDigest ← mapExcept expectedProfileDigestV1 "profile digest"
+  let catalogDigest ← mapExcept expectedCatalogDigestV1 "catalog digest"
+  let programName := CompiledSemanticV1.artifactProgramNameOf compiled
+  let candidate ← deriveSolanaCpiPlanCandidateCoreV1 data programName {
+    profileDigest
+    catalogDigest
     computeAssumptions := frozenComputeAssumptionsV1
+    productApiFilter := false
   }
   let plan ← validateSolanaCpiPlanV1 candidate
   pure (SolanaCpiPreflightPlanV1.mk preflight plan)
+
+/-- Sole #125 product derive: product capability → product Plan carrier.
+    Uses active profile/catalog digests + activeComputeAssumptionsV1 and
+    product API filter (companion FC). -/
+def deriveSolanaCpiPlanFromProductCapabilityV1
+    (capability : ResolvedSolanaCpiProductCapabilityV1) :
+    CompileResult SolanaCpiProductPlanV1 := do
+  unless !ResolvedSolanaCpiProductCapabilityV1.activationDeniedOf capability do
+    deriveFail "CPI product derive rejects activationDenied product capability"
+  let selection := ResolvedSolanaCpiProductCapabilityV1.selectionOf capability
+  unless selection.targetId == TargetId.solana &&
+      selection.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 do
+    deriveFail "CPI product derive selection must be solana + solana-sbpf-cpi-elf-v1"
+  let compiled := ResolvedSolanaCpiProductCapabilityV1.compiledOf capability
+  let data ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of compiled) with
+    | .ok v => pure v
+    | .error _ =>
+        deriveFail
+          "CPI product derive: retained SemanticProgramV1 failed structure validation"
+  let profileDigest ← mapExcept expectedActiveProfileDigestV1 "active profile digest"
+  let catalogDigest ← mapExcept expectedActiveCatalogDigestV1 "active catalog digest"
+  let programName := CompiledSemanticV1.artifactProgramNameOf compiled
+  let candidate ← deriveSolanaCpiPlanCandidateCoreV1 data programName {
+    profileDigest
+    catalogDigest
+    computeAssumptions := activeComputeAssumptionsV1
+    productApiFilter := true
+  }
+  let plan ← validateSolanaCpiProductPlanV1 candidate
+  checkSolanaCpiProductMaterializationEligibilityV1 plan
+  pure (SolanaCpiProductPlanV1.mk capability plan)
 
 end ProofForgeV2.Targets.Solana.CpiV1

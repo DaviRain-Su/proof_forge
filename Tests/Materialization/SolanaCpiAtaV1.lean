@@ -4,14 +4,16 @@
   Authority path: Loader → product compile → preflight capability → Semantic
   Plan → private ATA IR → ATA emitter. This suite fixes the six metas, `01`
   codec, canonical wallet/Token/mint derivation, closed fresh-or-existing ATA
-  state, package identities, test-preactivation boundary, and ordinary resolver
-  fail-closed behavior.
+  state, package identities, test-preactivation boundary, and #125 ordinary
+  resolver + product Plan/IR success for approved ATA closure (preactivation
+  pins and isProductArtifact=false unchanged).
 -/
 import ProofForgeV2.Targets.Solana.CpiContractV1
 import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.CpiIRV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiDeriveV1
+import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.CpiPreflightIRV1
 import ProofForgeV2.Targets.Solana.CpiTokenIRV1
 import ProofForgeV2.Targets.Solana.CpiAtaIRV1
@@ -326,13 +328,16 @@ unsafe def run : IO Unit := do
   expectPlanReject (resolveSolanaCpiTokenIRV1 plan)
     "Token IR rejects ATA API"
 
-  -- Ordinary product capability still rejects sync until composite #125.
+  -- #125: ordinary product capability admits sync; approved ATA closure further
+  -- mints product Plan/IR. Preactivation lane above remains independent.
   let selection ← cpiSelection
-  match resolveEngineeringRequirementsV1 selection compiled with
-  | .error error =>
-      expect (error.code == "PF-REQ-UNSUPPORTED")
-        s!"ordinary resolver must PF-REQ-UNSUPPORTED, got {error.render}"
-  | .ok _ => throw <| IO.userError "ordinary resolver accepted ATA sync"
+  let capability ← expectPlanOk
+    (resolveEngineeringRequirementsV1 selection compiled)
+    "ordinary resolver admits ATA sync"
+  let _ ← expectPlanOk (productPlanFromCapabilityV1 capability)
+    "product Plan succeeds for AtaCpi"
+  let _ ← expectPlanOk (productIrFromCapabilityV1 capability)
+    "product IR succeeds for AtaCpi"
 
   IO.println "Tests.Materialization.SolanaCpiAtaV1: ok"
 

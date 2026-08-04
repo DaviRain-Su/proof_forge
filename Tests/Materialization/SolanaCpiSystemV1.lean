@@ -8,14 +8,16 @@
 
   Pins: system.transfer / createPdaAccount only, 12/52 codecs, metas/roles,
   space 4096/4097, bump0, canonical signer seam, frame cap, siteArgChecks →
-  siteChecks → invoke order, old-lane rejection independence, ordinary
-  resolver PF-REQ-UNSUPPORTED.
+  siteChecks → invoke order, old-lane rejection independence, #125 ordinary
+  resolver + product Plan/IR success for approved System closure (preactivation
+  pins and isProductArtifact=false unchanged).
 -/
 import ProofForgeV2.Targets.Solana.CpiContractV1
 import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.CpiIRV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiDeriveV1
+import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.CpiPreflightIRV1
 import ProofForgeV2.Targets.Solana.CpiPdaIRV1
 import ProofForgeV2.Targets.Solana.CpiUnsignedIRV1
@@ -440,16 +442,19 @@ unsafe def run : IO Unit := do
     (resolveSolanaCpiPdaIRV1 transferPlan)
     "invokeSigned" "system transfer rejected by PDA IR"
 
-  -- Ordinary product resolver still rejects sync.
+  -- #125: ordinary product resolver admits sync on exact CPI profile; approved
+  -- System closure further mints product Plan/IR. Preactivation lane above is
+  -- independent (isProductArtifact=false pins retained).
   let resolverCompiled ← compileSource session systemCpiSource
     "Examples.SystemCpi" "runtime-tests/solana/fixtures/SystemCpi.lean"
   let selection ← cpiSelection
-  match resolveEngineeringRequirementsV1 selection resolverCompiled with
-  | .error error =>
-      expect (error.code == "PF-REQ-UNSUPPORTED")
-        s!"ordinary resolver must PF-REQ-UNSUPPORTED, got {error.render}"
-  | .ok _ =>
-      throw <| IO.userError "ordinary resolver unexpectedly accepted sync program"
+  let capability ← expectPlanOk
+    (resolveEngineeringRequirementsV1 selection resolverCompiled)
+    "ordinary resolver admits SystemCpi sync"
+  let _ ← expectPlanOk (productPlanFromCapabilityV1 capability)
+    "product Plan succeeds for SystemCpi"
+  let _ ← expectPlanOk (productIrFromCapabilityV1 capability)
+    "product IR succeeds for SystemCpi"
 
   -- Frame / scratch non-overlap via public helpers (no fragile opcode strings).
   -- Emitter: reserve = max(maxScratch, 240);

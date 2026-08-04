@@ -23,6 +23,7 @@ import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Targets.Evm.PlanSchemaV1
 import ProofForgeV2.Targets.Solana.PlanSchemaV1
+import ProofForgeV2.Targets.Solana.MaterializationV1
 import ProofForgeV2.Targets.Near.PlanSchemaV1
 import ProofForgeV2.Targets.Noir.PlanSchemaV1
 import ProofForgeV2.Targets.CosmWasm.PlanSchemaV1
@@ -311,11 +312,18 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
       expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
         s!"{tid} planDigest matches engineeringEvmPlanDigestV1"
     else if tid == TargetId.solana then
-      let plan ← liftResult s!"plan {tid}" (Targets.Solana.planFromCapability cap)
+      -- #125: planFromCapability returns legacy|cpi tagged sum. Default profile
+      -- is plan-v1 → .legacy; digest authority is materialization plan digest.
+      let planSum ← liftResult s!"plan {tid}" (Targets.Solana.planFromCapability cap)
+      match planSum with
+      | Targets.Solana.SolanaPlanFromCapabilityV1.legacy _ => pure ()
+      | Targets.Solana.SolanaPlanFromCapabilityV1.cpi _ =>
+          throw <| IO.userError
+            s!"{tid} default profile planFromCapability must be .legacy, got .cpi"
       let expected ← liftExcept s!"solana plan digest {tid}"
-        (Targets.Solana.engineeringSolanaPlanDigestV1 plan)
+        (Targets.Solana.engineeringSolanaMaterializationPlanDigestV1 planSum)
       expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
-        s!"{tid} planDigest matches engineeringSolanaPlanDigestV1"
+        s!"{tid} planDigest matches engineeringSolanaMaterializationPlanDigestV1"
     else if tid == TargetId.near then
       let plan ← liftResult s!"plan {tid}" (Targets.Near.planFromCapability cap)
       let expected ← liftExcept s!"near plan digest {tid}"

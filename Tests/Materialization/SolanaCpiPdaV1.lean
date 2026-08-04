@@ -9,13 +9,16 @@
   Pins: companion.invokeSigned only, single-block gate, siteChecks immediately
   before invoke, three Principal bindings/meta/outer-only/signer group,
   sol_try_find_program_address + sol_invoke_signed_c surface, bump-zero reject,
-  #118/#119 rejection independence, ordinary resolver PF-REQ-UNSUPPORTED.
+  #118/#119 rejection independence. #125: ordinary resolver admits sync, but
+  product Plan fails PF-PLAN-INVARIANT (active catalog companion denied);
+  preactivation lane still succeeds (isProductArtifact=false pins unchanged).
 -/
 import ProofForgeV2.Targets.Solana.CpiContractV1
 import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.CpiIRV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiDeriveV1
+import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.CpiPreflightIRV1
 import ProofForgeV2.Targets.Solana.CpiPdaIRV1
 import ProofForgeV2.Targets.Solana.EmitCpiPdaSbpfV1
@@ -384,17 +387,19 @@ unsafe def run : IO Unit := do
     (resolveSolanaCpiPreflightIRV1 pdaPlan)
     "PDA" "#118 preflight IR rejects PDA program"
 
-  -- Ordinary product resolver still rejects sync.
+  -- #125: ordinary product resolver admits companion PDA sync; product Plan
+  -- fails closed (active catalog companion denied). Preactivation lane above
+  -- remains successful (isProductArtifact=false).
   let resolverCompiled ← compileSource session companionPdaCpiSource
     "Examples.CompanionPdaCpi"
     "runtime-tests/solana/fixtures/CompanionPdaCpi.lean"
   let selection ← cpiSelection
-  match resolveEngineeringRequirementsV1 selection resolverCompiled with
-  | .error error =>
-      expect (error.code == "PF-REQ-UNSUPPORTED")
-        s!"ordinary resolver must PF-REQ-UNSUPPORTED, got {error.render}"
-  | .ok _ =>
-      throw <| IO.userError "ordinary resolver unexpectedly accepted sync program"
+  let capability ← expectPlanOk
+    (resolveEngineeringRequirementsV1 selection resolverCompiled)
+    "ordinary resolver admits companion PDA sync"
+  expectPlanRejectContains
+    (productPlanFromCapabilityV1 capability)
+    "companion" "product Plan denies companion catalog package"
 
   -- Max-role boundary (state + 14 principals + companion can exceed 16; fixture
   -- uses 11 filler + 3 principals + state + companion = 16).

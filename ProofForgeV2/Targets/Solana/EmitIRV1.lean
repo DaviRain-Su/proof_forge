@@ -2106,10 +2106,12 @@ def withFns (ir : IR) (fns : Array FnIR) : IR :=
   { ir with fns }
 
 
-/-- Capability-gated public IR inspection (S6 repair). Input must be
-    `ResolvedEngineeringBuildV1`; returns typed TargetIR without emitting files.
-    Not a residual Plan→IR bypass. -/
-def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult IR := do
+/-- Legacy-only IR path for `solana-sbpf-plan-v1` / `solana-sbpf-elf-v1`.
+    #125 public `irFromCapability` is the tagged sum in `MaterializationV1`
+    and must not be redefined here. CPI profile is rejected by
+    `materializePlanFromCapabilityV1` before legacy Plan construction. -/
+def legacyIrFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) :
+    CompileResult IR := do
   let plan ← materializePlanFromCapabilityV1 capability
   validatePlan plan
   lower plan

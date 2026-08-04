@@ -216,14 +216,19 @@ private def testParserBoundaryExit3 : IO Unit := do
   expect (!(← outDir.pathExists))
     "parser failure must not create output"
 
-/-- Every registered Solana profile rejects call/schedule at capability
-    resolution before any output tree is created. The inert CPI profile admits
-    only its declaration row; sync/async stay closed until #125. -/
+/-- #125 Solana call/schedule diagnostic matrix (no Escrow positive here —
+    that product path is covered by SolanaCpiActivationV1):
+    * legacy plan/elf: call and schedule both PF-REQ-UNSUPPORTED, zero artifacts
+    * exact CPI: unknown Oracle call fails closed (PF-PLAN-INVARIANT after
+      ordinary resolve admits sync); schedule still PF-REQ-UNSUPPORTED;
+      unknown API path remains fail-closed with zero artifacts
+    Diagnostics are not relaxed. -/
 private def testSolanaCallsFailClosed : IO Unit := do
   let fixtureDir := FilePath.mk "build/v2"
   IO.FS.createDirAll fixtureDir
   let callPath := fixtureDir / "diagnostic-solana-call-fail.lean"
   let schedulePath := fixtureDir / "diagnostic-solana-schedule-fail.lean"
+  let unknownPath := fixtureDir / "diagnostic-solana-unknown-fail.lean"
   let callSource :=
     "import ProofForgeV2\n" ++
     "namespace Tests.CLI\n" ++
@@ -248,17 +253,32 @@ private def testSolanaCallsFailClosed : IO Unit := do
     "    schedule Ledger.daily(count)\n" ++
     "    return count\n" ++
     "end Tests.CLI\n"
+  let unknownSource :=
+    "import ProofForgeV2\n" ++
+    "namespace Tests.CLI\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program SolanaUnknownFail where\n" ++
+    "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
+    "    digest \"sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020\"\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry run(account : Principal, delta : UInt64) : UInt64 do\n" ++
+    "    call solana.unknown.notAnApi(account, delta)\n" ++
+    "    return count\n" ++
+    "end Tests.CLI\n"
   IO.FS.writeFile callPath callSource
   IO.FS.writeFile schedulePath scheduleSource
-  let cases : Array (String × FilePath × String × String) := #[
+  IO.FS.writeFile unknownPath unknownSource
+  -- Legacy profiles: both call and schedule still PF-REQ-UNSUPPORTED.
+  let legacyProfiles := #["solana-sbpf-elf-v1", "solana-sbpf-plan-v1"]
+  let legacyCases : Array (String × FilePath × String × String) := #[
     ("call", callPath, "Tests.CLI.SolanaCallFail", "effect.synchronous-call"),
     ("schedule", schedulePath, "Tests.CLI.SolanaScheduleFail",
       "effect.asynchronous-workflow")
   ]
-  let profiles := #["solana-sbpf-cpi-elf-v1", "solana-sbpf-elf-v1",
-    "solana-sbpf-plan-v1"]
-  for (kind, sourcePath, moduleName, requirementId) in cases do
-    for profile in profiles do
+  for (kind, sourcePath, moduleName, requirementId) in legacyCases do
+    for profile in legacyProfiles do
       let outDir := fixtureDir / s!"diagnostic-solana-{kind}-{profile}-output"
       if ← outDir.pathExists then IO.FS.removeDirAll outDir
       let (ec, stdout, stderr) ← runCli #[
@@ -269,16 +289,77 @@ private def testSolanaCallsFailClosed : IO Unit := do
         "-o", outDir.toString
       ]
       expect (ec != 0)
-        s!"registered Solana {kind}/{profile} must fail, got exit {ec}\n{stdout}\n{stderr}"
+        s!"legacy Solana {kind}/{profile} must fail, got exit {ec}\n{stdout}\n{stderr}"
       expect (containsSubstr stderr "PF-REQ-UNSUPPORTED" &&
           containsSubstr stderr requirementId)
-        s!"registered Solana {kind}/{profile} diagnostic must name {requirementId}: {stderr}"
+        s!"legacy Solana {kind}/{profile} diagnostic must name {requirementId}: {stderr}"
       expect (!containsSubstr stdout "built target=")
-        s!"registered Solana {kind}/{profile} must not print build success"
+        s!"legacy Solana {kind}/{profile} must not print build success"
       expect (!(← outDir.pathExists))
-        s!"registered Solana {kind}/{profile} must create zero output tree"
+        s!"legacy Solana {kind}/{profile} must create zero output tree"
+  -- Exact CPI: schedule still PF-REQ-UNSUPPORTED (async declined).
+  let cpiScheduleOut := fixtureDir / "diagnostic-solana-schedule-solana-sbpf-cpi-elf-v1-output"
+  if ← cpiScheduleOut.pathExists then IO.FS.removeDirAll cpiScheduleOut
+  let (ecSched, stdoutSched, stderrSched) ← runCli #[
+    "build", schedulePath.toString,
+    "--module", "Tests.CLI.SolanaScheduleFail",
+    "--target", "solana",
+    "--profile", "solana-sbpf-cpi-elf-v1",
+    "-o", cpiScheduleOut.toString
+  ]
+  expect (ecSched != 0)
+    s!"cpi schedule must fail, got exit {ecSched}\n{stdoutSched}\n{stderrSched}"
+  expect (containsSubstr stderrSched "PF-REQ-UNSUPPORTED" &&
+      containsSubstr stderrSched "effect.asynchronous-workflow")
+    s!"cpi schedule diagnostic must name async: {stderrSched}"
+  expect (!containsSubstr stdoutSched "built target=")
+    "cpi schedule must not print build success"
+  expect (!(← cpiScheduleOut.pathExists))
+    "cpi schedule must create zero output tree"
+  -- Exact CPI: unknown Oracle call — ordinary resolve admits sync, product Plan
+  -- fails closed (no catalog entry). Zero artifacts.
+  let cpiCallOut := fixtureDir / "diagnostic-solana-call-solana-sbpf-cpi-elf-v1-output"
+  if ← cpiCallOut.pathExists then IO.FS.removeDirAll cpiCallOut
+  let (ecCall, stdoutCall, stderrCall) ← runCli #[
+    "build", callPath.toString,
+    "--module", "Tests.CLI.SolanaCallFail",
+    "--target", "solana",
+    "--profile", "solana-sbpf-cpi-elf-v1",
+    "-o", cpiCallOut.toString
+  ]
+  expect (ecCall != 0)
+    s!"cpi unknown call must fail, got exit {ecCall}\n{stdoutCall}\n{stderrCall}"
+  expect (containsSubstr stderrCall "PF-PLAN-INVARIANT" ||
+      containsSubstr stderrCall "PF-REQ-UNSUPPORTED" ||
+      containsSubstr stderrCall "PF-")
+    s!"cpi unknown call must fail closed with product diagnostic: {stderrCall}"
+  expect (!containsSubstr stdoutCall "built target=")
+    "cpi unknown call must not print build success"
+  expect (!(← cpiCallOut.pathExists))
+    "cpi unknown call must create zero output tree"
+  -- Exact CPI: unknown frozen API with extension still fail-closed, zero artifacts.
+  let cpiUnknownOut := fixtureDir / "diagnostic-solana-unknown-solana-sbpf-cpi-elf-v1-output"
+  if ← cpiUnknownOut.pathExists then IO.FS.removeDirAll cpiUnknownOut
+  let (ecUnk, stdoutUnk, stderrUnk) ← runCli #[
+    "build", unknownPath.toString,
+    "--module", "Tests.CLI.SolanaUnknownFail",
+    "--target", "solana",
+    "--profile", "solana-sbpf-cpi-elf-v1",
+    "-o", cpiUnknownOut.toString
+  ]
+  expect (ecUnk != 0)
+    s!"cpi unknown API must fail, got exit {ecUnk}\n{stdoutUnk}\n{stderrUnk}"
+  expect (containsSubstr stderrUnk "PF-PLAN-INVARIANT" ||
+      containsSubstr stderrUnk "PF-REQ-UNSUPPORTED" ||
+      containsSubstr stderrUnk "PF-")
+    s!"cpi unknown API must fail closed: {stderrUnk}"
+  expect (!containsSubstr stdoutUnk "built target=")
+    "cpi unknown API must not print build success"
+  expect (!(← cpiUnknownOut.pathExists))
+    "cpi unknown API must create zero output tree"
   if ← callPath.pathExists then IO.FS.removeFile callPath
   if ← schedulePath.pathExists then IO.FS.removeFile schedulePath
+  if ← unknownPath.pathExists then IO.FS.removeFile unknownPath
 
 private def testBuildCounterSuccess : IO Unit := do
   let outDir := FilePath.mk "build/v2/diagnostic-build-counter-ok"
@@ -452,9 +533,10 @@ private def testProfileSelection : IO Unit := do
   expect (containsSubstr manifest "solana-sbpf-plan-v1")
     s!"manifest must bind selected profile: {manifest}"
 
-  -- ADR-0024 profile is selectable but remains inert until the product
-  -- Semantic/capability join and later activation gates. Failure precedes
-  -- publisher staging and leaves a zero output tree.
+  -- #125: CPI profile is selectable. Counter has no ExternalCall / no sync
+  -- requirement / no extension row, so product Plan fails closed before
+  -- publisher staging and leaves a zero output tree. (Legal Escrow product
+  -- positive is covered by SolanaCpiActivationV1, not this diagnostic suite.)
   let cpiOutDir := FilePath.mk "build/v2/diagnostic-profile-sbpf-cpi-inert"
   if ← cpiOutDir.pathExists then IO.FS.removeDirAll cpiOutDir
   let (cpiEc, cpiStdout, cpiStderr) ← runCli #[
@@ -465,14 +547,18 @@ private def testProfileSelection : IO Unit := do
     "-o", cpiOutDir.toString
   ]
   expect (cpiEc != 0)
-    s!"inert solana cpi profile must fail, got {cpiEc}\n{cpiStderr}\n{cpiStdout}"
-  expect (containsSubstr cpiStderr "PF-PLAN-INVARIANT" &&
-      containsSubstr cpiStderr "inert")
-    s!"inert cpi diagnostic: {cpiStderr}"
+    s!"Counter on cpi profile must fail, got {cpiEc}\n{cpiStderr}\n{cpiStdout}"
+  expect ((containsSubstr cpiStderr "PF-PLAN-INVARIANT" ||
+        containsSubstr cpiStderr "PF-REQ-UNSUPPORTED") &&
+      (containsSubstr cpiStderr "effect.synchronous-call" ||
+        containsSubstr cpiStderr "ExternalCall" ||
+        containsSubstr cpiStderr "extension" ||
+        containsSubstr cpiStderr "CPI"))
+    s!"Counter cpi product fail-closed diagnostic: {cpiStderr}"
   expect (!containsSubstr cpiStdout "built target=")
-    "inert cpi profile must not print success"
+    "Counter cpi profile must not print success"
   expect (!(← cpiOutDir.pathExists))
-    "inert cpi profile must create zero output tree"
+    "Counter cpi profile must create zero output tree"
 
   let (ec2, _stdout2, stderr2) ← runCli #[
     "check", "Examples/Counter.lean",

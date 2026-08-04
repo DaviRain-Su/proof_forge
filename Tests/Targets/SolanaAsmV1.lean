@@ -60,13 +60,23 @@ private def solanaCapability (compiled : CompiledSemanticV1) :
   let selection ← resolveBuildSelectionV1 TargetId.solana none
   Targets.resolveEngineeringRequirementsV1 selection compiled
 
+/-- Legacy-only helper: unwraps `planFromCapability` `.legacy` carrier. -/
 private def planSolana (compiled : CompiledSemanticV1) : CompileResult Plan := do
   let capability ← solanaCapability compiled
-  planFromCapability capability
+  match ← planFromCapability capability with
+  | .legacy plan => pure plan
+  | .cpi _ =>
+      throw <| .planInvariant .solana
+        "test helper planSolana: expected .legacy Plan, got .cpi"
 
+/-- Legacy-only helper: unwraps `irFromCapability` `.legacy` carrier. -/
 private def irSolana (compiled : CompiledSemanticV1) : CompileResult IR := do
   let capability ← solanaCapability compiled
-  irFromCapability capability
+  match ← irFromCapability capability with
+  | .legacy ir => pure ir
+  | .cpi _ =>
+      throw <| .planInvariant .solana
+        "test helper irSolana: expected .legacy IR, got .cpi"
 
 private def asmSolana (compiled : CompiledSemanticV1) : CompileResult String := do
   let ir ← irSolana compiled

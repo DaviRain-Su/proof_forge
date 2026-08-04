@@ -80,6 +80,7 @@ MAX_JSON_NESTING = 256
 MAX_LINK_TARGET_LENGTH = 2048
 MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
 SOLANA_CPI_ADR_ID = "ADR-0024"
+# Historical #114–#124 preactivation freeze (unchanged pins).
 SOLANA_CPI_FROZEN_PAYLOADS = (
     (
         "docs/specs/solana-cpi-extension-v1.json",
@@ -94,6 +95,40 @@ SOLANA_CPI_FROZEN_PAYLOADS = (
         b"pf.solana.cpi-profile.v1\x00",
     ),
 )
+# #125 active product payloads (separate domain freeze; extension digest unchanged).
+SOLANA_CPI_ACTIVE_PAYLOADS = (
+    (
+        "docs/specs/solana-cpi-callee-catalog-active-v1.json",
+        b"pf.solana.callee-catalog.v1\x00",
+    ),
+    (
+        "docs/specs/solana-cpi-profile-active-v1.json",
+        b"pf.solana.cpi-profile.v1\x00",
+    ),
+)
+SOLANA_CPI_ACTIVE_PROFILE_DIGEST = (
+    "b0f3f5bc7f3973daf176c308cc4ca310f8ad5b51ea33a33c9d1bd3e4d3e91b04"
+)
+SOLANA_CPI_ACTIVE_CATALOG_DIGEST = (
+    "e2c2ebac5e690b99ad50fb7f8a5f6ecfdb8295bb43f3913229c2fd48d2820419"
+)
+SOLANA_CPI_EXTENSION_DOMAIN_DIGEST = (
+    "df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
+)
+SOLANA_CPI_ACTIVE_PRODUCT_QNS = (
+    "solana.system.transfer",
+    "solana.system.createPdaAccount",
+    "solana.token.transferChecked",
+    "solana.token.transferCheckedPda",
+    "solana.ata.createIdempotent",
+)
+SOLANA_CPI_COMPANION_TEST_ONLY_QNS = (
+    "solana.companion.invoke",
+    "solana.companion.fail",
+    "solana.companion.invokeSigned",
+)
+SOLANA_CPI_CONTRACT_LEAN = "ProofForgeV2/Targets/Solana/CpiContractV1.lean"
+SOLANA_CPI_ASSETS_MANIFEST = "supply-chain/solana-cpi-assets/v1/manifest.json"
 UNRESOLVED_MARKER_RE = re.compile(
     r"\b(?:TODO|TBD)\b|待补充|待决定|待锁",
     re.IGNORECASE,
@@ -773,42 +808,446 @@ def _sol_cpi_adr_digest_pair(
 
 
 
-def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
-    """Minimal stable anchors for Solana CPI epic #111–#124 engineering status.
+def _lean_string_def(text: str, name: str) -> str | None:
+    """Extract a single-line or next-line Lean `def name : String := \"...\"`."""
+    m = re.search(
+        rf"^def\s+{re.escape(name)}\s*:\s*String\s*:=\s*\n?\s*\"([^\"]+)\"",
+        text,
+        re.MULTILINE,
+    )
+    return m.group(1) if m else None
 
-    Avoids fragile full-paragraph duplication: only issue-range/Active pointers,
-    escrow manifest pin SHAs, and solana-runtime test inventory shape.
-    Does not claim formal TASK or GitHub issue state.
+
+def _lean_string_array_def(text: str, name: str) -> list[str] | None:
+    """Extract `def name : Array String := #[ \"a\", ... ]` string elements."""
+    m = re.search(
+        rf"^def\s+{re.escape(name)}\s*:\s*Array\s+String\s*:=\s*#\[(.*?)\]",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if m is None:
+        return None
+    return re.findall(r"\"([^\"]+)\"", m.group(1))
+
+
+def validate_solana_cpi_active_contract(root: Path, by_id: dict[str, Document]) -> None:
+    """Freeze #125 active profile/catalog domain digests against ADR + Lean constants.
+
+    Triangle: active JCS domain digest == ADR digest-table row == CpiContractV1
+    `activeProfileDigestV1` / `activeCatalogDigestV1`. Extension digest stays
+    historical df7d…. Historical #124 profile/catalog 0b306/41ace remain in
+    SOLANA_CPI_FROZEN_PAYLOADS and are not replaced here.
+    """
+    adr = by_id.get(SOLANA_CPI_ADR_ID)
+    _expect_sol_cpi(adr is not None, "docs/adr", "ADR-0024 is missing")
+    assert adr is not None
+
+    active_domain: dict[str, str] = {}
+    active_payloads: dict[str, Any] = {}
+    for relative_path, domain in SOLANA_CPI_ACTIVE_PAYLOADS:
+        path = root / relative_path
+        ensure_repository_path(root, path, relative_path)
+        if not path.is_file():
+            raise_error(
+                "PF-DOC-SOLANA-CPI-CONTRACT", relative_path,
+                "active payload is missing")
+        raw = read_repository_regular_bytes(root, path, relative_path)
+        value = load_json(root, path)
+        canonical = _sol_cpi_canonical_jcs(value, relative_path)
+        _expect_sol_cpi(
+            raw == canonical, relative_path,
+            "active payload is not exact canonical JCS or has a BOM/trailing newline")
+        raw_digest = hashlib.sha256(raw).hexdigest()
+        domain_digest = hashlib.sha256(domain + raw).hexdigest()
+        expected_raw, expected_domain = _sol_cpi_adr_digest_pair(
+            adr, Path(relative_path).name)
+        _expect_sol_cpi(
+            raw_digest == expected_raw, relative_path,
+            f"active raw SHA-256 {raw_digest} does not match ADR-0024")
+        _expect_sol_cpi(
+            domain_digest == expected_domain, relative_path,
+            f"active domain digest {domain_digest} does not match ADR-0024")
+        active_domain[relative_path] = domain_digest
+        active_payloads[relative_path] = value
+
+    profile_path = "docs/specs/solana-cpi-profile-active-v1.json"
+    catalog_path = "docs/specs/solana-cpi-callee-catalog-active-v1.json"
+    profile = active_payloads[profile_path]
+    catalog = active_payloads[catalog_path]
+    profile_domain = active_domain[profile_path]
+    catalog_domain = active_domain[catalog_path]
+
+    _expect_sol_cpi(
+        profile_domain == SOLANA_CPI_ACTIVE_PROFILE_DIGEST, profile_path,
+        "active profile domain digest constant mismatch")
+    _expect_sol_cpi(
+        catalog_domain == SOLANA_CPI_ACTIVE_CATALOG_DIGEST, catalog_path,
+        "active catalog domain digest constant mismatch")
+
+    lean_rel = SOLANA_CPI_CONTRACT_LEAN
+    lean_path = root / lean_rel
+    ensure_repository_path(root, lean_path, lean_rel)
+    lean_text = read_repository_text(
+        root, lean_path, lean_rel, encoding_code="PF-DOC-SOLANA-CPI-CONTRACT")
+    lean_profile = _lean_string_def(lean_text, "activeProfileDigestV1")
+    lean_catalog = _lean_string_def(lean_text, "activeCatalogDigestV1")
+    lean_impl = _lean_string_def(lean_text, "activeProfileImplementationStateV1")
+    lean_catalog_ver = _lean_string_def(lean_text, "activeCatalogVersionV1")
+    lean_product_qns = _lean_string_array_def(lean_text, "activeProductApiQnsV1")
+    _expect_sol_cpi(
+        lean_profile == f"sha256:{SOLANA_CPI_ACTIVE_PROFILE_DIGEST}",
+        lean_rel, "activeProfileDigestV1 must triangle with active profile domain digest")
+    _expect_sol_cpi(
+        lean_catalog == f"sha256:{SOLANA_CPI_ACTIVE_CATALOG_DIGEST}",
+        lean_rel, "activeCatalogDigestV1 must triangle with active catalog domain digest")
+    _expect_sol_cpi(
+        lean_impl == "product-exact-synchronous-call-active-v1",
+        lean_rel, "activeProfileImplementationStateV1 must be product-exact-synchronous-call-active-v1")
+    _expect_sol_cpi(
+        lean_catalog_ver == "1.1.0",
+        lean_rel, "activeCatalogVersionV1 must be 1.1.0")
+    _expect_sol_cpi(
+        lean_product_qns == list(SOLANA_CPI_ACTIVE_PRODUCT_QNS),
+        lean_rel, "activeProductApiQnsV1 must be the five approved product APIs")
+
+    # Active profile product state / irSchema / catalog binding.
+    _expect_sol_cpi(type(profile) is dict, profile_path, "active profile root must be object")
+    _expect_sol_cpi(
+        profile.get("schema") == "proof-forge.solana.cpi-profile.v1"
+        and profile.get("profileId") == "solana-sbpf-cpi-elf-v1"
+        and profile.get("irSchema") == "proof-forge.solana.cpi-product-ir.v1"
+        and profile.get("planSchema") == "proof-forge.solana.cpi-plan.v1"
+        and profile.get("implementationState")
+        == "product-exact-synchronous-call-active-v1"
+        and profile.get("scheduleSupported") is False
+        and profile.get("synchronousCallSupportRule")
+        == "advertise-exact-effect.synchronous-call-on-this-profile-only-excluding-async",
+        profile_path, "active profile product state / irSchema is not exact")
+    profile_ext = profile.get("extensionRequirement")
+    _expect_sol_cpi(
+        type(profile_ext) is dict
+        and profile_ext.get("digest")
+        == f"sha256:{SOLANA_CPI_EXTENSION_DOMAIN_DIGEST}"
+        and profile_ext.get("id") == "extension.solana-cpi-accounts"
+        and profile_ext.get("version") == "1.0.0"
+        and profile_ext.get("predicates") == [],
+        profile_path, "active profile must bind unchanged extension digest df7d…")
+    profile_catalog = profile.get("calleeCatalog")
+    _expect_sol_cpi(
+        type(profile_catalog) is dict
+        and profile_catalog.get("digest")
+        == f"sha256:{SOLANA_CPI_ACTIVE_CATALOG_DIGEST}"
+        and profile_catalog.get("version") == "1.1.0"
+        and profile_catalog.get("schema") == "proof-forge.solana.callee-catalog.v1"
+        and profile_catalog.get("digestDomain") == "pf.solana.callee-catalog.v1",
+        profile_path, "active profile must bind active catalog domain digest e2c2…")
+    _expect_sol_cpi(
+        profile.get("runtimeCompatibility") == catalog.get("runtime"),
+        profile_path, "active profile runtimeCompatibility differs from active catalog runtime")
+    _expect_sol_cpi(
+        catalog.get("version") == "1.1.0"
+        and catalog.get("schema") == "proof-forge.solana.callee-catalog.v1",
+        catalog_path, "active catalog version/schema is not exact")
+
+    packages = catalog.get("packages")
+    _expect_sol_cpi(type(packages) is list, catalog_path, "active packages must be an array")
+    package_by_id: dict[str, dict[str, Any]] = {}
+    for package in packages:
+        _expect_sol_cpi(type(package) is dict, catalog_path, "package row must be object")
+        package_id = package.get("packageId")
+        _expect_sol_cpi(
+            type(package_id) is str and package_id not in package_by_id,
+            catalog_path, "active package IDs must be unique strings")
+        package_by_id[package_id] = package
+    _expect_sol_cpi(
+        set(package_by_id) == {
+            "companion-v1", "system-v1", "token-classic-v1", "ata-classic-v1"
+        },
+        catalog_path, "active callee package set is not the frozen four-package set")
+
+    companion = package_by_id["companion-v1"]
+    _expect_sol_cpi(
+        companion.get("admittedForMaterialization") is False
+        and isinstance(companion.get("artifactBinding"), dict)
+        and companion["artifactBinding"].get("kind") == "absent",
+        catalog_path, "companion-v1 must remain test-only / not product-admitted")
+    system = package_by_id["system-v1"]
+    system_binding = system.get("artifactBinding")
+    _expect_sol_cpi(
+        system.get("admittedForMaterialization") is True
+        and type(system_binding) is dict
+        and system_binding.get("kind") == "runtime-native"
+        and system_binding.get("agaveCommit")
+        == "2a165e7a90af75c76426d1e031ed0284211d5d1e",
+        catalog_path, "system-v1 must be admitted runtime-native with Agave commit pin")
+
+    assets_rel = SOLANA_CPI_ASSETS_MANIFEST
+    assets_path = root / assets_rel
+    ensure_repository_path(root, assets_path, assets_rel)
+    assets_manifest = load_json(root, assets_path)
+    _expect_sol_cpi(
+        type(assets_manifest) is dict
+        and assets_manifest.get("schema") == "proof-forge.solana.cpi-assets.v1"
+        and assets_manifest.get("catalogVersion") == "1.1.0",
+        assets_rel, "package-owned CPI assets manifest schema/version mismatch")
+    asset_rows = assets_manifest.get("assets")
+    _expect_sol_cpi(
+        type(asset_rows) is list and len(asset_rows) == 2,
+        assets_rel, "assets manifest must list exactly Token+ATA package-owned ELFs")
+    assets_by_id = {
+        row["packageId"]: row
+        for row in asset_rows
+        if isinstance(row, dict) and type(row.get("packageId")) is str
+    }
+    _expect_sol_cpi(
+        set(assets_by_id) == {"token-classic-v1", "ata-classic-v1"},
+        assets_rel, "assets manifest package IDs must be token-classic-v1 and ata-classic-v1")
+
+    # Full package-owned provenance freeze: assets manifest row ≡ active catalog
+    # artifactBinding for every field in the closed tuple (not path/size/sha only).
+    provenance_keys = (
+        "relativePath",
+        "size",
+        "sha256",
+        "buildRecipeDigest",
+        "tagObject",
+        "peeledCommit",
+        "sourceRepo",
+        "sourceTag",
+    )
+    expected_package_owned = {
+        "token-classic-v1": {
+            "kind": "loader-v3-elf",
+            "relativePath": "supply-chain/solana-cpi-assets/v1/token_classic_v1.so",
+            "size": 94960,
+            "sha256": (
+                "a19be3a2d4778533652da23b8fe31c4a341802f8e8c0c7b941b88581fc92d9d9"
+            ),
+            "buildRecipeDigest": (
+                "4af75b0a74ba14daa90a2d3913c71311609b3f3465728e733537dd0e34d8d063"
+            ),
+            "tagObject": "5c37ac99c248567bd7d50b965af8cbd45b6ced96",
+            "peeledCommit": "dfb260231c761be7d9c8b63728e770a102b86495",
+            "sourceRepo": "https://github.com/solana-program/token",
+            "sourceTag": "program@v9.0.0",
+            "runtimeCopy": "runtime-tests/solana/token/token_classic_v1.so",
+        },
+        "ata-classic-v1": {
+            "kind": "loader-v3-elf",
+            "relativePath": "supply-chain/solana-cpi-assets/v1/ata_classic_v1.so",
+            "size": 111136,
+            "sha256": (
+                "d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519"
+            ),
+            "buildRecipeDigest": (
+                "f7ebe5236730d66ad730df6348b74332eb95e2abfda3377f389a13022e4528e2"
+            ),
+            "tagObject": "de77f367fdc0341879b1b9f0224c6b86107e1769",
+            "peeledCommit": "0b867b5340cd001e5980d8ca7928effc4e10015c",
+            "sourceRepo": (
+                "https://github.com/solana-program/associated-token-account"
+            ),
+            "sourceTag": "program@v8.0.0",
+            "runtimeCopy": "runtime-tests/solana/ata/ata_classic_v1.so",
+        },
+    }
+    for package_id, expected in expected_package_owned.items():
+        package = package_by_id[package_id]
+        binding = package.get("artifactBinding")
+        asset = assets_by_id[package_id]
+        _expect_sol_cpi(
+            package.get("admittedForMaterialization") is True
+            and type(binding) is dict
+            and binding.get("kind") == expected["kind"],
+            catalog_path,
+            f"{package_id} must be admitted loader-v3-elf in active catalog")
+        _expect_sol_cpi(type(asset) is dict, assets_rel, f"{package_id} assets row missing")
+        for key in provenance_keys:
+            expected_value = expected[key]
+            _expect_sol_cpi(
+                binding.get(key) == expected_value,
+                catalog_path,
+                f"{package_id} active artifactBinding.{key} is not exact "
+                f"(got {binding.get(key)!r}, expected {expected_value!r})")
+            _expect_sol_cpi(
+                asset.get(key) == expected_value,
+                assets_rel,
+                f"{package_id} assets manifest.{key} is not exact "
+                f"(got {asset.get(key)!r}, expected {expected_value!r})")
+            _expect_sol_cpi(
+                binding.get(key) == asset.get(key),
+                assets_rel,
+                f"{package_id} assets manifest.{key} must equal active "
+                f"catalog artifactBinding.{key}")
+        # Assets row must not invent extra provenance identity fields that
+        # diverge from the frozen package-owned tuple (packageId is row-only).
+        for key in provenance_keys:
+            _expect_sol_cpi(
+                key in asset and key in binding,
+                assets_rel,
+                f"{package_id} provenance key {key} must be present on both sides")
+
+        rel_elf = expected["relativePath"]
+        elf_path = root / rel_elf
+        ensure_repository_path(root, elf_path, rel_elf)
+        if not elf_path.is_file():
+            raise_error(
+                "PF-DOC-SOLANA-CPI-CONTRACT", rel_elf,
+                f"{package_id} package-owned ELF missing")
+        elf_bytes = read_repository_regular_bytes(root, elf_path, rel_elf)
+        elf_sha = hashlib.sha256(elf_bytes).hexdigest()
+        _expect_sol_cpi(
+            len(elf_bytes) == expected["size"] and elf_sha == expected["sha256"],
+            rel_elf,
+            f"{package_id} package-owned ELF size/sha must match frozen pins")
+
+        # Exact byte equality with the tracked runtime-tests copy (same-host
+        # package-owned pin source). Not mainnet/hermetic/cross-host claims.
+        runtime_rel = expected["runtimeCopy"]
+        runtime_path = root / runtime_rel
+        ensure_repository_path(root, runtime_path, runtime_rel)
+        if not runtime_path.is_file():
+            raise_error(
+                "PF-DOC-SOLANA-CPI-CONTRACT", runtime_rel,
+                f"{package_id} runtime-tests ELF copy missing")
+        runtime_bytes = read_repository_regular_bytes(
+            root, runtime_path, runtime_rel)
+        _expect_sol_cpi(
+            runtime_bytes == elf_bytes,
+            runtime_rel,
+            f"{package_id} package-owned ELF must be exact-byte equal to "
+            f"runtime-tests copy {runtime_rel}")
+
+    # Tool Lock: locked sbpf must list both product ELF profiles.
+    for lock_rel in ("toolchains.lock.json", "toolchains-linux-x86_64.lock.json"):
+        lock_path = root / lock_rel
+        ensure_repository_path(root, lock_path, lock_rel)
+        lock = load_json(root, lock_path)
+        tools = lock.get("tools") if isinstance(lock, dict) else None
+        _expect_sol_cpi(type(tools) is list, lock_rel, "tools must be an array")
+        sbpf = next(
+            (t for t in tools
+             if isinstance(t, dict) and t.get("id") == "sbpf"),
+            None,
+        )
+        _expect_sol_cpi(sbpf is not None, lock_rel, "sbpf tool row missing")
+        required = sbpf.get("requiredByProfiles") if isinstance(sbpf, dict) else None
+        _expect_sol_cpi(
+            type(required) is list
+            and "solana-sbpf-cpi-elf-v1" in required
+            and "solana-sbpf-elf-v1" in required,
+            lock_rel,
+            "sbpf requiredByProfiles must include solana-sbpf-cpi-elf-v1 and solana-sbpf-elf-v1")
+
+
+def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
+    """Minimal stable anchors for Solana CPI epic #111–#125 engineering status.
+
+    Avoids fragile full-paragraph duplication: issue-range / epic-complete pointers,
+    historical #124 escrow pin SHAs, solana-runtime inventory shape, and bans on
+    stale “Active #125 / ordinary resolver does not advertise” current-state claims.
+    Does not claim formal TASK or GitHub issue state. Does not pre-claim
+    ordinary `just dev-check` / `just ci` results.
     """
     agents_path = root / "AGENTS.md"
     ensure_repository_path(root, agents_path, "AGENTS.md")
     agents = read_repository_text(
         root, agents_path, "AGENTS.md", encoding_code="PF-DOC-CHECKPOINT")
 
-    if not re.search(r"#111[–-]#124", agents):
+    if not re.search(r"#111[–-]#125", agents):
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
-            "must record engineering closed range #111–#124")
+            "must record engineering closed range #111–#125")
+    if not re.search(
+            r"#110[^\n]{0,200}(engineering epic complete|工程 epic (已)?完成|工程 epic complete)",
+            agents,
+            re.IGNORECASE,
+    ) and "engineering epic complete" not in agents.lower():
+        # Accept compact Chinese/English epic-complete phrasing near #110.
+        if not re.search(
+                r"(#110[^\n]{0,120}(工程)?epic.{0,40}(complete|闭合|完成)"
+                r"|(engineering )?epic #110.{0,40}(complete|闭合|完成)"
+                r"|#110 engineering epic complete)",
+                agents,
+                re.IGNORECASE,
+        ):
+            raise_error(
+                "PF-DOC-CHECKPOINT", "AGENTS.md",
+                "must record #110 engineering epic complete")
+
     active_row = None
+    program_row = None
     for line in agents.splitlines():
         if line.startswith("| Active task |"):
             active_row = line
-            break
+        if line.startswith("| Program |"):
+            program_row = line
     if active_row is None:
         raise_error("PF-DOC-CHECKPOINT", "AGENTS.md", "missing Active task checkpoint row")
-    if re.search(r"Active\s*(明确(为|\s)?)?\s*#124\b", active_row):
+    # Stale current-state: must not present #125 as still-pending Active activation.
+    if re.search(
+            r"(Active\s*(明确(为|\s)?)?\s*#125\b|"
+            r"\*\*Active\s*(明确(为|\s)?)?\s*#125\*\*|"
+            r"#125\s+activation\s+(仍\s*)?pending|"
+            r"#125\s+前.{0,40}(不\s*advertise|ordinary resolver))",
+            active_row,
+            re.IGNORECASE,
+    ):
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
-            "Active task must not still name #124 as current Active (use #125)")
-    if "#125" not in active_row:
+            "Active task must not still present #125 as pending Active / pre-advertise state")
+    if re.search(r"ordinary resolver.{0,40}不\s*advertise|#125 前不 advertise", active_row):
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
-            "Active task row must name #125")
+            "Active task must not claim ordinary resolver still does not advertise (post-#125)")
+    if not re.search(r"#111[–-]#125", active_row):
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "Active task row must name closed range #111–#125")
     if "CpiEscrowIRV1" not in agents and "composite escrow" not in agents.lower():
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
-            "must name CpiEscrowIRV1 or composite escrow for #124")
+            "must name CpiEscrowIRV1 or composite escrow for #124 history")
+    if program_row is not None:
+        # Only ban current-state claims that the ordinary CPI product path is still FC.
+        # Historical #118–#124 test-preactivation "activationDenied" mentions may remain.
+        if re.search(
+                r"(ordinary product path仍在 legacy Plan前 FC|"
+                r"solana-sbpf-cpi-elf-v1.{0,40}ordinary product path仍在|"
+                r"新 `solana-sbpf-cpi-elf-v1` ordinary product path|"
+                r"#125 前.{0,40}(fail closed|FC|不 advertise))",
+                program_row,
+        ):
+            raise_error(
+                "PF-DOC-CHECKPOINT", "AGENTS.md",
+                "Program row must not describe CPI profile product path as still pre-#125 FC")
+        if not re.search(
+                r"(advertise sync\+extension|advertise exact.*synchronous-call|"
+                r"product-only private capability|cpi-product-ir|b0f3f5bc)",
+                program_row,
+        ):
+            raise_error(
+                "PF-DOC-CHECKPOINT", "AGENTS.md",
+                "Program row must state #125 CPI product advertise/sync or active product-ir pins")
+    # Positive product activation anchors (stable, non-fragile).
+    if "b0f3f5bc7f3973daf176c308cc4ca310f8ad5b51ea33a33c9d1bd3e4d3e91b04" not in agents:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "must pin active profile domain digest b0f3f5bc…")
+    if "e2c2ebac5e690b99ad50fb7f8a5f6ecfdb8295bb43f3913229c2fd48d2820419" not in agents:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "must pin active catalog domain digest e2c2ebac…")
+    if "cpi-product-ir" not in agents and "product-ir" not in agents:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "must name product-ir / cpi-product-ir for #125 active irSchema")
+    if not re.search(r"SBOM[^\n]{0,40}\b194\b|\b194\b[^\n]{0,40}SBOM", agents):
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "must record SBOM package-file pin 194")
 
+    # Historical #124 escrow pins remain immutable (test-preactivation lane retained).
     manifest_rel = "runtime-tests/solana/escrow/manifest.json"
     manifest_path = root / manifest_rel
     ensure_repository_path(root, manifest_path, manifest_rel)
@@ -901,27 +1340,57 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
             "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests/cpi_escrow.rs",
             f"expected 36 #[test] functions, found {len(test_fns)}")
 
+    stale_current_state = re.compile(
+        r"("
+        r"\*\*Active\s*(明确(为|\s)?)?\s*#125\*\*"
+        r"|Active\s*明确为\s*#125"
+        r"|#125\s+activation\s+(仍\s*)?pending"
+        r"|#125\s+前.{0,60}(ordinary resolver|不\s*advertise|不 advertise)"
+        r"|ordinary resolver.{0,40}#125\s*前"
+        r"|ordinary resolver 在 #125 前不 advertise"
+        r")",
+        re.IGNORECASE,
+    )
     for rel in (
         "MIGRATION_MATRIX.md",
         "docs/engineering-backlog.md",
         "docs/adr/0024-solana-explicit-accounts-pda-cpi.md",
+        "docs/targets/02-solana.md",
+        "docs/research/12-target-coverage-matrix.md",
     ):
         doc_path = root / rel
         ensure_repository_path(root, doc_path, rel)
         body = read_repository_text(
             root, doc_path, rel, encoding_code="PF-DOC-CHECKPOINT")
-        if not re.search(r"#111[–-]#124", body):
+        if not re.search(r"#111[–-]#125", body):
+            # ADR/dossier may state epic complete without repeating full range if
+            # they still name #125 closed; require either closed range or explicit
+            # #125 engineering closed / product activation wording.
+            if not re.search(
+                    r"#125.{0,80}(工程(切片)?已闭合|engineering (slice )?closed|"
+                    r"product activation|产品 (activation|同步|sync))",
+                    body,
+            ):
+                raise_error(
+                    "PF-DOC-CHECKPOINT", rel,
+                    "must record #111–#125 engineering closed or #125 product activation closed")
+        if rel in (
+            "MIGRATION_MATRIX.md",
+            "docs/engineering-backlog.md",
+            "docs/adr/0024-solana-explicit-accounts-pda-cpi.md",
+        ):
+            if "CpiEscrowIRV1" not in body and "composite escrow" not in body.lower():
+                raise_error(
+                    "PF-DOC-CHECKPOINT", rel,
+                    "must name CpiEscrowIRV1 or composite escrow for #124 history")
+        if stale_current_state.search(body):
             raise_error(
                 "PF-DOC-CHECKPOINT", rel,
-                "must record engineering closed range #111–#124")
-        if "CpiEscrowIRV1" not in body and "composite escrow" not in body.lower():
-            raise_error(
-                "PF-DOC-CHECKPOINT", rel,
-                "must name CpiEscrowIRV1 or composite escrow for #124")
+                "must not retain Active #125 / pre-advertise current-state claims after #125 closed")
         if re.search(r"\*\*Active\s*(明确)?\s*#124\*\*", body):
             raise_error(
                 "PF-DOC-CHECKPOINT", rel,
-                "must not still bold-mark #124 as Active (use #125)")
+                "must not still bold-mark #124 as Active")
 
 
 
@@ -4293,6 +4762,7 @@ def check(root: Path, profile: str = "development") -> None:
         documents.append(document)
 
     validate_sol_cpi_contract(root, json_values, by_id)
+    validate_solana_cpi_active_contract(root, by_id)
     validate_solana_cpi_epic_checkpoint(root)
     check_links(root, docs_root, documents, by_id)
 

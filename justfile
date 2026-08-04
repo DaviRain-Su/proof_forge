@@ -289,22 +289,32 @@ s6-plan-cutover-deletion-gate:
     # Dead public residual carrier deleted.
     fail_if_match "$gate" '^\s*structure ResolvedProgram\b' ProofForgeV2
     # Each implemented target must expose capability-gated public entries only.
-    # planFromCapability lives on the façade; buildFromCapability moved to the
-    # EmitIRV1 submodule with the C2 split — scan the whole target family.
+    # Evm/Near/Noir keep planFromCapability on the façade. #125 moves Solana's
+    # exhaustive legacy/CPI tagged entry to target-owned MaterializationV1,
+    # imported by the façade. buildFromCapability remains in target submodules.
     for tgt in Evm Solana Near Noir; do
+      facade="ProofForgeV2/Targets/${tgt}.lean"
+      pfc_path="$facade"
+      if [[ "$tgt" == "Solana" ]]; then
+        if ! rg -q '^import ProofForgeV2.Targets.Solana.MaterializationV1$' "$facade"; then
+          echo "s6-plan-cutover-deletion-gate: Solana façade must import MaterializationV1" >&2
+          exit 1
+        fi
+        pfc_path="ProofForgeV2/Targets/Solana/MaterializationV1.lean"
+      fi
       set +e
-      pfc="$(rg --glob '*.lean' -n --no-heading '^\s*def planFromCapability\b' "ProofForgeV2/Targets/${tgt}.lean" 2>&1)"
+      pfc="$(rg -n --no-heading '^\s*def planFromCapability\b' "$pfc_path" 2>&1)"
       pfc_ec=$?
       bfc="$(rg --glob '*.lean' -n --no-heading '^\s*def buildFromCapability\b' "ProofForgeV2/Targets/${tgt}" 2>&1)"
       bfc_ec=$?
       set -e
       if [[ $pfc_ec -ne 0 ]]; then
-        echo "s6-plan-cutover-deletion-gate: missing public planFromCapability in ${tgt}.lean" >&2
+        echo "s6-plan-cutover-deletion-gate: missing public planFromCapability in ${pfc_path}" >&2
         printf '%s\n' "$pfc" >&2
         exit 1
       fi
       if [[ $bfc_ec -ne 0 ]]; then
-        echo "s6-plan-cutover-deletion-gate: missing public buildFromCapability in ${tgt}.lean" >&2
+        echo "s6-plan-cutover-deletion-gate: missing public buildFromCapability in ${tgt} target family" >&2
         printf '%s\n' "$bfc" >&2
         exit 1
       fi
@@ -621,11 +631,19 @@ s1-target-semantic-plan-deletion-gate:
       done
       rg -q 'private def makePlanFromSemanticV1' "$source"
       rg -q 'validateSemanticProgramV1' "$source"
-      # Capability chain split across the facade and the lowering submodule
-      # (same shape as s1-evm): planFromCapability → materializePlanFromCapabilityV1
-      # → semanticV1Of → private makePlanFromSemanticV1.
-      rg -q 'def planFromCapability' "$facade"
-      rg -q 'materializePlanFromCapabilityV1' "$facade"
+      # Capability chain reaches the retained-Semantic legacy lowering. Near/Noir
+      # own the public entry in their façade; #125 moved Solana's exhaustive
+      # legacy/CPI tagged dispatch into the target-owned MaterializationV1 module,
+      # which the façade must import explicitly.
+      dispatch="$facade"
+      if [[ "$target" == "Solana" ]]; then
+        rg -q '^import ProofForgeV2.Targets.Solana.MaterializationV1$' "$facade"
+        dispatch="$source/MaterializationV1.lean"
+        rg -Uq '(?s)def planFromCapability.*?solanaSbpfCpiElfV1.*?productPlanFromCapabilityV1.*?unknownProfileFail' "$dispatch"
+        rg -Uq '(?s)def irFromCapability.*?solanaSbpfCpiElfV1.*?productIrFromCapabilityV1.*?unknownProfileFail' "$dispatch"
+      fi
+      rg -q 'def planFromCapability' "$dispatch"
+      rg -q 'materializePlanFromCapabilityV1' "$dispatch"
       rg -Uq '(?s)def materializePlanFromCapabilityV1.*?semanticV1Of.*?makePlanFromSemanticV1' "$source/LowerSemanticV1.lean"
       rg -q 'expandedNodes' "$source"
       rg -q 'consumeCurrentSegmentV1' "$source"
@@ -1224,8 +1242,16 @@ evm-corpus-runtime: build
     bash scripts/evm_corpus_runtime.sh
 
 # Solana S3a: Mollusk runtime differential for Counter.so (requires materialised sbpf + Rust).
+# Also runs #125 CPI product acceptance (fail-closed) before product ELF builds.
 solana-runtime:
     bash scripts/solana_runtime_test.sh
+
+# #125 Solana CPI CLI/product acceptance only (proof-forge.output.v1 EscrowCpi
+# under solana-sbpf-cpi-elf-v1). Not ordinary ci; host/tool heavy like solana-runtime.
+# Does not consume #118–#124 preactivation runtime manifests. Requires #125 product
+# activation path (ordinary resolver sync+extension on this profile only).
+solana-cpi-product-acceptance:
+    bash scripts/solana_cpi_product_acceptance.sh
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;

@@ -1,6 +1,7 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Targets.Solana
+import ProofForgeV2.Targets.Solana.CpiContractV1
 import ProofForgeV2.Targets.Solana.FinalizeV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -17,16 +18,18 @@ import Tests.Language.ParserSession
 # Tests.Targets.SolanaElfV1 — S2a solana-sbpf-elf-v1 profile
 
 Pins:
-* registry membership of legacy `solana-sbpf-elf-v1` plus inert
+* registry membership of legacy `solana-sbpf-elf-v1` plus
   `solana-sbpf-cpi-elf-v1`, with default still plan-v1
 * profile-scoped requirement-support rows: only cpi profile carries the exact
-  extension row, and all three profiles still decline sync/async
+  extension row; #125 cpi admits `effect.synchronous-call` and still declines
+  async; both legacy profiles still decline sync/async/extension
 * residual descriptor stays plan-v1 but accepts both opt-in profiles
 * buildFromCapability under elf emits `.s` + plan + IDL; plan profile unchanged
 * `.s` contents match `emitSbpfAsmV1` and are deterministic
 * FinalizeV1 plan profile stays zero-tool
 * FinalizeV1 elf pure helpers + missing-tool path (`PF-TOOLCHAIN-MISSING` via empty PROOF_FORGE_TOOL_ROOT)
 * empty-.so gate without invoking the real assembler
+* #125 active CPI contract digests / admitted package closure / loader-v3 ELF pins
 
 S2b registers locked `sbpf` (sourceBuild). Missing-tool coverage forces an empty tool root
 so the suite stays hermetic without a provisioned binary. Positive e2e `.so` emission is a
@@ -43,6 +46,7 @@ open ProofForgeV2.Targets.TargetRegistryV1
 open ProofForgeV2.Targets.RequirementResolverV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.Solana
+open ProofForgeV2.Targets.Solana.CpiV1
 open ProofForgeV2.Materialization.LockedToolchainV1
 open System
 
@@ -96,7 +100,7 @@ private def testRegistryMembership : IO Unit := do
     "registry: default profile remains solana-sbpf-plan-v1"
   expect (!(ProofForgeV2.Targets.BuildSelectionV1.reservedFutureProfiles.contains
       "solana-sbpf-cpi-elf-v1"))
-    "registry: solana-sbpf-cpi-elf-v1 is an opt-in inert member"
+    "registry: solana-sbpf-cpi-elf-v1 is an opt-in registered product member"
   expect (!(ProofForgeV2.Targets.BuildSelectionV1.reservedFutureProfiles.contains
       "solana-sbpf-elf-v1"))
     "registry: solana-sbpf-elf-v1 is no longer reserved"
@@ -142,20 +146,24 @@ private def testSupportAndDescriptor : IO Unit := do
       !legacyIds.contains "extension.solana-cpi-accounts")
     "support: legacy profiles decline call/schedule and the opt-in extension"
   let cpiIds := cpiRow.supported.map (·.id)
-  expect (cpiIds.size == 6 &&
-      !cpiIds.contains "effect.synchronous-call" &&
+  -- #125: CPI admits exact sync + extension; still declines async.
+  expect (cpiIds.size == 7 &&
+      cpiIds.contains "effect.synchronous-call" &&
       !cpiIds.contains "effect.asynchronous-workflow")
-    "support: inert cpi profile still declines both call families"
+    "support: cpi profile admits sync and declines async"
   let expectedExtension ← match
       ProofForgeV2.Semantic.WireV1.solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError s!"extension row: {error}"
   expect (cpiRow.supported.filter (·.id == "extension.solana-cpi-accounts") ==
       #[expectedExtension])
-    "support: inert cpi profile carries one exact extension row"
+    "support: cpi profile carries one exact extension row"
   expect (!(elfRow.supported.any (·.id == "extension.solana-cpi-accounts")) &&
       !(planRow.supported.any (·.id == "extension.solana-cpi-accounts")))
     "support: extension row must be scoped to the cpi profile"
+  expect (!(elfRow.supported.any (·.id == "effect.synchronous-call")) &&
+      !(planRow.supported.any (·.id == "effect.synchronous-call")))
+    "support: legacy profiles still decline sync"
   let desc := Targets.Solana.descriptor
   expect (desc.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
     "descriptor: residual binds plan profile"
@@ -167,6 +175,98 @@ private def testSupportAndDescriptor : IO Unit := do
     "descriptor: accepts inert cpi profile"
   expect (!acceptsCodegenProfile desc CodegenProfileId.evmYulSolc0834V1)
     "descriptor: rejects foreign profile"
+
+/-- #125 active contract authority: digests, admitted product closure, loader-v3 ELF. -/
+private def testActiveCpiContract : IO Unit := do
+  -- Historical preactivation pins must remain exactly as #114–#124.
+  expect (profileDigestV1 ==
+      "sha256:0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1")
+    "historical profileDigestV1 pin"
+  expect (catalogDigestV1 ==
+      "sha256:41ace268b3bea9837e4a1fc9e456dbfbd36c98a344e51dfd095ab4ffb2086351")
+    "historical catalogDigestV1 pin"
+  expect (frozenCalleePackagesV1.size == 4)
+    "historical package table size"
+  expect (frozenCalleePackagesV1.all fun p => !p.admittedForMaterialization)
+    "historical packages remain non-admitted"
+  -- Active digests / version / implementation state.
+  expect (activeProfileDigestV1 ==
+      "sha256:b0f3f5bc7f3973daf176c308cc4ca310f8ad5b51ea33a33c9d1bd3e4d3e91b04")
+    "activeProfileDigestV1 pin"
+  expect (activeCatalogDigestV1 ==
+      "sha256:e2c2ebac5e690b99ad50fb7f8a5f6ecfdb8295bb43f3913229c2fd48d2820419")
+    "activeCatalogDigestV1 pin"
+  expect (activeCatalogVersionV1 == "1.1.0") "active catalog version"
+  expect (activeProfileImplementationStateV1 ==
+      "product-exact-synchronous-call-active-v1")
+    "active implementationState"
+  expect (extensionDigestV1 ==
+      "sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020")
+    "extension digest unchanged"
+  expect (profileIdV1 == "solana-sbpf-cpi-elf-v1") "active profile id unchanged"
+  match validateActiveCalleePackagesV1 with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"active package validation: {e}"
+  -- Companion stays test-only / absent.
+  let companion ← match findActiveCalleePackage? "companion-v1" with
+    | some p => pure p
+    | none => throw <| IO.userError "missing active companion-v1"
+  expect (companion.admittedForMaterialization == false)
+    "active companion not admitted"
+  expect (companion.artifactBinding == .absent) "active companion binding absent"
+  expect (companion.qns.size == 3) "companion three test-only APIs"
+  -- System admitted + runtimeNative only.
+  let system ← match findActiveCalleePackage? "system-v1" with
+    | some p => pure p
+    | none => throw <| IO.userError "missing active system-v1"
+  expect (system.admittedForMaterialization == true) "system admitted"
+  expect (system.artifactBinding == .runtimeNative agaveV400CommitV1)
+    "system runtimeNative Agave pin"
+  expect (system.qns.size == 2) "system two APIs"
+  -- Token/ATA admitted + exact loader-v3 ELF binding.
+  let token ← match findActiveCalleePackage? "token-classic-v1" with
+    | some p => pure p
+    | none => throw <| IO.userError "missing active token-classic-v1"
+  expect (token.admittedForMaterialization == true) "token admitted"
+  expect (token.artifactBinding == .loaderV3Elf tokenClassicLoaderV3ElfBindingV1)
+    "token loader-v3 ELF pin"
+  expect (token.qns.size == 2) "token two APIs"
+  let ata ← match findActiveCalleePackage? "ata-classic-v1" with
+    | some p => pure p
+    | none => throw <| IO.userError "missing active ata-classic-v1"
+  expect (ata.admittedForMaterialization == true) "ata admitted"
+  expect (ata.artifactBinding == .loaderV3Elf ataClassicLoaderV3ElfBindingV1)
+    "ata loader-v3 ELF pin"
+  expect (ata.qns.size == 1) "ata one API"
+  -- Exact lookup surfaces.
+  expect ((findActiveCalleePackageByQn? "solana.system.transfer").map (·.packageId) ==
+      some "system-v1") "active QN lookup system"
+  expect ((findActiveCalleePackageByQn? "solana.token.transferChecked").map
+      (·.packageId) == some "token-classic-v1") "active QN lookup token"
+  expect ((findActiveCalleePackageByQn? "solana.ata.createIdempotent").map
+      (·.packageId) == some "ata-classic-v1") "active QN lookup ata"
+  expect ((findActiveCalleePackageByQn? "solana.companion.invoke").map
+      (·.admittedForMaterialization) == some false)
+    "companion QN remains non-admitted"
+  expect (activeProductPackageIdsV1 ==
+      #["system-v1", "token-classic-v1", "ata-classic-v1"])
+    "approved product package closure"
+  expect (activeProductApiQnsV1.size == 5) "approved product API count"
+  -- Package-owned asset pins.
+  expect (tokenClassicActiveElfPathV1 ==
+      "supply-chain/solana-cpi-assets/v1/token_classic_v1.so")
+    "token asset path"
+  expect (ataClassicActiveElfPathV1 ==
+      "supply-chain/solana-cpi-assets/v1/ata_classic_v1.so")
+    "ata asset path"
+  expect (tokenClassicActiveElfSizeV1 == 94960) "token elf size"
+  expect (ataClassicActiveElfSizeV1 == 111136) "ata elf size"
+  expect (tokenClassicActiveElfSha256V1 ==
+      "a19be3a2d4778533652da23b8fe31c4a341802f8e8c0c7b941b88581fc92d9d9")
+    "token elf sha256"
+  expect (ataClassicActiveElfSha256V1 ==
+      "d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519")
+    "ata elf sha256"
 
 /-- buildFromCapability under elf emits .s + plan + IDL; plan profile unchanged. -/
 private unsafe def testEmitProfiles
@@ -209,7 +309,10 @@ private unsafe def testEmitProfiles
   let asmFromFiles ← match elfFiles.find? (·.path == "Counter.s") with
     | some f => pure f.contents
     | none => throw <| IO.userError "elf emit: missing .s file"
-  let ir ← liftResult <| irFromCapability elfCap
+  let irCarrier ← liftResult <| irFromCapability elfCap
+  let ir ← match irCarrier with
+    | .legacy ir => pure ir
+    | .cpi _ => throw <| IO.userError "elf emit: expected legacy IR carrier"
   let asmDirect ← liftResult <| emitSbpfAsmV1 ir
   expect (asmFromFiles == asmDirect)
     "elf emit: .s contents equal emitSbpfAsmV1"
@@ -227,20 +330,35 @@ private unsafe def testEmitProfiles
   let matPaths := (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
   expect (matPaths.any (· == "Counter.s")) "materialize: includes .s"
 
-  -- Inert CPI profile: selection and capability mint succeed for Counter, but
-  -- every Plan/IR/file entry rejects before an OutputFile can be constructed.
+  -- #125: CPI profile capability mints for Counter (sync advertised), but a
+  -- Counter without ExternalCall sites cannot product-mint CPI artifacts.
   let cpiCap ← liftResult <|
     solanaCapability compiled (some CodegenProfileId.solanaSbpfCpiElfV1)
   expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf cpiCap ==
       CodegenProfileId.solanaSbpfCpiElfV1)
     "cpi capability binds the opt-in profile"
-  expectCompileErrorContains "cpi plan" "PF-PLAN-INVARIANT" "inert"
-    (planFromCapability cpiCap)
-  expectCompileErrorContains "cpi ir" "PF-PLAN-INVARIANT" "inert"
-    (irFromCapability cpiCap)
-  expectCompileErrorContains "cpi files" "PF-PLAN-INVARIANT" "inert"
+  -- Plan/IR dispatch must enter the product CPI branch (not legacy inert gate).
+  match planFromCapability cpiCap with
+  | .ok (.cpi _) =>
+      throw <| IO.userError "cpi plan: Counter without CPI sites must not mint"
+  | .ok (.legacy _) =>
+      throw <| IO.userError "cpi plan: must not enter legacy Plan for cpi profile"
+  | .error error =>
+      expect (error.render.contains "PF-PLAN-INVARIANT" ||
+          error.render.contains "PF-")
+        s!"cpi plan: expected plan failure, got {error.render}"
+  match irFromCapability cpiCap with
+  | .ok (.cpi _) =>
+      throw <| IO.userError "cpi ir: Counter without CPI sites must not mint"
+  | .ok (.legacy _) =>
+      throw <| IO.userError "cpi ir: must not enter legacy IR for cpi profile"
+  | .error error =>
+      expect (error.render.contains "PF-PLAN-INVARIANT" ||
+          error.render.contains "PF-")
+        s!"cpi ir: expected ir failure, got {error.render}"
+  expectCompileErrorContains "cpi files" "PF-" ""
     (buildFromCapability cpiCap)
-  expectCompileErrorContains "cpi materialize" "PF-PLAN-INVARIANT" "inert"
+  expectCompileErrorContains "cpi materialize" "PF-" ""
     (Targets.materializeResult cpiCap)
 
 private unsafe def testExtensionProfileResolution
@@ -257,7 +375,8 @@ private unsafe def testExtensionProfileResolution
     "<solana-cpi-declared>"
   let cpiCap ← liftResult <|
     solanaCapability compiled (some CodegenProfileId.solanaSbpfCpiElfV1)
-  expectCompileErrorContains "declared cpi materialize" "PF-PLAN-INVARIANT" "inert"
+  -- Extension-only program still has no ExternalCall sites → product path FC.
+  expectCompileErrorContains "declared cpi materialize" "PF-" ""
     (Targets.materializeResult cpiCap)
   for legacy in #[CodegenProfileId.solanaSbpfElfV1,
       CodegenProfileId.solanaSbpfPlanV1] do
@@ -332,6 +451,7 @@ private unsafe def testFinalize
 unsafe def run : IO Unit := do
   testRegistryMembership
   testSupportAndDescriptor
+  testActiveCpiContract
   let session ← Tests.Language.ParserSession.shared
   testEmitProfiles session
   testExtensionProfileResolution session

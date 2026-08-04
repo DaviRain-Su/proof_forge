@@ -13,8 +13,9 @@
 
   Carrier is activation-denied: it never converts to
   `ResolvedEngineeringBuildV1`, never mints OutputFile, and never authorizes
-  product materialization. Ordinary `resolveEngineeringRequirementsV1` on the
-  same call program must continue to fail with PF-REQ-UNSUPPORTED on sync.
+  product materialization. After #125, ordinary resolution admits sync only for
+  the exact CPI product profile; that independent product path must never consume
+  or reinterpret this historical preflight carrier.
 -/
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.TargetIdentityV1

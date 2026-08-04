@@ -32,13 +32,36 @@ def extensionVersionV1 : String := "1.0.0"
 def extensionDigestV1 : String :=
   "sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
 
-/-- Domain-separated profile digest (`pf.solana.cpi-profile.v1`). -/
+/-- Domain-separated profile digest (`pf.solana.cpi-profile.v1`).
+    Historical #114–#124 preactivation authority
+    (`docs/specs/solana-cpi-profile-v1.json`). -/
 def profileDigestV1 : String :=
   "sha256:0b306aa98b00611bd794953e6293b19e1b47937d2979d5b5cdaf1d2b221f43f1"
 
-/-- Domain-separated callee-catalog digest (`pf.solana.callee-catalog.v1`). -/
+/-- Domain-separated callee-catalog digest (`pf.solana.callee-catalog.v1`).
+    Historical #114–#124 preactivation authority
+    (`docs/specs/solana-cpi-callee-catalog-v1.json`). -/
 def catalogDigestV1 : String :=
   "sha256:41ace268b3bea9837e4a1fc9e456dbfbd36c98a344e51dfd095ab4ffb2086351"
+
+/-- #125 active profile digest (`pf.solana.cpi-profile.v1` over
+    `docs/specs/solana-cpi-profile-active-v1.json`). Same profileId
+    `solana-sbpf-cpi-elf-v1`; binds active catalog domain digest; product
+    exact sync; schedule false. -/
+def activeProfileDigestV1 : String :=
+  "sha256:b0f3f5bc7f3973daf176c308cc4ca310f8ad5b51ea33a33c9d1bd3e4d3e91b04"
+
+/-- #125 active callee-catalog digest (`pf.solana.callee-catalog.v1` over
+    `docs/specs/solana-cpi-callee-catalog-active-v1.json`, version 1.1.0). -/
+def activeCatalogDigestV1 : String :=
+  "sha256:e2c2ebac5e690b99ad50fb7f8a5f6ecfdb8295bb43f3913229c2fd48d2820419"
+
+/-- Active catalog version spelling (historical remains `1.0.0`). -/
+def activeCatalogVersionV1 : String := "1.1.0"
+
+/-- Active profile implementation-state label (product exact sync). -/
+def activeProfileImplementationStateV1 : String :=
+  "product-exact-synchronous-call-active-v1"
 
 /-! ## Product caps (fail closed before runtime upper bounds) -/
 
@@ -278,9 +301,33 @@ inductive ExecutionClass where
   | nativeSystem
   deriving BEq, Repr
 
+/-- Historical #114–#124 artifact binding closed set.
+    Active #125 product packages use `ActiveArtifactBindingV1`, which adds the
+    package-owned loader-v3 ELF constructor without widening this inductive
+    (so preactivation match sites stay exhaustive on absent/runtimeNative). -/
 inductive ArtifactBinding where
   | absent
   | runtimeNative (agaveCommit : String)
+  deriving BEq, Repr
+
+/-- Package-owned immutable loader-v3 ELF binding for #125 active catalog. -/
+structure LoaderV3ElfBindingV1 where
+  relativePath : String
+  sizeBytes : Nat
+  contentSha256 : String
+  sourceRepo : String
+  sourceTag : String
+  tagObject : String
+  peeledCommit : String
+  buildRecipeDigest : String
+  deriving BEq, Repr
+
+/-- #125 active artifact binding closed set: historical kinds plus loader-v3 ELF.
+    System never fabricates an ELF (runtimeNative only). companion stays absent. -/
+inductive ActiveArtifactBindingV1 where
+  | absent
+  | runtimeNative (agaveCommit : String)
+  | loaderV3Elf (elf : LoaderV3ElfBindingV1)
   deriving BEq, Repr
 
 structure FrozenCalleePackage where
@@ -289,6 +336,17 @@ structure FrozenCalleePackage where
   executionClass : ExecutionClass
   admittedForMaterialization : Bool
   artifactBinding : ArtifactBinding
+  /-- Closed QNs owned by this package under the extension surface. -/
+  qns : Array String
+  deriving BEq, Repr
+
+/-- #125 active callee package row (parallel authority to `FrozenCalleePackage`). -/
+structure ActiveCalleePackageV1 where
+  packageId : String
+  programId : SolanaPubkeyV1
+  executionClass : ExecutionClass
+  admittedForMaterialization : Bool
+  artifactBinding : ActiveArtifactBindingV1
   /-- Closed QNs owned by this package under the extension surface. -/
   qns : Array String
   deriving BEq, Repr
@@ -380,6 +438,7 @@ def executionClassOwnerPubkeyV1 : ExecutionClass → SolanaPubkeyV1
   | .loaderV3Sbpf => loaderV3OwnerProgramIdV1
   | .nativeSystem => nativeLoaderOwnerProgramIdV1
 
+/-- Historical #114–#124 preactivation package table (all admitted=false). -/
 def frozenCalleePackagesV1 : Array FrozenCalleePackage := #[
   { packageId := "companion-v1"
     programId := companionProgramIdV1
@@ -413,6 +472,202 @@ def findCalleePackage? (packageId : String) : Option FrozenCalleePackage :=
 
 def findCalleePackageByQn? (qn : String) : Option FrozenCalleePackage :=
   frozenCalleePackagesV1.find? (fun p => p.qns.any (· == qn))
+
+/-! ## #125 active product callee packages
+
+    Approved product closure: system-v1 / token-classic-v1 / ata-classic-v1.
+    companion-v1 remains admitted=false / absent / test-only (three APIs).
+    System is runtimeNative (Agave pin); never fabricates a System ELF.
+    Token/ATA bind package-owned immutable loader-v3 ELF assets under
+    `supply-chain/solana-cpi-assets/v1/`. -/
+
+def tokenClassicActiveElfPathV1 : String :=
+  "supply-chain/solana-cpi-assets/v1/token_classic_v1.so"
+
+def ataClassicActiveElfPathV1 : String :=
+  "supply-chain/solana-cpi-assets/v1/ata_classic_v1.so"
+
+def tokenClassicActiveElfSizeV1 : Nat := 94960
+def ataClassicActiveElfSizeV1 : Nat := 111136
+
+def tokenClassicActiveElfSha256V1 : String :=
+  "a19be3a2d4778533652da23b8fe31c4a341802f8e8c0c7b941b88581fc92d9d9"
+
+def ataClassicActiveElfSha256V1 : String :=
+  "d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519"
+
+def tokenClassicBuildRecipeDigestV1 : String :=
+  "4af75b0a74ba14daa90a2d3913c71311609b3f3465728e733537dd0e34d8d063"
+
+def ataClassicBuildRecipeDigestV1 : String :=
+  "f7ebe5236730d66ad730df6348b74332eb95e2abfda3377f389a13022e4528e2"
+
+def tokenClassicSourceRepoV1 : String := "https://github.com/solana-program/token"
+def tokenClassicSourceTagV1 : String := "program@v9.0.0"
+def tokenClassicTagObjectV1 : String := "5c37ac99c248567bd7d50b965af8cbd45b6ced96"
+def tokenClassicPeeledCommitV1 : String :=
+  "dfb260231c761be7d9c8b63728e770a102b86495"
+
+def ataClassicSourceRepoV1 : String :=
+  "https://github.com/solana-program/associated-token-account"
+def ataClassicSourceTagV1 : String := "program@v8.0.0"
+def ataClassicTagObjectV1 : String := "de77f367fdc0341879b1b9f0224c6b86107e1769"
+def ataClassicPeeledCommitV1 : String :=
+  "0b867b5340cd001e5980d8ca7928effc4e10015c"
+
+def tokenClassicLoaderV3ElfBindingV1 : LoaderV3ElfBindingV1 where
+  relativePath := tokenClassicActiveElfPathV1
+  sizeBytes := tokenClassicActiveElfSizeV1
+  contentSha256 := tokenClassicActiveElfSha256V1
+  sourceRepo := tokenClassicSourceRepoV1
+  sourceTag := tokenClassicSourceTagV1
+  tagObject := tokenClassicTagObjectV1
+  peeledCommit := tokenClassicPeeledCommitV1
+  buildRecipeDigest := tokenClassicBuildRecipeDigestV1
+
+def ataClassicLoaderV3ElfBindingV1 : LoaderV3ElfBindingV1 where
+  relativePath := ataClassicActiveElfPathV1
+  sizeBytes := ataClassicActiveElfSizeV1
+  contentSha256 := ataClassicActiveElfSha256V1
+  sourceRepo := ataClassicSourceRepoV1
+  sourceTag := ataClassicSourceTagV1
+  tagObject := ataClassicTagObjectV1
+  peeledCommit := ataClassicPeeledCommitV1
+  buildRecipeDigest := ataClassicBuildRecipeDigestV1
+
+/-- #125 active package table (catalog version 1.1.0 authority). -/
+def activeCalleePackagesV1 : Array ActiveCalleePackageV1 := #[
+  { packageId := "companion-v1"
+    programId := companionProgramIdV1
+    executionClass := .loaderV3Sbpf
+    admittedForMaterialization := false
+    artifactBinding := .absent
+    qns := #["solana.companion.invoke", "solana.companion.fail",
+             "solana.companion.invokeSigned"] },
+  { packageId := "system-v1"
+    programId := systemProgramIdV1
+    executionClass := .nativeSystem
+    admittedForMaterialization := true
+    artifactBinding := .runtimeNative agaveV400CommitV1
+    qns := #["solana.system.transfer", "solana.system.createPdaAccount"] },
+  { packageId := "token-classic-v1"
+    programId := tokenClassicProgramIdV1
+    executionClass := .loaderV3Sbpf
+    admittedForMaterialization := true
+    artifactBinding := .loaderV3Elf tokenClassicLoaderV3ElfBindingV1
+    qns := #["solana.token.transferChecked", "solana.token.transferCheckedPda"] },
+  { packageId := "ata-classic-v1"
+    programId := ataClassicProgramIdV1
+    executionClass := .loaderV3Sbpf
+    admittedForMaterialization := true
+    artifactBinding := .loaderV3Elf ataClassicLoaderV3ElfBindingV1
+    qns := #["solana.ata.createIdempotent"] }
+]
+
+def findActiveCalleePackage? (packageId : String) : Option ActiveCalleePackageV1 :=
+  activeCalleePackagesV1.find? (fun p => p.packageId == packageId)
+
+def findActiveCalleePackageByQn? (qn : String) : Option ActiveCalleePackageV1 :=
+  activeCalleePackagesV1.find? (fun p => p.qns.any (· == qn))
+
+/-- Approved product package ids (companion excluded). -/
+def activeProductPackageIdsV1 : Array String :=
+  #["system-v1", "token-classic-v1", "ata-classic-v1"]
+
+/-- Approved product QN closure (five APIs; companion three remain test-only). -/
+def activeProductApiQnsV1 : Array String := #[
+  "solana.system.transfer",
+  "solana.system.createPdaAccount",
+  "solana.token.transferChecked",
+  "solana.token.transferCheckedPda",
+  "solana.ata.createIdempotent"
+]
+
+/-- Exact structural validation of the #125 active package table. -/
+def validateActiveCalleePackagesV1 : Except String Unit := do
+  unless activeCalleePackagesV1.size == 4 do
+    throw "activeCalleePackagesV1 must contain exactly four packages"
+  let expectedIds := #["companion-v1", "system-v1", "token-classic-v1", "ata-classic-v1"]
+  let mut i : Nat := 0
+  while i < expectedIds.size do
+    match activeCalleePackagesV1[i]?, expectedIds[i]? with
+    | some pkg, some expectedId =>
+        unless pkg.packageId == expectedId do
+          throw s!"active package order mismatch at {i}"
+    | _, _ => throw s!"active package index out of range at {i}"
+    i := i + 1
+  let companion ← match findActiveCalleePackage? "companion-v1" with
+    | some p => pure p
+    | none => throw "missing companion-v1"
+  unless companion.admittedForMaterialization == false do
+    throw "companion-v1 must remain admittedForMaterialization=false"
+  match companion.artifactBinding with
+  | .absent => pure ()
+  | .runtimeNative _ => throw "companion-v1 must keep artifactBinding.absent"
+  | .loaderV3Elf _ => throw "companion-v1 must keep artifactBinding.absent"
+  unless companion.qns.size == 3 do
+    throw "companion-v1 must retain three test-only APIs"
+  let system ← match findActiveCalleePackage? "system-v1" with
+    | some p => pure p
+    | none => throw "missing system-v1"
+  unless system.admittedForMaterialization == true do
+    throw "system-v1 must be admitted for materialization"
+  match system.artifactBinding with
+  | .runtimeNative commit =>
+      unless commit == agaveV400CommitV1 do
+        throw "system-v1 runtimeNative must pin Agave v4.0.0 commit"
+  | .absent => throw "system-v1 must be runtimeNative (no System ELF)"
+  | .loaderV3Elf _ => throw "system-v1 must not fabricate a System ELF"
+  unless system.executionClass == .nativeSystem do
+    throw "system-v1 must remain nativeSystem"
+  unless system.qns.size == 2 do
+    throw "system-v1 must expose two APIs"
+  let token ← match findActiveCalleePackage? "token-classic-v1" with
+    | some p => pure p
+    | none => throw "missing token-classic-v1"
+  unless token.admittedForMaterialization == true do
+    throw "token-classic-v1 must be admitted for materialization"
+  match token.artifactBinding with
+  | .loaderV3Elf elf =>
+      unless elf == tokenClassicLoaderV3ElfBindingV1 do
+        throw "token-classic-v1 loader-v3 ELF binding pin mismatch"
+  | .absent => throw "token-classic-v1 must bind loader-v3 ELF"
+  | .runtimeNative _ => throw "token-classic-v1 must bind loader-v3 ELF"
+  unless token.qns.size == 2 do
+    throw "token-classic-v1 must expose two APIs"
+  let ata ← match findActiveCalleePackage? "ata-classic-v1" with
+    | some p => pure p
+    | none => throw "missing ata-classic-v1"
+  unless ata.admittedForMaterialization == true do
+    throw "ata-classic-v1 must be admitted for materialization"
+  match ata.artifactBinding with
+  | .loaderV3Elf elf =>
+      unless elf == ataClassicLoaderV3ElfBindingV1 do
+        throw "ata-classic-v1 loader-v3 ELF binding pin mismatch"
+  | .absent => throw "ata-classic-v1 must bind loader-v3 ELF"
+  | .runtimeNative _ => throw "ata-classic-v1 must bind loader-v3 ELF"
+  unless ata.qns.size == 1 do
+    throw "ata-classic-v1 must expose one API"
+  -- Every product QN resolves to an admitted active package.
+  for qn in activeProductApiQnsV1 do
+    match findActiveCalleePackageByQn? qn with
+    | none => throw s!"product QN '{qn}' missing from active packages"
+    | some p =>
+        unless p.admittedForMaterialization do
+          throw s!"product QN '{qn}' package is not admitted"
+        unless activeProductPackageIdsV1.any (· == p.packageId) do
+          throw s!"product QN '{qn}' is outside approved product closure"
+  -- Companion QNs remain resolvable but not product-admitted.
+  for qn in #["solana.companion.invoke", "solana.companion.fail",
+              "solana.companion.invokeSigned"] do
+    match findActiveCalleePackageByQn? qn with
+    | none => throw s!"companion QN '{qn}' missing"
+    | some p =>
+        unless p.packageId == "companion-v1" do
+          throw s!"companion QN '{qn}' bound to wrong package"
+        unless p.admittedForMaterialization == false do
+          throw s!"companion QN '{qn}' must not be product-admitted"
+  pure ()
 
 /-! ## Typed frozen API projection -/
 

@@ -17,13 +17,16 @@
   deposit transferChecked, release/refund transferCheckedPda, *ThenOverflow
   rollback order (store → CPI(s) → failing checked add), siteArgChecks→
   siteChecks→invoke adjacency, package identities, test-preactivation
-  boundary, ordinary resolver fail-closed, leaf IR independence.
+  boundary, #125 ordinary resolver + product Plan/IR success for approved
+  composite Escrow closure (preactivation pins and isProductArtifact=false
+  unchanged), leaf IR independence.
 -/
 import ProofForgeV2.Targets.Solana.CpiContractV1
 import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.CpiIRV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiDeriveV1
+import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.CpiPreflightIRV1
 import ProofForgeV2.Targets.Solana.CpiSystemIRV1
 import ProofForgeV2.Targets.Solana.CpiTokenIRV1
@@ -500,12 +503,16 @@ unsafe def run : IO Unit := do
   expectPlanReject (resolveSolanaCpiPreflightIRV1 plan)
     "generic preflight IR rejects composite escrow data"
 
-  -- Ordinary product capability still rejects sync until #125.
-  match resolveEngineeringRequirementsV1 selection compiled with
-  | .error error =>
-      expect (error.code == "PF-REQ-UNSUPPORTED")
-        s!"ordinary resolver must PF-REQ-UNSUPPORTED, got {error.render}"
-  | .ok _ => throw <| IO.userError "ordinary resolver accepted escrow sync"
+  -- #125: ordinary product capability admits sync; approved composite Escrow
+  -- closure further mints product Plan/IR. Preactivation lane above remains
+  -- independent (isProductArtifact=false / assembly sha pins retained).
+  let capability ← expectPlanOk
+    (resolveEngineeringRequirementsV1 selection compiled)
+    "ordinary resolver admits EscrowCpi sync"
+  let _ ← expectPlanOk (productPlanFromCapabilityV1 capability)
+    "product Plan succeeds for EscrowCpi"
+  let _ ← expectPlanOk (productIrFromCapabilityV1 capability)
+    "product IR succeeds for EscrowCpi"
 
   match validateSolanaCpiEscrowIRCandidateV1 candidate with
   | .ok () => pure ()

@@ -112,11 +112,15 @@ locked `sbpf disassemble` 还直接要求最终 ELF 零 `call` 指令。raw-imag
 original-data-len/rent/padding/pointer-table/truncation/overflow，Mollusk `AccountMeta` 路径只承诺 canonical
 Loader 输入并执行所有相邻 swap与 leading/middle/trailing missing/extra负例。
 
-**#119 unsigned companion CPI（仍 test-preactivation，非产品 artifact/非 activated sync）**：独立
-`CpiUnsignedIRV1`/`EmitCpiUnsignedSbpfV1` 在 #118 authority 之上发射真实 `sol_invoke_signed_c`
+**#119 unsigned companion CPI（仍 test-preactivation；#125 后 companion 三 API 仍 product-denied）**：
+独立 `CpiUnsignedIRV1`/`EmitCpiUnsignedSbpfV1` 在 #118 authority 之上发射真实 `sol_invoke_signed_c`
 （零 signer groups）到 pinned companion-v1；#118 no-invoke 链保持独立。site checks 在每个 invoke 前
-site-time 执行；fail 路径原样传播 syscall status 并完整 snapshot rollback。仍无 PDA/nonempty signer
-groups、System/Token/ATA、`OutputFile` 或 ordinary resolver sync support。
+site-time 执行；fail 路径原样传播 syscall status 并完整 snapshot rollback。该 lane **不**成为 #125
+product materialize authority；product path 另走 active catalog 五 API + product-ir。
+
+**#125 product acceptance（工程，非 formal）**：ordinary `proof-forge-next build --target solana
+--profile solana-sbpf-cpi-elf-v1` 产出 proof-forge.output.v1：5 base + `.so`；inspect 重走 exact
+closure；manifest/evidence 绑定 active profile/catalog digests。Principal 仍 opaque。
 
 initialized marker 是
 `SHA-256("proof-forge-solana-layout-v1:" || canonical-account-layout)[0..8]` 对应的 target

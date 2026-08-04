@@ -2532,6 +2532,7 @@ private def lowerBlockInstructionsV1
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
 <<<<<<< HEAD
+<<<<<<< HEAD
     -- Legacy profiles deliberately decline both external effect families
     -- (and result-bearing sync). A future opt-in CPI profile owns its own
     -- exact account/callee contract; generic Semantic QualifiedName values
@@ -2542,9 +2543,14 @@ private def lowerBlockInstructionsV1
     -- account/callee Plan exists; generic QualifiedName values are not Solana
     -- program IDs.
 >>>>>>> 24b68ba08 (feat(solana): bind inert CPI extension profile)
+=======
+    -- This legacy Plan family deliberately declines both external effect
+    -- families. The exact CPI profile uses the separate product Plan/IR path;
+    -- generic QualifiedName values are never treated as Solana program IDs here.
+>>>>>>> d599de3dc (feat(solana): activate exact CPI product profile)
     | .externalCall _ _ _, _ =>
         throw <| .planInvariant .solana
-          "no Solana profile currently admits external calls; the opt-in CPI profile remains inert"
+          "legacy Solana Plan lowering does not admit external calls; use the exact CPI product profile"
     | .schedule _ _ _, _ =>
         throw <| .planInvariant .solana
           "legacy Solana profiles do not support scheduled workflows"
@@ -3809,7 +3815,7 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
   if ResolvedEngineeringBuildV1.codegenProfileOf capability ==
       CodegenProfileId.solanaSbpfCpiElfV1 then
     throw <| .planInvariant .solana
-      "solana-sbpf-cpi-elf-v1 is inert (ADR-0024): no product Semantic/capability join or artifact mint before #118+"
+      "solana-sbpf-cpi-elf-v1 must use the target-owned CPI product Plan path, not legacy Plan lowering"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
   makePlanFromSemanticV1 source

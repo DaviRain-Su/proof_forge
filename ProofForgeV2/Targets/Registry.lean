@@ -83,8 +83,10 @@ private def planDigestForCapabilityV1
       | .error e =>
           throw <| .invalidProgram s!"materialize: EVM plan digest failed: {e}"
   | .solana =>
+      -- #125: tagged Plan sum — legacy schema digest vs CPI carrier digest.
+      -- CPI must not re-enter the legacy Plan schema encoder / gate.
       let plan ← Solana.planFromCapability capability
-      match Solana.engineeringSolanaPlanDigestV1 plan with
+      match Solana.engineeringSolanaMaterializationPlanDigestV1 plan with
       | .ok d => pure (d : Digest)
       | .error e =>
           throw <| .invalidProgram s!"materialize: Solana plan digest failed: {e}"

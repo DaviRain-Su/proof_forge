@@ -536,8 +536,8 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
       (some CodegenProfileId.evmYulSolc0834V1),
     row .solana (semanticsAxesOfKindV1 .solana)
       -- Strictly ASCII-ascending: cpi-elf-v1 < elf-v1 < plan-v1. The CPI
-      -- profile is membership-only/inert until its target-owned Plan/IR lands.
-      -- Default stays the legacy plan-v1 profile.
+      -- profile is exact opt-in product membership with target-owned Plan/IR;
+      -- the default stays the legacy plan-v1 profile.
       #[CodegenProfileId.solanaSbpfCpiElfV1, CodegenProfileId.solanaSbpfElfV1,
         CodegenProfileId.solanaSbpfPlanV1]
       -- Default plan: Map Token exceeds SBPF 4KiB frame budget under pure-expr

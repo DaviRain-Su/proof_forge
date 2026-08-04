@@ -59,8 +59,8 @@
 > `CompanionCpi` fixture 证明 state write → CPI → post-call write 的 source order，以及 fail 路径
 > 完整 snapshot rollback + `fail:v1!` 保留。committed unsigned manifest 绑定 source/profile/extension
 > 与 #115 companion ELF pin。准确称谓是 production-code-generated **test-preactivation unsigned-CPI
-> ELF**，**不是** `OutputFile`/产品 artifact/activated sync support；ordinary resolver 仍拒 sync；
-> #120 见下；#121+ 与 formal D5/Stage-0 hermetic/deployment 仍 pending。
+> ELF**，**不是** `OutputFile`/产品 artifact（当时 preactivation lane）；
+> #120 见下；formal D5/Stage-0 hermetic/deployment 仍 pending。
 >
 > **2026-08-04 Solana #120 canonical PDA / signed CPI update**：独立 `CpiPdaIRV1` +
 > `EmitCpiPdaSbpfV1` 在仍为 activationDenied/test-preactivation 的 opt-in
@@ -72,7 +72,7 @@
 > Mollusk focused **21/21**（manifest identity、success/rollback、wrong-bump/noncanonical/bump0/role 负例）。
 > 准确称谓是 production-code-generated **test-preactivation PDA-signed CPI ELF**，
 > **不是** `OutputFile`/产品 artifact/activated sync；legacy profiles 仍 fail closed；
-> ordinary resolver 在 #125 前不 advertise/mint 产品 sync；
+> ordinary resolver 在 #125 已激活 product sync（async 仍 FC） 产品 sync；
 > 不把 Principal 全局等同 Solana pubkey；非 formal/hermetic/deploy maturity；#121 见下；#122+ 仍 pending。
 >
 > **2026-08-04 Solana #121 native System CPI update**：独立 `CpiSystemIRV1` +
@@ -88,7 +88,7 @@
 > 成功 transfer/create 后 caller overflow 全账户回滚）。#118 no-invoke / #119 unsigned / #120 PDA
 > 链保持独立。准确称谓是 production-code-generated **test-preactivation native-System CPI ELF**，
 > **不是** `OutputFile`/产品 artifact/activated sync；legacy profiles 与 ordinary resolver 仍 fail closed；
-> #125 前不 advertise/mint；不把 Principal 全局等同 Solana pubkey；非 formal/hermetic/deploy；
+> #125 已激活 product sync（async 仍 FC）；不把 Principal 全局等同 Solana pubkey；非 formal/hermetic/deploy；
 > **#121 工程切片已闭合**（已通过 `just docs-check`、SBOM 185、`just solana-runtime`（10 binaries/190 active，`cpi_system` 35/35；Mollusk **不属于** ordinary `just ci`，为单独运行）、`just test-targets`、`just dev-check`、ordinary `just ci` 全 exit 0；独立审计无 P0/P1）。
 >
 > **2026-08-04 Solana #122 classic Token CPI update**：独立 private `CpiTokenIRV1` +
@@ -107,13 +107,13 @@
 > `0da1837ec10f7acc716c1151bee23a04e019174f99b1fedde635c7d75b4055f5`，但 **artifactBinding 仍
 > absent / admitted=false**。#118–#121 链保持独立。准确称谓是 production-code-generated
 > **test-preactivation classic-Token CPI ELF**，**不是** `OutputFile`/产品 artifact/activated sync；
-> legacy profiles 与 ordinary resolver 仍 fail closed；#125 前不 advertise/mint；**非** mainnet
+> legacy profiles 与 ordinary resolver 仍 fail closed；#125 已激活 product sync（async 仍 FC）；**非** mainnet
 > parity / tracked Tool Lock / cross-host / hermetic / formal / release / package-owner-published；
 > Principal 不全局等同 pubkey；**#122 工程切片已闭合**（已通过 `just docs-check`、SBOM
 > refresh/check **187**、`just solana-runtime`（**11 binaries/221 active**，`cpi_token` 31/31；
 > Mollusk **不属于** ordinary `just ci`，为单独运行）、`just test-targets`（clean repo-local
 > exact tool root）、focused；`just dev-check`/ordinary `just ci` 全 exit 0；独立审计无 P0/P1）。
-> **#122 工程切片已闭合**；#123 见下；#125 才可 activation。
+> **#122 工程切片已闭合**；#123 见下；#125 已完成 product activation。
 > 非 formal/Stage-0/release；Mollusk/`just solana-runtime` 属独立门禁，**不**并入 ordinary `just ci` 计次。
 >
 > **2026-08-04 Solana #123 classic ATA CPI update**：独立 private `CpiAtaIRV1` +
@@ -144,7 +144,7 @@
 > ordinary `just ci`，为单独运行）。strict ATA build manifest 现在逐值绑定 provenance 并有
 > **4** mutation self-tests。准确称谓是 production-code-generated **test-preactivation
 > classic-ATA CPI ELF**，**不是** `OutputFile`/产品 artifact/activated sync；legacy profiles
-> 与 ordinary resolver 仍 fail closed；#125 前不 advertise/mint；**非** mainnet parity /
+> 与 ordinary resolver 仍 fail closed；#125 已激活 product sync（async 仍 FC）；**非** mainnet parity /
 > tracked Tool Lock / cross-host / hermetic / formal / release / package-owner-published；
 > Principal 不全局等同 pubkey；**#123 工程切片已闭合**（已通过 `just docs-check`、SBOM
 > refresh/check **189**、`just solana-runtime`、focused Lean/Rust、`just test-targets`
@@ -169,11 +169,11 @@
 > rollback，**不是** 多顶层 transaction atomicity。#118–#123 链保持独立。准确称谓是
 > production-code-generated **test-preactivation composite-escrow CPI ELF**，**不是**
 > `OutputFile`/产品 artifact/activated sync；legacy profiles 与 ordinary resolver 仍 fail closed；
-> #125 前不 advertise/mint；**非** mainnet parity / tracked Tool Lock / cross-host / hermetic /
+> #125 已激活 product sync（async 仍 FC）；**非** mainnet parity / tracked Tool Lock / cross-host / hermetic /
 > formal / release / package-owner-published；Principal 不全局等同 pubkey；**#124 工程切片已闭合**
 > （`just docs-check`、SBOM **191**、`just solana-runtime` 13/282、focused Lean/Rust、
 > `just test-targets`、`just dev-check`/ordinary `just ci` 全 exit 0 为工程门，非 formal）。
-> **#111–#124 已闭合**；**Active 明确为 #125** activation gate；formal 状态与 GitHub issue 状态
+> **#111–#124 已闭合**；随后 **#125** product activation 工程闭合（见下）；formal 状态与 GitHub issue 状态
 > 不因本工程收口而改变。非 formal/Stage-0/release。
 
 >

@@ -10,14 +10,16 @@
   metas source/mint/destination/authority|authorityPda, seedAuthority outer
   signer for Pda, bump0 reject, classic Token package/program-id, frame cap,
   siteArgChecks → siteChecks → invoke order, Token-2022/System/companion/ATA/
-  multi-block rejection, old-lane independence, ordinary resolver
-  PF-REQ-UNSUPPORTED.
+  multi-block rejection, old-lane independence, #125 ordinary resolver + product
+  Plan/IR success for approved Token closure (preactivation pins and
+  isProductArtifact=false unchanged).
 -/
 import ProofForgeV2.Targets.Solana.CpiContractV1
 import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.CpiIRV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiDeriveV1
+import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.CpiPreflightIRV1
 import ProofForgeV2.Targets.Solana.CpiPdaIRV1
 import ProofForgeV2.Targets.Solana.CpiUnsignedIRV1
@@ -549,16 +551,18 @@ unsafe def run : IO Unit := do
     (resolveSolanaCpiSystemIRV1 transferPlan)
     "system" "token transfer rejected by System IR"
 
-  -- Ordinary product resolver still rejects sync.
+  -- #125: ordinary product resolver admits sync; approved Token closure further
+  -- mints product Plan/IR. Preactivation lane above remains independent.
   let resolverCompiled ← compileSource session tokenCpiSource
     "Examples.TokenCpi" "runtime-tests/solana/fixtures/TokenCpi.lean"
   let selection ← cpiSelection
-  match resolveEngineeringRequirementsV1 selection resolverCompiled with
-  | .error error =>
-      expect (error.code == "PF-REQ-UNSUPPORTED")
-        s!"ordinary resolver must PF-REQ-UNSUPPORTED, got {error.render}"
-  | .ok _ =>
-      throw <| IO.userError "ordinary resolver unexpectedly accepted sync program"
+  let capability ← expectPlanOk
+    (resolveEngineeringRequirementsV1 selection resolverCompiled)
+    "ordinary resolver admits TokenCpi sync"
+  let _ ← expectPlanOk (productPlanFromCapabilityV1 capability)
+    "product Plan succeeds for TokenCpi"
+  let _ ← expectPlanOk (productIrFromCapabilityV1 capability)
+    "product IR succeeds for TokenCpi"
 
   -- Frame / scratch non-overlap via public helpers.
   let maxScratch := tokenMaxSiteScratchV1 cand

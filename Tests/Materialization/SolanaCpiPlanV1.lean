@@ -1202,9 +1202,12 @@ private unsafe def testLegacyPlanProfileByteRegression : IO Unit := do
     "legacy resolve capability"
   let plan ← expectPlanOk
     (Targets.Solana.planFromCapability capability) "legacy planFromCapability"
+  match plan with
+  | .legacy _ => pure ()
+  | .cpi _ => throw <| IO.userError "legacy profile returned CPI Plan variant"
   let planDigest ← expectOk
-    (Targets.Solana.engineeringSolanaPlanDigestV1 plan)
-    "legacy engineeringSolanaPlanDigestV1"
+    (Targets.Solana.engineeringSolanaMaterializationPlanDigestV1 plan)
+    "legacy engineeringSolanaMaterializationPlanDigestV1"
   let planWire ← expectOk (renderDigest planDigest) "legacy plan digest wire"
   expect (planWire ==
     "sha256:a61ec3ebc5bbfe269036c5287598badc0cf8c7466b9cef8f904d9e96a235215d")

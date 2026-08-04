@@ -561,6 +561,7 @@
       "expectedVersion": "sbpf 0.2.2",
       "licenseSpdx": "MIT",
       "requiredByProfiles": [
+        "solana-sbpf-cpi-elf-v1",
         "solana-sbpf-elf-v1"
       ],
       "sourceBuild": {

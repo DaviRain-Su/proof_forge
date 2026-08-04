@@ -1,29 +1,24 @@
 /-
-  ProofForgeV2.Targets.Solana.CpiEscrowIRV1 — #124 composite escrow CPI IR.
+  ProofForgeV2.Targets.Solana.CpiEscrowIRV1 — #124/#125 composite CPI IR.
 
   Namespace: `ProofForgeV2.Targets.Solana.CpiV1`.
 
-  Sole mint: `resolveSolanaCpiEscrowIRV1`. Consumes only private Semantic-bound
-  `SolanaCpiPreflightPlanV1`, freshly derives the validated generic CPI IR,
-  and mints private `ResolvedSolanaCpiEscrowIRV1`.
-
-  Composite (single outer instruction handlers, multi-API program):
+  Shared composite core admits the five product APIs:
+  * `solana.system.transfer` — unsigned native System transfer (12B);
   * `solana.system.createPdaAccount` — PDA vault provisioning;
   * `solana.token.transferChecked` — deposit (external authority);
-  * `solana.token.transferCheckedPda` — authorized release / refund-cancel
-    (canonical current-program PDA authority / invoke_signed);
-  * `solana.ata.createIdempotent` — optional vault ATA only via pinned contract;
-  * single-block straight-line initializer/entry/view;
-  * narrow public Principal/UInt64/UInt8 + state/literal/checked add/return;
-  * per site: siteArgChecks → siteChecks → invoke (source order);
-  * packages remain loader-v3/runtime-native with artifactBinding absent/
-    admitted=false (System runtime-native);
-  * rejects companion, Token-2022, schedule, constants, invariants,
-    multiblock control flow and loops;
-  * caller program id fixed for test-preactivation lane: all-0x59 (runtime pin);
-  * is NOT a product OutputFile path; activationDenied/test-preactivation only.
+  * `solana.token.transferCheckedPda` — authorized release / refund-cancel;
+  * `solana.ata.createIdempotent` — optional vault ATA only via pinned contract.
 
-  Public structural Plan/IR cannot mint this carrier. No OutputFile.
+  Two private wrappers (no conversion between them):
+  * `ResolvedSolanaCpiEscrowIRV1` — #124 preactivation; sole mint
+    `resolveSolanaCpiEscrowIRV1` from `SolanaCpiPreflightPlanV1`; packages
+    remain admitted=false; activationDenied; fixed caller id all-0x59.
+  * `ResolvedSolanaCpiProductIRV1` — #125 product; sole mint
+    `resolveSolanaCpiProductIRV1` from `SolanaCpiProductPlanV1`; no
+    preactivation banner/fixed caller id; not mintable from public Plan/IR.
+
+  Public structural Plan/IR cannot mint either carrier. No OutputFile here.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Diagnostic
@@ -33,6 +28,7 @@ import ProofForgeV2.Targets.Solana.CpiContractV1
 import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.CpiIRV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
+import ProofForgeV2.Targets.Solana.CpiProductCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiDeriveV1
 import ProofForgeV2.Targets.Solana.CpiPreflightIRV1
 import ProofForgeV2.Targets.Solana.LowerSemanticV1
@@ -102,8 +98,11 @@ inductive CpiEscrowArgCheckV1 where
   | uint64AtMost (argName : String) (source : CpiEscrowU64SourceV1) (maxValue : Nat)
   deriving BEq, Repr, Inhabited
 
-/-- Composite escrow API kind (frozen System/Token/ATA only). -/
+/-- Composite escrow/product API kind (frozen System/Token/ATA only).
+    `#124` fixture uses createPdaAccount/Token/ATA; `#125` also admits
+    system.transfer. Adding `.transfer` does not change render of other kinds. -/
 inductive CpiEscrowKindV1 where
+  | transfer
   | createPdaAccount
   | transferChecked
   | transferCheckedPda
@@ -121,9 +120,9 @@ structure CpiEscrowInvokeV1 where
   dataLen : Nat
   /-- Token transfer source; none for System/ATA. -/
   source : Option CpiEscrowPrincipalBindingV1
-  /-- Token mint / ATA mint; none for System create. -/
+  /-- Token mint / ATA mint; none for System. -/
   mint : Option CpiEscrowPrincipalBindingV1
-  /-- Token destination; none for System/ATA. -/
+  /-- Token destination **or** system.transfer recipient; none for create/ATA. -/
   destination : Option CpiEscrowPrincipalBindingV1
   /-- transferChecked authority; none otherwise. -/
   authority : Option CpiEscrowPrincipalBindingV1
@@ -131,7 +130,7 @@ structure CpiEscrowInvokeV1 where
   authorityPda : Option CpiEscrowPrincipalBindingV1
   /-- transferCheckedPda / createPda seedAuthority; none otherwise. -/
   seedAuthority : Option CpiEscrowPrincipalBindingV1
-  /-- System create / ATA payer; none for Token. -/
+  /-- System transfer/create / ATA payer; none for Token-only. -/
   payer : Option CpiEscrowPrincipalBindingV1
   /-- createPdaAccount PDA target (alias of authorityPda when create); explicit. -/
   pda : Option CpiEscrowPrincipalBindingV1
@@ -246,6 +245,34 @@ def canonicalBytesOf (r : ResolvedSolanaCpiEscrowIRV1) : ByteArray :=
   r.canonicalBytes
 
 end ResolvedSolanaCpiEscrowIRV1
+
+/-- Private #125 product composite IR. Sole mint from product Plan authority.
+    Shares candidate DTO with escrow core; no preflight conversion. -/
+structure ResolvedSolanaCpiProductIRV1 where
+  private mk ::
+  authority : SolanaCpiProductPlanV1
+  candidate : SolanaCpiEscrowIRCandidateV1
+  canonicalBytes : ByteArray
+  digest : Digest
+
+namespace ResolvedSolanaCpiProductIRV1
+
+def authorityOf (r : ResolvedSolanaCpiProductIRV1) : SolanaCpiProductPlanV1 :=
+  r.authority
+def candidateOf (r : ResolvedSolanaCpiProductIRV1) : SolanaCpiEscrowIRCandidateV1 :=
+  r.candidate
+def digestOf (r : ResolvedSolanaCpiProductIRV1) : Digest :=
+  r.digest
+def canonicalBytesOf (r : ResolvedSolanaCpiProductIRV1) : ByteArray :=
+  r.canonicalBytes
+def isProductArtifact (_ : ResolvedSolanaCpiProductIRV1) : Bool := true
+def isTestPreactivation (_ : ResolvedSolanaCpiProductIRV1) : Bool := false
+
+end ResolvedSolanaCpiProductIRV1
+
+/-- Product IR schema (distinct domain from preactivation escrow IR). -/
+def productIrSchemaV1 : String := "proof-forge.solana.cpi-product-ir.v1"
+def productIrDigestDomainV1 : String := "pf.solana.cpi-product-ir.v1"
 
 /-! ## Internals -/
 
@@ -955,6 +982,25 @@ private def projectSiteArgChecks
 
 private def validateEscrowSiteShape (site : CpiIRSiteV1) : CompileResult Unit := do
   match site.qn with
+  | "solana.system.transfer" =>
+      unless site.packageId == "system-v1" do
+        tFail s!"system.transfer package must be system-v1"
+      unless site.programKey == systemProgramIdV1 do
+        tFail s!"site {site.siteId}: System program key must be zero id"
+      unless site.instructionCodec.length == 12 do
+        tFail s!"site {site.siteId}: system.transfer dataLen must be 12"
+      unless site.pda == .none do
+        tFail s!"system.transfer site {site.siteId} must have pda.none"
+      unless site.signerGroups.isEmpty do
+        tFail s!"system.transfer site {site.siteId} requires zero signer groups"
+      unless site.outerOnlyAccounts.isEmpty do
+        tFail s!"system.transfer site {site.siteId} requires empty outer-only"
+      unless site.metas.size == 2 do
+        tFail s!"system.transfer site {site.siteId} requires exactly two metas"
+      unless site.args.size == 3 do
+        tFail s!"system.transfer site {site.siteId} requires exactly three args"
+      unless site.preflight.isEmpty do
+        tFail s!"system.transfer site {site.siteId} must have empty preflight"
   | "solana.token.transferChecked" =>
       unless site.packageId == "token-classic-v1" do
         tFail s!"transferChecked package must be token-classic-v1"
@@ -1067,7 +1113,7 @@ private def validateEscrowSiteShape (site : CpiIRSiteV1) : CompileResult Unit :=
         tFail s!"site {site.siteId}: ATA createIdempotent requires empty scalar preflight"
   | other =>
       tFail
-        s!"Escrow CPI admits only system.createPdaAccount|token.transferChecked|token.transferCheckedPda|ata.createIdempotent, got '{other}'"
+        s!"Escrow CPI admits only system.transfer|system.createPdaAccount|token.transferChecked|token.transferCheckedPda|ata.createIdempotent, got '{other}'"
 
 private def projectEscrowHandler
     (abi : LoaderV3AbiLayoutV1)
@@ -1246,10 +1292,11 @@ private def projectEscrowHandler
         let qn := String.intercalate "." qnComps.toList
         unless qn == "solana.token.transferChecked" ||
             qn == "solana.token.transferCheckedPda" ||
+            qn == "solana.system.transfer" ||
             qn == "solana.system.createPdaAccount" ||
             qn == "solana.ata.createIdempotent" do
           tFail
-            s!"Escrow CPI admits only system.createPdaAccount|token.transferChecked|token.transferCheckedPda|ata.createIdempotent, got '{qn}'"
+            s!"Escrow CPI admits only system.transfer|system.createPdaAccount|token.transferChecked|token.transferCheckedPda|ata.createIdempotent, got '{qn}'"
         let site ← match sites.find? (fun s =>
             s.anchor.callableId == planHandler.callableId &&
               s.anchor.blockId == blk.id.toNat &&
@@ -1265,7 +1312,82 @@ private def projectEscrowHandler
         unless site.programHandleIndex == programLocal do
           tFail s!"site {site.siteId} program handle index diverged"
         let metas ← projectMetas handles site
-        if qn == "solana.token.transferChecked" then
+        if qn == "solana.system.transfer" then
+          unless site.packageId == "system-v1" do
+            tFail "system.transfer package must be system-v1"
+          unless args.size == 3 && site.args.size == 3 do
+            tFail "system.transfer requires exactly 3 Semantic and Plan args"
+          let payerVid ← getArr args 0 "externalCall.args"
+          let payerBinding ← resolvePrincipalAccountBinding data.types callable
+            handles bindings site 0 payerVid
+          let recipientVid ← getArr args 1 "externalCall.args"
+          let recipientBinding ← resolvePrincipalAccountBinding data.types callable
+            handles bindings site 1 recipientVid
+          let lamportsVid ← getArr args 2 "externalCall.args"
+          let lamportsArg ← getArr site.args 2 s!"site {site.siteId}.args"
+          unless lamportsArg.semanticValueId == lamportsVid.toNat &&
+              lamportsArg.roleId.isNone &&
+              lamportsArg.spec.type_ == FrozenValueType.uint64 do
+            tFail s!"site {site.siteId} lamports binding diverged"
+          let lamportsSrc ← resolveU64Source data.types callable paramLayout lamportsVid
+            s!"site {site.siteId} lamports"
+          let meta0 ← getArr site.metas 0 s!"site {site.siteId}.metas"
+          unless meta0.metaIndex == 0 &&
+              meta0.roleId == payerBinding.roleId &&
+              meta0.localHandleIndex == payerBinding.localIndex &&
+              meta0.spec.cpiWritable == true &&
+              meta0.spec.cpiSigner == true &&
+              meta0.spec.outerSignerContribution == true &&
+              meta0.spec.outerWritableContribution == true &&
+              meta0.spec.signerGroupId.isNone do
+            tFail s!"site {site.siteId} transfer payer meta shape diverged"
+          let meta1 ← getArr site.metas 1 s!"site {site.siteId}.metas"
+          unless meta1.metaIndex == 1 &&
+              meta1.roleId == recipientBinding.roleId &&
+              meta1.localHandleIndex == recipientBinding.localIndex &&
+              meta1.spec.cpiWritable == true &&
+              meta1.spec.cpiSigner == false &&
+              meta1.spec.outerSignerContribution == false &&
+              meta1.spec.outerWritableContribution == true &&
+              meta1.spec.signerGroupId.isNone do
+            tFail s!"site {site.siteId} transfer recipient meta shape diverged"
+          let argChecks ← projectSiteArgChecks data.types callable paramLayout site none
+          let siteOps ← projectSiteChecksNoDecimals planHandler.mode handles site
+            stateSchemas
+          body := body.push (.siteArgChecks site.siteId argChecks)
+          body := body.push (.siteChecks site.siteId siteOps)
+          body := body.push (.invokeEscrow {
+            siteId := site.siteId
+            kind := .transfer
+            qn
+            packageId := site.packageId
+            programLocalIndex := programLocal
+            dataLen := 12
+            source := none
+            mint := none
+            destination := some recipientBinding
+            authority := none
+            authorityPda := none
+            seedAuthority := none
+            payer := some payerBinding
+            pda := none
+            ata := none
+            wallet := none
+            seedTag := none
+            bump := none
+            amount := none
+            decimals := none
+            lamports := some lamportsSrc
+            space := none
+            systemProgramLocalIndex := none
+            tokenProgramLocalIndex := none
+            metas
+            outerOnly := #[]
+            signerGroupId := none
+            pdaRule := none
+            accountInfoCount := handles.size
+          })
+        else if qn == "solana.token.transferChecked" then
           unless site.packageId == "token-classic-v1" do
             tFail "transferChecked package must be token-classic-v1"
           unless args.size == 6 && site.args.size == 6 do
@@ -1799,19 +1921,16 @@ private def projectEscrowHandler
     tempCount := nextTemp
   }
 
-private def projectEscrowCandidate
-    (authority : SolanaCpiPreflightPlanV1) :
+/-- Shared composite projection from a validated Plan + retained Semantic.
+    `irSchema` selects preactivation vs product IR identity strings. -/
+private def projectEscrowCandidateFromPlan
+    (plan : ValidatedSolanaCpiPlanV1)
+    (compiled : CompiledSemanticV1)
+    (irSchema : String) :
     CompileResult SolanaCpiEscrowIRCandidateV1 := do
-  unless ResolvedSolanaCpiPreflightV1.activationDeniedOf
-      (SolanaCpiPreflightPlanV1.preflightOf authority) do
-    tFail "Escrow CPI IR requires activationDenied authority"
   let _ ← requireEscrowTokenPackage
   let _ ← requireEscrowAtaPackage
   let _ ← requireEscrowSystemPackage
-  let plan := SolanaCpiPreflightPlanV1.planOf authority
-  let compiled :=
-    ResolvedSolanaCpiPreflightV1.compiledOf
-      (SolanaCpiPreflightPlanV1.preflightOf authority)
   let data ← match validateSemanticProgramV1
       (CompiledSemanticV1.semanticV1Of compiled) with
     | .ok v => pure v
@@ -1837,7 +1956,7 @@ private def projectEscrowCandidate
       plan.candidate.stateSchemas
     handlers := handlers.push projected
   pure {
-    schema := escrowIrSchemaV1
+    schema := irSchema
     sourcePlanDigest := plan.digest
     sourceIrDigest := ir.digest
     profileId := plan.candidate.profileId
@@ -1848,6 +1967,18 @@ private def projectEscrowCandidate
     maxFrameBytes := 4096
     handlers
   }
+
+private def projectEscrowCandidate
+    (authority : SolanaCpiPreflightPlanV1) :
+    CompileResult SolanaCpiEscrowIRCandidateV1 := do
+  unless ResolvedSolanaCpiPreflightV1.activationDeniedOf
+      (SolanaCpiPreflightPlanV1.preflightOf authority) do
+    tFail "Escrow CPI IR requires activationDenied authority"
+  projectEscrowCandidateFromPlan
+    (SolanaCpiPreflightPlanV1.planOf authority)
+    (ResolvedSolanaCpiPreflightV1.compiledOf
+      (SolanaCpiPreflightPlanV1.preflightOf authority))
+    escrowIrSchemaV1
 
 /-! ## Canonical render + sole mint -/
 
@@ -1897,6 +2028,7 @@ private def renderArgCheck : CpiEscrowArgCheckV1 → String
       s!"u64AtMost:{name}:{renderU64Source src}:max{maxV}"
 
 private def renderKind : CpiEscrowKindV1 → String
+  | .transfer => "transfer"
   | .createPdaAccount => "createPdaAccount"
   | .transferChecked => "transferChecked"
   | .transferCheckedPda => "transferCheckedPda"
@@ -1993,11 +2125,13 @@ private def renderCandidate (c : SolanaCpiEscrowIRCandidateV1) : CompileResult S
     handlers
 
 /-- Validate escrow custom checks against following invoke. Public so focused
-    tests can mutate structural candidates without forging authority. -/
+    tests can mutate structural candidates without forging authority.
+    Accepts preactivation (`escrowIrSchemaV1`) or product (`productIrSchemaV1`). -/
 def validateSolanaCpiEscrowIRCandidateV1
     (candidate : SolanaCpiEscrowIRCandidateV1) : CompileResult Unit := do
-  unless candidate.schema == escrowIrSchemaV1 do
-    tFail s!"schema must be {escrowIrSchemaV1}"
+  unless candidate.schema == escrowIrSchemaV1 ||
+      candidate.schema == productIrSchemaV1 do
+    tFail s!"schema must be {escrowIrSchemaV1} or {productIrSchemaV1}"
   unless candidate.maxOuterRoles == maxOuterRolesV1 &&
       candidate.maxFrameBytes == 4096 &&
       candidate.abiLayout == frozenLoaderV3AbiLayoutV1 do
@@ -2103,13 +2237,21 @@ def validateSolanaCpiEscrowIRCandidateV1
                       | .tokenMintInitialized li => li == mintB.localIndex
                       | _ => false) do
                     tFail s!"site {sid}: ATA mint initialized check missing"
-              | .createPdaAccount =>
+              | .createPdaAccount | .transfer =>
                   pure ()
           | _, _ => tFail s!"siteChecks {sid} must be between siteArgChecks and invokeEscrow"
       | .invokeEscrow inv =>
           unless inv.accountInfoCount == h.localRoleCount do
             tFail s!"invokeEscrow site {inv.siteId} accountInfoCount diverged"
           match inv.kind with
+          | .transfer =>
+              unless inv.qn == "solana.system.transfer" &&
+                  inv.packageId == "system-v1" && inv.dataLen == 12 &&
+                  inv.metas.size == 2 && inv.outerOnly.isEmpty &&
+                  inv.signerGroupId.isNone && inv.pdaRule.isNone &&
+                  inv.payer.isSome && inv.destination.isSome &&
+                  inv.lamports.isSome do
+                tFail s!"system.transfer site {inv.siteId} frozen shape diverged"
           | .transferChecked =>
               unless inv.qn == "solana.token.transferChecked" &&
                   inv.packageId == "token-classic-v1" && inv.dataLen == 10 &&
@@ -2185,6 +2327,31 @@ def resolveSolanaCpiEscrowIRV1
     "escrow-ir digest"
   pure ⟨authority, candidate, canonicalBytes, digest⟩
 
+/-- Sole mint of the #125 product composite IR from product Plan authority.
+    Public structural Plan/IR and preflight carriers cannot mint this. -/
+def resolveSolanaCpiProductIRV1
+    (authority : SolanaCpiProductPlanV1) :
+    CompileResult ResolvedSolanaCpiProductIRV1 := do
+  unless !ResolvedSolanaCpiProductCapabilityV1.activationDeniedOf
+      (SolanaCpiProductPlanV1.capabilityOf authority) do
+    tFail "Product CPI IR rejects activationDenied product capability"
+  let plan := SolanaCpiProductPlanV1.planOf authority
+  let compiled :=
+    ResolvedSolanaCpiProductCapabilityV1.compiledOf
+      (SolanaCpiProductPlanV1.capabilityOf authority)
+  let candidate ← projectEscrowCandidateFromPlan plan compiled productIrSchemaV1
+  validateSolanaCpiEscrowIRCandidateV1 candidate
+  let text ← renderCandidate candidate
+  let canonicalBytes := text.toUTF8
+  let digest ← mapExcept
+    (domainSeparatedSha256 productIrDigestDomainV1 canonicalBytes)
+    "product-ir digest"
+  pure ⟨authority, candidate, canonicalBytes, digest⟩
+
+/-- system.transfer scratch: 16 data + 32 metas + 40 instr + 56*N infos = 88+56N. -/
+def escrowCpiScratchTransferV1 (localRoleCount : Nat) : Nat :=
+  88 + localRoleCount * 56
+
 /-- transferChecked scratch: 16 data + 64 metas + 40 instr + 56*N infos = 120+56N. -/
 def escrowCpiScratchTransferCheckedV1 (localRoleCount : Nat) : Nat :=
   120 + localRoleCount * 56
@@ -2217,6 +2384,8 @@ def escrowMaxSiteScratchV1 (c : SolanaCpiEscrowIRCandidateV1) : Nat :=
         match op with
         | .invokeEscrow inv =>
             let b := match inv.kind with
+              | .transfer =>
+                  escrowCpiScratchTransferV1 inv.accountInfoCount
               | .transferChecked =>
                   escrowCpiScratchTransferCheckedV1 inv.accountInfoCount
               | .transferCheckedPda =>

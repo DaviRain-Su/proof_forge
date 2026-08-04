@@ -19,11 +19,20 @@
     effect.asynchronous-workflow, effect.event, effect.synchronous-call,
     failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic
   with SemVer 1.0.0, engineeringRequirementDigestV1, and empty predicates only.
+<<<<<<< HEAD
   Capability gates: EVM/Solana admit both call keys via **static**
   `QualifiedName` callees (AddressBearing followup: no dynamic address type;
   Plan lowers CALL/CPI-shaped sites from compile-time QN). NEAR declines only
   `effect.synchronous-call` (async workflow promises are native), Noir
   supports all seven.
+=======
+  Capability gates: EVM admits both call keys via static `QualifiedName`
+  callees; NEAR declines only `effect.synchronous-call` (async workflow
+  promises are native), and Noir supports all seven. Both legacy Solana
+  profiles decline sync call and async workflow. The opt-in
+  `solana-sbpf-cpi-elf-v1` row (#125) admits exact `effect.synchronous-call`
+  plus the ADR-0024 extension, and still declines async.
+>>>>>>> d599de3dc (feat(solana): activate exact CPI product profile)
 
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.
   Dependency-injected seams return index rows or
@@ -297,16 +306,16 @@ private def mkImplementedRow
     fallback). Its `effect.event` maps to external out-messages. -/
 =======
 /-- Shipped nine-row seed body (canonical targetId order: aleo, cosmwasm, evm,
-    near, noir, psy, solana×3). Solana carries inert CPI, legacy ELF, and plan
-    profiles in ASCII order. All three decline both call families; only the
-    inert CPI row additionally carries the exact ADR-0024 extension request.
+    near, noir, psy, solana×3). Solana carries CPI, legacy ELF, and plan
+    profiles in ASCII order. Both legacy Solana rows decline both call
+    families and the ADR-0024 extension (byte-stable relative to pre-#125).
+    The opt-in CPI row (#125) admits exact `effect.synchronous-call` plus the
+    exact ADR-0024 extension, and still declines `effect.asynchronous-workflow`.
     Capability gates are per
     target: EVM admits both call keys via a static QualifiedName callee;
     NEAR has no synchronous external calls but owns async workflow promises, so
     it declines sync and supports `effect.asynchronous-workflow`; Noir's
-    verifier-witness response model supports both. The opt-in Solana CPI
-    profile additionally admits only the exact ADR-0024 extension requirement
-    row, but still declines both call keys and remains artifact-inert. Aleo
+    verifier-witness response model supports both. Aleo
     declines both call families (no static-callee Plan open) and `effect.event`
     (Leo 4.0.2 has no
     on-chain event log — emit fails closed at the materializer); Psy supports
@@ -359,13 +368,16 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   let withoutCallFamilies := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
+  -- #125: exact CPI profile admits sync call + extension; still excludes async.
+  let withoutAsync := catalogRequests.filter fun r =>
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
   let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error e =>
         throw <| .registryInvalid
           s!"Solana CPI extension requirement seed failed: {e}"
   let solanaCpiRequests :=
-    (withoutCallFamilies.push extensionRow).qsort fun a b => a.id < b.id
+    (withoutAsync.push extensionRow).qsort fun a b => a.id < b.id
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,

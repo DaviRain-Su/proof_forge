@@ -111,6 +111,27 @@ lake build proof_forge_next || die "lake build proof_forge_next failed"
 echo "solana-runtime-test: tool root=$PROOF_FORGE_TOOL_ROOT"
 echo "solana-runtime-test: sbpf=$("$sbpf_bin" --version 2>&1 || true)"
 
+# #125 CLI/product acceptance shell for opt-in solana-sbpf-cpi-elf-v1.
+# Builds proof-forge.output.v1 EscrowCpi under PROOF_FORGE_CPI_PRODUCT_OUT
+# (default build/v2/solana-cpi-product) via ordinary product activation path.
+# Fail-closed on product build/inspect/exact-closure failure; does not replace
+# #118–#124 preactivation envs or alter Mollusk's existing cpi_escrow (36)
+# fixture wiring.
+product_out="${PROOF_FORGE_CPI_PRODUCT_OUT:-$root/build/v2/solana-cpi-product}"
+export PROOF_FORGE_CPI_PRODUCT_OUT="$product_out"
+echo "solana-runtime-test: CPI product acceptance → $product_out"
+if ! bash "$root/scripts/solana_cpi_product_acceptance.sh"; then
+  die "Solana CPI product acceptance failed"
+fi
+# Re-export resolved path if the acceptance script canonicalized it.
+if [[ -n "${PROOF_FORGE_CPI_PRODUCT_OUT:-}" ]]; then
+  product_out="$PROOF_FORGE_CPI_PRODUCT_OUT"
+fi
+if [[ -d "$product_out" ]]; then
+  product_out="$(cd "$product_out" && pwd -P)"
+  export PROOF_FORGE_CPI_PRODUCT_OUT="$product_out"
+fi
+
 # CLI rejects pre-existing -o paths (PF-OUTPUT-COLLISION); remove and let it create.
 rm -rf "$out_dir"
 mkdir -p "$out_dir"

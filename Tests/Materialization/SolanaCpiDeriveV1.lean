@@ -9,6 +9,7 @@ import ProofForgeV2.Targets.Solana.CpiIRV1
 import ProofForgeV2.Targets.Solana.CpiIdlV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiDeriveV1
+import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.LowerSemanticV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.EngineeringBuildV1
@@ -419,17 +420,21 @@ private unsafe def testStateMultiHandler
   let _ ← expectCompileOk (deriveSolanaCpiIRV1 plan) "state multi IR"
   let _ ← expectCompileOk (deriveSolanaCpiIdlV1 plan) "state multi IDL"
 
-/-- Ordinary product resolver still rejects sync on the same call program. -/
-private unsafe def testNormalResolverRejectsSync
+/-- #125: ordinary product resolver admits companion sync; product Plan fails
+    closed because active catalog denies companion. Preflight lane still admits. -/
+private unsafe def testNormalResolverCompanionProductDenied
     (session : Language.Loader.ParserSession) : IO Unit := do
   let compiled ← compileSource session companionInvokeSource
     "Tests.CpiCompanionInvoke" "<cpi-derive-normal-resolver>"
   let selection ← cpiSelection
-  expectCompileErrorContains
+  let capability ← expectCompileOk
     (resolveEngineeringRequirementsV1 selection compiled)
-    "PF-REQ-UNSUPPORTED" "effect.synchronous-call"
-    "normal resolver rejects deferred sync"
-  -- Preflight still admits the same pair.
+    "ordinary resolver admits companion sync"
+  expectCompileErrorContains
+    (productPlanFromCapabilityV1 capability)
+    "PF-PLAN-INVARIANT" "companion"
+    "product Plan denies companion catalog package"
+  -- Preflight still admits the same pair (activationDenied preactivation lane).
   let _ ← expectCompileOk (resolveSolanaCpiPreflightV1 selection compiled)
     "preflight admits deferred sync"
 
@@ -544,7 +549,7 @@ unsafe def run : IO Unit := do
   testCompanionInvokePositive session
   testAllEightApisParamOnly session
   testStateMultiHandler session
-  testNormalResolverRejectsSync session
+  testNormalResolverCompanionProductDenied session
   testMissingExtension session
   testWrongQn session
   testWrongArgType session
