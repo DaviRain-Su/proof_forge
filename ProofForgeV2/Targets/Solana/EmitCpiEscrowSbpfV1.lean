@@ -676,20 +676,36 @@ private def emitInvokeNativeDeposit
     b := emit b "  mov64 r9, r10"
     b := emit b "  lddw r4, CPI_BASE"
     b := emit b "  sub64 r9, r4"
-    -- Idempotent ensure: if vault data_len == 0 and owner == system, create.
-    b := emitRoleSlotAddr b vault.localIndex
-    b := emit b "  ldxdw r1, [r2 + ROLE_DATA_LEN]"
-    b := emit b "  ldxdw r3, [r1 + 0]"
-    b := emit b s!"  jne r3, 0, {skipLab}"
+    -- Idempotent vault ensure (ADR-0028 §4.2 closed alternatives at site-time):
+    --   A: owner == current program → skip create
+    --   B: owner == System ∧ data_len == 0 ∧ lamports == 0 → createPda
+    --   else → fail closed (err_shape)
+    -- ROLE_DATA_LEN is a scalar length (see ABI walk stxdw), never a pointer —
+    -- compare it directly like checkExactDataLen; do not secondary-load through it.
     b := emitRoleSlotAddr b vault.localIndex
     b := emit b "  ldxdw r1, [r2 + ROLE_OWNER]"
-    b := emitRoleSlotAddr b inv.programLocalIndex
-    b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
-    -- system program is zero key; compare owner to system (all zeros)
+    b := emit b "  ldxdw r5, [r10 - SLOT_PROGRAM_ID]"
+    b := emit b "  lddw r8, 0"
+    for word in [0:4] do
+      b := emit b s!"  ldxdw r3, [r1 + {word * 8}]"
+      b := emit b s!"  ldxdw r4, [r5 + {word * 8}]"
+      b := emit b "  xor64 r3, r4"
+      b := emit b "  or64 r8, r3"
+    b := emit b s!"  jeq r8, 0, {skipLab}"
+    -- Not current-program: require fresh System create prestate, else FC.
+    b := emitRoleSlotAddr b vault.localIndex
+    b := emit b "  ldxdw r1, [r2 + ROLE_OWNER]"
     b := emit b "  lddw r4, 0"
     for word in [0:4] do
       b := emit b s!"  ldxdw r3, [r1 + {word * 8}]"
-      b := emit b s!"  jne r3, r4, {skipLab}"
+      b := emit b "  jne r3, r4, err_shape"
+    b := emitRoleSlotAddr b vault.localIndex
+    b := emit b "  ldxdw r1, [r2 + ROLE_DATA_LEN]"
+    b := emit b "  jne r1, 0, err_shape"
+    b := emitRoleSlotAddr b vault.localIndex
+    b := emit b "  ldxdw r1, [r2 + ROLE_LAMPORTS]"
+    b := emit b "  ldxdw r3, [r1 + 0]"
+    b := emit b "  jne r3, 0, err_shape"
     b := emit b s!"{ensureLab}:"
     -- CreateAccount data 52B: disc0 + rent + space0 + current program id
     b := emit b "  lddw r4, 0"
@@ -823,9 +839,17 @@ private def emitInvokeNativeDeposit
     b := emit b "  jne r0, 0, cpi_failed"
     pure b
 
-/-- ADR-0029 B1 transfer: System transfer vault → dst with vault PDA invoke_signed. -/
+/-- ADR-0029 B1 transfer: vault PDA → dst.
+
+    Vault is **program-owned** after ensure (createPda owner = current program).
+    Solana System `Transfer` refuses to debit non-System-owned accounts
+    (`ExternalAccountLamportSpend`), so the withdraw path is a direct
+    AccountInfo lamports debit/credit under the program's ownership, after
+    canonical vault PDA key join. Plan/IR still carry the frozen vault PDA
+    signer-group shape (authority/identity); the emitter does not invoke
+    System for the vault→dst leg. Deposit (caller→vault) remains System CPI. -/
 private def emitInvokeNativeTransfer
-    (b0 : AsmBuf) (inv : CpiEscrowInvokeV1) (labSuffix : String) :
+    (b0 : AsmBuf) (inv : CpiEscrowInvokeV1) (_labSuffix : String) :
     CompileResult AsmBuf := do
   unless inv.kind == .nativeTransfer do
     emitFail "emit nativeTransfer requires nativeTransfer kind"
@@ -848,7 +872,6 @@ private def emitInvokeNativeTransfer
   unless inv.accountInfoCount ≤ escrowMaxRolesV1 do
     emitFail "accountInfoCount exceeds max roles"
   let n := inv.accountInfoCount
-  let infosOff := 256
   let keyOutOff := 256 + 56 * n
   let bumpOutOff := 288 + 56 * n
   pure <| Id.run do
@@ -880,7 +903,7 @@ private def emitInvokeNativeTransfer
     b := emit b s!"  ldxb r1, [r9 + {bumpOutOff}]"
     b := emit b "  jeq r1, 0, err_shape"
     b := emit b "  stxdw [r9 + 96], r1"
-    -- join found key == vault role key
+    -- join found key == vault role key (canonical PDA authority)
     b := emitRoleSlotAddr b vault.localIndex
     b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
     b := emit b "  mov64 r1, r9"
@@ -889,58 +912,22 @@ private def emitInvokeNativeTransfer
       b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
       b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
       b := emit b s!"  jne r3, r4, err_shape"
-    -- transfer data at +0
-    b := emit b "  lddw r4, 0"
-    b := emit b "  stxdw [r9 + 0], r4"
-    b := emit b "  stxdw [r9 + 8], r4"
-    b := emit b "  lddw r4, 2"
-    b := emit b "  stxw [r9 + 0], r4"
-    b := emitResolveU64Source b lamports "r4"
-    b := emit b "  stxdw [r9 + 4], r4"
-    -- signer seeds: seed0 + bump
-    b := emit b "  mov64 r5, r9"
-    b := emit b "  add64 r5, 64"
-    b := emit b "  stxdw [r9 + 104], r5"
-    b := emit b "  lddw r4, 20"
-    b := emit b "  stxdw [r9 + 112], r4"
-    b := emit b "  mov64 r5, r9"
-    b := emit b "  add64 r5, 96"
-    b := emit b "  stxdw [r9 + 120], r5"
-    b := emit b "  lddw r4, 1"
-    b := emit b "  stxdw [r9 + 128], r4"
-    b := emit b "  mov64 r5, r9"
-    b := emit b "  add64 r5, 104"
-    b := emit b "  stxdw [r9 + 168], r5"
-    b := emit b "  lddw r4, 2"
-    b := emit b "  stxdw [r9 + 176], r4"
-    -- metas at +184
-    b := emit b "  mov64 r5, r9"
-    b := emit b "  add64 r5, 184"
-    b := emitWriteMeta b "r5" 0 meta0.localIndex meta0.cpiWritable meta0.cpiSigner
-    b := emitWriteMeta b "r5" 1 meta1.localIndex meta1.cpiWritable meta1.cpiSigner
-    b := emit b "  mov64 r8, r9"
-    b := emit b "  add64 r8, 216"
-    b := emitRoleSlotAddr b inv.programLocalIndex
-    b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
-    b := emit b "  stxdw [r8 + 0], r4"
-    b := emit b "  mov64 r4, r9"
-    b := emit b "  add64 r4, 184"
-    b := emit b "  stxdw [r8 + 8], r4"
-    b := emit b "  lddw r4, 2"
-    b := emit b "  stxdw [r8 + 16], r4"
-    b := emit b "  stxdw [r8 + 24], r9"
-    b := emit b "  lddw r4, 12"
-    b := emit b "  stxdw [r8 + 32], r4"
-    b := emitFillAccountInfos b n infosOff labSuffix
-    b := emit b "  mov64 r1, r8"
-    b := emit b "  mov64 r2, r9"
-    b := emit b s!"  add64 r2, {infosOff}"
-    b := emit b s!"  lddw r3, {n}"
-    b := emit b "  mov64 r4, r9"
-    b := emit b "  add64 r4, 168"
-    b := emit b "  lddw r5, 1"
-    b := emit b "  call sol_invoke_signed_c"
-    b := emit b "  jne r0, 0, cpi_failed"
+    -- Direct lamports move: program owns vault, so it may debit; dst is credited.
+    -- r6 = amount (held across both role-slot loads).
+    b := emitResolveU64Source b lamports "r6"
+    b := emitRoleSlotAddr b vault.localIndex
+    b := emit b "  ldxdw r1, [r2 + ROLE_LAMPORTS]"
+    b := emit b "  ldxdw r3, [r1 + 0]"
+    b := emit b "  jlt r3, r6, err_shape"
+    b := emit b "  sub64 r3, r6"
+    b := emit b "  stxdw [r1 + 0], r3"
+    b := emitRoleSlotAddr b dst.localIndex
+    b := emit b "  ldxdw r1, [r2 + ROLE_LAMPORTS]"
+    b := emit b "  ldxdw r3, [r1 + 0]"
+    b := emit b "  mov64 r4, r3"
+    b := emit b "  add64 r3, r6"
+    b := emit b "  jlt r3, r4, err_shape"
+    b := emit b "  stxdw [r1 + 0], r3"
     b := emit b "  lddw r1, 0"
     b := emit b "  lddw r2, 0"
     b := emit b "  call sol_set_return_data"

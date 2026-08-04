@@ -1450,11 +1450,11 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         path.stem for path in tests_dir.iterdir()
         if path.is_file() and path.suffix == ".rs"
     )
-    if len(binaries) != 14:
+    if len(binaries) != 15:
         raise_error(
             "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
-            f"expected 14 integration test binaries, found {len(binaries)}: {binaries}")
-    for required_binary in ("cpi_escrow", "transfer_sol_product"):
+            f"expected 15 integration test binaries, found {len(binaries)}: {binaries}")
+    for required_binary in ("cpi_escrow", "transfer_sol_product", "tipjar_assets"):
         if required_binary not in binaries:
             raise_error(
                 "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",

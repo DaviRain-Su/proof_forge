@@ -289,6 +289,33 @@ fi
 escrow_out="$(cd "$escrow_out" && pwd -P)"
 export PROOF_FORGE_CPI_ESCROW_OUT="$escrow_out"
 
+# ADR-0029 Phase B1 TipJarAssets product ELF (pf.assets + solana-sbpf-cpi-elf-v1).
+# Additive: does not alter the 19 solana-sbpf-elf-v1 Counter/fixture programs.
+# Mollusk suite: runtime-tests/solana/tests/tipjar_assets.rs (new test binary).
+tipjar_out="${PROOF_FORGE_TIPJAR_ASSETS_OUT:-$root/build/v2/solana-tipjar-assets}"
+export PROOF_FORGE_TIPJAR_ASSETS_OUT="$tipjar_out"
+echo "solana-runtime-test: TipJarAssets product build → $tipjar_out"
+rm -rf "$tipjar_out"
+mkdir -p "$(dirname "$tipjar_out")"
+if ! lake env "$cli" build \
+  "runtime-tests/solana/fixtures/TipJarAssets.lean" \
+  --module "Examples.TipJarAssets" \
+  --target solana \
+  --profile solana-sbpf-cpi-elf-v1 \
+  -o "$tipjar_out"; then
+  die "proof-forge-next build failed for TipJarAssets (cpi profile)"
+fi
+[[ -f "$tipjar_out/manifest.json" ]] || die "TipJarAssets manifest.json missing"
+[[ -f "$tipjar_out/TipJarAssets.so" ]] || die "TipJarAssets.so missing"
+# Content-bound CPI product closure (six leaves + evidence + manifest); not
+# bind_output (that helper pins solana-sbpf-elf-v1 .sbpf-plan trees only).
+if ! lake env "$cli" inspect --output-dir "$tipjar_out" --json >/dev/null; then
+  die "product inspect failed for TipJarAssets under $tipjar_out"
+fi
+tipjar_out="$(cd "$tipjar_out" && pwd -P)"
+export PROOF_FORGE_TIPJAR_ASSETS_OUT="$tipjar_out"
+echo "solana-runtime-test: TipJarAssets.so=$(wc -c <"$tipjar_out/TipJarAssets.so" | tr -d ' ') bytes"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"

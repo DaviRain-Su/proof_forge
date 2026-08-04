@@ -419,9 +419,18 @@ private def hasPfAssetsExtensionRow (data : SemanticProgramDataV1) : Bool :=
 private def hasSolanaCpiExtensionRow (data : SemanticProgramDataV1) : Bool :=
   data.requirements.items.any (·.id == wireExtensionSolanaCpiAccountsIdV1)
 
-/-- Vault role constraint template (owned by current program after ensure). -/
+/-- Vault role entry constraint (ADR-0029 B1 / ADR-0028 §4.2).
+
+    Entry preflight must **not** require current-program ownership: the first
+    `nativeDeposit` may still need to ensure (createPda) a fresh System-owned
+    vault (`owner=System ∧ data_len=0 ∧ lamports=0`). Closed owner alternatives
+    are enforced at ensure site-time in `emitInvokeNativeDeposit`
+    (System-fresh create **or** current-program skip; third states fail closed).
+    Transfer site metas still carry `constraintVaultOwned` (current-program) so
+    vault→dst CPI only runs after ensure has established program ownership.
+    Data remains exact empty (`space=0` create / rent-exempt empty vault). -/
 private def vaultRoleConstraintV1 : AccountConstraint where
-  owner := .currentProgram
+  owner := .any
   executable := .forbidden
   data := .exactLength 0
   initialization := .existing

@@ -169,9 +169,17 @@ private unsafe def testTipJarProductPlanIrEmit : IO Unit := do
   | .vaultPdaSigner rule =>
       expect (rule == vaultPdaRuleIdV1) "site pda vault rule"
   | _ => throw <| IO.userError "transfer site must carry vaultPdaSigner"
-  expect (cand.accountRoles.any (fun r =>
-      match r.keyPolicy with | .vaultPda => true | _ => false))
-    "vault role present"
+  let vaultRoles := cand.accountRoles.filter (fun r =>
+    match r.keyPolicy with | .vaultPda => true | _ => false)
+  expect (vaultRoles.size == 1) "exactly one vault role"
+  let some vaultRole := vaultRoles[0]? |
+    throw <| IO.userError "vault role missing"
+  -- Entry admits System-fresh create OR current-program skip; owner is not a
+  -- single currentProgram entry gate (that blocked first tip on unused vault).
+  expect (vaultRole.constraint.owner == OwnerPolicy.any)
+    "vault entry owner is .any (closed alternatives at ensure site-time)"
+  expect (vaultRole.constraint.data == DataPolicy.exactLength 0)
+    "vault entry exact empty data"
   expect (cand.accountRoles.any (fun r =>
       match r.keyPolicy with | .handlerCaller => true | _ => false))
     "caller role present"
@@ -180,14 +188,44 @@ private unsafe def testTipJarProductPlanIrEmit : IO Unit := do
     throw <| IO.userError "tip handler missing"
   let outerSigners := tipHandler.accountUses.filter (·.outerSigner)
   expect (outerSigners.size == 1) "exactly one outer signer (caller)"
+  -- Transfer site meta still requires current-program vault (post-ensure).
+  let some xferVaultMeta := xfer.metas[0]? |
+    throw <| IO.userError "transfer vault meta missing"
+  expect (xferVaultMeta.spec.constraint.owner == OwnerPolicy.currentProgram)
+    "transfer site vault meta keeps currentProgram owner"
   let ir ← expectPlanOk (productIrFromCapabilityV1 cap) "product IR"
   let irCand := ResolvedSolanaCpiProductIRV1.candidateOf ir
-  expect (irCand.handlers.any (fun h =>
-      h.bodyOps.any (fun
-        | .invokeEscrow inv =>
-            inv.kind == .nativeDeposit || inv.kind == .nativeTransfer
-        | _ => false)))
-    "IR carries nativeDeposit/nativeTransfer invokes"
+  let some tipIr := irCand.handlers.find? (·.name == "tip") |
+    throw <| IO.userError "tip IR handler missing"
+  expect (tipIr.bodyOps.any (fun
+      | .invokeEscrow inv => inv.kind == .nativeDeposit
+      | _ => false))
+    "IR carries nativeDeposit invoke"
+  expect (tipIr.bodyOps.any (fun
+      | .invokeEscrow inv => inv.kind == .nativeTransfer
+      | _ => false))
+    "IR carries nativeTransfer invoke"
+  -- Entry global ops must not hoist checkOwnerCurrentProgram on the vault role
+  -- (that was Bug 1: first tip never reached ensure). Transfer siteChecks may.
+  let vaultLocal? := tipIr.localRoleOrder.findSome? (fun h =>
+    match h.keyPolicy with
+    | .vaultPda => some h.localIndex
+    | _ => none)
+  let some vaultLi := vaultLocal? |
+    throw <| IO.userError "vault localIndex missing on tip IR"
+  let entryVaultOwnerCurrent := tipIr.entryGlobalOps.any (fun
+    | .checkOwnerCurrentProgram li => li == vaultLi
+    | _ => false)
+  expect (!entryVaultOwnerCurrent)
+    "entry must not checkOwnerCurrentProgram on vault (fresh System path)"
+  let transferSiteOwnerCurrent := tipIr.bodyOps.any (fun
+    | .siteChecks _ ops =>
+        ops.any (fun
+          | .generic (.checkOwnerCurrentProgram li) => li == vaultLi
+          | _ => false)
+    | _ => false)
+  expect transferSiteOwnerCurrent
+    "transfer siteChecks keep checkOwnerCurrentProgram on vault"
   let asm ← expectPlanOk (emitCpiProductSbpfV1 ir) "product assembly"
   let text := SolanaCpiProductAssemblyV1.textOf asm
   expect (hasSubstr text "nativeDeposit") "assembly mentions nativeDeposit"
@@ -195,6 +233,24 @@ private unsafe def testTipJarProductPlanIrEmit : IO Unit := do
   expect (hasSubstr text "proof-forge:vault:v1") "assembly vault seed comment"
   expect (hasSubstr text "sol_try_find_program_address") "find PDA"
   expect (hasSubstr text "sol_invoke_signed_c") "invoke signed"
+  -- Bug 2 pin: ensure reads ROLE_DATA_LEN as scalar (jne r1, 0), never
+  -- secondary-loads through the length as a pointer ([r1+0]).
+  -- (Lamports still correctly do `ldxdw r3, [r1+0]` after ROLE_LAMPORTS.)
+  expect
+    (hasSubstr text
+      "ldxdw r1, [r2 + ROLE_DATA_LEN]\n  jne r1, 0, err_shape")
+    "ensure compares scalar ROLE_DATA_LEN to 0 (fail closed)"
+  expect
+    (!hasSubstr text
+      "ldxdw r1, [r2 + ROLE_DATA_LEN]\n  ldxdw r3, [r1 + 0]")
+    "ensure must not treat ROLE_DATA_LEN as a pointer (null-deref at data_len=0)"
+  -- Closed alternatives: current-program XOR→skip, System zero-key, lamports=0.
+  expect (hasSubstr text "SLOT_PROGRAM_ID")
+    "ensure compares vault owner to current program"
+  expect
+    (hasSubstr text
+      "ldxdw r1, [r2 + ROLE_LAMPORTS]\n  ldxdw r3, [r1 + 0]\n  jne r3, 0, err_shape")
+    "ensure checks lamports==0 via pointer on fresh System create path"
 
 private unsafe def testQnGateFailClosed : IO Unit := do
   -- catalog call without declaration freezes only sync-call (no extension row).
