@@ -13797,7 +13797,7 @@ normative: false
   `/usr/bin/python3 -I -S`.
 - Ownable blocked pins (placeholders removed):
   - `pfCommit=23798ce65e559134adb0a9dd3504fc2f7e9669b6` (compiler baseline)
-  - `toolLockDigest=63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf`
+  - historical pre-CPI `toolLockDigest=63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf`；2026-08-04 将 exact CPI profile 加入 global Tool Lock 后，active corpus/KAT/manifest 已原子旋转为 `26c269f80aa300902f2ab61e2ca65e4d38e88db89ccdf9a38aa80144e8db635b`
   - `sourceHash=1056bb66a65115bdbbd38655c85e53b5f9abe84a7a13ada2b7f3bed4d2b9db64`
   - `semanticHash=4874d5f6e5b589a26f3175920fee6aa06d59009be8d8c38a45bdc3bd8c14dd75`
   - `Tests.Materialization.EvmCorpusBlockedV1` exact-asserts pins + planInvariant

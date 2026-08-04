@@ -777,10 +777,10 @@ build 在任何 OutputFile 前 fail closed。#117–#124 为 engineering test-pr
   finalized extra；locked `sbpf`；deployable 工程制品；manifest/evidence 绑定 active
   profile/catalog/Plan/IR。Historical feature-worktree #125 observation recorded
   Mollusk `just solana-runtime` **13** binaries / **282** active + product acceptance
-  前门 and SBOM **194**；integrated tree current package-file pin is **SBOM 233**,
-  and runtime inventory is **pending integrated revalidation** (do not treat 13/282
-  as post-merge current). ordinary `just dev-check` / `just ci` 由主线程最终运行，
-  本 observation **不**预先声称其结果。
+  前门 and SBOM **194**；integrated tree current package-file pin is **SBOM 233**。
+  Integrated `just solana-runtime` revalidation exit 0：**13** test binaries /
+  **304** active tests（含 product acceptance；Mollusk 不属于 ordinary `just ci`）。
+  ordinary `just dev-check` / `just ci` 由集成收口门另行验证。
 - **#111–#125 工程 closed**；**#110 engineering epic complete**。formal TASK-D5 / TST-SOL 仍
   pending。Principal 仍 opaque 非全局 pubkey；仅 extension bare public Principal account binding。
 

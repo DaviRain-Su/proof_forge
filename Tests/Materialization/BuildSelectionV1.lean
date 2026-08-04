@@ -455,7 +455,7 @@ private def testResolve : IO ResolvedBuildSelectionV1 := do
     (some CodegenProfileId.solanaSbpfCpiElfV1)
   expect (solanaCpi.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 &&
       solanaCpi.kind == .solana)
-    "inert Solana CPI profile resolves as a registered selection"
+    "opt-in Solana CPI product profile resolves as a registered selection"
   expectErrorCode
     (resolveBuildSelectionV1 TargetId.evm
       (some CodegenProfileId.nearWasmRawU64V1))

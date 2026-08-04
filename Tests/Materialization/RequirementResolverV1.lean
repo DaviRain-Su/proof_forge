@@ -577,7 +577,7 @@ private def testIndexValidationNegatives : IO Unit := do
   let unkRows := twelveRowSkeleton unkTrio unkTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 unkRows)
     "PF-REGISTRY-INVALID" "unknown requirement id in support row"
-  -- The one non-S2 row is legal only on the inert Solana CPI profile.
+  -- The one non-S2 row is legal only on the exact opt-in Solana CPI product profile.
   let extensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -586,9 +586,9 @@ private def testIndexValidationNegatives : IO Unit := do
   let wrongExtensionScope := nineRowSkeleton trio evmWithExtension
   expectErrorCode (createStaticRequirementSupportIndexV1 wrongExtensionScope)
     "PF-REGISTRY-INVALID" "Solana CPI extension cannot appear on EVM support row"
-  -- The inert CPI profile is an exact capability boundary, not merely the only
-  -- place where the extension is allowed. Its support row must carry the exact
-  -- frozen extension request.
+  -- The active opt-in CPI profile is an exact capability boundary, not merely
+  -- the only place where the extension is allowed. Its support row must carry
+  -- the exact frozen extension request.
   let missingExtension := nineRowSkeleton trio trio
   expectErrorCode (createStaticRequirementSupportIndexV1 missingExtension)
     "PF-REGISTRY-INVALID" "Solana CPI profile requires its exact extension row"

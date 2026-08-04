@@ -80,7 +80,7 @@ private def expectedCaseId : String := "oz.f01.ownable.onlyowner.blocked.v1"
 private def expectedPfCommit : String :=
   "23798ce65e559134adb0a9dd3504fc2f7e9669b6"
 private def expectedToolLockDigest : String :=
-  "63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf"
+  "26c269f80aa300902f2ab61e2ca65e4d38e88db89ccdf9a38aa80144e8db635b"
 private def expectedSourceHash : String :=
   "1056bb66a65115bdbbd38655c85e53b5f9abe84a7a13ada2b7f3bed4d2b9db64"
 private def expectedSemanticHash : String :=

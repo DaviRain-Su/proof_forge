@@ -1249,6 +1249,13 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
             "must record current SBOM package-file pin 233")
+    if not re.search(
+            r"\*\*13\*\* test binaries / \*\*304\*\* active tests",
+            agents,
+    ):
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "must record current integrated Solana runtime inventory 13/304")
 
     # Historical #124 escrow pins remain immutable (test-preactivation lane retained).
     manifest_rel = "runtime-tests/solana/escrow/manifest.json"

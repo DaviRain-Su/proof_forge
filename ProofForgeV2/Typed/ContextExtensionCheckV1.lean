@@ -8,7 +8,7 @@
     surfaces (Source.ContextCommitSurfaceV1). Any other `context.*` place is
     fail-closed with `reqPrecondition`.
   * Exactly one engineering extension identity is admitted:
-    `solana.cpi.accounts@1.0.0` with the frozen ADR-0024 digest. Unknown ids
+    `solana.cpi.accounts@1.0.0` with the frozen ADR-0028 digest. Unknown ids
     fail with `ext001`; a known id with the wrong version/digest fails with
     `extensionVersion`. Admission only carries the declaration into Semantic;
     it does not advertise target support or permit artifact minting.

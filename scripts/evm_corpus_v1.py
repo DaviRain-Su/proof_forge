@@ -1395,7 +1395,7 @@ MAX_TOOL_LOCK_BYTES = 8 * 1024 * 1024
 
 # Darwin ToolLockV4Digest KAT (domain-separated PF-JCS of validated lock).
 DARWIN_TOOL_LOCK_V4_DIGEST_KAT = (
-    "63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf"
+    "26c269f80aa300902f2ab61e2ca65e4d38e88db89ccdf9a38aa80144e8db635b"
 )
 # Raw retained-file SHA-256 of toolchains.lock.json (distinct type).
 DARWIN_TOOL_LOCK_RAW_SHA256_KAT = (

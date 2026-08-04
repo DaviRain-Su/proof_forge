@@ -141,9 +141,9 @@
       "sha256": "d7489393821461d07bbaa4d712271ea1e39445f273c1e4eceaaad700bf998469"
     },
     {
-      "bytes": 7731,
+      "bytes": 7810,
       "path": "ProofForgeV2/Core/TargetIdentityV1.lean",
-      "sha256": "b2aaa7c0b2c6a632a99fa202857b6a2e4a19eb3c71a7d3a9758fbd5ac5534fde"
+      "sha256": "5e685ee7414e8088faf3a45b93b4e003e69829c14474457a5d7449f89e9a602e"
     },
     {
       "bytes": 5654,
@@ -1128,7 +1128,7 @@
     {
       "bytes": 8034,
       "path": "ProofForgeV2/Typed/ContextExtensionCheckV1.lean",
-      "sha256": "9194e5e26cd15c0d37752927c62497def9f46daa85d85dba77282c2cab00105c"
+      "sha256": "6b52398d35191725060e07946b6cb6d77a7cb6d4cc8a5b2bf02dd7de1e3f3f77"
     },
     {
       "bytes": 5918,
