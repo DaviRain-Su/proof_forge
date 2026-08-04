@@ -13,9 +13,10 @@ __pycache__/
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
 
-# Solana Mollusk runtime-tests cargo target
+# Rust engineering/runtime client build outputs
 /runtime-tests/solana/target/
 /runtime-tests/**/target/
+/clients/**/target/
 
 # Local probe / agent scratch under build/ (committed build/ is unused; keep ignore)
 /build/**/*.log

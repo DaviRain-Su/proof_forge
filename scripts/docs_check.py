@@ -1328,14 +1328,15 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         path.stem for path in tests_dir.iterdir()
         if path.is_file() and path.suffix == ".rs"
     )
-    if len(binaries) != 13:
+    if len(binaries) != 14:
         raise_error(
             "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
-            f"expected 13 integration test binaries, found {len(binaries)}: {binaries}")
-    if "cpi_escrow" not in binaries:
-        raise_error(
-            "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
-            "missing cpi_escrow integration binary")
+            f"expected 14 integration test binaries, found {len(binaries)}: {binaries}")
+    for required_binary in ("cpi_escrow", "transfer_sol_product"):
+        if required_binary not in binaries:
+            raise_error(
+                "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
+                f"missing {required_binary} integration binary")
     escrow_rs = tests_dir / "cpi_escrow.rs"
     ensure_repository_path(root, escrow_rs, "runtime-tests/solana/tests/cpi_escrow.rs")
     escrow_text = read_repository_text(
@@ -1349,6 +1350,21 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         raise_error(
             "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests/cpi_escrow.rs",
             f"expected 36 #[test] functions, found {len(test_fns)}")
+
+    transfer_rs = tests_dir / "transfer_sol_product.rs"
+    ensure_repository_path(
+        root, transfer_rs, "runtime-tests/solana/tests/transfer_sol_product.rs")
+    transfer_text = read_repository_text(
+        root, transfer_rs, "runtime-tests/solana/tests/transfer_sol_product.rs",
+        encoding_code="PF-DOC-CHECKPOINT")
+    transfer_tests = re.findall(
+        r"#\[test\]\s*(?:\n\s*#\[[^\]]+\]\s*)*\n\s*fn\s+(\w+)",
+        transfer_text,
+    )
+    if len(transfer_tests) != 8:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests/transfer_sol_product.rs",
+            f"expected 8 #[test] functions, found {len(transfer_tests)}")
 
     stale_current_state = re.compile(
         r"("
