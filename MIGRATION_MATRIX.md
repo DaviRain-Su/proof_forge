@@ -579,8 +579,11 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > `e2c2ebac5e690b99ad50fb7f8a5f6ecfdb8295bb43f3913229c2fd48d2820419`；extension 仍 `df7d…`；
 > historical `0b306…`/`41ace…` 与 #124 assembly/ELF pins 不变。System runtimeNative；Token/ATA
 > package-owned 94960/`a19be3…` 与 111136/`d3f6…`。Product CLI 5 base + `.so` exact closure；
-> Mollusk 13/282；SBOM **194**。**#111–#125 closed**；**#110 engineering epic complete**。
-> formal TASK-D5/TST-SOL 仍 pending；不预先声称 ordinary dev-check/ci。
+> Historical feature-worktree #125 observation: Mollusk 13/282 and SBOM **194**.
+> Integrated tree current package-file pin is **SBOM 233**；`just solana-runtime`
+> inventory **pending integrated revalidation** (do not cite 13/282 as post-merge
+> current). **#111–#125 closed**；**#110 engineering epic complete**。formal
+> TASK-D5/TST-SOL 仍 pending；不预先声称 ordinary dev-check/ci。
 
 ## 共享迁移依赖
 

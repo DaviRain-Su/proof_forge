@@ -1242,10 +1242,13 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
             "must name product-ir / cpi-product-ir for #125 active irSchema")
-    if not re.search(r"SBOM[^\n]{0,40}\b194\b|\b194\b[^\n]{0,40}SBOM", agents):
+    # Integrated package-file pin is the current authority (refreshed after
+    # #111–#125 + main merge). Historical feature-worktree close-out may still
+    # mention 194 only when explicitly historical.
+    if not re.search(r"SBOM[^\n]{0,40}\b233\b|\b233\b[^\n]{0,40}SBOM", agents):
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
-            "must record SBOM package-file pin 194")
+            "must record current SBOM package-file pin 233")
 
     # Historical #124 escrow pins remain immutable (test-preactivation lane retained).
     manifest_rel = "runtime-tests/solana/escrow/manifest.json"

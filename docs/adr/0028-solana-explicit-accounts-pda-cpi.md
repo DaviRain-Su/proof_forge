@@ -775,9 +775,12 @@ build 在任何 OutputFile 前 fail closed。#117–#124 为 engineering test-pr
 - Product CLI 已真实 build/inspect exact closure：5 base
   （`.cpi-plan.json` / `.cpi-ir.json` / `.idl.json` / `.s` / `.cpi-bindings.json`）+ `.so`
   finalized extra；locked `sbpf`；deployable 工程制品；manifest/evidence 绑定 active
-  profile/catalog/Plan/IR。Mollusk `just solana-runtime` 仍 **13** binaries / **282** active
-  + product acceptance 前门；SBOM **194**。ordinary `just dev-check` / `just ci` 由主线程
-  最终运行，本 observation **不**预先声称其结果。
+  profile/catalog/Plan/IR。Historical feature-worktree #125 observation recorded
+  Mollusk `just solana-runtime` **13** binaries / **282** active + product acceptance
+  前门 and SBOM **194**；integrated tree current package-file pin is **SBOM 233**,
+  and runtime inventory is **pending integrated revalidation** (do not treat 13/282
+  as post-merge current). ordinary `just dev-check` / `just ci` 由主线程最终运行，
+  本 observation **不**预先声称其结果。
 - **#111–#125 工程 closed**；**#110 engineering epic complete**。formal TASK-D5 / TST-SOL 仍
   pending。Principal 仍 opaque 非全局 pubkey；仅 extension bare public Principal account binding。
 
