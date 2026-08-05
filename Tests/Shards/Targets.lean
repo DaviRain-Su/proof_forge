@@ -19,6 +19,7 @@ import Tests.Materialization.ArtifactContentV1
 import Tests.Materialization.EngineeringDiskClosureV1
 import Tests.Materialization.Targets
 import Tests.Materialization.Aleo
+import Tests.Materialization.AleoPfAssetsV1
 import Tests.Materialization.AleoAcceptance
 import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
@@ -39,6 +40,7 @@ import Tests.Targets.SolanaElfV1
 import Tests.Targets.EvmCancunV1
 import Tests.Materialization.EvmCorpusBlockedV1
 import Tests.Materialization.PsySourceV1
+import Tests.Materialization.PsyPfAssetsV1
 import Tests.Materialization.PsyAcceptance
 import Tests.Materialization.QuintSourceV1
 import Tests.Materialization.QuintAcceptance
@@ -90,6 +92,8 @@ unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.Aleo.run
   IO.eprintln "CP run"
+  Tests.Materialization.AleoPfAssetsV1.run
+  IO.eprintln "CP run"
   Tests.Materialization.AleoAcceptance.run
   IO.eprintln "CP run"
   Tests.Materialization.NoirCompileAcceptance.run
@@ -114,6 +118,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.SolanaCpiActivationV1.run
   IO.eprintln "CP run"
   Tests.Materialization.PsySourceV1.run
+  IO.eprintln "CP run"
+  Tests.Materialization.PsyPfAssetsV1.run
   IO.eprintln "CP run"
   Tests.Materialization.PsyAcceptance.run
   IO.eprintln "CP run"

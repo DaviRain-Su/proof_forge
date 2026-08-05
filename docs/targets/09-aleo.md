@@ -19,7 +19,7 @@ Phase 1：实现（工程切片已接线；成熟度 source-only）
 
 **工程已接线（摘）**：标量 UInt64/UInt32/UInt8/Int64/Unit/Bool envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）；named Struct/Enum + Array UInt64 flatten-to-mapping leaves；**dense Map UInt64 cap-2**（occ/key/val leaves + IndexGet→Option + IndexSet upsert；`storeAggregate` 先完成全叶 `get_or_use`/值绑定再统一 `set`，固定 pre-store snapshot）；**fixed Bytes N**（N×u8 mappings + checked u8 lane）；Commit 身份透传；Leo 4.0.2 emission。Leo 4.0.2 已进入两平台 Tool Lock v4，`AleoAcceptance` 优先使用物化的 locked tool 执行 `leo build --offline` compile-only 验收（未物化时 clean skip）。
 
-**明确边界**：T14 已把 exact BLS12-377 Fr FieldSpec 接到 Leo `field`；bn254 与 Goldilocks 在 Aleo 上仍 fail-closed。Option/Principal/String/Int128/256/emit/call/schedule/ContextRead 均显式 fail-closed；没有 prove/deploy/VM 门，compile-only 也不是 hermetic/formal 证据；成熟度仍为 **source-only + engineering compile acceptance**，不得写成 runtime/proof 完成。
+**明确边界**：T14 已把 exact BLS12-377 Fr FieldSpec 接到 Leo `field`；bn254 与 Goldilocks 在 Aleo 上仍 fail-closed。Option/Principal/String/Int128/256/emit/call/schedule/ContextRead 均显式 fail-closed；没有 prove/deploy/VM 门，compile-only 也不是 hermetic/formal 证据；成熟度仍为 **source-only + engineering compile acceptance**，不得写成 runtime/proof 完成。**ADR-0029 Phase D（2026-08-05）**：`pf.assets` 五 QN **零绑定**——Aleo 资产主模型是 record（owner-bound consume/mint）而非 account-balance vault，`credits.aleo/transfer_public` 走 private-proof + public finalize 不满足 sync 原子 failure 传播；catalog QN 在 Plan 层显式 unbound 诊断、resolver 不 advertise、resolve 处 `PF-REQ-UNSUPPORTED`（`Tests/Materialization/AleoPfAssetsV1` 钉死）。record custody 五轴差异分析存于 `Targets/Aleo/PfAssetsDispositionV1.lean`，为未来 custody v2 设计种子。
 
 ## 1. 身份与来源
 

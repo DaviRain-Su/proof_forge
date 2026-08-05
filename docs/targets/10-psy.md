@@ -19,7 +19,7 @@ Phase 1：实现（工程切片已接线；成熟度 source-only）
 
 **工程已接线（摘）**：标量 UInt64/UInt32/Unit/Bool/Int64 envelope；named Struct/Enum + Array UInt64 flatten-to-Felt leaves；sync call（`__invoke_sync`）与 event（`__emit`）；Dargo/Psy source（`psy-dargo-u64-v1`）。注意：Emit 层把 UInt 字面量按 Goldilocks 模约（`feltNat`），这是 **UInt→Felt 字面量归约**，**不是** Field 类型支持。
 
-**明确边界**：T14 已把 exact Goldilocks FieldSpec 接到 Psy Felt；bn254 与 BLS12-377 在 Psy 上仍 fail-closed。**Commit 也 fail-closed**（EVM/Solana/NEAR/Aleo 身份透传不含 Psy）；Map/Bytes/Option/Principal/String 显式 fail-closed；UInt64 `~` 已降为 `checkedBitNot`（assert `x ≥ 2^32−1` 后 Felt sub `(2^32−2)−x`，可表示半区精确 UInt64 bitNot；`x ≤ 2^32−2` 运行时 trap；**非** mod-p bitNot；Int64 `~` 仍 fail-closed）；resolver 拒 async-workflow(schedule)；有 optional host `psyup`/`dargo` source compile 验收，但无 Tool Lock pin、VM/prover 门；成熟度 **source-only + optional host compile**，不得写成 runtime/formal 完成。
+**明确边界**：T14 已把 exact Goldilocks FieldSpec 接到 Psy Felt；bn254 与 BLS12-377 在 Psy 上仍 fail-closed。**Commit 也 fail-closed**（EVM/Solana/NEAR/Aleo 身份透传不含 Psy）；Map/Bytes/Option/Principal/String 显式 fail-closed；UInt64 `~` 已降为 `checkedBitNot`（assert `x ≥ 2^32−1` 后 Felt sub `(2^32−2)−x`，可表示半区精确 UInt64 bitNot；`x ≤ 2^32−2` 运行时 trap；**非** mod-p bitNot；Int64 `~` 仍 fail-closed）；resolver 拒 async-workflow(schedule)；有 optional host `psyup`/`dargo` source compile 验收，但无 Tool Lock pin、VM/prover 门；成熟度 **source-only + optional host compile**，不得写成 runtime/formal 完成。**ADR-0029 Phase D（2026-08-05）**：`pf.assets` 五 QN **零绑定**——Psy 无原生资产/金库本征（Felt 是算术域不是资产单位；`__invoke_sync#<Felt>` 只是源码面发射、无真实资金移动，绑它就是假建模），无 deposit 对应物；catalog QN 在 Plan 层显式 unbound 诊断（不降级为 `__invoke_sync`）、resolver 不 advertise、resolve 处 `PF-REQ-UNSUPPORTED`（`Tests/Materialization/PsyPfAssetsV1` 钉死）。
 
 ## 1. 身份与来源
 

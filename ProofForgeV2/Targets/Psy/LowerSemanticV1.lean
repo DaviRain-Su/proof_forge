@@ -5,6 +5,7 @@ import ProofForgeV2.Targets.Common
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.EnvelopeV1
+import ProofForgeV2.Targets.Psy.PfAssetsDispositionV1
 
 /-!
 # Psy LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
@@ -14,6 +15,11 @@ for the public UInt64 envelope (comparisons, bare assert, Bool results,
 if/match, revert/emit, fn/localCall, let, bounded for, shift/bitwise/logical,
 call/schedule). Plan canonicity lives in `ValidatePlanV1`; `.psy` emission in
 `EmitIRV1`. `FinalizeV1` remains a separate submodule.
+
+**ADR-0029 Phase D**: every `pf.assets` catalog QN is **unbound** on Psy
+(`PfAssetsDispositionV1`). Catalog calls fail closed at Plan with an explicit
+unbound diagnostic and must not lower to `__invoke_sync` as fake vault
+transfer. Non-catalog L0 sync call keeps hashed `__invoke_sync` emission.
 
 Psy maps UInt{8,16,32,64} → `Felt` (narrow widths are **Felt-carried**, not
 native Psy `u32`/`u8` — the real dargo VM u32 arith/shift is unfaithful to
@@ -77,6 +83,7 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
+open ProofForgeV2.Targets.Psy.PfAssetsDispositionV1
 
 /-- Engineering codegen profile string for the Dargo/Psy UInt64 source slice.
     `CodegenProfileId` has no psy variant yet — P-B wires the opaque id into
@@ -1228,12 +1235,20 @@ private partial def lowerRegion
         let comps := callee.components.toArray
         unless comps.size ≥ 2 do
           planError "unsupported Psy semantic shape: external callee must have at least two components"
+        -- ADR-0029 Phase D: catalog QNs are unbound — must not lower to
+        -- hashed `__invoke_sync` as if they moved native value.
+        let qn := String.intercalate "." comps.toList
+        if isPfAssetsCatalogQnV1 qn then
+          planError s!"unsupported Psy semantic shape: {unboundCatalogDiagV1 qn}"
         let argExprs ← lookupArgs env args "externalCall"
         ls := { ls with stmts := ls.stmts.push (.externalCall comps argExprs) }
     | .schedule _effectId callee args => do
         let comps := callee.components.toArray
         unless comps.size ≥ 2 do
           planError "unsupported Psy semantic shape: schedule callee must have at least two components"
+        let qn := String.intercalate "." comps.toList
+        if isPfAssetsCatalogQnV1 qn then
+          planError s!"unsupported Psy semantic shape: {unboundCatalogDiagV1 qn}"
         let argExprs ← lookupArgs env args "schedule"
         ls := { ls with stmts := ls.stmts.push (.schedule comps argExprs) }
     | .construct typeId ctorIdx argIds => do

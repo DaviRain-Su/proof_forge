@@ -314,7 +314,7 @@ callback 状态机、TON message mode/flag。这些暴露的是目标链执行�
 | **A** | L1 registry 机制（exact triple/provenance）+ `pf.assets` payload 冻结 + Reference 语义 + **Quint 绑定** | **shared core，串行 cutover**；Quint 是不可部署的 executable-model target，作为最便宜的语义验证场（vault 扣账/入账、failure 传播、rollback 先钉死在模型里） | **done（2026-08-04）** |
 | **B** | **Solana 先导 → EVM** | target leaf lane：Solana 复用 ADR-0028 既有机器重新绑定到链无关 QN（vault PDA≈`createPdaAccount`/幂等 ensure、出金为 program-direct lamports move——B1 修正，见 API 矩阵；ATA ensure≈`createIdempotent`）；EVM 新增 `interface-standard` artifactBinding、deposit/msg.value 校验与 value `CALL` lowering | **done（2026-08-05）** |
 | **C** | **CosmWasm + NEAR** | CW 争取完整 sync 绑定（`BankMsg::Send`/CW20 SubMsg 同交易原子，需 reply 语义新 versioned contract）；NEAR 结构上仅 `deposit` + `transferAsync`（Promise 为 async，sync 永久不可绑） | **done（2026-08-05）** |
-| **D** | ~~TON~~、Psy、**Aleo 单独立项** | **TON 已由产品 owner 决策（2026-08-05）冻结现状、不再做 pf.assets 及后续功能开发**；Psy source-only 无 VM 门；**Aleo 资产为 record 而非账户余额，custody 模型不同，vault 概念需 v2 单独设计** | Psy+Aleo in_progress |
+| **D** | ~~TON~~、Psy、**Aleo 单独立项** | **TON 已由产品 owner 决策（2026-08-05）冻结现状、不再做 pf.assets 及后续功能开发**；Psy 与 Aleo 经 Phase D 调研判定**零绑定**（诚实边界，见工程事实段） | **done（2026-08-05，零绑定收口）** |
 | — | **Noir 对 `pf.assets` 永久 fail closed** | 电路不搬资产，sync/async 均无意义；这是诚实边界，不是欠债 | permanent FC |
 
 **Phase A 工程事实（2026-08-04）**：payload 冻结于
@@ -370,6 +370,23 @@ fire-and-forget；sync `transfer` 与 token **永久 fail closed**；dst →
 仍在各自 Plan 层 fail closed（Targets.lean 的 capability-honesty 钉测已相应改写为
 Plan 层拒绝）。**非** formal/mainnet；cw-vm mock 与 near-sandbox 为工程
 local_runtime 门。
+
+**Phase D 工程事实（2026-08-05，零绑定收口）**：Psy 与 Aleo 经逐 QN 调研判定
+**不绑定任何 `pf.assets` QN**——这是诚实边界而非欠债。**Psy**：无原生资产/金库本征
+（Felt 是算术域不是资产单位；`__invoke_sync#<Felt>` 只是源码面发射，无真实资金移动，
+绑它就是假建模），无 deposit 对应物，schedule 已 decline。**Aleo**：资产主模型是
+record（owner-bound consume/mint）+ 可选 public mapping，**不是** account-balance
+vault；`credits.aleo` 是共享公共程序而非 program-local vault，且 `transfer_public` 走
+private-proof + public finalize，不满足 sync 原子 failure 传播；record custody 的完整
+差异分析（资产对象身份/花费权/原子性面/可见性/credits 角色五轴）存于
+`Targets/Aleo/PfAssetsDispositionV1.lean`，作为未来 custody v2 设计的种子。两 target
+的 Plan 层对 catalog QN 给出显式 unbound 诊断（区别于 generic 拒法），resolver **不加**
+permit（5 QN 在 resolve 处 `PF-REQ-UNSUPPORTED`），`Tests/Materialization/PsyPfAssetsV1`/
+`AleoPfAssetsV1` 钉死全矩阵。**Aleo 若未来要绑 portable 资产，需要 custody v2 设计
+（program-owned records / public mapping vault / 显式 credits.aleo 角色），不是
+`pf.assets@1.0.0` 的零成本别名。** TON 已于同日由产品 owner 决策冻结现状（不开发
+pf.assets 及后续功能）。至此 ADR-0029 分期全收口：Quint/EVM/Solana/CosmWasm/NEAR
+五 binding，Psy/Aleo 零绑定，Noir 永久 FC，TON 冻结。
 
 **并行纪律**（遵循 Recovery Execution Protocol）：
 

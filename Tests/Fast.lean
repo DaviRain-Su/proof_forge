@@ -78,6 +78,8 @@ import Tests.Product.TipJarNearV1
 import Tests.Materialization.NearPfAssetsV1
 import Tests.Product.TipJarCosmWasmV1
 import Tests.Materialization.CosmWasmPfAssetsV1
+import Tests.Materialization.PsyPfAssetsV1
+import Tests.Materialization.AleoPfAssetsV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.EvmCorpusBlockedV1
@@ -191,6 +193,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.NearPfAssetsV1.run
   Tests.Product.TipJarCosmWasmV1.run
   Tests.Materialization.CosmWasmPfAssetsV1.run
+  Tests.Materialization.PsyPfAssetsV1.run
+  Tests.Materialization.AleoPfAssetsV1.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.EvmSolcAcceptance.run
   Tests.Materialization.EvmCorpusBlockedV1.run

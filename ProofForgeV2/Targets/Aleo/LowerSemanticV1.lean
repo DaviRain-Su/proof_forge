@@ -5,6 +5,7 @@ import ProofForgeV2.Targets.Common
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.EnvelopeV1
+import ProofForgeV2.Targets.Aleo.PfAssetsDispositionV1
 
 /-!
 # Aleo LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
@@ -62,6 +63,10 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
   * **ContextRead** — no host clock ABI in Leo 4.0.2 Final model for this pilot.
   * **emit / externalCall / schedule / revert-with-args** — no Leo analogue
     (resolver also declines event/sync/async requirement keys).
+  * **ADR-0029 Phase D `pf.assets`** — **zero binding**. Record custody ≠
+    account-balance vault; `credits.aleo` is not self-vault (see
+    `PfAssetsDispositionV1`). Catalog QNs get an explicit unbound Plan
+    diagnostic, distinct from generic "no external calls".
   * Array IndexGet/IndexSet require compile-time UInt literal index.
   * Int64 for-loop endpoints (shared Normalize retains them; this Aleo profile
     has no signed range surface) / Int64 match scrutinees.
@@ -76,6 +81,7 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
+open ProofForgeV2.Targets.Aleo.PfAssetsDispositionV1
 
 /-- Engineering codegen profile for the Leo 4.0.2 source slice. Any change to
     the supported surface or the Leo toolchain requires a new profile. -/
@@ -1448,10 +1454,21 @@ private partial def lowerRegion
         ls := { ls with stmts := ls.stmts.push (.assert c) }
     | .emit .. =>
         planError "Aleo does not support emit: Leo 4.0.2 has no on-chain event log"
-    | .externalCall .. =>
-        planError "Aleo does not support external calls"
-    | .schedule .. =>
-        planError "Aleo does not support scheduled workflows"
+    | .externalCall _effectId callee _args => do
+        -- ADR-0029 Phase D: distinguish unbound catalog QNs from non-catalog.
+        let comps := callee.components.toArray
+        let qn := String.intercalate "." comps.toList
+        if isPfAssetsCatalogQnV1 qn then
+          planError s!"Aleo does not support external calls: {unboundCatalogDiagV1 qn}"
+        else
+          planError "Aleo does not support external calls"
+    | .schedule _effectId callee _args => do
+        let comps := callee.components.toArray
+        let qn := String.intercalate "." comps.toList
+        if isPfAssetsCatalogQnV1 qn then
+          planError s!"Aleo does not support scheduled workflows: {unboundCatalogDiagV1 qn}"
+        else
+          planError "Aleo does not support scheduled workflows"
     -- N5: Op.Commit is label-only identity — reuse the operand's Plan value
     -- (no new Expr tag). Cryptographic commitment realization is deferred.
     | .commit valueId => do
