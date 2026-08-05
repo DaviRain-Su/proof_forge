@@ -1909,6 +1909,14 @@ private def exactCommitRequirementRowV1 : IO RequirementRequestV1 :=
   | .ok row => pure row
   | .error e => throw <| IO.userError s!"Commit requirement: {e}"
 
+/-- Exact env-read (ADR-0030 E2 `pf.assets` balanceOfSelf family) extension
+    requirement row. Fixtures that use `Op.envRead` must pass this explicitly —
+    no silent injection. -/
+private def exactEnvReadRequirementRowV1 : IO RequirementRequestV1 :=
+  match pfAssetsExtensionRequirementV1 with
+  | .ok row => pure row
+  | .error e => throw <| IO.userError s!"EnvRead requirement: {e}"
+
 /-- Structure-gated program builder. Appends a minimal valid `.entry` callable
     (`entryGateCallable`) so fixtures satisfy the SPEC §6 aggregate entry/view
     presence gate while exercising an unrelated phase. The appended entry's
@@ -10889,6 +10897,140 @@ private def testCfgCommitCatalogRequirements : IO Unit := do
     "combined Commit/Context requirements must be canonical"
   expectCfgOk "combined Commit/Context exact rows" combined
 
+/-- ADR-0030 E2 `Op.envRead` (pf.assets balanceOfSelf family) wire/typing/
+    requirements pins. Covers the exact op-typing contract (native: zero args;
+    token: one Principal arg; result always the unique UInt64 TypeId),
+    the `extension.pf-assets` requirement binding, and invariant-closure
+    prohibition. Each negative isolates one gate. -/
+private def testCfgEnvReadOpTyping : IO Unit := do
+  let pfAssets ← exactEnvReadRequirementRowV1
+  let pfAssetsReq := #[pfAssets]
+  -- typeId 0 = Bool, typeId 1 = UInt64 (the unique UInt64 closure), typeId 2 =
+  -- Principal (for the token variant). These three anonymous leaves are the
+  -- smallest type table exercising all envRead branches without unrelated
+  -- failures.
+  let envReadTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 64 },
+    { id := 2, name := none, shape := .principal } ]
+  let u64Tid : TypeIdV1 := 1
+  let pTid : TypeIdV1 := 2
+  -- envRead instruction with a fresh result ValueId at the given TypeId.
+  let envReadInstr (vid : ValueIdV1) (tid : TypeIdV1)
+      (key : EnvReadKeyV1) (args : Array ValueIdV1) : InstructionV1 :=
+    cfgInstr (some { valueId := vid, typeId := tid }) (.envRead key args)
+  -- A Principal-typed literal instruction to materialize the mint arg for the
+  -- token variant. Principal canonical valueBytes = u32le len || body.
+  let principalLit (vid : ValueIdV1) (body : ByteArray) : InstructionV1 :=
+    cfgInstr (some { valueId := vid, typeId := pTid })
+      (.literal pTid ((encodeU32le (UInt32.ofNat body.size)).append body))
+  -- Entry callable with one block of instructions, returning the given
+  -- ValueId. The result TypeId is UInt64.
+  let envReadEntry (instrs : Array InstructionV1) (retVid : ValueIdV1)
+      (id : CallableIdV1 := 0) (name : String := "run") : CallableV1 :=
+    { (cfgCallableKindName .entry (some name) (resultTypeId := u64Tid)) with
+      id
+      blocks := #[cfgBlockInstrs 0 instrs (.return_ (some retVid))] }
+  -- -----------------------------------------------------------------------
+  -- Positive: native vault balance, zero args, result is the unique UInt64.
+  -- -----------------------------------------------------------------------
+  let nativeEntry := envReadEntry
+    #[envReadInstr 0 u64Tid .nativeVaultBalance #[]] 0
+  let nativePgm ← programWithTypes "EnvReadNativePos" envReadTypes #[]
+    #[nativeEntry] pfAssetsReq
+  expectCfgOk "native envRead positive structure+encode" nativePgm
+  -- Full encode→decode→re-encode byte-identity roundtrip.
+  let nativeBytes ← expectOk "native envRead encode"
+    (encodeSemanticProgramDataV1 nativePgm)
+  let nativeDecoded ← expectOk "native envRead decode"
+    (decodeSemanticProgramDataV1 nativeBytes)
+  expect (nativeDecoded == nativePgm) "native envRead decode equality"
+  let nativeCarrier ← expectOk "native envRead carrier"
+    (decodeSemanticProgramV1 nativeBytes)
+  expect (bytesEqual nativeCarrier.canonicalBytes nativeBytes)
+    "native envRead carrier byte identity"
+  -- -----------------------------------------------------------------------
+  -- Positive: token vault balance, one Principal arg, result is UInt64.
+  -- -----------------------------------------------------------------------
+  let mintBody := ByteArray.mk #[0xab, 0xcd]
+  let tokenEntry := envReadEntry
+    #[principalLit 0 mintBody,
+      envReadInstr 1 u64Tid .tokenVaultBalance #[0]] 1 0 "runToken"
+  let tokenPgm ← programWithTypes "EnvReadTokenPos" envReadTypes #[]
+    #[tokenEntry] pfAssetsReq
+  expectCfgOk "token envRead positive structure+encode" tokenPgm
+  let tokenBytes ← expectOk "token envRead encode"
+    (encodeSemanticProgramDataV1 tokenPgm)
+  let tokenDecoded ← expectOk "token envRead decode"
+    (decodeSemanticProgramDataV1 tokenBytes)
+  expect (tokenDecoded == tokenPgm) "token envRead decode equality"
+  let tokenCarrier ← expectOk "token envRead carrier"
+    (decodeSemanticProgramV1 tokenBytes)
+  expect (bytesEqual tokenCarrier.canonicalBytes tokenBytes)
+    "token envRead carrier byte identity"
+  -- -----------------------------------------------------------------------
+  -- Negatives (each isolating one gate; all .badCfg unless noted).
+  -- -----------------------------------------------------------------------
+  -- Native with one arg (must be zero).
+  let nNativeArg ← programWithTypes "EnvReadNNativeArg" envReadTypes #[]
+    #[envReadEntry
+        #[principalLit 0 mintBody,
+          envReadInstr 1 u64Tid .nativeVaultBalance #[0]] 1 0 "runN1"] pfAssetsReq
+  expectCfgErrCode "native envRead one arg" .badCfg nNativeArg
+  -- Token with zero args (must be exactly one).
+  let nTokenZeroArg ← programWithTypes "EnvReadNTokenZeroArg" envReadTypes #[]
+    #[envReadEntry #[envReadInstr 0 u64Tid .tokenVaultBalance #[]] 0 0 "runN2"]
+      pfAssetsReq
+  expectCfgErrCode "token envRead zero args" .badCfg nTokenZeroArg
+  -- Token with non-Principal arg type (UInt64 instead of Principal).
+  let nTokenWrongType ← programWithTypes "EnvReadNTokenWrongType" envReadTypes #[]
+    #[envReadEntry
+        #[envReadInstr 0 u64Tid .nativeVaultBalance #[],
+          envReadInstr 1 u64Tid .tokenVaultBalance #[0]] 1 0 "runN3"] pfAssetsReq
+  expectCfgErrCode "token envRead non-Principal arg" .badCfg nTokenWrongType
+  -- Result typeId not the unique UInt64 (Bool instead).
+  let nWrongResult ← programWithTypes "EnvReadNWrongResult" envReadTypes #[]
+    #[{ (cfgCallableKindName .entry (some "runN4")
+          (resultTypeId := 0)) with
+        id := 0
+        blocks := #[cfgBlockInstrs 0
+          #[envReadInstr 0 0 .nativeVaultBalance #[]]
+          (.return_ (some 0))] }] pfAssetsReq
+  expectCfgErrCode "envRead wrong result typeId" .badCfg nWrongResult
+  -- Missing result (envRead is value-producing).
+  let nMissingResult ← programWithTypes "EnvReadNMissingResult" envReadTypes #[]
+    #[{ (cfgCallableKindName .entry (some "runN5")
+          (resultTypeId := u64Tid)) with
+        id := 0
+        blocks := #[cfgBlockInstrs 0
+          #[cfgInstr none (.envRead .nativeVaultBalance #[])]
+          (.return_ none)] }] pfAssetsReq
+  expectCfgErrCode "envRead missing result" .badCfg nMissingResult
+  -- envRead present WITHOUT the extension.pf-assets requirement row.
+  let nMissingReq ← programWithTypes "EnvReadNMissingReq" envReadTypes #[]
+    #[envReadEntry #[envReadInstr 0 u64Tid .nativeVaultBalance #[]] 0 0 "runN6"]
+  expectCfgErrCode "envRead missing pf-assets requirement" .badRequirement
+    nMissingReq
+  -- envRead in an `.invariant` callable (prohibited).
+  let invCallable : CallableV1 := {
+    (cfgCallableKindName .invariant (some "BadInv")
+        (resultTypeId := 0)) with
+    id := 0
+    -- invariant root: empty-loop + exact `some 2` fuel (1 block, 0 instrs + 1
+    -- terminator). The envRead instruction adds one instruction so the exact
+    -- fuel would be `some 3`, but the closure gate fires first.
+    blocks := #[cfgBlockInstrs 0
+      #[envReadInstr 0 u64Tid .nativeVaultBalance #[]]
+      (.return_ (some 0))]
+    invariantSteps := some 3
+  }
+  -- `programWithTypes` already appends an `entryGateCallable` at
+  -- `id = callables.size` (here 1) so the aggregate entry/view presence gate
+  -- is satisfied; do not push a second one.
+  let nInvariant ← programWithTypes "EnvReadNInvariant" envReadTypes #[]
+    #[invCallable] pfAssetsReq
+  expectCfgErrCode "envRead in invariant callable" .badCfg nInvariant
+
 /-- SPEC-SEM-WIRE-001 §6 EffectId assignment: within each callable, every
     Emit/ExternalCall/Schedule instruction must carry the next contiguous
     EffectId in BlockId/instruction order, starting at zero. -/
@@ -11296,6 +11438,7 @@ def run : IO Unit := do
   testCfgContextReadResultTypeConsistency
   testCfgContextReadCatalogRequirements
   testCfgCommitCatalogRequirements
+  testCfgEnvReadOpTyping
   testCfgEffectIdOrder
   IO.println "Tests.Semantic.WireV1: ok"
 

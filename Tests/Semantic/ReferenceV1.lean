@@ -5644,6 +5644,173 @@ private unsafe def testPfAssetsOpaqueExternalCallReference
       throw <| IO.userError
         s!"pf-assets-dual-rev: expected external revert, got {repr other}"
 
+/-- ADR-0030 E2-1: `Op.envRead` (pf.assets balanceOfSelf family) Reference
+    self-vault interpreter pins. envRead cannot come from source yet (Normalize
+    emits none until E2-2), so the semantic program is hand-built directly
+    via `SemanticProgramDataV1` and round-tripped through
+    `encodeCarrier`/`admitOk` (no carrier bypass). The vault seed is supplied
+    per-step via `ReferenceVaultSeedV1`.
+
+    Pins:
+    1. `envRead .nativeVaultBalance` in a view returns the seeded native
+       balance (seed 1000 → return 1000).
+    2. deposit(100) then envRead in the same entry returns seed+100 (credit
+       coherence).
+    3. sync transfer(dst, 30) then envRead returns seed-30 (debit coherence).
+    4. sync transfer(dst, amount > seed) with `.returned` response reverts
+       `externalCallReverted` and state holds (deterministic underflow).
+    5. token: seed `#[(mint, 200)]`, `envRead .tokenVaultBalance #[mint]`
+       returns 200; absent mint returns 0. -/
+private def testEnvReadReferenceVaultCoherence : IO Unit := do
+  -- Types: 0 = UInt64 (unique, env-read result), 1 = Principal (token arg).
+  -- These two anonymous leaves are the minimal table exercising both
+  -- envRead branches and the catalog external-call arg types without
+  -- unrelated failures.
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 64 },
+    { id := 1, name := none, shape := .principal } ]
+  let u64Tid : TypeIdV1 := 0
+  let pTid : TypeIdV1 := 1
+  -- The exact extension.pf-assets requirement row for envRead.
+  let pfAssetsReq ← match pfAssetsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"envRead-ref: req: {e}"
+  let reqs : Array RequirementRequestV1 := #[pfAssetsReq]
+  -- Catalog QNs.
+  let depositQn ← qnParts #["pf", "assets", "native", "deposit"]
+  let transferQn ← qnParts #["pf", "assets", "native", "transfer"]
+  -- Helpers.
+  let envReadNative (vid : ValueIdV1) : InstructionV1 :=
+    instr (some { valueId := vid, typeId := u64Tid })
+      (.envRead .nativeVaultBalance #[])
+  let envReadToken (vid : ValueIdV1) (mintVid : ValueIdV1) : InstructionV1 :=
+    instr (some { valueId := vid, typeId := u64Tid })
+      (.envRead .tokenVaultBalance #[mintVid])
+  -- view getNative(): envRead .nativeVaultBalance #[] → return
+  let getNativeCallable := mkView 0 "getNative" #[] u64Tid
+    #[envReadNative 0] (.return_ (some 0))
+  -- entry depositThenRead(amount): externalCall deposit(amount) then
+  --   envRead .nativeVaultBalance #[] → return balance. EffectId 0 for the
+  --   single external call.
+  let depositCallable := mkEntry 1 "depositThenRead"
+    #[{ valueId := 0, name := "amount", typeId := u64Tid,
+        visibility := .public_ }] u64Tid
+    #[instr none (.externalCall 0 depositQn #[0]),
+      envReadNative 1] (.return_ (some 1))
+  -- entry transferThenRead(dst, amount): externalCall transfer(dst, amount)
+  --   then envRead .nativeVaultBalance #[] → return balance. EffectId 0.
+  let transferCallable := mkEntry 2 "transferThenRead"
+    #[{ valueId := 0, name := "dst", typeId := pTid,
+        visibility := .public_ },
+      { valueId := 1, name := "amount", typeId := u64Tid,
+        visibility := .public_ }] u64Tid
+    #[instr none (.externalCall 0 transferQn #[0, 1]),
+      envReadNative 2] (.return_ (some 2))
+  -- view getToken(mint): envRead .tokenVaultBalance #[mint]
+  --   → return balance. The mint is a callable param at ValueId 0.
+  let getTokenCallable := mkView 3 "getToken"
+    #[{ valueId := 0, name := "mint", typeId := pTid,
+        visibility := .public_ }] u64Tid
+    #[envReadToken 1 0] (.return_ (some 1))
+  -- Build the program data with the exact pf-assets requirement row.
+  let base ← emptyData "EnvReadRef"
+  -- Assemble the program: three callables. The entry/view aggregate gate
+  -- needs at least one entry or view; we have two views + two entries (but
+  -- use only three distinct ones to keep ids small).
+  let data : SemanticProgramDataV1 := {
+    base with
+    types
+    callables := #[getNativeCallable, depositCallable, transferCallable,
+      getTokenCallable]
+    requirements := { items := reqs } }
+  let carrier ← encodeCarrier "envRead-ref" data
+  let admitted ← admitOk "envRead-ref" carrier
+  -- No state ⇒ initial state is initialized with empty canonical values.
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"envRead-ref: initial: {repr e}"
+  let zeroState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := ByteArray.empty }
+  -- -------------------------------------------------------------------
+  -- 1. view getNative() with seed 1000 → returns UInt64 1000.
+  -- -------------------------------------------------------------------
+  let seed1000 : ReferenceVaultSeedV1 := { native := 1000 }
+  let out1 :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[]) emptyResponses seed1000
+  expectReturned "envRead-native-seed" out1 zeroState
+    (some (refU64 u64Tid 1000)) #[]
+  -- -------------------------------------------------------------------
+  -- 2. entry depositThenRead(100) with seed 1000: deposit credits vault,
+  --    then envRead returns 1100.
+  -- -------------------------------------------------------------------
+  let occDep : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  let depResponses : ExternalResponsesV1 :=
+    #[{ occurrence := occDep, disposition := .returned }]
+  let out2 :=
+    stepReferenceSliceV1 admitted initial
+      (inv 1 #[refU64 u64Tid 100]) depResponses seed1000
+  expectReturned "envRead-deposit-coherence" out2 zeroState
+    (some (refU64 u64Tid 1100)) #[
+      { occurrence := occDep
+        payload := .externalCall depositQn #[refU64 u64Tid 100] } ]
+  -- -------------------------------------------------------------------
+  -- 3. entry transferThenRead(dst, 30) with seed 1000: transfer debits
+  --    vault, then envRead returns 970.
+  -- -------------------------------------------------------------------
+  let dstBody := ByteArray.mk #[0xab, 0xcd]
+  let dstVal := refPrincipal pTid dstBody
+  let occXfer : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  let xferResponses : ExternalResponsesV1 :=
+    #[{ occurrence := occXfer, disposition := .returned }]
+  let out3 :=
+    stepReferenceSliceV1 admitted initial
+      (inv 2 #[dstVal, refU64 u64Tid 30]) xferResponses seed1000
+  expectReturned "envRead-transfer-coherence" out3 zeroState
+    (some (refU64 u64Tid 970)) #[
+      { occurrence := occXfer
+        payload := .externalCall transferQn #[dstVal, refU64 u64Tid 30] } ]
+  -- -------------------------------------------------------------------
+  -- 4. entry transferThenRead(dst, 2000) with seed 1000: returned response
+  --    but vault underflow → reverts externalCallReverted, state holds.
+  -- -------------------------------------------------------------------
+  let xferRevResponses : ExternalResponsesV1 :=
+    #[{ occurrence := occXfer, disposition := .returned }]
+  let out4 :=
+    stepReferenceSliceV1 admitted initial
+      (inv 2 #[dstVal, refU64 u64Tid 2000]) xferRevResponses seed1000
+  match out4 with
+  | .reverted (.externalCallReverted o) st =>
+      expect (occurrenceEq o occXfer) "envRead-underflow: occurrence"
+      expect (logicalStateEq st zeroState)
+        "envRead-underflow: state holds pre-state"
+  | other =>
+      throw <| IO.userError
+        s!"envRead-underflow: expected external revert, got {repr other}"
+  -- -------------------------------------------------------------------
+  -- 5. token: view getToken(mint) with seed #[(mint, 200)] → returns 200.
+  --    Absent mint returns 0. The vault seed key must match the Principal
+  --    canonical valueBytes (encodeU32le(len) ++ body) used by the machine.
+  -- -------------------------------------------------------------------
+  let mintBody := ByteArray.mk #[0xab, 0xcd]
+  let mintCanonical := (encodeU32le (UInt32.ofNat mintBody.size)).append mintBody
+  let mintVal := refPrincipal pTid mintBody
+  let seedToken : ReferenceVaultSeedV1 :=
+    { token := #[(mintCanonical, 200)] }
+  -- getToken is callable id 3.
+  let out5 :=
+    stepReferenceSliceV1 admitted initial (inv 3 #[mintVal]) emptyResponses
+      seedToken
+  expectReturned "envRead-token-present" out5 zeroState
+    (some (refU64 u64Tid 200)) #[]
+  -- Absent mint: different body → balance 0.
+  let absentMint := ByteArray.mk #[0xff, 0xee]
+  let absentVal := refPrincipal pTid absentMint
+  let out5b :=
+    stepReferenceSliceV1 admitted initial (inv 3 #[absentVal]) emptyResponses
+      seedToken
+  expectReturned "envRead-token-absent" out5b zeroState
+    (some (refU64 u64Tid 0)) #[]
+
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -5699,6 +5866,7 @@ unsafe def run : IO Unit := do
   testExternalCallUInt16ArgAdmission
   -- ADR-0029 Phase A4: pf.assets opaque void ExternalCall Reference nails
   testPfAssetsOpaqueExternalCallReference session
+  testEnvReadReferenceVaultCoherence
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 
 end Tests.Semantic.ReferenceV1
