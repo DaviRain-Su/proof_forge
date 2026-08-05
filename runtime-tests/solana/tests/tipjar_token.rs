@@ -162,7 +162,7 @@ const MODULE_NAME: &str = "Examples.TokenJarAssets";
 const MATERIALIZED_BASE: &str = "materialized-base";
 const FINALIZED_EXTRA: &str = "finalized-extra";
 const EXPECTED_SOURCE_HASH: &str =
-    "0604a655a80295ed4d482ba8238ba5f291e47f646654259db95188584456331c";
+    "fa7ba02b8ab857a03694ab283b5765c3fa5be7e812f12b5e5b3774c1a90ab73b";
 
 const INIT_HANDLER_ID: u64 = 0;
 const TIP_HANDLER_ID: u64 = 1;
@@ -241,6 +241,14 @@ fn ensure_product_output() -> PathBuf {
         if let Ok(existing) = env::var("PROOF_FORGE_TIPJAR_TOKEN_OUT") {
             let path = PathBuf::from(existing);
             let _elf = read_manifest_leaf_bytes(&path, &format!("{PROGRAM_NAME}.so"), FINALIZED_EXTRA);
+            // The source-identity pin must hold for script-provided trees
+            // too, not only for the self-build branch below (a stale or
+            // foreign tree must fail closed here, not silently pass).
+            let manifest = load_manifest(&path);
+            assert_eq!(
+                manifest.source_hash, EXPECTED_SOURCE_HASH,
+                "script-provided product tree must stay bound to the tracked TokenJarAssets source"
+            );
             return path;
         }
         let root = repo_root2();

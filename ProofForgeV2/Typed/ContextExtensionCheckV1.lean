@@ -9,11 +9,12 @@
     fail-closed with `reqPrecondition`.
   * Engineering extensions are admitted only from the closed Core table
     `engineeringExtensionIdentitiesV1` (currently ADR-0028
-    `solana.cpi.accounts@1.0.0` and ADR-0029 `pf.assets@1.0.0`). Unknown ids
-    fail with `ext001`; a known id with the wrong version/digest fails with
-    `extensionVersion`. Distinct ids may coexist in one program. Admission only
-    carries the declaration into Semantic; it does not advertise target support
-    or permit artifact minting.
+    `solana.cpi.accounts@1.0.0` and ADR-0030 `pf.assets@1.1.0`; the ADR-0029
+    `pf.assets@1.0.0` triple failed closed at the E2 acceptance cutover).
+    Unknown ids fail with `ext001`; a known id with the wrong version/digest
+    fails with `extensionVersion`. Distinct ids may coexist in one program.
+    Admission only carries the declaration into Semantic; it does not
+    advertise target support or permit artifact minting.
 
   Not a formal extension catalog / full context key matrix.
 -/
@@ -116,9 +117,11 @@ def checkContextExtensionDraftsV1
   else
     Id.run do
       let mut drafts : Array TypedDiagnosticDraftV1 := #[]
-      -- Closed engineering extension identities (ADR-0028/0029). Target-neutral:
-      -- exact source triple only; no TargetId or Targets/* import. Resolver/
-      -- profile support remains separate. Dual distinct ids are legal.
+      -- Closed engineering extension identities (ADR-0028/0029/0030). Target-
+      -- neutral: exact source triple only; no TargetId or Targets/* import.
+      -- Resolver/profile support remains separate. Dual distinct ids are
+      -- legal. `pf.assets` accepts exactly the v1.1.0 triple (E2 cutover;
+      -- the v1.0.0 triple fails closed here).
       for (item, itemIndex) in program.items.zipIdx do
         match item with
         | .extensionReq declaration =>
@@ -126,33 +129,42 @@ def checkContextExtensionDraftsV1
             | .error detail => drafts := drafts.push (pathInternalDraft detail)
             | .ok itemPath =>
                 let id := sourceQualifiedNameV1ToString declaration.id
-                match findEngineeringExtensionBySourceIdV1 id with
+                match findExactEngineeringExtensionTripleV1 id
+                    declaration.version declaration.digest with
+                | some _ => pure ()
                 | none =>
-                    -- expected: closed source-id set as a stable UTF-8 list
-                    let closedIds :=
-                      String.intercalate ","
-                        (engineeringExtensionIdentitiesV1.map (·.sourceId) |>.toList)
-                    drafts := drafts.push <| makeLocated .ext001
-                      s!"unsupported extension requirement '{id}'"
-                      itemPath
-                      (expected := some (.string closedIds))
-                      (actual := some (.string id))
-                      (stableContext := some "extension.id.unsupported")
-                | some admitted =>
-                    if declaration.version != admitted.version ||
-                        declaration.digest != admitted.digest then
+                    let knownIds :=
+                      engineeringExtensionIdentitiesV1.map (·.sourceId)
+                    if knownIds.contains id then
+                      -- Known source id but version/digest does not match any
+                      -- accepted triple. Report all accepted triples for this
+                      -- source id as the expected set.
+                      let acceptedTriples :=
+                        engineeringExtensionsBySourceIdV1 id
+                      let expectedTriples := acceptedTriples.map fun admitted =>
+                        .object #[
+                          ("digest", .string admitted.digest),
+                          ("version", .string admitted.version)]
+                      let wireId := acceptedTriples[0]!.wireRequirementId
                       drafts := drafts.push <| makeLocated .extensionVersion
                         s!"extension '{id}' version/digest does not match the frozen contract"
                         itemPath
-                        (expected := some (.object #[
-                          ("digest", .string admitted.digest),
-                          ("version", .string admitted.version)]))
+                        (expected := some (.array expectedTriples))
                         (actual := some (.object #[
                           ("digest", .string declaration.digest),
                           ("version", .string declaration.version)]))
-                        (stableContext := some s!"{admitted.wireRequirementId}.version-digest")
+                        (stableContext := some s!"{wireId}.version-digest")
                     else
-                      pure ()
+                      -- Unknown source id entirely.
+                      let closedIds :=
+                        String.intercalate ","
+                          (knownIds.toList)
+                      drafts := drafts.push <| makeLocated .ext001
+                        s!"unsupported extension requirement '{id}'"
+                        itemPath
+                        (expected := some (.string closedIds))
+                        (actual := some (.string id))
+                        (stableContext := some "extension.id.unsupported")
         | _ => pure ()
       -- Unknown context.* surfaces in any callable body.
       for item in program.items do

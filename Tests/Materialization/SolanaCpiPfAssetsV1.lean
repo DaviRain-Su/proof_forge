@@ -53,8 +53,8 @@ private def hasSubstr (haystack needle : String) : Bool :=
   (haystack.splitOn needle).length > 1
 
 private def pfAssetsHeader : String :=
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
-  "    digest \"sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed\"\n"
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
+  "    digest \"sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9\"\n"
 
 private def wrapProgram (name body : String) : String :=
   "import ProofForgeV2\n" ++
@@ -102,8 +102,8 @@ private def dualExtSource : String :=
   "program DualExt where\n" ++
   "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
   "    digest \"sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020\"\n" ++
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
-  "    digest \"sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed\"\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
+  "    digest \"sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9\"\n" ++
   "  entry tip(dst : Principal, amount : UInt64) : UInt64 do\n" ++
   "    call pf.assets.native.deposit(amount)\n" ++
   "    call pf.assets.native.transfer(dst, amount)\n" ++

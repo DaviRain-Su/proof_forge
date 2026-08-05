@@ -463,14 +463,17 @@ def solanaCpiAccountsExtensionRequirementV1 :
     predicates := #[]
   }
 
-/-- Exact requirement row for the ADR-0029 `pf.assets` extension declaration.
-    Digest is the frozen domain digest of `pf-assets-extension-v1.json`, not
-    `SHA-256(id)`. Recognition alone does not advertise call/schedule support
-    or permit artifact minting. -/
+/-- Exact requirement row for the ADR-0029/0030 `pf.assets` extension
+    declaration. Digest is the frozen domain digest of
+    `pf-assets-extension-v1.1.json` (E2 cutover: 1.1.0 is the sole accepted
+    payload), not `SHA-256(id)`. Recognition alone does not advertise
+    call/schedule support or permit artifact minting. -/
 def pfAssetsExtensionRequirementV1 :
     Except String RequirementRequestV1 := do
-  let version ← parseSemVer ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionVersionV1
-  let digest ← parseDigest ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionDigestV1
+  -- ADR-0030 E2 cutover: the sole accepted pf.assets declaration is the
+  -- 1.1.0 triple (two env-read QNs added); the row carries it exactly.
+  let version ← parseSemVer ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionVersionV1_1
+  let digest ← parseDigest ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionDigestV1_1
   pure {
     id := pfAssetsExtensionRequirementIdV1
     version

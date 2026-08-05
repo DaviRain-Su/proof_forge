@@ -37,8 +37,8 @@ private def liftResult {α : Type} : CompileResult α → IO α
   | .error e => throw <| IO.userError e.render
 
 private def pfAssetsRequiresBlock : String :=
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
-  "    digest \"sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed\"\n"
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
+  "    digest \"sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9\"\n"
 
 private unsafe def compileSource (label : String) (name : String) (source : String) :
     IO CompiledSemanticV1 := do

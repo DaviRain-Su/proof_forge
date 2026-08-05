@@ -35,7 +35,7 @@ private def containsSubstr (s sub : String) : Bool :=
 private def shippedPath : FilePath := FilePath.mk "Examples/TokenJar.lean"
 
 private def pfAssetsDigestV1 : String :=
-  "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+  "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
 
 private def readShipped : IO String := do
   unless ← shippedPath.pathExists do
@@ -45,7 +45,7 @@ private def readShipped : IO String := do
 private def assertShape (text : String) : IO Unit := do
   expect (containsSubstr text "program TokenJar where")
     "must declare program TokenJar"
-  expect (containsSubstr text "requires extension pf.assets version \"1.0.0\"")
+  expect (containsSubstr text "requires extension pf.assets version \"1.1.0\"")
     "must declare exact pf.assets extension triple"
   expect (containsSubstr text pfAssetsDigestV1)
     "must pin frozen pf.assets domain digest"

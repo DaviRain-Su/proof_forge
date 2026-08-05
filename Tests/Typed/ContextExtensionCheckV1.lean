@@ -111,7 +111,7 @@ private def solanaCpiDigest : String :=
   "sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"
 
 private def pfAssetsDigest : String :=
-  "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+  "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
 
 private def extensionSource
     (programName extensionId version digest : String) : String :=
@@ -127,7 +127,7 @@ private def dualExtensionSource (programName : String) : String :=
   "program " ++ programName ++ " where\n" ++
   "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
   "    digest \"" ++ solanaCpiDigest ++ "\"\n" ++
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
   "    digest \"" ++ pfAssetsDigest ++ "\"\n" ++
   "  entry run() : UInt64 do\n" ++
   "    return 0\n"
@@ -198,7 +198,7 @@ private unsafe def testExactSolanaCpiExtensionOk (session : ParserSession) : IO 
 
 private unsafe def testExactPfAssetsExtensionOk (session : ParserSession) : IO Unit := do
   let v ← load session
-    (extensionSource "ExtPfOk" "pf.assets" "1.0.0" pfAssetsDigest)
+    (extensionSource "ExtPfOk" "pf.assets" "1.1.0" pfAssetsDigest)
     "<ext-pf-ok>" "Tests.ExtPfOk"
   let r := checkContextExtensionResultV1 v
   expect (r.ok && r.analysisComplete && r.diagnostics.isEmpty)
@@ -251,7 +251,7 @@ private unsafe def testPfAssetsExtensionSemanticAndProvenance
     (session : ParserSession) : IO Unit := do
   let label := "tests/pf-assets-extension-v1.pf"
   let source :=
-    extensionSource "ExtPfSemantic" "pf.assets" "1.0.0" pfAssetsDigest
+    extensionSource "ExtPfSemantic" "pf.assets" "1.1.0" pfAssetsDigest
   let (validated, spans) ← loadWithSpans session source label "Tests.ExtPfSemantic"
   let carrier ← expectNormalizeOk "pf-assets semantic" (normalizeProgramV1 validated)
   let data ← match validateSemanticProgramV1 carrier with
@@ -326,6 +326,91 @@ private unsafe def expectExtensionFailure
     | _ => false)
     s!"{label}: Normalize must stop at typedNotOk with {code.wire}"
 
+private def pfAssetsV1_1_Digest : String :=
+  "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
+
+/-- ADR-0030 E2: pf.assets@1.1.0 declaration must pass ContextExtension +
+    CheckV1 (additive acceptance). -/
+private unsafe def testPfAssetsV1_1ExtensionOk (session : ParserSession) : IO Unit := do
+  let v ← load session
+    (extensionSource "ExtPf11Ok" "pf.assets" "1.1.0" pfAssetsV1_1_Digest)
+    "<pf-assets-1.1-ok>" "Tests.ExtPf11Ok"
+  let r := checkContextExtensionResultV1 v
+  expect (r.ok && r.diagnostics.isEmpty)
+    "exact pf.assets@1.1.0 extension triple must pass ContextExtension Check"
+  expect (checkProgramTypedResultV1 v).ok
+    "exact pf.assets@1.1.0 extension triple must pass CheckV1 composition"
+  -- env-read catalog QNs are two, distinct from the five statement QNs.
+  expect (pfAssetsEnvReadQualifiedNamesV1.size == 2)
+    "pf.assets env-read catalog must expose two QNs"
+  expect (pfAssetsEnvReadQualifiedNamesV1[0]! == "pf.assets.native.balanceOfSelf")
+    "pf.assets env-read catalog QN0"
+  expect (pfAssetsEnvReadQualifiedNamesV1[1]! == "pf.assets.token.balanceOfSelf")
+    "pf.assets env-read catalog QN1"
+
+/-- ADR-0030 E2: env-read `native.balanceOfSelf()` in a view passes CheckV1
+    with the 1.1.0 declaration; the legacy v1.0.0 triple fails closed
+    (extensionVersion) at declaration acceptance after the E2 cutover. -/
+private def envReadViewSource
+    (programName version digest : String) : String :=
+  "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+  "program " ++ programName ++ " where\n" ++
+  "  requires extension pf.assets version \"" ++ version ++ "\"\n" ++
+  "    digest \"" ++ digest ++ "\"\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  view nativeBalance() : UInt64 do\n" ++
+  "    return pf.assets.native.balanceOfSelf()\n"
+
+private unsafe def testEnvReadViewOkWithV1_1 (session : ParserSession) : IO Unit := do
+  let src := envReadViewSource "EnvReadOk" "1.1.0" pfAssetsV1_1_Digest
+  let v ← load session src "<env-read-ok>" "Tests.EnvReadOk"
+  let composed := checkProgramTypedResultV1 v
+  expect composed.ok
+    s!"env-read view with 1.1.0 must pass CheckV1; got: {composed.diagnostics.map (·.message)|>.toList}"
+
+private unsafe def testEnvReadViewFailsWithV1_0 (session : ParserSession) : IO Unit := do
+  let src := envReadViewSource "EnvReadV10" "1.0.0" pfAssetsDigest
+  let v ← load session src "<env-read-v10>" "Tests.EnvReadV10"
+  let composed := checkProgramTypedResultV1 v
+  expect (!composed.ok)
+    "env-read view with v1.0.0 must fail CheckV1"
+  expect (composed.diagnostics.any (·.code == .extensionVersion))
+    "env-read view with v1.0.0 must fail with extensionVersion"
+
+/-- ADR-0030 E2: statement-position `call pf.assets.native.balanceOfSelf()`
+    fails closed (env-read is expression-position only). -/
+private unsafe def testEnvReadStatementPositionFails (session : ParserSession) : IO Unit := do
+  let src :=
+    "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+    "program EnvReadStmt where\n" ++
+    "  requires extension pf.assets version \"1.1.0\"\n" ++
+    "    digest \"" ++ pfAssetsV1_1_Digest ++ "\"\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    call pf.assets.native.balanceOfSelf()\n" ++
+    "    return 0\n"
+  let v ← load session src "<env-read-stmt>" "Tests.EnvReadStmt"
+  let composed := checkProgramTypedResultV1 v
+  expect (!composed.ok)
+    "statement-position env-read call must fail CheckV1"
+  expect (composed.diagnostics.any (·.code == .sourceInvalid))
+    "statement-position env-read call must fail with sourceInvalid"
+
+/-- ADR-0030 E2: wrong arity `pf.assets.native.balanceOfSelf(42)` fails. -/
+private unsafe def testEnvReadWrongArityFails (session : ParserSession) : IO Unit := do
+  let src :=
+    "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+    "program EnvReadArity where\n" ++
+    "  requires extension pf.assets version \"1.1.0\"\n" ++
+    "    digest \"" ++ pfAssetsV1_1_Digest ++ "\"\n" ++
+    "  view bad() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf(42)\n"
+  let v ← load session src "<env-read-arity>" "Tests.EnvReadArity"
+  let composed := checkProgramTypedResultV1 v
+  expect (!composed.ok)
+    "wrong-arity env-read must fail CheckV1"
+
 private unsafe def testExtensionNegativeMatrix (session : ParserSession) : IO Unit := do
   let zeroDigest :=
     "sha256:0000000000000000000000000000000000000000000000000000000000000000"
@@ -347,10 +432,15 @@ unsafe def run : IO Unit := do
   testBadContextSurface session
   testExactSolanaCpiExtensionOk session
   testExactPfAssetsExtensionOk session
+  testPfAssetsV1_1ExtensionOk session
   testSolanaCpiExtensionSemanticAndProvenance session
   testPfAssetsExtensionSemanticAndProvenance session
   testDualExtensionDeclarationOk session
   testExtensionNegativeMatrix session
+  testEnvReadViewOkWithV1_1 session
+  testEnvReadViewFailsWithV1_0 session
+  testEnvReadStatementPositionFails session
+  testEnvReadWrongArityFails session
   IO.println "Tests.Typed.ContextExtensionCheckV1: ok"
 
 end Tests.Typed.ContextExtensionCheckV1

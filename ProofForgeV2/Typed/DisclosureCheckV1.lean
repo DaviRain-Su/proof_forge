@@ -83,6 +83,7 @@
   identity (invocation-start snapshot; N-2).
 -/
 import ProofForgeV2.Core.DiagnosticV1
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstPatternV1
 import ProofForgeV2.Source.AstProgramItemV1
@@ -103,6 +104,7 @@ import ProofForgeV2.Typed.NameResolutionV1
 namespace ProofForgeV2.Typed.DisclosureCheckV1
 
 open ProofForgeV2.Core.DiagnosticV1
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstPatternV1
 open ProofForgeV2.Source.ContextCommitSurfaceV1
@@ -377,15 +379,29 @@ mutual
           | none => pure none
           | some ep => directOrFail ep "Expr.Place" "place"
         placeRValueVisibility tables scope pc pp? p
-    | .constructor _ args => do
-        let mut acc : VisibilityEvidence := publicEvidence
-        for (a, i) in args.zipIdx do
-          let ap? ← match exprPath? with
-            | none => pure none
-            | some ep => childOrFail ep "Expr.Constructor" "args" i
-          let v ← exprVisibility tables scope pc ap? a
-          acc := joinVisibilityEvidence acc v
-        pure acc
+    | .constructor ctor args => do
+        -- ADR-0030 E2: env-read catalog QNs produce a public_ result (balance
+        -- read is a public observation); args are explicit public sinks (the
+        -- mint Principal is a key, not a value that taints the result).
+        let ctorQn := sourceQualifiedNameV1ToString ctor
+        if isPfAssetsEnvReadQnV1 ctorQn then
+          for (a, i) in args.zipIdx do
+            let ap? ← match exprPath? with
+              | none => pure none
+              | some ep => childOrFail ep "Expr.Constructor" "args" i
+            let v ← exprVisibility tables scope pc ap? a
+            requirePublic pc v ap?
+              (stableUniqueUnion (optPathArray exprPath?) (optPathArray exprPath?))
+          pure publicEvidence
+        else
+          let mut acc : VisibilityEvidence := publicEvidence
+          for (a, i) in args.zipIdx do
+            let ap? ← match exprPath? with
+              | none => pure none
+              | some ep => childOrFail ep "Expr.Constructor" "args" i
+            let v ← exprVisibility tables scope pc ap? a
+            acc := joinVisibilityEvidence acc v
+          pure acc
     | .unary _ e => do
         let op? ← match exprPath? with
           | none => pure none

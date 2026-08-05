@@ -725,10 +725,10 @@ unsafe def testBoolPureFnInvariant : IO Unit := do
 
 /-- ADR-0029 frozen pf.assets extension digest. -/
 private def pfAssetsDigestV1 : String :=
-  "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+  "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
 
 private def pfAssetsRequiresBlock : String :=
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
   "    digest \"" ++ pfAssetsDigestV1 ++ "\"\n"
 
 /-- A5: native deposit/transfer lower to vault + nondet outcome + stutter. -/

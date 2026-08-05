@@ -7638,6 +7638,77 @@ private unsafe def testInvariantDoesNotChangeNoInvPrograms
     expect (c.invariantSteps.isNone)
       s!"counter-noinv: callable {repr c.name} steps none"
 
+/-- ADR-0030 E2: env-read `native.balanceOfSelf()` normalizes to
+    `Op.envRead .nativeVaultBalance #[]` with UInt64 result. -/
+private unsafe def testEnvReadNormalize
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let pfV11Digest :=
+    "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
+  let source := wrap "EnvReadNorm" <|
+    "  requires extension pf.assets version \"1.1.0\"\n" ++
+    "    digest \"" ++ pfV11Digest ++ "\"\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  view nativeBalance() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n"
+  let validated ← loadSource session "env-read-norm" source
+  expect (checkProgramTypedResultV1 validated).ok
+    "env-read-norm: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"env-read-norm: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"env-read-norm: validate: {repr e}"
+  -- Find the view callable and check Op.envRead is present.
+  let mut foundEnvRead := false
+  for callable in data.callables do
+    for block in callable.blocks do
+      for instr in block.instructions do
+        match instr.op with
+        | .envRead .nativeVaultBalance args =>
+            expect (args.isEmpty) "env-read-norm: nativeVaultBalance must have 0 args"
+            expect (instr.result.isSome) "env-read-norm: envRead must produce a result"
+            foundEnvRead := true
+        | _ => pure ()
+  expect foundEnvRead "env-read-norm: must emit Op.envRead .nativeVaultBalance"
+  -- Requirements: extension.pf-assets row must be present.
+  let hasPfAssetsRow := data.requirements.items.any (·.id == "extension.pf-assets")
+  expect hasPfAssetsRow "env-read-norm: requirements must include extension.pf-assets"
+
+/-- ADR-0030 E2: env-read `token.balanceOfSelf(mint)` normalizes to
+    `Op.envRead .tokenVaultBalance #[mintVid]`. -/
+private unsafe def testEnvReadTokenNormalize
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let pfV11Digest :=
+    "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
+  let source := wrap "EnvReadTokenNorm" <|
+    "  requires extension pf.assets version \"1.1.0\"\n" ++
+    "    digest \"" ++ pfV11Digest ++ "\"\n" ++
+    "  entry run(mint : Principal) : UInt64 do\n" ++
+    "    return pf.assets.token.balanceOfSelf(mint)\n"
+  let validated ← loadSource session "env-read-token-norm" source
+  expect (checkProgramTypedResultV1 validated).ok
+    "env-read-token-norm: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"env-read-token-norm: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"env-read-token-norm: validate: {repr e}"
+  let mut foundEnvRead := false
+  for callable in data.callables do
+    for block in callable.blocks do
+      for instr in block.instructions do
+        match instr.op with
+        | .envRead .tokenVaultBalance args =>
+            expect (args.size == 1) "env-read-token-norm: tokenVaultBalance must have 1 arg"
+            expect (instr.result.isSome) "env-read-token-norm: envRead must produce a result"
+            foundEnvRead := true
+        | _ => pure ()
+  expect foundEnvRead "env-read-token-norm: must emit Op.envRead .tokenVaultBalance"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterHappyPath session
@@ -7784,6 +7855,9 @@ unsafe def run : IO Unit := do
   testMultiArmSameOuterNestedLit session
   testExprMultiArmSameOuter session
   testMultiArmDuplicateCtorFailClosed session
+  -- ADR-0030 E2: env-read normalize pin
+  testEnvReadNormalize session
+  testEnvReadTokenNormalize session
   IO.println "Tests.Semantic.NormalizeV1: ok"
 
 end Tests.Semantic.NormalizeV1

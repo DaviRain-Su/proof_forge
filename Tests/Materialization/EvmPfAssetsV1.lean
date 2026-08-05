@@ -44,13 +44,13 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
   | .error e => throw <| IO.userError s!"{label}: {e.render}"
 
 private def pfAssetsDigestV1 : String :=
-  "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+  "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
 
 private def tipSource (name : String) (extra : String := "") : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   s!"program {name} where\n" ++
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
   s!"    digest \"{pfAssetsDigestV1}\"\n" ++
   "  state tips : UInt64\n" ++
   "  init(initial : UInt64) do\n" ++
@@ -81,7 +81,7 @@ private def asyncSource : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program AsyncAssets where\n" ++
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
   s!"    digest \"{pfAssetsDigestV1}\"\n" ++
   "  entry tip(dst : Principal, amount : UInt64) : UInt64 do\n" ++
   "    call pf.assets.native.transferAsync(dst, amount)\n" ++
@@ -91,7 +91,7 @@ private def tokenSource : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program TokenAssets where\n" ++
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
   s!"    digest \"{pfAssetsDigestV1}\"\n" ++
   "  entry tip(mint : Principal, dst : Principal, amount : UInt64) : UInt64 do\n" ++
   "    call pf.assets.token.transfer(mint, dst, amount)\n" ++
@@ -101,7 +101,7 @@ private def tokenAsyncSource : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program TokenAsyncAssets where\n" ++
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
   s!"    digest \"{pfAssetsDigestV1}\"\n" ++
   "  entry tip(mint : Principal, dst : Principal, amount : UInt64) : UInt64 do\n" ++
   "    call pf.assets.token.transferAsync(mint, dst, amount)\n" ++

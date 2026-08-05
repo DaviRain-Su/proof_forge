@@ -2247,6 +2247,47 @@ private partial def lowerExpr
           pure (vid, stringTid, st1)
   | .constructor ctor args => do
       let ctorComps := (NonEmptyArray.toArray ctor.components).map (·.raw)
+      let ctorQn := sourceQualifiedNameStringV1 ctor
+      -- ADR-0030 E2: env-read catalog QNs (pf.assets.*.balanceOfSelf) lower to
+      -- Op.envRead. These are the first non-Unit catalog members
+      -- (expression-position only, result UInt64, effect-free, view-callable).
+      match pfAssetsEnvReadFamilyOfV1 ctorQn with
+      | some family => do
+          -- Result is always UInt64; the enclosing expected type must match.
+          let (iU64, u64Tid) := internShape st.interner (.uint 64)
+          let st0 := { st with interner := iU64 }
+          unless u64Tid == expectedTid do
+            return ← failUnsupported
+              "S1 env-read catalog call result type must be UInt64"
+          match family with
+          | .nativeBalance => do
+              unless args.isEmpty do
+                return ← failUnsupported
+                  "S1 pf.assets.native.balanceOfSelf takes no arguments"
+              let (st1, vid) := emitValue st0 u64Tid
+                (.envRead .nativeVaultBalance #[])
+              pure (vid, u64Tid, st1)
+          | .tokenBalance => do
+              unless args.size == 1 do
+                return ← failUnsupported
+                  "S1 pf.assets.token.balanceOfSelf takes exactly one Principal argument"
+              -- Lower the mint argument as a Principal (no expected-type
+              -- inference; Principal enters via params/state/const only).
+              let (iP, pTid) := internShape st0.interner .principal
+              let st1 := { st0 with interner := iP }
+              if h : args.size ≥ 1 then
+                let mintArg := args[0]
+                let (mintVid, mintTid, st2) ← lowerExpr mintArg pTid st1 states fns
+                unless mintTid == pTid do
+                  return ← failUnsupported
+                    "S1 pf.assets.token.balanceOfSelf mint argument must be a Principal"
+                let (st3, vid) := emitValue st2 u64Tid
+                  (.envRead .tokenVaultBalance #[mintVid])
+                pure (vid, u64Tid, st3)
+              else
+                failUnsupported
+                  "S1 pf.assets.token.balanceOfSelf mint argument missing"
+      | none =>
       if ctorComps == #["Map", "of"] then
         -- N-MAP-CONSTRUCT: variadic `Map.of(k0, v0, ...)` — flattened key/value
         -- pairs lowered in source order into one Construct. Reference
@@ -3922,7 +3963,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     | .extensionReq declaration =>
         unless isExactEngineeringExtensionV1 declaration do
           return ← failUnsupported
-            "S1 normalizer admits only exact closed engineering extension contracts (solana.cpi.accounts@1.0.0, pf.assets@1.0.0)"
+            "S1 normalizer admits only exact closed engineering extension contracts (solana.cpi.accounts@1.0.0, pf.assets@1.1.0)"
         match wireIdOfExactEngineeringExtensionV1 declaration with
         | some wid =>
             if wid == wireExtensionSolanaCpiAccountsIdV1 then

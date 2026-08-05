@@ -25,10 +25,12 @@ import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.ContextCommitSurfaceV1
 import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Source.ValidatedSourceV1
 
 namespace ProofForgeV2.Typed.RequirementsInferV1
 
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstProgramItemV1
@@ -39,7 +41,13 @@ open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.ContextCommitSurfaceV1
 open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.ValidatedSourceV1
+
+/-- Render a source qualified name as a dot-separated string (for catalog QN
+    comparison). Mirrors `Typed.ModelV1.sourceQualifiedNameV1ToString`. -/
+private def qnToString (qn : SourceQualifiedNameV1) : String :=
+  String.intercalate "." ((NonEmptyArray.toArray qn.components).map (·.raw) |>.toList)
 
 /-- One target-neutral requirement contribution identity.
     Private constructor: only this AST analysis can mint contributions. -/
@@ -78,6 +86,11 @@ private def commitmentState := contribution inferDisclosureCommitmentStateIdV1
 private def contextUnixTime := contribution wireContextUnixTimeSecondsIdV1
 private def contextCaller := contribution wireContextCallerIdV1
 private def commitOp := contribution wireCommitmentDisclosureIdV1
+
+/-- ADR-0030 E2: env-read catalog call sites require the `extension.pf-assets`
+    requirement row (same catalog-call-requires-that-row discipline as the
+    statement QNs). Env-read produces NO effect (not synchronous-call). -/
+private def pfAssetsExtensionRow := contribution wireExtensionPfAssetsIdV1
 
 private def stableUniqueContributions
     (values : Array RequirementContributionV1) : Array RequirementContributionV1 :=
@@ -133,7 +146,14 @@ mutual
   private partial def exprContributions : ExprV1 → Array RequirementContributionV1
     | .literal _ => #[]
     | .place place => placeContributions place
-    | .constructor _ args => args.flatMap exprContributions
+    | .constructor ctor args =>
+        let child := args.flatMap exprContributions
+        -- ADR-0030 E2: env-read catalog QNs require the extension.pf-assets
+        -- requirement row; they produce NO effect (not synchronous-call).
+        if isPfAssetsEnvReadQnV1 (qnToString ctor) then
+          child ++ #[pfAssetsExtensionRow]
+        else
+          child
     | .unary .neg operand =>
         exprContributions operand ++ #[checkedArithmetic, transactionalRollback]
     | .unary _ operand => exprContributions operand

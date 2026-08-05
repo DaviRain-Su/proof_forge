@@ -50,6 +50,7 @@
     * effects and requirements.
 -/
 import ProofForgeV2.Core.DiagnosticV1
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramV1
@@ -69,6 +70,7 @@ import ProofForgeV2.Typed.NameResolutionV1
 namespace ProofForgeV2.Typed.TypeCheckV1
 
 open ProofForgeV2.Core.DiagnosticV1
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
@@ -509,6 +511,16 @@ private def tryMapEmptyConstructor
           some (.map key value, #[])
         else none
   | _, _ => none
+
+/-- True when the program declares the `pf.assets@1.1.0` extension triple
+    (required for env-read catalog QNs). ADR-0030 E2: env-read QNs require the
+    1.1.0 declaration; v1.0.0-only programs using env-read fail closed. -/
+def hasPfAssetsV1_1DeclarationV1 (tables : TypedDeclTablesV1) : Bool :=
+  tables.extensionReq.entries.any fun (_, _, decl) =>
+    let id := sourceQualifiedNameV1ToString decl.id
+    id == pfAssetsExtensionSourceIdV1 &&
+      decl.version == pfAssetsExtensionVersionV1_1 &&
+      decl.digest == pfAssetsExtensionDigestV1_1
 
 /-- Resolve a constructor path to its result type and expected argument types.
     Mirrors `NameResolutionV1.resolveConstructorName`. Optional `expected?` unlocks
@@ -1144,79 +1156,131 @@ mutual
               "binary expression")
             exprPath? expectedRelated]
     | .constructor ctor args =>
-        let isMapOf := match ctor.components.toArray with
-          | #[typeName, method] => typeName.raw == "Map" && method.raw == "of"
-          | _ => false
-        if isMapOf then
-          -- N-MAP-CONSTRUCT: variadic `Map.of(k0, v0, ...)` typed against the
-          -- enclosing expected Map type (flattened key/value pairs; duplicate
-          -- keys keep IndexSet last-wins semantics at the Reference).
-          match expected? with
-          | some (.map keyT valueT) =>
-              let (pairDrafts, pathDs) := args.zipIdx.foldl
-                (fun (acc, pds) (arg, i) =>
-                  let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
-                  let expectedArg := if i % 2 == 0 then keyT else valueT
-                  let ar := typeCheckExprDrafts scope tables (some expectedArg) #[] ap? arg
-                  (acc ++ ar.drafts, pds ++ pd))
-                (#[], #[])
-              let arityDrafts :=
-                if args.size % 2 == 0 then #[]
-                else #[locateDraft
+        let ctorQn := sourceQualifiedNameV1ToString ctor
+        -- ADR-0030 E2: env-read catalog QNs in expression position.
+        -- `pf.assets.native.balanceOfSelf()` and
+        -- `pf.assets.token.balanceOfSelf(mint)` are the first non-Unit
+        -- catalog members; they parse as `.constructor` (multi-component
+        -- `ident(args)`). Intercept before the normal struct/enum path.
+        match pfAssetsEnvReadFamilyOfV1 ctorQn with
+        | some family =>
+          let envDrafts : Array TypedDiagnosticDraftV1 :=
+            Id.run do
+              let mut drafts : Array TypedDiagnosticDraftV1 := #[]
+              -- Require the pf.assets@1.1.0 declaration.
+              unless hasPfAssetsV1_1DeclarationV1 tables do
+                drafts := drafts.push <| locateDraft
+                  (make .extensionVersion
+                    s!"env-read catalog call '{ctorQn}' requires the pf.assets@1.1.0 extension declaration"
+                    (expected := some (.object #[
+                      ("digest", .string pfAssetsExtensionDigestV1_1),
+                      ("version", .string pfAssetsExtensionVersionV1_1)]))
+                    (actual := some (.string "no pf.assets@1.1.0 declaration"))
+                    (stableContext := some "extension.pf-assets.env-read.requires-v1.1.0"))
+                  exprPath?
+              -- Exact arg shape check.
+              let expectedArity := pfAssetsEnvReadArityV1 family
+              unless args.size == expectedArity do
+                drafts := drafts.push <| locateDraft
                   (expectedActualDiagnosticDraft
-                    "an even number of Map.of key/value arguments"
-                    s!"{args.size} constructor arguments")
-                  exprPath? #[]]
-              let (type_, drafts) :=
-                checkExpectedDraft (.map keyT valueT) expected? exprPath? expectedRelated
-                  (pathDs ++ arityDrafts ++ pairDrafts)
-              resultDraft type_ drafts
-          | _ =>
-              resultDraft (expected?.getD .unit) #[locateDraft
-                (expectedActualDiagnosticDraft "an enclosing Map expected type"
-                  "Map.of constructor")
-                exprPath? expectedRelated]
-        else
-          let pathRes := resolveConstructorType tables ctor expected?
-          match pathRes with
-          | .error diag =>
-              let (argDrafts, pathDs) := args.zipIdx.foldl
-                (fun (acc, pds) (arg, i) =>
-                  let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
-                  let ar := typeCheckExprDrafts scope tables none #[] ap? arg
-                  (acc ++ ar.drafts, pds ++ pd))
-                (#[], #[])
-              resultDraft (expected?.getD .unit)
-                (pathDs ++ #[draftFromDiag diag exprPath? #[]] ++ argDrafts)
-          | .ok (resType, expectedTypes) =>
-              let relatedCtor := constructorRelatedPaths tables ctor resType
-              let drafts : Array TypedDiagnosticDraftV1 := #[]
-              let drafts :=
-                if expectedTypes.size == args.size then drafts
-                else drafts ++ #[locateDraft
-                  (expectedActualDiagnosticDraft
-                    s!"{expectedTypes.size} constructor arguments"
-                    s!"{args.size} constructor arguments")
-                  exprPath? relatedCtor]
-              -- Arity mismatch: only the arity locateDraft (no arg walk). Resolve-error
-              -- and matching-arity paths still walk args; revert/emit keep their walks.
-              let (argDrafts, pathDs) :=
-                if expectedTypes.size == args.size then
-                  (expectedTypes.zip args).zipIdx.foldl
-                    (fun (acc, pds) ((expectedType, arg), i) =>
-                      let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
-                      let argRelated :=
-                        constructorArgRelatedPaths tables ctor resType i
-                      let ar := typeCheckExprDrafts scope tables (some expectedType)
-                        argRelated ap? arg
-                      (acc ++ ar.drafts, pds ++ pd))
-                    (#[], #[])
-                else
+                    s!"{expectedArity} arguments"
+                    s!"{args.size} arguments")
+                  exprPath? #[]
+              pure drafts
+          -- Walk args: token family requires one Principal arg.
+          let (argDrafts, pathDs) :=
+            match family with
+            | .tokenBalance =>
+              match args with
+              | #[arg] =>
+                let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" 0
+                let ar := typeCheckExprDrafts scope tables (some .principal) #[] ap? arg
+                let typeDiag :=
+                  if ar.type == .principal then #[]
+                  else #[locateDraft
+                    (expectedActualDiagnosticDraft "Principal" (typeName ar.type))
+                    exprPath? #[]]
+                (ar.drafts ++ typeDiag, pd)
+              | _ => (#[], #[])
+            | .nativeBalance => (#[], #[])
+          let drafts := envDrafts ++ pathDs ++ argDrafts
+          let (type_, drafts) :=
+            checkExpectedDraft (.uint 64) expected? exprPath? expectedRelated drafts
+          resultDraft type_ drafts
+        | none =>
+          let isMapOf := match ctor.components.toArray with
+            | #[typeName, method] => typeName.raw == "Map" && method.raw == "of"
+            | _ => false
+          if isMapOf then
+            -- N-MAP-CONSTRUCT: variadic `Map.of(k0, v0, ...)` typed against the
+            -- enclosing expected Map type (flattened key/value pairs; duplicate
+            -- keys keep IndexSet last-wins semantics at the Reference).
+            match expected? with
+            | some (.map keyT valueT) =>
+                let (pairDrafts, pathDs) := args.zipIdx.foldl
+                  (fun (acc, pds) (arg, i) =>
+                    let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
+                    let expectedArg := if i % 2 == 0 then keyT else valueT
+                    let ar := typeCheckExprDrafts scope tables (some expectedArg) #[] ap? arg
+                    (acc ++ ar.drafts, pds ++ pd))
                   (#[], #[])
-              let drafts := pathDs ++ drafts ++ argDrafts
-              let (type_, drafts) :=
-                checkExpectedDraft resType expected? exprPath? expectedRelated drafts
-              resultDraft type_ drafts
+                let arityDrafts :=
+                  if args.size % 2 == 0 then #[]
+                  else #[locateDraft
+                    (expectedActualDiagnosticDraft
+                      "an even number of Map.of key/value arguments"
+                      s!"{args.size} constructor arguments")
+                    exprPath? #[]]
+                let (type_, drafts) :=
+                  checkExpectedDraft (.map keyT valueT) expected? exprPath? expectedRelated
+                    (pathDs ++ arityDrafts ++ pairDrafts)
+                resultDraft type_ drafts
+            | _ =>
+                resultDraft (expected?.getD .unit) #[locateDraft
+                  (expectedActualDiagnosticDraft "an enclosing Map expected type"
+                    "Map.of constructor")
+                  exprPath? expectedRelated]
+          else
+            let pathRes := resolveConstructorType tables ctor expected?
+            match pathRes with
+            | .error diag =>
+                let (argDrafts, pathDs) := args.zipIdx.foldl
+                  (fun (acc, pds) (arg, i) =>
+                    let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
+                    let ar := typeCheckExprDrafts scope tables none #[] ap? arg
+                    (acc ++ ar.drafts, pds ++ pd))
+                  (#[], #[])
+                resultDraft (expected?.getD .unit)
+                  (pathDs ++ #[draftFromDiag diag exprPath? #[]] ++ argDrafts)
+            | .ok (resType, expectedTypes) =>
+                let relatedCtor := constructorRelatedPaths tables ctor resType
+                let drafts : Array TypedDiagnosticDraftV1 := #[]
+                let drafts :=
+                  if expectedTypes.size == args.size then drafts
+                  else drafts ++ #[locateDraft
+                    (expectedActualDiagnosticDraft
+                      s!"{expectedTypes.size} constructor arguments"
+                      s!"{args.size} constructor arguments")
+                    exprPath? relatedCtor]
+                -- Arity mismatch: only the arity locateDraft (no arg walk). Resolve-error
+                -- and matching-arity paths still walk args; revert/emit keep their walks.
+                let (argDrafts, pathDs) :=
+                  if expectedTypes.size == args.size then
+                    (expectedTypes.zip args).zipIdx.foldl
+                      (fun (acc, pds) ((expectedType, arg), i) =>
+                        let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
+                        let argRelated :=
+                          constructorArgRelatedPaths tables ctor resType i
+                        let ar := typeCheckExprDrafts scope tables (some expectedType)
+                          argRelated ap? arg
+                        (acc ++ ar.drafts, pds ++ pd))
+                      (#[], #[])
+                  else
+                    (#[], #[])
+                let drafts := pathDs ++ drafts ++ argDrafts
+                let (type_, drafts) :=
+                  checkExpectedDraft resType expected? exprPath? expectedRelated drafts
+                resultDraft type_ drafts
     | .localCall callee args =>
         -- N5: intrinsic `commit(x)` when no user `fn commit` — result type =
         -- operand type (label-only identity; disclosure is a separate phase).
@@ -1713,22 +1777,45 @@ mutual
         (scope, startDrafts ++ endDrafts ++ widthDrafts ++ pathDs3 ++ bodyDrafts)
     | .call externalCall =>
         let (cp?, pathDs0) := resolveDirect stmtPath? "Stmt.Call" "call"
+        -- ADR-0030 E2: result-bearing env-read catalog QNs are expression-
+        -- position ONLY. A bare `call pf.assets.*.balanceOfSelf(...)` in
+        -- statement position fails closed (typedCallReturn: env-read-family-only).
+        let callQn := sourceQualifiedNameV1ToString externalCall.callee
+        let envReadStmtDrafts : Array TypedDiagnosticDraftV1 :=
+          if isPfAssetsEnvReadQnV1 callQn then
+            #[locateDraft
+              (make .sourceInvalid
+                s!"env-read catalog call '{callQn}' is expression-position only; statement-position 'call' of a result-bearing catalog QN fails closed"
+                (stableContext := some "extension.pf-assets.env-read.statement-position-forbidden"))
+              cp?]
+          else #[]
         let (argDrafts, pathDs) := externalCall.args.zipIdx.foldl
           (fun (acc, pds) (arg, i) =>
             let (ap?, pd) := resolveChild cp? "ExternalCallExpr" "args" i
             let ar := typeCheckExprDrafts scope tables none #[] ap? arg
             (acc ++ ar.drafts, pds ++ pd))
           (#[], #[])
-        (scope, pathDs0 ++ pathDs ++ argDrafts)
+        (scope, pathDs0 ++ pathDs ++ argDrafts ++ envReadStmtDrafts)
     | .schedule externalCall =>
         let (cp?, pathDs0) := resolveDirect stmtPath? "Stmt.Schedule" "call"
+        -- ADR-0030 E2: env-read catalog QNs are expression-position only and
+        -- effect-free; scheduling them as async workflow fails closed.
+        let callQn := sourceQualifiedNameV1ToString externalCall.callee
+        let envReadStmtDrafts : Array TypedDiagnosticDraftV1 :=
+          if isPfAssetsEnvReadQnV1 callQn then
+            #[locateDraft
+              (make .sourceInvalid
+                s!"env-read catalog call '{callQn}' is expression-position only; scheduling a result-bearing catalog QN fails closed"
+                (stableContext := some "extension.pf-assets.env-read.schedule-forbidden"))
+              cp?]
+          else #[]
         let (argDrafts, pathDs) := externalCall.args.zipIdx.foldl
           (fun (acc, pds) (arg, i) =>
             let (ap?, pd) := resolveChild cp? "ExternalCallExpr" "args" i
             let ar := typeCheckExprDrafts scope tables none #[] ap? arg
             (acc ++ ar.drafts, pds ++ pd))
           (#[], #[])
-        (scope, pathDs0 ++ pathDs ++ argDrafts)
+        (scope, pathDs0 ++ pathDs ++ argDrafts ++ envReadStmtDrafts)
     | .match_ scrutinee arms =>
         let (sp?, pathDs0) := resolveDirect stmtPath? "Stmt.Match" "scrutinee"
         let scrutineeRes :=

@@ -6,6 +6,7 @@
   `resolveProgramV1` erases drafts; additive `resolveProgramDraftsV1` exposes
   located drafts for tests/materialization through B7a.
 -/
+import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.AstSpineV1
@@ -37,6 +38,7 @@ open ProofForgeV2.Typed.DiagnosticDraftV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticV1
+open ProofForgeV2.Core.RequirementIdsV1
 
 /-- Resolution walk state. `drafts` is the authority; `diagnostics` is the
     order-preserving erased projection kept in lockstep for public consumers
@@ -319,7 +321,12 @@ mutual
         | none => pure ()
         | some pp => resolvePlace tables scope pp p
     | .constructor ctor args => do
-        resolveConstructorName tables exprPath ctor
+        -- ADR-0030 E2: env-read catalog QNs are not struct/enum constructors;
+        -- skip `resolveConstructorName` (TypeCheck validates arg shape +
+        -- extension declaration). Still walk args for place/name resolution.
+        let ctorQn := sourceQualifiedNameV1ToString ctor
+        unless isPfAssetsEnvReadQnV1 ctorQn do
+          resolveConstructorName tables exprPath ctor
         for (arg, i) in args.zipIdx do
           match ← childOrInternal exprPath "Expr.Constructor" "args" i with
           | none => pure ()

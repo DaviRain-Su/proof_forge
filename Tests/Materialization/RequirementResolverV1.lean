@@ -1501,14 +1501,14 @@ private unsafe def testCapabilityMintUniqueness : IO Unit := do
     * Non-catalog `call Oracle.feed` → resolve accepts sync-call; Plan/lowering
       fail closed (pinned in QuintSourceV1). -/
 private def pfAssetsDigestV1 : String :=
-  "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+  "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
 
 private def pfAssetsDeclaredOnlySourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
   "program PfAssetsDeclared where\n" ++
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
   "    digest \"" ++ pfAssetsDigestV1 ++ "\"\n\n" ++
   "  entry run() : UInt64 do\n" ++
   "    return 0\n\n" ++
@@ -1519,7 +1519,7 @@ private def pfAssetsCallTransferSourceText : String :=
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
   "program PfAssetsCall where\n" ++
-  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
   "    digest \"" ++ pfAssetsDigestV1 ++ "\"\n\n" ++
   "  entry transfer(dst : Principal, amount : UInt64) : UInt64 do\n" ++
   "    call pf.assets.native.transfer(dst, amount)\n" ++

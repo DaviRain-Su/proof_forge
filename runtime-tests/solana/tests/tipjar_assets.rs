@@ -53,7 +53,7 @@ const MODULE_NAME: &str = "Examples.TipJarAssets";
 const SOURCE_REL: &str = "runtime-tests/solana/fixtures/TipJarAssets.lean";
 /// Canonical ProgramV1 source identity for the tracked fixture above.
 const EXPECTED_SOURCE_HASH: &str =
-    "0604a655a80295ed4d482ba8238ba5f291e47f646654259db95188584456331c";
+    "cd0e3215bbf007208ccc70bb86da2dcf7c95a10f08506221ea8d8b89048768d1";
 const MATERIALIZED_BASE: &str = "materialized-base";
 const FINALIZED_EXTRA: &str = "finalized-extra";
 

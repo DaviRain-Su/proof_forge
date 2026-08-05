@@ -142,27 +142,75 @@ def wireExtensionSolanaCpiAccountsIdV1 : String :=
 /-- Frozen source declaration id for ADR-0029's portable `pf.assets` extension. -/
 def pfAssetsExtensionSourceIdV1 : String := "pf.assets"
 
-/-- Frozen canonical SemVer spelling for the `pf.assets` extension declaration. -/
+/-- Frozen canonical SemVer spelling for the `pf.assets@1.0.0` extension
+    declaration (ADR-0029 Phase A; original five statement QNs). -/
 def pfAssetsExtensionVersionV1 : String := "1.0.0"
 
-/-- Frozen domain-separated digest of the exact `pf.assets` extension JCS
+/-- Frozen domain-separated digest of the exact `pf.assets@1.0.0` extension JCS
     (`SHA-256("pf.extension-semantics.v1" || NUL || extensionJcs)` over
     `docs/specs/pf-assets-extension-v1.json`). Not derived from the wire id. -/
 def pfAssetsExtensionDigestV1 : String :=
   "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
 
+/-- Frozen canonical SemVer spelling for the `pf.assets@1.1.0` extension
+    declaration (ADR-0030 E2; adds the two env-read balanceOfSelf QNs).
+    Additive acceptance: both v1.0.0 and v1.1.0 declarations are accepted by
+    Source/Typed; the env-read QNs REQUIRE the 1.1.0 declaration. -/
+def pfAssetsExtensionVersionV1_1 : String := "1.1.0"
+
+/-- Frozen domain-separated digest of the exact `pf.assets@1.1.0` extension JCS
+    (`SHA-256("pf.extension-semantics.v1" || NUL || extensionJcs)` over
+    `docs/specs/pf-assets-extension-v1.1.json`). Not derived from the wire id. -/
+def pfAssetsExtensionDigestV1_1 : String :=
+  "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
+
 /-- Wire exact-row id for the `pf.assets` extension declaration
-    (domain `pf.extension-semantics.v1`). -/
+    (domain `pf.extension-semantics.v1`). Shared by both accepted versions;
+    the wire row carries the declared version/digest. -/
 def wireExtensionPfAssetsIdV1 : String := "extension.pf-assets"
 
 /-- Closed chain-neutral catalog QNs for `pf.assets@1.0.0` (ADR-0029).
     Target-neutral table lives here so Frontend/Typed/Semantic never import
     `Targets/`. A2 does not force QN-vs-declaration binding at Normalize;
-    catalog-call lowering remains target/profile owned. -/
+    catalog-call lowering remains target/profile owned. These five statement
+    QNs keep working under EITHER declaration version (E2-2a additive). -/
 def pfAssetsCatalogQualifiedNamesV1 : Array String :=
   #["pf.assets.native.deposit", "pf.assets.native.transfer",
     "pf.assets.native.transferAsync", "pf.assets.token.transfer",
     "pf.assets.token.transferAsync"]
+
+/-- Closed chain-neutral env-read catalog QNs for `pf.assets@1.1.0`
+    (ADR-0030 E2). These are the first non-Unit catalog members:
+    expression-position ONLY, result `UInt64`, effect-free, view-callable.
+    They REQUIRE the 1.1.0 declaration; v1.0.0 programs using them fail
+    closed. `typedCallReturn` is `env-read-family-only`. -/
+def pfAssetsEnvReadQualifiedNamesV1 : Array String :=
+  #["pf.assets.native.balanceOfSelf", "pf.assets.token.balanceOfSelf"]
+
+/-- True when the qualified-name string is one of the two env-read catalog
+    QNs (ADR-0030 E2). -/
+def isPfAssetsEnvReadQnV1 (qn : String) : Bool :=
+  pfAssetsEnvReadQualifiedNamesV1.contains qn
+
+/-- The two env-read catalog QNs as distinct family tags for typing/Normalize.
+    `native` → `.nativeVaultBalance` (0 args); `token` → `.tokenVaultBalance`
+    (1 Principal arg). -/
+inductive PfAssetsEnvReadFamilyV1 where
+  | nativeBalance
+  | tokenBalance
+  deriving BEq, Repr, Inhabited
+
+/-- Resolve a qualified-name string to its env-read family tag, if any. -/
+def pfAssetsEnvReadFamilyOfV1 (qn : String) : Option PfAssetsEnvReadFamilyV1 :=
+  if qn == "pf.assets.native.balanceOfSelf" then some .nativeBalance
+  else if qn == "pf.assets.token.balanceOfSelf" then some .tokenBalance
+  else none
+
+/-- Expected argument count for an env-read family member. -/
+def pfAssetsEnvReadArityV1 (family : PfAssetsEnvReadFamilyV1) : Nat :=
+  match family with
+  | .nativeBalance => 0
+  | .tokenBalance => 1
 
 /-- Closed engineering extension identity: source triple + wire row id. -/
 structure EngineeringExtensionIdentityV1 where
@@ -179,40 +227,65 @@ def solanaCpiAccountsExtensionIdentityV1 : EngineeringExtensionIdentityV1 :=
     digest := solanaCpiAccountsExtensionDigestV1
     wireRequirementId := wireExtensionSolanaCpiAccountsIdV1 }
 
-/-- Portable assets extension identity (ADR-0029 Phase A). -/
+/-- Portable assets extension identity v1.0.0 (ADR-0029 Phase A; original five
+    statement QNs). -/
 def pfAssetsExtensionIdentityV1 : EngineeringExtensionIdentityV1 :=
   { sourceId := pfAssetsExtensionSourceIdV1
     version := pfAssetsExtensionVersionV1
     digest := pfAssetsExtensionDigestV1
     wireRequirementId := wireExtensionPfAssetsIdV1 }
 
+/-- Portable assets extension identity v1.1.0 (ADR-0030 E2; adds two env-read
+    balanceOfSelf QNs). Same wire row id as v1.0.0; the requirement row carries
+    the declared version/digest. -/
+def pfAssetsExtensionIdentityV1_1 : EngineeringExtensionIdentityV1 :=
+  { sourceId := pfAssetsExtensionSourceIdV1
+    version := pfAssetsExtensionVersionV1_1
+    digest := pfAssetsExtensionDigestV1_1
+    wireRequirementId := wireExtensionPfAssetsIdV1 }
+
 /-- Sole closed table of admitted engineering extension identities.
     Order is stable for diagnostics (first-known for expected values); membership
-    is exact source-id lookup. Dual distinct ids in one program are legal. -/
+    is exact source-id lookup. Dual distinct ids in one program are legal.
+    ADR-0030 E2 cutover: `pf.assets@1.1.0` is the sole accepted pf.assets
+    triple (the v1.0.0 declaration fails closed); the wire row id stays
+    `extension.pf-assets` and the requirement row carries the 1.1.0
+    version/digest. -/
 def engineeringExtensionIdentitiesV1 : Array EngineeringExtensionIdentityV1 :=
-  #[solanaCpiAccountsExtensionIdentityV1, pfAssetsExtensionIdentityV1]
+  #[solanaCpiAccountsExtensionIdentityV1, pfAssetsExtensionIdentityV1_1]
 
-/-- Look up a closed engineering extension by exact source declaration id. -/
+/-- Look up a closed engineering extension by exact source declaration id.
+    Returns the first matching identity (stable for diagnostics). When a
+    source id has multiple accepted versions, use
+    `findExactEngineeringExtensionTripleV1` for triple-precise lookup. -/
 def findEngineeringExtensionBySourceIdV1 (sourceId : String) :
     Option EngineeringExtensionIdentityV1 :=
   engineeringExtensionIdentitiesV1.find? (·.sourceId == sourceId)
 
+/-- All admitted identities for a source declaration id (stable order). -/
+def engineeringExtensionsBySourceIdV1 (sourceId : String) :
+    Array EngineeringExtensionIdentityV1 :=
+  engineeringExtensionIdentitiesV1.filter (·.sourceId == sourceId)
+
+/-- Look up a closed engineering extension by exact triple
+    `(sourceId, version, digest)`. Returns the identity only when all three
+    fields match a closed table row exactly. -/
+def findExactEngineeringExtensionTripleV1
+    (sourceId version digest : String) :
+    Option EngineeringExtensionIdentityV1 :=
+  engineeringExtensionIdentitiesV1.find? fun id =>
+    id.sourceId == sourceId && id.version == version && id.digest == digest
+
 /-- True when `(sourceId, version, digest)` matches a closed table row exactly. -/
 def isExactEngineeringExtensionTripleV1
     (sourceId version digest : String) : Bool :=
-  match findEngineeringExtensionBySourceIdV1 sourceId with
-  | some id => id.version == version && id.digest == digest
-  | none => false
+  (findExactEngineeringExtensionTripleV1 sourceId version digest).isSome
 
 /-- Wire requirement id for an exact closed extension triple, if any. -/
 def wireRequirementIdOfExactExtensionTripleV1
     (sourceId version digest : String) : Option String :=
-  match findEngineeringExtensionBySourceIdV1 sourceId with
-  | some id =>
-      if id.version == version && id.digest == digest then
-        some id.wireRequirementId
-      else
-        none
+  match findExactEngineeringExtensionTripleV1 sourceId version digest with
+  | some id => some id.wireRequirementId
   | none => none
 
 /-- Closed wire-owned requirement ids (ContextRead + Commit + exact extension

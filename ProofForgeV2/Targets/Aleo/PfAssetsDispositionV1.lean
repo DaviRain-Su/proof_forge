@@ -63,7 +63,7 @@
   Therefore **Aleo custody for portable assets is a v2 design** (likely a
   distinct extension or versioned vault model: program-owned records,
   public mapping vault, or explicit credits.aleo custody roles) — not a
-  Phase D zero-cost alias of `pf.assets@1.0.0`.
+  Phase D zero-cost alias of the accepted `pf.assets` payload (now @1.1.0).
 
   Disposition: **bind zero QNs**. Resolver does not advertise
   `extension.pf-assets`. Plan/lowering rejects catalog QNs with an explicit

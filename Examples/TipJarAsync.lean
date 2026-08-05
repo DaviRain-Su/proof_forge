@@ -14,8 +14,8 @@ open ProofForgeV2.Language
 -- weak async variant). Engineering only: non-formal, non-mainnet.
 -- Not imported by Examples.lean (target-specific, like TipJar/TransferSol).
 program TipJarAsync where
-  requires extension pf.assets version "1.0.0"
-    digest "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
+  requires extension pf.assets version "1.1.0"
+    digest "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
 
   state tips : UInt64
 

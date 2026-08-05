@@ -299,6 +299,28 @@ private def testS2CatalogDigestParity : IO Unit := do
     expect (pinned.bytes == independent.bytes)
       s!"pinned digest bytes must equal independent bytes for {id}"
 
+/-- ADR-0030 E2: env-read catalog call contributes the `extension.pf-assets`
+    requirement id (same catalog-call-requires-that-row discipline as
+    statement QNs) and must NOT contribute `effect.synchronous-call`. -/
+private unsafe def testEnvReadContribution (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let pfV11Digest :=
+    "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
+  let source :=
+    "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+    "program EnvReadReqInfer where\n" ++
+    "  requires extension pf.assets version \"1.1.0\"\n" ++
+    "    digest \"" ++ pfV11Digest ++ "\"\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n"
+  let validated ← loadSource session "env-read-req" source
+  let contributions := inferRequirementContributionsFromSourceV1 validated
+  let ids := contributionIds contributions
+  expect (ids.contains "extension.pf-assets")
+    s!"env-read must contribute extension.pf-assets; got {ids}"
+  expect (!ids.contains "effect.synchronous-call")
+    s!"env-read must NOT contribute effect.synchronous-call; got {ids}"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterLike session
@@ -308,6 +330,7 @@ unsafe def run : IO Unit := do
   testCounterAuthority session
   testContextCommitContributions session
   testS2CatalogDigestParity
+  testEnvReadContribution session
   IO.println "Tests.Typed.RequirementsInferV1: ok"
 
 end Tests.Typed.RequirementsInferV1
