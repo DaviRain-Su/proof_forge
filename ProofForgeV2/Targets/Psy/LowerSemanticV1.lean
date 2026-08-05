@@ -1568,6 +1568,10 @@ private partial def lowerRegion
         planError "unsupported Psy semantic shape: ContextRead is not admitted by pilot context policy"
     | .commit .. =>
         planError "unsupported Psy semantic shape: Commit is not admitted by pilot context policy"
+    -- ADR-0030 E2: env-read (pf.assets balanceOfSelf) is fail closed on Psy
+    -- (Psy/Aleo zero-binding disposition).
+    | .envRead .. =>
+        planError "unsupported Psy semantic shape: EnvRead is not admitted by pilot context policy"
   match block.terminator with
   | .jump target =>
       if isActiveHeader loops target.blockId then

@@ -1098,6 +1098,12 @@ theorem commitRequirements_data :
     validateCommitRequirementsV1 data = .ok () := by
   rfl
 
+/-- No env-read operation occurs, and therefore no extension.pf-assets
+    requirement row is required. -/
+theorem envReadRequirements_data :
+    validateEnvReadRequirementsV1 data = .ok () := by
+  rfl
+
 /-- Every production structure phase now closes for the exact canonical
     invariant ABI fixture. -/
 theorem semanticProgramStructure_data :
@@ -1122,6 +1128,7 @@ theorem semanticProgramStructure_data :
   · exact programRequirementsStructure_data
   · exact contextReadRequirements_data
   · exact commitRequirements_data
+  · exact envReadRequirements_data
 
 def selectedState : LogicalStateV1 := {
   initialized := true

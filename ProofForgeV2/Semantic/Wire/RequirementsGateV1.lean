@@ -254,4 +254,16 @@ def validateCommitRequirementsV1 (data : SemanticProgramDataV1) :
     commitmentDisclosureRequirementIdV1
     commitmentDisclosureRequirementV1
 
+/-- Bind every used env-read op (ADR-0030 E2 pf.assets balanceOfSelf family)
+    to the one exact extension.pf-assets requirement row. Generic requirement
+    structure/order is validated first. -/
+def validateEnvReadRequirementsV1 (data : SemanticProgramDataV1) :
+    Except SemanticWireErrorV1 Unit :=
+  bindUsedOpToExactRequirementRow data
+    (fun
+      | .envRead _ _ => true
+      | _ => false)
+    pfAssetsExtensionRequirementIdV1
+    pfAssetsExtensionRequirementV1
+
 end ProofForgeV2.Semantic.WireV1

@@ -2040,6 +2040,18 @@ def encodeUnaryOpV1 : UnaryOpV1 → Except SemanticWireErrorV1 ByteArray
   | .not => encodeNullary "Unary.Not"
   | .bitNot => encodeNullary "Unary.BitNot"
 
+def encodeEnvReadKeyV1 : EnvReadKeyV1 → Except SemanticWireErrorV1 ByteArray
+  | .nativeVaultBalance => encodeNullary "EnvRead.NativeVaultBalance"
+  | .tokenVaultBalance => encodeNullary "EnvRead.TokenVaultBalance"
+
+def decodeEnvReadKeyV1 : Decoder EnvReadKeyV1 := withTaggedNesting fun c => do
+  let (tag, c) ← decodeTag c
+  let ((), c) ← decodeFieldCount 0 c
+  match tag with
+  | "EnvRead.NativeVaultBalance" => pure (.nativeVaultBalance, c)
+  | "EnvRead.TokenVaultBalance" => pure (.tokenVaultBalance, c)
+  | _ => err .badTag
+
 def decodeUnaryOpV1 : Decoder UnaryOpV1 := withTaggedNesting fun c => do
   let (tag, c) ← decodeTag c
   let ((), c) ← decodeFieldCount 0 c
@@ -2136,6 +2148,10 @@ def encodeSemanticOpV1 : SemanticOpV1 → Except SemanticWireErrorV1 ByteArray
   | .contextRead key => do
       let keyB ← encodeSchemaId key
       encodeTagged "Op.ContextRead" #[keyB]
+  | .envRead key args => do
+      let keyB ← encodeEnvReadKeyV1 key
+      let argsB ← encodeValueIdArray args
+      encodeTagged "Op.EnvRead" #[keyB, argsB]
   | .commit value =>
       encodeTagged "Op.Commit" #[encodeU32le value]
   | .assert_ condition errorId args => do
@@ -2239,6 +2255,11 @@ def decodeSemanticOpBodyV1 : Decoder SemanticOpV1 := fun c => do
       let ((), c) ← decodeFieldCount 1 c
       let (key, c) ← decodeSchemaId c
       pure (.contextRead key, c)
+  | "Op.EnvRead" => do
+      let ((), c) ← decodeFieldCount 2 c
+      let (key, c) ← decodeEnvReadKeyV1 c
+      let (args, c) ← decodeArray maxArrayElements decodeU32le c
+      pure (.envRead key args, c)
   | "Op.Commit" => do
       let ((), c) ← decodeFieldCount 1 c
       let (value, c) ← decodeU32le c

@@ -183,6 +183,17 @@ inductive OutcomeV1 where
   | trapped (fault : SemanticFaultV1) (unchangedState : LogicalStateV1)
   deriving BEq, Repr
 
+/-- ADR-0030 E2: minimal self-vault interpreter seed. `native` is the program's
+    own native balance in base units at invocation start; `token` maps mint
+    Principal canonical valueBytes to the program's own token balance. Inbound
+    external transfers are not observable in this model — the seed is the sole
+    source of truth at step start; within a step, deposit/transfer/transferAsync
+    and the env-read family keep the vault coherent. -/
+structure ReferenceVaultSeedV1 where
+  native : UInt64 := 0
+  token : Array (ByteArray × UInt64) := #[]
+  deriving BEq, Repr
+
 /-! ### Admission -/
 
 inductive ReferenceAdmissionErrorV1 where
@@ -247,6 +258,7 @@ private def opAdmitted (op : SemanticOpV1) : Except ReferenceAdmissionErrorV1 Un
   | .indexSet _ _ _ => pure ()
   | .pureCall _ _ => pure ()
   | .contextRead _ => pure ()
+  | .envRead _ _ => pure ()
   | .commit _ => pure ()
 
 /-- ExternalCall/Schedule arg type shapes admitted for this slice (no Unit).
@@ -765,6 +777,11 @@ private structure MachineV1 where
   blockId        : BlockIdV1
   instrIdx       : Nat
   frames         : Array CallFrameV1
+  /-- ADR-0030 E2: self-vault native balance (base units). -/
+  vaultNative    : UInt64
+  /-- ADR-0030 E2: self-vault token balances, keyed by mint Principal
+      canonical valueBytes; absent key reads as zero. -/
+  vaultToken     : Array (ByteArray × UInt64)
 
 private inductive CandidateV1 where
   | returned (value : Option ReferenceValueV1)
@@ -1473,6 +1490,129 @@ private def storeResult (m : MachineV1) (vid : ValueIdV1) (v : ReferenceValueV1)
     | none => .done m (.trapped .internalInvariant)
     | some env' => .next { m with env := env' }
 
+/-! ### ADR-0030 E2: minimal self-vault interpreter helpers -/
+
+/-- Exact catalog-QN equality (pf.assets family). -/
+private def qnEqualsV1 (callee : QualifiedName) (expected : String) : Bool :=
+  String.intercalate "." callee.components.toArray.toList == expected
+
+/-- Decode a canonical 8-byte LE UInt64 argument value to Nat (defensive:
+    non-8-byte encodings trap via the caller's `none` branch). -/
+private def vaultArgAmountV1 (v : ReferenceValueV1) : Option Nat :=
+  if v.valueBytes.size == 8 then some (leBytesToNat v.valueBytes) else none
+
+/-- Mint-keyed token vault read; absent key is zero. -/
+private def vaultTokenBalanceV1 (vault : Array (ByteArray × UInt64))
+    (key : ByteArray) : UInt64 := Id.run do
+  let mut bal : UInt64 := 0
+  for (k, v) in vault do
+    if k == key then
+      bal := v
+  pure bal
+
+/-- Mint-keyed token vault debit. Absent key has balance zero: a zero amount
+    debits to zero, a positive amount is an underflow (`none`). -/
+private def vaultTokenDebitV1 (vault : Array (ByteArray × UInt64)) (key : ByteArray)
+    (amount : UInt64) : Option (Array (ByteArray × UInt64)) := Id.run do
+  let mut out := vault
+  let mut found := false
+  let mut idx : Nat := 0
+  let mut failed := false
+  for (k, v) in vault do
+    if k == key then
+      found := true
+      if v < amount then
+        failed := true
+      else if h : idx < out.size then
+        out := out.set idx (k, v - amount) h
+  if failed then
+    pure none
+  else if found then
+    pure (some out)
+  else if amount == 0 then
+    pure (some out)
+  else
+    pure none
+
+/-- Deterministic self-vault sufficiency gate + immediate debit for the sync
+    catalog transfer QNs (`pf.assets.native.transfer` /
+    `pf.assets.token.transfer`). Underflow reverts as an external-call
+    failure. Called only after a `.returned` response was consumed, so the
+    response-cursor discipline (every ExternalCall consumes exactly one
+    response row) stays uniform. Non-transfer QNs pass through. -/
+private def vaultTransferOut (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) (occ : EffectOccurrenceV1) :
+    Except CandidateV1 MachineV1 :=
+  if qnEqualsV1 callee "pf.assets.native.transfer" then
+    match argVals[1]? with
+    | some amountV =>
+        match vaultArgAmountV1 amountV with
+        | none => .error (.trapped .invalidCore)
+        | some amount =>
+            if amount ≤ m.vaultNative.toNat then
+              .ok { m with vaultNative := UInt64.ofNat (m.vaultNative.toNat - amount) }
+            else
+              .error (.reverted (.externalCallReverted occ))
+    | none => .error (.trapped .invalidCore)
+  else if qnEqualsV1 callee "pf.assets.token.transfer" then
+    match argVals[0]?, argVals[2]? with
+    | some mintV, some amountV =>
+        match vaultArgAmountV1 amountV with
+        | none => .error (.trapped .invalidCore)
+        | some amount =>
+            match vaultTokenDebitV1 m.vaultToken mintV.valueBytes (UInt64.ofNat amount) with
+            | some vault' => .ok { m with vaultToken := vault' }
+            | none => .error (.reverted (.externalCallReverted occ))
+    | _, _ => .error (.trapped .invalidCore)
+  else
+    .ok m
+
+/-- Self-vault credit for a successful `pf.assets.native.deposit` (checked
+    add; overflow is a harness inconsistency and traps invalidCore).
+    Non-deposit QNs pass through. -/
+private def vaultDepositIn (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) : Except CandidateV1 MachineV1 :=
+  if qnEqualsV1 callee "pf.assets.native.deposit" then
+    match argVals[0]? with
+    | some amountV =>
+        match vaultArgAmountV1 amountV with
+        | none => .error (.trapped .invalidCore)
+        | some amount =>
+            if amount ≤ (UInt64.size - 1) - m.vaultNative.toNat then
+              .ok { m with vaultNative := UInt64.ofNat (m.vaultNative.toNat + amount) }
+            else
+              .error (.trapped .invalidCore)
+    | none => .error (.trapped .invalidCore)
+  else
+    .ok m
+
+/-- Fire-and-forget async debit for the catalog transferAsync QNs. A remote
+    failure is invisible to the program, so an underfunded async transfer
+    leaves the vault unchanged (the funds never left). -/
+private def vaultAsyncOut (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) : MachineV1 :=
+  if qnEqualsV1 callee "pf.assets.native.transferAsync" then
+    match argVals[1]? with
+    | some amountV =>
+        match vaultArgAmountV1 amountV with
+        | none => m
+        | some amount =>
+            if amount ≤ m.vaultNative.toNat then
+              { m with vaultNative := UInt64.ofNat (m.vaultNative.toNat - amount) }
+            else m
+    | none => m
+  else if qnEqualsV1 callee "pf.assets.token.transferAsync" then
+    match argVals[0]?, argVals[2]? with
+    | some mintV, some amountV =>
+        match vaultArgAmountV1 amountV with
+        | none => m
+        | some amount =>
+            match vaultTokenDebitV1 m.vaultToken mintV.valueBytes (UInt64.ofNat amount) with
+            | some vault' => { m with vaultToken := vault' }
+            | none => m
+    | _, _ => m
+  else m
+
 private def fromEval (m : MachineV1) (vid : ValueIdV1)
     (r : Except CandidateV1 ReferenceValueV1) : ExecResult :=
   match r with
@@ -1630,7 +1770,21 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
                               storeResult m3 vd.valueId rv
                             else
                               .done m3 (.trapped .invalidExternalResponse)
-                        | none, _ => .next m3
+                        | none, _ =>
+                            -- ADR-0030 E2: catalog vault interpreter — a
+                            -- returned deposit credits the native vault; a
+                            -- returned sync transfer debits native/token
+                            -- vaults when sufficient (underflow overrides the
+                            -- returned disposition with a revert); a returned
+                            -- async transferAsync debits when sufficient and
+                            -- is vault-neutral otherwise (remote failure is
+                            -- invisible locally); other QNs are vault-neutral.
+                            match vaultDepositIn m3 callee argVals with
+                            | .error cand => .done m3 cand
+                            | .ok m4 =>
+                            match vaultTransferOut m4 callee argVals occ with
+                            | .error cand => .done m3 cand
+                            | .ok m5 => .next (vaultAsyncOut m5 callee argVals)
                         | some _, none => .done m3 (.trapped .invalidExternalResponse)
   | .schedule effectId callee args =>
       match instr.result with
@@ -1646,7 +1800,36 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
                     occurrence := occ
                     payload := .schedule callee argVals
                   }
-                  .next { m1 with effects := m1.effects.push eff }
+                  -- ADR-0030 E2: fire-and-forget async debit (remote failure
+                  -- is invisible locally and leaves the vault unchanged).
+                  let m2 := vaultAsyncOut m1 callee argVals
+                  .next { m2 with effects := m2.effects.push eff }
+  | .envRead key args =>
+      -- ADR-0030 E2: read-only self-vault observation. Result is the UInt64
+      -- balance; canonicality/type exactness rides on storeResult and the
+      -- structure gate (result typeId is the unique UInt64).
+      match instr.result with
+      | none => .done m (.trapped .invalidCore)
+      | some vd =>
+          match key with
+          | .nativeVaultBalance =>
+              if args.isEmpty then
+                storeResult m vd.valueId
+                  { typeId := vd.typeId
+                    valueBytes := natToLeBytes m.vaultNative.toNat 8 }
+              else
+                .done m (.trapped .invalidCore)
+          | .tokenVaultBalance =>
+              match lookupArgs m.env args with
+              | some #[mintV] =>
+                  match m.data.types[mintV.typeId.toNat]? with
+                  | some { shape := .principal, .. } =>
+                      let bal := vaultTokenBalanceV1 m.vaultToken mintV.valueBytes
+                      storeResult m vd.valueId
+                        { typeId := vd.typeId
+                          valueBytes := natToLeBytes bal.toNat 8 }
+                  | _ => .done m (.trapped .invalidCore)
+              | _ => .done m (.trapped .invalidCore)
   | .construct typeId constructorIndex argIds =>
       match instr.result, lookupArgs m.env argIds with
       | some vd, some args =>
@@ -2145,7 +2328,8 @@ def stepReferenceSliceV1
     (admitted : AdmittedReferenceSliceV1)
     (pre : LogicalStateV1)
     (invocation : InvocationV1)
-    (responses : ExternalResponsesV1) : OutcomeV1 :=
+    (responses : ExternalResponsesV1)
+    (vaultSeed : ReferenceVaultSeedV1 := {}) : OutcomeV1 :=
   match gateInvocation admitted pre invocation with
   -- Shape failure: ignore responses entirely (cursor never starts).
   | .invalidInvocation => .trapped .invalidInvocation pre
@@ -2187,6 +2371,8 @@ def stepReferenceSliceV1
             blockId := callable.entryBlock
             instrIdx := 0
             frames := #[]
+            vaultNative := vaultSeed.native
+            vaultToken := vaultSeed.token
           }
           let (_fuelLeft, mEnd, cand) := runMachine false 1000000 m0
           finalize mEnd cand
@@ -2237,6 +2423,10 @@ def runInvariantCallableV1
               blockId := callable.entryBlock
               instrIdx := 0
               frames := #[]
+              -- Invariant callables cannot env-read (structure gate); the
+              -- invariant machine runs with the zero vault.
+              vaultNative := 0
+              vaultToken := #[]
             }
             -- `invariantSteps` includes the root frame-entry charge in
             -- addition to every instruction, terminator, and callee entry.
@@ -2385,6 +2575,8 @@ theorem runInvariantCallableV1_eq_returnedTrue_of_single_nullary_literal_true
           blockId := 0
           instrIdx := 0
           frames := #[]
+          vaultNative := 0
+          vaultToken := #[]
         }
         0 { typeId := boolTypeId, valueBytes := encodeU8 1 } =
         .next {
@@ -2404,6 +2596,8 @@ theorem runInvariantCallableV1_eq_returnedTrue_of_single_nullary_literal_true
           blockId := 0
           instrIdx := 0
           frames := #[]
+          vaultNative := 0
+          vaultToken := #[]
         } := by
     simp [storeResult, hvc, envSet, henvSize]
   have hexec :
@@ -2424,6 +2618,8 @@ theorem runInvariantCallableV1_eq_returnedTrue_of_single_nullary_literal_true
           blockId := 0
           instrIdx := 0
           frames := #[]
+          vaultNative := 0
+          vaultToken := #[]
         }
         {
           result := some { valueId := 0, typeId := boolTypeId }
@@ -2446,6 +2642,8 @@ theorem runInvariantCallableV1_eq_returnedTrue_of_single_nullary_literal_true
           blockId := 0
           instrIdx := 0
           frames := #[]
+          vaultNative := 0
+          vaultToken := #[]
         } := by
     simp [execInstruction, hvc, hstore]
   rw [runMachine.eq_def]

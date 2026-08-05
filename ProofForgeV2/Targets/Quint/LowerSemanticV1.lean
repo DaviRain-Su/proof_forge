@@ -715,7 +715,7 @@ private partial def lowerInstructions
             "unsupported Quint semantic shape: externalCall callee is not a Quint-admitted pf.assets QN"
     | .constant .. | .construct .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
-    | .checkedCast .. | .contextRead .. | .commit ..
+    | .checkedCast .. | .contextRead .. | .envRead .. | .commit ..
     | .emit .. | .schedule .. =>
         planError "unsupported Quint semantic shape: op is outside Q0"
   -- Terminator

@@ -5206,6 +5206,7 @@ private unsafe def testPfAssetsOpaqueExternalCallReference
   let okOut :=
     stepReferenceSliceV1 admitted zeroState
       (inv transferId #[dstVal, refU64 u64Tid amount]) okResponses
+      { native := 1000 }
   let fiveState : LogicalStateV1 :=
     { initialized := true, canonicalValues := stateSlot (u64Bytes amount) }
   let okEffects : Array OrderedEffectV1 := #[
@@ -5228,6 +5229,7 @@ private unsafe def testPfAssetsOpaqueExternalCallReference
   let revOut :=
     stepReferenceSliceV1 admitted zeroState
       (inv transferId #[dstVal, refU64 u64Tid amount]) revResponses
+      { native := 1000 }
   match revOut with
   | .reverted (.externalCallReverted o) st =>
       expect (occurrenceEq o occCall) "pf-assets-transfer-reverted: occurrence"
@@ -5241,6 +5243,7 @@ private unsafe def testPfAssetsOpaqueExternalCallReference
   let missingOut :=
     stepReferenceSliceV1 admitted zeroState
       (inv transferId #[dstVal, refU64 u64Tid amount]) emptyResponses
+      { native := 1000 }
   expectTrapped "pf-assets-transfer-missing" missingOut
     .invalidExternalResponse zeroState
   -- Void discards any test-supplied return value (still continues).
@@ -5252,6 +5255,7 @@ private unsafe def testPfAssetsOpaqueExternalCallReference
   let junkOut :=
     stepReferenceSliceV1 admitted zeroState
       (inv transferId #[dstVal, refU64 u64Tid amount]) junkReturn
+      { native := 1000 }
   expectReturned "pf-assets-transfer-void-discard-return" junkOut fiveState
     (some (refU64 u64Tid amount)) okEffects
   -- Trailing unconsumed response after matched void call traps.
@@ -5262,6 +5266,7 @@ private unsafe def testPfAssetsOpaqueExternalCallReference
   let extraOut :=
     stepReferenceSliceV1 admitted zeroState
       (inv transferId #[dstVal, refU64 u64Tid amount]) extraResponses
+      { native := 1000 }
   expectTrapped "pf-assets-transfer-extra" extraOut
     .invalidExternalResponse zeroState
 
@@ -5616,6 +5621,7 @@ private unsafe def testPfAssetsOpaqueExternalCallReference
     stepReferenceSliceV1 dualAdmitted dualZero
       (inv 1 #[dualDst, refU64 dualU64 5])
       #[{ occurrence := occCall, disposition := .returned }]
+      { native := 1000 }
   let dualFive : LogicalStateV1 :=
     { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
   let dualEffects : Array OrderedEffectV1 := #[
@@ -5629,6 +5635,7 @@ private unsafe def testPfAssetsOpaqueExternalCallReference
     stepReferenceSliceV1 dualAdmitted dualZero
       (inv 1 #[dualDst, refU64 dualU64 5])
       #[{ occurrence := occCall, disposition := .reverted }]
+      { native := 1000 }
   match dualRev with
   | .reverted (.externalCallReverted o) st =>
       expect (occurrenceEq o occCall) "pf-assets-dual-rev: occurrence"

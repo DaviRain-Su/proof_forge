@@ -1337,7 +1337,7 @@ private def projectTokenHandler
         tFail "Token CPI IR rejects pureCall in first slice"
     | .construct .. | .fieldGet .. | .fieldSet .. | .indexGet .. | .indexSet ..
     | .variantTag .. | .variantPayload .. | .checkedCast ..
-    | .contextRead .. | .commit .. | .assert_ .. | .emit .. | .schedule .. =>
+    | .contextRead .. | .envRead .. | .commit .. | .assert_ .. | .emit .. | .schedule .. =>
         tFail "Token CPI IR rejects unsupported body op in first slice"
 
   match blk.terminator with

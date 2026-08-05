@@ -1486,6 +1486,10 @@ private partial def lowerRegion
           planError s!"unsupported Aleo semantic shape: unknown ContextRead key '{key.value}'"
         planError
           "unsupported Aleo semantic shape: ContextRead is not admitted by pilot context policy"
+    -- ADR-0030 E2: env-read (pf.assets balanceOfSelf) is fail closed on Aleo
+    -- (Psy/Aleo zero-binding disposition).
+    | .envRead .. =>
+        planError "unsupported Aleo semantic shape: EnvRead is not admitted by pilot context policy"
     | .construct typeId ctorIdx argIds => do
         match instr.result with
         | none => planError "unsupported Aleo semantic shape: construct instruction must produce a value"

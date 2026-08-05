@@ -285,6 +285,17 @@ inductive UnaryOpV1 where
   | neg | not | bitNot
   deriving BEq, Repr, DecidableEq
 
+/-- ADR-0030 E2: closed env-read subject keys (pf.assets balanceOfSelf family).
+    Read-only, view-callable, effect-free observation of the program's own
+    vault balances at the execution point; per-target realization is
+    target-owned (SELFBALANCE / account data read / querier / host read).
+    Distinct from `Op.ContextRead` (transaction context) and from
+    `Op.ExternalCall` (effect-bearing, entry-only). -/
+inductive EnvReadKeyV1 where
+  | nativeVaultBalance
+  | tokenVaultBalance
+  deriving BEq, Repr, DecidableEq
+
 inductive BinaryOpV1 where
   | add | sub | mul | div | mod
   | eq | ne | lt | le | gt | ge
@@ -308,6 +319,11 @@ inductive SemanticOpV1 where
   | binary (op : BinaryOpV1) (lhs : ValueIdV1) (rhs : ValueIdV1)
   | pureCall (callableId : CallableIdV1) (args : Array ValueIdV1)
   | contextRead (key : SchemaId)
+  /-- ADR-0030 E2: env-read (pf.assets balanceOfSelf family). `args` is empty
+      for `.nativeVaultBalance` and exactly one Principal-typed ValueId (the
+      mint) for `.tokenVaultBalance`; the result is always UInt64. Value-
+      producing, view-callable, effect-free (no EffectId). -/
+  | envRead (key : EnvReadKeyV1) (args : Array ValueIdV1)
   | commit (value : ValueIdV1)
   | assert_ (condition : ValueIdV1) (errorId : Option ErrorIdV1) (args : Array ValueIdV1)
   | emit (effectId : EffectIdV1) (eventId : EventIdV1) (args : Array ValueIdV1)

@@ -877,7 +877,7 @@ private def projectUnsignedHandler
         uFail "unsigned CPI IR rejects pureCall in first slice"
     | .construct .. | .fieldGet .. | .fieldSet .. | .indexGet .. | .indexSet ..
     | .variantTag .. | .variantPayload .. | .checkedCast ..
-    | .contextRead .. | .commit .. | .assert_ .. | .emit .. | .schedule .. =>
+    | .contextRead .. | .envRead .. | .commit .. | .assert_ .. | .emit .. | .schedule .. =>
         uFail "unsigned CPI IR rejects unsupported body op in first slice"
 
   -- Terminator.

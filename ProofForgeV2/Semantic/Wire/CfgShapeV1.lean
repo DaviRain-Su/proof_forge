@@ -274,6 +274,7 @@ def checkValueIdCanonicalAssignment
 def opValueUses (op : SemanticOpV1) : Array ValueIdV1 :=
   match op with
   | .literal _ _ | .constant _ | .stateLoad _ | .contextRead _ => #[]
+  | .envRead _ args => args
   | .stateStore _ v => #[v]
   | .construct _ _ args => args
   | .fieldGet base _ => #[base]

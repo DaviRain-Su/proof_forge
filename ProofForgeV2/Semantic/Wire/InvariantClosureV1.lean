@@ -26,6 +26,7 @@ private def validateInvariantRootDirectOpsV1
           match instr.op with
           | .stateStore _ _ => return ← err .badCfg
           | .contextRead _ => return ← err .badCfg
+          | .envRead _ _ => return ← err .badCfg
           | .commit _ => return ← err .badCfg
           | .emit _ _ _ => return ← err .badCfg
           | .externalCall _ _ _ => return ← err .badCfg
@@ -390,6 +391,7 @@ private def validateInvariantClosureCfgAcyclicWithMembersV1
                     | .stateLoad _ => return ← err .badCfg
                     | .stateStore _ _ => return ← err .badCfg
                     | .contextRead _ => return ← err .badCfg
+                    | .envRead _ _ => return ← err .badCfg
                     | .commit _ => return ← err .badCfg
                     | .emit _ _ _ => return ← err .badCfg
                     | .externalCall _ _ _ => return ← err .badCfg

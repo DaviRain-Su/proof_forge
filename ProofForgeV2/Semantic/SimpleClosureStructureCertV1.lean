@@ -554,6 +554,11 @@ theorem commitRequirements_simpleClosure (p : SimpleClosureParamsV1) :
     validateCommitRequirementsV1 (materializeSimpleClosureDataV1 p) = .ok () := by
   rfl
 
+theorem envReadRequirements_simpleClosure (p : SimpleClosureParamsV1) :
+    validateEnvReadRequirementsV1 (materializeSimpleClosureDataV1 p) =
+      .ok () := by
+  rfl
+
 /-! ### Full structure composition -/
 
 /-- B-SC-STRUCT: every production structure phase closes for any legal
@@ -583,6 +588,7 @@ theorem structure_of_legal (p : SimpleClosureParamsV1)
   · exact programRequirementsStructure_simpleClosure p
   · exact contextReadRequirements_simpleClosure p
   · exact commitRequirements_simpleClosure p
+  · exact envReadRequirements_simpleClosure p
 
 /-- Alias with the exact statement demanded by B-SC-STRUCT. -/
 theorem validateSemanticProgramStructureV1_materialize_eq_ok_of_legal

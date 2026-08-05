@@ -197,6 +197,7 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateProgramRequirementsStructure data.requirements
   validateContextReadRequirementsV1 data
   validateCommitRequirementsV1 data
+  validateEnvReadRequirementsV1 data
 
 /-- Compose success of the sole production structure gate from successful
     results of every current production phase. Every premise names a production
@@ -222,12 +223,13 @@ theorem validateSemanticProgramStructureV1_eq_ok_of_phases
     (hCfg : validateCfgInvariantPhasesV1 data = .ok ())
     (hRequirements : validateProgramRequirementsStructure data.requirements = .ok ())
     (hContextRequirements : validateContextReadRequirementsV1 data = .ok ())
-    (hCommitRequirements : validateCommitRequirementsV1 data = .ok ()) :
+    (hCommitRequirements : validateCommitRequirementsV1 data = .ok ())
+    (hEnvReadRequirements : validateEnvReadRequirementsV1 data = .ok ()) :
     validateSemanticProgramStructureV1 data = .ok () := by
   simp only [validateSemanticProgramStructureV1, hPrelude, hTypes, hTypeKeys,
     hNamedTypes, hConstants, hCallables, hConstantNames, hStateNames, hEventNames,
     hErrorNames, hInterfaceNames, hSignatures, hInvariantJoin, hIdentifiers, hCfg,
-    hRequirements, hContextRequirements, hCommitRequirements, Bind.bind, Pure.pure,
-    Except.bind, Except.pure]
+    hRequirements, hContextRequirements, hCommitRequirements, hEnvReadRequirements,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
 
 end ProofForgeV2.Semantic.WireV1

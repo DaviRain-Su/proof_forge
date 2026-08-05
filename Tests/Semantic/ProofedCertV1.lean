@@ -465,6 +465,10 @@ theorem commitRequirements_proofed :
     validateCommitRequirementsV1 proofedData = .ok () := by
   rfl
 
+theorem envReadRequirements_proofed :
+    validateEnvReadRequirementsV1 proofedData = .ok () := by
+  rfl
+
 /-! ### Full structure composition -/
 
 /-- Every production structure phase closes for the Proofed simple carrier. -/
@@ -490,6 +494,7 @@ theorem structure_proofed :
   · exact programRequirementsStructure_proofed
   · exact contextReadRequirements_proofed
   · exact commitRequirements_proofed
+  · exact envReadRequirements_proofed
 
 private def proofedProgram : SemanticProgramV1 := { canonicalBytes := proofedBytes }
 
