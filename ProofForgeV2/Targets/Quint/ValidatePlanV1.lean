@@ -41,6 +41,15 @@ private def isReserved (name : String) : Bool :=
 private def isSafeIdent (name : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes name && !isReserved name
 
+/-- ADR-0030 E2: does an expression tree reference vaultNative (env-read)? -/
+private partial def exprUsesVaultNativeV1 (e : Expr) : Bool :=
+  match e with
+  | .vaultNative => true
+  | .litU64 _ | .litBool _ | .param _ | .stateLoad _ | .externalOk _ => false
+  | .arith _ l r | .compare _ l r | .boolAnd l r | .boolOr l r =>
+      exprUsesVaultNativeV1 l || exprUsesVaultNativeV1 r
+  | .boolNot o => exprUsesVaultNativeV1 o
+
 /-- Bounded Plan-expression type/reference checker. It runs only after the
     rendered-size/depth walk has admitted the expression. -/
 private partial def inferExprType
@@ -246,7 +255,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         validateStores init.stores plan.states.size init.params.size exprBudget #[]
   let mut entryNames : Array String := #[]
   let mut expectedAction : Nat := 1
-  let mut anyAssetOps := false
+  let mut anyVaultUse := false
   for ent in plan.entries do
     unless isSafeIdent ent.name do
       planError s!"Quint entry '{ent.name}' is not a safe identifier"
@@ -262,7 +271,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     unless ent.checks.size ≤ maxChecks do
       planError "Quint entry check count exceeds limit"
     if !ent.assetOps.isEmpty then
-      anyAssetOps := true
+      anyVaultUse := true
     exprBudget ←
       validateAssetOps ent.assetOps ent.params.size plan.states.size exprBudget
         ent.paramIsPrincipal
@@ -270,9 +279,14 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       exprBudget ←
         validateCheck ck ent.params.size plan.states.size ent.assetOps.size exprBudget
           ent.paramIsPrincipal
+      if exprUsesVaultNativeV1 ck.condition then
+        anyVaultUse := true
     exprBudget ←
       validateStores ent.stores plan.states.size ent.params.size exprBudget
         ent.paramIsPrincipal
+    for (_fi, se) in ent.stores do
+      if exprUsesVaultNativeV1 se then
+        anyVaultUse := true
     let terminalMarkerCount := ent.checks.foldl
       (fun n ck => if isTerminalRevertKind ck.kind then n + 1 else n) 0
     if ent.terminalRevert then
@@ -291,10 +305,14 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .unit, some _, _ =>
         planError s!"Quint entry '{ent.name}' Unit result must not carry a result expression"
     | .uint64, some e, false =>
+        if exprUsesVaultNativeV1 e then
+          anyVaultUse := true
         exprBudget ←
           validateExpr e .uint64 "entry result" ent.params.size plan.states.size
             ent.assetOps.size exprBudget ent.paramIsPrincipal
     | .bool, some e, false =>
+        if exprUsesVaultNativeV1 e then
+          anyVaultUse := true
         exprBudget ←
           validateExpr e .bool "entry result" ent.params.size plan.states.size
             ent.assetOps.size exprBudget ent.paramIsPrincipal
@@ -303,8 +321,6 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .uint64, none, true | .bool, none, true => pure ()
     | .uint64, none, false | .bool, none, false =>
         planError s!"Quint entry '{ent.name}' non-Unit result is missing without terminal revert"
-  unless plan.usesVaultNative == anyAssetOps do
-    planError "Quint plan usesVaultNative must match nonempty entry assetOps"
   let mut viewNames : Array String := #[]
   for v in plan.views do
     unless isSafeIdent v.name do
@@ -313,6 +329,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       planError s!"Quint view '{v.name}' is duplicated"
     viewNames := viewNames.push v.name
     validateParams v.params
+    if exprUsesVaultNativeV1 v.value then
+      anyVaultUse := true
     match v.resultKind with
     | .unit => planError s!"Quint view '{v.name}' cannot have Unit result"
     | .uint64 =>
@@ -323,6 +341,11 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         exprBudget ←
           validateExpr v.value .bool "view value" v.params.size plan.states.size 0
             exprBudget #[]
+  -- ADR-0030 E2: usesVaultNative covers entry asset ops AND env-read vaultNative
+  -- expressions in entries/views (not only nonempty assetOps).
+  unless plan.usesVaultNative == anyVaultUse do
+    planError
+      "Quint plan usesVaultNative must match nonempty entry assetOps or vaultNative env-read use"
   let mut invariantNames : Array String := #[]
   for inv in plan.invariants do
     unless isSafeIdent inv.name do

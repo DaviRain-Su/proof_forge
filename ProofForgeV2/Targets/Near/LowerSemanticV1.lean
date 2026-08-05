@@ -105,6 +105,10 @@ inductive HostImport where
   /-- B-CTX-OPEN: host `block_timestamp` (nanoseconds → i64). Only present on
       Plans that lower at least one `context.unixTimeSeconds` read. -/
   | blockTimestamp
+  /-- ADR-0030 E2-NEAR: host `account_balance` (writes u128 LE to balance_ptr).
+      Only present on Plans that lower at least one
+      `pf.assets.native.balanceOfSelf` env-read. -/
+  | accountBalance
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -216,6 +220,11 @@ inductive Expr where
       returns nanoseconds; the IR divides by 10^9 (truncating) so the DSL
       `context.unixTimeSeconds` semantics hold exactly. UInt64-typed. -/
   | blockTimestampSeconds
+  /-- ADR-0030 E2-NEAR: `pf.assets.native.balanceOfSelf()` → host
+      `account_balance` (u128 LE). IR loads the low 64 bits and traps if the
+      high 64 bits are nonzero (UInt64 range guard). Read-only,
+      view/entry-callable, effect-free. -/
+  | accountBalance
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -441,13 +450,14 @@ private def canonicalImports : Array HostImport := #[
 ]
 
 /-- Host import set driven by schedule and/or transferAsync and/or token
-    transferAsync and/or timestamp. `promise_batch_create` is shared;
-    function-call vs transfer action imports are independent so no-schedule
-    Plans stay free of transfer host when only schedule is absent, and vice
-    versa. Token transferAsync uses function-call action (like schedule) plus
-    promise_batch_create, so it shares the function-call import with schedule. -/
+    transferAsync and/or timestamp and/or accountBalance env-read.
+    `promise_batch_create` is shared; function-call vs transfer action imports
+    are independent so no-schedule Plans stay free of transfer host when only
+    schedule is absent, and vice versa. Token transferAsync uses function-call
+    action (like schedule) plus promise_batch_create, so it shares the
+    function-call import with schedule. `account_balance` is independent. -/
 def hostImportsFor (usesSchedulePromise usesTransferPromise
-    usesTokenTransferPromise usesTimestamp : Bool) :
+    usesTokenTransferPromise usesTimestamp usesAccountBalance : Bool) :
     Array HostImport :=
   Id.run do
     let mut base := canonicalImports
@@ -459,6 +469,8 @@ def hostImportsFor (usesSchedulePromise usesTransferPromise
       base := base.push .promiseBatchActionTransfer
     if usesTimestamp then
       base := base.push .blockTimestamp
+    if usesAccountBalance then
+      base := base.push .accountBalance
     pure base
 
 def canonicalRegisters : RegisterLayout := {
@@ -3183,6 +3195,39 @@ private def lowerBlockInstructionsV1
           expandedNodes := 1
           dependencies := #[]
         }
+    | .envRead key args, some result =>
+        -- ADR-0030 E2-NEAR: read-only self-vault observation (value-producing,
+        -- view-callable, effect-free). Requires exact extension.pf-assets.
+        -- Result must be UInt64. pureFn/invariant stay fail closed (host read
+        -- is not pure; invariant closures forbid host reads at structure gate).
+        unless layout.pfAssetsDeclared do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pf.assets env-read requires extension.pf-assets declaration"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: envRead result must be UInt64"
+        if mode == .pureFn then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pureFn cannot use envRead (host read is not pure)"
+        match key with
+        | .nativeVaultBalance =>
+            unless args.isEmpty do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: nativeVaultBalance takes no arguments"
+            values := ← appendResultValueV1 result.typeId values result {
+              expr := .accountBalance
+              kind := .uint64
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+            }
+        | .tokenVaultBalance =>
+            -- Permanently fail closed: NEP-141 `ft_balance_of` is a
+            -- cross-contract view call; NEAR's async promise model cannot
+            -- complete it synchronously inside an expression (honesty
+            -- boundary, not debt / TODO).
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pf.assets.token.balanceOfSelf permanently fail closed (NEP-141 ft_balance_of requires async cross-contract view; cannot complete synchronously)"
     | _, _ =>
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: instruction op/result is outside the current UInt64 pilot"
@@ -3849,7 +3894,7 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   match expr with
   | .blockTimestampSeconds => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ => false
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ | .accountBalance => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -3863,6 +3908,28 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesTimestampV1 e
   | .callFn _ args => args.any exprUsesTimestampV1
+
+/-- ADR-0030 E2-NEAR: does an expression tree reference accountBalance?
+    Conservative structural scan driving the `account_balance` host import. -/
+partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
+  match expr with
+  | .accountBalance => true
+  | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .blockTimestampSeconds => false
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      exprUsesAccountBalanceV1 l || exprUsesAccountBalanceV1 r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      exprUsesAccountBalanceV1 e
+  | .callFn _ args => args.any exprUsesAccountBalanceV1
 
 /-- Does any statement tree in the list reference the block timestamp? -/
 partial def statementsUseTimestampV1 (statements : Array Statement) : Bool :=
@@ -3899,6 +3966,44 @@ def planUsesTimestampV1 (plan : Plan) : Bool :=
   statementsUseTimestampV1 plan.initializer.body ||
     plan.entries.any (fun m => statementsUseTimestampV1 m.body) ||
     plan.fns.any (fun f => statementsUseTimestampV1 f.body)
+
+/-- ADR-0030 E2-NEAR: does any statement tree reference accountBalance? -/
+partial def statementsUseAccountBalanceV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .store op => exprUsesAccountBalanceV1 op.value
+    | .storeAtomic leaves => leaves.any fun leaf => exprUsesAccountBalanceV1 leaf.value
+    | .returnValue value => exprUsesAccountBalanceV1 value
+    | .returnAggregate leaves _ => leaves.any exprUsesAccountBalanceV1
+    | .assert condition => exprUsesAccountBalanceV1 condition
+    | .emitEvent _ args => args.any exprUsesAccountBalanceV1
+    | .revertError _ args => args.any exprUsesAccountBalanceV1
+    | .promiseAccount _ _ args => args.any exprUsesAccountBalanceV1
+    | .nativeDeposit amount => exprUsesAccountBalanceV1 amount
+    | .promiseTransfer dstLen dstWords amount =>
+        exprUsesAccountBalanceV1 dstLen || dstWords.any exprUsesAccountBalanceV1 ||
+          exprUsesAccountBalanceV1 amount
+    | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+        exprUsesAccountBalanceV1 mintLen || mintWords.any exprUsesAccountBalanceV1 ||
+          exprUsesAccountBalanceV1 dstLen || dstWords.any exprUsesAccountBalanceV1 ||
+          exprUsesAccountBalanceV1 amount
+    | .ifThenElse condition thenBody elseBody =>
+        exprUsesAccountBalanceV1 condition ||
+          statementsUseAccountBalanceV1 thenBody ||
+          statementsUseAccountBalanceV1 elseBody
+    | .switchOn scrutinee cases defaultBody =>
+        exprUsesAccountBalanceV1 scrutinee ||
+          statementsUseAccountBalanceV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseAccountBalanceV1 caseBody
+    | .forLoop _ initial cond update _ body =>
+        exprUsesAccountBalanceV1 initial || exprUsesAccountBalanceV1 cond ||
+          exprUsesAccountBalanceV1 update || statementsUseAccountBalanceV1 body
+    | .returnNone => false
+
+def planUsesAccountBalanceV1 (plan : Plan) : Bool :=
+  statementsUseAccountBalanceV1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUseAccountBalanceV1 m.body) ||
+    plan.fns.any (fun f => statementsUseAccountBalanceV1 f.body)
 
 /-- Schedule → function-call promise (not transferAsync). -/
 partial def statementsUseSchedulePromiseV1 (statements : Array Statement) : Bool :=
@@ -4085,6 +4190,10 @@ private def makePlanFromSemanticDataV1
     statementsUseTimestampV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseTimestampV1 m.body) ||
       fns.any (fun f => statementsUseTimestampV1 f.body)
+  let usesAccountBalance :=
+    statementsUseAccountBalanceV1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUseAccountBalanceV1 m.body) ||
+      fns.any (fun f => statementsUseAccountBalanceV1 f.body)
   let plan : Plan := {
     targetDescriptor := descriptor
     semanticSchemaVersion := semanticProgramSchemaVersionV1
@@ -4093,7 +4202,7 @@ private def makePlanFromSemanticDataV1
     inputAbi := rawInputAbi
     layoutDomain := stateLayoutDomain
     hostImports := hostImportsFor usesSchedulePromise usesTransferPromise
-      usesTokenTransferPromise usesTimestamp
+      usesTokenTransferPromise usesTimestamp usesAccountBalance
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits

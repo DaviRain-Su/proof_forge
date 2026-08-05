@@ -1,5 +1,5 @@
 /-
-  Tests.Materialization.NearPfAssetsV1 — ADR-0029 Phase C2 + ADR-0030 E1-NEAR
+  Tests.Materialization.NearPfAssetsV1 — ADR-0029 Phase C2 + ADR-0030 E1/E2-NEAR
   NEAR pf.assets binding.
 
   Plan-level pins for the pf.assets NEAR lane:
@@ -10,6 +10,9 @@
     * `pf.assets.token.transferAsync(mint, dst, amount)` lowers to
       `.promiseTokenTransfer` (fire-and-forget NEP-141 `ft_transfer`
       `promise_batch_action_function_call`; 1 yoctoNEAR deposit; JSON args)
+    * `pf.assets.native.balanceOfSelf()` lowers to `.accountBalance` (host
+      `account_balance` + UInt64 range guard); view/entry-callable
+    * `pf.assets.token.balanceOfSelf` permanently fail closed (async NEP-141 view)
     * catalog QN requires exact `extension.pf-assets` row (declaration gate)
     * sync `pf.assets.native.transfer` permanently fail closed (Promise async)
     * sync `pf.assets.token.transfer` permanently fail closed (NEP-141 async)
@@ -17,7 +20,8 @@
     * non-catalog sync calls fail closed
     * host imports: function-call action present iff a schedule or
       tokenTransferAsync is lowered; transfer action present iff a
-      transferAsync is lowered; promise batch create present for any promise
+      transferAsync is lowered; promise batch create present for any promise;
+      account_balance present iff native balanceOfSelf is lowered
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Near
@@ -320,6 +324,126 @@ unsafe def testTokenTransferAsyncIR : IO Unit := do
   expect (tip.depositPolicy == .requireZero)
     "token transferAsync entry must be requireZero (1 yocto comes from contract balance)"
 
+private def envReadJarSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program EnvReadJar where\n" ++
+  pfAssetsRequiresBlock ++
+  "  state tips : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    tips := initial\n" ++
+  "  entry acceptNative(amount : UInt64) : UInt64 do\n" ++
+  "    call pf.assets.native.deposit(amount)\n" ++
+  "    tips := tips + amount\n" ++
+  "    return tips\n" ++
+  "  view nativeBalance() : UInt64 do\n" ++
+  "    return pf.assets.native.balanceOfSelf()\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return tips\n"
+
+/-- ADR-0030 E2-NEAR: native balanceOfSelf lowers to accountBalance in a view;
+    host import account_balance is present; pureFn/token stay fail closed. -/
+unsafe def testNativeBalanceOfSelfPlan : IO Unit := do
+  let compiled ← compileSource "<near-pf-assets-envread>"
+    "Tests.NearPfAssetsEnvRead" envReadJarSource
+  let plan ← planNearOf compiled
+  let some balView := plan.entries.find? (·.name == "nativeBalance") |
+    throw <| IO.userError "nativeBalance view must exist"
+  expect (balView.mode == .view) "nativeBalance must be a view"
+  -- Bare `return pf.assets.native.balanceOfSelf()` lowers to a single
+  -- returnValue of the accountBalance leaf expr.
+  let hasAccountBalance := balView.body.any fun st =>
+    match st with
+    | .returnValue .accountBalance => true
+    | _ => false
+  expect hasAccountBalance "nativeBalance view must return accountBalance"
+  expect (plan.hostImports.contains .accountBalance)
+    "plan must import account_balance when native balanceOfSelf is used"
+  -- Deposit entry still present and ordered.
+  let some accept := plan.entries.find? (·.name == "acceptNative") |
+    throw <| IO.userError "acceptNative entry must exist"
+  let deposits := accept.body.filter fun st => match st with
+    | .nativeDeposit _ => true | _ => false
+  expect (deposits.size == 1) "acceptNative must contain exactly one nativeDeposit"
+
+/-- E2-NEAR: token balanceOfSelf permanently fail closed with precise diagnosis. -/
+unsafe def testTokenBalanceOfSelfPermanentlyFailClosed : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program TokenBal where\n" ++
+    pfAssetsRequiresBlock ++
+    "  state tips : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    tips := initial\n" ++
+    "  view tokenBalance(mint : Principal) : UInt64 do\n" ++
+    "    return pf.assets.token.balanceOfSelf(mint)\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return tips\n"
+  let compiled ← compileSource "<near-pf-assets-token-bal>"
+    "Tests.NearPfAssetsTokenBal" source
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  match planFromCapability capability with
+  | .error (.planInvariant .near msg) =>
+      expect (msg.contains "permanently fail closed" &&
+          (msg.contains "ft_balance_of" || msg.contains "async cross-contract"))
+        s!"token balanceOfSelf must cite permanent FC + NEP-141 reason, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
+  | .ok _ => throw <| IO.userError "token.balanceOfSelf must fail closed on NEAR"
+
+/-- E2-NEAR: pureFn cannot use envRead (host read is not pure). -/
+unsafe def testEnvReadPureFnFailClosed : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PureEnv where\n" ++
+    pfAssetsRequiresBlock ++
+    "  state tips : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    tips := initial\n" ++
+    "  fn peek() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return peek()\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return tips\n"
+  let compiled ← compileSource "<near-pf-assets-pure-env>"
+    "Tests.NearPfAssetsPureEnv" source
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  match planFromCapability capability with
+  | .error (.planInvariant .near msg) =>
+      expect (msg.contains "pureFn" && msg.contains "envRead")
+        s!"pureFn envRead must cite pureFn/host-read, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
+  | .ok _ => throw <| IO.userError "pureFn envRead must fail closed on NEAR"
+
+/-- E2-NEAR IR/WAT: native balanceOfSelf emits account_balance import + hi-word guard. -/
+unsafe def testNativeBalanceOfSelfIR : IO Unit := do
+  let compiled ← compileSource "<near-pf-assets-envread-ir>"
+    "Tests.NearPfAssetsEnvReadIR" envReadJarSource
+  let capability ← (do
+      let selection ← liftResult <|
+        Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.near none
+      liftResult <| Targets.resolveEngineeringRequirementsV1 selection compiled)
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let watFile := files.find? (fun f => f.path.endsWith ".wat")
+  let some wat := watFile |
+    throw <| IO.userError "build must produce a .wat output file"
+  let watContent := wat.contents
+  expect (watContent.contains "account_balance")
+    "WAT must contain account_balance host import"
+  expect (watContent.contains "pf_account_balance")
+    "WAT must bind $pf_account_balance"
+  -- Range guard: high word load compared against zero then unreachable.
+  expect (watContent.contains "unreachable")
+    "WAT must contain unreachable (UInt64 range guard on hi word)"
+
 unsafe def run : IO Unit := do
   testDepositTransferAsyncPlan
   testTokenTransferAsyncPlan
@@ -329,6 +453,10 @@ unsafe def run : IO Unit := do
   testSyncTokenTransferPermanentlyFailClosed
   testNonCatalogSyncFailClosed
   testTokenTransferAsyncIR
+  testNativeBalanceOfSelfPlan
+  testTokenBalanceOfSelfPermanentlyFailClosed
+  testEnvReadPureFnFailClosed
+  testNativeBalanceOfSelfIR
   IO.println "Tests.Materialization.NearPfAssetsV1: ok"
 
 end Tests.Materialization.NearPfAssetsV1

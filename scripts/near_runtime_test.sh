@@ -133,6 +133,7 @@ programs=(
   "runtime-tests/near/fixtures/OptionState.lean:Examples.OptionState:OptionState"
   "Examples/TipJarAsync.lean:Examples.TipJarAsync:TipJarAsync"
   "runtime-tests/near/fixtures/TokenJarAsync.lean:Examples.TokenJarAsync:TokenJarAsync"
+  "runtime-tests/near/fixtures/EnvReadJar.lean:Examples.EnvReadJar:EnvReadJar"
 )
 
 echo "near-runtime-test: engineering near-sandbox differential (not formal/testnet)"
@@ -221,6 +222,7 @@ optionret_wasm="$out_dir/OptionRet/OptionRet.wasm"
 optionstate_wasm="$out_dir/OptionState/OptionState.wasm"
 tipjarasync_wasm="$out_dir/TipJarAsync/TipJarAsync.wasm"
 tokenjarasync_wasm="$out_dir/TokenJarAsync/TokenJarAsync.wasm"
+envreadjar_wasm="$out_dir/EnvReadJar/EnvReadJar.wasm"
 [[ -f "$counter_wasm" ]] || die "missing $counter_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
@@ -228,6 +230,7 @@ tokenjarasync_wasm="$out_dir/TokenJarAsync/TokenJarAsync.wasm"
 [[ -f "$optionstate_wasm" ]] || die "missing $optionstate_wasm"
 [[ -f "$tipjarasync_wasm" ]] || die "missing $tipjarasync_wasm"
 [[ -f "$tokenjarasync_wasm" ]] || die "missing $tokenjarasync_wasm"
+[[ -f "$envreadjar_wasm" ]] || die "missing $envreadjar_wasm"
 
 # --- sandbox helpers --------------------------------------------------------
 
@@ -355,5 +358,8 @@ echo "near-runtime-test: running TokenJarAsync suite against near-sandbox"
 export PF_NEAR_WAT2WASM="$wat2wasm"
 run_suite tokenjarasync "$tokenjarasync_wasm" || die "TokenJarAsync suite failed"
 
-echo "near-runtime-test: PASS (Counter + PairRet + ArrayRet + OptionRet + OptionState + TipJarAsync + TokenJarAsync engineering sandbox differential)"
+echo "near-runtime-test: running EnvReadJar suite against near-sandbox"
+run_suite envreadjar "$envreadjar_wasm" || die "EnvReadJar suite failed"
+
+echo "near-runtime-test: PASS (Counter + PairRet + ArrayRet + OptionRet + OptionState + TipJarAsync + TokenJarAsync + EnvReadJar engineering sandbox differential)"
 exit 0

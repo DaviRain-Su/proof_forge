@@ -60,6 +60,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
         if fieldIndex < layout.fields.size then some 1 else none
     | .localTemp _ => some 1
     | .blockTimestampSeconds => some 1
+    | .accountBalance => some 1
     | .checkedAdd lhs rhs => binaryNodes lhs rhs
     | .checkedSub lhs rhs => binaryNodes lhs rhs
     | .checkedMul lhs rhs => binaryNodes lhs rhs
@@ -569,7 +570,7 @@ private def validateFnBinding (limits : ResourceLimits) (layout : StorageLayout)
 def validatePlan (plan : Plan) : CompileResult Unit := do
   let expectedImports := hostImportsFor (planUsesSchedulePromiseV1 plan)
     (planUsesTransferPromiseV1 plan) (planUsesTokenTransferPromiseV1 plan)
-    (planUsesTimestampV1 plan)
+    (planUsesTimestampV1 plan) (planUsesAccountBalanceV1 plan)
   unless plan.targetDescriptor == descriptor &&
       plan.semanticSchemaVersion == semanticProgramSchemaVersionV1 &&
       plan.codegenProfile == descriptor.codegenProfile.toString &&

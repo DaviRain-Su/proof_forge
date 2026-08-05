@@ -933,6 +933,102 @@ unsafe def testDualExtensionResolveFailClosed : IO Unit := do
   expect (Targets.ResolvedEngineeringBuildV1.targetIdOf cap == TargetId.quint)
     "pf.assets alone still resolves (S2 + extension coexistence)"
 
+/-- ADR-0030 E2-Quint: native balanceOfSelf lowers to vaultNative in a view;
+    usesVaultNative is true; emitted .qnt reads pf_vault_native. -/
+unsafe def testEnvReadNativeBalanceOfSelf : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program EnvReadTip where\n" ++
+    pfAssetsRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry tip(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call pf.assets.native.deposit(amount)\n" ++
+    "    call pf.assets.native.transfer(dst, amount)\n" ++
+    "    count := count + amount\n" ++
+    "    return count\n" ++
+    "  view nativeBalance() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-envread-native>" "Tests.QuintEnvReadNative" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect plan.usesVaultNative "EnvReadTip must enable vaultNative"
+  let some balView := plan.views.find? (·.name == "nativeBalance") |
+    throw <| IO.userError "nativeBalance view must exist"
+  expect (balView.value == .vaultNative)
+    "nativeBalance view value must be vaultNative"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "EnvReadTip.qnt") |
+    throw <| IO.userError "quint: missing EnvReadTip.qnt"
+  let qnt := qntFile.contents
+  expect (qnt.contains "var pf_vault_native: int")
+    "EnvReadTip.qnt must declare pf_vault_native"
+  expect (qnt.contains "pf_vault_native")
+    "view body must reference pf_vault_native"
+
+/-- E2-Quint: env-read-only program (no deposit/transfer) still emits vault. -/
+unsafe def testEnvReadOnlyEnablesVault : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program EnvOnly where\n" ++
+    pfAssetsRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(x : UInt64) : UInt64 do\n" ++
+    "    count := count + x\n" ++
+    "    return count\n" ++
+    "  view nativeBalance() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-envread-only>" "Tests.QuintEnvReadOnly" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect plan.usesVaultNative
+    "env-read-only program must still set usesVaultNative"
+  expect (plan.entries.all (·.assetOps.isEmpty))
+    "env-read-only: no asset ops on entries"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "EnvOnly.qnt") |
+    throw <| IO.userError "quint: missing EnvOnly.qnt"
+  expect (qntFile.contents.contains "var pf_vault_native: int")
+    "env-read-only .qnt must declare pf_vault_native (init to 0)"
+
+/-- E2-Quint: token balanceOfSelf permanently fail closed with Q0 Map diagnosis.
+    Uses an entry (views reject Principal params at the Q0 surface gate). -/
+unsafe def testEnvReadTokenBalanceFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program TokenBal where\n" ++
+    pfAssetsRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry tokenBalance(mint : Principal) : UInt64 do\n" ++
+    "    return pf.assets.token.balanceOfSelf(mint)\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-envread-token>" "Tests.QuintEnvReadToken" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "permanently fail closed" &&
+          (msg.contains "token" || msg.contains "Map" || msg.contains "Q0"))
+        s!"token balanceOfSelf must cite permanent FC + Q0 Map reason, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
+  | .ok _ => throw <| IO.userError "token.balanceOfSelf must fail closed on Quint"
+
 unsafe def run : IO Unit := do
   testCounterQuintSource
   testRollbackStutter
@@ -960,6 +1056,9 @@ unsafe def run : IO Unit := do
   testNonCatalogExternalCallFailClosed
   testPfAssetsAsyncAndTokenFailClosed
   testDualExtensionResolveFailClosed
+  testEnvReadNativeBalanceOfSelf
+  testEnvReadOnlyEnablesVault
+  testEnvReadTokenBalanceFailClosed
   IO.println "Tests.Materialization.QuintSourceV1: ok"
 
 end Tests.Materialization.QuintSourceV1

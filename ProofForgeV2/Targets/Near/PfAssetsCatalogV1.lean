@@ -1,5 +1,6 @@
 /-
-  ADR-0029 Phase C2 + ADR-0030 E1-NEAR — NEAR-owned `pf.assets` binding catalog.
+  ADR-0029 Phase C2 + ADR-0030 E1-NEAR + E2-NEAR — NEAR-owned `pf.assets`
+  binding catalog.
 
   L1 portable QNs admitted for materialization on NEAR:
     * `pf.assets.native.deposit(amount)` — exact `attached_deposit == amount`
@@ -17,11 +18,18 @@
       where `<amount>` is the decimal ASCII of the UInt64 base-unit value.
       Fire-and-forget: no result callback, no response cursor (same acceptance
       discipline as C2 native transferAsync).
+    * `pf.assets.native.balanceOfSelf()` — ADR-0030 E2-NEAR: host
+      `account_balance` writes u128 LE; high 64 bits must be zero else trap
+      (UInt64 range guard, same discipline as EVM SELFBALANCE / CW bank
+      query). Read-only, view/entry-callable, effect-free.
 
   Permanently fail closed on NEAR:
     * `pf.assets.native.transfer` — Promise is async; must not be wrapped as sync.
     * `pf.assets.token.transfer` (sync) — NEP-141 cross-contract call is async;
       must not be wrapped as sync (honesty boundary, not debt).
+    * `pf.assets.token.balanceOfSelf(mint)` — NEP-141 `ft_balance_of` is a
+      cross-contract view call; NEAR's async promise model cannot complete it
+      synchronously inside an expression (honesty boundary, not debt).
 
   Principal encoding for mint / dst (wire identity ≠ NEAR account-id):
     `u32le(len) || utf8-account-id-bytes` (Pilot Principal leaves:
@@ -91,6 +99,26 @@ structure TokenTransferLoweringContractV1 where
     "promise_batch_create+promise_batch_action_function_call"
   deriving BEq, Repr, Inhabited
 
+/-- Frozen lowering contract for NEAR env-read `pf.assets.native.balanceOfSelf`
+    (ADR-0030 E2-NEAR). Decisions are product-pinned; changes require a
+    catalog/version bump. Read-only, view/entry-callable, effect-free.
+    Token balanceOfSelf stays permanently fail closed (NEP-141 cross-contract
+    view cannot complete synchronously). -/
+structure EnvReadLoweringContractV1 where
+  /-- Native balance: host `account_balance(balance_ptr)` writes u128 LE
+      (same ABI shape as `attached_deposit`: one pointer param, void return). -/
+  nativeHost : String := "account_balance"
+  /-- Host ABI: `account_balance<[balance_ptr: u64] -> []>` (near-vm-runner). -/
+  nativeHostAbi : String := "balance_ptr-u64-writes-u128-le"
+  /-- UInt64 range guard: high 64 bits of the u128 must be zero else trap. -/
+  nativeRangeGuard : String := "hi64-zero-else-trap"
+  /-- Native balance is view-callable (read-only host observation). -/
+  nativeViewCallable : String := "view-and-entry-callable"
+  /-- Token balanceOfSelf permanently refuse (async NEP-141 view). -/
+  tokenBalancePolicy : String :=
+    "permanently-fail-closed-nep141-ft_balance_of-requires-async-cross-contract-view"
+  deriving BEq, Repr, Inhabited
+
 def nativeValueLoweringContractV1 : NativeValueLoweringContractV1 := {}
 
 /-- Package id for NEAR native yoctoNEAR value (no contract bytecode). -/
@@ -100,6 +128,8 @@ def tokenTransferLoweringContractV1 : TokenTransferLoweringContractV1 := {}
 
 /-- Package id for NEAR NEP-141 token standard (interface-standard; no bytecode). -/
 def tokenInterfacePackageIdV1 : String := "near-nep141-token-v1"
+
+def envReadLoweringContractV1 : EnvReadLoweringContractV1 := {}
 
 /-- Frozen gas (in gas units) for the NEP-141 ft_transfer function-call action.
     Consistent with the C2 schedule promise gas placeholder (30 Tgas). -/
@@ -118,6 +148,14 @@ structure TokenBindingV1 where
   qn : String
   packageId : String
   loweringContract : TokenTransferLoweringContractV1
+  admittedForMaterialization : Bool
+  deriving BEq, Repr, Inhabited
+
+/-- One admitted env-read L1 QN binding for the NEAR pf.assets package. -/
+structure EnvReadBindingV1 where
+  qn : String
+  packageId : String
+  loweringContract : EnvReadLoweringContractV1
   admittedForMaterialization : Bool
   deriving BEq, Repr, Inhabited
 
@@ -143,12 +181,24 @@ def tokenBindingsV1 : Array TokenBindingV1 :=
       admittedForMaterialization := true }
   ]
 
-/-- Closed QN membership for the NEAR admitted pf.assets set (native + token
-    transferAsync). Sync transfer / token.transfer stay fail closed. -/
+/-- ADR-0030 E2-NEAR admitted env-read binding: native balanceOfSelf only.
+    Token balanceOfSelf is intentionally absent (permanently fail closed). -/
+def envReadBindingsV1 : Array EnvReadBindingV1 :=
+  #[
+    { qn := "pf.assets.native.balanceOfSelf"
+      packageId := nativeValuePackageIdV1
+      loweringContract := envReadLoweringContractV1
+      admittedForMaterialization := true }
+  ]
+
+/-- Closed QN membership for the NEAR admitted pf.assets set (native deposit +
+    transferAsync + token transferAsync + native balanceOfSelf). Sync transfer /
+    token.transfer / token.balanceOfSelf stay fail closed. -/
 def isNearAdmittedPfAssetsQnV1 (qn : String) : Bool :=
   qn == "pf.assets.native.deposit" ||
     qn == "pf.assets.native.transferAsync" ||
-    qn == "pf.assets.token.transferAsync"
+    qn == "pf.assets.token.transferAsync" ||
+    qn == "pf.assets.native.balanceOfSelf"
 
 /-- Full catalog membership (five QNs); non-admitted members fail closed at Plan. -/
 def isPfAssetsCatalogQnV1 (qn : String) : Bool :=

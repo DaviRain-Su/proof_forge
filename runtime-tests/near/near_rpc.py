@@ -269,35 +269,67 @@ class NearClient:
         gas: int = 50_000_000_000_000,
         deposit: int = 0,
     ) -> dict[str, Any]:
+        return self.call_on(
+            self.account_id,
+            method,
+            args,
+            expect_success=expect_success,
+            gas=gas,
+            deposit=deposit,
+        )
+
+    def call_on(
+        self,
+        account_id: str,
+        method: str,
+        args: bytes = b"",
+        *,
+        expect_success: bool = True,
+        gas: int = 50_000_000_000_000,
+        deposit: int = 0,
+    ) -> dict[str, Any]:
+        """Function-call `method` on `account_id`, gas paid by the master signer.
+
+        Deposit attaches to the callee account (useful when the jar lives on a
+        subaccount so master gas burn does not confound balance deltas).
+        """
         print(
-            f"near-rpc: call {method}({len(args)} arg bytes)"
+            f"near-rpc: call_on {account_id}.{method}({len(args)} arg bytes)"
             f" expect_success={expect_success} deposit={deposit}"
         )
         return self.sign_and_send(
-            self.account_id,
+            account_id,
             [self.action_function_call(method, args, gas=gas, deposit=deposit)],
             expect_success=expect_success,
         )
 
     def view(self, method: str, args: bytes = b"") -> bytes:
+        return self.view_on(self.account_id, method, args)
+
+    def view_on(self, account_id: str, method: str, args: bytes = b"") -> bytes:
         res = self.rpc_call(
             "query",
             {
                 "request_type": "call_function",
                 "finality": "optimistic",
-                "account_id": self.account_id,
+                "account_id": account_id,
                 "method_name": method,
                 "args_base64": base64.b64encode(args).decode(),
             },
         )
         if res.get("error"):
-            raise NearRpcError(f"view {method}: {res['error']}")
+            raise NearRpcError(f"view {account_id}.{method}: {res['error']}")
         return bytes(res["result"])
 
     def view_u64(self, method: str, args: bytes = b"") -> int:
-        raw = self.view(method, args)
+        return self.view_u64_on(self.account_id, method, args)
+
+    def view_u64_on(self, account_id: str, method: str, args: bytes = b"") -> int:
+        raw = self.view_on(account_id, method, args)
         if len(raw) < 8:
-            raise NearRpcError(f"view {method}: expected ≥8 LE bytes, got {raw!r}")
+            raise NearRpcError(
+                f"view {account_id}.{method}: expected ≥8 LE bytes, got {raw!r}"
+            )
         return self.decode_u64_le(raw, 0)
 
     def view_u64_pair(self, method: str, args: bytes = b"") -> tuple[int, int]:

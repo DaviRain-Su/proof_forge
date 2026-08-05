@@ -25,6 +25,9 @@ inductive Operation where
   /-- B-CTX-OPEN: block timestamp seconds — host `block_timestamp()` (ns)
       divided by 10^9 (truncating). -/
   | blockTimestampSeconds (destination : Nat)
+  /-- ADR-0030 E2-NEAR: host `account_balance` → u128 LE scratch; trap if
+      high 64 bits nonzero; low 64 bits → destination (UInt64 range guard). -/
+  | accountBalance (destination : Nat)
   | requireLayoutAbsent (marker : KeyRegion)
   | requireLayout (marker : KeyRegion) (value : UInt64)
   | zeroState (field : KeyRegion)
@@ -262,6 +265,11 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
           { operations := #[.literal next 0], value := next, next := next + 1 }
   | .blockTimestampSeconds =>
       { operations := #[.blockTimestampSeconds next]
+        value := next
+        next := next + 1
+      }
+  | .accountBalance =>
+      { operations := #[.accountBalance next]
         value := next
         next := next + 1
       }
@@ -1024,6 +1032,10 @@ private def renderImport : HostImport → String
       "  (import \"env\" \"panic_utf8\" (func $pf_panic_utf8 (param i64 i64)))\n"
   | .blockTimestamp =>
       "  (import \"env\" \"block_timestamp\" (func $pf_block_timestamp (result i64)))\n"
+  | .accountBalance =>
+      -- ADR-0030 E2-NEAR: account_balance writes u128 LE to balance_ptr
+      -- (same ABI shape as attached_deposit: one pointer param, void return).
+      "  (import \"env\" \"account_balance\" (func $pf_account_balance (param i64)))\n"
   | .promiseBatchCreate =>
       -- account_id_len, account_id_ptr → promise_index
       "  (import \"env\" \"promise_batch_create\" (func $pf_promise_batch_create (param i64 i64) (result i64)))\n"
@@ -1306,6 +1318,14 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .blockTimestampSeconds destination =>
       -- B-CTX-OPEN: host block_timestamp (ns) → whole seconds (truncating div).
       s!"{indent}(local.set $t{destination} (i64.div_u (call $pf_block_timestamp) (i64.const 1000000000)))\n"
+  | .accountBalance destination =>
+      -- ADR-0030 E2-NEAR: host account_balance → u128 LE at depositOffset
+      -- (shared 16-byte scratch with attached_deposit; not live simultaneously
+      -- across a single expr eval). High 64 bits must be zero (UInt64 range
+      -- guard, same discipline as EVM SELFBALANCE); low 64 bits are the result.
+      s!"{indent}(call $pf_account_balance (i64.const {memory.depositOffset}))\n" ++
+        s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset + 8})) (i64.const 0)) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.depositOffset})))\n"
   | .loadParam destination inputOffset =>
       s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.inputOffset + inputOffset})))\n"
   | .narrowLoadParam bitWidth destination inputOffset =>

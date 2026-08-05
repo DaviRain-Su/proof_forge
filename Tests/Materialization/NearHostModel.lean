@@ -246,6 +246,10 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       -- Deterministic HostModel timestamp: fixed 1_700_000_000 seconds
       -- (B-CTX-OPEN; the sandbox supplies the real block timestamp).
       writeTemp machine destination (UInt64.ofNat 1700000000)
+  | .accountBalance destination =>
+      -- ADR-0030 E2-NEAR: deterministic HostModel native balance (fits UInt64).
+      -- The sandbox supplies the real account_balance u128.
+      writeTemp machine destination (UInt64.ofNat 1000000)
   | .loadParam destination inputOffset => do
       let value ← match decodeUInt64LEAt input inputOffset with
         | some value => pure value
@@ -1077,6 +1081,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .checkInputLen _ => "checkInputLen"
     | .requireZeroAttachedDeposit => "requireZeroAttachedDeposit"
     | .blockTimestampSeconds _ => "blockTimestampSeconds"
+    | .accountBalance _ => "accountBalance"
     | .requireLayoutAbsent _ => "requireLayoutAbsent"
     | .requireLayout _ _ => "requireLayout"
     | .zeroState _ => "zeroState"

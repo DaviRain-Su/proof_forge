@@ -173,6 +173,8 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   -- B-CTX-OPEN: block timestamp seconds (tag 41 appended; prior tags
   -- byte-identical).
   | .blockTimestampSeconds => pure (encodeU8 41)
+  -- ADR-0030 E2-NEAR: account_balance env-read (tag 42).
+  | .accountBalance => pure (encodeU8 42)
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

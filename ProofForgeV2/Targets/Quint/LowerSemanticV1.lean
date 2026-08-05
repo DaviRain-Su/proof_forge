@@ -343,6 +343,8 @@ private structure BodyAccum where
   vaultExpr : Expr
   vaultExpandedNodes : Nat
   opCount : Nat
+  /-- ADR-0030 E2: body referenced vaultNative via env-read (or will via asset ops). -/
+  usesVaultNative : Bool := false
   deriving Inhabited
 
 private def emptyBodyAccum (env : ValueEnv) (overlay : StateOverlay) : BodyAccum :=
@@ -352,7 +354,8 @@ private def emptyBodyAccum (env : ValueEnv) (overlay : StateOverlay) : BodyAccum
     assetOps := #[]
     vaultExpr := .vaultNative
     vaultExpandedNodes := 1
-    opCount := 0 }
+    opCount := 0
+    usesVaultNative := false }
 
 private def pushCheck (acc : BodyAccum) (ck : Check) : CompileResult BodyAccum := do
   if acc.checks.size + 1 > maxBodyChecks then
@@ -713,9 +716,41 @@ private partial def lowerInstructions
         else
           planError
             "unsupported Quint semantic shape: externalCall callee is not a Quint-admitted pf.assets QN"
+    | .envRead key args => do
+        -- ADR-0030 E2-Quint: read-only self-vault observation.
+        -- Native → target-owned `vaultNative` (same Int model as deposit/transfer).
+        -- Token → permanently fail closed: mint-keyed Map + Principal identity
+        -- are outside Q0 Int vault (honesty boundary, not debt).
+        let some result := instr.result |
+          planError "unsupported Quint semantic shape: envRead must produce a value"
+        unless idx.pfAssetsDeclared do
+          planError
+            "unsupported Quint semantic shape: pf.assets env-read requires extension.pf-assets declaration"
+        unless isUInt64Type types result.typeId do
+          planError "unsupported Quint semantic shape: envRead result must be UInt64"
+        unless allowStateRead do
+          planError
+            "unsupported Quint semantic shape: pureFn cannot use envRead (host/model vault read is not pure)"
+        match key with
+        | .nativeVaultBalance =>
+            unless args.isEmpty do
+              planError
+                "unsupported Quint semantic shape: nativeVaultBalance takes no arguments"
+            let tv : TypedExpr := {
+              ty := .uint64
+              expr := .vaultNative
+              expandedNodes := 1
+            }
+            acc := { acc with
+              env := envInsert acc.env result.valueId tv
+              usesVaultNative := true
+            }
+        | .tokenVaultBalance =>
+            planError
+              "unsupported Quint semantic shape: pf.assets.token.balanceOfSelf permanently fail closed (mint-keyed token vault Map + Principal identity are outside Q0 Int vault model)"
     | .constant .. | .construct .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
-    | .checkedCast .. | .contextRead .. | .envRead .. | .commit ..
+    | .checkedCast .. | .contextRead .. | .commit ..
     | .emit .. | .schedule .. =>
         planError "unsupported Quint semantic shape: op is outside Q0"
   -- Terminator
@@ -779,7 +814,7 @@ private def lowerCallableBody
     (allowStateRead allowStateWrite forbidChecks initialStateDefaults : Bool) :
     CompileResult
       (Array String × Array Bool × Array Check × Array (Nat × Expr) ×
-        Array PfAssetsOp × Option TypedExpr × Bool) := do
+        Array PfAssetsOp × Option TypedExpr × Bool × Bool) := do
   let (env0, paramNames, paramIsPrincipal) ← seedParamEnv types callable
   -- Reference initialization starts from canonical UInt64 zero values. Seed
   -- the initializer overlay accordingly so an init StateLoad never refers to
@@ -797,7 +832,10 @@ private def lowerCallableBody
     lowerInstructions data types idx callable
       allowStateRead allowStateWrite forbidChecks 0 acc0
   let stores := overlayFinalStores acc.overlay
-  pure (paramNames, paramIsPrincipal, acc.checks, stores, acc.assetOps, ret?, endedRevert)
+  -- Asset ops always touch the vault; env-read sets the flag explicitly.
+  let usesVault := acc.usesVaultNative || !acc.assetOps.isEmpty
+  pure (paramNames, paramIsPrincipal, acc.checks, stores, acc.assetOps, ret?,
+    endedRevert, usesVault)
 
 private def makePlanFromSemanticDataV1
     (data : SemanticProgramDataV1) (programName : String)
@@ -851,7 +889,8 @@ private def makePlanFromSemanticDataV1
         let rk ← resultKindOf types callable.result.typeId s!"pureFn '{name}'"
         unless callable.result.visibility == .public_ do
           planError s!"pureFn '{name}' result must be public"
-        let (_params, paramIsPrincipal, _checks, stores, assetOps, ret?, endedRevert) ←
+        let (_params, paramIsPrincipal, _checks, stores, assetOps, ret?, endedRevert,
+            bodyUsesVault) ←
           lowerCallableBody data types idx callable
             (allowStateRead := false) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
@@ -859,6 +898,8 @@ private def makePlanFromSemanticDataV1
           planError s!"pureFn '{name}' cannot write state"
         unless assetOps.isEmpty do
           planError s!"pureFn '{name}' cannot perform external calls"
+        if bodyUsesVault then
+          planError s!"pureFn '{name}' cannot use envRead (host/model vault read is not pure)"
         if paramIsPrincipal.any id then
           planError s!"pureFn '{name}' parameters must be public UInt64 (no Principal)"
         match rk, ret?, endedRevert with
@@ -887,7 +928,8 @@ private def makePlanFromSemanticDataV1
           planError "unsupported Quint semantic shape: initializer result must be Unit"
         unless callable.result.visibility == .public_ do
           planError "unsupported Quint semantic shape: initializer result must be public"
-        let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert) ←
+        let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert,
+            bodyUsesVault) ←
           lowerCallableBody data types idx callable
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := true)
             (initialStateDefaults := true)
@@ -897,6 +939,8 @@ private def makePlanFromSemanticDataV1
           planError "unsupported Quint semantic shape: initializer cannot contain fallible checks"
         unless assetOps.isEmpty do
           planError "unsupported Quint semantic shape: initializer cannot contain external calls"
+        if bodyUsesVault then
+          planError "unsupported Quint semantic shape: initializer cannot use envRead"
         if paramIsPrincipal.any id then
           planError "unsupported Quint semantic shape: initializer parameters must be public UInt64"
         unless ret?.isNone do
@@ -911,7 +955,8 @@ private def makePlanFromSemanticDataV1
         let rk ← resultKindOf types callable.result.typeId s!"entry '{name}'"
         unless callable.result.visibility == .public_ do
           planError s!"entry '{name}' result must be public"
-        let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert) ←
+        let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert,
+            bodyUsesVault) ←
           lowerCallableBody data types idx callable
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := false)
             (initialStateDefaults := false)
@@ -932,7 +977,7 @@ private def makePlanFromSemanticDataV1
               planError s!"entry '{name}' non-Unit return is missing"
           | .uint64, some _, true | .bool, some _, true =>
               planError s!"entry '{name}' revert path cannot carry a return value"
-        if !assetOps.isEmpty then
+        if bodyUsesVault then
           usesVaultNative := true
         entryActionIndex := entryActionIndex + 1
         entries := entries.push {
@@ -952,7 +997,8 @@ private def makePlanFromSemanticDataV1
           planError s!"view '{name}' result must be UInt64 or Bool"
         unless callable.result.visibility == .public_ do
           planError s!"view '{name}' result must be public"
-        let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert) ←
+        let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert,
+            bodyUsesVault) ←
           lowerCallableBody data types idx callable
             (allowStateRead := true) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
@@ -976,6 +1022,8 @@ private def makePlanFromSemanticDataV1
           | .uint64 => requireTy tv .uint64 s!"view '{name}' result"
           | .bool => requireTy tv .bool s!"view '{name}' result"
           | .unit => planError s!"view '{name}' result must be UInt64 or Bool"
+        if bodyUsesVault then
+          usesVaultNative := true
         views := views.push { name, params, resultKind := rk, value }
     | .invariant => do
         let name ← match callable.name with
@@ -989,7 +1037,8 @@ private def makePlanFromSemanticDataV1
           planError s!"invariant '{name}' must return public Bool"
         unless callable.result.visibility == .public_ do
           planError s!"invariant '{name}' result must be public"
-        let (params, _paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert) ←
+        let (params, _paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert,
+            bodyUsesVault) ←
           lowerCallableBody data types idx callable
             (allowStateRead := true) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
@@ -1001,6 +1050,8 @@ private def makePlanFromSemanticDataV1
           planError s!"invariant '{name}' cannot write state"
         unless assetOps.isEmpty do
           planError s!"invariant '{name}' cannot perform external calls"
+        if bodyUsesVault then
+          planError s!"invariant '{name}' cannot use envRead (invariant closure forbids host/model vault reads)"
         let tv ← match ret? with
           | some v => pure v
           | none => planError s!"invariant '{name}' must return Bool"

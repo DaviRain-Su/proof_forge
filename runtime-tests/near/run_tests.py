@@ -12,7 +12,7 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
   PF_NEAR_HOME         near-sandbox --home directory (validator_key.json)
   PF_NEAR_WASM         path to product .wasm for the suite
-  PF_NEAR_SUITE        counter | pairret | arrayret | optionret | optionstate | tipjarasync | single
+  PF_NEAR_SUITE        counter | pairret | arrayret | optionret | optionstate | tipjarasync | tokenjarasync | envreadjar | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -438,6 +438,141 @@ def suite_tokenjarasync(client: NearClient, wasm: Path, mock_token_wat: Path,
     print("suite TokenJarAsync: PASS")
 
 
+def suite_envreadjar(client: NearClient, wasm: Path) -> None:
+    """ADR-0030 E2-NEAR: pf.assets.native.balanceOfSelf → host account_balance.
+
+    Deploys the jar onto a key-carrying subaccount so master gas burn does not
+    confound the jar's account_balance. Honesty about UInt64 range guard vs
+    NEAR storage staking:
+      Subaccount funding for a deployed WASM is typically >> 2^64 (storage
+      stake). The product path traps when the high 64 bits of account_balance
+      are nonzero — same UInt64 discipline as EVM SELFBALANCE / CW bank query.
+      This suite therefore:
+        1. Proves acceptNative deposit advances tip state and increases the
+           RPC-observed jar balance by exactly the attached amount (gas paid
+           by master, deposit lands on the jar).
+        2. Calls nativeBalance(): if the jar balance fits in UInt64, asserts
+           equality with RPC view_account; otherwise asserts the view fails
+           (range guard). Both outcomes are product-correct.
+    """
+    print("=== suite: EnvReadJar (pf.assets.native.balanceOfSelf, ADR-0030 E2-NEAR) ===")
+    jar = f"envreadjar.{client.account_id}"
+    # Fund enough for storage stake of the small jar WASM (~1 KB) plus headroom.
+    client.create_subaccount_with_key(jar, 10**24)
+    client.deploy_to(jar, wasm)
+    print(f"envreadjar: jar deployed on {jar}")
+
+    client.call_on(jar, "init", NearClient.encode_u64_le(0))
+    got = client.view_u64_on(jar, "get")
+    if got != 0:
+        raise AssertionError(f"after init(0): get() expected 0, got {got}")
+    print("envreadjar: init(0) → get()==0 ok")
+
+    base_balance = client.view_account_balance(jar)
+    print(f"envreadjar: jar base_balance={base_balance}")
+    u64_max = (1 << 64) - 1
+
+    def try_native_balance(*, expect_success: bool) -> int | None:
+        """Call nativeBalance view. Returns decoded UInt64 on success, None on fail."""
+        try:
+            raw = client.view_on(jar, "nativeBalance", b"")
+            if len(raw) < 8:
+                raise AssertionError(f"nativeBalance return too short: {raw!r}")
+            val = NearClient.decode_u64_le(raw, 0)
+            if not expect_success:
+                raise AssertionError(
+                    f"nativeBalance expected fail (range guard), got {val}"
+                )
+            return val
+        except NearRpcError as e:
+            if expect_success:
+                raise AssertionError(
+                    f"nativeBalance expected success, got error: {e}"
+                ) from e
+            return None
+
+    bal0: int | None
+    if base_balance <= u64_max:
+        bal0 = try_native_balance(expect_success=True)
+        if bal0 != base_balance:
+            raise AssertionError(
+                f"nativeBalance after init expected {base_balance}, got {bal0}"
+            )
+        print(f"envreadjar: nativeBalance()=={bal0} (fits UInt64) ok")
+    else:
+        bal0 = try_native_balance(expect_success=False)
+        if bal0 is not None:
+            raise AssertionError(
+                f"nativeBalance must trap when balance>{u64_max}, got {bal0}"
+            )
+        print(
+            f"envreadjar: nativeBalance traps on balance>{u64_max} "
+            f"(UInt64 range guard) ok"
+        )
+
+    # Deposit path: exact attached_deposit advances tips + jar RPC balance.
+    # Gas is paid by master; deposit lands entirely on the jar subaccount.
+    amount = 1000
+    res = client.call_on(
+        jar, "acceptNative", NearClient.encode_u64_le(amount), deposit=amount
+    )
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"acceptNative SuccessValue expected ≥8 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u64_le(sv, 0)
+    if ret != amount:
+        raise AssertionError(f"acceptNative SuccessValue expected {amount}, got {ret}")
+    got = client.view_u64_on(jar, "get")
+    if got != amount:
+        raise AssertionError(f"after acceptNative: get() expected {amount}, got {got}")
+    after = client.view_account_balance(jar)
+    # Deposit lands on the jar; gas is paid by master. Storage-stake accounting
+    # on the callee can move the liquid balance by more than `amount` (init
+    # already wrote the tips key; a subsequent store may still adjust the
+    # locked/unlocked split reported by view_account). Require a non-decrease
+    # of at least the attached deposit rather than exact equality.
+    if after < base_balance + amount:
+        raise AssertionError(
+            f"jar balance expected ≥ base+{amount} ({base_balance + amount}), "
+            f"got {after} (base={base_balance})"
+        )
+    print(
+        f"envreadjar: acceptNative({amount}) deposit={amount} → get()=={amount}, "
+        f"jar balance {base_balance} → {after} (Δ={after - base_balance}) ok"
+    )
+
+    if after <= u64_max:
+        bal1 = try_native_balance(expect_success=True)
+        if bal1 != after:
+            raise AssertionError(
+                f"nativeBalance after deposit expected {after}, got {bal1}"
+            )
+        print(f"envreadjar: nativeBalance after deposit == {bal1} ok")
+    else:
+        bal1 = try_native_balance(expect_success=False)
+        if bal1 is not None:
+            raise AssertionError(
+                f"nativeBalance must still trap when balance>{u64_max}, got {bal1}"
+            )
+        print("envreadjar: nativeBalance still traps post-deposit (range guard) ok")
+
+    # Wrong deposit must fail; tip state holds.
+    client.call_on(
+        jar,
+        "acceptNative",
+        NearClient.encode_u64_le(amount),
+        deposit=amount - 1,
+        expect_success=False,
+    )
+    got = client.view_u64_on(jar, "get")
+    if got != amount:
+        raise AssertionError(
+            f"after wrong-deposit acceptNative: get() must stay {amount}, got {got}"
+        )
+    print("envreadjar: wrong-deposit acceptNative fails + state holds ok")
+    print("suite EnvReadJar: PASS")
+
+
 def main(argv: list[str]) -> int:
     suite = os.environ.get("PF_NEAR_SUITE", "single").strip().lower()
     rpc = _require_env("PF_NEAR_RPC")
@@ -476,6 +611,9 @@ def main(argv: list[str]) -> int:
             ))
             wat2wasm = os.environ.get("PF_NEAR_WAT2WASM", "wat2wasm")
             suite_tokenjarasync(client, wasm, mock_wat, wat2wasm)
+        elif suite == "envreadjar":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_ENVREADJAR_WASM"))
+            suite_envreadjar(client, wasm)
         elif suite == "all":
             # Same sandbox / same account: run suites only if
             # caller redeploys after a fresh home (script boots once per suite).
