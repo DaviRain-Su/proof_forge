@@ -477,6 +477,10 @@ private def deriveHandlerRoleIds
         match role.keyPolicy with
         | .handlerCaller => acc := pushUnique acc role.roleId
         | .fixedProgram "system-v1" => acc := pushUnique acc role.roleId
+        -- ADR-0030 E1b: the createIdempotent CPI's ATA program account must be
+        -- an outer role (executable LoaderV3 program account), else the runtime
+        -- rejects with NotEnoughAccountKeys.
+        | .fixedProgram "ata-classic-v1" => acc := pushUnique acc role.roleId
         | _ => pure ()
     -- 3) handler sites source order: program role, then fixed-program metas
     for siteId in h.cpiSiteIds do

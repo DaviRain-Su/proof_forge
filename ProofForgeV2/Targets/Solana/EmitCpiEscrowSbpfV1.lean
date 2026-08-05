@@ -1078,7 +1078,10 @@ private def emitPfAssetsStep3AtaEnsure
     b := emit b "  stxdw [r9 + 8], r4"
     b := emit b "  lddw r4, 1"
     b := emit b "  stxb [r9 + 0], r4                  ; CreateIdempotent byte"
-    b := emitLoadAtaProgramKey b 184
+    -- ATA program key at +8 (free region +8..+104); +184 collides with the
+    -- six-metas array at +104 (slot 5 = +184), so the frozen key must not
+    -- live there. SolInstruction program_id points at r9+8.
+    b := emitLoadAtaProgramKey b 8
     b := emit b "  mov64 r5, r9"
     b := emit b "  add64 r5, 104"
     b := emitWriteMeta b "r5" 0 callerLocal true true
@@ -1090,7 +1093,7 @@ private def emitPfAssetsStep3AtaEnsure
     b := emit b "  mov64 r8, r9"
     b := emit b "  add64 r8, 200"
     b := emit b "  mov64 r4, r9"
-    b := emit b "  add64 r4, 184                       ; ATA program key addr"
+    b := emit b "  add64 r4, 8                         ; ATA program key addr"
     b := emit b "  stxdw [r8 + 0], r4                  ; program_id"
     b := emit b "  mov64 r4, r9"
     b := emit b "  add64 r4, 104"
@@ -1110,10 +1113,82 @@ private def emitPfAssetsStep3AtaEnsure
     b := emit b "  lddw r5, 0"
     b := emit b "  call sol_invoke_signed_c"
     b := emit b "  jne r0, 0, cpi_failed"
+    -- ADR-0030 E1b: a fresh createIdempotent reallocs the ATA account to the
+    -- 165-byte classic Token-account layout, but ROLE_DATA_LEN still holds the
+    -- entry snapshot (0). Refresh it so the next CPI's fill_info carries the
+    -- real length; otherwise update_callee_account compares 0 vs 165 on the
+    -- following CPI and fails with AccountDataSizeChanged (the caller is not
+    -- the account owner, so a shrink is not allowed). Harmless for the
+    -- already-initialized idempotent path where the snapshot is already 165.
+    b := emitRoleSlotAddr b ataLocal
+    b := emit b "  lddw r4, 165"
+    b := emit b "  stxdw [r2 + ROLE_DATA_LEN], r4"
     b := emit b "  lddw r1, 0"
     b := emit b "  lddw r2, 0"
     b := emit b "  call sol_set_return_data"
     b := emit b "  jne r0, 0, cpi_failed"
+    pure b
+
+/-- 32-byte account-data field at `baseOff` must equal the peer role's key
+    (used by site-time token-account joins). Pure helper shared by
+    `emitEscrowSiteCheck` and the pf.assets composite step 6. -/
+private def emitDataKeyEqualsRole
+    (b0 : AsmBuf) (accountLocal peerLocal baseOff : Nat) (errLab note : String) :
+    AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b s!"  ; {note} accountLocal={accountLocal} peerLocal={peerLocal} data@{baseOff}"
+    b := emitRoleSlotAddr b accountLocal
+    b := emit b "  ldxdw r1, [r2 + ROLE_DATA]"
+    b := emitRoleSlotAddr b peerLocal
+    b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+    for word in [0:4] do
+      b := emit b s!"  ldxdw r3, [r1 + {baseOff + word * 8}]"
+      b := emit b s!"  ldxdw r4, [r5 + {word * 8}]"
+      b := emit b s!"  jne r3, r4, {errLab}"
+    pure b
+
+/-- ADR-0028 §4.2 post-ensure site-time predicates for a pf.assets ATA role,
+    re-checked AFTER the createIdempotent ensure — a fresh ATA is initialized
+    only by the ensure itself, so these cannot run pre-invoke. Exact 165B
+    length, classic Token ownership, initialized state, mint join, owner join
+    and zero delegate all fail closed via err_shape. -/
+private def emitPfAssetsAtaPostEnsure
+    (b0 : AsmBuf) (label : String)
+    (ataLocal mintLocal walletLocal tokenLocal : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b s!"  ; --- post-ensure site-time checks for {label} ATA ---"
+    b := emitDataLenCheck b ataLocal 165 "err_shape"
+    b := emitRoleSlotAddr b ataLocal
+    b := emit b "  ldxdw r1, [r2 + ROLE_OWNER]"
+    b := emitRoleSlotAddr b tokenLocal
+    b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+    for word in [0:4] do
+      b := emit b s!"  ldxdw r3, [r1 + {word * 8}]"
+      b := emit b s!"  ldxdw r4, [r5 + {word * 8}]"
+      b := emit b s!"  jne r3, r4, err_shape"
+    b := emitRoleSlotAddr b ataLocal
+    b := emit b "  ldxdw r1, [r2 + ROLE_DATA]"
+    b := emit b "  ldxb r3, [r1 + 108]"
+    b := emit b "  jne r3, 1, err_shape"
+    b := emitDataKeyEqualsRole b ataLocal mintLocal 0 "err_shape"
+      s!"{label} ATA mint join"
+    b := emitDataKeyEqualsRole b ataLocal walletLocal 32 "err_shape"
+      s!"{label} ATA owner join"
+    b := emitRoleSlotAddr b ataLocal
+    b := emit b "  ldxdw r1, [r2 + ROLE_DATA]"
+    b := emit b "  ldxb r3, [r1 + 72]"
+    b := emit b "  ldxb r4, [r1 + 73]"
+    b := emit b "  lsh64 r4, 8"
+    b := emit b "  or64 r3, r4"
+    b := emit b "  ldxb r4, [r1 + 74]"
+    b := emit b "  lsh64 r4, 16"
+    b := emit b "  or64 r3, r4"
+    b := emit b "  ldxb r4, [r1 + 75]"
+    b := emit b "  lsh64 r4, 24"
+    b := emit b "  or64 r3, r4"
+    b := emit b "  jne r3, 0, err_shape"
     pure b
 
 /-- Step 6: Token transferCheckedPda with vault PDA signer. -/
@@ -1126,6 +1201,10 @@ private def emitPfAssetsStep6TransferCheckedPda
   Id.run do
     let mut b := b0
     b := emit b "  ; --- step 6: Token transferCheckedPda (vault ATA → dst ATA) ---"
+    -- ADR-0028 §4.2 site-time token-account predicates are re-checked by
+    -- `emitPfAssetsAtaPostEnsure` after each createIdempotent ensure, before
+    -- this transferCheckedPda CPI (see emitPfAssetsTokenTransfer).
+
     b := emit b "  mov64 r9, r10"
     b := emit b "  lddw r4, CPI_BASE"
     b := emit b "  sub64 r9, r4"
@@ -1312,8 +1391,16 @@ private def emitInvokePfAssetsTokenTransfer
   let b5 := emitPfAssetsStep3AtaEnsure b4 "dst ATA" (labSuffix ++ "_data")
       callerB.localIndex destination.localIndex dstWalletB.localIndex
       mint.localIndex systemLocal tokenLocal n
+  -- ADR-0028 §4.2: post-ensure site-time predicates for both ATA roles,
+  -- re-checked AFTER each createIdempotent (a fresh ATA is initialized only
+  -- by the ensure itself). Vault ATA wallet is the vault PDA; dst ATA wallet
+  -- is the dst Principal.
+  let b5a := emitPfAssetsAtaPostEnsure b5 "vault" source.localIndex mint.localIndex
+      authPda.localIndex tokenLocal
+  let b5b := emitPfAssetsAtaPostEnsure b5a "dst" destination.localIndex mint.localIndex
+      dstWalletB.localIndex tokenLocal
   -- Step 6: Token transferCheckedPda
-  pure (emitPfAssetsStep6TransferCheckedPda b5 inv.siteId (labSuffix ++ "_xfer")
+  pure (emitPfAssetsStep6TransferCheckedPda b5b inv.siteId (labSuffix ++ "_xfer")
     source.localIndex mint.localIndex destination.localIndex authPda.localIndex
     tokenProgramLocal meta0 meta1 meta2 meta3 amount decimals n)
 
@@ -1603,22 +1690,6 @@ private def emitSiteArgChecks
     pure b
 
 /-- Compare account data[baseOff..baseOff+32) to peer role key (4×u64 LE). -/
-private def emitDataKeyEqualsRole
-    (b0 : AsmBuf) (accountLocal peerLocal baseOff : Nat) (errLab note : String) :
-    AsmBuf :=
-  Id.run do
-    let mut b := b0
-    b := emit b s!"  ; {note} accountLocal={accountLocal} peerLocal={peerLocal} data@{baseOff}"
-    b := emitRoleSlotAddr b accountLocal
-    b := emit b "  ldxdw r1, [r2 + ROLE_DATA]"
-    b := emitRoleSlotAddr b peerLocal
-    b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
-    for word in [0:4] do
-      b := emit b s!"  ldxdw r3, [r1 + {baseOff + word * 8}]"
-      b := emit b s!"  ldxdw r4, [r5 + {word * 8}]"
-      b := emit b s!"  jne r3, r4, {errLab}"
-    pure b
-
 private def emitEscrowSiteCheck
     (b0 : AsmBuf) (check : CpiEscrowSiteCheckV1) (errLab labelSuffix : String) :
     CompileResult AsmBuf := do

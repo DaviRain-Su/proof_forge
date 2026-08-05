@@ -804,6 +804,17 @@ def deriveSolanaCpiPlanCandidateCoreV1
             (RoleKeyV1.fixedProgram "system-v1") "system_v1_program" calleeRoleConstraintV1
           roleKeys := kS
           roles := rS
+      -- ADR-0030 E1b: the ATA createIdempotent CPI invokes the classic ATA
+      -- program, whose LoaderV3 program account must be an outer account
+      -- (executable, readonly) — otherwise the runtime rejects with
+      -- NotEnoughAccountKeys. Ensure ata-classic-v1 alongside system-v1.
+      match findRoleId? roleKeys (RoleKeyV1.fixedProgram "ata-classic-v1") with
+      | some _ => pure ()
+      | none =>
+          let (kA, rA, _) ← ensureRole roleKeys roles
+            (RoleKeyV1.fixedProgram "ata-classic-v1") "ata_classic_v1_program" calleeRoleConstraintV1
+          roleKeys := kA
+          roles := rA
     let mut siteIdsForHandler : Array Nat := #[]
     for site in hSites do
       let siteId := builtSites.size
@@ -904,6 +915,10 @@ def deriveSolanaCpiPlanCandidateCoreV1
       | none => pure ()
       -- system-v1 fixedProgram role for ATA ensure metas (ADR-0030 E1b)
       match findRoleId? roleKeys (RoleKeyV1.fixedProgram "system-v1") with
+      | some rid => localRoles := pushUnique localRoles rid
+      | none => pure ()
+      -- ata-classic-v1 program account for the createIdempotent CPI target
+      match findRoleId? roleKeys (RoleKeyV1.fixedProgram "ata-classic-v1") with
       | some rid => localRoles := pushUnique localRoles rid
       | none => pure ()
     for siteId in siteIdsForHandler do

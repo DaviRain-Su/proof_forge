@@ -1630,8 +1630,24 @@ private def projectEscrowHandler
           let decimalsSrc : CpiEscrowU8SourceV1 :=
             .literal pfAssetsTokenTransferDecimalsV1
           let argChecks ← projectSiteArgChecks data.types callable paramLayout site none
-          let siteOps ← projectSiteChecks planHandler.mode handles site stateSchemas
+          let siteOpsAll ← projectSiteChecks planHandler.mode handles site stateSchemas
             decimalsSrc
+          -- ADR-0028 §4.2 site-time discipline for ATA roles: the two ATA
+          -- token-account predicates (165B/initialized/mintEq/ownerEq/
+          -- delegateNone) must be checked AFTER each createIdempotent ensure,
+          -- not pre-invoke — a fresh System-owned dst/vault ATA is only
+          -- initialized by the ensure itself. The composite emitter re-emits
+          -- these exact checks before transferCheckedPda; the pre-invoke
+          -- siteChecks keep only generic/program/mint checks.
+          let siteOps := siteOpsAll.filter fun op =>
+            match op with
+            | .tokenAccountStateInitialized l => l != vaultAtaB.localIndex && l != dstAtaB.localIndex
+            | .tokenAccountMintEqualsRole a _ => a != vaultAtaB.localIndex && a != dstAtaB.localIndex
+            | .tokenAccountOwnerEqualsRole a _ => a != vaultAtaB.localIndex && a != dstAtaB.localIndex
+            | .tokenAccountDelegateNone l => l != vaultAtaB.localIndex && l != dstAtaB.localIndex
+            | .generic (.checkExactDataLen l 165) => l != vaultAtaB.localIndex && l != dstAtaB.localIndex
+            | .generic (.checkOwnerExact l _) => l != vaultAtaB.localIndex && l != dstAtaB.localIndex
+            | _ => true
           body := body.push (.siteArgChecks site.siteId argChecks)
           body := body.push (.siteChecks site.siteId siteOps)
           body := body.push (.invokeEscrow {

@@ -316,6 +316,31 @@ tipjar_out="$(cd "$tipjar_out" && pwd -P)"
 export PROOF_FORGE_TIPJAR_ASSETS_OUT="$tipjar_out"
 echo "solana-runtime-test: TipJarAssets.so=$(wc -c <"$tipjar_out/TipJarAssets.so" | tr -d ' ') bytes"
 
+# ADR-0030 E1b TokenJarAssets product ELF (pf.assets token.transfer + CPI profile).
+# Additive: does not alter the 19 solana-sbpf-elf-v1 Counter/fixture programs.
+# Mollusk suite: runtime-tests/solana/tests/tipjar_token.rs (new test binary).
+tipjar_token_out="${PROOF_FORGE_TIPJAR_TOKEN_OUT:-$root/build/v2/solana-tipjar-token}"
+export PROOF_FORGE_TIPJAR_TOKEN_OUT="$tipjar_token_out"
+echo "solana-runtime-test: TokenJarAssets product build → $tipjar_token_out"
+rm -rf "$tipjar_token_out"
+mkdir -p "$(dirname "$tipjar_token_out")"
+if ! lake env "$cli" build \
+  "runtime-tests/solana/fixtures/TokenJarAssets.lean" \
+  --module "Examples.TokenJarAssets" \
+  --target solana \
+  --profile solana-sbpf-cpi-elf-v1 \
+  -o "$tipjar_token_out"; then
+  die "proof-forge-next build failed for TokenJarAssets (cpi profile)"
+fi
+[[ -f "$tipjar_token_out/manifest.json" ]] || die "TokenJarAssets manifest.json missing"
+[[ -f "$tipjar_token_out/TokenJarAssets.so" ]] || die "TokenJarAssets.so missing"
+if ! lake env "$cli" inspect --output-dir "$tipjar_token_out" --json >/dev/null; then
+  die "product inspect failed for TokenJarAssets under $tipjar_token_out"
+fi
+tipjar_token_out="$(cd "$tipjar_token_out" && pwd -P)"
+export PROOF_FORGE_TIPJAR_TOKEN_OUT="$tipjar_token_out"
+echo "solana-runtime-test: TokenJarAssets.so=$(wc -c <"$tipjar_token_out/TokenJarAssets.so" | tr -d ' ') bytes"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"
