@@ -314,7 +314,7 @@ callback 状态机、TON message mode/flag。这些暴露的是目标链执行�
 | **A** | L1 registry 机制（exact triple/provenance）+ `pf.assets` payload 冻结 + Reference 语义 + **Quint 绑定** | **shared core，串行 cutover**；Quint 是不可部署的 executable-model target，作为最便宜的语义验证场（vault 扣账/入账、failure 传播、rollback 先钉死在模型里） | **done（2026-08-04）** |
 | **B** | **Solana 先导 → EVM** | target leaf lane：Solana 复用 ADR-0028 既有机器重新绑定到链无关 QN（vault PDA≈`createPdaAccount`/幂等 ensure、出金为 program-direct lamports move——B1 修正，见 API 矩阵；ATA ensure≈`createIdempotent`）；EVM 新增 `interface-standard` artifactBinding、deposit/msg.value 校验与 value `CALL` lowering | **done（2026-08-05）** |
 | **C** | **CosmWasm + NEAR** | CW 争取完整 sync 绑定（`BankMsg::Send`/CW20 SubMsg 同交易原子，需 reply 语义新 versioned contract）；NEAR 结构上仅 `deposit` + `transferAsync`（Promise 为 async，sync 永久不可绑） | **done（2026-08-05）** |
-| **D** | TON、Psy、**Aleo 单独立项** | TON async-only（`deposit` + `transferAsync`）；Psy source-only 无 VM 门，最后；**Aleo 资产为 record 而非账户余额，custody 模型不同，vault 概念需 v2 单独设计，不与 Psy 并列** | pending |
+| **D** | ~~TON~~、Psy、**Aleo 单独立项** | **TON 已由产品 owner 决策（2026-08-05）冻结现状、不再做 pf.assets 及后续功能开发**；Psy source-only 无 VM 门；**Aleo 资产为 record 而非账户余额，custody 模型不同，vault 概念需 v2 单独设计** | Psy+Aleo in_progress |
 | — | **Noir 对 `pf.assets` 永久 fail closed** | 电路不搬资产，sync/async 均无意义；这是诚实边界，不是欠债 | permanent FC |
 
 **Phase A 工程事实（2026-08-04）**：payload 冻结于
