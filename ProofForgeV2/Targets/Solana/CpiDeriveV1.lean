@@ -795,6 +795,15 @@ def deriveSolanaCpiPlanCandidateCoreV1
             RoleKeyV1.handlerCaller "pf_caller" handlerCallerRoleConstraintV1
           roleKeys := kC
           roles := rC
+      -- ADR-0030 E1b: ATA ensure needs a system-v1 fixedProgram role
+      -- (not a CPI meta on token.transfer sites). Ensure before sites.
+      match findRoleId? roleKeys (RoleKeyV1.fixedProgram "system-v1") with
+      | some _ => pure ()
+      | none =>
+          let (kS, rS, _) ← ensureRole roleKeys roles
+            (RoleKeyV1.fixedProgram "system-v1") "system_v1_program" calleeRoleConstraintV1
+          roleKeys := kS
+          roles := rS
     let mut siteIdsForHandler : Array Nat := #[]
     for site in hSites do
       let siteId := builtSites.size
@@ -891,6 +900,10 @@ def deriveSolanaCpiPlanCandidateCoreV1
     -- Use a conditional to avoid changing role order for deposit handlers.
     if tokenTransferNeedsCaller then
       match findRoleId? roleKeys RoleKeyV1.handlerCaller with
+      | some rid => localRoles := pushUnique localRoles rid
+      | none => pure ()
+      -- system-v1 fixedProgram role for ATA ensure metas (ADR-0030 E1b)
+      match findRoleId? roleKeys (RoleKeyV1.fixedProgram "system-v1") with
       | some rid => localRoles := pushUnique localRoles rid
       | none => pure ()
     for siteId in siteIdsForHandler do

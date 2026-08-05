@@ -476,6 +476,7 @@ private def deriveHandlerRoleIds
       for role in c.accountRoles do
         match role.keyPolicy with
         | .handlerCaller => acc := pushUnique acc role.roleId
+        | .fixedProgram "system-v1" => acc := pushUnique acc role.roleId
         | _ => pure ()
     -- 3) handler sites source order: program role, then fixed-program metas
     for siteId in h.cpiSiteIds do

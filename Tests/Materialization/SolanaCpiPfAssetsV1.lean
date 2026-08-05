@@ -283,8 +283,8 @@ private unsafe def testQnGateFailClosed : IO Unit := do
   let capAsync ← productCapabilityOf cAsync
   expectPlanRejectContains (productPlanFromCapabilityV1 capAsync) "outside Phase"
     "AsyncOut plan FC"
-  -- token.transfer with declaration: Plan/IR construct succeed; emit FC
-  -- (composite ATA ensure + transferCheckedPda emitter deferred).
+  -- token.transfer with declaration: Plan/IR construct succeed; emit now
+  -- produces composite assembly (ATA ensure x2 + transferCheckedPda).
   let cToken ← compileSource tokenSource "TokenOut"
   let capToken ← productCapabilityOf cToken
   let plan ← expectPlanOk (productPlanFromCapabilityV1 capToken) "token plan"
@@ -303,13 +303,17 @@ private unsafe def testQnGateFailClosed : IO Unit := do
     | .invokeEscrow inv => inv.kind == .pfAssetsTokenTransfer
     | _ => false))
     "IR carries pfAssetsTokenTransfer invoke"
-  -- Emit must fail closed (composite emitter deferred).
-  match emitCpiProductSbpfV1 ir with
-  | .error e =>
-      expect (e.message.contains "pfAssetsTokenTransfer composite SBPF emitter")
-        s!"token emit FC must mention deferred emitter, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError "token emit unexpectedly succeeded (emitter should be deferred)"
+  -- Emit must now succeed (composite ATA ensure + transferCheckedPda).
+  let asm ← expectPlanOk (emitCpiProductSbpfV1 ir) "token assembly"
+  let text := SolanaCpiProductAssemblyV1.textOf asm
+  expect (hasSubstr text "sol_invoke_signed_c") "token emit has invoke_signed_c"
+  expect (hasSubstr text "sol_try_find_program_address") "token emit has find PDA"
+  expect (hasSubstr text "proof-forge:vault:v1") "token emit has vault seed"
+  expect (hasSubstr text "CreateIdempotent") "token emit has ATA ensure"
+  expect (hasSubstr text "TokenInstruction::TransferChecked") "token emit has TransferChecked"
+  expect (hasSubstr text "0x0c") "token emit has codec 0c"
+  expect (hasSubstr text "step 1: find vault PDA") "token emit step 1"
+  expect (hasSubstr text "step 6: Token transferCheckedPda") "token emit step 6"
 
 private unsafe def testDualExtension : IO Unit := do
   let compiled ← compileSource dualExtSource "DualExt"

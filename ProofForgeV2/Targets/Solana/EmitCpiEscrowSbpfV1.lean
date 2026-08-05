@@ -638,6 +638,36 @@ private def emitVaultSeed0 (b0 : AsmBuf) : AsmBuf :=
     b := emit b "  stxdw [r9 + 80], r4"
     pure b
 
+/-- Write vault seed0 at an arbitrary scratch offset. -/
+private def emitVaultSeed0At (b0 : AsmBuf) (baseOff : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b s!"  ; seed0 = proof-forge:vault:v1 (20 bytes) at +{baseOff}"
+    b := emit b "  lddw r4, 0x6f662d666f6f7270"
+    b := emit b s!"  stxdw [r9 + {baseOff}], r4"
+    b := emit b "  lddw r4, 0x6c7561763a656772"
+    b := emit b s!"  stxdw [r9 + {baseOff + 8}], r4"
+    b := emit b "  lddw r4, 0x31763a74"
+    b := emit b s!"  stxdw [r9 + {baseOff + 16}], r4"
+    pure b
+
+/-- Load frozen classic ATA program id (32 bytes LE) into a scratch region
+    starting at [r9+dstOff]. Used by the composite pf.assets.token.transfer
+    emitter where there is no handler-local ATA program role. -/
+private def emitLoadAtaProgramKey (b0 : AsmBuf) (dstOff : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b s!"  ; load frozen classic ATA program id at +{dstOff}"
+    b := emit b "  lddw r4, 0xf189244e8f25978c"
+    b := emit b s!"  stxdw [r9 + {dstOff}], r4"
+    b := emit b "  lddw r4, 0x830d8e1429103dbb"
+    b := emit b s!"  stxdw [r9 + {dstOff + 8}], r4"
+    b := emit b "  lddw r4, 0x8410ffda99135a0b"
+    b := emit b s!"  stxdw [r9 + {dstOff + 16}], r4"
+    b := emit b "  lddw r4, 0x59f8e9dbd87b8e04"
+    b := emit b s!"  stxdw [r9 + {dstOff + 24}], r4"
+    pure b
+
 /-- ADR-0029 B1 deposit: idempotent vault ensure (System createPda, space=0,
     rent-exempt) then System transfer caller → vault (unsigned). -/
 private def emitInvokeNativeDeposit
@@ -934,23 +964,283 @@ private def emitInvokeNativeTransfer
     b := emit b "  jne r0, 0, cpi_failed"
     pure b
 
-/-! ### ADR-0030 E1b: `pf.assets.token.transfer` composite emitter
+/-! ### ADR-0030 E1b: `pf.assets.token.transfer` composite emitter -/
 
-    This emitter must synthesize the following CPI sequence at runtime:
+/-- Step 1: find vault PDA over `proof-forge:vault:v1`, join to vault role. -/
+private def emitPfAssetsStep1VaultPda
+    (b0 : AsmBuf) (siteId : Nat) (vaultLocal : Nat) (n : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b s!"  ; --- invokePfAssetsTokenTransfer site={siteId} ---"
+    b := emit b "  ; Sequence: vaultPDA → vaultATA ensure → dstATA ensure → transferCheckedPda"
+    b := emit b "  mov64 r9, r10"
+    b := emit b "  lddw r4, CPI_BASE"
+    b := emit b "  sub64 r9, r4                       ; r9 = cpi scratch base"
+    b := emit b "  ; --- step 1: find vault PDA (proof-forge:vault:v1) ---"
+    b := emit b "  lddw r4, 0"
+    for off in [0:64:8] do
+      b := emit b s!"  stxdw [r9 + {off}], r4"
+    b := emitVaultSeed0 b
+    let vaultKeyOutOff := 256 + 56 * n
+    let vaultBumpOutOff := 288 + 56 * n
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 64"
+    b := emit b "  stxdw [r9 + 104], r5"
+    b := emit b "  lddw r4, 20"
+    b := emit b "  stxdw [r9 + 112], r4                ; SEED0_LEN=20"
+    b := emit b "  mov64 r1, r9"
+    b := emit b "  add64 r1, 104"
+    b := emit b "  lddw r2, 1"
+    b := emit b "  ldxdw r3, [r10 - SLOT_PROGRAM_ID]"
+    b := emit b "  mov64 r4, r9"
+    b := emit b s!"  add64 r4, {vaultKeyOutOff}"
+    b := emit b "  mov64 r5, r9"
+    b := emit b s!"  add64 r5, {vaultBumpOutOff}"
+    b := emit b "  call sol_try_find_program_address"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emit b s!"  ldxb r1, [r9 + {vaultBumpOutOff}]"
+    b := emit b "  jeq r1, 0, err_shape"
+    b := emit b "  stxdw [r9 + 96], r1                 ; vault bump byte"
+    b := emitRoleSlotAddr b vaultLocal
+    b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+    b := emit b "  mov64 r1, r9"
+    b := emit b s!"  add64 r1, {vaultKeyOutOff}"
+    for word in [0:4] do
+      b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
+      b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+      b := emit b s!"  jne r3, r4, err_shape"
+    pure b
+
+/-- Step 2/4: find ATA canonical address (wallet, Token, mint under ATA program),
+    join to ata role. `label` is "vault ATA" or "dst ATA". -/
+private def emitPfAssetsStep2AtaAddress
+    (b0 : AsmBuf) (label : String)
+    (walletLocal tokenLocal mintLocal ataLocal : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b s!"  ; --- step: find {label} canonical address ---"
+    b := emit b "  mov64 r9, r10"
+    b := emit b "  lddw r4, CPI_BASE"
+    b := emit b "  sub64 r9, r4"
+    b := emit b "  lddw r4, 0"
+    for off in [0:136:8] do
+      b := emit b s!"  stxdw [r9 + {off}], r4"
+    b := emitLoadAtaProgramKey b 64
+    b := emitRoleSlotAddr b walletLocal
+    b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
+    b := emit b "  stxdw [r9 + 16], r4                 ; seed: wallet"
+    b := emit b "  lddw r4, 32"
+    b := emit b "  stxdw [r9 + 24], r4"
+    b := emitRoleSlotAddr b tokenLocal
+    b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
+    b := emit b "  stxdw [r9 + 32], r4                 ; seed: classic Token program"
+    b := emit b "  lddw r4, 32"
+    b := emit b "  stxdw [r9 + 40], r4"
+    b := emitRoleSlotAddr b mintLocal
+    b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
+    b := emit b "  stxdw [r9 + 48], r4                 ; seed: mint"
+    b := emit b "  lddw r4, 32"
+    b := emit b "  stxdw [r9 + 56], r4"
+    b := emit b "  mov64 r1, r9"
+    b := emit b "  add64 r1, 16"
+    b := emit b "  lddw r2, 3"
+    b := emit b "  mov64 r3, r9"
+    b := emit b "  add64 r3, 64                        ; ATA program key"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 96                        ; keyOut at +96"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 128                       ; bumpOut at +128"
+    b := emit b "  call sol_try_find_program_address"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emitRoleSlotAddr b ataLocal
+    b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+    b := emit b "  mov64 r1, r9"
+    b := emit b "  add64 r1, 96"
+    for word in [0:4] do
+      b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
+      b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+      b := emit b s!"  jne r3, r4, err_shape"
+    pure b
+
+/-- Step 3/5: ATA createIdempotent. `label` is "vault ATA" or "dst ATA". -/
+private def emitPfAssetsStep3AtaEnsure
+    (b0 : AsmBuf) (label : String) (suffix : String)
+    (callerLocal ataLocal walletLocal mintLocal systemLocal tokenLocal : Nat)
+    (n : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b s!"  ; --- step: ATA createIdempotent for {label} ---"
+    b := emit b "  mov64 r9, r10"
+    b := emit b "  lddw r4, CPI_BASE"
+    b := emit b "  sub64 r9, r4"
+    b := emit b "  lddw r4, 0"
+    b := emit b "  stxdw [r9 + 0], r4"
+    b := emit b "  stxdw [r9 + 8], r4"
+    b := emit b "  lddw r4, 1"
+    b := emit b "  stxb [r9 + 0], r4                  ; CreateIdempotent byte"
+    b := emitLoadAtaProgramKey b 184
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 104"
+    b := emitWriteMeta b "r5" 0 callerLocal true true
+    b := emitWriteMeta b "r5" 1 ataLocal true false
+    b := emitWriteMeta b "r5" 2 walletLocal false false
+    b := emitWriteMeta b "r5" 3 mintLocal false false
+    b := emitWriteMeta b "r5" 4 systemLocal false false
+    b := emitWriteMeta b "r5" 5 tokenLocal false false
+    b := emit b "  mov64 r8, r9"
+    b := emit b "  add64 r8, 200"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 184                       ; ATA program key addr"
+    b := emit b "  stxdw [r8 + 0], r4                  ; program_id"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 104"
+    b := emit b "  stxdw [r8 + 8], r4                  ; accounts"
+    b := emit b "  lddw r4, 6"
+    b := emit b "  stxdw [r8 + 16], r4                 ; accounts_len"
+    b := emit b "  stxdw [r8 + 24], r9                 ; data"
+    b := emit b "  lddw r4, 1"
+    b := emit b "  stxdw [r8 + 32], r4                 ; data_len"
+    let infosOff := 240
+    b := emitFillAccountInfos b n infosOff suffix
+    b := emit b "  mov64 r1, r8"
+    b := emit b "  mov64 r2, r9"
+    b := emit b s!"  add64 r2, {infosOff}"
+    b := emit b s!"  lddw r3, {n}"
+    b := emit b "  lddw r4, 0"
+    b := emit b "  lddw r5, 0"
+    b := emit b "  call sol_invoke_signed_c"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emit b "  lddw r1, 0"
+    b := emit b "  lddw r2, 0"
+    b := emit b "  call sol_set_return_data"
+    b := emit b "  jne r0, 0, cpi_failed"
+    pure b
+
+/-- Step 6: Token transferCheckedPda with vault PDA signer. -/
+private def emitPfAssetsStep6TransferCheckedPda
+    (b0 : AsmBuf) (siteId : Nat) (suffix : String)
+    (sourceLocal mintLocal destLocal vaultLocal tokenProgramLocal : Nat)
+    (meta0 meta1 meta2 meta3 : CpiEscrowMetaV1)
+    (amount : CpiEscrowU64SourceV1) (decimals : CpiEscrowU8SourceV1)
+    (n : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b "  ; --- step 6: Token transferCheckedPda (vault ATA → dst ATA) ---"
+    b := emit b "  mov64 r9, r10"
+    b := emit b "  lddw r4, CPI_BASE"
+    b := emit b "  sub64 r9, r4"
+    b := emit b "  lddw r4, 0"
+    b := emit b "  stxdw [r9 + 0], r4"
+    b := emit b "  stxdw [r9 + 8], r4"
+    b := emit b "  lddw r4, 0x0c"
+    b := emit b "  stxb [r9 + 0], r4                  ; TokenInstruction::TransferChecked"
+    b := emitResolveU64Source b amount "r4"
+    for bi in [0:8] do
+      b := emit b s!"  stxb [r9 + {1 + bi}], r4"
+      b := emit b "  rsh64 r4, 8"
+    b := emitResolveU8Source b decimals "r4"
+    b := emit b "  and64 r4, 0xff"
+    b := emit b "  stxb [r9 + 9], r4                  ; decimals u8"
+    b := emitVaultSeed0At b 16
+    b := emit b "  ; re-find vault PDA bump for signer seeds"
+    let xferKeyOutOff := 256 + 56 * n
+    let xferBumpOutOff := 288 + 56 * n
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 16"
+    b := emit b "  stxdw [r9 + 104], r5"
+    b := emit b "  lddw r4, 20"
+    b := emit b "  stxdw [r9 + 112], r4"
+    b := emit b "  mov64 r1, r9"
+    b := emit b "  add64 r1, 104"
+    b := emit b "  lddw r2, 1"
+    b := emit b "  ldxdw r3, [r10 - SLOT_PROGRAM_ID]"
+    b := emit b "  mov64 r4, r9"
+    b := emit b s!"  add64 r4, {xferKeyOutOff}"
+    b := emit b "  mov64 r5, r9"
+    b := emit b s!"  add64 r5, {xferBumpOutOff}"
+    b := emit b "  call sol_try_find_program_address"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emit b s!"  ldxb r1, [r9 + {xferBumpOutOff}]"
+    b := emit b "  jeq r1, 0, err_shape"
+    b := emit b "  stxdw [r9 + 48], r1                ; bump byte at +48"
+    b := emitRoleSlotAddr b vaultLocal
+    b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+    b := emit b "  mov64 r1, r9"
+    b := emit b s!"  add64 r1, {xferKeyOutOff}"
+    for word in [0:4] do
+      b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
+      b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+      b := emit b s!"  jne r3, r4, err_shape"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 16"
+    b := emit b "  stxdw [r9 + 56], r5                ; seed0 addr"
+    b := emit b "  lddw r4, 20"
+    b := emit b "  stxdw [r9 + 64], r4                ; seed0 len"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 48"
+    b := emit b "  stxdw [r9 + 72], r5                ; bump addr"
+    b := emit b "  lddw r4, 1"
+    b := emit b "  stxdw [r9 + 80], r4                ; bump len"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 56"
+    b := emit b "  stxdw [r9 + 88], r5                ; seeds addr"
+    b := emit b "  lddw r4, 2"
+    b := emit b "  stxdw [r9 + 96], r4                ; seeds count"
+    b := emit b "  mov64 r5, r9"
+    b := emit b "  add64 r5, 104"
+    b := emitWriteMeta b "r5" 0 sourceLocal meta0.cpiWritable meta0.cpiSigner
+    b := emitWriteMeta b "r5" 1 mintLocal meta1.cpiWritable meta1.cpiSigner
+    b := emitWriteMeta b "r5" 2 destLocal meta2.cpiWritable meta2.cpiSigner
+    b := emitWriteMeta b "r5" 3 vaultLocal meta3.cpiWritable meta3.cpiSigner
+    b := emit b "  mov64 r8, r9"
+    b := emit b "  add64 r8, 200"
+    b := emitRoleSlotAddr b tokenProgramLocal
+    b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
+    b := emit b "  stxdw [r8 + 0], r4                 ; program_id (classic Token)"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 104"
+    b := emit b "  stxdw [r8 + 8], r4                 ; accounts"
+    b := emit b "  lddw r4, 4"
+    b := emit b "  stxdw [r8 + 16], r4                ; accounts_len"
+    b := emit b "  stxdw [r8 + 24], r9                ; data"
+    b := emit b "  lddw r4, 10"
+    b := emit b "  stxdw [r8 + 32], r4                ; data_len"
+    let xferInfosOff := 240
+    b := emitFillAccountInfos b n xferInfosOff suffix
+    b := emit b "  mov64 r1, r8"
+    b := emit b "  mov64 r2, r9"
+    b := emit b s!"  add64 r2, {xferInfosOff}"
+    b := emit b s!"  lddw r3, {n}"
+    b := emit b "  mov64 r4, r9"
+    b := emit b "  add64 r4, 88"
+    b := emit b "  lddw r5, 1                         ; 1 signer group"
+    b := emit b "  call sol_invoke_signed_c"
+    b := emit b "  jne r0, 0, cpi_failed"
+    b := emit b "  lddw r1, 0"
+    b := emit b "  lddw r2, 0"
+    b := emit b "  call sol_set_return_data"
+    b := emit b "  jne r0, 0, cpi_failed"
+    pure b
+
+/-- ADR-0030 E1b: `pf.assets.token.transfer` composite SBPF emitter.
+
+    Emits the following runtime CPI sequence in source order:
     1. Find vault PDA (canonical bump over `proof-forge:vault:v1`)
-    2. Find vault ATA (canonical ATA key over vault+wallet + Token program + mint under ATA program)
-    3. ATA createIdempotent for vault ATA (payer=pf_caller)
-    4. Find dst ATA (canonical ATA key over dst + Token program + mint under ATA program)
-    5. ATA createIdempotent for dst ATA (payer=pf_caller)
-    6. Token transferChecked (vault ATA → mint → dst ATA, vault PDA authority, invoke_signed)
+    2. Find vault ATA canonical address (wallet=vault PDA, classic Token, mint
+       under classic ATA program); join to vault ATA role key
+    3. ATA createIdempotent for vault ATA (payer=pf_caller, wallet=vault PDA)
+    4. Find dst ATA canonical address (wallet=dst param, classic Token, mint
+       under classic ATA program); join to dst ATA role key
+    5. ATA createIdempotent for dst ATA (payer=pf_caller, wallet=dst param)
+    6. Token transferCheckedPda (vault ATA → mint → dst ATA, vault PDA
+       authority, invoke_signed single signer group)
 
-    The composite SBPF assembly for this sequence (ATA ensure ×2 + signed
-    transferChecked) is a large multi-step emitter that requires careful
-    scratch layout, PDA derivation, and site-time predicate ordering. It is
-    implemented as a separate step; this function validates the IR shape and
-    fail-closes at emit with an explicit diagnostic until the composite
-    emitter lands. Plan/IR construction, QN gate, and role table are fully
-    validated and tested. -/
+    Each CPI reuses the same CPI_BASE scratch region (r9 = r10 - CPI_BASE),
+    resetting scratch between calls. The ATA program key is loaded from the
+    frozen catalog constant `ataClassicProgramIdV1` (no handler-local ATA
+    program role for this composite API). Site-time predicates
+    (ataAddressCanonical, ataAccountPrestateClosed) are emitted as siteChecks
+    before this invoke. -/
 
 private def emitInvokePfAssetsTokenTransfer
     (b0 : AsmBuf) (inv : CpiEscrowInvokeV1) (labSuffix : String) :
@@ -969,10 +1259,20 @@ private def emitInvokePfAssetsTokenTransfer
     emitFail "pfAssetsTokenTransfer signer group / PDA rule diverged"
   let some source := inv.source | emitFail "pfAssetsTokenTransfer source (vault ATA) missing"
   let some mint := inv.mint | emitFail "pfAssetsTokenTransfer mint missing"
-  let some destination := inv.destination | emitFail "pfAssetsTokenTransfer destination (dst ATA) missing"
-  let some authPda := inv.authorityPda | emitFail "pfAssetsTokenTransfer authorityPda (vault) missing"
+  let some destination := inv.destination |
+    emitFail "pfAssetsTokenTransfer destination (dst ATA) missing"
+  let some authPda := inv.authorityPda |
+    emitFail "pfAssetsTokenTransfer authorityPda (vault) missing"
   let some amount := inv.amount | emitFail "pfAssetsTokenTransfer amount missing"
   let some decimals := inv.decimals | emitFail "pfAssetsTokenTransfer decimals missing"
+  let some callerB := inv.payer |
+    emitFail "pfAssetsTokenTransfer payer (handlerCaller) missing"
+  let some dstWalletB := inv.wallet |
+    emitFail "pfAssetsTokenTransfer wallet (dst param) missing"
+  let some systemLocal := inv.systemProgramLocalIndex |
+    emitFail "pfAssetsTokenTransfer systemProgramLocalIndex missing"
+  let some tokenLocal := inv.tokenProgramLocalIndex |
+    emitFail "pfAssetsTokenTransfer tokenProgramLocalIndex missing"
   let meta0 := inv.metas[0]!
   let meta1 := inv.metas[1]!
   let meta2 := inv.metas[2]!
@@ -988,19 +1288,34 @@ private def emitInvokePfAssetsTokenTransfer
     emitFail "pfAssetsTokenTransfer Principal/meta join diverged"
   unless inv.accountInfoCount ≤ escrowMaxRolesV1 do
     emitFail "pfAssetsTokenTransfer accountInfoCount exceeds max roles"
-  -- Validate decimals is a literal (catalog binding deferred).
   match decimals with
   | .literal _ => pure ()
-  | .param .. => emitFail "pfAssetsTokenTransfer decimals must be literal (catalog binding deferred)"
-  -- Validate amount source is resolvable.
+  | .param .. =>
+      emitFail "pfAssetsTokenTransfer decimals must be literal (catalog binding deferred)"
   match amount with
   | .literal _ | .param .. => pure ()
-  -- The composite ATA-ensure ×2 + signed transferCheckedPda emitter is
-  -- deferred to a separate implementation step. Fail closed at emit with
-  -- an explicit diagnostic so Plan/IR construction is testable without
-  -- producing an incomplete ELF.
-  emitFail
-    "pfAssetsTokenTransfer composite SBPF emitter (ATA ensure ×2 + transferCheckedPda) not yet implemented; Plan/IR/role-table validated, emit deferred"
+  let n := inv.accountInfoCount
+  let tokenProgramLocal := inv.programLocalIndex
+  -- Step 1: Find vault PDA + join; Step 2: find vault ATA address + join
+  let b1 := emitPfAssetsStep1VaultPda b0 inv.siteId authPda.localIndex n
+  -- Step 2: Find vault ATA canonical address + join
+  let b2 := emitPfAssetsStep2AtaAddress b1 "vault ATA" authPda.localIndex
+      tokenLocal mint.localIndex source.localIndex
+  -- Step 3: ATA createIdempotent for vault ATA
+  let b3 := emitPfAssetsStep3AtaEnsure b2 "vault ATA" (labSuffix ++ "_vata")
+      callerB.localIndex source.localIndex authPda.localIndex
+      mint.localIndex systemLocal tokenLocal n
+  -- Step 4: Find dst ATA canonical address + join
+  let b4 := emitPfAssetsStep2AtaAddress b3 "dst ATA" dstWalletB.localIndex
+      tokenLocal mint.localIndex destination.localIndex
+  -- Step 5: ATA createIdempotent for dst ATA
+  let b5 := emitPfAssetsStep3AtaEnsure b4 "dst ATA" (labSuffix ++ "_data")
+      callerB.localIndex destination.localIndex dstWalletB.localIndex
+      mint.localIndex systemLocal tokenLocal n
+  -- Step 6: Token transferCheckedPda
+  pure (emitPfAssetsStep6TransferCheckedPda b5 inv.siteId (labSuffix ++ "_xfer")
+    source.localIndex mint.localIndex destination.localIndex authPda.localIndex
+    tokenProgramLocal meta0 meta1 meta2 meta3 amount decimals n)
 
 /-- Emit Token transferChecked: zero signer groups. -/
 private def emitInvokeTransferChecked

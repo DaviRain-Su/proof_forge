@@ -4,9 +4,9 @@
   Authority: shipped `Examples/TokenJar.lean`.
     * `check --target solana --profile solana-sbpf-cpi-elf-v1` accepts pf.assets
       extension + sync-call
-    * `build --target solana --profile solana-sbpf-cpi-elf-v1` fails closed at
-      emit stage (composite ATA-ensure + transferCheckedPda emitter deferred);
-      Plan/IR construction validated, emit deferred
+    * `build --target solana --profile solana-sbpf-cpi-elf-v1` now succeeds
+      (composite ATA-ensure + transferCheckedPda emitter implemented);
+      produces ELF `.so` + manifest with exact closure
     * default solana profile (plan-v1) fails closed
     * engineering product path only: non-formal, non-mainnet
 -/
@@ -63,7 +63,7 @@ private def runCli (args : Array String) : IO (UInt32 × String × String) := do
   let out ← IO.Process.output { cmd := absoluteCli.toString, args }
   pure (out.exitCode, out.stdout, out.stderr)
 
-private def testSolanaCpiCheckAndBuildEmitFC : IO Unit := do
+private def testSolanaCpiCheckAndBuild : IO Unit := do
   assertShape (← readShipped)
   -- check must accept pf.assets + sync-call on CPI profile.
   let (cc, cout, cerr) ← runCli
@@ -77,8 +77,8 @@ private def testSolanaCpiCheckAndBuildEmitFC : IO Unit := do
     s!"check must pin solana, stdout={cout}"
   expect (containsSubstr cout "solana-sbpf-cpi-elf-v1")
     s!"check must pin cpi profile, stdout={cout}"
-  -- build must fail closed at emit (composite emitter deferred).
-  let outDir := FilePath.mk "build/v2/tokenjar-solana-cpi"
+  -- build must now succeed (composite emitter implemented).
+  let outDir := FilePath.mk "build/v2/tokenjar-solana"
   try IO.FS.removeDirAll outDir catch _ => pure ()
   let (code, stdout, stderr) ← runCli
     #["build", "Examples/TokenJar.lean",
@@ -86,14 +86,24 @@ private def testSolanaCpiCheckAndBuildEmitFC : IO Unit := do
       "--target", "solana",
       "--profile", "solana-sbpf-cpi-elf-v1",
       "-o", outDir.toString]
-  expect (code != 0)
-    s!"TokenJar build must fail closed at emit (deferred emitter), exit={code} stdout={stdout} stderr={stderr}"
-  let combined := stdout ++ stderr
-  expect (containsSubstr combined "pfAssetsTokenTransfer composite SBPF emitter")
-    s!"build must mention deferred emitter diagnostic, got={combined}"
-  -- No output directory should be published on failure.
-  expect (!(← outDir.pathExists))
-    s!"failed build must leave zero published artifacts"
+  expect (code == 0)
+    s!"TokenJar build must succeed, exit={code} stdout={stdout} stderr={stderr}"
+  -- ELF must exist.
+  let elfPath := outDir.join "TokenJar.so"
+  expect (← elfPath.pathExists)
+    s!"build must produce TokenJar.so"
+  -- Manifest must exist and validate.
+  let manifestPath := outDir.join "manifest.json"
+  expect (← manifestPath.pathExists)
+    s!"build must produce manifest.json"
+  -- inspect must validate exact closure.
+  let (ic, iout, ierr) ← runCli #["inspect", outDir.toString, "--json"]
+  expect (ic == 0)
+    s!"inspect must succeed, exit={ic} stdout={iout} stderr={ierr}"
+  expect (containsSubstr iout "\"deployable\":true")
+    s!"inspect must report deployable=true, got={iout}"
+  expect (containsSubstr iout "TokenJar.so")
+    s!"inspect must list TokenJar.so, got={iout}"
 
 private def testDefaultSolanaStillFailClosed : IO Unit := do
   assertShape (← readShipped)
@@ -113,7 +123,7 @@ private def testDefaultSolanaStillFailClosed : IO Unit := do
     s!"default solana must leave zero published artifacts"
 
 unsafe def run : IO Unit := do
-  testSolanaCpiCheckAndBuildEmitFC
+  testSolanaCpiCheckAndBuild
   testDefaultSolanaStillFailClosed
   IO.println "Tests.Product.TokenJarSolanaV1: ok"
 

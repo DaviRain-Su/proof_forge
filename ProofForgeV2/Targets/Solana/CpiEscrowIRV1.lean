@@ -1609,6 +1609,23 @@ private def projectEscrowHandler
               meta3.spec.cpiSigner == true &&
               meta3.spec.signerGroupId == some 0 do
             tFail s!"site {site.siteId} vaultPda meta must be CPI signer group 0"
+          -- Resolve handlerCaller (pf_caller) role for ATA ensure payer.
+          -- Not a CPI meta on token.transfer; lookup by keyPolicy.
+          let callerHandle ← match handles.find? (fun h =>
+            h.keyPolicy == RoleKeyPolicyV1.handlerCaller) with
+          | some h => pure h
+          | none =>
+              tFail s!"site {site.siteId}: handlerCaller role missing for ATA ensure payer"
+          let callerB : CpiEscrowPrincipalBindingV1 := {
+            argIndex := 0
+            semanticValueId := 0
+            paramOrdinal := 0
+            roleId := callerHandle.roleId
+            localIndex := callerHandle.localIndex
+          }
+          -- Fixed program locals for ATA ensure (System + Token metas).
+          let systemLocal ← fixedProgramLocal handles "system-v1"
+          let tokenLocal ← fixedProgramLocal handles "token-classic-v1"
           -- Decimals: fixed literal 9 (catalog/mint binding deferred)
           let decimalsSrc : CpiEscrowU8SourceV1 :=
             .literal pfAssetsTokenTransferDecimalsV1
@@ -1630,18 +1647,18 @@ private def projectEscrowHandler
             authority := none
             authorityPda := some vaultB
             seedAuthority := none
-            payer := none
+            payer := some callerB
             pda := some vaultB
             ata := none
-            wallet := none
+            wallet := some dstBinding
             seedTag := none
             bump := none
             amount := some amountSrc
             decimals := some decimalsSrc
             lamports := none
             space := none
-            systemProgramLocalIndex := none
-            tokenProgramLocalIndex := none
+            systemProgramLocalIndex := some systemLocal
+            tokenProgramLocalIndex := some tokenLocal
             metas
             outerOnly := #[]
             signerGroupId := some 0
@@ -2744,6 +2761,13 @@ def escrowCpiScratchCreatePdaAccountV1 (localRoleCount : Nat) : Nat :=
 def escrowCpiScratchCreateIdempotentV1 (localRoleCount : Nat) : Nat :=
   240 + localRoleCount * 56
 
+/-- ADR-0030 E1b: pfAssetsTokenTransfer composite scratch. The Token
+    transferCheckedPda step (step 6) has the largest exclusive end:
+    +240 infos[56*N], +256+56N keyOut[32], +288+56N bumpOut[1] → 289+56N.
+    ATA address find steps end at +129; ATA CPI steps end at 240+56N. -/
+def escrowCpiScratchPfAssetsTokenTransferV1 (localRoleCount : Nat) : Nat :=
+  289 + localRoleCount * 56
+
 def escrowMaxSiteScratchV1 (c : SolanaCpiEscrowIRCandidateV1) : Nat :=
   Id.run do
     let mut maxB : Nat := 0
@@ -2766,11 +2790,9 @@ def escrowMaxSiteScratchV1 (c : SolanaCpiEscrowIRCandidateV1) : Nat :=
               | .createIdempotent =>
                   escrowCpiScratchCreateIdempotentV1 inv.accountInfoCount
               | .pfAssetsTokenTransfer =>
-                  -- ATA ensure (createIdempotent) + transferCheckedPda; use
-                  -- the larger of the two scratch budgets.
-                  let ataS := escrowCpiScratchCreateIdempotentV1 inv.accountInfoCount
-                  let xferS := escrowCpiScratchTransferCheckedPdaV1 inv.accountInfoCount
-                  if ataS > xferS then ataS else xferS
+                  -- Composite ATA ensure ×2 + transferCheckedPda; the Token
+                  -- step has the largest scratch end (289+56N).
+                  escrowCpiScratchPfAssetsTokenTransferV1 inv.accountInfoCount
             if b > maxB then maxB := b
         | _ => pure ()
     pure maxB
