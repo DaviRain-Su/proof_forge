@@ -41,6 +41,9 @@ normative: false
 20. [`17-openzeppelin-ethereum-coverage-audit.md`](17-openzeppelin-ethereum-coverage-audit.md)：OpenZeppelin v5.7.0 × ProofForge EVM 行为能力审计；固定 112 个稳定实现到 20 个族，区分 primitive、行为、ABI 与标准兼容，并给出 oracle/differential 路线。对象归属见 [`openzeppelin-v5.7.0-family-membership-v1.json`](openzeppelin-v5.7.0-family-membership-v1.json)。
 21. [`18-solana-program-examples-coverage.md`](18-solana-program-examples-coverage.md)：固定 QuickNode Solana examples commit 的 57 项外部应用 corpus 覆盖矩阵、分层测试策略与 P0–P2 研究建议；非规范、非第四份 live backlog。
 22. [`19-solana-program-org-coverage.md`](19-solana-program-org-coverage.md)：`solana-program` 组织 38 仓库的 program/interface/client/tooling 角色清单、official-callee/pack/tx-deploy 分层及相对 QuickNode corpus 的覆盖增量；两份分母不可合并。
+23. [`20-host-function-survey.md`](20-host-function-survey.md)：多链系统能力（host function / runtime API）全景调研——状态类 vs 电路类平台分类、各链能力浓缩清单、跨链能力维度对照，及"统一抽象候选"建议（RPT-020；2026-08-05）。
+24. [`system-capabilities-evm-solana.md`](system-capabilities-evm-solana.md)：EVM/Solana 逐项 opcode / syscall / sysvar / builtin 清单（RPT-020 的详细平台报告；2026-08-05）。
+25. [`21-system-programs-survey.md`](21-system-programs-survey.md)：各链官方链上程序（系统合约 / builtin program / precompile / management canister / 链级模块）全景——L2 系统能力层，含"能力 vs 形态"对照表与强制等级分级（RPT-021；2026-08-05）。
 
 ## 证据等级
 
