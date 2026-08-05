@@ -54,6 +54,18 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   `runtimeNative`；ERC-20 留后续）。token/async 保持 FC。Anvil 工程门
   `scripts/evm_tipjar_anvil_smoke.sh` 已真跑（deploy/tip/余额 + 四类负例全过）；
   产品纵切 `Tests/Product/TipJarEvmV1`（`TipJar.bin` solc 0.8.34 + exact closure）。
+- **`pf.assets.token.transfer` binding（ADR-0030 E1a，2026-08-05）**：payload 不变的
+  per-target 绑定。mint Principal 参数经 exact wire shape `u32le(20)||addr20`（高肢
+  清零，负例 revert）解码为 20 字节 ERC-20 合约地址——**受控动态 callee**，仅
+  catalog token 家族准入，generic dynamic callee 仍 FC；calldata exact（selector
+  `0xa9059cbb` + 32B address + 32B amount）；返回值三分支 catalog predicate
+  （returndatasize 0 → USDT 式成功；32 → 首 word 非零，否则 revert；其余长度
+  revert），CALL 失败传播 revert；合约自身 ERC-20 余额即 vault，entry 保持
+  nonpayable。产品纵切 `TokenJarEvmV1` 扩展 + Anvil 工程门
+  `scripts/evm_tokenjar_anvil_smoke.sh`（`evm_anvil_differential.sh` companion leg）
+  已真跑：ERC20Mock mint 2000 → `tipToken(mint,dst,1000)` 精确 ±1000、超额 revert
+  状态保持、returnFalse 负例、USDT 无返回成功、wire-shape 负例全过。
+  `token.transferAsync` 与其余 token 家族仍 FC；**非** formal/mainnet parity。
 
 **明确未闭合**：完整 SemanticProgramV1 表面；**ContextRead 仍 EVM Plan 显式 fail-closed**（见下节 encoding contract：决策已冻结、物化未交付）；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025 写成 Ownable/OZ/ABI/formal 完成。
 

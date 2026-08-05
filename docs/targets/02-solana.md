@@ -57,6 +57,28 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
   **15** binaries / **324** active（`tipjar_assets` **12/12**：init/view/tip 成功/
   幂等 ensure/underfunded 完整 snapshot rollback/错误 PDA/多·零 signer 拒绝）；
   产品纵切 `Tests/Product/TipJarSolanaV1`（`TipJar.so` + exact closure）。
+- **`pf.assets.token.transfer` binding（ADR-0030 E1b，2026-08-05）**：payload 不变的
+  per-target 绑定，frozen composite 六步序——vault PDA find → vault ATA
+  find+`createIdempotent` ensure → dst ATA find+ensure → classic Token
+  `transferChecked`（vault ATA → dst ATA，authority=vault PDA，单 signer group
+  `invoke_signed`；decimals 为 frozen catalog literal）。ATA program 账户经
+  derive/Plan 补为 outer role（executable LoaderV3 账户，否则
+  NotEnoughAccountKeys）。**ADR-0028 §4.2 site-time 纪律**：两 ATA 的 165B/
+  initialized/mintEq/ownerEq/delegateNone 谓词在每次 ensure **之后**由
+  `emitPfAssetsAtaPostEnsure` 重查（fresh ATA 由 ensure 自身初始化，pre-invoke
+  检查必假；IR 层把这些谓词从 pre-invoke siteChecks 过滤，mint/program/generic
+  检查保留 pre-invoke）。**ROLE_DATA_LEN 刷新**：fresh createIdempotent realloc
+  账户为 165B，role slot data_len 标量仍是 entry 快照 0（lamports/owner/data 为
+  指向 live 输入区的指针，由 runtime `update_caller_account` 自动同步；唯
+  data_len 是值拷贝），ensure 后显式写回 165，否则下一个 CPI 的
+  `update_callee_account` 比较 0 vs 165 以 `AccountDataSizeChanged` fail closed。
+  产品纵切 `runtime-tests/solana/fixtures/TokenJarAssets.lean` 经真实 CLI
+  `build --profile solana-sbpf-cpi-elf-v1` → `TokenJarAssets.so`（37528 B）+
+  `inspect` exact closure；Mollusk 工程门 **16** binaries / **338** active
+  （`tipjar_token` **14/14**：pin 矩阵、init/get、既有双 ATA 精确 ±1000 余额
+  差值、fresh dst ATA 创建+转账、underfunded 完整 snapshot rollback、wrong-mint
+  join、non-canonical dst ATA、多/零 signer 负例）。`token.transferAsync` 与
+  generic 非 catalog 保持 FC；**非** formal/mainnet parity。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
 完整 Normalize 表面；active CPI profile 之外的任意动态 program address/remaining accounts 与更广
