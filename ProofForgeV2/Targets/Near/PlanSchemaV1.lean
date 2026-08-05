@@ -250,6 +250,16 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       for w in dstWords do out := out.append (← encodeExpr w)
       out := out.append (← encodeExpr amount)
       pure out
+  | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+      -- Tag 13 (ADR-0030 E1-NEAR): fire-and-forget NEP-141 ft_transfer promise.
+      let mut out := (encodeU8 13).append (← encodeExpr mintLen)
+      out := out.append (← encodeNatAsU32le mintWords.size)
+      for w in mintWords do out := out.append (← encodeExpr w)
+      out := out.append (← encodeExpr dstLen)
+      out := out.append (← encodeNatAsU32le dstWords.size)
+      for w in dstWords do out := out.append (← encodeExpr w)
+      out := out.append (← encodeExpr amount)
+      pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do
   pure (((((← encodeNatAsU32le p.sourceId).append (← encodeString p.name)).append

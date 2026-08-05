@@ -1,4 +1,5 @@
 import ProofForgeV2.Targets.Near.ValidatePlanV1
+import ProofForgeV2.Targets.Near.PfAssetsCatalogV1
 
 /-!
 # Near EmitIRV1 — Plan → IR emission
@@ -13,6 +14,7 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
+open ProofForgeV2.Targets.Near.PfAssetsCatalogV1
 
 inductive Operation where
   | checkInputLen (bytes : Nat)
@@ -120,6 +122,17 @@ inductive Operation where
       account-id grammar and emits `promise_batch_create` +
       `promise_batch_action_transfer`. -/
   | promiseTransfer (dstLen : Nat) (dstWords : Array Nat) (amount : Nat)
+  /-- ADR-0030 E1-NEAR: fire-and-forget NEP-141 `ft_transfer` function-call
+      promise. `mintLen`/`mintWords` decode the token contract account id;
+      `dstLen`/`dstWords` decode the receiver account id; `amount` is UInt64
+      base units. Runtime validates both account-id grammars, builds JSON args
+      `{"receiver_id":"<dst>","amount":"<decimal>"}`, and emits
+      `promise_batch_create(mint)` + `promise_batch_action_function_call(
+      "ft_transfer", json_args, gas, deposit=1 yoctoNEAR)`. -/
+  | promiseTokenTransfer
+      (mintLen : Nat) (mintWords : Array Nat)
+      (dstLen : Nat) (dstWords : Array Nat)
+      (amount : Nat)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -617,7 +630,8 @@ private partial def statementListClosesV1 : List Statement → Bool
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
       | .store _ | .storeAtomic _ | .assert _ | .emitEvent .. | .forLoop ..
-      | .promiseAccount .. | .nativeDeposit _ | .promiseTransfer .. => false
+      | .promiseAccount .. | .nativeDeposit _ | .promiseTransfer ..
+      | .promiseTokenTransfer .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard return after a closed region arm, unless the arm already
@@ -732,6 +746,31 @@ private partial def lowerBodyOps
         next := amtL.next
         operations := operations.push
           (.promiseTransfer lenL.value wordTemps amtL.value)
+    | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+        let mintLenL := lowerExpr keys next fnMode localEnv mintLen
+        operations := operations ++ mintLenL.operations
+        next := mintLenL.next
+        let mut mintWordTemps : Array Nat := #[]
+        for w in mintWords do
+          let wl := lowerExpr keys next fnMode localEnv w
+          operations := operations ++ wl.operations
+          mintWordTemps := mintWordTemps.push wl.value
+          next := wl.next
+        let dstLenL := lowerExpr keys next fnMode localEnv dstLen
+        operations := operations ++ dstLenL.operations
+        next := dstLenL.next
+        let mut dstWordTemps : Array Nat := #[]
+        for w in dstWords do
+          let wl := lowerExpr keys next fnMode localEnv w
+          operations := operations ++ wl.operations
+          dstWordTemps := dstWordTemps.push wl.value
+          next := wl.next
+        let amtL := lowerExpr keys next fnMode localEnv amount
+        operations := operations ++ amtL.operations
+        next := amtL.next
+        operations := operations.push
+          (.promiseTokenTransfer mintLenL.value mintWordTemps
+            dstLenL.value dstWordTemps amtL.value)
     | .revertError errorIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
@@ -990,9 +1029,10 @@ private def renderImport : HostImport → String
       "  (import \"env\" \"promise_batch_create\" (func $pf_promise_batch_create (param i64 i64) (result i64)))\n"
   | .promiseBatchActionFunctionCall =>
       -- promise_idx, method_len, method_ptr, args_len, args_ptr,
-      -- amount_low, amount_high, gas. Deposit/gas are always zero placeholders
-      -- in this pilot (explicit in the call site, not silent economics).
-      "  (import \"env\" \"promise_batch_action_function_call\" (func $pf_promise_batch_action_function_call (param i64 i64 i64 i64 i64 i64 i64 i64)))\n"
+      -- amount_ptr (pointer to 16-byte LE u128 deposit), gas.
+      -- Deposit/gas are always zero placeholders in the schedule pilot
+      -- (explicit in the call site, not silent economics).
+      "  (import \"env\" \"promise_batch_action_function_call\" (func $pf_promise_batch_action_function_call (param i64 i64 i64 i64 i64 i64 i64)))\n"
   | .promiseBatchActionTransfer =>
       -- ADR-0029 C2: promise_idx, amount_ptr → 16-byte little-endian u128.
       "  (import \"env\" \"promise_batch_action_transfer\" (func $pf_promise_batch_action_transfer (param i64 i64)))\n"
@@ -1189,6 +1229,10 @@ private partial def collectPromiseStringsFromOps (ops : Array Operation) : Array
     | .promiseAccount receiver method _ =>
         let acc := if acc.contains receiver then acc else acc.push receiver
         if acc.contains method then acc else acc.push method
+    | .promiseTokenTransfer .. =>
+        -- "ft_transfer" is a frozen constant method name pinned as a (data ...)
+        -- segment by the WAT renderer; no receiver string (mint is runtime).
+        if acc.contains "ft_transfer" then acc else acc.push "ft_transfer"
     | .ifRegion _ thenOps elseOps =>
         acc ++ collectPromiseStringsFromOps thenOps ++ collectPromiseStringsFromOps elseOps
     | .switchRegion _ cases defaultOps =>
@@ -1548,12 +1592,17 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
           output := output ++
             s!"{indent}(i64.store (i32.const {argsOffset + 8 * j}) (local.get $t{args[j]!}))\n"
         let argsLen := 8 * args.size
+        -- Zero deposit u128 at valueOffset (scratch, transient).
+        let depositPtr := memory.valueOffset
+        output := output ++
+          s!"{indent}(i64.store (i32.const {depositPtr}) (i64.const 0))\n" ++
+          s!"{indent}(i64.store (i32.const {depositPtr + 8}) (i64.const 0))\n"
         pure <| output ++
           s!"{indent}(call $pf_promise_batch_action_function_call\n" ++
           s!"{indent}  (call $pf_promise_batch_create (i64.const {accountLen}) (i64.const {accountOffset}))\n" ++
           s!"{indent}  (i64.const {methodLen}) (i64.const {methodOffset})\n" ++
           s!"{indent}  (i64.const {argsLen}) (i64.const {argsOffset})\n" ++
-          s!"{indent}  (i64.const 0) (i64.const 0) (i64.const 0))\n"
+          s!"{indent}  (i64.const {depositPtr}) (i64.const 0))\n"
   | .promiseTransfer dstLen dstWords amount =>
       -- ADR-0029 C2: Principal leaves → account-id buffer + Transfer promise.
       -- Scratch layout (transient, after valueOffset):
@@ -1611,6 +1660,170 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
           s!"{indent}(call $pf_promise_batch_action_transfer\n" ++
           s!"{indent}  (call $pf_promise_batch_create (local.get $t{dstLen}) (i64.const {accountBuf}))\n" ++
           s!"{indent}  (i64.const {amountPtr}))\n"
+  | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+      -- ADR-0030 E1-NEAR: NEP-141 ft_transfer cross-contract Promise.
+      -- Scratch layout (transient, after valueOffset):
+      --   mintBuf   = valueOffset + 16   (64 bytes of mint body words)
+      --   dstBuf    = valueOffset + 80   (64 bytes of dst body words)
+      --   jsonBuf   = valueOffset + 144  (JSON args, ~130 bytes max)
+      --   decBuf    = valueOffset + 280  (20 bytes decimal digits, MSB-first)
+      -- Runtime gates: mint/dst len ∈ 2..64, account-id grammar for both,
+      -- trailing body words zero-padded beyond ceil(len/8).
+      -- JSON: {"receiver_id":"<dst>","amount":"<decimal>"}
+      -- Deposit = 1 yoctoNEAR (u128 lo=1, hi=0). Gas = frozen constant.
+      -- Fire-and-forget: no response cursor.
+      Id.run do
+        let _ := registers
+        let _ := events
+        let _ := errors
+        let _ := fnNames
+        let _ := promiseStr
+        let mintBuf := memory.valueOffset + 16
+        let dstBuf := memory.valueOffset + 80
+        let jsonBuf := memory.valueOffset + 144
+        let decBuf := memory.valueOffset + 280
+        let gasVal := PfAssetsCatalogV1.tokenTransferGasV1
+        let methodOffset := promiseStringOffset promiseStr "ft_transfer"
+        let methodLen := "ft_transfer".toUTF8.size
+        let mut out := ""
+        -- Materialize mint body words into mintBuf (64 bytes).
+        for j in [0:mintWords.size] do
+          out := out ++
+            s!"{indent}(i64.store (i32.const {mintBuf + 8 * j}) (local.get $t{mintWords[j]!}))\n"
+        -- mint len ∈ [2, 64]
+        out := out ++
+          s!"{indent}(if (i64.lt_u (local.get $t{mintLen}) (i64.const 2)) (then unreachable))\n" ++
+          s!"{indent}(if (i64.gt_u (local.get $t{mintLen}) (i64.const 64)) (then unreachable))\n"
+        -- mint account-id grammar scan.
+        out := out ++
+          s!"{indent}(local.set $t_pf_i (i64.const 0))\n" ++
+          s!"{indent}(block $pf_mint_done\n" ++
+          s!"{indent}  (loop $pf_mint_check\n" ++
+          s!"{indent}    (br_if $pf_mint_done (i64.ge_u (local.get $t_pf_i) (local.get $t{mintLen})))\n" ++
+          s!"{indent}    (local.set $t_pf_b (i64.load8_u (i32.add (i32.const {mintBuf}) (i32.wrap_i64 (local.get $t_pf_i)))))\n" ++
+          s!"{indent}    (if (i32.eqz (i32.or (i32.or (i32.or\n" ++
+          s!"{indent}      (i32.and (i64.ge_u (local.get $t_pf_b) (i64.const 97)) (i64.le_u (local.get $t_pf_b) (i64.const 122)))\n" ++
+          s!"{indent}      (i32.and (i64.ge_u (local.get $t_pf_b) (i64.const 48)) (i64.le_u (local.get $t_pf_b) (i64.const 57))))\n" ++
+          s!"{indent}      (i64.eq (local.get $t_pf_b) (i64.const 95)))\n" ++
+          s!"{indent}      (i32.or (i64.eq (local.get $t_pf_b) (i64.const 45)) (i64.eq (local.get $t_pf_b) (i64.const 46)))))\n" ++
+          s!"{indent}      (then unreachable))\n" ++
+          s!"{indent}    (local.set $t_pf_i (i64.add (local.get $t_pf_i) (i64.const 1)))\n" ++
+          s!"{indent}    (br $pf_mint_check)\n" ++
+          s!"{indent}  )\n" ++
+          s!"{indent})\n"
+        -- mint first / last byte must not be '.'
+        out := out ++
+          s!"{indent}(if (i64.eq (i64.load8_u (i32.const {mintBuf})) (i64.const 46)) (then unreachable))\n" ++
+          s!"{indent}(if (i64.eq (i64.load8_u (i32.add (i32.const {mintBuf}) (i32.wrap_i64 (i64.sub (local.get $t{mintLen}) (i64.const 1))))) (i64.const 46)) (then unreachable))\n"
+        -- Materialize dst body words into dstBuf (64 bytes).
+        for j in [0:dstWords.size] do
+          out := out ++
+            s!"{indent}(i64.store (i32.const {dstBuf + 8 * j}) (local.get $t{dstWords[j]!}))\n"
+        -- dst len ∈ [2, 64]
+        out := out ++
+          s!"{indent}(if (i64.lt_u (local.get $t{dstLen}) (i64.const 2)) (then unreachable))\n" ++
+          s!"{indent}(if (i64.gt_u (local.get $t{dstLen}) (i64.const 64)) (then unreachable))\n"
+        -- dst account-id grammar scan.
+        out := out ++
+          s!"{indent}(local.set $t_pf_i (i64.const 0))\n" ++
+          s!"{indent}(block $pf_dst_done\n" ++
+          s!"{indent}  (loop $pf_dst_check\n" ++
+          s!"{indent}    (br_if $pf_dst_done (i64.ge_u (local.get $t_pf_i) (local.get $t{dstLen})))\n" ++
+          s!"{indent}    (local.set $t_pf_b (i64.load8_u (i32.add (i32.const {dstBuf}) (i32.wrap_i64 (local.get $t_pf_i)))))\n" ++
+          s!"{indent}    (if (i32.eqz (i32.or (i32.or (i32.or\n" ++
+          s!"{indent}      (i32.and (i64.ge_u (local.get $t_pf_b) (i64.const 97)) (i64.le_u (local.get $t_pf_b) (i64.const 122)))\n" ++
+          s!"{indent}      (i32.and (i64.ge_u (local.get $t_pf_b) (i64.const 48)) (i64.le_u (local.get $t_pf_b) (i64.const 57))))\n" ++
+          s!"{indent}      (i64.eq (local.get $t_pf_b) (i64.const 95)))\n" ++
+          s!"{indent}      (i32.or (i64.eq (local.get $t_pf_b) (i64.const 45)) (i64.eq (local.get $t_pf_b) (i64.const 46)))))\n" ++
+          s!"{indent}      (then unreachable))\n" ++
+          s!"{indent}    (local.set $t_pf_i (i64.add (local.get $t_pf_i) (i64.const 1)))\n" ++
+          s!"{indent}    (br $pf_dst_check)\n" ++
+          s!"{indent}  )\n" ++
+          s!"{indent})\n"
+        -- dst first / last byte must not be '.'
+        out := out ++
+          s!"{indent}(if (i64.eq (i64.load8_u (i32.const {dstBuf})) (i64.const 46)) (then unreachable))\n" ++
+          s!"{indent}(if (i64.eq (i64.load8_u (i32.add (i32.const {dstBuf}) (i32.wrap_i64 (i64.sub (local.get $t{dstLen}) (i64.const 1))))) (i64.const 46)) (then unreachable))\n"
+        -- Build JSON args: {"receiver_id":"<dst>","amount":"<decimal>"}
+        -- Write prefix: {"receiver_id":"
+        let jsonPrefix := "{\"receiver_id\":\""
+        let prefixBytes := jsonPrefix.toUTF8
+        for i in [0:prefixBytes.size] do
+          out := out ++
+            s!"{indent}(i32.store8 (i32.const {jsonBuf + i}) (i32.const {prefixBytes[i]!.toNat}))\n"
+        -- Copy dst account-id bytes from dstBuf to jsonBuf + prefixBytes.size
+        out := out ++
+          s!"{indent}(local.set $t_pf_j (i64.const {prefixBytes.size}))\n" ++
+          s!"{indent}(local.set $t_pf_i (i64.const 0))\n" ++
+          s!"{indent}(block $pf_json_dst_done\n" ++
+          s!"{indent}  (loop $pf_json_dst_copy\n" ++
+          s!"{indent}    (br_if $pf_json_dst_done (i64.ge_u (local.get $t_pf_i) (local.get $t{dstLen})))\n" ++
+          s!"{indent}    (i32.store8 (i32.add (i32.const {jsonBuf}) (i32.wrap_i64 (local.get $t_pf_j)))\n" ++
+          s!"{indent}      (i32.wrap_i64 (i64.load8_u (i32.add (i32.const {dstBuf}) (i32.wrap_i64 (local.get $t_pf_i))))))\n" ++
+          s!"{indent}    (local.set $t_pf_j (i64.add (local.get $t_pf_j) (i64.const 1)))\n" ++
+          s!"{indent}    (local.set $t_pf_i (i64.add (local.get $t_pf_i) (i64.const 1)))\n" ++
+          s!"{indent}    (br $pf_json_dst_copy)\n" ++
+          s!"{indent}  )\n" ++
+          s!"{indent})\n"
+        -- Write middle: ","amount":""
+        let mid := "\",\"amount\":\""
+        let midBytes := mid.toUTF8
+        for i in [0:midBytes.size] do
+          out := out ++
+            s!"{indent}(i32.store8 (i32.add (i32.const {jsonBuf}) (i32.wrap_i64 (local.get $t_pf_j))) (i32.const {midBytes[i]!.toNat}))\n" ++
+            s!"{indent}(local.set $t_pf_j (i64.add (local.get $t_pf_j) (i64.const 1)))\n"
+        -- Decimal conversion: write digits MSB-first into decBuf from the end.
+        -- $t_pf_n = remaining value, $t_pf_k = digit count (from end of decBuf).
+        out := out ++
+          s!"{indent}(local.set $t_pf_n (local.get $t{amount}))\n" ++
+          s!"{indent}(local.set $t_pf_k (i64.const 0))\n" ++
+          s!"{indent}(block $pf_dec_done\n" ++
+          s!"{indent}  (loop $pf_dec_loop\n" ++
+          s!"{indent}    (br_if $pf_dec_done (i64.eqz (local.get $t_pf_n)))\n" ++
+          s!"{indent}    (local.set $t_pf_d (i64.rem_u (local.get $t_pf_n) (i64.const 10)))\n" ++
+          s!"{indent}    (i32.store8 (i32.sub (i32.const {decBuf + 20}) (i32.wrap_i64 (local.get $t_pf_k)))\n" ++
+          s!"{indent}      (i32.add (i32.wrap_i64 (local.get $t_pf_d)) (i32.const 48)))\n" ++
+          s!"{indent}    (local.set $t_pf_k (i64.add (local.get $t_pf_k) (i64.const 1)))\n" ++
+          s!"{indent}    (local.set $t_pf_n (i64.div_u (local.get $t_pf_n) (i64.const 10)))\n" ++
+          s!"{indent}    (br $pf_dec_loop)\n" ++
+          s!"{indent}  )\n" ++
+          s!"{indent})\n"
+        -- Special case: amount == 0 → write '0' (1 digit)
+        out := out ++
+          s!"{indent}(if (i64.eqz (local.get $t_pf_k)) (then\n" ++
+          s!"{indent}  (i32.store8 (i32.const {decBuf + 19}) (i32.const 48))\n" ++
+          s!"{indent}  (local.set $t_pf_k (i64.const 1))))\n"
+        -- Copy decimal digits from decBuf+(20-k) to jsonBuf at $t_pf_j
+        out := out ++
+          s!"{indent}(local.set $t_pf_i (i64.const 0))\n" ++
+          s!"{indent}(block $pf_dec_copy_done\n" ++
+          s!"{indent}  (loop $pf_dec_copy\n" ++
+          s!"{indent}    (br_if $pf_dec_copy_done (i64.ge_u (local.get $t_pf_i) (local.get $t_pf_k)))\n" ++
+          s!"{indent}    (i32.store8 (i32.add (i32.const {jsonBuf}) (i32.wrap_i64 (local.get $t_pf_j)))\n" ++
+          s!"{indent}      (i32.wrap_i64 (i64.load8_u (i32.add (i32.sub (i32.const {decBuf + 20}) (i32.wrap_i64 (local.get $t_pf_k))) (i32.wrap_i64 (local.get $t_pf_i))))))\n" ++
+          s!"{indent}    (local.set $t_pf_j (i64.add (local.get $t_pf_j) (i64.const 1)))\n" ++
+          s!"{indent}    (local.set $t_pf_i (i64.add (local.get $t_pf_i) (i64.const 1)))\n" ++
+          s!"{indent}    (br $pf_dec_copy)\n" ++
+          s!"{indent}  )\n" ++
+          s!"{indent})\n"
+        -- Write suffix: "}"
+        out := out ++
+          s!"{indent}(i32.store8 (i32.add (i32.const {jsonBuf}) (i32.wrap_i64 (local.get $t_pf_j))) (i32.const 125))\n" ++
+          s!"{indent}(local.set $t_pf_j (i64.add (local.get $t_pf_j) (i64.const 1)))\n"
+        -- Fire-and-forget NEP-141 ft_transfer function-call promise.
+        -- promise_batch_action_function_call(promise_idx, method_len, method_ptr,
+        --   args_len, args_ptr, amount_ptr (u128 LE), gas)
+        -- deposit = 1 yoctoNEAR (u128 LE: lo=1, hi=0) at valueOffset scratch.
+        let depositPtr := memory.valueOffset
+        out := out ++
+          s!"{indent}(i64.store (i32.const {depositPtr}) (i64.const 1))\n" ++
+          s!"{indent}(i64.store (i32.const {depositPtr + 8}) (i64.const 0))\n"
+        pure <| out ++
+          s!"{indent}(call $pf_promise_batch_action_function_call\n" ++
+          s!"{indent}  (call $pf_promise_batch_create (local.get $t{mintLen}) (i64.const {mintBuf}))\n" ++
+          s!"{indent}  (i64.const {methodLen}) (i64.const {methodOffset})\n" ++
+          s!"{indent}  (local.get $t_pf_j) (i64.const {jsonBuf})\n" ++
+          s!"{indent}  (i64.const {depositPtr}) (i64.const {gasVal}))\n"
   | .revertError errorIndex args =>
       renderInterfaceMessage registers memory indent "error" "pf_panic_utf8"
         events errors false errorIndex args
@@ -1794,6 +2007,10 @@ private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
     match op with
     | .promiseTransfer .. => true
     | _ => false
+  let needsTokenScratch := method.operations.any fun op =>
+    match op with
+    | .promiseTokenTransfer .. => true
+    | _ => false
   let locals :=
     if needsMwScratch then
       -- Shared scratch: add/sub use a/b/carry; schoolbook mul uses a..7.
@@ -1802,8 +2019,15 @@ private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
         " (local $t_mw_4 i64) (local $t_mw_5 i64) (local $t_mw_6 i64) (local $t_mw_7 i64)"
     else locals
   let locals :=
-    if needsPfScratch then
+    if needsPfScratch || needsTokenScratch then
       locals ++ " (local $t_pf_i i64) (local $t_pf_b i64)"
+    else locals
+  let locals :=
+    if needsTokenScratch then
+      -- Extra scratch for decimal conversion + JSON assembly:
+      -- $t_pf_n = remaining value, $t_pf_d = current digit,
+      -- $t_pf_j = JSON write cursor, $t_pf_k = decimal digit count.
+      locals ++ " (local $t_pf_n i64) (local $t_pf_d i64) (local $t_pf_j i64) (local $t_pf_k i64)"
     else locals
   let operations := String.intercalate "" <| method.operations.toList.map
     (renderOperation ir.registers ir.memory

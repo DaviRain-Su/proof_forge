@@ -117,6 +117,34 @@ class NearClient:
             [self.action_create_account(), self.action_transfer(initial_balance)],
         )
 
+    def action_add_full_access_key(self) -> bytes:
+        # Action enum tag 5 = AddKey { public_key, access_key }.
+        # PublicKey::ED25519 = curve byte 0 + 32 raw bytes; AccessKey =
+        # nonce u64(0) + AccessKeyPermission enum — declaration order is
+        # FunctionCall=0, FullAccess=1 (Borsh variant index).
+        return (
+            bytes([5])
+            + bytes([0])
+            + self._pub
+            + self.u64(0)
+            + bytes([1])
+        )
+
+    def create_subaccount_with_key(
+        self, sub_id: str, initial_balance: int
+    ) -> dict[str, Any]:
+        """Create `sub_id` under the master account, funded, carrying the
+        master's full-access key so the master key can also sign *as* the
+        subaccount (needed to deploy a contract onto it)."""
+        return self.sign_and_send(
+            sub_id,
+            [
+                self.action_create_account(),
+                self.action_transfer(initial_balance),
+                self.action_add_full_access_key(),
+            ],
+        )
+
     def rpc_call(self, method: str, params: Any) -> Any:
         body = json.dumps(
             {"jsonrpc": "2.0", "id": "pf-near-runtime", "method": method, "params": params}
@@ -136,13 +164,13 @@ class NearClient:
     def status(self) -> Any:
         return self.rpc_call("status", [])
 
-    def access_key(self) -> tuple[int, bytes]:
+    def access_key(self, account_id: str | None = None) -> tuple[int, bytes]:
         res = self.rpc_call(
             "query",
             {
                 "request_type": "view_access_key",
                 "finality": "optimistic",
-                "account_id": self.account_id,
+                "account_id": account_id or self.account_id,
                 "public_key": self.public_key_str,
             },
         )
@@ -177,12 +205,14 @@ class NearClient:
         actions: list[bytes],
         *,
         expect_success: bool = True,
+        signer: str | None = None,
     ) -> dict[str, Any]:
-        nonce, block_hash = self.access_key()
+        signer_id = signer or self.account_id
+        nonce, block_hash = self.access_key(signer_id)
         nonce += 1
         actions_blob = struct.pack("<I", len(actions)) + b"".join(actions)
         tx = (
-            self.borsh_string(self.account_id)
+            self.borsh_string(signer_id)
             + bytes([0])
             + self._pub  # PublicKey::ED25519
             + self.u64(nonce)
@@ -216,6 +246,19 @@ class NearClient:
             raise NearRpcError(f"bad Wasm magic in {wasm_path}: {magic!r}")
         print(f"near-rpc: deploy {len(code)} bytes → {self.account_id}")
         return self.sign_and_send(self.account_id, [self.action_deploy(code)])
+
+    def deploy_to(self, account_id: str, wasm_path: Path) -> dict[str, Any]:
+        """Deploy `wasm_path` onto `account_id`, signing as that account
+        (requires the master key to be a full-access key on it — see
+        create_subaccount_with_key)."""
+        code = Path(wasm_path).read_bytes()
+        magic = code[:4]
+        if magic != b"\x00asm":
+            raise NearRpcError(f"bad Wasm magic in {wasm_path}: {magic!r}")
+        print(f"near-rpc: deploy {len(code)} bytes → {account_id}")
+        return self.sign_and_send(
+            account_id, [self.action_deploy(code)], signer=account_id
+        )
 
     def call(
         self,

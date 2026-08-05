@@ -846,6 +846,30 @@ private partial def step (input : ByteArray) (deposit : Deposit)
           accountId := accountId.push (Char.ofNat byte)
         pure { machine with
           logs := machine.logs.push s!"pf-transfer:{accountId}:{amountV}" }
+  | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount => do
+      -- ADR-0030 E1-NEAR: fire-and-forget NEP-141 ft_transfer. Record the
+      -- mint (token contract) + dst (receiver) account-ids and amount; no
+      -- response, no failure propagation.
+      let mintLenV ← readTemp machine mintLen
+      if mintLenV < 2 || mintLenV > 64 then
+        modelError s!"token transferAsync mint account-id length {mintLenV} outside 2..64"
+      let dstLenV ← readTemp machine dstLen
+      if dstLenV < 2 || dstLenV > 64 then
+        modelError s!"token transferAsync dst account-id length {dstLenV} outside 2..64"
+      let amountV ← readTemp machine amount
+      let mut mintId := ""
+      for i in [0:mintLenV.toNat] do
+        let word ← readTemp machine (mintWords[i / 8]!)
+        let byte := (UInt64.shiftRight word (UInt64.ofNat (8 * (i % 8)))).toNat % 256
+        mintId := mintId.push (Char.ofNat byte)
+      let mut dstId := ""
+      for i in [0:dstLenV.toNat] do
+        let word ← readTemp machine (dstWords[i / 8]!)
+        let byte := (UInt64.shiftRight word (UInt64.ofNat (8 * (i % 8)))).toNat % 256
+        dstId := dstId.push (Char.ofNat byte)
+      pure { machine with
+        logs := machine.logs.push
+          s!"pf-token-transfer:{mintId}:{dstId}:{amountV}" }
   | .revertError errorIndex args => do
       let some name := machine.errorNames[errorIndex]? |
         modelError s!"error index {errorIndex} is outside the declared table"
@@ -1114,6 +1138,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .promiseAccount .. => "promiseAccount"
     | .requireExactAttachedDeposit _ => "requireExactAttachedDeposit"
     | .promiseTransfer .. => "promiseTransfer"
+    | .promiseTokenTransfer .. => "promiseTokenTransfer"
     | .revertError .. => "revertError"
     | .returnNone => "returnNone"
     | .ifRegion .. => "ifRegion"
@@ -2501,9 +2526,15 @@ private unsafe def testScheduleProductPath
     "schedule WAT promise_batch_action_function_call"
   expectContains wat.contents "ledger.daily" "schedule WAT account id"
   expectContains wat.contents "daily" "schedule WAT method name"
-  -- Explicit zero deposit/gas placeholders in the action call.
-  expectContains wat.contents "(i64.const 0) (i64.const 0) (i64.const 0))"
-    "schedule WAT zero deposit/gas placeholders"
+  -- The function-call import carries the real 7-param host ABI (promise_idx,
+  -- method_len/ptr, args_len/ptr, amount_ptr, gas); the zero u128 deposit is
+  -- stored explicitly at the scratch pointer and gas stays the zero
+  -- placeholder (explicit economics, no silent amounts).
+  expectContains wat.contents
+    "\"promise_batch_action_function_call\" (func $pf_promise_batch_action_function_call (param i64 i64 i64 i64 i64 i64 i64))"
+    "schedule WAT function-call import carries the 7-param host ABI"
+  expectContains wat.contents "(i64.const 0))"
+    "schedule WAT zero gas placeholder"
   let files2 ← liftResult <| Targets.Near.buildFromCapability capability
   expect (files.map (·.contents) == files2.map (·.contents))
     "schedule: buildFromCapability must be byte-identical on rebuild"

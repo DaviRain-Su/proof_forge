@@ -21,6 +21,7 @@ not formal Stage-0 / hermetic / Reference↔sandbox closure.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -325,6 +326,118 @@ def suite_tipjarasync(client: NearClient, wasm: Path) -> None:
     print("suite TipJarAsync: PASS")
 
 
+def suite_tokenjarasync(client: NearClient, wasm: Path, mock_token_wat: Path,
+                        wat2wasm: str) -> None:
+    """ADR-0030 E1-NEAR: pf.assets.token.transferAsync → NEP-141 ft_transfer.
+
+    Deploys the product-built jar AND a minimal mock NEP-141 token (built from
+    the pinned runtime-tests/near/mock_token.wat with the locked wat2wasm; the
+    mock asserts exactly 1 yoctoNEAR attached deposit — the NEP-141 core
+    requirement — inside its ft_transfer). Calls
+    token.transferAsync(mint, dst, amount) on the jar and asserts:
+      * the jar entry succeeds and returns the new tips count;
+      * the jar state advances (fire-and-forget: caller doesn't wait);
+      * the cross-contract receipt to the mint (token contract) account is a
+        SUCCESS and logs "ft_transfer ok" — the promise really executed the
+        mock's ft_transfer, which verified the 1 yoctoNEAR deposit.
+
+    Honest claim: the mock token has NO ledger bookkeeping, so this does NOT
+    observe token balance deltas; it observes the real cross-contract
+    execution of ft_transfer with the exact deposit assertion plus the
+    fire-and-forget state advance on the jar side.
+    """
+    print("=== suite: TokenJarAsync (pf.assets.token.transferAsync, ADR-0030 E1) ===")
+
+    # Build the mock token wasm from the pinned WAT with the locked wat2wasm.
+    mock_wasm = mock_token_wat.with_suffix(".wasm")
+    subprocess.run(
+        [wat2wasm, str(mock_token_wat), "-o", str(mock_wasm)],
+        check=True,
+    )
+
+    # Deploy the product-built jar to the master account.
+    client.deploy(wasm)
+
+    # init(0) → get()==0
+    client.call("init", NearClient.encode_u64_le(0))
+    got = client.view_u64("get")
+    if got != 0:
+        raise AssertionError(f"after init(0): get() expected 0, got {got}")
+    print("tokenjarasync: init(0) → get()==0 ok")
+
+    # Create the mint (token contract) subaccount WITH the master's key and
+    # deploy the mock NEP-141 token onto it.
+    mint_account = f"mocktoken.{client.account_id}"
+    client.create_subaccount_with_key(mint_account, 10**23)
+    client.deploy_to(mint_account, mock_wasm)
+    print(f"tokenjarasync: mock NEP-141 token deployed on {mint_account} ok")
+
+    # Create a receiver subaccount (plain account; NEP-141 receiver).
+    receiver = f"tokenrcv.{client.account_id}"
+    client.create_subaccount(receiver, 10**20)
+
+    amount = 500
+    args = (
+        NearClient.encode_principal_account_id(mint_account)
+        + NearClient.encode_principal_account_id(receiver)
+        + NearClient.encode_u64_le(amount)
+    )
+    # token.transferAsync does not require attached deposit on the caller's
+    # entry (the 1 yoctoNEAR comes from the contract's own balance via the
+    # promise function call). deposit=0 on the caller's transaction.
+    res = client.call("tipToken", args, deposit=0)
+
+    # The jar entry must succeed and return the new tips count.
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"tipToken SuccessValue expected ≥8 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u64_le(sv, 0)
+    if ret != amount:
+        raise AssertionError(f"tipToken SuccessValue expected {amount}, got {ret}")
+    print(f"tokenjarasync: tipToken(mint,{receiver},{amount}) SuccessValue=={ret} ok")
+
+    # State advances: fire-and-forget → jar doesn't wait for promise result.
+    got = client.view_u64("get")
+    if got != amount:
+        raise AssertionError(f"after tipToken: get() expected {amount}, got {got}")
+    print(f"tokenjarasync: get()=={amount} (state advanced, fire-and-forget) ok")
+
+    # Verify the cross-contract receipt to the mint account: it must be a
+    # SUCCESS whose logs contain "ft_transfer ok" — the mock executed and its
+    # 1 yoctoNEAR attached-deposit assertion held.
+    receipts = res.get("receipts_outcome", [])
+    mint_outcome = None
+    for r in receipts:
+        outcome = r.get("outcome", {})
+        if outcome.get("executor_id", "") == mint_account:
+            mint_outcome = outcome
+            break
+    if mint_outcome is None:
+        raise AssertionError(
+            f"no receipt to mint account {mint_account} found; "
+            f"executors={[r.get('outcome',{}).get('executor_id','?') for r in receipts]}"
+        )
+    status = mint_outcome.get("status", {})
+    if "SuccessValue" not in status and "SuccessReceiptId" not in status:
+        raise AssertionError(f"mint receipt is not a success: status={status!r}")
+    logs = mint_outcome.get("logs", [])
+    if not any("ft_transfer ok" in line for line in logs):
+        raise AssertionError(f"mint receipt missing 'ft_transfer ok' log: logs={logs!r}")
+    print(
+        "tokenjarasync: mint receipt SUCCESS + 'ft_transfer ok' log"
+        " (1 yoctoNEAR deposit asserted by mock) ok"
+    )
+
+    # State-hold on fire-and-forget: second call also succeeds.
+    res2 = client.call("tipToken", args, deposit=0)
+    got = client.view_u64("get")
+    if got != 2 * amount:
+        raise AssertionError(f"after second tipToken: get() expected {2 * amount}, got {got}")
+    print(f"tokenjarasync: second tipToken → get()=={2 * amount} ok")
+
+    print("suite TokenJarAsync: PASS")
+
+
 def main(argv: list[str]) -> int:
     suite = os.environ.get("PF_NEAR_SUITE", "single").strip().lower()
     rpc = _require_env("PF_NEAR_RPC")
@@ -355,6 +468,14 @@ def main(argv: list[str]) -> int:
         elif suite == "tipjarasync":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_TIPJARASYNC_WASM"))
             suite_tipjarasync(client, wasm)
+        elif suite == "tokenjarasync":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_TOKENJARASYNC_WASM"))
+            mock_wat = Path(os.environ.get(
+                "PF_NEAR_MOCK_TOKEN_WAT",
+                str(Path(__file__).parent / "mock_token.wat"),
+            ))
+            wat2wasm = os.environ.get("PF_NEAR_WAT2WASM", "wat2wasm")
+            suite_tokenjarasync(client, wasm, mock_wat, wat2wasm)
         elif suite == "all":
             # Same sandbox / same account: run suites only if
             # caller redeploys after a fresh home (script boots once per suite).

@@ -346,6 +346,50 @@ private partial def checkMethodStatementsV1
         total ← addPlanExprNodes limits layout params fns total amount
         methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
         total := total + 1
+    | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+        if isView then
+          throw <| .planInvariant .near
+            "view method cannot token transferAsync"
+        if isPureFn then
+          throw <| .planInvariant .near
+            "pureFn body cannot token transferAsync"
+        if isInitializer then
+          throw <| .planInvariant .near
+            "initializer cannot token transferAsync"
+        unless mintWords.size == nearPrincipalDataWordCountV1 do
+          throw <| .planInvariant .near
+            "token transferAsync mint Principal body word count must be 8"
+        unless exprIsUInt64CompatibleV1 fns mintLen do
+          throw <| .planInvariant .near
+            "token transferAsync mint len must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total mintLen
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps mintLen
+        for w in mintWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .near
+              "token transferAsync mint body words must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params fns total w
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w
+        unless dstWords.size == nearPrincipalDataWordCountV1 do
+          throw <| .planInvariant .near
+            "token transferAsync dst Principal body word count must be 8"
+        unless exprIsUInt64CompatibleV1 fns dstLen do
+          throw <| .planInvariant .near
+            "token transferAsync dst len must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total dstLen
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps dstLen
+        for w in dstWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .near
+              "token transferAsync dst body words must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params fns total w
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w
+        unless exprIsUInt64CompatibleV1 fns amount do
+          throw <| .planInvariant .near
+            "token transferAsync amount must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total amount
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
+        total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
           throw <| .planInvariant .near "method reverts with an unknown error"
@@ -524,7 +568,8 @@ private def validateFnBinding (limits : ResourceLimits) (layout : StorageLayout)
 /-- Whether any statement tree contains a schedule→promise lowering. -/
 def validatePlan (plan : Plan) : CompileResult Unit := do
   let expectedImports := hostImportsFor (planUsesSchedulePromiseV1 plan)
-    (planUsesTransferPromiseV1 plan) (planUsesTimestampV1 plan)
+    (planUsesTransferPromiseV1 plan) (planUsesTokenTransferPromiseV1 plan)
+    (planUsesTimestampV1 plan)
   unless plan.targetDescriptor == descriptor &&
       plan.semanticSchemaVersion == semanticProgramSchemaVersionV1 &&
       plan.codegenProfile == descriptor.codegenProfile.toString &&

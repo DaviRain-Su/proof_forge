@@ -276,6 +276,19 @@ inductive Statement where
       (`u32le(len)||utf8-account-id-bytes`); amount is UInt64 yoctoNEAR (hi=0).
       Fire-and-forget Promise Transfer; async failure never propagates. -/
   | promiseTransfer (dstLen : Expr) (dstWords : Array Expr) (amount : Expr)
+  /-- ADR-0030 E1-NEAR: `pf.assets.token.transferAsync(mint, dst, amount)`.
+      `mintLen`/`mintWords` decode the token contract account id;
+      `dstLen`/`dstWords` decode the receiver account id (same Principal leaf
+      shape as native transferAsync dst). `amount` is UInt64 base units.
+      Fire-and-forget NEP-141 `ft_transfer` Promise: emits
+      `promise_batch_create(mint)` + `promise_batch_action_function_call(
+      "ft_transfer", json_args, gas, attached_deposit=1 yoctoNEAR)`.
+      JSON args = `{"receiver_id":"<dst>","amount":"<decimal>"}`.
+      No result callback; async failure never propagates. -/
+  | promiseTokenTransfer
+      (mintLen : Expr) (mintWords : Array Expr)
+      (dstLen : Expr) (dstWords : Array Expr)
+      (amount : Expr)
   deriving BEq, Inhabited, Repr
 
 /-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
@@ -427,17 +440,20 @@ private def canonicalImports : Array HostImport := #[
   .attachedDeposit, .logUtf8, .panicUtf8
 ]
 
-/-- Host import set driven by schedule and/or transferAsync and/or timestamp.
-    `promise_batch_create` is shared; function-call vs transfer action imports
-    are independent so no-schedule Plans stay free of transfer host when only
-    schedule is absent, and vice versa. -/
-def hostImportsFor (usesSchedulePromise usesTransferPromise usesTimestamp : Bool) :
+/-- Host import set driven by schedule and/or transferAsync and/or token
+    transferAsync and/or timestamp. `promise_batch_create` is shared;
+    function-call vs transfer action imports are independent so no-schedule
+    Plans stay free of transfer host when only schedule is absent, and vice
+    versa. Token transferAsync uses function-call action (like schedule) plus
+    promise_batch_create, so it shares the function-call import with schedule. -/
+def hostImportsFor (usesSchedulePromise usesTransferPromise
+    usesTokenTransferPromise usesTimestamp : Bool) :
     Array HostImport :=
   Id.run do
     let mut base := canonicalImports
-    if usesSchedulePromise || usesTransferPromise then
+    if usesSchedulePromise || usesTransferPromise || usesTokenTransferPromise then
       base := base.push .promiseBatchCreate
-    if usesSchedulePromise then
+    if usesSchedulePromise || usesTokenTransferPromise then
       base := base.push .promiseBatchActionFunctionCall
     if usesTransferPromise then
       base := base.push .promiseBatchActionTransfer
@@ -2591,12 +2607,70 @@ private def lowerBlockInstructionsV1
           else if qn == "pf.assets.native.transfer" then
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: pf.assets.native.transfer is permanently fail closed on NEAR (Promise is async; bind transferAsync)"
+          else if qn == "pf.assets.token.transferAsync" then
+            unless argIds.size == 3 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync requires Principal + Principal + UInt64 args"
+            let some mintId := argIds[0]? |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync mint missing"
+            let some dstId := argIds[1]? |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync dst missing"
+            let some amountId := argIds[2]? |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync amount missing"
+            let mintRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables mintId
+            unless mintRoot.isAggregate do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync mint must be Principal"
+            let mintLeaves := mintRoot.leafExprs
+            unless mintLeaves.size == 1 + nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync mint Principal leaf count mismatch"
+            let some mintLen := mintLeaves[0]? |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync mint len missing"
+            let mintWords := mintLeaves.extract 1 mintLeaves.size
+            unless mintWords.size == nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync mint body words mismatch"
+            let dstRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables dstId
+            unless dstRoot.isAggregate do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync dst must be Principal"
+            let dstLeaves := dstRoot.leafExprs
+            unless dstLeaves.size == 1 + nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync dst Principal leaf count mismatch"
+            let some dstLen := dstLeaves[0]? |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync dst len missing"
+            let dstWords := dstLeaves.extract 1 dstLeaves.size
+            unless dstWords.size == nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync dst body words mismatch"
+            let amountRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables amountId
+            unless !amountRoot.isAggregate && amountRoot.kind == .uint64 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.token.transferAsync amount must be UInt64"
+            let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+            body := body.push
+              (.promiseTokenTransfer mintLen mintWords dstLen dstWords amountRoot.expr)
+            armReadables := promoteDominatingPureV1 blockEntry values armReadables
+            segmentStart := values.size
+          else if qn == "pf.assets.token.transfer" then
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pf.assets.token.transfer is permanently fail closed on NEAR (NEP-141 is async; bind transferAsync)"
           else
             throw <| .planInvariant .near
-              s!"unsupported NEAR semantic shape: pf.assets QN '{qn}' is outside Phase C NEAR half-binding (token fail closed)"
+              s!"unsupported NEAR semantic shape: pf.assets QN '{qn}' is outside NEAR binding (sync transfer/token.transfer permanently fail closed)"
         else
           throw <| .planInvariant .near
-            "synchronous external calls are outside the NEAR envelope (NEAR has no synchronous cross-contract calls; pf.assets catalog deposit/transferAsync only)"
+            "synchronous external calls are outside the NEAR envelope (NEAR has no synchronous cross-contract calls; pf.assets catalog deposit/transferAsync/token.transferAsync only)"
     | .schedule _effectId callee argIds, none =>
         if mode == .view then
           throw <| .planInvariant .near
@@ -3653,7 +3727,7 @@ partial def statementsUseNativeDepositV1 (statements : Array Statement) : Bool :
     | .forLoop _ _ _ _ _ body => statementsUseNativeDepositV1 body
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
-    | .promiseAccount .. | .promiseTransfer .. => false
+    | .promiseAccount .. | .promiseTransfer .. | .promiseTokenTransfer .. => false
 
 private def makeEntryV1
     (types : NearTypeClosureV1)
@@ -3806,6 +3880,10 @@ partial def statementsUseTimestampV1 (statements : Array Statement) : Bool :=
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesTimestampV1 dstLen || dstWords.any exprUsesTimestampV1 ||
           exprUsesTimestampV1 amount
+    | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+        exprUsesTimestampV1 mintLen || mintWords.any exprUsesTimestampV1 ||
+          exprUsesTimestampV1 dstLen || dstWords.any exprUsesTimestampV1 ||
+          exprUsesTimestampV1 amount
     | .ifThenElse condition thenBody elseBody =>
         exprUsesTimestampV1 condition ||
           statementsUseTimestampV1 thenBody || statementsUseTimestampV1 elseBody
@@ -3835,7 +3913,7 @@ partial def statementsUseSchedulePromiseV1 (statements : Array Statement) : Bool
     | .forLoop _ _ _ _ _ body => statementsUseSchedulePromiseV1 body
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
-    | .nativeDeposit _ | .promiseTransfer .. => false
+    | .nativeDeposit _ | .promiseTransfer .. | .promiseTokenTransfer .. => false
 
 /-- ADR-0029 C2: transferAsync → Transfer promise. -/
 partial def statementsUseTransferPromiseV1 (statements : Array Statement) : Bool :=
@@ -3850,12 +3928,30 @@ partial def statementsUseTransferPromiseV1 (statements : Array Statement) : Bool
     | .forLoop _ _ _ _ _ body => statementsUseTransferPromiseV1 body
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
-    | .nativeDeposit _ | .promiseAccount .. => false
+    | .nativeDeposit _ | .promiseAccount .. | .promiseTokenTransfer .. => false
+
+/-- ADR-0030 E1-NEAR: token transferAsync → function-call promise. -/
+partial def statementsUseTokenTransferPromiseV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .promiseTokenTransfer .. => true
+    | .ifThenElse _ thenBody elseBody =>
+        statementsUseTokenTransferPromiseV1 thenBody ||
+          statementsUseTokenTransferPromiseV1 elseBody
+    | .switchOn _ cases defaultBody =>
+        statementsUseTokenTransferPromiseV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseTokenTransferPromiseV1 caseBody
+    | .forLoop _ _ _ _ _ body => statementsUseTokenTransferPromiseV1 body
+    | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
+    | .returnNone | .assert _ | .emitEvent .. | .revertError ..
+    | .nativeDeposit _ | .promiseAccount .. | .promiseTransfer .. => false
 
 /-- Any promise family (schedule or transferAsync). Kept for host-import
     consumers that only need a boolean. -/
 partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
-  statementsUseSchedulePromiseV1 statements || statementsUseTransferPromiseV1 statements
+  statementsUseSchedulePromiseV1 statements ||
+    statementsUseTransferPromiseV1 statements ||
+    statementsUseTokenTransferPromiseV1 statements
 
 def planUsesPromiseV1 (plan : Plan) : Bool :=
   statementsUsePromiseV1 plan.initializer.body ||
@@ -3873,6 +3969,12 @@ def planUsesTransferPromiseV1 (plan : Plan) : Bool :=
   statementsUseTransferPromiseV1 plan.initializer.body ||
     plan.entries.any (fun m => statementsUseTransferPromiseV1 m.body) ||
     plan.fns.any (fun f => statementsUseTransferPromiseV1 f.body)
+
+/-- ADR-0030 E1-NEAR: plan-level token transferAsync-promise predicate. -/
+def planUsesTokenTransferPromiseV1 (plan : Plan) : Bool :=
+  statementsUseTokenTransferPromiseV1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUseTokenTransferPromiseV1 m.body) ||
+    plan.fns.any (fun f => statementsUseTokenTransferPromiseV1 f.body)
 
 private def makeInterfaceBindingV1 (label : String) (name : String)
     (fields : Array InterfaceFieldV1) (uint64TypeId : TypeIdV1) :
@@ -3975,6 +4077,10 @@ private def makePlanFromSemanticDataV1
     statementsUseTransferPromiseV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseTransferPromiseV1 m.body) ||
       fns.any (fun f => statementsUseTransferPromiseV1 f.body)
+  let usesTokenTransferPromise :=
+    statementsUseTokenTransferPromiseV1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUseTokenTransferPromiseV1 m.body) ||
+      fns.any (fun f => statementsUseTokenTransferPromiseV1 f.body)
   let usesTimestamp :=
     statementsUseTimestampV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseTimestampV1 m.body) ||
@@ -3986,7 +4092,8 @@ private def makePlanFromSemanticDataV1
     hostAbi := hostAbiVersion
     inputAbi := rawInputAbi
     layoutDomain := stateLayoutDomain
-    hostImports := hostImportsFor usesSchedulePromise usesTransferPromise usesTimestamp
+    hostImports := hostImportsFor usesSchedulePromise usesTransferPromise
+      usesTokenTransferPromise usesTimestamp
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits
