@@ -1228,11 +1228,15 @@ private unsafe def testContextReadUnixTime
     "clock-box: WAT must stage seconds in pf_block_time_secs global"
   expect (wat.contains "\\\"time\\\"")
     "clock-box: WAT data must include Env time field needle"
-  -- context.caller stays fail closed. CosmWasm type-closure rejects Principal
-  -- (B-3 AccAddress mapping deferred) before ContextRead lowering; the
-  -- ContextRead (context.caller) arm remains as a second line of defense and
-  -- is reachable only if Principal were later admitted without opening caller.
+  -- context.caller stays fail closed. Since T12/C1 the CosmWasm type closure
+  -- ADMITS Principal (dst params need it), so the ContextRead-caller lowering
+  -- arm is now the fail-closed gate (the original type-closure rejection is
+  -- superseded). The program carries one state field so makeStorageLayout's
+  -- empty-state rejection does not mask the caller gate.
   let callerSrc := wrapProgram "CallerBox" <|
+    "  state dummy : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    dummy := 0\n\n" ++
     "  entry who() : UInt64 do\n" ++
     "    let c : Principal := context.caller\n" ++
     "    return 0\n"
