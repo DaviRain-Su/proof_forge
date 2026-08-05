@@ -323,4 +323,20 @@ else
   echo "evm-anvil-differential: note: TipJar companion script missing (skip leg)" >&2
 fi
 
+# TokenJar: ADR-0030 E1a pf.assets token.transfer (ERC-20 controlled dynamic
+# callee) companion. Product build/solc failures are hard; tool/script skip
+# is handled inside the companion (exit 0).
+if [[ -x "$root/scripts/evm_tokenjar_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion TokenJar pf.assets token smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_tokenjar_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: TokenJar smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_tokenjar_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: TokenJar smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: TokenJar companion script missing (skip leg)" >&2
+fi
+
 echo "evm-anvil-differential: ok (engineering Anvil state differential; not formal C-3)" >&2

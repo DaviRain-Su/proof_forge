@@ -43,6 +43,7 @@ REQUIRED_RUNNER_PATHS = (
     "scripts/smoke_evm.sh",
     "scripts/evm_token_anvil_smoke.sh",
     "scripts/evm_tipjar_anvil_smoke.sh",
+    "scripts/evm_tokenjar_anvil_smoke.sh",
     "Tests/Materialization/EvmCorpusPrimitiveV1.lean",
     "Tests/Materialization/EvmCorpusBlockedV1.lean",
 )
