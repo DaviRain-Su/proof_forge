@@ -284,6 +284,20 @@ hermetic Stage-0。
 - 小域近似、blocked-action 失败掩盖、deployable 伪声明。
 - formal D3/D4、Stage-0、accepted PRD Phase 1 扩面。
 
+### ADR-0030 E2-Quint：env-read native balanceOfSelf（2026-08-06）
+
+payload v1.1.0 新 QN 的 per-target 绑定：`pf.assets.native.balanceOfSelf()` →
+模型 `vaultNative` 读（与 ADR-0029 deposit/transfer 同一 Int vault，read-only、
+view/entry-callable、effect-free、结果 UInt64）；`usesVaultNative` 现覆盖
+env-read-only 程序（原仅 nonempty assetOps），ValidatePlan 以「assetOps 或
+vaultNative 表达式」exact join 防漂移。`pf.assets.token.balanceOfSelf(mint)`
+**永久 FC**：mint-keyed token vault Map + Principal identity 超出 Q0 Int vault
+模型（诚实边界非债务）；pureFn/initializer/invariant 禁 envRead（host/模型
+vault 读非纯）。Lean 钉测 `Tests.Materialization.QuintSourceV1` 扩展（view 值
+`== .vaultNative`、env-read-only 程序 `usesVaultNative=true` 且发射
+`var pf_vault_native`、token FC 诊断引用 Q0/Map）。无 Quint/Apalache/TLC 运行
+（维持 source-only ceiling）。**非** formal。
+
 ### 风险
 
 - 将“可执行规格”误读为“第 5 个 Phase 1 链上 target”或自动扩 accepted scope。

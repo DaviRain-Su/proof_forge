@@ -70,6 +70,25 @@ cosmwasm-vm mock 新增 `tokenjar.rs`（CW20 SubMsg shape + base64 解码 payloa
 不分发 SubMsg 到真实 CW20 合约（cw-multi-test 不能宿主裸 Wasm），CW20 余额差值属
 wasmd rung 未声明；**非** formal/mainnet parity。
 
+**`pf.assets.*.balanceOfSelf` env-read binding（ADR-0030 E2-4-CW，2026-08-06）**：
+payload v1.1.0 新 QN 的 per-target 绑定（read-only、view/entry-callable、
+effect-free、结果 UInt64）。新增 `env.query_chain` host import——cosmwasm-vm
+3.0.9 规范的 raw-WASM querier 通道（Region 入 Region 出，非 Rust-`Deps` 专属）；
+native → bank query `{"bank":{"balance":{"address":self,"denom":"stake"}}}`；
+token → CW20 smart query envelope `{"wasm":{"smart":{"contract_addr":mint,
+"msg":<base64>}}}`，`<base64>` 编码内层 `{"balance":{"address":self}}`
+（`WasmQuery::Smart.msg` 为 Binary=base64 字符串，**非** inline JSON）；self 地址
+从 Env JSON `"contract":{"address":"..."}` 提取；响应 envelope `{"ok":{"ok":"<b64>"}}`
+→ 内层 base64 解码 → `"amount":"`/`"balance":"` 十进制扫描，Uint128→UInt64
+溢出 trap；System/Contract 任一层 Err → trap。实现针尖：needle 固定偏移表扩
+11 根（3055..3240，off+size+1 链由 `unless` 内部不变量守）；tokenVaultBalance
+的 resultTemp 按 Semantic ValueId→IR temp 分配并绑入 localEnv（同 forLoop
+varTemp 纪律——未绑时 `.localTemp` fallback 会静默吐常量 0，已由运行时门
+逼出并修复）。cw-vm mock 新增 `envreadjar.rs`：native 腿 update_balance 种子
+2000/3500/空三档精确；token 腿 CW20 responder 断言收到 msg 精确为
+`{"balance":{"address":<contract>}}` 并返回 `{"balance":"2000"}`，另有
+len=0 畸形 wire-shape 与 unknown-mint trap 负例。**非** formal/mainnet parity。
+
 **仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Option state、Map/Bytes
 return、Field/Principal/String interface、ContextRead/Commit、nonempty invariants、UInt128/256、
 narrow Int、JSON 全集与 gas model。wasmd smart query 当前仍非 Binary，rung-1 harness 使用 raw state。

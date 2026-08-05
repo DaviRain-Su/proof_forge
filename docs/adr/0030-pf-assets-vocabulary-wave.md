@@ -65,7 +65,7 @@ generic dynamic callee 仍 FC；只有 catalog 声明的 token 接口形态允�
 | `pf.assets.native.balanceOfSelf() : UInt64` | 读 self vault 原生余额（view 可用；只读） | EVM `selfbalance` / Solana vault PDA lamports / CW `query_balance`（env）/ NEAR `account_balance` host——均 sync 可读 |
 | `pf.assets.token.balanceOfSelf(mint : Principal) : UInt64` | 读 self 的 token 余额 | EVM 需 staticcall ERC-20 `balanceOf`（动态 callee + 只读）；Solana 读 vault ATA data（账户须传入）；CW smart query（WasmQuery——mock 可查）；**NEAR 跨合约 view 是 async → FC** |
 
-**E2 设计冻结（2026-08-05，payload 先行、acceptance 未接线）**：
+**E2 设计冻结（2026-08-05，payload 先行；2026-08-05/06 已全波接线，见文末工程事实）**：
 
 1. **env-read 是新的 Semantic op 家族**（不同于 `Op.ExternalCall`/`Op.Schedule`）：只读、
    **view 可用**、**不产生 effect**（不进 EffectId 序列）、结果为 `UInt64`、
@@ -94,7 +94,9 @@ generic dynamic callee 仍 FC；只有 catalog 声明的 token 接口形态允�
    byte-identical 超集 + 两个 env-read 行；`docs-check` 同构门已 pin 字节与 digest。
    **迁移纪律**：acceptance cutover 时源码 `requires extension` 声明须显式重 opt-in
    exact triple `pf.assets@1.1.0`；v1.0.0 digest 在 cutover 后 fail closed，全部既有
-   fixture 同批扫换。cutover 前 v1.0.0 仍是唯一被 acceptance 承认的版本。
+   fixture 同批扫换。**cutover 已完成（2026-08-05，commit `5c78d975c`）**：@1.1.0
+   现为唯一被 acceptance 承认的 triple，v1.0.0 声明在 ContextExtensionCheck
+   fail closed。
 
 ## E3：`context.caller` Plan 层开放（B-CTX-OPEN 的 pf.assets 承接）
 
@@ -114,7 +116,7 @@ per-target 原子 cutover 纪律不变。
 | 期 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | **E1** | token.transfer 四链绑定（EVM/Solana/CW/NEAR-async） | 无（payload 已含 QN） | **done（2026-08-05）**：E1a EVM / E1b Solana / E1-CW / E1-NEAR(async) 全绑 |
-| **E2** | payload v1.1.0：balanceOfSelf env-read + Reference/Normalize 接线 | E1 可先并行 | pending |
+| **E2** | payload v1.1.0：balanceOfSelf env-read + Reference/Normalize 接线 | E1 可先并行 | **done（2026-08-05/06）**：核心/Reference vault、acceptance cutover（1.1.0 唯一承认）、EVM/Solana/CW 双键、NEAR/Quint native-only（token env-read 永久 FC）、Psy/Aleo/Noir/TON 维持既有 disposition |
 | **E3** | context.caller Plan 开放（per-target 原子 cutover） | 独立（B-CTX-OPEN） | pending |
 | **E4** | MiniAMM 北极星（EVM+Solana 双链 runtime 门） | E1+E2+E3 | pending |
 
@@ -183,6 +185,71 @@ Borsh variant 1），验证 jar SuccessValue、fire-and-forget 状态推进、mi
 SUCCESS receipt + `ft_transfer ok` 日志；诚实上限：mock 无账本记账，token 余额
 差值未声明。**E1 至此四链全绑**（EVM/Solana/CW sync + NEAR async）；Quint 模型
 token vault 维持 E1 可选未绑；**非** formal/mainnet parity。
+
+**E2 工程事实（2026-08-05/06，E2 全波收口）**：env-read 双键
+（`pf.assets.native.balanceOfSelf()` / `pf.assets.token.balanceOfSelf(mint)`）
+已完成核心→acceptance→六 target 物化。**核心**（E2-1 commits `cd07af465` +
+`277038aaf`）：`SemanticOpV1.envRead`（`.nativeVaultBalance`/`.tokenVaultBalance`）
++ string-tagged wire codec + checkOpTyping 精确契约（native 0 参、token 1
+Principal 参、结果=唯一 UInt64 TypeId）+ `validateEnvReadRequirementsV1`（envRead
+使用绑定 pf-assets 1.1.0 requirement 行）+ invariant root/closure pureFn 禁表 +
+**Reference self-vault 解释器**（`ReferenceVaultSeedV1`：deposit checked 入账
+（溢出 trap）、sync transfer 在 response 消费后扣账（不足 revert
+`externalCallReverted`，cursor 纪律保持）、transferAsync 足则扣不足中立、envRead
+O(1) 读（缺 mint=0）——ADR-0029 的 Reference opaque-void caveat 对资产词汇闭合）。
+**前端/Normalize**（E2-2，commit `5c78d975c` 等）：env-read QN 以 `.constructor`
+表达式解析、resolution 期经封闭表 `pfAssetsEnvReadQualifiedNamesV1` 判别；
+TypeCheck 精确 UInt64/arity/Principal 并要求 1.1.0 声明；语句位置裸调 FC；
+Disclosure public；RequirementsInfer 贡献 extension.pf-assets（非
+effect.synchronous-call）；Normalize 降 `Op.envRead`。**per-target 物化矩阵**：
+
+- **EVM**（E2-3-EVM，commit `8f12aaf99`）：native=`SELFBALANCE` + UInt64 range
+  guard；token=只读 `STATICCALL balanceOf(address)`（selector `0x70a08231` + 32B
+  self `ADDRESS`，mint 经 E1a 受控动态 callee wire shape；returndatasize==32 且高
+  192 位清零，否则 revert）。Anvil 工程门 envread leg 真跑
+  （`scripts/evm_envread_anvil_smoke.sh` companion leg + corpus manifest 同步）。
+- **Solana**（E2-3-Solana，commit `74b50a67e`）：native=vault PDA lamports 经 live
+  `ROLE_LAMPORTS` cell；token=canonical vault ATA derive
+  （`sol_try_find_program_address` + key join）+ frozen coherence contract
+  （System-owned 0/0 → 0；Token-owned 165B、`state[108]==1`、mint-join、
+  owner==vault-PDA、zero-delegate → amount LE `data[64..72]`；其余 err_shape）；
+  纯账户数据读、无 CPI；`CpiProductCapabilityV1` 调整为仅当 program 有 call sites
+  时才要求 sync-call support（envRead-only 程序准入）。Mollusk
+  `tipjar_assets`/`tipjar_token` legs 扩展真跑。
+- **CosmWasm**（E2-4-CW，commit `aabf7c806`）：新增 `env.query_chain` host import
+  （cosmwasm-vm 3.0.9 规范 raw-WASM querier 通道）；native=bank query
+  `{"bank":{"balance":{"address":self,"denom":"stake"}}}`；token=CW20 smart query
+  envelope `{"wasm":{"smart":{"contract_addr":mint,"msg":<base64>}}}`，其中
+  `<base64>` 编码内层 `{"balance":{"address":self}}`（`WasmQuery::Smart.msg` 为
+  Binary=base64 字符串，**非** inline JSON）；响应 envelope `{"ok":{"ok":"<b64>"}}`
+  → 内层 base64 解码 → `"amount":"`/`"balance":"` 十进制扫描，Uint128→UInt64
+  溢出 trap；needle 固定偏移表扩 11 根（3055..3240）；tokenVaultBalance
+  resultTemp 按 ValueId→IR temp 分配 + localEnv 绑定（同 forLoop varTemp 纪律）。
+  cw-vm mock `envreadjar.rs` 真跑（native 2000/3500/0 精确；token responder 断言
+  msg 精确 + unknown-mint/畸形 wire-shape 负例）。
+- **NEAR**（E2-NEAR，commit `4e94b405e`）：native=host `account_balance`（ABI 同
+  `attached_deposit`：balance_ptr→u128 LE）+ hi64-zero-else-trap range guard，
+  条件 import 由结构扫描驱动；token 永久 FC（NEP-141 `ft_balance_of` 为跨合约
+  view，NEAR 异步 promise 模型无法在表达式内同步完成——诚实边界非债务）。
+  near-sandbox 门第 8 套件 EnvReadJar 真跑（子账户部署隔离 master gas 混淆；
+  真实余额 ~10^24 yocto ≫ 2^64 → trap 分支真实触发；acceptNative deposit 精确
+  落账、wrong-deposit 状态保持）。**实用性 caveat**：2^64 yocto ≈ 0.0000184 NEAR，
+  真实账户余额几乎总使该绑定 trap——UInt64 结果纪律与 u128 yocto 面额的已知
+  产品级张力，不阻塞 E2（E4 北极星不依赖 NEAR）。
+- **Quint**（E2-Quint，同 commit `4e94b405e`）：native=模型 `vaultNative` 读
+  （与 deposit/transfer 同一 Int vault）；`usesVaultNative` 覆盖 env-read-only
+  程序（ValidatePlan exact join：nonempty assetOps 或 vaultNative 表达式）；
+  token 永久 FC（mint-keyed Map + Principal identity 超出 Q0 Int vault）；
+  pureFn/initializer/invariant 禁 envRead。
+- **Psy/Aleo/Noir/TON**：维持 ADR-0029 既有 disposition（Psy/Aleo 零绑定、
+  Noir 永久 FC、TON owner 决策冻结）。
+
+env-read 的非法使用（未声明 1.1.0、语句位置裸调 result-bearing QN、
+invariant/pureFn 上下文、非 UInt64 结果）在各层 fail closed。门禁：
+Anvil envread leg、Mollusk、cw-vm mock、near-sandbox 8 suites、
+`proof-forge-next-tests` 全绿、`just dev-check`（含 docs-check）exit 0、
+SBOM 239 files。**非** formal/mainnet parity；Anvil/Mollusk/cw-vm/near-sandbox
+均为工程 local_runtime 门。
 
 ## 否决方案
 

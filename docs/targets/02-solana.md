@@ -72,6 +72,20 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
   指向 live 输入区的指针，由 runtime `update_caller_account` 自动同步；唯
   data_len 是值拷贝），ensure 后显式写回 165，否则下一个 CPI 的
   `update_callee_account` 比较 0 vs 165 以 `AccountDataSizeChanged` fail closed。
+- **`pf.assets.*.balanceOfSelf` env-read binding（ADR-0030 E2-3-Solana，2026-08-05）**：
+  payload v1.1.0 新 QN 的 per-target 绑定（read-only、view/entry-callable、
+  effect-free、结果 UInt64）——两者均为**直接账户数据读、无 CPI**：native=vault
+  PDA lamports 经 live `ROLE_LAMPORTS` cell（runtime 同步的指针，非 entry 快照）；
+  token=canonical vault ATA derive（`sol_try_find_program_address` + 全 32B key
+  join）+ frozen coherence contract：System-owned 0-lamports/0-data → 返回 0；
+  Token-owned 165B、`state[108]==1`（initialized）、mint 全等、owner==vault-PDA、
+  delegate 清零 → 读 amount LE `data[64..72]`；其余形状 err_shape fail closed。
+  `CpiProductCapabilityV1` 准入调整为仅当 program 有 call sites 时才要求
+  sync-call support（envRead-only 程序也可走 CPI profile 物化）。Mollusk 工程门
+  真跑扩展：`tipjar_assets` native 腿（nativeBalance 精确读 vault lamports、
+  wrong-vault-key 负例 full-account 保持）与 `tipjar_token` token 腿（funded
+  vault ATA 精确 2000、absent ATA → 0、anomalous ATA 负例 full-account 保持）。
+  **非** formal/mainnet parity。
   产品纵切 `runtime-tests/solana/fixtures/TokenJarAssets.lean` 经真实 CLI
   `build --profile solana-sbpf-cpi-elf-v1` → `TokenJarAssets.so`（37528 B）+
   `inspect` exact closure；Mollusk 工程门 **16** binaries / **338** active

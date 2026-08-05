@@ -66,6 +66,18 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   已真跑：ERC20Mock mint 2000 → `tipToken(mint,dst,1000)` 精确 ±1000、超额 revert
   状态保持、returnFalse 负例、USDT 无返回成功、wire-shape 负例全过。
   `token.transferAsync` 与其余 token 家族仍 FC；**非** formal/mainnet parity。
+- **`pf.assets.*.balanceOfSelf` env-read binding（ADR-0030 E2-3-EVM，2026-08-05）**：
+  payload v1.1.0 新 QN 的 per-target 绑定（read-only、view/entry-callable、
+  effect-free、结果 UInt64）。native → `SELFBALANCE` opcode + UInt64 range guard
+  （值 ≥ 2^64 → revert）；token → 只读 `STATICCALL balanceOf(address)`（selector
+  `0x70a08231` + 32B self `ADDRESS`；mint Principal 经 E1a 同款受控动态 callee
+  wire shape `u32le(20)||addr20` 高肢清零；returndatasize==32 且返回 word 高 192
+  位清零，否则 revert）。产品纵切 `Examples/EnvReadJar.lean`；Anvil 工程门
+  envread leg 真跑（`scripts/evm_envread_anvil_smoke.sh` 作为
+  `evm_anvil_differential.sh` companion leg，corpus manifest 同步）：合约充
+  1 ETH → `nativeBalance()`==1e18（SELFBALANCE 精确）；ERC20Mock mint 2000 →
+  `tokenBalance(mock)`==2000（STATICCALL `balanceOf` 精确）。
+  **非** formal/mainnet parity。
 
 **明确未闭合**：完整 SemanticProgramV1 表面；**ContextRead 仍 EVM Plan 显式 fail-closed**（见下节 encoding contract：决策已冻结、物化未交付）；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025 写成 Ownable/OZ/ABI/formal 完成。
 

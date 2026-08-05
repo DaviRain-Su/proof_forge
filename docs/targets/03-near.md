@@ -59,6 +59,21 @@ Phase 1：实现
   **断言恰好 1 yoctoNEAR**）部署到带 key 子账户，验证 jar SuccessValue、
   fire-and-forget 状态推进、mint 账户 SUCCESS receipt + `ft_transfer ok` 日志；
   诚实上限：mock 无账本记账，token 余额差值未声明；**非** formal/testnet/mainnet。
+- **`pf.assets.native.balanceOfSelf` env-read binding（ADR-0030 E2-NEAR，2026-08-06）**：
+  payload v1.1.0 新 QN 的 per-target 绑定（read-only、view/entry-callable、
+  effect-free、结果 UInt64）。native → host `account_balance`（ABI 同
+  `attached_deposit`：`balance_ptr` 单参、写 u128 LE）+ UInt64 range guard
+  （高 64 位非零 → trap），host import 由结构扫描条件加入；**token 永久 FC**
+  （NEP-141 `ft_balance_of` 为跨合约 view call，NEAR 异步 promise 模型无法在
+  表达式内同步完成——诚实边界非债务）。near-sandbox 门新增第 8 套件
+  `EnvReadJar`（jar 部署于带 key 子账户以隔离 master gas 混淆）：真实余额
+  ~10^24 yocto ≫ 2^64 → range-guard trap 分支真实触发；`acceptNative(1000)`
+  deposit 精确落账且 jar RPC 余额非递减 ≥ base+amount（storage-stake 记账可
+  使 Δ 超过 deposit，不断言精确等值）；wrong-deposit 失败且状态保持。
+  **实用性 caveat**：2^64 yocto ≈ 0.0000184 NEAR，真实账户余额几乎总使该
+  绑定 trap——UInt64 结果纪律与 u128 yocto 面额的已知产品级张力；不阻塞 E2
+  （E4 北极星不依赖 NEAR），后续若要成功路径需另行设计面额/宽度故事。
+  **非** formal/testnet/mainnet。
 
 **明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分，仍不覆盖 corrupt
 storage、bad input 或 gas/profile；Option params、非 UInt64/nested Option、Map/Bytes/nested aggregate
