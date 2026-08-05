@@ -48,3 +48,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0027](0027-inline-same-file-theorem-certification.md) | Inline same-file theorem certification（单 snapshot；hash 不含 body；in-process 非 sandbox；固定 axiom；proof gate 早于 materialize；仅 `InvariantTheoremV1`/`StateConformsV1`） | proposed |
 | [ADR-0028](0028-solana-explicit-accounts-pda-cpi.md) | Solana 显式账户、PDA/bump 与真实同步 CPI v1 合同（opt-in `solana-sbpf-cpi-elf-v1` product activation；#111–#125） | accepted |
 | [ADR-0029](0029-portable-cross-program-interop.md) | Portable 跨程序互通层（L1 shared semantic extensions；词表判据；custody/vault 消隐 PDA；包装层 catalog：target binding catalog + NetworkProfile asset registry；`pf.assets` 草案与 A→D 分期） | proposed |
+| [ADR-0030](0030-pf-assets-vocabulary-wave.md) | pf.assets 词汇扩展波（token.transfer 四链绑定 + balanceOfSelf env-read v1.1.0 + context.caller Plan 开放 + MiniAMM 北极星；Uniswap V2 能力分解） | proposed |
