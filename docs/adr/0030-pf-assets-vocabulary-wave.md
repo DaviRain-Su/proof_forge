@@ -65,8 +65,36 @@ generic dynamic callee 仍 FC；只有 catalog 声明的 token 接口形态允�
 | `pf.assets.native.balanceOfSelf() : UInt64` | 读 self vault 原生余额（view 可用；只读） | EVM `selfbalance` / Solana vault PDA lamports / CW `query_balance`（env）/ NEAR `account_balance` host——均 sync 可读 |
 | `pf.assets.token.balanceOfSelf(mint : Principal) : UInt64` | 读 self 的 token 余额 | EVM 需 staticcall ERC-20 `balanceOf`（动态 callee + 只读）；Solana 读 vault ATA data（账户须传入）；CW smart query（WasmQuery——mock 可查）；**NEAR 跨合约 view 是 async → FC** |
 
-env-read 是新的 op 家族（不同于 ExternalCall）：只读、view 可用、不产生 effect。
-Reference 语义与 ABI 影响在切片时冻结。
+**E2 设计冻结（2026-08-05，payload 先行、acceptance 未接线）**：
+
+1. **env-read 是新的 Semantic op 家族**（不同于 `Op.ExternalCall`/`Op.Schedule`）：只读、
+   **view 可用**、**不产生 effect**（不进 EffectId 序列）、结果为 `UInt64`、
+   snapshot 语义取执行点值。它不是 `Op.ContextRead`（caller/time 等交易上下文）的
+   复用——余额是账户状态观察，独立成族；两个成员统一建模
+   （native vault / token vault(mint)），per-target 物化形态各异：EVM 原生=
+   `SELFBALANCE`、token=`STATICCALL balanceOf(self)`（受控动态 callee 同 E1a 纪律）；
+   Solana 两者均为**直接账户数据读**（vault PDA lamports / vault ATA amount 叶，无
+   CPI；vault ATA 缺失 fail closed，不谎称 0）；CW=querier（bank query / WasmQuery
+   smart query，均 sync）；NEAR 原生=host `account_balance`，token 永久 FC；Quint=
+   模型 vault 读；Psy/Aleo/Noir/TON 维持 pf.assets 既有 disposition（FC/冻结）。
+2. **结果承载的 catalog 调用形态**：env-read 家族是首个非 `Unit` 结果的 catalog
+   成员，`sourceRestrictions.typedCallReturn` 由 v1.0.0 的 `false` 变为
+   `"env-read-family-only"`——仅 env-read QN 可出现在**表达式位置**（typed call
+   return）；语句位置裸调 result-bearing QN 仍 fail closed；既有五键 Unit 调用
+   形态不变。这是前端/Normalize 的 scoped 开口，不是通用 typed-call-return。
+3. **Reference 语义**：E2 接线时为 pf.assets 家族补最小 self-vault 解释器
+   （native vault lamports 与 mint-keyed token vault 记账；deposit/transfer 写、
+   balanceOfSelf 读），把 ADR-0029 的「Reference opaque void」caveat 对资产词汇
+   闭合；env-read 在 Reference 为 O(1) 读，无 fuel 扩张。
+4. **payload v1.1.0 已冻结（inert，未接线）**：
+   [`pf-assets-extension-v1.1.json`](../specs/pf-assets-extension-v1.1.json)，
+   raw SHA-256 `47f836c2dceaba1c6f93d8b682d451e8f75baab31fac29a511f23e3010a606f6`，
+   domain digest `sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9`
+   （同公式 `SHA-256("pf.extension-semantics.v1"||NUL||JCS)`）；七行 API = v1 五行
+   byte-identical 超集 + 两个 env-read 行；`docs-check` 同构门已 pin 字节与 digest。
+   **迁移纪律**：acceptance cutover 时源码 `requires extension` 声明须显式重 opt-in
+   exact triple `pf.assets@1.1.0`；v1.0.0 digest 在 cutover 后 fail closed，全部既有
+   fixture 同批扫换。cutover 前 v1.0.0 仍是唯一被 acceptance 承认的版本。
 
 ## E3：`context.caller` Plan 层开放（B-CTX-OPEN 的 pf.assets 承接）
 

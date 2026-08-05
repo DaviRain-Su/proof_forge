@@ -140,6 +140,16 @@ PF_ASSETS_EXTENSION_RAW_SHA256 = (
 PF_ASSETS_EXTENSION_DOMAIN_DIGEST = (
     "97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"
 )
+# ADR-0030 E2: payload v1.1.0 adds the two result-bearing env-read rows
+# (balanceOfSelf). v1.0.0 stays pinned above; the v1.1.0 file is an exact
+# superset (first five API objects byte-identical). Same domain formula.
+PF_ASSETS_EXTENSION_V1_1_REL = "docs/specs/pf-assets-extension-v1.1.json"
+PF_ASSETS_EXTENSION_V1_1_RAW_SHA256 = (
+    "47f836c2dceaba1c6f93d8b682d451e8f75baab31fac29a511f23e3010a606f6"
+)
+PF_ASSETS_EXTENSION_V1_1_DOMAIN_DIGEST = (
+    "59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
+)
 UNRESOLVED_MARKER_RE = re.compile(
     r"\b(?:TODO|TBD)\b|待补充|待决定|待锁",
     re.IGNORECASE,
@@ -910,6 +920,114 @@ def validate_pf_assets_extension_contract(
     _expect_pf_assets(
         type(restrictions) is dict
         and restrictions.get("typedCallReturn") is False
+        and restrictions.get("schedule") is False
+        and restrictions.get("targetImportsInFrontendOrSemantic") is False,
+        relative_path, "sourceRestrictions are not exact")
+
+
+def validate_pf_assets_extension_v1_1_contract(
+        root: Path,
+        json_values: dict[str, Any],
+) -> None:
+    """Recompute raw SHA-256 + domain digest for the ADR-0030 E2 v1.1.0 payload.
+
+    Same canonical-JCS / domain discipline as the v1 validator. Additionally
+    pins the seven-row API table (v1 five rows byte-identical superset plus
+    the two result-bearing env-read rows) and the env-read-only
+    typedCallReturn restriction. The v1.1.0 payload is inert until the shared
+    acceptance cutover; this gate only freezes the bytes and digests.
+    """
+    relative_path = PF_ASSETS_EXTENSION_V1_1_REL
+    value = json_values.get(relative_path)
+    _expect_pf_assets(value is not None, relative_path, "frozen payload is missing")
+    raw = read_repository_regular_bytes(root, root / relative_path, relative_path)
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8", errors="strict")
+    _expect_pf_assets(
+        raw == canonical, relative_path,
+        "payload is not exact canonical JCS or has a BOM/trailing newline")
+    raw_digest = hashlib.sha256(raw).hexdigest()
+    domain_digest = hashlib.sha256(PF_ASSETS_EXTENSION_DOMAIN + raw).hexdigest()
+    _expect_pf_assets(
+        raw_digest == PF_ASSETS_EXTENSION_V1_1_RAW_SHA256, relative_path,
+        f"raw SHA-256 {raw_digest} does not match pinned constant")
+    _expect_pf_assets(
+        domain_digest == PF_ASSETS_EXTENSION_V1_1_DOMAIN_DIGEST, relative_path,
+        f"domain digest {domain_digest} does not match pinned constant")
+
+    _expect_pf_assets(type(value) is dict, relative_path, "root must be an object")
+    _expect_pf_assets(
+        value.get("schema") == "proof-forge.pf-assets-extension.v1"
+        and value.get("extensionId") == "pf.assets"
+        and value.get("version") == "1.1.0",
+        relative_path, "extension root identity is not exact")
+    requirement = value.get("requirementContract")
+    _expect_pf_assets(
+        type(requirement) is dict
+        and requirement.get("id") == "extension.pf-assets"
+        and requirement.get("version") == "1.1.0"
+        and requirement.get("predicates") == []
+        and requirement.get("digestDomain") == "pf.extension-semantics.v1",
+        relative_path, "extension requirement contract is not exact")
+
+    v1_value = json_values.get(PF_ASSETS_EXTENSION_REL)
+    _expect_pf_assets(
+        type(v1_value) is dict, relative_path,
+        "v1.0.0 payload must be present for the superset join")
+    apis = value.get("apis")
+    _expect_pf_assets(
+        type(apis) is list and len(apis) == 7, relative_path,
+        "apis must be exactly seven portable L1 rows")
+    expected_qns = [
+        "pf.assets.native.deposit",
+        "pf.assets.native.transfer",
+        "pf.assets.native.transferAsync",
+        "pf.assets.token.transfer",
+        "pf.assets.token.transferAsync",
+        "pf.assets.native.balanceOfSelf",
+        "pf.assets.token.balanceOfSelf",
+    ]
+    expected_results = ["Unit", "Unit", "Unit", "Unit", "Unit", "UInt64", "UInt64"]
+    for index, api in enumerate(apis):
+        _expect_pf_assets(type(api) is dict, relative_path, f"api[{index}] must be an object")
+        _expect_pf_assets(
+            api.get("qn") == expected_qns[index]
+            and api.get("result") == expected_results[index],
+            relative_path, f"api[{index}] qn/result is not exact")
+        for arg in api.get("args") or []:
+            _expect_pf_assets(
+                type(arg) is dict
+                and arg.get("source") == "typed-expression"
+                and arg.get("type") in ("UInt64", "Principal"),
+                relative_path, f"api[{index}] arg source/type is not portable")
+    # v1 superset: the first five API objects must be byte-identical to v1.
+    _expect_pf_assets(
+        apis[:5] == v1_value.get("apis"), relative_path,
+        "first five api rows are not the exact v1.0.0 superset")
+    # Env-read rows carry the frozen read-only semantics vocabulary.
+    for index in (5, 6):
+        semantics = apis[index].get("semantics")
+        _expect_pf_assets(
+            type(semantics) is dict
+            and semantics.get("effect") == "none"
+            and semantics.get("observation") == "read-only-self-vault"
+            and semantics.get("snapshot") == "execution-point"
+            and semantics.get("syncMode") == "synchronous"
+            and semantics.get("view") == "callable-from-view",
+            relative_path, f"api[{index}] env-read semantics are not exact")
+    _expect_pf_assets(
+        apis[6].get("semantics", {}).get("amountUnit") == "base-units",
+        relative_path, "token balanceOfSelf amountUnit is not exact")
+
+    restrictions = value.get("sourceRestrictions")
+    _expect_pf_assets(
+        type(restrictions) is dict
+        and restrictions.get("typedCallReturn") == "env-read-family-only"
         and restrictions.get("schedule") is False
         and restrictions.get("targetImportsInFrontendOrSemantic") is False,
         relative_path, "sourceRestrictions are not exact")
@@ -4913,6 +5031,7 @@ def check(root: Path, profile: str = "development") -> None:
     validate_solana_cpi_active_contract(root, by_id)
     validate_solana_cpi_epic_checkpoint(root)
     validate_pf_assets_extension_contract(root, json_values)
+    validate_pf_assets_extension_v1_1_contract(root, json_values)
     check_links(root, docs_root, documents, by_id)
 
 
