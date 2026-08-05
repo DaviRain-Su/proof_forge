@@ -45,6 +45,20 @@ Phase 1：实现
   （Promise 为 async，不得包装成 sync）。near-sandbox 门新增 `TipJarAsync` 套件
   （`Examples/TipJarAsync.lean`）：init/精确 deposit 成功/错误与零 deposit 拒绝 +
   **receiver 子账户真实余额差值观测**（fire-and-forget 转账的端到端证据）。
+- **`pf.assets.token.transferAsync` binding（ADR-0030 E1-NEAR，2026-08-05）**：payload
+  不变的 per-target 绑定。→ fire-and-forget NEP-141 `ft_transfer` Promise
+  （`promise_batch_create(mint)` + `promise_batch_action_function_call`：exact JSON
+  args `{"receiver_id":dst,"amount":"<decimal>"}`、30 Tgas 冻结 gas、**恰好
+  1 yoctoNEAR** attached deposit——NEP-141 核心要求）；mint/dst account-id 语法门同
+  C2 dst（受控动态 callee，仅 catalog token 家族）；sync `token.transfer` 永久 FC
+  （诚实边界）。schedule pilot 潜在 ABI bug 顺带修复：
+  `promise_batch_action_function_call` import 由误写的 8 参（amount_low/high）改为
+  真实 host ABI 7 参（amount_ptr→u128 LE），schedule call site 同步修正。near-sandbox
+  门新增 `TokenJarAsync` 套件（`runtime-tests/near/fixtures/TokenJarAsync.lean`）：
+  最小 mock NEP-141（pinned `mock_token.wat` + locked wat2wasm，其 `ft_transfer`
+  **断言恰好 1 yoctoNEAR**）部署到带 key 子账户，验证 jar SuccessValue、
+  fire-and-forget 状态推进、mint 账户 SUCCESS receipt + `ft_transfer ok` 日志；
+  诚实上限：mock 无账本记账，token 余额差值未声明；**非** formal/testnet/mainnet。
 
 **明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分，仍不覆盖 corrupt
 storage、bad input 或 gas/profile；Option params、非 UInt64/nested Option、Map/Bytes/nested aggregate

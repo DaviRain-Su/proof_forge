@@ -55,6 +55,21 @@ reply entry 且允许父合约继续，弱于 sync failure-propagation 契约）
 保持 FC。cosmwasm-vm mock 新增 `tipjar.rs`（deposit/transfer/四类 funds 负例，1/1）；
 产品纵切 `Tests/Product/TipJarCosmWasmV1`（WAT + locked cosmwasm-check + exact closure）。
 
+**`pf.assets.token.transfer` binding（ADR-0030 E1-CW，2026-08-05）**：payload 不变的
+per-target 绑定。→ CW20 `Transfer` execute 作 `WasmMsg::Execute` SubMsg
+`reply_on=never`（error-propagating 同 C1；CW20 调用失败打爆整笔交易）；mint/dst
+均 exact `u32le(len)||utf8-bech32-bytes`（受控动态 callee，仅 catalog token 家族；
+generic dynamic callee 仍 FC）；funds 为空、entry 非 payable（C1 funds-exactness
+不变）；合约自身 CW20 余额即 vault；`token.transferAsync` 保持 FC。**bech32
+charset 安全门**：emitter 对 mint/dst body 强制 lowercase `[a-z0-9]`（C1 文档原称
+"printable ASCII" 未实现且不足以防 JSON 注入——现按构造排除引号/反斜线/控制字节，
+覆盖 C1 native dst 与 E1-CW mint/dst 三路；注入负例 `tipjar.rs`/`tokenjar.rs` 全过）。
+cosmwasm-vm mock 新增 `tokenjar.rs`（CW20 SubMsg shape + base64 解码 payload、tips
+状态、非 payable/畸形 wire-shape/charset 负例、no-BankMsg 诚实门，6/6）；产品纵切
+`Examples/TokenJar.lean`（`cosmwasm_runtime_test.sh` 产品构建）。诚实上限：mock
+不分发 SubMsg 到真实 CW20 合约（cw-multi-test 不能宿主裸 Wasm），CW20 余额差值属
+wasmd rung 未声明；**非** formal/mainnet parity。
+
 **仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Option state、Map/Bytes
 return、Field/Principal/String interface、ContextRead/Commit、nonempty invariants、UInt128/256、
 narrow Int、JSON 全集与 gas model。wasmd smart query 当前仍非 Binary，rung-1 harness 使用 raw state。

@@ -113,7 +113,7 @@ per-target 原子 cutover 纪律不变。
 
 | 期 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
-| **E1** | token.transfer 四链绑定（EVM/Solana/CW/NEAR-async） | 无（payload 已含 QN） | **E1a EVM / E1b Solana done（2026-08-05）**；CW/NEAR-async 为第二波（见下） |
+| **E1** | token.transfer 四链绑定（EVM/Solana/CW/NEAR-async） | 无（payload 已含 QN） | **done（2026-08-05）**：E1a EVM / E1b Solana / E1-CW / E1-NEAR(async) 全绑 |
 | **E2** | payload v1.1.0：balanceOfSelf env-read + Reference/Normalize 接线 | E1 可先并行 | pending |
 | **E3** | context.caller Plan 开放（per-target 原子 cutover） | 独立（B-CTX-OPEN） | pending |
 | **E4** | MiniAMM 北极星（EVM+Solana 双链 runtime 门） | E1+E2+E3 | pending |
@@ -154,6 +154,35 @@ wrong-mint join、non-canonical dst ATA、多/零 signer 负例）。CW20（Cosm
 NEP-141 `ft_transfer`（NEAR，仅 transferAsync 可绑）为 E1 第二波，未开。
 **非** formal TASK/TST、**非** 主网/mainnet parity；Anvil/Mollusk 为工程
 local_runtime 门，Reference 仍 opaque void（无 vault 解释器）。
+
+**E1 第二波工程事实（2026-08-05，E1 全波收口）**：**CosmWasm**（E1-CW，commits
+`df1ce458a` + `a52cd5329`）：`pf.assets.token.transfer` → CW20 `Transfer` execute
+作 `WasmMsg::Execute` SubMsg `reply_on=never`（error-propagating 同 C1 纪律；CW20
+调用失败打爆整笔交易）；mint/dst 均 `u32le(len)||utf8-bech32-bytes` 精确 wire
+shape（受控动态 callee，仅 catalog token 家族）；funds 为空、entry 非 payable；
+`token.transferAsync` 保持 FC。cosmwasm-vm mock 门真跑（`tokenjar.rs` 5 项：CW20
+SubMsg shape + base64 解码 payload 断言、tips 状态、非 payable/畸形 wire-shape
+trap、no-BankMsg 诚实门）；**安全加固**：`pf_dst_check` 补 lowercase bech32 charset
+`[a-z0-9]` 门（C1 文档原称 "printable ASCII" 未实现且不足以防 JSON 注入——quote/
+backslash 属 printable——现按构造排除引号/反斜线/控制字节，覆盖 C1 native dst 与
+E1-CW mint/dst 三路，双套件注入负例全过）；诚实上限：mock 不分发 SubMsg 到真实
+CW20（cw-multi-test 不能宿主裸 Wasm），余额差值属 wasmd rung 未声明。**NEAR**
+（E1-NEAR，commit `777f26f61`）：`pf.assets.token.transferAsync` → fire-and-forget
+NEP-141 `ft_transfer` Promise（`promise_batch_create(mint)` +
+`promise_batch_action_function_call`，exact JSON args
+`{"receiver_id":dst,"amount":"<decimal>"}`、30 Tgas 冻结 gas、**恰好 1 yoctoNEAR**
+attached deposit——NEP-141 核心要求）；mint/dst account-id 语法门同 C2 dst
+（2..64、lowercase a-z/digits/`_`/`-`/`.`、无首末点）；sync `token.transfer` 永久 FC。
+lane 顺带修复 schedule pilot 潜在 ABI bug（`promise_batch_action_function_call`
+import 误为 8 参 amount_low/high，真实 host ABI 为 7 参 amount_ptr→u128 LE；schedule
+call site 同步修正，WAT pin 迁至 7 参形态）。near-sandbox 门真跑（7 suites 全 PASS）：
+TokenJarAsync 部署最小 mock NEP-141（pinned `mock_token.wat` + locked wat2wasm，
+其 `ft_transfer` **断言恰好 1 yoctoNEAR**）到带 key 子账户（near_rpc 新增
+`create_subaccount_with_key`/`deploy_to`/signer override；AddKey FullAccess 为
+Borsh variant 1），验证 jar SuccessValue、fire-and-forget 状态推进、mint 账户
+SUCCESS receipt + `ft_transfer ok` 日志；诚实上限：mock 无账本记账，token 余额
+差值未声明。**E1 至此四链全绑**（EVM/Solana/CW sync + NEAR async）；Quint 模型
+token vault 维持 E1 可选未绑；**非** formal/mainnet parity。
 
 ## 否决方案
 
