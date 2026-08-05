@@ -146,9 +146,11 @@ private def testSupportAndDescriptor : IO Unit := do
       !legacyIds.contains "extension.solana-cpi-accounts")
     "support: legacy profiles decline call/schedule and the opt-in extension"
   let cpiIds := cpiRow.supported.map (·.id)
-  -- #125: CPI admits exact sync + extension; still declines async.
-  expect (cpiIds.size == 7 &&
+  -- #125 + ADR-0029 B1: CPI admits exact sync + both extensions
+  -- (solana-cpi-accounts and pf-assets); still declines async.
+  expect (cpiIds.size == 8 &&
       cpiIds.contains "effect.synchronous-call" &&
+      cpiIds.contains "extension.pf-assets" &&
       !cpiIds.contains "effect.asynchronous-workflow")
     "support: cpi profile admits sync and declines async"
   let expectedExtension ← match

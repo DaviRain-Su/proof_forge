@@ -2538,7 +2538,10 @@ private unsafe def testScheduleProductPath
   | .ok _ =>
       throw <| IO.userError "schedule uppercase: expected planInvariant fail-closed"
 
-  -- Sync call: compiles, but NEAR S2 resolver declines effect.synchronous-call.
+  -- Sync call: compiles and resolves. Post-C2 the NEAR resolver row advertises
+  -- effect.synchronous-call scoped to the pf.assets catalog (see
+  -- RequirementResolverV1 nearRequests), so the generic non-catalog sync call
+  -- fails closed one layer later, at NEAR Plan.
   let callText :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2556,14 +2559,17 @@ private unsafe def testScheduleProductPath
   let callSource ← liftResult (← session.selectProgramV1
     callText "<near-call-sync>" "Examples.CallSync" none)
   let callCompiled ← liftResult <| Compiler.compileValidatedSourceV1 callSource
-  match Targets.resolveEngineeringRequirementsV1 selection callCompiled with
-  | .error err =>
-      expect (err.code == "PF-REQ-UNSUPPORTED" &&
-          err.render.contains "effect.synchronous-call")
-        s!"sync call must be PF-REQ-UNSUPPORTED for NEAR, got {err.code}: {err.render}"
+  let callCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection callCompiled
+  match Targets.Near.planFromCapability callCapability with
+  | .error (.planInvariant .near msg) =>
+      expect (msg.contains "synchronous external calls are outside the NEAR envelope")
+        s!"generic sync call must be Plan fail closed for NEAR, got {msg}"
+  | .error other =>
+      throw <| IO.userError s!"sync call: expected planInvariant, got {other.render}"
   | .ok _ =>
       throw <| IO.userError
-        "sync call: resolveEngineeringRequirementsV1 must fail for NEAR"
+        "sync call: NEAR Plan must fail closed for generic non-catalog sync call"
 
 /-- Void entry `entry run() do` (no result / no return) fails closed on the
     product path. Primary gate today is Normalize
