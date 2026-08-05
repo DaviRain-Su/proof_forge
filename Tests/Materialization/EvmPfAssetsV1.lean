@@ -97,6 +97,16 @@ private def tokenSource : String :=
   "    call pf.assets.token.transfer(mint, dst, amount)\n" ++
   "    return amount\n"
 
+private def tokenAsyncSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program TokenAsyncAssets where\n" ++
+  "  requires extension pf.assets version \"1.0.0\"\n" ++
+  s!"    digest \"{pfAssetsDigestV1}\"\n" ++
+  "  entry tip(mint : Principal, dst : Principal, amount : UInt64) : UInt64 do\n" ++
+  "    call pf.assets.token.transferAsync(mint, dst, amount)\n" ++
+  "    return amount\n"
+
 private def plainCounterSource : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
@@ -122,12 +132,13 @@ private unsafe def buildEvm (compiled : CompiledSemanticV1) : IO (Array OutputFi
     Targets.resolveEngineeringRequirementsV1 selection compiled
   liftResult "build" <| buildFromCapability capability
 
-/-- Catalog skeleton: native admit set + interface-standard ERC-20 placeholder. -/
+/-- Catalog skeleton: native admit set + token admit set + interface-standard ERC-20. -/
 private def testCatalogSkeleton : IO Unit := do
   expect (isEvmAdmittedPfAssetsQnV1 "pf.assets.native.deposit") "deposit admitted"
   expect (isEvmAdmittedPfAssetsQnV1 "pf.assets.native.transfer") "transfer admitted"
-  expect (!isEvmAdmittedPfAssetsQnV1 "pf.assets.native.transferAsync") "async not admitted"
-  expect (!isEvmAdmittedPfAssetsQnV1 "pf.assets.token.transfer") "token not admitted"
+  expect (isEvmAdmittedPfAssetsQnV1 "pf.assets.token.transfer") "token.transfer admitted"
+  expect (!isEvmAdmittedPfAssetsQnV1 "pf.assets.native.transferAsync") "native async not admitted"
+  expect (!isEvmAdmittedPfAssetsQnV1 "pf.assets.token.transferAsync") "token async not admitted"
   expect (nativeBindingsV1.size == 2) "two native bindings"
   expect (nativeBindingsV1.all (·.artifactBinding == .runtimeNative))
     "native package uses runtimeNative"
@@ -140,6 +151,32 @@ private def testCatalogSkeleton : IO Unit := do
     "dst Principal encoding pinned"
   expect (containsSubstr nativeValueLoweringContractV1.reentrancyNote "reentrancy")
     "reentrancy honesty note present"
+  -- E1a ERC-20 token binding.
+  expect (tokenBindingsV1.size == 1) "one token binding"
+  expect (tokenBindingsV1[0]!.qn == "pf.assets.token.transfer")
+    "token binding QN pinned"
+  expect (tokenBindingsV1[0]!.admittedForMaterialization)
+    "token transfer admitted for materialization"
+  expect (tokenBindingsV1[0]!.packageId == "evm-erc20-standard-v1")
+    "token package id pinned"
+  expect (erc20TokenLoweringContractV1.transferSelector == "0xa9059cbb")
+    "ERC-20 transfer selector pinned"
+  expect (erc20TokenLoweringContractV1.transferCalldataSize == "68")
+    "ERC-20 calldata size pinned (4+32+32)"
+  expect (erc20TokenLoweringContractV1.transferCallValue == "zero")
+    "ERC-20 transfer carries zero native value"
+  expect (erc20TokenLoweringContractV1.mintPrincipalEncoding ==
+      "u32le(20)||addr20-network-order")
+    "mint Principal encoding pinned (same as native dst)"
+  expect (containsSubstr erc20TokenLoweringContractV1.transferReturnValuePolicy
+      "returndatasize==0")
+    "return-value policy handles USDT-style no-return"
+  expect (containsSubstr erc20TokenLoweringContractV1.transferReturnValuePolicy
+      "first-word-must-be-nonzero")
+    "return-value policy checks bool false"
+  expect (containsSubstr erc20TokenLoweringContractV1.dynamicCalleeDiscipline
+      "generic-dynamic-callee-fail-closed")
+    "controlled dynamic callee discipline pinned"
   match erc20InterfaceStandardSkeletonV1 with
   | .interfaceStandard sid preds =>
       expect (sid == "erc-20") "ERC-20 standard id"
@@ -216,12 +253,14 @@ private unsafe def testQnGateNoExtension : IO Unit := do
         s!"no-extension catalog call must cite extension.pf-assets, got={msg}"
   | .ok _ => throw <| IO.userError "pf.assets catalog without extension must fail closed"
 
-/-- Async / token pf.assets QNs fail closed (Phase B scope). -/
-private unsafe def testPhaseBScopeFc : IO Unit := do
+/-- Async / tokenAsync pf.assets QNs fail closed (EVM offers sync only). -/
+private unsafe def testAsyncFc : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  for (label, text) in #[("async", asyncSource), ("token", tokenSource)] do
+  for (label, module, text) in
+      #[("native-async", "Tests.EvmNativeAsync", asyncSource),
+        ("token-async", "Tests.EvmTokenAsync", tokenAsyncSource)] do
     let source ← liftResult s!"load {label}" (← session.selectProgramV1
-      text s!"<evm-{label}>" s!"Tests.Evm{label}" none)
+      text s!"<evm-{label}>" module none)
     let compiled ← liftResult s!"compile {label}" <| compileValidatedSourceV1 source
     let selection ← liftResult "selection" <| resolveBuildSelectionV1 TargetId.evm none
     match Targets.resolveEngineeringRequirementsV1 selection compiled with
@@ -236,14 +275,74 @@ private unsafe def testPhaseBScopeFc : IO Unit := do
         match planFromCapability capability with
         | .error e =>
             let msg := e.render
-            expect (containsSubstr msg "Phase B" ||
-                containsSubstr msg "outside" ||
-                containsSubstr msg "fail closed" ||
+            expect (containsSubstr msg "fail closed" ||
                 containsSubstr msg "pf.assets" ||
                 containsSubstr msg "unsupported")
               s!"{label} plan must FC with scope diagnostic, got={msg}"
         | .ok _ =>
             throw <| IO.userError s!"{label} pf.assets QN must fail closed on EVM"
+
+/-- Positive token transfer Plan/IR/Yul nails (E1a: controlled dynamic callee). -/
+private unsafe def testTokenTransferPlanAndYul : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load token" (← session.selectProgramV1
+    (tokenSource) "<evm-token>" "Tests.EvmToken" none)
+  let compiled ← liftResult "compile token" <| compileValidatedSourceV1 source
+  let plan ← planEvm compiled
+  expect (plan.objectName == "TokenAssets") "token object name"
+  expect (plan.entries.size == 1) "single tip entry"
+  let tip := plan.entries[0]!
+  expect (tip.name == "tip") "entry tip"
+  -- Token transfer is NOT a deposit → entry stays nonpayable (no ETH value).
+  expect (tip.mutability == .nonpayable) "token tip is nonpayable (no native value)"
+  -- Body contains tokenTransfer (controlled dynamic callee).
+  let hasTokenTransfer := tip.body.any fun s =>
+    match s with | .tokenTransfer .. => true | _ => false
+  expect hasTokenTransfer "plan body has tokenTransfer"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"token plan must validate: {e.render}"
+  let files ← buildEvm compiled
+  let some yulFile := files.find? (·.path.endsWith ".yul") |
+    throw <| IO.userError "token missing yul"
+  let yul := yulFile.contents
+  -- ERC-20 transfer selector 0xa9059cbb in calldata.
+  expect (containsSubstr yul "0xa9059cbb")
+    "Yul must emit ERC-20 transfer selector"
+  -- Calldata layout: 68-byte calldata (4B selector + 32B addr + 32B amount).
+  expect (containsSubstr yul "0, 68, 0, 32)")
+    "Yul CALL must use 68-byte calldata + 32-byte return buffer"
+  -- Dynamic callee: token address assembled from mint Principal.
+  expect (containsSubstr yul "tokenAddr")
+    "Yul must bind token contract address from mint Principal"
+  -- Wire-shape gates: mint len==20 and dst len==20.
+  -- Both mint and dst require eq(..., 20) gates.
+  expect (containsSubstr yul ", 20)")
+    "Yul must require Principal len == 20 (mint and/or dst)"
+  -- High-limb zero gates (shr(32, ...) for the third body word).
+  expect (containsSubstr yul "shr(32,")
+    "Yul must gate high Principal limbs to zero"
+  -- Return-value predicate: returndatasize switch.
+  expect (containsSubstr yul "returndatasize()")
+    "Yul must read returndatasize for return-value predicate"
+  expect (containsSubstr yul "case 0")
+    "Yul return-value predicate must handle returndatasize==0 (USDT-style)"
+  expect (containsSubstr yul "case 32")
+    "Yul return-value predicate must handle returndatasize==32 (bool check)"
+  expect (containsSubstr yul "mload(0)")
+    "Yul must read first return word for bool false check"
+  -- CALL failure propagation.
+  expect (containsSubstr yul "call(gas(),")
+    "Yul must forward full gas on ERC-20 CALL"
+  expect (containsSubstr yul "tokOk")
+    "Yul must bind CALL success flag"
+  -- Zero value (ERC-20 transfer carries no ETH).
+  -- The CALL has value 0: ", 0, 0, 68, 0, 32)" — the second arg after gas
+  -- is the address, third is value (0), then argsOffset/Size/retOffset/Size.
+  let some abiFile := files.find? (·.path.endsWith ".abi.json") |
+    throw <| IO.userError "token missing abi"
+  expect (containsSubstr abiFile.contents "\"stateMutability\":\"nonpayable\"")
+    "ABI tip must be nonpayable (token transfer carries no ETH value)"
 
 /-- Non-deposit programs keep historical global callvalue==0 (byte path). -/
 private unsafe def testNonDepositCallvalueZero : IO Unit := do
@@ -265,8 +364,9 @@ private unsafe def testNonDepositCallvalueZero : IO Unit := do
 unsafe def run : IO Unit := do
   testCatalogSkeleton
   testTipJarPlanAndYul
+  testTokenTransferPlanAndYul
   testQnGateNoExtension
-  testPhaseBScopeFc
+  testAsyncFc
   testNonDepositCallvalueZero
   IO.println "Tests.Materialization.EvmPfAssetsV1: ok"
 

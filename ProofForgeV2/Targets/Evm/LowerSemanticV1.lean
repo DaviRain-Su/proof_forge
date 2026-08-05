@@ -39,9 +39,12 @@ and only for the Phase B native subset:
   shape `u32le(20)||addr20` (ADR-0025 discipline). B-3 Principal wire identity
   ≠ 20-byte address remains pinned for storage/other uses.
 
-Async / token catalog QNs fail closed (Phase B scope). Non-catalog QNs keep
-the existing static-QN CALL path. Entries without any deposit keep non-payable
-`callvalue() == 0` discipline.
+Async / `token.transferAsync` catalog QNs fail closed (EVM offers sync only;
+no weak-async variant). Non-catalog QNs keep the existing static-QN CALL path.
+`pf.assets.token.transfer` (E1a) is the sole controlled dynamic callee: the
+token contract address comes from the `mint` Principal parameter (exact wire
+shape `u32le(20)||addr20`), not a static QN. Generic dynamic callees remain
+fail closed — only the catalog token family admits a parameterized address.
 
 **Reentrancy honesty**: value CALL may execute recipient code (including
 re-entrancy into the caller). Reference has no re-entrancy model; the EVM
@@ -271,6 +274,20 @@ inductive Statement where
       `call(gas(), addr, amount, 0, 0, 0, 0)` with success check.
       Opaque external effect (recipient code / re-entrancy possible). -/
   | nativeTransfer (dstLen : Expr) (dstBodyWords : Array Expr) (amount : Expr)
+  /-- ADR-0030 E1a: `pf.assets.token.transfer(mint, dst, amount)`.
+      Controlled dynamic callee: `mintLen` + 8 LE body words are the token
+      contract Principal wire identity (`len + 8×UInt64`); runtime requires
+      exact `len==20` and high limbs zero, assembles a 20-byte network-order
+      token contract address, then emits `transfer(address,uint256)` calldata
+      (selector `0xa9059cbb` + 32B dst address + 32B amount), and
+      `call(gas(), token, 0, calldata, 68, 0, 32)`. `dstLen`/`dstBodyWords`
+      encode the recipient Principal with the same exact wire-shape gate.
+      Return-value handling: `returndatasize==0` → ok (USDT-style);
+      `>=32` → first word must be != 0 (bool false → revert); CALL
+      `success==false` → revert (failure propagate). Vault = contract own
+      ERC-20 balance (no extra state). -/
+  | tokenTransfer (mintLen : Expr) (mintBodyWords : Array Expr)
+      (dstLen : Expr) (dstBodyWords : Array Expr) (amount : Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
@@ -2830,9 +2847,70 @@ private def lowerBlockInstructionsV1
             hasAssert := true
             armReadables := promoteDominatingPureV1 paramCount values armReadables
             segmentStart := values.size
+          else if qn == "pf.assets.token.transfer" then
+            -- ADR-0030 E1a: controlled dynamic callee (ERC-20 transfer).
+            unless argIds.size == 3 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer requires mint + dst + UInt64 args"
+            let some mintId := argIds[0]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer mint missing"
+            let some dstId := argIds[1]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer dst missing"
+            let some amountId := argIds[2]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer amount missing"
+            -- mint Principal (token contract address): same wire-shape gate as dst.
+            let mintRoot ← currentValueWithArmsV1 values paramCount segmentStart
+              armReadables mintId
+            unless mintRoot.isAggregate do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer mint must be Principal"
+            let mintLeaves := mintRoot.leafExprs
+            unless mintLeaves.size == 1 + evmPrincipalDataWordCountV1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer mint Principal leaf count mismatch"
+            let some mintLen := mintLeaves[0]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer mint len missing"
+            let mintWords := mintLeaves.extract 1 mintLeaves.size
+            unless mintWords.size == evmPrincipalDataWordCountV1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer mint body words mismatch"
+            -- dst Principal (recipient address): same wire-shape gate.
+            let dstRoot ← currentValueWithArmsV1 values paramCount segmentStart
+              armReadables dstId
+            unless dstRoot.isAggregate do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer dst must be Principal"
+            let dstLeaves := dstRoot.leafExprs
+            unless dstLeaves.size == 1 + evmPrincipalDataWordCountV1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer dst Principal leaf count mismatch"
+            let some dstLen := dstLeaves[0]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer dst len missing"
+            let dstWords := dstLeaves.extract 1 dstLeaves.size
+            unless dstWords.size == evmPrincipalDataWordCountV1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer dst body words mismatch"
+            -- amount must be UInt64.
+            let amountRoot ← currentValueWithArmsV1 values paramCount segmentStart
+              armReadables amountId
+            unless !amountRoot.isBool && !amountRoot.isInt && !amountRoot.isField &&
+                !amountRoot.isAggregate && amountRoot.bitWidth == 64 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.assets.token.transfer amount must be UInt64"
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+            body := body.push
+              (.tokenTransfer mintLen mintWords dstLen dstWords amountRoot.expr)
+            hasAssert := true
+            armReadables := promoteDominatingPureV1 paramCount values armReadables
+            segmentStart := values.size
           else
             throw <| .planInvariant .evm
-              s!"unsupported EVM semantic shape: pf.assets QN '{qn}' is outside Phase B native scope (async/token fail closed)"
+              s!"unsupported EVM semantic shape: pf.assets QN '{qn}' is outside admitted scope (async/tokenAsync fail closed)"
         else
           -- Non-catalog: existing static-QN CALL (AddressBearing).
           let mut argExprs : Array Expr := #[]

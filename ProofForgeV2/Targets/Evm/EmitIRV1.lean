@@ -1163,6 +1163,119 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         else
           -- Defensive: Plan validation should have fixed 8 body words.
           output := output ++ s!"{indent}revert(0, 0)\n"
+    | .tokenTransfer mintLen mintBodyWords dstLen dstBodyWords amount =>
+        -- ADR-0030 E1a: controlled dynamic callee (ERC-20 transfer).
+        -- mint Principal → 20B token-contract address (CALL target);
+        -- dst Principal → 20B recipient address (calldata);
+        -- calldata = 4B selector + 32B address + 32B amount = 68 bytes;
+        -- return value: returndatasize==0 → ok; ≥32 → first word != 0;
+        -- CALL success==false → revert.
+        --
+        -- Memory layout (deterministic, no free-mem pointer interaction):
+        --   [0, 68)   — calldata (selector + dst address + amount)
+        --   0x10000   — temp 32B word for token-contract address assembly
+        let tokenBase : Nat := 0x10000
+        -- Render mint Principal leaves (len + 8 body words).
+        let mintLenR := renderExpr indent paramPrefix next mintLen
+        output := output ++ mintLenR.code
+        next := mintLenR.next
+        output := output ++
+          s!"{indent}if iszero(eq({mintLenR.value}, 20)) \{ revert(0, 0) }\n"
+        let mut mintVals : Array String := #[]
+        for w in mintBodyWords do
+          let wr := renderExpr indent paramPrefix next w
+          output := output ++ wr.code
+          next := wr.next
+          mintVals := mintVals.push wr.value
+        if mintVals.size == 8 then
+          -- High limbs past 20 body bytes must be zero (exact shape gate).
+          output := output ++
+            s!"{indent}if iszero(eq(shr(32, {mintVals[2]!}), 0)) \{ revert(0, 0) }\n"
+          for i in [3:8] do
+            output := output ++
+              s!"{indent}if iszero(eq({mintVals[i]!}, 0)) \{ revert(0, 0) }\n"
+          -- Assemble token contract address into temp word at tokenBase.
+          output := output ++ s!"{indent}mstore({tokenBase}, 0)\n"
+          for i in [0:8] do
+            output := output ++
+              s!"{indent}mstore8({tokenBase + 12 + i}, and(shr({8 * i}, {mintVals[0]!}), 0xff))\n"
+          for i in [0:8] do
+            output := output ++
+              s!"{indent}mstore8({tokenBase + 20 + i}, and(shr({8 * i}, {mintVals[1]!}), 0xff))\n"
+          for i in [0:4] do
+            output := output ++
+              s!"{indent}mstore8({tokenBase + 28 + i}, and(shr({8 * i}, {mintVals[2]!}), 0xff))\n"
+          let tokenAddrName := s!"tokenAddr{next}"
+          next := next + 1
+          output := output ++ s!"{indent}let {tokenAddrName} := mload({tokenBase})\n"
+          -- Render dst Principal leaves (len + 8 body words).
+          let dstLenR := renderExpr indent paramPrefix next dstLen
+          output := output ++ dstLenR.code
+          next := dstLenR.next
+          output := output ++
+            s!"{indent}if iszero(eq({dstLenR.value}, 20)) \{ revert(0, 0) }\n"
+          let mut dstVals : Array String := #[]
+          for w in dstBodyWords do
+            let wr := renderExpr indent paramPrefix next w
+            output := output ++ wr.code
+            next := wr.next
+            dstVals := dstVals.push wr.value
+          if dstVals.size == 8 then
+            -- High limbs past 20 body bytes must be zero.
+            output := output ++
+              s!"{indent}if iszero(eq(shr(32, {dstVals[2]!}), 0)) \{ revert(0, 0) }\n"
+            for i in [3:8] do
+              output := output ++
+                s!"{indent}if iszero(eq({dstVals[i]!}, 0)) \{ revert(0, 0) }\n"
+            -- Build calldata at [0, 68):
+            --   [0, 4)   selector 0xa9059cbb
+            --   [4, 36)  dst address (12B zero pad + 20B address)
+            --   [36, 68) amount (32B big-endian)
+            -- Selector: left-aligned 4 bytes via padded 32B mstore at offset 0.
+            output := output ++
+              s!"{indent}mstore(0, 0xa9059cbb00000000000000000000000000000000000000000000000000000000)\n"
+            -- Assemble dst address into calldata [4, 36): zero-pad region
+            -- [4, 16) is already zero from the padded selector mstore (the
+            -- selector's high 28 bytes are zero). Write 20 address bytes to
+            -- [16, 36).
+            for i in [0:8] do
+              output := output ++
+                s!"{indent}mstore8({16 + i}, and(shr({8 * i}, {dstVals[0]!}), 0xff))\n"
+            for i in [0:8] do
+              output := output ++
+                s!"{indent}mstore8({24 + i}, and(shr({8 * i}, {dstVals[1]!}), 0xff))\n"
+            for i in [0:4] do
+              output := output ++
+                s!"{indent}mstore8({32 + i}, and(shr({8 * i}, {dstVals[2]!}), 0xff))\n"
+            -- Amount at [36, 68).
+            let amtR := renderExpr indent paramPrefix next amount
+            output := output ++ amtR.code
+            next := amtR.next
+            output := output ++ s!"{indent}mstore(36, {amtR.value})\n"
+            -- CALL: full gas, zero value, calldata [0, 68), ret [0, 32).
+            let okName := s!"tokOk{next}"
+            next := next + 1
+            output := output ++
+              s!"{indent}let {okName} := call(gas(), {tokenAddrName}, 0, 0, 68, 0, 32)\n" ++
+              s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n"
+            -- Return-value predicate:
+            --   returndatasize==0 → ok (USDT-style no-return contracts)
+            --   returndatasize==32 → first word must be nonzero (bool false → revert)
+            --   returndatasize ∉ {0, 32} → revert (1..31 or >32 fail closed)
+            let rdsName := s!"tokRds{next}"
+            next := next + 1
+            output := output ++
+              s!"{indent}let {rdsName} := returndatasize()\n" ++
+              s!"{indent}switch {rdsName}\n" ++
+              s!"{indent}case 0 \{ }\n" ++
+              s!"{indent}case 32 \{ if iszero(mload(0)) \{ revert(0, 0) } }\n" ++
+              s!"{indent}default \{ revert(0, 0) }\n"
+          else
+            -- Defensive: Plan validation should have fixed 8 body words.
+            output := output ++ s!"{indent}revert(0, 0)\n"
+        else
+          -- Defensive: Plan validation should have fixed 8 body words.
+          output := output ++ s!"{indent}revert(0, 0)\n"
     | .ifThenElse condition thenBody elseBody =>
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code

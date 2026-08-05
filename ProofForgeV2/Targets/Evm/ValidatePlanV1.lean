@@ -436,6 +436,40 @@ private partial def checkPlanStatementsV1
             s!"{owner} nativeTransfer amount must be a UInt64 expression"
         total ← addPlanExprNodes slots paramCount total fns amount
         total := total + 1
+    | .tokenTransfer mintLen mintBodyWords dstLen dstBodyWords amount =>
+        if isView then
+          throw <| .planInvariant .evm s!"{owner} uses tokenTransfer in a view context"
+        if isConstructor then
+          throw <| .planInvariant .evm s!"{owner} uses tokenTransfer in a constructor"
+        unless mintBodyWords.size == 8 do
+          throw <| .planInvariant .evm
+            s!"{owner} tokenTransfer requires exactly 8 mint Principal body words"
+        unless exprIsUInt64CompatibleV1 fns mintLen do
+          throw <| .planInvariant .evm
+            s!"{owner} tokenTransfer mintLen must be a UInt64 expression"
+        total ← addPlanExprNodes slots paramCount total fns mintLen
+        for w in mintBodyWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .evm
+              s!"{owner} tokenTransfer mint body words must be UInt64 expressions"
+          total ← addPlanExprNodes slots paramCount total fns w
+        unless dstBodyWords.size == 8 do
+          throw <| .planInvariant .evm
+            s!"{owner} tokenTransfer requires exactly 8 dst Principal body words"
+        unless exprIsUInt64CompatibleV1 fns dstLen do
+          throw <| .planInvariant .evm
+            s!"{owner} tokenTransfer dstLen must be a UInt64 expression"
+        total ← addPlanExprNodes slots paramCount total fns dstLen
+        for w in dstBodyWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .evm
+              s!"{owner} tokenTransfer dst body words must be UInt64 expressions"
+          total ← addPlanExprNodes slots paramCount total fns w
+        unless exprIsUInt64CompatibleV1 fns amount do
+          throw <| .planInvariant .evm
+            s!"{owner} tokenTransfer amount must be a UInt64 expression"
+        total ← addPlanExprNodes slots paramCount total fns amount
+        total := total + 1
     | .ifThenElse condition thenBody elseBody =>
         unless exprIsBoolCompatibleV1 fns condition do
           throw <| .planInvariant .evm

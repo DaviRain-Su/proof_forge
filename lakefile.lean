@@ -266,6 +266,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Product.TipJarQuintV1,
     `Tests.Product.TipJarEvmV1,
     `Tests.Materialization.EvmPfAssetsV1,
+    `Tests.Product.TokenJarEvmV1,
     `Tests.Product.TipJarSolanaV1,
     `Tests.Product.TipJarNearV1,
     `Tests.Materialization.NearPfAssetsV1,
