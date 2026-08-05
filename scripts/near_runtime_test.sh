@@ -131,6 +131,7 @@ programs=(
   "runtime-tests/near/fixtures/ArrayRet.lean:Examples.ArrayRet:ArrayRet"
   "runtime-tests/near/fixtures/OptionRet.lean:Examples.OptionRet:OptionRet"
   "runtime-tests/near/fixtures/OptionState.lean:Examples.OptionState:OptionState"
+  "Examples/TipJarAsync.lean:Examples.TipJarAsync:TipJarAsync"
 )
 
 echo "near-runtime-test: engineering near-sandbox differential (not formal/testnet)"
@@ -217,11 +218,13 @@ pairret_wasm="$out_dir/PairRet/PairRet.wasm"
 arrayret_wasm="$out_dir/ArrayRet/ArrayRet.wasm"
 optionret_wasm="$out_dir/OptionRet/OptionRet.wasm"
 optionstate_wasm="$out_dir/OptionState/OptionState.wasm"
+tipjarasync_wasm="$out_dir/TipJarAsync/TipJarAsync.wasm"
 [[ -f "$counter_wasm" ]] || die "missing $counter_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
 [[ -f "$optionret_wasm" ]] || die "missing $optionret_wasm"
 [[ -f "$optionstate_wasm" ]] || die "missing $optionstate_wasm"
+[[ -f "$tipjarasync_wasm" ]] || die "missing $tipjarasync_wasm"
 
 # --- sandbox helpers --------------------------------------------------------
 
@@ -342,5 +345,8 @@ run_suite optionret "$optionret_wasm" || die "OptionRet suite failed"
 echo "near-runtime-test: running OptionState suite against near-sandbox"
 run_suite optionstate "$optionstate_wasm" || die "OptionState suite failed"
 
-echo "near-runtime-test: PASS (Counter + PairRet + ArrayRet + OptionRet + OptionState engineering sandbox differential)"
+echo "near-runtime-test: running TipJarAsync suite against near-sandbox"
+run_suite tipjarasync "$tipjarasync_wasm" || die "TipJarAsync suite failed"
+
+echo "near-runtime-test: PASS (Counter + PairRet + ArrayRet + OptionRet + OptionState + TipJarAsync engineering sandbox differential)"
 exit 0

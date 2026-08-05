@@ -57,7 +57,7 @@ private def encodeMethodMode : MethodMode → UInt8
   | .initialize => 0 | .mutate => 1 | .view => 2
 
 private def encodeDepositPolicy : DepositPolicy → UInt8
-  | .requireZero => 0 | .queryOnly => 1
+  | .requireZero => 0 | .queryOnly => 1 | .allowAttached => 2
 
 private def encodeLeafAbiType (leaf : LeafAbiType) : Except String ByteArray := do
   pure ((encodeBool leaf.isInt).append (← encodeNatAsU32le leaf.byteWidth))
@@ -239,6 +239,16 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         out := out.append (← encodeNatAsU32le op.fieldIndex)
         out := out.append (← encodeNatAsU32le op.byteWidth)
         out := out.append (← encodeExpr op.value)
+      pure out
+  | .nativeDeposit amount =>
+      -- Tag 11 (ADR-0029 C2): exact attached_deposit check.
+      pure ((encodeU8 11).append (← encodeExpr amount))
+  | .promiseTransfer dstLen dstWords amount =>
+      -- Tag 12 (ADR-0029 C2): fire-and-forget Transfer promise.
+      let mut out := (encodeU8 12).append (← encodeExpr dstLen)
+      out := out.append (← encodeNatAsU32le dstWords.size)
+      for w in dstWords do out := out.append (← encodeExpr w)
+      out := out.append (← encodeExpr amount)
       pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do

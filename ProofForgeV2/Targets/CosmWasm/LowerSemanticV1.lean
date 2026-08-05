@@ -2,21 +2,39 @@ import ProofForgeV2.Targets.Common
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.EnvelopeV1
+import ProofForgeV2.Targets.CosmWasm.PfAssetsCatalogV1
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.RequirementIdsV1
 
 /-!
 # CosmWasm LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
 
 Owns the CosmWasm-owned Plan surface and Semantic→Plan body.
+
+## ADR-0029 Phase C1 — `pf.assets` native binding
+
+Void `Op.ExternalCall` whose callee is in the closed `pf.assets` catalog is
+admitted only when the retained freeze carries exact `extension.pf-assets`,
+and only for the Phase C bank subset:
+
+* `pf.assets.native.deposit(amount)` — entry requires exact one-coin
+  `info.funds` with frozen denom (`stake`) and amount == arg; non-deposit
+  mutate/init entries require empty funds.
+* `pf.assets.native.transfer(dst, amount)` — BankMsg::Send SubMsg with
+  `reply_on=never` (error-propagating; coexists with CW-4 async schedule).
+
+Token/async catalog QNs and non-catalog sync call stay fail closed.
 -/
 
 namespace ProofForgeV2.Targets.CosmWasm
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
+open ProofForgeV2.Targets.CosmWasm.PfAssetsCatalogV1
 
 /-- Shared descriptor data (single source: DescriptorDataV1). -/
 def descriptor : TargetDescriptor := DescriptorDataV1.cosmwasm
@@ -61,6 +79,10 @@ inductive MethodMode where
 inductive DepositPolicy where
   | requireZero
   | queryOnly
+  /-- ADR-0029 C1: entry body contains `nativeDeposit`; runtime requires
+      exact one-coin `info.funds` of the frozen native denom equal to the
+      deposit amount expression. At most one deposit per method. -/
+  | requireExactNative
   deriving BEq, Inhabited, Repr
 
 /-- CosmWasm MVP host imports (cosmwasm-std / wasmd env).
@@ -102,6 +124,9 @@ structure StorageLayout where
       logical state (scalar → singleton; Principal → 9 leaves). Empty array means
       legacy 1:1 `fields[stateId]`. -/
   stateLeaves : Array (Array Nat) := #[]
+  /-- Exact `extension.pf-assets` row present in retained requirements
+      (ADR-0029 C1 QN gate). Not part of planDigest storage identity. -/
+  pfAssetsDeclared : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure Param where
@@ -281,6 +306,17 @@ inductive Statement where
       Deposit/gas are not Plan fields; emit uses empty `funds: []` and omits
       `gas_limit` (None / unlimited within parent gas). -/
   | promiseAccount (receiver : String) (method : String) (args : Array Expr)
+  /-- ADR-0029 C1: `pf.assets.native.deposit(amount)`. Runtime exact-eq
+      `info.funds == [{denom: frozenNative, amount}]` (one coin). Entry
+      depositPolicy becomes `.requireExactNative`. -/
+  | nativeDeposit (amount : Expr)
+  /-- ADR-0029 C1: `pf.assets.native.transfer(dst, amount)`.
+      `dstLen` + 8 LE body words are the Principal wire identity leaves
+      (`len + 8×UInt64`); runtime requires framed UTF-8 bech32 body
+      (`u32le(len)||utf8-bech32-bytes`), then enqueues BankMsg::Send SubMsg
+      with `reply_on=never` (error-propagating; see PfAssetsCatalogV1).
+      Opaque external effect on bank balances (no recipient code execution). -/
+  | nativeTransfer (dstLen : Expr) (dstBodyWords : Array Expr) (amount : Expr)
   deriving BEq, Inhabited, Repr
 
 /-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
@@ -571,8 +607,10 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     **state** admitted as Enum-shaped tag+payload KV leaves (`name_tag`/
     `name_p0`; none default = zero fields; storeAtomic on assign; match via
     VariantTag/VariantPayload). Option of non-UInt64, nested Option, Option
-    params stay fail closed. Bytes, Principal, Field, String, UInt128/256,
-    narrow Int{8,16,32} fail closed at type closure.
+    params stay fail closed. Bytes, Field, String, UInt128/256, narrow
+    Int{8,16,32} fail closed at type closure. **T12 + ADR-0029 C1**: Principal
+    admitted as full wire-identity storage/param leaves (len + 8×UInt64; not
+    bech32 AccAddress pin).
     **N-ANON-RESULT (CosmWasm ABI)**: anonymous `Array UInt64 N` (1..8) and
     `Option UInt64` entry/view returns reuse B-RET-ABI multi-leaf JSON decimal
     arrays (execute `result` attr + query `{"ok":"[d0,...]"}`); Map/Bytes/
@@ -594,14 +632,14 @@ private def cosmwasmTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt{8,16,32,64} and Int64 integer types are supported (UInt128/256 and narrow Int fail closed)"
   unsupportedShapeDetail :=
-    "only UInt{8,16,32,64}, Int64, Unit, Bool, named Struct/Enum, and admitted Array/Map containers are supported (no Field/Principal/Bytes)"
+    "only UInt{8,16,32,64}, Int64, Unit, Bool, Principal, named Struct/Enum, and admitted Array/Map containers are supported (no Field/Bytes)"
 
 private def validateCosmWasmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult CosmWasmTypeClosureV1 :=
   validatePilotTypeClosure cosmwasmPlanErr cosmwasmTypeClosureWording types
     cosmwasmUintWidthPolicyV1
     (intPolicy := pilotIntWidthPolicyI64)
-    (principalPolicy := pilotPrincipalPolicyNone)
+    (principalPolicy := pilotPrincipalPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMap)
 
@@ -1174,6 +1212,7 @@ private def makeStorageLayoutV1
     payloadInitialization := .zeroAllFields
     fields
     stateLeaves
+    pfAssetsDeclared := false
   }
 
 private structure LoweredValueV1 where
@@ -2489,12 +2528,82 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    | .externalCall _effectId _callee _argIds, none =>
-        -- CosmWasm has no synchronous cross-contract CALL. WasmMsg::Execute is a
-        -- same-tx SubMsg savepoint (see promiseAccount wasmd notes), not EVM CALL.
-        -- S2 resolver declines effect.synchronous-call; this is the defensive gate.
-        throw <| .planInvariant .cosmwasm
-          "call/sync external call is outside the CosmWasm MVP envelope (WasmMsg::Execute is SubMsg savepoint, not sync CALL; call fail closed)"
+    | .externalCall _effectId callee argIds, none =>
+        -- Non-catalog sync call remains fail closed (WasmMsg::Execute is SubMsg
+        -- savepoint, not EVM CALL). ADR-0029 C1 opens catalog pf.assets native
+        -- deposit/transfer only when extension.pf-assets is declared.
+        if mode == .view then
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: view callable makes an external call"
+        if mode == .pureFn then
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: pureFn cannot make external calls"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: external call callee must have at least two components"
+        let qn := String.intercalate "." components.toList
+        if isPfAssetsCatalogQnV1 qn then
+          unless layout.pfAssetsDeclared do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: pf.assets catalog call requires extension.pf-assets declaration"
+          if qn == "pf.assets.native.deposit" then
+            unless argIds.size == 1 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.deposit requires one UInt64 arg"
+            let some amountId := argIds[0]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.deposit arg missing"
+            let amountRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables amountId
+            unless amountRoot.kind == .uint64 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.deposit amount must be UInt64"
+            let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+            body := body.push (.nativeDeposit amountRoot.expr)
+            armReadables := promoteDominatingPureV1 blockEntry values armReadables
+            segmentStart := values.size
+          else if qn == "pf.assets.native.transfer" then
+            unless argIds.size == 2 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.transfer requires Principal + UInt64 args"
+            let some dstId := argIds[0]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.transfer dst missing"
+            let some amountId := argIds[1]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.transfer amount missing"
+            let dstRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables dstId
+            unless dstRoot.isAggregate do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.transfer dst must be Principal"
+            let dstLeaves := dstRoot.leafExprs
+            unless dstLeaves.size == 1 + nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.transfer dst Principal leaf count mismatch"
+            let some dstLen := dstLeaves[0]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.transfer dst len missing"
+            let dstWords := dstLeaves.extract 1 dstLeaves.size
+            unless dstWords.size == nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.transfer dst body words mismatch"
+            let amountRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables amountId
+            unless amountRoot.kind == .uint64 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.native.transfer amount must be UInt64"
+            let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+            body := body.push (.nativeTransfer dstLen dstWords amountRoot.expr)
+            armReadables := promoteDominatingPureV1 blockEntry values armReadables
+            segmentStart := values.size
+          else
+            throw <| .planInvariant .cosmwasm
+              s!"unsupported CosmWasm semantic shape: pf.assets QN '{qn}' is outside Phase C native scope (async/token fail closed)"
+        else
+          throw <| .planInvariant .cosmwasm
+            "call/sync external call is outside the CosmWasm MVP envelope (WasmMsg::Execute is SubMsg savepoint, not sync CALL; non-catalog call fail closed; pf.assets native deposit/transfer only)"
     | .schedule _effectId callee argIds, none =>
         -- CW-4: schedule → SubMsg { reply_on: never, id: 0, WasmMsg::Execute }.
         -- See Statement.promiseAccount docstring for wasmd ReplyNever verification
@@ -3552,6 +3661,21 @@ private def makeInitializerV1
     body := lowered.body
   }
 
+/-- Count of `nativeDeposit` statements in a body tree (must be 0 or 1). -/
+partial def statementsNativeDepositCountV1 (statements : Array Statement) : Nat :=
+  statements.foldl (init := 0) fun acc statement =>
+    match statement with
+    | .nativeDeposit _ => acc + 1
+    | .ifThenElse _ thenBody elseBody =>
+        acc + statementsNativeDepositCountV1 thenBody +
+          statementsNativeDepositCountV1 elseBody
+    | .switchOn _ cases defaultBody =>
+        acc + statementsNativeDepositCountV1 defaultBody +
+          cases.foldl (init := 0) fun a (_, caseBody) =>
+            a + statementsNativeDepositCountV1 caseBody
+    | .forLoop _ _ _ _ _ body => acc + statementsNativeDepositCountV1 body
+    | _ => acc
+
 private def makeEntryV1
     (types : CosmWasmTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
@@ -3614,12 +3738,23 @@ private def makeEntryV1
   let lowered ←
     lowerCallableV1 s!"entry '{name}'" semanticMode expectedReturn expectedAggregateLeaves
       types typeDecls layout fnEnv callable
+  let depositCount := statementsNativeDepositCountV1 lowered.body
+  unless depositCount ≤ 1 do
+    throw <| .planInvariant .cosmwasm
+      s!"entry '{name}' may contain at most one pf.assets.native.deposit (got {depositCount})"
+  if depositCount == 1 && mode == .view then
+    throw <| .planInvariant .cosmwasm
+      s!"view entry '{name}' cannot contain pf.assets.native.deposit"
+  let depositPolicy : DepositPolicy :=
+    if mode == .view then .queryOnly
+    else if depositCount == 1 then .requireExactNative
+    else .requireZero
   pure {
     name
     params := lowered.params
     exactInputLen := exactInputLenOfParams lowered.params
     mode
-    depositPolicy := if mode == .view then .queryOnly else .requireZero
+    depositPolicy
     resultKind
     body := lowered.body
   }
@@ -3672,7 +3807,8 @@ partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
           cases.any fun (_, caseBody) => statementsUsePromiseV1 caseBody
     | .forLoop _ _ _ _ _ body => statementsUsePromiseV1 body
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate .. | .returnNone
-    | .assert _ | .emitEvent .. | .revertError .. => false
+    | .assert _ | .emitEvent .. | .revertError ..
+    | .nativeDeposit _ | .nativeTransfer .. => false
 
 def planUsesPromiseV1 (plan : Plan) : Bool :=
   statementsUsePromiseV1 plan.initializer.body ||
@@ -3737,7 +3873,10 @@ private def makePlanFromSemanticDataV1
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
   let types ← validateCosmWasmTypeClosureV1 source.types
   let typeDecls := source.types
-  let storage ← makeStorageLayoutV1 types typeDecls source.logicalState
+  let pfAssetsDeclared :=
+    source.requirements.items.any (·.id == wireExtensionPfAssetsIdV1)
+  let storage0 ← makeStorageLayoutV1 types typeDecls source.logicalState
+  let storage := { storage0 with pfAssetsDeclared }
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>

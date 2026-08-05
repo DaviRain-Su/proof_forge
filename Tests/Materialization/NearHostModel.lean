@@ -210,6 +210,11 @@ private partial def step (input : ByteArray) (deposit : Deposit)
   | .requireZeroAttachedDeposit =>
       if deposit.lowWord == 0 && deposit.highWord == 0 then .ok machine
       else modelError "attached deposit is nonzero"
+  | .requireExactAttachedDeposit amount => do
+      -- ADR-0029 C2: deposit is exact (u128 lo == amount, hi == 0); not `>=`.
+      let expected ← readTemp machine amount
+      if deposit.lowWord == expected && deposit.highWord == 0 then .ok machine
+      else modelError s!"attached deposit != exact {expected} (got lo={deposit.lowWord} hi={deposit.highWord})"
   | .requireLayoutAbsent marker =>
       if (storageLookup? machine.storage marker.key).isNone then .ok machine
       else modelError "layout marker is already present"
@@ -825,6 +830,22 @@ private partial def step (input : ByteArray) (deposit : Deposit)
           payloadHex := payloadHex.push (digit hi) |>.push (digit lo)
       pure { machine with
         logs := machine.logs.push s!"pf-promise:{receiver}:{method}:{payloadHex}" }
+  | .promiseTransfer dstLen dstWords amount => do
+      -- ADR-0029 C2: fire-and-forget native transfer. Record the intended
+      -- account-id bytes (len + body words) and amount; no response, no
+      -- failure propagation (matches Reference no-response-cursor discipline).
+      let len ← readTemp machine dstLen
+      if len < 2 || len > 64 then
+        modelError s!"transferAsync account-id length {len} outside 2..64"
+      else
+        let amountV ← readTemp machine amount
+        let mut accountId := ""
+        for i in [0:len.toNat] do
+          let word ← readTemp machine (dstWords[i / 8]!)
+          let byte := (UInt64.shiftRight word (UInt64.ofNat (8 * (i % 8)))).toNat % 256
+          accountId := accountId.push (Char.ofNat byte)
+        pure { machine with
+          logs := machine.logs.push s!"pf-transfer:{accountId}:{amountV}" }
   | .revertError errorIndex args => do
       let some name := machine.errorNames[errorIndex]? |
         modelError s!"error index {errorIndex} is outside the declared table"
@@ -1091,6 +1112,8 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .assert _ => "assert"
     | .emitEvent .. => "emitEvent"
     | .promiseAccount .. => "promiseAccount"
+    | .requireExactAttachedDeposit _ => "requireExactAttachedDeposit"
+    | .promiseTransfer .. => "promiseTransfer"
     | .revertError .. => "revertError"
     | .returnNone => "returnNone"
     | .ifRegion .. => "ifRegion"

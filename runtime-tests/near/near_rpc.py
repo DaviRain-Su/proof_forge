@@ -66,10 +66,56 @@ class NearClient:
         return struct.pack("<Q", int(n) & ((1 << 64) - 1))
 
     @staticmethod
+    def encode_principal_account_id(account_id: str) -> bytes:
+        """ADR-0029 C2: Principal as 9×u64 LE leaves (len + 8 body words).
+
+        Body is the exact wire shape `u32le(len) || utf8-account-id-bytes`
+        zero-padded to 64 bytes across 8 LE words.
+        """
+        raw = account_id.encode("utf-8")
+        if not (2 <= len(raw) <= 64):
+            raise ValueError(f"account-id length {len(raw)} outside 2..64")
+        body = raw + b"\x00" * (64 - len(raw))
+        out = [len(raw)]
+        for i in range(8):
+            out.append(int.from_bytes(body[i * 8 : (i + 1) * 8], "little"))
+        return b"".join(struct.pack("<Q", w) for w in out)
+
+    @staticmethod
     def decode_u64_le(b: bytes, offset: int = 0) -> int:
         return struct.unpack_from("<Q", b, offset)[0]
 
     # --- RPC ----------------------------------------------------------
+
+    @staticmethod
+    def action_create_account() -> bytes:
+        # Action enum tag 0 = CreateAccount
+        return bytes([0])
+
+    @staticmethod
+    def action_transfer(amount: int) -> bytes:
+        # Action enum tag 3 = Transfer
+        return bytes([3]) + NearClient.u128(amount)
+
+    def view_account_balance(self, account_id: str) -> int:
+        res = self.rpc_call(
+            "query",
+            {
+                "request_type": "view_account",
+                "finality": "optimistic",
+                "account_id": account_id,
+            },
+        )
+        if res.get("error"):
+            raise NearRpcError(f"view_account {account_id}: {res['error']}")
+        return int(res["amount"])
+
+    def create_subaccount(self, sub_id: str, initial_balance: int) -> dict[str, Any]:
+        """Create `sub_id` under the master account with an initial balance."""
+        return self.sign_and_send(
+            sub_id,
+            [self.action_create_account(), self.action_transfer(initial_balance)],
+        )
 
     def rpc_call(self, method: str, params: Any) -> Any:
         body = json.dumps(
@@ -178,11 +224,15 @@ class NearClient:
         *,
         expect_success: bool = True,
         gas: int = 50_000_000_000_000,
+        deposit: int = 0,
     ) -> dict[str, Any]:
-        print(f"near-rpc: call {method}({len(args)} arg bytes) expect_success={expect_success}")
+        print(
+            f"near-rpc: call {method}({len(args)} arg bytes)"
+            f" expect_success={expect_success} deposit={deposit}"
+        )
         return self.sign_and_send(
             self.account_id,
-            [self.action_function_call(method, args, gas=gas)],
+            [self.action_function_call(method, args, gas=gas, deposit=deposit)],
             expect_success=expect_success,
         )
 

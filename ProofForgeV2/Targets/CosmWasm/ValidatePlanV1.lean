@@ -310,6 +310,47 @@ private partial def checkMethodStatementsV1
           total ← addPlanExprNodes limits layout params fns total arg
           methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
         total := total + 1
+    | .nativeDeposit amount =>
+        -- ADR-0029 C1: deposit only on mutate/init; view/pureFn banned.
+        if isView then
+          throw <| .planInvariant .cosmwasm
+            "view method cannot pf.assets.native.deposit"
+        if isPureFn then
+          throw <| .planInvariant .cosmwasm
+            "pureFn cannot pf.assets.native.deposit"
+        unless exprIsUInt64CompatibleV1 fns amount do
+          throw <| .planInvariant .cosmwasm
+            "method nativeDeposit amount must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total amount
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
+        total := total + 1
+    | .nativeTransfer dstLen dstBodyWords amount =>
+        if isView then
+          throw <| .planInvariant .cosmwasm
+            "view method cannot pf.assets.native.transfer"
+        if isPureFn then
+          throw <| .planInvariant .cosmwasm
+            "pureFn cannot pf.assets.native.transfer"
+        unless dstBodyWords.size == 8 do
+          throw <| .planInvariant .cosmwasm
+            "method nativeTransfer dst must have 8 body words (Principal pilot)"
+        unless exprIsUInt64CompatibleV1 fns dstLen do
+          throw <| .planInvariant .cosmwasm
+            "method nativeTransfer dstLen must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total dstLen
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps dstLen
+        for w in dstBodyWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .cosmwasm
+              "method nativeTransfer dst body words must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params fns total w
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w
+        unless exprIsUInt64CompatibleV1 fns amount do
+          throw <| .planInvariant .cosmwasm
+            "method nativeTransfer amount must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total amount
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
+        total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
           throw <| .planInvariant .cosmwasm "method reverts with an unknown error"
@@ -403,9 +444,17 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     unless resultKindOk do
       throw <| .planInvariant .cosmwasm
         s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int64, Bool, or aggregate (named Struct/Enum or anonymous Array/Option; 1..8 × 8-byte leaves)"
-  unless method.depositPolicy ==
-      (if method.mode == .view then .queryOnly else .requireZero) do
+  -- Deposit policy must match body deposit markers (ADR-0029 C1).
+  let depositCount := statementsNativeDepositCountV1 method.body
+  let expectedDeposit : DepositPolicy :=
+    if method.mode == .view then .queryOnly
+    else if depositCount == 1 then .requireExactNative
+    else .requireZero
+  unless method.depositPolicy == expectedDeposit do
     throw <| .planInvariant .cosmwasm s!"method '{method.name}' deposit policy is not canonical"
+  unless depositCount ≤ 1 do
+    throw <| .planInvariant .cosmwasm
+      s!"method '{method.name}' may contain at most one nativeDeposit"
   validateParams limits s!"method '{method.name}'" method.params
   unless method.exactInputLen == exactInputLenOfParams method.params do
     throw <| .planInvariant .cosmwasm s!"method '{method.name}' raw input length is not canonical"

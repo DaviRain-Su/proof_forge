@@ -12,7 +12,7 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
   PF_NEAR_HOME         near-sandbox --home directory (validator_key.json)
   PF_NEAR_WASM         path to product .wasm for the suite
-  PF_NEAR_SUITE        counter | pairret | arrayret | optionret | optionstate | single
+  PF_NEAR_SUITE        counter | pairret | arrayret | optionret | optionstate | tipjarasync | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -253,6 +253,78 @@ def suite_optionstate(client: NearClient, wasm: Path) -> None:
     print("suite OptionState: PASS")
 
 
+def suite_tipjarasync(client: NearClient, wasm: Path) -> None:
+    print("=== suite: TipJarAsync (pf.assets deposit + transferAsync, ADR-0029 C2) ===")
+    # Fresh receiver subaccount so the fire-and-forget transfer is observable
+    # as a real balance delta (honest end-to-end evidence, not a log claim).
+    receiver = f"receiver.{client.account_id}"
+    funding = 10**20
+    client.create_subaccount(receiver, funding)
+    base_balance = client.view_account_balance(receiver)
+    print(f"tipjarasync: receiver={receiver} base_balance={base_balance}")
+
+    client.deploy(wasm)
+
+    # init(0) → get()==0
+    client.call("init", NearClient.encode_u64_le(0))
+    got = client.view_u64("get")
+    if got != 0:
+        raise AssertionError(f"after init(0): get() expected 0, got {got}")
+    print("tipjarasync: init(0) → get()==0 ok")
+
+    # tip(receiver, 1000) with exact attached deposit 1000 → success.
+    amount = 1000
+    args = (
+        NearClient.encode_principal_account_id(receiver)
+        + NearClient.encode_u64_le(amount)
+    )
+    res = client.call("tip", args, deposit=amount)
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"tip SuccessValue expected ≥8 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u64_le(sv, 0)
+    if ret != amount:
+        raise AssertionError(f"tip SuccessValue expected {amount}, got {ret}")
+    got = client.view_u64("get")
+    if got != amount:
+        raise AssertionError(f"after tip: get() expected {amount}, got {got}")
+    # transferAsync delivered: receiver balance grew by exactly amount.
+    after = client.view_account_balance(receiver)
+    if after != base_balance + amount:
+        raise AssertionError(
+            f"receiver balance expected +{amount} ({base_balance + amount}), got {after}"
+        )
+    print(f"tipjarasync: tip(receiver,{amount}) deposit={amount} → get()=={amount}, "
+          f"receiver +{amount} ok")
+
+    # Repeat tip (fire-and-forget again) keeps working.
+    res2 = client.call("tip", args, deposit=amount)
+    got = client.view_u64("get")
+    if got != 2 * amount:
+        raise AssertionError(f"after second tip: get() expected {2 * amount}, got {got}")
+    after2 = client.view_account_balance(receiver)
+    if after2 != base_balance + 2 * amount:
+        raise AssertionError(
+            f"receiver balance expected +{2 * amount}, got {after2}"
+        )
+    print("tipjarasync: second tip → get()==2000, receiver +2000 ok")
+
+    # Wrong attached deposit (999 ≠ 1000) must fail; state must hold.
+    client.call("tip", args, deposit=amount - 1, expect_success=False)
+    got = client.view_u64("get")
+    if got != 2 * amount:
+        raise AssertionError(f"after wrong-deposit tip: get() must stay {2 * amount}, got {got}")
+    print("tipjarasync: deposit=999 tip fails + state holds ok")
+
+    # Zero attached deposit must fail; state must hold.
+    client.call("tip", args, deposit=0, expect_success=False)
+    got = client.view_u64("get")
+    if got != 2 * amount:
+        raise AssertionError(f"after zero-deposit tip: get() must stay {2 * amount}, got {got}")
+    print("tipjarasync: deposit=0 tip fails + state holds ok")
+    print("suite TipJarAsync: PASS")
+
+
 def main(argv: list[str]) -> int:
     suite = os.environ.get("PF_NEAR_SUITE", "single").strip().lower()
     rpc = _require_env("PF_NEAR_RPC")
@@ -280,6 +352,9 @@ def main(argv: list[str]) -> int:
         elif suite == "optionstate":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_OPTIONSTATE_WASM"))
             suite_optionstate(client, wasm)
+        elif suite == "tipjarasync":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_TIPJARASYNC_WASM"))
+            suite_tipjarasync(client, wasm)
         elif suite == "all":
             # Same sandbox / same account: run suites only if
             # caller redeploys after a fresh home (script boots once per suite).

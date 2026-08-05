@@ -1740,20 +1740,28 @@ private def laterFlowSourceTextV1 : String :=
 /-- Capability matrix honesty: legacy Solana profiles still decline sync call and
     async workflow. Exact CPI profile (#125) admits sync but still declines async
     (Escrow product positive is covered by SolanaCpiActivationV1). EVM/Noir/Psy
-    keep current sync behavior; EVM/NEAR/Noir keep current async behavior. -/
+    keep current sync behavior; EVM/NEAR/Noir keep current async behavior.
+    ADR-0029 C1/C2: NEAR and CosmWasm advertise the sync-call key for the
+    pf.assets catalog scope only; generic non-catalog sync calls resolve but
+    stay fail closed at their Plan/lowering layers. -/
 private unsafe def testCallScheduleSemanticPlans : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
     extFlowSourceTextV1 "<targets-ext-flow>" "Tests.Targets.ExtFlow" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
-  -- ExtFlow contains a sync call: NEAR still declines (no sync CPI).
+  -- ExtFlow contains a generic (non-catalog) sync call: after ADR-0029 C2 the
+  -- NEAR resolver advertises effect.synchronous-call for the pf.assets catalog
+  -- scope, so resolution succeeds, and the generic QN stays fail closed at
+  -- Plan (NEAR has no synchronous cross-contract calls).
   let nearSel ← liftResult <| resolveBuildSelectionV1 TargetId.near none
-  match Targets.resolveEngineeringRequirementsV1 nearSel compiled with
+  let nearCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 nearSel compiled
+  match Targets.Near.planFromCapability nearCapability with
   | .error e =>
-      expect (e.code == "PF-REQ-UNSUPPORTED")
-        s!"near must reject the sync-call key, got {e.render}"
+      expect (e.code == "PF-PLAN-INVARIANT")
+        s!"near must reject generic sync call at Plan, got {e.render}"
   | .ok _ =>
-      throw <| IO.userError "near unexpectedly supports the sync-call key"
+      throw <| IO.userError "near unexpectedly Plans a generic sync call"
   -- EVM static QN call → Plan.externalCall + CALL Yul.
   let evmSelection ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
   let evmCapability ← liftResult <|

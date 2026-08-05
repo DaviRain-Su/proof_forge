@@ -313,7 +313,7 @@ callback 状态机、TON message mode/flag。这些暴露的是目标链执行�
 |---|---|---|---|
 | **A** | L1 registry 机制（exact triple/provenance）+ `pf.assets` payload 冻结 + Reference 语义 + **Quint 绑定** | **shared core，串行 cutover**；Quint 是不可部署的 executable-model target，作为最便宜的语义验证场（vault 扣账/入账、failure 传播、rollback 先钉死在模型里） | **done（2026-08-04）** |
 | **B** | **Solana 先导 → EVM** | target leaf lane：Solana 复用 ADR-0028 既有机器重新绑定到链无关 QN（vault PDA≈`createPdaAccount`/幂等 ensure、出金为 program-direct lamports move——B1 修正，见 API 矩阵；ATA ensure≈`createIdempotent`）；EVM 新增 `interface-standard` artifactBinding、deposit/msg.value 校验与 value `CALL` lowering | **done（2026-08-05）** |
-| **C** | **CosmWasm + NEAR** | CW 争取完整 sync 绑定（`BankMsg::Send`/CW20 SubMsg 同交易原子，需 reply 语义新 versioned contract）；NEAR 结构上仅 `deposit` + `transferAsync`（Promise 为 async，sync 永久不可绑） | pending |
+| **C** | **CosmWasm + NEAR** | CW 争取完整 sync 绑定（`BankMsg::Send`/CW20 SubMsg 同交易原子，需 reply 语义新 versioned contract）；NEAR 结构上仅 `deposit` + `transferAsync`（Promise 为 async，sync 永久不可绑） | **done（2026-08-05）** |
 | **D** | TON、Psy、**Aleo 单独立项** | TON async-only（`deposit` + `transferAsync`）；Psy source-only 无 VM 门，最后；**Aleo 资产为 record 而非账户余额，custody 模型不同，vault 概念需 v2 单独设计，不与 Psy 并列** | pending |
 | — | **Noir 对 `pf.assets` 永久 fail closed** | 电路不搬资产，sync/async 均无意义；这是诚实边界，不是欠债 | permanent FC |
 
@@ -350,6 +350,26 @@ init/view/tip 成功/幂等 ensure/underfunded 完整 snapshot rollback/错误 P
 signer 拒绝）。两 lane 均只开 sync native 两 API；token/async 全 target 保持 FC。
 **非** formal TASK/TST、**非** 主网/mainnet parity；Anvil/Mollusk 为工程
 local_runtime 门，Reference 仍 opaque void（无 vault 解释器、无重入模型）。
+
+**Phase C 工程事实（2026-08-05）**：resolver permit 表再扩 CosmWasm 与 NEAR。
+**CosmWasm**（C1，完整 sync 绑定）：deposit → `info.funds` 恰好一枚
+`{denom:"stake", amount}` exact 校验（多/零/错 denom/错 amount trap；非 deposit
+entry/init 强制 funds 为空——既有 CW 程序 WAT 相应收紧为诚实的 non-payable 默认）；
+transfer → `BankMsg::Send` SubMsg（`reply_on=never` error-propagating：submsg 失败
+打爆整笔交易；不用 `ReplyOn::Error`，因其需 reply entry 且允许父合约继续，弱于 sync
+failure-propagation 契约——与 CW-4 async schedule 同 reply 模式、不同语义契约的新
+versioned 约定）；单一冻结 denom `stake`（多 denom 归 NetworkProfile asset registry）；
+dst → `u32le(len)||utf8-bech32-bytes`。cosmwasm-vm mock `tipjar.rs`（1/1：deposit/
+transfer/空 funds/错 amount/错 denom/双 coin 负例 + 状态保持）+ locked cosmwasm-check
+真跑。**NEAR**（C2，结构性半绑定）：deposit → `attached_deposit == amount` 精确校验；
+`transferAsync` → `promise_batch_create`+`promise_batch_action_transfer`
+fire-and-forget；sync `transfer` 与 token **永久 fail closed**；dst →
+`u32le(len)||utf8-account-id-bytes` + grammar 校验。near-sandbox 新增 TipJarAsync
+套件真跑（含 receiver 子账户真实余额差值观测——fire-and-forget 转账的端到端证据）。
+两 lane 的 sync-call 键均声明为仅覆盖 pf.assets catalog；generic 非 catalog sync call
+仍在各自 Plan 层 fail closed（Targets.lean 的 capability-honesty 钉测已相应改写为
+Plan 层拒绝）。**非** formal/mainnet；cw-vm mock 与 near-sandbox 为工程
+local_runtime 门。
 
 **并行纪律**（遵循 Recovery Execution Protocol）：
 

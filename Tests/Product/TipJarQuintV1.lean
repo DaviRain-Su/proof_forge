@@ -222,10 +222,13 @@ private def testQuintBuildAndInspect : IO Unit := do
 
 /-- Same demo must fail closed on targets that do not advertise pf.assets.
     ADR-0029 Phase B2 opens EVM; Quint remains the model-layer vertical here.
-    EVM product vertical lives in `Tests.Product.TipJarEvmV1`. -/
+    EVM product vertical lives in `Tests.Product.TipJarEvmV1`. NEAR (Phase C2)
+    advertises pf-assets but refuses sync transfer at Plan — that case is
+    covered by `Tests.Product.TipJarNearV1`, so `near` leaves this
+    resolve-time FC list. -/
 private def testOtherTargetsFailClosed : IO Unit := do
   assertShape (← readShipped)
-  let targets := #["solana", "near", "noir"]
+  let targets := #["solana", "noir"]
   for tid in targets do
     let outDir := FilePath.mk s!"build/v2/tipjar-{tid}-negative"
     try IO.FS.removeDirAll outDir catch _ => pure ()

@@ -40,7 +40,20 @@ Docker 工程 rung，覆盖 Counter 与 ScheduleFlow 子消息失败导致 whole
 **schedule**：`schedule` → `SubMsg{reply_on:never,id:0,WasmMsg::Execute}`；`msg` 已由
 CW-6 升级为 UTF-8 method JSON 的 Binary/base64。它仍是同事务 savepoint 分发（非跨 tx
 async），子消息失败打爆整笔交易；`contract_addr` 为静态 QN stub，无 reply entry。sync call
-继续 resolver+Plan 双拒。
+继续 resolver+Plan 双拒（**但见下：pf.assets sync bank 已开**）。
+
+**`pf.assets` sync binding（ADR-0029 Phase C1，2026-08-05）**：resolver advertise exact
+`extension.pf-assets` + `effect.synchronous-call`（后者仅覆盖 pf.assets catalog；generic
+非 catalog sync call 在 Plan 层继续 fail closed）。`pf.assets.native.deposit` →
+`info.funds` 恰好一枚 `{denom:"stake", amount}` 的 exact 校验（多/零/错 denom/错 amount
+均 trap；无 deposit 的 entry/init 要求 funds 为空）；`pf.assets.native.transfer` →
+`BankMsg::Send` SubMsg（`reply_on=never`：**error-propagating**——submsg 失败打爆整笔
+交易，与 CW-4 async schedule 同 reply 模式但语义契约不同；不用 ReplyOn::Error 因它需要
+reply entry 且允许父合约继续，弱于 sync failure-propagation 契约）；dst Principal 运行时
+须 exact `u32le(len)||utf8-bech32-bytes`（len∈1..64 且高位清零）。单一冻结 denom
+`stake`（多 denom/资产实例身份归 NetworkProfile asset registry 后续）。token/async QN
+保持 FC。cosmwasm-vm mock 新增 `tipjar.rs`（deposit/transfer/四类 funds 负例，1/1）；
+产品纵切 `Tests/Product/TipJarCosmWasmV1`（WAT + locked cosmwasm-check + exact closure）。
 
 **仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Option state、Map/Bytes
 return、Field/Principal/String interface、ContextRead/Commit、nonempty invariants、UInt128/256、

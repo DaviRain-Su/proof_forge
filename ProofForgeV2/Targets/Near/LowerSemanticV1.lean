@@ -3,20 +3,33 @@ import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.EnvelopeV1
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.RequirementIdsV1
+import ProofForgeV2.Targets.Near.PfAssetsCatalogV1
 
 /-!
 # Near LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
 
 Owns the NEAR-owned Plan surface and Semantic→Plan body.
+
+ADR-0029 Phase C2: void `Op.ExternalCall` whose callee is in the closed
+`pf.assets` catalog is admitted only when retained requirements carry exact
+`extension.pf-assets`. Phase C half-binding:
+  * `pf.assets.native.deposit(amount)` — exact attached_deposit == amount
+  * `pf.assets.native.transferAsync(dst, amount)` — fire-and-forget Promise
+    transfer (no response observation)
+  * sync `transfer` permanently FC; token QNs FC (Phase C scope)
+Non-catalog sync call remains FC; schedule still lowers to function-call Promise.
 -/
 
 namespace ProofForgeV2.Targets.Near
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
+open ProofForgeV2.Targets.Near.PfAssetsCatalogV1
 
 /-- Shared descriptor data (single source: DescriptorDataV1). -/
 def descriptor : TargetDescriptor := DescriptorDataV1.near
@@ -61,6 +74,10 @@ inductive MethodMode where
 inductive DepositPolicy where
   | requireZero
   | queryOnly
+  /-- ADR-0029 C2: entry body contains `nativeDeposit` which exact-checks
+      `attached_deposit == amount`. Method prologue skips the historical
+      zero-deposit gate so the body check is the sole authority. -/
+  | allowAttached
   deriving BEq, Inhabited, Repr
 
 inductive HostImport where
@@ -74,12 +91,17 @@ inductive HostImport where
   | logUtf8
   | panicUtf8
   /-- NEAR async promise batch create (account_id_len, account_id_ptr → promise_idx).
-      Only present on Plans that lower at least one schedule. -/
+      Present on Plans that lower schedule and/or pf.assets transferAsync. -/
   | promiseBatchCreate
   /-- NEAR async function-call action on a promise batch. Deposit (u128) and gas
       are explicit zero placeholders in the emitted WAT — not economics. Only
       present on Plans that lower at least one schedule. -/
   | promiseBatchActionFunctionCall
+  /-- ADR-0029 C2: native Transfer action on a promise batch
+      (`promise_batch_action_transfer(promise_idx, amount_ptr)` where
+      amount_ptr points to 16-byte little-endian u128). Present when at least
+      one `transferAsync` is lowered. -/
+  | promiseBatchActionTransfer
   /-- B-CTX-OPEN: host `block_timestamp` (nanoseconds → i64). Only present on
       Plans that lower at least one `context.unixTimeSeconds` read. -/
   | blockTimestamp
@@ -115,6 +137,10 @@ structure StorageLayout where
       logical state (scalar → singleton; Principal → 9 leaves). Empty array means
       legacy 1:1 `fields[stateId]`. -/
   stateLeaves : Array (Array Nat) := #[]
+  /-- ADR-0029 C2: retained requirements carry exact `extension.pf-assets`.
+      Threaded through body lowering for the catalog QN gate; not part of the
+      engineering planDigest encoding. -/
+  pfAssetsDeclared : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure Param where
@@ -241,6 +267,15 @@ inductive Statement where
       no-response channel and NEAR promise semantics). Deposit/gas are not
       carried on the Plan; the WAT emits explicit zero placeholders. -/
   | promiseAccount (receiver : String) (method : String) (args : Array Expr)
+  /-- ADR-0029 C2: `pf.assets.native.deposit(amount)`. WAT exact-checks
+      `attached_deposit` u128 == amount (lo) || 0 (hi). No logical-state
+      transition (contract balance naturally increases by attached deposit). -/
+  | nativeDeposit (amount : Expr)
+  /-- ADR-0029 C2: `pf.assets.native.transferAsync(dst, amount)`. Principal
+      leaves (len + 8 body words) are runtime-decoded to a NEAR account-id
+      (`u32le(len)||utf8-account-id-bytes`); amount is UInt64 yoctoNEAR (hi=0).
+      Fire-and-forget Promise Transfer; async failure never propagates. -/
+  | promiseTransfer (dstLen : Expr) (dstWords : Array Expr) (amount : Expr)
   deriving BEq, Inhabited, Repr
 
 /-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
@@ -392,15 +427,23 @@ private def canonicalImports : Array HostImport := #[
   .attachedDeposit, .logUtf8, .panicUtf8
 ]
 
-/-- Extra hosts required only when the Plan lowers at least one schedule. -/
-private def promiseHostImports : Array HostImport := #[
-  .promiseBatchCreate, .promiseBatchActionFunctionCall
-]
-
-def hostImportsFor (usesPromise usesTimestamp : Bool) : Array HostImport :=
-  let base :=
-    if usesPromise then canonicalImports ++ promiseHostImports else canonicalImports
-  if usesTimestamp then base ++ #[.blockTimestamp] else base
+/-- Host import set driven by schedule and/or transferAsync and/or timestamp.
+    `promise_batch_create` is shared; function-call vs transfer action imports
+    are independent so no-schedule Plans stay free of transfer host when only
+    schedule is absent, and vice versa. -/
+def hostImportsFor (usesSchedulePromise usesTransferPromise usesTimestamp : Bool) :
+    Array HostImport :=
+  Id.run do
+    let mut base := canonicalImports
+    if usesSchedulePromise || usesTransferPromise then
+      base := base.push .promiseBatchCreate
+    if usesSchedulePromise then
+      base := base.push .promiseBatchActionFunctionCall
+    if usesTransferPromise then
+      base := base.push .promiseBatchActionTransfer
+    if usesTimestamp then
+      base := base.push .blockTimestamp
+    pure base
 
 def canonicalRegisters : RegisterLayout := {
   input := 0
@@ -567,8 +610,8 @@ private def validateNearTypeClosureV1
     Design note: a single variable-length `u32le||body` KV is deferred —
     9 fixed leaves keep Plan/Emit multi-temp free while preserving lossless
     wire identity (not account-id string). -/
-private def nearPrincipalMaxPayloadBytesV1 : Nat := 64
-private def nearPrincipalDataWordCountV1 : Nat := 8
+def nearPrincipalMaxPayloadBytesV1 : Nat := 64
+def nearPrincipalDataWordCountV1 : Nat := 8
 
 /-- Flatten Principal into ordered leaf names: `{prefix}_len` + `{prefix}_w0`..`_w7`. -/
 private def flattenPrincipalLeafSpecsV1 (namePrefix : String) :
@@ -2468,11 +2511,92 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    | .externalCall _effectId _callee _argIds, none =>
-        -- NEAR has no synchronous cross-contract calls. The S2 resolver already
-        -- declines effect.synchronous-call; this is the defensive plan gate.
-        throw <| .planInvariant .near
-          "synchronous external calls are outside the NEAR envelope (NEAR has no synchronous cross-contract calls)"
+    | .externalCall _effectId callee argIds, none =>
+        -- ADR-0029 C2: pf.assets catalog QNs admitted under extension.pf-assets;
+        -- non-catalog sync external calls remain permanently fail closed
+        -- (NEAR has no synchronous cross-contract CALL).
+        if mode == .view then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: view callable makes an external call"
+        if mode == .pureFn then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pureFn cannot make external calls"
+        if mode == .initialize then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: initializer cannot make external calls"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: external call callee must have at least two components"
+        for c in components do
+          unless isIdentifier c do
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: external call callee component '{c}' is not a safe identifier"
+        let qn := String.intercalate "." components.toList
+        if isPfAssetsCatalogQnV1 qn then
+          unless layout.pfAssetsDeclared do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pf.assets catalog call requires extension.pf-assets declaration"
+          if qn == "pf.assets.native.deposit" then
+            unless argIds.size == 1 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.deposit requires one UInt64 arg"
+            let some amountId := argIds[0]? |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.deposit arg missing"
+            let amountRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables amountId
+            unless !amountRoot.isAggregate && amountRoot.kind == .uint64 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.deposit amount must be UInt64"
+            let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+            body := body.push (.nativeDeposit amountRoot.expr)
+            armReadables := promoteDominatingPureV1 blockEntry values armReadables
+            segmentStart := values.size
+          else if qn == "pf.assets.native.transferAsync" then
+            unless argIds.size == 2 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.transferAsync requires Principal + UInt64 args"
+            let some dstId := argIds[0]? |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.transferAsync dst missing"
+            let some amountId := argIds[1]? |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.transferAsync amount missing"
+            let dstRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables dstId
+            unless dstRoot.isAggregate do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.transferAsync dst must be Principal"
+            let dstLeaves := dstRoot.leafExprs
+            unless dstLeaves.size == 1 + nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.transferAsync dst Principal leaf count mismatch"
+            let some dstLen := dstLeaves[0]? |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.transferAsync dst len missing"
+            let dstWords := dstLeaves.extract 1 dstLeaves.size
+            unless dstWords.size == nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.transferAsync dst body words mismatch"
+            let amountRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables amountId
+            unless !amountRoot.isAggregate && amountRoot.kind == .uint64 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pf.assets.native.transferAsync amount must be UInt64"
+            let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+            body := body.push (.promiseTransfer dstLen dstWords amountRoot.expr)
+            armReadables := promoteDominatingPureV1 blockEntry values armReadables
+            segmentStart := values.size
+          else if qn == "pf.assets.native.transfer" then
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pf.assets.native.transfer is permanently fail closed on NEAR (Promise is async; bind transferAsync)"
+          else
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: pf.assets QN '{qn}' is outside Phase C NEAR half-binding (token fail closed)"
+        else
+          throw <| .planInvariant .near
+            "synchronous external calls are outside the NEAR envelope (NEAR has no synchronous cross-contract calls; pf.assets catalog deposit/transferAsync only)"
     | .schedule _effectId callee argIds, none =>
         if mode == .view then
           throw <| .planInvariant .near
@@ -3515,6 +3639,22 @@ private def makeInitializerV1
     body := lowered.body
   }
 
+/-- ADR-0029 C2: does the body contain a native deposit check?
+    Defined before makeEntryV1 so depositPolicy can be derived post-lowering. -/
+partial def statementsUseNativeDepositV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .nativeDeposit _ => true
+    | .ifThenElse _ thenBody elseBody =>
+        statementsUseNativeDepositV1 thenBody || statementsUseNativeDepositV1 elseBody
+    | .switchOn _ cases defaultBody =>
+        statementsUseNativeDepositV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseNativeDepositV1 caseBody
+    | .forLoop _ _ _ _ _ body => statementsUseNativeDepositV1 body
+    | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
+    | .returnNone | .assert _ | .emitEvent .. | .revertError ..
+    | .promiseAccount .. | .promiseTransfer .. => false
+
 private def makeEntryV1
     (types : NearTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
@@ -3581,12 +3721,18 @@ private def makeEntryV1
   let lowered ←
     lowerCallableV1 s!"entry '{name}'" semanticMode expectedReturn types typeDecls layout fnEnv
       callable
+  -- ADR-0029 C2: entries with nativeDeposit use allowAttached (body exact-check
+  -- is sole deposit authority); non-deposit entries keep historical requireZero.
+  let depositPolicy :=
+    if mode == .view then DepositPolicy.queryOnly
+    else if statementsUseNativeDepositV1 lowered.body then DepositPolicy.allowAttached
+    else DepositPolicy.requireZero
   pure {
     name
     params := lowered.params
     exactInputLen := exactInputLenOfParams lowered.params
     mode
-    depositPolicy := if mode == .view then .queryOnly else .requireZero
+    depositPolicy
     resultKind
     body := lowered.body
   }
@@ -3656,6 +3802,10 @@ partial def statementsUseTimestampV1 (statements : Array Statement) : Bool :=
     | .emitEvent _ args => args.any exprUsesTimestampV1
     | .revertError _ args => args.any exprUsesTimestampV1
     | .promiseAccount _ _ args => args.any exprUsesTimestampV1
+    | .nativeDeposit amount => exprUsesTimestampV1 amount
+    | .promiseTransfer dstLen dstWords amount =>
+        exprUsesTimestampV1 dstLen || dstWords.any exprUsesTimestampV1 ||
+          exprUsesTimestampV1 amount
     | .ifThenElse condition thenBody elseBody =>
         exprUsesTimestampV1 condition ||
           statementsUseTimestampV1 thenBody || statementsUseTimestampV1 elseBody
@@ -3672,25 +3822,58 @@ def planUsesTimestampV1 (plan : Plan) : Bool :=
     plan.entries.any (fun m => statementsUseTimestampV1 m.body) ||
     plan.fns.any (fun f => statementsUseTimestampV1 f.body)
 
-/-- UInt64-compatible plan expression (comparison / boolNot / boolAnd / boolOr /
-    Bool callFn results are not; shift/bitwise trees are). -/
-partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
+/-- Schedule → function-call promise (not transferAsync). -/
+partial def statementsUseSchedulePromiseV1 (statements : Array Statement) : Bool :=
   statements.any fun statement =>
     match statement with
     | .promiseAccount .. => true
     | .ifThenElse _ thenBody elseBody =>
-        statementsUsePromiseV1 thenBody || statementsUsePromiseV1 elseBody
+        statementsUseSchedulePromiseV1 thenBody || statementsUseSchedulePromiseV1 elseBody
     | .switchOn _ cases defaultBody =>
-        statementsUsePromiseV1 defaultBody ||
-          cases.any fun (_, caseBody) => statementsUsePromiseV1 caseBody
-    | .forLoop _ _ _ _ _ body => statementsUsePromiseV1 body
+        statementsUseSchedulePromiseV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseSchedulePromiseV1 caseBody
+    | .forLoop _ _ _ _ _ body => statementsUseSchedulePromiseV1 body
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
-    | .returnNone | .assert _ | .emitEvent .. | .revertError .. => false
+    | .returnNone | .assert _ | .emitEvent .. | .revertError ..
+    | .nativeDeposit _ | .promiseTransfer .. => false
+
+/-- ADR-0029 C2: transferAsync → Transfer promise. -/
+partial def statementsUseTransferPromiseV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .promiseTransfer .. => true
+    | .ifThenElse _ thenBody elseBody =>
+        statementsUseTransferPromiseV1 thenBody || statementsUseTransferPromiseV1 elseBody
+    | .switchOn _ cases defaultBody =>
+        statementsUseTransferPromiseV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseTransferPromiseV1 caseBody
+    | .forLoop _ _ _ _ _ body => statementsUseTransferPromiseV1 body
+    | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
+    | .returnNone | .assert _ | .emitEvent .. | .revertError ..
+    | .nativeDeposit _ | .promiseAccount .. => false
+
+/-- Any promise family (schedule or transferAsync). Kept for host-import
+    consumers that only need a boolean. -/
+partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
+  statementsUseSchedulePromiseV1 statements || statementsUseTransferPromiseV1 statements
 
 def planUsesPromiseV1 (plan : Plan) : Bool :=
   statementsUsePromiseV1 plan.initializer.body ||
     plan.entries.any (fun m => statementsUsePromiseV1 m.body) ||
     plan.fns.any (fun f => statementsUsePromiseV1 f.body)
+
+/-- ADR-0029 C2: plan-level schedule-promise predicate (import validation). -/
+def planUsesSchedulePromiseV1 (plan : Plan) : Bool :=
+  statementsUseSchedulePromiseV1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUseSchedulePromiseV1 m.body) ||
+    plan.fns.any (fun f => statementsUseSchedulePromiseV1 f.body)
+
+/-- ADR-0029 C2: plan-level transferAsync-promise predicate (import validation). -/
+def planUsesTransferPromiseV1 (plan : Plan) : Bool :=
+  statementsUseTransferPromiseV1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUseTransferPromiseV1 m.body) ||
+    plan.fns.any (fun f => statementsUseTransferPromiseV1 f.body)
+
 private def makeInterfaceBindingV1 (label : String) (name : String)
     (fields : Array InterfaceFieldV1) (uint64TypeId : TypeIdV1) :
     CompileResult InterfaceBinding := do
@@ -3750,7 +3933,10 @@ private def makePlanFromSemanticDataV1
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
   let types ← validateNearTypeClosureV1 source.types
   let typeDecls := source.types
-  let storage ← makeStorageLayoutV1 types typeDecls source.logicalState
+  let pfAssetsDeclared :=
+    source.requirements.items.any (·.id == wireExtensionPfAssetsIdV1)
+  let storage0 ← makeStorageLayoutV1 types typeDecls source.logicalState
+  let storage := { storage0 with pfAssetsDeclared }
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>
@@ -3781,10 +3967,14 @@ private def makePlanFromSemanticDataV1
   let resolvedInitializer ← match initializer with
     | some value => pure value
     | none => throw <| .planInvariant .near "KV-state programs require an initializer"
-  let usesPromise :=
-    statementsUsePromiseV1 resolvedInitializer.body ||
-      entries.any (fun m => statementsUsePromiseV1 m.body) ||
-      fns.any (fun f => statementsUsePromiseV1 f.body)
+  let usesSchedulePromise :=
+    statementsUseSchedulePromiseV1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUseSchedulePromiseV1 m.body) ||
+      fns.any (fun f => statementsUseSchedulePromiseV1 f.body)
+  let usesTransferPromise :=
+    statementsUseTransferPromiseV1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUseTransferPromiseV1 m.body) ||
+      fns.any (fun f => statementsUseTransferPromiseV1 f.body)
   let usesTimestamp :=
     statementsUseTimestampV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseTimestampV1 m.body) ||
@@ -3796,7 +3986,7 @@ private def makePlanFromSemanticDataV1
     hostAbi := hostAbiVersion
     inputAbi := rawInputAbi
     layoutDomain := stateLayoutDomain
-    hostImports := hostImportsFor usesPromise usesTimestamp
+    hostImports := hostImportsFor usesSchedulePromise usesTransferPromise usesTimestamp
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits

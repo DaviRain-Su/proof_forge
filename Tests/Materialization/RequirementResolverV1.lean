@@ -352,11 +352,13 @@ private def testSupportTable : IO Unit := do
   -- expectsSolanaCpi / expectsPfAssets: closed advertise scopes (ADR-0028 / ADR-0029 A3).
   let expectedKeys := #[
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4, false, false),
-    ("cosmwasm", "cosmwasm-wasm-u64-v1", 6, false, false),
+    ("cosmwasm", "cosmwasm-wasm-u64-v1", 8, false, true),
     -- Phase B2: EVM = 7 S2 keys + exact extension.pf-assets
     ("evm", "evm-yul-solc-0.8.34-cancun-v1", 8, false, true),
     ("evm", "evm-yul-solc-0.8.34-v1", 8, false, true),
-    ("near", "near-wasm-raw-u64-v1", 6, false, false),
+    -- Phase C2: NEAR = 7 S2 keys (incl sync-call for pf.assets catalog scope)
+    -- + exact extension.pf-assets; sync transfer stays permanently FC at Plan.
+    ("near", "near-wasm-raw-u64-v1", 8, false, true),
     ("noir", "noir-source-u64-relations-v1", 7, false, false),
     ("psy", "psy-dargo-u64-v1", 6, false, false),
     -- Phase A5: Quint = 5 S2 keys (incl sync-call) + exact extension.pf-assets
@@ -395,6 +397,7 @@ private def testSupportTable : IO Unit := do
         let expectSync :=
           row.targetId == TargetId.noir || row.targetId == TargetId.psy ||
             row.targetId == TargetId.evm || row.targetId == TargetId.quint ||
+            row.targetId == TargetId.near || row.targetId == TargetId.cosmwasm ||
             (row.targetId == TargetId.solana &&
               row.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
         let expectAsync :=
@@ -465,8 +468,40 @@ private def nineRowSkeleton
     Array StaticRequirementSupportRowV1 :=
   twelveRowSkeleton base evmSupported
 
+/-- ADR-0029 B/C: same 12-row skeleton but permit-owning rows carry their
+    closed extension seeds (Quint/NEAR/CosmWasm: pf.assets; Solana CPI: both),
+    so content negatives reach their intended check instead of tripping the
+    presence gate first. -/
+private def twelveRowSkeletonWithExt
+    (base : Array RequirementRequestV1)
+    (evmSupported : Array RequirementRequestV1)
+    (pfAssets solanaExt : RequirementRequestV1) :
+    Array StaticRequirementSupportRowV1 :=
+  let withPf := (base.push pfAssets).qsort fun a b => a.id < b.id
+  let cpiRow := ((base.push pfAssets).push solanaExt).qsort fun a b => a.id < b.id
+  #[
+    mkRow .aleo CodegenProfileId.aleoLeoU64V1 base,
+    mkRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 withPf,
+    mkRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmSupported,
+    mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
+    mkRow .near CodegenProfileId.nearWasmRawU64V1 withPf,
+    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 base,
+    mkRow .quint CodegenProfileId.quintSourceU64ModelV1 withPf,
+    mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 cpiRow,
+    mkRow .solana CodegenProfileId.solanaSbpfElfV1 base,
+    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 base,
+    mkRow .ton CodegenProfileId.tonTolkBocV1 base
+  ]
+
 private def testIndexValidationNegatives : IO Unit := do
   let trio ← s2Trio
+  let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError error
+  let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError error
   -- Empty index
   expectErrorCode (createStaticRequirementSupportIndexV1 #[])
     "PF-REGISTRY-INVALID" "empty support index"
@@ -508,7 +543,7 @@ private def testIndexValidationNegatives : IO Unit := do
   ]
   -- Size-extra first (13 rows vs expected 12):
   let extra :=
-    (twelveRowSkeleton trio trio).push
+    (twelveRowSkeletonWithExt trio trio pfAssetsRow solanaExtensionRow).push
       (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)
   expectErrorCode (createStaticRequirementSupportIndexV1 extra)
     "PF-REGISTRY-INVALID" "extra design-only row"
@@ -555,32 +590,40 @@ private def testIndexValidationNegatives : IO Unit := do
   let r1 ← match trio[1]? with | some r => pure r | none => throw <| IO.userError "trio1"
   let r2 ← match trio[2]? with | some r => pure r | none => throw <| IO.userError "trio2"
   let reversed := #[r2, r1, r0]
-  let revRows := twelveRowSkeleton trio reversed
+  let revRows := twelveRowSkeletonWithExt trio reversed pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 revRows)
     "PF-REGISTRY-INVALID" "non-canonical requirement order"
   -- Duplicate requirement id
   let dupReq := #[r0, r0, r1]
-  let dupReqRows := twelveRowSkeleton trio dupReq
+  let dupReqRows := twelveRowSkeletonWithExt trio dupReq pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 dupReqRows)
     "PF-REGISTRY-DUPLICATE" "duplicate requirement in support row"
   -- Wrong version
   let badVer := { r0 with version := { major := 2, minor := 0, patch := 0 } }
   let badVerTrio := #[badVer, r1, r2]
-  let badVerRows := twelveRowSkeleton trio badVerTrio
+  let badVerRows := twelveRowSkeletonWithExt trio badVerTrio pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 badVerRows)
     "PF-REGISTRY-INVALID" "wrong requirement version in support row"
   -- Wrong digest
   let badDig := { r0 with digest := zeroDigest }
   let badDigTrio := #[badDig, r1, r2]
-  let badDigRows := twelveRowSkeleton trio badDigTrio
+  let badDigRows := twelveRowSkeletonWithExt trio badDigTrio pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 badDigRows)
     "PF-REGISTRY-INVALID" "wrong requirement digest in support row"
   -- Nonempty predicates
   let withPred := { r0 with predicates := #[.boolEquals "x" true] }
   let predTrio := #[withPred, r1, r2]
-  let predRows := twelveRowSkeleton trio predTrio
+  let predRows := twelveRowSkeletonWithExt trio predTrio pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 predRows)
     "PF-REGISTRY-INVALID" "nonempty predicates in support row"
+  -- Closed extension advertise table: each extension wire id is legal only on
+  -- its exact (target, profile). Cross-target advertise fails closed.
+  let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError error
+  let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error => throw <| IO.userError error
   -- Unknown requirement id (swap the last item for a non-catalog id that
   -- keeps wire order; the unknown-id check must fire, not dup/order/digest).
   let unknown : RequirementRequestV1 := {
@@ -594,20 +637,12 @@ private def testIndexValidationNegatives : IO Unit := do
     let some first := full[0]? | throw <| IO.userError "trio0"
     let some second := full[1]? | throw <| IO.userError "trio1"
     pure #[first, second, unknown]
-  let unkRows := twelveRowSkeleton unkTrio unkTrio
+  let unkRows := twelveRowSkeletonWithExt unkTrio unkTrio pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 unkRows)
     "PF-REGISTRY-INVALID" "unknown requirement id in support row"
-  -- Closed extension advertise table: each extension wire id is legal only on
-  -- its exact (target, profile). Cross-target advertise fails closed.
-  let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
-    | .ok row => pure row
-    | .error error => throw <| IO.userError error
-  let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
-    | .ok row => pure row
-    | .error error => throw <| IO.userError error
   let evmWithSolanaExt :=
     (trio.push solanaExtensionRow).qsort fun left right => left.id < right.id
-  let wrongSolanaExtensionScope := nineRowSkeleton trio evmWithSolanaExt
+  let wrongSolanaExtensionScope := twelveRowSkeletonWithExt trio evmWithSolanaExt pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 wrongSolanaExtensionScope)
     "PF-REGISTRY-INVALID" "Solana CPI extension cannot appear on EVM support row"
   -- pf.assets on Noir (wrong permit) fails closed: start from product index
@@ -679,6 +714,30 @@ private def testIndexValidationNegatives : IO Unit := do
       evmMissingRows := evmMissingRows.push row
   expectErrorCode (createStaticRequirementSupportIndexV1 evmMissingRows)
     "PF-REGISTRY-INVALID" "EVM profiles require exact extension.pf-assets"
+  -- Phase C2: NEAR row must carry exact extension.pf-assets (presence gate).
+  let mut nearMissingRows : Array StaticRequirementSupportRowV1 := #[]
+  for row in baseRows do
+    if row.targetId == TargetId.near then
+      nearMissingRows := nearMissingRows.push {
+        row with supported :=
+          row.supported.filter (·.id != pfAssetsExtensionRequirementIdV1)
+      }
+    else
+      nearMissingRows := nearMissingRows.push row
+  expectErrorCode (createStaticRequirementSupportIndexV1 nearMissingRows)
+    "PF-REGISTRY-INVALID" "NEAR profile requires exact extension.pf-assets"
+  -- Phase C1: CosmWasm row must carry exact extension.pf-assets (presence gate).
+  let mut cwMissingRows : Array StaticRequirementSupportRowV1 := #[]
+  for row in baseRows do
+    if row.targetId == TargetId.cosmwasm then
+      cwMissingRows := cwMissingRows.push {
+        row with supported :=
+          row.supported.filter (·.id != pfAssetsExtensionRequirementIdV1)
+      }
+    else
+      cwMissingRows := cwMissingRows.push row
+  expectErrorCode (createStaticRequirementSupportIndexV1 cwMissingRows)
+    "PF-REGISTRY-INVALID" "CosmWasm profile requires exact extension.pf-assets"
 
 private def testSeedPrecedence : IO Unit := do
   let sentinel : CompileResult StaticRequirementSupportIndexV1 :=
@@ -843,14 +902,39 @@ private def testRequestInspectionErrors : IO Unit := do
   expectErrorCode
     (inspectResolveRequestsV1 noirSupported { items := #[solanaExtensionRow] })
     "PF-REQ-UNSUPPORTED" "Noir declines Solana CPI extension"
-  -- Non-permitted targets (near/ton/cosmwasm/aleo/psy) decline pf.assets.
-  for tid in #["near", "ton", "cosmwasm", "aleo", "psy"] do
+  -- Non-permitted targets (ton/aleo/psy) decline pf.assets.
+  -- (Phase C1/C2: cosmwasm and near are now permits; covered by accept paths.)
+  for tid in #["ton", "aleo", "psy"] do
     let otherSupported ← match rows.find? fun row => row.targetId.toString == tid with
       | some row => pure row.supported
       | none => throw <| IO.userError s!"missing {tid} support row"
     expectErrorCode
       (inspectResolveRequestsV1 otherSupported { items := #[pfAssetsRow] })
-      "PF-REQ-UNSUPPORTED" s!"{tid} declines pf.assets (not Quint/EVM/Solana CPI)"
+      "PF-REQ-UNSUPPORTED" s!"{tid} declines pf.assets (not Quint/EVM/Solana CPI/NEAR/CW)"
+  -- Phase C2: NEAR accepts exact pf.assets (native deposit + transferAsync
+  -- half binding; sync transfer stays permanently fail closed at Plan).
+  let nearSupported ← match rows.find? fun row => row.targetId == TargetId.near with
+    | some row => pure row.supported
+    | none => throw <| IO.userError "missing near support row"
+  match inspectResolveRequestsV1 nearSupported { items := #[pfAssetsRow] } with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError s!"exact pf.assets on NEAR (C2): {error.render}"
+  expectErrorCode
+    (inspectResolveRequestsV1 nearSupported { items := #[solanaExtensionRow] })
+    "PF-REQ-UNSUPPORTED" "NEAR declines Solana CPI extension"
+  -- Phase C1: CosmWasm accepts exact pf.assets (sync bank native
+  -- deposit/transfer; token/async QNs stay Plan fail closed).
+  let cwSupported ← match rows.find? fun row => row.targetId == TargetId.cosmwasm with
+    | some row => pure row.supported
+    | none => throw <| IO.userError "missing cosmwasm support row"
+  match inspectResolveRequestsV1 cwSupported { items := #[pfAssetsRow] } with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError s!"exact pf.assets on CosmWasm (C1): {error.render}"
+  expectErrorCode
+    (inspectResolveRequestsV1 cwSupported { items := #[solanaExtensionRow] })
+    "PF-REQ-UNSUPPORTED" "CosmWasm declines Solana CPI extension"
   let extensionBadVersion := {
     solanaExtensionRow with version := { major := 1, minor := 0, patch := 1 } }
   let extensionBadDigest := { solanaExtensionRow with digest := zeroDigest }

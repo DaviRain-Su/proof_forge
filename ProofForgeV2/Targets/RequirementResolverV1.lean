@@ -31,12 +31,18 @@
       (evm, evm-yul-solc-0.8.34-v1) (ADR-0029 Phase B2 native deposit/transfer)
     * `extension.pf-assets` → (solana, solana-sbpf-cpi-elf-v1)
       (ADR-0029 Phase B1 Solana vault-PDA + System CPI binding)
-  ADR-0029 Phase A5/B1/B2: Quint, both EVM profiles and Solana CPI advertise
-  exact `extension.pf-assets` **and** `effect.synchronous-call` (sync pf.assets
-  native deposit/transfer). Non-catalog QNs and async/token pf.assets QNs
-  still fail closed at Plan/lowering; async workflow remains declined on
-  Quint (EVM keeps schedule as fire-and-forget same-tx; Solana CPI declines
-  async).
+    * `extension.pf-assets` → (near, near-wasm-raw-u64-v1)
+      (ADR-0029 Phase C2 NEAR deposit + transferAsync half binding)
+    * `extension.pf-assets` → (cosmwasm, cosmwasm-wasm-u64-v1)
+      (ADR-0029 Phase C1 bank funds / BankMsg::Send sync native binding)
+  ADR-0029 Phase A5/B1/B2/C1/C2: Quint, both EVM profiles, Solana CPI, NEAR
+  and CosmWasm advertise exact `extension.pf-assets` **and**
+  `effect.synchronous-call` (sync pf.assets native deposit/transfer; NEAR
+  binds deposit + transferAsync only, sync transfer permanently fail closed).
+  Non-catalog QNs and async/token pf.assets QNs still fail closed at
+  Plan/lowering; async workflow remains declined on Quint (EVM keeps
+  schedule as fire-and-forget same-tx; Solana CPI declines async; CosmWasm
+  keeps CW-4 async SubMsg schedule + C1 sync bank transfer).
 
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.
   Dependency-injected seams return index rows or
@@ -122,9 +128,9 @@ private def s2CatalogRequests : CompileResult (Array RequirementRequestV1) := do
 
 /-- Closed (extension wire id → admitted target+profile + exact seed) table.
     One extension id may admit multiple (target, profile) rows (ADR-0029:
-    Quint + both EVM profiles + Solana CPI for `extension.pf-assets`).
-    Solana CPI remains ADR-0028 profile-scoped. Any other (target, profile)
-    advertising an
+    Quint + both EVM profiles + Solana CPI + NEAR + CosmWasm for
+    `extension.pf-assets`). Solana CPI remains ADR-0028 profile-scoped.
+    Any other (target, profile) advertising an
     extension row fails closed at index construction. -/
 private structure ExtensionAdvertisePermitV1 where
   rowId : String
@@ -167,6 +173,17 @@ private def closedExtensionAdvertiseTableV1 :
     { rowId := pfAssetsExtensionRequirementIdV1
       targetId := TargetId.solana
       profile := CodegenProfileId.solanaSbpfCpiElfV1
+      expected := pfAssets },
+    -- ADR-0029 Phase C2: NEAR advertises pf.assets (native deposit +
+    -- transferAsync half binding; sync transfer permanently fail closed).
+    { rowId := pfAssetsExtensionRequirementIdV1
+      targetId := TargetId.near
+      profile := CodegenProfileId.nearWasmRawU64V1
+      expected := pfAssets },
+    -- ADR-0029 Phase C1: CosmWasm bank native deposit/transfer.
+    { rowId := pfAssetsExtensionRequirementIdV1
+      targetId := TargetId.cosmwasm
+      profile := CodegenProfileId.cosmwasmWasmU64V1
       expected := pfAssets }
   ]
 
@@ -377,6 +394,16 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   let catalogRequests ← s2CatalogRequests
   -- Capability filters reference closed S2 id spellings from RequirementIdsV1
   -- (not bare literals). s2CatalogIdsWireOrderV1 stays RequirementsV1 public.
+  let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error e =>
+        throw <| .registryInvalid
+          s!"Solana CPI extension requirement seed failed: {e}"
+  let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error e =>
+        throw <| .registryInvalid
+          s!"pf.assets extension requirement seed failed: {e}"
   let withoutSync := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   let aleoRequests := catalogRequests.filter fun r =>
@@ -388,11 +415,14 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- effect.asynchronous-workflow is declined here (never alias sync semantics).
   let psyRequests := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
-  -- CosmWasm MVP+CW-4: sync declined (WasmMsg::Execute savepoint is not a
-  -- sync CALL); async admitted via SubMsg reply_on=never (same-tx dispatch,
-  -- whole-tx abort on submessage failure — not cross-tx async).
-  let cosmwasmRequests := catalogRequests.filter fun r =>
-    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
+  -- CosmWasm MVP+CW-4+C1:
+  -- * async admitted via SubMsg reply_on=never (same-tx dispatch, whole-tx
+  --   abort on submessage failure — not cross-tx async).
+  -- * sync re-opened for ADR-0029 Phase C1 pf.assets native deposit/transfer
+  --   only (BankMsg::Send error-propagating SubMsg + info.funds exact check).
+  --   Non-catalog sync call stays Plan fail closed; token/async QNs FC.
+  let cosmwasmRequests :=
+    (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
   -- Quint Q0 is an executable state-model projection, not a deployment target.
   -- It models persistent state, Bool, checked arithmetic, explicit rollback,
   -- and (ADR-0029 Phase A5) sync pf.assets native vault ops. Event/async
@@ -411,16 +441,6 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- #125: exact CPI profile admits sync call + extension; still excludes async.
   let withoutAsync := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
-  let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
-    | .ok row => pure row
-    | .error e =>
-        throw <| .registryInvalid
-          s!"Solana CPI extension requirement seed failed: {e}"
-  let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
-    | .ok row => pure row
-    | .error e =>
-        throw <| .registryInvalid
-          s!"pf.assets extension requirement seed failed: {e}"
   -- #125 + ADR-0029 B1: CPI profile = S2 sans async + solana.cpi.accounts + pf.assets.
   let solanaCpiRequests :=
     ((withoutAsync.push solanaExtensionRow).push pfAssetsRow).qsort
@@ -431,6 +451,15 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- Phase B2: both EVM profiles carry full S2 seven keys + exact extension.pf-assets.
   let evmRequests :=
     (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
+  -- ADR-0029 Phase C2: NEAR advertises exact extension.pf-assets plus
+  -- effect.synchronous-call. The sync-call key covers only the pf.assets
+  -- catalog (native deposit via attached_deposit exact check and
+  -- fire-and-forget transferAsync Promise); generic non-catalog sync calls
+  -- remain fail closed at Plan/lowering, and sync transfer is permanently
+  -- refused (Promise is async). effect.asynchronous-workflow stays for
+  -- schedule.
+  let nearRequests :=
+    (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
@@ -439,7 +468,7 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     -- is a Finalize/runtime pin, not a requirement-gate difference.
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmRequests,
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 evmRequests,
-    mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,
+    mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 nearRequests,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
     mkImplementedRow .quint CodegenProfileId.quintSourceU64ModelV1 quintRequests,

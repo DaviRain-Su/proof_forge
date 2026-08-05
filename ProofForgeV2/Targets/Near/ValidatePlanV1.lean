@@ -300,6 +300,52 @@ private partial def checkMethodStatementsV1
           total ← addPlanExprNodes limits layout params fns total arg
           methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
         total := total + 1
+    | .nativeDeposit amount =>
+        if isView then
+          throw <| .planInvariant .near
+            "view method cannot check attached deposit (pf.assets.native.deposit)"
+        if isPureFn then
+          throw <| .planInvariant .near
+            "pureFn body cannot check attached deposit (pf.assets.native.deposit)"
+        if isInitializer then
+          throw <| .planInvariant .near
+            "initializer cannot check attached deposit (pf.assets.native.deposit)"
+        unless exprIsUInt64CompatibleV1 fns amount do
+          throw <| .planInvariant .near
+            "method deposit amount must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total amount
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
+        total := total + 1
+    | .promiseTransfer dstLen dstWords amount =>
+        if isView then
+          throw <| .planInvariant .near
+            "view method cannot transferAsync"
+        if isPureFn then
+          throw <| .planInvariant .near
+            "pureFn body cannot transferAsync"
+        if isInitializer then
+          throw <| .planInvariant .near
+            "initializer cannot transferAsync"
+        unless dstWords.size == nearPrincipalDataWordCountV1 do
+          throw <| .planInvariant .near
+            "transferAsync Principal body word count must be 8"
+        unless exprIsUInt64CompatibleV1 fns dstLen do
+          throw <| .planInvariant .near
+            "transferAsync dst len must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total dstLen
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps dstLen
+        for w in dstWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .near
+              "transferAsync dst body words must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params fns total w
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w
+        unless exprIsUInt64CompatibleV1 fns amount do
+          throw <| .planInvariant .near
+            "transferAsync amount must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total amount
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
+        total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
           throw <| .planInvariant .near "method reverts with an unknown error"
@@ -433,8 +479,15 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     unless resultKindOk do
       throw <| .planInvariant .near
         s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or aggregate (named Struct/Enum or anonymous Array/Option; 1..8 × 8-byte leaves)"
-  unless method.depositPolicy ==
-      (if method.mode == .view then .queryOnly else .requireZero) do
+  -- ADR-0029 C2: allowAttached is legal only for mutate entries whose body
+  -- contains at least one nativeDeposit; views stay queryOnly; others
+  -- requireZero (including init).
+  let expectedDeposit : DepositPolicy :=
+    if method.mode == .view then .queryOnly
+    else if method.mode == .mutate && statementsUseNativeDepositV1 method.body then
+      .allowAttached
+    else .requireZero
+  unless method.depositPolicy == expectedDeposit do
     throw <| .planInvariant .near s!"method '{method.name}' deposit policy is not canonical"
   validateParams limits s!"method '{method.name}'" method.params
   unless method.exactInputLen == exactInputLenOfParams method.params do
@@ -470,7 +523,8 @@ private def validateFnBinding (limits : ResourceLimits) (layout : StorageLayout)
 
 /-- Whether any statement tree contains a schedule→promise lowering. -/
 def validatePlan (plan : Plan) : CompileResult Unit := do
-  let expectedImports := hostImportsFor (planUsesPromiseV1 plan) (planUsesTimestampV1 plan)
+  let expectedImports := hostImportsFor (planUsesSchedulePromiseV1 plan)
+    (planUsesTransferPromiseV1 plan) (planUsesTimestampV1 plan)
   unless plan.targetDescriptor == descriptor &&
       plan.semanticSchemaVersion == semanticProgramSchemaVersionV1 &&
       plan.codegenProfile == descriptor.codegenProfile.toString &&

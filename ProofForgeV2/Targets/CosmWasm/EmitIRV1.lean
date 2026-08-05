@@ -79,6 +79,12 @@ inductive Operation where
       as decimal JSON fields `a0`.. in source order; the execute `msg` field is
       cosmwasm-std Binary = base64(UTF-8 of `{"method":{"a0":N,...}}`). -/
   | promiseAccount (receiver : String) (method : String) (args : Array Nat)
+  /-- ADR-0029 C1: exact one-coin info.funds check (frozen denom + amount temp). -/
+  | nativeDeposit (amount : Nat)
+  /-- ADR-0029 C1: BankMsg::Send SubMsg (reply_on=never). dstLen + 8 body words. -/
+  | nativeTransfer (dstLen : Nat) (dstBodyWords : Array Nat) (amount : Nat)
+  /-- ADR-0029 C1: require info.funds == [] (non-deposit mutate/init). -/
+  | requireFundsEmpty
   | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
@@ -118,6 +124,7 @@ structure MethodIR where
   params : Array Param
   mode : MethodMode
   resultKind : MethodResultKind
+  depositPolicy : DepositPolicy := .requireZero
   tempCount : Nat
   operations : Array Operation
   deriving BEq, Inhabited, Repr
@@ -510,6 +517,26 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.promiseAccount receiver method argTemps)
+    | .nativeDeposit amount =>
+        let value := lowerExpr keys next fnMode localEnv amount
+        operations := operations ++ value.operations
+        operations := operations.push (.nativeDeposit value.value)
+        next := value.next
+    | .nativeTransfer dstLen dstBodyWords amount =>
+        let lenL := lowerExpr keys next fnMode localEnv dstLen
+        operations := operations ++ lenL.operations
+        next := lenL.next
+        let mut wordTemps : Array Nat := #[]
+        for w in dstBodyWords do
+          let wl := lowerExpr keys next fnMode localEnv w
+          operations := operations ++ wl.operations
+          wordTemps := wordTemps.push wl.value
+          next := wl.next
+        let amountL := lowerExpr keys next fnMode localEnv amount
+        operations := operations ++ amountL.operations
+        operations := operations.push
+          (.nativeTransfer lenL.value wordTemps amountL.value)
+        next := amountL.next
     | .ifThenElse condition thenBody elseBody =>
         let value := lowerExpr keys next fnMode localEnv condition
         operations := operations ++ value.operations
@@ -562,6 +589,11 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
       operations := operations.push (.zeroState (fieldRegion keys index))
   else
     operations := operations.push (.requireLayout marker plan.storage.markerValue)
+  -- ADR-0029 C1: non-deposit mutate/init require empty funds prologue.
+  -- Exact-native deposit check is emitted at the nativeDeposit statement.
+  if (method.mode == .initialize || method.mode == .mutate) &&
+      method.depositPolicy == .requireZero then
+    operations := operations.push .requireFundsEmpty
   let body := if method.body.back? == some .returnNone then
     method.body.pop
   else
@@ -575,6 +607,7 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     params := method.params
     mode := method.mode
     resultKind := method.resultKind
+    depositPolicy := method.depositPolicy
     tempCount := next
     operations
   }
@@ -718,6 +751,9 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"  (global $ret_count (mut i32) (i32.const 0))\n" ++  -- B-RET-ABI leaf count (1..8)
   -- B-CTX-OPEN: whole-second block time from Env JSON (set at entry when used).
   s!"  (global $pf_block_time_secs (mut i64) (i64.const 0))\n" ++
+  -- ADR-0029 C1: info region cached at entry for funds checks (deposit/empty).
+  "  (global $info_off (mut i32) (i32.const 0))\n" ++
+  "  (global $info_len (mut i32) (i32.const 0))\n" ++
   -- ret_leaves live at valueCell (8×i64 = 64B); capacity-guarded by ret_count≤8
   -- allocate(size) -> region_ptr: Region{offset=data, capacity=size, length=size}
   "  (func $pf_allocate (param $size i32) (result i32)\n" ++
@@ -1213,6 +1249,60 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (local.set $n (call $pf_fmt_u64 (local.get $v) (local.get $p)))\n" ++
   s!"    (global.set $msg_len (i32.add (global.get $msg_len) (local.get $n)))\n" ++
   "  )\n" ++
+  -- ADR-0029 C1: funds helpers. info region cached in $info_off/$info_len.
+  -- Needles live at fixed data offsets 3007 (`"funds":[]`, 10B) and 3018
+  -- (`"funds":[{"denom":"stake","amount":"`, 36B); see renderDataSectionV2.
+  -- requireFundsEmpty: exact `"funds":[]` present in info JSON.
+  s!"  (func $pf_funds_empty (result i32)\n" ++
+  s!"    (local $idx i32)\n" ++
+  s!"    (local.set $idx (call $pf_find (global.get $info_off) (global.get $info_len) (i32.const 3007) (i32.const 10)))\n" ++
+  s!"    (if (i32.eq (local.get $idx) (i32.const -1)) (then (return (i32.const 0))))\n" ++
+  s!"    (i32.const 1)\n" ++
+  "  )\n" ++
+  -- nativeDeposit: exactly one coin {denom:"stake", amount == $amount}.
+  s!"  (func $pf_funds_exact (param $amount i64) (result i32)\n" ++
+  s!"    (local $idx i32) (local $p i32) (local $end i32) (local $c i32) (local $v i64) (local $any i32)\n" ++
+  s!"    (local.set $idx (call $pf_find (global.get $info_off) (global.get $info_len) (i32.const 3018) (i32.const 36)))\n" ++
+  s!"    (if (i32.eq (local.get $idx) (i32.const -1)) (then (return (i32.const 0))))\n" ++
+  s!"    (local.set $p (i32.add (i32.add (global.get $info_off) (local.get $idx)) (i32.const 36)))\n" ++
+  s!"    (local.set $end (i32.add (global.get $info_off) (global.get $info_len)))\n" ++
+  s!"    (local.set $v (i64.const 0))\n" ++
+  s!"    (local.set $any (i32.const 0))\n" ++
+  s!"    (block $num_done\n" ++
+  s!"      (loop $num\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then (br $num_done)))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (br_if $num_done (i32.or (i32.lt_u (local.get $c) (i32.const 48)) (i32.gt_u (local.get $c) (i32.const 57))))\n" ++
+  -- same no-wrap decimal discipline as $pf_parse_u64_field
+  s!"        (if (i64.gt_u (local.get $v) (i64.const 1844674407370955161)) (then (return (i32.const 0))))\n" ++
+  s!"        (if (i64.eq (local.get $v) (i64.const 1844674407370955161)) (then (if (i32.gt_u (i32.sub (local.get $c) (i32.const 48)) (i32.const 5)) (then (return (i32.const 0))))))\n" ++
+  s!"        (local.set $v (i64.add (i64.mul (local.get $v) (i64.const 10)) (i64.extend_i32_u (i32.sub (local.get $c) (i32.const 48)))))\n" ++
+  s!"        (local.set $any (i32.const 1))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br $num)))\n" ++
+  s!"    (if (i32.eqz (local.get $any)) (then (return (i32.const 0))))\n" ++
+  s!"    (if (i64.ne (local.get $v) (local.get $amount)) (then (return (i32.const 0))))\n" ++
+  -- closing `\"}]` — exactly one coin in the funds array
+  s!"    (if (i32.gt_u (i32.add (local.get $p) (i32.const 3)) (local.get $end)) (then (return (i32.const 0))))\n" ++
+  s!"    (if (i32.ne (i32.load8_u (local.get $p)) (i32.const 34)) (then (return (i32.const 0))))\n" ++
+  s!"    (if (i32.ne (i32.load8_u (i32.add (local.get $p) (i32.const 1))) (i32.const 125)) (then (return (i32.const 0))))\n" ++
+  s!"    (if (i32.ne (i32.load8_u (i32.add (local.get $p) (i32.const 2))) (i32.const 93)) (then (return (i32.const 0))))\n" ++
+  s!"    (i32.const 1)\n" ++
+  "  )\n" ++
+  -- nativeTransfer dst: len ∈ 1..64 and zero padding beyond len in the 64B body.
+  s!"  (func $pf_dst_check (param $len i64) (param $buf i32) (result i32)\n" ++
+  s!"    (local $i i64)\n" ++
+  s!"    (if (i64.eqz (local.get $len)) (then (return (i32.const 0))))\n" ++
+  s!"    (if (i64.gt_u (local.get $len) (i64.const 64)) (then (return (i32.const 0))))\n" ++
+  s!"    (local.set $i (local.get $len))\n" ++
+  s!"    (block $done\n" ++
+  s!"      (loop $scan\n" ++
+  s!"        (br_if $done (i64.ge_u (local.get $i) (i64.const 64)))\n" ++
+  s!"        (if (i32.ne (i32.load8_u (i32.add (local.get $buf) (i32.wrap_i64 (local.get $i)))) (i32.const 0)) (then (return (i32.const 0))))\n" ++
+  s!"        (local.set $i (i64.add (local.get $i) (i64.const 1)))\n" ++
+  s!"        (br $scan)))\n" ++
+  s!"    (i32.const 1)\n" ++
+  "  )\n" ++
   -- Inner JSON buffer (scratch@{scratch}, cap 512): pre-base64 execute msg body.
   -- Content shape: {"<method>":{"a0":N,...}} (UTF-8 JSON bytes).
   s!"  (func $pf_inner_reset\n" ++
@@ -1617,6 +1707,47 @@ private partial def renderOperation (memory : MemoryLayout)
           s!"{indent}(call $pf_msg_b64 (i32.const {scratch}) (global.get $inner_len))\n"
         out := out ++ emitLit "\",\"funds\":[]}}},\"reply_on\":\"never\"}"
         pure out
+  | .nativeDeposit amount =>
+      -- ADR-0029 C1: exact one-coin info.funds check (denom "stake", amount).
+      s!"{indent}(if (i32.eqz (call $pf_funds_exact (local.get $t{amount}))) (then unreachable))\n"
+  | .requireFundsEmpty =>
+      -- ADR-0029 C1: non-deposit mutate/init requires `"funds":[]`.
+      s!"{indent}(if (i32.eqz (call $pf_funds_empty)) (then unreachable))\n"
+  | .nativeTransfer dstLen dstBodyWords amount =>
+      -- ADR-0029 C1: BankMsg::Send SubMsg (reply_on=never, error-propagating).
+      -- {"id":0,"msg":{"bank":{"send":{"to_address":"<dst>","amount":
+      --   [{"denom":"stake","amount":"<N>"}]}}},"reply_on":"never"}
+      Id.run do
+        let _ := events
+        let _ := errors
+        let _ := fnNames
+        let dstBuf := memory.valueOffset + 16
+        let mut out :=
+          s!"{indent};; pf.assets.native.transfer → BankMsg::Send reply_on=never\n"
+        -- materialize 8 body words into a contiguous 64-byte dst buffer
+        for j in [0:dstBodyWords.size] do
+          out := out ++
+            s!"{indent}(i64.store (i32.const {dstBuf + 8 * j}) (local.get $t{dstBodyWords[j]!}))\n"
+        -- len ∈ 1..64 and zero padding beyond len
+        out := out ++
+          s!"{indent}(if (i32.eqz (call $pf_dst_check (local.get $t{dstLen}) (i32.const {dstBuf}))) (then unreachable))\n"
+        -- leading comma when messages buffer already non-empty
+        out := out ++
+          s!"{indent}(if (i32.ne (global.get $msg_len) (i32.const 0)) (then\n" ++
+          s!"{indent}  (call $pf_msg_byte (i32.const 44))))\n"
+        let emitLit (s : String) : String := Id.run do
+          let bytes := s.toUTF8
+          let mut t := ""
+          for i in [0:bytes.size] do
+            t := t ++ s!"{indent}(call $pf_msg_byte (i32.const {bytes[i]!.toNat}))\n"
+          pure t
+        out := out ++ emitLit "{\"id\":0,\"msg\":{\"bank\":{\"send\":{\"to_address\":\""
+        out := out ++
+          s!"{indent}(call $pf_msg_bytes (i32.const {dstBuf}) (i32.wrap_i64 (local.get $t{dstLen})))\n"
+        out := out ++ emitLit "\",\"amount\":[{\"denom\":\"stake\",\"amount\":\""
+        out := out ++ s!"{indent}(call $pf_msg_u64 (local.get $t{amount}))\n"
+        out := out ++ emitLit "\"}]}}},\"reply_on\":\"never\"}"
+        pure out
   | .revertError errorIndex args =>
       let binding := errors[errorIndex]!
       let nameBytes := binding.name.toUTF8
@@ -1753,6 +1884,30 @@ private def renderDataSectionV2 (ir : IR) (keysEnd : Nat) : Except CompileError 
     throw <| .planInvariant .cosmwasm
       "internal: time needle must be at offset 3000 with length 6"
   off := off + timeNeedleBytes.size + 1
+  -- ADR-0029 C1: funds needles at fixed offsets 3007 / 3018 (helpers hard-code).
+  -- `"funds":[]` (10B) gates requireFundsEmpty;
+  -- `"funds":[{"denom":"stake","amount":"` (34B) anchors nativeDeposit.
+  let fundsEmptyNeedle := "\"funds\":[]".toUTF8
+  if off + fundsEmptyNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "funds-empty needle would overlap bump heap"
+  out := out ++ s!"  (data (i32.const {off}) \"\\\"funds\\\":[]\")\n"
+  unless off == 3007 && fundsEmptyNeedle.size == 10 do
+    throw <| .planInvariant .cosmwasm
+      "internal: funds-empty needle must be at offset 3007 with length 10"
+  off := off + fundsEmptyNeedle.size + 1
+  let fundsExactNeedle := "\"funds\":[{\"denom\":\"stake\",\"amount\":\"".toUTF8
+  if off + fundsExactNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "funds-exact needle would overlap bump heap"
+  let fundsExactData :=
+    "  (data (i32.const " ++ toString off ++ ") " ++
+    "\"\\\"funds\\\":[{\\\"denom\\\":\\\"stake\\\",\\\"amount\\\":\\\"" ++ "\")\n"
+  out := out ++ fundsExactData
+  unless off == 3018 && fundsExactNeedle.size == 36 do
+    throw <| .planInvariant .cosmwasm
+      "internal: funds-exact needle must be at offset 3018 with length 36"
+  off := off + fundsExactNeedle.size + 1
   let mut methodNeedles : Array (String × Nat × Nat) := #[]
   for method in ir.methods do
     -- WAT string containing the bytes of `"name"` (quotes included for JSON find).
@@ -1815,6 +1970,8 @@ private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × 
         "    (local $msg_off i32) (local $msg_len i32)" ++ paramLocals ++ "\n" ++
         "    (local.set $msg_off (call $pf_region_off (local.get $msg_ptr)))\n" ++
         "    (local.set $msg_len (call $pf_region_len (local.get $msg_ptr)))\n" ++
+        "    (global.set $info_off (call $pf_region_off (local.get $info_ptr)))\n" ++
+        "    (global.set $info_len (call $pf_region_len (local.get $info_ptr)))\n" ++
         renderLoadBlockTime "    " ++
         parse ++
         s!"    (return (call $m_{init.name} {args}))\n" ++
@@ -1848,6 +2005,8 @@ private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String 
         "    (local $msg_off i32) (local $msg_len i32)" ++ paramLocals ++ "\n" ++
         "    (local.set $msg_off (call $pf_region_off (local.get $msg_ptr)))\n" ++
         "    (local.set $msg_len (call $pf_region_len (local.get $msg_ptr)))\n" ++
+        "    (global.set $info_off (call $pf_region_off (local.get $info_ptr)))\n" ++
+        "    (global.set $info_len (call $pf_region_len (local.get $info_ptr)))\n" ++
         renderLoadBlockTime "    " ++
         dispatch ++
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++

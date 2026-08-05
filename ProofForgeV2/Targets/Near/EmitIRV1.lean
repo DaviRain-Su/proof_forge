@@ -17,6 +17,9 @@ open ProofForgeV2.Targets.EnvelopeV1
 inductive Operation where
   | checkInputLen (bytes : Nat)
   | requireZeroAttachedDeposit
+  /-- ADR-0029 C2: exact `attached_deposit` u128 == amount (lo) || 0 (hi).
+      `amount` is a temp holding the UInt64 yoctoNEAR amount. -/
+  | requireExactAttachedDeposit (amount : Nat)
   /-- B-CTX-OPEN: block timestamp seconds — host `block_timestamp()` (ns)
       divided by 10^9 (truncating). -/
   | blockTimestampSeconds (destination : Nat)
@@ -111,6 +114,12 @@ inductive Operation where
       placeholders, not economics. Fire-and-forget: no response, no revert
       propagation. -/
   | promiseAccount (receiver : String) (method : String) (args : Array Nat)
+  /-- ADR-0029 C2: fire-and-forget Transfer promise.
+      `dstLen` + `dstWords` are Principal leaves (len + 8 body words);
+      `amount` is UInt64 yoctoNEAR (u128 hi word forced 0). Runtime validates
+      account-id grammar and emits `promise_batch_create` +
+      `promise_batch_action_transfer`. -/
+  | promiseTransfer (dstLen : Nat) (dstWords : Array Nat) (amount : Nat)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -608,7 +617,7 @@ private partial def statementListClosesV1 : List Statement → Bool
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
       | .store _ | .storeAtomic _ | .assert _ | .emitEvent .. | .forLoop ..
-      | .promiseAccount .. => false
+      | .promiseAccount .. | .nativeDeposit _ | .promiseTransfer .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard return after a closed region arm, unless the arm already
@@ -703,6 +712,26 @@ private partial def lowerBodyOps
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.promiseAccount receiver method argTemps)
+    | .nativeDeposit amount =>
+        let value := lowerExpr keys next fnMode localEnv amount
+        operations := operations ++ value.operations
+        operations := operations.push (.requireExactAttachedDeposit value.value)
+        next := value.next
+    | .promiseTransfer dstLen dstWords amount =>
+        let lenL := lowerExpr keys next fnMode localEnv dstLen
+        operations := operations ++ lenL.operations
+        next := lenL.next
+        let mut wordTemps : Array Nat := #[]
+        for w in dstWords do
+          let wl := lowerExpr keys next fnMode localEnv w
+          operations := operations ++ wl.operations
+          wordTemps := wordTemps.push wl.value
+          next := wl.next
+        let amtL := lowerExpr keys next fnMode localEnv amount
+        operations := operations ++ amtL.operations
+        next := amtL.next
+        operations := operations.push
+          (.promiseTransfer lenL.value wordTemps amtL.value)
     | .revertError errorIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
@@ -780,6 +809,9 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     (method : Method) : MethodIR := Id.run do
   let marker := keys[0]!
   let mut operations : Array Operation := #[.checkInputLen method.exactInputLen]
+  -- ADR-0029 C2: allowAttached skips the prologue zero-deposit gate so body
+  -- `requireExactAttachedDeposit` is the sole authority; queryOnly views never
+  -- call attached_deposit (NEAR ViewFunction forbids it).
   if method.depositPolicy == .requireZero then
     operations := operations.push .requireZeroAttachedDeposit
   if method.mode == .initialize then
@@ -832,7 +864,7 @@ private def expectedFns (plan : Plan) (keys : Array KeyRegion) : Array FnIR :=
 
 /-- PureFn ops may not touch host storage, layout, deposits, or method returns. -/
 private partial def opIsMethodOnlyV1 : Operation → Bool
-  | .checkInputLen _ | .requireZeroAttachedDeposit
+  | .checkInputLen _ | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _
   | .requireLayoutAbsent _ | .requireLayout _ _
   | .zeroState _ | .narrowZeroState _ _
   | .loadState _ _ | .narrowLoadState _ _ _
@@ -961,6 +993,9 @@ private def renderImport : HostImport → String
       -- amount_low, amount_high, gas. Deposit/gas are always zero placeholders
       -- in this pilot (explicit in the call site, not silent economics).
       "  (import \"env\" \"promise_batch_action_function_call\" (func $pf_promise_batch_action_function_call (param i64 i64 i64 i64 i64 i64 i64 i64)))\n"
+  | .promiseBatchActionTransfer =>
+      -- ADR-0029 C2: promise_idx, amount_ptr → 16-byte little-endian u128.
+      "  (import \"env\" \"promise_batch_action_transfer\" (func $pf_promise_batch_action_transfer (param i64 i64)))\n"
 
 
 /-- Multiword checked add on consecutive i64 temps (LE limbs); final carry → trap.
@@ -1201,6 +1236,12 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .requireZeroAttachedDeposit =>
       s!"{indent}(call $pf_attached_deposit (i64.const {memory.depositOffset}))\n" ++
         s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset})) (i64.const 0)) (then unreachable))\n" ++
+        s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset + 8})) (i64.const 0)) (then unreachable))\n"
+  | .requireExactAttachedDeposit amount =>
+      -- ADR-0029 C2: exact attached_deposit u128 == amount (lo) || 0 (hi).
+      -- amount is UInt64 yoctoNEAR; high word must be zero (no silent truncation).
+      s!"{indent}(call $pf_attached_deposit (i64.const {memory.depositOffset}))\n" ++
+        s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset})) (local.get $t{amount})) (then unreachable))\n" ++
         s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset + 8})) (i64.const 0)) (then unreachable))\n"
   | .requireLayoutAbsent marker =>
       s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const {registers.storage})) (i64.const 0)) (then unreachable))\n"
@@ -1513,6 +1554,63 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
           s!"{indent}  (i64.const {methodLen}) (i64.const {methodOffset})\n" ++
           s!"{indent}  (i64.const {argsLen}) (i64.const {argsOffset})\n" ++
           s!"{indent}  (i64.const 0) (i64.const 0) (i64.const 0))\n"
+  | .promiseTransfer dstLen dstWords amount =>
+      -- ADR-0029 C2: Principal leaves → account-id buffer + Transfer promise.
+      -- Scratch layout (transient, after valueOffset):
+      --   accountBuf = valueOffset + 16  (64 bytes of body words)
+      --   amountU128 = valueOffset + 80  (16 bytes: amount lo, 0 hi)
+      -- Runtime gates: len ∈ 2..64, account-id grammar, trailing body words
+      -- zero-padded beyond ceil(len/8). Fire-and-forget: no response cursor.
+      Id.run do
+        let _ := registers
+        let _ := events
+        let _ := errors
+        let _ := fnNames
+        let _ := promiseStr
+        let accountBuf := memory.valueOffset + 16
+        let amountPtr := memory.valueOffset + 80
+        let mut out := ""
+        -- Materialize body words into a contiguous 64-byte buffer.
+        for j in [0:dstWords.size] do
+          out := out ++
+            s!"{indent}(i64.store (i32.const {accountBuf + 8 * j}) (local.get $t{dstWords[j]!}))\n"
+        -- len ∈ [2, 64]
+        out := out ++
+          s!"{indent}(if (i64.lt_u (local.get $t{dstLen}) (i64.const 2)) (then unreachable))\n" ++
+          s!"{indent}(if (i64.gt_u (local.get $t{dstLen}) (i64.const 64)) (then unreachable))\n"
+        -- Account-id grammar scan (a-z | 0-9 | _ | - | .); first/last != '.'.
+        -- Uses method-local $t_pf_i / $t_pf_b declared when transfer ops present.
+        out := out ++
+          s!"{indent}(local.set $t_pf_i (i64.const 0))\n" ++
+          s!"{indent}(block $pf_acc_done\n" ++
+          s!"{indent}  (loop $pf_acc_check\n" ++
+          s!"{indent}    (br_if $pf_acc_done (i64.ge_u (local.get $t_pf_i) (local.get $t{dstLen})))\n" ++
+          s!"{indent}    (local.set $t_pf_b (i64.load8_u (i32.add (i32.const {accountBuf}) (i32.wrap_i64 (local.get $t_pf_i)))))\n" ++
+          -- valid = (a-z) | (0-9) | '_' | '-' | '.'
+          -- Wasm comparisons yield i32; boolean combine must stay i32.
+          s!"{indent}    (if (i32.eqz (i32.or (i32.or (i32.or\n" ++
+          s!"{indent}      (i32.and (i64.ge_u (local.get $t_pf_b) (i64.const 97)) (i64.le_u (local.get $t_pf_b) (i64.const 122)))\n" ++
+          s!"{indent}      (i32.and (i64.ge_u (local.get $t_pf_b) (i64.const 48)) (i64.le_u (local.get $t_pf_b) (i64.const 57))))\n" ++
+          s!"{indent}      (i64.eq (local.get $t_pf_b) (i64.const 95)))\n" ++
+          s!"{indent}      (i32.or (i64.eq (local.get $t_pf_b) (i64.const 45)) (i64.eq (local.get $t_pf_b) (i64.const 46)))))\n" ++
+          s!"{indent}      (then unreachable))\n" ++
+          s!"{indent}    (local.set $t_pf_i (i64.add (local.get $t_pf_i) (i64.const 1)))\n" ++
+          s!"{indent}    (br $pf_acc_check)\n" ++
+          s!"{indent}  )\n" ++
+          s!"{indent})\n"
+        -- First / last byte must not be '.'
+        out := out ++
+          s!"{indent}(if (i64.eq (i64.load8_u (i32.const {accountBuf})) (i64.const 46)) (then unreachable))\n" ++
+          s!"{indent}(if (i64.eq (i64.load8_u (i32.add (i32.const {accountBuf}) (i32.wrap_i64 (i64.sub (local.get $t{dstLen}) (i64.const 1))))) (i64.const 46)) (then unreachable))\n"
+        -- Amount as u128 LE at amountPtr (hi word forced 0).
+        out := out ++
+          s!"{indent}(i64.store (i32.const {amountPtr}) (local.get $t{amount}))\n" ++
+          s!"{indent}(i64.store (i32.const {amountPtr + 8}) (i64.const 0))\n"
+        -- Fire-and-forget Transfer promise.
+        pure <| out ++
+          s!"{indent}(call $pf_promise_batch_action_transfer\n" ++
+          s!"{indent}  (call $pf_promise_batch_create (local.get $t{dstLen}) (i64.const {accountBuf}))\n" ++
+          s!"{indent}  (i64.const {amountPtr}))\n"
   | .revertError errorIndex args =>
       renderInterfaceMessage registers memory indent "error" "pf_panic_utf8"
         events errors false errorIndex args
@@ -1692,12 +1790,20 @@ private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
     | .narrowCheckedMul bitWidth .. => bitWidth > 64
     | .wideCompare .. => true
     | _ => false
+  let needsPfScratch := method.operations.any fun op =>
+    match op with
+    | .promiseTransfer .. => true
+    | _ => false
   let locals :=
     if needsMwScratch then
       -- Shared scratch: add/sub use a/b/carry; schoolbook mul uses a..7.
       locals ++ " (local $t_mw_a i64) (local $t_mw_b i64) (local $t_mw_carry i64)" ++
         " (local $t_mw_0 i64) (local $t_mw_1 i64) (local $t_mw_2 i64) (local $t_mw_3 i64)" ++
         " (local $t_mw_4 i64) (local $t_mw_5 i64) (local $t_mw_6 i64) (local $t_mw_7 i64)"
+    else locals
+  let locals :=
+    if needsPfScratch then
+      locals ++ " (local $t_pf_i i64) (local $t_pf_b i64)"
     else locals
   let operations := String.intercalate "" <| method.operations.toList.map
     (renderOperation ir.registers ir.memory
@@ -1760,6 +1866,7 @@ private def renderMode : MethodMode → String
 private def renderDepositPolicy : DepositPolicy → String
   | .requireZero => "zero-required"
   | .queryOnly => "query-only"
+  | .allowAttached => "allow-attached"
 
 private def renderParamJson (param : Param) : String :=
   s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"{abiScalarTypeString param.byteWidth}\",\"inputOffset\":{param.inputOffset}}"

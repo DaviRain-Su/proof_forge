@@ -34,6 +34,17 @@ Phase 1：实现
   `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 的
   `runtime-tests/near` 已覆盖 Counter init/mutate/view、overflow state-hold+recovery、PairRet、
   ArrayRet、OptionRet 与 OptionState 的工程路径。
+- **`pf.assets` 半绑定（ADR-0029 Phase C2，2026-08-05）**：resolver advertise exact
+  `extension.pf-assets` + `effect.synchronous-call`（后者仅覆盖 pf.assets catalog；
+  generic 非 catalog sync call 在 Plan 层继续 fail closed）。`pf.assets.native.deposit`
+  → `attached_deposit == amount` 精确校验（u128 lo/hi；无 deposit 的 entry 保持
+  zero-deposit 门）；`pf.assets.native.transferAsync` → `promise_batch_create` +
+  `promise_batch_action_transfer` fire-and-forget（不观测结果、不传播异步失败）；
+  dst Principal 运行时须 exact wire shape `u32le(len)||utf8-account-id-bytes`
+  （grammar 校验 2..64 与小写字符集）。sync `transfer` 与 token QN **永久 fail closed**
+  （Promise 为 async，不得包装成 sync）。near-sandbox 门新增 `TipJarAsync` 套件
+  （`Examples/TipJarAsync.lean`）：init/精确 deposit 成功/错误与零 deposit 拒绝 +
+  **receiver 子账户真实余额差值观测**（fire-and-forget 转账的端到端证据）。
 
 **明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分，仍不覆盖 corrupt
 storage、bad input 或 gas/profile；Option params、非 UInt64/nested Option、Map/Bytes/nested aggregate

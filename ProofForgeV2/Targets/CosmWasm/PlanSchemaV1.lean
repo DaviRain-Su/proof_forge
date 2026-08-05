@@ -54,7 +54,7 @@ private def encodeMethodMode : MethodMode → UInt8
   | .initialize => 0 | .mutate => 1 | .view => 2
 
 private def encodeDepositPolicy : DepositPolicy → UInt8
-  | .requireZero => 0 | .queryOnly => 1
+  | .requireZero => 0 | .queryOnly => 1 | .requireExactNative => 2
 
 /-- B-RET-ABI: scalar kinds use a single tag byte (0..11). Aggregate uses tag 12
 followed by u32le leaf count + per-leaf (isInt, byteWidth). Tags appended only. -/
@@ -234,6 +234,17 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         out := out.append (← encodeNatAsU32le op.fieldIndex)
         out := out.append (← encodeNatAsU32le op.byteWidth)
         out := out.append (← encodeExpr op.value)
+      pure out
+  -- Tag 12 (ADR-0029 C1): pf.assets.native.deposit(amount).
+  -- Tag 11 is returnAggregate.
+  | .nativeDeposit amount =>
+      pure ((encodeU8 12).append (← encodeExpr amount))
+  -- Tag 13 (ADR-0029 C1): pf.assets.native.transfer(dst, amount).
+  | .nativeTransfer dstLen dstBodyWords amount => do
+      let mut out := (encodeU8 13).append (← encodeExpr dstLen)
+      out := out.append (← encodeNatAsU32le dstBodyWords.size)
+      for w in dstBodyWords do out := out.append (← encodeExpr w)
+      out := out.append (← encodeExpr amount)
       pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do
