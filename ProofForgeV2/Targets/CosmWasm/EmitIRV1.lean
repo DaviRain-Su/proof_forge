@@ -83,6 +83,11 @@ inductive Operation where
   | nativeDeposit (amount : Nat)
   /-- ADR-0029 C1: BankMsg::Send SubMsg (reply_on=never). dstLen + 8 body words. -/
   | nativeTransfer (dstLen : Nat) (dstBodyWords : Array Nat) (amount : Nat)
+  /-- ADR-0030 E1-CW: WasmMsg::Execute SubMsg (reply_on=never) targeting the
+      CW20 contract at `mint` with `{"transfer":{"recipient":dst,"amount":N}}`.
+      mintLen + 8 mint body words + dstLen + 8 dst body words + amount temp. -/
+  | tokenTransfer (mintLen : Nat) (mintBodyWords : Array Nat)
+      (dstLen : Nat) (dstBodyWords : Array Nat) (amount : Nat)
   /-- ADR-0029 C1: require info.funds == [] (non-deposit mutate/init). -/
   | requireFundsEmpty
   | returnNone
@@ -536,6 +541,31 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
         operations := operations ++ amountL.operations
         operations := operations.push
           (.nativeTransfer lenL.value wordTemps amountL.value)
+        next := amountL.next
+    | .tokenTransfer mintLen mintBodyWords dstLen dstBodyWords amount =>
+        let mintLenL := lowerExpr keys next fnMode localEnv mintLen
+        operations := operations ++ mintLenL.operations
+        next := mintLenL.next
+        let mut mintWordTemps : Array Nat := #[]
+        for w in mintBodyWords do
+          let wl := lowerExpr keys next fnMode localEnv w
+          operations := operations ++ wl.operations
+          mintWordTemps := mintWordTemps.push wl.value
+          next := wl.next
+        let dstLenL := lowerExpr keys next fnMode localEnv dstLen
+        operations := operations ++ dstLenL.operations
+        next := dstLenL.next
+        let mut dstWordTemps : Array Nat := #[]
+        for w in dstBodyWords do
+          let wl := lowerExpr keys next fnMode localEnv w
+          operations := operations ++ wl.operations
+          dstWordTemps := dstWordTemps.push wl.value
+          next := wl.next
+        let amountL := lowerExpr keys next fnMode localEnv amount
+        operations := operations ++ amountL.operations
+        operations := operations.push
+          (.tokenTransfer mintLenL.value mintWordTemps dstLenL.value dstWordTemps
+            amountL.value)
         next := amountL.next
     | .ifThenElse condition thenBody elseBody =>
         let value := lowerExpr keys next fnMode localEnv condition
@@ -1315,6 +1345,22 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (i32.store8 (local.get $p) (local.get $b))\n" ++
   s!"    (global.set $inner_len (i32.add (global.get $inner_len) (i32.const 1)))\n" ++
   "  )\n" ++
+  -- append ASCII/raw bytes from linear memory to inner JSON buffer
+  -- (used by E1-CW tokenTransfer to embed bech32 addresses into the execute msg).
+  s!"  (func $pf_inner_bytes (param $off i32) (param $len i32)\n" ++
+  s!"    (local $i i32) (local $p i32)\n" ++
+  s!"    (if (i32.gt_u (i32.add (global.get $inner_len) (local.get $len)) (i32.const 512)) (then unreachable))\n" ++
+  s!"    (local.set $p (i32.add (i32.const {scratch}) (global.get $inner_len)))\n" ++
+  s!"    (local.set $i (i32.const 0))\n" ++
+  s!"    (block $done\n" ++
+  s!"      (loop $copy\n" ++
+  s!"        (br_if $done (i32.ge_u (local.get $i) (local.get $len)))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $p) (local.get $i))\n" ++
+  s!"          (i32.load8_u (i32.add (local.get $off) (local.get $i))))\n" ++
+  s!"        (local.set $i (i32.add (local.get $i) (i32.const 1)))\n" ++
+  s!"        (br $copy)))\n" ++
+  s!"    (global.set $inner_len (i32.add (global.get $inner_len) (local.get $len)))\n" ++
+  "  )\n" ++
   s!"  (func $pf_inner_u64 (param $v i64)\n" ++
   s!"    (local $p i32) (local $n i32)\n" ++
   s!"    (if (i32.gt_u (i32.add (global.get $inner_len) (i32.const 24)) (i32.const 512)) (then unreachable))\n" ++
@@ -1747,6 +1793,73 @@ private partial def renderOperation (memory : MemoryLayout)
         out := out ++ emitLit "\",\"amount\":[{\"denom\":\"stake\",\"amount\":\""
         out := out ++ s!"{indent}(call $pf_msg_u64 (local.get $t{amount}))\n"
         out := out ++ emitLit "\"}]}}},\"reply_on\":\"never\"}"
+        pure out
+  | .tokenTransfer mintLen mintBodyWords dstLen dstBodyWords amount =>
+      -- ADR-0030 E1-CW: WasmMsg::Execute SubMsg (reply_on=never, error-propagating).
+      -- {"id":0,"msg":{"wasm":{"execute":{"contract_addr":"<mint>",
+      --   "msg":"<base64 of {"transfer":{"recipient":"<dst>","amount":"<N>"}}>",
+      --   "funds":[]}}},"reply_on":"never"}
+      --
+      -- mint and dst are bech32 contract addresses materialized from Principal
+      -- wire leaves (len + 8×u64 LE body words → 64-byte buffer, len bytes used).
+      -- The inner execute-msg JSON is built in the inner scratch buffer and
+      -- base64-encoded into the messages buffer (same Binary discipline as
+      -- promiseAccount schedule SubMsg).
+      Id.run do
+        let _ := events
+        let _ := errors
+        let _ := fnNames
+        let scratch := memory.inputOffset
+        let mintBuf := memory.valueOffset + 16
+        let dstBuf := memory.valueOffset + 16 + 64
+        let mut out :=
+          s!"{indent};; pf.assets.token.transfer → WasmMsg::Execute reply_on=never\n"
+        -- materialize 8 mint body words into a contiguous 64-byte mint buffer
+        for j in [0:mintBodyWords.size] do
+          out := out ++
+            s!"{indent}(i64.store (i32.const {mintBuf + 8 * j}) (local.get $t{mintBodyWords[j]!}))\n"
+        -- mint len ∈ 1..64 and zero padding beyond len
+        out := out ++
+          s!"{indent}(if (i32.eqz (call $pf_dst_check (local.get $t{mintLen}) (i32.const {mintBuf}))) (then unreachable))\n"
+        -- materialize 8 dst body words into a contiguous 64-byte dst buffer
+        for j in [0:dstBodyWords.size] do
+          out := out ++
+            s!"{indent}(i64.store (i32.const {dstBuf + 8 * j}) (local.get $t{dstBodyWords[j]!}))\n"
+        -- dst len ∈ 1..64 and zero padding beyond len
+        out := out ++
+          s!"{indent}(if (i32.eqz (call $pf_dst_check (local.get $t{dstLen}) (i32.const {dstBuf}))) (then unreachable))\n"
+        -- 1) Build inner execute-msg JSON into scratch via $pf_inner_*.
+        --    Shape: {"transfer":{"recipient":"<dst>","amount":"<N>"}}
+        out := out ++ s!"{indent}(call $pf_inner_reset)\n"
+        let emitInner (s : String) : String := Id.run do
+          let bytes := s.toUTF8
+          let mut t := ""
+          for i in [0:bytes.size] do
+            t := t ++ s!"{indent}(call $pf_inner_byte (i32.const {bytes[i]!.toNat}))\n"
+          pure t
+        out := out ++ emitInner "{\"transfer\":{\"recipient\":\""
+        out := out ++
+          s!"{indent}(call $pf_inner_bytes (i32.const {dstBuf}) (i32.wrap_i64 (local.get $t{dstLen})))\n"
+        out := out ++ emitInner "\",\"amount\":\""
+        out := out ++ s!"{indent}(call $pf_inner_u64 (local.get $t{amount}))\n"
+        out := out ++ emitInner "\"}}"
+        -- 2) Append SubMsg envelope into messages buffer; msg field = base64.
+        out := out ++
+          s!"{indent}(if (i32.ne (global.get $msg_len) (i32.const 0)) (then\n" ++
+          s!"{indent}  (call $pf_msg_byte (i32.const 44))))\n"
+        let emitLit (s : String) : String := Id.run do
+          let bytes := s.toUTF8
+          let mut t := ""
+          for i in [0:bytes.size] do
+            t := t ++ s!"{indent}(call $pf_msg_byte (i32.const {bytes[i]!.toNat}))\n"
+          pure t
+        out := out ++ emitLit "{\"id\":0,\"msg\":{\"wasm\":{\"execute\":{\"contract_addr\":\""
+        out := out ++
+          s!"{indent}(call $pf_msg_bytes (i32.const {mintBuf}) (i32.wrap_i64 (local.get $t{mintLen})))\n"
+        out := out ++ emitLit "\",\"msg\":\""
+        out := out ++
+          s!"{indent}(call $pf_msg_b64 (i32.const {scratch}) (global.get $inner_len))\n"
+        out := out ++ emitLit "\",\"funds\":[]}}},\"reply_on\":\"never\"}"
         pure out
   | .revertError errorIndex args =>
       let binding := errors[errorIndex]!

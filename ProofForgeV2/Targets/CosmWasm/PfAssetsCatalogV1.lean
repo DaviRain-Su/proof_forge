@@ -1,12 +1,17 @@
 /-
   ADR-0029 Phase C1 — CosmWasm-owned `pf.assets` native binding catalog.
+  ADR-0030 E1-CW — CosmWasm-owned `pf.assets.token.transfer` CW20 binding.
 
   L1 portable QNs (`pf.assets.native.deposit` / `pf.assets.native.transfer`) bind
   to CosmWasm bank module funds / BankMsg::Send. This module freezes the
   target-owned binding surface (denom, reply mode, dst encoding).
 
-  **Phase C scope**: sync native deposit + transfer only.
-  Token (`pf.assets.token.*`) and async variants stay fail closed at Plan lowering.
+  **E1-CW scope**: `pf.assets.token.transfer` binds to a CW20 `Transfer`
+  execute emitted as a `WasmMsg::Execute` SubMsg with `reply_on=never`
+  (error-propagating, same sync discipline as C1 native `BankMsg::Send`).
+  `mint` Principal carries the CW20 contract address (controlled dynamic
+  callee — catalog token family only; generic dynamic callee stays fail
+  closed). `token.transferAsync` and non-catalog QNs stay fail closed.
 
   **Not** a formal catalog digest / BuildIdentity / NetworkProfile asset registry.
   Multi-denom and per-chain asset instance identity are NetworkProfile follow-ups.
@@ -111,15 +116,89 @@ def nativeBindingsV1 : Array NativeBindingV1 :=
       admittedForMaterialization := true }
   ]
 
-/-- Skeleton CW20 interface-standard binding (not admitted for materialization
-    in Phase C1). Predicate list is documentary; token lowering is a later slice. -/
-def cw20InterfaceStandardSkeletonV1 : ArtifactBindingKind :=
+/-- CW20 interface-standard binding. E1-CW admits `token.transfer` for
+    materialization; `token.transferAsync` stays fail closed. Predicate list
+    is documentary; the `loweringContract` carries product-pinned decisions. -/
+def cw20InterfaceStandardV1 : ArtifactBindingKind :=
   .interfaceStandard "cw20"
     #["transfer-msg", "no-fee-on-transfer", "decimals-join-via-network-profile"]
 
-/-- Closed QN membership for the CosmWasm native Phase C admit set. -/
+/-- Frozen lowering contract for CosmWasm CW20 `Transfer` execute
+    (ADR-0030 E1-CW). Decisions are product-pinned; changes require a
+    catalog/version bump. This is the **controlled dynamic callee** surface:
+    only the catalog token family admits a parameterized CW20 contract
+    address; generic dynamic callees remain fail closed. -/
+structure Cw20TokenLoweringContractV1 where
+  /-- CosmosMsg kind: `WasmMsg::Execute` targeting the CW20 contract. -/
+  transferMsgKind : String := "wasm-execute"
+  /-- CW20 execute message object: `{"transfer":{"recipient":"<dst>","amount":"<amount>"}}`
+      packed as cosmwasm-std **Binary** (base64 of UTF-8 JSON) into
+      `WasmMsg::Execute.msg`. -/
+  transferExecuteMsg : String :=
+    "{\"transfer\":{\"recipient\":\"<dst>\",\"amount\":\"<amount>\"}}"
+  /-- SubMsg reply mode: `reply_on=never` — error-propagating atomic transfer.
+      Same reply mode and semantic contract as C1 native `BankMsg::Send`:
+      failure of the CW20 call fails the whole transaction (sync-atomic L1
+      contract). See `NativeBankLoweringContractV1.transferReplyOn` docstring
+      for the wasmd `DispatchSubmessages` verification. -/
+  transferReplyOn : String := "never"
+  /-- `mint` Principal parameter carries the CW20 contract address as
+      exact runtime wire shape `u32le(len)||utf8-bech32-bytes` (same bech32
+      grammar validation C1 uses for `dst`). Controlled dynamic callee —
+      catalog token family only; this is NOT a generic dynamic callee opening. -/
+  mintPrincipalEncoding : String := "u32le(len)||utf8-bech32-bytes"
+  /-- `dst` Principal parameter carries the CW20 recipient address with the
+      same exact wire shape and bech32 grammar validation as C1 native
+      transfer `dst`. -/
+  dstPrincipalEncoding : String := "u32le(len)||utf8-bech32-bytes"
+  /-- `WasmMsg::Execute.funds` is empty: CW20 transfer carries no native coins.
+      Entry stays non-payable for `token.transfer`; C1's funds-exactness
+      discipline for native deposit is preserved (no `info.funds` movement). -/
+  transferFunds : String := "empty"
+  /-- CALL failure reverts the caller (Reference failure propagate). -/
+  transferFailure : String := "propagate-revert"
+  /-- Vault semantics: the contract's own CW20 balance is the vault;
+      no funds move through `info.funds` for this API. -/
+  vaultSemantics : String :=
+    "contract-own-cw20-balance-is-vault; no-info-funds-movement"
+  /-- Controlled-dynamic-callee discipline: only catalog token family admits
+      a parameterized CW20 contract address; generic dynamic callee stays
+      fail closed. -/
+  dynamicCalleeDiscipline : String :=
+    "catalog-token-family-only; generic-dynamic-callee-fail-closed"
+  deriving BEq, Repr, Inhabited
+
+def cw20TokenLoweringContractV1 : Cw20TokenLoweringContractV1 := {}
+
+/-- One admitted L1 QN binding for the CosmWasm CW20 token package. -/
+structure TokenBindingV1 where
+  qn : String
+  packageId : String
+  artifactBinding : ArtifactBindingKind
+  loweringContract : Cw20TokenLoweringContractV1
+  admittedForMaterialization : Bool
+  deriving BEq, Repr, Inhabited
+
+/-- Package id for the CosmWasm CW20 interface-standard package (no bytecode;
+    binds the standard + predicates). -/
+def cw20TokenPackageIdV1 : String := "cosmwasm-cw20-standard-v1"
+
+/-- E1-CW admitted token binding: `pf.assets.token.transfer` only. -/
+def tokenBindingsV1 : Array TokenBindingV1 :=
+  #[
+    { qn := "pf.assets.token.transfer"
+      packageId := cw20TokenPackageIdV1
+      artifactBinding := cw20InterfaceStandardV1
+      loweringContract := cw20TokenLoweringContractV1
+      admittedForMaterialization := true }
+  ]
+
+/-- Closed QN membership for the CosmWasm admitted pf.assets set (C1 native
+    + E1-CW token.transfer). `token.transferAsync` and `native.transferAsync`
+    stay fail closed at Plan lowering. -/
 def isCosmWasmAdmittedPfAssetsQnV1 (qn : String) : Bool :=
   qn == "pf.assets.native.deposit" || qn == "pf.assets.native.transfer"
+    || qn == "pf.assets.token.transfer"
 
 /-- Full catalog membership (five QNs); non-admitted members fail closed at Plan. -/
 def isPfAssetsCatalogQnV1 (qn : String) : Bool :=

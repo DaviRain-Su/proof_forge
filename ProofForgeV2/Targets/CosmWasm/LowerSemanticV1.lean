@@ -23,6 +23,14 @@ and only for the Phase C bank subset:
 * `pf.assets.native.transfer(dst, amount)` — BankMsg::Send SubMsg with
   `reply_on=never` (error-propagating; coexists with CW-4 async schedule).
 
+## ADR-0030 E1-CW — `pf.assets.token.transfer` CW20 binding
+
+* `pf.assets.token.transfer(mint, dst, amount)` — WasmMsg::Execute SubMsg
+  targeting the CW20 contract at `mint` with `{"transfer":{"recipient":dst,
+  "amount":"<amount>"}}` and `reply_on=never` (error-propagating, same sync
+  discipline as C1). `mint` is a controlled dynamic callee (catalog token
+  family only). Entry stays non-payable (no `info.funds` movement).
+
 Token/async catalog QNs and non-catalog sync call stay fail closed.
 -/
 
@@ -317,6 +325,19 @@ inductive Statement where
       with `reply_on=never` (error-propagating; see PfAssetsCatalogV1).
       Opaque external effect on bank balances (no recipient code execution). -/
   | nativeTransfer (dstLen : Expr) (dstBodyWords : Array Expr) (amount : Expr)
+  /-- ADR-0030 E1-CW: `pf.assets.token.transfer(mint, dst, amount)`.
+      `mintLen` + 8 LE body words are the CW20 contract address Principal
+      wire identity leaves (`len + 8×UInt64`); runtime requires framed UTF-8
+      bech32 body (`u32le(len)||utf8-bech32-bytes`), used as
+      `WasmMsg::Execute.contract_addr`. `dstLen` + 8 LE body words are the
+      recipient Principal (same encoding contract as C1 native transfer dst).
+      Emits `WasmMsg::Execute { contract_addr: mint, msg:
+      {"transfer":{"recipient":dst,"amount":"<amount>"}}, funds: [] }` as
+      SubMsg `reply_on=never` (error-propagating; failure of the CW20 call
+      traps the whole transaction — sync, same as C1). The contract's own
+      CW20 balance is the vault; no `info.funds` movement. -/
+  | tokenTransfer (mintLen : Expr) (mintBodyWords : Array Expr)
+      (dstLen : Expr) (dstBodyWords : Array Expr) (amount : Expr)
   deriving BEq, Inhabited, Repr
 
 /-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
@@ -2598,9 +2619,68 @@ private def lowerBlockInstructionsV1
             body := body.push (.nativeTransfer dstLen dstWords amountRoot.expr)
             armReadables := promoteDominatingPureV1 blockEntry values armReadables
             segmentStart := values.size
+          else if qn == "pf.assets.token.transfer" then
+            -- ADR-0030 E1-CW: controlled dynamic callee (CW20 Transfer).
+            unless argIds.size == 3 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer requires mint + dst + UInt64 args"
+            let some mintId := argIds[0]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer mint missing"
+            let some dstId := argIds[1]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer dst missing"
+            let some amountId := argIds[2]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer amount missing"
+            -- mint Principal (CW20 contract address): same wire-shape gate as dst.
+            let mintRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables mintId
+            unless mintRoot.isAggregate do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer mint must be Principal"
+            let mintLeaves := mintRoot.leafExprs
+            unless mintLeaves.size == 1 + nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer mint Principal leaf count mismatch"
+            let some mintLen := mintLeaves[0]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer mint len missing"
+            let mintWords := mintLeaves.extract 1 mintLeaves.size
+            unless mintWords.size == nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer mint body words mismatch"
+            -- dst Principal (CW20 recipient): same wire-shape gate as C1 native.
+            let dstRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables dstId
+            unless dstRoot.isAggregate do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer dst must be Principal"
+            let dstLeaves := dstRoot.leafExprs
+            unless dstLeaves.size == 1 + nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer dst Principal leaf count mismatch"
+            let some dstLen := dstLeaves[0]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer dst len missing"
+            let dstWords := dstLeaves.extract 1 dstLeaves.size
+            unless dstWords.size == nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer dst body words mismatch"
+            -- amount must be UInt64.
+            let amountRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables amountId
+            unless amountRoot.kind == .uint64 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: pf.assets.token.transfer amount must be UInt64"
+            let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+            body := body.push
+              (.tokenTransfer mintLen mintWords dstLen dstWords amountRoot.expr)
+            armReadables := promoteDominatingPureV1 blockEntry values armReadables
+            segmentStart := values.size
           else
             throw <| .planInvariant .cosmwasm
-              s!"unsupported CosmWasm semantic shape: pf.assets QN '{qn}' is outside Phase C native scope (async/token fail closed)"
+              s!"unsupported CosmWasm semantic shape: pf.assets QN '{qn}' is outside admitted scope (async/tokenAsync fail closed)"
         else
           throw <| .planInvariant .cosmwasm
             "call/sync external call is outside the CosmWasm MVP envelope (WasmMsg::Execute is SubMsg savepoint, not sync CALL; non-catalog call fail closed; pf.assets native deposit/transfer only)"
@@ -3808,7 +3888,7 @@ partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
     | .forLoop _ _ _ _ _ body => statementsUsePromiseV1 body
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate .. | .returnNone
     | .assert _ | .emitEvent .. | .revertError ..
-    | .nativeDeposit _ | .nativeTransfer .. => false
+    | .nativeDeposit _ | .nativeTransfer .. | .tokenTransfer .. => false
 
 def planUsesPromiseV1 (plan : Plan) : Bool :=
   statementsUsePromiseV1 plan.initializer.body ||

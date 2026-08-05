@@ -706,9 +706,9 @@
       "sha256": "4c3719ff54dd4427a961da4589b0abd08360235a2c34acfe8dc2018552d5c89b"
     },
     {
-      "bytes": 124727,
+      "bytes": 131065,
       "path": "ProofForgeV2/Targets/CosmWasm/EmitIRV1.lean",
-      "sha256": "861f680a88735caf5ed1ba7893bc11cd2bf1603f04d24f08a2eddb82ee34dddf"
+      "sha256": "c67a674f7fde9bfaf6cd201296e44c4a89ffc1d1d484f3284d88f9011380f1e0"
     },
     {
       "bytes": 2955,
@@ -716,24 +716,24 @@
       "sha256": "d1bfb25f2f3de18d287051f139f5db232bb4918177b77411ffbcc8cba0b8bf40"
     },
     {
-      "bytes": 197870,
+      "bytes": 203103,
       "path": "ProofForgeV2/Targets/CosmWasm/LowerSemanticV1.lean",
-      "sha256": "45aa16040f32cf1ad5ac520031fc7989b98b3cd09e77109881162aac1606d1a2"
+      "sha256": "eb06ff2ef8dd7de1ecd4a124670e91fb0e65398eab05755519f922b895b4ac8c"
     },
     {
-      "bytes": 6316,
+      "bytes": 10549,
       "path": "ProofForgeV2/Targets/CosmWasm/PfAssetsCatalogV1.lean",
-      "sha256": "d9ee66b733bb2c0faa164b5c9a3458bb9a1da463d6ec1647a32e9d88443d5fee"
+      "sha256": "d9e9e036668609c6677c1b666efdfebed74a46b892127b557e71db99b18538fc"
     },
     {
-      "bytes": 16452,
+      "bytes": 17047,
       "path": "ProofForgeV2/Targets/CosmWasm/PlanSchemaV1.lean",
-      "sha256": "60a3132fadb836df8142a11d6eff235b06a85fc0bfd683e5b8d4ed04f421e354"
+      "sha256": "78c4c26e59ac126e558dc498cf35854af04b2bbab22fddcc05131f10f1a1850f"
     },
     {
-      "bytes": 28569,
+      "bytes": 31050,
       "path": "ProofForgeV2/Targets/CosmWasm/ValidatePlanV1.lean",
-      "sha256": "9f13dff3497c936e13099fb1842876286d5ef01d0677654c2b53aeb4906727d1"
+      "sha256": "6d8ed49b8b2e92292fb85bd4d4ca8b581210a85f0189a02cd5c4ad53a1d829f3"
     },
     {
       "bytes": 6831,

@@ -351,6 +351,48 @@ private partial def checkMethodStatementsV1
         total ← addPlanExprNodes limits layout params fns total amount
         methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
         total := total + 1
+    | .tokenTransfer mintLen mintBodyWords dstLen dstBodyWords amount =>
+        -- ADR-0030 E1-CW: CW20 Transfer SubMsg (reply_on=never) on mutate/init only.
+        if isView then
+          throw <| .planInvariant .cosmwasm
+            "view method cannot pf.assets.token.transfer"
+        if isPureFn then
+          throw <| .planInvariant .cosmwasm
+            "pureFn cannot pf.assets.token.transfer"
+        unless mintBodyWords.size == 8 do
+          throw <| .planInvariant .cosmwasm
+            "method tokenTransfer mint must have 8 body words (Principal pilot)"
+        unless exprIsUInt64CompatibleV1 fns mintLen do
+          throw <| .planInvariant .cosmwasm
+            "method tokenTransfer mintLen must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total mintLen
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps mintLen
+        for w in mintBodyWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .cosmwasm
+              "method tokenTransfer mint body words must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params fns total w
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w
+        unless dstBodyWords.size == 8 do
+          throw <| .planInvariant .cosmwasm
+            "method tokenTransfer dst must have 8 body words (Principal pilot)"
+        unless exprIsUInt64CompatibleV1 fns dstLen do
+          throw <| .planInvariant .cosmwasm
+            "method tokenTransfer dstLen must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total dstLen
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps dstLen
+        for w in dstBodyWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .cosmwasm
+              "method tokenTransfer dst body words must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params fns total w
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w
+        unless exprIsUInt64CompatibleV1 fns amount do
+          throw <| .planInvariant .cosmwasm
+            "method tokenTransfer amount must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total amount
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
+        total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
           throw <| .planInvariant .cosmwasm "method reverts with an unknown error"

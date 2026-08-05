@@ -246,6 +246,16 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       for w in dstBodyWords do out := out.append (← encodeExpr w)
       out := out.append (← encodeExpr amount)
       pure out
+  -- Tag 14 (ADR-0030 E1-CW): pf.assets.token.transfer(mint, dst, amount).
+  | .tokenTransfer mintLen mintBodyWords dstLen dstBodyWords amount => do
+      let mut out := (encodeU8 14).append (← encodeExpr mintLen)
+      out := out.append (← encodeNatAsU32le mintBodyWords.size)
+      for w in mintBodyWords do out := out.append (← encodeExpr w)
+      out := out.append (← encodeExpr dstLen)
+      out := out.append (← encodeNatAsU32le dstBodyWords.size)
+      for w in dstBodyWords do out := out.append (← encodeExpr w)
+      out := out.append (← encodeExpr amount)
+      pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do
   pure (((((← encodeNatAsU32le p.sourceId).append (← encodeString p.name)).append

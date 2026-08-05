@@ -1,13 +1,17 @@
 /-
-  Tests.Materialization.CosmWasmPfAssetsV1 — ADR-0029 Phase C1 CosmWasm binding.
+  Tests.Materialization.CosmWasmPfAssetsV1 — ADR-0029 Phase C1 + ADR-0030 E1-CW
+  CosmWasm binding.
 
   Plan-level pins for the pf.assets CosmWasm lane:
     * `pf.assets.native.deposit(amount)` lowers to `.nativeDeposit` (exact
       one-coin info.funds check at runtime; frozen denom "stake")
     * `pf.assets.native.transfer(dst, amount)` lowers to `.nativeTransfer`
       (BankMsg::Send SubMsg, reply_on=never error-propagating)
+    * `pf.assets.token.transfer(mint, dst, amount)` lowers to `.tokenTransfer`
+      (WasmMsg::Execute SubMsg to CW20 contract at mint, reply_on=never
+      error-propagating; controlled dynamic callee — catalog token family only)
     * catalog QN requires exact `extension.pf-assets` row (declaration gate)
-    * token/async QNs fail closed (Phase C scope)
+    * `token.transferAsync` / `native.transferAsync` QNs fail closed
     * non-catalog sync calls stay fail closed (CW sync envelope)
     * depositPolicy: deposit entry → requireExactNative; others → requireZero
 -/
@@ -120,9 +124,47 @@ unsafe def testCatalogCallRequiresDeclaration : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
   | .ok _ => throw <| IO.userError "pf.assets without extension must fail closed"
 
-/-- Token and async QNs fail closed (Phase C scope). -/
-unsafe def testTokenAndAsyncFailClosed : IO Unit := do
-  let mkSource (callText : String) : String :=
+/-- ADR-0030 E1-CW: `pf.assets.token.transfer` lowers to `.tokenTransfer`
+    (WasmMsg::Execute SubMsg to CW20 contract at mint). Entry is non-payable
+    (requireZero — no native deposit); token transfer carries no info.funds. -/
+private def tokenJarSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program TokenJar where\n" ++
+  pfAssetsRequiresBlock ++
+  "  state tips : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    tips := initial\n" ++
+  "  entry tipToken(mint : Principal, dst : Principal, amount : UInt64) : UInt64 do\n" ++
+  "    call pf.assets.token.transfer(mint, dst, amount)\n" ++
+  "    tips := tips + amount\n" ++
+  "    return tips\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return tips\n"
+
+unsafe def testTokenTransferPlan : IO Unit := do
+  let compiled ← compileSource "<cw-pf-assets-token>"
+    "Tests.CwPfAssetsToken" tokenJarSource
+  let plan ← planCwOf compiled
+  let some tipToken := plan.entries[0]? |
+    throw <| IO.userError "tipToken entry must exist"
+  let tokenTransfers := tipToken.body.filter fun st => match st with
+    | .tokenTransfer .. => true | _ => false
+  expect (tokenTransfers.size == 1)
+    "tipToken must contain exactly one tokenTransfer"
+  -- Entry is non-payable: no native deposit → requireZero funds policy.
+  expect (tipToken.depositPolicy == .requireZero)
+    "token.transfer entry must be non-payable (requireZero)"
+  -- No nativeDeposit in the body.
+  let deposits := tipToken.body.filter fun st => match st with
+    | .nativeDeposit _ => true | _ => false
+  expect (deposits.size == 0)
+    "token.transfer entry must not contain nativeDeposit"
+
+/-- Async QNs fail closed (token.transferAsync / native.transferAsync).
+    token.transfer is now admitted (E1-CW); only the async variants stay FC. -/
+unsafe def testAsyncFailClosed : IO Unit := do
+  let mkSource (callText : String) (withMint : Bool) : String :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program Scope where\n" ++
@@ -130,23 +172,25 @@ unsafe def testTokenAndAsyncFailClosed : IO Unit := do
     "  state tips : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    tips := initial\n" ++
-    "  entry tip(mint : Principal, dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "  entry tip(" ++ (if withMint then "mint : Principal, " else "") ++
+    "dst : Principal, amount : UInt64) : UInt64 do\n" ++
     "    call " ++ callText ++ "\n" ++
     "    return amount\n" ++
     "  view get() : UInt64 do\n" ++
     "    return tips\n"
-  for (label, callSpelling, needle) in #[
-      ("token", "pf.assets.token.transfer(mint, dst, amount)", "token"),
-      ("async", "pf.assets.native.transferAsync(dst, amount)", "Phase C") ] do
+  for (label, callSpelling, needle, withMint) in #[
+      ("tokenAsync", "pf.assets.token.transferAsync(mint, dst, amount)", "async", true),
+      ("nativeAsync", "pf.assets.native.transferAsync(dst, amount)", "async", false) ] do
+    let source := mkSource callSpelling withMint
     let compiled ← compileSource s!"<cw-pf-assets-{label}>"
-      s!"Tests.CwPfAssets{label}" (mkSource callSpelling)
+      s!"Tests.CwPfAssets{label}" source
     let selection ← liftResult <|
       Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.cosmwasm none
     let capability ← liftResult <|
       Targets.resolveEngineeringRequirementsV1 selection compiled
     match planFromCapability capability with
     | .error (.planInvariant .cosmwasm msg) =>
-        expect (msg.contains needle || msg.contains "Phase C")
+        expect (msg.contains needle || msg.contains "admitted scope" || msg.contains "fail closed")
           s!"{label} QN must cite scope, got: {msg}"
     | .error e => throw <| IO.userError s!"{label}: expected planInvariant, got {e.render}"
     | .ok _ => throw <| IO.userError s!"{label} QN must fail closed on CosmWasm"
@@ -179,11 +223,33 @@ unsafe def testNonCatalogSyncFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
   | .ok _ => throw <| IO.userError "non-catalog sync call must fail closed on CosmWasm"
 
+/-- Catalog membership: token.transfer is now admitted; the catalog advertises
+    exactly native.deposit + native.transfer + token.transfer. -/
+unsafe def testCatalogAdmitSet : IO Unit := do
+  expect (PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.native.deposit")
+    "native.deposit must be admitted"
+  expect (PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.native.transfer")
+    "native.transfer must be admitted"
+  expect (PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.token.transfer")
+    "token.transfer must be admitted (E1-CW)"
+  expect (!PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.token.transferAsync")
+    "token.transferAsync must NOT be admitted"
+  expect (!PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.native.transferAsync")
+    "native.transferAsync must NOT be admitted"
+  expect (PfAssetsCatalogV1.tokenBindingsV1.size == 1)
+    "exactly one token binding (token.transfer)"
+  expect (PfAssetsCatalogV1.tokenBindingsV1[0]!.qn == "pf.assets.token.transfer")
+    "token binding QN is token.transfer"
+  expect (PfAssetsCatalogV1.tokenBindingsV1[0]!.admittedForMaterialization)
+    "token.transfer must be admitted for materialization"
+
 unsafe def run : IO Unit := do
   testDepositTransferPlan
   testCatalogCallRequiresDeclaration
-  testTokenAndAsyncFailClosed
+  testTokenTransferPlan
+  testAsyncFailClosed
   testNonCatalogSyncFailClosed
+  testCatalogAdmitSet
   IO.println "Tests.Materialization.CosmWasmPfAssetsV1: ok"
 
 end Tests.Materialization.CosmWasmPfAssetsV1

@@ -99,6 +99,7 @@ programs=(
   "runtime-tests/cosmwasm/fixtures/OptionState.lean:Examples.OptionState:OptionState"
   "runtime-tests/cosmwasm/fixtures/NarrowCounter.lean:Examples.NarrowCounter:NarrowCounter"
   "Examples/TipJar.lean:Examples.TipJar:TipJar"
+  "Examples/TokenJar.lean:Examples.TokenJar:TokenJar"
 )
 
 echo "cosmwasm-runtime-test: building proof-forge-next (lake build proof_forge_next)"
