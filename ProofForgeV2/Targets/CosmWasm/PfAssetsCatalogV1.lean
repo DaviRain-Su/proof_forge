@@ -13,6 +13,11 @@
   callee — catalog token family only; generic dynamic callee stays fail
   closed). `token.transferAsync` and non-catalog QNs stay fail closed.
 
+  **E2-4-CW scope**: `pf.assets.native.balanceOfSelf()` and
+  `pf.assets.token.balanceOfSelf(mint)` bind to read-only host queries via
+  `env.query_chain` (cosmwasm-vm's canonical raw-WASM querier channel).
+  View/entry-callable, effect-free; pureFn/invariant stay fail closed.
+
   **Not** a formal catalog digest / BuildIdentity / NetworkProfile asset registry.
   Multi-denom and per-chain asset instance identity are NetworkProfile follow-ups.
 -/
@@ -195,12 +200,91 @@ def tokenBindingsV1 : Array TokenBindingV1 :=
       admittedForMaterialization := true }
   ]
 
+/-- Frozen lowering contract for CosmWasm env-read `pf.assets.*.balanceOfSelf`
+    (ADR-0030 E2-4-CW). Decisions are product-pinned; changes require a
+    catalog/version bump. Read-only, view/entry-callable, effect-free.
+
+    **Querier-from-raw-WASM verdict**: cosmwasm-vm exposes `env.query_chain`
+    as a real WASM host import (verified in cosmwasm-vm 3.0.9
+    `src/imports.rs`: `do_query_chain` reads a Region containing a serialized
+    `QueryRequest<Empty>` JSON and dispatches it through the VM's
+    `Querier.query_raw`, which supports `Bank(Balance{address, denom})` and
+    `Wasm(WasmQuery::Smart{contract_addr, msg})`). Raw-WASM contracts
+    therefore CAN perform querier calls — this is the canonical cosmwasm-vm
+    querier channel, not a Rust-`Deps`-only API. The contract's own address
+    is read from the Env JSON `"contract":{"address":"..."}` field (available
+    in every `instantiate`/`execute`/`query` entry via the `$env_ptr` Region). -/
+structure EnvReadLoweringContractV1 where
+  /-- Native balance: `query_chain` with `{"bank":{"balance":{"address":<self>,
+      "denom":"stake"}}}`; result `.amount` (Uint128 string) parsed as UInt64. -/
+  nativeQueryKind : String := "query_chain-bank-balance"
+  /-- Frozen single denom (matches C1 native deposit/transfer denom). -/
+  nativeDenom : String := "stake"
+  /-- Native balance is view-callable (read-only host query). -/
+  nativeViewCallable : String := "view-and-entry-callable"
+  /-- Token balance: `query_chain` with
+      `{"wasm":{"smart":{"contract_addr":<mint>,"msg":<base64>}}}` where
+      `<base64>` is the base64 of the inner CW20 query
+      `{"balance":{"address":<self>}}` (`WasmQuery::Smart.msg` is a `Binary`,
+      i.e. a base64 string in the `QueryRequest` JSON); CW20
+      `BalanceResponse.balance` (Uint128 string) parsed as UInt64 (overflow
+      traps). -/
+  tokenQueryKind : String := "query_chain-wasm-smart-balance"
+  /-- `mint` Principal carries the CW20 contract address (same
+      `u32le(len)||utf8-bech32-bytes` wire shape + lowercase `[a-z0-9]`
+      charset discipline as E1-CW token.transfer). -/
+  mintPrincipalEncoding : String := "u32le(len)||utf8-bech32-bytes"
+  /-- CW20 smart-query message: `{"balance":{"address":"<self>"}}` — base64-
+      encoded into the `msg` field of `WasmQuery::Smart` (Binary is a base64
+      string in the QueryRequest JSON, not inline JSON). -/
+  tokenQueryMsg : String := "{\"balance\":{\"address\":\"<self>\"}}"
+  /-- Smart-query failure (contract missing, malformed response) traps the
+      caller (revert). The query_chain response is a `QuerierResult` =
+      `SystemResult<ContractResult<Binary>>`; any layer Err → unreachable. -/
+  tokenFailureMode : String := "trap-revert-on-system-or-contract-error"
+  /-- Result decode: CW20 `BalanceResponse` = `{"balance":"<Uint128-string>"}`;
+      parse decimal, require `< 2^64` else trap (UInt64 cannot hold Uint128). -/
+  tokenResultDecode : String :=
+    "decimal-string-parse-require-lt-2^64-else-trap"
+  deriving BEq, Repr, Inhabited
+
+def envReadLoweringContractV1 : EnvReadLoweringContractV1 := {}
+
+/-- One admitted env-read L1 QN binding for the CosmWasm pf.assets package. -/
+structure EnvReadBindingV1 where
+  qn : String
+  packageId : String
+  artifactBinding : ArtifactBindingKind
+  loweringContract : EnvReadLoweringContractV1
+  admittedForMaterialization : Bool
+  deriving BEq, Repr, Inhabited
+
+/-- E2-4-CW admitted env-read bindings: native + token balanceOfSelf.
+    Both are read-only host queries via `env.query_chain`; view/entry-callable,
+    effect-free. pureFn/invariant stay fail closed (host read is not pure). -/
+def envReadBindingsV1 : Array EnvReadBindingV1 :=
+  #[
+    { qn := "pf.assets.native.balanceOfSelf"
+      packageId := nativeBankPackageIdV1
+      artifactBinding := .runtimeNative
+      loweringContract := envReadLoweringContractV1
+      admittedForMaterialization := true },
+    { qn := "pf.assets.token.balanceOfSelf"
+      packageId := cw20TokenPackageIdV1
+      artifactBinding := cw20InterfaceStandardV1
+      loweringContract := envReadLoweringContractV1
+      admittedForMaterialization := true }
+  ]
+
 /-- Closed QN membership for the CosmWasm admitted pf.assets set (C1 native
-    + E1-CW token.transfer). `token.transferAsync` and `native.transferAsync`
-    stay fail closed at Plan lowering. -/
+    + E1-CW token.transfer + E2-4-CW env-read balanceOfSelf).
+    `token.transferAsync` and `native.transferAsync` stay fail closed at
+    Plan lowering. -/
 def isCosmWasmAdmittedPfAssetsQnV1 (qn : String) : Bool :=
   qn == "pf.assets.native.deposit" || qn == "pf.assets.native.transfer"
     || qn == "pf.assets.token.transfer"
+    || qn == "pf.assets.native.balanceOfSelf"
+    || qn == "pf.assets.token.balanceOfSelf"
 
 /-- Full catalog membership (five QNs); non-admitted members fail closed at Plan. -/
 def isPfAssetsCatalogQnV1 (qn : String) : Bool :=

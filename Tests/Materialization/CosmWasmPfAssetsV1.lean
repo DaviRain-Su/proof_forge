@@ -224,7 +224,7 @@ unsafe def testNonCatalogSyncFailClosed : IO Unit := do
   | .ok _ => throw <| IO.userError "non-catalog sync call must fail closed on CosmWasm"
 
 /-- Catalog membership: token.transfer is now admitted; the catalog advertises
-    exactly native.deposit + native.transfer + token.transfer. -/
+    exactly native.deposit + native.transfer + token.transfer + env-read QNs. -/
 unsafe def testCatalogAdmitSet : IO Unit := do
   expect (PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.native.deposit")
     "native.deposit must be admitted"
@@ -232,6 +232,10 @@ unsafe def testCatalogAdmitSet : IO Unit := do
     "native.transfer must be admitted"
   expect (PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.token.transfer")
     "token.transfer must be admitted (E1-CW)"
+  expect (PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.native.balanceOfSelf")
+    "native.balanceOfSelf must be admitted (E2-4-CW)"
+  expect (PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.token.balanceOfSelf")
+    "token.balanceOfSelf must be admitted (E2-4-CW)"
   expect (!PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.token.transferAsync")
     "token.transferAsync must NOT be admitted"
   expect (!PfAssetsCatalogV1.isCosmWasmAdmittedPfAssetsQnV1 "pf.assets.native.transferAsync")
@@ -242,6 +246,131 @@ unsafe def testCatalogAdmitSet : IO Unit := do
     "token binding QN is token.transfer"
   expect (PfAssetsCatalogV1.tokenBindingsV1[0]!.admittedForMaterialization)
     "token.transfer must be admitted for materialization"
+  expect (PfAssetsCatalogV1.envReadBindingsV1.size == 2)
+    "exactly two env-read bindings (native + token balanceOfSelf)"
+  expect (PfAssetsCatalogV1.envReadBindingsV1.all (·.admittedForMaterialization))
+    "env-read bindings must be admitted for materialization"
+  expect (PfAssetsCatalogV1.envReadBindingsV1[0]!.qn == "pf.assets.native.balanceOfSelf")
+    "first env-read binding is native.balanceOfSelf"
+  expect (PfAssetsCatalogV1.envReadBindingsV1[1]!.qn == "pf.assets.token.balanceOfSelf")
+    "second env-read binding is token.balanceOfSelf"
+  expect (PfAssetsCatalogV1.envReadLoweringContractV1.nativeDenom == "stake")
+    "env-read frozen denom is stake"
+
+/-- E2-4-CW: native balanceOfSelf in a view lowers to nativeVaultBalance Expr
+    (read-only query_chain bank balance). -/
+private def envReadNativeSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program CwEnvReadNative where\n" ++
+  pfAssetsRequiresBlock ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  view nativeBalance() : UInt64 do\n" ++
+  "    return pf.assets.native.balanceOfSelf()\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n"
+
+/-- E2-4-CW: token balanceOfSelf in a view lowers to tokenVaultBalance Statement
+    (read-only query_chain CW20 smart-query). -/
+private def envReadTokenSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program CwEnvReadToken where\n" ++
+  pfAssetsRequiresBlock ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  view tokenBalance(mint : Principal) : UInt64 do\n" ++
+  "    return pf.assets.token.balanceOfSelf(mint)\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n"
+
+/-- E2-4-CW: envRead in a pureFn must fail closed at Plan (host read not pure). -/
+private def envReadPureFnSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program CwEnvReadPureFn where\n" ++
+  pfAssetsRequiresBlock ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  fn pureBalance() : UInt64 do\n" ++
+  "    return pf.assets.native.balanceOfSelf()\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n"
+
+/-- E2-4-CW: envRead without extension.pf-assets must fail closed at Plan. -/
+private def envReadNoExtSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program CwEnvReadNoExt where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  view nativeBalance() : UInt64 do\n" ++
+  "    return pf.assets.native.balanceOfSelf()\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n"
+
+unsafe def testEnvReadNativePlan : IO Unit := do
+  let compiled ← compileSource "<cw-envread-native>"
+    "Tests.CwEnvReadNative" envReadNativeSource
+  let plan ← planCwOf compiled
+  -- view nativeBalance must contain a nativeVaultBalance Expr in its return.
+  let some viewMethod := plan.entries.find? (·.mode == .view) |
+    throw <| IO.userError "nativeBalance viewMethod must exist"
+  let hasEnvRead := viewMethod.body.any fun st => match st with
+    | .returnValue v => match v with | .nativeVaultBalance => true | _ => false
+    | _ => false
+  expect hasEnvRead "nativeBalance viewMethod must return .nativeVaultBalance expr"
+  -- Plan validates.
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"env-read native plan must validate: {e.render}"
+
+unsafe def testEnvReadTokenPlan : IO Unit := do
+  let compiled ← compileSource "<cw-envread-token>"
+    "Tests.CwEnvReadToken" envReadTokenSource
+  let plan ← planCwOf compiled
+  let some viewMethod := plan.entries.find? (·.mode == .view) |
+    throw <| IO.userError "tokenBalance viewMethod must exist"
+  let hasEnvRead := viewMethod.body.any fun st => match st with
+    | .tokenVaultBalance .. => true | _ => false
+  expect hasEnvRead "tokenBalance viewMethod must contain .tokenVaultBalance statement"
+
+unsafe def testEnvReadPureFnFailClosed : IO Unit := do
+  let compiled ← compileSource "<cw-envread-purefn>"
+    "Tests.CwEnvReadPureFn" envReadPureFnSource
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.cosmwasm none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  match planFromCapability capability with
+  | .error (.planInvariant .cosmwasm msg) =>
+      expect (msg.contains "pureFn" || msg.contains "envRead" || msg.contains "pure")
+        s!"pureFn envRead must cite pureFn, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
+  | .ok _ => throw <| IO.userError "pureFn envRead must fail closed"
+
+unsafe def testEnvReadNoExtFailClosed : IO Unit := do
+  -- E2-2a typed-layer gate: env-read without the extension declaration fails
+  -- at compile (before any target plan) with the exact 1.1.0 declaration
+  -- requirement message.
+  let session ← Tests.Language.ParserSession.shared
+  let parsed ← liftResult (← session.selectProgramV1 envReadNoExtSource
+    "<cw-envread-noext>" "Tests.CwEnvReadNoExt" none)
+  match Compiler.compileValidatedSourceV1 parsed with
+  | .error e =>
+      expect (e.render.contains "requires the pf.assets@1.1.0 extension declaration")
+        s!"no-extension envRead must cite the 1.1.0 declaration gate, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "envRead without extension must fail at compile"
 
 unsafe def run : IO Unit := do
   testDepositTransferPlan
@@ -250,6 +379,10 @@ unsafe def run : IO Unit := do
   testAsyncFailClosed
   testNonCatalogSyncFailClosed
   testCatalogAdmitSet
+  testEnvReadNativePlan
+  testEnvReadTokenPlan
+  testEnvReadPureFnFailClosed
+  testEnvReadNoExtFailClosed
   IO.println "Tests.Materialization.CosmWasmPfAssetsV1: ok"
 
 end Tests.Materialization.CosmWasmPfAssetsV1

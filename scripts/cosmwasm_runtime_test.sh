@@ -100,6 +100,7 @@ programs=(
   "runtime-tests/cosmwasm/fixtures/NarrowCounter.lean:Examples.NarrowCounter:NarrowCounter"
   "Examples/TipJar.lean:Examples.TipJar:TipJar"
   "Examples/TokenJar.lean:Examples.TokenJar:TokenJar"
+  "runtime-tests/cosmwasm/fixtures/EnvReadJar.lean:Examples.EnvReadJar:EnvReadJar"
 )
 
 echo "cosmwasm-runtime-test: building proof-forge-next (lake build proof_forge_next)"

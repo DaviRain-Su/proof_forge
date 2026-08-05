@@ -100,6 +100,11 @@ inductive HostImport where
   | dbWrite
   | dbRemove
   | abort
+  /-- ADR-0030 E2-4-CW: `env.query_chain` — cosmwasm-vm canonical raw-WASM
+      querier channel. Takes a Region containing a serialized
+      `QueryRequest<Empty>` JSON; returns a Region containing a
+      `QuerierResult` (`SystemResult<ContractResult<Binary>>`) JSON. -/
+  | queryChain
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -212,6 +217,13 @@ inductive Expr where
       Result is u64 from `.seconds()` — exact UInt64 fit, **no** range guard
       (unlike EVM's 256-bit `timestamp()` word). UInt64-typed. -/
   | blockTimeSeconds
+  /-- ADR-0030 E2-4-CW: `pf.assets.native.balanceOfSelf()` — read-only host
+      query via `env.query_chain` (bank balance of `env.contract.address` in
+      the frozen `stake` denom). Zero args; result UInt64. View/entry-callable,
+      effect-free. Emitted as a WAT helper that builds the
+      `{"bank":{"balance":{"address":<self>,"denom":"stake"}}}` request Region,
+      calls `env.query_chain`, and parses `.amount`. -/
+  | nativeVaultBalance
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -338,6 +350,18 @@ inductive Statement where
       CW20 balance is the vault; no `info.funds` movement. -/
   | tokenTransfer (mintLen : Expr) (mintBodyWords : Array Expr)
       (dstLen : Expr) (dstBodyWords : Array Expr) (amount : Expr)
+  /-- ADR-0030 E2-4-CW: `pf.assets.token.balanceOfSelf(mint)`.
+      `mintLen` + 8 LE body words are the CW20 contract address Principal
+      wire identity leaves (`len + 8×UInt64`); used as
+      `WasmQuery::Smart.contract_addr`. Emits a `query_chain` host call with
+      `{"wasm":{"smart":{"contract_addr":<mint>,"msg":<base64 of
+      {"balance":{"address":<self>}}>}}}` (`msg` is a `Binary`, base64 in the
+      QueryRequest JSON); decodes the CW20 `BalanceResponse.balance` (Uint128
+      decimal string) and requires it to fit UInt64 (else trap). Read-only,
+      view/entry-callable, effect-free. `resultTemp` is the ValueId-canonical
+      temp bound to the returned UInt64 word. -/
+  | tokenVaultBalance (mintLen : Expr) (mintBodyWords : Array Expr)
+      (resultTemp : Nat)
   deriving BEq, Inhabited, Repr
 
 /-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
@@ -480,9 +504,11 @@ def canonicalResourceLimits : ResourceLimits := {
 }
 
 /-- Fixed CosmWasm MVP host import set. Schedule → SubMsg is pure Response JSON
-    (no extra host imports; unlike NEAR promise_batch_*). -/
+    (no extra host imports; unlike NEAR promise_batch_*). ADR-0030 E2-4-CW
+    adds `query_chain` for read-only env-read host queries (bank balance /
+    CW20 smart query); cosmwasm-vm always provides it. -/
 def canonicalImports : Array HostImport := #[
-  .dbRead, .dbWrite, .dbRemove, .abort
+  .dbRead, .dbWrite, .dbRemove, .abort, .queryChain
 ]
 
 def hostImportsFor (_usesPromise : Bool) : Array HostImport :=
@@ -3164,6 +3190,72 @@ private def lowerBlockInstructionsV1
               dependencies := #[baseId]
             }
         values := ← appendResultValueV1 result.typeId values result value
+    | .envRead key args, some result =>
+        -- ADR-0030 E2-4-CW: read-only self-vault observation (value-producing,
+        -- view-callable, effect-free). Requires exact extension.pf-assets
+        -- (same gate as the catalog QNs). Result must be UInt64.
+        unless layout.pfAssetsDeclared do
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: pf.assets env-read requires extension.pf-assets declaration"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: envRead result must be UInt64"
+        -- pureFn/invariant contexts stay fail closed (envRead is a host read,
+        -- not a pure expression; invariant closures forbid host reads).
+        if mode == .pureFn then
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: pureFn cannot use envRead (host read is not pure)"
+        match key with
+        | .nativeVaultBalance =>
+            -- query_chain bank balance of env.contract.address (frozen denom).
+            -- Zero args; value-producing Expr (like blockTimeSeconds).
+            unless args.isEmpty do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: nativeVaultBalance takes no arguments"
+            values := ← appendResultValueV1 result.typeId values result {
+              expr := .nativeVaultBalance
+              kind := .uint64
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+            }
+        | .tokenVaultBalance =>
+            -- query_chain CW20 smart-query balanceOf(mint, self).
+            -- One Principal arg (the mint); value-producing Statement that
+            -- binds a resultTemp (the query needs to assemble a Region with
+            -- the mint address embedded, call query_chain, then parse).
+            unless args.size == 1 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: tokenVaultBalance takes exactly one Principal argument"
+            let some mintId := args[0]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: tokenVaultBalance mint argument missing"
+            let mintRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+              armReadables mintId
+            unless mintRoot.isAggregate do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: tokenVaultBalance mint must be Principal"
+            let mintLeaves := mintRoot.leafExprs
+            unless mintLeaves.size == 1 + nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: tokenVaultBalance mint Principal leaf count mismatch"
+            let some mintLen := mintLeaves[0]? |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: tokenVaultBalance mint len missing"
+            let mintWords := mintLeaves.extract 1 mintLeaves.size
+            unless mintWords.size == nearPrincipalDataWordCountV1 do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: tokenVaultBalance mint body words mismatch"
+            let _ ← consumeSegmentRootsV1 values blockEntry segmentStart args
+            let resultTemp := result.valueId.toNat
+            body := body.push (.tokenVaultBalance mintLen mintWords resultTemp)
+            values := ← appendResultValueV1 result.typeId values result {
+              expr := .localTemp resultTemp
+              kind := .uint64
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+            }
     -- N5: Commit = identity passthrough; ContextRead unix-time admitted (B-CTX-OPEN).
     | .commit valueId, some result => do
         unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
@@ -3888,7 +3980,8 @@ partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
     | .forLoop _ _ _ _ _ body => statementsUsePromiseV1 body
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate .. | .returnNone
     | .assert _ | .emitEvent .. | .revertError ..
-    | .nativeDeposit _ | .nativeTransfer .. | .tokenTransfer .. => false
+    | .nativeDeposit _ | .nativeTransfer .. | .tokenTransfer ..
+    | .tokenVaultBalance .. => false
 
 def planUsesPromiseV1 (plan : Plan) : Bool :=
   statementsUsePromiseV1 plan.initializer.body ||

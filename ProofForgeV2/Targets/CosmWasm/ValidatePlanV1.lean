@@ -60,6 +60,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
         if fieldIndex < layout.fields.size then some 1 else none
     | .localTemp _ => some 1
     | .blockTimeSeconds => some 1
+    | .nativeVaultBalance => some 1
     | .checkedAdd lhs rhs => binaryNodes lhs rhs
     | .checkedSub lhs rhs => binaryNodes lhs rhs
     | .checkedMul lhs rhs => binaryNodes lhs rhs
@@ -392,6 +393,27 @@ private partial def checkMethodStatementsV1
             "method tokenTransfer amount must be a UInt64 expression"
         total ← addPlanExprNodes limits layout params fns total amount
         methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
+        total := total + 1
+    | .tokenVaultBalance mintLen mintBodyWords resultTemp =>
+        -- ADR-0030 E2-4-CW: read-only query_chain CW20 smart-query
+        -- (pf.assets.token.balanceOfSelf). View/entry-callable; pureFn banned.
+        if isPureFn then
+          throw <| .planInvariant .cosmwasm
+            "pureFn cannot use tokenVaultBalance (host read is not pure)"
+        unless mintBodyWords.size == 8 do
+          throw <| .planInvariant .cosmwasm
+            "method tokenVaultBalance mint must have 8 body words (Principal pilot)"
+        unless exprIsUInt64CompatibleV1 fns mintLen do
+          throw <| .planInvariant .cosmwasm
+            "method tokenVaultBalance mintLen must be a UInt64 expression"
+        total ← addPlanExprNodes limits layout params fns total mintLen
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps mintLen
+        for w in mintBodyWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .cosmwasm
+              "method tokenVaultBalance mint body words must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params fns total w
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w
         total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do

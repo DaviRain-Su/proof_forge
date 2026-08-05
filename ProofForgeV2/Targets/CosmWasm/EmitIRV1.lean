@@ -88,6 +88,16 @@ inductive Operation where
       mintLen + 8 mint body words + dstLen + 8 dst body words + amount temp. -/
   | tokenTransfer (mintLen : Nat) (mintBodyWords : Array Nat)
       (dstLen : Nat) (dstBodyWords : Array Nat) (amount : Nat)
+  /-- ADR-0030 E2-4-CW: `pf.assets.native.balanceOfSelf()` — read-only
+      `query_chain` bank balance of `env.contract.address` (frozen `stake`
+      denom); result `.amount` parsed as UInt64. Value-producing temp. -/
+  | nativeVaultBalance (destination : Nat)
+  /-- ADR-0030 E2-4-CW: `pf.assets.token.balanceOfSelf(mint)` — read-only
+      `query_chain` CW20 smart-query `{"balance":{"address":<self>}}` at
+      `mint`; `BalanceResponse.balance` (Uint128 decimal) parsed as UInt64
+      (overflow traps). `resultTemp` binds the returned UInt64 word. -/
+  | tokenVaultBalance (mintLen : Nat) (mintBodyWords : Array Nat)
+      (resultTemp : Nat)
   /-- ADR-0029 C1: require info.funds == [] (non-deposit mutate/init). -/
   | requireFundsEmpty
   | returnNone
@@ -210,6 +220,8 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       { operations := #[.literal next (UInt64.ofNat value)], value := next, next := next + 1 }
   | .blockTimeSeconds =>
       { operations := #[.blockTimeSeconds next], value := next, next := next + 1 }
+  | .nativeVaultBalance =>
+      { operations := #[.nativeVaultBalance next], value := next, next := next + 1 }
   | .param inputOffset =>
       if paramAsTemp then
         { operations := #[], value := inputOffset / 8, next := next }
@@ -567,6 +579,26 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
           (.tokenTransfer mintLenL.value mintWordTemps dstLenL.value dstWordTemps
             amountL.value)
         next := amountL.next
+    | .tokenVaultBalance mintLen mintBodyWords resultTemp =>
+        -- Plan `resultTemp` is a Semantic ValueId (like forLoop `varTemp`).
+        -- Allocate a fresh IR temp for the query result and bind it into
+        -- localEnv so subsequent `.localTemp resultTemp` (e.g. return) resolve
+        -- to the real balance — not the unmapped-localTemp fallback of
+        -- literal 0.
+        let mintLenL := lowerExpr keys next fnMode localEnv mintLen
+        operations := operations ++ mintLenL.operations
+        next := mintLenL.next
+        let mut mintWordTemps : Array Nat := #[]
+        for w in mintBodyWords do
+          let wl := lowerExpr keys next fnMode localEnv w
+          operations := operations ++ wl.operations
+          mintWordTemps := mintWordTemps.push wl.value
+          next := wl.next
+        let irDest := next
+        next := next + 1
+        operations := operations.push
+          (.tokenVaultBalance mintLenL.value mintWordTemps irDest)
+        localEnv := localEnv.push (resultTemp, irDest)
     | .ifThenElse condition thenBody elseBody =>
         let value := lowerExpr keys next fnMode localEnv condition
         operations := operations ++ value.operations
@@ -664,7 +696,8 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .zeroState _ | .loadState _ _ | .narrowLoadState _ _ _
   | .storeState _ _
   | .setLayout _ _ | .setReturnData _ | .setReturnDataMulti _
-  | .loadParam _ _ | .narrowLoadParam _ _ _ => true
+  | .loadParam _ _ | .narrowLoadParam _ _ _
+  | .nativeVaultBalance _ | .tokenVaultBalance _ _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
   | .switchRegion _ cases defaultOps =>
@@ -761,6 +794,8 @@ private def renderImport : HostImport → String
       "  (import \"env\" \"db_remove\" (func $db_remove (param i32)))\n"
   | .abort =>
       "  (import \"env\" \"abort\" (func $abort (param i32)))\n"
+  | .queryChain =>
+      "  (import \"env\" \"query_chain\" (func $query_chain (param i32) (result i32)))\n"
 
 /-- Shared runtime helpers: bump allocate, Region builders, db load/store U64,
     JSON ok/error result builders, minimal JSON integer field scan. -/
@@ -781,6 +816,8 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"  (global $ret_count (mut i32) (i32.const 0))\n" ++  -- B-RET-ABI leaf count (1..8)
   -- B-CTX-OPEN: whole-second block time from Env JSON (set at entry when used).
   s!"  (global $pf_block_time_secs (mut i64) (i64.const 0))\n" ++
+  -- ADR-0030 E2-4-CW: Env Region ptr cached at entry for env-read queries.
+  "  (global $pf_env_ptr (mut i32) (i32.const 0))\n" ++
   -- ADR-0029 C1: info region cached at entry for funds checks (deposit/empty).
   "  (global $info_off (mut i32) (i32.const 0))\n" ++
   "  (global $info_len (mut i32) (i32.const 0))\n" ++
@@ -894,6 +931,221 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"        (local.set $tmp (i64.div_u (local.get $tmp) (i64.const 10)))\n" ++
   s!"        (br $write)))\n" ++
   s!"    (local.get $n)\n" ++
+  "  )\n" ++
+  -- ADR-0030 E2-4-CW: raw memcpy — copy (srcOff, srcLen) bytes to dstOff.
+  -- Used by query-request builders (not the messages buffer).
+  s!"  (func $pf_copy_bytes (param $dst i32) (param $src i32) (param $len i32)\n" ++
+  s!"    (local $i i32)\n" ++
+  s!"    (local.set $i (i32.const 0))\n" ++
+  s!"    (block $done\n" ++
+  s!"      (loop $copy\n" ++
+  s!"        (br_if $done (i32.ge_u (local.get $i) (local.get $len)))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $dst) (local.get $i))\n" ++
+  s!"          (i32.load8_u (i32.add (local.get $src) (local.get $i))))\n" ++
+  s!"        (local.set $i (i32.add (local.get $i) (i32.const 1)))\n" ++
+  s!"        (br $copy)))\n" ++
+  "  )\n" ++
+  -- ADR-0030 E2-4-CW: pack Principal leaves (len + 8 LE body words) into a
+  -- contiguous heap buffer of the body bytes. Returns a Region ptr
+  -- (offset=buffer, length=bodyLen). Used by tokenVaultBalance to rebuild the
+  -- mint bech32 address from Principal wire-identity leaves.
+  s!"  (func $pf_pack_addr (param $len i64) (param $w0 i64) (param $w1 i64) (param $w2 i64) (param $w3 i64) (param $w4 i64) (param $w5 i64) (param $w6 i64) (param $w7 i64) (result i32)\n" ++
+  s!"    (local $region i32) (local $data i32) (local $bodyLen i32)\n" ++
+  s!"    (local.set $bodyLen (i32.wrap_i64 (local.get $len)))\n" ++
+  s!"    (if (i32.gt_u (local.get $bodyLen) (i32.const 64)) (then unreachable))\n" ++
+  s!"    (if (i32.eqz (local.get $bodyLen)) (then unreachable))\n" ++
+  s!"    (local.set $region (call $pf_allocate (i32.const 72)))\n" ++
+  s!"    (local.set $data (i32.load (local.get $region)))\n" ++
+  -- Principal leaves are 8 LE u64 words; writing each word little-endian into
+  -- the contiguous buffer yields exactly the wire-identity byte sequence.
+  s!"    (i64.store (local.get $data) (local.get $w0))\n" ++
+  s!"    (i64.store offset=8 (local.get $data) (local.get $w1))\n" ++
+  s!"    (i64.store offset=16 (local.get $data) (local.get $w2))\n" ++
+  s!"    (i64.store offset=24 (local.get $data) (local.get $w3))\n" ++
+  s!"    (i64.store offset=32 (local.get $data) (local.get $w4))\n" ++
+  s!"    (i64.store offset=40 (local.get $data) (local.get $w5))\n" ++
+  s!"    (i64.store offset=48 (local.get $data) (local.get $w6))\n" ++
+  s!"    (i64.store offset=56 (local.get $data) (local.get $w7))\n" ++
+  s!"    (i32.store offset=8 (local.get $region) (local.get $bodyLen))\n" ++
+  s!"    (local.get $region)\n" ++
+  "  )\n" ++
+  -- ADR-0030 E2-4-CW: env.contract.address extraction from Env JSON.
+  -- Finds `"contract":{"address":"` needle, copies the bech32 address bytes
+  -- (until the closing `"`) into a fresh heap buffer. Returns region ptr
+  -- (offset=buffer, length=addr-len). Traps if needle missing or addr empty.
+  s!"  (func $pf_env_contract_addr (param $env_ptr i32) (result i32)\n" ++
+  s!"    (local $off i32) (local $len i32) (local $idx i32) (local $p i32) (local $end i32) (local $c i32) (local $n i32) (local $region i32) (local $data i32)\n" ++
+  s!"    (local.set $off (call $pf_region_off (local.get $env_ptr)))\n" ++
+  s!"    (local.set $len (call $pf_region_len (local.get $env_ptr)))\n" ++
+  s!"    (local.set $idx (call $pf_find (local.get $off) (local.get $len) (i32.const 3055) (i32.const 23)))\n" ++
+  s!"    (if (i32.eq (local.get $idx) (i32.const -1)) (then unreachable))\n" ++
+  s!"    (local.set $p (i32.add (i32.add (local.get $off) (local.get $idx)) (i32.const 23)))\n" ++
+  s!"    (local.set $end (i32.add (local.get $off) (local.get $len)))\n" ++
+  s!"    (local.set $region (call $pf_allocate (i32.const 128)))\n" ++
+  s!"    (local.set $data (i32.load (local.get $region)))\n" ++
+  s!"    (local.set $n (i32.const 0))\n" ++
+  s!"    (block $copy_done\n" ++
+  s!"      (loop $copy\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then unreachable))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (if (i32.eq (local.get $c) (i32.const 34)) (then (br $copy_done)))\n" ++
+  s!"        (if (i32.ge_u (local.get $n) (i32.const 90)) (then unreachable))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $data) (local.get $n)) (local.get $c))\n" ++
+  s!"        (local.set $n (i32.add (local.get $n) (i32.const 1)))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br $copy)))\n" ++
+  s!"    (if (i32.eqz (local.get $n)) (then unreachable))\n" ++
+  s!"    (i32.store offset=8 (local.get $region) (local.get $n))\n" ++
+  s!"    (local.get $region)\n" ++
+  "  )\n" ++
+  -- ADR-0030 E2-4-CW: base64 decode of the inner ok string in a query_chain
+  -- response. Input: (srcOff, srcLen) pointing at the base64 text inside
+  -- `{"ok":{"ok":"<b64>"}}`. Output: decoded bytes written to dst. Returns
+  -- decoded length. Standard base64 alphabet A-Za-z0-9+/ with = padding.
+  s!"  (func $pf_b64_decode (param $src i32) (param $srcLen i32) (param $dst i32) (result i32)\n" ++
+  s!"    (local $i i32) (local $o i32) (local $c i32) (local $v i32) (local $acc i32) (local $bits i32) (local $quad i32)\n" ++
+  s!"    (local.set $i (i32.const 0))\n" ++
+  s!"    (local.set $o (i32.const 0))\n" ++
+  s!"    (local.set $acc (i32.const 0))\n" ++
+  s!"    (local.set $bits (i32.const 0))\n" ++
+  s!"    (block $done\n" ++
+  s!"      (loop $next\n" ++
+  s!"        (br_if $done (i32.ge_u (local.get $i) (local.get $srcLen)))\n" ++
+  s!"        (local.set $c (i32.load8_u (i32.add (local.get $src) (local.get $i))))\n" ++
+  s!"        (local.set $i (i32.add (local.get $i) (i32.const 1)))\n" ++
+  s!"        (if (i32.eq (local.get $c) (i32.const 61)) (then (br $done)))\n" ++  -- '=' padding
+  s!"        (if (i32.and (i32.ge_u (local.get $c) (i32.const 65)) (i32.le_u (local.get $c) (i32.const 90))) (then\n" ++  -- A-Z → 0..25
+  s!"          (local.set $v (i32.sub (local.get $c) (i32.const 65))))\n" ++
+  s!"        (else (if (i32.and (i32.ge_u (local.get $c) (i32.const 97)) (i32.le_u (local.get $c) (i32.const 122))) (then\n" ++  -- a-z → 26..51
+  s!"          (local.set $v (i32.sub (local.get $c) (i32.const 71))))\n" ++
+  s!"        (else (if (i32.and (i32.ge_u (local.get $c) (i32.const 48)) (i32.le_u (local.get $c) (i32.const 57))) (then\n" ++  -- 0-9 → 52..61
+  s!"          (local.set $v (i32.add (i32.sub (local.get $c) (i32.const 48)) (i32.const 52))))\n" ++
+  s!"        (else (if (i32.eq (local.get $c) (i32.const 43)) (then\n" ++  -- + → 62
+  s!"          (local.set $v (i32.const 62)))\n" ++
+  s!"        (else (if (i32.eq (local.get $c) (i32.const 47)) (then\n" ++  -- / → 63
+  s!"          (local.set $v (i32.const 63)))\n" ++
+  s!"        (else (br $done)))))))))))\n" ++  -- non-alphabet → stop
+  s!"        (local.set $acc (i32.or (i32.shl (local.get $acc) (i32.const 6)) (local.get $v)))\n" ++
+  s!"        (local.set $bits (i32.add (local.get $bits) (i32.const 6)))\n" ++
+  s!"        (if (i32.ge_u (local.get $bits) (i32.const 8)) (then\n" ++
+  s!"          (local.set $bits (i32.sub (local.get $bits) (i32.const 8)))\n" ++
+  s!"          (local.set $quad (i32.shr_u (local.get $acc) (local.get $bits)))\n" ++
+  s!"          (i32.store8 (i32.add (local.get $dst) (local.get $o)) (i32.and (local.get $quad) (i32.const 255)))\n" ++
+  s!"          (local.set $o (i32.add (local.get $o) (i32.const 1)))\n" ++
+  s!"          (local.set $acc (i32.and (local.get $acc) (i32.sub (i32.shl (i32.const 1) (local.get $bits)) (i32.const 1))))))\n" ++
+  s!"        (br $next)))\n" ++
+  s!"    (local.get $o)\n" ++
+  "  )\n" ++
+  -- ADR-0030 E2-4-CW: query_chain + parse balance. Takes a request Region ptr,
+  -- calls $query_chain, reads the response, finds `{"ok":{"ok":"<b64>"}}`,
+  -- base64-decodes the inner string, scans for `"amount":"<decimal>"`, parses
+  -- the decimal as UInt64 (overflow traps). Returns i64. Any error layer
+  -- (system error / contract error / missing needle / bad decimal) → unreachable.
+  s!"  (func $pf_query_balance (param $req_ptr i32) (param $needleOff i32) (param $needleLen i32) (result i64)\n" ++
+  s!"    (local $resp_ptr i32) (local $rOff i32) (local $rLen i32) (local $idx i32) (local $p i32) (local $end i32) (local $c i32) (local $v i64) (local $any i32) (local $b64Off i32) (local $decOff i32) (local $decLen i32)\n" ++
+  s!"    (local.set $resp_ptr (call $query_chain (local.get $req_ptr)))\n" ++
+  s!"    (if (i32.eqz (local.get $resp_ptr)) (then unreachable))\n" ++
+  s!"    (local.set $rOff (call $pf_region_off (local.get $resp_ptr)))\n" ++
+  s!"    (local.set $rLen (call $pf_region_len (local.get $resp_ptr)))\n" ++
+  "    ;; Find inner `{\"ok\":\"<b64>\"` — the `\"ok\":\"` needle (offset 3222).\n" ++
+  "    ;; Response is `{\"ok\":{\"ok\":\"<b64>\"}}`; the inner `\"ok\":\"` has the base64.\n" ++
+  s!"    (local.set $idx (call $pf_find (local.get $rOff) (local.get $rLen) (i32.const 3222) (i32.const 6)))\n" ++
+  s!"    (if (i32.eq (local.get $idx) (i32.const -1)) (then unreachable))\n" ++
+  s!"    (local.set $b64Off (i32.add (i32.add (local.get $rOff) (local.get $idx)) (i32.const 6)))\n" ++
+  s!"    ;; Find the closing quote of the base64 string.\n" ++
+  s!"    (local.set $p (local.get $b64Off))\n" ++
+  s!"    (local.set $end (i32.add (local.get $rOff) (local.get $rLen)))\n" ++
+  s!"    (local.set $c (i32.const 0))\n" ++
+  s!"    (block $q_done\n" ++
+  s!"      (loop $q\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then unreachable))\n" ++
+  s!"        (if (i32.eq (i32.load8_u (local.get $p)) (i32.const 34)) (then (br $q_done)))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br $q)))\n" ++
+  s!"    (local.set $decOff (i32.load (call $pf_allocate (i32.const 256))))\n" ++
+  s!"    (local.set $decLen (call $pf_b64_decode (local.get $b64Off) (i32.sub (local.get $p) (local.get $b64Off)) (local.get $decOff)))\n" ++
+  s!"    ;; Scan decoded bytes for the field needle and parse decimal.\n" ++
+  s!"    (local.set $idx (call $pf_find (local.get $decOff) (local.get $decLen) (local.get $needleOff) (local.get $needleLen)))\n" ++
+  s!"    (if (i32.eq (local.get $idx) (i32.const -1)) (then unreachable))\n" ++
+  s!"    (local.set $p (i32.add (i32.add (local.get $decOff) (local.get $idx)) (local.get $needleLen)))\n" ++
+  s!"    (local.set $end (i32.add (local.get $decOff) (local.get $decLen)))\n" ++
+  s!"    (local.set $v (i64.const 0))\n" ++
+  s!"    (local.set $any (i32.const 0))\n" ++
+  s!"    (block $num_done\n" ++
+  s!"      (loop $num\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then (br $num_done)))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (br_if $num_done (i32.or (i32.lt_u (local.get $c) (i32.const 48)) (i32.gt_u (local.get $c) (i32.const 57))))\n" ++
+  s!"        (if (i64.gt_u (local.get $v) (i64.const 1844674407370955161)) (then unreachable))\n" ++
+  s!"        (if (i64.eq (local.get $v) (i64.const 1844674407370955161)) (then (if (i32.gt_u (i32.sub (local.get $c) (i32.const 48)) (i32.const 5)) (then unreachable))))\n" ++
+  s!"        (local.set $v (i64.add (i64.mul (local.get $v) (i64.const 10)) (i64.extend_i32_u (i32.sub (local.get $c) (i32.const 48)))))\n" ++
+  s!"        (local.set $any (i32.const 1))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br $num)))\n" ++
+  s!"    (if (i32.eqz (local.get $any)) (then unreachable))\n" ++
+  s!"    (local.get $v)\n" ++
+  "  )\n" ++
+  -- ADR-0030 E2-4-CW: build bank balance query request on heap, call query_chain.
+  -- Request: `{\"bank\":{\"balance\":{\"address\":\"<self>\",\"denom\":\"stake\"}}}`.
+  -- $env_ptr is the Env Region. Returns i64 balance.
+  s!"  (func $pf_native_balance (param $env_ptr i32) (result i64)\n" ++
+  s!"    (local $addrRegion i32) (local $addrOff i32) (local $addrLen i32) (local $reqRegion i32) (local $reqData i32) (local $p i32)\n" ++
+  s!"    (local.set $addrRegion (call $pf_env_contract_addr (local.get $env_ptr)))\n" ++
+  s!"    (local.set $addrOff (call $pf_region_off (local.get $addrRegion)))\n" ++
+  s!"    (local.set $addrLen (call $pf_region_len (local.get $addrRegion)))\n" ++
+  s!"    (local.set $reqRegion (call $pf_allocate (i32.const 256)))\n" ++
+  s!"    (local.set $reqData (i32.load (local.get $reqRegion)))\n" ++
+  s!"    (local.set $p (local.get $reqData))\n" ++
+  s!"    (call $pf_copy_bytes (local.get $p) (i32.const 3100) (i32.const 31))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (i32.const 31)))\n" ++
+  s!"    (call $pf_copy_bytes (local.get $p) (local.get $addrOff) (local.get $addrLen))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (local.get $addrLen)))\n" ++
+  s!"    (call $pf_copy_bytes (local.get $p) (i32.const 3079) (i32.const 20))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (i32.const 20)))\n" ++
+  s!"    (i32.store offset=8 (local.get $reqRegion) (i32.sub (local.get $p) (local.get $reqData)))\n" ++
+  s!"    (call $pf_query_balance (local.get $reqRegion) (i32.const 3211) (i32.const 10))\n" ++
+  "  )\n" ++
+  -- ADR-0030 E2-4-CW: build CW20 smart-query request on heap, call query_chain.
+  -- Request envelope:
+  --   `{"wasm":{"smart":{"contract_addr":"<mint>","msg":"<b64>"}}}`
+  -- where <b64> is the base64 of the inner CW20 balance query JSON
+  --   `{"balance":{"address":"<self>"}}`
+  -- (Binary is a base64 string in the QueryRequest envelope, not inline JSON).
+  -- $env_ptr is the Env Region; $mintRegion is a Region ptr with the mint addr.
+  s!"  (func $pf_token_balance (param $env_ptr i32) (param $mintRegion i32) (result i64)\n" ++
+  s!"    (local $addrRegion i32) (local $addrOff i32) (local $addrLen i32) (local $mintOff i32) (local $mintLen i32) (local $reqRegion i32) (local $reqData i32) (local $innerRegion i32) (local $innerData i32) (local $innerLen i32) (local $b64Len i32) (local $p i32)\n" ++
+  s!"    (local.set $addrRegion (call $pf_env_contract_addr (local.get $env_ptr)))\n" ++
+  s!"    (local.set $addrOff (call $pf_region_off (local.get $addrRegion)))\n" ++
+  s!"    (local.set $addrLen (call $pf_region_len (local.get $addrRegion)))\n" ++
+  s!"    (local.set $mintOff (call $pf_region_off (local.get $mintRegion)))\n" ++
+  s!"    (local.set $mintLen (call $pf_region_len (local.get $mintRegion)))\n" ++
+  -- Build inner CW20 balance query JSON in a scratch region.
+  s!"    (local.set $innerRegion (call $pf_allocate (i32.const 128)))\n" ++
+  s!"    (local.set $innerData (i32.load (local.get $innerRegion)))\n" ++
+  s!"    (local.set $p (local.get $innerData))\n" ++
+  s!"    (call $pf_copy_bytes (local.get $p) (i32.const 3178) (i32.const 23))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (i32.const 23)))\n" ++
+  s!"    (call $pf_copy_bytes (local.get $p) (local.get $addrOff) (local.get $addrLen))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (local.get $addrLen)))\n" ++
+  s!"    (call $pf_copy_bytes (local.get $p) (i32.const 3202) (i32.const 3))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (i32.const 3)))\n" ++
+  s!"    (local.set $innerLen (i32.sub (local.get $p) (local.get $innerData)))\n" ++
+  -- Envelope: prefix + mint + `","msg":"` + base64(inner) + `"}}}`.
+  s!"    (local.set $reqRegion (call $pf_allocate (i32.const 512)))\n" ++
+  s!"    (local.set $reqData (i32.load (local.get $reqRegion)))\n" ++
+  s!"    (local.set $p (local.get $reqData))\n" ++
+  s!"    (call $pf_copy_bytes (local.get $p) (i32.const 3132) (i32.const 35))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (i32.const 35)))\n" ++
+  s!"    (call $pf_copy_bytes (local.get $p) (local.get $mintOff) (local.get $mintLen))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (local.get $mintLen)))\n" ++
+  s!"    (call $pf_copy_bytes (local.get $p) (i32.const 3168) (i32.const 9))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (i32.const 9)))\n" ++
+  s!"    (local.set $b64Len (call $pf_base64_encode (local.get $innerData) (local.get $innerLen) (local.get $p)))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (local.get $b64Len)))\n" ++
+  s!"    (call $pf_copy_bytes (local.get $p) (i32.const 3206) (i32.const 4))\n" ++
+  s!"    (local.set $p (i32.add (local.get $p) (i32.const 4)))\n" ++
+  s!"    (i32.store offset=8 (local.get $reqRegion) (i32.sub (local.get $p) (local.get $reqData)))\n" ++
+  s!"    (call $pf_query_balance (local.get $reqRegion) (i32.const 3229) (i32.const 11))\n" ++
   "  )\n" ++
   -- build ok Response JSON with attributes buffer + optional result attribute
   -- attributes are pre-built at attrBase as comma-separated {"key":"...","value":"..."} items
@@ -1522,6 +1774,18 @@ private partial def renderOperation (memory : MemoryLayout)
       -- B-CTX-OPEN: env.block.time.seconds() pre-parsed into global at entry.
       -- CosmWasm Timestamp.seconds() is u64 — exact UInt64 fit, no range guard.
       s!"{indent}(local.set $t{destination} (global.get $pf_block_time_secs))\n"
+  | .nativeVaultBalance destination =>
+      -- ADR-0030 E2-4-CW: query_chain bank balance of env.contract.address.
+      s!"{indent}(local.set $t{destination} (call $pf_native_balance (global.get $pf_env_ptr)))\n"
+  | .tokenVaultBalance mintLen mintBodyWords resultTemp =>
+      -- ADR-0030 E2-4-CW: query_chain CW20 smart-query balanceOf(mint, self).
+      -- Reconstruct the mint bech32 address from Principal leaves (len + 8 LE
+      -- body words) via $pf_pack_addr, then call $pf_token_balance with the
+      -- mint Region. $pf_token_balance takes (env_ptr, mintRegion) → i64.
+      let args := s!"(local.get $t{mintLen}) " ++
+        String.intercalate " " (mintBodyWords.toList.map fun w => s!"(local.get $t{w})")
+      s!"{indent}(local.set $t{resultTemp} (call $pf_token_balance\n" ++
+        s!"{indent}    (global.get $pf_env_ptr) (call $pf_pack_addr {args})))\n"
   | .loadParam destination inputOffset =>
       -- Params live in locals $p{inputOffset/8} filled by JSON parse before body.
       s!"{indent}(local.set $t{destination} (local.get $p{inputOffset / 8}))\n"
@@ -2035,6 +2299,120 @@ private def renderDataSectionV2 (ir : IR) (keysEnd : Nat) : Except CompileError 
     throw <| .planInvariant .cosmwasm
       "internal: funds-exact needle must be at offset 3018 with length 36"
   off := off + fundsExactNeedle.size + 1
+  -- ADR-0030 E2-4-CW: env-read needles at fixed offsets (helpers hard-code).
+  -- `"contract":{"address":"` (23B) anchors env.contract.address extraction.
+  let envContractNeedle := "\"contract\":{\"address\":\"".toUTF8
+  if off + envContractNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "env-contract needle would overlap bump heap"
+  out := out ++ ("  (data (i32.const " ++ toString off ++ ") \"\\\"contract\\\":{\\\"address\\\":\\\"\")\n")
+  unless off == 3055 && envContractNeedle.size == 23 do
+    throw <| .planInvariant .cosmwasm
+      "internal: env-contract needle must be at offset 3055 with length 23"
+  off := off + envContractNeedle.size + 1
+  -- `","denom":"stake"}}}` (20B) — bank query request suffix (after self addr).
+  let bankReqSuffixNeedle := "\",\"denom\":\"stake\"}}}".toUTF8
+  if off + bankReqSuffixNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "bank-req-suffix needle would overlap bump heap"
+  out := out ++ s!"  (data (i32.const {off}) \"\\\",\\\"denom\\\":\\\"stake\\\"}}}\")\n"
+  unless off == 3079 && bankReqSuffixNeedle.size == 20 do
+    throw <| .planInvariant .cosmwasm
+      "internal: bank-req-suffix needle must be at offset 3079 with length 20"
+  off := off + bankReqSuffixNeedle.size + 1
+  -- `{"bank":{"balance":{"address":"` (31B) — bank query request prefix.
+  let bankReqPrefixNeedle := "{\"bank\":{\"balance\":{\"address\":\"".toUTF8
+  if off + bankReqPrefixNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "bank-req-prefix needle would overlap bump heap"
+  out := out ++ ("  (data (i32.const " ++ toString off ++ ") \"{\\\"bank\\\":{\\\"balance\\\":{\\\"address\\\":\\\"\")\n")
+  unless off == 3100 && bankReqPrefixNeedle.size == 31 do
+    throw <| .planInvariant .cosmwasm
+      "internal: bank-req-prefix needle must be at offset 3100 with length 31"
+  off := off + bankReqPrefixNeedle.size + 1
+  -- `{"wasm":{"smart":{"contract_addr":"` (35B) — wasm smart query prefix.
+  let wasmSmartPrefixNeedle := "{\"wasm\":{\"smart\":{\"contract_addr\":\"".toUTF8
+  if off + wasmSmartPrefixNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "wasm-smart-prefix needle would overlap bump heap"
+  out := out ++ ("  (data (i32.const " ++ toString off ++ ") \"{\\\"wasm\\\":{\\\"smart\\\":{\\\"contract_addr\\\":\\\"\")\n")
+  unless off == 3132 && wasmSmartPrefixNeedle.size == 35 do
+    throw <| .planInvariant .cosmwasm
+      "internal: wasm-smart-prefix needle must be at offset 3132 with length 35"
+  off := off + wasmSmartPrefixNeedle.size + 1
+  -- `","msg":"` (9B) — wasm smart query Binary msg quote anchor; the CW20
+  -- execute msg JSON is base64-encoded after this anchor (Binary is a base64
+  -- string in the QueryRequest envelope, not inline JSON).
+  let wasmMsgQuoteNeedle := "\",\"msg\":\"".toUTF8
+  if off + wasmMsgQuoteNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "wasm-msg-quote needle would overlap bump heap"
+  out := out ++ ("  (data (i32.const " ++ toString off ++ ") \"\\\",\\\"msg\\\":\\\"\")\n")
+  unless off == 3168 && wasmMsgQuoteNeedle.size == 9 do
+    throw <| .planInvariant .cosmwasm
+      "internal: wasm-msg-quote needle must be at offset 3168 with length 9"
+  off := off + wasmMsgQuoteNeedle.size + 1
+  -- `{"balance":{"address":"` (23B) — inner CW20 balance query prefix.
+  let innerBalancePrefixNeedle := "{\"balance\":{\"address\":\"".toUTF8
+  if off + innerBalancePrefixNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "inner-balance-prefix needle would overlap bump heap"
+  out := out ++ ("  (data (i32.const " ++ toString off ++ ") \"{\\\"balance\\\":{\\\"address\\\":\\\"\")\n")
+  unless off == 3178 && innerBalancePrefixNeedle.size == 23 do
+    throw <| .planInvariant .cosmwasm
+      "internal: inner-balance-prefix needle must be at offset 3178 with length 23"
+  off := off + innerBalancePrefixNeedle.size + 1
+  -- `"}}` (3B) — inner CW20 balance query suffix (address quote + 2 closes).
+  let innerBalanceSuffixNeedle := "\"}}".toUTF8
+  if off + innerBalanceSuffixNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "inner-balance-suffix needle would overlap bump heap"
+  out := out ++ s!"  (data (i32.const {off}) \"\\\"}}\")\n"
+  unless off == 3202 && innerBalanceSuffixNeedle.size == 3 do
+    throw <| .planInvariant .cosmwasm
+      "internal: inner-balance-suffix needle must be at offset 3202 with length 3"
+  off := off + innerBalanceSuffixNeedle.size + 1
+  -- `"}}}` (4B) — wasm smart query envelope suffix (b64 quote + 3 closes).
+  let wasmSmartSuffixNeedle := "\"}}}".toUTF8
+  if off + wasmSmartSuffixNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "wasm-smart-suffix needle would overlap bump heap"
+  out := out ++ s!"  (data (i32.const {off}) \"\\\"}}}\")\n"
+  unless off == 3206 && wasmSmartSuffixNeedle.size == 4 do
+    throw <| .planInvariant .cosmwasm
+      "internal: wasm-smart-suffix needle must be at offset 3206 with length 4"
+  off := off + wasmSmartSuffixNeedle.size + 1
+  -- `"amount":"` (10B) — balance decimal scan in decoded BalanceResponse.
+  let amountNeedle := "\"amount\":\"".toUTF8
+  if off + amountNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "amount needle would overlap bump heap"
+  out := out ++ s!"  (data (i32.const {off}) \"\\\"amount\\\":\\\"\")\n"
+  unless off == 3211 && amountNeedle.size == 10 do
+    throw <| .planInvariant .cosmwasm
+      "internal: amount needle must be at offset 3211 with length 10"
+  off := off + amountNeedle.size + 1
+  -- `"ok":"` (6B) — query_chain response inner-ok quote anchor.
+  let okQuoteNeedle := "\"ok\":\"".toUTF8
+  if off + okQuoteNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "ok-quote needle would overlap bump heap"
+  out := out ++ s!"  (data (i32.const {off}) \"\\\"ok\\\":\\\"\")\n"
+  unless off == 3222 && okQuoteNeedle.size == 6 do
+    throw <| .planInvariant .cosmwasm
+      "internal: ok-quote needle must be at offset 3222 with length 6"
+  off := off + okQuoteNeedle.size + 1
+  -- `"balance":"` (11B) — CW20 BalanceResponse balance decimal scan
+  -- (bank uses `"amount":"` at 3211; CW20 uses `"balance":"` here).
+  let balanceNeedle := "\"balance\":\"".toUTF8
+  if off + balanceNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "balance needle would overlap bump heap"
+  out := out ++ s!"  (data (i32.const {off}) \"\\\"balance\\\":\\\"\")\n"
+  unless off == 3229 && balanceNeedle.size == 11 do
+    throw <| .planInvariant .cosmwasm
+      "internal: balance needle must be at offset 3229 with length 11"
+  off := off + balanceNeedle.size + 1
   let mut methodNeedles : Array (String × Nat × Nat) := #[]
   for method in ir.methods do
     -- WAT string containing the bytes of `"name"` (quotes included for JSON find).
@@ -2099,6 +2477,7 @@ private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × 
         "    (local.set $msg_len (call $pf_region_len (local.get $msg_ptr)))\n" ++
         "    (global.set $info_off (call $pf_region_off (local.get $info_ptr)))\n" ++
         "    (global.set $info_len (call $pf_region_len (local.get $info_ptr)))\n" ++
+        "    (global.set $pf_env_ptr (local.get $env_ptr))\n" ++
         renderLoadBlockTime "    " ++
         parse ++
         s!"    (return (call $m_{init.name} {args}))\n" ++
@@ -2134,6 +2513,7 @@ private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String 
         "    (local.set $msg_len (call $pf_region_len (local.get $msg_ptr)))\n" ++
         "    (global.set $info_off (call $pf_region_off (local.get $info_ptr)))\n" ++
         "    (global.set $info_len (call $pf_region_len (local.get $info_ptr)))\n" ++
+        "    (global.set $pf_env_ptr (local.get $env_ptr))\n" ++
         renderLoadBlockTime "    " ++
         dispatch ++
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++
@@ -2167,6 +2547,7 @@ private def renderQuery (ir : IR) (methodNeedles paramNeedles : Array (String ×
         "    (local $msg_off i32) (local $msg_len i32)" ++ paramLocals ++ "\n" ++
         "    (local.set $msg_off (call $pf_region_off (local.get $msg_ptr)))\n" ++
         "    (local.set $msg_len (call $pf_region_len (local.get $msg_ptr)))\n" ++
+        "    (global.set $pf_env_ptr (local.get $env_ptr))\n" ++
         renderLoadBlockTime "    " ++
         dispatch ++
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++
