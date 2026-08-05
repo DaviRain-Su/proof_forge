@@ -322,6 +322,7 @@ private def candidateForApi
       cpiSiteIds := #[0]
     }]
     cpiSites := #[site]
+    envReadSites := #[]
     computeAssumptions := frozenComputeAssumptionsV1
   }
 
@@ -376,6 +377,7 @@ private def oneRoleStateCandidate : Except String SolanaCpiPlanCandidateV1 := do
       cpiSiteIds := #[]
     }]
     cpiSites := #[]
+    envReadSites := #[]
     computeAssumptions := frozenComputeAssumptionsV1
   }
 

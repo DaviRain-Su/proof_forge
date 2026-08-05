@@ -544,6 +544,8 @@ unsafe def run : IO Unit := do
       | .stateLoadU64 t li o => .stateLoadU64 t li o
       | .checkedAddU64 d l r => .checkedAddU64 d l r
       | .stateStoreU64 li o s wm m => .stateStoreU64 li o s wm m
+      | .envReadVaultBalance t k v va m s tk a =>
+          .envReadVaultBalance t k v va m s tk a
       | .returnU64 t => .returnU64 t
       | .returnNone => .returnNone
   let vaultH' : CpiEscrowHandlerIRV1 := {
@@ -623,6 +625,8 @@ unsafe def run : IO Unit := do
       | .stateLoadU64 t li o => .stateLoadU64 t li o
       | .checkedAddU64 d l r => .checkedAddU64 d l r
       | .stateStoreU64 li o s wm m => .stateStoreU64 li o s wm m
+      | .envReadVaultBalance t k v va m s tk a =>
+          .envReadVaultBalance t k v va m s tk a
       | .returnU64 t => .returnU64 t
       | .returnNone => .returnNone
   let vaultH2 : CpiEscrowHandlerIRV1 := {

@@ -2070,6 +2070,236 @@ private def emitInvokeCreateIdempotent
     b := emit b "  jne r0, 0, cpi_failed"
     pure b
 
+/-! ### ADR-0030 E2-3: env-read vault balance emitter -/
+
+/-- Emit the env-read vault balance SBPF body op.
+
+    Scratch layout (r9 = r10 - CPI_BASE):
+    Native: seed0 at +64, vaultKeyOut at +256, vaultBumpOut at +288.
+    Token:  same vault PDA find, then ATA seeds at +16..+56, ATA program key
+            at +64, ataKeyOut at +96, ataBumpOut at +128.
+
+    Native (`nativeVaultBalance`):
+    1. Find vault PDA (canonical bump), join to vault role key.
+    2. Read ROLE_LAMPORTS pointer → lamports u64.
+    3. Store to temp.
+
+    Token (`tokenVaultBalance`):
+    1. Find vault PDA, join.
+    2. Find vault ATA canonical address (wallet=vault PDA, Token, mint),
+       join to vault ATA role key.
+    3. Coherence contract (frozen):
+       a. 0-lamport / 0-data / System-owned → result 0 (no ATA exists).
+       b. Token-owned 165B, state[108]==1, mint join, owner==vault PDA,
+          zero delegate → amount LE at data[64..72].
+       c. Anything else → err_shape.
+    4. Store to temp. -/
+private def emitEnvReadVaultBalance
+    (b0 : AsmBuf) (tempId : Nat) (kind : EnvReadKindV1)
+    (vaultLocal vaultAtaLocal mintLocal systemLocal tokenLocal ataLocal : Nat)
+    (labSuffix : String) : CompileResult AsmBuf := do
+  let vaultKeyOut := 256
+  let vaultBumpOut := 288
+  let zeroLab := s!"envrd_zero_{labSuffix}"
+  let readLab := s!"envrd_read_{labSuffix}"
+  match kind with
+  | .nativeVaultBalance =>
+      pure <| Id.run do
+        let mut b := b0
+        b := emit b s!"  ; --- envReadVaultBalance: native temp={tempId} ---"
+        -- Step 1: find vault PDA, join to vault role key
+        b := emit b "  mov64 r9, r10"
+        b := emit b "  lddw r4, CPI_BASE"
+        b := emit b "  sub64 r9, r4"
+        b := emit b "  lddw r4, 0"
+        for off in [0:64:8] do
+          b := emit b s!"  stxdw [r9 + {off}], r4"
+        b := emitVaultSeed0 b
+        b := emit b "  mov64 r5, r9"
+        b := emit b "  add64 r5, 64"
+        b := emit b "  stxdw [r9 + 104], r5"
+        b := emit b "  lddw r4, 20"
+        b := emit b "  stxdw [r9 + 112], r4                ; SEED0_LEN=20"
+        b := emit b "  mov64 r1, r9"
+        b := emit b "  add64 r1, 104"
+        b := emit b "  lddw r2, 1"
+        b := emit b "  ldxdw r3, [r10 - SLOT_PROGRAM_ID]"
+        b := emit b "  mov64 r4, r9"
+        b := emit b s!"  add64 r4, {vaultKeyOut}"
+        b := emit b "  mov64 r5, r9"
+        b := emit b s!"  add64 r5, {vaultBumpOut}"
+        b := emit b "  call sol_try_find_program_address"
+        b := emit b "  jne r0, 0, cpi_failed"
+        b := emit b s!"  ldxb r1, [r9 + {vaultBumpOut}]"
+        b := emit b "  jeq r1, 0, err_shape"
+        -- Join found key to vault role ROLE_KEY
+        b := emitRoleSlotAddr b vaultLocal
+        b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+        b := emit b "  mov64 r1, r9"
+        b := emit b s!"  add64 r1, {vaultKeyOut}"
+        for word in [0:4] do
+          b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
+          b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+          b := emit b s!"  jne r3, r4, err_shape"
+        -- Step 2: read vault lamports
+        b := emitRoleSlotAddr b vaultLocal
+        b := emit b "  ldxdw r1, [r2 + ROLE_LAMPORTS]"
+        b := emit b "  ldxdw r3, [r1 + 0]               ; vault lamports u64"
+        b := emitStoreTemp b tempId "r3"
+        pure b
+  | .tokenVaultBalance =>
+      pure <| Id.run do
+        let mut b := b0
+        b := emit b s!"  ; --- envReadVaultBalance: token temp={tempId} ---"
+        -- Step 1: find vault PDA, join to vault role key
+        b := emit b "  mov64 r9, r10"
+        b := emit b "  lddw r4, CPI_BASE"
+        b := emit b "  sub64 r9, r4"
+        b := emit b "  lddw r4, 0"
+        for off in [0:64:8] do
+          b := emit b s!"  stxdw [r9 + {off}], r4"
+        b := emitVaultSeed0 b
+        b := emit b "  mov64 r5, r9"
+        b := emit b "  add64 r5, 64"
+        b := emit b "  stxdw [r9 + 104], r5"
+        b := emit b "  lddw r4, 20"
+        b := emit b "  stxdw [r9 + 112], r4                ; SEED0_LEN=20"
+        b := emit b "  mov64 r1, r9"
+        b := emit b "  add64 r1, 104"
+        b := emit b "  lddw r2, 1"
+        b := emit b "  ldxdw r3, [r10 - SLOT_PROGRAM_ID]"
+        b := emit b "  mov64 r4, r9"
+        b := emit b s!"  add64 r4, {vaultKeyOut}"
+        b := emit b "  mov64 r5, r9"
+        b := emit b s!"  add64 r5, {vaultBumpOut}"
+        b := emit b "  call sol_try_find_program_address"
+        b := emit b "  jne r0, 0, cpi_failed"
+        b := emit b s!"  ldxb r1, [r9 + {vaultBumpOut}]"
+        b := emit b "  jeq r1, 0, err_shape"
+        -- Join found key to vault role ROLE_KEY
+        b := emitRoleSlotAddr b vaultLocal
+        b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+        b := emit b "  mov64 r1, r9"
+        b := emit b s!"  add64 r1, {vaultKeyOut}"
+        for word in [0:4] do
+          b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
+          b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+          b := emit b s!"  jne r3, r4, err_shape"
+        -- Step 2: find vault ATA canonical address
+        -- (wallet=vault PDA key from vaultKeyOut, Token, mint under ATA program)
+        b := emit b "  lddw r4, 0"
+        for off in [0:136:8] do
+          b := emit b s!"  stxdw [r9 + {off}], r4"
+        b := emitLoadAtaProgramKey b 64
+        -- Step 2: find vault ATA canonical address
+        b := emit b "  ; --- envRead: find vault ATA canonical address ---"
+        -- seed[0]: wallet = vault PDA key (pointer to vaultKeyOut data)
+        b := emit b s!"  lddw r4, {vaultKeyOut}"
+        b := emit b "  add64 r4, r9"
+        b := emit b "  stxdw [r9 + 16], r4               ; seed[0].addr = &vaultPDA"
+        b := emit b "  lddw r4, 32"
+        b := emit b "  stxdw [r9 + 24], r4               ; seed[0].len = 32"
+        -- seed[1]: classic Token program key (pointer from tokenLocal role)
+        b := emitRoleSlotAddr b tokenLocal
+        b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
+        b := emit b "  stxdw [r9 + 32], r4               ; seed[1].addr = Token key ptr"
+        b := emit b "  lddw r4, 32"
+        b := emit b "  stxdw [r9 + 40], r4               ; seed[1].len = 32"
+        -- seed[2]: mint key (pointer from mintLocal role)
+        b := emitRoleSlotAddr b mintLocal
+        b := emit b "  ldxdw r4, [r2 + ROLE_KEY]"
+        b := emit b "  stxdw [r9 + 48], r4               ; seed[2].addr = mint key ptr"
+        b := emit b "  lddw r4, 32"
+        b := emit b "  stxdw [r9 + 56], r4               ; seed[2].len = 32"
+        -- Call sol_try_find_program_address
+        b := emit b "  mov64 r1, r9"
+        b := emit b "  add64 r1, 16                      ; seeds array"
+        b := emit b "  lddw r2, 3                        ; 3 seeds"
+        b := emit b "  mov64 r3, r9"
+        b := emit b "  add64 r3, 64                      ; ATA program key"
+        b := emit b "  mov64 r4, r9"
+        b := emit b "  add64 r4, 96                      ; keyOut"
+        b := emit b "  mov64 r5, r9"
+        b := emit b "  add64 r5, 128                     ; bumpOut"
+        b := emit b "  call sol_try_find_program_address"
+        b := emit b "  jne r0, 0, cpi_failed"
+        -- Join found ATA key to vault ATA role ROLE_KEY
+        b := emitRoleSlotAddr b vaultAtaLocal
+        b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+        b := emit b "  mov64 r1, r9"
+        b := emit b "  add64 r1, 96"
+        for word in [0:4] do
+          b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
+          b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+          b := emit b s!"  jne r3, r4, err_shape"
+        -- Step 3: coherence contract — check vault ATA account shape
+        -- Get vault ATA data pointer, data_len, and lamports
+        b := emitRoleSlotAddr b vaultAtaLocal
+        b := emit b "  ldxdw r6, [r2 + ROLE_DATA]         ; r6 = data ptr"
+        b := emit b "  ldxdw r7, [r2 + ROLE_LAMPORTS]     ; r7 = lamports ptr"
+        b := emit b "  ldxdw r7, [r7 + 0]                 ; r7 = lamports value"
+        b := emit b "  ldxdw r8, [r2 + ROLE_DATA_LEN]     ; r8 = data_len (save for later)"
+        b := emit b "  ldxdw r1, [r2 + ROLE_OWNER]        ; r1 = owner ptr"
+        -- Check if owner is all-zero (System)
+        b := emit b "  lddw r4, 0"
+        for word in [0:4] do
+          b := emit b s!"  ldxdw r3, [r1 + {word * 8}]"
+          b := emit b "  or64 r4, r3"
+        b := emit b s!"  jeq r4, 0, {zeroLab}             ; System-owned → check absent"
+        -- Not System: must be Token-owned. Check owner == classic Token program
+        b := emitRoleSlotAddr b tokenLocal
+        b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+        for word in [0:4] do
+          b := emit b s!"  ldxdw r3, [r1 + {word * 8}]"
+          b := emit b s!"  ldxdw r4, [r5 + {word * 8}]"
+          b := emit b s!"  jne r3, r4, err_shape          ; owner must be Token"
+        -- Token-owned: check data_len == 165 (r8 still holds data_len)
+        b := emit b "  lddw r4, 165"
+        b := emit b "  jne r8, r4, err_shape              ; data_len must be 165"
+        -- Check state byte data[108] == 1 (Initialized)
+        b := emit b "  ldxb r3, [r6 + 108]"
+        b := emit b "  jne r3, 1, err_shape               ; state must be Initialized"
+        -- Check mint join: data[0..32] == mint role key
+        b := emitRoleSlotAddr b mintLocal
+        b := emit b "  ldxdw r5, [r2 + ROLE_KEY]"
+        for word in [0:4] do
+          b := emit b s!"  ldxdw r3, [r6 + {word * 8}]"
+          b := emit b s!"  ldxdw r4, [r5 + {word * 8}]"
+          b := emit b s!"  jne r3, r4, err_shape          ; mint join"
+        -- Check owner field: data[32..64] == vault PDA key (from vaultKeyOut)
+        b := emit b s!"  mov64 r5, r9"
+        b := emit b s!"  add64 r5, {vaultKeyOut}"
+        for word in [0:4] do
+          b := emit b s!"  ldxdw r3, [r6 + {32 + word * 8}]"
+          b := emit b s!"  ldxdw r4, [r5 + {word * 8}]"
+          b := emit b s!"  jne r3, r4, err_shape          ; owner == vault PDA"
+        -- Check zero delegate: data[72..76] u32le == 0
+        b := emit b "  ldxb r3, [r6 + 72]"
+        b := emit b "  ldxb r4, [r6 + 73]"
+        b := emit b "  lsh64 r4, 8"
+        b := emit b "  or64 r3, r4"
+        b := emit b "  ldxb r4, [r6 + 74]"
+        b := emit b "  lsh64 r4, 16"
+        b := emit b "  or64 r3, r4"
+        b := emit b "  ldxb r4, [r6 + 75]"
+        b := emit b "  lsh64 r4, 24"
+        b := emit b "  or64 r3, r4"
+        b := emit b "  jne r3, 0, err_shape               ; delegate must be None"
+        -- Read amount LE at data[64..72]
+        b := emit b s!"  ldxdw r3, [r6 + 64]              ; token amount u64 LE"
+        b := emitStoreTemp b tempId "r3"
+        b := emit b s!"  ja {readLab}"
+        -- Absent ATA path: System-owned, 0 lamports, 0 data → result 0
+        b := emit b s!"{zeroLab}:"
+        b := emit b "  lddw r4, 0"
+        b := emit b "  or64 r4, r8                        ; data_len must be 0"
+        b := emit b "  or64 r4, r7                        ; lamports must be 0"
+        b := emit b "  jne r4, 0, err_shape               ; absent ATA must be zero"
+        b := emit b "  lddw r3, 0                         ; result 0"
+        b := emitStoreTemp b tempId "r3"
+        b := emit b s!"{readLab}:"
+        pure b
+
 private def emitBodyOp
     (b0 : AsmBuf) (op : CpiEscrowBodyOpV1) (labSuffix : String) :
     CompileResult AsmBuf := do
@@ -2155,6 +2385,10 @@ private def emitBodyOp
       | .nativeDeposit => emitInvokeNativeDeposit b0 inv labSuffix
       | .nativeTransfer => emitInvokeNativeTransfer b0 inv labSuffix
       | .pfAssetsTokenTransfer => emitInvokePfAssetsTokenTransfer b0 inv labSuffix
+  | .envReadVaultBalance tempId kind vaultLocal vaultAtaLocal mintLocal
+      systemLocal tokenLocal ataLocal =>
+      emitEnvReadVaultBalance b0 tempId kind vaultLocal vaultAtaLocal mintLocal
+        systemLocal tokenLocal ataLocal labSuffix
   | .returnU64 srcTemp =>
       pure <| Id.run do
         let mut b := b0
@@ -2394,8 +2628,16 @@ private def emitCompositeAssemblyText
     emitFail "Escrow assembly must not contain legacy 0xec01 call stub"
   if hasSubstr text "callx" then
     emitFail "Escrow assembly must not contain callx"
-  unless hasSubstr text "call sol_invoke_signed_c" do
-    emitFail "Escrow assembly must contain sol_invoke_signed_c"
+  -- ADR-0030 E2-3: envRead-only programs (no CPI invoke sites) don't
+  -- call sol_invoke_signed_c; only require it when at least one handler
+  -- has an invokeEscrow body op.
+  let hasCpiInvoke := cand.handlers.any (fun h =>
+    h.bodyOps.any (fun
+      | .invokeEscrow _ => true
+      | _ => false))
+  if hasCpiInvoke then
+    unless hasSubstr text "call sol_invoke_signed_c" do
+      emitFail "Escrow assembly must contain sol_invoke_signed_c"
   unless hasSubstr text "call sol_set_return_data" do
     emitFail "Escrow assembly must contain sol_set_return_data"
   pure (text, frameBytes)

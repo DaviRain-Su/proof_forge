@@ -37,4 +37,7 @@ program TipJarAssets where
   view get() : UInt64 do
     return tips
 
+  view nativeBalance() : UInt64 do
+    return pf.assets.native.balanceOfSelf()
+
 end Examples

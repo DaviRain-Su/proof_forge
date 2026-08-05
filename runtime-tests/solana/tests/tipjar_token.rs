@@ -162,11 +162,12 @@ const MODULE_NAME: &str = "Examples.TokenJarAssets";
 const MATERIALIZED_BASE: &str = "materialized-base";
 const FINALIZED_EXTRA: &str = "finalized-extra";
 const EXPECTED_SOURCE_HASH: &str =
-    "fa7ba02b8ab857a03694ab283b5765c3fa5be7e812f12b5e5b3774c1a90ab73b";
+    "89239ebb01894325d6b277914f19ded996d9f403b85f9a88871d4ac018865f2f";
 
 const INIT_HANDLER_ID: u64 = 0;
 const TIP_HANDLER_ID: u64 = 1;
 const GET_HANDLER_ID: u64 = 2;
+const TOKEN_BALANCE_HANDLER_ID: u64 = 3;
 
 /// tipToken outer role positions (dense, 10 roles incl. ATA program account).
 const TIP_ROLE_COUNT: usize = 10;
@@ -451,6 +452,10 @@ fn get_ix_data() -> Vec<u8> {
     GET_HANDLER_ID.to_le_bytes().to_vec()
 }
 
+fn token_balance_ix_data() -> Vec<u8> {
+    TOKEN_BALANCE_HANDLER_ID.to_le_bytes().to_vec()
+}
+
 // --- case builders -----------------------------------------------------------
 
 struct TipCase {
@@ -717,5 +722,145 @@ fn get_returns_tips_readonly() {
     assert_eq!(
         account_by_key(&result.resulting_accounts, &state_key).data,
         tips_state(true, 42)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0030 E2-3: tokenBalance view (pf.assets.token.balanceOfSelf)
+// ---------------------------------------------------------------------------
+
+/// tokenBalance view outer roles (dense, 7 roles):
+/// 0 state, 1 tokenBalance_mint, 2 pf_vault, 3 pf_vault_ata,
+/// 4 system_v1_program, 5 token_classic_v1_program, 6 ata_classic_v1_program
+const TOKEN_BALANCE_ROLE_COUNT: usize = 7;
+
+struct TokenBalanceCase {
+    state_key: Pubkey,
+    mint_key: Pubkey,
+    vault_key: Pubkey,
+    vault_ata_key: Pubkey,
+    vault_ata: Account,
+    metas: Vec<AccountMeta>,
+    accounts: Vec<(Pubkey, Account)>,
+}
+
+impl TokenBalanceCase {
+    /// `vault_ata_amount`: Some(amount) for a funded vault ATA; None for
+    /// an absent (fresh System zero) vault ATA.
+    fn new(program_id: Pubkey, vault_ata_amount: Option<u64>) -> Self {
+        let state_key = fixed_key(0x60);
+        let mint_key = fixed_key(0x61);
+        let (vault_key, _) = find_vault_pda(&program_id);
+        let (vault_ata_key, _) = find_ata(&vault_key, &mint_key);
+
+        let state = state_account(&program_id, tips_state(true, 0));
+        let mint = token_owner_account(4_000_000, pack_classic_mint(&vault_key, 1_000_000, MINT_DECIMALS));
+        let vault = Account::new(890_880, 0, &program_id);
+        let system_prog = system_program_keyed_account();
+        let token_prog = (token_classic_program_id(), create_program_account_loader_v3(&token_classic_program_id()));
+        let ata_prog = (ata_classic_program_id(), create_program_account_loader_v3(&ata_classic_program_id()));
+
+        let (vault_ata, vault_ata_account) = match vault_ata_amount {
+            Some(amount) => {
+                let acc = token_owner_account(
+                    4_000_000,
+                    pack_classic_token_account(&mint_key, &vault_key, amount),
+                );
+                (acc.clone(), acc)
+            }
+            None => {
+                // Fresh System-owned zero account (no ATA exists)
+                (Account::new(0, 0, &Pubkey::default()), Account::new(0, 0, &Pubkey::default()))
+            }
+        };
+
+        let metas = vec![
+            AccountMeta::new_readonly(state_key, false),
+            AccountMeta::new_readonly(mint_key, false),
+            AccountMeta::new_readonly(vault_key, false),
+            AccountMeta::new_readonly(vault_ata_key, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(token_classic_program_id(), false),
+            AccountMeta::new_readonly(ata_classic_program_id(), false),
+        ];
+        let accounts = vec![
+            (state_key, state),
+            (mint_key, mint),
+            (vault_key, vault),
+            (vault_ata_key, vault_ata_account),
+            system_prog,
+            token_prog,
+            ata_prog,
+        ];
+        assert_eq!(metas.len(), TOKEN_BALANCE_ROLE_COUNT);
+        assert_eq!(accounts.len(), TOKEN_BALANCE_ROLE_COUNT);
+        Self {
+            state_key,
+            mint_key,
+            vault_key,
+            vault_ata_key,
+            vault_ata,
+            metas,
+            accounts,
+        }
+    }
+
+    fn instruction(&self, program_id: Pubkey) -> Instruction {
+        Instruction::new_with_bytes(program_id, &token_balance_ix_data(), self.metas.clone())
+    }
+}
+
+/// tokenBalance returns the vault ATA token amount (funded → 2000).
+#[test]
+fn token_balance_returns_funded_vault_ata_amount() {
+    let (mollusk, program_id) = make_product_mollusk();
+    let case = TokenBalanceCase::new(program_id, Some(2000));
+    let result = mollusk.process_and_validate_instruction(
+        &case.instruction(program_id),
+        &case.accounts,
+        &[
+            Check::success(),
+            Check::return_data(&2000u64.to_le_bytes()),
+        ],
+    );
+    // View must not mutate accounts
+    let post_vault_ata = account_by_key(&result.resulting_accounts, &case.vault_ata_key);
+    assert_eq!(token_amount(&post_vault_ata.data), 2000);
+}
+
+/// tokenBalance returns 0 for an absent vault ATA (fresh System zero account).
+#[test]
+fn token_balance_absent_vault_ata_returns_zero() {
+    let (mollusk, program_id) = make_product_mollusk();
+    let case = TokenBalanceCase::new(program_id, None);
+    let result = mollusk.process_and_validate_instruction(
+        &case.instruction(program_id),
+        &case.accounts,
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+        ],
+    );
+}
+
+/// tokenBalance with anomalous vault ATA (Token-owned 165B but wrong owner)
+/// → fail closed (err_shape).
+#[test]
+fn token_balance_anomalous_vault_ata_fails() {
+    let (mollusk, program_id) = make_product_mollusk();
+    let mut case = TokenBalanceCase::new(program_id, Some(2000));
+    // Replace vault ATA with one owned by a wrong owner (not vault PDA)
+    let wrong_owner = fixed_key(0x99);
+    let anomalous = token_owner_account(
+        4_000_000,
+        pack_classic_token_account(&case.mint_key, &wrong_owner, 2000),
+    );
+    case.accounts[3] = (case.vault_ata_key, anomalous.clone());
+    case.vault_ata = anomalous;
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &case.instruction(program_id),
+        &case.accounts,
+        Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN)),
     );
 }

@@ -956,19 +956,19 @@
       "sha256": "10d665a2adbce92b9918fd08dec44f3255ceaf58ca7946788187e1bbb5f57799"
     },
     {
-      "bytes": 53604,
+      "bytes": 53818,
       "path": "ProofForgeV2/Targets/Solana/CpiContractV1.lean",
-      "sha256": "f189da0a8d906c86fbc791d80dadc4d4e0270ed30def6974b1c77f1048577eeb"
+      "sha256": "1bd9e3824fe8d59bc29abf58ceb1224fc827e2130bd8964b459ec51b3bddc10f"
     },
     {
-      "bytes": 45367,
+      "bytes": 55305,
       "path": "ProofForgeV2/Targets/Solana/CpiDeriveV1.lean",
-      "sha256": "e5e9773d687ed5da4c08262f8a8cf6127f39c6177f952d28ab995d7b8bb9da92"
+      "sha256": "90faa9c18c1391b164f213974ffd43c74f76b0029d105ffd83915edc7b3809d2"
     },
     {
-      "bytes": 137485,
+      "bytes": 140777,
       "path": "ProofForgeV2/Targets/Solana/CpiEscrowIRV1.lean",
-      "sha256": "41852e3a390fc9f5e0daf88c82a75884e24fb9910c76943b42671c34a48de5b1"
+      "sha256": "03914599ba9da0f346f22caf3ddeadea0336293d614c9f406e457e26b08a17fa"
     },
     {
       "bytes": 43067,
@@ -986,9 +986,9 @@
       "sha256": "ddc86d43f4cdb97e5cc6e8a2bdeda9c16d7537725197016d7fe78f1bd2b83e09"
     },
     {
-      "bytes": 83330,
+      "bytes": 91584,
       "path": "ProofForgeV2/Targets/Solana/CpiPlanV1.lean",
-      "sha256": "0da5eda7d6da17f92c079d540061197dfc010ca52049fc4830ba8370c0aa97b4"
+      "sha256": "6e03a60ad07132abbdec2064a44e613c039b7e791e6cd3144585f5b72a2bf20f"
     },
     {
       "bytes": 6986,
@@ -1001,9 +1001,9 @@
       "sha256": "84b959596f2fd7f2ff0ae222b409ac9f58ad21ead36b6169377e391815667141"
     },
     {
-      "bytes": 8047,
+      "bytes": 8547,
       "path": "ProofForgeV2/Targets/Solana/CpiProductCapabilityV1.lean",
-      "sha256": "792416139855a71649a797af5cfce619cf14429d0e8407dbee09a6cd2412139f"
+      "sha256": "5ba73792a81f79d1564bc4ae3e67e1bc894be3eec392c854da86b44787609473"
     },
     {
       "bytes": 8285,
@@ -1031,9 +1031,9 @@
       "sha256": "5ee8c511fb6bef393c1664e75808008ff3d677299a63417a77dfc7fbb3e57220"
     },
     {
-      "bytes": 106257,
+      "bytes": 118089,
       "path": "ProofForgeV2/Targets/Solana/EmitCpiEscrowSbpfV1.lean",
-      "sha256": "4e041edf987bbc63eef1870bae221e3ac386eff9ae024862da9f2f8ebc694fd3"
+      "sha256": "bb023d1d3d6bf71e7b8b1657812e715ffb44fbfc7494ee3087f9535bae249eee"
     },
     {
       "bytes": 41079,

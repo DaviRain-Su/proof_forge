@@ -204,6 +204,13 @@ inductive CpiEscrowBodyOpV1 where
   /-- Site-time account predicates (must run immediately before invoke). -/
   | siteChecks (siteId : Nat) (ops : Array CpiEscrowSiteCheckV1)
   | invokeEscrow (invoke : CpiEscrowInvokeV1)
+  /-- ADR-0030 E2-3: env-read (vault balance observation). Read-only,
+      value-producing (allocates a temp). Native reads vault PDA lamports;
+      token reads vault ATA token amount LE at data[64..72]. -/
+  | envReadVaultBalance
+      (tempId : Nat) (kind : EnvReadKindV1)
+      (vaultLocal : Nat)
+      (vaultAtaLocal mintLocal systemLocal tokenLocal ataLocal : Nat)
   | returnU64 (srcTemp : Nat)
   | returnNone
   deriving BEq, Repr, Inhabited
@@ -425,6 +432,15 @@ private def fixedProgramLocal
   unless handle.localIndex < handles.size do
     tFail s!"fixed program role '{packageId}' localIndex out of range"
   pure handle.localIndex
+
+/-- Convert Semantic EnvReadKeyV1 to Plan EnvReadKindV1. -/
+private def envReadKindOfKey : EnvReadKeyV1 → EnvReadKindV1
+  | .nativeVaultBalance => .nativeVaultBalance
+  | .tokenVaultBalance => .tokenVaultBalance
+
+private def renderEnvReadKind : EnvReadKindV1 → String
+  | .nativeVaultBalance => "nativeVaultBalance"
+  | .tokenVaultBalance => "tokenVaultBalance"
 
 /-- Token-aware owner resolution. -/
 private def resolveOwnerOps
@@ -1244,6 +1260,7 @@ private def projectEscrowHandler
     (planHandler : HandlerPlanV1)
     (handles : Array CpiIRRoleHandleV1)
     (sites : Array CpiIRSiteV1)
+    (envReadSites : Array EnvReadSitePlanV1)
     (stateSchemas : Array StateSchemaV1) :
     CompileResult CpiEscrowHandlerIRV1 := do
   let _tokenPkg ← requireEscrowTokenPackage
@@ -1410,6 +1427,42 @@ private def projectEscrowHandler
             body := body.push (.checkedAddU64 t l r)
         | _ =>
             tFail "Escrow CPI IR first slice admits only checked UInt64 add in body"
+    | .envRead key args =>
+        let some vd := instr.result |
+          tFail "envRead must produce a result"
+        unless anonUintWidth? data.types vd.typeId == some 64 do
+          tFail "envRead result must be anonymous UInt64"
+        -- Find the matching envRead site from the Plan
+        let envSite ← match envReadSites.find? (fun s =>
+          s.anchor.callableId == planHandler.callableId &&
+            s.anchor.blockId == blk.id.toNat &&
+            s.anchor.instructionIndex == instrIdx) with
+        | some s => pure s
+        | none =>
+            tFail
+              s!"envRead at instr {instrIdx} has no matching envRead site anchor"
+        unless envSite.kind == envReadKindOfKey key do
+          tFail "envRead site kind diverges from Semantic envRead key"
+        -- Verify arg join
+        match key with
+        | .nativeVaultBalance =>
+            unless args.isEmpty do
+              tFail "nativeVaultBalance envRead takes zero args"
+        | .tokenVaultBalance =>
+            unless args.size == 1 do
+              tFail "tokenVaultBalance envRead takes exactly one arg"
+        -- Resolve local indices for the roles
+        let vaultLocal ← localIndexOfRole handles envSite.vaultRoleId
+        let vaultAtaLocal ← localIndexOfRole handles envSite.vaultAtaRoleId
+        let mintLocal ← localIndexOfRole handles envSite.mintRoleId
+        let systemLocal ← localIndexOfRole handles envSite.systemProgramRoleId
+        let tokenLocal ← localIndexOfRole handles envSite.tokenProgramRoleId
+        let ataLocal ← localIndexOfRole handles envSite.ataProgramRoleId
+        let (t, tempOf', next') := allocTemp tempOf nextTemp vd.valueId.toNat
+        tempOf := tempOf'
+        nextTemp := next'
+        body := body.push (.envReadVaultBalance t (envReadKindOfKey key) vaultLocal
+          vaultAtaLocal mintLocal systemLocal tokenLocal ataLocal)
     | .externalCall effectId callee args =>
         let qnComps ← mapExcept (renderQualifiedNameComponents callee) "callee QN"
         let qn := String.intercalate "." qnComps.toList
@@ -2225,7 +2278,7 @@ private def projectEscrowHandler
         tFail "Escrow CPI IR rejects pureCall in first slice"
     | .construct .. | .fieldGet .. | .fieldSet .. | .indexGet .. | .indexSet ..
     | .variantTag .. | .variantPayload .. | .checkedCast ..
-    | .contextRead .. | .envRead .. | .commit .. | .assert_ .. | .emit .. | .schedule .. =>
+    | .contextRead .. | .commit .. | .assert_ .. | .emit .. | .schedule .. =>
         tFail "Escrow CPI IR rejects unsupported body op in first slice"
 
   match blk.terminator with
@@ -2321,7 +2374,9 @@ private def projectEscrowCandidateFromPlan
     let sites := ir.candidate.sites.filter (fun s => s.handlerId == h.handlerId)
     unless sites.map (·.siteId) == h.cpiSiteIds do
       tFail "handler site order must equal Plan cpiSiteIds"
-    let projected ← projectEscrowHandler abi data h handles sites
+    let envReadSites := plan.candidate.envReadSites.filter
+      (fun s => s.handlerId == h.handlerId)
+    let projected ← projectEscrowHandler abi data h handles sites envReadSites
       plan.candidate.stateSchemas
     handlers := handlers.push projected
   pure {
@@ -2466,6 +2521,8 @@ private def renderBodyOp : CpiEscrowBodyOpV1 → String
       let parts := String.intercalate ";" (ops.map renderSiteCheck).toList
       s!"siteChecks:{sid}:[{parts}]"
   | .invokeEscrow inv => renderInvoke inv
+  | .envReadVaultBalance t kind vault vaultAta mint sys tok ata =>
+      s!"envReadVaultBalance:{t}:{renderEnvReadKind kind}:vault{vault}:ata{vaultAta}:mint{mint}:sys{sys}:tok{tok}:ata{ata}"
   | .returnU64 t => s!"returnU64:{t}"
   | .returnNone => "returnNone"
 
@@ -2809,6 +2866,12 @@ def escrowMaxSiteScratchV1 (c : SolanaCpiEscrowIRCandidateV1) : Nat :=
                   -- Composite ATA ensure ×2 + transferCheckedPda; the Token
                   -- step has the largest scratch end (289+56N).
                   escrowCpiScratchPfAssetsTokenTransferV1 inv.accountInfoCount
+            if b > maxB then maxB := b
+        | .envReadVaultBalance _ kind _ _ _ _ _ _ =>
+            -- envRead scratch: vault PDA find (seed0+104+keyOut256+bumpOut288
+            -- = 296) + ATA find for token (seeds136 = max 136). Native uses
+            -- 296; token uses max(296, 136) = 296.
+            let b := 296
             if b > maxB then maxB := b
         | _ => pure ()
     pure maxB

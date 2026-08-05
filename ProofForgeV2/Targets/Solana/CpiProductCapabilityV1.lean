@@ -145,24 +145,33 @@ def resolveSolanaCpiProductCapabilityV1
     | .error e =>
         productCapFail s!"Solana CPI product: pf.assets seed failed: {e}"
 
-  unless requestExact requested.items syncReq do
-    productCapFail
-      s!"Solana CPI product requires exact deferred requirement '{s2EffectSyncCallIdV1}'"
-  if requestExact requested.items asyncReq ||
-      hasRequestId requested.items s2EffectAsyncWorkflowIdV1 then
-    productCapFail
-      s!"Solana CPI product rejects '{s2EffectAsyncWorkflowIdV1}'"
   let hasSolanaExt := requestExact requested.items solanaExtReq
   let hasPfAssets := requestExact requested.items pfAssetsReq
   unless hasSolanaExt || hasPfAssets do
     productCapFail
       "Solana CPI product requires exact extension.solana-cpi-accounts and/or extension.pf-assets"
+  -- ADR-0030 E2-3: envRead-only programs (pf.assets extension, no
+  -- externalCall) do not carry effect.synchronous-call. The sync-call
+  -- requirement is only mandatory when the program has CPI invoke sites.
+  -- A program with pf.assets but no sync-call is admitted as envRead-only.
+  let hasSyncCall := requestExact requested.items syncReq
+  unless hasSyncCall do
+    unless hasPfAssets do
+      productCapFail
+        s!"Solana CPI product requires exact deferred requirement '{s2EffectSyncCallIdV1}'"
+  if requestExact requested.items asyncReq ||
+      hasRequestId requested.items s2EffectAsyncWorkflowIdV1 then
+    productCapFail
+      s!"Solana CPI product rejects '{s2EffectAsyncWorkflowIdV1}'"
 
   let claim := ResolvedEngineeringBuildV1.supportClaimOf engineering
   let supported := EngineeringSupportClaimV1.supportedOf claim
-  unless requestExact supported syncReq do
-    productCapFail
-      s!"Solana CPI product SupportClaim must include exact '{s2EffectSyncCallIdV1}'"
+  -- ADR-0030 E2-3: SupportClaim sync-call check only when the program has
+  -- sync-call (envRead-only programs don't).
+  if hasSyncCall then
+    unless requestExact supported syncReq do
+      productCapFail
+        s!"Solana CPI product SupportClaim must include exact '{s2EffectSyncCallIdV1}'"
   if hasSolanaExt then
     unless requestExact supported solanaExtReq do
       productCapFail

@@ -27,4 +27,7 @@ program TokenJarAssets where
   view get() : UInt64 do
     return tips
 
+  view tokenBalance(mint : Principal) : UInt64 do
+    return pf.assets.token.balanceOfSelf(mint)
+
 end Examples

@@ -267,6 +267,41 @@ def isCompanionApiV1 (qn : String) : Bool :=
     qn == "solana.companion.fail" ||
     qn == "solana.companion.invokeSigned"
 
+/-! ## ADR-0030 E2-3 env-read site plan (Solana vault observation)
+
+    `pf.assets.native.balanceOfSelf()` / `pf.assets.token.balanceOfSelf(mint)`
+    are read-only value-producing ops (not CPI invokes). The Plan carries one
+    `EnvReadSitePlanV1` per Semantic `Op.envRead` occurrence so that the
+    handler's account set includes the vault PDA role (native) or the vault
+    ATA + mint + program roles (token), and the IR/emitter can resolve them. -/
+
+inductive EnvReadKindV1 where
+  | nativeVaultBalance
+  | tokenVaultBalance
+  deriving BEq, Repr
+
+/-- One env-read site in the Plan (read-only; no CPI invoke). -/
+structure EnvReadSitePlanV1 where
+  siteId : Nat
+  handlerId : Nat
+  /-- Semantic anchor (callableId, blockId, instructionIndex). envRead has no
+      EffectId (effect-free); `effectId` is always 0. -/
+  anchor : SemanticSiteAnchorV1
+  kind : EnvReadKindV1
+  /-- Native: vault PDA role. Token: vault PDA role (authority / ATA wallet). -/
+  vaultRoleId : Nat
+  /-- Token only: vault ATA role (ATA(vault, mint)). Native: 0 (unused). -/
+  vaultAtaRoleId : Nat
+  /-- Token only: mint Principal parameter role. Native: 0 (unused). -/
+  mintRoleId : Nat
+  /-- Token only: system-v1 fixedProgram role (ATA address check). Native: 0. -/
+  systemProgramRoleId : Nat
+  /-- Token only: token-classic-v1 fixedProgram role. Native: 0. -/
+  tokenProgramRoleId : Nat
+  /-- Token only: ata-classic-v1 fixedProgram role. Native: 0. -/
+  ataProgramRoleId : Nat
+  deriving BEq, Repr
+
 /-- Public inspection candidate for a Solana CPI plan (not yet validated). -/
 structure SolanaCpiPlanCandidateV1 where
   schema : String
@@ -280,6 +315,7 @@ structure SolanaCpiPlanCandidateV1 where
   accountRoles : Array AccountRoleSchemaV1
   handlers : Array HandlerPlanV1
   cpiSites : Array CpiSitePlanV1
+  envReadSites : Array EnvReadSitePlanV1
   computeAssumptions : ComputeAssumptionsV1
   deriving BEq
 
@@ -494,6 +530,31 @@ private def deriveHandlerRoleIds
             | .vaultAta | .dstAta =>
                 acc := pushUnique acc metaSlot.roleId
             | .arg _ => pure ()
+    -- 3.5) ADR-0030 E2-3: env-read sites contribute their roles (vault PDA,
+    -- vault ATA, mint param, and fixedProgram program roles for token). These
+    -- are read-only; the mint param is an accountParameter consumed by the
+    -- env-read site, added here in source order after CPI site roles. The
+    -- vault/ATA/program roles are synthetic and added in envReadSite order.
+    for envSite in c.envReadSites do
+      if envSite.handlerId == h.handlerId then
+        -- mint param role (token only): add in param-ordinal order via sort
+        if envSite.kind == .tokenVaultBalance then
+          match c.accountRoles[envSite.mintRoleId]? with
+          | some role =>
+              match role.keyPolicy with
+              | .accountParameter cid _ =>
+                  if cid == h.callableId then
+                    acc := pushUnique acc envSite.mintRoleId
+              | _ => acc := pushUnique acc envSite.mintRoleId
+          | none => acc := pushUnique acc envSite.mintRoleId
+        -- vault PDA role
+        acc := pushUnique acc envSite.vaultRoleId
+        -- token-only synthetic roles
+        if envSite.kind == .tokenVaultBalance then
+          acc := pushUnique acc envSite.vaultAtaRoleId
+          acc := pushUnique acc envSite.systemProgramRoleId
+          acc := pushUnique acc envSite.tokenProgramRoleId
+          acc := pushUnique acc envSite.ataProgramRoleId
     return acc
 
 /-- Expected site predicates: callee, then metas order, then outer-only order. -/
@@ -987,6 +1048,37 @@ private def encodeCpiSite (s : CpiSitePlanV1) : CompileResult PfJson := do
     ("failurePolicy", encodeFailurePolicy s.failurePolicy)
   ])
 
+private def encodeEnvReadKind (k : EnvReadKindV1) : PfJson :=
+  match k with
+  | .nativeVaultBalance => .string "nativeVaultBalance"
+  | .tokenVaultBalance => .string "tokenVaultBalance"
+
+private def encodeEnvReadSite (s : EnvReadSitePlanV1) : CompileResult PfJson := do
+  let siteId ← pfNat "envReadSite.siteId" s.siteId
+  let handlerId ← pfNat "envReadSite.handlerId" s.handlerId
+  let anchor ← encodeAnchor s.anchor
+  let vaultRoleId ← pfNat "envReadSite.vaultRoleId" s.vaultRoleId
+  let vaultAtaRoleId ← pfNat "envReadSite.vaultAtaRoleId" s.vaultAtaRoleId
+  let mintRoleId ← pfNat "envReadSite.mintRoleId" s.mintRoleId
+  let systemProgramRoleId ←
+    pfNat "envReadSite.systemProgramRoleId" s.systemProgramRoleId
+  let tokenProgramRoleId ←
+    pfNat "envReadSite.tokenProgramRoleId" s.tokenProgramRoleId
+  let ataProgramRoleId ←
+    pfNat "envReadSite.ataProgramRoleId" s.ataProgramRoleId
+  pure (.object #[
+    ("siteId", siteId),
+    ("handlerId", handlerId),
+    ("anchor", anchor),
+    ("kind", encodeEnvReadKind s.kind),
+    ("vaultRoleId", vaultRoleId),
+    ("vaultAtaRoleId", vaultAtaRoleId),
+    ("mintRoleId", mintRoleId),
+    ("systemProgramRoleId", systemProgramRoleId),
+    ("tokenProgramRoleId", tokenProgramRoleId),
+    ("ataProgramRoleId", ataProgramRoleId)
+  ])
+
 private def encodeComputeAssumptions (c : ComputeAssumptionsV1) :
     CompileResult PfJson := do
   pure (.object #[
@@ -1035,6 +1127,7 @@ private def encodeCandidatePfJson
   let accountRoles ← c.accountRoles.mapM encodeAccountRole
   let handlers ← c.handlers.mapM encodeHandler
   let cpiSites ← c.cpiSites.mapM encodeCpiSite
+  let envReadSites ← c.envReadSites.mapM encodeEnvReadSite
   let compute ← encodeComputeAssumptions c.computeAssumptions
   pure (.object #[
     ("schema", .string c.schema),
@@ -1048,6 +1141,7 @@ private def encodeCandidatePfJson
     ("accountRoles", .array accountRoles),
     ("handlers", .array handlers),
     ("cpiSites", .array cpiSites),
+    ("envReadSites", .array envReadSites),
     ("computeAssumptions", compute)
   ])
 
@@ -1684,6 +1778,78 @@ private def validatePrivilegeJoin
               | .none =>
                   planFail "signer group requires site PDA rule"
 
+/-! ## ADR-0030 E2-3 env-read site validation -/
+
+private def validateEnvReadSites (c : SolanaCpiPlanCandidateV1) :
+    CompileResult Unit := do
+  let siteIds := c.envReadSites.map (·.siteId)
+  unless arrayDenseFromZero siteIds do
+    planFail "envReadSiteIds must be dense 0..n-1"
+  for i in [0:c.envReadSites.size] do
+    let s ← getArr c.envReadSites i "envReadSites"
+    unless s.siteId == i do
+      planFail "envReadSite.siteId must equal dense index"
+    requireUInt32 "envReadSite.siteId" s.siteId
+    requireUInt32 "envReadSite.handlerId" s.handlerId
+    requireUInt32 "envReadSite.anchor.callableId" s.anchor.callableId
+    requireUInt32 "envReadSite.anchor.blockId" s.anchor.blockId
+    requireUInt32 "envReadSite.anchor.instructionIndex" s.anchor.instructionIndex
+    -- effectId is always 0 for envRead (effect-free)
+    requireUInt32 "envReadSite.anchor.effectId" s.anchor.effectId
+    unless s.anchor.effectId == 0 do
+      planFail "envReadSite.anchor.effectId must be 0 (effect-free)"
+    -- handlerId must reference a real handler
+    unless c.handlers.any (·.handlerId == s.handlerId) do
+      planFail "envReadSite.handlerId must reference a real handler"
+    -- handler must be a view (envRead is read-only; entry/init/pureFn FC)
+    let h ← match c.handlers.find? (·.handlerId == s.handlerId) with
+    | some h => pure h
+    | none => planFail "envReadSite handler missing"
+    unless h.mode == .view do
+      planFail "envReadSite handler must be .view (read-only)"
+    -- roleIds must reference real account roles
+    for roleId in #[s.vaultRoleId, s.vaultAtaRoleId, s.mintRoleId,
+        s.systemProgramRoleId, s.tokenProgramRoleId, s.ataProgramRoleId] do
+      unless roleId < c.accountRoles.size do
+        planFail "envReadSite roleId out of range"
+    -- vault role must be .vaultPda
+    let vaultRole ← getArr c.accountRoles s.vaultRoleId "envReadSite.vaultRole"
+    unless vaultRole.keyPolicy == .vaultPda do
+      planFail "envReadSite.vaultRoleId must be .vaultPda"
+    match s.kind with
+    | .nativeVaultBalance =>
+        -- Native: vaultAta/mint/program roles are unused (must be 0)
+        -- but we don't enforce 0 to keep the structure uniform; the IR/emitter
+        -- ignore them. The key constraint is vault role only.
+        pure ()
+    | .tokenVaultBalance =>
+        -- Token: vaultAta must be .vaultAta, mint must be .accountParameter,
+        -- program roles must be .fixedProgram with exact package ids.
+        let vaultAtaRole ←
+          getArr c.accountRoles s.vaultAtaRoleId "envReadSite.vaultAtaRole"
+        unless vaultAtaRole.keyPolicy == .vaultAta do
+          planFail "envReadSite.vaultAtaRoleId must be .vaultAta"
+        let mintRole ←
+          getArr c.accountRoles s.mintRoleId "envReadSite.mintRole"
+        match mintRole.keyPolicy with
+        | .accountParameter cid _ =>
+            unless cid == h.callableId do
+              planFail "envReadSite.mintRoleId must belong to this handler"
+        | _ =>
+            planFail "envReadSite.mintRoleId must be .accountParameter"
+        let sysRole ←
+          getArr c.accountRoles s.systemProgramRoleId "envReadSite.systemRole"
+        unless sysRole.keyPolicy == .fixedProgram "system-v1" do
+          planFail "envReadSite.systemProgramRoleId must be .fixedProgram system-v1"
+        let tokRole ←
+          getArr c.accountRoles s.tokenProgramRoleId "envReadSite.tokenRole"
+        unless tokRole.keyPolicy == .fixedProgram "token-classic-v1" do
+          planFail "envReadSite.tokenProgramRoleId must be .fixedProgram token-classic-v1"
+        let ataRole ←
+          getArr c.accountRoles s.ataProgramRoleId "envReadSite.ataRole"
+        unless ataRole.keyPolicy == .fixedProgram "ata-classic-v1" do
+          planFail "envReadSite.ataProgramRoleId must be .fixedProgram ata-classic-v1"
+
 /-- Sole #117 structural validation entry: deterministic phase order 1..6.
     It binds every DTO field into canonical bytes but does not certify that
     caller-supplied semantic anchors/value IDs exist in a retained program. -/
@@ -1700,6 +1866,8 @@ def validateSolanaCpiPlanV1
   validateHandlers candidate
   -- Phase 5: sites (content + caps + uniqueness + predicates)
   validateSites candidate
+  -- Phase 5.5: env-read sites (E2-3)
+  validateEnvReadSites candidate
   -- Phase 6: privilege join
   validatePrivilegeJoin candidate
   -- Canonical encode + digest (only validated carrier exposes digest).
@@ -1868,6 +2036,7 @@ def validateSolanaCpiProductPlanV1
   validateRoles candidate
   validateHandlers candidate
   validateSites candidate
+  validateEnvReadSites candidate
   validatePrivilegeJoin candidate
   validateProductApprovedApis candidate
   let canonicalBytes ← encodeCandidateCanonical candidate

@@ -596,13 +596,16 @@ def activeProductApiQnsV1 : Array String := #[
   "solana.ata.createIdempotent"
 ]
 
-/-- ADR-0029 Phase B1 + ADR-0030 E1b Solana-admitted L1 pf.assets APIs (sync).
-    Native deposit/transfer (B1) + token.transfer (E1b). Async/token.transferAsync
-    stay fail closed at product derive. -/
+/-- ADR-0029 Phase B1 + ADR-0030 E1b/E2-3 Solana-admitted L1 pf.assets APIs
+    (sync + env-read). Native deposit/transfer (B1) + token.transfer (E1b) +
+    env-read balanceOfSelf (E2-3). Async/token.transferAsync stay fail closed
+    at product derive. -/
 def pfAssetsSolanaProductApiQnsV1 : Array String := #[
   "pf.assets.native.deposit",
   "pf.assets.native.transfer",
-  "pf.assets.token.transfer"
+  "pf.assets.token.transfer",
+  "pf.assets.native.balanceOfSelf",
+  "pf.assets.token.balanceOfSelf"
 ]
 
 def isPfAssetsSolanaProductApiV1 (qn : String) : Bool :=
@@ -613,7 +616,9 @@ def isPfAssetsCatalogQnV1 (qn : String) : Bool :=
     qn == "pf.assets.native.transfer" ||
     qn == "pf.assets.native.transferAsync" ||
     qn == "pf.assets.token.transfer" ||
-    qn == "pf.assets.token.transferAsync"
+    qn == "pf.assets.token.transferAsync" ||
+    qn == "pf.assets.native.balanceOfSelf" ||
+    qn == "pf.assets.token.balanceOfSelf"
 
 /-- Exact structural validation of the #125 active package table. -/
 def validateActiveCalleePackagesV1 : Except String Unit := do

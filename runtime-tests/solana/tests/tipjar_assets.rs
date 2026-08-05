@@ -53,13 +53,14 @@ const MODULE_NAME: &str = "Examples.TipJarAssets";
 const SOURCE_REL: &str = "runtime-tests/solana/fixtures/TipJarAssets.lean";
 /// Canonical ProgramV1 source identity for the tracked fixture above.
 const EXPECTED_SOURCE_HASH: &str =
-    "cd0e3215bbf007208ccc70bb86da2dcf7c95a10f08506221ea8d8b89048768d1";
+    "2e86ce681f37ea379b888cb2b076ace94cad1934de37a52f328988ba5893cb2f";
 const MATERIALIZED_BASE: &str = "materialized-base";
 const FINALIZED_EXTRA: &str = "finalized-extra";
 
 const INIT_HANDLER_ID: u64 = 0;
 const TIP_HANDLER_ID: u64 = 1;
 const GET_HANDLER_ID: u64 = 2;
+const NATIVE_BALANCE_HANDLER_ID: u64 = 3;
 
 const INIT_IX_LEN: usize = 16;
 const TIP_IX_LEN: usize = 16;
@@ -491,6 +492,10 @@ fn get_ix_data() -> Vec<u8> {
     GET_HANDLER_ID.to_le_bytes().to_vec()
 }
 
+fn native_balance_ix_data() -> Vec<u8> {
+    NATIVE_BALANCE_HANDLER_ID.to_le_bytes().to_vec()
+}
+
 fn account_by_key<'a>(
     accounts: &'a [(Pubkey, Account)],
     key: &Pubkey,
@@ -672,13 +677,15 @@ fn product_tree_is_manifest_bound_cpi_profile() {
     assert_eq!(plan["profileId"], serde_json::json!(CPI_PROFILE));
     assert_eq!(plan["programName"], serde_json::json!(PROGRAM_NAME));
     let handlers = plan["handlers"].as_array().expect("handlers array");
-    assert_eq!(handlers.len(), 3, "init + tip + get");
+    assert_eq!(handlers.len(), 4, "init + tip + get + nativeBalance");
     assert_eq!(handlers[0]["handlerId"], serde_json::json!(0));
     assert_eq!(handlers[0]["name"], serde_json::json!("init"));
     assert_eq!(handlers[1]["handlerId"], serde_json::json!(1));
     assert_eq!(handlers[1]["name"], serde_json::json!("tip"));
     assert_eq!(handlers[2]["handlerId"], serde_json::json!(2));
     assert_eq!(handlers[2]["name"], serde_json::json!("get"));
+    assert_eq!(handlers[3]["handlerId"], serde_json::json!(3));
+    assert_eq!(handlers[3]["name"], serde_json::json!("nativeBalance"));
 
     let tip_uses = handlers[1]["accountUses"].as_array().expect("tip uses");
     assert_eq!(tip_uses.len(), TIP_OUTER_ROLE_COUNT);
@@ -998,4 +1005,67 @@ fn get_returns_tips_readonly() {
     let post = account_by_key(&result.resulting_accounts, &state_key);
     assert_eq!(post.data, state.data, "view must not mutate state bytes");
     assert_eq!(post.lamports, state.lamports);
+}
+
+/// ADR-0030 E2-3: nativeBalance view returns vault PDA lamports.
+/// The vault PDA is derived from the program id (proof-forge:vault:v1 + bump).
+/// nativeBalance view outer roles (dense): state (readonly), pf_vault (readonly).
+/// After a 1000-lamport deposit tip, the vault holds rent-exempt (890880)
+/// lamports; nativeBalance must return that exact value.
+#[test]
+fn native_balance_returns_vault_lamports() {
+    let (mollusk, program_id) = make_product_mollusk();
+    let (vault_key, _bump) = find_vault_pda(&program_id);
+    let state_key = fixed_key(0x50);
+    let state = state_account(&program_id, tips_state(true, 42));
+    // Vault is program-owned, rent-exempt (post-deposit state)
+    let vault = Account::new(VAULT_RENT_EXEMPT_LAMPORTS, 0, &program_id);
+    let metas = vec![
+        AccountMeta::new_readonly(state_key, false),
+        AccountMeta::new_readonly(vault_key, false),
+    ];
+    let accounts = vec![(state_key, state.clone()), (vault_key, vault.clone())];
+    let ix = Instruction::new_with_bytes(
+        program_id,
+        &native_balance_ix_data(),
+        metas,
+    );
+    let result = mollusk.process_and_validate_instruction(
+        &ix,
+        &accounts,
+        &[
+            Check::success(),
+            Check::return_data(&VAULT_RENT_EXEMPT_LAMPORTS.to_le_bytes()),
+        ],
+    );
+    // View must not mutate accounts
+    let post_vault = account_by_key(&result.resulting_accounts, &vault_key);
+    assert_eq!(post_vault.lamports, VAULT_RENT_EXEMPT_LAMPORTS);
+    assert_eq!(post_vault.data, vault.data);
+}
+
+/// ADR-0030 E2-3: nativeBalance with wrong vault key → fail closed (err_shape).
+#[test]
+fn native_balance_wrong_vault_key_rejected() {
+    let (mollusk, program_id) = make_product_mollusk();
+    let wrong_vault = fixed_key(0x77);
+    let state_key = fixed_key(0x50);
+    let state = state_account(&program_id, tips_state(true, 42));
+    let vault = Account::new(VAULT_RENT_EXEMPT_LAMPORTS, 0, &program_id);
+    let metas = vec![
+        AccountMeta::new_readonly(state_key, false),
+        AccountMeta::new_readonly(wrong_vault, false),
+    ];
+    let accounts = vec![(state_key, state), (wrong_vault, vault)];
+    let ix = Instruction::new_with_bytes(
+        program_id,
+        &native_balance_ix_data(),
+        metas,
+    );
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &ix,
+        &accounts,
+        Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN)),
+    );
 }

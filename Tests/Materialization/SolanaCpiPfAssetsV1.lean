@@ -109,6 +109,40 @@ private def dualExtSource : String :=
   "    call pf.assets.native.transfer(dst, amount)\n" ++
   "    return amount\n"
 
+/-- ADR-0030 E2-3: native balanceOfSelf env-read source. A view that returns
+    the vault PDA lamports. No ExternalCall sites — only envRead. -/
+private def nativeBalanceSource : String :=
+  wrapProgram "NativeBalance" <|
+    "  view get() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n"
+
+/-- ADR-0030 E2-3: token balanceOfSelf env-read source. A view that returns
+    the vault ATA token amount for a given mint. -/
+private def tokenBalanceSource : String :=
+  wrapProgram "TokenBalance" <|
+    "  view get(mint : Principal) : UInt64 do\n" ++
+    "    return pf.assets.token.balanceOfSelf(mint)\n"
+
+/-- ADR-0030 E2-3: envRead inside entry (not view) → fail closed. -/
+private def envReadInEntrySource : String :=
+  wrapProgram "EnvReadEntry" <|
+    "  entry go() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n"
+
+/-- ADR-0030 E2-3: envRead inside pureFn → fail closed. -/
+private def envReadInPureFnSource : String :=
+  wrapProgram "EnvReadPureFn" <|
+    "  pureFn helper() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n"
+
+/-- ADR-0030 E2-3: envRead without pf.assets declaration → fail closed. -/
+private def envReadNoDeclSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program NoDeclBalance where\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return pf.assets.native.balanceOfSelf()\n"
+
 private unsafe def compileSource (text name : String) : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
   match ← session.selectProgramV1 text s!"<{name}>" s!"Examples.{name}" none with
@@ -325,11 +359,134 @@ private unsafe def testDualExtension : IO Unit := do
     "dual prefers solana.cpi.accounts on Plan field"
   expect (cand.cpiSites.size == 2) "dual still lowers two pf.assets sites"
 
+/-- ADR-0030 E2-3: native balanceOfSelf Plan/IR/emit pins. -/
+private unsafe def testNativeBalanceEnvRead : IO Unit := do
+  let compiled ← compileSource nativeBalanceSource "NativeBalance"
+  let cap ← productCapabilityOf compiled
+  let plan ← expectPlanOk (productPlanFromCapabilityV1 cap) "native balance plan"
+  let cand := SolanaCpiProductPlanV1.candidateOf plan
+  -- No CPI sites; one envRead site
+  expect (cand.cpiSites.isEmpty) "native balance: zero CPI sites"
+  expect (cand.envReadSites.size == 1) "native balance: one envRead site"
+  let some envSite := cand.envReadSites[0]? |
+    throw <| IO.userError "native balance: envRead site missing"
+  expect (envSite.kind == .nativeVaultBalance) "native balance: kind"
+  expect (envSite.handlerId == 0) "native balance: handlerId 0 (get view)"
+  -- Vault role must be present
+  let vaultRoles := cand.accountRoles.filter (fun r =>
+    match r.keyPolicy with | .vaultPda => true | _ => false)
+  expect (vaultRoles.size == 1) "native balance: one vault role"
+  let some vaultRole := vaultRoles[0]? |
+    throw <| IO.userError "native balance: vault role missing"
+  expect (envSite.vaultRoleId == vaultRole.roleId)
+    "native balance: envRead vaultRoleId matches"
+  -- Handler accountUses must include the vault role
+  let some getHandler := cand.handlers.find? (·.name == "get") |
+    throw <| IO.userError "native balance: get handler missing"
+  expect (getHandler.mode == .view) "native balance: get is view"
+  expect (getHandler.accountUses.any (·.roleId == vaultRole.roleId))
+    "native balance: get handler includes vault role"
+  -- IR
+  let ir ← expectPlanOk (productIrFromCapabilityV1 cap) "native balance IR"
+  let irCand := ResolvedSolanaCpiProductIRV1.candidateOf ir
+  let some getIr := irCand.handlers.find? (·.name == "get") |
+    throw <| IO.userError "native balance: get IR handler missing"
+  expect (getIr.bodyOps.any (fun
+    | .envReadVaultBalance _ kind _ _ _ _ _ _ => kind == .nativeVaultBalance
+    | _ => false))
+    "native balance: IR carries envReadVaultBalance native"
+  expect (getIr.bodyOps.any (fun
+    | .returnU64 _ => true
+    | .returnNone => true
+    | _ => false))
+    "native balance: IR has return"
+  -- Emit
+  let asm ← expectPlanOk (emitCpiProductSbpfV1 ir) "native balance assembly"
+  let text := SolanaCpiProductAssemblyV1.textOf asm
+  expect (hasSubstr text "envReadVaultBalance: native") "native balance: assembly label"
+  expect (hasSubstr text "sol_try_find_program_address") "native balance: find PDA"
+  expect (hasSubstr text "proof-forge:vault:v1") "native balance: vault seed"
+  expect (hasSubstr text "ROLE_LAMPORTS") "native balance: reads lamports"
+
+/-- ADR-0030 E2-3: token balanceOfSelf Plan/IR/emit pins. -/
+private unsafe def testTokenBalanceEnvRead : IO Unit := do
+  let compiled ← compileSource tokenBalanceSource "TokenBalance"
+  let cap ← productCapabilityOf compiled
+  let plan ← expectPlanOk (productPlanFromCapabilityV1 cap) "token balance plan"
+  let cand := SolanaCpiProductPlanV1.candidateOf plan
+  expect (cand.cpiSites.isEmpty) "token balance: zero CPI sites"
+  expect (cand.envReadSites.size == 1) "token balance: one envRead site"
+  let some envSite := cand.envReadSites[0]? |
+    throw <| IO.userError "token balance: envRead site missing"
+  expect (envSite.kind == .tokenVaultBalance) "token balance: kind"
+  -- Roles: vault, vaultAta, mint param, system-v1, token-classic-v1, ata-classic-v1
+  let vaultRoles := cand.accountRoles.filter (fun r =>
+    match r.keyPolicy with | .vaultPda => true | _ => false)
+  expect (vaultRoles.size == 1) "token balance: one vault role"
+  let vaultAtaRoles := cand.accountRoles.filter (fun r =>
+    match r.keyPolicy with | .vaultAta => true | _ => false)
+  expect (vaultAtaRoles.size == 1) "token balance: one vaultAta role"
+  let mintRoles := cand.accountRoles.filter (fun r =>
+    match r.keyPolicy with | .accountParameter _ _ => true | _ => false)
+  expect (mintRoles.size == 1) "token balance: one mint param role"
+  -- IR
+  let ir ← expectPlanOk (productIrFromCapabilityV1 cap) "token balance IR"
+  let irCand := ResolvedSolanaCpiProductIRV1.candidateOf ir
+  let some getIr := irCand.handlers.find? (·.name == "get") |
+    throw <| IO.userError "token balance: get IR handler missing"
+  expect (getIr.bodyOps.any (fun
+    | .envReadVaultBalance _ kind _ _ _ _ _ _ => kind == .tokenVaultBalance
+    | _ => false))
+    "token balance: IR carries envReadVaultBalance token"
+  -- Emit
+  let asm ← expectPlanOk (emitCpiProductSbpfV1 ir) "token balance assembly"
+  let text := SolanaCpiProductAssemblyV1.textOf asm
+  expect (hasSubstr text "envReadVaultBalance: token") "token balance: assembly label"
+  expect (hasSubstr text "sol_try_find_program_address") "token balance: find PDA"
+  expect (hasSubstr text "proof-forge:vault:v1") "token balance: vault seed"
+  expect (hasSubstr text "find vault ATA") "token balance: ATA find"
+
+/-- ADR-0030 E2-3: envRead fail-closed negatives. -/
+private unsafe def testEnvReadFailClosed : IO Unit := do
+  -- envRead in entry (not view) → Plan FC
+  let cEntry ← compileSource envReadInEntrySource "EnvReadEntry"
+  let capEntry ← productCapabilityOf cEntry
+  expectPlanRejectContains (productPlanFromCapabilityV1 capEntry)
+    "envRead" "envRead in entry must fail closed"
+  -- envRead in pureFn → compile/select FC (effect-free op in effect-bearing pureFn
+  -- is rejected at the Typed/Normalize boundary before Plan)
+  let session2 ← Tests.Language.ParserSession.shared
+  match ← session2.selectProgramV1 envReadInPureFnSource "<EnvReadPureFn>" "Examples.EnvReadPureFn" none with
+  | .error e =>
+      expect (e.render.contains "unsupported") "envRead pureFn should fail at compile"
+  | .ok source =>
+      match compileValidatedSourceV1 source with
+      | .error e =>
+          expect (e.render.contains "unsupported") "envRead pureFn compile should fail"
+      | .ok _ =>
+          throw <| IO.userError "envRead pureFn unexpectedly compiled"
+  -- envRead without pf.assets declaration → compile FC
+  let session ← Tests.Language.ParserSession.shared
+  match ← session.selectProgramV1 envReadNoDeclSource "<NoDeclBalance>" "Examples.NoDeclBalance" none with
+  | .error e =>
+      expect (e.render.contains "extension" || e.render.contains "pf.assets")
+        s!"envRead no-decl should fail at compile, got {e.render}"
+  | .ok source =>
+      match compileValidatedSourceV1 source with
+      | .error e =>
+          expect (e.render.contains "extension" || e.render.contains "pf.assets")
+            s!"envRead no-decl compile should fail, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "envRead no-decl unexpectedly compiled"
+
 unsafe def run : IO Unit := do
   testContractPins
   testTipJarProductPlanIrEmit
   testQnGateFailClosed
   testDualExtension
+  testNativeBalanceEnvRead
+  testTokenBalanceEnvRead
+  testEnvReadFailClosed
   IO.println "Tests.Materialization.SolanaCpiPfAssetsV1: ok"
 
 end Tests.Materialization.SolanaCpiPfAssetsV1
