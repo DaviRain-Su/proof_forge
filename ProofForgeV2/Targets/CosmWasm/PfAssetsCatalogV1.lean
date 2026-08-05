@@ -74,7 +74,9 @@ structure NativeBankLoweringContractV1 where
       framing is admitted for BankMsg `to_address`; other Principal bodies
       fail closed at runtime. Full bech32 checksum verification is left to
       the host bank module (wasmd); emitter validates length framing +
-      trailing-zero limbs + printable ASCII body. -/
+      trailing-zero limbs + lowercase bech32 charset `[a-z0-9]` body
+      (which is what makes raw JSON embedding of the address
+      injection-safe). -/
   dstPrincipalEncoding : String := "u32le(len)||utf8-bech32-bytes"
   /-- Opaque-effect honesty: BankMsg::Send does not execute recipient code
       (unlike EVM value CALL). Reference has no re-entrancy model; CW binding

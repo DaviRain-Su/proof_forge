@@ -1319,11 +1319,25 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (if (i32.ne (i32.load8_u (i32.add (local.get $p) (i32.const 2))) (i32.const 93)) (then (return (i32.const 0))))\n" ++
   s!"    (i32.const 1)\n" ++
   "  )\n" ++
-  -- nativeTransfer dst: len ∈ 1..64 and zero padding beyond len in the 64B body.
+  -- nativeTransfer/tokenTransfer dst+mint: len ∈ 1..64, zero padding beyond
+  -- len in the 64B body, and body bytes restricted to the lowercase bech32
+  -- charset [a-z0-9]. The charset gate is what makes raw JSON embedding of
+  -- the address injection-safe (no quote/backslash/control bytes possible).
   s!"  (func $pf_dst_check (param $len i64) (param $buf i32) (result i32)\n" ++
-  s!"    (local $i i64)\n" ++
+  s!"    (local $i i64) (local $b i32)\n" ++
   s!"    (if (i64.eqz (local.get $len)) (then (return (i32.const 0))))\n" ++
   s!"    (if (i64.gt_u (local.get $len) (i64.const 64)) (then (return (i32.const 0))))\n" ++
+  s!"    (local.set $i (i64.const 0))\n" ++
+  s!"    (block $body_done\n" ++
+  s!"      (loop $body_scan\n" ++
+  s!"        (br_if $body_done (i64.ge_u (local.get $i) (local.get $len)))\n" ++
+  s!"        (local.set $b (i32.load8_u (i32.add (local.get $buf) (i32.wrap_i64 (local.get $i)))))\n" ++
+  s!"        (if (i32.eqz (i32.or\n" ++
+  s!"              (i32.and (i32.ge_u (local.get $b) (i32.const 48)) (i32.le_u (local.get $b) (i32.const 57)))\n" ++
+  s!"              (i32.and (i32.ge_u (local.get $b) (i32.const 97)) (i32.le_u (local.get $b) (i32.const 122)))))\n" ++
+  s!"          (then (return (i32.const 0))))\n" ++
+  s!"        (local.set $i (i64.add (local.get $i) (i64.const 1)))\n" ++
+  s!"        (br $body_scan)))\n" ++
   s!"    (local.set $i (local.get $len))\n" ++
   s!"    (block $done\n" ++
   s!"      (loop $scan\n" ++

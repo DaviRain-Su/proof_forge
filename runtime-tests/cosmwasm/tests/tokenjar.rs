@@ -52,6 +52,12 @@ fn principal_leaves(addr: &str) -> [u64; 9] {
 fn tip_token_msg(mint: &str, dst: &str, amount: u64) -> Vec<u8> {
     let m = principal_leaves(mint);
     let d = principal_leaves(dst);
+    tip_token_msg_leaves(&m, &d, amount)
+}
+
+/// tipToken msg from pre-built Principal leaves (charset negatives mutate
+/// individual body bytes).
+fn tip_token_msg_leaves(m: &[u64; 9], d: &[u64; 9], amount: u64) -> Vec<u8> {
     method_msg(
         "tipToken",
         &[
@@ -232,6 +238,37 @@ fn tokenjar_malformed_dst_wire_shape_traps() {
     execute_trap(&mut inst, &msg);
 
     println!("tokenjar: malformed dst wire shape trap ok");
+}
+
+#[test]
+fn tokenjar_bech32_charset_gate_traps() {
+    let mut inst = make_instance("TokenJar");
+    instantiate_ok(&mut inst, &instantiate_msg_u64("initial", 0));
+
+    // The emitter embeds mint/dst raw into JSON (execute msg + SubMsg
+    // envelope), so the lowercase bech32 charset [a-z0-9] gate is what keeps
+    // that embedding injection-safe. A JSON quote byte in either body must
+    // trap before any SubMsg is built.
+    let m = principal_leaves("cosmos1mint0002");
+    let d = principal_leaves("cosmos1dst0002");
+
+    let mut d_quote = d;
+    d_quote[1] = (d_quote[1] & !0xffu64) | 0x22u64; // '"' in dst body byte 0
+    execute_trap(&mut inst, &tip_token_msg_leaves(&m, &d_quote, 100));
+
+    let mut m_quote = m;
+    m_quote[1] = (m_quote[1] & !0xffu64) | 0x22u64; // '"' in mint body byte 0
+    execute_trap(&mut inst, &tip_token_msg_leaves(&m_quote, &d, 100));
+
+    // Uppercase bech32 (0x41 'A') is outside the closed [a-z0-9] gate.
+    let mut d_upper = d;
+    d_upper[1] = (d_upper[1] & !0xffu64) | 0x41u64;
+    execute_trap(&mut inst, &tip_token_msg_leaves(&m, &d_upper, 100));
+
+    // State holds after all rejected variants.
+    assert_eq!(query_u64(&mut inst, "get"), 0);
+
+    println!("tokenjar: bech32 charset gate traps ok");
 }
 
 #[test]

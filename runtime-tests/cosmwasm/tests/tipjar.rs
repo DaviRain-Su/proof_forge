@@ -131,3 +131,46 @@ fn tipjar_deposit_transfer_and_funds_gates() {
 
     println!("tipjar: deposit/transfer + funds gates ok");
 }
+
+#[test]
+fn tipjar_bech32_charset_gate_traps() {
+    let mut inst = make_instance("TipJar");
+    instantiate_ok(&mut inst, &instantiate_msg_u64("initial", 0));
+
+    // The emitter embeds dst raw into the BankMsg SubMsg JSON envelope, so
+    // the lowercase bech32 charset [a-z0-9] gate is what keeps that embedding
+    // injection-safe. A JSON quote byte in the body must trap.
+    let l = principal_leaves("cosmos1dst0000");
+    let build = |w0: u64| {
+        method_msg(
+            "tip",
+            &[
+                ("dst_len", l[0]),
+                ("dst_w0", w0),
+                ("dst_w1", l[2]),
+                ("dst_w2", l[3]),
+                ("dst_w3", l[4]),
+                ("dst_w4", l[5]),
+                ("dst_w5", l[6]),
+                ("dst_w6", l[7]),
+                ("dst_w7", l[8]),
+                ("amount", 1000u64),
+            ],
+        )
+    };
+    execute_with_funds_trap(
+        &mut inst,
+        &build((l[1] & !0xffu64) | 0x22u64), // '"' in body byte 0
+        &[coin(1000, "stake")],
+    );
+    execute_with_funds_trap(
+        &mut inst,
+        &build((l[1] & !0xffu64) | 0x41u64), // 'A' (uppercase) in body byte 0
+        &[coin(1000, "stake")],
+    );
+
+    // State holds after the rejected variants.
+    assert_eq!(query_u64(&mut inst, "get"), 0);
+
+    println!("tipjar: bech32 charset gate traps ok");
+}
