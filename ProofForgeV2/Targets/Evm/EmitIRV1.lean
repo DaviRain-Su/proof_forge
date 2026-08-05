@@ -61,6 +61,7 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       s!"and({paramPrefix}{wordIndex}, {yulUintMask bitWidth})"
   | .temp tempIndex => s!"t{tempIndex}"
   | .timestamp => "timestamp()"
+  | .selfBalance => "selfbalance()"
   | .storageLoad slot => s!"sload({slot})"
   | .narrowStorageLoad bitWidth slot =>
       s!"and(sload({slot}), {yulUintMask bitWidth})"
@@ -258,6 +259,14 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       -- (same discipline as storageLoad).
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := timestamp()\n" ++
+          s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
+        value := name, next := next + 1 }
+  | .selfBalance =>
+      -- ADR-0030 E2-3: SELFBALANCE opcode with the UInt64 range guard.
+      -- `selfbalance()` returns the contract's ETH balance; for a freshly
+      -- funded contract this is ≤ UInt64 in all engineering test scenarios.
+      let name := s!"expr{next}"
+      { code := s!"{indent}let {name} := selfbalance()\n" ++
           s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
         value := name, next := next + 1 }
   | .storageLoad slot =>
@@ -1273,6 +1282,78 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           else
             -- Defensive: Plan validation should have fixed 8 body words.
             output := output ++ s!"{indent}revert(0, 0)\n"
+        else
+          -- Defensive: Plan validation should have fixed 8 body words.
+          output := output ++ s!"{indent}revert(0, 0)\n"
+    | .tokenBalanceOf mintLen mintBodyWords resultTemp =>
+        -- ADR-0030 E2-3: read-only STATICCALL to mint address for
+        -- `balanceOf(address)` (selector 0x70a08231 ++ 32B self address).
+        -- Memory layout (deterministic, no free-mem pointer interaction):
+        --   [0, 4)   selector 0x70a08231
+        --   [4, 36)  self address (12B zero pad + 20B address())
+        --   0x10000  temp 32B word for token-contract address assembly
+        -- STATICCALL: full gas, zero value, calldata [0, 36), ret [0, 32).
+        -- Require returndatasize==32, high 192 bits zero (UInt64), decode
+        -- low 8 bytes. STATICCALL failure reverts.
+        let tokenBase : Nat := 0x10000
+        -- Render mint Principal leaves (len + 8 body words).
+        let mintLenR := renderExpr indent paramPrefix next mintLen
+        output := output ++ mintLenR.code
+        next := mintLenR.next
+        output := output ++
+          s!"{indent}if iszero(eq({mintLenR.value}, 20)) \{ revert(0, 0) }\n"
+        let mut mintVals : Array String := #[]
+        for w in mintBodyWords do
+          let wr := renderExpr indent paramPrefix next w
+          output := output ++ wr.code
+          next := wr.next
+          mintVals := mintVals.push wr.value
+        if mintVals.size == 8 then
+          -- High limbs past 20 body bytes must be zero (exact shape gate).
+          output := output ++
+            s!"{indent}if iszero(eq(shr(32, {mintVals[2]!}), 0)) \{ revert(0, 0) }\n"
+          for i in [3:8] do
+            output := output ++
+              s!"{indent}if iszero(eq({mintVals[i]!}, 0)) \{ revert(0, 0) }\n"
+          -- Assemble token contract address into temp word at tokenBase.
+          output := output ++ s!"{indent}mstore({tokenBase}, 0)\n"
+          for i in [0:8] do
+            output := output ++
+              s!"{indent}mstore8({tokenBase + 12 + i}, and(shr({8 * i}, {mintVals[0]!}), 0xff))\n"
+          for i in [0:8] do
+            output := output ++
+              s!"{indent}mstore8({tokenBase + 20 + i}, and(shr({8 * i}, {mintVals[1]!}), 0xff))\n"
+          for i in [0:4] do
+            output := output ++
+              s!"{indent}mstore8({tokenBase + 28 + i}, and(shr({8 * i}, {mintVals[2]!}), 0xff))\n"
+          let tokenAddrName := s!"balTokenAddr{next}"
+          next := next + 1
+          output := output ++ s!"{indent}let {tokenAddrName} := mload({tokenBase})\n"
+          -- Build calldata at [0, 36):
+          --   [0, 4)   selector 0x70a08231
+          --   [4, 36)  self address: 12B zero pad + 20B address()
+          -- Selector: left-aligned 4 bytes via padded 32B mstore at offset 0.
+          output := output ++
+            s!"{indent}mstore(0, 0x70a0823100000000000000000000000000000000000000000000000000000000)\n"
+          -- Write self address() at offset 4: mstore(4, address()) writes a
+          -- 32-byte word [4, 36) = 12B zero pad + 20B address() (right-aligned).
+          -- This overwrites the zero-pad region [4, 16) from the selector mstore
+          -- with the correct left-padding, and places the 20B address at [16, 36).
+          output := output ++ s!"{indent}mstore(4, address())\n"
+          -- STATICCALL: full gas, zero value, calldata [0, 36), ret [0, 32).
+          let okName := s!"balOk{next}"
+          next := next + 1
+          output := output ++
+            s!"{indent}let {okName} := staticcall(gas(), {tokenAddrName}, 0, 36, 0, 32)\n" ++
+            s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
+            s!"{indent}if iszero(eq(returndatasize(), 32)) \{ revert(0, 0) }\n"
+          -- High 192 bits must be zero (UInt64 result); decode low 8 bytes.
+          let retName := s!"balRet{next}"
+          next := next + 1
+          output := output ++
+            s!"{indent}let {retName} := mload(0)\n" ++
+            s!"{indent}if iszero(eq(shr(64, {retName}), 0)) \{ revert(0, 0) }\n" ++
+            s!"{indent}let t{resultTemp} := and({retName}, 0xffffffffffffffff)\n"
         else
           -- Defensive: Plan validation should have fixed 8 body words.
           output := output ++ s!"{indent}revert(0, 0)\n"

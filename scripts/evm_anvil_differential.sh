@@ -339,4 +339,20 @@ else
   echo "evm-anvil-differential: note: TokenJar companion script missing (skip leg)" >&2
 fi
 
+# EnvReadJar: ADR-0030 E2-3 pf.assets env-read balanceOfSelf (SELFBALANCE +
+# STATICCALL balanceOf) companion. Product build/solc failures are hard;
+# tool/script skip is handled inside the companion (exit 0).
+if [[ -x "$root/scripts/evm_envread_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion EnvReadJar pf.assets env-read smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_envread_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: EnvReadJar smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_envread_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: EnvReadJar smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: EnvReadJar companion script missing (skip leg)" >&2
+fi
+
 echo "evm-anvil-differential: ok (engineering Anvil state differential; not formal C-3)" >&2

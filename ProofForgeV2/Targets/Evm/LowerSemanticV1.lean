@@ -219,6 +219,10 @@ inductive Expr where
   /-- B-CTX-OPEN: block timestamp seconds (EVM `timestamp()` opcode). Carries
       the unix-time-seconds ContextRead; UInt64-typed. -/
   | timestamp
+  /-- ADR-0030 E2-3: `pf.assets.native.balanceOfSelf()` → EVM `SELFBALANCE`
+      opcode (0x47) in Yul (`selfbalance()`). Read-only, view/entry-callable,
+      effect-free; result is UInt64. -/
+  | selfBalance
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -288,6 +292,14 @@ inductive Statement where
       ERC-20 balance (no extra state). -/
   | tokenTransfer (mintLen : Expr) (mintBodyWords : Array Expr)
       (dstLen : Expr) (dstBodyWords : Array Expr) (amount : Expr)
+  /-- ADR-0030 E2-3: `pf.assets.token.balanceOfSelf(mint)` → read-only
+      `STATICCALL` to the mint address (controlled dynamic callee, same E1a
+      wire-shape discipline: exact `u32le(20)||addr20`, high limbs zero, else
+      revert). Calldata = selector `0x70a08231` ++ 32-byte self `address()`;
+      require `returndatasize()==32` and high 192 bits zero (else revert);
+      decode low 8 bytes as the UInt64 balance. STATICCALL failure reverts.
+      `resultTemp` is the ValueId-canonical temp bound to the returned word. -/
+  | tokenBalanceOf (mintLen : Expr) (mintBodyWords : Array Expr) (resultTemp : Nat)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
@@ -3553,6 +3565,61 @@ private def lowerBlockInstructionsV1
         hasAssert := true
         armReadables := promoteDominatingPureV1 paramCount values armReadables
         segmentStart := values.size
+    | .envRead key args, some result =>
+        -- ADR-0030 E2-3: read-only self-vault observation (value-producing,
+        -- view-callable, effect-free). Requires exact extension.pf-assets
+        -- (same gate as the catalog QNs). Result must be UInt64.
+        unless layout.pfAssetsDeclared do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pf.assets env-read requires extension.pf-assets declaration"
+        unless result.typeId == types.uint64TypeId do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: envRead result must be UInt64"
+        -- pureFn/invariant contexts stay fail closed (envRead is a host read,
+        -- not a pure expression; invariant closures forbid host reads).
+        if mode == .pureFn then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pureFn cannot use envRead (host read is not pure)"
+        match key with
+        | .nativeVaultBalance =>
+            -- SELFBALANCE opcode: zero args, view/entry-callable.
+            unless args.isEmpty do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: nativeVaultBalance takes no arguments"
+            values := ← appendResultValueV1 result.typeId values result
+              (mkScalarValueV1 .selfBalance #[] false false 64 1 1)
+        | .tokenVaultBalance =>
+            -- STATICCALL to mint address: one Principal arg (the mint).
+            unless args.size == 1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: tokenVaultBalance takes exactly one Principal argument"
+            let some mintId := args[0]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: tokenVaultBalance mint argument missing"
+            let mintRoot ← currentValueWithArmsV1 values paramCount segmentStart
+              armReadables mintId
+            unless mintRoot.isAggregate do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: tokenVaultBalance mint must be Principal"
+            let mintLeaves := mintRoot.leafExprs
+            unless mintLeaves.size == 1 + evmPrincipalDataWordCountV1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: tokenVaultBalance mint Principal leaf count mismatch"
+            let some mintLen := mintLeaves[0]? |
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: tokenVaultBalance mint len missing"
+            let mintWords := mintLeaves.extract 1 mintLeaves.size
+            unless mintWords.size == evmPrincipalDataWordCountV1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: tokenVaultBalance mint body words mismatch"
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart args
+            let resultTemp := result.valueId.toNat
+            body := body.push (.tokenBalanceOf mintLen mintWords resultTemp)
+            values := ← appendResultValueV1 result.typeId values result
+              (mkScalarValueV1 (.temp resultTemp) #[] false false 64 1 1)
+            hasAssert := true
+            armReadables := promoteDominatingPureV1 paramCount values armReadables
+            segmentStart := values.size
     | _, _ =>
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: instruction op/result is outside the current UInt64 pilot"

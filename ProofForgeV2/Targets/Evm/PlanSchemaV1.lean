@@ -218,6 +218,9 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   -- B-CTX-OPEN: block timestamp seconds (tag 59 appended; prior tags
   -- byte-identical).
   | .timestamp => pure (encodeU8 59)
+  -- ADR-0030 E2-3: SELFBALANCE opcode (tag 60 appended; prior tags
+  -- byte-identical).
+  | .selfBalance => pure (encodeU8 60)
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with
@@ -324,6 +327,13 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       out := out.append (← encodeNatAsU32le dstBodyWords.size)
       for w in dstBodyWords do out := out.append (← encodeExpr w)
       out := out.append (← encodeExpr amount)
+      pure out
+  -- Tag 16 (ADR-0030 E2-3): pf.assets.token.balanceOfSelf(mint) STATICCALL.
+  | .tokenBalanceOf mintLen mintBodyWords resultTemp => do
+      let mut out := (encodeU8 16).append (← encodeExpr mintLen)
+      out := out.append (← encodeNatAsU32le mintBodyWords.size)
+      for w in mintBodyWords do out := out.append (← encodeExpr w)
+      out := out.append (← encodeNatAsU32le resultTemp)
       pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do

@@ -164,10 +164,78 @@ def tokenBindingsV1 : Array TokenBindingV1 :=
       admittedForMaterialization := true }
   ]
 
-/-- Closed QN membership for the EVM native Phase B2 admit set. -/
+/-- Frozen lowering contract for EVM env-read `pf.assets.*.balanceOfSelf`
+    (ADR-0030 E2-3). Decisions are product-pinned; changes require a
+    catalog/version bump. Read-only, view/entry-callable, effect-free. -/
+structure EnvReadLoweringContractV1 where
+  /-- Native balance: Yul `selfbalance()` (EVM opcode 0x47, SELFBALANCE). -/
+  nativeOpcode : String := "0x47-SELFBALANCE"
+  /-- Native balance is view-callable (read-only). -/
+  nativeViewCallable : String := "view-and-entry-callable"
+  /-- Token balance: `STATICCALL` to mint address with calldata
+      `balanceOf(address)` (selector `0x70a08231` ++ 32B self address). -/
+  tokenCallOpcode : String := "STATICCALL"
+  /-- Function selector for `balanceOf(address)` = `0x70a08231`. -/
+  tokenSelector : String := "0x70a08231"
+  /-- Calldata layout: 4B selector + 32B self address = 36 bytes. -/
+  tokenCalldataSize : String := "36"
+  /-- Calldata layout description. -/
+  tokenCalldataLayout : String :=
+    "4B-selector + 32B-self-address"
+  /-- Gas policy: forward all remaining gas (`gas()`). -/
+  tokenGasPolicy : String := "forward-all-gas"
+  /-- Call value: zero (read-only STATICCALL carries no ETH). -/
+  tokenCallValue : String := "zero"
+  /-- `mint` Principal parameter carries the token contract address as
+      exact wire shape `u32le(20)||addr20` (ADR-0025 discipline; same as E1a
+      token transfer). High limbs must be zero; runtime assembles a 20-byte
+      network-order address for the STATICCALL target. -/
+  mintPrincipalEncoding : String := "u32le(20)||addr20-network-order"
+  /-- Return-value handling: require `returndatasize == 32` (else revert);
+      require high 192 bits zero (else revert — UInt64 result); decode low 8
+      bytes as the UInt64 balance. STATICCALL `success == false` → revert. -/
+  tokenReturnValuePolicy : String :=
+    "returndatasize==32-required; high-192-bits-zero-required; \
+call-fail→revert"
+  /-- STATICCALL failure reverts the caller. -/
+  tokenFailure : String := "propagate-revert"
+  /-- Read-only: safe in views and entries (no state mutation). -/
+  readOnlyNote : String :=
+    "read-only; view-and-entry-callable; effect-free; no-state-mutation"
+  deriving BEq, Repr, Inhabited
+
+def envReadLoweringContractV1 : EnvReadLoweringContractV1 := {}
+
+/-- One admitted env-read L1 QN binding for the EVM pf.assets package. -/
+structure EnvReadBindingV1 where
+  qn : String
+  packageId : String
+  artifactBinding : ArtifactBindingKind
+  loweringContract : EnvReadLoweringContractV1
+  admittedForMaterialization : Bool
+  deriving BEq, Repr, Inhabited
+
+/-- E2-3 admitted env-read bindings: native + token balanceOfSelf. -/
+def envReadBindingsV1 : Array EnvReadBindingV1 :=
+  #[
+    { qn := "pf.assets.native.balanceOfSelf"
+      packageId := nativeValuePackageIdV1
+      artifactBinding := .runtimeNative
+      loweringContract := envReadLoweringContractV1
+      admittedForMaterialization := true },
+    { qn := "pf.assets.token.balanceOfSelf"
+      packageId := erc20TokenPackageIdV1
+      artifactBinding := erc20InterfaceStandardSkeletonV1
+      loweringContract := envReadLoweringContractV1
+      admittedForMaterialization := true }
+  ]
+
+/-- Closed QN membership for the EVM native Phase B2 + E2-3 env-read admit set. -/
 def isEvmAdmittedPfAssetsQnV1 (qn : String) : Bool :=
   qn == "pf.assets.native.deposit" || qn == "pf.assets.native.transfer"
     || qn == "pf.assets.token.transfer"
+    || qn == "pf.assets.native.balanceOfSelf"
+    || qn == "pf.assets.token.balanceOfSelf"
 
 /-- Full catalog membership (five QNs); non-admitted members fail closed at Plan. -/
 def isPfAssetsCatalogQnV1 (qn : String) : Bool :=

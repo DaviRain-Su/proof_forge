@@ -28,6 +28,7 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
         else none
     | .temp _ => some 1
     | .timestamp => some 1
+    | .selfBalance => some 1
     | .storageLoad slot | .fieldStorageLoad slot =>
         if slots.contains slot then some 1 else none
     | .narrowStorageLoad bitWidth slot =>
@@ -469,6 +470,31 @@ private partial def checkPlanStatementsV1
           throw <| .planInvariant .evm
             s!"{owner} tokenTransfer amount must be a UInt64 expression"
         total ← addPlanExprNodes slots paramCount total fns amount
+        total := total + 1
+    | .tokenBalanceOf mintLen mintBodyWords resultTemp =>
+        -- ADR-0030 E2-3: read-only STATICCALL (pf.assets.token.balanceOfSelf).
+        -- View-callable (read-only); pureFn/invariant and constructor stay FC.
+        if isConstructor then
+          throw <| .planInvariant .evm
+            s!"{owner} uses tokenBalanceOf in a constructor"
+        -- pureFn mode is represented by isView=true in this validator, so
+        -- the view-ok acceptance would wrongly admit pureFn. The EVM lowering
+        -- already gates pureFn at plan-construction time; the plan-level guard
+        -- here relies on the pureFn body being validated with isView=true.
+        -- envRead is a host read (not pure), but pureFn bodies cannot produce
+        -- a tokenBalanceOf because the lowering throws before plan mint.
+        unless mintBodyWords.size == 8 do
+          throw <| .planInvariant .evm
+            s!"{owner} tokenBalanceOf requires exactly 8 mint Principal body words"
+        unless exprIsUInt64CompatibleV1 fns mintLen do
+          throw <| .planInvariant .evm
+            s!"{owner} tokenBalanceOf mintLen must be a UInt64 expression"
+        total ← addPlanExprNodes slots paramCount total fns mintLen
+        for w in mintBodyWords do
+          unless exprIsUInt64CompatibleV1 fns w do
+            throw <| .planInvariant .evm
+              s!"{owner} tokenBalanceOf mint body words must be UInt64 expressions"
+          total ← addPlanExprNodes slots paramCount total fns w
         total := total + 1
     | .ifThenElse condition thenBody elseBody =>
         unless exprIsBoolCompatibleV1 fns condition do

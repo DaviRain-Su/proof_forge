@@ -120,6 +120,68 @@ private def plainCounterSource : String :=
   "  view get() : UInt64 do\n" ++
   "    return count\n"
 
+/-- E2-3: native balanceOfSelf in a view (read-only, SELFBALANCE). -/
+private def envReadNativeSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program EnvReadNative where\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
+  s!"    digest \"{pfAssetsDigestV1}\"\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  view nativeBalance() : UInt64 do\n" ++
+  "    return pf.assets.native.balanceOfSelf()\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n"
+
+/-- E2-3: token balanceOfSelf in a view (read-only STATICCALL). -/
+private def envReadTokenSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program EnvReadToken where\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
+  s!"    digest \"{pfAssetsDigestV1}\"\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  view tokenBalance(mint : Principal) : UInt64 do\n" ++
+  "    return pf.assets.token.balanceOfSelf(mint)\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n"
+
+/-- E2-3: envRead in a pureFn must fail closed at Plan (host read not pure). -/
+private def envReadPureFnSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program EnvReadPureFn where\n" ++
+  "  requires extension pf.assets version \"1.1.0\"\n" ++
+  s!"    digest \"{pfAssetsDigestV1}\"\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  fn pureBalance() : UInt64 do\n" ++
+  "    return pf.assets.native.balanceOfSelf()\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n"
+
+/-- E2-3: envRead without extension.pf-assets must fail closed at Plan. -/
+private def envReadNoExtSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program EnvReadNoExt where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  view nativeBalance() : UInt64 do\n" ++
+  "    return pf.assets.native.balanceOfSelf()\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n"
+
 private unsafe def planEvm (compiled : CompiledSemanticV1) : IO Plan := do
   let selection ← liftResult "selection" <| resolveBuildSelectionV1 TargetId.evm none
   let capability ← liftResult "resolve" <|
@@ -361,6 +423,185 @@ private unsafe def testNonDepositCallvalueZero : IO Unit := do
       !containsSubstr yul "eq(callvalue(),")
     "non-deposit program must not emit deposit callvalue-eq"
 
+/-- E2-3: envRead catalog skeleton — native + token balanceOfSelf admitted. -/
+private def testEnvReadCatalogSkeleton : IO Unit := do
+  expect (isEvmAdmittedPfAssetsQnV1 "pf.assets.native.balanceOfSelf")
+    "native balanceOfSelf admitted"
+  expect (isEvmAdmittedPfAssetsQnV1 "pf.assets.token.balanceOfSelf")
+    "token balanceOfSelf admitted"
+  expect (envReadBindingsV1.size == 2) "two env-read bindings"
+  expect (envReadBindingsV1[0]!.qn == "pf.assets.native.balanceOfSelf")
+    "env-read native QN pinned"
+  expect (envReadBindingsV1[1]!.qn == "pf.assets.token.balanceOfSelf")
+    "env-read token QN pinned"
+  expect (envReadBindingsV1.all (·.admittedForMaterialization))
+    "env-read bindings admitted for materialization"
+  expect (envReadLoweringContractV1.nativeOpcode == "0x47-SELFBALANCE")
+    "native lowering pinned to SELFBALANCE"
+  expect (envReadLoweringContractV1.tokenCallOpcode == "STATICCALL")
+    "token lowering pinned to STATICCALL"
+  expect (envReadLoweringContractV1.tokenSelector == "0x70a08231")
+    "balanceOf selector pinned"
+  expect (envReadLoweringContractV1.tokenCalldataSize == "36")
+    "balanceOf calldata size pinned (4+32)"
+  expect (envReadLoweringContractV1.mintPrincipalEncoding ==
+      "u32le(20)||addr20-network-order")
+    "mint Principal encoding pinned (same as E1a)"
+  expect (containsSubstr envReadLoweringContractV1.tokenReturnValuePolicy
+      "returndatasize==32-required")
+    "return-value policy requires exactly 32 bytes"
+  expect (containsSubstr envReadLoweringContractV1.tokenReturnValuePolicy
+      "high-192-bits-zero-required")
+    "return-value policy requires high 192 bits zero"
+  expect (containsSubstr envReadLoweringContractV1.readOnlyNote "view-and-entry-callable")
+    "env-read is view-and-entry-callable"
+
+/-- E2-3: positive native balanceOfSelf Plan/IR/Yul (SELFBALANCE in a view). -/
+private unsafe def testEnvReadNativePlanAndYul : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load envread-native" (← session.selectProgramV1
+    envReadNativeSource "<evm-envread-native>" "Tests.EvmEnvReadNative" none)
+  let compiled ← liftResult "compile envread-native" <| compileValidatedSourceV1 source
+  let plan ← planEvm compiled
+  expect (plan.objectName == "EnvReadNative") "envread native object name"
+  expect (plan.entries.size == 2) "nativeBalance view + bump entry"
+  let nativeBalance := plan.entries[0]!
+  expect (nativeBalance.name == "nativeBalance") "view nativeBalance"
+  expect (nativeBalance.mutability == .view) "nativeBalance is view"
+  -- Body contains selfBalance expr (SELFBALANCE).
+  let hasSelfBalance := nativeBalance.body.any fun s => match s with
+    | .returnValue .selfBalance => true | _ => false
+  expect hasSelfBalance "plan body has returnValue selfBalance"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"envread native plan must validate: {e.render}"
+  let files ← buildEvm compiled
+  let some yulFile := files.find? (·.path.endsWith ".yul") |
+    throw <| IO.userError "envread native missing yul"
+  let yul := yulFile.contents
+  -- SELFBALANCE opcode in Yul.
+  expect (containsSubstr yul "selfbalance()")
+    "Yul must emit selfbalance() opcode"
+  -- UInt64 range guard.
+  expect (containsSubstr yul "0xffffffffffffffff")
+    "Yul must have UInt64 range guard for selfbalance"
+  -- View acceptance: the view entry is callable (no revert on view path).
+  let some abiFile := files.find? (·.path.endsWith ".abi.json") |
+    throw <| IO.userError "envread native missing abi"
+  expect (containsSubstr abiFile.contents "\"stateMutability\":\"view\"")
+    "ABI nativeBalance must be view"
+
+/-- E2-3: positive token balanceOfSelf Plan/IR/Yul (STATICCALL in a view). -/
+private unsafe def testEnvReadTokenPlanAndYul : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load envread-token" (← session.selectProgramV1
+    envReadTokenSource "<evm-envread-token>" "Tests.EvmEnvReadToken" none)
+  let compiled ← liftResult "compile envread-token" <| compileValidatedSourceV1 source
+  let plan ← planEvm compiled
+  expect (plan.objectName == "EnvReadToken") "envread token object name"
+  expect (plan.entries.size == 2) "tokenBalance view + bump entry"
+  let tokenBalance := plan.entries[0]!
+  expect (tokenBalance.name == "tokenBalance") "view tokenBalance"
+  expect (tokenBalance.mutability == .view) "tokenBalance is view"
+  -- Body contains tokenBalanceOf statement (STATICCALL).
+  let hasTokenBalanceOf := tokenBalance.body.any fun s =>
+    match s with | .tokenBalanceOf .. => true | _ => false
+  expect hasTokenBalanceOf "plan body has tokenBalanceOf"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"envread token plan must validate: {e.render}"
+  let files ← buildEvm compiled
+  let some yulFile := files.find? (·.path.endsWith ".yul") |
+    throw <| IO.userError "envread token missing yul"
+  let yul := yulFile.contents
+  -- balanceOf selector 0x70a08231 in calldata.
+  expect (containsSubstr yul "0x70a08231")
+    "Yul must emit balanceOf selector"
+  -- STATICCALL (not CALL).
+  expect (containsSubstr yul "staticcall(gas(),")
+    "Yul must use staticcall for balanceOf"
+  -- Calldata: 36-byte calldata (4B selector + 32B self address).
+  expect (containsSubstr yul ", 0, 36, 0, 32)")
+    "Yul STATICCALL must use 36-byte calldata + 32-byte return buffer"
+  -- Self address via address() opcode.
+  expect (containsSubstr yul "address()")
+    "Yul must use address() for self address in balanceOf calldata"
+  -- Wire-shape gate: mint len==20.
+  expect (containsSubstr yul "eq(")
+    "Yul must check mint Principal len == 20"
+  -- High-limb zero gates.
+  expect (containsSubstr yul "shr(32,")
+    "Yul must gate high Principal limbs to zero"
+  -- returndatasize==32 check.
+  expect (containsSubstr yul "returndatasize()")
+    "Yul must check returndatasize for balanceOf return"
+  expect (containsSubstr yul "eq(returndatasize(), 32)")
+    "Yul must require returndatasize == 32"
+  -- High 192 bits zero check (shr(64, ...) == 0).
+  expect (containsSubstr yul "shr(64,")
+    "Yul must check high 192 bits zero for UInt64 result"
+  -- STATICCALL failure reverts.
+  expect (containsSubstr yul "if iszero(")
+    "Yul must revert on STATICCALL failure"
+  -- View acceptance.
+  let some abiFile := files.find? (·.path.endsWith ".abi.json") |
+    throw <| IO.userError "envread token missing abi"
+  expect (containsSubstr abiFile.contents "\"stateMutability\":\"view\"")
+    "ABI tokenBalance must be view"
+
+/-- E2-3: envRead in pureFn fails closed at Plan (host read is not pure). -/
+private unsafe def testEnvReadPureFnFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load envread-purefn" (← session.selectProgramV1
+    envReadPureFnSource "<evm-envread-purefn>" "Tests.EvmEnvReadPureFn" none)
+  let compiled ← liftResult "compile envread-purefn" <| compileValidatedSourceV1 source
+  let selection ← liftResult "selection" <| resolveBuildSelectionV1 TargetId.evm none
+  match Targets.resolveEngineeringRequirementsV1 selection compiled with
+  | .error e =>
+      let msg := e.render
+      expect (containsSubstr msg "PF-REQ" || containsSubstr msg "unsupported" ||
+          containsSubstr msg "pf.assets")
+        s!"envread purefn must fail closed, got={msg}"
+  | .ok capability =>
+      match planFromCapability capability with
+      | .error e =>
+          let msg := e.render
+          expect (containsSubstr msg "fail closed" || containsSubstr msg "pureFn" ||
+              containsSubstr msg "unsupported" || containsSubstr msg "pf.assets")
+            s!"envread purefn plan must FC, got={msg}"
+      | .ok _ =>
+          throw <| IO.userError "envread pureFn must fail closed on EVM"
+
+/-- E2-3: envRead without extension.pf-assets fails closed (compile or Plan). -/
+private unsafe def testEnvReadNoExtFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load envread-noext" (← session.selectProgramV1
+    envReadNoExtSource "<evm-envread-noext>" "Tests.EvmEnvReadNoExt" none)
+  -- Compile may fail closed (catalog QN requires extension at compile time)
+  -- or succeed and fail at resolve/Plan. Either is a valid fail-closed path.
+  match compileValidatedSourceV1 source with
+  | .error e =>
+      let msg := e.render
+      expect (containsSubstr msg "pf.assets" || containsSubstr msg "extension")
+        s!"no-extension envread compile must cite pf.assets/extension, got={msg}"
+  | .ok compiled =>
+      let selection ← liftResult "selection" <| resolveBuildSelectionV1 TargetId.evm none
+      match Targets.resolveEngineeringRequirementsV1 selection compiled with
+      | .error e =>
+          let msg := e.render
+          expect (containsSubstr msg "PF-REQ" || containsSubstr msg "unsupported" ||
+              containsSubstr msg "pf.assets")
+            s!"envread noext must fail closed, got={msg}"
+      | .ok capability =>
+          match planFromCapability capability with
+          | .error e =>
+              let msg := e.render
+              expect (containsSubstr msg "extension.pf-assets" ||
+                  containsSubstr msg "pf.assets")
+                s!"no-extension envread must cite extension.pf-assets, got={msg}"
+          | .ok _ =>
+              throw <| IO.userError "envRead without extension must fail closed"
+
 unsafe def run : IO Unit := do
   testCatalogSkeleton
   testTipJarPlanAndYul
@@ -368,6 +609,11 @@ unsafe def run : IO Unit := do
   testQnGateNoExtension
   testAsyncFc
   testNonDepositCallvalueZero
+  testEnvReadCatalogSkeleton
+  testEnvReadNativePlanAndYul
+  testEnvReadTokenPlanAndYul
+  testEnvReadPureFnFc
+  testEnvReadNoExtFc
   IO.println "Tests.Materialization.EvmPfAssetsV1: ok"
 
 end Tests.Materialization.EvmPfAssetsV1
