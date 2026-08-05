@@ -4,14 +4,16 @@ namespace Examples
 
 open ProofForgeV2.Language
 
--- ADR-0030 E1a product demo: portable token tip-jar over `pf.assets`.
--- `tipToken(mint, dst, amount)` transfers `amount` of ERC-20 `mint` tokens
--- from the contract's own balance to `dst` and increments a tip counter.
--- The token contract address is a **controlled dynamic callee** (catalog
--- token family only; generic dynamic callee stays fail closed). EVM vault
--- = contract's own ERC-20 balance (no extra state).
+-- ADR-0030 E1 product demo: portable token tip-jar over `pf.assets`.
+-- `tipToken(mint, dst, amount)` transfers `amount` of the token `mint`
+-- from the program's self vault to `dst` and increments a tip counter.
+-- Chain-neutral source: each target's catalog/lowering decides the
+-- realization — EVM: ERC-20 `transfer(address,uint256)` via controlled
+-- dynamic callee (catalog token family only); Solana: classic SPL
+-- `transferChecked` from the vault ATA (PDA `invoke_signed`). Sync-only
+-- lanes: NEAR token QNs stay fail closed.
 -- Not imported by Examples.lean (target-specific, like TipJar/TransferSol).
--- Engineering only: non-formal; Anvil runtime gate is main-agent merge.
+-- Engineering only: non-formal; runtime gates are Anvil/Mollusk.
 program TokenJar where
   requires extension pf.assets version "1.0.0"
     digest "sha256:97dfde7f7df228230828db4273086224bc28a4bc88c2f25457eaf0aee22aeeed"

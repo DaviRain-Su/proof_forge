@@ -596,11 +596,13 @@ def activeProductApiQnsV1 : Array String := #[
   "solana.ata.createIdempotent"
 ]
 
-/-- ADR-0029 Phase B1 Solana-admitted L1 pf.assets native APIs (sync only).
-    Async/token catalog QNs stay fail closed at product derive. -/
+/-- ADR-0029 Phase B1 + ADR-0030 E1b Solana-admitted L1 pf.assets APIs (sync).
+    Native deposit/transfer (B1) + token.transfer (E1b). Async/token.transferAsync
+    stay fail closed at product derive. -/
 def pfAssetsSolanaProductApiQnsV1 : Array String := #[
   "pf.assets.native.deposit",
-  "pf.assets.native.transfer"
+  "pf.assets.native.transfer",
+  "pf.assets.token.transfer"
 ]
 
 def isPfAssetsSolanaProductApiV1 (qn : String) : Bool :=
@@ -758,6 +760,12 @@ inductive MetaBinding where
   /-- ADR-0029 B1: synthetic outer-signer caller role for deposit (exactly one
       outer signer per handler that uses deposit). -/
   | handlerCaller
+  /-- ADR-0030 E1b: synthetic vault ATA role (derived at runtime from
+      vault PDA wallet + mint; canonical ATA(vault, mint)). -/
+  | vaultAta
+  /-- ADR-0030 E1b: synthetic destination ATA role (derived at runtime from
+      dst wallet + mint; canonical ATA(dst, mint)). -/
+  | dstAta
   deriving BEq, Repr
 
 structure FrozenMetaSpec where
@@ -969,6 +977,34 @@ private def metaHandlerCaller
     (constraint : AccountConstraint)
     (cpiSigner cpiWritable outerSigner outerWritable : Bool) : FrozenMetaSpec :=
   { binding := .handlerCaller
+    constraint
+    cpiSigner
+    cpiWritable
+    outerSignerContribution := outerSigner
+    outerWritableContribution := outerWritable
+    signerGroupId := none }
+
+/-- ADR-0030 E1b: synthetic vault ATA meta (Token-owned 165B; joined to
+    ATA(vault PDA, mint)). The runtime key is derived; this meta carries the
+    Token account constraint for the transferChecked source slot. -/
+private def metaVaultAta
+    (constraint : AccountConstraint)
+    (cpiSigner cpiWritable outerSigner outerWritable : Bool) : FrozenMetaSpec :=
+  { binding := .vaultAta
+    constraint
+    cpiSigner
+    cpiWritable
+    outerSignerContribution := outerSigner
+    outerWritableContribution := outerWritable
+    signerGroupId := none }
+
+/-- ADR-0030 E1b: synthetic destination ATA meta (Token-owned 165B; joined to
+    ATA(dst, mint)). The runtime key is derived; this meta carries the Token
+    account constraint for the transferChecked destination slot. -/
+private def metaDstAta
+    (constraint : AccountConstraint)
+    (cpiSigner cpiWritable outerSigner outerWritable : Bool) : FrozenMetaSpec :=
+  { binding := .dstAta
     constraint
     cpiSigner
     cpiWritable
@@ -1217,6 +1253,67 @@ def apiPfAssetsNativeTransferV1 : FrozenApi where
   preflight := #[]
   result := .unit
 
+/-! ### ADR-0030 E1b: `pf.assets.token.transfer` (classic SPL transferChecked)
+
+    Source QN: `pf.assets.token.transfer(mint, dst, amount)` — 3 args (mint + dst
+    are bare-direct-public-Principal parameters; amount is a typed UInt64).
+    Materializes as `transferChecked(vaultAta, mint, dstAta, vaultPda, amount,
+    decimals)` where vaultAta = ATA(vault PDA, mint), dstAta = ATA(dst, mint),
+    and vaultPda signs via `invoke_signed` under `proof-forge:vault:v1`.
+
+    Both ATAs are idempotently ensured (ATA createIdempotent, payer=pf_caller)
+    before the transfer. Decimals is bound to the catalog/mint join; until a
+    per-mint catalog decimals binding mechanism is added, the emitter pins a
+    fixed literal (9 for standard SPL test fixtures). The `decimals` UInt8 is
+    **not** a source parameter — it lives in the frozen API so the instruction
+    codec emits the right 10-byte `transferChecked` payload. -/
+
+/-- Frozen decimals literal for pf.assets.token.transfer (standard SPL fixture
+    mint with 9 decimals). Catalog per-mint decimals binding is deferred. -/
+def pfAssetsTokenTransferDecimalsV1 : UInt8 := 9
+
+/-- `pf.assets.token.transfer(mint, dst, amount)` → Token transferCheckedPda:
+    vault ATA → dst ATA, vault PDA authority, `invoke_signed` under
+    `proof-forge:vault:v1`. The three source args are mint/dst/amount; the
+    instruction data is `0c || amount:u64le || decimals:u8` (10 bytes) matching
+    the underlying `solana.token.transferCheckedPda` codec.
+
+    Metas (CPI order for transferCheckedPda, source first):
+    1. vaultAta — writable (transfer source = vault ATA), outer writable
+    2. mint — readonly (mint join), outer readonly
+    3. dstAta — writable (transfer destination = dst ATA), outer writable
+    4. vaultPda — PDA signer (authority), signer group 0, outer non-signer
+
+    The emitter synthesizes ATA `createIdempotent` for both vaultAta and dstAta
+    (payer=pf_caller) before the transfer. pf_caller is the sole outer signer. -/
+def apiPfAssetsTokenTransferV1 : FrozenApi where
+  qn := "pf.assets.token.transfer"
+  args := #[
+    principalArg "mint",
+    principalArg "dst",
+    exprU64 "amount"
+  ]
+  fixedProgram := "token-classic-v1"
+  instructionCodec := {
+    length := 10
+    segments := #[hexSeg "0c", .arg "amount" .uint64Le, .hex "09"]
+  }
+  metas := #[
+    metaVaultAta
+      (constraintClassicTokenAccount (some "mint") (some "vault") true)
+      false true false true,
+    metaArg "mint" (constraintClassicMint none) false false false false,
+    metaDstAta
+      (constraintClassicTokenAccount (some "mint") none false)
+      false true false true,
+    metaVaultPda constraintNotReadAny true false false false (some 0)
+  ]
+  outerOnlyAccounts := #[]
+  pda := .vaultPdaSigner vaultPdaRuleIdV1
+  signerGroups := #[{ id := 0, metaArg := "vault", pdaRule := vaultPdaRuleIdV1 }]
+  preflight := #[]
+  result := .unit
+
 /-- Extension-order frozen API table (deterministic). ADR-0028 eight APIs. -/
 def frozenApisV1 : Array FrozenApi := #[
   apiCompanionInvokeV1,
@@ -1229,11 +1326,13 @@ def frozenApisV1 : Array FrozenApi := #[
   apiAtaCreateIdempotentV1
 ]
 
-/-- L1 pf.assets Solana product APIs (Phase B1). Separate from frozenApisV1 so
-    ADR-0028 catalog digests and docs_check five-QN pins stay unchanged. -/
+/-- L1 pf.assets Solana product APIs (Phase B1 native + E1b token). Separate
+    from frozenApisV1 so ADR-0028 catalog digests and docs_check five-QN pins
+    stay unchanged. -/
 def pfAssetsSolanaFrozenApisV1 : Array FrozenApi := #[
   apiPfAssetsNativeDepositV1,
-  apiPfAssetsNativeTransferV1
+  apiPfAssetsNativeTransferV1,
+  apiPfAssetsTokenTransferV1
 ]
 
 def findFrozenApi? (qn : String) : Option FrozenApi :=

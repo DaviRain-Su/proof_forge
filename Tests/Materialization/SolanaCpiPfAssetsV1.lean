@@ -135,6 +135,8 @@ private unsafe def testContractPins : IO Unit := do
   expect (isPfAssetsSolanaProductApiV1 "pf.assets.native.deposit") "deposit product"
   expect (isPfAssetsSolanaProductApiV1 "pf.assets.native.transfer") "transfer product"
   expect (!isPfAssetsSolanaProductApiV1 "pf.assets.native.transferAsync") "async not product"
+  expect (isPfAssetsSolanaProductApiV1 "pf.assets.token.transfer") "token transfer product"
+  expect (!isPfAssetsSolanaProductApiV1 "pf.assets.token.transferAsync") "token async not product"
   expect (isApprovedProductApiV1 "pf.assets.native.deposit") "approved additive"
   expect (activeProductApiQnsV1.size == 5) "docs five-QN pin intact"
   expect (findFrozenApi? "pf.assets.native.deposit").isSome "frozen deposit api"
@@ -276,15 +278,38 @@ private unsafe def testQnGateFailClosed : IO Unit := do
         (productPlanFromCapabilityV1 eng)
         "extension"
         "no-decl product capability/plan FC"
-  -- async / token with declaration: product plan FC at Phase B scope.
-  for (src, name, needle) in #[
-    (asyncSource, "AsyncOut", "outside Phase B"),
-    (tokenSource, "TokenOut", "outside Phase B")
-  ] do
-    let c ← compileSource src name
-    let cap ← productCapabilityOf c
-    expectPlanRejectContains (productPlanFromCapabilityV1 cap) needle
-      s!"{name} plan FC"
+  -- async with declaration: product plan FC at Phase scope (no token async).
+  let cAsync ← compileSource asyncSource "AsyncOut"
+  let capAsync ← productCapabilityOf cAsync
+  expectPlanRejectContains (productPlanFromCapabilityV1 capAsync) "outside Phase"
+    "AsyncOut plan FC"
+  -- token.transfer with declaration: Plan/IR construct succeed; emit FC
+  -- (composite ATA ensure + transferCheckedPda emitter deferred).
+  let cToken ← compileSource tokenSource "TokenOut"
+  let capToken ← productCapabilityOf cToken
+  let plan ← expectPlanOk (productPlanFromCapabilityV1 capToken) "token plan"
+  let cand := SolanaCpiProductPlanV1.candidateOf plan
+  expect (cand.cpiSites.size == 1) "token transfer one site"
+  let some site := cand.cpiSites[0]? |
+    throw <| IO.userError "missing token transfer site"
+  expect (site.qn == "pf.assets.token.transfer") "site qn"
+  expect (site.packageId == "token-classic-v1") "site package"
+  expect (site.metas.size == 4) "token transfer four metas"
+  let ir ← expectPlanOk (productIrFromCapabilityV1 capToken) "token IR"
+  let irCand := ResolvedSolanaCpiProductIRV1.candidateOf ir
+  let some h := irCand.handlers.find? (·.name == "go") |
+    throw <| IO.userError "token IR handler missing"
+  expect (h.bodyOps.any (fun
+    | .invokeEscrow inv => inv.kind == .pfAssetsTokenTransfer
+    | _ => false))
+    "IR carries pfAssetsTokenTransfer invoke"
+  -- Emit must fail closed (composite emitter deferred).
+  match emitCpiProductSbpfV1 ir with
+  | .error e =>
+      expect (e.message.contains "pfAssetsTokenTransfer composite SBPF emitter")
+        s!"token emit FC must mention deferred emitter, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "token emit unexpectedly succeeded (emitter should be deferred)"
 
 private unsafe def testDualExtension : IO Unit := do
   let compiled ← compileSource dualExtSource "DualExt"

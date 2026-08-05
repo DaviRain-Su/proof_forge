@@ -200,7 +200,7 @@ private def candidateForApi
   for metaSpec in api.metas do
     match metaSpec.binding with
     | .arg _ => pure ()
-    | .vaultPda | .handlerCaller => pure ()
+    | .vaultPda | .handlerCaller | .vaultAta | .dstAta => pure ()
     | .fixedProgram packageId =>
         unless fixedRoles.any (fun pair => pair.1 == packageId) do
           let roleId := roles.size
@@ -233,8 +233,8 @@ private def candidateForApi
           match fixedRoles.find? (fun pair => pair.1 == packageId) with
           | some pair => pure pair.2
           | none => throw s!"missing fixed meta role {packageId}"
-      | .vaultPda | .handlerCaller =>
-          throw "synthetic vault/caller meta not supported in L2 fixture helper"
+      | .vaultPda | .handlerCaller | .vaultAta | .dstAta =>
+          throw "synthetic vault/caller/ata meta not supported in L2 fixture helper"
     metas := metas.push { metaIndex, roleId, spec }
 
   let mut outerOnly : Array CpiOuterOnlyPlanV1 := #[]

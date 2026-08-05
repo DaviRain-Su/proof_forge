@@ -340,7 +340,8 @@ private def resolveProvisioning
 /-- Package id context for catalogExecutionClass / fixed-program owner on a handle. -/
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
-  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller => none
+  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller
+  | .vaultAta | .dstAta => none
 
 /-- Project one AccountConstraint into concrete ops (role or site predicate). -/
 private def projectConstraintOps
@@ -424,7 +425,7 @@ private def projectHandlerOps
           roleId := handle.roleId
           localIndex := i
         }
-    | .state _schemaId | .vaultPda | .handlerCaller =>
+    | .state _schemaId | .vaultPda | .handlerCaller | .vaultAta | .dstAta =>
         pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas

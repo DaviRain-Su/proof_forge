@@ -393,6 +393,8 @@ private def encodeRoleKeyPolicy : RoleKeyPolicyV1 → CompileResult PfJson
       ])
   | .vaultPda => pure (.object #[("kind", .string "vaultPda")])
   | .handlerCaller => pure (.object #[("kind", .string "handlerCaller")])
+  | .vaultAta => pure (.object #[("kind", .string "vaultAta")])
+  | .dstAta => pure (.object #[("kind", .string "dstAta")])
 
 private def encodeHandlerMode : HandlerModeV1 → PfJson
   | .initialize => .string "initialize"
@@ -444,6 +446,8 @@ private def encodeMetaBinding : MetaBinding → PfJson
       ]
   | .vaultPda => .object #[("kind", .string "vaultPda")]
   | .handlerCaller => .object #[("kind", .string "handlerCaller")]
+  | .vaultAta => .object #[("kind", .string "vaultAta")]
+  | .dstAta => .object #[("kind", .string "dstAta")]
 
 private def encodeFrozenMetaSpec (s : FrozenMetaSpec) : CompileResult PfJson := do
   let constraint ← encodeConstraint s.constraint

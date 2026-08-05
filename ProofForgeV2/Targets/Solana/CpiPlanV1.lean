@@ -37,6 +37,10 @@ inductive RoleKeyPolicyV1 where
   | vaultPda
   /-- ADR-0029 B1: synthetic outer-signer caller for deposit. -/
   | handlerCaller
+  /-- ADR-0030 E1b: synthetic vault ATA (derived from vault PDA + mint). -/
+  | vaultAta
+  /-- ADR-0030 E1b: synthetic destination ATA (derived from dst + mint). -/
+  | dstAta
   deriving BEq, Repr
 
 /-- One ProofForge-owned state account schema referenced by state roles.
@@ -461,6 +465,18 @@ private def deriveHandlerRoleIds
     let sorted := sortByNatAsc params
     for p in sorted do
       acc := pushUnique acc p.2
+    -- 2.5) ADR-0030 E1b: for token.transfer sites, the handlerCaller role
+    -- is auto-created (not a CPI meta) as the ATA ensure payer. Include it
+    -- in the handler's derived role set so accountUses validation passes.
+    let hasTokenTransfer := h.cpiSiteIds.any (fun sid =>
+      match c.cpiSites[sid]? with
+      | some s => s.qn == "pf.assets.token.transfer"
+      | none => false)
+    if hasTokenTransfer then
+      for role in c.accountRoles do
+        match role.keyPolicy with
+        | .handlerCaller => acc := pushUnique acc role.roleId
+        | _ => pure ()
     -- 3) handler sites source order: program role, then fixed-program metas
     for siteId in h.cpiSiteIds do
       match c.cpiSites[siteId]? with
@@ -469,7 +485,8 @@ private def deriveHandlerRoleIds
           acc := pushUnique acc site.programRoleId
           for metaSlot in site.metas do
             match metaSlot.spec.binding with
-            | .fixedProgram _ | .vaultPda | .handlerCaller =>
+            | .fixedProgram _ | .vaultPda | .handlerCaller
+            | .vaultAta | .dstAta =>
                 acc := pushUnique acc metaSlot.roleId
             | .arg _ => pure ()
     return acc
@@ -657,6 +674,8 @@ private def encodeMetaBinding : MetaBinding → PfJson
       ]
   | .vaultPda => .object #[("kind", .string "vaultPda")]
   | .handlerCaller => .object #[("kind", .string "handlerCaller")]
+  | .vaultAta => .object #[("kind", .string "vaultAta")]
+  | .dstAta => .object #[("kind", .string "dstAta")]
 
 private def encodeFrozenMetaSpec (s : FrozenMetaSpec) : CompileResult PfJson := do
   let constraint ← encodeConstraint s.constraint
@@ -780,6 +799,8 @@ private def encodeRoleKeyPolicy : RoleKeyPolicyV1 → CompileResult PfJson
       ])
   | .vaultPda => pure (.object #[("kind", .string "vaultPda")])
   | .handlerCaller => pure (.object #[("kind", .string "handlerCaller")])
+  | .vaultAta => pure (.object #[("kind", .string "vaultAta")])
+  | .dstAta => pure (.object #[("kind", .string "dstAta")])
 
 /-- Fixed 16 lowercase hex digits for a UInt64 (lossless canonical form),
     shared by Plan/IR/IDL state-schema encoders. -/
@@ -1170,6 +1191,12 @@ private def validateRoles (c : SolanaCpiPlanCandidateV1) : CompileResult Unit :=
     | .handlerCaller =>
         unless role.name == "pf_caller" do
           planFail "handlerCaller role name must be pf_caller"
+    | .vaultAta =>
+        unless role.name == "pf_vault_ata" do
+          planFail "vaultAta role name must be pf_vault_ata"
+    | .dstAta =>
+        unless role.name == "pf_dst_ata" do
+          planFail "dstAta role name must be pf_dst_ata"
   unless natPairsUnique accountParamKeys do
     planFail "accountParameter (callableId,paramOrdinal) must be unique"
   -- each state schema has exactly one state role (no unused)
@@ -1402,8 +1429,8 @@ private def validateOneSite
                 planFail "principal cpi arg must not bind a state role"
             | .fixedProgram _ =>
                 planFail "principal cpi arg must not bind a fixedProgram role"
-            | .vaultPda | .handlerCaller =>
-                planFail "principal cpi arg must not bind a synthetic vault/caller role"
+            | .vaultPda | .handlerCaller | .vaultAta | .dstAta =>
+                planFail "principal cpi arg must not bind a synthetic vault/caller/ata role"
             unless handler.accountUses.any (fun u => u.roleId == roleId) do
               planFail "principal cpi arg role must appear in handler accountUses"
     | .uint64 | .uint8 | .unit =>
@@ -1432,7 +1459,7 @@ private def validateOneSite
     metaRoleIds := metaRoleIds.push metaSlot.roleId
     if metaSlot.roleId == s.programRoleId then
       match expected.binding with
-      | .fixedProgram _ | .arg _ | .vaultPda | .handlerCaller =>
+      | .fixedProgram _ | .arg _ | .vaultPda | .handlerCaller | .vaultAta | .dstAta =>
           planFail "cpiSite meta role must not equal programRoleId"
     let role ← match findRole? c.accountRoles metaSlot.roleId with
       | some r => pure r
@@ -1469,6 +1496,14 @@ private def validateOneSite
         match role.keyPolicy with
         | .handlerCaller => pure ()
         | _ => planFail "handlerCaller meta must bind a handlerCaller role"
+    | .vaultAta =>
+        match role.keyPolicy with
+        | .vaultAta => pure ()
+        | _ => planFail "vaultAta meta must bind a vaultAta role"
+    | .dstAta =>
+        match role.keyPolicy with
+        | .dstAta => pure ()
+        | _ => planFail "dstAta meta must bind a dstAta role"
 
   -- Outer-only exact match; principal roles already pairwise with metas/program.
   unless s.outerOnlyAccounts.size == api.outerOnlyAccounts.size do
@@ -1549,7 +1584,10 @@ private def validateSites (c : SolanaCpiPlanCandidateV1) : CompileResult Unit :=
   -- Per-handler count equality/cap was already proven by the exact partition
   -- and `handler.cpiSiteIds` validation phase; do not rescan all sites here.
 
-/-- Site-level outerSigner/outerWritable contribution for one role. -/
+/-- Site-level outerSigner/outerWritable contribution for one role.
+    ADR-0030 E1b: for token.transfer sites, the synthetic handlerCaller role
+    (ATA ensure payer) contributes outerSigner+outerWritable even though it
+    is not a CPI meta. This mirrors the derive-time privilege injection. -/
 private def siteRoleContributions
     (site : CpiSitePlanV1) (roleId : Nat) : Bool × Bool :=
   Id.run do
@@ -1568,6 +1606,13 @@ private def siteRoleContributions
 private def validatePrivilegeJoin
     (c : SolanaCpiPlanCandidateV1) : CompileResult Unit := do
   for h in c.handlers do
+    -- ADR-0030 E1b: detect handlerCaller role for token.transfer privilege join.
+    let handlerCallerRoleId? := c.accountRoles.findSome? (fun r =>
+      match r.keyPolicy with | .handlerCaller => some r.roleId | _ => none)
+    let hasTokenTransferSite := h.cpiSiteIds.any (fun sid =>
+      match c.cpiSites[sid]? with
+      | some s => s.qn == "pf.assets.token.transfer"
+      | none => false)
     for use in h.accountUses do
       let mut siteSigner := false
       let mut siteWritable := false
@@ -1576,6 +1621,11 @@ private def validatePrivilegeJoin
         let (sg, wr) := siteRoleContributions site use.roleId
         if sg then siteSigner := true
         if wr then siteWritable := true
+      -- ADR-0030 E1b: handlerCaller contributes signer+writable for
+      -- token.transfer ATA ensure even though it is not a CPI meta.
+      if hasTokenTransferSite && some use.roleId == handlerCallerRoleId? then
+        siteSigner := true
+        siteWritable := true
       let expectedSigner := use.directSignerContribution || siteSigner
       let expectedWritable := use.directWritableContribution || siteWritable
       unless use.outerSigner == expectedSigner do
@@ -1614,8 +1664,8 @@ private def validatePrivilegeJoin
               | .vaultPda =>
                   unless group.metaArg == "vault" do
                     planFail "vaultPda signer group metaArg must be 'vault'"
-              | .fixedProgram _ | .handlerCaller =>
-                  planFail "signer group cannot attach to fixedProgram/handlerCaller meta"
+              | .fixedProgram _ | .handlerCaller | .vaultAta | .dstAta =>
+                  planFail "signer group cannot attach to fixedProgram/handlerCaller/ata meta"
               match site.pda with
               | .signer rule _ _ _ _ _ =>
                   unless group.pdaRule == rule do

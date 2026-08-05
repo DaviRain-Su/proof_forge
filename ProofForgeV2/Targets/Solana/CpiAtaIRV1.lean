@@ -287,7 +287,7 @@ private def findStateSchema?
 
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
-  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller => none
+  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller | .vaultAta | .dstAta => none
 
 private def requireAbsentLoaderPackage
     (packageId : String) (programId : SolanaPubkeyV1) :
@@ -494,7 +494,7 @@ private def projectEntryGlobalOps
           roleId := handle.roleId
           localIndex := i
         }
-    | .state _ | .vaultPda | .handlerCaller => pure ()
+    | .state _ | .vaultPda | .handlerCaller | .vaultAta | .dstAta => pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas
     ops := ops ++ constraintOps

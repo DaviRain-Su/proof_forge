@@ -372,6 +372,8 @@ private inductive RoleKeyV1 where
   | fixedProgram (packageId : String)
   | vaultPda
   | handlerCaller
+  | vaultAta
+  | dstAta
   deriving BEq
 
 private def roleKeyEq (a b : RoleKeyV1) : Bool :=
@@ -381,6 +383,8 @@ private def roleKeyEq (a b : RoleKeyV1) : Bool :=
   | .fixedProgram p1, .fixedProgram p2 => p1 == p2
   | .vaultPda, .vaultPda => true
   | .handlerCaller, .handlerCaller => true
+  | .vaultAta, .vaultAta => true
+  | .dstAta, .dstAta => true
   | _, _ => false
 
 private def findRoleId? (keys : Array RoleKeyV1) (want : RoleKeyV1) : Option Nat :=
@@ -404,6 +408,8 @@ private def ensureRole
         | .fixedProgram pkg => RoleKeyPolicyV1.fixedProgram pkg
         | .vaultPda => RoleKeyPolicyV1.vaultPda
         | .handlerCaller => RoleKeyPolicyV1.handlerCaller
+        | .vaultAta => RoleKeyPolicyV1.vaultAta
+        | .dstAta => RoleKeyPolicyV1.dstAta
       let role : AccountRoleSchemaV1 := {
         roleId := id
         name
@@ -443,6 +449,27 @@ private def handlerCallerRoleConstraintV1 : AccountConstraint where
   data := .exactLength 0
   initialization := .existing
   provisioning := .mustExist
+
+/-- ADR-0030 E1b vault ATA role: Token-owned 165B token account or
+    (idempotent ensure) fresh System-owned zero. Key is ATA(vault, mint),
+    derived at runtime. The entry constraint admits both pre-states; site-time
+    checks enforce Token 165B before the transferChecked CPI. -/
+private def vaultAtaRoleConstraintV1 : AccountConstraint where
+  owner := .closedPackages #["system-v1", "token-classic-v1"]
+  executable := .forbidden
+  data := .ataAccount "mint" "vault"
+  initialization := .uninitializedOrIdempotentlyInitialized
+  provisioning := .ataCreateIdempotent
+
+/-- ADR-0030 E1b destination ATA role: Token-owned 165B token account or
+    (idempotent ensure) fresh System-owned zero. Key is ATA(dst, mint),
+    derived at runtime. -/
+private def dstAtaRoleConstraintV1 : AccountConstraint where
+  owner := .closedPackages #["system-v1", "token-classic-v1"]
+  executable := .forbidden
+  data := .ataAccount "mint" "dst"
+  initialization := .uninitializedOrIdempotentlyInitialized
+  provisioning := .ataCreateIdempotent
 
 /-- Account-parameter role name: prefer `handlerName_paramName`; fall back to
     a short unique form when the preferred name exceeds the 240-byte identifier
@@ -494,6 +521,8 @@ private def buildSiteBindings
     (fixedRoleByPackage : Array (String × Nat))
     (vaultRoleId? : Option Nat)
     (callerRoleId? : Option Nat)
+    (vaultAtaRoleId? : Option Nat)
+    (dstAtaRoleId? : Option Nat)
     (programRoleId : Nat) (programKey : SolanaPubkeyV1)
     (siteId handlerId : Nat) : CompileResult CpiSitePlanV1 := do
   let api := raw.api
@@ -538,6 +567,14 @@ private def buildSiteBindings
           match callerRoleId? with
           | some rid => pure rid
           | none => deriveFail "meta handlerCaller missing caller role"
+      | MetaBinding.vaultAta =>
+          match vaultAtaRoleId? with
+          | some rid => pure rid
+          | none => deriveFail "meta vaultAta missing vaultAta role"
+      | MetaBinding.dstAta =>
+          match dstAtaRoleId? with
+          | some rid => pure rid
+          | none => deriveFail "meta dstAta missing dstAta role"
     metas := metas.push { metaIndex, roleId, spec }
   let mut outerOnly : Array CpiOuterOnlyPlanV1 := #[]
   for spec in api.outerOnlyAccounts do
@@ -728,7 +765,8 @@ def deriveSolanaCpiPlanCandidateCoreV1
       rawSites.filter (fun s => s.callableId == callableId)
     let needsVault := hSites.any (fun s =>
       s.qn == "pf.assets.native.deposit" || s.qn == "pf.assets.native.transfer")
-    let needsCaller := hSites.any (fun s => s.qn == "pf.assets.native.deposit")
+    let needsCaller := hSites.any (fun s =>
+      s.qn == "pf.assets.native.deposit" || s.qn == "pf.assets.token.transfer")
     let mut usedOrds : Array Nat := #[]
     for site in hSites do
       for (_, ord) in site.principalParams do
@@ -744,6 +782,19 @@ def deriveSolanaCpiPlanCandidateCoreV1
       roles := r'
     -- Synthetic vault/caller roles are ensured at first meta use so global
     -- first-use order matches dense roleId assignment (Plan first-use gate).
+    -- For token.transfer, the handlerCaller role is not a CPI meta but is
+    -- still needed as the ATA ensure payer (outer signer). Ensure it before
+    -- sites so it gets a dense global roleId in handler-local order.
+    let tokenTransferNeedsCaller :=
+      hSites.any (fun s => s.qn == "pf.assets.token.transfer")
+    if tokenTransferNeedsCaller then
+      match findRoleId? roleKeys RoleKeyV1.handlerCaller with
+      | some _ => pure ()
+      | none =>
+          let (kC, rC, _) ← ensureRole roleKeys roles
+            RoleKeyV1.handlerCaller "pf_caller" handlerCallerRoleConstraintV1
+          roleKeys := kC
+          roles := rC
     let mut siteIdsForHandler : Array Nat := #[]
     for site in hSites do
       let siteId := builtSites.size
@@ -775,6 +826,16 @@ def deriveSolanaCpiPlanCandidateCoreV1
               RoleKeyV1.handlerCaller "pf_caller" handlerCallerRoleConstraintV1
             roleKeys := kC
             roles := rC
+        | MetaBinding.vaultAta =>
+            let (kA, rA, _) ← ensureRole roleKeys roles
+              RoleKeyV1.vaultAta "pf_vault_ata" vaultAtaRoleConstraintV1
+            roleKeys := kA
+            roles := rA
+        | MetaBinding.dstAta =>
+            let (kD, rD, _) ← ensureRole roleKeys roles
+              RoleKeyV1.dstAta "pf_dst_ata" dstAtaRoleConstraintV1
+            roleKeys := kD
+            roles := rD
         | MetaBinding.arg _ => pure ()
       let mut principalRoleByArgIndex : Array (Nat × Nat) := #[]
       for (argIdx, ord) in site.principalParams do
@@ -797,12 +858,16 @@ def deriveSolanaCpiPlanCandidateCoreV1
               | some rid =>
                   fixedRoleByPackage := fixedRoleByPackage.push (packageId, rid)
               | none => deriveFail s!"fixed role missing for '{packageId}'"
-        | MetaBinding.arg _ | MetaBinding.vaultPda | MetaBinding.handlerCaller =>
+        | MetaBinding.arg _ | MetaBinding.vaultPda | MetaBinding.handlerCaller
+        | MetaBinding.vaultAta | MetaBinding.dstAta =>
             pure ()
       let vaultRoleId? := findRoleId? roleKeys RoleKeyV1.vaultPda
       let callerRoleId? := findRoleId? roleKeys RoleKeyV1.handlerCaller
+      let vaultAtaRoleId? := findRoleId? roleKeys RoleKeyV1.vaultAta
+      let dstAtaRoleId? := findRoleId? roleKeys RoleKeyV1.dstAta
       let sitePlan ← buildSiteBindings site principalRoleByArgIndex
         fixedRoleByPackage vaultRoleId? callerRoleId?
+        vaultAtaRoleId? dstAtaRoleId?
         programRoleId pkg.programId siteId handlerId
       builtSites := builtSites.push sitePlan
       siteIdsForHandler := siteIdsForHandler.push siteId
@@ -820,13 +885,21 @@ def deriveSolanaCpiPlanCandidateCoreV1
       match findRoleId? roleKeys (RoleKeyV1.accountParam callableId ord) with
       | some rid => localRoles := pushUnique localRoles rid
       | none => pure ()
+    -- For token.transfer, the auto-created handlerCaller (ATA ensure payer)
+    -- must appear in localRoles with outerSigner before sites. For deposit,
+    -- handlerCaller is a CPI meta and is added in the site/meta loop below.
+    -- Use a conditional to avoid changing role order for deposit handlers.
+    if tokenTransferNeedsCaller then
+      match findRoleId? roleKeys RoleKeyV1.handlerCaller with
+      | some rid => localRoles := pushUnique localRoles rid
+      | none => pure ()
     for siteId in siteIdsForHandler do
       let site : CpiSitePlanV1 ← getArr builtSites siteId "builtSites"
       localRoles := pushUnique localRoles site.programRoleId
       for metaSlot in site.metas do
         match metaSlot.spec.binding with
         | MetaBinding.fixedProgram _ | MetaBinding.vaultPda
-        | MetaBinding.handlerCaller =>
+        | MetaBinding.handlerCaller | MetaBinding.vaultAta | MetaBinding.dstAta =>
             localRoles := pushUnique localRoles metaSlot.roleId
         | MetaBinding.arg _ => pure ()
 
@@ -836,6 +909,10 @@ def deriveSolanaCpiPlanCandidateCoreV1
         match stateRoleId? with
         | some sid => roleId == sid
         | none => false
+      let isHandlerCallerRole : Bool :=
+        match findRoleId? roleKeys RoleKeyV1.handlerCaller with
+        | some rid => roleId == rid
+        | none => false
       let (directSigner, directWritable) :=
         if isState then directStatePrivileges mode else (false, false)
       let mut signer := directSigner
@@ -844,8 +921,14 @@ def deriveSolanaCpiPlanCandidateCoreV1
         let site : CpiSitePlanV1 ← getArr builtSites siteId "builtSites"
         let (sg, wr) :=
           siteRolePrivilege site.metas site.outerOnlyAccounts roleId
-        if sg then signer := true
-        if wr then writable := true
+        -- ADR-0030 E1b: handlerCaller (ATA ensure payer) is not a CPI meta on
+        -- token.transfer sites, but must contribute outerSigner+writable.
+        let (sg2, wr2) :=
+          if isHandlerCallerRole && site.qn == "pf.assets.token.transfer" then
+            (true, true)
+          else (sg, wr)
+        if sg2 then signer := true
+        if wr2 then writable := true
       uses := uses.push {
         position
         roleId

@@ -934,6 +934,74 @@ private def emitInvokeNativeTransfer
     b := emit b "  jne r0, 0, cpi_failed"
     pure b
 
+/-! ### ADR-0030 E1b: `pf.assets.token.transfer` composite emitter
+
+    This emitter must synthesize the following CPI sequence at runtime:
+    1. Find vault PDA (canonical bump over `proof-forge:vault:v1`)
+    2. Find vault ATA (canonical ATA key over vault+wallet + Token program + mint under ATA program)
+    3. ATA createIdempotent for vault ATA (payer=pf_caller)
+    4. Find dst ATA (canonical ATA key over dst + Token program + mint under ATA program)
+    5. ATA createIdempotent for dst ATA (payer=pf_caller)
+    6. Token transferChecked (vault ATA → mint → dst ATA, vault PDA authority, invoke_signed)
+
+    The composite SBPF assembly for this sequence (ATA ensure ×2 + signed
+    transferChecked) is a large multi-step emitter that requires careful
+    scratch layout, PDA derivation, and site-time predicate ordering. It is
+    implemented as a separate step; this function validates the IR shape and
+    fail-closes at emit with an explicit diagnostic until the composite
+    emitter lands. Plan/IR construction, QN gate, and role table are fully
+    validated and tested. -/
+
+private def emitInvokePfAssetsTokenTransfer
+    (b0 : AsmBuf) (inv : CpiEscrowInvokeV1) (labSuffix : String) :
+    CompileResult AsmBuf := do
+  unless inv.kind == .pfAssetsTokenTransfer do
+    emitFail "emit pfAssetsTokenTransfer requires pfAssetsTokenTransfer kind"
+  unless inv.packageId == "token-classic-v1" &&
+      inv.qn == "pf.assets.token.transfer" do
+    emitFail "emit pfAssetsTokenTransfer requires pf.assets.token.transfer / token-classic-v1"
+  unless inv.dataLen == 10 && inv.metas.size == 4 do
+    emitFail "pfAssetsTokenTransfer dataLen/metas must be 10/4"
+  unless inv.outerOnly.isEmpty do
+    emitFail "pfAssetsTokenTransfer requires zero outer-only"
+  unless inv.signerGroupId == some 0 &&
+      inv.pdaRule == some vaultPdaRuleIdV1 do
+    emitFail "pfAssetsTokenTransfer signer group / PDA rule diverged"
+  let some source := inv.source | emitFail "pfAssetsTokenTransfer source (vault ATA) missing"
+  let some mint := inv.mint | emitFail "pfAssetsTokenTransfer mint missing"
+  let some destination := inv.destination | emitFail "pfAssetsTokenTransfer destination (dst ATA) missing"
+  let some authPda := inv.authorityPda | emitFail "pfAssetsTokenTransfer authorityPda (vault) missing"
+  let some amount := inv.amount | emitFail "pfAssetsTokenTransfer amount missing"
+  let some decimals := inv.decimals | emitFail "pfAssetsTokenTransfer decimals missing"
+  let meta0 := inv.metas[0]!
+  let meta1 := inv.metas[1]!
+  let meta2 := inv.metas[2]!
+  let meta3 := inv.metas[3]!
+  unless meta0.roleId == source.roleId &&
+      meta0.localIndex == source.localIndex &&
+      meta1.roleId == mint.roleId &&
+      meta1.localIndex == mint.localIndex &&
+      meta2.roleId == destination.roleId &&
+      meta2.localIndex == destination.localIndex &&
+      meta3.roleId == authPda.roleId &&
+      meta3.localIndex == authPda.localIndex do
+    emitFail "pfAssetsTokenTransfer Principal/meta join diverged"
+  unless inv.accountInfoCount ≤ escrowMaxRolesV1 do
+    emitFail "pfAssetsTokenTransfer accountInfoCount exceeds max roles"
+  -- Validate decimals is a literal (catalog binding deferred).
+  match decimals with
+  | .literal _ => pure ()
+  | .param .. => emitFail "pfAssetsTokenTransfer decimals must be literal (catalog binding deferred)"
+  -- Validate amount source is resolvable.
+  match amount with
+  | .literal _ | .param .. => pure ()
+  -- The composite ATA-ensure ×2 + signed transferCheckedPda emitter is
+  -- deferred to a separate implementation step. Fail closed at emit with
+  -- an explicit diagnostic so Plan/IR construction is testable without
+  -- producing an incomplete ELF.
+  emitFail
+    "pfAssetsTokenTransfer composite SBPF emitter (ATA ensure ×2 + transferCheckedPda) not yet implemented; Plan/IR/role-table validated, emit deferred"
+
 /-- Emit Token transferChecked: zero signer groups. -/
 private def emitInvokeTransferChecked
     (b0 : AsmBuf) (inv : CpiEscrowInvokeV1) (labSuffix : String) :
@@ -1700,6 +1768,7 @@ private def emitBodyOp
       | .createIdempotent => emitInvokeCreateIdempotent b0 inv labSuffix
       | .nativeDeposit => emitInvokeNativeDeposit b0 inv labSuffix
       | .nativeTransfer => emitInvokeNativeTransfer b0 inv labSuffix
+      | .pfAssetsTokenTransfer => emitInvokePfAssetsTokenTransfer b0 inv labSuffix
   | .returnU64 srcTemp =>
       pure <| Id.run do
         let mut b := b0

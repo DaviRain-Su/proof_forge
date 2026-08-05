@@ -113,6 +113,10 @@ inductive CpiEscrowKindV1 where
   /-- ADR-0029 B1: pf.assets.native.transfer — System transfer vault → dst
       with vault PDA invoke_signed. -/
   | nativeTransfer
+  /-- ADR-0030 E1b: pf.assets.token.transfer — vault ATA → dst ATA via
+      transferChecked with vault PDA authority; ATA idempotent ensure +
+      transferCheckedPda. -/
+  | pfAssetsTokenTransfer
   deriving BEq, Repr, Inhabited
 
 /-- Site-local composite invoke. Family-specific Principal/scalar fields are Option
@@ -368,7 +372,8 @@ private def findStateSchema?
 
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
-  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller => none
+  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller
+  | .vaultAta | .dstAta => none
 
 private def requireAbsentLoaderPackage
     (packageId : String) (programId : SolanaPubkeyV1) :
@@ -525,8 +530,10 @@ private def resolveDataAndInitOps
         tFail s!"classicTokenMint state must be initialized, got '{state}'"
       ops := ops.push (.checkExactDataLen localIndex 82)
   | .ataAccount mintEqualsArg ownerEqualsArg =>
-      unless mintEqualsArg == "mint" && ownerEqualsArg == "wallet" do
-        tFail "ATA account field joins must be mint/wallet"
+      unless mintEqualsArg == "mint" &&
+          (ownerEqualsArg == "wallet" || ownerEqualsArg == "vault" ||
+           ownerEqualsArg == "dst") do
+        tFail "ATA account field joins must be mint/(wallet|vault|dst)"
       -- Closed owner/data alternatives are one custom atomic check.
       pure ()
   pure ops
@@ -593,7 +600,7 @@ private def projectEntryGlobalOps
           roleId := handle.roleId
           localIndex := i
         }
-    | .state _ | .vaultPda | .handlerCaller => pure ()
+    | .state _ | .vaultPda | .handlerCaller | .vaultAta | .dstAta => pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas
     ops := ops ++ constraintOps
@@ -682,24 +689,32 @@ private def resolveSyntheticMetaBinding
   }
 
 
-/-- Resolve a frozen Principal arg name → dense localIndex via site.args role join. -/
+/-- Resolve a frozen Principal arg name → dense localIndex via site.args role join.
+    ADR-0030 E1b: for vault ATA owner join, "vault" is a synthetic PDA role,
+    not a parameter. Fall back to handler role lookup by keyPolicy. -/
 private def principalLocalOfArgName
     (site : CpiIRSiteV1) (handles : Array CpiIRRoleHandleV1) (argName : String) :
     CompileResult Nat := do
-  let arg ← match site.args.find? (fun a => a.spec.name == argName) with
-    | some a => pure a
-    | none =>
-        tFail s!"site {site.siteId}: Principal arg '{argName}' missing for Token field join"
-  unless arg.spec.type_ == FrozenValueType.principal do
-    tFail s!"site {site.siteId}: arg '{argName}' is not Principal"
-  let roleId ← match arg.roleId with
-    | some rid => pure rid
-    | none =>
-        tFail s!"site {site.siteId}: arg '{argName}' has no roleId for Token field join"
-  let li ← localIndexOfRole handles roleId
-  unless li < handles.size do
-    tFail s!"site {site.siteId}: arg '{argName}' localIndex out of range"
-  pure li
+  match site.args.find? (fun a => a.spec.name == argName) with
+  | some arg =>
+      unless arg.spec.type_ == FrozenValueType.principal do
+        tFail s!"site {site.siteId}: arg '{argName}' is not Principal"
+      let roleId ← match arg.roleId with
+      | some rid => pure rid
+      | none =>
+          tFail s!"site {site.siteId}: arg '{argName}' has no roleId for Token field join"
+      let li ← localIndexOfRole handles roleId
+      unless li < handles.size do
+        tFail s!"site {site.siteId}: arg '{argName}' localIndex out of range"
+      pure li
+  | none =>
+      match argName with
+      | "vault" =>
+          let h ← match handles.find? (fun r => r.keyPolicy == RoleKeyPolicyV1.vaultPda) with
+          | some r => pure r
+          | none => tFail s!"site {site.siteId}: vault PDA role missing for Token field join"
+          pure h.localIndex
+      | _ => tFail s!"site {site.siteId}: Principal arg '{argName}' missing for Token field join"
 
 /-- Project one classic Token Account field join suite (closed). -/
 private def projectClassicTokenAccountFields
@@ -1192,9 +1207,36 @@ private def validateEscrowSiteShape (site : CpiIRSiteV1) : CompileResult Unit :=
         tFail s!"site {site.siteId}: native.transfer requires dst + amount"
       unless site.preflight.isEmpty do
         tFail s!"native.transfer site {site.siteId} must have empty preflight"
+  | "pf.assets.token.transfer" =>
+      unless site.packageId == "token-classic-v1" do
+        tFail s!"pf.assets.token.transfer package must be token-classic-v1"
+      unless site.programKey == tokenClassicProgramIdV1 do
+        tFail s!"site {site.siteId}: Token program key must be classic Token id"
+      unless site.instructionCodec.length == 10 do
+        tFail s!"site {site.siteId}: token.transfer dataLen must be 10"
+      match site.pda with
+      | .vaultPdaSigner rule =>
+          unless rule == vaultPdaRuleIdV1 do
+            tFail s!"site {site.siteId}: vault PDA rule must be proof-forge:vault:v1"
+      | .none | .signer .. | .addressCheckOnly .. =>
+          tFail s!"token.transfer requires vaultPdaSigner at site {site.siteId}"
+      unless site.signerGroups.size == 1 do
+        tFail s!"site {site.siteId}: token.transfer requires exact one signer group"
+      let group ← getArr site.signerGroups 0 s!"site {site.siteId}.signerGroups"
+      unless group.id == 0 && group.metaArg == "vault" &&
+          group.pdaRule == vaultPdaRuleIdV1 do
+        tFail s!"site {site.siteId}: signer group must be id0/vault/proof-forge:vault:v1"
+      unless site.metas.size == 4 do
+        tFail s!"site {site.siteId}: token.transfer requires exactly four metas"
+      unless site.outerOnlyAccounts.isEmpty do
+        tFail s!"site {site.siteId}: token.transfer requires empty outer-only"
+      unless site.args.size == 3 do
+        tFail s!"site {site.siteId}: token.transfer requires mint + dst + amount"
+      unless site.preflight.isEmpty do
+        tFail s!"token.transfer site {site.siteId} must have empty preflight"
   | other =>
       tFail
-        s!"Escrow CPI admits only system.transfer|system.createPdaAccount|token.transferChecked|token.transferCheckedPda|ata.createIdempotent|pf.assets.native.deposit|pf.assets.native.transfer, got '{other}'"
+        s!"Escrow CPI admits only system.transfer|system.createPdaAccount|token.transferChecked|token.transferCheckedPda|ata.createIdempotent|pf.assets.native.deposit|pf.assets.native.transfer|pf.assets.token.transfer, got '{other}'"
 
 private def projectEscrowHandler
     (abi : LoaderV3AbiLayoutV1)
@@ -1377,9 +1419,10 @@ private def projectEscrowHandler
             qn == "solana.system.createPdaAccount" ||
             qn == "solana.ata.createIdempotent" ||
             qn == "pf.assets.native.deposit" ||
-            qn == "pf.assets.native.transfer" do
+            qn == "pf.assets.native.transfer" ||
+            qn == "pf.assets.token.transfer" do
           tFail
-            s!"Escrow CPI admits only system.transfer|system.createPdaAccount|token.transferChecked|token.transferCheckedPda|ata.createIdempotent|pf.assets.native.deposit|pf.assets.native.transfer, got '{qn}'"
+            s!"Escrow CPI admits only system.transfer|system.createPdaAccount|token.transferChecked|token.transferCheckedPda|ata.createIdempotent|pf.assets.native.deposit|pf.assets.native.transfer|pf.assets.token.transfer, got '{qn}'"
         let site ← match sites.find? (fun s =>
             s.anchor.callableId == planHandler.callableId &&
               s.anchor.blockId == blk.id.toNat &&
@@ -1515,6 +1558,87 @@ private def projectEscrowHandler
             amount := none
             decimals := none
             lamports := some amountSrc
+            space := none
+            systemProgramLocalIndex := none
+            tokenProgramLocalIndex := none
+            metas
+            outerOnly := #[]
+            signerGroupId := some 0
+            pdaRule := some vaultPdaRuleIdV1
+            accountInfoCount := handles.size
+          })
+        else if qn == "pf.assets.token.transfer" then
+          unless site.packageId == "token-classic-v1" do
+            tFail "pf.assets.token.transfer package must be token-classic-v1"
+          unless args.size == 3 && site.args.size == 3 do
+            tFail "pf.assets.token.transfer requires exactly 3 Semantic and Plan args"
+          let mintVid ← getArr args 0 "externalCall.args"
+          let mintBinding ← resolvePrincipalAccountBinding data.types callable
+            handles bindings site 0 mintVid
+          let dstVid ← getArr args 1 "externalCall.args"
+          let dstBinding ← resolvePrincipalAccountBinding data.types callable
+            handles bindings site 1 dstVid
+          let amountVid ← getArr args 2 "externalCall.args"
+          let amountArg ← getArr site.args 2 s!"site {site.siteId}.args"
+          unless amountArg.semanticValueId == amountVid.toNat &&
+              amountArg.roleId.isNone &&
+              amountArg.spec.type_ == FrozenValueType.uint64 do
+            tFail s!"site {site.siteId} amount binding diverged"
+          let amountSrc ← resolveU64Source data.types callable paramLayout amountVid
+            s!"site {site.siteId} amount"
+          -- Meta 0: vaultAta (source = vault ATA, writable, outer writable)
+          let vaultAtaB ← resolveSyntheticMetaBinding handles site 0
+            MetaBinding.vaultAta RoleKeyPolicyV1.vaultAta
+          -- Meta 1: mint (readonly)
+          let mintMeta ← getArr site.metas 1 s!"site {site.siteId}.metas"
+          unless mintMeta.metaIndex == 1 &&
+              mintMeta.roleId == mintBinding.roleId &&
+              mintMeta.localHandleIndex == mintBinding.localIndex &&
+              mintMeta.spec.cpiWritable == false &&
+              mintMeta.spec.cpiSigner == false do
+            tFail s!"site {site.siteId} mint meta must be readonly non-signer"
+          -- Meta 2: dstAta (destination = dst ATA, writable)
+          let dstAtaB ← resolveSyntheticMetaBinding handles site 2
+            MetaBinding.dstAta RoleKeyPolicyV1.dstAta
+          -- Meta 3: vaultPda (authority PDA signer, signer group 0)
+          let vaultB ← resolveSyntheticMetaBinding handles site 3
+            MetaBinding.vaultPda RoleKeyPolicyV1.vaultPda
+          let meta3 ← getArr site.metas 3 s!"site {site.siteId}.metas"
+          unless meta3.roleId == vaultB.roleId &&
+              meta3.localHandleIndex == vaultB.localIndex &&
+              meta3.spec.cpiSigner == true &&
+              meta3.spec.signerGroupId == some 0 do
+            tFail s!"site {site.siteId} vaultPda meta must be CPI signer group 0"
+          -- Decimals: fixed literal 9 (catalog/mint binding deferred)
+          let decimalsSrc : CpiEscrowU8SourceV1 :=
+            .literal pfAssetsTokenTransferDecimalsV1
+          let argChecks ← projectSiteArgChecks data.types callable paramLayout site none
+          let siteOps ← projectSiteChecks planHandler.mode handles site stateSchemas
+            decimalsSrc
+          body := body.push (.siteArgChecks site.siteId argChecks)
+          body := body.push (.siteChecks site.siteId siteOps)
+          body := body.push (.invokeEscrow {
+            siteId := site.siteId
+            kind := .pfAssetsTokenTransfer
+            qn
+            packageId := site.packageId
+            programLocalIndex := programLocal
+            dataLen := 10
+            source := some vaultAtaB
+            mint := some mintBinding
+            destination := some dstAtaB
+            authority := none
+            authorityPda := some vaultB
+            seedAuthority := none
+            payer := none
+            pda := some vaultB
+            ata := none
+            wallet := none
+            seedTag := none
+            bump := none
+            amount := some amountSrc
+            decimals := some decimalsSrc
+            lamports := none
             space := none
             systemProgramLocalIndex := none
             tokenProgramLocalIndex := none
@@ -2247,6 +2371,7 @@ private def renderKind : CpiEscrowKindV1 → String
   | .createIdempotent => "createIdempotent"
   | .nativeDeposit => "nativeDeposit"
   | .nativeTransfer => "nativeTransfer"
+  | .pfAssetsTokenTransfer => "pfAssetsTokenTransfer"
 
 private def renderOptPrincipal (b : Option CpiEscrowPrincipalBindingV1) : String :=
   match b with
@@ -2451,7 +2576,8 @@ def validateSolanaCpiEscrowIRCandidateV1
                       | .tokenMintInitialized li => li == mintB.localIndex
                       | _ => false) do
                     tFail s!"site {sid}: ATA mint initialized check missing"
-              | .createPdaAccount | .transfer | .nativeDeposit | .nativeTransfer =>
+              | .createPdaAccount | .transfer | .nativeDeposit | .nativeTransfer
+              | .pfAssetsTokenTransfer =>
                   pure ()
           | _, _ => tFail s!"siteChecks {sid} must be between siteArgChecks and invokeEscrow"
       | .invokeEscrow inv =>
@@ -2531,6 +2657,16 @@ def validateSolanaCpiEscrowIRCandidateV1
                   inv.payer.isSome && inv.destination.isSome &&
                   inv.pda.isSome && inv.lamports.isSome do
                 tFail s!"nativeTransfer site {inv.siteId} frozen shape diverged"
+          | .pfAssetsTokenTransfer =>
+              unless inv.qn == "pf.assets.token.transfer" &&
+                  inv.packageId == "token-classic-v1" && inv.dataLen == 10 &&
+                  inv.metas.size == 4 && inv.outerOnly.isEmpty &&
+                  inv.signerGroupId == some 0 &&
+                  inv.pdaRule == some vaultPdaRuleIdV1 &&
+                  inv.source.isSome && inv.mint.isSome && inv.destination.isSome &&
+                  inv.authorityPda.isSome && inv.pda.isSome &&
+                  inv.amount.isSome && inv.decimals.isSome do
+                tFail s!"pfAssetsTokenTransfer site {inv.siteId} frozen shape diverged"
           if i < 2 then
             tFail s!"invokeEscrow site {inv.siteId} missing preceding siteArgChecks/siteChecks"
           else
@@ -2629,6 +2765,12 @@ def escrowMaxSiteScratchV1 (c : SolanaCpiEscrowIRCandidateV1) : Nat :=
                   escrowCpiScratchCreatePdaAccountV1 inv.accountInfoCount
               | .createIdempotent =>
                   escrowCpiScratchCreateIdempotentV1 inv.accountInfoCount
+              | .pfAssetsTokenTransfer =>
+                  -- ATA ensure (createIdempotent) + transferCheckedPda; use
+                  -- the larger of the two scratch budgets.
+                  let ataS := escrowCpiScratchCreateIdempotentV1 inv.accountInfoCount
+                  let xferS := escrowCpiScratchTransferCheckedPdaV1 inv.accountInfoCount
+                  if ataS > xferS then ataS else xferS
             if b > maxB then maxB := b
         | _ => pure ()
     pure maxB
