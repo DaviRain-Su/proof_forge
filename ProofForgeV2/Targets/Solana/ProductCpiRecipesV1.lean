@@ -1,17 +1,16 @@
 /-
-  ProofForgeV2.Targets.Solana.ProductCpiRecipesV1 — ADR-0032 U1 / P3-e foundation.
+  ProofForgeV2.Targets.Solana.ProductCpiRecipesV1 — ADR-0032 U1 / P3-e.
 
   Pure, cycle-free recipe constants and recognition helpers for product-rail
-  CPI sites that full-body synthesize may eventually multi-role emit.
+  CPI sites on the full-body synthesize path.
 
-  Today (P3-e foundation):
   * `solana.system.transfer` layout (SystemInstruction::Transfer = 2, 12B data,
     2 AccountMetas, native System program id = 32 zero bytes)
-  * frame scratch needs for multi-role emit (escrow-compatible formula)
+  * frame scratch needs (escrow-compatible formula)
+  * multi-role site binding carrier for synthesize → multi-role emit
   * QN recognition for maturity tagging
 
-  Does **not** import EmitCpiEscrow / EmitSbpfAsm (avoids cycles). Engineering
-  only — multi-role AccountMeta walker still deferred to full P3-e integration.
+  Does **not** import EmitCpiEscrow / EmitSbpfAsm (avoids cycles).
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Targets.Solana.ProductFrameV1
@@ -58,14 +57,12 @@ def isSystemTransferQnV1 (qn : String) : Bool :=
   qn == systemTransferQnV1
 
 /-- CPI scratch bytes for one system.transfer with `outerRoleCount` infos
-    (escrow formula: 16 data-aligned + 32 metas + 40 instr + 56*N infos).
-    Data region uses 16B (12B payload + 4B pad) in the composite emitter. -/
+    (escrow formula: 16 data-aligned + 32 metas + 40 instr + 56*N infos). -/
 def systemTransferScratchBytesV1 (outerRoleCount : Nat) : Nat :=
   16 + systemTransferMetaCountV1 * productAccountMetaSizeV1 +
     productSolInstructionSizeV1 + outerRoleCount * productAccountInfoSizeV1
 
-/-- Minimum unified frame total for body temps + system.transfer scratch
-    under the escrow-compatible region order (role table + fixed slots). -/
+/-- Minimum unified frame total for body temps + system.transfer scratch. -/
 def systemTransferUnifiedFrameMinV1 (bodyTempBytes : Nat)
     (outerRoleCount : Nat) : Nat :=
   productRoleTableBytesV1 + productFixedSlotBytesV1 + bodyTempBytes +
@@ -91,5 +88,43 @@ def systemTransferMaturityNoteV1 (multiRole : Bool) : String :=
     "system.transfer multi-role AccountMeta (P3-e)"
   else
     "system.transfer data layout (empty AccountMeta partial; multi-role deferred)"
+
+/-- P3-e multi-role site binding for full-body system.transfer emit.
+    Locals are dense role indices from the product plan (0 = state). -/
+structure ProductSystemTransferSiteV1 where
+  payerLocal : Nat
+  recipientLocal : Nat
+  programLocal : Nat
+  /-- Outer account infos length passed to sol_invoke_signed_c (typically
+      accountRoles.size). -/
+  accountInfoCount : Nat
+  deriving BEq, Repr, Inhabited
+
+/-- Stack slot layout (bytes below r10), escrow-compatible. -/
+def multiRoleSlotNumRolesV1 : Nat := 8
+def multiRoleSlotProgramIdV1 : Nat := 16
+def multiRoleSlotIxDataV1 : Nat := 24
+def multiRoleSlotHandlerIdV1 : Nat := 32
+def multiRoleSlotCursorV1 : Nat := 40
+
+/-- Body temp region start (absolute bytes below r10). -/
+def multiRoleTempBaseV1 : Nat := productEscrowTempBaseV1
+
+/-- CPI scratch base for multi-role system.transfer (after 32 body temps). -/
+def multiRoleCpiBaseV1 : Nat :=
+  multiRoleTempBaseV1 + 32 * 8
+
+/-- Loader V3 ABIv1 marker and key offsets (frozen product values). -/
+def multiRoleAbiMarkerV1 : Nat := 0xff
+def multiRoleAbiKeyOffsetV1 : Nat := 8
+def multiRoleAbiOwnerOffsetV1 : Nat := 40
+def multiRoleAbiLamportsOffsetV1 : Nat := 72
+def multiRoleAbiDataLenOffsetV1 : Nat := 80
+def multiRoleAbiFullPrefixV1 : Nat := 88
+def multiRoleAbiIsSignerOffsetV1 : Nat := 1
+def multiRoleAbiIsWritableOffsetV1 : Nat := 2
+def multiRoleAbiMaxPermittedV1 : Nat := 10240
+def multiRoleAbiOrigDataLenOffV1 : Nat := 4
+def multiRoleAbiOrigDataLenEntryV1 : Nat := 0xffffffff
 
 end ProofForgeV2.Targets.Solana.ProductCpiRecipesV1

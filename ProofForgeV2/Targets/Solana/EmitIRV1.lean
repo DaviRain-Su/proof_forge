@@ -2196,4 +2196,19 @@ def fullBodyIrFromProductCapabilityV1
   validatePlan plan
   lower plan
 
+/-- P3-e: stamp multi-role system.transfer binding onto full-body IR (private mk).
+    EmitSbpfAsm reads these fields to walk outer roles and emit AccountMetas.
+    Keep `sourcePlan.stateAccount` identical so `validateIR` identity/layout bind holds. -/
+def withProductMultiRoleSystemTransferV1
+    (ir : IR) (roleCount payerLocal recipientLocal programLocal : Nat) : IR :=
+  let sa := {
+    ir.stateAccount with
+      productMultiRoleCount := roleCount
+      productXferPayerLocal := payerLocal
+      productXferRecipientLocal := recipientLocal
+      productXferProgramLocal := programLocal
+  }
+  let sp := { ir.sourcePlan with stateAccount := sa }
+  { ir with stateAccount := sa, sourcePlan := sp }
+
 end ProofForgeV2.Targets.Solana

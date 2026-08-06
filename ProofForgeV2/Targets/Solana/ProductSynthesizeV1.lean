@@ -1,19 +1,20 @@
 /-
-  ProofForgeV2.Targets.Solana.ProductSynthesizeV1 — ADR-0032 U1 / P3-c/d.
+  ProofForgeV2.Targets.Solana.ProductSynthesizeV1 — ADR-0032 U1 / P3-c/d/e.
 
   Sole product-rail materialize entry for `solana-sbpf-cpi-elf-v1` (plus plan/elf
   shim dispatch):
 
   * Zero-site full-body: CPI product Plan/IDL + full-body LowerSemantic IR →
     `emitSbpfAsmV1`, framed via `ProductFrameV1` bodyOnly (P3-c).
-  * hasSites ∧ full-body (Map/CFG + ExternalCall): same full-body path with
-    product ExternalCall markers → empty-meta `sol_invoke_signed_c` (P3-d
-    **partial**). CPI product Plan/IDL still carry site metadata; multi-role
-    AccountMeta walkers not yet hooked into body emit (honest partial).
+  * hasSites ∧ full-body + sole `solana.system.transfer` + ≥3 outer roles:
+    stamp multi-role locals → outer walk + AccountMeta + System 12B invoke
+    (`p3e-system-transfer-multi-role`, frameMode `unifiedCpi`).
+  * Other hasSites ∧ full-body (Map/CFG + ExternalCall): empty-meta
+    `sol_invoke_signed_c` (P3-d/e foundation partial).
   * Straight-line CPI sites (no full-body need): CpiV1 escrow composite.
 
   Import leaf: sits above EmitSbpfAsm/CpiProduct; does not import Finalize.
-  Engineering only — not multi-role CPI maturity or formal D5.
+  Engineering only — not TipJar/escrow multi-recipe maturity or formal D5.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.TargetIdentityV1
@@ -77,8 +78,9 @@ def semanticUsesContextCallerV1 (data : SemanticProgramDataV1) : Bool :=
         | _ => false
 
 /-- Shared full-body product files: CPI plan/IDL + LowerSemantic body `.s`.
-    `hasSites` selects P3-c (zero-site) vs P3-d partial (sites present) markers.
-    Empty-meta CPI only — multi-role site metas not yet synthesized into body. -/
+    `hasSites` selects P3-c (zero-site) vs site-bearing paths. Sole
+    system.transfer with ≥3 outer roles stamps multi-role AccountMeta; other
+    sites remain empty-meta partial. -/
 def synthesizeFullBodyProductBaseFilesV1
     (capability : ResolvedEngineeringBuildV1)
     (hasSites : Bool) :
@@ -104,29 +106,61 @@ def synthesizeFullBodyProductBaseFilesV1
     | none =>
         throw <| .planInvariant .solana
           "product synthesize full-body: plan UTF-8 decode failed"
-  let bodyIr ← fullBodyIrFromProductCapabilityV1 capability admitCaller
-  let asm ← emitSbpfAsmV1 bodyIr
-  -- Body-only frame: empty-meta CPI uses body temp region (not multi-role
-  -- walker scratch). Multi-role unified frame lands with real site hooks.
-  let frame ← match mintBodyOnlyFrameV1 productMaxFrameBytesV1 with
-    | .ok L => pure L
-    | .error e =>
-        throw <| .planInvariant .solana s!"product synthesize frame: {e}"
-  requireProductFrameV1 frame
+  let bodyIr0 ← fullBodyIrFromProductCapabilityV1 capability admitCaller
   let siteQns := validated.candidate.cpiSites.map (fun s => s.qn)
   let allSystemXfer :=
     !siteQns.isEmpty && siteQns.all isSystemTransferQnV1
+  let roleCount := validated.candidate.accountRoles.size
+  -- P3-e multi-role: sole system.transfer sites + multi-block body → stamp
+  -- role locals and emit multi-role walk + AccountMeta invoke.
+  let bodyIr ←
+    if hasSites && allSystemXfer && roleCount ≥ 3 then do
+      let some site0 := validated.candidate.cpiSites[0]? |
+        throw <| .planInvariant .solana
+          "product synthesize multi-role system.transfer missing site 0"
+      unless site0.metas.size == 2 do
+        throw <| .planInvariant .solana
+          "product synthesize multi-role system.transfer requires exactly 2 metas"
+      let some meta0 := site0.metas[0]? |
+        throw <| .planInvariant .solana "multi-role system.transfer meta0 missing"
+      let some meta1 := site0.metas[1]? |
+        throw <| .planInvariant .solana "multi-role system.transfer meta1 missing"
+      pure (withProductMultiRoleSystemTransferV1 bodyIr0 roleCount
+        meta0.roleId meta1.roleId site0.programRoleId)
+    else
+      pure bodyIr0
+  let multiRoleOn := bodyIr.stateAccount.productMultiRoleCount > 0
+  let asm ← emitSbpfAsmV1 bodyIr
+  let frame ←
+    if multiRoleOn then
+      match mintUnifiedCpiFrameV1
+          (productEscrowTempRegionEndV1 - productEscrowTempBaseV1)
+          (productMaxFrameBytesV1 - productEscrowTempRegionEndV1) with
+      | .ok L => pure L
+      | .error e =>
+          throw <| .planInvariant .solana s!"product synthesize multi-role frame: {e}"
+    else
+      match mintBodyOnlyFrameV1 productMaxFrameBytesV1 with
+      | .ok L => pure L
+      | .error e =>
+          throw <| .planInvariant .solana s!"product synthesize frame: {e}"
+  requireProductFrameV1 frame
+  let frameMode := if multiRoleOn then "unifiedCpi" else "bodyOnly"
   let synthTag :=
     if !hasSites then "p3c-zero-site"
+    else if multiRoleOn then "p3e-system-transfer-multi-role"
     else if allSystemXfer then "p3e-system-transfer-empty-meta"
     else "p3d-partial-empty-meta"
   let cpiMaturity :=
     if !hasSites then "zero-site"
+    else if multiRoleOn then "multi-role-system-transfer"
     else if allSystemXfer then "empty-meta-partial-system-transfer"
     else "empty-meta-partial"
   let honesty :=
     if !hasSites then
       "body via ProductSynthesizeV1→LowerSemantic+EmitSbpfAsm (P3-c)"
+    else if multiRoleOn then
+      "full-body+system.transfer multi-role AccountMeta + outer role walk (P3-e)"
     else if allSystemXfer then
       "full-body+system.transfer: System program id+12B data; empty AccountMeta (P3-e foundation)"
     else
@@ -137,12 +171,12 @@ def synthesizeFullBodyProductBaseFilesV1
     "{\"schema\":\"" ++ fullBodyHybridIrSchemaV1 ++ "\"," ++
     "\"note\":\"" ++ honesty ++ "\"," ++
     "\"synthesize\":\"" ++ synthTag ++ "\"," ++
-    "\"frameMode\":\"bodyOnly\"," ++
+    "\"frameMode\":\"" ++ frameMode ++ "\"," ++
     "\"frameBytes\":" ++ toString frame.totalBytes ++ "," ++
     "\"admitCaller\":" ++ (if admitCaller then "true" else "false") ++ "," ++
     "\"admitProductExternalCall\":true," ++
     "\"cpiSites\":" ++ toString validated.candidate.cpiSites.size ++ "," ++
-    "\"outerRoleCount\":" ++ toString validated.candidate.accountRoles.size ++ "," ++
+    "\"outerRoleCount\":" ++ toString roleCount ++ "," ++
     "\"cpiMaturity\":\"" ++ cpiMaturity ++ "\"}"
   let irDigestWire ← match fullBodyHybridIrDigestV1 irText.toUTF8 with
     | .ok d =>
@@ -158,9 +192,10 @@ def synthesizeFullBodyProductBaseFilesV1
     "{\"schema\":\"proof-forge.solana.cpi-bindings.v1\"," ++
     "\"fullBodyHybrid\":true," ++
     "\"synthesize\":\"" ++ synthTag ++ "\"," ++
-    "\"frameMode\":\"bodyOnly\"," ++
+    "\"frameMode\":\"" ++ frameMode ++ "\"," ++
     "\"frameBytes\":" ++ toString frame.totalBytes ++ "," ++
     "\"cpiSites\":" ++ toString validated.candidate.cpiSites.size ++ "," ++
+    "\"outerRoleCount\":" ++ toString roleCount ++ "," ++
     "\"irDigest\":\"" ++ irDigestWire ++ "\"," ++
     "\"programName\":\"" ++ name ++ "\"}"
   pure #[

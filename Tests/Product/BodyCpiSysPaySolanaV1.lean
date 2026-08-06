@@ -1,10 +1,10 @@
 /-
-  Tests.Product.BodyCpiSysPaySolanaV1 — ADR-0032 U1 P3-e foundation product pin.
+  Tests.Product.BodyCpiSysPaySolanaV1 — ADR-0032 U1 P3-e multi-role product pin.
 
   Authority: shipped `Examples/BodyCpiSysPay.lean`.
     * multi-block if + solana.system.transfer on cpi-elf rail
     * pins System program id (zeros) + 12B Transfer data packing
-    * multi-role AccountMeta still deferred
+    * multi-role outer walk + AccountMeta invoke (P3-e)
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Common
@@ -29,7 +29,7 @@ private def shippedPath : FilePath := FilePath.mk "Examples/BodyCpiSysPay.lean"
 
 private def readShipped : IO String := do
   unless ← shippedPath.pathExists do
-    throw <| IO.userError "Examples/BodyCpiSysPay.lean missing (P3-e foundation vector)"
+    throw <| IO.userError "Examples/BodyCpiSysPay.lean missing (P3-e multi-role vector)"
   IO.FS.readFile shippedPath
 
 private def assertShape (text : String) : IO Unit := do
@@ -77,34 +77,44 @@ private def testSolanaCpiBuildAndInspect : IO Unit := do
   unless ← (outDir / "BodyCpiSysPay.s").pathExists do
     throw <| IO.userError "must write BodyCpiSysPay.s"
   let ir ← IO.FS.readFile (outDir / "BodyCpiSysPay.cpi-ir.json")
-  expect (containsSubstr ir "p3e-system-transfer-empty-meta")
-    s!"cpi-ir must mark p3e-system-transfer-empty-meta, got={ir}"
-  expect (containsSubstr ir "empty-meta-partial-system-transfer")
-    s!"cpi-ir must mark system-transfer maturity, got={ir}"
-  expect (containsSubstr ir "\"outerRoleCount\":")
-    s!"cpi-ir must record outerRoleCount, got={ir}"
+  expect (containsSubstr ir "p3e-system-transfer-multi-role")
+    s!"cpi-ir must mark p3e-system-transfer-multi-role, got={ir}"
+  expect (containsSubstr ir "multi-role-system-transfer")
+    s!"cpi-ir must mark multi-role system-transfer maturity, got={ir}"
+  expect (containsSubstr ir "\"frameMode\":\"unifiedCpi\"")
+    s!"cpi-ir must use unifiedCpi frame, got={ir}"
+  expect (containsSubstr ir "\"outerRoleCount\":4")
+    s!"cpi-ir must record outerRoleCount=4 (state+payer+recipient+system), got={ir}"
   let asm ← IO.FS.readFile (outDir / "BodyCpiSysPay.s")
   expect (containsSubstr asm "sol_invoke_signed_c")
     "assembly must emit sol_invoke_signed_c"
-  expect (containsSubstr asm ("program_id=0x" ++ systemProgramIdHexV1))
-    "assembly must use native System program id (32 zeros)"
-  expect (containsSubstr asm "SystemInstruction::Transfer" ||
-      containsSubstr asm "system.transfer data layout")
-    "assembly must note System transfer data packing"
+  expect (containsSubstr asm "mr_parse_role")
+    "assembly must walk outer roles (mr_parse_role)"
+  expect (containsSubstr asm "product_mr_xfer")
+    "assembly must emit multi-role system.transfer site"
+  expect (containsSubstr asm "system.transfer multi-role AccountMeta")
+    "assembly must note multi-role AccountMeta maturity"
   expect (containsSubstr asm "stxw")
     "assembly must stxw Transfer discriminant"
-  expect (!containsSubstr asm "multi-role-mature")
-    "must not claim multi-role maturity"
+  expect (containsSubstr asm "accounts_len")
+    "assembly must fill SolInstruction accounts_len (non-empty metas)"
+  expect (!containsSubstr asm "empty AccountMeta")
+    "multi-role path must not claim empty AccountMeta"
   let evidence ← IO.FS.readFile (outDir / "evidence.json")
   expect (containsSubstr evidence "irDigest=sha256:")
     s!"evidence content-bound irDigest, got={evidence}"
+  let bindings ← IO.FS.readFile (outDir / "BodyCpiSysPay.cpi-bindings.json")
+  expect (containsSubstr bindings "p3e-system-transfer-multi-role")
+    s!"bindings must pin multi-role synthesize tag, got={bindings}"
+  expect (containsSubstr bindings "\"frameMode\":\"unifiedCpi\"")
+    s!"bindings must pin unifiedCpi, got={bindings}"
   let (iec, istdout, istderr) ← runCli
     #["inspect", outDir.toString, "--json"]
   expect (iec == 0)
     s!"inspect must succeed, exit={iec} stderr={istderr}"
   expect (containsSubstr istdout "\"target\":\"solana\"")
     s!"inspect json target, got={istdout.take 200}"
-  IO.println "  BodyCpiSysPay solana-sbpf-cpi-elf-v1 product pin ok"
+  IO.println "  BodyCpiSysPay solana-sbpf-cpi-elf-v1 multi-role product pin ok"
 
 unsafe def run : IO Unit := do
   testSolanaCpiBuildAndInspect

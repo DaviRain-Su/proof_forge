@@ -1061,14 +1061,14 @@
       "sha256": "86fb47a5ccfc9e2c86600280ed030fe7391e8feb674a49898df7c138a3e9ffed"
     },
     {
-      "bytes": 111562,
+      "bytes": 112263,
       "path": "ProofForgeV2/Targets/Solana/EmitIRV1.lean",
-      "sha256": "63b434628c390ae8019be591e7414fed5f4c51b231598eb8475be2153ec02d69"
+      "sha256": "0bda569fe8afec4efadc14294b51e6453e2d7faa0a53ab55f68571c1b50af8e7"
     },
     {
-      "bytes": 105185,
+      "bytes": 117281,
       "path": "ProofForgeV2/Targets/Solana/EmitSbpfAsmV1.lean",
-      "sha256": "3d6d148de6e2b7613b053b65f06877af24427d9cb1f7e8cc34f7e5b224a5a507"
+      "sha256": "e2f3c863b63b540448f0545ac67b8becb44f957aa65ea271a061d7d1b29d453e"
     },
     {
       "bytes": 14468,
@@ -1076,9 +1076,9 @@
       "sha256": "ff62ca7644543233f69142a34d02c43138f9f9fc46da1a99c9eb41bcc3f1e28a"
     },
     {
-      "bytes": 205775,
+      "bytes": 206276,
       "path": "ProofForgeV2/Targets/Solana/LowerSemanticV1.lean",
-      "sha256": "5a8242b2070b9044bce1a0ff8483c9afdbc23ab38bfb93a38b6a914732ecb5d7"
+      "sha256": "db115d5d02615c4554c20f5a0b1047853d2a8e97f67237dfb78e15c479dd150f"
     },
     {
       "bytes": 6395,
@@ -1091,9 +1091,9 @@
       "sha256": "3aa04cfe02a66d6bedb3b10565205ee74d4d742b0e4d7e25b2dbe658da5162c8"
     },
     {
-      "bytes": 3956,
+      "bytes": 5190,
       "path": "ProofForgeV2/Targets/Solana/ProductCpiRecipesV1.lean",
-      "sha256": "22ca874da554ea2d5a2dc019589cfc78906453f129cd13c456e25d55f981fcc3"
+      "sha256": "923e5b2afeefb78104e1d5130b6356182e61873eca1ac48e083be89d1e36d12d"
     },
     {
       "bytes": 6674,
@@ -1101,9 +1101,9 @@
       "sha256": "97045087fe0af0b34631407ba12ae8132c7cd628cdfacc04388201b935eafe3b"
     },
     {
-      "bytes": 11571,
+      "bytes": 13275,
       "path": "ProofForgeV2/Targets/Solana/ProductSynthesizeV1.lean",
-      "sha256": "f1c3f954c9cef052db20f0a6fda15210f4531a290e2992a60a869c8dd94b3f96"
+      "sha256": "33127c0c4cde3e0ddb65c48090d7fe77727dc990ba191b331d49f07e362d8a0b"
     },
     {
       "bytes": 27246,

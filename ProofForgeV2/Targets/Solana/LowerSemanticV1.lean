@@ -134,6 +134,15 @@ structure StateAccount where
   /-- ADR-0032 P3-d: product full-body Plan may lower void ExternalCall markers
       (EmitSbpfAsm empty-meta partial CPI). Independent of admitCallerRole. -/
   admitProductExternalCall : Bool := false
+  /-- P3-e multi-role: when >0, EmitSbpfAsm walks this many outer accounts into
+      the role table and uses multi-role system.transfer AccountMetas. 0 = off. -/
+  productMultiRoleCount : Nat := 0
+  /-- P3-e: system.transfer payer role local (dense product plan index). -/
+  productXferPayerLocal : Nat := 0
+  /-- P3-e: system.transfer recipient role local. -/
+  productXferRecipientLocal : Nat := 0
+  /-- P3-e: system.transfer program role local (system-v1). -/
+  productXferProgramLocal : Nat := 0
   deriving BEq, Inhabited, Repr
 
 structure AccountAccess where

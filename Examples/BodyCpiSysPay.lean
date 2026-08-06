@@ -4,17 +4,18 @@ namespace Examples
 
 open ProofForgeV2.Language
 
--- ADR-0032 U1 / P3-e foundation demo: multi-block if + solana.system.transfer
+-- ADR-0032 U1 / P3-e multi-role demo: multi-block if + solana.system.transfer
 -- on sole rail `solana-sbpf-cpi-elf-v1` (hasSites ∧ needsFullBody).
 --
--- Engineering path (P3-e foundation):
+-- Engineering path (P3-e multi-role system.transfer):
 --   * full-body LowerSemantic for if/CFG + state
---   * empty-meta `sol_invoke_signed_c` with **correct** native System program id
+--   * outer role table walk (state + payer + recipient + system program)
+--   * AccountMeta fill + `sol_invoke_signed_c` with native System program id
 --     (32 zeros) and SystemInstruction::Transfer 12B data packing
---   * multi-role AccountMeta walker still deferred (not TipJar-class CPI)
+--   * synthesize tag `p3e-system-transfer-multi-role` / frameMode `unifiedCpi`
 --
--- Prefer this vector over pf.assets vault CPI when validating System data
--- layout without Map/scratch complexity.
+-- Prefer this vector over pf.assets vault CPI when validating System multi-role
+-- CPI without Map/scratch complexity. Map+empty-meta remains BodyCpiMapTip.
 --
 -- Not imported by Examples.lean (target-specific product pin).
 -- Non-formal, non-mainnet, not Mollusk.

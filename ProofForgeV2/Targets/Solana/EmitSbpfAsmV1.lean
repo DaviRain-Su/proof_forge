@@ -2,6 +2,7 @@ import ProofForgeV2.Targets.Solana.EmitIRV1
 import ProofForgeV2.Targets.Solana.LowerSemanticV1
 import ProofForgeV2.Targets.Solana.ValidatePlanV1
 import ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
+import ProofForgeV2.Targets.Solana.ProductFrameV1
 import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Core.Common
 
@@ -89,6 +90,14 @@ namespace ProofForgeV2.Targets.Solana
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
+open ProofForgeV2.Targets.Solana.ProductFrameV1
+
+/-- P3-e multi-role emit options (system.transfer product sites). -/
+structure ProductMultiRoleEmitV1 where
+  roleCount : Nat
+  xfer : ProductSystemTransferSiteV1
+  deriving BEq, Repr, Inhabited
 
 /-- Fixed Solana BPF account serialization constants. -/
 def maxPermittedDataIncreaseV1 : Nat := 10240
@@ -1680,6 +1689,133 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
       b := emit b "  exit"
       pure (emit b s!"{okLab}:")
 
+/-- P3-e multi-role system.transfer: real AccountMetas from role table +
+    sol_invoke_signed_c. Uses CPI scratch below r10 at multiRoleCpiBaseV1.
+    `args` must be a single amount temp (Principals are role-bound). -/
+private def emitCpiInvokeSystemTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
+    (args : Array Nat) (site : ProductSystemTransferSiteV1)
+    (kindNote : String) : CompileResult AsmBuf := do
+  unless args.size == 1 do
+    return ← asmError
+      "P3-e multi-role system.transfer requires exactly one UInt64 amount arg"
+  let n := site.accountInfoCount
+  unless n ≥ 2 && n ≤ productMaxOuterRolesV1 do
+    return ← asmError s!"P3-e multi-role accountInfoCount out of range ({n})"
+  let cpiBase := multiRoleCpiBaseV1
+  let mut b := emit b0 s!"  ; --- {kindNote} system.transfer multi-role ---"
+  b := emit b s!"  ; {systemTransferMaturityNoteV1 true}"
+  b := emit b "  mov64 r9, r10"
+  b := emit b s!"  lddw r4, {cpiBase}"
+  b := emit b "  sub64 r9, r4                       ; r9 = cpi scratch"
+  -- data: tag u32le=2 @+0, lamports u64le @+4 (12B)
+  b := emit b "  lddw r4, 0"
+  b := emit b "  stxdw [r9 + 0], r4"
+  b := emit b "  stxdw [r9 + 8], r4"
+  b := emit b s!"  lddw r4, {systemTransferInstructionTagV1}"
+  b := emit b "  stxw [r9 + 0], r4"
+  b := loadTemp b "r4" tempBase args[0]!
+  b := emit b "  stxdw [r9 + 4], r4"
+  -- metas at r9+16: payer (w+s), recipient (w)
+  b := emit b "  mov64 r5, r9"
+  b := emit b "  add64 r5, 16"
+  -- meta0 key from role payer
+  b := emit b "  mov64 r2, r10"
+  b := emit b s!"  lddw r3, {productRoleTableBytesV1}"
+  b := emit b "  sub64 r2, r3"
+  if site.payerLocal != 0 then
+    b := emit b s!"  lddw r3, {site.payerLocal * productRoleStrideV1}"
+    b := emit b "  add64 r2, r3"
+  b := emit b "  ldxdw r4, [r2 + 8]                  ; ROLE_KEY"
+  b := emit b "  stxdw [r5 + 0], r4"
+  b := emit b "  lddw r4, 1"
+  b := emit b "  stxb [r5 + 8], r4                   ; writable"
+  b := emit b "  stxb [r5 + 9], r4                   ; signer"
+  b := emit b "  lddw r4, 0"
+  for pad in [10:16] do
+    b := emit b s!"  stxb [r5 + {pad}], r4"
+  -- meta1 recipient
+  b := emit b "  mov64 r2, r10"
+  b := emit b s!"  lddw r3, {productRoleTableBytesV1}"
+  b := emit b "  sub64 r2, r3"
+  if site.recipientLocal != 0 then
+    b := emit b s!"  lddw r3, {site.recipientLocal * productRoleStrideV1}"
+    b := emit b "  add64 r2, r3"
+  b := emit b "  ldxdw r4, [r2 + 8]"
+  b := emit b "  stxdw [r5 + 16], r4"
+  b := emit b "  lddw r4, 1"
+  b := emit b "  stxb [r5 + 24], r4                  ; writable"
+  b := emit b "  lddw r4, 0"
+  b := emit b "  stxb [r5 + 25], r4                  ; not signer"
+  for pad in [26:32] do
+    b := emit b s!"  stxb [r5 + {pad}], r4"
+  -- SolInstruction at r9+48
+  b := emit b "  mov64 r8, r9"
+  b := emit b "  add64 r8, 48"
+  -- program_id from system role key
+  b := emit b "  mov64 r2, r10"
+  b := emit b s!"  lddw r3, {productRoleTableBytesV1}"
+  b := emit b "  sub64 r2, r3"
+  if site.programLocal != 0 then
+    b := emit b s!"  lddw r3, {site.programLocal * productRoleStrideV1}"
+    b := emit b "  add64 r2, r3"
+  b := emit b "  ldxdw r4, [r2 + 8]"
+  b := emit b "  stxdw [r8 + 0], r4                  ; program_id ptr"
+  b := emit b "  mov64 r4, r9"
+  b := emit b "  add64 r4, 16"
+  b := emit b "  stxdw [r8 + 8], r4                  ; accounts"
+  b := emit b "  lddw r4, 2"
+  b := emit b "  stxdw [r8 + 16], r4                 ; accounts_len"
+  b := emit b "  stxdw [r8 + 24], r9                 ; data"
+  b := emit b s!"  lddw r4, {systemTransferDataLenV1}"
+  b := emit b "  stxdw [r8 + 32], r4                 ; data_len=12"
+  -- fill AccountInfos from role table (n roles) at r9+88
+  let infosOff := 88
+  b := emit b "  mov64 r5, r9"
+  b := emit b s!"  add64 r5, {infosOff}"
+  b := emit b "  lddw r7, 0"
+  b := emit b s!"fill_info_{kindNote}:"
+  b := emit b "  mov64 r2, r10"
+  b := emit b s!"  lddw r3, {productRoleTableBytesV1}"
+  b := emit b "  sub64 r2, r3"
+  b := emit b "  mov64 r3, r7"
+  b := emit b "  lsh64 r3, 6"
+  b := emit b "  add64 r2, r3"
+  b := emit b "  ldxdw r4, [r2 + 8]"
+  b := emit b "  stxdw [r5 + 0], r4                  ; key"
+  b := emit b "  ldxdw r4, [r2 + 24]"
+  b := emit b "  stxdw [r5 + 8], r4                  ; lamports"
+  b := emit b "  ldxdw r4, [r2 + 40]"
+  b := emit b "  stxdw [r5 + 16], r4                 ; data_len"
+  b := emit b "  ldxdw r4, [r2 + 32]"
+  b := emit b "  stxdw [r5 + 24], r4                 ; data"
+  b := emit b "  ldxdw r4, [r2 + 16]"
+  b := emit b "  stxdw [r5 + 32], r4                 ; owner"
+  b := emit b "  ldxdw r4, [r2 + 48]"
+  b := emit b "  stxdw [r5 + 40], r4                 ; rent"
+  b := emit b "  ldxdw r4, [r2 + 56]"
+  b := emit b "  stxb [r5 + 48], r4"
+  b := emit b "  rsh64 r4, 8"
+  b := emit b "  stxb [r5 + 49], r4"
+  b := emit b "  rsh64 r4, 8"
+  b := emit b "  stxb [r5 + 50], r4"
+  b := emit b "  lddw r4, 0"
+  for pad in [51:56] do
+    b := emit b s!"  stxb [r5 + {pad}], r4"
+  b := emit b s!"  add64 r5, {productAccountInfoSizeV1}"
+  b := emit b "  add64 r7, 1"
+  b := emit b s!"  lddw r3, {n}"
+  b := emit b s!"  jlt r7, r3, fill_info_{kindNote}"
+  -- invoke
+  b := emit b "  mov64 r1, r8"
+  b := emit b "  mov64 r2, r9"
+  b := emit b s!"  add64 r2, {infosOff}"
+  b := emit b s!"  lddw r3, {n}"
+  b := emit b "  lddw r4, 0"
+  b := emit b "  lddw r5, 0"
+  b := emit b "  call sol_invoke_signed_c"
+  b := emit b "  jne r0, 0, cpi_failed_mr"
+  pure b
+
 mutual
 /-- Emit a single Operation. `inlineCtx=none` is a handler body (syscalls + exit). -/
 private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
@@ -1703,9 +1839,17 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
           let b := loadTemp b "r1" ctx.paramBase idx
           pure (storeTemp b tempBase destination "r1")
       | none =>
-          let b := emit b s!"  ; %{destination} = load_u64_le(instruction_data + {dataOffset})"
-          let b := emit b s!"  ldxdw r1, [r6 + INSTRUCTION_DATA + {dataOffset}]"
-          pure (storeTemp b tempBase destination "r1")
+          if ir.stateAccount.productMultiRoleCount > 0 then
+            let b := emit b
+              s!"  ; %{destination} = load_u64_le(ix_data + {dataOffset}) [multi-role]"
+            let b := emit b s!"  ldxdw r1, [r10 - {multiRoleSlotIxDataV1}]"
+            let b := emit b s!"  ldxdw r1, [r1 + {dataOffset}]"
+            pure (storeTemp b tempBase destination "r1")
+          else
+            let b := emit b
+              s!"  ; %{destination} = load_u64_le(instruction_data + {dataOffset})"
+            let b := emit b s!"  ldxdw r1, [r6 + INSTRUCTION_DATA + {dataOffset}]"
+            pure (storeTemp b tempBase destination "r1")
   | .narrowLoadParam bitWidth destination dataOffset =>
       if bitWidth > 64 then
         let nLimbs := limbCountOfBitWidth bitWidth
@@ -2197,16 +2341,26 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       b := emit b "  lddw r2, 2"
       pure (emit b "  call sol_log_data")
   | .externalCall callee programIdHex args resultDest =>
-      -- P3-d product full-body: empty-meta sol_invoke_signed_c (BL-27 path).
-      -- Multi-role site walkers (real AccountMeta) remain deferred; honest
-      -- partial only when Plan admitProductExternalCall.
+      -- P3-d/e product full-body ExternalCall.
       unless ir.stateAccount.admitProductExternalCall do
         return ← asmError
           "legacy Solana profiles do not emit external-call stubs; use a versioned CPI profile"
       unless resultDest.isNone do
         return ← asmError
           "product full-body does not yet emit result-bearing ExternalCall (P3-d+)"
-      emitCpiInvoke b tempBase callee programIdHex args none "product_external_call"
+      if ir.stateAccount.productMultiRoleCount > 0 then
+        unless ProductCpiRecipesV1.isSystemTransferCalleeV1 callee do
+          return ← asmError
+            "P3-e multi-role full-body currently admits only solana.system.transfer"
+        let site : ProductSystemTransferSiteV1 := {
+          payerLocal := ir.stateAccount.productXferPayerLocal
+          recipientLocal := ir.stateAccount.productXferRecipientLocal
+          programLocal := ir.stateAccount.productXferProgramLocal
+          accountInfoCount := ir.stateAccount.productMultiRoleCount
+        }
+        emitCpiInvokeSystemTransferMultiRole b tempBase args site "product_mr_xfer"
+      else
+        emitCpiInvoke b tempBase callee programIdHex args none "product_external_call"
   | .schedule .. =>
       return ← asmError
         "legacy Solana profiles do not emit schedule stubs"
@@ -2284,18 +2438,132 @@ private def emitDispatch (b0 : AsmBuf) (handlers : Array HandlerIR)
   b := emit b "  exit"
   pure b
 
+/-- P3-e multi-role entry: walk `roleCount` accounts into the role table, then
+    locate instruction data dynamically and store its pointer at SLOT_IX_DATA.
+    Account[0] remains the state account (ACC0_* fixed offsets still valid). -/
+private def emitMultiRoleWalkAndIxBase (b0 : AsmBuf) (roleCount : Nat)
+    (errLab : String) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    let fullPrefix := multiRoleAbiFullPrefixV1
+    let growth := multiRoleAbiMaxPermittedV1
+    b := emit b s!"  ; P3-e multi-role walk: exact {roleCount} outer accounts → role table"
+    b := emit b "  ldxdw r1, [r6 + NUM_ACCOUNTS]"
+    b := emit b s!"  jne r1, {roleCount}, {errLab}"
+    b := emit b s!"  stxdw [r10 - {multiRoleSlotNumRolesV1}], r1"
+    b := emit b "  mov64 r9, r1                      ; remaining roles"
+    b := emit b "  mov64 r8, r6"
+    b := emit b "  add64 r8, 8                       ; first account marker"
+    b := emit b "  lddw r7, 0                        ; role index"
+    b := emit b "  jeq r9, 0, mr_parse_roles_done"
+    b := emit b "mr_parse_role:"
+    b := emit b "  ldxb r1, [r8 + 0]"
+    b := emit b s!"  jne r1, {hexImm multiRoleAbiMarkerV1}, {errLab}"
+    b := emit b s!"  ldxw r1, [r8 + {multiRoleAbiOrigDataLenOffV1}]"
+    b := emit b s!"  jne r1, {hexImm multiRoleAbiOrigDataLenEntryV1}, {errLab}"
+    -- role slot base = r10 - ROLE_BASE + index*64
+    b := emit b "  mov64 r2, r10"
+    b := emit b s!"  lddw r3, {productRoleTableBytesV1}"
+    b := emit b "  sub64 r2, r3"
+    b := emit b "  mov64 r3, r7"
+    b := emit b "  lsh64 r3, 6"
+    b := emit b "  add64 r2, r3"
+    b := emit b "  stxdw [r2 + 0], r8                 ; ROLE_MARKER"
+    b := emit b "  mov64 r1, r8"
+    b := emit b s!"  add64 r1, {multiRoleAbiKeyOffsetV1}"
+    b := emit b "  stxdw [r2 + 8], r1                 ; ROLE_KEY"
+    b := emit b "  mov64 r1, r8"
+    b := emit b s!"  add64 r1, {multiRoleAbiOwnerOffsetV1}"
+    b := emit b "  stxdw [r2 + 16], r1                ; ROLE_OWNER"
+    b := emit b "  mov64 r1, r8"
+    b := emit b s!"  add64 r1, {multiRoleAbiLamportsOffsetV1}"
+    b := emit b "  stxdw [r2 + 24], r1                ; ROLE_LAMPORTS"
+    b := emit b "  mov64 r1, r8"
+    b := emit b s!"  add64 r1, {fullPrefix}"
+    b := emit b "  stxdw [r2 + 32], r1                ; ROLE_DATA"
+    b := emit b s!"  ldxdw r1, [r8 + {multiRoleAbiDataLenOffsetV1}]"
+    b := emit b "  stxdw [r2 + 40], r1                ; ROLE_DATA_LEN"
+    b := emit b s!"  ldxb r1, [r8 + {multiRoleAbiIsSignerOffsetV1}]"
+    b := emit b s!"  jgt r1, 1, {errLab}"
+    b := emit b s!"  ldxb r3, [r8 + {multiRoleAbiIsWritableOffsetV1}]"
+    b := emit b s!"  jgt r3, 1, {errLab}"
+    b := emit b "  lsh64 r3, 8"
+    b := emit b "  or64 r1, r3"
+    b := emit b "  stxdw [r2 + 56], r1                ; ROLE_FLAGS (signer|writable<<8)"
+    -- advance r8 past account: fullPrefix + data_len + 10240 + align8 + rent 8
+    b := emit b s!"  ldxdw r1, [r8 + {multiRoleAbiDataLenOffsetV1}]"
+    b := emit b "  mov64 r3, r8"
+    b := emit b s!"  add64 r3, {fullPrefix}"
+    b := emit b "  add64 r3, r1"
+    b := emit b s!"  add64 r3, {growth}"
+    -- align8
+    b := emit b "  mov64 r1, r3"
+    b := emit b "  and64 r1, 7"
+    b := emit b "  jeq r1, 0, mr_aligned"
+    b := emit b "  lddw r4, 8"
+    b := emit b "  sub64 r4, r1"
+    b := emit b "  add64 r3, r4"
+    b := emit b "mr_aligned:"
+    b := emit b "  add64 r3, 8                        ; rent epoch"
+    b := emit b "  mov64 r8, r3"
+    b := emit b "  add64 r7, 1"
+    b := emit b "  mov64 r1, r9"
+    b := emit b "  jlt r7, r1, mr_parse_role"
+    b := emit b "mr_parse_roles_done:"
+    -- r8 now at instruction data length field
+    b := emit b "  ; instruction data follows accounts"
+    b := emit b "  ldxdw r1, [r8 + 0]                  ; ix data len"
+    b := emit b s!"  jlt r1, 8, {errLab}"
+    b := emit b "  mov64 r2, r8"
+    b := emit b "  add64 r2, 8                        ; ix data bytes"
+    b := emit b s!"  stxdw [r10 - {multiRoleSlotIxDataV1}], r2"
+    pure b
+
 /-- Public S1b emitter: typed `IR` → default-dialect SBPF assembly text. -/
 def emitSbpfAsmV1 (ir : IR) : CompileResult String := do
   validateIR ir
   unless ir.stateAccount.index == 0 do
     return ← asmError "S1b requires state account index 0"
   let admitCaller := ir.stateAccount.admitCallerRole
+  let multiN := ir.stateAccount.productMultiRoleCount
   let layout :=
     computeInputLayoutForAdmitV1 ir.stateAccount.exactDataLen admitCaller
   let mut b : AsmBuf := { text := renderLayoutEqu layout, seq := 0, cursor := 0 }
+  if multiN > 0 then
+    b := emit b s!"; P3-e multi-role: outer roles={multiN} (system.transfer AccountMeta)"
+    b := emitEqu b "ROLE_BASE" productRoleTableBytesV1
+    b := emitEqu b "ROLE_STRIDE" productRoleStrideV1
+    b := emitEqu b "CPI_BASE_MR" multiRoleCpiBaseV1
   b := emit b ".globl entrypoint"
   b := emitBlank b
-  b ← emitDispatch b ir.handlers admitCaller
+  if multiN > 0 then
+    b := emit b "entrypoint:"
+    b := emit b "  mov64 r6, r1"
+    b := emitMultiRoleWalkAndIxBase b multiN "err_unknown_disc"
+    b := emit b "  ; guard: ix data len already ≥ 8 (walk)"
+    b := emit b "  ja dispatch_begin"
+    b := emit b "err_unknown_disc:"
+    b := emit b "  lddw r0, 1"
+    b := emit b "  exit"
+    b := emit b "cpi_failed_mr:"
+    b := emit b "  exit"
+    b := emit b "dispatch_begin:"
+    b := emit b "  ; load 8-byte instruction discriminator from dynamic ix base"
+    b := emit b s!"  ldxdw r1, [r10 - {multiRoleSlotIxDataV1}]"
+    b := emit b "  ldxdw r1, [r1 + 0]"
+    for handler in ir.handlers do
+      let disc ← discriminatorToLeU64V1 handler.discriminator
+      let handlerLab := asmLabel handler.name
+      let nextLab := s!"dispatch_next_{handlerLab}"
+      b := emit b s!"  lddw r2, {hexImm disc.toNat}"
+      b := emit b s!"  jne r1, r2, {nextLab}"
+      b := emit b s!"  call {handlerLab}"
+      b := emit b "  exit"
+      b := emit b s!"{nextLab}:"
+    b := emit b "  lddw r0, 1"
+    b := emit b "  exit"
+  else
+    b ← emitDispatch b ir.handlers admitCaller
   b := emitBlank b
   for handler in ir.handlers do
     let lab := asmLabel handler.name

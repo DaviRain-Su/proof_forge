@@ -109,8 +109,11 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
   - **P3-g IR digest 已绿**：full-body hybrid `irDigest` 改为 content-bound
     `sha256:…`（domain `pf.solana.full-body-hybrid-ir.v1`）；消灭 evidence 字面
     `full-body-hybrid`；bindings 内嵌可重算 digest。
-  - **P3-e foundation 已绿**：`ProductCpiRecipesV1` + full-body `system.transfer`
-    使用 native System program id + 12B Transfer packing；`BodyCpiSysPay` pin。
-    **multi-role AccountMeta walker 仍 pending**。
-  - P3-h 多账户 layout + MiniAmmHybrid Mollusk 11/11 已先完成。P3-e multi-role
-    walker、P4 默认 profile 仍后续。
+  - **P3-e multi-role system.transfer 已绿**：`ProductCpiRecipesV1` +
+    `withProductMultiRoleSystemTransferV1`（IR 与 sourcePlan 同 stamp）+
+    EmitSbpfAsm outer role walk / AccountMeta / System 12B invoke；sole
+    `solana.system.transfer` + ≥3 outer roles → `p3e-system-transfer-multi-role` /
+    `unifiedCpi`。钉测 `BodyCpiSysPay`（outerRoleCount=4）。非 system.transfer 的
+    full-body sites 仍 empty-meta partial。
+  - P3-h 多账户 layout + MiniAmmHybrid Mollusk 11/11 已先完成。TipJar/escrow 多
+    recipe multi-role、P4 默认 profile 仍后续。
