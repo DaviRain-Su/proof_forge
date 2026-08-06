@@ -415,7 +415,7 @@ private def findStateSchema?
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
   | .state _ | .accountParameter .. | .vaultPda | .handlerCaller
-  | .vaultAta | .dstAta => none
+  | .vaultAta .. | .dstAta .. => none
 
 private def requireAbsentLoaderPackage
     (packageId : String) (programId : SolanaPubkeyV1) :
@@ -651,7 +651,7 @@ private def projectEntryGlobalOps
           roleId := handle.roleId
           localIndex := i
         }
-    | .state _ | .vaultPda | .handlerCaller | .vaultAta | .dstAta => pure ()
+    | .state _ | .vaultPda | .handlerCaller | .vaultAta .. | .dstAta .. => pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas
     ops := ops ++ constraintOps
@@ -722,6 +722,13 @@ private def localIndexOfRole
   | some h => pure h.localIndex
   | none => tFail s!"roleId {roleId} missing from handler local roles"
 
+/-- Kind-level RoleKeyPolicy equality (mint/dst ordinals ignored for vault/dst ATA). -/
+private def keyPolicyKindEq (a b : RoleKeyPolicyV1) : Bool :=
+  match a, b with
+  | .vaultAta .., .vaultAta .. => true
+  | .dstAta .., .dstAta .. => true
+  | _, _ => a == b
+
 /-- Resolve a synthetic vault/caller meta slot into a PrincipalBinding-shaped
     carrier (semanticValueId/paramOrdinal unused; set to 0). -/
 private def resolveSyntheticMetaBinding
@@ -739,7 +746,7 @@ private def resolveSyntheticMetaBinding
   let handle ← match handles.find? (fun h => h.roleId == metaSlot.roleId) with
     | some h => pure h
     | none => tFail s!"site {site.siteId} meta {metaIndex}: role missing from handler"
-  unless handle.keyPolicy == wantKey do
+  unless keyPolicyKindEq handle.keyPolicy wantKey do
     tFail s!"site {site.siteId} meta {metaIndex}: role key policy diverged"
   unless handle.localIndex == metaSlot.localHandleIndex do
     tFail s!"site {site.siteId} meta {metaIndex}: local handle index diverged"
@@ -1789,7 +1796,7 @@ private def projectEscrowHandler
             s!"site {site.siteId} amount"
           -- Meta 0: vaultAta (source = vault ATA, writable, outer writable)
           let vaultAtaB ← resolveSyntheticMetaBinding handles site 0
-            MetaBinding.vaultAta RoleKeyPolicyV1.vaultAta
+            MetaBinding.vaultAta (RoleKeyPolicyV1.vaultAta 0 0)
           -- Meta 1: mint (readonly)
           let mintMeta ← getArr site.metas 1 s!"site {site.siteId}.metas"
           unless mintMeta.metaIndex == 1 &&
@@ -1800,7 +1807,7 @@ private def projectEscrowHandler
             tFail s!"site {site.siteId} mint meta must be readonly non-signer"
           -- Meta 2: dstAta (destination = dst ATA, writable)
           let dstAtaB ← resolveSyntheticMetaBinding handles site 2
-            MetaBinding.dstAta RoleKeyPolicyV1.dstAta
+            MetaBinding.dstAta (RoleKeyPolicyV1.dstAta 0 0 0)
           -- Meta 3: vaultPda (authority PDA signer, signer group 0)
           let vaultB ← resolveSyntheticMetaBinding handles site 3
             MetaBinding.vaultPda RoleKeyPolicyV1.vaultPda

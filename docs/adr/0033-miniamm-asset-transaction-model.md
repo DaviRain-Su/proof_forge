@@ -61,16 +61,21 @@ removeLiquidity）。资产面多出的约束仅为 vault credit 与 token 进�
 
 ### 4. Entry 语义（资产面）
 
-参数与 M0 对齐处保留；swap **不再**接收 `amountIn` 参数——`amountIn` 取
-**当前该侧全部 credit**（Uniswap V2 pair `swap` 的 balance-delta 纪律：用户先转入
-精确额度）。
+**M4 portable shape**（EVM + Solana sole rail 同一源码）：
 
-| Entry | Credit / 资产动作 | 记账 |
+| Entry | 资产动作 | 记账 |
 |---|---|---|
-| `addLiquidity(amount0, amount1)` | 要求 `credit0 ≥ amount0` ∧ `credit1 ≥ amount1`；**不**再 transfer 入金 | 同 M0 铸 LP；`reserve* += amount*` |
-| `swap0to1(amountOutMin)` | `amountIn = credit0`（>0）；成功后 `transfer(mint1, caller, amountOut)` | `reserve0 += amountIn`；`reserve1 -= amountOut` |
-| `swap1to0(amountOutMin)` | 对称 | 对称 |
-| `removeLiquidity(lpAmount)` | 成功后 `transfer` 两侧 base units 给 `context.caller` | 同 M0 烧 LP、缩 reserve |
+| `addLiquidity(amount0, amount1)` | 无链上 credit 读（用户 pre-fund）；**不** transfer 入金 | 同 M0 铸 LP；`reserve* += amount*` |
+| `swap0to1(mint1, to, amountIn, amountOutMin)` | `amountIn` **声明**；`transfer(mint1, to, amountOut)` | `reserve0 += amountIn`；`reserve1 -= amountOut` |
+| `swap1to0(mint0, to, amountIn, amountOutMin)` | 对称 | 对称 |
+| `removeLiquidity(mint0, mint1, to, lpAmount)` | 双 `transfer` 出金给 `to` | 同 M0 烧 LP、缩 reserve |
+
+Solana CPI 纪律：`transfer`/`balanceOfSelf` 的 Principal 必须是 **direct public
+entry param**（非 state、非 `context.caller` 作 dst）。vault/dst ATA 角色按 mint
+参数序键控（M4 derive），支持双 mint。
+
+EVM 仍可用更严 credit 读（`balanceOfSelf - reserve`）的未来强化；当前产品面为
+声明 `amountIn`，与 Solana 对齐。
 
 Views：`getReserve*` / `getTotalSupply` / `balanceOf(who)` / 可选
 `tokenBalance0/1` → `balanceOfSelf(mint*)`（只读）。

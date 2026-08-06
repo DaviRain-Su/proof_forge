@@ -397,8 +397,10 @@ private inductive RoleKeyV1 where
   | fixedProgram (packageId : String)
   | vaultPda
   | handlerCaller
-  | vaultAta
-  | dstAta
+  /-- Vault ATA for a specific mint Principal param (dual-mint safe). -/
+  | vaultAta (mintCallableId : Nat) (mintParamOrdinal : Nat)
+  /-- Destination ATA for (dst, mint) Principal param pair. -/
+  | dstAta (mintCallableId : Nat) (dstParamOrdinal : Nat) (mintParamOrdinal : Nat)
   deriving BEq
 
 private def roleKeyEq (a b : RoleKeyV1) : Bool :=
@@ -408,8 +410,8 @@ private def roleKeyEq (a b : RoleKeyV1) : Bool :=
   | .fixedProgram p1, .fixedProgram p2 => p1 == p2
   | .vaultPda, .vaultPda => true
   | .handlerCaller, .handlerCaller => true
-  | .vaultAta, .vaultAta => true
-  | .dstAta, .dstAta => true
+  | .vaultAta c1 m1, .vaultAta c2 m2 => c1 == c2 && m1 == m2
+  | .dstAta c1 d1 m1, .dstAta c2 d2 m2 => c1 == c2 && d1 == d2 && m1 == m2
   | _, _ => false
 
 private def findRoleId? (keys : Array RoleKeyV1) (want : RoleKeyV1) : Option Nat :=
@@ -433,8 +435,10 @@ private def ensureRole
         | .fixedProgram pkg => RoleKeyPolicyV1.fixedProgram pkg
         | .vaultPda => RoleKeyPolicyV1.vaultPda
         | .handlerCaller => RoleKeyPolicyV1.handlerCaller
-        | .vaultAta => RoleKeyPolicyV1.vaultAta
-        | .dstAta => RoleKeyPolicyV1.dstAta
+        | .vaultAta mintCallableId mintParamOrdinal =>
+            RoleKeyPolicyV1.vaultAta mintCallableId mintParamOrdinal
+        | .dstAta mintCallableId dstParamOrdinal mintParamOrdinal =>
+            RoleKeyPolicyV1.dstAta mintCallableId dstParamOrdinal mintParamOrdinal
       let role : AccountRoleSchemaV1 := {
         roleId := id
         name
@@ -738,10 +742,11 @@ private def collectRawSitesFiltered
         | _ => pure ()
   pure out
 
-/-- Collect raw envRead sites (ADR-0030 E2-3). envRead is a value-producing
-    op (not ExternalCall); it is read-only and admitted only in `.view`
-    callables. pureFn/invariant/initializer/entry envRead fail closed. The
-    pf.assets extension declaration is required (same gate as catalog CPI QNs).
+/-- Collect raw envRead sites (ADR-0030 E2-3 / ADR-0033 M4). envRead is a
+    value-producing op (not ExternalCall); it is read-only account metadata
+    admitted in `.view` and `.entry` (credit measurement inside asset entries).
+    pureFn/invariant/initializer envRead fail closed. The pf.assets extension
+    declaration is required (same gate as catalog CPI QNs).
 
     For `.tokenVaultBalance`, the single arg must be a direct public Principal
     parameter (the mint). -/
@@ -760,10 +765,13 @@ private def collectRawEnvReadSites
             unless pfAssetsDeclared do
               deriveFail
                 "CPI derive: envRead requires extension.pf-assets declaration"
-            -- envRead is read-only: admitted only in .view callables
-            unless callable.kind == .view do
+            -- envRead is read-only account metadata (vault lamports / vault ATA
+            -- amount). Admitted in .view and .entry so MiniAMM-style credit
+            -- measurement (`balanceOfSelf - reserve`) can run inside asset
+            -- entries (ADR-0033 M4). pureFn/invariant/initializer stay FC.
+            unless callable.kind == .view || callable.kind == .entry do
               deriveFail
-                "CPI derive: envRead is admitted only in view callables (pureFn/invariant/initializer/entry fail closed)"
+                "CPI derive: envRead is admitted only in view/entry callables (pureFn/invariant/initializer fail closed)"
             let mode ← handlerModeOf callable.kind
             let hname ← handlerNameOf callable
             match key with
@@ -995,14 +1003,20 @@ def deriveSolanaCpiPlanCandidateCoreV1
           roleKeys := kV
           roles := rV
     if hasTokenEnvRead then
-      -- vault ATA role for token envRead (ATA(vault, mint))
-      match findRoleId? roleKeys RoleKeyV1.vaultAta with
-      | some _ => pure ()
-      | none =>
-          let (kVA, rVA, _) ← ensureRole roleKeys roles
-            RoleKeyV1.vaultAta "pf_vault_ata" vaultAtaRoleConstraintV1
-          roleKeys := kVA
-          roles := rVA
+      -- vault ATA role per mint param ordinal (dual-mint safe)
+      for envSite in hEnvReadSites do
+        if envSite.kind == .tokenVaultBalance then
+          match envSite.mintParamOrdinal with
+          | some mintOrd =>
+              let vkey := RoleKeyV1.vaultAta callableId mintOrd
+              match findRoleId? roleKeys vkey with
+              | some _ => pure ()
+              | none =>
+                  let (kVA, rVA, _) ← ensureRole roleKeys roles
+                    vkey s!"pf_vault_ata_c{callableId}_m{mintOrd}" vaultAtaRoleConstraintV1
+                  roleKeys := kVA
+                  roles := rVA
+          | none => pure ()
       match findRoleId? roleKeys (RoleKeyV1.fixedProgram "system-v1") with
       | some _ => pure ()
       | none =>
@@ -1058,13 +1072,25 @@ def deriveSolanaCpiPlanCandidateCoreV1
             roleKeys := kC
             roles := rC
         | MetaBinding.vaultAta =>
+            -- mint is frozen API arg index 0 for pf.assets.token.transfer
+            let mintOrd ← match site.principalParams.find? (fun p => p.1 == 0) with
+              | some (_, ord) => pure ord
+              | none => deriveFail "vaultAta meta requires mint principal param at arg 0"
+            let vkey := RoleKeyV1.vaultAta callableId mintOrd
             let (kA, rA, _) ← ensureRole roleKeys roles
-              RoleKeyV1.vaultAta "pf_vault_ata" vaultAtaRoleConstraintV1
+              vkey s!"pf_vault_ata_c{callableId}_m{mintOrd}" vaultAtaRoleConstraintV1
             roleKeys := kA
             roles := rA
         | MetaBinding.dstAta =>
+            let mintOrd ← match site.principalParams.find? (fun p => p.1 == 0) with
+              | some (_, ord) => pure ord
+              | none => deriveFail "dstAta meta requires mint principal param at arg 0"
+            let dstOrd ← match site.principalParams.find? (fun p => p.1 == 1) with
+              | some (_, ord) => pure ord
+              | none => deriveFail "dstAta meta requires dst principal param at arg 1"
+            let dkey := RoleKeyV1.dstAta callableId dstOrd mintOrd
             let (kD, rD, _) ← ensureRole roleKeys roles
-              RoleKeyV1.dstAta "pf_dst_ata" dstAtaRoleConstraintV1
+              dkey s!"pf_dst_ata_c{callableId}_d{dstOrd}_m{mintOrd}" dstAtaRoleConstraintV1
             roleKeys := kD
             roles := rD
         | MetaBinding.arg _ => pure ()
@@ -1094,8 +1120,17 @@ def deriveSolanaCpiPlanCandidateCoreV1
             pure ()
       let vaultRoleId? := findRoleId? roleKeys RoleKeyV1.vaultPda
       let callerRoleId? := findRoleId? roleKeys RoleKeyV1.handlerCaller
-      let vaultAtaRoleId? := findRoleId? roleKeys RoleKeyV1.vaultAta
-      let dstAtaRoleId? := findRoleId? roleKeys RoleKeyV1.dstAta
+      let vaultAtaRoleId? :=
+        match site.principalParams.find? (fun p => p.1 == 0) with
+        | some (_, mintOrd) =>
+            findRoleId? roleKeys (RoleKeyV1.vaultAta callableId mintOrd)
+        | none => none
+      let dstAtaRoleId? :=
+        match site.principalParams.find? (fun p => p.1 == 0),
+              site.principalParams.find? (fun p => p.1 == 1) with
+        | some (_, mintOrd), some (_, dstOrd) =>
+            findRoleId? roleKeys (RoleKeyV1.dstAta callableId dstOrd mintOrd)
+        | _, _ => none
       let sitePlan ← buildSiteBindings site principalRoleByArgIndex
         fixedRoleByPackage vaultRoleId? callerRoleId?
         vaultAtaRoleId? dstAtaRoleId?
@@ -1152,7 +1187,10 @@ def deriveSolanaCpiPlanCandidateCoreV1
       | some rid => localRoles := pushUnique localRoles rid
       | none => deriveFail "envRead vault role missing after ensure"
       if envSite.kind == .tokenVaultBalance then
-        match findRoleId? roleKeys RoleKeyV1.vaultAta with
+        let mintOrd ← match envSite.mintParamOrdinal with
+          | some o => pure o
+          | none => deriveFail "envRead token mintParamOrdinal missing for localRoles"
+        match findRoleId? roleKeys (RoleKeyV1.vaultAta callableId mintOrd) with
         | some rid => localRoles := pushUnique localRoles rid
         | none => deriveFail "envRead token vaultAta role missing"
         match findRoleId? roleKeys (RoleKeyV1.fixedProgram "system-v1") with
@@ -1236,7 +1274,10 @@ def deriveSolanaCpiPlanCandidateCoreV1
         match envSite.kind with
         | .nativeVaultBalance => pure (0, 0, 0, 0, 0)
         | .tokenVaultBalance => do
-          let va ← match findRoleId? roleKeys RoleKeyV1.vaultAta with
+          let mintOrd ← match envSite.mintParamOrdinal with
+            | some o => pure o
+            | none => deriveFail "envRead token mintParamOrdinal missing"
+          let va ← match findRoleId? roleKeys (RoleKeyV1.vaultAta callableId mintOrd) with
             | some rid => pure rid
             | none => deriveFail "envRead token vaultAta role missing"
           let some mintOrd := envSite.mintParamOrdinal |

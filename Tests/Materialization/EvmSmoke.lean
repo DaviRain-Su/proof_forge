@@ -4308,25 +4308,22 @@ private unsafe def testMiniAmmProductPlan : IO Unit := do
     "MiniAmm ABI must name addLiquidity/swaps/removeLiquidity/balanceOf"
   IO.println "  MiniAmm product plan/materialize pin ok"
 
-/-- ADR-0033 M3 real-asset MiniAMM surface: `Examples/MiniAmmAssets.lean` must
-    compile/plan/materialize on EVM with pf.assets@1.1.0, Principal mint pair,
-    dual ERC-20-bound ops (balanceOfSelf + transfer), and M0 math entries.
-    Pins Yul helpers for token STATICCALL/transfer and Principal Map compact
-    path. Does not claim Anvil dual-ERC-20 matrix (M5) or Solana dual-mint (M4;
-    Solana currently requires Principal mint args as direct params for CPI). -/
+/-- ADR-0033/M4 real-asset MiniAMM: `Examples/MiniAmmAssets.lean` EVM plan/
+    materialize with pf.assets@1.1.0, declared amountIn swaps, dual-mint
+    removeLiquidity transfers, Principal Map LP. Pins transfer Yul + Map helpers.
+    Solana sole-rail build is covered by product CLI (full-body hybrid; empty-meta
+    token CPI maturity residual). Does not claim Anvil dual-ERC-20 (M5). -/
 private unsafe def testMiniAmmAssetsProductPlan : IO Unit := do
   let path := System.FilePath.mk "Examples/MiniAmmAssets.lean"
   unless ← path.pathExists do
-    throw <| IO.userError "Examples/MiniAmmAssets.lean missing (ADR-0033 M3)"
+    throw <| IO.userError "Examples/MiniAmmAssets.lean missing (ADR-0033 M4)"
   let text ← IO.FS.readFile path
   expect (text.contains "program MiniAmmAssets where")
     "MiniAmmAssets must declare program MiniAmmAssets"
   expect (text.contains "pf.assets" && text.contains "1.1.0")
     "MiniAmmAssets must require pf.assets@1.1.0"
-  expect (text.contains "balanceOfSelf" && text.contains "token.transfer")
-    "MiniAmmAssets must use token balanceOfSelf + transfer"
-  expect (text.contains "entry configure")
-    "MiniAmmAssets must configure mint0/mint1 after zero-arg init"
+  expect (text.contains "token.transfer")
+    "MiniAmmAssets must use pf.assets.token.transfer payouts"
   expect (text.contains "entry swap0to1" && text.contains "entry swap1to0" &&
       text.contains "entry removeLiquidity")
     "MiniAmmAssets must declare bilateral swap + removeLiquidity"
@@ -4338,13 +4335,12 @@ private unsafe def testMiniAmmAssetsProductPlan : IO Unit := do
   let plan ← liftResult "plan MiniAmmAssets" <| planEvm compiled
   expect (plan.objectName == "MiniAmmAssets")
     s!"MiniAmmAssets object name, got {plan.objectName}"
-  -- 2×Principal (9 leaves each) + 5 UInt64 + Map Principal UInt64 (44) = 67.
-  expect (plan.storageLayout.size == 67)
-    s!"MiniAmmAssets must flatten to 67 storage leaves, got {plan.storageLayout.size}"
+  -- 5 UInt64 + Map Principal UInt64 (44) = 49.
+  expect (plan.storageLayout.size == 49)
+    s!"MiniAmmAssets must flatten to 49 storage leaves, got {plan.storageLayout.size}"
   expect (plan.entries.map (·.name) ==
-      #["configure", "addLiquidity", "swap0to1", "swap1to0", "removeLiquidity",
-        "getReserve0", "getReserve1", "getTotalSupply", "balanceOf",
-        "tokenBalance0", "tokenBalance1"])
+      #["addLiquidity", "swap0to1", "swap1to0", "removeLiquidity",
+        "getReserve0", "getReserve1", "getTotalSupply", "balanceOf"])
     s!"MiniAmmAssets entry order, got {plan.entries.map (·.name)}"
   match Targets.Evm.validatePlan plan with
   | .ok () => pure ()
@@ -4362,18 +4358,14 @@ private unsafe def testMiniAmmAssetsProductPlan : IO Unit := do
   expect (yul.contains "function pf_map_p_lookup" &&
       yul.contains "function pf_map_p_upsert")
     "MiniAmmAssets Yul must emit Principal Map compact helpers"
-  expect (yul.contains "staticcall" || yul.contains "STATICCALL" ||
-      yul.contains "balanceOf" || yul.contains "0x70a08231")
-    "MiniAmmAssets Yul must include token balanceOfSelf path"
   expect (yul.contains "0xa9059cbb" || yul.contains "transfer")
     "MiniAmmAssets Yul must include ERC-20 transfer selector path"
   expect (yul.contains "caller()")
-    "MiniAmmAssets Yul must read caller() for LP key / payout dst"
-  expect (abiFile.contents.contains "\"name\":\"configure\"" &&
-      abiFile.contents.contains "\"name\":\"addLiquidity\"" &&
+    "MiniAmmAssets Yul must read caller() for LP key"
+  expect (abiFile.contents.contains "\"name\":\"addLiquidity\"" &&
       abiFile.contents.contains "\"name\":\"swap0to1\"" &&
-      abiFile.contents.contains "\"name\":\"tokenBalance0\"")
-    "MiniAmmAssets ABI must name configure/addLiquidity/swap0to1/tokenBalance0"
+      abiFile.contents.contains "\"name\":\"removeLiquidity\"")
+    "MiniAmmAssets ABI must name addLiquidity/swap0to1/removeLiquidity"
   IO.println "  MiniAmmAssets product plan/materialize pin ok"
 
 unsafe def run : IO Unit := do

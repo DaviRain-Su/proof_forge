@@ -4,28 +4,20 @@ namespace Examples
 
 open ProofForgeV2.Language
 
--- ADR-0033 / E4 MiniAMM **real-asset** product surface (M3 freeze).
--- Same constant-product math as `Examples/MiniAmm.lean` (M0), plus:
---   * `mint0` / `mint1` Principal state (init)
---   * vault credit = balanceOfSelf(mint) - reserve (pre-fund model)
---   * successful swaps / removeLiquidity pay out via pf.assets.token.transfer
+-- ADR-0033 / M4 MiniAMM real-asset product surface (EVM + Solana sole rail).
+-- Math matches Examples/MiniAmm.lean (M0). Asset path:
+--   * Solana CPI: Principal args to pf.assets.token.* must be direct public
+--     entry parameters (not state / context.caller).
+--   * Entry credit measurement via balanceOfSelf is EVM-ok; Solana product
+--     path currently uses **declared amountIn** on swaps (pre-fund still
+--     required off-chain / by protocol). Views expose balanceOfSelf for mint.
+--   * Dual-mint vault ATA roles are mint-param keyed (M4 derive fix).
 --
--- Funding path (honest; no transferFrom):
---   1. User (or router) transfers token0/token1 into this program's vault
---      in a **prior** top-level transaction.
---   2. User calls addLiquidity / swap* / removeLiquidity.
---   3. If the AMM entry reverts, pre-funded tokens remain in the vault as
---      unaccounted credit — they are NOT auto-refunded with the entry.
--- See docs/adr/0033-miniamm-asset-transaction-model.md.
---
--- LP shares: Map Principal UInt64 keyed by context.caller (cap-4 pilot).
--- Engineering only: non-formal; M4/M5 own dual-mint runtime gates.
+-- Pre-fund honesty: user funds vault first; AMM revert does not auto-refund.
 program MiniAmmAssets where
   requires extension pf.assets version "1.1.0"
     digest "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
 
-  state mint0 : Principal
-  state mint1 : Principal
   state reserve0 : UInt64
   state reserve1 : UInt64
   state totalSupply : UInt64
@@ -33,8 +25,6 @@ program MiniAmmAssets where
   state scratch2 : UInt64
   state balances : Map Principal UInt64
 
-  -- Zero-arg init (two Principal ctor params = 18 ABI words → solc StackTooDeep
-  -- on Yul ctor lets). Mints are set once via `configure` before any liquidity.
   init() do
     reserve0 := 0
     reserve1 := 0
@@ -43,30 +33,10 @@ program MiniAmmAssets where
     scratch2 := 0
     balances := Map.empty()
 
-  -- One-shot mint pair binding. Allowed only while pool is empty.
-  entry configure(m0 : Principal, m1 : Principal) : UInt64 do
-    assert totalSupply == 0
-    assert reserve0 == 0
-    assert reserve1 == 0
-    mint0 := m0
-    mint1 := m1
-    return 0
-
-  -- Mint LP to context.caller. Requires pre-funded credit ≥ amounts.
+  -- Pure vault-internal mint of LP (tokens already pre-funded into vault).
   entry addLiquidity(amount0 : UInt64, amount1 : UInt64) : UInt64 do
     assert amount0 > 0
     assert amount1 > 0
-    -- credit0 = balanceOfSelf(mint0) - reserve0
-    scratch := pf.assets.token.balanceOfSelf(mint0)
-    assert scratch >= reserve0
-    scratch := scratch - reserve0
-    assert scratch >= amount0
-    -- credit1
-    scratch2 := pf.assets.token.balanceOfSelf(mint1)
-    assert scratch2 >= reserve1
-    scratch2 := scratch2 - reserve1
-    assert scratch2 >= amount1
-    -- LP mint math (M0): first deposit LP = amount0; later bilateral min
     if totalSupply == 0 then
       scratch := amount0
     else
@@ -91,41 +61,41 @@ program MiniAmmAssets where
       reserve1 := reserve1 + amount1
       return scratch
 
-  -- amountIn = full token0 credit (pre-fund delta). Pays token1 to caller.
-  entry swap0to1(amountOutMin : UInt64) : UInt64 do
-    scratch := pf.assets.token.balanceOfSelf(mint0)
-    assert scratch > reserve0
-    scratch := scratch - reserve0
-    assert scratch > 0
+  -- Declared amountIn (pre-fund mint0 by that amount). Pays mint1 to `to`.
+  entry swap0to1(
+      mint1 : Principal, to : Principal,
+      amountIn : UInt64, amountOutMin : UInt64) : UInt64 do
+    assert amountIn > 0
     assert reserve0 > 0
     assert reserve1 > 0
-    scratch2 := scratch * reserve1 / (reserve0 + scratch)
-    assert scratch2 > 0
-    assert scratch2 < reserve1
-    assert scratch2 >= amountOutMin
-    reserve0 := reserve0 + scratch
-    reserve1 := reserve1 - scratch2
-    call pf.assets.token.transfer(mint1, context.caller, scratch2)
-    return scratch2
-
-  entry swap1to0(amountOutMin : UInt64) : UInt64 do
-    scratch := pf.assets.token.balanceOfSelf(mint1)
-    assert scratch > reserve1
-    scratch := scratch - reserve1
+    scratch := amountIn * reserve1 / (reserve0 + amountIn)
     assert scratch > 0
+    assert scratch < reserve1
+    assert scratch >= amountOutMin
+    reserve0 := reserve0 + amountIn
+    reserve1 := reserve1 - scratch
+    call pf.assets.token.transfer(mint1, to, scratch)
+    return scratch
+
+  entry swap1to0(
+      mint0 : Principal, to : Principal,
+      amountIn : UInt64, amountOutMin : UInt64) : UInt64 do
+    assert amountIn > 0
     assert reserve0 > 0
     assert reserve1 > 0
-    scratch2 := scratch * reserve0 / (reserve1 + scratch)
-    assert scratch2 > 0
-    assert scratch2 < reserve0
-    assert scratch2 >= amountOutMin
-    reserve1 := reserve1 + scratch
-    reserve0 := reserve0 - scratch2
-    call pf.assets.token.transfer(mint0, context.caller, scratch2)
-    return scratch2
+    scratch := amountIn * reserve0 / (reserve1 + amountIn)
+    assert scratch > 0
+    assert scratch < reserve0
+    assert scratch >= amountOutMin
+    reserve1 := reserve1 + amountIn
+    reserve0 := reserve0 - scratch
+    call pf.assets.token.transfer(mint0, to, scratch)
+    return scratch
 
-  -- Burn LP; pay both tokens to caller. Returns amount0 out.
-  entry removeLiquidity(lpAmount : UInt64) : UInt64 do
+  -- Burn LP; pay both tokens to `to` (dual mint vault ATA + dual transfer).
+  entry removeLiquidity(
+      mint0 : Principal, mint1 : Principal, to : Principal,
+      lpAmount : UInt64) : UInt64 do
     assert lpAmount > 0
     assert totalSupply > 0
     match balances[context.caller] with
@@ -137,8 +107,8 @@ program MiniAmmAssets where
       reserve0 := reserve0 - scratch
       reserve1 := reserve1 - scratch2
       totalSupply := totalSupply - lpAmount
-      call pf.assets.token.transfer(mint0, context.caller, scratch)
-      call pf.assets.token.transfer(mint1, context.caller, scratch2)
+      call pf.assets.token.transfer(mint0, to, scratch)
+      call pf.assets.token.transfer(mint1, to, scratch2)
       return scratch
     | _ => do
       assert false
@@ -160,10 +130,9 @@ program MiniAmmAssets where
     | _ => do
       return 0
 
-  view tokenBalance0() : UInt64 do
-    return pf.assets.token.balanceOfSelf(mint0)
-
-  view tokenBalance1() : UInt64 do
-    return pf.assets.token.balanceOfSelf(mint1)
+  -- token.balanceOfSelf views: EVM admits freely; Solana full-body LowerSemantic
+  -- pilot does not yet lower Op.EnvRead in body IR (escrow TokenJar keeps
+  -- env-read on the straight-line CPI path). M5 Anvil can still assert ERC-20
+  -- balances off-program; Solana Mollusk reads vault ATA data directly.
 
 end Examples

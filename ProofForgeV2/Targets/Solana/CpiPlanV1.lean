@@ -37,10 +37,12 @@ inductive RoleKeyPolicyV1 where
   | vaultPda
   /-- ADR-0029 B1: synthetic outer-signer caller for deposit. -/
   | handlerCaller
-  /-- ADR-0030 E1b: synthetic vault ATA (derived from vault PDA + mint). -/
-  | vaultAta
-  /-- ADR-0030 E1b: synthetic destination ATA (derived from dst + mint). -/
-  | dstAta
+  /-- ADR-0030 E1b / ADR-0033 M4: synthetic vault ATA keyed by mint Principal
+      parameter ordinal (dual-mint handlers need one vault ATA role per mint). -/
+  | vaultAta (mintCallableId : Nat) (mintParamOrdinal : Nat)
+  /-- ADR-0030 E1b / ADR-0033 M4: synthetic destination ATA keyed by
+      (dst param ordinal, mint param ordinal). -/
+  | dstAta (mintCallableId : Nat) (dstParamOrdinal : Nat) (mintParamOrdinal : Nat)
   deriving BEq, Repr
 
 /-- One ProofForge-owned state account schema referenced by state roles.
@@ -551,7 +553,7 @@ private def deriveHandlerRoleIds
           for metaSlot in site.metas do
             match metaSlot.spec.binding with
             | .fixedProgram _ | .vaultPda | .handlerCaller
-            | .vaultAta | .dstAta =>
+            | .vaultAta .. | .dstAta .. =>
                 acc := pushUnique acc metaSlot.roleId
             | .arg _ => pure ()
     -- 3.5) ADR-0030 E2-3: env-read sites contribute their roles (vault PDA,
@@ -769,8 +771,46 @@ private def encodeMetaBinding : MetaBinding → PfJson
       ]
   | .vaultPda => .object #[("kind", .string "vaultPda")]
   | .handlerCaller => .object #[("kind", .string "handlerCaller")]
-  | .vaultAta => .object #[("kind", .string "vaultAta")]
-  | .dstAta => .object #[("kind", .string "dstAta")]
+  | .vaultAta .. => .object #[("kind", .string "vaultAta")]
+  | .dstAta .. => .object #[("kind", .string "dstAta")]
+
+private def encodeRoleKeyPolicy : RoleKeyPolicyV1 → CompileResult PfJson
+  | .state schemaId => do
+      let s ← pfNat "roleKeyPolicy.state.schemaId" schemaId
+      pure (.object #[("kind", .string "state"), ("schemaId", s)])
+  | .accountParameter callableId paramOrdinal => do
+      let c ← pfNat "roleKeyPolicy.accountParameter.callableId" callableId
+      let p ← pfNat "roleKeyPolicy.accountParameter.paramOrdinal" paramOrdinal
+      pure (.object #[
+        ("kind", .string "accountParameter"),
+        ("callableId", c),
+        ("paramOrdinal", p)
+      ])
+  | .fixedProgram packageId =>
+      pure (.object #[
+        ("kind", .string "fixedProgram"),
+        ("packageId", .string packageId)
+      ])
+  | .vaultPda => pure (.object #[("kind", .string "vaultPda")])
+  | .handlerCaller => pure (.object #[("kind", .string "handlerCaller")])
+  | .vaultAta mintCallableId mintParamOrdinal => do
+      let c ← pfNat "roleKeyPolicy.vaultAta.mintCallableId" mintCallableId
+      let m ← pfNat "roleKeyPolicy.vaultAta.mintParamOrdinal" mintParamOrdinal
+      pure (.object #[
+        ("kind", .string "vaultAta"),
+        ("mintCallableId", c),
+        ("mintParamOrdinal", m)
+      ])
+  | .dstAta mintCallableId dstParamOrdinal mintParamOrdinal => do
+      let c ← pfNat "roleKeyPolicy.dstAta.mintCallableId" mintCallableId
+      let d ← pfNat "roleKeyPolicy.dstAta.dstParamOrdinal" dstParamOrdinal
+      let m ← pfNat "roleKeyPolicy.dstAta.mintParamOrdinal" mintParamOrdinal
+      pure (.object #[
+        ("kind", .string "dstAta"),
+        ("mintCallableId", c),
+        ("dstParamOrdinal", d),
+        ("mintParamOrdinal", m)
+      ])
 
 private def encodeFrozenMetaSpec (s : FrozenMetaSpec) : CompileResult PfJson := do
   let constraint ← encodeConstraint s.constraint
@@ -874,28 +914,6 @@ private def encodeFrozenPdaRule (r : FrozenPdaRule) : CompileResult PfJson := do
     ("search", encodeBumpSearchPolicy r.search),
     ("signerEligible", .bool r.signerEligible)
   ])
-
-private def encodeRoleKeyPolicy : RoleKeyPolicyV1 → CompileResult PfJson
-  | .state schemaId => do
-      let id ← pfNat "roleKeyPolicy.state.schemaId" schemaId
-      pure (.object #[("kind", .string "state"), ("schemaId", id)])
-  | .accountParameter callableId paramOrdinal => do
-      let c ← pfNat "roleKeyPolicy.accountParameter.callableId" callableId
-      let p ← pfNat "roleKeyPolicy.accountParameter.paramOrdinal" paramOrdinal
-      pure (.object #[
-        ("kind", .string "accountParameter"),
-        ("callableId", c),
-        ("paramOrdinal", p)
-      ])
-  | .fixedProgram packageId =>
-      pure (.object #[
-        ("kind", .string "fixedProgram"),
-        ("packageId", .string packageId)
-      ])
-  | .vaultPda => pure (.object #[("kind", .string "vaultPda")])
-  | .handlerCaller => pure (.object #[("kind", .string "handlerCaller")])
-  | .vaultAta => pure (.object #[("kind", .string "vaultAta")])
-  | .dstAta => pure (.object #[("kind", .string "dstAta")])
 
 /-- Fixed 16 lowercase hex digits for a UInt64 (lossless canonical form),
     shared by Plan/IR/IDL state-schema encoders. -/
@@ -1348,12 +1366,12 @@ private def validateRoles (c : SolanaCpiPlanCandidateV1) : CompileResult Unit :=
     | .handlerCaller =>
         unless role.name == "pf_caller" do
           planFail "handlerCaller role name must be pf_caller"
-    | .vaultAta =>
-        unless role.name == "pf_vault_ata" do
-          planFail "vaultAta role name must be pf_vault_ata"
-    | .dstAta =>
-        unless role.name == "pf_dst_ata" do
-          planFail "dstAta role name must be pf_dst_ata"
+    | .vaultAta _mintCallableId _mintParamOrdinal =>
+        unless role.name.startsWith "pf_vault_ata" do
+          planFail "vaultAta role name must start with pf_vault_ata"
+    | .dstAta _mintCallableId _dstParamOrdinal _mintParamOrdinal =>
+        unless role.name.startsWith "pf_dst_ata" do
+          planFail "dstAta role name must start with pf_dst_ata"
   unless natPairsUnique accountParamKeys do
     planFail "accountParameter (callableId,paramOrdinal) must be unique"
   -- each state schema has exactly one state role (no unused)
@@ -1586,7 +1604,7 @@ private def validateOneSite
                 planFail "principal cpi arg must not bind a state role"
             | .fixedProgram _ =>
                 planFail "principal cpi arg must not bind a fixedProgram role"
-            | .vaultPda | .handlerCaller | .vaultAta | .dstAta =>
+            | .vaultPda | .handlerCaller | .vaultAta .. | .dstAta .. =>
                 planFail "principal cpi arg must not bind a synthetic vault/caller/ata role"
             unless handler.accountUses.any (fun u => u.roleId == roleId) do
               planFail "principal cpi arg role must appear in handler accountUses"
@@ -1616,7 +1634,7 @@ private def validateOneSite
     metaRoleIds := metaRoleIds.push metaSlot.roleId
     if metaSlot.roleId == s.programRoleId then
       match expected.binding with
-      | .fixedProgram _ | .arg _ | .vaultPda | .handlerCaller | .vaultAta | .dstAta =>
+      | .fixedProgram _ | .arg _ | .vaultPda | .handlerCaller | .vaultAta .. | .dstAta .. =>
           planFail "cpiSite meta role must not equal programRoleId"
     let role ← match findRole? c.accountRoles metaSlot.roleId with
       | some r => pure r
@@ -1655,11 +1673,11 @@ private def validateOneSite
         | _ => planFail "handlerCaller meta must bind a handlerCaller role"
     | .vaultAta =>
         match role.keyPolicy with
-        | .vaultAta => pure ()
+        | .vaultAta .. => pure ()
         | _ => planFail "vaultAta meta must bind a vaultAta role"
     | .dstAta =>
         match role.keyPolicy with
-        | .dstAta => pure ()
+        | .dstAta .. => pure ()
         | _ => planFail "dstAta meta must bind a dstAta role"
 
   -- Outer-only exact match; principal roles already pairwise with metas/program.
@@ -1828,7 +1846,7 @@ private def validatePrivilegeJoin
               | .vaultPda =>
                   unless group.metaArg == "vault" do
                     planFail "vaultPda signer group metaArg must be 'vault'"
-              | .fixedProgram _ | .handlerCaller | .vaultAta | .dstAta =>
+              | .fixedProgram _ | .handlerCaller | .vaultAta .. | .dstAta .. =>
                   planFail "signer group cannot attach to fixedProgram/handlerCaller/ata meta"
               match site.pda with
               | .signer rule _ _ _ _ _ =>
@@ -1892,8 +1910,9 @@ private def validateEnvReadSites (c : SolanaCpiPlanCandidateV1) :
         -- program roles must be .fixedProgram with exact package ids.
         let vaultAtaRole ←
           getArr c.accountRoles s.vaultAtaRoleId "envReadSite.vaultAtaRole"
-        unless vaultAtaRole.keyPolicy == .vaultAta do
-          planFail "envReadSite.vaultAtaRoleId must be .vaultAta"
+        match vaultAtaRole.keyPolicy with
+        | .vaultAta .. => pure ()
+        | _ => planFail "envReadSite.vaultAtaRoleId must be .vaultAta"
         let mintRole ←
           getArr c.accountRoles s.mintRoleId "envReadSite.mintRole"
         match mintRole.keyPolicy with
