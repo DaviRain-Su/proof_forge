@@ -184,15 +184,20 @@ buildFromCapability (profile = solana-sbpf-cpi-elf-v1)
 
 - **P3-b done（engineering）**：`ProofForgeV2/Targets/Solana/ProductFrameV1.lean` + `Tests/Targets/SolanaProductFrameV1`（bodyOnly / unifiedCpi / escrow pin 1024/1096/4096）。
 - **P3-c skeleton done（engineering）**：`ProductSynthesizeV1.lean` 持有 `buildFromCapability`；零 site + full body → `synthesizeZeroSiteFullBodyBaseFilesV1`（frame gate + 既有 hybrid IR schema 兼容 pin）；有 sites → 仍 `CpiV1.productBaseFilesFromCapabilityV1`。IR marker **尚未** 消灭（P3-g）；site hooks = P3-d。
-### 进度注记（2026-08-06 续 · P3-d 门）
+### 进度注记（2026-08-06 续 · P3-d 门 → partial 合成）
 
-- **P3-d partial**：显式 gate `product synthesize P3-d incomplete…` 当 `cpiSites≠∅ ∧ semanticNeedsFullBody`；
-  避免落入 escrow straight-line 含糊 FC。测试：`Tests/Materialization/SolanaProductSynthesizeV1`。
-- **尚未**：full body IR 中插入真实 multi-role `sol_invoke_signed_c` recipe（TipJar 级账户面 + Map/if）。
+- **P3-d partial 合成已绿（engineering）**：`hasSites ∧ needsFullBody` 走
+  `synthesizeFullBodyProductBaseFilesV1`（CPI plan/IDL + full-body LowerSemantic with
+  `admitProductExternalCall` → empty-meta `sol_invoke_signed_c` via BL-27）。
+  钉测 `BodyCpiIfPay`（if + `pf.assets.native.transfer`）；IR/bindings 标记
+  `p3d-partial-empty-meta` / `cpiMaturity=empty-meta-partial`。**不是** multi-role
+  AccountMeta maturity（R3 诚实）。
+- **P3-d 剩余**：multi-role site recipes 接入 body emit（真 TipJar 账户面 + Map）；
+  单块 Map Principal match+IndexSet 既有效应边界 lower 限制（MiniAmm 形 multi-block 可绕过）。
 - **P3-h**：admitCaller 双账户 layout + MiniAmmHybrid Mollusk 已在 main（可标 done）。
 
-| **P3-d** | Site hooks：单 block + 已支持 escrow body ops + **一个** catalog invoke 与 full-body temps 共存 | 小 demo：state UInt64 ± + 1× `solana.system.transfer` 或 `pf.assets.native.transfer` 同 ELF；`sol_invoke_signed_c` 出现在 `.s` | `EmitCpiEscrowSbpfV1`（recipe 复用）、synthesize | 依赖 P3-c |
-| **P3-e** | CFG：if/branch 与 site 锚点 source order；仍 FC for/loop 跨 site 若帧不够 | multi-block + 1 site Lean pin | `EmitIRV1`/`EmitSbpfAsmV1` region + synthesize | 依赖 P3-d |
+| **P3-d** | Site hooks partial：full-body + void ExternalCall + empty-meta invoke 同 ELF | `BodyCpiIfPay` pin：`.s` 含 `sol_invoke_signed_c` + empty AccountMeta；`p3d-partial-empty-meta` | LowerSemantic admit、ValidatePlan/EmitIR/EmitSbpfAsm、`ProductSynthesizeV1` | P3-c done |
+| **P3-e** | CFG：if/branch 与 **multi-role** site 锚点 source order；仍 FC for/loop 跨 site 若帧不够 | multi-block + real AccountMeta 1 site Lean pin | recipe helpers + synthesize | 依赖 P3-d partial |
 | **P3-f** | Map/Index* + site（MiniAMM-class body + 可选 transfer） | MapTip 类 demo product build；可选 host-optional Mollusk | LowerSemantic 已有 Map；synthesize + layout | 依赖 P3-e |
 | **P3-g** | Finalize/bindings 诚实：去掉 `full-body-hybrid` 字面特例；hybrid 路径并入统一 IR | `FinalizeV1` + product pin 证据字段 | `FinalizeV1.lean`、`CpiProductV1` bindings | 与 P3-f 后期串行 |
 | **P3-h** | multi-account layout 硬化（acc1 dup/signer exact）+ MiniAMM Mollusk（可拆 E4） | ADR-0032 验收剩余项 | `EmitSbpfAsmV1` layout、runtime-tests | 可与 P3-f 后并行 runtime lane |

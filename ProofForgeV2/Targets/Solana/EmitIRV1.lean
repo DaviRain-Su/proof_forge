@@ -1030,13 +1030,22 @@ private partial def lowerBodyOps
           next := value.next
         operations := operations.push (.revertError errorIndex argTemps)
         next := nextBase
-    | .externalCall callee _ =>
-        -- Unreachable after validatePlan. If a private bypass is introduced,
-        -- produce an invalid sentinel that validateIR rejects; never derive a
-        -- program id from QualifiedName bytes.
-        operations := operations.push (.externalCall callee "" #[] none)
+    | .externalCall callee args =>
+        -- P3-d product full-body: lower void ExternalCall with static program-id
+        -- stub (SHA-256 of target path) and UInt64 body args. Multi-role site
+        -- metas remain deferred; EmitSbpfAsm uses empty AccountMeta partial.
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr overflowError tempMap next arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        let programIdHex := externalCalleeProgramIdHex callee
+        operations := operations.push
+          (.externalCall callee programIdHex argTemps none)
         next := nextBase
     | .externalCallResult callee _ _ =>
+        -- Result-bearing still fail-closed at validatePlan; sentinel if bypassed.
         operations := operations.push (.externalCall callee "" #[] none)
         next := nextBase
     | .schedule callee _ =>
@@ -1481,9 +1490,26 @@ private partial def validateOperationSequence
             args.size == plan.events[eventIndex]!.fieldCount &&
             args.all (· < next) do
           throw <| .planInvariant .solana "typed Solana IR event emission is invalid"
-    | .externalCall .. =>
-        throw <| .planInvariant .solana
-          "legacy Solana IR does not support external calls"
+    | .externalCall callee programIdHex args resultDest =>
+        -- P3-d product full-body void ExternalCall only.
+        unless plan.stateAccount.admitProductExternalCall do
+          throw <| .planInvariant .solana
+            "legacy Solana IR does not support external calls"
+        unless resultDest.isNone do
+          throw <| .planInvariant .solana
+            "product full-body does not yet admit result-bearing ExternalCall (P3-d+)"
+        unless callee.size ≥ 2 do
+          throw <| .planInvariant .solana
+            "typed Solana IR ExternalCall callee must have ≥2 components"
+        unless programIdHex.length == 64 do
+          throw <| .planInvariant .solana
+            "typed Solana IR ExternalCall programIdHex must be 64 hex chars"
+        unless args.all (· < next) do
+          throw <| .planInvariant .solana
+            "typed Solana IR ExternalCall args are out of temp range"
+        unless handler.mode != .view do
+          throw <| .planInvariant .solana
+            "typed Solana IR view handler must not external-call"
     | .schedule .. =>
         throw <| .planInvariant .solana
           "legacy Solana IR does not support scheduled workflows"

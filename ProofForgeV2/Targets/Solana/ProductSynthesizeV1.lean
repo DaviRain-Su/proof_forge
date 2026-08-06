@@ -1,15 +1,19 @@
 /-
-  ProofForgeV2.Targets.Solana.ProductSynthesizeV1 — ADR-0032 U1 / P3-c skeleton.
+  ProofForgeV2.Targets.Solana.ProductSynthesizeV1 — ADR-0032 U1 / P3-c/d.
 
   Sole product-rail materialize entry for `solana-sbpf-cpi-elf-v1` (plus plan/elf
-  shim dispatch). Zero-site full-body path: CPI product Plan/IDL + full-body
-  LowerSemantic IR → `emitSbpfAsmV1`, framed via `ProductFrameV1` bodyOnly.
+  shim dispatch):
 
-  Non-zero CPI sites still delegate to `CpiV1.productBaseFilesFromCapabilityV1`
-  (escrow composite). Site hooks = P3-d; true unified product IR digest = later.
+  * Zero-site full-body: CPI product Plan/IDL + full-body LowerSemantic IR →
+    `emitSbpfAsmV1`, framed via `ProductFrameV1` bodyOnly (P3-c).
+  * hasSites ∧ full-body (Map/CFG + ExternalCall): same full-body path with
+    product ExternalCall markers → empty-meta `sol_invoke_signed_c` (P3-d
+    **partial**). CPI product Plan/IDL still carry site metadata; multi-role
+    AccountMeta walkers not yet hooked into body emit (honest partial).
+  * Straight-line CPI sites (no full-body need): CpiV1 escrow composite.
 
   Import leaf: sits above EmitSbpfAsm/CpiProduct; does not import Finalize.
-  Engineering only.
+  Engineering only — not multi-role CPI maturity or formal D5.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.TargetIdentityV1
@@ -51,12 +55,12 @@ def semanticUsesContextCallerV1 (data : SemanticProgramDataV1) : Bool :=
         | .contextRead key => key == callerContextKeyV1
         | _ => false
 
-/-- Zero-site full-body product base files (P3-c skeleton ≡ former hybrid path,
-    with ProductFrame bodyOnly gate).
-    `emitSbpfAsmV1` already enforces per-handler `(cursor+1)*8 ≤ 4096`; the
-    frame mint records that body-only mode occupies at most the full stack. -/
-def synthesizeZeroSiteFullBodyBaseFilesV1
-    (capability : ResolvedEngineeringBuildV1) :
+/-- Shared full-body product files: CPI plan/IDL + LowerSemantic body `.s`.
+    `hasSites` selects P3-c (zero-site) vs P3-d partial (sites present) markers.
+    Empty-meta CPI only — multi-role site metas not yet synthesized into body. -/
+def synthesizeFullBodyProductBaseFilesV1
+    (capability : ResolvedEngineeringBuildV1)
+    (hasSites : Bool) :
     CompileResult (Array OutputFile) := do
   let compiled := ResolvedEngineeringBuildV1.compiledOf capability
   let data ← match decodeSemanticProgramDataV1
@@ -64,13 +68,13 @@ def synthesizeZeroSiteFullBodyBaseFilesV1
     | .ok d => pure d
     | .error _ =>
         throw <| .planInvariant .solana
-          "product synthesize zero-site: invalid Semantic carrier"
+          "product synthesize full-body: invalid Semantic carrier"
   let admitCaller := semanticUsesContextCallerV1 data
   let cpiPlan ← productPlanFromCapabilityV1 capability
   let validated := SolanaCpiProductPlanV1.planOf cpiPlan
-  unless validated.candidate.cpiSites.isEmpty do
+  unless hasSites == !validated.candidate.cpiSites.isEmpty do
     throw <| .planInvariant .solana
-      "product synthesize zero-site: cpiSites must be empty (use escrow path)"
+      "product synthesize full-body: hasSites flag diverges from cpiSites"
   let idl ← deriveSolanaCpiIdlV1 validated
   let name := validated.candidate.programName
   let planText ← match String.fromUTF8?
@@ -78,30 +82,40 @@ def synthesizeZeroSiteFullBodyBaseFilesV1
     | some s => pure s
     | none =>
         throw <| .planInvariant .solana
-          "product synthesize zero-site: plan UTF-8 decode failed"
+          "product synthesize full-body: plan UTF-8 decode failed"
   let bodyIr ← fullBodyIrFromProductCapabilityV1 capability admitCaller
   let asm ← emitSbpfAsmV1 bodyIr
-  -- Post-emit: body region may use up to the full 4096 stack (emit-gated).
+  -- Body-only frame: empty-meta CPI uses body temp region (not multi-role
+  -- walker scratch). Multi-role unified frame lands with real site hooks.
   let frame ← match mintBodyOnlyFrameV1 productMaxFrameBytesV1 with
     | .ok L => pure L
     | .error e =>
         throw <| .planInvariant .solana s!"product synthesize frame: {e}"
   requireProductFrameV1 frame
-  -- Keep hybrid IR schema for product pin / Finalize irDigest compatibility
-  -- (P3-g will replace with recomputeable product IR).
+  let synthTag := if hasSites then "p3d-partial-empty-meta" else "p3c-zero-site"
+  let honesty :=
+    if hasSites then
+      "full-body+ExternalCall empty-meta sol_invoke; multi-role AccountMeta deferred"
+    else
+      "body via ProductSynthesizeV1→LowerSemantic+EmitSbpfAsm (P3-c)"
   let irText :=
     "{\"schema\":\"proof-forge.solana.full-body-hybrid-ir.v1\"," ++
-    "\"note\":\"body via ProductSynthesizeV1→LowerSemantic+EmitSbpfAsm (P3-c)\"," ++
-    "\"synthesize\":\"p3c-zero-site\"," ++
+    "\"note\":\"" ++ honesty ++ "\"," ++
+    "\"synthesize\":\"" ++ synthTag ++ "\"," ++
     "\"frameMode\":\"bodyOnly\"," ++
     "\"frameBytes\":" ++ toString frame.totalBytes ++ "," ++
-    "\"admitCaller\":" ++ (if admitCaller then "true" else "false") ++ "}"
+    "\"admitCaller\":" ++ (if admitCaller then "true" else "false") ++ "," ++
+    "\"admitProductExternalCall\":true," ++
+    "\"cpiSites\":" ++ toString validated.candidate.cpiSites.size ++ "," ++
+    "\"cpiMaturity\":\"" ++
+      (if hasSites then "empty-meta-partial" else "zero-site") ++ "\"}"
   let bindingsText :=
     "{\"schema\":\"proof-forge.solana.cpi-bindings.v1\"," ++
     "\"fullBodyHybrid\":true," ++
-    "\"synthesize\":\"p3c-zero-site\"," ++
+    "\"synthesize\":\"" ++ synthTag ++ "\"," ++
     "\"frameMode\":\"bodyOnly\"," ++
     "\"frameBytes\":" ++ toString frame.totalBytes ++ "," ++
+    "\"cpiSites\":" ++ toString validated.candidate.cpiSites.size ++ "," ++
     "\"programName\":\"" ++ name ++ "\"}"
   pure #[
     { path := s!"{name}.cpi-plan.json"
@@ -121,18 +135,32 @@ def synthesizeZeroSiteFullBodyBaseFilesV1
       contents := bindingsText }
   ]
 
+/-- Zero-site full-body product base files (P3-c). -/
+def synthesizeZeroSiteFullBodyBaseFilesV1
+    (capability : ResolvedEngineeringBuildV1) :
+    CompileResult (Array OutputFile) :=
+  synthesizeFullBodyProductBaseFilesV1 capability false
+
+/-- P3-d partial: full-body shape + non-empty cpiSites → one ELF with body
+    Map/CFG + empty-meta ExternalCall invoke. Not multi-role CPI maturity. -/
+def synthesizeFullBodyWithSitesBaseFilesV1
+    (capability : ResolvedEngineeringBuildV1) :
+    CompileResult (Array OutputFile) :=
+  synthesizeFullBodyProductBaseFilesV1 capability true
+
 private def buildUnknownProfileFail (profile : CodegenProfileId) :
     CompileResult (Array OutputFile) :=
   throw <| .planInvariant .solana
     s!"unknown Solana codegen profile '{profile}' (exhaustive plan/elf/cpi only)"
 
-/-- Capability-gated public materialize entry (S6 / #125 + ADR-0032 U1 P3-c).
+/-- Capability-gated public materialize entry (S6 / #125 + ADR-0032 U1 P3-c/d).
 
     Exhaustive profile dispatch:
     * `solana-sbpf-plan-v1` → single-account plan+IDL only
     * `solana-sbpf-elf-v1` → single-account plan+IDL+`.s`
     * `solana-sbpf-cpi-elf-v1` → product base files:
-        - zero CPI sites ∧ full-body shape → ProductSynthesize zero-site
+        - full-body shape ∧ CPI sites → P3-d partial (empty-meta)
+        - full-body shape ∧ zero sites → P3-c zero-site full body
         - else → CpiV1 escrow product base files
     * unknown → fail closed
 -/
@@ -158,16 +186,9 @@ def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
       | .error _ =>
           throw <| .planInvariant .solana "invalid SemanticProgramV1 carrier"
     let needsBody := semanticNeedsFullBodyV1 data
-    -- P3-d gate (explicit, before cryptic escrow straight-line FC):
-    -- full-body shape (Map/CFG/…) + real CPI sites are not yet one ELF.
-    if hasSites && needsBody then
-      throw <| .planInvariant .solana
-        ("product synthesize P3-d incomplete: full-body shape + non-empty " ++
-          "cpiSites not yet unified on sole rail " ++
-          "(use zero-site full body, or straight-line CPI product; " ++
-          "site hooks = ProductSynthesize P3-d)")
-    if !hasSites && needsBody then
-      synthesizeZeroSiteFullBodyBaseFilesV1 capability
+    if needsBody then
+      -- P3-c zero-site full body, or P3-d partial (sites + empty-meta CPI).
+      synthesizeFullBodyProductBaseFilesV1 capability hasSites
     else
       -- Straight-line CPI product (TipJar/TokenJar) or narrow zero-site body:
       -- escrow composite path + unified frame contract pin (P3-b/c).

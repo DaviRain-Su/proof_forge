@@ -131,6 +131,9 @@ structure StateAccount where
   /-- ADR-0032 U1: when true, body may lower `context.caller` from account[1]
       pf_caller key (threaded via this carrier so region recursion stays pure). -/
   admitCallerRole : Bool := false
+  /-- ADR-0032 P3-d: product full-body Plan may lower void ExternalCall markers
+      (EmitSbpfAsm empty-meta partial CPI). Independent of admitCallerRole. -/
+  admitProductExternalCall : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure AccountAccess where
@@ -2734,13 +2737,41 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    -- Legacy profiles deliberately decline both external effect families
-    -- (and result-bearing sync). The exact CPI product profile uses the
-    -- target-owned CPI Plan/IR path instead of this legacy lowering; generic
-    -- Semantic QualifiedName values are not Solana program IDs.
-    | .externalCall _ _ _, _ =>
+    -- Product full-body (admitProductExternalCall): admit void ExternalCall as
+    -- Plan marker for P3-d synthesize (empty-meta partial emit today; multi-role
+    -- site walkers = later). Single-account shim / legacy lower stay fail-closed.
+    -- Generic QN is not a Solana program id — EmitIR binds programId hex at emit.
+    | .externalCall _effectId callee argIds, none => do
+        unless account.admitProductExternalCall do
+          throw <| .planInvariant .solana
+            "legacy Solana Plan lowering does not admit external calls; use the exact CPI product profile"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+          -- UInt64 scalars only in body Plan args (Principals are account-bound
+          -- on the CPI product Plan site metas; body lower skips them).
+          if !root.isBool && !root.isInt && root.bitWidth == 64 && !root.isAggregate then
+            argExprs := argExprs.push root.expr
+          else if root.isAggregate then
+            pure ()  -- Principal / aggregate: site-bound, not body UInt64 temps
+          else
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: product ExternalCall body args must be UInt64 or account-bound Principal"
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+        let components := callee.components.toArray
+        body := body.push (.externalCall components argExprs)
+        armReadables := promoteDominatingPureV1 blockEntry values armReadables
+        segmentStart := values.size
+    | .externalCall _effectId callee argIds, some result => do
+        unless account.admitProductExternalCall do
+          throw <| .planInvariant .solana
+            "legacy Solana Plan lowering does not admit result-bearing external calls; use the exact CPI product profile"
+        -- Result-bearing sync still deferred for multi-role product (P3-d+).
+        let _ := result
+        let _ := callee
+        let _ := argIds
         throw <| .planInvariant .solana
-          "legacy Solana Plan lowering does not admit external calls; use the exact CPI product profile"
+          "product full-body does not yet admit result-bearing ExternalCall (P3-d+)"
     | .schedule _ _ _, _ =>
         throw <| .planInvariant .solana
           "legacy Solana profiles do not support scheduled workflows"
@@ -4003,7 +4034,8 @@ private def makeInterfaceBindingV1 (label : String) (name : String)
 
 private def makePlanFromSemanticDataV1
     (source : SemanticProgramDataV1)
-    (admitCallerRole : Bool := false) : CompileResult Plan := do
+    (admitCallerRole : Bool := false)
+    (admitProductExternalCall : Bool := false) : CompileResult Plan := do
   if !source.constants.isEmpty || !source.invariants.isEmpty then
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: constants/invariants are outside the current UInt64 pilot"
@@ -4017,7 +4049,11 @@ private def makePlanFromSemanticDataV1
   let types ← validateSolanaTypeClosureV1 source.types
   let typeDecls := source.types
   let stateAccount0 ← makeStateAccountV1 types typeDecls source.logicalState
-  let stateAccount := { stateAccount0 with admitCallerRole }
+  let stateAccount := {
+    stateAccount0 with
+      admitCallerRole
+      admitProductExternalCall
+  }
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>
@@ -4068,7 +4104,8 @@ private def makePlanFromSemanticDataV1
 
 private def makePlanFromSemanticV1
     (source : SemanticProgramV1)
-    (admitCallerRole : Bool := false) : CompileResult Plan := do
+    (admitCallerRole : Bool := false)
+    (admitProductExternalCall : Bool := false) : CompileResult Plan := do
   -- Semantic structure was validated once at the capability mint
   -- (resolveEngineeringRequirementsV1 → validateSemanticProgramV1); the
   -- carrier is private-ctor so re-validation here is redundant. Transport
@@ -4077,7 +4114,7 @@ private def makePlanFromSemanticV1
     | .ok value => pure value
     | .error _ =>
         throw <| .invalidProgram "Solana received an invalid SemanticProgramV1 carrier"
-  makePlanFromSemanticDataV1 data admitCallerRole
+  makePlanFromSemanticDataV1 data admitCallerRole admitProductExternalCall
 
 /-- Internal Solana family phase entry: capability → Plan (pre-canonicity).
     Single-account shim only — CPI product profile uses product Plan path. -/
@@ -4090,11 +4127,12 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
       "solana-sbpf-cpi-elf-v1 must use the target-owned CPI product Plan path, not legacy Plan lowering"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
-  makePlanFromSemanticV1 source false
+  makePlanFromSemanticV1 source false false
 
-/-- ADR-0032 U1 full-body hybrid: lower full Semantic→Plan for product profile
-    with optional `context.caller` (account[1] pf_caller). Used when product
-    has zero CPI sites but needs multi-block/Map body. -/
+/-- ADR-0032 U1 / P3-d product full-body: lower full Semantic→Plan for product
+    profile with optional `context.caller` (account[1] pf_caller) and product
+    ExternalCall markers (void only). Used for zero-site full body and for
+    hasSites∧needsFullBody empty-meta partial synthesis. -/
 def materializeFullBodyPlanForProductV1
     (capability : ResolvedEngineeringBuildV1)
     (admitCallerRole : Bool) : CompileResult Plan := do
@@ -4106,6 +4144,7 @@ def materializeFullBodyPlanForProductV1
       "materializeFullBodyPlanForProductV1 requires solana-sbpf-cpi-elf-v1"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
-  makePlanFromSemanticV1 source admitCallerRole
+  -- Product full-body always admits void ExternalCall markers (P3-d).
+  makePlanFromSemanticV1 source admitCallerRole true
 
 end ProofForgeV2.Targets.Solana

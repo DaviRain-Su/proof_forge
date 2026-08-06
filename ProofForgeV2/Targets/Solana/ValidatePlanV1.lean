@@ -341,9 +341,26 @@ private partial def checkHandlerStatementsV1
         unless exprIsBoolCompatibleV1 fns condition do
           throw <| .planInvariant .solana "handler assert condition must be a Bool expression"
         total ← addPlanExprNodes account params fns total condition
-    | .externalCall .. | .externalCallResult .. =>
+    | .externalCall callee args =>
+        -- P3-d product full-body may carry void ExternalCall markers.
+        unless account.admitProductExternalCall do
+          throw <| .planInvariant .solana
+            "legacy Solana profiles do not support external calls; select a versioned CPI profile"
+        unless callee.size ≥ 2 do
+          throw <| .planInvariant .solana
+            "product ExternalCall callee must have ≥2 QualifiedName components"
+        if isView then
+          throw <| .planInvariant .solana
+            "unsupported Solana plan shape: view handler must not external-call"
+        for arg in args do
+          unless exprIsUInt64CompatibleV1 fns arg do
+            throw <| .planInvariant .solana
+              "product ExternalCall body args must be UInt64 expressions"
+          total ← addPlanExprNodes account params fns total arg
+        total := total + 1
+    | .externalCallResult .. =>
         throw <| .planInvariant .solana
-          "legacy Solana profiles do not support external calls; select a versioned CPI profile"
+          "product full-body does not yet admit result-bearing ExternalCall (P3-d+)"
     | .schedule .. =>
         throw <| .planInvariant .solana
           "legacy Solana profiles do not support scheduled workflows"

@@ -1,9 +1,9 @@
 /-
   Tests.Materialization.SolanaProductSynthesizeV1 — ADR-0032 U1 P3-c/d pins.
 
-  * P3-d explicit gate: Map/CFG body + CPI sites → stable planInvariant
+  * P3-d partial: Map/CFG body + CPI sites → full-body + empty-meta sol_invoke
   * Escrow path (TipJar-class) still builds under synthesize dispatch
-  * Engineering only
+  * Engineering only — not multi-role AccountMeta maturity
 -/
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Solana.ProductSynthesizeV1
@@ -41,25 +41,25 @@ private def expectOk {α : Type} (result : CompileResult α) (label : String) : 
 private def pfAssetsDigest : String :=
   "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
 
-/-- Map + pf.assets transfer: needs full body AND cpiSites (P3-d hole). -/
-private def mapTipCallSource : String :=
+/-- Multi-block if + pf.assets transfer: needs full body AND cpiSites (P3-d partial).
+    (Map Principal match+IndexSet in a single block still hits a pre-existing
+    effect-boundary lower limitation; MiniAmm-shaped multi-block Map works, but
+    BodyCpiIfPay is the minimal P3-d pin.) -/
+private def bodyCpiIfPaySource : String :=
   "import ProofForgeV2\n\nnamespace Examples\n\nopen ProofForgeV2.Language\n\n" ++
-  "program MapTipCall where\n" ++
+  "program BodyCpiIfPay where\n" ++
   "  requires extension pf.assets version \"1.1.0\"\n" ++
   "    digest \"" ++ pfAssetsDigest ++ "\"\n\n" ++
-  "  state tips : Map Principal UInt64\n\n" ++
+  "  state paid : UInt64\n\n" ++
   "  init() do\n" ++
-  "    tips := Map.empty()\n\n" ++
-  "  entry tip(dst : Principal, amount : UInt64) : UInt64 do\n" ++
-  "    assert amount > 0\n" ++
-  "    call pf.assets.native.transfer(dst, amount)\n" ++
-  "    match tips[dst] with\n" ++
-  "    | Option.some(v) => do\n" ++
-  "      tips[dst] := v + amount\n" ++
-  "      return v + amount\n" ++
-  "    | _ => do\n" ++
-  "      tips[dst] := amount\n" ++
-  "      return amount\n\n" ++
+  "    paid := 0\n\n" ++
+  "  entry pay(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+  "    if amount > 0 then\n" ++
+  "      call pf.assets.native.transfer(dst, amount)\n" ++
+  "      paid := paid + amount\n" ++
+  "      return paid\n" ++
+  "    else\n" ++
+  "      return paid\n\n" ++
   "end Examples\n"
 
 private unsafe def compileSourceText
@@ -85,23 +85,39 @@ private def resolveSolanaCpi (compiled : CompiledSemanticV1) :
   expectOk (resolveEngineeringRequirementsV1 sel compiled)
     "resolve engineering"
 
-private unsafe def testP3dGateMapPlusCpi : IO Unit := do
+/-- P3-d partial: multi-block CFG + CPI sites → one ELF with body + empty-meta. -/
+private unsafe def testP3dPartialBodyCpiIfPay : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  let compiled ← compileSourceText session mapTipCallSource
-    "Examples/MapTipCall.lean" "Examples.MapTipCall"
+  let compiled ← compileSourceText session bodyCpiIfPaySource
+    "Examples/BodyCpiIfPay.lean" "Examples.BodyCpiIfPay"
   let capability ← resolveSolanaCpi compiled
-  match buildFromCapability capability with
-  | .ok _ =>
-      throw <| IO.userError
-        "MapTipCall must fail closed until P3-d site+full-body synthesis lands"
-  | .error e => do
-      expect (e.code == "PF-PLAN-INVARIANT")
-        s!"expected PF-PLAN-INVARIANT, got {e.render}"
-      expect (containsSubstr e.render "P3-d incomplete")
-        s!"expected P3-d incomplete message, got {e.render}"
-      expect (containsSubstr e.render "cpiSites")
-        s!"expected cpiSites mention, got {e.render}"
-  IO.println "  P3-d gate (Map+CPI) ok"
+  let files ← expectOk (buildFromCapability capability)
+    "BodyCpiIfPay P3-d partial buildFromCapability"
+  expect (files.any fun f => f.path == "BodyCpiIfPay.s")
+    "BodyCpiIfPay must emit BodyCpiIfPay.s"
+  expect (files.any fun f => f.path == "BodyCpiIfPay.cpi-plan.json")
+    "BodyCpiIfPay must emit cpi-plan (sites metadata)"
+  expect (files.any fun f => f.path == "BodyCpiIfPay.cpi-ir.json")
+    "BodyCpiIfPay must emit cpi-ir"
+  let some asm := files.find? (·.path == "BodyCpiIfPay.s") |
+    throw <| IO.userError "missing BodyCpiIfPay.s"
+  expect (containsSubstr asm.contents "sol_invoke_signed_c")
+    "BodyCpiIfPay body must emit empty-meta sol_invoke_signed_c"
+  expect (containsSubstr asm.contents "product_external_call" ||
+      containsSubstr asm.contents "empty AccountMeta")
+    s!"BodyCpiIfPay asm must note product ExternalCall empty-meta path"
+  let some ir := files.find? (·.path == "BodyCpiIfPay.cpi-ir.json") |
+    throw <| IO.userError "missing BodyCpiIfPay.cpi-ir.json"
+  expect (containsSubstr ir.contents "p3d-partial-empty-meta")
+    s!"cpi-ir must mark p3d-partial-empty-meta, got={ir.contents}"
+  expect (containsSubstr ir.contents "empty-meta-partial")
+    s!"cpi-ir must mark cpiMaturity empty-meta-partial, got={ir.contents}"
+  expect (containsSubstr ir.contents "\"admitProductExternalCall\":true")
+    "cpi-ir must admit product ExternalCall"
+  -- Honesty: must NOT claim multi-role AccountMeta maturity.
+  expect (!containsSubstr ir.contents "multi-role-mature")
+    "must not claim multi-role maturity"
+  IO.println "  P3-d partial (BodyCpiIfPay empty-meta) ok"
 
 private def testEscrowFramePinsCompatible : IO Unit := do
   let bodyTempBytes := productEscrowTempRegionEndV1 - productEscrowTempBaseV1
@@ -137,7 +153,7 @@ private unsafe def testTipJarStillBuildsViaSynthesizeDispatch : IO Unit := do
 
 unsafe def run : IO Unit := do
   testEscrowFramePinsCompatible
-  testP3dGateMapPlusCpi
+  testP3dPartialBodyCpiIfPay
   testTipJarStillBuildsViaSynthesizeDispatch
   IO.println "Tests.Materialization.SolanaProductSynthesizeV1: ok"
 

@@ -100,5 +100,9 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
   - **multi-account admitCaller layout 已绿**：`computeInputLayoutWithCallerV1`（state + zero-data pf_caller）+ entrypoint `num_accounts==2` + `ACC1_*`；
   - **MiniAmmHybrid Mollusk 成功路径 11/11**（init / first mint / swap / later mint / zero fail / layout pin）。
   - **P3-b/c skeleton 已绿**：`ProductFrameV1` + `ProductSynthesizeV1`（zero-site full body；`buildFromCapability` sole leaf）。
-  - **P3-d 门禁已绿（非合成完成）**：`hasSites ∧ needsFullBody` 显式 `P3-d incomplete` FC（钉测 MapTipCall）；straight-line CPI（TipJar）仍 escrow + unified 帧 pin。**真 site hooks 同 ELF 未做**。
-  - P3-h 多账户 layout + MiniAmmHybrid Mollusk 11/11 已先完成。P3-e/f 真合成、P3-g IR digest、P4 默认 profile 仍后续。
+  - **P3-d partial 合成已绿**：`hasSites ∧ needsFullBody` → full-body Plan
+    (`admitProductExternalCall`) + empty-meta `sol_invoke_signed_c` 同 ELF
+    （钉测 `BodyCpiIfPay`；IR 标记 `p3d-partial-empty-meta`）。**不是** multi-role
+    AccountMeta / PDA / Token 成熟度；TipJar 直通仍 escrow multi-role。
+  - P3-h 多账户 layout + MiniAmmHybrid Mollusk 11/11 已先完成。P3-e multi-role
+    site recipes、P3-f Map+CPI 真成熟、P3-g IR digest、P4 默认 profile 仍后续。
