@@ -83,6 +83,8 @@ inductive Operation where
   (or query `ok` string), matching the existing scalar decimal JSON ABI. -/
   | setReturnDataMulti (values : Array Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
+  /-- Multiword unsigned compare (T9e body): lhs/rhs bases of bitWidth/64 limbs. -/
+  | wideCompare (bitWidth destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat)
   | emitEvent (eventIndex : Nat) (args : Array Nat)
   | revertError (errorIndex : Nat) (args : Array Nat)
@@ -224,13 +226,31 @@ private structure LoweredExpr where
 private def fieldRegion (keys : Array KeyRegion) (fieldIndex : Nat) : KeyRegion :=
   keys[fieldIndex + 1]!
 
+/-- LE i64 limb count for multiword body widths (UInt128=2 / UInt256=4). -/
+private def limbCountOfBitWidth (bitWidth : Nat) : Nat :=
+  if bitWidth ≤ 64 then 1 else bitWidth / 64
+
+/-- Split `n` into `count` little-endian UInt64 limbs. -/
+private def natToLimbsLE (n : Nat) (count : Nat) : Array UInt64 := Id.run do
+  let mut out : Array UInt64 := #[]
+  let mut v := n
+  for _ in [:count] do
+    out := out.push (UInt64.ofNat v)
+    v := v / UInt64.size
+  pure out
+
 private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
     (paramAsTemp : Bool) (localEnv : Array (Nat × Nat)) : Expr → LoweredExpr
   | .literal value =>
       { operations := #[.literal next value], value := next, next := next + 1 }
-  | .bigLiteral _ value =>
-      -- Multiword FC at plan; defensive: truncate to low 64.
-      { operations := #[.literal next (UInt64.ofNat value)], value := next, next := next + 1 }
+  | .bigLiteral bitWidth value =>
+      Id.run do
+        let nLimbs := limbCountOfBitWidth bitWidth
+        let limbs := natToLimbsLE value nLimbs
+        let mut ops : Array Operation := #[]
+        for i in [:nLimbs] do
+          ops := ops.push (.literal (next + i) (limbs[i]!))
+        pure { operations := ops, value := next, next := next + nLimbs }
   | .blockTimeSeconds =>
       { operations := #[.blockTimeSeconds next], value := next, next := next + 1 }
   | .blockHeight =>
@@ -381,69 +401,84 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       { operations := op.operations ++ #[.bitNot op.next op.value]
         value := op.next, next := op.next + 1 }
   | .narrowCheckedAdd bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedAdd bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + nLimbs }
   | .narrowCheckedSub bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedSub bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + nLimbs }
   | .narrowCheckedMul bitWidth lhs rhs =>
+      -- Multiword mul uses dest..dest+2n-1 as product workspace; result is
+      -- the low n limbs. Advance next by 2·nLimbs so high product limbs are
+      -- declared locals (not clobbered by a subsequent allocation).
+      let nLimbs := limbCountOfBitWidth bitWidth
+      let destSpan := if bitWidth > 64 then 2 * nLimbs else nLimbs
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedMul bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + destSpan }
   | .narrowCheckedDiv bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedDiv bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + nLimbs }
   | .narrowCheckedMod bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedMod bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + nLimbs }
   | .narrowBitAnd bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowBitAnd bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + nLimbs }
   | .narrowBitOr bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowBitOr bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + nLimbs }
   | .narrowBitXor bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowBitXor bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + nLimbs }
   | .narrowBitNot bitWidth operand =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let op := lowerExpr keys next paramAsTemp localEnv operand
       { operations := op.operations ++ #[.narrowBitNot bitWidth op.next op.value]
-        value := op.next, next := op.next + 1 }
+        value := op.next, next := op.next + nLimbs }
   | .narrowShl bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowShl bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + nLimbs }
   | .narrowShr bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowShr bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + nLimbs }
   | .boolNot operand =>
       let op := lowerExpr keys next paramAsTemp localEnv operand
       { operations := op.operations ++ #[.boolNot op.next op.value]
@@ -460,11 +495,17 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       { operations := lhs.operations ++ rhs.operations ++
           #[.boolOr rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
-  | .compare op lhs rhs | .wideCompare _ op lhs rhs =>
+  | .compare op lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.compare rhs.next lhs.value rhs.value op]
+        value := rhs.next, next := rhs.next + 1 }
+  | .wideCompare bitWidth op lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.wideCompare bitWidth rhs.next lhs.value rhs.value op]
         value := rhs.next, next := rhs.next + 1 }
   | .callFn fnIndex args =>
       Id.run do
@@ -1859,6 +1900,214 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"  ;; buffers: attr@{attrBase} msg@{msgBase} valueCell@{valueCell} scratch@{scratch}\n" ++
   s!"  ;; scratch[0..512): SubMsg Binary inner JSON; $pf_base64_encode → msg buffer\n"
 
+/-- Multiword scratch locals declared on every method/fn body that may emit
+    multiword ops (always declared for simplicity; cheap unused i64s).
+    rem0..rem4 + quot0..quot3 cover UInt256 (4 limbs + remHi); $t_mw_a..$t_mw_7
+    cover schoolbook mul and compare working state. -/
+private def multiwordScratchLocals : String :=
+  " (local $t_mw_a i64) (local $t_mw_b i64) (local $t_mw_carry i64)" ++
+  " (local $t_mw_0 i64) (local $t_mw_1 i64) (local $t_mw_2 i64) (local $t_mw_3 i64)" ++
+  " (local $t_mw_4 i64) (local $t_mw_5 i64) (local $t_mw_6 i64) (local $t_mw_7 i64)" ++
+  " (local $t_mw_rem0 i64) (local $t_mw_rem1 i64) (local $t_mw_rem2 i64)" ++
+  " (local $t_mw_rem3 i64) (local $t_mw_rem4 i64)" ++
+  " (local $t_mw_quot0 i64) (local $t_mw_quot1 i64) (local $t_mw_quot2 i64)" ++
+  " (local $t_mw_quot3 i64)"
+
+/-- Multiword checked add on consecutive i64 temps (LE limbs); final carry → trap. -/
+private def renderMultiwordCheckedAdd (indent : String) (dest lhs rhs nLimbs : Nat) : String :=
+  Id.run do
+    let mut out := s!"{indent};; multiword checked_add nLimbs={nLimbs}\n"
+    out := out ++ s!"{indent}(local.set $t_mw_carry (i64.const 0))\n"
+    for i in [:nLimbs] do
+      out := out ++
+        s!"{indent}(local.set $t_mw_a (local.get $t{lhs + i}))\n" ++
+        s!"{indent}(local.set $t_mw_b (local.get $t{rhs + i}))\n" ++
+        s!"{indent}(local.set $t{dest + i} (i64.add (i64.add (local.get $t_mw_a) (local.get $t_mw_b)) (local.get $t_mw_carry)))\n" ++
+        s!"{indent}(local.set $t_mw_carry (i64.or (i64.extend_i32_u (i64.lt_u (local.get $t{dest + i}) (local.get $t_mw_a))) (i64.and (local.get $t_mw_carry) (i64.extend_i32_u (i64.eq (local.get $t{dest + i}) (local.get $t_mw_a))))))\n"
+    out := out ++ s!"{indent}(if (i64.ne (local.get $t_mw_carry) (i64.const 0)) (then unreachable))\n"
+    pure out
+
+/-- Multiword checked sub; final borrow → trap. -/
+private def renderMultiwordCheckedSub (indent : String) (dest lhs rhs nLimbs : Nat) : String :=
+  Id.run do
+    let mut out := s!"{indent};; multiword checked_sub nLimbs={nLimbs}\n"
+    out := out ++ s!"{indent}(local.set $t_mw_carry (i64.const 0))\n"
+    for i in [:nLimbs] do
+      out := out ++
+        s!"{indent}(local.set $t_mw_a (local.get $t{lhs + i}))\n" ++
+        s!"{indent}(local.set $t_mw_b (local.get $t{rhs + i}))\n" ++
+        s!"{indent}(local.set $t{dest + i} (i64.sub (i64.sub (local.get $t_mw_a) (local.get $t_mw_b)) (local.get $t_mw_carry)))\n" ++
+        s!"{indent}(local.set $t_mw_carry (i64.or (i64.extend_i32_u (i64.lt_u (local.get $t_mw_a) (local.get $t_mw_b))) (i64.and (local.get $t_mw_carry) (i64.extend_i32_u (i64.eq (local.get $t_mw_a) (local.get $t_mw_b))))))\n"
+    out := out ++ s!"{indent}(if (i64.ne (local.get $t_mw_carry) (i64.const 0)) (then unreachable))\n"
+    pure out
+
+/-- Multiword checked mul: exact base-2^32 schoolbook product (NEAR-isomorphic).
+    Writes 2·nLimbs result limbs to `dest..dest+2n-1`, traps unless high nLimbs
+    are zero. Engineering-only; not formal D2/D4. -/
+private def renderMultiwordCheckedMul (indent : String) (dest lhs rhs nLimbs : Nat) : String :=
+  Id.run do
+    let mut out := s!"{indent};; multiword checked_mul nLimbs={nLimbs}\n"
+    for k in [:2 * nLimbs] do
+      out := out ++ s!"{indent}(local.set $t{dest + k} (i64.const 0))\n"
+    let addAt := fun (col : Nat) => Id.run do
+      let mut s := ""
+      s := s ++ s!"{indent}(local.set $t_mw_a (local.get $t{dest + col}))\n"
+      s := s ++ s!"{indent}(local.set $t{dest + col} (i64.add (local.get $t_mw_a) (local.get $t_mw_6)))\n"
+      s := s ++ s!"{indent}(local.set $t_mw_7 (i64.extend_i32_u (i64.lt_u (local.get $t{dest + col}) (local.get $t_mw_a))))\n"
+      for k in [col + 1 : 2 * nLimbs] do
+        s := s ++ s!"{indent}(local.set $t_mw_a (local.get $t{dest + k}))\n"
+        s := s ++ s!"{indent}(local.set $t{dest + k} (i64.add (local.get $t_mw_a) (local.get $t_mw_7)))\n"
+        s := s ++ s!"{indent}(local.set $t_mw_7 (i64.extend_i32_u (i64.lt_u (local.get $t{dest + k}) (local.get $t_mw_a))))\n"
+      pure s
+    for i in [:nLimbs] do
+      for j in [:nLimbs] do
+        out := out ++ s!"{indent};; limb pair ({i},{j})\n"
+        out := out ++ s!"{indent}(local.set $t_mw_a (i64.and (local.get $t{lhs + i}) (i64.const 4294967295)))\n"
+        out := out ++ s!"{indent}(local.set $t_mw_b (i64.shr_u (local.get $t{lhs + i}) (i64.const 32)))\n"
+        out := out ++ s!"{indent}(local.set $t_mw_carry (i64.and (local.get $t{rhs + j}) (i64.const 4294967295)))\n"
+        out := out ++ s!"{indent}(local.set $t_mw_0 (i64.shr_u (local.get $t{rhs + j}) (i64.const 32)))\n"
+        out := out ++ s!"{indent}(local.set $t_mw_1 (i64.mul (local.get $t_mw_a) (local.get $t_mw_carry)))\n"
+        out := out ++ s!"{indent}(local.set $t_mw_2 (i64.add (i64.mul (local.get $t_mw_b) (local.get $t_mw_carry)) (i64.shr_u (local.get $t_mw_1) (i64.const 32))))\n"
+        out := out ++ s!"{indent}(local.set $t_mw_3 (i64.and (local.get $t_mw_2) (i64.const 4294967295)))\n"
+        out := out ++ s!"{indent}(local.set $t_mw_4 (i64.shr_u (local.get $t_mw_2) (i64.const 32)))\n"
+        out := out ++ s!"{indent}(local.set $t_mw_3 (i64.add (i64.mul (local.get $t_mw_a) (local.get $t_mw_0)) (local.get $t_mw_3)))\n"
+        out := out ++ s!"{indent}(local.set $t_mw_5 (i64.add (i64.add (i64.mul (local.get $t_mw_b) (local.get $t_mw_0)) (local.get $t_mw_4)) (i64.shr_u (local.get $t_mw_3) (i64.const 32))))\n"
+        out := out ++ s!"{indent}(local.set $t_mw_6 (i64.or (i64.shl (i64.and (local.get $t_mw_3) (i64.const 4294967295)) (i64.const 32)) (i64.and (local.get $t_mw_1) (i64.const 4294967295))))\n"
+        out := out ++ addAt (i + j)
+        out := out ++ s!"{indent}(local.set $t_mw_6 (local.get $t_mw_5))\n"
+        out := out ++ addAt (i + j + 1)
+    for k in [nLimbs : 2 * nLimbs] do
+      out := out ++ s!"{indent}(if (i64.ne (local.get $t{dest + k}) (i64.const 0)) (then unreachable))\n"
+    pure out
+
+/-- Rem limb local name: rem0..rem{nLimbs-1} + rem{nLimbs} as remHi. -/
+private def mwRemLocal (i : Nat) : String := s!"$t_mw_rem{i}"
+
+private def mwQuotLocal (i : Nat) : String := s!"$t_mw_quot{i}"
+
+/-- Multiword checked div/mod via restoring binary long division (Solana-honest).
+
+    Exact unsigned `nLimbs`-limb quotient and remainder for CosmWasm body
+    UInt128 (`nLimbs=2`) / UInt256 (`nLimbs=4`):
+
+      rem := 0                          -- `nLimbs+1` limbs (extra high digit)
+      quot := 0                         -- `nLimbs` limbs
+      for bit from (nLimbs·64 − 1) downto 0:
+        rem := (rem << 1) | dividend[bit]
+        if rem ≥ divisor:               -- zero-extended divisor
+          rem := rem − divisor
+          quot[bit] := 1
+
+    Divisor zero (all limbs zero) traps with `unreachable` (same checked-
+    arithmetic fail path as scalar UInt). Fully unrolled so every limb index
+    and shift count is a compile-time immediate. Scratch rem/quot live in
+    fixed `$t_mw_rem*` / `$t_mw_quot*` locals so lhs/rhs/dest aliasing is safe.
+    `kind` is `"div"` (store quot) or `"mod"` (store rem low limbs). -/
+private def renderMultiwordDivMod (indent : String) (dest lhs rhs nLimbs : Nat)
+    (kind : String) : String :=
+  Id.run do
+    let nBits := nLimbs * 64
+    let remHi := nLimbs  -- index into rem locals
+    let mut out := s!"{indent};; multiword checked_{kind} nLimbs={nLimbs} binary long division\n"
+    -- divisor nonzero? (OR of all limbs)
+    out := out ++ s!"{indent}(local.set $t_mw_a (i64.const 0))\n"
+    for i in [:nLimbs] do
+      out := out ++ s!"{indent}(local.set $t_mw_a (i64.or (local.get $t_mw_a) (local.get $t{rhs + i})))\n"
+    out := out ++ s!"{indent}(if (i64.eqz (local.get $t_mw_a)) (then unreachable))\n"
+    -- zero rem (incl. high) and quot
+    for i in [:nLimbs + 1] do
+      out := out ++ s!"{indent}(local.set {mwRemLocal i} (i64.const 0))\n"
+    for i in [:nLimbs] do
+      out := out ++ s!"{indent}(local.set {mwQuotLocal i} (i64.const 0))\n"
+    -- bit = nBits-1 .. 0 (fully unrolled)
+    for j in [:nBits] do
+      let bitPos := nBits - 1 - j
+      let numLimb := bitPos / 64
+      let numBit := bitPos % 64
+      -- rem := rem << 1  (nLimbs+1 limbs, high → low)
+      out := out ++ s!"{indent}(local.set $t_mw_a (local.get {mwRemLocal remHi}))\n"
+      out := out ++ s!"{indent}(local.set $t_mw_a (i64.shl (local.get $t_mw_a) (i64.const 1)))\n"
+      out := out ++ s!"{indent}(local.set $t_mw_b (local.get {mwRemLocal (nLimbs - 1)}))\n"
+      out := out ++ s!"{indent}(local.set $t_mw_b (i64.shr_u (local.get $t_mw_b) (i64.const 63)))\n"
+      out := out ++ s!"{indent}(local.set {mwRemLocal remHi} (i64.or (local.get $t_mw_a) (local.get $t_mw_b)))\n"
+      for iRev in [:nLimbs] do
+        let i := nLimbs - 1 - iRev
+        if i > 0 then
+          out := out ++ s!"{indent}(local.set $t_mw_a (local.get {mwRemLocal i}))\n"
+          out := out ++ s!"{indent}(local.set $t_mw_a (i64.shl (local.get $t_mw_a) (i64.const 1)))\n"
+          out := out ++ s!"{indent}(local.set $t_mw_b (local.get {mwRemLocal (i - 1)}))\n"
+          out := out ++ s!"{indent}(local.set $t_mw_b (i64.shr_u (local.get $t_mw_b) (i64.const 63)))\n"
+          out := out ++ s!"{indent}(local.set {mwRemLocal i} (i64.or (local.get $t_mw_a) (local.get $t_mw_b)))\n"
+        else
+          -- rem[0] = (rem[0] << 1) | dividend[bitPos]
+          out := out ++ s!"{indent}(local.set $t_mw_a (local.get {mwRemLocal 0}))\n"
+          out := out ++ s!"{indent}(local.set $t_mw_a (i64.shl (local.get $t_mw_a) (i64.const 1)))\n"
+          out := out ++ s!"{indent}(local.set $t_mw_b (local.get $t{lhs + numLimb}))\n"
+          if numBit != 0 then
+            out := out ++ s!"{indent}(local.set $t_mw_b (i64.shr_u (local.get $t_mw_b) (i64.const {numBit})))\n"
+          out := out ++ s!"{indent}(local.set $t_mw_b (i64.and (local.get $t_mw_b) (i64.const 1)))\n"
+          out := out ++ s!"{indent}(local.set {mwRemLocal 0} (i64.or (local.get $t_mw_a) (local.get $t_mw_b)))\n"
+      -- if rem ≥ divisor: set $t_mw_carry = 1 else 0
+      -- remHi != 0 ⇒ ≥
+      out := out ++ s!"{indent}(local.set $t_mw_carry (i64.const 0))\n"
+      out := out ++
+        s!"{indent}(if (i64.ne (local.get {mwRemLocal remHi}) (i64.const 0))\n" ++
+        s!"{indent}  (then (local.set $t_mw_carry (i64.const 1)))\n" ++
+        s!"{indent}  (else\n"
+      -- high-to-low limb compare while still undecided ($t_mw_0 marks decided)
+      out := out ++ s!"{indent}    (local.set $t_mw_0 (i64.const 0))\n"
+      for iRev in [:nLimbs] do
+        let i := nLimbs - 1 - iRev
+        out := out ++
+          s!"{indent}    (if (i64.eqz (local.get $t_mw_0))\n" ++
+          s!"{indent}      (then\n" ++
+          s!"{indent}        (if (i64.gt_u (local.get {mwRemLocal i}) (local.get $t{rhs + i}))\n" ++
+          s!"{indent}          (then (local.set $t_mw_carry (i64.const 1)) (local.set $t_mw_0 (i64.const 1)))\n" ++
+          s!"{indent}          (else (if (i64.lt_u (local.get {mwRemLocal i}) (local.get $t{rhs + i}))\n" ++
+          s!"{indent}            (then (local.set $t_mw_carry (i64.const 0)) (local.set $t_mw_0 (i64.const 1)))\n" ++
+          s!"{indent}            (else))))\n" ++  -- equal: continue
+          s!"{indent}      (else))\n"
+      -- all limbs equal ⇒ rem == divisor ⇒ ≥
+      out := out ++
+        s!"{indent}    (if (i64.eqz (local.get $t_mw_0))\n" ++
+        s!"{indent}      (then (local.set $t_mw_carry (i64.const 1)))\n" ++
+        s!"{indent}      (else))\n"
+      out := out ++ s!"{indent}  ))\n"
+      -- if $t_mw_carry: rem -= divisor; quot[bit] = 1
+      out := out ++ s!"{indent}(if (i64.ne (local.get $t_mw_carry) (i64.const 0))\n"
+      out := out ++ s!"{indent}  (then\n"
+      -- rem_low -= divisor with borrow into remHi
+      out := out ++ s!"{indent}    (local.set $t_mw_carry (i64.const 0))\n"
+      for i in [:nLimbs] do
+        out := out ++
+          s!"{indent}    (local.set $t_mw_a (local.get {mwRemLocal i}))\n" ++
+          s!"{indent}    (local.set $t_mw_b (local.get $t{rhs + i}))\n" ++
+          s!"{indent}    (local.set $t_mw_1 (local.get $t_mw_a))\n" ++  -- save original
+          s!"{indent}    (local.set $t_mw_a (i64.sub (i64.sub (local.get $t_mw_a) (local.get $t_mw_b)) (local.get $t_mw_carry)))\n" ++
+          s!"{indent}    (local.set {mwRemLocal i} (local.get $t_mw_a))\n" ++
+          -- borrow = (orig < b) || (orig == b && prev_borrow)
+          s!"{indent}    (local.set $t_mw_2 (i64.extend_i32_u (i64.lt_u (local.get $t_mw_1) (local.get $t_mw_b))))\n" ++
+          s!"{indent}    (local.set $t_mw_3 (i64.and (local.get $t_mw_carry) (i64.extend_i32_u (i64.eq (local.get $t_mw_1) (local.get $t_mw_b)))))\n" ++
+          s!"{indent}    (local.set $t_mw_carry (i64.or (local.get $t_mw_2) (local.get $t_mw_3)))\n"
+      out := out ++
+        s!"{indent}    (local.set {mwRemLocal remHi} (i64.sub (local.get {mwRemLocal remHi}) (local.get $t_mw_carry)))\n"
+      -- quot[numLimb] |= 1 << numBit
+      out := out ++ s!"{indent}    (local.set $t_mw_a (local.get {mwQuotLocal numLimb}))\n"
+      out := out ++ s!"{indent}    (local.set $t_mw_b (i64.const 1))\n"
+      if numBit != 0 then
+        out := out ++ s!"{indent}    (local.set $t_mw_b (i64.shl (local.get $t_mw_b) (i64.const {numBit})))\n"
+      out := out ++ s!"{indent}    (local.set {mwQuotLocal numLimb} (i64.or (local.get $t_mw_a) (local.get $t_mw_b)))\n"
+      out := out ++ s!"{indent}  )\n"
+      out := out ++ s!"{indent}  (else))\n"
+    -- store quotient or remainder into dest
+    if kind == "div" then
+      for t in [:nLimbs] do
+        out := out ++ s!"{indent}(local.set $t{dest + t} (local.get {mwQuotLocal t}))\n"
+    else
+      for t in [:nLimbs] do
+        out := out ++ s!"{indent}(local.set $t{dest + t} (local.get {mwRemLocal t}))\n"
+    pure out
+
 private partial def renderOperation (memory : MemoryLayout)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (fnNames : Array String)
@@ -1994,6 +2243,44 @@ private partial def renderOperation (memory : MemoryLayout)
         | .eq => "i64.eq" | .ne => "i64.ne" | .lt => "i64.lt_u"
         | .le => "i64.le_u" | .gt => "i64.gt_u" | .ge => "i64.ge_u"
       s!"{indent}(local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs}) (local.get $t{rhs}))))\n"
+  | .wideCompare bitWidth destination lhs rhs op =>
+      let nLimbs := limbCountOfBitWidth bitWidth
+      match op with
+      | .eq =>
+          Id.run do
+            let mut out := s!"{indent}(local.set $t{destination} (i64.const 1))\n"
+            for k in [:nLimbs] do
+              out := out ++
+                s!"{indent}(local.set $t{destination} (i64.and (local.get $t{destination}) (i64.extend_i32_u (i64.eq (local.get $t{lhs + k}) (local.get $t{rhs + k})))))\n"
+            pure out
+      | .ne =>
+          Id.run do
+            let mut out := s!"{indent}(local.set $t{destination} (i64.const 0))\n"
+            for k in [:nLimbs] do
+              out := out ++
+                s!"{indent}(local.set $t{destination} (i64.or (local.get $t{destination}) (i64.extend_i32_u (i64.ne (local.get $t{lhs + k}) (local.get $t{rhs + k})))))\n"
+            pure out
+      | .lt | .le | .gt | .ge =>
+          Id.run do
+            let mut out := s!"{indent}(local.set $t_mw_carry (i64.const 0))\n"
+            let eqDef := match op with | .le | .ge => 1 | _ => 0
+            out := out ++ s!"{indent}(local.set $t{destination} (i64.const {eqDef}))\n"
+            for j in [:nLimbs] do
+              let k := nLimbs - 1 - j
+              let insn :=
+                match op with
+                | .lt => "i64.lt_u" | .le => "i64.lt_u"
+                | .gt => "i64.gt_u" | .ge => "i64.gt_u" | _ => "i64.eq"
+              out := out ++
+                s!"{indent}(if (i64.eqz (local.get $t_mw_carry))\n" ++
+                s!"{indent}  (then\n" ++
+                s!"{indent}    (if (i64.ne (local.get $t{lhs + k}) (local.get $t{rhs + k}))\n" ++
+                s!"{indent}      (then\n" ++
+                s!"{indent}        (local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs + k}) (local.get $t{rhs + k}))))\n" ++
+                s!"{indent}        (local.set $t_mw_carry (i64.const 1)))\n" ++
+                s!"{indent}      (else)))\n" ++
+                s!"{indent}  (else))\n"
+            pure out
   | .assert condition =>
       s!"{indent}(if (i64.eqz (local.get $t{condition})) (then unreachable))\n"
   | .bitAnd destination lhs rhs =>
@@ -2015,44 +2302,98 @@ private partial def renderOperation (memory : MemoryLayout)
       s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
         s!"{indent}(local.set $t{destination} (i64.shr_s (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .narrowCheckedAdd bitWidth destination lhs rhs =>
-      -- i64.add then high bits above bitWidth must be zero (overflow trap).
-      s!"{indent}(local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
-        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
-  | .narrowCheckedSub _bitWidth destination lhs rhs =>
-      -- Underflow guard identical to UInt64; result auto in-range for UInt.
-      s!"{indent}(if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
-        s!"{indent}(local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
+      if bitWidth > 64 then
+        renderMultiwordCheckedAdd indent destination lhs rhs (limbCountOfBitWidth bitWidth)
+      else
+        -- i64.add then high bits above bitWidth must be zero (overflow trap).
+        s!"{indent}(local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+          s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowCheckedSub bitWidth destination lhs rhs =>
+      if bitWidth > 64 then
+        renderMultiwordCheckedSub indent destination lhs rhs (limbCountOfBitWidth bitWidth)
+      else
+        -- Underflow guard identical to UInt64; result auto in-range for UInt.
+        s!"{indent}(if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
+          s!"{indent}(local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .narrowCheckedMul bitWidth destination lhs rhs =>
-      s!"{indent}(local.set $t{destination} (i64.mul (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
-        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
-  | .narrowCheckedDiv _bitWidth destination lhs rhs =>
-      s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
-        s!"{indent}(local.set $t{destination} (i64.div_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
-  | .narrowCheckedMod _bitWidth destination lhs rhs =>
-      s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
-        s!"{indent}(local.set $t{destination} (i64.rem_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
-  | .narrowBitAnd _bitWidth destination lhs rhs =>
-      s!"{indent}(local.set $t{destination} (i64.and (local.get $t{lhs}) (local.get $t{rhs})))\n"
-  | .narrowBitOr _bitWidth destination lhs rhs =>
-      s!"{indent}(local.set $t{destination} (i64.or (local.get $t{lhs}) (local.get $t{rhs})))\n"
-  | .narrowBitXor _bitWidth destination lhs rhs =>
-      s!"{indent}(local.set $t{destination} (i64.xor (local.get $t{lhs}) (local.get $t{rhs})))\n"
+      if bitWidth > 64 then
+        renderMultiwordCheckedMul indent destination lhs rhs (limbCountOfBitWidth bitWidth)
+      else
+        s!"{indent}(local.set $t{destination} (i64.mul (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+          s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowCheckedDiv bitWidth destination lhs rhs =>
+      if bitWidth > 64 then
+        renderMultiwordDivMod indent destination lhs rhs (limbCountOfBitWidth bitWidth) "div"
+      else
+        s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+          s!"{indent}(local.set $t{destination} (i64.div_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowCheckedMod bitWidth destination lhs rhs =>
+      if bitWidth > 64 then
+        renderMultiwordDivMod indent destination lhs rhs (limbCountOfBitWidth bitWidth) "mod"
+      else
+        s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+          s!"{indent}(local.set $t{destination} (i64.rem_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitAnd bitWidth destination lhs rhs =>
+      if bitWidth > 64 then
+        Id.run do
+          let nLimbs := limbCountOfBitWidth bitWidth
+          let mut out := s!"{indent};; multiword bit_and nLimbs={nLimbs}\n"
+          for i in [:nLimbs] do
+            out := out ++ s!"{indent}(local.set $t{destination + i} (i64.and (local.get $t{lhs + i}) (local.get $t{rhs + i})))\n"
+          pure out
+      else
+        s!"{indent}(local.set $t{destination} (i64.and (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitOr bitWidth destination lhs rhs =>
+      if bitWidth > 64 then
+        Id.run do
+          let nLimbs := limbCountOfBitWidth bitWidth
+          let mut out := s!"{indent};; multiword bit_or nLimbs={nLimbs}\n"
+          for i in [:nLimbs] do
+            out := out ++ s!"{indent}(local.set $t{destination + i} (i64.or (local.get $t{lhs + i}) (local.get $t{rhs + i})))\n"
+          pure out
+      else
+        s!"{indent}(local.set $t{destination} (i64.or (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitXor bitWidth destination lhs rhs =>
+      if bitWidth > 64 then
+        Id.run do
+          let nLimbs := limbCountOfBitWidth bitWidth
+          let mut out := s!"{indent};; multiword bit_xor nLimbs={nLimbs}\n"
+          for i in [:nLimbs] do
+            out := out ++ s!"{indent}(local.set $t{destination + i} (i64.xor (local.get $t{lhs + i}) (local.get $t{rhs + i})))\n"
+          pure out
+      else
+        s!"{indent}(local.set $t{destination} (i64.xor (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .narrowBitNot bitWidth destination source =>
-      let mask :=
-        match bitWidth with
-        | 8 => "255"
-        | 16 => "65535"
-        | 32 => "4294967295"
-        | _ => "18446744073709551615"
-      s!"{indent}(local.set $t{destination} (i64.and (i64.xor (local.get $t{source}) (i64.const -1)) (i64.const {mask})))\n"
+      if bitWidth > 64 then
+        Id.run do
+          let nLimbs := limbCountOfBitWidth bitWidth
+          let mut out := s!"{indent};; multiword bit_not nLimbs={nLimbs}\n"
+          for i in [:nLimbs] do
+            out := out ++ s!"{indent}(local.set $t{destination + i} (i64.xor (local.get $t{source + i}) (i64.const -1)))\n"
+          pure out
+      else
+        let mask :=
+          match bitWidth with
+          | 8 => "255"
+          | 16 => "65535"
+          | 32 => "4294967295"
+          | _ => "18446744073709551615"
+        s!"{indent}(local.set $t{destination} (i64.and (i64.xor (local.get $t{source}) (i64.const -1)) (i64.const {mask})))\n"
   | .narrowShl bitWidth destination lhs rhs =>
-      -- Count ≥ 64 trap; shl; high bits above bitWidth must be 0.
-      s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
-        s!"{indent}(local.set $t{destination} (i64.shl (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
-        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
-  | .narrowShr _bitWidth destination lhs rhs =>
-      s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
-        s!"{indent}(local.set $t{destination} (i64.shr_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+      if bitWidth > 64 then
+        -- Multiword shift fail-closed at Plan; defensive trap only.
+        s!"{indent};; multiword shift fail-closed at lowering (defensive trap)\n{indent}(unreachable)\n"
+      else
+        -- Count ≥ 64 trap; shl; high bits above bitWidth must be 0.
+        s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
+          s!"{indent}(local.set $t{destination} (i64.shl (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+          s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowShr bitWidth destination lhs rhs =>
+      if bitWidth > 64 then
+        s!"{indent};; multiword shift fail-closed at lowering (defensive trap)\n{indent}(unreachable)\n"
+      else
+        s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
+          s!"{indent}(local.set $t{destination} (i64.shr_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .boolNot destination source =>
       s!"{indent}(local.set $t{destination} (i64.extend_i32_u (i64.eqz (local.get $t{source}))))\n"
   | .boolAnd destination lhs rhs =>
@@ -2337,7 +2678,7 @@ private def renderFn (ir : IR) (fn : FnIR) : String :=
           s!" (local $t{fn.paramCount + i} i64)"
   let operations := String.intercalate "" <| fn.operations.toList.map
     (renderOperation ir.memory ir.sourcePlan.events ir.sourcePlan.errors fnNames "    ")
-  s!"  (func $fn_{fn.name}{params} (result i64){extraLocals}\n" ++
+  s!"  (func $fn_{fn.name}{params} (result i64){extraLocals}{multiwordScratchLocals}\n" ++
     operations ++ "  )\n"
 
 /-- Render method body as an internal func `$m_<name>` used by entry dispatch.
@@ -2361,7 +2702,7 @@ private def renderMethodBody (ir : IR) (method : MethodIR) : String :=
         "      (else (call $pf_query_ok (global.get $ret_val)))))\n"
     | .initialize | .mutate =>
         "    (return (call $pf_ok_result))\n"
-  s!"  (func $m_{method.name}{paramLocals} (result i32){temps}\n" ++
+  s!"  (func $m_{method.name}{paramLocals} (result i32){temps}{multiwordScratchLocals}\n" ++
     "    (call $pf_reset_result)\n" ++
     operations ++ epilogue ++ "  )\n"
 

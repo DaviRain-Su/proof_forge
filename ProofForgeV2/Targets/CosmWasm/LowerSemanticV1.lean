@@ -665,8 +665,11 @@ private abbrev CosmWasmTypeClosureV1 := PilotTypeClosureV1
 private def cosmwasmPlanErr (message : String) : CompileError :=
   .planInvariant .cosmwasm message
 
-/-- CosmWasm admits body+ABI multi-width UInt{8,16,32,64} (BL-15 / T8 pattern)
-    plus Int64 and named Struct/Enum (B-RET-ABI + state flatten).
+/-- CosmWasm admits **body** multi-width UInt{8,16,32,64,128,256} (T8 + body
+    multiword) plus Int64 and named Struct/Enum (B-RET-ABI + state flatten).
+    **ABI** state/params/entry-view results stay UInt{8,16,32,64} only
+    (`isAbiUintWidth` / makeEntry FC) — UInt128/256 are body-internal (let
+    temps + multiword arith including true binary long division div/mod).
     Array + Map container state via `pilotContainerStatePolicyArrayMap`
     (Array → N×UInt64 leaves; Map → capacity-8×(occ,key,val); Option admitted
     as Map IndexGet intermediate / N-ANON-RESULT return shape — never pushed to
@@ -674,10 +677,10 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     **state** admitted as Enum-shaped tag+payload KV leaves (`name_tag`/
     `name_p0`; none default = zero fields; storeAtomic on assign; match via
     VariantTag/VariantPayload). Option of non-UInt64, nested Option, Option
-    params stay fail closed. Bytes, Field, String, UInt128/256, narrow
-    Int{8,16,32} fail closed at type closure. **T12 + ADR-0029 C1**: Principal
-    admitted as full wire-identity storage/param leaves (len + 8×UInt64; not
-    bech32 AccAddress pin).
+    params stay fail closed. Bytes, Field, String, narrow Int{8,16,32} fail
+    closed at type closure. **T12 + ADR-0029 C1**: Principal admitted as full
+    wire-identity storage/param leaves (len + 8×UInt64; not bech32 AccAddress
+    pin).
     **N-ANON-RESULT (CosmWasm ABI)**: anonymous `Array UInt64 N` (1..8) and
     `Option UInt64` entry/view returns reuse B-RET-ABI multi-leaf JSON decimal
     arrays (execute `result` attr + query `{"ok":"[d0,...]"}`); Map/Bytes/
@@ -689,17 +692,22 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     semantic ABI width for layout markers / ABI JSON; high bytes must be zero
     on load (Emit narrowStateLoad high-bit guard). Params arrive as JSON
     decimals and are range-checked to `2^bitWidth − 1` at the entry boundary
-    (no silent truncation). -/
+    (no silent truncation). Multiword body values are consecutive i64 LE
+    limbs in Emit temps — never KV-backed. -/
 private def cosmwasmUintWidthPolicyV1 : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32, 8, 16]
+  admittedWidths := #[64, 32, 8, 16, 128, 256]
+
+/-- Body UInt width gate: UInt{8,16,32,64,128,256}. ABI stays `isAbiUintWidth`. -/
+private def isCosmWasmBodyUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
 private def cosmwasmTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "CosmWasm"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt{8,16,32,64} and Int64 integer types are supported (UInt128/256 and narrow Int fail closed)"
+    "only anonymous UInt{8,16,32,64,128,256} and Int64 integer types are supported (narrow Int fail closed; UInt128/256 are body-only)"
   unsupportedShapeDetail :=
-    "only UInt{8,16,32,64}, Int64, Unit, Bool, Principal, named Struct/Enum, and admitted Array/Map containers are supported (no Field/Bytes)"
+    "only UInt{8,16,32,64,128,256}, Int64, Unit, Bool, Principal, named Struct/Enum, and admitted Array/Map containers are supported (no Field/Bytes)"
 
 private def validateCosmWasmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult CosmWasmTypeClosureV1 :=
@@ -1756,13 +1764,13 @@ private def makeCompareValueV1
       lhsId rhsId lhs rhs
 
 /-- Admit a wire result TypeId for UInt-width arithmetic/bitwise and return
-    `(typeId, kind, bitWidth)`. UInt8/16/32/64 only; UInt128/256 fail closed. -/
+    `(typeId, kind, bitWidth)`. Body multiword admits UInt{8,16,32,64,128,256}. -/
 private def admitUIntWidthResultTypeV1
     (types : CosmWasmTypeClosureV1) (resultTypeId : TypeIdV1) :
     CompileResult (TypeIdV1 × CosmWasmValueKindV1 × Nat) := do
   match types.uintWidthOf resultTypeId with
   | some w =>
-      unless isPilotBodyUintWidth w do
+      unless isCosmWasmBodyUintWidth w do
         throw <| .planInvariant .cosmwasm
           s!"unsupported CosmWasm semantic shape: arithmetic/bitwise result UInt{w} is not admitted"
       match uintKindOfWidthV1 w with
@@ -2016,7 +2024,7 @@ private def lowerBlockInstructionsV1
             dependencies := #[]
           }
         else if let some bitWidth := types.uintWidthOf typeId then
-          unless isPilotBodyUintWidth bitWidth do
+          unless isCosmWasmBodyUintWidth bitWidth do
             throw <| .planInvariant .cosmwasm
               s!"unsupported CosmWasm semantic shape: UInt{bitWidth} literal is not admitted"
           let kind ← match uintKindOfWidthV1 bitWidth with
@@ -2249,8 +2257,9 @@ private def lowerBlockInstructionsV1
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: shift result width mismatch"
             -- Cross-limb shift is not implemented: the multiword surface is
-            -- add/sub/mul/compare/bitwise. Wide shifts fail closed explicitly
-            -- (a single-limb WAT shift would silently corrupt high limbs).
+            -- add/sub/mul/div/mod/compare/bitwise. Wide shifts fail closed
+            -- explicitly (a single-limb WAT shift would silently corrupt high
+            -- limbs).
             if bitWidth > 64 then
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: multiword shift is fail-closed on CosmWasm (shift counts < 64 only; wide shift not implemented)"
@@ -2346,18 +2355,15 @@ private def lowerBlockInstructionsV1
             let some bitWidth := widthOfUintKindV1 lhs.kind |
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: binary operands must be admitted UInt width"
-            unless isPilotBodyUintWidth bitWidth do
+            unless isCosmWasmBodyUintWidth bitWidth do
               throw <| .planInvariant .cosmwasm
                 s!"unsupported CosmWasm semantic shape: UInt{bitWidth} is not an admitted body width"
             if op == .add || op == .sub || op == .mul || op == .div ||
                 op == .mod || op == .bitAnd || op == .bitOr || op == .bitXor then
-              -- Multiword div/mod are not implemented: the wide surface is
-              -- add/sub/mul (schoolbook) plus compare/bitwise. Failing closed
-              -- here keeps a single-limb `i64.div_u` from silently corrupting
-              -- the high limbs of a UInt128/256 value.
-              if bitWidth > 64 && (op == .div || op == .mod) then
-                throw <| .planInvariant .cosmwasm
-                  "unsupported CosmWasm semantic shape: multiword div/mod is fail-closed on CosmWasm (only multiword add/sub/mul are implemented)"
+              -- Multiword (UInt128/256) add/sub/mul/div/mod/bitwise lower via
+              -- Emit multi-limb WAT (schoolbook mul; restoring binary long
+              -- division for div/mod). Zero divisor traps with unreachable
+              -- (same checked-arithmetic fail path as narrow UInt).
               let (widthTid, kind, w) ← admitUIntWidthResultTypeV1 types result.typeId
               unless kind == lhs.kind && w == bitWidth do
                 throw <| .planInvariant .cosmwasm

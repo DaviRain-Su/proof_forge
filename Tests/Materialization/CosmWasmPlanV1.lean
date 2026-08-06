@@ -524,7 +524,8 @@ private unsafe def testMultiWidthUInt16UInt32
       s!"{kindLabel} WAT high-bit guard bitWidth={w}"
   IO.println "  ✓ multi-width UInt16/UInt32 Plan/WAT pins"
 
-/-- BL-15 FC: UInt128 / Int8 stay fail closed on CosmWasm. -/
+/-- BL-15 ABI FC: UInt128 **state/params/results** and Int8 stay fail closed.
+    Body-internal UInt128 is admitted (see testMultiwordDivMod). -/
 private unsafe def testMultiWidthFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let u128 := wrapProgram "Wide128" <|
@@ -565,7 +566,74 @@ private unsafe def testMultiWidthFc
           | .error _ => pure ()
           | .ok capability =>
               expectPlanError "Int8 state" (planFromCapability capability)
-  IO.println "  ✓ multi-width UInt128/Int8 fail closed"
+  IO.println "  ✓ multi-width UInt128 ABI / Int8 fail closed"
+
+/-- Body multiword UInt128 add/mul/div/mod: true multi-limb WAT (schoolbook
+    mul; restoring binary long division for div/mod). ABI stays FC (Bool
+    result). Shift remains fail-closed. -/
+private unsafe def testMultiwordDivMod
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "WideDivMod" <|
+    "  state dummy : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    dummy := 0\n\n" ++
+    "  entry check() : Bool do\n" ++
+    "    let a : UInt128 := 0x10000000100000003\n" ++
+    "    let b : UInt128 := 0x100000002\n" ++
+    "    let s : UInt128 := a + b\n" ++
+    "    let p : UInt128 := a * b\n" ++
+    "    let q : UInt128 := a / b\n" ++
+    "    let r : UInt128 := a % b\n" ++
+    "    return (s > a) && (p > a) && (q > 0) && (r < b)\n"
+  let compiled ← compileSource session source
+    "Examples.WideDivMod" "<cw-wide-divmod>"
+  let plan ← liftResult <| planCw compiled
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "WideDivMod.wat"
+  expect (wat.contains "multiword checked_add")
+    "wide-divmod: WAT must emit multiword checked_add"
+  expect (wat.contains "multiword checked_mul")
+    "wide-divmod: WAT must emit multiword checked_mul (schoolbook)"
+  expect (wat.contains "multiword checked_div")
+    "wide-divmod: WAT must emit multiword checked_div (binary long division)"
+  expect (wat.contains "multiword checked_mod")
+    "wide-divmod: WAT must emit multiword checked_mod (binary long division)"
+  expect (wat.contains "binary long division")
+    "wide-divmod: WAT comment must name binary long division"
+  -- Honest multiword: must not fall back to single-limb i64.div_u / rem_u as
+  -- the only path for the body (markers prove multi-limb path is present).
+  expect (wat.contains "$t_mw_rem0")
+    "wide-divmod: WAT must use multiword rem scratch"
+  expect (wat.contains "$t_mw_quot0")
+    "wide-divmod: WAT must use multiword quot scratch"
+  -- Shift still FC.
+  let shiftSrc := wrapProgram "WideShiftFc" <|
+    "  state dummy : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    dummy := 0\n\n" ++
+    "  entry run() : Bool do\n" ++
+    "    let a : UInt128 := 1\n" ++
+    "    let b : UInt128 := a << 1\n" ++
+    "    return b > a\n"
+  match ← session.selectProgramV1 shiftSrc "<cw-wide-shift-fc>" "Examples.WideShiftFc" none with
+  | .error _ => pure ()
+  | .ok validated =>
+      match Compiler.compileValidatedSourceV1 validated with
+      | .error _ => pure ()
+      | .ok compiledShift =>
+          match cosmwasmCapability compiledShift with
+          | .error _ => pure ()
+          | .ok capability =>
+              match planFromCapability capability with
+              | .error (.planInvariant .cosmwasm msg) =>
+                  expect (msg.contains "multiword shift" || msg.contains "shift")
+                    s!"wide shift FC must cite multiword shift, got: {msg}"
+              | .error e =>
+                  throw <| IO.userError s!"wide shift FC: expected planInvariant, got {e.render}"
+              | .ok _ =>
+                  throw <| IO.userError "CosmWasm multiword shift must fail closed at plan"
+  let _ := plan
+  IO.println "  ✓ multiword UInt128 body add/mul/div/mod + shift FC"
 
 /-- B-RET-ABI: named Struct view return flattens to 2×UInt64 leaves via
 `returnAggregate` / `setReturnDataMulti` / JSON decimal array wire. -/
@@ -1505,6 +1573,7 @@ unsafe def run : IO Unit := do
   testMultiWidthUInt8 session
   testMultiWidthUInt16UInt32 session
   testMultiWidthFc session
+  testMultiwordDivMod session
   testNamedStructReturn session
   testNamedEnumReturn session
   testAggregateReturnFc session
