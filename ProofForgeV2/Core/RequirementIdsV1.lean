@@ -118,6 +118,10 @@ def wireContextUnixTimeSecondsIdV1 : String := "context.unix-time-seconds"
     Domain `pf.context-read-requirement.v1`. -/
 def wireContextCallerIdV1 : String := "context.caller"
 
+/-- Wire ContextRead exact-row id for block height (ADR-0031 S2).
+    Domain `pf.context-read-requirement.v1`. -/
+def wireContextBlockHeightIdV1 : String := "context.block-height"
+
 /-- Wire Commit exact-row id (domain `pf.commit-requirement.v1`).
     Same spelling as `inferDisclosureCommitmentIdV1` — dual meaning; see
     module doc. -/
@@ -292,6 +296,7 @@ def wireRequirementIdOfExactExtensionTripleV1
     bindings). Membership here does not imply support by any target/profile. -/
 def wireOwnedRequirementIdsV1 : Array String :=
   #[wireContextUnixTimeSecondsIdV1, wireContextCallerIdV1,
+    wireContextBlockHeightIdV1,
     wireCommitmentDisclosureIdV1, wireExtensionSolanaCpiAccountsIdV1,
     wireExtensionPfAssetsIdV1]
 

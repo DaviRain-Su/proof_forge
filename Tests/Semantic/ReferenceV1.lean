@@ -5069,6 +5069,55 @@ private def testExternalCallUInt16ArgAdmission : IO Unit := do
   }
   let _ ← admitOk "ext-u16-arg" carrier
 
+/-- ADR-0031 S2 product path: Normalize `context.blockHeight` → UInt64
+    ContextRead + Reference step with explicit InvocationV1.context row;
+    missing context snapshot traps invalidInvocation. -/
+private unsafe def testContextBlockHeightNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let key := blockHeightContextKeyV1
+  let src := wrap "HeightNormRef" <|
+    "  entry height() : UInt64 do\n" ++
+    "    return context.blockHeight\n" ++
+    "  view peekHeight() : UInt64 do\n" ++
+    "    return context.blockHeight\n"
+  let validated ← loadSource session "height-norm-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"height-norm-ref: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"height-norm-ref: validate: {repr e}"
+  expect (data.requirements.items.any fun r =>
+      r.id == blockHeightContextRequirementIdV1)
+    "height-norm-ref: context.block-height requirement row"
+  let hasCtxOp := data.callables.any fun c =>
+    c.blocks.any fun b =>
+      b.instructions.any fun i =>
+        match i.op with
+        | .contextRead k => k == key
+        | _ => false
+  expect hasCtxOp "height-norm-ref: Op.ContextRead present"
+  let admitted ← admitOk "height-norm-ref" carrier
+  let some u64Tid := findAnonUint data.types 64 |
+    throw <| IO.userError "height-norm-ref: missing UInt64"
+  let pre ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"height-norm-ref: initial: {repr e}"
+  expect pre.initialized "height-norm-ref: no-init program starts initialized"
+  let heightVal := refU64 u64Tid 444444
+  let ctxRows : Array ContextInputV1 := #[{ key, value := heightVal }]
+  expectReturned "height-norm-entry"
+    (stepReferenceSliceV1 admitted pre
+      (invWithContext 0 #[] ctxRows) emptyResponses)
+    pre (some heightVal) #[]
+  expectReturned "height-norm-view"
+    (stepReferenceSliceV1 admitted pre
+      (invWithContext 1 #[] ctxRows) emptyResponses)
+    pre (some heightVal) #[]
+  expectTrapped "height-norm-missing-context"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+    .invalidInvocation pre
+
 /-- N-2 product path: Normalize `context.caller` → Principal ContextRead +
     Reference step with explicit InvocationV1.context Principal row. -/
 private unsafe def testContextCallerNormalizeReference
@@ -5852,6 +5901,7 @@ unsafe def run : IO Unit := do
   -- N5b/N-2: ContextRead/Commit product step semantics
   testContextCommitNormalizeReference session
   testContextCallerNormalizeReference session
+  testContextBlockHeightNormalizeReference session
   -- N-A3 / R-1: Map/Bytes single-step index assign product path + Map admit
   testMapBytesAssignNormalizeReference session
   -- N-NEST-IDX: Map-element penetrating assign + absent-key invalidCore trap

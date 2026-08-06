@@ -218,6 +218,7 @@ def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   let mut usedUnix := false
   let mut usedCaller := false
+  let mut usedBlockHeight := false
   for callable in data.callables do
     for block in callable.blocks do
       for instr in block.instructions do
@@ -225,6 +226,7 @@ def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
         | .contextRead key =>
             if key == unixTimeSecondsContextKeyV1 then usedUnix := true
             else if key == callerContextKeyV1 then usedCaller := true
+            else if key == blockHeightContextKeyV1 then usedBlockHeight := true
             else pure ()
         | _ => pure ()
   if usedUnix then
@@ -241,6 +243,13 @@ def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
         | _ => false)
       callerContextRequirementIdV1
       callerContextRequirementV1
+  if usedBlockHeight then
+    bindUsedOpToExactRequirementRow data
+      (fun
+        | .contextRead k => k == blockHeightContextKeyV1
+        | _ => false)
+      blockHeightContextRequirementIdV1
+      blockHeightContextRequirementV1
   pure ()
 
 /-- Bind every used Commit operation to the one exact disclosure.commitment

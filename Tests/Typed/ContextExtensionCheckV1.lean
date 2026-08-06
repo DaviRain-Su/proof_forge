@@ -72,6 +72,19 @@ private unsafe def testAdmittedCallerOk (session : ParserSession) : IO Unit := d
   expect (r.ok && r.diagnostics.isEmpty) "admitted context.caller ok"
   expect (checkProgramTypedResultV1 v).ok "CheckV1 ok with caller"
 
+/-- ADR-0031 S2: admitted `context.blockHeight` surface passes both the
+    ContextExtension gate and full CheckV1 composition. -/
+private unsafe def testAdmittedBlockHeightOk (session : ParserSession) : IO Unit := do
+  let src :=
+    "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+    "program CtxHeightOk where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return context.blockHeight\n"
+  let v ← load session src "<ctx-height-ok>" "Tests.CtxHeightOk"
+  let r := checkContextExtensionResultV1 v
+  expect (r.ok && r.diagnostics.isEmpty) "admitted context.blockHeight ok"
+  expect (checkProgramTypedResultV1 v).ok "CheckV1 ok with blockHeight"
+
 /-- Non-admitted `context.*` place that still name-resolves: state named
     `context` with field `foo` is not ContextRead (only caller/unixTimeSeconds
     are admitted). NameResolution/TypeCheck succeed; ContextExtensionCheck
@@ -97,14 +110,14 @@ private unsafe def testBadContextSurface (session : ParserSession) : IO Unit := 
   expect (d.code == .reqPrecondition)
     s!"ctx-bad: code must be reqPrecondition, got {d.code.wire}"
   expect (d.message ==
-      "unsupported context surface (only context.caller and context.unixTimeSeconds are admitted)")
+      "unsupported context surface (only context.caller, context.unixTimeSeconds and context.blockHeight are admitted)")
     s!"ctx-bad: exact message, got {d.message}"
   let composed := checkProgramTypedResultV1 v
   expect (!composed.ok) "ctx-bad: CheckV1 composition must fail"
   expect (composed.diagnostics.any fun x =>
       x.code == .reqPrecondition &&
         x.message ==
-          "unsupported context surface (only context.caller and context.unixTimeSeconds are admitted)")
+          "unsupported context surface (only context.caller, context.unixTimeSeconds and context.blockHeight are admitted)")
     "ctx-bad: CheckV1 must surface the same ContextExtension gate"
 
 private def solanaCpiDigest : String :=
@@ -429,6 +442,7 @@ private unsafe def testExtensionNegativeMatrix (session : ParserSession) : IO Un
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testAdmittedCallerOk session
+  testAdmittedBlockHeightOk session
   testBadContextSurface session
   testExactSolanaCpiExtensionOk session
   testExactPfAssetsExtensionOk session

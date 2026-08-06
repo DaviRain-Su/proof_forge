@@ -235,6 +235,7 @@ private def isSkippedInferDisclosureIdV1 (id : String) : Bool :=
 private def isSkippedWireOwnedIdV1 (id : String) : Bool :=
   id == wireContextUnixTimeSecondsIdV1 ||
   id == wireContextCallerIdV1 ||
+  id == wireContextBlockHeightIdV1 ||
   id == wireCommitmentDisclosureIdV1 ||
   id == wireExtensionSolanaCpiAccountsIdV1 ||
   id == wireExtensionPfAssetsIdV1

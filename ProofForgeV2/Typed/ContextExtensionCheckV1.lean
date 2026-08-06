@@ -179,7 +179,7 @@ def checkContextExtensionDraftsV1
           | _ => false
         if bad then
           let d := DiagnosticV1.make .reqPrecondition
-            "unsupported context surface (only context.caller and context.unixTimeSeconds are admitted)"
+            "unsupported context surface (only context.caller, context.unixTimeSeconds and context.blockHeight are admitted)"
           drafts := drafts.push { diagnostic := d, location := none }
       pure {
         drafts := drafts

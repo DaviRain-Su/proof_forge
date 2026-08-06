@@ -65,6 +65,13 @@ def unixTimeSecondsContextKeyV1 : SchemaId :=
 def callerContextKeyV1 : SchemaId :=
   { value := "proof-forge.context.caller.v1" }
 
+/-- Closed v1 ContextRead key: invocation block height (ADR-0031 S2).
+    Result shape is anonymous UInt64. Per-target materialization selects the
+    honest counterpart (EVM NUMBER / Solana Clock.slot / NEAR block_index /
+    CW Env.block.height); targets without one fail closed. -/
+def blockHeightContextKeyV1 : SchemaId :=
+  { value := "proof-forge.context.block-height.v1" }
+
 /-- Requirement identity bound to the unix-time ContextRead key.
     Thin alias of `ProofForgeV2.Core.RequirementIdsV1.wireContextUnixTimeSecondsIdV1`
     (domain `pf.context-read-requirement.v1`). -/
@@ -74,6 +81,11 @@ def unixTimeSecondsContextRequirementIdV1 : String :=
 /-- Requirement identity bound to the caller ContextRead key (N-2). -/
 def callerContextRequirementIdV1 : String :=
   ProofForgeV2.Core.RequirementIdsV1.wireContextCallerIdV1
+
+/-- Requirement identity bound to the block-height ContextRead key
+    (ADR-0031 S2; domain `pf.context-read-requirement.v1`). -/
+def blockHeightContextRequirementIdV1 : String :=
+  ProofForgeV2.Core.RequirementIdsV1.wireContextBlockHeightIdV1
 
 /-- Exact requirement identity contributed by every v1 Commit operation.
     Thin alias of `ProofForgeV2.Core.RequirementIdsV1.wireCommitmentDisclosureIdV1`
@@ -431,6 +443,17 @@ def callerContextRequirementV1 : Except String RequirementRequestV1 := do
     callerContextRequirementIdV1.toUTF8
   pure {
     id := callerContextRequirementIdV1
+    version := { major := 1, minor := 0, patch := 0 }
+    digest
+    predicates := #[]
+  }
+
+/-- Exact requirement row for the block-height ContextRead key (ADR-0031 S2). -/
+def blockHeightContextRequirementV1 : Except String RequirementRequestV1 := do
+  let digest ← domainSeparatedSha256 "pf.context-read-requirement.v1"
+    blockHeightContextRequirementIdV1.toUTF8
+  pure {
+    id := blockHeightContextRequirementIdV1
     version := { major := 1, minor := 0, patch := 0 }
     digest
     predicates := #[]

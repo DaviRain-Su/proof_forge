@@ -507,8 +507,10 @@ mutual
       PlaceV1 → WalkM VisibilityEvidence
     | .name n => pure (lookupName tables scope n)
     | .field base field => do
-        -- N5: context.unixTimeSeconds is a public invocation-start snapshot.
-        if isContextUnixTimeSecondsPlaceV1 (.field base field) then
+        -- N5/ADR-0031-S2: context.unixTimeSeconds / context.blockHeight are
+        -- public invocation-start snapshots.
+        if isContextUnixTimeSecondsPlaceV1 (.field base field) ||
+            isContextBlockHeightPlaceV1 (.field base field) then
           pure publicEvidence
         else do
           let bp? ← match placePath? with

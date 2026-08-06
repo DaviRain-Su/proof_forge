@@ -54,6 +54,7 @@ import ProofForgeV2.Semantic.WireV1
     * ContextRead closed keys:
       - `proof-forge.context.unix-time-seconds.v1` → anonymous UInt64
       - `proof-forge.context.caller.v1` → anonymous Principal (N-2)
+      - `proof-forge.context.block-height.v1` → anonymous UInt64 (ADR-0031 S2)
       Invocation gate collects the exact key/result-TypeId set reachable from
       the selected root through static PureCall edges; supplied
       `InvocationV1.context` must be strict key-ascending, exact membership,

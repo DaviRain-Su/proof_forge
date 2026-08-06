@@ -9,6 +9,9 @@
     * ContextRead caller (N-2): place chain `context.caller`
       → Semantic `Op.ContextRead proof-forge.context.caller.v1`
       → result type anonymous Principal
+    * ContextRead block height (ADR-0031 S2): place chain `context.blockHeight`
+      → Semantic `Op.ContextRead proof-forge.context.block-height.v1`
+      → result type anonymous UInt64
     * Commit: bare local-call shape `commit(expr)` when no user `fn commit`
       → Semantic `Op.Commit` (label-only identity; TypeId/valueBytes preserved)
 
@@ -39,9 +42,17 @@ def isContextCallerPlaceV1 : PlaceV1 → Bool
       exactRaw root "context" && exactRaw field "caller"
   | _ => false
 
+/-- True when `place` is the ContextRead surface `context.blockHeight`
+    (ADR-0031 S2). -/
+def isContextBlockHeightPlaceV1 : PlaceV1 → Bool
+  | .field (.name root) field =>
+      exactRaw root "context" && exactRaw field "blockHeight"
+  | _ => false
+
 /-- True when `place` is any admitted ContextRead surface. -/
 def isContextReadPlaceV1 (p : PlaceV1) : Bool :=
-  isContextUnixTimeSecondsPlaceV1 p || isContextCallerPlaceV1 p
+  isContextUnixTimeSecondsPlaceV1 p || isContextCallerPlaceV1 p ||
+    isContextBlockHeightPlaceV1 p
 
 /-- True when a bare local-call callee spelling is the intrinsic Commit operator.
     Callers must still ensure no user `fn commit` shadows the intrinsic. -/
@@ -59,6 +70,10 @@ def isCommitLocalCallShapeV1 : ExprV1 → Bool
 def contextUnixTimeSecondsSpellingV1 : String := "context.unixTimeSeconds"
 
 def contextCallerSpellingV1 : String := "context.caller"
+
+/-- Admitted ContextRead block-height source spelling for diagnostics
+    (ADR-0031 S2). -/
+def contextBlockHeightSpellingV1 : String := "context.blockHeight"
 
 /-- Sole admitted Commit source spelling for diagnostics. -/
 def commitSpellingV1 : String := "commit(_)"

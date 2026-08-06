@@ -232,12 +232,15 @@ private unsafe def testContextCommitContributions
     "    let t : UInt64 := context.unixTimeSeconds\n" ++
     "    sealed := commit(x)\n" ++
     "    let _who : Principal := context.caller\n" ++
+    "    let _h : UInt64 := context.blockHeight\n" ++
     "    return t\n"
   let (validated, ids) ← inferSource session "ctx-commit-infer" source
   expect (ids.contains "context.unix-time-seconds")
     s!"T-3 missing unix-time contribution: {ids}"
   expect (ids.contains "context.caller")
     s!"T-3 missing caller contribution: {ids}"
+  expect (ids.contains "context.block-height")
+    s!"T-3 missing block-height contribution: {ids}"
   expect (ids.contains "disclosure.commitment")
     s!"T-3 missing commit contribution: {ids}"
   -- Freeze must not invent S2 rows for wire-owned keys.
@@ -269,7 +272,7 @@ private def testS2CatalogDigestParity : IO Unit := do
     "value.checked-arithmeti", "value.checked-arithmeticx",
     -- wire/infer-only ids must not enter the S2 membership gate
     "disclosure.commitment", "disclosure.private-state",
-    "context.unix-time-seconds", "context.caller",
+    "context.unix-time-seconds", "context.caller", "context.block-height",
     "value.field.bn254-fr"
   ]
   for id in unknownNeighbors do

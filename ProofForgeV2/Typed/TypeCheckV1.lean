@@ -771,12 +771,15 @@ mutual
                 (s!"unknown name '{renderSourceNameComponentV1 name}'"))
               placePath? #[]]
     | .field base field =>
-        -- N5/N-2: ContextRead surfaces — unixTimeSeconds → UInt64, caller → Principal.
+        -- N5/N-2/ADR-0031-S2: ContextRead surfaces — unixTimeSeconds → UInt64,
+        -- caller → Principal, blockHeight → UInt64.
         -- Enclosing `typeCheckExpr` applies the expected-type check.
         if isContextUnixTimeSecondsPlaceV1 (.field base field) then
           resultDraft (.uint 64) #[] none
         else if isContextCallerPlaceV1 (.field base field) then
           resultDraft .principal #[] none
+        else if isContextBlockHeightPlaceV1 (.field base field) then
+          resultDraft (.uint 64) #[] none
         else
           let (bp?, pathDs) := resolveDirect placePath? "Place.Field" "base"
           let baseRes := typeCheckPlaceDrafts scope tables bp? base
