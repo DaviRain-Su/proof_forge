@@ -115,10 +115,12 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
   tag 51 / IR `Operation.clockSlot`）；保持单 state 账户 `num_accounts==1`，**不**引入
   Clock account meta。诚实语义：物理 ≈400ms slot，**非**逻辑块号。view-safe。CPI product
   profile 对该键仍 FC。尚无专门 Mollusk S2 runtime fixture。
-- **E4 LP state residual**：Solana 仍只物化 `Map UInt64 UInt64`；`Map Principal UInt64`
-  不得以 T12 scalar Principal + UInt64-key Map 拼装冒充，需独立多叶 key layout/lookup/upsert
-  与 state-account frame/runtime 门。UInt128/256 multiword div/mod 已在 SBPF emit 以
-  restoring binary long division 开放（WideDiv Mollusk residual）。
+- **E4 LP state**：Solana 已开 dense `Map Principal UInt64` **cap-4** pilot（每槽
+  occ+9 Principal leaves+val = 11×UInt64，共 44 叶；Plan/IR atomic storeAggregate 钉测；
+  与 EVM LP pilot 同构；Principal 仍为 T12 wire identity，**非** pubkey）。`Map UInt64 UInt64`
+  cap-8 保持。UInt128/256 multiword div/mod 已在 SBPF emit 以 restoring binary long division
+  开放，Mollusk `WideDiv`/`WideDiv256` host-optional 7 测钉测成功/零除（**不**入 ordinary ci）。
+  MiniAMM Solana 产品 demo / 真实 asset flow 仍 residual。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
 完整 Normalize 表面；active CPI profile 之外的任意动态 program address/remaining accounts 与更广

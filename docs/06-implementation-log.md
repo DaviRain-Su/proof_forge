@@ -12,6 +12,13 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-06 — wave3 parallel leaves：Solana Principal Map + WideDiv Mollusk + EVM S2 Anvil
+
+- Solana dense `Map Principal UInt64` cap-4（44 叶）Plan/IR pin（E4 LP residual 前置）。
+- Mollusk WideDiv/WideDiv256 7 测 + EmitSbpfAsm 长跳 early-exit 修复（host-optional）。
+- EVM `Examples/BlockHeightCheck` + `scripts/evm_blockheight_anvil_smoke.sh`。
+- 集成：blockHeight Anvil `b590770e2`、Principal Map `aed5a0010`、WideDiv `ecdbc9bbc`。
+
 ## 2026-08-06 — wave2 parallel leaves：S2 Solana Clock + NEAR/CW multiword div + MiniAmm Anvil
 
 - Solana ordinary-elf `context.blockHeight` → `sol_get_clock_sysvar` / `Clock.slot`
