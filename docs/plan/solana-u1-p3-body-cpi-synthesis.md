@@ -179,6 +179,11 @@ buildFromCapability (profile = solana-sbpf-cpi-elf-v1)
 | **P3-a** | 统一 IR carrier 草图 + fail-closed 门：`hasSites ∧ needsFullBody` 从「进 escrow 后 FC」改为 **显式 planInvariant 诊断**（可选过渡） | 聚焦 Lean 负例消息稳定 | `CpiEscrowIRV1` 诊断字符串 / 或 `EmitSbpfAsmV1` dispatch 前提示 | 与 P3-b 文档可并行，代码避免同文件 |
 | **P3-b** | **帧/布局合同** private 模块：role table + body temps + CPI scratch 预算 API | unit pin：零 overlap、超 4096 FC、与现有 escrow frame 公式兼容子集 | **新** `Solana/ProductFrameV1.lean`（建议） | 独立 lane |
 | **P3-c** | 合成器 skeleton：零 sites 时行为 ≡ 今日 hybrid **或** 真 product IR + full-body ops（选一落地，优先消灭 marker） | MiniAmm pin **不回退**；`irDigest` 可重算 | `CpiProductV1`、`EmitSbpfAsmV1` dispatch 收敛、**新** `ProductSynthesizeV1.lean` | 依赖 P3-b |
+
+### 进度注记（2026-08-06 实现）
+
+- **P3-b done（engineering）**：`ProofForgeV2/Targets/Solana/ProductFrameV1.lean` + `Tests/Targets/SolanaProductFrameV1`（bodyOnly / unifiedCpi / escrow pin 1024/1096/4096）。
+- **P3-c skeleton done（engineering）**：`ProductSynthesizeV1.lean` 持有 `buildFromCapability`；零 site + full body → `synthesizeZeroSiteFullBodyBaseFilesV1`（frame gate + 既有 hybrid IR schema 兼容 pin）；有 sites → 仍 `CpiV1.productBaseFilesFromCapabilityV1`。IR marker **尚未** 消灭（P3-g）；site hooks = P3-d。
 | **P3-d** | Site hooks：单 block + 已支持 escrow body ops + **一个** catalog invoke 与 full-body temps 共存 | 小 demo：state UInt64 ± + 1× `solana.system.transfer` 或 `pf.assets.native.transfer` 同 ELF；`sol_invoke_signed_c` 出现在 `.s` | `EmitCpiEscrowSbpfV1`（recipe 复用）、synthesize | 依赖 P3-c |
 | **P3-e** | CFG：if/branch 与 site 锚点 source order；仍 FC for/loop 跨 site 若帧不够 | multi-block + 1 site Lean pin | `EmitIRV1`/`EmitSbpfAsmV1` region + synthesize | 依赖 P3-d |
 | **P3-f** | Map/Index* + site（MiniAMM-class body + 可选 transfer） | MapTip 类 demo product build；可选 host-optional Mollusk | LowerSemantic 已有 Map；synthesize + layout | 依赖 P3-e |

@@ -1,8 +1,6 @@
 import ProofForgeV2.Targets.Solana.EmitIRV1
-import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.LowerSemanticV1
 import ProofForgeV2.Targets.Solana.ValidatePlanV1
-import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Core.Common
 
@@ -15,12 +13,7 @@ ELF. No blueshift extension mnemonics (`hor64`/`lmul64`/`uhmul64`/`udiv64`/
 `urem64`/`shmul64`/`srem64`).
 
 Authority: typed `IR` / `Operation` / `Check` from `EmitIRV1` (not `.sbpf-plan`
-text). Product `buildFromCapability` is profile-exhaustive (#125):
-* `solana-sbpf-plan-v1` → legacy `.sbpf-plan` + IDL
-* `solana-sbpf-elf-v1` → legacy plan/IDL + `{name}.s`
-* `solana-sbpf-cpi-elf-v1` → product base files via `productBaseFilesFromCapabilityV1`
-  (never legacy Plan/IR/emitter)
-* unknown profile → fail closed
+text). Product `buildFromCapability` lives in `ProductSynthesizeV1` (P3-c).
 Legacy ExternalCall/Schedule ops remain unreachable in this emitter.
 
 ## Input account layout (Loader V3 ABIv1 contiguous, Agave `serialize_parameters_for_abiv1`
@@ -2296,8 +2289,8 @@ def emitSbpfAsmFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) :
   let ir ← legacyIrFromCapabilityV1 capability
   emitSbpfAsmV1 ir
 
-/-- ELF-profile product emit: assembly text + plan + IDL. -/
-private def emitElfFromIR
+/-- ELF-profile product emit: plan+IDL+`.s` (package-visible for ProductSynthesize). -/
+def emitElfFromIR
     (capability : ResolvedEngineeringBuildV1) (ir : IR) :
     CompileResult (Array OutputFile) := do
   let base ← emitPlanAndIdlFromIR capability ir
@@ -2308,115 +2301,6 @@ private def emitElfFromIR
     contents := asm
   }
 
-private def buildUnknownProfileFail (profile : CodegenProfileId) :
-    CompileResult (Array OutputFile) :=
-  throw <| .planInvariant .solana
-    s!"unknown Solana codegen profile '{profile}' (exhaustive plan/elf/cpi only)"
-
-open Semantic.WireV1
-open Core.Common
-
-/-- ADR-0032: multi-block CFG or aggregate IndexGet/Set needs full LowerSemantic. -/
-private def semanticNeedsFullBodyV1 (data : SemanticProgramDataV1) : Bool :=
-  data.callables.any fun c =>
-    c.blocks.size > 1 ||
-      c.blocks.any fun b =>
-        b.instructions.any fun instr =>
-          match instr.op with
-          | .indexGet .. | .indexSet .. | .construct .. | .fieldGet ..
-          | .fieldSet .. | .variantTag .. | .variantPayload .. => true
-          | _ => false
-
-private def semanticUsesContextCallerV1 (data : SemanticProgramDataV1) : Bool :=
-  data.callables.any fun c =>
-    c.blocks.any fun b =>
-      b.instructions.any fun instr =>
-        match instr.op with
-        | .contextRead key => key == callerContextKeyV1
-        | _ => false
-
-/-- ADR-0032 U1: product plan/IDL identity + full-body `.s` via LowerSemantic.
-    Does **not** call escrow product IR (multi-block/Map fail closed there). -/
-private def productBaseFilesFullBodyHybridV1
-    (capability : ResolvedEngineeringBuildV1) :
-    CompileResult (Array OutputFile) := do
-  let compiled := ResolvedEngineeringBuildV1.compiledOf capability
-  let data ← match decodeSemanticProgramDataV1
-      (CompiledSemanticV1.semanticV1Of compiled).canonicalBytes with
-    | .ok d => pure d
-    | .error _ =>
-        throw <| .planInvariant .solana "full-body hybrid: invalid Semantic carrier"
-  let admitCaller := semanticUsesContextCallerV1 data
-  let cpiPlan ← CpiV1.productPlanFromCapabilityV1 capability
-  let validated := CpiV1.SolanaCpiProductPlanV1.planOf cpiPlan
-  let idl ← CpiV1.deriveSolanaCpiIdlV1 validated
-  let name := validated.candidate.programName
-  let planText ← match String.fromUTF8?
-      (CpiV1.SolanaCpiProductPlanV1.canonicalBytesOf cpiPlan) with
-    | some s => pure s
-    | none =>
-        throw <| .planInvariant .solana "full-body hybrid: plan UTF-8 decode failed"
-  let bodyIr ← fullBodyIrFromProductCapabilityV1 capability admitCaller
-  let asm ← emitSbpfAsmV1 bodyIr
-  let irText :=
-    "{\"schema\":\"proof-forge.solana.full-body-hybrid-ir.v1\"," ++
-    "\"note\":\"body via LowerSemantic+EmitSbpfAsm (ADR-0032 U1)\"," ++
-    "\"admitCaller\":" ++ (if admitCaller then "true" else "false") ++ "}"
-  let bindingsText :=
-    "{\"schema\":\"proof-forge.solana.cpi-bindings.v1\"," ++
-    "\"fullBodyHybrid\":true," ++
-    "\"programName\":\"" ++ name ++ "\"}"
-  pure #[
-    { path := s!"{name}.cpi-plan.json"
-      mediaType := "application/json"
-      contents := planText },
-    { path := s!"{name}.cpi-ir.json"
-      mediaType := "application/json"
-      contents := irText },
-    { path := s!"{name}.idl.json"
-      mediaType := "application/json"
-      contents := idl.canonicalText },
-    { path := s!"{name}.s"
-      mediaType := "text/x-asm"
-      contents := asm },
-    { path := s!"{name}.cpi-bindings.json"
-      mediaType := "application/json"
-      contents := bindingsText }
-  ]
-/-- Capability-gated public materialize entry (S6 / #125 + ADR-0032 U1).
-    Exhaustive profile dispatch:
-    * `solana-sbpf-plan-v1` → single-account plan+IDL only
-    * `solana-sbpf-elf-v1` → single-account plan+IDL+`.s`
-    * `solana-sbpf-cpi-elf-v1` → product base files; if zero CPI sites and
-      multi-block/Map body, replace `.s` with full-body LowerSemantic emit
-    * unknown → fail closed
--/
-def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
-    CompileResult (Array OutputFile) := do
-  unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
-    throw <| .planInvariant .solana "engineering capability kind is not Solana"
-  let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
-  if profile == CodegenProfileId.solanaSbpfPlanV1 then
-    let ir ← legacyIrFromCapabilityV1 capability
-    emitPlanAndIdlFromIR capability ir
-  else if profile == CodegenProfileId.solanaSbpfElfV1 then
-    let ir ← legacyIrFromCapabilityV1 capability
-    emitElfFromIR capability ir
-  else if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
-    let plan ← CpiV1.productPlanFromCapabilityV1 capability
-    let cand := CpiV1.SolanaCpiProductPlanV1.candidateOf plan
-    let hasSites := !cand.cpiSites.isEmpty
-    let compiled := ResolvedEngineeringBuildV1.compiledOf capability
-    let data ← match decodeSemanticProgramDataV1
-        (CompiledSemanticV1.semanticV1Of compiled).canonicalBytes with
-      | .ok d => pure d
-      | .error _ =>
-          throw <| .planInvariant .solana "invalid SemanticProgramV1 carrier"
-    if !hasSites && semanticNeedsFullBodyV1 data then
-      productBaseFilesFullBodyHybridV1 capability
-    else
-      CpiV1.productBaseFilesFromCapabilityV1 capability
-  else
-    buildUnknownProfileFail profile
+-- Product `buildFromCapability` lives in `ProductSynthesizeV1` (P3-c).
 
 end ProofForgeV2.Targets.Solana

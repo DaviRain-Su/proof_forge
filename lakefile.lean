@@ -257,6 +257,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.SolanaCpiActivationV1,
     `Tests.Targets.SolanaAsmV1,
     `Tests.Targets.SolanaAcc1LayoutV1,
+    `Tests.Targets.SolanaProductFrameV1,
     `Tests.Targets.SolanaElfV1,
     `Tests.Targets.EvmCancunV1,
     `Tests.Materialization.EvmCorpusBlockedV1,

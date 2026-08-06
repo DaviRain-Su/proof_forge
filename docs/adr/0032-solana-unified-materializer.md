@@ -99,4 +99,4 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
   - **MiniAmm product pin 已绿**（full-body hybrid ELF + `irDigest=full-body-hybrid`；零 `sol_invoke`）；
   - **multi-account admitCaller layout 已绿**：`computeInputLayoutWithCallerV1`（state + zero-data pf_caller）+ entrypoint `num_accounts==2` + `ACC1_*`；
   - **MiniAmmHybrid Mollusk 成功路径 11/11**（init / first mint / swap / later mint / zero fail / layout pin）。
-  - P3 body+CPI 同 ELF 合成、默认 profile 切换仍后续。
+  - **P3-b/c skeleton 已绿**：`ProductFrameV1`（bodyOnly / unifiedCpi 预算）+ `ProductSynthesizeV1`（zero-site full body 经 synthesize；`buildFromCapability` 迁出 EmitSbpfAsm）；sites 仍走 escrow。P3-d site hooks 与默认 profile 切换仍后续。

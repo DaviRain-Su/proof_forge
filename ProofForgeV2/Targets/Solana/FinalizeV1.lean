@@ -35,6 +35,7 @@ import ProofForgeV2.Targets.Solana.CpiEscrowIRV1
 import ProofForgeV2.Targets.Solana.CpiProductCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
+import ProofForgeV2.Targets.Solana.ProductSynthesizeV1
 
 namespace ProofForgeV2.Targets.Solana.FinalizeV1
 

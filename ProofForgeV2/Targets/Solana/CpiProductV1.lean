@@ -176,8 +176,9 @@ private def encodeProductBindingsJson
       `{name}.s`
       `{name}.cpi-bindings.json`
 
-    ADR-0032 full-body hybrid (multi-block/Map + zero CPI sites) is dispatched
-    from `EmitSbpfAsmV1.buildFromCapability` to avoid import cycles.
+    ADR-0032 zero-site full-body path is dispatched from
+    `ProductSynthesizeV1.buildFromCapability` (P3-c); this entry remains the
+    escrow composite path (non-empty sites and narrow body).
 -/
 def productBaseFilesFromCapabilityV1
     (capability : ResolvedEngineeringBuildV1) :

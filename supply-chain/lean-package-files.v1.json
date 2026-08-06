@@ -946,9 +946,9 @@
       "sha256": "66792997b1ca83996498a98f76226221f138b7ac43dec6962a0efd8c1b1b2a25"
     },
     {
-      "bytes": 2197,
+      "bytes": 2411,
       "path": "ProofForgeV2/Targets/Solana.lean",
-      "sha256": "11ec4a3864b5b342af70aeaa41a8947da122b30c49850e5d813a4ca4edf98857"
+      "sha256": "772bb9ce6267699caeb25adf6916e3846360fec2d5bb0b20257fe0a01d1dff4f"
     },
     {
       "bytes": 66870,
@@ -1006,9 +1006,9 @@
       "sha256": "eac2b85303fdc80e82fe39d47e83e6f261d6d63c26bb2724283f359d462e19e6"
     },
     {
-      "bytes": 8433,
+      "bytes": 8480,
       "path": "ProofForgeV2/Targets/Solana/CpiProductV1.lean",
-      "sha256": "7fcfe913bdb826761bb857a0877d600ce96cc97f2c435c952ffceaa8ade93f9e"
+      "sha256": "2b0e5ad1ebed9113ba941bb0034e490000d96660a82c773ba3a4fe488114770d"
     },
     {
       "bytes": 68903,
@@ -1066,14 +1066,14 @@
       "sha256": "d31a60719f0edd4545417b06d84909b61cdffba6a5f4d700f64b9d2fa882453b"
     },
     {
-      "bytes": 106337,
+      "bytes": 103858,
       "path": "ProofForgeV2/Targets/Solana/EmitSbpfAsmV1.lean",
-      "sha256": "b301f3bb5322e1a085292a605b844d930595435332643f745514e0ef0efacf6f"
+      "sha256": "3a82aff414263f8b065ebd8378c20bbe1fc97a4abc1355e444e7a54c61b49167"
     },
     {
-      "bytes": 13799,
+      "bytes": 13854,
       "path": "ProofForgeV2/Targets/Solana/FinalizeV1.lean",
-      "sha256": "3059133b2385c539151660ff3a9ad1025cabfb45e25bcef008efc34bdefba9eb"
+      "sha256": "a9ec14b2e6d6fe7bbf93e3eea5d38f5f54d43d82b581f507a3c22adda227a134"
     },
     {
       "bytes": 203502,
@@ -1089,6 +1089,16 @@
       "bytes": 19855,
       "path": "ProofForgeV2/Targets/Solana/PlanSchemaV1.lean",
       "sha256": "3aa04cfe02a66d6bedb3b10565205ee74d4d742b0e4d7e25b2dbe658da5162c8"
+    },
+    {
+      "bytes": 6674,
+      "path": "ProofForgeV2/Targets/Solana/ProductFrameV1.lean",
+      "sha256": "97045087fe0af0b34631407ba12ae8132c7cd628cdfacc04388201b935eafe3b"
+    },
+    {
+      "bytes": 7279,
+      "path": "ProofForgeV2/Targets/Solana/ProductSynthesizeV1.lean",
+      "sha256": "183b237a4e5ada8cdb10a08db74c11c7c0c715da34992cbfbcf3d2c8c0dc8b34"
     },
     {
       "bytes": 26382,

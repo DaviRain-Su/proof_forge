@@ -8,6 +8,8 @@ import ProofForgeV2.Targets.Solana.PlanSchemaV1
 import ProofForgeV2.Targets.Solana.EmitIRV1
 import ProofForgeV2.Targets.Solana.MaterializationV1
 import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
+import ProofForgeV2.Targets.Solana.ProductFrameV1
+import ProofForgeV2.Targets.Solana.ProductSynthesizeV1
 
 /-!
 # ProofForgeV2.Targets.Solana — public façade
@@ -26,7 +28,9 @@ Plan canonicity lives in `ValidatePlanV1`. Legacy IR emission lives in
 * Product core entries `productPlanFromCapabilityV1` /
   `productIrFromCapabilityV1` / `productPlanDigestFromCapabilityV1` /
   `productBaseFilesFromCapabilityV1` under `CpiV1`
-* `buildFromCapability` in `EmitSbpfAsmV1` mirrors the same exhaustive branch
+* **P3-c** `buildFromCapability` in `ProductSynthesizeV1` (zero-site full body
+  via synthesize + frame; sites → escrow product base files)
+* `ProductFrameV1` unified r10 budget (P3-b)
 * Single `Materializer .solana` associated types = tagged sums (no second
   TargetKind)
 
