@@ -472,9 +472,8 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
     mkImplementedRow .quint CodegenProfileId.quintSourceU64ModelV1 quintRequests,
+    -- ADR-0032 U1: sole Solana product profile (shims plan/elf removed).
     mkImplementedRow .solana CodegenProfileId.solanaSbpfCpiElfV1 solanaCpiRequests,
-    mkImplementedRow .solana CodegenProfileId.solanaSbpfElfV1 withoutCallFamilies,
-    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 withoutCallFamilies,
     mkImplementedRow .ton CodegenProfileId.tonTolkBocV1 withoutSync
   ]
 

@@ -446,11 +446,16 @@ private unsafe def testLegacyProfilesRejectEscrow
   let compiled ← compileEscrowFixture session
   for profile in #[CodegenProfileId.solanaSbpfPlanV1,
       CodegenProfileId.solanaSbpfElfV1] do
-    let selection ← legacySelection profile
+    -- ADR-0032 U1: retired shims are not registry members.
+    match resolveBuildSelectionV1 TargetId.solana (some profile) with
+    | .error error =>
+        expect (error.render.contains "PF-")
+          s!"retired {profile}: expected PF- selection fail, got {error.render}"
+    | .ok selection =>
     match resolveEngineeringRequirementsV1 selection compiled with
     | .error error =>
-        expect (error.code == "PF-REQ-UNSUPPORTED")
-          s!"legacy {profile}: expected PF-REQ-UNSUPPORTED, got {error.render}"
+        expect (error.code == "PF-REQ-UNSUPPORTED" || error.render.contains "PF-")
+          s!"legacy {profile}: expected PF- fail, got {error.render}"
     | .ok capability =>
         -- Even if resolve were wrongly open, Plan/files must not mint.
         match planFromCapability capability with
@@ -690,11 +695,8 @@ private def testDefaultProfileSoleRail : IO Unit := do
     throw <| IO.userError "solana registration missing"
   expect (reg.defaultProfile == some CodegenProfileId.solanaSbpfCpiElfV1)
     "registry defaultProfile is solana-sbpf-cpi-elf-v1"
-  expect (reg.profiles == #[
-      CodegenProfileId.solanaSbpfCpiElfV1,
-      CodegenProfileId.solanaSbpfElfV1,
-      CodegenProfileId.solanaSbpfPlanV1])
-    "registry Solana profiles order cpi < elf < plan"
+  expect (reg.profiles == #[CodegenProfileId.solanaSbpfCpiElfV1])
+    "registry Solana sole rail cpi-elf only"
 
 /-! ## Preflight vs product carriers are not interchangeable -/
 

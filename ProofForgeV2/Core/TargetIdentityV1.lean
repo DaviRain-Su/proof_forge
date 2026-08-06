@@ -188,12 +188,14 @@ def evmYulSolc0834V1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-v1"⟩
     Finalize uses `solc --evm-version cancun`; Anvil runtime uses `--hardfork cancun`.
     Same locked solc 0.8.34 / Anvil 0.3.0 binaries as the default profile. -/
 def evmYulSolc0834CancunV1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-cancun-v1"⟩
+/-- Retired single-account plan shim (ADR-0032 U1 deletion). Not a registry
+    member; kept only so historical strings/tests can name the removed id. -/
 def solanaSbpfPlanV1 : CodegenProfileId := ⟨"solana-sbpf-plan-v1"⟩
-/-- ADR-0028 opt-in Solana explicit-account/PDA/CPI product profile.
-    Target-owned Plan/IR is active only for its frozen synchronous-call contract;
-    it remains non-default and rejects schedule/dynamic-account expansion. -/
+/-- ADR-0032 U1 sole Solana product rail (explicit-account/PDA/CPI + full body).
+    Default and only registered Solana CodegenProfile. -/
 def solanaSbpfCpiElfV1 : CodegenProfileId := ⟨"solana-sbpf-cpi-elf-v1"⟩
-/-- Explicit Solana sBPF assembly → ELF profile (not the default; plan profile remains default). -/
+/-- Retired single-account ELF shim (ADR-0032 U1 deletion). Not a registry
+    member; kept only so historical strings/tests can name the removed id. -/
 def solanaSbpfElfV1 : CodegenProfileId := ⟨"solana-sbpf-elf-v1"⟩
 def nearWasmRawU64V1 : CodegenProfileId := ⟨"near-wasm-raw-u64-v1"⟩
 def noirSourceU64RelationsV1 : CodegenProfileId := ⟨"noir-source-u64-relations-v1"⟩

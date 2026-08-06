@@ -535,11 +535,9 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
       #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1]
       (some CodegenProfileId.evmYulSolc0834V1),
     row .solana (semanticsAxesOfKindV1 .solana)
-      -- Strictly ASCII-ascending: cpi-elf-v1 < elf-v1 < plan-v1.
-      -- ADR-0032 U1 P4: sole product rail `solana-sbpf-cpi-elf-v1` is default.
-      -- plan-v1 / elf-v1 remain registered shims (explicit `--profile` only).
-      #[CodegenProfileId.solanaSbpfCpiElfV1, CodegenProfileId.solanaSbpfElfV1,
-        CodegenProfileId.solanaSbpfPlanV1]
+      -- ADR-0032 U1: sole product rail only. plan-v1 / elf-v1 shims removed
+      -- (no longer registry members; resolve/build reject them).
+      #[CodegenProfileId.solanaSbpfCpiElfV1]
       (some CodegenProfileId.solanaSbpfCpiElfV1),
     row .near (semanticsAxesOfKindV1 .near)
       #[CodegenProfileId.nearWasmRawU64V1]

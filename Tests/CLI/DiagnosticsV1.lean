@@ -520,12 +520,12 @@ private def testProfileSelection : IO Unit := do
     "build", "Examples/Counter.lean",
     "--module", "Examples.Counter",
     "--target", "solana",
-    "--profile", "solana-sbpf-plan-v1",
+    "--profile", "solana-sbpf-cpi-elf-v1",
     "-o", outDir.toString
   ]
   expect (ec == 0)
     s!"explicit solana plan profile must succeed, got {ec}\n{stderr}"
-  expect (containsSubstr stdout "profile=solana-sbpf-plan-v1")
+  expect (containsSubstr stdout "profile=solana-sbpf-cpi-elf-v1")
     s!"build must echo selected profile: {stdout}"
   expect (← outDir.pathExists) "profile build must publish"
   -- Manifest records the selected profile.
@@ -559,7 +559,7 @@ private def testProfileSelection : IO Unit := do
   let (ec2, _stdout2, stderr2) ← runCli #[
     "check", "Examples/Counter.lean",
     "--module", "Examples.Counter",
-    "--profile", "solana-sbpf-plan-v1"
+    "--profile", "solana-sbpf-cpi-elf-v1"
   ]
   expect (ec2 == 2)
     s!"check --profile without --target must exit 2, got {ec2}"
@@ -584,7 +584,7 @@ private def buildInspectOutputFixture (outDir : FilePath) : IO Unit := do
     "build", "Examples/Counter.lean",
     "--module", "Examples.Counter",
     "--target", "solana",
-    "--profile", "solana-sbpf-plan-v1",
+    "--profile", "solana-sbpf-cpi-elf-v1",
     "-o", outDir.toString
   ]
   expect (buildEc == 0)
@@ -605,7 +605,7 @@ private def testInspectOutputDirPositive : IO Unit := do
     s!"inspect-output schemaVersion: {stdout}"
   expect (containsSubstr stdout "target=solana\n")
     s!"inspect-output target: {stdout}"
-  expect (containsSubstr stdout "codegenProfile=solana-sbpf-plan-v1\n")
+  expect (containsSubstr stdout "codegenProfile=solana-sbpf-cpi-elf-v1\n")
     s!"inspect-output profile: {stdout}"
   expect (containsSubstr stdout "artifactProgramName=Counter\n")
     s!"inspect-output artifact name: {stdout}"
@@ -754,8 +754,8 @@ private def testInspectOutputDirNegativesA : IO Unit := do
   expect (stdoutNote == "")
     "note tamper must not print success"
   IO.FS.writeFile (outDir / "evidence.json") originalEvidence
-  let artifactPath := outDir / "Counter.sbpf-plan"
-  expect (← artifactPath.pathExists) "fixture must have Counter.sbpf-plan"
+  let artifactPath := outDir / "Counter.cpi-plan.json"
+  expect (← artifactPath.pathExists) "fixture must have Counter.cpi-plan.json"
   let originalArtifact ← IO.FS.readFile artifactPath
   IO.FS.writeFile artifactPath (originalArtifact ++ "\n//tamper")
   let (ecArt, stdoutArt, stderrArt) ← runCli #["inspect", outDir.toString]
@@ -889,7 +889,7 @@ private def testInspectOutputDirNegativesB : IO Unit := do
     "  \"outputSetDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"evidenceSha256\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"deployable\": false,\n" ++
-    "  \"files\": [\"Counter.sbpf-plan\",\"Counter.idl.json\"]\n" ++
+    "  \"files\": [\"Counter.cpi-plan.json\",\"Counter.idl.json\"]\n" ++
     "}\n"
   IO.FS.writeFile (outDir / "manifest.json") legacyManifest
   let (ecLegacy, stdoutLegacy, stderrLegacy) ← runCli #["inspect", outDir.toString]

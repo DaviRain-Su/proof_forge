@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Solana engineering runtime: build Counter ELF + target fixture ELFs
-# (solana-sbpf-elf-v1; control flow, effects, aggregates, narrow/wide ABI)
+# (solana-sbpf-cpi-elf-v1 sole rail; control flow, effects, aggregates, narrow/wide ABI)
 # and run Mollusk runtime differential tests.
 #
 # Requires:
@@ -139,10 +139,9 @@ fi
 rm -rf "$out_dir"
 mkdir -p "$out_dir"
 
-echo "solana-runtime-test: build Examples/Counter.lean --module Examples.Counter --target solana --profile solana-sbpf-elf-v1 -o $out_dir/Counter"
+echo "solana-runtime-test: build Examples/Counter.lean --module Examples.Counter --target solana (sole rail cpi-elf) -o $out_dir/Counter"
 if ! lake env "$cli" build Examples/Counter.lean --module Examples.Counter \
   --target solana \
-  --profile solana-sbpf-elf-v1 \
   -o "$out_dir/Counter"; then
   die "proof-forge-next build Counter failed"
 fi
@@ -150,9 +149,9 @@ fi
 counter_out="$out_dir/Counter"
 bind_output "$counter_out" "Counter"
 so_path="$counter_out/Counter.so"
-plan_path="$counter_out/Counter.sbpf-plan"
+plan_path="$counter_out/Counter.cpi-plan.json"
 [[ -f "$so_path" ]] || die "manifest-bound Counter.so missing: $so_path"
-[[ -f "$plan_path" ]] || die "manifest-bound Counter.sbpf-plan missing: $plan_path"
+[[ -f "$plan_path" ]] || die "manifest-bound Counter.cpi-plan.json missing: $plan_path"
 
 echo "solana-runtime-test: Counter.so=$so_path ($(wc -c <"$so_path" | tr -d ' ') bytes)"
 echo "solana-runtime-test: plan=$plan_path"
@@ -162,21 +161,20 @@ for name in "${fixtures[@]}"; do
   src="$fixtures_src/${name}.lean"
   [[ -f "$src" ]] || die "fixture source missing: $src"
   fixture_out="$out_dir/$name"
-  echo "solana-runtime-test: build --source runtime-tests/solana/fixtures/${name}.lean --module Examples.${name} --target solana --profile solana-sbpf-elf-v1 -o $fixture_out"
+  echo "solana-runtime-test: build fixture ${name} --target solana (sole rail cpi-elf) -o $fixture_out"
   if ! lake env "$cli" build \
     "runtime-tests/solana/fixtures/${name}.lean" \
     --module "Examples.${name}" \
     --target solana \
-    --profile solana-sbpf-elf-v1 \
     -o "$fixture_out"; then
     die "proof-forge-next build failed for fixture $name"
   fi
 
   bind_output "$fixture_out" "$name"
   fixture_so="$fixture_out/${name}.so"
-  fixture_plan="$fixture_out/${name}.sbpf-plan"
+  fixture_plan="$fixture_out/${name}.cpi-plan.json"
   [[ -f "$fixture_so" ]] || die "manifest-bound ${name}.so missing"
-  [[ -f "$fixture_plan" ]] || die "manifest-bound ${name}.sbpf-plan missing"
+  [[ -f "$fixture_plan" ]] || die "manifest-bound ${name}.cpi-plan.json missing"
   echo "solana-runtime-test: ${name}.so=$(wc -c <"$fixture_so" | tr -d ' ') bytes"
 done
 

@@ -273,12 +273,11 @@ private def testRegistrySeedMembership : IO Unit := do
         | none => throw <| IO.userError s!"{tid} has no default"
     | none => throw <| IO.userError s!"missing registration {tid}"
   expectDefault TargetId.evm "evm-yul-solc-0.8.34-v1"
-  expectDefault TargetId.solana "solana-sbpf-plan-v1"
+  expectDefault TargetId.solana "solana-sbpf-cpi-elf-v1"
   match ← liftResult (registration? TargetId.solana) with
   | some reg =>
-      expect (reg.profiles == #[CodegenProfileId.solanaSbpfCpiElfV1,
-          CodegenProfileId.solanaSbpfElfV1, CodegenProfileId.solanaSbpfPlanV1])
-        s!"Solana profiles must be cpi/elf/plan in ASCII order, got {reg.profiles.map (·.toString)}"
+      expect (reg.profiles == #[CodegenProfileId.solanaSbpfCpiElfV1])
+        s!"Solana profiles must be sole rail cpi-elf, got {reg.profiles.map (·.toString)}"
   | none => throw <| IO.userError "missing Solana registration"
   expectDefault TargetId.near "near-wasm-raw-u64-v1"
   expectDefault TargetId.noir "noir-source-u64-relations-v1"
@@ -747,8 +746,8 @@ private unsafe def testMaterializeIdentity : IO Unit := do
   if ← outputDir.pathExists then IO.FS.removeDirAll outputDir
   let receipt ← ProofForgeV2.CLI.emitProgram capability outputDir
   expect (receipt.target == TargetId.solana) "emitProgram target identity"
-  expect (receipt.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
-    "emitProgram profile identity"
+  expect (receipt.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
+    "emitProgram profile identity (sole rail)"
   let evmSel ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
   let evmCap ← liftResult <| Targets.resolveEngineeringRequirementsV1 evmSel compiled
   let evmOut ← liftResult <| Targets.materializeResult evmCap

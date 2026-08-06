@@ -122,6 +122,9 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
     * body-only 准入（`bodyOnlyAdmissionRequirementV1`；无 extension/caller 的
       Counter/Map/Token 可在 cpi-elf 上 product Plan + full-body ELF）
     * zero-site 始终 full-body synthesize（不进 escrow）
-    * plan-v1 / elf-v1 仍为显式 `--profile` shim（caller/CPI 继续 FC）
-    * **尚未**：shim 物理删除；WideDiv 全矩阵默认复钉；BodyCpiSysPay Mollusk；
-      formal TASK-D5
+  - **P4+ shim 物理删除已绿（engineering）**：
+    * registry/resolver/descriptor **仅** `solana-sbpf-cpi-elf-v1` 成员
+    * plan-v1 / elf-v1 常量保留作历史名，**不可 resolve/materialize/finalize**
+    * runtime bind/Mollusk 脚本切到 sole rail 产物叶（`.cpi-plan.json` 等）
+    * WideDiv/Map 等 runtime fixtures 在默认 cpi-elf 可 build deployable ELF
+    * **尚未**：BodyCpiSysPay 专项 Mollusk 矩阵；formal TASK-D5

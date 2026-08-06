@@ -274,19 +274,16 @@ private def finalizeCpiElfProfile
 private def finalizeUnknownProfile (profile : CodegenProfileId) :
     IO EngineeringFinalizationDraftV1 :=
   throw <| IO.userError
-    s!"PF-ARTIFACT-NONDEPLOYABLE: unknown Solana codegen profile '{profile}' (exhaustive plan/elf/cpi only)"
+    s!"PF-ARTIFACT-NONDEPLOYABLE: unknown Solana codegen profile '{profile}' (sole rail solana-sbpf-cpi-elf-v1 only; plan/elf shims removed)"
 
-/-- Solana finalization: exhaustive profile dispatch (plan / elf / cpi). -/
+/-- Solana finalization: sole rail `solana-sbpf-cpi-elf-v1` (ADR-0032 U1).
+    Retired plan/elf shims fail closed. -/
 def finalize
     (capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
     (stagingDir : FilePath) : IO EngineeringFinalizationDraftV1 := do
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
-  if profile == CodegenProfileId.solanaSbpfPlanV1 then
-    finalizePlanProfile
-  else if profile == CodegenProfileId.solanaSbpfElfV1 then
-    finalizeElfProfile artifacts stagingDir
-  else if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
+  if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
     finalizeCpiElfProfile capability artifacts stagingDir
   else
     finalizeUnknownProfile profile

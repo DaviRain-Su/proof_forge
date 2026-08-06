@@ -217,12 +217,12 @@ private def testDefaultSolanaSoleRail : IO Unit := do
       "--profile", "solana-sbpf-plan-v1",
       "-o", planOut.toString]
   expect (pc != 0)
-    s!"MiniAmm plan shim must fail closed, exit={pc}"
+    s!"MiniAmm retired plan profile must fail closed, exit={pc}"
   let combined := pstdout ++ pstderr
-  expect (containsSubstr combined "PF-PLAN-INVARIANT" ||
-      containsSubstr combined "ContextRead" ||
-      containsSubstr combined "context.caller")
-    s!"plan shim must reject context.caller, got={combined}"
+  expect (containsSubstr combined "PF-" ||
+      containsSubstr combined "profile" ||
+      containsSubstr combined "solana-sbpf-plan-v1")
+    s!"retired plan profile must fail selection, got={combined}"
 
 unsafe def run : IO Unit := do
   testSolanaCpiBuildAndInspect

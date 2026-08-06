@@ -425,7 +425,7 @@ D1–D4 = 0/27 done。
 | 2026-08-03 | **D3-E9 工程闭合**：Protocol 重复六轴删除；registry V1 六轴成为 descriptor sole seed；resolve/mint/inspect 三处 exact join；非 formal TargetSemantics payload/digest |
 | 2026-08-05 | **SYS-CAP-SURVEY 登记**：RPT-020 多链系统能力全景调研（状态类 vs 电路类；六维同构候选；系统能力两层：L1 内建 host + L2 官方链上 program，能力与形态解耦）；登记 SYS-CAP-UNIFY 设计项（ContextRead/EnvRead catalog 扩键 + 官方 program 能力 catalog） |
 | 2026-08-06 | **SYS-CAP-UNIFY S1 闭合 / S2 四 leaf / E4 推进**：S1 caller 四 target 工程闭合；S2 blockHeight 四 leaf（EVM NUMBER / NEAR block_index / CW height / Solana ordinary Clock.slot）Plan/IR/emitter 完成，runtime 门 residual；E4：Solana/NEAR/CW multiword div/mod、EVM/Solana cap-4 Principal Map、EVM MiniAmm demo + host-optional Anvil（EIP-3860 override）已交付；Solana 另有 WideDiv 数值/回滚 Mollusk、四宽 handler 长距 dispatch runtime pin 与 Array 24/44/Map 类型分派防回归。Solana MiniAMM 应用门、真实 asset movement/remove-liquidity 仍 pending |
-| 2026-08-06 | **ADR-0032 U1 Solana 统一 materializer**：sole rail = `solana-sbpf-cpi-elf-v1`；P2–P3-e multi-role system.transfer 已绿；**P4 默认 profile 已切到 cpi-elf**（body-only 准入 + zero-site full-body；Counter/Map/Token/MiniAmm/TipJar bare `--target solana` deployable；plan/elf 仍显式 shim） |
+| 2026-08-06 | **ADR-0032 U1 Solana 统一 materializer**：sole rail = `solana-sbpf-cpi-elf-v1`；P2–P3-e multi-role 已绿；**P4 默认 + shim 物理删除**：registry/resolver 仅 cpi-elf；plan/elf 不可选；runtime bind 切 cpi 产物；WideDiv/Map fixtures 默认可 build |
 
 ---
 

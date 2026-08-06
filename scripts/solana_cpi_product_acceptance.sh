@@ -72,7 +72,8 @@ module_name="Examples.EscrowCpi"
 program_name="EscrowCpi"
 target_id="solana"
 profile_id="solana-sbpf-cpi-elf-v1"
-default_profile_id="solana-sbpf-plan-v1"
+default_profile_id="solana-sbpf-cpi-elf-v1"
+# Retired shims (ADR-0032 U1): must fail closed if selected.
 legacy_plan_profile="solana-sbpf-plan-v1"
 legacy_elf_profile="solana-sbpf-elf-v1"
 
@@ -218,8 +219,7 @@ PY
 }
 
 # ---------------------------------------------------------------------------
-# 1) Default profile must remain solana-sbpf-plan-v1 (activation must not
-#    flip ordinary default).
+# 1) Default profile is sole rail solana-sbpf-cpi-elf-v1 (ADR-0032 U1).
 # ---------------------------------------------------------------------------
 echo "${label}: inspect solana default profile"
 default_log="$(mktemp "$work_tmp/default-profile.XXXXXX")"

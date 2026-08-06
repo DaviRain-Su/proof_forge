@@ -342,7 +342,7 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 12) "exactly twelve support rows"
+  expect (rows.size == 10) "exactly ten support rows (Solana sole rail)"
   let expectedSolanaExtension ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -363,10 +363,8 @@ private def testSupportTable : IO Unit := do
     ("psy", "psy-dargo-u64-v1", 6, false, false),
     -- Phase A5: Quint = 5 S2 keys (incl sync-call) + exact extension.pf-assets
     ("quint", "quint-source-u64-model-v1", 6, false, true),
-    -- #125 + B1: CPI row = 6 S2 (incl sync, excl async) + solana.cpi + pf.assets = 8
+    -- ADR-0032 U1: sole Solana cpi-elf row (plan/elf shims removed)
     ("solana", "solana-sbpf-cpi-elf-v1", 8, true, true),
-    ("solana", "solana-sbpf-elf-v1", 5, false, false),
-    ("solana", "solana-sbpf-plan-v1", 5, false, false),
     ("ton", "ton-tolk-boc-v1", 6, false, false)
   ]
   let mut i : Nat := 0
@@ -1232,8 +1230,8 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
           "target=solana\nprofile=solana-sbpf-cpi-elf-v1\nrequirements=#[effect.event, effect.synchronous-call, extension.pf-assets, extension.solana-cpi-accounts, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
         s!"inspect exact sole-rail Solana default capability set, got {text}"
       expect (hasSubstr text
-          "profiles=#[solana-sbpf-cpi-elf-v1, solana-sbpf-elf-v1, solana-sbpf-plan-v1]")
-        s!"inspect must expose exact profile membership, got {text}"
+          "profiles=#[solana-sbpf-cpi-elf-v1]")
+        s!"inspect must expose sole-rail profile membership, got {text}"
       expect (hasSubstr text "effect.synchronous-call" &&
           !hasSubstr text "effect.asynchronous-workflow")
         "inspect default Solana support advertises sync (not async)"
@@ -1241,7 +1239,7 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
   match ProofForgeV2.CLI.inspectTargetText "solana" true with
   | .ok json =>
       expect (hasSubstr json
-          "\"profiles\":[\"solana-sbpf-cpi-elf-v1\",\"solana-sbpf-elf-v1\",\"solana-sbpf-plan-v1\"]")
+          "\"profiles\":[\"solana-sbpf-cpi-elf-v1\"]")
         s!"inspect Solana JSON profiles, got {json}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "noir" with

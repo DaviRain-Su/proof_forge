@@ -234,29 +234,20 @@ private def buildUnknownProfileFail (profile : CodegenProfileId) :
   throw <| .planInvariant .solana
     s!"unknown Solana codegen profile '{profile}' (exhaustive plan/elf/cpi only)"
 
-/-- Capability-gated public materialize entry (S6 / #125 + ADR-0032 U1 P3-c/d).
+/-- Capability-gated public materialize entry (S6 / ADR-0032 U1 sole rail).
 
-    Exhaustive profile dispatch:
-    * `solana-sbpf-plan-v1` → single-account plan+IDL only
-    * `solana-sbpf-elf-v1` → single-account plan+IDL+`.s`
-    * `solana-sbpf-cpi-elf-v1` → product base files:
-        - full-body shape ∧ CPI sites → P3-d partial (empty-meta)
-        - full-body shape ∧ zero sites → P3-c zero-site full body
-        - else → CpiV1 escrow product base files
-    * unknown → fail closed
+    Sole profile: `solana-sbpf-cpi-elf-v1`
+    * full-body shape ∧ CPI sites → full-body + multi-role/empty-meta
+    * zero sites → full-body hybrid
+    * straight-line non-empty sites → CpiV1 escrow product base files
+    * any other profile (including retired plan/elf shims) → fail closed
 -/
 def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     CompileResult (Array OutputFile) := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
     throw <| .planInvariant .solana "engineering capability kind is not Solana"
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
-  if profile == CodegenProfileId.solanaSbpfPlanV1 then
-    let ir ← legacyIrFromCapabilityV1 capability
-    emitPlanAndIdlFromIR capability ir
-  else if profile == CodegenProfileId.solanaSbpfElfV1 then
-    let ir ← legacyIrFromCapabilityV1 capability
-    emitElfFromIR capability ir
-  else if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
+  if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
     let plan ← productPlanFromCapabilityV1 capability
     let cand := SolanaCpiProductPlanV1.candidateOf plan
     let hasSites := !cand.cpiSites.isEmpty
@@ -267,8 +258,7 @@ def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
       | .error _ =>
           throw <| .planInvariant .solana "invalid SemanticProgramV1 carrier"
     let needsBody := semanticNeedsFullBodyV1 data
-    -- P4 sole rail: zero CPI sites always full-body synthesize (Counter/Map
-    -- body-only and MiniAmm caller-only). Escrow composite only for
+    -- Zero CPI sites always full-body synthesize. Escrow composite only for
     -- straight-line non-empty sites without multi-block/aggregate body.
     if !hasSites || needsBody then
       synthesizeFullBodyProductBaseFilesV1 capability hasSites

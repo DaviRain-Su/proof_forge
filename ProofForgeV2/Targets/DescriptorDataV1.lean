@@ -41,23 +41,18 @@ def evm : TargetDescriptor :=
   descriptorFromRegistryAxes .evm .evmYul CodegenProfileId.evmYulSolc0834V1
 
 def solana : TargetDescriptor :=
-  -- ADR-0032 U1 P4: residual descriptor binds sole-rail default
-  -- `solana-sbpf-cpi-elf-v1`. plan-v1 / elf-v1 shims remain accepted via
-  -- `acceptsCodegenProfile`. Single `.solana` Materializer tagged-sum path.
+  -- ADR-0032 U1: sole residual descriptor binds `solana-sbpf-cpi-elf-v1` only.
+  -- plan-v1 / elf-v1 shims deleted (not accepted).
   descriptorFromRegistryAxes .solana .sbpfPlanText CodegenProfileId.solanaSbpfCpiElfV1
 
 /-- Residual descriptor profile acceptance for multi-profile targets.
     `TargetDescriptor.codegenProfile` is the default encoding profile.
     Additional registered profiles for the same target are accepted here so
     capability mint and artifact identity can bind them without a second row.
-    Solana: cpi-elf (default sole rail) + elf + plan shims; unknown profiles
-    fail closed at plan/ir/build exhaustive dispatch, not here. -/
+    Solana: sole cpi-elf; EVM: default + Cancun. -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
-    (descriptor.targetId == TargetId.evm && profile == CodegenProfileId.evmYulSolc0834CancunV1) ||
-    (descriptor.targetId == TargetId.solana &&
-      (profile == CodegenProfileId.solanaSbpfElfV1 ||
-        profile == CodegenProfileId.solanaSbpfPlanV1))
+    (descriptor.targetId == TargetId.evm && profile == CodegenProfileId.evmYulSolc0834CancunV1)
 
 def near : TargetDescriptor :=
   descriptorFromRegistryAxes .near .wasmText CodegenProfileId.nearWasmRawU64V1

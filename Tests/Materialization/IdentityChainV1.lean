@@ -366,25 +366,24 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
       s!"{tid} identity deterministic"
 
 private unsafe def testBuildIdentityProfileSensitivity : IO Unit := do
+  -- ADR-0032 U1: Solana sole rail only — profile sensitivity vs EVM default.
   let compiled ← compileCounter
-  let (_, planArts) ← materializeTarget compiled TargetId.solana
-    (some CodegenProfileId.solanaSbpfPlanV1)
-  let (_, elfArts) ← materializeTarget compiled TargetId.solana
-    (some CodegenProfileId.solanaSbpfElfV1)
-  let planId := MaterializedArtifactsV1.buildIdentityOf planArts
-  let elfId := MaterializedArtifactsV1.buildIdentityOf elfArts
-  expect (EngineeringBuildIdentityV1.codegenProfileOf planId ==
-      CodegenProfileId.solanaSbpfPlanV1)
-    "plan profile bound"
-  expect (EngineeringBuildIdentityV1.codegenProfileOf elfId ==
-      CodegenProfileId.solanaSbpfElfV1)
-    "elf profile bound"
-  expectDigestDiff "profile change identityDigest"
-    (EngineeringBuildIdentityV1.identityDigestOf planId)
-    (EngineeringBuildIdentityV1.identityDigestOf elfId)
-  expectDigestDiff "profile change supportClaimDigest"
-    (EngineeringBuildIdentityV1.supportClaimDigestOf planId)
-    (EngineeringBuildIdentityV1.supportClaimDigestOf elfId)
+  let (_, solArts) ← materializeTarget compiled TargetId.solana none
+  let (_, evmArts) ← materializeTarget compiled TargetId.evm none
+  let solId := MaterializedArtifactsV1.buildIdentityOf solArts
+  let evmId := MaterializedArtifactsV1.buildIdentityOf evmArts
+  expect (EngineeringBuildIdentityV1.codegenProfileOf solId ==
+      CodegenProfileId.solanaSbpfCpiElfV1)
+    "solana sole rail profile bound"
+  expect (EngineeringBuildIdentityV1.codegenProfileOf evmId ==
+      CodegenProfileId.evmYulSolc0834V1)
+    "evm default profile bound"
+  expectDigestDiff "cross-target identityDigest"
+    (EngineeringBuildIdentityV1.identityDigestOf solId)
+    (EngineeringBuildIdentityV1.identityDigestOf evmId)
+  expectDigestDiff "cross-target supportClaimDigest"
+    (EngineeringBuildIdentityV1.supportClaimDigestOf solId)
+    (EngineeringBuildIdentityV1.supportClaimDigestOf evmId)
 
 /-- Minimal S1 Accumulator source text (distinct name/body from Counter). -/
 private def accumulatorSourceTextV1 : String :=

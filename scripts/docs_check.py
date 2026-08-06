@@ -1374,10 +1374,9 @@ def validate_solana_cpi_active_contract(root: Path, by_id: dict[str, Document]) 
         required = sbpf.get("requiredByProfiles") if isinstance(sbpf, dict) else None
         _expect_sol_cpi(
             type(required) is list
-            and "solana-sbpf-cpi-elf-v1" in required
-            and "solana-sbpf-elf-v1" in required,
+            and "solana-sbpf-cpi-elf-v1" in required,
             lock_rel,
-            "sbpf requiredByProfiles must include solana-sbpf-cpi-elf-v1 and solana-sbpf-elf-v1")
+            "sbpf requiredByProfiles must include solana-sbpf-cpi-elf-v1")
 
 
 def validate_solana_cpi_epic_checkpoint(root: Path) -> None:

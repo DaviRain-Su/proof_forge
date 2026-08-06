@@ -70,71 +70,47 @@ private def unknownProfileFail (profile : CodegenProfileId) : CompileResult α :
   throw <| .planInvariant .solana
     s!"unknown Solana codegen profile '{profile}' (exhaustive plan/elf/cpi only)"
 
-/-- Capability-gated public plan entry with exhaustive profile dispatch.
-    * `solana-sbpf-plan-v1` / `solana-sbpf-elf-v1` → legacy Plan (existing path)
-    * `solana-sbpf-cpi-elf-v1` → product CPI Plan (never legacy Plan gate)
-    * any other profile → fail closed
+/-- Capability-gated public plan entry (ADR-0032 sole rail).
+    * `solana-sbpf-cpi-elf-v1` → product CPI Plan
+    * retired plan/elf shims and any other profile → fail closed
 -/
 def planFromCapability (capability : ResolvedEngineeringBuildV1) :
     CompileResult SolanaPlanFromCapabilityV1 := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
     throw <| .planInvariant .solana "engineering capability kind is not Solana"
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
-  if profile == CodegenProfileId.solanaSbpfPlanV1 ||
-      profile == CodegenProfileId.solanaSbpfElfV1 then
-    let plan ← materializePlanFromCapabilityV1 capability
-    validatePlan plan
-    pure (.legacy plan)
-  else if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
-    -- Product path only: must not enter legacy materializePlanFromCapabilityV1
-    -- (that residual gate still FC's the CPI profile for safety).
-    let plan ← productPlanFromCapabilityV1 capability
-    pure (.cpi plan)
-  else
+  unless profile == CodegenProfileId.solanaSbpfCpiElfV1 do
     unknownProfileFail profile
+  let plan ← productPlanFromCapabilityV1 capability
+  pure (.cpi plan)
 
-/-- Capability-gated public IR inspection with exhaustive profile dispatch.
-    Legacy uses `legacyIrFromCapabilityV1` (EmitIRV1); CPI uses product IR. -/
+/-- Capability-gated public IR inspection (sole cpi product IR). -/
 def irFromCapability (capability : ResolvedEngineeringBuildV1) :
     CompileResult SolanaIRFromCapabilityV1 := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
     throw <| .planInvariant .solana "engineering capability kind is not Solana"
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
-  if profile == CodegenProfileId.solanaSbpfPlanV1 ||
-      profile == CodegenProfileId.solanaSbpfElfV1 then
-    let ir ← legacyIrFromCapabilityV1 capability
-    pure (.legacy ir)
-  else if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
-    let ir ← productIrFromCapabilityV1 capability
-    pure (.cpi ir)
-  else
+  unless profile == CodegenProfileId.solanaSbpfCpiElfV1 do
     unknownProfileFail profile
+  let ir ← productIrFromCapabilityV1 capability
+  pure (.cpi ir)
 
 /-- Engineering plan digest for BuildIdentity / materialize.
-    Legacy → `engineeringSolanaPlanDigestV1`; CPI → product Plan carrier digest.
-    CPI never re-enters the legacy plan schema encoder. -/
+    Sole rail → product Plan carrier digest. Legacy arm kept for tagged-sum
+    exhaustiveness only (no longer minted). -/
 def engineeringSolanaMaterializationPlanDigestV1
     (plan : SolanaPlanFromCapabilityV1) : Except String Core.Common.Digest :=
   match plan with
   | .legacy p => engineeringSolanaPlanDigestV1 p
   | .cpi p => pure (SolanaCpiProductPlanV1.digestOf p)
 
-/-- Convenience: recompute plan digest from capability (profile-exhaustive). -/
+/-- Convenience: recompute plan digest from capability (sole rail). -/
 def planDigestFromCapabilityV1
     (capability : ResolvedEngineeringBuildV1) :
     CompileResult Core.Common.Digest := do
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
-  if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
-    productPlanDigestFromCapabilityV1 capability
-  else if profile == CodegenProfileId.solanaSbpfPlanV1 ||
-      profile == CodegenProfileId.solanaSbpfElfV1 then
-    let plan ← materializePlanFromCapabilityV1 capability
-    validatePlan plan
-    match engineeringSolanaPlanDigestV1 plan with
-    | .ok d => pure d
-    | .error e =>
-        throw <| .invalidProgram s!"Solana plan digest failed: {e}"
-  else
+  unless profile == CodegenProfileId.solanaSbpfCpiElfV1 do
     unknownProfileFail profile
+  productPlanDigestFromCapabilityV1 capability
 
 end ProofForgeV2.Targets.Solana

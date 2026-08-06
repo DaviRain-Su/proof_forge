@@ -141,9 +141,9 @@
       "sha256": "937b70c27a792a51c7eede7c3514e589ab17770faa7e5aca594568e063b0ca91"
     },
     {
-      "bytes": 7810,
+      "bytes": 7925,
       "path": "ProofForgeV2/Core/TargetIdentityV1.lean",
-      "sha256": "5e685ee7414e8088faf3a45b93b4e003e69829c14474457a5d7449f89e9a602e"
+      "sha256": "e21641706965295ef6c0ed22aeccc21bfe44727905739a391c5c42791e96a61f"
     },
     {
       "bytes": 5654,
@@ -741,9 +741,9 @@
       "sha256": "6db5192926340afa71cf44960e6ac344ac78e58469e9f6fc90733ce8572f8d3f"
     },
     {
-      "bytes": 6693,
+      "bytes": 6358,
       "path": "ProofForgeV2/Targets/DescriptorDataV1.lean",
-      "sha256": "a0371178e81e401b445c6f4af230b39b9a6055ca21d952df50147332482ba765"
+      "sha256": "c4f5df2b68f10c284c6e0e4572380c0ee349ada244ceed3c3682da5f2264c0d6"
     },
     {
       "bytes": 9308,
@@ -941,9 +941,9 @@
       "sha256": "9e5bd4ff47f8ba07c2fa40d0fd2bdd3c07d0ad97a4eae00c49e23afd36f9d74a"
     },
     {
-      "bytes": 34348,
+      "bytes": 34255,
       "path": "ProofForgeV2/Targets/RequirementResolverV1.lean",
-      "sha256": "66792997b1ca83996498a98f76226221f138b7ac43dec6962a0efd8c1b1b2a25"
+      "sha256": "6bfcb17863a5ab490f7a85eea2189db8cd9cd045c30f0c707b36d199d3a609cc"
     },
     {
       "bytes": 2466,
@@ -1071,9 +1071,9 @@
       "sha256": "e2f3c863b63b540448f0545ac67b8becb44f957aa65ea271a061d7d1b29d453e"
     },
     {
-      "bytes": 14468,
+      "bytes": 14356,
       "path": "ProofForgeV2/Targets/Solana/FinalizeV1.lean",
-      "sha256": "ff62ca7644543233f69142a34d02c43138f9f9fc46da1a99c9eb41bcc3f1e28a"
+      "sha256": "9bd9ad371d6661280d293b880fa7ee98e3e4dd4467c779744b50946ccb214502"
     },
     {
       "bytes": 206276,
@@ -1081,9 +1081,9 @@
       "sha256": "db115d5d02615c4554c20f5a0b1047853d2a8e97f67237dfb78e15c479dd150f"
     },
     {
-      "bytes": 6395,
+      "bytes": 5257,
       "path": "ProofForgeV2/Targets/Solana/MaterializationV1.lean",
-      "sha256": "a404219b4dee4d1915e4261706fb5a74d5b6efa2d77abbd683403cd685748a28"
+      "sha256": "af30b00ea909ad050e1bff207406a23bbdc33208c933c3f36b87ae98f695d128"
     },
     {
       "bytes": 19855,
@@ -1101,9 +1101,9 @@
       "sha256": "97045087fe0af0b34631407ba12ae8132c7cd628cdfacc04388201b935eafe3b"
     },
     {
-      "bytes": 13281,
+      "bytes": 12788,
       "path": "ProofForgeV2/Targets/Solana/ProductSynthesizeV1.lean",
-      "sha256": "fcc1da01f49b59eba382a23d78fc8f13bf209c16d12bf94ac2a277d7580d397c"
+      "sha256": "b06cfab9c7fa39d8ce9fceb6ea74a4fa2a4fad5938b726e9c39af82e63526234"
     },
     {
       "bytes": 27246,
@@ -1116,9 +1116,9 @@
       "sha256": "0c2ef1db0efea01981317694a262d79399825da8d6638da61364e71899977aca"
     },
     {
-      "bytes": 23242,
+      "bytes": 23083,
       "path": "ProofForgeV2/Targets/TargetRegistryV1.lean",
-      "sha256": "5aabb8d93ab9b2e168798dfa03b845858af22aded94db89fba405f9518c9ead5"
+      "sha256": "9e30db13802fcaf4dfe94eb723f16dd52af0b22486a36c01621b09915ea10986"
     },
     {
       "bytes": 1375,

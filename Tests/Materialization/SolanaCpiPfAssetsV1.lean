@@ -667,40 +667,16 @@ private unsafe def testContextCallerFailClosed : IO Unit := do
   let capTime ← productCapabilityOf cTime
   expectPlanRejectContains (productPlanFromCapabilityV1 capTime)
     "unixTimeSeconds" "unixTimeSeconds must stay FC on CPI profile"
-  -- Legacy profiles (plan/elf) deep FC on ContextRead via LowerSemanticV1
+  -- ADR-0032 U1: retired plan/elf shims are not selectable.
   for profile in #[CodegenProfileId.solanaSbpfPlanV1,
       CodegenProfileId.solanaSbpfElfV1] do
-    let selection ← expectPlanOk
-      (resolveBuildSelectionV1 TargetId.solana (some profile))
-      s!"legacy select {profile}"
-    -- CallerIsMe freezes context.caller requirement (wire-owned). Legacy
-    -- planFromCapability → LowerSemantic FC. No pf.assets ticket.
-    let bareCaller :=
-      "import ProofForgeV2\n" ++
-      "open ProofForgeV2.Language\n" ++
-      "program CallerLegacy where\n" ++
-      "  view isMe(who : Principal) : Bool do\n" ++
-      "    return context.caller == who\n"
-    let compiled ← compileSource bareCaller "CallerLegacy"
-    let eng ← expectPlanOk
-      (resolveEngineeringRequirementsV1 selection compiled)
-      s!"legacy resolve {profile}"
-    match ProofForgeV2.Targets.Solana.planFromCapability eng with
+    match resolveBuildSelectionV1 TargetId.solana (some profile) with
     | .error e =>
-        -- Deep FC: ContextRead key decline, or earlier Principal/Bool pilot
-        -- shape gates on legacy LowerSemantic. Either way, no Plan carrier.
-        expect
-          (e.render.contains "ContextRead" || e.render.contains "context" ||
-            e.render.contains "not admitted" || e.render.contains "unsupported" ||
-            e.render.contains "PF-PLAN" || e.render.contains "plan" ||
-            e.render.contains "profile")
-          s!"legacy {profile}: expected Plan FC, got {e.render}"
-    | .ok (.legacy _) =>
+        expect (e.render.contains "PF-")
+          s!"retired {profile}: expected PF- selection fail, got {e.render}"
+    | .ok _ =>
         throw <| IO.userError
-          s!"legacy {profile}: must fail closed on context.caller, got .legacy Plan"
-    | .ok (.cpi _) =>
-        throw <| IO.userError
-          s!"legacy {profile}: must not enter CPI Plan for context.caller"
+          s!"retired {profile}: must not resolve as registry member"
 
 unsafe def run : IO Unit := do
   testContractPins

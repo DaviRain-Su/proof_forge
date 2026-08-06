@@ -21,9 +21,11 @@ _ZERO = "0" * 64
 
 def _artifact_bytes(name: str) -> dict[str, bytes]:
     return {
+        f"{name}.cpi-plan.json": f'{{"programName":"{name}"}}\n'.encode(),
+        f"{name}.cpi-ir.json": f'{{"schema":"proof-forge.solana.full-body-hybrid-ir.v1"}}\n'.encode(),
         f"{name}.idl.json": f'{{"name":"{name}"}}\n'.encode(),
         f"{name}.s": f"; asm {name}\n".encode(),
-        f"{name}.sbpf-plan": f".program {name}\n".encode(),
+        f"{name}.cpi-bindings.json": f'{{"programName":"{name}"}}\n'.encode(),
         f"{name}.so": b"\x7fELF" + name.encode() + b"\x00",
     }
 
@@ -59,7 +61,7 @@ def _write_fixture(root: Path, name: str) -> None:
     manifest = {
         "schemaVersion": "proof-forge.output.v1",
         "target": "solana",
-        "codegenProfile": "solana-sbpf-elf-v1",
+        "codegenProfile": "solana-sbpf-cpi-elf-v1",
         "artifactProgramName": name,
         "sourceHash": _ZERO,
         "semanticHash": "1" * 64,
@@ -115,8 +117,8 @@ def main() -> None:
         )
 
         _reset(demo, "Demo")
-        (demo / "Demo.sbpf-plan").write_bytes(
-            (other / "Other.sbpf-plan").read_bytes()
+        (demo / "Demo.cpi-plan.json").write_bytes(
+            (other / "Other.cpi-plan.json").read_bytes()
         )
         _expect_failure(
             "cross-fixture plan",
@@ -125,7 +127,7 @@ def main() -> None:
         )
 
         _reset(demo, "Demo")
-        plan = demo / "Demo.sbpf-plan"
+        plan = demo / "Demo.cpi-plan.json"
         original = plan.read_bytes()
         plan.write_bytes(b"x" * len(original))
         _expect_failure(

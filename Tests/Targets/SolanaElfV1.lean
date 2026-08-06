@@ -15,25 +15,14 @@ import ProofForgeV2.Language.Loader
 import Tests.Language.ParserSession
 
 /-!
-# Tests.Targets.SolanaElfV1 — S2a solana-sbpf-elf-v1 profile
+# Tests.Targets.SolanaElfV1 — ADR-0032 U1 sole rail `solana-sbpf-cpi-elf-v1`
 
 Pins:
-* registry membership of legacy `solana-sbpf-elf-v1` plus
-  `solana-sbpf-cpi-elf-v1`, with default still plan-v1
-* profile-scoped requirement-support rows: only cpi profile carries the exact
-  extension row; #125 cpi admits `effect.synchronous-call` and still declines
-  async; both legacy profiles still decline sync/async/extension
-* residual descriptor stays plan-v1 but accepts both opt-in profiles
-* buildFromCapability under elf emits `.s` + plan + IDL; plan profile unchanged
-* `.s` contents match `emitSbpfAsmV1` and are deterministic
-* FinalizeV1 plan profile stays zero-tool
-* FinalizeV1 elf pure helpers + missing-tool path (`PF-TOOLCHAIN-MISSING` via empty PROOF_FORGE_TOOL_ROOT)
-* empty-.so gate without invoking the real assembler
-* #125 active CPI contract digests / admitted package closure / loader-v3 ELF pins
-
-S2b registers locked `sbpf` (sourceBuild). Missing-tool coverage forces an empty tool root
-so the suite stays hermetic without a provisioned binary. Positive e2e `.so` emission is a
-manual/CI provision+materialize path, not this suite.
+* registry sole member + default is cpi-elf; plan/elf shims not members
+* support row only for cpi-elf (sync + extensions; no async)
+* residual descriptor binds cpi-elf only
+* body-only Counter product emit (`.s` / hybrid IR / plan / bindings / ELF finalize path)
+* empty-.so gate; active CPI contract digests / package closure pins
 -/
 
 namespace Tests.Targets.SolanaElfV1
@@ -87,94 +76,73 @@ private def solanaCapability
   let selection ← resolveBuildSelectionV1 TargetId.solana profile?
   Targets.resolveEngineeringRequirementsV1 selection compiled
 
-/-- Registry: cpi/elf/plan are exact members; default is sole-rail cpi-elf. -/
+/-- Registry: sole cpi-elf member; retired plan/elf fail selection. -/
 private def testRegistryMembership : IO Unit := do
   let reg ← liftResult <| registration? TargetId.solana
   let reg ← match reg with
     | some r => pure r
     | none => throw <| IO.userError "solana registration missing"
-  expect (reg.profiles == #[CodegenProfileId.solanaSbpfCpiElfV1,
-      CodegenProfileId.solanaSbpfElfV1, CodegenProfileId.solanaSbpfPlanV1])
-    s!"registry: exact cpi/elf/plan profile order, got {reg.profiles.map (·.toString)}"
+  expect (reg.profiles == #[CodegenProfileId.solanaSbpfCpiElfV1])
+    s!"registry: sole rail cpi-elf only, got {reg.profiles.map (·.toString)}"
   expect (reg.defaultProfile == some CodegenProfileId.solanaSbpfCpiElfV1)
-    "registry: default profile is sole rail solana-sbpf-cpi-elf-v1 (ADR-0032 P4)"
+    "registry: default is solana-sbpf-cpi-elf-v1"
   expect (!(ProofForgeV2.Targets.BuildSelectionV1.reservedFutureProfiles.contains
       "solana-sbpf-cpi-elf-v1"))
-    "registry: solana-sbpf-cpi-elf-v1 is an opt-in registered product member"
-  expect (!(ProofForgeV2.Targets.BuildSelectionV1.reservedFutureProfiles.contains
-      "solana-sbpf-elf-v1"))
-    "registry: solana-sbpf-elf-v1 is no longer reserved"
-  expect (ProofForgeV2.Targets.BuildSelectionV1.reservedFutureProfiles.contains
-      "noir-acir-proof-v1")
-    "registry: noir-acir-proof-v1 remains reserved"
+    "registry: cpi-elf is a registered product member"
   let defaultSel ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
   expect (defaultSel.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
-    "resolve: default selection is plan profile"
+    "resolve: default selection is sole rail"
   let cpiSel ← liftResult <|
     resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfCpiElfV1)
   expect (cpiSel.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
-    "resolve: explicit inert cpi selection"
-  let elfSel ← liftResult <|
-    resolveBuildSelectionV1 TargetId.solana (some CodegenProfileId.solanaSbpfElfV1)
-  expect (elfSel.codegenProfile == CodegenProfileId.solanaSbpfElfV1)
-    "resolve: explicit elf selection"
+    "resolve: explicit cpi selection"
+  -- Retired shims are not registry members.
+  expectCompileErrorContains "retired elf shim" "PF-" ""
+    (resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfElfV1))
+  expectCompileErrorContains "retired plan shim" "PF-" ""
+    (resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfPlanV1))
 
-/-- Profile-scoped extension support; descriptor residual stays plan. -/
+/-- Sole-rail support row + descriptor. -/
 private def testSupportAndDescriptor : IO Unit := do
   let rows ← liftResult productSupportRowsV1
   let cpiRow ← match rows.find? (fun r =>
       r.targetId == TargetId.solana &&
         r.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1) with
     | some r => pure r
-    | none => throw <| IO.userError "missing inert solana cpi support row"
-  let elfRow ← match rows.find? (fun r =>
+    | none => throw <| IO.userError "missing solana cpi support row"
+  expect (rows.find? (fun r =>
       r.targetId == TargetId.solana &&
-        r.codegenProfile == CodegenProfileId.solanaSbpfElfV1) with
-    | some r => pure r
-    | none => throw <| IO.userError "missing solana elf support row"
-  let planRow ← match rows.find? (fun r =>
+        r.codegenProfile == CodegenProfileId.solanaSbpfElfV1)).isNone
+    "support: retired elf row must be absent"
+  expect (rows.find? (fun r =>
       r.targetId == TargetId.solana &&
-        r.codegenProfile == CodegenProfileId.solanaSbpfPlanV1) with
-    | some r => pure r
-    | none => throw <| IO.userError "missing solana plan support row"
-  expect (elfRow.supported.map (·.id) == planRow.supported.map (·.id))
-    "support: legacy elf and plan retain the exact S2 id list"
-  let legacyIds := planRow.supported.map (·.id)
-  expect (legacyIds.size == 5 &&
-      !legacyIds.contains "effect.synchronous-call" &&
-      !legacyIds.contains "effect.asynchronous-workflow" &&
-      !legacyIds.contains "extension.solana-cpi-accounts")
-    "support: legacy profiles decline call/schedule and the opt-in extension"
+        r.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)).isNone
+    "support: retired plan row must be absent"
   let cpiIds := cpiRow.supported.map (·.id)
-  -- #125 + ADR-0029 B1: CPI admits exact sync + both extensions
-  -- (solana-cpi-accounts and pf-assets); still declines async.
   expect (cpiIds.size == 8 &&
       cpiIds.contains "effect.synchronous-call" &&
       cpiIds.contains "extension.pf-assets" &&
+      cpiIds.contains "extension.solana-cpi-accounts" &&
       !cpiIds.contains "effect.asynchronous-workflow")
-    "support: cpi profile admits sync and declines async"
+    "support: sole rail admits sync+extensions and declines async"
   let expectedExtension ← match
       ProofForgeV2.Semantic.WireV1.solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError s!"extension row: {error}"
   expect (cpiRow.supported.filter (·.id == "extension.solana-cpi-accounts") ==
       #[expectedExtension])
-    "support: cpi profile carries one exact extension row"
-  expect (!(elfRow.supported.any (·.id == "extension.solana-cpi-accounts")) &&
-      !(planRow.supported.any (·.id == "extension.solana-cpi-accounts")))
-    "support: extension row must be scoped to the cpi profile"
-  expect (!(elfRow.supported.any (·.id == "effect.synchronous-call")) &&
-      !(planRow.supported.any (·.id == "effect.synchronous-call")))
-    "support: legacy profiles still decline sync"
+    "support: exact solana-cpi-accounts row"
   let desc := Targets.Solana.descriptor
   expect (desc.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
-    "descriptor: residual binds sole-rail cpi-elf profile"
+    "descriptor: residual binds sole-rail cpi-elf"
   expect (acceptsCodegenProfile desc CodegenProfileId.solanaSbpfCpiElfV1)
-    "descriptor: accepts cpi-elf default"
-  expect (acceptsCodegenProfile desc CodegenProfileId.solanaSbpfPlanV1)
-    "descriptor: accepts plan shim"
-  expect (acceptsCodegenProfile desc CodegenProfileId.solanaSbpfElfV1)
-    "descriptor: accepts elf shim"
+    "descriptor: accepts cpi-elf"
+  expect (!acceptsCodegenProfile desc CodegenProfileId.solanaSbpfPlanV1)
+    "descriptor: rejects retired plan shim"
+  expect (!acceptsCodegenProfile desc CodegenProfileId.solanaSbpfElfV1)
+    "descriptor: rejects retired elf shim"
   expect (!acceptsCodegenProfile desc CodegenProfileId.evmYulSolc0834V1)
     "descriptor: rejects foreign profile"
 
@@ -270,94 +238,46 @@ private def testActiveCpiContract : IO Unit := do
       "d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519")
     "ata elf sha256"
 
-/-- buildFromCapability: plan shim / elf shim / cpi sole-rail emit surfaces. -/
+/-- Sole-rail body-only Counter emit + materialize. -/
 private unsafe def testEmitProfiles
     (session : Language.Loader.ParserSession) : IO Unit := do
   let compiled ← compileSource session counterSourceText counterModuleNameV1
     "<solana-elf-emit>"
-  -- Plan shim regression (explicit profile; default is sole-rail cpi-elf)
-  let planCap ← liftResult <|
-    solanaCapability compiled (some CodegenProfileId.solanaSbpfPlanV1)
-  let planFiles ← liftResult <| buildFromCapability planCap
-  let planPaths := planFiles.map (·.path)
-  expect (planPaths.any (· == "Counter.sbpf-plan")) "plan emit: .sbpf-plan"
-  expect (planPaths.any (· == "Counter.idl.json")) "plan emit: idl"
-  expect (!planPaths.any (fun p => p.endsWith ".s"))
-    "plan emit: must not publish .s"
-  let planIdl ← match planFiles.find? (·.path == "Counter.idl.json") with
-    | some f => pure f.contents
-    | none => throw <| IO.userError "plan emit: missing idl"
-  expect (planIdl.contains "\"codegenProfile\": \"solana-sbpf-plan-v1\"")
-    "plan idl: codegen profile is plan"
-  expect (planIdl.contains "\"deployable\": false")
-    "plan idl: non-deployable"
-  -- Elf profile
-  let elfCap ← liftResult <|
-    solanaCapability compiled (some CodegenProfileId.solanaSbpfElfV1)
-  expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf elfCap ==
-      CodegenProfileId.solanaSbpfElfV1)
-    "elf capability profile"
-  let elfFiles ← liftResult <| buildFromCapability elfCap
-  let elfPaths := elfFiles.map (·.path)
-  expect (elfPaths.any (· == "Counter.sbpf-plan")) "elf emit: .sbpf-plan"
-  expect (elfPaths.any (· == "Counter.idl.json")) "elf emit: idl"
-  expect (elfPaths.any (· == "Counter.s")) "elf emit: .s"
-  let elfIdl ← match elfFiles.find? (·.path == "Counter.idl.json") with
-    | some f => pure f.contents
-    | none => throw <| IO.userError "elf emit: missing idl"
-  expect (elfIdl.contains "\"codegenProfile\": \"solana-sbpf-elf-v1\"")
-    "elf idl: codegen profile is elf"
-  expect (elfIdl.contains "\"deployable\": true")
-    "elf idl: deployable"
-  let asmFromFiles ← match elfFiles.find? (·.path == "Counter.s") with
-    | some f => pure f.contents
-    | none => throw <| IO.userError "elf emit: missing .s file"
-  let irCarrier ← liftResult <| irFromCapability elfCap
-  let ir ← match irCarrier with
-    | .legacy ir => pure ir
-    | .cpi _ => throw <| IO.userError "elf emit: expected legacy IR carrier"
-  let asmDirect ← liftResult <| emitSbpfAsmV1 ir
-  expect (asmFromFiles == asmDirect)
-    "elf emit: .s contents equal emitSbpfAsmV1"
-  expect (asmFromFiles.contains ".globl entrypoint")
-    "elf emit: assembly golden fragment"
-  expect (asmFromFiles.contains "entrypoint:")
-    "elf emit: entrypoint label"
-  let asm2 ← liftResult <| emitSbpfAsmV1 ir
-  expect (asmFromFiles == asm2) "elf emit: deterministic"
-  -- Aggregate materialize under elf also binds profile and ships .s
-  let artifacts ← liftResult <| Targets.materializeResult elfCap
-  expect (MaterializedArtifactsV1.codegenProfileIdOf artifacts ==
-      CodegenProfileId.solanaSbpfElfV1)
-    "materialize: carrier profile is elf"
-  let matPaths := (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
-  expect (matPaths.any (· == "Counter.s")) "materialize: includes .s"
-
-  -- ADR-0032 U1 P4: Counter body-only mints on sole rail cpi-elf
-  -- (zero sites → full-body hybrid, not escrow product IR).
-  let cpiCap ← liftResult <|
-    solanaCapability compiled (some CodegenProfileId.solanaSbpfCpiElfV1)
+  let cpiCap ← liftResult <| solanaCapability compiled none
   expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf cpiCap ==
       CodegenProfileId.solanaSbpfCpiElfV1)
-    "cpi capability binds the sole-rail profile"
+    "default capability is sole rail"
   match planFromCapability cpiCap with
   | .ok (.cpi plan) =>
       let cand := SolanaCpiProductPlanV1.candidateOf plan
       expect (cand.cpiSites.isEmpty) "cpi plan: body-only zero sites"
   | .ok (.legacy _) =>
-      throw <| IO.userError "cpi plan: must not enter legacy Plan for cpi profile"
+      throw <| IO.userError "cpi plan: must not mint legacy Plan on sole rail"
   | .error error =>
       throw <| IO.userError s!"cpi plan: body-only must mint, got {error.render}"
   let cpiFiles ← liftResult <| buildFromCapability cpiCap
   let cpiPaths := cpiFiles.map (·.path)
-  expect (cpiPaths.any (· == "Counter.s")) "cpi body-only emit: .s"
-  expect (cpiPaths.any (· == "Counter.cpi-ir.json")) "cpi body-only emit: hybrid ir"
-  expect (cpiPaths.any (· == "Counter.cpi-plan.json")) "cpi body-only emit: plan"
+  expect (cpiPaths.any (· == "Counter.s")) "emit: .s"
+  expect (cpiPaths.any (· == "Counter.cpi-ir.json")) "emit: hybrid ir"
+  expect (cpiPaths.any (· == "Counter.cpi-plan.json")) "emit: plan"
+  expect (cpiPaths.any (· == "Counter.idl.json")) "emit: idl"
+  expect (cpiPaths.any (· == "Counter.cpi-bindings.json")) "emit: bindings"
+  let asmFromFiles ← match cpiFiles.find? (·.path == "Counter.s") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "emit: missing .s"
+  expect (asmFromFiles.contains ".globl entrypoint") "asm: entrypoint export"
+  expect (asmFromFiles.contains "entrypoint:") "asm: entrypoint label"
   let cpiArtifacts ← liftResult <| Targets.materializeResult cpiCap
   expect (MaterializedArtifactsV1.codegenProfileIdOf cpiArtifacts ==
       CodegenProfileId.solanaSbpfCpiElfV1)
-    "cpi materialize: carrier profile is cpi-elf"
+    "materialize: carrier is cpi-elf"
+  -- Retired shims cannot resolve capability.
+  expectCompileErrorContains "retired plan capability" "PF-" ""
+    (solanaCapability compiled (some CodegenProfileId.solanaSbpfPlanV1))
+  expectCompileErrorContains "retired elf capability" "PF-" ""
+    (solanaCapability compiled (some CodegenProfileId.solanaSbpfElfV1))
 
+/-- Extension-only without ExternalCall still body-only mints (no sites). -/
 private unsafe def testExtensionProfileResolution
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source :=
@@ -372,19 +292,14 @@ private unsafe def testExtensionProfileResolution
     "<solana-cpi-declared>"
   let cpiCap ← liftResult <|
     solanaCapability compiled (some CodegenProfileId.solanaSbpfCpiElfV1)
-  -- Extension-only program still has no ExternalCall sites → product path FC.
-  expectCompileErrorContains "declared cpi materialize" "PF-" ""
+  -- Extension without sync still fails product capability refine
+  -- (solana.cpi.accounts alone without sync stays FC).
+  expectCompileErrorContains "declared extension without sync" "PF-" ""
     (Targets.materializeResult cpiCap)
-  for legacy in #[CodegenProfileId.solanaSbpfElfV1,
-      CodegenProfileId.solanaSbpfPlanV1] do
-    expectCompileErrorContains s!"declared extension on {legacy}"
-      "PF-REQ-UNSUPPORTED" "extension.solana-cpi-accounts"
-      (solanaCapability compiled (some legacy))
 
-/-- Finalize pure helpers + plan stub regression + missing-tool path. -/
+/-- Finalize helpers + sole-rail missing-staging path. -/
 private unsafe def testFinalize
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Pure path helpers
   let root := FilePath.mk "/tmp/pf-solana-elf-project"
   expect (Targets.Solana.FinalizeV1.projectAsmPathV1 root "Counter" ==
       root / "src" / "Counter" / "Counter.s")
@@ -392,59 +307,18 @@ private unsafe def testFinalize
   expect (Targets.Solana.FinalizeV1.deploySoPathV1 root "Counter" ==
       root / "deploy" / "Counter.so")
     "finalize helper: deploy so path"
-  -- Empty .so gate
   expectIoErrorContains "empty so" "PF-ARTIFACT-NONDEPLOYABLE" do
     Targets.Solana.FinalizeV1.requireNonemptySbpfElf (ByteArray.mk #[])
   Targets.Solana.FinalizeV1.requireNonemptySbpfElf (ByteArray.mk #[0x7f, 0x45])
-  -- Plan shim: zero-tool stub unchanged (explicit profile; default is cpi-elf)
   let compiled ← compileSource session counterSourceText counterModuleNameV1
-    "<solana-elf-finalize-plan>"
-  let planCap ← liftResult <|
-    solanaCapability compiled (some CodegenProfileId.solanaSbpfPlanV1)
-  let planArtifacts ← liftResult <| Targets.materializeResult planCap
+    "<solana-elf-finalize-cpi>"
+  let cpiCap ← liftResult <| solanaCapability compiled none
+  let cpiArtifacts ← liftResult <| Targets.materializeResult cpiCap
   IO.FS.withTempDir fun staging => do
-    let draft ← Targets.Solana.FinalizeV1.finalize planCap planArtifacts staging
-    expect (draft.deployable == false) "plan finalize: not deployable"
-    expect (draft.extraFiles.isEmpty) "plan finalize: no extras"
-    expect (draft.evidenceNote.contains "non-executable")
-      "plan finalize: non-executable note"
-  -- Elf profile: missing locked tool → PF-TOOLCHAIN-MISSING (no S2b lock yet).
-  -- Also covers missing staging .s before resolve is attempted when we stage empty.
-  let elfCap ← liftResult <|
-    solanaCapability compiled (some CodegenProfileId.solanaSbpfElfV1)
-  let elfArtifacts ← liftResult <| Targets.materializeResult elfCap
-  IO.FS.withTempDir fun staging => do
-    -- No .s staged → fail closed before or independent of tool resolve
-    expectIoErrorContains "missing staging asm" "PF-ARTIFACT-NONDEPLOYABLE" do
-      let _ ← Targets.Solana.FinalizeV1.finalize elfCap elfArtifacts staging
+    -- Empty staging: product finalize requires recomputed base files on disk.
+    expectIoErrorContains "missing staging product base" "PF-ARTIFACT-NONDEPLOYABLE" do
+      let _ ← Targets.Solana.FinalizeV1.finalize cpiCap cpiArtifacts staging
       pure ()
-  IO.FS.withTempDir fun staging => do
-    -- Stage a minimal .s so finalize reaches resolve "sbpf"
-    let asm ← match (MaterializedArtifactsV1.filesOf elfArtifacts).find?
-        (·.path == "Counter.s") with
-      | some f => pure f.contents
-      | none => throw <| IO.userError "elf artifacts missing Counter.s"
-    IO.FS.writeFile (staging / "Counter.s") asm
-    -- S2b registers sbpf in the lock. Lean has no process-global setEnv; when the
-    -- host has not yet materialized `sbpf` under PROOF_FORGE_TOOL_ROOT / default
-    -- cache, resolve fails closed with PF-TOOLCHAIN-MISSING. When a provisioned
-    -- binary is present, skip this negative (positive .so e2e is outside this suite).
-    let toolRoot? ← IO.getEnv "PROOF_FORGE_TOOL_ROOT"
-    let candidate ← match toolRoot? with
-      | some root => pure (FilePath.mk root / "sbpf")
-      | none =>
-          match ← IO.getEnv "HOME" with
-          | some home =>
-              pure (FilePath.mk home / ".cache" / "proof-forge-v2" / "tool-root" /
-                (if System.Platform.isOSX then "darwin-arm64" else "linux-x86_64") /
-                "sbpf")
-          | none => pure (FilePath.mk "/nonexistent-sbpf")
-    if ← candidate.pathExists then
-      pure ()
-    else
-      expectIoErrorContains "missing sbpf tool" "PF-TOOLCHAIN-MISSING" do
-        let _ ← Targets.Solana.FinalizeV1.finalize elfCap elfArtifacts staging
-        pure ()
 
 unsafe def run : IO Unit := do
   testRegistryMembership

@@ -27,11 +27,14 @@ from validate_artifacts import (  # noqa: E402
     verify_evidence_sha256,
 )
 
-_EXPECTED_PROFILE = "solana-sbpf-elf-v1"
+# ADR-0032 U1 sole rail (plan/elf shims removed).
+_EXPECTED_PROFILE = "solana-sbpf-cpi-elf-v1"
 _EXPECTED_LEAVES = {
+    ".cpi-plan.json": "materialized-base",
+    ".cpi-ir.json": "materialized-base",
     ".idl.json": "materialized-base",
     ".s": "materialized-base",
-    ".sbpf-plan": "materialized-base",
+    ".cpi-bindings.json": "materialized-base",
     ".so": "finalized-extra",
 }
 
