@@ -1,32 +1,31 @@
 /-
   Tests.Materialization.EvmCorpusBlockedV1 — EVMOZ-005 Ownable/context.caller
-  executable blocked case (class=`blocked`); EVMOZ-006 registers + pin locks.
+  (ADR-0031 S1 / ADR-0030 E3 EVM leg: plan OPEN for context.caller).
 
   Authority:
     * fixture `testdata/evm-corpus/v1/programs/OwnableLike.lean`
-    * case `testdata/evm-corpus/v1/cases/oz.f01.ownable.onlyowner.blocked.v1.json`
-      (bytes bound by `testdata/evm-corpus/v1/manifest.json`)
     * product Loader → Normalize → Semantic/Reference → EVM planFromCapability
 
   Proves:
     1. Loader/Typed/Normalize succeed on the honest Ownable-like fixture
-    2. Exact case pins: pfCommit baseline, Darwin ToolLockV4Digest, and
-       Loader/Normalize `sourceHash`/`semanticHash` (no EVM caller lowering)
+    2. Exact Loader/Normalize `sourceHash`/`semanticHash` pins
     3. Semantic retains caller ContextRead + exact `context.caller` requirement
     4. Reference with ADR-0025 canonical `u32le(20)||address20` context:
        authorized mutation succeeds; unauthorized assert rolls back pre-state
-    5. EVM capability resolve succeeds; plan fails with typed
-       `.planInvariant .evm` whose reason contains `ContextRead` + `caller`
-       (before Finalize/ToolLock/Anvil/artifact mint)
-    6. Forbidden early failures (toolchain-mismatch / parse-error /
-       unrelated-type-error / missing-tool) do not satisfy the blocked matcher
+    5. EVM capability resolve + plan admit: OwnableLike lowers with
+       `callerPrincipalWord` leaves and Yul `caller()` (ADR-0025 encoding)
+    6. Historical blocked matcher (ContextRead+caller planInvariant) no longer
+       fires on OwnableLike; unrelated planInvariant/toolchain errors still
+       do not look like the retired blocked reason
 
-  Non-claims: no OZ/ABI/family credit; F01 remains Blocked; not formal D2/D4;
-  no Anvil; no artifact mint; no new EVM caller lowering.
+  Non-claims: no OZ/ABI/family credit (F01 OZ observation credit still not
+  claimed); not formal D2/D4; no Anvil in this suite (Anvil leg is
+  `scripts/evm_caller_anvil_smoke.sh`).
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Language.Loader
+import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.ReferenceV1
@@ -67,6 +66,12 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
 
+private def materializeSelected (target : TargetId) (compiled : CompiledSemanticV1) :
+    CompileResult MaterializedArtifactsV1 := do
+  let selection ← resolveBuildSelectionV1 target none
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.materializeResult capability
+
 private def digestHex (d : Digest) : IO String :=
   match renderDigest d with
   | .ok s =>
@@ -75,17 +80,11 @@ private def digestHex (d : Digest) : IO String :=
       | none => pure s
   | .error e => throw <| IO.userError e
 
-/-- Case identity pins (hardcoded; case bytes bound by corpus manifest). -/
-private def expectedCaseId : String := "oz.f01.ownable.onlyowner.blocked.v1"
-private def expectedPfCommit : String :=
-  "23798ce65e559134adb0a9dd3504fc2f7e9669b6"
-private def expectedToolLockDigest : String :=
-  "26c269f80aa300902f2ab61e2ca65e4d38e88db89ccdf9a38aa80144e8db635b"
+/-- Fixture identity pins (Loader/Normalize; independent of retired blocked case). -/
 private def expectedSourceHash : String :=
   "1056bb66a65115bdbbd38655c85e53b5f9abe84a7a13ada2b7f3bed4d2b9db64"
 private def expectedSemanticHash : String :=
   "4874d5f6e5b589a26f3175920fee6aa06d59009be8d8c38a45bdc3bd8c14dd75"
-private def expectedProfile : String := "evm-yul-solc-0.8.34-cancun-v1"
 
 /-- Corpus fixture path (project-relative; sole Ownable-like authority). -/
 private def ownableSourcePath : FilePath :=
@@ -93,9 +92,6 @@ private def ownableSourcePath : FilePath :=
 
 private def ownableLogicalPath : String :=
   "testdata/evm-corpus/v1/programs/OwnableLike.lean"
-
-private def ownableCasePath : FilePath :=
-  FilePath.mk "testdata/evm-corpus/v1/cases/oz.f01.ownable.onlyowner.blocked.v1.json"
 
 private def ownableModule : String := "Tests.EvmCorpus.OwnableLike"
 
@@ -188,8 +184,9 @@ private def expectRevertedStandard
       throw <| IO.userError
         s!"{label}: expected standard revert, got trapped {repr fault}"
 
-/-- Blocked-case matcher: typed `.planInvariant .evm` with ContextRead + caller. -/
-private def matchesBlockedCallerPlanInvariant (error : CompileError) : Bool :=
+/-- Retired blocked-case matcher (pre-S1): typed `.planInvariant .evm` with
+    ContextRead + caller. Kept only to prove OwnableLike no longer matches. -/
+private def matchesRetiredCallerPlanInvariant (error : CompileError) : Bool :=
   match error with
   | .planInvariant .evm msg =>
       containsSubstr msg "ContextRead" && containsSubstr msg "caller"
@@ -200,40 +197,19 @@ private def planEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Evm.planFromCapability capability
 
-/-- Case file embeds exact pin surface (bytes also closed by corpus manifest). -/
-private def testOwnableCasePinSurface : IO Unit := do
-  unless ← ownableCasePath.pathExists do
-    throw <| IO.userError s!"missing Ownable blocked case at {ownableCasePath}"
-  let text ← IO.FS.readFile ownableCasePath
-  expect (containsSubstr text expectedCaseId)
-    "blocked case must embed exact case id"
-  expect (containsSubstr text "\"class\":\"blocked\"")
-    "blocked case must declare class=blocked"
-  expect (containsSubstr text expectedPfCommit)
-    "blocked case must pin frozen compiler baseline pfCommit"
-  expect (containsSubstr text expectedToolLockDigest)
-    "blocked case must pin Darwin ToolLockV4Digest (not raw lock SHA)"
-  expect (containsSubstr text expectedSourceHash)
-    "blocked case must pin real Loader sourceHash"
-  expect (containsSubstr text expectedSemanticHash)
-    "blocked case must pin real Normalize semanticHash"
-  expect (containsSubstr text expectedProfile)
-    "blocked case must pin Cancun profile id"
-  expect (containsSubstr text "\"hardfork\":\"cancun\"")
-    "blocked case must pin exact hardfork field (not only profile substring)"
-  expect (containsSubstr text "\"runner\":\"lean-focused\"")
-    "blocked case runner must be lean-focused"
-  expect (containsSubstr text "\"phase\":\"plan\"")
-    "blocked body phase must be plan"
-  expect (containsSubstr text "ContextRead")
-    "blocked diagnosticPatterns must include ContextRead"
-  -- Placeholders from pre-EVMOZ-006 draft must not remain.
-  expect (!containsSubstr text "0000000000000000000000000000000000000001")
-    "blocked case must not retain placeholder pfCommit"
-  expect (!containsSubstr text "0000000000000000000000000000000000000000000000000000000000000001")
-    "blocked case must not retain placeholder sourceHash"
-  expect (!containsSubstr text "0000000000000000000000000000000000000000000000000000000000000003")
-    "blocked case must not retain placeholder toolLockDigest"
+/-- Fixture surface: OwnableLike must keep honest caller-based only-owner. -/
+private def testOwnableFixtureSurface : IO Unit := do
+  unless ← ownableSourcePath.pathExists do
+    throw <| IO.userError s!"missing OwnableLike fixture at {ownableSourcePath}"
+  let text ← IO.FS.readFile ownableSourcePath
+  expect (containsSubstr text "program OwnableLike where")
+    "OwnableLike fixture must declare program OwnableLike"
+  expect (containsSubstr text "context.caller")
+    "OwnableLike fixture must use context.caller (no external caller spoof)"
+  expect (containsSubstr text "state owner : Principal")
+    "OwnableLike fixture must store Principal owner"
+  expect (containsSubstr text "assert context.caller == owner")
+    "OwnableLike fixture must enforce only-owner via byte-exact identity compare"
 
 /-- Product path: Loader → compile → Semantic has caller ContextRead + requirement.
     Exact sourceHash/semanticHash pins must match case/manifest authority. -/
@@ -354,52 +330,63 @@ private unsafe def testOwnableReferenceAuthorizedUnauthorized
   expectReturned "ownable-ref-view" viewed ownedSeven (some seven)
   pure ()
 
-/-- EVM Plan fails closed at planInvariant before Finalize/ToolLock/artifacts. -/
-private unsafe def testEvmPlanBlockedCaller
+/-- ADR-0031 S1: EVM Plan admits OwnableLike context.caller (ADR-0025 encoding). -/
+private unsafe def testEvmPlanAdmitsCaller
     (compiled : CompiledSemanticV1) : IO Unit := do
   -- Capability resolve must succeed (context.caller is wire-owned binder).
   let selection ← liftResult "selection" <| resolveBuildSelectionV1 TargetId.evm none
   let capability ← liftResult "capability" <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
-  -- Plan must fail closed with typed .planInvariant .evm ContextRead+caller.
-  match Targets.Evm.planFromCapability capability with
-  | .error e =>
-      expect (matchesBlockedCallerPlanInvariant e)
-        s!"OwnableLike EVM plan must be planInvariant .evm citing ContextRead+caller, got {e.render}"
-      -- Bounded reason surface also appears in CompileError.message.
-      expect (containsSubstr e.message "ContextRead")
-        s!"blocked reason must contain ContextRead, got {e.message}"
-      expect (containsSubstr e.message "caller")
-        s!"blocked reason must contain caller, got {e.message}"
-      expect (e.code == "PF-PLAN-INVARIANT")
-        s!"blocked code must be PF-PLAN-INVARIANT, got {e.code}"
-  | .ok _ =>
-      throw <| IO.userError
-        "OwnableLike must not produce an EVM plan while ContextRead caller is fail-closed"
-  -- Convenience wrapper matches the same failure (no artifact path).
-  match planEvm compiled with
-  | .error e =>
-      expect (matchesBlockedCallerPlanInvariant e)
-        s!"planEvm must mirror planFromCapability blocked matcher, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError "planEvm must not produce a plan"
+  let plan ← match Targets.Evm.planFromCapability capability with
+    | .ok p => pure p
+    | .error e =>
+        throw <| IO.userError
+          s!"OwnableLike EVM plan must admit context.caller (ADR-0031 S1), got {e.render}"
+  -- Constructor stores owner from caller (9 Principal leaves).
+  match plan.constructor with
+  | none => throw <| IO.userError "OwnableLike must retain initializer"
+  | some ctor =>
+      expect (ctor.stores.size == 9 ||
+          ctor.body.any fun s =>
+            match s with
+            | .storeAtomic ops => ops.size == 9
+            | _ => false)
+        "OwnableLike init must store 9 Principal owner leaves from context.caller"
+  -- setValue entry must exist and assert caller==owner.
+  expect (plan.entries.any fun e => e.name == "setValue")
+    "OwnableLike must retain setValue entry"
+  -- Convenience wrapper admits the same plan.
+  let plan2 ← liftResult "planEvm OwnableLike" <| planEvm compiled
+  expect (plan2.objectName == plan.objectName)
+    "planEvm must mirror planFromCapability object name"
+  -- Yul must emit CALLER opcode (view-safe).
+  let output ← liftResult "materialize OwnableLike" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "OwnableLike.yul") |
+    throw <| IO.userError "OwnableLike: missing OwnableLike.yul"
+  expect (yulFile.contents.contains "caller()")
+    "OwnableLike Yul must contain the caller() opcode (ADR-0025)"
+  -- Retired blocked matcher must not fire on the admitted plan path.
+  expect (!matchesRetiredCallerPlanInvariant
+      (.planInvariant .evm "storage layout overflow"))
+    "unrelated planInvariant must not match retired caller matcher"
 
-/-- Forbidden early failures must not satisfy the blocked matcher. -/
+/-- Unrelated failures must not look like the retired ContextRead+caller block. -/
 private unsafe def testForbiddenEarlyFailuresDoNotMatch
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Synthetic CompileError constructors that must never count as the blocked case.
-  expect (!matchesBlockedCallerPlanInvariant
+  expect (!matchesRetiredCallerPlanInvariant
       (.toolchainMismatch "solc" "0.8.34" "0.8.0"))
-    "toolchain-mismatch must not satisfy blocked matcher"
-  expect (!matchesBlockedCallerPlanInvariant (.toolchainMissing "solc"))
-    "missing-tool must not satisfy blocked matcher"
-  expect (!matchesBlockedCallerPlanInvariant
+    "toolchain-mismatch must not satisfy retired caller matcher"
+  expect (!matchesRetiredCallerPlanInvariant (.toolchainMissing "solc"))
+    "missing-tool must not satisfy retired caller matcher"
+  expect (!matchesRetiredCallerPlanInvariant
       (.invalidProgram "type mismatch: expected Bool, got UInt64"))
-    "unrelated-type-error must not satisfy blocked matcher"
-  expect (!matchesBlockedCallerPlanInvariant
+    "unrelated-type-error must not satisfy retired caller matcher"
+  expect (!matchesRetiredCallerPlanInvariant
       (.planInvariant .evm "storage layout overflow"))
     "unrelated planInvariant without ContextRead+caller must not match"
-  expect (!matchesBlockedCallerPlanInvariant
+  expect (!matchesRetiredCallerPlanInvariant
       (.planInvariant .solana "ContextRead (context.caller) is not admitted"))
     "non-evm planInvariant must not match (target must be .evm)"
   -- Live parse-error: malformed source fails Loader, never reaches planInvariant.
@@ -441,20 +428,16 @@ private unsafe def testForbiddenEarlyFailuresDoNotMatch
           throw <| IO.userError
             "type-bad must fail compile (assert non-Bool), not succeed"
       | .error e =>
-          expect (!matchesBlockedCallerPlanInvariant e)
-            s!"unrelated type/compile error must not satisfy blocked matcher, got {e.render}"
-          expect (e.code != "PF-PLAN-INVARIANT" ||
-              !(containsSubstr e.message "ContextRead" &&
-                containsSubstr e.message "caller"))
-            s!"type-bad must not be the ContextRead/caller planInvariant, got {e.render}"
+          expect (!matchesRetiredCallerPlanInvariant e)
+            s!"unrelated type/compile error must not satisfy retired matcher, got {e.render}"
 
 /-- Suite entry (registered under EVMOZ-006 in Fast / Targets / aggregate). -/
 unsafe def run : IO Unit := do
-  testOwnableCasePinSurface
+  testOwnableFixtureSurface
   let session ← Tests.Language.ParserSession.shared
   let compiled ← testOwnableNormalizeSemantic session
   testOwnableReferenceAuthorizedUnauthorized compiled
-  testEvmPlanBlockedCaller compiled
+  testEvmPlanAdmitsCaller compiled
   testForbiddenEarlyFailuresDoNotMatch session
   IO.println "Tests.Materialization.EvmCorpusBlockedV1: ok"
 

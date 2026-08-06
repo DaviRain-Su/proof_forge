@@ -241,6 +241,19 @@ ensure_build() {
 ensure_build Examples/Counter.lean Examples.Counter evm Counter.bin
 ensure_build Examples/Accumulator.lean Examples.Accumulator evm-accumulator Accumulator.bin
 
+# OwnableLike corpus case (pf.primitive.ownablelike.caller-admit.v1): committed
+# fixture; hard-required so the anvil-matrix case closure has its pf-anvil leg.
+ownable_src="testdata/evm-corpus/v1/programs/OwnableLike.lean"
+if [[ ! -f "$root/$ownable_src" ]]; then
+  echo "evm-anvil-differential: missing committed OwnableLike fixture $ownable_src" >&2
+  exit 1
+fi
+ensure_build "$ownable_src" Tests.EvmCorpus.OwnableLike evm-ownablelike OwnableLike.bin \
+  || {
+    echo "evm-anvil-differential: OwnableLike build failed (hard — corpus case requires its anvil leg)" >&2
+    exit 1
+  }
+
 # Optional but expected when testdata is present (target-smoke parity).
 if [[ -f "$root/testdata/valid/ArithOps.lean" ]]; then
   ensure_build testdata/valid/ArithOps.lean ArithOps evm-arithops ArithOps.bin \
@@ -353,6 +366,22 @@ elif [[ -f "$root/scripts/evm_envread_anvil_smoke.sh" ]]; then
   exit 1
 else
   echo "evm-anvil-differential: note: EnvReadJar companion script missing (skip leg)" >&2
+fi
+
+# CallerCheck: ADR-0031 S1 / ADR-0030 E3 context.caller Principal (CALLER →
+# u32le(20)||addr20). Product build/solc failures are hard; tool/script skip
+# is handled inside the companion (exit 0).
+if [[ -x "$root/scripts/evm_caller_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion CallerCheck context.caller smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_caller_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: CallerCheck smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_caller_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: CallerCheck smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: CallerCheck companion script missing (skip leg)" >&2
 fi
 
 echo "evm-anvil-differential: ok (engineering Anvil state differential; not formal C-3)" >&2

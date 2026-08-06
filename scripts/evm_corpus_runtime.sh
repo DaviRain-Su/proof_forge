@@ -4,7 +4,7 @@
 # full phase (default):
 #   1) schema-validate ALL business cases under cases/ (incl. blocked)
 #   2) select runnable set: class∈{primitive,adapter} ∧ runner=anvil-matrix
-#      (exact 4 primitive + 1 adapter; blocked never closed as pass/skip)
+#      (exact 5 primitive + 1 adapter; retired blocked case never closes as pass/skip)
 #   3) Darwin-only ToolLockV4Digest + per-case pin exact join
 #   4) required tools hard-fail; export PROOF_FORGE_CLI to downstream
 #   5) safe OBS root (under build/) then Reference + Anvil + close-case
@@ -64,7 +64,7 @@ echo "evm-corpus-runtime: runnable cases:" >&2
 echo "$runnable_list" | sed 's/^/  /' >&2
 primitive_count="$(echo "$runnable_list" | grep -c '^pf\.primitive\.' || true)"
 adapter_count="$(echo "$runnable_list" | grep -c '^pf\.adapter\.' || true)"
-[[ "$primitive_count" -eq 4 ]] || die "expected 4 primitive runnables, got $primitive_count"
+[[ "$primitive_count" -eq 5 ]] || die "expected 5 primitive runnables, got $primitive_count"
 [[ "$adapter_count" -eq 1 ]] || die "expected 1 adapter runnable, got $adapter_count"
 
 # ---------------------------------------------------------------------------
@@ -172,8 +172,8 @@ while IFS= read -r case_id; do
   fi
 done <<<"$runnable_list"
 
-[[ "$primitive_pass" -eq 4 ]] || \
-  die "expected 4 primitive case pass closures, got $primitive_pass"
+[[ "$primitive_pass" -eq 5 ]] || \
+  die "expected 5 primitive case pass closures, got $primitive_pass"
 [[ "$adapter_closed" -eq 1 ]] || \
   die "expected 1 adapter close (pass or explicit skip), got $adapter_closed"
 

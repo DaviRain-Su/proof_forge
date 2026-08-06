@@ -223,6 +223,14 @@ inductive Expr where
       opcode (0x47) in Yul (`selfbalance()`). Read-only, view/entry-callable,
       effect-free; result is UInt64. -/
   | selfBalance
+  /-- ADR-0031 S1 / ADR-0025 / ADR-0030 E3: one body word of the
+      `context.caller` Principal wire identity assembled from EVM `CALLER`.
+      `wordIndex ∈ 0..7` indexes the 8×UInt64 LE body leaves of
+      `u32le(20)||addr20` (high 12 body bytes zero). Length leaf is the
+      constant `.literal 20` (not this tag). View-safe (`STATICCALL` may
+      read `CALLER`). Does **not** unlock Principal→CALL-target mapping
+      (B-3 PrincipalAddr pin unchanged). -/
+  | callerPrincipalWord (wordIndex : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -3511,24 +3519,38 @@ private def lowerBlockInstructionsV1
           aggregateLeafIsInt := operand.aggregateLeafIsInt
         }
     | .contextRead key, some result =>
-        -- B-CTX-OPEN (EVM): `context.unixTimeSeconds` lowers to the
-        -- `timestamp()` opcode (block-context read, UInt64-typed). This was
-        -- previously deferred pending a PlanSchema Expr tag (now tag 59) and
-        -- an Anvil differential (now present).
-        -- `context.caller` stays fail closed: B-3 PrincipalAddr pins the wire
-        -- Principal ≠ 20-byte address, and a naive `caller()` read would leak
-        -- a 20-byte EVM address into a 32-byte Principal slot.
+        -- B-CTX-OPEN (EVM):
+        --   * `context.unixTimeSeconds` → `timestamp()` (UInt64, tag 59)
+        --   * `context.caller` → Principal aggregate `u32le(20)||addr20`
+        --     from `CALLER` (ADR-0025 sole realization; ADR-0031 S1 /
+        --     ADR-0030 E3). Length leaf is literal 20; body words are
+        --     `callerPrincipalWord i` (tag 61). B-3 PrincipalAddr pin
+        --     remains: this is wire-identity assembly, not Principal→CALL
+        --     target mapping.
         if key == callerContextKeyV1 then
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: ContextRead (context.caller) is not admitted by pilot context policy (B-3 PrincipalAddr pinned fail-closed; caller() address mapping deferred)"
-        unless key == unixTimeSecondsContextKeyV1 do
+          unless types.isPrincipal result.typeId do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: ContextRead context.caller result must be Principal"
+          -- 9-leaf pilot Principal layout: len + 8 LE body words.
+          let mut leaves : Array Expr := #[.literal 20]
+          let mut leafIsInt : Array Bool := #[false]
+          for i in [0:evmPrincipalDataWordCountV1] do
+            leaves := leaves.push (.callerPrincipalWord i)
+            leafIsInt := leafIsInt.push false
+          unless leaves.size == 1 + evmPrincipalDataWordCountV1 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: context.caller Principal leaf count mismatch"
+          let value := mkAggregateValueV1 leaves leafIsInt #[] 1 leaves.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if key == unixTimeSecondsContextKeyV1 then
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: ContextRead unix-time-seconds result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result
+            (mkScalarValueV1 .timestamp #[] false false 64 1 1)
+        else
           throw <| .planInvariant .evm
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
-        unless result.typeId == types.uint64TypeId do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: ContextRead unix-time-seconds result must be UInt64"
-        values := ← appendResultValueV1 result.typeId values result
-          (mkScalarValueV1 .timestamp #[] false false 64 1 1)
     | .externalCall _effectId callee argIds, some result =>
         -- N-CALL-RET/B-CALL-SEM: result-bearing sync call → real CALL +
         -- returndata read (see Statement.externalCallResult). Pilot admits

@@ -3,7 +3,7 @@ id: ADR-0030
 title: pf.assets 词汇扩展波（token 绑定 + balanceOfSelf env-read + AMM 北极星）
 status: proposed
 owner: architecture
-updated: 2026-08-05
+updated: 2026-08-06
 normative: true
 ---
 
@@ -101,8 +101,9 @@ generic dynamic callee 仍 FC；只有 catalog 声明的 token 接口形态允�
 ## E3：`context.caller` Plan 层开放（B-CTX-OPEN 的 pf.assets 承接）
 
 LP 份额/权限需要 caller。编码已冻结（ADR-0025：`u32le(20)||addr20` EVM；各 target
-按各自 identity 长度另决策）。本波只承接 AMM 所需的 entry 内 caller 读取，
-per-target 原子 cutover 纪律不变。
+按各自 identity 长度另决策）。AMM 热路径只依赖 entry caller；若 target 宿主能诚实提供
+view caller（EVM），可按 ADR-0031 view-safety 轴同时开放；NEAR/CW 等无 caller 的 view/query
+必须 fail closed。per-target 原子 cutover 纪律不变。
 
 ## E4：MiniAMM 北极星里程碑
 
@@ -117,7 +118,7 @@ per-target 原子 cutover 纪律不变。
 |---|---|---|---|
 | **E1** | token.transfer 四链绑定（EVM/Solana/CW/NEAR-async） | 无（payload 已含 QN） | **done（2026-08-05）**：E1a EVM / E1b Solana / E1-CW / E1-NEAR(async) 全绑 |
 | **E2** | payload v1.1.0：balanceOfSelf env-read + Reference/Normalize 接线 | E1 可先并行 | **done（2026-08-05/06）**：核心/Reference vault、acceptance cutover（1.1.0 唯一承认）、EVM/Solana/CW 双键、NEAR/Quint native-only（token env-read 永久 FC）、Psy/Aleo/Noir/TON 维持既有 disposition |
-| **E3** | context.caller Plan 开放（per-target 原子 cutover） | 独立（B-CTX-OPEN） | pending |
+| **E3** | context.caller Plan 开放（per-target 原子 cutover） | 独立（B-CTX-OPEN / ADR-0031 S1） | **in_progress**（2026-08-06：EVM CALLER→Principal + Anvil 已交付；Solana/NEAR/CW lanes 进行中） |
 | **E4** | MiniAMM 北极星（EVM+Solana 双链 runtime 门） | E1+E2+E3 | pending |
 
 并行纪律同 ADR-0029：shared payload/Normalize 变更串行于 main；per-target binding

@@ -221,6 +221,10 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   -- ADR-0030 E2-3: SELFBALANCE opcode (tag 60 appended; prior tags
   -- byte-identical).
   | .selfBalance => pure (encodeU8 60)
+  -- ADR-0031 S1 / ADR-0025: one LE body word of context.caller Principal
+  -- (tag 61 appended; prior tags byte-identical). Payload = u32le wordIndex.
+  | .callerPrincipalWord wordIndex =>
+      pure ((encodeU8 61).append (← encodeNatAsU32le wordIndex))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

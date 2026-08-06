@@ -45,6 +45,7 @@ REQUIRED_RUNNER_PATHS = (
     "scripts/evm_tipjar_anvil_smoke.sh",
     "scripts/evm_tokenjar_anvil_smoke.sh",
     "scripts/evm_envread_anvil_smoke.sh",
+    "scripts/evm_caller_anvil_smoke.sh",
     "Tests/Materialization/EvmCorpusPrimitiveV1.lean",
     "Tests/Materialization/EvmCorpusBlockedV1.lean",
 )
@@ -54,7 +55,7 @@ ALLOWED_SOURCE_ROOTS = (
     "testdata/valid/",
     "testdata/evm-corpus/v1/programs/",
 )
-EXPECTED_REFERENCE_OBS_COUNT = 23
+EXPECTED_REFERENCE_OBS_COUNT = 28
 
 MAX_CASE_BYTES = 64 * 1024
 MAX_OBS_BYTES = 256 * 1024
@@ -1421,6 +1422,7 @@ EXPECTED_RUNNABLE_IDS = (
     "pf.primitive.arithops.bitnot-scale.v1",
     "pf.primitive.counter.overflow-hold.v1",
     "pf.primitive.eventflow.emit-cap.v1",
+    "pf.primitive.ownablelike.caller-admit.v1",
 )
 PRIMITIVE_REQUIRED_TOOLS = (
     "anvil",

@@ -13929,3 +13929,28 @@ normative: false
   成功后的 deployment/initcode limit optional skip；runner manifest 已重绑精确 size/hash。
 - 独立静态复审未发现 P0/P1；固定 spill 区仅在当前 emitter 的 low-memory scratch 约定下成立，
   未来引入 free-memory/high-memory payload 时必须重新审计。
+
+## 2026-08-06 — ADR-0031 S1-EVM `context.caller` + Ownable corpus cutover
+
+- EVM target-owned lowering 现接受 exact `.contextRead callerContextKeyV1`，结果必须为
+  `Principal`；Plan Expr append tag 61 `callerPrincipalWord`，validator 只允许 word 0..7。
+  Yul 按 `byte(index, caller())` 从右对齐 CALLER word 的 byte 12..31 组装
+  `u32le(20)||address20`：前三个 LE UInt64 body word 有效，其余 12 body bytes 清零。
+  该 identity read 不把任意 Principal 解码为 CALL target；多字 Principal 直接 return 继续 FC。
+- 新增 `Examples/CallerCheck.lean` 与 profile-aligned `evm_caller_anvil_smoke.sh`；locked
+  Cancun run 验证 entry/view caller match=true、wrong Principal=false。
+- 历史 Ownable blocked business case 已删除并由
+  `pf.primitive.ownablelike.caller-admit.v1` 替代；`OwnableLike` deploy 记录 owner，owner
+  `setValue(42)` 成功，stranger `setValue(7)` revert 且 value 保持 42。Reference/Anvil
+  各 5 observations；corpus 现为 5 primitive + 1 adapter、28 Reference observations、
+  manifest 50 entries / 13 runners。历史测试文件名 `EvmCorpusBlockedV1` 保留，但内容改为
+  source/semantic pin + Reference rollback + Plan/Yul admit。
+- 已执行：`just evm-corpus-schema`、`just evm-corpus-reference`、
+  `just evm-corpus-runtime`（5 primitive pass；Token adapter 因 EIP-3860 explicit skip）、
+  `just docs-check`、`git diff --check`、`just sbom-package-files-refresh`（239 files）、
+  `just dev-check`、`just ci`，均 exit 0。首轮 `just ci` 暴露历史遗留的 EVM/CosmWasm
+  `inspect` requirements anchor 未包含 `extension.pf-assets`；justfile 已同步当前 registry 行，
+  focused `just target-cli-positive` 与第二轮 `just ci` 均通过。
+- 成熟度不变：该结果是 engineering EVM primitive/runtime closure，不是 OZ behavior/ABI、
+  formal C-3/D4、hermetic/release 或 mainnet deployment 证据；F01 仍因无 pinned OZ leg 与
+  标准 address/event/error ABI 保持 Blocked。

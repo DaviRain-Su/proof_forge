@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-04
+updated: 2026-08-06
 normative: false
 ---
 
@@ -256,7 +256,7 @@ D1–D4 = 0/27 done。
 | **NFR-REPEAT** | NFR-001 决定性 repeat gate（连续构建 hash 相同） | NFR | `scripts/nfr_repeat_gate.py` 同机同 binary 连续构建 Counter：Solana 默认 `solana-sbpf-plan-v1` ×2 + Noir 默认 profile ×2；每树独立重验 exact closure/descriptors/evidence，再要求 `manifest.json`/`evidence.json` exact bytes；no-tool mutation self-test；`just nfr-repeat` 进入 ordinary `ci-target-smoke` | **done**（2026-08-03；仅 engineering subset，非 hermetic/clean-room/multi-host/full-target/formal NFR-001/TST） |
 | **DOC-CODE-1** | **T14 Field catalog v2 文档↔代码矛盾** | 文档/代码决策 | commit 30df771f2 声称「Wire ModelV1 扩 bls12377/goldilocks FieldSpec + Aleo/Psy Field 接线」，实际 diff 只有 NEAR/Solana 文件+docs；**代码 catalog 仍 sole bn254**（EnvelopeV1/WireV1）。AGENTS.md 已先行修正为 fail-closed 叙述。需要产品决策：(a) 按 commit message 真做 T14（共享核 Wire 变更）；(b) 把 30df771f2 的 commit message 记录为错误声明并关闭 | **done**（2026-08-02：选 (a) 真做 T14，已由 B-FIELD-CATALOG 闭合；见 T14 lane 0f4d9e294） |
 | **SYS-CAP-SURVEY** | 多链系统能力全景调研（host function / runtime API / 官方链上 program） | 调研 | RPT-020（2026-08-05）：平台分**状态类**（EVM/Solana/NEAR/CW/TON/Soroban/ICP 直接读链）vs **电路类**（Noir/OpenVM/Psy 只能 input/witness/oracle 注入 + 电路约束；混合 Aleo finalize 可读链）；时间戳/区块高度/调用者/自身余额/附加价值/链 ID 六维在状态类平台高度同构；随机数有偏不可靠、质押/治理/IBC 属业务能力，均不宜进 ContextRead；**系统能力分两层**——L1 内建运行时（host/syscall/opcode/stdlib）+ L2 官方链上 program（builtin/system contract/precompile/management canister/链模块），同一能力在不同链形态不同（sha256：EVM precompile vs Solana sol_sha256 vs NEAR host vs TON string_hash），统一抽象=能力与形态解耦 | **done**（2026-08-05 调研落盘：RPT-020 `docs/research/20-host-function-survey.md` + `system-capabilities-evm-solana.md`；RPT-021 `21-system-programs-survey.md` 官方 program 层；research README 已登记） |
-| **SYS-CAP-UNIFY** | 系统能力统一抽象设计（L1 ContextRead/EnvRead catalog 扩键 + L2 官方 program 能力 catalog） | 共享核 + leaf | L1：`context.blockHeight`（6/7 状态类有直接对应物；TON/ICP 无→FC）、`context.chainId`、`context.attachedValue`、`context.signer`（view 限制需作 catalog 轴）——走 E2 同款纪律（wire catalog 加行→Reference 钉测→per-target 物化→无对应物 FC）；L2：把「官方链上 program 作为能力」系统化 catalog——Solana System/Token/Token-2022/ATA/Stake/ComputeBudget/precompiles、EVM precompile/系统合约（EIP-4788 等）、TON elector/config、ICP management canister、Aleo credits.aleo、CW Cosmos 模块；每行 exact catalog + per-target 物化 + 无对应物 FC；**能力与形态解耦**（同一 sha256/ecdsa/ed25519 各链形态不同）；电路类平台统一 FC（除非 Aztec PublicChecks 式 sequencer 闭环，独立设计波） | pending（设计；E1 的 Token/ATA/System 绑定已是 L2 先例） |
+| **SYS-CAP-UNIFY** | 系统能力统一抽象（L1 ContextRead/EnvRead catalog 扩键 + L2 官方 program 能力 catalog） | 共享核 + leaf | ADR-0031 已冻结两层 catalog、view-safety 与 L2 强制等级。L1 依 E2 纪律逐行推进：S1 `context.caller`（EVM `CALLER` 已完成；Solana signer-role / NEAR predecessor / CW MessageInfo lanes 进行中）；S2 `context.blockHeight` shared wire/type/Normalize/Reference 已完成，四 target leaf 待接；S3 chainId、S4 attachedValue、S5 `pf.crypto.sha256` 后续。L2 将 Solana official programs、EVM precompile/系统合约、TON/ICP/Aleo/CW 官方能力逐行 exact catalog + per-target 物化；无对应物与电路锚定值继续 FC | **in_progress**（S0 design done；S1/S2 active；不声称 formal/跨链完整） |
 
 ### 复核结论存档（2026-08-02）
 
@@ -293,9 +293,9 @@ D1–D4 = 0/27 done。
 | **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2；**Map UInt64 dense pilot** cap-8 + Token locked-solc finalization；creation bytecode 超 EIP-3860，chain deployment 未闭合；Option-from-Map 当时仅中间值，后续 BL-31 已开 `Option UInt64` state；EVM/Solana/NEAR/Noir/Aleo Map 横向已开并闭合 aggregate snapshot hazard） |
 | **B-1f** | Noir Map multi-leaf public inputs | Noir/** | **done**（2026-08-02：Map UInt64 cap-8 occ/key/val public-input leaves + IndexGet→Option + IndexSet upsert + Token relations；Array 已开放，Bytes 随 B-1b2 开放 fixed state + literal IndexGet/Set；Option/String state 与 Bytes construct/param/动态索引仍 FC） |
 | **CW-A1** | CosmWasm target-owned Plan/IR/materializer after registry A0 | `Targets/CosmWasm*` + Registry/umbrella/tests/SBOM | **done**（见 §10 **CW-1**：`Registry.materializeResult` 已有 `.cosmwasm` dispatch；Counter 纵切 Plan/IR/WAT+Wasm；sync 拒、async SubMsg 子集见 CW-4；ABI freeze 见 CW-5；非 formal） |
-| **B-3** | Principal/address-bearing 与 EVM/Solana call/schedule | Envelope + EVM/Solana | **done**（2026-08-02：PrincipalAddr 先固定 wire Principal ≠ EVM 20B / Solana 32B pubkey，不做 approximate 映射；后续 AddressBearing 以 static QualifiedName callee 独立开放 EVM/Solana 双键，仍非 dynamic address；该切片当时 Solana 非真实 CPI，后续 B-CALL-SEM 已改为真实 `sol_invoke_signed_c` 发射，但外层 callee account ABI/成功 CPI 仍未闭合）。**ADR-0025 细化（非 reopen）**：EVM `context.caller` 未来唯一 valueBytes = `u32le(20)\|\|CALLER`；shared TypeShape/codec 不变；T10 storage 仍为 wire-identity leaf；**不**把 Principal ValueId 变为 CALL 目标，**不**升 Ownable F01；ContextRead Plan 开放见 B-CTX-OPEN | **#111：Solana legacy call 观测桩已 supersede 为 fail closed** |
+| **B-3** | Principal/address-bearing 与 EVM/Solana call/schedule | Envelope + EVM/Solana | **done**（2026-08-02：PrincipalAddr 固定 wire Principal ≠ EVM 20B / Solana 32B pubkey，不做 approximate 映射；AddressBearing 仍以 static QualifiedName callee 独立开放，非 dynamic address）。**ADR-0025 realization（2026-08-06）**：EVM `context.caller` 已按唯一 valueBytes `u32le(20)\|\|CALLER` 接入 Plan/IR/Yul 与 Anvil；shared TypeShape/codec 不变，T10 storage 仍为 wire-identity leaf；**不**把 Principal ValueId 变为 CALL 目标，PF Ownable primitive pass 也**不**提升 OZ F01 family/ABI credit | **#111：Solana legacy call 观测桩已 supersede 为 fail closed** |
 
-| **B-ctx** | ContextRead 各 target Plan：保持 fail-closed 并补齐负向测 | 九 materializer | **done**（2026-08-02 起：unixTime + caller 的 implemented target materialize decline 钉测；当前 coverage matrix 九 materializer FC，含 Quint/CosmWasm/TON）。ADR-0025 不改变本钉：EVM caller encoding 冻结后 **仍** 须保持 FC 直至 B-CTX-OPEN 原子 cutover |
+| **B-ctx** | ContextRead 各 target Plan：closed baseline + per-key 原子开放 | 九 materializer | **done / superseded by SYS-CAP-UNIFY**（2026-08-02 的九 materializer FC matrix 是历史基线；随后 unixTime 已按 target 开放，2026-08-06 ADR-0031 S1 首先完成 EVM caller。其余 target/key 只能经版本化 requirement + target-owned Plan/IR/runtime 门逐行开放；未知 key、未交付 lane 与电路锚定值继续 FC） |
 
 ### 验收门（工程，非 formal）
 
@@ -313,9 +313,9 @@ D1–D4 = 0/27 done。
 | **EVMOZ-001** | 显式 Cancun EVM profile（shared） | **done**（2026-08-03：`evm-yul-solc-0.8.34-cancun-v1` 进入 registry/descriptor/resolver/Tool Lock；Finalize 仅 Cancun 加 `--evm-version cancun`；runtime `PF_EVM_PROFILE` → `anvil --hardfork cancun`；默认 legacy v1 不改写；同一 solc 0.8.34/Anvil 0.3.0；**非** OZ claim / formal D4 / 工具升级） |
 | **EVMOZ-002** | closed EVM corpus case/observation schema | **done**（2026-08-03：`proof-forge.evm-corpus-case.v1` / `evm-observation.v1` + `scripts/evm_corpus_v1.py` PF-JCS validator + schema-tests；**非** formal evidence / OZ claim） |
 | **EVMOZ-003** | ADR-0025 EVM `context.caller` encoding freeze | **done**（2026-08-03：sole spelling `u32le(20)\|\|CALLER`；不解锁 Plan/ABI/Ownable F01；见 B-CTX-OPEN / B-3） |
-| **EVMOZ-004** | primitive + Token adapter business cases + Reference/Anvil harness | **done**（2026-08-03：4 primitive + 1 adapter cases；Reference 23 obs；Cancun Anvil engineering closure 手动 recipe；Token StackTooDeep 已由 B-EVM-MAP-STACK 修复，当前仅因 EIP-3860 部署上限允许 explicit skip；**非** formal C-3 / OZ） |
-| **EVMOZ-005** | Ownable-like blocked case + Lean suite | **done**（2026-08-03：`OwnableLike.lean` + `oz.f01…blocked.v1`；Loader/Normalize/Reference + planInvariant ContextRead+caller；F01 仍 Blocked） |
-| **EVMOZ-006** | corpus manifest + CI registration + real Ownable pins | **done**（2026-08-03：`proof-forge.evm-corpus-manifest.v1` exact inventory；`validate-manifest`；Ownable 真实 pfCommit/ToolLockV4Digest/sourceHash/semanticHash；`EvmCorpusBlockedV1` 注册 Fast/Targets/aggregate；`just evm-corpus-{schema,reference,static,runtime}`；static 进 `dev-check`/`ci-lean-product`；runtime 不进 ordinary CI；**Exact 0 / Partial 0 / Blocked 20 不变**；无 OZ leg） |
+| **EVMOZ-004** | primitive + Token adapter business cases + Reference/Anvil harness | **done**（2026-08-06 更新：5 primitive + 1 adapter cases；Reference 28 obs；新增 `pf.primitive.ownablelike.caller-admit.v1` 的 owner/stranger/rollback PF-Anvil closure；Token 仅因 EIP-3860 部署上限允许 explicit skip；**非** formal C-3 / OZ） |
+| **EVMOZ-005** | Ownable-like caller boundary | **done / blocked case retired**（2026-08-06：`OwnableLike.lean` 从 ContextRead planInvariant blocker 升为 EVM caller primitive；历史 `oz.f01…blocked.v1` 删除，`EvmCorpusBlockedV1` 保留文件名但改为 Loader/Normalize/Reference + Plan/Yul admit pin。F01 OZ family 仍 Blocked：无 OZ behavior leg/标准 address+event+error ABI） |
+| **EVMOZ-006** | corpus manifest + CI registration + real Ownable pins | **done**（2026-08-06：manifest exact inventory 50 entries / 13 runners；6 business cases / 6 runnable；Ownable source/semantic pins保留；`just evm-corpus-{schema,reference,static,runtime}`；static 进 `dev-check`/`ci-lean-product`，runtime 不进 ordinary CI；**Exact 0 / Partial 0 / Blocked 20 不变**；无 OZ leg） |
 | **C-2-pin** | leo 4.0.2 Tool Lock pin（G123） | **done**（2026-08-03：leo 4.0.2 入 `tools[]`（darwin+linux）；`aleo_acceptance.sh` 优先 Tool Lock 解析；仍 source-only + optional compile，非 prove/deploy） |
 
 ---
@@ -424,6 +424,7 @@ D1–D4 = 0/27 done。
 | 2026-08-03 | **Quint Q0 工程 target**：控制面扩为 12 targets / 9 implemented + 3 design-only / 9 materializers / 11 resolver rows（EVM×2 Cancun+legacy + Solana×2 + Quint 四键）；`.qnt` source-only、zero-tool finalize、显式失败 outcome+state stutter；ITF/MBT/verify 留后续 profile，formal 状态不变 |
 | 2026-08-03 | **D3-E9 工程闭合**：Protocol 重复六轴删除；registry V1 六轴成为 descriptor sole seed；resolve/mint/inspect 三处 exact join；非 formal TargetSemantics payload/digest |
 | 2026-08-05 | **SYS-CAP-SURVEY 登记**：RPT-020 多链系统能力全景调研（状态类 vs 电路类；六维同构候选；系统能力两层：L1 内建 host + L2 官方链上 program，能力与形态解耦）；登记 SYS-CAP-UNIFY 设计项（ContextRead/EnvRead catalog 扩键 + 官方 program 能力 catalog） |
+| 2026-08-06 | **SYS-CAP-UNIFY 启动**：ADR-0031 S0 design 冻结；S1 EVM `CALLER`→ADR-0025 Principal 已完成 Plan/Yul + CallerCheck/Ownable Anvil，Solana/NEAR/CW lanes 进行中；S2 `context.blockHeight` shared wire/type/Normalize/Reference 已完成，target leaves pending |
 
 ---
 

@@ -1097,8 +1097,8 @@ target-cli-positive: build
 	lake env .lake/build/bin/proof-forge-next inspect evm > build/inspect-evm.stdout
 	rg -q '^target=evm$' build/inspect-evm.stdout
 	rg -q '^profile=evm-yul-solc-0.8.34-v1$' build/inspect-evm.stdout
-	# AddressBearing: EVM admits full S2 catalog (static QN call/schedule).
-	rg -q '^requirements=#\[effect.asynchronous-workflow, effect.event, effect.synchronous-call, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-evm.stdout
+	# AddressBearing + pf.assets: EVM admits call/schedule and the exact SDK extension row.
+	rg -q '^requirements=#\[effect.asynchronous-workflow, effect.event, effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-evm.stdout
 	rg -q '^status=implemented$' build/inspect-evm.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-evm.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-evm.stdout
@@ -1112,7 +1112,7 @@ target-cli-positive: build
 	lake env .lake/build/bin/proof-forge-next inspect cosmwasm > build/inspect-cosmwasm.stdout
 	rg -q '^target=cosmwasm$' build/inspect-cosmwasm.stdout
 	rg -q '^profile=cosmwasm-wasm-u64-v1$' build/inspect-cosmwasm.stdout
-	rg -q '^requirements=#\[effect.asynchronous-workflow, effect.event, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-cosmwasm.stdout
+	rg -q '^requirements=#\[effect.asynchronous-workflow, effect.event, effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-cosmwasm.stdout
 	rg -q '^status=implemented$' build/inspect-cosmwasm.stdout
 	rg -q '^maturity=wasm-validated-alpha$' build/inspect-cosmwasm.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-cosmwasm.stdout
@@ -1259,15 +1259,15 @@ evm-corpus-schema:
     }
     runnable="$(/usr/bin/python3 -I -S "$validator" list-runnable-cases "$cases_dir")"
     runnable_count="$(printf '%s\n' "$runnable" | grep -c . || true)"
-    [[ "$runnable_count" -eq 5 ]] || {
-      echo "evm-corpus-schema: expected 5 runnable cases, got $runnable_count" >&2
+    [[ "$runnable_count" -eq 6 ]] || {
+      echo "evm-corpus-schema: expected 6 runnable cases, got $runnable_count" >&2
       exit 1
     }
     echo "evm-corpus-schema: ok (self-test + manifest + $case_count cases + $runnable_count runnable)"
 
 # EVMOZ-006: Reference leg only (depends on build; no solc/anvil).
 # Safe-clean fixed OBS root under build/, run Loader→Normalize→Reference.
-# scripts/evm_corpus_reference.sh enforces exact 23 reference obs and no PF/OZ legs.
+# scripts/evm_corpus_reference.sh enforces exact 28 reference obs and no PF/OZ legs.
 evm-corpus-reference: build
     #!/usr/bin/env bash
     set -euo pipefail

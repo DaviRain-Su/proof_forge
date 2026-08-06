@@ -3,7 +3,7 @@ id: RPT-OZ-EVM-COVERAGE-001
 title: OpenZeppelin v5.7.0 与 ProofForge EVM 行为能力覆盖审计
 status: draft
 owner: research
-updated: 2026-08-03
+updated: 2026-08-06
 normative: false
 ---
 
@@ -71,7 +71,7 @@ ERC20 计作 `Exact`，也不能用非标准 Token adapter 计作 `Partial`。
 这里的两个容易误判点是：
 
 - `Examples/Token.lean` 的 UInt64、dense Map cap-8 账本是有价值的 primitive/adapter pilot，
-  **不是 ERC-20 Partial**：它没有 address/caller、标准 mapping/allowance、标准 ABI 或 indexed `Transfer`。
+  **不是 ERC-20 Partial**：即使 EVM caller 已开放，它仍没有标准 address-key mapping/allowance、标准 ABI 或 indexed `Transfer`。
 - 普通 Bool state 可以表达 pause/guard 标志，但仓库没有执行过 OpenZeppelin-compatible
   Pausable/Reentrancy 场景，且重入 oracle、callback 和 transient storage 仍缺，因此共享 mixin 族也仍是
   `Blocked`。
@@ -206,12 +206,12 @@ bn254 Field、control flow、bounded loop、static-QN call/schedule 和工程 An
 | 层 | 当前事实 | 对 OZ/Ethereum 的影响 |
 |---|---|---|
 | Type/identity | `Principal` 是 opaque wire identity；EVM 以 `len + 8×UInt64` 保存，不是 20-byte address | 不能替代 owner、spender、receiver 或标准 address ABI |
-| Context | shared Reference 支持 caller/time；EVM `LowerSemanticV1` 对两种 `ContextRead` 都显式 fail closed | Ownable、tokens、vesting、timelock 等在 target Plan 前被阻断 |
-| Value/payable | dispatcher 与 constructor 都生成 `if callvalue() { revert(0, 0) }` | 不能 receive ETH、读 `msg.value`、按 value 调用或核对余额 |
+| Context | shared Reference 支持 caller/time；EVM 已物化 `unixTimeSeconds` 与 ADR-0025 `caller`，其他 ContextRead key 仍 FC | Ownable PF primitive 已解锁；标准 address ABI、OZ leg 与其余业务残差仍独立 |
+| Value/payable | generic entry 仍 nonpayable；仅 exact `pf.assets.native.deposit` 允许 `callvalue()==amount`，native transfer 可发 value CALL | 不是通用 receive/payable/msg.value 语言面，也不能外推为 Vesting/OZ 等价 |
 | Map | EVM 仅 dense cap-8 `Map UInt64 UInt64` | 不是 Solidity keccak mapping；无 address/UInt256/nested allowance map |
 | ABI | EVM 入口/结果已含 UInt8..256、Int8..64、Bool、bn254 Field、named Struct/Enum 扁平（结果≤8 leaves）以及 String/Principal 自定义 leaves | 仍无标准 `address`、dynamic `bytes`/`string`/array/tuple ABI；Int128/256 与 anonymous-container 返回继续 FC |
 | Events/errors | EVM emitter 使用 `log1(topic0)`，所有字段写 static UInt64 data；error 同样是 UInt64 words | 无 indexed address topics，也无标准 address/string error payload |
-| External call | Semantic op 无返回 SSA；EVM target 是 static QN→hashed address、value=0、UInt64 args、returndata ignored | 不能实现 safe receiver、SafeERC20、timelock、proxy、AA 等调用契约 |
+| External call | generic surface 仍以 static QN 为主；`pf.assets` 只对 exact native/token catalog 开受控 value/dynamic-address call | 仍不能实现任意 safe receiver、timelock、proxy、AA 等 raw call contract |
 | Crypto | closed `SemanticOpV1` 没有 user keccak/ecrecover/SHA/precompile op | EVM `Keccak.lean` 只服务 selector/topic/static address，不能算用户 crypto |
 | Storage/deploy | 无 dynamic mapping layout、exact reserved slots、delegate/create/transient/extcode surface | proxy、clone、UUPS、transient guard 被阻断 |
 | Constants/invariants | EVM Plan 对 nonempty tables仍 fail closed | shared 层存在不等于 target 已物化 |
@@ -225,10 +225,10 @@ Map 容量以实际定义 `evmMapPilotCapacityV1 := 8` 为准；相邻源码注�
   `externalCall`/`schedule` 是 void effect，没有 crypto/delegate/create op。
 - `ProofForgeV2/Semantic/ReferenceMachineV1.lean`：caller/time、void external responses、rollback 与
   Commit identity 语义。
-- `ProofForgeV2/Targets/Evm/LowerSemanticV1.lean`：Principal 非 address、Map cap-8、
-  `context.caller`/timestamp fail-closed、constants/invariants fail-closed。
-- `ProofForgeV2/Targets/Evm/EmitIRV1.lean`：callvalue rejection、`log1` UInt64 event、static hashed-address
-  `CALL(..., value=0, ..., out=0)`。
+- `ProofForgeV2/Targets/Evm/LowerSemanticV1.lean`：Principal 非 address、Map cap-8；
+  `unixTimeSeconds` 与 ADR-0025 `context.caller` 已 target-owned lowering，未知 ContextRead key、constants/invariants residual 继续 fail closed。
+- `ProofForgeV2/Targets/Evm/EmitIRV1.lean`：generic nonpayable guard、`log1` UInt64 event、static-QN CALL；
+  exact `pf.assets` lane 另有 callvalue/value/dynamic-token catalog，caller 以 `CALLER` 组装九叶 Principal。
 - `ProofForgeV2/Targets/Evm/ValidateIRV1.lean`：当前只是 bounded structural gate，不是完整 Yul parser 或
   formal semantic equivalence gate。
 
@@ -238,9 +238,9 @@ Map 容量以实际定义 `evmMapPilotCapacityV1 := 8` 为准；相邻源码注�
 
 | ID | OpenZeppelin family | 稳定对象 | 当前状态 | 最小决定性原因 |
 |---|---|---:|---|---|
-| F01 | Ownable / roles | 5 | `Blocked` | EVM caller/address；role map；address logs/errors |
-| F02 | AccessManager | 2 | `Blocked` | caller/address、timestamp、selector policy、dynamic call/value |
-| F03 | ERC20 family | 12 | `Blocked` | caller/address、scalable balances/allowance、standard ABI、indexed `Transfer` |
+| F01 | Ownable / roles | 5 | `Blocked` | PF caller primitive 已通；仍缺 pinned OZ behavior leg、标准 address ABI、ownership logs/errors |
+| F02 | AccessManager | 2 | `Blocked` | caller/time primitive 已有；仍缺 address/selector policy、runtime target/calldata、完整 delay policy |
+| F03 | ERC20 family | 12 | `Blocked` | caller primitive 已有；仍缺 address-key scalable balances/allowance、standard ABI、indexed `Transfer` |
 | F04 | ERC721 | 11 | `Blocked` | address ownership/approval、dynamic bytes、receiver callback returndata |
 | F05 | ERC1155 | 7 | `Blocked` | owner×id map、dynamic batch arrays、safe callback |
 | F06 | ERC6909 | 4 | `Blocked` | owner×id/spender maps、address ABI/events |
@@ -251,8 +251,8 @@ Map 容量以实际定义 `evmMapPilotCapacityV1 := 8` 为准；相邻源码注�
 | F11 | Proxy / upgradeability | 8 | `Blocked` | raw fallback、`DELEGATECALL`、exact slots、create；OOS 候选 |
 | F12 | ERC4337 Account | 1 | `Blocked` | EntryPoint、value/prefund、dynamic UserOp、crypto；OOS 候选 |
 | F13 | Paymaster | 5 | `Blocked` | EntryPoint lifecycle、deposit/value、token/crypto/dynamic ABI；OOS 候选 |
-| F14 | ERC2771 | 2 | `Blocked` | raw calldata suffix sender rewrite、caller/address、forwarder crypto |
-| F15 | Cross-chain / ERC7786 | 10 | `Blocked` | gateway host、caller、dynamic payload、remote execution；OOS 候选 |
+| F14 | ERC2771 | 2 | `Blocked` | caller primitive 已有；仍缺 raw calldata suffix sender rewrite、trusted-forwarder/address ABI、forwarder crypto |
+| F15 | Cross-chain / ERC7786 | 10 | `Blocked` | caller primitive 不等于 gateway protocol；仍缺 gateway host、dynamic payload、remote execution；OOS 候选 |
 | F16 | Shared mixins | 7 | `Blocked` | 没有 OZ-compatible scenario；callback/transient/raw multicall 仍缺 |
 | F17 | Signers | 9 | `Blocked` | user crypto/precompile、address/code、dynamic signature bytes |
 | F18 | Verifiers | 3 | `Blocked` | P256/RSA/WebAuthn precompile/modexp 与 dynamic proof bytes |
@@ -267,21 +267,21 @@ Map 容量以实际定义 `evmMapPilotCapacityV1 := 8` 为准；相邻源码注�
 
 | ID | 代表 OZ 源码 | 官方 test/behavior | 建议场景 ID | PF 首个 blocker 与 residual |
 |---|---|---|---|---|
-| F01 | `contracts/access/Ownable.sol` | `test/access/Ownable.test.js` | `oz.f01.ownable.onlyowner.blocked.v1` | `Evm/LowerSemanticV1` 拒绝 `context.caller`；Principal 非 address；仍需 ownership event/error ABI |
-| F02 | `contracts/access/manager/AccessManager.sol` | `test/access/manager/AccessManager.test.js` | `oz.f02.accessmanager.delayed-execute.blocked.v1` | caller/time 均未物化；static-QN void CALL 不能执行 runtime target/value/calldata |
-| F03 | `contracts/token/ERC20/ERC20.sol` | `test/token/ERC20/ERC20.behavior.js` | `oz.f03.erc20.transfer.blocked.v1` | 无 caller/address；EVM Map 仅 cap-8 UInt64→UInt64；`log1` 无 indexed sender/receiver；allowance residual |
+| F01 | `contracts/access/Ownable.sol` | `test/access/Ownable.test.js` | `pf.primitive.ownablelike.caller-admit.v1`（PF primitive；非 OZ case） | EVM `context.caller` 已按 ADR-0025 物化并有 owner/stranger/rollback Anvil；仍无 pinned OZ behavior leg、Solidity address ABI、ownership event/error ABI，故 family 状态不变 |
+| F02 | `contracts/access/manager/AccessManager.sol` | `test/access/manager/AccessManager.test.js` | `oz.f02.accessmanager.delayed-execute.blocked.v1` | caller/time primitive 已物化，但 Principal 不是标准 address policy；static-QN CALL 不能承载 runtime target/raw calldata/完整 selector+delay contract |
+| F03 | `contracts/token/ERC20/ERC20.sol` | `test/token/ERC20/ERC20.behavior.js` | `oz.f03.erc20.transfer.blocked.v1` | caller primitive 已有；EVM Map 仍仅 cap-8 UInt64→UInt64，缺 address-key balances/allowance；`log1` 无 indexed sender/receiver |
 | F04 | `contracts/token/ERC721/ERC721.sol` | `test/token/ERC721/ERC721.behavior.js` | `oz.f04.erc721.safe-transfer.blocked.v1` | 无 address owner/approval；call 无 returndata/code check/dynamic bytes，不能验证 receiver magic |
 | F05 | `contracts/token/ERC1155/ERC1155.sol` | `test/token/ERC1155/ERC1155.behavior.js` | `oz.f05.erc1155.safe-batch.blocked.v1` | 无 address×id state 与 dynamic batch ABI；safe callback/returndata residual |
-| F06 | `contracts/token/ERC6909/ERC6909.sol` | `test/token/ERC6909/ERC6909.behavior.js` | `oz.f06.erc6909.transfer-from.blocked.v1` | 无 owner×id/spender compound map、caller/address 与标准 topics |
+| F06 | `contracts/token/ERC6909/ERC6909.sol` | `test/token/ERC6909/ERC6909.behavior.js` | `oz.f06.erc6909.transfer-from.blocked.v1` | caller primitive 已有；仍无 owner×id/spender compound address map、标准 address ABI 与 topics |
 | F07 | `contracts/token/common/ERC2981.sol` | `test/token/common/ERC2981.behavior.js` | `oz.f07.erc2981.royalty-info.blocked.v1` | 无 20-byte address return ABI；ERC165 bytes4 surface 同时缺失 |
-| F08 | `contracts/finance/VestingWallet.sol` | `test/finance/VestingWallet.behavior.js` | `oz.f08.vesting.native-release.blocked.v1` | EVM timestamp ContextRead fail closed；所有入口拒绝 callvalue；无 balance/value CALL |
+| F08 | `contracts/finance/VestingWallet.sol` | `test/finance/VestingWallet.behavior.js` | `oz.f08.vesting.native-release.blocked.v1` | timestamp 与 `pf.assets` scoped value primitives 已有，但无通用 payable/receive、vesting schedule/address beneficiary/ERC20+native exact OZ scenario |
 | F09 | `contracts/governance/Governor.sol` | `test/governance/Governor.test.js` | `oz.f09.governor.execute-batch.blocked.v1` | fixed Array/Bytes 不能承载动态 targets/values/calldatas；clock、signature、dynamic CALL residual |
 | F10 | `contracts/governance/utils/Votes.sol` | `test/governance/utils/Votes.behavior.js` | `oz.f10.votes.delegate-checkpoint.blocked.v1` | 无 address/caller；无 scalable checkpoint history/clock；signature delegation residual |
 | F11 | `contracts/proxy/Proxy.sol` | `test/proxy/Proxy.behaviour.js` | `oz.f11.proxy.fallback-delegate.blocked.v1` | closed Semantic op 无 fallback/raw calldata/DELEGATECALL；无 exact returndata、ERC-1967 slots 或 create |
 | F12 | `contracts/account/Account.sol` | `test/account/Account.behavior.js` | `oz.f12.erc4337.validate-userop.blocked.v1` | 无 EntryPoint host、dynamic UserOp ABI、prefund/value 与 signature op |
 | F13 | `contracts/account/paymaster/Paymaster.sol` | `test/account/paymaster/Paymaster.behavior.js` | `oz.f13.paymaster.validate-postop.blocked.v1` | 无 EntryPoint lifecycle/deposit/value；token/crypto/dynamic context residual |
-| F14 | `contracts/metatx/ERC2771Context.sol` | `test/metatx/ERC2771Context.test.js` | `oz.f14.erc2771.forwarded-sender.blocked.v1` | 无 raw calldata suffix或 EVM caller；不能在 trusted-forwarder 条件下重写 logical sender |
-| F15 | `contracts/crosschain/ERC7786Recipient.sol` | `test/crosschain/ERC7786Recipient.test.js` | `oz.f15.erc7786.receive-message.blocked.v1` | 无 gateway host/caller authentication、dynamic payload、remote target execution |
+| F14 | `contracts/metatx/ERC2771Context.sol` | `test/metatx/ERC2771Context.test.js` | `oz.f14.erc2771.forwarded-sender.blocked.v1` | EVM caller 已有但无 raw calldata suffix/trusted-forwarder contract，不能重写 logical sender |
+| F15 | `contracts/crosschain/ERC7786Recipient.sol` | `test/crosschain/ERC7786Recipient.test.js` | `oz.f15.erc7786.receive-message.blocked.v1` | caller primitive 不提供 gateway host authentication、dynamic payload 或 remote target execution |
 | F16 | `contracts/utils/ReentrancyGuard.sol` | `test/utils/ReentrancyGuard.test.js` | `oz.f16.reentrancy.callback.blocked.v1` | 可手写 flag 但无 OZ runtime case；static void CALL 不能建立重入 counterparty；transient variant 无 TSTORE/TLOAD |
 | F17 | `contracts/utils/cryptography/signers/SignerECDSA.sol` | `test/account/AccountECDSA.test.js` | `oz.f17.signer.ecdsa.blocked.v1` | closed Semantic op 无 keccak/ecrecover/ERC1271 code path；signature bytes/address ABI 缺失 |
 | F18 | `contracts/utils/cryptography/verifiers/ERC7913P256Verifier.sol` | `test/account/AccountERC7913.test.js` | `oz.f18.verifier.p256.blocked.v1` | 无 P256/RSA/modexp/WebAuthn precompile surface与 dynamic proof bytes |
@@ -294,15 +294,15 @@ Map 容量以实际定义 `evmMapPilotCapacityV1 := 8` 为准；相邻源码注�
 
 | 场景 | 最早阻断点 | 为什么近似不等价 |
 |---|---|---|
-| Ownable `onlyOwner` | EVM caller ContextRead FC | 外部参数注入 owner 不能替代真实 `msg.sender` |
-| ERC20 `transfer` | caller/address/Map/event ABI | UInt64 `src` + cap-8 map 不是 address mapping 或 indexed Transfer |
-| ERC20 `transferFrom` | compound allowance map + caller | 无 owner→spender→allowance state |
+| Ownable `onlyOwner` | 无 pinned OZ behavior leg / 标准 address+event+error ABI | PF 已真实读取 `msg.sender` 并完成 primitive rollback，但这仍不是 OZ behavior 或 ABI 等价 |
+| ERC20 `transfer` | address-key Map / standard event ABI | caller 已有，但 UInt64 `src` + cap-8 map 不是 address mapping 或 indexed Transfer |
+| ERC20 `transferFrom` | compound address allowance map | 无 owner→spender→allowance state |
 | ERC721 safe transfer | void static call | 无 dynamic receiver/code check/bytes/magic returndata |
-| Vesting native ETH | callvalue rejection + timestamp FC | 不能收 ETH、读 balance 或按 value 释放 |
+| Vesting native ETH | 无通用 payable/receive + vesting/address scenario | scoped timestamp/`pf.assets` value primitives 不等于 OZ VestingWallet 行为 |
 | ERC20Permit | 无 crypto/chain context | `Commit` 是 identity label，不是 keccak/EIP-712/ecrecover |
 | Timelock execute | static-QN/value=0/void call | 无 runtime target/value/raw calldata/returndata |
 | Proxy/UUPS | 无 fallback/DELEGATECALL/exact slots | 普通 CALL 不共享 proxy storage，也不透传 calldata/returndata |
-| ERC2771 | 无 raw calldata suffix + caller FC | 参数化 caller 不是 trusted forwarder sender rewrite |
+| ERC2771 | 无 raw calldata suffix + trusted-forwarder rewrite | 原生 caller 不是 forwarded logical sender |
 | ERC4337/ERC7786 | host + value/crypto/dynamic ABI 缺失 | static-QN CALL pilot 不是 EntryPoint 或 gateway protocol |
 
 ## 7. 缺口优先级与决策门
@@ -326,8 +326,8 @@ Map 容量以实际定义 `evmMapPilotCapacityV1 := 8` 为准；相邻源码注�
 |---|---|---|---|
 | P0-Gate | 修复 Tool Lock identity；冻结同一 hardfork；落 corpus/observation identity | Counter 等现有 runtime 重新成为 current evidence | 不增加任何 OZ family 能力，只恢复可信测试前提 |
 | P0-Behavior | 20-byte address-bearing identity + real EVM caller | Ownable-like Reference↔PF behavior | 若要 family Partial，仍需 OZ behavior leg；若要 ABI claim，仍需标准 event/error bytes |
-| P0-Data | scalable address/UInt256 mapping + compound/nested keys | ERC20 balances/allowance substrate | 仍需 caller、indexed events、标准 errors 与完整边界 corpus |
-| P0-ABI | indexed address events/errors | Ownable/ERC20 ABI observation | 不解决 state、caller 或 call semantics；不是 Ownable behavior 首个 pass 的前置 |
+| P0-Data | scalable address/UInt256 mapping + compound/nested keys | ERC20 balances/allowance substrate | 仍需 indexed events、标准 errors 与完整边界 corpus；caller primitive 已有 |
+| P0-ABI | indexed address events/errors | Ownable/ERC20 ABI observation | 不解决 state 或 call semantics；caller primitive 已有但不等于标准 address ABI |
 | P1-Behavior | timestamp + payable/value/balance | Vesting native-release | 仍需 asset transfer、rollback、recipient behavior |
 | P1-Call | dynamic target CALL + value + exact returndata + code/static checks | ERC721 safe receiver 或 SafeERC20 | 仍需 dynamic bytes ABI 与 reentrancy/callback corpus |
 | P1-ABI | dynamic ABI bytes/string/arrays/structs | callback/governance input | 不自动带来 runtime call 或 protocol host |
@@ -341,17 +341,18 @@ Map 容量以实际定义 `evmMapPilotCapacityV1 := 8` 为准；相邻源码注�
 0. **先恢复 runtime evidence 前提**：Tool Lock、hardfork 和 case identity 不闭合时，不开始新的兼容计分。
 1. **Ownable-like behavior**：两个真实 EOA、unauthorized revert、authorized state change，先完成
    Reference↔PF Anvil；再加入 pinned OZ `oz-behavior` leg 才能把 F01 计为 `Partial`。ABI claim 另行审批。
-2. **ERC20 core**：只有在 address/caller、scalable/nested map、indexed events 和 ABI 决策完成后开始；
+2. **ERC20 core**：caller primitive 已有；只有在 address-bearing scalable/nested map、indexed events 和 ABI 决策完成后开始；
    当前 Token 保持 adapter。
 3. 然后在 **Vesting**（time/value）与 **Permit**（crypto/chain context）中选一个扩展轴，避免同时展开。
 
 ## 8. 可执行验证设计
 
-> **工程落地状态（2026-08-03，EVMOZ-002..006）**：closed case/observation schema、
-> closed inventory manifest、4 primitive + 1 Token adapter + 1 Ownable blocked business
-> case、Reference leg（exact 23 observations）、Ownable Lean blocked suite，以及
-> `just evm-corpus-{schema,reference,static,runtime}` 已进入仓库。下列 class/oracle
-> 规则仍是权威契约；**OZ leg / family·ABI·standard credit 仍未实现**，
+> **工程落地状态更新（2026-08-06，ADR-0031 S1-EVM）**：closed schema/manifest 保持；
+> business corpus 现为 **5 primitive + 1 Token adapter（6/6 runnable）**，其中历史 Ownable
+> blocked case 已由 `pf.primitive.ownablelike.caller-admit.v1` 替代；Reference leg 为 exact
+> **28 observations**，Cancun PF-Anvil 验证真实 owner/stranger/rollback。历史文件名
+> `EvmCorpusBlockedV1` 仍保留作 pin suite，但内容已改为 Plan/Yul admit。下列 class/oracle
+> 规则仍是权威契约；**OZ leg / family·ABI·standard credit 仍未实现**，所以
 > **Exact 0 / Partial 0 / Blocked 20 不变**。Cancun profile 是 PF engineering hardfork
 > pin，**不是** OZ hardfork 对齐。详见
 > [`docs/specs/evm-corpus-v1.md`](../specs/evm-corpus-v1.md)。
@@ -380,11 +381,11 @@ hardlink、non-regular。
 每步 32 logs、每 log 4 topics，以及至多 8 个长度 128 的 diagnostic patterns。未知字段、未知 enum、
 越界或非 canonical input 一律拒绝。
 
-当前 EVM lowering 多数边界表现为 typed `CompileError.planInvariant(.evm, message)`，CLI message 仍含 free text，
-尚不存在稳定的 case-bound capability diagnostic code。W2 blocked catalog 分两步：
-**第一步已交付**——`Tests.Materialization.EvmCorpusBlockedV1` 匹配 typed phase/target +
-bounded reason（ContextRead+caller），并 pin 真实 source/semantic hash；**第二步仍 pending**——
-冻结 closed diagnostic discriminator 后接产品 CLI。
+当前 EVM lowering 多数未支持边界仍表现为 typed `CompileError.planInvariant(.evm, message)`，CLI message 仍含 free text，
+尚不存在稳定的 case-bound capability diagnostic code。历史 W2 Ownable blocker 已于 2026-08-06 退役：
+`Tests.Materialization.EvmCorpusBlockedV1` 保留文件名与 source/semantic pins，但现验证 caller Plan/Yul admit，
+不再充当 blocked matcher 的正向 case。未来新增 blocked business case 仍须先冻结 closed diagnostic
+ discriminator，禁止复用已退役的 ContextRead+caller free-text reason。
 
 ### 8.2 分层观察面
 
@@ -429,33 +430,33 @@ gas 默认排除，因为优化和 compiler 版本会改变 gas；只有未来�
 
 #### A. 现有 primitive 迁移（EVMOZ-004 已交付 engineering）
 
-`pf.primitive.counter.overflow-hold.v1`（以及 Accumulator / ArithOps / EventFlow 同族）
+`pf.primitive.counter.overflow-hold.v1`（以及 Accumulator / ArithOps / EventFlow /
+OwnableLike caller 同族）
 
 - class：`primitive`
 - 输入：`Examples/Counter.lean` 等；pins 绑定真实 sourceHash/semanticHash 与 Darwin
   ToolLockV4Digest / Cancun profile。
 - 证据：`Tests/Materialization/EvmCorpusPrimitiveV1.lean`（`lean --run`；**不**进 lake roots，
-  避免 top-level `main` 冲突）→ exact 23 reference observations；
+  避免 top-level `main` 冲突）→ exact 28 reference observations；
   `just evm-corpus-reference` / full `evm-corpus-runtime` 经 Cancun Anvil 做
   **engineering** Reference↔PF-Anvil shared closure。
 - 断言：overflow revert；logical/raw state 不变；没有 committed logs 等（per case）。
 - **非声明**：不是 formal C-3 / OZ credit；不是 OZ hardfork 对齐。
 
-#### B. 可执行 blocker（EVMOZ-005 语义 + EVMOZ-006 注册/真实 pin）
+#### B. Ownable caller primitive（2026-08-06 替代历史 blocker）
 
-`oz.f01.ownable.onlyowner.blocked.v1`
+`pf.primitive.ownablelike.caller-admit.v1`
 
-- class：`blocked`
-- 输入：`testdata/evm-corpus/v1/programs/OwnableLike.lean`（`context.caller` only-owner）。
-- 可执行形态：`Tests.Materialization.EvmCorpusBlockedV1`（已注册 Fast / Targets / aggregate）
-  — Loader/Normalize 成功并 exact pin sourceHash/semanticHash；Reference 授权/未授权；
-  EVM `planFromCapability` 以 typed `.planInvariant .evm`（ContextRead+caller）fail closed；
-  不产生 artifact，不启动 Anvil。
-- pins：`pfCommit=23798ce65e55…`（compiler baseline）、canonical
-  `toolLockDigest=63eadb99…`、真实 Loader/Normalize hashes；placeholder 已清除。
-- 产品 CLI successor 仍须等待 closed diagnostic discriminator；`PF-TOOLCHAIN-MISMATCH`、
-  parse failure 或 unrelated type error **均不能满足**该 case。
-- **F01 仍 Blocked**；无 OZ/ABI/family credit。
+- class：`primitive`；历史 `oz.f01.ownable.onlyowner.blocked.v1` 已删除，禁止继续引用为 active case。
+- 输入：`testdata/evm-corpus/v1/programs/OwnableLike.lean`（真实 `context.caller` only-owner）。
+- 静态形态：`Tests.Materialization.EvmCorpusBlockedV1` 保留历史文件名并继续注册，但现在验证
+  Loader/Normalize exact pins、Reference 授权/未授权 rollback、EVM Plan admit 与 Yul `caller()`。
+- runtime：Reference 5 steps + PF-Anvil 5 steps；deploy 记录 owner，owner `setValue(42)` 成功，
+  stranger `setValue(7)` revert 且 value 保持 42，最后 view 仍为 42。
+- pins：保留 compiler baseline、active ToolLockV4Digest、真实 Loader/Normalize hashes；manifest
+  以 exact path/size/SHA-256 闭合新 case 与 13 runners。
+- **F01 OZ family 仍 Blocked**：primitive 不执行 pinned OZ leg，也不声明 Solidity address ABI、
+  ownership event/error bytes、ABI 或 standard credit。
 
 #### C. 未来 ERC20 ABI claim
 
@@ -477,8 +478,8 @@ spill 已修复 solc StackTooDeep，但当前 creation bytecode 为 258460 B，�
 
 | 层 | 内容 | 仓库状态（EVMOZ-006） | 失败策略 |
 |---|---|---|---|
-| Fast/static | schema、manifest、case IDs、Ownable blocked suite、PF Source/Typed/Normalize/Wire | **已接线**：`just evm-corpus-schema` + `EvmCorpusBlockedV1` 在 Fast/Targets；聚合 `evm-corpus-static` 进 `dev-check` / `ci-lean-product` | always-on hard fail |
-| PF engineering — Reference | Loader→Normalize→Reference；exact 23 reference observations；no PF/OZ legs | **已接线**：`just evm-corpus-reference`（依赖 build；**无** solc/Anvil） | ordinary CI；不冒充 runtime/formal |
+| Fast/static | schema、manifest、6 business case IDs、Ownable caller admit suite、PF Source/Typed/Normalize/Wire | **已接线**：`just evm-corpus-schema` + 历史文件名 `EvmCorpusBlockedV1` 在 Fast/Targets；聚合 `evm-corpus-static` 进 `dev-check` / `ci-lean-product` | always-on hard fail |
+| PF engineering — Reference | Loader→Normalize→Reference；exact 28 reference observations；no OZ leg | **已接线**：`just evm-corpus-reference`（依赖 build；**无** solc/Anvil） | ordinary CI；不冒充 runtime/formal |
 | PF engineering — target gates | 既有 EVM Plan/IR/Yul、solc acceptance 等 product/target suites | **既有** ordinary Lean/target gates（与 corpus reference recipe **分开**） | ordinary CI |
 | EVM runtime | locked solc + Cancun Anvil，primitive/adapter PF leg | **手动** `just evm-corpus-runtime`；**不**进 ordinary CI/GitHub | 产品 build/solc hard fail；Token 仅因已验证 deployment limit explicit skip，且不得 pass |
 | OZ oracle | 隔离 OZ checkout + hardfork 对齐 tests | **未实现**；无 OZ leg | n/a |
@@ -487,13 +488,13 @@ spill 已修复 solc StackTooDeep，但当前 creation bytecode 为 258460 B，�
 
 波次进度：
 
-- W0：**done**（Counter/Accumulator/ArithOps/EventFlow → `primitive`）。
+- W0：**done**（Counter/Accumulator/ArithOps/EventFlow/OwnableLike caller → `primitive`）。
 - W1：**partial**——Token 已有 explicit `adapter` case，覆盖双账户 transfer 序列、conservation
   与 rollback steps；**未**交付 cap-8 fill boundary / capacity 边界 corpus；solc StackTooDeep
   已修，但 258460 B creation bytecode 超过 EIP-3860，full runtime 仍按部署上限显式 **skip**
   （不得记 pass）。
-- W2：**partial**——Ownable Lean typed `blocked` 已交付；其余 family blocked catalog 与
-  closed CLI diagnostic 仍 pending。
+- W2：**partial**——Ownable PF primitive 已交付并退役 caller blocker；真正的 OZ behavior leg、
+  其余 family blocked catalog 与 closed CLI diagnostic 仍 pending。
 - W3/W4：仍 proposal（无 `abi` / property corpus）。
 
 ## 9. 本次可执行验证记录与限制
@@ -575,8 +576,8 @@ modifier、library 或 assembly 全部搬进共享 core。
   Exact 0 / Partial 0 / Blocked 20 或 formal maturity。
 - PF 与 OZ 的 compiler/runtime hardfork **仍未**对齐（OZ 仍 Osaka + 不同 solc）。
 - 仓库还没有统一 ABI byte-level、storage-layout 或 standard-conformance corpus。
-- 没有 dynamic caller/value/callback/proxy/precompile 的 PF 产品 EVM 行为证据；
-  Ownable F01 精确 **Blocked**（ContextRead planInvariant），无 caller→address ABI。
+- 已有 EVM caller 与受限 value CALL 证据，但仍没有 dynamic runtime target/raw callback/proxy/user-precompile 的完整产品行为证据；
+  Ownable PF primitive 已 pass，F01 仍精确 **Blocked** 于 OZ behavior/标准 address+event+error ABI（不是 ContextRead blocker）。
 - Token adapter 已通过 locked solc/finalization，但 258460 B creation bytecode 超过 EIP-3860；
   full runtime 只能按部署上限显式 **skip**（不得 pass），且尚无链上 runtime 证据。
 - 完整 Governor extension delta、crypto failure matrix 与 7 个 draft 实现未逐对象行为分类。

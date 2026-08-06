@@ -1,6 +1,6 @@
 /-
   Tests.Materialization.EvmCorpusPrimitiveV1 — engineering Reference leg for
-  EVMOZ-004 primitive corpus cases (Counter / Accumulator / ArithOps / EventFlow).
+  EVMOZ-004 primitive corpus cases (Counter / Accumulator / ArithOps / EventFlow / OwnableLike).
 
   Top-level `main` harness (not a lake import root — avoids global main clash).
   EVMOZ-006 wires ordinary CI via `just evm-corpus-reference` /
@@ -64,6 +64,16 @@ private def inv (callableId : CallableIdV1) (args : Array ReferenceValueV1) :
     InvocationV1 :=
   { callableId, args, context := #[] }
 
+/-- ADR-0031 S1: invocation with explicit context rows (OwnableLike caller). -/
+private def invCtx (callableId : CallableIdV1) (args : Array ReferenceValueV1)
+    (context : Array ContextInputV1) : InvocationV1 :=
+  { callableId, args, context }
+
+/-- ADR-0025 EVM caller Principal valueBytes: `u32le(20) || address20`. -/
+private def principalCaller20 (fill : UInt8) : ByteArray :=
+  let body := ByteArray.mk (Array.replicate 20 fill)
+  (encodeU32le 20).append body
+
 private def hexLower (bytes : ByteArray) : String := Id.run do
   let mut s := ""
   for b in bytes do
@@ -108,6 +118,39 @@ private def findU64TypeId (data : SemanticProgramDataV1) : IO TypeIdV1 :=
       t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
   | some i => pure (UInt32.ofNat i)
   | none => throw <| IO.userError "missing anonymous UInt64 TypeId"
+
+/-- Anonymous Principal TypeId (ADR-0031 S1 OwnableLike). -/
+private def findPrincipalTypeId (data : SemanticProgramDataV1) : IO TypeIdV1 :=
+  match data.types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .principal => true | _ => false with
+  | some i => pure (UInt32.ofNat i)
+  | none => throw <| IO.userError "missing anonymous Principal TypeId"
+
+/-- Decode the second state slot (u32le(len)||payload) after a 24-byte
+    Principal first slot: OwnableLike layout owner(24) + value(8). -/
+private def decodeSecondSlotU64 (logical : LogicalStateV1) : IO Nat := do
+  let cv := logical.canonicalValues
+  let data := cv.data
+  let byteAt (i : Nat) : Nat :=
+    match data[i]? with
+    | some b => b.toNat
+    | none => 0
+  let len0 := byteAt 0 + byteAt 1 * 256 + byteAt 2 * 65536 + byteAt 3 * 16777216
+  unless len0 == 24 do
+    throw <| IO.userError s!"expected owner Principal slot length 24, got {len0}"
+  let off := 4 + 24
+  unless cv.size ≥ off + 12 do
+    throw <| IO.userError s!"two-slot state too short: {cv.size}"
+  let len1 := byteAt off + byteAt (off + 1) * 256 +
+    byteAt (off + 2) * 65536 + byteAt (off + 3) * 16777216
+  unless len1 == 8 do
+    throw <| IO.userError s!"expected u64 value length 8, got {len1}"
+  let mut payload := ByteArray.emptyWithCapacity 8
+  for i in [off + 4 : off + 12] do
+    match data[i]? with
+    | some b => payload := payload.push b
+    | none => pure ()
+  pure (leBytesToNat payload)
 
 private def findCallableId (data : SemanticProgramDataV1) (name : Option String) :
     IO CallableIdV1 := do
@@ -487,6 +530,83 @@ private unsafe def runEventFlow
   writeSharedStep outDir caseId 4 st4 ret4 "count" v4 eff4 rb4
   IO.println s!"reference-leg ok {caseId}"
 
+/-- ADR-0031 S1: OwnableLike caller-admit reference legs. init records
+    `context.caller` as owner (Principal); setValue enforces only-owner;
+    unauthorized reverts with rollback. Per-actor ADR-0025 Principal context. -/
+private unsafe def runOwnableLike
+    (session : Language.Loader.ParserSession) (repoRoot outDir : System.FilePath) :
+    IO Unit := do
+  let caseId := "pf.primitive.ownablelike.caller-admit.v1"
+  let spec : ProgramSpec := {
+    caseId
+    sourcePath := "testdata/evm-corpus/v1/programs/OwnableLike.lean"
+    moduleName := "Tests.EvmCorpus.OwnableLike"
+    stateKey := "value"
+    expectedSourceHash :=
+      "1056bb66a65115bdbbd38655c85e53b5f9abe84a7a13ada2b7f3bed4d2b9db64"
+    expectedSemanticHash :=
+      "4874d5f6e5b589a26f3175920fee6aa06d59009be8d8c38a45bdc3bd8c14dd75"
+  }
+  let (carrier, data, admitted, u64, _, _) ← loadNormalizeAdmit session repoRoot spec
+  let initId ← findCallableId data none
+  let setId ← findCallableId data (some "setValue")
+  let getId ← findCallableId data (some "getValue")
+  let pTid ← findPrincipalTypeId data
+  let ownerBytes := principalCaller20 0x11
+  let strangerBytes := principalCaller20 0x22
+  expect (ownerBytes.size == 24 && strangerBytes.size == 24)
+    "ADR-0025 caller valueBytes must be 24 bytes"
+  let ownerVal : ReferenceValueV1 := { typeId := pTid, valueBytes := ownerBytes }
+  let strangerVal : ReferenceValueV1 := { typeId := pTid, valueBytes := strangerBytes }
+  let key := callerContextKeyV1
+  let ownerCtx : Array ContextInputV1 := #[{ key, value := ownerVal }]
+  let strangerCtx : Array ContextInputV1 := #[{ key, value := strangerVal }]
+  let initial ←
+    match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"ownablelike initial: {repr e}"
+  -- step 0: deploy — init records context.caller as owner; value = 0
+  let o0 := stepReferenceSliceV1 admitted initial
+    (invCtx initId #[] ownerCtx) emptyResponses
+  let (st0, ret0, post0, eff0, rb0) ← outcomeShared o0 initial
+  expect (st0 == "success") "ownablelike step0 status"
+  let v0 ← decodeSecondSlotU64 post0
+  expect (v0 == 0) "ownablelike step0 state"
+  writeSharedStep outDir caseId 0 st0 ret0 "value" v0 eff0 rb0
+  -- step 1: authorized setValue(42) as owner → 42
+  let o1 := stepReferenceSliceV1 admitted post0
+    (invCtx setId #[refU64 u64 42] ownerCtx) emptyResponses
+  let (st1, ret1, post1, eff1, rb1) ← outcomeShared o1 post0
+  expect (st1 == "success") "ownablelike step1 status"
+  let v1 ← decodeSecondSlotU64 post1
+  expect (v1 == 42) "ownablelike step1 state"
+  writeSharedStep outDir caseId 1 st1 ret1 "value" v1 eff1 rb1
+  -- step 2: view getValue → 42
+  let o2 := stepReferenceSliceV1 admitted post1
+    (invCtx getId #[] #[]) emptyResponses
+  let (st2, ret2, post2, eff2, rb2) ← outcomeShared o2 post1
+  expect (st2 == "success") "ownablelike step2 status"
+  let v2 ← decodeSecondSlotU64 post2
+  expect (v2 == 42) "ownablelike step2 state"
+  writeSharedStep outDir caseId 2 st2 ret2 "value" v2 eff2 rb2
+  -- step 3: unauthorized setValue(7) as stranger → revert, state holds 42
+  let o3 := stepReferenceSliceV1 admitted post2
+    (invCtx setId #[refU64 u64 7] strangerCtx) emptyResponses
+  let (st3, ret3, post3, eff3, rb3) ← outcomeShared o3 post2
+  expect (st3 == "revert") "ownablelike step3 status"
+  let v3 ← decodeSecondSlotU64 post3
+  expect (v3 == 42) "ownablelike step3 rollback"
+  writeSharedStep outDir caseId 3 st3 ret3 "value" v3 eff3 rb3
+  -- step 4: view getValue still 42
+  let o4 := stepReferenceSliceV1 admitted post3
+    (invCtx getId #[] #[]) emptyResponses
+  let (st4, ret4, post4, eff4, rb4) ← outcomeShared o4 post3
+  expect (st4 == "success") "ownablelike step4 status"
+  let v4 ← decodeSecondSlotU64 post4
+  expect (v4 == 42) "ownablelike step4 state"
+  writeSharedStep outDir caseId 4 st4 ret4 "value" v4 eff4 rb4
+  IO.println s!"reference-leg ok {caseId}"
+
 /-- Adapter Token pin recheck only (no Reference observations for Map adapter).
     Loader → Normalize → sourceHash/semanticHash; does not admit/step Reference. -/
 private unsafe def runTokenPinCheck
@@ -541,6 +661,7 @@ unsafe def runAll (args : List String) : IO UInt32 := do
   runAccumulator session repoRoot outDir
   runArithOps session repoRoot outDir
   runEventFlow session repoRoot outDir
+  runOwnableLike session repoRoot outDir
   runTokenPinCheck session repoRoot
   IO.println s!"EvmCorpusPrimitiveV1: reference legs written under {outDir}"
   pure 0

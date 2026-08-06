@@ -49,6 +49,32 @@ private def bn254FrModulusYulV1 : String :=
 private def bn254FrFermatExpYulV1 : String :=
   "0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffffff"
 
+/-- ADR-0031 S1 / ADR-0025: nested Yul for one LE body word of
+    `context.caller` Principal (`u32le(20)||addr20`).
+
+    EVM `caller()` returns a right-aligned 20-byte address in a 32-byte word
+    (byte indices 12..31 = network-order address bytes 0..19). Body words pack
+    those bytes little-endian into 8×UInt64 (words 3..7 = 0; word 2 high 32
+    bits = 0). Matches `principal_words_from_addr` / T10 leaf layout.
+
+    Yul `byte` argument order is EVM-native `byte(i, x)` (index first) — the
+    locked solc 0.8.34 builtin matches the BYTE opcode stack order, not the
+    older docs spelling `byte(x, i)`. Using the wrong order makes every BYTE
+    see index=address (>32) and return 0. -/
+private def yulCallerPrincipalWordNested (wordIndex : Nat) : String :=
+  if wordIndex ≥ 3 then
+    "0"
+  else
+    -- Pack up to 8 network-order address bytes starting at body offset
+    -- `wordIndex * 8` into one LE UInt64 via `byte(12+off, caller())`.
+    let base : Nat := wordIndex * 8
+    let nBytes : Nat := if wordIndex == 2 then 4 else 8
+    Id.run do
+      let mut acc := s!"byte({12 + base}, caller())"
+      for k in [1:nBytes] do
+        acc := s!"or({acc}, shl({8 * k}, byte({12 + base + k}, caller())))"
+      acc
+
 /-- Nested Yul expression form (no intermediate lets). Used for for-loop
     condition/update slots that require expression positions. Storage loads
     and checked overflow guards are not nested here — callers pre-render
@@ -62,6 +88,10 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
   | .temp tempIndex => s!"t{tempIndex}"
   | .timestamp => "timestamp()"
   | .selfBalance => "selfbalance()"
+  | .callerPrincipalWord wordIndex =>
+      -- Nested form: assemble one LE body word of ADR-0025
+      -- `u32le(20)||addr20` from `caller()`. wordIndex ≥ 3 → 0.
+      yulCallerPrincipalWordNested wordIndex
   | .storageLoad slot => s!"sload({slot})"
   | .narrowStorageLoad bitWidth slot =>
       s!"and(sload({slot}), {yulUintMask bitWidth})"
@@ -268,6 +298,14 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := selfbalance()\n" ++
           s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
+        value := name, next := next + 1 }
+  | .callerPrincipalWord wordIndex =>
+      -- ADR-0031 S1 / ADR-0025: one LE body word of caller Principal.
+      -- View-safe (`caller()` is readable under STATICCALL). Length leaf
+      -- is `.literal 20` elsewhere; this tag only covers body words 0..7.
+      let name := s!"expr{next}"
+      let rhs := yulCallerPrincipalWordNested wordIndex
+      { code := s!"{indent}let {name} := {rhs}\n",
         value := name, next := next + 1 }
   | .storageLoad slot =>
       let name := s!"expr{next}"

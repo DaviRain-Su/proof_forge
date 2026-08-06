@@ -76,8 +76,8 @@ catalog 纪律（backlog **SYS-CAP-UNIFY**）。
 
 | 期 | 键 | 语义/类型 | 各 target 诚实对应物 | 状态 |
 |---|---|---|---|---|
-| **S1** | `context.caller : Principal` | 当前调用者身份（= ADR-0030 E3，MiniAMM 依赖） | EVM `CALLER`→`u32le(20)\|\|addr20`（ADR-0025 唯一 realization）；Solana 指定 signer role 32B pubkey（非 tx.origin 概念，诚实注释）；NEAR `predecessor_account_id`（**view 禁**）；CW `MessageInfo.sender`（bech32 utf8） | pending |
-| **S2** | `context.blockHeight : UInt64` | 当前区块高度 | EVM `NUMBER`；Solana `Clock.slot`（≈400ms 物理槽，**非**逻辑块号——记入 catalog 语义差异）；NEAR `block_index`；CW `Env.block.height`；TON/ICP 无直接对应物 FC；电路类/Quint FC | pending |
+| **S1** | `context.caller : Principal` | 当前调用者身份（= ADR-0030 E3，MiniAMM 依赖） | EVM `CALLER`→`u32le(20)\|\|addr20`（ADR-0025 唯一 realization）；Solana 指定 signer role 32B pubkey（非 tx.origin 概念，诚实注释）；NEAR `predecessor_account_id`（**view 禁**）；CW `MessageInfo.sender`（bech32 utf8） | **in_progress**（2026-08-06：EVM Plan/Yul + CallerCheck/Ownable Anvil 已交付；Solana/NEAR/CW lanes 进行中） |
+| **S2** | `context.blockHeight : UInt64` | 当前区块高度 | EVM `NUMBER`；Solana `Clock.slot`（≈400ms 物理槽，**非**逻辑块号——记入 catalog 语义差异）；NEAR `block_index`；CW `Env.block.height`；TON/ICP 无直接对应物 FC；电路类/Quint FC | **in_progress**（shared wire/type/Normalize/Reference 已交付；四 target leaf/runtime 待接） |
 | **S3** | `context.chainId` | 链身份（重放保护/域分隔） | EVM `CHAINID`（UInt64）；CW `Env.block.chain_id`（**String**——Bytes/宽度纪律待 S3 冻结）；NEAR `chain_id`；Solana/TON/ICP 无→FC | pending（类型纪律 S3 冻结） |
 | **S4** | `context.attachedValue : UInt64` | 本次调用携带的原生资产量 | EVM `CALLVALUE`；NEAR `attached_deposit`（**view 禁**）；CW `MessageInfo.funds`（单 denom 纪律沿用 C1 `stake`）；Solana 无直接对应物（SOL 经指令转账）FC | pending |
 

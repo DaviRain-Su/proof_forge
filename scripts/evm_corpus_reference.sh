@@ -73,7 +73,7 @@ for raw_path in raws:
 print(f"evm-corpus-reference: ok ({len(raws)} steps; not formal C-3)", file=sys.stderr)
 PY
 
-# Exact 23 canonical reference observations; no PF/OZ legs on this recipe path.
+# Exact 28 canonical reference observations; no PF/OZ legs on this recipe path.
 /usr/bin/python3 -I -S - "$obs_root" <<'PY'
 import sys
 from pathlib import Path
@@ -84,9 +84,9 @@ refs = [
     for p in sorted(obs_root.rglob("reference-step-*.json"))
     if not p.name.endswith(".raw.json") and ".raw." not in p.name
 ]
-if len(refs) != 23:
+if len(refs) != 28:
     raise SystemExit(
-        "evm-corpus-reference: expected 23 reference obs, got %d" % len(refs)
+        "evm-corpus-reference: expected 28 reference obs, got %d" % len(refs)
     )
 pf = list(obs_root.rglob("pf-anvil-step-*.json"))
 oz = list(obs_root.rglob("oz-anvil-step-*.json"))

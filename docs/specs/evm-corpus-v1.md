@@ -3,7 +3,7 @@ id: SPEC-EVM-CORPUS-001
 title: EVM corpus case and observation schema v1
 status: proposed
 owner: quality
-updated: 2026-08-03
+updated: 2026-08-06
 normative: false
 ---
 
@@ -418,7 +418,7 @@ Sole canonical path：`testdata/evm-corpus/v1/manifest.json`。
    （禁止自引用；`path == testdata/evm-corpus/v1/manifest.json` → `PF-CORPUS-INVARIANT`）。
 2. 全部 business case 的 `pins.sourcePath`（含外部 `Examples/Counter|Accumulator|Token.lean`
    与 `testdata/valid/ArithOps.lean`）。
-3. Sole full-runtime harness（role=`runner`，exact 9 路径）：
+3. Sole full-runtime harness（role=`runner`，exact 13 路径）：
    - `scripts/evm_corpus_v1.py`
    - `scripts/evm_corpus_reference.sh`
    - `scripts/evm_corpus_runtime.sh`
@@ -426,11 +426,15 @@ Sole canonical path：`testdata/evm-corpus/v1/manifest.json`。
    - `scripts/evm_anvil_differential.sh`
    - `scripts/smoke_evm.sh`
    - `scripts/evm_token_anvil_smoke.sh`
+   - `scripts/evm_tipjar_anvil_smoke.sh`
+   - `scripts/evm_tokenjar_anvil_smoke.sh`
+   - `scripts/evm_envread_anvil_smoke.sh`
+   - `scripts/evm_caller_anvil_smoke.sh`
    - `Tests/Materialization/EvmCorpusPrimitiveV1.lean`
    - `Tests/Materialization/EvmCorpusBlockedV1.lean`
 
-当前 closed inventory 合计 **46** 条目（corpus authority 除 manifest 自身 + case
-`sourcePath` + 上表 9 runners）。
+当前 closed inventory 合计 **50** 条目（corpus authority 除 manifest 自身 + case
+`sourcePath` + 上表 13 runners）。
 
 ### 角色与 join
 
@@ -439,7 +443,7 @@ Sole canonical path：`testdata/evm-corpus/v1/manifest.json`。
 | `case` | `testdata/evm-corpus/v1/cases/<id>.json`；`id` 必须等于 filename stem |
 | `source` | program / external source 文本；每个 case `sourcePath` 必须 listed 且 role=source；`sourcePath` 仅 `.lean` 且位于 closed roots `Examples/`、`testdata/valid/`、`testdata/evm-corpus/v1/programs/` |
 | `schema-fixture` | `schema-tests/**` 形状自检 |
-| `runner` | 上表 exact 9 harness 路径 |
+| `runner` | 上表 exact 13 harness 路径 |
 
 未知 role / duplicate path / 非升序 path → fail closed。
 
@@ -463,11 +467,11 @@ component）、hardlink（`nlink != 1`）、非 regular。stable read 使用
   - `validate-case PATH`
   - `validate-observation PATH`
   - `validate-manifest PATH`（sole path = `testdata/evm-corpus/v1/manifest.json`）
-  - `list-runnable-cases CASES_DIR`（exact 4 primitive + 1 adapter pin join）
+  - `list-runnable-cases CASES_DIR`（exact 5 primitive + 1 adapter pin join）
   - `self-test`（内建 + `schema-tests/**` + manifest positive/negatives）
 - just 入口（EVMOZ-006）：
   - `just evm-corpus-schema`：self-test + validate-manifest + 全部 business cases + runnable
-  - `just evm-corpus-reference`：build 后 safe-clean OBS + Reference；exact 23 reference obs
+  - `just evm-corpus-reference`：build 后 safe-clean OBS + Reference；exact 28 reference obs
   - `just evm-corpus-static`：schema + reference 聚合（接 `dev-check` / `ci-lean-product`）
   - `just evm-corpus-runtime`：手动 toolful Cancun full harness（**不**进 ordinary CI）
 - 成功：stdout `corpus-schema-validated ...` / `corpus-manifest-validated ...` 且 exit 0。
@@ -479,10 +483,10 @@ component）、hardlink（`nlink != 1`）、非 regular。stable read 使用
 | 层 | 状态 |
 |---|---|
 | case/observation schema + schema-tests | 已实现 |
-| business cases：4 primitive + 1 Token adapter + 1 Ownable blocked | 已实现 |
-| closed manifest inventory | 已实现（EVMOZ-006） |
-| Reference leg（23 obs）+ pin join | 已实现 |
-| Ownable blocked Lean suite（Loader/Normalize/Reference + planInvariant） | 已实现并注册 |
+| business cases：5 primitive（含 OwnableLike caller）+ 1 Token adapter；无 active blocked business case | 已实现 |
+| closed manifest inventory | 已实现（EVMOZ-006；50 entries / 13 runners） |
+| Reference leg（28 obs）+ pin join | 已实现 |
+| Ownable caller Lean suite（历史文件名 `EvmCorpusBlockedV1`；Loader/Normalize/Reference + EVM Plan/Yul admit） | 已实现并注册 |
 | PF-Anvil Cancun full runtime harness | 手动 `evm-corpus-runtime`；Token 仅可因显式、已验证的可选工具/部署上限原因 skip，不得 pass 冒充 |
 | Token build regression policy | 产品 build/solc（含 StackTooDeep）一律 hard fail；只有 build 成功后的 deployment/initcode limit 可作为该 optional adapter leg 的 explicit skip |
 | OZ leg / family·ABI·standard credit | **未**实现；Exact 0 / Partial 0 / Blocked 20 不变 |

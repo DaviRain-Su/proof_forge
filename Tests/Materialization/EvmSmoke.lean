@@ -3249,10 +3249,12 @@ private unsafe def testBytesStateIndexOps : IO Unit := do
   | .error e =>
       throw <| IO.userError s!"EVM must accept Map after I1, got {e.render}"
 
-/-- EVM ContextRead pin (B-CTX-OPEN, 2026-08-04): `context.unixTimeSeconds`
-    lowers to the `timestamp()` opcode (UInt64, range-guarded); `context.caller`
-    stays fail closed under the B-3 PrincipalAddr boundary — never a silent
-    CALLER opcode mapping. -/
+/-- EVM ContextRead pin (B-CTX-OPEN / ADR-0031 S1): `context.unixTimeSeconds`
+    lowers to `timestamp()` (UInt64); `context.caller` lowers to Principal
+    aggregate `literal 20` + 8×`callerPrincipalWord` (ADR-0025
+    `u32le(20)||addr20`). Fixture returns Bool via leaf-wise `==` against a
+    Principal param (multi-word Principal entry/view return stays FC).
+    Unknown context keys stay fail closed. -/
 private unsafe def testContextReadFailClosedBoundary : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- unix-time-seconds → UInt64 result is admitted (BL-28-era PlanSchema tag 59).
@@ -3281,7 +3283,7 @@ private unsafe def testContextReadFailClosedBoundary : IO Unit := do
         "EVM unix-time ContextRead must lower to the timestamp expression"
   | .error e =>
       throw <| IO.userError s!"EVM unix-time ContextRead must admit (B-CTX-OPEN), got {e.render}"
-  -- context.caller → Principal result (B-3 PrincipalAddr pin).
+  -- context.caller → Principal aggregate (ADR-0025); compare returns Bool.
   let callerSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -3297,14 +3299,42 @@ private unsafe def testContextReadFailClosedBoundary : IO Unit := do
     callerSource "<evm-ctx-caller>" "Tests.EvmCtxCaller" none)
   let callerCompiled ← liftResult "compile CtxCaller" <|
     Compiler.compileValidatedSourceV1 callerSrc
-  match planEvm callerCompiled with
-  | .error (.planInvariant .evm msg) =>
-      expect (msg.contains "ContextRead" && msg.contains "caller")
-        s!"EVM caller ContextRead must cite the ContextRead/caller boundary, got: {msg}"
-  | .error e =>
-      throw <| IO.userError s!"EVM caller ContextRead must fail closed at plan, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError "EVM caller ContextRead must not produce a plan"
+  let callerPlan ← match planEvm callerCompiled with
+    | .ok p => pure p
+    | .error e =>
+        throw <| IO.userError
+          s!"EVM caller ContextRead must admit (ADR-0031 S1), got {e.render}"
+  expect (callerPlan.entries.any fun e => e.name == "who" && e.params.size == 9)
+    "CtxCaller.who must expand Principal param to 9 ABI words"
+  -- Plan body must mention callerPrincipalWord leaves (or literal-20 + words).
+  let hasCallerWord :=
+    Id.run do
+      let mut found := false
+      for e in callerPlan.entries do
+        for s in e.body do
+          let rec walk (ex : Targets.Evm.Expr) : Bool :=
+            match ex with
+            | .callerPrincipalWord _ => true
+            | .compare _ l r => walk l || walk r
+            | .logicalAnd l r => walk l || walk r
+            | .logicalOr l r => walk l || walk r
+            | .boolNot o => walk o
+            | _ => false
+          match s with
+          | .returnValue ex => if walk ex then found := true
+          | .assert ex => if walk ex then found := true
+          | .store op => if walk op.value then found := true
+          | _ => pure ()
+      pure found
+  expect hasCallerWord
+    "CtxCaller plan must contain callerPrincipalWord leaves (ADR-0025 body)"
+  let callerOut ← liftResult "materialize CtxCaller" <|
+    materializeSelected TargetId.evm callerCompiled
+  let some callerYul := (MaterializedArtifactsV1.filesOf callerOut).find?
+      (·.path == "CtxCaller.yul") |
+    throw <| IO.userError "CtxCaller: missing CtxCaller.yul"
+  expect (callerYul.contents.contains "caller()")
+    "CtxCaller Yul must contain the caller() opcode"
   -- Unknown context key stays fail-closed too (closed wire surface).
   let unknownSource :=
     "import ProofForgeV2\n" ++
@@ -3794,8 +3824,10 @@ private unsafe def testCallReturnEvm : IO Unit := do
           throw <| IO.userError
             "EVM Bool result call must fail closed in the UInt64 pilot"
 
-/-- B-CTX-OPEN: `context.unixTimeSeconds` lowers on EVM to the `timestamp()`
-    opcode with the UInt64 range guard; `context.caller` stays fail closed. -/
+/-- B-CTX-OPEN / ADR-0031 S1: `context.unixTimeSeconds` → `timestamp()`;
+    `context.caller` → Principal aggregate from `caller()` (ADR-0025).
+    Direct Principal return stays fail closed (multi-word return ABI);
+    compare-to-param Bool/UInt64 shape is the admitted surface. -/
 private unsafe def testContextReadTimestampEvm : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src :=
@@ -3836,27 +3868,65 @@ private unsafe def testContextReadTimestampEvm : IO Unit := do
     throw <| IO.userError "CtxTs: missing ClockBox.yul"
   expect (yulFile.contents.contains "timestamp()")
     "CtxTs: Yul must contain the timestamp() opcode"
-  -- context.caller stays fail closed (B-3 PrincipalAddr).
+  -- context.caller admitted: compare against Principal param → Bool
+  -- (multi-word Principal return stays FC; this is the honest fixture shape).
   let callerSrc :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program CallerBox where\n" ++
-    "  entry who() : UInt64 do\n" ++
-    "    let c : Principal := context.caller\n" ++
-    "    return 0\n"
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry isCaller(a : Principal) : Bool do\n" ++
+    "    return context.caller == a\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
   let clSrc ← match ← session.selectProgramV1
-      callerSrc "<evm-ctx-caller>" "Tests.EvmCtxCaller" none with
+      callerSrc "<evm-ctx-caller-box>" "Tests.EvmCtxCallerBox" none with
     | .ok v => pure v
-    | .error e => throw <| IO.userError s!"CtxCaller select: {e.render}"
-  match Compiler.compileValidatedSourceV1 clSrc with
+    | .error e => throw <| IO.userError s!"CtxCallerBox select: {e.render}"
+  let clCompiled ← match Compiler.compileValidatedSourceV1 clSrc with
+    | .error e => throw <| IO.userError s!"CtxCallerBox must compile: {e.render}"
+    | .ok c => pure c
+  let clPlan ← match planEvm clCompiled with
+    | .error e =>
+        throw <| IO.userError
+          s!"EVM context.caller must admit (ADR-0031 S1), got {e.render}"
+    | .ok p => pure p
+  expect (clPlan.entries.any fun e => e.name == "isCaller" && e.params.size == 9)
+    "CallerBox.isCaller must expand Principal param to 9 ABI words"
+  let clOut ← liftResult "materialize CallerBox" <|
+    materializeSelected TargetId.evm clCompiled
+  let some clYul := (MaterializedArtifactsV1.filesOf clOut).find?
+      (·.path == "CallerBox.yul") |
+    throw <| IO.userError "CallerBox: missing CallerBox.yul"
+  expect (clYul.contents.contains "caller()")
+    "CallerBox Yul must contain the caller() opcode"
+  -- Multi-word Principal *return* remains fail closed (ABI shape decision).
+  let retSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallerRet where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  view who() : Principal do\n" ++
+    "    return context.caller\n"
+  let rSrc ← match ← session.selectProgramV1
+      retSrc "<evm-ctx-caller-ret>" "Tests.EvmCtxCallerRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CallerRet select: {e.render}"
+  match Compiler.compileValidatedSourceV1 rSrc with
   | .error _ => pure ()
   | .ok compiled =>
       match planEvm compiled with
       | .error e =>
-          expect (e.render.contains "caller")
-            s!"caller FC must cite caller boundary, got: {e.render}"
+          expect (e.render.contains "return" || e.render.contains "Principal" ||
+              e.render.contains "unsupported" || e.render.contains "UInt")
+            s!"Principal return FC must cite return/Principal boundary, got: {e.render}"
       | .ok _ =>
-          throw <| IO.userError "EVM context.caller must fail closed"
+          throw <| IO.userError
+            "EVM multi-word Principal return of context.caller must fail closed"
 
 /-- BL-18: Bytes / Map / Array UInt64 9 / nested Array stay fail-closed. -/
 private unsafe def testAnonymousReturnFailClosedBoundaries : IO Unit := do

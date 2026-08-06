@@ -47,6 +47,8 @@ port="${PF_EVM_PORT:-18545}"
 chain_id="${PF_EVM_CHAIN_ID:-31338}"
 rpc="http://127.0.0.1:$port"
 private_key="${PF_EVM_PRIVATE_KEY:-ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
+# Second default Anvil account (index 1) for OwnableLike unauthorized paths.
+stranger_private_key="${PF_EVM_STRANGER_PRIVATE_KEY:-59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d}"
 log="$root/build/v2/anvil.log"
 UINT64_MAX="18446744073709551615"
 # Optional product profile → runtime hardfork pin + profile-keyed artifact trees.
@@ -552,7 +554,60 @@ print(json.dumps([{"address":addr,"topics":[topic],"data":data}]))
     "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_5"
 fi
 
+# ---------------------------------------------------------------------------
+# OwnableLike (optional artifact) — corpus case
+# pf.primitive.ownablelike.caller-admit.v1: init records msg.sender as owner
+# (Principal); setValue only-owner; unauthorized reverts with state hold.
+# Storage layout: owner Principal slots 0..8, value UInt64 slot 9.
+# ---------------------------------------------------------------------------
+if [[ -f "$(artifact_dir evm-ownablelike)/OwnableLike.bin" ]]; then
+  ownable_bin="$(artifact_dir evm-ownablelike)/OwnableLike.bin"
+  bytecode="$(tr -d '\n\r ' < "$ownable_bin")"
+  receipt="$("$cast" send --json --rpc-url "$rpc" --private-key "$private_key" --create "0x${bytecode}")"
+  ownable="$(/usr/bin/python3 -I -S -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])' <<<"$receipt")"
+  [[ -n "$ownable" && "$ownable" != "null" ]] || die "OwnableLike deploy failed"
+  # step 0: deploy — owner := msg.sender (account 0); value = 0 (slot 9)
+  require_storage_uint "$ownable" 9 "0" "OwnableLike constructor value slot"
+  slot9_0="$(storage_word32_from_uint 0)"
+  emit_corpus_obs "pf.primitive.ownablelike.caller-admit.v1" 0 "success" \
+    "null" '{"value":"0"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000009" "$slot9_0"
+  # step 1: authorized setValue(42) from owner
+  "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
+    "$ownable" 'setValue(uint64)(uint64)' 42 >/dev/null
+  require_uint_equal "$($cast call --rpc-url "$rpc" "$ownable" 'getValue()(uint64)')" "42" \
+    "OwnableLike authorized setValue view"
+  require_storage_uint "$ownable" 9 "42" "OwnableLike authorized setValue storage"
+  slot9_42="$(storage_word32_from_uint 42)"
+  emit_corpus_obs "pf.primitive.ownablelike.caller-admit.v1" 1 "success" \
+    '"42"' '{"value":"42"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000009" "$slot9_42"
+  # step 2: view getValue → 42
+  emit_corpus_obs "pf.primitive.ownablelike.caller-admit.v1" 2 "success" \
+    '"42"' '{"value":"42"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000009" "$slot9_42"
+  # step 3: unauthorized setValue(7) from stranger (account 1) → revert; state holds
+  if "$cast" send --rpc-url "$rpc" --private-key "$stranger_private_key" \
+      "$ownable" 'setValue(uint64)(uint64)' 7 >/dev/null 2>&1; then
+    die "OwnableLike unauthorized setValue unexpectedly succeeded"
+  fi
+  require_storage_uint "$ownable" 9 "42" "OwnableLike unauthorized revert must hold value"
+  require_uint_equal "$($cast call --rpc-url "$rpc" "$ownable" 'getValue()(uint64)')" "42" \
+    "OwnableLike unauthorized revert changed view"
+  emit_corpus_obs "pf.primitive.ownablelike.caller-admit.v1" 3 "revert" \
+    "null" '{"value":"42"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000009" "$slot9_42" \
+    "[]" "0x"
+  # step 4: view getValue still 42
+  emit_corpus_obs "pf.primitive.ownablelike.caller-admit.v1" 4 "success" \
+    '"42"' '{"value":"42"}' '[]' "true" \
+    "0x0000000000000000000000000000000000000000000000000000000000000009" "$slot9_42"
+else
+  echo "evm-smoke: note: OwnableLike artifact missing (skip ownable corpus leg)" >&2
+fi
+
 covered="Counter + Accumulator"
 [[ -f "$(artifact_dir evm-arithops)/ArithOps.bin" ]] && covered+=" + ArithOps"
 [[ -f "$(artifact_dir evm-eventflow)/EventFlow.bin" ]] && covered+=" + EventFlow"
+[[ -f "$(artifact_dir evm-ownablelike)/OwnableLike.bin" ]] && covered+=" + OwnableLike"
 echo "evm-smoke: ok ($covered; view+storage dual-read; overflow/Cap revert state hold; engineering only — not formal Reference↔Anvil)"
