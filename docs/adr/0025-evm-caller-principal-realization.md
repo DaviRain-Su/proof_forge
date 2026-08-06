@@ -117,7 +117,7 @@ behavior / observation 条件满足（本 ADR 不改 family status 表）。
 | Source / Typed / Normalize / Wire / Requirements | 已支持 `context.caller` → Principal ContextRead |
 | Reference invocation | 已要求 context 提供 canonical Principal valueBytes；**不** 绑定 EVM 20B |
 | EVM Plan/IR/Yul | **LOWERED**：`callerPrincipalWord` 九叶 + Yul `byte(_, caller())` 装配；ValidatePlan/IR + Anvil/corpus 正向/负向 |
-| 他 target ContextRead Plan | **非均匀**（NEAR/CW/TON unixTime OPEN；Solana/Noir/Psy/Aleo/Quint ContextRead 全 FC；Solana/NEAR/CW caller 仍 FC） |
+| 他 target ContextRead Plan | **非均匀（后续 ADR-0031 S1）**：Solana 仅 exact CPI profile 开 signer-role caller（legacy FC）；NEAR 开 init/entry predecessor caller（view FC）；CW 开 instantiate/execute sender caller（query/view FC）；TON 仍仅 unixTime；Noir/Psy/Aleo/Quint FC |
 | T10 Principal state/param storage | **不变**（wire identity leaf；≠ address ABI） |
 | Ownable / OZ / address ABI | **仍非本 ADR 解锁**：F01 OZ family 仍 Blocked 于标准 address ABI/event 与 pinned OZ leg |
 
@@ -148,14 +148,16 @@ behavior / observation 条件满足（本 ADR 不改 family status 表）。
   成立当且仅当 body 与当前 caller 相同；**不得** 把 storage leaf 布局改成
   固定 20B address slot 以“优化”caller。
 
-**其它 target（非均匀 capability；本 ADR 不打开）**
+**其它 target（非均匀 capability；本 ADR 本身不打开，后续 ADR-0031 S1 已逐 target cutover）**
 
-- Solana / NEAR / Noir / Aleo / Psy（及后续）的 `context.caller` Plan 仍 fail closed，
-  直至 **各自** 产品决策与 target-owned cutover。
-- 若未来打开，各自可选择不同 body 长度/字节约定（例如 32B pubkey），但 **必须**
-  仍编码为 shared `u32le(len)||body`，且 **不得** 让 TargetId 在 Normalize/Typed
-  层改写程序业务语义（ADR-0003/0004）。跨 target 程序若依赖“caller 是 20B
-  EVM address”则 **不是** portable claim——capability 矩阵必须诚实标出。
+- Solana 仅在 exact CPI profile 以 ABI `pf_caller` signer 的 32B pubkey 物化 caller，
+  legacy profiles FC；NEAR 以 `predecessor_account_id` 开 init/entry、view FC；CosmWasm
+  以 `MessageInfo.sender` 开 instantiate/execute、query/view FC；Noir/Aleo/Psy/Quint/TON
+  caller 继续 FC。
+- 各 target 可选择不同 body 长度/字节约定，但 **必须** 仍编码为 shared
+  `u32le(len)||body`，且 **不得** 让 TargetId 在 Normalize/Typed 层改写程序业务语义
+  （ADR-0003/0004）。跨 target 程序若依赖“caller 是 20B EVM address”则 **不是**
+  portable claim——capability 矩阵必须诚实标出。
 
 ### 7. 与 B-3 / B-CTX-OPEN / B-CALL-SEM 的关系
 
@@ -163,7 +165,7 @@ behavior / observation 条件满足（本 ADR 不改 family status 表）。
 |---|---|
 | **B-3 PrincipalAddr** | **仍成立**：禁止 approximate 任意 Principal→20B/32B 映射；CALL 仍非 dynamic Principal 地址 |
 | **B-3 AddressBearing** | **不变**：static QN callee；与 caller Principal 正交 |
-| **B-CTX-OPEN** | EVM **caller encoding 决策已冻结**；**Plan 开放仍 pending** 实现 cutover。unixTime 与其它 target 的 open 决策 **未** 由本 ADR 批准 |
+| **B-CTX-OPEN** | EVM caller encoding + Plan/IR/Yul cutover 已完成；其它 target 的后续开放由 ADR-0031 S1 独立批准并按各自 runtime 身份绑定，未反向扩大本 ADR 的 EVM-only normative scope |
 | **B-CALL-SEM** | **不变**：static-QN CALL / stub 语义债仍在；本 ADR 不修复 call/schedule 完整平台语义 |
 
 ## 理由

@@ -3005,6 +3005,89 @@ private unsafe def testMapPutIntoEmptyAtomicStore : IO Unit := do
           "Map.empty init must lower to storeAtomic of 24 zero leaves"
   IO.println "  MapPut atomic store-then-read pin ok"
 
+/-- MiniAMM LP pilot: dense `Map Principal UInt64` state (cap-4 × 11 leaves =
+    44 slots). IndexGet/Set use leaf-wise Principal key equality; Map.empty
+    zeros the full table; wrong Map value shapes stay fail closed. -/
+private unsafe def testMapPrincipalUInt64Pilot : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program LpShares where\n" ++
+    "  state balances : Map Principal UInt64\n" ++
+    "  init() do\n" ++
+    "    balances := Map.empty()\n" ++
+    "  entry mint(who : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    match balances[who] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      balances[who] := v + amount\n" ++
+    "      return amount\n" ++
+    "    | _ => do\n" ++
+    "      balances[who] := amount\n" ++
+    "      return amount\n" ++
+    "  view balanceOf(who : Principal) : UInt64 do\n" ++
+    "    match balances[who] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let src ← liftResult "load LpShares" (← session.selectProgramV1
+    source "<evm-lp-shares>" "Tests.EvmLpShares" none)
+  let compiled ← liftResult "compile LpShares" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan LpShares" <| planEvm compiled
+  -- cap-4 × (occ + 9 Principal key leaves + val) = 44 Map leaves.
+  expect (plan.storageLayout.size == 44)
+    s!"LpShares must flatten to 44 Principal-Map leaves, got {plan.storageLayout.size}"
+  -- mint(who: Principal, amount: UInt64) → 9 Principal ABI words + 1 UInt64.
+  let mintParams :=
+    match plan.entries.find? (·.name == "mint") with
+    | some e => e.params.size
+    | none => 0
+  expect (mintParams == 10)
+    s!"LpShares.mint must expand to 10 ABI words (9 Principal + 1 UInt64), got {mintParams}"
+  let balParams :=
+    match plan.entries.find? (·.name == "balanceOf") with
+    | some e => e.params.size
+    | none => 0
+  expect (balParams == 9)
+    s!"LpShares.balanceOf must expand Principal param to 9 ABI words, got {balParams}"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"LpShares plan must validate: {e.render}"
+  let out ← liftResult "materialize LpShares" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf out).find?
+      (·.path == "LpShares.yul") |
+    throw <| IO.userError "LpShares: missing LpShares.yul"
+  expect (yulFile.contents.contains "sstore" && yulFile.contents.contains "sload")
+    "LpShares Yul must sstore/sload Principal-Map leaves"
+  -- Negative: Map Principal Bool is not admitted (value must be UInt64).
+  let badSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BadMap where\n" ++
+    "  state m : Map Principal Bool\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  let badSrc ← liftResult "load BadMap" (← session.selectProgramV1
+    badSource "<evm-bad-pmap>" "Tests.EvmBadPMap" none)
+  -- May fail at typecheck/compile or plan; either is fail closed.
+  match Compiler.compileValidatedSourceV1 badSrc with
+  | .error _ => pure ()
+  | .ok badCompiled =>
+      match planEvm badCompiled with
+      | .error e =>
+          expect (e.render.contains "Map" || e.render.contains "UInt64" ||
+              e.render.contains "Principal")
+            s!"Bad Principal Map value shape FC must cite Map/UInt64, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Map Principal Bool must fail closed at compile or plan"
+  IO.println "  Map Principal UInt64 pilot pin ok"
+
 /-- B-MAP-STRUCT-PIN: Token transfer dual Map StateStores must stay two
     separate 24-leaf `storeAtomic` batches (not merged). Within each batch Yul
     evaluates leaf exprs then contiguous sstores; between batches sload is
@@ -4186,6 +4269,7 @@ unsafe def run : IO Unit := do
   testFieldBn254Lane
   testArrayStateIndexOps
   testMapPutIntoEmptyAtomicStore
+  testMapPrincipalUInt64Pilot
   testTokenDualStoreBatchSeparation
   testBytesStateIndexOps
   testContextReadFailClosedBoundary

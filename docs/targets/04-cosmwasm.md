@@ -31,9 +31,10 @@ UInt64/Int64 leaf 的 named entry/view aggregate return，以及 anonymous `Arra
 （1..8）/`Option UInt64` entry/view return 已开。Map/Bytes return、Option/Bytes state、
 nested/非 UInt64元素、aggregate param/pureFn仍 fail closed。
 
-**runtime rungs**：`runtime-tests/cosmwasm` 的 cosmwasm-vm 3.0.9 mock 当前有 28 个
+**runtime rungs**：`runtime-tests/cosmwasm` 的 cosmwasm-vm 3.0.9 mock 当前有 48 个
 `#[test]`，覆盖 Counter/Accumulator/EventFlow、hardening、ScheduleFlow、NarrowCounter、
-PairRet、ArrayRet、OptionRet；另有 `scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3
+PairRet、ArrayRet、OptionRet、OptionState、pf.assets、env-read 与 CallerGate；另有
+`scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3
 Docker 工程 rung，覆盖 Counter 与 ScheduleFlow 子消息失败导致 whole-tx abort。两者都不是
 主网、formal 或 hermetic evidence。
 
@@ -89,9 +90,19 @@ varTemp 纪律——未绑时 `.localTemp` fallback 会静默吐常量 0，已�
 `{"balance":{"address":<contract>}}` 并返回 `{"balance":"2000"}`，另有
 len=0 畸形 wire-shape 与 unknown-mint trap 负例。**非** formal/mainnet parity。
 
+**`context.caller` binding（ADR-0031 S1 / ADR-0030 E3，2026-08-06）**：仅
+instantiate/execute 使用真实 `MessageInfo.sender`；query/view 无 sender，Plan fail closed。
+Plan/IR 以 method-level usage scan 决定是否加载 caller，loader 放在实际命中的 branch 内，
+因此完全不使用 caller 的 entry 不会被非法 sender 误伤。sender 物化为
+`u32le(len)||utf8-body` Principal，并在 publish globals 前复用 len 1..64、zero tail 与
+lowercase `[a-z0-9]` 门，排除大写、标点、引号/反斜线与 JSON escape 注入。
+`caller_gate.rs` **7/7** 覆盖 true/false、entry 状态推进/失败保持、query FC 与 non-caller
+entry 的 branch-local 正向；**非** formal/mainnet parity。
+
 **仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Option state、Map/Bytes
-return、Field/Principal/String interface、ContextRead/Commit、nonempty invariants、UInt128/256、
-narrow Int、JSON 全集与 gas model。wasmd smart query 当前仍非 Binary，rung-1 harness 使用 raw state。
+return、Field/Principal/String interface、除 execute/init `context.caller` 外的 ContextRead、
+Commit、nonempty invariants、UInt128/256、narrow Int、JSON 全集与 gas model。wasmd smart query
+当前仍非 Binary，rung-1 harness 使用 raw state。
 
 ## 0.1 A0→隔离→修复/design-exit 过程记录（2026-08-03）
 

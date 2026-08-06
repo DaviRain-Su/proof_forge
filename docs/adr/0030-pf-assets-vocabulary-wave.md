@@ -33,8 +33,8 @@ payload 中**（5 QN 之二），当前全 target fail closed 于 Plan——toke
 | 读自身代币余额（reserves 模式） | `pf.assets.*.balanceOfSelf`（新 env-read） | **E2：payload v1.1.0** |
 | 恒定乘积 x*y≥k | UInt128/256 宽算术 | **shared + EVM 全宽已有**；Solana/NEAR **mul 真 schoolbook、div/mod 仍 low64 FC**——E4 Solana 腿需先开 multiword div |
 | LP 份额 | v1 内部记账（`Map Principal UInt64` state） | **shared Wire/Normalize 已 admit Principal map key**；**零 target 物化**（仅 `Map UInt64 UInt64` dense pilot）——E4 前置 target leaf；发行真资产（mint）**defer 至 custody/issuance v2** |
-| LP 归属/权限 | `context.caller`（编码已冻结于 ADR-0025） | **E3 / ADR-0031 S1**：EVM Plan 已开（2026-08-06）；Solana/NEAR/CW leaf in progress |
-| TWAP | `context.unixTimeSeconds` + 累积器 | shared + EVM/NEAR/CW/TON 已开；**Solana ContextRead 全 FC** |
+| LP 归属/权限 | `context.caller`（编码已冻结于 ADR-0025） | **E3 / ADR-0031 S1 done（engineering，2026-08-06）**：EVM/Solana-exact-CPI/NEAR/CW 已按各自宿主绑定；无诚实 view/query caller 的面继续 FC |
+| TWAP | `context.unixTimeSeconds` + 累积器 | shared + EVM/NEAR/CW/TON 已开；Solana 仅 caller 在 exact CPI profile 开放，`unixTimeSeconds` 仍 FC |
 | 授权扣款 transferFrom | 模型不通用（NEP-141 无 allowance） | **本波不做**（V2 reserves 模式已绕开） |
 | flash swap（先发货+回调） | 动态 callee + 回调 | **本波不做**（破 static-QN 根基，见否决） |
 
@@ -100,10 +100,12 @@ generic dynamic callee 仍 FC；只有 catalog 声明的 token 接口形态允�
 
 ## E3：`context.caller` Plan 层开放（B-CTX-OPEN 的 pf.assets 承接）
 
-LP 份额/权限需要 caller。编码已冻结（ADR-0025：`u32le(20)||addr20` EVM；各 target
-按各自 identity 长度另决策）。AMM 热路径只依赖 entry caller；若 target 宿主能诚实提供
-view caller（EVM），可按 ADR-0031 view-safety 轴同时开放；NEAR/CW 等无 caller 的 view/query
-必须 fail closed。per-target 原子 cutover 纪律不变。
+LP 份额/权限需要 caller。**E3 已于 2026-08-06 工程闭合**：EVM 使用 ADR-0025
+`u32le(20)||CALLER`；Solana 仅 exact `solana-sbpf-cpi-elf-v1` 使用 ABI-specified
+`pf_caller` signer role 的 `u32le(32)||pubkey32`（非 tx.origin，legacy profiles FC）；
+NEAR 使用 `predecessor_account_id`（init/entry，view FC）；CosmWasm 使用
+`MessageInfo.sender`（instantiate/execute，query/view FC）。per-target 原子 cutover、
+identity 不跨 target 近似以及无诚实宿主面 fail closed 的纪律不变。
 
 ## E4：MiniAMM 北极星里程碑
 
@@ -118,11 +120,19 @@ view caller（EVM），可按 ADR-0031 view-safety 轴同时开放；NEAR/CW 等
 |---|---|---|---|
 | **E1** | token.transfer 四链绑定（EVM/Solana/CW/NEAR-async） | 无（payload 已含 QN） | **done（2026-08-05）**：E1a EVM / E1b Solana / E1-CW / E1-NEAR(async) 全绑 |
 | **E2** | payload v1.1.0：balanceOfSelf env-read + Reference/Normalize 接线 | E1 可先并行 | **done（2026-08-05/06）**：核心/Reference vault、acceptance cutover（1.1.0 唯一承认）、EVM/Solana/CW 双键、NEAR/Quint native-only（token env-read 永久 FC）、Psy/Aleo/Noir/TON 维持既有 disposition |
-| **E3** | context.caller Plan 开放（per-target 原子 cutover） | 独立（B-CTX-OPEN / ADR-0031 S1） | **in_progress**（2026-08-06：EVM CALLER→Principal + Anvil 已交付；Solana/NEAR/CW lanes 进行中） |
-| **E4** | MiniAMM 北极星（EVM+Solana 双链 runtime 门） | E1+E2+E3 | pending |
+| **E3** | context.caller Plan 开放（per-target 原子 cutover） | 独立（B-CTX-OPEN / ADR-0031 S1） | **done（engineering，2026-08-06）**：EVM/Solana exact CPI/NEAR/CW 四 lane + 各自 runtime 门闭合；其余 target 维持 FC |
+| **E4** | MiniAMM 北极星（EVM+Solana 双链 runtime 门） | E1+E2+E3 | **next**（先闭合 Solana multiword div 与 Principal-keyed LP Map 的真实 target leaf，禁止以 low64/UInt64-key pilot 冒充） |
 
 并行纪律同 ADR-0029：shared payload/Normalize 变更串行于 main；per-target binding
 lane 文件不重叠可隔离 worktree 并行；每期以对应 runtime 门收尾。
+
+**E3 工程事实（2026-08-06）**：EVM `CALLER`→20-byte Principal 由
+CallerCheck/Ownable Anvil corpus 验证；Solana exact CPI profile 由单一 `pf_caller`
+signer role→32-byte Principal，普通 Principal comparison peer 保持 T12 ix-data，且
+noncanonical len/high-tail 以 `Custom(1)` + exact snapshot fail closed（Mollusk 8/8）；
+NEAR `predecessor_account_id` 的 init/entry 路径由 CallerCheck sandbox 验证，view FC；
+CosmWasm `MessageInfo.sender` 仅在实际命中的 instantiate/execute branch 加载，query/view
+FC，cw-vm caller gate 验证正反路径与 charset 注入负例。**非** formal/mainnet parity。
 
 **E1 工程事实（2026-08-05）**：`pf.assets.token.transfer`（v1.0.0 payload 既有 QN，
 无 payload 变更）已绑定两条部署型 target。**EVM**（E1a，commits `77ff279f7` +

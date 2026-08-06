@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-04
+updated: 2026-08-06
 normative: false
 ---
 
@@ -11,6 +11,34 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+## 2026-08-06 — ADR-0031 S1 / ADR-0030 E3 `context.caller` 四 target 工程闭合
+
+- Shared contract 保持 target-neutral：`context.caller : Principal` 由 exact versioned
+  `ContextRead`/requirement row 承载，Reference 环境显式注入 caller；canonical Principal
+  wire 仍为 `u32le(bodyLength) || opaque body`，不得在共享语义中等同 EVM address、Solana
+  pubkey 或 account-id。无诚实 caller 来源的 target/profile 继续 fail closed。
+- EVM 将 caller 绑定为 `CALLER` 的 20-byte address，并物化
+  `u32le(20)||address20`；Ownable-like corpus 与 locked-solc/Anvil 工程门覆盖 owner/non-owner、
+  state hold 和 Reference 观测。S2 `context.blockHeight` 的 EVM `NUMBER` leaf 已在随后独立切片
+  接线，不改变本条 S1 closure。
+- Solana 仅 exact `solana-sbpf-cpi-elf-v1` profile 开放 ABI role `pf_caller`：要求 signer，
+  取 32-byte `AccountInfo.key` 物化 Principal；两个 legacy profile 纵深 FC。普通 Principal
+  参数继续走 T12 instruction data，并在业务读取前强制 `len∈1..64` 与 high-tail zero，
+  不把任意 Principal 隐式升级为 account role/pubkey。Mollusk `caller_isme` 8/8 通过；tracked
+  runtime inventory 为 17 binaries / 351 active tests。Solana #110 interoperability epic 仍为
+  engineering complete（#111–#125 engineering closed），不改变 formal TASK-D5/TST-SOL。
+- NEAR 将 init/entry caller 绑定为 `predecessor_account_id` 的 exact UTF-8 bytes；view
+  无诚实 caller 语义而 FC。predecessor register 由 target-owned `RegisterLayout` 统一分配；
+  locked near-sandbox 2.13.0 `CallerCheck` 覆盖 alice/bob true/false、成功推进和失败 state hold。
+- CosmWasm 仅 instantiate/execute 绑定 `MessageInfo.sender`，query/view FC；caller loader
+  按实际使用 branch-local 放置，sender 在 publish 前经过 1..64 length、zero-tail 与 lowercase
+  `[a-z0-9]` 门，拒绝 escape/标点注入。cosmwasm-vm `caller_gate` 7/7 通过，非 caller entry
+  不受 caller loader 误伤。
+- 该闭合是 engineering/local-runtime 结果，不是 formal、hermetic、mainnet/testnet、
+  Reference↔target 完整差分或 release qualification；E4 MiniAMM 仍需真实 Solana multiword
+  div/mod 与 `Map Principal UInt64` LP state target materialization，禁止以 low64 或 UInt64-key
+  pilot 冒充。
 
 ## 2026-08-04 — 通用 ProofForge Solana client 与显式 program adapter（engineering）
 

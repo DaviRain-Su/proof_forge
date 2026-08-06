@@ -23,10 +23,12 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 - multi-width UInt/Int 与 body 窄宽、UInt128/256（EVM-only）ABI/body 子集；Field(bn254) mod-p 通道；
 - 控制流 if/match、fn/localCall、let/bounded for、shift/bitwise/logical、revert/emit；
 - named 聚合 flatten、定长 Array IndexGet/Set（bounds revert）；String 类型面（**String match switch 已落地 N-A1**）；
-- **Map UInt64→UInt64 dense pilot（cap-8）+ Bytes（N×UInt8 leaves，D4-E2）**；
-  aggregate `StateStore` 以 `storeAtomic` 两阶段 Yul：每个 leaf 在独立 block 中求值并 spill 到
-  reserved memory，全部 leaf 完成后再连续 `sstore`。`EvmSmoke` 固定 empty Map upsert、双 batch
-  可见性与 spill 结构；`EvmSolcAcceptance` 检查 host solc，`TokenV1` 产品路径锁定 solc 0.8.34；
+- **Map UInt64→UInt64 dense pilot（cap-8）+ Map Principal→UInt64 LP pilot（cap-4，
+  每 entry occ+9-leaf Principal+value=11 叶，共 44 叶；leaf-wise key eq）+ Bytes
+  （N×UInt8 leaves，D4-E2）**；aggregate `StateStore` 以 `storeAtomic` 两阶段 Yul：每个
+  leaf 在独立 block 中求值并 spill 到 reserved memory，全部 leaf 完成后再连续 `sstore`。
+  `EvmSmoke` 固定 empty Map upsert、Principal-Map LpShares、双 batch 可见性与 spill
+  结构；`EvmSolcAcceptance` 检查 host solc，`TokenV1` 产品路径锁定 solc 0.8.34；
 - **Option UInt64 state（BL-31）**：Enum-shaped tag/payload 双 slot；`none` 与 reset 清零 payload，
   `StateStore` 复用 `storeAtomic`；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；
 - **bounded aggregate return ABI**：named Struct/Enum 与 anonymous `Array UInt64 N`（1..8）/

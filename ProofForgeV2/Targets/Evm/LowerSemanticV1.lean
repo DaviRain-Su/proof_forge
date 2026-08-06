@@ -483,10 +483,12 @@ private def evmPlanErr (message : String) : CompileError :=
     `allowNonPublic := true` (N3), **Array state** flattens to contiguous
     scalar slots (element UInt8/16/32/64/128/256), **Map UInt64 UInt64**
     flattens to a dense pilot table (cap-8 × (occ,key,val) = 24 UInt64 leaves;
-    dynamic keys OK), and **Option UInt64 state** (BL-31) flattens to tag+payload
-    (2 UInt64 leaves; Enum-identical layout; none zeros payload). Option of
-    non-UInt64 / Option params / nested Option stay fail closed. non-64 Int
-    fail closed.
+    dynamic keys OK), **Map Principal UInt64** flattens to cap-4 ×
+    (occ + 9-leaf Principal key + val) = 44 UInt64 leaves (MiniAMM LP pilot;
+    leaf-wise key eq), and **Option UInt64 state** (BL-31) flattens to
+    tag+payload (2 UInt64 leaves; Enum-identical layout; none zeros payload).
+    Option of non-UInt64 / Option params / nested Option stay fail closed.
+    non-64 Int fail closed.
     T9b admits UInt128/256 on scalar state/param/body/result. T10: Principal
     admitted as **storage identity only** (`pilotPrincipalPolicyAdmit`) —
     fixed leaf layout len+8×UInt64 (≤64B body, same pattern as N4 String);
@@ -830,19 +832,41 @@ private def evmMapSlotsPerEntryV1 : Nat := 3
 private def evmMapPilotLeafCountV1 : Nat :=
   evmMapPilotCapacityV1 * evmMapSlotsPerEntryV1
 
-/-- Map UInt64 UInt64 leaf count = fixed pilot capacity × 3 (occ/key/val).
-    Dynamic keys are supported (Token mint/transfer). Returns `none` when not Map. -/
+/-- MiniAMM LP pilot: dense `Map Principal UInt64`.
+    Each entry: occ + 9 Principal leaves (len+8×UInt64 body) + value = 11 leaves.
+    Capacity 4 → 44 storage leaves (fits under maxStorageBindings; smaller than
+    cap-8 Principal which would be 88 leaves and blow Token-class Yul). -/
+private def evmMapPrincipalCapacityV1 : Nat := 4
+private def evmMapPrincipalKeyLeafCountV1 : Nat :=
+  1 + evmPrincipalDataWordCountV1  -- len + 8 body words = 9
+private def evmMapPrincipalSlotsPerEntryV1 : Nat :=
+  1 + evmMapPrincipalKeyLeafCountV1 + 1  -- occ + key + val = 11
+private def evmMapPrincipalLeafCountV1 : Nat :=
+  evmMapPrincipalCapacityV1 * evmMapPrincipalSlotsPerEntryV1
+
+/-- Map UInt64 UInt64 or Map Principal UInt64 leaf count for dense pilots.
+    Dynamic keys supported. Returns `none` when not an admitted Map shape. -/
 private def mapUInt64LeafCountV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
     (_mapStaticKeys : Array UInt64) (typeId : TypeIdV1) :
     CompileResult (Option Nat) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .map keyTid valTid, .. } =>
-      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+      unless valTid == types.uint64TypeId do
         throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: Map state admits only Map UInt64 UInt64"
-      pure (some evmMapPilotLeafCountV1)
+          "unsupported EVM semantic shape: Map state value must be UInt64"
+      if keyTid == types.uint64TypeId then
+        pure (some evmMapPilotLeafCountV1)
+      else if types.isPrincipal keyTid then
+        pure (some evmMapPrincipalLeafCountV1)
+      else
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: Map state admits only Map UInt64 UInt64 or Map Principal UInt64"
   | _ => pure none
+
+/-- True when leaf count matches the Principal-keyed dense pilot. -/
+private def isEvmMapPrincipalLeafCountV1 (n : Nat) : Bool :=
+  n == evmMapPrincipalLeafCountV1
 
 /-- BL-31 / B-OPT-STATE: admitted Option state leaf count.
     `Option UInt64` → `some 2` (tag + payload, Enum 2-variant layout).
@@ -936,6 +960,110 @@ private def mapUpsertLeavesV1
     out := out.push occ' |>.push k' |>.push v'
   pure (out, okInsert)
 
+/-- Dense Map Principal UInt64 IndexGet → Option UInt64 as `[tag, payload]`.
+    Key equality is leaf-wise across the 9 Principal wire leaves. -/
+private def mapPrincipalLookupOptionLeavesV1
+    (mapLeaves : Array Expr) (keyLeaves : Array Expr) :
+    CompileResult (Array Expr) := do
+  unless mapLeaves.size == evmMapPrincipalLeafCountV1 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Principal Map leaf count must match pilot capacity"
+  unless keyLeaves.size == evmMapPrincipalKeyLeafCountV1 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Principal Map key must be 9-leaf Principal"
+  let mut found : Expr := .literal 0
+  let mut payload : Expr := .literal 0
+  for e in [0:evmMapPrincipalCapacityV1] do
+    let base := e * evmMapPrincipalSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .evm "Principal Map lookup occ leaf missing"
+    let mut keyEq : Expr := .literal 1
+    for k in [0:evmMapPrincipalKeyLeafCountV1] do
+      let some stored := mapLeaves[base + 1 + k]? |
+        throw <| .planInvariant .evm "Principal Map lookup key leaf missing"
+      let some want := keyLeaves[k]? |
+        throw <| .planInvariant .evm "Principal Map lookup query leaf missing"
+      keyEq := Expr.logicalAnd keyEq (Expr.compare .eq stored want)
+    let hit := Expr.checkedMul occ keyEq
+    let miss := Expr.boolNot hit
+    let some v := mapLeaves[base + 1 + evmMapPrincipalKeyLeafCountV1]? |
+      throw <| .planInvariant .evm "Principal Map lookup val leaf missing"
+    found := Expr.logicalOr found hit
+    payload :=
+      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
+  pure #[Expr.checkedAdd found (.literal 0), payload]
+
+/-- Dense Map Principal UInt64 IndexSet upsert. Returns (newLeaves, okInsert). -/
+private def mapPrincipalUpsertLeavesV1
+    (mapLeaves : Array Expr) (keyLeaves : Array Expr) (value : Expr) :
+    CompileResult (Array Expr × Expr) := do
+  unless mapLeaves.size == evmMapPrincipalLeafCountV1 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Principal Map leaf count must match pilot capacity"
+  unless keyLeaves.size == evmMapPrincipalKeyLeafCountV1 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Principal Map key must be 9-leaf Principal"
+  let mut anyMatch : Expr := .literal 0
+  for e in [0:evmMapPrincipalCapacityV1] do
+    let base := e * evmMapPrincipalSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .evm "Principal Map upsert occ leaf missing"
+    let mut keyEq : Expr := .literal 1
+    for k in [0:evmMapPrincipalKeyLeafCountV1] do
+      let some stored := mapLeaves[base + 1 + k]? |
+        throw <| .planInvariant .evm "Principal Map upsert key leaf missing"
+      let some want := keyLeaves[k]? |
+        throw <| .planInvariant .evm "Principal Map upsert query leaf missing"
+      keyEq := Expr.logicalAnd keyEq (Expr.compare .eq stored want)
+    let hit := Expr.checkedMul occ keyEq
+    anyMatch := Expr.logicalOr anyMatch hit
+  let mut seenEmpty : Expr := .literal 0
+  let mut isFirstEmpty : Array Expr := #[]
+  for e in [0:evmMapPrincipalCapacityV1] do
+    let base := e * evmMapPrincipalSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .evm "Principal Map upsert empty-scan occ missing"
+    let empty := Expr.boolNot occ
+    let first := Expr.checkedMul empty (Expr.boolNot seenEmpty)
+    isFirstEmpty := isFirstEmpty.push first
+    seenEmpty := Expr.logicalOr seenEmpty empty
+  let okInsert := Expr.logicalOr anyMatch seenEmpty
+  let mut out : Array Expr := #[]
+  for e in [0:evmMapPrincipalCapacityV1] do
+    let base := e * evmMapPrincipalSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .evm "Principal Map upsert rebuild occ missing"
+    let mut keyEq : Expr := .literal 1
+    for k in [0:evmMapPrincipalKeyLeafCountV1] do
+      let some stored := mapLeaves[base + 1 + k]? |
+        throw <| .planInvariant .evm "Principal Map upsert rebuild key missing"
+      let some want := keyLeaves[k]? |
+        throw <| .planInvariant .evm "Principal Map upsert rebuild query missing"
+      keyEq := Expr.logicalAnd keyEq (Expr.compare .eq stored want)
+    let matchHit := Expr.checkedMul occ keyEq
+    let some firstE := isFirstEmpty[e]? |
+      throw <| .planInvariant .evm "Principal Map upsert firstEmpty missing"
+    let insertHere := Expr.checkedMul firstE (Expr.boolNot anyMatch)
+    let write := Expr.logicalOr matchHit insertHere
+    let miss := Expr.boolNot write
+    let occ' :=
+      Expr.checkedAdd (Expr.logicalOr occ write) (.literal 0)
+    out := out.push occ'
+    for k in [0:evmMapPrincipalKeyLeafCountV1] do
+      let some stored := mapLeaves[base + 1 + k]? |
+        throw <| .planInvariant .evm "Principal Map upsert rebuild key leaf missing"
+      let some want := keyLeaves[k]? |
+        throw <| .planInvariant .evm "Principal Map upsert rebuild want leaf missing"
+      let k' :=
+        Expr.checkedAdd (Expr.checkedMul write want) (Expr.checkedMul miss stored)
+      out := out.push k'
+    let some v := mapLeaves[base + 1 + evmMapPrincipalKeyLeafCountV1]? |
+      throw <| .planInvariant .evm "Principal Map upsert rebuild val missing"
+    let v' :=
+      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
+    out := out.push v'
+  pure (out, okInsert)
+
 /-- Insert `k` into a sorted unique UInt64 array (stable for layout). -/
 private def insertSortedUniqueU64V1 (keys : Array UInt64) (k : UInt64) :
     Array UInt64 := Id.run do
@@ -962,8 +1090,9 @@ private def ensureOptionArrV1 {α : Type} (arr : Array (Option α)) (i : Nat) :
   pure a
 
 /-- Collect program-wide sorted unique UInt64 keys used as Map IndexGet/IndexSet
-    indices. Dynamic (non-literal) Map keys fail closed. Map shapes other than
-    UInt64→UInt64 fail closed when indexed. -/
+    indices on **Map UInt64 UInt64** only (layout hints). Dynamic keys are
+    admitted at runtime; literals are still collected. Map Principal UInt64
+    is skipped here (no UInt64 static-key table). Other Map shapes fail closed. -/
 private def collectMapUInt64StaticKeysV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
     (callables : Array CallableV1) : CompileResult (Array UInt64) := do
@@ -1010,16 +1139,22 @@ private def collectMapUInt64StaticKeysV1
             | some baseTid =>
                 match typeDecls[baseTid.toNat]? with
                 | some { shape := .map keyTid valTid, .. } => do
-                    unless keyTid == types.uint64TypeId &&
-                        valTid == types.uint64TypeId do
+                    unless valTid == types.uint64TypeId do
                       throw <| .planInvariant .evm
-                        "unsupported EVM semantic shape: Map index admits only Map UInt64 UInt64"
-                    -- Dense pilot admits dynamic keys (Token params). Literals
-                    -- are still collected for diagnostics/layout hints only.
-                    match litByVid[idxId.toNat]? with
-                    | some (some k) =>
-                        keys := insertSortedUniqueU64V1 keys k
-                    | _ => pure ()
+                        "unsupported EVM semantic shape: Map index value must be UInt64"
+                    if keyTid == types.uint64TypeId then
+                      -- Dense UInt64 pilot admits dynamic keys (Token params).
+                      -- Literals are still collected for diagnostics/layout hints.
+                      match litByVid[idxId.toNat]? with
+                      | some (some k) =>
+                          keys := insertSortedUniqueU64V1 keys k
+                      | _ => pure ()
+                    else if types.isPrincipal keyTid then
+                      -- Principal-keyed pilot: no UInt64 static-key table.
+                      pure ()
+                    else
+                      throw <| .planInvariant .evm
+                        "unsupported EVM semantic shape: Map index admits only Map UInt64 UInt64 or Map Principal UInt64"
                 | _ => pure ()
   pure keys
 
@@ -3355,24 +3490,43 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: IndexGet base must be an Array/Map aggregate"
         let idx ← currentValueWithArmsV1 values paramCount segmentStart armReadables idxId
-        unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: IndexGet index must be unsigned integer"
         -- I1 Map IndexGet: result is Option V (not scalar UInt) → 2-leaf aggregate.
         -- Array/Bytes IndexGet: result is scalar UInt element.
+        -- Principal Map: key is 9-leaf Principal aggregate (not UInt).
         match types.uintWidthOf result.typeId with
         | none =>
-            -- Map → Option path (dense pilot table; dynamic keys OK).
-            unless base.leafExprs.size == evmMapPilotLeafCountV1 do
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: Map IndexGet base leaf count mismatch"
-            let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
-            let value := mkAggregateValueV1
-              optLeaves #[false, false] #[baseId, idxId]
-              (Nat.max base.depth idx.depth + 1)
-              (base.expandedNodes + idx.expandedNodes + 1)
-            values := ← appendResultValueV1 result.typeId values result value
+            if isEvmMapPrincipalLeafCountV1 base.leafExprs.size then
+              unless idx.isAggregate do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: Principal Map IndexGet key must be Principal aggregate"
+              unless idx.leafExprs.size == evmMapPrincipalKeyLeafCountV1 do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: Principal Map IndexGet key leaf count mismatch"
+              let optLeaves ←
+                mapPrincipalLookupOptionLeavesV1 base.leafExprs idx.leafExprs
+              let value := mkAggregateValueV1
+                optLeaves #[false, false] #[baseId, idxId]
+                (Nat.max base.depth idx.depth + 1)
+                (base.expandedNodes + idx.expandedNodes + 1)
+              values := ← appendResultValueV1 result.typeId values result value
+            else do
+              unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: IndexGet index must be unsigned integer"
+              -- Map UInt64 → Option path (dense pilot table; dynamic keys OK).
+              unless base.leafExprs.size == evmMapPilotLeafCountV1 do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: Map IndexGet base leaf count mismatch"
+              let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+              let value := mkAggregateValueV1
+                optLeaves #[false, false] #[baseId, idxId]
+                (Nat.max base.depth idx.depth + 1)
+                (base.expandedNodes + idx.expandedNodes + 1)
+              values := ← appendResultValueV1 result.typeId values result value
         | some elBitWidth =>
+            unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: IndexGet index must be unsigned integer"
             unless isEvmAbiUintWidth elBitWidth do
               throw <| .planInvariant .evm
                 s!"unsupported EVM semantic shape: Array IndexGet result UInt{elBitWidth} is not admitted"
@@ -3412,9 +3566,6 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: IndexSet result must be Array/Map container"
         let idx ← currentValueWithArmsV1 values paramCount segmentStart armReadables idxId
-        unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: IndexSet index must be unsigned integer"
         let val ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
         unless !val.isBool && !val.isInt && !val.isField && !val.isAggregate do
           throw <| .planInvariant .evm
@@ -3429,10 +3580,22 @@ private def lowerBlockInstructionsV1
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: Map IndexSet value must be UInt64"
             let (outLeaves0, okInsert) ←
-              mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+              if isEvmMapPrincipalLeafCountV1 n then
+                unless idx.isAggregate do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: Principal Map IndexSet key must be Principal aggregate"
+                unless idx.leafExprs.size == evmMapPrincipalKeyLeafCountV1 do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: Principal Map IndexSet key leaf count mismatch"
+                mapPrincipalUpsertLeavesV1 base.leafExprs idx.leafExprs val.expr
+              else do
+                unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: IndexSet index must be unsigned integer"
+                mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
             -- Fail closed when map is full: `1 / okInsert` reverts on 0.
             -- Gate only the first leaf so the large `okInsert` tree is not
-            -- duplicated across all capacity×3 leaves (Token transfer was
+            -- duplicated across all capacity leaves (Token transfer was
             -- blowing Yul past 4 MiB / plan node limits).
             let gate := Expr.checkedDiv (.literal 1) okInsert
             let mut outLeaves : Array Expr := #[]
@@ -3452,6 +3615,9 @@ private def lowerBlockInstructionsV1
               (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
             values := ← appendResultValueV1 result.typeId values result value
         | none => do
+            unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: IndexSet index must be unsigned integer"
             let layoutInfo ← arrayScalarLeafLayoutV1 layout.typeDecls types result.typeId
             let (elBitWidth, n) ← match layoutInfo with
               | some p => pure p

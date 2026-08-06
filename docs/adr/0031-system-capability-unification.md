@@ -76,14 +76,23 @@ catalog 纪律（backlog **SYS-CAP-UNIFY**）。
 
 | 期 | 键 | 语义/类型 | 各 target 诚实对应物 | 状态 |
 |---|---|---|---|---|
-| **S1** | `context.caller : Principal` | 当前调用者身份（= ADR-0030 E3，MiniAMM 依赖） | EVM `CALLER`→`u32le(20)\|\|addr20`（ADR-0025 唯一 realization）；Solana 指定 signer role 32B pubkey（非 tx.origin 概念，诚实注释）；NEAR `predecessor_account_id`（**view 禁**）；CW `MessageInfo.sender`（bech32 utf8） | **in_progress**（2026-08-06：EVM Plan/Yul + CallerCheck/Ownable Anvil 已交付；Solana/NEAR/CW lanes 进行中） |
-| **S2** | `context.blockHeight : UInt64` | 当前区块高度 | EVM `NUMBER`；Solana `Clock.slot`（≈400ms 物理槽，**非**逻辑块号——记入 catalog 语义差异）；NEAR `block_index`；CW `Env.block.height`；TON/ICP 无直接对应物 FC；电路类/Quint FC | **in_progress**（shared wire/type/Normalize/Reference 已交付；四 target leaf/runtime 待接） |
+| **S1** | `context.caller : Principal` | 当前调用者身份（= ADR-0030 E3，MiniAMM 依赖） | EVM `CALLER`→`u32le(20)\|\|addr20`（ADR-0025 唯一 realization）；Solana exact CPI profile 的 `pf_caller` signer role→`u32le(32)\|\|pubkey32`（非 tx.origin；legacy profiles FC）；NEAR `predecessor_account_id`（init/entry；**view 禁**）；CW `MessageInfo.sender`（instantiate/execute；query/view 禁） | **done（engineering，2026-08-06）**：四条 target-owned Plan/IR/emitter lane 与 Anvil/Mollusk/near-sandbox/cw-vm 门均已交付；未扩展无对应物 target，非 formal/mainnet parity |
+| **S2** | `context.blockHeight : UInt64` | 当前区块高度 | EVM `NUMBER`；Solana `Clock.slot`（≈400ms 物理槽，**非**逻辑块号——记入 catalog 语义差异）；NEAR `block_index`；CW `Env.block.height`；TON/ICP 无直接对应物 FC；电路类/Quint FC | **in_progress**（shared wire/type/Normalize/Reference + EVM `number()` Plan/Yul 已交付；Solana/NEAR/CW leaf/runtime 待接） |
 | **S3** | `context.chainId` | 链身份（重放保护/域分隔） | EVM `CHAINID`（UInt64）；CW `Env.block.chain_id`（**String**——Bytes/宽度纪律待 S3 冻结）；NEAR `chain_id`；Solana/TON/ICP 无→FC | pending（类型纪律 S3 冻结） |
 | **S4** | `context.attachedValue : UInt64` | 本次调用携带的原生资产量 | EVM `CALLVALUE`；NEAR `attached_deposit`（**view 禁**）；CW `MessageInfo.funds`（单 denom 纪律沿用 C1 `stake`）；Solana 无直接对应物（SOL 经指令转账）FC | pending |
 
 分期纪律同 ADR-0030：shared core（键/requirement/Reference/source admission）
 串行于 main；per-target binding lane 文件不重叠可隔离 worktree 并行；每期以对应
-runtime 门收尾。**S1 闭合即解除 ADR-0030 E3，E4（MiniAMM）可启动。**
+runtime 门收尾。**S1 已闭合并解除 ADR-0030 E3；E4（MiniAMM）现可启动。**
+
+**S1 工程事实（2026-08-06）**：EVM 以 `CALLER` 物化 20-byte Principal，并由
+CallerCheck/Ownable Anvil corpus 验证；Solana 仅在 `solana-sbpf-cpi-elf-v1` 以单一
+`pf_caller` outer signer 的 32-byte pubkey 物化 Principal，普通 Principal 参数继续走
+T12 ix data 且强制 `len∈1..64`/高尾清零，两个 legacy profile 纵深 FC；NEAR 以
+`predecessor_account_id` 绑定 init/entry，并把 register id 收归 `RegisterLayout`，view
+保持 FC；CosmWasm 仅在实际使用 caller 的 instantiate/execute branch 读取
+`MessageInfo.sender`，复用 lowercase `[a-z0-9]`/len/tail 门，query/view 保持 FC。
+这些均为工程 local-runtime 门，不是 formal、hermetic 或主网等价声明。
 
 ## L2 官方 program 能力 catalog
 

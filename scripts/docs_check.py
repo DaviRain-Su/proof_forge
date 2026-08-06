@@ -1568,11 +1568,13 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         path.stem for path in tests_dir.iterdir()
         if path.is_file() and path.suffix == ".rs"
     )
-    if len(binaries) != 16:
+    if len(binaries) != 17:
         raise_error(
             "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
-            f"expected 16 integration test binaries, found {len(binaries)}: {binaries}")
-    for required_binary in ("cpi_escrow", "transfer_sol_product", "tipjar_assets", "tipjar_token"):
+            f"expected 17 integration test binaries, found {len(binaries)}: {binaries}")
+    for required_binary in (
+            "caller_isme", "cpi_escrow", "transfer_sol_product",
+            "tipjar_assets", "tipjar_token"):
         if required_binary not in binaries:
             raise_error(
                 "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
@@ -1605,6 +1607,21 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         raise_error(
             "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests/transfer_sol_product.rs",
             f"expected 8 #[test] functions, found {len(transfer_tests)}")
+
+    caller_rs = tests_dir / "caller_isme.rs"
+    ensure_repository_path(
+        root, caller_rs, "runtime-tests/solana/tests/caller_isme.rs")
+    caller_text = read_repository_text(
+        root, caller_rs, "runtime-tests/solana/tests/caller_isme.rs",
+        encoding_code="PF-DOC-CHECKPOINT")
+    caller_tests = re.findall(
+        r"#\[test\]\s*(?:\n\s*#\[[^\]]+\]\s*)*\n\s*fn\s+(\w+)",
+        caller_text,
+    )
+    if len(caller_tests) != 8:
+        raise_error(
+            "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests/caller_isme.rs",
+            f"expected 8 #[test] functions, found {len(caller_tests)}")
 
     stale_current_state = re.compile(
         r"("

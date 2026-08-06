@@ -35,8 +35,11 @@ Phase 1：实现
   `runtime-tests/near` 已覆盖 Counter init/mutate/view、overflow state-hold+recovery、PairRet、
   ArrayRet、OptionRet 与 OptionState 的工程路径。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
-  截断（Plan Expr tag 41）；**`context.caller` 仍 fail closed**（predecessor→Principal 映射
-   defer 至 ADR-0031 S1 NEAR lane）；未知键 FC。
+  截断（Plan Expr tag 41）；`context.caller`（ADR-0031 S1，2026-08-06）→ host
+  `predecessor_account_id`，仅 init/entry 开放，按 exact account-id UTF-8 bytes 物化
+  `u32le(len)||body` Principal（len 2..64、lowercase account-id grammar）；view/pureFn/
+  invariant 保持 FC。predecessor register id 由 `RegisterLayout.predecessor` sole-own，
+  emitter 不再局部硬编码；未知键 FC。
 - **`pf.assets` 半绑定（ADR-0029 Phase C2，2026-08-05）**：resolver advertise exact
   `extension.pf-assets` + `effect.synchronous-call`（后者仅覆盖 pf.assets catalog；
   generic 非 catalog sync call 在 Plan 层继续 fail closed）。`pf.assets.native.deposit`
@@ -77,11 +80,17 @@ Phase 1：实现
   绑定 trap——UInt64 结果纪律与 u128 yocto 面额的已知产品级张力；不阻塞 E2
   （E4 北极星不依赖 NEAR），后续若要成功路径需另行设计面额/宽度故事。
   **非** formal/testnet/mainnet。
+- **`context.caller` runtime gate（ADR-0031 S1，2026-08-06）**：第 9 套件
+  `CallerCheck` 在 locked near-sandbox 2.13.0 中部署 jar，分别由 alice/bob 子账户调用，
+  验证 predecessor Principal true/false/bob-self；错误 caller 的 `bumpIfCaller` 失败且
+  state 保持，正确 caller 推进 state。该门验证 receipt/predecessor 绑定，不是
+  Reference↔sandbox formal 差分或 testnet/mainnet 证据。
 
 **明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分，仍不覆盖 corrupt
 storage、bad input 或 gas/profile；Option params、非 UInt64/nested Option、Map/Bytes/nested aggregate
-return 仍 fail-closed；ContextRead 仅 `unixTimeSeconds` 开放（`caller`/其他键 FC）；
-formal identity/OutputSet / D6 milestone 未完成。不得写成 formal runtime-validated。
+return 仍 fail-closed；ContextRead 已开放 `unixTimeSeconds` 与 init/entry `caller`，但 view caller、
+`blockHeight` 及其他键仍 FC；formal identity/OutputSet / D6 milestone 未完成。不得写成 formal
+runtime-validated。
 
 ## 1. 身份与来源
 
@@ -176,7 +185,8 @@ profile、Reference 对照、bad input/corrupt storage/overflow unchanged-state 
 
 当前切片必须 fail closed 检查 descriptor/profile/schema/requirements、export 与 KV identity、
 exact input/storage lengths、init marker、view-no-write、checked overflow、artifact name/JSON escaping、
-初始化/可变 method 的 zero-deposit policy 和 view query-only 边界。未建模的 predecessor/signer、
+初始化/可变 method 的 zero-deposit policy 和 view query-only 边界。`predecessor_account_id`
+现仅作为 init/entry `context.caller` 的受限 identity binding；view caller、signer/public-key 语义、
 payable 业务语义、storage accounting、Promise/callback、
 gas allocation、跨 receipt workflow 和 upgrade/migration 不得通过隐式默认值获得支持。
 

@@ -43,8 +43,10 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 - **≤8 叶聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 经单次
   `sol_set_return_data` 发 N×8-byte LE；Map/Bytes/nested/非 UInt64元素返回仍 fail-closed。
 - **`pf.assets` native binding（ADR-0029 Phase B1，2026-08-05）**：`solana-sbpf-cpi-elf-v1`
-  advertise exact `extension.pf-assets`（resolver multi-permit；产品 capability = sync +
-  至少一个 closed extension 且各 requested extension 须落 SupportClaim）。vault 为
+  advertise exact `extension.pf-assets`。产品 capability 的 closed admission 现为：
+  sync+closed extension、pf.assets envRead-only，或 exact wire-owned `context.caller`
+  caller-only；requested sync/extension 仍须落 SupportClaim，caller row 因 wire-owned
+  不伪装成 extension、也不要求进入 SupportClaim。vault 为
   program-owned PDA（frozen seed `proof-forge:vault:v1`、canonical bump 255..1、
   rent-exempt 890880 lamports、zero data）。`pf.assets.native.deposit` → 幂等 ensure
   （fresh System vault 经 `createPdaAccount`，owner 三态 closed alternatives：
@@ -93,6 +95,18 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
   差值、fresh dst ATA 创建+转账、underfunded 完整 snapshot rollback、wrong-mint
   join、non-canonical dst ATA、多/零 signer 负例）。`token.transferAsync` 与
   generic 非 catalog 保持 FC；**非** formal/mainnet parity。
+- **`context.caller` binding（ADR-0031 S1 / ADR-0030 E3，2026-08-06）**：仅 exact
+  `solana-sbpf-cpi-elf-v1` 开放；Solana 无 `tx.origin`/CALLER opcode，诚实物理绑定为
+  ABI-specified `pf_caller`（`RoleKeyPolicyV1.handlerCaller`）outer signer 的 32-byte
+  `AccountInfo.key`，物化 canonical Principal `u32le(32)||pubkey32`（9×UInt64 leaves，
+  高 32 body bytes 清零）。普通 `Principal` 参数**不**成为第二 account role，继续走
+  T12 ix data；IR 在业务比较前对每个此类参数强制 `len∈1..64` 且 `body[len..64)`
+  全零。`CallerIsMe` 产品纵切仅冻结 exact `context.caller` row，不借用
+  `extension.pf-assets`/sync-call ticket；Plan/IR/assembly 明示 caller≠tx.origin，两个
+  legacy profile 纵深 FC。Mollusk `caller_isme` **8/8** 覆盖 true/false、non-signer、
+  len 0/65 与 nonzero high-tail 的 `Custom(1)` + exact snapshot；当前 tracked runtime
+  inventory 为 **17 binaries / 351 active tests**。**非** formal/mainnet parity，且不把
+  wire Principal 全局等同 Solana pubkey。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
 完整 Normalize 表面；active CPI profile 之外的任意动态 program address/remaining accounts 与更广
