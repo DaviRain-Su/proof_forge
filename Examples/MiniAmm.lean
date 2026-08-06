@@ -4,13 +4,13 @@ namespace Examples
 
 open ProofForgeV2.Language
 
--- ADR-0030 E4 MiniAMM north-star (vault-internal math milestone / M0).
+-- ADR-0030 E4 MiniAMM **vault-internal math** demo (M0).
 -- Constant-product AMM with internal LP share accounting:
 --   * reserve0 / reserve1 / totalSupply / scratch / scratch2 : UInt64
 --   * balances : Map Principal UInt64 (dense Principal-key pilot, cap-4)
--- No pf.assets transfer / balanceOfSelf in this slice — deposits and swaps
--- update reserves directly so the demo stays portable and plan-closed
--- without ERC-20/SPL wiring. Real asset legs are M3–M5.
+-- No pf.assets transfer / balanceOfSelf here — deposits and swaps update
+-- reserves directly (portable math / Anvil-Mollusk vectors without ERC-20/SPL).
+-- Real-asset product surface: `Examples/MiniAmmAssets.lean` (ADR-0033 / M3).
 --
 -- Permission / identity: LP shares keyed by `context.caller` (ADR-0031 S1).
 -- Swap is open to any caller (updates reserves only).

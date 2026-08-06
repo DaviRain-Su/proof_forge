@@ -4308,6 +4308,74 @@ private unsafe def testMiniAmmProductPlan : IO Unit := do
     "MiniAmm ABI must name addLiquidity/swaps/removeLiquidity/balanceOf"
   IO.println "  MiniAmm product plan/materialize pin ok"
 
+/-- ADR-0033 M3 real-asset MiniAMM surface: `Examples/MiniAmmAssets.lean` must
+    compile/plan/materialize on EVM with pf.assets@1.1.0, Principal mint pair,
+    dual ERC-20-bound ops (balanceOfSelf + transfer), and M0 math entries.
+    Pins Yul helpers for token STATICCALL/transfer and Principal Map compact
+    path. Does not claim Anvil dual-ERC-20 matrix (M5) or Solana dual-mint (M4;
+    Solana currently requires Principal mint args as direct params for CPI). -/
+private unsafe def testMiniAmmAssetsProductPlan : IO Unit := do
+  let path := System.FilePath.mk "Examples/MiniAmmAssets.lean"
+  unless ← path.pathExists do
+    throw <| IO.userError "Examples/MiniAmmAssets.lean missing (ADR-0033 M3)"
+  let text ← IO.FS.readFile path
+  expect (text.contains "program MiniAmmAssets where")
+    "MiniAmmAssets must declare program MiniAmmAssets"
+  expect (text.contains "pf.assets" && text.contains "1.1.0")
+    "MiniAmmAssets must require pf.assets@1.1.0"
+  expect (text.contains "balanceOfSelf" && text.contains "token.transfer")
+    "MiniAmmAssets must use token balanceOfSelf + transfer"
+  expect (text.contains "entry configure")
+    "MiniAmmAssets must configure mint0/mint1 after zero-arg init"
+  expect (text.contains "entry swap0to1" && text.contains "entry swap1to0" &&
+      text.contains "entry removeLiquidity")
+    "MiniAmmAssets must declare bilateral swap + removeLiquidity"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load MiniAmmAssets" (← session.selectProgramV1
+    text "Examples/MiniAmmAssets.lean" "Examples.MiniAmmAssets" none)
+  let compiled ← liftResult "compile MiniAmmAssets" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan MiniAmmAssets" <| planEvm compiled
+  expect (plan.objectName == "MiniAmmAssets")
+    s!"MiniAmmAssets object name, got {plan.objectName}"
+  -- 2×Principal (9 leaves each) + 5 UInt64 + Map Principal UInt64 (44) = 67.
+  expect (plan.storageLayout.size == 67)
+    s!"MiniAmmAssets must flatten to 67 storage leaves, got {plan.storageLayout.size}"
+  expect (plan.entries.map (·.name) ==
+      #["configure", "addLiquidity", "swap0to1", "swap1to0", "removeLiquidity",
+        "getReserve0", "getReserve1", "getTotalSupply", "balanceOf",
+        "tokenBalance0", "tokenBalance1"])
+    s!"MiniAmmAssets entry order, got {plan.entries.map (·.name)}"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MiniAmmAssets plan must validate: {e.render}"
+  let out ← liftResult "materialize MiniAmmAssets" <|
+    materializeSelected TargetId.evm compiled
+  let files := MaterializedArtifactsV1.filesOf out
+  let some yulFile := files.find? (·.path == "MiniAmmAssets.yul") |
+    throw <| IO.userError "MiniAmmAssets: missing MiniAmmAssets.yul"
+  let some abiFile := files.find? (·.path == "MiniAmmAssets.abi.json") |
+    throw <| IO.userError "MiniAmmAssets: missing MiniAmmAssets.abi.json"
+  let yul := yulFile.contents
+  expect (yul.toUTF8.size < 4 * 1024 * 1024)
+    s!"MiniAmmAssets Yul under 4 MiB, got {yul.toUTF8.size}"
+  expect (yul.contains "function pf_map_p_lookup" &&
+      yul.contains "function pf_map_p_upsert")
+    "MiniAmmAssets Yul must emit Principal Map compact helpers"
+  expect (yul.contains "staticcall" || yul.contains "STATICCALL" ||
+      yul.contains "balanceOf" || yul.contains "0x70a08231")
+    "MiniAmmAssets Yul must include token balanceOfSelf path"
+  expect (yul.contains "0xa9059cbb" || yul.contains "transfer")
+    "MiniAmmAssets Yul must include ERC-20 transfer selector path"
+  expect (yul.contains "caller()")
+    "MiniAmmAssets Yul must read caller() for LP key / payout dst"
+  expect (abiFile.contents.contains "\"name\":\"configure\"" &&
+      abiFile.contents.contains "\"name\":\"addLiquidity\"" &&
+      abiFile.contents.contains "\"name\":\"swap0to1\"" &&
+      abiFile.contents.contains "\"name\":\"tokenBalance0\"")
+    "MiniAmmAssets ABI must name configure/addLiquidity/swap0to1/tokenBalance0"
+  IO.println "  MiniAmmAssets product plan/materialize pin ok"
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -4366,6 +4434,7 @@ unsafe def run : IO Unit := do
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed
   testMiniAmmProductPlan
+  testMiniAmmAssetsProductPlan
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)

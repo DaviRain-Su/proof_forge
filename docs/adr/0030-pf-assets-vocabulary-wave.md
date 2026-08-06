@@ -125,7 +125,7 @@ identity 不跨 target 近似以及无诚实宿主面 fail closed 的纪律不�
 | **E1** | token.transfer 四链绑定（EVM/Solana/CW/NEAR-async） | 无（payload 已含 QN） | **done（2026-08-05）**：E1a EVM / E1b Solana / E1-CW / E1-NEAR(async) 全绑 |
 | **E2** | payload v1.1.0：balanceOfSelf env-read + Reference/Normalize 接线 | E1 可先并行 | **done（2026-08-05/06）**：核心/Reference vault、acceptance cutover（1.1.0 唯一承认）、EVM/Solana/CW 双键、NEAR/Quint native-only（token env-read 永久 FC）、Psy/Aleo/Noir/TON 维持既有 disposition |
 | **E3** | context.caller Plan 开放（per-target 原子 cutover） | 独立（B-CTX-OPEN / ADR-0031 S1） | **done（engineering，2026-08-06）**：EVM/Solana exact CPI/NEAR/CW 四 lane + 各自 runtime 门闭合；其余 target 维持 FC |
-| **E4** | MiniAMM 北极星（EVM+Solana 双链 runtime 门） | E1+E2+E3 | **in_progress**：Solana UInt128/256 div/mod locked-SBPF+Mollusk、EVM/Solana cap-4 Principal-key Map 与 EVM vault-internal Anvil demo 已交付；仍缺 Solana MiniAMM 产品镜像/Mollusk 应用门、真实 asset movement/remove-liquidity，以及 EVM 无 code-size override 的正常部署闭环 |
+| **E4** | MiniAMM 北极星（EVM+Solana 双链 runtime 门） | E1+E2+E3 | **in_progress**：M0 数学 + M1′ Mollusk hybrid + M2/M2b EVM Map 紧凑 + Anvil strict vault-internal 已交付；**M3** 真实资产事务模型冻结（ADR-0033）+ `MiniAmmAssets` EVM plan/build；仍缺 M4 Solana 双 mint 资产流、M5 EVM 双 ERC-20 Anvil、以及 Solana 对 state Principal mint 的 CPI 参数形状闭合 |
 
 并行纪律同 ADR-0029：shared payload/Normalize 变更串行于 main；per-target binding
 lane 文件不重叠可隔离 worktree 并行；每期以对应 runtime 门收尾。

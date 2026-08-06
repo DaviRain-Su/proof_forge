@@ -51,3 +51,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0030](0030-pf-assets-vocabulary-wave.md) | pf.assets 词汇扩展波（token.transfer 四链绑定 + balanceOfSelf env-read v1.1.0 + context.caller Plan 开放 + MiniAMM 北极星；Uniswap V2 能力分解） | proposed |
 | [ADR-0031](0031-system-capability-unification.md) | 系统能力统一抽象波（L1 ContextRead 扩键 caller/blockHeight/chainId/attachedValue + L2 官方链上 program 能力 catalog；能力与形态解耦；view-safety/强制等级两轴；SYS-CAP-UNIFY） | proposed |
 | [ADR-0032](0032-solana-unified-materializer.md) | Solana 统一 materializer：full body 吸收进 sole CPI rail（U1） | proposed |
+| [ADR-0033](0033-miniamm-asset-transaction-model.md) | MiniAMM 真实资产事务模型冻结（pre-fund + vault credit；无 transferFrom；M0 数学面 / MiniAmmAssets 资产面分工） | proposed |
