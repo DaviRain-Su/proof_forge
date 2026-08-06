@@ -200,6 +200,10 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   -- tags 49/50 are bigLiteral/wideCompare). Physical ≈400ms slot, not
   -- logical block number.
   | .clockSlot => pure (encodeU8 51)
+  -- ADR-0032: caller Principal leaf from account key (tag 52).
+  | .callerPrincipalLeaf accountIndex leafIndex =>
+      pure ((((encodeU8 52).append (← encodeNatAsU32le accountIndex)).append
+        (← encodeNatAsU32le leafIndex)))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

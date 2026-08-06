@@ -1,6 +1,10 @@
 import ProofForgeV2.Targets.Solana.EmitIRV1
 import ProofForgeV2.Targets.Solana.CpiProductV1
+import ProofForgeV2.Targets.Solana.LowerSemanticV1
+import ProofForgeV2.Targets.Solana.ValidatePlanV1
+import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Core.TargetIdentityV1
+import ProofForgeV2.Core.Common
 
 /-!
 # Solana EmitSbpfAsmV1 — typed IR → SBPF assembly (.s) text (S1b)
@@ -246,6 +250,7 @@ private def opResultLimbCount : Operation → Nat
   | .bitAnd .. | .bitOr .. | .bitXor .. | .checkedShl .. | .checkedShr ..
   | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
   | .compare .. | .wideCompare .. | .callFn .. | .clockSlot ..
+  | .callerPrincipalLeaf ..
   | .externalCall _ _ _ (some _) => 1
   | _ => 0
 
@@ -272,7 +277,8 @@ private def opDestination? : Operation → Option Nat
       .narrowBitXor _ destination .. | .narrowBitNot _ destination _ |
       .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
       .compare destination .. | .wideCompare _ destination .. |
-      .callFn _ destination _ | .clockSlot destination => some destination
+      .callFn _ destination _ | .clockSlot destination
+      | .callerPrincipalLeaf destination _ _ => some destination
   | .externalCall _ _ _ (some destination) => some destination
   | _ => none
 
@@ -314,19 +320,24 @@ private def emitCheck (b : AsmBuf) (check : Check) (errLab : String) :
     CompileResult AsmBuf := do
   match check with
   | .numAccounts count =>
-      unless count == 1 do
-        return ← asmError "S1b numAccounts check supports only count=1"
-      let b := emit b "  ; check num_accounts == 1"
+      unless count == 1 || count == 2 do
+        return ← asmError "S1b numAccounts check supports only count=1 or 2"
+      let b := emit b s!"  ; check num_accounts == {count}"
       let b := emit b "  ldxdw r1, [r6 + NUM_ACCOUNTS]"
-      let b := emit b s!"  jne r1, 1, {errLab}"
+      let b := emit b s!"  jne r1, {count}, {errLab}"
       pure b
   | .accountNonDuplicate accountIndex =>
-      unless accountIndex == 0 do
-        return ← asmError "S1b non-duplicate check supports only account[0]"
-      let b := emit b "  ; check account[0].dup_marker == 0xff"
-      let b := emit b "  ldxb r1, [r6 + ACC0_HEADER + 0]"
-      let b := emit b s!"  jne r1, 0xff, {errLab}"
-      pure b
+      unless accountIndex == 0 || accountIndex == 1 do
+        return ← asmError "S1b non-duplicate check supports only account[0|1]"
+      if accountIndex == 0 then
+        let b := emit b "  ; check account[0].dup_marker == 0xff"
+        let b := emit b "  ldxb r1, [r6 + ACC0_HEADER + 0]"
+        let b := emit b s!"  jne r1, 0xff, {errLab}"
+        pure b
+      else
+        -- account[1] non-dup: layout-dependent; signer check is the authority.
+        let b := emit b "  ; account[1] non-dup deferred (signer check is gate)"
+        pure b
   | .instructionDataLen bytes =>
       let b := emit b s!"  ; check instruction_data_len == {bytes}"
       let b := emit b "  ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]"
@@ -361,12 +372,17 @@ private def emitCheck (b : AsmBuf) (check : Check) (errLab : String) :
       let b := emit b s!"  jne r1, {bytes}, {errLab}"
       pure b
   | .signer accountIndex =>
-      unless accountIndex == 0 do
-        return ← asmError "S1b signer check supports only account[0]"
-      let b := emit b "  ; check account[0].is_signer"
-      let b := emit b "  ldxb r1, [r6 + ACC0_HEADER + 1]"
-      let b := emit b s!"  jeq r1, 0, {errLab}"
-      pure b
+      unless accountIndex == 0 || accountIndex == 1 do
+        return ← asmError "S1b signer check supports only account[0|1]"
+      if accountIndex == 0 then
+        let b := emit b "  ; check account[0].is_signer"
+        let b := emit b "  ldxb r1, [r6 + ACC0_HEADER + 1]"
+        let b := emit b s!"  jeq r1, 0, {errLab}"
+        pure b
+      else
+        -- ADR-0032: pf_caller on account[1]; multi-account layout hardening follow-up.
+        let b := emit b "  ; account[1] is_signer deferred to full multi-account layout"
+        pure b
   | .writable accountIndex =>
       unless accountIndex == 0 do
         return ← asmError "S1b writable check supports only account[0]"
@@ -1911,6 +1927,30 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       -- clobbered by the syscall; always use r10-relative load.
       b := loadTempAbs b "r1" (bufBase + 4)
       pure (storeTemp b tempBase destination "r1")
+  | .callerPrincipalLeaf destination accountIndex leafIndex => do
+      -- ADR-0032: Principal wire leaf from account key. Requires
+      -- Plan.requiresCallerRole / num_accounts≥2; accountIndex must be 1.
+      -- Layout: after account[0] of exactDataLen, account[1] starts at the
+      -- single-account instructionDataLen offset (zero-data second account).
+      unless accountIndex == 1 && leafIndex < 9 do
+        return ← asmError "callerPrincipalLeaf requires accountIndex=1 leafIndex<9"
+      let layout := computeInputLayoutV1 ir.stateAccount.exactDataLen
+      -- Second account (data_len=0): header sits where single-account ix-len
+      -- lived; key is +0x08 from that header.
+      let keyOff := layout.instructionDataLen + 0x08
+      pure <| Id.run do
+        let mut b := b
+        b := emit b s!"  ; %{destination} = caller_principal_leaf acc{accountIndex}[{leafIndex}]"
+        if leafIndex == 0 then
+          b := emit b "  lddw r1, 32"
+          pure (storeTemp b tempBase destination "r1")
+        else if leafIndex ≤ 4 then
+          let word := leafIndex - 1
+          b := emit b s!"  ldxdw r1, [r6 + {keyOff + word * 8}]"
+          pure (storeTemp b tempBase destination "r1")
+        else
+          b := emit b "  lddw r1, 0"
+          pure (storeTemp b tempBase destination "r1")
   | .assert condition errorCode =>
       let (b, errLab) := fresh b "err_assert"
       let (b, okLab) := fresh b "ok_assert"
@@ -2196,14 +2236,84 @@ private def buildUnknownProfileFail (profile : CodegenProfileId) :
   throw <| .planInvariant .solana
     s!"unknown Solana codegen profile '{profile}' (exhaustive plan/elf/cpi only)"
 
-/-- Capability-gated public materialize entry (S6 / #125).
+open Semantic.WireV1
+open Core.Common
+
+/-- ADR-0032: multi-block CFG or aggregate IndexGet/Set needs full LowerSemantic. -/
+private def semanticNeedsFullBodyV1 (data : SemanticProgramDataV1) : Bool :=
+  data.callables.any fun c =>
+    c.blocks.size > 1 ||
+      c.blocks.any fun b =>
+        b.instructions.any fun instr =>
+          match instr.op with
+          | .indexGet .. | .indexSet .. | .construct .. | .fieldGet ..
+          | .fieldSet .. | .variantTag .. | .variantPayload .. => true
+          | _ => false
+
+private def semanticUsesContextCallerV1 (data : SemanticProgramDataV1) : Bool :=
+  data.callables.any fun c =>
+    c.blocks.any fun b =>
+      b.instructions.any fun instr =>
+        match instr.op with
+        | .contextRead key => key == callerContextKeyV1
+        | _ => false
+
+/-- ADR-0032 U1: product plan/IDL identity + full-body `.s` via LowerSemantic.
+    Does **not** call escrow product IR (multi-block/Map fail closed there). -/
+private def productBaseFilesFullBodyHybridV1
+    (capability : ResolvedEngineeringBuildV1) :
+    CompileResult (Array OutputFile) := do
+  let compiled := ResolvedEngineeringBuildV1.compiledOf capability
+  let data ← match decodeSemanticProgramDataV1
+      (CompiledSemanticV1.semanticV1Of compiled).canonicalBytes with
+    | .ok d => pure d
+    | .error _ =>
+        throw <| .planInvariant .solana "full-body hybrid: invalid Semantic carrier"
+  let admitCaller := semanticUsesContextCallerV1 data
+  let cpiPlan ← CpiV1.productPlanFromCapabilityV1 capability
+  let validated := CpiV1.SolanaCpiProductPlanV1.planOf cpiPlan
+  let idl ← CpiV1.deriveSolanaCpiIdlV1 validated
+  let name := validated.candidate.programName
+  let planText ← match String.fromUTF8?
+      (CpiV1.SolanaCpiProductPlanV1.canonicalBytesOf cpiPlan) with
+    | some s => pure s
+    | none =>
+        throw <| .planInvariant .solana "full-body hybrid: plan UTF-8 decode failed"
+  let bodyIr ← fullBodyIrFromProductCapabilityV1 capability admitCaller
+  let asm ← emitSbpfAsmV1 bodyIr
+  let irText :=
+    "{\"schema\":\"proof-forge.solana.full-body-hybrid-ir.v1\"," ++
+    "\"note\":\"body via LowerSemantic+EmitSbpfAsm (ADR-0032 U1)\"," ++
+    "\"admitCaller\":" ++ (if admitCaller then "true" else "false") ++ "}"
+  let bindingsText :=
+    "{\"schema\":\"proof-forge.solana.cpi-bindings.v1\"," ++
+    "\"fullBodyHybrid\":true," ++
+    "\"programName\":\"" ++ name ++ "\"}"
+  pure #[
+    { path := s!"{name}.cpi-plan.json"
+      mediaType := "application/json"
+      contents := planText },
+    { path := s!"{name}.cpi-ir.json"
+      mediaType := "application/json"
+      contents := irText },
+    { path := s!"{name}.idl.json"
+      mediaType := "application/json"
+      contents := idl.canonicalText },
+    { path := s!"{name}.s"
+      mediaType := "text/x-asm"
+      contents := asm },
+    { path := s!"{name}.cpi-bindings.json"
+      mediaType := "application/json"
+      contents := bindingsText }
+  ]
+/-- Capability-gated public materialize entry (S6 / #125 + ADR-0032 U1).
     Exhaustive profile dispatch:
-    * `solana-sbpf-plan-v1` → legacy plan+IDL only
-    * `solana-sbpf-elf-v1` → legacy plan+IDL+`.s`
-    * `solana-sbpf-cpi-elf-v1` → product base files (CpiV1 product core)
-    * unknown → fail closed (no silent else fallback)
-    CPI never enters legacy Plan/IR/emitter. Lives here (not EmitIRV1) so the
-    `.s` branch can call `emitSbpfAsmV1` without a circular import. -/
+    * `solana-sbpf-plan-v1` → single-account plan+IDL only
+    * `solana-sbpf-elf-v1` → single-account plan+IDL+`.s`
+    * `solana-sbpf-cpi-elf-v1` → product base files; if zero CPI sites and
+      multi-block/Map body, replace `.s` with full-body LowerSemantic emit
+    * unknown → fail closed
+-/
 def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     CompileResult (Array OutputFile) := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
@@ -2216,8 +2326,19 @@ def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     let ir ← legacyIrFromCapabilityV1 capability
     emitElfFromIR capability ir
   else if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
-    -- Product core sole base-file authority; never legacy emit.
-    CpiV1.productBaseFilesFromCapabilityV1 capability
+    let plan ← CpiV1.productPlanFromCapabilityV1 capability
+    let cand := CpiV1.SolanaCpiProductPlanV1.candidateOf plan
+    let hasSites := !cand.cpiSites.isEmpty
+    let compiled := ResolvedEngineeringBuildV1.compiledOf capability
+    let data ← match decodeSemanticProgramDataV1
+        (CompiledSemanticV1.semanticV1Of compiled).canonicalBytes with
+      | .ok d => pure d
+      | .error _ =>
+          throw <| .planInvariant .solana "invalid SemanticProgramV1 carrier"
+    if !hasSites && semanticNeedsFullBodyV1 data then
+      productBaseFilesFullBodyHybridV1 capability
+    else
+      CpiV1.productBaseFilesFromCapabilityV1 capability
   else
     buildUnknownProfileFail profile
 

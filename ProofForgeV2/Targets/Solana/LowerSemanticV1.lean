@@ -128,6 +128,9 @@ structure StateAccount where
       logical state (scalar → singleton; fixed `Array UInt64 N` → N consecutive
       slots). Empty array means legacy 1:1 `fields[stateId]`. -/
   stateLeaves : Array (Array Nat) := #[]
+  /-- ADR-0032 U1: when true, body may lower `context.caller` from account[1]
+      pf_caller key (threaded via this carrier so region recursion stays pure). -/
+  admitCallerRole : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure AccountAccess where
@@ -235,6 +238,11 @@ inductive Expr where
       Ordinary `solana-sbpf-plan-v1` / `solana-sbpf-elf-v1` path; CPI product
       profile still fail-closed on this key (separate residual). -/
   | clockSlot
+  /-- ADR-0032 U1 full-body hybrid: one leaf of a 9-leaf Principal wire
+      (`u32le(32)||pubkey32`) materialised from account `accountIndex` key.
+      `leafIndex` 0 = length 32; 1..4 = LE u64 key words; 5..8 = zero high tail.
+      Used only when `Plan.requiresCallerRole` (account 1 = pf_caller signer). -/
+  | callerPrincipalLeaf (accountIndex leafIndex : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -326,6 +334,10 @@ structure Plan where
   invalidShiftError : Nat
   programName : String
   stateAccount : StateAccount
+  /-- ADR-0032: when true, outer ABI requires account[1] = pf_caller signer
+      (32B key → Principal wire). Body may read `context.caller`. Default false
+      keeps single-account shim (num_accounts==1) byte-stable. -/
+  requiresCallerRole : Bool := false
   events : Array InterfaceBinding
   errors : Array InterfaceBinding
   fns : Array FnBinding
@@ -3297,8 +3309,20 @@ private def lowerBlockInstructionsV1
             bitWidth := 64
           }
         else if key == callerContextKeyV1 then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: ContextRead context.caller is not admitted on legacy Solana profiles (exact CPI profile only)"
+          -- ADR-0032 U1: full-body hybrid on product profile admits caller as
+          -- account[1] pf_caller signer key → 9-leaf Principal wire. Single-
+          -- account shim (account.admitCallerRole=false) stays fail-closed.
+          unless account.admitCallerRole do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: ContextRead context.caller is not admitted on single-account Solana profiles (use solana-sbpf-cpi-elf-v1 full-body / pf_caller)"
+          unless types.isPrincipal result.typeId do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: ContextRead context.caller result must be Principal"
+          let mut leafExprs : Array Expr := #[]
+          for leafIdx in [0:9] do
+            leafExprs := leafExprs.push (.callerPrincipalLeaf 1 leafIdx)
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 result.typeId values result value
         else if key == unixTimeSecondsContextKeyV1 then
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: ContextRead context.unixTimeSeconds is not admitted (Clock.unix_timestamp binding deferred)"
@@ -3978,7 +4002,8 @@ private def makeInterfaceBindingV1 (label : String) (name : String)
 /-- Solana-private retained SemanticProgramV1 data → target-owned Plan pilot. -/
 
 private def makePlanFromSemanticDataV1
-    (source : SemanticProgramDataV1) : CompileResult Plan := do
+    (source : SemanticProgramDataV1)
+    (admitCallerRole : Bool := false) : CompileResult Plan := do
   if !source.constants.isEmpty || !source.invariants.isEmpty then
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: constants/invariants are outside the current UInt64 pilot"
@@ -3991,7 +4016,8 @@ private def makePlanFromSemanticDataV1
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
   let types ← validateSolanaTypeClosureV1 source.types
   let typeDecls := source.types
-  let stateAccount ← makeStateAccountV1 types typeDecls source.logicalState
+  let stateAccount0 ← makeStateAccountV1 types typeDecls source.logicalState
+  let stateAccount := { stateAccount0 with admitCallerRole }
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>
@@ -4031,6 +4057,7 @@ private def makePlanFromSemanticDataV1
     invalidShiftError
     programName
     stateAccount
+    requiresCallerRole := admitCallerRole
     events
     errors
     fns
@@ -4040,7 +4067,8 @@ private def makePlanFromSemanticDataV1
   pure plan
 
 private def makePlanFromSemanticV1
-    (source : SemanticProgramV1) : CompileResult Plan := do
+    (source : SemanticProgramV1)
+    (admitCallerRole : Bool := false) : CompileResult Plan := do
   -- Semantic structure was validated once at the capability mint
   -- (resolveEngineeringRequirementsV1 → validateSemanticProgramV1); the
   -- carrier is private-ctor so re-validation here is redundant. Transport
@@ -4049,9 +4077,10 @@ private def makePlanFromSemanticV1
     | .ok value => pure value
     | .error _ =>
         throw <| .invalidProgram "Solana received an invalid SemanticProgramV1 carrier"
-  makePlanFromSemanticDataV1 data
+  makePlanFromSemanticDataV1 data admitCallerRole
 
-/-- Internal Solana family phase entry: capability → Plan (pre-canonicity). -/
+/-- Internal Solana family phase entry: capability → Plan (pre-canonicity).
+    Single-account shim only — CPI product profile uses product Plan path. -/
 def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
     throw <| .planInvariant .solana "engineering capability kind is not Solana"
@@ -4061,6 +4090,22 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
       "solana-sbpf-cpi-elf-v1 must use the target-owned CPI product Plan path, not legacy Plan lowering"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
-  makePlanFromSemanticV1 source
+  makePlanFromSemanticV1 source false
+
+/-- ADR-0032 U1 full-body hybrid: lower full Semantic→Plan for product profile
+    with optional `context.caller` (account[1] pf_caller). Used when product
+    has zero CPI sites but needs multi-block/Map body. -/
+def materializeFullBodyPlanForProductV1
+    (capability : ResolvedEngineeringBuildV1)
+    (admitCallerRole : Bool) : CompileResult Plan := do
+  unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
+    throw <| .planInvariant .solana "engineering capability kind is not Solana"
+  unless ResolvedEngineeringBuildV1.codegenProfileOf capability ==
+      CodegenProfileId.solanaSbpfCpiElfV1 do
+    throw <| .planInvariant .solana
+      "materializeFullBodyPlanForProductV1 requires solana-sbpf-cpi-elf-v1"
+  let source := CompiledSemanticV1.semanticV1Of
+    (ResolvedEngineeringBuildV1.compiledOf capability)
+  makePlanFromSemanticV1 source admitCallerRole
 
 end ProofForgeV2.Targets.Solana

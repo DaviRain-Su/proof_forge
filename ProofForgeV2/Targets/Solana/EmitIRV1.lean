@@ -133,6 +133,8 @@ inductive Operation where
       `destination`. Physical ≈400ms slot (not logical block number). Emitter
       allocates a 40-byte stack buffer; no Clock account meta. -/
   | clockSlot (destination : Nat)
+  /-- ADR-0032: one leaf of Principal wire from account key (see Plan Expr). -/
+  | callerPrincipalLeaf (destination accountIndex leafIndex : Nat)
   deriving BEq, Inhabited, Repr
 
 structure HandlerIR where
@@ -630,6 +632,9 @@ private partial def lowerExpr (overflowError : Nat) (tempMap : List (Nat × Nat)
         }
   | .clockSlot =>
       { operations := #[.clockSlot next], value := next, next := next + 1 }
+  | .callerPrincipalLeaf accountIndex leafIndex =>
+      { operations := #[.callerPrincipalLeaf next accountIndex leafIndex]
+        value := next, next := next + 1 }
 
 /-- Structural CSE lowerer for atomic aggregate stores. Shared subtrees (Map
     upsert `anyMatch` / `seenEmpty` / per-slot scans) lower once so 24 leaves
@@ -792,6 +797,10 @@ private partial def lowerExprCseV1
               (fun d l r => .checkedSar d l r invalidShiftError) 1
         | .clockSlot =>
             bind memo (ops.push (.clockSlot next)) next (next + 1)
+        | .callerPrincipalLeaf accountIndex leafIndex =>
+            bind memo
+              (ops.push (.callerPrincipalLeaf next accountIndex leafIndex))
+              next (next + 1)
         | .callFn fnIndex args =>
             Id.run do
               let mut memoM := memo
@@ -816,8 +825,9 @@ private def checksFor (discriminatorWidth : Nat) (account : StateAccount)
     acc + slotPitchOfByteWidth p.byteWidth
   -- Account-list shape first: fixed ACC0_*/INSTRUCTION_* offsets are only
   -- valid for exactly one non-duplicate serialized account (V1 ABI).
+  let nAccounts := if account.admitCallerRole then 2 else 1
   let mut checks := #[
-    .numAccounts 1,
+    .numAccounts nAccounts,
     .accountNonDuplicate access.accountIndex,
     .instructionDataLen (discriminatorWidth + paramBytes),
     .ownerCurrentProgram access.accountIndex,
@@ -825,6 +835,10 @@ private def checksFor (discriminatorWidth : Nat) (account : StateAccount)
   ]
   if access.signerRequired then checks := checks.push (.signer access.accountIndex)
   if access.writableRequired then checks := checks.push (.writable access.accountIndex)
+  if account.admitCallerRole then
+    -- account[1] = pf_caller: non-dup + must be signer (ADR-0031 / ADR-0032).
+    checks := checks.push (.accountNonDuplicate 1)
+    checks := checks.push (.signer 1)
   return checks.push (.headerEquals access.accountIndex account.headerOffset headerValue)
 
 /-- Whether every path through a statement list ends in a return (valued or
@@ -884,7 +898,8 @@ private def tempDestination? : Operation → Option Nat
       .narrowBitXor _ destination .. | .narrowBitNot _ destination _ |
       .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
       .compare destination .. | .wideCompare _ destination .. |
-      .callFn _ destination _ | .clockSlot destination => some destination
+      .callFn _ destination _ | .clockSlot destination
+      | .callerPrincipalLeaf destination _ _ => some destination
   | .externalCall _ _ _ (some destination) => some destination
   | _ => none
 
@@ -1158,6 +1173,7 @@ private def opResultLimbCount : Operation → Nat
   | .bitAnd .. | .bitOr .. | .bitXor .. | .checkedShl .. | .checkedShr ..
   | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
   | .compare .. | .wideCompare .. | .callFn .. | .clockSlot ..
+  | .callerPrincipalLeaf ..
   | .externalCall _ _ _ (some _) => 1
   | _ => 0
 
@@ -1231,7 +1247,8 @@ private partial def validateOperationSequence
     | .narrowCheckedDiv .. | .narrowCheckedMod ..
     | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor .. | .narrowBitNot ..
     | .narrowCheckedShl .. | .narrowCheckedShr ..
-    | .compare .. | .wideCompare .. | .clockSlot .. | .assert .. | .zeroState .. | .narrowZeroState ..
+    | .compare .. | .wideCompare .. | .clockSlot .. | .callerPrincipalLeaf ..
+    | .assert .. | .zeroState .. | .narrowZeroState ..
     | .storeState .. | .narrowStoreState .. | .storeStateMulti ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool .. | .setReturnDataMulti ..
     | .emitEvent .. | .revertError .. | .externalCall .. | .schedule ..
@@ -1365,6 +1382,11 @@ private partial def validateOperationSequence
     | .clockSlot _destination =>
         -- Host Clock.slot leaf: no operands; destination numbering already
         -- checked above via tempDestination?.
+        pure ()
+    | .callerPrincipalLeaf _destination accountIndex leafIndex =>
+        unless accountIndex == 1 && leafIndex < 9 do
+          throw <| .planInvariant .solana
+            "typed Solana IR callerPrincipalLeaf requires accountIndex=1 leafIndex<9"
         pure ()
     | .callFn fnIndex _destination args =>
         unless fnIndex < plan.fns.size do
@@ -1637,8 +1659,8 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
     | .storeStateMulti ..
     | .zeroState .. | .narrowZeroState .. | .setHeader ..
     | .emitEvent .. | .externalCall .. | .schedule ..
-    -- Host sysvar read is not pure (defense; Normalize already FC pureFn ContextRead).
-    | .clockSlot .. =>
+    -- Host sysvar / caller-role reads are not pure.
+    | .clockSlot .. | .callerPrincipalLeaf .. =>
         throw <| .planInvariant .solana
           s!"fn IR '{fn.name}' contains a non-pure operation"
     | .ifRegion _ thenOps elseOps =>
@@ -1886,6 +1908,8 @@ private partial def renderOperation (indent : String)
   | .clockSlot destination =>
       -- ADR-0031 S2: Clock.slot (physical ≈400ms slot, not logical block number).
       s!"{indent}%{destination} = clock_slot  ; sol_get_clock_sysvar → Clock.slot\n"
+  | .callerPrincipalLeaf destination accountIndex leafIndex =>
+      s!"{indent}%{destination} = caller_principal_leaf acc{accountIndex}[{leafIndex}]\n"
   | .assert condition errorCode =>
       s!"{indent}assert %{condition} else program_error 0x{natHex errorCode}\n"
   | .returnNone =>
@@ -2129,6 +2153,14 @@ def withFns (ir : IR) (fns : Array FnIR) : IR :=
 def legacyIrFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) :
     CompileResult IR := do
   let plan ← materializePlanFromCapabilityV1 capability
+  validatePlan plan
+  lower plan
+
+/-- ADR-0032: product full-body hybrid Plan+IR (not a public emission-bypass API). -/
+def fullBodyIrFromProductCapabilityV1
+    (capability : ResolvedEngineeringBuildV1)
+    (admitCallerRole : Bool) : CompileResult IR := do
+  let plan ← materializeFullBodyPlanForProductV1 capability admitCallerRole
   validatePlan plan
   lower plan
 

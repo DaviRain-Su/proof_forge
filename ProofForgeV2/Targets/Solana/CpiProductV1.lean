@@ -43,7 +43,6 @@ open ProofForgeV2
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets
-
 private def productFail (detail : String) : CompileResult α :=
   throw (.planInvariant .solana detail)
 
@@ -176,6 +175,9 @@ private def encodeProductBindingsJson
       `{name}.idl.json`
       `{name}.s`
       `{name}.cpi-bindings.json`
+
+    ADR-0032 full-body hybrid (multi-block/Map + zero CPI sites) is dispatched
+    from `EmitSbpfAsmV1.buildFromCapability` to avoid import cycles.
 -/
 def productBaseFilesFromCapabilityV1
     (capability : ResolvedEngineeringBuildV1) :

@@ -87,4 +87,10 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
 ## 当前进度（2026-08-06）
 
 - P0：本 ADR。  
-- P2 首刀：**product body 吸收 UInt64 sub/mul/div/mod**（与 add 同 checked 纪律），为 MiniAMM 数学铺路；Map/CFG/默认 profile 仍后续。
+- P2 首刀：**product body 吸收 UInt64 sub/mul/div/mod**（与 add 同 checked 纪律）。  
+- P2 续：**full-body hybrid**（`EmitSbpfAsmV1.buildFromCapability`）：
+  - 当 `solana-sbpf-cpi-elf-v1` 且 **零 CPI sites** 且 Semantic 需要 multi-block/Map 时，
+    `.s` 改走 `materializeFullBodyPlanForProductV1` + `EmitSbpfAsm`（复用完整 Map/CFG）；
+  - `context.caller` 在 full-body 路径上经 `callerPrincipalLeaf`（account[1] pf_caller key）开放；
+  - 有 CPI sites 的产品（TipJar 等）仍走 escrow product IR；
+  - multi-account layout 硬化（acc1 dup/signer exact offsets）与 MiniAMM Mollusk 仍后续。
