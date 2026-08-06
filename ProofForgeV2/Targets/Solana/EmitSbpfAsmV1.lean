@@ -1,6 +1,7 @@
 import ProofForgeV2.Targets.Solana.EmitIRV1
 import ProofForgeV2.Targets.Solana.LowerSemanticV1
 import ProofForgeV2.Targets.Solana.ValidatePlanV1
+import ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
 import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Core.Common
 
@@ -1557,25 +1558,37 @@ private def programIdLimbLeV1 (hex64 : String) (limb : Nat) : CompileResult Nat 
     value := value + byte * (Nat.pow 2 (8 * i))
   pure value
 
-/-- BL-27: emit real CPI via `sol_invoke_signed_c` with empty AccountMeta list.
-    Instruction data = method discriminator (product ABI) + LE UInt64 args.
-    When `resultDest` is set, read 8B LE return data via `sol_get_return_data`
-    (short/missing → `cpiReturnDataError` 0x1006). Frame budget still enforced
-    via the shared cursor/allocTemps path. -/
+/-- BL-27 / P3-e foundation: emit `sol_invoke_signed_c` with empty AccountMeta.
+    * Generic product QN: method disc (product ABI) + LE UInt64 args; program id
+      from IR (SHA-256 path stub).
+    * `solana.system.transfer` (P3-e foundation): native System program id
+      (32 zeros) + SystemInstruction::Transfer 12B data (u32 tag 2 + lamports).
+      Still **empty AccountMeta** (multi-role walker deferred); data/program id
+      match the System ABI so multi-role can reuse packing later.
+    When `resultDest` is set, read 8B LE return data via `sol_get_return_data`. -/
 private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
     (callee : Array String) (programIdHex : String) (args : Array Nat)
     (resultDest : Option Nat) (kindNote : String) : CompileResult AsmBuf := do
   unless callee.size ≥ 2 do
     return ← asmError s!"S1b {kindNote} callee must have ≥2 components"
-  let method := callee[callee.size - 1]!
   let note := String.intercalate "." callee.toList
+  let isSysXfer :=
+    ProductCpiRecipesV1.isSystemTransferCalleeV1 callee
+  let pidHex :=
+    if isSysXfer then ProductCpiRecipesV1.systemProgramIdHexV1 else programIdHex
+  unless pidHex.length == 64 do
+    return ← asmError s!"S1b {kindNote} programIdHex must be 64 hex chars"
+  if isSysXfer then
+    unless args.size == 1 do
+      return ← asmError
+        "S1b system.transfer empty-meta partial requires exactly one UInt64 amount arg"
   let n := args.size
-  let discHex := externalMethodDiscriminator method n
-  let discLe ← discriminatorToLeU64V1 discHex
-  -- Stack layout (absolute temps, each 8B):
-  --   pid[4] | data[1+n] | ix[5] | [retbuf 1 | pidOut 4] if result
+  -- system.transfer: 2×u64 scratch for continuous 12B packing (tag@+0, lamports@+4).
+  -- generic: 1 disc + n arg words.
+  let dataSlots := if isSysXfer then 2 else 1 + n
+  let dataLenBytes :=
+    if isSysXfer then ProductCpiRecipesV1.systemTransferDataLenV1 else 8 * dataSlots
   let pidBaseSlots := 4
-  let dataSlots := 1 + n
   let ixSlots := 5
   let resultSlots := match resultDest with | some _ => 5 | none => 0
   let need := pidBaseSlots + dataSlots + ixSlots + resultSlots
@@ -1586,45 +1599,59 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
   let retBase := ixBase + ixSlots
   let pidOutBase := retBase + 1
   let mut b := emit b1
-    s!"  ; {kindNote} {note} program_id=0x{programIdHex} ({n} args) via sol_invoke_signed_c"
-  b := emit b s!"  ; method disc={discHex} (product ABI, empty AccountMeta)"
+    s!"  ; {kindNote} {note} program_id=0x{pidHex} via sol_invoke_signed_c"
+  if isSysXfer then
+    b := emit b
+      s!"  ; {ProductCpiRecipesV1.systemTransferMaturityNoteV1 false}"
+    b := emit b
+      "  ; data: SystemInstruction::Transfer u32le=2 + lamports u64le (12B)"
+  else
+    let method := callee[callee.size - 1]!
+    let discHex := externalMethodDiscriminator method n
+    b := emit b s!"  ; method disc={discHex} (product ABI, empty AccountMeta)"
   b := emit b "  ; stack temps grow downward: reverse-pack multi-word structs"
-  -- program_id: 4 LE u64 limbs in *increasing* memory (= decreasing temp index).
-  -- limb0 at highest temp (lowest addr) … limb3 at pidBase (highest addr).
   for limb in [:4] do
-    let v ← programIdLimbLeV1 programIdHex limb
+    let v ← programIdLimbLeV1 pidHex limb
     b := emit b s!"  lddw r1, {hexImm v}"
     b := storeTempAbs b (pidBase + 3 - limb) "r1"
   let pidPtrTemp := pidBase + 3
-  -- instruction data: disc then args, reverse-packed so disc is at lowest addr.
-  -- dataSlots = 1+n; disc at dataBase+n, arg i at dataBase+n-1-i.
-  b := emit b s!"  lddw r1, {hexImm discLe.toNat}"
-  b := storeTempAbs b (dataBase + n) "r1"
-  for i in [:n] do
-    b := loadTemp b "r1" tempBase args[i]!
-    b := storeTempAbs b (dataBase + n - 1 - i) "r1"
-  let dataPtrTemp := dataBase + n
-  -- SolInstruction fields reverse-packed into ixBase..ixBase+4:
-  --   ixBase+4 program_id_addr (lowest addr = &SolInstruction)
-  --   ixBase+3 accounts_addr
-  --   ixBase+2 accounts_len
-  --   ixBase+1 data_addr
-  --   ixBase+0 data_len
+  -- Instruction data.
+  let dataPtrTemp : Nat ←
+    if isSysXfer then do
+      -- Continuous 12B at lowest address of the two data temps (dataBase+1).
+      -- Escrow-compatible: stxw tag at +0, stxdw lamports at +4.
+      b := emit b "  mov64 r8, r10"
+      b := emit b s!"  add64 r8, -{tempStackOff (dataBase + 1)}"
+      b := emit b
+        s!"  lddw r1, {hexImm ProductCpiRecipesV1.systemTransferInstructionTagV1}"
+      b := emit b "  stxw [r8 + 0], r1"
+      b := loadTemp b "r1" tempBase args[0]!
+      b := emit b "  stxdw [r8 + 4], r1"
+      pure (dataBase + 1)
+    else do
+      let method := callee[callee.size - 1]!
+      let discHex := externalMethodDiscriminator method n
+      let discLe ← discriminatorToLeU64V1 discHex
+      b := emit b s!"  lddw r1, {hexImm discLe.toNat}"
+      b := storeTempAbs b (dataBase + n) "r1"
+      for i in [:n] do
+        b := loadTemp b "r1" tempBase args[i]!
+        b := storeTempAbs b (dataBase + n - 1 - i) "r1"
+      pure (dataBase + n)
+  -- SolInstruction reverse-pack.
   b := emit b "  mov64 r1, r10"
   b := emit b s!"  add64 r1, -{tempStackOff pidPtrTemp}"
   b := storeTempAbs b (ixBase + 4) "r1"
   b := emit b "  lddw r1, 0"
-  b := storeTempAbs b (ixBase + 3) "r1"  -- accounts_addr (unused, len=0)
+  b := storeTempAbs b (ixBase + 3) "r1"
   b := emit b "  lddw r1, 0"
-  b := storeTempAbs b (ixBase + 2) "r1"  -- accounts_len = 0
+  b := storeTempAbs b (ixBase + 2) "r1"
   b := emit b "  mov64 r1, r10"
   b := emit b s!"  add64 r1, -{tempStackOff dataPtrTemp}"
   b := storeTempAbs b (ixBase + 1) "r1"
-  b := emit b s!"  lddw r1, {hexImm (8 * dataSlots)}"
+  b := emit b s!"  lddw r1, {hexImm dataLenBytes}"
   b := storeTempAbs b ixBase "r1"
   let ixPtrTemp := ixBase + 4
-  -- invoke: r1=&SolInstruction, r2=account_infos, r3=infos_len,
-  --         r4=signers, r5=signers_len
   b := emit b "  mov64 r1, r10"
   b := emit b s!"  add64 r1, -{tempStackOff ixPtrTemp}"
   b := emit b "  lddw r2, 0"
@@ -1632,13 +1659,9 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
   b := emit b "  lddw r4, 0"
   b := emit b "  lddw r5, 0"
   b := emit b "  call sol_invoke_signed_c"
-  -- Callee program error aborts natively before return. On success r0=0.
   match resultDest with
   | none => pure b
   | some dest =>
-      -- sol_get_return_data(buf, 8, program_id_out) → r0 = full length.
-      -- retBase holds the 8B result; pidOutBase..+3 hold program_id out
-      -- (reverse-pack so &pidOutBase+3 is the 32B buffer start).
       let (b2, shortLab) := fresh b "cpi_ret_short"
       let (b3, okLab) := fresh b2 "cpi_ret_ok"
       b := b3

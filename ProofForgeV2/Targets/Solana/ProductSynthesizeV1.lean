@@ -26,6 +26,7 @@ import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
 import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.CpiIdlV1
 import ProofForgeV2.Targets.Solana.ProductFrameV1
+import ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
 
 namespace ProofForgeV2.Targets.Solana
 
@@ -35,6 +36,7 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.Solana.CpiV1
 open ProofForgeV2.Targets.Solana.ProductFrameV1
+open ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
 
 /-- Marker schema for product full-body hybrid `*.cpi-ir.json` (P3-c/d/f).
     Not the escrow `proof-forge.solana.cpi-product-ir.v1` carrier. -/
@@ -111,12 +113,24 @@ def synthesizeFullBodyProductBaseFilesV1
     | .error e =>
         throw <| .planInvariant .solana s!"product synthesize frame: {e}"
   requireProductFrameV1 frame
-  let synthTag := if hasSites then "p3d-partial-empty-meta" else "p3c-zero-site"
+  let siteQns := validated.candidate.cpiSites.map (fun s => s.qn)
+  let allSystemXfer :=
+    !siteQns.isEmpty && siteQns.all isSystemTransferQnV1
+  let synthTag :=
+    if !hasSites then "p3c-zero-site"
+    else if allSystemXfer then "p3e-system-transfer-empty-meta"
+    else "p3d-partial-empty-meta"
+  let cpiMaturity :=
+    if !hasSites then "zero-site"
+    else if allSystemXfer then "empty-meta-partial-system-transfer"
+    else "empty-meta-partial"
   let honesty :=
-    if hasSites then
-      "full-body+ExternalCall empty-meta sol_invoke; multi-role AccountMeta deferred"
-    else
+    if !hasSites then
       "body via ProductSynthesizeV1→LowerSemantic+EmitSbpfAsm (P3-c)"
+    else if allSystemXfer then
+      "full-body+system.transfer: System program id+12B data; empty AccountMeta (P3-e foundation)"
+    else
+      "full-body+ExternalCall empty-meta sol_invoke; multi-role AccountMeta deferred"
   -- Deterministic marker IR (no self-embedded digest field — P3-g hashes
   -- exact UTF-8 via `fullBodyHybridIrDigestV1`).
   let irText :=
@@ -128,8 +142,8 @@ def synthesizeFullBodyProductBaseFilesV1
     "\"admitCaller\":" ++ (if admitCaller then "true" else "false") ++ "," ++
     "\"admitProductExternalCall\":true," ++
     "\"cpiSites\":" ++ toString validated.candidate.cpiSites.size ++ "," ++
-    "\"cpiMaturity\":\"" ++
-      (if hasSites then "empty-meta-partial" else "zero-site") ++ "\"}"
+    "\"outerRoleCount\":" ++ toString validated.candidate.accountRoles.size ++ "," ++
+    "\"cpiMaturity\":\"" ++ cpiMaturity ++ "\"}"
   let irDigestWire ← match fullBodyHybridIrDigestV1 irText.toUTF8 with
     | .ok d =>
         match renderDigest d with

@@ -192,8 +192,13 @@ buildFromCapability (profile = solana-sbpf-cpi-elf-v1)
   钉测 `BodyCpiIfPay`（if + `pf.assets.native.transfer`）；IR/bindings 标记
   `p3d-partial-empty-meta` / `cpiMaturity=empty-meta-partial`。**不是** multi-role
   AccountMeta maturity（R3 诚实）。
-- **P3-d 剩余 / P3-e**：multi-role site recipes 接入 body emit（真 TipJar 账户面；
-  outer role table + AccountMeta，非 empty-meta）。
+- **P3-e foundation 已绿（engineering）**：`ProductCpiRecipesV1`（System transfer
+  layout / frame budget / QN 识别）；full-body empty-meta 对 `solana.system.transfer`
+  使用 **native System program id（32 zeros）+ 12B Transfer data packing**（stxw tag +
+  stxdw lamports）；成熟度标记 `p3e-system-transfer-empty-meta` /
+  `empty-meta-partial-system-transfer` + `outerRoleCount`。钉测
+  `Examples/BodyCpiSysPay` + recipe unit。**尚未**：multi-role AccountMeta walker /
+  outer role table entrypoint。
 - **P3-f demo 已绿（engineering）**：`Examples/BodyCpiMapTip.lean` +
   `Tests/Product/BodyCpiMapTipSolanaV1` + synthesize pin。Map + `pf.assets.native.transfer`
   同 ELF（empty-meta partial）。**Scratch 纪律**：IndexSet RHS 必须经 `scratch` 标量
@@ -206,7 +211,7 @@ buildFromCapability (profile = solana-sbpf-cpi-elf-v1)
 - **P3-h**：admitCaller 双账户 layout + MiniAmmHybrid Mollusk 已在 main（可标 done）。
 
 | **P3-d** | Site hooks partial：full-body + void ExternalCall + empty-meta invoke 同 ELF | `BodyCpiIfPay` pin：`.s` 含 `sol_invoke_signed_c` + empty AccountMeta；`p3d-partial-empty-meta` | LowerSemantic admit、ValidatePlan/EmitIR/EmitSbpfAsm、`ProductSynthesizeV1` | P3-c done |
-| **P3-e** | CFG：if/branch 与 **multi-role** site 锚点 source order；仍 FC for/loop 跨 site 若帧不够 | multi-block + real AccountMeta 1 site Lean pin | recipe helpers + synthesize | 依赖 P3-d partial |
+| **P3-e** | foundation：System transfer data/program-id 正确 + recipe 模块；**multi-role walker 仍 pending** | `BodyCpiSysPay` pin：`.s` 含 System zero pid + stxw Transfer + empty-meta；recipe unit | `ProductCpiRecipesV1`、EmitSbpfAsm、Synthesize tags | P3-d partial done |
 | **P3-f** | Map/Index* + site（MiniAMM-class body + transfer） | `Examples/BodyCpiMapTip` product pin（scratch 纪律 + empty-meta partial） | LowerSemantic Map + synthesize | P3-d partial done；multi-role 仍 P3-e |
 | **P3-g** | Finalize/bindings 诚实：去掉 `full-body-hybrid` 字面特例；content-bound hybrid IR digest | evidence `irDigest=sha256:…` 可从 `*.cpi-ir.json` 重算；bindings 内嵌同 digest | `ProductSynthesizeV1` digest API、`FinalizeV1` | P3-f done |
 | **P3-h** | multi-account layout 硬化（acc1 dup/signer exact）+ MiniAMM Mollusk（可拆 E4） | ADR-0032 验收剩余项 | `EmitSbpfAsmV1` layout、runtime-tests | 可与 P3-f 后并行 runtime lane |

@@ -155,6 +155,7 @@ import Tests.Materialization.SolanaProductSynthesizeV1
 import Tests.Targets.SolanaAsmV1
 import Tests.Targets.SolanaAcc1LayoutV1
 import Tests.Targets.SolanaProductFrameV1
+import Tests.Targets.SolanaProductCpiRecipesV1
 import Tests.Targets.SolanaElfV1
 import Tests.Targets.EvmCancunV1
 import Tests.Materialization.EvmCorpusBlockedV1
@@ -170,6 +171,7 @@ import Tests.Product.TipJarSolanaV1
 import Tests.Product.TokenJarSolanaV1
 import Tests.Product.MiniAmmSolanaV1
 import Tests.Product.BodyCpiMapTipSolanaV1
+import Tests.Product.BodyCpiSysPaySolanaV1
 import Tests.Product.TipJarNearV1
 import Tests.Materialization.NearPfAssetsV1
 import Tests.Product.TipJarCosmWasmV1
@@ -229,6 +231,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Targets.SolanaAsmV1.run
   Tests.Targets.SolanaAcc1LayoutV1.run
   Tests.Targets.SolanaProductFrameV1.run
+  Tests.Targets.SolanaProductCpiRecipesV1.run
   Tests.Targets.SolanaElfV1.run
   Tests.Targets.EvmCancunV1.run
   Tests.Materialization.EvmCorpusBlockedV1.run
@@ -244,6 +247,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Product.TokenJarSolanaV1.run
   Tests.Product.MiniAmmSolanaV1.run
   Tests.Product.BodyCpiMapTipSolanaV1.run
+  Tests.Product.BodyCpiSysPaySolanaV1.run
   Tests.Product.TipJarNearV1.run
   Tests.Materialization.NearPfAssetsV1.run
   Tests.Product.TipJarCosmWasmV1.run

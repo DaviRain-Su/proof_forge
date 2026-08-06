@@ -1,4 +1,5 @@
 import ProofForgeV2.Targets.Solana.ValidatePlanV1
+import ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
 
 /-!
 # Solana EmitIRV1 — Plan → IR emission
@@ -1031,16 +1032,21 @@ private partial def lowerBodyOps
         operations := operations.push (.revertError errorIndex argTemps)
         next := nextBase
     | .externalCall callee args =>
-        -- P3-d product full-body: lower void ExternalCall with static program-id
-        -- stub (SHA-256 of target path) and UInt64 body args. Multi-role site
-        -- metas remain deferred; EmitSbpfAsm uses empty AccountMeta partial.
+        -- P3-d/e product full-body: lower void ExternalCall with UInt64 body
+        -- args. Program id: native System zeros for solana.system.transfer
+        -- (P3-e foundation); else SHA-256(target path) stub. Multi-role site
+        -- metas remain deferred; EmitSbpfAsm empty-meta packing.
         let mut argTemps : Array Nat := #[]
         for arg in args do
           let value := lowerExpr overflowError tempMap next arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
-        let programIdHex := externalCalleeProgramIdHex callee
+        let programIdHex :=
+          if ProductCpiRecipesV1.isSystemTransferCalleeV1 callee then
+            ProductCpiRecipesV1.systemProgramIdHexV1
+          else
+            externalCalleeProgramIdHex callee
         operations := operations.push
           (.externalCall callee programIdHex argTemps none)
         next := nextBase
