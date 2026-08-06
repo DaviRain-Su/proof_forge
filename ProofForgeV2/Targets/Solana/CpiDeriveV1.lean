@@ -1297,8 +1297,10 @@ def deriveSolanaCpiPlanCandidateCoreV1
       cpiSiteIds := siteIdsForHandler
     }
 
-  -- Plan carries a single extensionRequirement field: prefer solana.cpi.accounts
-  -- when present (L2 / dual), else pf.assets (L1-only TipJar path).
+  -- Plan carries a single admission-marker field (historically named
+  -- extensionRequirement): prefer solana.cpi.accounts (L2 / dual), else
+  -- pf.assets (L1 TipJar/envRead), else exact wire-owned context.caller
+  -- (ADR-0031 S1 caller-only; not an extension — no fake pf.assets ticket).
   let extensionRequirement ←
     if hasSolanaCpiExtensionRow data then
       mapExcept expectedExtensionRequirementV1 "extension requirement"
@@ -1306,6 +1308,10 @@ def deriveSolanaCpiPlanCandidateCoreV1
       match pfAssetsExtensionRequirementV1 with
       | .ok r => pure r
       | .error e => deriveFail s!"pf.assets extension seed: {e}"
+    else if rawContextReadSites.size > 0 then
+      match callerContextRequirementV1 with
+      | .ok r => pure r
+      | .error e => deriveFail s!"context.caller requirement seed: {e}"
     else
       mapExcept expectedExtensionRequirementV1 "extension requirement"
 

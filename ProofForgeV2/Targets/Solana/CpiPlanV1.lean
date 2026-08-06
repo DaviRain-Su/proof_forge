@@ -1212,6 +1212,9 @@ private def validateIdentity (c : SolanaCpiPlanCandidateV1) : CompileResult Unit
   let expectedPf ← match pfAssetsExtensionRequirementV1 with
     | .ok r => pure r
     | .error e => planFail s!"pf.assets extension seed: {e}"
+  let expectedCaller ← match callerContextRequirementV1 with
+    | .ok r => pure r
+    | .error e => planFail s!"context.caller requirement seed: {e}"
   let extOk :=
     (c.extensionRequirement.id == expectedExt.id &&
       c.extensionRequirement.version == expectedExt.version &&
@@ -1220,10 +1223,14 @@ private def validateIdentity (c : SolanaCpiPlanCandidateV1) : CompileResult Unit
     (c.extensionRequirement.id == expectedPf.id &&
       c.extensionRequirement.version == expectedPf.version &&
       digestsEqual c.extensionRequirement.digest expectedPf.digest &&
-      c.extensionRequirement.predicates == expectedPf.predicates)
+      c.extensionRequirement.predicates == expectedPf.predicates) ||
+    (c.extensionRequirement.id == expectedCaller.id &&
+      c.extensionRequirement.version == expectedCaller.version &&
+      digestsEqual c.extensionRequirement.digest expectedCaller.digest &&
+      c.extensionRequirement.predicates == expectedCaller.predicates)
   unless extOk do
     planFail
-      "extensionRequirement must equal exact solanaCpiAccounts or pf.assets extension seed"
+      "extensionRequirement must equal exact solanaCpiAccounts, pf.assets, or context.caller seed"
   match validateIdentifierComponent c.programName with
   | .ok () => pure ()
   | .error msg => planFail s!"programName: {msg}"
@@ -2050,6 +2057,9 @@ private def validateProductIdentity
   let expectedPf ← match pfAssetsExtensionRequirementV1 with
     | .ok r => pure r
     | .error e => planFail s!"pf.assets extension seed: {e}"
+  let expectedCaller ← match callerContextRequirementV1 with
+    | .ok r => pure r
+    | .error e => planFail s!"context.caller requirement seed: {e}"
   let extOk :=
     (c.extensionRequirement.id == expectedExt.id &&
       c.extensionRequirement.version == expectedExt.version &&
@@ -2058,10 +2068,14 @@ private def validateProductIdentity
     (c.extensionRequirement.id == expectedPf.id &&
       c.extensionRequirement.version == expectedPf.version &&
       digestsEqual c.extensionRequirement.digest expectedPf.digest &&
-      c.extensionRequirement.predicates == expectedPf.predicates)
+      c.extensionRequirement.predicates == expectedPf.predicates) ||
+    (c.extensionRequirement.id == expectedCaller.id &&
+      c.extensionRequirement.version == expectedCaller.version &&
+      digestsEqual c.extensionRequirement.digest expectedCaller.digest &&
+      c.extensionRequirement.predicates == expectedCaller.predicates)
   unless extOk do
     planFail
-      "extensionRequirement must equal exact solanaCpiAccounts or pf.assets extension seed"
+      "extensionRequirement must equal exact solanaCpiAccounts, pf.assets, or context.caller seed"
   match validateIdentifierComponent c.programName with
   | .ok () => pure ()
   | .error msg => planFail s!"programName: {msg}"

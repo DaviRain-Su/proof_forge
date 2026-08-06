@@ -320,6 +320,14 @@ fn ensure_product_output() -> PathBuf {
             asm_text.contains("lddw r3, 32"),
             "product assembly must materialize Principal len=32 leaf"
         );
+        assert!(
+            asm_text.contains("validatePrincipalIx"),
+            "product assembly must emit validatePrincipalIx before comparison"
+        );
+        assert!(
+            asm_text.contains("high-tail body bytes zero"),
+            "product assembly must document high-tail zero canonical gate"
+        );
         out
     })
     .clone()
@@ -360,14 +368,30 @@ fn principal_leaves_from_pubkey(key: &Pubkey) -> [u64; PRINCIPAL_LEAF_COUNT] {
     leaves
 }
 
-fn is_me_ix_data(who: &Pubkey) -> Vec<u8> {
+/// Raw T12 Principal leaves (len + 8 body words). Used for noncanonical negatives.
+fn principal_leaves_raw(len: u64, body: &[u8; 64]) -> [u64; PRINCIPAL_LEAF_COUNT] {
+    let mut leaves = [0u64; PRINCIPAL_LEAF_COUNT];
+    leaves[0] = len;
+    for i in 0..8 {
+        let mut word = [0u8; 8];
+        word.copy_from_slice(&body[i * 8..(i + 1) * 8]);
+        leaves[1 + i] = u64::from_le_bytes(word);
+    }
+    leaves
+}
+
+fn is_me_ix_data_from_leaves(leaves: &[u64; PRINCIPAL_LEAF_COUNT]) -> Vec<u8> {
     let mut data = Vec::with_capacity(IS_ME_IX_LEN);
     data.extend_from_slice(&IS_ME_HANDLER_ID.to_le_bytes());
-    for leaf in principal_leaves_from_pubkey(who) {
+    for leaf in leaves {
         data.extend_from_slice(&leaf.to_le_bytes());
     }
     debug_assert_eq!(data.len(), IS_ME_IX_LEN);
     data
+}
+
+fn is_me_ix_data(who: &Pubkey) -> Vec<u8> {
+    is_me_ix_data_from_leaves(&principal_leaves_from_pubkey(who))
 }
 
 /// System-owned empty-data account (pf_caller constraint).
@@ -464,6 +488,81 @@ fn is_me_rejects_non_signer_caller_role() {
     );
 }
 
+/// Noncanonical ordinary Principal: len=0 → Custom(1) + exact snapshot hold.
+#[test]
+fn is_me_rejects_principal_len_zero() {
+    let (mollusk, program_id) = make_product_mollusk();
+    let caller_key = fixed_key(0xA1);
+    let caller_acc = system_empty_account(BASE_LAMPORTS);
+    let metas = vec![AccountMeta::new_readonly(caller_key, true)];
+    let accounts = vec![(caller_key, caller_acc)];
+    let body = [0u8; 64];
+    let leaves = principal_leaves_raw(0, &body);
+    let ix = Instruction::new_with_bytes(
+        program_id,
+        &is_me_ix_data_from_leaves(&leaves),
+        metas,
+    );
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &ix,
+        &accounts,
+        Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN)),
+    );
+}
+
+/// Noncanonical ordinary Principal: len=65 → Custom(1) + exact snapshot hold.
+#[test]
+fn is_me_rejects_principal_len_65() {
+    let (mollusk, program_id) = make_product_mollusk();
+    let caller_key = fixed_key(0xA1);
+    let caller_acc = system_empty_account(BASE_LAMPORTS);
+    let metas = vec![AccountMeta::new_readonly(caller_key, true)];
+    let accounts = vec![(caller_key, caller_acc)];
+    let body = [0u8; 64];
+    let leaves = principal_leaves_raw(65, &body);
+    let ix = Instruction::new_with_bytes(
+        program_id,
+        &is_me_ix_data_from_leaves(&leaves),
+        metas,
+    );
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &ix,
+        &accounts,
+        Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN)),
+    );
+}
+
+/// Noncanonical ordinary Principal: len=32 with nonzero high-tail body byte
+/// (index ≥ 32) → Custom(1) + exact snapshot hold. Exact ix byte length alone
+/// is insufficient — physical high-tail must be zero.
+#[test]
+fn is_me_rejects_principal_len32_nonzero_high_tail() {
+    let (mollusk, program_id) = make_product_mollusk();
+    let caller_key = fixed_key(0xA1);
+    let caller_acc = system_empty_account(BASE_LAMPORTS);
+    let metas = vec![AccountMeta::new_readonly(caller_key, true)];
+    let accounts = vec![(caller_key, caller_acc)];
+    // Canonical pubkey body in first 32 bytes; nonzero tail at body[32].
+    let mut body = [0u8; 64];
+    body[..32].copy_from_slice(&caller_key.to_bytes());
+    body[32] = 0xff;
+    let leaves = principal_leaves_raw(32, &body);
+    assert_ne!(leaves[5], 0, "high-tail word must be nonzero for this negative");
+    let ix = Instruction::new_with_bytes(
+        program_id,
+        &is_me_ix_data_from_leaves(&leaves),
+        metas,
+    );
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &ix,
+        &accounts,
+        Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN)),
+    );
+}
+
 /// Assembly honesty pin (also checked at ensure_product_output).
 #[test]
 fn product_assembly_documents_caller_not_tx_origin() {
@@ -474,6 +573,8 @@ fn product_assembly_documents_caller_not_tx_origin() {
     assert!(text.contains("not tx.origin"));
     assert!(text.contains("contextReadCaller"));
     assert!(text.contains("principalLeafEqIx"));
+    assert!(text.contains("validatePrincipalIx"));
+    assert!(text.contains("high-tail body bytes zero"));
     assert!(text.contains("checkEffectiveSigner"));
     assert!(text.contains("lddw r3, 32"));
 }

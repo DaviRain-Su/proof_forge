@@ -2452,6 +2452,32 @@ private def emitBodyOp
         b := emit b s!"{eqLab}:"
         b := emitStoreTemp b dstTemp "r3"
         pure b
+  | .validatePrincipalIx ixOff =>
+      -- Canonical ordinary T12 Principal physical encoding (before business
+      -- comparison): len leaf ∈ 1..64 and every body byte at index ≥ len is 0.
+      -- Layout: [ixOff..ixOff+8) = len u64 LE; [ixOff+8..ixOff+72) = 64 body B.
+      pure <| Id.run do
+        let mut b := b0
+        let loopLab := s!"vpix_loop_{labSuffix}"
+        let doneLab := s!"vpix_done_{labSuffix}"
+        b := emit b s!"  ; --- validatePrincipalIx: ix@{ixOff} (len 1..64; high-tail body bytes zero) ---"
+        b := emit b "  ldxdw r6, [r10 - SLOT_IX_DATA]    ; r6 = ix data base"
+        b := emit b s!"  ldxdw r1, [r6 + {ixOff}]         ; r1 = Principal len leaf"
+        b := emit b "  jlt r1, 1, err_shape              ; len < 1 rejected"
+        b := emit b "  jgt r1, 64, err_shape             ; len > 64 rejected"
+        b := emit b "  mov64 r7, r1                      ; r7 = body byte index (start at len)"
+        b := emit b s!"{loopLab}:"
+        b := emit b s!"  jge r7, 64, {doneLab}             ; no more high-tail bytes"
+        -- body_ptr = ix_base + ixOff + 8 + r7
+        b := emit b "  mov64 r2, r6"
+        b := emit b s!"  add64 r2, {ixOff + 8}"
+        b := emit b "  add64 r2, r7"
+        b := emit b "  ldxb r3, [r2 + 0]"
+        b := emit b "  jne r3, 0, err_shape              ; high-tail body byte must be zero"
+        b := emit b "  add64 r7, 1"
+        b := emit b s!"  ja {loopLab}"
+        b := emit b s!"{doneLab}:"
+        pure b
   | .returnU64 srcTemp =>
       pure <| Id.run do
         let mut b := b0
@@ -2505,7 +2531,8 @@ private def emitHandlerSection
         b ← emitBodyOp b op suffix
         invokeIdx := invokeIdx + 1
     | .envReadVaultBalance .. | .contextReadCaller ..
-    | .principalLeafEq .. | .principalLeafEqIx .. =>
+    | .principalLeafEq .. | .principalLeafEqIx ..
+    | .validatePrincipalIx .. =>
         let suffix := s!"{h.handlerId}_b{auxIdx}"
         b ← emitBodyOp b op suffix
         auxIdx := auxIdx + 1

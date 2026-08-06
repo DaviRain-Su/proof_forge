@@ -17,20 +17,22 @@ open ProofForgeV2.Language
 --
 -- `who` is ordinary T12 Principal ix-data (9×UInt64 LE), not an account role,
 -- so pairwise-distinct outer keys stay intact and isMe can return true when
--- who wire equals the pf_caller pubkey.
+-- who wire equals the pf_caller pubkey. Ordinary Principal ix params are
+-- physically validated before business comparison: len ∈ 1..64 and every body
+-- byte at index ≥ len must be zero (noncanonical encodings Custom(1)).
 --
 -- Runtime expectations:
 --   * isMe(who) returns 1 (Bool true as UInt64 LE) when who wire == pf_caller
 --     pubkey and pf_caller is_signer
---   * isMe(who) returns 0 when who wire differs (pf_caller still signer)
+--   * isMe(who) returns 0 when who wire differs (pf_caller still signer;
+--     different canonical Principal values remain allowed)
 --   * pf_caller not signer → fail closed (Custom(1)) + full account snapshot hold
+--   * noncanonical who (len=0, len=65, len=32 with nonzero high-tail) →
+--     Custom(1) + full snapshot hold
 --
--- Extension pf.assets is declared so the product capability admits the
--- exact CPI profile without a sync-call site (same discipline as envRead-only).
+-- Admission is caller-only: exact wire-owned `context.caller` requirement on
+-- profile solana-sbpf-cpi-elf-v1. No extension.pf-assets / sync-call ticket.
 program CallerIsMe where
-  requires extension pf.assets version "1.1.0"
-    digest "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
-
   view isMe(who : Principal) : Bool do
     return context.caller == who
 

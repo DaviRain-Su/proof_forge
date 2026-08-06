@@ -6,19 +6,29 @@
   Sole refine: `resolveSolanaCpiProductCapabilityV1` :
   `ResolvedEngineeringBuildV1 → CompileResult ResolvedSolanaCpiProductCapabilityV1`.
 
-  Accepts only exact `(solana, solana-sbpf-cpi-elf-v1)` selection whose retained
-  Semantic requirements and engineering SupportClaim both contain the active
-  exact `effect.synchronous-call` S2 row and **at least one** closed extension:
-  ADR-0028 `extension.solana-cpi-accounts` and/or ADR-0029 `extension.pf-assets`,
-  and neither contains `effect.asynchronous-workflow`. Each requested extension
-  must also appear on the SupportClaim. Retained Semantic / requirements bytes
-  are never rewritten.
+  Accepts only exact `(solana, solana-sbpf-cpi-elf-v1)` selection. Closed
+  admission modes (at least one required):
+
+  1. **sync + extension** — exact `effect.synchronous-call` plus ADR-0028
+     `extension.solana-cpi-accounts` and/or ADR-0029 `extension.pf-assets`
+     (each present extension must also appear on the SupportClaim; sync must
+     appear on SupportClaim when requested);
+  2. **pf.assets envRead-only** — exact `extension.pf-assets` without sync-call
+     (env-read programs; SupportClaim must carry pf.assets);
+  3. **caller-only** — exact wire-owned `context.caller` requirement row
+     (`callerContextRequirementV1`) without sync-call or either extension.
+     Caller is wire-owned / target-independent in the engineering resolver, so
+     it is **not** required on `EngineeringSupportClaim`. Near-miss/nonexact
+     caller rows are already rejected by retained structure/resolver.
+
+  Neither requested freeze nor SupportClaim may carry
+  `effect.asynchronous-workflow`. Retained Semantic / requirements bytes are
+  never rewritten.
 
   No conversion function exists to/from `ResolvedSolanaCpiPreflightV1`
   (activationDenied preflight lane stays independent). Ordinary resolution
   advertises sync + both closed extensions for this exact profile; this refine
-  succeeds when the capability carries sync plus whichever extension(s) the
-  program actually freezes.
+  succeeds for the closed admission modes above.
 -/
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.TargetIdentityV1
@@ -44,7 +54,8 @@ open ProofForgeV2.Targets.RequirementResolverV1
 open ProofForgeV2.Core.RequirementIdsV1
 
 /-- Private #125 product CPI capability. Holds the engineering capability under
-    exact solana+cpi profile with sync+extension support. Not convertible to
+    exact solana+cpi profile with a closed admission mode (sync+extension,
+    pf.assets envRead-only, or caller-only). Not convertible to
     preflight/activationDenied carriers. -/
 structure ResolvedSolanaCpiProductCapabilityV1 where
   private mk ::
@@ -96,9 +107,12 @@ private def hasRequestId (items : Array RequirementRequestV1) (id : String) : Bo
     1. selection identity must be solana + `solana-sbpf-cpi-elf-v1`;
     2. retained Semantic structure-validate;
     3. retained requirements must equal the engineering capability freeze;
-    4. require exact deferred `effect.synchronous-call` in requested AND support claim;
-    5. require at least one closed extension (solana.cpi.accounts and/or pf.assets)
-       in requested; each present extension must also be on the SupportClaim;
+    4. admit at least one closed mode:
+       - sync+extension (solana.cpi.accounts and/or pf.assets), or
+       - pf.assets envRead-only (no sync), or
+       - exact wire-owned `context.caller` only (no sync, no extension);
+    5. each present extension must also be on the SupportClaim; sync on claim
+       only when requested; caller is **not** required on SupportClaim;
     6. reject `effect.asynchronous-workflow` in requested AND support claim;
     7. mint private product capability (no activationDenied, no preflight conversion).
 -/
@@ -144,21 +158,26 @@ def resolveSolanaCpiProductCapabilityV1
     | .ok r => pure r
     | .error e =>
         productCapFail s!"Solana CPI product: pf.assets seed failed: {e}"
+  let callerReq ← match callerContextRequirementV1 with
+    | .ok r => pure r
+    | .error e =>
+        productCapFail s!"Solana CPI product: context.caller requirement seed failed: {e}"
 
   let hasSolanaExt := requestExact requested.items solanaExtReq
   let hasPfAssets := requestExact requested.items pfAssetsReq
-  unless hasSolanaExt || hasPfAssets do
-    productCapFail
-      "Solana CPI product requires exact extension.solana-cpi-accounts and/or extension.pf-assets"
-  -- ADR-0030 E2-3: envRead-only programs (pf.assets extension, no
-  -- externalCall) do not carry effect.synchronous-call. The sync-call
-  -- requirement is only mandatory when the program has CPI invoke sites.
-  -- A program with pf.assets but no sync-call is admitted as envRead-only.
+  let hasCallerContext := requestExact requested.items callerReq
   let hasSyncCall := requestExact requested.items syncReq
+  -- Closed admission: sync+extension, pf.assets envRead-only, or caller-only.
+  -- Empty / no-call / no-env / no-caller freezes must not activate this lane.
+  unless hasSolanaExt || hasPfAssets || hasCallerContext do
+    productCapFail
+      "Solana CPI product requires exact extension.solana-cpi-accounts, extension.pf-assets, and/or context.caller"
+  -- Without sync-call: only pf.assets envRead-only or caller-only are legal.
+  -- solana.cpi.accounts alone without sync stays fail-closed.
   unless hasSyncCall do
-    unless hasPfAssets do
+    unless hasPfAssets || hasCallerContext do
       productCapFail
-        s!"Solana CPI product requires exact deferred requirement '{s2EffectSyncCallIdV1}'"
+        s!"Solana CPI product requires exact deferred requirement '{s2EffectSyncCallIdV1}', extension.pf-assets envRead-only, or context.caller"
   if requestExact requested.items asyncReq ||
       hasRequestId requested.items s2EffectAsyncWorkflowIdV1 then
     productCapFail
@@ -166,8 +185,7 @@ def resolveSolanaCpiProductCapabilityV1
 
   let claim := ResolvedEngineeringBuildV1.supportClaimOf engineering
   let supported := EngineeringSupportClaimV1.supportedOf claim
-  -- ADR-0030 E2-3: SupportClaim sync-call check only when the program has
-  -- sync-call (envRead-only programs don't).
+  -- SupportClaim sync-call check only when the program freezes sync-call.
   if hasSyncCall then
     unless requestExact supported syncReq do
       productCapFail
@@ -180,6 +198,7 @@ def resolveSolanaCpiProductCapabilityV1
     unless requestExact supported pfAssetsReq do
       productCapFail
         s!"Solana CPI product SupportClaim must include exact '{pfAssetsReq.id}'"
+  -- context.caller is wire-owned / target-independent: not required on SupportClaim.
   if requestExact supported asyncReq ||
       hasRequestId supported s2EffectAsyncWorkflowIdV1 then
     productCapFail

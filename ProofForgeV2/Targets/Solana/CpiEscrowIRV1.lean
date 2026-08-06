@@ -224,6 +224,12 @@ inductive CpiEscrowBodyOpV1 where
       T12 ix-data Principal at `rightIxOffset` (9×UInt64 LE). Avoids a second
       9-temp materialization so isMe stays within escrowMaxTempsV1. -/
   | principalLeafEqIx (dstTemp leftBaseTemp rightIxOffset : Nat)
+  /-- ADR-0031 S1 follow-up: reject noncanonical ordinary (non account-bound)
+      T12 Principal ix encodings **before** business comparison. Derived from
+      the same `paramIx` layout (width 0): leaf0=len must be in 1..64 and every
+      body byte at index ≥ len must be zero. Account-bound Principal roles are
+      not covered (identity is the account key). -/
+  | validatePrincipalIx (ixDataOffset : Nat)
   | returnU64 (srcTemp : Nat)
   | returnNone
   deriving BEq, Repr, Inhabited
@@ -1371,6 +1377,12 @@ private def projectEscrowHandler
     | none =>
         let t := next
         (t, table.push (vid, t), next + 1)
+
+  -- Canonical Principal physical encoding checks first (before business ops /
+  -- leaf comparison). Sole authority = same paramIx layout (width 0).
+  for (_ord, off, w) in paramLayout do
+    if w == 0 then
+      body := body.push (.validatePrincipalIx off)
 
   for (ord, off, w) in paramLayout do
     let p ← getArr callable.params ord "callable.params"
@@ -2676,6 +2688,7 @@ private def renderBodyOp : CpiEscrowBodyOpV1 → String
       s!"contextReadCaller:base{baseTemp}:local{callerLocal}"
   | .principalLeafEq t l r => s!"principalLeafEq:{t}:base{l}:base{r}"
   | .principalLeafEqIx t l off => s!"principalLeafEqIx:{t}:base{l}:ix{off}"
+  | .validatePrincipalIx off => s!"validatePrincipalIx:@{off}"
   | .returnU64 t => s!"returnU64:{t}"
   | .returnNone => "returnNone"
 
@@ -2727,6 +2740,23 @@ def validateSolanaCpiEscrowIRCandidateV1
       unless role.localIndex == li do
         tFail s!"handler {h.handlerId} local roles are not dense"
     let ops := h.bodyOps
+    -- ADR-0031 S1: every principalLeafEqIx offset must have a preceding
+    -- validatePrincipalIx at the same ix offset (canonical len/high-tail gate
+    -- before business comparison). Sole authority = paramIx-derived ops.
+    for i in [0:ops.size] do
+      match ops[i]! with
+      | .principalLeafEqIx _ _ off =>
+          let hasPrior := Id.run do
+            for j in [0:i] do
+              match ops[j]! with
+              | .validatePrincipalIx off2 =>
+                  if off2 == off then return true
+              | _ => pure ()
+            return false
+          unless hasPrior do
+            tFail
+              s!"handler {h.handlerId}: principalLeafEqIx@{off} missing prior validatePrincipalIx"
+      | _ => pure ()
     for i in [0:ops.size] do
       match ops[i]! with
       | .siteArgChecks sid _checks =>

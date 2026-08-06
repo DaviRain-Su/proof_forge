@@ -144,21 +144,36 @@ private def envReadNoDeclSource : String :=
   "  view get() : UInt64 do\n" ++
   "    return pf.assets.native.balanceOfSelf()\n"
 
-/-- ADR-0031 S1 / ADR-0030 E3: context.caller on exact CPI profile.
-    Solana binds caller to the ABI-specified pf_caller signer role pubkey
-    (NOT tx.origin). Compare against a Principal param and return Bool. -/
+/-- ADR-0031 S1 / ADR-0030 E3: context.caller on exact CPI profile — caller-only
+    (no extension.pf-assets / sync-call ticket). Solana binds caller to the
+    ABI-specified pf_caller signer role pubkey (NOT tx.origin). -/
 private def contextCallerIsMeSource : String :=
-  wrapProgram "CallerIsMe" <|
-    "  view isMe(who : Principal) : Bool do\n" ++
-    "    return context.caller == who\n"
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program CallerIsMe where\n" ++
+  "  view isMe(who : Principal) : Bool do\n" ++
+  "    return context.caller == who\n"
+
+/-- Empty / no-call / no-env / no-caller program must not activate CPI product. -/
+private def emptyNoCallerSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program EmptyNoCaller where\n" ++
+  "  entry go() : UInt64 do\n" ++
+  "    return 0\n"
 
 /-- ADR-0031 S1: context.caller inside pureFn → fail closed. -/
 private def contextCallerInPureFnSource : String :=
-  wrapProgram "CallerPureFn" <|
-    "  pureFn helper(who : Principal) : Bool do\n" ++
-    "    return context.caller == who\n"
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program CallerPureFn where\n" ++
+  "  pureFn helper(who : Principal) : Bool do\n" ++
+  "    return context.caller == who\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return 0\n"
 
-/-- ADR-0031 S1: context.unixTimeSeconds stays FC on CPI profile. -/
+/-- ADR-0031 S1: context.unixTimeSeconds stays FC on CPI profile.
+    Uses pf.assets so capability admits; Plan must still reject unixTime. -/
 private def contextUnixTimeSource : String :=
   wrapProgram "UnixTimeView" <|
     "  view now() : UInt64 do\n" ++
@@ -500,9 +515,10 @@ private unsafe def testEnvReadFailClosed : IO Unit := do
       | .ok _ =>
           throw <| IO.userError "envRead no-decl unexpectedly compiled"
 
-/-- ADR-0031 S1 / ADR-0030 E3: context.caller Plan/IR/emit pins.
+/-- ADR-0031 S1 / ADR-0030 E3: context.caller Plan/IR/emit pins (caller-only).
     caller = ABI-specified pf_caller signer role (NOT tx.origin).
-    who Principal stays T12 ix-data (9 leaves), not account-bound. -/
+    who Principal stays T12 ix-data (9 leaves), not account-bound.
+    Ordinary Principal ix params get validatePrincipalIx before comparison. -/
 private unsafe def testContextCallerIsMe : IO Unit := do
   let compiled ← compileSource contextCallerIsMeSource "CallerIsMe"
   let cap ← productCapabilityOf compiled
@@ -511,6 +527,11 @@ private unsafe def testContextCallerIsMe : IO Unit := do
   expect (cand.cpiSites.isEmpty) "caller: zero CPI sites"
   expect (cand.envReadSites.isEmpty) "caller: zero envRead sites"
   expect (cand.contextReadSites.size == 1) "caller: one contextRead site"
+  -- Admission marker is exact wire-owned context.caller (not fake pf.assets).
+  expect (cand.extensionRequirement.id == wireContextCallerIdV1)
+    s!"caller: Plan admission marker is context.caller, got {cand.extensionRequirement.id}"
+  expect (cand.extensionRequirement.id != wireExtensionPfAssetsIdV1)
+    "caller: must not claim extension.pf-assets admission"
   let some ctxSite := cand.contextReadSites[0]? |
     throw <| IO.userError "caller: contextRead site missing"
   -- pf_caller role (sole outer role for isMe)
@@ -551,6 +572,22 @@ private unsafe def testContextCallerIsMe : IO Unit := do
     match op with | .loadParamU64 .. => n + 1 | _ => n) 0
   expect (loadCount == 0)
     s!"caller: who is ix-lazy (0 param loads), got {loadCount}"
+  -- validatePrincipalIx must precede business comparison (paramIx-derived).
+  let vpixIdx? := isMeIr.bodyOps.findIdx? (fun op =>
+    match op with | .validatePrincipalIx _ => true | _ => false)
+  let eqIxIdx? := isMeIr.bodyOps.findIdx? (fun op =>
+    match op with | .principalLeafEqIx .. => true | _ => false)
+  let some vpixIdx := vpixIdx? |
+    throw <| IO.userError "caller: IR missing validatePrincipalIx"
+  let some eqIxIdx := eqIxIdx? |
+    throw <| IO.userError "caller: IR missing principalLeafEqIx"
+  expect (vpixIdx < eqIxIdx)
+    s!"caller: validatePrincipalIx@{vpixIdx} must precede principalLeafEqIx@{eqIxIdx}"
+  expect (isMeIr.bodyOps.any (fun op =>
+    match op with
+    | .validatePrincipalIx 8 => true
+    | _ => false))
+    "caller: validatePrincipalIx at who T12 offset 8 (after handlerId)"
   expect (isMeIr.bodyOps.any (fun op =>
     match op with
     | .contextReadCaller .. => true
@@ -578,10 +615,30 @@ private unsafe def testContextCallerIsMe : IO Unit := do
   expect (hasSubstr text "not tx.origin") "caller: honesty comment in asm"
   expect (hasSubstr text "is_signer required") "caller: site-time signer check"
   expect (hasSubstr text "principalLeafEqIx") "caller: leaf-eq-ix label"
+  expect (hasSubstr text "validatePrincipalIx") "caller: canonical Principal gate"
+  expect (hasSubstr text "high-tail body bytes zero") "caller: high-tail zero comment"
+  expect (hasSubstr text "jlt r1, 1, err_shape") "caller: len < 1 rejected"
+  expect (hasSubstr text "jgt r1, 64, err_shape") "caller: len > 64 rejected"
   expect (hasSubstr text "ROLE_KEY") "caller: reads pf_caller key"
   expect (hasSubstr text "lddw r3, 32") "caller: materializes len=32 leaf"
   expect (hasSubstr text "checkEffectiveSigner")
     "caller: entry also enforces outerSigner"
+
+/-- Empty/no-call/no-env/no-caller must not mint CPI product capability. -/
+private unsafe def testEmptyProgramDoesNotActivateCpiLane : IO Unit := do
+  let compiled ← compileSource emptyNoCallerSource "EmptyNoCaller"
+  let selection ← expectPlanOk
+    (resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfCpiElfV1))
+    "empty selection"
+  let eng ← expectPlanOk
+    (resolveEngineeringRequirementsV1 selection compiled)
+    "empty resolve engineering"
+  -- Capability refine (via product plan entry) must reject: no extension,
+  -- no sync-call, no context.caller.
+  expectPlanRejectContains (productPlanFromCapabilityV1 eng)
+    "context.caller"
+    "empty program must not activate CPI product lane"
 
 /-- ADR-0031 S1 fail-closed negatives. -/
 private unsafe def testContextCallerFailClosed : IO Unit := do
@@ -613,8 +670,8 @@ private unsafe def testContextCallerFailClosed : IO Unit := do
     let selection ← expectPlanOk
       (resolveBuildSelectionV1 TargetId.solana (some profile))
       s!"legacy select {profile}"
-    -- CallerIsMe without pf.assets still freezes context.caller requirement
-    -- (wire-owned). Legacy planFromCapability → LowerSemantic FC.
+    -- CallerIsMe freezes context.caller requirement (wire-owned). Legacy
+    -- planFromCapability → LowerSemantic FC. No pf.assets ticket.
     let bareCaller :=
       "import ProofForgeV2\n" ++
       "open ProofForgeV2.Language\n" ++
@@ -651,6 +708,7 @@ unsafe def run : IO Unit := do
   testTokenBalanceEnvRead
   testEnvReadFailClosed
   testContextCallerIsMe
+  testEmptyProgramDoesNotActivateCpiLane
   testContextCallerFailClosed
   IO.println "Tests.Materialization.SolanaCpiPfAssetsV1: ok"
 
