@@ -5,8 +5,6 @@ status: draft
 owner: engineering
 updated: 2026-08-06
 normative: false
-parent: ADR-0032
-profile: solana-sbpf-cpi-elf-v1
 ---
 
 # Solana U1 P3：full body + optional CPI sites 同 product ELF

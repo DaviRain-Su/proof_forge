@@ -23,7 +23,7 @@ normative: false
 - 新增 `WideDivDispatch` 产品 fixture：四个 UInt128/256 div/mod handler 共处单 ELF；
   locked `sbpf` 产物经 `inspect` exact closure，Mollusk 执行最远 `mod256`。8 个
   WideDiv/WideDiv256 oracle 覆盖成功值与 div/mod 零除 `0x1001` 全账户回滚；当前 tracked
-  inventory 为 17 integration test binaries / 360 active tests。
+  inventory 为 18 integration test binaries / 371 active tests。
 - 该收口仅是 host-optional engineering correctness/runtime evidence；不进入 ordinary CI，
   不声称 formal D5、hermetic、mainnet 或 E4 MiniAMM 完成。E4 仍缺 Solana 应用镜像、
   真实 asset movement/remove-liquidity 与 EVM 无 code-size override 部署闭环。
@@ -77,7 +77,7 @@ normative: false
   取 32-byte `AccountInfo.key` 物化 Principal；两个 legacy profile 纵深 FC。普通 Principal
   参数继续走 T12 instruction data，并在业务读取前强制 `len∈1..64` 与 high-tail zero，
   不把任意 Principal 隐式升级为 account role/pubkey。Mollusk `caller_isme` 8/8 通过；后续
-  WideDiv runtime/dispatch 增量后 tracked inventory 为 17 integration binaries / 360 active tests。Solana #110 interoperability epic 仍为
+  WideDiv runtime/dispatch 增量后 tracked inventory 为 18 integration binaries / 371 active tests。Solana #110 interoperability epic 仍为
   engineering complete（#111–#125 engineering closed），不改变 formal TASK-D5/TST-SOL。
 - NEAR 将 init/entry caller 绑定为 `predecessor_account_id` 的 exact UTF-8 bytes；view
   无诚实 caller 语义而 FC。predecessor register 由 target-owned `RegisterLayout` 统一分配；

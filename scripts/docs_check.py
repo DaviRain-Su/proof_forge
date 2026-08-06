@@ -1497,7 +1497,7 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
             "PF-DOC-CHECKPOINT", "AGENTS.md",
             "must preserve the #125 integrated Solana runtime baseline 13/304")
     if not re.search(
-            r"\*\*17 integration test binaries / 360 active tests\*\*",
+            r"\*\*18 integration test binaries / 371 active tests\*\*",
             agents,
     ):
         raise_error(
@@ -1575,13 +1575,13 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         path.stem for path in tests_dir.iterdir()
         if path.is_file() and path.suffix == ".rs"
     )
-    if len(binaries) != 17:
+    if len(binaries) != 18:
         raise_error(
             "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
-            f"expected 17 integration test binaries, found {len(binaries)}: {binaries}")
+            f"expected 18 integration test binaries, found {len(binaries)}: {binaries}")
     for required_binary in (
             "caller_isme", "cpi_escrow", "transfer_sol_product",
-            "tipjar_assets", "tipjar_token"):
+            "tipjar_assets", "tipjar_token", "miniamm_hybrid"):
         if required_binary not in binaries:
             raise_error(
                 "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",

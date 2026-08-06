@@ -5,7 +5,6 @@ status: draft
 owner: engineering
 updated: 2026-08-06
 normative: false
-parent: PLAN-SOLANA-U1-P3
 ---
 
 # Solana U1 P3 — 文件所有权（并行 lane）
