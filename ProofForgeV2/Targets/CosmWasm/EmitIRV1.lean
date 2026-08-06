@@ -42,6 +42,13 @@ inductive Operation where
       Entry points fill global `$pf_block_time_secs` from Env JSON `"time"`
       (nanoseconds string ÷ 10^9 truncating) before calling method bodies. -/
   | blockTimeSeconds (destination : Nat)
+  /-- ADR-0031 S1: load pre-parsed MessageInfo.sender Principal length leaf
+      (global `$pf_caller_len`) filled at execute/instantiate before method
+      bodies. View/query never loads caller (Plan FC). -/
+  | callerPrincipalLen (destination : Nat)
+  /-- ADR-0031 S1: load one LE body word of context.caller Principal
+      (global `$pf_caller_w{i}`, `wordIndex ∈ 0..7`). -/
+  | callerPrincipalWord (wordIndex destination : Nat)
   | loadParam (destination inputOffset : Nat)
   /-- Narrow ABI param copy (`bitWidth ∈ {8,16,32}`); params already
       range-checked at JSON entry (see `renderParamRangeGuard`). -/
@@ -222,6 +229,10 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       { operations := #[.blockTimeSeconds next], value := next, next := next + 1 }
   | .nativeVaultBalance =>
       { operations := #[.nativeVaultBalance next], value := next, next := next + 1 }
+  | .callerPrincipalLen =>
+      { operations := #[.callerPrincipalLen next], value := next, next := next + 1 }
+  | .callerPrincipalWord wordIndex =>
+      { operations := #[.callerPrincipalWord wordIndex next], value := next, next := next + 1 }
   | .param inputOffset =>
       if paramAsTemp then
         { operations := #[], value := inputOffset / 8, next := next }
@@ -697,7 +708,8 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .storeState _ _
   | .setLayout _ _ | .setReturnData _ | .setReturnDataMulti _
   | .loadParam _ _ | .narrowLoadParam _ _ _
-  | .nativeVaultBalance _ | .tokenVaultBalance _ _ _ => true
+  | .nativeVaultBalance _ | .tokenVaultBalance _ _ _
+  | .callerPrincipalLen _ | .callerPrincipalWord _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
   | .switchRegion _ cases defaultOps =>
@@ -821,6 +833,17 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- ADR-0029 C1: info region cached at entry for funds checks (deposit/empty).
   "  (global $info_off (mut i32) (i32.const 0))\n" ++
   "  (global $info_len (mut i32) (i32.const 0))\n" ++
+  -- ADR-0031 S1: MessageInfo.sender Principal leaves (len + 8 LE body words).
+  -- Filled by $pf_load_caller_principal at execute/instantiate only.
+  "  (global $pf_caller_len (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_caller_w0 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_caller_w1 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_caller_w2 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_caller_w3 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_caller_w4 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_caller_w5 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_caller_w6 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_caller_w7 (mut i64) (i64.const 0))\n" ++
   -- ret_leaves live at valueCell (8×i64 = 64B); capacity-guarded by ret_count≤8
   -- allocate(size) -> region_ptr: Region{offset=data, capacity=size, length=size}
   "  (func $pf_allocate (param $size i32) (result i32)\n" ++
@@ -1571,6 +1594,58 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (if (i32.ne (i32.load8_u (i32.add (local.get $p) (i32.const 2))) (i32.const 93)) (then (return (i32.const 0))))\n" ++
   s!"    (i32.const 1)\n" ++
   "  )\n" ++
+  -- ADR-0031 S1: MessageInfo.sender → pilot Principal leaves.
+  -- Needle `"sender":"` is fixed at offset 3241 length 10 (see renderDataSectionV2).
+  -- CosmWasm-std serializes MessageInfo as `{"sender":"<addr>","funds":[...]}`
+  -- (Addr is a plain JSON string). Copy UTF-8 bytes until the closing `"` into
+  -- a fresh 64B zeroed heap buffer (above bump base 4096 — never collides with
+  -- static needles or attr/msg scratch), require 1..64 length, then pack LE
+  -- u64 body words into `$pf_caller_len` / `$pf_caller_w0`..`$pf_caller_w7`.
+  -- Canonical wire is `u32le(len)||sender-utf8`; materialization is len +
+  -- 8×UInt64 LE leaves (high body bytes beyond `len` stay 0 from the zeroed
+  -- buffer). Traps on missing needle / empty / too-long sender — never forges
+  -- env.contract.address or empty-string fallback. Query has no info region
+  -- and never calls this helper (Plan view-FC).
+  s!"  (func $pf_load_caller_principal\n" ++
+  s!"    (local $idx i32) (local $p i32) (local $end i32) (local $c i32) (local $n i32)\n" ++
+  s!"    (local $region i32) (local $buf i32)\n" ++
+  s!"    (local.set $region (call $pf_allocate (i32.const 64)))\n" ++
+  s!"    (local.set $buf (i32.load (local.get $region)))\n" ++
+  -- Zero the 64B body so high bytes beyond sender len stay 0.
+  s!"    (i64.store (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=8 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=16 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=24 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=32 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=40 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=48 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=56 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (local.set $idx (call $pf_find (global.get $info_off) (global.get $info_len) (i32.const 3241) (i32.const 10)))\n" ++
+  s!"    (if (i32.eq (local.get $idx) (i32.const -1)) (then unreachable))\n" ++
+  s!"    (local.set $p (i32.add (i32.add (global.get $info_off) (local.get $idx)) (i32.const 10)))\n" ++
+  s!"    (local.set $end (i32.add (global.get $info_off) (global.get $info_len)))\n" ++
+  s!"    (local.set $n (i32.const 0))\n" ++
+  s!"    (block $copy_done\n" ++
+  s!"      (loop $copy\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then unreachable))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (if (i32.eq (local.get $c) (i32.const 34)) (then (br $copy_done)))\n" ++
+  s!"        (if (i32.ge_u (local.get $n) (i32.const 64)) (then unreachable))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $buf) (local.get $n)) (local.get $c))\n" ++
+  s!"        (local.set $n (i32.add (local.get $n) (i32.const 1)))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br $copy)))\n" ++
+  s!"    (if (i32.eqz (local.get $n)) (then unreachable))\n" ++
+  s!"    (global.set $pf_caller_len (i64.extend_i32_u (local.get $n)))\n" ++
+  s!"    (global.set $pf_caller_w0 (i64.load (local.get $buf)))\n" ++
+  s!"    (global.set $pf_caller_w1 (i64.load offset=8 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_caller_w2 (i64.load offset=16 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_caller_w3 (i64.load offset=24 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_caller_w4 (i64.load offset=32 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_caller_w5 (i64.load offset=40 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_caller_w6 (i64.load offset=48 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_caller_w7 (i64.load offset=56 (local.get $buf)))\n" ++
+  "  )\n" ++
   -- nativeTransfer/tokenTransfer dst+mint: len ∈ 1..64, zero padding beyond
   -- len in the 64B body, and body bytes restricted to the lowercase bech32
   -- charset [a-z0-9]. The charset gate is what makes raw JSON embedding of
@@ -1774,6 +1849,18 @@ private partial def renderOperation (memory : MemoryLayout)
       -- B-CTX-OPEN: env.block.time.seconds() pre-parsed into global at entry.
       -- CosmWasm Timestamp.seconds() is u64 — exact UInt64 fit, no range guard.
       s!"{indent}(local.set $t{destination} (global.get $pf_block_time_secs))\n"
+  | .callerPrincipalLen destination =>
+      -- ADR-0031 S1: MessageInfo.sender length leaf (pre-parsed at entry).
+      s!"{indent}(local.set $t{destination} (global.get $pf_caller_len))\n"
+  | .callerPrincipalWord wordIndex destination =>
+      -- ADR-0031 S1: one LE body word of sender Principal (pre-parsed at entry).
+      let g :=
+        match wordIndex with
+        | 0 => "$pf_caller_w0" | 1 => "$pf_caller_w1" | 2 => "$pf_caller_w2"
+        | 3 => "$pf_caller_w3" | 4 => "$pf_caller_w4" | 5 => "$pf_caller_w5"
+        | 6 => "$pf_caller_w6" | 7 => "$pf_caller_w7"
+        | _ => "$pf_caller_w0"  -- validatePlan rejects wordIndex ≥ 8
+      s!"{indent}(local.set $t{destination} (global.get {g}))\n"
   | .nativeVaultBalance destination =>
       -- ADR-0030 E2-4-CW: query_chain bank balance of env.contract.address.
       s!"{indent}(local.set $t{destination} (call $pf_native_balance (global.get $pf_env_ptr)))\n"
@@ -2413,6 +2500,17 @@ private def renderDataSectionV2 (ir : IR) (keysEnd : Nat) : Except CompileError 
     throw <| .planInvariant .cosmwasm
       "internal: balance needle must be at offset 3229 with length 11"
   off := off + balanceNeedle.size + 1
+  -- ADR-0031 S1: `"sender":"` (10B) anchors MessageInfo.sender extraction.
+  -- Fixed at 3241 so $pf_load_caller_principal can hard-code the offset.
+  let senderNeedle := "\"sender\":\"".toUTF8
+  if off + senderNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "sender needle would overlap bump heap"
+  out := out ++ s!"  (data (i32.const {off}) \"\\\"sender\\\":\\\"\")\n"
+  unless off == 3241 && senderNeedle.size == 10 do
+    throw <| .planInvariant .cosmwasm
+      "internal: sender needle must be at offset 3241 with length 10"
+  off := off + senderNeedle.size + 1
   let mut methodNeedles : Array (String × Nat × Nat) := #[]
   for method in ir.methods do
     -- WAT string containing the bytes of `"name"` (quotes included for JSON find).
@@ -2456,6 +2554,12 @@ private def renderParamRangeGuard (indent : String) (i : Nat) (byteWidth : Nat) 
 private def renderLoadBlockTime (indent : String) : String :=
   s!"{indent}(global.set $pf_block_time_secs (call $pf_env_block_time_seconds (local.get $env_ptr)))\n"
 
+/-- ADR-0031 S1: parse MessageInfo.sender into Principal leaf globals before
+    execute/instantiate method bodies. Requires `$info_off`/`$info_len` already
+    set. Query never calls this (no MessageInfo; view Plan FC on caller). -/
+private def renderLoadCallerPrincipal (indent : String) : String :=
+  s!"{indent}(call $pf_load_caller_principal)\n"
+
 private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × Nat)) : String :=
   Id.run do
     let init := ir.methods[0]!  -- initializer is always first
@@ -2479,6 +2583,7 @@ private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × 
         "    (global.set $info_len (call $pf_region_len (local.get $info_ptr)))\n" ++
         "    (global.set $pf_env_ptr (local.get $env_ptr))\n" ++
         renderLoadBlockTime "    " ++
+        renderLoadCallerPrincipal "    " ++
         parse ++
         s!"    (return (call $m_{init.name} {args}))\n" ++
         "  )\n"
@@ -2515,6 +2620,7 @@ private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String 
         "    (global.set $info_len (call $pf_region_len (local.get $info_ptr)))\n" ++
         "    (global.set $pf_env_ptr (local.get $env_ptr))\n" ++
         renderLoadBlockTime "    " ++
+        renderLoadCallerPrincipal "    " ++
         dispatch ++
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++
         "  )\n"

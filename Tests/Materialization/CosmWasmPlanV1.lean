@@ -1190,8 +1190,7 @@ private unsafe def testStaticLayoutCapacityFc
 
 /-- B-CTX-OPEN: `context.unixTimeSeconds` lowers on CosmWasm to
     Env.block.time.seconds() — Plan Expr `.blockTimeSeconds`, WAT parses Env
-    JSON `"time"` (nanoseconds string) and divides by 10^9. `context.caller`
-    and unknown ContextRead keys stay fail closed. -/
+    JSON `"time"` (nanoseconds string) and divides by 10^9. -/
 private unsafe def testContextReadUnixTime
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "ClockBox" <|
@@ -1228,34 +1227,156 @@ private unsafe def testContextReadUnixTime
     "clock-box: WAT must stage seconds in pf_block_time_secs global"
   expect (wat.contains "\\\"time\\\"")
     "clock-box: WAT data must include Env time field needle"
-  -- context.caller stays fail closed. Since T12/C1 the CosmWasm type closure
-  -- ADMITS Principal (dst params need it), so the ContextRead-caller lowering
-  -- arm is now the fail-closed gate (the original type-closure rejection is
-  -- superseded). The program carries one state field so makeStorageLayout's
-  -- empty-state rejection does not mask the caller gate.
-  let callerSrc := wrapProgram "CallerBox" <|
+  IO.println "  ✓ ContextRead unixTimeSeconds admit (B-CTX-OPEN)"
+
+/-- Flatten one Plan Expr tree (binary/unary/compare nest) into a preorder
+    list of every node. Used to pin caller Principal leaf order even when
+    leaves sit inside leaf-wise `==` (`boolAnd` of `compare` nodes). -/
+private partial def flattenExpr (e : Expr) : Array Expr :=
+  let children : Array Expr :=
+    match e with
+    | .checkedAdd a b | .checkedSub a b | .checkedMul a b
+    | .checkedDiv a b | .checkedMod a b
+    | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b
+    | .signedCheckedAdd a b | .signedCheckedSub a b | .signedCheckedMul a b
+    | .signedCheckedDiv a b | .signedCheckedMod a b | .sar a b
+    | .narrowCheckedAdd _ a b | .narrowCheckedSub _ a b
+    | .narrowCheckedMul _ a b | .narrowCheckedDiv _ a b
+    | .narrowCheckedMod _ a b
+    | .narrowBitAnd _ a b | .narrowBitOr _ a b | .narrowBitXor _ a b
+    | .narrowShl _ a b | .narrowShr _ a b
+    | .boolAnd a b | .boolOr a b | .compare _ a b | .wideCompare _ _ a b
+    | .signedCompare _ a b => #[a, b]
+    | .checkedNeg a | .bitNot a | .boolNot a | .narrowBitNot _ a => #[a]
+    | .callFn _ args => args
+    | _ => #[]
+  children.foldl (fun acc c => acc ++ flattenExpr c) #[e]
+
+/-- Collect every Plan Expr node from a method body for caller Principal
+    leaf-order pins. -/
+private partial def collectExprs (stmts : Array Statement) : Array Expr :=
+  Id.run do
+    let mut out : Array Expr := #[]
+    for s in stmts do
+      match s with
+      | .store op => out := out ++ flattenExpr op.value
+      | .storeAtomic leaves =>
+          for op in leaves do out := out ++ flattenExpr op.value
+      | .returnValue v => out := out ++ flattenExpr v
+      | .returnAggregate leaves _ =>
+          for l in leaves do out := out ++ flattenExpr l
+      | .assert c => out := out ++ flattenExpr c
+      | .ifThenElse c t e =>
+          out := out ++ flattenExpr c
+          out := out ++ collectExprs t
+          out := out ++ collectExprs e
+      | .switchOn scrut cases defB =>
+          out := out ++ flattenExpr scrut
+          for (_, body) in cases do out := out ++ collectExprs body
+          out := out ++ collectExprs defB
+      | .forLoop _ initial cond update _ body =>
+          out := out ++ flattenExpr initial
+          out := out ++ flattenExpr cond
+          out := out ++ flattenExpr update
+          out := out ++ collectExprs body
+      | _ => pure ()
+    pure out
+
+/-- ADR-0031 S1: `context.caller` on CosmWasm binds MessageInfo.sender
+    (execute/init only) as Principal leaves `callerPrincipalLen` +
+    `callerPrincipalWord 0..7` (len + 8×UInt64 LE, zero-padded). View/query
+    usage, wrong result type, and unknown keys fail closed at Plan. -/
+private unsafe def testContextReadCaller
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Execute accepted: entry stores caller into Principal state.
+  let src := wrapProgram "CallerGate" <|
+    "  state owner : Principal\n\n" ++
+    "  init() do\n" ++
+    "    owner := context.caller\n\n" ++
+    "  entry onlyOwner() : UInt64 do\n" ++
+    "    assert context.caller == owner\n" ++
+    "    return 1\n\n" ++
+    "  entry setOwner() : UInt64 do\n" ++
+    "    owner := context.caller\n" ++
+    "    return 1\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let compiled ← compileSource session src "Examples.CallerGate" "<cw-caller-gate>"
+  let plan ← liftResult <| planCw compiled
+  -- Init body must storeAtomic 9 Principal leaves from caller.
+  let initExprs := collectExprs plan.initializer.body
+  let initCallerLeaves := initExprs.filterMap fun e =>
+    match e with
+    | .callerPrincipalLen => some ("len", 0)
+    | .callerPrincipalWord i => some ("w", i)
+    | _ => none
+  expect (initCallerLeaves.size == 9)
+    s!"caller-gate init: expected 9 caller Principal leaves, got {initCallerLeaves.size}"
+  expect (initCallerLeaves[0]? == some ("len", 0))
+    "caller-gate init: leaf 0 must be callerPrincipalLen"
+  for i in [0:8] do
+    expect (initCallerLeaves[i + 1]? == some ("w", i))
+      s!"caller-gate init: leaf {i + 1} must be callerPrincipalWord {i}"
+  -- Entry onlyOwner assert uses leaf-wise caller compare (len + 8 words).
+  let some onlyOwner := plan.entries.find? (·.name == "onlyOwner") |
+    throw <| IO.userError "caller-gate: missing onlyOwner entry"
+  let entryExprs := collectExprs onlyOwner.body
+  let entryCallerLeaves := entryExprs.filterMap fun e =>
+    match e with
+    | .callerPrincipalLen => some ("len", 0)
+    | .callerPrincipalWord i => some ("w", i)
+    | _ => none
+  expect (entryCallerLeaves.size ≥ 9)
+    s!"caller-gate onlyOwner: expected ≥9 caller leaves in compare, got {entryCallerLeaves.size}"
+  -- WAT: sender needle, load helper, leaf globals, execute/instantiate call site.
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "CallerGate.wat"
+  expect (wat.contains "$pf_load_caller_principal")
+    "caller-gate: WAT must contain sender→Principal pack helper"
+  expect (wat.contains "$pf_caller_len")
+    "caller-gate: WAT must stage caller len global"
+  expect (wat.contains "$pf_caller_w0")
+    "caller-gate: WAT must stage caller body word 0"
+  expect (wat.contains "$pf_caller_w7")
+    "caller-gate: WAT must stage caller body word 7"
+  expect (wat.contains "\\\"sender\\\":\\\"")
+    "caller-gate: WAT data must include MessageInfo sender needle"
+  expect (wat.contains "(call $pf_load_caller_principal)")
+    "caller-gate: execute/instantiate must invoke caller packer"
+  -- Zero-padding discipline: helper zeros 64B buffer before copy (high body
+  -- bytes beyond len stay 0).
+  expect (wat.contains "(i64.store (local.get $buf) (i64.const 0))")
+    "caller-gate: WAT must zero body buffer before sender copy (zero-padding)"
+  expect (wat.contains "(i64.store offset=56 (local.get $buf) (i64.const 0))")
+    "caller-gate: WAT must zero last body word before sender copy"
+  -- View rejected: query has no MessageInfo.sender.
+  let viewSrc := wrapProgram "CallerViewBad" <|
     "  state dummy : UInt64\n\n" ++
     "  init() do\n" ++
     "    dummy := 0\n\n" ++
-    "  entry who() : UInt64 do\n" ++
+    "  entry bump() : UInt64 do\n" ++
+    "    dummy := dummy + 1\n" ++
+    "    return dummy\n\n" ++
+    "  view who() : UInt64 do\n" ++
     "    let c : Principal := context.caller\n" ++
     "    return 0\n"
-  let callerCompiled ← compileSource session callerSrc
-    "Examples.CallerBox" "<cw-caller-box>"
-  match planCw callerCompiled with
+  let viewCompiled ← compileSource session viewSrc
+    "Examples.CallerViewBad" "<cw-caller-view-bad>"
+  match planCw viewCompiled with
   | .error (.planInvariant .cosmwasm msg) =>
-      expect (msg.contains "Principal" ||
-          (msg.contains "ContextRead" && msg.contains "caller"))
-        s!"caller FC must cite Principal type-gate or ContextRead/caller, got: {msg}"
+      expect (msg.contains "view" || msg.contains "query" ||
+          (msg.contains "caller" && msg.contains "not available"))
+        s!"view caller FC must cite view/query absence, got: {msg}"
   | .error e =>
-      throw <| IO.userError s!"caller FC: expected cosmwasm planInvariant, got {e.render}"
+      throw <| IO.userError s!"view caller FC: expected cosmwasm planInvariant, got {e.render}"
   | .ok _ =>
-      throw <| IO.userError "CosmWasm context.caller must fail closed at plan"
-  -- Unknown ContextRead key: wire admits only unixTimeSeconds + caller.
-  -- Source surface cannot spell a third key; the Plan arm still rejects any
-  -- non-unixTime/non-caller SchemaId with "unknown ContextRead key" (mirrors
-  -- the pre-open CosmWasm FC order). Covered by code path + LowerSemantic pin.
-  IO.println "  ✓ ContextRead unixTimeSeconds admit + caller FC (B-CTX-OPEN)"
+      throw <| IO.userError "CosmWasm view context.caller must fail closed at plan"
+  -- Wrong type: caller result must be Principal (not UInt64).
+  -- Source typing normally rejects `let c : UInt64 := context.caller` before
+  -- Plan; pin Plan-level FC by ensuring only Principal is admitted on the
+  -- accepted path (covered by init leaf Principal type + isPrincipal gate).
+  -- Unknown key remains FC via the non-unixTime/non-caller arm.
+  IO.println "  ✓ ContextRead context.caller execute admit + view FC (ADR-0031 S1)"
 
 /-- Entry point for manual / future shard registration. -/
 unsafe def run : IO Unit := do
@@ -1282,6 +1403,7 @@ unsafe def run : IO Unit := do
   testMaterializeAggregate session
   testStaticLayoutCapacityFc session
   testContextReadUnixTime session
+  testContextReadCaller session
   IO.println "CosmWasmPlanV1: all checks passed"
 
 end Tests.Materialization.CosmWasmPlanV1

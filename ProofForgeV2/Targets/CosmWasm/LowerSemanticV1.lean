@@ -224,6 +224,20 @@ inductive Expr where
       `{"bank":{"balance":{"address":<self>,"denom":"stake"}}}` request Region,
       calls `env.query_chain`, and parses `.amount`. -/
   | nativeVaultBalance
+  /-- ADR-0031 S1: length leaf of `context.caller` Principal wire identity
+      assembled from CosmWasm `MessageInfo.sender` UTF-8 bytes:
+      `u32le(len) || sender-utf8` materialized as pilot Principal leaves
+      (len + 8×UInt64 LE body, zero-padded). Runtime value is the sender
+      byte length (1..64). **View-forbidden**: CosmWasm `query` has no
+      MessageInfo; view/pureFn bodies using this key fail closed at Plan.
+      Execute (`entry`) and instantiate (`init`) bind real `info.sender`.
+      Does **not** unlock Principal→AccAddress CALL mapping. -/
+  | callerPrincipalLen
+  /-- ADR-0031 S1: one LE body word of `context.caller` Principal
+      (`wordIndex ∈ 0..7`). Body is sender UTF-8 bytes packed little-endian
+      into 8×UInt64 with high bytes zero beyond `len`. See
+      `callerPrincipalLen`. -/
+  | callerPrincipalWord (wordIndex : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -3271,28 +3285,48 @@ private def lowerBlockInstructionsV1
           aggregateLeaves := operand.aggregateLeaves
         }
     | .contextRead key, some result =>
-        -- B-CTX-OPEN (CosmWasm): `context.unixTimeSeconds` lowers to
-        -- Env.block.time.seconds() — Env JSON `"time"` is nanoseconds
-        -- (cosmwasm-std Timestamp string); IR divides by 10^9 (truncating).
-        -- `.seconds()` is already u64 → exact UInt64, no range guard.
-        -- `context.caller` and unknown keys stay fail closed (B-3 PrincipalAddr /
-        -- AccAddress mapping deferred).
+        -- B-CTX-OPEN / ADR-0031 S1 (CosmWasm):
+        --   * `context.unixTimeSeconds` → Env.block.time.seconds()
+        --     (Env JSON `"time"` nanoseconds string ÷ 10^9 truncating).
+        --   * `context.caller` → Principal aggregate
+        --     `u32le(len)||sender-utf8` from MessageInfo.sender
+        --     (execute/init only; view/query has no sender → Plan FC).
+        -- Unknown keys fail closed.
         if key == callerContextKeyV1 then
-          throw <| .planInvariant .cosmwasm
-            "unsupported CosmWasm semantic shape: ContextRead (context.caller) is not admitted (AccAddress to Principal identity mapping deferred)"
-        unless key == unixTimeSecondsContextKeyV1 do
+          -- View-forbidden: CosmWasm query entry has no MessageInfo; do not
+          -- forge env.contract.address, empty string, or any fallback.
+          if mode == .view then
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: ContextRead context.caller is not available in view/query (MessageInfo.sender absent)"
+          if mode == .pureFn then
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: pureFn cannot use ContextRead context.caller"
+          unless types.isPrincipal result.typeId do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: ContextRead context.caller result must be Principal"
+          -- 9-leaf pilot Principal: len + 8 LE body words.
+          let mut leaves : Array Expr := #[.callerPrincipalLen]
+          for i in [0:nearPrincipalDataWordCountV1] do
+            leaves := leaves.push (.callerPrincipalWord i)
+          unless leaves.size == 1 + nearPrincipalDataWordCountV1 do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: context.caller Principal leaf count mismatch"
+          let value := mkAggregateValueV1 leaves #[] 1 leaves.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if key == unixTimeSecondsContextKeyV1 then
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: ContextRead unix-time-seconds result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .blockTimeSeconds
+            kind := .uint64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else
           throw <| .planInvariant .cosmwasm
             s!"unsupported CosmWasm semantic shape: unknown ContextRead key '{key.value}'"
-        unless result.typeId == types.uint64TypeId do
-          throw <| .planInvariant .cosmwasm
-            "unsupported CosmWasm semantic shape: ContextRead unix-time-seconds result must be UInt64"
-        values := ← appendResultValueV1 result.typeId values result {
-          expr := .blockTimeSeconds
-          kind := .uint64
-          depth := 1
-          expandedNodes := 1
-          dependencies := #[]
-        }
     | _, _ =>
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: instruction op/result is outside the current UInt64 pilot"

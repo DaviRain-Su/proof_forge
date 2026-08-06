@@ -170,6 +170,11 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .blockTimeSeconds => pure (encodeU8 51)
   -- ADR-0030 E2-4-CW: native balanceOfSelf query_chain (tag 52 appended).
   | .nativeVaultBalance => pure (encodeU8 52)
+  -- ADR-0031 S1: context.caller Principal length leaf (tag 53).
+  | .callerPrincipalLen => pure (encodeU8 53)
+  -- ADR-0031 S1: context.caller Principal body word i (tag 54 + u32le index).
+  | .callerPrincipalWord wordIndex =>
+      pure ((encodeU8 54).append (← encodeNatAsU32le wordIndex))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with
