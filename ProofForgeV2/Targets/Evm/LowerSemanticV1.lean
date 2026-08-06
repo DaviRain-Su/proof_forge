@@ -252,6 +252,17 @@ inductive Expr where
       storage snapshot when used under `storeAtomic`. -/
   | mapPrincipalUpsertLeaf (mapBaseSlot : Nat) (keyLeaves : Array Expr)
       (value : Expr) (leafIndex : Nat)
+  /-- M2b compact Map UInt64 IndexGet: Option tag (0/1).
+      Dense cap-8 Map UInt64 UInt64 lives in 24 contiguous UInt64 storage slots
+      starting at `mapBaseSlot` (layout `entry e @ base+3*e`: occ, key, val).
+      Shared Yul loop helper — not a per-entry mux forest (Token transfer Yul). -/
+  | mapUInt64LookupTag (mapBaseSlot : Nat) (key : Expr)
+  /-- M2b compact Map UInt64 IndexGet: Option payload (0 when absent). -/
+  | mapUInt64LookupPayload (mapBaseSlot : Nat) (key : Expr)
+  /-- M2b compact Map UInt64 IndexSet result leaf (`leafIndex ∈ 0..23`).
+      Full map reverts inside the helper; `storeAtomic` batch path folds 24
+      leaves into one `pf_map_u64_upsert`. -/
+  | mapUInt64UpsertLeaf (mapBaseSlot : Nat) (key value : Expr) (leafIndex : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -899,83 +910,106 @@ private def optionUInt64StateLeafCountV1
       pure (some 2)
   | _ => pure none
 
-/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]` (unrolled). -/
+/-- Detect contiguous storage-backed Map UInt64 (24×`storageLoad`). -/
+private def contiguousMapUInt64BaseV1 (leaves : Array Expr) : Option Nat := Id.run do
+  if leaves.size != evmMapPilotLeafCountV1 then return none
+  let some head := leaves[0]? | return none
+  match head with
+  | .storageLoad s0 =>
+      for i in [1:leaves.size] do
+        match leaves[i]? with
+        | some (.storageLoad s) =>
+            unless s == s0 + i do return none
+        | _ => return none
+      return some s0
+  | _ => return none
+
+/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`.
+    Prefers M2b compact storage-base ops; forest fallback for non-storage bases. -/
 private def mapLookupOptionLeavesV1
     (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
   unless mapLeaves.size == evmMapPilotLeafCountV1 do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: Map leaf count must match pilot capacity"
-  let mut found : Expr := .literal 0
-  let mut payload : Expr := .literal 0
-  for e in [0:evmMapPilotCapacityV1] do
-    let base := e * evmMapSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .evm "Map lookup occ leaf missing"
-    let some k := mapLeaves[base + 1]? |
-      throw <| .planInvariant .evm "Map lookup key leaf missing"
-    let some v := mapLeaves[base + 2]? |
-      throw <| .planInvariant .evm "Map lookup val leaf missing"
-    let hit := Expr.checkedMul occ (Expr.compare .eq k key)
-    let miss := Expr.boolNot hit
-    found := Expr.logicalOr found hit
-    payload :=
-      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
-  -- Tag leaf must be UInt-compatible for aggregate/Option materialization.
-  pure #[Expr.checkedAdd found (.literal 0), payload]
+  match contiguousMapUInt64BaseV1 mapLeaves with
+  | some baseSlot =>
+      pure #[.mapUInt64LookupTag baseSlot key, .mapUInt64LookupPayload baseSlot key]
+  | none => do
+      let mut found : Expr := .literal 0
+      let mut payload : Expr := .literal 0
+      for e in [0:evmMapPilotCapacityV1] do
+        let base := e * evmMapSlotsPerEntryV1
+        let some occ := mapLeaves[base]? |
+          throw <| .planInvariant .evm "Map lookup occ leaf missing"
+        let some k := mapLeaves[base + 1]? |
+          throw <| .planInvariant .evm "Map lookup key leaf missing"
+        let some v := mapLeaves[base + 2]? |
+          throw <| .planInvariant .evm "Map lookup val leaf missing"
+        let hit := Expr.checkedMul occ (Expr.compare .eq k key)
+        let miss := Expr.boolNot hit
+        found := Expr.logicalOr found hit
+        payload :=
+          Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
+      pure #[Expr.checkedAdd found (.literal 0), payload]
 
-/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert) where okInsert is
-    0/1 — caller must `assert okInsert` (map full when key absent). -/
+/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert).
+    Compact path: 24 `mapUInt64UpsertLeaf` + `okInsert=literal 1` (helper reverts). -/
 private def mapUpsertLeavesV1
     (mapLeaves : Array Expr) (key value : Expr) :
     CompileResult (Array Expr × Expr) := do
   unless mapLeaves.size == evmMapPilotLeafCountV1 do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: Map leaf count must match pilot capacity"
-  let mut anyMatch : Expr := .literal 0
-  for e in [0:evmMapPilotCapacityV1] do
-    let base := e * evmMapSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .evm "Map upsert occ leaf missing"
-    let some k := mapLeaves[base + 1]? |
-      throw <| .planInvariant .evm "Map upsert key leaf missing"
-    let hit := Expr.checkedMul occ (Expr.compare .eq k key)
-    anyMatch := Expr.logicalOr anyMatch hit
-  let mut seenEmpty : Expr := .literal 0
-  let mut isFirstEmpty : Array Expr := #[]
-  for e in [0:evmMapPilotCapacityV1] do
-    let base := e * evmMapSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .evm "Map upsert empty-scan occ missing"
-    let empty := Expr.boolNot occ
-    let first := Expr.checkedMul empty (Expr.boolNot seenEmpty)
-    isFirstEmpty := isFirstEmpty.push first
-    seenEmpty := Expr.logicalOr seenEmpty empty
-  let okInsert := Expr.logicalOr anyMatch seenEmpty
-  let mut out : Array Expr := #[]
-  for e in [0:evmMapPilotCapacityV1] do
-    let base := e * evmMapSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .evm "Map upsert rebuild occ missing"
-    let some k := mapLeaves[base + 1]? |
-      throw <| .planInvariant .evm "Map upsert rebuild key missing"
-    let some v := mapLeaves[base + 2]? |
-      throw <| .planInvariant .evm "Map upsert rebuild val missing"
-    let matchHit := Expr.checkedMul occ (Expr.compare .eq k key)
-    let some firstE := isFirstEmpty[e]? |
-      throw <| .planInvariant .evm "Map upsert firstEmpty missing"
-    let insertHere := Expr.checkedMul firstE (Expr.boolNot anyMatch)
-    let write := Expr.logicalOr matchHit insertHere
-    let miss := Expr.boolNot write
-    -- Coerce Bool 0/1 producers to UInt-compatible trees before storage
-    -- (ValidatePlan rejects logicalOr/compare as store values).
-    let occ' :=
-      Expr.checkedAdd (Expr.logicalOr occ write) (.literal 0)
-    let k' :=
-      Expr.checkedAdd (Expr.checkedMul write key) (Expr.checkedMul miss k)
-    let v' :=
-      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
-    out := out.push occ' |>.push k' |>.push v'
-  pure (out, okInsert)
+  match contiguousMapUInt64BaseV1 mapLeaves with
+  | some baseSlot => do
+      let mut out : Array Expr := #[]
+      for i in [0:evmMapPilotLeafCountV1] do
+        out := out.push (.mapUInt64UpsertLeaf baseSlot key value i)
+      pure (out, Expr.literal 1)
+  | none => do
+      let mut anyMatch : Expr := .literal 0
+      for e in [0:evmMapPilotCapacityV1] do
+        let base := e * evmMapSlotsPerEntryV1
+        let some occ := mapLeaves[base]? |
+          throw <| .planInvariant .evm "Map upsert occ leaf missing"
+        let some k := mapLeaves[base + 1]? |
+          throw <| .planInvariant .evm "Map upsert key leaf missing"
+        let hit := Expr.checkedMul occ (Expr.compare .eq k key)
+        anyMatch := Expr.logicalOr anyMatch hit
+      let mut seenEmpty : Expr := .literal 0
+      let mut isFirstEmpty : Array Expr := #[]
+      for e in [0:evmMapPilotCapacityV1] do
+        let base := e * evmMapSlotsPerEntryV1
+        let some occ := mapLeaves[base]? |
+          throw <| .planInvariant .evm "Map upsert empty-scan occ missing"
+        let empty := Expr.boolNot occ
+        let first := Expr.checkedMul empty (Expr.boolNot seenEmpty)
+        isFirstEmpty := isFirstEmpty.push first
+        seenEmpty := Expr.logicalOr seenEmpty empty
+      let okInsert := Expr.logicalOr anyMatch seenEmpty
+      let mut out : Array Expr := #[]
+      for e in [0:evmMapPilotCapacityV1] do
+        let base := e * evmMapSlotsPerEntryV1
+        let some occ := mapLeaves[base]? |
+          throw <| .planInvariant .evm "Map upsert rebuild occ missing"
+        let some k := mapLeaves[base + 1]? |
+          throw <| .planInvariant .evm "Map upsert rebuild key missing"
+        let some v := mapLeaves[base + 2]? |
+          throw <| .planInvariant .evm "Map upsert rebuild val missing"
+        let matchHit := Expr.checkedMul occ (Expr.compare .eq k key)
+        let some firstE := isFirstEmpty[e]? |
+          throw <| .planInvariant .evm "Map upsert firstEmpty missing"
+        let insertHere := Expr.checkedMul firstE (Expr.boolNot anyMatch)
+        let write := Expr.logicalOr matchHit insertHere
+        let miss := Expr.boolNot write
+        let occ' :=
+          Expr.checkedAdd (Expr.logicalOr occ write) (.literal 0)
+        let k' :=
+          Expr.checkedAdd (Expr.checkedMul write key) (Expr.checkedMul miss k)
+        let v' :=
+          Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
+        out := out.push occ' |>.push k' |>.push v'
+      pure (out, okInsert)
 
 /-- Detect a contiguous storage-backed Principal Map (44×`storageLoad` of
     consecutive slots). Returns the base slot for M2 compact ops.
@@ -3653,10 +3687,10 @@ private def lowerBlockInstructionsV1
             -- Gate only the first leaf so the large `okInsert` tree is not
             -- duplicated across all capacity leaves (Token transfer was
             -- blowing Yul past 4 MiB / plan node limits).
-            -- M2 compact Principal path returns `okInsert = literal 1` because
-            -- `pf_map_p_upsert` already reverts when full — skip the gate so
-            -- leaf 0 stays a pure `mapPrincipalUpsertLeaf` and storeAtomic can
-            -- take the single-helper batch path (EIP-3860 size).
+            -- M2/M2b compact Map paths return `okInsert = literal 1` because
+            -- helpers already revert when full — skip the gate so leaf 0 stays
+            -- a pure `map*UpsertLeaf` and storeAtomic can take the single-helper
+            -- batch path.
             let needsFullGate : Bool :=
               match okInsert with
               | .literal 1 => false

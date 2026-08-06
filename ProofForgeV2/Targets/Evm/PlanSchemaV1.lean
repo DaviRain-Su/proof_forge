@@ -248,6 +248,19 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
       out := out.append (← encodeExpr value)
       out := out.append (← encodeNatAsU32le leafIndex)
       pure out
+  -- M2b compact Map UInt64 lookup tag (tag 66).
+  | .mapUInt64LookupTag mapBaseSlot key =>
+      pure (((encodeU8 66).append (← encodeNatAsU32le mapBaseSlot)).append
+        (← encodeExpr key))
+  -- M2b compact Map UInt64 lookup payload (tag 67).
+  | .mapUInt64LookupPayload mapBaseSlot key =>
+      pure (((encodeU8 67).append (← encodeNatAsU32le mapBaseSlot)).append
+        (← encodeExpr key))
+  -- M2b compact Map UInt64 upsert leaf (tag 68).
+  | .mapUInt64UpsertLeaf mapBaseSlot key value leafIndex =>
+      pure (((((encodeU8 68).append (← encodeNatAsU32le mapBaseSlot)).append
+        (← encodeExpr key)).append (← encodeExpr value)).append
+        (← encodeNatAsU32le leafIndex))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

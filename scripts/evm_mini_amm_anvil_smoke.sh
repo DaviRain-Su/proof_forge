@@ -16,13 +16,13 @@
 #   - product CLI or lake unavailable
 #   - anvil failed to start
 #
-# Creation bytecode for cap-4 Principal-Map MiniAmm currently exceeds EIP-3860
-# initcode (~49KiB) and EIP-170 runtime code size. When strict Anvil rejects
-# create, this gate restarts Anvil with engineering-only
+# M2 compact Principal Map keeps MiniAmm creation under EIP-3860 (~7KiB).
+# Prefer strict Anvil deploy. If strict still rejects (unexpected size regression
+# or host gas quirks), restart with engineering-only
 #   --disable-code-size-limit + raised --gas-limit
-# and continues the runtime matrix. That path is **not** a mainnet / EIP-3860
-# deploy claim; logs state the override explicitly. If even the engineering
-# override cannot deploy, fail hard (tools present) rather than fake success.
+# and continue the runtime matrix — that path is **not** a mainnet claim; logs
+# state the override. If even override cannot deploy, hard-fail when tools are
+# present rather than fake success.
 #
 # Hard fail (exit 1) when tools+CLI are present but product build fails or any
 # Anvil matrix assertion fails. NEVER fabricate Anvil results.

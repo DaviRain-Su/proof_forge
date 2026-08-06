@@ -2927,6 +2927,10 @@ private unsafe def testMapPutIntoEmptyAtomicStore : IO Unit := do
       (·.path == "MapPut.yul") |
     throw <| IO.userError "MapPut: missing MapPut.yul"
   let yul := yulFile.contents
+  -- M2b: compact Map UInt64 helper must be present (not per-leaf forest).
+  expect (yul.contains "function pf_map_u64_lookup" &&
+      yul.contains "function pf_map_u64_upsert")
+    "MapPut Yul must emit M2b pf_map_u64_lookup/upsert helpers"
   -- Scope to put case only (constructor also has 24 Map sstores).
   let putSel := plan.entries[0]!.selector
   let caseMarker := s!"case 0x{putSel}"
@@ -2942,28 +2946,17 @@ private unsafe def testMapPutIntoEmptyAtomicStore : IO Unit := do
   let some caseAt := indexOf yulCs caseMarker.toList 0 |
     throw <| IO.userError "MapPut: put case marker not found"
   let putRegion := String.ofList (yulCs.drop caseAt)
-  -- B-EVM-MAP-STACK + B-MAP-STRUCT-PIN: compute/spill phase (nested blocks +
-  -- mstore to reserved high spill 0x10000+32*i) completes before any sstore;
-  -- write phase is a contiguous 24-sstore run with no mid-batch sload.
+  -- B-EVM-MAP-STACK + B-MAP-STRUCT-PIN + M2b batch:
+  -- put case calls `pf_map_u64_upsert(..., outMem=0x10000)` once (sloads live
+  -- inside the helper definition, not inlined in the case), then a contiguous
+  -- 24-sstore run that only `mload`s spilled words (no mid-batch sload).
   let some firstSstore := indexOf putRegion.toList "sstore(".toList 0 |
     throw <| IO.userError "MapPut put case must contain sstore"
   let beforeSstore := String.ofList (putRegion.toList.take firstSstore)
-  expect (beforeSstore.contains "sload(")
-    "Map put leaf evaluation must sload the empty table before first sstore"
+  expect (beforeSstore.contains "pf_map_u64_upsert(")
+    "Map put must call pf_map_u64_upsert before first sstore (M2b batch path)"
   expect (!beforeSstore.contains "sstore(")
     "Map put compute/spill phase must contain no sstore before the write batch"
-  -- Exactly 24 spill mstores at fixed high base (0x10000 + 32*i).
-  let mut spillCount := 0
-  for i in [0:24] do
-    let addr := 0x10000 + 32 * i
-    let needle := s!"mstore({addr},"
-    expect (beforeSstore.contains needle)
-      s!"Map put spill phase must mstore leaf {i} at {addr} before first sstore"
-    spillCount := spillCount + 1
-  expect (spillCount == 24) "Map put must spill all 24 leaves before sstore"
-  -- Nested compute blocks: each leaf ends with its spill mstore then `}`.
-  expect (beforeSstore.contains "{\n" || beforeSstore.contains "{")
-    "Map put leaf compute must use nested Yul blocks for stack release"
   let mut pos := firstSstore
   let mut count := 0
   let putCs := putRegion.toList
@@ -3180,6 +3173,10 @@ private unsafe def testTokenDualStoreBatchSeparation : IO Unit := do
       (·.path == "Token.yul") |
     throw <| IO.userError "Token dual: missing Token.yul"
   let yul := yulFile.contents
+  -- M2b compact Map UInt64 helpers (sloads live inside helper defs).
+  expect (yul.contains "function pf_map_u64_lookup" &&
+      yul.contains "function pf_map_u64_upsert")
+    "Token dual Yul must emit M2b pf_map_u64_lookup/upsert helpers"
   let caseMarker := s!"case 0x{transfer.selector}"
   expect (yul.contains caseMarker)
     s!"Token dual Yul must contain transfer case 0x{transfer.selector}"
@@ -3204,19 +3201,16 @@ private unsafe def testTokenDualStoreBatchSeparation : IO Unit := do
   -- in the lowered switch, so expect ≥ 48 (often 96 for two full dual arms).
   expect (sstorePoses.size >= 48)
     s!"Token transfer Yul must emit ≥48 Map sstores (dual 24-leaf batches), got {sstorePoses.size}"
-  -- B-EVM-MAP-STACK: every write-batch sstore reloads from the fixed spill
-  -- region (0x10000+); compute/spill mstores precede the first sstore of
-  -- each contiguous 24-leaf batch.
-  expect (transferRegion.contains "mstore(65536," || transferRegion.contains "mstore(0x10000,")
-    "Token transfer Yul must spill leaf 0 to reserved base 0x10000 (65536)"
+  -- M2b batch: each StateStore → one `pf_map_u64_upsert(..., outMem)` then
+  -- 24 sstores that only `mload` the spill. Dual StateStores stay separate
+  -- as two helper calls (not one merged 48-leaf batch).
+  expect (transferRegion.contains "pf_map_u64_upsert(")
+    "Token transfer must call pf_map_u64_upsert (M2b batch path)"
   expect (transferRegion.contains "mload(65536)" || transferRegion.contains "mload(0x10000)")
     "Token transfer Yul write phase must mload spill base for sstore"
-  -- Find at least one contiguous 24-sstore run with no sload between members
-  -- (intra-batch atomic write), and ensure a later batch is separated by sload
-  -- (cross-batch re-read, not merged).
   let mut foundAtomic24 := false
   let mut foundSeparatedBatches := false
-  let mut foundSpillBeforeBatch := false
+  let mut foundHelperBeforeBatch := false
   let trCs := transferRegion.toList
   let mut bi := 0
   while bi + 24 ≤ sstorePoses.size do
@@ -3232,30 +3226,25 @@ private unsafe def testTokenDualStoreBatchSeparation : IO Unit := do
       j := j + 1
     if contiguous then
       foundAtomic24 := true
-      -- Spill mstores for this batch must sit after the previous sstore (if
-      -- any) and before this batch's first sstore — compute phase has no sstore.
       let batchStart := sstorePoses[bi]!
       let preStart := if bi == 0 then 0 else sstorePoses[bi - 1]! + "sstore(".length
       let preBatch := String.ofList ((trCs.drop preStart).take (batchStart - preStart))
-      if preBatch.contains "mstore(65536," || preBatch.contains "mstore(0x10000," then
-        if !preBatch.contains "sstore(" then
-          foundSpillBeforeBatch := true
-      -- Look for a later sstore after this batch that has sload in between
-      -- (second StateStore batch re-reads storage).
+      if preBatch.contains "pf_map_u64_upsert(" && !preBatch.contains "sstore(" then
+        foundHelperBeforeBatch := true
       if bi + 24 < sstorePoses.size then
         let batchEnd := sstorePoses[bi + 23]!
         let nextStore := sstorePoses[bi + 24]!
         let gap := String.ofList ((trCs.drop (batchEnd + "sstore(".length)).take
           (nextStore - (batchEnd + "sstore(".length)))
-        if gap.contains "sload(" then
+        if gap.contains "pf_map_u64_upsert(" then
           foundSeparatedBatches := true
     bi := bi + 1
   expect foundAtomic24
     "Token transfer Yul must contain a contiguous 24-sstore atomic write batch (no mid-batch sload)"
   expect foundSeparatedBatches
-    "Token transfer Yul dual StateStores must re-sload between consecutive 24-sstore batches (not merge)"
-  expect foundSpillBeforeBatch
-    "Token transfer Yul each atomic batch must spill (mstore high region) before its sstore run"
+    "Token transfer dual StateStores must stay separate (two pf_map_u64_upsert batches)"
+  expect foundHelperBeforeBatch
+    "Token transfer each atomic batch must call pf_map_u64_upsert before its sstore run"
   -- mint: Map storeAtomic + scalar supply store stay distinct statement kinds.
   let some mint := plan.entries.find? (·.name == "mint") |
     throw <| IO.userError "Token dual: missing mint entry"

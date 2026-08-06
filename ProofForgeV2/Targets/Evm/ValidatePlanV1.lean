@@ -213,6 +213,40 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
                 | none => none
                 | some nodes => some (total + nodes)
               else none
+    -- M2b compact Map UInt64: 24 contiguous UInt64 slots; leafIndex < 24.
+    | .mapUInt64LookupTag mapBaseSlot key
+    | .mapUInt64LookupPayload mapBaseSlot key =>
+        let rangeOk := Id.run do
+          let mut ok := true
+          for i in [0:24] do
+            unless slots.contains (mapBaseSlot + i) do ok := false
+          pure ok
+        if !rangeOk then none
+        else
+          let childDepth := depthLeft - 1
+          let available := nodeBudget - 1
+          match planExprNodes? slots paramCount childDepth available fns key with
+          | none => none
+          | some nodes => some (1 + nodes)
+    | .mapUInt64UpsertLeaf mapBaseSlot key value leafIndex =>
+        if leafIndex ≥ 24 then none
+        else
+          let rangeOk := Id.run do
+            let mut ok := true
+            for i in [0:24] do
+              unless slots.contains (mapBaseSlot + i) do ok := false
+            pure ok
+          if !rangeOk then none
+          else
+            let childDepth := depthLeft - 1
+            let available := nodeBudget - 1
+            match planExprNodes? slots paramCount childDepth available fns key with
+            | none => none
+            | some keyNodes =>
+                match planExprNodes? slots paramCount childDepth
+                    (available - keyNodes) fns value with
+                | none => none
+                | some valNodes => some (1 + keyNodes + valNodes)
 
 private def addPlanExprNodes (slots : Array Nat) (paramCount total : Nat)
     (fns : Array FnBinding) (expr : Expr) : CompileResult Nat := do
