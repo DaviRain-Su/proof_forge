@@ -24,7 +24,11 @@ open ProofForgeV2.Language
 -- loads may). Single Map upsert match keeps Principal-Map Yul under the
 -- IR size gate. Checked mul/div on UInt64: overflow/zero-divisor reverts.
 -- Not imported by Examples.lean (target-leaning demo, like TokenJar/CallerCheck).
--- Engineering only: non-formal; Anvil runtime gate optional / not claimed here.
+-- Engineering only: non-formal. Host-optional Anvil gate:
+--   scripts/evm_mini_amm_anvil_smoke.sh (skip-clean if tools missing; hard fail on
+--   assertion). Cap-4 Principal Map creation bytecode currently exceeds EIP-3860;
+--   the gate falls back to Anvil --disable-code-size-limit for local runtime only
+--   and does **not** claim mainnet/EIP-3860 deployability or formal Reference↔Anvil.
 program MiniAmm where
   state reserve0 : UInt64
   state reserve1 : UInt64

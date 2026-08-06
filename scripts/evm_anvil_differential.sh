@@ -9,8 +9,11 @@
 #   4. Token dense-Map companion via scripts/evm_token_anvil_smoke.sh:
 #      product build/solc failures are hard; only post-build deployment/initcode
 #      limits may explicit-skip the optional adapter leg.
-#   5. TipJar pf.assets companion via scripts/evm_tipjar_anvil_smoke.sh:
-#      product build/solc failures are hard; missing tools skip-clean inside leg.
+#   5. TipJar / TokenJar / EnvReadJar / CallerCheck companions (each host-optional
+#      smoke script; product build hard when tools present).
+#   6. MiniAmm vault-internal AMM companion via scripts/evm_mini_amm_anvil_smoke.sh
+#      (ADR-0030 E4; product build hard; EIP-3860 → engineering code-size override;
+#      not mainnet deploy claim).
 #
 # Skip-clean (exit 0) when:
 #   - host platform unsupported
@@ -382,6 +385,22 @@ elif [[ -f "$root/scripts/evm_caller_anvil_smoke.sh" ]]; then
   exit 1
 else
   echo "evm-anvil-differential: note: CallerCheck companion script missing (skip leg)" >&2
+fi
+
+# MiniAmm: ADR-0030 E4 vault-internal constant-product + Principal-keyed LP Map.
+# Product build/solc failures are hard; tool skip and engineering code-size
+# override (not mainnet/EIP-3860 claim) are handled inside the companion.
+if [[ -x "$root/scripts/evm_mini_amm_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion MiniAmm vault-internal smoke (build hard-fail; eng code-size override OK; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_mini_amm_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: MiniAmm smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_mini_amm_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: MiniAmm smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: MiniAmm companion script missing (skip leg)" >&2
 fi
 
 echo "evm-anvil-differential: ok (engineering Anvil state differential; not formal C-3)" >&2
