@@ -130,6 +130,34 @@ private def testEscrowFramePinsCompatible : IO Unit := do
       expect (L.bodyTempStart == productEscrowTempBaseV1) "body at 1096"
   IO.println "  escrow-compatible unified frame pin ok"
 
+/-- P3-g: full-body hybrid IR digest is content-bound and stable. -/
+private def testP3gFullBodyHybridIrDigest : IO Unit := do
+  let sample :=
+    "{\"schema\":\"" ++ fullBodyHybridIrSchemaV1 ++ "\"," ++
+    "\"synthesize\":\"p3c-zero-site\",\"frameMode\":\"bodyOnly\"}"
+  expect (isFullBodyHybridIrTextV1 sample)
+    "sample must be recognized as full-body hybrid IR"
+  match fullBodyHybridIrDigestV1 sample.toUTF8 with
+  | .error e => throw <| IO.userError s!"digest must succeed: {e}"
+  | .ok d1 => do
+      match fullBodyHybridIrDigestV1 sample.toUTF8 with
+      | .error e => throw <| IO.userError s!"digest recompute: {e}"
+      | .ok d2 =>
+          expect (d1.bytes == d2.bytes) "full-body hybrid irDigest must be deterministic"
+      match renderDigest d1 with
+      | .error e => throw <| IO.userError s!"render: {e}"
+      | .ok wire => do
+          expect (wire.startsWith "sha256:")
+            s!"wire must be sha256:…, got={wire}"
+          expect (wire.length == "sha256:".length + 64)
+            s!"wire must be 64 hex chars after prefix, got len={wire.length}"
+  let mutated := sample ++ " "
+  match fullBodyHybridIrDigestV1 sample.toUTF8, fullBodyHybridIrDigestV1 mutated.toUTF8 with
+  | .ok a, .ok b =>
+      expect (a.bytes != b.bytes) "digest must bind exact UTF-8 bytes"
+  | _, _ => throw <| IO.userError "digest pair must succeed"
+  IO.println "  P3-g full-body hybrid irDigest pin ok"
+
 private unsafe def testTipJarStillBuildsViaSynthesizeDispatch : IO Unit := do
   let path := FilePath.mk "Examples/TipJar.lean"
   unless ← path.pathExists do
@@ -177,6 +205,7 @@ private unsafe def testP3fBodyCpiMapTipShipped : IO Unit := do
 
 unsafe def run : IO Unit := do
   testEscrowFramePinsCompatible
+  testP3gFullBodyHybridIrDigest
   testP3dPartialBodyCpiIfPay
   testP3fBodyCpiMapTipShipped
   testTipJarStillBuildsViaSynthesizeDispatch

@@ -106,5 +106,8 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
     AccountMeta / PDA / Token 成熟度；TipJar 直通仍 escrow multi-role。
   - **P3-f Map+CPI demo 已绿**：`Examples/BodyCpiMapTip`（Map Principal + transfer +
     scratch 纪律）product pin / synthesize 路径；仍 empty-meta partial。
+  - **P3-g IR digest 已绿**：full-body hybrid `irDigest` 改为 content-bound
+    `sha256:…`（domain `pf.solana.full-body-hybrid-ir.v1`）；消灭 evidence 字面
+    `full-body-hybrid`；bindings 内嵌可重算 digest。
   - P3-h 多账户 layout + MiniAmmHybrid Mollusk 11/11 已先完成。P3-e multi-role
-    site recipes、P3-g IR digest、P4 默认 profile 仍后续。
+    site recipes、P4 默认 profile 仍后续。

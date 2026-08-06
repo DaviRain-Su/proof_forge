@@ -193,21 +193,6 @@ private def finalizeCpiElfProfile
     throw <| IO.userError
       "PF-ARTIFACT-NONDEPLOYABLE: product plan digest diverges from Plan carrier digest"
 
-  -- Product IR: ordinary escrow path when available; full-body hybrid skips
-  -- escrow IR (multi-block/Map) and records hybrid marker in evidence.
-  let productIrResult := productIrFromCapabilityV1 capability
-  let irDigestNote : String ←
-    match productIrResult with
-    | .ok productIr => do
-        let irDigest := ResolvedSolanaCpiProductIRV1.digestOf productIr
-        let irCand := ResolvedSolanaCpiProductIRV1.candidateOf productIr
-        unless digestsEqual irCand.sourcePlanDigest planDigest do
-          throw <| IO.userError
-            "PF-ARTIFACT-NONDEPLOYABLE: product IR sourcePlanDigest diverges from Plan digest"
-        digestWireIO irDigest
-    | .error _ =>
-        pure "full-body-hybrid"
-
   -- 3. Join BuildIdentity planDigest (bound at materialize) to product digest.
   let identity := MaterializedArtifactsV1.buildIdentityOf artifacts
   unless digestsEqual (EngineeringBuildIdentityV1.planDigestOf identity) productDigest do
@@ -218,13 +203,40 @@ private def finalizeCpiElfProfile
     throw <| IO.userError
       "PF-ARTIFACT-NONDEPLOYABLE: BuildIdentity profile is not solana-sbpf-cpi-elf-v1"
 
-  -- 4. Join staging base files against recomputed materialize base set
-  -- (same authority as publisher: buildFromCapability, hybrid-aware).
+  -- 4. Recompute product base files (sole materialize authority) before IR
+  -- digest: escrow product IR when available; else content-bound full-body
+  -- hybrid `*.cpi-ir.json` digest (P3-g — no literal `full-body-hybrid`).
   let baseFiles ← match buildFromCapability capability with
     | .ok files => pure files
     | .error e =>
         throw <| IO.userError
           s!"PF-ARTIFACT-NONDEPLOYABLE: CPI product base files recompute failed: {e.render}"
+  let programName := MaterializedArtifactsV1.artifactProgramNameOf artifacts
+  let productIrResult := productIrFromCapabilityV1 capability
+  let irDigestNote : String ←
+    match productIrResult with
+    | .ok productIr => do
+        let irDigest := ResolvedSolanaCpiProductIRV1.digestOf productIr
+        let irCand := ResolvedSolanaCpiProductIRV1.candidateOf productIr
+        unless digestsEqual irCand.sourcePlanDigest planDigest do
+          throw <| IO.userError
+            "PF-ARTIFACT-NONDEPLOYABLE: product IR sourcePlanDigest diverges from Plan digest"
+        digestWireIO irDigest
+    | .error _ => do
+        let irPath := s!"{programName}.cpi-ir.json"
+        let some irFile := baseFiles.find? (·.path == irPath) |
+          throw <| IO.userError
+            s!"PF-ARTIFACT-NONDEPLOYABLE: full-body hybrid missing recomputed '{irPath}'"
+        unless isFullBodyHybridIrTextV1 irFile.contents do
+          throw <| IO.userError
+            ("PF-ARTIFACT-NONDEPLOYABLE: full-body hybrid cpi-ir schema mismatch " ++
+              s!"(expected {fullBodyHybridIrSchemaV1})")
+        match fullBodyHybridIrDigestV1 irFile.contents.toUTF8 with
+        | .ok d => digestWireIO d
+        | .error e =>
+            throw <| IO.userError
+              s!"PF-ARTIFACT-NONDEPLOYABLE: full-body hybrid irDigest: {e}"
+
   let matFiles := MaterializedArtifactsV1.filesOf artifacts
   unless matFiles.map (·.path) == baseFiles.map (·.path) do
     throw <| IO.userError
@@ -240,7 +252,6 @@ private def finalizeCpiElfProfile
         s!"PF-ARTIFACT-NONDEPLOYABLE: materialized '{file.path}' diverges from recomputed product bytes"
 
   -- 5. Locked sbpf assemble only after exact joins.
-  let programName := MaterializedArtifactsV1.artifactProgramNameOf artifacts
   let (version, toolSha) ←
     assembleStagingSbpfV1 artifacts stagingDir "solana-sbpf-cpi-elf-v1"
 

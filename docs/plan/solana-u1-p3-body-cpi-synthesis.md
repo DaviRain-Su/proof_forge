@@ -198,12 +198,17 @@ buildFromCapability (profile = solana-sbpf-cpi-elf-v1)
   `Tests/Product/BodyCpiMapTipSolanaV1` + synthesize pin。Map + `pf.assets.native.transfer`
   同 ELF（empty-meta partial）。**Scratch 纪律**：IndexSet RHS 必须经 `scratch` 标量
   StateStore，不得用 match binder 纯表达式直写 Map（既有效应边界 lower 限制）。
+- **P3-g done（engineering）**：`fullBodyHybridIrDigestV1`（domain
+  `pf.solana.full-body-hybrid-ir.v1`）对 exact `*.cpi-ir.json` UTF-8；Finalize 在
+  escrow product IR 失败时写入 content-bound `irDigest=sha256:…`（消灭字面
+  `full-body-hybrid`）；bindings 内嵌同 wire。MiniAmm / BodyCpiMapTip pins 已更新。
+  **尚未**：true unified `cpi-product-ir.v1` 载体（仍 marker schema）。
 - **P3-h**：admitCaller 双账户 layout + MiniAmmHybrid Mollusk 已在 main（可标 done）。
 
 | **P3-d** | Site hooks partial：full-body + void ExternalCall + empty-meta invoke 同 ELF | `BodyCpiIfPay` pin：`.s` 含 `sol_invoke_signed_c` + empty AccountMeta；`p3d-partial-empty-meta` | LowerSemantic admit、ValidatePlan/EmitIR/EmitSbpfAsm、`ProductSynthesizeV1` | P3-c done |
 | **P3-e** | CFG：if/branch 与 **multi-role** site 锚点 source order；仍 FC for/loop 跨 site 若帧不够 | multi-block + real AccountMeta 1 site Lean pin | recipe helpers + synthesize | 依赖 P3-d partial |
 | **P3-f** | Map/Index* + site（MiniAMM-class body + transfer） | `Examples/BodyCpiMapTip` product pin（scratch 纪律 + empty-meta partial） | LowerSemantic Map + synthesize | P3-d partial done；multi-role 仍 P3-e |
-| **P3-g** | Finalize/bindings 诚实：去掉 `full-body-hybrid` 字面特例；hybrid 路径并入统一 IR | `FinalizeV1` + product pin 证据字段 | `FinalizeV1.lean`、`CpiProductV1` bindings | 与 P3-f 后期串行 |
+| **P3-g** | Finalize/bindings 诚实：去掉 `full-body-hybrid` 字面特例；content-bound hybrid IR digest | evidence `irDigest=sha256:…` 可从 `*.cpi-ir.json` 重算；bindings 内嵌同 digest | `ProductSynthesizeV1` digest API、`FinalizeV1` | P3-f done |
 | **P3-h** | multi-account layout 硬化（acc1 dup/signer exact）+ MiniAMM Mollusk（可拆 E4） | ADR-0032 验收剩余项 | `EmitSbpfAsmV1` layout、runtime-tests | 可与 P3-f 后并行 runtime lane |
 
 **Import 纪律（防环）**

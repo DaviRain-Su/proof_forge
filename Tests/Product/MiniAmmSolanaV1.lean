@@ -137,6 +137,8 @@ private def testSolanaCpiBuildAndInspect : IO Unit := do
     s!"bindings must mark fullBodyHybrid, got={bindings}"
   expect (containsSubstr bindings "\"programName\":\"MiniAmm\"")
     s!"bindings programName MiniAmm, got={bindings}"
+  expect (containsSubstr bindings "\"irDigest\":\"sha256:")
+    s!"bindings must embed recomputeable irDigest (P3-g), got={bindings}"
   let plan ← IO.FS.readFile (outDir / "MiniAmm.cpi-plan.json")
   expect (containsSubstr plan "\"programName\":\"MiniAmm\"" ||
       containsSubstr plan "\"programName\": \"MiniAmm\"")
@@ -149,8 +151,11 @@ private def testSolanaCpiBuildAndInspect : IO Unit := do
   expect (containsSubstr plan "swap0to1")
     "cpi-plan/handlers must list swap0to1"
   let evidence ← IO.FS.readFile (outDir / "evidence.json")
-  expect (containsSubstr evidence "irDigest=full-body-hybrid")
-    s!"evidence must pin irDigest=full-body-hybrid, got={evidence}"
+  -- P3-g: content-bound full-body hybrid irDigest (sha256:…), not literal marker.
+  expect (containsSubstr evidence "irDigest=sha256:")
+    s!"evidence must pin content-bound irDigest=sha256:…, got={evidence}"
+  expect (!containsSubstr evidence "irDigest=full-body-hybrid")
+    s!"evidence must not use literal irDigest=full-body-hybrid, got={evidence}"
   expect (containsSubstr evidence "solana-sbpf-cpi-elf-v1")
     s!"evidence must pin cpi profile, got={evidence}"
   if hasS then

@@ -112,8 +112,14 @@ private def testSolanaCpiBuildAndInspect : IO Unit := do
       containsSubstr asm "product_external_call")
     "assembly must note empty-meta product ExternalCall path"
   let evidence ← IO.FS.readFile (outDir / "evidence.json")
-  expect (containsSubstr evidence "irDigest=full-body-hybrid")
-    s!"evidence must pin irDigest=full-body-hybrid, got={evidence}"
+  -- P3-g: content-bound full-body hybrid irDigest (sha256:…), not literal marker.
+  expect (containsSubstr evidence "irDigest=sha256:")
+    s!"evidence must pin content-bound irDigest=sha256:…, got={evidence}"
+  expect (!containsSubstr evidence "irDigest=full-body-hybrid")
+    s!"evidence must not use literal irDigest=full-body-hybrid, got={evidence}"
+  let bindings ← IO.FS.readFile (outDir / "BodyCpiMapTip.cpi-bindings.json")
+  expect (containsSubstr bindings "\"irDigest\":\"sha256:")
+    s!"bindings must embed recomputeable irDigest, got={bindings}"
   let (iec, istdout, istderr) ← runCli
     #["inspect", outDir.toString, "--json"]
   expect (iec == 0)

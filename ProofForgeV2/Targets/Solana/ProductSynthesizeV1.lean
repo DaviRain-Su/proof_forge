@@ -36,6 +36,25 @@ open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.Solana.CpiV1
 open ProofForgeV2.Targets.Solana.ProductFrameV1
 
+/-- Marker schema for product full-body hybrid `*.cpi-ir.json` (P3-c/d/f).
+    Not the escrow `proof-forge.solana.cpi-product-ir.v1` carrier. -/
+def fullBodyHybridIrSchemaV1 : String :=
+  "proof-forge.solana.full-body-hybrid-ir.v1"
+
+/-- Domain tag for content-bound full-body hybrid IR digest (P3-g).
+    `SHA-256(UTF8(domain) || 0x00 || exact UTF-8 of cpi-ir.json)`. -/
+def fullBodyHybridIrDigestDomainV1 : String :=
+  "pf.solana.full-body-hybrid-ir.v1"
+
+/-- Content-bound digest of product full-body hybrid IR UTF-8 bytes. -/
+def fullBodyHybridIrDigestV1 (irUtf8 : ByteArray) : Except String Digest :=
+  domainSeparatedSha256 fullBodyHybridIrDigestDomainV1 irUtf8
+
+/-- True when IR text is the product full-body hybrid marker schema. -/
+def isFullBodyHybridIrTextV1 (irText : String) : Bool :=
+  (irText.splitOn ("\"schema\":\"" ++ fullBodyHybridIrSchemaV1 ++ "\"")).length > 1 ||
+    (irText.splitOn ("\"schema\": \"" ++ fullBodyHybridIrSchemaV1 ++ "\"")).length > 1
+
 /-- Multi-block CFG or aggregate Index*/construct needs full LowerSemantic body. -/
 def semanticNeedsFullBodyV1 (data : SemanticProgramDataV1) : Bool :=
   data.callables.any fun c =>
@@ -98,8 +117,10 @@ def synthesizeFullBodyProductBaseFilesV1
       "full-body+ExternalCall empty-meta sol_invoke; multi-role AccountMeta deferred"
     else
       "body via ProductSynthesizeV1→LowerSemantic+EmitSbpfAsm (P3-c)"
+  -- Deterministic marker IR (no self-embedded digest field — P3-g hashes
+  -- exact UTF-8 via `fullBodyHybridIrDigestV1`).
   let irText :=
-    "{\"schema\":\"proof-forge.solana.full-body-hybrid-ir.v1\"," ++
+    "{\"schema\":\"" ++ fullBodyHybridIrSchemaV1 ++ "\"," ++
     "\"note\":\"" ++ honesty ++ "\"," ++
     "\"synthesize\":\"" ++ synthTag ++ "\"," ++
     "\"frameMode\":\"bodyOnly\"," ++
@@ -109,6 +130,16 @@ def synthesizeFullBodyProductBaseFilesV1
     "\"cpiSites\":" ++ toString validated.candidate.cpiSites.size ++ "," ++
     "\"cpiMaturity\":\"" ++
       (if hasSites then "empty-meta-partial" else "zero-site") ++ "\"}"
+  let irDigestWire ← match fullBodyHybridIrDigestV1 irText.toUTF8 with
+    | .ok d =>
+        match renderDigest d with
+        | .ok s => pure s
+        | .error e =>
+            throw <| .planInvariant .solana
+              s!"product synthesize full-body: irDigest render: {e}"
+    | .error e =>
+        throw <| .planInvariant .solana
+          s!"product synthesize full-body: irDigest: {e}"
   let bindingsText :=
     "{\"schema\":\"proof-forge.solana.cpi-bindings.v1\"," ++
     "\"fullBodyHybrid\":true," ++
@@ -116,6 +147,7 @@ def synthesizeFullBodyProductBaseFilesV1
     "\"frameMode\":\"bodyOnly\"," ++
     "\"frameBytes\":" ++ toString frame.totalBytes ++ "," ++
     "\"cpiSites\":" ++ toString validated.candidate.cpiSites.size ++ "," ++
+    "\"irDigest\":\"" ++ irDigestWire ++ "\"," ++
     "\"programName\":\"" ++ name ++ "\"}"
   pure #[
     { path := s!"{name}.cpi-plan.json"
