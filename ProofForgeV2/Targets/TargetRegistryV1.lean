@@ -535,15 +535,12 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
       #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1]
       (some CodegenProfileId.evmYulSolc0834V1),
     row .solana (semanticsAxesOfKindV1 .solana)
-      -- Strictly ASCII-ascending: cpi-elf-v1 < elf-v1 < plan-v1. The CPI
-      -- profile is exact opt-in product membership with target-owned Plan/IR;
-      -- the default stays the legacy plan-v1 profile.
+      -- Strictly ASCII-ascending: cpi-elf-v1 < elf-v1 < plan-v1.
+      -- ADR-0032 U1 P4: sole product rail `solana-sbpf-cpi-elf-v1` is default.
+      -- plan-v1 / elf-v1 remain registered shims (explicit `--profile` only).
       #[CodegenProfileId.solanaSbpfCpiElfV1, CodegenProfileId.solanaSbpfElfV1,
         CodegenProfileId.solanaSbpfPlanV1]
-      -- Default plan: Map Token exceeds SBPF 4KiB frame budget under pure-expr
-      -- dense lowering (ELF needs frame-friendly Map follow-on). ELF remains
-      -- selectable via `--profile solana-sbpf-elf-v1` for non-Map programs.
-      (some CodegenProfileId.solanaSbpfPlanV1),
+      (some CodegenProfileId.solanaSbpfCpiElfV1),
     row .near (semanticsAxesOfKindV1 .near)
       #[CodegenProfileId.nearWasmRawU64V1]
       (some CodegenProfileId.nearWasmRawU64V1),

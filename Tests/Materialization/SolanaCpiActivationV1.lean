@@ -679,17 +679,17 @@ private unsafe def testWrongProgramIdOrCatalogRejected
           expectErrorCode (materializeResult capability)
             "PF-PLAN-INVARIANT" "wrong catalog materialize"
 
-/-! ## Default profile unchanged -/
+/-! ## Default profile is sole rail (ADR-0032 U1 P4) -/
 
-private def testDefaultProfileUnchanged : IO Unit := do
+private def testDefaultProfileSoleRail : IO Unit := do
   let selection ← defaultSelection
-  expect (selection.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
-    "default Solana profile remains solana-sbpf-plan-v1"
+  expect (selection.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
+    "default Solana profile is sole rail solana-sbpf-cpi-elf-v1"
   let registry ← expectOk initialTargetRegistryV1Result "registry seed"
   let some reg := findRegistrationV1 registry TargetId.solana |
     throw <| IO.userError "solana registration missing"
-  expect (reg.defaultProfile == some CodegenProfileId.solanaSbpfPlanV1)
-    "registry defaultProfile remains solana-sbpf-plan-v1"
+  expect (reg.defaultProfile == some CodegenProfileId.solanaSbpfCpiElfV1)
+    "registry defaultProfile is solana-sbpf-cpi-elf-v1"
   expect (reg.profiles == #[
       CodegenProfileId.solanaSbpfCpiElfV1,
       CodegenProfileId.solanaSbpfElfV1,
@@ -792,7 +792,7 @@ private unsafe def testPreflightProductNonInterchangeable
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  testDefaultProfileUnchanged
+  testDefaultProfileSoleRail
   testOrdinaryEscrowActivationPositive session
   testLegacyProfilesRejectEscrow session
   testScheduleRejected session

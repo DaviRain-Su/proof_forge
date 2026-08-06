@@ -29,6 +29,7 @@ open ProofForgeV2
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Compiler
+open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.Solana.CpiV1
@@ -624,8 +625,8 @@ private unsafe def testContextCallerIsMe : IO Unit := do
   expect (hasSubstr text "checkEffectiveSigner")
     "caller: entry also enforces outerSigner"
 
-/-- Empty/no-call/no-env/no-caller must not mint CPI product capability. -/
-private unsafe def testEmptyProgramDoesNotActivateCpiLane : IO Unit := do
+/-- ADR-0032 U1 P4: no-call/no-env/no-caller body-only admits on sole rail. -/
+private unsafe def testEmptyProgramBodyOnlyAdmitsCpiLane : IO Unit := do
   let compiled ← compileSource emptyNoCallerSource "EmptyNoCaller"
   let selection ← expectPlanOk
     (resolveBuildSelectionV1 TargetId.solana
@@ -634,11 +635,13 @@ private unsafe def testEmptyProgramDoesNotActivateCpiLane : IO Unit := do
   let eng ← expectPlanOk
     (resolveEngineeringRequirementsV1 selection compiled)
     "empty resolve engineering"
-  -- Capability refine (via product plan entry) must reject: no extension,
-  -- no sync-call, no context.caller.
-  expectPlanRejectContains (productPlanFromCapabilityV1 eng)
-    "context.caller"
-    "empty program must not activate CPI product lane"
+  let plan ← expectPlanOk (productPlanFromCapabilityV1 eng)
+    "body-only product plan"
+  let cand := SolanaCpiProductPlanV1.candidateOf plan
+  expect (cand.cpiSites.isEmpty) "body-only plan has zero cpiSites"
+  expect (cand.extensionRequirement.id == bodyOnlyAdmissionRequirementIdV1 ||
+      cand.extensionRequirement.id == "proof-forge.solana.body-only.v1")
+    s!"body-only admission marker, got {cand.extensionRequirement.id}"
 
 /-- ADR-0031 S1 fail-closed negatives. -/
 private unsafe def testContextCallerFailClosed : IO Unit := do
@@ -708,7 +711,7 @@ unsafe def run : IO Unit := do
   testTokenBalanceEnvRead
   testEnvReadFailClosed
   testContextCallerIsMe
-  testEmptyProgramDoesNotActivateCpiLane
+  testEmptyProgramBodyOnlyAdmitsCpiLane
   testContextCallerFailClosed
   IO.println "Tests.Materialization.SolanaCpiPfAssetsV1: ok"
 

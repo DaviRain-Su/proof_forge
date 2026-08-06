@@ -7,7 +7,8 @@
       (zero CPI sites + multi-block/Map → LowerSemantic body, admitCaller)
     * `inspect <out> --json` revalidates exact disk closure
     * pins profile, MiniAmm artifact name, hybrid IR/bindings markers
-    * default / single-account Solana profiles fail closed (context.caller)
+    * ADR-0032 P4: default Solana profile is sole rail cpi-elf (caller OK)
+    * single-account shims (plan/elf) still fail closed on context.caller
     * engineering product path only: non-formal, non-mainnet, not Mollusk
 -/
 import ProofForgeV2.Compiler.Pipeline
@@ -188,29 +189,44 @@ private def testSolanaCpiBuildAndInspect : IO Unit := do
     s!"inspect supportClaimDigest present, got={istdout}"
   expect (istderr == "") "inspect ok silent stderr"
 
-private def testDefaultSolanaStillFailClosed : IO Unit := do
+/-- ADR-0032 P4: bare `--target solana` selects sole rail cpi-elf. -/
+private def testDefaultSolanaSoleRail : IO Unit := do
   assertShape (← readShipped)
-  let outDir := FilePath.mk "build/v2/miniamm-solana-default-negative"
+  let outDir := FilePath.mk "build/v2/miniamm-solana-default-sole"
   try IO.FS.removeDirAll outDir catch _ => pure ()
   let (code, stdout, stderr) ← runCli
     #["build", "Examples/MiniAmm.lean",
       "--module", "Examples.MiniAmm",
       "--target", "solana",
       "-o", outDir.toString]
-  expect (code != 0)
-    s!"MiniAmm default solana profile must fail closed, exit={code}"
-  let combined := stdout ++ stderr
-  -- Single-account rails reject context.caller; message steers to cpi-elf hybrid.
+  expect (code == 0)
+    s!"MiniAmm default solana sole rail must succeed, exit={code} stderr={stderr} stdout={stdout}"
+  expect (containsSubstr stdout "profile=solana-sbpf-cpi-elf-v1")
+    s!"default must select cpi-elf, got={stdout}"
+  expect (containsSubstr stdout "deployable=true")
+    s!"default sole rail deployable, got={stdout}"
+  unless ← (outDir / "MiniAmm.so").pathExists do
+    throw <| IO.userError "default sole rail must write MiniAmm.so"
+  -- plan shim still fails closed on context.caller
+  let planOut := FilePath.mk "build/v2/miniamm-solana-plan-shim-negative"
+  try IO.FS.removeDirAll planOut catch _ => pure ()
+  let (pc, pstdout, pstderr) ← runCli
+    #["build", "Examples/MiniAmm.lean",
+      "--module", "Examples.MiniAmm",
+      "--target", "solana",
+      "--profile", "solana-sbpf-plan-v1",
+      "-o", planOut.toString]
+  expect (pc != 0)
+    s!"MiniAmm plan shim must fail closed, exit={pc}"
+  let combined := pstdout ++ pstderr
   expect (containsSubstr combined "PF-PLAN-INVARIANT" ||
       containsSubstr combined "ContextRead" ||
       containsSubstr combined "context.caller")
-    s!"default solana must reject context.caller / single-account shape, got={combined}"
-  expect (!(← outDir.pathExists))
-    s!"default solana must leave zero published artifacts"
+    s!"plan shim must reject context.caller, got={combined}"
 
 unsafe def run : IO Unit := do
   testSolanaCpiBuildAndInspect
-  testDefaultSolanaStillFailClosed
+  testDefaultSolanaSoleRail
   IO.println "Tests.Product.MiniAmmSolanaV1: ok"
 
 end Tests.Product.MiniAmmSolanaV1

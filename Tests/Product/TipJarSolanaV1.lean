@@ -6,7 +6,8 @@
       emits proof-forge.output.v1 + ELF + CPI bases
     * `inspect <out> --json` revalidates exact disk closure
     * pins profile, TipJar artifact name, extension.pf-assets support claim
-    * default solana profile (plan-v1) still fails closed
+    * ADR-0032 P4: default Solana profile is sole rail cpi-elf
+    * plan shim still fails closed (no sync/CPI support claim)
     * engineering product path only: non-formal, non-mainnet
 -/
 import ProofForgeV2.Compiler.Pipeline
@@ -145,26 +146,42 @@ private def testSolanaCpiBuildAndInspect : IO Unit := do
     s!"inspect supportClaimDigest present, got={istdout}"
   expect (istderr == "") "inspect ok silent stderr"
 
-private def testDefaultSolanaStillFailClosed : IO Unit := do
+/-- ADR-0032 P4: bare `--target solana` selects sole rail cpi-elf. -/
+private def testDefaultSolanaSoleRail : IO Unit := do
   assertShape (← readShipped)
-  let outDir := FilePath.mk "build/v2/tipjar-solana-default-negative"
+  let outDir := FilePath.mk "build/v2/tipjar-solana-default-sole"
   try IO.FS.removeDirAll outDir catch _ => pure ()
   let (code, stdout, stderr) ← runCli
     #["build", "Examples/TipJar.lean",
       "--module", "Examples.TipJar",
       "--target", "solana",
       "-o", outDir.toString]
-  expect (code != 0)
-    s!"TipJar default solana profile must fail closed, exit={code}"
-  let combined := stdout ++ stderr
+  expect (code == 0)
+    s!"TipJar default solana sole rail must succeed, exit={code} stderr={stderr} stdout={stdout}"
+  expect (containsSubstr stdout "profile=solana-sbpf-cpi-elf-v1")
+    s!"default must select cpi-elf, got={stdout}"
+  expect (containsSubstr stdout "deployable=true")
+    s!"default sole rail deployable, got={stdout}"
+  unless ← (outDir / "TipJar.so").pathExists do
+    throw <| IO.userError "default sole rail must write TipJar.so"
+  -- plan shim still FC (legacy declines sync/pf.assets)
+  let planOut := FilePath.mk "build/v2/tipjar-solana-plan-shim-negative"
+  try IO.FS.removeDirAll planOut catch _ => pure ()
+  let (pc, pstdout, pstderr) ← runCli
+    #["build", "Examples/TipJar.lean",
+      "--module", "Examples.TipJar",
+      "--target", "solana",
+      "--profile", "solana-sbpf-plan-v1",
+      "-o", planOut.toString]
+  expect (pc != 0)
+    s!"TipJar plan shim must fail closed, exit={pc}"
+  let combined := pstdout ++ pstderr
   expect (containsSubstr combined "PF-REQ-UNSUPPORTED")
-    s!"default solana must PF-REQ-UNSUPPORTED, got={combined}"
-  expect (!(← outDir.pathExists))
-    s!"default solana must leave zero published artifacts"
+    s!"plan shim must PF-REQ-UNSUPPORTED, got={combined}"
 
 unsafe def run : IO Unit := do
   testSolanaCpiBuildAndInspect
-  testDefaultSolanaStillFailClosed
+  testDefaultSolanaSoleRail
   IO.println "Tests.Product.TipJarSolanaV1: ok"
 
 end Tests.Product.TipJarSolanaV1

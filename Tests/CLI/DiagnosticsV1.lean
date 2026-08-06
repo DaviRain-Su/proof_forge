@@ -533,11 +533,9 @@ private def testProfileSelection : IO Unit := do
   expect (containsSubstr manifest "solana-sbpf-plan-v1")
     s!"manifest must bind selected profile: {manifest}"
 
-  -- #125: CPI profile is selectable. Counter has no ExternalCall / no sync
-  -- requirement / no extension row, so product Plan fails closed before
-  -- publisher staging and leaves a zero output tree. (Legal Escrow product
-  -- positive is covered by SolanaCpiActivationV1, not this diagnostic suite.)
-  let cpiOutDir := FilePath.mk "build/v2/diagnostic-profile-sbpf-cpi-inert"
+  -- ADR-0032 U1 P4: Counter body-only admits on sole rail cpi-elf (no
+  -- extension / sync / caller required). Deployable ELF + hybrid IR.
+  let cpiOutDir := FilePath.mk "build/v2/diagnostic-profile-sbpf-cpi-body"
   if ← cpiOutDir.pathExists then IO.FS.removeDirAll cpiOutDir
   let (cpiEc, cpiStdout, cpiStderr) ← runCli #[
     "build", "Examples/Counter.lean",
@@ -546,19 +544,17 @@ private def testProfileSelection : IO Unit := do
     "--profile", "solana-sbpf-cpi-elf-v1",
     "-o", cpiOutDir.toString
   ]
-  expect (cpiEc != 0)
-    s!"Counter on cpi profile must fail, got {cpiEc}\n{cpiStderr}\n{cpiStdout}"
-  expect ((containsSubstr cpiStderr "PF-PLAN-INVARIANT" ||
-        containsSubstr cpiStderr "PF-REQ-UNSUPPORTED") &&
-      (containsSubstr cpiStderr "effect.synchronous-call" ||
-        containsSubstr cpiStderr "ExternalCall" ||
-        containsSubstr cpiStderr "extension" ||
-        containsSubstr cpiStderr "CPI"))
-    s!"Counter cpi product fail-closed diagnostic: {cpiStderr}"
-  expect (!containsSubstr cpiStdout "built target=")
-    "Counter cpi profile must not print success"
-  expect (!(← cpiOutDir.pathExists))
-    "Counter cpi profile must create zero output tree"
+  expect (cpiEc == 0)
+    s!"Counter on cpi profile must succeed body-only, got {cpiEc}\n{cpiStderr}\n{cpiStdout}"
+  expect (containsSubstr cpiStdout "profile=solana-sbpf-cpi-elf-v1")
+    s!"build must echo cpi profile: {cpiStdout}"
+  expect (containsSubstr cpiStdout "deployable=true")
+    s!"body-only cpi-elf must be deployable: {cpiStdout}"
+  unless ← (cpiOutDir / "Counter.so").pathExists do
+    throw <| IO.userError "Counter cpi body-only must write Counter.so"
+  let cpiIr ← IO.FS.readFile (cpiOutDir / "Counter.cpi-ir.json")
+  expect (containsSubstr cpiIr "p3c-zero-site" || containsSubstr cpiIr "zero-site")
+    s!"body-only hybrid ir must mark zero-site, got={cpiIr}"
 
   let (ec2, _stdout2, stderr2) ← runCli #[
     "check", "Examples/Counter.lean",

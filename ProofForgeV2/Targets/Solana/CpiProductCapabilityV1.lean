@@ -19,7 +19,11 @@
      (`callerContextRequirementV1`) without sync-call or either extension.
      Caller is wire-owned / target-independent in the engineering resolver, so
      it is **not** required on `EngineeringSupportClaim`. Near-miss/nonexact
-     caller rows are already rejected by retained structure/resolver.
+     caller rows are already rejected by retained structure/resolver;
+  4. **body-only** (ADR-0032 U1 P4) — no sync-call, no async, no solana CPI
+     extension, no pf.assets, no context.caller. Ordinary Counter/Map body
+     programs on the sole rail. Plan admission marker is
+     `bodyOnlyAdmissionRequirementV1` (not a source freeze row).
 
   Neither requested freeze nor SupportClaim may carry
   `effect.asynchronous-workflow`. Retained Semantic / requirements bytes are
@@ -167,21 +171,32 @@ def resolveSolanaCpiProductCapabilityV1
   let hasPfAssets := requestExact requested.items pfAssetsReq
   let hasCallerContext := requestExact requested.items callerReq
   let hasSyncCall := requestExact requested.items syncReq
-  -- Closed admission: sync+extension, pf.assets envRead-only, or caller-only.
-  -- Empty / no-call / no-env / no-caller freezes must not activate this lane.
-  unless hasSolanaExt || hasPfAssets || hasCallerContext do
-    productCapFail
-      "Solana CPI product requires exact extension.solana-cpi-accounts, extension.pf-assets, and/or context.caller"
-  -- Without sync-call: only pf.assets envRead-only or caller-only are legal.
-  -- solana.cpi.accounts alone without sync stays fail-closed.
-  unless hasSyncCall do
-    unless hasPfAssets || hasCallerContext do
-      productCapFail
-        s!"Solana CPI product requires exact deferred requirement '{s2EffectSyncCallIdV1}', extension.pf-assets envRead-only, or context.caller"
-  if requestExact requested.items asyncReq ||
-      hasRequestId requested.items s2EffectAsyncWorkflowIdV1 then
+  let hasAsync :=
+    requestExact requested.items asyncReq ||
+      hasRequestId requested.items s2EffectAsyncWorkflowIdV1
+  if hasAsync then
     productCapFail
       s!"Solana CPI product rejects '{s2EffectAsyncWorkflowIdV1}'"
+  -- Closed admission:
+  --   * sync+extension (solana.cpi.accounts and/or pf.assets)
+  --   * pf.assets envRead-only or caller-only (no sync)
+  --   * body-only (no sync, no ext, no pf.assets, no caller) — sole-rail plain body
+  let bodyOnly :=
+    !hasSyncCall && !hasSolanaExt && !hasPfAssets && !hasCallerContext
+  unless hasSolanaExt || hasPfAssets || hasCallerContext || bodyOnly do
+    productCapFail
+      "Solana CPI product requires exact extension.solana-cpi-accounts, extension.pf-assets, context.caller, or body-only"
+  -- Without sync-call: pf.assets / caller-only / body-only are legal.
+  -- solana.cpi.accounts alone without sync stays fail-closed.
+  unless hasSyncCall do
+    unless hasPfAssets || hasCallerContext || bodyOnly do
+      productCapFail
+        s!"Solana CPI product requires exact deferred requirement '{s2EffectSyncCallIdV1}', extension.pf-assets envRead-only, context.caller, or body-only"
+  -- Sync without any CPI/assets extension stays fail-closed (no naked sync).
+  if hasSyncCall then
+    unless hasSolanaExt || hasPfAssets do
+      productCapFail
+        "Solana CPI product sync-call requires exact extension.solana-cpi-accounts and/or extension.pf-assets"
 
   let claim := ResolvedEngineeringBuildV1.supportClaimOf engineering
   let supported := EngineeringSupportClaimV1.supportedOf claim

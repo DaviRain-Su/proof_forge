@@ -84,8 +84,9 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
   Finalize 对 hybrid 经 `buildFromCapability` 重算 base（不再要求 escrow product IR）。
 - [x] 同一 profile 上 TipJar 等既有 CPI 产品不回归（`Tests/Product/TipJarSolanaV1` 绿）。
   TokenJar 同 profile 既有 pin 仍在 Fast；本切片未改 escrow emitter。
+- [x] 默认 profile = 统一 rail `solana-sbpf-cpi-elf-v1`（P4 engineering；shim 仍注册可显式选）。
 - [ ] WideDiv/Map single-account 矩阵在 shim 退役前仍绿；退役后在统一 rail 复钉。
-- [ ] 文档不再把 dual-rail 写成「永久设计终点」。
+- [x] 文档不再把 dual-rail 写成「永久设计终点」（过渡 shim；sole rail 为产品默认）。
 
 ## 当前进度（2026-08-06）
 
@@ -115,5 +116,12 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
     `solana.system.transfer` + ≥3 outer roles → `p3e-system-transfer-multi-role` /
     `unifiedCpi`。钉测 `BodyCpiSysPay`（outerRoleCount=4）。非 system.transfer 的
     full-body sites 仍 empty-meta partial。
-  - P3-h 多账户 layout + MiniAmmHybrid Mollusk 11/11 已先完成。TipJar/escrow 多
-    recipe multi-role、P4 默认 profile 仍后续。
+  - P3-h 多账户 layout + MiniAmmHybrid Mollusk 11/11 已先完成。
+  - **P4 默认 sole rail 已绿（engineering）**：
+    * registry `defaultProfile = solana-sbpf-cpi-elf-v1`
+    * body-only 准入（`bodyOnlyAdmissionRequirementV1`；无 extension/caller 的
+      Counter/Map/Token 可在 cpi-elf 上 product Plan + full-body ELF）
+    * zero-site 始终 full-body synthesize（不进 escrow）
+    * plan-v1 / elf-v1 仍为显式 `--profile` shim（caller/CPI 继续 FC）
+    * **尚未**：shim 物理删除；WideDiv 全矩阵默认复钉；BodyCpiSysPay Mollusk；
+      formal TASK-D5

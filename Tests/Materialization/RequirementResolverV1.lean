@@ -1229,14 +1229,14 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
   match ProofForgeV2.CLI.inspectTargetText "solana" with
   | .ok text =>
       expect (hasSubstr text
-          "target=solana\nprofile=solana-sbpf-plan-v1\nrequirements=#[effect.event, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
-        s!"inspect exact legacy Solana default capability set, got {text}"
+          "target=solana\nprofile=solana-sbpf-cpi-elf-v1\nrequirements=#[effect.event, effect.synchronous-call, extension.pf-assets, extension.solana-cpi-accounts, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
+        s!"inspect exact sole-rail Solana default capability set, got {text}"
       expect (hasSubstr text
           "profiles=#[solana-sbpf-cpi-elf-v1, solana-sbpf-elf-v1, solana-sbpf-plan-v1]")
-        s!"inspect must expose exact opt-in/legacy profile membership, got {text}"
-      expect (!hasSubstr text "effect.synchronous-call" &&
+        s!"inspect must expose exact profile membership, got {text}"
+      expect (hasSubstr text "effect.synchronous-call" &&
           !hasSubstr text "effect.asynchronous-workflow")
-        "inspect default Solana support must not advertise call families"
+        "inspect default Solana support advertises sync (not async)"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" true with
   | .ok json =>

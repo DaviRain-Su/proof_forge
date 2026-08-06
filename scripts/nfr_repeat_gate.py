@@ -56,7 +56,8 @@ _MANIFEST_FIELDS = (
 )
 
 _TARGETS = (
-    ("solana", "solana-sbpf-plan-v1"),
+    # ADR-0032 U1 P4: sole rail default is cpi-elf (body-only Counter path).
+    ("solana", "solana-sbpf-cpi-elf-v1"),
     ("noir", "noir-source-u64-relations-v1"),
 )
 

@@ -29,7 +29,7 @@ def _write_fixture(root: Path) -> None:
     manifest = {
         "schemaVersion": "proof-forge.output.v1",
         "target": "solana",
-        "codegenProfile": "solana-sbpf-plan-v1",
+        "codegenProfile": "solana-sbpf-cpi-elf-v1",
         "artifactProgramName": "Counter",
         "sourceHash": _ZERO,
         "semanticHash": "1" * 64,
@@ -76,7 +76,7 @@ def main() -> None:
 
         compare_repeat_outputs(
             target="solana",
-            expected_profile="solana-sbpf-plan-v1",
+            expected_profile="solana-sbpf-cpi-elf-v1",
             run_a=run_a,
             run_b=run_b,
         )
@@ -87,7 +87,7 @@ def main() -> None:
             "size mismatch",
             lambda: compare_repeat_outputs(
                 target="solana",
-                expected_profile="solana-sbpf-plan-v1",
+                expected_profile="solana-sbpf-cpi-elf-v1",
                 run_a=run_a,
                 run_b=run_b,
             ),
@@ -101,7 +101,7 @@ def main() -> None:
             "contentSha256 mismatch",
             lambda: compare_repeat_outputs(
                 target="solana",
-                expected_profile="solana-sbpf-plan-v1",
+                expected_profile="solana-sbpf-cpi-elf-v1",
                 run_a=run_a,
                 run_b=run_b,
             ),
@@ -120,7 +120,7 @@ def main() -> None:
             "field=semanticHash",
             lambda: compare_repeat_outputs(
                 target="solana",
-                expected_profile="solana-sbpf-plan-v1",
+                expected_profile="solana-sbpf-cpi-elf-v1",
                 run_a=run_a,
                 run_b=run_b,
             ),
@@ -133,7 +133,7 @@ def main() -> None:
             "evidence content digest",
             lambda: compare_repeat_outputs(
                 target="solana",
-                expected_profile="solana-sbpf-plan-v1",
+                expected_profile="solana-sbpf-cpi-elf-v1",
                 run_a=run_a,
                 run_b=run_b,
             ),
@@ -147,7 +147,7 @@ def main() -> None:
             "sidecar=manifest.json",
             lambda: compare_repeat_outputs(
                 target="solana",
-                expected_profile="solana-sbpf-plan-v1",
+                expected_profile="solana-sbpf-cpi-elf-v1",
                 run_a=run_a,
                 run_b=run_b,
             ),

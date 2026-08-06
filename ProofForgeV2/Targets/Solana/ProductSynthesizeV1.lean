@@ -267,12 +267,12 @@ def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
       | .error _ =>
           throw <| .planInvariant .solana "invalid SemanticProgramV1 carrier"
     let needsBody := semanticNeedsFullBodyV1 data
-    if needsBody then
-      -- P3-c zero-site full body, or P3-d partial (sites + empty-meta CPI).
+    -- P4 sole rail: zero CPI sites always full-body synthesize (Counter/Map
+    -- body-only and MiniAmm caller-only). Escrow composite only for
+    -- straight-line non-empty sites without multi-block/aggregate body.
+    if !hasSites || needsBody then
       synthesizeFullBodyProductBaseFilesV1 capability hasSites
     else
-      -- Straight-line CPI product (TipJar/TokenJar) or narrow zero-site body:
-      -- escrow composite path + unified frame contract pin (P3-b/c).
       let files ← productBaseFilesFromCapabilityV1 capability
       let bodyTempBytes :=
         productEscrowTempRegionEndV1 - productEscrowTempBaseV1

@@ -55,9 +55,12 @@ private unsafe def compileSource (session : Language.Loader.ParserSession)
   let validated ← liftResult (← session.selectProgramV1 source path moduleName none)
   liftResult <| Compiler.compileValidatedSourceV1 validated
 
-private def solanaCapability (compiled : CompiledSemanticV1) :
+/-- Shim helpers pin explicit plan/elf profiles. Sole-rail default is cpi-elf
+    (ADR-0032 P4); this suite covers legacy LowerSemantic/EmitSbpf surfaces. -/
+private def solanaCapability (compiled : CompiledSemanticV1)
+    (profile : CodegenProfileId := CodegenProfileId.solanaSbpfPlanV1) :
     CompileResult Targets.ResolvedEngineeringBuildV1 := do
-  let selection ← resolveBuildSelectionV1 TargetId.solana none
+  let selection ← resolveBuildSelectionV1 TargetId.solana (some profile)
   Targets.resolveEngineeringRequirementsV1 selection compiled
 
 /-- Legacy-only helper: unwraps `planFromCapability` `.legacy` carrier. -/
@@ -82,8 +85,10 @@ private def asmSolana (compiled : CompiledSemanticV1) : CompileResult String := 
   let ir ← irSolana compiled
   emitSbpfAsmV1 ir
 
-private def filesSolana (compiled : CompiledSemanticV1) : CompileResult (Array OutputFile) := do
-  let capability ← solanaCapability compiled
+private def filesSolana (compiled : CompiledSemanticV1)
+    (profile : CodegenProfileId := CodegenProfileId.solanaSbpfPlanV1) :
+    CompileResult (Array OutputFile) := do
+  let capability ← solanaCapability compiled profile
   buildFromCapability capability
 
 private def wrapProgram (name body : String) : String :=
@@ -203,17 +208,18 @@ private unsafe def testCounterAsm
   let asm2 ← liftResult <| emitSbpfAsmV1 ir
   expect (asm == asm2) "asm: deterministic rebuild"
 
-/-- Default plan-profile product emit ships .sbpf-plan + idl only (no .s). -/
+/-- Explicit plan-shim product emit ships .sbpf-plan + idl only (no .s).
+    Default sole rail is cpi-elf (ADR-0032 P4); this pins the shim surface. -/
 private unsafe def testProductEmitUnchanged
     (session : Language.Loader.ParserSession) : IO Unit := do
   let compiled ← compileSource session counterSourceText counterModuleNameV1
     "<solana-asm-product>"
-  let files ← liftResult <| filesSolana compiled
+  let files ← liftResult <| filesSolana compiled CodegenProfileId.solanaSbpfPlanV1
   let paths := files.map (·.path)
-  expect (paths.any (· == "Counter.sbpf-plan")) "product: still has .sbpf-plan"
-  expect (paths.any (· == "Counter.idl.json")) "product: still has idl"
+  expect (paths.any (· == "Counter.sbpf-plan")) "product: plan shim has .sbpf-plan"
+  expect (paths.any (· == "Counter.idl.json")) "product: plan shim has idl"
   expect (!paths.any (fun p => p.endsWith ".s"))
-    "product: default plan profile must not publish .s"
+    "product: plan shim must not publish .s"
   let planText ← match files.find? (·.path == "Counter.sbpf-plan") with
     | some f => pure f.contents
     | none => throw <| IO.userError "missing sbpf-plan"

@@ -448,6 +448,24 @@ def callerContextRequirementV1 : Except String RequirementRequestV1 := do
     predicates := #[]
   }
 
+/-- ADR-0032 U1 P4: admission marker for body-only programs on sole rail
+    `solana-sbpf-cpi-elf-v1` (no ExternalCall, no pf.assets, no context.caller).
+    Plan `extensionRequirement` field reuses this row as a closed marker —
+    it is **not** a source-declared extension and is **not** frozen into
+    ProgramRequirements. Digest is domain-separated SHA-256 of the id. -/
+def bodyOnlyAdmissionRequirementIdV1 : String :=
+  "proof-forge.solana.body-only.v1"
+
+def bodyOnlyAdmissionRequirementV1 : Except String RequirementRequestV1 := do
+  let digest ← domainSeparatedSha256 "pf.solana.body-only-admission.v1"
+    bodyOnlyAdmissionRequirementIdV1.toUTF8
+  pure {
+    id := bodyOnlyAdmissionRequirementIdV1
+    version := { major := 1, minor := 0, patch := 0 }
+    digest
+    predicates := #[]
+  }
+
 /-- Exact requirement row for the block-height ContextRead key (ADR-0031 S2). -/
 def blockHeightContextRequirementV1 : Except String RequirementRequestV1 := do
   let digest ← domainSeparatedSha256 "pf.context-read-requirement.v1"

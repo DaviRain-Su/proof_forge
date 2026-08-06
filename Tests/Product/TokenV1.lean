@@ -106,8 +106,8 @@ private def testEvmBuildDeployable : IO Unit := do
     throw <| IO.userError "Token EVM must write Token.bin"
   try IO.FS.removeDirAll outDir catch _ => pure ()
 
-/-- Solana Map pilot: Token builds plan+IDL+manifest (default plan profile;
-    deployable=false — pure-expr Map exceeds SBPF 4 KiB ELF frame). -/
+/-- Solana Map pilot: Token builds on sole rail cpi-elf default (ADR-0032 P4);
+    body-only Map → deployable ELF + hybrid cpi-ir. -/
 private def testSolanaBuildOk : IO Unit := do
   assertShape (← readShipped)
   let outDir := FilePath.mk ".lake/build/tmp-ns1-token-solana"
@@ -119,14 +119,14 @@ private def testSolanaBuildOk : IO Unit := do
       "-o", outDir.toString]
   expect (code == 0)
     s!"Token build --target solana must succeed, exit={code} stderr={stderr} stdout={stdout}"
-  expect (containsSubstr stdout "profile=solana-sbpf-plan-v1")
-    s!"Token Solana default must be plan profile, stdout={stdout}"
-  expect (containsSubstr stdout "deployable=false")
-    s!"Token Solana Map must report deployable=false, stdout={stdout}"
+  expect (containsSubstr stdout "profile=solana-sbpf-cpi-elf-v1")
+    s!"Token Solana default must be sole rail cpi-elf, stdout={stdout}"
+  expect (containsSubstr stdout "deployable=true")
+    s!"Token Solana Map on cpi-elf must report deployable=true, stdout={stdout}"
   unless ← (outDir / "manifest.json").pathExists do
     throw <| IO.userError "Token Solana must write manifest.json"
-  unless ← (outDir / "Token.sbpf-plan").pathExists do
-    throw <| IO.userError "Token Solana must write Token.sbpf-plan"
+  unless ← (outDir / "Token.so").pathExists do
+    throw <| IO.userError "Token Solana must write Token.so"
   try IO.FS.removeDirAll outDir catch _ => pure ()
 
 /-- NEAR Map pilot: Token builds plan+WAT+manifest. -/

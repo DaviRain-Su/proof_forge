@@ -853,10 +853,10 @@ def deriveSolanaCpiPlanCandidateCoreV1
   let rawSites ← collectRawSitesFiltered data snapshot.productApiFilter
   let rawEnvReadSites ← collectRawEnvReadSites data snapshot.productApiFilter
   let rawContextReadSites ← collectRawContextReadSites data
-  unless rawSites.size > 0 || rawEnvReadSites.size > 0 ||
-      rawContextReadSites.size > 0 do
-    deriveFail
-      "CPI derive requires at least one ExternalCall, envRead, or context.caller site"
+  -- ADR-0032 U1 P4: body-only programs (zero ExternalCall / envRead / caller)
+  -- are admitted on the sole rail; Plan carries body-only admission marker.
+  let bodyOnly :=
+    rawSites.isEmpty && rawEnvReadSites.isEmpty && rawContextReadSites.isEmpty
 
   let stateAccount? ← deriveSolanaStateAccountFromSemanticDataV1 data
   let stateSchemas : Array StateSchemaV1 ←
@@ -1306,7 +1306,7 @@ def deriveSolanaCpiPlanCandidateCoreV1
   -- Plan carries a single admission-marker field (historically named
   -- extensionRequirement): prefer solana.cpi.accounts (L2 / dual), else
   -- pf.assets (L1 TipJar/envRead), else exact wire-owned context.caller
-  -- (ADR-0031 S1 caller-only; not an extension — no fake pf.assets ticket).
+  -- (ADR-0031 S1 caller-only), else body-only (ADR-0032 U1 P4 plain body).
   let extensionRequirement ←
     if hasSolanaCpiExtensionRow data then
       mapExcept expectedExtensionRequirementV1 "extension requirement"
@@ -1318,6 +1318,10 @@ def deriveSolanaCpiPlanCandidateCoreV1
       match callerContextRequirementV1 with
       | .ok r => pure r
       | .error e => deriveFail s!"context.caller requirement seed: {e}"
+    else if bodyOnly then
+      match bodyOnlyAdmissionRequirementV1 with
+      | .ok r => pure r
+      | .error e => deriveFail s!"body-only admission seed: {e}"
     else
       mapExcept expectedExtensionRequirementV1 "extension requirement"
 

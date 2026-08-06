@@ -41,25 +41,23 @@ def evm : TargetDescriptor :=
   descriptorFromRegistryAxes .evm .evmYul CodegenProfileId.evmYulSolc0834V1
 
 def solana : TargetDescriptor :=
-  -- Residual descriptor binds the default plan profile. Explicit ELF and
-  -- #125 product CPI (`solana-sbpf-cpi-elf-v1`) profiles are accepted by
-  -- `acceptsCodegenProfile` without inventing a second TargetDescriptor
-  -- table. CPI materialize/finalize is the single `.solana` Materializer
-  -- tagged-sum path (legacy Plan/IR | product CPI); no second TargetKind.
-  descriptorFromRegistryAxes .solana .sbpfPlanText CodegenProfileId.solanaSbpfPlanV1
+  -- ADR-0032 U1 P4: residual descriptor binds sole-rail default
+  -- `solana-sbpf-cpi-elf-v1`. plan-v1 / elf-v1 shims remain accepted via
+  -- `acceptsCodegenProfile`. Single `.solana` Materializer tagged-sum path.
+  descriptorFromRegistryAxes .solana .sbpfPlanText CodegenProfileId.solanaSbpfCpiElfV1
 
 /-- Residual descriptor profile acceptance for multi-profile targets.
     `TargetDescriptor.codegenProfile` is the default encoding profile.
     Additional registered profiles for the same target are accepted here so
     capability mint and artifact identity can bind them without a second row.
-    Solana: plan (default) + elf + cpi-elf; unknown profiles fail closed at
-    plan/ir/build exhaustive dispatch, not here. -/
+    Solana: cpi-elf (default sole rail) + elf + plan shims; unknown profiles
+    fail closed at plan/ir/build exhaustive dispatch, not here. -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
     (descriptor.targetId == TargetId.evm && profile == CodegenProfileId.evmYulSolc0834CancunV1) ||
     (descriptor.targetId == TargetId.solana &&
-      (profile == CodegenProfileId.solanaSbpfCpiElfV1 ||
-        profile == CodegenProfileId.solanaSbpfElfV1))
+      (profile == CodegenProfileId.solanaSbpfElfV1 ||
+        profile == CodegenProfileId.solanaSbpfPlanV1))
 
 def near : TargetDescriptor :=
   descriptorFromRegistryAxes .near .wasmText CodegenProfileId.nearWasmRawU64V1

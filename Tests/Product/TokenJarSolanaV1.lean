@@ -7,7 +7,8 @@
     * `build --target solana --profile solana-sbpf-cpi-elf-v1` now succeeds
       (composite ATA-ensure + transferCheckedPda emitter implemented);
       produces ELF `.so` + manifest with exact closure
-    * default solana profile (plan-v1) fails closed
+    * ADR-0032 P4: default Solana profile is sole rail cpi-elf
+    * plan shim still fails closed
     * engineering product path only: non-formal, non-mainnet
 -/
 import ProofForgeV2.Compiler.Pipeline
@@ -105,26 +106,41 @@ private def testSolanaCpiCheckAndBuild : IO Unit := do
   expect (containsSubstr iout "TokenJar.so")
     s!"inspect must list TokenJar.so, got={iout}"
 
-private def testDefaultSolanaStillFailClosed : IO Unit := do
+/-- ADR-0032 P4: bare `--target solana` selects sole rail cpi-elf. -/
+private def testDefaultSolanaSoleRail : IO Unit := do
   assertShape (← readShipped)
-  let outDir := FilePath.mk "build/v2/tokenjar-solana-default-negative"
+  let outDir := FilePath.mk "build/v2/tokenjar-solana-default-sole"
   try IO.FS.removeDirAll outDir catch _ => pure ()
   let (code, stdout, stderr) ← runCli
     #["build", "Examples/TokenJar.lean",
       "--module", "Examples.TokenJar",
       "--target", "solana",
       "-o", outDir.toString]
-  expect (code != 0)
-    s!"TokenJar default solana profile must fail closed, exit={code}"
-  let combined := stdout ++ stderr
+  expect (code == 0)
+    s!"TokenJar default solana sole rail must succeed, exit={code} stderr={stderr} stdout={stdout}"
+  expect (containsSubstr stdout "profile=solana-sbpf-cpi-elf-v1")
+    s!"default must select cpi-elf, got={stdout}"
+  expect (containsSubstr stdout "deployable=true")
+    s!"default sole rail deployable, got={stdout}"
+  unless ← (outDir / "TokenJar.so").pathExists do
+    throw <| IO.userError "default sole rail must write TokenJar.so"
+  let planOut := FilePath.mk "build/v2/tokenjar-solana-plan-shim-negative"
+  try IO.FS.removeDirAll planOut catch _ => pure ()
+  let (pc, pstdout, pstderr) ← runCli
+    #["build", "Examples/TokenJar.lean",
+      "--module", "Examples.TokenJar",
+      "--target", "solana",
+      "--profile", "solana-sbpf-plan-v1",
+      "-o", planOut.toString]
+  expect (pc != 0)
+    s!"TokenJar plan shim must fail closed, exit={pc}"
+  let combined := pstdout ++ pstderr
   expect (containsSubstr combined "PF-REQ-UNSUPPORTED")
-    s!"default solana must PF-REQ-UNSUPPORTED, got={combined}"
-  expect (!(← outDir.pathExists))
-    s!"default solana must leave zero published artifacts"
+    s!"plan shim must PF-REQ-UNSUPPORTED, got={combined}"
 
 unsafe def run : IO Unit := do
   testSolanaCpiCheckAndBuild
-  testDefaultSolanaStillFailClosed
+  testDefaultSolanaSoleRail
   IO.println "Tests.Product.TokenJarSolanaV1: ok"
 
 end Tests.Product.TokenJarSolanaV1
