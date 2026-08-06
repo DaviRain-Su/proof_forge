@@ -886,37 +886,139 @@ private def allocTemps (b : AsmBuf) (n : Nat) : AsmBuf × Nat :=
   let base := b.cursor
   ({ b with cursor := b.cursor + n }, base)
 
-/-- Multiword div/mod fail-closed fallback (Solana lane): require all upper
-    limbs of both operands to be zero (the value fits a single UInt64), else
-    fail with `errorCode`. Genuine multiword division / remainder are **not**
-    implemented in this lane; only values representable in UInt64 are lowered
-    (a documented fail-closed fallback, not a silent truncation). -/
-private def emitMultiwordDivModViaLow64 (b : AsmBuf) (tempBase dest lhs rhs errorCode nLimbs : Nat)
+/-- Multiword checked div/mod via binary long division (restoring).
+
+    Exact unsigned `nLimbs`-limb quotient and remainder for Solana lane
+    UInt128 (`nLimbs=2`) / UInt256 (`nLimbs=4`). Algorithm (restoring /
+    binary long division):
+
+      rem := 0                          -- `nLimbs+1` limbs (extra high digit)
+      quot := 0                         -- `nLimbs` limbs
+      for bit from (nLimbs·64 − 1) downto 0:
+        rem := (rem << 1) | dividend[bit]
+        if rem ≥ divisor:               -- zero-extended divisor
+          rem := rem − divisor
+          quot[bit] := 1
+
+    Divisor zero (all limbs zero) fails with `errorCode` (same program_error
+    as other checked arithmetic, typically `0x1001`). Quotient and remainder
+    are always in-range for unsigned division, so there is no overflow path
+    beyond div-by-zero.
+
+    Fully unrolled over the bit width so every stack offset / shift count is
+    a compile-time immediate (matches schoolbook mul style; no dynamic limb
+    indexing). Scratch `rem`/`quot` temps are allocated from the AsmBuf cursor
+    and copied into `dest` so lhs/rhs aliasing is safe. -/
+private def emitMultiwordDivMod (b : AsmBuf) (tempBase dest lhs rhs errorCode nLimbs : Nat)
     (kind : String) : AsmBuf :=
   Id.run do
     let (b, errLab) := fresh b s!"err_mw{kind}"
     let (b, okLab) := fresh b s!"ok_mw{kind}"
+    let nBits := nLimbs * 64
+    -- rem[0 .. nLimbs-1] + remHi (extra limb for the left-shift digit)
+    let (b, rem) := allocTemps b (nLimbs + 1)
+    let remHi := rem + nLimbs
+    let (b, quot) := allocTemps b nLimbs
     let mut b := b
-    for i in [1:nLimbs] do
-      b := loadTemp b "r1" tempBase (lhs + i)
-      b := emit b s!"  jne r1, 0, {errLab}"
-      b := loadTemp b "r1" tempBase (rhs + i)
-      b := emit b s!"  jne r1, 0, {errLab}"
-    b := loadTemp b "r1" tempBase lhs
-    b := loadTemp b "r2" tempBase rhs
+    -- divisor nonzero? (OR of all limbs)
+    b := emit b "  mov64 r1, 0"
+    for i in [:nLimbs] do
+      b := loadTemp b "r2" tempBase (rhs + i)
+      b := emit b "  or64 r1, r2"
+    b := emit b s!"  jeq r1, 0, {errLab}"
+    -- zero rem (incl. high) and quot
+    b := emit b "  lddw r1, 0"
+    for i in [:nLimbs + 1] do
+      b := storeTempAbs b (rem + i) "r1"
+    for i in [:nLimbs] do
+      b := storeTempAbs b (quot + i) "r1"
+    -- bit = nBits-1 .. 0 (fully unrolled)
+    for j in [:nBits] do
+      let bitPos := nBits - 1 - j
+      let numLimb := bitPos / 64
+      let numBit := bitPos % 64
+      -- rem := rem << 1  (nLimbs+1 limbs, high → low so lower digits stay fresh)
+      b := loadTempAbs b "r1" remHi
+      b := emit b "  lsh64 r1, 1"
+      b := loadTempAbs b "r2" (rem + (nLimbs - 1))
+      b := emit b "  rsh64 r2, 63"
+      b := emit b "  or64 r1, r2"
+      b := storeTempAbs b remHi "r1"
+      for iRev in [:nLimbs] do
+        let i := nLimbs - 1 - iRev
+        if i > 0 then
+          b := loadTempAbs b "r1" (rem + i)
+          b := emit b "  lsh64 r1, 1"
+          b := loadTempAbs b "r2" (rem + (i - 1))
+          b := emit b "  rsh64 r2, 63"
+          b := emit b "  or64 r1, r2"
+          b := storeTempAbs b (rem + i) "r1"
+        else
+          -- rem[0] = (rem[0] << 1) | dividend[bitPos]
+          b := loadTempAbs b "r1" rem
+          b := emit b "  lsh64 r1, 1"
+          b := loadTemp b "r2" tempBase (lhs + numLimb)
+          if numBit != 0 then
+            b := emit b s!"  rsh64 r2, {numBit}"
+          b := emit b "  and64 r2, 1"
+          b := emit b "  or64 r1, r2"
+          b := storeTempAbs b rem "r1"
+      -- if rem ≥ divisor (zero-extended): subtract and set quot bit
+      let (b1, subLab) := fresh b s!"mw{kind}_sub"
+      let (b2, nextBit) := fresh b1 s!"mw{kind}_nb"
+      b := b2
+      b := loadTempAbs b "r1" remHi
+      b := emit b s!"  jne r1, 0, {subLab}"
+      for iRev in [:nLimbs] do
+        let i := nLimbs - 1 - iRev
+        b := loadTempAbs b "r1" (rem + i)
+        b := loadTemp b "r2" tempBase (rhs + i)
+        b := emit b s!"  jgt r1, r2, {subLab}"
+        b := emit b s!"  jlt r1, r2, {nextBit}"
+        -- equal: fall through to next lower limb (or to subLab when i == 0)
+      b := emit b s!"{subLab}:"
+      -- rem_low -= divisor with borrow into remHi
+      b := emit b "  mov64 r5, 0"
+      for i in [:nLimbs] do
+        let (b3, bset) := fresh b s!"mw{kind}_bset"
+        let (b4, bdone) := fresh b3 s!"mw{kind}_bdone"
+        b := b4
+        b := loadTempAbs b "r1" (rem + i)
+        b := loadTemp b "r2" tempBase (rhs + i)
+        b := emit b "  mov64 r3, r1"
+        b := emit b "  sub64 r1, r2"
+        b := emit b "  sub64 r1, r5"
+        b := emit b "  mov64 r4, 0"
+        b := emit b s!"  jlt r3, r2, {bset}"
+        b := emit b s!"  jeq r5, 0, {bdone}"
+        b := emit b s!"  jeq r3, r2, {bset}"
+        b := emit b s!"  ja {bdone}"
+        b := emit b s!"{bset}:"
+        b := emit b "  mov64 r4, 1"
+        b := emit b s!"{bdone}:"
+        b := storeTempAbs b (rem + i) "r1"
+        b := emit b "  mov64 r5, r4"
+      b := loadTempAbs b "r1" remHi
+      b := emit b "  sub64 r1, r5"
+      b := storeTempAbs b remHi "r1"
+      -- quot[numLimb] |= 1 << numBit
+      b := loadTempAbs b "r1" (quot + numLimb)
+      b := emit b "  lddw r2, 1"
+      if numBit != 0 then
+        b := emit b s!"  lsh64 r2, {numBit}"
+      b := emit b "  or64 r1, r2"
+      b := storeTempAbs b (quot + numLimb) "r1"
+      b := emit b s!"{nextBit}:"
+    -- store quotient or remainder into dest
     if kind == "div" then
-      b := emit b s!"  jeq r2, 0, {errLab}"
-      b := emit b "  div64 r1, r2"
-      b := storeTemp b tempBase dest "r1"
-    else if kind == "mod" then
-      b := emit b s!"  jeq r2, 0, {errLab}"
-      b := emit b "  mod64 r1, r2"
-      b := storeTemp b tempBase dest "r1"
+      for t in [:nLimbs] do
+        b := loadTempAbs b "r1" (quot + t)
+        b := storeTemp b tempBase (dest + t) "r1"
     else
-      pure ()
-    for i in [1:nLimbs] do
-      b := emit b "  lddw r1, 0"
-      b := storeTemp b tempBase (dest + i) "r1"
+      -- remainder: low nLimbs of rem (remHi is always 0 post-loop)
+      for t in [:nLimbs] do
+        b := loadTempAbs b "r1" (rem + t)
+        b := storeTemp b tempBase (dest + t) "r1"
     b := emit b s!"  ja {okLab}"
     b := emitErrorExit b errLab errorCode
     emit b s!"{okLab}:"
@@ -1205,25 +1307,23 @@ private def emitNarrowCheckedMul (b : AsmBuf) (tempBase dest lhs rhs errorCode b
     emit b s!"{okLab}:"
 
 /-- Narrow checked_div: zero guard only; quotient auto in-range for UInt.
-    Multiword (UInt128/256) is a documented fail-closed fallback: values that
-    fit a single UInt64 lower via div64; wider operands fail with `errorCode`
-    (genuine multiword division is not implemented in this lane). -/
+    Multiword (UInt128/256) uses true binary long division over LE u64 limbs
+    (see `emitMultiwordDivMod`); divisor zero fails with `errorCode`. -/
 private def emitNarrowCheckedDiv (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
   if bitWidth > 64 then
-    emitMultiwordDivModViaLow64 b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "div"
+    emitMultiwordDivMod b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "div"
   else Id.run do
     let _ := bitWidth
     emitCheckedDiv b tempBase dest lhs rhs errorCode
 
 /-- Narrow checked_mod: zero guard only; remainder auto in-range.
-    Multiword (UInt128/256) is a documented fail-closed fallback (see
-    emitNarrowCheckedDiv): single-limb values lower via mod64; wider operands
-    fail with `errorCode`. -/
+    Multiword (UInt128/256) uses the same binary long division as div and
+    stores the remainder limbs (see `emitMultiwordDivMod`). -/
 private def emitNarrowCheckedMod (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
   if bitWidth > 64 then
-    emitMultiwordDivModViaLow64 b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "mod"
+    emitMultiwordDivMod b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "mod"
   else Id.run do
     let _ := bitWidth
     emitCheckedMod b tempBase dest lhs rhs errorCode

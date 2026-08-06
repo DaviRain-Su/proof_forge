@@ -732,8 +732,8 @@ private unsafe def testWideUintProduct
     "T9e: IDL must mention u128/u256"
 
 /-- Solana lane: UInt128/256 body mul lowers to true schoolbook multiword
-    multiply (32-bit-split limbs, no low64 fallback), and div/mod stay
-    fail-closed (low64 only with explicit upper-limb zero checks). -/
+    multiply (32-bit-split limbs, no low64 fallback); div/mod lower to true
+    binary long division (restoring) over full limbs — no low64-only path. -/
 private unsafe def testMultiwordMulDivMod
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrapProgram "WideArith" <|
@@ -754,7 +754,7 @@ private unsafe def testMultiwordMulDivMod
   expect (asm.contains "mwmul_lane_") "mwmul: lane carry tracking labels"
   expect ((asm.splitOn "lddw r3, 0xffffffff").length ≥ 3)
     "mwmul: 32-bit mask used for digit splits"
-  -- div/mod fail-closed path: zero checks on upper limbs then low64 op
+  -- full multiword div/mod: binary long division labels + no low64 fallback
   let sourceDivMod := wrapProgram "WideDivMod" <|
     "  state count : UInt64\n\n" ++
     "  init(i : UInt64) do\n" ++
@@ -763,18 +763,38 @@ private unsafe def testMultiwordMulDivMod
     "    return x / y\n\n" ++
     "  entry mod128(x : UInt128, y : UInt128) : UInt128 do\n" ++
     "    return x % y\n\n" ++
+    "  entry div256(x : UInt256, y : UInt256) : UInt256 do\n" ++
+    "    return x / y\n\n" ++
+    "  entry mod256(x : UInt256, y : UInt256) : UInt256 do\n" ++
+    "    return x % y\n\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let compiledDM ← compileSource session sourceDivMod "Examples.WideDivMod" "<solana-wide-divmod>"
   let irDM ← liftResult (irSolana compiledDM)
   let asmDM ← liftResult <| emitSbpfAsmV1 irDM
-  expect (asmDM.contains "err_mwdiv_") "mwdiv: fail-closed div label"
-  expect (asmDM.contains "err_mwmod_") "mwmod: fail-closed mod label"
-  expect (asmDM.contains "div64 r1, r2") "mwdiv: low64 div perform"
-  expect (asmDM.contains "mod64 r1, r2") "mwmod: low64 mod perform"
+  expect (asmDM.contains "err_mwdiv_") "mwdiv: div-by-zero exit label"
+  expect (asmDM.contains "err_mwmod_") "mwmod: div-by-zero exit label"
+  expect (asmDM.contains "ok_mwdiv_") "mwdiv: success join label"
+  expect (asmDM.contains "ok_mwmod_") "mwmod: success join label"
+  -- binary long-division control-flow labels (per-bit sub / next-bit)
+  expect (asmDM.contains "mwdiv_sub_") "mwdiv: restore-subtract label"
+  expect (asmDM.contains "mwdiv_nb_") "mwdiv: next-bit label"
+  expect (asmDM.contains "mwmod_sub_") "mwmod: restore-subtract label"
+  expect (asmDM.contains "mwmod_nb_") "mwmod: next-bit label"
+  -- borrow chain used inside rem -= divisor
+  expect (asmDM.contains "mwdiv_bset_") "mwdiv: subtract borrow-set label"
+  expect (asmDM.contains "mwmod_bset_") "mwmod: subtract borrow-set label"
+  -- honest multiword: must NOT fall back to single-limb div64/mod64
+  expect (!(asmDM.contains "div64 r1, r2")) "mwdiv: no low64 div64 fallback"
+  expect (!(asmDM.contains "mod64 r1, r2")) "mwmod: no low64 mod64 fallback"
+  -- unrolled bit coverage: UInt128 has 128 bits; at least that many next-bit labels
+  expect ((asmDM.splitOn "mwdiv_nb_").length ≥ 129)
+    "mwdiv: unrolled ≥128 next-bit steps for UInt128"
   -- determinism
   let asm2 ← liftResult <| emitSbpfAsmV1 ir
   expect (asm == asm2) "mwmul: deterministic"
+  let asmDM2 ← liftResult <| emitSbpfAsmV1 irDM
+  expect (asmDM == asmDM2) "mwdiv/mod: deterministic"
 
 /-- T9a: UInt8/16/32 entry results admitted; return-data lengths 1/2/4 in SBPF. -/
 private unsafe def testNarrowResultAdmitted
