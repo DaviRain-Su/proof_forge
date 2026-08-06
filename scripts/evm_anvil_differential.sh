@@ -9,8 +9,8 @@
 #   4. Token dense-Map companion via scripts/evm_token_anvil_smoke.sh:
 #      product build/solc failures are hard; only post-build deployment/initcode
 #      limits may explicit-skip the optional adapter leg.
-#   5. TipJar / TokenJar / EnvReadJar / CallerCheck companions (each host-optional
-#      smoke script; product build hard when tools present).
+#   5. TipJar / TokenJar / EnvReadJar / CallerCheck / BlockHeightCheck companions
+#      (each host-optional smoke script; product build hard when tools present).
 #   6. MiniAmm vault-internal AMM companion via scripts/evm_mini_amm_anvil_smoke.sh
 #      (ADR-0030 E4; product build hard; EIP-3860 → engineering code-size override;
 #      not mainnet deploy claim).
@@ -385,6 +385,22 @@ elif [[ -f "$root/scripts/evm_caller_anvil_smoke.sh" ]]; then
   exit 1
 else
   echo "evm-anvil-differential: note: CallerCheck companion script missing (skip leg)" >&2
+fi
+
+# BlockHeightCheck: ADR-0031 S2 context.blockHeight → Yul number() / NUMBER.
+# Product build/solc failures are hard; tool/script skip is handled inside
+# the companion (exit 0). Engineering Anvil pin only — not formal C-3.
+if [[ -x "$root/scripts/evm_blockheight_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion BlockHeightCheck context.blockHeight smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_blockheight_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: BlockHeightCheck smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_blockheight_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: BlockHeightCheck smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: BlockHeightCheck companion script missing (skip leg)" >&2
 fi
 
 # MiniAmm: ADR-0030 E4 vault-internal constant-product + Principal-keyed LP Map.
