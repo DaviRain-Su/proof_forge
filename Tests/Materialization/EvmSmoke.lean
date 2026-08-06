@@ -4224,6 +4224,86 @@ private unsafe def testAggregateLeafCapFailClosed : IO Unit := do
           throw <| IO.userError
             "EVM 9-leaf aggregate return must fail closed (cap-8), not produce a plan"
 
+/-- ADR-0030 E4 MiniAMM product pin: shipped `Examples/MiniAmm.lean` must
+    compile, planEvm, validatePlan, and materialize Yul/ABI on EVM.
+    Pins: Principal-keyed LP Map (44 leaves) + 4 UInt64 (reserves/supply/
+    scratch), addLiquidity/swap0to1/views entry order, and Yul that carries
+    checked mul/div plus caller(). Does not claim Anvil runtime, EIP-3860
+    deploy, or formal D4. -/
+private unsafe def testMiniAmmProductPlan : IO Unit := do
+  let path := System.FilePath.mk "Examples/MiniAmm.lean"
+  unless ← path.pathExists do
+    throw <| IO.userError "Examples/MiniAmm.lean missing (ADR-0030 E4 vector)"
+  let text ← IO.FS.readFile path
+  expect (text.contains "program MiniAmm where")
+    "MiniAmm must declare program MiniAmm"
+  expect (text.contains "Map Principal UInt64")
+    "MiniAmm must use Map Principal UInt64 LP balances"
+  expect (text.contains "context.caller")
+    "MiniAmm must key LP mint by context.caller"
+  expect (text.contains "entry addLiquidity")
+    "MiniAmm must declare addLiquidity"
+  expect (text.contains "entry swap0to1")
+    "MiniAmm must declare swap0to1"
+  expect (text.contains "state scratch")
+    "MiniAmm must use scratch UInt64 to carry LP across Map effect boundary"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load MiniAmm" (← session.selectProgramV1
+    text "Examples/MiniAmm.lean" "Examples.MiniAmm" none)
+  let compiled ← liftResult "compile MiniAmm" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan MiniAmm" <| planEvm compiled
+  expect (plan.objectName == "MiniAmm")
+    s!"MiniAmm object name, got {plan.objectName}"
+  -- 4 scalar UInt64 + cap-4 Principal Map (44 leaves) = 48 storage slots.
+  expect (plan.storageLayout.size == 48)
+    s!"MiniAmm must flatten to 48 storage leaves (4 UInt64 + 44 Principal-Map), got {plan.storageLayout.size}"
+  expect (plan.entries.map (·.name) ==
+      #["addLiquidity", "swap0to1", "getReserve0", "getReserve1",
+        "getTotalSupply", "balanceOf"])
+    s!"MiniAmm entry order, got {plan.entries.map (·.name)}"
+  -- addLiquidity(amount0, amount1) → 2 UInt64 ABI words (caller is context).
+  let addParams :=
+    match plan.entries.find? (·.name == "addLiquidity") with
+    | some e => e.params.size
+    | none => 0
+  expect (addParams == 2)
+    s!"addLiquidity must expand to 2 ABI words (amount0, amount1), got {addParams}"
+  let swapParams :=
+    match plan.entries.find? (·.name == "swap0to1") with
+    | some e => e.params.size
+    | none => 0
+  expect (swapParams == 1)
+    s!"swap0to1 must expand to 1 ABI word (amountIn), got {swapParams}"
+  let balParams :=
+    match plan.entries.find? (·.name == "balanceOf") with
+    | some e => e.params.size
+    | none => 0
+  expect (balParams == 9)
+    s!"balanceOf must expand Principal param to 9 ABI words, got {balParams}"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MiniAmm plan must validate: {e.render}"
+  let out ← liftResult "materialize MiniAmm" <|
+    materializeSelected TargetId.evm compiled
+  let files := MaterializedArtifactsV1.filesOf out
+  let some yulFile := files.find? (·.path == "MiniAmm.yul") |
+    throw <| IO.userError "MiniAmm: missing MiniAmm.yul"
+  let some abiFile := files.find? (·.path == "MiniAmm.abi.json") |
+    throw <| IO.userError "MiniAmm: missing MiniAmm.abi.json"
+  let yul := yulFile.contents
+  expect (yul.contains "sstore" && yul.contains "sload")
+    "MiniAmm Yul must sstore/sload reserve + Principal-Map leaves"
+  expect (yul.contains "mul(" && yul.contains "div(")
+    "MiniAmm Yul must render checked mul/div for LP mint and swap"
+  expect (yul.contains "caller()")
+    "MiniAmm Yul must read caller() for context.caller LP key"
+  expect (abiFile.contents.contains "\"name\":\"addLiquidity\"" &&
+      abiFile.contents.contains "\"name\":\"swap0to1\"" &&
+      abiFile.contents.contains "\"name\":\"balanceOf\"")
+    "MiniAmm ABI must name addLiquidity/swap0to1/balanceOf"
+  IO.println "  MiniAmm product plan/materialize pin ok"
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -4281,6 +4361,7 @@ unsafe def run : IO Unit := do
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed
+  testMiniAmmProductPlan
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)
