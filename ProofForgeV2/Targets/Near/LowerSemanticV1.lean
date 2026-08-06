@@ -105,6 +105,10 @@ inductive HostImport where
   /-- B-CTX-OPEN: host `block_timestamp` (nanoseconds → i64). Only present on
       Plans that lower at least one `context.unixTimeSeconds` read. -/
   | blockTimestamp
+  /-- ADR-0031 S2: host `block_index` (u64 height). Only present on Plans that
+      lower at least one `context.blockHeight` read. View-safe (unlike
+      `predecessor_account_id`). -/
+  | blockIndex
   /-- ADR-0030 E2-NEAR: host `account_balance` (writes u128 LE to balance_ptr).
       Only present on Plans that lower at least one
       `pf.assets.native.balanceOfSelf` env-read. -/
@@ -225,6 +229,10 @@ inductive Expr where
       returns nanoseconds; the IR divides by 10^9 (truncating) so the DSL
       `context.unixTimeSeconds` semantics hold exactly. UInt64-typed. -/
   | blockTimestampSeconds
+  /-- ADR-0031 S2: block height. NEAR host `block_index` returns u64 height
+      directly (no conversion). Carries `context.blockHeight` ContextRead;
+      UInt64-typed. View-safe. -/
+  | blockIndex
   /-- ADR-0030 E2-NEAR: `pf.assets.native.balanceOfSelf()` → host
       `account_balance` (u128 LE). IR loads the low 64 bits and traps if the
       high 64 bits are nonzero (UInt64 range guard). Read-only,
@@ -468,16 +476,16 @@ private def canonicalImports : Array HostImport := #[
 ]
 
 /-- Host import set driven by schedule and/or transferAsync and/or token
-    transferAsync and/or timestamp and/or accountBalance env-read and/or
-    context.caller predecessor read.
+    transferAsync and/or timestamp and/or block height and/or accountBalance
+    env-read and/or context.caller predecessor read.
     `promise_batch_create` is shared; function-call vs transfer action imports
     are independent so no-schedule Plans stay free of transfer host when only
     schedule is absent, and vice versa. Token transferAsync uses function-call
     action (like schedule) plus promise_batch_create, so it shares the
-    function-call import with schedule. `account_balance` and
-    `predecessor_account_id` are independent. -/
+    function-call import with schedule. `block_timestamp`, `block_index`,
+    `account_balance` and `predecessor_account_id` are independent. -/
 def hostImportsFor (usesSchedulePromise usesTransferPromise
-    usesTokenTransferPromise usesTimestamp usesAccountBalance
+    usesTokenTransferPromise usesTimestamp usesBlockIndex usesAccountBalance
     usesCaller : Bool) :
     Array HostImport :=
   Id.run do
@@ -490,6 +498,8 @@ def hostImportsFor (usesSchedulePromise usesTransferPromise
       base := base.push .promiseBatchActionTransfer
     if usesTimestamp then
       base := base.push .blockTimestamp
+    if usesBlockIndex then
+      base := base.push .blockIndex
     if usesAccountBalance then
       base := base.push .accountBalance
     if usesCaller then
@@ -3201,8 +3211,9 @@ private def lowerBlockInstructionsV1
           aggregateLeaves := operand.aggregateLeaves
         }
     | .contextRead key, some result =>
-        -- B-CTX-OPEN / ADR-0031 S1 (NEAR):
+        -- B-CTX-OPEN / ADR-0031 S1–S2 (NEAR):
         --   * `context.unixTimeSeconds` → host `block_timestamp()` (ns) / 10^9
+        --   * `context.blockHeight` → host `block_index()` (u64; view-safe)
         --   * `context.caller` → Principal aggregate from host
         --     `predecessor_account_id` as `u32le(L)||account-id-utf8` packed
         --     into length + 8×UInt64 LE body leaves (unused tail bytes 0).
@@ -3233,6 +3244,17 @@ private def lowerBlockInstructionsV1
               "unsupported NEAR semantic shape: ContextRead unix-time-seconds result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result {
             expr := .blockTimestampSeconds
+            kind := .uint64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else if key == blockHeightContextKeyV1 then
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: ContextRead context.blockHeight result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .blockIndex
             kind := .uint64
             depth := 1
             expandedNodes := 1
@@ -3941,7 +3963,7 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   | .blockTimestampSeconds => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ | .accountBalance
-  | .callerPrincipalLen | .callerPrincipalWord _ => false
+  | .blockIndex | .callerPrincipalLen | .callerPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -3956,6 +3978,29 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
       exprUsesTimestampV1 e
   | .callFn _ args => args.any exprUsesTimestampV1
 
+/-- ADR-0031 S2: does an expression tree reference block height?
+    Conservative structural scan driving the `block_index` host import. -/
+partial def exprUsesBlockIndexV1 (expr : Expr) : Bool :=
+  match expr with
+  | .blockIndex => true
+  | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .blockTimestampSeconds | .accountBalance
+  | .callerPrincipalLen | .callerPrincipalWord _ => false
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      exprUsesBlockIndexV1 l || exprUsesBlockIndexV1 r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      exprUsesBlockIndexV1 e
+  | .callFn _ args => args.any exprUsesBlockIndexV1
+
 /-- ADR-0030 E2-NEAR: does an expression tree reference accountBalance?
     Conservative structural scan driving the `account_balance` host import. -/
 partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
@@ -3963,7 +4008,8 @@ partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
   | .accountBalance => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
-  | .blockTimestampSeconds | .callerPrincipalLen | .callerPrincipalWord _ => false
+  | .blockTimestampSeconds | .blockIndex
+  | .callerPrincipalLen | .callerPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -3986,7 +4032,7 @@ partial def exprUsesCallerV1 (expr : Expr) : Bool :=
   | .callerPrincipalLen | .callerPrincipalWord _ => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
-  | .blockTimestampSeconds | .accountBalance => false
+  | .blockTimestampSeconds | .blockIndex | .accountBalance => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4036,6 +4082,42 @@ def planUsesTimestampV1 (plan : Plan) : Bool :=
   statementsUseTimestampV1 plan.initializer.body ||
     plan.entries.any (fun m => statementsUseTimestampV1 m.body) ||
     plan.fns.any (fun f => statementsUseTimestampV1 f.body)
+
+/-- ADR-0031 S2: does any statement tree reference block height? -/
+partial def statementsUseBlockIndexV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .store op => exprUsesBlockIndexV1 op.value
+    | .storeAtomic leaves => leaves.any fun leaf => exprUsesBlockIndexV1 leaf.value
+    | .returnValue value => exprUsesBlockIndexV1 value
+    | .returnAggregate leaves _ => leaves.any exprUsesBlockIndexV1
+    | .assert condition => exprUsesBlockIndexV1 condition
+    | .emitEvent _ args => args.any exprUsesBlockIndexV1
+    | .revertError _ args => args.any exprUsesBlockIndexV1
+    | .promiseAccount _ _ args => args.any exprUsesBlockIndexV1
+    | .nativeDeposit amount => exprUsesBlockIndexV1 amount
+    | .promiseTransfer dstLen dstWords amount =>
+        exprUsesBlockIndexV1 dstLen || dstWords.any exprUsesBlockIndexV1 ||
+          exprUsesBlockIndexV1 amount
+    | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+        exprUsesBlockIndexV1 mintLen || mintWords.any exprUsesBlockIndexV1 ||
+          exprUsesBlockIndexV1 dstLen || dstWords.any exprUsesBlockIndexV1 ||
+          exprUsesBlockIndexV1 amount
+    | .ifThenElse condition thenBody elseBody =>
+        exprUsesBlockIndexV1 condition ||
+          statementsUseBlockIndexV1 thenBody || statementsUseBlockIndexV1 elseBody
+    | .switchOn scrutinee cases defaultBody =>
+        exprUsesBlockIndexV1 scrutinee || statementsUseBlockIndexV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseBlockIndexV1 caseBody
+    | .forLoop _ initial cond update _ body =>
+        exprUsesBlockIndexV1 initial || exprUsesBlockIndexV1 cond ||
+          exprUsesBlockIndexV1 update || statementsUseBlockIndexV1 body
+    | .returnNone => false
+
+def planUsesBlockIndexV1 (plan : Plan) : Bool :=
+  statementsUseBlockIndexV1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUseBlockIndexV1 m.body) ||
+    plan.fns.any (fun f => statementsUseBlockIndexV1 f.body)
 
 /-- ADR-0030 E2-NEAR: does any statement tree reference accountBalance? -/
 partial def statementsUseAccountBalanceV1 (statements : Array Statement) : Bool :=
@@ -4296,6 +4378,10 @@ private def makePlanFromSemanticDataV1
     statementsUseTimestampV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseTimestampV1 m.body) ||
       fns.any (fun f => statementsUseTimestampV1 f.body)
+  let usesBlockIndex :=
+    statementsUseBlockIndexV1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUseBlockIndexV1 m.body) ||
+      fns.any (fun f => statementsUseBlockIndexV1 f.body)
   let usesAccountBalance :=
     statementsUseAccountBalanceV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseAccountBalanceV1 m.body) ||
@@ -4312,7 +4398,8 @@ private def makePlanFromSemanticDataV1
     inputAbi := rawInputAbi
     layoutDomain := stateLayoutDomain
     hostImports := hostImportsFor usesSchedulePromise usesTransferPromise
-      usesTokenTransferPromise usesTimestamp usesAccountBalance usesCaller
+      usesTokenTransferPromise usesTimestamp usesBlockIndex usesAccountBalance
+      usesCaller
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits

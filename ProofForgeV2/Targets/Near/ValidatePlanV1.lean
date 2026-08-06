@@ -60,6 +60,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
         if fieldIndex < layout.fields.size then some 1 else none
     | .localTemp _ => some 1
     | .blockTimestampSeconds => some 1
+    | .blockIndex => some 1
     | .accountBalance => some 1
     -- ADR-0031 S1: context.caller Principal leaves (len + wordIndex ∈ 0..7).
     | .callerPrincipalLen => some 1
@@ -574,8 +575,8 @@ private def validateFnBinding (limits : ResourceLimits) (layout : StorageLayout)
 def validatePlan (plan : Plan) : CompileResult Unit := do
   let expectedImports := hostImportsFor (planUsesSchedulePromiseV1 plan)
     (planUsesTransferPromiseV1 plan) (planUsesTokenTransferPromiseV1 plan)
-    (planUsesTimestampV1 plan) (planUsesAccountBalanceV1 plan)
-    (planUsesCallerV1 plan)
+    (planUsesTimestampV1 plan) (planUsesBlockIndexV1 plan)
+    (planUsesAccountBalanceV1 plan) (planUsesCallerV1 plan)
   unless plan.targetDescriptor == descriptor &&
       plan.semanticSchemaVersion == semanticProgramSchemaVersionV1 &&
       plan.codegenProfile == descriptor.codegenProfile.toString &&

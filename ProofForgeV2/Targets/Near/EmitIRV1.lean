@@ -25,6 +25,8 @@ inductive Operation where
   /-- B-CTX-OPEN: block timestamp seconds — host `block_timestamp()` (ns)
       divided by 10^9 (truncating). -/
   | blockTimestampSeconds (destination : Nat)
+  /-- ADR-0031 S2: block height — host `block_index()` (u64, no conversion). -/
+  | blockIndex (destination : Nat)
   /-- ADR-0030 E2-NEAR: host `account_balance` → u128 LE scratch; trap if
       high 64 bits nonzero; low 64 bits → destination (UInt64 range guard). -/
   | accountBalance (destination : Nat)
@@ -271,6 +273,11 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
           { operations := #[.literal next 0], value := next, next := next + 1 }
   | .blockTimestampSeconds =>
       { operations := #[.blockTimestampSeconds next]
+        value := next
+        next := next + 1
+      }
+  | .blockIndex =>
+      { operations := #[.blockIndex next]
         value := next
         next := next + 1
       }
@@ -935,7 +942,7 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .storeState _ _ | .narrowStoreState _ _ _
   | .setLayout _ _ | .setReturnData _ _ | .setReturnDataLeaves _
   | .loadParam _ _ | .narrowLoadParam _ _ _
-  | .blockTimestampSeconds _ | .accountBalance _
+  | .blockTimestampSeconds _ | .blockIndex _ | .accountBalance _
   | .callerPrincipalLen _ | .callerPrincipalWord _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
@@ -1051,6 +1058,9 @@ private def renderImport : HostImport → String
       "  (import \"env\" \"panic_utf8\" (func $pf_panic_utf8 (param i64 i64)))\n"
   | .blockTimestamp =>
       "  (import \"env\" \"block_timestamp\" (func $pf_block_timestamp (result i64)))\n"
+  | .blockIndex =>
+      -- ADR-0031 S2: block_index returns u64 height (view-safe host read).
+      "  (import \"env\" \"block_index\" (func $pf_block_index (result i64)))\n"
   | .accountBalance =>
       -- ADR-0030 E2-NEAR: account_balance writes u128 LE to balance_ptr
       -- (same ABI shape as attached_deposit: one pointer param, void return).
@@ -1342,6 +1352,9 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .blockTimestampSeconds destination =>
       -- B-CTX-OPEN: host block_timestamp (ns) → whole seconds (truncating div).
       s!"{indent}(local.set $t{destination} (i64.div_u (call $pf_block_timestamp) (i64.const 1000000000)))\n"
+  | .blockIndex destination =>
+      -- ADR-0031 S2: host block_index → u64 height (no conversion).
+      s!"{indent}(local.set $t{destination} (call $pf_block_index))\n"
   | .accountBalance destination =>
       -- ADR-0030 E2-NEAR: host account_balance → u128 LE at depositOffset
       -- (shared 16-byte scratch with attached_deposit; not live simultaneously

@@ -179,6 +179,8 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .callerPrincipalLen => pure (encodeU8 43)
   | .callerPrincipalWord wordIndex =>
       pure ((encodeU8 44).append (← encodeNatAsU32le wordIndex))
+  -- ADR-0031 S2: block height / host block_index (tag 45 appended).
+  | .blockIndex => pure (encodeU8 45)
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

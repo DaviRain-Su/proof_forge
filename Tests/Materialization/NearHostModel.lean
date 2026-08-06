@@ -249,6 +249,9 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       -- Deterministic HostModel timestamp: fixed 1_700_000_000 seconds
       -- (B-CTX-OPEN; the sandbox supplies the real block timestamp).
       writeTemp machine destination (UInt64.ofNat 1700000000)
+  | .blockIndex destination =>
+      -- ADR-0031 S2: deterministic HostModel block height (sandbox supplies real).
+      writeTemp machine destination (UInt64.ofNat 42)
   | .accountBalance destination =>
       -- ADR-0030 E2-NEAR: deterministic HostModel native balance (fits UInt64).
       -- The sandbox supplies the real account_balance u128.
@@ -1112,6 +1115,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .checkInputLen _ => "checkInputLen"
     | .requireZeroAttachedDeposit => "requireZeroAttachedDeposit"
     | .blockTimestampSeconds _ => "blockTimestampSeconds"
+    | .blockIndex _ => "blockIndex"
     | .accountBalance _ => "accountBalance"
     | .callerPrincipalLen _ => "callerPrincipalLen"
     | .callerPrincipalWord _ _ => "callerPrincipalWord"
@@ -4170,6 +4174,8 @@ private unsafe def testContextReadTimestampNear (session : Language.Loader.Parse
   let plan ← liftResult <| Targets.Near.planFromCapability capability
   expect (plan.hostImports.contains .blockTimestamp)
     "clock-box: plan must import block_timestamp"
+  expect (!plan.hostImports.contains .blockIndex)
+    "clock-box: plan must not import block_index"
   let some stamp := plan.entries.find? (·.name == "stamp") |
     throw <| IO.userError "clock-box: missing stamp"
   let hasTs := stamp.body.any fun s =>
@@ -4180,6 +4186,76 @@ private unsafe def testContextReadTimestampNear (session : Language.Loader.Parse
         | _ => false
     | _ => false
   expect hasTs "clock-box: stamp must store blockTimestampSeconds"
+
+/-- ADR-0031 S2: `context.blockHeight` lowers on NEAR to host `block_index()`
+    (u64, no conversion). View-safe: admitted on view and entry; import present
+    iff the plan uses it; emitted WAT carries the host import. -/
+private unsafe def testContextReadBlockHeightNear (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program HeightBox where\n" ++
+    "  state h : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    h := 0\n\n" ++
+    "  entry stamp() : UInt64 do\n" ++
+    "    h := context.blockHeight\n" ++
+    "    return h\n\n" ++
+    "  view height() : UInt64 do\n" ++
+    "    return context.blockHeight\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-height-box>" "Examples.HeightBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.hostImports.contains .blockIndex)
+    "height-box: plan must import block_index"
+  expect (!plan.hostImports.contains .blockTimestamp)
+    "height-box: plan must not import block_timestamp"
+  let some stamp := plan.entries.find? (·.name == "stamp") |
+    throw <| IO.userError "height-box: missing stamp"
+  let hasIdx := stamp.body.any fun s =>
+    match s with
+    | .store op =>
+        match op.value with
+        | .blockIndex => true
+        | _ => false
+    | _ => false
+  expect hasIdx "height-box: stamp must store blockIndex"
+  let some height := plan.entries.find? (·.name == "height") |
+    throw <| IO.userError "height-box: missing height view"
+  let viewHasIdx := height.body.any fun s =>
+    match s with
+    | .returnValue (.blockIndex) => true
+    | _ => false
+  expect viewHasIdx "height-box: view must return blockIndex (view-safe)"
+  -- IR + WAT: host import and call present.
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir.imports.contains .blockIndex)
+    "height-box: IR must import block_index"
+  let some stampM := ir.methods.find? (·.name == "stamp") |
+    throw <| IO.userError "height-box: IR missing stamp"
+  expect (stampM.operations.any fun op =>
+      match op with | .blockIndex _ => true | _ => false)
+    "height-box: IR stamp must contain blockIndex op"
+  let some heightM := ir.methods.find? (·.name == "height") |
+    throw <| IO.userError "height-box: IR missing height"
+  expect (heightM.operations.any fun op =>
+      match op with | .blockIndex _ => true | _ => false)
+    "height-box: IR height view must contain blockIndex op"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "height-box: missing .wat artifact"
+  expectContains wat.contents
+    "\"block_index\" (func $pf_block_index (result i64))"
+    "height-box WAT block_index import"
+  expectContains wat.contents "(call $pf_block_index)"
+    "height-box WAT block_index call"
 
 /-- Encode Principal param leaves as 9×u64 LE (len + 8 body words) from a
     NEAR account-id string — matches `near_rpc.encode_principal_account_id`
@@ -5279,6 +5355,7 @@ unsafe def run : IO Unit := do
   testMapTokenDualStoreVisibility session
   testNamedStructProductPath session
   testContextReadTimestampNear session
+  testContextReadBlockHeightNear session
   testContextReadCallerNear session
   testNamedEnumProductPath session
   testOptionStateProductPath session
