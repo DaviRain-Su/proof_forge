@@ -80,6 +80,8 @@ fixtures=(
   MapMini
   PrincipalStore
   WideMul
+  WideDiv
+  WideDiv256
   PairRet
   MaybeRet
   ArrayRet

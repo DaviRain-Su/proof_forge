@@ -1729,6 +1729,370 @@ fn wide_mul_u256_overflow_0x1001() {
     );
 }
 
+// ─── WideDiv / WideDiv256 (multiword div/mod residual) ─────────────────────
+//
+// Split across two product ELFs so entrypoint discriminator jumps and
+// per-handler check exits stay inside SBPF's signed 16-bit instruction-slot
+// window (a combined 128+256 four-handler text exceeds that range).
+
+fn wide_div_fields() -> Vec<StateField> {
+    fields_with_widths(&[("result128", 16)])
+}
+
+fn wide_div_state(initialized: bool, result128: [u64; 2]) -> Vec<u8> {
+    let fields = wide_div_fields();
+    state_data_limbs(&fields, initialized, &[result128.as_slice()])
+}
+
+fn wide_div256_fields() -> Vec<StateField> {
+    fields_with_widths(&[("result256", 32)])
+}
+
+fn wide_div256_state(initialized: bool, result256: [u64; 4]) -> Vec<u8> {
+    let fields = wide_div256_fields();
+    state_data_limbs(&fields, initialized, &[result256.as_slice()])
+}
+
+/// Independent host oracle for multiword unsigned division.
+///
+/// Uses native `u128` for the 128-bit path and a host-side restoring long
+/// division for the 256-bit path. Production SBPF emits its own unrolled
+/// binary long division; this oracle is deliberately not shared with the
+/// emitter so the Mollusk pin is a true differential.
+fn checked_div_limbs<const N: usize>(lhs: [u64; N], rhs: [u64; N]) -> Option<[u64; N]> {
+    if rhs.iter().all(|&limb| limb == 0) {
+        return None;
+    }
+    if N == 2 {
+        let a = u128::from(lhs[0]) | (u128::from(lhs[1]) << 64);
+        let b = u128::from(rhs[0]) | (u128::from(rhs[1]) << 64);
+        let q = a / b;
+        let mut out = [0u64; N];
+        out[0] = q as u64;
+        out[1] = (q >> 64) as u64;
+        return Some(out);
+    }
+    // Restoring long division over base-2 (MSB-first), limb-little-endian.
+    let bit_width = N * 64;
+    let mut rem = [0u64; N];
+    let mut quot = [0u64; N];
+    for bit in (0..bit_width).rev() {
+        // rem = (rem << 1) | bit(lhs, bit)
+        let mut carry = 0u64;
+        for limb in rem.iter_mut() {
+            let next = (*limb >> 63) & 1;
+            *limb = (*limb << 1) | carry;
+            carry = next;
+        }
+        let src_limb = bit / 64;
+        let src_bit = bit % 64;
+        rem[0] |= (lhs[src_limb] >> src_bit) & 1;
+        // if rem >= rhs { rem -= rhs; set quot bit }
+        if limb_geq(&rem, &rhs) {
+            limb_sub_assign(&mut rem, &rhs);
+            quot[src_limb] |= 1u64 << src_bit;
+        }
+    }
+    Some(quot)
+}
+
+fn checked_mod_limbs<const N: usize>(lhs: [u64; N], rhs: [u64; N]) -> Option<[u64; N]> {
+    let q = checked_div_limbs(lhs, rhs)?;
+    // rem = lhs - q * rhs (exact, non-overflowing when q = floor(lhs/rhs)).
+    let prod = checked_mul_limbs(q, rhs).expect("q*rhs must fit when q = floor(lhs/rhs)");
+    let mut rem = lhs;
+    limb_sub_assign(&mut rem, &prod);
+    Some(rem)
+}
+
+fn limb_geq<const N: usize>(lhs: &[u64; N], rhs: &[u64; N]) -> bool {
+    for i in (0..N).rev() {
+        if lhs[i] != rhs[i] {
+            return lhs[i] > rhs[i];
+        }
+    }
+    true
+}
+
+fn limb_sub_assign<const N: usize>(lhs: &mut [u64; N], rhs: &[u64; N]) {
+    let mut borrow = 0u64;
+    for i in 0..N {
+        let (d, b1) = lhs[i].overflowing_sub(rhs[i]);
+        let (d, b2) = d.overflowing_sub(borrow);
+        lhs[i] = d;
+        borrow = u64::from(b1 | b2);
+    }
+    assert_eq!(borrow, 0, "limb_sub_assign underflow");
+}
+
+fn assert_wide_div_plan() {
+    assert_discriminators_match_plan_widths(
+        &fixture_plan_bytes("WideDiv"),
+        &[
+            ("initialize", vec![]),
+            ("div128", vec![16, 16]),
+            ("mod128", vec![16, 16]),
+        ],
+    );
+    let fields = wide_div_fields();
+    assert_eq!(fields[0].byte_offset, 8);
+    assert_eq!(exact_data_len_for_fields(&fields), 24);
+}
+
+fn assert_wide_div256_plan() {
+    assert_discriminators_match_plan_widths(
+        &fixture_plan_bytes("WideDiv256"),
+        &[
+            ("initialize", vec![]),
+            ("div256", vec![32, 32]),
+            ("mod256", vec![32, 32]),
+        ],
+    );
+    let fields = wide_div256_fields();
+    assert_eq!(fields[0].byte_offset, 8);
+    assert_eq!(exact_data_len_for_fields(&fields), 40);
+}
+
+/// High limbs nonzero: (2^64 + 6) / (2^64 + 2) = 1.
+#[test]
+fn wide_div_u128_high_limb_success() {
+    assert_wide_div_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideDiv");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("div128", &[16, 16]);
+    let lhs = [6u64, 1]; // 2^64 + 6
+    let rhs = [2u64, 1]; // 2^64 + 2
+    let expected = checked_div_limbs(lhs, rhs).expect("u128 quotient");
+    assert_eq!(expected, [1, 0]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(16, lhs.as_slice()), (16, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(&program_id, wide_div_state(true, [9, 10])),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&wide_div_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+/// High limbs nonzero: (2^64 + 6) % (2^64 + 2) = 4.
+#[test]
+fn wide_div_u128_mod_high_limb_success() {
+    assert_wide_div_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideDiv");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("mod128", &[16, 16]);
+    let lhs = [6u64, 1];
+    let rhs = [2u64, 1];
+    let expected = checked_mod_limbs(lhs, rhs).expect("u128 remainder");
+    assert_eq!(expected, [4, 0]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(16, lhs.as_slice()), (16, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(&program_id, wide_div_state(true, [9, 10])),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&wide_div_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+/// Divisor zero → Custom(0x1001) arithmetic family + full state rollback.
+#[test]
+fn wide_div_u128_div_by_zero_0x1001() {
+    assert_wide_div_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideDiv");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("div128", &[16, 16]);
+    let lhs = [1u64, 1]; // high limb nonzero
+    let rhs = [0u64, 0];
+    assert_eq!(checked_div_limbs(lhs, rhs), None);
+    let pre = wide_div_state(true, [9, 10]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(16, lhs.as_slice()), (16, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+/// Modulo by zero → same Custom(0x1001) family + full state rollback.
+#[test]
+fn wide_div_u128_mod_by_zero_0x1001() {
+    assert_wide_div_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideDiv");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("mod128", &[16, 16]);
+    let lhs = [3u64, 2];
+    let rhs = [0u64, 0];
+    assert_eq!(checked_mod_limbs(lhs, rhs), None);
+    let pre = wide_div_state(true, [9, 10]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(16, lhs.as_slice()), (16, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+/// High limbs nonzero: (3·2^192 + 15) / 3 = 2^192 + 5.
+#[test]
+fn wide_div_u256_high_limb_success() {
+    assert_wide_div256_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideDiv256");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("div256", &[32, 32]);
+    let lhs = [15u64, 0, 0, 3]; // 3·2^192 + 15
+    let rhs = [3u64, 0, 0, 0];
+    let expected = checked_div_limbs(lhs, rhs).expect("u256 quotient");
+    assert_eq!(expected, [5, 0, 0, 1]); // 2^192 + 5
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(32, lhs.as_slice()), (32, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(
+                &program_id,
+                wide_div256_state(true, [31, 32, 33, 34]),
+            ),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&wide_div256_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+/// High limbs nonzero: (5·2^192 + 17) % 5 = 2.
+#[test]
+fn wide_div_u256_mod_high_limb_success() {
+    assert_wide_div256_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideDiv256");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("mod256", &[32, 32]);
+    let lhs = [17u64, 0, 0, 5]; // 5·2^192 + 17
+    let rhs = [5u64, 0, 0, 0];
+    let expected = checked_mod_limbs(lhs, rhs).expect("u256 remainder");
+    assert_eq!(expected, [2, 0, 0, 0]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(32, lhs.as_slice()), (32, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(
+                &program_id,
+                wide_div256_state(true, [31, 32, 33, 34]),
+            ),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&wide_div256_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+/// UInt256 divisor zero → Custom(0x1001) + full state rollback.
+#[test]
+fn wide_div_u256_div_by_zero_0x1001() {
+    assert_wide_div256_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideDiv256");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("div256", &[32, 32]);
+    let lhs = [1u64, 0, 0, 1]; // high limb nonzero
+    let rhs = [0u64, 0, 0, 0];
+    assert_eq!(checked_div_limbs(lhs, rhs), None);
+    let pre = wide_div256_state(true, [31, 32, 33, 34]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(32, lhs.as_slice()), (32, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
 // ─── PrincipalStore (C-5/T12: Principal wire identity runtime) ─────────────
 
 const PRINCIPAL_LEAF_NAMES: [&str; 9] = [

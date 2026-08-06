@@ -910,11 +910,19 @@ private def allocTemps (b : AsmBuf) (n : Nat) : AsmBuf × Nat :=
     Fully unrolled over the bit width so every stack offset / shift count is
     a compile-time immediate (matches schoolbook mul style; no dynamic limb
     indexing). Scratch `rem`/`quot` temps are allocated from the AsmBuf cursor
-    and copied into `dest` so lhs/rhs aliasing is safe. -/
+    and copied into `dest` so lhs/rhs aliasing is safe.
+
+    Control-flow layout note (SBPF signed 16-bit jump offsets, lddw = 2
+    slots): the zero-divisor exit is emitted immediately after the OR-fold
+    check, with a short ja into the unrolled body. Emitting the exit after
+    a 128-bit or 256-bit unrolled loop makes jeq-to-errLab exceed the
+    signed 16-bit instruction-slot range and fails the runtime verifier
+    (JumpOutOfCode). Per-bit sub/nb/bset jumps stay local. -/
 private def emitMultiwordDivMod (b : AsmBuf) (tempBase dest lhs rhs errorCode nLimbs : Nat)
     (kind : String) : AsmBuf :=
   Id.run do
     let (b, errLab) := fresh b s!"err_mw{kind}"
+    let (b, bodyLab) := fresh b s!"body_mw{kind}"
     let (b, okLab) := fresh b s!"ok_mw{kind}"
     let nBits := nLimbs * 64
     -- rem[0 .. nLimbs-1] + remHi (extra limb for the left-shift digit)
@@ -927,7 +935,12 @@ private def emitMultiwordDivMod (b : AsmBuf) (tempBase dest lhs rhs errorCode nL
     for i in [:nLimbs] do
       b := loadTemp b "r2" tempBase (rhs + i)
       b := emit b "  or64 r1, r2"
+    -- Short-range zero exit: err block sits before the unrolled body so the
+    -- `jeq`/`ja` offsets stay within SBPF's signed 16-bit jump window.
     b := emit b s!"  jeq r1, 0, {errLab}"
+    b := emit b s!"  ja {bodyLab}"
+    b := emitErrorExit b errLab errorCode
+    b := emit b s!"{bodyLab}:"
     -- zero rem (incl. high) and quot
     b := emit b "  lddw r1, 0"
     for i in [:nLimbs + 1] do
@@ -1021,8 +1034,7 @@ private def emitMultiwordDivMod (b : AsmBuf) (tempBase dest lhs rhs errorCode nL
       for t in [:nLimbs] do
         b := loadTempAbs b "r1" (rem + t)
         b := storeTemp b tempBase (dest + t) "r1"
-    b := emit b s!"  ja {okLab}"
-    b := emitErrorExit b errLab errorCode
+    -- Fall through to the success join (no long-range jump).
     emit b s!"{okLab}:"
 
 /-- Schoolbook multiword checked mul (Solana lane: UInt128=2 limbs / UInt256=4 limbs).
@@ -2073,14 +2085,22 @@ end
 private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR) :
     CompileResult AsmBuf := do
   let errLab := s!"err_check_{asmLabel handler.name}"
+  let bodyLab := s!"body_{asmLabel handler.name}"
   let mut b := b0
   for check in handler.checks do
     b ← emitCheck b check errLab
+  -- Keep the Custom(1) check-fail exit *before* the operation body so that
+  -- pre-body check jumps stay inside SBPF's signed 16-bit offset window even
+  -- when the body is a multiword long-division unroll (tens of thousands of
+  -- instruction slots). A post-body err label would make early checks
+  -- JumpOutOfCode on UInt256-scale handlers.
+  b := emit b s!"  ja {bodyLab}"
+  b := emitErrorExit b errLab 1
+  b := emit b s!"{bodyLab}:"
   b ← emitOperations b ir 0 none 0 handler.operations
   -- Fallthrough success after set_return_data (syscall does not halt).
   b := emit b "  lddw r0, 0"
   b := emit b "  exit"
-  b := emitErrorExit b errLab 1
   pure b
 
 /-- Emit entrypoint discriminator dispatch for all handlers. -/
