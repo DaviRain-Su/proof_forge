@@ -273,6 +273,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Product.TipJarSolanaV1,
     `Tests.Product.TokenJarSolanaV1,
     `Tests.Product.MiniAmmSolanaV1,
+    `Tests.Product.BodyCpiMapTipSolanaV1,
     `Tests.Product.TipJarNearV1,
     `Tests.Materialization.NearPfAssetsV1,
     `Tests.Product.TipJarCosmWasmV1,

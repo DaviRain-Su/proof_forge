@@ -104,5 +104,7 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
     (`admitProductExternalCall`) + empty-meta `sol_invoke_signed_c` 同 ELF
     （钉测 `BodyCpiIfPay`；IR 标记 `p3d-partial-empty-meta`）。**不是** multi-role
     AccountMeta / PDA / Token 成熟度；TipJar 直通仍 escrow multi-role。
+  - **P3-f Map+CPI demo 已绿**：`Examples/BodyCpiMapTip`（Map Principal + transfer +
+    scratch 纪律）product pin / synthesize 路径；仍 empty-meta partial。
   - P3-h 多账户 layout + MiniAmmHybrid Mollusk 11/11 已先完成。P3-e multi-role
-    site recipes、P3-f Map+CPI 真成熟、P3-g IR digest、P4 默认 profile 仍后续。
+    site recipes、P3-g IR digest、P4 默认 profile 仍后续。

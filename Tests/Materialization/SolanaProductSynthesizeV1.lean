@@ -151,9 +151,34 @@ private unsafe def testTipJarStillBuildsViaSynthesizeDispatch : IO Unit := do
     "TipJar assembly must still invoke signed"
   IO.println "  TipJar synthesize→escrow path ok"
 
+/-- P3-f: shipped Map+CPI demo builds via synthesize (scratch discipline). -/
+private unsafe def testP3fBodyCpiMapTipShipped : IO Unit := do
+  let path := FilePath.mk "Examples/BodyCpiMapTip.lean"
+  unless ← path.pathExists do
+    throw <| IO.userError "Examples/BodyCpiMapTip.lean missing"
+  let text ← IO.FS.readFile path
+  let session ← Tests.Language.ParserSession.shared
+  let compiled ← compileSourceText session text
+    "Examples/BodyCpiMapTip.lean" "Examples.BodyCpiMapTip"
+  let capability ← resolveSolanaCpi compiled
+  let files ← expectOk (buildFromCapability capability)
+    "BodyCpiMapTip buildFromCapability"
+  expect (files.any fun f => f.path == "BodyCpiMapTip.s")
+    "BodyCpiMapTip must emit .s"
+  let some ir := files.find? (·.path == "BodyCpiMapTip.cpi-ir.json") |
+    throw <| IO.userError "missing BodyCpiMapTip.cpi-ir.json"
+  expect (containsSubstr ir.contents "p3d-partial-empty-meta")
+    s!"MapTip cpi-ir must be p3d-partial, got={ir.contents}"
+  let some asm := files.find? (·.path == "BodyCpiMapTip.s") |
+    throw <| IO.userError "missing BodyCpiMapTip.s"
+  expect (containsSubstr asm.contents "sol_invoke_signed_c")
+    "MapTip body must emit empty-meta sol_invoke_signed_c"
+  IO.println "  P3-f BodyCpiMapTip synthesize ok"
+
 unsafe def run : IO Unit := do
   testEscrowFramePinsCompatible
   testP3dPartialBodyCpiIfPay
+  testP3fBodyCpiMapTipShipped
   testTipJarStillBuildsViaSynthesizeDispatch
   IO.println "Tests.Materialization.SolanaProductSynthesizeV1: ok"
 
