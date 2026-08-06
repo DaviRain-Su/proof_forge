@@ -56,11 +56,14 @@ allocates return-data slots, event buffers, and callee frames.
 
 ## S1b support surface
 
-Checks (handler order): num_accounts==1, account[0] non-dup `0xff`,
+Checks (handler order): num_accounts==1|2, account[0] non-dup `0xff`,
 instruction_data_len, owner==current_program, data_len, signer, writable,
-headerEquals (account[0] only). Entrypoint re-emits the account-list shape
-pair before any fixed `INSTRUCTION_*` / `ACC0_*` load so 0/2-account and
-duplicate encodings fail closed with program_error 1.
+headerEquals (account[0] only). When `admitCallerRole`, also account[1]
+non-dup `0xff` + is_signer (pf_caller; header base = single-account
+`INSTRUCTION_DATA_LEN` when account[1] has `data_len=0`). Entrypoint
+re-emits the account-list shape pair (still count==1) before any fixed
+`INSTRUCTION_*` / `ACC0_*` load so 0/2-account and duplicate encodings fail
+closed with program_error 1 on the legacy single-account dispatch path.
 
 Ops: literal, loadParam, loadState, checkedAdd/Sub/Mul/Div/Mod,
 bitAnd/Or/Xor/Not, checkedShl/Shr, boolNot/And/Or, zeroState, storeState,
@@ -74,7 +77,8 @@ expand), emitEvent (`sol_log_data`), externalCall/schedule (real CPI via
 
 ## Fail closed
 
-* non-zero account indices
+* account indices outside `{0,1}` for signer / non-dup; other checks still
+  account[0] only
 * callFn index OOB / inline depth > `ir.fns.size`
 * frame budget: `(cursorFinal+1)*8 > maxSbpfStackBytesV1` (4096)
 * IR hard-exit `returnNone` inside pureFn is a no-op when inlined (value already
@@ -335,8 +339,12 @@ private def emitCheck (b : AsmBuf) (check : Check) (errLab : String) :
         let b := emit b s!"  jne r1, 0xff, {errLab}"
         pure b
       else
-        -- account[1] non-dup: layout-dependent; signer check is the authority.
-        let b := emit b "  ; account[1] non-dup deferred (signer check is gate)"
+        -- account[1] (pf_caller): header base equals single-account
+        -- INSTRUCTION_DATA_LEN offset when data_len=0 (same layout fact as
+        -- callerPrincipalLeaf: key at base+0x08).
+        let b := emit b "  ; check account[1].dup_marker == 0xff"
+        let b := emit b "  ldxb r1, [r6 + INSTRUCTION_DATA_LEN + 0]"
+        let b := emit b s!"  jne r1, 0xff, {errLab}"
         pure b
   | .instructionDataLen bytes =>
       let b := emit b s!"  ; check instruction_data_len == {bytes}"
@@ -380,8 +388,11 @@ private def emitCheck (b : AsmBuf) (check : Check) (errLab : String) :
         let b := emit b s!"  jeq r1, 0, {errLab}"
         pure b
       else
-        -- ADR-0032: pf_caller on account[1]; multi-account layout hardening follow-up.
-        let b := emit b "  ; account[1] is_signer deferred to full multi-account layout"
+        -- ADR-0032: pf_caller on account[1]. Header base =
+        -- single-account INSTRUCTION_DATA_LEN; is_signer is header byte +1.
+        let b := emit b "  ; check account[1].is_signer"
+        let b := emit b "  ldxb r1, [r6 + INSTRUCTION_DATA_LEN + 1]"
+        let b := emit b s!"  jeq r1, 0, {errLab}"
         pure b
   | .writable accountIndex =>
       unless accountIndex == 0 do
