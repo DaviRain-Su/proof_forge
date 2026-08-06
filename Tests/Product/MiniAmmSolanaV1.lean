@@ -51,8 +51,18 @@ private def assertShape (text : String) : IO Unit := do
     "must declare addLiquidity"
   expect (containsSubstr text "entry swap0to1")
     "must declare swap0to1"
+  expect (containsSubstr text "entry swap1to0")
+    "must declare swap1to0 (M0 bidirectional)"
+  expect (containsSubstr text "entry removeLiquidity")
+    "must declare removeLiquidity (M0)"
+  expect (containsSubstr text "amountOutMin")
+    "swaps must take amountOutMin (true slippage gate)"
+  expect (containsSubstr text "scratch2 < scratch")
+    "later LP must use bilateral min (scratch2 < scratch branch)"
   expect (containsSubstr text "state scratch : UInt64")
     "must use scratch UInt64 across Map effect boundary"
+  expect (containsSubstr text "state scratch2 : UInt64")
+    "must use scratch2 for second LP/remove intermediate"
   -- Zero CPI sites: hybrid full-body pin, not pf.assets escrow path.
   expect (!containsSubstr text "requires extension pf.assets")
     "MiniAmm must not require pf.assets (zero-site hybrid body)"
@@ -151,6 +161,10 @@ private def testSolanaCpiBuildAndInspect : IO Unit := do
     "cpi-plan/handlers must list addLiquidity"
   expect (containsSubstr plan "swap0to1")
     "cpi-plan/handlers must list swap0to1"
+  expect (containsSubstr plan "swap1to0")
+    "cpi-plan/handlers must list swap1to0"
+  expect (containsSubstr plan "removeLiquidity")
+    "cpi-plan/handlers must list removeLiquidity"
   let evidence ← IO.FS.readFile (outDir / "evidence.json")
   -- P3-g: content-bound full-body hybrid irDigest (sha256:…), not literal marker.
   expect (containsSubstr evidence "irDigest=sha256:")

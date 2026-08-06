@@ -5,14 +5,15 @@
 //! (full-body hybrid: zero CPI sites, multi-block/Map + context.caller) and
 //! loads the manifest-bound `MiniAmmHybrid.so` into Mollusk.
 //!
-//! Product surface (EmitSbpfAsm discriminator ABI, not handlerId):
-//! - `initialize()` disc `initialize()` — state w+s (plan); hybrid asm wants 2
-//! - `addLiquidity(amount0, amount1)` — state w + pf_caller signer
-//! - `swap0to1(amountIn)` — state w (plan); hybrid asm still checks 2 accounts
+//! Product surface (EmitSbpfAsm discriminator ABI, not handlerId) — M0 math:
+//! - `initialize()` — state w+s + pf_caller
+//! - `addLiquidity(amount0, amount1)` — bilateral min LP after first mint
+//! - `swap0to1(amountIn, amountOutMin)` / `swap1to0(amountIn, amountOutMin)`
+//! - `removeLiquidity(lpAmount)` — burn caller LP, return amount0 out
 //! - views `getReserve0` / `getReserve1` / `getTotalSupply` / `balanceOf(who)`
 //!
-//! State layout (exactDataLen=392):
-//! - header layout marker + reserve0/1 + totalSupply + scratch (4×UInt64)
+//! State layout (exactDataLen=400):
+//! - header layout marker + reserve0/1 + totalSupply + scratch + scratch2 (5×UInt64)
 //! - balances: Map Principal UInt64 dense cap-4 → 44 leaves
 //!   (per slot: occ + 9 Principal key leaves + val)
 //!
@@ -58,21 +59,22 @@ const PROGRAM_NAME: &str = "MiniAmmHybrid";
 const MODULE_NAME: &str = "Examples.MiniAmmHybrid";
 const SOURCE_REL: &str = "runtime-tests/solana/fixtures/MiniAmmHybrid.lean";
 /// Canonical ProgramV1 source identity for the tracked fixture above.
+/// Re-pin after M0 API/math change (build once and copy sourceHash from manifest).
 const EXPECTED_SOURCE_HASH: &str =
-    "604c96c008649e53e35a59d8f5fbf7b10e632b53764c65fb2c23e4656afc4e18";
+    "7bb5ba200e04f6faf958fdb13b0f582fa39218172af51c6bcce0b2b908c11af0";
 const MATERIALIZED_BASE: &str = "materialized-base";
 const FINALIZED_EXTRA: &str = "finalized-extra";
 
-/// Plan/LowerSemantic: 4 scalar UInt64 + Map Principal UInt64 cap-4 (44 leaves).
-const SCALAR_COUNT: usize = 4;
+/// Plan/LowerSemantic: 5 scalar UInt64 + Map Principal UInt64 cap-4 (44 leaves).
+const SCALAR_COUNT: usize = 5;
 const MAP_LEAF_COUNT: usize = 44;
-const TOTAL_FIELDS: usize = SCALAR_COUNT + MAP_LEAF_COUNT; // 48
-const EXACT_DATA_LEN: usize = STATE_HEADER_BYTES + TOTAL_FIELDS * 8; // 392
+const TOTAL_FIELDS: usize = SCALAR_COUNT + MAP_LEAF_COUNT; // 49
+const EXACT_DATA_LEN: usize = STATE_HEADER_BYTES + TOTAL_FIELDS * 8; // 400
 const MAP_SLOTS: usize = 4;
 const MAP_LEAVES_PER_SLOT: usize = 11; // occ + 9 principal + val
 const PRINCIPAL_LEAF_COUNT: usize = 9;
 
-const EXPECTED_LAYOUT_MARKER_HEX: &str = "59796935962de4e1";
+const EXPECTED_LAYOUT_MARKER_HEX: &str = "b8d352cbbfe6cd3b";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -417,11 +419,12 @@ fn balance_leaf_names() -> &'static [&'static str] {
 
 fn miniamm_fields() -> Vec<StateField> {
     let mut fields = Vec::with_capacity(TOTAL_FIELDS);
-    let scalars: [(&'static str, u64); 4] = [
+    let scalars: [(&'static str, u64); 5] = [
         ("reserve0", 0),
         ("reserve1", 1),
         ("totalSupply", 2),
         ("scratch", 3),
+        ("scratch2", 4),
     ];
     for (i, (name, sid)) in scalars.iter().enumerate() {
         fields.push(StateField {
@@ -433,7 +436,7 @@ fn miniamm_fields() -> Vec<StateField> {
     }
     for (i, name) in balance_leaf_names().iter().enumerate() {
         fields.push(StateField {
-            source_id: 4,
+            source_id: 5,
             name,
             byte_offset: STATE_HEADER_BYTES + (SCALAR_COUNT + i) * 8,
             byte_width: 8,
@@ -484,6 +487,7 @@ fn state_with(
     reserve1: u64,
     total_supply: u64,
     scratch: u64,
+    scratch2: u64,
     entries: &[([u64; PRINCIPAL_LEAF_COUNT], u64)],
 ) -> Vec<u8> {
     assert!(entries.len() <= MAP_SLOTS);
@@ -492,6 +496,7 @@ fn state_with(
     data[16..24].copy_from_slice(&reserve1.to_le_bytes());
     data[24..32].copy_from_slice(&total_supply.to_le_bytes());
     data[32..40].copy_from_slice(&scratch.to_le_bytes());
+    data[40..48].copy_from_slice(&scratch2.to_le_bytes());
     let map_base = STATE_HEADER_BYTES + SCALAR_COUNT * 8;
     for (slot, (key_leaves, val)) in entries.iter().enumerate() {
         let base = map_base + slot * MAP_LEAVES_PER_SLOT * 8;
@@ -506,23 +511,55 @@ fn state_with(
     data
 }
 
-/// Independent MiniAmm math (Examples/MiniAmm honest subset).
+/// Independent MiniAmm math (Examples/MiniAmm M0; matches MiniAmmVectorsV1).
 fn oracle_first_mint(amount0: u64) -> u64 {
     amount0
 }
 
-fn oracle_later_mint(amount0: u64, total_supply: u64, reserve0: u64) -> u64 {
-    amount0
+fn oracle_later_mint(
+    amount0: u64,
+    amount1: u64,
+    total_supply: u64,
+    reserve0: u64,
+    reserve1: u64,
+) -> u64 {
+    let lp0 = amount0
         .checked_mul(total_supply)
-        .expect("oracle mul")
+        .expect("oracle mul lp0")
         .checked_div(reserve0)
-        .expect("oracle div")
+        .expect("oracle div lp0");
+    let lp1 = amount1
+        .checked_mul(total_supply)
+        .expect("oracle mul lp1")
+        .checked_div(reserve1)
+        .expect("oracle div lp1");
+    lp0.min(lp1)
 }
 
 fn oracle_swap0to1(amount_in: u64, reserve0: u64, reserve1: u64) -> u64 {
     let num = amount_in.checked_mul(reserve1).expect("oracle mul");
     let den = reserve0.checked_add(amount_in).expect("oracle add");
     num.checked_div(den).expect("oracle div")
+}
+
+fn oracle_swap1to0(amount_in: u64, reserve0: u64, reserve1: u64) -> u64 {
+    let num = amount_in.checked_mul(reserve0).expect("oracle mul");
+    let den = reserve1.checked_add(amount_in).expect("oracle add");
+    num.checked_div(den).expect("oracle div")
+}
+
+fn oracle_remove_amount0(lp: u64, reserve0: u64, total_supply: u64) -> u64 {
+    lp.checked_mul(reserve0)
+        .expect("oracle mul")
+        .checked_div(total_supply)
+        .expect("oracle div")
+}
+
+fn oracle_remove_amount1(lp: u64, reserve1: u64, total_supply: u64) -> u64 {
+    lp.checked_mul(reserve1)
+        .expect("oracle mul")
+        .checked_div(total_supply)
+        .expect("oracle div")
 }
 
 fn disc_initialize() -> String {
@@ -534,7 +571,15 @@ fn disc_add_liquidity() -> String {
 }
 
 fn disc_swap0to1() -> String {
-    instruction_discriminator("swap0to1", 1)
+    instruction_discriminator("swap0to1", 2)
+}
+
+fn disc_swap1to0() -> String {
+    instruction_discriminator("swap1to0", 2)
+}
+
+fn disc_remove_liquidity() -> String {
+    instruction_discriminator("removeLiquidity", 1)
 }
 
 fn disc_get_reserve0() -> String {
@@ -583,12 +628,46 @@ fn ix_swap0to1(
     state_key: Pubkey,
     caller_key: Pubkey,
     amount_in: u64,
+    amount_out_min: u64,
 ) -> Instruction {
     // Hybrid admitCaller: always two accounts (state + pf_caller), even if
     // this handler does not read context.caller.
     Instruction::new_with_bytes(
         program_id,
-        &instruction_data(&disc_swap0to1(), &[amount_in]),
+        &instruction_data(&disc_swap0to1(), &[amount_in, amount_out_min]),
+        vec![
+            AccountMeta::new(state_key, false),
+            AccountMeta::new_readonly(caller_key, true),
+        ],
+    )
+}
+
+fn ix_swap1to0(
+    program_id: Pubkey,
+    state_key: Pubkey,
+    caller_key: Pubkey,
+    amount_in: u64,
+    amount_out_min: u64,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        program_id,
+        &instruction_data(&disc_swap1to0(), &[amount_in, amount_out_min]),
+        vec![
+            AccountMeta::new(state_key, false),
+            AccountMeta::new_readonly(caller_key, true),
+        ],
+    )
+}
+
+fn ix_remove_liquidity(
+    program_id: Pubkey,
+    state_key: Pubkey,
+    caller_key: Pubkey,
+    lp_amount: u64,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        program_id,
+        &instruction_data(&disc_remove_liquidity(), &[lp_amount]),
         vec![
             AccountMeta::new(state_key, false),
             AccountMeta::new_readonly(caller_key, true),
@@ -628,14 +707,20 @@ fn product_tree_is_manifest_bound_cpi_hybrid() {
     assert_eq!(roles[1]["name"], serde_json::json!("pf_caller"));
 
     let handlers = plan["handlers"].as_array().expect("handlers");
-    assert_eq!(handlers.len(), 7, "init + addLiquidity + swap + 4 views");
+    assert_eq!(
+        handlers.len(),
+        9,
+        "init + add + swap0 + swap1 + remove + 4 views"
+    );
     assert_eq!(handlers[0]["name"], serde_json::json!("init"));
     assert_eq!(handlers[1]["name"], serde_json::json!("addLiquidity"));
     assert_eq!(handlers[2]["name"], serde_json::json!("swap0to1"));
-    assert_eq!(handlers[3]["name"], serde_json::json!("getReserve0"));
-    assert_eq!(handlers[4]["name"], serde_json::json!("getReserve1"));
-    assert_eq!(handlers[5]["name"], serde_json::json!("getTotalSupply"));
-    assert_eq!(handlers[6]["name"], serde_json::json!("balanceOf"));
+    assert_eq!(handlers[3]["name"], serde_json::json!("swap1to0"));
+    assert_eq!(handlers[4]["name"], serde_json::json!("removeLiquidity"));
+    assert_eq!(handlers[5]["name"], serde_json::json!("getReserve0"));
+    assert_eq!(handlers[6]["name"], serde_json::json!("getReserve1"));
+    assert_eq!(handlers[7]["name"], serde_json::json!("getTotalSupply"));
+    assert_eq!(handlers[8]["name"], serde_json::json!("balanceOf"));
 
     // addLiquidity must require pf_caller outer signer.
     let add_uses = handlers[1]["accountUses"].as_array().expect("add uses");
@@ -679,18 +764,20 @@ fn product_tree_is_manifest_bound_cpi_hybrid() {
 fn independent_layout_marker_matches_plan() {
     let marker = layout_marker_u64();
     assert_eq!(format!("{marker:016x}"), EXPECTED_LAYOUT_MARKER_HEX);
-    assert_eq!(EXACT_DATA_LEN, 392);
+    assert_eq!(EXACT_DATA_LEN, 400);
     assert_eq!(empty_initialized_state().len(), EXACT_DATA_LEN);
 }
 
 #[test]
-fn independent_math_oracle_matches_miniamm_subset() {
-    // first deposit: LP = amount0
-    assert_eq!(oracle_first_mint(100), 100);
-    // later: LP = amount0 * totalSupply / reserve0
-    assert_eq!(oracle_later_mint(50, 100, 100), 50);
-    // swap0to1: amountIn * r1 / (r0 + amountIn)
-    assert_eq!(oracle_swap0to1(50, 100, 200), 66);
+fn independent_math_oracle_matches_miniamm_m0_vectors() {
+    // M0 canonical vectors (Tests.Semantic.MiniAmmVectorsV1)
+    assert_eq!(oracle_first_mint(1000), 1000);
+    assert_eq!(oracle_later_mint(500, 1000, 1000, 1000, 2000), 500);
+    assert_eq!(oracle_later_mint(500, 100, 1000, 1000, 2000), 50);
+    assert_eq!(oracle_swap0to1(100, 1000, 2000), 181);
+    assert_eq!(oracle_swap1to0(181, 1100, 1819), 99);
+    assert_eq!(oracle_remove_amount0(500, 1000, 1000), 500);
+    assert_eq!(oracle_remove_amount1(500, 2000, 1000), 1000);
 }
 
 #[test]
@@ -819,7 +906,7 @@ fn b_first_add_liquidity_mints_lp_to_caller() {
     let amount1 = 200u64;
     let minted = oracle_first_mint(amount0);
     let caller_leaves = principal_leaves_from_pubkey(&caller_key);
-    let expected = state_with(amount0, amount1, minted, minted, &[(caller_leaves, minted)]);
+    let expected = state_with(amount0, amount1, minted, minted, 0, &[(caller_leaves, minted)]);
 
     let result = mollusk.process_and_validate_instruction(
         &ix_add_liquidity(program_id, state_key, caller_key, amount0, amount1),
@@ -851,17 +938,18 @@ fn c_swap0to1_updates_reserves() {
     let amount_out = oracle_swap0to1(amount_in, r0, r1);
     assert_eq!(amount_out, 66);
     let caller_leaves = principal_leaves_from_pubkey(&caller_key);
-    let pre = state_with(r0, r1, 100, 100, &[(caller_leaves, 100)]);
+    let pre = state_with(r0, r1, 100, 100, 0, &[(caller_leaves, 100)]);
     let expected = state_with(
         r0 + amount_in,
         r1 - amount_out,
         100,
         amount_out,
+        0,
         &[(caller_leaves, 100)],
     );
 
     let result = mollusk.process_and_validate_instruction(
-        &ix_swap0to1(program_id, state_key, caller_key, amount_in),
+        &ix_swap0to1(program_id, state_key, caller_key, amount_in, 0),
         &[
             (state_key, state_account(&program_id, pre)),
             (caller_key, system_empty_account(BASE_LAMPORTS)),
@@ -883,18 +971,14 @@ fn d_second_add_liquidity_uses_later_formula() {
     let caller_key = fixed_key(0x61);
     let caller_leaves = principal_leaves_from_pubkey(&caller_key);
     // Pre: after first mint 100/200, LP=100.
-    let pre = state_with(100, 200, 100, 100, &[(caller_leaves, 100)]);
+    let pre = state_with(100, 200, 100, 100, 0, &[(caller_leaves, 100)]);
     let amount0 = 50u64;
     let amount1 = 50u64;
-    let minted = oracle_later_mint(amount0, 100, 100);
-    assert_eq!(minted, 50);
-    let expected = state_with(
-        150,
-        250,
-        150,
-        minted,
-        &[(caller_leaves, 150)],
-    );
+    // Bilateral min: min(50*100/100, 50*100/200) = min(50, 25) = 25
+    let minted = oracle_later_mint(amount0, amount1, 100, 100, 200);
+    assert_eq!(minted, 25);
+    // scratch2 retains the losing min side (lp1) after bilateral min into scratch.
+    let expected = state_with(150, 250, 125, minted, 25, &[(caller_leaves, 125)]);
 
     let result = mollusk.process_and_validate_instruction(
         &ix_add_liquidity(program_id, state_key, caller_key, amount0, amount1),
@@ -918,11 +1002,11 @@ fn e_zero_amount_swap_fails() {
     let state_key = fixed_key(0x70);
     let caller_key = fixed_key(0x71);
     let caller_leaves = principal_leaves_from_pubkey(&caller_key);
-    let pre = state_with(100, 200, 100, 100, &[(caller_leaves, 100)]);
+    let pre = state_with(100, 200, 100, 100, 0, &[(caller_leaves, 100)]);
     // Assertion failed → Custom(0x1002) per LowerSemantic assertionFailedError.
     assert_failure_preserves_exact_accounts(
         &mollusk,
-        &ix_swap0to1(program_id, state_key, caller_key, 0),
+        &ix_swap0to1(program_id, state_key, caller_key, 0, 0),
         &[
             (state_key, state_account(&program_id, pre)),
             (caller_key, system_empty_account(BASE_LAMPORTS)),

@@ -166,8 +166,8 @@ if ! amm_tree_matches_profile "$amm_bin"; then
 fi
 
 [[ -f "$amm_abi" ]] || die "missing MiniAmm.abi.json"
-# Surface pin: addLiquidity / swap0to1 / balanceOf must appear in product ABI.
-for name in addLiquidity swap0to1 balanceOf getReserve0 getReserve1 getTotalSupply; do
+# Surface pin: M0 entries/views must appear in product ABI.
+for name in addLiquidity swap0to1 swap1to0 removeLiquidity balanceOf getReserve0 getReserve1 getTotalSupply; do
   if ! grep -q "\"name\":\"$name\"" "$amm_abi" && ! grep -q "\"name\": \"$name\"" "$amm_abi"; then
     die "MiniAmm.abi.json missing $name"
   fi
@@ -408,23 +408,25 @@ require_uint_equal "$("$cast_path" call --rpc-url "$rpc" --from "$eoa" "$addr" "
 echo "evm-mini-amm-anvil: addLiquidity ok r0=$amount0 r1=$amount1 supply=$amount0 bal(caller)=$amount0" >&2
 
 # ---------------------------------------------------------------------------
-# 3. swap0to1(100): amountOut = amountIn * r1 / (r0 + amountIn)  (fee-free)
+# 3. swap0to1(100, minOut=181): amountOut = amountIn * r1 / (r0 + amountIn)
 #    100 * 2000 / (1000 + 100) = 200000 / 1100 = 181 (UInt64 integer div)
 # ---------------------------------------------------------------------------
 amount_in=100
 expected_out=181
 expected_r0=1100
 expected_r1=1819
+min_out_ok=181
+min_out_fail=182
 
 # Simulate return via eth_call first (state unchanged on call).
 sim_out="$("$cast_path" call --rpc-url "$rpc" --from "$eoa" "$addr" \
-  'swap0to1(uint64)(uint64)' "$amount_in")"
+  'swap0to1(uint64,uint64)(uint64)' "$amount_in" "$min_out_ok")"
 require_uint_equal "$sim_out" "$expected_out" "swap0to1 eth_call amountOut"
 require_uint_gt "$sim_out" "0" "amountOut must be > 0"
 
-require_send_ok "swap0to1($amount_in) failed" \
+require_send_ok "swap0to1($amount_in,$min_out_ok) failed" \
   --rpc-url "$rpc" --private-key "$pk" \
-  "$addr" 'swap0to1(uint64)' "$amount_in"
+  "$addr" 'swap0to1(uint64,uint64)' "$amount_in" "$min_out_ok"
 
 require_uint_equal "$("$cast_path" call --rpc-url "$rpc" "$addr" 'getReserve0()(uint64)')" "$expected_r0" \
   "after swap0to1 getReserve0"
@@ -438,11 +440,23 @@ require_uint_equal "$("$cast_path" call --rpc-url "$rpc" --from "$eoa" "$addr" "
 echo "evm-mini-amm-anvil: swap0to1 ok amountOut=$expected_out r0=$expected_r0 r1=$expected_r1" >&2
 
 # ---------------------------------------------------------------------------
-# 4. Negative: amountIn=0 reverts; reserves hold
+# 4. True slippage fail: minOut=182 > out=181 reverts; state holds (post-swap3)
 # ---------------------------------------------------------------------------
-require_send_revert "swap0to1(0) unexpectedly succeeded" \
+require_send_revert "swap0to1 minOut=182 unexpectedly succeeded" \
   --rpc-url "$rpc" --private-key "$pk" \
-  "$addr" 'swap0to1(uint64)' 0
+  "$addr" 'swap0to1(uint64,uint64)' "$amount_in" "$min_out_fail"
+require_uint_equal "$("$cast_path" call --rpc-url "$rpc" "$addr" 'getReserve0()(uint64)')" "$expected_r0" \
+  "slippage fail must leave reserve0 unchanged"
+require_uint_equal "$("$cast_path" call --rpc-url "$rpc" "$addr" 'getReserve1()(uint64)')" "$expected_r1" \
+  "slippage fail must leave reserve1 unchanged"
+echo "evm-mini-amm-anvil: neg swap0to1 amountOutMin fail reverts (state held)" >&2
+
+# ---------------------------------------------------------------------------
+# 5. Negative: amountIn=0 reverts; reserves hold
+# ---------------------------------------------------------------------------
+require_send_revert "swap0to1(0,*) unexpectedly succeeded" \
+  --rpc-url "$rpc" --private-key "$pk" \
+  "$addr" 'swap0to1(uint64,uint64)' 0 0
 require_uint_equal "$("$cast_path" call --rpc-url "$rpc" "$addr" 'getReserve0()(uint64)')" "$expected_r0" \
   "swap0to1(0) must leave reserve0 unchanged"
 require_uint_equal "$("$cast_path" call --rpc-url "$rpc" "$addr" 'getReserve1()(uint64)')" "$expected_r1" \
@@ -456,5 +470,34 @@ require_send_revert "addLiquidity(0,1) unexpectedly succeeded" \
 require_uint_equal "$("$cast_path" call --rpc-url "$rpc" "$addr" 'getReserve0()(uint64)')" "$expected_r0" \
   "addLiquidity(0,1) must leave reserve0 unchanged"
 
-echo "evm-mini-amm-anvil: ok deploy+addLiquidity+swap0to1+neg-zero on $addr (mode=$deploy_mode)" >&2
+# ---------------------------------------------------------------------------
+# 6. reverse swap1to0(181, minOut=99) → 99; restores toward initial pool
+# ---------------------------------------------------------------------------
+rev_in=181
+rev_out=99
+rev_r0=1001
+rev_r1=2000
+require_send_ok "swap1to0($rev_in,99) failed" \
+  --rpc-url "$rpc" --private-key "$pk" \
+  "$addr" 'swap1to0(uint64,uint64)' "$rev_in" 99
+require_uint_equal "$("$cast_path" call --rpc-url "$rpc" "$addr" 'getReserve0()(uint64)')" "$rev_r0" \
+  "after swap1to0 getReserve0"
+require_uint_equal "$("$cast_path" call --rpc-url "$rpc" "$addr" 'getReserve1()(uint64)')" "$rev_r1" \
+  "after swap1to0 getReserve1"
+echo "evm-mini-amm-anvil: swap1to0 ok amountOut=$rev_out" >&2
+
+# ---------------------------------------------------------------------------
+# 7. removeLiquidity half of LP (500) — amount0 out + reserve shrink
+# ---------------------------------------------------------------------------
+# After first add only would be clean; after swaps supplies still 1000 LP.
+require_send_ok "removeLiquidity(500) failed" \
+  --rpc-url "$rpc" --private-key "$pk" \
+  "$addr" 'removeLiquidity(uint64)' 500
+require_uint_equal "$("$cast_path" call --rpc-url "$rpc" "$addr" 'getTotalSupply()(uint64)')" "500" \
+  "after remove 500 totalSupply"
+require_uint_equal "$("$cast_path" call --rpc-url "$rpc" --from "$eoa" "$addr" "$bal_sig" "${eoa_words[@]}")" \
+  "500" "after remove balanceOf(caller)"
+echo "evm-mini-amm-anvil: removeLiquidity(500) ok" >&2
+
+echo "evm-mini-amm-anvil: ok M0 vectors on $addr (mode=$deploy_mode)" >&2
 echo "evm-mini-amm-anvil: engineering only; not formal Reference↔Anvil; not EIP-3860 mainnet deploy claim"
