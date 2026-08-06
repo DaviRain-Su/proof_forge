@@ -75,6 +75,86 @@ private def yulCallerPrincipalWordNested (wordIndex : Nat) : String :=
         acc := s!"or({acc}, shl({8 * k}, byte({12 + base + k}, caller())))"
       acc
 
+/-- M2 key/value scratch above `storeAtomic` spill (`0x10000..`).
+    Layout: 9 key words at `base+32*i`, value at `base+32*9`. -/
+private def mapPrincipalKeyMemBaseV1 : Nat := 0x20000
+
+/-- M2: key equality using keys loaded from `keyMem` (9 words).
+    Built iteratively so nesting parens stay exact (9 leaves → 8 `and`s). -/
+private def yulPrincipalKeyEqFromMem (b keyMem : String) : String := Id.run do
+  let leaf (i : Nat) : String :=
+    s!"eq(sload(add({b}, {1 + i})), mload(add({keyMem}, {32 * i})))"
+  let mut acc := leaf 0
+  for i in [1:9] do
+    acc := s!"and({acc}, {leaf i})"
+  acc
+
+/-- M2 compact Principal Map Yul helpers. Dense cap-4 layout:
+    entry `e` at `base + 11*e`: occ, k0..k8, val.
+    Keys/value live in memory (`keyMem` → 9 key words + value) so helpers stay
+    within solc stack limits (no 9+ parameter lists). -/
+private def renderPrincipalMapHelpers (indent : String) : String :=
+  let keq := yulPrincipalKeyEqFromMem "b" "keyMem"
+  -- Lookup: (base, keyMem) → tag, payload
+  indent ++
+    "function pf_map_p_lookup(base, keyMem) -> tag, payload {\n" ++
+  indent ++ "  tag := 0\n" ++
+  indent ++ "  payload := 0\n" ++
+  indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
+  indent ++ "    let b := add(base, mul(e, 11))\n" ++
+  indent ++ "    let occ := sload(b)\n" ++
+  indent ++ "    if occ {\n" ++
+  indent ++ s!"      if {keq} \{\n" ++
+  indent ++ "        tag := 1\n" ++
+  indent ++ "        payload := sload(add(b, 10))\n" ++
+  indent ++ "      }\n" ++
+  indent ++ "    }\n" ++
+  indent ++ "  }\n" ++
+  indent ++ "}\n" ++
+  -- Full upsert: write 44 result leaves to outMem; revert when map full.
+  indent ++
+    "function pf_map_p_upsert(base, keyMem, outMem) {\n" ++
+  indent ++ "  let anyMatch := 0\n" ++
+  indent ++ "  let firstEmpty := 4\n" ++
+  indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
+  indent ++ "    let b := add(base, mul(e, 11))\n" ++
+  indent ++ "    let occ := sload(b)\n" ++
+  indent ++ "    if occ {\n" ++
+  indent ++ s!"      if {keq} \{ anyMatch := 1 }\n" ++
+  indent ++ "    }\n" ++
+  indent ++ "    if and(iszero(occ), eq(firstEmpty, 4)) { firstEmpty := e }\n" ++
+  indent ++ "  }\n" ++
+  indent ++ "  if iszero(or(anyMatch, lt(firstEmpty, 4))) { revert(0, 0) }\n" ++
+  indent ++ "  let val := mload(add(keyMem, 288))\n" ++
+  indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
+  indent ++ "    let b := add(base, mul(e, 11))\n" ++
+  indent ++ "    let occ := sload(b)\n" ++
+  indent ++ "    let matchHit := 0\n" ++
+  indent ++ "    if occ {\n" ++
+  indent ++ s!"      if {keq} \{ matchHit := 1 }\n" ++
+  indent ++ "    }\n" ++
+  indent ++ "    let insertHere := and(iszero(anyMatch), eq(e, firstEmpty))\n" ++
+  indent ++ "    let write := or(matchHit, insertHere)\n" ++
+  indent ++ "    let out := add(outMem, mul(mul(e, 11), 32))\n" ++
+  indent ++ "    mstore(out, or(occ, write))\n" ++
+  indent ++ "    for { let k := 0 } lt(k, 9) { k := add(k, 1) } {\n" ++
+  indent ++ "      let want := mload(add(keyMem, mul(k, 32)))\n" ++
+  indent ++ "      let stored := sload(add(b, add(1, k)))\n" ++
+  indent ++ "      mstore(add(out, mul(add(1, k), 32)), add(mul(write, want), mul(iszero(write), stored)))\n" ++
+  indent ++ "    }\n" ++
+  indent ++ "    let oldV := sload(add(b, 10))\n" ++
+  indent ++ "    mstore(add(out, 320), add(mul(write, val), mul(iszero(write), oldV)))\n" ++
+  indent ++ "  }\n" ++
+  indent ++ "}\n" ++
+  -- Single-leaf view of full upsert (for non-batch Expr uses): write all 44
+  -- into a private scratch then return leafIdx. Scratch at keyMem+320.
+  indent ++
+    "function pf_map_p_upsert_leaf(base, leafIdx, keyMem) -> r {\n" ++
+  indent ++ "  let scratch := add(keyMem, 320)\n" ++
+  indent ++ "  pf_map_p_upsert(base, keyMem, scratch)\n" ++
+  indent ++ "  r := mload(add(scratch, mul(leafIdx, 32)))\n" ++
+  indent ++ "}\n"
+
 /-- Nested Yul expression form (no intermediate lets). Used for for-loop
     condition/update slots that require expression positions. Storage loads
     and checked overflow guards are not nested here — callers pre-render
@@ -93,6 +173,10 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       -- Nested form: assemble one LE body word of ADR-0025
       -- `u32le(20)||addr20` from `caller()`. wordIndex ≥ 3 → 0.
       yulCallerPrincipalWordNested wordIndex
+  -- M2 compact map ops are statement-form only (helpers need lets). Nested
+  -- appearance is rejected by for-loop peel discipline; emit 0 as unreachable.
+  | .mapPrincipalLookupTag .. | .mapPrincipalLookupPayload ..
+  | .mapPrincipalUpsertLeaf .. => "0"
   | .storageLoad slot => s!"sload({slot})"
   | .narrowStorageLoad bitWidth slot =>
       s!"and(sload({slot}), {yulUintMask bitWidth})"
@@ -314,6 +398,56 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       let name := s!"expr{next}"
       let rhs := yulCallerPrincipalWordNested wordIndex
       { code := s!"{indent}let {name} := {rhs}\n",
+        value := name, next := next + 1 }
+  | .mapPrincipalLookupTag mapBaseSlot keyLeaves => Id.run do
+      -- M2: spill 9 key words to fixed keyMem, helper returns tag+payload.
+      let mut code := ""
+      let mut next := next
+      let keyMem := mapPrincipalKeyMemBaseV1
+      for i in [0:keyLeaves.size] do
+        let some k := keyLeaves[i]? | pure ()
+        let rendered := renderExpr indent paramPrefix next k
+        code := code ++ rendered.code
+        next := rendered.next
+        code := code ++ s!"{indent}mstore({keyMem + 32 * i}, {rendered.value})\n"
+      let tagName := s!"expr{next}"
+      let payloadName := s!"expr{next + 1}"
+      { code := code ++
+          s!"{indent}let {tagName}, {payloadName} := pf_map_p_lookup({mapBaseSlot}, {keyMem})\n",
+        value := tagName, next := next + 2 }
+  | .mapPrincipalLookupPayload mapBaseSlot keyLeaves => Id.run do
+      let mut code := ""
+      let mut next := next
+      let keyMem := mapPrincipalKeyMemBaseV1
+      for i in [0:keyLeaves.size] do
+        let some k := keyLeaves[i]? | pure ()
+        let rendered := renderExpr indent paramPrefix next k
+        code := code ++ rendered.code
+        next := rendered.next
+        code := code ++ s!"{indent}mstore({keyMem + 32 * i}, {rendered.value})\n"
+      let tagName := s!"expr{next}"
+      let payloadName := s!"expr{next + 1}"
+      { code := code ++
+          s!"{indent}let {tagName}, {payloadName} := pf_map_p_lookup({mapBaseSlot}, {keyMem})\n",
+        value := payloadName, next := next + 2 }
+  | .mapPrincipalUpsertLeaf mapBaseSlot keyLeaves value leafIndex => Id.run do
+      -- Non-batch path: spill keys+value, full upsert to scratch, load leaf.
+      let mut code := ""
+      let mut next := next
+      let keyMem := mapPrincipalKeyMemBaseV1
+      for i in [0:keyLeaves.size] do
+        let some k := keyLeaves[i]? | pure ()
+        let rendered := renderExpr indent paramPrefix next k
+        code := code ++ rendered.code
+        next := rendered.next
+        code := code ++ s!"{indent}mstore({keyMem + 32 * i}, {rendered.value})\n"
+      let valR := renderExpr indent paramPrefix next value
+      code := code ++ valR.code
+      next := valR.next
+      code := code ++ s!"{indent}mstore({keyMem + 288}, {valR.value})\n"
+      let name := s!"expr{next}"
+      { code := code ++
+          s!"{indent}let {name} := pf_map_p_upsert_leaf({mapBaseSlot}, {leafIndex}, {keyMem})\n",
         value := name, next := next + 1 }
   | .storageLoad slot =>
       let name := s!"expr{next}"
@@ -1011,35 +1145,77 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           renderMaskedSstore indent store.slot rendered.value store.byteWidth
         next := rendered.next
     | .storeAtomic operations =>
-        -- B-EVM-MAP-STACK / B-MAP-STRUCT-PIN:
-        -- Phase 1 (compute + spill): each leaf `renderExpr` runs in its own
-        -- nested Yul block, then immediately `mstore`s to the reserved high
-        -- spill region. Block exit releases intermediate `let`s so solc does
-        -- not keep 24 dense-Map leaf DAGs live on the stack (StackTooDeep).
-        -- All leaves still evaluate against the same pre-batch storage
-        -- snapshot — no `sstore` of this batch has run yet.
-        -- Phase 2 (commit): contiguous `sstore(slot, mload(spill))` with no
-        -- mid-batch `sload`. Distinct `storeAtomic` statements remain ordered
-        -- (later batches re-sload and observe earlier writes).
-        let nested := indent ++ "  "
-        for i in [0:operations.size] do
-          match operations[i]? with
-          | none => pure ()
-          | some store =>
-              let rendered := renderExpr nested paramPrefix next store.value
-              let addr := storeAtomicSpillAddrV1 i
-              output := output ++ s!"{indent}\{\n" ++
-                rendered.code ++
-                s!"{nested}mstore({addr}, {rendered.value})\n" ++
-                s!"{indent}}\n"
-              next := rendered.next
-        for i in [0:operations.size] do
-          match operations[i]? with
-          | none => pure ()
-          | some store =>
-              let loaded := s!"mload({storeAtomicSpillAddrV1 i})"
+        -- B-EVM-MAP-STACK / B-MAP-STRUCT-PIN / M2:
+        -- Default path: Phase 1 (compute + spill) each leaf in its own nested
+        -- Yul block; Phase 2 contiguous sstore from spill.
+        -- M2 fast path: when all 44 leaves are `mapPrincipalUpsertLeaf` for the
+        -- same (base, keys, value) with leafIndex==i, spill keys once, call
+        -- `pf_map_p_upsert` into storeAtomic spill, then sstore — avoids
+        -- 44× full-table rescans and keeps solc stack flat.
+        let isPrincipalUpsertBatch : Bool := Id.run do
+          if operations.size != 44 then return false
+          let some first := operations[0]? | return false
+          match first.value with
+          | .mapPrincipalUpsertLeaf base0 keys0 val0 0 =>
+              for i in [0:44] do
+                match operations[i]? with
+                | none => return false
+                | some st =>
+                    match st.value with
+                    | .mapPrincipalUpsertLeaf base keys val leafIdx =>
+                        unless base == base0 && leafIdx == i &&
+                            keys == keys0 && val == val0 do
+                          return false
+                    | _ => return false
+              return true
+          | _ => return false
+        if isPrincipalUpsertBatch then
+          let some first := operations[0]? | pure ()
+          match first.value with
+          | .mapPrincipalUpsertLeaf mapBaseSlot keyLeaves value _ =>
+              let keyMem := mapPrincipalKeyMemBaseV1
+              let outMem := storeAtomicSpillBaseV1
+              for i in [0:keyLeaves.size] do
+                let some k := keyLeaves[i]? | pure ()
+                let rendered := renderExpr indent paramPrefix next k
+                output := output ++ rendered.code
+                next := rendered.next
+                output := output ++
+                  s!"{indent}mstore({keyMem + 32 * i}, {rendered.value})\n"
+              let valR := renderExpr indent paramPrefix next value
+              output := output ++ valR.code
+              next := valR.next
               output := output ++
-                renderMaskedSstore indent store.slot loaded store.byteWidth
+                s!"{indent}mstore({keyMem + 288}, {valR.value})\n" ++
+                s!"{indent}pf_map_p_upsert({mapBaseSlot}, {keyMem}, {outMem})\n"
+              for i in [0:operations.size] do
+                match operations[i]? with
+                | none => pure ()
+                | some store =>
+                    let loaded := s!"mload({storeAtomicSpillAddrV1 i})"
+                    output := output ++
+                      renderMaskedSstore indent store.slot loaded store.byteWidth
+          | _ => pure ()
+        else
+          let nested := indent ++ "  "
+          for i in [0:operations.size] do
+            match operations[i]? with
+            | none => pure ()
+            | some store =>
+                let rendered := renderExpr nested paramPrefix next store.value
+                let addr := storeAtomicSpillAddrV1 i
+                output := output ++ s!"{indent}\{\n" ++
+                  rendered.code ++
+                  s!"{nested}mstore({addr}, {rendered.value})\n" ++
+                  s!"{indent}}\n"
+                next := rendered.next
+          for i in [0:operations.size] do
+            match operations[i]? with
+            | none => pure ()
+            | some store =>
+                let loaded := s!"mload({storeAtomicSpillAddrV1 i})"
+                output := output ++
+                  renderMaskedSstore indent store.slot loaded store.byteWidth
     | .assert condition =>
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code ++
@@ -1557,12 +1733,86 @@ private def renderEntry (plan : Plan) (entry : Entry) (hasPayable : Bool) : Stri
     (renderBody "        " "arg" 0 plan.events plan.errors none entry.body).code
   return output ++ "      }\n"
 
+/-- True when any Plan expression uses M2 Principal Map compact ops. -/
+private partial def exprUsesPrincipalMapV1 : Expr → Bool
+  | .mapPrincipalLookupTag .. | .mapPrincipalLookupPayload ..
+  | .mapPrincipalUpsertLeaf .. => true
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .add l r | .compare _ l r | .signedCompare _ l r
+  | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r | .shr l r | .sar l r
+  | .logicalAnd l r | .logicalOr l r
+  | .narrowCheckedAdd _ l r | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r
+  | .narrowCheckedDiv _ l r | .narrowCheckedMod _ l r
+  | .narrowBitAnd _ l r | .narrowBitOr _ l r | .narrowBitXor _ l r
+  | .narrowShl _ l r | .narrowShr _ l r | .narrowSar _ l r
+  | .signedCheckedAdd l r | .signedCheckedSub l r | .signedCheckedMul l r
+  | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r | .narrowSignedCheckedDiv _ l r
+  | .narrowSignedCheckedMod _ l r | .narrowSignedCompare _ _ l r
+  | .fieldAdd l r | .fieldSub l r | .fieldMul l r | .fieldDiv l r =>
+      exprUsesPrincipalMapV1 l || exprUsesPrincipalMapV1 r
+  | .bitNot o | .boolNot o | .narrowBitNot _ o | .checkedNeg o
+  | .narrowCheckedNeg _ o | .fieldNeg o => exprUsesPrincipalMapV1 o
+  | .indexedStorageLoad _ _ index _ => exprUsesPrincipalMapV1 index
+  | .boundsCheckedIndex index _ => exprUsesPrincipalMapV1 index
+  | .arrayIndexGet index leaves =>
+      exprUsesPrincipalMapV1 index || leaves.any exprUsesPrincipalMapV1
+  | .callFn _ args => args.any exprUsesPrincipalMapV1
+  | _ => false
+
+private partial def statementUsesPrincipalMapV1 : Statement → Bool
+  | .store s => exprUsesPrincipalMapV1 s.value
+  | .storeAtomic ops => ops.any fun s => exprUsesPrincipalMapV1 s.value
+  | .returnValue v => exprUsesPrincipalMapV1 v
+  | .returnAggregate leaves _ => leaves.any exprUsesPrincipalMapV1
+  | .assert c => exprUsesPrincipalMapV1 c
+  | .emitEvent _ args | .revertError _ args => args.any exprUsesPrincipalMapV1
+  | .externalCall _ args | .schedule _ args | .externalCallResult _ args _ =>
+      args.any exprUsesPrincipalMapV1
+  | .nativeDeposit a => exprUsesPrincipalMapV1 a
+  | .nativeTransfer dl dw a =>
+      exprUsesPrincipalMapV1 dl || dw.any exprUsesPrincipalMapV1 ||
+        exprUsesPrincipalMapV1 a
+  | .tokenTransfer ml mw dl dw a =>
+      exprUsesPrincipalMapV1 ml || mw.any exprUsesPrincipalMapV1 ||
+        exprUsesPrincipalMapV1 dl || dw.any exprUsesPrincipalMapV1 ||
+        exprUsesPrincipalMapV1 a
+  | .tokenBalanceOf ml mw _ =>
+      exprUsesPrincipalMapV1 ml || mw.any exprUsesPrincipalMapV1
+  | .ifThenElse c t e =>
+      exprUsesPrincipalMapV1 c || t.any statementUsesPrincipalMapV1 ||
+        e.any statementUsesPrincipalMapV1
+  | .switchOn s cases d =>
+      exprUsesPrincipalMapV1 s ||
+        cases.any (fun (_, b) => b.any statementUsesPrincipalMapV1) ||
+        d.any statementUsesPrincipalMapV1
+  | .forLoop _ _ _ init cond update body =>
+      exprUsesPrincipalMapV1 init || exprUsesPrincipalMapV1 cond ||
+        exprUsesPrincipalMapV1 update || body.any statementUsesPrincipalMapV1
+  | .returnNone => false
+
+private def planUsesPrincipalMapV1 (plan : Plan) : Bool :=
+  let ctorBody :=
+    match plan.constructor with
+    | some c =>
+        c.body.any statementUsesPrincipalMapV1 ||
+          c.stores.any fun s => exprUsesPrincipalMapV1 s.value
+    | none => false
+  let entries := plan.entries.any fun e => e.body.any statementUsesPrincipalMapV1
+  let fns := plan.fns.any fun f => f.body.any statementUsesPrincipalMapV1
+  ctorBody || entries || fns
+
 private def renderYul (plan : Plan) : String :=
   let hasPayable := planHasPayableEntry plan
   let entries := plan.entries.foldl
     (fun output entry => output ++ renderEntry plan entry hasPayable) ""
   let ctorFns := renderFnDefs "    " plan
   let runtimeFns := renderFnDefs "      " plan
+  let mapHelpersCtor :=
+    if planUsesPrincipalMapV1 plan then renderPrincipalMapHelpers "    " else ""
+  let mapHelpersRuntime :=
+    if planUsesPrincipalMapV1 plan then renderPrincipalMapHelpers "      " else ""
   -- Keep global callvalue guard when no entry is payable (byte-identical with
   -- historical Counter/Guarded goldens). Payable programs drop the global
   -- guard; non-payable/view arms carry entry-local guards instead.
@@ -1572,6 +1822,7 @@ private def renderYul (plan : Plan) : String :=
   s!"object \"{plan.objectName}\" \{\n  code \{\n" ++
     renderConstructor plan ++
     ctorFns ++
+    mapHelpersCtor ++
     s!"  }\n  object \"{plan.runtimeObjectName}\" \{\n    code \{\n" ++
     runtimeCallvalueGuard ++
     "      if lt(calldatasize(), 4) { revert(0, 0) }\n" ++
@@ -1579,6 +1830,7 @@ private def renderYul (plan : Plan) : String :=
     entries ++
     "      default { revert(0, 0) }\n" ++
     runtimeFns ++
+    mapHelpersRuntime ++
     "    }\n  }\n}\n"
 
 private def renderParamJson (param : Param) : String :=

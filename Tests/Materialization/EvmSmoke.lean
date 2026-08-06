@@ -4224,12 +4224,13 @@ private unsafe def testAggregateLeafCapFailClosed : IO Unit := do
           throw <| IO.userError
             "EVM 9-leaf aggregate return must fail closed (cap-8), not produce a plan"
 
-/-- ADR-0030 E4 MiniAMM product pin: shipped `Examples/MiniAmm.lean` must
-    compile, planEvm, validatePlan, and materialize Yul/ABI on EVM.
-    Pins: Principal-keyed LP Map (44 leaves) + 4 UInt64 (reserves/supply/
-    scratch), addLiquidity/swap0to1/views entry order, and Yul that carries
-    checked mul/div plus caller(). Does not claim Anvil runtime, EIP-3860
-    deploy, or formal D4. -/
+/-- ADR-0030 E4 MiniAMM product pin (M0 math + M2 compact Principal Map):
+    shipped `Examples/MiniAmm.lean` must compile, planEvm, validatePlan, and
+    materialize Yul/ABI on EVM under the 4 MiB Yul cap without forest blow-up.
+    Pins: Principal-keyed LP Map (44 leaves) + 5 UInt64 (reserves/supply/
+    scratch/scratch2), bilateral LP + dual swap + removeLiquidity, M2 Yul
+    helpers `pf_map_p_lookup`/`pf_map_p_upsert`, checked mul/div, caller().
+    Does not claim Anvil runtime, mainnet deploy, or formal D4. -/
 private unsafe def testMiniAmmProductPlan : IO Unit := do
   let path := System.FilePath.mk "Examples/MiniAmm.lean"
   unless ← path.pathExists do
@@ -4245,8 +4246,14 @@ private unsafe def testMiniAmmProductPlan : IO Unit := do
     "MiniAmm must declare addLiquidity"
   expect (text.contains "entry swap0to1")
     "MiniAmm must declare swap0to1"
+  expect (text.contains "entry swap1to0")
+    "MiniAmm must declare swap1to0 (M0 bilateral)"
+  expect (text.contains "entry removeLiquidity")
+    "MiniAmm must declare removeLiquidity (M0)"
   expect (text.contains "state scratch")
     "MiniAmm must use scratch UInt64 to carry LP across Map effect boundary"
+  expect (text.contains "state scratch2")
+    "MiniAmm must use scratch2 for dual-side LP / remove intermediates"
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load MiniAmm" (← session.selectProgramV1
     text "Examples/MiniAmm.lean" "Examples.MiniAmm" none)
@@ -4255,12 +4262,12 @@ private unsafe def testMiniAmmProductPlan : IO Unit := do
   let plan ← liftResult "plan MiniAmm" <| planEvm compiled
   expect (plan.objectName == "MiniAmm")
     s!"MiniAmm object name, got {plan.objectName}"
-  -- 4 scalar UInt64 + cap-4 Principal Map (44 leaves) = 48 storage slots.
-  expect (plan.storageLayout.size == 48)
-    s!"MiniAmm must flatten to 48 storage leaves (4 UInt64 + 44 Principal-Map), got {plan.storageLayout.size}"
+  -- 5 scalar UInt64 + cap-4 Principal Map (44 leaves) = 49 storage slots.
+  expect (plan.storageLayout.size == 49)
+    s!"MiniAmm must flatten to 49 storage leaves (5 UInt64 + 44 Principal-Map), got {plan.storageLayout.size}"
   expect (plan.entries.map (·.name) ==
-      #["addLiquidity", "swap0to1", "getReserve0", "getReserve1",
-        "getTotalSupply", "balanceOf"])
+      #["addLiquidity", "swap0to1", "swap1to0", "removeLiquidity",
+        "getReserve0", "getReserve1", "getTotalSupply", "balanceOf"])
     s!"MiniAmm entry order, got {plan.entries.map (·.name)}"
   -- addLiquidity(amount0, amount1) → 2 UInt64 ABI words (caller is context).
   let addParams :=
@@ -4273,8 +4280,8 @@ private unsafe def testMiniAmmProductPlan : IO Unit := do
     match plan.entries.find? (·.name == "swap0to1") with
     | some e => e.params.size
     | none => 0
-  expect (swapParams == 1)
-    s!"swap0to1 must expand to 1 ABI word (amountIn), got {swapParams}"
+  expect (swapParams == 2)
+    s!"swap0to1 must expand to 2 ABI words (amountIn, amountOutMin), got {swapParams}"
   let balParams :=
     match plan.entries.find? (·.name == "balanceOf") with
     | some e => e.params.size
@@ -4292,16 +4299,24 @@ private unsafe def testMiniAmmProductPlan : IO Unit := do
   let some abiFile := files.find? (·.path == "MiniAmm.abi.json") |
     throw <| IO.userError "MiniAmm: missing MiniAmm.abi.json"
   let yul := yulFile.contents
+  expect (yul.toUTF8.size < 4 * 1024 * 1024)
+    s!"MiniAmm Yul must stay under 4 MiB after M2 compact Map, got {yul.toUTF8.size}"
   expect (yul.contains "sstore" && yul.contains "sload")
     "MiniAmm Yul must sstore/sload reserve + Principal-Map leaves"
   expect (yul.contains "mul(" && yul.contains "div(")
     "MiniAmm Yul must render checked mul/div for LP mint and swap"
   expect (yul.contains "caller()")
     "MiniAmm Yul must read caller() for context.caller LP key"
+  -- M2 compact Principal Map helpers (shared loop, not per-leaf forests).
+  expect (yul.contains "function pf_map_p_lookup" &&
+      yul.contains "function pf_map_p_upsert")
+    "MiniAmm Yul must emit M2 Principal Map helpers pf_map_p_lookup/upsert"
   expect (abiFile.contents.contains "\"name\":\"addLiquidity\"" &&
       abiFile.contents.contains "\"name\":\"swap0to1\"" &&
+      abiFile.contents.contains "\"name\":\"swap1to0\"" &&
+      abiFile.contents.contains "\"name\":\"removeLiquidity\"" &&
       abiFile.contents.contains "\"name\":\"balanceOf\"")
-    "MiniAmm ABI must name addLiquidity/swap0to1/balanceOf"
+    "MiniAmm ABI must name addLiquidity/swaps/removeLiquidity/balanceOf"
   IO.println "  MiniAmm product plan/materialize pin ok"
 
 unsafe def run : IO Unit := do

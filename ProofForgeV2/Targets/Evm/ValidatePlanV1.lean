@@ -162,6 +162,57 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
                         total := total + nodes
                         available := available - nodes
                   if ok then some total else none
+    -- M2 compact Principal Map: 44 contiguous UInt64 slots from mapBaseSlot;
+    -- keyLeaves must be exactly 9; upsert leafIndex < 44.
+    | .mapPrincipalLookupTag mapBaseSlot keyLeaves
+    | .mapPrincipalLookupPayload mapBaseSlot keyLeaves =>
+        if keyLeaves.size != 9 then none
+        else
+          let rangeOk := Id.run do
+            let mut ok := true
+            for i in [0:44] do
+              unless slots.contains (mapBaseSlot + i) do ok := false
+            pure ok
+          if !rangeOk then none
+          else
+            let childDepth := depthLeft - 1
+            Id.run do
+              let mut available := nodeBudget - 1
+              let mut total : Nat := 1
+              let mut ok := true
+              for k in keyLeaves do
+                match planExprNodes? slots paramCount childDepth available fns k with
+                | none => ok := false
+                | some nodes =>
+                    total := total + nodes
+                    available := available - nodes
+              if ok then some total else none
+    | .mapPrincipalUpsertLeaf mapBaseSlot keyLeaves value leafIndex =>
+        if keyLeaves.size != 9 || leafIndex ≥ 44 then none
+        else
+          let rangeOk := Id.run do
+            let mut ok := true
+            for i in [0:44] do
+              unless slots.contains (mapBaseSlot + i) do ok := false
+            pure ok
+          if !rangeOk then none
+          else
+            let childDepth := depthLeft - 1
+            Id.run do
+              let mut available := nodeBudget - 1
+              let mut total : Nat := 1
+              let mut ok := true
+              for k in keyLeaves do
+                match planExprNodes? slots paramCount childDepth available fns k with
+                | none => ok := false
+                | some nodes =>
+                    total := total + nodes
+                    available := available - nodes
+              if ok then
+                match planExprNodes? slots paramCount childDepth available fns value with
+                | none => none
+                | some nodes => some (total + nodes)
+              else none
 
 private def addPlanExprNodes (slots : Array Nat) (paramCount total : Nat)
     (fns : Array FnBinding) (expr : Expr) : CompileResult Nat := do

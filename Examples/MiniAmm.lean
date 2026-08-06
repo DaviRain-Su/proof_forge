@@ -36,7 +36,8 @@ open ProofForgeV2.Language
 -- Solana product pin: Tests.Product.MiniAmmSolanaV1
 -- Solana Mollusk fixture: runtime-tests/solana/fixtures/MiniAmmHybrid.lean
 -- EVM host-optional: scripts/evm_mini_amm_anvil_smoke.sh
--- Engineering only: non-formal; Anvil may use code-size override until M2.
+-- Engineering only: non-formal. M2 EVM compact Principal Map keeps Yul/creation
+-- under ordinary solc + EIP-3860 (no code-size override required for this demo).
 program MiniAmm where
   state reserve0 : UInt64
   state reserve1 : UInt64
