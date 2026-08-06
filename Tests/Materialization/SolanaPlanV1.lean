@@ -2275,6 +2275,191 @@ private partial def countAnyIrMultiStores (ops : Array Operation) : Nat × Nat :
         (multi + m1 + m2 + m3 + m4, scalar + s1 + s2 + s3 + s4)
     | _ => (multi, scalar)) (0, 0)
 
+/-- E4 MiniAMM LP residual: dense `Map Principal UInt64` (cap-4 × 11 leaves =
+    44 slots). Layout isomorphic to EVM LP pilot; atomic `storeAggregate` /
+    `storeStateMulti` for empty upsert; Principal param expands to 9 ABI
+    words; wrong value shape fail closed. Frame must stay ≤4096B. -/
+private unsafe def testMapPrincipalUInt64Pilot
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "LpShares" <|
+    "  state balances : Map Principal UInt64\n\n" ++
+    "  init() do\n" ++
+    "    balances := Map.empty()\n\n" ++
+    "  entry mint(who : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    match balances[who] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      balances[who] := v + amount\n" ++
+    "      return amount\n" ++
+    "    | _ => do\n" ++
+    "      balances[who] := amount\n" ++
+    "      return amount\n\n" ++
+    "  view balanceOf(who : Principal) : UInt64 do\n" ++
+    "    match balances[who] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.LpShares"
+    "<solana-lp-shares>"
+  let plan ← liftResult <| planSolana compiled
+  -- cap-4 × (occ + 9 Principal key leaves + val) = 44 Map leaves.
+  expect (plan.stateAccount.fields.size == 44)
+    s!"LpShares: dense Principal Map must flatten to 44 leaves, got {plan.stateAccount.fields.size}"
+  -- mint(who: Principal, amount: UInt64) → 9 Principal ABI words + 1 UInt64.
+  let mint ← findHandler plan "mint"
+  expect (mint.params.size == 10)
+    s!"LpShares.mint must expand to 10 ABI words (9 Principal + 1 UInt64), got {mint.params.size}"
+  let bal ← findHandler plan "balanceOf"
+  expect (bal.params.size == 9)
+    s!"LpShares.balanceOf must expand Principal param to 9 ABI words, got {bal.params.size}"
+  -- mint arms: each successful path has one 44-leaf storeAggregate (no scalar).
+  let (aggAny, seqStores) := countAnyPlanAggregates mint.body
+  expect (aggAny >= 2)
+    s!"LpShares mint Plan must have ≥2 storeAggregate (two match arms), got {aggAny}"
+  expect (seqStores == 0)
+    s!"LpShares mint Plan must not emit sequential scalar .store, got {seqStores}"
+  -- Walk all storeAggregate nodes and pin leaf count / layout offsets.
+  let rec checkAgg (stmts : Array Statement) : IO Unit := do
+    for stmt in stmts do
+      match stmt with
+      | .storeAggregate leaves =>
+          expect (leaves.size == 44)
+            s!"LpShares storeAggregate must write 44 leaves, got {leaves.size}"
+          for i in [0:leaves.size] do
+            let leaf := leaves[i]!
+            expect (leaf.accountIndex == 0 && leaf.byteWidth == 8)
+              s!"LpShares leaf {i} must be account0/u64"
+            expect (leaf.byteOffset == 8 + i * 8)
+              s!"LpShares leaf {i} byteOffset must be {8 + i * 8}, got {leaf.byteOffset}"
+      | .ifThenElse _ t e =>
+          checkAgg t
+          checkAgg e
+      | .switchOn _ cases d =>
+          checkAgg d
+          for (_, b) in cases do checkAgg b
+      | .forLoop _ _ _ _ _ b => checkAgg b
+      | .store _ =>
+          throw <| IO.userError
+            "LpShares mint must not emit scalar store for Principal Map"
+      | _ => pure ()
+  checkAgg mint.body
+  -- init zeros the full 44-leaf table atomically.
+  let (initAgg, initSeq) := countAnyPlanAggregates plan.initializer.body
+  expect (initAgg == 1)
+    s!"LpShares init must have one storeAggregate for Map.empty, got {initAgg}"
+  expect (initSeq == 0)
+    s!"LpShares init must not scalar-store Map leaves, got {initSeq}"
+  match plan.initializer.body[0]? with
+  | none =>
+      throw <| IO.userError "LpShares init body empty"
+  | some stmt =>
+      match stmt with
+      | .storeAggregate leaves =>
+          expect (leaves.size == 44)
+            s!"LpShares init storeAggregate leaves={leaves.size}"
+      | .store _ =>
+          throw <| IO.userError "LpShares init must be storeAggregate, not scalar store"
+      | _ =>
+          throw <| IO.userError "LpShares init body[0] must be storeAggregate"
+  liftResult <| validatePlan plan
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let mintIR ← findHandlerIR ir "mint"
+  let (multiAny, scalarStores) := countAnyIrMultiStores mintIR.operations
+  expect (multiAny >= 2)
+    s!"LpShares mint IR must have ≥2 storeStateMulti, got {multiAny}"
+  expect (scalarStores == 0)
+    s!"LpShares mint IR must not emit scalar storeState for Map leaves, got {scalarStores}"
+  -- Every multi-store for mint must be exactly 44 u64 leaves.
+  let rec checkMulti (ops : Array Operation) : IO Unit := do
+    for op in ops do
+      match op with
+      | .storeStateMulti entries =>
+          expect (entries.size == 44)
+            s!"LpShares storeStateMulti must write 44 leaves, got {entries.size}"
+          expect (entries.all fun (_, _, bw, _) => bw == 8)
+            "LpShares storeStateMulti entries must be byteWidth 8"
+      | .ifRegion _ t e =>
+          checkMulti t
+          checkMulti e
+      | .switchRegion _ cases d =>
+          checkMulti d
+          for (_, b) in cases do checkMulti b
+      | .forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _ =>
+          checkMulti condOps
+          checkMulti bodyOps
+          checkMulti boundOps
+          checkMulti updateOps
+      | _ => pure ()
+  checkMulti mintIR.operations
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "LpShares.sbpf-plan"
+  expect (planText.contains "store_multi_le [44]")
+    "LpShares sbpf-plan must render store_multi_le [44] for Principal Map"
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  expect (asm.contains "mint:") "LpShares asm must contain mint handler"
+  expect (asm.contains "store_multi_le [44]")
+    "LpShares asm must comment/emit store_multi_le [44]"
+  -- Frame pin: leaf-wise Principal key equality expands temps; hard budget 4096.
+  expect (asm.contains "handler mint (temps=")
+    "LpShares asm must annotate mint temp count"
+  let marker := "handler mint (temps="
+  let rec indexOf (hay needle : List Char) (i : Nat) : Option Nat :=
+    match hay with
+    | [] => none
+    | _ :: rest =>
+        if needle.isPrefixOf hay then some i else indexOf rest needle (i + 1)
+  let some at_ := indexOf asm.toList marker.toList 0 |
+    throw <| IO.userError "LpShares: mint temps marker not found"
+  let after := (asm.toList.drop (at_ + marker.length))
+  let digits := after.takeWhile (fun c => c.isDigit)
+  let tempStr := String.ofList digits
+  let some temps := tempStr.toNat? |
+    throw <| IO.userError s!"LpShares: could not parse mint temps from '{tempStr}'"
+  let frameBytes := (temps + 1) * 8
+  expect (frameBytes ≤ maxSbpfStackBytesV1)
+    s!"LpShares mint frame must stay ≤ {maxSbpfStackBytesV1}B, got temps={temps} frame={frameBytes}"
+  -- Cap-4 Principal key equality is heavier than UInt64 Map; allow headroom.
+  expect (temps ≤ 500)
+    s!"LpShares mint temps must stay within frame budget (≤500), got {temps}"
+  -- Negative: Map Principal Bool is not admitted (value must be UInt64).
+  let badSource := wrapProgram "BadPMap" <|
+    "  state m : Map Principal Bool\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  match ← (do
+      try
+        let c ← compileSource session badSource "Examples.BadPMap" "<solana-bad-pmap>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()  -- may fail at typed/Normalize
+  | some c =>
+      match planSolana c with
+      | .error e =>
+          expect (e.render.contains "Map" || e.render.contains "UInt64" ||
+              e.render.contains "Principal" || e.render.contains "value")
+            s!"Bad Principal Map value shape FC must cite Map/UInt64, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Map Principal Bool must fail closed at compile or plan"
+  -- Nested Map stays fail closed.
+  let nestSource := wrapProgram "NestMap" <|
+    "  state m : Map UInt64 (Map UInt64 UInt64)\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  match ← (do
+      try
+        let c ← compileSource session nestSource "Examples.NestMap" "<solana-nest-map>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c => expectPlanError "NestMap" (planSolana c)
+  IO.println "  Map Principal UInt64 LP pilot Plan/IR/frame pin ok"
+
 /-- Named Struct state: flatten to UInt64 leaves; construct/fieldGet/fieldSet
     + atomic storeAggregate; scalar field return still covered (aggregate return
     is pinned separately in `testNamedStructReturn`). -/
@@ -3187,6 +3372,7 @@ unsafe def run : IO Unit := do
   testBoolResultPureFn session
   testOmittedTypeLet session
   testMapMiniEmptyUpsertStructure session
+  testMapPrincipalUInt64Pilot session
   testTokenDualStoreBatchSeparation session
   testNamedStructState session
   testNamedEnumState session

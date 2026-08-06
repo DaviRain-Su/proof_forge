@@ -496,14 +496,16 @@ private def solanaPlanErr (message : String) : CompileError :=
     `requirePublicSolanaUintAbiOrInt64*` (T8b+T9e) with `allowNonPublic := true`
     (N1). ArrayState + **Map UInt64 UInt64** dense pilot + **Bytes N** via
     `pilotContainerStatePolicyArrayMapBytes` (Array → N×UInt64 leaves; Map →
-    capacity-8×(occ,key,val); Bytes → N×UInt8 leaves with ABI pitch 8;
-    Option intermediate for Map IndexGet). **Named Struct/Enum** via
-    `pilotNamedAggregateStatePolicyAdmit` (N3 flatten to UInt64/Int64 leaves).
-    **B-OPT-STATE**: anonymous `Option UInt64` state is admitted as Enum-shaped
-    2-leaf layout (`name_tag` + `name_p0`; none=(0,0), some=(1,v); payload
-    zeroed on none). Option of non-UInt64 / nested / Option params stay
-    fail-closed. UInt128/256 multiword limbs. T12: Principal storage identity
-    only (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. B-RET-ABI:
+    capacity-8×(occ,key,val) for `Map UInt64 UInt64` **or** capacity-4×
+    (occ+9 Principal key leaves+val)=44 for `Map Principal UInt64` E4 LP pilot;
+    Bytes → N×UInt8 leaves with ABI pitch 8; Option intermediate for Map
+    IndexGet). **Named Struct/Enum** via `pilotNamedAggregateStatePolicyAdmit`
+    (N3 flatten to UInt64/Int64 leaves). **B-OPT-STATE**: anonymous
+    `Option UInt64` state is admitted as Enum-shaped 2-leaf layout
+    (`name_tag` + `name_p0`; none=(0,0), some=(1,v); payload zeroed on none).
+    Option of non-UInt64 / nested / Option params stay fail-closed.
+    UInt128/256 multiword limbs. T12: Principal storage identity only
+    (`pilotPrincipalPolicyAdmit`); not a 32-byte Solana pubkey. B-RET-ABI:
     named Struct/Enum, anonymous `Array UInt64 N` (N ≤ 8), and anonymous
     `Option UInt64` entry/view returns are admitted (≤8 UInt64/Int64 leaves);
     Map/Bytes/nested/Principal returns stay fail-closed. -/
@@ -605,15 +607,32 @@ private def mkStateLoadExpr (bitWidth : Nat) (accountIndex byteOffset : Nat) : E
   if bitWidth == 64 then .stateLoad accountIndex byteOffset
   else .narrowStateLoad bitWidth accountIndex byteOffset
 
-/-- Dense Map pilot capacity (aligned with EVM Token pilot). -/
+/-- Dense Map UInt64 pilot capacity (aligned with EVM Token pilot). -/
 private def solanaMapPilotCapacityV1 : Nat := 8
 private def solanaMapSlotsPerEntryV1 : Nat := 3
 private def solanaMapPilotLeafCountV1 : Nat :=
   solanaMapPilotCapacityV1 * solanaMapSlotsPerEntryV1
 
+/-- E4 MiniAMM LP pilot: dense `Map Principal UInt64`.
+    Each entry: occ + 9 Principal leaves (len+8×UInt64 body) + value = 11 leaves.
+    Capacity 4 → 44 storage leaves (matches EVM LP pilot; cap-8 Principal would
+    be 88 leaves and blow SBPF frame temps on leaf-wise key equality). -/
+private def solanaMapPrincipalCapacityV1 : Nat := 4
+private def solanaMapPrincipalKeyLeafCountV1 : Nat :=
+  1 + solanaPrincipalDataWordCountV1  -- len + 8 body words = 9
+private def solanaMapPrincipalSlotsPerEntryV1 : Nat :=
+  1 + solanaMapPrincipalKeyLeafCountV1 + 1  -- occ + key + val = 11
+private def solanaMapPrincipalLeafCountV1 : Nat :=
+  solanaMapPrincipalCapacityV1 * solanaMapPrincipalSlotsPerEntryV1
+
+/-- True when leaf count matches the Principal-keyed dense pilot. -/
+private def isSolanaMapPrincipalLeafCountV1 (n : Nat) : Bool :=
+  n == solanaMapPrincipalLeafCountV1
+
 /-- Container leaf layout: `(leafCount, leafByteWidth)`.
     Array: fixed `Array UInt64 N` → N×8-byte UInt64 leaves.
-    Map: dense capacity-8 occ/key/val → 24×8-byte leaves.
+    Map: dense capacity-8 occ/key/val → 24×8-byte leaves (`Map UInt64 UInt64`),
+    or capacity-4×11 → 44×8-byte leaves (`Map Principal UInt64` E4 LP pilot).
     Bytes: fixed `Bytes N` → N×1-byte UInt8 leaves (ABI pitch still 8 via
     `slotPitchOfByteWidth`; element-wise IndexGet/IndexSet with literal index). -/
 private def containerLeafLayoutV1
@@ -632,10 +651,16 @@ private def containerLeafLayoutV1
           "unsupported Solana semantic shape: Array state length must be ≥ 1"
       pure (some (n, 8))
   | some { shape := .map keyTid valTid, .. } =>
-      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+      unless valTid == types.uint64TypeId do
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: Map state admits only Map UInt64 UInt64"
-      pure (some (solanaMapPilotLeafCountV1, 8))
+          "unsupported Solana semantic shape: Map state value must be UInt64"
+      if keyTid == types.uint64TypeId then
+        pure (some (solanaMapPilotLeafCountV1, 8))
+      else if types.isPrincipal keyTid then
+        pure (some (solanaMapPrincipalLeafCountV1, 8))
+      else
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: Map state admits only Map UInt64 UInt64 or Map Principal UInt64"
   | some { shape := .bytes len, .. } =>
       let n := len.toNat
       unless n ≥ 1 do
@@ -928,6 +953,130 @@ private def mapUpsertLeavesV1
     out := out.push occ' |>.push k' |>.push v'
   pure (out, okInsert)
 
+/-- Leaf-wise Principal key equality (9 leaves): first compare, then boolAnd.
+    Starts with compare (not literal 1) so ValidatePlan bool typing holds. -/
+private def principalKeyEqExprV1
+    (storedKeyLeaves wantKeyLeaves : Array Expr) : CompileResult Expr := do
+  unless storedKeyLeaves.size == solanaMapPrincipalKeyLeafCountV1 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Principal Map stored key leaf count mismatch"
+  unless wantKeyLeaves.size == solanaMapPrincipalKeyLeafCountV1 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Principal Map key must be 9-leaf Principal"
+  let some s0 := storedKeyLeaves[0]? |
+    throw <| .planInvariant .solana "Principal Map key leaf 0 missing"
+  let some w0 := wantKeyLeaves[0]? |
+    throw <| .planInvariant .solana "Principal Map query leaf 0 missing"
+  let mut keyEq : Expr := Expr.compare .eq s0 w0
+  for k in [1:solanaMapPrincipalKeyLeafCountV1] do
+    let some stored := storedKeyLeaves[k]? |
+      throw <| .planInvariant .solana "Principal Map key leaf missing"
+    let some want := wantKeyLeaves[k]? |
+      throw <| .planInvariant .solana "Principal Map query leaf missing"
+    keyEq := Expr.boolAnd keyEq (Expr.compare .eq stored want)
+  pure keyEq
+
+/-- Dense Map Principal UInt64 IndexGet → Option UInt64 as `[tag, payload]`.
+    Key equality is leaf-wise across the 9 Principal wire leaves. -/
+private def mapPrincipalLookupOptionLeavesV1
+    (mapLeaves : Array Expr) (keyLeaves : Array Expr) :
+    CompileResult (Array Expr) := do
+  unless mapLeaves.size == solanaMapPrincipalLeafCountV1 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Principal Map leaf count must match pilot capacity"
+  unless keyLeaves.size == solanaMapPrincipalKeyLeafCountV1 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Principal Map key must be 9-leaf Principal"
+  let mut found : Expr := .literal 0
+  let mut payload : Expr := .literal 0
+  for e in [0:solanaMapPrincipalCapacityV1] do
+    let base := e * solanaMapPrincipalSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .solana "Principal Map lookup occ leaf missing"
+    let mut storedKeys : Array Expr := #[]
+    for k in [0:solanaMapPrincipalKeyLeafCountV1] do
+      let some stored := mapLeaves[base + 1 + k]? |
+        throw <| .planInvariant .solana "Principal Map lookup key leaf missing"
+      storedKeys := storedKeys.push stored
+    let keyEq ← principalKeyEqExprV1 storedKeys keyLeaves
+    let hit := Expr.checkedMul occ keyEq
+    let miss := Expr.boolNot hit
+    let some v := mapLeaves[base + 1 + solanaMapPrincipalKeyLeafCountV1]? |
+      throw <| .planInvariant .solana "Principal Map lookup val leaf missing"
+    found := Expr.boolOr found hit
+    payload :=
+      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
+  pure #[Expr.checkedAdd found (.literal 0), payload]
+
+/-- Dense Map Principal UInt64 IndexSet upsert. Returns (newLeaves, okInsert). -/
+private def mapPrincipalUpsertLeavesV1
+    (mapLeaves : Array Expr) (keyLeaves : Array Expr) (value : Expr) :
+    CompileResult (Array Expr × Expr) := do
+  unless mapLeaves.size == solanaMapPrincipalLeafCountV1 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Principal Map leaf count must match pilot capacity"
+  unless keyLeaves.size == solanaMapPrincipalKeyLeafCountV1 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Principal Map key must be 9-leaf Principal"
+  let mut anyMatch : Expr := .literal 0
+  for e in [0:solanaMapPrincipalCapacityV1] do
+    let base := e * solanaMapPrincipalSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .solana "Principal Map upsert occ leaf missing"
+    let mut storedKeys : Array Expr := #[]
+    for k in [0:solanaMapPrincipalKeyLeafCountV1] do
+      let some stored := mapLeaves[base + 1 + k]? |
+        throw <| .planInvariant .solana "Principal Map upsert key leaf missing"
+      storedKeys := storedKeys.push stored
+    let keyEq ← principalKeyEqExprV1 storedKeys keyLeaves
+    let hit := Expr.checkedMul occ keyEq
+    anyMatch := Expr.boolOr anyMatch hit
+  let mut seenEmpty : Expr := .literal 0
+  let mut isFirstEmpty : Array Expr := #[]
+  for e in [0:solanaMapPrincipalCapacityV1] do
+    let base := e * solanaMapPrincipalSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .solana "Principal Map upsert empty-scan occ missing"
+    let empty := Expr.boolNot occ
+    let first := Expr.checkedMul empty (Expr.boolNot seenEmpty)
+    isFirstEmpty := isFirstEmpty.push first
+    seenEmpty := Expr.boolOr seenEmpty empty
+  let okInsert := Expr.boolOr anyMatch seenEmpty
+  let mut out : Array Expr := #[]
+  for e in [0:solanaMapPrincipalCapacityV1] do
+    let base := e * solanaMapPrincipalSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      throw <| .planInvariant .solana "Principal Map upsert rebuild occ missing"
+    let mut storedKeys : Array Expr := #[]
+    for k in [0:solanaMapPrincipalKeyLeafCountV1] do
+      let some stored := mapLeaves[base + 1 + k]? |
+        throw <| .planInvariant .solana "Principal Map upsert rebuild key missing"
+      storedKeys := storedKeys.push stored
+    let keyEq ← principalKeyEqExprV1 storedKeys keyLeaves
+    let matchHit := Expr.checkedMul occ keyEq
+    let some firstE := isFirstEmpty[e]? |
+      throw <| .planInvariant .solana "Principal Map upsert firstEmpty missing"
+    let insertHere := Expr.checkedMul firstE (Expr.boolNot anyMatch)
+    let write := Expr.boolOr matchHit insertHere
+    let miss := Expr.boolNot write
+    let occ' :=
+      Expr.checkedAdd (Expr.boolOr occ write) (.literal 0)
+    out := out.push occ'
+    for k in [0:solanaMapPrincipalKeyLeafCountV1] do
+      let some stored := mapLeaves[base + 1 + k]? |
+        throw <| .planInvariant .solana "Principal Map upsert rebuild key leaf missing"
+      let some want := keyLeaves[k]? |
+        throw <| .planInvariant .solana "Principal Map upsert rebuild want leaf missing"
+      let k' :=
+        Expr.checkedAdd (Expr.checkedMul write want) (Expr.checkedMul miss stored)
+      out := out.push k'
+    let some v := mapLeaves[base + 1 + solanaMapPrincipalKeyLeafCountV1]? |
+      throw <| .planInvariant .solana "Principal Map upsert rebuild val missing"
+    let v' :=
+      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
+    out := out.push v'
+  pure (out, okInsert)
+
 
 private def makeStateAccountV1
     (types : SolanaTypeClosureV1)
@@ -1109,10 +1258,11 @@ private structure LoweredValueV1 where
   isInt : Bool := false
   /-- Bit width of non-Bool values: 8/16/32/64/128/256. Bool uses 1. -/
   bitWidth : Nat := 64
-  /-- Multi-leaf carrier: Array UInt64 N, Map capacity-8, Bytes N (UInt8),
-      Principal (len+8 words), named Struct/Enum, or Option `[tag,payload]`
-      (Map IndexGet intermediate, B-RET-ABI return, or B-OPT-STATE storage).
-      `expr` mirrors `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
+  /-- Multi-leaf carrier: Array UInt64 N, Map UInt64 capacity-8 (24), Map
+      Principal capacity-4 (44), Bytes N (UInt8), Principal (len+8 words),
+      named Struct/Enum, or Option `[tag,payload]` (Map IndexGet intermediate,
+      B-RET-ABI return, or B-OPT-STATE storage). `expr` mirrors `leaves[0]!`
+      (or literal 0). Scalar values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none
   /-- Physical byte width of each leaf: 8 for UInt64 leaves (Array/Map/
       Principal/named), 1 for Bytes leaves (UInt8). Scalar values keep 8. -/
@@ -2566,7 +2716,7 @@ private def lowerBlockInstructionsV1
             | some p => pure p
             | none =>
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: construct admits only Array/Map UInt64 on Solana"
+                  "unsupported Solana semantic shape: construct admits only Array/Map UInt64 or Map Principal UInt64 on Solana"
           unless leafByteWidth == 8 do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: Bytes construct is outside the Solana pilot (Bytes values enter via state/params only)"
@@ -2581,7 +2731,9 @@ private def lowerBlockInstructionsV1
           if isMapConstruct && !argIds.isEmpty then
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: nonempty Map construct is outside the Solana pilot (build maps via IndexSet upsert)"
-          if n == solanaMapPilotLeafCountV1 && argIds.isEmpty then
+          -- Empty Map zeros: UInt64 pilot (24) or Principal LP pilot (44).
+          if (n == solanaMapPilotLeafCountV1 || isSolanaMapPrincipalLeafCountV1 n) &&
+              argIds.isEmpty then
             let mut zeros : Array Expr := #[]
             for _ in [0:n] do
               zeros := zeros.push (.literal 0)
@@ -2712,7 +2864,7 @@ private def lowerBlockInstructionsV1
                 "unsupported Solana semantic shape: Option construct TypeDecl missing"
         else
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: construct admits only Array/Map UInt64, Option UInt64, or named Struct/Enum on Solana"
+            "unsupported Solana semantic shape: construct admits only Array/Map UInt64, Map Principal UInt64, Option UInt64, or named Struct/Enum on Solana"
     | .indexGet baseId idxId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
         unless base.isAggregate do
@@ -2745,6 +2897,20 @@ private def lowerBlockInstructionsV1
             isInt := false
             bitWidth := 8
           }
+        else if isSolanaMapPrincipalLeafCountV1 base.leafExprs.size then
+          -- E4 Principal Map IndexGet: key is 9-leaf Principal aggregate.
+          unless idx.isAggregate do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Principal Map IndexGet key must be Principal aggregate"
+          unless idx.leafExprs.size == solanaMapPrincipalKeyLeafCountV1 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Principal Map IndexGet key leaf count mismatch"
+          let optLeaves ←
+            mapPrincipalLookupOptionLeavesV1 base.leafExprs idx.leafExprs
+          let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
+            (Nat.max base.depth idx.depth + 1)
+            (base.expandedNodes + idx.expandedNodes + 1)
+          values := ← appendResultValueV1 result.typeId values result value
         else if base.leafExprs.size == solanaMapPilotLeafCountV1 then
           let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
           let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
@@ -2807,6 +2973,34 @@ private def lowerBlockInstructionsV1
             (Nat.max base.depth val.depth + 1)
             (base.expandedNodes + val.expandedNodes + 1)
             (leafByteWidth := 1)
+          values := ← appendResultValueV1 result.typeId values result value
+        else if isSolanaMapPrincipalLeafCountV1 base.leafExprs.size then
+          -- E4 Principal Map IndexSet: key is 9-leaf Principal aggregate.
+          unless !val.isInt && val.bitWidth == 64 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Map IndexSet value must be scalar UInt64"
+          unless idx.isAggregate do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Principal Map IndexSet key must be Principal aggregate"
+          unless idx.leafExprs.size == solanaMapPrincipalKeyLeafCountV1 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Principal Map IndexSet key leaf count mismatch"
+          let (outLeaves0, okInsert) ←
+            mapPrincipalUpsertLeavesV1 base.leafExprs idx.leafExprs val.expr
+          -- Gate only first leaf so okInsert is not duplicated across 44 leaves.
+          let gate := Expr.checkedDiv (.literal 1) okInsert
+          let mut outLeaves : Array Expr := #[]
+          for i in [0:outLeaves0.size] do
+            let some e := outLeaves0[i]? |
+              throw <| .planInvariant .solana "Map IndexSet leaf missing after upsert"
+            let e' :=
+              if i == 0 then
+                Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
+              else e
+            outLeaves := outLeaves.push e'
+          let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
+            (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
+            (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
           values := ← appendResultValueV1 result.typeId values result value
         else if base.leafExprs.size == solanaMapPilotLeafCountV1 then
           unless !val.isInt && val.bitWidth == 64 do
