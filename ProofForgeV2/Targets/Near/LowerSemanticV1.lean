@@ -401,6 +401,11 @@ structure RegisterLayout where
   input : Nat
   storage : Nat
   evicted : Nat
+  /-- ADR-0031 S1: host `predecessor_account_id` / `register_len` /
+      `read_register` register id for `context.caller` Principal leaves.
+      Sole authority for caller WAT emission; validateIR joins IR.registers
+      to `canonicalRegisters` exactly. -/
+  predecessor : Nat
   deriving BEq, Inhabited, Repr
 
 structure KeyRegion where
@@ -495,6 +500,9 @@ def canonicalRegisters : RegisterLayout := {
   input := 0
   storage := 1
   evicted := 2
+  -- Distinct from input/storage/evicted; callerPrincipalLen/Word WAT
+  -- emission reads only `registers.predecessor` (no local hardcode).
+  predecessor := 3
 }
 
 /-- Thin adapter: binds NEAR's `maxIdentifierBytes` (240) to the shared grammar. -/

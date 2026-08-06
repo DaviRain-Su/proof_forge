@@ -4276,8 +4276,33 @@ private unsafe def testContextReadCallerNear (session : Language.Loader.ParserSe
   expect sawLen "caller-box: isCaller must reference callerPrincipalLen"
   for i in [0:8] do
     expect (sawWords[i]!) s!"caller-box: isCaller must reference callerPrincipalWord {i}"
+  -- RegisterLayout authority: predecessor id is layout-owned (canonical = 3);
+  -- validateIR exact-joins ir.registers to canonicalRegisters; WAT emission
+  -- must use only registers.predecessor (no local hardcode).
+  expect (Targets.Near.canonicalRegisters.input == 0)
+    "caller-box: canonical input register must remain 0"
+  expect (Targets.Near.canonicalRegisters.storage == 1)
+    "caller-box: canonical storage register must remain 1"
+  expect (Targets.Near.canonicalRegisters.evicted == 2)
+    "caller-box: canonical evicted register must remain 2"
+  expect (Targets.Near.canonicalRegisters.predecessor == 3)
+    "caller-box: canonical predecessor register must be 3"
   -- IR + HostModel: alice match / bob mismatch; bumpIfCaller failure holds state.
   let ir ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir.registers == Targets.Near.canonicalRegisters)
+    "caller-box: IR.registers must exact-join canonicalRegisters (validateIR)"
+  expect (ir.registers.predecessor == 3)
+    "caller-box: IR predecessor register must be 3"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "caller-box: missing .wat artifact"
+  let predConst := s!"(i64.const {Targets.Near.canonicalRegisters.predecessor})"
+  expect (wat.contents.contains s!"(call $pf_predecessor_account_id {predConst})")
+    s!"caller-box: WAT must call predecessor_account_id with layout predecessor {predConst}"
+  expect (wat.contents.contains s!"(call $pf_register_len {predConst})")
+    s!"caller-box: WAT must call register_len with layout predecessor {predConst}"
+  expect (wat.contents.contains s!"(call $pf_read_register {predConst}")
+    s!"caller-box: WAT must call read_register with layout predecessor {predConst}"
   let isCallerM ← findMethod ir "isCaller"
   let bumpM ← findMethod ir "bumpIfCaller"
   let getM ← findMethod ir "get"

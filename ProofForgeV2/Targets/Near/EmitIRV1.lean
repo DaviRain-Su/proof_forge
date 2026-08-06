@@ -1351,12 +1351,12 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset + 8})) (i64.const 0)) (then unreachable))\n" ++
         s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.depositOffset})))\n"
   | .callerPrincipalLen destination =>
-      -- ADR-0031 S1: predecessor_account_id → register 3 → length leaf.
+      -- ADR-0031 S1: predecessor_account_id → layout.predecessor → length leaf.
       -- Canonical Principal wire = u32le(L)||account-id-utf8; leaf0 = L.
       -- Bound L ∈ 1..64 (pilot Principal body max; NEAR account-id ≤ 64).
-      let predReg : Nat := 3
-      s!"{indent}(call $pf_predecessor_account_id (i64.const {predReg}))\n" ++
-        s!"{indent}(local.set $t{destination} (call $pf_register_len (i64.const {predReg})))\n" ++
+      -- Register id is sole-owned by `registers.predecessor` (canonical = 3).
+      s!"{indent}(call $pf_predecessor_account_id (i64.const {registers.predecessor}))\n" ++
+        s!"{indent}(local.set $t{destination} (call $pf_register_len (i64.const {registers.predecessor})))\n" ++
         s!"{indent}(if (i64.lt_u (local.get $t{destination}) (i64.const 1)) (then unreachable))\n" ++
         s!"{indent}(if (i64.gt_u (local.get $t{destination}) (i64.const 64)) (then unreachable))\n"
   | .callerPrincipalWord destination wordIndex =>
@@ -1364,12 +1364,12 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       -- Scratch at valueOffset+16 (64 bytes); not live across other host ops
       -- in the same leaf eval. Unused tail bytes forced 0 so Principal leaf
       -- equality is length-exact (trailing pad must match).
-      let predReg : Nat := 3
+      -- Register id is sole-owned by `registers.predecessor` (canonical = 3).
       let bodyBuf := memory.valueOffset + 16
       Id.run do
         let mut out :=
-          s!"{indent}(call $pf_predecessor_account_id (i64.const {predReg}))\n" ++
-          s!"{indent}(local.set $t_pf_i (call $pf_register_len (i64.const {predReg})))\n" ++
+          s!"{indent}(call $pf_predecessor_account_id (i64.const {registers.predecessor}))\n" ++
+          s!"{indent}(local.set $t_pf_i (call $pf_register_len (i64.const {registers.predecessor})))\n" ++
           s!"{indent}(if (i64.lt_u (local.get $t_pf_i) (i64.const 1)) (then unreachable))\n" ++
           s!"{indent}(if (i64.gt_u (local.get $t_pf_i) (i64.const 64)) (then unreachable))\n"
         -- Zero the full 64-byte body buffer before read_register (host only
@@ -1378,7 +1378,7 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
           out := out ++
             s!"{indent}(i64.store (i32.const {bodyBuf + 8 * j}) (i64.const 0))\n"
         out := out ++
-          s!"{indent}(call $pf_read_register (i64.const {predReg}) (i64.const {bodyBuf}))\n" ++
+          s!"{indent}(call $pf_read_register (i64.const {registers.predecessor}) (i64.const {bodyBuf}))\n" ++
           s!"{indent}(local.set $t{destination} (i64.load (i32.const {bodyBuf + 8 * wordIndex})))\n"
         pure out
   | .loadParam destination inputOffset =>
