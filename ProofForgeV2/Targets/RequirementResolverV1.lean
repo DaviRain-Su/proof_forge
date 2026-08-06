@@ -598,6 +598,7 @@ def inspectResolveRequestsV1
     -- non-permitted targets/profiles cannot inherit them.
     if item.id == unixTimeSecondsContextRequirementIdV1 ||
         item.id == callerContextRequirementIdV1 ||
+        item.id == blockHeightContextRequirementIdV1 ||
         item.id == commitmentDisclosureRequirementIdV1 then
       let expected ←
         if item.id == unixTimeSecondsContextRequirementIdV1 then
@@ -612,6 +613,12 @@ def inspectResolveRequestsV1
           | .error e =>
               throw <| .unsupportedRequirementV1
                 s!"ContextRead caller requirement row unavailable: {e}"
+        else if item.id == blockHeightContextRequirementIdV1 then
+          match blockHeightContextRequirementV1 with
+          | .ok r => pure r
+          | .error e =>
+              throw <| .unsupportedRequirementV1
+                s!"ContextRead block-height requirement row unavailable: {e}"
         else
           match commitmentDisclosureRequirementV1 with
           | .ok r => pure r

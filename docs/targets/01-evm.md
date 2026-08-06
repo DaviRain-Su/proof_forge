@@ -79,7 +79,7 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   `tokenBalance(mock)`==2000（STATICCALL `balanceOf` 精确）。
   **非** formal/mainnet parity。
 
-**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead 只开放已版本化的 `unixTimeSeconds` 与 `caller`，`blockHeight`/未知键仍在 EVM Plan fail closed（S2 target lane 尚未交付）；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025/S1 写成 Ownable/OZ/ABI/formal 完成。
+**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead 已开放版本化的 `unixTimeSeconds`、`caller` 与 **`blockHeight`（S2：`number()`）**，未知键仍 FC；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025/S1 写成 Ownable/OZ/ABI/formal 完成。
 
 ## 0.1 `context.caller` Principal encoding 与物化合同（ADR-0025；S1-EVM）
 

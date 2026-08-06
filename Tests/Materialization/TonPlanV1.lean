@@ -1402,23 +1402,46 @@ private unsafe def testContextReadUnixTime
         s!"caller FC must cite ContextRead/caller/Principal boundary, got: {e.render}"
   | .ok _ =>
       throw <| IO.userError "TON context.caller must fail closed"
-  -- (e) Unknown context key still FC. Source admits only the closed two-key
-  -- catalog; novel `context.<field>` fails at Normalize before Plan (message
-  -- cites the context boundary). Plan still keeps the unknown-key arm for
-  -- non-catalog Semantic ContextRead keys (not product-reachable).
+  -- (e) ADR-0031 S2: shared admits `context.blockHeight`, but TON Plan keeps
+  -- it fail closed (no honest TON height binding). Needs a state leaf so
+  -- profile state-count gates do not mask the ContextRead arm.
+  let heightSrc := wrapProgram "HeightBox" <|
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry height() : UInt64 do\n" ++
+    "    return context.blockHeight\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
+  let hCompiled ← compileSource session heightSrc "Examples.HeightBox"
+    "<ton-height-box>"
+  match planTon hCompiled with
+  | .error e =>
+      expect (e.render.contains "ContextRead" || e.render.contains "context" ||
+          e.render.contains "block-height" || e.render.contains "blockHeight")
+        s!"TON blockHeight Plan FC must cite ContextRead/context/blockHeight, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "TON context.blockHeight must fail closed at Plan"
+  -- (f) Truly unknown context key still FC at Normalize (closed catalog).
   let unknownSrc := wrapProgram "UnknownCtx" <|
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
     "  entry go() : UInt64 do\n" ++
-    "    return context.blockHeight\n"
+    "    return context.notARealKey\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
   match ← session.selectProgramV1 unknownSrc
       "<ton-unknown-ctx>" "Examples.UnknownCtx" none with
   | .error e =>
-      expect (e.render.contains "context" || e.render.contains "Context")
+      expect (e.render.contains "context" || e.render.contains "Context" ||
+          e.render.contains "notARealKey" || e.render.contains "unsupported")
         s!"unknown context key must cite context boundary at select, got: {e.render}"
   | .ok validated =>
       match Compiler.compileValidatedSourceV1 validated with
       | .error e =>
           expect (e.render.contains "context" || e.render.contains "Context" ||
-              e.render.contains "blockHeight" || e.render.contains "unsupported")
+              e.render.contains "unsupported" || e.render.contains "notARealKey")
             s!"unknown context key must fail closed citing context, got: {e.render}"
       | .ok compiled =>
           match planTon compiled with
@@ -1428,7 +1451,7 @@ private unsafe def testContextReadUnixTime
           | .ok _ =>
               throw <| IO.userError
                 "unknown context key must fail closed (Normalize or Plan)"
-  IO.println "  ✓ B-CTX-OPEN unixTimeSeconds → blockchain.now(); caller/unknown FC"
+  IO.println "  ✓ B-CTX-OPEN unixTimeSeconds → blockchain.now(); caller/blockHeight/unknown FC"
 
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"

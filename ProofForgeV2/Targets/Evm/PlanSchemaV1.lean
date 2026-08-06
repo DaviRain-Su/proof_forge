@@ -225,6 +225,9 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   -- (tag 61 appended; prior tags byte-identical). Payload = u32le wordIndex.
   | .callerPrincipalWord wordIndex =>
       pure ((encodeU8 61).append (← encodeNatAsU32le wordIndex))
+  -- ADR-0031 S2: block height / NUMBER (tag 62 appended; prior tags
+  -- byte-identical).
+  | .blockNumber => pure (encodeU8 62)
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

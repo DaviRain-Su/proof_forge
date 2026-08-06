@@ -3249,12 +3249,12 @@ private unsafe def testBytesStateIndexOps : IO Unit := do
   | .error e =>
       throw <| IO.userError s!"EVM must accept Map after I1, got {e.render}"
 
-/-- EVM ContextRead pin (B-CTX-OPEN / ADR-0031 S1): `context.unixTimeSeconds`
-    lowers to `timestamp()` (UInt64); `context.caller` lowers to Principal
-    aggregate `literal 20` + 8×`callerPrincipalWord` (ADR-0025
-    `u32le(20)||addr20`). Fixture returns Bool via leaf-wise `==` against a
-    Principal param (multi-word Principal entry/view return stays FC).
-    Unknown context keys stay fail closed. -/
+/-- EVM ContextRead pin (B-CTX-OPEN / ADR-0031 S1+S2): `context.unixTimeSeconds`
+    lowers to `timestamp()` (UInt64); `context.blockHeight` → `number()`;
+    `context.caller` lowers to Principal aggregate `literal 20` +
+    8×`callerPrincipalWord` (ADR-0025 `u32le(20)||addr20`). Fixture returns
+    Bool via leaf-wise `==` against a Principal param (multi-word Principal
+    entry/view return stays FC). Unknown context keys stay fail closed. -/
 private unsafe def testContextReadFailClosedBoundary : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- unix-time-seconds → UInt64 result is admitted (BL-28-era PlanSchema tag 59).
@@ -3283,6 +3283,32 @@ private unsafe def testContextReadFailClosedBoundary : IO Unit := do
         "EVM unix-time ContextRead must lower to the timestamp expression"
   | .error e =>
       throw <| IO.userError s!"EVM unix-time ContextRead must admit (B-CTX-OPEN), got {e.render}"
+  -- ADR-0031 S2: blockHeight → number()
+  let heightSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CtxHeight where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry height() : UInt64 do\n" ++
+    "    return context.blockHeight\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
+  let heightSrc ← liftResult "load CtxHeight" (← session.selectProgramV1
+    heightSource "<evm-ctx-height>" "Tests.EvmCtxHeight" none)
+  let heightCompiled ← liftResult "compile CtxHeight" <|
+    Compiler.compileValidatedSourceV1 heightSrc
+  match planEvm heightCompiled with
+  | .ok p =>
+      expect (p.entries.any fun e =>
+        e.body.any fun s =>
+          match s with
+          | .returnValue .blockNumber => true
+          | _ => false)
+        "EVM blockHeight ContextRead must lower to the blockNumber expression"
+  | .error e =>
+      throw <| IO.userError s!"EVM blockHeight ContextRead must admit (ADR-0031 S2), got {e.render}"
   -- context.caller → Principal aggregate (ADR-0025); compare returns Bool.
   let callerSource :=
     "import ProofForgeV2\n" ++
@@ -3824,10 +3850,11 @@ private unsafe def testCallReturnEvm : IO Unit := do
           throw <| IO.userError
             "EVM Bool result call must fail closed in the UInt64 pilot"
 
-/-- B-CTX-OPEN / ADR-0031 S1: `context.unixTimeSeconds` → `timestamp()`;
-    `context.caller` → Principal aggregate from `caller()` (ADR-0025).
-    Direct Principal return stays fail closed (multi-word return ABI);
-    compare-to-param Bool/UInt64 shape is the admitted surface. -/
+/-- B-CTX-OPEN / ADR-0031 S1+S2: `context.unixTimeSeconds` → `timestamp()`;
+    `context.blockHeight` → `number()`; `context.caller` → Principal from
+    `caller()` (ADR-0025). Direct Principal return stays fail closed
+    (multi-word return ABI); compare-to-param Bool/UInt64 shape is the
+    admitted surface. -/
 private unsafe def testContextReadTimestampEvm : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src :=
@@ -3868,6 +3895,45 @@ private unsafe def testContextReadTimestampEvm : IO Unit := do
     throw <| IO.userError "CtxTs: missing ClockBox.yul"
   expect (yulFile.contents.contains "timestamp()")
     "CtxTs: Yul must contain the timestamp() opcode"
+  -- ADR-0031 S2: blockHeight → number()
+  let hSrcText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program HeightBox where\n" ++
+    "  state h : UInt64\n" ++
+    "  init() do\n" ++
+    "    h := 0\n" ++
+    "  entry mark() : UInt64 do\n" ++
+    "    h := context.blockHeight\n" ++
+    "    return h\n" ++
+    "  view last() : UInt64 do\n" ++
+    "    return h\n"
+  let hSrc ← match ← session.selectProgramV1
+      hSrcText "<evm-ctx-height-box>" "Tests.EvmCtxHeightBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CtxHeight select: {e.render}"
+  let hCompiled ← match Compiler.compileValidatedSourceV1 hSrc with
+    | .error _ => throw <| IO.userError "CtxHeight must compile through located Normalize"
+    | .ok c => pure c
+  let hPlan ← match planEvm hCompiled with
+    | .error e => throw <| IO.userError s!"CtxHeight must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasBlockNumber := hPlan.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .store op =>
+          match op.value with
+          | .blockNumber => true
+          | _ => false
+      | _ => false
+  expect hasBlockNumber "CtxHeight: plan must contain a blockNumber store"
+  let hFiles ← match materializeSelected TargetId.evm hCompiled with
+    | .error e => throw <| IO.userError s!"CtxHeight materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some hYul := hFiles.find? (·.path == "HeightBox.yul") |
+    throw <| IO.userError "CtxHeight: missing HeightBox.yul"
+  expect (hYul.contents.contains "number()")
+    "CtxHeight: Yul must contain the number() opcode"
   -- context.caller admitted: compare against Principal param → Bool
   -- (multi-word Principal return stays FC; this is the honest fixture shape).
   let callerSrc :=

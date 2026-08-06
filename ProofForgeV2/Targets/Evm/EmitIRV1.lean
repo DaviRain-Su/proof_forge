@@ -87,6 +87,7 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       s!"and({paramPrefix}{wordIndex}, {yulUintMask bitWidth})"
   | .temp tempIndex => s!"t{tempIndex}"
   | .timestamp => "timestamp()"
+  | .blockNumber => "number()"
   | .selfBalance => "selfbalance()"
   | .callerPrincipalWord wordIndex =>
       -- Nested form: assemble one LE body word of ADR-0025
@@ -289,6 +290,13 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       -- (same discipline as storageLoad).
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := timestamp()\n" ++
+          s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
+        value := name, next := next + 1 }
+  | .blockNumber =>
+      -- ADR-0031 S2: block height via NUMBER / Yul `number()` with the
+      -- UInt64 range guard (same discipline as timestamp / storageLoad).
+      let name := s!"expr{next}"
+      { code := s!"{indent}let {name} := number()\n" ++
           s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
         value := name, next := next + 1 }
   | .selfBalance =>

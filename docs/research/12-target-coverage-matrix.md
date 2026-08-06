@@ -63,7 +63,7 @@ normative: false
 | pureCall（fn/localCall） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | emit / revert | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | FAIL-CLOSED emit; bare revert LOWERED |
 | assertOp | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
-| contextRead | **LOWERED**(`unixTimeSeconds`→`timestamp()`；`caller`→`u32le(20)\|\|CALLER` 9-leaf Principal，ADR-0031 S1；`blockHeight` 与未知键 FC) | **FAIL-CLOSED**（全 key，含 unixTime；无 Clock sysvar 绑定） | **PARTIAL**（`unixTimeSeconds`→`block_timestamp` ns÷10^9；`caller`/未知键 FC） | FAIL-CLOSED（电路域无锚定时钟/caller） | FAIL-CLOSED | FAIL-CLOSED |
+| contextRead | **LOWERED**(`unixTimeSeconds`→`timestamp()`；`blockHeight`→`number()` S2；`caller`→`u32le(20)\|\|CALLER` 9-leaf Principal，ADR-0031 S1；未知键 FC) | **FAIL-CLOSED**（全 key，含 unixTime；无 Clock sysvar 绑定） | **PARTIAL**（`unixTimeSeconds`→`block_timestamp` ns÷10^9；`caller`/未知键 FC） | FAIL-CLOSED（电路域无锚定时钟/caller） | FAIL-CLOSED | FAIL-CLOSED |
 | commit | LOWERED(身份透传) | LOWERED(身份透传) | LOWERED(身份透传) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(身份透传) |
 | externalCall（sync call） | LOWERED(static QN→CALL；result-bearing UInt64 读 returndata；callee address stub，语义 PARTIAL) | LOWERED(static QN→`sol_invoke_signed_c`；result-bearing UInt64 读 `sol_get_return_data`；空 AccountMeta/外层 callee account 未闭合，语义 PARTIAL) | FAIL-CLOSED | LOWERED(relation slots；语义 PARTIAL) | LOWERED(`__invoke_sync` source；语义 PARTIAL) | FAIL-CLOSED(resolver+plan) |
 | schedule（async） | LOWERED(static QN→同步 CALL+忽略结果；语义 stub) | LOWERED(static QN→`sol_invoke_signed_c`；空 AccountMeta/外层 callee account 未闭合，语义 PARTIAL) | LOWERED(promise；fire-and-forget) | LOWERED(relation slots；语义 PARTIAL) | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |

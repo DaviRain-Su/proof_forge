@@ -3039,6 +3039,9 @@ private def lowerBlockInstructionsV1
         if key == callerContextKeyV1 then
           throw <| .planInvariant .ton
             "unsupported Ton semantic shape: ContextRead (context.caller) is not admitted by pilot context policy (Principal to TON address mapping deferred)"
+        if key == blockHeightContextKeyV1 then
+          throw <| .planInvariant .ton
+            "unsupported Ton semantic shape: ContextRead (context.blockHeight) is not admitted (no honest TON block-height binding in pilot)"
         unless key == unixTimeSecondsContextKeyV1 do
           throw <| .planInvariant .ton
             s!"unsupported Ton semantic shape: unknown ContextRead key '{key.value}'"

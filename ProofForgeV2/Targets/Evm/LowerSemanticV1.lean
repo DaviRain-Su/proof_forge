@@ -219,6 +219,10 @@ inductive Expr where
   /-- B-CTX-OPEN: block timestamp seconds (EVM `timestamp()` opcode). Carries
       the unix-time-seconds ContextRead; UInt64-typed. -/
   | timestamp
+  /-- ADR-0031 S2: block height (EVM `number()` / NUMBER opcode). Carries
+      `context.blockHeight` ContextRead; UInt64-typed with the same range
+      guard discipline as `timestamp`. -/
+  | blockNumber
   /-- ADR-0030 E2-3: `pf.assets.native.balanceOfSelf()` → EVM `SELFBALANCE`
       opcode (0x47) in Yul (`selfbalance()`). Read-only, view/entry-callable,
       effect-free; result is UInt64. -/
@@ -3519,8 +3523,9 @@ private def lowerBlockInstructionsV1
           aggregateLeafIsInt := operand.aggregateLeafIsInt
         }
     | .contextRead key, some result =>
-        -- B-CTX-OPEN (EVM):
+        -- B-CTX-OPEN / ADR-0031 (EVM):
         --   * `context.unixTimeSeconds` → `timestamp()` (UInt64, tag 59)
+        --   * `context.blockHeight` → `number()` (UInt64, tag 62; S2)
         --   * `context.caller` → Principal aggregate `u32le(20)||addr20`
         --     from `CALLER` (ADR-0025 sole realization; ADR-0031 S1 /
         --     ADR-0030 E3). Length leaf is literal 20; body words are
@@ -3548,6 +3553,12 @@ private def lowerBlockInstructionsV1
               "unsupported EVM semantic shape: ContextRead unix-time-seconds result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result
             (mkScalarValueV1 .timestamp #[] false false 64 1 1)
+        else if key == blockHeightContextKeyV1 then
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: ContextRead context.blockHeight result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result
+            (mkScalarValueV1 .blockNumber #[] false false 64 1 1)
         else
           throw <| .planInvariant .evm
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
