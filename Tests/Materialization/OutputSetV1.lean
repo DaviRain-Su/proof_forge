@@ -352,7 +352,7 @@ private unsafe def testProductPathDiskRecompute : IO Unit := do
   validateEngineeringDiskClosureV1 finalized outDir
   -- Files order is canonical role-rank then UTF-8 path (not materializer source order).
   let paths := (EngineeringOutputSetV1.filesOf outputSet).map (·.path)
-  expect (paths == #["Counter.idl.json", "Counter.sbpf-plan"])
+  expect (paths == #["Counter.idl.json", "Counter.s"])
     "solana files canonical path order"
   -- Inspect product path accepts the published dir.
   let inspected ← ProofForgeV2.CLI.inspectEngineeringOutputDirV1 outDir
@@ -424,7 +424,7 @@ private unsafe def testLegacyPathOnlyManifestRejected : IO Unit := do
     "{\n" ++
     "  \"schemaVersion\": \"proof-forge.output.v1\",\n" ++
     "  \"target\": \"solana\",\n" ++
-    "  \"codegenProfile\": \"solana-sbpf-plan-v1\",\n" ++
+    "  \"codegenProfile\": \"solana-sbpf-cpi-elf-v1\",\n" ++
     "  \"artifactProgramName\": \"Counter\",\n" ++
     "  \"sourceHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"semanticHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
@@ -435,7 +435,7 @@ private unsafe def testLegacyPathOnlyManifestRejected : IO Unit := do
     "  \"outputSetDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"evidenceSha256\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"deployable\": false,\n" ++
-    "  \"files\": [\"Counter.sbpf-plan\",\"Counter.idl.json\"]\n" ++
+    "  \"files\": [\"Counter.s\",\"Counter.idl.json\"]\n" ++
     "}\n"
   match ProofForgeV2.CLI.validateEngineeringOutputManifestTextV1 legacy with
   | .ok _ => throw <| IO.userError "legacy path-only files must fail"

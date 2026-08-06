@@ -198,8 +198,9 @@ buildFromCapability (profile = solana-sbpf-cpi-elf-v1)
   `solana.system.transfer` + ≥3 outer roles → `p3e-system-transfer-multi-role` /
   `frameMode=unifiedCpi` / `cpiMaturity=multi-role-system-transfer`。钉测
   `Examples/BodyCpiSysPay`（outerRoleCount=4：state+payer+recipient+system）+
-  recipe unit。非 system.transfer 的 full-body sites 仍 empty-meta partial
-  （MapTip/IfPay）。**尚未**：TipJar/escrow 多 recipe multi-role、Mollusk 差分。
+  recipe unit + `body_cpi_sys_pay` Mollusk 10/10（engineering）。非 system.transfer
+  的 full-body sites 仍 empty-meta partial（MapTip/IfPay）。**尚未**：TipJar/escrow
+  多 recipe multi-role。
 - **P3-f demo 已绿（engineering）**：`Examples/BodyCpiMapTip.lean` +
   `Tests/Product/BodyCpiMapTipSolanaV1` + synthesize pin。Map + `pf.assets.native.transfer`
   同 ELF（empty-meta partial）。**Scratch 纪律**：IndexSet RHS 必须经 `scratch` 标量

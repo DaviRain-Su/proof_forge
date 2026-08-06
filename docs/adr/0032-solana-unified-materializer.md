@@ -127,4 +127,9 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
     * plan-v1 / elf-v1 常量保留作历史名，**不可 resolve/materialize/finalize**
     * runtime bind/Mollusk 脚本切到 sole rail 产物叶（`.cpi-plan.json` 等）
     * WideDiv/Map 等 runtime fixtures 在默认 cpi-elf 可 build deployable ELF
-    * **尚未**：BodyCpiSysPay 专项 Mollusk 矩阵；formal TASK-D5
+    * **BodyCpiSysPay Mollusk**（engineering）：`runtime-tests/solana/tests/body_cpi_sys_pay.rs`
+      10 项——init/credit/get 四角色壳、pay 成功 bal+lamports 差分、bal 不足跳过 CPI、
+      amount=0 assert、underfunded System 全快照回滚、缺 signer PrivilegeEscalation、
+      错 System UnsupportedProgramId、wrong outer count Custom(1)。multi-role 修：
+      handler `num_accounts==N`、body temp 基址 `productEscrowTempBaseV1`、dispatch `ja`
+      （共享 entrypoint r10 帧）、`orig_data_len` 对齐 frozen ABI（0）。formal TASK-D5 仍未

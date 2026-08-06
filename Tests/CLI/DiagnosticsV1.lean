@@ -271,7 +271,7 @@ private def testSolanaCallsFailClosed : IO Unit := do
   IO.FS.writeFile schedulePath scheduleSource
   IO.FS.writeFile unknownPath unknownSource
   -- Legacy profiles: both call and schedule still PF-REQ-UNSUPPORTED.
-  let legacyProfiles := #["solana-sbpf-elf-v1", "solana-sbpf-plan-v1"]
+  let legacyProfiles := #["solana-sbpf-elf-v1", "solana-sbpf-cpi-elf-v1"]
   let legacyCases : Array (String × FilePath × String × String) := #[
     ("call", callPath, "Tests.CLI.SolanaCallFail", "effect.synchronous-call"),
     ("schedule", schedulePath, "Tests.CLI.SolanaScheduleFail",
@@ -530,7 +530,7 @@ private def testProfileSelection : IO Unit := do
   expect (← outDir.pathExists) "profile build must publish"
   -- Manifest records the selected profile.
   let manifest ← IO.FS.readFile (outDir / "manifest.json")
-  expect (containsSubstr manifest "solana-sbpf-plan-v1")
+  expect (containsSubstr manifest "solana-sbpf-cpi-elf-v1")
     s!"manifest must bind selected profile: {manifest}"
 
   -- ADR-0032 U1 P4: Counter body-only admits on sole rail cpi-elf (no
@@ -648,7 +648,7 @@ private def testInspectOutputDirPositive : IO Unit := do
     s!"inspect-output schema: {stdout4}"
   expect (containsSubstr stdout4 "\"target\":\"solana\"")
     s!"inspect-output json target: {stdout4}"
-  expect (containsSubstr stdout4 "\"codegenProfile\":\"solana-sbpf-plan-v1\"")
+  expect (containsSubstr stdout4 "\"codegenProfile\":\"solana-sbpf-cpi-elf-v1\"")
     s!"inspect-output json profile: {stdout4}"
   expect (containsSubstr stdout4 "\"artifactProgramName\":\"Counter\"")
     s!"inspect-output json artifact: {stdout4}"
@@ -878,7 +878,7 @@ private def testInspectOutputDirNegativesB : IO Unit := do
     "{\n" ++
     "  \"schemaVersion\": \"proof-forge.output.v1\",\n" ++
     "  \"target\": \"solana\",\n" ++
-    "  \"codegenProfile\": \"solana-sbpf-plan-v1\",\n" ++
+    "  \"codegenProfile\": \"solana-sbpf-cpi-elf-v1\",\n" ++
     "  \"artifactProgramName\": \"Counter\",\n" ++
     "  \"sourceHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"semanticHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++

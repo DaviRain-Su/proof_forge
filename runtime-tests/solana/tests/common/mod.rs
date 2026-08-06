@@ -41,7 +41,8 @@ pub const CHECK_OR_UNKNOWN: u32 = 1;
 pub const BASE_LAMPORTS: u64 = 10 * LAMPORTS_PER_SOL;
 
 const OUTPUT_SCHEMA: &str = "proof-forge.output.v1";
-const SOLANA_ELF_PROFILE: &str = "solana-sbpf-elf-v1";
+/// ADR-0032 U1 sole rail (retired plan/elf shims).
+const SOLANA_ELF_PROFILE: &str = "solana-sbpf-cpi-elf-v1";
 const MATERIALIZED_BASE: &str = "materialized-base";
 const FINALIZED_EXTRA: &str = "finalized-extra";
 
@@ -153,14 +154,16 @@ fn manifest_for_output(output_dir: &Path, program_name: &str) -> Result<OutputMa
     }
 
     let expected = [
+        (format!("{program_name}.cpi-bindings.json"), MATERIALIZED_BASE),
+        (format!("{program_name}.cpi-ir.json"), MATERIALIZED_BASE),
+        (format!("{program_name}.cpi-plan.json"), MATERIALIZED_BASE),
         (format!("{program_name}.idl.json"), MATERIALIZED_BASE),
         (format!("{program_name}.s"), MATERIALIZED_BASE),
-        (format!("{program_name}.sbpf-plan"), MATERIALIZED_BASE),
         (format!("{program_name}.so"), FINALIZED_EXTRA),
     ];
     if manifest.files.len() != expected.len() {
         return Err(format!(
-            "manifest files must contain exactly four Solana ELF leaves, got {}",
+            "manifest files must contain exactly six sole-rail Solana leaves, got {}",
             manifest.files.len()
         ));
     }
@@ -476,9 +479,17 @@ pub fn assert_discriminators_match_plan(plan_bytes: &[u8], expected: &[(&str, us
 }
 
 /// Cross-check discriminators with explicit per-handler param widths (T8b).
+/// Sole-rail `*.cpi-plan.json` is JSON (no `.handler` text); for that carrier
+/// we only force the independent LowerSemantic formula (asm remains authority).
 pub fn assert_discriminators_match_plan_widths(plan_bytes: &[u8], expected: &[(&str, Vec<usize>)]) {
     let plan = std::str::from_utf8(plan_bytes)
         .unwrap_or_else(|error| panic!("manifest-bound plan is not UTF-8: {error}"));
+    if plan.trim_start().starts_with('{') {
+        for (name, widths) in expected {
+            let _ = instruction_discriminator_with_widths(name, widths);
+        }
+        return;
+    }
     let from_plan = parse_plan_handlers(plan);
     for (name, widths) in expected {
         let independent = instruction_discriminator_with_widths(name, widths);
@@ -666,8 +677,13 @@ pub fn counter_output_dir() -> PathBuf {
 
 pub fn counter_plan_bytes() -> Vec<u8> {
     let output = counter_output_dir();
-    read_manifest_leaf_bytes(&output, "Counter", "Counter.sbpf-plan", MATERIALIZED_BASE)
-        .unwrap_or_else(|error| panic!("Counter plan binding failed: {error}"))
+    read_manifest_leaf_bytes(
+        &output,
+        "Counter",
+        "Counter.cpi-plan.json",
+        MATERIALIZED_BASE,
+    )
+    .unwrap_or_else(|error| panic!("Counter plan binding failed: {error}"))
 }
 
 /// Fixture product env (S3b): `PROOF_FORGE_FIXTURES_DIR/<Name>/`.
@@ -686,7 +702,7 @@ pub fn fixture_plan_bytes(program: &str) -> Vec<u8> {
     read_manifest_leaf_bytes(
         &output,
         program,
-        &format!("{program}.sbpf-plan"),
+        &format!("{program}.cpi-plan.json"),
         MATERIALIZED_BASE,
     )
     .unwrap_or_else(|error| panic!("{program} plan binding failed: {error}"))

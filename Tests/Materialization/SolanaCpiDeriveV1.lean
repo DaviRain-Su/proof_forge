@@ -203,12 +203,6 @@ private def cpiSelection : IO ResolvedBuildSelectionV1 :=
       (some CodegenProfileId.solanaSbpfCpiElfV1))
     "select solana-sbpf-cpi-elf-v1"
 
-private def planSelection : IO ResolvedBuildSelectionV1 :=
-  expectCompileOk
-    (resolveBuildSelectionV1 TargetId.solana
-      (some CodegenProfileId.solanaSbpfPlanV1))
-    "select solana-sbpf-plan-v1"
-
 private unsafe def preflightOf
     (session : Language.Loader.ParserSession)
     (source moduleName : String) : IO ResolvedSolanaCpiPreflightV1 := do
@@ -533,16 +527,19 @@ private unsafe def testScheduleRejected
                 "PF-PLAN-INVARIANT" "schedule"
                 "schedule rejected at derive"
 
-/-- Legacy plan profile cannot use CPI preflight. -/
+/-- ADR-0032 U1: retired plan/elf profile ids are not registry members. -/
 private unsafe def testWrongProfileRejected
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session companionInvokeSource
-    "Tests.CpiCompanionInvoke" "<cpi-wrong-profile>"
-  let selection ← planSelection
+    (_session : Language.Loader.ParserSession) : IO Unit := do
   expectCompileErrorContains
-    (resolveSolanaCpiPreflightV1 selection compiled)
-    "PF-REQ-UNSUPPORTED" "solana-sbpf-cpi-elf-v1"
-    "legacy plan profile rejected by preflight"
+    (resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfPlanV1))
+    "PF-PROFILE-UNKNOWN" "solana-sbpf-plan-v1"
+    "retired plan profile rejected at build selection"
+  expectCompileErrorContains
+    (resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfElfV1))
+    "PF-PROFILE-UNKNOWN" "solana-sbpf-elf-v1"
+    "retired elf profile rejected at build selection"
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared

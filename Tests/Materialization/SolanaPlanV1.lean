@@ -1491,12 +1491,11 @@ private unsafe def testShiftBitwiseLogical
   let ir2 ← liftResult <| irSolana compiled
   expect (ir == ir2) "BitLogic IR rebuild must be structure-identical"
 
-/-- #125 call/schedule matrix:
-    * legacy profiles (default plan / elf) still PF-REQ-UNSUPPORTED for both keys
-    * exact CPI profile admits sync at ordinary resolve; unknown Oracle QN fails
+/-- #125 / ADR-0032 U1 call/schedule matrix:
+    * retired plan/elf profiles fail closed at selection (not registry members)
+    * sole cpi-elf admits sync at ordinary resolve; unknown Oracle QN fails
       product Plan with PF-PLAN-INVARIANT; schedule still PF-REQ-UNSUPPORTED
-    Principal remains fail-closed for address mapping. Defense-in-depth: forged
-    legacy Plan/IR/SBPF call nodes still fail closed. -/
+    Principal remains fail-closed for address mapping. -/
 private unsafe def testExternalCallFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let callText := wrapProgram "CallGate" <|
@@ -1523,18 +1522,15 @@ private unsafe def testExternalCallFailClosed
     "    return count\n"
   let scheduleCompiled ← compileSource session scheduleText
     "Examples.ScheduleGate" "<solana-schedule-gate>"
-  -- Legacy profiles still reject both keys before capability mint.
-  for profile? in #[none, some CodegenProfileId.solanaSbpfElfV1] do
-    let callSelection ← liftResult <|
-      resolveBuildSelectionV1 TargetId.solana profile?
-    expectUnsupportedRequirement s!"call legacy profile={callSelection.codegenProfile}"
-      "effect.synchronous-call"
-      (Targets.resolveEngineeringRequirementsV1 callSelection callCompiled)
-    let scheduleSelection ← liftResult <|
-      resolveBuildSelectionV1 TargetId.solana profile?
-    expectUnsupportedRequirement s!"schedule legacy profile={scheduleSelection.codegenProfile}"
-      "effect.asynchronous-workflow"
-      (Targets.resolveEngineeringRequirementsV1 scheduleSelection scheduleCompiled)
+  -- Retired plan/elf profiles are not selectable.
+  for profile in #[CodegenProfileId.solanaSbpfPlanV1,
+      CodegenProfileId.solanaSbpfElfV1] do
+    match resolveBuildSelectionV1 TargetId.solana (some profile) with
+    | .error e =>
+        expect (e.render.contains "PF-")
+          s!"retired {profile} selection fail, got {e.render}"
+    | .ok _ =>
+        throw <| IO.userError s!"retired {profile} must not resolve"
   -- Exact CPI profile: ordinary resolve admits sync. Unknown Oracle without
   -- extension fails product Plan (extension required). With exact extension,
   -- non-approved Oracle QN fails product Plan with PF-PLAN-INVARIANT.

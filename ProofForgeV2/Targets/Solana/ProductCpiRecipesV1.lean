@@ -125,6 +125,11 @@ def multiRoleAbiIsSignerOffsetV1 : Nat := 1
 def multiRoleAbiIsWritableOffsetV1 : Nat := 2
 def multiRoleAbiMaxPermittedV1 : Nat := 10240
 def multiRoleAbiOrigDataLenOffV1 : Nat := 4
-def multiRoleAbiOrigDataLenEntryV1 : Nat := 0xffffffff
+/-- Must match `frozenLoaderV3AbiLayoutV1.originalDataLenEntryValue` (0).
+    Agave/Mollusk ABIv1 writes the account's original data length here for
+    non-dup entries — **not** `0xffffffff`. A `jne r1, 0xffffffff` also mis-
+    encodes under SBPF's signed 32-bit immediate (zero-extended ldxw ≠
+    sign-extended imm). -/
+def multiRoleAbiOrigDataLenEntryV1 : Nat := 0
 
 end ProofForgeV2.Targets.Solana.ProductCpiRecipesV1

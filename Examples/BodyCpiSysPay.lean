@@ -18,7 +18,8 @@ open ProofForgeV2.Language
 -- CPI without Map/scratch complexity. Map+empty-meta remains BodyCpiMapTip.
 --
 -- Not imported by Examples.lean (target-specific product pin).
--- Non-formal, non-mainnet, not Mollusk.
+-- Mollusk: runtime-tests/solana/tests/body_cpi_sys_pay.rs (engineering differential).
+-- Non-formal, non-mainnet.
 program BodyCpiSysPay where
   requires extension solana.cpi.accounts version "1.0.0"
     digest "sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020"

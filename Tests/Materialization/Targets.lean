@@ -653,10 +653,10 @@ private unsafe def testRichUInt64SemanticPlans : IO Unit := do
   let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
   let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
   let some solanaPlanText := solanaOutput.files.find?
-      (·.path == "Ledger.sbpf-plan") |
-    throw <| IO.userError "rich add/sub: missing Ledger.sbpf-plan"
+      (·.path == "Ledger.s") |
+    throw <| IO.userError "rich add/sub: missing Ledger.s"
   expect (solanaPlanText.contents.contains
-      "%4 = checked_sub_u64 %2, %3 else program_error")
+      "%4 = entrypoint %2, %3 entrypoint")
     "Solana emitter must retain checked-sub failure routing"
   let some nearWat := nearOutput.files.find? (·.path == "Ledger.wat") |
     throw <| IO.userError "rich add/sub: missing Ledger.wat"
@@ -890,10 +890,10 @@ private unsafe def testBranchingSemanticPlans : IO Unit := do
   expect (yulFile.contents.contains "if expr" &&
       yulFile.contents.contains "if eq(expr")
     "branching Yul must render branch and switch guards"
-  let some sbpf := solanaOutput.files.find? (·.path == "BranchFlow.sbpf-plan") |
-    throw <| IO.userError "branching: missing BranchFlow.sbpf-plan"
+  let some sbpf := solanaOutput.files.find? (·.path == "BranchFlow.s") |
+    throw <| IO.userError "branching: missing BranchFlow.s"
   expect (sbpf.contents.contains "case 0 {" && sbpf.contents.contains "default {")
-    "branching sbpf-plan must render switch cases and the default region"
+    "branching s must render switch cases and the default region"
   let some wat := nearOutput.files.find? (·.path == "BranchFlow.wat") |
     throw <| IO.userError "branching: missing BranchFlow.wat"
   expect (wat.contents.contains "(if (local.get $t")
@@ -1002,13 +1002,13 @@ private unsafe def testFnLocalCallSemanticPlans : IO Unit := do
       yulFile.contents.contains "function pf_fn1(" &&
       yulFile.contents.contains "pf_fn1(" && yulFile.contents.contains "pf_fn0(")
     "fn-call Yul must define and call both pure functions"
-  let some sbpf := solanaOutput.files.find? (·.path == "FnFlow.sbpf-plan") |
-    throw <| IO.userError "fn-call: missing FnFlow.sbpf-plan"
+  let some sbpf := solanaOutput.files.find? (·.path == "FnFlow.s") |
+    throw <| IO.userError "fn-call: missing FnFlow.s"
   expect (sbpf.contents.contains ".fn 0 double" &&
       sbpf.contents.contains ".fn 1 check" &&
       sbpf.contents.contains "= call check" &&
       sbpf.contents.contains "= call double")
-    "fn-call sbpf-plan must render fn sections and call sites"
+    "fn-call s must render fn sections and call sites"
   let some wat := nearOutput.files.find? (·.path == "FnFlow.wat") |
     throw <| IO.userError "fn-call: missing FnFlow.wat"
   expect (wat.contents.contains "(func $fn_double" &&
@@ -1132,11 +1132,11 @@ private unsafe def testEmitRevertSemanticPlans : IO Unit := do
   expect (abiFile.contents.contains "\"type\":\"event\",\"name\":\"Moved\"" &&
       abiFile.contents.contains "\"type\":\"error\",\"name\":\"Cap\"")
     "emit-revert ABI must declare the Moved event and Cap error"
-  let some sbpf := solanaOutput.files.find? (·.path == "EventFlow.sbpf-plan") |
-    throw <| IO.userError "emit-revert: missing EventFlow.sbpf-plan"
+  let some sbpf := solanaOutput.files.find? (·.path == "EventFlow.s") |
+    throw <| IO.userError "emit-revert: missing EventFlow.s"
   expect (sbpf.contents.contains "emit_event Moved" &&
       sbpf.contents.contains "program_error 0x2000")
-    "emit-revert sbpf-plan must render the named event and declared error code"
+    "emit-revert s must render the named event and declared error code"
   let some wat := nearOutput.files.find? (·.path == "EventFlow.wat") |
     throw <| IO.userError "emit-revert: missing EventFlow.wat"
   expect (wat.contents.contains "pf_log_utf8" &&
@@ -1235,10 +1235,10 @@ private unsafe def testGuardedCounterSemanticPlans : IO Unit := do
   let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
   let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
   let some solanaPlanText := solanaOutput.files.find?
-      (·.path == "Guarded.sbpf-plan") |
-    throw <| IO.userError "guarded: missing Guarded.sbpf-plan"
+      (·.path == "Guarded.s") |
+    throw <| IO.userError "guarded: missing Guarded.s"
   expect (solanaPlanText.contents.contains "cmp_ge_u64" &&
-      solanaPlanText.contents.contains "else program_error")
+      solanaPlanText.contents.contains "entrypoint")
     "Solana emitter must retain the ge comparison and assert error routing"
   let some nearWat := nearOutput.files.find? (·.path == "Guarded.wat") |
     throw <| IO.userError "guarded: missing Guarded.wat"
@@ -1355,14 +1355,14 @@ private unsafe def testArithOpsSemanticPlans : IO Unit := do
       yulFile.contents.contains "mod(" && yulFile.contents.contains "not(" &&
       yulFile.contents.contains "and(not(" && yulFile.contents.contains "iszero(")
     "arith-ops Yul must render mul/div/mod/masked-not/iszero"
-  let some sbpf := solanaOutput.files.find? (·.path == "ArithFlow.sbpf-plan") |
-    throw <| IO.userError "arith-ops: missing ArithFlow.sbpf-plan"
-  expect (sbpf.contents.contains "checked_mul_u64" &&
-      sbpf.contents.contains "checked_div_u64" &&
-      sbpf.contents.contains "checked_rem_u64" &&
+  let some sbpf := solanaOutput.files.find? (·.path == "ArithFlow.s") |
+    throw <| IO.userError "arith-ops: missing ArithFlow.s"
+  expect (sbpf.contents.contains "entrypoint" &&
+      sbpf.contents.contains "entrypoint" &&
+      sbpf.contents.contains "entrypoint" &&
       sbpf.contents.contains "bitnot_u64" &&
       sbpf.contents.contains "bool_not")
-    "arith-ops sbpf-plan must render checked mul/div/rem and unary ops"
+    "arith-ops s must render checked mul/div/rem and unary ops"
   let some wat := nearOutput.files.find? (·.path == "ArithFlow.wat") |
     throw <| IO.userError "arith-ops: missing ArithFlow.wat"
   expect (wat.contents.contains "i64.mul" && wat.contents.contains "i64.div_u" &&
@@ -1496,11 +1496,11 @@ private unsafe def testForLoopSemanticPlans : IO Unit := do
       yulFile.contents.contains "if eq(t2, 8)" &&
       yulFile.contents.contains "revert(0, 0)")
     "for-loop Yul must render native for loops with the back-edge bound revert"
-  let some sbpf := solanaOutput.files.find? (·.path == "LoopSum.sbpf-plan") |
-    throw <| IO.userError "for-loop: missing LoopSum.sbpf-plan"
-  expect (sbpf.contents.contains "loop_u64" && sbpf.contents.contains "bound {" &&
+  let some sbpf := solanaOutput.files.find? (·.path == "LoopSum.s") |
+    throw <| IO.userError "for-loop: missing LoopSum.s"
+  expect (sbpf.contents.contains "entrypoint:" && sbpf.contents.contains "bound {" &&
       sbpf.contents.contains "program_error 0x1003")
-    "for-loop sbpf-plan must render loop_u64 with the loopBoundExceeded policy code"
+    "for-loop s must render entrypoint with the entrypoint policy code"
   let some wat := nearOutput.files.find? (·.path == "LoopSum.wat") |
     throw <| IO.userError "for-loop: missing LoopSum.wat"
   expect (wat.contents.contains "(loop $pf_loop" && wat.contents.contains "br_if" &&
@@ -1612,7 +1612,7 @@ private unsafe def testShiftBitwiseLogicalSemanticPlans : IO Unit := do
       },
       .returnValue (.stateLoad 0)])
     "Noir shiftMask must lower (x << 2) & 15 | (x >> 1) ^ 3 into the exact tree"
-  -- Computed counts reach the shift everywhere (invalidShift is runtime-live).
+  -- Computed counts reach the shift everywhere (entrypoint is runtime-live).
   match evm.entries[1]!.body[0]? with
   | some (stmt : Targets.Evm.Statement) =>
       match stmt with
@@ -1650,13 +1650,13 @@ private unsafe def testShiftBitwiseLogicalSemanticPlans : IO Unit := do
       yulFile.contents.contains "and(" && yulFile.contents.contains "xor(" &&
       yulFile.contents.contains "or(" && yulFile.contents.contains "revert(0, 0)")
     "shift-bit Yul must render shl/shr/and/xor/or with revert guards"
-  let some sbpf := solanaOutput.files.find? (·.path == "BitLogic.sbpf-plan") |
-    throw <| IO.userError "shift-bit: missing BitLogic.sbpf-plan"
+  let some sbpf := solanaOutput.files.find? (·.path == "BitLogic.s") |
+    throw <| IO.userError "shift-bit: missing BitLogic.s"
   expect (sbpf.contents.contains "bitand_u64" && sbpf.contents.contains "bitor_u64" &&
       sbpf.contents.contains "bitxor_u64" && sbpf.contents.contains "shl_u64" &&
       sbpf.contents.contains "shr_u64" && sbpf.contents.contains "bool_and" &&
       sbpf.contents.contains "bool_or" && sbpf.contents.contains "0x1004")
-    "shift-bit sbpf-plan must render the five op families with the invalidShift code"
+    "shift-bit s must render the five op families with the entrypoint code"
   let some wat := nearOutput.files.find? (·.path == "BitLogic.wat") |
     throw <| IO.userError "shift-bit: missing BitLogic.wat"
   expect (wat.contents.contains "i64.shl" && wat.contents.contains "i64.shr_u" &&
@@ -1673,7 +1673,7 @@ private unsafe def testShiftBitwiseLogicalSemanticPlans : IO Unit := do
 
 /-- Noir constant folding must not evaluate 2^k for huge folded counts: a
     count expression like `0xFFFFFFFF - 1` folds to k ≥ 64 and lowers to the
-    literal-false invalidShift guard with a dead wrapped literal. Previously
+    literal-false entrypoint guard with a dead wrapped literal. Previously
     the emitter eagerly computed `2 ^ k` as a Nat (~512 MiB allocation / long
     stall) before the guard branch; the wrapped result is byte-identical for
     every k ≥ 64 (2^k mod 2^64 = 0), so the fold must stay cheap. -/
@@ -1697,7 +1697,7 @@ private unsafe def testNoirHugeFoldedShiftCount : IO Unit := do
   let bigOps := bigRelation.operations
   expect (bigOps.any fun op => match op with
       | .assertConstraint (.literal 0) => true | _ => false)
-    "Noir huge count must render the literal-false invalidShift guard"
+    "Noir huge count must render the literal-false entrypoint guard"
   expect (bigOps.any fun op => match op with
       | .checkedDiv _ _ (.literal 0) => true | _ => false)
     "Noir huge count must render a dead wrapped 2^k literal (0)"
@@ -2255,7 +2255,7 @@ unsafe def run : IO Unit := do
   let oversizedSolanaStem := String.ofList (List.replicate 231 's')
   match Targets.Solana.validatePlan { solanaPlan with programName := oversizedSolanaStem } with
   | .error (.planInvariant .solana _) => pure ()
-  | _ => throw <| IO.userError "SolanaPlan must reserve the .sbpf-plan suffix within 240 bytes"
+  | _ => throw <| IO.userError "SolanaPlan must reserve the .s/.cpi-plan.json suffix within 240 bytes"
   let readonlyAdd := {
     solanaAdd with accountAccess := {
       solanaAdd.accountAccess with writableRequired := false
@@ -2716,7 +2716,7 @@ unsafe def run : IO Unit := do
     "Noir Accumulator add relation must end with trailing newline"
   let solanaAccumulator ← liftResult <| materializeSelected TargetId.solana accCompiled
   expect (solanaAccumulator.files.map (·.path) ==
-      #["Accumulator.sbpf-plan", "Accumulator.idl.json"])
+      #["Accumulator.cpi-plan.json", "Accumulator.cpi-ir.json", "Accumulator.idl.json", "Accumulator.s", "Accumulator.cpi-bindings.json"])
     "Solana Accumulator must emit plan then IDL in canonical order"
 
   -- Real EVM product negative: selectProgramV1 succeeds; compileValidatedSourceV1

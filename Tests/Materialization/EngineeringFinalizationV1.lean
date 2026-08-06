@@ -127,7 +127,7 @@ private unsafe def testSoleMintBinding : IO Unit := do
   -- Extra path collision with base → reject.
   let collide : EngineeringFinalizationDraftV1 := {
     deployable := false
-    extraFiles := #["Counter.sbpf-plan"]
+    extraFiles := #["Counter.s"]
     evidenceNote := solanaNote
   }
   match mintFinalizedArtifactsV1 capability artifacts collide with
@@ -190,7 +190,7 @@ private unsafe def testSoleMintBinding : IO Unit := do
   -- Publisher dual-defense extras (would catch mint skip of path uniqueness).
   let basePaths := (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
   expectIoErrorContains "publisher collide base" "PF-OUTPUT-PATH" do
-    ProofForgeV2.CLI.validateFinalizedExtraPathsForPublishV1 basePaths #["Counter.sbpf-plan"]
+    ProofForgeV2.CLI.validateFinalizedExtraPathsForPublishV1 basePaths #["Counter.s"]
   expectIoErrorContains "publisher unsafe" "PF-OUTPUT-PATH" do
     ProofForgeV2.CLI.validateFinalizedExtraPathsForPublishV1 basePaths #["../escape.bin"]
   expectIoErrorContains "publisher dup extra" "PF-OUTPUT-PATH" do
@@ -290,7 +290,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     expect ((evidence.splitOn solanaNote).length > 1) "solana exact note on disk"
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
     expect ((manifest.splitOn "\"deployable\": false").length > 1) "solana manifest non-deployable"
-    expect ((manifest.splitOn "Counter.sbpf-plan").length > 1) "solana base in manifest"
+    expect ((manifest.splitOn "Counter.s").length > 1) "solana base in manifest"
   -- Noir: zero-tool product emit.
   do
     let selection ← liftResult "select noir" (resolveBuildSelectionV1 TargetId.noir none)

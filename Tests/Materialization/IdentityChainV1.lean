@@ -96,8 +96,10 @@ private def testClaimMintCanonicalOrder : IO Unit := do
     StaticRequirementSupportIndexV1.toArray index
   expect (claims.size == rows.size)
     s!"one claim per support row: got {claims.size} want {rows.size}"
-  expect (claims.size == 12)
-    s!"implemented profile count is 12 (aleo/cosmwasm/evm×2/near/noir/psy/quint/solana×3/ton), got {claims.size}"
+  -- ADR-0032 U1: sole Solana cpi-elf → 10 implemented support rows
+  -- (aleo/cosmwasm/evm×2/near/noir/psy/quint/solana×1/ton).
+  expect (claims.size == 10)
+    s!"implemented profile count is 10 (aleo/cosmwasm/evm×2/near/noir/psy/quint/solana×1/ton), got {claims.size}"
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
   let mut i : Nat := 0
@@ -307,14 +309,14 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
       expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
         s!"{tid} planDigest matches engineeringEvmPlanDigestV1"
     else if tid == TargetId.solana then
-      -- #125: planFromCapability returns legacy|cpi tagged sum. Default profile
-      -- is plan-v1 → .legacy; digest authority is materialization plan digest.
+      -- ADR-0032 U1: sole default is solana-sbpf-cpi-elf-v1 → .cpi tagged sum.
+      -- Digest authority is materialization plan digest over the tagged sum.
       let planSum ← liftResult s!"plan {tid}" (Targets.Solana.planFromCapability cap)
       match planSum with
-      | Targets.Solana.SolanaPlanFromCapabilityV1.legacy _ => pure ()
-      | Targets.Solana.SolanaPlanFromCapabilityV1.cpi _ =>
+      | Targets.Solana.SolanaPlanFromCapabilityV1.cpi _ => pure ()
+      | Targets.Solana.SolanaPlanFromCapabilityV1.legacy _ =>
           throw <| IO.userError
-            s!"{tid} default profile planFromCapability must be .legacy, got .cpi"
+            s!"{tid} default profile planFromCapability must be .cpi, got .legacy"
       let expected ← liftExcept s!"solana plan digest {tid}"
         (Targets.Solana.engineeringSolanaMaterializationPlanDigestV1 planSum)
       expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)

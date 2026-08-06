@@ -16,7 +16,9 @@ namespace Tests.Materialization.SolanaCpiPlanV1
 open ProofForgeV2
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Compiler
+open ProofForgeV2.Targets
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.Solana
 open ProofForgeV2.Targets.Solana.CpiV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
@@ -1189,55 +1191,42 @@ private def testIrAndIdlMutationNegatives : IO Unit := do
     { idlCand with instructions := #[instrAlias] })
     "IDL instruction account alias drift"
 
-/-- Legacy `solana-sbpf-plan-v1` Counter engineering Plan digest + artifact
-    SHA-256 pins. Namespace-qualified Solana surface avoids any CPI name clash. -/
-private unsafe def testLegacyPlanProfileByteRegression : IO Unit := do
+/-- Sole-rail Counter product Plan/files (ADR-0032 U1). -/
+private unsafe def testSoleRailCounterProductEmit : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← expectPlanOk (← session.selectProgramV1
-    Examples.counterSourceText "<cpi-legacy-counter>"
-    Examples.counterModuleNameV1 none) "legacy load Counter"
+    Examples.counterSourceText "<cpi-sole-counter>"
+    Examples.counterModuleNameV1 none) "sole load Counter"
   let compiled ← expectPlanOk (Compiler.compileValidatedSourceV1 source)
-    "legacy compile Counter"
+    "sole compile Counter"
   let selection ← expectPlanOk
-    (resolveBuildSelectionV1 TargetId.solana
-      (some CodegenProfileId.solanaSbpfPlanV1))
-    "legacy select solana-sbpf-plan-v1"
-  expect (selection.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
-    "legacy profile is solana-sbpf-plan-v1"
+    (resolveBuildSelectionV1 TargetId.solana none)
+    "sole select default cpi-elf"
+  expect (selection.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
+    "sole profile is solana-sbpf-cpi-elf-v1"
   let capability ← expectPlanOk
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
-    "legacy resolve capability"
+    "sole resolve capability"
   let plan ← expectPlanOk
-    (Targets.Solana.planFromCapability capability) "legacy planFromCapability"
+    (Targets.Solana.planFromCapability capability) "sole planFromCapability"
   match plan with
-  | .legacy _ => pure ()
-  | .cpi _ => throw <| IO.userError "legacy profile returned CPI Plan variant"
-  let planDigest ← expectOk
-    (Targets.Solana.engineeringSolanaMaterializationPlanDigestV1 plan)
-    "legacy engineeringSolanaMaterializationPlanDigestV1"
-  let planWire ← expectOk (renderDigest planDigest) "legacy plan digest wire"
-  expect (planWire ==
-    "sha256:a61ec3ebc5bbfe269036c5287598badc0cf8c7466b9cef8f904d9e96a235215d")
-    s!"legacy Plan digest pin, got {planWire}"
+  | .cpi p =>
+      expect ((SolanaCpiProductPlanV1.candidateOf p).cpiSites.isEmpty)
+        "sole Counter has zero cpiSites"
+  | .legacy _ => throw <| IO.userError "sole rail must not return legacy Plan"
   let files ← expectPlanOk
     (Targets.Solana.buildFromCapability capability)
-    "legacy buildFromCapability"
-  expect (files.map (·.path) == #["Counter.sbpf-plan", "Counter.idl.json"])
-    s!"legacy files order, got {files.map (·.path)}"
-  let some planFile := files.find? (·.path == "Counter.sbpf-plan") |
-    throw <| IO.userError "legacy missing Counter.sbpf-plan"
-  let some idlFile := files.find? (·.path == "Counter.idl.json") |
-    throw <| IO.userError "legacy missing Counter.idl.json"
-  let planSha ← expectOk (renderDigest (sha256Bytes planFile.contents.toUTF8))
-    "legacy sbpf-plan sha"
-  let idlSha ← expectOk (renderDigest (sha256Bytes idlFile.contents.toUTF8))
-    "legacy idl sha"
-  expect (planSha ==
-    "sha256:993b59287c44e594bb620dac0a44855b6a868113a3cdae284247ac53a693af1c")
-    s!"legacy Counter.sbpf-plan SHA-256 pin, got {planSha}"
-  expect (idlSha ==
-    "sha256:c146bd0b072371c4187e4b632f8aaf2af3b8631607f57e6794084c19c8ac1b57")
-    s!"legacy Counter.idl.json SHA-256 pin, got {idlSha}"
+    "sole buildFromCapability"
+  expect (files.any (·.path == "Counter.s")) "sole emit Counter.s"
+  expect (files.any (·.path == "Counter.cpi-plan.json")) "sole emit cpi-plan"
+  expect (files.any (·.path == "Counter.cpi-ir.json")) "sole emit cpi-ir"
+  -- Retired plan profile is not selectable.
+  match resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfPlanV1) with
+  | .error e =>
+      expect (e.render.contains "PF-")
+        s!"retired plan select fail, got {e.render}"
+  | .ok _ => throw <| IO.userError "retired plan profile must not resolve"
 
 unsafe def run : IO Unit := do
   testStrictPubkeyCarrier
@@ -1248,7 +1237,7 @@ unsafe def run : IO Unit := do
   testHandlerLocalRoleSubsets
   testPlanToIrAndIdlProjection
   testIrAndIdlMutationNegatives
-  testLegacyPlanProfileByteRegression
+  testSoleRailCounterProductEmit
   IO.println "Tests.Materialization.SolanaCpiPlanV1: ok"
 
 end Tests.Materialization.SolanaCpiPlanV1

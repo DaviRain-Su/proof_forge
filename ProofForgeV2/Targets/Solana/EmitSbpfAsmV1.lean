@@ -388,16 +388,21 @@ private def emitAccountListShapeChecks (b0 : AsmBuf) (numAccounts : Nat)
   else
     b
 
-/-- Emit check instructions; on failure jump to `errLab` (must lddw/exit). -/
-private def emitCheck (b : AsmBuf) (check : Check) (errLab : String) :
+/-- Emit check instructions; on failure jump to `errLab` (must lddw/exit).
+    When `multiRoleCount > 0`, account-list and instruction-data checks use the
+    multi-role outer count and the dynamic ix-data pointer at
+    `r10 - multiRoleSlotIxDataV1` (entrypoint already walked outer roles). -/
+private def emitCheck (b : AsmBuf) (check : Check) (errLab : String)
+    (multiRoleCount : Nat) :
     CompileResult AsmBuf := do
   match check with
   | .numAccounts count =>
-      unless count == 1 || count == 2 do
+      let expected := if multiRoleCount > 0 then multiRoleCount else count
+      unless multiRoleCount > 0 || count == 1 || count == 2 do
         return ← asmError "S1b numAccounts check supports only count=1 or 2"
-      let b := emit b s!"  ; check num_accounts == {count}"
+      let b := emit b s!"  ; check num_accounts == {expected}"
       let b := emit b "  ldxdw r1, [r6 + NUM_ACCOUNTS]"
-      let b := emit b s!"  jne r1, {count}, {errLab}"
+      let b := emit b s!"  jne r1, {expected}, {errLab}"
       pure b
   | .accountNonDuplicate accountIndex =>
       unless accountIndex == 0 || accountIndex == 1 do
@@ -414,31 +419,62 @@ private def emitCheck (b : AsmBuf) (check : Check) (errLab : String) :
         let b := emit b s!"  jne r1, 0xff, {errLab}"
         pure b
   | .instructionDataLen bytes =>
-      let b := emit b s!"  ; check instruction_data_len == {bytes}"
-      let b := emit b "  ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]"
-      let b := emit b s!"  jne r1, {bytes}, {errLab}"
-      pure b
+      if multiRoleCount > 0 then
+        -- Dynamic ix base is data pointer; length word is 8 bytes before it.
+        let b := emit b s!"  ; check instruction_data_len == {bytes} [multi-role]"
+        let b := emit b s!"  ldxdw r1, [r10 - {multiRoleSlotIxDataV1}]"
+        let b := emit b "  add64 r1, -8"
+        let b := emit b "  ldxdw r1, [r1 + 0]"
+        let b := emit b s!"  jne r1, {bytes}, {errLab}"
+        pure b
+      else
+        let b := emit b s!"  ; check instruction_data_len == {bytes}"
+        let b := emit b "  ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]"
+        let b := emit b s!"  jne r1, {bytes}, {errLab}"
+        pure b
   | .ownerCurrentProgram accountIndex =>
       unless accountIndex == 0 do
         return ← asmError "S1b owner check supports only account[0]"
-      let b := emit b "  ; check account[0].owner == current_program"
-      let b := emit b "  ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]"
-      let b := emit b "  mov64 r2, r6"
-      let b := emit b "  add64 r2, INSTRUCTION_DATA"
-      let b := emit b "  add64 r2, r1"
-      let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER]"
-      let b := emit b "  ldxdw r3, [r2 + 0]"
-      let b := emit b s!"  jne r1, r3, {errLab}"
-      let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER + 8]"
-      let b := emit b "  ldxdw r3, [r2 + 8]"
-      let b := emit b s!"  jne r1, r3, {errLab}"
-      let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER + 16]"
-      let b := emit b "  ldxdw r3, [r2 + 16]"
-      let b := emit b s!"  jne r1, r3, {errLab}"
-      let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER + 24]"
-      let b := emit b "  ldxdw r3, [r2 + 24]"
-      let b := emit b s!"  jne r1, r3, {errLab}"
-      pure b
+      if multiRoleCount > 0 then
+        let b := emit b "  ; check account[0].owner == current_program [multi-role]"
+        let b := emit b s!"  ldxdw r1, [r10 - {multiRoleSlotIxDataV1}]"
+        let b := emit b "  add64 r1, -8"
+        let b := emit b "  ldxdw r2, [r1 + 0]                 ; ix data len"
+        let b := emit b "  add64 r1, 8"
+        let b := emit b "  add64 r1, r2                       ; program id after ix data"
+        let b := emit b "  mov64 r2, r1"
+        let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER]"
+        let b := emit b "  ldxdw r3, [r2 + 0]"
+        let b := emit b s!"  jne r1, r3, {errLab}"
+        let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER + 8]"
+        let b := emit b "  ldxdw r3, [r2 + 8]"
+        let b := emit b s!"  jne r1, r3, {errLab}"
+        let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER + 16]"
+        let b := emit b "  ldxdw r3, [r2 + 16]"
+        let b := emit b s!"  jne r1, r3, {errLab}"
+        let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER + 24]"
+        let b := emit b "  ldxdw r3, [r2 + 24]"
+        let b := emit b s!"  jne r1, r3, {errLab}"
+        pure b
+      else
+        let b := emit b "  ; check account[0].owner == current_program"
+        let b := emit b "  ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]"
+        let b := emit b "  mov64 r2, r6"
+        let b := emit b "  add64 r2, INSTRUCTION_DATA"
+        let b := emit b "  add64 r2, r1"
+        let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER]"
+        let b := emit b "  ldxdw r3, [r2 + 0]"
+        let b := emit b s!"  jne r1, r3, {errLab}"
+        let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER + 8]"
+        let b := emit b "  ldxdw r3, [r2 + 8]"
+        let b := emit b s!"  jne r1, r3, {errLab}"
+        let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER + 16]"
+        let b := emit b "  ldxdw r3, [r2 + 16]"
+        let b := emit b s!"  jne r1, r3, {errLab}"
+        let b := emit b "  ldxdw r1, [r6 + ACC0_OWNER + 24]"
+        let b := emit b "  ldxdw r3, [r2 + 24]"
+        let b := emit b s!"  jne r1, r3, {errLab}"
+        pure b
   | .accountDataLen accountIndex bytes =>
       unless accountIndex == 0 do
         return ← asmError "S1b data_len check supports only account[0]"
@@ -2375,13 +2411,23 @@ private partial def emitOperations (b0 : AsmBuf) (ir : IR) (tempBase : Nat)
   pure b
 end
 
+/-- Absolute IR temp-index base for multi-role unified frame.
+    Relative temp `0` must land at `productEscrowTempBaseV1` bytes below r10
+    (`tempStackOff t = 8*(t+1)`), below the role table + fixed slots. Without
+    this offset, body temps clobber `multiRoleSlotIxDataV1` (r10-24) and later
+    amount loads read garbage. -/
+private def multiRoleBodyTempIndexBaseV1 : Nat :=
+  productEscrowTempBaseV1 / 8 - 1
+
 private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR) :
     CompileResult AsmBuf := do
   let errLab := s!"err_check_{asmLabel handler.name}"
   let bodyLab := s!"body_{asmLabel handler.name}"
+  let multiN := ir.stateAccount.productMultiRoleCount
+  let tempBase := if multiN > 0 then multiRoleBodyTempIndexBaseV1 else 0
   let mut b := b0
   for check in handler.checks do
-    b ← emitCheck b check errLab
+    b ← emitCheck b check errLab multiN
   -- Keep the Custom(1) check-fail exit *before* the operation body so that
   -- pre-body check jumps stay inside SBPF's signed 16-bit offset window even
   -- when the body is a multiword long-division unroll (tens of thousands of
@@ -2390,7 +2436,7 @@ private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR) :
   b := emit b s!"  ja {bodyLab}"
   b := emitErrorExit b errLab 1
   b := emit b s!"{bodyLab}:"
-  b ← emitOperations b ir 0 none 0 handler.operations
+  b ← emitOperations b ir tempBase none 0 handler.operations
   -- Fallthrough success after set_return_data (syscall does not halt).
   b := emit b "  lddw r0, 0"
   b := emit b "  exit"
@@ -2551,14 +2597,17 @@ def emitSbpfAsmV1 (ir : IR) : CompileResult String := do
     b := emit b "  ; load 8-byte instruction discriminator from dynamic ix base"
     b := emit b s!"  ldxdw r1, [r10 - {multiRoleSlotIxDataV1}]"
     b := emit b "  ldxdw r1, [r1 + 0]"
+    -- Multi-role stashes the role table + SLOT_IX_DATA under *this* r10 frame.
+    -- Handlers must share the entrypoint frame: use `ja` (not `call`). Every
+    -- handler body already ends with `exit`, so a non-returning jump is exact.
+    -- A BPF-to-BPF `call` would rebind r10 and orphan the multi-role slots.
     for handler in ir.handlers do
       let disc ← discriminatorToLeU64V1 handler.discriminator
       let handlerLab := asmLabel handler.name
       let nextLab := s!"dispatch_next_{handlerLab}"
       b := emit b s!"  lddw r2, {hexImm disc.toNat}"
       b := emit b s!"  jne r1, r2, {nextLab}"
-      b := emit b s!"  call {handlerLab}"
-      b := emit b "  exit"
+      b := emit b s!"  ja {handlerLab}"
       b := emit b s!"{nextLab}:"
     b := emit b "  lddw r0, 1"
     b := emit b "  exit"

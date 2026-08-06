@@ -62,7 +62,7 @@ private def expectedCounterPaths (tid : TargetId) : Array String :=
   if tid == TargetId.evm then
     #["Counter.yul", "Counter.abi.json"]
   else if tid == TargetId.solana then
-    #["Counter.sbpf-plan", "Counter.idl.json"]
+    #["Counter.s", "Counter.idl.json"]
   else if tid == TargetId.near then
     #["Counter.wat", "Counter.near-abi.json"]
   else if tid == TargetId.noir then
@@ -153,13 +153,13 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
   let carrier ← materializeOk "materialize solana" capability
   let carrierPaths := (MaterializedArtifactsV1.filesOf carrier).map (·.path)
-  expect (carrierPaths == #["Counter.sbpf-plan", "Counter.idl.json"])
+  expect (carrierPaths == #["Counter.s", "Counter.idl.json"])
     "solana carrier paths for golden manifest"
   let outDir := FilePath.mk "build/v2/output-envelope-solana"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
   expect (receipt.target == TargetId.solana) "emit receipt target"
-  expect (receipt.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
+  expect (receipt.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
     "emit receipt profile"
   expect (receipt.deployable == false) "solana plan-only is non-deployable"
   -- Recompute engineering OutputSet from product finalize (solana plan: no extras).
@@ -182,8 +182,8 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
     s!"exact proof-forge.output.v1 manifest byte identity:\n---got---\n{json}\n---want---\n{expectedManifest}"
   expect ((json.splitOn "\"schemaVersion\": \"proof-forge.output.v1\"").length > 1)
     "on-disk schemaVersion proof-forge.output.v1"
-  expect ((json.splitOn "\"path\": \"Counter.sbpf-plan\"").length > 1)
-    "on-disk files include Counter.sbpf-plan descriptor"
+  expect ((json.splitOn "\"path\": \"Counter.s\"").length > 1)
+    "on-disk files include Counter.s descriptor"
   expect ((json.splitOn "\"path\": \"Counter.idl.json\"").length > 1)
     "on-disk files include Counter.idl.json descriptor"
   expect ((json.splitOn "\"role\": \"materialized-base\"").length > 1)
@@ -272,7 +272,7 @@ private unsafe def testMintPathNegatives : IO Unit := do
       | .ok _ => throw <| IO.userError "descriptor target drift must not mint"
       -- Descriptor profile drift.
       let profileDrift := {
-        desc with codegenProfile := CodegenProfileId.solanaSbpfPlanV1
+        desc with codegenProfile := CodegenProfileId.solanaSbpfCpiElfV1
       }
       match mintMaterializedArtifactsV1 capability profileDrift goodFiles (← dummyPlanDigestV1) with
       | .error e =>

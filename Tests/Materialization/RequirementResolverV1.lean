@@ -432,8 +432,8 @@ private def testSupportTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 12-row (target,profile) skeleton matching the shipped index shape.
-    `evmSupported` replaces both EVM rows' supported lists for content negatives. -/
+/-- Canonical 10-row (target,profile) skeleton matching the shipped index shape
+    (ADR-0032 U1: sole Solana cpi-elf). `evmSupported` replaces both EVM rows. -/
 private def twelveRowSkeleton
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
@@ -448,8 +448,6 @@ private def twelveRowSkeleton
     mkRow .psy CodegenProfileId.psyDargoU64V1 base,
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 base,
     mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 base,
-    mkRow .solana CodegenProfileId.solanaSbpfElfV1 base,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 base,
     mkRow .ton CodegenProfileId.tonTolkBocV1 base
   ]
 
@@ -466,7 +464,7 @@ private def nineRowSkeleton
     Array StaticRequirementSupportRowV1 :=
   twelveRowSkeleton base evmSupported
 
-/-- ADR-0029 B/C: same 12-row skeleton but permit-owning rows carry their
+/-- ADR-0029 B/C: same 10-row skeleton but permit-owning rows carry their
     closed extension seeds (Quint/NEAR/CosmWasm: pf.assets; Solana CPI: both),
     so content negatives reach their intended check instead of tripping the
     presence gate first. -/
@@ -487,8 +485,6 @@ private def twelveRowSkeletonWithExt
     mkRow .psy CodegenProfileId.psyDargoU64V1 base,
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 withPf,
     mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 cpiRow,
-    mkRow .solana CodegenProfileId.solanaSbpfElfV1 base,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 base,
     mkRow .ton CodegenProfileId.tonTolkBocV1 base
   ]
 
@@ -510,14 +506,13 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
-    mkRow .solana CodegenProfileId.solanaSbpfElfV1 trio,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
+    mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 dupRows)
     "PF-REGISTRY-DUPLICATE" "duplicate support row"
   -- Wrong order (solana before evm)
   let wrongOrder := #[
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio,
+    mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 trio,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio
@@ -656,20 +651,20 @@ private def testIndexValidationNegatives : IO Unit := do
       noirPfAssetsRows := noirPfAssetsRows.push row
   expectErrorCode (createStaticRequirementSupportIndexV1 noirPfAssetsRows)
     "PF-REGISTRY-INVALID" "pf.assets extension cannot appear on Noir support row"
-  -- pf.assets on Solana legacy plan profile (not CPI) fails closed.
+  -- Injecting a retired plan-profile support row fails closed: sole rail
+  -- admits only solana-sbpf-cpi-elf-v1.
   let baseRows ← liftResult productSupportRowsV1
-  let mut solanaLegacyPfAssetsRows : Array StaticRequirementSupportRowV1 := #[]
-  for row in baseRows do
-    if row.targetId == TargetId.solana &&
-        row.codegenProfile == CodegenProfileId.solanaSbpfPlanV1 then
-      solanaLegacyPfAssetsRows := solanaLegacyPfAssetsRows.push {
-        row with supported :=
-          (row.supported.push pfAssetsRow).qsort fun a b => a.id < b.id
-      }
-    else
-      solanaLegacyPfAssetsRows := solanaLegacyPfAssetsRows.push row
-  expectErrorCode (createStaticRequirementSupportIndexV1 solanaLegacyPfAssetsRows)
-    "PF-REGISTRY-INVALID" "pf.assets extension cannot appear on Solana legacy plan row"
+  let some firstRow := baseRows[0]? |
+    throw <| IO.userError "product support rows empty"
+  let retiredPlanRow :=
+    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 firstRow.supported
+  let solanaRetiredRows :=
+    (baseRows.push retiredPlanRow).qsort fun a b =>
+      a.targetId.toString < b.targetId.toString ||
+        (a.targetId.toString == b.targetId.toString &&
+          a.codegenProfile.toString < b.codegenProfile.toString)
+  expectErrorCode (createStaticRequirementSupportIndexV1 solanaRetiredRows)
+    "PF-REGISTRY-INVALID" "retired Solana plan profile cannot re-enter support index"
   -- Solana CPI missing pf.assets (B1 requires both closed extensions) fails closed.
   let mut solanaCpiMissingPf : Array StaticRequirementSupportRowV1 := #[]
   for row in baseRows do
@@ -856,25 +851,10 @@ private def testRequestInspectionErrors : IO Unit := do
     "PF-REQ-UNSUPPORTED" "Quint still declines effect.asynchronous-workflow"
   for legacyProfile in #[CodegenProfileId.solanaSbpfElfV1,
       CodegenProfileId.solanaSbpfPlanV1] do
-    let legacySupported ← match rows.find? fun row =>
-        row.targetId == TargetId.solana && row.codegenProfile == legacyProfile with
-      | some row => pure row.supported
-      | none => throw <| IO.userError s!"missing legacy row {legacyProfile}"
-    let legacyIds := legacySupported.map (·.id)
-    expect (!legacyIds.contains "effect.synchronous-call" &&
-        !legacyIds.contains "effect.asynchronous-workflow" &&
-        !legacyIds.contains solanaCpiAccountsExtensionRequirementIdV1 &&
-        !legacyIds.contains pfAssetsExtensionRequirementIdV1)
-      s!"legacy {legacyProfile} still declines sync/async/both extensions"
-    expectErrorCode
-      (inspectResolveRequestsV1 legacySupported { items := #[solanaExtensionRow] })
-      "PF-REQ-UNSUPPORTED" s!"legacy {legacyProfile} declines CPI extension"
-    expectErrorCode
-      (inspectResolveRequestsV1 legacySupported { items := #[pfAssetsRow] })
-      "PF-REQ-UNSUPPORTED" s!"legacy {legacyProfile} declines pf.assets"
-    expectErrorCode
-      (inspectResolveRequestsV1 legacySupported { items := #[syncReq] })
-      "PF-REQ-UNSUPPORTED" s!"legacy {legacyProfile} declines sync call"
+    expect (rows.find? fun row =>
+        row.targetId == TargetId.solana &&
+          row.codegenProfile == legacyProfile).isNone
+      s!"retired {legacyProfile} support row must be absent"
   -- Phase B2: both EVM profiles accept exact pf.assets; still decline Solana CPI.
   for profile in #[CodegenProfileId.evmYulSolc0834CancunV1,
       CodegenProfileId.evmYulSolc0834V1] do

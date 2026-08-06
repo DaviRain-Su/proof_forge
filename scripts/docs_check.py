@@ -1484,10 +1484,10 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
     # Integrated package-file pin is the current authority (refreshed after
     # #111–#125 + main merge). Historical feature-worktree close-out may still
     # mention 194 only when explicitly historical.
-    if not re.search(r"SBOM[^\n]{0,40}\b239\b|\b239\b[^\n]{0,40}SBOM", agents):
+    if not re.search(r"SBOM[^\n]{0,40}\b242\b|\b242\b[^\n]{0,40}SBOM", agents):
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
-            "must record current SBOM package-file pin 239")
+            "must record current SBOM package-file pin 242")
     if not re.search(
             r"\*\*13\*\* test binaries / \*\*304\*\* active tests",
             agents,
@@ -1496,7 +1496,7 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
             "PF-DOC-CHECKPOINT", "AGENTS.md",
             "must preserve the #125 integrated Solana runtime baseline 13/304")
     if not re.search(
-            r"\*\*18 integration test binaries / 371 active tests\*\*",
+            r"\*\*19 integration test binaries / 381 active tests\*\*",
             agents,
     ):
         raise_error(
@@ -1574,12 +1574,12 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         path.stem for path in tests_dir.iterdir()
         if path.is_file() and path.suffix == ".rs"
     )
-    if len(binaries) != 18:
+    if len(binaries) != 19:
         raise_error(
             "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
-            f"expected 18 integration test binaries, found {len(binaries)}: {binaries}")
+            f"expected 19 integration test binaries, found {len(binaries)}: {binaries}")
     for required_binary in (
-            "caller_isme", "cpi_escrow", "transfer_sol_product",
+            "body_cpi_sys_pay", "caller_isme", "cpi_escrow", "transfer_sol_product",
             "tipjar_assets", "tipjar_token", "miniamm_hybrid"):
         if required_binary not in binaries:
             raise_error(
