@@ -287,20 +287,26 @@ class NearClient:
         expect_success: bool = True,
         gas: int = 50_000_000_000_000,
         deposit: int = 0,
+        signer: str | None = None,
     ) -> dict[str, Any]:
-        """Function-call `method` on `account_id`, gas paid by the master signer.
+        """Function-call `method` on `account_id`.
 
+        Default signer is the master account. Pass `signer=` to sign as a
+        key-carrying subaccount so `predecessor_account_id` inside the callee
+        equals that subaccount (ADR-0031 S1 caller tests).
         Deposit attaches to the callee account (useful when the jar lives on a
         subaccount so master gas burn does not confound balance deltas).
         """
+        signer_id = signer or self.account_id
         print(
             f"near-rpc: call_on {account_id}.{method}({len(args)} arg bytes)"
-            f" expect_success={expect_success} deposit={deposit}"
+            f" signer={signer_id} expect_success={expect_success} deposit={deposit}"
         )
         return self.sign_and_send(
             account_id,
             [self.action_function_call(method, args, gas=gas, deposit=deposit)],
             expect_success=expect_success,
+            signer=signer_id,
         )
 
     def view(self, method: str, args: bytes = b"") -> bytes:

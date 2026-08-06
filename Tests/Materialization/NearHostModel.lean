@@ -48,6 +48,9 @@ private structure Machine where
   errorNames : Array String := #[]
   fns : Array Targets.Near.FnIR := #[]
   callDepth : Nat := 0
+  /-- ADR-0031 S1: deterministic HostModel predecessor account-id
+      (sandbox supplies the real predecessor_account_id). -/
+  predecessorAccountId : String := "alice.test.near"
 
 private inductive Outcome where
   | success (storage : HostStorage) (returned : Option U64) (logs : Array String)
@@ -250,6 +253,32 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       -- ADR-0030 E2-NEAR: deterministic HostModel native balance (fits UInt64).
       -- The sandbox supplies the real account_balance u128.
       writeTemp machine destination (UInt64.ofNat 1000000)
+  | .callerPrincipalLen destination => do
+      -- ADR-0031 S1: length leaf = UTF-8 byte length of predecessor account-id.
+      let bytes := machine.predecessorAccountId.toUTF8
+      let len := bytes.size
+      if !(1 ≤ len && len ≤ 64) then
+        modelError s!"predecessor account-id length {len} outside 1..64"
+      else
+        writeTemp machine destination (UInt64.ofNat len)
+  | .callerPrincipalWord destination wordIndex => do
+      -- ADR-0031 S1: body word from account-id UTF-8, zero-padded to 64 bytes.
+      if wordIndex ≥ 8 then
+        modelError s!"callerPrincipalWord index {wordIndex} out of range"
+      else
+        let bytes := machine.predecessorAccountId.toUTF8
+        let len := bytes.size
+        if !(1 ≤ len && len ≤ 64) then
+          modelError s!"predecessor account-id length {len} outside 1..64"
+        else
+          let mut word : Nat := 0
+          let mut place : Nat := 1
+          for b in [0:8] do
+            let idx := wordIndex * 8 + b
+            let byte := if idx < bytes.size then (bytes.get! idx).toNat else 0
+            word := word + byte * place
+            place := place * 256
+          writeTemp machine destination (UInt64.ofNat word)
   | .loadParam destination inputOffset => do
       let value ← match decodeUInt64LEAt input inputOffset with
         | some value => pure value
@@ -956,13 +985,15 @@ This is not a NEAR VM, sandbox, gas, or protocol-profile execution. -/
 private def execute (method : Targets.Near.MethodIR) (storage : HostStorage)
     (input : ByteArray) (deposit : Deposit)
     (eventNames errorNames : Array String := #[])
-    (fns : Array Targets.Near.FnIR := #[]) : Outcome :=
+    (fns : Array Targets.Near.FnIR := #[])
+    (predecessorAccountId : String := "alice.test.near") : Outcome :=
   let initial : Machine := {
     storage
     temps := Array.replicate method.tempCount none
     eventNames := eventNames
     errorNames := errorNames
     fns := fns
+    predecessorAccountId := predecessorAccountId
   }
   match runOperations input deposit method.operations.toList initial with
   | .ok result =>
@@ -1082,6 +1113,8 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .requireZeroAttachedDeposit => "requireZeroAttachedDeposit"
     | .blockTimestampSeconds _ => "blockTimestampSeconds"
     | .accountBalance _ => "accountBalance"
+    | .callerPrincipalLen _ => "callerPrincipalLen"
+    | .callerPrincipalWord _ _ => "callerPrincipalWord"
     | .requireLayoutAbsent _ => "requireLayoutAbsent"
     | .requireLayout _ _ => "requireLayout"
     | .zeroState _ => "zeroState"
@@ -4111,7 +4144,7 @@ private unsafe def testMapTokenDualStoreVisibility
 
 /-- B-CTX-OPEN: `context.unixTimeSeconds` lowers on NEAR to host
     `block_timestamp()` with the /10^9 second conversion; the import is
-    present iff the plan uses it; caller stays fail closed. -/
+    present iff the plan uses it. -/
 private unsafe def testContextReadTimestampNear (session : Language.Loader.ParserSession) :
     IO Unit := do
   let sourceText :=
@@ -4147,24 +4180,251 @@ private unsafe def testContextReadTimestampNear (session : Language.Loader.Parse
         | _ => false
     | _ => false
   expect hasTs "clock-box: stamp must store blockTimestampSeconds"
-  -- context.caller stays fail closed.
+
+/-- Encode Principal param leaves as 9×u64 LE (len + 8 body words) from a
+    NEAR account-id string — matches `near_rpc.encode_principal_account_id`
+    and ADR-0031 S1 caller wire identity. -/
+private def encodePrincipalAccountIdLeaves (accountId : String) : IO ByteArray := do
+  let raw := accountId.toUTF8
+  let len := raw.size
+  unless 2 ≤ len && len ≤ 64 do
+    throw <| IO.userError s!"account-id length {len} outside 2..64"
+  let mut out : ByteArray := encodeUInt64LE (UInt64.ofNat len)
+  for w in [0:8] do
+    let mut word : Nat := 0
+    let mut place : Nat := 1
+    for b in [0:8] do
+      let idx := w * 8 + b
+      let byte := if idx < raw.size then (raw.get! idx).toNat else 0
+      word := word + byte * place
+      place := place * 256
+    out := out ++ encodeUInt64LE (UInt64.ofNat word)
+  pure out
+
+/-- ADR-0031 S1 NEAR: `context.caller` → predecessor_account_id Principal.
+    Covers entry/init accept, view reject, wrong-type/unknown-key reject,
+    leaf order + zero padding, and HostModel match/mismatch across two
+    predecessor account-ids. -/
+private unsafe def testContextReadCallerNear (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  -- (a) entry isCaller admitted: leaf-wise == against Principal param.
   let callerSrc :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
     "open ProofForgeV2.Language\n\n" ++
     "program CallerBox where\n" ++
-    "  entry who() : UInt64 do\n" ++
-    "    let c : Principal := context.caller\n" ++
-    "    return 0\n\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    pad := initial\n\n" ++
+    "  entry isCaller(a : Principal) : Bool do\n" ++
+    "    return context.caller == a\n\n" ++
+    "  entry bumpIfCaller(a : Principal) : UInt64 do\n" ++
+    "    assert context.caller == a\n" ++
+    "    pad := pad + 1\n" ++
+    "    return pad\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n\n" ++
     "end ProofForgeV2.Examples\n"
-  let clSource ← liftResult (← session.selectProgramV1
+  let source ← liftResult (← session.selectProgramV1
     callerSrc "<near-caller-box>" "Examples.CallerBox" none)
-  let clCompiled ← liftResult <| Compiler.compileValidatedSourceV1 clSource
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.hostImports.contains .predecessorAccountId)
+    "caller-box: plan must import predecessor_account_id"
+  expect (!plan.hostImports.contains .blockTimestamp)
+    "caller-box: plan must not import block_timestamp"
+  let some isCaller := plan.entries.find? (·.name == "isCaller") |
+    throw <| IO.userError "caller-box: missing isCaller"
+  expect (isCaller.mode == .mutate && isCaller.resultKind == .bool)
+    "caller-box: isCaller must be mutate Bool entry"
+  -- Leaf order: callerPrincipalLen then callerPrincipalWord 0..7 appear in
+  -- the compare tree (via returnValue of nested boolAnd/compare).
+  let collectCallerLeaves (root : Targets.Near.Expr) : Bool × Array Bool := Id.run do
+    let mut sawLen := false
+    let mut sawWords : Array Bool := Array.replicate 8 false
+    let mut stack : Array Targets.Near.Expr := #[root]
+    while !stack.isEmpty do
+      let e := stack.back!
+      stack := stack.pop
+      match e with
+      | .callerPrincipalLen => sawLen := true
+      | .callerPrincipalWord i =>
+          if i < 8 then sawWords := sawWords.set! i true
+      | .compare _ l r | .boolAnd l r | .boolOr l r =>
+          stack := stack.push l |>.push r
+      | .boolNot o => stack := stack.push o
+      | _ => pure ()
+    pure (sawLen, sawWords)
+  let mut sawLen := false
+  let mut sawWords : Array Bool := Array.replicate 8 false
+  for s in isCaller.body do
+    match s with
+    | .returnValue v =>
+        let (l, w) := collectCallerLeaves v
+        sawLen := sawLen || l
+        for i in [0:8] do
+          if w[i]! then sawWords := sawWords.set! i true
+    | .assert c =>
+        let (l, w) := collectCallerLeaves c
+        sawLen := sawLen || l
+        for i in [0:8] do
+          if w[i]! then sawWords := sawWords.set! i true
+    | _ => pure ()
+  expect sawLen "caller-box: isCaller must reference callerPrincipalLen"
+  for i in [0:8] do
+    expect (sawWords[i]!) s!"caller-box: isCaller must reference callerPrincipalWord {i}"
+  -- IR + HostModel: alice match / bob mismatch; bumpIfCaller failure holds state.
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let isCallerM ← findMethod ir "isCaller"
+  let bumpM ← findMethod ir "bumpIfCaller"
+  let getM ← findMethod ir "get"
+  let initM ← findMethod ir "init"
+  let zeroDeposit : Deposit := { lowWord := 0, highWord := 0 }
+  let empty : HostStorage := #[]
+  let (st0, _, _) ← requireSuccess "caller init" <|
+    execute initM empty (encodeUInt64LE 7) zeroDeposit
+  let alice := "alice.test.near"
+  let bob := "bob.test.near"
+  let aliceLeaves ← encodePrincipalAccountIdLeaves alice
+  let bobLeaves ← encodePrincipalAccountIdLeaves bob
+  -- alice predecessor vs alice param → true (1)
+  let (_, retAlice, _) ← requireSuccess "isCaller alice==alice" <|
+    execute isCallerM st0 aliceLeaves zeroDeposit (predecessorAccountId := alice)
+  expect (retAlice == some 1) s!"isCaller alice/alice expected 1, got {retAlice}"
+  -- alice predecessor vs bob param → false (0)
+  let (_, retMis, _) ← requireSuccess "isCaller alice==bob" <|
+    execute isCallerM st0 bobLeaves zeroDeposit (predecessorAccountId := alice)
+  expect (retMis == some 0) s!"isCaller alice/bob expected 0, got {retMis}"
+  -- bob predecessor vs bob param → true
+  let (_, retBob, _) ← requireSuccess "isCaller bob==bob" <|
+    execute isCallerM st0 bobLeaves zeroDeposit (predecessorAccountId := bob)
+  expect (retBob == some 1) s!"isCaller bob/bob expected 1, got {retBob}"
+  -- Wire/leaf zero-padding: trailing body words beyond account-id length are 0.
+  -- Mutate bobLeaves high word (word7) to nonzero while keeping len=bob.size →
+  -- must mismatch even if low bytes would otherwise match.
+  -- leaf index 8 (word7) starts at byte offset 8*8 = 64; set low byte ≠ 0
+  -- while keeping len + words 0..6 identical (zero-pad identity check).
+  let bobTampered :=
+    bobLeaves.extract 0 64 ++ encodeUInt64LE 1
+  let (_, retPad, _) ← requireSuccess "isCaller bob==tampered-pad" <|
+    execute isCallerM st0 bobTampered zeroDeposit (predecessorAccountId := bob)
+  expect (retPad == some 0)
+    s!"isCaller must reject nonzero trailing pad, got {retPad}"
+  -- Failure path: bumpIfCaller with wrong predecessor traps; pad holds.
+  let (_, pad0, _) ← requireSuccess "get before bump" <|
+    execute getM st0 ByteArray.empty zeroDeposit (predecessorAccountId := alice)
+  expect (pad0 == some 7) s!"pad before bump expected 7, got {pad0}"
+  expectTrap "bumpIfCaller wrong predecessor" st0 <|
+    execute bumpM st0 bobLeaves zeroDeposit (predecessorAccountId := alice)
+  let (_, pad1, _) ← requireSuccess "get after failed bump" <|
+    execute getM st0 ByteArray.empty zeroDeposit (predecessorAccountId := alice)
+  expect (pad1 == some 7) s!"pad must hold at 7 after failed bump, got {pad1}"
+  -- Success bump advances pad.
+  let (st1, bumpRet, _) ← requireSuccess "bumpIfCaller alice" <|
+    execute bumpM st0 aliceLeaves zeroDeposit (predecessorAccountId := alice)
+  expect (bumpRet == some 8) s!"bumpIfCaller expected 8, got {bumpRet}"
+  let (_, pad2, _) ← requireSuccess "get after bump" <|
+    execute getM st1 ByteArray.empty zeroDeposit (predecessorAccountId := alice)
+  expect (pad2 == some 8) s!"pad after bump expected 8, got {pad2}"
+  -- Init may also read context.caller (ownable-style).
+  let initCallerSrc :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OwnableNear where\n" ++
+    "  state owner : Principal\n" ++
+    "  state value : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    owner := context.caller\n" ++
+    "    value := 0\n\n" ++
+    "  entry setValue(v : UInt64) : UInt64 do\n" ++
+    "    assert context.caller == owner\n" ++
+    "    value := v\n" ++
+    "    return value\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return value\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ownSource ← liftResult (← session.selectProgramV1
+    initCallerSrc "<near-ownable>" "Examples.OwnableNear" none)
+  let ownCompiled ← liftResult <| Compiler.compileValidatedSourceV1 ownSource
+  let ownCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection ownCompiled
+  let ownPlan ← liftResult <| Targets.Near.planFromCapability ownCap
+  expect (ownPlan.hostImports.contains .predecessorAccountId)
+    "ownable: plan must import predecessor_account_id"
+  let ownIr ← liftResult <| Targets.Near.irFromCapability ownCap
+  let ownInit ← findMethod ownIr "init"
+  let ownSet ← findMethod ownIr "setValue"
+  let ownGet ← findMethod ownIr "get"
+  let (ownSt, _, _) ← requireSuccess "ownable init" <|
+    execute ownInit empty ByteArray.empty zeroDeposit (predecessorAccountId := alice)
+  let (ownSt2, setRet, _) ← requireSuccess "ownable setValue alice" <|
+    execute ownSet ownSt (encodeUInt64LE 42) zeroDeposit (predecessorAccountId := alice)
+  expect (setRet == some 42) s!"ownable setValue expected 42, got {setRet}"
+  expectTrap "ownable setValue bob" ownSt2 <|
+    execute ownSet ownSt2 (encodeUInt64LE 99) zeroDeposit (predecessorAccountId := bob)
+  let (_, ownVal, _) ← requireSuccess "ownable get after bob fail" <|
+    execute ownGet ownSt2 ByteArray.empty zeroDeposit (predecessorAccountId := bob)
+  expect (ownVal == some 42) s!"ownable value must hold at 42, got {ownVal}"
+  -- (b) view with context.caller must fail closed at Plan boundary.
+  let viewSrc :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CallerView where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  view who(a : Principal) : Bool do\n" ++
+    "    return context.caller == a\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let viewSource ← liftResult (← session.selectProgramV1
+    viewSrc "<near-caller-view>" "Examples.CallerView" none)
+  let viewCompiled ← liftResult <| Compiler.compileValidatedSourceV1 viewSource
   match Targets.Near.planFromCapability
-      (← liftResult <| Targets.resolveEngineeringRequirementsV1 selection clCompiled) with
-  | .error _ => pure ()
+      (← liftResult <| Targets.resolveEngineeringRequirementsV1 selection viewCompiled) with
+  | .error e =>
+      expect (e.render.contains "caller" || e.render.contains "view" ||
+          e.render.contains "ContextRead" || e.render.contains "predecessor")
+        s!"view caller FC must cite caller/view/ContextRead, got {e.render}"
   | .ok _ =>
-      throw <| IO.userError "NEAR context.caller must fail closed"
+      throw <| IO.userError "NEAR view context.caller must fail closed"
+  -- (c) pureFn ContextRead is rejected at shared S1 source/compile gate
+  -- (init/entry/view only) before Plan; NEAR Plan also rejects pureFn if a
+  -- synthetic carrier ever reached it. Product path: compile fails closed.
+  let pureFnSrc :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CallerPure where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  fn isSelf(a : Principal) : Bool do\n" ++
+    "    return context.caller == a\n\n" ++
+    "  entry run(a : Principal) : Bool do\n" ++
+    "    return isSelf(a)\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let pureSource ← liftResult (← session.selectProgramV1
+    pureFnSrc "<near-caller-pure>" "Examples.CallerPure" none)
+  match Compiler.compileValidatedSourceV1 pureSource with
+  | .error e =>
+      expect (e.render.contains "pureFn" || e.render.contains "ContextRead" ||
+          e.render.contains "caller" || e.render.contains "S1")
+        s!"pureFn caller compile FC must cite pureFn/ContextRead, got {e.render}"
+  | .ok pureCompiled =>
+      -- If shared gate ever admits pureFn ContextRead, NEAR Plan must still FC.
+      match Targets.Near.planFromCapability
+          (← liftResult <| Targets.resolveEngineeringRequirementsV1 selection pureCompiled) with
+      | .error e =>
+          expect (e.render.contains "caller" || e.render.contains "pureFn" ||
+              e.render.contains "ContextRead" || e.render.contains "pure")
+            s!"pureFn caller Plan FC must cite caller/pureFn, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "NEAR pureFn context.caller must fail closed"
 
 /-- Named Struct state + construct/fieldGet/fieldSet: flatten to KV leaves
     `p_x`/`p_y`; setX rebinds leaf 0 via storeAtomic; getX returns one scalar
@@ -4994,6 +5254,7 @@ unsafe def run : IO Unit := do
   testMapTokenDualStoreVisibility session
   testNamedStructProductPath session
   testContextReadTimestampNear session
+  testContextReadCallerNear session
   testNamedEnumProductPath session
   testOptionStateProductPath session
   testOptionStateFailClosed session

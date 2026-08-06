@@ -3378,8 +3378,9 @@ unsafe def run : IO Unit := do
 
   -- ADR-0031 S1 / ADR-0030 E3: context.caller Principal ContextRead.
   -- EVM admits ADR-0025 encoding (CALLER → u32le(20)||addr20 leaves;
-  -- Bool compare fixture). Other Phase-1 targets stay Plan-fail-closed until
-  -- their own target-owned cutover.
+  -- Bool compare fixture). NEAR admits predecessor_account_id →
+  -- u32le(L)||account-id-utf8 leaves (view stays FC; entry/init only).
+  -- Other Phase-1 targets stay Plan-fail-closed until their own cutover.
   let callerSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3397,8 +3398,8 @@ unsafe def run : IO Unit := do
     | .error e => throw <| IO.userError s!"B-ctx caller select: {e.render}"
   let callerCompiled ← liftResult <| Compiler.compileValidatedSourceV1 callerV1
   let _ ← liftResult <| materializeSelected TargetId.evm callerCompiled
-  for target in [TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy] do
+  let _ ← liftResult <| materializeSelected TargetId.near callerCompiled
+  for target in [TargetId.solana, TargetId.noir, TargetId.psy] do
     match materializeSelected target callerCompiled with
     | .ok _ =>
         throw <| IO.userError s!"B-ctx caller: {target} must decline ContextRead caller"

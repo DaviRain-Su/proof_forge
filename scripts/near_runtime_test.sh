@@ -134,6 +134,7 @@ programs=(
   "Examples/TipJarAsync.lean:Examples.TipJarAsync:TipJarAsync"
   "runtime-tests/near/fixtures/TokenJarAsync.lean:Examples.TokenJarAsync:TokenJarAsync"
   "runtime-tests/near/fixtures/EnvReadJar.lean:Examples.EnvReadJar:EnvReadJar"
+  "runtime-tests/near/fixtures/CallerCheck.lean:Examples.CallerCheck:CallerCheck"
 )
 
 echo "near-runtime-test: engineering near-sandbox differential (not formal/testnet)"
@@ -223,6 +224,7 @@ optionstate_wasm="$out_dir/OptionState/OptionState.wasm"
 tipjarasync_wasm="$out_dir/TipJarAsync/TipJarAsync.wasm"
 tokenjarasync_wasm="$out_dir/TokenJarAsync/TokenJarAsync.wasm"
 envreadjar_wasm="$out_dir/EnvReadJar/EnvReadJar.wasm"
+callercheck_wasm="$out_dir/CallerCheck/CallerCheck.wasm"
 [[ -f "$counter_wasm" ]] || die "missing $counter_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
@@ -231,6 +233,7 @@ envreadjar_wasm="$out_dir/EnvReadJar/EnvReadJar.wasm"
 [[ -f "$tipjarasync_wasm" ]] || die "missing $tipjarasync_wasm"
 [[ -f "$tokenjarasync_wasm" ]] || die "missing $tokenjarasync_wasm"
 [[ -f "$envreadjar_wasm" ]] || die "missing $envreadjar_wasm"
+[[ -f "$callercheck_wasm" ]] || die "missing $callercheck_wasm"
 
 # --- sandbox helpers --------------------------------------------------------
 
@@ -361,5 +364,8 @@ run_suite tokenjarasync "$tokenjarasync_wasm" || die "TokenJarAsync suite failed
 echo "near-runtime-test: running EnvReadJar suite against near-sandbox"
 run_suite envreadjar "$envreadjar_wasm" || die "EnvReadJar suite failed"
 
-echo "near-runtime-test: PASS (Counter + PairRet + ArrayRet + OptionRet + OptionState + TipJarAsync + TokenJarAsync + EnvReadJar engineering sandbox differential)"
+echo "near-runtime-test: running CallerCheck suite against near-sandbox"
+run_suite callercheck "$callercheck_wasm" || die "CallerCheck suite failed"
+
+echo "near-runtime-test: PASS (Counter + PairRet + ArrayRet + OptionRet + OptionState + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck engineering sandbox differential)"
 exit 0

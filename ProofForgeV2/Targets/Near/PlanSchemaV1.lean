@@ -175,6 +175,10 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .blockTimestampSeconds => pure (encodeU8 41)
   -- ADR-0030 E2-NEAR: account_balance env-read (tag 42).
   | .accountBalance => pure (encodeU8 42)
+  -- ADR-0031 S1: context.caller Principal leaves (tags 43/44).
+  | .callerPrincipalLen => pure (encodeU8 43)
+  | .callerPrincipalWord wordIndex =>
+      pure ((encodeU8 44).append (← encodeNatAsU32le wordIndex))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

@@ -109,6 +109,11 @@ inductive HostImport where
       Only present on Plans that lower at least one
       `pf.assets.native.balanceOfSelf` env-read. -/
   | accountBalance
+  /-- ADR-0031 S1: host `predecessor_account_id` (writes UTF-8 account-id into
+      a register). Only present on Plans that lower at least one
+      `context.caller` ContextRead. View/query contexts forbid this host call,
+      so view callables stay Plan-fail-closed. -/
+  | predecessorAccountId
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -225,6 +230,14 @@ inductive Expr where
       high 64 bits are nonzero (UInt64 range guard). Read-only,
       view/entry-callable, effect-free. -/
   | accountBalance
+  /-- ADR-0031 S1: length leaf of `context.caller` Principal
+      (`u32le(L)||account-id-utf8` wire → leaf0 = L). Materialized from host
+      `predecessor_account_id` register length. Init/entry only (view FC). -/
+  | callerPrincipalLen
+  /-- ADR-0031 S1: one LE body word of `context.caller` Principal.
+      `wordIndex ∈ 0..7` indexes the 8×UInt64 LE body leaves packing the
+      account-id UTF-8 bytes (unused tail bytes forced 0). Init/entry only. -/
+  | callerPrincipalWord (wordIndex : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -450,14 +463,17 @@ private def canonicalImports : Array HostImport := #[
 ]
 
 /-- Host import set driven by schedule and/or transferAsync and/or token
-    transferAsync and/or timestamp and/or accountBalance env-read.
+    transferAsync and/or timestamp and/or accountBalance env-read and/or
+    context.caller predecessor read.
     `promise_batch_create` is shared; function-call vs transfer action imports
     are independent so no-schedule Plans stay free of transfer host when only
     schedule is absent, and vice versa. Token transferAsync uses function-call
     action (like schedule) plus promise_batch_create, so it shares the
-    function-call import with schedule. `account_balance` is independent. -/
+    function-call import with schedule. `account_balance` and
+    `predecessor_account_id` are independent. -/
 def hostImportsFor (usesSchedulePromise usesTransferPromise
-    usesTokenTransferPromise usesTimestamp usesAccountBalance : Bool) :
+    usesTokenTransferPromise usesTimestamp usesAccountBalance
+    usesCaller : Bool) :
     Array HostImport :=
   Id.run do
     let mut base := canonicalImports
@@ -471,6 +487,8 @@ def hostImportsFor (usesSchedulePromise usesTransferPromise
       base := base.push .blockTimestamp
     if usesAccountBalance then
       base := base.push .accountBalance
+    if usesCaller then
+      base := base.push .predecessorAccountId
     pure base
 
 def canonicalRegisters : RegisterLayout := {
@@ -3175,26 +3193,46 @@ private def lowerBlockInstructionsV1
           aggregateLeaves := operand.aggregateLeaves
         }
     | .contextRead key, some result =>
-        -- B-CTX-OPEN (NEAR): `context.unixTimeSeconds` lowers to host
-        -- `block_timestamp()` (nanoseconds) divided by 10^9 (truncating) —
-        -- see Expr.blockTimestampSeconds. `context.caller` and unknown keys
-        -- stay fail closed.
+        -- B-CTX-OPEN / ADR-0031 S1 (NEAR):
+        --   * `context.unixTimeSeconds` → host `block_timestamp()` (ns) / 10^9
+        --   * `context.caller` → Principal aggregate from host
+        --     `predecessor_account_id` as `u32le(L)||account-id-utf8` packed
+        --     into length + 8×UInt64 LE body leaves (unused tail bytes 0).
+        --     View/query and pureFn fail closed (NEAR forbids predecessor in
+        --     view context; no signer fallback). Unknown keys stay FC.
         if key == callerContextKeyV1 then
-          throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: ContextRead (context.caller) is not admitted (account-id to Principal identity mapping deferred)"
-        unless key == unixTimeSecondsContextKeyV1 do
+          if mode == .view then
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: ContextRead context.caller is forbidden in view (predecessor_account_id is view-forbidden)"
+          if mode == .pureFn then
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pureFn cannot use ContextRead context.caller (host read is not pure)"
+          unless types.isPrincipal result.typeId do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: ContextRead context.caller result must be Principal"
+          -- 9-leaf pilot Principal: len + 8 LE body words.
+          let mut leaves : Array Expr := #[.callerPrincipalLen]
+          for i in [0:nearPrincipalDataWordCountV1] do
+            leaves := leaves.push (.callerPrincipalWord i)
+          unless leaves.size == 1 + nearPrincipalDataWordCountV1 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: context.caller Principal leaf count mismatch"
+          let value := mkAggregateValueV1 leaves #[] 1 leaves.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if key == unixTimeSecondsContextKeyV1 then
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: ContextRead unix-time-seconds result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .blockTimestampSeconds
+            kind := .uint64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else
           throw <| .planInvariant .near
             s!"unsupported NEAR semantic shape: unknown ContextRead key '{key.value}'"
-        unless result.typeId == types.uint64TypeId do
-          throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: ContextRead unix-time-seconds result must be UInt64"
-        values := ← appendResultValueV1 result.typeId values result {
-          expr := .blockTimestampSeconds
-          kind := .uint64
-          depth := 1
-          expandedNodes := 1
-          dependencies := #[]
-        }
     | .envRead key args, some result =>
         -- ADR-0030 E2-NEAR: read-only self-vault observation (value-producing,
         -- view-callable, effect-free). Requires exact extension.pf-assets.
@@ -3894,7 +3932,8 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   match expr with
   | .blockTimestampSeconds => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ | .accountBalance => false
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ | .accountBalance
+  | .callerPrincipalLen | .callerPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -3916,7 +3955,7 @@ partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
   | .accountBalance => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
-  | .blockTimestampSeconds => false
+  | .blockTimestampSeconds | .callerPrincipalLen | .callerPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -3930,6 +3969,29 @@ partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesAccountBalanceV1 e
   | .callFn _ args => args.any exprUsesAccountBalanceV1
+
+/-- ADR-0031 S1: does an expression tree reference context.caller Principal
+    leaves? Conservative structural scan driving the `predecessor_account_id`
+    host import. -/
+partial def exprUsesCallerV1 (expr : Expr) : Bool :=
+  match expr with
+  | .callerPrincipalLen | .callerPrincipalWord _ => true
+  | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .blockTimestampSeconds | .accountBalance => false
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      exprUsesCallerV1 l || exprUsesCallerV1 r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      exprUsesCallerV1 e
+  | .callFn _ args => args.any exprUsesCallerV1
 
 /-- Does any statement tree in the list reference the block timestamp? -/
 partial def statementsUseTimestampV1 (statements : Array Statement) : Bool :=
@@ -4004,6 +4066,42 @@ def planUsesAccountBalanceV1 (plan : Plan) : Bool :=
   statementsUseAccountBalanceV1 plan.initializer.body ||
     plan.entries.any (fun m => statementsUseAccountBalanceV1 m.body) ||
     plan.fns.any (fun f => statementsUseAccountBalanceV1 f.body)
+
+/-- ADR-0031 S1: does any statement tree reference context.caller leaves? -/
+partial def statementsUseCallerV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .store op => exprUsesCallerV1 op.value
+    | .storeAtomic leaves => leaves.any fun leaf => exprUsesCallerV1 leaf.value
+    | .returnValue value => exprUsesCallerV1 value
+    | .returnAggregate leaves _ => leaves.any exprUsesCallerV1
+    | .assert condition => exprUsesCallerV1 condition
+    | .emitEvent _ args => args.any exprUsesCallerV1
+    | .revertError _ args => args.any exprUsesCallerV1
+    | .promiseAccount _ _ args => args.any exprUsesCallerV1
+    | .nativeDeposit amount => exprUsesCallerV1 amount
+    | .promiseTransfer dstLen dstWords amount =>
+        exprUsesCallerV1 dstLen || dstWords.any exprUsesCallerV1 ||
+          exprUsesCallerV1 amount
+    | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+        exprUsesCallerV1 mintLen || mintWords.any exprUsesCallerV1 ||
+          exprUsesCallerV1 dstLen || dstWords.any exprUsesCallerV1 ||
+          exprUsesCallerV1 amount
+    | .ifThenElse condition thenBody elseBody =>
+        exprUsesCallerV1 condition ||
+          statementsUseCallerV1 thenBody || statementsUseCallerV1 elseBody
+    | .switchOn scrutinee cases defaultBody =>
+        exprUsesCallerV1 scrutinee || statementsUseCallerV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseCallerV1 caseBody
+    | .forLoop _ initial cond update _ body =>
+        exprUsesCallerV1 initial || exprUsesCallerV1 cond ||
+          exprUsesCallerV1 update || statementsUseCallerV1 body
+    | .returnNone => false
+
+def planUsesCallerV1 (plan : Plan) : Bool :=
+  statementsUseCallerV1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUseCallerV1 m.body) ||
+    plan.fns.any (fun f => statementsUseCallerV1 f.body)
 
 /-- Schedule → function-call promise (not transferAsync). -/
 partial def statementsUseSchedulePromiseV1 (statements : Array Statement) : Bool :=
@@ -4194,6 +4292,10 @@ private def makePlanFromSemanticDataV1
     statementsUseAccountBalanceV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseAccountBalanceV1 m.body) ||
       fns.any (fun f => statementsUseAccountBalanceV1 f.body)
+  let usesCaller :=
+    statementsUseCallerV1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUseCallerV1 m.body) ||
+      fns.any (fun f => statementsUseCallerV1 f.body)
   let plan : Plan := {
     targetDescriptor := descriptor
     semanticSchemaVersion := semanticProgramSchemaVersionV1
@@ -4202,7 +4304,7 @@ private def makePlanFromSemanticDataV1
     inputAbi := rawInputAbi
     layoutDomain := stateLayoutDomain
     hostImports := hostImportsFor usesSchedulePromise usesTransferPromise
-      usesTokenTransferPromise usesTimestamp usesAccountBalance
+      usesTokenTransferPromise usesTimestamp usesAccountBalance usesCaller
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits

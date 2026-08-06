@@ -12,7 +12,7 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
   PF_NEAR_HOME         near-sandbox --home directory (validator_key.json)
   PF_NEAR_WASM         path to product .wasm for the suite
-  PF_NEAR_SUITE        counter | pairret | arrayret | optionret | optionstate | tipjarasync | tokenjarasync | envreadjar | single
+  PF_NEAR_SUITE        counter | pairret | arrayret | optionret | optionstate | tipjarasync | tokenjarasync | envreadjar | callercheck | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -573,6 +573,89 @@ def suite_envreadjar(client: NearClient, wasm: Path) -> None:
     print("suite EnvReadJar: PASS")
 
 
+def suite_callercheck(client: NearClient, wasm: Path) -> None:
+    """ADR-0031 S1 NEAR: context.caller → predecessor_account_id Principal.
+
+    Deploys the jar on a key-carrying subaccount, creates two caller
+    subaccounts (alice/bob) with the master full-access key, and proves:
+      1. alice → isCaller(alice_principal) == true
+      2. alice → isCaller(bob_principal) == false
+      3. bob → isCaller(bob_principal) == true
+      4. alice → bumpIfCaller(bob_principal) fails; pad holds
+      5. alice → bumpIfCaller(alice_principal) advances pad
+    predecessor_account_id equals the transaction signer for top-level
+    FunctionCall receipts (signer == predecessor; no signer fallback).
+    """
+    print("=== suite: CallerCheck (context.caller / predecessor_account_id) ===")
+    jar = f"callercheck.{client.account_id}"
+    alice = f"alice.{client.account_id}"
+    bob = f"bob.{client.account_id}"
+    # Fund callers generously: they pay gas as transaction signers so
+    # predecessor_account_id equals the intended identity (10^23 is tight
+    # after a few FunctionCalls under sandbox gas prices).
+    client.create_subaccount_with_key(jar, 10**24)
+    client.create_subaccount_with_key(alice, 10**25)
+    client.create_subaccount_with_key(bob, 10**25)
+    client.deploy_to(jar, wasm)
+    print(f"callercheck: jar={jar} alice={alice} bob={bob}")
+
+    # init as master (predecessor unused in body); keep alice balance for calls.
+    client.call_on(jar, "init", NearClient.encode_u64_le(7))
+    got = client.view_u64_on(jar, "get")
+    if got != 7:
+        raise AssertionError(f"after init(7): get() expected 7, got {got}")
+    print("callercheck: init(7) → get()==7 ok")
+
+    alice_p = NearClient.encode_principal_account_id(alice)
+    bob_p = NearClient.encode_principal_account_id(bob)
+
+    def is_caller(signer: str, principal: bytes) -> int:
+        res = client.call_on(jar, "isCaller", principal, signer=signer)
+        sv = NearClient.success_value_bytes(res)
+        if sv is None or len(sv) < 8:
+            raise AssertionError(f"isCaller SuccessValue expected ≥8 LE bytes, got {sv!r}")
+        return NearClient.decode_u64_le(sv, 0)
+
+    ret = is_caller(alice, alice_p)
+    if ret != 1:
+        raise AssertionError(f"alice isCaller(alice) expected 1, got {ret}")
+    print("callercheck: alice isCaller(alice)==true ok")
+
+    ret = is_caller(alice, bob_p)
+    if ret != 0:
+        raise AssertionError(f"alice isCaller(bob) expected 0, got {ret}")
+    print("callercheck: alice isCaller(bob)==false ok")
+
+    ret = is_caller(bob, bob_p)
+    if ret != 1:
+        raise AssertionError(f"bob isCaller(bob) expected 1, got {ret}")
+    print("callercheck: bob isCaller(bob)==true ok")
+
+    # Failure path: wrong predecessor on bumpIfCaller must not advance pad.
+    client.call_on(
+        jar, "bumpIfCaller", bob_p, signer=alice, expect_success=False
+    )
+    got = client.view_u64_on(jar, "get")
+    if got != 7:
+        raise AssertionError(
+            f"after failed bumpIfCaller: get() must stay 7, got {got}"
+        )
+    print("callercheck: alice bumpIfCaller(bob) fails + pad holds at 7 ok")
+
+    res = client.call_on(jar, "bumpIfCaller", alice_p, signer=alice)
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"bumpIfCaller SuccessValue expected ≥8 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u64_le(sv, 0)
+    if ret != 8:
+        raise AssertionError(f"bumpIfCaller SuccessValue expected 8, got {ret}")
+    got = client.view_u64_on(jar, "get")
+    if got != 8:
+        raise AssertionError(f"after bumpIfCaller: get() expected 8, got {got}")
+    print("callercheck: alice bumpIfCaller(alice) → pad==8 ok")
+    print("suite CallerCheck: PASS")
+
+
 def main(argv: list[str]) -> int:
     suite = os.environ.get("PF_NEAR_SUITE", "single").strip().lower()
     rpc = _require_env("PF_NEAR_RPC")
@@ -614,6 +697,9 @@ def main(argv: list[str]) -> int:
         elif suite == "envreadjar":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_ENVREADJAR_WASM"))
             suite_envreadjar(client, wasm)
+        elif suite == "callercheck":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_CALLERCHECK_WASM"))
+            suite_callercheck(client, wasm)
         elif suite == "all":
             # Same sandbox / same account: run suites only if
             # caller redeploys after a fresh home (script boots once per suite).
