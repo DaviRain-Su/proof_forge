@@ -16,14 +16,10 @@
 //! - balances: Map Principal UInt64 dense cap-4 → 44 leaves
 //!   (per slot: occ + 9 Principal key leaves + val)
 //!
-//! **Residual (honest)**: full-body hybrid reuses EmitSbpfAsmV1 entrypoint which
-//! still hard-checks `num_accounts == 1`, while caller-admitting handlers lower
-//! `numAccounts=2` + `caller_principal_leaf acc1[*]`. That pair is currently
-//! unsatisfiable at Mollusk (1 account → handler reject; 2 accounts →
-//! entrypoint reject + wrong fixed INSTRUCTION_DATA offsets). Product build /
-//! plan / IR / assembly honesty always run. Success-path Mollusk
-//! (init → addLiquidity → swap0to1) auto-enables when that residual signature
-//! disappears from the product assembly; until then residual-pin tests hold.
+//! **Account ABI (sole CPI-rail hybrid)**: every handler requires
+//! `num_accounts == 2` — account[0] state + account[1] zero-data `pf_caller`
+//! (signer when used as `context.caller`). Instruction data sits after both
+//! accounts' ABIv1 virtual growth spans (EmitSbpfAsm `computeInputLayoutWithCallerV1`).
 //!
 //! Engineering only: non-formal, non-mainnet, hybrid has no sol_invoke*.
 //!
@@ -553,11 +549,15 @@ fn disc_balance_of() -> String {
     instruction_discriminator("balanceOf", 9)
 }
 
-fn ix_initialize(program_id: Pubkey, state_key: Pubkey) -> Instruction {
+fn ix_initialize(program_id: Pubkey, state_key: Pubkey, caller_key: Pubkey) -> Instruction {
+    // Sole CPI-rail hybrid: always state + pf_caller (even when body ignores caller).
     Instruction::new_with_bytes(
         program_id,
         &instruction_data(&disc_initialize(), &[]),
-        vec![AccountMeta::new(state_key, true)],
+        vec![
+            AccountMeta::new(state_key, true),
+            AccountMeta::new_readonly(caller_key, true),
+        ],
     )
 }
 
@@ -584,15 +584,14 @@ fn ix_swap0to1(
     caller_key: Pubkey,
     amount_in: u64,
 ) -> Instruction {
-    // Plan lists only state for swap, but residual asm still checks num_accounts==2.
-    // When residual closes, account list may shrink to state-only; keep caller as
-    // optional second account for current residual-era dual-account handlers.
+    // Hybrid admitCaller: always two accounts (state + pf_caller), even if
+    // this handler does not read context.caller.
     Instruction::new_with_bytes(
         program_id,
         &instruction_data(&disc_swap0to1(), &[amount_in]),
         vec![
             AccountMeta::new(state_key, false),
-            AccountMeta::new_readonly(caller_key, false),
+            AccountMeta::new_readonly(caller_key, true),
         ],
     )
 }
@@ -734,100 +733,74 @@ fn assembly_zero_cpi_and_caller_principal() {
 }
 
 // ---------------------------------------------------------------------------
-// Residual pin (always run while multi-account hybrid layout is incomplete)
+// Multi-account layout pin (sole CPI-rail hybrid)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn residual_entrypoint_vs_handler_account_count() {
+fn admit_caller_layout_entrypoint_and_init() {
     let asm = product_assembly_text();
-    if multi_account_layout_residual_present(&asm) {
-        // Document the exact deadlock so success-path tests stay deferred.
-        assert!(
-            asm.contains("check num_accounts == 1"),
-            "residual: entrypoint forces single-account shape"
-        );
-        assert!(
-            asm.contains("check num_accounts == 2"),
-            "residual: caller handlers require two accounts"
-        );
-        // Runtime pin: 1-account init fails at handler; 2-account fails at entrypoint.
-        let (mollusk, program_id) = make_product_mollusk();
-        let state_key = fixed_key(0x20);
-        let state = state_account(&program_id, uninitialized_state());
-        // 1 account: entrypoint accepts, handler rejects num_accounts!=2.
-        assert_failure_preserves_exact_accounts(
-            &mollusk,
-            &ix_initialize(program_id, state_key),
-            &[(state_key, state.clone())],
-            Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN)),
-        );
-        // 2 accounts: entrypoint rejects num_accounts!=1 before dispatch.
-        let caller_key = fixed_key(0x21);
-        let metas = vec![
-            AccountMeta::new(state_key, true),
-            AccountMeta::new_readonly(caller_key, false),
-        ];
-        let ix = Instruction::new_with_bytes(
-            program_id,
-            &instruction_data(&disc_initialize(), &[]),
-            metas,
-        );
-        let accounts = vec![
+    assert!(
+        !multi_account_layout_residual_present(&asm),
+        "entrypoint/handler account-count residual must be closed"
+    );
+    assert!(
+        !asm.contains("check num_accounts == 1"),
+        "admitCaller hybrid must not emit single-account entrypoint gate"
+    );
+    assert!(
+        asm.contains("check num_accounts == 2"),
+        "admitCaller hybrid requires num_accounts == 2"
+    );
+    assert!(
+        asm.contains("ACC1_HEADER"),
+        "admitCaller layout must define ACC1_HEADER equ"
+    );
+    // One-account IX fails closed at entrypoint.
+    let (mollusk, program_id) = make_product_mollusk();
+    let state_key = fixed_key(0x20);
+    let state = state_account(&program_id, uninitialized_state());
+    let one_account_ix = Instruction::new_with_bytes(
+        program_id,
+        &instruction_data(&disc_initialize(), &[]),
+        vec![AccountMeta::new(state_key, true)],
+    );
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &one_account_ix,
+        &[(state_key, state.clone())],
+        Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN)),
+    );
+    // Two-account init succeeds.
+    let caller_key = fixed_key(0x21);
+    let result = mollusk.process_and_validate_instruction(
+        &ix_initialize(program_id, state_key, caller_key),
+        &[
             (state_key, state),
             (caller_key, system_empty_account(BASE_LAMPORTS)),
-        ];
-        assert_failure_preserves_exact_accounts(
-            &mollusk,
-            &ix,
-            &accounts,
-            Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN)),
-        );
-    } else {
-        // Residual closed: smoke that initialize succeeds with the plan-shaped
-        // account list (state w+s). Full success suite below covers the rest.
-        let (mollusk, program_id) = make_product_mollusk();
-        let state_key = fixed_key(0x20);
-        let state = state_account(&program_id, uninitialized_state());
-        let result = mollusk.process_and_validate_instruction(
-            &ix_initialize(program_id, state_key),
-            &[(state_key, state)],
-            &[Check::success()],
-        );
-        let post = account_by_key(&result.resulting_accounts, &state_key);
-        assert_eq!(post.data, empty_initialized_state());
-    }
+        ],
+        &[Check::success()],
+    );
+    let post = account_by_key(&result.resulting_accounts, &state_key);
+    assert_eq!(post.data, empty_initialized_state());
 }
 
 // ---------------------------------------------------------------------------
-// Success-path Mollusk (auto-enables when multi-account residual closes)
+// Success-path Mollusk (sole CPI-rail hybrid, state + pf_caller)
 // ---------------------------------------------------------------------------
-
-fn skip_if_residual(label: &str) -> bool {
-    let asm = product_assembly_text();
-    if multi_account_layout_residual_present(&asm) {
-        eprintln!(
-            "miniamm_hybrid::{label}: deferred — EmitSbpfAsm multi-account hybrid \
-             residual still present (entrypoint num_accounts==1 vs handler ==2). \
-             Residual pin test residual_entrypoint_vs_handler_account_count holds."
-        );
-        true
-    } else {
-        false
-    }
-}
 
 /// (a) init zeros state and writes layout marker.
 #[test]
 fn a_init_initializes_empty_pool() {
-    if skip_if_residual("a_init_initializes_empty_pool") {
-        return;
-    }
     let (mollusk, program_id) = make_product_mollusk();
     let state_key = fixed_key(0x30);
+    let caller_key = fixed_key(0x31);
     let state = state_account(&program_id, uninitialized_state());
     let result = mollusk.process_and_validate_instruction(
-        &ix_initialize(program_id, state_key),
-        &[(state_key, state)],
+        &ix_initialize(program_id, state_key, caller_key),
+        &[
+            (state_key, state),
+            (caller_key, system_empty_account(BASE_LAMPORTS)),
+        ],
         &[Check::success()],
     );
     let post = account_by_key(&result.resulting_accounts, &state_key);
@@ -839,9 +812,6 @@ fn a_init_initializes_empty_pool() {
 /// (b) first addLiquidity mints LP = amount0 to pf_caller Principal map slot.
 #[test]
 fn b_first_add_liquidity_mints_lp_to_caller() {
-    if skip_if_residual("b_first_add_liquidity_mints_lp_to_caller") {
-        return;
-    }
     let (mollusk, program_id) = make_product_mollusk();
     let state_key = fixed_key(0x40);
     let caller_key = fixed_key(0x41);
@@ -872,9 +842,6 @@ fn b_first_add_liquidity_mints_lp_to_caller() {
 /// (c) swap0to1 updates reserves with constant-product amountOut.
 #[test]
 fn c_swap0to1_updates_reserves() {
-    if skip_if_residual("c_swap0to1_updates_reserves") {
-        return;
-    }
     let (mollusk, program_id) = make_product_mollusk();
     let state_key = fixed_key(0x50);
     let caller_key = fixed_key(0x51);
@@ -911,9 +878,6 @@ fn c_swap0to1_updates_reserves() {
 /// (d) second mint (later formula) credits existing LP balance.
 #[test]
 fn d_second_add_liquidity_uses_later_formula() {
-    if skip_if_residual("d_second_add_liquidity_uses_later_formula") {
-        return;
-    }
     let (mollusk, program_id) = make_product_mollusk();
     let state_key = fixed_key(0x60);
     let caller_key = fixed_key(0x61);
@@ -950,9 +914,6 @@ fn d_second_add_liquidity_uses_later_formula() {
 /// (e) zero amountIn on swap fails closed (assertion) with full snapshot hold.
 #[test]
 fn e_zero_amount_swap_fails() {
-    if skip_if_residual("e_zero_amount_swap_fails") {
-        return;
-    }
     let (mollusk, program_id) = make_product_mollusk();
     let state_key = fixed_key(0x70);
     let caller_key = fixed_key(0x71);

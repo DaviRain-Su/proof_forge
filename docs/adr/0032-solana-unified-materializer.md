@@ -97,4 +97,6 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
   - `context.caller` 在 full-body 路径上经 `callerPrincipalLeaf`（account[1] pf_caller key）开放；
   - 有 CPI sites 的产品（TipJar 等）仍走 escrow product IR；
   - **MiniAmm product pin 已绿**（full-body hybrid ELF + `irDigest=full-body-hybrid`；零 `sol_invoke`）；
-  - multi-account layout 硬化（acc1 dup/signer exact offsets）与 MiniAMM Mollusk 仍后续。
+  - **multi-account admitCaller layout 已绿**：`computeInputLayoutWithCallerV1`（state + zero-data pf_caller）+ entrypoint `num_accounts==2` + `ACC1_*`；
+  - **MiniAmmHybrid Mollusk 成功路径 11/11**（init / first mint / swap / later mint / zero fail / layout pin）。
+  - P3 body+CPI 同 ELF 合成、默认 profile 切换仍后续。

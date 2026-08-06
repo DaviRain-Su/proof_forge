@@ -23,26 +23,34 @@ text). Product `buildFromCapability` is profile-exhaustive (#125):
 * unknown profile → fail closed
 Legacy ExternalCall/Schedule ops remain unreachable in this emitter.
 
-## Input account layout (single non-dup state account)
-
-Serialized runtime layout (see sbpf runtime `serialize.rs`):
+## Input account layout (Loader V3 ABIv1 contiguous, Agave `serialize_parameters_for_abiv1`
+without virtual-address-space adjustments — matches Mollusk defaults used by
+single-account Counter/Map/WideDiv and hybrid full-body emit)
 
 ```
 NUM_ACCOUNTS        @ 0x00
-ACC0_HEADER         @ 0x08   (dup=0xff, signer, writable, executable, pad)
+ACC0_HEADER         @ 0x08   (dup=0xff, signer, writable, executable, orig_len)
 ACC0_KEY            @ 0x10   (32B)
 ACC0_OWNER          @ 0x30   (32B)
 ACC0_LAMPORTS       @ 0x50
 ACC0_DATA_LEN       @ 0x58
-ACC0_DATA           @ 0x60   (exactDataLen + 10240 pad + 8-align)
+ACC0_DATA           @ 0x60   (exactDataLen + 10240 pad + align from data_len)
 ACC0_RENT_EPOCH     @ data_end + align
+-- when admitCallerRole (sole CPI-rail hybrid / pf_caller):
+ACC1_HEADER         @ after ACC0_RENT_EPOCH+8   (zero-data second account)
+ACC1_KEY            @ ACC1_HEADER+8
+… ACC1 data_len=0 + 10240 pad + rent_epoch …
 INSTRUCTION_DATA_LEN
 INSTRUCTION_DATA
 PROGRAM_ID          @ INSTRUCTION_DATA + ix_len  (dynamic)
 ```
 
 `.equ` offsets for the fixed prefix and the post-account region are derived
-from `stateAccount.exactDataLen`; `PROGRAM_ID` is computed at runtime.
+from `stateAccount.exactDataLen` (+ optional account[1] when
+`admitCallerRole`); `PROGRAM_ID` is computed at runtime.
+
+**Sole product rail** is `solana-sbpf-cpi-elf-v1` (ADR-0032): multi-account +
+full body + optional CPI sites. plan/elf profiles remain single-account shim.
 
 ## Registers
 
@@ -59,11 +67,9 @@ allocates return-data slots, event buffers, and callee frames.
 Checks (handler order): num_accounts==1|2, account[0] non-dup `0xff`,
 instruction_data_len, owner==current_program, data_len, signer, writable,
 headerEquals (account[0] only). When `admitCallerRole`, also account[1]
-non-dup `0xff` + is_signer (pf_caller; header base = single-account
-`INSTRUCTION_DATA_LEN` when account[1] has `data_len=0`). Entrypoint
-re-emits the account-list shape pair (still count==1) before any fixed
-`INSTRUCTION_*` / `ACC0_*` load so 0/2-account and duplicate encodings fail
-closed with program_error 1 on the legacy single-account dispatch path.
+non-dup `0xff` + is_signer (pf_caller at `ACC1_*`). Entrypoint re-emits the
+account-list shape pair with **count matching admitCaller** (1 or 2) before
+any fixed `INSTRUCTION_*` / `ACC0_*` load.
 
 Ops: literal, loadParam, loadState, checkedAdd/Sub/Mul/Div/Mod,
 bitAnd/Or/Xor/Not, checkedShl/Shr, boolNot/And/Or, zeroState, storeState,
@@ -102,17 +108,31 @@ def accountDataOffsetV1 : Nat := 0x60
 /-- Solana default stack size (bytes). Frame budget fail-closed gate. -/
 def maxSbpfStackBytesV1 : Nat := 4096
 
-/-- Derived input-buffer offsets for a single non-dup account of `exactDataLen`. -/
+/-- Bytes from an account's dup-marker to its data region (ABIv1 full prefix). -/
+def accountFullPrefixBytesV1 : Nat := 0x58
+
+/-- Derived input-buffer offsets for account serialization.
+    `acc1Header = none` → single-account shim layout.
+    `acc1Header = some H` → state + zero-data pf_caller (sole CPI-rail hybrid). -/
 structure InputLayoutV1 where
   exactDataLen : Nat
   rentEpoch : Nat
   instructionDataLen : Nat
   instructionData : Nat
+  /-- Absolute offset of account[1] header (dup marker), if present. -/
+  acc1Header : Option Nat := none
   deriving BEq, Repr
 
-/-- Compute layout offsets from the plan's `exactDataLen` (no hard-coded 16). -/
+/-- Pad after account data: `MAX_PERMITTED + (data_len as *u8).align_offset(8)`.
+    Matches Agave contiguous serialize when data starts 8-aligned. -/
+private def accountDataPadV1 (dataLen : Nat) : Nat :=
+  let alignOffset := (8 - (dataLen % 8)) % 8
+  maxPermittedDataIncreaseV1 + alignOffset
+
+/-- Single non-dup state account of `exactDataLen` (shim / no pf_caller). -/
 def computeInputLayoutV1 (exactDataLen : Nat) : InputLayoutV1 :=
   let dataEnd := accountDataOffsetV1 + exactDataLen + maxPermittedDataIncreaseV1
+  -- Equivalent to pad-then-rent when ACC0_DATA is 8-aligned (0x60).
   let align := (8 - (dataEnd % 8)) % 8
   let rentEpoch := dataEnd + align
   let instructionDataLen := rentEpoch + 8
@@ -122,7 +142,33 @@ def computeInputLayoutV1 (exactDataLen : Nat) : InputLayoutV1 :=
     rentEpoch
     instructionDataLen
     instructionData
+    acc1Header := none
   }
+
+/-- State account + zero-data account[1] (pf_caller) before instruction data.
+    Account[1] still receives the full 10240-byte realloc pad (Agave rule). -/
+def computeInputLayoutWithCallerV1 (exactDataLen : Nat) : InputLayoutV1 :=
+  let base := computeInputLayoutV1 exactDataLen
+  let acc1Header := base.instructionDataLen
+  -- Relative to acc1 header: data at +0x58, then pad, then rent_epoch u64.
+  let acc1Data := acc1Header + accountFullPrefixBytesV1
+  let acc1AfterData := acc1Data + accountDataPadV1 0
+  let acc1RentEpoch := acc1AfterData
+  let instructionDataLen := acc1RentEpoch + 8
+  let instructionData := instructionDataLen + 8
+  {
+    exactDataLen
+    rentEpoch := base.rentEpoch
+    instructionDataLen
+    instructionData
+    acc1Header := some acc1Header
+  }
+
+/-- Select single-account or admitCaller layout. -/
+def computeInputLayoutForAdmitV1 (exactDataLen : Nat) (admitCaller : Bool) :
+    InputLayoutV1 :=
+  if admitCaller then computeInputLayoutWithCallerV1 exactDataLen
+  else computeInputLayoutV1 exactDataLen
 
 private def asmError (message : String) : CompileResult α :=
   .error <| .planInvariant .solana message
@@ -205,6 +251,12 @@ private def renderLayoutEqu (layout : InputLayoutV1) : String :=
   let b0 := emptyBuf
   let b0 := emit b0 "; PROOF-FORGE-SBPF-ASM v1 (S1b full Operation surface)"
   let b0 := emit b0 "; Generated from typed Solana IR — plan-owned offsets"
+  let b0 :=
+    match layout.acc1Header with
+    | some _ =>
+        emit b0 "; Layout: state + pf_caller (account[1] data_len=0) — sole CPI-rail hybrid"
+    | none =>
+        emit b0 "; Layout: single state account (shim / no admitCaller)"
   let b0 := emitBlank b0
   let b0 := emitEqu b0 "NUM_ACCOUNTS" 0x00
   let b0 := emitEqu b0 "ACC0_HEADER" accountHeaderOffsetV1
@@ -216,6 +268,13 @@ private def renderLayoutEqu (layout : InputLayoutV1) : String :=
   let b0 := emitEqu b0 "MAX_PERMITTED_DATA_INCREASE" maxPermittedDataIncreaseV1
   let b0 := emitEqu b0 "EXACT_DATA_LEN" layout.exactDataLen
   let b0 := emitEqu b0 "ACC0_RENT_EPOCH" layout.rentEpoch
+  let b0 :=
+    match layout.acc1Header with
+    | some h =>
+        let b0 := emitEqu b0 "ACC1_HEADER" h
+        let b0 := emitEqu b0 "ACC1_KEY" (h + 0x08)
+        b0
+    | none => b0
   let b0 := emitEqu b0 "INSTRUCTION_DATA_LEN" layout.instructionDataLen
   let b0 := emitEqu b0 "INSTRUCTION_DATA" layout.instructionData
   let b0 := emitBlank b0
@@ -307,17 +366,24 @@ private partial def tempCountOf (ops : Array Operation) : Nat :=
         Nat.max acc (Nat.max m1 m2)
     | _ => acc
 
-/-- Emit account-list shape pair (num_accounts==1, account[0] dup==0xff).
-    Offsets `NUM_ACCOUNTS` / `ACC0_HEADER+0` are layout-prefix constants and do
-    not depend on `exactDataLen`. Must run before any fixed post-account load. -/
-private def emitAccountListShapeChecks (b0 : AsmBuf) (errLab : String) : AsmBuf :=
-  let b := emit b0 "  ; check num_accounts == 1"
+/-- Emit account-list shape: exact `num_accounts` (1 or 2) + account[0] non-dup.
+    When count==2, also require account[1] non-dup (pf_caller) before any
+    `INSTRUCTION_*` load. Must run before fixed post-account loads. -/
+private def emitAccountListShapeChecks (b0 : AsmBuf) (numAccounts : Nat)
+    (errLab : String) : AsmBuf :=
+  let b := emit b0 s!"  ; check num_accounts == {numAccounts}"
   let b := emit b "  ldxdw r1, [r6 + NUM_ACCOUNTS]"
-  let b := emit b s!"  jne r1, 1, {errLab}"
+  let b := emit b s!"  jne r1, {numAccounts}, {errLab}"
   let b := emit b "  ; check account[0].dup_marker == 0xff"
   let b := emit b "  ldxb r1, [r6 + ACC0_HEADER + 0]"
   let b := emit b s!"  jne r1, 0xff, {errLab}"
-  b
+  if numAccounts == 2 then
+    let b := emit b "  ; check account[1].dup_marker == 0xff (pf_caller)"
+    let b := emit b "  ldxb r1, [r6 + ACC1_HEADER + 0]"
+    let b := emit b s!"  jne r1, 0xff, {errLab}"
+    b
+  else
+    b
 
 /-- Emit check instructions; on failure jump to `errLab` (must lddw/exit). -/
 private def emitCheck (b : AsmBuf) (check : Check) (errLab : String) :
@@ -339,11 +405,9 @@ private def emitCheck (b : AsmBuf) (check : Check) (errLab : String) :
         let b := emit b s!"  jne r1, 0xff, {errLab}"
         pure b
       else
-        -- account[1] (pf_caller): header base equals single-account
-        -- INSTRUCTION_DATA_LEN offset when data_len=0 (same layout fact as
-        -- callerPrincipalLeaf: key at base+0x08).
+        -- account[1] (pf_caller): ACC1_HEADER equ (zero-data second account).
         let b := emit b "  ; check account[1].dup_marker == 0xff"
-        let b := emit b "  ldxb r1, [r6 + INSTRUCTION_DATA_LEN + 0]"
+        let b := emit b "  ldxb r1, [r6 + ACC1_HEADER + 0]"
         let b := emit b s!"  jne r1, 0xff, {errLab}"
         pure b
   | .instructionDataLen bytes =>
@@ -388,10 +452,9 @@ private def emitCheck (b : AsmBuf) (check : Check) (errLab : String) :
         let b := emit b s!"  jeq r1, 0, {errLab}"
         pure b
       else
-        -- ADR-0032: pf_caller on account[1]. Header base =
-        -- single-account INSTRUCTION_DATA_LEN; is_signer is header byte +1.
+        -- ADR-0032: pf_caller on account[1]; is_signer is ACC1_HEADER byte +1.
         let b := emit b "  ; check account[1].is_signer"
-        let b := emit b "  ldxb r1, [r6 + INSTRUCTION_DATA_LEN + 1]"
+        let b := emit b "  ldxb r1, [r6 + ACC1_HEADER + 1]"
         let b := emit b s!"  jeq r1, 0, {errLab}"
         pure b
   | .writable accountIndex =>
@@ -1939,16 +2002,17 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       b := loadTempAbs b "r1" (bufBase + 4)
       pure (storeTemp b tempBase destination "r1")
   | .callerPrincipalLeaf destination accountIndex leafIndex => do
-      -- ADR-0032: Principal wire leaf from account key. Requires
-      -- Plan.requiresCallerRole / num_accounts≥2; accountIndex must be 1.
-      -- Layout: after account[0] of exactDataLen, account[1] starts at the
-      -- single-account instructionDataLen offset (zero-data second account).
+      -- ADR-0032: Principal wire leaf from account[1] pf_caller key.
+      -- Layout: `computeInputLayoutWithCallerV1` places ACC1_KEY after state.
       unless accountIndex == 1 && leafIndex < 9 do
         return ← asmError "callerPrincipalLeaf requires accountIndex=1 leafIndex<9"
-      let layout := computeInputLayoutV1 ir.stateAccount.exactDataLen
-      -- Second account (data_len=0): header sits where single-account ix-len
-      -- lived; key is +0x08 from that header.
-      let keyOff := layout.instructionDataLen + 0x08
+      unless ir.stateAccount.admitCallerRole do
+        return ← asmError "callerPrincipalLeaf requires admitCallerRole layout"
+      let layout :=
+        computeInputLayoutWithCallerV1 ir.stateAccount.exactDataLen
+      let some acc1H := layout.acc1Header |
+        return ← asmError "callerPrincipalLeaf: missing ACC1 header in layout"
+      let keyOff := acc1H + 0x08
       pure <| Id.run do
         let mut b := b
         b := emit b s!"  ; %{destination} = caller_principal_leaf acc{accountIndex}[{leafIndex}]"
@@ -2162,13 +2226,13 @@ private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR) :
     signed 16-bit branch-offset limit both for large unrolled UInt128/256 bodies
     and for large handler tables. Handler-local `exit` instructions return to
     the dispatch frame; its final `exit` terminates the program. -/
-private def emitDispatch (b0 : AsmBuf) (handlers : Array HandlerIR) :
-    CompileResult AsmBuf := do
+private def emitDispatch (b0 : AsmBuf) (handlers : Array HandlerIR)
+    (admitCaller : Bool) : CompileResult AsmBuf := do
+  let numAccounts := if admitCaller then 2 else 1
   let mut b := emit b0 "entrypoint:"
   b := emit b "  mov64 r6, r1"
-  -- V1 single-state ABI: require exactly one non-duplicate account before any
-  -- fixed INSTRUCTION_*/ACC0_* absolute load (layout assumes one full account).
-  b := emitAccountListShapeChecks b "err_unknown_disc"
+  -- Exact account count before any fixed INSTRUCTION_*/ACC* absolute load.
+  b := emitAccountListShapeChecks b numAccounts "err_unknown_disc"
   -- Require at least 8 bytes of instruction data for the discriminator.
   b := emit b "  ; guard: instruction_data_len >= 8"
   b := emit b "  ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]"
@@ -2201,11 +2265,13 @@ def emitSbpfAsmV1 (ir : IR) : CompileResult String := do
   validateIR ir
   unless ir.stateAccount.index == 0 do
     return ← asmError "S1b requires state account index 0"
-  let layout := computeInputLayoutV1 ir.stateAccount.exactDataLen
+  let admitCaller := ir.stateAccount.admitCallerRole
+  let layout :=
+    computeInputLayoutForAdmitV1 ir.stateAccount.exactDataLen admitCaller
   let mut b : AsmBuf := { text := renderLayoutEqu layout, seq := 0, cursor := 0 }
   b := emit b ".globl entrypoint"
   b := emitBlank b
-  b ← emitDispatch b ir.handlers
+  b ← emitDispatch b ir.handlers admitCaller
   b := emitBlank b
   for handler in ir.handlers do
     let lab := asmLabel handler.name
