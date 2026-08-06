@@ -43,8 +43,9 @@ inductive Operation where
       (nanoseconds string ÷ 10^9 truncating) before calling method bodies. -/
   | blockTimeSeconds (destination : Nat)
   /-- ADR-0031 S1: load pre-parsed MessageInfo.sender Principal length leaf
-      (global `$pf_caller_len`) filled at execute/instantiate before method
-      bodies. View/query never loads caller (Plan FC). -/
+      (global `$pf_caller_len`) filled only in initializer/entry branches that
+      actually use `context.caller` (see `methodUsesCallerPrincipalV1`).
+      View/query never loads caller (Plan FC). -/
   | callerPrincipalLen (destination : Nat)
   /-- ADR-0031 S1: load one LE body word of context.caller Principal
       (global `$pf_caller_w{i}`, `wordIndex ∈ 0..7`). -/
@@ -1597,15 +1598,18 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- ADR-0031 S1: MessageInfo.sender → pilot Principal leaves.
   -- Needle `"sender":"` is fixed at offset 3241 length 10 (see renderDataSectionV2).
   -- CosmWasm-std serializes MessageInfo as `{"sender":"<addr>","funds":[...]}`
-  -- (Addr is a plain JSON string). Copy UTF-8 bytes until the closing `"` into
-  -- a fresh 64B zeroed heap buffer (above bump base 4096 — never collides with
-  -- static needles or attr/msg scratch), require 1..64 length, then pack LE
-  -- u64 body words into `$pf_caller_len` / `$pf_caller_w0`..`$pf_caller_w7`.
+  -- (Addr is a plain JSON string). Copy raw JSON string *bytes* until the
+  -- closing `"` into a fresh 64B zeroed heap buffer (above bump base 4096 —
+  -- never collides with static needles or attr/msg scratch). ADR-0031 binds
+  -- CW caller to bech32 UTF-8: before packing globals, `$pf_dst_check(len,buf)`
+  -- enforces exact 1..64 length, zero tail beyond len, and lowercase
+  -- charset `[a-z0-9]` (rejects JSON escapes, uppercase, punctuation, control).
   -- Canonical wire is `u32le(len)||sender-utf8`; materialization is len +
   -- 8×UInt64 LE leaves (high body bytes beyond `len` stay 0 from the zeroed
-  -- buffer). Traps on missing needle / empty / too-long sender — never forges
-  -- env.contract.address or empty-string fallback. Query has no info region
-  -- and never calls this helper (Plan view-FC).
+  -- buffer). Traps on missing needle / empty / too-long / non-bech32 charset
+  -- — never forges env.contract.address or empty-string fallback. Invoked
+  -- only from initializer/entry branches that use `context.caller` (see
+  -- `methodUsesCallerPrincipalV1`); query never calls this helper (Plan view-FC).
   s!"  (func $pf_load_caller_principal\n" ++
   s!"    (local $idx i32) (local $p i32) (local $end i32) (local $c i32) (local $n i32)\n" ++
   s!"    (local $region i32) (local $buf i32)\n" ++
@@ -1636,6 +1640,10 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
   s!"        (br $copy)))\n" ++
   s!"    (if (i32.eqz (local.get $n)) (then unreachable))\n" ++
+  -- ADR-0031 bech32 UTF-8 gate: reuse exact `$pf_dst_check` (1..64, zero tail,
+  -- lowercase [a-z0-9]). Rejects JSON escapes / uppercase / punctuation before
+  -- any Principal leaf global is published.
+  s!"    (if (i32.eqz (call $pf_dst_check (i64.extend_i32_u (local.get $n)) (local.get $buf))) (then unreachable))\n" ++
   s!"    (global.set $pf_caller_len (i64.extend_i32_u (local.get $n)))\n" ++
   s!"    (global.set $pf_caller_w0 (i64.load (local.get $buf)))\n" ++
   s!"    (global.set $pf_caller_w1 (i64.load offset=8 (local.get $buf)))\n" ++
@@ -2554,15 +2562,25 @@ private def renderParamRangeGuard (indent : String) (i : Nat) (byteWidth : Nat) 
 private def renderLoadBlockTime (indent : String) : String :=
   s!"{indent}(global.set $pf_block_time_secs (call $pf_env_block_time_seconds (local.get $env_ptr)))\n"
 
-/-- ADR-0031 S1: parse MessageInfo.sender into Principal leaf globals before
-    execute/instantiate method bodies. Requires `$info_off`/`$info_len` already
-    set. Query never calls this (no MessageInfo; view Plan FC on caller). -/
+/-- ADR-0031 S1: parse MessageInfo.sender into Principal leaf globals.
+    Emitted only inside initializer/entry branches whose Plan body uses
+    `context.caller` (`methodUsesCallerPrincipalV1`). Requires
+    `$info_off`/`$info_len` already set. Query never calls this (no
+    MessageInfo; view Plan FC on caller). -/
 private def renderLoadCallerPrincipal (indent : String) : String :=
   s!"{indent}(call $pf_load_caller_principal)\n"
+
+/-- Optional caller load: empty string when the method body never reads
+    `context.caller`, so non-caller entries stay free of sender 1..64 /
+    bech32-charset traps in a mixed execute dispatcher. -/
+private def renderLoadCallerPrincipalIfUsed (indent : String) (method : Method) : String :=
+  if methodUsesCallerPrincipalV1 method then renderLoadCallerPrincipal indent else ""
 
 private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × Nat)) : String :=
   Id.run do
     let init := ir.methods[0]!  -- initializer is always first
+    -- Plan initializer is the sole authority for "does init use caller?".
+    let initPlan := ir.sourcePlan.initializer
     let mut parse := ""
     for i in [0:init.params.size] do
       let p := init.params[i]!
@@ -2583,16 +2601,34 @@ private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × 
         "    (global.set $info_len (call $pf_region_len (local.get $info_ptr)))\n" ++
         "    (global.set $pf_env_ptr (local.get $env_ptr))\n" ++
         renderLoadBlockTime "    " ++
-        renderLoadCallerPrincipal "    " ++
+        renderLoadCallerPrincipalIfUsed "    " initPlan ++
         parse ++
         s!"    (return (call $m_{init.name} {args}))\n" ++
         "  )\n"
+
+/-- Look up the Plan Method body for an IR method name (init or entry).
+    Falls back to empty-body Method when absent (load suppressed). -/
+private def planMethodBodyOf (ir : IR) (name : String) : Method :=
+  if ir.sourcePlan.initializer.name == name then
+    ir.sourcePlan.initializer
+  else
+    match ir.sourcePlan.entries.find? (fun m => m.name == name) with
+    | some m => m
+    | none =>
+        { name
+          params := #[]
+          exactInputLen := 0
+          mode := .mutate
+          depositPolicy := .requireZero
+          resultKind := .unit
+          body := #[] }
 
 private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String × Nat × Nat)) : String :=
   Id.run do
     let entries := ir.methods[1:].toArray.filter (fun m => m.mode == .mutate)
     let mut dispatch := ""
     for method in entries do
+      let planMethod := planMethodBodyOf ir method.name
       let (mOff, mLen) := findNeedle methodNeedles method.name
       let mut parse := ""
       for i in [0:method.params.size] do
@@ -2603,8 +2639,11 @@ private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String 
           renderParamRangeGuard "        " i p.byteWidth
       let args := String.intercalate " " <| (Array.range method.params.size).toList.map fun i =>
         s!"(local.get $p{i})"
+      -- Caller load is *inside* the matched branch so a non-caller entry in a
+      -- mixed dispatcher never pays sender charset/length traps.
       dispatch := dispatch ++
         s!"    (if (i32.ne (call $pf_find (local.get $msg_off) (local.get $msg_len) (i32.const {mOff}) (i32.const {mLen})) (i32.const -1)) (then\n" ++
+        renderLoadCallerPrincipalIfUsed "        " planMethod ++
         parse ++
         s!"        (return (call $m_{method.name} {args}))\n" ++
         "      ))\n"
@@ -2620,7 +2659,6 @@ private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String 
         "    (global.set $info_len (call $pf_region_len (local.get $info_ptr)))\n" ++
         "    (global.set $pf_env_ptr (local.get $env_ptr))\n" ++
         renderLoadBlockTime "    " ++
-        renderLoadCallerPrincipal "    " ++
         dispatch ++
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++
         "  )\n"

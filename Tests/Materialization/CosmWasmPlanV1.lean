@@ -188,6 +188,11 @@ private unsafe def testCounterIRAndWat
   expect (wat.contains "$m_init") "init body"
   expect (wat.contains "$m_increment") "increment body"
   expect (wat.contains "$m_get") "get body"
+  -- ADR-0031 S1 follow-up: Counter never reads context.caller, so
+  -- instantiate/execute must not invoke the sender→Principal packer
+  -- (non-caller programs stay free of sender 1..64 / bech32 traps).
+  expect (!wat.contains "(call $pf_load_caller_principal)")
+    "Counter must not call pf_load_caller_principal (no context.caller use)"
   -- No NEAR host leakage
   expect (!wat.contains "storage_read") "no NEAR storage_read"
   expect (!wat.contains "value_return") "no NEAR value_return"
@@ -1282,13 +1287,20 @@ private partial def collectExprs (stmts : Array Statement) : Array Expr :=
       | _ => pure ()
     pure out
 
+/-- Count non-overlapping occurrences of `needle` in `haystack`. -/
+private def countSubstr (haystack needle : String) : Nat :=
+  if needle.isEmpty then 0 else (haystack.splitOn needle).length - 1
+
 /-- ADR-0031 S1: `context.caller` on CosmWasm binds MessageInfo.sender
     (execute/init only) as Principal leaves `callerPrincipalLen` +
     `callerPrincipalWord 0..7` (len + 8×UInt64 LE, zero-padded). View/query
-    usage, wrong result type, and unknown keys fail closed at Plan. -/
+    usage, wrong result type, and unknown keys fail closed at Plan.
+    Follow-up: load is per-branch via `methodUsesCallerPrincipalV1`; bech32
+    charset gate reuses `$pf_dst_check` before publishing leaf globals. -/
 private unsafe def testContextReadCaller
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Execute accepted: entry stores caller into Principal state.
+  -- Execute accepted: entry stores caller into Principal state; mixed
+  -- dispatcher also carries a non-caller entry (`ping`).
   let src := wrapProgram "CallerGate" <|
     "  state owner : Principal\n\n" ++
     "  init() do\n" ++
@@ -1299,10 +1311,27 @@ private unsafe def testContextReadCaller
     "  entry setOwner() : UInt64 do\n" ++
     "    owner := context.caller\n" ++
     "    return 1\n\n" ++
+    "  entry ping() : UInt64 do\n" ++
+    "    return 1\n\n" ++
     "  view peek() : UInt64 do\n" ++
     "    return 0\n"
   let compiled ← compileSource session src "Examples.CallerGate" "<cw-caller-gate>"
   let plan ← liftResult <| planCw compiled
+  -- Predicate pins: init/onlyOwner/setOwner use caller; ping does not.
+  expect (methodUsesCallerPrincipalV1 plan.initializer)
+    "caller-gate: methodUsesCallerPrincipalV1 init must be true"
+  let some onlyOwner := plan.entries.find? (·.name == "onlyOwner") |
+    throw <| IO.userError "caller-gate: missing onlyOwner entry"
+  let some setOwner := plan.entries.find? (·.name == "setOwner") |
+    throw <| IO.userError "caller-gate: missing setOwner entry"
+  let some ping := plan.entries.find? (·.name == "ping") |
+    throw <| IO.userError "caller-gate: missing ping entry"
+  expect (methodUsesCallerPrincipalV1 onlyOwner)
+    "caller-gate: methodUsesCallerPrincipalV1 onlyOwner must be true"
+  expect (methodUsesCallerPrincipalV1 setOwner)
+    "caller-gate: methodUsesCallerPrincipalV1 setOwner must be true"
+  expect (!methodUsesCallerPrincipalV1 ping)
+    "caller-gate: methodUsesCallerPrincipalV1 ping must be false"
   -- Init body must storeAtomic 9 Principal leaves from caller.
   let initExprs := collectExprs plan.initializer.body
   let initCallerLeaves := initExprs.filterMap fun e =>
@@ -1318,8 +1347,6 @@ private unsafe def testContextReadCaller
     expect (initCallerLeaves[i + 1]? == some ("w", i))
       s!"caller-gate init: leaf {i + 1} must be callerPrincipalWord {i}"
   -- Entry onlyOwner assert uses leaf-wise caller compare (len + 8 words).
-  let some onlyOwner := plan.entries.find? (·.name == "onlyOwner") |
-    throw <| IO.userError "caller-gate: missing onlyOwner entry"
   let entryExprs := collectExprs onlyOwner.body
   let entryCallerLeaves := entryExprs.filterMap fun e =>
     match e with
@@ -1328,7 +1355,7 @@ private unsafe def testContextReadCaller
     | _ => none
   expect (entryCallerLeaves.size ≥ 9)
     s!"caller-gate onlyOwner: expected ≥9 caller leaves in compare, got {entryCallerLeaves.size}"
-  -- WAT: sender needle, load helper, leaf globals, execute/instantiate call site.
+  -- WAT: sender needle, load helper, leaf globals, per-branch call sites.
   let files ← liftResult <| filesCw compiled
   let wat ← findFile files "CallerGate.wat"
   expect (wat.contains "$pf_load_caller_principal")
@@ -1341,14 +1368,38 @@ private unsafe def testContextReadCaller
     "caller-gate: WAT must stage caller body word 7"
   expect (wat.contains "\\\"sender\\\":\\\"")
     "caller-gate: WAT data must include MessageInfo sender needle"
-  expect (wat.contains "(call $pf_load_caller_principal)")
-    "caller-gate: execute/instantiate must invoke caller packer"
+  -- Exactly 3 load sites: instantiate (init) + onlyOwner + setOwner branches.
+  -- ping branch must not load. Helper definition body does not contain the
+  -- call form `(call $pf_load_caller_principal)`.
+  let loadCall := "(call $pf_load_caller_principal)"
+  let loadCount := countSubstr wat loadCall
+  expect (loadCount == 3)
+    s!"caller-gate: expected exactly 3 caller-load call sites (init+onlyOwner+setOwner), got {loadCount}"
+  -- ADR-0031 bech32 gate: helper must invoke $pf_dst_check before globals.
+  expect (wat.contains "(call $pf_dst_check (i64.extend_i32_u (local.get $n)) (local.get $buf))")
+    "caller-gate: pf_load_caller_principal must $pf_dst_check sender bytes before globals"
   -- Zero-padding discipline: helper zeros 64B buffer before copy (high body
   -- bytes beyond len stay 0).
   expect (wat.contains "(i64.store (local.get $buf) (i64.const 0))")
     "caller-gate: WAT must zero body buffer before sender copy (zero-padding)"
   expect (wat.contains "(i64.store offset=56 (local.get $buf) (i64.const 0))")
     "caller-gate: WAT must zero last body word before sender copy"
+  -- Per-branch adjacency pins (zero-param methods: load immediately precedes
+  -- return). Mixed dispatcher: caller entries load; ping does not.
+  expect (wat.contains
+      "(call $pf_load_caller_principal)\n    (return (call $m_init ))")
+    "caller-gate: instantiate must load caller immediately before $m_init"
+  expect (wat.contains
+      "(call $pf_load_caller_principal)\n        (return (call $m_onlyOwner ))")
+    "caller-gate: onlyOwner execute branch must load caller before $m_onlyOwner"
+  expect (wat.contains
+      "(call $pf_load_caller_principal)\n        (return (call $m_setOwner ))")
+    "caller-gate: setOwner execute branch must load caller before $m_setOwner"
+  expect (wat.contains "(return (call $m_ping ))")
+    "caller-gate: ping execute branch must be present"
+  expect (!wat.contains
+      "(call $pf_load_caller_principal)\n        (return (call $m_ping ))")
+    "caller-gate: ping execute branch must NOT load caller principal"
   -- View rejected: query has no MessageInfo.sender.
   let viewSrc := wrapProgram "CallerViewBad" <|
     "  state dummy : UInt64\n\n" ++
@@ -1376,7 +1427,7 @@ private unsafe def testContextReadCaller
   -- Plan; pin Plan-level FC by ensuring only Principal is admitted on the
   -- accepted path (covered by init leaf Principal type + isPrincipal gate).
   -- Unknown key remains FC via the non-unixTime/non-caller arm.
-  IO.println "  ✓ ContextRead context.caller execute admit + view FC (ADR-0031 S1)"
+  IO.println "  ✓ ContextRead context.caller execute admit + view FC + per-branch load (ADR-0031 S1)"
 
 /-- Entry point for manual / future shard registration. -/
 unsafe def run : IO Unit := do

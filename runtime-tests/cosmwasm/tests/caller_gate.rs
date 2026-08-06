@@ -9,6 +9,10 @@
 //!     owner state holds (full snapshot rollback of the failed execute)
 //!   * setOwner rebinds owner; subsequent onlyOwner requires new sender
 //!   * multi-word bech32-shaped senders exercise leaf packing + zero pad
+//!   * invalid/escaped/non-bech32 senders trap at `$pf_dst_check` before
+//!     Principal globals are published (ADR-0031 bech32 UTF-8 bind)
+//!   * mixed execute dispatcher: non-caller `ping` does not load sender
+//!     and succeeds even with invalid sender bytes
 //!
 //! Honest scope: cosmwasm-vm MockStorage/Api; assert failure uses Wasm
 //! `unreachable` → `VmError` trap (not ContractResult::Err).
@@ -31,6 +35,13 @@ const STRANGER: &str = "stranger";
 /// and high-word zero padding (len=20 < 64).
 const OWNER_LONG: &str = "cosmos1owner0000000001";
 const STRANGER_LONG: &str = "cosmos1stranger00000002";
+/// Uppercase bech32-shaped bytes — fails `$pf_dst_check` charset gate.
+const INVALID_UPPER: &str = "COSMOS1OWNER0000000001";
+/// Punctuation / non-[a-z0-9] — fails charset gate.
+const INVALID_PUNCT: &str = "creator!";
+/// Backslash byte in sender: JSON encodes as `\\`; helper copies raw
+/// JSON string bytes including `0x5c`, which `$pf_dst_check` rejects.
+const INVALID_ESCAPE: &str = "cre\\ator";
 
 fn gate_instance() -> common::CwInstance {
     assert_abi_schema_if_present("CallerGate");
@@ -41,6 +52,14 @@ fn gate_instance() -> common::CwInstance {
 fn instantiate_as(instance: &mut CwInstance, sender: &str) -> ContractResult<Response<Empty>> {
     call_instantiate::<_, _, _, Empty>(instance, &mock_env(), &mock_info(sender, &[]), b"{}")
         .unwrap_or_else(|e| panic!("instantiate VmError: {e:?}"))
+}
+
+fn instantiate_trap_as(instance: &mut CwInstance, sender: &str) {
+    match call_instantiate::<_, _, _, Empty>(instance, &mock_env(), &mock_info(sender, &[]), b"{}")
+    {
+        Err(_) => {}
+        Ok(cr) => panic!("expected instantiate Wasm trap VmError, got ContractResult {cr:?}"),
+    }
 }
 
 fn execute_as(
@@ -155,4 +174,80 @@ fn caller_gate_long_sender_leaf_pack() {
         &method_msg_empty("onlyOwner"),
     ));
     execute_trap_as(&mut instance, OWNER_LONG, &method_msg_empty("onlyOwner"));
+}
+
+/// Spec (f): invalid / escaped / non-bech32 sender bytes trap at
+/// `$pf_dst_check` inside `$pf_load_caller_principal` (caller-using paths).
+/// Valid long bech32-shaped sender remains positive (see spec e).
+#[test]
+fn caller_gate_invalid_sender_charset_traps() {
+    // Instantiate with uppercase sender: init uses caller → trap before state.
+    {
+        let mut instance = gate_instance();
+        instantiate_trap_as(&mut instance, INVALID_UPPER);
+        assert!(
+            !has_layout_marker(&mut instance),
+            "failed instantiate must not write layout marker"
+        );
+    }
+    // Instantiate with punctuation.
+    {
+        let mut instance = gate_instance();
+        instantiate_trap_as(&mut instance, INVALID_PUNCT);
+    }
+    // Instantiate with backslash (JSON-escaped in info region).
+    {
+        let mut instance = gate_instance();
+        instantiate_trap_as(&mut instance, INVALID_ESCAPE);
+    }
+    // Valid instantiate, then onlyOwner with invalid senders traps; owner holds.
+    let mut instance = gate_instance();
+    expect_response_ok(instantiate_as(&mut instance, OWNER));
+    execute_trap_as(
+        &mut instance,
+        INVALID_UPPER,
+        &method_msg_empty("onlyOwner"),
+    );
+    execute_trap_as(
+        &mut instance,
+        INVALID_PUNCT,
+        &method_msg_empty("onlyOwner"),
+    );
+    execute_trap_as(
+        &mut instance,
+        INVALID_ESCAPE,
+        &method_msg_empty("onlyOwner"),
+    );
+    // Matching valid sender still succeeds after charset traps.
+    let cr = execute_as(&mut instance, OWNER, &method_msg_empty("onlyOwner"));
+    let resp = expect_response_ok(cr);
+    assert_attr(&resp, "result", "1");
+}
+
+/// Spec (g): mixed execute dispatcher — `ping` never reads context.caller,
+/// so it must not invoke `$pf_load_caller_principal` and must succeed even
+/// when MessageInfo.sender carries invalid/escaped/non-bech32 bytes.
+#[test]
+fn caller_gate_ping_skips_caller_load() {
+    let mut instance = gate_instance();
+    expect_response_ok(instantiate_as(&mut instance, OWNER));
+
+    // Valid sender: ping returns 1.
+    let cr = execute_as(&mut instance, OWNER, &method_msg_empty("ping"));
+    let resp = expect_response_ok(cr);
+    assert_attr(&resp, "result", "1");
+
+    // Invalid senders must not trap on the non-caller branch.
+    for bad in [INVALID_UPPER, INVALID_PUNCT, INVALID_ESCAPE] {
+        let cr = execute_as(&mut instance, bad, &method_msg_empty("ping"));
+        let resp = expect_response_ok(cr);
+        assert_attr(&resp, "result", "1");
+    }
+
+    // onlyOwner still enforces charset on the caller branch.
+    execute_trap_as(
+        &mut instance,
+        INVALID_UPPER,
+        &method_msg_empty("onlyOwner"),
+    );
 }

@@ -4021,6 +4021,78 @@ def planUsesPromiseV1 (plan : Plan) : Bool :=
   statementsUsePromiseV1 plan.initializer.body ||
     plan.entries.any (fun m => statementsUsePromiseV1 m.body) ||
     plan.fns.any (fun f => statementsUsePromiseV1 f.body)
+
+/-- ADR-0031 S1 follow-up: does an expression tree read `context.caller`
+    Principal leaves (`callerPrincipalLen` / `callerPrincipalWord`)?
+    Conservative structural scan; drives per-method MessageInfo.sender load
+    so programs/entries that never touch caller are not bound to sender
+    1..64 / bech32-charset restrictions. Bounded by Plan expr/statement depth
+    (already gated by resource limits). -/
+partial def exprUsesCallerPrincipalV1 (expr : Expr) : Bool :=
+  match expr with
+  | .callerPrincipalLen | .callerPrincipalWord _ => true
+  | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .blockTimeSeconds | .nativeVaultBalance => false
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      exprUsesCallerPrincipalV1 l || exprUsesCallerPrincipalV1 r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      exprUsesCallerPrincipalV1 e
+  | .callFn _ args => args.any exprUsesCallerPrincipalV1
+
+/-- Recursive statement-tree scan for `context.caller` Principal leaves. -/
+partial def statementsUseCallerPrincipalV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .store op => exprUsesCallerPrincipalV1 op.value
+    | .storeAtomic leaves =>
+        leaves.any fun leaf => exprUsesCallerPrincipalV1 leaf.value
+    | .returnValue value => exprUsesCallerPrincipalV1 value
+    | .returnAggregate leaves _ => leaves.any exprUsesCallerPrincipalV1
+    | .assert condition => exprUsesCallerPrincipalV1 condition
+    | .emitEvent _ args => args.any exprUsesCallerPrincipalV1
+    | .revertError _ args => args.any exprUsesCallerPrincipalV1
+    | .promiseAccount _ _ args => args.any exprUsesCallerPrincipalV1
+    | .nativeDeposit amount => exprUsesCallerPrincipalV1 amount
+    | .nativeTransfer dstLen dstWords amount =>
+        exprUsesCallerPrincipalV1 dstLen ||
+          dstWords.any exprUsesCallerPrincipalV1 ||
+          exprUsesCallerPrincipalV1 amount
+    | .tokenTransfer mintLen mintWords dstLen dstWords amount =>
+        exprUsesCallerPrincipalV1 mintLen ||
+          mintWords.any exprUsesCallerPrincipalV1 ||
+          exprUsesCallerPrincipalV1 dstLen ||
+          dstWords.any exprUsesCallerPrincipalV1 ||
+          exprUsesCallerPrincipalV1 amount
+    | .tokenVaultBalance mintLen mintWords _ =>
+        exprUsesCallerPrincipalV1 mintLen ||
+          mintWords.any exprUsesCallerPrincipalV1
+    | .ifThenElse condition thenBody elseBody =>
+        exprUsesCallerPrincipalV1 condition ||
+          statementsUseCallerPrincipalV1 thenBody ||
+          statementsUseCallerPrincipalV1 elseBody
+    | .switchOn scrutinee cases defaultBody =>
+        exprUsesCallerPrincipalV1 scrutinee ||
+          statementsUseCallerPrincipalV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseCallerPrincipalV1 caseBody
+    | .forLoop _ initial cond update _ body =>
+        exprUsesCallerPrincipalV1 initial || exprUsesCallerPrincipalV1 cond ||
+          exprUsesCallerPrincipalV1 update || statementsUseCallerPrincipalV1 body
+    | .returnNone => false
+
+/-- True when a Plan method body (init/entry) reads `context.caller`.
+    View bodies that reach this predicate are already Plan-FC on caller. -/
+def methodUsesCallerPrincipalV1 (method : Method) : Bool :=
+  statementsUseCallerPrincipalV1 method.body
+
 private def makeInterfaceBindingV1 (label : String) (name : String)
     (fields : Array InterfaceFieldV1) (uint64TypeId : TypeIdV1) :
     CompileResult InterfaceBinding := do
