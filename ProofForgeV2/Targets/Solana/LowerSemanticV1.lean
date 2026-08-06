@@ -228,6 +228,13 @@ inductive Expr where
   | narrowCheckedNeg (bitWidth : Nat) (operand : Expr)
   /-- Arithmetic right shift of Int{8,16,32}; count ≥ bitWidth → invalidShift. -/
   | narrowSar (bitWidth : Nat) (lhs rhs : Expr)
+  /-- ADR-0031 S2: physical slot height via host `sol_get_clock_sysvar` →
+      `Clock.slot` (first u64 of the 40-byte Clock sysvar). **Not** a logical
+      block number: Solana slots are ≈400ms physical slots. No Clock account
+      meta is required (syscall fills a stack buffer). View-safe. UInt64-typed.
+      Ordinary `solana-sbpf-plan-v1` / `solana-sbpf-elf-v1` path; CPI product
+      profile still fail-closed on this key (separate residual). -/
+  | clockSlot
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -470,7 +477,9 @@ nodes are fail-closed** (#111 honesty): SHA-256(QN)→program-id stubs are not
 emitted. Real multi-account CPI is only on opt-in `solana-sbpf-cpi-elf-v1`
 (catalog-owned static QN + explicit roles/PDA; #125 product activation).
 B-3 Principal remains storage-identity only (u32-prefixed body ≠ 32-byte pubkey).
-ContextRead is fail-closed on this pilot (no Clock sysvar binding). -/
+ADR-0031 S2: `context.blockHeight` → `Clock.slot` via `sol_get_clock_sysvar`
+(≈400ms physical slot, **not** logical block number). `context.caller` remains
+CPI-profile-only; `context.unixTimeSeconds` still fail-closed on this pilot. -/
 
 /-- Solana pilot type-closure carrier (shared `PilotTypeClosureV1`).
     Body multi-width admits UInt8/16/32/64; state/params admit
@@ -3027,7 +3036,9 @@ private def lowerBlockInstructionsV1
               bitWidth
             }
         values := ← appendResultValueV1 result.typeId values result value
-    -- N5: Commit = identity passthrough; ContextRead declined (no clock ABI).
+    -- N5: Commit = identity passthrough.
+    -- ADR-0031 S2: ContextRead `context.blockHeight` → Clock.slot (syscall);
+    -- caller stays CPI-only; unixTimeSeconds still deferred on this pilot.
     | .commit valueId, some result => do
         unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
           throw <| .planInvariant .solana
@@ -3045,12 +3056,38 @@ private def lowerBlockInstructionsV1
           aggregateLeaves := operand.aggregateLeaves
           leafByteWidth := operand.leafByteWidth
         }
-    | .contextRead key, some _ =>
-        unless key == unixTimeSecondsContextKeyV1 do
+    | .contextRead key, some result =>
+        -- ADR-0031 S1–S2 (Solana ordinary pilot):
+        --   * `context.blockHeight` → `sol_get_clock_sysvar` → Clock.slot
+        --     (physical ≈400ms slot; **not** logical block number). View-safe.
+        --   * `context.caller` → exact CPI profile only (pf_caller role);
+        --     legacy plan/elf fail closed.
+        --   * `context.unixTimeSeconds` → Clock.unix_timestamp deferred.
+        if key == blockHeightContextKeyV1 then
+          -- pureFn ContextRead is already fail-closed at Normalize; handlers
+          -- (init/entry/view) admit the host sysvar read.
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: ContextRead context.blockHeight result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .clockSlot
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+            isBool := false
+            isUInt32 := false
+            isInt := false
+            bitWidth := 64
+          }
+        else if key == callerContextKeyV1 then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: ContextRead context.caller is not admitted on legacy Solana profiles (exact CPI profile only)"
+        else if key == unixTimeSecondsContextKeyV1 then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: ContextRead context.unixTimeSeconds is not admitted (Clock.unix_timestamp binding deferred)"
+        else
           throw <| .planInvariant .solana
             s!"unsupported Solana semantic shape: unknown ContextRead key '{key.value}'"
-        throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: ContextRead is not admitted by pilot context policy"
     | _, _ =>
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: instruction op/result is outside the current UInt64 pilot"

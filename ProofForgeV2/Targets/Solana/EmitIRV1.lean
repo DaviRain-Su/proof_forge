@@ -129,6 +129,10 @@ inductive Operation where
   | narrowBitNot (bitWidth destination source : Nat)
   | narrowCheckedShl (bitWidth destination lhs rhs shiftError overflowError : Nat)
   | narrowCheckedShr (bitWidth destination lhs rhs shiftError : Nat)
+  /-- ADR-0031 S2: load `Clock.slot` via host `sol_get_clock_sysvar` into
+      `destination`. Physical ≈400ms slot (not logical block number). Emitter
+      allocates a 40-byte stack buffer; no Clock account meta. -/
+  | clockSlot (destination : Nat)
   deriving BEq, Inhabited, Repr
 
 structure HandlerIR where
@@ -624,6 +628,8 @@ private partial def lowerExpr (overflowError : Nat) (tempMap : List (Nat × Nat)
           value := next
           next := next + 1
         }
+  | .clockSlot =>
+      { operations := #[.clockSlot next], value := next, next := next + 1 }
 
 /-- Structural CSE lowerer for atomic aggregate stores. Shared subtrees (Map
     upsert `anyMatch` / `seenEmpty` / per-slot scans) lower once so 24 leaves
@@ -784,6 +790,8 @@ private partial def lowerExprCseV1
         | .sar lhs rhs =>
             bin lhs rhs
               (fun d l r => .checkedSar d l r invalidShiftError) 1
+        | .clockSlot =>
+            bind memo (ops.push (.clockSlot next)) next (next + 1)
         | .callFn fnIndex args =>
             Id.run do
               let mut memoM := memo
@@ -876,7 +884,7 @@ private def tempDestination? : Operation → Option Nat
       .narrowBitXor _ destination .. | .narrowBitNot _ destination _ |
       .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
       .compare destination .. | .wideCompare _ destination .. |
-      .callFn _ destination _ => some destination
+      .callFn _ destination _ | .clockSlot destination => some destination
   | .externalCall _ _ _ (some destination) => some destination
   | _ => none
 
@@ -1149,7 +1157,7 @@ private def opResultLimbCount : Operation → Nat
   | .signedCompare .. | .checkedSar ..
   | .bitAnd .. | .bitOr .. | .bitXor .. | .checkedShl .. | .checkedShr ..
   | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
-  | .compare .. | .wideCompare .. | .callFn ..
+  | .compare .. | .wideCompare .. | .callFn .. | .clockSlot ..
   | .externalCall _ _ _ (some _) => 1
   | _ => 0
 
@@ -1223,7 +1231,7 @@ private partial def validateOperationSequence
     | .narrowCheckedDiv .. | .narrowCheckedMod ..
     | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor .. | .narrowBitNot ..
     | .narrowCheckedShl .. | .narrowCheckedShr ..
-    | .compare .. | .wideCompare .. | .assert .. | .zeroState .. | .narrowZeroState ..
+    | .compare .. | .wideCompare .. | .clockSlot .. | .assert .. | .zeroState .. | .narrowZeroState ..
     | .storeState .. | .narrowStoreState .. | .storeStateMulti ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool .. | .setReturnDataMulti ..
     | .emitEvent .. | .revertError .. | .externalCall .. | .schedule ..
@@ -1354,6 +1362,10 @@ private partial def validateOperationSequence
         unless (bitWidth == 128 || bitWidth == 256) &&
             lhs + nLimbs ≤ next - 1 && rhs + nLimbs ≤ next - 1 do
           throw <| .planInvariant .solana "typed Solana IR wideCompare operands are invalid"
+    | .clockSlot _destination =>
+        -- Host Clock.slot leaf: no operands; destination numbering already
+        -- checked above via tempDestination?.
+        pure ()
     | .callFn fnIndex _destination args =>
         unless fnIndex < plan.fns.size do
           throw <| .planInvariant .solana "typed Solana IR callFn index is out of range"
@@ -1624,7 +1636,9 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
     | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
     | .storeStateMulti ..
     | .zeroState .. | .narrowZeroState .. | .setHeader ..
-    | .emitEvent .. | .externalCall .. | .schedule .. =>
+    | .emitEvent .. | .externalCall .. | .schedule ..
+    -- Host sysvar read is not pure (defense; Normalize already FC pureFn ContextRead).
+    | .clockSlot .. =>
         throw <| .planInvariant .solana
           s!"fn IR '{fn.name}' contains a non-pure operation"
     | .ifRegion _ thenOps elseOps =>
@@ -1869,6 +1883,9 @@ private partial def renderOperation (indent : String)
       s!"{indent}%{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
   | .wideCompare bitWidth destination lhs rhs op =>
       s!"{indent}%{destination} = cmp_{renderComparisonOp op}_u{bitWidth} %{lhs}, %{rhs}\n"
+  | .clockSlot destination =>
+      -- ADR-0031 S2: Clock.slot (physical ≈400ms slot, not logical block number).
+      s!"{indent}%{destination} = clock_slot  ; sol_get_clock_sysvar → Clock.slot\n"
   | .assert condition errorCode =>
       s!"{indent}assert %{condition} else program_error 0x{natHex errorCode}\n"
   | .returnNone =>

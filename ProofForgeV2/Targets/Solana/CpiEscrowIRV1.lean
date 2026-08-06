@@ -2399,7 +2399,10 @@ private def projectEscrowHandler
         let some vd := instr.result |
           tFail "contextRead must produce a result"
         unless key == callerContextKeyV1 do
-          if key == unixTimeSecondsContextKeyV1 then
+          if key == blockHeightContextKeyV1 then
+            tFail
+              "Escrow CPI IR rejects context.blockHeight (Clock.slot via sol_get_clock_sysvar is ordinary elf path; CPI product leaf deferred)"
+          else if key == unixTimeSecondsContextKeyV1 then
             tFail
               "Escrow CPI IR rejects context.unixTimeSeconds (Clock sysvar binding deferred)"
           else

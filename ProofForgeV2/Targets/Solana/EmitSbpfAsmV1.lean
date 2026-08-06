@@ -61,10 +61,12 @@ duplicate encodings fail closed with program_error 1.
 Ops: literal, loadParam, loadState, checkedAdd/Sub/Mul/Div/Mod,
 bitAnd/Or/Xor/Not, checkedShl/Shr, boolNot/And/Or, zeroState, storeState,
 storeStateMulti, setHeader, setReturnData (u64 LE / bool / multi-leaf B-RET-ABI),
-compare, assert, returnNone, revertError, ifRegion, switchRegion, forRegion,
-callFn (inline expand), emitEvent (`sol_log_data`), externalCall/schedule
-(real CPI via `sol_invoke_signed_c`, empty AccountMeta; result-bearing call
-reads `sol_get_return_data`).
+compare, clockSlot (ADR-0031 S2: `sol_get_clock_sysvar` → Clock.slot; physical
+≈400ms slot, not logical block number; no Clock account meta), assert,
+returnNone, revertError, ifRegion, switchRegion, forRegion, callFn (inline
+expand), emitEvent (`sol_log_data`), externalCall/schedule (real CPI via
+`sol_invoke_signed_c`, empty AccountMeta; result-bearing call reads
+`sol_get_return_data`).
 
 ## Fail closed
 
@@ -243,7 +245,7 @@ private def opResultLimbCount : Operation → Nat
   | .signedCompare .. | .checkedSar ..
   | .bitAnd .. | .bitOr .. | .bitXor .. | .checkedShl .. | .checkedShr ..
   | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
-  | .compare .. | .wideCompare .. | .callFn ..
+  | .compare .. | .wideCompare .. | .callFn .. | .clockSlot ..
   | .externalCall _ _ _ (some _) => 1
   | _ => 0
 
@@ -270,7 +272,7 @@ private def opDestination? : Operation → Option Nat
       .narrowBitXor _ destination .. | .narrowBitNot _ destination _ |
       .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
       .compare destination .. | .wideCompare _ destination .. |
-      .callFn _ destination _ => some destination
+      .callFn _ destination _ | .clockSlot destination => some destination
   | .externalCall _ _ _ (some destination) => some destination
   | _ => none
 
@@ -1872,6 +1874,31 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       let b := emit b s!"  ; %{destination} = cmp_u{bitWidth} %{lhs}, %{rhs}"
       pure (emitMultiwordCompare b tempBase destination lhs rhs
         (limbCountOfBitWidth bitWidth) op)
+  | .clockSlot destination => do
+      -- ADR-0031 S2: sol_get_clock_sysvar → 40-byte Clock on stack;
+      -- Clock.slot is the first u64 (offset 0). Physical ≈400ms slot,
+      -- **not** logical block number. No Clock account meta (syscall).
+      -- Stack temps grow downward (higher index = lower address). Allocate
+      -- 5 consecutive temps; point r1 at the lowest address (bufBase+4) so
+      -- the upward 40-byte write fills bufBase+4 .. bufBase. Slot lands in
+      -- bufBase+4.
+      let (b0, bufBase) := allocTemps b 5
+      let (b1, okLab) := fresh b0 "clock_sysvar_ok"
+      let mut b := b1
+      b := emit b s!"  ; %{destination} = clock_slot (sol_get_clock_sysvar → Clock.slot)"
+      let startOff := tempStackOff (bufBase + 4)
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{startOff}"
+      b := emit b "  call sol_get_clock_sysvar"
+      -- Syscall returns 0 on success; non-zero → program_error 1.
+      b := emit b s!"  jeq r0, 0, {okLab}"
+      b := emit b "  lddw r0, 0x1"
+      b := emit b "  exit"
+      b := emit b s!"{okLab}:"
+      -- Reload slot from buffer start (offset 0 = temp bufBase+4). r1 may be
+      -- clobbered by the syscall; always use r10-relative load.
+      b := loadTempAbs b "r1" (bufBase + 4)
+      pure (storeTemp b tempBase destination "r1")
   | .assert condition errorCode =>
       let (b, errLab) := fresh b "err_assert"
       let (b, okLab) := fresh b "ok_assert"

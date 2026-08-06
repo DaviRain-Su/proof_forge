@@ -23,6 +23,8 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
     match expr with
     | .literal .. | .bigLiteral .. => some 1
     | .temp _ => some 1
+    -- ADR-0031 S2: host Clock.slot leaf (no plan refs).
+    | .clockSlot => some 1
     | .param dataOffset | .narrowParam _ dataOffset =>
         if params.any (·.dataOffset == dataOffset) then some 1 else none
     | .stateLoad accountIndex byteOffset | .narrowStateLoad _ accountIndex byteOffset =>
@@ -103,7 +105,7 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowShl .. | .narrowShr ..
   | .checkedAdd .. | .checkedSub .. | .literal _ | .bigLiteral .. | .param _ | .narrowParam ..
   | .stateLoad .. | .narrowStateLoad ..
-  | .temp _ => true
+  | .temp _ | .clockSlot => true
 
 /-- Bool-compatible plan expression (compare/boolNot/boolAnd/boolOr and
     Bool-returning callFn). -/
@@ -127,7 +129,7 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
   | .narrowShl .. | .narrowShr ..
   | .checkedAdd .. | .checkedSub .. | .param _ | .narrowParam ..
-  | .stateLoad .. | .narrowStateLoad .. | .temp _ | .bigLiteral .. => false
+  | .stateLoad .. | .narrowStateLoad .. | .temp _ | .bigLiteral .. | .clockSlot => false
 
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)
     (fns : Array FnBinding) (total : Nat) (expr : Expr) : CompileResult Nat := do

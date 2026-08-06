@@ -196,6 +196,10 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .narrowSar bitWidth lhs rhs =>
       pure ((((encodeU8 48).append (← encodeNatAsU32le bitWidth)).append
         (← encodeExpr lhs)).append (← encodeExpr rhs))
+  -- ADR-0031 S2: Clock.slot via sol_get_clock_sysvar (tag 51 appended;
+  -- tags 49/50 are bigLiteral/wideCompare). Physical ≈400ms slot, not
+  -- logical block number.
+  | .clockSlot => pure (encodeU8 51)
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

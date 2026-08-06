@@ -3013,6 +3013,144 @@ private unsafe def testOptionState
     s!"OptionState IDL must declare getOpt, got: {idl}"
   IO.println "  OptionState Option UInt64 state Plan/IR/SBPF pin ok"
 
+/-- ADR-0031 S2: `context.blockHeight` lowers on ordinary Solana to
+    `Clock.slot` via `sol_get_clock_sysvar` (physical ≈400ms slot, **not**
+    logical block number). View-safe; Plan/IR/SBPF pin; wrong result type and
+    still-deferred keys fail closed. -/
+private unsafe def testContextReadBlockHeight
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program HeightBox where\n" ++
+    "  state h : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    h := 0\n\n" ++
+    "  entry stamp() : UInt64 do\n" ++
+    "    h := context.blockHeight\n" ++
+    "    return h\n\n" ++
+    "  view height() : UInt64 do\n" ++
+    "    return context.blockHeight\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let compiled ← compileSource session sourceText
+    "Examples.HeightBox" "<solana-height-box>"
+  let plan ← liftResult (planSolana compiled)
+  let stamp ← findHandler plan "stamp"
+  let hasSlot := stamp.body.any fun s =>
+    match s with
+    | .store op =>
+        match op.value with
+        | .clockSlot => true
+        | _ => false
+    | _ => false
+  expect hasSlot "height-box: stamp must store clockSlot"
+  let height ← findHandler plan "height"
+  let viewHasSlot := height.body.any fun s =>
+    match s with
+    | .returnValue .clockSlot => true
+    | _ => false
+  expect viewHasSlot "height-box: view must return clockSlot (view-safe)"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"height-box plan must validate: {e.render}"
+  let ir ← liftResult (irSolana compiled)
+  let stampIR ← findHandlerIR ir "stamp"
+  expect (stampIR.operations.any fun
+      | .clockSlot _ => true
+      | _ => false)
+    "height-box: IR stamp must contain clockSlot op"
+  let heightIR ← findHandlerIR ir "height"
+  expect (heightIR.operations.any fun
+      | .clockSlot _ => true
+      | _ => false)
+    "height-box: IR height view must contain clockSlot op"
+  let asm ← liftResult (emitSbpfAsmV1 ir)
+  expect (asm.contains "call sol_get_clock_sysvar")
+    "height-box: SBPF must call sol_get_clock_sysvar"
+  expect (asm.contains "clock_slot")
+    "height-box: SBPF must annotate clock_slot"
+  -- Wrong result type (Bool) fail closed at type-check or plan.
+  let badDirect :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BadHeightType where\n" ++
+    "  state s : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    s := 0\n\n" ++
+    "  view bad() : Bool do\n" ++
+    "    let x : Bool := context.blockHeight\n" ++
+    "    return x\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  match ← session.selectProgramV1 badDirect
+      "<solana-bad-height>" "Examples.BadHeightType" none with
+  | .error _ => pure ()  -- type-check may reject at parse/select
+  | .ok validated =>
+      match Compiler.compileValidatedSourceV1 validated with
+      | .error _ => pure ()
+      | .ok compiledBad =>
+          match planSolana compiledBad with
+          | .error e =>
+              expect
+                (e.render.contains "blockHeight" ||
+                  e.render.contains "UInt64" ||
+                  e.render.contains "ContextRead" ||
+                  e.render.contains "type" ||
+                  e.render.contains "PF-")
+                s!"height-box wrong type must FC, got {e.render}"
+          | .ok _ =>
+              throw <| IO.userError
+                "height-box: Bool-typed context.blockHeight must fail closed"
+  -- unixTimeSeconds still FC on ordinary Solana.
+  let unixSrc :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program UnixBox where\n" ++
+    "  state t : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    t := 0\n\n" ++
+    "  view now() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let compiledUnix ← compileSource session unixSrc
+    "Examples.UnixBox" "<solana-unix-box>"
+  match planSolana compiledUnix with
+  | .error e =>
+      expect
+        (e.render.contains "unixTimeSeconds" || e.render.contains "unix-time" ||
+          e.render.contains "ContextRead" || e.render.contains "not admitted")
+        s!"unixTimeSeconds must stay FC on ordinary Solana, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "unixTimeSeconds must fail closed on ordinary Solana pilot"
+  -- caller still FC on ordinary (legacy) profiles.
+  let callerSrc :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CallerBox where\n" ++
+    "  state s : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    s := 0\n\n" ++
+    "  view who() : Principal do\n" ++
+    "    return context.caller\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let compiledCaller ← compileSource session callerSrc
+    "Examples.CallerBox" "<solana-caller-box>"
+  match planSolana compiledCaller with
+  | .error e =>
+      expect
+        (e.render.contains "caller" || e.render.contains "ContextRead" ||
+          e.render.contains "CPI" || e.render.contains "not admitted" ||
+          e.render.contains "Principal")
+        s!"caller must stay FC on ordinary Solana, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "context.caller must fail closed on ordinary Solana (CPI-only)"
+  IO.println "  ADR-0031 S2 context.blockHeight → Clock.slot Plan/IR/SBPF pin ok"
+
 unsafe def run : IO Unit := do
   testNarrowIntAbi
   let session ← Tests.Language.ParserSession.shared
@@ -3059,6 +3197,7 @@ unsafe def run : IO Unit := do
   testAnonymousOptionReturn session
   testOptionState session
   testAggregateFailClosed session
+  testContextReadBlockHeight session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
 end Tests.Materialization.SolanaPlanV1

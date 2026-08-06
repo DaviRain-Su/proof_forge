@@ -802,8 +802,11 @@ private def collectRawEnvReadSites
     Solana binds caller to the ABI-specified `pf_caller` signer role pubkey
     (AccountInfo.key + is_signer), not a tx.origin concept. Admitted in
     entry and view only (read-only account metadata; view-safe). pureFn /
-    invariant / initializer fail closed. unixTimeSeconds and unknown keys
-    stay fail closed on this profile. -/
+    invariant / initializer fail closed.
+    ADR-0031 S2: `context.blockHeight` (`Clock.slot` via `sol_get_clock_sysvar`)
+    is admitted on ordinary `solana-sbpf-plan-v1` / `solana-sbpf-elf-v1` only;
+    this CPI product profile stays fail closed (no Clock role / product IR leaf
+    yet). `unixTimeSeconds` and unknown keys stay fail closed. -/
 private def collectRawContextReadSites
     (data : SemanticProgramDataV1) :
     CompileResult (Array RawContextReadSiteV1) := do
@@ -827,6 +830,9 @@ private def collectRawContextReadSites
                 blockId := blk.id.toNat
                 instructionIndex := instrIdx
               }
+            else if key == blockHeightContextKeyV1 then
+              deriveFail
+                "CPI derive: context.blockHeight is not admitted on solana-sbpf-cpi-elf-v1 (Clock.slot via sol_get_clock_sysvar is ordinary solana-sbpf-elf-v1/plan-v1 path)"
             else if key == unixTimeSecondsContextKeyV1 then
               deriveFail
                 "CPI derive: context.unixTimeSeconds is not admitted on solana-sbpf-cpi-elf-v1 (Clock sysvar binding deferred)"
