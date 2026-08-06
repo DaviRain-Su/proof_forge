@@ -77,13 +77,13 @@ catalog 纪律（backlog **SYS-CAP-UNIFY**）。
 | 期 | 键 | 语义/类型 | 各 target 诚实对应物 | 状态 |
 |---|---|---|---|---|
 | **S1** | `context.caller : Principal` | 当前调用者身份（= ADR-0030 E3，MiniAMM 依赖） | EVM `CALLER`→`u32le(20)\|\|addr20`（ADR-0025 唯一 realization）；Solana exact CPI profile 的 `pf_caller` signer role→`u32le(32)\|\|pubkey32`（非 tx.origin；legacy profiles FC）；NEAR `predecessor_account_id`（init/entry；**view 禁**）；CW `MessageInfo.sender`（instantiate/execute；query/view 禁） | **done（engineering，2026-08-06）**：四条 target-owned Plan/IR/emitter lane 与 Anvil/Mollusk/near-sandbox/cw-vm 门均已交付；未扩展无对应物 target，非 formal/mainnet parity |
-| **S2** | `context.blockHeight : UInt64` | 当前区块高度 | EVM `NUMBER`；Solana `Clock.slot`（≈400ms 物理槽，**非**逻辑块号——记入 catalog 语义差异）；NEAR `block_index`；CW `Env.block.height`；TON/ICP 无直接对应物 FC；电路类/Quint FC | **in_progress**（shared wire/type/Normalize/Reference + EVM `number()` Plan/Yul 已交付；Solana/NEAR/CW leaf/runtime 待接） |
+| **S2** | `context.blockHeight : UInt64` | 当前区块高度 | EVM `NUMBER`；Solana ordinary-elf `Clock.slot` via `sol_get_clock_sysvar`（≈400ms 物理槽，**非**逻辑块号——记入 catalog 语义差异；CPI product profile 仍 FC）；NEAR `block_index`；CW `Env.block.height`；TON/ICP 无直接对应物 FC；电路类/Quint FC | **in_progress**（shared + **四 target leaf** Plan/IR/emitter 已交付：EVM/NEAR/CW/Solana-ordinary；专门 Anvil/sandbox/Mollusk/cw-vm S2 runtime 门与 CPI-profile Clock 仍 residual） |
 | **S3** | `context.chainId` | 链身份（重放保护/域分隔） | EVM `CHAINID`（UInt64）；CW `Env.block.chain_id`（**String**——Bytes/宽度纪律待 S3 冻结）；NEAR `chain_id`；Solana/TON/ICP 无→FC | pending（类型纪律 S3 冻结） |
 | **S4** | `context.attachedValue : UInt64` | 本次调用携带的原生资产量 | EVM `CALLVALUE`；NEAR `attached_deposit`（**view 禁**）；CW `MessageInfo.funds`（单 denom 纪律沿用 C1 `stake`）；Solana 无直接对应物（SOL 经指令转账）FC | pending |
 
 分期纪律同 ADR-0030：shared core（键/requirement/Reference/source admission）
 串行于 main；per-target binding lane 文件不重叠可隔离 worktree 并行；每期以对应
-runtime 门收尾。**S1 已闭合并解除 ADR-0030 E3；E4（MiniAMM）现可启动。**
+runtime 门收尾。**S1 已闭合并解除 ADR-0030 E3；E4（MiniAMM）已进入 EVM-first/算术前置阶段，但双链 runtime 尚未闭合。**
 
 **S1 工程事实（2026-08-06）**：EVM 以 `CALLER` 物化 20-byte Principal，并由
 CallerCheck/Ownable Anvil corpus 验证；Solana 仅在 `solana-sbpf-cpi-elf-v1` 以单一
@@ -93,6 +93,15 @@ T12 ix data 且强制 `len∈1..64`/高尾清零，两个 legacy profile 纵深 
 保持 FC；CosmWasm 仅在实际使用 caller 的 instantiate/execute branch 读取
 `MessageInfo.sender`，复用 lowercase `[a-z0-9]`/len/tail 门，query/view 保持 FC。
 这些均为工程 local-runtime 门，不是 formal、hermetic 或主网等价声明。
+
+**S2 工程事实（2026-08-06）**：四条状态类 leaf 均已 target-owned Plan/IR/emitter
+钉测——EVM `NUMBER`；NEAR view-safe `block_index()`；CW Env JSON bare-u64 `"height"`；
+Solana ordinary legacy profiles 经 `sol_get_clock_sysvar` 读 `Clock.slot`（Plan tag 51 /
+`Expr.clockSlot`，保持单 state 账户 ABI，**不**引入 Clock account meta；CPI product
+profile 明确 residual FC）。诚实差异：Solana 为物理 slot 而非逻辑块号。尚无这四条
+高度叶的 Anvil/near-sandbox/Mollusk/cw-vm 专门 runtime 门。因此 S2 保持
+`in_progress`（leaf 4/4 ordinary paths，runtime residual），不得写成 formal/跨链
+语义等价闭合。
 
 ## L2 官方 program 能力 catalog
 

@@ -21,7 +21,8 @@ Phase 1：实现
 **工程已接线（摘）**：
 
 - Normalize 当前子集：算术/比较/assert、控制流、fn、let/for、shift/bitwise、revert/emit 等；
-- state/param **UInt8/16/32/64 与窄 Int** ABI/body 子集；**UInt128/256 软件多字（T9e）**；
+- state/param **UInt8/16/32/64 与窄 Int** ABI/body 子集；**UInt128/256 软件多字（T9e）**：
+  add/sub/mul 与 **div/mod restoring binary long division**（HostModel 钉测；wide shift 仍 FC）；
   schedule → 原生 promise；sync call 在 capability 矩阵上 fail-closed；
 - **Array + dense Map UInt64 cap-8 + fixed Bytes N + named Struct/Enum + Option UInt64 state**
   flatten-to-KV；聚合 `StateStore` 使用 `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel
@@ -35,11 +36,13 @@ Phase 1：实现
   `runtime-tests/near` 已覆盖 Counter init/mutate/view、overflow state-hold+recovery、PairRet、
   ArrayRet、OptionRet 与 OptionState 的工程路径。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
-  截断（Plan Expr tag 41）；`context.caller`（ADR-0031 S1，2026-08-06）→ host
-  `predecessor_account_id`，仅 init/entry 开放，按 exact account-id UTF-8 bytes 物化
-  `u32le(len)||body` Principal（len 2..64、lowercase account-id grammar）；view/pureFn/
-  invariant 保持 FC。predecessor register id 由 `RegisterLayout.predecessor` sole-own，
-  emitter 不再局部硬编码；未知键 FC。
+  截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
+  `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
+  （ADR-0031 S1，2026-08-06）→ host `predecessor_account_id`，仅 init/entry 开放，
+  按 exact account-id UTF-8 bytes 物化 `u32le(len)||body` Principal（len 2..64、
+  lowercase account-id grammar）；view/pureFn/invariant caller 保持 FC。predecessor register id
+  由 `RegisterLayout.predecessor` sole-own，emitter 不再局部硬编码；未知键 FC。
+  blockHeight 当前有 Plan/IR/emitter + NearHostModel 钉测，尚无专门 near-sandbox runtime fixture。
 - **`pf.assets` 半绑定（ADR-0029 Phase C2，2026-08-05）**：resolver advertise exact
   `extension.pf-assets` + `effect.synchronous-call`（后者仅覆盖 pf.assets catalog；
   generic 非 catalog sync call 在 Plan 层继续 fail closed）。`pf.assets.native.deposit`
@@ -88,9 +91,9 @@ Phase 1：实现
 
 **明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分，仍不覆盖 corrupt
 storage、bad input 或 gas/profile；Option params、非 UInt64/nested Option、Map/Bytes/nested aggregate
-return 仍 fail-closed；ContextRead 已开放 `unixTimeSeconds` 与 init/entry `caller`，但 view caller、
-`blockHeight` 及其他键仍 FC；formal identity/OutputSet / D6 milestone 未完成。不得写成 formal
-runtime-validated。
+return 仍 fail-closed；ContextRead 已开放 `unixTimeSeconds`、view-safe `blockHeight` 与
+init/entry `caller`，但 view caller、其他键及 blockHeight 的专门 sandbox runtime 仍缺；formal
+identity/OutputSet / D6 milestone 未完成。不得写成 formal runtime-validated。
 
 ## 1. 身份与来源
 

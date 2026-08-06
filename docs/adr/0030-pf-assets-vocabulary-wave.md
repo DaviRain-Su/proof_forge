@@ -31,8 +31,8 @@ payload 中**（5 QN 之二），当前全 target fail closed 于 Plan——toke
 |---|---|---|
 | 代币转入/转出池子 | `pf.assets.token.transfer`（已在 payload） | **E1：四条部署链绑定** |
 | 读自身代币余额（reserves 模式） | `pf.assets.*.balanceOfSelf`（新 env-read） | **E2：payload v1.1.0** |
-| 恒定乘积 x*y≥k | UInt128/256 宽算术 | **shared + EVM 全宽已有**；Solana/NEAR **mul 真 schoolbook、div/mod 仍 low64 FC**——E4 Solana 腿需先开 multiword div |
-| LP 份额 | v1 内部记账（`Map Principal UInt64` state） | **shared Wire/Normalize 已 admit Principal map key**；**零 target 物化**（仅 `Map UInt64 UInt64` dense pilot）——E4 前置 target leaf；发行真资产（mint）**defer 至 custody/issuance v2** |
+| 恒定乘积 x*y≥k | UInt128/256 宽算术 | **shared + EVM 全宽已有**；Solana mul 为 schoolbook 且 UInt128/256 div/mod 已切 restoring binary long division（assembly/target tests 已钉，Mollusk div/mod differential 待补）；NEAR 仅 mul 真多字，div/mod 仍 FC |
+| LP 份额 | v1 内部记账（`Map Principal UInt64` state） | **shared Wire/Normalize 已 admit Principal map key**；EVM 已开 cap-4 dense Principal-key target leaf（occ + 9 Principal leaves + value）并由 `MiniAmm` Plan/Yul 钉住；Solana 仍仅 `Map UInt64 UInt64`，因此双链 E4 前置未闭合；发行真资产（mint）**defer 至 custody/issuance v2** |
 | LP 归属/权限 | `context.caller`（编码已冻结于 ADR-0025） | **E3 / ADR-0031 S1 done（engineering，2026-08-06）**：EVM/Solana-exact-CPI/NEAR/CW 已按各自宿主绑定；无诚实 view/query caller 的面继续 FC |
 | TWAP | `context.unixTimeSeconds` + 累积器 | shared + EVM/NEAR/CW/TON 已开；Solana 仅 caller 在 exact CPI profile 开放，`unixTimeSeconds` 仍 FC |
 | 授权扣款 transferFrom | 模型不通用（NEP-141 无 allowance） | **本波不做**（V2 reserves 模式已绕开） |
@@ -109,10 +109,13 @@ identity 不跨 target 近似以及无诚实宿主面 fail closed 的纪律不�
 
 ## E4：MiniAMM 北极星里程碑
 
-`Examples/MiniAmm.lean`（工作名）：add-liquidity（内部 LP 份额记账）+ swap
-（reserves 模式：transfer + balanceOfSelf + 恒定乘积）+ remove-liquidity；
-目标在 **EVM + Solana**（至少两条部署链）上经各自 runtime 门（Anvil/Mollusk）
-验证成功/失败/回滚路径。这是词汇层正确性的应用级证据。
+`Examples/MiniAmm.lean` 已落一个 **EVM-first vault-internal 工程 demo**：
+`addLiquidity` 以 `context.caller` 为 cap-4 `Map Principal UInt64` LP key，
+`swap0to1` 使用 checked UInt64 mul/div 更新 reserve；产品 Plan/Yul 与 EvmSmoke 已钉。
+该 demo 刻意不调用 `pf.assets.transfer`/`balanceOfSelf`，没有 `removeLiquidity`，也尚无
+Anvil runtime，因此不能冒充完整北极星。E4 的完成条件仍是同一业务面在 **EVM + Solana**
+经各自 runtime 门（Anvil/Mollusk）验证成功/失败/回滚；Solana 还需 Principal-keyed Map
+leaf，随后才可接双链 runtime 与真实 asset movement。
 
 ## 分期
 
@@ -121,7 +124,7 @@ identity 不跨 target 近似以及无诚实宿主面 fail closed 的纪律不�
 | **E1** | token.transfer 四链绑定（EVM/Solana/CW/NEAR-async） | 无（payload 已含 QN） | **done（2026-08-05）**：E1a EVM / E1b Solana / E1-CW / E1-NEAR(async) 全绑 |
 | **E2** | payload v1.1.0：balanceOfSelf env-read + Reference/Normalize 接线 | E1 可先并行 | **done（2026-08-05/06）**：核心/Reference vault、acceptance cutover（1.1.0 唯一承认）、EVM/Solana/CW 双键、NEAR/Quint native-only（token env-read 永久 FC）、Psy/Aleo/Noir/TON 维持既有 disposition |
 | **E3** | context.caller Plan 开放（per-target 原子 cutover） | 独立（B-CTX-OPEN / ADR-0031 S1） | **done（engineering，2026-08-06）**：EVM/Solana exact CPI/NEAR/CW 四 lane + 各自 runtime 门闭合；其余 target 维持 FC |
-| **E4** | MiniAMM 北极星（EVM+Solana 双链 runtime 门） | E1+E2+E3 | **next**（先闭合 Solana multiword div 与 Principal-keyed LP Map 的真实 target leaf，禁止以 low64/UInt64-key pilot 冒充） |
+| **E4** | MiniAMM 北极星（EVM+Solana 双链 runtime 门） | E1+E2+E3 | **in_progress**：Solana UInt128/256 div/mod 真多字、EVM cap-4 Principal-key Map 与 vault-internal demo 已交付；仍缺 Solana Principal-key Map、真实 asset movement/remove-liquidity 与双链 Anvil/Mollusk runtime closure |
 
 并行纪律同 ADR-0029：shared payload/Normalize 变更串行于 main；per-target binding
 lane 文件不重叠可隔离 worktree 并行；每期以对应 runtime 门收尾。
@@ -133,6 +136,13 @@ noncanonical len/high-tail 以 `Custom(1)` + exact snapshot fail closed（Mollus
 NEAR `predecessor_account_id` 的 init/entry 路径由 CallerCheck sandbox 验证，view FC；
 CosmWasm `MessageInfo.sender` 仅在实际命中的 instantiate/execute branch 加载，query/view
 FC，cw-vm caller gate 验证正反路径与 charset 注入负例。**非** formal/mainnet parity。
+
+**E4 前置事实（2026-08-06）**：Solana `EmitSbpfAsmV1` 已对 UInt128/256 div/mod
+发射 exact restoring binary long division（`910835aa4`；runtime oracle 待补）；EVM 已以
+cap-4 dense layout 物化 `Map Principal UInt64`（`8ea6892c9`），并新增 vault-internal
+`Examples/MiniAmm.lean` + Plan/Yul pins（`06a0bcd1e`）。该 demo 只做内部 reserve/LP
+记账，未走 `pf.assets` transfer/balanceOfSelf、无 remove-liquidity、无 Anvil，且 Solana
+Principal Map 仍 FC，所以仅是 E4 in-progress 前置，不是双链应用级证据。
 
 **E1 工程事实（2026-08-05）**：`pf.assets.token.transfer`（v1.0.0 payload 既有 QN，
 无 payload 变更）已绑定两条部署型 target。**EVM**（E1a，commits `77ff279f7` +

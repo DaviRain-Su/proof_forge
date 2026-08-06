@@ -29,6 +29,12 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   leaf 在独立 block 中求值并 spill 到 reserved memory，全部 leaf 完成后再连续 `sstore`。
   `EvmSmoke` 固定 empty Map upsert、Principal-Map LpShares、双 batch 可见性与 spill
   结构；`EvmSolcAcceptance` 检查 host solc，`TokenV1` 产品路径锁定 solc 0.8.34；
+- **ADR-0030 E4 EVM-first demo**：`Examples/MiniAmm.lean` 以 `context.caller` 作为
+  cap-4 Principal-key LP share key，提供 vault-internal addLiquidity/swap0to1/balanceOf；
+  Plan/Yul/`EvmSmoke` 钉测 + host-optional `scripts/evm_mini_amm_anvil_smoke.sh`（creation
+  bytecode 远超 EIP-3860，strict Anvil 拒绝后以 `--disable-code-size-limit` engineering
+  override 跑通 local add/swap/revert；**非** mainnet/EIP-3860 部署声明）。无 `pf.assets`
+  asset movement 或 remove-liquidity，不得写成双链 MiniAMM closure；
 - **Option UInt64 state（BL-31）**：Enum-shaped tag/payload 双 slot；`none` 与 reset 清零 payload，
   `StateStore` 复用 `storeAtomic`；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；
 - **bounded aggregate return ABI**：named Struct/Enum 与 anonymous `Array UInt64 N`（1..8）/

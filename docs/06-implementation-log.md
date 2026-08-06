@@ -12,6 +12,34 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-06 — wave2 parallel leaves：S2 Solana Clock + NEAR/CW multiword div + MiniAmm Anvil
+
+- Solana ordinary-elf `context.blockHeight` → `sol_get_clock_sysvar` / `Clock.slot`
+  （Plan tag 51；CPI product 仍 FC；无 Mollusk S2 门；slot ≠ 逻辑块号）。
+- NEAR / CosmWasm multiword UInt128/256 div/mod 开放 restoring binary long division
+  （body path；CW ABI 仍拒 UInt128/256 state/param/result；wide shift 仍 FC）。
+- MiniAmm host-optional Anvil gate：`scripts/evm_mini_amm_anvil_smoke.sh` 在
+  engineering code-size override 下验证 addLiquidity/swap0to1/revert；不声称 EIP-3860。
+- 集成提交：NEAR div `a1beec855`、Solana S2 `57d06f338`、CW div `09de68f89`、
+  MiniAmm Anvil `6cf31f485`（cherry-pick from worktrees）。
+
+## 2026-08-06 — ADR-0031 S2 target leaves 与 ADR-0030 E4 前置推进（engineering）
+
+- `context.blockHeight` shared contract 不变；NEAR view-safe `block_index()`（tag 45）、
+  CosmWasm Env JSON bare-u64 `"height"`（tag 55）、EVM `NUMBER` 均已 leaf 落地；
+  Solana ordinary Clock 见上一条 wave2。S2 runtime 专门门仍 residual → S2 in_progress。
+- Solana UInt128/256 div/mod 从 low64 gate 切为 exact restoring binary long division：2/4×u64
+  limbs、divisor-zero trap、额外 remainder high limb、lhs/rhs alias-safe scratch；
+  `Tests/Targets/SolanaAsmV1` 固定 128/256 assembly。既有 WideMul Mollusk 不覆盖 div/mod，
+  runtime oracle 仍待补。
+- EVM 已开放 cap-4 `Map Principal UInt64` dense state；`Examples/MiniAmm.lean` vault-internal
+  demo + Anvil engineering gate（见上）。无 `pf.assets` asset movement / remove-liquidity /
+  Solana Principal-keyed Map，不得写成 E4 北极星完成。
+- 集成提交：EVM Principal Map `8ea6892c9`、MiniAMM demo `06a0bcd1e`、NEAR S2
+  `ceeb2ba96`、Solana div/mod `910835aa4`、CosmWasm S2 `25e54d02b`、merged-tree
+  package pin refresh `ec12c999c`（239 files）。均为 engineering 状态，非 formal/hermetic/
+  mainnet/release evidence。
+
 ## 2026-08-06 — ADR-0031 S1 / ADR-0030 E3 `context.caller` 四 target 工程闭合
 
 - Shared contract 保持 target-neutral：`context.caller : Principal` 由 exact versioned
@@ -36,9 +64,9 @@ normative: false
   `[a-z0-9]` 门，拒绝 escape/标点注入。cosmwasm-vm `caller_gate` 7/7 通过，非 caller entry
   不受 caller loader 误伤。
 - 该闭合是 engineering/local-runtime 结果，不是 formal、hermetic、mainnet/testnet、
-  Reference↔target 完整差分或 release qualification；E4 MiniAMM 仍需真实 Solana multiword
-  div/mod 与 `Map Principal UInt64` LP state target materialization，禁止以 low64 或 UInt64-key
-  pilot 冒充。
+  Reference↔target 完整差分或 release qualification；后续 E4 已补 Solana multiword div/mod
+  与 EVM `Map Principal UInt64`/vault-internal demo，但 Solana Principal-keyed Map、真实资产流、
+  remove-liquidity 与双链 runtime 仍缺，禁止把前置切片冒充北极星完成。
 
 ## 2026-08-04 — 通用 ProofForge Solana client 与显式 program adapter（engineering）
 

@@ -3,7 +3,7 @@ id: TARGET-SOLANA
 title: Solana target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-04
+updated: 2026-08-06
 normative: true
 ---
 
@@ -21,12 +21,13 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 **工程已接线（摘）**：
 
 - Normalize 当前可 lower 的控制流/算术/fn/for/shift/bitwise/revert/emit 等子集（非完整 Semantic 面）；
-- state/param/result **UInt8/16/32/64 与窄 Int** ABI/body 子集（UInt128/256 软件多字已开 T9e）；
+- state/param/result **UInt8/16/32/64 与窄 Int** ABI/body 子集（UInt128/256 软件多字已开 T9e；mul 为 schoolbook，div/mod 已于 `910835aa4` 切 exact binary long division）；
 - **`EmitSbpfAsmV1`** 完整 Operation 表面 → 锁定 `sbpf` 汇编为 deployable Solana ELF `.so`
   （`solana-sbpf-elf-v1` profile；默认仍可走 plan-only profile）；
-- **Mollusk 运行时差分**（`runtime-tests/solana`：Counter + 18 既有 fixtures +
-  `Examples/TransferSol.lean` 产品 CPI ELF = 20 programs；含 body 多宽、聚合/匿名返回、
-  Option state 与原生 System transfer；legacy call 已从旧 profile runtime 面移除）；
+- **Mollusk 运行时差分**：tracked inventory 为 **17 test binaries / 351 active tests**，
+  覆盖 legacy Counter/fixture ELF、active CPI product programs、TransferSol 与 CallerIsMe；
+  legacy call 已从旧 profile runtime 面移除。该计数不含仅 assembly-level 的新 multiword
+  div/mod 钉测，后者 runtime differential 仍待补；
 - **legacy call/schedule 已恢复 fail closed**（#111）：`solana-sbpf-plan-v1` 与
   `solana-sbpf-elf-v1` 均不声明 sync/async requirement，Plan/IR/SBPF 纵深拒绝旧节点；static
   QualifiedName 不再经 SHA-256 冒充 program id；真实多账户/PDA/bump/CPI 由 opt-in versioned
@@ -34,7 +35,9 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 - **dense Map UInt64 cap-8 pilot** 已进入 opt-in ELF + Mollusk；`storeAggregate` → structural CSE →
   `storeStateMulti` 令同一 StateStore 的 24 叶先基于旧 account snapshot 求值、再统一写入，且保持
   177 temp / 1424B < 4096B frame。`put_into_empty` 已解除 ignore 并转绿；WideMul 另以
-  独立 base-2^64 oracle 钉住 UInt128/256 成功与 `0x1001` 溢出回滚；PrincipalStore 固定
+  独立 base-2^64 oracle 钉住 UInt128/256 mul 成功与 `0x1001` 溢出回滚。UInt128/256
+  div/mod 已由 `EmitSbpfAsmV1.emitMultiwordDivMod` 使用 restoring binary long division，
+  `Tests/Targets/SolanaAsmV1` 固定 exact emission；尚未新增 Mollusk div/mod oracle。PrincipalStore 固定
   `len + 8×UInt64` identity state/param、逐叶 equality 与短值覆盖高位清零（非 pubkey）；
 - **#113 V1 单 state-account 安全矩阵**：IR/SBPF `num_accounts==1` + non-dup `0xff` 先于固定偏移；
   Mollusk 负例 Custom(1)+完整 exact snapshot；manifest-bound ELF/Plan 字节；
@@ -107,6 +110,15 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
   len 0/65 与 nonzero high-tail 的 `Custom(1)` + exact snapshot；当前 tracked runtime
   inventory 为 **17 binaries / 351 active tests**。**非** formal/mainnet parity，且不把
   wire Principal 全局等同 Solana pubkey。
+- **`context.blockHeight`（ADR-0031 S2，ordinary-elf）**：legacy `solana-sbpf-plan-v1` /
+  `solana-sbpf-elf-v1` 经 host `sol_get_clock_sysvar` 读 `Clock.slot`（Plan `Expr.clockSlot`
+  tag 51 / IR `Operation.clockSlot`）；保持单 state 账户 `num_accounts==1`，**不**引入
+  Clock account meta。诚实语义：物理 ≈400ms slot，**非**逻辑块号。view-safe。CPI product
+  profile 对该键仍 FC。尚无专门 Mollusk S2 runtime fixture。
+- **E4 LP state residual**：Solana 仍只物化 `Map UInt64 UInt64`；`Map Principal UInt64`
+  不得以 T12 scalar Principal + UInt64-key Map 拼装冒充，需独立多叶 key layout/lookup/upsert
+  与 state-account frame/runtime 门。UInt128/256 multiword div/mod 已在 SBPF emit 以
+  restoring binary long division 开放（WideDiv Mollusk residual）。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
 完整 Normalize 表面；active CPI profile 之外的任意动态 program address/remaining accounts 与更广

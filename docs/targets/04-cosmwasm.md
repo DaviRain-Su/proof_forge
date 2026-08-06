@@ -3,7 +3,7 @@ id: TARGET-COSMWASM
 title: CosmWasm target dossier
 status: draft
 owner: architecture
-updated: 2026-08-04
+updated: 2026-08-06
 normative: true
 ---
 
@@ -26,7 +26,9 @@ target-owned Plan/IR/WAT emitter（KV state→`env.db_*`、init/entry/view →
 静态 ABI 验收。
 
 **后续工程扩面**：UInt8/16/32 state/param/result 与 body narrow guards 已开（物理 KV 仍为
-8-byte LE 并检查高位；UInt128/256 与窄 Int FC）；named Struct/Enum state、`Array UInt64 N` state 与 dense `Map UInt64 UInt64` cap-8 state 已开；≤8 个
+8-byte LE 并检查高位；**UInt128/256 body multiword** add/sub/mul/div/mod 已开 restoring
+binary long division，ABI state/param/result 与 narrow Int、multiword shift 仍 FC）；named
+Struct/Enum state、`Array UInt64 N` state 与 dense `Map UInt64 UInt64` cap-8 state 已开；≤8 个
 UInt64/Int64 leaf 的 named entry/view aggregate return，以及 anonymous `Array UInt64 N`
 （1..8）/`Option UInt64` entry/view return 已开。Map/Bytes return、Option/Bytes state、
 nested/非 UInt64元素、aggregate param/pureFn仍 fail closed。
@@ -99,9 +101,16 @@ lowercase `[a-z0-9]` 门，排除大写、标点、引号/反斜线与 JSON esca
 `caller_gate.rs` **7/7** 覆盖 true/false、entry 状态推进/失败保持、query FC 与 non-caller
 entry 的 branch-local 正向；**非** formal/mainnet parity。
 
+**`context.blockHeight` binding（ADR-0031 S2，2026-08-06）**：instantiate/execute/query
+均从 Env Region 的 bare-u64 JSON 字段 `"height"` 解析 `Env.block.height`，写入
+`$pf_block_height` 后由 Plan Expr tag 55 / IR `blockHeight` 读取；宿主类型已是 u64，除十进制
+parser overflow trap 外无需宽度转换。当前仅有 Plan/IR/emitter 与 `CosmWasmPlanV1` 钉测，
+尚未加入 cw-vm 专门 runtime fixture，不能把既有 48 tests 写成 S2 runtime closure。
+
 **仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Option state、Map/Bytes
-return、Field/Principal/String interface、除 execute/init `context.caller` 外的 ContextRead、
-Commit、nonempty invariants、UInt128/256、narrow Int、JSON 全集与 gas model。wasmd smart query
+return、Field/Principal/String interface、除 execute/init `context.caller` 与 Env-backed
+`context.blockHeight` 外的 ContextRead、blockHeight 专门 runtime、Commit、nonempty invariants、
+UInt128/256、narrow Int、JSON 全集与 gas model。wasmd smart query
 当前仍非 Binary，rung-1 harness 使用 raw state。
 
 ## 0.1 A0→隔离→修复/design-exit 过程记录（2026-08-03）
