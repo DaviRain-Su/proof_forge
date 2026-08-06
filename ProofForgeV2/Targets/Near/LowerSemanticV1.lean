@@ -2331,13 +2331,9 @@ private def lowerBlockInstructionsV1
                 s!"unsupported NEAR semantic shape: UInt{bitWidth} is not an admitted body width"
             if op == .add || op == .sub || op == .mul || op == .div ||
                 op == .mod || op == .bitAnd || op == .bitOr || op == .bitXor then
-              -- Multiword div/mod are not implemented: the wide surface is
-              -- add/sub/mul (schoolbook) plus compare/bitwise. Failing closed
-              -- here keeps a single-limb `i64.div_u` from silently corrupting
-              -- the high limbs of a UInt128/256 value.
-              if bitWidth > 64 && (op == .div || op == .mod) then
-                throw <| .planInvariant .near
-                  "unsupported NEAR semantic shape: multiword div/mod is fail-closed on NEAR (only multiword add/sub/mul are implemented)"
+              -- Multiword UInt128/256 div/mod lower to `.narrowCheckedDiv/Mod`
+              -- and EmitIR emits true multi-limb binary long division (restoring);
+              -- zero divisor traps via unreachable. Wide shift remains FC.
               let (widthTid, kind, w) ← admitUIntWidthResultTypeV1 types result.typeId
               unless kind == lhs.kind && w == bitWidth do
                 throw <| .planInvariant .near

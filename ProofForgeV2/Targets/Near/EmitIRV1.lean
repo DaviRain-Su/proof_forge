@@ -1161,6 +1161,116 @@ private def renderMultiwordCheckedMul (indent : String) (dest lhs rhs nLimbs : N
       out := out ++ s!"{indent}(if (i64.ne (local.get $t{dest + k}) (i64.const 0)) (then unreachable))\n"
     pure out
 
+/-- Multiword checked div/mod via restoring binary long division over LE i64
+    limbs (UInt128 `nLimbs=2` / UInt256 `nLimbs=4`). Mirrors Solana
+    `emitMultiwordDivMod`:
+
+      rem := 0                          -- `nLimbs+1` limbs (extra high digit)
+      quot := 0                         -- `nLimbs` limbs
+      for bit from (nLimbs·64 − 1) downto 0:
+        rem := (rem << 1) | dividend[bit]
+        if rem ≥ divisor:               -- zero-extended divisor
+          rem := rem − divisor
+          quot[bit] := 1
+
+    Divisor zero (all limbs zero) → `unreachable` (same host trap path as
+    scalar checked div). Quotient and remainder are always in-range for
+    unsigned division; no overflow path beyond div-by-zero.
+
+    Fully unrolled over the bit width so every limb/shift is a compile-time
+    immediate. Scratch rem/quot live in named `$t_mw_r*` / `$t_mw_q*` locals
+    (declared when multiword div/mod is present) so lhs/rhs/dest aliasing is
+    safe. `kind` is `"div"` (write quot) or `"mod"` (write rem low limbs).
+    Engineering-only; not formal D2/D4. -/
+private def renderMultiwordDivMod (indent : String) (dest lhs rhs nLimbs : Nat)
+    (kind : String) : String :=
+  Id.run do
+    let nBits := nLimbs * 64
+    let mut out := s!"{indent};; multiword checked_{kind} nLimbs={nLimbs} binary long division\n"
+    -- Divisor nonzero? OR of all limbs.
+    out := out ++ s!"{indent}(local.set $t_mw_a (local.get $t{rhs}))\n"
+    for i in [1:nLimbs] do
+      out := out ++
+        s!"{indent}(local.set $t_mw_a (i64.or (local.get $t_mw_a) (local.get $t{rhs + i})))\n"
+    out := out ++
+      s!"{indent}(if (i64.eqz (local.get $t_mw_a)) (then unreachable))\n"
+    -- Zero rem (incl. high digit remHi = $t_mw_r{nLimbs}) and quot.
+    for i in [:nLimbs + 1] do
+      out := out ++ s!"{indent}(local.set $t_mw_r{i} (i64.const 0))\n"
+    for i in [:nLimbs] do
+      out := out ++ s!"{indent}(local.set $t_mw_q{i} (i64.const 0))\n"
+    -- bit = nBits-1 .. 0 (fully unrolled)
+    for j in [:nBits] do
+      let bitPos := nBits - 1 - j
+      let numLimb := bitPos / 64
+      let numBit := bitPos % 64
+      out := out ++ s!"{indent};; bit {bitPos} (limb {numLimb} bit {numBit})\n"
+      -- rem := rem << 1  (nLimbs+1 limbs, high → low so lower digits stay fresh)
+      out := out ++
+        s!"{indent}(local.set $t_mw_r{nLimbs} (i64.or (i64.shl (local.get $t_mw_r{nLimbs}) (i64.const 1)) (i64.shr_u (local.get $t_mw_r{nLimbs - 1}) (i64.const 63))))\n"
+      for iRev in [:nLimbs] do
+        let i := nLimbs - 1 - iRev
+        if i > 0 then
+          out := out ++
+            s!"{indent}(local.set $t_mw_r{i} (i64.or (i64.shl (local.get $t_mw_r{i}) (i64.const 1)) (i64.shr_u (local.get $t_mw_r{i - 1}) (i64.const 63))))\n"
+        else
+          -- rem[0] = (rem[0] << 1) | dividend[bitPos]
+          let bitExtract :=
+            if numBit == 0 then
+              s!"(i64.and (local.get $t{lhs + numLimb}) (i64.const 1))"
+            else
+              s!"(i64.and (i64.shr_u (local.get $t{lhs + numLimb}) (i64.const {numBit})) (i64.const 1))"
+          out := out ++
+            s!"{indent}(local.set $t_mw_r0 (i64.or (i64.shl (local.get $t_mw_r0) (i64.const 1)) {bitExtract}))\n"
+      -- if rem ≥ divisor (zero-extended): subtract and set quot bit.
+      -- $t_mw_carry = decided; $t_mw_a = ge result.
+      out := out ++
+        s!"{indent}(local.set $t_mw_carry (i64.const 0))\n" ++
+        s!"{indent}(local.set $t_mw_a (i64.const 0))\n" ++
+        s!"{indent}(if (i64.ne (local.get $t_mw_r{nLimbs}) (i64.const 0)) (then (local.set $t_mw_a (i64.const 1)) (local.set $t_mw_carry (i64.const 1))))\n"
+      for iRev in [:nLimbs] do
+        let i := nLimbs - 1 - iRev
+        -- (if undecided (then (if gt → ge=1) (else (if lt → ge=0))))
+        -- After last local.set completes, six structure closes:
+        -- then-lt, if-lt, else-gt, if-gt, then-outer, if-outer.
+        out := out ++
+          s!"{indent}(if (i64.eqz (local.get $t_mw_carry)) (then\n" ++
+          s!"{indent}  (if (i64.gt_u (local.get $t_mw_r{i}) (local.get $t{rhs + i}))\n" ++
+          s!"{indent}    (then (local.set $t_mw_a (i64.const 1)) (local.set $t_mw_carry (i64.const 1)))\n" ++
+          s!"{indent}    (else (if (i64.lt_u (local.get $t_mw_r{i}) (local.get $t{rhs + i}))\n" ++
+          s!"{indent}      (then (local.set $t_mw_a (i64.const 0)) (local.set $t_mw_carry (i64.const 1))))))))\n"
+      -- All limbs equal and remHi==0 ⇒ rem == divisor ⇒ ge.
+      out := out ++
+        s!"{indent}(if (i64.eqz (local.get $t_mw_carry)) (then (local.set $t_mw_a (i64.const 1))))\n"
+      out := out ++
+        s!"{indent}(if (i64.ne (local.get $t_mw_a) (i64.const 0)) (then\n"
+      -- rem_low -= divisor with borrow into remHi (same carry formula as checked_sub).
+      out := out ++ s!"{indent}  (local.set $t_mw_carry (i64.const 0))\n"
+      for i in [:nLimbs] do
+        out := out ++
+          s!"{indent}  (local.set $t_mw_b (local.get $t_mw_r{i}))\n" ++
+          s!"{indent}  (local.set $t_mw_r{i} (i64.sub (i64.sub (local.get $t_mw_b) (local.get $t{rhs + i})) (local.get $t_mw_carry)))\n" ++
+          s!"{indent}  (local.set $t_mw_carry (i64.or (i64.extend_i32_u (i64.lt_u (local.get $t_mw_b) (local.get $t{rhs + i}))) (i64.and (local.get $t_mw_carry) (i64.extend_i32_u (i64.eq (local.get $t_mw_b) (local.get $t{rhs + i}))))))\n"
+      out := out ++
+        s!"{indent}  (local.set $t_mw_r{nLimbs} (i64.sub (local.get $t_mw_r{nLimbs}) (local.get $t_mw_carry)))\n"
+      -- quot[numLimb] |= 1 << numBit
+      let quotBit :=
+        if numBit == 0 then "(i64.const 1)"
+        else s!"(i64.shl (i64.const 1) (i64.const {numBit}))"
+      out := out ++
+        s!"{indent}  (local.set $t_mw_q{numLimb} (i64.or (local.get $t_mw_q{numLimb}) {quotBit}))\n" ++
+        s!"{indent}))\n"
+    -- Copy quotient or remainder into dest (named scratch ⇒ alias-safe).
+    if kind == "div" then
+      for t in [:nLimbs] do
+        out := out ++
+          s!"{indent}(local.set $t{dest + t} (local.get $t_mw_q{t}))\n"
+    else
+      for t in [:nLimbs] do
+        out := out ++
+          s!"{indent}(local.set $t{dest + t} (local.get $t_mw_r{t}))\n"
+    pure out
+
 /-- Load a LE integer of `byteWidth` from `addr` into an i64 local (zero-extend). -/
 private def renderLoadLeToI64 (indent : String) (destination addr byteWidth : Nat) : String :=
   match byteWidth with
@@ -1502,17 +1612,15 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
           s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
   | .narrowCheckedDiv bitWidth destination lhs rhs =>
       if bitWidth > 64 then
-        -- Defensive trap only: wide div/mod fail closed at the NEAR Plan
-        -- lowering (multiword division is not implemented in this slice).
-        s!"{indent};; wide div/mod fail closed at lowering (defensive trap)\n{indent}(unreachable)\n"
+        -- Multiword (UInt128/256): restoring binary long division over LE limbs.
+        renderMultiwordDivMod indent destination lhs rhs (limbCountOfBitWidth bitWidth) "div"
       else
         s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
           s!"{indent}(local.set $t{destination} (i64.div_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .narrowCheckedMod bitWidth destination lhs rhs =>
       if bitWidth > 64 then
-        -- Defensive trap only: wide div/mod fail closed at the NEAR Plan
-        -- lowering (multiword division is not implemented in this slice).
-        s!"{indent};; wide div/mod fail closed at lowering (defensive trap)\n{indent}(unreachable)\n"
+        -- Multiword (UInt128/256): same long division; write remainder limbs.
+        renderMultiwordDivMod indent destination lhs rhs (limbCountOfBitWidth bitWidth) "mod"
       else
         s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
           s!"{indent}(local.set $t{destination} (i64.rem_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
@@ -2088,8 +2196,13 @@ private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
   let needsMwScratch := method.operations.any fun op =>
     match op with
     | .narrowCheckedAdd bitWidth .. | .narrowCheckedSub bitWidth ..
-    | .narrowCheckedMul bitWidth .. => bitWidth > 64
+    | .narrowCheckedMul bitWidth .. | .narrowCheckedDiv bitWidth ..
+    | .narrowCheckedMod bitWidth .. => bitWidth > 64
     | .wideCompare .. => true
+    | _ => false
+  let needsMwDivScratch := method.operations.any fun op =>
+    match op with
+    | .narrowCheckedDiv bitWidth .. | .narrowCheckedMod bitWidth .. => bitWidth > 64
     | _ => false
   let needsPfScratch := method.operations.any fun op =>
     match op with
@@ -2106,10 +2219,19 @@ private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
     | _ => false
   let locals :=
     if needsMwScratch then
-      -- Shared scratch: add/sub use a/b/carry; schoolbook mul uses a..7.
+      -- Shared scratch: add/sub use a/b/carry; schoolbook mul uses a..7;
+      -- binary long division reuses a/b/carry for ge/borrow.
       locals ++ " (local $t_mw_a i64) (local $t_mw_b i64) (local $t_mw_carry i64)" ++
         " (local $t_mw_0 i64) (local $t_mw_1 i64) (local $t_mw_2 i64) (local $t_mw_3 i64)" ++
         " (local $t_mw_4 i64) (local $t_mw_5 i64) (local $t_mw_6 i64) (local $t_mw_7 i64)"
+    else locals
+  let locals :=
+    if needsMwDivScratch then
+      -- rem[0..4] (nLimbs+1 max for UInt256) + quot[0..3] for long division.
+      locals ++
+        " (local $t_mw_r0 i64) (local $t_mw_r1 i64) (local $t_mw_r2 i64)" ++
+        " (local $t_mw_r3 i64) (local $t_mw_r4 i64)" ++
+        " (local $t_mw_q0 i64) (local $t_mw_q1 i64) (local $t_mw_q2 i64) (local $t_mw_q3 i64)"
     else locals
   let locals :=
     if needsPfScratch || needsTokenScratch || needsCallerScratch then
@@ -2145,14 +2267,26 @@ private def renderFn (ir : IR) (promiseStr : Array (String × Nat)) (fn : FnIR) 
   let needsMwScratch := fn.operations.any fun op =>
     match op with
     | .narrowCheckedAdd bitWidth .. | .narrowCheckedSub bitWidth ..
-    | .narrowCheckedMul bitWidth .. => bitWidth > 64
+    | .narrowCheckedMul bitWidth .. | .narrowCheckedDiv bitWidth ..
+    | .narrowCheckedMod bitWidth .. => bitWidth > 64
     | .wideCompare .. => true
+    | _ => false
+  let needsMwDivScratch := fn.operations.any fun op =>
+    match op with
+    | .narrowCheckedDiv bitWidth .. | .narrowCheckedMod bitWidth .. => bitWidth > 64
     | _ => false
   let extraLocals :=
     if needsMwScratch then
       extraLocals ++ " (local $t_mw_a i64) (local $t_mw_b i64) (local $t_mw_carry i64)" ++
         " (local $t_mw_0 i64) (local $t_mw_1 i64) (local $t_mw_2 i64) (local $t_mw_3 i64)" ++
         " (local $t_mw_4 i64) (local $t_mw_5 i64) (local $t_mw_6 i64) (local $t_mw_7 i64)"
+    else extraLocals
+  let extraLocals :=
+    if needsMwDivScratch then
+      extraLocals ++
+        " (local $t_mw_r0 i64) (local $t_mw_r1 i64) (local $t_mw_r2 i64)" ++
+        " (local $t_mw_r3 i64) (local $t_mw_r4 i64)" ++
+        " (local $t_mw_q0 i64) (local $t_mw_q1 i64) (local $t_mw_q2 i64) (local $t_mw_q3 i64)"
     else extraLocals
   let operations := String.intercalate "" <| fn.operations.toList.map
     (renderOperation ir.registers ir.memory

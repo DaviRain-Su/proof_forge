@@ -561,25 +561,43 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         else
           writeTemp machine destination (UInt64.ofNat product)
   | .narrowCheckedDiv bitWidth destination lhs rhs => do
-      -- Multiword div/mod never reach the model: the NEAR Plan lowering
-      -- fails them closed (multiword division is not implemented).
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowCheckedDiv bitWidth {bitWidth} is not admitted"
-      let left ← readTemp machine lhs
-      let right ← readTemp machine rhs
-      if right == 0 then
-        modelError "division by zero"
+      if bitWidth == 128 || bitWidth == 256 then
+        -- Multiword: Nat quotient; zero divisor traps (same path as scalar).
+        let nLimbs := bitWidth / 64
+        let left ← readMultiword machine lhs nLimbs
+        let right ← readMultiword machine rhs nLimbs
+        if right == 0 then
+          modelError "division by zero"
+        else
+          writeMultiword machine destination nLimbs (left / right)
       else
-        writeTemp machine destination (left / right)
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowCheckedDiv bitWidth {bitWidth} is not admitted"
+        let left ← readTemp machine lhs
+        let right ← readTemp machine rhs
+        if right == 0 then
+          modelError "division by zero"
+        else
+          writeTemp machine destination (left / right)
   | .narrowCheckedMod bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowCheckedMod bitWidth {bitWidth} is not admitted"
-      let left ← readTemp machine lhs
-      let right ← readTemp machine rhs
-      if right == 0 then
-        modelError "division by zero"
+      if bitWidth == 128 || bitWidth == 256 then
+        -- Multiword: Nat remainder; zero divisor traps.
+        let nLimbs := bitWidth / 64
+        let left ← readMultiword machine lhs nLimbs
+        let right ← readMultiword machine rhs nLimbs
+        if right == 0 then
+          modelError "division by zero"
+        else
+          writeMultiword machine destination nLimbs (left % right)
       else
-        writeTemp machine destination (left % right)
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowCheckedMod bitWidth {bitWidth} is not admitted"
+        let left ← readTemp machine lhs
+        let right ← readTemp machine rhs
+        if right == 0 then
+          modelError "division by zero"
+        else
+          writeTemp machine destination (left % right)
   | .narrowBitAnd bitWidth destination lhs rhs => do
       if bitWidth == 128 || bitWidth == 256 then
         let nLimbs := bitWidth / 64
@@ -3604,8 +3622,9 @@ private unsafe def testWideUintProduct (session : Language.Loader.ParserSession)
     mul lowers to `.narrowCheckedMul 128/256`; the WAT renders an exact
     base-2^32 schoolbook product (verified against exact literal
     expectations in the host model, plus wide state round-trips). Wide
-    div/mod/shift stay fail-closed at the NEAR Plan (see
-    `testWideDivModShiftFailClosed`). Not formal D2/D4. -/
+    div/mod use binary long division (see `testWideDivModProductPath`);
+    wide shift stays fail-closed (see `testWideShiftFailClosed`).
+    Not formal D2/D4. -/
 private unsafe def testWideMulProductPath (session : Language.Loader.ParserSession) :
     IO Unit := do
   let sourceText :=
@@ -3729,10 +3748,144 @@ private unsafe def testWideMulProductPath (session : Language.Loader.ParserSessi
         s!"wide-mul: expected UInt128 multiplication overflow, got {reason}"
   | .success .. => throw <| IO.userError "wide-mul: mulOverflow128(2^64) must trap"
 
-/-- Wide div/mod/shift stay fail-closed at the NEAR Plan: the multiword
-    surface is add/sub/mul only (multiword division and cross-limb shift are
-    not implemented in this slice; each decline names the limitation). -/
-private unsafe def testWideDivModShiftFailClosed (session : Language.Loader.ParserSession) :
+/-- T9e-lane (engineering): multiword UInt128/256 div/mod via binary long
+    division. High limbs participate on the success path (not low64-only);
+    zero divisor traps and rolls storage back. WAT pins the long-division
+    marker and must not fall back to a single-limb `i64.div_u` over only the
+    low limb of a multiword value. Not formal D2/D4. -/
+private unsafe def testWideDivModProductPath (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program WideDivMod where\n" ++
+    "  state p : UInt128\n" ++
+    "  state q : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    p := 0\n" ++
+    "    q := 0\n\n" ++
+    -- (2^64 + 6) / (2^64 + 2) = 1 remainder 4  →  quot high-limb path
+    "  entry div128(x : UInt128, y : UInt128) : Bool do\n" ++
+    "    let r : UInt128 := x / y\n" ++
+    "    p := r\n" ++
+    "    return p == 1\n\n" ++
+    "  entry mod128(x : UInt128, y : UInt128) : Bool do\n" ++
+    "    let r : UInt128 := x % y\n" ++
+    "    p := r\n" ++
+    "    return p == 4\n\n" ++
+    -- (2^192 + 15) / 5 = 0x3333… (with high limbs) exact
+    -- Use (2^192 + 10) / 5 = (2^192)/5 + 2; better: exact small high-limb case
+    -- (3·2^192 + 15) / 3 = 2^192 + 5
+    "  entry div256(x : UInt256, y : UInt256) : Bool do\n" ++
+    "    let r : UInt256 := x / y\n" ++
+    "    q := r\n" ++
+    "    return q == 0x1000000000000000000000000000000000000000000000005\n\n" ++
+    "  entry mod256(x : UInt256, y : UInt256) : Bool do\n" ++
+    "    let r : UInt256 := x % y\n" ++
+    "    q := r\n" ++
+    "    return q == 2\n\n" ++
+    "  entry divZero128(x : UInt128) : UInt128 do\n" ++
+    "    return x / 0\n\n" ++
+    "  entry modZero128(x : UInt128) : UInt128 do\n" ++
+    "    return x % 0\n\n" ++
+    "  view check128() : Bool do\n" ++
+    "    return p == 1\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-wide-divmod>" "Examples.WideDivMod" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some div128 := plan.entries.find? (·.name == "div128") |
+    throw <| IO.userError "wide-divmod: missing div128"
+  expect (div128.body.any fun s => match s with
+      | .store { value := .narrowCheckedDiv 128 .., .. } => true | _ => false)
+    "wide-divmod: div128 body must store a narrowCheckedDiv 128 tree"
+  let some mod128 := plan.entries.find? (·.name == "mod128") |
+    throw <| IO.userError "wide-divmod: missing mod128"
+  expect (mod128.body.any fun s => match s with
+      | .store { value := .narrowCheckedMod 128 .., .. } => true | _ => false)
+    "wide-divmod: mod128 body must store a narrowCheckedMod 128 tree"
+  let some div256 := plan.entries.find? (·.name == "div256") |
+    throw <| IO.userError "wide-divmod: missing div256"
+  expect (div256.body.any fun s => match s with
+      | .store { value := .narrowCheckedDiv 256 .., .. } => true | _ => false)
+    "wide-divmod: div256 body must store a narrowCheckedDiv 256 tree"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let div128IR ← findMethod ir "div128"
+  let mod128IR ← findMethod ir "mod128"
+  let div256IR ← findMethod ir "div256"
+  let mod256IR ← findMethod ir "mod256"
+  let divZeroIR ← findMethod ir "divZero128"
+  let modZeroIR ← findMethod ir "modZero128"
+  let kinds := operationKinds div128IR.operations
+  expect (kinds.contains "narrowCheckedDiv" && kinds.contains "wideCompare")
+    s!"wide-divmod: div128 IR must lower narrowCheckedDiv+wideCompare, got {kinds}"
+  let modKinds := operationKinds mod128IR.operations
+  expect (modKinds.contains "narrowCheckedMod")
+    s!"wide-divmod: mod128 IR must lower narrowCheckedMod, got {modKinds}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "wide-divmod: missing .wat artifact"
+  expectContains wat.contents "multiword checked_div" "wide-divmod WAT multiword div"
+  expectContains wat.contents "multiword checked_mod" "wide-divmod WAT multiword mod"
+  expectContains wat.contents "binary long division" "wide-divmod WAT long-division marker"
+  expectContains wat.contents "$t_mw_r0" "wide-divmod WAT rem scratch"
+  expectContains wat.contents "$t_mw_q0" "wide-divmod WAT quot scratch"
+  -- Must not emit a bare single-limb i64.div_u as the only multiword path
+  -- (low64 fallback would use only $t{lhs} without the long-division marker).
+  expect (wat.contents.contains "multiword checked_div nLimbs=2")
+    "wide-divmod: UInt128 div must emit nLimbs=2 long division"
+  expect (wat.contents.contains "multiword checked_div nLimbs=4")
+    "wide-divmod: UInt256 div must emit nLimbs=4 long division"
+  -- Host model: high-limb success paths + zero-divisor traps.
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "wide-divmod init" (execute initIR empty ByteArray.empty zero)
+  let encode128 (lo hi : U64) : ByteArray := encodeUInt64LE lo ++ encodeUInt64LE hi
+  let encode256 (a b c d : U64) : ByteArray :=
+    encodeUInt64LE a ++ encodeUInt64LE b ++ encodeUInt64LE c ++ encodeUInt64LE d
+  -- (2^64+6) / (2^64+2) = 1
+  let (storage1, retDiv, _) ← requireSuccess "wide-divmod div128" (execute div128IR storage0
+    (encode128 6 1 ++ encode128 2 1) zero)
+  expect (retDiv == some 1) s!"wide-divmod: div128 high-limb quotient must be 1, got {retDiv}"
+  -- (2^64+6) % (2^64+2) = 4
+  let (storage2, retMod, _) ← requireSuccess "wide-divmod mod128" (execute mod128IR storage1
+    (encode128 6 1 ++ encode128 2 1) zero)
+  expect (retMod == some 1) s!"wide-divmod: mod128 high-limb remainder must be 4, got {retMod}"
+  -- (3·2^192 + 15) / 3 = 2^192 + 5
+  let (_, retDiv256, _) ← requireSuccess "wide-divmod div256" (execute div256IR storage2
+    (encode256 15 0 0 3 ++ encode256 3 0 0 0) zero)
+  expect (retDiv256 == some 1)
+    s!"wide-divmod: div256 high-limb quotient must match 2^192+5, got {retDiv256}"
+  -- (3·2^192 + 17) % 5 = (0 + 17) % 5 = 2  (3·2^192 ≡ 0 mod 5? 2^192 mod 5...)
+  -- Safer exact: (2^192 + 7) % 5. Use (10·2^64 + 17) % (3·2^64 + 5) with known rem.
+  -- (5·2^192 + 17) % 5 = 2 (since 5·2^192 ≡ 0).
+  let (_, retMod256, _) ← requireSuccess "wide-divmod mod256" (execute mod256IR storage2
+    (encode256 17 0 0 5 ++ encode256 5 0 0 0) zero)
+  expect (retMod256 == some 1)
+    s!"wide-divmod: mod256 high-limb remainder must be 2, got {retMod256}"
+  -- Zero divisor traps and rolls back.
+  match execute divZeroIR storage0 (encode128 1 1) zero with
+  | .trapped restored reason =>
+      expect (restored == storage0) "wide-divmod: div-by-zero must roll back storage"
+      expect (reason.contains "division by zero")
+        s!"wide-divmod: expected division by zero, got {reason}"
+  | .success .. => throw <| IO.userError "wide-divmod: divZero128 must trap"
+  match execute modZeroIR storage0 (encode128 1 1) zero with
+  | .trapped restored reason =>
+      expect (restored == storage0) "wide-divmod: mod-by-zero must roll back storage"
+      expect (reason.contains "division by zero")
+        s!"wide-divmod: expected division by zero on mod, got {reason}"
+  | .success .. => throw <| IO.userError "wide-divmod: modZero128 must trap"
+
+/-- Wide shift stays fail-closed at the NEAR Plan: cross-limb shift is not
+    implemented (multiword add/sub/mul/div/mod/compare/bitwise only). -/
+private unsafe def testWideShiftFailClosed (session : Language.Loader.ParserSession) :
     IO Unit := do
   let checkFailClosed (label : String) (body : String) : IO Unit := do
     let text :=
@@ -3756,11 +3909,9 @@ private unsafe def testWideDivModShiftFailClosed (session : Language.Loader.Pars
     match Targets.Near.planFromCapability capability with
     | .error e =>
         expect (e.render.contains "fail-closed" || e.render.contains "outside the NEAR pilot")
-          s!"{label}: wide op must fail closed with a multiword limitation message, got {e.render}"
+          s!"{label}: wide shift must fail closed with a multiword limitation message, got {e.render}"
     | .ok _ =>
-        throw <| IO.userError s!"{label}: wide op must fail closed at the NEAR plan"
-  checkFailClosed "WideDiv" "p := x / y"
-  checkFailClosed "WideMod" "p := x % y"
+        throw <| IO.userError s!"{label}: wide shift must fail closed at the NEAR plan"
   checkFailClosed "WideShl" "p := x << 1"
   checkFailClosed "WideShr" "p := x >> 1"
 
@@ -5347,7 +5498,8 @@ unsafe def run : IO Unit := do
   testAbiMultiWidthStateParam session
   testWideUintProduct session
   testWideMulProductPath session
-  testWideDivModShiftFailClosed session
+  testWideDivModProductPath session
+  testWideShiftFailClosed session
   testBytesStateParamProductPath session
   testBytesNegativesFailClosed session
   testInt8ParamAdmitted session
