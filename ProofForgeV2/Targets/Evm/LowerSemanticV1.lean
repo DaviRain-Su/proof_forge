@@ -478,8 +478,8 @@ private def evmPlanErr (message : String) : CompileError :=
     `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*` with
     `allowNonPublic := true` (N3), **Array state** flattens to contiguous
     scalar slots (element UInt8/16/32/64/128/256), **Map UInt64 UInt64**
-    flattens to a dense pilot table (16×(occ,key,val) UInt64 leaves; dynamic
-    keys OK), and **Option UInt64 state** (BL-31) flattens to tag+payload
+    flattens to a dense pilot table (cap-8 × (occ,key,val) = 24 UInt64 leaves;
+    dynamic keys OK), and **Option UInt64 state** (BL-31) flattens to tag+payload
     (2 UInt64 leaves; Enum-identical layout; none zeros payload). Option of
     non-UInt64 / Option params / nested Option stay fail closed. non-64 Int
     fail closed.
@@ -818,8 +818,8 @@ private def arrayScalarLeafLayoutV1
         "unsupported EVM semantic shape: container TypeId is not Array/Map/Bytes"
 
 /-- NS-1b / I1 Map pilot capacity: dense open table for dynamic UInt64 keys.
-    Each entry: occupied (0/1), key, value → 3×UInt64 leaves.
-    Capacity 12 keeps Token transfer (nested match + dual IndexSet) under the
+    Each entry: occupied (0/1), key, value → 3×UInt64 leaves (24 leaves total).
+    Capacity 8 keeps Token transfer (nested match + dual IndexSet) under the
     4 MiB Yul IR limit; pure unrolled trees grow ~O(capacity²) per upsert. -/
 private def evmMapPilotCapacityV1 : Nat := 8
 private def evmMapSlotsPerEntryV1 : Nat := 3

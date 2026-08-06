@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-04
+updated: 2026-08-06
 normative: true
 ---
 
@@ -34,6 +34,9 @@ Phase 1：实现
   `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 的
   `runtime-tests/near` 已覆盖 Counter init/mutate/view、overflow state-hold+recovery、PairRet、
   ArrayRet、OptionRet 与 OptionState 的工程路径。
+- **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
+  截断（Plan Expr tag 41）；**`context.caller` 仍 fail closed**（predecessor→Principal 映射
+   defer 至 ADR-0031 S1 NEAR lane）；未知键 FC。
 - **`pf.assets` 半绑定（ADR-0029 Phase C2，2026-08-05）**：resolver advertise exact
   `extension.pf-assets` + `effect.synchronous-call`（后者仅覆盖 pf.assets catalog；
   generic 非 catalog sync call 在 Plan 层继续 fail closed）。`pf.assets.native.deposit`
@@ -77,8 +80,8 @@ Phase 1：实现
 
 **明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分，仍不覆盖 corrupt
 storage、bad input 或 gas/profile；Option params、非 UInt64/nested Option、Map/Bytes/nested aggregate
-return 与 ContextRead 仍 fail-closed；formal identity/OutputSet / D6 milestone 未完成。不得写成
-formal runtime-validated。
+return 仍 fail-closed；ContextRead 仅 `unixTimeSeconds` 开放（`caller`/其他键 FC）；
+formal identity/OutputSet / D6 milestone 未完成。不得写成 formal runtime-validated。
 
 ## 1. 身份与来源
 

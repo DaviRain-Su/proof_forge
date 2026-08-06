@@ -31,10 +31,10 @@ payload 中**（5 QN 之二），当前全 target fail closed 于 Plan——toke
 |---|---|---|
 | 代币转入/转出池子 | `pf.assets.token.transfer`（已在 payload） | **E1：四条部署链绑定** |
 | 读自身代币余额（reserves 模式） | `pf.assets.*.balanceOfSelf`（新 env-read） | **E2：payload v1.1.0** |
-| 恒定乘积 x*y≥k | UInt128/256 宽算术 | 已有，不动 |
-| LP 份额 | v1 内部记账（`Map Principal UInt64` state） | 已有；发行真资产（mint）**defer 至 custody/issuance v2** |
-| LP 归属/权限 | `context.caller`（编码已冻结于 ADR-0025） | **E3：Plan 层开放（B-CTX-OPEN）** |
-| TWAP | `context.unixTimeSeconds` + 累积器 | 已有，不动 |
+| 恒定乘积 x*y≥k | UInt128/256 宽算术 | **shared + EVM 全宽已有**；Solana/NEAR **mul 真 schoolbook、div/mod 仍 low64 FC**——E4 Solana 腿需先开 multiword div |
+| LP 份额 | v1 内部记账（`Map Principal UInt64` state） | **shared Wire/Normalize 已 admit Principal map key**；**零 target 物化**（仅 `Map UInt64 UInt64` dense pilot）——E4 前置 target leaf；发行真资产（mint）**defer 至 custody/issuance v2** |
+| LP 归属/权限 | `context.caller`（编码已冻结于 ADR-0025） | **E3 / ADR-0031 S1**：EVM Plan 已开（2026-08-06）；Solana/NEAR/CW leaf in progress |
+| TWAP | `context.unixTimeSeconds` + 累积器 | shared + EVM/NEAR/CW/TON 已开；**Solana ContextRead 全 FC** |
 | 授权扣款 transferFrom | 模型不通用（NEP-141 无 allowance） | **本波不做**（V2 reserves 模式已绕开） |
 | flash swap（先发货+回调） | 动态 callee + 回调 | **本波不做**（破 static-QN 根基，见否决） |
 

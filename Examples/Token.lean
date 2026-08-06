@@ -5,13 +5,13 @@ namespace Examples
 open ProofForgeV2.Language
 
 -- NS-1 fungible token (Map UInt64→UInt64 balances + supply).
--- Account keys are UInt64 ids (not Principal — Principal Map/state is still
--- target-gated outside EVM T10 leaf storage). Transfer/mint use Map IndexGet/Set.
+-- Account keys are UInt64 ids (not Principal — shared admits Map Principal UInt64
+-- but every materializer still only lowers Map UInt64 UInt64; T10/T12 Principal
+-- is scalar storage only). Transfer/mint use Map IndexGet/Set.
 -- Dense Map UInt64→UInt64 pilot (capacity-8 occ/key/val, pure-expr expansion)
 -- on EVM + Solana + NEAR + Noir:
---   * EVM: deployable Yul/bin (solc when locked)
---   * Solana: default plan profile (deployable=false); pure-expr Map exceeds
---     SBPF 4 KiB frame under solana-sbpf-elf-v1 — ELF stays opt-in for non-Map
+--   * EVM: locked-solc finalization (creation bytecode may exceed EIP-3860)
+--   * Solana: default plan profile; MapMini opt-in ELF + Mollusk available
 --   * NEAR: deployable WAT/Wasm (wat2wasm when present)
 --   * Noir: source relations + multi-leaf public inputs (source-only maturity)
 -- Engineering runtime smokes (not formal): scripts/evm_token_anvil_smoke.sh,

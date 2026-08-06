@@ -3,7 +3,7 @@ id: RESEARCH-012
 title: Target Plan/IR/Emitter 覆盖缺口矩阵（工程轨道权威清单）
 status: draft
 owner: engineering
-updated: 2026-08-03
+updated: 2026-08-06
 normative: false
 ---
 
@@ -43,7 +43,7 @@ normative: false
 | stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | LOWERED(H3 flatten) |
 | stateLoad/stateStore（Map） | LOWERED(cap-8; atomic store) | LOWERED(cap-8; aggregate CSE→storeStateMulti；ELF+Mollusk 4/4) | LOWERED(cap-8; atomic KV store) | LOWERED(cap-8; atomic multi-leaf PI) | FAIL-CLOSED | LOWERED(cap-2; atomic mapping store) |
 | stateLoad/stateStore（Bytes） | LOWERED(D4-E2: N×UInt8 leaves) | LOWERED(L2: N×UInt8 leaves) | LOWERED(N×UInt8 KV leaves) | LOWERED(L3: N×UInt8 leaves) | FAIL-CLOSED | LOWERED(Bytes N: N×u8 mappings) |
-| stateLoad/stateStore（Option） | **LOWERED(BL-31: Option UInt64 only)** | **LOWERED(BL-29: Option UInt64 only)** | **LOWERED(BL-30: Option UInt64 only)** | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Option） | **LOWERED(BL-31: Option UInt64 only)** | **LOWERED(BL-29: Option UInt64 only)** | **LOWERED(BL-30: Option UInt64 only)** | **LOWERED(BL-32: Option UInt64 only)** | **LOWERED(BL-36: Option UInt64 only)** | **LOWERED(BL-35: Option UInt64 only)** |
 | stateLoad/stateStore（String） | LOWERED(N4) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（Field bn254） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED(非Goldilocks) | FAIL-CLOSED(非BLS12-377) |
 | stateLoad/stateStore（Field BLS12-377） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | **LOWERED(T14)** |
@@ -53,7 +53,7 @@ normative: false
 | variantTag/variantPayload | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | LOWERED(H3) |
 | indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | LOWERED(H3 flatten) |
 | indexGet/indexSet（Map） | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | FAIL-CLOSED | LOWERED(dense Map cap-2) |
-| indexGet/indexSet（Bytes） | LOWERED(D4-E2) | LOWERED(L2: literal index) | FAIL-CLOSED | LOWERED(L3: compile-time literal index、UInt8 leaf；动态索引 FC) | FAIL-CLOSED | FAIL-CLOSED |
+| indexGet/indexSet（Bytes） | LOWERED(D4-E2) | LOWERED(L2: literal index) | LOWERED(NearAggregate: literal index、UInt8 leaf；动态索引 FC) | LOWERED(L3: compile-time literal index、UInt8 leaf；动态索引 FC) | FAIL-CLOSED | FAIL-CLOSED |
 | fieldAdd/Sub/Mul/Div/Neg（Field） | LOWERED(N2b-EVM bn254) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生 bn254) | **LOWERED(T14 Goldilocks)** | **LOWERED(T14 BLS12-377)** |
 | eq/ne（所有支持类型） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | ordering 比较 | LOWERED(UInt/Int) | LOWERED(UInt/Int) | LOWERED | LOWERED(UInt/Field) | LOWERED | LOWERED |
@@ -63,7 +63,7 @@ normative: false
 | pureCall（fn/localCall） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | emit / revert | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | FAIL-CLOSED emit; bare revert LOWERED |
 | assertOp | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
-| contextRead | FAIL-CLOSED(全target；**EVM caller encoding 已冻结 ADR-0025：`u32le(20)\|\|CALLER`，Plan 未开**) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| contextRead | **LOWERED**(`unixTimeSeconds`→`timestamp()`；`caller`→`u32le(20)\|\|CALLER` 9-leaf Principal，ADR-0031 S1；`blockHeight` 与未知键 FC) | **FAIL-CLOSED**（全 key，含 unixTime；无 Clock sysvar 绑定） | **PARTIAL**（`unixTimeSeconds`→`block_timestamp` ns÷10^9；`caller`/未知键 FC） | FAIL-CLOSED（电路域无锚定时钟/caller） | FAIL-CLOSED | FAIL-CLOSED |
 | commit | LOWERED(身份透传) | LOWERED(身份透传) | LOWERED(身份透传) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(身份透传) |
 | externalCall（sync call） | LOWERED(static QN→CALL；result-bearing UInt64 读 returndata；callee address stub，语义 PARTIAL) | LOWERED(static QN→`sol_invoke_signed_c`；result-bearing UInt64 读 `sol_get_return_data`；空 AccountMeta/外层 callee account 未闭合，语义 PARTIAL) | FAIL-CLOSED | LOWERED(relation slots；语义 PARTIAL) | LOWERED(`__invoke_sync` source；语义 PARTIAL) | FAIL-CLOSED(resolver+plan) |
 | schedule（async） | LOWERED(static QN→同步 CALL+忽略结果；语义 stub) | LOWERED(static QN→`sol_invoke_signed_c`；空 AccountMeta/外层 callee account 未闭合，语义 PARTIAL) | LOWERED(promise；fire-and-forget) | LOWERED(relation slots；语义 PARTIAL) | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
@@ -93,7 +93,8 @@ normative: false
 | named Struct/Enum state + entry/view return | **LOWERED** | ≤8 UInt64/Int64 leaves；execute/query JSON array；aggregate param/pureFn FC |
 | Array/Map state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；atomic KV store |
 | anonymous Array/Option result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64` entry+view；Map/Bytes/nested/非 UInt64 FC |
-| ContextRead / Commit · nonempty invariants · Option/Bytes state · Field/Principal/String interface | **FAIL-CLOSED** | iterator/IBC/migrate/reply entry亦未开 |
+| ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（Env JSON time ns÷10^9）；`caller`/未知键 FC |
+| Commit · nonempty invariants · Bytes state · Field/Principal/String interface | **FAIL-CLOSED** | Option UInt64 state 已 LOWERED（B-OPT-STATE）；iterator/IBC/migrate/reply entry 未开 |
 | 制品 / 验收 | WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 28 tests + wasmd v0.70.3 Docker rung-1 | **非** 主网 / formal / hermetic |
 
 ### TON（`ton-tolk-boc-v1`，label `source-only`）
@@ -109,7 +110,8 @@ normative: false
 | named Struct/Enum state + aggregate view return | **LOWERED** | view multi-stack tuple≤8 leaves；entry aggregate FC |
 | Array/Map/Bytes state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；fixed Bytes N；c4 flatten |
 | anonymous Array/Option view result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64`；entry、Map/Bytes/nested/非 UInt64 FC |
-| ContextRead / Commit · nonempty invariants/constants · Option state · Field/Principal/String interface | **FAIL-CLOSED** | |
+| ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（`blockchain.now()`）；`caller`/未知键 FC |
+| Commit · nonempty invariants/constants · Field/Principal/String interface | **FAIL-CLOSED** | Option UInt64 state 已 LOWERED（B-OPT-STATE） |
 | 制品 / 验收 | Tolk 1.4.2 → `.fif` + real BoC + `@ton/sandbox` 10/10（含 ScheduleFlow） | **非** 主网 / formal / hermetic |
 
 ## 1c. Quint Q0 executable-model 真实范围（第九 materializer）
@@ -148,7 +150,7 @@ normative: false
 | **N-A1** | EVM String match-switch | **已闭合(EvmStringMatch)**：EVM Lower 将 `match String` desugar 为 leaf-wise eq + nested ifThenElse（Plan `switchOn` 仍仅 UInt64 case）；catch-all fallthrough；非 String aggregate switch 与非 String pattern 仍 fail-closed | EVM | EvmStringMatch ✅ |
 | **N-A2** | 多臂同构造器 match 细化 | **已闭合(MultiArmCtor)**：Normalize 允许同外构造器多臂，子模式可区分时 first-match 嵌套 guard（nested ctor→VariantTag eq，nested lit→value eq；fallthrough→outer catch-all 或 trap.unreachable）；结构 pattern key 重复（bind≡wildcard、ctor by vIdx、lit by valueBytes）仍 fail-closed；TypeCheck 同源 duplicate pattern 诊断；六 target 经 sole Normalize 继承 | 全 target | MultiArmCtor ✅ |
 | **N-A3** | Map/Bytes 穿透元素赋值 | **已闭合(MapBytesAssign)**：TypeCheck/Normalize 单步 `m[k]:=v`/`b[i]:=u8` → IndexSet（load→set→store）；Reference 已有 Map/Bytes step。target 覆盖非均匀：EVM Map+Bytes、Solana Map、NEAR Map 与 fixed Bytes state、Noir Map、Aleo Map+Bytes 已部分 LOWERED，Psy 与其余组合按上表 FAIL-CLOSED；五个 Map-capable target 的 aggregate StateStore snapshot hazard 已修。Map 整程序 Reference 仍受 maxMapEntries 保守资源门；**嵌套穿透** `m[k].x:=v` 仍 fail-closed | 全 target Normalize；target 见 op 表 | MapBytesAssign + B-SOL-MAP-UPSERT ✅ |
-| **N-A4** | Option state | **shared 闭合**：Normalize+Reference default none；target follow-up 已开 EVM/Solana/NEAR `Option UInt64` tag+payload state，Noir/Psy/Aleo/Quint/CosmWasm/TON 继续 **FAIL-CLOSED** | 全 target | OptionState ✅ + B-OPT-STATE ongoing |
+| **N-A4** | Option state | **shared 闭合**：Normalize+Reference default none；**B-OPT-STATE 已开八 materializer** `Option UInt64` tag+payload state（EVM/Solana/NEAR/Noir/Aleo/Psy/CosmWasm/TON）；**仅 Quint FC**；Option params/非 UInt64/nested 全 target 仍 FC | 全 target | OptionState ✅ + B-OPT-STATE ✅（Quint residual） |
 
 ### B 组：各 target 的 Plan/IR/emitter 覆盖缺口
 
@@ -158,7 +160,7 @@ normative: false
 |---|---|---|---|
 | **B-1a** | NEAR 聚合与容器 | **闭合（L1 + follow-ups）**：Array UInt、dense Map cap-8、fixed Bytes N、**named Struct/Enum** 与 `Option UInt64` state 已 flatten-to-KV（construct/fieldGet/fieldSet/variant ops + atomic storeAtomic；HostModel 端到端）；named 与 anonymous Array/Option ≤8-leaf aggregate return 已由 B-RET-ABI/N-ANON-RESULT 开放 | NearAggregate + NS-1 + Bytes + L1 + BL-30 |
 | **B-1b** | Noir named 聚合 | **闭合(NoirAggregate + L3)**：named Struct/Enum + **Map UInt64 dense pilot**（cap-8 occ/key/val multi-leaf PI + IndexGet→Option + IndexSet；`storeAggregate` 两阶段 snapshot 与 empty-upsert relation model）+ **Array UInt64 state flatten** + **fixed Bytes N**（N×UInt8 leaves、literal IndexGet/Set、atomic store）；Bytes construct/param/动态索引与 Option/String state 仍 FAIL-CLOSED | NoirAggregate + NoirMap + NoirContainer + MapSnapshot + L3 ✅ |
-| **B-1c** | Aleo 全功能 | **AleoCoverage + H3/NS-1/Bytes/Int64/T14 + G123**：标量、named Struct/Enum、Array、dense Map cap-2、fixed Bytes N、Commit 身份透传与 **BLS12-377 Fr** 已 LOWERED；Map aggregate StateStore 以 get-all-before-set two-phase 修复 empty upsert。bn254/Goldilocks、Option state/Principal/String/ContextRead/externalCall/schedule/emit 仍 FAIL-CLOSED。Leo 4.0.2 已进入两平台 Tool Lock，`AleoAcceptance` 做 compile-only 验收；无 VM/prove/deploy 门 | AleoCoverage + T14 + MapSnapshot + G123 ✅ |
+| **B-1c** | Aleo 全功能 | **AleoCoverage + H3/NS-1/Bytes/Int64/T14 + G123 + BL-35**：标量、named Struct/Enum、Array、dense Map cap-2、fixed Bytes N、**Option UInt64 state**、Commit 身份透传与 **BLS12-377 Fr** 已 LOWERED；Map aggregate StateStore 以 get-all-before-set two-phase 修复 empty upsert。bn254/Goldilocks、Option params/nested/Principal/String/ContextRead/externalCall/schedule/emit/pf.assets 仍 FAIL-CLOSED。Leo 4.0.2 已进入两平台 Tool Lock，`AleoAcceptance` 做 compile-only 验收；无 VM/prove/deploy 门 | AleoCoverage + T14 + MapSnapshot + G123 + B-OPT-STATE ✅ |
 | **B-1d** | Solana Map/Bytes/Option state | **Map pilot + L2 + BL-29 已闭合**：Map 已进 ELF+Mollusk；named Struct/Enum、fixed Bytes N 与 `Option UInt64` state 已 flatten；`storeAggregate` structural CSE + `storeStateMulti` 固定 pre-store snapshot，峰值 177 temp/1424B，`put_into_empty` 已解除 ignore；Option state 6 项 Mollusk 通过；Option params/非 UInt64/nested、Bytes construct 与动态索引仍 FAIL-CLOSED | SolanaMapPilot + B-SOL-MAP-ELF + B-SOL-MAP-UPSERT + L2 + BL-29 ✅ |
 | **B-1e** | EVM Map/Bytes/Option state | **闭合(Map pilot + BL-31)**：Array + Bytes + **Map UInt64 cap-8** + `Option UInt64` state 进入 locked-solc engineering finalization（`deployable=true` 仅为制品标志；258460 B Token creation bytecode 超 EIP-3860，无 chain/Anvil deploy 声明）；aggregate `storeAtomic` 保证 leaf Expr/sload 全先于 sstore；Option params/非 UInt64/nested 仍 FC | EvmMapPilot + MapSnapshot + B-EVM-MAP-STACK + BL-31 ✅ |
 
@@ -170,7 +172,7 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **B-3** | Principal→address 映射 | **已闭合为 FAIL-CLOSED 研究钉（PrincipalAddr, 2026-08-02）** + **AddressBearing followup：EVM static-callee open；Solana legacy 已 #111 fail closed（2026-08-03）** + **T10 EVM Principal storage pilot（2026-08-02）** + **T12 Solana/NEAR/Noir Principal storage pilot（2026-08-02）** + **EVMOZ-003 / ADR-0025（2026-08-03）冻结 EVM `context.caller` encoding，不改 B-3 pin**。Principal valueBytes = `u32le(len)\|body`（`1≤len≤4096`）共享 wire **不变**；**无** approximate 任意 Principal→address 映射，**无** Address TypeShape。ADR-0025 规定：未来 EVM ContextRead caller 结果 **仅** `u32le(20)\|\|CALLER`（network-order 20B）；**当前六 target ContextRead Plan 仍 FAIL-CLOSED**；不解锁 Solidity `address` ABI / dynamic CALL / Ownable F01。T10/T12 在 EVM/Solana/NEAR/Noir 开放 **wire identity 原样 leaf 存储**（`pilotPrincipalPolicyAdmit`；len+8×UInt64，≤64B body，与 N4 String 同构；非 20B address / 32B pubkey / account-id / Field）；Aleo/Psy 保持 `pilotPrincipalPolicyNone`。产品 `call`/`schedule` 为 wire `Op.ExternalCall`/`Schedule` 的 **static `QualifiedName` callee**（非 ValueId 地址）。AddressBearing 打开 EVM/Solana 双 call 键：EVM Plan `externalCall`/`schedule` → Yul `CALL` 至 `keccak256(targetPath)` 后 20 字节 + method selector；Solana Plan/IR `externalCall`/`schedule` → program id = SHA-256(targetPath) 32B，plan 文本 `external_call`/`schedule`，SBPF 以 `sol_log_data` 观测桩（完整 `invoke_signed` CPI 需 account metas，另排）。NEAR 仍拒 sync；Noir 七键不变 | PrincipalAddr ✅ + AddressBearing ✅ + T10/T12 storage ✅ + ADR-0025 encoding ✅（Plan open 见 B-CTX-OPEN） |
+| **B-3** | Principal→address 映射 | **已闭合为 FAIL-CLOSED 研究钉（PrincipalAddr, 2026-08-02）** + **AddressBearing followup：EVM static-callee open；Solana legacy 已 #111 fail closed（2026-08-03）** + **T10 EVM Principal storage pilot（2026-08-02）** + **T12 Solana/NEAR/Noir Principal storage pilot（2026-08-02）** + **EVMOZ-003 / ADR-0025（2026-08-03）冻结 EVM `context.caller` encoding，不改 B-3 pin**。Principal valueBytes = `u32le(len)\|body`（`1≤len≤4096`）共享 wire **不变**；**无** approximate 任意 Principal→address 映射，**无** Address TypeShape。ADR-0025 规定：EVM ContextRead caller 结果 **仅** `u32le(20)\|\|CALLER`（network-order 20B）；**2026-08-06 S1-EVM Plan 已开**（`callerPrincipalWord` + Anvil/corpus）；**非均匀 ContextRead** 见 §1 `contextRead` 行（EVM unixTime+caller；NEAR/CW/TON unixTime；Solana/Noir/Psy/Aleo 全 FC）；不解锁 Solidity `address` ABI / dynamic CALL / Ownable F01 全 OZ 信用。T10/T12 在 EVM/Solana/NEAR/Noir 开放 **wire identity 原样 leaf 存储**（`pilotPrincipalPolicyAdmit`；len+8×UInt64，≤64B body，与 N4 String 同构；非 20B address / 32B pubkey / account-id / Field）；Aleo/Psy 保持 `pilotPrincipalPolicyNone`。产品 `call`/`schedule` 为 wire `Op.ExternalCall`/`Schedule` 的 **static `QualifiedName` callee**（非 ValueId 地址）。AddressBearing 打开 EVM/Solana 双 call 键：EVM Plan `externalCall`/`schedule` → Yul `CALL` 至 `keccak256(targetPath)` 后 20 字节 + method selector；Solana Plan/IR `externalCall`/`schedule` → program id = SHA-256(targetPath) 32B，plan 文本 `external_call`/`schedule`，SBPF 以 `sol_log_data` 观测桩（完整 `invoke_signed` CPI 需 account metas，另排）。NEAR 仍拒 sync；Noir 七键不变 | PrincipalAddr ✅ + AddressBearing ✅ + T10/T12 storage ✅ + ADR-0025 encoding ✅（Plan open 见 B-CTX-OPEN） |
 
 #### B-4：验收门升级（= C 组）
 
@@ -210,7 +212,7 @@ normative: false
 ### Phase F（B-3 + C 组，可并行）
 - **PrincipalAddr**（B-3）：**已闭合为 FAIL-CLOSED 研究钉** — wire Principal ≠ EVM/Solana 固定地址 type；见 §B-3
 - **AddressBearing**（B-3 followup）：**EVM static-callee open；Solana legacy 已 #111 fail closed** — research 确认 callee 为 static QN 非 dynamic address；EVM resolver 七键 + Plan/IR/emitter 打开；Solana legacy 删除双 call 键且 Plan/IR/SBPF 拒绝旧节点；真实 CPI 见 epic #110；任意 Principal→address 仍 fail closed
-- **EVMOZ-003 / ADR-0025 EVM caller encoding**：**encoding 决策已 accepted** — 未来 EVM `context.caller` = `u32le(20)||CALLER`；shared wire 不变；**Plan 仍 FAIL-CLOSED** 至原子 cutover；不解锁 address ABI / Ownable F01 / 他 target
+- **EVMOZ-003 / ADR-0025 EVM caller encoding**：**encoding 决策已 accepted** — EVM `context.caller` = `u32le(20)||CALLER`；shared wire 不变；**S1-EVM Plan 已原子 cutover（2026-08-06）**；不解锁 address ABI / Ownable F01 全 OZ 信用 / 他 target 自动镜像
 - **T10 EVM Principal storage**：**已闭合** — EVM `pilotPrincipalPolicyAdmit` + N4-isomorphic leaf storage（len+8×UInt64）；params/state/eq/ne；非 address；多宽 return 仍 fail closed
 - **T12 NEAR/Solana/Noir Principal storage**：**已闭合** — 三 target `pilotPrincipalPolicyAdmit` + 同构 9-leaf layout（Solana account pitch / NEAR 9×KV / Noir 9×u64 inputs）；params/state/eq/ne；非 pubkey/account-id/Field；多宽 return 仍 fail closed；Aleo/Psy 仍 fail closed
 - **NearWasmAcceptance**（C-1）：**已闭合工程子集** — `Tests/Materialization/NearWasmAcceptance.lean`；locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` runtime-load 门

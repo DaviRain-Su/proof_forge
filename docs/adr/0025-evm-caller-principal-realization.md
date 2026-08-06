@@ -3,7 +3,7 @@ id: ADR-0025
 title: EVM context.caller Principal realization（encoding contract）
 status: accepted
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-06
 normative: true
 approvers: architecture-owner, davirain, quality-owner
 approvedAt: 2026-08-03
@@ -16,10 +16,15 @@ openFindings: none
 
 ## 状态
 
-**accepted** — 本 ADR **仅接受并冻结 encoding / product contract**。
-EVM Plan/IR/Yul 物化、Anvil/Reference 差分、Ownable 行为与 OZ/ABI/formal/release
-claim **均未实现、不因本 ADR 成立**。实现必须在后续 target-owned 原子 cutover
-中完成；在 cutover 前产品路径继续对 `ContextRead` fail closed。
+**accepted** — 本 ADR **冻结 encoding / product contract**（不因 encoding 自动升格
+OZ/ABI/formal/release claim）。
+
+**实现进度（2026-08-06 DOC-SYNC）**：EVM target-owned Plan/IR/Yul **已原子 cutover**
+（ADR-0031 S1 / `callerPrincipalWord` + Anvil `CallerCheck` + corpus
+`pf.primitive.ownablelike.caller-admit.v1`）。**仍未**因 cutover 解锁 Solidity
+`address` ABI、indexed ownership event、OZ F01 family Partial、或他 target 自动镜像。
+他 target ContextRead 仍各自 fail closed 或仅开 unixTime（见
+`docs/research/12-target-coverage-matrix.md`）。
 
 ## 背景
 
@@ -36,10 +41,10 @@ claim **均未实现、不因本 ADR 成立**。实现必须在后续 target-own
 - EVM T10 将 Principal **state/param** 以 `len + 8×UInt64` leaf 原样存 wire identity
   （≤64B body）；**不是** 20-byte address ABI，也不把 CALL 目标解为 Principal ValueId
   （B-3 PrincipalAddr pin + AddressBearing static QN）。
-- EVM `LowerSemanticV1` 对 `context.caller` / `unix-time-seconds` **显式 fail closed**
-  （注释钉死：naive `caller()` 会把 20B address 泄漏进 Principal slot，违反
-  PrincipalAddr pin）。B-ctx：各 target ContextRead Plan 均为 FAIL-CLOSED（不依赖
-  implemented 计数）。
+- **历史（cutover 前）**：EVM `LowerSemanticV1` 曾对 `context.caller` /
+  `unix-time-seconds` 显式 fail closed（naive bare `caller()` 会把 20B address
+  泄漏进 Principal slot，违反 PrincipalAddr pin）。**2026-08-06 后**：二者均已
+  LOWERED（caller → 本 ADR encoding；unixTime → `timestamp()`）。
 
 OpenZeppelin 审计（`docs/research/17-openzeppelin-ethereum-coverage-audit.md`）将
 **EVM address/caller 精确关系**列为 P0 产品决策门；F01 Ownable 在 caller 物化前保持
@@ -105,19 +110,18 @@ CALL 目标继续遵循既有 AddressBearing：**static QualifiedName** →
 Ownable F01 **仍为 Blocked**，直到后续实现 cutover **且** 审计文档独立批准的
 behavior / observation 条件满足（本 ADR 不改 family status 表）。
 
-### 5. 当前工程状态（cutover 前）
+### 5. 当前工程状态（2026-08-06 DOC-SYNC）
 
 | 层 | 状态 |
 |---|---|
 | Source / Typed / Normalize / Wire / Requirements | 已支持 `context.caller` → Principal ContextRead |
 | Reference invocation | 已要求 context 提供 canonical Principal valueBytes；**不** 绑定 EVM 20B |
-| EVM Plan/IR/Yul | **继续 fail closed**（`LowerSemanticV1` 显式 planInvariant） |
-| 全部 target 的 ContextRead Plan | **继续 fail closed**（EVM 亦然；非 EVM materializer 各自等待 target-owned 决策与原子 cutover。B-ctx 钉测覆盖现有 materialize decline 路径；CosmWasm/TON 等 registry 或 source-only 身份 **不** 因本表获得 ContextRead/制品 maturity 升格） |
+| EVM Plan/IR/Yul | **LOWERED**：`callerPrincipalWord` 九叶 + Yul `byte(_, caller())` 装配；ValidatePlan/IR + Anvil/corpus 正向/负向 |
+| 他 target ContextRead Plan | **非均匀**（NEAR/CW/TON unixTime OPEN；Solana/Noir/Psy/Aleo/Quint ContextRead 全 FC；Solana/NEAR/CW caller 仍 FC） |
 | T10 Principal state/param storage | **不变**（wire identity leaf；≠ address ABI） |
+| Ownable / OZ / address ABI | **仍非本 ADR 解锁**：F01 OZ family 仍 Blocked 于标准 address ABI/event 与 pinned OZ leg |
 
-后续实现必须 **原子** 交付：target-owned Plan schema/Expr（若需）、IR/Yul
-`caller()` → 上述 valueBytes 装配、ValidatePlan/IR、产品负向/正向测试与（若宣称
-runtime）Anvil 差分。禁止半开 surface 或 best-effort。
+实现纪律：禁止半开 surface 或 best-effort；偏离本 encoding 的第二拼写 fail closed。
 
 ### 6. Reference invocation、equality 与跨 target 非均匀 capability
 

@@ -256,12 +256,15 @@ inductive Statement where
   | assert (condition : Expr)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
   | revertError (errorIndex : Nat) (args : Array Expr)
-  /-- Reserved legacy node. `validatePlan` rejects it for both shipped profiles;
-      the future CPI profile uses a versioned account/callee contract instead. -/
+  /-- Reserved legacy node. `validatePlan` rejects it for both shipped **legacy**
+      profiles (`solana-sbpf-plan-v1` / `solana-sbpf-elf-v1`). Real sync CPI is
+      product-activated only on opt-in `solana-sbpf-cpi-elf-v1` via the separate
+      CPI product Plan path (#125), not this legacy AST node. -/
   | externalCall (callee : Array String) (args : Array Expr)
   /-- Reserved legacy node (N-CALL-RET). Rejected for shipped legacy profiles. -/
   | externalCallResult (callee : Array String) (args : Array Expr) (resultTemp : Nat)
-  /-- Reserved legacy node. Solana scheduling remains unsupported on legacy profiles. -/
+  /-- Reserved legacy node. Solana scheduling remains unsupported (async FC on
+      all profiles including CPI product). -/
   | schedule (callee : Array String) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
@@ -460,13 +463,14 @@ def accessFor (account : StateAccount) (mode : HandlerMode) : AccountAccess := {
 
 /-! ### Retained SemanticProgramV1 public-UInt64 Plan lowering
 
-The Solana pilot lowers public-UInt64 state, checked arith/bitwise/shift,
-Bool compare/logical, bare assert, emit/revert, pureFn localCall, if/match
-regions, bounded for, and **static-callee** external call / schedule
-(AddressBearing followup). Wire `Op.ExternalCall`/`Op.Schedule` take a
-compile-time `QualifiedName` (not a ValueId address); program id is the
-first 32 bytes of SHA-256(UTF-8 target path). B-3 Principal remains
-fail-closed (u32-prefixed variable-length identity ≠ 32-byte pubkey). -/
+The Solana pilot (legacy profiles) lowers public multi-width state, checked
+arith/bitwise/shift, Bool compare/logical, bare assert, emit/revert, pureFn
+localCall, if/match regions, and bounded for. **Legacy externalCall/schedule
+nodes are fail-closed** (#111 honesty): SHA-256(QN)→program-id stubs are not
+emitted. Real multi-account CPI is only on opt-in `solana-sbpf-cpi-elf-v1`
+(catalog-owned static QN + explicit roles/PDA; #125 product activation).
+B-3 Principal remains storage-identity only (u32-prefixed body ≠ 32-byte pubkey).
+ContextRead is fail-closed on this pilot (no Clock sysvar binding). -/
 
 /-- Solana pilot type-closure carrier (shared `PilotTypeClosureV1`).
     Body multi-width admits UInt8/16/32/64; state/params admit
