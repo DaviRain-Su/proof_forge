@@ -211,6 +211,19 @@ inductive CpiEscrowBodyOpV1 where
       (tempId : Nat) (kind : EnvReadKindV1)
       (vaultLocal : Nat)
       (vaultAtaLocal mintLocal systemLocal tokenLocal ataLocal : Nat)
+  /-- ADR-0031 S1: context.caller site-time is_signer check on pf_caller, then
+      materialize Principal canonical wire `u32le(32)||pubkey32` into 9
+      consecutive temps at `baseTemp..baseTemp+8` (len + 8×UInt64 LE body;
+      high 32 body bytes zero). Not tx.origin — ABI-specified signer role only. -/
+  | contextReadCaller (baseTemp : Nat) (callerLocal : Nat)
+  /-- ADR-0031 S1: Principal leaf-wise equality over two 9-temp bases
+      (context.caller↔context.caller or other materialized Principals).
+      Writes Bool-as-UInt64 0/1 to dstTemp. -/
+  | principalLeafEq (dstTemp leftBaseTemp rightBaseTemp : Nat)
+  /-- ADR-0031 S1: Principal leaf-wise equality of a 9-temp base against a
+      T12 ix-data Principal at `rightIxOffset` (9×UInt64 LE). Avoids a second
+      9-temp materialization so isMe stays within escrowMaxTempsV1. -/
+  | principalLeafEqIx (dstTemp leftBaseTemp rightIxOffset : Nat)
   | returnU64 (srcTemp : Nat)
   | returnNone
   deriving BEq, Repr, Inhabited
@@ -337,6 +350,16 @@ private def isAnonUnit
       decl.name.isNone &&
         match decl.shape with
         | .unit => true
+        | _ => false
+  | none => false
+
+private def isAnonBool
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match types[typeId.toNat]? with
+  | some decl =>
+      decl.name.isNone &&
+        match decl.shape with
+        | .bool => true
         | _ => false
   | none => false
 
@@ -624,9 +647,15 @@ private def projectEntryGlobalOps
     ops := ops.push (.checkEffectiveWritable i (effectiveWritable handle))
   pure (bindings, ops)
 
-/-- Non-Principal public params → packed probe offsets in declaration order. -/
+/-- Public params → packed probe offsets in declaration order.
+    Width encoding: 64 = UInt64 (8B), 8 = UInt8 (1B), 0 = Principal T12
+    (9×UInt64 LE leaves = len + 8 body words, 72B).
+    `accountBoundPrincipalOrds` lists Principal params that are CPI
+    account-bound roles (ADR-0028); those stay out of ix data. Ordinary
+    Principal params (ADR-0031 S1 comparison peers) pack as T12 leaves. -/
 private def buildParamIxLayout
-    (types : Array TypeDeclV1) (callable : CallableV1) :
+    (types : Array TypeDeclV1) (callable : CallableV1)
+    (accountBoundPrincipalOrds : Array Nat) :
     CompileResult (Array (Nat × Nat × Nat) × Nat) := do
   let mut layout : Array (Nat × Nat × Nat) := #[]
   let mut offset : Nat := 8
@@ -634,7 +663,13 @@ private def buildParamIxLayout
     unless p.visibility == VisibilityV1.public_ do
       tFail "Escrow CPI IR requires public parameters only"
     if isAnonPrincipal types p.typeId then
-      pure ()
+      if accountBoundPrincipalOrds.any (· == ord) then
+        -- CPI meta / seed account-bound Principal: identity is account key.
+        pure ()
+      else
+        -- T12 Principal: 9×UInt64 leaves (ADR-0031 S1 / T12 identity ABI).
+        layout := layout.push (ord, offset, 0)
+        offset := offset + 72
     else if anonUintWidth? types p.typeId == some 64 then
       layout := layout.push (ord, offset, 64)
       offset := offset + 8
@@ -1261,6 +1296,7 @@ private def projectEscrowHandler
     (handles : Array CpiIRRoleHandleV1)
     (sites : Array CpiIRSiteV1)
     (envReadSites : Array EnvReadSitePlanV1)
+    (contextReadSites : Array ContextReadSitePlanV1)
     (stateSchemas : Array StateSchemaV1) :
     CompileResult CpiEscrowHandlerIRV1 := do
   let _tokenPkg ← requireEscrowTokenPackage
@@ -1286,18 +1322,46 @@ private def projectEscrowHandler
     validateEscrowSiteShape site
 
   let blk ← requireStraightLineCallable callable
-  let (paramLayout, probeIxDataLen) ← buildParamIxLayout data.types callable
+  -- Collect Principal params that are CPI account-bound (skip T12 ix packing).
+  let mut accountBoundPrincipalOrds : Array Nat := #[]
+  for h in handles do
+    match h.keyPolicy with
+    | .accountParameter cid pord =>
+        if cid == planHandler.callableId then
+          let p ← getArr callable.params pord "callable.params"
+          if isAnonPrincipal data.types p.typeId then
+            unless accountBoundPrincipalOrds.any (· == pord) do
+              accountBoundPrincipalOrds := accountBoundPrincipalOrds.push pord
+    | _ => pure ()
+  let (paramLayout, probeIxDataLen) ←
+    buildParamIxLayout data.types callable accountBoundPrincipalOrds
   let (bindings, entryGlobalOps) ←
     projectEntryGlobalOps abi planHandler.mode handles stateSchemas
 
   let mut tempOf : Array (Nat × Nat) := #[]
   let mut nextTemp : Nat := 0
   let mut body : Array CpiEscrowBodyOpV1 := #[]
+  -- ADR-0031 S1: Principal ValueId → either a 9-temp base (context.caller
+  -- materialization) or a T12 ix-data offset (ordinary Principal param).
+  let mut principalBaseOf : Array (Nat × Nat) := #[]
+  let mut principalIxOf : Array (Nat × Nat) := #[]
 
   let lookupTemp (table : Array (Nat × Nat)) (vid : Nat) : Option Nat :=
     Id.run do
       for (v, t) in table do
         if v == vid then return some t
+      return none
+
+  let lookupPrincipalBase (table : Array (Nat × Nat)) (vid : Nat) : Option Nat :=
+    Id.run do
+      for (v, base) in table do
+        if v == vid then return some base
+      return none
+
+  let lookupPrincipalIx (table : Array (Nat × Nat)) (vid : Nat) : Option Nat :=
+    Id.run do
+      for (v, off) in table do
+        if v == vid then return some off
       return none
 
   let allocTemp (table : Array (Nat × Nat)) (next : Nat) (vid : Nat) :
@@ -1310,13 +1374,19 @@ private def projectEscrowHandler
 
   for (ord, off, w) in paramLayout do
     let p ← getArr callable.params ord "callable.params"
-    let (t, tempOf', next') := allocTemp tempOf nextTemp p.valueId.toNat
-    tempOf := tempOf'
-    nextTemp := next'
-    if w == 64 then
-      body := body.push (.loadParamU64 t off)
+    if w == 0 then
+      -- T12 Principal: record ix offset only (lazy). Materialize into temps
+      -- only if a non-eq consumer appears (none in this slice); eq uses
+      -- principalLeafEqIx against the ix offset to stay within temp budget.
+      principalIxOf := principalIxOf.push (p.valueId.toNat, off)
     else
-      body := body.push (.loadParamU8 t off)
+      let (t, tempOf', next') := allocTemp tempOf nextTemp p.valueId.toNat
+      tempOf := tempOf'
+      nextTemp := next'
+      if w == 64 then
+        body := body.push (.loadParamU64 t off)
+      else
+        body := body.push (.loadParamU8 t off)
 
   let stateInfo? : Option (Nat × StateSchemaV1) :=
     Id.run do
@@ -1425,8 +1495,51 @@ private def projectEscrowHandler
             tempOf := tempOf'
             nextTemp := next'
             body := body.push (.checkedAddU64 t l r)
+        | BinaryOpV1.eq =>
+            -- ADR-0031 S1: Principal leaf-wise equality (Bool as UInt64 0/1).
+            let lhsTy ← match typeOfValueId? callable lhs with
+              | some t => pure t
+              | none => tFail s!"principalEq lhs ValueId {lhs} has no type"
+            let rhsTy ← match typeOfValueId? callable rhs with
+              | some t => pure t
+              | none => tFail s!"principalEq rhs ValueId {rhs} has no type"
+            unless isAnonPrincipal data.types lhsTy &&
+                isAnonPrincipal data.types rhsTy &&
+                isAnonBool data.types vd.typeId do
+              tFail
+                "Escrow CPI IR admits only Principal == Principal → Bool (principalLeafEq)"
+            let (t, tempOf', next') := allocTemp tempOf nextTemp vd.valueId.toNat
+            tempOf := tempOf'
+            nextTemp := next'
+            -- Prefer temp-base vs ix (isMe: context.caller vs T12 who) so we
+            -- stay within escrowMaxTempsV1 (9 + 1 ≤ 16). Two temp bases or
+            -- two ix offsets are also admitted.
+            let lBase? := lookupPrincipalBase principalBaseOf lhs.toNat
+            let rBase? := lookupPrincipalBase principalBaseOf rhs.toNat
+            let lIx? := lookupPrincipalIx principalIxOf lhs.toNat
+            let rIx? := lookupPrincipalIx principalIxOf rhs.toNat
+            match lBase?, rBase?, lIx?, rIx? with
+            | some lb, some rb, _, _ =>
+                body := body.push (.principalLeafEq t lb rb)
+            | some lb, none, _, some ro =>
+                body := body.push (.principalLeafEqIx t lb ro)
+            | none, some rb, some lo, _ =>
+                -- eq is symmetric; compare right base vs left ix
+                body := body.push (.principalLeafEqIx t rb lo)
+            | none, none, some lo, some ro =>
+                -- Two T12 params: materialize left into temps, compare to right ix.
+                let base := nextTemp
+                nextTemp := nextTemp + 9
+                principalBaseOf := principalBaseOf.push (lhs.toNat, base)
+                for i in [0:9] do
+                  body := body.push (.loadParamU64 (base + i) (lo + i * 8))
+                body := body.push (.principalLeafEqIx t base ro)
+            | _, _, _, _ =>
+                tFail
+                  s!"principalEq ValueIds {lhs}/{rhs} lack Principal base or ix binding"
         | _ =>
-            tFail "Escrow CPI IR first slice admits only checked UInt64 add in body"
+            tFail
+              "Escrow CPI IR first slice admits only checked UInt64 add or Principal eq in body"
     | .envRead key args =>
         let some vd := instr.result |
           tFail "envRead must produce a result"
@@ -2270,6 +2383,33 @@ private def projectEscrowHandler
             pdaRule := some "ata-classic-v1"
             accountInfoCount := handles.size
           })
+    | .contextRead key =>
+        let some vd := instr.result |
+          tFail "contextRead must produce a result"
+        unless key == callerContextKeyV1 do
+          if key == unixTimeSecondsContextKeyV1 then
+            tFail
+              "Escrow CPI IR rejects context.unixTimeSeconds (Clock sysvar binding deferred)"
+          else
+            tFail s!"Escrow CPI IR rejects unknown ContextRead key '{key.value}'"
+        unless isAnonPrincipal data.types vd.typeId do
+          tFail "context.caller result must be anonymous Principal"
+        -- Find matching Plan contextRead site by Semantic anchor.
+        let ctxSite ← match contextReadSites.find? (fun s =>
+          s.anchor.callableId == planHandler.callableId &&
+            s.anchor.blockId == blk.id.toNat &&
+            s.anchor.instructionIndex == instrIdx) with
+        | some s => pure s
+        | none =>
+            tFail
+              s!"contextRead at instr {instrIdx} has no matching contextRead site anchor"
+        let callerLocal ← localIndexOfRole handles ctxSite.callerRoleId
+        -- Materialize Principal wire into 9 consecutive temps.
+        let base := nextTemp
+        nextTemp := nextTemp + 9
+        tempOf := tempOf.push (vd.valueId.toNat, base)
+        principalBaseOf := principalBaseOf.push (vd.valueId.toNat, base)
+        body := body.push (.contextReadCaller base callerLocal)
     | .constant _cid =>
         tFail "Escrow CPI IR rejects Op.Constant (constants table support deferred)"
     | .unary .. =>
@@ -2278,18 +2418,25 @@ private def projectEscrowHandler
         tFail "Escrow CPI IR rejects pureCall in first slice"
     | .construct .. | .fieldGet .. | .fieldSet .. | .indexGet .. | .indexSet ..
     | .variantTag .. | .variantPayload .. | .checkedCast ..
-    | .contextRead .. | .commit .. | .assert_ .. | .emit .. | .schedule .. =>
+    | .commit .. | .assert_ .. | .emit .. | .schedule .. =>
         tFail "Escrow CPI IR rejects unsupported body op in first slice"
 
   match blk.terminator with
   | .return_ none =>
       body := body.push .returnNone
   | .return_ (some vid) =>
-      if isAnonUnit data.types (← match typeOfValueId? callable vid with
-          | some t => pure t
-          | none => tFail "return value has no type") then
+      let retTy ← match typeOfValueId? callable vid with
+        | some t => pure t
+        | none => tFail "return value has no type"
+      if isAnonUnit data.types retTy then
         body := body.push .returnNone
       else
+        -- UInt64 and Bool (ADR-0031 S1 principalLeafEq result as 0/1) share
+        -- returnU64 packing.
+        unless anonUintWidth? data.types retTy == some 64 ||
+            isAnonBool data.types retTy do
+          tFail
+            "Escrow CPI IR admits only UInt64/Bool/Unit return values"
         let src ← match lookupTemp tempOf vid.toNat with
           | some t => pure t
           | none =>
@@ -2376,8 +2523,10 @@ private def projectEscrowCandidateFromPlan
       tFail "handler site order must equal Plan cpiSiteIds"
     let envReadSites := plan.candidate.envReadSites.filter
       (fun s => s.handlerId == h.handlerId)
+    let contextReadSites := plan.candidate.contextReadSites.filter
+      (fun s => s.handlerId == h.handlerId)
     let projected ← projectEscrowHandler abi data h handles sites envReadSites
-      plan.candidate.stateSchemas
+      contextReadSites plan.candidate.stateSchemas
     handlers := handlers.push projected
   pure {
     schema := irSchema
@@ -2523,6 +2672,10 @@ private def renderBodyOp : CpiEscrowBodyOpV1 → String
   | .invokeEscrow inv => renderInvoke inv
   | .envReadVaultBalance t kind vault vaultAta mint sys tok ata =>
       s!"envReadVaultBalance:{t}:{renderEnvReadKind kind}:vault{vault}:ata{vaultAta}:mint{mint}:sys{sys}:tok{tok}:ata{ata}"
+  | .contextReadCaller baseTemp callerLocal =>
+      s!"contextReadCaller:base{baseTemp}:local{callerLocal}"
+  | .principalLeafEq t l r => s!"principalLeafEq:{t}:base{l}:base{r}"
+  | .principalLeafEqIx t l off => s!"principalLeafEqIx:{t}:base{l}:ix{off}"
   | .returnU64 t => s!"returnU64:{t}"
   | .returnNone => "returnNone"
 

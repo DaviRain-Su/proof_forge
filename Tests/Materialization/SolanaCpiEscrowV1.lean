@@ -546,6 +546,9 @@ unsafe def run : IO Unit := do
       | .stateStoreU64 li o s wm m => .stateStoreU64 li o s wm m
       | .envReadVaultBalance t k v va m s tk a =>
           .envReadVaultBalance t k v va m s tk a
+      | .contextReadCaller base li => .contextReadCaller base li
+      | .principalLeafEq t l r => .principalLeafEq t l r
+      | .principalLeafEqIx t l o => .principalLeafEqIx t l o
       | .returnU64 t => .returnU64 t
       | .returnNone => .returnNone
   let vaultH' : CpiEscrowHandlerIRV1 := {
@@ -627,6 +630,9 @@ unsafe def run : IO Unit := do
       | .stateStoreU64 li o s wm m => .stateStoreU64 li o s wm m
       | .envReadVaultBalance t k v va m s tk a =>
           .envReadVaultBalance t k v va m s tk a
+      | .contextReadCaller base li => .contextReadCaller base li
+      | .principalLeafEq t l r => .principalLeafEq t l r
+      | .principalLeafEqIx t l o => .principalLeafEqIx t l o
       | .returnU64 t => .returnU64 t
       | .returnNone => .returnNone
   let vaultH2 : CpiEscrowHandlerIRV1 := {

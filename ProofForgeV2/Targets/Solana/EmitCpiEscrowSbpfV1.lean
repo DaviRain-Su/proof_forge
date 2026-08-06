@@ -2389,6 +2389,69 @@ private def emitBodyOp
       systemLocal tokenLocal ataLocal =>
       emitEnvReadVaultBalance b0 tempId kind vaultLocal vaultAtaLocal mintLocal
         systemLocal tokenLocal ataLocal labSuffix
+  | .contextReadCaller baseTemp callerLocal =>
+      -- ADR-0031 S1: site-time is_signer on pf_caller (ABI-specified signer
+      -- role; NOT tx.origin), then materialize Principal wire
+      -- u32le(32)||pubkey32 into 9 temps at baseTemp (len + 8×UInt64 LE;
+      -- high 32 body bytes zero). ROLE_FLAGS low byte = is_signer (0/1).
+      pure <| Id.run do
+        let mut b := b0
+        b := emit b s!"  ; --- contextReadCaller: base={baseTemp} local={callerLocal} (pf_caller signer; not tx.origin) ---"
+        b := emitRoleSlotAddr b callerLocal
+        b := emit b "  ldxdw r1, [r2 + ROLE_FLAGS]"
+        b := emit b "  and64 r1, 0xff"
+        b := emit b "  jne r1, 1, err_shape              ; is_signer required"
+        b := emit b "  ldxdw r6, [r2 + ROLE_KEY]         ; r6 = pubkey32 ptr"
+        -- leaf0 = length 32
+        b := emit b "  lddw r3, 32"
+        b := emitStoreTemp b baseTemp "r3"
+        -- leaf1..4 = 4×u64 LE pubkey words; leaf5..8 = 0
+        for word in [0:4] do
+          b := emit b s!"  ldxdw r3, [r6 + {word * 8}]"
+          b := emitStoreTemp b (baseTemp + 1 + word) "r3"
+        for word in [4:8] do
+          b := emit b "  lddw r3, 0"
+          b := emitStoreTemp b (baseTemp + 1 + word) "r3"
+        pure b
+  | .principalLeafEq dstTemp leftBase rightBase =>
+      -- Leaf-wise equality of two Principal 9-temp bases (context.caller wire).
+      -- Result Bool-as-UInt64 0/1. Exact wire identity compare.
+      pure <| Id.run do
+        let mut b := b0
+        let eqLab := s!"pleq_eq_{labSuffix}"
+        let doneLab := s!"pleq_done_{labSuffix}"
+        b := emit b s!"  ; --- principalLeafEq: dst={dstTemp} leftBase={leftBase} rightBase={rightBase} ---"
+        for leaf in [0:9] do
+          b := emitLoadTemp b (leftBase + leaf) "r3"
+          b := emitLoadTemp b (rightBase + leaf) "r4"
+          b := emit b s!"  jne r3, r4, {doneLab}          ; mismatch → 0"
+        b := emit b "  lddw r3, 1                        ; all 9 leaves equal"
+        b := emit b s!"  ja {eqLab}"
+        b := emit b s!"{doneLab}:"
+        b := emit b "  lddw r3, 0                        ; leaves differ"
+        b := emit b s!"{eqLab}:"
+        b := emitStoreTemp b dstTemp "r3"
+        pure b
+  | .principalLeafEqIx dstTemp leftBase rightIxOffset =>
+      -- Leaf-wise equality of a 9-temp Principal base against T12 ix-data
+      -- Principal at rightIxOffset (9×UInt64 LE). Avoids second 9-temp load.
+      pure <| Id.run do
+        let mut b := b0
+        let eqLab := s!"pleqix_eq_{labSuffix}"
+        let doneLab := s!"pleqix_done_{labSuffix}"
+        b := emit b s!"  ; --- principalLeafEqIx: dst={dstTemp} leftBase={leftBase} ix={rightIxOffset} ---"
+        b := emit b "  ldxdw r6, [r10 - SLOT_IX_DATA]    ; r6 = ix data base"
+        for leaf in [0:9] do
+          b := emitLoadTemp b (leftBase + leaf) "r3"
+          b := emit b s!"  ldxdw r4, [r6 + {rightIxOffset + leaf * 8}]"
+          b := emit b s!"  jne r3, r4, {doneLab}          ; mismatch → 0"
+        b := emit b "  lddw r3, 1                        ; all 9 leaves equal"
+        b := emit b s!"  ja {eqLab}"
+        b := emit b s!"{doneLab}:"
+        b := emit b "  lddw r3, 0                        ; leaves differ"
+        b := emit b s!"{eqLab}:"
+        b := emitStoreTemp b dstTemp "r3"
+        pure b
   | .returnU64 srcTemp =>
       pure <| Id.run do
         let mut b := b0
@@ -2429,14 +2492,25 @@ private def emitHandlerSection
   for op in h.entryGlobalOps do
     b ← emitPreflightOp b op "err_shape"
   b := emit b "  ; --- ordered body (siteArgChecks → siteChecks → invoke) ---"
+  -- Invoke suffix counter is frozen by #124 assembly size pins (only advances
+  -- on invokeEscrow). New value-producing ops that need unique labels
+  -- (principalLeafEq / contextReadCaller / envRead) use a separate `bN` counter
+  -- so existing invoke label spellings stay byte-stable.
   let mut invokeIdx : Nat := 0
+  let mut auxIdx : Nat := 0
   for op in h.bodyOps do
-    let suffix := s!"{h.handlerId}_{invokeIdx}"
     match op with
     | .invokeEscrow _ =>
+        let suffix := s!"{h.handlerId}_{invokeIdx}"
         b ← emitBodyOp b op suffix
         invokeIdx := invokeIdx + 1
+    | .envReadVaultBalance .. | .contextReadCaller ..
+    | .principalLeafEq .. | .principalLeafEqIx .. =>
+        let suffix := s!"{h.handlerId}_b{auxIdx}"
+        b ← emitBodyOp b op suffix
+        auxIdx := auxIdx + 1
     | _ =>
+        let suffix := s!"{h.handlerId}_{invokeIdx}"
         b ← emitBodyOp b op suffix
   b := emit b "  ja err_shape"
   pure b

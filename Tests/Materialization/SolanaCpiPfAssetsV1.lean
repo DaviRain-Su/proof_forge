@@ -16,6 +16,7 @@ import ProofForgeV2.Targets.Solana.CpiDeriveV1
 import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.CpiEscrowIRV1
 import ProofForgeV2.Targets.Solana.EmitCpiEscrowSbpfV1
+import ProofForgeV2.Targets.Solana.MaterializationV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Compiler.Pipeline
@@ -142,6 +143,26 @@ private def envReadNoDeclSource : String :=
   "program NoDeclBalance where\n" ++
   "  view get() : UInt64 do\n" ++
   "    return pf.assets.native.balanceOfSelf()\n"
+
+/-- ADR-0031 S1 / ADR-0030 E3: context.caller on exact CPI profile.
+    Solana binds caller to the ABI-specified pf_caller signer role pubkey
+    (NOT tx.origin). Compare against a Principal param and return Bool. -/
+private def contextCallerIsMeSource : String :=
+  wrapProgram "CallerIsMe" <|
+    "  view isMe(who : Principal) : Bool do\n" ++
+    "    return context.caller == who\n"
+
+/-- ADR-0031 S1: context.caller inside pureFn → fail closed. -/
+private def contextCallerInPureFnSource : String :=
+  wrapProgram "CallerPureFn" <|
+    "  pureFn helper(who : Principal) : Bool do\n" ++
+    "    return context.caller == who\n"
+
+/-- ADR-0031 S1: context.unixTimeSeconds stays FC on CPI profile. -/
+private def contextUnixTimeSource : String :=
+  wrapProgram "UnixTimeView" <|
+    "  view now() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n"
 
 private unsafe def compileSource (text name : String) : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
@@ -479,6 +500,148 @@ private unsafe def testEnvReadFailClosed : IO Unit := do
       | .ok _ =>
           throw <| IO.userError "envRead no-decl unexpectedly compiled"
 
+/-- ADR-0031 S1 / ADR-0030 E3: context.caller Plan/IR/emit pins.
+    caller = ABI-specified pf_caller signer role (NOT tx.origin).
+    who Principal stays T12 ix-data (9 leaves), not account-bound. -/
+private unsafe def testContextCallerIsMe : IO Unit := do
+  let compiled ← compileSource contextCallerIsMeSource "CallerIsMe"
+  let cap ← productCapabilityOf compiled
+  let plan ← expectPlanOk (productPlanFromCapabilityV1 cap) "caller plan"
+  let cand := SolanaCpiProductPlanV1.candidateOf plan
+  expect (cand.cpiSites.isEmpty) "caller: zero CPI sites"
+  expect (cand.envReadSites.isEmpty) "caller: zero envRead sites"
+  expect (cand.contextReadSites.size == 1) "caller: one contextRead site"
+  let some ctxSite := cand.contextReadSites[0]? |
+    throw <| IO.userError "caller: contextRead site missing"
+  -- pf_caller role (sole outer role for isMe)
+  let callerRoles := cand.accountRoles.filter (fun r =>
+    match r.keyPolicy with | .handlerCaller => true | _ => false)
+  expect (callerRoles.size == 1) "caller: one handlerCaller role"
+  let some callerRole := callerRoles[0]? |
+    throw <| IO.userError "caller: handlerCaller missing"
+  expect (callerRole.name == "pf_caller") "caller: role name pf_caller"
+  expect (ctxSite.callerRoleId == callerRole.roleId)
+    "caller: site binds pf_caller roleId"
+  -- who is T12 ix-data Principal — NOT an accountParameter role
+  let whoRoles := cand.accountRoles.filter (fun r =>
+    match r.keyPolicy with | .accountParameter _ _ => true | _ => false)
+  expect (whoRoles.isEmpty)
+    "caller: who Principal is T12 ix-data, not account-bound"
+  expect (cand.accountRoles.size == 1)
+    "caller: sole outer role is pf_caller"
+  -- handler outerSigner
+  let some isMeH := cand.handlers.find? (·.name == "isMe") |
+    throw <| IO.userError "caller: isMe handler missing"
+  expect (isMeH.accountUses.size == 1) "caller: one outer account use"
+  let outerSigners := isMeH.accountUses.filter (·.outerSigner)
+  expect (outerSigners.size == 1) "caller: exactly one outer signer"
+  expect (outerSigners.any (fun u => u.roleId == ctxSite.callerRoleId))
+    "caller: outerSigner is pf_caller"
+  -- IR
+  let ir ← expectPlanOk (productIrFromCapabilityV1 cap) "caller IR"
+  let irCand := ResolvedSolanaCpiProductIRV1.candidateOf ir
+  let some isMeIr := irCand.handlers.find? (·.name == "isMe") |
+    throw <| IO.userError "caller: isMe IR handler missing"
+  -- probe ix = handlerId(8) + Principal T12 9×u64 (72) = 80
+  expect (isMeIr.probeIxDataLen == 80)
+    s!"caller: probeIxDataLen 80 (handler+9-leaf Principal), got {isMeIr.probeIxDataLen}"
+  -- who stays ix-lazy (no loadParamU64); caller materializes 9 leaves;
+  -- principalLeafEqIx compares base vs ix; returnU64 Bool.
+  let loadCount := isMeIr.bodyOps.foldl (fun n op =>
+    match op with | .loadParamU64 .. => n + 1 | _ => n) 0
+  expect (loadCount == 0)
+    s!"caller: who is ix-lazy (0 param loads), got {loadCount}"
+  expect (isMeIr.bodyOps.any (fun op =>
+    match op with
+    | .contextReadCaller .. => true
+    | _ => false))
+    "caller: IR carries contextReadCaller (9-leaf materialize)"
+  expect (isMeIr.bodyOps.any (fun op =>
+    match op with
+    | .principalLeafEqIx .. => true
+    | _ => false))
+    "caller: IR carries principalLeafEqIx (temps vs T12 ix)"
+  expect (isMeIr.bodyOps.any (fun op =>
+    match op with
+    | .returnU64 _ => true
+    | _ => false))
+    "caller: IR returns Bool-as-UInt64"
+  -- temp budget: caller 9 leaves + bool 1 = 10 ≤ 16
+  expect (isMeIr.tempCount == 10)
+    s!"caller: tempCount 10 (9 Principal leaves + Bool), got {isMeIr.tempCount}"
+  expect (isMeIr.tempCount ≤ escrowMaxTempsV1)
+    s!"caller: tempCount {isMeIr.tempCount} must be ≤ escrowMaxTempsV1={escrowMaxTempsV1}"
+  -- Emit
+  let asm ← expectPlanOk (emitCpiProductSbpfV1 ir) "caller assembly"
+  let text := SolanaCpiProductAssemblyV1.textOf asm
+  expect (hasSubstr text "contextReadCaller") "caller: assembly label"
+  expect (hasSubstr text "not tx.origin") "caller: honesty comment in asm"
+  expect (hasSubstr text "is_signer required") "caller: site-time signer check"
+  expect (hasSubstr text "principalLeafEqIx") "caller: leaf-eq-ix label"
+  expect (hasSubstr text "ROLE_KEY") "caller: reads pf_caller key"
+  expect (hasSubstr text "lddw r3, 32") "caller: materializes len=32 leaf"
+  expect (hasSubstr text "checkEffectiveSigner")
+    "caller: entry also enforces outerSigner"
+
+/-- ADR-0031 S1 fail-closed negatives. -/
+private unsafe def testContextCallerFailClosed : IO Unit := do
+  -- pureFn → FC at compile/Normalize (invariant/pureFn structure gate)
+  let session ← Tests.Language.ParserSession.shared
+  match ← session.selectProgramV1 contextCallerInPureFnSource
+      "<CallerPureFn>" "Examples.CallerPureFn" none with
+  | .error e =>
+      expect (e.render.contains "unsupported" || e.render.contains "context" ||
+          e.render.contains "pureFn" || e.render.contains "PureFn")
+        s!"caller pureFn should fail, got {e.render}"
+  | .ok source =>
+      match compileValidatedSourceV1 source with
+      | .error e =>
+          expect (e.render.contains "unsupported" || e.render.contains "context" ||
+              e.render.contains "pureFn" || e.render.contains "PureFn" ||
+              e.render.contains "invariant")
+            s!"caller pureFn compile should fail, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "caller pureFn unexpectedly compiled"
+  -- unixTimeSeconds stays FC at Plan on CPI profile
+  let cTime ← compileSource contextUnixTimeSource "UnixTimeView"
+  let capTime ← productCapabilityOf cTime
+  expectPlanRejectContains (productPlanFromCapabilityV1 capTime)
+    "unixTimeSeconds" "unixTimeSeconds must stay FC on CPI profile"
+  -- Legacy profiles (plan/elf) deep FC on ContextRead via LowerSemanticV1
+  for profile in #[CodegenProfileId.solanaSbpfPlanV1,
+      CodegenProfileId.solanaSbpfElfV1] do
+    let selection ← expectPlanOk
+      (resolveBuildSelectionV1 TargetId.solana (some profile))
+      s!"legacy select {profile}"
+    -- CallerIsMe without pf.assets still freezes context.caller requirement
+    -- (wire-owned). Legacy planFromCapability → LowerSemantic FC.
+    let bareCaller :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      "program CallerLegacy where\n" ++
+      "  view isMe(who : Principal) : Bool do\n" ++
+      "    return context.caller == who\n"
+    let compiled ← compileSource bareCaller "CallerLegacy"
+    let eng ← expectPlanOk
+      (resolveEngineeringRequirementsV1 selection compiled)
+      s!"legacy resolve {profile}"
+    match ProofForgeV2.Targets.Solana.planFromCapability eng with
+    | .error e =>
+        -- Deep FC: ContextRead key decline, or earlier Principal/Bool pilot
+        -- shape gates on legacy LowerSemantic. Either way, no Plan carrier.
+        expect
+          (e.render.contains "ContextRead" || e.render.contains "context" ||
+            e.render.contains "not admitted" || e.render.contains "unsupported" ||
+            e.render.contains "PF-PLAN" || e.render.contains "plan" ||
+            e.render.contains "profile")
+          s!"legacy {profile}: expected Plan FC, got {e.render}"
+    | .ok (.legacy _) =>
+        throw <| IO.userError
+          s!"legacy {profile}: must fail closed on context.caller, got .legacy Plan"
+    | .ok (.cpi _) =>
+        throw <| IO.userError
+          s!"legacy {profile}: must not enter CPI Plan for context.caller"
+
 unsafe def run : IO Unit := do
   testContractPins
   testTipJarProductPlanIrEmit
@@ -487,6 +650,8 @@ unsafe def run : IO Unit := do
   testNativeBalanceEnvRead
   testTokenBalanceEnvRead
   testEnvReadFailClosed
+  testContextCallerIsMe
+  testContextCallerFailClosed
   IO.println "Tests.Materialization.SolanaCpiPfAssetsV1: ok"
 
 end Tests.Materialization.SolanaCpiPfAssetsV1

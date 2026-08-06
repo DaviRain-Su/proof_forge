@@ -263,6 +263,17 @@ private structure RawEnvReadSiteV1 where
   /-- Token only: (argIndex=0, paramOrdinal). Native: none. -/
   mintParamOrdinal : Option Nat
 
+/-- ADR-0031 S1: one discovered context.caller ContextRead before role
+    assignment. Read-only (effect-free); admitted in entry + view. The result
+    Principal is the 32B pubkey of the synthetic pf_caller signer role
+    (NOT tx.origin). -/
+private structure RawContextReadSiteV1 where
+  callableId : Nat
+  handlerMode : HandlerModeV1
+  handlerName : String
+  blockId : Nat
+  instructionIndex : Nat
+
 private def handlerModeOf (kind : CallableKindV1) : CompileResult HandlerModeV1 :=
   match kind with
   | .initializer => pure .initialize
@@ -787,6 +798,44 @@ private def collectRawEnvReadSites
         | _ => pure ()
   pure out
 
+/-- Collect raw context.caller ContextRead sites (ADR-0031 S1 / ADR-0030 E3).
+    Solana binds caller to the ABI-specified `pf_caller` signer role pubkey
+    (AccountInfo.key + is_signer), not a tx.origin concept. Admitted in
+    entry and view only (read-only account metadata; view-safe). pureFn /
+    invariant / initializer fail closed. unixTimeSeconds and unknown keys
+    stay fail closed on this profile. -/
+private def collectRawContextReadSites
+    (data : SemanticProgramDataV1) :
+    CompileResult (Array RawContextReadSiteV1) := do
+  let mut out : Array RawContextReadSiteV1 := #[]
+  for callable in data.callables do
+    let callableId := callable.id.toNat
+    for blk in callable.blocks do
+      for (instr, instrIdx) in blk.instructions.zipIdx do
+        match instr.op with
+        | .contextRead key =>
+            if key == callerContextKeyV1 then
+              unless callable.kind == .entry || callable.kind == .view do
+                deriveFail
+                  "CPI derive: context.caller is admitted only in entry/view (pureFn/invariant/initializer fail closed)"
+              let mode ← handlerModeOf callable.kind
+              let hname ← handlerNameOf callable
+              out := out.push {
+                callableId
+                handlerMode := mode
+                handlerName := hname
+                blockId := blk.id.toNat
+                instructionIndex := instrIdx
+              }
+            else if key == unixTimeSecondsContextKeyV1 then
+              deriveFail
+                "CPI derive: context.unixTimeSeconds is not admitted on solana-sbpf-cpi-elf-v1 (Clock sysvar binding deferred)"
+            else
+              deriveFail
+                s!"CPI derive: unknown ContextRead key '{key.value}'"
+        | _ => pure ()
+  pure out
+
 /-- Authority-free core: Semantic data + programName + snapshot → Plan candidate.
     Does not mint carriers, does not validate, does not import Registry/Emit. -/
 def deriveSolanaCpiPlanCandidateCoreV1
@@ -797,8 +846,11 @@ def deriveSolanaCpiPlanCandidateCoreV1
   let directHandlers ← collectDirectHandlers data
   let rawSites ← collectRawSitesFiltered data snapshot.productApiFilter
   let rawEnvReadSites ← collectRawEnvReadSites data snapshot.productApiFilter
-  unless rawSites.size > 0 || rawEnvReadSites.size > 0 do
-    deriveFail "CPI derive requires at least one ExternalCall or envRead site"
+  let rawContextReadSites ← collectRawContextReadSites data
+  unless rawSites.size > 0 || rawEnvReadSites.size > 0 ||
+      rawContextReadSites.size > 0 do
+    deriveFail
+      "CPI derive requires at least one ExternalCall, envRead, or context.caller site"
 
   let stateAccount? ← deriveSolanaStateAccountFromSemanticDataV1 data
   let stateSchemas : Array StateSchemaV1 ←
@@ -821,6 +873,7 @@ def deriveSolanaCpiPlanCandidateCoreV1
   let mut roles : Array AccountRoleSchemaV1 := #[]
   let mut builtSites : Array CpiSitePlanV1 := #[]
   let mut builtEnvReadSites : Array EnvReadSitePlanV1 := #[]
+  let mut builtContextReadSites : Array ContextReadSitePlanV1 := #[]
   let mut handlers : Array HandlerPlanV1 := #[]
   let mut stateRoleId? : Option Nat := none
 
@@ -841,11 +894,16 @@ def deriveSolanaCpiPlanCandidateCoreV1
       rawSites.filter (fun s => s.callableId == callableId)
     let hEnvReadSites : Array RawEnvReadSiteV1 :=
       rawEnvReadSites.filter (fun s => s.callableId == callableId)
+    let hContextReadSites : Array RawContextReadSiteV1 :=
+      rawContextReadSites.filter (fun s => s.callableId == callableId)
     let needsVault := hSites.any (fun s =>
       s.qn == "pf.assets.native.deposit" || s.qn == "pf.assets.native.transfer") ||
       hEnvReadSites.size > 0
+    -- ADR-0031 S1: context.caller also requires the synthetic pf_caller signer
+    -- role (ABI-specified; not tx.origin).
     let needsCaller := hSites.any (fun s =>
-      s.qn == "pf.assets.native.deposit" || s.qn == "pf.assets.token.transfer")
+      s.qn == "pf.assets.native.deposit" || s.qn == "pf.assets.token.transfer") ||
+      hContextReadSites.size > 0
     let mut usedOrds : Array Nat := #[]
     for site in hSites do
       for (_, ord) in site.principalParams do
@@ -858,6 +916,12 @@ def deriveSolanaCpiPlanCandidateCoreV1
           unless usedOrds.any (· == ord) do
             usedOrds := usedOrds.push ord
       | none => pure ()
+    -- ADR-0031 S1: context.caller peers that are ordinary Principal params
+    -- stay on T12 ix-data ABI (9×UInt64 wire leaves), not account-bound roles.
+    -- Account-bound Principal params are only those referenced by CPI metas
+    -- (already collected into usedOrds above). This preserves pairwise-distinct
+    -- outer keys and allows `context.caller == who` when who wire equals the
+    -- pf_caller pubkey (same identity, distinct surfaces).
     let sortedOrds := usedOrds.qsort (· < ·)
     for ord in sortedOrds do
       let pname ← paramNameAt handler.callable ord
@@ -871,9 +935,12 @@ def deriveSolanaCpiPlanCandidateCoreV1
     -- For token.transfer, the handlerCaller role is not a CPI meta but is
     -- still needed as the ATA ensure payer (outer signer). Ensure it before
     -- sites so it gets a dense global roleId in handler-local order.
+    -- ADR-0031 S1: context.caller-only handlers also need pf_caller without
+    -- a deposit/token meta binding.
     let tokenTransferNeedsCaller :=
       hSites.any (fun s => s.qn == "pf.assets.token.transfer")
-    if tokenTransferNeedsCaller then
+    let contextCallerNeedsRole := hContextReadSites.size > 0
+    if tokenTransferNeedsCaller || contextCallerNeedsRole then
       match findRoleId? roleKeys RoleKeyV1.handlerCaller with
       | some _ => pure ()
       | none =>
@@ -881,6 +948,7 @@ def deriveSolanaCpiPlanCandidateCoreV1
             RoleKeyV1.handlerCaller "pf_caller" handlerCallerRoleConstraintV1
           roleKeys := kC
           roles := rC
+    if tokenTransferNeedsCaller then
       -- ADR-0030 E1b: ATA ensure needs a system-v1 fixedProgram role
       -- (not a CPI meta on token.transfer sites). Ensure before sites.
       match findRoleId? roleKeys (RoleKeyV1.fixedProgram "system-v1") with
@@ -1090,6 +1158,13 @@ def deriveSolanaCpiPlanCandidateCoreV1
         match findRoleId? roleKeys (RoleKeyV1.fixedProgram "ata-classic-v1") with
         | some rid => localRoles := pushUnique localRoles rid
         | none => deriveFail "envRead token ata-classic-v1 role missing"
+    -- ADR-0031 S1: context.caller contributes pf_caller after envRead roles
+    -- (matches deriveHandlerRoleIds step 3.6). Skip if already present via
+    -- token.transfer / deposit meta path above.
+    if contextCallerNeedsRole then
+      match findRoleId? roleKeys RoleKeyV1.handlerCaller with
+      | some rid => localRoles := pushUnique localRoles rid
+      | none => deriveFail "context.caller pf_caller role missing after ensure"
 
     let mut uses : Array HandlerAccountUseV1 := #[]
     for (roleId, position) in localRoles.zipIdx do
@@ -1117,6 +1192,10 @@ def deriveSolanaCpiPlanCandidateCoreV1
           else (sg, wr)
         if sg2 then signer := true
         if wr2 then writable := true
+      -- ADR-0031 S1: context.caller requires pf_caller outerSigner
+      -- (site-time is_signer via checkEffectiveSigner). Read-only — not writable.
+      if isHandlerCallerRole && contextCallerNeedsRole then
+        signer := true
       uses := uses.push {
         position
         roleId
@@ -1126,14 +1205,14 @@ def deriveSolanaCpiPlanCandidateCoreV1
         outerWritable := writable
       }
 
-    -- Deposit caller convention: handlers that use deposit must have exactly
-    -- one outer signer role (the synthetic pf_caller).
+    -- Deposit / context.caller convention: handlers that need the synthetic
+    -- pf_caller must have exactly one outer signer role.
     if needsCaller then
       let outerSignerCount := uses.foldl (fun n u =>
         if u.outerSigner then n + 1 else n) 0
       unless outerSignerCount == 1 do
         deriveFail
-          s!"CPI derive: handler '{hname}' deposit requires exactly one outer signer (caller), got {outerSignerCount}"
+          s!"CPI derive: handler '{hname}' requires exactly one outer signer (pf_caller), got {outerSignerCount}"
 
     for siteId in siteIdsForHandler do
       let site : CpiSitePlanV1 ← getArr builtSites siteId "builtSites"
@@ -1191,6 +1270,24 @@ def deriveSolanaCpiPlanCandidateCoreV1
         ataProgramRoleId := ataRoleId
       }
 
+    -- ADR-0031 S1: build context.caller site entries for this handler.
+    for ctxSite in hContextReadSites do
+      let ctxSiteId := builtContextReadSites.size
+      let callerRoleId ← match findRoleId? roleKeys RoleKeyV1.handlerCaller with
+        | some rid => pure rid
+        | none => deriveFail "context.caller pf_caller role missing"
+      builtContextReadSites := builtContextReadSites.push {
+        siteId := ctxSiteId
+        handlerId
+        anchor := {
+          callableId
+          blockId := ctxSite.blockId
+          instructionIndex := ctxSite.instructionIndex
+          effectId := 0
+        }
+        callerRoleId
+      }
+
     handlers := handlers.push {
       handlerId
       callableId
@@ -1233,6 +1330,7 @@ def deriveSolanaCpiPlanCandidateCoreV1
     handlers
     cpiSites := builtSites
     envReadSites := builtEnvReadSites
+    contextReadSites := builtContextReadSites
     computeAssumptions := snapshot.computeAssumptions
   }
 

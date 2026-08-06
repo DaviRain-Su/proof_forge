@@ -341,6 +341,31 @@ tipjar_token_out="$(cd "$tipjar_token_out" && pwd -P)"
 export PROOF_FORGE_TIPJAR_TOKEN_OUT="$tipjar_token_out"
 echo "solana-runtime-test: TokenJarAssets.so=$(wc -c <"$tipjar_token_out/TokenJarAssets.so" | tr -d ' ') bytes"
 
+# ADR-0031 S1 / ADR-0030 E3 CallerIsMe product ELF (context.caller signer role).
+# Additive: does not alter Counter/fixture or TipJar programs.
+# Mollusk suite: runtime-tests/solana/tests/caller_isme.rs
+caller_isme_out="${PROOF_FORGE_CALLER_ISME_OUT:-$root/build/v2/solana-caller-isme}"
+export PROOF_FORGE_CALLER_ISME_OUT="$caller_isme_out"
+echo "solana-runtime-test: CallerIsMe product build → $caller_isme_out"
+rm -rf "$caller_isme_out"
+mkdir -p "$(dirname "$caller_isme_out")"
+if ! lake env "$cli" build \
+  "runtime-tests/solana/fixtures/CallerIsMe.lean" \
+  --module "Examples.CallerIsMe" \
+  --target solana \
+  --profile solana-sbpf-cpi-elf-v1 \
+  -o "$caller_isme_out"; then
+  die "proof-forge-next build failed for CallerIsMe (cpi profile)"
+fi
+[[ -f "$caller_isme_out/manifest.json" ]] || die "CallerIsMe manifest.json missing"
+[[ -f "$caller_isme_out/CallerIsMe.so" ]] || die "CallerIsMe.so missing"
+if ! lake env "$cli" inspect --output-dir "$caller_isme_out" --json >/dev/null; then
+  die "product inspect failed for CallerIsMe under $caller_isme_out"
+fi
+caller_isme_out="$(cd "$caller_isme_out" && pwd -P)"
+export PROOF_FORGE_CALLER_ISME_OUT="$caller_isme_out"
+echo "solana-runtime-test: CallerIsMe.so=$(wc -c <"$caller_isme_out/CallerIsMe.so" | tr -d ' ') bytes"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_COUNTER_OUT="$counter_out"

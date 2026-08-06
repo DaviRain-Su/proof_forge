@@ -302,6 +302,28 @@ structure EnvReadSitePlanV1 where
   ataProgramRoleId : Nat
   deriving BEq, Repr
 
+/-! ## ADR-0031 S1 / ADR-0030 E3 context.caller site plan (Solana signer role)
+
+    Solana has no tx.origin / CALLER opcode. Honest binding of
+    `context.caller : Principal` is the 32-byte pubkey of an ABI-specified
+    **signer role** account (`AccountInfo.key` + site-time `is_signer`
+    predicate). Wire identity is `u32le(32)||pubkey32` (body 8×UInt64 LE,
+    high 32 bytes zero). This is **not** a transaction-fee-payer / origin
+    concept — only the role marked `pf_caller` (RoleKeyV1.handlerCaller)
+    with outerSigner=true. Legacy profiles stay fail closed. -/
+
+/-- One context.caller read site in the Plan (read-only; no CPI invoke). -/
+structure ContextReadSitePlanV1 where
+  siteId : Nat
+  handlerId : Nat
+  /-- Semantic anchor (callableId, blockId, instructionIndex). contextRead has
+      no EffectId (effect-free); `effectId` is always 0. -/
+  anchor : SemanticSiteAnchorV1
+  /-- Always the handler's synthetic `pf_caller` role (handlerCaller policy).
+      Must carry outerSigner at the handler accountUses join. -/
+  callerRoleId : Nat
+  deriving BEq, Repr
+
 /-- Public inspection candidate for a Solana CPI plan (not yet validated). -/
 structure SolanaCpiPlanCandidateV1 where
   schema : String
@@ -316,6 +338,8 @@ structure SolanaCpiPlanCandidateV1 where
   handlers : Array HandlerPlanV1
   cpiSites : Array CpiSitePlanV1
   envReadSites : Array EnvReadSitePlanV1
+  /-- ADR-0031 S1: context.caller sites (signer-role pubkey reads). -/
+  contextReadSites : Array ContextReadSitePlanV1
   computeAssumptions : ComputeAssumptionsV1
   deriving BEq
 
@@ -555,6 +579,11 @@ private def deriveHandlerRoleIds
           acc := pushUnique acc envSite.systemProgramRoleId
           acc := pushUnique acc envSite.tokenProgramRoleId
           acc := pushUnique acc envSite.ataProgramRoleId
+    -- 3.6) ADR-0031 S1: context.caller sites contribute the pf_caller role
+    -- (handlerCaller). Outer-signer privilege is joined separately.
+    for ctxSite in c.contextReadSites do
+      if ctxSite.handlerId == h.handlerId then
+        acc := pushUnique acc ctxSite.callerRoleId
     return acc
 
 /-- Expected site predicates: callee, then metas order, then outer-only order. -/
@@ -1079,6 +1108,19 @@ private def encodeEnvReadSite (s : EnvReadSitePlanV1) : CompileResult PfJson := 
     ("ataProgramRoleId", ataProgramRoleId)
   ])
 
+private def encodeContextReadSite (s : ContextReadSitePlanV1) : CompileResult PfJson := do
+  let siteId ← pfNat "contextReadSite.siteId" s.siteId
+  let handlerId ← pfNat "contextReadSite.handlerId" s.handlerId
+  let anchor ← encodeAnchor s.anchor
+  let callerRoleId ← pfNat "contextReadSite.callerRoleId" s.callerRoleId
+  pure (.object #[
+    ("siteId", siteId),
+    ("handlerId", handlerId),
+    ("anchor", anchor),
+    ("kind", .string "caller"),
+    ("callerRoleId", callerRoleId)
+  ])
+
 private def encodeComputeAssumptions (c : ComputeAssumptionsV1) :
     CompileResult PfJson := do
   pure (.object #[
@@ -1128,6 +1170,7 @@ private def encodeCandidatePfJson
   let handlers ← c.handlers.mapM encodeHandler
   let cpiSites ← c.cpiSites.mapM encodeCpiSite
   let envReadSites ← c.envReadSites.mapM encodeEnvReadSite
+  let contextReadSites ← c.contextReadSites.mapM encodeContextReadSite
   let compute ← encodeComputeAssumptions c.computeAssumptions
   pure (.object #[
     ("schema", .string c.schema),
@@ -1142,6 +1185,7 @@ private def encodeCandidatePfJson
     ("handlers", .array handlers),
     ("cpiSites", .array cpiSites),
     ("envReadSites", .array envReadSites),
+    ("contextReadSites", .array contextReadSites),
     ("computeAssumptions", compute)
   ])
 
@@ -1712,6 +1756,10 @@ private def validatePrivilegeJoin
       match c.cpiSites[sid]? with
       | some s => s.qn == "pf.assets.token.transfer"
       | none => false)
+    -- ADR-0031 S1: context.caller sites require pf_caller outerSigner
+    -- (read-only; not writable) even though they are not CPI metas.
+    let hasContextCallerSite := c.contextReadSites.any (fun s =>
+      s.handlerId == h.handlerId)
     for use in h.accountUses do
       let mut siteSigner := false
       let mut siteWritable := false
@@ -1725,6 +1773,9 @@ private def validatePrivilegeJoin
       if hasTokenTransferSite && some use.roleId == handlerCallerRoleId? then
         siteSigner := true
         siteWritable := true
+      -- ADR-0031 S1: context.caller contributes signer-only for pf_caller.
+      if hasContextCallerSite && some use.roleId == handlerCallerRoleId? then
+        siteSigner := true
       let expectedSigner := use.directSignerContribution || siteSigner
       let expectedWritable := use.directWritableContribution || siteWritable
       unless use.outerSigner == expectedSigner do
@@ -1850,6 +1901,47 @@ private def validateEnvReadSites (c : SolanaCpiPlanCandidateV1) :
         unless ataRole.keyPolicy == .fixedProgram "ata-classic-v1" do
           planFail "envReadSite.ataProgramRoleId must be .fixedProgram ata-classic-v1"
 
+/-! ## ADR-0031 S1 context.caller site validation -/
+
+private def validateContextReadSites (c : SolanaCpiPlanCandidateV1) :
+    CompileResult Unit := do
+  let siteIds := c.contextReadSites.map (·.siteId)
+  unless arrayDenseFromZero siteIds do
+    planFail "contextReadSiteIds must be dense 0..n-1"
+  for i in [0:c.contextReadSites.size] do
+    let s ← getArr c.contextReadSites i "contextReadSites"
+    unless s.siteId == i do
+      planFail "contextReadSite.siteId must equal dense index"
+    requireUInt32 "contextReadSite.siteId" s.siteId
+    requireUInt32 "contextReadSite.handlerId" s.handlerId
+    requireUInt32 "contextReadSite.anchor.callableId" s.anchor.callableId
+    requireUInt32 "contextReadSite.anchor.blockId" s.anchor.blockId
+    requireUInt32 "contextReadSite.anchor.instructionIndex" s.anchor.instructionIndex
+    requireUInt32 "contextReadSite.anchor.effectId" s.anchor.effectId
+    unless s.anchor.effectId == 0 do
+      planFail "contextReadSite.anchor.effectId must be 0 (effect-free)"
+    unless c.handlers.any (·.handlerId == s.handlerId) do
+      planFail "contextReadSite.handlerId must reference a real handler"
+    let h ← match c.handlers.find? (·.handlerId == s.handlerId) with
+    | some h => pure h
+    | none => planFail "contextReadSite handler missing"
+    -- entry + view admitted (read-only account-key observation; view-safe).
+    -- pureFn/invariant/initializer stay fail closed at derive.
+    unless h.mode == .view || h.mode == .entry do
+      planFail "contextReadSite handler must be .view or .entry"
+    unless s.callerRoleId < c.accountRoles.size do
+      planFail "contextReadSite.callerRoleId out of range"
+    let callerRole ← getArr c.accountRoles s.callerRoleId "contextReadSite.callerRole"
+    unless callerRole.keyPolicy == .handlerCaller do
+      planFail "contextReadSite.callerRoleId must be .handlerCaller (pf_caller)"
+    unless callerRole.name == "pf_caller" do
+      planFail "contextReadSite caller role name must be pf_caller"
+    -- Handler local ABI must include the caller role with outerSigner.
+    unless h.accountUses.any (fun u =>
+        u.roleId == s.callerRoleId && u.outerSigner) do
+      planFail
+        "contextReadSite caller role must appear in handler accountUses with outerSigner"
+
 /-- Sole #117 structural validation entry: deterministic phase order 1..6.
     It binds every DTO field into canonical bytes but does not certify that
     caller-supplied semantic anchors/value IDs exist in a retained program. -/
@@ -1868,6 +1960,8 @@ def validateSolanaCpiPlanV1
   validateSites candidate
   -- Phase 5.5: env-read sites (E2-3)
   validateEnvReadSites candidate
+  -- Phase 5.6: context.caller sites (ADR-0031 S1)
+  validateContextReadSites candidate
   -- Phase 6: privilege join
   validatePrivilegeJoin candidate
   -- Canonical encode + digest (only validated carrier exposes digest).
