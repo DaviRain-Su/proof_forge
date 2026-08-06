@@ -2103,7 +2103,14 @@ private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR) :
   b := emit b "  exit"
   pure b
 
-/-- Emit entrypoint discriminator dispatch for all handlers. -/
+/-- Emit entrypoint discriminator dispatch for all handlers.
+
+    Every conditional branch targets a continuation label only two instruction
+    slots away. A match falls through to a BPF-to-BPF `call` (signed 32-bit
+    relative target) and then exits with the handler's `r0`. This avoids SBPF's
+    signed 16-bit branch-offset limit both for large unrolled UInt128/256 bodies
+    and for large handler tables. Handler-local `exit` instructions return to
+    the dispatch frame; its final `exit` terminates the program. -/
 private def emitDispatch (b0 : AsmBuf) (handlers : Array HandlerIR) :
     CompileResult AsmBuf := do
   let mut b := emit b0 "entrypoint:"
@@ -2115,15 +2122,25 @@ private def emitDispatch (b0 : AsmBuf) (handlers : Array HandlerIR) :
   b := emit b "  ; guard: instruction_data_len >= 8"
   b := emit b "  ldxdw r1, [r6 + INSTRUCTION_DATA_LEN]"
   b := emit b "  jlt r1, 8, err_unknown_disc"
+  -- Keep all shape/length failure branches local, then skip over their exit.
+  b := emit b "  ja dispatch_begin"
+  b := emit b "err_unknown_disc:"
+  b := emit b "  lddw r0, 1"
+  b := emit b "  exit"
+  b := emit b "dispatch_begin:"
   b := emit b "  ; load 8-byte instruction discriminator (LE u64)"
   b := emit b "  ldxdw r1, [r6 + INSTRUCTION_DATA]"
   for handler in handlers do
     let disc ← discriminatorToLeU64V1 handler.discriminator
-    let lab := asmLabel handler.name
+    let handlerLab := asmLabel handler.name
+    let nextLab := s!"dispatch_next_{handlerLab}"
     b := emit b s!"  lddw r2, {hexImm disc.toNat}"
-    b := emit b s!"  jeq r1, r2, {lab}"
-  -- fallthrough: unknown discriminator / account-list shape failure → Custom(1)
-  b := emit b "err_unknown_disc:"
+    b := emit b s!"  jne r1, r2, {nextLab}"
+    b := emit b s!"  call {handlerLab}"
+    b := emit b "  exit"
+    b := emit b s!"{nextLab}:"
+  -- Fallthrough: unknown discriminator → Custom(1). Duplicate the tiny exit
+  -- rather than introducing a potentially long backward branch.
   b := emit b "  lddw r0, 1"
   b := emit b "  exit"
   pure b

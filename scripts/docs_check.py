@@ -1485,17 +1485,24 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
     # Integrated package-file pin is the current authority (refreshed after
     # #111–#125 + main merge). Historical feature-worktree close-out may still
     # mention 194 only when explicitly historical.
-    if not re.search(r"SBOM[^\n]{0,40}\b233\b|\b233\b[^\n]{0,40}SBOM", agents):
+    if not re.search(r"SBOM[^\n]{0,40}\b239\b|\b239\b[^\n]{0,40}SBOM", agents):
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
-            "must record current SBOM package-file pin 233")
+            "must record current SBOM package-file pin 239")
     if not re.search(
             r"\*\*13\*\* test binaries / \*\*304\*\* active tests",
             agents,
     ):
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
-            "must record current integrated Solana runtime inventory 13/304")
+            "must preserve the #125 integrated Solana runtime baseline 13/304")
+    if not re.search(
+            r"\*\*17 integration test binaries / 360 active tests\*\*",
+            agents,
+    ):
+        raise_error(
+            "PF-DOC-CHECKPOINT", "AGENTS.md",
+            "must record the current tracked Solana runtime inventory 17/360")
 
     # Historical #124 escrow pins remain immutable (test-preactivation lane retained).
     manifest_rel = "runtime-tests/solana/escrow/manifest.json"

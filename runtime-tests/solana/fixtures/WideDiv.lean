@@ -5,9 +5,9 @@ namespace ProofForgeV2.Examples
 open ProofForgeV2.Language
 
 -- C-5/B-SOL-MUL residual: real ELF+Mollusk coverage for UInt128 multiword
--- div/mod (binary long division in EmitSbpfAsmV1). UInt256 is a separate
--- fixture (`WideDiv256`) so the entrypoint discriminator jumps and per-handler
--- check exits stay inside SBPF's signed 16-bit instruction-slot window.
+-- div/mod (binary long division in EmitSbpfAsmV1). UInt256 remains a separate
+-- focused oracle fixture; `WideDivDispatch` combines all four wide handlers to
+-- pin the long-range BPF-to-BPF entrypoint dispatch under the locked assembler.
 -- Multiword state is the oracle surface; UInt64 return avoids conflating the
 -- arithmetic check with the separate wide return-data layout boundary.
 -- Divisor-zero traps reuse the same entry surface with a zero rhs

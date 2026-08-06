@@ -754,6 +754,16 @@ private def isAnonymousOptionTypeIdV1
   | some { shape := .option _, name := none, .. } => true
   | _ => false
 
+/-- Exact Map IndexGet result shape: anonymous `Option UInt64`. This separates
+    Map lookup from same-sized Array aggregates before inspecting key/layout. -/
+private def isOptionUInt64TypeIdV1
+    (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
+    (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option elTid, name := none, .. } =>
+      elTid == types.uint64TypeId
+  | _ => false
+
 /-- B-OPT-STATE: `Option UInt64` storage leaves mirror named 2-variant Enum —
     `{prefix}_tag` + `{prefix}_p0` (tag 0=none / 1=some; payload zeroed on none). -/
 private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
@@ -1077,6 +1087,24 @@ private def mapPrincipalUpsertLeavesV1
     out := out.push v'
   pure (out, okInsert)
 
+/-- Classify an admitted Map TypeId by key shape for IndexSet dispatch.
+    Using the result Map TypeId avoids colliding with Array UInt64 24/44. -/
+private def mapKeyShapeOfV1
+    (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option (Bool × Nat)) := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .map keyTid valTid, .. } =>
+      unless valTid == types.uint64TypeId do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: Map value must be UInt64"
+      if keyTid == types.uint64TypeId then
+        pure (some (false, solanaMapPilotLeafCountV1))
+      else if types.isPrincipal keyTid then
+        pure (some (true, solanaMapPrincipalLeafCountV1))
+      else
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: Map admits only UInt64 or Principal keys"
+  | _ => pure none
 
 private def makeStateAccountV1
     (types : SolanaTypeClosureV1)
@@ -2897,22 +2925,27 @@ private def lowerBlockInstructionsV1
             isInt := false
             bitWidth := 8
           }
-        else if isSolanaMapPrincipalLeafCountV1 base.leafExprs.size then
-          -- E4 Principal Map IndexGet: key is 9-leaf Principal aggregate.
-          unless idx.isAggregate do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Principal Map IndexGet key must be Principal aggregate"
-          unless idx.leafExprs.size == solanaMapPrincipalKeyLeafCountV1 do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Principal Map IndexGet key leaf count mismatch"
+        else if isOptionUInt64TypeIdV1 typeDecls types result.typeId then
+          -- Map IndexGet is the only admitted index operation returning
+          -- Option UInt64. Resolve key shape inside this branch so Array
+          -- UInt64 24/44 cannot collide with dense Map leaf counts.
           let optLeaves ←
-            mapPrincipalLookupOptionLeavesV1 base.leafExprs idx.leafExprs
-          let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
-            (Nat.max base.depth idx.depth + 1)
-            (base.expandedNodes + idx.expandedNodes + 1)
-          values := ← appendResultValueV1 result.typeId values result value
-        else if base.leafExprs.size == solanaMapPilotLeafCountV1 then
-          let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+            if idx.isAggregate then
+              unless base.leafExprs.size == solanaMapPrincipalLeafCountV1 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Principal Map IndexGet base leaf count mismatch"
+              unless idx.leafExprs.size == solanaMapPrincipalKeyLeafCountV1 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Principal Map IndexGet key leaf count mismatch"
+              mapPrincipalLookupOptionLeavesV1 base.leafExprs idx.leafExprs
+            else do
+              unless !idx.isBool && !idx.isInt && idx.bitWidth == 64 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Map UInt64 IndexGet key must be scalar UInt64"
+              unless base.leafExprs.size == solanaMapPilotLeafCountV1 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Map UInt64 IndexGet base leaf count mismatch"
+              mapLookupOptionLeavesV1 base.leafExprs idx.expr
           let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
             (Nat.max base.depth idx.depth + 1)
             (base.expandedNodes + idx.expandedNodes + 1)
@@ -2974,55 +3007,45 @@ private def lowerBlockInstructionsV1
             (base.expandedNodes + val.expandedNodes + 1)
             (leafByteWidth := 1)
           values := ← appendResultValueV1 result.typeId values result value
-        else if isSolanaMapPrincipalLeafCountV1 base.leafExprs.size then
-          -- E4 Principal Map IndexSet: key is 9-leaf Principal aggregate.
-          unless !val.isInt && val.bitWidth == 64 do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Map IndexSet value must be scalar UInt64"
-          unless idx.isAggregate do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Principal Map IndexSet key must be Principal aggregate"
-          unless idx.leafExprs.size == solanaMapPrincipalKeyLeafCountV1 do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Principal Map IndexSet key leaf count mismatch"
-          let (outLeaves0, okInsert) ←
-            mapPrincipalUpsertLeavesV1 base.leafExprs idx.leafExprs val.expr
-          -- Gate only first leaf so okInsert is not duplicated across 44 leaves.
-          let gate := Expr.checkedDiv (.literal 1) okInsert
-          let mut outLeaves : Array Expr := #[]
-          for i in [0:outLeaves0.size] do
-            let some e := outLeaves0[i]? |
-              throw <| .planInvariant .solana "Map IndexSet leaf missing after upsert"
-            let e' :=
-              if i == 0 then
-                Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
-              else e
-            outLeaves := outLeaves.push e'
-          let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
-            (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
-            (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
-          values := ← appendResultValueV1 result.typeId values result value
-        else if base.leafExprs.size == solanaMapPilotLeafCountV1 then
-          unless !val.isInt && val.bitWidth == 64 do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Map IndexSet value must be scalar UInt64"
-          let (outLeaves0, okInsert) ←
-            mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
-          let gate := Expr.checkedDiv (.literal 1) okInsert
-          let mut outLeaves : Array Expr := #[]
-          for i in [0:outLeaves0.size] do
-            let some e := outLeaves0[i]? |
-              throw <| .planInvariant .solana "Map IndexSet leaf missing after upsert"
-            let e' :=
-              if i == 0 then
-                Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
-              else e
-            outLeaves := outLeaves.push e'
-          let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
-            (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
-            (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
-          values := ← appendResultValueV1 result.typeId values result value
-        else do
+        else match ← mapKeyShapeOfV1 typeDecls types result.typeId with
+        | some (isPrincipalKey, expectedLeaves) => do
+            unless base.leafExprs.size == expectedLeaves do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Map IndexSet base leaf count mismatch"
+            unless !val.isInt && val.bitWidth == 64 do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Map IndexSet value must be scalar UInt64"
+            let (outLeaves0, okInsert) ←
+              if isPrincipalKey then
+                unless idx.isAggregate do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: Principal Map IndexSet key must be Principal aggregate"
+                unless idx.leafExprs.size == solanaMapPrincipalKeyLeafCountV1 do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: Principal Map IndexSet key leaf count mismatch"
+                mapPrincipalUpsertLeavesV1 base.leafExprs idx.leafExprs val.expr
+              else do
+                unless !idx.isBool && !idx.isInt && !idx.isAggregate && idx.bitWidth == 64 do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: Map UInt64 IndexSet key must be scalar UInt64"
+                mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+            -- Fail closed when the dense map is full. Gate only the first leaf
+            -- so the large okInsert expression is not duplicated per slot.
+            let gate := Expr.checkedDiv (.literal 1) okInsert
+            let mut outLeaves : Array Expr := #[]
+            for i in [0:outLeaves0.size] do
+              let some e := outLeaves0[i]? |
+                throw <| .planInvariant .solana "Map IndexSet leaf missing after upsert"
+              let e' :=
+                if i == 0 then
+                  Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
+                else e
+              outLeaves := outLeaves.push e'
+            let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
+              (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
+              (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
+            values := ← appendResultValueV1 result.typeId values result value
+        | none => do
           unless !val.isInt && val.bitWidth == 64 do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: Array IndexSet value must be scalar UInt64"

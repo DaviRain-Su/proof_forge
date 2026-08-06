@@ -776,6 +776,23 @@ private unsafe def testMultiwordMulDivMod
   expect (asmDM.contains "err_mwmod_") "mwmod: div-by-zero exit label"
   expect (asmDM.contains "ok_mwdiv_") "mwdiv: success join label"
   expect (asmDM.contains "ok_mwmod_") "mwmod: success join label"
+  -- Divisor-zero exits must precede the unrolled body so the zero check never
+  -- regresses to a signed-i16 jump across tens of thousands of slots.
+  let rec indexOfChars (hay needle : List Char) (i : Nat) : Option Nat :=
+    match hay with
+    | [] => none
+    | _ :: rest =>
+        if needle.isPrefixOf hay then some i else indexOfChars rest needle (i + 1)
+  let some divErrAt := indexOfChars asmDM.toList "err_mwdiv_".toList 0 |
+    throw <| IO.userError "mwdiv: missing error label position"
+  let some divBodyAt := indexOfChars asmDM.toList "body_mwdiv_".toList 0 |
+    throw <| IO.userError "mwdiv: missing body label position"
+  let some modErrAt := indexOfChars asmDM.toList "err_mwmod_".toList 0 |
+    throw <| IO.userError "mwmod: missing error label position"
+  let some modBodyAt := indexOfChars asmDM.toList "body_mwmod_".toList 0 |
+    throw <| IO.userError "mwmod: missing body label position"
+  expect (divErrAt < divBodyAt) "mwdiv: zero exit must precede unrolled body"
+  expect (modErrAt < modBodyAt) "mwmod: zero exit must precede unrolled body"
   -- binary long-division control-flow labels (per-bit sub / next-bit)
   expect (asmDM.contains "mwdiv_sub_") "mwdiv: restore-subtract label"
   expect (asmDM.contains "mwdiv_nb_") "mwdiv: next-bit label"
@@ -790,6 +807,14 @@ private unsafe def testMultiwordMulDivMod
   -- unrolled bit coverage: UInt128 has 128 bits; at least that many next-bit labels
   expect ((asmDM.splitOn "mwdiv_nb_").length ≥ 129)
     "mwdiv: unrolled ≥128 next-bit steps for UInt128"
+  -- Entrypoint branches must stay local even when all four wide handlers share
+  -- one program. A non-match skips only `call`+`exit`; the matched long-range
+  -- transfer uses BPF-to-BPF call (32-bit offset), never a 16-bit body branch.
+  for name in #["div128", "mod128", "div256", "mod256"] do
+    expect (asmDM.contains s!"jne r1, r2, dispatch_next_{name}\n  call {name}\n  exit\ndispatch_next_{name}:")
+      s!"wide dispatch: adjacent continuation + long-range call for {name}"
+    expect (!(asmDM.contains s!"jeq r1, r2, {name}\n"))
+      s!"wide dispatch: no direct 16-bit branch to {name}"
   -- determinism
   let asm2 ← liftResult <| emitSbpfAsmV1 ir
   expect (asm == asm2) "mwmul: deterministic"

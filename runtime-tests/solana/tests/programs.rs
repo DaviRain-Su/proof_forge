@@ -1644,20 +1644,20 @@ fn wide_mul_u128_overflow_0x1001() {
     assert_eq!(checked_mul_limbs(lhs, rhs), None);
     let pre = wide_mul_state(true, [9, 10], [11, 12, 13, 14]);
 
-    mollusk.process_and_validate_instruction(
-        &build_ix_limbs(
-            program_id,
-            state_key,
-            &disc,
-            &[(16, lhs.as_slice()), (16, rhs.as_slice())],
-            true,
-            false,
-        ),
-        &[(state_key, state_account(&program_id, pre.clone()))],
-        &[
-            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
-            Check::account(&state_key).data(&pre).build(),
-        ],
+    let ix = build_ix_limbs(
+        program_id,
+        state_key,
+        &disc,
+        &[(16, lhs.as_slice()), (16, rhs.as_slice())],
+        true,
+        false,
+    );
+    let accounts = [(state_key, state_account(&program_id, pre))];
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &ix,
+        &accounts,
+        Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
     );
 }
 
@@ -1731,9 +1731,9 @@ fn wide_mul_u256_overflow_0x1001() {
 
 // ─── WideDiv / WideDiv256 (multiword div/mod residual) ─────────────────────
 //
-// Split across two product ELFs so entrypoint discriminator jumps and
-// per-handler check exits stay inside SBPF's signed 16-bit instruction-slot
-// window (a combined 128+256 four-handler text exceeds that range).
+// Focused arithmetic oracles remain split across two product ELFs. The
+// additional WideDivDispatch product fixture combines all four wide handlers
+// and is assembled under the locked toolchain to pin long-range call stubs.
 
 fn wide_div_fields() -> Vec<StateField> {
     fields_with_widths(&[("result128", 16)])
@@ -1853,6 +1853,59 @@ fn assert_wide_div256_plan() {
     assert_eq!(exact_data_len_for_fields(&fields), 40);
 }
 
+fn assert_wide_div_dispatch_plan() {
+    assert_discriminators_match_plan_widths(
+        &fixture_plan_bytes("WideDivDispatch"),
+        &[
+            ("initialize", vec![8]),
+            ("div128", vec![16, 16]),
+            ("mod128", vec![16, 16]),
+            ("div256", vec![32, 32]),
+            ("mod256", vec![32, 32]),
+            ("get", vec![]),
+        ],
+    );
+}
+
+/// The last handler sits beyond multiple unrolled wide bodies. Loading and
+/// executing it in Mollusk proves the entrypoint's local branch + long-range
+/// BPF-to-BPF call survives the runtime verifier, not only text emission.
+#[test]
+fn wide_div_dispatch_last_handler_executes() {
+    assert_wide_div_dispatch_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideDivDispatch");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("mod256", &[32, 32]);
+    let lhs = [6u64, 0, 0, 1];
+    let rhs = [2u64, 0, 0, 1];
+    let expected = checked_mod_limbs(lhs, rhs).expect("u256 remainder");
+    assert_eq!(expected, [4, 0, 0, 0]);
+    let expected_bytes: Vec<u8> = expected
+        .iter()
+        .flat_map(|limb| limb.to_le_bytes())
+        .collect();
+    let fields = fields_with_widths(&[("count", 8)]);
+    let pre = state_data(&fields, true, &[77]);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix_limbs(
+            program_id,
+            state_key,
+            &disc,
+            &[(32, lhs.as_slice()), (32, rhs.as_slice())],
+            true,
+            false,
+        ),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::success(),
+            Check::return_data(&expected_bytes),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
 /// High limbs nonzero: (2^64 + 6) / (2^64 + 2) = 1.
 #[test]
 fn wide_div_u128_high_limb_success() {
@@ -1938,20 +1991,20 @@ fn wide_div_u128_div_by_zero_0x1001() {
     assert_eq!(checked_div_limbs(lhs, rhs), None);
     let pre = wide_div_state(true, [9, 10]);
 
-    mollusk.process_and_validate_instruction(
-        &build_ix_limbs(
-            program_id,
-            state_key,
-            &disc,
-            &[(16, lhs.as_slice()), (16, rhs.as_slice())],
-            true,
-            false,
-        ),
-        &[(state_key, state_account(&program_id, pre.clone()))],
-        &[
-            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
-            Check::account(&state_key).data(&pre).build(),
-        ],
+    let ix = build_ix_limbs(
+        program_id,
+        state_key,
+        &disc,
+        &[(16, lhs.as_slice()), (16, rhs.as_slice())],
+        true,
+        false,
+    );
+    let accounts = [(state_key, state_account(&program_id, pre))];
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &ix,
+        &accounts,
+        Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
     );
 }
 
@@ -1968,20 +2021,20 @@ fn wide_div_u128_mod_by_zero_0x1001() {
     assert_eq!(checked_mod_limbs(lhs, rhs), None);
     let pre = wide_div_state(true, [9, 10]);
 
-    mollusk.process_and_validate_instruction(
-        &build_ix_limbs(
-            program_id,
-            state_key,
-            &disc,
-            &[(16, lhs.as_slice()), (16, rhs.as_slice())],
-            true,
-            false,
-        ),
-        &[(state_key, state_account(&program_id, pre.clone()))],
-        &[
-            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
-            Check::account(&state_key).data(&pre).build(),
-        ],
+    let ix = build_ix_limbs(
+        program_id,
+        state_key,
+        &disc,
+        &[(16, lhs.as_slice()), (16, rhs.as_slice())],
+        true,
+        false,
+    );
+    let accounts = [(state_key, state_account(&program_id, pre))];
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &ix,
+        &accounts,
+        Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
     );
 }
 
@@ -2024,7 +2077,7 @@ fn wide_div_u256_high_limb_success() {
     );
 }
 
-/// High limbs nonzero: (5·2^192 + 17) % 5 = 2.
+/// High-limb divisor: (2^192 + 6) % (2^192 + 2) = 4.
 #[test]
 fn wide_div_u256_mod_high_limb_success() {
     assert_wide_div256_plan();
@@ -2032,10 +2085,10 @@ fn wide_div_u256_mod_high_limb_success() {
     let mollusk = make_fixture_mollusk(&program_id, "WideDiv256");
     let state_key = Pubkey::new_unique();
     let disc = instruction_discriminator_with_widths("mod256", &[32, 32]);
-    let lhs = [17u64, 0, 0, 5]; // 5·2^192 + 17
-    let rhs = [5u64, 0, 0, 0];
+    let lhs = [6u64, 0, 0, 1];
+    let rhs = [2u64, 0, 0, 1];
     let expected = checked_mod_limbs(lhs, rhs).expect("u256 remainder");
-    assert_eq!(expected, [2, 0, 0, 0]);
+    assert_eq!(expected, [4, 0, 0, 0]);
 
     mollusk.process_and_validate_instruction(
         &build_ix_limbs(
@@ -2076,20 +2129,51 @@ fn wide_div_u256_div_by_zero_0x1001() {
     assert_eq!(checked_div_limbs(lhs, rhs), None);
     let pre = wide_div256_state(true, [31, 32, 33, 34]);
 
-    mollusk.process_and_validate_instruction(
-        &build_ix_limbs(
-            program_id,
-            state_key,
-            &disc,
-            &[(32, lhs.as_slice()), (32, rhs.as_slice())],
-            true,
-            false,
-        ),
-        &[(state_key, state_account(&program_id, pre.clone()))],
-        &[
-            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
-            Check::account(&state_key).data(&pre).build(),
-        ],
+    let ix = build_ix_limbs(
+        program_id,
+        state_key,
+        &disc,
+        &[(32, lhs.as_slice()), (32, rhs.as_slice())],
+        true,
+        false,
+    );
+    let accounts = [(state_key, state_account(&program_id, pre))];
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &ix,
+        &accounts,
+        Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+    );
+}
+
+/// UInt256 modulo by zero exercises the `.mod` branch at full width and must
+/// preserve the complete account snapshot with the same arithmetic error.
+#[test]
+fn wide_div_u256_mod_by_zero_0x1001() {
+    assert_wide_div256_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "WideDiv256");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator_with_widths("mod256", &[32, 32]);
+    let lhs = [3u64, 2, 1, 4];
+    let rhs = [0u64, 0, 0, 0];
+    assert_eq!(checked_mod_limbs(lhs, rhs), None);
+    let pre = wide_div256_state(true, [31, 32, 33, 34]);
+
+    let ix = build_ix_limbs(
+        program_id,
+        state_key,
+        &disc,
+        &[(32, lhs.as_slice()), (32, rhs.as_slice())],
+        true,
+        false,
+    );
+    let accounts = [(state_key, state_account(&program_id, pre))];
+    assert_failure_preserves_exact_accounts(
+        &mollusk,
+        &ix,
+        &accounts,
+        Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
     );
 }
 

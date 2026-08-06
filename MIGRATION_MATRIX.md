@@ -4,7 +4,7 @@
 
 - Original audit baseline date: `2026-07-26`
 - Original audit baseline commit: `8b42f7ebeb60652d1789e495f23247e5685b1e22`
-- Engineering fact updates through: `2026-08-04`（含 D3-E7/NFR-REPEAT/D3-E9/N-ANON-RESULT/B-OPT-STATE（EVM/Solana/NEAR）/B-CALL-SEM（Solana CPI + EVM returndata）/Mollusk 20 programs·89 tests + **ADR-0027 inline same-file theorem certification engineering closure**；**控制面同步**：12 targets / 9 implemented + 3 design-only / 9 materializers / 11 resolver rows；CosmWasm/Quint/TON capability Plan/IR/materialize/finalize；D2-07 `evalInvariantV1`/`InvariantTheoremV1` 工程已存在、formal pending；后续增量见本矩阵与 `docs/06-implementation-log.md`；原始审计基线 commit 见上）
+- Engineering fact updates through: `2026-08-06`（含 D3-E7/NFR-REPEAT/D3-E9/N-ANON-RESULT/B-OPT-STATE/B-CALL-SEM、ADR-0027 inline same-file theorem certification、ADR-0031 S1 caller/S2 blockHeight leaves，以及 ADR-0030 E4 的 EVM/Solana Principal Map 与 Solana WideDiv runtime/dispatch 工程前置；**控制面同步**：12 targets / 9 implemented + 3 design-only / 9 materializers / 11 resolver rows；CosmWasm/Quint/TON capability Plan/IR/materialize/finalize；D2-07 `evalInvariantV1`/`InvariantTheoremV1` 工程已存在、formal pending；后续增量见本矩阵与 `docs/06-implementation-log.md`；原始审计基线 commit 见上）
 - Formal task source: [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)
 - Test requirement source: [`docs/05-test-spec.md`](docs/05-test-spec.md)
 - Product migration decision: [`docs/adr/0019-single-programv1-source-authority.md`](docs/adr/0019-single-programv1-source-authority.md)
@@ -27,6 +27,15 @@ D1–D4 共 27 个 formal task，当前仍为：
 > `map_mini_put_into_empty` 已在真实 Mollusk 转绿。EVM Yul/solc、NEAR HostModel+Wasm、Noir
 > relation model、Aleo Leo get-before-set/optional `leo build` 均回归通过。此为 engineering
 > correctness 修复，**不**改变 formal D1–D4 状态。
+
+> **2026-08-06 Solana E4 前置 correctness 增量**：dense `Map Principal UInt64` cap-4 已进入
+> target-owned Plan/IR；Map IndexGet 以 `Option UInt64` result shape、IndexSet 以 result Map TypeId/
+> key shape 分派，避免合法 `Array UInt64 24/44` 与 dense Map 叶数碰撞。UInt128/256 div/mod 的
+> restoring binary long division 已有独立 Rust oracle + Mollusk 数值/零除全账户回滚；entrypoint
+> discriminator 改为近距 conditional stub + 32-bit BPF-to-BPF `call`，组合四宽 handler 的
+> `WideDivDispatch` 经 locked `sbpf` 构建并在 Mollusk 执行最远 `mod256`。这些是 host-optional
+> engineering runtime 门，不是 ordinary CI、formal D5、hermetic 或 mainnet evidence；E4 仍缺
+> Solana MiniAMM 应用门与真实 asset movement/remove-liquidity。
 
 > **2026-08-02 N-INVARIANT-IR 增量**：产品 Normalize 不再静默丢弃 source invariant；每个
 > `invariant name : BoolExpr` 生成零参 public-Bool `.invariant` callable 与 source-order dense
@@ -580,7 +589,7 @@ membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel。canonical membe
 > historical `0b306…`/`41ace…` 与 #124 assembly/ELF pins 不变。System runtimeNative；Token/ATA
 > package-owned 94960/`a19be3…` 与 111136/`d3f6…`。Product CLI 5 base + `.so` exact closure；
 > Historical feature-worktree #125 observation: Mollusk 13/282 and SBOM **194**.
-> Integrated tree current package-file pin is **SBOM 233**；`just solana-runtime`
+> Integrated tree current package-file pin is **SBOM 239**；`just solana-runtime`
 > integrated revalidation exit 0：**13** test binaries / **304** active tests（含
 > product acceptance；Mollusk 不属于 ordinary `just ci`）。**#111–#125 engineering
 > closed**；**#110 engineering epic complete**。formal TASK-D5/TST-SOL 仍 pending；

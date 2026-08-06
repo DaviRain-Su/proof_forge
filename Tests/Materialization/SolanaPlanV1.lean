@@ -2460,6 +2460,53 @@ private unsafe def testMapPrincipalUInt64Pilot
   | some c => expectPlanError "NestMap" (planSolana c)
   IO.println "  Map Principal UInt64 LP pilot Plan/IR/frame pin ok"
 
+/-- IndexGet/IndexSet dispatch must not use bare aggregate leaf count: dense
+    maps occupy 24/44 leaves, which are also legal Array UInt64 lengths.
+    Map lookup returns Option UInt64; Array lookup returns scalar UInt64. -/
+private unsafe def testArrayUInt64MapSizeNoCollision
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let rec hasAggN (n : Nat) (stmts : Array Statement) : Bool :=
+    stmts.any fun s =>
+      match s with
+      | .storeAggregate leaves => leaves.size == n
+      | .ifThenElse _ t e => hasAggN n t || hasAggN n e
+      | .switchOn _ cases d =>
+          hasAggN n d || cases.any fun (_, b) => hasAggN n b
+      | .forLoop _ _ _ _ _ b => hasAggN n b
+      | _ => false
+  let checkArray (name : String) (n last : Nat) : IO Unit := do
+    let source := wrapProgram name <|
+      s!"  state slots : Array UInt64 {n}\n\n" ++
+      "  init() do\n" ++
+      "    slots[0] := 0\n" ++
+      s!"    slots[{last}] := 0\n\n" ++
+      "  entry setEnds(a : UInt64, b : UInt64) : UInt64 do\n" ++
+      "    slots[0] := a\n" ++
+      s!"    slots[{last}] := b\n" ++
+      "    return slots[0]\n\n" ++
+      "  view getLast() : UInt64 do\n" ++
+      s!"    return slots[{last}]\n"
+    let compiled ← compileSource session source s!"Examples.{name}"
+      s!"<solana-{name}-map-size>"
+    let plan ← liftResult <| planSolana compiled
+    expect (plan.stateAccount.fields.size == n)
+      s!"{name} must flatten to {n} Array leaves, got {plan.stateAccount.fields.size}"
+    liftResult <| validatePlan plan
+    let ir ← liftResult <| irSolana compiled
+    liftResult <| validateIR ir
+    let setEnds ← findHandler plan "setEnds"
+    expect (hasAggN n setEnds.body)
+      s!"{name} setEnds must storeAggregate {n}-leaf Array rewrites"
+    let getLast ← findHandler plan "getLast"
+    expect (getLast.resultKind == .u64)
+      s!"{name} getLast must remain scalar u64, got {repr getLast.resultKind}"
+    let asm ← liftResult <| emitSbpfAsmV1 ir
+    expect (asm.contains "getLast:" && asm.contains "setEnds:")
+      s!"{name} literal Array IndexGet/IndexSet must reach SBPF emission"
+  checkArray "Arr24" 24 23
+  checkArray "Arr44" 44 43
+  IO.println "  Array UInt64 24/44 vs Map leaf-count collision pin ok"
+
 /-- Named Struct state: flatten to UInt64 leaves; construct/fieldGet/fieldSet
     + atomic storeAggregate; scalar field return still covered (aggregate return
     is pinned separately in `testNamedStructReturn`). -/
@@ -3373,6 +3420,7 @@ unsafe def run : IO Unit := do
   testOmittedTypeLet session
   testMapMiniEmptyUpsertStructure session
   testMapPrincipalUInt64Pilot session
+  testArrayUInt64MapSizeNoCollision session
   testTokenDualStoreBatchSeparation session
   testNamedStructState session
   testNamedEnumState session

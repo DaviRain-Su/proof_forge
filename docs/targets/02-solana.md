@@ -24,21 +24,24 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 - state/param/result **UInt8/16/32/64 与窄 Int** ABI/body 子集（UInt128/256 软件多字已开 T9e；mul 为 schoolbook，div/mod 已于 `910835aa4` 切 exact binary long division）；
 - **`EmitSbpfAsmV1`** 完整 Operation 表面 → 锁定 `sbpf` 汇编为 deployable Solana ELF `.so`
   （`solana-sbpf-elf-v1` profile；默认仍可走 plan-only profile）；
-- **Mollusk 运行时差分**：tracked inventory 为 **17 test binaries / 351 active tests**，
+- **Mollusk 运行时差分**：tracked inventory 为 **17 integration test binaries / 360 active tests**，
   覆盖 legacy Counter/fixture ELF、active CPI product programs、TransferSol 与 CallerIsMe；
-  legacy call 已从旧 profile runtime 面移除。该计数不含仅 assembly-level 的新 multiword
-  div/mod 钉测，后者 runtime differential 仍待补；
+  legacy call 已从旧 profile runtime 面移除。新增 9 项 wide-div 覆盖：8 个 UInt128/256
+  数值/div·mod 零除全账户回滚 oracle，加 1 个组合 `WideDivDispatch` 最远 `mod256` runtime-verifier pin；
 - **legacy call/schedule 已恢复 fail closed**（#111）：`solana-sbpf-plan-v1` 与
   `solana-sbpf-elf-v1` 均不声明 sync/async requirement，Plan/IR/SBPF 纵深拒绝旧节点；static
   QualifiedName 不再经 SHA-256 冒充 program id；真实多账户/PDA/bump/CPI 由 opt-in versioned
   profile epic [#110](https://github.com/DaviRain-Su/proof_forge/issues/110) 分批实现；
-- **dense Map UInt64 cap-8 pilot** 已进入 opt-in ELF + Mollusk；`storeAggregate` → structural CSE →
-  `storeStateMulti` 令同一 StateStore 的 24 叶先基于旧 account snapshot 求值、再统一写入，且保持
-  177 temp / 1424B < 4096B frame。`put_into_empty` 已解除 ignore 并转绿；WideMul 另以
-  独立 base-2^64 oracle 钉住 UInt128/256 mul 成功与 `0x1001` 溢出回滚。UInt128/256
-  div/mod 已由 `EmitSbpfAsmV1.emitMultiwordDivMod` 使用 restoring binary long division，
-  `Tests/Targets/SolanaAsmV1` 固定 exact emission；尚未新增 Mollusk div/mod oracle。PrincipalStore 固定
-  `len + 8×UInt64` identity state/param、逐叶 equality 与短值覆盖高位清零（非 pubkey）；
+- **dense Map pilots**：`Map UInt64 UInt64` cap-8 已进入 opt-in ELF + Mollusk；`storeAggregate` →
+  structural CSE → `storeStateMulti` 令同一 StateStore 的 24 叶先基于旧 account snapshot 求值、
+  再统一写入，且保持 177 temp / 1424B < 4096B frame。E4 另开 `Map Principal UInt64` cap-4
+  （44 叶：occ + 9 Principal + value）。IndexGet 现以 `Option UInt64` result shape、IndexSet 以
+  result Map TypeId/key shape 分派，`Array UInt64 24/44` 正向回归防止叶数碰撞与静默错存。
+  WideMul 以独立 base-2^64 oracle 钉住 UInt128/256 mul 成功与 `0x1001` 溢出回滚；WideDiv/
+  WideDiv256 以独立 restoring oracle 钉 8 项成功/div·mod 零除全账户回滚。`WideDivDispatch` 将四个宽
+  handler 放入同一 ELF，入口使用近距条件 stub + 32-bit BPF-to-BPF `call`，locked `sbpf` 构建并
+  由 Mollusk 执行最远 handler。PrincipalStore 固定 `len + 8×UInt64` identity state/param、逐叶
+  equality 与短值覆盖高位清零（非 pubkey）；
 - **#113 V1 单 state-account 安全矩阵**：IR/SBPF `num_accounts==1` + non-dup `0xff` 先于固定偏移；
   Mollusk 负例 Custom(1)+完整 exact snapshot；manifest-bound ELF/Plan 字节；
 - **Option UInt64 state（BL-29）**：`slot_tag`/`slot_p0` 双 u64-LE leaf，`none` 清零 stale payload，
@@ -108,7 +111,7 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
   `extension.pf-assets`/sync-call ticket；Plan/IR/assembly 明示 caller≠tx.origin，两个
   legacy profile 纵深 FC。Mollusk `caller_isme` **8/8** 覆盖 true/false、non-signer、
   len 0/65 与 nonzero high-tail 的 `Custom(1)` + exact snapshot；当前 tracked runtime
-  inventory 为 **17 binaries / 351 active tests**。**非** formal/mainnet parity，且不把
+  inventory 为 **17 integration test binaries / 360 active tests**。**非** formal/mainnet parity，且不把
   wire Principal 全局等同 Solana pubkey。
 - **`context.blockHeight`（ADR-0031 S2，ordinary-elf）**：legacy `solana-sbpf-plan-v1` /
   `solana-sbpf-elf-v1` 经 host `sol_get_clock_sysvar` 读 `Clock.slot`（Plan `Expr.clockSlot`
@@ -118,9 +121,11 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 - **E4 LP state**：Solana 已开 dense `Map Principal UInt64` **cap-4** pilot（每槽
   occ+9 Principal leaves+val = 11×UInt64，共 44 叶；Plan/IR atomic storeAggregate 钉测；
   与 EVM LP pilot 同构；Principal 仍为 T12 wire identity，**非** pubkey）。`Map UInt64 UInt64`
-  cap-8 保持。UInt128/256 multiword div/mod 已在 SBPF emit 以 restoring binary long division
-  开放，Mollusk `WideDiv`/`WideDiv256` host-optional 7 测钉测成功/零除（**不**入 ordinary ci）。
-  MiniAMM Solana 产品 demo / 真实 asset flow 仍 residual。
+  cap-8 保持；Array 24/44 与 Map 的类型驱动分派已固定。UInt128/256 multiword div/mod 已在
+  SBPF emit 以 restoring binary long division 开放，Mollusk `WideDiv`/`WideDiv256` 8 测钉
+  成功/div·mod 零除全账户回滚，`WideDivDispatch` 另钉四宽 handler 长距 dispatch 的 locked-SBPF +
+  Mollusk 执行（这些门**不**入 ordinary ci）。MiniAMM Solana 产品镜像/Mollusk 应用门、
+  真实 asset flow 与 remove-liquidity 仍 residual。
 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
 完整 Normalize 表面；active CPI profile 之外的任意动态 program address/remaining accounts 与更广

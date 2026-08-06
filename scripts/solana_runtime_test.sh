@@ -82,6 +82,7 @@ fixtures=(
   WideMul
   WideDiv
   WideDiv256
+  WideDivDispatch
   PairRet
   MaybeRet
   ArrayRet
@@ -292,7 +293,7 @@ escrow_out="$(cd "$escrow_out" && pwd -P)"
 export PROOF_FORGE_CPI_ESCROW_OUT="$escrow_out"
 
 # ADR-0029 Phase B1 TipJarAssets product ELF (pf.assets + solana-sbpf-cpi-elf-v1).
-# Additive: does not alter the 19 solana-sbpf-elf-v1 Counter/fixture programs.
+# Additive: does not alter the legacy solana-sbpf-elf-v1 Counter/fixture programs.
 # Mollusk suite: runtime-tests/solana/tests/tipjar_assets.rs (new test binary).
 tipjar_out="${PROOF_FORGE_TIPJAR_ASSETS_OUT:-$root/build/v2/solana-tipjar-assets}"
 export PROOF_FORGE_TIPJAR_ASSETS_OUT="$tipjar_out"
@@ -319,7 +320,7 @@ export PROOF_FORGE_TIPJAR_ASSETS_OUT="$tipjar_out"
 echo "solana-runtime-test: TipJarAssets.so=$(wc -c <"$tipjar_out/TipJarAssets.so" | tr -d ' ') bytes"
 
 # ADR-0030 E1b TokenJarAssets product ELF (pf.assets token.transfer + CPI profile).
-# Additive: does not alter the 19 solana-sbpf-elf-v1 Counter/fixture programs.
+# Additive: does not alter the legacy solana-sbpf-elf-v1 Counter/fixture programs.
 # Mollusk suite: runtime-tests/solana/tests/tipjar_token.rs (new test binary).
 tipjar_token_out="${PROOF_FORGE_TIPJAR_TOKEN_OUT:-$root/build/v2/solana-tipjar-token}"
 export PROOF_FORGE_TIPJAR_TOKEN_OUT="$tipjar_token_out"

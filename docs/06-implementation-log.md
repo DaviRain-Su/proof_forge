@@ -12,6 +12,22 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-06 — wave3 correctness closure：Map/Array 分派 + WideDiv 长距 dispatch
+
+- `LowerSemanticV1` 不再用 aggregate 叶数猜容器：Map IndexGet 先要求 anonymous
+  `Option UInt64` result，IndexSet 以 result Map TypeId/key shape 分派；新增合法
+  `Array UInt64 24/44` IndexGet/IndexSet 正向回归，封住 24 叶静默错存与 44 叶误拒。
+- `EmitSbpfAsmV1` entrypoint 改为每个 discriminator 的相邻 `jne` continuation，匹配后
+  以 signed-32-bit BPF-to-BPF `call` 进入 handler；shape/length 错误出口也前置为短跳，
+  不再让 signed-i16 branch 跨越 unrolled UInt128/256 body 或大 handler table。
+- 新增 `WideDivDispatch` 产品 fixture：四个 UInt128/256 div/mod handler 共处单 ELF；
+  locked `sbpf` 产物经 `inspect` exact closure，Mollusk 执行最远 `mod256`。8 个
+  WideDiv/WideDiv256 oracle 覆盖成功值与 div/mod 零除 `0x1001` 全账户回滚；当前 tracked
+  inventory 为 17 integration test binaries / 360 active tests。
+- 该收口仅是 host-optional engineering correctness/runtime evidence；不进入 ordinary CI，
+  不声称 formal D5、hermetic、mainnet 或 E4 MiniAMM 完成。E4 仍缺 Solana 应用镜像、
+  真实 asset movement/remove-liquidity 与 EVM 无 code-size override 部署闭环。
+
 ## 2026-08-06 — wave3 parallel leaves：Solana Principal Map + WideDiv Mollusk + EVM S2 Anvil
 
 - Solana dense `Map Principal UInt64` cap-4（44 叶）Plan/IR pin（E4 LP residual 前置）。
@@ -60,8 +76,8 @@ normative: false
 - Solana 仅 exact `solana-sbpf-cpi-elf-v1` profile 开放 ABI role `pf_caller`：要求 signer，
   取 32-byte `AccountInfo.key` 物化 Principal；两个 legacy profile 纵深 FC。普通 Principal
   参数继续走 T12 instruction data，并在业务读取前强制 `len∈1..64` 与 high-tail zero，
-  不把任意 Principal 隐式升级为 account role/pubkey。Mollusk `caller_isme` 8/8 通过；tracked
-  runtime inventory 为 17 binaries / 351 active tests。Solana #110 interoperability epic 仍为
+  不把任意 Principal 隐式升级为 account role/pubkey。Mollusk `caller_isme` 8/8 通过；后续
+  WideDiv runtime/dispatch 增量后 tracked inventory 为 17 integration binaries / 360 active tests。Solana #110 interoperability epic 仍为
   engineering complete（#111–#125 engineering closed），不改变 formal TASK-D5/TST-SOL。
 - NEAR 将 init/entry caller 绑定为 `predecessor_account_id` 的 exact UTF-8 bytes；view
   无诚实 caller 语义而 FC。predecessor register 由 target-owned `RegisterLayout` 统一分配；

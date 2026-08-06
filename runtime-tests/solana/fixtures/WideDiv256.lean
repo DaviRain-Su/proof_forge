@@ -5,8 +5,9 @@ namespace ProofForgeV2.Examples
 open ProofForgeV2.Language
 
 -- C-5/B-SOL-MUL residual: real ELF+Mollusk coverage for UInt256 multiword
--- div/mod. Kept separate from `WideDiv` (UInt128) so total text stays inside
--- SBPF signed 16-bit jump range for entrypoint dispatch and handler checks.
+-- div/mod. Kept separate from `WideDiv` for focused runtime arithmetic oracles;
+-- `WideDivDispatch` independently combines UInt128/256 handlers and pins the
+-- long-range BPF-to-BPF entrypoint dispatch under the locked assembler.
 -- Divisor-zero traps reuse the same entry surface with a zero rhs
 -- (Custom(0x1001) arithmetic family).
 program WideDiv256 where
