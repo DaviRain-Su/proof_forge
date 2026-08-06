@@ -197,6 +197,12 @@ inductive CpiEscrowBodyOpV1 where
   | loadLiteralU8 (tempId : Nat) (value : UInt8)
   | stateLoadU64 (tempId : Nat) (stateLocalIndex : Nat) (byteOffset : Nat)
   | checkedAddU64 (dstTemp lhsTemp rhsTemp : Nat)
+  /-- ADR-0032 P2: full UInt64 checked arithmetic on sole CPI rail (absorb
+      single-account body surface). Div/mod trap on zero divisor. -/
+  | checkedSubU64 (dstTemp lhsTemp rhsTemp : Nat)
+  | checkedMulU64 (dstTemp lhsTemp rhsTemp : Nat)
+  | checkedDivU64 (dstTemp lhsTemp rhsTemp : Nat)
+  | checkedModU64 (dstTemp lhsTemp rhsTemp : Nat)
   | stateStoreU64 (stateLocalIndex : Nat) (byteOffset : Nat) (srcTemp : Nat)
     (writeInitializedMarker : Bool) (initializedMarker : UInt64)
   /-- Site-arg preflight (empty for Token APIs; preserves siteArgChecks→siteChecks→invoke). -/
@@ -1483,30 +1489,47 @@ private def projectEscrowHandler
         let some vd := instr.result |
           tFail "binary must produce a result"
         match opKind with
-        | BinaryOpV1.add =>
-            -- Escrow body only admits checked UInt64 add. UInt8/mixed/non-UInt64
-            -- must fail closed here (not be mis-emitted as checkedAddU64).
+        | BinaryOpV1.add | BinaryOpV1.sub | BinaryOpV1.mul
+          | BinaryOpV1.div | BinaryOpV1.mod =>
+            -- ADR-0032 P2: absorb full UInt64 checked arithmetic into sole CPI
+            -- rail body (was add-only). Non-UInt64 still fail closed.
+            let opName :=
+              match opKind with
+              | .add => "checkedAdd"
+              | .sub => "checkedSub"
+              | .mul => "checkedMul"
+              | .div => "checkedDiv"
+              | .mod => "checkedMod"
+              | _ => "checkedArith"
             let lhsTy ← match typeOfValueId? callable lhs with
               | some t => pure t
-              | none => tFail s!"checkedAdd lhs ValueId {lhs} has no type"
+              | none => tFail s!"{opName} lhs ValueId {lhs} has no type"
             let rhsTy ← match typeOfValueId? callable rhs with
               | some t => pure t
-              | none => tFail s!"checkedAdd rhs ValueId {rhs} has no type"
+              | none => tFail s!"{opName} rhs ValueId {rhs} has no type"
             unless anonUintWidth? data.types lhsTy == some 64 &&
                 anonUintWidth? data.types rhsTy == some 64 &&
                 anonUintWidth? data.types vd.typeId == some 64 do
               tFail
-                "Escrow CPI IR admits only anonymous UInt64 checked add (lhs/rhs/result)"
+                s!"CPI product body admits only anonymous UInt64 checked arithmetic (lhs/rhs/result); got {opName}"
             let l ← match lookupTemp tempOf lhs.toNat with
               | some t => pure t
-              | none => tFail s!"checkedAdd lhs ValueId {lhs} not materialised"
+              | none => tFail s!"{opName} lhs ValueId {lhs} not materialised"
             let r ← match lookupTemp tempOf rhs.toNat with
               | some t => pure t
-              | none => tFail s!"checkedAdd rhs ValueId {rhs} not materialised"
+              | none => tFail s!"{opName} rhs ValueId {rhs} not materialised"
             let (t, tempOf', next') := allocTemp tempOf nextTemp vd.valueId.toNat
             tempOf := tempOf'
             nextTemp := next'
-            body := body.push (.checkedAddU64 t l r)
+            let bodyOp :=
+              match opKind with
+              | .add => CpiEscrowBodyOpV1.checkedAddU64 t l r
+              | .sub => CpiEscrowBodyOpV1.checkedSubU64 t l r
+              | .mul => CpiEscrowBodyOpV1.checkedMulU64 t l r
+              | .div => CpiEscrowBodyOpV1.checkedDivU64 t l r
+              | .mod => CpiEscrowBodyOpV1.checkedModU64 t l r
+              | _ => CpiEscrowBodyOpV1.checkedAddU64 t l r
+            body := body.push bodyOp
         | BinaryOpV1.eq =>
             -- ADR-0031 S1: Principal leaf-wise equality (Bool as UInt64 0/1).
             let lhsTy ← match typeOfValueId? callable lhs with
@@ -2676,6 +2699,10 @@ private def renderBodyOp : CpiEscrowBodyOpV1 → String
   | .loadLiteralU8 t v => s!"loadLiteralU8:{t}:{encodeUInt8LowerHex2 v}"
   | .stateLoadU64 t li off => s!"stateLoadU64:{t}:local{li}@{off}"
   | .checkedAddU64 d l r => s!"checkedAddU64:{d}:{l}:{r}"
+  | .checkedSubU64 d l r => s!"checkedSubU64:{d}:{l}:{r}"
+  | .checkedMulU64 d l r => s!"checkedMulU64:{d}:{l}:{r}"
+  | .checkedDivU64 d l r => s!"checkedDivU64:{d}:{l}:{r}"
+  | .checkedModU64 d l r => s!"checkedModU64:{d}:{l}:{r}"
   | .stateStoreU64 li off src wm marker =>
       s!"stateStoreU64:local{li}@{off}:src{src}:marker{wm}:{encodeUInt64LowerHex16 marker}"
   | .siteArgChecks sid checks =>
@@ -3075,3 +3102,4 @@ def escrowCpiBaseMinV1 : Nat := 1600
 def escrowMaxFrameBytesV1 : Nat := 4096
 
 end ProofForgeV2.Targets.Solana.CpiV1
+

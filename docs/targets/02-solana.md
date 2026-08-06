@@ -262,4 +262,6 @@ Phase 1 在本地 runtime/validator 创建 program 与 state accounts，发送 i
 Phase 1 不承诺 Token-2022、复杂 CPI、zero-copy、upgradeable loader 管理或任意 remaining accounts。退出条件：同源 Counter、typed account plan、真实 ELF、local runtime、错误负例和确定性制品全部通过。
 
 
-> **Solana CPI epic #111–#125 engineering closed** (#110 engineering epic complete): legacy profiles fail closed on call/schedule; exact `solana-sbpf-cpi-elf-v1` advertises sync+extension (async still FC); CpiEscrowIRV1 composite escrow remains test-preactivation history; product activation is ordinary-resolver product capability (not formal TASK-D5).
+> **Solana CPI epic #111–#125 engineering closed** (#110 engineering epic complete): single-account profiles fail closed on call/schedule; exact `solana-sbpf-cpi-elf-v1` advertises sync+extension (async still FC); product activation is ordinary-resolver product capability (not formal TASK-D5).
+>
+> **ADR-0032 U1（2026-08-06，`proposed`）**：统一方向为 **sole rail = `solana-sbpf-cpi-elf-v1`**，把今日 LowerSemantic 全量 body 吸收进该 rail；`plan-v1`/`elf-v1` 仅为过渡 single-account shim。P2 首刀：product body 已吸收 UInt64 checked sub/mul/div/mod（与 add 同 checked 纪律）。Map/CFG/默认 profile 切换与 MiniAMM 同构仍后续。

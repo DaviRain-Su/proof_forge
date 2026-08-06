@@ -2355,6 +2355,56 @@ private def emitBodyOp
         b := emit b "  add64 r1, r3"
         b := emitStoreTemp b dst "r1"
         pure b
+  | .checkedSubU64 dst lhs rhs =>
+      pure <| Id.run do
+        let mut b := b0
+        b := emit b s!"  ; checkedSubU64 dst={dst} lhs={lhs} rhs={rhs}"
+        b := emitLoadTemp b lhs "r1"
+        b := emitLoadTemp b rhs "r3"
+        b := emit b "  jlt r1, r3, err_overflow"
+        b := emit b "  sub64 r1, r3"
+        b := emitStoreTemp b dst "r1"
+        pure b
+  | .checkedMulU64 dst lhs rhs =>
+      pure <| Id.run do
+        let mut b := b0
+        let zLab := s!"mul_z_t{dst}_{labSuffix}"
+        let okLab := s!"mul_ok_t{dst}_{labSuffix}"
+        b := emit b s!"  ; checkedMulU64 dst={dst} lhs={lhs} rhs={rhs}"
+        b := emitLoadTemp b lhs "r1"
+        b := emitLoadTemp b rhs "r3"
+        -- zero rhs → product 0 (no overflow)
+        b := emit b s!"  jeq r3, 0, {zLab}"
+        b := emit b "  lddw r4, 0xffffffffffffffff"
+        b := emit b "  div64 r4, r3"
+        b := emit b "  jgt r1, r4, err_overflow"
+        b := emit b "  mul64 r1, r3"
+        b := emit b s!"  ja {okLab}"
+        b := emit b s!"{zLab}:"
+        b := emit b "  lddw r1, 0"
+        b := emit b s!"{okLab}:"
+        b := emitStoreTemp b dst "r1"
+        pure b
+  | .checkedDivU64 dst lhs rhs =>
+      pure <| Id.run do
+        let mut b := b0
+        b := emit b s!"  ; checkedDivU64 dst={dst} lhs={lhs} rhs={rhs}"
+        b := emitLoadTemp b lhs "r1"
+        b := emitLoadTemp b rhs "r3"
+        b := emit b "  jeq r3, 0, err_overflow"
+        b := emit b "  div64 r1, r3"
+        b := emitStoreTemp b dst "r1"
+        pure b
+  | .checkedModU64 dst lhs rhs =>
+      pure <| Id.run do
+        let mut b := b0
+        b := emit b s!"  ; checkedModU64 dst={dst} lhs={lhs} rhs={rhs}"
+        b := emitLoadTemp b lhs "r1"
+        b := emitLoadTemp b rhs "r3"
+        b := emit b "  jeq r3, 0, err_overflow"
+        b := emit b "  mod64 r1, r3"
+        b := emitStoreTemp b dst "r1"
+        pure b
   | .stateStoreU64 localIndex byteOffset srcTemp writeMarker marker =>
       pure <| Id.run do
         let mut b := b0

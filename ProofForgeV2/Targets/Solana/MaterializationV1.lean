@@ -1,9 +1,15 @@
 /-
-  ProofForgeV2.Targets.Solana.MaterializationV1 — #125 materializer integration.
+  ProofForgeV2.Targets.Solana.MaterializationV1 — #125 + ADR-0032 U1.
 
-  Thin tagged sum over legacy Plan/IR and product CPI carriers, with
-  exhaustive profile dispatch for `planFromCapability` / `irFromCapability`.
-  Product base-file emit lives in `EmitSbpfAsmV1.buildFromCapability`.
+  Transitional tagged sum over single-account Plan/IR ("legacy" shim) and
+  product CPI carriers, with exhaustive profile dispatch for
+  `planFromCapability` / `irFromCapability`.
+
+  **ADR-0032 direction (U1):** sole product rail is `solana-sbpf-cpi-elf-v1`.
+  Full Semantic body surface is being absorbed into that rail (product IR/emit).
+  `solana-sbpf-plan-v1` / `solana-sbpf-elf-v1` are temporary single-account shims
+  — do not add new body capability only on the shim. New arith (sub/mul/div/mod)
+  already lands on product body (P2 first cut).
 
   Product core sole authority (`CpiProductV1` / `CpiDeriveV1` / product IR):
     productPlanFromCapabilityV1  → SolanaCpiProductPlanV1
@@ -14,8 +20,7 @@
 
   Single TargetKind `.solana` / single Materializer instance: no second
   dispatch key. Unknown profiles fail closed (no silent else fallback).
-  Legacy ExternalCall/Schedule lowering remains unreachable via the
-  legacy path (unchanged LowerSemantic/EmitIR/EmitSbpf gates).
+  ExternalCall/Schedule remain unreachable on single-account shim.
 -/
 import ProofForgeV2.Targets.Common
 import ProofForgeV2.Targets.DescriptorDataV1

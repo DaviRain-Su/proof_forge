@@ -543,6 +543,10 @@ unsafe def run : IO Unit := do
       | .loadLiteralU8 t v => .loadLiteralU8 t v
       | .stateLoadU64 t li o => .stateLoadU64 t li o
       | .checkedAddU64 d l r => .checkedAddU64 d l r
+      | .checkedSubU64 d l r => .checkedSubU64 d l r
+      | .checkedMulU64 d l r => .checkedMulU64 d l r
+      | .checkedDivU64 d l r => .checkedDivU64 d l r
+      | .checkedModU64 d l r => .checkedModU64 d l r
       | .stateStoreU64 li o s wm m => .stateStoreU64 li o s wm m
       | .envReadVaultBalance t k v va m s tk a =>
           .envReadVaultBalance t k v va m s tk a
@@ -628,6 +632,10 @@ unsafe def run : IO Unit := do
       | .loadLiteralU8 t v => .loadLiteralU8 t v
       | .stateLoadU64 t li o => .stateLoadU64 t li o
       | .checkedAddU64 d l r => .checkedAddU64 d l r
+      | .checkedSubU64 d l r => .checkedSubU64 d l r
+      | .checkedMulU64 d l r => .checkedMulU64 d l r
+      | .checkedDivU64 d l r => .checkedDivU64 d l r
+      | .checkedModU64 d l r => .checkedModU64 d l r
       | .stateStoreU64 li o s wm m => .stateStoreU64 li o s wm m
       | .envReadVaultBalance t k v va m s tk a =>
           .envReadVaultBalance t k v va m s tk a
