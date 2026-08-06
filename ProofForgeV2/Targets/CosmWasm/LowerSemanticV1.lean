@@ -217,6 +217,12 @@ inductive Expr where
       Result is u64 from `.seconds()` — exact UInt64 fit, **no** range guard
       (unlike EVM's 256-bit `timestamp()` word). UInt64-typed. -/
   | blockTimeSeconds
+  /-- ADR-0031 S2: CosmWasm `env.block.height` — host Env JSON field `"height"`
+      is a bare u64 decimal number (cosmwasm-std `BlockInfo.height: u64`, not a
+      string). Result is exact UInt64 — **no** range guard (height is already
+      u64; `pf_parse_u64_field` traps only on digit overflow past 2^64−1).
+      Available on instantiate/execute/**query** (Env always present). -/
+  | blockHeight
   /-- ADR-0030 E2-4-CW: `pf.assets.native.balanceOfSelf()` — read-only host
       query via `env.query_chain` (bank balance of `env.contract.address` in
       the frozen `stake` denom). Zero args; result UInt64. View/entry-callable,
@@ -3285,9 +3291,11 @@ private def lowerBlockInstructionsV1
           aggregateLeaves := operand.aggregateLeaves
         }
     | .contextRead key, some result =>
-        -- B-CTX-OPEN / ADR-0031 S1 (CosmWasm):
+        -- B-CTX-OPEN / ADR-0031 S1+S2 (CosmWasm):
         --   * `context.unixTimeSeconds` → Env.block.time.seconds()
         --     (Env JSON `"time"` nanoseconds string ÷ 10^9 truncating).
+        --   * `context.blockHeight` → Env.block.height
+        --     (Env JSON `"height"` bare u64 decimal; exact UInt64 fit).
         --   * `context.caller` → Principal aggregate
         --     `u32le(len)||sender-utf8` from MessageInfo.sender
         --     (execute/init only; view/query has no sender → Plan FC).
@@ -3319,6 +3327,17 @@ private def lowerBlockInstructionsV1
               "unsupported CosmWasm semantic shape: ContextRead unix-time-seconds result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result {
             expr := .blockTimeSeconds
+            kind := .uint64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else if key == blockHeightContextKeyV1 then
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: ContextRead context.blockHeight result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .blockHeight
             kind := .uint64
             depth := 1
             expandedNodes := 1
@@ -4033,7 +4052,7 @@ partial def exprUsesCallerPrincipalV1 (expr : Expr) : Bool :=
   | .callerPrincipalLen | .callerPrincipalWord _ => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
-  | .blockTimeSeconds | .nativeVaultBalance => false
+  | .blockTimeSeconds | .blockHeight | .nativeVaultBalance => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r

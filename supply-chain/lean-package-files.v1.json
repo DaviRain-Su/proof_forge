@@ -711,9 +711,9 @@
       "sha256": "4c3719ff54dd4427a961da4589b0abd08360235a2c34acfe8dc2018552d5c89b"
     },
     {
-      "bytes": 167184,
+      "bytes": 169829,
       "path": "ProofForgeV2/Targets/CosmWasm/EmitIRV1.lean",
-      "sha256": "bf9b7d1294ab0ba48134b72bd7c323b8aa45b55959cc1d59fa0e638ac7c2ab72"
+      "sha256": "f55ce47539605de94c19427ea3b77f89dcdc8853e8a1f91f6667e0e2dc6cc4b7"
     },
     {
       "bytes": 2955,
@@ -721,9 +721,9 @@
       "sha256": "d1bfb25f2f3de18d287051f139f5db232bb4918177b77411ffbcc8cba0b8bf40"
     },
     {
-      "bytes": 214661,
+      "bytes": 215713,
       "path": "ProofForgeV2/Targets/CosmWasm/LowerSemanticV1.lean",
-      "sha256": "6e4c42a5cdafad9abafd542e785310a5a9f636a12b14a6b3704bf59edb4f84b3"
+      "sha256": "263bceba4ef2079496b8115d47f6dd21e29e62dc1483466f4e255418f77f163e"
     },
     {
       "bytes": 15206,
@@ -731,14 +731,14 @@
       "sha256": "ac11689c3007ce73d5efcd18af773f1a14a567df83000b1d9ca0a4c06892ab6c"
     },
     {
-      "bytes": 17881,
+      "bytes": 18001,
       "path": "ProofForgeV2/Targets/CosmWasm/PlanSchemaV1.lean",
-      "sha256": "ce7df868844d4768e8254884511ed0b1e7eb3d3453cbe0bb7dad632de0b1d495"
+      "sha256": "9f6a9bd7087953cbeb8d11285ab05db7070570ff56c37758cae0a66355a32db5"
     },
     {
-      "bytes": 32464,
+      "bytes": 32493,
       "path": "ProofForgeV2/Targets/CosmWasm/ValidatePlanV1.lean",
-      "sha256": "6f46cc7e17d307acd45c8ea69fb229f82147b4e85ffcb987a4f093bef2fa086e"
+      "sha256": "6db5192926340afa71cf44960e6ac344ac78e58469e9f6fc90733ce8572f8d3f"
     },
     {
       "bytes": 6831,
@@ -1066,9 +1066,9 @@
       "sha256": "27c1b0587200766dd35dad8539e3e83a1478ee036fff6fe6b74fe55255602daa"
     },
     {
-      "bytes": 96608,
+      "bytes": 92582,
       "path": "ProofForgeV2/Targets/Solana/EmitSbpfAsmV1.lean",
-      "sha256": "44e1a6527f7f4c8e4f7f49229541311199fa08c8a59d8b43e36f6270bf351b9a"
+      "sha256": "b378eb8f9fbfb58d7659e9c868ba221234852a0513d0574e6a1dc51c5839bb57"
     },
     {
       "bytes": 13501,

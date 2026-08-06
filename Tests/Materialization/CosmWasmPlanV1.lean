@@ -1291,6 +1291,69 @@ private partial def collectExprs (stmts : Array Statement) : Array Expr :=
 private def countSubstr (haystack needle : String) : Nat :=
   if needle.isEmpty then 0 else (haystack.splitOn needle).length - 1
 
+/-- ADR-0031 S2: `context.blockHeight` lowers on CosmWasm to Env.block.height —
+    Plan Expr `.blockHeight`, WAT parses Env JSON `"height"` (bare u64 decimal)
+    at instantiate/execute/query entry. Exact UInt64 fit, no range guard. -/
+private unsafe def testContextReadBlockHeight
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "HeightBox" <|
+    "  state h : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    h := 0\n\n" ++
+    "  entry stamp() : UInt64 do\n" ++
+    "    h := context.blockHeight\n" ++
+    "    return h\n\n" ++
+    "  view last() : UInt64 do\n" ++
+    "    return context.blockHeight\n"
+  let compiled ← compileSource session src "Examples.HeightBox" "<cw-height-box>"
+  let plan ← liftResult <| planCw compiled
+  let some stamp := plan.entries.find? (·.name == "stamp") |
+    throw <| IO.userError "height-box: missing stamp entry"
+  let hasBlockHeight := stamp.body.any fun s =>
+    match s with
+    | .store op =>
+        match op.value with
+        | .blockHeight => true
+        | _ => false
+    | _ => false
+  expect hasBlockHeight "height-box: stamp must store blockHeight"
+  -- View also admits height (Env present on query; unlike caller).
+  let some last := plan.entries.find? (·.name == "last") |
+    throw <| IO.userError "height-box: missing last view"
+  let viewUsesHeight := last.body.any fun s =>
+    match s with
+    | .returnValue .blockHeight => true
+    | .returnValue _ => false
+    | _ => false
+  expect viewUsesHeight "height-box: view last must return blockHeight"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "HeightBox.wat"
+  expect (wat.contains "$pf_env_block_height")
+    "height-box: WAT must contain env block-height helper"
+  expect (wat.contains "$pf_block_height")
+    "height-box: WAT must stage height in pf_block_height global"
+  expect (wat.contains "\\\"height\\\"")
+    "height-box: WAT data must include Env height field needle"
+  -- Pre-parse at all three entry points (init / execute / query).
+  let loadLine :=
+    "(global.set $pf_block_height (call $pf_env_block_height (local.get $env_ptr)))"
+  let loadCount := countSubstr wat loadLine
+  expect (loadCount == 3)
+    s!"height-box: expected height load at instantiate+execute+query (3), got {loadCount}"
+  -- Helper uses bare-number parse (not string-field) and fixed needle 3252/8.
+  expect (wat.contains
+      "(call $pf_parse_u64_field (local.get $off) (local.get $len) (i32.const 3252) (i32.const 8))")
+    "height-box: helper must parse height via pf_parse_u64_field at offset 3252 len 8"
+  -- Prior fixed needles stay stable (time still at 3000; sender still at 3241).
+  expect (wat.contains "(i32.const 3000) (i32.const 6)")
+    "height-box: time needle offset must remain 3000/6"
+  expect (wat.contains "(i32.const 3241) (i32.const 10)")
+    "height-box: sender needle offset must remain 3241/10"
+  -- Unknown ContextRead keys still fail closed at Plan (unixTime/caller/height only).
+  -- Shared typing already rejects non-admitted surfaces; Plan unknown-key arm
+  -- is covered by non-unixTime/non-caller/non-height ContextRead path.
+  IO.println "  ✓ ContextRead context.blockHeight admit (ADR-0031 S2)"
+
 /-- ADR-0031 S1: `context.caller` on CosmWasm binds MessageInfo.sender
     (execute/init only) as Principal leaves `callerPrincipalLen` +
     `callerPrincipalWord 0..7` (len + 8×UInt64 LE, zero-padded). View/query
@@ -1454,6 +1517,7 @@ unsafe def run : IO Unit := do
   testMaterializeAggregate session
   testStaticLayoutCapacityFc session
   testContextReadUnixTime session
+  testContextReadBlockHeight session
   testContextReadCaller session
   IO.println "CosmWasmPlanV1: all checks passed"
 

@@ -60,6 +60,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
         if fieldIndex < layout.fields.size then some 1 else none
     | .localTemp _ => some 1
     | .blockTimeSeconds => some 1
+    | .blockHeight => some 1
     | .nativeVaultBalance => some 1
     | .callerPrincipalLen => some 1
     | .callerPrincipalWord wordIndex =>

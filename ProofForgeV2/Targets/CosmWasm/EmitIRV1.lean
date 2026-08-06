@@ -42,6 +42,11 @@ inductive Operation where
       Entry points fill global `$pf_block_time_secs` from Env JSON `"time"`
       (nanoseconds string ÷ 10^9 truncating) before calling method bodies. -/
   | blockTimeSeconds (destination : Nat)
+  /-- ADR-0031 S2: load pre-parsed env.block.height into a temp.
+      Entry points fill global `$pf_block_height` from Env JSON `"height"`
+      (bare u64 decimal) before calling method bodies. Available on
+      instantiate/execute/query. -/
+  | blockHeight (destination : Nat)
   /-- ADR-0031 S1: load pre-parsed MessageInfo.sender Principal length leaf
       (global `$pf_caller_len`) filled only in initializer/entry branches that
       actually use `context.caller` (see `methodUsesCallerPrincipalV1`).
@@ -228,6 +233,8 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       { operations := #[.literal next (UInt64.ofNat value)], value := next, next := next + 1 }
   | .blockTimeSeconds =>
       { operations := #[.blockTimeSeconds next], value := next, next := next + 1 }
+  | .blockHeight =>
+      { operations := #[.blockHeight next], value := next, next := next + 1 }
   | .nativeVaultBalance =>
       { operations := #[.nativeVaultBalance next], value := next, next := next + 1 }
   | .callerPrincipalLen =>
@@ -829,6 +836,8 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"  (global $ret_count (mut i32) (i32.const 0))\n" ++  -- B-RET-ABI leaf count (1..8)
   -- B-CTX-OPEN: whole-second block time from Env JSON (set at entry when used).
   s!"  (global $pf_block_time_secs (mut i64) (i64.const 0))\n" ++
+  -- ADR-0031 S2: block height from Env JSON (set at entry; init/execute/query).
+  s!"  (global $pf_block_height (mut i64) (i64.const 0))\n" ++
   -- ADR-0030 E2-4-CW: Env Region ptr cached at entry for env-read queries.
   "  (global $pf_env_ptr (mut i32) (i32.const 0))\n" ++
   -- ADR-0029 C1: info region cached at entry for funds checks (deposit/empty).
@@ -1513,6 +1522,16 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (local.set $ns (call $pf_parse_u64_string_field (local.get $off) (local.get $len) (i32.const 3000) (i32.const 6)))\n" ++
   s!"    (i64.div_u (local.get $ns) (i64.const 1000000000))\n" ++
   "  )\n" ++
+  -- ADR-0031 S2: Env Region → block height (u64).
+  -- cosmwasm-std Env.block.height is a plain u64 JSON number field `"height"`.
+  -- Exact UInt64 fit — no range guard beyond $pf_parse_u64_field overflow trap.
+  -- Needle for `"height"` is fixed at offset 3252 length 8 (see renderDataSectionV2).
+  s!"  (func $pf_env_block_height (param $env_ptr i32) (result i64)\n" ++
+  s!"    (local $off i32) (local $len i32)\n" ++
+  s!"    (local.set $off (call $pf_region_off (local.get $env_ptr)))\n" ++
+  s!"    (local.set $len (call $pf_region_len (local.get $env_ptr)))\n" ++
+  s!"    (call $pf_parse_u64_field (local.get $off) (local.get $len) (i32.const 3252) (i32.const 8))\n" ++
+  "  )\n" ++
   -- reset per-entry attribute/messages/return/inner-json state
   s!"  (func $pf_reset_result\n" ++
   s!"    (global.set $attr_len (i32.const 0))\n" ++
@@ -1857,6 +1876,10 @@ private partial def renderOperation (memory : MemoryLayout)
       -- B-CTX-OPEN: env.block.time.seconds() pre-parsed into global at entry.
       -- CosmWasm Timestamp.seconds() is u64 — exact UInt64 fit, no range guard.
       s!"{indent}(local.set $t{destination} (global.get $pf_block_time_secs))\n"
+  | .blockHeight destination =>
+      -- ADR-0031 S2: env.block.height pre-parsed into global at entry.
+      -- CosmWasm BlockInfo.height is u64 — exact UInt64 fit, no range guard.
+      s!"{indent}(local.set $t{destination} (global.get $pf_block_height))\n"
   | .callerPrincipalLen destination =>
       -- ADR-0031 S1: MessageInfo.sender length leaf (pre-parsed at entry).
       s!"{indent}(local.set $t{destination} (global.get $pf_caller_len))\n"
@@ -2519,6 +2542,18 @@ private def renderDataSectionV2 (ir : IR) (keysEnd : Nat) : Except CompileError 
     throw <| .planInvariant .cosmwasm
       "internal: sender needle must be at offset 3241 with length 10"
   off := off + senderNeedle.size + 1
+  -- ADR-0031 S2: `"height"` (8B) anchors Env.block.height extraction.
+  -- Fixed at 3252 so $pf_env_block_height can hard-code the offset. Appended
+  -- after sender so earlier fixed-offset helpers stay byte-stable.
+  let heightNeedle := "\"height\"".toUTF8
+  if off + heightNeedle.size + 1 > heapBase then
+    throw <| .planInvariant .cosmwasm
+      "height needle would overlap bump heap"
+  out := out ++ s!"  (data (i32.const {off}) \"\\\"height\\\"\")\n"
+  unless off == 3252 && heightNeedle.size == 8 do
+    throw <| .planInvariant .cosmwasm
+      "internal: height needle must be at offset 3252 with length 8"
+  off := off + heightNeedle.size + 1
   let mut methodNeedles : Array (String × Nat × Nat) := #[]
   for method in ir.methods do
     -- WAT string containing the bytes of `"name"` (quotes included for JSON find).
@@ -2562,6 +2597,12 @@ private def renderParamRangeGuard (indent : String) (i : Nat) (byteWidth : Nat) 
 private def renderLoadBlockTime (indent : String) : String :=
   s!"{indent}(global.set $pf_block_time_secs (call $pf_env_block_time_seconds (local.get $env_ptr)))\n"
 
+/-- ADR-0031 S2: capture env.block.height into the shared global before method
+    bodies that may read `context.blockHeight`. Always set on instantiate /
+    execute / query so any Plan using `.blockHeight` sees a fresh value. -/
+private def renderLoadBlockHeight (indent : String) : String :=
+  s!"{indent}(global.set $pf_block_height (call $pf_env_block_height (local.get $env_ptr)))\n"
+
 /-- ADR-0031 S1: parse MessageInfo.sender into Principal leaf globals.
     Emitted only inside initializer/entry branches whose Plan body uses
     `context.caller` (`methodUsesCallerPrincipalV1`). Requires
@@ -2601,6 +2642,7 @@ private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × 
         "    (global.set $info_len (call $pf_region_len (local.get $info_ptr)))\n" ++
         "    (global.set $pf_env_ptr (local.get $env_ptr))\n" ++
         renderLoadBlockTime "    " ++
+        renderLoadBlockHeight "    " ++
         renderLoadCallerPrincipalIfUsed "    " initPlan ++
         parse ++
         s!"    (return (call $m_{init.name} {args}))\n" ++
@@ -2659,6 +2701,7 @@ private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String 
         "    (global.set $info_len (call $pf_region_len (local.get $info_ptr)))\n" ++
         "    (global.set $pf_env_ptr (local.get $env_ptr))\n" ++
         renderLoadBlockTime "    " ++
+        renderLoadBlockHeight "    " ++
         dispatch ++
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++
         "  )\n"
@@ -2693,6 +2736,7 @@ private def renderQuery (ir : IR) (methodNeedles paramNeedles : Array (String ×
         "    (local.set $msg_len (call $pf_region_len (local.get $msg_ptr)))\n" ++
         "    (global.set $pf_env_ptr (local.get $env_ptr))\n" ++
         renderLoadBlockTime "    " ++
+        renderLoadBlockHeight "    " ++
         dispatch ++
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++
         "  )\n"
