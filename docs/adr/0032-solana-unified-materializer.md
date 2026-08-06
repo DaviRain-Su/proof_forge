@@ -79,18 +79,22 @@ ADR-0028 仍 accepted 于 **账户/CPI 合同**。
 
 ## 验收（工程，非 formal）
 
-- [ ] `Examples/MiniAmm.lean` 在 `--target solana --profile solana-sbpf-cpi-elf-v1` 下 product build 成功（vault-internal；可无 pf.assets）。  
-- [ ] 同一 profile 上 TipJar/TokenJar 等既有 CPI 产品不回归。  
-- [ ] WideDiv/Map single-account 矩阵在 shim 退役前仍绿；退役后在统一 rail 复钉。  
+- [x] `Examples/MiniAmm.lean` 在 `--target solana --profile solana-sbpf-cpi-elf-v1` 下 product build 成功（vault-internal；可无 pf.assets）。
+  Pin：`Tests/Product/MiniAmmSolanaV1.lean`（check/build/inspect + default-profile FC）。
+  Finalize 对 hybrid 经 `buildFromCapability` 重算 base（不再要求 escrow product IR）。
+- [x] 同一 profile 上 TipJar 等既有 CPI 产品不回归（`Tests/Product/TipJarSolanaV1` 绿）。
+  TokenJar 同 profile 既有 pin 仍在 Fast；本切片未改 escrow emitter。
+- [ ] WideDiv/Map single-account 矩阵在 shim 退役前仍绿；退役后在统一 rail 复钉。
 - [ ] 文档不再把 dual-rail 写成「永久设计终点」。
 
 ## 当前进度（2026-08-06）
 
-- P0：本 ADR。  
-- P2 首刀：**product body 吸收 UInt64 sub/mul/div/mod**（与 add 同 checked 纪律）。  
+- P0：本 ADR。
+- P2 首刀：**product body 吸收 UInt64 sub/mul/div/mod**（与 add 同 checked 纪律）。
 - P2 续：**full-body hybrid**（`EmitSbpfAsmV1.buildFromCapability`）：
   - 当 `solana-sbpf-cpi-elf-v1` 且 **零 CPI sites** 且 Semantic 需要 multi-block/Map 时，
     `.s` 改走 `materializeFullBodyPlanForProductV1` + `EmitSbpfAsm`（复用完整 Map/CFG）；
   - `context.caller` 在 full-body 路径上经 `callerPrincipalLeaf`（account[1] pf_caller key）开放；
   - 有 CPI sites 的产品（TipJar 等）仍走 escrow product IR；
+  - **MiniAmm product pin 已绿**（full-body hybrid ELF + `irDigest=full-body-hybrid`；零 `sol_invoke`）；
   - multi-account layout 硬化（acc1 dup/signer exact offsets）与 MiniAMM Mollusk 仍后续。

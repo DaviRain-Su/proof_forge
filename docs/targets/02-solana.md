@@ -264,4 +264,4 @@ Phase 1 不承诺 Token-2022、复杂 CPI、zero-copy、upgradeable loader 管�
 
 > **Solana CPI epic #111–#125 engineering closed** (#110 engineering epic complete): single-account profiles fail closed on call/schedule; exact `solana-sbpf-cpi-elf-v1` advertises sync+extension (async still FC); product activation is ordinary-resolver product capability (not formal TASK-D5).
 >
-> **ADR-0032 U1（2026-08-06，`proposed`）**：统一方向为 **sole rail = `solana-sbpf-cpi-elf-v1`**，把今日 LowerSemantic 全量 body 吸收进该 rail；`plan-v1`/`elf-v1` 仅为过渡 single-account shim。P2 首刀：product body 已吸收 UInt64 checked sub/mul/div/mod（与 add 同 checked 纪律）。Map/CFG/默认 profile 切换与 MiniAMM 同构仍后续。
+> **ADR-0032 U1（2026-08-06，`proposed`）**：统一方向为 **sole rail = `solana-sbpf-cpi-elf-v1`**，把今日 LowerSemantic 全量 body 吸收进该 rail；`plan-v1`/`elf-v1` 仅为过渡 single-account shim。P2 首刀：product body 已吸收 UInt64 checked sub/mul/div/mod（与 add 同 checked 纪律）。P2 续：零 CPI site + multi-block/Map 走 full-body hybrid；`Examples/MiniAmm.lean` 已在 cpi-elf 上 product build/inspect 钉测（`Tests/Product/MiniAmmSolanaV1`；非 Mollusk）。默认 profile 切换与 MiniAMM Mollusk 应用门仍后续。

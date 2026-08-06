@@ -34,6 +34,7 @@ import ProofForgeV2.Targets.Solana.CpiDeriveV1
 import ProofForgeV2.Targets.Solana.CpiEscrowIRV1
 import ProofForgeV2.Targets.Solana.CpiProductCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiProductV1
+import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
 
 namespace ProofForgeV2.Targets.Solana.FinalizeV1
 
@@ -174,32 +175,37 @@ private def finalizeCpiElfProfile
       throw <| IO.userError
         s!"PF-ARTIFACT-NONDEPLOYABLE: CPI product capability refine failed: {e.render}"
 
-  -- 2. Recompute product Plan/IR and base files (pure; no tool IO yet).
+  -- 2. Recompute product Plan digest (always) and base files via sole
+  -- materialize entry `buildFromCapability` (ADR-0032: includes full-body hybrid).
   let productPlan ← match productPlanFromCapabilityV1 capability with
     | .ok p => pure p
     | .error e =>
         throw <| IO.userError
           s!"PF-ARTIFACT-NONDEPLOYABLE: CPI product Plan recompute failed: {e.render}"
-  let productIr ← match productIrFromCapabilityV1 capability with
-    | .ok ir => pure ir
-    | .error e =>
-        throw <| IO.userError
-          s!"PF-ARTIFACT-NONDEPLOYABLE: CPI product IR recompute failed: {e.render}"
   let productDigest ← match productPlanDigestFromCapabilityV1 capability with
     | .ok d => pure d
     | .error e =>
         throw <| IO.userError
           s!"PF-ARTIFACT-NONDEPLOYABLE: CPI product plan digest recompute failed: {e.render}"
   let planDigest := SolanaCpiProductPlanV1.digestOf productPlan
-  let irDigest := ResolvedSolanaCpiProductIRV1.digestOf productIr
   unless digestsEqual productDigest planDigest do
     throw <| IO.userError
       "PF-ARTIFACT-NONDEPLOYABLE: product plan digest diverges from Plan carrier digest"
-  -- IR must bind the recomputed Plan digest.
-  let irCand := ResolvedSolanaCpiProductIRV1.candidateOf productIr
-  unless digestsEqual irCand.sourcePlanDigest planDigest do
-    throw <| IO.userError
-      "PF-ARTIFACT-NONDEPLOYABLE: product IR sourcePlanDigest diverges from Plan digest"
+
+  -- Product IR: ordinary escrow path when available; full-body hybrid skips
+  -- escrow IR (multi-block/Map) and records hybrid marker in evidence.
+  let productIrResult := productIrFromCapabilityV1 capability
+  let irDigestNote : String ←
+    match productIrResult with
+    | .ok productIr => do
+        let irDigest := ResolvedSolanaCpiProductIRV1.digestOf productIr
+        let irCand := ResolvedSolanaCpiProductIRV1.candidateOf productIr
+        unless digestsEqual irCand.sourcePlanDigest planDigest do
+          throw <| IO.userError
+            "PF-ARTIFACT-NONDEPLOYABLE: product IR sourcePlanDigest diverges from Plan digest"
+        digestWireIO irDigest
+    | .error _ =>
+        pure "full-body-hybrid"
 
   -- 3. Join BuildIdentity planDigest (bound at materialize) to product digest.
   let identity := MaterializedArtifactsV1.buildIdentityOf artifacts
@@ -211,8 +217,9 @@ private def finalizeCpiElfProfile
     throw <| IO.userError
       "PF-ARTIFACT-NONDEPLOYABLE: BuildIdentity profile is not solana-sbpf-cpi-elf-v1"
 
-  -- 4. Join staging base files against recomputed product base set.
-  let baseFiles ← match productBaseFilesFromCapabilityV1 capability with
+  -- 4. Join staging base files against recomputed materialize base set
+  -- (same authority as publisher: buildFromCapability, hybrid-aware).
+  let baseFiles ← match buildFromCapability capability with
     | .ok files => pure files
     | .error e =>
         throw <| IO.userError
@@ -238,7 +245,6 @@ private def finalizeCpiElfProfile
 
   -- 6. evidenceNote: exact active profile/catalog/Plan/IR/tool digests.
   let planWire ← digestWireIO planDigest
-  let irWire ← digestWireIO irDigest
   let cand := SolanaCpiProductPlanV1.candidateOf productPlan
   let candProfileWire ← digestWireIO cand.profileDigest
   let candCatalogWire ← digestWireIO cand.calleeCatalogDigest
@@ -250,10 +256,9 @@ private def finalizeCpiElfProfile
       s!"profile={CodegenProfileId.solanaSbpfCpiElfV1} " ++
       s!"profileDigest={candProfileWire} " ++
       s!"catalogDigest={candCatalogWire} " ++
-      s!"planDigest={planWire} irDigest={irWire} " ++
+      s!"planDigest={planWire} irDigest={irDigestNote} " ++
       "completed successfully (no env ELF copy; callee pins in bindings/catalog)"
   }
-
 private def finalizeUnknownProfile (profile : CodegenProfileId) :
     IO EngineeringFinalizationDraftV1 :=
   throw <| IO.userError

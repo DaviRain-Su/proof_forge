@@ -1071,9 +1071,9 @@
       "sha256": "c5a1ab0d3a45195242d3dc6a33fa8b1d3338332bfb12f3b85b4364ecfa656bf9"
     },
     {
-      "bytes": 13501,
+      "bytes": 13799,
       "path": "ProofForgeV2/Targets/Solana/FinalizeV1.lean",
-      "sha256": "d3a56cec1e7947ece1e139e5ed2268e4462913688aaa1929a6365d5f136025fc"
+      "sha256": "3059133b2385c539151660ff3a9ad1025cabfb45e25bcef008efc34bdefba9eb"
     },
     {
       "bytes": 203502,

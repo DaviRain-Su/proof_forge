@@ -164,6 +164,8 @@ import Tests.Product.TipJarEvmV1
 import Tests.Materialization.EvmPfAssetsV1
 import Tests.Product.TokenJarEvmV1
 import Tests.Product.TipJarSolanaV1
+import Tests.Product.TokenJarSolanaV1
+import Tests.Product.MiniAmmSolanaV1
 import Tests.Product.TipJarNearV1
 import Tests.Materialization.NearPfAssetsV1
 import Tests.Product.TipJarCosmWasmV1
@@ -232,6 +234,8 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Materialization.EvmPfAssetsV1.run
   Tests.Product.TokenJarEvmV1.run
   Tests.Product.TipJarSolanaV1.run
+  Tests.Product.TokenJarSolanaV1.run
+  Tests.Product.MiniAmmSolanaV1.run
   Tests.Product.TipJarNearV1.run
   Tests.Materialization.NearPfAssetsV1.run
   Tests.Product.TipJarCosmWasmV1.run
