@@ -157,10 +157,32 @@ def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
       | .ok d => pure d
       | .error _ =>
           throw <| .planInvariant .solana "invalid SemanticProgramV1 carrier"
-    if !hasSites && semanticNeedsFullBodyV1 data then
+    let needsBody := semanticNeedsFullBodyV1 data
+    -- P3-d gate (explicit, before cryptic escrow straight-line FC):
+    -- full-body shape (Map/CFG/…) + real CPI sites are not yet one ELF.
+    if hasSites && needsBody then
+      throw <| .planInvariant .solana
+        ("product synthesize P3-d incomplete: full-body shape + non-empty " ++
+          "cpiSites not yet unified on sole rail " ++
+          "(use zero-site full body, or straight-line CPI product; " ++
+          "site hooks = ProductSynthesize P3-d)")
+    if !hasSites && needsBody then
       synthesizeZeroSiteFullBodyBaseFilesV1 capability
     else
-      productBaseFilesFromCapabilityV1 capability
+      -- Straight-line CPI product (TipJar/TokenJar) or narrow zero-site body:
+      -- escrow composite path + unified frame contract pin (P3-b/c).
+      let files ← productBaseFilesFromCapabilityV1 capability
+      let bodyTempBytes :=
+        productEscrowTempRegionEndV1 - productEscrowTempBaseV1
+      let cpiScratchBytes :=
+        productMaxFrameBytesV1 - productEscrowTempRegionEndV1
+      match mintUnifiedCpiFrameV1 bodyTempBytes cpiScratchBytes with
+      | .ok frame => do
+          requireProductFrameV1 frame
+          pure files
+      | .error e =>
+          throw <| .planInvariant .solana
+            s!"product synthesize escrow frame: {e}"
   else
     buildUnknownProfileFail profile
 

@@ -255,6 +255,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.SolanaCpiEscrowV1,
     `Tests.Materialization.SolanaCpiPfAssetsV1,
     `Tests.Materialization.SolanaCpiActivationV1,
+    `Tests.Materialization.SolanaProductSynthesizeV1,
     `Tests.Targets.SolanaAsmV1,
     `Tests.Targets.SolanaAcc1LayoutV1,
     `Tests.Targets.SolanaProductFrameV1,

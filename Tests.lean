@@ -151,6 +151,7 @@ import Tests.Materialization.SolanaCpiAtaV1
 import Tests.Materialization.SolanaCpiEscrowV1
 import Tests.Materialization.SolanaCpiPfAssetsV1
 import Tests.Materialization.SolanaCpiActivationV1
+import Tests.Materialization.SolanaProductSynthesizeV1
 import Tests.Targets.SolanaAsmV1
 import Tests.Targets.SolanaAcc1LayoutV1
 import Tests.Targets.SolanaProductFrameV1
@@ -223,6 +224,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Materialization.SolanaCpiEscrowV1.run
   Tests.Materialization.SolanaCpiPfAssetsV1.run
   Tests.Materialization.SolanaCpiActivationV1.run
+  Tests.Materialization.SolanaProductSynthesizeV1.run
   Tests.Targets.SolanaAsmV1.run
   Tests.Targets.SolanaAcc1LayoutV1.run
   Tests.Targets.SolanaProductFrameV1.run

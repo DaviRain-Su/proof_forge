@@ -1096,9 +1096,9 @@
       "sha256": "97045087fe0af0b34631407ba12ae8132c7cd628cdfacc04388201b935eafe3b"
     },
     {
-      "bytes": 7279,
+      "bytes": 8392,
       "path": "ProofForgeV2/Targets/Solana/ProductSynthesizeV1.lean",
-      "sha256": "183b237a4e5ada8cdb10a08db74c11c7c0c715da34992cbfbcf3d2c8c0dc8b34"
+      "sha256": "1e78f390f84f5a194b4f6da4b734d9645cedf0eb666b5d01bdf510ef4c526c40"
     },
     {
       "bytes": 26382,

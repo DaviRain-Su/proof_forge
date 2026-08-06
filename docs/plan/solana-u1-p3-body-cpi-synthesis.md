@@ -184,6 +184,13 @@ buildFromCapability (profile = solana-sbpf-cpi-elf-v1)
 
 - **P3-b done（engineering）**：`ProofForgeV2/Targets/Solana/ProductFrameV1.lean` + `Tests/Targets/SolanaProductFrameV1`（bodyOnly / unifiedCpi / escrow pin 1024/1096/4096）。
 - **P3-c skeleton done（engineering）**：`ProductSynthesizeV1.lean` 持有 `buildFromCapability`；零 site + full body → `synthesizeZeroSiteFullBodyBaseFilesV1`（frame gate + 既有 hybrid IR schema 兼容 pin）；有 sites → 仍 `CpiV1.productBaseFilesFromCapabilityV1`。IR marker **尚未** 消灭（P3-g）；site hooks = P3-d。
+### 进度注记（2026-08-06 续 · P3-d 门）
+
+- **P3-d partial**：显式 gate `product synthesize P3-d incomplete…` 当 `cpiSites≠∅ ∧ semanticNeedsFullBody`；
+  避免落入 escrow straight-line 含糊 FC。测试：`Tests/Materialization/SolanaProductSynthesizeV1`。
+- **尚未**：full body IR 中插入真实 multi-role `sol_invoke_signed_c` recipe（TipJar 级账户面 + Map/if）。
+- **P3-h**：admitCaller 双账户 layout + MiniAmmHybrid Mollusk 已在 main（可标 done）。
+
 | **P3-d** | Site hooks：单 block + 已支持 escrow body ops + **一个** catalog invoke 与 full-body temps 共存 | 小 demo：state UInt64 ± + 1× `solana.system.transfer` 或 `pf.assets.native.transfer` 同 ELF；`sol_invoke_signed_c` 出现在 `.s` | `EmitCpiEscrowSbpfV1`（recipe 复用）、synthesize | 依赖 P3-c |
 | **P3-e** | CFG：if/branch 与 site 锚点 source order；仍 FC for/loop 跨 site 若帧不够 | multi-block + 1 site Lean pin | `EmitIRV1`/`EmitSbpfAsmV1` region + synthesize | 依赖 P3-d |
 | **P3-f** | Map/Index* + site（MiniAMM-class body + 可选 transfer） | MapTip 类 demo product build；可选 host-optional Mollusk | LowerSemantic 已有 Map；synthesize + layout | 依赖 P3-e |
