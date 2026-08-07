@@ -1,0 +1,15 @@
+[package]
+name = "pf-surfpool-miniamm-business"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Surfpool RPC business smoke for MiniAmmAssets (engineering)"
+
+[dependencies]
+bs58 = "0.5"
+hex = "0.4"
+sha2 = "0.10"
+solana-client = "2.2"
+solana-sdk = "2.2"
+spl-associated-token-account = "6"
+spl-token = { version = "7", features = ["no-entrypoint"] }

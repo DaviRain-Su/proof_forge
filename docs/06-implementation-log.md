@@ -12,6 +12,15 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-07 — Surfpool MiniAmmAssets full business matrix
+
+- 新增 `runtime-tests/solana/surfpool/runner`（Rust RPC client）与
+  `scripts/solana_miniamm_assets_surfpool_business.sh` / `just solana-surfpool-miniamm-business`。
+- 默认 `SURFPOOL_NETWORK=mainnet` fork 以加载 classic Token/ATA；SBPFv3 部署
+  MiniAmmAssets 后跑 initialize → addLiquidity → swap0to1 → slippage 0x1002 hold →
+  removeLiquidity 双 mint 转出（与 Mollusk 数值 oracle 对齐）。
+- Engineering local-chain only；Mollusk 仍是无网差分门；非 formal/mainnet claim。
+
 ## 2026-08-07 — Surfpool local Surfnet lane for MiniAmmAssets
 
 - 新增 `runtime-tests/solana/surfpool/` + `scripts/solana_surfpool_{up,down}.sh` +

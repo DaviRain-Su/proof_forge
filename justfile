@@ -1331,6 +1331,12 @@ solana-surfpool-down:
 solana-surfpool-miniamm-smoke:
     bash scripts/solana_miniamm_assets_surfpool_smoke.sh
 
+# Full business matrix on Surfpool (mainnet fork for Token/ATA by default):
+# init → addLiquidity → swap0to1 → slippage → removeLiquidity dual transfer.
+# Host-optional; needs network for mainnet datasource. Not ordinary ci / not formal.
+solana-surfpool-miniamm-business:
+    bash scripts/solana_miniamm_assets_surfpool_business.sh
+
 # Local-only executable call lane: build and independently verify the product
 # OutputSet, then load its manifest-bound ELF in Mollusk and invoke native System.
 # No RPC, faucet, wallet, Program ID, deployment, or test token is involved.

@@ -7,8 +7,8 @@ a product `.so`, and smoke-check it.
 | Claim | Status |
 |---|---|
 | Local RPC (`getHealth`) | **yes** — `surfpool start --offline` |
-| Deploy product ELF (`solana program deploy`) | **yes** — MiniAmmAssets default |
-| Full multi-role Token CPI invoke | **not this lane** — use Mollusk `miniamm_assets` |
+| Deploy product ELF (`solana program deploy`) | **yes** — MiniAmmAssets |
+| Full multi-role Token CPI business matrix | **yes** — `just solana-surfpool-miniamm-business` (mainnet fork for Token/ATA) |
 | Mainnet / formal / hermetic | **no** |
 
 Same product source as dual-chain M5: `Examples/MiniAmmAssets.lean`
@@ -31,8 +31,12 @@ Scripts enable the Surfpool SBPFv3 feature gate
 ## Quick start
 
 ```bash
-# One-shot: start Surfpool → build MiniAmmAssets → deploy → program show → stop
+# Deploy-only smoke (offline Surfnet)
 just solana-surfpool-miniamm-smoke
+
+# Full business matrix (mainnet fork for classic Token/ATA + CPI):
+#   initialize → addLiquidity → swap0to1 → slippage hold → removeLiquidity
+just solana-surfpool-miniamm-business
 
 # Or leave the chain up for manual casting:
 just solana-surfpool-up          # prints RPC URL; writes pid under this dir
@@ -48,13 +52,15 @@ just solana-surfpool-down
 | `keys/` | **gitignored** ephemeral payer + program keypairs (generated on first run) |
 | `rpc-url.txt` | Written by `solana-surfpool-up` |
 | `pid` | Surfpool process id |
-| `deployed.json` | Last smoke deploy record (program id, signature, artifact path) |
+| `deployed.json` | Last deploy-only smoke record |
+| `runner/` | Rust RPC business runner (`pf-surfpool-miniamm-business`) |
 
 ## Honesty
 
-- This is **engineering local tooling**, not a substitute for Mollusk differential
-  gates and **not** mainnet deployment evidence.
-- Default smoke uses `--offline` (no remote fork). Token/ATA CPI against real
-  classic programs still needs mainnet-fork mode or vendored loaders — keep that
-  on Mollusk until a dedicated fork+invoke suite is added.
+- Engineering local tooling only — **not** formal TASK-D5, hermetic Stage-0, or
+  mainnet deployment evidence.
+- Deploy-only smoke defaults to `--offline`. Business matrix defaults to
+  `SURFPOOL_NETWORK=mainnet` so classic Token/ATA program ids exist for CPI.
+- Mollusk `miniamm_assets` remains the ordinary host-optional differential gate
+  (no network). Surfpool is the optional “real local chain” path.
 - Keypairs under `keys/` are local throwaways; never reuse as production custody.
