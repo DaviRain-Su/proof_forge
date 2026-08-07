@@ -12,6 +12,19 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy UInt128 bitwise/shift（PSY-WIDE-2c engineering）
+
+- 显式 `psy-dargo-0.1.0-vm-v1` 现开放 UInt128 `&`/`|`/`^`/`~` 与 `<<`/`>>`；历史默认
+  `psy-dargo-u64-v1` 继续 fail closed；UInt256 仍未开放。
+- bitwise 为 pure per-limb Felt `&`/`|`/`^`（limb 已在 `0..2^32-1`）；`~` 为每肢
+  `xor 0xffffffff`。
+- shift：Normalize 的 UInt32 count；Plan `bindWideUInt128Shift` + 固定 `0u32..128u32`
+  一步一位 walk；`count < 128`（`invalidShift: count >= 128`）；`shl` 任一高位丢失
+  `u128 shl overflow`；不使用 Felt 整除拆 whole/rem limb。
+- `Examples/WideCounter` 增 bitand/bitor/bitxor/shiftLeft/shiftRight；`PsySourceV1`
+  Reference + Plan/source pin 已通；`psy_runtime_test.sh` 增 bitand/shl 正负路径。
+- 该结果仅是 engineering local-VM lane 准备，不是 formal refinement / UPS / deploy。
+
 ## 2026-08-08 — Psy UInt128 exact div/mod（PSY-WIDE-2b engineering）
 
 - 显式 `psy-dargo-0.1.0-vm-v1` 现开放 UInt128 exact unsigned `/` 与 `%`；历史默认

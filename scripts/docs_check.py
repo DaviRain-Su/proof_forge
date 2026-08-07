@@ -1484,10 +1484,10 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
     # Integrated package-file pin is the current authority (refreshed after
     # #111–#125 + main merge). Historical feature-worktree close-out may still
     # mention 194 only when explicitly historical.
-    if not re.search(r"SBOM[^\n]{0,40}\b242\b|\b242\b[^\n]{0,40}SBOM", agents):
+    if not re.search(r"SBOM[^\n]{0,40}\b244\b|\b244\b[^\n]{0,40}SBOM", agents):
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
-            "must record current SBOM package-file pin 242")
+            "must record current SBOM package-file pin 244")
     if not re.search(
             r"\*\*13\*\* test binaries / \*\*304\*\* active tests",
             agents,

@@ -632,6 +632,96 @@ if [[ "$wide_mod_zero_ec" -eq 0 ]] || \
   die "WideCounter UInt128 mod-by-zero did not fail with the exact message"
 fi
 
+# Per-limb bitwise: 0x1_00000000 & 0xffffffff = 0
+echo "${PREFIX}: UInt128 bitand execute"
+wide_and_ec=0
+run_wide_dargo wide-execute-bitand execute \
+  --contract-name WideCounter \
+  --method-names initialize \
+  --method-names bitand \
+  --method-names get \
+  --parameters 0,1,0,0 \
+  --parameters 4294967295,0,0,0 || wide_and_ec=$?
+if [[ "$wide_and_ec" -ne 0 ]]; then
+  cat "$log_dir/wide-execute-bitand.log" >&2 || true
+  die "WideCounter bitand execute failed (exit $wide_and_ec)"
+fi
+wide_and_seq=""
+wide_and_count=0
+while IFS= read -r line; do
+  val="${line#result_vm:}"
+  val="${val#"${val%%[![:space:]]*}"}"
+  wide_and_count=$((wide_and_count + 1))
+  if [[ -n "$wide_and_seq" ]]; then
+    wide_and_seq="${wide_and_seq}|${val}"
+  else
+    wide_and_seq="$val"
+  fi
+done < <(grep -E '^result_vm:' "$log_dir/wide-execute-bitand.log" || true)
+if [[ "$wide_and_count" -ne 3 || \
+    "$wide_and_seq" != "[]|[0, 0, 0, 0]|[0, 0, 0, 0]" ]]; then
+  cat "$log_dir/wide-execute-bitand.log" >&2 || true
+  die "WideCounter bitand observables mismatch: count=$wide_and_count seq=$wide_and_seq"
+fi
+
+# Shift: 0xffffffff << 1 = 0x1fffffffe
+echo "${PREFIX}: UInt128 shiftLeft execute"
+wide_shl_ec=0
+run_wide_dargo wide-execute-shl execute \
+  --contract-name WideCounter \
+  --method-names initialize \
+  --method-names shiftLeft \
+  --method-names get \
+  --parameters 4294967295,0,0,0 \
+  --parameters 1 || wide_shl_ec=$?
+if [[ "$wide_shl_ec" -ne 0 ]]; then
+  cat "$log_dir/wide-execute-shl.log" >&2 || true
+  die "WideCounter shiftLeft execute failed (exit $wide_shl_ec)"
+fi
+wide_shl_seq=""
+wide_shl_count=0
+while IFS= read -r line; do
+  val="${line#result_vm:}"
+  val="${val#"${val%%[![:space:]]*}"}"
+  wide_shl_count=$((wide_shl_count + 1))
+  if [[ -n "$wide_shl_seq" ]]; then
+    wide_shl_seq="${wide_shl_seq}|${val}"
+  else
+    wide_shl_seq="$val"
+  fi
+done < <(grep -E '^result_vm:' "$log_dir/wide-execute-shl.log" || true)
+if [[ "$wide_shl_count" -ne 3 || \
+    "$wide_shl_seq" != "[]|[4294967294, 1, 0, 0]|[4294967294, 1, 0, 0]" ]]; then
+  cat "$log_dir/wide-execute-shl.log" >&2 || true
+  die "WideCounter shiftLeft observables mismatch: count=$wide_shl_count seq=$wide_shl_seq"
+fi
+
+wide_shl_overflow_ec=0
+run_wide_dargo wide-execute-shl-overflow execute \
+  --contract-name WideCounter \
+  --method-names initialize \
+  --method-names shiftLeft \
+  --parameters 4294967295,4294967295,4294967295,4294967295 \
+  --parameters 1 || wide_shl_overflow_ec=$?
+if [[ "$wide_shl_overflow_ec" -eq 0 ]] || \
+    ! grep -q 'assertion failed: u128 shl overflow' "$log_dir/wide-execute-shl-overflow.log"; then
+  cat "$log_dir/wide-execute-shl-overflow.log" >&2 || true
+  die "WideCounter UInt128 shl overflow did not fail with the exact message"
+fi
+
+wide_shift_count_ec=0
+run_wide_dargo wide-execute-shift-count execute \
+  --contract-name WideCounter \
+  --method-names initialize \
+  --method-names shiftLeft \
+  --parameters 1,0,0,0 \
+  --parameters 128 || wide_shift_count_ec=$?
+if [[ "$wide_shift_count_ec" -eq 0 ]] || \
+    ! grep -q 'assertion failed: invalidShift: count >= 128' "$log_dir/wide-execute-shift-count.log"; then
+  cat "$log_dir/wide-execute-shift-count.log" >&2 || true
+  die "WideCounter UInt128 invalid shift count did not fail with the exact message"
+fi
+
 wide_range_ec=0
 run_wide_dargo wide-execute-range execute \
   --contract-name WideCounter \
@@ -643,6 +733,6 @@ if [[ "$wide_range_ec" -eq 0 ]] || \
   die "WideCounter out-of-range limb did not fail with the exact UInt32 ABI message"
 fi
 
-echo "${PREFIX}: UInt128 VM observables ok (carry/borrow/multiply/divide/remainder/compare + checked negatives)"
+echo "${PREFIX}: UInt128 VM observables ok (arith/bitwise/shift/compare + checked negatives)"
 echo "${PREFIX}: ok (${PROFILE_LABEL}; engineering only; not formal/hermetic/deploy)"
 exit 0

@@ -34,7 +34,7 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
   match expr with
   | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
   | .param _ | .loopVar _ | .stateLoad _ | .wideUInt128MulLimb _ _
-  | .wideUInt128DivModLimb _ _ _ => some 1
+  | .wideUInt128DivModLimb _ _ _ | .wideUInt128ShiftLimb _ _ _ => some 1
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
   | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
@@ -96,6 +96,16 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
           match validateExprNodes value with
           | some _ => pure ()
           | none => planError "Psy plan expression exceeds the depth/node limit"
+    | .bindWideUInt128Shift _ _ value count => do
+        unless value.size == 4 do
+          planError "Psy bindWideUInt128Shift requires four value limbs"
+        for limb in value do
+          match validateExprNodes limb with
+          | some _ => pure ()
+          | none => planError "Psy plan expression exceeds the depth/node limit"
+        match validateExprNodes count with
+        | some _ => pure ()
+        | none => planError "Psy plan expression exceeds the depth/node limit"
     | .returnAggregate leaves leafIsInt => do
         -- B-RET-ABI: 1..8 leaves, UInt64/Int64 words only (byteWidth checked on ResultKind).
         unless leaves.size > 0 && leaves.size ≤ 8 do
@@ -140,15 +150,18 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
 
 private def maxWideUInt128MulBindings : Nat := 4
 private def maxWideUInt128DivModBindings : Nat := 1
+private def maxWideUInt128ShiftBindings : Nat := 4
 
 private structure WideBindingEnvV1 where
   mulIds : Array Nat := #[]
   divModIds : Array (Nat × WideUInt128DivModResultV1) := #[]
+  shiftIds : Array (Nat × WideUInt128ShiftKindV1) := #[]
   deriving Inhabited
 
 private def hasAnyWideBindingId (env : WideBindingEnvV1) (operationId : Nat) : Bool :=
   env.mulIds.contains operationId ||
-    env.divModIds.any (fun binding => binding.1 == operationId)
+    env.divModIds.any (fun binding => binding.1 == operationId) ||
+    env.shiftIds.any (fun binding => binding.1 == operationId)
 
 private partial def validateWideExpr
     (defined : WideBindingEnvV1) (expr : Expr) : CompileResult Unit := do
@@ -165,6 +178,11 @@ private partial def validateWideExpr
         planError "Psy UInt128 div/mod result limb index must be in 0..3"
       unless defined.divModIds.contains (operationId, resultKind) do
         planError "Psy UInt128 div/mod result kind is mismatched or used before its binding"
+  | .wideUInt128ShiftLimb kind operationId limbIndex =>
+      unless limbIndex < 4 do
+        planError "Psy UInt128 shift result limb index must be in 0..3"
+      unless defined.shiftIds.contains (operationId, kind) do
+        planError "Psy UInt128 shift result kind is mismatched or used before its binding"
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
   | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
@@ -192,6 +210,7 @@ private structure WideBindingInventoryV1 where
   ids : Array Nat := #[]
   mulCount : Nat := 0
   divModCount : Nat := 0
+  shiftCount : Nat := 0
   deriving Inhabited
 
 private def appendWideInventory
@@ -199,6 +218,7 @@ private def appendWideInventory
   ids := left.ids ++ right.ids
   mulCount := left.mulCount + right.mulCount
   divModCount := left.divModCount + right.divModCount
+  shiftCount := left.shiftCount + right.shiftCount
 }
 
 private partial def collectWideBindingInventory
@@ -210,6 +230,8 @@ private partial def collectWideBindingInventory
         out := { out with ids := out.ids.push operationId, mulCount := out.mulCount + 1 }
     | .bindWideUInt128DivMod _ operationId _ _ =>
         out := { out with ids := out.ids.push operationId, divModCount := out.divModCount + 1 }
+    | .bindWideUInt128Shift _ operationId _ _ =>
+        out := { out with ids := out.ids.push operationId, shiftCount := out.shiftCount + 1 }
     | .ifThenElse _ thenBody elseBody =>
         out := appendWideInventory out (collectWideBindingInventory thenBody)
         out := appendWideInventory out (collectWideBindingInventory elseBody)
@@ -252,6 +274,20 @@ private partial def validateWideBindings
           validateWideExpr defined value
         defined := { defined with
           divModIds := defined.divModIds.push (operationId, resultKind) }
+    | .bindWideUInt128Shift kind operationId value count => do
+        unless profileMode == .dargo010Vm do
+          planError "Psy UInt128 shift requires profile psy-dargo-0.1.0-vm-v1"
+        unless loopDepth == 0 do
+          planError "Psy UInt128 shift inside a bounded loop exceeds the frozen resource profile"
+        unless value.size == 4 do
+          planError "Psy bindWideUInt128Shift requires four value limbs"
+        unless !hasAnyWideBindingId defined operationId do
+          planError "Psy wide operation binding id is duplicated in one lexical region"
+        for limb in value do
+          validateWideExpr defined limb
+        validateWideExpr defined count
+        defined := { defined with
+          shiftIds := defined.shiftIds.push (operationId, kind) }
     | .store _ value | .returnValue value | .assert value
     | .assertWithMessage value _ =>
         validateWideExpr defined value
@@ -285,6 +321,8 @@ private def validateWideFunction
     planError s!"Psy function exceeds the UInt128 multiplication binding limit ({maxWideUInt128MulBindings})"
   unless inventory.divModCount ≤ maxWideUInt128DivModBindings do
     planError s!"Psy function exceeds the UInt128 div/mod binding limit ({maxWideUInt128DivModBindings})"
+  unless inventory.shiftCount ≤ maxWideUInt128ShiftBindings do
+    planError s!"Psy function exceeds the UInt128 shift binding limit ({maxWideUInt128ShiftBindings})"
   let mut seen : Array Nat := #[]
   for operationId in inventory.ids do
     if seen.contains operationId then

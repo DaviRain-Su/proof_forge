@@ -135,6 +135,12 @@ inductive WideUInt128DivModResultV1 where
   | remainder
   deriving BEq, Inhabited, Repr
 
+/-- Direction of an exact UInt128 shift binding (count is UInt32 Felt). -/
+inductive WideUInt128ShiftKindV1 where
+  | shl
+  | shr
+  deriving BEq, Inhabited, Repr
+
 /-- Target-owned Psy Plan expression over the public UInt{8,16,32,64}/Bool
     envelope. Narrow widths are Felt-carried with explicit width guards at
     emission (not native Psy uN — VM uN ops are unfaithful to Reference). -/
@@ -220,6 +226,10 @@ inductive Expr where
       `Statement.bindWideUInt128DivMod` restoring-divider binding. -/
   | wideUInt128DivModLimb (resultKind : WideUInt128DivModResultV1)
       (operationId limbIndex : Nat)
+  /-- Reference to one result limb produced by an earlier exact
+      `Statement.bindWideUInt128Shift` (UInt32 count; fixed 128-step bit walk). -/
+  | wideUInt128ShiftLimb (kind : WideUInt128ShiftKindV1)
+      (operationId limbIndex : Nat)
   /-- Felt-valued conditional used to materialize carry/borrow without field
       division. `condition` is Bool; both branches are Felt expressions. -/
   | select (condition thenValue elseValue : Expr)
@@ -265,6 +275,12 @@ inductive Statement where
       `%` are never used for the integer result. -/
   | bindWideUInt128DivMod (resultKind : WideUInt128DivModResultV1)
       (operationId : Nat) (lhs rhs : Array Expr)
+  /-- Exact UInt128 logical shift for the explicit VM profile. `value` is four
+      little-endian UInt32 Felt limbs; `count` is a UInt32 Felt in `0..127`.
+      The emitter owns a fixed 128-step bit walk (no Psy field `/` for whole/rem
+      limb split); `shl` traps on any bit shifted past bit 127. -/
+  | bindWideUInt128Shift (kind : WideUInt128ShiftKindV1) (operationId : Nat)
+      (value : Array Expr) (count : Expr)
   deriving BEq, Inhabited, Repr
 
 /-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
@@ -1191,6 +1207,39 @@ private def lowerWideUInt128DivMod
     value := mkWideUInt128Val out
   }
 
+/-- Per-limb bitwise: each UInt32 Felt limb is operated independently. Inputs
+    already live in `0..2^32-1` on the admitted UInt128 surface, so Psy u32-backed
+    Felt `&`/`|`/`^` are exact and cannot cross limb boundaries. -/
+private def lowerWideUInt128Bitwise
+    (op : BinaryOpV1) (lhs rhs : LoweredVal) : CompileResult WideUInt128BinaryV1 := do
+  let left ← requireWideUInt128Leaves "UInt128 bitwise lhs" lhs
+  let right ← requireWideUInt128Leaves "UInt128 bitwise rhs" rhs
+  let mut out : Array Expr := #[]
+  for i in [0:4] do
+    let limb ← match op with
+      | .bitAnd => pure (Expr.bitAnd left[i]! right[i]!)
+      | .bitOr => pure (Expr.bitOr left[i]! right[i]!)
+      | .bitXor => pure (Expr.bitXor left[i]! right[i]!)
+      | _ => planError "unsupported Psy semantic shape: UInt128 bitwise op mismatch"
+    out := out.push limb
+  pure { value := mkWideUInt128Val out }
+
+/-- Exact UInt128 logical shift: value is 4×UInt32 limbs; count is UInt32
+    (Normalize shift-count rule). Binding emission owns the bit walk. -/
+private def lowerWideUInt128Shift
+    (operationId : Nat) (kind : WideUInt128ShiftKindV1)
+    (lhs rhs : LoweredVal) : CompileResult WideUInt128BinaryV1 := do
+  let left ← requireWideUInt128Leaves "UInt128 shift value" lhs
+  unless rhs.isU32 do
+    planError "unsupported Psy semantic shape: UInt128 shift count must be UInt32"
+  let mut out : Array Expr := #[]
+  for limbIndex in [0:4] do
+    out := out.push (.wideUInt128ShiftLimb kind operationId limbIndex)
+  pure {
+    prelude := #[.bindWideUInt128Shift kind operationId left rhs.expr]
+    value := mkWideUInt128Val out
+  }
+
 private def lowerWideUInt128Compare
     (op : BinaryOpV1) (lhs rhs : LoweredVal) : CompileResult WideUInt128BinaryV1 := do
   let left ← requireWideUInt128Leaves "UInt128 compare lhs" lhs
@@ -1222,9 +1271,12 @@ private def lowerWideUInt128Binary
   | .mul => lowerWideUInt128Mul operationId lhs rhs
   | .div => lowerWideUInt128DivMod operationId .quotient lhs rhs
   | .mod => lowerWideUInt128DivMod operationId .remainder lhs rhs
+  | .bitAnd | .bitOr | .bitXor => lowerWideUInt128Bitwise op lhs rhs
+  | .shl => lowerWideUInt128Shift operationId .shl lhs rhs
+  | .shr => lowerWideUInt128Shift operationId .shr lhs rhs
   | .eq | .ne | .lt | .le | .gt | .ge => lowerWideUInt128Compare op lhs rhs
   | _ =>
-      planError "unsupported Psy semantic shape: UInt128 admits add/sub/mul/div/mod and six comparisons only (bitwise/shift remain fail closed)"
+      planError "unsupported Psy semantic shape: UInt128 admits add/sub/mul/div/mod/bitwise/shift and six comparisons only (UInt256 remains fail closed)"
 
 private def lowerUnary
     (op : UnaryOpV1) (operand : Expr) (_resultTypeId : TypeIdV1) : CompileResult Expr :=
@@ -1470,6 +1522,16 @@ private partial def lowerRegion
                   unless !o.isAggregate && !o.isNarrow && !o.isField do
                     planError "unsupported Psy semantic shape: UInt64 bitNot operand must be a scalar Felt UInt64"
                   env := envInsert env valueDef.valueId (.checkedBitNot o.expr)
+                else if w == 128 then
+                  unless layout.profileMode.allowsWideUInt128 do
+                    planError "unsupported Psy semantic shape: UInt128 bitNot requires profile psy-dargo-0.1.0-vm-v1"
+                  unless o.isWideUInt128 do
+                    planError "unsupported Psy semantic shape: UInt128 bitNot operand must be four UInt32 limbs"
+                  let mask : Expr := .literal 4294967295
+                  let mut out : Array Expr := #[]
+                  for limb in o.leafExprs do
+                    out := out.push (.bitXor limb mask)
+                  env := envInsertVal env valueDef.valueId (mkWideUInt128Val out)
                 else
                   planError s!"unsupported Psy semantic shape: bitNot on UInt{w} is outside the Psy envelope"
             | .neg, _ =>

@@ -30,6 +30,26 @@ program WideCounter where
     total := total % divisor
     return total
 
+  entry bitand(mask : UInt128) : UInt128 do
+    total := total & mask
+    return total
+
+  entry bitor(mask : UInt128) : UInt128 do
+    total := total | mask
+    return total
+
+  entry bitxor(mask : UInt128) : UInt128 do
+    total := total ^ mask
+    return total
+
+  entry shiftLeft(count : UInt32) : UInt128 do
+    total := total << count
+    return total
+
+  entry shiftRight(count : UInt32) : UInt128 do
+    total := total >> count
+    return total
+
   view leq(bound : UInt128) : Bool do
     return total <= bound
 

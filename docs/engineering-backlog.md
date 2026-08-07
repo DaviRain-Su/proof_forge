@@ -334,7 +334,8 @@ D1–D4 = 0/27 done。
 | **PSY-WIDE-1** | UInt128 first slice | **done（2026-08-07）**：显式 VM profile；4×UInt32 LE Felt limbs；state/param/literal/constant/entry-view result、checked add/sub、六比较、atomic store、Reference + locked dargo runtime |
 | **PSY-WIDE-2a** | UInt128 checked multiplication | **done（2026-08-07）**：4×UInt32 limbs 拆为 8×UInt16；完整 16-column schoolbook 逐 product 归一化，所有 `&65535`/`>>16` 输入 `<2^32`，高 8 digits/最终 carry 非零即 `u128 mul overflow`；Plan lexical binding、Reference success/rollback、10-fixture dargo compile/ABI 与 locked local-VM/base-proof 均通过 |
 | **PSY-WIDE-2b** | UInt128 div/mod | **done（2026-08-08）**：四段固定 `0u32..32u32` MSB-first restoring；五肢 remainder；operand limb range + operation-specific zero-divisor；每函数 1 次 div/mod binding 且 loop 内 FC；Reference mixed/zero-divisor、product WideCounter、dargo acceptance 与 locked local-VM 路径已接线；禁止 Felt `/`/`%` 冒充整数除法 |
-| **PSY-WIDE-2c** | UInt128 bitwise/shift + UInt256 | **next**：先证明 Psy u32 bit ops 的逐 limb/跨 limb算法不会截断；UInt256 复用 8×UInt32；每族独立 shift-count/overflow runtime oracle；不得使用 native Psy `u128` 改写语义 |
+| **PSY-WIDE-2c** | UInt128 bitwise/shift | **done（2026-08-08）**：显式 VM profile；per-limb `&`/`|`/`^`/`~`（UInt32 mask）；`<<`/`>>` 为 UInt32 count + 固定 128-step bit walk binding（`count < 128`，shl 高位溢出 `u128 shl overflow`）；default profile FC；Reference + Plan/source pin 已通；UInt256 另开 |
+| **PSY-WIDE-3** | UInt256 8×UInt32 | **next**：复用 UInt128 limb 算法扩展到 8 limbs；每族独立 Plan/IR/runtime oracle；不得使用 native Psy `u128` 改写语义 |
 | **PSY-INT-NARROW** | Int8/16/32 | pending：two's-complement canonical bytes ↔ Felt 表示/比较/算术/ABI 必须先冻结；负值不可经无符号 `feltNat` 静默归约 |
 | **PSY-SCALAR-ABI** | Principal、String、Bytes | pending：冻结 exact length/payload leaves、上限与 equality；Principal 不得冒充地址，String/Bytes 不得冒充 Felt scalar |
 | **PSY-CONTAINER-ABI** | Map、嵌套容器、aggregate 参数、>8 叶返回 | pending：先复用 atomic snapshot store，再冻结 ABI leaf/work cap；Map 需 canonical key order/upsert；提升 8 叶上限前必须有 dargo ABI/VM resource pin |

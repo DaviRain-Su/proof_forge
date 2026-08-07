@@ -594,8 +594,9 @@ unsafe def testUInt128FailClosed : IO Unit := do
   | .ok _ => throw <| IO.userError "UInt128 must fail closed at Psy plan"
 
 /-- Explicit locked-dargo VM profile: UInt128 is four little-endian UInt32
-    Felt limbs across state, params, checked add/sub/mul/div/mod, comparisons,
-    and entry/view returns. The historical default profile remains fail closed. -/
+    Felt limbs across state, params, checked add/sub/mul/div/mod, bitwise,
+    shift (UInt32 count), comparisons, and entry/view returns. The historical
+    default profile remains fail closed. -/
 unsafe def testUInt128VmProfileLowered : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -619,6 +620,21 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
     "    return total\n" ++
     "  entry remainder(divisor : UInt128) : UInt128 do\n" ++
     "    total := total % divisor\n" ++
+    "    return total\n" ++
+    "  entry bitand(mask : UInt128) : UInt128 do\n" ++
+    "    total := total & mask\n" ++
+    "    return total\n" ++
+    "  entry bitor(mask : UInt128) : UInt128 do\n" ++
+    "    total := total | mask\n" ++
+    "    return total\n" ++
+    "  entry bitxor(mask : UInt128) : UInt128 do\n" ++
+    "    total := total ^ mask\n" ++
+    "    return total\n" ++
+    "  entry shiftLeft(count : UInt32) : UInt128 do\n" ++
+    "    total := total << count\n" ++
+    "    return total\n" ++
+    "  entry shiftRight(count : UInt32) : UInt128 do\n" ++
+    "    total := total >> count\n" ++
     "    return total\n" ++
     "  view leq(bound : UInt128) : Bool do\n" ++
     "    return total <= bound\n" ++
@@ -667,6 +683,16 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
     throw <| IO.userError "UInt128 VM semantic is missing divide"
   let some remainderId := callableNamed "remainder" |
     throw <| IO.userError "UInt128 VM semantic is missing remainder"
+  let some bitandId := callableNamed "bitand" |
+    throw <| IO.userError "UInt128 VM semantic is missing bitand"
+  let some bitorId := callableNamed "bitor" |
+    throw <| IO.userError "UInt128 VM semantic is missing bitor"
+  let some bitxorId := callableNamed "bitxor" |
+    throw <| IO.userError "UInt128 VM semantic is missing bitxor"
+  let some shiftLeftId := callableNamed "shiftLeft" |
+    throw <| IO.userError "UInt128 VM semantic is missing shiftLeft"
+  let some shiftRightId := callableNamed "shiftRight" |
+    throw <| IO.userError "UInt128 VM semantic is missing shiftRight"
   let some leqId := callableNamed "leq" |
     throw <| IO.userError "UInt128 VM semantic is missing leq"
   let some getId := callableNamed "get" |
@@ -688,6 +714,15 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
     #[4275878553, 1, 305419896, 0]
   let divQuotientLimbs : Array Nat := #[119, 14, 0, 0]
   let divRemainderLimbs : Array Nat := #[286331088, 286330908, 44, 0]
+  -- 0x0000000100000000 & 0x00000000ffffffff = 0
+  -- 0x0000000100000000 | 0x00000000ffffffff = 0x00000001ffffffff
+  -- 0x0000000100000000 ^ 0x00000000ffffffff = 0x00000001ffffffff
+  -- 0x00000000ffffffff << 1 = 0x00000001fffffffe
+  -- 0x0000000100000000 >> 1 = 0x0000000080000000
+  let maskLimbs : Array Nat := #[4294967295, 0, 0, 0]
+  let orXorLimbs : Array Nat := #[4294967295, 1, 0, 0]
+  let shlOneLimbs : Array Nat := #[4294967294, 1, 0, 0]
+  let shrOneLimbs : Array Nat := #[2147483648, 0, 0, 0]
   let initial ← match initialLogicalStateV1 carrier with
     | .ok value => pure value
     | .error error =>
@@ -701,12 +736,26 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
   let zeroValue := psyU128RefValue u128TypeId zeroLimbs
   let divQuotientValue := psyU128RefValue u128TypeId divQuotientLimbs
   let divRemainderValue := psyU128RefValue u128TypeId divRemainderLimbs
+  let maskValue := psyU128RefValue u128TypeId maskLimbs
+  let orXorValue := psyU128RefValue u128TypeId orXorLimbs
+  let shlOneValue := psyU128RefValue u128TypeId shlOneLimbs
+  let shrOneValue := psyU128RefValue u128TypeId shrOneLimbs
+  let some u32TypeId := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .uint 32 => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "UInt128 VM semantic is missing anonymous UInt32"
+  let countOneValue : ReferenceValueV1 :=
+    { typeId := u32TypeId, valueBytes := ByteArray.mk #[1, 0, 0, 0] }
   let lowMaxState := psyU128LogicalState lowMaxLimbs
   let carriedState := psyU128LogicalState carriedLimbs
   let squaredLowMaxState := psyU128LogicalState squaredLowMaxLimbs
   let divDividendState := psyU128LogicalState divDividendLimbs
   let divQuotientState := psyU128LogicalState divQuotientLimbs
   let divRemainderState := psyU128LogicalState divRemainderLimbs
+  let orXorState := psyU128LogicalState orXorLimbs
+  let shlOneState := psyU128LogicalState shlOneLimbs
+  let shrOneState := psyU128LogicalState shrOneLimbs
   expectPsyReferenceReturned "psy-u128-ref-init"
     (stepReferenceSliceV1 admitted initial (invoke initId #[lowMaxValue]) noResponses)
     lowMaxState none
@@ -742,12 +791,36 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
     (stepReferenceSliceV1 admitted divDividendState
       (invoke remainderId #[zeroValue]) noResponses)
     .divisionByZero divDividendState
+  expectPsyReferenceReturned "psy-u128-ref-bitand"
+    (stepReferenceSliceV1 admitted carriedState
+      (invoke bitandId #[maskValue]) noResponses)
+    (psyU128LogicalState zeroLimbs) (some zeroValue)
+  expectPsyReferenceReturned "psy-u128-ref-bitor"
+    (stepReferenceSliceV1 admitted carriedState
+      (invoke bitorId #[maskValue]) noResponses)
+    orXorState (some orXorValue)
+  expectPsyReferenceReturned "psy-u128-ref-bitxor"
+    (stepReferenceSliceV1 admitted carriedState
+      (invoke bitxorId #[maskValue]) noResponses)
+    orXorState (some orXorValue)
+  expectPsyReferenceReturned "psy-u128-ref-shl1"
+    (stepReferenceSliceV1 admitted lowMaxState
+      (invoke shiftLeftId #[countOneValue]) noResponses)
+    shlOneState (some shlOneValue)
+  expectPsyReferenceReturned "psy-u128-ref-shr1"
+    (stepReferenceSliceV1 admitted carriedState
+      (invoke shiftRightId #[countOneValue]) noResponses)
+    shrOneState (some shrOneValue)
   let maxState := psyU128LogicalState maxLimbs
   expectPsyReferenceStandardRevert "psy-u128-ref-add-overflow"
     (stepReferenceSliceV1 admitted maxState (invoke addId #[oneValue]) noResponses)
     .arithmeticOverflow maxState
   expectPsyReferenceStandardRevert "psy-u128-ref-mul-overflow"
     (stepReferenceSliceV1 admitted maxState (invoke multiplyId #[twoValue]) noResponses)
+    .arithmeticOverflow maxState
+  expectPsyReferenceStandardRevert "psy-u128-ref-shl-overflow"
+    (stepReferenceSliceV1 admitted maxState
+      (invoke shiftLeftId #[countOneValue]) noResponses)
     .arithmeticOverflow maxState
   let zeroState := psyU128LogicalState zeroLimbs
   expectPsyReferenceStandardRevert "psy-u128-ref-underflow"
@@ -773,13 +846,26 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
     throw <| IO.userError "UInt128 VM plan is missing divide"
   let some remainder := functionNamed "remainder" |
     throw <| IO.userError "UInt128 VM plan is missing remainder"
+  let some bitand := functionNamed "bitand" |
+    throw <| IO.userError "UInt128 VM plan is missing bitand"
+  let some bitor := functionNamed "bitor" |
+    throw <| IO.userError "UInt128 VM plan is missing bitor"
+  let some bitxor := functionNamed "bitxor" |
+    throw <| IO.userError "UInt128 VM plan is missing bitxor"
+  let some shiftLeft := functionNamed "shiftLeft" |
+    throw <| IO.userError "UInt128 VM plan is missing shiftLeft"
+  let some shiftRight := functionNamed "shiftRight" |
+    throw <| IO.userError "UInt128 VM plan is missing shiftRight"
   let some leq := functionNamed "leq" |
     throw <| IO.userError "UInt128 VM plan is missing leq"
   let some get := functionNamed "get" |
     throw <| IO.userError "UInt128 VM plan is missing get"
-  for fn in #[initFn, add, subtract, multiply, divide, remainder, leq] do
+  for fn in #[initFn, add, subtract, multiply, divide, remainder, bitand, bitor, bitxor, leq] do
     expect (fn.params.size == 4 && fn.params.all (·.uintWidth == 32))
       s!"{fn.name}: each logical UInt128 parameter must expand to four range-checked UInt32 limbs"
+  for fn in #[shiftLeft, shiftRight] do
+    expect (fn.params.size == 1 && fn.params[0]!.uintWidth == 32)
+      s!"{fn.name}: UInt128 shift count must be one physical UInt32 limb"
   let expectWideResult (fn : Targets.Psy.PlanFunction) : IO Unit :=
     match fn.resultKind with
     | .aggregate leaves =>
@@ -793,6 +879,11 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
   expectWideResult multiply
   expectWideResult divide
   expectWideResult remainder
+  expectWideResult bitand
+  expectWideResult bitor
+  expectWideResult bitxor
+  expectWideResult shiftLeft
+  expectWideResult shiftRight
   expectWideResult get
   expect (leq.resultIsBool && leq.resultKind == .bool)
     "UInt128 comparison must produce the existing scalar Bool result"
@@ -816,6 +907,14 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
       | .bindWideUInt128DivMod .remainder _ lhs rhs => lhs.size == 4 && rhs.size == 4
       | _ => false)
     "UInt128 mod must bind one exact remainder-producing restoring divider"
+  expect (shiftLeft.body.any fun
+      | .bindWideUInt128Shift .shl _ value _ => value.size == 4
+      | _ => false)
+    "UInt128 shl must bind one exact fixed-step shift binding"
+  expect (shiftRight.body.any fun
+      | .bindWideUInt128Shift .shr _ value _ => value.size == 4
+      | _ => false)
+    "UInt128 shr must bind one exact fixed-step shift binding"
   expect (add.body.any fun
       | .storeAggregate fields values => fields.size == 4 && values.size == 4
       | _ => false)
@@ -877,13 +976,17 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
       psy.contains "u128 sub underflow" &&
       psy.contains "u128 mul overflow" &&
       psy.contains "u128 div by zero" &&
-      psy.contains "u128 mod by zero")
-    "UInt128 checked arithmetic messages must reach emitted Psy source"
+      psy.contains "u128 mod by zero" &&
+      psy.contains "u128 shl overflow" &&
+      psy.contains "invalidShift: count >= 128")
+    "UInt128 checked arithmetic/shift messages must reach emitted Psy source"
   expect (psy.contains "0u32..32u32" &&
       psy.contains "u128 div internal high borrow" &&
       psy.contains "u128 div internal remainder high" &&
       psy.contains "u128 div internal quotient overflow")
     "UInt128 div/mod must emit the fixed restoring loops and internal guards"
+  expect (psy.contains "0u32..128u32")
+    "UInt128 shift must emit the fixed 128-step bit walk"
   expect (psy.contains " & 65535" && psy.contains " >> 16")
     "UInt128 mul must split and normalize with integer bit operations"
   expect (!psy.contains "/ 65536" && !psy.contains "% 65536")
