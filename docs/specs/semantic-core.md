@@ -248,6 +248,34 @@ reducible closed program abbreviation 后做 definitional equality；不得用 s
 propositional cast、未解 metavariable 或任意 term elaboration 替代。成功只增加 certification
 result；program、requirements、semantic serialization 和 target selection 保持不变。
 
+### Preservation ABI engineering foundation（ADR-0034 proposed）
+
+独立 public namespace `ProofForgeV2.Semantic.PreservationABI` 现提供通用 L1 proposition，
+不改写上述 `InvariantTheoremV1`：
+
+```lean
+PreservationTheoremV1 program ordinal :=
+  ordinal.toNat < program.invariants.size ∧
+  ∃ admitted,
+    admitReferenceProgramSliceV1 program = .ok admitted ∧
+    PreservationBaseV1 program ordinal admitted ∧
+    PreservationStepV1 program ordinal admitted
+```
+
+两个 lifecycle base 都先正要求
+`∃ pre, initialLogicalStateV1 program = .ok pre`。无 initializer 时再要求 initial
+state conforms 且 invariant returns true；有 initializer 时对所有 targeting initializer 的
+invocation（含任意 args/context）、responses 与 vault，直接匹配 product
+`stepReferenceSliceV1` 的 returned/reverted/trapped。普通 step 对所有 conforming+holding pre-state
+及完整 input surface 做同一三分支匹配；revert/trap 必须携 exact unchanged pre-state。
+Reference admission 或 initial-state construction 失败均使命题为假，禁止 implication 空真；
+不得复制 private invocation gate 或建立第二套 step。
+
+该 foundation 仍是 engineering/proposed：`ProofKindV1`、`proof … preserving`、
+`(invariant,kind)` inventory、kind-aware certifier/alias、EvenCounter 与产品 cutover尚未接线。
+当前 inline product authority 继续是 ADR-0027 的 holds-only 路径；formal TASK-D2-07 /
+TST-SEM-002/003 / TST-PROOF-001 状态不变。
+
 ## Inline same-file certification（ADR-0027 engineering）
 
 工程产品路径以 **同一 in-memory source snapshot** 上的 adjacent ordinary Lean theorem 为

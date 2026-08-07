@@ -24,6 +24,7 @@ import Tests.Typed.RequirementsInferV1
 import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
+import Tests.Semantic.PreservationABI
 import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ProofBridgeV1
 import Tests.Semantic.ProofedCertV1
@@ -73,6 +74,7 @@ unsafe def main : IO Unit := do
   Tests.Typed.CheckV1.run
   Tests.Semantic.WireV1.run
   Tests.Semantic.InvariantABI.run
+  Tests.Semantic.PreservationABI.run
   Tests.Semantic.ProofBridgeV1.run
   Tests.Semantic.SimpleClosureTraceV1.run
   Tests.Semantic.SimpleClosureStructureCertV1.run

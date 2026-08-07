@@ -12,6 +12,29 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-07 — Generic Preservation ABI foundation（engineering）
+
+- 新增 `ProofForgeV2/Semantic/PreservationABI.lean`，独立 namespace 位于 public
+  `InvariantABI` / `ReferenceV1` 之上；不修改 `ReferenceMachineV1`，不引入第二套 State/Effect/step。
+- `PreservationTheoremV1 program ordinal` 精确包含：dense ordinal bound、
+  `∃ admitted, admitReferenceProgramSliceV1 program = .ok admitted` 正义务、
+  lifecycle base 与全输入 `PreservationStepV1`。step 全称量化 state、完整 invocation/context、
+  responses、vault，并直接匹配 `OutcomeV1.returned/reverted/trapped`；revert/trap helper 要求
+  exact unchanged pre-state。
+- 修正 ADR-0034 设计伪代码与真实 API 的类型差异：`initialLogicalStateV1` 返回 `Except`，
+  因而 no-init / with-init base 都先正要求
+  `∃ pre, initialLogicalStateV1 program = .ok pre`；initial 失败时两个 base 均为假，
+  禁止 implication 空真。
+- initializer presence 与 invocation scope 共享 sole production validation +
+  `data.callables[callableId.toNat]?` classifier；args/context/lifecycle 继续只由
+  `stepReferenceSliceV1` gate 负责。
+- 新增并注册 `Tests/Semantic/PreservationABI.lean`：Iff.rfl ABI shape、initial/admission/OOB
+  no-vacuity、initializer classifier 双向一致性、changed-state helper negatives，以及真实
+  no-init/with-init Reference returned/reverted/trapped lifecycle traces。focused build/run 已通过。
+- **未改**：`ProofKindV1`、`proof … preserving` 语法、`(inv,kind)` inventory、certifier/alias、
+  EvenCounter、MiniAmm P1、产品 proof gate。当前产品 holds authority 仍为 ADR-0027；formal
+  TASK-D2-07 / TST-SEM / TST-PROOF、hermetic/release 均未关闭。
+
 ## 2026-08-07 — Map Wire-envelope Reference admission + ADR-0034 design freeze
 
 - **Map admission 代码事实**（`ProofForgeV2/Semantic/ReferenceMachineV1.lean`）：

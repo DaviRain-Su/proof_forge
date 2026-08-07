@@ -9,13 +9,14 @@ normative: true
 
 # ADR-0034：Preservation ABI（L1 step-preservation）
 
-- 状态：`proposed`（**design-only**；本 ADR 不实现代码）
+- 状态：`proposed`（通用 ABI foundation 已于 2026-08-07 以 engineering slice 落地；
+  `ProofKindV1` / `(inv,kind)` inventory / certifier / EvenCounter / 产品 cutover 仍未实现）
 - 日期：2026-08-07
 - **Proposed extension / amendment to**：
   [`ADR-0027`](0027-inline-same-file-theorem-certification.md)
   （**当前产品 authority 仍为 ADR-0027**；本 ADR 冻结 L1 Preservation 设计契约与
   未来 cutover 后的 inventory/kind 扩展；**不得** 因本文发布而把 ADR-0027 标
-  `superseded`，也 **不得** 声称实现与规格现已对齐本 ADR）
+  `superseded`，也 **不得** 把 ABI foundation 写成完整实现/产品 cutover）
 - 前置工程事实：`InvariantABI` / `ReferenceMachineV1`（`admitReferenceProgramSliceV1`、
   `stepReferenceSliceV1`、`OutcomeV1`、`InvocationV1`、`ExternalResponsesV1`、
   `ReferenceVaultSeedV1`、`AdmittedReferenceSliceV1`、`initialLogicalStateV1`、
@@ -45,16 +46,20 @@ pre 到 post 的保持**。若把保持塞进 `InvariantTheoremV1`，或为某�
 （尤其 MiniAmm）再写一套 State/Effect/step，会分叉语义权威并重蹈已删除的
 手写 sketch 路径。
 
-本 ADR **仅** 完成一件 design-only 事：
+本 ADR 初始提交冻结 **平台通用 Preservation ABI** 设计契约：独立 closed Prop 族、
+**admission 成功为正义务**（禁止 implication 空真）、exact program+ordinal、base+step
+合取、全输入 Outcome 不压扁、源码 proof kind、不冲突 alias、inventory 键
+`(invariant, kind)`、EvenCounter 首实例 / 禁止 MiniAmm 特例，并记录相对 ADR-0027
+的拟议扩展（见 D0）。
 
-1. 冻结 **平台通用 Preservation ABI**（设计契约）：独立 closed Prop 族、
-   **admission 成功为正义务**（禁止 implication 空真）、exact program+ordinal、
-   base+step 合取、全输入 Outcome 不压扁、源码 proof kind、不冲突 alias、
-   inventory 键 `(invariant, kind)`、EvenCounter 首实例 / 禁止 MiniAmm 特例；
-   并记录 **相对 ADR-0027 的拟议扩展**（见 D0）。
+后续同日首个 engineering slice 已仅实现 D1–D3 的通用 ABI foundation：
+`PreservationABI.lean` 直接复用 production validation、`initialLogicalStateV1`、
+`admitReferenceProgramSliceV1` 与 `stepReferenceSliceV1`；没有修改 Reference 机器，也没有
+加入任何 MiniAmm helper。D6–D9 的语法、inventory、certifier、alias、EvenCounter 与产品
+cutover 仍 pending。
 
 **当前产品路径、holds inventory/certifier、inline gate 纪律继续由 ADR-0027 约束。**
-本 ADR **不** 立即 supersede 0027，也 **不** 要求规格/实现现在对齐 0034。
+本 ADR **不** 立即 supersede 0027，也 **不** 声称完整实现/产品已对齐 0034。
 
 **非 formal**：不关闭 TASK-D2-07 / TST-SEM-002/003 / TST-PROOF-001；不声称
 hermetic / Stage-0 / target refinement / release。
@@ -67,10 +72,11 @@ hermetic / Stage-0 / target refinement / release。
    - **当前** product authority = [`ADR-0027`](0027-inline-same-file-theorem-certification.md)
      （`status=proposed`；**无** `successor`；**无** superseded 横幅）。
    - 本 ADR = **proposed extension / amendment**：设计冻结 L1 Preservation 与
-     未来 inventory/kind 扩维；**design-only**，**不实现代码**。
-   - **禁止** 因本文 `proposed` 发布就把 ADR-0027 标 `superseded`、写
-     `successor=ADR-0034`、或把规格/实现引用整体迁到本 ADR。
-   - **禁止** 声称“实现与规格现已对齐 ADR-0034”。
+     未来 inventory/kind 扩维；后续 engineering slice **仅**落地通用 ABI foundation，
+     尚未进入 kind/inventory/certifier/product cutover。
+   - **禁止** 因本文 `proposed` 或 foundation 代码发布就把 ADR-0027 标 `superseded`、写
+     `successor=ADR-0034`、或把现行产品 authority 整体迁到本 ADR。
+   - **禁止** 声称“完整实现与产品已对齐 ADR-0034”。
 2. **未来 supersession 门槛**（仅在同时满足后 **单独** 记录，不得预填）：
    - 本 ADR 所列 ABI / kind / inventory / certifier 分支 **已实现并完成 cutover**；
    - 产品路径、测试与文档已诚实切到 0034 义务；
@@ -202,43 +208,60 @@ Preservation 在 revert/trap 分支上应 **复用** helper（或 defeq 到
 保证 0/1；不由作者手写 flag）。Base **不得** 省略。
 
 ```lean
+/-- Shared classifier: validate once, then use the exact callable-id lookup also
+    used by the Reference invocation gate. Args/context/lifecycle are not
+    duplicated here. -/
+private def IsInitializerCallableIdV1
+    (program : SemanticProgramV1)
+    (callableId : CallableIdV1) : Prop :=
+  match validateSemanticProgramV1 program with
+  | .error _ => False
+  | .ok data =>
+      match data.callables[callableId.toNat]? with
+      | none => False
+      | some callable => callable.kind = .initializer
+
 /-- True iff the validated callables table contains an initializer. -/
 def HasInitializerV1 (program : SemanticProgramV1) : Prop :=
-  ∃ c, c ∈ program.callables ∧ c.kind = .initializer
-  -- 实现可用 structure-gated data 上的 0/1 计数；须与 Wire initializer
-  -- cardinality gate 一致。
+  ∃ callableId, IsInitializerCallableIdV1 program callableId
 
-/-- Base when the program has no initializer:
-    product initial logical state positively holds the invariant. -/
+/-- The invocation targets the validated initializer by exact callable id. -/
+def IsInitializerInvocationV1
+    (program : SemanticProgramV1)
+    (invocation : InvocationV1) : Prop :=
+  IsInitializerCallableIdV1 program invocation.callableId
+
+/-- Base when the program has no initializer. `initialLogicalStateV1` returns
+    Except, so constructor success is itself a positive obligation. -/
 def PreservationBaseNoInitializerV1
     (program : SemanticProgramV1)
     (ordinal : InvariantOrdinalV1) : Prop :=
-  let state := initialLogicalStateV1 program
-  StateConformsV1 program state ∧
-  evalInvariantV1 program ordinal state = .returnedTrue
+  ∃ pre : LogicalStateV1,
+    initialLogicalStateV1 program = .ok pre ∧
+    StateConformsV1 program pre ∧
+    evalInvariantV1 program ordinal pre = .returnedTrue
 
 /-- Base when the program has an initializer (full name / full quantifiers):
-    every Reference step of the initializer from product initial state either
-    returns a post-state on which the invariant holds, or is an unchanged
-    revert/trap (machine helpers). Non-init callables are out of scope here. -/
+    initial-state construction must succeed, then every Reference step targeting
+    the initializer either returns a post-state on which the invariant holds, or
+    is an unchanged revert/trap. -/
 def PreservationBaseWithInitializerV1
     (program : SemanticProgramV1)
     (ordinal : InvariantOrdinalV1)
     (admitted : AdmittedReferenceSliceV1) : Prop :=
-  ∀ (invocation : InvocationV1)
-    (responses : ExternalResponsesV1)
-    (vault : ReferenceVaultSeedV1),
-    -- 仅 initializer 调用：invocation.callableId 解析为 kind=.initializer
-    -- （非法/非 init 调用不进入本 base；可落入 step 段或 trap 纪律）
-    IsInitializerInvocationV1 program invocation →
-    let pre := initialLogicalStateV1 program
-    match stepReferenceSliceV1 admitted pre invocation responses vault with
-    | .returned postState _value _effects =>
-        evalInvariantV1 program ordinal postState = .returnedTrue
-    | .reverted reason unchangedState =>
-        OutcomeRevertedUnchangedV1 pre reason unchangedState
-    | .trapped fault unchangedState =>
-        OutcomeTrappedUnchangedV1 pre fault unchangedState
+  ∃ pre : LogicalStateV1,
+    initialLogicalStateV1 program = .ok pre ∧
+    ∀ (invocation : InvocationV1)
+      (responses : ExternalResponsesV1)
+      (vault : ReferenceVaultSeedV1),
+      IsInitializerInvocationV1 program invocation →
+      match stepReferenceSliceV1 admitted pre invocation responses vault with
+      | .returned postState _value _effects =>
+          evalInvariantV1 program ordinal postState = .returnedTrue
+      | .reverted reason unchangedState =>
+          OutcomeRevertedUnchangedV1 pre reason unchangedState
+      | .trapped fault unchangedState =>
+          OutcomeTrappedUnchangedV1 pre fault unchangedState
 
 /-- Dispatcher: exactly one of the two base shapes (Prop 析取，非 Bool if). -/
 def PreservationBaseV1
@@ -254,12 +277,13 @@ def PreservationBaseV1
 
 规则：
 
-1. **无 initializer**：base 是对 `initialLogicalStateV1 program` 的 **正合取**
-   （`StateConforms` ∧ `eval = .returnedTrue`），**不是**
-   `StateConforms → eval` 的空真 implication。
-2. **有 initializer**：base 全称是
-   `PreservationBaseWithInitializerV1`（全称名冻结为设计标识；实现可
-   缩短 def 名但文档/证书须可追溯到此全称义务）。
+1. **无 initializer**：base 先要求
+   `∃ pre, initialLogicalStateV1 program = .ok pre`，再正合取
+   `StateConforms ∧ eval = .returnedTrue`；**不是** initial/error 或
+   `StateConforms → eval` 上的空真 implication。
+2. **有 initializer**：base 同样先正要求 initial constructor 成功，再进入
+   `PreservationBaseWithInitializerV1` 的全称 invocation/response/vault 义务；
+   initial 失败时该 base 为假，不能躲在全称量化后。
 3. 本 base **不** 要求 `∃` 一次成功 init（成功依赖具体 args/context，属
    程序实例）；它要求：**凡** 成功 returned 的 init 路径 post 上 holds，且
    fail 路径不变。顶层仍因 admission 正义务而非空。
@@ -323,7 +347,7 @@ def PreservationTheoremV1
 |---|---|---|
 | 1 | `ordinal` 在 dense invariant 表内 | 边界否定（OOB ⇒ ¬Prop） |
 | 2 | `∃ admitted, admit = .ok admitted` | admission 失败 ⇒ ¬Prop |
-| 3 | `PreservationBaseV1`（无 init 正合取 / 有 init 全称名义务） | 无-init 禁止 `Conforms → eval` 空真 |
+| 3 | `PreservationBaseV1`（两分支均正要求 `initial = .ok pre`；无 init 再合取 holds；有 init 再全称 step） | initial 失败 ⇒ 两个 base 均为假；无-init 禁止 `Conforms → eval` 空真 |
 | 4 | `PreservationStepV1` 全输入三分支 | 禁止压扁 Outcome；禁止省略 vault/context/responses |
 
 ### D4. Holds 形状（继承；kind = holds）
@@ -468,7 +492,7 @@ def InvariantTheoremV1
 | 文档 | 关系 |
 |---|---|
 | ADR-0027 | **当前 product authority**（`proposed`；无 successor）。holds 形状、snapshot/audit/axiom、proof-before-materialize、holds inventory/certifier 纪律 **仍以 0027 为准**。本 ADR 是 **proposed extension/amendment**：D4 原样重申 holds；D6 `(inv, kind)` 等为 **cutover 后** 拟议取代 0027 单键 bijection 的设计。**实现与 cutover 完成前不得** 把 0027 标 `superseded`。 |
-| research-023 | L1 `Preserves P` 目标叙述的 **design 收口** 落在本 ADR；首实例从“MiniAmm 优先”调整为 **EvenCounter 优先**（避免 admission 阻塞与合约特例绑架平台 ABI）。research 文件可在实现切片时同步措辞，**非** 本 design-only 交付范围。 |
+| research-023 | L1 `Preserves P` 目标叙述的设计收口落在本 ADR；首实例从“MiniAmm 优先”调整为 **EvenCounter 优先**。ABI foundation 已实现后，research 文件同步为“kind/inventory/certifier + EvenCounter pending”；MiniAmm 仍不得先于通用实例获得特例。 |
 
 ## 后果
 
@@ -480,7 +504,7 @@ def InvariantTheoremV1
   至少一种，避免半覆盖（**cutover 后** 产品义务）。
 - Outcome 三分支与 vault/context/responses 全量化对齐 product Reference。
 - EvenCounter 首切片强制通用 ABI，阻断 MiniAmm 专用证明栈回流。
-- 0027 继续约束现行 holds 产品；0034 design-only 扩展避免过早双权威或假对齐。
+- 0027 继续约束现行 holds 产品；0034 的 ABI foundation 不改变产品 authority，避免过早双权威或假对齐。
 
 ### 代价 / 风险
 
@@ -495,9 +519,9 @@ def InvariantTheoremV1
 
 ## 非目标
 
-- 不实现 `PreservationTheoremV1`、语法、certifier 或 EvenCounter 源码（本 ADR
-  design-only）。
-- **不** 立即 supersede ADR-0027；**不** 要求实现/规格现在对齐本 ADR。
+- 当前 foundation slice **不实现** `ProofKindV1` 语法、inventory/certifier 分支、alias
+  cutover 或 EvenCounter 源码；仅实现通用 `PreservationTheoremV1` 及其 base/step/helpers。
+- **不** 立即 supersede ADR-0027；**不** 把部分 ABI 实现写成完整产品对齐。
 - 不关闭 formal TASK/TST；不升格 hermetic/release。
 - 不解锁 nonempty invariant 的八 target materialization。
 - 不定义 reachability 闭包、多步 trace 归纳框架、或跨交易 atomicity。
@@ -505,26 +529,27 @@ def InvariantTheoremV1
 - 不为 MiniAmm / MiniAmmAssets 增加平台特例路径。
 - 不要求 base-with-initializer 证明“存在一次成功 init”（仅全称成功⇒holds）。
 
-## 实现切片提示（非本 ADR 交付）
+## 实现切片顺序
 
-建议后续工程顺序（仍非 formal；**完成后** 再单独记录 0027 supersession）：
+工程顺序（仍非 formal；**完整 cutover 后** 再单独记录 0027 supersession）：
 
-1. Wire/AST：`ProofKindV1` + `proof … preserving using …` + sourceHash 钉；
-   bare `proof … using` ⇒ kind=holds canonical。
-2. ABI 模块：`PreservationTheoremV1` + base/step/helpers（与 `InvariantABI`
-   并列）；admission 正义务 + 完整 Prop。
+1. **已完成 — ABI foundation**：`PreservationTheoremV1` + base/step/helpers（与
+   `InvariantABI` 并列）；positive initial/admission + 完整 Outcome Prop。
+2. **下一步 — Wire/AST + inventory/certifier**：`ProofKindV1` +
+   `proof … preserving using …` + sourceHash；bare `proof … using` ⇒ holds；
+   inventory 键 `(inv,kind)`、非空表面每 inv ≥1 kind、cert digest 含 kind。
 3. Alias：`Proof.<Inv>` holds 兼容；`ProofPreserving.<Inv>` preserving；
    共享 `Proof.subjectProgramV1`。
-4. Certifier kind 分支 + inventory 键 `(inv, kind)` + 非空表面每 inv ≥1 kind
-   + cert digest 含 kind。
-5. EvenCounter Example + Reference admission + focused preserve suite。
-6. 第二非 AMM 实例复挂。
-7. 产品 cutover + 文档：ADR-0027 → `superseded` / `successor=ADR-0034`（**仅此时**）。
-8. （更后）MiniAmm 复用已 admitted product program 与 **同一** ABI。
+4. EvenCounter Example + Reference admission + focused preserve suite。
+5. 第二非 AMM 实例复挂。
+6. 产品 cutover + 文档：ADR-0027 → `superseded` / `successor=ADR-0034`（**仅此时**）。
+7. （更后）MiniAmm 复用已 admitted product program 与 **同一** ABI。
 
 ## 状态
 
-- `proposed` / design-only / 2026-08-07
-- 交付物：本文 + `docs/adr/README.md` 登记行；**ADR-0027 保持 `proposed`，无 successor/横幅**
-- 禁止：借本 ADR 提交 Semantic/Reference/Example 实现或 MiniAmm 特例代码；
-  禁止预填 0027 supersession 或声称规格/实现对齐 0034
+- `proposed` / generic ABI foundation implemented / product cutover pending / 2026-08-07
+- 已交付：本文、`ProofForgeV2/Semantic/PreservationABI.lean`、focused ABI/Reference lifecycle tests；
+  **ADR-0027 保持 `proposed`，无 successor/横幅**
+- 未交付：ProofKind/inventory/certifier/alias/EvenCounter/第二实例/MiniAmm P1/product cutover
+- 禁止：修改 Reference 机器或加入 MiniAmm 特例；禁止预填 0027 supersession，或把 foundation
+  写成完整规格/产品对齐

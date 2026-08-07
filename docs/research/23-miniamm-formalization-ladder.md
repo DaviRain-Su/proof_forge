@@ -1,13 +1,13 @@
 ---
 id: RESEARCH-023
-title: 通用程序形式化栈（L0–L2）与首个实例 MiniAmm
+title: 通用程序形式化栈（L0–L2）与 MiniAmm 后续实例
 status: draft
 owner: engineering
 updated: 2026-08-07
 normative: false
 ---
 
-# 通用程序形式化栈（L0–L2）与首个实例 MiniAmm
+# 通用程序形式化栈（L0–L2）与 MiniAmm 后续实例
 
 > **目的**：定义 ProofForge **平台级**「业务逻辑 + 形式化」能力分层，避免：
 > (1) 把 `InvariantTheoremV1` 误写成可达保持；
@@ -15,14 +15,16 @@ normative: false
 > (3) 再发明 **第二套手写 step** 与产品 Semantic/Reference 分叉。
 >
 > **产品立场**：统一源语言与共享证明 **形状 / 门禁**；每个 `program` **实例化**
-> 自己的状态、谓词 P 与（将来）保持义务。MiniAmm 是 **第一个纵向切片**，不是唯一目标。
+> 自己的状态、谓词 P 与保持义务。L1 首个通用端到端实例按 ADR-0034 选
+> **EvenCounter**；MiniAmm 在同一 ABI 上作为后续业务实例，不获得平台特例。
 >
 > **L1 路线（2026-08-07 Slice 0 收口）**：**Reference-first**。HEAD 上的手写 L1-A
 > Semantic sketch（`ProofForgeV2/Semantic/MiniAmmSafetySketchV1` + umbrella）**已删除**。
 > 禁止第二套 step；业务保持挂在 admitted `Reference` / 产品 Semantic 上，不挂旁路模型。
 >
-> 对齐：ADR-0027（**当前产品 holds authority**）、ADR-0034（`proposed`/design-only L1
-> Preservation；**不** supersede 0027）、
+> 对齐：ADR-0027（**当前产品 holds authority**）、ADR-0034（`proposed`；通用
+> Preservation ABI foundation 已实现，kind/inventory/certifier/product cutover pending；
+> **不** supersede 0027）、
 > [`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)、
 > Examples `MiniAmm` / `MiniAmmProofSurface`；共享数学向量 `Tests/Semantic/MiniAmmVectorsV1`。
 
@@ -38,26 +40,26 @@ normative: false
 │  · 语法：invariant / proof / 同文件 theorem             │
 │  · L0 门：certifyInlineProofV1 / simple-closure 族      │
 │  · 共享 ABI：InvariantTheoremV1 / evalInvariantV1       │
-│  · L1 形状（目标）：Preserves P on product Reference step │
+│  · L1 ABI foundation：PreservationTheoremV1 + Reference step │
 │  · L2：formal TASK / refine / hermetic（最后）          │
 └───────────────────────────┬──────────────────────────┘
                             │ 实例化（每 program 自己的 P）
          ┌──────────────────┼──────────────────┐
          ▼                  ▼                  ▼
-    MiniAmm（首个）     第二实例（验收通用）   后续任意合约 …
+    EvenCounter（首个）  第二非 AMM 实例       MiniAmm / 后续合约 …
 ```
 
 | 层级 | 通用？ | 内容 |
 |---|---|---|
 | L0 语法与 CLI 门 | **是** | 任意符合族的 program 名/模块都可 certified |
 | L0 simple-closure 形状 | **是** | `view Bool true` + `invariant : true` + generated helper |
-| L1 **义务形状** | **是（目标）** | `Preserves P` = init(P) ∧ product `step` 保持 P |
+| L1 **义务形状** | **是（foundation 已实现）** | `PreservationTheoremV1` = ordinal + positive admission + base + full-input product `step` |
 | L1 **P 内容** | **否（每程序）** | MiniAmm 的 empty-pool / swap 公式；Counter 的别的 P |
 | L1 **step 权威** | **是（产品）** | sole admitted `Reference` / Semantic；**禁止** 第二套手写 step |
 | L2 / 项目 formal | **是（平台轨道）** | 延后；不绑死某个 Example |
 
-**验收通用性**：L1 形状稳定后，必须用 **第二个 program**（建议极简 Counter 类）
-复用同一 `Preserves` 挂载方式，证明栈不是 AMM 专用。
+**验收通用性**：先用 **EvenCounter** 跑通首个端到端 preserving kind/certifier；
+随后再用第二个非 AMM program 复用同一挂载方式。MiniAmm 位于这两个通用性门之后。
 
 ---
 
@@ -66,7 +68,7 @@ normative: false
 | 层 | 名称 | 命题直觉 | 当前工程状态 |
 |---|---|---|---|
 | **L0** | 证明表面 / simple-closure | 可认证的 `invariant : true` + 同文件 theorem | **已接线**；样例：`MiniAmmProofSurface`（任意程序可仿）；**当前产品 authority 仍为 ADR-0027** |
-| **L1** | 业务保持 | 对 **该程序** 的 P：`init` 真且 **product Reference step** 后保持 | **手写 L1-A superseded**；**Reference-first**；MiniAmm whole-program **admission done**（§5.1）；**ADR-0034** `proposed`/design-only 冻结 Preservation 形状（**不** supersede 0027）；下一步 = 实现 Preservation ABI + 真实 Reference traces |
+| **L1** | 业务保持 | 对 **该程序** 的 P：positive initial/admission + **product Reference step** 后保持 | **通用 ABI foundation 已实现**（`PreservationABI.lean`；无第二 step）；MiniAmm whole-program admission done；下一步 = ProofKind/inventory/certifier + EvenCounter 首个端到端实例；MiniAmm P1 后置 |
 | **L2** | 项目 formal | formal step corpus、target refine、hermetic/release | **最后**；与单合约 L1 分账 |
 
 ### 1.1 共享 L0 ABI（通用，不是 MiniAmm 专有）
@@ -82,40 +84,49 @@ InvariantTheoremV1 program ordinal :=
 - 真业务安全（守恒、无超发等）**不能** 靠「全称 StateConforms」硬证。
 - L0 `invariant … : true` 的诚实含义：**证明表面可认证**，不宣称业务安全。
 
-### 1.2 共享 L1 形状（目标平台契约，草图；Reference-first）
+### 1.2 共享 L1 形状（ABI foundation 已实现；Reference-first）
 
-对 **任意** 程序实例：
+对任意 closed `SemanticProgramV1` 与 dense invariant ordinal：
 
-```text
-P : LogicalState → Prop   -- 或与 StateConforms 兼容的状态视图
-
-Preserves(P) :=
-  P initialLogicalState ∧
-  ∀ s e s',  product_step s e = some s' → P s → P s'
+```lean
+PreservationTheoremV1 program ordinal :=
+  ordinal.toNat < program.invariants.size ∧
+  ∃ admitted,
+    admitReferenceProgramSliceV1 program = .ok admitted ∧
+    PreservationBaseV1 program ordinal admitted ∧
+    PreservationStepV1 program ordinal admitted
 ```
+
+- Base 两个 lifecycle 分支都先正要求
+  `∃ pre, initialLogicalStateV1 program = .ok pre`；无 initializer 再要求
+  `StateConforms ∧ eval=true`，有 initializer 则全称量化 initializer-targeted
+  invocation / responses / vault。
+- Step 全称量化 `LogicalStateV1`、完整 `InvocationV1.context`、responses、vault，
+  并逐项匹配 `OutcomeV1.returned/reverted/trapped`；失败分支要求 exact unchanged pre-state。
+- admission/initial 失败都会使命题为假；不使用 implication 空真，不把 Outcome 压成 Option。
 
 | 谁提供 | 什么 |
 |---|---|
-| **平台** | 上述形状、命名约定、**sole product step**（Normalize → Semantic → admitted Reference）、测试模式 |
-| **程序作者** | 具体谓词 `P`、引理；**不** 另写一套 `miniAmmStep` |
+| **平台** | `PreservationABI` 形状、**sole product step**（Normalize → Semantic → admitted Reference）、测试模式 |
+| **程序作者** | 对具体 executable invariant 的 base/step 证明；**不** 另写一套 `miniAmmStep` |
 
-产品侧将来可把 `P` 的可执行投影写成 `invariant`（eval / 认证）；
-**保持性** 始终是独立定理族，不塞进现有全称 `InvariantTheoremV1`。
+产品 kind/inventory/certifier 尚未接线；保持性仍是独立定理族，不塞进现有全称
+`InvariantTheoremV1`。
 
 **禁止**：为每个合约再维护平行的 `State` / `Effect` / `step` 手写解释器
 （HEAD 曾有 Semantic `MiniAmmSafetySketchV1` 试点，**Slice 0 已从 HEAD 删除**，见 §5.0）。
 
 ---
 
-## 2. 首个实例：MiniAmm 谓词队列（非通用清单）
+## 2. MiniAmm 后续谓词队列（非通用清单）
 
-下列 P **仅** 针对 vault-internal `Examples/MiniAmm.lean` 试点。
-其他合约应有自己的 Pn 表，挂同一 L1 形状。
+下列 P **仅** 针对 vault-internal `Examples/MiniAmm.lean`；它们在 EvenCounter 与
+第二非 AMM 通用性门之后复用同一 L1 ABI。其他合约应有自己的 Pn 表。
 
 | ID | 谓词 P（直觉） | 依赖 | 难度 | 状态 |
 |---|---|---|---|---|
 | P0 | `true`（L0 表面） | simple-closure | — | **done**（`MiniAmmProofSurface`） |
-| P1 | empty pool：`totalSupply=0 → reserves=0` | product Reference step | 中 | pending（admission **done**；缺 Preservation ABI 实现 + step traces） |
+| P1 | empty pool：`totalSupply=0 → reserves=0` | product Reference step | 中 | pending（admission + generic ABI foundation **done**；缺 product kind/certifier、MiniAmm executable invariant 与真实 step proof/traces） |
 | P2 | LP 份额和 = totalSupply（cap-4） | Map 模型 + Reference | 中高 | 草图（Map Principal admission 已通） |
 | P3 | remove/swap 成功后的 reserve 更新 | checked 算术 | 高 | 草图 |
 | P4 | swap 后乘积弱形式（宽积） | Nat/UInt128 模型 | 高 | 草图 |
@@ -133,7 +144,7 @@ Preserves(P) :=
 | `certifyInlineProofV1` + simple-closure 族 | L0 通用门 |
 | `InvariantABI` | 共享定理命题 / logical state |
 | `ReferenceMachineV1` / `ReferenceV1` | **sole L1 step 权威**（admitted engineering machine；非 formal `step`） |
-| ADR-0034 Preservation ABI（`proposed`/design-only） | 与 product step 对齐的 `Preserves` 形状；**尚未实现**；当前产品 holds 仍由 ADR-0027 约束 |
+| `ProofForgeV2/Semantic/PreservationABI.lean` + ADR-0034（`proposed`） | 通用 `PreservationTheoremV1` / base / step / unchanged helpers 已实现；ProofKind/inventory/certifier/alias/product cutover pending；当前产品 holds 仍由 ADR-0027 约束 |
 
 ### 3.2 实例：MiniAmm 试点
 
@@ -165,13 +176,13 @@ Preserves(P) :=
 | `ProofForgeV2.lean` umbrella 导入合约实例 | 不得把合约 step 当平台依赖 |
 | 随包 `Examples/` 装业务 step 库 | Examples 是可 deploy / L0 样例表面，不是证明库 |
 
-### 3.3 第二实例（通用性验收，计划）
+### 3.3 通用性实例门（计划）
 
-在 L1 形状（**product step** + Preserves）对某一 program 跑通 **P1 级** 后：
-
-- 选极简 program（如 Counter）；
-- **不复制** MiniAmm 谓词，只复用 **同一 Preserves 模式**；
-- 文档勾选：「L1 挂载已证明非 AMM 专用」。
+1. **首个实例：EvenCounter**。在 product Reference admission/step 上证明偶数 invariant
+   的完整 `PreservationTheoremV1`，并走 `proof even preserving using …`。
+2. **第二实例：另一非 AMM 极简 program**。不复制 EvenCounter 谓词，只复用同一 ABI/
+   inventory/certifier 挂载。
+3. 两个门都通过后，MiniAmm 才作为普通后续业务实例进入 P1。
 
 ---
 
@@ -188,9 +199,9 @@ Preserves(P) :=
 
 ## 5. 执行路线图
 
-**优先级**：**先平台 L1 形状（preservation ABI）+ product Reference admission**；
-**D/L2 项目 formal 最后**。
-**MiniAmm** = 纵向打穿；**第二 program** = 横向验收通用。
+**优先级**：platform Preservation ABI foundation 与 MiniAmm Reference admission 已完成；
+当前先做 **ProofKind/inventory/certifier + EvenCounter**，再做第二非 AMM 实例，之后才进入
+MiniAmm P1。**D/L2 项目 formal 最后**。
 
 ### 5.0 已完成 / superseded
 
@@ -211,8 +222,9 @@ Preserves(P) :=
 | 路线改为 **Reference-first** | **done** — 本文件 |
 | 禁止再引入第二套 step | **policy** — 见 §0 / §3.2 |
 | MiniAmm 经 Normalize → `admitReferenceProgramSliceV1` | **done**（Map Wire-envelope admission；见 §5.1.1） |
-| ADR-0034 Preservation ABI design freeze | **done as design-only** — `proposed`；**不** supersede ADR-0027 |
-| Preservation ABI **implementation** + product traces | **next** — 见 §5.2 |
+| ADR-0034 Preservation ABI design freeze | **done** — `proposed`；**不** supersede ADR-0027 |
+| Generic Preservation ABI foundation | **done** — positive initial/admission + base/step/full Outcome；无 product cutover |
+| ProofKind/inventory/certifier + EvenCounter | **next** — 见 §5.2 |
 
 #### 5.1.1 MiniAmm Reference admission（Map budget 已切 Wire-envelope）
 
@@ -235,21 +247,23 @@ Preserves(P) :=
 
 诚实边界（仍成立）：
 
-- Admission 通 **不等于** L1 `Preserves P` 已证；P1+ 仍缺 **Preservation ABI 实现**
-  与真实 `stepReferenceSliceV1` 业务 traces。
+- Admission 与 generic ABI foundation 通 **不等于** MiniAmm L1 P1 已证；P1 仍缺
+  kind-aware product certifier、MiniAmm executable invariant、完整 base/step proof 与真实
+  `stepReferenceSliceV1` 业务 traces。
 - `MiniAmmVectorsV1` 仍只钉数学 floor（非 step）。
 - L0 `MiniAmmProofSurface` 仍由 **ADR-0027** 产品 holds 门约束。
-- **禁止** 旁路手写 step；**禁止** 因 ADR-0034 `proposed` 声称实现/规格已对齐 0034。
+- **禁止** 旁路手写 step；**禁止** 把 ABI foundation 写成 ProofKind/certifier/product 已完整对齐 0034。
 
 ### 5.2 下一步（当前 active engineering 方向）
 
 | 项 | 说明 |
 |---|---|
-| **实现 Preservation ABI** | 按 [`ADR-0034`](../adr/0034-preservation-abi.md)（`proposed`/design-only）落地 `PreservationTheoremV1` / inventory kind 扩维 / certifier 分支；**当前产品 holds 仍以 ADR-0027 为 authority**，cutover 前不得标 0027 superseded |
-| **真实 Reference traces（MiniAmm P1）** | 在已 admitted MiniAmm 上跑 product `stepReferenceSliceV1` 业务 trace；init + step 保持 P1；**仍非** formal TASK |
-| 然后：L1-G 第二实例 | 证明形状可复用（EvenCounter 为首实例偏好，见 ADR-0034） |
+| **ProofKind/inventory/certifier cutover** | 新增 `holds | preserving`、`(inv,kind)` exact inventory、kind-aware expected Prop/cert digest；保持 bare holds canonical 与 ADR-0027 当前 authority，完整 cutover 前不得 supersede 0027 |
+| **EvenCounter 首个端到端实例** | 复用已实现的 `PreservationTheoremV1`，在 product Reference 上闭合 positive admission + base + full-input step，并走 inline preserving proof |
+| **第二非 AMM 实例** | 用不同 P 复挂同一 ABI/certifier，证明非单例硬编码 |
+| **然后 MiniAmm P1** | 在已 admitted MiniAmm 上加入 executable invariant 与真实 Reference proof/traces；无特例；**仍非** formal TASK |
 
-### 5.3 L1-B — MiniAmm P1 完整保持（依赖 §5.2）
+### 5.3 L1-B — MiniAmm P1 完整保持（依赖 kind/certifier + 两个通用实例门）
 
 `Preserves P1` 在 **product Reference step** 上全证；模式可复述为任意 P。
 
@@ -268,12 +282,13 @@ Preserves(P) :=
 | 无第二套 step 即可 | Reference-first **取消**「abstract ≡ Reference」双模型 join 债务 |
 | **通用义务** | 每个实例声明 P 与 product state 的投影；step 权威唯一 |
 
-### 5.7 L1-G — 第二实例（通用性门）
+### 5.7 L1-G — 通用性实例门
 
 | 交付 | 说明 |
 |---|---|
-| 非 AMM program + 自有 P + product step | 复用 Preserves 形状 |
-| 短文档 + 测试 | 「同一挂载，不同业务」 |
+| EvenCounter + 自有偶数 P + product step | 首个 preserving end-to-end |
+| 第二非 AMM program + 不同 P | 复用同一 ABI/inventory/certifier |
+| 短文档 + 测试 | 「同一挂载，不同业务；MiniAmm 无平台特例」 |
 
 ### 5.8 L1-F — Assets 实例（可选）
 
@@ -292,9 +307,11 @@ Preserves(P) :=
 ```text
 Slice 0: 删除 HEAD Semantic 手写 L1-A sketch（done）
   → Map Wire-envelope Reference admission + MiniAmm admit（done）
-  → ADR-0034 Preservation ABI design freeze（proposed / design-only；done as design）
-  → 实现 Preservation ABI + MiniAmm P1 on product Reference step（current）
-  → L1-G 第二 program 复用 Preserves 形状
+  → ADR-0034 Preservation ABI design freeze（done）
+  → generic Preservation ABI foundation（done）
+  → ProofKind / (inv,kind) inventory / certifier + EvenCounter（current）
+  → 第二非 AMM program 复用同一 preserving 挂载
+  → MiniAmm P1 on product Reference step
   → L1-C / L1-D 加深 MiniAmm 业务
   → (可选) L1-F Assets
   → …最后… D/L2

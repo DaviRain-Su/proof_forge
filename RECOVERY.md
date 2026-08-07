@@ -255,6 +255,16 @@ ToolchainIdentity/race-free formal closure/hermetic publisher/完整 SemanticPro
 
 ## D2-07 invariant reference evaluator status（2026-07-31）
 
+**2026-08-07 L1 Preservation ABI engineering update**：新增独立
+`ProofForgeV2/Semantic/PreservationABI.lean`，位于 public `InvariantABI` / `ReferenceV1`
+之上并只复用 sole production validation、`initialLogicalStateV1`、Reference admission/step。
+`PreservationTheoremV1` 现包含 dense ordinal、positive admitted witness、positive initial-state
+constructor、initializer/no-initializer base 与全 state/invocation(context)/responses/vault 的三分支
+Outcome preservation；initial/admission 失败均使命题为假。focused suite 覆盖 ABI defeq、
+no-vacuity 与 no-init/with-init returned/reverted/trapped lifecycle。**未接线** ProofKind、
+`(inv,kind)` inventory、certifier/alias、EvenCounter 或产品 proof gate；ADR-0027 仍为现行 holds
+authority，formal TASK/TST 状态不变，MiniAmm 无特例。
+
 远端general CFG walker lineage中的Reference machine继续作为唯一工程执行权威；其PureCall frame、
 if/match、emit/revert、mul/div/mod/unary与let/for能力均保留。本地增量只新增明确非formal的
 `evalInvariantReferenceSliceV1`：按InvariantDecl ordinal执行zero-arg public Bool invariant，先以
