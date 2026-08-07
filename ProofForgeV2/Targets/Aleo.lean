@@ -4,6 +4,7 @@ import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.Aleo.LowerSemanticV1
 import ProofForgeV2.Targets.Aleo.ValidatePlanV1
+import ProofForgeV2.Targets.Aleo.PlanSchemaV1
 import ProofForgeV2.Targets.Aleo.EmitIRV1
 
 /-!

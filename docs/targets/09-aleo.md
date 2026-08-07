@@ -3,7 +3,7 @@ id: TARGET-ALEO
 title: Aleo and Leo 4 target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-06
+updated: 2026-08-07
 normative: true
 ---
 
@@ -17,9 +17,9 @@ Phase 1：实现（工程切片已接线；成熟度 source-only）
 
 `planFromCapability` 直接读取 `CompiledSemanticV1.semanticV1Of`，private lowering 构造 target-owned `AleoPlan`。
 
-**工程已接线（摘）**：标量 UInt64/UInt32/UInt8/Int64/Unit/Bool envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）；named Struct/Enum + Array UInt64 flatten-to-mapping leaves；**dense Map UInt64 cap-2**（occ/key/val leaves + IndexGet→Option + IndexSet upsert；`storeAggregate` 先完成全叶 `get_or_use`/值绑定再统一 `set`，固定 pre-store snapshot）；**fixed Bytes N**（N×u8 mappings + checked u8 lane）；**Option UInt64 state（B-OPT-STATE / BL-35）** tag+payload 双 mapping 叶（entry-surface match；computed view-over-state 与 Option params 仍 FC）；Commit 身份透传；Leo 4.0.2 emission。Leo 4.0.2 已进入两平台 Tool Lock v4，`AleoAcceptance` 优先使用物化的 locked tool 执行 `leo build --offline` compile-only 验收（未物化时 clean skip；含 OptionState fixture）。
+**工程已接线（摘）**：标量 UInt64/UInt32/UInt8/Int64/Unit/Bool envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）；named Struct/Enum + Array UInt64 flatten-to-mapping leaves；**dense Map UInt64 cap-2**（occ/key/val leaves + IndexGet→Option + IndexSet upsert；`storeAggregate` 先完成全叶 `get_or_use`/值绑定再统一 `set`，固定 pre-store snapshot）；**fixed Bytes N**（N×u8 mappings + checked u8 lane）；**Option UInt64 state（B-OPT-STATE / BL-35）** tag+payload 双 mapping 叶（entry-surface match；computed view-over-state 与 Option params 仍 FC）；Commit 身份透传；Leo 4.0.2 emission。**ALEO-I1** 已以 `pf.aleo-plan.engineering.v1` 将 canonical Plan content digest 接入 Registry/BuildIdentity。**ALEO-I2** 让产品有序发出 `.aleo` 与 `.aleo-query-contract.json` 两个 base artifacts；sidecar 绑定 source/semantic identity、public mappings、bare views 与 `resultDropped`，但不执行查询。**ALEO-I3** 将两平台 Tool Lock 与 locked-only acceptance 收紧。**ALEO-I4** 新增显式 `aleo-leo-4.0.2-u64-compile-v1`：与 source profile 共享同一 Plan/planDigest，但 support claim/BuildIdentity 不同；产品 Finalize 只消费 `.aleo` base，在临时 package + 隔离 HOME 中执行 locked offline build，并发布三个 compiler extras。`AleoAcceptance` 继续覆盖更宽 source corpus（未物化时 clean skip；含 OptionState fixture）。
 
-**明确边界**：T14 已把 exact BLS12-377 Fr FieldSpec 接到 Leo `field`；bn254 与 Goldilocks 在 Aleo 上仍 fail-closed。**Option 仅 UInt64 state 与 anonymous entry/view return LOWERED**；Option params/nested/非 UInt64、Principal/String/Int128/256/emit/call/schedule/ContextRead 均显式 fail-closed；没有 prove/deploy/VM 门，compile-only 也不是 hermetic/formal 证据；成熟度仍为 **source-only + engineering compile acceptance**，不得写成 runtime/proof 完成。**ADR-0029 Phase D（2026-08-05）**：`pf.assets` 五 QN **零绑定**——Aleo 资产主模型是 record（owner-bound consume/mint）而非 account-balance vault，`credits.aleo/transfer_public` 走 private-proof + public finalize 不满足 sync 原子 failure 传播；catalog QN 在 Plan 层显式 unbound 诊断、resolver 不 advertise、resolve 处 `PF-REQ-UNSUPPORTED`（`Tests/Materialization/AleoPfAssetsV1` 钉死）。record custody 五轴差异分析存于 `Targets/Aleo/PfAssetsDispositionV1.lean`，为未来 custody v2 设计种子。**Uniswap/MiniAMM 路径：park**（token transfer / balanceOfSelf / caller 全 FC）。
+**明确边界**：T14 已把 exact BLS12-377 Fr FieldSpec 接到 Leo `field`；bn254 与 Goldilocks 在 Aleo 上仍 fail-closed。**Option 仅 UInt64 state 与 anonymous entry/view return LOWERED**；Option params/nested/非 UInt64、Principal/String/Int128/256/emit/call/schedule/ContextRead 均显式 fail-closed。query-contract 是 `network-state-descriptor`：`leo query` 仍需网络，Final 也不能返回 `resultDropped` 的原值；computed/multi-leaf state view 继续 FC。没有 prove/deploy/VM 门，compile-only 也不是 hermetic/formal 证据；成熟度为 **source emission + engineering locked compile finalization**，不得写成 runtime/proof 完成。**ADR-0029 Phase D（2026-08-05）**：`pf.assets` 五 QN **零绑定**——Aleo 资产主模型是 record（owner-bound consume/mint）而非 account-balance vault，`credits.aleo/transfer_public` 走 private-proof + public finalize 不满足 sync 原子 failure 传播；catalog QN 在 Plan 层显式 unbound 诊断、resolver 不 advertise、resolve 处 `PF-REQ-UNSUPPORTED`（`Tests/Materialization/AleoPfAssetsV1` 钉死）。record custody 五轴差异分析存于 `Targets/Aleo/PfAssetsDispositionV1.lean`，为未来 custody v2 设计种子。**Uniswap/MiniAMM 路径：park**（token transfer / balanceOfSelf / caller 全 FC）。
 
 ## 1. 身份与来源
 
@@ -53,15 +53,32 @@ AleoPlan {
 
 ## 5. Target IR 与制品
 
-预期 `AleoPlan → Leo4AST → .leo → Aleo Instructions`。输出 Leo、compiled instructions、interface/record/mapping schema、transaction/proof metadata 和 manifest。printer 不得发出 Leo 3.x 兼容语法。
+当前工程路径为 `Aleo Plan → Leo4AST → .aleo source`，并由
+`pf.aleo-plan.engineering.v1` content digest 绑定 Plan identity。产品 materialize 的有序 base
+artifacts 为：
+
+1. `{programId}.aleo`（Leo 4.0.2 source）
+2. `{programId}.aleo-query-contract.json`（schema
+   `proof-forge-aleo-query-contract/v1`）
+
+query-contract 是 public mapping / bare view / dropped-result 的固定键序
+network-state descriptor，受 exact artifact content hash/manifest closure 约束；它不是 Leo
+`build/abi.json`、不是 executable query，也不作为 compiler input。默认 source profile 的
+Finalize 仍 zero-tool。显式 `aleo-leo-4.0.2-u64-compile-v1` Finalize 在临时 package/隔离
+HOME 中运行 locked offline build，并只复制三个 `finalized-extra`：
+`{programId}.compiled.aleo`、`{programId}.abi.json`、
+`{programId}.leo-program.json`。两 profile 均 `deployable=false`。printer 不得发出
+Leo 3.x 兼容语法。
 
 ## 6. 工具链
 
 工程 Tool Lock v4 已在 darwin-arm64 与 linux-x86_64 固定 Leo `4.0.2` 的下载资产、
-executable digest 与 version probe，供 compile-only acceptance 使用；Aleo SDK/VM、proof/deploy
-runtime 与相应 CodegenProfile closure 仍未固定。network profile 只固定
-chain/genesis/endpoint/deploy policy 并列出兼容 BuildIdentity。任一版本变化创建新 target
-semantics 或 CodegenProfile，不静默适配。
+executable digest 与 version probe，`requiredByProfiles` exact join source + compile 两个
+profile。`AleoAcceptance` 与 compile-profile product Finalize 均只接受显式 tool root 或
+package cache 中的 locked binary，无 PATH/cargo/brew fallback；在隔离 HOME/secret/network
+env 下仅运行 `leo build --offline --disable-update-check`。产品 compile profile 对工具缺失或
+任一预期输出缺失 fail closed 且零发布。Aleo SDK/VM、CRS、snarkOS/snarkVM 与 proof/deploy
+runtime 仍未固定。任一版本变化创建新 target semantics 或 CodegenProfile，不静默适配。
 
 ## 7. 部署/证明流程
 
@@ -79,6 +96,14 @@ Leo4 AST/printer golden → compiler parse/typecheck → local proof execution �
 
 当前工程仅实现 target-owned Plan/IR/source package 与 public mapping pilot，不实现 record custody、prove/deploy 或 VM runtime。进入更高成熟度前仍须冻结 Leo 4 工具链 profile、完成 record 与 mapping 两条最小闭环，并证明 disclosure/custody/finalization requirements 可精确推导。Aleo 不能复用 NoirPlan 或 PsyPlan。
 
-### 工程成熟度（C-2 / 2026-08-02）
+### 工程成熟度（C-2 / ALEO-I1–I4，2026-08-07）
 
-产品路径已有 target-owned Plan/IR/source package 与 B-1c/T14 coverage 钉。G123 已将 Leo 4.0.2 纳入两平台 Tool Lock；`AleoAcceptance` 优先解析物化的 locked tool 并执行 `leo build --offline`（工具未物化时可 clean skip）。该门仍不验证 VM、proof 或 deploy，也不是 formal/hermetic Stage-0 证据。成熟度声明保持 **source-only + engineering compile acceptance**。
+产品路径已有 target-owned Plan/IR/source package、canonical Plan content digest 与 content-bound
+query-contract sidecar。默认 profile 保持 zero-tool；显式 compile profile 以两平台 Tool Lock 中的
+Leo 4.0.2 执行 offline compile-only Finalize，发布三个 content-bound compiler extras，并由
+产品双次构建、缺失/坏工具零发布负例和 `inspect` exact disk closure 覆盖。
+`AleoAcceptance` 仍提供更宽 source corpus 的 host-optional compile gate。RPT-024 确认
+`leo run` 仅为解释器、execute/deploy/query 依赖网络、synthesize 需要未锁定 CRS，且仓库无
+pinned snarkOS/snarkVM。该产品 finalization 仍 `deployable=false`，不验证 VM、proof、deploy
+或 public finalization，也不是 formal/hermetic Stage-0 证据。成熟度声明为
+**source emission + engineering locked compile finalization**。

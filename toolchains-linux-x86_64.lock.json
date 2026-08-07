@@ -498,7 +498,8 @@
       "expectedVersion": "4.0.2",
       "licenseSpdx": "GPL-3.0-or-later",
       "requiredByProfiles": [
-        "aleo-leo-build-v1"
+        "aleo-leo-4.0.2-u64-compile-v1",
+        "aleo-leo-4.0.2-u64-v1"
       ],
       "sourceBuild": null
     },

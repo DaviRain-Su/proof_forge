@@ -49,10 +49,11 @@ def solana : TargetDescriptor :=
     `TargetDescriptor.codegenProfile` is the default encoding profile.
     Additional registered profiles for the same target are accepted here so
     capability mint and artifact identity can bind them without a second row.
-    Solana: sole cpi-elf; EVM: default + Cancun. -/
+    Solana: sole cpi-elf; EVM: default + Cancun; Aleo: default source + compile. -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
-    (descriptor.targetId == TargetId.evm && profile == CodegenProfileId.evmYulSolc0834CancunV1)
+    (descriptor.targetId == TargetId.evm && profile == CodegenProfileId.evmYulSolc0834CancunV1) ||
+    (descriptor.targetId == TargetId.aleo && profile == CodegenProfileId.aleoLeoU64CompileV1)
 
 def near : TargetDescriptor :=
   descriptorFromRegistryAxes .near .wasmText CodegenProfileId.nearWasmRawU64V1
@@ -60,6 +61,9 @@ def near : TargetDescriptor :=
 def noir : TargetDescriptor :=
   descriptorFromRegistryAxes .noir .noirSource CodegenProfileId.noirSourceU64RelationsV1
 
+/-- Residual Aleo descriptor binds the default source profile
+    (`aleo-leo-4.0.2-u64-v1`). The compile profile is accepted via
+    `acceptsCodegenProfile` without inventing a second TargetDescriptor. -/
 def aleo : TargetDescriptor :=
   descriptorFromRegistryAxes .aleo .leoSource CodegenProfileId.aleoLeoU64V1
 

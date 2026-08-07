@@ -158,6 +158,12 @@ private def testValidationAndLookup : IO Unit := do
   expect (insp.profiles ==
       #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1])
     "inspect profiles (cancun-v1 < v1 ascending; default remains v1)"
+  let aleoInsp ← liftResult (inspectTargetV1 registry TargetId.aleo)
+  expect (aleoInsp.profiles ==
+      #[CodegenProfileId.aleoLeoU64CompileV1, CodegenProfileId.aleoLeoU64V1])
+    "inspect aleo profiles (compile-v1 < u64-v1 ascending; default remains u64-v1)"
+  expect (aleoInsp.defaultProfile == some CodegenProfileId.aleoLeoU64V1)
+    "inspect aleo default remains source u64-v1"
   -- Inspection-only engineering digest is deterministic and non-product.
   let dig1 ← match findRegistrationV1 registry TargetId.evm with
     | none => throw <| IO.userError "missing evm for dig"

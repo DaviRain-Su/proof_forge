@@ -329,13 +329,13 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped twelve-row seed body (canonical targetId order: aleo, cosmwasm,
-    evm×2, near, noir, psy, quint, solana×3, ton). EVM carries both
-    `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1` (ASCII ascending;
-    default remains legacy v1). Solana carries `solana-sbpf-cpi-elf-v1`,
-    `solana-sbpf-elf-v1`, and `solana-sbpf-plan-v1` (ASCII ascending). Both legacy
-    Solana profiles share the same non-call S2 capability set and **decline both
-    call families** plus the ADR-0028 extension. The opt-in CPI profile (#125)
+/-- Shipped eleven-row seed body (canonical targetId order: aleo×2, cosmwasm,
+    evm×2, near, noir, psy, quint, solana×1, ton). Aleo carries both
+    `aleo-leo-4.0.2-u64-compile-v1` and `aleo-leo-4.0.2-u64-v1` (ASCII ascending;
+    default remains source `u64-v1`; both share the same exact 4-key S2 set).
+    EVM carries both `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1`
+    (ASCII ascending; default remains legacy v1). Solana is sole
+    `solana-sbpf-cpi-elf-v1` (ADR-0032 U1). The opt-in CPI profile (#125)
     admits exact `effect.synchronous-call` plus the exact ADR-0028 extension and
     still declines `effect.asynchronous-workflow`.
 
@@ -461,6 +461,9 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   let nearRequests :=
     (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
   pure #[
+    -- Aleo dual profiles share the same exact 4-key capability set (no expansion);
+    -- ASCII ascending: compile-v1 before source u64-v1.
+    mkImplementedRow .aleo CodegenProfileId.aleoLeoU64CompileV1 aleoRequests,
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
     -- AddressBearing: full seven keys — static QN call/schedule Plan open.

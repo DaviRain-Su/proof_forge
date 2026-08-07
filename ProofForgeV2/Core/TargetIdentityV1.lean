@@ -199,7 +199,12 @@ def solanaSbpfCpiElfV1 : CodegenProfileId := ⟨"solana-sbpf-cpi-elf-v1"⟩
 def solanaSbpfElfV1 : CodegenProfileId := ⟨"solana-sbpf-elf-v1"⟩
 def nearWasmRawU64V1 : CodegenProfileId := ⟨"near-wasm-raw-u64-v1"⟩
 def noirSourceU64RelationsV1 : CodegenProfileId := ⟨"noir-source-u64-relations-v1"⟩
+/-- Default Aleo Leo 4.0.2 source-only profile (zero-tool product finalize). -/
 def aleoLeoU64V1 : CodegenProfileId := ⟨"aleo-leo-4.0.2-u64-v1"⟩
+/-- Explicit Aleo Leo 4.0.2 compile-only product profile (same Plan surface as
+    `aleoLeoU64V1`; locked offline finalization emits three compiler outputs,
+    remains `deployable=false`, and claims no execution/proof/deploy/query). -/
+def aleoLeoU64CompileV1 : CodegenProfileId := ⟨"aleo-leo-4.0.2-u64-compile-v1"⟩
 def psyDargoU64V1 : CodegenProfileId := ⟨"psy-dargo-u64-v1"⟩
 def cosmwasmWasmU64V1 : CodegenProfileId := ⟨"cosmwasm-wasm-u64-v1"⟩
 def quintSourceU64ModelV1 : CodegenProfileId := ⟨"quint-source-u64-model-v1"⟩

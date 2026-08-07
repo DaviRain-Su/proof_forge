@@ -35,6 +35,39 @@ normative: false
   EvenCounter、MiniAmm P1、产品 proof gate。当前产品 holds authority 仍为 ADR-0027；formal
   TASK-D2-07 / TST-SEM / TST-PROOF、hermetic/release 均未关闭。
 
+## 2026-08-07 — Aleo Wave 2：opt-in locked compile product finalization
+
+- 新增显式 `aleo-leo-4.0.2-u64-compile-v1`；默认
+  `aleo-leo-4.0.2-u64-v1` 保持 zero-tool。两 profile 共享 target-owned Plan 与
+  `pf.aleo-plan.engineering.v1` planDigest，但 support claim / BuildIdentity 精确区分。
+- compile profile Finalize 在 staging 外建立临时 Leo package 与隔离 HOME，只复制产品
+  `{programId}.aleo` 为 `src/main.leo`；query-contract 不进入 compiler input。locked Leo 4.0.2
+  运行 `build --offline --disable-update-check`，三个 required outputs 任一缺失/非 regular/空即
+  fail closed。
+- 产品新增 exact finalized extras：`{programId}.compiled.aleo`、`{programId}.abi.json`、
+  `{programId}.leo-program.json`；仍 `deployable=false`，evidence 明确不声称
+  execution/proof/deployment/network query。
+- `AleoCompiledFinalizationV1` 覆盖默认 profile 无 extras、compile profile 两次同机 exact-byte
+  repeat、五 artifact content roles、`inspect` exact disk closure，以及 missing/bad Leo 零发布。
+  Tool Lock 两平台 `requiredByProfiles`、raw/domain digest 与 EVM corpus KAT 随之刷新。
+- 工程成熟度提升为 source emission + locked compile finalization；RPT-024 的网络/CRS/
+  snarkOS/snarkVM blocker 不变，非 VM/proof/deploy/hermetic/formal。
+
+## 2026-08-07 — Aleo Wave 0/1：Plan identity、query contract 与 locked compile gate
+
+- `Aleo/PlanSchemaV1` 新增 canonical length-framed Plan 编码与
+  `pf.aleo-plan.engineering.v1` digest；Registry/BuildIdentity 不再使用 Aleo absent slot，
+  Psy 仍 absent。
+- product materialize 有序发出 `.aleo` + `.aleo-query-contract.json` 两个 base artifact；
+  sidecar 绑定 source/semantic hash、public mappings、bare views 与 `resultDropped`，仅为
+  network-state descriptor，不调用 `leo query`；当时 default Finalize 为 zero-tool/non-deployable，后由 Wave 2 增 opt-in compile profile。
+- 两平台 Tool Lock 的 Leo `requiredByProfiles` 当时对齐 default source profile
+  `aleo-leo-4.0.2-u64-v1`（后由 Wave 2 加入 compile profile）；AleoAcceptance 删除 PATH/cargo/brew fallback，硬验证
+  Leo 4.0.2 + executable digest，隔离 HOME/secret/network env，仅运行 offline build。
+- RPT-024 冻结三 content-bearing build outputs 的 same-host byte determinism，并确认
+  execute/deploy/query、CRS synthesize 与 snarkOS/snarkVM 仍阻塞。工程成熟度不提升为
+  VM/proof/deploy/formal/hermetic。
+
 ## 2026-08-07 — Map Wire-envelope Reference admission + ADR-0034 design freeze
 
 - **Map admission 代码事实**（`ProofForgeV2/Semantic/ReferenceMachineV1.lean`）：

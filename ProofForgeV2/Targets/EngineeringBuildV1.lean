@@ -113,7 +113,7 @@ def resolveEngineeringRequirementsV1
     throw <| .registryInvalid
       "descriptor target identity diverges from resolved selection"
   -- Residual descriptor binds the default profile; multi-profile targets
-  -- (Solana plan + elf) accept additional registered profiles via
+  -- (EVM cancun, Aleo compile) accept additional registered profiles via
   -- DescriptorDataV1.acceptsCodegenProfile.
   unless DescriptorDataV1.acceptsCodegenProfile descriptor selection.codegenProfile do
     throw <| .registryInvalid

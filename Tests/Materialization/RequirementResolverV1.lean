@@ -342,7 +342,8 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 10) "exactly ten support rows (Solana sole rail)"
+  expect (rows.size == 11)
+    "exactly eleven support rows (Aleo dual profile + Solana sole rail)"
   let expectedSolanaExtension ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -351,6 +352,8 @@ private def testSupportTable : IO Unit := do
     | .error error => throw <| IO.userError error
   -- expectsSolanaCpi / expectsPfAssets: closed advertise scopes (ADR-0028 / ADR-0029 A3).
   let expectedKeys := #[
+    -- Aleo dual profiles share exact 4-key S2 (ASCII ascending: compile < u64)
+    ("aleo", "aleo-leo-4.0.2-u64-compile-v1", 4, false, false),
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4, false, false),
     ("cosmwasm", "cosmwasm-wasm-u64-v1", 8, false, true),
     -- Phase B2: EVM = 7 S2 keys + exact extension.pf-assets
@@ -432,13 +435,15 @@ private def testSupportTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 10-row (target,profile) skeleton matching the shipped index shape
-    (ADR-0032 U1: sole Solana cpi-elf). `evmSupported` replaces both EVM rows. -/
+/-- Canonical 11-row (target,profile) skeleton matching the shipped index shape
+    (Aleo dual profile + ADR-0032 U1 sole Solana cpi-elf). `evmSupported`
+    replaces both EVM rows; both Aleo rows share `base`. -/
 private def twelveRowSkeleton
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
     Array StaticRequirementSupportRowV1 :=
   #[
+    mkRow .aleo CodegenProfileId.aleoLeoU64CompileV1 base,
     mkRow .aleo CodegenProfileId.aleoLeoU64V1 base,
     mkRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 base,
     mkRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmSupported,
@@ -464,10 +469,10 @@ private def nineRowSkeleton
     Array StaticRequirementSupportRowV1 :=
   twelveRowSkeleton base evmSupported
 
-/-- ADR-0029 B/C: same 10-row skeleton but permit-owning rows carry their
+/-- ADR-0029 B/C: same 11-row skeleton but permit-owning rows carry their
     closed extension seeds (Quint/NEAR/CosmWasm: pf.assets; Solana CPI: both),
     so content negatives reach their intended check instead of tripping the
-    presence gate first. -/
+    presence gate first. Both Aleo profiles keep the base 4-key set. -/
 private def twelveRowSkeletonWithExt
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1)
@@ -476,6 +481,7 @@ private def twelveRowSkeletonWithExt
   let withPf := (base.push pfAssets).qsort fun a b => a.id < b.id
   let cpiRow := ((base.push pfAssets).push solanaExt).qsort fun a b => a.id < b.id
   #[
+    mkRow .aleo CodegenProfileId.aleoLeoU64CompileV1 base,
     mkRow .aleo CodegenProfileId.aleoLeoU64V1 base,
     mkRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 withPf,
     mkRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmSupported,
@@ -534,7 +540,7 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .openvm CodegenProfileId.evmYulSolc0834V1 trio
   ]
-  -- Size-extra first (13 rows vs expected 12):
+  -- Size-extra first (12 rows vs expected 11):
   let extra :=
     (twelveRowSkeletonWithExt trio trio pfAssetsRow solanaExtensionRow).push
       (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)

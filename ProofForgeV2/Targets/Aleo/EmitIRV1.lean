@@ -102,7 +102,10 @@ structure LeoProgram where
 structure IR where
   sourcePlan : Plan
   program : LeoProgram
-  deriving BEq, Inhabited, Repr
+  /-- Capability-selected codegen profile (source or compile). Bound into the
+      query-contract sidecar; Plan body remains profile-insensitive. -/
+  codegenProfile : CodegenProfileId
+  deriving BEq, Repr
 
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .aleo message
@@ -837,7 +840,7 @@ private def emitFunction (ctx : EmitCtx) (fn : PlanFunction) :
     body := body'
   }, ctx1)
 
-private def lower (plan : Plan) : CompileResult IR := do
+private def lower (plan : Plan) (profile : CodegenProfileId) : CompileResult IR := do
   validatePlan plan
   let programId := asciiLower plan.programName
   unless isLeoProgramId programId do
@@ -867,22 +870,152 @@ private def lower (plan : Plan) : CompileResult IR := do
     ctx := ctx1
   let program := { programId, mappings, functions }
   validateLeoProgram program
-  pure { sourcePlan := plan, program }
+  pure { sourcePlan := plan, program, codegenProfile := profile }
+
+/-- ALEO-I2 leaf type spelling shared by Leo mappings and the query-contract. -/
+private def leafTypeString
+    (isInt : Bool) (isField : Bool) (uintWidth : Nat) : String :=
+  if isField then "field"
+  else if isInt then "i64"
+  else leoUintTypeName uintWidth
+
+/-- ALEO-I2 default literal spelling for an unoccupied mapping slot. -/
+private def leafDefaultString
+    (isInt : Bool) (isField : Bool) (uintWidth : Nat) : String :=
+  if isField then "0field"
+  else if isInt then "0i64"
+  else if isNarrowUintWidth uintWidth then s!"0{leoUintTypeName uintWidth}"
+  else "0u64"
+
+/-- Fail-closed plan ↔ Leo-program mapping cross-check so the query-contract
+    cannot drift from the rendered `pf_state_*` surface (or invent
+    `initialized`). Views may be empty. -/
+private def crossCheckPlanProgramMappings
+    (plan : Plan) (program : LeoProgram) : CompileResult Unit := do
+  unless plan.stateFieldNames.size == program.mappings.size do
+    planError
+      "Aleo query-contract: plan/program state mapping count drift"
+  for i in [0:plan.stateFieldNames.size] do
+    let expectedName := s!"pf_state_{i}"
+    let some m := program.mappings[i]? |
+      planError s!"Aleo query-contract: missing program mapping at {i}"
+    unless m.name == expectedName do
+      planError
+        s!"Aleo query-contract: mapping name drift at {i} (expected {expectedName})"
+    let isInt := plan.stateFieldIsInt.getD i false
+    let isField := plan.stateFieldIsField.getD i false
+    let w := plan.stateFieldUintWidth.getD i 0
+    let expectedTy := leafTypeString isInt isField w
+    unless m.valueType == expectedTy do
+      planError
+        s!"Aleo query-contract: mapping type drift at {i} (expected {expectedTy})"
+  for view in plan.views do
+    unless view.stateFieldIndex < plan.stateFieldNames.size do
+      planError
+        "Aleo query-contract: view stateFieldIndex out of plan mapping range"
+  -- Guard mapping is Leo-only and must never appear in the program.mappings
+  -- table used by the query-contract (initialized is not a state leaf).
+  for m in program.mappings do
+    if m.name == guardMappingName then
+      planError
+        "Aleo query-contract: initialized guard must not appear in program.mappings"
+
+/-- Compact JSON object for one state leaf (fixed key order). -/
+private def renderMappingJson (i : Nat) (plan : Plan) : String :=
+  let dslName := plan.stateFieldNames[i]!
+  let isInt := plan.stateFieldIsInt.getD i false
+  let isField := plan.stateFieldIsField.getD i false
+  let w := plan.stateFieldUintWidth.getD i 0
+  let ty := leafTypeString isInt isField w
+  let defv := leafDefaultString isInt isField w
+  "{" ++
+    s!"\"name\":\"pf_state_{i}\"," ++
+    s!"\"dslName\":\"{Targets.escapeJson dslName}\"," ++
+    s!"\"type\":\"{ty}\"," ++
+    s!"\"default\":\"{defv}\"" ++
+    "}"
+
+/-- Compact JSON object for one bare PlanView mapping get (fixed key order).
+    Never emitted into Leo source. -/
+private def renderViewJson (view : PlanView) (plan : Plan) : String :=
+  let i := view.stateFieldIndex
+  let isInt := plan.stateFieldIsInt.getD i false
+  let isField := plan.stateFieldIsField.getD i false
+  let w := plan.stateFieldUintWidth.getD i 0
+  let ty := leafTypeString isInt isField w
+  let defv := leafDefaultString isInt isField w
+  "{" ++
+    s!"\"index\":{i}," ++
+    s!"\"name\":\"{Targets.escapeJson view.name}\"," ++
+    s!"\"mapping\":\"pf_state_{i}\"," ++
+    s!"\"key\":\"{mappingKey}\"," ++
+    s!"\"type\":\"{ty}\"," ++
+    s!"\"default\":\"{defv}\"" ++
+    "}"
+
+/-- Compact JSON object for one resultDropped function. Honest observation is
+    post-transaction mapping query — never a Final return claim. -/
+private def renderResultDroppedJson (fn : PlanFunction) : String :=
+  "{" ++
+    s!"\"name\":\"{Targets.escapeJson fn.name}\"," ++
+    "\"observation\":\"post-transaction-mapping-query\"" ++
+    "}"
+
+/-- ALEO-I2 query-contract sidecar: network-state descriptor for bare views and
+    dropped Final results. Schema `proof-forge-aleo-query-contract/v1`, fixed
+    root key order, `escapeJson`, trailing newline. No `repr` / map iteration. -/
+private def renderQueryContract (ir : IR) : String :=
+  let plan := ir.sourcePlan
+  let programId := ir.program.programId
+  let programFile := s!"{programId}.aleo"
+  let mappingParts :=
+    plan.stateFieldNames.mapIdx fun i _ => renderMappingJson i plan
+  let mappingsBody := String.intercalate "," mappingParts.toList
+  let viewParts := plan.views.map fun v => renderViewJson v plan
+  let viewsBody := String.intercalate "," viewParts.toList
+  let droppedParts :=
+    (plan.functions.filter (·.resultDropped)).map renderResultDroppedJson
+  let droppedBody := String.intercalate "," droppedParts.toList
+  "{\n" ++
+    "  \"schema\": \"proof-forge-aleo-query-contract/v1\",\n" ++
+    s!"  \"program\": \"{Targets.escapeJson plan.programName}\",\n" ++
+    s!"  \"programFile\": \"{Targets.escapeJson programFile}\",\n" ++
+    s!"  \"codegenProfile\": \"{Targets.escapeJson ir.codegenProfile.toString}\",\n" ++
+    s!"  \"leo\": \"{Targets.escapeJson leoToolchain}\",\n" ++
+    s!"  \"sourceHash\": \"{Targets.escapeJson plan.sourceHash}\",\n" ++
+    s!"  \"semanticHash\": \"{Targets.escapeJson plan.semanticHash}\",\n" ++
+    s!"  \"mappingKey\": \"{mappingKey}\",\n" ++
+    "  \"executionModel\": \"network-state-descriptor\",\n" ++
+    s!"  \"mappings\": [{mappingsBody}],\n" ++
+    s!"  \"views\": [{viewsBody}],\n" ++
+    s!"  \"resultDropped\": [{droppedBody}]\n" ++
+    "}\n"
 
 private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
+  validateIR ir
+  crossCheckPlanProgramMappings ir.sourcePlan ir.program
   let programId := ir.program.programId
   let source := renderProgram programId ir.program
-  pure #[{
-    path := s!"{programId}.aleo"
-    mediaType := "text/plain"
-    contents := source
-  }]
+  let contract := renderQueryContract ir
+  pure #[
+    {
+      path := s!"{programId}.aleo"
+      mediaType := "text/plain"
+      contents := source
+    },
+    {
+      path := s!"{programId}.aleo-query-contract.json"
+      mediaType := "application/json"
+      contents := contract
+    }
+  ]
 
-/-- Capability-gated public IR entry. -/
+/-- Capability-gated public IR entry. Plan body is profile-insensitive; the
+    selected codegen profile is bound onto IR for query-contract honesty. -/
 def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult IR := do
   let plan ← materializePlanFromCapabilityV1 capability
   validatePlan plan
-  lower plan
+  lower plan (ResolvedEngineeringBuildV1.codegenProfileOf capability)
 
 /-- Capability-gated public materialize entry. Sole path from the retained
     SemanticProgramV1-native Aleo Plan body to emitted files for this target. -/

@@ -239,6 +239,20 @@
 > 清理 staging 且不发布 destination。memory/process/protocol/stderr、receipts/containment 与 formal
 > NFR-008 仍 pending，禁止把该子切片写成完整 RES-1B。
 >
+> **2026-08-07 Aleo identity/query/compiled-finalization update（engineering）**：Aleo Plan
+> 已有 canonical content digest domain `pf.aleo-plan.engineering.v1` 并进入 BuildIdentity；产品
+> materialize 有序发出 `{programId}.aleo` 与 `{programId}.aleo-query-contract.json` 两个
+> `materialized-base`，后者仅描述 public mapping、bare view 与 `resultDropped` 的
+> **network-state descriptor**，不执行 `leo query`、不把 Final 当返回通道。默认
+> `aleo-leo-4.0.2-u64-v1` 仍 zero-tool；显式
+> `aleo-leo-4.0.2-u64-compile-v1` 与 default 共享 Plan/planDigest、独立 claim/BuildIdentity，
+> product Finalize 在 staging 外临时 package + 隔离 HOME 中只编译 `.aleo` base，使用 Tool Lock
+> Leo 4.0.2 运行 `build --offline --disable-update-check`，并发布 `.compiled.aleo`、`.abi.json`、
+> `.leo-program.json` 三个 `finalized-extra`。missing/bad tool/partial outputs 均零发布；双次同机
+> exact bytes 与 `inspect` disk closure 已钉。两 profile 均 `deployable=false`。RPT-024 已证
+> execute/deploy/query 依赖网络、synthesize 需要 CRS 且无 pinned snarkOS/snarkVM，因此成熟度为
+> **source emission + engineering locked compile finalization**，非 VM/proof/deploy/hermetic/formal。
+>
 > **Capability caveat（2026-08-04 B-CALL-SEM + #111 honesty）**：`call` / `schedule` 的 resolver
 > support 不能等同于完整平台语义。EVM sync 为 static-QN→hashed-address 的真实 `CALL`，
 > result-bearing UInt64 路径读取并校验 `RETURNDATA`（BL-28；更宽类型仍 FC），但 hashed callee
@@ -274,9 +288,9 @@ UInt128/256 成功及 `0x1001` rollback、Principal `len + 8×UInt64` identity s
 OptionState 双叶 state；legacy call/schedule 已 fail closed，真实 CPI 见 epic #110；
 Principal 仍非 Solana pubkey；非 formal Stage-0/hermetic）；**T8/T9 已铺四 target**：
 state/param UInt8/16/32 ABI + body 多宽 + 窄结果 + 窄 Int（EVM 另开 UInt128/256，Solana/NEAR 软件多字 128/256 add/sub/cmp/bit；Int128/256 仍 fail closed）；Noir 保持 source-only，
-但有 locked nargo 1.0.0-beta.26 compile-only 工程门（无 ACIR/witness/prove/verify）；Aleo/Psy
-均为 source-only，Aleo 有 locked leo 4.0.2 compile-only 工程门，Psy 仅 host-optional compile
-且无 Tool Lock；两者均无 VM/proof/deploy 闭环。CosmWasm 已有 target-owned Plan/IR/materialize/finalize（`wasm-validated-alpha`：WAT+wat2wasm+cosmwasm-check、cosmwasm-vm 28-test mock 与 wasmd v0.70.3 Docker rung-1；sync 拒、async Binary SubMsg 子集；非主网/formal）；TON 已有 Plan/IR/materialize/finalize（source-only + locked tolk/fift BoC、schedule createMessage PARTIAL 与 sandbox 10/10 工程门）。registry label 与工程门均不得冒充 formal/hermetic、主网部署或证明完成。
+但有 locked nargo 1.0.0-beta.26 compile-only 工程门（无 ACIR/witness/prove/verify）；Aleo
+有 opt-in locked Leo 4.0.2 product compile finalization（仍 `deployable=false`），Psy 仅
+host-optional compile 且无 Tool Lock；两者均无 VM/proof/deploy 闭环。CosmWasm 已有 target-owned Plan/IR/materialize/finalize（`wasm-validated-alpha`：WAT+wat2wasm+cosmwasm-check、cosmwasm-vm 28-test mock 与 wasmd v0.70.3 Docker rung-1；sync 拒、async Binary SubMsg 子集；非主网/formal）；TON 已有 Plan/IR/materialize/finalize（source-only + locked tolk/fift BoC、schedule createMessage PARTIAL 与 sandbox 10/10 工程门）。registry label 与工程门均不得冒充 formal/hermetic、主网部署或证明完成。
 
 ## Mandatory Reading Order
 

@@ -279,6 +279,28 @@ private def testRegistrySeedMembership : IO Unit := do
       expect (reg.profiles == #[CodegenProfileId.solanaSbpfCpiElfV1])
         s!"Solana profiles must be sole rail cpi-elf, got {reg.profiles.map (·.toString)}"
   | none => throw <| IO.userError "missing Solana registration"
+  expectDefault TargetId.aleo "aleo-leo-4.0.2-u64-v1"
+  match ← liftResult (registration? TargetId.aleo) with
+  | some reg =>
+      expect (reg.profiles ==
+          #[CodegenProfileId.aleoLeoU64CompileV1, CodegenProfileId.aleoLeoU64V1])
+        s!"Aleo profiles must be ASCII ascending compile then u64, got {reg.profiles.map (·.toString)}"
+      expect (reg.defaultProfile == some CodegenProfileId.aleoLeoU64V1)
+        "Aleo default remains source u64-v1"
+  | none => throw <| IO.userError "missing Aleo registration"
+  -- Explicit compile resolve; unknown Aleo profile fails closed.
+  let aleoDefault ← liftResult <| resolveBuildSelectionV1 TargetId.aleo none
+  expect (aleoDefault.codegenProfile == CodegenProfileId.aleoLeoU64V1)
+    "Aleo resolve none → source default"
+  let aleoCompile ← liftResult <|
+    resolveBuildSelectionV1 TargetId.aleo (some CodegenProfileId.aleoLeoU64CompileV1)
+  expect (aleoCompile.codegenProfile == CodegenProfileId.aleoLeoU64CompileV1)
+    "Aleo resolve explicit compile"
+  match CodegenProfileId.parse? "aleo-leo-4.0.2-u64-unknown-v1" with
+  | some ghost =>
+      expectErrorCode (resolveBuildSelectionV1 TargetId.aleo (some ghost))
+        "PF-PROFILE-UNKNOWN" "unknown Aleo profile rejected"
+  | none => throw <| IO.userError "ghost Aleo profile must be grammar-valid"
   expectDefault TargetId.near "near-wasm-raw-u64-v1"
   expectDefault TargetId.noir "noir-source-u64-relations-v1"
   expectDefault TargetId.quint "quint-source-u64-model-v1"

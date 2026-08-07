@@ -325,21 +325,43 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
     expect ((evidence.splitOn noirNote).length > 1) "noir exact note on disk"
   -- Aleo: product finalization remains zero-tool even though compile-only
-  -- acceptance can resolve locked Leo 4.0.2 independently.
+  -- acceptance can resolve locked Leo 4.0.2 independently. ALEO-I2 base set is
+  -- Leo source + query-contract JSON; extras stay empty / deployable false.
   do
     let selection ← liftResult "select aleo" (resolveBuildSelectionV1 TargetId.aleo none)
     let capability ← liftResult "resolve aleo"
       (Targets.resolveEngineeringRequirementsV1 selection compiled)
+    let artifacts ← materializeOk "mat aleo" capability
+    let baseFiles := MaterializedArtifactsV1.filesOf artifacts
+    expect (baseFiles.map (·.path) ==
+        #["counter.aleo", "counter.aleo-query-contract.json"])
+      s!"aleo base paths, got {baseFiles.map (·.path)}"
+    expect (baseFiles[0]!.mediaType == "text/plain" &&
+        baseFiles[1]!.mediaType == "application/json")
+      "aleo base mediaTypes"
     let outDir := FilePath.mk "build/v2/finalization-aleo"
     if ← outDir.pathExists then IO.FS.removeDirAll outDir
     let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
     expect (receipt.deployable == false) "aleo emit non-deployable"
     expect (receipt.target == TargetId.aleo) "aleo emit target"
+    for f in baseFiles do
+      let disk ← IO.FS.readFile (outDir / f.path)
+      expect (disk == f.contents) s!"aleo base byte preservation {f.path}"
     expect (!(← (outDir / "Counter.wasm").pathExists)) "aleo no compiled wasm"
+    expect (!(← (outDir / "counter.wasm").pathExists)) "aleo no lowercase wasm extra"
+    -- Zero-tool finalize: no finalized-extra siblings beyond the two base files
+    -- + transitional sidecars.
+    expect (!(← (outDir / "counter.bin").pathExists)) "aleo no .bin extra"
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
     expect ((evidence.splitOn aleoNote).length > 1) "aleo exact zero-tool note on disk"
     expect ((evidence.splitOn "no approved and digest-pinned Leo compiler").length == 1)
       "aleo evidence must not deny the separate locked Leo acceptance tool"
+    let manifest ← IO.FS.readFile (outDir / "manifest.json")
+    expect ((manifest.splitOn "\"deployable\": false").length > 1)
+      "aleo manifest non-deployable"
+    expect ((manifest.splitOn "counter.aleo").length > 1) "aleo base Leo in manifest"
+    expect ((manifest.splitOn "counter.aleo-query-contract.json").length > 1)
+      "aleo query-contract base in manifest"
   -- EVM: real solc .bin extra + base preservation.
   do
     let selection ← liftResult "select evm" (resolveBuildSelectionV1 TargetId.evm none)
