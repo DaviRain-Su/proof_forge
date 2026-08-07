@@ -218,8 +218,13 @@ private structure AsmBuf where
   seq : Nat
   /-- Next free absolute temp index (handler temps, ret slots, event buf, callee frames). -/
   cursor : Nat
+  /-- Outer multi-role count (0 = multi-role off). Drives ROLE_BASE / fixed slots. -/
+  multiRoleCount : Nat := 0
+  /-- M4c: next token.transfer site index for multi-site stamp. -/
+  productTokenSiteCursor : Nat := 0
 
-private def emptyBuf (cursor : Nat := 0) : AsmBuf := ⟨"", 0, cursor⟩
+private def emptyBuf (cursor : Nat := 0) : AsmBuf :=
+  { text := "", seq := 0, cursor }
 
 private def emit (b : AsmBuf) (line : String) : AsmBuf :=
   { b with text := b.text ++ line ++ "\n" }
@@ -298,6 +303,12 @@ private def emitProgramErrorInline (b : AsmBuf) (code : Nat) : AsmBuf :=
 private def limbCountOfBitWidth (bitWidth : Nat) : Nat :=
   if bitWidth ≤ 64 then 1 else bitWidth / 64
 
+/-- Dense Map Principal UInt64 layout (match EmitIRV1 / LowerSemanticV1). -/
+private def mapPrincipalCapacityV1 : Nat := 4
+private def mapPrincipalKeyLeafCountV1 : Nat := 9
+private def mapPrincipalSlotsPerEntryV1 : Nat := 11
+private def mapPrincipalLeafCountV1 : Nat := 44
+
 /-- Result limb span for a destination-producing op. -/
 private def opResultLimbCount : Operation → Nat
   | .narrowLoadParam bitWidth .. | .narrowLoadState bitWidth ..
@@ -318,6 +329,7 @@ private def opResultLimbCount : Operation → Nat
   | .compare .. | .wideCompare .. | .callFn .. | .clockSlot ..
   | .callerPrincipalLeaf ..
   | .externalCall _ _ _ (some _) => 1
+  | .mapPrincipalUpsert .. => mapPrincipalLeafCountV1 + 1
   | _ => 0
 
 /-- Destination temp of a value-producing op, if any. -/
@@ -345,6 +357,8 @@ private def opDestination? : Operation → Option Nat
       .compare destination .. | .wideCompare _ destination .. |
       .callFn _ destination _ | .clockSlot destination
       | .callerPrincipalLeaf destination _ _ => some destination
+  | .mapPrincipalUpsert _ _ _ outTemps _ =>
+      match outTemps[0]? with | some d => some d | none => none
   | .externalCall _ _ _ (some destination) => some destination
   | _ => none
 
@@ -355,7 +369,11 @@ private partial def tempCountOf (ops : Array Operation) : Nat :=
       | some d =>
           let n := opResultLimbCount op
           Nat.max acc (d + (if n == 0 then 1 else n))
-      | none => acc
+      | none =>
+          match op with
+          | .mapPrincipalLookup _ _ tagTemp payloadTemp =>
+              Nat.max acc (Nat.max (tagTemp + 1) (payloadTemp + 1))
+          | _ => acc
     match op with
     | .ifRegion _ thenOps elseOps =>
         Nat.max acc (Nat.max (tempCountOf thenOps) (tempCountOf elseOps))
@@ -388,10 +406,14 @@ private def emitAccountListShapeChecks (b0 : AsmBuf) (numAccounts : Nat)
   else
     b
 
+/-- Absolute multi-role fixed-slot offset for `roleCount` (band after role table). -/
+private def mrSlotAbs (roleCount slotRel : Nat) : Nat :=
+  multiRoleFixedSlotAbsV1 roleCount slotRel
+
 /-- Emit check instructions; on failure jump to `errLab` (must lddw/exit).
     When `multiRoleCount > 0`, account-list and instruction-data checks use the
     multi-role outer count and the dynamic ix-data pointer at
-    `r10 - multiRoleSlotIxDataV1` (entrypoint already walked outer roles). -/
+    `r10 - mrSlotAbs multiRoleCount multiRoleSlotIxDataV1`. -/
 private def emitCheck (b : AsmBuf) (check : Check) (errLab : String)
     (multiRoleCount : Nat) :
     CompileResult AsmBuf := do
@@ -421,8 +443,9 @@ private def emitCheck (b : AsmBuf) (check : Check) (errLab : String)
   | .instructionDataLen bytes =>
       if multiRoleCount > 0 then
         -- Dynamic ix base is data pointer; length word is 8 bytes before it.
+        let ixSlot := mrSlotAbs multiRoleCount multiRoleSlotIxDataV1
         let b := emit b s!"  ; check instruction_data_len == {bytes} [multi-role]"
-        let b := emit b s!"  ldxdw r1, [r10 - {multiRoleSlotIxDataV1}]"
+        let b := emit b s!"  ldxdw r1, [r10 - {ixSlot}]"
         let b := emit b "  add64 r1, -8"
         let b := emit b "  ldxdw r1, [r1 + 0]"
         let b := emit b s!"  jne r1, {bytes}, {errLab}"
@@ -436,8 +459,9 @@ private def emitCheck (b : AsmBuf) (check : Check) (errLab : String)
       unless accountIndex == 0 do
         return ← asmError "S1b owner check supports only account[0]"
       if multiRoleCount > 0 then
+        let ixSlot := mrSlotAbs multiRoleCount multiRoleSlotIxDataV1
         let b := emit b "  ; check account[0].owner == current_program [multi-role]"
-        let b := emit b s!"  ldxdw r1, [r10 - {multiRoleSlotIxDataV1}]"
+        let b := emit b s!"  ldxdw r1, [r10 - {ixSlot}]"
         let b := emit b "  add64 r1, -8"
         let b := emit b "  ldxdw r2, [r1 + 0]                 ; ix data len"
         let b := emit b "  add64 r1, 8"
@@ -1726,7 +1750,7 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
       pure (emit b s!"{okLab}:")
 
 /-- P3-e multi-role system.transfer: real AccountMetas from role table +
-    sol_invoke_signed_c. Uses CPI scratch below r10 at multiRoleCpiBaseV1.
+    sol_invoke_signed_c. Uses CPI scratch below r10 at multiRoleCpiBaseForV1 n.
     `args` must be a single amount temp (Principals are role-bound). -/
 private def emitCpiInvokeSystemTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
     (args : Array Nat) (site : ProductSystemTransferSiteV1)
@@ -1737,7 +1761,8 @@ private def emitCpiInvokeSystemTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
   let n := site.accountInfoCount
   unless n ≥ 2 && n ≤ productMaxOuterRolesV1 do
     return ← asmError s!"P3-e multi-role accountInfoCount out of range ({n})"
-  let cpiBase := multiRoleCpiBaseV1
+  let roleTableBytes := productRoleTableBytesForV1 n
+  let cpiBase := multiRoleCpiBaseForV1 n
   let mut b := emit b0 s!"  ; --- {kindNote} system.transfer multi-role ---"
   b := emit b s!"  ; {systemTransferMaturityNoteV1 true}"
   b := emit b "  mov64 r9, r10"
@@ -1756,7 +1781,7 @@ private def emitCpiInvokeSystemTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
   b := emit b "  add64 r5, 16"
   -- meta0 key from role payer
   b := emit b "  mov64 r2, r10"
-  b := emit b s!"  lddw r3, {productRoleTableBytesV1}"
+  b := emit b s!"  lddw r3, {roleTableBytes}"
   b := emit b "  sub64 r2, r3"
   if site.payerLocal != 0 then
     b := emit b s!"  lddw r3, {site.payerLocal * productRoleStrideV1}"
@@ -1771,7 +1796,7 @@ private def emitCpiInvokeSystemTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
     b := emit b s!"  stxb [r5 + {pad}], r4"
   -- meta1 recipient
   b := emit b "  mov64 r2, r10"
-  b := emit b s!"  lddw r3, {productRoleTableBytesV1}"
+  b := emit b s!"  lddw r3, {roleTableBytes}"
   b := emit b "  sub64 r2, r3"
   if site.recipientLocal != 0 then
     b := emit b s!"  lddw r3, {site.recipientLocal * productRoleStrideV1}"
@@ -1789,7 +1814,7 @@ private def emitCpiInvokeSystemTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
   b := emit b "  add64 r8, 48"
   -- program_id from system role key
   b := emit b "  mov64 r2, r10"
-  b := emit b s!"  lddw r3, {productRoleTableBytesV1}"
+  b := emit b s!"  lddw r3, {roleTableBytes}"
   b := emit b "  sub64 r2, r3"
   if site.programLocal != 0 then
     b := emit b s!"  lddw r3, {site.programLocal * productRoleStrideV1}"
@@ -1811,7 +1836,7 @@ private def emitCpiInvokeSystemTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
   b := emit b "  lddw r7, 0"
   b := emit b s!"fill_info_{kindNote}:"
   b := emit b "  mov64 r2, r10"
-  b := emit b s!"  lddw r3, {productRoleTableBytesV1}"
+  b := emit b s!"  lddw r3, {roleTableBytes}"
   b := emit b "  sub64 r2, r3"
   b := emit b "  mov64 r3, r7"
   b := emit b "  lsh64 r3, 6"
@@ -1852,6 +1877,344 @@ private def emitCpiInvokeSystemTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
   b := emit b "  jne r0, 0, cpi_failed_mr"
   pure b
 
+/-- Role-slot base address → r2 for multi-role local `localIdx`.
+    `roleTableBytes` = `productRoleTableBytesForV1 multiN`. -/
+private def emitMrRoleSlotAddr (b0 : AsmBuf) (roleTableBytes localIdx : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b "  mov64 r2, r10"
+    b := emit b s!"  lddw r3, {roleTableBytes}"
+    b := emit b "  sub64 r2, r3"
+    if localIdx != 0 then
+      b := emit b s!"  lddw r3, {localIdx * productRoleStrideV1}"
+      b := emit b "  add64 r2, r3"
+    pure b
+
+/-- Write one AccountMeta at [r5 + index*16] from role local key. -/
+private def emitMrWriteMeta (b0 : AsmBuf) (roleTableBytes metaIndex localIdx : Nat)
+    (writable signer : Bool) : AsmBuf :=
+  Id.run do
+    let off := metaIndex * productAccountMetaSizeV1
+    let mut b := emitMrRoleSlotAddr b0 roleTableBytes localIdx
+    b := emit b "  ldxdw r4, [r2 + 8]                  ; ROLE_KEY"
+    b := emit b s!"  stxdw [r5 + {off}], r4"
+    b := emit b s!"  lddw r4, {if writable then 1 else 0}"
+    b := emit b s!"  stxb [r5 + {off + 8}], r4"
+    b := emit b s!"  lddw r4, {if signer then 1 else 0}"
+    b := emit b s!"  stxb [r5 + {off + 9}], r4"
+    b := emit b "  lddw r4, 0"
+    for pad in [10:16] do
+      b := emit b s!"  stxb [r5 + {off + pad}], r4"
+    pure b
+
+/-- Fill `n` AccountInfos from role table into [r9+infosOff]. -/
+private def emitMrFillAccountInfos (b0 : AsmBuf) (n infosOff : Nat)
+    (suffix : String) : AsmBuf :=
+  Id.run do
+    let roleTableBytes := productRoleTableBytesForV1 n
+    let mut b := b0
+    b := emit b "  mov64 r5, r9"
+    b := emit b s!"  add64 r5, {infosOff}"
+    b := emit b "  lddw r7, 0"
+    b := emit b s!"fill_info_{suffix}:"
+    b := emit b "  mov64 r2, r10"
+    b := emit b s!"  lddw r3, {roleTableBytes}"
+    b := emit b "  sub64 r2, r3"
+    b := emit b "  mov64 r3, r7"
+    b := emit b "  lsh64 r3, 6"
+    b := emit b "  add64 r2, r3"
+    b := emit b "  ldxdw r4, [r2 + 8]"
+    b := emit b "  stxdw [r5 + 0], r4                  ; key"
+    b := emit b "  ldxdw r4, [r2 + 24]"
+    b := emit b "  stxdw [r5 + 8], r4                  ; lamports"
+    b := emit b "  ldxdw r4, [r2 + 40]"
+    b := emit b "  stxdw [r5 + 16], r4                 ; data_len"
+    b := emit b "  ldxdw r4, [r2 + 32]"
+    b := emit b "  stxdw [r5 + 24], r4                 ; data"
+    b := emit b "  ldxdw r4, [r2 + 16]"
+    b := emit b "  stxdw [r5 + 32], r4                 ; owner"
+    b := emit b "  ldxdw r4, [r2 + 48]"
+    b := emit b "  stxdw [r5 + 40], r4                 ; rent"
+    b := emit b "  ldxdw r4, [r2 + 56]"
+    b := emit b "  stxb [r5 + 48], r4"
+    b := emit b "  rsh64 r4, 8"
+    b := emit b "  stxb [r5 + 49], r4"
+    b := emit b "  rsh64 r4, 8"
+    b := emit b "  stxb [r5 + 50], r4"
+    b := emit b "  lddw r4, 0"
+    for pad in [51:56] do
+      b := emit b s!"  stxb [r5 + {pad}], r4"
+    b := emit b s!"  add64 r5, {productAccountInfoSizeV1}"
+    b := emit b "  add64 r7, 1"
+    b := emit b s!"  lddw r3, {n}"
+    b := emit b s!"  jlt r7, r3, fill_info_{suffix}"
+    pure b
+
+/-- Vault seed0 ASCII `proof-forge:vault:v1` (20B) at [r9+baseOff]. -/
+private def emitMrVaultSeed0At (b0 : AsmBuf) (baseOff : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b s!"  ; seed0 = proof-forge:vault:v1 at +{baseOff}"
+    b := emit b "  lddw r4, 0x6f662d666f6f7270"
+    b := emit b s!"  stxdw [r9 + {baseOff}], r4"
+    b := emit b "  lddw r4, 0x6c7561763a656772"
+    b := emit b s!"  stxdw [r9 + {baseOff + 8}], r4"
+    b := emit b "  lddw r4, 0x31763a74"
+    b := emit b s!"  stxdw [r9 + {baseOff + 16}], r4"
+    pure b
+
+/-- Frozen classic ATA program id (32B LE limbs) at [r9+dstOff]. -/
+private def emitMrLoadAtaProgramKey (b0 : AsmBuf) (dstOff : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b0
+    b := emit b s!"  ; frozen classic ATA program id at +{dstOff}"
+    b := emit b "  lddw r4, 0xf189244e8f25978c"
+    b := emit b s!"  stxdw [r9 + {dstOff}], r4"
+    b := emit b "  lddw r4, 0x830d8e1429103dbb"
+    b := emit b s!"  stxdw [r9 + {dstOff + 8}], r4"
+    b := emit b "  lddw r4, 0x8410ffda99135a0b"
+    b := emit b s!"  stxdw [r9 + {dstOff + 16}], r4"
+    b := emit b "  lddw r4, 0x59f8e9dbd87b8e04"
+    b := emit b s!"  stxdw [r9 + {dstOff + 24}], r4"
+    pure b
+
+/-- M4b/M4c multi-role `pf.assets.token.transfer`: vault PDA find + ATA ensure×2 +
+    transferCheckedPda invoke_signed. Amount is the sole body UInt64 temp arg.
+    Principals are role-bound. Requires pre-created or ensure-created ATAs. -/
+private def emitCpiInvokeTokenTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
+    (args : Array Nat) (site : ProductTokenTransferSiteV1)
+    (kindNote : String) : CompileResult AsmBuf := do
+  unless args.size == 1 do
+    return ← asmError
+      "M4b multi-role token.transfer requires exactly one UInt64 amount arg"
+  let n := site.accountInfoCount
+  unless n ≥ 6 && n ≤ productMaxOuterRolesV1 do
+    return ← asmError s!"M4b multi-role accountInfoCount out of range ({n})"
+  let roleTableBytes := productRoleTableBytesForV1 n
+  let cpiBase := multiRoleCpiBaseForV1 n
+  let pidSlot := mrSlotAbs n multiRoleSlotProgramIdV1
+  let mut b := emit b0 s!"  ; --- {kindNote} pf.assets.token.transfer multi-role ---"
+  b := emit b s!"  ; {tokenTransferMaturityNoteV1 true}"
+  -- Step 1: find vault PDA over proof-forge:vault:v1 and join to vault role key
+  b := emit b "  mov64 r9, r10"
+  b := emit b s!"  lddw r4, {cpiBase}"
+  b := emit b "  sub64 r9, r4                       ; r9 = cpi scratch"
+  b := emitMrVaultSeed0At b 0
+  b := emit b "  mov64 r5, r9"
+  b := emit b "  stxdw [r9 + 32], r5                 ; seeds[0].addr"
+  b := emit b "  lddw r4, 20"
+  b := emit b "  stxdw [r9 + 40], r4                 ; seeds[0].len"
+  b := emit b "  mov64 r1, r9"
+  b := emit b "  add64 r1, 32"
+  b := emit b "  lddw r2, 1"
+  b := emit b s!"  ldxdw r3, [r10 - {pidSlot}]"
+  b := emit b "  mov64 r4, r9"
+  b := emit b "  add64 r4, 64                       ; keyOut"
+  b := emit b "  mov64 r5, r9"
+  b := emit b "  add64 r5, 96                       ; bumpOut"
+  b := emit b "  call sol_try_find_program_address"
+  b := emit b "  jne r0, 0, cpi_failed_mr"
+  b := emitMrRoleSlotAddr b roleTableBytes site.vaultPdaLocal
+  b := emit b "  ldxdw r5, [r2 + 8]                  ; vault ROLE_KEY"
+  b := emit b "  mov64 r1, r9"
+  b := emit b "  add64 r1, 64"
+  for word in [0:4] do
+    b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
+    b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+    b := emit b "  jne r3, r4, cpi_failed_mr"
+  -- Step 2/3: ATA createIdempotent for vault ATA (payer=caller, wallet=vault)
+  b := emit b "  ; --- ATA createIdempotent vault ---"
+  b := emit b "  mov64 r9, r10"
+  b := emit b s!"  lddw r4, {cpiBase}"
+  b := emit b "  sub64 r9, r4"
+  b := emit b "  lddw r4, 0"
+  b := emit b "  stxdw [r9 + 0], r4"
+  b := emit b "  stxdw [r9 + 8], r4"
+  b := emit b "  lddw r4, 1"
+  b := emit b "  stxb [r9 + 0], r4                   ; CreateIdempotent"
+  b := emitMrLoadAtaProgramKey b 8
+  b := emit b "  mov64 r5, r9"
+  b := emit b "  add64 r5, 104"
+  b := emitMrWriteMeta b roleTableBytes 0 site.callerLocal true true
+  b := emitMrWriteMeta b roleTableBytes 1 site.vaultAtaLocal true false
+  b := emitMrWriteMeta b roleTableBytes 2 site.vaultPdaLocal false false
+  b := emitMrWriteMeta b roleTableBytes 3 site.mintLocal false false
+  b := emitMrWriteMeta b roleTableBytes 4 site.systemLocal false false
+  b := emitMrWriteMeta b roleTableBytes 5 site.tokenProgramLocal false false
+  b := emit b "  mov64 r8, r9"
+  b := emit b "  add64 r8, 200"
+  b := emit b "  mov64 r4, r9"
+  b := emit b "  add64 r4, 8"
+  b := emit b "  stxdw [r8 + 0], r4                  ; ATA program_id"
+  b := emit b "  mov64 r4, r9"
+  b := emit b "  add64 r4, 104"
+  b := emit b "  stxdw [r8 + 8], r4"
+  b := emit b "  lddw r4, 6"
+  b := emit b "  stxdw [r8 + 16], r4"
+  b := emit b "  stxdw [r8 + 24], r9"
+  b := emit b "  lddw r4, 1"
+  b := emit b "  stxdw [r8 + 32], r4"
+  let infosOff := 240
+  b := emitMrFillAccountInfos b n infosOff s!"{kindNote}_vata"
+  b := emit b "  mov64 r1, r8"
+  b := emit b "  mov64 r2, r9"
+  b := emit b s!"  add64 r2, {infosOff}"
+  b := emit b s!"  lddw r3, {n}"
+  b := emit b "  lddw r4, 0"
+  b := emit b "  lddw r5, 0"
+  b := emit b "  call sol_invoke_signed_c"
+  b := emit b "  jne r0, 0, cpi_failed_mr"
+  b := emitMrRoleSlotAddr b roleTableBytes site.vaultAtaLocal
+  b := emit b "  lddw r4, 165"
+  b := emit b "  stxdw [r2 + 40], r4                 ; ROLE_DATA_LEN refresh"
+  b := emit b "  lddw r1, 0"
+  b := emit b "  lddw r2, 0"
+  b := emit b "  call sol_set_return_data"
+  b := emit b "  jne r0, 0, cpi_failed_mr"
+  -- Step 4/5: ATA createIdempotent for dst ATA (wallet=dst)
+  b := emit b "  ; --- ATA createIdempotent dst ---"
+  b := emit b "  mov64 r9, r10"
+  b := emit b s!"  lddw r4, {cpiBase}"
+  b := emit b "  sub64 r9, r4"
+  b := emit b "  lddw r4, 0"
+  b := emit b "  stxdw [r9 + 0], r4"
+  b := emit b "  stxdw [r9 + 8], r4"
+  b := emit b "  lddw r4, 1"
+  b := emit b "  stxb [r9 + 0], r4"
+  b := emitMrLoadAtaProgramKey b 8
+  b := emit b "  mov64 r5, r9"
+  b := emit b "  add64 r5, 104"
+  b := emitMrWriteMeta b roleTableBytes 0 site.callerLocal true true
+  b := emitMrWriteMeta b roleTableBytes 1 site.dstAtaLocal true false
+  b := emitMrWriteMeta b roleTableBytes 2 site.dstWalletLocal false false
+  b := emitMrWriteMeta b roleTableBytes 3 site.mintLocal false false
+  b := emitMrWriteMeta b roleTableBytes 4 site.systemLocal false false
+  b := emitMrWriteMeta b roleTableBytes 5 site.tokenProgramLocal false false
+  b := emit b "  mov64 r8, r9"
+  b := emit b "  add64 r8, 200"
+  b := emit b "  mov64 r4, r9"
+  b := emit b "  add64 r4, 8"
+  b := emit b "  stxdw [r8 + 0], r4"
+  b := emit b "  mov64 r4, r9"
+  b := emit b "  add64 r4, 104"
+  b := emit b "  stxdw [r8 + 8], r4"
+  b := emit b "  lddw r4, 6"
+  b := emit b "  stxdw [r8 + 16], r4"
+  b := emit b "  stxdw [r8 + 24], r9"
+  b := emit b "  lddw r4, 1"
+  b := emit b "  stxdw [r8 + 32], r4"
+  b := emitMrFillAccountInfos b n infosOff s!"{kindNote}_data"
+  b := emit b "  mov64 r1, r8"
+  b := emit b "  mov64 r2, r9"
+  b := emit b s!"  add64 r2, {infosOff}"
+  b := emit b s!"  lddw r3, {n}"
+  b := emit b "  lddw r4, 0"
+  b := emit b "  lddw r5, 0"
+  b := emit b "  call sol_invoke_signed_c"
+  b := emit b "  jne r0, 0, cpi_failed_mr"
+  b := emitMrRoleSlotAddr b roleTableBytes site.dstAtaLocal
+  b := emit b "  lddw r4, 165"
+  b := emit b "  stxdw [r2 + 40], r4"
+  b := emit b "  lddw r1, 0"
+  b := emit b "  lddw r2, 0"
+  b := emit b "  call sol_set_return_data"
+  b := emit b "  jne r0, 0, cpi_failed_mr"
+  -- Step 6: transferCheckedPda vaultAta → dstAta, vault PDA signer
+  b := emit b "  ; --- transferCheckedPda ---"
+  b := emit b "  mov64 r9, r10"
+  b := emit b s!"  lddw r4, {cpiBase}"
+  b := emit b "  sub64 r9, r4"
+  b := emit b "  lddw r4, 0"
+  b := emit b "  stxdw [r9 + 0], r4"
+  b := emit b "  stxdw [r9 + 8], r4"
+  b := emit b s!"  lddw r4, {tokenTransferCheckedTagV1}"
+  b := emit b "  stxb [r9 + 0], r4                   ; TransferChecked"
+  b := loadTemp b "r4" tempBase args[0]!
+  for bi in [0:8] do
+    b := emit b s!"  stxb [r9 + {1 + bi}], r4"
+    b := emit b "  rsh64 r4, 8"
+  b := emit b s!"  lddw r4, {pfAssetsTokenTransferDecimalsV1}"
+  b := emit b "  stxb [r9 + 9], r4                   ; decimals"
+  b := emitMrVaultSeed0At b 16
+  let xferKeyOutOff := 256 + 56 * n
+  let xferBumpOutOff := 288 + 56 * n
+  b := emit b "  mov64 r5, r9"
+  b := emit b "  add64 r5, 16"
+  b := emit b "  stxdw [r9 + 104], r5"
+  b := emit b "  lddw r4, 20"
+  b := emit b "  stxdw [r9 + 112], r4"
+  b := emit b "  mov64 r1, r9"
+  b := emit b "  add64 r1, 104"
+  b := emit b "  lddw r2, 1"
+  b := emit b s!"  ldxdw r3, [r10 - {pidSlot}]"
+  b := emit b "  mov64 r4, r9"
+  b := emit b s!"  add64 r4, {xferKeyOutOff}"
+  b := emit b "  mov64 r5, r9"
+  b := emit b s!"  add64 r5, {xferBumpOutOff}"
+  b := emit b "  call sol_try_find_program_address"
+  b := emit b "  jne r0, 0, cpi_failed_mr"
+  b := emit b s!"  ldxb r1, [r9 + {xferBumpOutOff}]"
+  b := emit b "  jeq r1, 0, cpi_failed_mr"
+  b := emit b "  stxdw [r9 + 48], r1                 ; bump byte"
+  b := emitMrRoleSlotAddr b roleTableBytes site.vaultPdaLocal
+  b := emit b "  ldxdw r5, [r2 + 8]"
+  b := emit b "  mov64 r1, r9"
+  b := emit b s!"  add64 r1, {xferKeyOutOff}"
+  for word in [0:4] do
+    b := emit b s!"  ldxdw r3, [r5 + {word * 8}]"
+    b := emit b s!"  ldxdw r4, [r1 + {word * 8}]"
+    b := emit b "  jne r3, r4, cpi_failed_mr"
+  b := emit b "  mov64 r5, r9"
+  b := emit b "  add64 r5, 16"
+  b := emit b "  stxdw [r9 + 56], r5                 ; seed0 addr"
+  b := emit b "  lddw r4, 20"
+  b := emit b "  stxdw [r9 + 64], r4"
+  b := emit b "  mov64 r5, r9"
+  b := emit b "  add64 r5, 48"
+  b := emit b "  stxdw [r9 + 72], r5                 ; bump addr"
+  b := emit b "  lddw r4, 1"
+  b := emit b "  stxdw [r9 + 80], r4"
+  b := emit b "  mov64 r5, r9"
+  b := emit b "  add64 r5, 56"
+  b := emit b "  stxdw [r9 + 88], r5                 ; seeds addr"
+  b := emit b "  lddw r4, 2"
+  b := emit b "  stxdw [r9 + 96], r4"
+  b := emit b "  mov64 r5, r9"
+  b := emit b "  add64 r5, 104"
+  b := emitMrWriteMeta b roleTableBytes 0 site.vaultAtaLocal true false
+  b := emitMrWriteMeta b roleTableBytes 1 site.mintLocal false false
+  b := emitMrWriteMeta b roleTableBytes 2 site.dstAtaLocal true false
+  b := emitMrWriteMeta b roleTableBytes 3 site.vaultPdaLocal false true
+  b := emit b "  mov64 r8, r9"
+  b := emit b "  add64 r8, 200"
+  b := emitMrRoleSlotAddr b roleTableBytes site.tokenProgramLocal
+  b := emit b "  ldxdw r4, [r2 + 8]"
+  b := emit b "  stxdw [r8 + 0], r4                  ; Token program_id"
+  b := emit b "  mov64 r4, r9"
+  b := emit b "  add64 r4, 104"
+  b := emit b "  stxdw [r8 + 8], r4                  ; accounts"
+  b := emit b "  lddw r4, 4"
+  b := emit b "  stxdw [r8 + 16], r4"
+  b := emit b "  stxdw [r8 + 24], r9                 ; data"
+  b := emit b s!"  lddw r4, {tokenTransferCheckedDataLenV1}"
+  b := emit b "  stxdw [r8 + 32], r4"
+  let xferInfosOff := 240
+  b := emitMrFillAccountInfos b n xferInfosOff s!"{kindNote}_xfer"
+  b := emit b "  mov64 r1, r8"
+  b := emit b "  mov64 r2, r9"
+  b := emit b s!"  add64 r2, {xferInfosOff}"
+  b := emit b s!"  lddw r3, {n}"
+  b := emit b "  mov64 r4, r9"
+  b := emit b "  add64 r4, 88                       ; signer seeds"
+  b := emit b "  lddw r5, 1                         ; 1 signer group"
+  b := emit b "  call sol_invoke_signed_c"
+  b := emit b "  jne r0, 0, cpi_failed_mr"
+  b := emit b "  lddw r1, 0"
+  b := emit b "  lddw r2, 0"
+  b := emit b "  call sol_set_return_data"
+  b := emit b "  jne r0, 0, cpi_failed_mr"
+  pure b
+
 mutual
 /-- Emit a single Operation. `inlineCtx=none` is a handler body (syscalls + exit). -/
 private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
@@ -1876,9 +2239,11 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
           pure (storeTemp b tempBase destination "r1")
       | none =>
           if ir.stateAccount.productMultiRoleCount > 0 then
+            let ixSlot := mrSlotAbs ir.stateAccount.productMultiRoleCount
+              multiRoleSlotIxDataV1
             let b := emit b
               s!"  ; %{destination} = load_u64_le(ix_data + {dataOffset}) [multi-role]"
-            let b := emit b s!"  ldxdw r1, [r10 - {multiRoleSlotIxDataV1}]"
+            let b := emit b s!"  ldxdw r1, [r10 - {ixSlot}]"
             let b := emit b s!"  ldxdw r1, [r1 + {dataOffset}]"
             pure (storeTemp b tempBase destination "r1")
           else
@@ -2126,6 +2491,145 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
             s!"  ; store_u{bitWidth}_le account[0].data + {byteOffset}, %{value}"
           let b' := loadTemp b' "r1" tempBase value
           b := emit b' s!"  {mnem} [r6 + ACC0_DATA + {byteOffset}], r1"
+      pure b
+  | .mapPrincipalLookup mapTemps keyTemps tagTemp payloadTemp => do
+      -- Cap-4 dense Map Principal UInt64 lookup → Option [tag, payload].
+      -- Scan entries; on first occupied key match set tag=1 and payload=val.
+      unless mapTemps.size == mapPrincipalLeafCountV1 &&
+          keyTemps.size == mapPrincipalKeyLeafCountV1 do
+        return ← asmError "S1b mapPrincipalLookup leaf counts are invalid"
+      let mut b := emit b
+        s!"  ; %{tagTemp}, %{payloadTemp} = map_principal_lookup (cap-4)"
+      -- tag := 0; payload := 0
+      b := emit b "  lddw r1, 0"
+      b := storeTemp b tempBase tagTemp "r1"
+      b := storeTemp b tempBase payloadTemp "r1"
+      for e in [0:mapPrincipalCapacityV1] do
+        let base := e * mapPrincipalSlotsPerEntryV1
+        let some occT := mapTemps[base]? |
+          return ← asmError "S1b mapPrincipalLookup occ temp missing"
+        let some valT := mapTemps[base + 1 + mapPrincipalKeyLeafCountV1]? |
+          return ← asmError "S1b mapPrincipalLookup val temp missing"
+        let (b0, missLab) := fresh b s!"mpl_miss_{e}"
+        let (b1, nextLab) := fresh b0 s!"mpl_next_{e}"
+        b := b1
+        -- if occ == 0 → next entry
+        b := loadTemp b "r1" tempBase occT
+        b := emit b s!"  jeq r1, 0, {nextLab}"
+        -- compare 9 key limbs; miss → next
+        for k in [0:mapPrincipalKeyLeafCountV1] do
+          let some storedT := mapTemps[base + 1 + k]? |
+            return ← asmError "S1b mapPrincipalLookup key temp missing"
+          let some wantT := keyTemps[k]? |
+            return ← asmError "S1b mapPrincipalLookup query key temp missing"
+          b := loadTemp b "r1" tempBase storedT
+          b := loadTemp b "r2" tempBase wantT
+          b := emit b s!"  jne r1, r2, {missLab}"
+        -- hit: tag=1, payload=val
+        b := emit b "  lddw r1, 1"
+        b := storeTemp b tempBase tagTemp "r1"
+        b := loadTemp b "r1" tempBase valT
+        b := storeTemp b tempBase payloadTemp "r1"
+        b := emit b s!"  ja {nextLab}"
+        b := emit b s!"{missLab}:"
+        b := emit b s!"{nextLab}:"
+      pure b
+  | .mapPrincipalUpsert mapTemps keyTemps valueTemp outTemps okTemp => do
+      -- Cap-4 dense Map Principal UInt64 upsert.
+      -- 1) copy map → out; 2) scan match + first empty; 3) write entry or
+      --    program_error 0x1001 (arithmetic overflow / full map); 4) okTemp=1.
+      -- Scratch: r3=anyMatch, r4=matchIdx, r5=firstEmptyIdx, r7=writeIdx,
+      -- r8=seenEmpty (r6=input, r10=fp reserved).
+      unless mapTemps.size == mapPrincipalLeafCountV1 &&
+          keyTemps.size == mapPrincipalKeyLeafCountV1 &&
+          outTemps.size == mapPrincipalLeafCountV1 do
+        return ← asmError "S1b mapPrincipalUpsert leaf counts are invalid"
+      let mut b := emit b "  ; map_principal_upsert (cap-4)"
+      for i in [0:mapPrincipalLeafCountV1] do
+        let some src := mapTemps[i]? |
+          return ← asmError "S1b mapPrincipalUpsert map temp missing"
+        let some dst := outTemps[i]? |
+          return ← asmError "S1b mapPrincipalUpsert out temp missing"
+        b := loadTemp b "r1" tempBase src
+        b := storeTemp b tempBase dst "r1"
+      b := emit b "  lddw r3, 0                         ; anyMatch"
+      b := emit b "  lddw r4, 0                         ; matchIdx"
+      b := emit b "  lddw r5, 0                         ; firstEmptyIdx"
+      b := emit b "  lddw r8, 0                         ; seenEmpty"
+      for e in [0:mapPrincipalCapacityV1] do
+        let base := e * mapPrincipalSlotsPerEntryV1
+        let some occT := mapTemps[base]? |
+          return ← asmError "S1b mapPrincipalUpsert occ temp missing"
+        let (b0, notMatchLab) := fresh b "mpu_nm"
+        let (b1, afterMatchLab) := fresh b0 "mpu_am"
+        let (b2, notEmptyLab) := fresh b1 "mpu_ne"
+        let (b3, afterEmptyLab) := fresh b2 "mpu_ae"
+        b := b3
+        b := loadTemp b "r1" tempBase occT
+        b := emit b s!"  jeq r1, 0, {notMatchLab}"
+        for k in [0:mapPrincipalKeyLeafCountV1] do
+          let some storedT := mapTemps[base + 1 + k]? |
+            return ← asmError "S1b mapPrincipalUpsert key temp missing"
+          let some wantT := keyTemps[k]? |
+            return ← asmError "S1b mapPrincipalUpsert query key temp missing"
+          b := loadTemp b "r1" tempBase storedT
+          b := loadTemp b "r2" tempBase wantT
+          b := emit b s!"  jne r1, r2, {notMatchLab}"
+        b := emit b "  lddw r3, 1                         ; anyMatch=1"
+        b := emit b s!"  lddw r4, {e}                       ; matchIdx"
+        b := emit b s!"  ja {afterMatchLab}"
+        b := emit b s!"{notMatchLab}:"
+        b := emit b s!"{afterMatchLab}:"
+        b := loadTemp b "r1" tempBase occT
+        b := emit b s!"  jne r1, 0, {notEmptyLab}"
+        b := emit b s!"  jne r8, 0, {notEmptyLab}"
+        b := emit b s!"  lddw r5, {e}                       ; firstEmptyIdx"
+        b := emit b "  lddw r8, 1                         ; seenEmpty=1"
+        b := emit b s!"  ja {afterEmptyLab}"
+        b := emit b s!"{notEmptyLab}:"
+        b := emit b s!"{afterEmptyLab}:"
+      let (b0, okPath) := fresh b "mpu_ok"
+      let (b1, fullPath) := fresh b0 "mpu_full"
+      let (b2, doWrite) := fresh b1 "mpu_write"
+      let (b3, useEmpty) := fresh b2 "mpu_empty"
+      b := b3
+      b := emit b s!"  jne r3, 0, {okPath}"
+      b := emit b s!"  jeq r8, 0, {fullPath}"
+      b := emit b s!"{okPath}:"
+      b := emit b s!"  ja {doWrite}"
+      b := emit b s!"{fullPath}:"
+      b := emitProgramErrorInline b 0x1001
+      b := emit b s!"{doWrite}:"
+      b := emit b "  mov64 r7, r5                         ; writeIdx = firstEmpty"
+      b := emit b s!"  jeq r3, 0, {useEmpty}"
+      b := emit b "  mov64 r7, r4                         ; writeIdx = matchIdx"
+      b := emit b s!"{useEmpty}:"
+      for e in [0:mapPrincipalCapacityV1] do
+        let base := e * mapPrincipalSlotsPerEntryV1
+        let (b0, skipLab) := fresh b "mpu_skip"
+        let (b1, afterLab) := fresh b0 "mpu_aw"
+        b := b1
+        b := emit b s!"  jne r7, {e}, {skipLab}"
+        let some occOut := outTemps[base]? |
+          return ← asmError "S1b mapPrincipalUpsert out occ missing"
+        b := emit b "  lddw r1, 1"
+        b := storeTemp b tempBase occOut "r1"
+        for k in [0:mapPrincipalKeyLeafCountV1] do
+          let some wantT := keyTemps[k]? |
+            return ← asmError "S1b mapPrincipalUpsert write key missing"
+          let some kOut := outTemps[base + 1 + k]? |
+            return ← asmError "S1b mapPrincipalUpsert out key missing"
+          b := loadTemp b "r1" tempBase wantT
+          b := storeTemp b tempBase kOut "r1"
+        let some vOut := outTemps[base + 1 + mapPrincipalKeyLeafCountV1]? |
+          return ← asmError "S1b mapPrincipalUpsert out val missing"
+        b := loadTemp b "r1" tempBase valueTemp
+        b := storeTemp b tempBase vOut "r1"
+        b := emit b s!"  ja {afterLab}"
+        b := emit b s!"{skipLab}:"
+        b := emit b s!"{afterLab}:"
+      b := emit b "  lddw r1, 1"
+      b := storeTemp b tempBase okTemp "r1"
       pure b
   | .setHeader accountIndex byteOffset value =>
       unless accountIndex == 0 do
@@ -2377,7 +2881,7 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       b := emit b "  lddw r2, 2"
       pure (emit b "  call sol_log_data")
   | .externalCall callee programIdHex args resultDest =>
-      -- P3-d/e product full-body ExternalCall.
+      -- P3-d/e / M4b product full-body ExternalCall.
       unless ir.stateAccount.admitProductExternalCall do
         return ← asmError
           "legacy Solana profiles do not emit external-call stubs; use a versioned CPI profile"
@@ -2385,16 +2889,55 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
         return ← asmError
           "product full-body does not yet emit result-bearing ExternalCall (P3-d+)"
       if ir.stateAccount.productMultiRoleCount > 0 then
-        unless ProductCpiRecipesV1.isSystemTransferCalleeV1 callee do
-          return ← asmError
-            "P3-e multi-role full-body currently admits only solana.system.transfer"
-        let site : ProductSystemTransferSiteV1 := {
-          payerLocal := ir.stateAccount.productXferPayerLocal
-          recipientLocal := ir.stateAccount.productXferRecipientLocal
-          programLocal := ir.stateAccount.productXferProgramLocal
-          accountInfoCount := ir.stateAccount.productMultiRoleCount
-        }
-        emitCpiInvokeSystemTransferMultiRole b tempBase args site "product_mr_xfer"
+        if ir.stateAccount.productTokenMultiRole then
+          unless ProductCpiRecipesV1.isPfAssetsTokenTransferCalleeV1 callee do
+            return ← asmError
+              "M4b multi-role full-body currently admits only pf.assets.token.transfer"
+          let siteCount := ir.stateAccount.productTokenSiteCount
+          let siteIdx := b.productTokenSiteCursor
+          unless siteCount > 0 do
+            return ← asmError
+              "M4c multi-role token.transfer requires stamped productTokenSiteCount > 0"
+          unless siteIdx < siteCount do
+            return ← asmError
+              s!"M4c multi-role token.transfer site cursor {siteIdx} ≥ siteCount {siteCount}"
+          let pick (arr : Array Nat) (legacy : Nat) : Nat :=
+            if h : siteIdx < arr.size then arr[siteIdx] else legacy
+          let site : ProductTokenTransferSiteV1 := {
+            vaultAtaLocal := pick ir.stateAccount.productTokenVaultAtaLocals
+              ir.stateAccount.productTokenVaultAtaLocal
+            mintLocal := pick ir.stateAccount.productTokenMintLocals
+              ir.stateAccount.productTokenMintLocal
+            dstAtaLocal := pick ir.stateAccount.productTokenDstAtaLocals
+              ir.stateAccount.productTokenDstAtaLocal
+            vaultPdaLocal := pick ir.stateAccount.productTokenVaultPdaLocals
+              ir.stateAccount.productTokenVaultPdaLocal
+            tokenProgramLocal := pick ir.stateAccount.productTokenProgramLocals
+              ir.stateAccount.productTokenProgramLocal
+            callerLocal := pick ir.stateAccount.productTokenCallerLocals
+              ir.stateAccount.productTokenCallerLocal
+            dstWalletLocal := pick ir.stateAccount.productTokenDstWalletLocals
+              ir.stateAccount.productTokenDstWalletLocal
+            systemLocal := pick ir.stateAccount.productTokenSystemLocals
+              ir.stateAccount.productTokenSystemLocal
+            ataProgramLocal := pick ir.stateAccount.productTokenAtaProgramLocals
+              ir.stateAccount.productTokenAtaProgramLocal
+            accountInfoCount := ir.stateAccount.productMultiRoleCount
+          }
+          let b ← emitCpiInvokeTokenTransferMultiRole b tempBase args site
+            s!"product_mr_token_{siteIdx}"
+          pure { b with productTokenSiteCursor := siteIdx + 1 }
+        else
+          unless ProductCpiRecipesV1.isSystemTransferCalleeV1 callee do
+            return ← asmError
+              "P3-e multi-role full-body currently admits only solana.system.transfer"
+          let site : ProductSystemTransferSiteV1 := {
+            payerLocal := ir.stateAccount.productXferPayerLocal
+            recipientLocal := ir.stateAccount.productXferRecipientLocal
+            programLocal := ir.stateAccount.productXferProgramLocal
+            accountInfoCount := ir.stateAccount.productMultiRoleCount
+          }
+          emitCpiInvokeSystemTransferMultiRole b tempBase args site "product_mr_xfer"
       else
         emitCpiInvoke b tempBase callee programIdHex args none "product_external_call"
   | .schedule .. =>
@@ -2411,20 +2954,15 @@ private partial def emitOperations (b0 : AsmBuf) (ir : IR) (tempBase : Nat)
   pure b
 end
 
-/-- Absolute IR temp-index base for multi-role unified frame.
-    Relative temp `0` must land at `productEscrowTempBaseV1` bytes below r10
-    (`tempStackOff t = 8*(t+1)`), below the role table + fixed slots. Without
-    this offset, body temps clobber `multiRoleSlotIxDataV1` (r10-24) and later
-    amount loads read garbage. -/
-private def multiRoleBodyTempIndexBaseV1 : Nat :=
-  productEscrowTempBaseV1 / 8 - 1
-
 private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR) :
     CompileResult AsmBuf := do
   let errLab := s!"err_check_{asmLabel handler.name}"
   let bodyLab := s!"body_{asmLabel handler.name}"
   let multiN := ir.stateAccount.productMultiRoleCount
-  let tempBase := if multiN > 0 then multiRoleBodyTempIndexBaseV1 else 0
+  -- Relative temp `0` lands at productMultiRoleTempBaseForV1 multiN
+  -- (`tempStackOff t = 8*(t+1)`), below role table + fixed slots.
+  let tempBase :=
+    if multiN > 0 then multiRoleBodyTempIndexBaseForV1 multiN else 0
   let mut b := b0
   for check in handler.checks do
     b ← emitCheck b check errLab multiN
@@ -2493,10 +3031,14 @@ private def emitMultiRoleWalkAndIxBase (b0 : AsmBuf) (roleCount : Nat)
     let mut b := b0
     let fullPrefix := multiRoleAbiFullPrefixV1
     let growth := multiRoleAbiMaxPermittedV1
+    let roleTableBytes := productRoleTableBytesForV1 roleCount
+    let slotNum := mrSlotAbs roleCount multiRoleSlotNumRolesV1
+    let slotIx := mrSlotAbs roleCount multiRoleSlotIxDataV1
+    let slotPid := mrSlotAbs roleCount multiRoleSlotProgramIdV1
     b := emit b s!"  ; P3-e multi-role walk: exact {roleCount} outer accounts → role table"
     b := emit b "  ldxdw r1, [r6 + NUM_ACCOUNTS]"
     b := emit b s!"  jne r1, {roleCount}, {errLab}"
-    b := emit b s!"  stxdw [r10 - {multiRoleSlotNumRolesV1}], r1"
+    b := emit b s!"  stxdw [r10 - {slotNum}], r1"
     b := emit b "  mov64 r9, r1                      ; remaining roles"
     b := emit b "  mov64 r8, r6"
     b := emit b "  add64 r8, 8                       ; first account marker"
@@ -2509,7 +3051,7 @@ private def emitMultiRoleWalkAndIxBase (b0 : AsmBuf) (roleCount : Nat)
     b := emit b s!"  jne r1, {hexImm multiRoleAbiOrigDataLenEntryV1}, {errLab}"
     -- role slot base = r10 - ROLE_BASE + index*64
     b := emit b "  mov64 r2, r10"
-    b := emit b s!"  lddw r3, {productRoleTableBytesV1}"
+    b := emit b s!"  lddw r3, {roleTableBytes}"
     b := emit b "  sub64 r2, r3"
     b := emit b "  mov64 r3, r7"
     b := emit b "  lsh64 r3, 6"
@@ -2562,7 +3104,11 @@ private def emitMultiRoleWalkAndIxBase (b0 : AsmBuf) (roleCount : Nat)
     b := emit b s!"  jlt r1, 8, {errLab}"
     b := emit b "  mov64 r2, r8"
     b := emit b "  add64 r2, 8                        ; ix data bytes"
-    b := emit b s!"  stxdw [r10 - {multiRoleSlotIxDataV1}], r2"
+    b := emit b s!"  stxdw [r10 - {slotIx}], r2"
+    -- Program id follows ix data bytes (Loader V3 ABIv1); needed for vault PDA.
+    b := emit b "  mov64 r5, r2"
+    b := emit b "  add64 r5, r1                       ; program_id after ix data"
+    b := emit b s!"  stxdw [r10 - {slotPid}], r5"
     pure b
 
 /-- Public S1b emitter: typed `IR` → default-dialect SBPF assembly text. -/
@@ -2574,15 +3120,29 @@ def emitSbpfAsmV1 (ir : IR) : CompileResult String := do
   let multiN := ir.stateAccount.productMultiRoleCount
   let layout :=
     computeInputLayoutForAdmitV1 ir.stateAccount.exactDataLen admitCaller
-  let mut b : AsmBuf := { text := renderLayoutEqu layout, seq := 0, cursor := 0 }
+  let mut b : AsmBuf := {
+    text := renderLayoutEqu layout
+    seq := 0
+    cursor := 0
+    multiRoleCount := multiN
+    productTokenSiteCursor := 0
+  }
   if multiN > 0 then
-    b := emit b s!"; P3-e multi-role: outer roles={multiN} (system.transfer AccountMeta)"
-    b := emitEqu b "ROLE_BASE" productRoleTableBytesV1
+    let mrKind :=
+      if ir.stateAccount.productTokenMultiRole then
+        "token.transfer AccountMeta (M4b/M4c)"
+      else
+        "system.transfer AccountMeta (P3-e)"
+    let roleTableBytes := productRoleTableBytesForV1 multiN
+    let cpiBase := multiRoleCpiBaseForV1 multiN
+    b := emit b s!"; multi-role: outer roles={multiN} ({mrKind})"
+    b := emitEqu b "ROLE_BASE" roleTableBytes
     b := emitEqu b "ROLE_STRIDE" productRoleStrideV1
-    b := emitEqu b "CPI_BASE_MR" multiRoleCpiBaseV1
+    b := emitEqu b "CPI_BASE_MR" cpiBase
   b := emit b ".globl entrypoint"
   b := emitBlank b
   if multiN > 0 then
+    let ixSlot := mrSlotAbs multiN multiRoleSlotIxDataV1
     b := emit b "entrypoint:"
     b := emit b "  mov64 r6, r1"
     b := emitMultiRoleWalkAndIxBase b multiN "err_unknown_disc"
@@ -2595,7 +3155,7 @@ def emitSbpfAsmV1 (ir : IR) : CompileResult String := do
     b := emit b "  exit"
     b := emit b "dispatch_begin:"
     b := emit b "  ; load 8-byte instruction discriminator from dynamic ix base"
-    b := emit b s!"  ldxdw r1, [r10 - {multiRoleSlotIxDataV1}]"
+    b := emit b s!"  ldxdw r1, [r10 - {ixSlot}]"
     b := emit b "  ldxdw r1, [r1 + 0]"
     -- Multi-role stashes the role table + SLOT_IX_DATA under *this* r10 frame.
     -- Handlers must share the entrypoint frame: use `ja` (not `call`). Every

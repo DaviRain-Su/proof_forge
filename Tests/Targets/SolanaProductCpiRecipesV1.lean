@@ -23,6 +23,14 @@ def run : IO Unit := do
     "callee array recognition"
   expect (!isSystemTransferCalleeV1 #["pf", "assets", "native", "transfer"])
     "pf.assets is not system.transfer"
+  expect (isPfAssetsTokenTransferQnV1 pfAssetsTokenTransferQnV1) "token qn recognition"
+  expect (isPfAssetsTokenTransferCalleeV1 #["pf", "assets", "token", "transfer"])
+    "token callee array recognition"
+  expect (!isPfAssetsTokenTransferCalleeV1 #["solana", "system", "transfer"])
+    "system.transfer is not token.transfer"
+  expect (tokenTransferCheckedDataLenV1 == 10) "transferChecked data is 10 bytes"
+  expect (tokenTransferCheckedMetaCountV1 == 4) "transferChecked has 4 metas"
+  expect (tokenTransferCheckedTagV1 == 0x0c) "TransferChecked discriminant is 0x0c"
   let scratch4 := systemTransferScratchBytesV1 4
   expect (scratch4 == 16 + 2 * 16 + 40 + 4 * 56)
     s!"scratch for 4 roles, got {scratch4}"

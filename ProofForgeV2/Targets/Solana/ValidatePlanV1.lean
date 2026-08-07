@@ -288,6 +288,42 @@ private partial def checkHandlerStatementsV1
               "handler storeAggregate byteWidth does not match state field layout"
           total ← addPlanExprNodes account params fns total store.value
         total := total + 1
+    | .denseMapPrincipalUpsert targets mapBase keyLeaves value =>
+        if isView then
+          throw <| .planInvariant .solana "view handler writes state"
+        -- Cap-4 Principal Map: 44 leaves, 9 key leaves (match LowerSemantic).
+        unless targets.size == 44 && mapBase.size == 44 && keyLeaves.size == 9 do
+          throw <| .planInvariant .solana
+            "handler denseMapPrincipalUpsert requires 44 targets/map leaves and 9 key leaves"
+        let mut seenTargets : Array (Nat × Nat) := #[]
+        for store in targets do
+          let target := (store.accountIndex, store.byteOffset)
+          if seenTargets.contains target then
+            throw <| .planInvariant .solana
+              "handler denseMapPrincipalUpsert writes the same state field more than once"
+          seenTargets := seenTargets.push target
+          let some field := account.fields.find? (fun field =>
+              field.accountIndex == store.accountIndex && field.byteOffset == store.byteOffset) |
+            throw <| .planInvariant .solana
+              "handler denseMapPrincipalUpsert targets an unknown field"
+          unless store.byteWidth == field.byteWidth do
+            throw <| .planInvariant .solana
+              "handler denseMapPrincipalUpsert byteWidth does not match state field layout"
+        for e in mapBase do
+          total ← addPlanExprNodes account params fns total e
+        for e in keyLeaves do
+          total ← addPlanExprNodes account params fns total e
+        total ← addPlanExprNodes account params fns total value
+        total := total + 1
+    | .denseMapPrincipalLookup mapBase keyLeaves _tagTemp _payloadTemp =>
+        unless mapBase.size == 44 && keyLeaves.size == 9 do
+          throw <| .planInvariant .solana
+            "handler denseMapPrincipalLookup requires 44 map leaves and 9 key leaves"
+        for e in mapBase do
+          total ← addPlanExprNodes account params fns total e
+        for e in keyLeaves do
+          total ← addPlanExprNodes account params fns total e
+        total := total + 1
     | .returnValue value =>
         if isInitializer then
           throw <| .planInvariant .solana "initializer cannot return a value"

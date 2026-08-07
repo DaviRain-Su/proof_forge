@@ -1061,14 +1061,14 @@
       "sha256": "86fb47a5ccfc9e2c86600280ed030fe7391e8feb674a49898df7c138a3e9ffed"
     },
     {
-      "bytes": 112263,
+      "bytes": 124141,
       "path": "ProofForgeV2/Targets/Solana/EmitIRV1.lean",
-      "sha256": "0bda569fe8afec4efadc14294b51e6453e2d7faa0a53ab55f68571c1b50af8e7"
+      "sha256": "b7984f9b97bdb7432896374bb5af0b6eda75b5576e880d617898eebb66e05d17"
     },
     {
-      "bytes": 120087,
+      "bytes": 145972,
       "path": "ProofForgeV2/Targets/Solana/EmitSbpfAsmV1.lean",
-      "sha256": "65101ec8cdda69c6cc9f9d96877c6c667b057bc3991b5a4403f5be161d6a92d4"
+      "sha256": "478a642a29d3c283177f2347a89e930391f2f664e3f8e3fc149d0eca327381a5"
     },
     {
       "bytes": 14356,
@@ -1076,9 +1076,9 @@
       "sha256": "9bd9ad371d6661280d293b880fa7ee98e3e4dd4467c779744b50946ccb214502"
     },
     {
-      "bytes": 206276,
+      "bytes": 212762,
       "path": "ProofForgeV2/Targets/Solana/LowerSemanticV1.lean",
-      "sha256": "db115d5d02615c4554c20f5a0b1047853d2a8e97f67237dfb78e15c479dd150f"
+      "sha256": "36cc98a0a9297f489e2b2286132fd4c26f6826b4c58a2bd8e70896186af8b5d6"
     },
     {
       "bytes": 5257,
@@ -1086,29 +1086,29 @@
       "sha256": "af30b00ea909ad050e1bff207406a23bbdc33208c933c3f36b87ae98f695d128"
     },
     {
-      "bytes": 19855,
+      "bytes": 21232,
       "path": "ProofForgeV2/Targets/Solana/PlanSchemaV1.lean",
-      "sha256": "3aa04cfe02a66d6bedb3b10565205ee74d4d742b0e4d7e25b2dbe658da5162c8"
+      "sha256": "59bab4ab622159e6b71575916c9c151c709e7d401e7094ea790d465d7ef84c88"
     },
     {
-      "bytes": 5509,
+      "bytes": 9774,
       "path": "ProofForgeV2/Targets/Solana/ProductCpiRecipesV1.lean",
-      "sha256": "408ca47b27193611f101d9cbe22557c9b4ebb7deba1e8cce3d4d76ee4f2513ca"
+      "sha256": "d0985e1155fe3a7e16bba2e2a6cd92e040c31d1cc8858657ddb453d1394b0da9"
     },
     {
-      "bytes": 6674,
+      "bytes": 8240,
       "path": "ProofForgeV2/Targets/Solana/ProductFrameV1.lean",
-      "sha256": "97045087fe0af0b34631407ba12ae8132c7cd628cdfacc04388201b935eafe3b"
+      "sha256": "c3b578e4f2d797825cc5d7c5b6dcd396b6ee92d06ba532c1c25640f1b9dbad6e"
     },
     {
-      "bytes": 12788,
+      "bytes": 16984,
       "path": "ProofForgeV2/Targets/Solana/ProductSynthesizeV1.lean",
-      "sha256": "b06cfab9c7fa39d8ce9fceb6ea74a4fa2a4fad5938b726e9c39af82e63526234"
+      "sha256": "434a74cc4d097eac05a137696f838e7931cc576462af6d1ef457f74e9036b6cb"
     },
     {
-      "bytes": 27246,
+      "bytes": 29306,
       "path": "ProofForgeV2/Targets/Solana/ValidatePlanV1.lean",
-      "sha256": "67abeb267fc8c95e7e60ec6a7e51e878cc003decbfc3de5abe0306a6e8813793"
+      "sha256": "4fd01de37e4e9b21134b7f81dfc09537e1c27402723a5ccea8098b8affac14f1"
     },
     {
       "bytes": 8063,

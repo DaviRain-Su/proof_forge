@@ -290,6 +290,30 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         out := out.append (← encodeNatAsU32le op.byteWidth)
         out := out.append (← encodeExpr op.value)
       pure out
+  -- Dense Map Principal UInt64 upsert (tag 13): targets + mapBase + key + value.
+  | .denseMapPrincipalUpsert targets mapBase keyLeaves value => do
+      let mut out := (encodeU8 13).append (← encodeNatAsU32le targets.size)
+      for op in targets do
+        out := out.append (← encodeNatAsU32le op.accountIndex)
+        out := out.append (← encodeNatAsU32le op.byteOffset)
+        out := out.append (← encodeNatAsU32le op.byteWidth)
+        out := out.append (← encodeExpr op.value)
+      out := out.append (← encodeNatAsU32le mapBase.size)
+      for e in mapBase do out := out.append (← encodeExpr e)
+      out := out.append (← encodeNatAsU32le keyLeaves.size)
+      for e in keyLeaves do out := out.append (← encodeExpr e)
+      out := out.append (← encodeExpr value)
+      pure out
+  -- Dense Map Principal UInt64 lookup (tag 14): mapBase + key + tag/payload temps.
+  | .denseMapPrincipalLookup mapBase keyLeaves tagTemp payloadTemp => do
+      let mut out := encodeU8 14
+      out := out.append (← encodeNatAsU32le mapBase.size)
+      for e in mapBase do out := out.append (← encodeExpr e)
+      out := out.append (← encodeNatAsU32le keyLeaves.size)
+      for e in keyLeaves do out := out.append (← encodeExpr e)
+      out := out.append (← encodeNatAsU32le tagTemp)
+      out := out.append (← encodeNatAsU32le payloadTemp)
+      pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do
   let mut out := ByteArray.empty

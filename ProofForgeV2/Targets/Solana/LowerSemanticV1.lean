@@ -134,8 +134,8 @@ structure StateAccount where
   /-- ADR-0032 P3-d: product full-body Plan may lower void ExternalCall markers
       (EmitSbpfAsm empty-meta partial CPI). Independent of admitCallerRole. -/
   admitProductExternalCall : Bool := false
-  /-- P3-e multi-role: when >0, EmitSbpfAsm walks this many outer accounts into
-      the role table and uses multi-role system.transfer AccountMetas. 0 = off. -/
+  /-- P3-e / M4b multi-role: when >0, EmitSbpfAsm walks this many outer accounts
+      into the role table and uses multi-role AccountMetas. 0 = off. -/
   productMultiRoleCount : Nat := 0
   /-- P3-e: system.transfer payer role local (dense product plan index). -/
   productXferPayerLocal : Nat := 0
@@ -143,6 +143,48 @@ structure StateAccount where
   productXferRecipientLocal : Nat := 0
   /-- P3-e: system.transfer program role local (system-v1). -/
   productXferProgramLocal : Nat := 0
+  /-- M4b/M4c: when true, multi-role ExternalCall emits pf.assets.token.transfer
+      composite (not system.transfer). Mutually exclusive with system stamp. -/
+  productTokenMultiRole : Bool := false
+  /-- M4c: number of stamped token.transfer sites (0 when off). Parallel arrays
+      below must all have this length. -/
+  productTokenSiteCount : Nat := 0
+  /-- M4c: per-site vault ATA role locals (source-order CPI sites). -/
+  productTokenVaultAtaLocals : Array Nat := #[]
+  /-- M4c: per-site mint role locals. -/
+  productTokenMintLocals : Array Nat := #[]
+  /-- M4c: per-site dst ATA role locals. -/
+  productTokenDstAtaLocals : Array Nat := #[]
+  /-- M4c: per-site vault PDA role locals. -/
+  productTokenVaultPdaLocals : Array Nat := #[]
+  /-- M4c: per-site classic Token program role locals. -/
+  productTokenProgramLocals : Array Nat := #[]
+  /-- M4c: per-site pf_caller role locals (ATA ensure payer). -/
+  productTokenCallerLocals : Array Nat := #[]
+  /-- M4c: per-site dst wallet Principal param role locals. -/
+  productTokenDstWalletLocals : Array Nat := #[]
+  /-- M4c: per-site system-v1 program role locals. -/
+  productTokenSystemLocals : Array Nat := #[]
+  /-- M4c: per-site ata-classic-v1 program role locals. -/
+  productTokenAtaProgramLocals : Array Nat := #[]
+  /-- M4b single-site compat: vault ATA role local (= locals[0] when present). -/
+  productTokenVaultAtaLocal : Nat := 0
+  /-- M4b single-site compat: mint role local. -/
+  productTokenMintLocal : Nat := 0
+  /-- M4b single-site compat: dst ATA role local. -/
+  productTokenDstAtaLocal : Nat := 0
+  /-- M4b single-site compat: vault PDA role local. -/
+  productTokenVaultPdaLocal : Nat := 0
+  /-- M4b single-site compat: classic Token program role local. -/
+  productTokenProgramLocal : Nat := 0
+  /-- M4b single-site compat: pf_caller role local. -/
+  productTokenCallerLocal : Nat := 0
+  /-- M4b single-site compat: dst wallet Principal param role local. -/
+  productTokenDstWalletLocal : Nat := 0
+  /-- M4b single-site compat: system-v1 program role local. -/
+  productTokenSystemLocal : Nat := 0
+  /-- M4b single-site compat: ata-classic-v1 program role local. -/
+  productTokenAtaProgramLocal : Nat := 0
   deriving BEq, Inhabited, Repr
 
 structure AccountAccess where
@@ -274,6 +316,19 @@ inductive Statement where
       stateLoad with partial leaf writes (dense Map upsert hazard).
       Distinct from N scalar `.store` statements (which may observe each other). -/
   | storeAggregate (leaves : Array Store)
+  /-- Specialized dense `Map Principal UInt64` (cap-4, 44 leaves) upsert.
+      `targets` are 44 Store entries (account/offset/width; `value` is a
+      placeholder `.literal 0` — real leaf values come from the specialized
+      IR op). `mapBase`/`keyLeaves`/`value` are the pre-store map snapshot,
+      9-leaf Principal key, and scalar UInt64 payload. Avoids expanding the
+      huge Expr DAG that CSE still materialises into ~465 frame temps. -/
+  | denseMapPrincipalUpsert (targets : Array Store) (mapBase : Array Expr)
+      (keyLeaves : Array Expr) (value : Expr)
+  /-- Specialized dense `Map Principal UInt64` lookup → Option tag/payload.
+      Writes Plan temps `tagTemp`/`payloadTemp` (high range) for subsequent
+      `.temp` uses; avoids the leaf-wise equality Expr DAG. -/
+  | denseMapPrincipalLookup (mapBase : Array Expr) (keyLeaves : Array Expr)
+      (tagTemp payloadTemp : Nat)
   | returnValue (value : Expr)
   /-- B-RET-ABI: multi-leaf aggregate return. `leaves` are per-leaf expressions
   in preorder flatten order; `leafIsInt` is parallel. Emitted as contiguous
@@ -1319,6 +1374,11 @@ private structure LoweredValueV1 where
   /-- Physical byte width of each leaf: 8 for UInt64 leaves (Array/Map/
       Principal/named), 1 for Bytes leaves (UInt8). Scalar values keep 8. -/
   leafByteWidth : Nat := 8
+  /-- When set, StateStore of this value emits `denseMapPrincipalUpsert`
+      instead of expanding the leaf-wise upsert DAG into `storeAggregate`.
+      Carries (mapBase, keyLeaves, value); `aggregateLeaves` is a size
+      placeholder only (base snapshot), not the post-upsert materialization. -/
+  principalMapUpsert : Option (Array Expr × Array Expr × Expr) := none
   deriving Inhabited
 
 private def LoweredValueV1.isAggregate (v : LoweredValueV1) : Bool :=
@@ -1341,7 +1401,8 @@ private def mkAggregateValueV1 (leaves : Array Expr) (deps : Array ValueIdV1)
     isInt := false
     bitWidth := 64
     aggregateLeaves := some leaves
-    leafByteWidth }
+    leafByteWidth
+    principalMapUpsert := none }
 
 /-- Promote pure ValueIds across effect boundaries (Token dual Map store). -/
 private def promoteDominatingPureV1
@@ -2673,19 +2734,45 @@ private def lowerBlockInstructionsV1
           -- share a pre-store snapshot (EmitIR CSE + storeStateMulti). Do not
           -- split into N scalar `.store` — sequential live stateLoad sees
           -- partial writes (dense Map empty upsert hazard).
-          let mut leafStores : Array Store := #[]
-          for i in [0:leaves.size] do
-            let some field := leafFields[i]? |
-              throw <| .planInvariant .solana "Array state store field missing"
-            let some leafExpr := leaves[i]? |
-              throw <| .planInvariant .solana "Array state store leaf missing"
-            leafStores := leafStores.push {
-              accountIndex := field.accountIndex
-              byteOffset := field.byteOffset
-              value := leafExpr
-              byteWidth := field.byteWidth
-            }
-          body := body.push (.storeAggregate leafStores)
+          match stored.principalMapUpsert with
+          | some (mapBase, keyLeaves, upsertValue) => do
+              -- Specialized Principal Map upsert: targets carry layout only
+              -- (placeholder value 0); real leaves come from the IR op.
+              unless leaves.size == solanaMapPrincipalLeafCountV1 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Principal Map upsert leaf count mismatch"
+              unless mapBase.size == solanaMapPrincipalLeafCountV1 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Principal Map upsert mapBase leaf count mismatch"
+              unless keyLeaves.size == solanaMapPrincipalKeyLeafCountV1 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Principal Map upsert key leaf count mismatch"
+              let mut leafStores : Array Store := #[]
+              for i in [0:leafFields.size] do
+                let some field := leafFields[i]? |
+                  throw <| .planInvariant .solana "Principal Map state store field missing"
+                leafStores := leafStores.push {
+                  accountIndex := field.accountIndex
+                  byteOffset := field.byteOffset
+                  value := .literal 0
+                  byteWidth := field.byteWidth
+                }
+              body := body.push
+                (.denseMapPrincipalUpsert leafStores mapBase keyLeaves upsertValue)
+          | none => do
+              let mut leafStores : Array Store := #[]
+              for i in [0:leaves.size] do
+                let some field := leafFields[i]? |
+                  throw <| .planInvariant .solana "Array state store field missing"
+                let some leafExpr := leaves[i]? |
+                  throw <| .planInvariant .solana "Array state store leaf missing"
+                leafStores := leafStores.push {
+                  accountIndex := field.accountIndex
+                  byteOffset := field.byteOffset
+                  value := leafExpr
+                  byteWidth := field.byteWidth
+                }
+              body := body.push (.storeAggregate leafStores)
           armReadables := promoteDominatingPureV1 blockEntry values armReadables
           segmentStart := values.size
         else
@@ -2981,27 +3068,36 @@ private def lowerBlockInstructionsV1
           -- Map IndexGet is the only admitted index operation returning
           -- Option UInt64. Resolve key shape inside this branch so Array
           -- UInt64 24/44 cannot collide with dense Map leaf counts.
-          let optLeaves ←
-            if idx.isAggregate then
-              unless base.leafExprs.size == solanaMapPrincipalLeafCountV1 do
-                throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: Principal Map IndexGet base leaf count mismatch"
-              unless idx.leafExprs.size == solanaMapPrincipalKeyLeafCountV1 do
-                throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: Principal Map IndexGet key leaf count mismatch"
-              mapPrincipalLookupOptionLeavesV1 base.leafExprs idx.leafExprs
-            else do
-              unless !idx.isBool && !idx.isInt && idx.bitWidth == 64 do
-                throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: Map UInt64 IndexGet key must be scalar UInt64"
-              unless base.leafExprs.size == solanaMapPilotLeafCountV1 do
-                throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: Map UInt64 IndexGet base leaf count mismatch"
-              mapLookupOptionLeavesV1 base.leafExprs idx.expr
-          let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
-            (Nat.max base.depth idx.depth + 1)
-            (base.expandedNodes + idx.expandedNodes + 1)
-          values := ← appendResultValueV1 result.typeId values result value
+          if idx.isAggregate then
+            unless base.leafExprs.size == solanaMapPrincipalLeafCountV1 do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Principal Map IndexGet base leaf count mismatch"
+            unless idx.leafExprs.size == solanaMapPrincipalKeyLeafCountV1 do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Principal Map IndexGet key leaf count mismatch"
+            -- Specialized Plan op: tag/payload Plan temps in high range so
+            -- they never collide with ValueId-based forLoop induction temps.
+            let tagTemp := 1000000 + values.size
+            let payloadTemp := tagTemp + 1
+            body := body.push
+              (.denseMapPrincipalLookup base.leafExprs idx.leafExprs tagTemp payloadTemp)
+            let value := mkAggregateValueV1
+              #[.temp tagTemp, .temp payloadTemp] #[baseId, idxId]
+              (Nat.max base.depth idx.depth + 1)
+              (base.expandedNodes + idx.expandedNodes + 1)
+            values := ← appendResultValueV1 result.typeId values result value
+          else do
+            unless !idx.isBool && !idx.isInt && idx.bitWidth == 64 do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Map UInt64 IndexGet key must be scalar UInt64"
+            unless base.leafExprs.size == solanaMapPilotLeafCountV1 do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Map UInt64 IndexGet base leaf count mismatch"
+            let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+            let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
+              (Nat.max base.depth idx.depth + 1)
+              (base.expandedNodes + idx.expandedNodes + 1)
+            values := ← appendResultValueV1 result.typeId values result value
         else do
           let i ← literalIndexNatV1 idx
           let leaves := base.leafExprs
@@ -3067,36 +3163,53 @@ private def lowerBlockInstructionsV1
             unless !val.isInt && val.bitWidth == 64 do
               throw <| .planInvariant .solana
                 "unsupported Solana semantic shape: Map IndexSet value must be scalar UInt64"
-            let (outLeaves0, okInsert) ←
-              if isPrincipalKey then
-                unless idx.isAggregate do
-                  throw <| .planInvariant .solana
-                    "unsupported Solana semantic shape: Principal Map IndexSet key must be Principal aggregate"
-                unless idx.leafExprs.size == solanaMapPrincipalKeyLeafCountV1 do
-                  throw <| .planInvariant .solana
-                    "unsupported Solana semantic shape: Principal Map IndexSet key leaf count mismatch"
-                mapPrincipalUpsertLeavesV1 base.leafExprs idx.leafExprs val.expr
-              else do
-                unless !idx.isBool && !idx.isInt && !idx.isAggregate && idx.bitWidth == 64 do
-                  throw <| .planInvariant .solana
-                    "unsupported Solana semantic shape: Map UInt64 IndexSet key must be scalar UInt64"
+            if isPrincipalKey then
+              unless idx.isAggregate do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Principal Map IndexSet key must be Principal aggregate"
+              unless idx.leafExprs.size == solanaMapPrincipalKeyLeafCountV1 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Principal Map IndexSet key leaf count mismatch"
+              -- Defer upsert to specialized Plan/IR op at StateStore. Placeholder
+              -- aggregateLeaves keep size checks; full-map fail is in the emitter.
+              let value : LoweredValueV1 := {
+                expr := base.expr
+                depth := Nat.max (Nat.max base.depth idx.depth) val.depth + 1
+                expandedNodes :=
+                  base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1
+                dependencies := #[baseId, idxId, valueId]
+                isBool := false
+                isUInt32 := false
+                isInt := false
+                bitWidth := 64
+                aggregateLeaves := some base.leafExprs
+                leafByteWidth := 8
+                principalMapUpsert :=
+                  some (base.leafExprs, idx.leafExprs, val.expr)
+              }
+              values := ← appendResultValueV1 result.typeId values result value
+            else do
+              unless !idx.isBool && !idx.isInt && !idx.isAggregate && idx.bitWidth == 64 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: Map UInt64 IndexSet key must be scalar UInt64"
+              let (outLeaves0, okInsert) ←
                 mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
-            -- Fail closed when the dense map is full. Gate only the first leaf
-            -- so the large okInsert expression is not duplicated per slot.
-            let gate := Expr.checkedDiv (.literal 1) okInsert
-            let mut outLeaves : Array Expr := #[]
-            for i in [0:outLeaves0.size] do
-              let some e := outLeaves0[i]? |
-                throw <| .planInvariant .solana "Map IndexSet leaf missing after upsert"
-              let e' :=
-                if i == 0 then
-                  Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
-                else e
-              outLeaves := outLeaves.push e'
-            let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
-              (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
-              (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
-            values := ← appendResultValueV1 result.typeId values result value
+              -- Fail closed when the dense map is full. Gate only the first leaf
+              -- so the large okInsert expression is not duplicated per slot.
+              let gate := Expr.checkedDiv (.literal 1) okInsert
+              let mut outLeaves : Array Expr := #[]
+              for i in [0:outLeaves0.size] do
+                let some e := outLeaves0[i]? |
+                  throw <| .planInvariant .solana "Map IndexSet leaf missing after upsert"
+                let e' :=
+                  if i == 0 then
+                    Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
+                  else e
+                outLeaves := outLeaves.push e'
+              let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
+                (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
+                (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
+              values := ← appendResultValueV1 result.typeId values result value
         | none => do
           unless !val.isInt && val.bitWidth == 64 do
             throw <| .planInvariant .solana

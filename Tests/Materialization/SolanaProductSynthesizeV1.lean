@@ -122,7 +122,7 @@ private unsafe def testP3dPartialBodyCpiIfPay : IO Unit := do
 private def testEscrowFramePinsCompatible : IO Unit := do
   let bodyTempBytes := productEscrowTempRegionEndV1 - productEscrowTempBaseV1
   let cpiScratchBytes := productMaxFrameBytesV1 - productEscrowTempRegionEndV1
-  match mintUnifiedCpiFrameV1 bodyTempBytes cpiScratchBytes with
+  match mintEscrowCompatibleUnifiedCpiFrameV1 bodyTempBytes cpiScratchBytes with
   | .error e => throw <| IO.userError s!"escrow-compatible frame must mint: {e}"
   | .ok L => do
       expect (L.totalBytes == productMaxFrameBytesV1)

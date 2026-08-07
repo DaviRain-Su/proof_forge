@@ -461,7 +461,7 @@ private unsafe def testTokenBalanceEnvRead : IO Unit := do
     match r.keyPolicy with | .vaultPda => true | _ => false)
   expect (vaultRoles.size == 1) "token balance: one vault role"
   let vaultAtaRoles := cand.accountRoles.filter (fun r =>
-    match r.keyPolicy with | .vaultAta => true | _ => false)
+    match r.keyPolicy with | .vaultAta .. => true | _ => false)
   expect (vaultAtaRoles.size == 1) "token balance: one vaultAta role"
   let mintRoles := cand.accountRoles.filter (fun r =>
     match r.keyPolicy with | .accountParameter _ _ => true | _ => false)

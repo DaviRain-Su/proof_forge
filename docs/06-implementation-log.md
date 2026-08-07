@@ -12,6 +12,32 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-07 — MiniAmmAssets EVM M5 dual ERC-20 Anvil（E4 双链 runtime）
+
+- 同一 `Examples/MiniAmmAssets.lean` 经 `build --target evm` 产出 ~11 KiB creation
+  bytecode（strict EIP-3860 可部署，无 code-size override 需求）+ 4×ERC-20
+  `transfer` Yul sites（swap0/swap1 + remove dual）。
+- 新增 `scripts/evm_miniamm_assets_anvil_smoke.sh`：双 `ERC20Mock` pre-fund →
+  addLiquidity → swap0to1（mint1→dst 精确余额）→ slippage full hold →
+  removeLiquidity 双 mint 转出；`mode=strict-eip-limits` 真跑通过。
+- 产品 pin `Tests/Product/MiniAmmAssetsEvmV1`；接入 `evm_anvil_differential.sh`
+  companion。Solana 侧 Mollusk `miniamm_assets` 10/10 已在前一切片闭合。
+- 工程 only — 非 formal C-3 / TASK-D5 / hermetic / mainnet。
+
+## 2026-08-07 — MiniAmmAssets Mollusk dual-mint 应用门（M4c runtime）
+
+- 新增 `runtime-tests/solana/tests/miniamm_assets.rs`：普通产品树
+  `proof-forge-next build --target solana --profile solana-sbpf-cpi-elf-v1` 产出
+  `MiniAmmAssets.so`，经 Mollusk + vendored classic Token/ATA/native System 跑双 mint 资产流。
+- 覆盖：manifest multi-role pin（`outerRoleCount=21`、4 CPI sites、`product_mr_token_0..3`）、
+  initialize→addLiquidity LP mint、swap0to1 TransferChecked 与 reserves、slippage full-snapshot
+  rollback、removeLiquidity 双 mint 转出、views/balanceOf、wrong account count preflight。
+- Multi-role ABIv1 non-dup walk 要求 21 个 outer key 两两不同：测试侧 `unique_role_key` 填
+  占位槽，handler 执行前 `wire_swap0`/`wire_remove` 把真实 mint/ATA/vault PDA 写入 CPI 槽。
+- Focused `cargo test --locked --test miniamm_assets` **10/10**。tracked inventory 现为
+  **21 integration test binaries / 405 active tests**。工程 only — 非 formal TASK-D5 /
+  hermetic / mainnet；E4 仍缺 M5 EVM 双 ERC-20 Anvil。
+
 ## 2026-08-06 — wave3 correctness closure：Map/Array 分派 + WideDiv 长距 dispatch
 
 - `LowerSemanticV1` 不再用 aggregate 叶数猜容器：Map IndexGet 先要求 anonymous
@@ -23,7 +49,7 @@ normative: false
 - 新增 `WideDivDispatch` 产品 fixture：四个 UInt128/256 div/mod handler 共处单 ELF；
   locked `sbpf` 产物经 `inspect` exact closure，Mollusk 执行最远 `mod256`。8 个
   WideDiv/WideDiv256 oracle 覆盖成功值与 div/mod 零除 `0x1001` 全账户回滚；当前 tracked
-  inventory 为 19 integration test binaries / 381 active tests。
+  inventory 为 20 integration test binaries / 392 active tests。
 - 该收口仅是 host-optional engineering correctness/runtime evidence；不进入 ordinary CI，
   不声称 formal D5、hermetic、mainnet 或 E4 MiniAMM 完成。E4 仍缺 Solana 应用镜像、
   真实 asset movement/remove-liquidity 与 EVM 无 code-size override 部署闭环。
@@ -77,7 +103,7 @@ normative: false
   取 32-byte `AccountInfo.key` 物化 Principal；两个 legacy profile 纵深 FC。普通 Principal
   参数继续走 T12 instruction data，并在业务读取前强制 `len∈1..64` 与 high-tail zero，
   不把任意 Principal 隐式升级为 account role/pubkey。Mollusk `caller_isme` 8/8 通过；后续
-  WideDiv runtime/dispatch 增量后 tracked inventory 为 19 integration binaries / 381 active tests。Solana #110 interoperability epic 仍为
+  WideDiv runtime/dispatch 增量后 tracked inventory 为 20 integration binaries / 392 active tests。Solana #110 interoperability epic 仍为
   engineering complete（#111–#125 engineering closed），不改变 formal TASK-D5/TST-SOL。
 - NEAR 将 init/entry caller 绑定为 `predecessor_account_id` 的 exact UTF-8 bytes；view
   无诚实 caller 语义而 FC。predecessor register 由 target-owned `RegisterLayout` 统一分配；

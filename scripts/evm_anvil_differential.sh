@@ -12,8 +12,11 @@
 #   5. TipJar / TokenJar / EnvReadJar / CallerCheck / BlockHeightCheck companions
 #      (each host-optional smoke script; product build hard when tools present).
 #   6. MiniAmm vault-internal AMM companion via scripts/evm_mini_amm_anvil_smoke.sh
-#      (ADR-0030 E4; product build hard; EIP-3860 → engineering code-size override;
+#      (ADR-0030 E4 M0; product build hard; EIP-3860 → engineering code-size override;
 #      not mainnet deploy claim).
+#   7. MiniAmmAssets dual ERC-20 companion via scripts/evm_miniamm_assets_anvil_smoke.sh
+#      (ADR-0030 E4 M5; same source as Solana Mollusk miniamm_assets; strict EIP
+#      preferred; engineering override only if needed; not formal C-3).
 #
 # Skip-clean (exit 0) when:
 #   - host platform unsupported
@@ -417,6 +420,21 @@ elif [[ -f "$root/scripts/evm_mini_amm_anvil_smoke.sh" ]]; then
   exit 1
 else
   echo "evm-anvil-differential: note: MiniAmm companion script missing (skip leg)" >&2
+fi
+
+# MiniAmmAssets: ADR-0030 E4 M5 dual ERC-20 pf.assets.token.transfer + Principal
+# Map LP. Same Examples/MiniAmmAssets.lean as Solana Mollusk miniamm_assets.
+if [[ -x "$root/scripts/evm_miniamm_assets_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion MiniAmmAssets dual ERC-20 smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_miniamm_assets_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: MiniAmmAssets smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_miniamm_assets_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: MiniAmmAssets smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: MiniAmmAssets companion script missing (skip leg)" >&2
 fi
 
 echo "evm-anvil-differential: ok (engineering Anvil state differential; not formal C-3)" >&2

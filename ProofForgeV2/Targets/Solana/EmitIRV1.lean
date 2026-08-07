@@ -14,6 +14,7 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
+open ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
 
 inductive Check where
   /-- Serialized input `num_accounts` must equal `count` (V1 single-state ABI: 1).
@@ -59,6 +60,15 @@ inductive Operation where
       entries are written together so no leaf expression reloads a partial write.
       Each entry is `(accountIndex, byteOffset, byteWidth, valueTemp)`. -/
   | storeStateMulti (entries : Array (Nat × Nat × Nat × Nat))
+  /-- Dense `Map Principal UInt64` cap-4 upsert (44 map temps, 9 key temps).
+      Writes `outTemps` (size 44, consecutive) and `okTemp` (1 if insert/update
+      succeeded, 0 if map full). Emitter traps on full map (program_error
+      0x1001); lowerBodyOps follows with storeStateMulti of outTemps. -/
+  | mapPrincipalUpsert (mapTemps : Array Nat) (keyTemps : Array Nat)
+      (valueTemp : Nat) (outTemps : Array Nat) (okTemp : Nat)
+  /-- Dense `Map Principal UInt64` cap-4 lookup → Option tag/payload temps. -/
+  | mapPrincipalLookup (mapTemps : Array Nat) (keyTemps : Array Nat)
+      (tagTemp payloadTemp : Nat)
   | setHeader (accountIndex byteOffset : Nat) (value : UInt64)
   | setReturnData (byteLen value : Nat)
   | setReturnDataBool (value : Nat)
@@ -189,8 +199,15 @@ private def natToLimbsLE (n : Nat) (count : Nat) : Array UInt64 := Id.run do
     v := v / UInt64.size
   pure out
 
-/-- Lookup plan-level loop induction temp → IR temp. Missing binding is a
-    plan/IR construction bug (validatePlan admits `.temp` only under forLoop). -/
+/-- Dense Map Principal UInt64 layout constants (match LowerSemanticV1). -/
+private def mapPrincipalCapacityV1 : Nat := 4
+private def mapPrincipalKeyLeafCountV1 : Nat := 9
+private def mapPrincipalSlotsPerEntryV1 : Nat := 11
+private def mapPrincipalLeafCountV1 : Nat := 44
+
+/-- Lookup plan-level loop induction / specialized lookup temp → IR temp.
+    Missing binding is a plan/IR construction bug (`.temp` under forLoop or
+    denseMapPrincipalLookup). -/
 private def resolveTempV1 (tempMap : List (Nat × Nat)) (id : Nat) : Nat :=
   match tempMap.find? (fun p => p.1 == id) with
   | some (_, irTemp) => irTemp
@@ -859,7 +876,9 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .storeAggregate _ | .assert _ | .emitEvent .. | .externalCall ..
+      | .store _ | .storeAggregate _ | .denseMapPrincipalUpsert ..
+      | .denseMapPrincipalLookup ..
+      | .assert _ | .emitEvent .. | .externalCall ..
       | .externalCallResult .. | .schedule .. | .forLoop .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
@@ -901,6 +920,10 @@ private def tempDestination? : Operation → Option Nat
       .compare destination .. | .wideCompare _ destination .. |
       .callFn _ destination _ | .clockSlot destination
       | .callerPrincipalLeaf destination _ _ => some destination
+  | .mapPrincipalUpsert _ _ _ outTemps _ =>
+      match outTemps[0]? with | some d => some d | none => none
+  -- mapPrincipalLookup writes pre-allocated tag/payload temps (not a
+  -- destination-producing op for canonical numbering).
   | .externalCall _ _ _ (some destination) => some destination
   | _ => none
 
@@ -911,8 +934,17 @@ private def tempDestination? : Operation → Option Nat
 private partial def opsPeakTemp (ops : Array Operation) : Nat :=
   ops.foldl (init := 0) fun acc op =>
     let acc := match tempDestination? op with
-      | some d => Nat.max acc (d + 1)
-      | none => acc
+      | some d =>
+          let n :=
+            match op with
+            | .mapPrincipalUpsert .. => mapPrincipalLeafCountV1 + 1
+            | _ => 1
+          Nat.max acc (d + n)
+      | none =>
+          match op with
+          | .mapPrincipalLookup _ _ tagTemp payloadTemp =>
+              Nat.max acc (Nat.max (tagTemp + 1) (payloadTemp + 1))
+          | _ => acc
     match op with
     | .ifRegion _ thenOps elseOps =>
         Nat.max acc (Nat.max (opsPeakTemp thenOps) (opsPeakTemp elseOps))
@@ -974,6 +1006,87 @@ private partial def lowerBodyOps
             (store.accountIndex, store.byteOffset, store.byteWidth, v)
         operations := operations ++ cseOps
         operations := operations.push (.storeStateMulti entries)
+        next := nextBase
+    | .denseMapPrincipalUpsert targets mapBase keyLeaves value =>
+        -- Specialized Principal Map upsert: CSE map (44) + key (9) + value,
+        -- allocate 44 out temps + okTemp, emit mapPrincipalUpsert, then
+        -- storeStateMulti from outTemps. Full-map trap is in the emitter.
+        let mut memo : Array (Expr × Nat) := #[]
+        let mut cseOps : Array Operation := #[]
+        let mut cseNext := next
+        let mut mapTemps : Array Nat := #[]
+        for e in mapBase do
+          let (m, o, v, n) :=
+            lowerExprCseV1 overflowError tempMap memo cseOps cseNext e
+          memo := m
+          cseOps := o
+          cseNext := n
+          mapTemps := mapTemps.push v
+        let mut keyTemps : Array Nat := #[]
+        for e in keyLeaves do
+          let (m, o, v, n) :=
+            lowerExprCseV1 overflowError tempMap memo cseOps cseNext e
+          memo := m
+          cseOps := o
+          cseNext := n
+          keyTemps := keyTemps.push v
+        let (_mV, oV, valueTemp, nV) :=
+          lowerExprCseV1 overflowError tempMap memo cseOps cseNext value
+        cseOps := oV
+        cseNext := nV
+        let outBase := cseNext
+        let mut outTemps : Array Nat := #[]
+        for i in [0:mapPrincipalLeafCountV1] do
+          outTemps := outTemps.push (outBase + i)
+        let okTemp := outBase + mapPrincipalLeafCountV1
+        operations := operations ++ cseOps
+        operations := operations.push
+          (.mapPrincipalUpsert mapTemps keyTemps valueTemp outTemps okTemp)
+        let mut entries : Array (Nat × Nat × Nat × Nat) := #[]
+        for i in [0:targets.size] do
+          let some store := targets[i]? |
+            pure ()
+          let some outT := outTemps[i]? |
+            pure ()
+          entries := entries.push
+            (store.accountIndex, store.byteOffset, store.byteWidth, outT)
+        operations := operations.push (.storeStateMulti entries)
+        next := nextBase
+    | .denseMapPrincipalLookup mapBase keyLeaves tagPlanTemp payloadPlanTemp =>
+        -- Pre-allocate tag/payload at the live floor (literal 0 seeds) so only
+        -- those two stay live after the op. CSE map+key above them; the
+        -- specialized op overwrites tag/payload and is not destination-producing
+        -- (canonical numbering stays on the seed literals). Map/key CSE temps
+        -- recycle for subsequent statements/arms.
+        let tagIr := next
+        let payloadIr := next + 1
+        operations := operations.push (.literal tagIr 0)
+        operations := operations.push (.literal payloadIr 0)
+        let mut memo : Array (Expr × Nat) := #[]
+        let mut cseOps : Array Operation := #[]
+        let mut cseNext := next + 2
+        let mut mapTemps : Array Nat := #[]
+        for e in mapBase do
+          let (m, o, v, n) :=
+            lowerExprCseV1 overflowError tempMap memo cseOps cseNext e
+          memo := m
+          cseOps := o
+          cseNext := n
+          mapTemps := mapTemps.push v
+        let mut keyTemps : Array Nat := #[]
+        for e in keyLeaves do
+          let (m, o, v, n) :=
+            lowerExprCseV1 overflowError tempMap memo cseOps cseNext e
+          memo := m
+          cseOps := o
+          cseNext := n
+          keyTemps := keyTemps.push v
+        operations := operations ++ cseOps
+        operations := operations.push
+          (.mapPrincipalLookup mapTemps keyTemps tagIr payloadIr)
+        tempMap := (tagPlanTemp, tagIr) :: (payloadPlanTemp, payloadIr) :: tempMap
+        -- Only tag/payload remain live; map/key CSE temps are dead.
+        nextBase := next + 2
         next := nextBase
     | .returnValue value =>
         let value := lowerExpr overflowError tempMap next value
@@ -1190,6 +1303,7 @@ private def opResultLimbCount : Operation → Nat
   | .compare .. | .wideCompare .. | .callFn .. | .clockSlot ..
   | .callerPrincipalLeaf ..
   | .externalCall _ _ _ (some _) => 1
+  | .mapPrincipalUpsert .. => mapPrincipalLeafCountV1 + 1
   | _ => 0
 
 private def lowerFn (plan : Plan) (fn : FnBinding) : FnIR := Id.run do
@@ -1263,6 +1377,7 @@ private partial def validateOperationSequence
     | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor .. | .narrowBitNot ..
     | .narrowCheckedShl .. | .narrowCheckedShr ..
     | .compare .. | .wideCompare .. | .clockSlot .. | .callerPrincipalLeaf ..
+    | .mapPrincipalLookup .. | .mapPrincipalUpsert ..
     | .assert .. | .zeroState .. | .narrowZeroState ..
     | .storeState .. | .narrowStoreState .. | .storeStateMulti ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool .. | .setReturnDataMulti ..
@@ -1461,6 +1576,42 @@ private partial def validateOperationSequence
             unless value + nLimbs ≤ next do
               throw <| .planInvariant .solana
                 "typed Solana IR storeStateMulti multiword value is out of range"
+    | .mapPrincipalUpsert mapTemps keyTemps valueTemp outTemps okTemp =>
+        unless mapTemps.size == mapPrincipalLeafCountV1 &&
+            keyTemps.size == mapPrincipalKeyLeafCountV1 &&
+            outTemps.size == mapPrincipalLeafCountV1 do
+          throw <| .planInvariant .solana
+            "typed Solana IR mapPrincipalUpsert leaf counts are invalid"
+        unless mapTemps.all (· < destBound) && keyTemps.all (· < destBound) &&
+            valueTemp < destBound do
+          throw <| .planInvariant .solana
+            "typed Solana IR mapPrincipalUpsert operands are out of range"
+        -- outTemps consecutive from next (already advanced via limbCount),
+        -- okTemp immediately after.
+        unless outTemps.size > 0 && outTemps[0]! == destBound do
+          throw <| .planInvariant .solana
+            "typed Solana IR mapPrincipalUpsert outTemps base is not canonical"
+        for i in [0:outTemps.size] do
+          unless outTemps[i]! == destBound + i do
+            throw <| .planInvariant .solana
+              "typed Solana IR mapPrincipalUpsert outTemps are not consecutive"
+        unless okTemp == destBound + mapPrincipalLeafCountV1 do
+          throw <| .planInvariant .solana
+            "typed Solana IR mapPrincipalUpsert okTemp is not canonical"
+        unless handler.mode != .view do
+          throw <| .planInvariant .solana
+            "typed Solana IR mapPrincipalUpsert requires non-view mode"
+    | .mapPrincipalLookup mapTemps keyTemps tagTemp payloadTemp =>
+        -- tag/payload are pre-allocated (seed literals); op is not destination-
+        -- producing. Operands and destinations must already be in range.
+        unless mapTemps.size == mapPrincipalLeafCountV1 &&
+            keyTemps.size == mapPrincipalKeyLeafCountV1 do
+          throw <| .planInvariant .solana
+            "typed Solana IR mapPrincipalLookup leaf counts are invalid"
+        unless mapTemps.all (· < next) && keyTemps.all (· < next) &&
+            tagTemp < next && payloadTemp < next do
+          throw <| .planInvariant .solana
+            "typed Solana IR mapPrincipalLookup temps are out of range"
     | .setHeader accountIndex byteOffset value =>
         unless handler.mode == .initialize && accountIndex == account.index &&
             byteOffset == account.headerOffset && value == account.initializedMarker do
@@ -1629,6 +1780,14 @@ private partial def validateOperationSequence
       | .assert .. | .emitEvent .. | .revertError ..
       | .externalCall _ _ _ none | .schedule .. | .returnNone =>
           next := nextBase
+      -- mapPrincipalLookup: drop map/key CSE temps; keep only pre-seeded
+      -- tag/payload live (raise nextBase to just above them).
+      | .mapPrincipalLookup _ _ tagTemp payloadTemp =>
+          let live := Nat.max (tagTemp + 1) (payloadTemp + 1)
+          nextBase := Nat.max nextBase live
+          next := nextBase
+      -- mapPrincipalUpsert recycles only after the following storeStateMulti.
+      | .mapPrincipalUpsert .. => pure ()
       | _ => pure ()
   pure (next, returned, initialized)
 
@@ -1688,7 +1847,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
   for op in fn.operations do
     match op with
     | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
-    | .storeStateMulti ..
+    | .storeStateMulti .. | .mapPrincipalUpsert .. | .mapPrincipalLookup ..
     | .zeroState .. | .narrowZeroState .. | .setHeader ..
     | .emitEvent .. | .externalCall .. | .schedule ..
     -- Host sysvar / caller-role reads are not pure.
@@ -1922,6 +2081,15 @@ private partial def renderOperation (indent : String)
             out := out ++
               s!"{indent}  store_u{byteWidth*8}_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
         pure out
+  | .mapPrincipalUpsert mapTemps keyTemps valueTemp outTemps okTemp =>
+      let mapText := String.intercalate ", " (mapTemps.toList.map (fun t => s!"%{t}"))
+      let keyText := String.intercalate ", " (keyTemps.toList.map (fun t => s!"%{t}"))
+      let outText := String.intercalate ", " (outTemps.toList.map (fun t => s!"%{t}"))
+      s!"{indent}map_principal_upsert map=[{mapText}] key=[{keyText}] value=%{valueTemp} out=[{outText}] ok=%{okTemp}\n"
+  | .mapPrincipalLookup mapTemps keyTemps tagTemp payloadTemp =>
+      let mapText := String.intercalate ", " (mapTemps.toList.map (fun t => s!"%{t}"))
+      let keyText := String.intercalate ", " (keyTemps.toList.map (fun t => s!"%{t}"))
+      s!"{indent}%{tagTemp}, %{payloadTemp} = map_principal_lookup map=[{mapText}] key=[{keyText}]\n"
   | .setHeader accountIndex byteOffset value =>
       s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
   | .setReturnData byteLen value =>
@@ -2207,8 +2375,81 @@ def withProductMultiRoleSystemTransferV1
       productXferPayerLocal := payerLocal
       productXferRecipientLocal := recipientLocal
       productXferProgramLocal := programLocal
+      productTokenMultiRole := false
+      productTokenSiteCount := 0
+      productTokenVaultAtaLocals := #[]
+      productTokenMintLocals := #[]
+      productTokenDstAtaLocals := #[]
+      productTokenVaultPdaLocals := #[]
+      productTokenProgramLocals := #[]
+      productTokenCallerLocals := #[]
+      productTokenDstWalletLocals := #[]
+      productTokenSystemLocals := #[]
+      productTokenAtaProgramLocals := #[]
   }
   let sp := { ir.sourcePlan with stateAccount := sa }
   { ir with stateAccount := sa, sourcePlan := sp }
+
+/-- M4c: stamp multi-site multi-role `pf.assets.token.transfer` bindings.
+    Parallel site arrays must share length `sites.size`; single-site compat
+    fields mirror `sites[0]` when nonempty. Keep sourcePlan.stateAccount identity. -/
+def withProductMultiRoleTokenSitesV1
+    (ir : IR) (roleCount : Nat) (sites : Array ProductTokenTransferSiteV1) : IR :=
+  let vaultAtas := sites.map (·.vaultAtaLocal)
+  let mints := sites.map (·.mintLocal)
+  let dstAtas := sites.map (·.dstAtaLocal)
+  let vaultPdas := sites.map (·.vaultPdaLocal)
+  let tokenProgs := sites.map (·.tokenProgramLocal)
+  let callers := sites.map (·.callerLocal)
+  let dstWallets := sites.map (·.dstWalletLocal)
+  let systems := sites.map (·.systemLocal)
+  let ataProgs := sites.map (·.ataProgramLocal)
+  let site0 := sites[0]?
+  let sa := {
+    ir.stateAccount with
+      productMultiRoleCount := roleCount
+      productTokenMultiRole := true
+      productTokenSiteCount := sites.size
+      productTokenVaultAtaLocals := vaultAtas
+      productTokenMintLocals := mints
+      productTokenDstAtaLocals := dstAtas
+      productTokenVaultPdaLocals := vaultPdas
+      productTokenProgramLocals := tokenProgs
+      productTokenCallerLocals := callers
+      productTokenDstWalletLocals := dstWallets
+      productTokenSystemLocals := systems
+      productTokenAtaProgramLocals := ataProgs
+      productTokenVaultAtaLocal := site0.map (·.vaultAtaLocal) |>.getD 0
+      productTokenMintLocal := site0.map (·.mintLocal) |>.getD 0
+      productTokenDstAtaLocal := site0.map (·.dstAtaLocal) |>.getD 0
+      productTokenVaultPdaLocal := site0.map (·.vaultPdaLocal) |>.getD 0
+      productTokenProgramLocal := site0.map (·.tokenProgramLocal) |>.getD 0
+      productTokenCallerLocal := site0.map (·.callerLocal) |>.getD 0
+      productTokenDstWalletLocal := site0.map (·.dstWalletLocal) |>.getD 0
+      productTokenSystemLocal := site0.map (·.systemLocal) |>.getD 0
+      productTokenAtaProgramLocal := site0.map (·.ataProgramLocal) |>.getD 0
+  }
+  let sp := { ir.sourcePlan with stateAccount := sa }
+  { ir with stateAccount := sa, sourcePlan := sp }
+
+/-- M4b single-site convenience: stamp one multi-role `pf.assets.token.transfer`. -/
+def withProductMultiRoleTokenTransferV1
+    (ir : IR)
+    (roleCount vaultAtaLocal mintLocal dstAtaLocal vaultPdaLocal
+      tokenProgramLocal callerLocal dstWalletLocal systemLocal
+      ataProgramLocal : Nat) : IR :=
+  let site : ProductTokenTransferSiteV1 := {
+    vaultAtaLocal
+    mintLocal
+    dstAtaLocal
+    vaultPdaLocal
+    tokenProgramLocal
+    callerLocal
+    dstWalletLocal
+    systemLocal
+    ataProgramLocal
+    accountInfoCount := roleCount
+  }
+  withProductMultiRoleTokenSitesV1 ir roleCount #[site]
 
 end ProofForgeV2.Targets.Solana

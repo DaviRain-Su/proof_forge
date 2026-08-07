@@ -62,11 +62,12 @@ def systemTransferScratchBytesV1 (outerRoleCount : Nat) : Nat :=
   16 + systemTransferMetaCountV1 * productAccountMetaSizeV1 +
     productSolInstructionSizeV1 + outerRoleCount * productAccountInfoSizeV1
 
-/-- Minimum unified frame total for body temps + system.transfer scratch. -/
+/-- Minimum unified frame total for body temps + system.transfer scratch.
+    Role table is sized to `outerRoleCount` (M4c dynamic outer roles). -/
 def systemTransferUnifiedFrameMinV1 (bodyTempBytes : Nat)
     (outerRoleCount : Nat) : Nat :=
-  productRoleTableBytesV1 + productFixedSlotBytesV1 + bodyTempBytes +
-    systemTransferScratchBytesV1 outerRoleCount
+  productRoleTableBytesForV1 outerRoleCount + productFixedSlotBytesV1 +
+    bodyTempBytes + systemTransferScratchBytesV1 outerRoleCount
 
 /-- Fail-closed: scratch + body must fit under product max frame. -/
 def validateSystemTransferFrameBudgetV1 (bodyTempBytes outerRoleCount : Nat) :
@@ -89,6 +90,49 @@ def systemTransferMaturityNoteV1 (multiRole : Bool) : String :=
   else
     "system.transfer data layout (empty AccountMeta partial; multi-role deferred)"
 
+/-! ### M4b: `pf.assets.token.transfer` full-body multi-role foundation
+
+    Mirrors P3-e system.transfer multi-role stamping for the portable token
+    tip path. Full composite (ATA ensure ×2 + transferCheckedPda) is emitted
+    on the unified CPI frame; programs whose outer role table or Map body temp
+    peak cannot fit the 4 KiB stack stay on empty-meta partial (MiniAmmAssets
+    dual-mint Map residual).
+-/
+
+/-- Exact QN for portable token transfer. -/
+def pfAssetsTokenTransferQnV1 : String := "pf.assets.token.transfer"
+
+/-- True when a site QN string is the approved pf.assets token transfer. -/
+def isPfAssetsTokenTransferQnV1 (qn : String) : Bool :=
+  qn == pfAssetsTokenTransferQnV1
+
+/-- True when callee QN components are exactly `pf.assets.token.transfer`. -/
+def isPfAssetsTokenTransferCalleeV1 (callee : Array String) : Bool :=
+  callee.size == 4 &&
+    callee[0]! == "pf" &&
+    callee[1]! == "assets" &&
+    callee[2]! == "token" &&
+    callee[3]! == "transfer"
+
+/-- TokenInstruction::TransferChecked discriminant byte. -/
+def tokenTransferCheckedTagV1 : Nat := 0x0c
+
+/-- Instruction data length: tag + amount u64le + decimals u8. -/
+def tokenTransferCheckedDataLenV1 : Nat := 10
+
+/-- AccountMeta count for transferCheckedPda (source, mint, dest, authority). -/
+def tokenTransferCheckedMetaCountV1 : Nat := 4
+
+/-- Frozen decimals for standard SPL fixture mints (catalog per-mint deferred). -/
+def pfAssetsTokenTransferDecimalsV1 : Nat := 9
+
+/-- Comment line for token multi-role maturity honesty. -/
+def tokenTransferMaturityNoteV1 (multiRole : Bool) : String :=
+  if multiRole then
+    "pf.assets.token.transfer multi-role AccountMeta + ATA ensure + transferCheckedPda (M4b)"
+  else
+    "pf.assets.token.transfer empty AccountMeta partial; multi-role deferred (M4b residual)"
+
 /-- P3-e multi-role site binding for full-body system.transfer emit.
     Locals are dense role indices from the product plan (0 = state). -/
 structure ProductSystemTransferSiteV1 where
@@ -100,19 +144,70 @@ structure ProductSystemTransferSiteV1 where
   accountInfoCount : Nat
   deriving BEq, Repr, Inhabited
 
-/-- Stack slot layout (bytes below r10), escrow-compatible. -/
+/-- M4b multi-role site binding for full-body `pf.assets.token.transfer`.
+    Locals are dense product-plan role indices (0 = state). -/
+structure ProductTokenTransferSiteV1 where
+  /-- vault ATA (source, writable). -/
+  vaultAtaLocal : Nat
+  /-- mint account (readonly). -/
+  mintLocal : Nat
+  /-- destination ATA (writable). -/
+  dstAtaLocal : Nat
+  /-- vault PDA (authority, invoke_signed). -/
+  vaultPdaLocal : Nat
+  /-- classic Token program role. -/
+  tokenProgramLocal : Nat
+  /-- pf_caller (ATA ensure payer, outer signer). -/
+  callerLocal : Nat
+  /-- dst wallet Principal param role (dst ATA owner). -/
+  dstWalletLocal : Nat
+  /-- native System program role (ATA ensure meta). -/
+  systemLocal : Nat
+  /-- classic ATA program role (outer; ensure program_id may use frozen key). -/
+  ataProgramLocal : Nat
+  /-- Outer account infos length for sol_invoke_signed_c. -/
+  accountInfoCount : Nat
+  deriving BEq, Repr, Inhabited
+
+/-- Fixed-slot relative offsets within the 72B band after the role table.
+    Absolute r10 offset = `productRoleTableBytesForV1 roleCount + rel`.
+    (Historical absolute 8/16/24/32/40 only worked with a padded 16-role table.) -/
 def multiRoleSlotNumRolesV1 : Nat := 8
 def multiRoleSlotProgramIdV1 : Nat := 16
 def multiRoleSlotIxDataV1 : Nat := 24
 def multiRoleSlotHandlerIdV1 : Nat := 32
 def multiRoleSlotCursorV1 : Nat := 40
 
-/-- Body temp region start (absolute bytes below r10). -/
+/-- Absolute r10 offset of a multi-role fixed slot for `roleCount` outer roles. -/
+def multiRoleFixedSlotAbsV1 (roleCount slotRel : Nat) : Nat :=
+  productRoleTableBytesForV1 roleCount + slotRel
+
+/-- Body temp region start for historical 16-role layout (bytes below r10). -/
 def multiRoleTempBaseV1 : Nat := productEscrowTempBaseV1
 
-/-- CPI scratch base for multi-role system.transfer (after 32 body temps). -/
-def multiRoleCpiBaseV1 : Nat :=
-  multiRoleTempBaseV1 + 32 * 8
+/-- Body temp reservation for multi-role handlers (128 × 8 = 1024).
+    Raised for Map leaf temps (MiniAmmAssets); N=21 still fits 4 KiB. -/
+def multiRoleBodyTempBytesV1 : Nat := 128 * 8
+
+/-- Max CPI scratch bytes for multi-role composite (token ensure×2 + xfer).
+    Must fit under `productMaxFrameBytesV1` with role/fixed/body reserved. -/
+def multiRoleCpiScratchBudgetV1 : Nat := 1600
+
+/-- CPI scratch base (bytes below r10) for `roleCount` outer roles.
+    Writes use `[r10 - base + off]` with `off < multiRoleCpiScratchBudgetV1`,
+    so the high edge is `base - budget` — must sit **below** role table +
+    fixed slots + body temps. -/
+def multiRoleCpiBaseForV1 (roleCount : Nat) : Nat :=
+  productMultiRoleTempBaseForV1 roleCount + multiRoleBodyTempBytesV1 +
+    multiRoleCpiScratchBudgetV1
+
+/-- Absolute IR temp-index base so relative temp `0` lands at
+    `productMultiRoleTempBaseForV1 roleCount` (`tempStackOff t = 8*(t+1)`). -/
+def multiRoleBodyTempIndexBaseForV1 (roleCount : Nat) : Nat :=
+  productMultiRoleTempBaseForV1 roleCount / 8 - 1
+
+/-- Historical 16-role CPI base (compat / docs). Prefer `multiRoleCpiBaseForV1`. -/
+def multiRoleCpiBaseV1 : Nat := multiRoleCpiBaseForV1 16
 
 /-- Loader V3 ABIv1 marker and key offsets (frozen product values). -/
 def multiRoleAbiMarkerV1 : Nat := 0xff

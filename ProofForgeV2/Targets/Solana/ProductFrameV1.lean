@@ -1,5 +1,5 @@
 /-
-  ProofForgeV2.Targets.Solana.ProductFrameV1 — ADR-0032 U1 / P3-b.
+  ProofForgeV2.Targets.Solana.ProductFrameV1 — ADR-0032 U1 / P3-b / M4c.
 
   Unified pure `r10` frame budget for the sole product rail
   (`solana-sbpf-cpi-elf-v1`):
@@ -7,10 +7,10 @@
     [ role table | fixed slots | body temps | CPI scratch ]
          ≤ productMaxFrameBytesV1 (4096)
 
-  Numeric constants for the multi-role/CPI region match the existing
-  escrow product layout (CpiEscrowIRV1) without importing that module
-  (avoids IR↔emit cycles). Body-only zero-site hybrid uses a degenerate
-  layout with role/slot/cpi = 0 and body temps from the stack top.
+  Role table is sized to the program's outer `roleCount` (stride 64, max 32).
+  Fixed slots (72B) sit immediately after the role table; body temps follow.
+  Historical 16-role escrow pins (`productRoleTableBytesV1` / `productEscrowTempBaseV1`)
+  remain for escrow-compatible docs and the straight-line escrow composite path.
 
   Pure / fail-closed. Engineering only — not formal ToolchainIdentity.
 -/
@@ -25,22 +25,38 @@ open ProofForgeV2.Compiler
 /-- Hard stack ceiling (bytes), same as EmitSbpfAsm / escrow product. -/
 def productMaxFrameBytesV1 : Nat := 4096
 
-/-- Multi-role outer account table (16 × 64). Escrow-compatible. -/
-def productRoleTableBytesV1 : Nat := 1024
-
 /-- Role stride (bytes). Escrow-compatible. -/
 def productRoleStrideV1 : Nat := 64
 
-/-- Max outer roles that fit the table. -/
-def productMaxOuterRolesV1 : Nat := 16
+/-- Max outer roles that fit a dynamic table under the 4 KiB frame with
+    multi-role body temp (1024) + CPI scratch (1600) + fixed (72).
+    N=21 → 1344+72+1024+1600 = 4040 ≤ 4096; N=32 is the hard outer cap. -/
+def productMaxOuterRolesV1 : Nat := 32
 
-/-- Absolute r10-relative base of the first body temp in unified mode.
-    Escrow `escrowTempBaseV1 = 1096` = role table + fixed slots. -/
-def productEscrowTempBaseV1 : Nat := 1096
+/-- Historical 16-role role-table size (escrow / docs pin). Dynamic paths use
+    `productRoleTableBytesForV1`. -/
+def productRoleTableBytesV1 : Nat := 16 * productRoleStrideV1
 
-/-- Fixed slots region size between role table end and temp base. -/
-def productFixedSlotBytesV1 : Nat :=
-  productEscrowTempBaseV1 - productRoleTableBytesV1
+/-- Max role-table bytes (32 × 64). -/
+def productRoleTableBytesMaxV1 : Nat :=
+  productMaxOuterRolesV1 * productRoleStrideV1
+
+/-- Fixed slots region size between role table end and body temp base. -/
+def productFixedSlotBytesV1 : Nat := 72
+
+/-- Role table bytes for an exact outer role count. -/
+def productRoleTableBytesForV1 (roleCount : Nat) : Nat :=
+  roleCount * productRoleStrideV1
+
+/-- Absolute r10-relative base of the first body temp for multi-role unified
+    frames: role table + fixed slots. -/
+def productMultiRoleTempBaseForV1 (roleCount : Nat) : Nat :=
+  productRoleTableBytesForV1 roleCount + productFixedSlotBytesV1
+
+/-- Absolute r10-relative base of the first body temp in the historical 16-role
+    escrow layout (`1024 + 72 = 1096`). -/
+def productEscrowTempBaseV1 : Nat :=
+  productRoleTableBytesV1 + productFixedSlotBytesV1
 
 /-- Historical escrow max body temps (16 × 8). Full-body may use more; budget
     still caps total frame at 4096. -/
@@ -119,12 +135,15 @@ def validateProductFrameV1 (L : ProductFrameLayoutV1) : Except String Unit := do
           L.cpiScratchBytes == 0 do
         throw "ProductFrame: bodyOnly requires zero role/slot/cpi regions"
   | .unifiedCpi =>
-      unless L.roleTableBytes == productRoleTableBytesV1 do
-        throw s!"ProductFrame: unifiedCpi role table must be {productRoleTableBytesV1}"
+      unless L.roleTableBytes % productRoleStrideV1 == 0 do
+        throw s!"ProductFrame: unifiedCpi role table {L.roleTableBytes} not stride-aligned"
+      let roleCount := L.roleTableBytes / productRoleStrideV1
+      unless roleCount ≥ 1 && roleCount ≤ productMaxOuterRolesV1 do
+        throw s!"ProductFrame: unifiedCpi roleCount {roleCount} out of 1..{productMaxOuterRolesV1}"
       unless L.fixedSlotBytes == productFixedSlotBytesV1 do
         throw s!"ProductFrame: unifiedCpi fixed slots must be {productFixedSlotBytesV1}"
-      unless L.bodyTempStart == productEscrowTempBaseV1 do
-        throw s!"ProductFrame: unifiedCpi body start must be {productEscrowTempBaseV1}"
+      unless L.bodyTempStart == productMultiRoleTempBaseForV1 roleCount do
+        throw s!"ProductFrame: unifiedCpi body start must be {productMultiRoleTempBaseForV1 roleCount}"
   pure ()
 
 /-- Body-only frame: `bodyTempBytes` must already be 8-aligned (temp count × 8). -/
@@ -139,19 +158,26 @@ def mintBodyOnlyFrameV1 (bodyTempBytes : Nat) : Except String ProductFrameLayout
   validateProductFrameV1 L
   pure L
 
-/-- Unified frame with escrow-compatible role/slot prefix.
+/-- Unified multi-role frame sized to `roleCount` outer accounts.
     `bodyTempBytes` and `cpiScratchBytes` must be 8-aligned. -/
-def mintUnifiedCpiFrameV1 (bodyTempBytes cpiScratchBytes : Nat) :
+def mintUnifiedCpiFrameV1 (roleCount bodyTempBytes cpiScratchBytes : Nat) :
     Except String ProductFrameLayoutV1 := do
+  unless roleCount ≥ 1 && roleCount ≤ productMaxOuterRolesV1 do
+    throw s!"ProductFrame: roleCount {roleCount} out of 1..{productMaxOuterRolesV1}"
   let L : ProductFrameLayoutV1 := {
     mode := .unifiedCpi
-    roleTableBytes := productRoleTableBytesV1
+    roleTableBytes := productRoleTableBytesForV1 roleCount
     fixedSlotBytes := productFixedSlotBytesV1
     bodyTempBytes
     cpiScratchBytes
   }
   validateProductFrameV1 L
   pure L
+
+/-- Historical 16-role escrow-compatible unified mint (straight-line escrow path). -/
+def mintEscrowCompatibleUnifiedCpiFrameV1 (bodyTempBytes cpiScratchBytes : Nat) :
+    Except String ProductFrameLayoutV1 :=
+  mintUnifiedCpiFrameV1 16 bodyTempBytes cpiScratchBytes
 
 /-- CompileResult-friendly gate. -/
 def requireProductFrameV1 (L : ProductFrameLayoutV1) : CompileResult Unit :=
@@ -167,7 +193,8 @@ def escrowCompatibilityPinsV1 : Array (String × Nat) := #[
   ("tempBase", productEscrowTempBaseV1),
   ("tempRegionEnd", productEscrowTempRegionEndV1),
   ("cpiBaseMin", productCpiBaseMinV1),
-  ("maxFrame", productMaxFrameBytesV1)
+  ("maxFrame", productMaxFrameBytesV1),
+  ("maxOuterRoles", productMaxOuterRolesV1)
 ]
 
 end ProofForgeV2.Targets.Solana.ProductFrameV1

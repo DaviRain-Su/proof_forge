@@ -12,6 +12,12 @@ open ProofForgeV2.Language
 --     path currently uses **declared amountIn** on swaps (pre-fund still
 --     required off-chain / by protocol). Views expose balanceOfSelf for mint.
 --   * Dual-mint vault ATA roles are mint-param keyed (M4 derive fix).
+--   * Solana M4c: multi-role token CPI on sole rail — dense Map Principal
+--     specialized ops (temps ~102/55), dynamic role table N=21 (ROLE_BASE
+--     0x540), per-site stamp product_mr_token_0..3 for dual-mint transfers.
+--     Product pins: MiniAmmAssetsSolanaV1 + MiniAmmAssetsEvmV1.
+--   * Dual-chain runtime: Solana Mollusk miniamm_assets 10/10 + EVM Anvil
+--     scripts/evm_miniamm_assets_anvil_smoke.sh (M5 dual ERC-20, same source).
 --
 -- Pre-fund honesty: user funds vault first; AMM revert does not auto-refund.
 program MiniAmmAssets where
