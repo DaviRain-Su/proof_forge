@@ -38,9 +38,9 @@ def embeddedToolLockV4Text : ToolLockPlatformV4 → String
 
 private def expectedRawDigestWire : ToolLockPlatformV4 → String
   | .darwinArm64 =>
-      "sha256:80e5d3aaf792f2f7fb80cde4d95d0df9a6f89e4f9c37fd178d94456688f12255"
+      "sha256:267908207084682d0b25a0c82fe4ebb5a948dc7e9b0f7d1b362f4dd1af1cb28a"
   | .linuxX86_64 =>
-      "sha256:0f4ac29db55a1cb9929a7b2fe16054c14113bcc7ac8c5ba2fbe6362f07d8215e"
+      "sha256:4fac78c824e1900004a795b3d8ec65a83a1ea099db7a637d912da6dd276c2fda"
 
 /-- Raw retained-file identity, kept distinct from ToolLockV4Digest. -/
 def embeddedToolLockV4RawDigest (platform : ToolLockPlatformV4) : Digest :=

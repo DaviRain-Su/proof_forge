@@ -83,12 +83,21 @@ open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 open ProofForgeV2.Targets.Aleo.PfAssetsDispositionV1
 
-/-- Engineering codegen profile for the Leo 4.0.2 source slice. Any change to
-    the supported surface or the Leo toolchain requires a new profile. -/
+/-- Residual default Aleo codegen profile (Leo 4.0.2 source-only slice).
+    The compile profile (`aleoLeoU64CompileV1`) is a second selection identity
+    with the same Plan surface; any change to the supported surface or the Leo
+    toolchain requires a new profile. -/
 def codegenProfile : CodegenProfileId := CodegenProfileId.aleoLeoU64V1
 
-/-- Locked Leo toolchain version string (source-only; no approved digest-pinned
-    `leo` binary is configured, mirroring the Noir zero-tool finalization). -/
+/-- Defensive allowlist for Aleo capability profiles. Both registered profiles
+    share the same retained-Semantic Plan lowering; unknown profiles fail closed. -/
+private def isAdmittedAleoCodegenProfile (profile : CodegenProfileId) : Bool :=
+  profile == CodegenProfileId.aleoLeoU64V1 ||
+    profile == CodegenProfileId.aleoLeoU64CompileV1
+
+/-- Shared Leo language/toolchain version. The default profile only emits source;
+    the explicit compile profile resolves the digest-pinned Leo binary from
+    Tool Lock v4 during finalization. -/
 def leoToolchain : String := "4.0.2"
 
 /-- Engineering descriptor (shared DescriptorDataV1). -/
@@ -2472,10 +2481,16 @@ private def digestHex (label : String)
   | .error error => planError s!"{label} digest render failed: {error}"
 
 
-/-- Internal Aleo family phase entry: capability → Plan (pre-canonicity). -/
+/-- Internal Aleo family phase entry: capability → Plan (pre-canonicity).
+    Both admitted Aleo profiles share the same retained-Semantic Plan body
+    (Plan/planDigest are profile-insensitive); unknown profiles fail closed. -/
 def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .aleo do
     throw <| .planInvariant .aleo "engineering capability kind is not Aleo"
+  let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
+  unless isAdmittedAleoCodegenProfile profile do
+    throw <| .planInvariant .aleo
+      s!"Aleo materialize rejects unknown codegen profile '{profile}'"
   let compiled := ResolvedEngineeringBuildV1.compiledOf capability
   let source := CompiledSemanticV1.semanticV1Of compiled
   let name := CompiledSemanticV1.artifactProgramNameOf compiled

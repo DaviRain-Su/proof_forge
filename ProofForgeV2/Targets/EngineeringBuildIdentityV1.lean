@@ -15,8 +15,10 @@
     String(renderDigest(semanticDigest))
     String(renderDigest(engineeringRegistryRootDigest))
     String(renderDigest(supportClaimDigest))
-    String(renderDigest(planDigest))   -- M4: EVM Plan schema digest, or
-                                       -- engineering-absent plan digest for other targets
+    String(renderDigest(planDigest))   -- M4/ALEO-I1: target Plan schema digest
+                                       -- (EVM/Solana/NEAR/Noir/CosmWasm/Quint/
+                                       -- TON/Aleo), or engineering-absent slot
+                                       -- (Psy / design-only)
 
   Sole mint: `mintEngineeringBuildIdentityV1`, called from
   `mintMaterializedArtifactsV1` after capability + digest validation.
@@ -53,10 +55,11 @@ structure EngineeringBuildIdentityV1 where
   semanticDigest : Digest
   engineeringRegistryRootDigest : Digest
   supportClaimDigest : Digest
-  /-- Target Plan engineering digest (M4). EVM uses
-      `engineeringEvmPlanDigestV1`; Aleo/Psy bind
-      `engineeringAbsentPlanDigestV1` so the identity chain always carries a
-      plan slot without inventing fake Plan schemas. -/
+  /-- Target Plan engineering digest (M4/ALEO-I1). EVM/Solana/NEAR/Noir/
+      CosmWasm/Quint/TON/Aleo recompute target-owned Plan schema digests;
+      Psy (and design-only targets) bind `engineeringAbsentPlanDigestV1` so
+      the identity chain always carries a plan slot without inventing a fake
+      Plan schema. -/
   planDigest : Digest
   /-- Domain-separated digest of the canonical identity preimage. -/
   identityDigest : Digest

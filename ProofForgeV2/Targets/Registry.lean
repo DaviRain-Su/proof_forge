@@ -6,6 +6,7 @@ import ProofForgeV2.Targets.Noir.PlanSchemaV1
 import ProofForgeV2.Targets.CosmWasm.PlanSchemaV1
 import ProofForgeV2.Targets.Quint.PlanSchemaV1
 import ProofForgeV2.Targets.Ton.PlanSchemaV1
+import ProofForgeV2.Targets.Aleo.PlanSchemaV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Near
@@ -69,9 +70,10 @@ def descriptor? (target : TargetId) : CompileResult (Option TargetDescriptor) :=
       else
         return none
 
-/-- M4/T9d: bind engineering Plan digest into identity.
-    EVM/Solana/NEAR/Noir recompute target Plan schema digests; design-only
-    targets bind `engineeringAbsentPlanDigestV1`. -/
+/-- M4/T9d/ALEO-I1: bind engineering Plan digest into identity.
+    EVM/Solana/NEAR/Noir/CosmWasm/Quint/TON/Aleo recompute target Plan schema
+    digests from capability; Psy (and design-only targets) bind
+    `engineeringAbsentPlanDigestV1`. -/
 private def planDigestForCapabilityV1
     (capability : ResolvedEngineeringBuildV1) : CompileResult Digest := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
@@ -120,6 +122,12 @@ private def planDigestForCapabilityV1
       | .ok d => pure (d : Digest)
       | .error e =>
           throw <| .invalidProgram s!"materialize: Ton plan digest failed: {e}"
+  | .aleo =>
+      let plan ← Aleo.planFromCapability capability
+      match Aleo.engineeringAleoPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: Aleo plan digest failed: {e}"
   | _ =>
       match engineeringAbsentPlanDigestV1
           selection.targetId selection.codegenProfile with

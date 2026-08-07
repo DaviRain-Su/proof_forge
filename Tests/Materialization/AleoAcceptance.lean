@@ -1,5 +1,5 @@
 /-
-  Aleo leo-build acceptance suite (engineering only; J2 AleoEmissionFix).
+  Aleo leo-build acceptance suite (engineering only; ALEO-I3 locked-Leo path).
 
   Builds representative ProgramV1 sources through the product capability path
   (select → compileValidatedSourceV1 → resolve → materializeResult), wraps the
@@ -8,19 +8,29 @@
 
       leo build --offline --disable-update-check
 
-  The suite prefers the materialized Tool Lock root, then known host
-  candidates/PATH. Each compiler invocation uses a suite-owned HOME with an
-  explicit empty `.aleo` directory, so ambient user configuration cannot make
-  a clean runner pass or fail. If no `leo` is available it SKIP-passes with a
-  clear log; once resolved, any non-zero compiler exit fails closed.
+  Locked tool only (matches LockedToolchainV1.candidatePath):
+    1) $PROOF_FORGE_TOOL_ROOT/leo when set
+    2) else package default cache tool-root/<platform>/leo
+  No PATH / cargo / homebrew fallback. Soft absence → clean skip (not a pass
+  that claims compile acceptance). When a locked candidate is present, the
+  suite hard-verifies via LockedToolchainV1.resolve (exact 4.0.2 + sha pin);
+  any resolve error (including PF-TOOLCHAIN-MISSING from env/stat/lock
+  corruption) fails closed and is never remapped to skip.
+
+  Each compiler invocation uses a suite-owned HOME with an empty `.aleo`
+  directory and inheritEnv := false (no ambient PRIVATE_KEY/VIEW_KEY/NETWORK
+  or other Aleo secret/network env). Compile-only; no run/execute/deploy/query.
 
   Not formal Stage-0 / hermetic Tool Lock verification / snarkVM prove-deploy.
-  Maturity remains source-package + engineering compilation acceptance — not
-  runtime VM / proof completion.
+  This wider corpus gate remains host-optional; ALEO-I4 separately provides an
+  opt-in product compile profile. Neither is runtime VM / proof completion.
+  The default source-profile FinalizeV1 stays zero-tool.
 -/
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
+import ProofForgeV2.Materialization.LockedToolchainV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
 import Tests.Language.ParserSession
@@ -29,6 +39,7 @@ namespace Tests.Materialization.AleoAcceptance
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Materialization.LockedToolchainV1
 open ProofForgeV2.Targets.BuildSelectionV1
 open System
 
@@ -40,26 +51,135 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
 
-/-- Resolve `leo`: prefer Tool Lock materialize root, then cargo/homebrew/PATH.
-    Returns `none` when unavailable (skip path). -/
-private def resolveLeoPath : IO (Option String) := do
-  let home ← IO.getEnv "HOME"
-  let mut absCandidates : Array String := #["/opt/homebrew/bin/leo", "/usr/local/bin/leo"]
-  if let some h := home then
-    absCandidates := absCandidates.push (h ++ "/.cache/proof-forge-v2/tool-root/darwin-arm64/leo")
-    absCandidates := absCandidates.push (h ++ "/.cache/proof-forge-v2/tool-root/linux-x86_64/leo")
-    absCandidates := absCandidates.push (h ++ "/.cargo/bin/leo")
-  if let some root ← IO.getEnv "PROOF_FORGE_TOOL_ROOT" then
-    absCandidates := #[root ++ "/leo"] ++ absCandidates
-  for c in absCandidates do
-    if ← (FilePath.mk c).pathExists then
-      return some c
-  let which ← IO.Process.output { cmd := "which", args := #["leo"] }
-  if which.exitCode == 0 then
-    let path := which.stdout.trimAscii.copy
-    if !path.isEmpty && (← (FilePath.mk path).pathExists) then
-      return some path
-  return none
+/-- Default product CodegenProfileId for Aleo source-only acceptance
+    (lock requiredByProfiles join; compile profile is control-plane only here). -/
+private def aleoCodegenProfileWire : String := CodegenProfileId.aleoLeoU64V1.toString
+
+/-- Package-owned default cache path for locked leo (platform wire). -/
+private def defaultLockedLeoPath (home platformWire : String) : String :=
+  home ++ "/.cache/proof-forge-v2/tool-root/" ++ platformWire ++ "/leo"
+
+private def toolRootLeoPath (root : String) : String :=
+  root ++ "/leo"
+
+/-- Isolation allowlist for leo build: suite HOME + portable locale only.
+    Ambient secrets/network keys are never inherited (inheritEnv := false).
+    Process env uses `Option String` (some = set). -/
+private def aleoIsolatedEnv (leoHome : String) : Array (String × Option String) :=
+  #[("HOME", some leoHome), ("LC_ALL", some "C"), ("TZ", some "UTC")]
+
+private def isAleoSecretOrNetworkEnvKey (key : String) : Bool :=
+  key == "PRIVATE_KEY" || key == "VIEW_KEY" || key == "ADDRESS" ||
+  key == "NETWORK" || key == "ENDPOINT" || key == "DEVNET" ||
+  key == "CONSENSUS_VERSION" || key == "CONSENSUS_VERSION_HEIGHTS" ||
+  key == "CONSENSUS_HEIGHTS" || key == "NETWORK_RETRIES" ||
+  key == "PRIORITY_FEE" || key == "FEE_RECORD"
+
+/-- Soft locked-path probe only (no PATH/cargo/homebrew). Returns `none` when
+    the locked candidate is absent so the suite can skip cleanly. When
+    `PROOF_FORGE_TOOL_ROOT` is set, only that root is considered (no silent
+    fall-through to the default cache), matching LockedToolchainV1. -/
+private def softLockedLeoPath : IO (Option String) := do
+  match ← IO.getEnv "PROOF_FORGE_TOOL_ROOT" with
+  | some root =>
+      let path := toolRootLeoPath root
+      if ← (FilePath.mk path).pathExists then
+        pure (some path)
+      else
+        pure none
+  | none =>
+      match ← IO.getEnv "HOME" with
+      | none => pure none
+      | some home =>
+          let platformWire :=
+            if System.Platform.isOSX then "darwin-arm64" else "linux-x86_64"
+          let path := defaultLockedLeoPath home platformWire
+          if ← (FilePath.mk path).pathExists then
+            pure (some path)
+          else
+            pure none
+
+/-- Soft-skip is legal only when the soft locked candidate is absent.
+    Once a candidate exists, every LockedToolchainV1.resolve error
+    (including PF-TOOLCHAIN-MISSING from env/stat/lock corruption) is
+    fail-closed — never remapped to skip. -/
+private def maySoftSkip (softPresent : Bool) : Bool := !softPresent
+
+/-- Hard resolve: Tool Lock identity/sha/version via LockedToolchainV1.resolve.
+    Soft absence → `none` (host-optional skip). Soft presence + any resolve
+    error fails closed (does not catch/remap PF-TOOLCHAIN-MISSING). -/
+private def resolveLockedLeo : IO (Option String) := do
+  match ← softLockedLeoPath with
+  | none => pure none
+  | some _ =>
+      -- No catch-to-skip: soft-hit requires successful hard resolve.
+      let verified : VerifiedTool ← resolve "leo"
+      expect (verified.version == "4.0.2")
+        s!"locked leo version must be 4.0.2, got {verified.version}"
+      expect (verified.id == "leo") "locked tool id must be leo"
+      pure (some verified.path.toString)
+
+/-- Policy unit tests: locked path shape, no PATH fallback surface, isolation
+    allowlist, sole CodegenProfileId pin, soft-skip-only-when-absent contract.
+    Does not require a materialized leo. -/
+private def testLockedResolverPolicy : IO Unit := do
+  expect (aleoCodegenProfileWire == "aleo-leo-4.0.2-u64-v1")
+    "default Aleo source CodegenProfileId must be aleo-leo-4.0.2-u64-v1"
+  expect (CodegenProfileId.aleoLeoU64CompileV1.toString ==
+      "aleo-leo-4.0.2-u64-compile-v1")
+    "compile profile constant must be aleo-leo-4.0.2-u64-compile-v1"
+  expect (aleoCodegenProfileWire != "aleo-leo-build-v1")
+    "phantom acceptance-lane profile id must not be the product pin"
+  let fromRoot := toolRootLeoPath "/tmp/pf-tool-root"
+  expect (fromRoot == "/tmp/pf-tool-root/leo") "tool-root leo path shape"
+  expect (!fromRoot.contains ".cargo" && !fromRoot.contains "homebrew" &&
+      !fromRoot.contains "/usr/local" && !fromRoot.contains "/opt/")
+    "tool-root path must not encode PATH/cargo/homebrew fallbacks"
+  let defDarwin := defaultLockedLeoPath "/Users/x" "darwin-arm64"
+  expect (defDarwin ==
+      "/Users/x/.cache/proof-forge-v2/tool-root/darwin-arm64/leo")
+    "darwin default cache path"
+  let defLinux := defaultLockedLeoPath "/home/x" "linux-x86_64"
+  expect (defLinux ==
+      "/home/x/.cache/proof-forge-v2/tool-root/linux-x86_64/leo")
+    "linux default cache path"
+  for p in #[defDarwin, defLinux] do
+    expect (!p.contains ".cargo" && !p.contains "homebrew")
+      s!"default cache must not use cargo/homebrew: {p}"
+  let env := aleoIsolatedEnv "/tmp/aleo-suite-home"
+  expect (env.size == 3) "isolation allowlist is HOME+LC_ALL+TZ only"
+  expect (env.any (fun p => p.1 == "HOME" && p.2.isSome) &&
+      env.any (fun p => p.1 == "LC_ALL" && p.2.isSome) &&
+      env.any (fun p => p.1 == "TZ" && p.2.isSome))
+    "isolation allowlist keys"
+  for (k, _) in env do
+    expect (!isAleoSecretOrNetworkEnvKey k)
+      s!"isolation allowlist must not carry secret/network key {k}"
+  for k in #["PRIVATE_KEY", "VIEW_KEY", "ADDRESS", "NETWORK", "ENDPOINT",
+      "DEVNET", "PRIORITY_FEE", "FEE_RECORD"] do
+    expect (isAleoSecretOrNetworkEnvKey k)
+      s!"secret/network key table must recognize {k}"
+    expect (!env.any (fun p => p.1 == k)) s!"allowlist must omit ambient key {k}"
+  -- Soft-skip contract (P2): only soft absence may skip; soft-hit + any
+  -- resolve error (including PF-TOOLCHAIN-MISSING) must fail closed.
+  expect (maySoftSkip false == true)
+    "soft absence may skip"
+  expect (maySoftSkip true == false)
+    "soft presence must not soft-skip"
+  -- Simulated resolve error messages after soft-hit remain fail-closed inputs.
+  for msg in #["PF-TOOLCHAIN-MISSING: required toolchain 'leo' is not available",
+      "PF-TOOLCHAIN-MISMATCH: toolchain 'leo' expected '4.0.2', found 'x'",
+      "PF-TOOLCHAIN-MISMATCH: invalid embedded lock: corrupted"] do
+    expect (!maySoftSkip true)
+      s!"soft-hit + resolve error must not skip ({msg.take 32}…)"
+  -- Locked bundle surface: executable-only leo (no runtime dylib closure).
+  match requiredBundlePaths "leo" with
+  | .error error =>
+      throw <| IO.userError s!"locked leo closure could not be resolved: {error}"
+  | .ok paths =>
+      expect (paths == #["leo"])
+        "leo requiredBundlePaths must be the single executable"
+  IO.println "  locked-resolver policy ok (no PATH fallback; soft-skip-only-when-absent; env allowlist)"
 
 /-- Product materialize for the default Aleo profile; returns Leo source + path. -/
 private unsafe def materializeAleo
@@ -92,7 +212,8 @@ private unsafe def materializeAleo
 private def programStem (aleoPath : String) : String :=
   if aleoPath.endsWith ".aleo" then (aleoPath.dropEnd 5).copy else aleoPath
 
-/-- Write a Leo 4 package around product-emitted source and run `leo build`. -/
+/-- Write a Leo 4 package around product-emitted `.aleo` base and run locked
+    `leo build --offline --disable-update-check` under isolated env. -/
 private def runLeoBuild (leo : String) (leoHome pkgRoot : FilePath)
     (programId : String) (leoSource : String) (label : String) : IO Unit := do
   IO.FS.createDirAll (pkgRoot / "src")
@@ -108,13 +229,24 @@ private def runLeoBuild (leo : String) (leoHome pkgRoot : FilePath)
     "  \"dev_dependencies\": null\n" ++
     "}\n"
   IO.FS.writeFile (pkgRoot / "program.json") programJson
+  -- Only the product `.aleo` base leaf is consumed as package source.
   IO.FS.writeFile (pkgRoot / "src" / "main.leo") leoSource
+  -- True empty-env isolation via `/usr/bin/env -i` (matches LockedToolchainV1
+  -- runIsolated discipline). Suite HOME only — no ambient secrets/network keys.
   let process ← IO.Process.output {
-    cmd := leo
-    args := #["build", "--offline", "--disable-update-check"]
+    cmd := "/usr/bin/env"
+    args := #[
+      "-i",
+      s!"HOME={leoHome.toString}",
+      "LC_ALL=C",
+      "TZ=UTC",
+      leo,
+      "build",
+      "--offline",
+      "--disable-update-check"
+    ]
     cwd := some pkgRoot
-    env := #[("HOME", leoHome.toString)]
-    inheritEnv := true
+    inheritEnv := false
   }
   unless process.exitCode == 0 do
     throw <| IO.userError
@@ -415,17 +547,32 @@ private def optionStateSourceText : String :=
   "    | _ => do\n" ++
   "      return 0\n"
 
-/-- Suite entry. Skips cleanly when leo is unavailable. -/
+/-- Suite entry. Policy tests always run. Compile acceptance skips cleanly when
+    locked leo is unavailable (never PATH-fallback; never pretends pass). -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.AleoAcceptance: start"
-  match ← resolveLeoPath with
+  testLockedResolverPolicy
+  match ← resolveLockedLeo with
   | none =>
-      IO.println "skipped: leo unavailable"
+      IO.println "skipped: locked leo unavailable"
+      IO.println s!"  profile pin: {aleoCodegenProfileWire}"
+      IO.println "  no PATH/cargo/homebrew fallback; host-optional skip-clean"
       IO.println "Tests.Materialization.AleoAcceptance: ok (skipped)"
   | some leo => do
-      let ver ← IO.Process.output { cmd := leo, args := #["--version"] }
+      -- Version identity + executable sha already hard-checked by
+      -- LockedToolchainV1.resolve (exact expectedVersion 4.0.2). Re-probe via
+      -- env -i for the log line (same isolation as runLeoBuild).
+      let ver ← IO.Process.output {
+        cmd := "/usr/bin/env"
+        args := #["-i", "LC_ALL=C", "TZ=UTC", leo, "--version"]
+        inheritEnv := false
+      }
+      let verText := (ver.stdout ++ ver.stderr).trimAscii.copy
       IO.println s!"leo: {leo}"
-      IO.println s!"{ver.stdout.trimAscii.copy}"
+      IO.println s!"profile: {aleoCodegenProfileWire}"
+      IO.println s!"{verText}"
+      expect (ver.exitCode == 0 && verText.contains "4.0.2")
+        s!"locked leo --version must contain 4.0.2 (exit {ver.exitCode})\n{verText}"
       let tmp := FilePath.mk "build/v2/aleo-acceptance"
       if ← tmp.pathExists then IO.FS.removeDirAll tmp
       IO.FS.createDirAll tmp

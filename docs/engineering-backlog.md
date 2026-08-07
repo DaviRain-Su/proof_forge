@@ -88,8 +88,8 @@ formal / release ──────────────────► 04/05
 **产品现状一句话**：CLI 进程内 `Loader → Normalize → CompiledSemanticV1 → capability Plan/IR →
 Materialized/Finalized + disk closure` 已通；sole Normalize 与**九个 materializer**（EVM/Solana/NEAR/Noir/
 Aleo/Psy/Quint/CosmWasm/TON）已覆盖非均匀的多宽算术、控制流、fn、let/for、shift/bitwise、call/schedule、
-聚合与 Field 子集；EVM/Solana/NEAR/CosmWasm/TON 有工程 runtime 门，Noir/Aleo 有 compile-only 门，Psy
-与 Quint 仍 source-only（Quint 为 zero-tool `.qnt` executable-model target）。registry = **12 targets / 9 implemented + 3 design-only / 11 resolver rows**；CW：sync 拒、
+聚合与 Field 子集；EVM/Solana/NEAR/CosmWasm/TON 有工程 runtime 门，Noir 有 compile-only 门，Aleo 有
+opt-in locked compile product finalization（仍 non-deployable），Psy 与 Quint 仍 source-only（Quint 为 zero-tool `.qnt` executable-model target）。registry = **12 targets / 9 implemented + 3 design-only / 11 resolver rows**；CW：sync 拒、
 async SubMsg 子集（msg 已升 Binary/base64）；TON：resolver admit async、schedule 已降 `createMessage`
 async internal out-message（NoBounce/value=0/dest hash stub；sync 仍 FC）；**完整语言面、平台语义与 formal 资格仍未闭合**，
 D1–D4 = 0/27 done。
@@ -288,6 +288,10 @@ D1–D4 = 0/27 done。
 | **B-1b2** | Noir Bytes state（B-1b 余量） | Noir/** | **done**（2026-08-03：L3 lane `integrate/w1-all`；Bytes N→N×UInt8 leaves + literal IndexGet/Set + atomic storeAggregate；Bytes construct/param/动态索引仍 FC） |
 | **B-PSY-BITNOT** | Psy UInt64 `~`（矩阵 unary 粒度偏差） | Psy/** | **done**（2026-08-03：L4 lane `integrate/w1-all`；`checkedBitNot` = assert `x ≥ 2^32−1` + Felt sub `(2^32−2)−x`，可表示半区精确语义、其余运行时 trap；Int64 `~` 仍 FC） |
 | **B-1c** | Aleo 覆盖核对 + 显式边界 | Aleo/** | **done**（`04fe6e815`） |
+| **ALEO-I1** | Aleo canonical Plan schema + content planDigest | Aleo Plan/Registry/Identity | **done（2026-08-07）**：closed-tag length-framed encoding 覆盖完整 current Plan，domain `pf.aleo-plan.engineering.v1`；Registry/BuildIdentity product recompute，Psy absent slot 不变；engineering only，非 formal BuildIdentity |
+| **ALEO-I2** | Aleo public-state query contract sidecar | Aleo EmitIR/materialization | **done（2026-08-07）**：产品有序输出 `.aleo` + `.aleo-query-contract.json` 两个 materialized-base；schema `proof-forge-aleo-query-contract/v1` 绑定 public mappings、bare views、`resultDropped`、source/semantic hash；不执行 `leo query`；默认 profile zero-tool |
+| **ALEO-I3** | Locked Leo compile-only acceptance hardening | Tool Lock/AleoAcceptance | **done（2026-08-07）**：两平台 `requiredByProfiles` exact 绑定 source+compile 两 profile；删除 PATH/cargo/brew fallback，硬验 4.0.2+digest，隔离 HOME/secret/network env，仅运行 offline build；acceptance missing tool clean skip，非 VM/proof/deploy/hermetic |
+| **ALEO-I4** | Opt-in locked Leo product compile finalization | Aleo Finalize/CLI output/tests | **done（2026-08-07）**：显式 `aleo-leo-4.0.2-u64-compile-v1` 与 default 共享 Plan/planDigest、独立 claim/BuildIdentity；Finalize 仅消费 `.aleo` base（query descriptor 不入 package），临时 HOME/package 下 locked offline build，发布 `.compiled.aleo`/`.abi.json`/`.leo-program.json` 三 finalized-extra；missing/bad tool 或 partial outputs 零发布；双次 exact bytes + inspect closure；`deployable=false`，非 execute/proof/deploy/query |
 | **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array + **Map UInt64 dense pilot** cap-8；默认仍 plan profile，opt-in ELF+Mollusk 已通；aggregate CSE/storeStateMulti 修复 empty upsert，MapMini 4/4 active；Option 中间值自 Map IndexGet；**Bytes 已随 B-1d2 开放，`Option UInt64` state 后由 BL-29 开放**） |
 | **B-1d2** | Solana named Struct/Enum + Bytes state | Solana/** | **done**（2026-08-03：L2 lane `integrate/w1-all`；named 聚合 flatten + Bytes N×UInt8 state/params + atomic storeAggregate/storeStateMulti；4096B frame 硬门保持、plan/ELF 绿；该 lane 当时聚合返回/Option state FC，后续已由 B-RET-ABI/N-ANON-RESULT 与 BL-29 开放 bounded return / `Option UInt64` state；Bytes construct/ContextRead 仍 FC） |
 | **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2；**Map UInt64 dense pilot** cap-8 + Token locked-solc finalization；creation bytecode 超 EIP-3860，chain deployment 未闭合；Option-from-Map 当时仅中间值，后续 BL-31 已开 `Option UInt64` state；EVM/Solana/NEAR/Noir/Aleo Map 横向已开并闭合 aggregate snapshot hazard） |
@@ -302,7 +306,7 @@ D1–D4 = 0/27 done。
 | ID | 项 | 状态 |
 |---|---|---|
 | **C-1** | NEAR Wasm 工具链 load + sandbox 工程子集 | **done**（2026-08-02：`672e6115d` NearWasmAcceptance = locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` load，工具缺席 skip；2026-08-03 C-6 另加 locked near-sandbox Counter happy path；均非 formal Reference differential） |
-| **C-2** | Aleo/Psy compiler/VM 可用性研究与是否升格验收 | **done**（2026-08-02：RPT-015 保持 source-only；2026-08-03 G123/C-2-pin 后 Aleo 已有 locked leo 4.0.2 compile-only 门，但仍无 VM/prove/deploy；Psy 仍无 Tool Lock/VM） |
+| **C-2** | Aleo/Psy compiler/VM 可用性研究与是否升格验收 | **done**（2026-08-07：RPT-015 + RPT-024；Aleo locked Leo 4.0.2 已从 host-optional acceptance 扩为显式 compile-profile product finalization，并有 Plan digest/query-contract/output closure；但 `leo run` 仅解释、execute/deploy/query 网络依赖、synthesize CRS 未锁、无 snarkOS/snarkVM，因此仍无 VM/prove/deploy；Psy 仍无 Tool Lock/VM） |
 | **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；G4 产品 CLI→Anvil 工程差分已覆盖四程序，但未绑定正式 Reference corpus/identity） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | **done（研究决定仍有效）**：2026-08-03 G123 已锁定 nargo 1.0.0-beta.26 并接 `NoirCompileAcceptance` compile-only 门（C-7），supersede 原“无 nargo pin”观察；Barretenberg/backend、CRS/security profile、witness/prove/verify 与 proof binding 仍无，因此不升格 prove/verify、保持 source-only；见 `16-noir-prove-path.md` |
 | **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（Counter + 18 fixtures = 19 programs；#111 移除 CpiCaller；**#113** V1 单账户安全负例矩阵；OptionState 与聚合返回保留；manifest-bound artifact 读取已接线） |
@@ -316,7 +320,7 @@ D1–D4 = 0/27 done。
 | **EVMOZ-004** | primitive + Token adapter business cases + Reference/Anvil harness | **done**（2026-08-06 更新：5 primitive + 1 adapter cases；Reference 28 obs；新增 `pf.primitive.ownablelike.caller-admit.v1` 的 owner/stranger/rollback PF-Anvil closure；Token 仅因 EIP-3860 部署上限允许 explicit skip；**非** formal C-3 / OZ） |
 | **EVMOZ-005** | Ownable-like caller boundary | **done / blocked case retired**（2026-08-06：`OwnableLike.lean` 从 ContextRead planInvariant blocker 升为 EVM caller primitive；历史 `oz.f01…blocked.v1` 删除，`EvmCorpusBlockedV1` 保留文件名但改为 Loader/Normalize/Reference + Plan/Yul admit pin。F01 OZ family 仍 Blocked：无 OZ behavior leg/标准 address+event+error ABI） |
 | **EVMOZ-006** | corpus manifest + CI registration + real Ownable pins | **done**（2026-08-06：manifest exact inventory 50 entries / 13 runners；6 business cases / 6 runnable；Ownable source/semantic pins保留；`just evm-corpus-{schema,reference,static,runtime}`；static 进 `dev-check`/`ci-lean-product`，runtime 不进 ordinary CI；**Exact 0 / Partial 0 / Blocked 20 不变**；无 OZ leg） |
-| **C-2-pin** | leo 4.0.2 Tool Lock pin（G123） | **done**（2026-08-03：leo 4.0.2 入 `tools[]`（darwin+linux）；`aleo_acceptance.sh` 优先 Tool Lock 解析；仍 source-only + optional compile，非 prove/deploy） |
+| **C-2-pin** | leo 4.0.2 Tool Lock pin（G123） | **done**（2026-08-07 current：leo 4.0.2 入 `tools[]`（darwin+linux），requiredBy exact 绑定 Aleo source+compile profiles；acceptance + opt-in product finalizer 仅走 locked resolver；仍 non-deployable compile-only，非 prove/deploy） |
 
 ---
 
@@ -328,7 +332,7 @@ D1–D4 = 0/27 done。
 |---|---|---|
 | **D3-E1** | 产品可达 formal-layout `registryDigest` / root codec（或明确永久工程-only） | **done**（2026-08-02：**永久工程-only** 决策 — 产品不暴露 formal `registryDigest`；`TargetRegistryV1` 无 root digest 字段；见 `RECOVERY.md` D3-E1 段） |
 | **D3-E2** | SupportClaim/decision 全字段与 resolver 决策面 | **done**（2026-08-02：**工程** `EngineeringSupportClaimV1` + `mintEngineeringSupportClaimsV1` + resolver/describe-target `claimDigest` + `Tests/Materialization/IdentityChainV1`；domain `pf.support-claim.engineering.v1`；**非** formal SupportClaim/predicate/evidence grade） |
-| **D3-E3** | 可达 BuildIdentity mint + Plan/IR digest 全 target（T9d 子集） | **done**（2026-08-02：工程 `mintEngineeringBuildIdentityV1` + EVM/Solana/NEAR/Noir planDigest；Aleo/Psy engineering-absent slot；`IdentityChainV1` 钉四 target 匹配 + absent；**非** formal BuildIdentity） |
+| **D3-E3** | 可达 BuildIdentity mint + Plan/IR digest 全 target（T9d 子集） | **done**（2026-08-07 更新：工程 `mintEngineeringBuildIdentityV1` 已绑定 EVM/Solana/NEAR/Noir 与 **Aleo content planDigest**；Aleo domain=`pf.aleo-plan.engineering.v1`，`IdentityChainV1` 钉 product recompute；Psy 仍为 engineering-absent slot；**非** formal BuildIdentity） |
 | **D3-E4** | formal `OutputSetV1` 字段齐套；退役 transitional v2alpha1 残留 | **done**（2026-08-02：**工程** on-disk 已是 `proof-forge.output.v1` + `mintEngineeringOutputSetV1`；legacy `proof-forge-output/v2alpha1` renderer 已删并由 OutputSetV1 suite 钉零；`sourceHash`/`semanticHash` 键名仅为兼容；**非** formal OutputSetV1 字段齐套） |
 | **D3-E5** | CLI 剩余 flag：evidence/resource override 等 SPEC-CLI 面 | **done**（2026-08-02：`--resource-limit`…；`--minimum-evidence` build-only；**2026-08-04**：structural `--proof-bundle*` 产品 flag 已删，sole proof gate = inline certifier；check/build JSON 可观测 `resourceLimits`；非 formal SPEC-CLI） |
 | **D3-E6** | stage supervisor / receipt（compiler-core/tool/output）——与 D1 监督层移除决策协调 | **done**（2026-08-02：**永久进程内** — 不恢复 SafeOpen/supervisor 产品路径；sole Loader 进程内；RES-1 wall 与 RES-1B published-bytes 均进程内，其余 resource producer 仍 pending；见 `RECOVERY.md` D3-E6） |
@@ -426,6 +430,7 @@ D1–D4 = 0/27 done。
 | 2026-08-05 | **SYS-CAP-SURVEY 登记**：RPT-020 多链系统能力全景调研（状态类 vs 电路类；六维同构候选；系统能力两层：L1 内建 host + L2 官方链上 program，能力与形态解耦）；登记 SYS-CAP-UNIFY 设计项（ContextRead/EnvRead catalog 扩键 + 官方 program 能力 catalog） |
 | 2026-08-06 | **SYS-CAP-UNIFY S1 闭合 / S2 四 leaf / E4 推进**：S1 caller 四 target 工程闭合；S2 blockHeight 四 leaf（EVM NUMBER / NEAR block_index / CW height / Solana ordinary Clock.slot）Plan/IR/emitter 完成，runtime 门 residual；E4：Solana/NEAR/CW multiword div/mod、EVM/Solana cap-4 Principal Map、EVM MiniAmm demo + host-optional Anvil（EIP-3860 override）已交付；Solana 另有 WideDiv 数值/回滚 Mollusk、四宽 handler 长距 dispatch runtime pin 与 Array 24/44/Map 类型分派防回归。Solana MiniAMM 应用门、真实 asset movement/remove-liquidity 仍 pending |
 | 2026-08-06 | **ADR-0032 U1 Solana 统一 materializer**：sole rail = `solana-sbpf-cpi-elf-v1`；P2–P3-e multi-role 已绿；**P4 默认 + shim 物理删除**：registry/resolver 仅 cpi-elf；plan/elf 不可选；runtime bind 切 cpi 产物；WideDiv/Map fixtures 默认可 build |
+| 2026-08-07 | **Aleo ALEO-I1–I4 工程闭合**：Plan content digest 进入 identity chain；query-contract sidecar 进入 exact artifact closure；locked Leo acceptance 去除 PATH/cargo/brew fallback；新增 opt-in compile profile product Finalize、三 content-bound extras、repeat/inspect 与坏工具零发布。RPT-024 的 VM/proof/deploy/query blocker 不变 |
 
 ---
 

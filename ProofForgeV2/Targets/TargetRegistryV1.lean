@@ -551,8 +551,12 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
     row .soroban (semanticsAxesOfKindV1 .soroban) #[] none,
     row .icp (semanticsAxesOfKindV1 .icp) #[] none,
     row .openvm (semanticsAxesOfKindV1 .openvm) #[] none,
+    -- Aleo dual profiles (ASCII ascending: compile-v1 < u64-v1); default remains
+    -- source-only `aleo-leo-4.0.2-u64-v1`. Same Plan surface; the explicit
+    -- compile profile selects locked Leo compile-only finalization while the
+    -- default remains zero-tool.
     row .aleo (semanticsAxesOfKindV1 .aleo)
-      #[CodegenProfileId.aleoLeoU64V1]
+      #[CodegenProfileId.aleoLeoU64CompileV1, CodegenProfileId.aleoLeoU64V1]
       (some CodegenProfileId.aleoLeoU64V1),
     row .psy (semanticsAxesOfKindV1 .psy)
       #[CodegenProfileId.psyDargoU64V1]

@@ -15,6 +15,7 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.DescriptorDataV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -24,19 +25,27 @@ private def liftResult (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
 
-private def planAleo (compiled : CompiledSemanticV1) : CompileResult Targets.Aleo.Plan := do
-  let selection ← resolveBuildSelectionV1 TargetId.aleo none
+private def planAleo
+    (compiled : CompiledSemanticV1)
+    (profile? : Option CodegenProfileId := none) :
+    CompileResult Targets.Aleo.Plan := do
+  let selection ← resolveBuildSelectionV1 TargetId.aleo profile?
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Aleo.planFromCapability capability
 
-private def irAleo (compiled : CompiledSemanticV1) : CompileResult Targets.Aleo.IR := do
-  let selection ← resolveBuildSelectionV1 TargetId.aleo none
+private def irAleo
+    (compiled : CompiledSemanticV1)
+    (profile? : Option CodegenProfileId := none) :
+    CompileResult Targets.Aleo.IR := do
+  let selection ← resolveBuildSelectionV1 TargetId.aleo profile?
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Aleo.irFromCapability capability
 
-private def materializeAleo (compiled : CompiledSemanticV1) :
+private def materializeAleo
+    (compiled : CompiledSemanticV1)
+    (profile? : Option CodegenProfileId := none) :
     CompileResult MaterializedArtifactsV1 := do
-  let selection ← resolveBuildSelectionV1 TargetId.aleo none
+  let selection ← resolveBuildSelectionV1 TargetId.aleo profile?
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.materializeResult capability
 
@@ -75,8 +84,14 @@ unsafe def testCounterPlanAndLeo : IO Unit := do
     "Counter Leo program id must be the lowercased artifact name"
   liftResult <| Targets.Aleo.validateIR ir
   let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "counter.aleo") |
+  let files := MaterializedArtifactsV1.filesOf output
+  expect (files.map (·.path) ==
+      #["counter.aleo", "counter.aleo-query-contract.json"])
+    s!"Counter materialize must emit Leo + query-contract base files in order, got {files.map (·.path)}"
+  expect (files[0]!.mediaType == "text/plain" &&
+      files[1]!.mediaType == "application/json")
+    "Counter base mediaTypes must be text/plain then application/json"
+  let some leoFile := files.find? (·.path == "counter.aleo") |
     throw <| IO.userError "aleo: missing counter.aleo"
   let leo := leoFile.contents
   expect (leo.contains "program counter.aleo {")
@@ -2525,6 +2540,310 @@ unsafe def testOptionState : IO Unit := do
         s!"Option param FC must cite parameter/Option boundary, got: {e.render}"
   IO.println "  OptionState fail-closed matrix ok"
 
+/-- ALEO-I2: Counter query-contract sidecar binds schema, mapping, bare view,
+    and honest resultDropped observation (never Final return). -/
+unsafe def testQueryContractCounter : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Counter where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-qc-counter>" "Tests.AleoQcCounter" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planAleo compiled
+  let output ← liftResult <| materializeAleo compiled
+  let files := MaterializedArtifactsV1.filesOf output
+  expect (files.map (·.path) ==
+      #["counter.aleo", "counter.aleo-query-contract.json"])
+    s!"query-contract Counter paths, got {files.map (·.path)}"
+  let some contractFile := files.find?
+      (·.path == "counter.aleo-query-contract.json") |
+    throw <| IO.userError "missing counter.aleo-query-contract.json"
+  expect (contractFile.mediaType == "application/json")
+    "query-contract mediaType must be application/json"
+  let c := contractFile.contents
+  expect (c.endsWith "\n") "query-contract must end with a trailing newline"
+  expect (c.contains "\"schema\": \"proof-forge-aleo-query-contract/v1\"")
+    "query-contract schema must be exact proof-forge-aleo-query-contract/v1"
+  expect (c.contains "\"program\": \"Counter\"")
+    "query-contract program must bind artifact name"
+  expect (c.contains "\"programFile\": \"counter.aleo\"")
+    "query-contract programFile must bind Leo base path"
+  expect (c.contains "\"codegenProfile\": \"aleo-leo-4.0.2-u64-v1\"")
+    "query-contract must bind current Aleo profile"
+  expect (c.contains "\"leo\": \"4.0.2\"")
+    "query-contract must bind Leo 4.0.2"
+  expect (c.contains s!"\"sourceHash\": \"{plan.sourceHash}\"")
+    "query-contract sourceHash must match plan"
+  expect (c.contains s!"\"semanticHash\": \"{plan.semanticHash}\"")
+    "query-contract semanticHash must match plan"
+  expect (c.contains "\"mappingKey\": \"0u8\"")
+    "query-contract mappingKey must be 0u8"
+  expect (c.contains "\"executionModel\": \"network-state-descriptor\"")
+    "query-contract executionModel must be network-state-descriptor"
+  -- Root key order via successive first-occurrence splits (fixed order).
+  let afterSchema := (c.splitOn "\"schema\"")[1]!
+  expect ((afterSchema.splitOn "\"program\"").length > 1) "schema precedes program"
+  let afterProgram := (afterSchema.splitOn "\"program\"")[1]!
+  expect ((afterProgram.splitOn "\"programFile\"").length > 1)
+    "program precedes programFile"
+  let afterProgramFile := (afterProgram.splitOn "\"programFile\"")[1]!
+  expect ((afterProgramFile.splitOn "\"codegenProfile\"").length > 1)
+    "programFile precedes codegenProfile"
+  let afterProfile := (afterProgramFile.splitOn "\"codegenProfile\"")[1]!
+  expect ((afterProfile.splitOn "\"leo\"").length > 1) "codegenProfile precedes leo"
+  let afterLeo := (afterProfile.splitOn "\"leo\"")[1]!
+  expect ((afterLeo.splitOn "\"sourceHash\"").length > 1) "leo precedes sourceHash"
+  let afterSource := (afterLeo.splitOn "\"sourceHash\"")[1]!
+  expect ((afterSource.splitOn "\"semanticHash\"").length > 1)
+    "sourceHash precedes semanticHash"
+  let afterSemantic := (afterSource.splitOn "\"semanticHash\"")[1]!
+  expect ((afterSemantic.splitOn "\"mappingKey\"").length > 1)
+    "semanticHash precedes mappingKey"
+  let afterKey := (afterSemantic.splitOn "\"mappingKey\"")[1]!
+  expect ((afterKey.splitOn "\"executionModel\"").length > 1)
+    "mappingKey precedes executionModel"
+  let afterModel := (afterKey.splitOn "\"executionModel\"")[1]!
+  expect ((afterModel.splitOn "\"mappings\"").length > 1)
+    "executionModel precedes mappings"
+  let afterMappings := (afterModel.splitOn "\"mappings\"")[1]!
+  expect ((afterMappings.splitOn "\"views\"").length > 1) "mappings precedes views"
+  let afterViews := (afterMappings.splitOn "\"views\"")[1]!
+  expect ((afterViews.splitOn "\"resultDropped\"").length > 1)
+    "views precedes resultDropped"
+  -- mappings: state leaf only (not initialized guard).
+  expect (c.contains
+      "{\"name\":\"pf_state_0\",\"dslName\":\"count\",\"type\":\"u64\",\"default\":\"0u64\"}")
+    "query-contract mappings must bind pf_state_0/count/u64/0u64"
+  expect (!c.contains "\"initialized\"")
+    "query-contract must not list the initialized guard mapping"
+  expect (!c.contains "fn get(")
+    "query-contract file is JSON, not Leo"
+  -- views: bare PlanView mapping get.
+  expect (c.contains
+      "{\"index\":0,\"name\":\"get\",\"mapping\":\"pf_state_0\",\"key\":\"0u8\",\"type\":\"u64\",\"default\":\"0u64\"}")
+    "query-contract views must bind get → pf_state_0"
+  -- Leo source must still omit the bare view (descriptor only).
+  let some leoFile := files.find? (·.path == "counter.aleo") |
+    throw <| IO.userError "missing counter.aleo"
+  expect (!leoFile.contents.contains "fn get(")
+    "bare view must never emit into Leo source"
+  -- resultDropped: only flag=true (increment); honest observation label.
+  expect (c.contains
+      "{\"name\":\"increment\",\"observation\":\"post-transaction-mapping-query\"}")
+    "resultDropped must mark increment as post-transaction-mapping-query"
+  expect (!c.contains "\"initialize\"")
+    "resultDropped must not list Unit initialize"
+  expect (!c.contains "Final return")
+    "resultDropped must not claim Final return"
+  expect (!c.contains "\"finalReturn\"")
+    "resultDropped must not invent a Final return claim"
+
+/-- ALEO-I2: dual bare views bind distinct mapping leaves. -/
+unsafe def testQueryContractDualViews : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Dual where\n" ++
+    "  state count : UInt64\n" ++
+    "  state balance : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "    balance := initial\n" ++
+    "  entry go(x : UInt64) : UInt64 do\n" ++
+    "    count := count + x\n" ++
+    "    balance := balance + x\n" ++
+    "    return count\n" ++
+    "  view getCount() : UInt64 do\n" ++
+    "    return count\n" ++
+    "  view getBalance() : UInt64 do\n" ++
+    "    return balance\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-qc-dual>" "Tests.AleoQcDual" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let output ← liftResult <| materializeAleo compiled
+  let files := MaterializedArtifactsV1.filesOf output
+  expect (files.map (·.path) ==
+      #["dual.aleo", "dual.aleo-query-contract.json"])
+    s!"dual query-contract paths, got {files.map (·.path)}"
+  let some cFile := files.find? (·.path == "dual.aleo-query-contract.json") |
+    throw <| IO.userError "missing dual.aleo-query-contract.json"
+  let c := cFile.contents
+  expect (c.contains
+      "{\"name\":\"pf_state_0\",\"dslName\":\"count\",\"type\":\"u64\",\"default\":\"0u64\"}")
+    "dual mappings leaf 0"
+  expect (c.contains
+      "{\"name\":\"pf_state_1\",\"dslName\":\"balance\",\"type\":\"u64\",\"default\":\"0u64\"}")
+    "dual mappings leaf 1"
+  expect (c.contains
+      "{\"index\":0,\"name\":\"getCount\",\"mapping\":\"pf_state_0\",\"key\":\"0u8\",\"type\":\"u64\",\"default\":\"0u64\"}")
+    "getCount view binding"
+  expect (c.contains
+      "{\"index\":1,\"name\":\"getBalance\",\"mapping\":\"pf_state_1\",\"key\":\"0u8\",\"type\":\"u64\",\"default\":\"0u64\"}")
+    "getBalance view binding"
+  expect (c.contains
+      "{\"name\":\"go\",\"observation\":\"post-transaction-mapping-query\"}")
+    "go is resultDropped"
+  let some leoFile := files.find? (·.path == "dual.aleo") |
+    throw <| IO.userError "missing dual.aleo"
+  expect (!leoFile.contents.contains "fn getCount(")
+    "getCount must not appear in Leo source"
+  expect (!leoFile.contents.contains "fn getBalance(")
+    "getBalance must not appear in Leo source"
+
+/-- ALEO-I2: no-state pure program → empty mappings/views/resultDropped arrays. -/
+unsafe def testQueryContractNoStateEmpty : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BitLogic where\n" ++
+    "  entry mask(x : UInt64) : UInt64 do\n" ++
+    "    return (x << 2) & 15 | (x >> 1) ^ 3\n" ++
+    "  entry both(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    return a > 0 && b > 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-qc-empty>" "Tests.AleoQcEmpty" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let output ← liftResult <| materializeAleo compiled
+  let files := MaterializedArtifactsV1.filesOf output
+  expect (files.map (·.path) ==
+      #["bitlogic.aleo", "bitlogic.aleo-query-contract.json"])
+    s!"empty-state query-contract paths, got {files.map (·.path)}"
+  let some cFile := files.find? (·.path == "bitlogic.aleo-query-contract.json") |
+    throw <| IO.userError "missing bitlogic.aleo-query-contract.json"
+  let c := cFile.contents
+  expect (c.contains "\"mappings\": []")
+    "no-state mappings must be empty array"
+  expect (c.contains "\"views\": []")
+    "no-state views must be empty array (legal)"
+  expect (c.contains "\"resultDropped\": []")
+    "pure entries must leave resultDropped empty"
+  expect (c.contains "\"schema\": \"proof-forge-aleo-query-contract/v1\"")
+    "empty-state still binds schema"
+  expect (c.contains "\"executionModel\": \"network-state-descriptor\"")
+    "empty-state still binds executionModel"
+
+/-- ALEO-I2: double materialize is exact-byte deterministic for both base files. -/
+unsafe def testQueryContractDeterminism : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Counter where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-qc-det>" "Tests.AleoQcDet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let out1 ← liftResult <| materializeAleo compiled
+  let out2 ← liftResult <| materializeAleo compiled
+  let f1 := MaterializedArtifactsV1.filesOf out1
+  let f2 := MaterializedArtifactsV1.filesOf out2
+  expect (f1.size == 2 && f2.size == 2) "determinism: two base files"
+  expect (f1[0]!.path == f2[0]!.path && f1[0]!.contents == f2[0]!.contents)
+    "determinism: Leo source exact-byte equal"
+  expect (f1[1]!.path == f2[1]!.path && f1[1]!.contents == f2[1]!.contents)
+    "determinism: query-contract exact-byte equal"
+  expect (f1[1]!.contents == f2[1]!.contents)
+    "determinism: query-contract replay identity"
+
+/-- Dual Aleo profiles: same Plan body / planDigest; query-contract profile is
+    selection-honest; supportClaim/BuildIdentity diverge. -/
+unsafe def testDualProfilePlanAndQueryContract : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Counter where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-dual-profile>" "Tests.AleoDualProfile" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let planSrc ← liftResult <| planAleo compiled none
+  let planCmp ← liftResult <|
+    planAleo compiled (some CodegenProfileId.aleoLeoU64CompileV1)
+  expect (planSrc == planCmp)
+    "dual profiles must produce BEq-equal retained Plans"
+  let digSrc ← match Targets.Aleo.engineeringAleoPlanDigestV1 planSrc with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"source plan digest: {e}"
+  let digCmp ← match Targets.Aleo.engineeringAleoPlanDigestV1 planCmp with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"compile plan digest: {e}"
+  expect (digSrc.algorithm == digCmp.algorithm && digSrc.bytes == digCmp.bytes)
+    "dual profiles must share planDigest"
+  let irSrc ← liftResult <| irAleo compiled none
+  let irCmp ← liftResult <|
+    irAleo compiled (some CodegenProfileId.aleoLeoU64CompileV1)
+  expect (irSrc.codegenProfile == CodegenProfileId.aleoLeoU64V1)
+    "source IR binds default source profile"
+  expect (irCmp.codegenProfile == CodegenProfileId.aleoLeoU64CompileV1)
+    "compile IR binds compile profile"
+  let outSrc ← liftResult <| materializeAleo compiled none
+  let outCmp ← liftResult <|
+    materializeAleo compiled (some CodegenProfileId.aleoLeoU64CompileV1)
+  expect (MaterializedArtifactsV1.codegenProfileIdOf outSrc ==
+      CodegenProfileId.aleoLeoU64V1)
+    "source materialize binds source profile"
+  expect (MaterializedArtifactsV1.codegenProfileIdOf outCmp ==
+      CodegenProfileId.aleoLeoU64CompileV1)
+    "compile materialize binds compile profile"
+  let filesSrc := MaterializedArtifactsV1.filesOf outSrc
+  let filesCmp := MaterializedArtifactsV1.filesOf outCmp
+  let some leoSrc := filesSrc.find? (·.path == "counter.aleo") |
+    throw <| IO.userError "dual: missing source counter.aleo"
+  let some leoCmp := filesCmp.find? (·.path == "counter.aleo") |
+    throw <| IO.userError "dual: missing compile counter.aleo"
+  expect (leoSrc.contents == leoCmp.contents)
+    "dual profiles must emit exact-byte-equal Leo source"
+  let some qcSrc := filesSrc.find? (·.path == "counter.aleo-query-contract.json") |
+    throw <| IO.userError "dual: missing source query-contract"
+  let some qcCmp := filesCmp.find? (·.path == "counter.aleo-query-contract.json") |
+    throw <| IO.userError "dual: missing compile query-contract"
+  expect (qcSrc.contents.contains "\"codegenProfile\": \"aleo-leo-4.0.2-u64-v1\"")
+    "source sidecar must honestly bind source profile"
+  expect (qcCmp.contents.contains
+      "\"codegenProfile\": \"aleo-leo-4.0.2-u64-compile-v1\"")
+    "compile sidecar must honestly bind compile profile"
+  expect (qcSrc.contents != qcCmp.contents)
+    "dual profile sidecars must differ (profile field)"
+  -- Descriptor residual stays source; compile is accepted without second table.
+  expect (Targets.Aleo.descriptor.codegenProfile == CodegenProfileId.aleoLeoU64V1)
+    "residual Aleo descriptor remains source default"
+  expect (DescriptorDataV1.acceptsCodegenProfile Targets.Aleo.descriptor
+      CodegenProfileId.aleoLeoU64V1)
+    "descriptor accepts source profile"
+  expect (DescriptorDataV1.acceptsCodegenProfile Targets.Aleo.descriptor
+      CodegenProfileId.aleoLeoU64CompileV1)
+    "descriptor accepts compile profile"
+  expect (!DescriptorDataV1.acceptsCodegenProfile Targets.Aleo.descriptor
+      CodegenProfileId.evmYulSolc0834V1)
+    "descriptor rejects foreign EVM profile"
+
 unsafe def run : IO Unit := do
   testCounterPlanAndLeo
   testPureOpsAndShifts
@@ -2572,6 +2891,11 @@ unsafe def run : IO Unit := do
   testMultiLeafViewOverStateFailClosed
   testAggregateReturnFailClosed
   testOptionState
+  testQueryContractCounter
+  testQueryContractDualViews
+  testQueryContractNoStateEmpty
+  testQueryContractDeterminism
+  testDualProfilePlanAndQueryContract
   IO.println "Tests.Materialization.Aleo: ok"
 
 end Tests.Materialization.Aleo

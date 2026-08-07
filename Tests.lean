@@ -126,12 +126,14 @@ import Tests.Materialization.TargetRegistryV1
 import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.IdentityChainV1
 import Tests.Materialization.EvmPlanSchemaV1
+import Tests.Materialization.AleoPlanSchemaV1
 import Tests.Materialization.OutputSetV1
 import Tests.Materialization.OutputEnvelopeV1
 import Tests.Materialization.TargetIrFixtures
 import Tests.Materialization.Targets
 import Tests.Materialization.Aleo
 import Tests.Materialization.AleoAcceptance
+import Tests.Materialization.AleoCompiledFinalizationV1
 import Tests.Materialization.QuintSourceV1
 import Tests.Materialization.QuintAcceptance
 import Tests.Materialization.EvmSmoke
@@ -207,6 +209,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Materialization.RequirementResolverV1.run
   Tests.Materialization.IdentityChainV1.run
   Tests.Materialization.EvmPlanSchemaV1.run
+  Tests.Materialization.AleoPlanSchemaV1.run
   Tests.Materialization.OutputSetV1.run
   Tests.Materialization.OutputEnvelopeV1.run
   Tests.Materialization.EngineeringFinalizationV1.run
@@ -214,6 +217,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Materialization.run
   Tests.Materialization.Aleo.run
   Tests.Materialization.AleoAcceptance.run
+  Tests.Materialization.AleoCompiledFinalizationV1.run
   Tests.Materialization.QuintSourceV1.run
   Tests.Materialization.QuintAcceptance.run
   Tests.Materialization.EvmSmoke.run

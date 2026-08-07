@@ -22,21 +22,27 @@ Code-first audit of in-tree target leaves and product materialize path
 `10-psy.md` and coverage matrix `12-target-coverage-matrix.md`.  
 **No** live network deploys; **no** claim of hermetic tool lock.
 
-## 2026-08-03 follow-up（当前状态）
+## 2026-08-07 follow-up（当前状态）
 
-Wave 1 / G123 supersedes this snapshot's Aleo compile-only deferral: Leo
-`4.0.2` is now pinned in both Tool Lock v4 files, and the registered
-`AleoAcceptance` suite prefers the materialized locked tool to run product Leo
-sources through `leo build --offline`（tool 未物化时 clean skip）。This remains
-an engineering compile-only gate: no Aleo VM, proof, deploy, record-custody, or
-formal/hermetic Stage-0 claim follows. Psy is unchanged: host-optional source
-compile only, with no Tool Lock/VM/prover gate.
+Wave 1 / G123 superseded this snapshot's Aleo compile-only deferral by pinning
+Leo `4.0.2` in both Tool Lock v4 files and adding locked-only `AleoAcceptance`.
+ALEO-I4 now adds an explicit product profile
+`aleo-leo-4.0.2-u64-compile-v1`: it shares the source profile's target-owned
+Plan/planDigest, runs locked `leo build --offline --disable-update-check` in a
+temporary package and isolated HOME, and publishes exactly three content-bound
+compiler extras. Missing/mismatched tools and partial outputs fail with zero
+published destination; same-host repeat and product `inspect` closure are tested.
+Both Aleo profiles remain `deployable=false`.
+
+This is still only engineering compile finalization: no Aleo VM, proof, deploy,
+record-custody, network query, or formal/hermetic Stage-0 claim follows. Psy is
+unchanged: host-optional source compile only, with no Tool Lock/VM/prover gate.
 
 The Aleo/Psy tables below are retained as the 2026-08-02 audit snapshot; current
-feature coverage (including the later T14 Field catalog and aggregate work) is
-authoritative in `12-target-coverage-matrix.md`. For this report's toolchain
-decision, Aleo's “no Leo pin / no compile gate” conclusion is superseded, while
-the no-VM/no-proof boundary and Psy toolchain conclusion remain current.
+feature coverage (including T14, aggregate work, and ALEO-I1–I4) is authoritative
+in `12-target-coverage-matrix.md`. For this report's toolchain decision, Aleo's
+“no Leo pin / no compile gate” conclusion is superseded, while the no-VM/no-proof
+boundary and Psy toolchain conclusion remain current.
 
 ## Aleo (`TargetId.aleo`)（2026-08-02 历史快照）
 

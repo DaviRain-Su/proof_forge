@@ -29,6 +29,7 @@ import ProofForgeV2.Targets.Noir.PlanSchemaV1
 import ProofForgeV2.Targets.CosmWasm.PlanSchemaV1
 import ProofForgeV2.Targets.Quint.PlanSchemaV1
 import ProofForgeV2.Targets.Ton.PlanSchemaV1
+import ProofForgeV2.Targets.Aleo.PlanSchemaV1
 import ProofForgeV2.Targets.RegistryRootV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Targets.SupportClaimV1
@@ -96,10 +97,10 @@ private def testClaimMintCanonicalOrder : IO Unit := do
     StaticRequirementSupportIndexV1.toArray index
   expect (claims.size == rows.size)
     s!"one claim per support row: got {claims.size} want {rows.size}"
-  -- ADR-0032 U1: sole Solana cpi-elf → 10 implemented support rows
-  -- (aleo/cosmwasm/evm×2/near/noir/psy/quint/solana×1/ton).
-  expect (claims.size == 10)
-    s!"implemented profile count is 10 (aleo/cosmwasm/evm×2/near/noir/psy/quint/solana×1/ton), got {claims.size}"
+  -- Aleo dual profile + ADR-0032 U1 sole Solana cpi-elf → 11 implemented support
+  -- rows (aleo×2/cosmwasm/evm×2/near/noir/psy/quint/solana×1/ton).
+  expect (claims.size == 11)
+    s!"implemented profile count is 11 (aleo×2/cosmwasm/evm×2/near/noir/psy/quint/solana×1/ton), got {claims.size}"
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
   let mut i : Nat := 0
@@ -253,8 +254,9 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
-  -- All nine materializing targets: seven real Plan schema digests (Registry
-  -- `planDigestForCapabilityV1`) + Aleo/Psy engineering-absent plan slots.
+  -- All nine materializing targets: eight real Plan schema digests (Registry
+  -- `planDigestForCapabilityV1`, including Aleo ALEO-I1) + Psy engineering-
+  -- absent plan slot.
   for tid in #[
       TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.cosmwasm, TargetId.quint, TargetId.ton, TargetId.aleo, TargetId.psy] do
@@ -295,9 +297,9 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
         (EngineeringBuildIdentityV1.planDigestOf identity))
     expect (EngineeringBuildIdentityV1.identityDigestOf identity == recomputed)
       s!"{tid} identity digest recomputes"
-    -- Registry planDigestForCapabilityV1: EVM/Solana/NEAR/Noir/CosmWasm/Quint/TON
-    -- recompute target Plan schema digests; Aleo/Psy bind engineering-absent
-    -- plan slots (no Plan schema digest in identity).
+    -- Registry planDigestForCapabilityV1: EVM/Solana/NEAR/Noir/CosmWasm/Quint/
+    -- TON/Aleo recompute target Plan schema digests; Psy binds engineering-
+    -- absent plan slot (no Plan schema digest in identity).
     let selection ← liftResult s!"select {tid}"
       (resolveBuildSelectionV1 tid none)
     let cap ← liftResult s!"resolve {tid}"
@@ -351,7 +353,13 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
         (Targets.Ton.engineeringTonPlanDigestV1 plan)
       expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
         s!"{tid} planDigest matches engineeringTonPlanDigestV1"
-    else if tid == TargetId.aleo || tid == TargetId.psy then
+    else if tid == TargetId.aleo then
+      let plan ← liftResult s!"plan {tid}" (Targets.Aleo.planFromCapability cap)
+      let expected ← liftExcept s!"aleo plan digest {tid}"
+        (Targets.Aleo.engineeringAleoPlanDigestV1 plan)
+      expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
+        s!"{tid} planDigest matches engineeringAleoPlanDigestV1"
+    else if tid == TargetId.psy then
       let expected ← liftExcept s!"absent plan {tid}"
         (engineeringAbsentPlanDigestV1 tid
           (EngineeringBuildIdentityV1.codegenProfileOf identity))
@@ -386,6 +394,33 @@ private unsafe def testBuildIdentityProfileSensitivity : IO Unit := do
   expectDigestDiff "cross-target supportClaimDigest"
     (EngineeringBuildIdentityV1.supportClaimDigestOf solId)
     (EngineeringBuildIdentityV1.supportClaimDigestOf evmId)
+  -- Aleo dual profiles: same Plan/planDigest, distinct supportClaim/BuildIdentity.
+  let (srcCap, srcArts) ← materializeTarget compiled TargetId.aleo none
+  let (cmpCap, cmpArts) ← materializeTarget compiled TargetId.aleo
+    (some CodegenProfileId.aleoLeoU64CompileV1)
+  expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf srcCap ==
+      CodegenProfileId.aleoLeoU64V1)
+    "aleo default capability binds source profile"
+  expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf cmpCap ==
+      CodegenProfileId.aleoLeoU64CompileV1)
+    "aleo compile capability binds compile profile"
+  let srcId := MaterializedArtifactsV1.buildIdentityOf srcArts
+  let cmpId := MaterializedArtifactsV1.buildIdentityOf cmpArts
+  expect (EngineeringBuildIdentityV1.planDigestOf srcId ==
+      EngineeringBuildIdentityV1.planDigestOf cmpId)
+    "aleo dual profiles share planDigest"
+  expectDigestDiff "aleo dual supportClaimDigest"
+    (EngineeringBuildIdentityV1.supportClaimDigestOf srcId)
+    (EngineeringBuildIdentityV1.supportClaimDigestOf cmpId)
+  expectDigestDiff "aleo dual identityDigest"
+    (EngineeringBuildIdentityV1.identityDigestOf srcId)
+    (EngineeringBuildIdentityV1.identityDigestOf cmpId)
+  expect (EngineeringBuildIdentityV1.codegenProfileOf srcId ==
+      CodegenProfileId.aleoLeoU64V1)
+    "aleo source identity profile"
+  expect (EngineeringBuildIdentityV1.codegenProfileOf cmpId ==
+      CodegenProfileId.aleoLeoU64CompileV1)
+    "aleo compile identity profile"
 
 /-- Minimal S1 Accumulator source text (distinct name/body from Counter). -/
 private def accumulatorSourceTextV1 : String :=

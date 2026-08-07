@@ -4,6 +4,7 @@ import Tests.Materialization.RegistryRootV1
 import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.IdentityChainV1
 import Tests.Materialization.EvmPlanSchemaV1
+import Tests.Materialization.AleoPlanSchemaV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.NearWasmAcceptance
@@ -21,6 +22,7 @@ import Tests.Materialization.Targets
 import Tests.Materialization.Aleo
 import Tests.Materialization.AleoPfAssetsV1
 import Tests.Materialization.AleoAcceptance
+import Tests.Materialization.AleoCompiledFinalizationV1
 import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.NoirCompileAcceptance
@@ -63,6 +65,8 @@ unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.EvmPlanSchemaV1.run
   IO.eprintln "CP run"
+  Tests.Materialization.AleoPlanSchemaV1.run
+  IO.eprintln "CP run"
   Tests.Materialization.EvmSmoke.run
   IO.eprintln "CP run"
   Tests.Materialization.EvmSolcAcceptance.run
@@ -95,6 +99,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.AleoPfAssetsV1.run
   IO.eprintln "CP run"
   Tests.Materialization.AleoAcceptance.run
+  IO.eprintln "CP run"
+  Tests.Materialization.AleoCompiledFinalizationV1.run
   IO.eprintln "CP run"
   Tests.Materialization.NoirCompileAcceptance.run
   IO.eprintln "CP run"
