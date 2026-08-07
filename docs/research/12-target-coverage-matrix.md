@@ -12,6 +12,8 @@ normative: false
 > **目的**：工程轨道 op×target **格子**的事实源。每个 wave 闭合哪些格子在此可查；
 > wave 完成后由 worker 简报的"已 lower op 列表"验证，矩阵随之更新。  
 > **总执行队列**（优先级/并行规则）：[`../engineering-backlog.md`](../engineering-backlog.md)。  
+> **可移植性 / 跨合约原子性（为何不能假同步多链）**：见  
+> [`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)。  
 > 非 formal：D2–D4 formal task 不在此矩阵（走 release-qualification 轨道）。
 
 ## 矩阵说明

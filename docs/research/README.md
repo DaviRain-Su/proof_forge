@@ -3,14 +3,14 @@ id: RESEARCH-INDEX
 title: 调研证据索引
 status: draft
 owner: research
-updated: 2026-08-03
+updated: 2026-08-07
 normative: false
 ---
 
 # 调研证据索引
 
 状态：`draft`
-更新日期：2026-08-03
+更新日期：2026-08-07
 
 本目录保存 ProofForge V2 的非规范性研究材料。研究结论不能越过已接受的 ADR、PRD、架构和技术规格；它们的作用是说明“为什么这样设计”，而不是暗中改变产品语义。
 
@@ -44,6 +44,7 @@ normative: false
 23. [`20-host-function-survey.md`](20-host-function-survey.md)：多链系统能力（host function / runtime API）全景调研——状态类 vs 电路类平台分类、各链能力浓缩清单、跨链能力维度对照，及"统一抽象候选"建议（RPT-020；2026-08-05）。
 24. [`system-capabilities-evm-solana.md`](system-capabilities-evm-solana.md)：EVM/Solana 逐项 opcode / syscall / sysvar / builtin 清单（RPT-020 的详细平台报告；2026-08-05）。
 25. [`21-system-programs-survey.md`](21-system-programs-survey.md)：各链官方链上程序（系统合约 / builtin program / precompile / management canister / 链级模块）全景——L2 系统能力层，含"能力 vs 形态"对照表与强制等级分级（RPT-021；2026-08-05）。
+26. [`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)：**可移植表面 vs 链上现实**——跨合约 / 资产 / 原子性总表（12-target）；解释为何一份 `program` 不能诚实直出「各链失败语义相同」的制品（NEAR Promise vs EVM/Solana CPI vs CW SubMsg；Wasm 不是原因）（RPT-022；2026-08-07）。
 
 ## 证据等级
 
