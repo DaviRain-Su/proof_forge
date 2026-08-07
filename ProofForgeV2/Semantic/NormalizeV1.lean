@@ -142,8 +142,9 @@
       comparisons, Field `mod`, Principal/String arithmetic/bitwise/unary,
       anonymous Unit/Bool as state or param types (Array/Map/Bytes/Option
       state admitted; Option default is none-tag `0x00` via InvariantFoundation),
-      multi-arg nonempty Map *Construct* (product nonempty = empty default /
-      `Map.empty` + IndexSet upsert — N-1; Wire Construct remains empty-only),
+      cumulative whole-step work accounting across multi-arg Map *Construct*
+      (product `Map.of` is lowered and Reference evaluates sequential upserts;
+      each Wire helper keeps its own shared-cap budget, not one step receipt),
       nested assign through Bytes elements (fail closed — Bytes elements are
       UInt8 leaves with no deeper structure); nested assign through **Map**
       elements is open (N-NEST-IDX: `IndexGet` → `VariantPayload` some-unwrap

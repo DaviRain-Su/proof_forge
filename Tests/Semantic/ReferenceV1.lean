@@ -3121,9 +3121,11 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { initialized := true, canonicalValues := ByteArray.empty } == .returnedTrue)
     "map-invariant: returned true"
 
-  -- R-1: Map admission budget is maxMapEntriesReferenceBudgetV1 (4096), not
-  -- wire 1e6. A Map of large Bytes values still fails static byte limits;
-  -- a small Map of Unit still admits (empty-default product path).
+  -- R-1: Map admission publishes the complete per-canonical-value/helper Wire
+  -- ceilings for each Map envelope. It does not derive a second entry capacity
+  -- or sample selected homogeneous key/value packings (which is unsound for aggregate
+  -- variants). Fat and heterogeneous direct Maps admit; a parent containing
+  -- two independently saturated Maps exceeds the shared ceilings.
   let mapWorkTypes (valueBytesLen : Nat) : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bytes (UInt32.ofNat valueBytesLen) },
     { id := 1, name := none, shape := .uint 32 },
@@ -3137,14 +3139,28 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     mapWorkBase with types := mapWorkTypes 64, callables := #[mapWorkGate]
   }
   let _ ← admitOk "bounded-map-work" boundedMapWorkCarrier
-  -- value Bytes 4096 × Reference Map budget 4096 entries overflows value-byte cap
-  let overMapWorkCarrier ← encodeCarrier "over-map-work" {
+  -- Value Bytes 4096: the direct Map remains bounded by its Wire envelope.
+  let fatMapWorkCarrier ← encodeCarrier "fat-map-work" {
     mapWorkBase with types := mapWorkTypes 4096, callables := #[mapWorkGate]
   }
-  admitUnsupported "over-map-work" overMapWorkCarrier
+  let _ ← admitOk "fat-map-work" fatMapWorkCarrier
+  -- Two Maps in one Array: parent budgets Wire ceiling each → exceeds.
+  let dualMapTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bytes 4096 },
+    { id := 1, name := none, shape := .uint 32 },
+    { id := 2, name := none, shape := .map 1 0 },
+    { id := 3, name := none, shape := .array 2 2 },
+    { id := 4, name := none, shape := .unit }
+  ]
+  let dualMapGate := mkEntry 0 "dualMapGate" #[] 4 #[] (.return_ none)
+  let dualMapCarrier ← encodeCarrier "dual-map-array" {
+    mapWorkBase with types := dualMapTypes, callables := #[dualMapGate]
+  }
+  admitUnsupported "dual-map-array" dualMapCarrier
     (fun detail =>
-      detail.contains "Map" || detail.contains "canonical" || detail.contains "byte")
-    "Map oversize value budget"
+      detail.contains "canonical" || detail.contains "byte" ||
+        detail.contains "construction work")
+    "Array of two saturated Maps exceeds budget"
 
   let recursiveMapTypes : Array TypeDeclV1 := #[
     { id := 0, name := some "MapLoop", shape := .enum #[
@@ -3163,6 +3179,124 @@ private def testArrayBytesReferenceSlice : IO Unit := do
   admitUnsupported "recursive-map" recursiveMapCarrier
     (fun detail => detail.contains "recursive" && detail.contains "resource bounds")
     "recursive Map boundary"
+
+  -- Anti-drift (public constants): neither maxMapEntriesV1 nor the legacy
+  -- fixed 4096 count can be multiplied by max-size Principal entries. Also,
+  -- min-size Principal entries pack far more densely, so selected homogeneous
+  -- packing probes cannot summarize the complete Map type. Admission must use
+  -- the whole Wire envelope while runtime encoding remains the sole capacity.
+  let principalMaxBytes := 4 + maxTypeLengthV1
+  let principalU64EntryMax := 8 + principalMaxBytes + 8
+  expect (maxMapEntriesV1 * principalU64EntryMax > maxCanonicalValueBytes)
+    "anti-drift: maxMapEntries·max Principal+UInt64 entry must overflow valueBytes"
+  expect (4096 * principalU64EntryMax > maxCanonicalValueBytes)
+    "anti-drift: legacy fixed-4096·max Principal+UInt64 still overflows valueBytes"
+  let maxSizeFitUpper := maxCanonicalValueBytes / principalU64EntryMax
+  expect (maxSizeFitUpper > 0 && maxSizeFitUpper < maxMapEntriesV1)
+    "anti-drift: max-size Principal packing count is a proper sub-ceiling"
+  -- Min-size Principal (u32 length + one-byte body = 5) packs strictly more
+  -- entries than max-size packing — max-size count alone understates runtime.
+  let principalMinBytes := 5
+  let principalU64EntryMin := 8 + principalMinBytes + 8
+  let minSizeFitUpper := (maxCanonicalValueBytes - 4) / principalU64EntryMin
+  expect (minSizeFitUpper > maxSizeFitUpper)
+    "anti-drift: min-size Principal packing exceeds max-size packing count"
+  -- headerWidth = 4 + count·8 must itself fit valueBytes at maxMapEntries.
+  let headerAtWireCap := 4 + maxMapEntriesV1 * 8
+  expect (headerAtWireCap ≤ maxCanonicalValueBytes)
+    "anti-drift: Map header at maxMapEntries fits valueBytes (explicit header gate)"
+
+  -- Wire-envelope Map Principal UInt64 (fixed 4096 worst-case multiplication
+  -- previously rejected this type: 4096 × (Principal max + UInt64 + framing)
+  -- exceeds 16 MiB).
+  let principalMapTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .principal },
+    { id := 1, name := none, shape := .uint 64 },
+    { id := 2, name := none, shape := .map 0 1 },
+    { id := 3, name := none, shape := .unit }
+  ]
+  let principalMapGate := mkEntry 0 "principalMapGate" #[] 3 #[] (.return_ none)
+  let principalMapBase ← emptyData "PrincipalMap"
+  let principalMapCarrier ← encodeCarrier "map-principal-u64" {
+    principalMapBase with types := principalMapTypes, callables := #[principalMapGate]
+  }
+  let _ ← admitOk "map-principal-u64" principalMapCarrier
+  -- Variable-width shape differences: skinny UInt64/UInt64 and dual Principal
+  -- both admit; Array of two Principal maps still fails closed (nested ceiling).
+  let skinnyMapTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 64 },
+    { id := 1, name := none, shape := .map 0 0 },
+    { id := 2, name := none, shape := .unit }
+  ]
+  let skinnyMapGate := mkEntry 0 "skinnyMapGate" #[] 2 #[] (.return_ none)
+  let skinnyMapCarrier ← encodeCarrier "map-u64-u64" {
+    principalMapBase with types := skinnyMapTypes, callables := #[skinnyMapGate]
+  }
+  let _ ← admitOk "map-u64-u64" skinnyMapCarrier
+  let dualPrincipalMapTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .principal },
+    { id := 1, name := none, shape := .map 0 0 },
+    { id := 2, name := none, shape := .unit }
+  ]
+  let dualPrincipalMapGate := mkEntry 0 "dualPrincipalMapGate" #[] 2 #[] (.return_ none)
+  let dualPrincipalMapCarrier ← encodeCarrier "map-principal-principal" {
+    principalMapBase with
+      types := dualPrincipalMapTypes
+      callables := #[dualPrincipalMapGate]
+  }
+  let _ ← admitOk "map-principal-principal" dualPrincipalMapCarrier
+  let dualPrincipalArrayTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .principal },
+    { id := 1, name := none, shape := .uint 64 },
+    { id := 2, name := none, shape := .map 0 1 },
+    { id := 3, name := none, shape := .array 2 2 },
+    { id := 4, name := none, shape := .unit }
+  ]
+  let dualPrincipalArrayGate :=
+    mkEntry 0 "dualPrincipalArrayGate" #[] 4 #[] (.return_ none)
+  let dualPrincipalArrayCarrier ← encodeCarrier "dual-principal-map-array" {
+    principalMapBase with
+      types := dualPrincipalArrayTypes
+      callables := #[dualPrincipalArrayGate]
+  }
+  admitUnsupported "dual-principal-map-array" dualPrincipalArrayCarrier
+    (fun detail =>
+      detail.contains "canonical" || detail.contains "byte" ||
+        detail.contains "construction work")
+    "Array of two Map Principal UInt64 exceeds budget"
+  -- Nested Map (Map UInt64 → Map Principal UInt64): the outer Map remains one
+  -- self-bounded Wire envelope; child maxima are not multiplied independently.
+  -- Type admits; empty Map state remains the only default materialization.
+  let nestedMapTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .principal },
+    { id := 1, name := none, shape := .uint 64 },
+    { id := 2, name := none, shape := .map 0 1 },
+    { id := 3, name := none, shape := .map 1 2 },
+    { id := 4, name := none, shape := .unit }
+  ]
+  let nestedMapGate := mkEntry 0 "nestedMapGate" #[] 4 #[] (.return_ none)
+  let nestedMapCarrier ← encodeCarrier "map-nested-principal" {
+    principalMapBase with types := nestedMapTypes, callables := #[nestedMapGate]
+  }
+  let _ ← admitOk "map-nested-principal" nestedMapCarrier
+  -- Empty nested-Map *state* still admits (defaults are empty, not ceiling).
+  let nestedMapStateTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .principal },
+    { id := 1, name := none, shape := .uint 64 },
+    { id := 2, name := none, shape := .map 0 1 },
+    { id := 3, name := none, shape := .map 1 2 },
+    { id := 4, name := none, shape := .unit }
+  ]
+  let nestedMapStateData ← emptyData "NestedMapState"
+  let nestedMapStateCarrier ← encodeCarrier "nested-map-state" {
+    nestedMapStateData with
+      types := nestedMapStateTypes
+      logicalState := #[{
+        id := 0, name := "mm", typeId := 3, visibility := .public_
+      }]
+      callables := #[mkEntry 0 "nestedMapStateGate" #[] 4 #[] (.return_ none)]
+  }
+  let _ ← admitOk "nested-map-state" nestedMapStateCarrier
 
 /-- Option/Enum canonical seam and runtime Construct/tag/payload behavior. -/
 private def testVariantReferenceSlice : IO Unit := do
@@ -4598,7 +4732,7 @@ private unsafe def testMapBytesAssignNormalizeReference
     stepReferenceSliceV1 bytesAdmitted sevenBytesState (inv 2 #[]) emptyResponses
   expectReturned "bytes-ref-assign-get0" afterGet sevenBytesState
     (some (refU8 u8Tid 7)) #[]
-  -- R-1: Map *state* empty-default is admitted (worst-case maxMapEntries budget
+  -- R-1: Map *state* empty-default is admitted (the filled-map Wire envelope
   -- no longer poisons logical-state default accounting). Product IndexSet step:
   let mapSource := wrap "MapRefAssign" <|
     "  state m : Map UInt64 UInt64\n" ++
@@ -5860,6 +5994,52 @@ private def testEnvReadReferenceVaultCoherence : IO Unit := do
   expectReturned "envRead-token-absent" out5b zeroState
     (some (refU64 u64Tid 0)) #[]
 
+/-- Wire-envelope Map admission: **shipped** `Examples/MiniAmm.lean` must
+    exist and be read (no silent homologous fallback). Product Normalize →
+    admitReferenceProgramSliceV1 for Map Principal UInt64 balances. No
+    MiniAmm-only path and no second entry capacity: the shared Wire byte/work
+    ceilings remain the sole runtime authority. -/
+private unsafe def testMiniAmmMapPrincipalAdmit
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let miniPathStr := "Examples/MiniAmm.lean"
+  let miniPath := System.FilePath.mk miniPathStr
+  unless ← miniPath.pathExists do
+    throw <| IO.userError
+      "miniamm-map-principal: shipped Examples/MiniAmm.lean is required \
+       (no silent fallback)"
+  let source ← IO.FS.readFile miniPath
+  expect (source.length > 0)
+    "miniamm-map-principal: Examples/MiniAmm.lean must be non-empty"
+  expect (source.contains "Map Principal UInt64")
+    "miniamm-map-principal: shipped source must declare Map Principal UInt64"
+  -- Sole program in the file; do not pass a selector (identity is the
+  -- source-level program name join, not a free-form string match).
+  let validated ←
+    match ← session.selectProgramV1 source miniPathStr "Examples.MiniAmm" none with
+    | .ok v => pure v
+    | .error error =>
+        throw <| IO.userError
+          s!"miniamm-map-principal: load failed: {error.render}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"miniamm-map-principal: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"miniamm-map-principal: validate: {repr e}"
+  let hasMapPrincipalU64 := data.types.any fun t =>
+    match t.shape with
+    | .map keyTid valueTid =>
+        match data.types[keyTid.toNat]?, data.types[valueTid.toNat]? with
+        | some { shape := .principal, .. },
+          some { shape := .uint 64, .. } => true
+        | _, _ => false
+    | _ => false
+  expect hasMapPrincipalU64
+    "miniamm-map-principal: semantic must include Map Principal UInt64"
+  let _ ← admitOk "miniamm-map-principal" carrier
+
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -5907,6 +6087,8 @@ unsafe def run : IO Unit := do
   -- N-NEST-IDX: Map-element penetrating assign + absent-key invalidCore trap
   testMapNestedAssignNormalizeReference session
   testMapOfConstructNormalizeReference session
+  -- Wire-envelope Map admission: Map Principal UInt64 + shipped MiniAmm compile→admit
+  testMiniAmmMapPrincipalAdmit session
   testCallReturnNormalizeReference session
   -- R-1: Option state product admit + step
   testOptionStateNormalizeReference session

@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-06
+updated: 2026-08-07
 normative: false
 ---
 
@@ -12,14 +12,57 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
-## 2026-08-07 — MiniAmm 形式化阶梯 L0（工程 inline + L1 sketch）
+## 2026-08-07 — Map Wire-envelope Reference admission + ADR-0034 design freeze
+
+- **Map admission 代码事实**（`ProofForgeV2/Semantic/ReferenceMachineV1.lean`）：
+  删除固定 `maxMapEntriesReferenceBudgetV1 = 4096` 整表 worst-case 静态乘法；
+  最终实现也**不**保留少量 max/min homogeneous packing profile 的派生预算（该形状无法
+  保守覆盖 heterogeneous aggregate entries）。每个 Map 作为完整 Wire canonical envelope，
+  parent-facing width/work 直接绑定 shared `maxCanonicalValueBytes` /
+  `maxCanonicalProgramBytes` 的**单次 canonical-value/helper**上限；empty Map state default
+  单独按 exact 4-byte count header / O(1) 计费。**Runtime upsert 权威不变**：IndexSet
+  仍走 Wire 实际 encode / `maxMapEntriesV1` / valueBytes / work 校验；无第二套 runtime
+  capacity。**边界**：这不是 whole-step cumulative-work receipt；多 pair `Map.of` 的
+  sequential upserts 仍各自使用 shared cap，单步累计 receipt 属后续资源切片。
+- **产品实例**：shipped `Examples/MiniAmm.lean`（dense `Map Principal UInt64`）
+  经 Normalize → `admitReferenceProgramSliceV1` **通过**
+  （`Tests/Semantic/ReferenceV1.lean` `testMiniAmmMapPrincipalAdmit`）；无
+  MiniAmm-only 旁路。
+- **ADR-0034** `docs/adr/0034-preservation-abi.md`：`proposed` / **design-only**
+  L1 step-preservation ABI（`PreservationTheoremV1`、admission 正义务、`(inv,kind)`
+  inventory、EvenCounter 首实例偏好、禁止 MiniAmm 特例）；**proposed extension /
+  amendment to ADR-0027**；**当前产品 holds authority 仍为 ADR-0027**；**不得**
+  因 0034 发布标 0027 superseded 或声称实现已对齐 0034。
+- RESEARCH-023 / coverage / RECOVERY / MIGRATION_MATRIX：admission 从 blocked 改为
+  **done**；下一步 = **实现** Preservation ABI + 真实 Reference traces（P1）；
+  **不** 声称 L1 Preserves / formal TASK 闭合。
+- **不** 新 TASK 编号；**不** 改 AGENTS 控制面除非另需；**不** commit/push 本同步。
+
+## 2026-08-07 — Slice 0：删除 HEAD MiniAmm Semantic sketch（Reference-first）
+
+- 架构复核：挂在产品 Semantic 的手写 MiniAmm State/Effect/`miniAmmStep` 是
+  **第二套语义**，与 product Normalize/Reference 分叉；路线改为 **Reference-first**。
+- **真实 HEAD 删除面**：`ProofForgeV2/Semantic/MiniAmmSafetySketchV1.lean`；
+  `ProofForgeV2.lean` umbrella import；Examples `MiniAmm` / `MiniAmmProofSurface`
+  注释改指向 `docs/research/23-miniamm-formalization-ladder.md`；SBOM package-file pin
+  刷新（sketch 路径出表）。
+- **未合入草稿**：工作区曾短暂出现的 `Tests/Instances/…`、
+  `Tests/Semantic/MiniAmmSafetySketchV1` 与 test registration 改动 **never on HEAD**，
+  集成前丢弃；**不**记作已合入删除或 ledger 成果。
+- **保留**：`Tests/Semantic/MiniAmmVectorsV1.lean`（共享数学向量，非 step）。
+- RESEARCH-023（当时）：手写 L1-A sketch superseded；禁止第二套 step；当时钉死
+  MiniAmm Reference admission blocker `aggregate canonical value exceeds byte limit`。
+  **后续同日切片** 已以 Map Wire-envelope admission 解除该 blocker，见上条
+  「Map Wire-envelope Reference admission + ADR-0034」；历史删除面事实不变。
+- **不** 改（当时）ReferenceMachine / 语法 / ABI；**不** 新 TASK 编号；**不** 声称 formal。
+
+## 2026-08-07 — MiniAmm 形式化阶梯 L0（工程 inline；Semantic L1 sketch 已删）
 
 - 新增 RESEARCH-023：L0 simple-closure / L1 业务保持 / L2 formal 分界；钉死
   `InvariantTheoremV1` 全称 StateConforms **不是** 可达保持。
 - `Examples/MiniAmmProofSurface.lean`：L0 产品表面，`check` →
   `proofStatus=certified` / theoremCount=1；Solana materialize 对 nonempty inv FC。
-- `MiniAmmSafetySketchV1`：抽象 `MiniAmmState`、P1 empty-pool、`PreservesMiniAmm`、
-  `miniAmmStep` opaque 义务表；init 半截 `P1_emptyPool_initial` 已证。
+- HEAD 曾有 Semantic 手写 L1 sketch；**Slice 0 已从 HEAD 删除**，见上条。
 - MiniAmm 业务源保持无 inv（deploy pin 不破）。产品钉
   `Tests.Product.MiniAmmProofSurfaceV1`。
 

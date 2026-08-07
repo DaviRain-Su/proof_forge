@@ -62,7 +62,8 @@ private def expectedCounterPaths (tid : TargetId) : Array String :=
   if tid == TargetId.evm then
     #["Counter.yul", "Counter.abi.json"]
   else if tid == TargetId.solana then
-    #["Counter.s", "Counter.idl.json"]
+    #["Counter.cpi-plan.json", "Counter.cpi-ir.json", "Counter.idl.json",
+      "Counter.s", "Counter.cpi-bindings.json"]
   else if tid == TargetId.near then
     #["Counter.wat", "Counter.near-abi.json"]
   else if tid == TargetId.noir then
@@ -153,16 +154,19 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
   let carrier ← materializeOk "materialize solana" capability
   let carrierPaths := (MaterializedArtifactsV1.filesOf carrier).map (·.path)
-  expect (carrierPaths == #["Counter.s", "Counter.idl.json"])
-    "solana carrier paths for golden manifest"
+  expect (carrierPaths == #["Counter.cpi-plan.json", "Counter.cpi-ir.json",
+      "Counter.idl.json", "Counter.s", "Counter.cpi-bindings.json"])
+    s!"solana sole-rail carrier paths for golden manifest, got {carrierPaths}"
   let outDir := FilePath.mk "build/v2/output-envelope-solana"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
   expect (receipt.target == TargetId.solana) "emit receipt target"
   expect (receipt.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
     "emit receipt profile"
-  expect (receipt.deployable == false) "solana plan-only is non-deployable"
-  -- Recompute engineering OutputSet from product finalize (solana plan: no extras).
+  expect (receipt.deployable == true) "solana sole CPI-ELF rail is deployable"
+  expect (← (outDir / "Counter.so").pathExists)
+    "solana locked-sbpf finalization must publish Counter.so"
+  -- Recompute engineering OutputSet from product finalize (base files + .so extra).
   let stagingScratch := FilePath.mk "build/v2/output-envelope-solana-scratch"
   if ← stagingScratch.pathExists then IO.FS.removeDirAll stagingScratch
   IO.FS.createDirAll stagingScratch
@@ -182,18 +186,21 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
     s!"exact proof-forge.output.v1 manifest byte identity:\n---got---\n{json}\n---want---\n{expectedManifest}"
   expect ((json.splitOn "\"schemaVersion\": \"proof-forge.output.v1\"").length > 1)
     "on-disk schemaVersion proof-forge.output.v1"
-  expect ((json.splitOn "\"path\": \"Counter.s\"").length > 1)
-    "on-disk files include Counter.s descriptor"
-  expect ((json.splitOn "\"path\": \"Counter.idl.json\"").length > 1)
-    "on-disk files include Counter.idl.json descriptor"
+  for path in #["Counter.cpi-plan.json", "Counter.cpi-ir.json",
+      "Counter.idl.json", "Counter.s", "Counter.cpi-bindings.json",
+      "Counter.so"] do
+    expect ((json.splitOn s!"\"path\": \"{path}\"").length > 1)
+      s!"on-disk files include {path} descriptor"
   expect ((json.splitOn "\"role\": \"materialized-base\"").length > 1)
     "on-disk files carry materialized-base role"
+  expect ((json.splitOn "\"role\": \"finalized-extra\"").length > 1)
+    "on-disk Counter.so carries finalized-extra role"
   expect ((json.splitOn "\"contentSha256\":").length > 1)
     "on-disk files carry contentSha256"
   expect ((json.splitOn "\"evidenceSha256\":").length > 1)
     "on-disk evidenceSha256 present"
-  expect ((json.splitOn "\"deployable\": false").length > 1)
-    "on-disk deployable false"
+  expect ((json.splitOn "\"deployable\": true").length > 1)
+    "on-disk deployable true"
   expect ((json.splitOn "\"artifactProgramName\": \"Counter\"").length > 1)
     "on-disk artifactProgramName"
   expect ((json.splitOn "\"buildIdentityDigest\":").length > 1)

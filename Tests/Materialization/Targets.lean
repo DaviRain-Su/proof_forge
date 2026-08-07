@@ -48,15 +48,12 @@ private def planEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Evm.planFromCapability capability
 
-/-- Legacy-only helper: unwraps Solana `planFromCapability` `.legacy` carrier. -/
+/-- Sole-rail helper: inspect the product full-body Solana Plan used by the
+    active `solana-sbpf-cpi-elf-v1` synthesis path. -/
 private def planSolana (compiled : CompiledSemanticV1) : CompileResult Targets.Solana.Plan := do
   let selection ← resolveBuildSelectionV1 TargetId.solana none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
-  match ← Targets.Solana.planFromCapability capability with
-  | .legacy plan => pure plan
-  | .cpi _ =>
-      throw <| .planInvariant .solana
-        "test helper planSolana: expected .legacy Plan, got .cpi"
+  Targets.Solana.materializeFullBodyPlanForProductV1 capability false
 
 private def planNear (compiled : CompiledSemanticV1) : CompileResult Targets.Near.Plan := do
   let selection ← resolveBuildSelectionV1 TargetId.near none
@@ -84,15 +81,12 @@ private def irEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.IR
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Evm.irFromCapability capability
 
-/-- Legacy-only helper: unwraps Solana `irFromCapability` `.legacy` carrier. -/
+/-- Sole-rail helper: inspect the product full-body Solana IR used by the
+    active `solana-sbpf-cpi-elf-v1` synthesis path. -/
 private def irSolana (compiled : CompiledSemanticV1) : CompileResult Targets.Solana.IR := do
   let selection ← resolveBuildSelectionV1 TargetId.solana none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
-  match ← Targets.Solana.irFromCapability capability with
-  | .legacy ir => pure ir
-  | .cpi _ =>
-      throw <| .planInvariant .solana
-        "test helper irSolana: expected .legacy IR, got .cpi"
+  Targets.Solana.fullBodyIrFromProductCapabilityV1 capability false
 
 private def irNear (compiled : CompiledSemanticV1) : CompileResult Targets.Near.IR := do
   let selection ← resolveBuildSelectionV1 TargetId.near none
@@ -275,7 +269,8 @@ private unsafe def testConstInvariantMaterializationFailClosed : IO Unit := do
     "invariant boundary: Normalize must retain callable and InvariantDecl"
   for (target, kind, marker) in #[
       (TargetId.evm, TargetKind.evm, "constants/invariants"),
-      (TargetId.solana, TargetKind.solana, "constants/invariants"),
+      (TargetId.solana, TargetKind.solana,
+        "CPI derive rejects nonempty invariants table"),
       (TargetId.near, TargetKind.near, "constants/invariants"),
       (TargetId.noir, TargetKind.noir, "constants/invariants"),
       (TargetId.aleo, TargetKind.aleo, "does not support invariants"),
@@ -655,9 +650,14 @@ private unsafe def testRichUInt64SemanticPlans : IO Unit := do
   let some solanaPlanText := solanaOutput.files.find?
       (·.path == "Ledger.s") |
     throw <| IO.userError "rich add/sub: missing Ledger.s"
-  expect (solanaPlanText.contents.contains
-      "%4 = entrypoint %2, %3 entrypoint")
-    "Solana emitter must retain checked-sub failure routing"
+  expect ((solanaPlanText.contents.splitOn "checked_sub_u64").length == 3 &&
+      solanaPlanText.contents.contains "jlt r1, r2, err_sub_2" &&
+      solanaPlanText.contents.contains
+        "err_sub_2:\n  lddw r0, 0x1001\n  exit" &&
+      solanaPlanText.contents.contains "jlt r1, r2, err_sub_4" &&
+      solanaPlanText.contents.contains
+        "err_sub_4:\n  lddw r0, 0x1001\n  exit")
+    "Solana emitter must retain both checked-sub branches and 0x1001 failure exits"
   let some nearWat := nearOutput.files.find? (·.path == "Ledger.wat") |
     throw <| IO.userError "rich add/sub: missing Ledger.wat"
   expect (nearWat.contents.contains
@@ -746,9 +746,18 @@ private unsafe def testBoolPredicateSemanticPlans : IO Unit := do
   let some solanaIdl := solanaOutput.files.find?
       (·.path == "BoolPredicate.idl.json") |
     throw <| IO.userError "bool-predicate: missing Solana IDL"
-  expect (solanaIdl.contents.contains "\"bool\"" &&
-      solanaIdl.contents.contains "\"u64-le\"")
-    "Solana IDL must carry both bool and u64-le result types"
+  expect (solanaIdl.contents.contains
+      "\"schema\":\"proof-forge.solana.cpi-idl.v1\"" &&
+      solanaIdl.contents.contains "\"name\":\"bump\"" &&
+      solanaIdl.contents.contains "\"name\":\"positive\"" &&
+      solanaIdl.contents.contains "\"name\":\"equalsCount\"")
+    "Solana CPI IDL must preserve all instruction identities"
+  let some solanaAsm := solanaOutput.files.find?
+      (·.path == "BoolPredicate.s") |
+    throw <| IO.userError "bool-predicate: missing Solana assembly"
+  expect ((solanaAsm.contents.splitOn "set_return_data_u64_le").length == 2 &&
+      (solanaAsm.contents.splitOn "set_return_data_bool").length == 3)
+    "Solana assembly must carry one UInt64 and two Bool return-data paths"
   let some noirSource := noirOutput.files.find?
       (·.path == "relations/r2-positive/src/main.nr") |
     throw <| IO.userError "bool-predicate: missing Noir positive relation"
@@ -892,8 +901,12 @@ private unsafe def testBranchingSemanticPlans : IO Unit := do
     "branching Yul must render branch and switch guards"
   let some sbpf := solanaOutput.files.find? (·.path == "BranchFlow.s") |
     throw <| IO.userError "branching: missing BranchFlow.s"
-  expect (sbpf.contents.contains "case 0 {" && sbpf.contents.contains "default {")
-    "branching s must render switch cases and the default region"
+  expect (sbpf.contents.contains "; if %2" &&
+      sbpf.contents.contains "if_else_" && sbpf.contents.contains "if_end_" &&
+      sbpf.contents.contains "; switch %0" &&
+      (sbpf.contents.splitOn "jeq r1, r2, sw_case_").length == 3 &&
+      sbpf.contents.contains "sw_end_")
+    "branching s must render the if diamond, two literal cases, and default fallthrough"
   let some wat := nearOutput.files.find? (·.path == "BranchFlow.wat") |
     throw <| IO.userError "branching: missing BranchFlow.wat"
   expect (wat.contents.contains "(if (local.get $t")
@@ -934,8 +947,8 @@ private def fnFlowSourceTextV1 : String :=
 
 /-- Four-target retained-V1 pureCall conformance: dense fn tables, nested
     localCall lowering with exact args, typed IR call operations, and each
-    target's emitter surface for pure functions (Yul functions, sbpf .fn
-    sections, WAT funcs, Noir block-valued selects). -/
+    target's emitter surface for pure functions (Yul functions, SBPF inline
+    call/return markers, WAT funcs, Noir block-valued selects). -/
 private unsafe def testFnLocalCallSemanticPlans : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
@@ -1004,11 +1017,11 @@ private unsafe def testFnLocalCallSemanticPlans : IO Unit := do
     "fn-call Yul must define and call both pure functions"
   let some sbpf := solanaOutput.files.find? (·.path == "FnFlow.s") |
     throw <| IO.userError "fn-call: missing FnFlow.s"
-  expect (sbpf.contents.contains ".fn 0 double" &&
-      sbpf.contents.contains ".fn 1 check" &&
-      sbpf.contents.contains "= call check" &&
-      sbpf.contents.contains "= call double")
-    "fn-call s must render fn sections and call sites"
+  expect ((sbpf.contents.splitOn "; call check →").length == 2 &&
+      (sbpf.contents.splitOn "; call double →").length == 3 &&
+      (sbpf.contents.splitOn "; fn ret u64").length == 4 &&
+      sbpf.contents.contains "lddw r0, 0x2000\n  exit")
+    "fn-call s must inline check/double calls, returns, and the declared-error exit"
   let some wat := nearOutput.files.find? (·.path == "FnFlow.wat") |
     throw <| IO.userError "fn-call: missing FnFlow.wat"
   expect (wat.contents.contains "(func $fn_double" &&
@@ -1134,9 +1147,12 @@ private unsafe def testEmitRevertSemanticPlans : IO Unit := do
     "emit-revert ABI must declare the Moved event and Cap error"
   let some sbpf := solanaOutput.files.find? (·.path == "EventFlow.s") |
     throw <| IO.userError "emit-revert: missing EventFlow.s"
-  expect (sbpf.contents.contains "emit_event Moved" &&
-      sbpf.contents.contains "program_error 0x2000")
-    "emit-revert s must render the named event and declared error code"
+  expect (sbpf.contents.contains
+      "; emit_event Moved (index 0, 2 args) via sol_log_data" &&
+      sbpf.contents.contains "call sol_log_data" &&
+      sbpf.contents.contains "; program_error declared index 0" &&
+      sbpf.contents.contains "lddw r0, 0x2000\n  exit")
+    "emit-revert s must log Moved and return the declared Cap error code"
   let some wat := nearOutput.files.find? (·.path == "EventFlow.wat") |
     throw <| IO.userError "emit-revert: missing EventFlow.wat"
   expect (wat.contents.contains "pf_log_utf8" &&
@@ -1237,9 +1253,12 @@ private unsafe def testGuardedCounterSemanticPlans : IO Unit := do
   let some solanaPlanText := solanaOutput.files.find?
       (·.path == "Guarded.s") |
     throw <| IO.userError "guarded: missing Guarded.s"
-  expect (solanaPlanText.contents.contains "cmp_ge_u64" &&
-      solanaPlanText.contents.contains "entrypoint")
-    "Solana emitter must retain the ge comparison and assert error routing"
+  expect (solanaPlanText.contents.contains "jge r1, r2, cmp_true_0" &&
+      solanaPlanText.contents.contains "; assert %2" &&
+      solanaPlanText.contents.contains "jeq r1, 0, err_assert_2" &&
+      solanaPlanText.contents.contains
+        "err_assert_2:\n  lddw r0, 0x1002\n  exit")
+    "Solana emitter must retain the ge branch and 0x1002 assert failure exit"
   let some nearWat := nearOutput.files.find? (·.path == "Guarded.wat") |
     throw <| IO.userError "guarded: missing Guarded.wat"
   expect (nearWat.contents.contains "i64.ge_u" &&
@@ -1357,12 +1376,14 @@ private unsafe def testArithOpsSemanticPlans : IO Unit := do
     "arith-ops Yul must render mul/div/mod/masked-not/iszero"
   let some sbpf := solanaOutput.files.find? (·.path == "ArithFlow.s") |
     throw <| IO.userError "arith-ops: missing ArithFlow.s"
-  expect (sbpf.contents.contains "entrypoint" &&
-      sbpf.contents.contains "entrypoint" &&
-      sbpf.contents.contains "entrypoint" &&
+  expect (sbpf.contents.contains "checked_mul_u64" &&
+      sbpf.contents.contains "checked_div_u64" &&
+      sbpf.contents.contains "checked_rem_u64" &&
+      sbpf.contents.contains "checked_add_u64" &&
       sbpf.contents.contains "bitnot_u64" &&
-      sbpf.contents.contains "bool_not")
-    "arith-ops s must render checked mul/div/rem and unary ops"
+      sbpf.contents.contains "bool_not" &&
+      sbpf.contents.contains "lddw r0, 0x1001\n  exit")
+    "arith-ops s must render checked mul/div/rem/add and both unary ops"
   let some wat := nearOutput.files.find? (·.path == "ArithFlow.wat") |
     throw <| IO.userError "arith-ops: missing ArithFlow.wat"
   expect (wat.contents.contains "i64.mul" && wat.contents.contains "i64.div_u" &&
@@ -1498,9 +1519,11 @@ private unsafe def testForLoopSemanticPlans : IO Unit := do
     "for-loop Yul must render native for loops with the back-edge bound revert"
   let some sbpf := solanaOutput.files.find? (·.path == "LoopSum.s") |
     throw <| IO.userError "for-loop: missing LoopSum.s"
-  expect (sbpf.contents.contains "entrypoint:" && sbpf.contents.contains "bound {" &&
-      sbpf.contents.contains "program_error 0x1003")
-    "for-loop s must render entrypoint with the entrypoint policy code"
+  expect (sbpf.contents.contains "; for max=8" &&
+      sbpf.contents.contains "; for max=2" &&
+      sbpf.contents.contains "; for max=3" &&
+      (sbpf.contents.splitOn "lddw r0, 0x1003\n  exit").length == 4)
+    "for-loop s must render all three static bounds with 0x1003 failure exits"
   let some wat := nearOutput.files.find? (·.path == "LoopSum.wat") |
     throw <| IO.userError "for-loop: missing LoopSum.wat"
   expect (wat.contents.contains "(loop $pf_loop" && wat.contents.contains "br_if" &&
@@ -3380,7 +3403,8 @@ unsafe def run : IO Unit := do
   -- EVM admits ADR-0025 encoding (CALLER → u32le(20)||addr20 leaves;
   -- Bool compare fixture). NEAR admits predecessor_account_id →
   -- u32le(L)||account-id-utf8 leaves (view stays FC; entry/init only).
-  -- Other Phase-1 targets stay Plan-fail-closed until their own cutover.
+  -- Solana's sole CPI product profile binds the signer-role `pf_caller` pubkey;
+  -- Noir/Psy stay Plan-fail-closed until their own chain-anchor cutover.
   let callerSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3399,7 +3423,8 @@ unsafe def run : IO Unit := do
   let callerCompiled ← liftResult <| Compiler.compileValidatedSourceV1 callerV1
   let _ ← liftResult <| materializeSelected TargetId.evm callerCompiled
   let _ ← liftResult <| materializeSelected TargetId.near callerCompiled
-  for target in [TargetId.solana, TargetId.noir, TargetId.psy] do
+  let _ ← liftResult <| materializeSelected TargetId.solana callerCompiled
+  for target in [TargetId.noir, TargetId.psy] do
     match materializeSelected target callerCompiled with
     | .ok _ =>
         throw <| IO.userError s!"B-ctx caller: {target} must decline ContextRead caller"

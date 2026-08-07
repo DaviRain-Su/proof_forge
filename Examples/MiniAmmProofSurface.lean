@@ -20,8 +20,8 @@ open ProofForgeV2.Language
 --   * inline gate accepted ordinal-0 InvariantTheoremV1 on this simple-closure carrier;
 --   * NOT AMM business safety (L1) / target refine / formal TASK-D2-07.
 --
--- L1 MiniAmm instance sketch: ProofForgeV2.Semantic.MiniAmmSafetySketchV1
--- Ladder (generic stack + instances): docs/research/23-miniamm-formalization-ladder.md
+-- Ladder (generic stack + instances; L1 is Reference-first):
+-- docs/research/23-miniamm-formalization-ladder.md
 program MiniAmmProofSurface where
   -- Nullary public Bool view required by the simple-closure family.
   view alive() : Bool do

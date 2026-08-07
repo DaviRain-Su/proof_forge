@@ -6,9 +6,9 @@
     * product `build --target quint` emits proof-forge.output.v1 (zero-tool)
     * `inspect <out> --json` revalidates exact disk closure
     * pins target=quint, profile=quint-source-u64-model-v1, TipJar.qnt vault model
-    * product `build` for solana/near/noir fails closed on extension.pf-assets
-      (or sync-call) with zero published artifacts; EVM is Phase B2
-      (`Tests.Product.TipJarEvmV1`)
+    * product `build` for noir fails closed on extension.pf-assets with zero
+      published artifacts; EVM and Solana have dedicated product verticals
+      (`Tests.Product.TipJarEvmV1`, `Tests.Product.TipJarSolanaV1`)
     * engineering model-layer only: non-formal, non-mainnet, deployable=false
 -/
 import ProofForgeV2.Compiler.Pipeline
@@ -220,15 +220,13 @@ private def testQuintBuildAndInspect : IO Unit := do
     s!"human inspect validation, got={hstdout}"
   -- Leave tree for manual review; suite is idempotent on next run (rm first).
 
-/-- Same demo must fail closed on targets that do not advertise pf.assets.
-    ADR-0029 Phase B2 opens EVM; Quint remains the model-layer vertical here.
-    EVM product vertical lives in `Tests.Product.TipJarEvmV1`. NEAR (Phase C2)
-    advertises pf-assets but refuses sync transfer at Plan — that case is
-    covered by `Tests.Product.TipJarNearV1`, so `near` leaves this
-    resolve-time FC list. -/
-private def testOtherTargetsFailClosed : IO Unit := do
+/-- Same demo must fail closed on the remaining target that does not advertise
+    pf.assets. EVM and Solana have dedicated successful product verticals.
+    NEAR advertises pf-assets but refuses sync transfer at Plan; that case is
+    covered by `Tests.Product.TipJarNearV1`, so it is not a resolve-time case. -/
+private def testNoirFailsClosed : IO Unit := do
   assertShape (← readShipped)
-  let targets := #["solana", "noir"]
+  let targets := #["noir"]
   for tid in targets do
     let outDir := FilePath.mk s!"build/v2/tipjar-{tid}-negative"
     try IO.FS.removeDirAll outDir catch _ => pure ()
@@ -243,9 +241,8 @@ private def testOtherTargetsFailClosed : IO Unit := do
     expect (containsSubstr combined "PF-REQ-UNSUPPORTED")
       s!"TipJar on {tid} must surface PF-REQ-UNSUPPORTED, got={combined}"
     -- TipJar freezes both effect.synchronous-call (from call sites) and
-    -- extension.pf-assets. Resolve reports the first unsupported id in wire
-    -- order: Noir hits extension.pf-assets (advertises sync call); Solana/NEAR
-    -- default profiles hit effect.synchronous-call first.
+    -- extension.pf-assets. Noir advertises sync call, so exact wire order
+    -- reports extension.pf-assets as its first unsupported requirement.
     expect (containsSubstr combined "extension.pf-assets" ||
         containsSubstr combined "pf-assets" ||
         containsSubstr combined "pf.assets" ||
@@ -260,7 +257,7 @@ unsafe def run : IO Unit := do
   testProductCompileOk
   testCliCheckOk
   testQuintBuildAndInspect
-  testOtherTargetsFailClosed
+  testNoirFailsClosed
   IO.println "Tests.Product.TipJarQuintV1: ok"
 
 end Tests.Product.TipJarQuintV1

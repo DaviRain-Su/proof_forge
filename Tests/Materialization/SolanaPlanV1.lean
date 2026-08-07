@@ -112,28 +112,24 @@ private def solanaCapability (compiled : CompiledSemanticV1)
   let selection ← resolveBuildSelectionV1 TargetId.solana profile?
   Targets.resolveEngineeringRequirementsV1 selection compiled
 
-/-- Legacy-only helper: unwraps `planFromCapability` `.legacy` carrier.
-    Fails the CompileResult if the CPI branch is returned (test theater guard). -/
+/-- Sole-rail inspection helper: lower the active CPI capability through the
+    product full-body Semantic → Plan path. -/
 private def planSolana (compiled : CompiledSemanticV1) : CompileResult Plan := do
   let capability ← solanaCapability compiled
-  match ← planFromCapability capability with
-  | .legacy plan => pure plan
-  | .cpi _ =>
-      throw <| .planInvariant .solana
-        "test helper planSolana: expected .legacy Plan, got .cpi"
+  materializeFullBodyPlanForProductV1 capability false
 
-/-- Legacy-only helper: unwraps `irFromCapability` `.legacy` carrier. -/
+/-- Sole-rail inspection helper: lower the active CPI capability through the
+    product full-body Plan → IR path. -/
 private def irSolana (compiled : CompiledSemanticV1) : CompileResult IR := do
   let capability ← solanaCapability compiled
-  match ← irFromCapability capability with
-  | .legacy ir => pure ir
-  | .cpi _ =>
-      throw <| .planInvariant .solana
-        "test helper irSolana: expected .legacy IR, got .cpi"
+  fullBodyIrFromProductCapabilityV1 capability false
 
+/-- Capability-bound Plan/IDL inspection files for this Plan/IR characterization
+    suite. Product artifact closure is covered by the dedicated CPI suites. -/
 private def filesSolana (compiled : CompiledSemanticV1) : CompileResult (Array OutputFile) := do
   let capability ← solanaCapability compiled
-  buildFromCapability capability
+  let ir ← fullBodyIrFromProductCapabilityV1 capability false
+  emitPlanAndIdlFromIR capability ir
 
 private def findFile (files : Array OutputFile) (path : String) : IO String :=
   match files.find? (·.path == path) with
@@ -438,12 +434,14 @@ private unsafe def testBoolPredicateEndToEnd
   let plan ← liftResult <| planSolana compiled
   let capability ← liftResult <| solanaCapability compiled
   let planCapSum ← liftResult <| planFromCapability capability
-  let planCap ← match planCapSum with
-    | .legacy p => pure p
-    | .cpi _ =>
-        throw <| IO.userError
-          "bool-predicate: planFromCapability must return .legacy for default profile"
-  expect (plan == planCap) "planFromCapability .legacy must match planSolana helper"
+  match planCapSum with
+  | .cpi productPlan =>
+      let candidate := CpiV1.SolanaCpiProductPlanV1.candidateOf productPlan
+      expect (candidate.programName == "BoolPredicate" && candidate.cpiSites.isEmpty)
+        "bool-predicate: sole-rail product Plan must bind the program with zero CPI sites"
+  | .legacy _ =>
+      throw <| IO.userError
+        "bool-predicate: sole-rail planFromCapability must not return .legacy"
   let bump ← findHandler plan "bump"
   expect (bump.mode == .mutate && bump.resultKind == .u64)
     "bump must remain a UInt64 mutate entry"
@@ -458,12 +456,9 @@ private unsafe def testBoolPredicateEndToEnd
       equalsCount.body == #[
         .returnValue (.compare .eq (.stateLoad 0 8) (.param 8))])
     "equalsCount must be Bool entry returning eq(load,param)"
-  let irSum ← liftResult <| irFromCapability capability
-  let ir ← match irSum with
-    | .legacy i => pure i
-    | .cpi _ =>
-        throw <| IO.userError
-          "bool-predicate: irFromCapability must return .legacy for default profile"
+  -- Body IR on the sole rail is owned by the full-body synthesis path; the
+  -- narrower CPI composite `irFromCapability` is covered by CPI-specific suites.
+  let ir ← liftResult <| irSolana compiled
   let positiveIR ← findHandlerIR ir "positive"
   expect (positiveIR.operations == #[
       .loadState 0 0 8,
@@ -488,7 +483,7 @@ private unsafe def testBoolPredicateEndToEnd
         throw <| IO.userError "bump must not emit setReturnDataBool"
     | _ => pure ()
   expect sawU64Return "bump must emit setReturnData (u64-le)"
-  let files ← liftResult <| buildFromCapability capability
+  let files ← liftResult <| filesSolana compiled
   let planText ← findFile files "BoolPredicate.sbpf-plan"
   expect (planText.contains "set_return_data_bool %2")
     "sbpf-plan must contain set_return_data_bool"
@@ -508,7 +503,7 @@ private unsafe def testBoolPredicateEndToEnd
   let u64Returns := (idl.splitOn "\"returns\":\"u64-le\"").length - 1
   expect (boolReturns == 2 && u64Returns == 1)
     s!"IDL return kinds: expected 2 bool + 1 u64-le, got {boolReturns} bool / {u64Returns} u64"
-  let files2 ← liftResult <| buildFromCapability capability
+  let files2 ← liftResult <| filesSolana compiled
   let planText2 ← findFile files2 "BoolPredicate.sbpf-plan"
   let idl2 ← findFile files2 "BoolPredicate.idl.json"
   expect (planText == planText2 && idl == idl2)
@@ -2271,10 +2266,47 @@ private partial def countAnyIrMultiStores (ops : Array Operation) : Nat × Nat :
         (multi + m1 + m2 + m3 + m4, scalar + s1 + s2 + s3 + s4)
     | _ => (multi, scalar)) (0, 0)
 
+private partial def countPrincipalPlanUpserts (stmts : Array Statement) : Nat × Nat :=
+  stmts.foldl (fun (upserts, scalar) stmt =>
+    match stmt with
+    | .denseMapPrincipalUpsert .. => (upserts + 1, scalar)
+    | .store _ => (upserts, scalar + 1)
+    | .ifThenElse _ t e =>
+        let (u1, s1) := countPrincipalPlanUpserts t
+        let (u2, s2) := countPrincipalPlanUpserts e
+        (upserts + u1 + u2, scalar + s1 + s2)
+    | .switchOn _ cases d =>
+        let (ud, sd) := countPrincipalPlanUpserts d
+        let (uc, sc) := cases.foldl (fun (u, s) (_, b) =>
+          let (ub, sb) := countPrincipalPlanUpserts b
+          (u + ub, s + sb)) (0, 0)
+        (upserts + ud + uc, scalar + sd + sc)
+    | .forLoop _ _ _ _ _ b =>
+        let (ub, sb) := countPrincipalPlanUpserts b
+        (upserts + ub, scalar + sb)
+    | _ => (upserts, scalar)) (0, 0)
+
+private partial def countPrincipalIrUpserts (ops : Array Operation) : Nat :=
+  ops.foldl (fun upserts op =>
+    match op with
+    | .mapPrincipalUpsert .. => upserts + 1
+    | .ifRegion _ t e =>
+        upserts + countPrincipalIrUpserts t + countPrincipalIrUpserts e
+    | .switchRegion _ cases d =>
+        upserts + countPrincipalIrUpserts d +
+          cases.foldl (fun n (_, b) => n + countPrincipalIrUpserts b) 0
+    | .forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _ =>
+        upserts + countPrincipalIrUpserts condOps +
+          countPrincipalIrUpserts bodyOps + countPrincipalIrUpserts boundOps +
+          countPrincipalIrUpserts updateOps
+    | _ => upserts) 0
+
 /-- E4 MiniAMM LP residual: dense `Map Principal UInt64` (cap-4 × 11 leaves =
-    44 slots). Layout isomorphic to EVM LP pilot; atomic `storeAggregate` /
-    `storeStateMulti` for empty upsert; Principal param expands to 9 ABI
-    words; wrong value shape fail closed. Frame must stay ≤4096B. -/
+    44 slots). Layout isomorphic to EVM LP pilot; updates use the specialized
+    `denseMapPrincipalUpsert` → `mapPrincipalUpsert` + atomic
+    `storeStateMulti` path, while Map.empty init remains one `storeAggregate`.
+    Principal params expand to 9 ABI words; wrong value shapes fail closed.
+    Frame must stay ≤4096B. -/
 private unsafe def testMapPrincipalUInt64Pilot
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrapProgram "LpShares" <|
@@ -2308,37 +2340,40 @@ private unsafe def testMapPrincipalUInt64Pilot
   let bal ← findHandler plan "balanceOf"
   expect (bal.params.size == 9)
     s!"LpShares.balanceOf must expand Principal param to 9 ABI words, got {bal.params.size}"
-  -- mint arms: each successful path has one 44-leaf storeAggregate (no scalar).
-  let (aggAny, seqStores) := countAnyPlanAggregates mint.body
-  expect (aggAny >= 2)
-    s!"LpShares mint Plan must have ≥2 storeAggregate (two match arms), got {aggAny}"
+  -- Each successful mint arm uses one specialized cap-4 Principal upsert.
+  let (upserts, seqStores) := countPrincipalPlanUpserts mint.body
+  expect (upserts >= 2)
+    s!"LpShares mint Plan must have ≥2 denseMapPrincipalUpsert nodes, got {upserts}"
   expect (seqStores == 0)
     s!"LpShares mint Plan must not emit sequential scalar .store, got {seqStores}"
-  -- Walk all storeAggregate nodes and pin leaf count / layout offsets.
-  let rec checkAgg (stmts : Array Statement) : IO Unit := do
+  -- Pin the specialized node's map/key widths and exact target layout.
+  let rec checkUpserts (stmts : Array Statement) : IO Unit := do
     for stmt in stmts do
       match stmt with
-      | .storeAggregate leaves =>
-          expect (leaves.size == 44)
-            s!"LpShares storeAggregate must write 44 leaves, got {leaves.size}"
-          for i in [0:leaves.size] do
-            let leaf := leaves[i]!
-            expect (leaf.accountIndex == 0 && leaf.byteWidth == 8)
-              s!"LpShares leaf {i} must be account0/u64"
-            expect (leaf.byteOffset == 8 + i * 8)
-              s!"LpShares leaf {i} byteOffset must be {8 + i * 8}, got {leaf.byteOffset}"
+      | .denseMapPrincipalUpsert targets mapBase keyLeaves _ =>
+          expect (targets.size == 44 && mapBase.size == 44 && keyLeaves.size == 9)
+            s!"LpShares specialized upsert widths must be targets=44/map=44/key=9, got {targets.size}/{mapBase.size}/{keyLeaves.size}"
+          for i in [0:targets.size] do
+            let target := targets[i]!
+            expect (target.accountIndex == 0 && target.byteWidth == 8)
+              s!"LpShares target {i} must be account0/u64"
+            expect (target.byteOffset == 8 + i * 8)
+              s!"LpShares target {i} byteOffset must be {8 + i * 8}, got {target.byteOffset}"
+      | .storeAggregate _ =>
+          throw <| IO.userError
+            "LpShares mint must use denseMapPrincipalUpsert, not generic storeAggregate"
       | .ifThenElse _ t e =>
-          checkAgg t
-          checkAgg e
+          checkUpserts t
+          checkUpserts e
       | .switchOn _ cases d =>
-          checkAgg d
-          for (_, b) in cases do checkAgg b
-      | .forLoop _ _ _ _ _ b => checkAgg b
+          checkUpserts d
+          for (_, b) in cases do checkUpserts b
+      | .forLoop _ _ _ _ _ b => checkUpserts b
       | .store _ =>
           throw <| IO.userError
             "LpShares mint must not emit scalar store for Principal Map"
       | _ => pure ()
-  checkAgg mint.body
+  checkUpserts mint.body
   -- init zeros the full 44-leaf table atomically.
   let (initAgg, initSeq) := countAnyPlanAggregates plan.initializer.body
   expect (initAgg == 1)
@@ -2361,9 +2396,12 @@ private unsafe def testMapPrincipalUInt64Pilot
   let ir ← liftResult <| irSolana compiled
   liftResult <| validateIR ir
   let mintIR ← findHandlerIR ir "mint"
+  let principalUpserts := countPrincipalIrUpserts mintIR.operations
+  expect (principalUpserts >= 2)
+    s!"LpShares mint IR must have ≥2 mapPrincipalUpsert nodes, got {principalUpserts}"
   let (multiAny, scalarStores) := countAnyIrMultiStores mintIR.operations
   expect (multiAny >= 2)
-    s!"LpShares mint IR must have ≥2 storeStateMulti, got {multiAny}"
+    s!"LpShares mint IR must have ≥2 atomic storeStateMulti batches, got {multiAny}"
   expect (scalarStores == 0)
     s!"LpShares mint IR must not emit scalar storeState for Map leaves, got {scalarStores}"
   -- Every multi-store for mint must be exactly 44 u64 leaves.
@@ -2390,8 +2428,9 @@ private unsafe def testMapPrincipalUInt64Pilot
   checkMulti mintIR.operations
   let files ← liftResult <| filesSolana compiled
   let planText ← findFile files "LpShares.sbpf-plan"
-  expect (planText.contains "store_multi_le [44]")
-    "LpShares sbpf-plan must render store_multi_le [44] for Principal Map"
+  expect (planText.contains "map_principal_upsert" &&
+      planText.contains "store_multi_le [44]")
+    "LpShares sbpf-plan must render specialized upsert plus atomic 44-leaf store"
   let asm ← liftResult <| emitSbpfAsmV1 ir
   expect (asm.contains "mint:") "LpShares asm must contain mint handler"
   expect (asm.contains "store_multi_le [44]")

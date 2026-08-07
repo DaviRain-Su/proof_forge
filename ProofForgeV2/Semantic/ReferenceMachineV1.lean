@@ -212,13 +212,15 @@ private def admitFail (detail : String) :
     Except ReferenceAdmissionErrorV1 α :=
   .error (.unsupported detail)
 
-/-- Reference-only Map entry budget for static resource admission.
-    Wire `maxMapEntriesV1` (1e6) makes worst-case UInt64/UInt64 Map width exceed
-    `maxCanonicalValueBytes`, which blocked product empty-Map state entirely.
-    Runtime IndexSet still enforces the wire ceiling via valueBytes validation.
-    R-1: 4096 matches maxTypeLength-scale containers. -/
-private def maxMapEntriesReferenceBudgetV1 : Nat := 4096
-
+/- A Map is a self-bounded canonical envelope. Each Wire helper validates one
+   complete value (including heterogeneous aggregate entries) under the shared
+   `maxCanonicalValueBytes` / `maxCanonicalProgramBytes` budgets and
+   `maxMapEntriesV1`; Reference admission therefore publishes those exact
+   per-value ceilings instead of deriving a second entry capacity or sampling
+   a few key/value packing profiles. This is not a whole-step cumulative-work
+   receipt: helpers such as multi-pair Map Construct may start fresh budgets.
+   Empty Map state defaults are accounted separately as the exact four-byte
+   count header. -/
 private def typeShapeAdmitted (shape : TypeShapeV1) :
     Except ReferenceAdmissionErrorV1 Unit :=
   match shape with
@@ -302,7 +304,8 @@ private def admitCallableBody (data : SemanticProgramDataV1) (c : CallableV1) :
   for block in c.blocks do
     for instr in block.instructions do
       opAdmitted instr.op
-      -- Map has exactly one admitted constructor: empty, index 0, no args.
+      -- Map has exactly one constructor index (0); its args are a flattened
+      -- key/value sequence, with the empty sequence representing Map.empty.
       match instr.op with
       | .construct tid _ _ =>
           match data.types[tid.toNat]? with
@@ -378,12 +381,13 @@ private def admitTypes (types : Array TypeDeclV1) :
   for t in types do
     typeShapeAdmitted t.shape
 
-/-- Prove that every admitted fixed-width value can be materialized within
-    the canonical byte, recursive-shape, and cumulative construction-work
-    limits. This explicit-stack
-    postorder walk avoids host recursion and allocation amplification from compact
-    Struct DAG declarations. Wire has already rejected Struct-only cycles;
-    unresolved rows still fail closed rather than relying on that premise. -/
+/-- Bound each admitted type under canonical byte, recursive-shape, and
+    per-value Wire work envelopes. This explicit-stack postorder walk avoids
+    host recursion and allocation amplification from compact Struct DAG
+    declarations. It does not certify one cumulative budget for an entire
+    Reference step; runtime helpers may independently restart Wire work budgets.
+    Wire has already rejected Struct-only cycles; unresolved rows still fail
+    closed rather than relying on that premise. -/
 private def admitTypeResourceBounds (types : Array TypeDeclV1) :
     Except ReferenceAdmissionErrorV1 (Array Nat × Array Nat) := do
   let n := types.size
@@ -419,74 +423,63 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
               let mut totalWork := 0
               match decl.shape with
               | .map _ _ =>
-                  unless maxMapEntriesReferenceBudgetV1 == 0 ||
-                      8 ≤ maxCanonicalValueBytes / maxMapEntriesReferenceBudgetV1 do
-                    return ← admitFail "Map canonical value exceeds byte limit"
-              | _ => pure ()
-              let headerWidth := match decl.shape with
-                | .struct _ | .array _ _ => 0
-                | .option _ => 1
-                | .map _ _ =>
-                    let count := maxMapEntriesReferenceBudgetV1
-                    4 + count * 8
-                | _ => 4
-              for children in alternatives do
-                let mut altWidth := headerWidth
-                -- Match Wire's cumulative decoder: one node-entry unit,
-                -- every child occurrence, then this node's canonical output.
-                let mut altWork := 1
-                let mut directChildWork := 0
-                for childId in children do
-                  let child := childId.toNat
-                  unless child < n && color[child]! == 2 do
-                    return ← admitFail "aggregate resource bounds could not be resolved"
-                  let width := widths[child]!
-                  let count := match decl.shape with
-                    | .array _ length => length.toNat
-                    | .map _ _ => maxMapEntriesReferenceBudgetV1
-                    | _ => 1
-                  unless count == 0 || width ≤ maxCanonicalValueBytes / count do
-                    return ← admitFail "aggregate canonical value exceeds byte limit"
-                  let addedWidth := count * width
-                  unless addedWidth ≤ maxCanonicalValueBytes - altWidth do
-                    return ← admitFail "aggregate canonical value exceeds byte limit"
-                  altWidth := altWidth + addedWidth
-                  childDepth := max childDepth depths[child]!
-                  let work := works[child]!
-                  unless work ≤ maxCanonicalProgramBytes - directChildWork do
+                  -- A Map owns one per-canonical-value Wire envelope regardless
+                  -- of how heterogeneous its entries are. Resolve children only
+                  -- for acyclicity/depth; do not multiply maxMapEntriesV1 by
+                  -- child maxima or sample selected entry profiles. This bound
+                  -- intentionally says nothing about cumulative whole-step work.
+                  for children in alternatives do
+                    for childId in children do
+                      let child := childId.toNat
+                      unless child < n && color[child]! == 2 do
+                        return ← admitFail
+                          "aggregate resource bounds could not be resolved"
+                      childDepth := max childDepth depths[child]!
+                  total := maxCanonicalValueBytes
+                  totalWork := maxCanonicalProgramBytes
+              | _ =>
+                let headerWidth := match decl.shape with
+                  | .struct _ | .array _ _ => 0
+                  | .option _ => 1
+                  | _ => 4
+                for children in alternatives do
+                  let mut altWidth := headerWidth
+                  -- Match Wire's cumulative decoder: one node-entry unit,
+                  -- every child occurrence, then this node's canonical output.
+                  let mut altWork := 1
+                  let mut directChildWork := 0
+                  for childId in children do
+                    let child := childId.toNat
+                    unless child < n && color[child]! == 2 do
+                      return ← admitFail "aggregate resource bounds could not be resolved"
+                    let width := widths[child]!
+                    let count := match decl.shape with
+                      | .array _ length => length.toNat
+                      | _ => 1
+                    unless count == 0 || width ≤ maxCanonicalValueBytes / count do
+                      return ← admitFail "aggregate canonical value exceeds byte limit"
+                    let addedWidth := count * width
+                    unless addedWidth ≤ maxCanonicalValueBytes - altWidth do
+                      return ← admitFail "aggregate canonical value exceeds byte limit"
+                    altWidth := altWidth + addedWidth
+                    childDepth := max childDepth depths[child]!
+                    let work := works[child]!
+                    unless work ≤ maxCanonicalProgramBytes - directChildWork do
+                      return ← admitFail "aggregate canonical construction work exceeds limit"
+                    directChildWork := directChildWork + work
+                    -- Every occurrence is charged, including zero-width values.
+                    unless count == 0 || work ≤ maxCanonicalProgramBytes / count do
+                      return ← admitFail "aggregate canonical construction work exceeds limit"
+                    let addedWork := count * work
+                    unless addedWork ≤ maxCanonicalProgramBytes - altWork do
+                      return ← admitFail "aggregate canonical construction work exceeds limit"
+                    altWork := altWork + addedWork
+                  let ownWork := max 1 altWidth
+                  unless ownWork ≤ maxCanonicalProgramBytes - altWork do
                     return ← admitFail "aggregate canonical construction work exceeds limit"
-                  directChildWork := directChildWork + work
-                  -- Every occurrence is charged, including zero-width values.
-                  unless count == 0 || work ≤ maxCanonicalProgramBytes / count do
-                    return ← admitFail "aggregate canonical construction work exceeds limit"
-                  let addedWork := count * work
-                  unless addedWork ≤ maxCanonicalProgramBytes - altWork do
-                    return ← admitFail "aggregate canonical construction work exceeds limit"
-                  altWork := altWork + addedWork
-                let ownWork := max 1 altWidth
-                unless ownWork ≤ maxCanonicalProgramBytes - altWork do
-                  return ← admitFail "aggregate canonical construction work exceeds limit"
-                altWork := altWork + ownWork
-                -- Map IndexSet validates the new key/value, traverses the old
-                -- map, scans each entry, and writes the complete new map under
-                -- one Wire budget. Prove that worst case here (Reference budget).
-                match decl.shape with
-                | .map _ _ =>
-                    unless directChildWork ≤ maxCanonicalProgramBytes - altWork do
-                      return ← admitFail "Map canonical update work exceeds limit"
-                    altWork := altWork + directChildWork
-                    unless maxMapEntriesReferenceBudgetV1 ≤ maxCanonicalProgramBytes - altWork do
-                      return ← admitFail "Map canonical update work exceeds limit"
-                    altWork := altWork + maxMapEntriesReferenceBudgetV1
-                    unless maxMapEntriesReferenceBudgetV1 ≤ maxCanonicalProgramBytes - altWork do
-                      return ← admitFail "Map canonical update work exceeds limit"
-                    altWork := altWork + maxMapEntriesReferenceBudgetV1
-                    unless ownWork ≤ maxCanonicalProgramBytes - altWork do
-                      return ← admitFail "Map canonical update work exceeds limit"
-                    altWork := altWork + ownWork
-                | _ => pure ()
-                total := max total altWidth
-                totalWork := max totalWork altWork
+                  altWork := altWork + ownWork
+                  total := max total altWidth
+                  totalWork := max totalWork altWork
               let depth := childDepth + 1
               unless depth ≤ maxNesting do
                 return ← admitFail "aggregate canonical value exceeds nesting limit"
@@ -593,9 +586,9 @@ def admitReferenceProgramSliceV1 (program : SemanticProgramV1) :
   let (typeWidths, typeWorks) ← admitTypeResourceBounds data.types
   -- `initialLogicalStateV1` materializes every default plus its u32 length
   -- prefix. Bound that aggregate before any invocation can allocate it.
-  -- R-1: Map *defaults* are empty (`u32le(0)` = 4 bytes). Worst-case Map
-  -- width/work (maxMapEntriesV1) remains in typeWidths/typeWorks for IndexSet
-  -- budgeting, but must not make empty Map state unadmissible.
+  -- R-1: Map *defaults* are empty (`u32le(0)` = 4 bytes). Parent-facing Map
+  -- width/work is the complete Wire value/work ceiling, but empty Map state
+  -- defaults stay 4-byte / O(1) so empty Map state remains admissible.
   let mut stateBytes := 0
   let mut stateWork := 0
   for state in data.logicalState do

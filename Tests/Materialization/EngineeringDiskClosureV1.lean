@@ -88,10 +88,15 @@ private unsafe def testFlatSolanaPositive : IO Unit := do
   let outDir := FilePath.mk "build/v2/disk-closure-solana"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
-  expect (receipt.deployable == false) "solana non-deployable"
+  expect (receipt.deployable == true) "solana sole CPI-ELF rail deployable"
+  expect (← (outDir / "Counter.so").pathExists) "solana finalized ELF present"
   expect (← (outDir / "evidence.json").pathExists) "solana evidence present"
   expect (← (outDir / "manifest.json").pathExists) "solana manifest present"
   let manifestText ← IO.FS.readFile (outDir / "manifest.json")
+  expect ((manifestText.splitOn "\"deployable\": true").length > 1 &&
+      (manifestText.splitOn "\"path\": \"Counter.so\"").length > 1 &&
+      (manifestText.splitOn "\"role\": \"finalized-extra\"").length > 1)
+    "solana manifest must bind deployable Counter.so finalized extra"
   expect ((manifestText.splitOn "evidence.json").length == 1)
     "evidence must not appear in manifest.files"
   for p in basePaths do

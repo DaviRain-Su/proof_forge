@@ -139,8 +139,9 @@ private unsafe def testMintDeterminismFourTargets : IO Unit := do
     expect (EngineeringOutputSetV1.targetIdOf a == tid) s!"{tid} target"
     expect (EngineeringOutputSetV1.artifactProgramNameOf a == "Counter")
       s!"{tid} artifact name"
-    expect (EngineeringOutputSetV1.deployableOf a == false)
-      s!"{tid} plan/source-only non-deployable"
+    let expectedDeployable := tid == TargetId.solana
+    expect (EngineeringOutputSetV1.deployableOf a == expectedDeployable)
+      s!"{tid} deployable must match target finalization"
     expect (!(EngineeringOutputSetV1.filesOf a).isEmpty) s!"{tid} files nonempty"
     -- Sidecars never enter files.
     let paths := (EngineeringOutputSetV1.filesOf a).map (·.path)
@@ -297,7 +298,7 @@ private unsafe def testDigestTamperMatrix : IO Unit := do
       (EngineeringOutputSetV1.supportClaimDigestOf base)
       (EngineeringOutputSetV1.buildIdentityDigestOf base)
       (EngineeringOutputSetV1.planDigestOf base)
-      true
+      (!EngineeringOutputSetV1.deployableOf base)
       (EngineeringOutputSetV1.evidenceSha256Of base))
   expectDigestDiff "deployable" baseDigest deployDigest
   -- Artifact name change.
@@ -325,7 +326,9 @@ private unsafe def testProductPathDiskRecompute : IO Unit := do
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let receipt ← ProofForgeV2.CLI.emitProgram cap outDir
   expect (receipt.target == TargetId.solana) "receipt target"
-  expect (receipt.deployable == false) "receipt deployable"
+  expect (receipt.deployable == true) "sole-rail Solana receipt deployable"
+  expect (← (outDir / "Counter.so").pathExists)
+    "sole-rail Solana finalization must publish Counter.so"
   -- Independent recompute via finalize + scan + mint + render.
   let scratch := FilePath.mk "build/v2/output-set-product-scratch"
   let finalized ← finalizeScratch cap arts scratch
@@ -347,17 +350,28 @@ private unsafe def testProductPathDiskRecompute : IO Unit := do
   expect ((diskManifest.splitOn "\"contentSha256\":").length > 1)
     "manifest files carry contentSha256"
   expect ((diskManifest.splitOn "\"role\": \"materialized-base\"").length > 1)
-    "manifest files carry role"
+    "manifest files carry materialized-base role"
+  expect ((diskManifest.splitOn "\"role\": \"finalized-extra\"").length > 1 &&
+      (diskManifest.splitOn "\"path\": \"Counter.so\"").length > 1)
+    "manifest must bind the locked-sbpf Counter.so finalized extra"
+  expect ((diskManifest.splitOn "\"deployable\": true").length > 1)
+    "manifest must mark sole-rail Solana deployable"
   -- Exact disk closure still holds (S7c).
   validateEngineeringDiskClosureV1 finalized outDir
   -- Files order is canonical role-rank then UTF-8 path (not materializer source order).
   let paths := (EngineeringOutputSetV1.filesOf outputSet).map (·.path)
-  expect (paths == #["Counter.idl.json", "Counter.s"])
-    "solana files canonical path order"
+  expect (paths == #[
+      "Counter.cpi-bindings.json",
+      "Counter.cpi-ir.json",
+      "Counter.cpi-plan.json",
+      "Counter.idl.json",
+      "Counter.s",
+      "Counter.so"])
+    s!"solana files canonical path order, got {paths}"
   -- Inspect product path accepts the published dir.
   let inspected ← ProofForgeV2.CLI.inspectEngineeringOutputDirV1 outDir
   expect (inspected.target == "solana") "inspect target"
-  expect (inspected.files.size == 2) "inspect file count"
+  expect (inspected.files.size == 6) "inspect file count"
   if ← scratch.pathExists then IO.FS.removeDirAll scratch
 
 private def testSoleMintAndForbiddenNames : IO Unit := do

@@ -4,7 +4,7 @@
 
 - Original audit baseline date: `2026-07-26`
 - Original audit baseline commit: `8b42f7ebeb60652d1789e495f23247e5685b1e22`
-- Engineering fact updates through: `2026-08-06`（含 D3-E7/NFR-REPEAT/D3-E9/N-ANON-RESULT/B-OPT-STATE/B-CALL-SEM、ADR-0027 inline same-file theorem certification、ADR-0031 S1 caller/S2 blockHeight leaves，以及 ADR-0030 E4 的 EVM/Solana Principal Map 与 Solana WideDiv runtime/dispatch 工程前置；**控制面同步**：12 targets / 9 implemented + 3 design-only / 9 materializers / 11 resolver rows；CosmWasm/Quint/TON capability Plan/IR/materialize/finalize；D2-07 `evalInvariantV1`/`InvariantTheoremV1` 工程已存在、formal pending；后续增量见本矩阵与 `docs/06-implementation-log.md`；原始审计基线 commit 见上）
+- Engineering fact updates through: `2026-08-07`（含 D3-E7/NFR-REPEAT/D3-E9/N-ANON-RESULT/B-OPT-STATE/B-CALL-SEM、ADR-0027 inline same-file theorem certification、**ADR-0034 Preservation ABI `proposed`/design-only（不 supersede 0027）**、Reference **Map Wire-envelope admission**（每个 Map 直接绑定 shared per-canonical-value/helper ceilings；无 sampled packing/派生 runtime capacity；empty state default 仍为 4B；whole-step cumulative work 仍 residual；MiniAmm `Map Principal UInt64` Normalize→admit 已通）、ADR-0031 S1 caller/S2 blockHeight leaves，以及 ADR-0030 E4 的 EVM/Solana Principal Map 与 Solana WideDiv runtime/dispatch 工程前置；**控制面同步**：12 targets / 9 implemented + 3 design-only / 9 materializers / 11 resolver rows；CosmWasm/Quint/TON capability Plan/IR/materialize/finalize；D2-07 `evalInvariantV1`/`InvariantTheoremV1` 工程已存在、formal pending；后续增量见本矩阵与 `docs/06-implementation-log.md`；原始审计基线 commit 见上）
 - Formal task source: [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)
 - Test requirement source: [`docs/05-test-spec.md`](docs/05-test-spec.md)
 - Product migration decision: [`docs/adr/0019-single-programv1-source-authority.md`](docs/adr/0019-single-programv1-source-authority.md)
@@ -392,12 +392,22 @@ runtime写成target support或完整declassification证明。invariant root/reac
 
 ### D2-07 Map index runtime 增量（2026-07-31）
 
-工程（非formal）ReferenceV1现接纳Wire-legal Map、empty Construct及Map IndexGet/immutable
-IndexSet；get产生exact Option<value>，set保留旧SSA。WireV1 public lookup/upsert seam复用sole
-cumulative decoder与unsigned-lex comparator，负责canonical framing、key legality、strict unique
-order及count/byte/work/nesting cap。admission以`maxMapEntriesV1`理论最大entry count作cap-safe
-保守width/work计算且不按count循环，可能拒绝实际可容纳的小Map。ContextRead/Commit Reference
-runtime已由后续切片开放；formal evaluator仍pending。
+工程（非formal）ReferenceV1现接纳Wire-legal Map、constructor index 0 的 flattened key/value
+pairs（空序列=`Map.empty`，非空=`Map.of`）及Map IndexGet/immutable IndexSet；get产生exact
+Option<value>，set保留旧SSA。WireV1 public lookup/upsert seam复用sole cumulative decoder与
+unsigned-lex comparator，负责canonical framing、key legality、strict unique order及
+count/byte/work/nesting cap。**Map 静态资源 admission（2026-08-07）** 不再固定
+`maxMapEntriesReferenceBudgetV1=4096` 做整表 worst-case 乘法，也不从少量 max/min
+homogeneous packing profile 派生容量；每个 Map 作为一个完整 Wire canonical envelope，
+parent-facing width/work 直接绑定 shared `maxCanonicalValueBytes` /
+`maxCanonicalProgramBytes` 的**单次 canonical-value/helper**上限。这样对 heterogeneous
+aggregate entries 仍保守，且不会形成第二套 runtime 容量；empty Map state default 继续单独按
+exact 4-byte count header / O(1) 计费。**这不是 whole-step cumulative-work receipt**：多 pair
+`Map.of` 仍由 sequential upsert helpers 各自使用 shared cap，单步累计 receipt 属 residual。
+**Runtime upsert 权威不变**：IndexSet 仍经 Wire 实际 encode / `maxMapEntriesV1` / valueBytes /
+work 校验。shipped `Examples/MiniAmm`（dense `Map Principal UInt64`）Normalize→
+`admitReferenceProgramSliceV1` 已通过（`testMiniAmmMapPrincipalAdmit`）。ContextRead/Commit
+Reference runtime已由后续切片开放；formal evaluator仍pending。
 
 ### D2-07 Array/Bytes index runtime 增量（2026-07-31）
 

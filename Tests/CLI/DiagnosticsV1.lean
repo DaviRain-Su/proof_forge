@@ -218,7 +218,8 @@ private def testParserBoundaryExit3 : IO Unit := do
 
 /-- #125 Solana call/schedule diagnostic matrix (no Escrow positive here —
     that product path is covered by SolanaCpiActivationV1):
-    * legacy plan/elf: call and schedule both PF-REQ-UNSUPPORTED, zero artifacts
+    * retired plan/elf profiles: selection fails with PF-PROFILE-UNKNOWN,
+      before requirement resolution, with zero artifacts
     * exact CPI: unknown Oracle call fails closed (PF-PLAN-INVARIANT after
       ordinary resolve admits sync); schedule still PF-REQ-UNSUPPORTED;
       unknown API path remains fail-closed with zero artifacts
@@ -270,15 +271,14 @@ private def testSolanaCallsFailClosed : IO Unit := do
   IO.FS.writeFile callPath callSource
   IO.FS.writeFile schedulePath scheduleSource
   IO.FS.writeFile unknownPath unknownSource
-  -- Legacy profiles: both call and schedule still PF-REQ-UNSUPPORTED.
-  let legacyProfiles := #["solana-sbpf-elf-v1", "solana-sbpf-cpi-elf-v1"]
-  let legacyCases : Array (String × FilePath × String × String) := #[
-    ("call", callPath, "Tests.CLI.SolanaCallFail", "effect.synchronous-call"),
-    ("schedule", schedulePath, "Tests.CLI.SolanaScheduleFail",
-      "effect.asynchronous-workflow")
+  -- Retired plan/elf profiles fail at selection before requirement resolution.
+  let retiredProfiles := #["solana-sbpf-plan-v1", "solana-sbpf-elf-v1"]
+  let retiredCases : Array (String × FilePath × String) := #[
+    ("call", callPath, "Tests.CLI.SolanaCallFail"),
+    ("schedule", schedulePath, "Tests.CLI.SolanaScheduleFail")
   ]
-  for (kind, sourcePath, moduleName, requirementId) in legacyCases do
-    for profile in legacyProfiles do
+  for (kind, sourcePath, moduleName) in retiredCases do
+    for profile in retiredProfiles do
       let outDir := fixtureDir / s!"diagnostic-solana-{kind}-{profile}-output"
       if ← outDir.pathExists then IO.FS.removeDirAll outDir
       let (ec, stdout, stderr) ← runCli #[
@@ -289,14 +289,14 @@ private def testSolanaCallsFailClosed : IO Unit := do
         "-o", outDir.toString
       ]
       expect (ec != 0)
-        s!"legacy Solana {kind}/{profile} must fail, got exit {ec}\n{stdout}\n{stderr}"
-      expect (containsSubstr stderr "PF-REQ-UNSUPPORTED" &&
-          containsSubstr stderr requirementId)
-        s!"legacy Solana {kind}/{profile} diagnostic must name {requirementId}: {stderr}"
+        s!"retired Solana {kind}/{profile} must fail, got exit {ec}\n{stdout}\n{stderr}"
+      expect (containsSubstr stderr "PF-PROFILE-UNKNOWN" &&
+          containsSubstr stderr profile)
+        s!"retired Solana {kind}/{profile} diagnostic must reject the profile: {stderr}"
       expect (!containsSubstr stdout "built target=")
-        s!"legacy Solana {kind}/{profile} must not print build success"
+        s!"retired Solana {kind}/{profile} must not print build success"
       expect (!(← outDir.pathExists))
-        s!"legacy Solana {kind}/{profile} must create zero output tree"
+        s!"retired Solana {kind}/{profile} must create zero output tree"
   -- Exact CPI: schedule still PF-REQ-UNSUPPORTED (async declined).
   let cpiScheduleOut := fixtureDir / "diagnostic-solana-schedule-solana-sbpf-cpi-elf-v1-output"
   if ← cpiScheduleOut.pathExists then IO.FS.removeDirAll cpiScheduleOut

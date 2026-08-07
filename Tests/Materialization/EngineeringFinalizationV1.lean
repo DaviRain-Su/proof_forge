@@ -77,8 +77,11 @@ private unsafe def compileAccumulator : IO CompiledSemanticV1 := do
     accumulatorModuleNameV1 none)
   liftResult "compile Accumulator" (Compiler.compileValidatedSourceV1 source)
 
-private def solanaNote : String :=
-  "no pinned/approved sBPF assembler is configured; typed plan and IDL artifacts are non-executable"
+private def testDraftNote : String :=
+  "test-only finalization draft"
+
+private def solanaProductNotePrefix : String :=
+  "solana-sbpf-cpi-elf-v1 sbpf "
 
 private def noirNote : String :=
   "no approved and digest-pinned Noir compiler/proving backend is configured; relation source/schema were emitted without ACIR, witness execution, proof, or verification"
@@ -109,12 +112,15 @@ private unsafe def testSoleMintBinding : IO Unit := do
   let draft : EngineeringFinalizationDraftV1 := {
     deployable := false
     extraFiles := #[]
-    evidenceNote := solanaNote
+    evidenceNote := testDraftNote
   }
   let ok ← liftResult "mint ok" (mintFinalizedArtifactsV1 capability artifacts draft)
-  expect (FinalizedArtifactsV1.deployableOf ok == false) "solana mint deployable false"
-  expect (FinalizedArtifactsV1.extraFilesOf ok == #[]) "solana mint empty extras"
-  expect (FinalizedArtifactsV1.evidenceNoteOf ok == solanaNote) "solana mint note exact"
+  expect (FinalizedArtifactsV1.deployableOf ok == false)
+    "mint must retain the test draft deployable field"
+  expect (FinalizedArtifactsV1.extraFilesOf ok == #[])
+    "mint must retain the test draft empty extras"
+  expect (FinalizedArtifactsV1.evidenceNoteOf ok == testDraftNote)
+    "mint must retain the test draft note exactly"
   expect (MaterializedArtifactsV1.targetIdOf (FinalizedArtifactsV1.artifactsOf ok) ==
       TargetId.solana) "mint binds solana artifacts"
   expect (Targets.ResolvedEngineeringBuildV1.targetIdOf
@@ -128,7 +134,7 @@ private unsafe def testSoleMintBinding : IO Unit := do
   let collide : EngineeringFinalizationDraftV1 := {
     deployable := false
     extraFiles := #["Counter.s"]
-    evidenceNote := solanaNote
+    evidenceNote := testDraftNote
   }
   match mintFinalizedArtifactsV1 capability artifacts collide with
   | .error e =>
@@ -138,7 +144,7 @@ private unsafe def testSoleMintBinding : IO Unit := do
   let unsafeExtra : EngineeringFinalizationDraftV1 := {
     deployable := false
     extraFiles := #["../escape.bin"]
-    evidenceNote := solanaNote
+    evidenceNote := testDraftNote
   }
   match mintFinalizedArtifactsV1 capability artifacts unsafeExtra with
   | .error e =>
@@ -269,7 +275,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
   let compiled ← compileCounter
   let sourceHash ← liftResult "derive Counter source hash"
     (CompiledSemanticV1.artifactSourceHashHexOf compiled)
-  -- Solana: zero-tool product emit.
+  -- Solana: sole CPI-ELF rail finalizes with locked sbpf and publishes .so.
   do
     let selection ← liftResult "select solana" (resolveBuildSelectionV1 TargetId.solana none)
     let capability ← liftResult "resolve solana"
@@ -279,18 +285,29 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     let outDir := FilePath.mk "build/v2/finalization-solana"
     if ← outDir.pathExists then IO.FS.removeDirAll outDir
     let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
-    expect (receipt.deployable == false) "solana emit non-deployable"
+    expect (receipt.deployable == true) "solana sole CPI-ELF rail deployable"
     expect (receipt.target == TargetId.solana) "solana emit target"
     for f in baseFiles do
       let disk ← IO.FS.readFile (outDir / f.path)
       expect (disk == f.contents) s!"solana base byte preservation {f.path}"
-    expect (!(← (outDir / "Counter.bin").pathExists)) "solana no .bin"
-    expect (!(← (outDir / "Counter.wasm").pathExists)) "solana no .wasm"
+    let soBytes ← IO.FS.readBinFile (outDir / "Counter.so")
+    expect (!soBytes.isEmpty) "solana locked sbpf must publish nonempty Counter.so"
+    expect (!(← (outDir / "Counter.bin").pathExists)) "solana no EVM .bin"
+    expect (!(← (outDir / "Counter.wasm").pathExists)) "solana no Wasm artifact"
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
-    expect ((evidence.splitOn solanaNote).length > 1) "solana exact note on disk"
+    expect ((evidence.splitOn solanaProductNotePrefix).length > 1 &&
+        (evidence.splitOn "profile=solana-sbpf-cpi-elf-v1").length > 1 &&
+        (evidence.splitOn "planDigest=sha256:").length > 1 &&
+        (evidence.splitOn "completed successfully").length > 1)
+      "solana evidence must bind sole profile, Plan digest, and locked-sbpf success"
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
-    expect ((manifest.splitOn "\"deployable\": false").length > 1) "solana manifest non-deployable"
-    expect ((manifest.splitOn "Counter.s").length > 1) "solana base in manifest"
+    expect ((manifest.splitOn "\"deployable\": true").length > 1)
+      "solana manifest deployable"
+    expect ((manifest.splitOn "\"path\": \"Counter.s\"").length > 1)
+      "solana base in manifest"
+    expect ((manifest.splitOn "\"path\": \"Counter.so\"").length > 1 &&
+        (manifest.splitOn "\"role\": \"finalized-extra\"").length > 1)
+      "solana manifest binds Counter.so as finalized extra"
   -- Noir: zero-tool product emit.
   do
     let selection ← liftResult "select noir" (resolveBuildSelectionV1 TargetId.noir none)

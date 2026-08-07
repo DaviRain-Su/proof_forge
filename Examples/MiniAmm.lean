@@ -15,8 +15,9 @@ open ProofForgeV2.Language
 -- Formalization (RESEARCH-023): platform L0/L1/L2 stack is generic; this file is
 -- the **first business instance** for L1 (vault-internal). Stays **deployable**
 -- (no nonempty inv — EVM/Solana materialize FC). L0 sample surface (any program
--- can copy the shape): `Examples/MiniAmmProofSurface.lean`. L1 MiniAmm sketch:
--- `ProofForgeV2.Semantic.MiniAmmSafetySketchV1` (instance, not the whole stack).
+-- can copy the shape): `Examples/MiniAmmProofSurface.lean`. L1 route is
+-- Reference-first (no second handwritten step); ladder:
+-- `docs/research/23-miniamm-formalization-ladder.md`.
 --
 -- Permission / identity: LP shares keyed by `context.caller` (ADR-0031 S1).
 -- Swap is open to any caller (updates reserves only).

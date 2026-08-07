@@ -677,20 +677,23 @@ s1-target-semantic-plan-deletion-gate:
       done
       rg -q 'private def makePlanFromSemanticV1' "$source"
       rg -q 'validateSemanticProgramV1' "$source"
-      # Capability chain reaches the retained-Semantic legacy lowering. Near/Noir
-      # own the public entry in their façade; #125 moved Solana's exhaustive
-      # legacy/CPI tagged dispatch into the target-owned MaterializationV1 module,
-      # which the façade must import explicitly.
+      # Near/Noir public façades reach their retained-Semantic Plan entry.
+      # Solana's sole CPI product rail dispatches in MaterializationV1; its
+      # business body reaches the same retained-Semantic lowerer only through
+      # materializeFullBodyPlanForProductV1. The legacy helper must reject CPI.
       dispatch="$facade"
       if [[ "$target" == "Solana" ]]; then
         rg -q '^import ProofForgeV2.Targets.Solana.MaterializationV1$' "$facade"
         dispatch="$source/MaterializationV1.lean"
         rg -Uq '(?s)def planFromCapability.*?solanaSbpfCpiElfV1.*?productPlanFromCapabilityV1.*?unknownProfileFail' "$dispatch"
         rg -Uq '(?s)def irFromCapability.*?solanaSbpfCpiElfV1.*?productIrFromCapabilityV1.*?unknownProfileFail' "$dispatch"
+        rg -Uq '(?s)def materializePlanFromCapabilityV1.*?solanaSbpfCpiElfV1.*?must use the target-owned CPI product Plan path' "$source/LowerSemanticV1.lean"
+        rg -Uq '(?s)def materializeFullBodyPlanForProductV1.*?semanticV1Of.*?makePlanFromSemanticV1' "$source/LowerSemanticV1.lean"
+      else
+        rg -q 'materializePlanFromCapabilityV1' "$dispatch"
+        rg -Uq '(?s)def materializePlanFromCapabilityV1.*?semanticV1Of.*?makePlanFromSemanticV1' "$source/LowerSemanticV1.lean"
       fi
       rg -q 'def planFromCapability' "$dispatch"
-      rg -q 'materializePlanFromCapabilityV1' "$dispatch"
-      rg -Uq '(?s)def materializePlanFromCapabilityV1.*?semanticV1Of.*?makePlanFromSemanticV1' "$source/LowerSemanticV1.lean"
       rg -q 'expandedNodes' "$source"
       rg -q 'consumeCurrentSegmentV1' "$source"
       # checked-arithmetic bounded expanded-tree cost must survive either inline

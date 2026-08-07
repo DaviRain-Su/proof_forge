@@ -554,20 +554,30 @@ Array/Bytes/Map index与Commit runtime已由后续切片开放；formal evaluato
 
 ## D2-07 reference Option/Enum engineering status（2026-07-31）
 
-Map增量：Reference现接纳Wire-legal Map、empty `Construct 0 []`与immutable
-IndexGet/IndexSet；Wire sole canonical decoder及新增lookup/upsert seam独占framing、unsigned
-lex order、key legality和共享byte/work/nesting caps。资源 admission 使用`maxMapEntriesV1`
-理论最大值作无count循环的保守上界，因此可能拒绝实际小Map。Commit runtime已由后续切片开放；
-formal evaluator与TASK-D2-07/TST-SEM-002/003仍pending。
+Map增量：Reference现接纳Wire-legal Map、constructor index 0 的 flattened key/value pairs
+（空序列=`Map.empty`，非空=`Map.of`）与immutable IndexGet/IndexSet；Wire sole canonical
+codec及lookup/upsert seam独占framing、unsigned lex order、key legality和共享
+byte/work/nesting caps。**Map 静态资源 admission（2026-08-07）** 不再固定
+`maxMapEntriesReferenceBudgetV1=4096` 做整表 worst-case 乘法，也不从少量 max/min
+homogeneous packing profile 派生容量；每个 Map 作为完整 Wire canonical envelope，
+parent-facing width/work 直接绑定 shared `maxCanonicalValueBytes` /
+`maxCanonicalProgramBytes` 的**单次 canonical-value/helper**上限。该边界对 heterogeneous
+aggregate entries 保守且不形成第二套 runtime capacity；empty Map state default 继续单独按
+exact 4-byte count header / O(1) 计费。**这不是 whole-step cumulative-work receipt**：
+多 pair `Map.of` 仍由 sequential upsert helpers 各自使用 shared cap，单步累计 receipt 属 residual。
+**Runtime upsert 权威不变**：IndexSet 仍经 Wire 实际 encode / `maxMapEntriesV1` /
+valueBytes / work 校验。shipped `Examples/MiniAmm`（`Map Principal UInt64`）Normalize→
+`admitReferenceProgramSliceV1` 已通过。Commit runtime 已由后续切片开放；formal evaluator与
+TASK-D2-07/TST-SEM-002/003仍pending。
 
 同一general-CFG/PureCall Reference machine现进一步开放`TypeShapeV1.Option`/`Enum`、对应
 `Construct`以及`VariantTag`/`VariantPayload`。`WireV1`拥有唯一窄canonical variant split/encode
 seam，保留outer nesting fuel、16MiB append前cap、full-consume/re-encode及错误shape/tag/count/
 payload/trailing fail-closed。admission的显式栈width/depth/work分析按constructor取最大值，并按
 payload occurrence（包括共享TypeId）计费；runtime防御性复核shape、TypeId、tag及payload index，
-Enum runtime-tag不一致和Option-none payload access均trap `invalidCore`。Unit/Array/Map Construct、
-Wire-legal recursive Struct/Option/Enum type graph在该有限maximum-resource subset仍显式unsupported；
-Index与Commit runtime已由后续切片开放；正式`evalInvariantV1`/`InvariantTheoremV1`与formal
+Enum runtime-tag不一致和Option-none payload access均trap `invalidCore`。Unit/Array/Map Construct
+已开放；Wire-legal recursive Struct/Option/Enum type graph在该有限maximum-resource subset仍显式
+unsupported；Index与Commit runtime已由后续切片开放；正式`evalInvariantV1`/`InvariantTheoremV1`与formal
 TASK-D2-07/TST-SEM-002/003仍pending。
 
 ## D2-07 concrete invariant carrier fixture（2026-08-01）
