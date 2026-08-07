@@ -223,9 +223,9 @@ private def expectMaterializePlanInvariantV1
         s!"{label}/{target}: product materialization must fail closed"
 
 /-- Normalize deliberately retains constants/invariants in the sole semantic
-    carrier. Until each target owns those contracts, all six product
-    materializers must reject them rather than silently omit either table/op. -/
-private unsafe def testConstInvariantMaterializationFailClosed : IO Unit := do
+    carrier. Psy owns the supported scalar Constant lowering; targets without
+    that contract and all non-Quint invariant paths must still fail closed. -/
+private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let constSource ← liftResult (← session.selectProgramV1
     constTargetBoundarySourceTextV1 "<targets-const-boundary>"
@@ -250,9 +250,12 @@ private unsafe def testConstInvariantMaterializationFailClosed : IO Unit := do
       (TargetId.solana, TargetKind.solana, "constants/invariants"),
       (TargetId.near, TargetKind.near, "constants/invariants"),
       (TargetId.noir, TargetKind.noir, "constants/invariants"),
-      (TargetId.aleo, TargetKind.aleo, "Constant load"),
-      (TargetId.psy, TargetKind.psy, "Constant/CheckedCast")] do
+      (TargetId.aleo, TargetKind.aleo, "Constant load")] do
     expectMaterializePlanInvariantV1 "constant" target kind constCompiled marker
+  let psyConstants ← liftResult <| materializeSelected TargetId.psy constCompiled
+  expect ((MaterializedArtifactsV1.filesOf psyConstants).any
+      (·.path == "ConstTargetBoundary.psy"))
+    "constant/psy: supported scalar Op.Constant must materialize to Psy source"
 
   let invariantSource ← liftResult (← session.selectProgramV1
     invariantTargetBoundarySourceTextV1 "<targets-invariant-boundary>"
@@ -1893,7 +1896,7 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
 set_option maxRecDepth 10000 in
 unsafe def runSemanticPlanLeafFast : IO Unit := do
   testSemanticPlanSourceAuthority
-  testConstInvariantMaterializationFailClosed
+  testConstInvariantMaterializationBoundary
   testStringInterfaceMaterializationFailClosed
   testIntForMaterializationFailClosed
   testAnonymousResultMaterializationFailClosed

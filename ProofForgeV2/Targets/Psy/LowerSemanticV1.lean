@@ -34,10 +34,9 @@ Unary `~` on narrow widths is `x ^ (2^w−1)` as Felt (mask is a legal Felt
 literal). **UInt64 bitNot** lowers to `checkedBitNot` (Felt representability
 guard). Int64 bitNot and UInt128/256 / narrow Int stay fail-closed.
 
-**Field (bn254 Fr) is fail-closed.** Native Psy `Felt` is plonky2 Goldilocks
-(`ORDER = 0xFFFFFFFF00000001`), not catalog bn254 Fr — see
-`EnvelopeV1.psyTypeClosureWording` research pin. Type-closure uses
-`pilotFieldPolicyNone`.
+**Field is exact-spec gated.** Native Psy `Felt` is plonky2 Goldilocks
+(`ORDER = 0xFFFFFFFF00000001`), so the target admits only catalog Goldilocks;
+bn254 Fr and BLS12-377 Fr fail closed via `pilotFieldPolicyGoldilocks`.
 
 ## H3 PsyAleoAggregate (2026-08-02)
 
@@ -85,9 +84,7 @@ open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 open ProofForgeV2.Targets.Psy.PfAssetsDispositionV1
 
-/-- Engineering codegen profile string for the Dargo/Psy UInt64 source slice.
-    `CodegenProfileId` has no psy variant yet — P-B wires the opaque id into
-    the registry; this string is the intended spelling. -/
+/-- Engineering codegen profile string for the registered Dargo/Psy source slice. -/
 def psyCodegenProfileIdString : String := "psy-dargo-u64-v1"
 
 /-- Locked Dargo/Psy toolchain note (source-only; no approved digest-pinned
@@ -847,6 +844,12 @@ private def decodeUInt8LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := d
     planError "unsupported Psy semantic shape: UInt8 literal must contain exactly 1 byte"
   pure (UInt64.ofNat (bytes.get! 0).toNat)
 
+/-- Psy Felt modulus and Int64 sign bit, used to keep Constant lowering exact.
+    Ordinary literal emission has historical modulo-p caveats; opening
+    `Op.Constant` must not introduce a new silent value change. -/
+private def goldilocksPrimeU64V1 : UInt64 := 0xFFFFFFFF00000001
+private def int64SignBitU64V1 : UInt64 := 0x8000000000000000
+
 private def lowerLiteral
     (data : SemanticProgramDataV1) (types : PsyTypeClosureV1)
     (typeId : TypeIdV1) (valueBytes : ByteArray) :
@@ -897,6 +900,45 @@ private def lowerLiteral
             planError "unsupported Psy semantic shape: Goldilocks Field literal carries trailing bytes"
   else
     planError "unsupported Psy semantic shape: literal type is outside the public UInt{8,16,32,64}/Int64/Bool/Goldilocks-Field envelope"
+
+/-- Constant rows carry canonical valueBytes rather than source expression
+    structure. Guard the two scalar cases whose raw wire integer cannot always
+    be passed directly to a Goldilocks Felt without changing the value:
+    UInt64 must be `< p`; Int64 must have a clear sign bit (nonnegative).
+    Full negative Int64 support requires an explicit two's-complement→Psy
+    signed-representation contract and remains fail closed. -/
+private def validateConstantRepresentabilityV1
+    (data : SemanticProgramDataV1) (typeId : TypeIdV1) (valueBytes : ByteArray) :
+    CompileResult Unit := do
+  if isUInt64Type data typeId then
+    let raw ← decodeUInt64LiteralV1 valueBytes
+    unless raw < goldilocksPrimeU64V1 do
+      planError
+        "unsupported Psy semantic shape: UInt64 constant must be below the Goldilocks modulus"
+  else if isInt64Type data typeId then
+    let raw ← decodeUInt64LiteralV1 valueBytes
+    unless raw < int64SignBitU64V1 do
+      planError
+        "unsupported Psy semantic shape: negative Int64 constants require two's-complement-to-Goldilocks conversion and remain fail closed"
+
+/-- Bind a decoded literal-shaped scalar under its exact Semantic TypeId.
+    `Op.Literal` and `Op.Constant` share this sole insertion path so narrow UInt
+    width and Goldilocks Field metadata cannot diverge. -/
+private def envInsertLiteralValue
+    (data : SemanticProgramDataV1) (types : PsyTypeClosureV1)
+    (env : ValueEnv) (valueDef : ValueDefV1) (typeId : TypeIdV1) (e : Expr) :
+    ValueEnv :=
+  match uintWidthOfType data typeId with
+  | some w =>
+      if isNarrowUintWidth w then
+        envInsertNarrow env valueDef.valueId w e
+      else
+        envInsert env valueDef.valueId e
+  | none =>
+      if isGoldilocksFieldType types typeId then
+        envInsertVal env valueDef.valueId (mkFieldVal e)
+      else
+        envInsert env valueDef.valueId e
 
 private def lowerBinary
     (op : BinaryOpV1) (lhs rhs : Expr) (signed : Bool) : CompileResult Expr :=
@@ -1014,17 +1056,7 @@ private partial def lowerRegion
         match instr.result with
         | none => planError "unsupported Psy semantic shape: literal instruction must produce a value"
         | some valueDef =>
-            match uintWidthOfType data typeId with
-            | some w =>
-                if isNarrowUintWidth w then
-                  env := envInsertNarrow env valueDef.valueId w e
-                else
-                  env := envInsert env valueDef.valueId e
-            | none =>
-                if isGoldilocksFieldType layout.types typeId then
-                  env := envInsertVal env valueDef.valueId (mkFieldVal e)
-                else
-                  env := envInsert env valueDef.valueId e
+            env := envInsertLiteralValue data layout.types env valueDef typeId e
     | .stateLoad stateId => do
         match instr.result with
         | none => planError "unsupported Psy semantic shape: stateLoad instruction must produce a value"
@@ -1561,8 +1593,24 @@ private partial def lowerRegion
                   planError "Array IndexSet leaf missing"
                 outLeaves := outLeaves.push e
             env := envInsertVal env valueDef.valueId (mkAggregateVal outLeaves)
-    | .constant .. | .checkedCast .. =>
-        planError "unsupported Psy semantic shape: Constant/CheckedCast is outside the Psy UInt64/aggregate envelope"
+    | .constant constantId => do
+        let constant ← match data.constants[constantId.toNat]? with
+          | some c => pure c
+          | none =>
+              planError "unsupported Psy semantic shape: Constant references an unknown constant id"
+        unless constant.id == constantId do
+          planError "unsupported Psy semantic shape: Constant id does not match declaration order"
+        let valueDef ← match instr.result with
+          | some vd => pure vd
+          | none =>
+              planError "unsupported Psy semantic shape: Constant instruction must produce a value"
+        unless valueDef.typeId == constant.typeId do
+          planError "unsupported Psy semantic shape: Constant result typeId must match the declaration"
+        validateConstantRepresentabilityV1 data constant.typeId constant.valueBytes
+        let e ← lowerLiteral data layout.types constant.typeId constant.valueBytes
+        env := envInsertLiteralValue data layout.types env valueDef constant.typeId e
+    | .checkedCast .. =>
+        planError "unsupported Psy semantic shape: CheckedCast is outside the Psy scalar envelope"
     -- N5: Psy declines both ContextRead and Commit (policy none).
     | .contextRead .. =>
         planError "unsupported Psy semantic shape: ContextRead is not admitted by pilot context policy"

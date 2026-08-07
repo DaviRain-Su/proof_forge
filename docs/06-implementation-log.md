@@ -68,6 +68,20 @@ normative: false
   execute/deploy/query、CRS synthesize 与 snarkOS/snarkVM 仍阻塞。工程成熟度不提升为
   VM/proof/deploy/formal/hermetic。
 
+## 2026-08-07 — Psy 精确标量 Constant lowering（engineering）
+
+- Psy target-owned retained-Semantic lowering 现接受 `Op.Constant` 的精确可表示标量子集：
+  `UInt8/16/32`、`Bool`、`UInt64 < 0xFFFFFFFF00000001` 与非负 `Int64`；复用
+  `Op.Literal` 的 sole value-environment insertion path，保持窄 UInt width 与 Goldilocks
+  Field metadata 一致，不增加 target constant declaration、ABI 或 emitter primitive。
+- 负 `Int64` 与 `UInt64 ≥ Goldilocks p` 明确 fail closed，避免 canonical two's-complement
+  或整数值被静默按 Felt 模数改变；`CheckedCast`、`Commit` 仍 fail closed。target-internal
+  canonical Goldilocks `ConstantV1` 可复用同一 decoder，但当前产品源码无 Field literal。
+- Psy 聚焦 suite、共享 Semantic Plan leaf、产品 `build --target psy` 与 `inspect` exact disk
+  closure 已通过；其他 target capability 未改变。该切片不增加 locked Psy toolchain、VM/prover、
+  runtime differential、formal、hermetic、deploy 或 release maturity。
+
+
 ## 2026-08-07 — Map Wire-envelope Reference admission + ADR-0034 design freeze
 
 - **Map admission 代码事实**（`ProofForgeV2/Semantic/ReferenceMachineV1.lean`）：

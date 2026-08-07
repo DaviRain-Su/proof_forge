@@ -50,6 +50,7 @@ normative: false
 | stateLoad/stateStore（Field bn254） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED(非Goldilocks) | FAIL-CLOSED(非BLS12-377) |
 | stateLoad/stateStore（Field BLS12-377） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | **LOWERED(T14)** |
 | stateLoad/stateStore（Field Goldilocks） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | **LOWERED(T14)** | FAIL-CLOSED |
+| constant（`Op.Constant`） | FAIL-CLOSED(nonempty table) | FAIL-CLOSED(nonempty table) | FAIL-CLOSED(nonempty table) | FAIL-CLOSED(nonempty table) | **LOWERED(UInt8/16/32、Bool、UInt64<p、非负 Int64；Goldilocks ConstantV1 复用 decoder，source 无 Field literal；负 Int64/UInt64≥p FC)** | FAIL-CLOSED |
 | construct（named Struct/Enum） | LOWERED(N3) | LOWERED(L2) | LOWERED(L1) | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
 | fieldGet/fieldSet | LOWERED(N3) | LOWERED(L2) | LOWERED(L1) | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
 | variantTag/variantPayload | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | LOWERED(H3) |

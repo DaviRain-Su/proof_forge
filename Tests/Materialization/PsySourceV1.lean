@@ -190,6 +190,124 @@ unsafe def testEmitAndPureFn : IO Unit := do
   expect (psy.contains "double(")
     "localCall must invoke the helper"
 
+/-- N-CONST-REF Psy leaf: exactly representable scalar constants reuse the
+    literal lowering path. This pins narrow-UInt metadata (UInt32 arithmetic),
+    Bool, the UInt64 `p-1` boundary, and nonnegative Int64 without adding a
+    target constant declaration or a new emitter expression form. -/
+unsafe def testScalarConstantsLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ScalarConsts where\n" ++
+    "  const U8 : UInt8 := 7\n" ++
+    "  const U16 : UInt16 := 300\n" ++
+    "  const U32 : UInt32 := 4000000000\n" ++
+    "  const U64 : UInt64 := 18446744069414584320\n" ++
+    "  const POS : Int64 := 7\n" ++
+    "  const MAXI : Int64 := 9223372036854775807\n" ++
+    "  const FLAG : Bool := true\n" ++
+    "  entry get8() : UInt8 do\n" ++
+    "    return U8\n" ++
+    "  entry get16() : UInt16 do\n" ++
+    "    return U16\n" ++
+    "  entry add32() : UInt32 do\n" ++
+    "    return U32 + 1\n" ++
+    "  entry get64() : UInt64 do\n" ++
+    "    return U64\n" ++
+    "  entry getPos() : Int64 do\n" ++
+    "    return POS\n" ++
+    "  entry getMax() : Int64 do\n" ++
+    "    return MAXI\n" ++
+    "  entry getFlag() : Bool do\n" ++
+    "    return FLAG\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-const>" "Tests.PsyScalarConsts" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let bodyOf (name : String) : IO (Array Targets.Psy.Statement) := do
+    let some fn := plan.functions.find? (·.name == name) |
+      throw <| IO.userError s!"psy const: missing function '{name}'"
+    pure fn.body
+  expect ((← bodyOf "get8") == #[.returnValue (.literal 7)])
+    "UInt8 constant must lower to the existing scalar literal Plan form"
+  expect ((← bodyOf "get16") == #[.returnValue (.literal 300)])
+    "UInt16 constant must lower to the existing scalar literal Plan form"
+  expect ((← bodyOf "add32") == #[
+      .returnValue (.narrowCheckedAdd 32 (.literal 4000000000) (.literal 1))])
+    "UInt32 constant must retain narrow-width metadata through arithmetic"
+  expect ((← bodyOf "get64") == #[
+      .returnValue (.literal 18446744069414584320)])
+    "UInt64 p-1 constant must remain exact on the Goldilocks Felt surface"
+  expect ((← bodyOf "getPos") == #[.returnValue (.literal 7)])
+    "nonnegative Int64 constant must lower to the existing scalar literal Plan form"
+  expect ((← bodyOf "getMax") == #[
+      .returnValue (.literal 9223372036854775807)])
+    "Int64.max constant must remain exactly representable as a Felt literal"
+  expect ((← bodyOf "getFlag") == #[.returnValue (.boolLiteral true)])
+    "Bool constant must lower to the existing Bool literal Plan form"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "ScalarConsts.psy") |
+    throw <| IO.userError "psy const: missing ScalarConsts.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub fn get8() -> Felt" &&
+      psy.contains "pub fn get16() -> Felt" &&
+      psy.contains "pub fn add32() -> Felt" &&
+      psy.contains "pub fn get64() -> Felt" &&
+      psy.contains "pub fn getPos() -> Felt" &&
+      psy.contains "pub fn getMax() -> Felt")
+    "integer constants must remain on the existing Felt ABI surface"
+  expect (psy.contains "u32 add overflow")
+    "UInt32 constant arithmetic must emit the existing width guard"
+  expect (psy.contains "pub fn getFlag() -> bool" && psy.contains "return true;")
+    "Bool constant must emit on the existing bool surface"
+
+/-- Constants that cannot be represented by the existing Psy Felt scalar
+    convention must fail closed instead of being silently reduced modulo p. -/
+unsafe def testScalarConstantsRepresentabilityFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  for (name, value) in #[
+      ("NegOne", "-1"),
+      ("NegSeven", "-7"),
+      ("NegMin", "-9223372036854775808")] do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {name} where\n" ++
+      s!"  const BAD : Int64 := {value}\n" ++
+      "  entry get() : Int64 do\n" ++
+      "    return BAD\n"
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<psy-const-{name}>" s!"Tests.Psy{name}" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+    match planPsy compiled with
+    | .error (.planInvariant .psy message) =>
+        expect (message.contains "negative Int64 constants")
+          s!"{name}: negative Int64 constant must cite the exact Psy boundary, got {message}"
+    | .error error =>
+        throw <| IO.userError s!"{name}: expected Psy plan invariant, got {error.render}"
+    | .ok _ =>
+        throw <| IO.userError s!"{name}: negative Int64 constant must fail closed"
+  let overSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ConstAtModulus where\n" ++
+    "  const BAD : UInt64 := 18446744069414584321\n" ++
+    "  entry get() : UInt64 do\n" ++
+    "    return BAD\n"
+  let overParsed ← liftResult (← session.selectProgramV1
+    overSource "<psy-const-at-modulus>" "Tests.PsyConstAtModulus" none)
+  let overCompiled ← liftResult <| Compiler.compileValidatedSourceV1 overParsed
+  match planPsy overCompiled with
+  | .error (.planInvariant .psy message) =>
+      expect (message.contains "below the Goldilocks modulus")
+        s!"UInt64 p constant must cite the Felt representability boundary, got {message}"
+  | .error error =>
+      throw <| IO.userError s!"UInt64 p constant: expected Psy plan invariant, got {error.render}"
+  | .ok _ =>
+      throw <| IO.userError "UInt64 constant equal to Goldilocks p must fail closed"
+
 /-- UInt64 bitNot (~) lowers to Plan `checkedBitNot` and emits exact-semantics
     with a Felt representability guard:
       bitNot x = (2^64−1) − x  is a legal Felt iff x ≥ 2^32−1 (result < p).
@@ -1596,6 +1714,8 @@ unsafe def run : IO Unit := do
   testCheckedArithGuards
   testBitwiseAndShifts
   testEmitAndPureFn
+  testScalarConstantsLowered
+  testScalarConstantsRepresentabilityFailClosed
   testUInt64BitNotLowered
   testFailClosedInt64BitNot
   testUInt32BitNotLowered

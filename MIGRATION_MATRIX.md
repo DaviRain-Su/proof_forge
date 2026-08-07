@@ -73,8 +73,8 @@ D1–D4 共 27 个 formal task，当前仍为：
 > `Op.Constant`，result TypeId 与 Constant row exact，覆盖 entry/view/pureFn/invariant 与窄 UInt 合成。
 > Provenance 绑定 ConstantDecl entity、ConstDecl.type、每次 body place instruction/value 及 Bool requirement
 > origin。声明值中的 place/binary/constructor/call/match 仍 fail closed。EVM/Solana/NEAR/Noir 对任意
-> nonempty constants 表拒绝，Aleo/Psy 对实际 `Op.Constant` 拒绝；post-declared novel const shape 相对旧
-> body-only TypeId 次序是明确 engineering identity cutover，不是 hash-stability 或 formal D2/D4 完成声明。
+> nonempty constants 表拒绝，Aleo 对实际 `Op.Constant` 拒绝；Psy 已于 2026-08-07 开放既有
+> 精确可表示的 UInt8/16/32、Bool、`UInt64 < Goldilocks p` 与非负 Int64 Constant lowering（Goldilocks ConstantV1 复用 decoder，但 source 无 Field literal；负 Int64 与 `UInt64 ≥ p` 保持 fail closed；无新 ABI/emitter primitive）；post-declared novel const shape 相对旧 body-only TypeId 次序是明确 engineering identity cutover，不是 hash-stability 或 formal D2/D4 完成声明。
 
 > **2026-08-03 N-ANON-RESULT 增量**：`requireCallableResultTypeId` 已在既有 scalar 与 named
 > Struct/Enum 之外接纳 anonymous Array/Map/Bytes/Option，Array/Bytes 继续受

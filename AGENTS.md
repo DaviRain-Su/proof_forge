@@ -204,8 +204,8 @@
 > 建完整 source-order constant lookup；body bare const 每次降为独立 `Op.Constant`，支持 forward ref、
 > locals/params shadow、窄 UInt expected type 与 entry/view/pureFn/invariant。Provenance 精确绑定
 > `.constant`、ConstDecl type、body place 和 Bool requirement origin。const 声明表达式仍只接受
-> literal/negative Int；EVM/Solana/NEAR/Noir 对 nonempty constants 表 fail closed，Aleo/Psy 对实际
-> `Op.Constant` fail closed；post-declared novel const shape 的 engineering semantic identity 会 cut over。
+> literal/negative Int；EVM/Solana/NEAR/Noir 对 nonempty constants 表 fail closed，Aleo 对实际
+> `Op.Constant` fail closed；Psy 已开放精确可表示的 UInt8/16/32、Bool、`UInt64 < Goldilocks p` 与非负 Int64 Constant lowering（Goldilocks ConstantV1 复用 decoder，但 source 无 Field literal；负 Int64 与 `UInt64 ≥ p` 保持 fail closed；无新 ABI/emitter primitive）；post-declared novel const shape 的 engineering semantic identity 会 cut over。
 >
 > **2026-08-03 String interface update**：`NormalizeV1` 的 public event/error 字段现允许
 > anonymous legal UInt/Int/String；String 字面量复用 canonical wire valueBytes，located product compile
