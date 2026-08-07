@@ -33,10 +33,12 @@ private def isReserved (name : String) : Bool :=
 private def validateExprNodes (expr : Expr) : Option Nat :=
   match expr with
   | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
-  | .param _ | .loopVar _ | .stateLoad _ => some 1
+  | .param _ | .loopVar _ | .stateLoad _ | .wideUInt128MulLimb _ _
+  | .wideUInt128DivModLimb _ _ _ => some 1
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
   | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
+  | .limbAdd l r | .limbSub l r
   | .narrowCheckedAdd _ l r | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r
   | .narrowCheckedDiv _ l r | .narrowCheckedMod _ l r
   | .narrowBitAnd _ l r | .narrowBitOr _ l r | .narrowBitXor _ l r
@@ -52,6 +54,11 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
   | .boolNot o | .checkedNeg o | .narrowBitNot _ o | .checkedBitNot o | .fieldNeg o => do
       let do' ← validateExprNodes o
       if do' + 1 > maxExprDepth then none else some (do' + 1)
+  | .select condition thenValue elseValue => do
+      let dc ← validateExprNodes condition
+      let dt ← validateExprNodes thenValue
+      let de ← validateExprNodes elseValue
+      if dc + dt + de + 1 > maxExprDepth then none else some (dc + dt + de + 1)
   | .callFn _ args => do
       let mut total : Nat := 1
       for arg in args do
@@ -68,6 +75,27 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
         match validateExprNodes value with
         | some _ => pure ()
         | none => planError "Psy plan expression exceeds the depth/node limit"
+    | .storeAggregate fieldIndices values => do
+        unless fieldIndices.size > 1 && fieldIndices.size == values.size do
+          planError "Psy storeAggregate requires matching multi-leaf field/value arrays"
+        for value in values do
+          match validateExprNodes value with
+          | some _ => pure ()
+          | none => planError "Psy plan expression exceeds the depth/node limit"
+    | .bindWideUInt128Mul _ lhs rhs => do
+        unless lhs.size == 4 && rhs.size == 4 do
+          planError "Psy bindWideUInt128Mul requires two four-limb operands"
+        for value in lhs ++ rhs do
+          match validateExprNodes value with
+          | some _ => pure ()
+          | none => planError "Psy plan expression exceeds the depth/node limit"
+    | .bindWideUInt128DivMod _ _ lhs rhs => do
+        unless lhs.size == 4 && rhs.size == 4 do
+          planError "Psy bindWideUInt128DivMod requires two four-limb operands"
+        for value in lhs ++ rhs do
+          match validateExprNodes value with
+          | some _ => pure ()
+          | none => planError "Psy plan expression exceeds the depth/node limit"
     | .returnAggregate leaves leafIsInt => do
         -- B-RET-ABI: 1..8 leaves, UInt64/Int64 words only (byteWidth checked on ResultKind).
         unless leaves.size > 0 && leaves.size ≤ 8 do
@@ -79,7 +107,7 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
           | some _ => pure ()
           | none => planError "Psy plan expression exceeds the depth/node limit"
     | .returnNone | .bareRevert => pure ()
-    | .assert condition => do
+    | .assert condition | .assertWithMessage condition _ => do
         match validateExprNodes condition with
         | some _ => pure ()
         | none => planError "Psy plan expression exceeds the depth/node limit"
@@ -110,6 +138,161 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
         unless args.isEmpty do
           planError "unsupported Psy semantic shape: revert with error arguments cannot be expressed on the Psy surface"
 
+private def maxWideUInt128MulBindings : Nat := 4
+private def maxWideUInt128DivModBindings : Nat := 1
+
+private structure WideBindingEnvV1 where
+  mulIds : Array Nat := #[]
+  divModIds : Array (Nat × WideUInt128DivModResultV1) := #[]
+  deriving Inhabited
+
+private def hasAnyWideBindingId (env : WideBindingEnvV1) (operationId : Nat) : Bool :=
+  env.mulIds.contains operationId ||
+    env.divModIds.any (fun binding => binding.1 == operationId)
+
+private partial def validateWideExpr
+    (defined : WideBindingEnvV1) (expr : Expr) : CompileResult Unit := do
+  match expr with
+  | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
+  | .param _ | .loopVar _ | .stateLoad _ => pure ()
+  | .wideUInt128MulLimb operationId limbIndex =>
+      unless limbIndex < 4 do
+        planError "Psy UInt128 multiplication result limb index must be in 0..3"
+      unless defined.mulIds.contains operationId do
+        planError "Psy UInt128 multiplication result is used before its binding"
+  | .wideUInt128DivModLimb resultKind operationId limbIndex =>
+      unless limbIndex < 4 do
+        planError "Psy UInt128 div/mod result limb index must be in 0..3"
+      unless defined.divModIds.contains (operationId, resultKind) do
+        planError "Psy UInt128 div/mod result kind is mismatched or used before its binding"
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
+  | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
+  | .limbAdd l r | .limbSub l r
+  | .narrowCheckedAdd _ l r | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r
+  | .narrowCheckedDiv _ l r | .narrowCheckedMod _ l r
+  | .narrowBitAnd _ l r | .narrowBitOr _ l r | .narrowBitXor _ l r
+  | .narrowShl _ l r | .narrowShr _ l r
+  | .compare _ l r | .signedCompare _ l r
+  | .fieldBinary _ l r | .fieldCompare _ l r => do
+      validateWideExpr defined l
+      validateWideExpr defined r
+  | .boolNot o | .checkedNeg o | .narrowBitNot _ o | .checkedBitNot o
+  | .fieldNeg o =>
+      validateWideExpr defined o
+  | .select condition thenValue elseValue => do
+      validateWideExpr defined condition
+      validateWideExpr defined thenValue
+      validateWideExpr defined elseValue
+  | .callFn _ args =>
+      for arg in args do
+        validateWideExpr defined arg
+
+private structure WideBindingInventoryV1 where
+  ids : Array Nat := #[]
+  mulCount : Nat := 0
+  divModCount : Nat := 0
+  deriving Inhabited
+
+private def appendWideInventory
+    (left right : WideBindingInventoryV1) : WideBindingInventoryV1 := {
+  ids := left.ids ++ right.ids
+  mulCount := left.mulCount + right.mulCount
+  divModCount := left.divModCount + right.divModCount
+}
+
+private partial def collectWideBindingInventory
+    (stmts : Array Statement) : WideBindingInventoryV1 := Id.run do
+  let mut out : WideBindingInventoryV1 := {}
+  for stmt in stmts do
+    match stmt with
+    | .bindWideUInt128Mul operationId _ _ =>
+        out := { out with ids := out.ids.push operationId, mulCount := out.mulCount + 1 }
+    | .bindWideUInt128DivMod _ operationId _ _ =>
+        out := { out with ids := out.ids.push operationId, divModCount := out.divModCount + 1 }
+    | .ifThenElse _ thenBody elseBody =>
+        out := appendWideInventory out (collectWideBindingInventory thenBody)
+        out := appendWideInventory out (collectWideBindingInventory elseBody)
+    | .switchOn _ cases defaultBody =>
+        for (_, body) in cases do
+          out := appendWideInventory out (collectWideBindingInventory body)
+        out := appendWideInventory out (collectWideBindingInventory defaultBody)
+    | .forLoop _ _ _ body =>
+        out := appendWideInventory out (collectWideBindingInventory body)
+    | _ => pure ()
+  pure out
+
+private partial def validateWideBindings
+    (profileMode : PsyProfileModeV1) (loopDepth : Nat)
+    (defined0 : WideBindingEnvV1) (stmts : Array Statement) :
+    CompileResult WideBindingEnvV1 := do
+  let mut defined := defined0
+  for stmt in stmts do
+    match stmt with
+    | .bindWideUInt128Mul operationId lhs rhs => do
+        unless profileMode == .dargo010Vm do
+          planError "Psy UInt128 multiplication requires profile psy-dargo-0.1.0-vm-v1"
+        unless lhs.size == 4 && rhs.size == 4 do
+          planError "Psy bindWideUInt128Mul requires two four-limb operands"
+        unless !hasAnyWideBindingId defined operationId do
+          planError "Psy wide operation binding id is duplicated in one lexical region"
+        for value in lhs ++ rhs do
+          validateWideExpr defined value
+        defined := { defined with mulIds := defined.mulIds.push operationId }
+    | .bindWideUInt128DivMod resultKind operationId lhs rhs => do
+        unless profileMode == .dargo010Vm do
+          planError "Psy UInt128 div/mod requires profile psy-dargo-0.1.0-vm-v1"
+        unless loopDepth == 0 do
+          planError "Psy UInt128 div/mod inside a bounded loop exceeds the frozen resource profile"
+        unless lhs.size == 4 && rhs.size == 4 do
+          planError "Psy bindWideUInt128DivMod requires two four-limb operands"
+        unless !hasAnyWideBindingId defined operationId do
+          planError "Psy wide operation binding id is duplicated in one lexical region"
+        for value in lhs ++ rhs do
+          validateWideExpr defined value
+        defined := { defined with
+          divModIds := defined.divModIds.push (operationId, resultKind) }
+    | .store _ value | .returnValue value | .assert value
+    | .assertWithMessage value _ =>
+        validateWideExpr defined value
+    | .storeAggregate _ values | .returnAggregate values _ =>
+        for value in values do
+          validateWideExpr defined value
+    | .ifThenElse condition thenBody elseBody => do
+        validateWideExpr defined condition
+        let _ ← validateWideBindings profileMode loopDepth defined thenBody
+        let _ ← validateWideBindings profileMode loopDepth defined elseBody
+    | .switchOn scrutinee cases defaultBody => do
+        validateWideExpr defined scrutinee
+        for (_, body) in cases do
+          let _ ← validateWideBindings profileMode loopDepth defined body
+        let _ ← validateWideBindings profileMode loopDepth defined defaultBody
+    | .forLoop start endExclusive _ body => do
+        validateWideExpr defined start
+        validateWideExpr defined endExclusive
+        let _ ← validateWideBindings profileMode (loopDepth + 1) defined body
+    | .emitEvent _ args | .revertError _ args | .externalCall _ args
+    | .schedule _ args =>
+        for arg in args do
+          validateWideExpr defined arg
+    | .returnNone | .bareRevert => pure ()
+  pure defined
+
+private def validateWideFunction
+    (profileMode : PsyProfileModeV1) (stmts : Array Statement) : CompileResult Unit := do
+  let inventory := collectWideBindingInventory stmts
+  unless inventory.mulCount ≤ maxWideUInt128MulBindings do
+    planError s!"Psy function exceeds the UInt128 multiplication binding limit ({maxWideUInt128MulBindings})"
+  unless inventory.divModCount ≤ maxWideUInt128DivModBindings do
+    planError s!"Psy function exceeds the UInt128 div/mod binding limit ({maxWideUInt128DivModBindings})"
+  let mut seen : Array Nat := #[]
+  for operationId in inventory.ids do
+    if seen.contains operationId then
+      planError "Psy wide operation binding id must be unique within a function"
+    seen := seen.push operationId
+  let _ ← validateWideBindings profileMode 0 {} stmts
+  pure ()
+
 /-- B-RET-ABI depth defense: return form must match resultKind; aggregate
     leaves are 1..8 × 8-byte UInt64/Int64 words only. -/
 private partial def checkReturnFormsV1
@@ -132,8 +315,10 @@ private partial def checkReturnFormsV1
                 planError "returnAggregate expected leaf missing"
               let some gotInt := leafIsInt[i]? |
                 planError "returnAggregate leafIsInt missing"
-              unless exp.byteWidth == 8 do
-                planError s!"function '{fnName}' aggregate leaf {i} must be 8-byte UInt64/Int64"
+              unless exp.byteWidth == 4 || exp.byteWidth == 8 do
+                planError s!"function '{fnName}' aggregate leaf {i} must be a 4-byte UInt32 limb or 8-byte UInt64/Int64 word"
+              if exp.byteWidth == 4 && exp.isInt then
+                planError s!"function '{fnName}' UInt128 ABI limb {i} must be unsigned"
               unless gotInt == exp.isInt do
                 planError s!"function '{fnName}' returnAggregate leaf {i} isInt mismatch"
         | _ =>
@@ -149,15 +334,25 @@ private partial def checkReturnFormsV1
         checkReturnFormsV1 fnName resultKind body
     | _ => pure ()
 
-private def validateResultKind (fn : PlanFunction) : CompileResult Unit := do
+private def validateResultKind
+    (profileMode : PsyProfileModeV1) (fn : PlanFunction) : CompileResult Unit := do
   match fn.resultKind with
   | .felt | .bool | .unit => pure ()
   | .aggregate leaves =>
       unless leaves.size > 0 && leaves.size ≤ 8 do
         planError s!"function '{fn.name}' aggregate resultKind leaf count must be in 1..8 (B-RET-ABI)"
-      for leaf in leaves do
-        unless leaf.byteWidth == 8 do
-          planError s!"function '{fn.name}' aggregate leaves must be 8-byte UInt64/Int64 only"
+      let isWideUInt128Abi :=
+        leaves.size == 4 &&
+          leaves.all (fun leaf => !leaf.isInt && leaf.byteWidth == 4)
+      if isWideUInt128Abi then
+        unless profileMode == .dargo010Vm do
+          planError s!"function '{fn.name}' UInt128 aggregate ABI requires profile psy-dargo-0.1.0-vm-v1"
+        unless fn.resultUintWidth == 128 do
+          planError s!"function '{fn.name}' UInt128 aggregate ABI must carry resultUintWidth=128"
+      else
+        for leaf in leaves do
+          unless leaf.byteWidth == 8 do
+            planError s!"function '{fn.name}' non-UInt128 aggregate leaves must be 8-byte UInt64/Int64 words"
       -- pureFn aggregate stays fail closed even if a hand-built plan slips through.
       if fn.kind == .pureHelper then
         planError s!"pureFn '{fn.name}' cannot carry an aggregate resultKind"
@@ -180,8 +375,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     for param in fn.params do
       if isReserved param.name then
         planError s!"Psy parameter '{param.name}' collides with a reserved Psy word"
-    validateResultKind fn
+    validateResultKind plan.profileMode fn
     validateStatements fn.body
+    validateWideFunction plan.profileMode fn.body
     checkReturnFormsV1 fn.name fn.resultKind fn.body
   for ev in plan.events do
     if isReserved ev.name then

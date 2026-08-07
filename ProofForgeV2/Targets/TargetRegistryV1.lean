@@ -559,7 +559,9 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
       #[CodegenProfileId.aleoLeoU64CompileV1, CodegenProfileId.aleoLeoU64V1]
       (some CodegenProfileId.aleoLeoU64V1),
     row .psy (semanticsAxesOfKindV1 .psy)
-      #[CodegenProfileId.psyDargoU64V1]
+      #[CodegenProfileId.psyDargo010VmV1, CodegenProfileId.psyDargoU64V1]
+      -- Historical source profile remains the default; VM-observed extensions
+      -- require explicit `--profile psy-dargo-0.1.0-vm-v1` selection.
       (some CodegenProfileId.psyDargoU64V1),
     row .quint (semanticsAxesOfKindV1 .quint)
       #[CodegenProfileId.quintSourceU64ModelV1]

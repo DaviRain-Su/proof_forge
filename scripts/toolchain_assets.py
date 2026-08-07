@@ -416,6 +416,32 @@ def tool_lock_policy_key(lock: dict) -> str:
     fail(f"unsupported toolchain lock platform: {platform}")
 
 
+def is_empty_policy_data_member(
+    bundle_record: dict,
+    policy_record: dict,
+    *,
+    darwin: bool,
+) -> bool:
+    """True for mode-0444 bundle files with an explicit empty binary policy.
+
+    These are non-ELF/non-Mach-O data members: size/hash/mode verified by the
+    external tree walker, and never passed to readelf/otool. Executable-mode
+    files and policy entries with deps remain full binary checks.
+    """
+
+    if bundle_record.get("mode") != "0444":
+        return False
+    if darwin:
+        return (
+            policy_record.get("installId") is None
+            and list(policy_record.get("externalLoads") or []) == []
+        )
+    return (
+        policy_record.get("runpath") is None
+        and list(policy_record.get("needed") or []) == []
+    )
+
+
 def is_darwin_tool_lock(lock: dict) -> bool:
     return lock.get("platform") == "darwin-arm64"
 
@@ -2504,6 +2530,99 @@ def verify_external_tree(root: Path, bundle: dict[str, dict],
     return root
 
 
+def verify_asset_members(lock: dict, root: Path, asset_id: str) -> None:
+    """Verify every bundle member sourced from one locked asset under a tool root.
+
+    This is intentionally a subset verifier rather than `verify-external`: it
+    permits profile-specific roots while retaining exact size/hash/mode,
+    ownership, single-link, and no-symlink checks for every selected member.
+    """
+
+    asset_id = require_safe_asset_id(asset_id, "asset member verification id")
+    assets = asset_map(lock)
+    if asset_id not in assets:
+        fail(f"unknown asset for member verification: {asset_id}")
+    records = [record for record in lock["bundleFiles"]
+               if record["assetId"] == asset_id]
+    if not records:
+        fail(f"asset has no materialized bundle members: {asset_id}")
+
+    require_normalized_absolute_path(root, "asset member tool root")
+    try:
+        root_metadata = root.lstat()
+    except FileNotFoundError:
+        fail(f"asset member tool root is missing: {root}")
+    if not stat.S_ISDIR(root_metadata.st_mode) or stat.S_ISLNK(root_metadata.st_mode):
+        fail(f"asset member tool root is not a regular directory: {root}")
+    if root_metadata.st_uid != os.getuid():
+        fail(f"asset member tool root is not owned by the current user: {root}")
+    if stat.S_IMODE(root_metadata.st_mode) & 0o022:
+        fail(f"asset member tool root is group/world writable: {root}")
+    canonical_root = root.resolve(strict=True)
+    canonical_metadata = canonical_root.lstat()
+    if ((canonical_metadata.st_dev, canonical_metadata.st_ino) !=
+            (root_metadata.st_dev, root_metadata.st_ino)):
+        fail(f"asset member tool root changed during canonicalization: {root}")
+    root = canonical_root
+
+    checked_directories: set[Path] = {root}
+    for record in records:
+        relative = PurePosixPath(record["path"])
+        directory = root
+        for component in relative.parts[:-1]:
+            directory = directory / component
+            if directory in checked_directories:
+                continue
+            try:
+                metadata = directory.lstat()
+            except FileNotFoundError:
+                fail(f"asset member parent directory is missing: {record['path']}")
+            if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+                fail(f"asset member parent is not a regular directory: {directory}")
+            if metadata.st_uid != os.getuid():
+                fail(f"asset member parent is not owned by current user: {directory}")
+            if stat.S_IMODE(metadata.st_mode) & 0o022:
+                fail(f"asset member parent is group/world writable: {directory}")
+            checked_directories.add(directory)
+
+        path = root.joinpath(*relative.parts)
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            fail(f"asset member is missing: {record['path']}")
+        if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            fail(f"asset member is not a regular file: {record['path']}")
+        if metadata.st_uid != os.getuid():
+            fail(f"asset member is not owned by current user: {record['path']}")
+        if metadata.st_nlink != 1:
+            fail(f"asset member must have exactly one hard link: {record['path']}")
+        if metadata.st_size != record["size"]:
+            fail(f"asset member size mismatch: {record['path']}")
+        if stat.S_IMODE(metadata.st_mode) != int(record["mode"], 8):
+            fail(f"asset member mode mismatch: {record['path']}")
+        actual = sha256_regular_snapshot(path, metadata,
+                                         f"asset member {record['path']}")
+        if actual != record["sha256"]:
+            fail(f"asset member hash mismatch: {record['path']}")
+
+    print(f"toolchain-assets: verified {len(records)} exact members for {asset_id} under {root}")
+
+
+def verify_empty_policy_data_member(path: Path, relative: str) -> None:
+    """Reject empty-policy mode-0444 members that are actually ELF/Mach-O images."""
+
+    try:
+        with path.open("rb") as handle:
+            magic = handle.read(4)
+    except OSError as error:
+        fail(f"cannot inspect empty-policy data member {relative}: {error}")
+    if magic in RUNTIME_IMAGE_MAGICS:
+        fail(
+            f"empty-policy mode-0444 data member must not be an ELF/Mach-O image: "
+            f"{relative}"
+        )
+
+
 def verify_external_macho_closure(lock: dict, host_lock: dict, root: Path) -> None:
     profile = host_lock["profiles"][0]
     developer = profile["developerTools"]
@@ -2511,8 +2630,12 @@ def verify_external_macho_closure(lock: dict, host_lock: dict, root: Path) -> No
     if not otool.is_file() or otool.is_symlink() or sha256_file(otool) != developer["otoolSha256"]:
         fail("effective Xcode otool does not match the host profile")
     system_roots = tuple(lock["machoPolicy"]["allowedSystemLoadRoots"])
+    bundle = {record["path"]: record for record in lock["bundleFiles"]}
     for record in lock["machoPolicy"]["files"]:
         path = root / record["path"]
+        if is_empty_policy_data_member(bundle[record["path"]], record, darwin=True):
+            verify_empty_policy_data_member(path, record["path"])
+            continue
         loads = subprocess.run(
             [str(otool), "-L", str(path)], check=True, capture_output=True, text=True,
             env={"LC_ALL": "C"}, timeout=10,
@@ -2536,8 +2659,12 @@ def verify_external_macho_closure(lock: dict, host_lock: dict, root: Path) -> No
 
 def verify_external_elf_closure(lock: dict, host_lock: dict, root: Path) -> None:
     readelf = locked_readelf(host_lock)
+    bundle = {record["path"]: record for record in lock["bundleFiles"]}
     for record in lock["elfPolicy"]["files"]:
         path = root / record["path"]
+        if is_empty_policy_data_member(bundle[record["path"]], record, darwin=False):
+            verify_empty_policy_data_member(path, record["path"])
+            continue
         observed_needed, observed_runpath = readelf_dynamic(readelf, path)
         expected_needed = {edge["soname"] for edge in record["needed"]}
         if observed_needed != expected_needed:
@@ -4626,7 +4753,166 @@ def observe_host_linux(profile_id: str) -> dict:
     }
 
 
+def self_test_empty_policy_data_members(lock: dict) -> None:
+    """Accept legal mode-0444 empty-policy data; reject executable-mode / nonempty-deps data."""
+
+    darwin = is_darwin_tool_lock(lock)
+    policy_key = "machoPolicy" if darwin else "elfPolicy"
+
+    # Runtime-image magic must still be rejected before a data member can skip
+    # readelf/otool, even when the policy shape itself is empty.
+    with tempfile.TemporaryDirectory(prefix="proof-forge-empty-policy-magic-") as tmp:
+        for index, magic in enumerate((b"\x7fELF", b"\xcf\xfa\xed\xfe")):
+            candidate = Path(tmp) / f"candidate-{index}"
+            candidate.write_bytes(magic + b"not-data")
+            try:
+                verify_empty_policy_data_member(candidate, candidate.name)
+            except AssetError:
+                pass
+            else:
+                fail("self-test accepted runtime-image magic as empty-policy data")
+
+    # Classifier: executable mode is never treated as empty-policy data.
+    if is_empty_policy_data_member(
+        {"mode": "0555"},
+        {"installId": None, "externalLoads": []} if darwin else {
+            "needed": [], "runpath": None,
+        },
+        darwin=darwin,
+    ):
+        fail("self-test treated executable-mode as empty-policy data")
+
+    # Classifier: nonempty deps are never treated as empty-policy data.
+    if darwin:
+        nonempty = {
+            "installId": None,
+            "externalLoads": [{
+                "installName": "/opt/homebrew/opt/x/lib/libx.dylib",
+                "bundlePath": "lib/libx.dylib",
+            }],
+        }
+    else:
+        nonempty = {
+            "needed": [{"soname": "libx.so.1", "bundlePath": "lib/libx.so.1"}],
+            "runpath": None,
+        }
+    if is_empty_policy_data_member({"mode": "0444"}, nonempty, darwin=darwin):
+        fail("self-test treated nonempty-deps policy as empty-policy data")
+
+    # Accept a legal mode-0444 empty-policy data member added to a full lock copy.
+    legal = copy.deepcopy(lock)
+    data_path = "lib/proof-forge-empty-policy-data.v1"
+    content_hash = "a" * 64
+    archive_asset_id = next(
+        asset["id"] for asset in legal["assets"]
+        if asset.get("format") in {"tar.gz", "zip"}
+    )
+    legal["bundleFiles"].append({
+        "path": data_path,
+        "assetId": archive_asset_id,
+        "member": data_path,
+        "size": 1,
+        "sha256": content_hash,
+        "mode": "0444",
+    })
+    legal["bundleFiles"] = sorted(legal["bundleFiles"], key=lambda r: r["path"])
+    if darwin:
+        legal[policy_key]["files"].append({
+            "path": data_path,
+            "installId": None,
+            "externalLoads": [],
+        })
+    else:
+        legal[policy_key]["files"].append({
+            "path": data_path,
+            "needed": [],
+            "runpath": None,
+        })
+    legal[policy_key]["files"] = sorted(
+        legal[policy_key]["files"], key=lambda r: r["path"])
+    try:
+        validate_tool_lock(legal)
+    except AssetError as error:
+        fail(f"self-test rejected legal empty-policy data member: {error}")
+    policy = next(item for item in legal[policy_key]["files"] if item["path"] == data_path)
+    bundle = next(item for item in legal["bundleFiles"] if item["path"] == data_path)
+    if not is_empty_policy_data_member(bundle, policy, darwin=darwin):
+        fail("self-test failed to classify legal empty-policy data member")
+
+    # Reject executable-mode claiming empty-policy data classification path:
+    # mode 0555 + empty policy remains a binary (allowed for static tools) but
+    # is not data; a mode 0444 member with nonempty deps must not classify as data.
+    bad_mode = copy.deepcopy(legal)
+    bad_bundle = next(item for item in bad_mode["bundleFiles"] if item["path"] == data_path)
+    bad_bundle["mode"] = "0555"
+    bad_policy = next(
+        item for item in bad_mode[policy_key]["files"] if item["path"] == data_path)
+    if is_empty_policy_data_member(bad_bundle, bad_policy, darwin=darwin):
+        fail("self-test classified executable-mode empty policy as data")
+
+    bad_deps = copy.deepcopy(legal)
+    bad_deps_policy = next(
+        item for item in bad_deps[policy_key]["files"] if item["path"] == data_path)
+    if darwin:
+        # Need a real bundle target for validation when nonempty; only classifier
+        # is asserted here (validate may fail on unknown bundle target).
+        bad_deps_policy["externalLoads"] = [{
+            "installName": "/opt/homebrew/opt/x/lib/libx.dylib",
+            "bundlePath": "dargo" if any(
+                b["path"] == "dargo" for b in bad_deps["bundleFiles"]
+            ) else bad_deps["bundleFiles"][0]["path"],
+        }]
+    else:
+        bad_deps_policy["needed"] = [{
+            "soname": "libx.so.1",
+            "bundlePath": "dargo" if any(
+                b["path"] == "dargo" for b in bad_deps["bundleFiles"]
+            ) else bad_deps["bundleFiles"][0]["path"],
+        }]
+    bad_deps_bundle = next(
+        item for item in bad_deps["bundleFiles"] if item["path"] == data_path)
+    if is_empty_policy_data_member(bad_deps_bundle, bad_deps_policy, darwin=darwin):
+        fail("self-test classified nonempty-deps mode-0444 as empty-policy data")
+
+
+def self_test_asset_member_verifier() -> None:
+    payload = b"proof-forge-asset-member-self-test\n"
+    digest = hashlib.sha256(payload).hexdigest()
+    synthetic = {
+        "assets": [{"id": "self-test-asset"}],
+        "bundleFiles": [{
+            "path": "lib/member.dat",
+            "assetId": "self-test-asset",
+            "member": "lib/member.dat",
+            "size": len(payload),
+            "sha256": digest,
+            "mode": "0444",
+        }],
+    }
+    with tempfile.TemporaryDirectory(prefix="proof-forge-asset-members-") as tmp:
+        root = Path(tmp)
+        os.chmod(root, 0o700)
+        member = root / "lib" / "member.dat"
+        member.parent.mkdir(mode=0o700)
+        member.write_bytes(payload)
+        os.chmod(member, 0o444)
+        with contextlib.redirect_stdout(io.StringIO()):
+            verify_asset_members(synthetic, root, "self-test-asset")
+
+        os.chmod(member, 0o644)
+        member.write_bytes(payload + b"tamper")
+        os.chmod(member, 0o444)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                verify_asset_members(synthetic, root, "self-test-asset")
+        except AssetError:
+            pass
+        else:
+            fail("self-test asset member verifier accepted tampered content")
+
+
 def self_test_tool_lock(lock: dict, host_lock: dict) -> None:
+    self_test_asset_member_verifier()
     try:
         parse_json_text('{"outer":{"id":"first","id":"second"}}',
                         "duplicate-key self-test")
@@ -4634,6 +4920,8 @@ def self_test_tool_lock(lock: dict, host_lock: dict) -> None:
         pass
     else:
         fail("self-test failed to reject duplicate JSON keys")
+
+    self_test_empty_policy_data_members(lock)
 
     if is_darwin_tool_lock(lock):
         self_test_darwin_tool_lock(lock, host_lock)
@@ -5255,6 +5543,9 @@ def build_parser() -> argparse.ArgumentParser:
     external.add_argument("--destination", type=Path, required=True)
     verify = commands.add_parser("verify-external")
     verify.add_argument("--root", type=Path, required=True)
+    verify_members = commands.add_parser("verify-asset-members")
+    verify_members.add_argument("--asset", required=True)
+    verify_members.add_argument("--root", type=Path, required=True)
     lean = commands.add_parser("materialize-lean")
     lean.add_argument("--destination", type=Path, required=True)
     host = commands.add_parser("verify-host")
@@ -5302,6 +5593,8 @@ def main() -> None:
         materialize_external(lock, host_lock, args.destination.resolve())
     elif args.command == "verify-external":
         verify_external(lock, host_lock, args.root)
+    elif args.command == "verify-asset-members":
+        verify_asset_members(lock, args.root, args.asset)
     elif args.command == "materialize-lean":
         materialize_lean(lock, host_lock, args.destination.resolve())
     elif args.command == "verify-host":

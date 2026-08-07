@@ -213,6 +213,7 @@ candidate/release digest 仍是起始信任。开发模式可输出 ineligible �
 | near-sandbox | official nearcore `2.13.0`（Darwin-arm64 / Linux-x86_64 tar.gz） | darwin archive `330bb412…a666`、linux archive `522f9877…89de`（executable digest 见 lock） | Darwin 捆绑 Homebrew `xz 5.8.3` bottle 的 `liblzma.5.dylib`（`55c891f5…69d5`）；`unresolved.nearSandbox="2.13.0"` 记录 version pin |
 | nargo | noir-lang `v1.0.0-beta.26`（compile-only 门；**不**含 prove/verify） | darwin archive `2b8a938a…9b32`、linux archive `64048040…fb80` | `unresolved.nargo="1.0.0-beta.26"` 记录 version pin；barretenberg 仍 `null` |
 | leo | ProvableHQ `v4.0.2`（darwin aarch64 / linux x86_64-gnu） | darwin archive `0b7e5010…701f`、linux archive `7dc54a9f…7be8` | system-only 闭包（Linux 含 `libssl.so.3`/`libcrypto.so.3` system soname） |
+| dargo | PsyProtocol `v0.1.0` official archive（darwin aarch64 / linux x86_64-gnu） | darwin archive `76cb46a1…644`、linux archive `ad41117e…9f2`；executable/member digests 见 lock | proprietary dev/test-only；bundle `dargo` + 9 个 `lib/psy-std/**` data members；`requiredByProfiles=[psy-dargo-0.1.0-local-proof-v1]`；仅独立 local-VM/base-proof 工程门，Psy product finalize 仍 zero-tool |
 | cosmwasm-check | CosmWasm monorepo `v3.0.9` @ `fe5b55d2…9283`，`format: cargo-git`，`sourceBuild` | n/a（非字节 pin；`cosmwasm-check --version` → `Contract checking 3.0.9`） | `requiredByProfiles` 含 `cosmwasm-wasm-u64-v1`；静态 ABI/imports/capabilities 门。cosmwasm-vm 3.0.9 依赖 wasmer 5.0.6，其引用 `__rust_probestack`；Rust ≥1.89 起 Linux x86_64 链接失败（lld 与 GNU ld 均失败）。Tool Lock v4 保持 closed schema；package-owned engineering compatibility policy 仅对 exact `(asset id, commit)` 选择 Rust `1.88.0`，使用 staging-owned `HOME`/`CARGO_HOME` 与只读 policy marker 防止旧 cache 复用。正式 per-asset Rust identity 留待 Tool Lock v5 |
 | tolk | ton-blockchain `tolk-1.4.2` 官方 binary（darwin `tolk-mac-arm64` / linux `tolk-linux-x86_64`） | darwin `52c00e29…1740`、linux `54286978…7940` | 自报 `Tolk compiler v1.4.1`（expectedVersion 按真实输出钉 `1.4.1`）；darwin system-only 闭包、linux static-pie 无 NEEDED；`requiredByProfiles` 含 `ton-tolk-boc-v1` |
 
@@ -226,8 +227,10 @@ candidate/release digest 仍是起始信任。开发模式可输出 ineligible �
 `ToolchainIdentity`。普通 build/finalize 不得因 PATH 上恰好存在 `quint` 而改变结果。
 
 未冻结：Barretenberg；`null` 表示未进入实现承诺，不能从 PATH 猜测。near-sandbox / nargo /
-leo 已入 `tools[]`（G123 工程切片，2026-08-03）；验收门为可选工具门（缺席 skip-clean），
-Noir 仅 compile-only，不升格 prove/verify。
+leo 已入 `tools[]`（G123 工程切片，2026-08-03）；dargo v0.1.0 已于 2026-08-07
+进入两平台 `tools[]`，只服务独立 `psy-dargo-0.1.0-local-proof-v1` 工程门，Psy 产品
+Finalize 仍 zero-tool。可选 compile 验收缺席时 skip-clean；Noir 仅 compile-only，
+Psy 的 Linux Counter + explicit-profile WideCounter runtime 门不升格 formal/UPS/deploy。
 
 ## Provision 与离线物化
 

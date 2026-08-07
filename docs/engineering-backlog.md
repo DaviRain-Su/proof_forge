@@ -88,8 +88,7 @@ formal / release ──────────────────► 04/05
 **产品现状一句话**：CLI 进程内 `Loader → Normalize → CompiledSemanticV1 → capability Plan/IR →
 Materialized/Finalized + disk closure` 已通；sole Normalize 与**九个 materializer**（EVM/Solana/NEAR/Noir/
 Aleo/Psy/Quint/CosmWasm/TON）已覆盖非均匀的多宽算术、控制流、fn、let/for、shift/bitwise、call/schedule、
-聚合与 Field 子集；EVM/Solana/NEAR/CosmWasm/TON 有工程 runtime 门，Noir 有 compile-only 门，Aleo 有
-opt-in locked compile product finalization（仍 non-deployable），Psy 与 Quint 仍 source-only（Quint 为 zero-tool `.qnt` executable-model target）。registry = **12 targets / 9 implemented + 3 design-only / 11 resolver rows**；CW：sync 拒、
+聚合与 Field 子集；EVM/Solana/NEAR/CosmWasm/TON 有工程 runtime 门，Noir 有 compile-only 门，Aleo 有 opt-in locked Leo product compile finalization（仍 non-deployable），Psy 仍 **registry source-only**（历史默认 profile + 显式 dargo-VM profile 的 UInt128 首片；optional dargo compile + 独立 host-heavy `just psy-runtime` Counter/WideCounter local-VM 菜谱，非 ordinary ci），Quint 仍 source-only（zero-tool `.qnt` executable-model target）。registry = **12 targets / 9 implemented + 3 design-only / 12 resolver rows**（Aleo×2 + Psy×2 + Solana×1 等）；CW：sync 拒、
 async SubMsg 子集（msg 已升 Binary/base64）；TON：resolver admit async、schedule 已降 `createMessage`
 async internal out-message（NoBounce/value=0/dest hash stub；sync 仍 FC）；**完整语言面、平台语义与 formal 资格仍未闭合**，
 D1–D4 = 0/27 done。
@@ -306,7 +305,7 @@ D1–D4 = 0/27 done。
 | ID | 项 | 状态 |
 |---|---|---|
 | **C-1** | NEAR Wasm 工具链 load + sandbox 工程子集 | **done**（2026-08-02：`672e6115d` NearWasmAcceptance = locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` load，工具缺席 skip；2026-08-03 C-6 另加 locked near-sandbox Counter happy path；均非 formal Reference differential） |
-| **C-2** | Aleo/Psy compiler/VM 可用性研究与是否升格验收 | **done**（2026-08-07：RPT-015 + RPT-024；Aleo locked Leo 4.0.2 已从 host-optional acceptance 扩为显式 compile-profile product finalization，并有 Plan digest/query-contract/output closure；但 `leo run` 仅解释、execute/deploy/query 网络依赖、synthesize CRS 未锁、无 snarkOS/snarkVM，因此仍无 VM/prove/deploy；Psy 仍无 Tool Lock/VM） |
+| **C-2** | Aleo/Psy compiler/VM 可用性研究与是否升格验收 | **done**（2026-08-07：RPT-015 + RPT-024；Aleo locked Leo 4.0.2 已从 host-optional acceptance 扩为显式 compile-profile product finalization，并有 Plan digest/query-contract/output closure；但 `leo run` 仅解释、execute/deploy/query 网络依赖、synthesize CRS 未锁、无 snarkOS/snarkVM，因此仍无 VM/prove/deploy；**Psy**：compile 改 direct dargo（去 psyup）、两平台 Tool Lock pin dargo v0.1.0 + bundled std、`scripts/psy_runtime_test.sh`/`just psy-runtime` 为独立 locked local-VM/base-proof 工程 lane；Linux Counter + WideCounter 实测通过；**非** ordinary ci / product finalize / formal，Darwin runtime 尚未实跑） |
 | **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；G4 产品 CLI→Anvil 工程差分已覆盖四程序，但未绑定正式 Reference corpus/identity） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | **done（研究决定仍有效）**：2026-08-03 G123 已锁定 nargo 1.0.0-beta.26 并接 `NoirCompileAcceptance` compile-only 门（C-7），supersede 原“无 nargo pin”观察；Barretenberg/backend、CRS/security profile、witness/prove/verify 与 proof binding 仍无，因此不升格 prove/verify、保持 source-only；见 `16-noir-prove-path.md` |
 | **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（Counter + 18 fixtures = 19 programs；#111 移除 CpiCaller；**#113** V1 单账户安全负例矩阵；OptionState 与聚合返回保留；manifest-bound artifact 读取已接线） |
@@ -321,6 +320,31 @@ D1–D4 = 0/27 done。
 | **EVMOZ-005** | Ownable-like caller boundary | **done / blocked case retired**（2026-08-06：`OwnableLike.lean` 从 ContextRead planInvariant blocker 升为 EVM caller primitive；历史 `oz.f01…blocked.v1` 删除，`EvmCorpusBlockedV1` 保留文件名但改为 Loader/Normalize/Reference + Plan/Yul admit pin。F01 OZ family 仍 Blocked：无 OZ behavior leg/标准 address+event+error ABI） |
 | **EVMOZ-006** | corpus manifest + CI registration + real Ownable pins | **done**（2026-08-06：manifest exact inventory 50 entries / 13 runners；6 business cases / 6 runnable；Ownable source/semantic pins保留；`just evm-corpus-{schema,reference,static,runtime}`；static 进 `dev-check`/`ci-lean-product`，runtime 不进 ordinary CI；**Exact 0 / Partial 0 / Blocked 20 不变**；无 OZ leg） |
 | **C-2-pin** | leo 4.0.2 Tool Lock pin（G123） | **done**（2026-08-07 current：leo 4.0.2 入 `tools[]`（darwin+linux），requiredBy exact 绑定 Aleo source+compile profiles；acceptance + opt-in product finalizer 仅走 locked resolver；仍 non-deployable compile-only，非 prove/deploy） |
+| **PSY-RUNTIME** | Psy dargo v0.1.0 local VM / base-proof 工程 lane | **done（2026-08-07/08，engineering）**：两平台官方 archive、dargo 与 9 个 `psy-std` member 已进入 Tool Lock v4；`psy_runtime_test.sh` + `just psy-runtime`；Linux exact-member root 实跑默认 Counter 与显式 VM WideCounter（carry/borrow/compare/mul/div/mod + checked negatives）；`PsyAcceptance`/`psy_acceptance.sh` 去 psyup、direct compile/ABI；Finalize 仍 zero-tool；proprietary dev/test-only，无 redistrib / network UPS / formal / hermetic / deploy；Darwin runtime 未实跑；registry 仍 source-only |
+
+### Psy target feature completion order（Psy-only capability expansion）
+
+> 其他 target 暂停能力扩张。每一行必须同时满足：default profile 稳定、显式 Plan/IR
+> fail-closed 边界、focused Reference join、locked dargo compile/execute（若平台可表达）、
+> 文档/SBOM/registry identity 更新。无诚实 Psy 对应物时，完成定义是**证据化 fail closed**，
+> 不是伪造支持。
+
+| ID | 依赖顺序 / 范围 | 当前状态与退出条件 |
+|---|---|---|
+| **PSY-WIDE-1** | UInt128 first slice | **done（2026-08-07）**：显式 VM profile；4×UInt32 LE Felt limbs；state/param/literal/constant/entry-view result、checked add/sub、六比较、atomic store、Reference + locked dargo runtime |
+| **PSY-WIDE-2a** | UInt128 checked multiplication | **done（2026-08-07）**：4×UInt32 limbs 拆为 8×UInt16；完整 16-column schoolbook 逐 product 归一化，所有 `&65535`/`>>16` 输入 `<2^32`，高 8 digits/最终 carry 非零即 `u128 mul overflow`；Plan lexical binding、Reference success/rollback、10-fixture dargo compile/ABI 与 locked local-VM/base-proof 均通过 |
+| **PSY-WIDE-2b** | UInt128 div/mod | **done（2026-08-08）**：四段固定 `0u32..32u32` MSB-first restoring；五肢 remainder；operand limb range + operation-specific zero-divisor；每函数 1 次 div/mod binding 且 loop 内 FC；Reference mixed/zero-divisor、product WideCounter、dargo acceptance 与 locked local-VM 路径已接线；禁止 Felt `/`/`%` 冒充整数除法 |
+| **PSY-WIDE-2c** | UInt128 bitwise/shift + UInt256 | **next**：先证明 Psy u32 bit ops 的逐 limb/跨 limb算法不会截断；UInt256 复用 8×UInt32；每族独立 shift-count/overflow runtime oracle；不得使用 native Psy `u128` 改写语义 |
+| **PSY-INT-NARROW** | Int8/16/32 | pending：two's-complement canonical bytes ↔ Felt 表示/比较/算术/ABI 必须先冻结；负值不可经无符号 `feltNat` 静默归约 |
+| **PSY-SCALAR-ABI** | Principal、String、Bytes | pending：冻结 exact length/payload leaves、上限与 equality；Principal 不得冒充地址，String/Bytes 不得冒充 Felt scalar |
+| **PSY-CONTAINER-ABI** | Map、嵌套容器、aggregate 参数、>8 叶返回 | pending：先复用 atomic snapshot store，再冻结 ABI leaf/work cap；Map 需 canonical key order/upsert；提升 8 叶上限前必须有 dargo ABI/VM resource pin |
+| **PSY-INDEX-CAST** | 动态 Array 索引、CheckedCast | pending：动态 bounds 必须产生 exact `indexOutOfBounds` 对应；cast 覆盖 UInt/Int 宽度与 out-of-range rollback，不能只做源码强转 |
+| **PSY-CONTEXT-COMMIT** | ContextRead、Commit | pending / decision-gated：ContextRead 只能接 official witness/public-input anchor；Commit 必须冻结 proof/public-input/commitment binding，普通 Felt identity passthrough 不算完成 |
+| **PSY-INVARIANT** | nonempty invariants | pending：只在 target source/VM 能绑定同一 predicate closure 与 carried fuel 时开放；否则保持 Plan FC；local proof 不等于 invariant theorem |
+| **PSY-TYPED-ERROR** | 带参数 revert/assert error | pending：冻结 error selector/payload ABI、rollback 与 VM observable；bare/zero-payload 路径保持稳定 |
+| **PSY-CALL-EVENT** | sync call/event runtime；真正 result-bearing crosscall | pending：当前 `__invoke_sync`/`__emit` 仅 source intrinsic。需 official runtime ABI、response binding、callee failure/rollback 与 ordered event observables；无对应工具证据则继续 FC/PARTIAL |
+| **PSY-ASYNC-ASSETS** | async schedule、`pf.assets` | blocked by platform semantics：不得把 sync intrinsic 重命名为 async；Psy 当前无已验证 native asset/vault/deposit binding，`pf.assets` 保持 unbound/`PF-REQ-UNSUPPORTED`，直到官方 contract/runtime 证据出现 |
+| **PSY-LOOP** | 非 UInt64 bounded loop | pending：dargo v0.1.0 当前拒绝 emitted `for` 语法；必须先选可编译、精确 bounded 的 lowering（如 CFG/unroll）并验证 Int/多宽 induction、exact bound 与 rollback |
 
 ---
 

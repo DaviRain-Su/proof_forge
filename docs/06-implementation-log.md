@@ -12,6 +12,101 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy UInt128 exact div/mod（PSY-WIDE-2b engineering）
+
+- 显式 `psy-dargo-0.1.0-vm-v1` 现开放 UInt128 exact unsigned `/` 与 `%`；历史默认
+  `psy-dargo-u64-v1` 继续 fail closed；bitwise/shift 与 UInt256 仍未开放。
+- Plan 新增 `bindWideUInt128DivMod` 与 quotient/remainder 四肢 result references；validator
+  强制 4×4 operand、function-unique wide binding id、def-before-use、kind 匹配、
+  VM-profile-only、loop 内拒绝，以及每函数最多 1 个 div/mod binding。
+- emitter 对八个物理输入 limb 先 snapshot + `<2^32` assert，再四段固定 `0u32..32u32`
+  MSB-first restoring：五肢 remainder 表示 129-bit 临时、lex 比较、Felt 条件减法与
+  quotient bit 累积；稳定消息 `u128 div by zero` / `u128 mod by zero`；不使用 Psy
+  Felt 域除法或 remainder。
+- `PsySourceV1`/Reference 固定 mixed multi-limb success、zero-divisor rollback、
+  missing binding fail closed 与双 binding 资源 cap；`Examples/WideCounter` 增
+  `divide`/`remainder`；`PsyAcceptance` 与 `just psy-runtime` 覆盖 div/mod 正负路径。
+- 该结果仅是 local VM/base-proof 工程门，不是 formal Reference↔Psy refinement、
+  network UPS、deploy、hermetic 或 release evidence。
+
+## 2026-08-07 — Psy UInt128 checked multiplication（PSY-WIDE-2a engineering）
+
+- 显式 `psy-dargo-0.1.0-vm-v1` 现开放 UInt128 checked mul；历史默认
+  `psy-dargo-u64-v1` 继续 fail closed，div/mod/bitwise/shift 与 UInt256 仍未开放。
+- target-owned Plan 新增一次性 `bindWideUInt128Mul` 与四个 result-limb reference；Plan
+  validator 强制 4×4 operand shape、function-scope binding id 唯一、lexical def-before-use、
+  branch/loop binding 不泄漏及 VM-profile-only gate。
+- emitter 将四个 UInt32 Felt limbs 拆为八个 UInt16 digits，计算完整 16-column schoolbook
+  product，并在每个 digit product 后立即归一化。由此 `&65535`/`>>16` 的每个输入都
+  `<2^32`，Felt add/mul 中间值也远低于 Goldilocks modulus；高八 digits 或最终 carry
+  非零时精确触发 `u128 mul overflow`，随后才允许 atomic aggregate state write。
+- `PsySourceV1`/Reference differential 固定 `(2^32−1)^2 → [1,4294967294,0,0]` 与
+  `UInt128.max × 2` overflow/state-hold；另固定删除 mul binding 后 result reference 必须
+  def-before-use fail closed。独立 Python 算法模型以边界向量和 100000 个随机 UInt128
+  对照 native big-int result/overflow，并断言全部 bit-op inputs `<2^32`。
+- `PsyAcceptance` 现 direct compile/ABI 共 10 个 fixture（含 WideCounter）；locked Linux
+  `just psy-runtime` 实际通过 compile/ABI、`(2^32−1)^2` result、mul overflow exact message
+  与既有 carry/borrow/compare negatives。该结果仅是 local VM/base-proof 工程门，不是
+  formal Reference↔Psy refinement、network UPS、deploy、hermetic 或 release evidence。
+
+## 2026-08-07 — Psy explicit dargo VM profile + UInt128 first slice（engineering）
+
+- 新增显式 `psy-dargo-0.1.0-vm-v1`，registry profiles 按 ASCII 顺序为 VM profile +
+  历史 `psy-dargo-u64-v1`；默认仍为历史 profile，故既有默认产品语义不改变。requirement
+  support index 为 12 行（Aleo×2 + Psy×2 等），两个 Psy profile 共享同一 exact S2 support set；能力差异只在
+  Psy target-owned Plan/IR gate 表达。engineering registry root 更新为 2016 bytes /
+  `sha256:4e06bcb6434b7f214515d32f385512dbde6a32faab22cb72d92f3bbecc9e6849`（rebase 后含 Aleo dual）。
+- VM profile 将 UInt128 表示为 4×UInt32 little-endian Felt limbs，已开 state、params、
+  literal/constant、entry/view return、checked add/sub 与六比较；每个物理输入 limb 强制
+  `<2^32`。UInt128 mul/div/mod/bitwise/shift/Switch/pureFn aggregate result 与全部 UInt256
+  继续 fail closed；默认 profile 对 UInt128 继续 fail closed。
+- 新增 target-owned `storeAggregate`：同一多叶 StateStore 先求值并 snapshot 全部 RHS，
+  再统一写 storage，避免 UInt128 carry/borrow 及既有 Option/aggregate 的部分更新重读。
+- `Examples/WideCounter.lean` 与 `PsySourceV1` 固定四 limb ABI、Plan/IR/source、默认/显式
+  profile 正负面；同一 retained Semantic carrier 经 Reference machine 验证 carry/borrow/
+  compare 与 overflow/underflow rollback。该 differential 是工程测试，不是 formal refinement。
+- `just psy-runtime` 在 locked Linux exact-member root 上实际通过默认 Counter 与显式
+  WideCounter：`[4294967295,0,0,0]+1→[0,1,0,0]`、borrow/compare、UInt128 overflow/
+  underflow 及 limb `4294967296` range rejection。产品 `FinalizeV1` 仍 zero-tool、
+  `deployable=false`；Darwin runtime、UPS/network、formal/hermetic/release 均未声称。
+
+## 2026-08-07 — Psy dargo v0.1.0 local VM / base-proof engineering lane（源码）
+
+- **新增** `scripts/psy_runtime_test.sh` + `just psy-runtime`（**非** ordinary ci）：
+  仅 `linux-x86_64` / `darwin-arm64`；硬依赖 locked `$PROOF_FORGE_TOOL_ROOT/dargo` 与
+  `$ROOT/lib/psy-std/std.psy`（永不 PATH；缺席 `PF-TOOLCHAIN-MISSING`）；工程 log label
+  `psy-dargo-0.1.0-local-proof-v1`；产品 profile 仍 `psy-dargo-u64-v1`。
+- 流程：`lake build proof_forge_next` → 产品 `build Examples/Counter.lean --target psy` →
+  `inspect` exact disk closure → 包一层 `Dargo.toml` + `src/main.psy` →
+  `dargo compile/generate-abi --contract-name Counter` → 断言 ABI/package json 非空 →
+  happy `execute`（initialize/increment/get，参数 5/3）解析 `circuit_stats method=`、
+  `result_vm` 序列 `[]/[8]/[8]`、空 `result_events`、恰 3 行 `public_inputs`（不 pin 随机值）→
+  overflow `initialize(p-1=18446744069414584320)/increment(1)` 要求非零退出且精确
+  `assertion failed: u64 add overflow`（**不**声称 rollback snapshot）→ 有界 timeout/输出、
+  清理 staging、不提交二进制。
+- **`scripts/psy_acceptance.sh` / `Tests/Materialization/PsyAcceptance.lean`**：去掉 psyup
+  权威；优先 Tool Root / default cache dargo+std，否则 host `~/.psy`；direct
+  `dargo compile` + `generate-abi --contract-name`；保留全部既有 fixtures；工具缺席 skip-clean。
+- **`FinalizeV1`**：仍 zero-tool `deployable=false`；evidence note 标明 locked local-VM lane
+  在产品 finalize **之外**。
+- **文档**：`docs/targets/10-psy.md`、`docs/research/15-aleo-psy-compiler-vm.md`、
+  `docs/research/12-target-coverage-matrix.md`、`docs/engineering-backlog.md`（`PSY-RUNTIME`）、
+  `AGENTS.md`、`MIGRATION_MATRIX.md`、`README.md` 同步；registry 成熟度 **仍 source-only**；
+  proprietary dargo 仅 dev/test、无 redistrib / network UPS / formal / hermetic / deploy 声明。
+- **Tool Lock v4**：Darwin arm64 / Linux x86_64 official dargo v0.1.0 archives、
+  `dargo` executable 与 9 个 `lib/psy-std/**` data members 已精确 pin（size/SHA/mode +
+  Mach-O/ELF policy）；`toolchain_assets.py` 只对 mode `0444` + empty dependency policy 的
+  非 ELF/Mach-O data member 跳过二进制解析，并有 classifier/magic self-tests；raw/domain
+  digests 与 EVM corpus KAT/manifest 机械旋转。
+- **实际执行**：仓库 provisioner 按 Linux archive size/SHA 成功缓存；随后按 lock 的
+  `bundleFiles` 将 dargo + 9 个 std members 逐项 size/SHA/mode 校验后 stage 为 exact-member
+  root，`PROOF_FORGE_TOOL_ROOT=<root> just psy-runtime` **exit 0**：product build/inspect、
+  compile/ABI、happy `[]/[8]/[8]`、3 `public_inputs`、空 events 与 overflow exact message 全通过。
+  Darwin archive/member pins 已验证但 runtime 未实跑。
+- **未做 / 不声称**：未把 dargo 接入产品 Finalize 或 ordinary ci；Counter lane 未做独立
+  rollback snapshot，UInt128 仅有后续 focused Reference differential、不是 formal refinement；
+  network UPS/deploy、cross-host/hermetic/release 或 formal proof 均未做；不提交或 redistrib
+  proprietary archive/binary。
 ## 2026-08-07 — Generic Preservation ABI foundation（engineering）
 
 - 新增 `ProofForgeV2/Semantic/PreservationABI.lean`，独立 namespace 位于 public
@@ -14111,7 +14206,7 @@ normative: false
   `/usr/bin/python3 -I -S`.
 - Ownable blocked pins (placeholders removed):
   - `pfCommit=23798ce65e559134adb0a9dd3504fc2f7e9669b6` (compiler baseline)
-  - historical pre-CPI `toolLockDigest=63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf`；2026-08-04 将 exact CPI profile 加入 global Tool Lock 后，active corpus/KAT/manifest 已原子旋转为 `26c269f80aa300902f2ab61e2ca65e4d38e88db89ccdf9a38aa80144e8db635b`
+  - historical pre-CPI `toolLockDigest=63eadb99743addf944ce478b3763ca3258dd101a0c3df6a47213e64ff5386edf`；2026-08-04 将 exact CPI profile 加入 global Tool Lock 后旋转为 `26c269f80aa300902f2ab61e2ca65e4d38e88db89ccdf9a38aa80144e8db635b`；2026-08-07 加入 Psy dargo v0.1.0 后，active corpus/KAT/manifest 再原子旋转为 `da7ca140dfde2884144dd7e53a2accbf420165fe249b67d28ac95379baf2f2f9`
   - `sourceHash=1056bb66a65115bdbbd38655c85e53b5f9abe84a7a13ada2b7f3bed4d2b9db64`
   - `semanticHash=4874d5f6e5b589a26f3175920fee6aa06d59009be8d8c38a45bdc3bd8c14dd75`
   - `Tests.Materialization.EvmCorpusBlockedV1` exact-asserts pins + planInvariant

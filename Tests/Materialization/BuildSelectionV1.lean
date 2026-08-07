@@ -206,6 +206,10 @@ private def testGrammar : IO Unit := do
     "well-known near profile constant"
   expect (CodegenProfileId.noirSourceU64RelationsV1 == (← parseProfile "noir-source-u64-relations-v1"))
     "well-known noir profile constant"
+  expect (CodegenProfileId.psyDargo010VmV1 == (← parseProfile "psy-dargo-0.1.0-vm-v1"))
+    "well-known Psy dargo VM profile constant"
+  expect (CodegenProfileId.psyDargoU64V1 == (← parseProfile "psy-dargo-u64-v1"))
+    "well-known Psy historical source profile constant"
   expect (CodegenProfileId.quintSourceU64ModelV1 == (← parseProfile "quint-source-u64-model-v1"))
     "well-known Quint profile constant"
   expect (TargetId.parse? "quint" == some TargetId.quint)
@@ -303,6 +307,13 @@ private def testRegistrySeedMembership : IO Unit := do
   | none => throw <| IO.userError "ghost Aleo profile must be grammar-valid"
   expectDefault TargetId.near "near-wasm-raw-u64-v1"
   expectDefault TargetId.noir "noir-source-u64-relations-v1"
+  expectDefault TargetId.psy "psy-dargo-u64-v1"
+  match ← liftResult (registration? TargetId.psy) with
+  | some reg =>
+      expect (reg.profiles ==
+          #[CodegenProfileId.psyDargo010VmV1, CodegenProfileId.psyDargoU64V1])
+        s!"Psy profiles must be exact VM + historical pair, got {reg.profiles.map (·.toString)}"
+  | none => throw <| IO.userError "missing Psy registration"
   expectDefault TargetId.quint "quint-source-u64-model-v1"
   expectErrorCode (createTargetRegistryV1 #[])
     "PF-REGISTRY-INVALID" "empty seed never succeeds"
@@ -472,6 +483,17 @@ private def testResolve : IO ResolvedBuildSelectionV1 := do
   let cosmwasmDefault ← liftResult <| resolveBuildSelectionV1 TargetId.cosmwasm none
   expect (cosmwasmDefault.codegenProfile == CodegenProfileId.cosmwasmWasmU64V1)
     "cosmwasm default profile after promotion"
+  let psyDefault ← liftResult <| resolveBuildSelectionV1 TargetId.psy none
+  expect (psyDefault.codegenProfile == CodegenProfileId.psyDargoU64V1 &&
+      psyDefault.kind == .psy)
+    "Psy omitted profile preserves historical source profile"
+  let psyVm ← liftResult <| resolveBuildSelectionV1 TargetId.psy
+    (some CodegenProfileId.psyDargo010VmV1)
+  expect (psyVm.codegenProfile == CodegenProfileId.psyDargo010VmV1 &&
+      psyVm.kind == .psy)
+    "Psy explicit VM profile resolves without changing target identity"
+  expect (psyVm.codegenProfile != psyDefault.codegenProfile)
+    "Psy VM profile is explicit, not the default"
   let solanaCpi ← liftResult <| resolveBuildSelectionV1 TargetId.solana
     (some CodegenProfileId.solanaSbpfCpiElfV1)
   expect (solanaCpi.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 &&
@@ -587,6 +609,15 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (opts.profile == some CodegenProfileId.evmYulSolc0834V1)
         "dispatcher explicit profile"
   | other => throw <| IO.userError s!"parse build explicit profile: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1
+      ["build", "Examples/WideCounter.lean", "--module", "Examples.WideCounter",
+        "--target", "psy", "--profile", "psy-dargo-0.1.0-vm-v1"] with
+  | .ok (.build opts) =>
+      expect (opts.target == some TargetId.psy)
+        "dispatcher Psy VM target"
+      expect (opts.profile == some CodegenProfileId.psyDargo010VmV1)
+        "dispatcher explicit Psy VM profile"
+  | other => throw <| IO.userError s!"parse Psy VM profile: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
       ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
         "--target", "evm", "--profile", "near-wasm-raw-u64-v1"] with

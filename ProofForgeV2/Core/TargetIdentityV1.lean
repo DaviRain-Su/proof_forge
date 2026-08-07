@@ -205,6 +205,10 @@ def aleoLeoU64V1 : CodegenProfileId := ⟨"aleo-leo-4.0.2-u64-v1"⟩
     `aleoLeoU64V1`; locked offline finalization emits three compiler outputs,
     remains `deployable=false`, and claims no execution/proof/deploy/query). -/
 def aleoLeoU64CompileV1 : CodegenProfileId := ⟨"aleo-leo-4.0.2-u64-compile-v1"⟩
+/-- Versioned Psy profile for locked dargo v0.1.0 VM-observed extensions.
+    Historical `psy-dargo-u64-v1` remains the default and preserves its
+    fail-closed envelope. -/
+def psyDargo010VmV1 : CodegenProfileId := ⟨"psy-dargo-0.1.0-vm-v1"⟩
 def psyDargoU64V1 : CodegenProfileId := ⟨"psy-dargo-u64-v1"⟩
 def cosmwasmWasmU64V1 : CodegenProfileId := ⟨"cosmwasm-wasm-u64-v1"⟩
 def quintSourceU64ModelV1 : CodegenProfileId := ⟨"quint-source-u64-model-v1"⟩

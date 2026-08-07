@@ -329,10 +329,12 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped eleven-row seed body (canonical targetId order: aleo×2, cosmwasm,
-    evm×2, near, noir, psy, quint, solana×1, ton). Aleo carries both
+/-- Shipped twelve-row seed body (canonical targetId order: aleo×2, cosmwasm,
+    evm×2, near, noir, psy×2, quint, solana×1, ton). Aleo carries both
     `aleo-leo-4.0.2-u64-compile-v1` and `aleo-leo-4.0.2-u64-v1` (ASCII ascending;
     default remains source `u64-v1`; both share the same exact 4-key S2 set).
+    Psy carries both `psy-dargo-0.1.0-vm-v1` and historical default `psy-dargo-u64-v1`
+    (ASCII ascending; same exact S2 set; capability deltas live in target Plan gates).
     EVM carries both `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1`
     (ASCII ascending; default remains legacy v1). Solana is sole
     `solana-sbpf-cpi-elf-v1` (ADR-0032 U1). The opt-in CPI profile (#125)
@@ -473,6 +475,10 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 evmRequests,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 nearRequests,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
+    -- Psy VM profile initially shares the exact S2 requirement set with the
+    -- historical source profile. Capability differences remain target-owned
+    -- Plan/IR gates, not invented requirement ids.
+    mkImplementedRow .psy CodegenProfileId.psyDargo010VmV1 psyRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
     mkImplementedRow .quint CodegenProfileId.quintSourceU64ModelV1 quintRequests,
     -- ADR-0032 U1: sole Solana product profile (shims plan/elf removed).

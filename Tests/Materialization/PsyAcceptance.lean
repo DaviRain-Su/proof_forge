@@ -1,17 +1,20 @@
 /-
-  Psy dargo/psyup acceptance suite (engineering only; J3 PsyEmissionFix).
+  Psy dargo compile-only acceptance suite (engineering only; J3 PsyEmissionFix).
 
   Builds representative ProgramV1 sources through the product capability path
   (select → compileValidatedSourceV1 → resolve → materializeResult), writes the
   emitted `.psy` into a minimal Dargo project (`Dargo.toml` + `src/main.psy`),
-  and invokes:
+  and invokes locked/host `dargo` directly:
 
-      psyup build
+      dargo compile --contract-name <Name>
+      dargo generate-abi --contract-name <Name>
 
-  which wraps `dargo compile` + `dargo generate-abi` with the local
-  `DARGO_STD_PATH` (bundled psy-std under `~/.psy/toolchains/…`).
+  Tool resolution (no psyup authority):
+    1. `$PROOF_FORGE_TOOL_ROOT/dargo` + `lib/psy-std/std.psy`
+    2. default cache `~/.cache/proof-forge-v2/tool-root/{linux-x86_64,darwin-arm64}`
+    3. host `~/.psy/bin/dargo` + bundled std under `~/.psy/toolchains/…` (compile-only)
 
-  When `psyup`/`dargo` are absent the suite SKIP-passes with a clear log line so
+  When dargo/std are absent the suite SKIP-passes with a clear log line so
   ordinary Linux CI stays green. When present the suite is fail-closed on any
   non-zero exit or missing ABI artifact.
 
@@ -19,8 +22,12 @@
   `0 .. p-1` (p = 2^64−2^32+1). The EmitIRV1 overflow guards no longer emit the
   illegal `2^64` literal.
 
-  Not formal Stage-0 / hermetic tool lock / Psy VM prove gate. Maturity remains
-  source-only with a real toolchain *compilation* acceptance check.
+  Local VM / base-proof execute is **not** this suite: see
+  `scripts/psy_runtime_test.sh` / `just psy-runtime` (host-heavy, hard-fail
+  PF-TOOLCHAIN-MISSING without locked dargo+std; not ordinary ci).
+
+  Not formal Stage-0 / hermetic Tool Lock verify / network UPS / deploy.
+  Maturity remains source-only registry + optional host/locked compile gate.
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.Counter
@@ -48,87 +55,89 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
 private def shQuote (s : String) : String :=
   "'" ++ s.replace "'" "'\\''" ++ "'"
 
-/-- Resolved local Psy toolchain (psyup + dargo + bundled std). -/
+/-- Resolved dargo + bundled std (no psyup). -/
 private structure PsyToolchain where
-  psyup : String
   dargo : String
   stdPath : String
-  binDir : String
   deriving Repr
 
-/-- Prefer `$HOME/.psy/bin`, then PATH. Requires both psyup and dargo plus a
-    readable `DARGO_STD_PATH` (bundled under `~/.psy/toolchains/psy-*/lib/psy-std`). -/
+/-- Prefer `$PROOF_FORGE_TOOL_ROOT` / default cache dargo+std, then host `~/.psy`.
+    Requires executable `dargo` and a readable `lib/psy-std/std.psy` (or env). -/
 private def resolvePsyToolchain : IO (Option PsyToolchain) := do
   let home? ← IO.getEnv "HOME"
   let home := home?.getD ""
-  let psyHomeCandidates : Array String :=
-    if home.isEmpty then #[] else #[home ++ "/.psy"]
-  let mut binDirs : Array String := #[]
-  for h in psyHomeCandidates do
-    binDirs := binDirs.push (h ++ "/bin")
-  binDirs := binDirs ++ #["/opt/homebrew/bin", "/usr/local/bin"]
 
-  let resolveIn (name : String) : IO (Option String) := do
-    for dir in binDirs do
-      let path := dir ++ "/" ++ name
-      if ← (FilePath.mk path).pathExists then
-        return some path
-    let which ← IO.Process.output { cmd := "which", args := #[name] }
+  let tryRoot (root : String) : IO (Option PsyToolchain) := do
+    let dargo := root ++ "/dargo"
+    let std := root ++ "/lib/psy-std/std.psy"
+    let dargoOk ← (FilePath.mk dargo).pathExists
+    let stdOk ← (FilePath.mk std).pathExists
+    if dargoOk && stdOk then
+      pure (some { dargo, stdPath := std })
+    else
+      pure none
+
+  -- 1) Explicit materialized Tool Lock root.
+  if let some root ← IO.getEnv "PROOF_FORGE_TOOL_ROOT" then
+    if let some tc ← tryRoot root then
+      return some tc
+
+  -- 2) Default cache roots (linux-x86_64 / darwin-arm64 only as product lanes).
+  if !home.isEmpty then
+    for plat in #["linux-x86_64", "darwin-arm64"] do
+      if let some tc ← tryRoot (home ++ "/.cache/proof-forge-v2/tool-root/" ++ plat) then
+        return some tc
+
+  -- 3) Host ~/.psy (or common PATH install) + bundled std — compile-only fallback.
+  let mut dargoCandidates : Array String := #[]
+  if !home.isEmpty then
+    dargoCandidates := dargoCandidates.push (home ++ "/.psy/bin/dargo")
+  dargoCandidates := dargoCandidates ++ #["/opt/homebrew/bin/dargo", "/usr/local/bin/dargo"]
+  let mut dargoPath : Option String := none
+  for c in dargoCandidates do
+    if ← (FilePath.mk c).pathExists then
+      dargoPath := some c
+      break
+  if dargoPath.isNone then
+    let which ← IO.Process.output { cmd := "which", args := #["dargo"] }
     if which.exitCode == 0 then
       let path := which.stdout.trimAscii.copy
       if !path.isEmpty && (← (FilePath.mk path).pathExists) then
-        return some path
-    return none
+        dargoPath := some path
+  let some dargo := dargoPath | return none
 
-  let some psyup ← resolveIn "psyup" | return none
-  let some dargo ← resolveIn "dargo" | return none
-
-  -- Locate bundled std.psy (psyup sets DARGO_STD_PATH from the active toolchain).
   let mut stdPath : Option String := none
   if let some envStd ← IO.getEnv "DARGO_STD_PATH" then
     if ← (FilePath.mk envStd).pathExists then
       stdPath := some envStd
   if stdPath.isNone && !home.isEmpty then
-    let toolchains := FilePath.mk (home ++ "/.psy/toolchains")
-    if ← toolchains.pathExists then
-      -- Prefer the conventional 0.1.0 layout, then any psy-* directory.
-      let preferred :=
-        home ++ "/.psy/toolchains/psy-0.1.0/lib/psy-std/std.psy"
-      if ← (FilePath.mk preferred).pathExists then
-        stdPath := some preferred
-      else
+    let preferred := home ++ "/.psy/toolchains/psy-0.1.0/lib/psy-std/std.psy"
+    if ← (FilePath.mk preferred).pathExists then
+      stdPath := some preferred
+    else
+      let toolchains := FilePath.mk (home ++ "/.psy/toolchains")
+      if ← toolchains.pathExists then
         let entries ← toolchains.readDir
         for ent in entries do
-          let candidate :=
-            (ent.path / "lib" / "psy-std" / "std.psy").toString
+          let candidate := (ent.path / "lib" / "psy-std" / "std.psy").toString
           if ← (FilePath.mk candidate).pathExists then
             stdPath := some candidate
             break
   let some std := stdPath | return none
-
-  let binDir :=
-    let p := FilePath.mk psyup
-    match p.parent with
-    | some parent => parent.toString
-    | none => home ++ "/.psy/bin"
-  pure (some {
-    psyup
-    dargo
-    stdPath := std
-    binDir
-  })
+  pure (some { dargo, stdPath := std })
 
 /-- Product materialize for the default Psy profile; returns `.psy` contents + path. -/
 private unsafe def materializePsy
     (label : String) (sourceText : String) (moduleName : String)
-    (expectedPsyPath : String) : IO (String × String) := do
+    (expectedPsyPath : String)
+    (profile? : Option CodegenProfileId := none) : IO (String × String) := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult s!"load {label}" (← session.selectProgramV1
     sourceText s!"<psy-accept-{label}>" moduleName none)
   let compiled ← liftResult s!"compile {label}" <|
     Compiler.compileValidatedSourceV1 source
   let selection ← liftResult s!"select {label}" <|
-    resolveBuildSelectionV1 TargetId.psy none
+    resolveBuildSelectionV1 TargetId.psy profile?
   let capability ← liftResult s!"resolve {label}" <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
   let output ← liftResult s!"materialize {label}" <|
@@ -144,9 +153,10 @@ private unsafe def materializePsy
     s!"{label}: emitted .psy must not contain illegal 2^64 Felt literal"
   pure (psyFile.contents, expectedPsyPath)
 
-/-- Write a minimal Dargo project and run `psyup build`. -/
-private def runPsyupBuild (tc : PsyToolchain) (projectDir : FilePath)
-    (packageName : String) (psySource : String) (label : String) : IO Unit := do
+/-- Write a minimal Dargo project and run `dargo compile` + `dargo generate-abi`. -/
+private def runDargoCompile (tc : PsyToolchain) (projectDir : FilePath)
+    (packageName : String) (contractName : String) (psySource : String)
+    (label : String) : IO Unit := do
   if ← projectDir.pathExists then IO.FS.removeDirAll projectDir
   IO.FS.createDirAll (projectDir / "src")
   let dargoToml :=
@@ -158,14 +168,12 @@ private def runPsyupBuild (tc : PsyToolchain) (projectDir : FilePath)
   IO.FS.writeFile (projectDir / "Dargo.toml") dargoToml
   IO.FS.writeFile (projectDir / "src" / "main.psy") psySource
 
-  -- Inherit the host environment; only prepend ~/.psy/bin and pin std so
-  -- `dargo` does not try to clone the missing PsyProtocol/psy-v1 git repo.
-  let oldPath := (← IO.getEnv "PATH").getD "/usr/bin:/bin"
-  let newPath := tc.binDir ++ ":" ++ oldPath
+  -- Absolute dargo + pinned std; do not rely on psyup or ambient PATH for the tool.
   let script :=
-    "export PATH=" ++ shQuote newPath ++ "\n" ++
     "export DARGO_STD_PATH=" ++ shQuote tc.stdPath ++ "\n" ++
-    "exec " ++ shQuote tc.psyup ++ " build\n"
+    "set -e\n" ++
+    shQuote tc.dargo ++ " compile --contract-name " ++ shQuote contractName ++ "\n" ++
+    shQuote tc.dargo ++ " generate-abi --contract-name " ++ shQuote contractName ++ "\n"
   let process ← IO.Process.output {
     cmd := "/bin/bash"
     args := #["--noprofile", "--norc", "-c", script]
@@ -173,28 +181,37 @@ private def runPsyupBuild (tc : PsyToolchain) (projectDir : FilePath)
   }
   unless process.exitCode == 0 do
     throw <| IO.userError
-      (label ++ ": psyup build failed (exit " ++ toString process.exitCode ++
+      (label ++ ": dargo compile/generate-abi failed (exit " ++ toString process.exitCode ++
         ")\nstdout:\n" ++ process.stdout ++ "\nstderr:\n" ++ process.stderr)
-  -- dargo generate-abi writes target/<package>.abi.json (or .json).
-  let abiJson := projectDir / "target" / s!"{packageName}.abi.json"
-  let abiAlt := projectDir / "target" / s!"{packageName}.json"
+  -- dargo generate-abi writes target/<Contract>.abi.json and often target/<package>.json.
+  let abiJson := projectDir / "target" / s!"{contractName}.abi.json"
+  let abiAlt := projectDir / "target" / s!"{packageName}.abi.json"
+  let pkgJson := projectDir / "target" / s!"{packageName}.json"
   let hasAbiJson ← abiJson.pathExists
   let hasAbiAlt ← abiAlt.pathExists
+  let hasPkg ← pkgJson.pathExists
   expect (hasAbiJson || hasAbiAlt)
-    s!"{label}: psyup build produced no ABI under target/ ({packageName}.abi.json|.json)"
+    s!"{label}: dargo produced no ABI under target/ ({contractName}.abi.json|{packageName}.abi.json)"
+  -- Prefer package json when present (locked dargo 0.1.0 emits both).
+  if hasPkg then
+    let pkgBytes ← IO.FS.readFile pkgJson
+    expect (!pkgBytes.isEmpty) s!"{label}: empty package json {packageName}.json"
   -- Reject the Goldilocks failure mode even if dargo exit code were misreported.
   expect (!process.stdout.contains "number too large" &&
       !process.stderr.contains "number too large")
     s!"{label}: dargo still rejected a Felt literal as too large"
-  IO.println s!"  psyup ok: {label}"
+  IO.println s!"  dargo compile ok: {label} (contract={contractName})"
 
 private unsafe def acceptProgram
     (tc : PsyToolchain) (staging : FilePath)
     (label : String) (sourceText : String) (moduleName : String)
-    (psyFileName : String) (packageName : String) : IO Unit := do
-  let (psy, _path) ← materializePsy label sourceText moduleName psyFileName
+    (psyFileName : String) (packageName : String)
+    (profile? : Option CodegenProfileId := none) : IO Unit := do
+  let (psy, _path) ←
+    materializePsy label sourceText moduleName psyFileName profile?
   let projectDir := staging / packageName
-  runPsyupBuild tc projectDir packageName psy label
+  -- Product emitter names the #[contract] struct after the program identity (label).
+  runDargoCompile tc projectDir packageName label psy label
 
 private def pointBoxSourceText : String :=
   "import ProofForgeV2\n" ++
@@ -234,7 +251,7 @@ private def u32BitNotSourceText : String :=
   "    return ~x\n"
 
 /-- T8 multi-width: scalar UInt8 counter with Felt-carried state/params/body
-    and explicit width guards. Real psyup must accept the emitted source. -/
+    and explicit width guards. Real dargo must accept the emitted source. -/
 private def u8CounterSourceText : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
@@ -251,7 +268,7 @@ private def u8CounterSourceText : String :=
   "    return count\n"
 
 /-- B-RET-ABI PairRet: named Struct view return emitted as `-> [Felt; 2]`.
-    Real psyup/dargo must accept the multi-leaf array return form. -/
+    Real dargo must accept the multi-leaf array return form. -/
 private def pairRetSourceText : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
@@ -297,7 +314,7 @@ private def optionRetSourceText : String :=
   "    return Option.some(seed)\n"
 
 /-- B-OPT-STATE / BL-36: Option UInt64 state as 2 Felt leaves (tag+payload);
-    set/clear/peek match + getOpt return. Real psyup must accept emitted source. -/
+    set/clear/peek match + getOpt return. Real dargo must accept emitted source. -/
 private def optionStateSourceText : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
@@ -321,24 +338,47 @@ private def optionStateSourceText : String :=
   "  view getOpt() : Option UInt64 do\n" ++
   "    return slot\n"
 
-/-- Suite entry. Skips cleanly when psyup/dargo/std are unavailable. -/
+/-- PSY-WIDE-2: explicit VM profile UInt128 checked multiplication and
+    exact unsigned div/mod. Real dargo must compile both frozen algorithms. -/
+private def wideCounterSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program WideCounter where\n" ++
+  "  state total : UInt128\n" ++
+  "  init(initial : UInt128) do\n" ++
+  "    total := initial\n" ++
+  "  entry multiply(factor : UInt128) : UInt128 do\n" ++
+  "    total := total * factor\n" ++
+  "    return total\n" ++
+  "  entry divide(divisor : UInt128) : UInt128 do\n" ++
+  "    total := total / divisor\n" ++
+  "    return total\n" ++
+  "  entry remainder(divisor : UInt128) : UInt128 do\n" ++
+  "    total := total % divisor\n" ++
+  "    return total\n" ++
+  "  view get() : UInt128 do\n" ++
+  "    return total\n"
+
+/-- Suite entry. Skips cleanly when dargo/std are unavailable. -/
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.PsyAcceptance: start"
   match ← resolvePsyToolchain with
   | none =>
-      IO.println "skipped: psyup/dargo (or bundled psy-std) unavailable"
+      IO.println "skipped: dargo (or bundled psy-std) unavailable"
       IO.println "Tests.Materialization.PsyAcceptance: ok (skipped)"
   | some tc => do
-      IO.println s!"psyup: {tc.psyup}"
       IO.println s!"dargo: {tc.dargo}"
       IO.println s!"DARGO_STD_PATH: {tc.stdPath}"
-      let pathEnv := tc.binDir ++ ":" ++ (← IO.getEnv "PATH").getD "/usr/bin:/bin"
       let ver ← IO.Process.output {
-        cmd := "/bin/bash"
-        args := #["--noprofile", "--norc", "-c",
-          "export PATH=" ++ shQuote pathEnv ++ "; " ++ shQuote tc.psyup ++ " version"]
+        cmd := tc.dargo
+        args := #["--version"]
       }
-      IO.println s!"{ver.stdout.trimAscii.copy}"
+      expect (ver.exitCode == 0)
+        s!"dargo --version failed with exit {ver.exitCode}"
+      let versionText := (ver.stdout ++ ver.stderr).trimAscii.copy
+      expect (versionText == "dargo 0.1.0")
+        s!"expected dargo 0.1.0, got {versionText}"
+      IO.println versionText
       let staging := FilePath.mk "build/v2/psy-acceptance"
       if ← staging.pathExists then IO.FS.removeDirAll staging
       IO.FS.createDirAll staging
@@ -370,6 +410,10 @@ unsafe def run : IO Unit := do
         acceptProgram tc staging "OptionState"
           optionStateSourceText "Tests.PsyAccept.OptionState"
           "OptionState.psy" "option_state"
+        acceptProgram tc staging "WideCounter"
+          wideCounterSourceText "Tests.PsyAccept.WideCounter"
+          "WideCounter.psy" "wide_counter"
+          (some CodegenProfileId.psyDargo010VmV1)
         IO.println "Tests.Materialization.PsyAcceptance: ok"
       finally
         if ← staging.pathExists then IO.FS.removeDirAll staging

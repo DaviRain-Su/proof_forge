@@ -15,6 +15,9 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Semantic.InvariantABI
+open ProofForgeV2.Semantic.ReferenceV1
+open ProofForgeV2.Semantic.WireV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -24,10 +27,66 @@ private def liftResult (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
 
-private def resolvePsyCapability (compiled : CompiledSemanticV1) :
+private def psyU32leBytes (value : Nat) : ByteArray :=
+  ByteArray.mk #[
+    UInt8.ofNat (value % 256),
+    UInt8.ofNat ((value / 256) % 256),
+    UInt8.ofNat ((value / 65536) % 256),
+    UInt8.ofNat ((value / 16777216) % 256)
+  ]
+
+private def psyU128Bytes (limbs : Array Nat) : ByteArray :=
+  limbs.foldl (fun out limb => out.append (psyU32leBytes limb)) ByteArray.empty
+
+private def psyU128RefValue
+    (typeId : TypeIdV1) (limbs : Array Nat) : ReferenceValueV1 :=
+  { typeId, valueBytes := psyU128Bytes limbs }
+
+private def psyU128LogicalState (limbs : Array Nat) : LogicalStateV1 :=
+  { initialized := true
+    canonicalValues :=
+      (ByteArray.mk #[16, 0, 0, 0]).append (psyU128Bytes limbs) }
+
+private def expectPsyReferenceReturned
+    (label : String) (outcome : OutcomeV1) (post : LogicalStateV1)
+    (value : Option ReferenceValueV1) : IO Unit := do
+  match outcome with
+  | .returned actualPost actualValue effects =>
+      expect (actualPost == post) s!"{label}: Reference post-state mismatch"
+      expect (actualValue == value) s!"{label}: Reference return mismatch"
+      expect effects.isEmpty s!"{label}: Reference must not invent effects"
+  | .reverted reason _ =>
+      throw <| IO.userError s!"{label}: expected return, got revert {repr reason}"
+  | .trapped fault _ =>
+      throw <| IO.userError s!"{label}: expected return, got trap {repr fault}"
+
+private def expectPsyReferenceStandardRevert
+    (label : String) (outcome : OutcomeV1) (code : StandardRevertCodeV1)
+    (pre : LogicalStateV1) : IO Unit := do
+  match outcome with
+  | .reverted (.standard actual) unchanged =>
+      expect (actual == code) s!"{label}: Reference revert code mismatch"
+      expect (unchanged == pre) s!"{label}: Reference revert must preserve pre-state"
+  | .reverted reason _ =>
+      throw <| IO.userError s!"{label}: expected {repr code}, got {repr reason}"
+  | .returned _ _ _ =>
+      throw <| IO.userError s!"{label}: expected revert, got return"
+  | .trapped fault _ =>
+      throw <| IO.userError s!"{label}: expected revert, got trap {repr fault}"
+
+private def resolvePsyCapabilityWithProfile
+    (compiled : CompiledSemanticV1) (profile? : Option CodegenProfileId) :
     CompileResult Targets.ResolvedEngineeringBuildV1 := do
-  let selection ← resolveBuildSelectionV1 TargetId.psy none
+  let selection ← resolveBuildSelectionV1 TargetId.psy profile?
   Targets.resolveEngineeringRequirementsV1 selection compiled
+
+private def resolvePsyCapability (compiled : CompiledSemanticV1) :
+    CompileResult Targets.ResolvedEngineeringBuildV1 :=
+  resolvePsyCapabilityWithProfile compiled none
+
+private def resolvePsyVmCapability (compiled : CompiledSemanticV1) :
+    CompileResult Targets.ResolvedEngineeringBuildV1 :=
+  resolvePsyCapabilityWithProfile compiled (some CodegenProfileId.psyDargo010VmV1)
 
 private def planPsy (compiled : CompiledSemanticV1) : CompileResult Targets.Psy.Plan := do
   let capability ← resolvePsyCapability compiled
@@ -36,6 +95,15 @@ private def planPsy (compiled : CompiledSemanticV1) : CompileResult Targets.Psy.
 private def buildPsy (compiled : CompiledSemanticV1) :
     CompileResult (Array OutputFile) := do
   let capability ← resolvePsyCapability compiled
+  Targets.Psy.buildFromCapability capability
+
+private def planPsyVm (compiled : CompiledSemanticV1) : CompileResult Targets.Psy.Plan := do
+  let capability ← resolvePsyVmCapability compiled
+  Targets.Psy.planFromCapability capability
+
+private def buildPsyVm (compiled : CompiledSemanticV1) :
+    CompileResult (Array OutputFile) := do
+  let capability ← resolvePsyVmCapability compiled
   Targets.Psy.buildFromCapability capability
 
 /-- Counter: contract struct + storage field + initialize/increment/get methods
@@ -524,6 +592,373 @@ unsafe def testUInt128FailClosed : IO Unit := do
         s!"UInt128 must fail closed at Psy type-closure, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
   | .ok _ => throw <| IO.userError "UInt128 must fail closed at Psy plan"
+
+/-- Explicit locked-dargo VM profile: UInt128 is four little-endian UInt32
+    Felt limbs across state, params, checked add/sub/mul/div/mod, comparisons,
+    and entry/view returns. The historical default profile remains fail closed. -/
+unsafe def testUInt128VmProfileLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideCounter where\n" ++
+    "  state total : UInt128\n" ++
+    "  init(initial : UInt128) do\n" ++
+    "    total := initial\n" ++
+    "  entry add(delta : UInt128) : UInt128 do\n" ++
+    "    total := total + delta\n" ++
+    "    return total\n" ++
+    "  entry subtract(delta : UInt128) : UInt128 do\n" ++
+    "    total := total - delta\n" ++
+    "    return total\n" ++
+    "  entry multiply(factor : UInt128) : UInt128 do\n" ++
+    "    total := total * factor\n" ++
+    "    return total\n" ++
+    "  entry divide(divisor : UInt128) : UInt128 do\n" ++
+    "    total := total / divisor\n" ++
+    "    return total\n" ++
+    "  entry remainder(divisor : UInt128) : UInt128 do\n" ++
+    "    total := total % divisor\n" ++
+    "    return total\n" ++
+    "  view leq(bound : UInt128) : Bool do\n" ++
+    "    return total <= bound\n" ++
+    "  view get() : UInt128 do\n" ++
+    "    return total\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-u128-vm>" "Tests.PsyU128Vm" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+
+  -- Cross-layer differential pin: the exact retained SemanticProgramV1 used by
+  -- the Psy Plan must produce the same logical UInt128 carry/borrow/compare and
+  -- rollback observations in the target-neutral Reference machine. The Psy ABI
+  -- below is four UInt32 limbs; Reference remains one canonical 16-byte value.
+  let carrier := CompiledSemanticV1.semanticV1Of compiled
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"UInt128 VM Reference validate failed: {repr error}"
+  let admitted ← match admitReferenceProgramSliceV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"UInt128 VM Reference admission failed: {repr error}"
+  let some u128TypeId := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .uint 128 => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "UInt128 VM semantic is missing anonymous UInt128"
+  let some boolTypeId := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .bool => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "UInt128 VM semantic is missing anonymous Bool"
+  let some initId := data.callables.findSome? (fun callable =>
+      if callable.kind == .initializer then some callable.id else none) |
+    throw <| IO.userError "UInt128 VM semantic is missing initializer"
+  let callableNamed (name : String) : Option CallableIdV1 :=
+    data.callables.findSome? fun callable =>
+      if callable.name == some name then some callable.id else none
+  let some addId := callableNamed "add" |
+    throw <| IO.userError "UInt128 VM semantic is missing add"
+  let some subtractId := callableNamed "subtract" |
+    throw <| IO.userError "UInt128 VM semantic is missing subtract"
+  let some multiplyId := callableNamed "multiply" |
+    throw <| IO.userError "UInt128 VM semantic is missing multiply"
+  let some divideId := callableNamed "divide" |
+    throw <| IO.userError "UInt128 VM semantic is missing divide"
+  let some remainderId := callableNamed "remainder" |
+    throw <| IO.userError "UInt128 VM semantic is missing remainder"
+  let some leqId := callableNamed "leq" |
+    throw <| IO.userError "UInt128 VM semantic is missing leq"
+  let some getId := callableNamed "get" |
+    throw <| IO.userError "UInt128 VM semantic is missing get"
+  let invoke (callableId : CallableIdV1) (args : Array ReferenceValueV1) : InvocationV1 :=
+    { callableId, args, context := #[] }
+  let noResponses : ExternalResponsesV1 := #[]
+  let zeroLimbs : Array Nat := #[0, 0, 0, 0]
+  let oneLimbs : Array Nat := #[1, 0, 0, 0]
+  let twoLimbs : Array Nat := #[2, 0, 0, 0]
+  let lowMaxLimbs : Array Nat := #[4294967295, 0, 0, 0]
+  let carriedLimbs : Array Nat := #[0, 1, 0, 0]
+  let squaredLowMaxLimbs : Array Nat := #[1, 4294967294, 0, 0]
+  let maxLimbs : Array Nat :=
+    #[4294967295, 4294967295, 4294967295, 4294967295]
+  let divDividendLimbs : Array Nat :=
+    #[2309737967, 19088743, 1985229328, 4275878552]
+  let divDivisorLimbs : Array Nat :=
+    #[4275878553, 1, 305419896, 0]
+  let divQuotientLimbs : Array Nat := #[119, 14, 0, 0]
+  let divRemainderLimbs : Array Nat := #[286331088, 286330908, 44, 0]
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"UInt128 VM initial state failed: {repr error}"
+  let lowMaxValue := psyU128RefValue u128TypeId lowMaxLimbs
+  let oneValue := psyU128RefValue u128TypeId oneLimbs
+  let twoValue := psyU128RefValue u128TypeId twoLimbs
+  let carriedValue := psyU128RefValue u128TypeId carriedLimbs
+  let squaredLowMaxValue := psyU128RefValue u128TypeId squaredLowMaxLimbs
+  let divDivisorValue := psyU128RefValue u128TypeId divDivisorLimbs
+  let zeroValue := psyU128RefValue u128TypeId zeroLimbs
+  let divQuotientValue := psyU128RefValue u128TypeId divQuotientLimbs
+  let divRemainderValue := psyU128RefValue u128TypeId divRemainderLimbs
+  let lowMaxState := psyU128LogicalState lowMaxLimbs
+  let carriedState := psyU128LogicalState carriedLimbs
+  let squaredLowMaxState := psyU128LogicalState squaredLowMaxLimbs
+  let divDividendState := psyU128LogicalState divDividendLimbs
+  let divQuotientState := psyU128LogicalState divQuotientLimbs
+  let divRemainderState := psyU128LogicalState divRemainderLimbs
+  expectPsyReferenceReturned "psy-u128-ref-init"
+    (stepReferenceSliceV1 admitted initial (invoke initId #[lowMaxValue]) noResponses)
+    lowMaxState none
+  expectPsyReferenceReturned "psy-u128-ref-carry"
+    (stepReferenceSliceV1 admitted lowMaxState (invoke addId #[oneValue]) noResponses)
+    carriedState (some carriedValue)
+  expectPsyReferenceReturned "psy-u128-ref-leq"
+    (stepReferenceSliceV1 admitted carriedState (invoke leqId #[carriedValue]) noResponses)
+    carriedState (some { typeId := boolTypeId, valueBytes := ByteArray.mk #[1] })
+  expectPsyReferenceReturned "psy-u128-ref-get"
+    (stepReferenceSliceV1 admitted carriedState (invoke getId #[]) noResponses)
+    carriedState (some carriedValue)
+  expectPsyReferenceReturned "psy-u128-ref-borrow"
+    (stepReferenceSliceV1 admitted carriedState (invoke subtractId #[oneValue]) noResponses)
+    lowMaxState (some lowMaxValue)
+  expectPsyReferenceReturned "psy-u128-ref-mul-lowmax"
+    (stepReferenceSliceV1 admitted lowMaxState
+      (invoke multiplyId #[lowMaxValue]) noResponses)
+    squaredLowMaxState (some squaredLowMaxValue)
+  expectPsyReferenceReturned "psy-u128-ref-div-mixed"
+    (stepReferenceSliceV1 admitted divDividendState
+      (invoke divideId #[divDivisorValue]) noResponses)
+    divQuotientState (some divQuotientValue)
+  expectPsyReferenceReturned "psy-u128-ref-mod-mixed"
+    (stepReferenceSliceV1 admitted divDividendState
+      (invoke remainderId #[divDivisorValue]) noResponses)
+    divRemainderState (some divRemainderValue)
+  expectPsyReferenceStandardRevert "psy-u128-ref-div-zero"
+    (stepReferenceSliceV1 admitted divDividendState
+      (invoke divideId #[zeroValue]) noResponses)
+    .divisionByZero divDividendState
+  expectPsyReferenceStandardRevert "psy-u128-ref-mod-zero"
+    (stepReferenceSliceV1 admitted divDividendState
+      (invoke remainderId #[zeroValue]) noResponses)
+    .divisionByZero divDividendState
+  let maxState := psyU128LogicalState maxLimbs
+  expectPsyReferenceStandardRevert "psy-u128-ref-add-overflow"
+    (stepReferenceSliceV1 admitted maxState (invoke addId #[oneValue]) noResponses)
+    .arithmeticOverflow maxState
+  expectPsyReferenceStandardRevert "psy-u128-ref-mul-overflow"
+    (stepReferenceSliceV1 admitted maxState (invoke multiplyId #[twoValue]) noResponses)
+    .arithmeticOverflow maxState
+  let zeroState := psyU128LogicalState zeroLimbs
+  expectPsyReferenceStandardRevert "psy-u128-ref-underflow"
+    (stepReferenceSliceV1 admitted zeroState (invoke subtractId #[oneValue]) noResponses)
+    .arithmeticUnderflow zeroState
+
+  let plan ← liftResult <| planPsyVm compiled
+  expect (plan.profileMode == .dargo010Vm)
+    "UInt128 plan must retain the explicit dargo 0.1.0 VM profile"
+  expect (plan.stateFieldNames ==
+      #["total_0", "total_1", "total_2", "total_3"])
+    "UInt128 state must flatten to four little-endian UInt32 Felt limbs"
+  let functionNamed (name : String) := plan.functions.find? (·.name == name)
+  let some initFn := functionNamed "initialize" |
+    throw <| IO.userError "UInt128 VM plan is missing initialize"
+  let some add := functionNamed "add" |
+    throw <| IO.userError "UInt128 VM plan is missing add"
+  let some subtract := functionNamed "subtract" |
+    throw <| IO.userError "UInt128 VM plan is missing subtract"
+  let some multiply := functionNamed "multiply" |
+    throw <| IO.userError "UInt128 VM plan is missing multiply"
+  let some divide := functionNamed "divide" |
+    throw <| IO.userError "UInt128 VM plan is missing divide"
+  let some remainder := functionNamed "remainder" |
+    throw <| IO.userError "UInt128 VM plan is missing remainder"
+  let some leq := functionNamed "leq" |
+    throw <| IO.userError "UInt128 VM plan is missing leq"
+  let some get := functionNamed "get" |
+    throw <| IO.userError "UInt128 VM plan is missing get"
+  for fn in #[initFn, add, subtract, multiply, divide, remainder, leq] do
+    expect (fn.params.size == 4 && fn.params.all (·.uintWidth == 32))
+      s!"{fn.name}: each logical UInt128 parameter must expand to four range-checked UInt32 limbs"
+  let expectWideResult (fn : Targets.Psy.PlanFunction) : IO Unit :=
+    match fn.resultKind with
+    | .aggregate leaves =>
+        expect (fn.resultUintWidth == 128 && leaves.size == 4 &&
+            leaves.all (fun leaf => !leaf.isInt && leaf.byteWidth == 4))
+          s!"{fn.name}: UInt128 result must be four unsigned 4-byte limbs"
+    | other =>
+        throw <| IO.userError s!"{fn.name}: expected UInt128 aggregate result, got {repr other}"
+  expectWideResult add
+  expectWideResult subtract
+  expectWideResult multiply
+  expectWideResult divide
+  expectWideResult remainder
+  expectWideResult get
+  expect (leq.resultIsBool && leq.resultKind == .bool)
+    "UInt128 comparison must produce the existing scalar Bool result"
+  expect (add.body.any fun
+      | .assertWithMessage _ message => message == "u128 add overflow"
+      | _ => false)
+    "UInt128 add must carry a stable final-carry overflow guard"
+  expect (subtract.body.any fun
+      | .assertWithMessage _ message => message == "u128 sub underflow"
+      | _ => false)
+    "UInt128 sub must carry a stable final-borrow underflow guard"
+  expect (multiply.body.any fun
+      | .bindWideUInt128Mul _ lhs rhs => lhs.size == 4 && rhs.size == 4
+      | _ => false)
+    "UInt128 mul must bind one exact 8×UInt16 schoolbook multiplication"
+  expect (divide.body.any fun
+      | .bindWideUInt128DivMod .quotient _ lhs rhs => lhs.size == 4 && rhs.size == 4
+      | _ => false)
+    "UInt128 div must bind one exact quotient-producing restoring divider"
+  expect (remainder.body.any fun
+      | .bindWideUInt128DivMod .remainder _ lhs rhs => lhs.size == 4 && rhs.size == 4
+      | _ => false)
+    "UInt128 mod must bind one exact remainder-producing restoring divider"
+  expect (add.body.any fun
+      | .storeAggregate fields values => fields.size == 4 && values.size == 4
+      | _ => false)
+    "UInt128 add must use one atomic four-limb state update"
+  expect (add.body.any fun
+      | .returnAggregate leaves _ => leaves.size == 4
+      | _ => false)
+    "UInt128 add must return all four limbs"
+  expect (leq.body.any fun
+      | .returnValue _ => true
+      | _ => false)
+    "UInt128 comparison must return a scalar Bool expression"
+  liftResult <| Targets.Psy.validatePlan plan
+  let noMulBindingBody := multiply.body.filter fun
+    | .bindWideUInt128Mul .. => false
+    | _ => true
+  let badMultiply := { multiply with body := noMulBindingBody }
+  let badPlan := { plan with
+    functions := plan.functions.set! multiply.index badMultiply }
+  match Targets.Psy.validatePlan badPlan with
+  | .error (.planInvariant .psy message) =>
+      expect (message.contains "used before its binding")
+        s!"UInt128 mul result without its binding must fail closed, got: {message}"
+  | .error error =>
+      throw <| IO.userError s!"expected Psy planInvariant for missing wide mul binding, got {error.render}"
+  | .ok _ =>
+      throw <| IO.userError "UInt128 mul result without its binding must fail plan validation"
+  let noDivBindingBody := divide.body.filter fun
+    | .bindWideUInt128DivMod .. => false
+    | _ => true
+  let badDivide := { divide with body := noDivBindingBody }
+  let badDivPlan := { plan with
+    functions := plan.functions.set! divide.index badDivide }
+  match Targets.Psy.validatePlan badDivPlan with
+  | .error (.planInvariant .psy message) =>
+      expect (message.contains "used before its binding" || message.contains "mismatched")
+        s!"UInt128 div result without its binding must fail closed, got: {message}"
+  | .error error =>
+      throw <| IO.userError s!"expected Psy planInvariant for missing wide div binding, got {error.render}"
+  | .ok _ =>
+      throw <| IO.userError "UInt128 div result without its binding must fail plan validation"
+  let files ← liftResult <| buildPsyVm compiled
+  let some psyFile := files.find? (·.path == "WideCounter.psy") |
+    throw <| IO.userError "psy: missing WideCounter.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "dargo-v0.1.0-vm")
+    "VM profile source header must identify the locked dargo lane"
+  expect (psy.contains "pub total_0: Felt," &&
+      psy.contains "pub total_1: Felt," &&
+      psy.contains "pub total_2: Felt," &&
+      psy.contains "pub total_3: Felt,")
+    "UInt128 state must render as four Felt storage fields"
+  expect (psy.contains
+      "pub fn add(p0: Felt, p1: Felt, p2: Felt, p3: Felt) -> [Felt; 4]")
+    "UInt128 entry ABI must expand one parameter and return four Felt limbs"
+  expect (psy.contains "u32 param out of range")
+    "every physical UInt128 input limb must use the UInt32 range guard"
+  expect (psy.contains "u128 add overflow" &&
+      psy.contains "u128 sub underflow" &&
+      psy.contains "u128 mul overflow" &&
+      psy.contains "u128 div by zero" &&
+      psy.contains "u128 mod by zero")
+    "UInt128 checked arithmetic messages must reach emitted Psy source"
+  expect (psy.contains "0u32..32u32" &&
+      psy.contains "u128 div internal high borrow" &&
+      psy.contains "u128 div internal remainder high" &&
+      psy.contains "u128 div internal quotient overflow")
+    "UInt128 div/mod must emit the fixed restoring loops and internal guards"
+  expect (psy.contains " & 65535" && psy.contains " >> 16")
+    "UInt128 mul must split and normalize with integer bit operations"
+  expect (!psy.contains "/ 65536" && !psy.contains "% 65536")
+    "UInt128 mul must not use Felt field division/modulo for integer splitting"
+  expect (psy.contains "return [")
+    "UInt128 return must use the honest fixed-length Felt array ABI"
+  expect (psy.contains "if ")
+    "UInt128 carry/borrow materialization must use Psy expression-form select"
+
+/-- The explicit VM profile lowers exact UInt128 div/mod through one
+    target-bound four-loop restoring divider per Semantic operation. -/
+unsafe def testUInt128VmDivModLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideDivMod where\n" ++
+    "  entry div(a : UInt128, b : UInt128) : UInt128 do\n" ++
+    "    return a / b\n" ++
+    "  entry rem(a : UInt128, b : UInt128) : UInt128 do\n" ++
+    "    return a % b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-u128-divmod>" "Tests.PsyU128DivMod" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsyVm compiled
+  let some divFn := plan.functions.find? (·.name == "div") |
+    throw <| IO.userError "UInt128 div/mod plan is missing div"
+  let some remFn := plan.functions.find? (·.name == "rem") |
+    throw <| IO.userError "UInt128 div/mod plan is missing rem"
+  expect (divFn.body.any fun
+      | .bindWideUInt128DivMod .quotient _ lhs rhs => lhs.size == 4 && rhs.size == 4
+      | _ => false)
+    "UInt128 div must bind one exact quotient-producing restoring divider"
+  expect (remFn.body.any fun
+      | .bindWideUInt128DivMod .remainder _ lhs rhs => lhs.size == 4 && rhs.size == 4
+      | _ => false)
+    "UInt128 mod must bind one exact remainder-producing restoring divider"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsyVm compiled
+  let some psyFile := files.find? (·.path == "WideDivMod.psy") |
+    throw <| IO.userError "psy: missing WideDivMod.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "0u32..32u32")
+    "UInt128 div/mod must emit fixed 32-step Psy loops"
+  expect (psy.contains "u128 div by zero" && psy.contains "u128 mod by zero")
+    "UInt128 div/mod must emit operation-specific zero-divisor messages"
+  expect (psy.contains "u128 div internal high borrow" &&
+      psy.contains "u128 div internal remainder high" &&
+      psy.contains "u128 div internal quotient overflow")
+    "UInt128 div/mod must retain target-internal restoring invariants"
+  expect (!psy.contains " / " && !psy.contains " % ")
+    "UInt128 div/mod must not use Psy Felt field division or remainder"
+
+/-- The first restoring-divider profile caps one div/mod binding per function;
+    larger compositions remain explicitly fail closed until measured. -/
+unsafe def testUInt128VmDivModResourceFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideDivBudget where\n" ++
+    "  entry twice(a : UInt128, b : UInt128, c : UInt128) : UInt128 do\n" ++
+    "    let q : UInt128 := a / b\n" ++
+    "    return q % c\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-u128-div-budget>" "Tests.PsyU128DivBudget" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planPsyVm compiled with
+  | .error (.planInvariant .psy message) =>
+      expect (message.contains "div/mod binding limit" && message.contains "1")
+        s!"UInt128 div/mod resource denial must cite the exact cap, got: {message}"
+  | .error error =>
+      throw <| IO.userError s!"expected Psy planInvariant for UInt128 div/mod budget, got {error.render}"
+  | .ok _ =>
+      throw <| IO.userError "two UInt128 div/mod bindings in one function must remain fail closed"
 
 /-- UInt32 comparisons are Felt-carried (unsigned order for values < 2^32 < p). -/
 unsafe def testUInt32CompareLowered : IO Unit := do
@@ -1408,39 +1843,30 @@ unsafe def testOptionState : IO Unit := do
   let plan ← liftResult <| planPsy compiled
   expect (plan.stateFieldNames == #["slot_tag", "slot_p0"])
     s!"OptionState: Option UInt64 must flatten to slot_tag/slot_p0, got {plan.stateFieldNames}"
-  -- Init none → two stores of literal 0 (tag + zeroed payload) + returnNone.
+  -- Init none → one atomic tag+payload store, both literal zero.
   let some initFn := plan.functions.find? (·.name == "initialize") |
     throw <| IO.userError "OptionState plan must carry initialize"
   expect (initFn.body.any fun
-      | .store 0 (.literal 0) => true
+      | .storeAggregate fields values =>
+          fields == #[0, 1] && values == #[.literal 0, .literal 0]
       | _ => false)
-    "OptionState init must store tag=0"
-  expect (initFn.body.any fun
-      | .store 1 (.literal 0) => true
-      | _ => false)
-    "OptionState init must zero payload (none pin)"
-  -- setSome → store tag=1 + param.
+    "OptionState init must atomically store tag=0 and zero payload"
+  -- setSome → one atomic tag=1 + payload=param store.
   let some setFn := plan.functions.find? (·.name == "setSome") |
     throw <| IO.userError "OptionState plan must carry setSome"
   expect (setFn.body.any fun
-      | .store 0 (.literal 1) => true
+      | .storeAggregate fields values =>
+          fields == #[0, 1] && values == #[.literal 1, .param 0]
       | _ => false)
-    "OptionState setSome must store tag=1"
-  expect (setFn.body.any fun
-      | .store 1 (.param 0) => true
-      | _ => false)
-    "OptionState setSome must store payload = param 0"
-  -- clear none-reset → both leaves zeroed (stale payload must not survive).
+    "OptionState setSome must atomically store tag=1 and payload=param0"
+  -- clear none-reset → atomic zero tag/payload (stale payload must not survive).
   let some clearFn := plan.functions.find? (·.name == "clear") |
     throw <| IO.userError "OptionState plan must carry clear"
   expect (clearFn.body.any fun
-      | .store 0 (.literal 0) => true
+      | .storeAggregate fields values =>
+          fields == #[0, 1] && values == #[.literal 0, .literal 0]
       | _ => false)
-    "OptionState clear must store tag=0"
-  expect (clearFn.body.any fun
-      | .store 1 (.literal 0) => true
-      | _ => false)
-    "OptionState clear must zero payload (stale-payload pin)"
+    "OptionState clear must atomically zero tag and stale payload"
   -- peek match → reads state leaves (VariantTag/VariantPayload path).
   let some peekFn := plan.functions.find? (·.name == "peek") |
     throw <| IO.userError "OptionState plan must carry peek"
@@ -1722,6 +2148,9 @@ unsafe def run : IO Unit := do
   testUInt32ArithWidthGuard
   testUInt8CounterMultiWidth
   testUInt128FailClosed
+  testUInt128VmProfileLowered
+  testUInt128VmDivModLowered
+  testUInt128VmDivModResourceFailClosed
   testUInt32CompareLowered
   testNarrowIntFailClosed
   testBytesStateFailClosed

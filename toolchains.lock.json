@@ -67,6 +67,13 @@
       }
     },
     {
+      "id": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "url": "https://github.com/PsyProtocol/psy-compiler/releases/download/v0.1.0/psy-compiler-v0.1.0-aarch64-apple-darwin.tar.gz",
+      "size": 4729598,
+      "sha256": "76cb46a1ec22b70e3eebb7ace235a68446420bafb288be18d41324588e2ff644",
+      "format": "tar.gz"
+    },
+    {
       "id": "sbpf-0.2.2-git-d835bc6e638e",
       "url": "https://github.com/blueshift-gg/sbpf",
       "commit": "d835bc6e638e4f55b88f31a31bbc92e3a2e0a5ba",
@@ -165,6 +172,14 @@
       "mode": "0555"
     },
     {
+      "path": "dargo",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "member": "bin/dargo",
+      "size": 12945520,
+      "sha256": "04f24baec81e0ad7cf83aa482c6b92bc491c08807ea8c90a9d0fe48956afac63",
+      "mode": "0555"
+    },
+    {
       "path": "jv",
       "assetId": "jv-v6.0.2-darwin-arm64",
       "member": "jv",
@@ -194,6 +209,78 @@
       "member": "xz/5.8.3/lib/liblzma.5.dylib",
       "size": 184512,
       "sha256": "75ec6dbd7c2194e0c7ca48a182aee4fc84587e5fd05a875297c07a77a8504211",
+      "mode": "0444"
+    },
+    {
+      "path": "lib/psy-std/Dargo.toml",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "member": "lib/psy-std/Dargo.toml",
+      "size": 139,
+      "sha256": "de9f960ce8f606c0590c1337343cee713521db97db3ad3976b8af0809f5da7b0",
+      "mode": "0444"
+    },
+    {
+      "path": "lib/psy-std/context.psy",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "member": "lib/psy-std/context.psy",
+      "size": 4555,
+      "sha256": "e7be5b210f12be3c50aa764adeffdd30466623490d3a61accd52ea2c712c6a94",
+      "mode": "0444"
+    },
+    {
+      "path": "lib/psy-std/default.psy",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "member": "lib/psy-std/default.psy",
+      "size": 304,
+      "sha256": "d71778680b685f1b99aa804e3e70f32c83a31c788b8c6920beed8145931db167",
+      "mode": "0444"
+    },
+    {
+      "path": "lib/psy-std/event.psy",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "member": "lib/psy-std/event.psy",
+      "size": 77,
+      "sha256": "b7a4e1a6c993381798b9ff1598acf676f08ddfb1bf258f760535f2ab9763d1bc",
+      "mode": "0444"
+    },
+    {
+      "path": "lib/psy-std/mem.psy",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "member": "lib/psy-std/mem.psy",
+      "size": 122,
+      "sha256": "3532e694a142831162180b6aaad0d8aab4fae55419195eec31d6ea07a947a212",
+      "mode": "0444"
+    },
+    {
+      "path": "lib/psy-std/prelude.psy",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "member": "lib/psy-std/prelude.psy",
+      "size": 191,
+      "sha256": "68a8bea59b240bc66db309348159f16a2639e3fc84b8a8416968ec1533151c08",
+      "mode": "0444"
+    },
+    {
+      "path": "lib/psy-std/primitive.psy",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "member": "lib/psy-std/primitive.psy",
+      "size": 30,
+      "sha256": "260eee5896ccc52fc0aecc7433e0d5bbfb1e8599c2b449bc49455585b5b64c96",
+      "mode": "0444"
+    },
+    {
+      "path": "lib/psy-std/std.psy",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "member": "lib/psy-std/std.psy",
+      "size": 17,
+      "sha256": "b923a2e5015fe2f3b8348493f635e3070329de6366102c829030c56252271312",
+      "mode": "0444"
+    },
+    {
+      "path": "lib/psy-std/storage.psy",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "member": "lib/psy-std/storage.psy",
+      "size": 20835,
+      "sha256": "8b98bcd928abff8cd6f07da315e4f3dec05f58becfbb5650ba62596697632a80",
       "mode": "0444"
     },
     {
@@ -254,6 +341,11 @@
         "externalLoads": []
       },
       {
+        "path": "dargo",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
         "path": "jv",
         "installId": null,
         "externalLoads": []
@@ -271,6 +363,51 @@
       {
         "path": "lib/liblzma.5.dylib",
         "installId": "@@HOMEBREW_PREFIX@@/opt/xz/lib/liblzma.5.dylib",
+        "externalLoads": []
+      },
+      {
+        "path": "lib/psy-std/Dargo.toml",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "lib/psy-std/context.psy",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "lib/psy-std/default.psy",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "lib/psy-std/event.psy",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "lib/psy-std/mem.psy",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "lib/psy-std/prelude.psy",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "lib/psy-std/primitive.psy",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "lib/psy-std/std.psy",
+        "installId": null,
+        "externalLoads": []
+      },
+      {
+        "path": "lib/psy-std/storage.psy",
+        "installId": null,
         "externalLoads": []
       },
       {
@@ -377,6 +514,27 @@
       "sourceBuild": {
         "assetId": "cosmwasm-check-3.0.9-git-fe5b55d283f5"
       }
+    },
+    {
+      "id": "dargo",
+      "version": "0.1.0",
+      "sourceUrl": "https://github.com/PsyProtocol/psy-compiler/releases/tag/v0.1.0",
+      "platform": "darwin-arm64",
+      "assetId": "psy-compiler-0.1.0-aarch64-apple-darwin",
+      "executable": "dargo",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/dargo",
+      "executableSha256": "04f24baec81e0ad7cf83aa482c6b92bc491c08807ea8c90a9d0fe48956afac63",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "dargo 0.1.0",
+      "licenseSpdx": "LicenseRef-PsyProtocol-Proprietary-DevTestOnly",
+      "requiredByProfiles": [
+        "psy-dargo-0.1.0-local-proof-v1"
+      ],
+      "sourceBuild": null
     },
     {
       "id": "jv",

@@ -342,8 +342,8 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 11)
-    "exactly eleven support rows (Aleo dual profile + Solana sole rail)"
+  expect (rows.size == 12)
+    "exactly twelve support rows (Aleo dual + Psy dual + Solana sole rail)"
   let expectedSolanaExtension ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -363,6 +363,9 @@ private def testSupportTable : IO Unit := do
     -- + exact extension.pf-assets; sync transfer stays permanently FC at Plan.
     ("near", "near-wasm-raw-u64-v1", 8, false, true),
     ("noir", "noir-source-u64-relations-v1", 7, false, false),
+    -- Both Psy profiles advertise the same exact S2 set. The UInt128 envelope
+    -- remains a profile-owned Plan/IR distinction, not a new requirement id.
+    ("psy", "psy-dargo-0.1.0-vm-v1", 6, false, false),
     ("psy", "psy-dargo-u64-v1", 6, false, false),
     -- Phase A5: Quint = 5 S2 keys (incl sync-call) + exact extension.pf-assets
     ("quint", "quint-source-u64-model-v1", 6, false, true),
@@ -435,10 +438,11 @@ private def testSupportTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 11-row (target,profile) skeleton matching the shipped index shape
-    (Aleo dual profile + ADR-0032 U1 sole Solana cpi-elf). `evmSupported`
-    replaces both EVM rows; both Aleo rows share `base`. -/
-private def twelveRowSkeleton
+/-- Canonical 12-row (target,profile) skeleton matching the shipped index shape
+    (Aleo dual + Psy dual + ADR-0032 U1 sole Solana cpi-elf). `evmSupported`
+    replaces both EVM rows; extension-owning rows intentionally omit their
+    extension seeds so presence-gate negatives can reuse this fixture. -/
+private def supportRowsWithoutExtensions
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
     Array StaticRequirementSupportRowV1 :=
@@ -450,6 +454,7 @@ private def twelveRowSkeleton
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
+    mkRow .psy CodegenProfileId.psyDargo010VmV1 base,
     mkRow .psy CodegenProfileId.psyDargoU64V1 base,
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 base,
     mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 base,
@@ -457,23 +462,28 @@ private def twelveRowSkeleton
   ]
 
 /-- Backward-compatible aliases used by negative fixtures in this suite. -/
+private def twelveRowSkeleton
+    (base : Array RequirementRequestV1)
+    (evmSupported : Array RequirementRequestV1) :
+    Array StaticRequirementSupportRowV1 :=
+  supportRowsWithoutExtensions base evmSupported
+
 private def elevenRowSkeleton
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
     Array StaticRequirementSupportRowV1 :=
-  twelveRowSkeleton base evmSupported
+  supportRowsWithoutExtensions base evmSupported
 
 private def nineRowSkeleton
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
     Array StaticRequirementSupportRowV1 :=
-  twelveRowSkeleton base evmSupported
+  supportRowsWithoutExtensions base evmSupported
 
-/-- ADR-0029 B/C: same 11-row skeleton but permit-owning rows carry their
-    closed extension seeds (Quint/NEAR/CosmWasm: pf.assets; Solana CPI: both),
-    so content negatives reach their intended check instead of tripping the
-    presence gate first. Both Aleo profiles keep the base 4-key set. -/
-private def twelveRowSkeletonWithExt
+/-- Same 12-row skeleton, but every closed-extension owner carries its exact
+    seed (Quint/NEAR/CosmWasm/EVM: pf.assets; Solana CPI: both), so content
+    negatives reach their intended validation phase. -/
+private def supportRowsWithExtensions
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1)
     (pfAssets solanaExt : RequirementRequestV1) :
@@ -488,6 +498,7 @@ private def twelveRowSkeletonWithExt
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 withPf,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
+    mkRow .psy CodegenProfileId.psyDargo010VmV1 base,
     mkRow .psy CodegenProfileId.psyDargoU64V1 base,
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 withPf,
     mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 cpiRow,
@@ -542,7 +553,7 @@ private def testIndexValidationNegatives : IO Unit := do
   ]
   -- Size-extra first (12 rows vs expected 11):
   let extra :=
-    (twelveRowSkeletonWithExt trio trio pfAssetsRow solanaExtensionRow).push
+    (supportRowsWithExtensions trio trio pfAssetsRow solanaExtensionRow).push
       (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)
   expectErrorCode (createStaticRequirementSupportIndexV1 extra)
     "PF-REGISTRY-INVALID" "extra design-only row"
@@ -589,30 +600,30 @@ private def testIndexValidationNegatives : IO Unit := do
   let r1 ← match trio[1]? with | some r => pure r | none => throw <| IO.userError "trio1"
   let r2 ← match trio[2]? with | some r => pure r | none => throw <| IO.userError "trio2"
   let reversed := #[r2, r1, r0]
-  let revRows := twelveRowSkeletonWithExt trio reversed pfAssetsRow solanaExtensionRow
+  let revRows := supportRowsWithExtensions trio reversed pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 revRows)
     "PF-REGISTRY-INVALID" "non-canonical requirement order"
   -- Duplicate requirement id
   let dupReq := #[r0, r0, r1]
-  let dupReqRows := twelveRowSkeletonWithExt trio dupReq pfAssetsRow solanaExtensionRow
+  let dupReqRows := supportRowsWithExtensions trio dupReq pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 dupReqRows)
     "PF-REGISTRY-DUPLICATE" "duplicate requirement in support row"
   -- Wrong version
   let badVer := { r0 with version := { major := 2, minor := 0, patch := 0 } }
   let badVerTrio := #[badVer, r1, r2]
-  let badVerRows := twelveRowSkeletonWithExt trio badVerTrio pfAssetsRow solanaExtensionRow
+  let badVerRows := supportRowsWithExtensions trio badVerTrio pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 badVerRows)
     "PF-REGISTRY-INVALID" "wrong requirement version in support row"
   -- Wrong digest
   let badDig := { r0 with digest := zeroDigest }
   let badDigTrio := #[badDig, r1, r2]
-  let badDigRows := twelveRowSkeletonWithExt trio badDigTrio pfAssetsRow solanaExtensionRow
+  let badDigRows := supportRowsWithExtensions trio badDigTrio pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 badDigRows)
     "PF-REGISTRY-INVALID" "wrong requirement digest in support row"
   -- Nonempty predicates
   let withPred := { r0 with predicates := #[.boolEquals "x" true] }
   let predTrio := #[withPred, r1, r2]
-  let predRows := twelveRowSkeletonWithExt trio predTrio pfAssetsRow solanaExtensionRow
+  let predRows := supportRowsWithExtensions trio predTrio pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 predRows)
     "PF-REGISTRY-INVALID" "nonempty predicates in support row"
   -- Closed extension advertise table: each extension wire id is legal only on
@@ -636,12 +647,12 @@ private def testIndexValidationNegatives : IO Unit := do
     let some first := full[0]? | throw <| IO.userError "trio0"
     let some second := full[1]? | throw <| IO.userError "trio1"
     pure #[first, second, unknown]
-  let unkRows := twelveRowSkeletonWithExt unkTrio unkTrio pfAssetsRow solanaExtensionRow
+  let unkRows := supportRowsWithExtensions unkTrio unkTrio pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 unkRows)
     "PF-REGISTRY-INVALID" "unknown requirement id in support row"
   let evmWithSolanaExt :=
     (trio.push solanaExtensionRow).qsort fun left right => left.id < right.id
-  let wrongSolanaExtensionScope := twelveRowSkeletonWithExt trio evmWithSolanaExt pfAssetsRow solanaExtensionRow
+  let wrongSolanaExtensionScope := supportRowsWithExtensions trio evmWithSolanaExt pfAssetsRow solanaExtensionRow
   expectErrorCode (createStaticRequirementSupportIndexV1 wrongSolanaExtensionScope)
     "PF-REGISTRY-INVALID" "Solana CPI extension cannot appear on EVM support row"
   -- pf.assets on Noir (wrong permit) fails closed: start from product index
@@ -685,7 +696,7 @@ private def testIndexValidationNegatives : IO Unit := do
   expectErrorCode (createStaticRequirementSupportIndexV1 solanaCpiMissingPf)
     "PF-REGISTRY-INVALID" "Solana CPI profile requires exact extension.pf-assets"
   -- Permitted owners must carry their exact extension seed (presence gate).
-  let missingExtension := nineRowSkeleton trio trio
+  let missingExtension := supportRowsWithoutExtensions trio trio
   expectErrorCode (createStaticRequirementSupportIndexV1 missingExtension)
     "PF-REGISTRY-INVALID"
     "permitted profiles (Quint pf.assets / Solana CPI) require exact extension rows"

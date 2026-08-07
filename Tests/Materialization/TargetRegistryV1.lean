@@ -58,6 +58,21 @@ private def testSoleMembershipSource : IO Unit := do
   for reg in design do
     expectErrorCode (resolveBuildSelectionV1 reg.targetId none)
       "PF-TARGET-NOT-IMPLEMENTED" s!"design-only {reg.targetId}"
+  match findRegistrationV1 registry TargetId.psy with
+  | some psyReg =>
+      expect (psyReg.profiles ==
+          #[CodegenProfileId.psyDargo010VmV1, CodegenProfileId.psyDargoU64V1])
+        "Psy profiles are exact ASCII-ascending VM + historical source pair"
+      expect (psyReg.defaultProfile == some CodegenProfileId.psyDargoU64V1)
+        "Psy historical source profile remains default"
+      let psyDefault ← liftResult <| resolveBuildSelectionV1 TargetId.psy none
+      expect (psyDefault.codegenProfile == CodegenProfileId.psyDargoU64V1)
+        "Psy omitted profile preserves historical default"
+      let psyVm ← liftResult <| resolveBuildSelectionV1 TargetId.psy
+        (some CodegenProfileId.psyDargo010VmV1)
+      expect (psyVm.codegenProfile == CodegenProfileId.psyDargo010VmV1)
+        "Psy VM profile requires and accepts explicit selection"
+  | none => throw <| IO.userError "missing Psy registration"
 
 private def testClosedAxesWires : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result

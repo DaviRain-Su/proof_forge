@@ -1295,6 +1295,14 @@ evm-corpus-runtime: build
 solana-runtime:
     bash scripts/solana_runtime_test.sh
 
+# Psy dargo v0.1.0 local VM / base-proof engineering lane (host-heavy).
+# Requires locked $PROOF_FORGE_TOOL_ROOT/dargo + lib/psy-std/std.psy
+# (linux-x86_64 | darwin-arm64 only; hard-fail PF-TOOLCHAIN-MISSING; never PATH).
+# NOT ordinary ci; not product finalize; not formal/hermetic/deploy/network UPS.
+# Profile label (log only): psy-dargo-0.1.0-local-proof-v1.
+psy-runtime:
+    bash scripts/psy_runtime_test.sh
+
 # #125 Solana CPI CLI/product acceptance only (proof-forge.output.v1 EscrowCpi
 # under solana-sbpf-cpi-elf-v1). Not ordinary ci; host/tool heavy like solana-runtime.
 # Does not consume #118–#124 preactivation runtime manifests. Requires #125 product
