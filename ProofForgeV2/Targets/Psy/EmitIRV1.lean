@@ -433,7 +433,7 @@ private def narrowMask (bitWidth : Nat) : Nat :=
 
 private def exprTypeName : Expr → String
   | .boolLiteral _ => "bool"
-  | .compare _ _ _ | .signedCompare _ _ _ => "bool"
+  | .compare _ _ _ | .signedCompare _ _ _ | .narrowSignedCompare _ _ _ _ => "bool"
   | .logicalAnd _ _ | .logicalOr _ _ => "bool"
   | .boolNot _ => "bool"
   | .u32Literal _ => "u32"
@@ -766,6 +766,221 @@ private partial def lowerExprStmt
           .letBind nr "Felt" (.binary r' .add bias),
           .letBind name "bool" (.binary (.local nl) psyOp (.local nr))],
         .local name, ctx5)
+  | .narrowSignedCompare w op l r => do
+      -- Two's-complement bit patterns in 0..2^w-1; bias by 2^(w-1) then unsigned.
+      let psyOp := match op with
+        | .eq => PsyBinaryOp.eq | .ne => .ne | .lt => .lt
+        | .le => .le | .gt => .gt | .ge => .ge
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (nl, ctx3) := freshName ctx2
+      let (nr, ctx4) := freshName ctx3
+      let (name, ctx5) := freshName ctx4
+      let bias := feltLit (Nat.pow 2 (w - 1))
+      pure (ls1 ++ ls2 ++
+        #[.letBind nl "Felt" (.binary l' .add bias),
+          .letBind nr "Felt" (.binary r' .add bias),
+          .letBind name "bool" (.binary (.local nl) psyOp (.local nr))],
+        .local name, ctx5)
+  | .narrowCheckedNeg w operand => do
+      -- Two's-complement negation: intMin traps; else (0 - x) mod 2^w.
+      let (ls1, o', ctx1) ← lowerExprStmt ctx operand
+      let (name, ctx2) := freshName ctx1
+      let bound := feltLit (Nat.pow 2 w)
+      let half := feltLit (Nat.pow 2 (w - 1))
+      let zero := feltLit 0
+      pure (ls1 ++
+        #[.assert (.binary o' .ne half) s!"i{w} neg overflow (intMin)",
+          .letBind name "Felt"
+            (.ifExpr (.binary o' .eq zero) zero
+              (.binary bound .sub o'))],
+        .local name, ctx2)
+  | .narrowSignedCheckedAdd w l r => do
+      -- Modular two's-complement add + same-sign overflow trap.
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (sumN, ctx3) := freshName ctx2
+      let (wrapN, ctx4) := freshName ctx3
+      let (saN, ctx5) := freshName ctx4
+      let (sbN, ctx6) := freshName ctx5
+      let (srN, ctx7) := freshName ctx6
+      let bound := feltLit (Nat.pow 2 w)
+      let half := feltLit (Nat.pow 2 (w - 1))
+      pure (ls1 ++ ls2 ++
+        #[.letBind sumN "Felt" (.binary l' .add r'),
+          .letBind wrapN "Felt"
+            (.ifExpr (.binary (.local sumN) .ge bound)
+              (.binary (.local sumN) .sub bound) (.local sumN)),
+          .letBind saN "bool" (.binary l' .ge half),
+          .letBind sbN "bool" (.binary r' .ge half),
+          .letBind srN "bool" (.binary (.local wrapN) .ge half),
+          .assert
+            (.unary .not
+              (.binary
+                (.binary (.binary (.local saN) .boolAnd (.local sbN))
+                  .boolOr
+                  (.binary (.unary .not (.local saN)) .boolAnd
+                    (.unary .not (.local sbN))))
+                .boolAnd
+                (.binary (.local saN) .ne (.local srN))))
+            s!"i{w} add overflow"],
+        .local wrapN, ctx7)
+  | .narrowSignedCheckedSub w l r => do
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (diffN, ctx3) := freshName ctx2
+      let (saN, ctx4) := freshName ctx3
+      let (sbN, ctx5) := freshName ctx4
+      let (srN, ctx6) := freshName ctx5
+      let bound := feltLit (Nat.pow 2 w)
+      let half := feltLit (Nat.pow 2 (w - 1))
+      pure (ls1 ++ ls2 ++
+        #[.letBind diffN "Felt"
+            (.ifExpr (.binary l' .ge r') (.binary l' .sub r')
+              (.binary (.binary l' .add bound) .sub r')),
+          .letBind saN "bool" (.binary l' .ge half),
+          .letBind sbN "bool" (.binary r' .ge half),
+          .letBind srN "bool" (.binary (.local diffN) .ge half),
+          .assert
+            (.unary .not
+              (.binary
+                (.binary
+                  (.binary (.local saN) .boolAnd (.unary .not (.local sbN)))
+                  .boolOr
+                  (.binary (.unary .not (.local saN)) .boolAnd (.local sbN)))
+                .boolAnd
+                (.binary (.local saN) .ne (.local srN))))
+            s!"i{w} sub overflow"],
+        .local diffN, ctx6)
+  | .narrowSignedCheckedMul w l r => do
+      -- Magnitude product in Felt (≤ (2^(w-1))^2 < p for w≤32) then re-sign.
+      -- intMin has no positive abs in w bits: only allow *0/*1/*-1 specials.
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let bound := feltLit (Nat.pow 2 w)
+      let half := feltLit (Nat.pow 2 (w - 1))
+      let zero := feltLit 0
+      let one := feltLit 1
+      let negOne := feltLit (Nat.pow 2 w - 1)
+      let (saN, ctx3) := freshName ctx2
+      let (sbN, ctx4) := freshName ctx3
+      let (absA, ctx5) := freshName ctx4
+      let (absB, ctx6) := freshName ctx5
+      let (prodAbs, ctx7) := freshName ctx6
+      let (qN, ctx8) := freshName ctx7
+      pure (ls1 ++ ls2 ++
+        #[.letBind saN "bool" (.binary l' .ge half),
+          .letBind sbN "bool" (.binary r' .ge half),
+          -- Reject intMin unless the other factor is 0, 1, or -1 (exact cases).
+          .assert
+            (.unary .not
+              (.binary (.binary l' .eq half) .boolAnd
+                (.unary .not
+                  (.binary (.binary r' .eq zero) .boolOr
+                    (.binary (.binary r' .eq one) .boolOr (.binary r' .eq negOne))))))
+            s!"i{w} mul overflow (intMin)",
+          .assert
+            (.unary .not
+              (.binary (.binary r' .eq half) .boolAnd
+                (.unary .not
+                  (.binary (.binary l' .eq zero) .boolOr
+                    (.binary (.binary l' .eq one) .boolOr (.binary l' .eq negOne))))))
+            s!"i{w} mul overflow (intMin)",
+          .letBind absA "Felt"
+            (.ifExpr (.local saN)
+              (.ifExpr (.binary l' .eq half) half (.binary bound .sub l')) l'),
+          .letBind absB "Felt"
+            (.ifExpr (.local sbN)
+              (.ifExpr (.binary r' .eq half) half (.binary bound .sub r')) r'),
+          .letBind prodAbs "Felt" (.binary (.local absA) .mul (.local absB)),
+          -- Magnitude must fit in signed range: prodAbs < half, or intMin exact
+          -- when result is negative and prodAbs == half.
+          .assert
+            (.binary
+              (.binary (.local prodAbs) .lt half)
+              .boolOr
+              (.binary (.binary (.local prodAbs) .eq half) .boolAnd
+                (.binary
+                  (.binary (.local saN) .boolAnd (.unary .not (.local sbN)))
+                  .boolOr
+                  (.binary (.unary .not (.local saN)) .boolAnd (.local sbN)))))
+            s!"i{w} mul overflow",
+          .letBind qN "Felt"
+            (.ifExpr (.binary (.local prodAbs) .eq zero) zero
+              (.ifExpr
+                (.binary
+                  (.binary (.local saN) .boolAnd (.unary .not (.local sbN)))
+                  .boolOr
+                  (.binary (.unary .not (.local saN)) .boolAnd (.local sbN)))
+                (.ifExpr (.binary (.local prodAbs) .eq half) half
+                  (.binary bound .sub (.local prodAbs)))
+                (.local prodAbs)))],
+        .local qN, ctx8)
+  | .narrowSignedCheckedDiv w l r => do
+      -- Signed division on two's-complement bit patterns via bias to nonneg domain is hard;
+      -- implement trunc-toward-zero using absolute values in Felt.
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let bound := feltLit (Nat.pow 2 w)
+      let half := feltLit (Nat.pow 2 (w - 1))
+      let zero := feltLit 0
+      let (saN, ctx3) := freshName ctx2
+      let (sbN, ctx4) := freshName ctx3
+      let (absA, ctx5) := freshName ctx4
+      let (absB, ctx6) := freshName ctx5
+      let (qAbs, ctx7) := freshName ctx6
+      let (qN, ctx8) := freshName ctx7
+      pure (ls1 ++ ls2 ++
+        #[.assert (.binary r' .ne zero) s!"i{w} div by zero",
+          -- intMin / -1 overflows
+          .assert
+            (.unary .not
+              (.binary (.binary l' .eq half) .boolAnd (.binary r' .eq
+                (.binary bound .sub (feltLit 1)))))
+            s!"i{w} div overflow (intMin / -1)",
+          .letBind saN "bool" (.binary l' .ge half),
+          .letBind sbN "bool" (.binary r' .ge half),
+          .letBind absA "Felt"
+            (.ifExpr (.local saN) (.binary bound .sub l') l'),
+          .letBind absB "Felt"
+            (.ifExpr (.local sbN) (.binary bound .sub r') r'),
+          .letBind qAbs "Felt" (.binary (.local absA) .div (.local absB)),
+          .letBind qN "Felt"
+            (.ifExpr
+              (.binary
+                (.binary (.local saN) .boolAnd (.unary .not (.local sbN)))
+                .boolOr
+                (.binary (.unary .not (.local saN)) .boolAnd (.local sbN)))
+              (.ifExpr (.binary (.local qAbs) .eq zero) zero
+                (.binary bound .sub (.local qAbs)))
+              (.local qAbs))],
+        .local qN, ctx8)
+  | .narrowSignedCheckedMod w l r => do
+      -- a % b with trunc-toward-zero: remainder has sign of dividend.
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let bound := feltLit (Nat.pow 2 w)
+      let half := feltLit (Nat.pow 2 (w - 1))
+      let zero := feltLit 0
+      let (saN, ctx3) := freshName ctx2
+      let (absA, ctx4) := freshName ctx3
+      let (absB, ctx5) := freshName ctx4
+      let (rAbs, ctx6) := freshName ctx5
+      let (rN, ctx7) := freshName ctx6
+      pure (ls1 ++ ls2 ++
+        #[.assert (.binary r' .ne zero) s!"i{w} mod by zero",
+          .letBind saN "bool" (.binary l' .ge half),
+          .letBind absA "Felt"
+            (.ifExpr (.local saN) (.binary bound .sub l') l'),
+          .letBind absB "Felt"
+            (.ifExpr (.binary r' .ge half) (.binary bound .sub r') r'),
+          .letBind rAbs "Felt" (.binary (.local absA) .mod (.local absB)),
+          .letBind rN "Felt"
+            (.ifExpr (.local saN)
+              (.ifExpr (.binary (.local rAbs) .eq zero) zero
+                (.binary bound .sub (.local rAbs)))
+              (.local rAbs))],
+        .local rN, ctx7)
   | .callFn fnName args => do
       let mut stmts : Array PsyStmt := #[]
       let mut args' : Array PsyExpr := #[]

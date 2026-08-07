@@ -1284,27 +1284,25 @@ unsafe def testUInt32CompareLowered : IO Unit := do
   expect (psy.contains " == ")
     "u32 eq must render"
 
-/-- Fail closed: narrow Int (Int8/16/32). The Psy toolchain has no native
-    narrow integer types, no u8 storage impl, and the u32/Felt building blocks
-    for faithful sign-extended narrow arithmetic are absent or VM-buggy
-    (u32 sub panics on `a - a`; u32 shifts wrap; Felt ops are modular). -/
+/-- Fail closed: Int128 remains outside the Psy pilot (no honest 128-bit
+    two's-complement Felt carrier; narrow Int stops at Int32). -/
 unsafe def testNarrowIntFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program I8 where\n" ++
-    "  entry cmp(a : Int8, b : Int8) : Bool do\n" ++
+    "program I128 where\n" ++
+    "  entry cmp(a : Int128, b : Int128) : Bool do\n" ++
     "    return a < b\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<psy-i8>" "Tests.PsyI8" none)
+    source "<psy-i128>" "Tests.PsyI128" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planPsy compiled with
   | .error (.planInvariant .psy msg) =>
-      expect (msg.contains "Int" || msg.contains "width")
-        s!"narrow Int must fail closed at Psy type-closure, got: {msg}"
+      expect (msg.contains "Int" || msg.contains "width" || msg.contains "unsupported")
+        s!"Int128 must fail closed at Psy type-closure, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
-  | .ok _ => throw <| IO.userError "narrow Int must fail closed at Psy plan"
+  | .ok _ => throw <| IO.userError "Int128 must fail closed at Psy plan"
 
 /-- Fail closed: Bytes state. Psy has no u8 native type / storage impl, and
     Bytes element ops return UInt8 which is outside the Psy pilot closure. -/
@@ -2434,6 +2432,147 @@ unsafe def testAggregateReturnFailClosed : IO Unit := do
           throw <| IO.userError
             "Psy pureFn aggregate return must fail closed"
 
+/-- PSY-INT-NARROW: Int8/16/32 two's-complement bit patterns on Felt. -/
+unsafe def testNarrowIntVmLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NarrowInt where\n" ++
+    "  state acc : Int32\n" ++
+    "  init(initial : Int32) do\n" ++
+    "    acc := initial\n" ++
+    "  entry add(delta : Int32) : Int32 do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n" ++
+    "  entry subtract(delta : Int32) : Int32 do\n" ++
+    "    acc := acc - delta\n" ++
+    "    return acc\n" ++
+    "  entry multiply(factor : Int32) : Int32 do\n" ++
+    "    acc := acc * factor\n" ++
+    "    return acc\n" ++
+    "  entry negate() : Int32 do\n" ++
+    "    acc := -acc\n" ++
+    "    return acc\n" ++
+    "  view leq(bound : Int32) : Bool do\n" ++
+    "    return acc <= bound\n" ++
+    "  view get() : Int32 do\n" ++
+    "    return acc\n" ++
+    "  entry add8(a : Int8, b : Int8) : Int8 do\n" ++
+    "    return a + b\n" ++
+    "  entry add16(a : Int16, b : Int16) : Int16 do\n" ++
+    "    return a + b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-int-narrow>" "Tests.PsyIntNarrow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let carrier := CompiledSemanticV1.semanticV1Of compiled
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"narrow Int Reference validate failed: {repr error}"
+  let admitted ← match admitReferenceProgramSliceV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"narrow Int Reference admission failed: {repr error}"
+  let some i32TypeId := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .int 32 => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "narrow Int semantic is missing anonymous Int32"
+  let some boolTypeId := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .bool => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "narrow Int semantic is missing anonymous Bool"
+  let callableNamed (name : String) : Option CallableIdV1 :=
+    data.callables.findSome? fun callable =>
+      if callable.name == some name then some callable.id else none
+  let some initId := data.callables.findSome? (fun c =>
+      if c.kind == .initializer then some c.id else none) |
+    throw <| IO.userError "narrow Int semantic is missing initializer"
+  let some addId := callableNamed "add" |
+    throw <| IO.userError "narrow Int semantic is missing add"
+  let some leqId := callableNamed "leq" |
+    throw <| IO.userError "narrow Int semantic is missing leq"
+  let some negateId := callableNamed "negate" |
+    throw <| IO.userError "narrow Int semantic is missing negate"
+  let invoke (callableId : CallableIdV1) (args : Array ReferenceValueV1) : InvocationV1 :=
+    { callableId, args, context := #[] }
+  let noResponses : ExternalResponsesV1 := #[]
+  -- Int32 -1 is LE bytes ff ff ff ff
+  let minusOneBytes := ByteArray.mk #[255, 255, 255, 255]
+  let zeroBytes := ByteArray.mk #[0, 0, 0, 0]
+  let oneBytes := ByteArray.mk #[1, 0, 0, 0]
+  let twoBytes := ByteArray.mk #[2, 0, 0, 0]
+  let minusOne : ReferenceValueV1 := { typeId := i32TypeId, valueBytes := minusOneBytes }
+  let zero : ReferenceValueV1 := { typeId := i32TypeId, valueBytes := zeroBytes }
+  let one : ReferenceValueV1 := { typeId := i32TypeId, valueBytes := oneBytes }
+  let two : ReferenceValueV1 := { typeId := i32TypeId, valueBytes := twoBytes }
+  let zeroState : LogicalStateV1 :=
+    { initialized := true
+      canonicalValues := (ByteArray.mk #[4, 0, 0, 0]).append zeroBytes }
+  let oneState : LogicalStateV1 :=
+    { initialized := true
+      canonicalValues := (ByteArray.mk #[4, 0, 0, 0]).append oneBytes }
+  let minusOneState : LogicalStateV1 :=
+    { initialized := true
+      canonicalValues := (ByteArray.mk #[4, 0, 0, 0]).append minusOneBytes }
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"narrow Int initial state failed: {repr error}"
+  expectPsyReferenceReturned "psy-i32-ref-init"
+    (stepReferenceSliceV1 admitted initial (invoke initId #[zero]) noResponses)
+    zeroState none
+  expectPsyReferenceReturned "psy-i32-ref-add"
+    (stepReferenceSliceV1 admitted zeroState (invoke addId #[one]) noResponses)
+    oneState (some one)
+  expectPsyReferenceReturned "psy-i32-ref-leq"
+    (stepReferenceSliceV1 admitted oneState (invoke leqId #[two]) noResponses)
+    oneState (some { typeId := boolTypeId, valueBytes := ByteArray.mk #[1] })
+  expectPsyReferenceReturned "psy-i32-ref-neg"
+    (stepReferenceSliceV1 admitted oneState (invoke negateId #[]) noResponses)
+    minusOneState (some minusOne)
+  expectPsyReferenceStandardRevert "psy-i32-ref-add-overflow"
+    (stepReferenceSliceV1 admitted
+      { initialized := true
+        canonicalValues :=
+          (ByteArray.mk #[4, 0, 0, 0]).append (ByteArray.mk #[255, 255, 255, 127]) }
+      (invoke addId #[one]) noResponses)
+    .arithmeticOverflow
+    { initialized := true
+      canonicalValues :=
+        (ByteArray.mk #[4, 0, 0, 0]).append (ByteArray.mk #[255, 255, 255, 127]) }
+
+  let plan ← liftResult <| planPsy compiled
+  let functionNamed (name : String) := plan.functions.find? (·.name == name)
+  let some add := functionNamed "add" |
+    throw <| IO.userError "narrow Int plan is missing add"
+  let some add8 := functionNamed "add8" |
+    throw <| IO.userError "narrow Int plan is missing add8"
+  expect (add.body.any fun
+      | .returnValue (.narrowSignedCheckedAdd 32 _ _) => true
+      | .store _ (.narrowSignedCheckedAdd 32 _ _) => true
+      | .storeAggregate _ values =>
+          values.any fun
+            | .narrowSignedCheckedAdd 32 _ _ => true
+            | _ => false
+      | _ => false)
+    "Int32 add must lower to narrowSignedCheckedAdd"
+  expect (add8.body.any fun
+      | .returnValue (.narrowSignedCheckedAdd 8 _ _) => true
+      | _ => false)
+    "Int8 add must lower to narrowSignedCheckedAdd"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "NarrowInt.psy") |
+    throw <| IO.userError "psy: missing NarrowInt.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "i32 add overflow" && psy.contains "i8 add overflow")
+    "narrow Int overflow messages must reach emitted Psy source"
+  expect (psy.contains "i32 neg overflow (intMin)")
+    "Int32 negation intMin guard must be emitted"
+
 unsafe def run : IO Unit := do
   testCounterPsySource
   testCheckedArithGuards
@@ -2452,6 +2591,7 @@ unsafe def run : IO Unit := do
   testUInt128VmDivModResourceFailClosed
   testUInt256VmProfileLowered
   testUInt256DefaultProfileFailClosed
+  testNarrowIntVmLowered
   testUInt32CompareLowered
   testNarrowIntFailClosed
   testBytesStateFailClosed

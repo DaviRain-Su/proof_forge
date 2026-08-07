@@ -211,6 +211,15 @@ inductive Expr where
   | checkedNeg (operand : Expr)
   /-- Signed Int64 comparison (Felt signed interpretation at emission). -/
   | signedCompare (op : ComparisonOp) (lhs rhs : Expr)
+  /-- T9c-style: Int{8,16,32} two's-complement bit-pattern ops on Felt.
+      Values live in `0..2^w-1`; emission uses wrap + sign-bit overflow gates. -/
+  | narrowSignedCheckedAdd (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedSub (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedMul (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedDiv (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedMod (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCompare (bitWidth : Nat) (op : ComparisonOp) (lhs rhs : Expr)
+  | narrowCheckedNeg (bitWidth : Nat) (operand : Expr)
   | callFn (fnName : String) (args : Array Expr)
   /-- Target-internal exact limb arithmetic. Operands are range-bounded
       UInt32 Felt limbs/intermediates, so these raw Felt operations cannot wrap
@@ -401,12 +410,14 @@ def isNarrowUintWidth (bitWidth : Nat) : Bool :=
     intermediate for N-ANON-RESULT returns and (B-OPT-STATE) as `Option UInt64`
     storage (shared Envelope gate keys Option on `admitMap`; Option is never
     pushed to `containerTypeIds`). Map **state** still fail-closes at layout.
-    Bytes/Principal/UInt128/256/narrow Int stay fail closed. -/
+    Bytes/Principal stay fail closed. Narrow Int{8,16,32} admitted as
+    two's-complement bit patterns in Felt (full range fits below Goldilocks p). -/
 private def validatePsyTypeClosureV1
     (profileMode : PsyProfileModeV1)
     (types : Array TypeDeclV1) : CompileResult PsyTypeClosureV1 :=
   validatePilotTypeClosure psyPlanErr psyTypeClosureWording types
     (pilotUintWidthPolicyPsyBody profileMode)
+    (intPolicy := pilotIntWidthPolicyNarrow)
     (fieldPolicy := pilotFieldPolicyGoldilocks)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     -- ArrayMap (not ArrayOnly): admits Option body intermediates for
@@ -432,6 +443,8 @@ private structure LoweredVal where
   leaves? : Option (Array Expr) := none
   /-- Scalar unsigned width: 0/64 = UInt64 Felt; 8/16/32 = Felt-carried narrow. -/
   uintWidth : Nat := 0
+  /-- Scalar signed width: 0 = not Int; 8/16/32/64 = two's-complement Felt carrier. -/
+  intWidth : Nat := 0
   /-- VM profile software-wide marker: 128 means four little-endian UInt32
       Felt limbs in `leaves?`; 0 means scalar or ordinary aggregate. -/
   wideUintWidth : Nat := 0
@@ -452,21 +465,37 @@ private def LoweredVal.leafExprs (v : LoweredVal) : Array Expr :=
 private def LoweredVal.isNarrow (v : LoweredVal) : Bool :=
   isNarrowUintWidth v.uintWidth
 
+/-- True when this scalar is Felt-carried Int{8,16,32}. -/
+private def isNarrowIntWidth (bitWidth : Nat) : Bool :=
+  bitWidth == 8 || bitWidth == 16 || bitWidth == 32
+
+private def LoweredVal.isNarrowInt (v : LoweredVal) : Bool :=
+  isNarrowIntWidth v.intWidth
+
+private def LoweredVal.isInt (v : LoweredVal) : Bool :=
+  v.intWidth == 8 || v.intWidth == 16 || v.intWidth == 32 || v.intWidth == 64
+
 /-- Historical alias: UInt32 Felt-carried scalar. -/
 private def LoweredVal.isU32 (v : LoweredVal) : Bool := v.uintWidth == 32
 
 private def mkScalarVal (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none, uintWidth := 0, isField := false }
+  { expr := e, leaves? := none, uintWidth := 0, intWidth := 0, isField := false }
 
 private def mkNarrowVal (bitWidth : Nat) (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none, uintWidth := bitWidth, isField := false }
+  { expr := e, leaves? := none, uintWidth := bitWidth, intWidth := 0, isField := false }
+
+private def mkNarrowIntVal (bitWidth : Nat) (e : Expr) : LoweredVal :=
+  { expr := e, leaves? := none, uintWidth := 0, intWidth := bitWidth, isField := false }
+
+private def mkInt64Val (e : Expr) : LoweredVal :=
+  mkNarrowIntVal 64 e
 
 private def mkU32Val (e : Expr) : LoweredVal :=
   mkNarrowVal 32 e
 
 /-- T14 catalog v2 (Goldilocks): scalar Felt field value carrier. -/
 private def mkFieldVal (e : Expr) : LoweredVal :=
-  { expr := e, leaves? := none, uintWidth := 0, isField := true }
+  { expr := e, leaves? := none, uintWidth := 0, intWidth := 0, isField := true }
 
 private def mkAggregateVal (leaves : Array Expr) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
@@ -537,6 +566,18 @@ private def isInt64Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Boo
   match data.types[typeId.toNat]? with
   | some { shape := .int 64, .. } => true
   | _ => false
+
+private def intWidthOfType
+    (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Option Nat :=
+  match data.types[typeId.toNat]? with
+  | some { shape := .int w, .. } =>
+      if w == 8 || w == 16 || w == 32 || w == 64 then some w.toNat else none
+  | _ => none
+
+private def isNarrowIntType (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool :=
+  match intWidthOfType data typeId with
+  | some w => isNarrowIntWidth w
+  | none => false
 
 private def isBoolType (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool :=
   match data.types[typeId.toNat]? with
@@ -930,12 +971,15 @@ private def makeStateLayoutV1
             | some w => isNarrowUintWidth w
             | none => false)
         || types.int64TypeId == some state.typeId
+        || (match types.intWidthOf state.typeId with
+            | some w => isNarrowIntWidth w
+            | none => false)
         || isGoldilocksFieldType types state.typeId then
       let leafIdx := fieldNames.size
       fieldNames := fieldNames.push state.name
       stateLeaves := stateLeaves.push #[leafIdx]
     else
-      planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64}, Int64, Goldilocks Field, named Struct/Enum, Array UInt64, or Option UInt64 (Map/Bytes/Principal/UInt128/256 declined)"
+      planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64}, Int{8,16,32,64}, Goldilocks Field, named Struct/Enum, Array UInt64, or Option UInt64 (Map/Bytes/Principal declined; wide UInt needs VM profile)"
   pure { profileMode, fieldNames, stateLeaves, typeDecls, types }
 
 private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
@@ -1014,6 +1058,17 @@ private def lowerLiteral
         | .ok () => pure (.literal value)
         | .error _ =>
             planError "unsupported Psy semantic shape: Int64 literal carries trailing bytes"
+  else if match intWidthOfType data typeId with
+      | some w => isNarrowIntWidth w
+      | none => false then
+    let w := (intWidthOfType data typeId).getD 8
+    let need := w / 8
+    unless valueBytes.size == need do
+      planError s!"unsupported Psy semantic shape: Int{w} literal must contain exactly {need} bytes"
+    let mut value : Nat := 0
+    for i in [0:need] do
+      value := value + ((valueBytes.get! i).toNat <<< (8 * i))
+    pure (.literal (UInt64.ofNat value))
   else if isBoolType data typeId then
     match decodeBoolLiteralV1 valueBytes with
     | .ok flag => pure (.boolLiteral flag)
@@ -1088,9 +1143,17 @@ private def lowerLiteralValue
       if isNarrowUintWidth w then pure (mkNarrowVal w e)
       else pure (mkScalarVal e)
   | none =>
-      let e ← lowerLiteral data layout.types typeId valueBytes
-      if isGoldilocksFieldType layout.types typeId then pure (mkFieldVal e)
-      else pure (mkScalarVal e)
+      match intWidthOfType data typeId with
+      | some w =>
+          let e ← lowerLiteral data layout.types typeId valueBytes
+          if isNarrowIntWidth w then pure (mkNarrowIntVal w e)
+          else if w == 64 then pure (mkInt64Val e)
+          else pure (mkScalarVal e)
+      | none =>
+          let e ← lowerLiteral data layout.types typeId valueBytes
+          if isGoldilocksFieldType layout.types typeId then pure (mkFieldVal e)
+          else if isInt64Type data typeId then pure (mkInt64Val e)
+          else pure (mkScalarVal e)
 
 /-- Constant rows carry canonical valueBytes rather than source expression
     structure. Guard the two scalar cases whose raw wire integer cannot always
@@ -1157,6 +1220,31 @@ private def lowerNarrowBinary
   | .ge => pure (.compare .ge lhs rhs)
   | .and | .or =>
       planError s!"unsupported Psy semantic shape: UInt{bitWidth} does not admit logical and/or"
+
+/-- Narrow Int{8,16,32}: two's-complement bit patterns in Felt (`0..2^w-1`).
+    Modular wrap matches wire two's-complement; overflow uses sign-bit rules.
+    Bitwise/shift treat the carrier as unsigned width-w bits (same as UInt). -/
+private def lowerNarrowSignedBinary
+    (bitWidth : Nat) (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr :=
+  match op with
+  | .add => pure (.narrowSignedCheckedAdd bitWidth lhs rhs)
+  | .sub => pure (.narrowSignedCheckedSub bitWidth lhs rhs)
+  | .mul => pure (.narrowSignedCheckedMul bitWidth lhs rhs)
+  | .div => pure (.narrowSignedCheckedDiv bitWidth lhs rhs)
+  | .mod => pure (.narrowSignedCheckedMod bitWidth lhs rhs)
+  | .bitAnd => pure (.narrowBitAnd bitWidth lhs rhs)
+  | .bitOr => pure (.narrowBitOr bitWidth lhs rhs)
+  | .bitXor => pure (.narrowBitXor bitWidth lhs rhs)
+  | .shl => pure (.narrowShl bitWidth lhs rhs)
+  | .shr => pure (.narrowShr bitWidth lhs rhs)  -- logical; arithmetic shr deferred
+  | .eq => pure (.narrowSignedCompare bitWidth .eq lhs rhs)
+  | .ne => pure (.narrowSignedCompare bitWidth .ne lhs rhs)
+  | .lt => pure (.narrowSignedCompare bitWidth .lt lhs rhs)
+  | .le => pure (.narrowSignedCompare bitWidth .le lhs rhs)
+  | .gt => pure (.narrowSignedCompare bitWidth .gt lhs rhs)
+  | .ge => pure (.narrowSignedCompare bitWidth .ge lhs rhs)
+  | .and | .or =>
+      planError s!"unsupported Psy semantic shape: Int{bitWidth} does not admit logical and/or"
 
 private structure WideUintBinaryV1 where
   /-- Statements that must execute before any result-limb expression is used. -/
@@ -1442,10 +1530,18 @@ private partial def lowerRegion
                 match uintWidthOfType data stateTypeId with
                 | some w => if isNarrowUintWidth w then some w else none
                 | none => none
+              let narrowIntW? :=
+                match intWidthOfType data stateTypeId with
+                | some w => if isNarrowIntWidth w then some w else none
+                | none => none
               if isFieldState then
                 env := envInsertVal env valueDef.valueId (mkFieldVal (.stateLoad fi))
               else if let some w := narrowW? then
                 env := envInsertNarrow env valueDef.valueId w (.stateLoad fi)
+              else if let some w := narrowIntW? then
+                env := envInsertVal env valueDef.valueId (mkNarrowIntVal w (.stateLoad fi))
+              else if isInt64Type data stateTypeId then
+                env := envInsertVal env valueDef.valueId (mkInt64Val (.stateLoad fi))
               else
                 env := envInsert env valueDef.valueId (.stateLoad fi)
             else
@@ -1535,38 +1631,54 @@ private partial def lowerRegion
                   -- Comparison / logical result is Bool — use lhs narrow width.
                   if lv.isNarrow then some lv.uintWidth else none
           | none => if lv.isNarrow then some lv.uintWidth else none
+        let narrowIntW? : Option Nat :=
+          match instr.result with
+          | some vd =>
+              match intWidthOfType data vd.typeId with
+              | some w => if isNarrowIntWidth w then some w else none
+              | none =>
+                  if lv.isNarrowInt then some lv.intWidth else none
+          | none => if lv.isNarrowInt then some lv.intWidth else none
         -- Shift count may be UInt32 while lhs is UInt64 — keep UInt64 path with
         -- count folded as Felt (count still needs count < 64 guard).
-        let e ← match narrowW? with
-          | some w =>
-              -- Mixed-width arith fail closed; comparisons/shifts allow a
-              -- different-width count only when the count is not the result lane.
+        let e ← match narrowW?, narrowIntW? with
+          | some w, _ =>
               unless !lv.isNarrow || lv.uintWidth == w || op == .shl || op == .shr do
                 planError s!"unsupported Psy semantic shape: UInt{w} binary lhs width mismatch"
               unless !rv.isNarrow || rv.uintWidth == w || op == .shl || op == .shr do
                 planError s!"unsupported Psy semantic shape: UInt{w} binary rhs width mismatch"
               lowerNarrowBinary w op lv.expr rv.expr
-          | none =>
+          | none, some w =>
+              unless !lv.isNarrowInt || lv.intWidth == w || op == .shl || op == .shr do
+                planError s!"unsupported Psy semantic shape: Int{w} binary lhs width mismatch"
+              unless !rv.isNarrowInt || rv.intWidth == w || op == .shl || op == .shr do
+                planError s!"unsupported Psy semantic shape: Int{w} binary rhs width mismatch"
+              -- Shift count may be UInt32 while value is Int.
+              unless !rv.isNarrow || op == .shl || op == .shr do
+                planError s!"unsupported Psy semantic shape: Int{w} binary rhs must be Int{w}"
+              lowerNarrowSignedBinary w op lv.expr rv.expr
+          | none, none =>
               let l := lv.expr
               let r := rv.expr
               let signed :=
-                if lv.isNarrow || rv.isNarrow then false
+                if lv.isNarrow || rv.isNarrow || lv.isNarrowInt || rv.isNarrowInt then false
                 else
-                  match instr.result with
-                  | some _ =>
-                      match l with
-                      | .stateLoad idx =>
-                          match data.logicalState[idx]? with
-                          | some st => isInt64Type data st.typeId
-                          | none => false
-                      | .param pidx =>
-                          match callable.params[pidx]? with
-                          | some p => isInt64Type data p.typeId
-                          | none => false
-                      | _ =>
-                          data.logicalState.any (fun st => isInt64Type data st.typeId) ||
-                            callable.params.any (fun p => isInt64Type data p.typeId)
-                  | none => false
+                  lv.intWidth == 64 || rv.intWidth == 64 ||
+                    match instr.result with
+                    | some _ =>
+                        match l with
+                        | .stateLoad idx =>
+                            match data.logicalState[idx]? with
+                            | some st => isInt64Type data st.typeId
+                            | none => false
+                        | .param pidx =>
+                            match callable.params[pidx]? with
+                            | some p => isInt64Type data p.typeId
+                            | none => false
+                        | _ =>
+                            data.logicalState.any (fun st => isInt64Type data st.typeId) ||
+                              callable.params.any (fun p => isInt64Type data p.typeId)
+                    | none => false
               lowerBinary op l r signed
         match instr.result with
         | none => planError "unsupported Psy semantic shape: binary instruction must produce a value"
@@ -1578,7 +1690,16 @@ private partial def lowerRegion
                 else
                   env := envInsert env valueDef.valueId e
             | none =>
-                env := envInsert env valueDef.valueId e
+                match intWidthOfType data valueDef.typeId with
+                | some w =>
+                    if isNarrowIntWidth w then
+                      env := envInsertVal env valueDef.valueId (mkNarrowIntVal w e)
+                    else if w == 64 then
+                      env := envInsertVal env valueDef.valueId (mkInt64Val e)
+                    else
+                      env := envInsert env valueDef.valueId e
+                | none =>
+                    env := envInsert env valueDef.valueId e
     | .unary op operand => do
         let o ← match envLookup env operand with
           | some v => pure v
@@ -1615,6 +1736,14 @@ private partial def lowerRegion
                   unless !o.isAggregate do
                     planError "unsupported Psy semantic shape: Field neg operand must be scalar"
                   env := envInsertVal env valueDef.valueId (mkFieldVal (.fieldNeg o.expr))
+                else if o.isNarrowInt then
+                  env := envInsertVal env valueDef.valueId
+                    (mkNarrowIntVal o.intWidth (.narrowCheckedNeg o.intWidth o.expr))
+                else if o.intWidth == 64 ||
+                    (match intWidthOfType data valueDef.typeId with
+                     | some 64 => true | _ => false) then
+                  let e ← lowerUnary op o.expr valueDef.typeId
+                  env := envInsertVal env valueDef.valueId (mkInt64Val e)
                 else
                   unless !o.isNarrow do
                     planError "unsupported Psy semantic shape: unary neg on narrow UInt is not admitted"
@@ -2277,6 +2406,9 @@ private def resultShape (data : SemanticProgramDataV1)
     else
       planError s!"{owner} UInt256 result requires profile psy-dargo-0.1.0-vm-v1"
   else if isInt64Type data callable.result.typeId then pure (false, false, 0, .felt)
+  else if let some w := intWidthOfType data callable.result.typeId then
+    if isNarrowIntWidth w then pure (false, false, w, .felt)
+    else pure (false, false, 0, .felt)
   else if let some w := uintWidthOfType data callable.result.typeId then
     if isNarrowUintWidth w then pure (false, false, w, .felt)
     else pure (false, false, 64, .felt)
@@ -2340,10 +2472,14 @@ private def lowerCallable
               uintWidth := 32, isField := false }
           physicalParamIndex := physicalParamIndex + 1
     | width? =>
+        let intW? := intWidthOfType data p.typeId
         let isBool ← if isBoolType data p.typeId then pure true
           else if isUInt64Type data p.typeId || isInt64Type data p.typeId then pure false
           else if match width? with
               | some w => isNarrowUintWidth w || w == 64
+              | none => false then pure false
+          else if match intW? with
+              | some w => isNarrowIntWidth w
               | none => false then pure false
           else if isGoldilocksFieldType types p.typeId then pure false
           else if types.isNamedAggregate p.typeId then
@@ -2351,8 +2487,14 @@ private def lowerCallable
           else if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
             -- B-OPT-STATE mirrors Enum: Option is state-only (params stay fail closed).
             planError s!"unsupported Psy semantic shape: Option parameter '{p.name}' in {owner} is outside the Psy pilot (Option is state-only; B-RET-ABI scalar)"
-          else planError "unsupported Psy semantic shape: callable parameter is outside the UInt8/16/32/64/128/256/Int64/Bool/Goldilocks-Field envelope"
-        let uintWidth := width?.getD 0
+          else planError "unsupported Psy semantic shape: callable parameter is outside the UInt8/16/32/64/128/256/Int8/16/32/64/Bool/Goldilocks-Field envelope"
+        let uintWidth :=
+          match width? with
+          | some w => w
+          | none =>
+              match intW? with
+              | some w => if isNarrowIntWidth w then w else 0
+              | none => 0
         params := params.push
           { sourceIndex := physicalParamIndex, name := p.name, isBool,
             uintWidth,
@@ -2378,11 +2520,22 @@ private def lowerCallable
           env0 := envInsert env0 p.valueId (.param physicalParamOrdinal)
         physicalParamOrdinal := physicalParamOrdinal + 1
     | none =>
-        if isGoldilocksFieldType types p.typeId then
-          env0 := envInsertVal env0 p.valueId (mkFieldVal (.param physicalParamOrdinal))
-        else
-          env0 := envInsert env0 p.valueId (.param physicalParamOrdinal)
-        physicalParamOrdinal := physicalParamOrdinal + 1
+        match intWidthOfType data p.typeId with
+        | some w =>
+            if isNarrowIntWidth w then
+              env0 := envInsertVal env0 p.valueId
+                (mkNarrowIntVal w (.param physicalParamOrdinal))
+            else
+              env0 := envInsertVal env0 p.valueId (mkInt64Val (.param physicalParamOrdinal))
+            physicalParamOrdinal := physicalParamOrdinal + 1
+        | none =>
+            if isGoldilocksFieldType types p.typeId then
+              env0 := envInsertVal env0 p.valueId (mkFieldVal (.param physicalParamOrdinal))
+            else if isInt64Type data p.typeId then
+              env0 := envInsertVal env0 p.valueId (mkInt64Val (.param physicalParamOrdinal))
+            else
+              env0 := envInsert env0 p.valueId (.param physicalParamOrdinal)
+            physicalParamOrdinal := physicalParamOrdinal + 1
   let (resultIsBool, resultIsUnit, resultUintWidth, resultKind) ←
     resultShape data layout.profileMode layout.types layout.typeDecls callable owner
   -- pureFn aggregate returns stay fail closed (B-RET-ABI entry/view only).

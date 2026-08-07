@@ -336,7 +336,7 @@ D1–D4 = 0/27 done。
 | **PSY-WIDE-2b** | UInt128 div/mod | **done（2026-08-08）**：四段固定 `0u32..32u32` MSB-first restoring；五肢 remainder；operand limb range + operation-specific zero-divisor；每函数 1 次 div/mod binding 且 loop 内 FC；Reference mixed/zero-divisor、product WideCounter、dargo acceptance 与 locked local-VM 路径已接线；禁止 Felt `/`/`%` 冒充整数除法 |
 | **PSY-WIDE-2c** | UInt128 bitwise/shift | **done（2026-08-08）**：显式 VM profile；per-limb `&`/`|`/`^`/`~`（UInt32 mask）；`<<`/`>>` 为 UInt32 count + 固定 128-step bit walk binding（`count < 128`，shl 高位溢出 `u128 shl overflow`）；default profile FC；Reference + Plan/source pin 已通；UInt256 另开 |
 | **PSY-WIDE-3** | UInt256 8×UInt32 | **done（2026-08-08）**：显式 VM profile；8×UInt32 LE limbs；state/param/literal/entry-view、checked add/sub/mul/div/mod、六比较、per-limb bitwise、UInt32-count 256-step shift；default profile FC；Reference + Plan/source pin；`Examples/WideCounter256` |
-| **PSY-INT-NARROW** | Int8/16/32 | pending：two's-complement canonical bytes ↔ Felt 表示/比较/算术/ABI 必须先冻结；负值不可经无符号 `feltNat` 静默归约 |
+| **PSY-INT-NARROW** | Int8/16/32 | **done（2026-08-08）**：two's-complement bit pattern in Felt（全宽 < Goldilocks p）；state/param/literal/entry-view ABI；signed add/sub/mul/div/mod/neg/六比较；overflow/intMin/zero-div 稳定消息；Int128 仍 FC；Reference + Plan/source pin |
 | **PSY-SCALAR-ABI** | Principal、String、Bytes | pending：冻结 exact length/payload leaves、上限与 equality；Principal 不得冒充地址，String/Bytes 不得冒充 Felt scalar |
 | **PSY-CONTAINER-ABI** | Map、嵌套容器、aggregate 参数、>8 叶返回 | pending：先复用 atomic snapshot store，再冻结 ABI leaf/work cap；Map 需 canonical key order/upsert；提升 8 叶上限前必须有 dargo ABI/VM resource pin |
 | **PSY-INDEX-CAST** | 动态 Array 索引、CheckedCast | pending：动态 bounds 必须产生 exact `indexOutOfBounds` 对应；cast 覆盖 UInt/Int 宽度与 out-of-range rollback，不能只做源码强转 |

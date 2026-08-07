@@ -43,15 +43,19 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
   | .narrowCheckedDiv _ l r | .narrowCheckedMod _ l r
   | .narrowBitAnd _ l r | .narrowBitOr _ l r | .narrowBitXor _ l r
   | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r | .narrowSignedCheckedDiv _ l r
+  | .narrowSignedCheckedMod _ l r
   | .fieldBinary _ l r | .fieldCompare _ l r => do
       let dl ← validateExprNodes l
       let dr ← validateExprNodes r
       if dl + dr + 1 > maxExprDepth then none else some (dl + dr + 1)
-  | .compare _ l r | .signedCompare _ l r => do
+  | .compare _ l r | .signedCompare _ l r | .narrowSignedCompare _ _ l r => do
       let dl ← validateExprNodes l
       let dr ← validateExprNodes r
       if dl + dr + 1 > maxExprDepth then none else some (dl + dr + 1)
-  | .boolNot o | .checkedNeg o | .narrowBitNot _ o | .checkedBitNot o | .fieldNeg o => do
+  | .boolNot o | .checkedNeg o | .narrowBitNot _ o | .checkedBitNot o
+  | .narrowCheckedNeg _ o | .fieldNeg o => do
       let do' ← validateExprNodes o
       if do' + 1 > maxExprDepth then none else some (do' + 1)
   | .select condition thenValue elseValue => do
@@ -202,12 +206,15 @@ private partial def validateWideExpr
   | .narrowCheckedDiv _ l r | .narrowCheckedMod _ l r
   | .narrowBitAnd _ l r | .narrowBitOr _ l r | .narrowBitXor _ l r
   | .narrowShl _ l r | .narrowShr _ l r
-  | .compare _ l r | .signedCompare _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r | .narrowSignedCheckedDiv _ l r
+  | .narrowSignedCheckedMod _ l r
+  | .compare _ l r | .signedCompare _ l r | .narrowSignedCompare _ _ l r
   | .fieldBinary _ l r | .fieldCompare _ l r => do
       validateWideExpr defined l
       validateWideExpr defined r
   | .boolNot o | .checkedNeg o | .narrowBitNot _ o | .checkedBitNot o
-  | .fieldNeg o =>
+  | .narrowCheckedNeg _ o | .fieldNeg o =>
       validateWideExpr defined o
   | .select condition thenValue elseValue => do
       validateWideExpr defined condition

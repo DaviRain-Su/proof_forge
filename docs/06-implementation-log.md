@@ -12,6 +12,17 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy Int8/16/32 two's-complement（PSY-INT-NARROW engineering）
+
+- `pilotIntWidthPolicyNarrow` 接入 Psy type-closure：Int{8,16,32,64} 匿名宽度开放；
+  Int128/256 仍 fail closed。
+- 表示：canonical two's-complement LE wire → Felt 无符号位型 `0..2^w-1`（全宽严格
+  小于 Goldilocks p，无静默 mod-p 改值）。
+- Plan/emitter：`narrowSignedChecked*` add/sub/mul/div/mod、`narrowSignedCompare`、
+  `narrowCheckedNeg`；overflow/intMin/zero-div 稳定消息；bitwise/shift 复用窄 UInt 路径。
+- Reference + Plan/source pin 覆盖 Int32 carry/neg/overflow 与 Int8 Plan 形状。
+- 非 formal refinement / UPS / deploy。
+
 ## 2026-08-08 — Psy UInt256 8×UInt32（PSY-WIDE-3 engineering）
 
 - 显式 `psy-dargo-0.1.0-vm-v1` 现开放 UInt256 为 8×UInt32 little-endian Felt limbs；
