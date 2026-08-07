@@ -280,6 +280,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Product.BodyCpiTokenPaySolanaV1,
     `Tests.Product.MiniAmmAssetsSolanaV1,
     `Tests.Product.MiniAmmAssetsEvmV1,
+    `Tests.Product.MiniAmmProofSurfaceV1,
     `Tests.Product.TipJarNearV1,
     `Tests.Materialization.NearPfAssetsV1,
     `Tests.Product.TipJarCosmWasmV1,

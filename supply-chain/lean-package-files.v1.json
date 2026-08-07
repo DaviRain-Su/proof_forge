@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 5108,
+      "bytes": 5159,
       "path": "ProofForgeV2.lean",
-      "sha256": "de06a1981599df265213483273edac06f45c88028399f31ea536ad5ccad3f91a"
+      "sha256": "474a87a0135fc5a341306e61f0795f8d5022710189a50bc04fe275bf0123f581"
     },
     {
       "bytes": 80509,
@@ -274,6 +274,11 @@
       "bytes": 10376,
       "path": "ProofForgeV2/Semantic/InvariantFoundationV1.lean",
       "sha256": "37ef760eb3394977b5232029526caa768e4a17781cf410715468f7130b1707ed"
+    },
+    {
+      "bytes": 4044,
+      "path": "ProofForgeV2/Semantic/MiniAmmSafetySketchV1.lean",
+      "sha256": "a90087b9cb91852194bd6285860d095641f38c4c7558f86b5dd3f22013de4a27"
     },
     {
       "bytes": 208714,

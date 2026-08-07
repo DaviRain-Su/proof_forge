@@ -12,6 +12,11 @@ open ProofForgeV2.Language
 -- reserves directly (portable math / Anvil-Mollusk vectors without ERC-20/SPL).
 -- Real-asset product surface: `Examples/MiniAmmAssets.lean` (ADR-0033 / M3).
 --
+-- Formalization track (RESEARCH-023): this file stays **deployable** (no
+-- nonempty invariant — EVM/Solana materialize still FC on those). L0 certified
+-- surface: `Examples/MiniAmmProofSurface.lean`. L1 preservation sketch:
+-- `ProofForgeV2.Semantic.MiniAmmSafetySketchV1` (not product-closed).
+--
 -- Permission / identity: LP shares keyed by `context.caller` (ADR-0031 S1).
 -- Swap is open to any caller (updates reserves only).
 --

@@ -176,6 +176,7 @@ import Tests.Product.BodyCpiSysPaySolanaV1
 import Tests.Product.BodyCpiTokenPaySolanaV1
 import Tests.Product.MiniAmmAssetsSolanaV1
 import Tests.Product.MiniAmmAssetsEvmV1
+import Tests.Product.MiniAmmProofSurfaceV1
 import Tests.Product.TipJarNearV1
 import Tests.Materialization.NearPfAssetsV1
 import Tests.Product.TipJarCosmWasmV1
@@ -256,6 +257,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Product.BodyCpiTokenPaySolanaV1.run
   Tests.Product.MiniAmmAssetsSolanaV1.run
   Tests.Product.MiniAmmAssetsEvmV1.run
+  Tests.Product.MiniAmmProofSurfaceV1.run
   Tests.Product.TipJarNearV1.run
   Tests.Materialization.NearPfAssetsV1.run
   Tests.Product.TipJarCosmWasmV1.run

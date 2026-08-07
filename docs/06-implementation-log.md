@@ -12,6 +12,17 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-07 — MiniAmm 形式化阶梯 L0（工程 inline + L1 sketch）
+
+- 新增 RESEARCH-023：L0 simple-closure / L1 业务保持 / L2 formal 分界；钉死
+  `InvariantTheoremV1` 全称 StateConforms **不是** 可达保持。
+- `Examples/MiniAmmProofSurface.lean`：L0 产品表面，`check` →
+  `proofStatus=certified` / theoremCount=1；Solana materialize 对 nonempty inv FC。
+- `MiniAmmSafetySketchV1`：抽象 `MiniAmmState`、P1 empty-pool、`PreservesMiniAmm`、
+  `miniAmmStep` opaque 义务表；init 半截 `P1_emptyPool_initial` 已证。
+- MiniAmm 业务源保持无 inv（deploy pin 不破）。产品钉
+  `Tests.Product.MiniAmmProofSurfaceV1`。
+
 ## 2026-08-07 — Surfpool MiniAmmAssets full business matrix
 
 - 新增 `runtime-tests/solana/surfpool/runner`（Rust RPC client）与
