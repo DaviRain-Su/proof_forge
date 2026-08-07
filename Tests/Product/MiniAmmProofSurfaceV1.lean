@@ -2,7 +2,8 @@
   Tests.Product.MiniAmmProofSurfaceV1 — RESEARCH-023 L0 product pin.
 
   Authority: shipped `Examples/MiniAmmProofSurface.lean`.
-    * product `check` → proofStatus=certified (literal-true simple-closure)
+    * platform simple-closure L0 sample (not MiniAmm-only machinery)
+    * product `check` → proofStatus=certified
     * does NOT claim L1 business preservation or formal TASK-D2-07
     * build --target solana with nonempty invariant remains materializer FC
 -/

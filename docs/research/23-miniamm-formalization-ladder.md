@@ -1,32 +1,67 @@
 ---
 id: RESEARCH-023
-title: MiniAmm 形式化阶梯（L0 工程门 → L1 业务保持 → L2 formal）
+title: 通用程序形式化栈（L0–L2）与首个实例 MiniAmm
 status: draft
 owner: engineering
 updated: 2026-08-07
 normative: false
 ---
 
-# MiniAmm 形式化阶梯
+# 通用程序形式化栈（L0–L2）与首个实例 MiniAmm
 
-> **目的**：把「业务逻辑 + 形式化」拆成可交付层级，避免把  
-> `InvariantTheoremV1`（全称 StateConforms）误写成「可达状态安全 / 步后保持」。  
-> 与 [`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)、  
-> ADR-0027、Examples `MiniAmm` / `MiniAmmProofSurface` 对齐。
+> **目的**：定义 ProofForge **平台级**「业务逻辑 + 形式化」能力分层，避免：  
+> (1) 把 `InvariantTheoremV1` 误写成可达保持；  
+> (2) 把试点写成 **仅服务某一个合约** 的一次性数学库。  
+>
+> **产品立场**：统一源语言与共享证明 **形状 / 门禁**；每个 `program` **实例化**  
+> 自己的状态、谓词 P 与一步关系。MiniAmm 是 **第一个纵向切片**，不是唯一目标。  
+>
+> 对齐：ADR-0027、[`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)、  
+> Examples `MiniAmm` / `MiniAmmProofSurface`、`MiniAmmSafetySketchV1`。
 
 **非 formal**：本文件不关闭 TASK-D2-07 / TST-SEM-002/003 / TST-PROOF-001。
 
 ---
 
-## 1. 三层命题（必须分开命名）
+## 0. 通用 vs 实例（必读）
+
+```text
+┌──────────────────────────────────────────────────────┐
+│  平台通用形式化栈                                       │
+│  · 语法：invariant / proof / 同文件 theorem             │
+│  · L0 门：certifyInlineProofV1 / simple-closure 族      │
+│  · 共享 ABI：InvariantTheoremV1 / evalInvariantV1       │
+│  · L1 形状（目标）：State / Effect / step / Preserves P │
+│  · L2：formal TASK / refine / hermetic（最后）          │
+└───────────────────────────┬──────────────────────────┘
+                            │ 实例化（每 program 自己的 P 与 step）
+         ┌──────────────────┼──────────────────┐
+         ▼                  ▼                  ▼
+    MiniAmm（首个）     第二实例（验收通用）   后续任意合约 …
+```
+
+| 层级 | 通用？ | 内容 |
+|---|---|---|
+| L0 语法与 CLI 门 | **是** | 任意符合族的 program 名/模块都可 certified |
+| L0 simple-closure 形状 | **是** | `view Bool true` + `invariant : true` + generated helper |
+| L1 **义务形状** | **是（目标）** | `Preserves P` = init(P) ∧ step 保持 P |
+| L1 **P 与 step 内容** | **否（每程序）** | MiniAmm 的 empty-pool / swap 公式；Counter 的别的 P |
+| L2 / 项目 formal | **是（平台轨道）** | 延后；不绑死某个 Example |
+
+**验收通用性**：L1 形状稳定后，必须用 **第二个 program**（建议极简 Counter 类）  
+复用同一 `Preserves` 挂载方式，证明栈不是 AMM 专用。
+
+---
+
+## 1. 三层命题（平台命名）
 
 | 层 | 名称 | 命题直觉 | 当前工程状态 |
 |---|---|---|---|
-| **L0** | 证明表面 / simple-closure | 存在可认证的 `invariant : true` + 同文件 theorem，CLI `proofStatus=certified` | **已接线**；产品例：`Examples/MiniAmmProofSurface.lean` |
-| **L1** | 业务保持（目标） | `init` 满足 P，且每个合法 entry 的 reference `step` 后仍满足 P | **未闭合**；草图：`MiniAmmSafetySketchV1` |
-| **L2** | formal / target refine | formal `step` corpus、target refine reference、hermetic | **pending** formal 轨道 |
+| **L0** | 证明表面 / simple-closure | 可认证的 `invariant : true` + 同文件 theorem | **已接线**；样例：`MiniAmmProofSurface`（任意程序可仿） |
+| **L1** | 业务保持 | 对 **该程序** 的 P：`init` 真且 `step` 后保持 | **接口草图**；MiniAmm 为首个 instance |
+| **L2** | 项目 formal | formal step corpus、target refine、hermetic/release | **最后**；与单合约 L1 分账 |
 
-### 1.1 当前产品 ABI 实际证的是什么
+### 1.1 共享 L0 ABI（通用，不是 MiniAmm 专有）
 
 ```lean
 InvariantTheoremV1 program ordinal :=
@@ -35,184 +70,183 @@ InvariantTheoremV1 program ordinal :=
     evalInvariantV1 program ordinal state = .returnedTrue
 ```
 
-- 量化域 = **所有布局/类型合法** 的 logical state，**不是** 从 `init` 可达的状态。  
-- 对「恒定乘积 / 无超发」等真安全性质，存在大量 StateConforms 反例 → **在 L0 形状下不应可证**。  
-- L0 的 `invariant … : true` 诚实含义：**证明表面可认证**，不是「AMM 已安全」。
+- 量化域 = **布局/类型合法** 状态，**不是** 可达状态。  
+- 真业务安全（守恒、无超发等）**不能** 靠「全称 StateConforms」硬证。  
+- L0 `invariant … : true` 的诚实含义：**证明表面可认证**，不宣称业务安全。
 
-### 1.2 L1 目标形状（草图，非 shipped ABI）
+### 1.2 共享 L1 形状（目标平台契约，草图）
 
-对抽象状态 `MiniAmmState` 与谓词 `P`：
+对 **任意** 程序实例的抽象：
 
 ```text
-InitOk s0 := P s0 ∧ s0 = initial
-StepOk s s' e := step(s, e) = ok s' → (P s → P s')
-Preserves P := InitOk initial ∧ ∀ s e s', StepOk s s' e
+State, Effect, initial : State
+step : State → Effect → Option State
+P : State → Prop
+
+Preserves(P) :=
+  P initial ∧
+  ∀ s e s', step s e = some s' → P s → P s'
 ```
 
-产品侧将来可把 `P` 的 **可执行投影** 写成 `invariant`（供 eval / 认证），  
-但 **保持性** 必须是独立定理族，不能塞进现有全称 `InvariantTheoremV1`。
+| 谁提供 | 什么 |
+|---|---|
+| **平台** | 上述形状、命名约定、与 Semantic/Reference 的对齐义务、测试模式 |
+| **程序作者 / 实例库** | 具体 `State`、`Effect`、`step`、谓词 `P`、引理 |
+
+产品侧将来可把 `P` 的可执行投影写成 `invariant`（eval / 认证）；  
+**保持性** 始终是独立定理族，不塞进现有全称 `InvariantTheoremV1`。
+
+MiniAmm 的 `MiniAmmState` / `MiniAmmEffect` / `P1_emptyPool` 只是 **该形状的一个填充**。
 
 ---
 
-## 2. 业务谓词候选（L1 队列，按难度）
+## 2. 首个实例：MiniAmm 谓词队列（非通用清单）
 
-均针对 **vault-internal** `MiniAmm`（非 Assets 真转币）。
+下列 P **仅** 针对 vault-internal `Examples/MiniAmm.lean` 试点。  
+其他合约应有自己的 Pn 表，挂同一 L1 形状。
 
-| ID | 谓词 P（直觉） | 依赖 | 难度 |
-|---|---|---|---|
-| P0 | `true`（L0 表面） | simple-closure 族 | 已交付 |
-| P1 | empty pool：`totalSupply = 0 → reserve0 = reserve1 = 0` | step 后保持；init 真 | 中 |
-| P2 | LP 与 totalSupply：份额之和 = totalSupply（cap-4 Map） | Map 语义 / 折叠 | 中高 |
-| P3 | 无负向超发：remove 后 reserve 不反弹 | checked 算术 | 高 |
-| P4 | 恒定乘积弱形式：swap 后 `r0' * r1' ≥ r0 * r1`（fee-free 整数） | UInt64 溢出模型 | 高 |
-| P5 | Assets 路径：转币与 reserve 记账一致 | sync transfer + 原子性 | 更高（EVM/Solana only） |
-
-**本切片只交付 P0 工程 + P1–P4 的 Prop 草图命名**，不声称已证。
+| ID | 谓词 P（直觉） | 依赖 | 难度 | 状态 |
+|---|---|---|---|---|
+| P0 | `true`（L0 表面） | simple-closure | — | **done**（`MiniAmmProofSurface`） |
+| P1 | empty pool：`totalSupply=0 → reserves=0` | abstract step | 中 | init 半截 done；保持 pending |
+| P2 | LP 份额和 = totalSupply（cap-4） | Map 模型 | 中高 | 草图 |
+| P3 | remove/swap 成功后的 reserve 更新 | checked 算术 | 高 | 草图 |
+| P4 | swap 后乘积弱形式（宽积） | Nat/UInt128 模型 | 高 | 草图 |
+| P5 | Assets：转币与记账一致 | sync transfer | 更高 | 后置 |
 
 ---
 
-## 3. 源文件分工
+## 3. 源文件分工（平台 + 实例）
+
+### 3.1 平台（跨合约复用）
+
+| 区域 | 角色 |
+|---|---|
+| 语言 / Loader / inventory | `invariant` / `proof` 通用 |
+| `certifyInlineProofV1` + simple-closure 族 | L0 通用门 |
+| `InvariantABI` | 共享定理命题 |
+| （目标）通用 L1 挂载模块名/约定 | 如将来的 `ProgramSafetySpec` 形状；先由 MiniAmm sketch 试错 |
+
+### 3.2 实例：MiniAmm 试点
 
 | 文件 | 角色 |
 |---|---|
-| `Examples/MiniAmm.lean` | **业务程序**（可 deploy）；**不**塞 nonempty invariant，以免 EVM/Solana materialize FC 破坏现网 pin |
-| `Examples/MiniAmmProofSurface.lean` | **L0 证明表面**（simple-closure 族）；`check` → certified；build 到 8 target 仍 FC |
-| `ProofForgeV2/Semantic/MiniAmmSafetySketchV1.lean` | L1 `MiniAmmState` / `P1`… / `Preserves` **接口草图**（无 sorry 冒充完成） |
-| `Examples/MiniAmmAssets.lean` | 真资产；形式化更后（先 vault-internal L1） |
+| `Examples/MiniAmm.lean` | **业务程序**（可 deploy）；无 nonempty inv |
+| `Examples/MiniAmmProofSurface.lean` | **L0 样例**（simple-closure）；可被其他程序名复制 |
+| `ProofForgeV2/Semantic/MiniAmmSafetySketchV1.lean` | **MiniAmm instance** 的 L1 State/P/step 草图 |
+| `Examples/MiniAmmAssets.lean` | 真资产实例；L1-F 之后 |
+
+### 3.3 第二实例（通用性验收，计划）
+
+在 L1 形状（step + Preserves）对 MiniAmm 跑通 **P1 级** 后：
+
+- 选极简 program（如 Counter：`count` 非递减或 `count` 在 checked add 后仍 well-formed）；  
+- **不复制** MiniAmm 谓词，只复用 **同一 Preserves 模式**；  
+- 文档勾选：「L1 挂载已证明非 AMM 专用」。
 
 ---
 
-## 4. 产品 CLI 边界（诚实）
+## 4. 产品 CLI 边界（通用）
 
-| 命令 | MiniAmm（无 inv） | MiniAmmProofSurface（有 inv） |
+| 命令 | 无 nonempty inv 的业务 program | 带 nonempty inv 的 proof 表面 |
 |---|---|---|
-| `check` | ok，`noProof` 或无 proof 字段 | ok，`proofStatus=certified`（L0） |
-| `build --target solana/evm` | deployable 路径保持 | **materializer FC**（nonempty inv；工程已知） |
+| `check` | ok（`noProof` 或无 proof 字段） | ok 时可 `proofStatus=certified`（L0 族） |
+| `build` 多数 materializer | deploy 路径 | **FC**（nonempty inv；工程已知） |
 
-不得把 L0 certified 写成「可部署安全 AMM」。
+不得把 L0 certified 写成「可部署且业务已证安全」。
 
 ---
 
-## 5. 执行路线图（2026-08-07 产品决策）
+## 5. 执行路线图
 
-**优先级**：**先到业务层级 L1**；**D / L2（项目 formal 任务轨道）放到最后**。  
-不并行用 formal TASK 挡 L1；L1 完成 ≠ formal 代签。
+**优先级**：**先平台 L1 形状 + 业务实例证明**；**D/L2 项目 formal 最后**。  
+**MiniAmm** = 纵向打穿；**第二 program** = 横向验收通用。
 
 ### 5.0 已完成
 
-| 项 | 状态 |
+| 项 | 范围 |
 |---|---|
-| RESEARCH-023 分界 + L0/L1/L2 命名 | done |
-| `MiniAmmProofSurface` + `check` certified | done（L0） |
-| `MiniAmmSafetySketchV1` + `P1` init 半截 | done（接口） |
-| MiniAmm 业务源无 inv（deploy 保持） | done |
+| L0/L1/L2 分界 + 本通用架构叙述 | 平台 |
+| simple-closure 产品门 + `MiniAmmProofSurface` | 平台 L0 + 样例 |
+| `MiniAmmSafetySketchV1` + P1 init | **MiniAmm 实例** 接口 |
+| MiniAmm 业务源无 inv | 实例 deploy 纪律 |
 
-### 5.1 阶段 L1-A — 可执行 abstract step（无 product wire）
-
-**目标**：去掉 `opaque miniAmmStep`，换成 **与 MiniAmm 公式一致的 total 函数**。
+### 5.1 L1-A — 可执行 instance step（MiniAmm 先）
 
 | 交付 | 说明 |
 |---|---|
-| `miniAmmStep : MiniAmmState → MiniAmmEffect → Option MiniAmmState` | 成功 `some`，assert 失败 `none` |
-| 与 `Tests.Semantic.MiniAmmVectorsV1` 对齐 | 同一组 oracle：first mint、swap0to1 100→181、remove 等 |
-| 单元测试 | Lean 或现有 Vectors 扩展：step 前后数值钉 |
+| 定义 `miniAmmStep`（去掉 opaque） | 与 MiniAmm 公式 / Vectors 一致 |
+| 数值钉 | `MiniAmmVectorsV1` 同源 oracle |
+| **提炼** | 文档化「instance step 应满足的接口清单」，供第二 program 照抄 |
 
-**不含**：Reference 机接线、InvariantTheorem、materializer。
+### 5.2 L1-B — MiniAmm P1 完整保持
 
-**验收**：`PreservesP1` 可对 **该 abstract step** 陈述并开始证明（不必一次证完）。
+`Preserves P1` 在 abstract step 上全证；模式可复述为任意 P。
 
-### 5.2 阶段 L1-B — P1 empty-pool 完整保持
+### 5.3 L1-C — MiniAmm Map + P2
 
-**目标**：`PreservesP1_emptyPool` 在 abstract step 上 **全证**。
+实例加深；仍不把 Map 模型绑死进平台 ABI。
 
-| 交付 | 说明 |
-|---|---|
-| 各 effect 分案引理 | init / add / swap0/1 / remove 成功时 `P1 s → P1 s'` |
-| 失败路径 | `step = none` 不要求后继（或显式 stutter 约定） |
-| 测试钉 | 定理名 + suite 调用，禁止 sorry |
+### 5.4 L1-D — MiniAmm P3 / 弱 P4
 
-**业务含义**：零 LP 时不能留下非零 reserve（相对 **我们定义的 abstract 转移**）。
+宽积模型；平台侧只要求「算术模型可陈述」，不规定唯一 P。
 
-### 5.3 阶段 L1-C — 状态扩到 Map + P2
-
-**目标**：LP Map 进 abstract 状态，证「份额与 totalSupply 一致」（cap-4 模型）。
+### 5.5 L1-E — instance step ≡ 产品语义（工程对齐）
 
 | 交付 | 说明 |
 |---|---|
-| `MiniAmmState` 扩 `balances` | 有限 Map / list of (Principal, UInt64)，与 product cap-4 对齐 |
-| `P2_lpSum` | sum(balances) = totalSupply（空槽不计入） |
-| step 中 mint/burn LP | 与 MiniAmm match 分支一致 |
-| `PreservesP2` | 全证或分案 + 测试 |
+| MiniAmm abstract ≡ Normalize/Reference 子集 | 避免第二套故事 |
+| **通用义务** | 每个 instance 必须声明对齐策略（抽取或等价证明） |
 
-### 5.4 阶段 L1-D — 算术安全 P3 / 弱 P4
-
-**目标**：在 **checked UInt64 模型** 下钉更强业务性质。
-
-| 顺序 | 内容 |
-|---|---|
-| P3 | remove/swap 成功 ⇒ reserve 按公式增减；失败不写（或 none） |
-| P4 | swap 成功后的乘积关系：用 **宽积**（Nat / UInt128）陈述，避免假证 UInt64 环绕 |
-
-**验收**：关键 swap/remove 引理 + Vectors 回归；文档写清「整数 floor AMM，非 Uniswap 实数」。
-
-### 5.5 阶段 L1-E — 与产品语义对齐（仍非 L2 formal）
-
-**目标**：abstract step **不是第二套故事**。
+### 5.6 L1-G — 第二实例（通用性门）
 
 | 交付 | 说明 |
 |---|---|
-| 对齐策略（二选一或组合） | (a) 从 Normalize 后的 MiniAmm Semantic 抽 step；(b) 证明 abstract ≡ Reference 在 MiniAmm 子集上 |
-| 可选：可执行 inv 投影 | `P1`/`P2` 的 Bool 编码进 **独立** proof-only program 或库定理，**不**强迫 MiniAmm.lean 带 inv 破坏 deploy |
-| 文档 | 「工程 L1 闭合」检查清单；明确 **未** 含 target refine |
+| 非 AMM program + 自有 P + step | 复用 Preserves 形状 |
+| 短文档 + 测试 | 「同一挂载，不同业务」 |
 
-**仍不做**：formal EV、Stage-0、改 accepted PRD formal 完成度。
+（编号 L1-G 插在 Assets 前，强制横向验收。）
 
-### 5.6 阶段 L1-F — Assets（可选，L1 之后）
+### 5.7 L1-F — Assets 实例（可选）
 
-仅当 vault-internal L1 稳定后再开：
+`MiniAmmAssets` 或等价：记账 + sync transfer 一致性；仍是 **实例**。
 
-- abstract 增加「vault token 余额」或 effect 上的 transfer 事件；  
-- 与 `MiniAmmAssets` pre-fund 诚实模型对齐；  
-- EVM/Solana 运行时门已有，形式化是 **记账+转币一致性**，不是再造 runtime。
+### 5.8 D / L2 — 项目 formal（最后）
 
-### 5.7 阶段 D / L2 — 项目 formal（最后）
+- formal TASK-D2-07 / TST-SEM / TST-PROOF  
+- hermetic / Stage-0 / release  
+- target refine Reference  
 
-**刻意延后**。包含且不限于：
+**不得** 用 MiniAmm L1 或 L0 certified 勾 formal 完成。
 
-- formal TASK-D2-07 / TST-SEM-002/003 / TST-PROOF-001  
-- hermetic / Stage-0 / release qualification  
-- target refinement（Anvil/Mollusk ↔ Reference formal）  
-- 用 formal 完成度改写 accepted 范围  
-
-**规则**：L1 工程证明 **可以** 写进 `MiniAmmSafetySketch` / 测试；**不得** 写入「formal TASK closed」。
-
-### 5.8 建议切片粒度（一次一个）
+### 5.9 切片顺序
 
 ```text
-L1-A abstract step + Vectors 钉
-  → L1-B PreservesP1
-  → L1-C Map + P2
-  → L1-D P3 / 弱 P4（宽积）
-  → L1-E 与 Reference/Normalize 对齐声明
+L1-A MiniAmm step + 接口清单
+  → L1-B MiniAmm PreservesP1
+  → L1-G 第二 program 复用 Preserves 形状   ← 尽早证明通用
+  → L1-C / L1-D 加深 MiniAmm 业务
+  → L1-E 语义对齐
   → (可选) L1-F Assets
-  → …很久以后… D/L2 formal 轨道
+  → …最后… D/L2
 ```
 
-每切片：先失败测试/义务表 → 实现 → `lake` 相关 suite → 更新本文 §5 状态行。
+> **说明**：L1-G 提前到 P2/P4 之前，避免「做完所有 AMM 数学才发现栈不可复用」。
 
-### 5.9 明确不在 L1 范围
+### 5.10 不在当前范围
 
 | 项 | 原因 |
 |---|---|
-| 给 `MiniAmm.lean` 加 nonempty inv 并要求 Solana/EVM build | materializer FC；破坏现网 pin |
-| 用 `InvariantTheoremV1` 证 P1–P4 | 全称 StateConforms 形状不对 |
-| NEAR 上同保证 Assets 形式化 | 跨合约 async；见 RESEARCH-022 |
-| 「完全 formal 项目」 | = D/L2，最后做 |
+| 业务 program 强制带 inv 且 EVM/Solana build | materializer FC |
+| 用 `InvariantTheoremV1` 证任意业务 P | 形状不对 |
+| 只维护 MiniAmm、永不做第二实例 | 违背通用产品 |
+| 现在开全项目 formal D | 产品决策：最后做 |
 
 ---
 
 ## 6. 维护
 
-- 升级「已证」层级时：改本表 §1/§5 状态词 + Examples 注释 + 测试钉。  
-- 禁止用 `invariant foo : true` 命名暗示已证 foo 业务性质（L0 用中性名 `l0Surface`）。  
-- L1 每闭合一条 P：在 §2 表加 **proved (abstract step)** 字样，并指向定理名。
+- 平台形状变更：更新 §0–§1；实例进度：更新 §2 / §5。  
+- 新 program 形式化：新增「实例」小节或独立 instance 笔记，**链回** 本文件 §0。  
+- L0 中性名（如 `l0Surface`），禁止用 `true` 不变式冒充业务安全名。  
+- L1 每证一条实例 P：标注 **proved (abstract step / instance X)** + 定理名。

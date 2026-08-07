@@ -45,7 +45,7 @@ normative: false
 24. [`system-capabilities-evm-solana.md`](system-capabilities-evm-solana.md)：EVM/Solana 逐项 opcode / syscall / sysvar / builtin 清单（RPT-020 的详细平台报告；2026-08-05）。
 25. [`21-system-programs-survey.md`](21-system-programs-survey.md)：各链官方链上程序（系统合约 / builtin program / precompile / management canister / 链级模块）全景——L2 系统能力层，含"能力 vs 形态"对照表与强制等级分级（RPT-021；2026-08-05）。
 26. [`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)：**可移植表面 vs 链上现实**——跨合约 / 资产 / 原子性总表（12-target）；解释为何一份 `program` 不能诚实直出「各链失败语义相同」的制品（NEAR Promise vs EVM/Solana CPI vs CW SubMsg；Wasm 不是原因）（RPT-022；2026-08-07）。
-27. [`23-miniamm-formalization-ladder.md`](23-miniamm-formalization-ladder.md)：MiniAmm **形式化阶梯** L0 simple-closure / L1 业务保持 / L2 formal；与 `MiniAmmProofSurface` + `MiniAmmSafetySketchV1` 对齐（RPT-023；2026-08-07）。
+27. [`23-miniamm-formalization-ladder.md`](23-miniamm-formalization-ladder.md)：**通用程序形式化栈** L0/L1/L2 + **首个实例 MiniAmm**；平台 Preserves 形状 vs 每合约 P/step；第二实例验收通用性；D/L2 formal 最后（RPT-023；2026-08-07）。
 
 ## 证据等级
 

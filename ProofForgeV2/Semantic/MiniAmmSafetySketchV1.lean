@@ -1,16 +1,19 @@
 import ProofForgeV2.Semantic.WireV1
 
 /-!
-  ProofForgeV2.Semantic.MiniAmmSafetySketchV1 — **L1 interface sketch only**.
+  ProofForgeV2.Semantic.MiniAmmSafetySketchV1 — **first L1 program instance**.
 
-  Abstract vault-internal MiniAmm state and business predicates for the
-  formalization ladder (RESEARCH-023). This module:
+  Platform formalization ladder: RESEARCH-023.
+  * **Generic**: `Preserves` shape (init + step keeps P) is the reusable pattern.
+  * **This module**: MiniAmm-specific `State` / `Effect` / predicates P1… only.
+  * A later non-AMM instance must reuse the *shape*, not these predicates.
+
+  This module:
 
   * does **not** encode/decode product `SemanticProgramV1`;
   * does **not** close `InvariantTheoremV1` for MiniAmm carriers;
   * does **not** claim Reference `step` preservation is implemented;
-  * introduces **named Prop** targets so later slices can prove real lemmas
-    without inventing a second ad-hoc math language in Examples.
+  * does **not** define the only allowed safety theory in the product.
 
   Engineering only — not formal TASK-D2-07 / TST-SEM-002/003.
 -/
