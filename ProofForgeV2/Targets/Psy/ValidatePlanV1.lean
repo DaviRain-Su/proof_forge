@@ -380,10 +380,12 @@ private partial def checkReturnFormsV1
                 planError "returnAggregate expected leaf missing"
               let some gotInt := leafIsInt[i]? |
                 planError "returnAggregate leafIsInt missing"
-              unless exp.byteWidth == 4 || exp.byteWidth == 8 do
-                planError s!"function '{fnName}' aggregate leaf {i} must be a 4-byte UInt32 limb or 8-byte UInt64/Int64 word"
+              unless exp.byteWidth == 1 || exp.byteWidth == 4 || exp.byteWidth == 8 do
+                planError s!"function '{fnName}' aggregate leaf {i} must be a 1-byte Bytes UInt8, 4-byte UInt32 limb, or 8-byte UInt64/Int64 word"
               if exp.byteWidth == 4 && exp.isInt then
                 planError s!"function '{fnName}' UInt128 ABI limb {i} must be unsigned"
+              if exp.byteWidth == 1 && exp.isInt then
+                planError s!"function '{fnName}' Bytes ABI leaf {i} must be unsigned UInt8"
               unless gotInt == exp.isInt do
                 planError s!"function '{fnName}' returnAggregate leaf {i} isInt mismatch"
         | _ =>
@@ -409,16 +411,21 @@ private def validateResultKind
       let isWideUintAbi :=
         (leaves.size == 4 || leaves.size == 8) &&
           leaves.all (fun leaf => !leaf.isInt && leaf.byteWidth == 4)
+      let isBytesAbi :=
+        leaves.size ≥ 1 && leaves.size ≤ 8 &&
+          leaves.all (fun leaf => !leaf.isInt && leaf.byteWidth == 1)
       if isWideUintAbi then
         unless profileMode == .dargo010Vm do
           planError s!"function '{fn.name}' wide UInt aggregate ABI requires profile psy-dargo-0.1.0-vm-v1"
         let expectedWidth := leaves.size * 32
         unless fn.resultUintWidth == expectedWidth do
           planError s!"function '{fn.name}' UInt{expectedWidth} aggregate ABI must carry resultUintWidth={expectedWidth}"
+      else if isBytesAbi then
+        pure ()
       else
         for leaf in leaves do
           unless leaf.byteWidth == 8 do
-            planError s!"function '{fn.name}' non-wide aggregate leaves must be 8-byte UInt64/Int64 words"
+            planError s!"function '{fn.name}' non-wide aggregate leaves must be 8-byte UInt64/Int64 words or 1-byte Bytes"
       -- pureFn aggregate stays fail closed even if a hand-built plan slips through.
       if fn.kind == .pureHelper then
         planError s!"pureFn '{fn.name}' cannot carry an aggregate resultKind"

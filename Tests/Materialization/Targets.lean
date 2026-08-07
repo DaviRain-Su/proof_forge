@@ -3034,9 +3034,9 @@ unsafe def run : IO Unit := do
   -- Normalize admits identity-only Principal (state/params/eq/ne). Wire is
   -- variable-length u32-prefixed 1..4096 body. T10 opens EVM; T12 opens
   -- Solana/NEAR/Noir state/param leaf storage (len + 8×UInt64, ≤64B body)
-  -- without Principal→address mapping. Psy remains Plan fail-closed
-  -- (no exact Felt match; PsyFelt-style honesty pin). B-3 research pin still
-  -- holds: storage is wire identity leaves, not pubkey/account-id/Field.
+  -- without Principal→address mapping. Psy PSY-SCALAR-ABI opens the same
+  -- wire-identity layout as `len`+8×UInt32 (max 32B; not address). B-3 research
+  -- pin still holds: storage is wire identity leaves, not pubkey/account-id/Field.
   let prinSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3111,18 +3111,16 @@ unsafe def run : IO Unit := do
   expect ((MaterializedArtifactsV1.filesOf prinNoir).any
       (fun f => f.path.endsWith ".nr" || f.path.endsWith ".json"))
     "T12 Noir Principal materialize must emit Noir source artifacts"
-  -- Psy remains fail-closed on Principal (Felt ≠ wire identity).
-  match materializeSelected TargetId.psy prinCompiled with
-  | .ok _ =>
-      throw <| IO.userError "N2c principal: psy must fail closed on Principal"
-  | .error e =>
-      expect ((e.render).contains "Principal" ||
-          (e.render).contains "principal" ||
-          (e.render).contains "unsupported" ||
-          (e.render).contains "identity" ||
-          (e.render).contains "variable-length" ||
-          (e.render).contains "Felt")
-        s!"N2c principal psy message must cite Principal boundary, got {e.render}"
+  -- PSY-SCALAR-ABI: Psy opens Principal wire-identity leaves (not address).
+  let prinPsy ← liftResult <| materializeSelected TargetId.psy prinCompiled
+  expect ((MaterializedArtifactsV1.filesOf prinPsy).any
+      (fun f => f.path.endsWith ".psy" || f.path.endsWith ".json"))
+    "PSY-SCALAR-ABI Psy Principal materialize must emit .psy artifacts"
+  let psyPlan ← liftResult <| planPsy prinCompiled
+  expect (psyPlan.stateFieldNames.size == 9)
+    s!"PSY-SCALAR-ABI Psy Principal must flatten to 9 Felt leaves, got {psyPlan.stateFieldNames.size}"
+  expect (psyPlan.stateFieldNames[0]! == "owner_len")
+    s!"Psy Principal leaf 0 must be owner_len, got {psyPlan.stateFieldNames[0]!}"
   -- B-3 honesty pin survives T12: storage is wire identity leaves, not a
   -- 32-byte pubkey reinterpretation. Positive Solana materialize proves the
   -- leaf layout; wording still documents the non-match in Envelope diagnostics

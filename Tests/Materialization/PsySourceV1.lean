@@ -1304,9 +1304,8 @@ unsafe def testNarrowIntFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
   | .ok _ => throw <| IO.userError "Int128 must fail closed at Psy plan"
 
-/-- Fail closed: Bytes state. Psy has no u8 native type / storage impl, and
-    Bytes element ops return UInt8 which is outside the Psy pilot closure. -/
-unsafe def testBytesStateFailClosed : IO Unit := do
+/-- PSY-SCALAR-ABI: fixed Bytes N (1..8) as N×UInt8 Felt leaves. -/
+unsafe def testBytesStateLowered : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -1315,18 +1314,102 @@ unsafe def testBytesStateFailClosed : IO Unit := do
     "  state buf : Bytes 4\n" ++
     "  init() do\n" ++
     "    buf[0] := 0\n" ++
-    "  entry get() : UInt8 do\n" ++
-    "    return buf[0]\n"
+    "    buf[1] := 0\n" ++
+    "    buf[2] := 0\n" ++
+    "    buf[3] := 0\n" ++
+    "  entry set0(v : UInt8) : UInt8 do\n" ++
+    "    buf[0] := v\n" ++
+    "    return buf[0]\n" ++
+    "  view get() : Bytes 4 do\n" ++
+    "    return buf\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<psy-bytes>" "Tests.PsyBytes" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  expect (plan.stateFieldNames == #["buf_0", "buf_1", "buf_2", "buf_3"])
+    s!"Bytes 4 state must flatten to buf_0..3, got {plan.stateFieldNames}"
+  let some getFn := plan.functions.find? (·.name == "get") |
+    throw <| IO.userError "missing view get"
+  match getFn.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 4 && leaves.all (fun l => !l.isInt && l.byteWidth == 1))
+        "Bytes 4 return must be 4×UInt8 aggregate ABI"
+  | _ => throw <| IO.userError "view get must carry aggregate resultKind"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "Buf.psy") |
+    throw <| IO.userError "psy: missing Buf.psy"
+  expect (psyFile.contents.contains "buf_0" && psyFile.contents.contains "buf_3")
+    "Bytes state leaves must appear in emitted Psy source"
+  expect (psyFile.contents.contains "[Felt; 4]")
+    "Bytes return must emit honest multi-leaf [Felt; 4]"
+
+/-- PSY-SCALAR-ABI: Principal wire identity state (len + 8×UInt32), not an address. -/
+unsafe def testPrincipalStateLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Owner where\n" ++
+    "  state who : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    who := initial\n" ++
+    "  entry set(next : Principal) : Bool do\n" ++
+    "    who := next\n" ++
+    "    return true\n" ++
+    "  entry same(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-principal>" "Tests.PsyPrincipal" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  expect (plan.stateFieldNames ==
+      #["who_len", "who_b0", "who_b1", "who_b2", "who_b3",
+        "who_b4", "who_b5", "who_b6", "who_b7"])
+    s!"Principal state must flatten to who_len + who_b0..7, got {plan.stateFieldNames}"
+  let some initFn := plan.functions.find? (·.name == "initialize") |
+    throw <| IO.userError "missing initializer"
+  expect (initFn.params.size == 9)
+    s!"Principal init param must expand to 9 limbs, got {initFn.params.size}"
+  expect (initFn.params[0]!.name == "initial_len")
+    s!"first Principal param leaf must be initial_len, got {initFn.params[0]!.name}"
+  expect (initFn.params.map (·.sourceIndex) == #[0, 1, 2, 3, 4, 5, 6, 7, 8])
+    "Principal param sourceIndex must be dense 0..8"
+  for p in initFn.params do
+    expect (p.uintWidth == 32)
+      s!"Principal limb '{p.name}' must be UInt32-width ABI, got {p.uintWidth}"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "Owner.psy") |
+    throw <| IO.userError "psy: missing Owner.psy"
+  expect (psyFile.contents.contains "who_len" && psyFile.contents.contains "who_b0")
+    "Principal wire-identity leaves must appear in emitted Psy source"
+  -- Emit renames params to p{sourceIndex}; 9-leaf Principal → p0..p8.
+  expect (psyFile.contents.contains "p0: Felt" && psyFile.contents.contains "p8: Felt")
+    "Principal params must expand to nine Felt formals in Psy source"
+
+/-- Principal/String return stays FC (9 leaves > B-RET-ABI cap 8). -/
+unsafe def testPrincipalReturnFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Who where\n" ++
+    "  state who : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    who := initial\n" ++
+    "  view getWho() : Principal do\n" ++
+    "    return who\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-principal-ret>" "Tests.PsyPrincipalRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planPsy compiled with
   | .error (.planInvariant .psy msg) =>
-      expect (msg.contains "Bytes" || msg.contains "UInt8" ||
-          msg.contains "container" || msg.contains "Array-only")
-        s!"Bytes state must fail closed citing Bytes/UInt8/container boundary, got: {msg}"
+      expect (msg.contains "Principal" || msg.contains "B-RET" || msg.contains "cap" ||
+          msg.contains "leaves")
+        s!"Principal return must fail closed citing B-RET boundary, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
-  | .ok _ => throw <| IO.userError "Bytes state must fail closed at Psy plan"
+  | .ok _ => throw <| IO.userError "Principal return must fail closed at Psy plan"
 
 /-- if/else multi-block control flow renders as a Psy if-else. -/
 unsafe def testIfElseControlFlow : IO Unit := do
@@ -2302,20 +2385,21 @@ unsafe def testAggregateReturnFailClosed : IO Unit := do
       | .ok _ =>
           throw <| IO.userError
             "Psy anonymous Map return must fail closed (N-ANON-RESULT)"
-  -- Anonymous Bytes return stays fail-closed.
-  let bytesSource :=
+  -- Bytes length outside 1..8 stays fail-closed (SCALAR-ABI admits 1..8 only).
+  let bytesOobSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program BytesRet where\n" ++
-    "  state seed : UInt64\n" ++
+    "program BytesOob where\n" ++
+    "  state buf : Bytes 9\n" ++
     "  init() do\n" ++
-    "    seed := 0\n" ++
-    "  view getBytes() : Bytes 4 do\n" ++
-    "    return 0x00000000\n"
+    "    buf[0] := 0\n" ++
+    "  entry set0(v : UInt8) : UInt8 do\n" ++
+    "    buf[0] := v\n" ++
+    "    return buf[0]\n"
   match ← (do
       try
         let parsed ← liftResult (← session.selectProgramV1
-          bytesSource "<psy-bytes-ret>" "Tests.BytesRet" none)
+          bytesOobSource "<psy-bytes-oob>" "Tests.BytesOob" none)
         let c ← liftResult <| Compiler.compileValidatedSourceV1 parsed
         pure (some c)
       catch _ => pure none) with
@@ -2323,12 +2407,12 @@ unsafe def testAggregateReturnFailClosed : IO Unit := do
   | some c =>
       match planPsy c with
       | .error e =>
-          expect (e.render.contains "Bytes" || e.render.contains "aggregate" ||
-              e.render.contains "B-RET" || e.render.contains "container")
-            s!"BytesRet error must cite Bytes/aggregate, got: {e.render}"
+          expect (e.render.contains "Bytes" || e.render.contains "1..8" ||
+              e.render.contains "length" || e.render.contains "container")
+            s!"BytesOob error must cite Bytes length bound, got: {e.render}"
       | .ok _ =>
           throw <| IO.userError
-            "Psy anonymous Bytes return must fail closed (N-ANON-RESULT)"
+            "Psy Bytes 9 state must fail closed (SCALAR-ABI admits 1..8 only)"
   -- Array UInt64 9 exceeds B-RET-ABI leaf cap.
   let arr9Source :=
     "import ProofForgeV2\n" ++
@@ -2594,7 +2678,9 @@ unsafe def run : IO Unit := do
   testNarrowIntVmLowered
   testUInt32CompareLowered
   testNarrowIntFailClosed
-  testBytesStateFailClosed
+  testBytesStateLowered
+  testPrincipalStateLowered
+  testPrincipalReturnFailClosed
   testIfElseControlFlow
   testMatchStatement
   testBoundedFor

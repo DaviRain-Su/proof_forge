@@ -44,7 +44,9 @@ Named Struct/Enum and fixed-length `Array UInt64 N` are **LOWERED** by
 flattening to consecutive Felt storage leaves (`name_field` / `name_i`).
 Plan Expr remains scalar-only: construct/fieldGet/fieldSet/variantTag/
 variantPayload/indexGet/indexSet operate in the lowering value env only.
-Map/Bytes/String/Principal stay fail-closed. Array IndexGet/IndexSet
+Map state stays fail-closed. PSY-SCALAR-ABI admits fixed Bytes 1..8 as
+N×UInt8 Felt leaves and Principal/String wire identity as len+8×UInt32
+(max 32B payload; returns FC at 9 > B-RET cap 8). Array/Bytes IndexGet/IndexSet
 require a compile-time UInt literal index (no dynamic select surface on Psy).
 
 ## B-RET-ABI named Struct/Enum entry/view returns (2026-08-03)
@@ -58,12 +60,13 @@ leaves stay fail closed.
 
 ## N-ANON-RESULT anonymous Array/Option entry/view returns (BL-25)
 
-Anonymous `Array UInt64 N` (1..8) and `Option UInt64` entry/view results reuse
-the same preorder-leaf + `[Felt; N]` path: Array → N Felt leaves; Option →
-`[Felt; 2]` tag+payload (`none=[0,0]`, `some=[1,v]`). Map/Bytes/nested/
-non-UInt64-element anonymous returns stay fail closed. Option is admitted as a
-body intermediate via container policy `ArrayMap` (Map **state** remains
-fail-closed at layout).
+Anonymous `Array UInt64 N` (1..8), `Option UInt64`, and fixed `Bytes N`
+(1..8) entry/view results reuse the same preorder-leaf + `[Felt; N]` path:
+Array → N Felt leaves; Option → `[Felt; 2]` tag+payload (`none=[0,0]`,
+`some=[1,v]`); Bytes → N×UInt8 Felt leaves. Map/nested/non-UInt64-element
+anonymous returns stay fail closed. Option is admitted as a body intermediate
+via container policy `ArrayMapBytes` (Map **state** remains fail-closed at
+layout).
 
 ## B-OPT-STATE Option UInt64 state (BL-36)
 
@@ -410,8 +413,9 @@ def isNarrowUintWidth (bitWidth : Nat) : Bool :=
     intermediate for N-ANON-RESULT returns and (B-OPT-STATE) as `Option UInt64`
     storage (shared Envelope gate keys Option on `admitMap`; Option is never
     pushed to `containerTypeIds`). Map **state** still fail-closes at layout.
-    Bytes/Principal stay fail closed. Narrow Int{8,16,32} admitted as
-    two's-complement bit patterns in Felt (full range fits below Goldilocks p). -/
+    Bytes 1..8 and Principal/String wire identity admitted (SCALAR-ABI).
+    Narrow Int{8,16,32} admitted as two's-complement bit patterns in Felt
+    (full range fits below Goldilocks p). -/
 private def validatePsyTypeClosureV1
     (profileMode : PsyProfileModeV1)
     (types : Array TypeDeclV1) : CompileResult PsyTypeClosureV1 :=
@@ -419,11 +423,12 @@ private def validatePsyTypeClosureV1
     (pilotUintWidthPolicyPsyBody profileMode)
     (intPolicy := pilotIntWidthPolicyNarrow)
     (fieldPolicy := pilotFieldPolicyGoldilocks)
+    (principalPolicy := pilotPrincipalPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
-    -- ArrayMap (not ArrayOnly): admits Option body intermediates for
-    -- N-ANON-RESULT + B-OPT-STATE Option UInt64 storage layout; Map state
-    -- remains FC in makeStateLayoutV1.
-    (containerPolicy := pilotContainerStatePolicyArrayMap)
+    (stringPolicy := pilotStringPolicyAdmit)
+    -- ArrayMapBytes: Array + Option intermediates + fixed Bytes 1..8.
+    -- Map state still fail-closes in flatten/makeStateLayout.
+    (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 -- ---------------------------------------------------------------------------
 -- Wire semantic → target-owned Plan lowering
@@ -431,6 +436,12 @@ private def validatePsyTypeClosureV1
 
 private def maxIdentifierBytes : Nat := 240
 private def maxStateLeafFields : Nat := 256
+/-- PSY-SCALAR-ABI: Principal/String storage is full wire identity
+    `u32le(len)||body` flattened to `len` + 8×UInt32 body limbs (max 32B
+    payload). Not an address / Felt scalar. Returns stay FC (9 > B-RET cap 8). -/
+private def psyWireIdentityBodyLimbCountV1 : Nat := 8
+private def psyWireIdentityMaxPayloadBytesV1 : Nat := 32
+private def psyBytesMaxLenV1 : Nat := 8
 
 private def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
@@ -639,6 +650,10 @@ private partial def flattenTypeLeafSpecsV1
     pure #[namePrefix]
   else if types.int64TypeId == some typeId then
     pure #[namePrefix]
+  else if match types.intWidthOf typeId with
+      | some w => isNarrowIntWidth w
+      | none => false then
+    pure #[namePrefix]
   else if types.isNamedAggregate typeId then
     match typeDecls[typeId.toNat]? with
     | none =>
@@ -698,12 +713,34 @@ private partial def flattenTypeLeafSpecsV1
         pure out
     | some { shape := .map .., .. } =>
         planError "unsupported Psy semantic shape: Map state is outside the Psy Array-only container pilot"
-    | some { shape := .bytes _, .. } =>
-        planError "unsupported Psy semantic shape: Bytes state is outside the Psy Array-only container pilot"
+    | some { shape := .bytes n, .. } =>
+        let len := n.toNat
+        unless len ≥ 1 && len ≤ psyBytesMaxLenV1 do
+          planError s!"unsupported Psy semantic shape: Bytes state length must be in 1..{psyBytesMaxLenV1}"
+        let mut out : Array String := #[]
+        for i in [0:len] do
+          let leafName := namePrefix ++ "_" ++ toString i
+          unless isIdentifier leafName do
+            planError s!"state name '{leafName}' is not a safe identifier"
+          out := out.push leafName
+        pure out
     | _ =>
         planError "unsupported Psy semantic shape: container TypeId is not Array/Map/Bytes"
+  else if types.isPrincipal typeId || types.isString typeId then
+    -- Full wire identity: len + 8×UInt32 body limbs (max 32B payload).
+    let lenName := if namePrefix.isEmpty then "len" else namePrefix ++ "_len"
+    unless isIdentifier lenName do
+      planError s!"state name '{lenName}' is not a safe identifier"
+    let mut out : Array String := #[lenName]
+    for i in [0:psyWireIdentityBodyLimbCountV1] do
+      let leafName :=
+        if namePrefix.isEmpty then s!"b{i}" else namePrefix ++ "_b" ++ toString i
+      unless isIdentifier leafName do
+        planError s!"state name '{leafName}' is not a safe identifier"
+      out := out.push leafName
+    pure out
   else
-    planError "unsupported Psy semantic shape: aggregate leaf must be UInt{8,16,32,64}, Int64, named Struct/Enum, or Array UInt64"
+    planError "unsupported Psy semantic shape: aggregate leaf must be UInt{8,16,32,64}, Int64, named Struct/Enum, Array UInt64, Bytes 1..8, Principal, or String"
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
@@ -757,7 +794,8 @@ private partial def flattenReturnLeafAbiV1
 
 /-- N-ANON-RESULT (Psy ABI): anonymous result leaf layout for admitted
 container returns. `Array UInt64 N` → N×Felt leaves; `Option UInt64` →
-tag+payload (`none=[0,0]`, `some=[1,v]`). Map/Bytes throw for precise FC. -/
+tag+payload (`none=[0,0]`, `some=[1,v]`); `Bytes N` (1..8) → N×UInt8 leaves.
+Map throws for precise FC. -/
 private def anonymousReturnLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do
@@ -776,12 +814,14 @@ private def anonymousReturnLeafAbiV1
         planError
           "unsupported Psy semantic shape: anonymous Option return requires UInt64 payload"
       pure (some #[{ isInt := false, byteWidth := 8 }, { isInt := false, byteWidth := 8 }])
+  | some { shape := .bytes n, name := none, .. } =>
+      let len := n.toNat
+      unless len ≥ 1 && len ≤ psyBytesMaxLenV1 do
+        planError s!"unsupported Psy semantic shape: Bytes return length must be in 1..{psyBytesMaxLenV1}"
+      pure (some (Array.replicate len { isInt := false, byteWidth := 1 }))
   | some { shape := .map .., name := none, .. } =>
       planError
         "unsupported Psy semantic shape: anonymous Map return is outside the Psy B-RET ABI"
-  | some { shape := .bytes .., name := none, .. } =>
-      planError
-        "unsupported Psy semantic shape: anonymous Bytes return is outside the Psy B-RET ABI"
   | some { shape := .array .., .. } | some { shape := .option .., .. } =>
       pure none
   | _ => pure none
@@ -801,9 +841,9 @@ private def isAggregateResultCandidateV1
     | some { shape := .bytes .., name := none, .. } => true
     | _ => false
 
-/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option
+/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option/Bytes
 result TypeId into an aggregate `ResultKind`. Enforces 1..8 leaves.
-Map/Bytes/nested/narrow-element anonymous containers fail closed. -/
+Map/nested/narrow-element anonymous containers fail closed. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
@@ -878,10 +918,27 @@ private def arrayUInt64LeafCountV1
       pure (some n)
   | some { shape := .map .., .. } =>
       planError "unsupported Psy semantic shape: Map state is outside the Psy Array-only container pilot"
-  | some { shape := .bytes _, .. } =>
-      planError "unsupported Psy semantic shape: Bytes state is outside the Psy Array-only container pilot"
+  | some { shape := .bytes n, .. } =>
+      let len := n.toNat
+      unless len ≥ 1 && len ≤ psyBytesMaxLenV1 do
+        planError s!"unsupported Psy semantic shape: Bytes length must be in 1..{psyBytesMaxLenV1}"
+      pure (some len)
   | _ =>
       planError "unsupported Psy semantic shape: container TypeId is not Array/Map/Bytes"
+
+/-- Return leaf count for fixed Bytes N (UInt8 elements) when admitted. -/
+private def bytesLeafCountV1
+    (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+  unless types.isContainer typeId do
+    return none
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .bytes n, .. } =>
+      let len := n.toNat
+      unless len ≥ 1 && len ≤ psyBytesMaxLenV1 do
+        planError s!"unsupported Psy semantic shape: Bytes length must be in 1..{psyBytesMaxLenV1}"
+      pure (some len)
+  | _ => pure none
 
 /-- True when `typeId` is an anonymous Option TypeDecl (not named; not in
     `containerTypeIds`). Admitted surfaces: N-ANON-RESULT / B-RET-ABI return
@@ -918,7 +975,8 @@ private def makeStateLayoutV1
       planError "unsupported Psy semantic shape: semantic state ids must match declaration order"
     unless isIdentifier state.name do
       planError s!"state name '{state.name}' is not a safe identifier"
-    if types.isNamedAggregate state.typeId || types.isContainer state.typeId then
+    if types.isNamedAggregate state.typeId || types.isContainer state.typeId
+        || types.isPrincipal state.typeId || types.isString state.typeId then
       let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
       if fieldNames.size + leafSpecs.size > maxStateLeafFields then
         planError "unsupported Psy semantic shape: state leaf count exceeds Psy profile limit"
@@ -979,7 +1037,7 @@ private def makeStateLayoutV1
       fieldNames := fieldNames.push state.name
       stateLeaves := stateLeaves.push #[leafIdx]
     else
-      planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64}, Int{8,16,32,64}, Goldilocks Field, named Struct/Enum, Array UInt64, or Option UInt64 (Map/Bytes/Principal declined; wide UInt needs VM profile)"
+      planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64}, Int{8,16,32,64}, Goldilocks Field, named Struct/Enum, Array UInt64, Bytes 1..8, Principal, String, or Option UInt64 (Map declined; wide UInt needs VM profile)"
   pure { profileMode, fieldNames, stateLeaves, typeDecls, types }
 
 private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
@@ -1125,6 +1183,44 @@ private def decodeUInt128LimbsV1 (bytes : ByteArray) : CompileResult (Array Expr
 private def decodeUInt256LimbsV1 (bytes : ByteArray) : CompileResult (Array Expr) :=
   decodeWideUintLimbsV1 256 bytes
 
+/-- Decode wire Principal/String `u32le(len)||body` into len + 8×UInt32 body limbs.
+    Body longer than 32 bytes fails closed (honest fixed layout). -/
+private def decodeWireIdentityLimbsV1 (valueBytes : ByteArray) :
+    CompileResult (Array Expr) := do
+  unless valueBytes.size ≥ 4 do
+    planError "unsupported Psy semantic shape: Principal/String wire identity needs a length header"
+  let len :=
+    (valueBytes.get! 0).toNat +
+    ((valueBytes.get! 1).toNat <<< 8) +
+    ((valueBytes.get! 2).toNat <<< 16) +
+    ((valueBytes.get! 3).toNat <<< 24)
+  unless len ≥ 1 do
+    planError "unsupported Psy semantic shape: Principal/String length must be ≥ 1"
+  unless len ≤ psyWireIdentityMaxPayloadBytesV1 do
+    planError s!"unsupported Psy semantic shape: Principal/String payload exceeds {psyWireIdentityMaxPayloadBytesV1} bytes on Psy"
+  unless valueBytes.size == 4 + len do
+    planError "unsupported Psy semantic shape: Principal/String wire length does not match payload"
+  let mut limbs : Array Expr := #[.literal (UInt64.ofNat len)]
+  for i in [0:psyWireIdentityBodyLimbCountV1] do
+    let base := 4 + i * 4
+    let mut word : Nat := 0
+    for b in [0:4] do
+      let off := base + b
+      if off < valueBytes.size then
+        word := word + ((valueBytes.get! off).toNat <<< (8 * b))
+    limbs := limbs.push (.literal (UInt64.ofNat word))
+  pure limbs
+
+/-- Decode fixed Bytes N as N UInt8 Felt leaves. -/
+private def decodeBytesLimbsV1 (n : Nat) (valueBytes : ByteArray) :
+    CompileResult (Array Expr) := do
+  unless valueBytes.size == n do
+    planError s!"unsupported Psy semantic shape: Bytes {n} literal must contain exactly {n} bytes"
+  let mut limbs : Array Expr := #[]
+  for i in [0:n] do
+    limbs := limbs.push (.literal (UInt64.ofNat (valueBytes.get! i).toNat))
+  pure limbs
+
 private def lowerLiteralValue
     (data : SemanticProgramDataV1) (layout : PsyLowerLayoutV1)
     (typeId : TypeIdV1) (valueBytes : ByteArray) :
@@ -1150,10 +1246,17 @@ private def lowerLiteralValue
           else if w == 64 then pure (mkInt64Val e)
           else pure (mkScalarVal e)
       | none =>
-          let e ← lowerLiteral data layout.types typeId valueBytes
-          if isGoldilocksFieldType layout.types typeId then pure (mkFieldVal e)
-          else if isInt64Type data typeId then pure (mkInt64Val e)
-          else pure (mkScalarVal e)
+          if layout.types.isPrincipal typeId || layout.types.isString typeId then
+            pure (mkAggregateVal (← decodeWireIdentityLimbsV1 valueBytes))
+          else
+            match ← bytesLeafCountV1 layout.typeDecls layout.types typeId with
+            | some n =>
+                pure (mkAggregateVal (← decodeBytesLimbsV1 n valueBytes))
+            | none =>
+                let e ← lowerLiteral data layout.types typeId valueBytes
+                if isGoldilocksFieldType layout.types typeId then pure (mkFieldVal e)
+                else if isInt64Type data typeId then pure (mkInt64Val e)
+                else pure (mkScalarVal e)
 
 /-- Constant rows carry canonical valueBytes rather than source expression
     structure. Guard the two scalar cases whose raw wire integer cannot always
@@ -1559,6 +1662,23 @@ private partial def lowerRegion
         let valueDef ← match instr.result with
           | some vd => pure vd
           | none => planError "unsupported Psy semantic shape: binary instruction must produce a value"
+        -- PSY-SCALAR-ABI: Principal/String/Bytes/named multi-leaf eq/ne is
+        -- leaf-wise Felt equality (not address/pubkey). Ordering stays FC.
+        if (lv.isAggregate || rv.isAggregate) && !lv.isWideUint && !rv.isWideUint then
+          unless lv.isAggregate && rv.isAggregate do
+            planError "unsupported Psy semantic shape: aggregate comparison requires both operands aggregate"
+          unless op == .eq || op == .ne do
+            planError "unsupported Psy semantic shape: aggregate comparison only supports == / !="
+          let le := lv.leafExprs
+          let re := rv.leafExprs
+          unless le.size == re.size && le.size > 0 do
+            planError "unsupported Psy semantic shape: aggregate comparison leaf count mismatch"
+          let mut acc : Expr := .compare .eq le[0]! re[0]!
+          for i in [1:le.size] do
+            acc := .logicalAnd acc (.compare .eq le[i]! re[i]!)
+          let e := if op == .ne then .boolNot acc else acc
+          env := envInsert env valueDef.valueId e
+        else
         let resultWideW? :=
           match uintWidthOfType data valueDef.typeId with
           | some 128 => some 128
@@ -1853,22 +1973,36 @@ private partial def lowerRegion
             unless valueDef.typeId == typeId do
               planError "unsupported Psy semantic shape: construct result typeId must match op typeId"
             if layout.types.isContainer typeId then
-              let n ← match ← arrayUInt64LeafCountV1 layout.typeDecls layout.types typeId with
-                | some n => pure n
-                | none => planError "unsupported Psy semantic shape: construct admits only fixed Array UInt64 on Psy"
+              let bytesN? ← bytesLeafCountV1 layout.typeDecls layout.types typeId
+              let arrayN? ← arrayUInt64LeafCountV1 layout.typeDecls layout.types typeId
+              let (n, isBytes) ← match bytesN?, arrayN? with
+                | some n, _ => pure (n, true)
+                | none, some n => pure (n, false)
+                | none, none =>
+                    planError "unsupported Psy semantic shape: construct admits only fixed Array UInt64 or Bytes 1..8 on Psy"
               unless ctorIdx == 0 do
-                planError "unsupported Psy semantic shape: Array construct ctorIdx must be 0"
+                planError "unsupported Psy semantic shape: Array/Bytes construct ctorIdx must be 0"
               unless argIds.size == n do
-                planError "unsupported Psy semantic shape: Array construct arity mismatch"
+                planError "unsupported Psy semantic shape: Array/Bytes construct arity mismatch"
               let mut leafExprs : Array Expr := #[]
               for argId in argIds do
                 let arg ← match envLookup env argId with
                   | some v => pure v
                   | none => planError "unsupported Psy semantic shape: construct references undefined arg"
                 unless !arg.isAggregate do
-                  planError "unsupported Psy semantic shape: Array construct args must be scalar UInt64"
+                  planError "unsupported Psy semantic shape: Array/Bytes construct args must be scalar"
+                if isBytes then
+                  unless arg.isNarrow && arg.uintWidth == 8 do
+                    planError "unsupported Psy semantic shape: Bytes construct args must be UInt8"
+                else
+                  unless !arg.isNarrow || arg.uintWidth == 0 || arg.uintWidth == 64 do
+                    planError "unsupported Psy semantic shape: Array construct args must be scalar UInt64"
                 leafExprs := leafExprs.push arg.expr
               env := envInsertVal env valueDef.valueId (mkAggregateVal leafExprs)
+            else if layout.types.isPrincipal typeId || layout.types.isString typeId then
+              -- Wire identity construct: single Bytes-like payload not used;
+              -- callers materialize via constant/literal path or leaf store.
+              planError "unsupported Psy semantic shape: Principal/String construct must use constant/literal materialization (no runtime ctor)"
             else
               -- Option UInt64 construct (none/some) for N-ANON-RESULT returns
               -- and B-OPT-STATE store RHS; named Struct/Enum remains the other
@@ -2118,14 +2252,19 @@ private partial def lowerRegion
               | some v => pure v
               | none => planError "indexGet index undefined"
             unless base.isAggregate do
-              planError "unsupported Psy semantic shape: IndexGet base must be an Array UInt64 aggregate"
+              planError "unsupported Psy semantic shape: IndexGet base must be an Array UInt64 or Bytes aggregate"
             let i ← literalIndexNatV1 idx
             let leaves := base.leafExprs
             unless i < leaves.size do
-              planError "unsupported Psy semantic shape: Array IndexGet index out of range"
+              planError "unsupported Psy semantic shape: IndexGet index out of range"
             let some leaf := leaves[i]? |
-              planError "Array IndexGet leaf missing"
-            env := envInsert env valueDef.valueId leaf
+              planError "IndexGet leaf missing"
+            -- Bytes elements are UInt8; Array UInt64 elements stay scalar Felt.
+            match uintWidthOfType data valueDef.typeId with
+            | some 8 =>
+                env := envInsertNarrow env valueDef.valueId 8 leaf
+            | _ =>
+                env := envInsert env valueDef.valueId leaf
     | .indexSet baseId idxId valueId => do
         match instr.result with
         | none => planError "indexSet must produce a value"
@@ -2140,20 +2279,20 @@ private partial def lowerRegion
               | some v => pure v
               | none => planError "indexSet value undefined"
             unless base.isAggregate do
-              planError "unsupported Psy semantic shape: IndexSet base must be an Array UInt64 aggregate"
+              planError "unsupported Psy semantic shape: IndexSet base must be an Array UInt64 or Bytes aggregate"
             unless !val.isAggregate do
-              planError "unsupported Psy semantic shape: Array IndexSet value must be scalar UInt64"
+              planError "unsupported Psy semantic shape: IndexSet value must be scalar"
             let i ← literalIndexNatV1 idx
             let leaves := base.leafExprs
             unless i < leaves.size do
-              planError "unsupported Psy semantic shape: Array IndexSet index out of range"
+              planError "unsupported Psy semantic shape: IndexSet index out of range"
             let mut outLeaves : Array Expr := #[]
             for j in [0:leaves.size] do
               if j == i then
                 outLeaves := outLeaves.push val.expr
               else
                 let some e := leaves[j]? |
-                  planError "Array IndexSet leaf missing"
+                  planError "IndexSet leaf missing"
                 outLeaves := outLeaves.push e
             env := envInsertVal env valueDef.valueId (mkAggregateVal outLeaves)
     | .constant constantId => do
@@ -2279,8 +2418,8 @@ private partial def lowerRegion
                       planError s!"unsupported Psy semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
                     let mut leafIsInt : Array Bool := #[]
                     for leaf in expectedLeaves do
-                      unless leaf.byteWidth == 4 || leaf.byteWidth == 8 do
-                        planError "unsupported Psy semantic shape: aggregate return leaves must be UInt32 limbs or UInt64/Int64 words"
+                      unless leaf.byteWidth == 1 || leaf.byteWidth == 4 || leaf.byteWidth == 8 do
+                        planError "unsupported Psy semantic shape: aggregate return leaves must be Bytes UInt8, UInt32 limbs, or UInt64/Int64 words"
                       if leaf.byteWidth == 4 && leaf.isInt then
                         planError "unsupported Psy semantic shape: wide UInt ABI limbs must be unsigned UInt32"
                       leafIsInt := leafIsInt.push leaf.isInt
@@ -2384,9 +2523,10 @@ end
 
 /-- Resolve callable result to Plan scalar flags + resultUintWidth + ResultKind.
     UInt{8,16,32,64} all emit as Felt (narrow width documented on PlanFunction).
-    Named Struct/Enum and admitted anonymous Array UInt64 N / Option UInt64
-    entry/view results become `.aggregate` (cap-8). pureFn aggregate is
-    rejected by the pureFn gate below; Map/Bytes/nested stay FC. -/
+    Named Struct/Enum and admitted anonymous Array UInt64 N / Option UInt64 /
+    Bytes N (1..8) entry/view results become `.aggregate` (cap-8). pureFn
+    aggregate is rejected by the pureFn gate below; Map/nested stay FC.
+    Principal/String results FC (9 leaves > cap 8). -/
 private def resultShape (data : SemanticProgramDataV1)
     (profileMode : PsyProfileModeV1) (types : PsyTypeClosureV1)
     (typeDecls : Array TypeDeclV1) (callable : CallableV1) (owner : String) :
@@ -2414,11 +2554,13 @@ private def resultShape (data : SemanticProgramDataV1)
     else pure (false, false, 64, .felt)
   else if isGoldilocksFieldType types callable.result.typeId then pure (false, false, 0, .felt)
   else if isUnitType data callable.result.typeId then pure (false, true, 0, .unit)
+  else if types.isPrincipal callable.result.typeId || types.isString callable.result.typeId then
+    planError s!"{owner} Principal/String result is outside Psy B-RET-ABI (wire identity is 9 leaves > cap 8; state/param only)"
   else if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
     let kind ← aggregateResultKindOfV1 typeDecls types owner callable.result.typeId
     pure (false, false, 0, kind)
   else
-    planError s!"{owner} result is outside the public UInt8/16/32/64/Int64/Bool/Goldilocks-Field/Unit/named-Struct-Enum/anonymous-Array-Option envelope"
+    planError s!"{owner} result is outside the public UInt8/16/32/64/Int/Bool/Goldilocks-Field/Unit/named/Array/Option/Bytes envelope"
 
 private def lowerCallable
     (data : SemanticProgramDataV1) (layout : PsyLowerLayoutV1) (callable : CallableV1)
@@ -2459,83 +2601,115 @@ private def lowerCallable
   let mut physicalParamIndex : Nat := 0
   let types := layout.types
   for p in callable.params do
-    match uintWidthOfType data p.typeId with
-    | some 128 | some 256 =>
-        let bitWidth := (uintWidthOfType data p.typeId).getD 128
-        unless layout.profileMode.allowsWideUInt128 do
-          planError s!"unsupported Psy semantic shape: UInt{bitWidth} parameter '{p.name}' in {owner} requires profile psy-dargo-0.1.0-vm-v1"
-        -- ABI: one logical wide UInt expands to N little-endian UInt32 Felt limbs.
-        for limbIndex in [0:wideLimbCountOf bitWidth] do
-          params := params.push
-            { sourceIndex := physicalParamIndex,
-              name := s!"{p.name}_limb{limbIndex}", isBool := false,
-              uintWidth := 32, isField := false }
-          physicalParamIndex := physicalParamIndex + 1
-    | width? =>
-        let intW? := intWidthOfType data p.typeId
-        let isBool ← if isBoolType data p.typeId then pure true
-          else if isUInt64Type data p.typeId || isInt64Type data p.typeId then pure false
-          else if match width? with
-              | some w => isNarrowUintWidth w || w == 64
-              | none => false then pure false
-          else if match intW? with
-              | some w => isNarrowIntWidth w
-              | none => false then pure false
-          else if isGoldilocksFieldType types p.typeId then pure false
-          else if types.isNamedAggregate p.typeId then
-            planError s!"unsupported Psy semantic shape: named Struct/Enum parameter '{p.name}' in {owner} is outside the Psy pilot (named aggregates are state-only; B-RET-ABI scalar)"
-          else if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
-            -- B-OPT-STATE mirrors Enum: Option is state-only (params stay fail closed).
-            planError s!"unsupported Psy semantic shape: Option parameter '{p.name}' in {owner} is outside the Psy pilot (Option is state-only; B-RET-ABI scalar)"
-          else planError "unsupported Psy semantic shape: callable parameter is outside the UInt8/16/32/64/128/256/Int8/16/32/64/Bool/Goldilocks-Field envelope"
-        let uintWidth :=
-          match width? with
-          | some w => w
-          | none =>
-              match intW? with
-              | some w => if isNarrowIntWidth w then w else 0
-              | none => 0
+    if types.isPrincipal p.typeId || types.isString p.typeId then
+      for limbIndex in [0:1 + psyWireIdentityBodyLimbCountV1] do
+        let leafName :=
+          if limbIndex == 0 then s!"{p.name}_len" else s!"{p.name}_b{limbIndex - 1}"
         params := params.push
-          { sourceIndex := physicalParamIndex, name := p.name, isBool,
-            uintWidth,
-            isField := isGoldilocksFieldType types p.typeId }
+          { sourceIndex := physicalParamIndex,
+            name := leafName, isBool := false,
+            uintWidth := 32, isField := false }
         physicalParamIndex := physicalParamIndex + 1
+    else
+      match ← bytesLeafCountV1 layout.typeDecls types p.typeId with
+      | some n =>
+          for limbIndex in [0:n] do
+            params := params.push
+              { sourceIndex := physicalParamIndex,
+                name := s!"{p.name}_{limbIndex}", isBool := false,
+                uintWidth := 8, isField := false }
+            physicalParamIndex := physicalParamIndex + 1
+      | none =>
+          match uintWidthOfType data p.typeId with
+          | some 128 | some 256 =>
+              let bitWidth := (uintWidthOfType data p.typeId).getD 128
+              unless layout.profileMode.allowsWideUInt128 do
+                planError s!"unsupported Psy semantic shape: UInt{bitWidth} parameter '{p.name}' in {owner} requires profile psy-dargo-0.1.0-vm-v1"
+              for limbIndex in [0:wideLimbCountOf bitWidth] do
+                params := params.push
+                  { sourceIndex := physicalParamIndex,
+                    name := s!"{p.name}_limb{limbIndex}", isBool := false,
+                    uintWidth := 32, isField := false }
+                physicalParamIndex := physicalParamIndex + 1
+          | width? =>
+              let intW? := intWidthOfType data p.typeId
+              let isBool ← if isBoolType data p.typeId then pure true
+                else if isUInt64Type data p.typeId || isInt64Type data p.typeId then pure false
+                else if match width? with
+                    | some w => isNarrowUintWidth w || w == 64
+                    | none => false then pure false
+                else if match intW? with
+                    | some w => isNarrowIntWidth w
+                    | none => false then pure false
+                else if isGoldilocksFieldType types p.typeId then pure false
+                else if types.isNamedAggregate p.typeId then
+                  planError s!"unsupported Psy semantic shape: named Struct/Enum parameter '{p.name}' in {owner} is outside the Psy pilot (named aggregates are state-only; B-RET-ABI scalar)"
+                else if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
+                  planError s!"unsupported Psy semantic shape: Option parameter '{p.name}' in {owner} is outside the Psy pilot (Option is state-only; B-RET-ABI scalar)"
+                else planError "unsupported Psy semantic shape: callable parameter is outside the UInt/Int/Bool/Field/Bytes/Principal/String envelope"
+              let uintWidth :=
+                match width? with
+                | some w => w
+                | none =>
+                    match intW? with
+                    | some w => if isNarrowIntWidth w then w else 0
+                    | none => 0
+              params := params.push
+                { sourceIndex := physicalParamIndex, name := p.name, isBool,
+                  uintWidth,
+                  isField := isGoldilocksFieldType types p.typeId }
+              physicalParamIndex := physicalParamIndex + 1
   let mut env0 : ValueEnv := default
   let mut physicalParamOrdinal : Nat := 0
   for p in callable.params do
-    match uintWidthOfType data p.typeId with
-    | some 128 | some 256 =>
-        let bitWidth := (uintWidthOfType data p.typeId).getD 128
-        unless layout.profileMode.allowsWideUInt128 do
-          planError s!"unsupported Psy semantic shape: UInt{bitWidth} parameter '{p.name}' requires profile psy-dargo-0.1.0-vm-v1"
-        let mut limbs : Array Expr := #[]
-        for _ in [0:wideLimbCountOf bitWidth] do
-          limbs := limbs.push (.param physicalParamOrdinal)
-          physicalParamOrdinal := physicalParamOrdinal + 1
-        env0 := envInsertVal env0 p.valueId (mkWideUintVal bitWidth limbs)
-    | some w =>
-        if isNarrowUintWidth w then
-          env0 := envInsertNarrow env0 p.valueId w (.param physicalParamOrdinal)
-        else
-          env0 := envInsert env0 p.valueId (.param physicalParamOrdinal)
+    if types.isPrincipal p.typeId || types.isString p.typeId then
+      let mut limbs : Array Expr := #[]
+      for _ in [0:1 + psyWireIdentityBodyLimbCountV1] do
+        limbs := limbs.push (.param physicalParamOrdinal)
         physicalParamOrdinal := physicalParamOrdinal + 1
-    | none =>
-        match intWidthOfType data p.typeId with
-        | some w =>
-            if isNarrowIntWidth w then
-              env0 := envInsertVal env0 p.valueId
-                (mkNarrowIntVal w (.param physicalParamOrdinal))
-            else
-              env0 := envInsertVal env0 p.valueId (mkInt64Val (.param physicalParamOrdinal))
+      env0 := envInsertVal env0 p.valueId (mkAggregateVal limbs)
+    else
+      match ← bytesLeafCountV1 layout.typeDecls types p.typeId with
+      | some n =>
+          let mut limbs : Array Expr := #[]
+          for _ in [0:n] do
+            limbs := limbs.push (.param physicalParamOrdinal)
             physicalParamOrdinal := physicalParamOrdinal + 1
-        | none =>
-            if isGoldilocksFieldType types p.typeId then
-              env0 := envInsertVal env0 p.valueId (mkFieldVal (.param physicalParamOrdinal))
-            else if isInt64Type data p.typeId then
-              env0 := envInsertVal env0 p.valueId (mkInt64Val (.param physicalParamOrdinal))
-            else
-              env0 := envInsert env0 p.valueId (.param physicalParamOrdinal)
-            physicalParamOrdinal := physicalParamOrdinal + 1
+          env0 := envInsertVal env0 p.valueId (mkAggregateVal limbs)
+      | none =>
+          match uintWidthOfType data p.typeId with
+          | some 128 | some 256 =>
+              let bitWidth := (uintWidthOfType data p.typeId).getD 128
+              unless layout.profileMode.allowsWideUInt128 do
+                planError s!"unsupported Psy semantic shape: UInt{bitWidth} parameter '{p.name}' requires profile psy-dargo-0.1.0-vm-v1"
+              let mut limbs : Array Expr := #[]
+              for _ in [0:wideLimbCountOf bitWidth] do
+                limbs := limbs.push (.param physicalParamOrdinal)
+                physicalParamOrdinal := physicalParamOrdinal + 1
+              env0 := envInsertVal env0 p.valueId (mkWideUintVal bitWidth limbs)
+          | some w =>
+              if isNarrowUintWidth w then
+                env0 := envInsertNarrow env0 p.valueId w (.param physicalParamOrdinal)
+              else
+                env0 := envInsert env0 p.valueId (.param physicalParamOrdinal)
+              physicalParamOrdinal := physicalParamOrdinal + 1
+          | none =>
+              match intWidthOfType data p.typeId with
+              | some w =>
+                  if isNarrowIntWidth w then
+                    env0 := envInsertVal env0 p.valueId
+                      (mkNarrowIntVal w (.param physicalParamOrdinal))
+                  else
+                    env0 := envInsertVal env0 p.valueId (mkInt64Val (.param physicalParamOrdinal))
+                  physicalParamOrdinal := physicalParamOrdinal + 1
+              | none =>
+                  if isGoldilocksFieldType types p.typeId then
+                    env0 := envInsertVal env0 p.valueId (mkFieldVal (.param physicalParamOrdinal))
+                  else if isInt64Type data p.typeId then
+                    env0 := envInsertVal env0 p.valueId (mkInt64Val (.param physicalParamOrdinal))
+                  else
+                    env0 := envInsert env0 p.valueId (.param physicalParamOrdinal)
+                  physicalParamOrdinal := physicalParamOrdinal + 1
   let (resultIsBool, resultIsUnit, resultUintWidth, resultKind) ←
     resultShape data layout.profileMode layout.types layout.typeDecls callable owner
   -- pureFn aggregate returns stay fail closed (B-RET-ABI entry/view only).

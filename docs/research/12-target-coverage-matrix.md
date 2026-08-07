@@ -217,7 +217,7 @@ normative: false
 - **AddressBearing**（B-3 followup）：**EVM static-callee open；Solana legacy 已 #111 fail closed** — research 确认 callee 为 static QN 非 dynamic address；EVM resolver 七键 + Plan/IR/emitter 打开；Solana legacy 删除双 call 键且 Plan/IR/SBPF 拒绝旧节点；真实 CPI 见 epic #110；任意 Principal→address 仍 fail closed
 - **EVMOZ-003 / ADR-0025 EVM caller encoding**：**encoding 决策已 accepted** — EVM `context.caller` = `u32le(20)||CALLER`；shared wire 不变；**S1-EVM Plan 已原子 cutover（2026-08-06）**；不解锁 address ABI / Ownable F01 全 OZ 信用 / 他 target 自动镜像
 - **T10 EVM Principal storage**：**已闭合** — EVM `pilotPrincipalPolicyAdmit` + N4-isomorphic leaf storage（len+8×UInt64）；params/state/eq/ne；非 address；多宽 return 仍 fail closed
-- **T12 NEAR/Solana/Noir Principal storage**：**已闭合** — 三 target `pilotPrincipalPolicyAdmit` + 同构 9-leaf layout（Solana account pitch / NEAR 9×KV / Noir 9×u64 inputs）；params/state/eq/ne；非 pubkey/account-id/Field；多宽 return 仍 fail closed；Aleo/Psy 仍 fail closed
+- **T12 NEAR/Solana/Noir Principal storage**：**已闭合** — 三 target `pilotPrincipalPolicyAdmit` + 同构 9-leaf layout（Solana account pitch / NEAR 9×KV / Noir 9×u64 inputs）；params/state/eq/ne；非 pubkey/account-id/Field；多宽 return 仍 fail closed；Aleo 仍 fail closed；**Psy PSY-SCALAR-ABI（2026-08-08）** 另开 wire-identity `len`+8×UInt32（max 32B；非 address；return FC）
 - **NearWasmAcceptance**（C-1）：**已闭合工程子集** — `Tests/Materialization/NearWasmAcceptance.lean`；locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` runtime-load 门
 - **AleoPsyResearch**（C-2）：**已闭合** — `docs/research/15-aleo-psy-compiler-vm.md`（不升格门）
 - **NoirProveResearch**（C-4）：**已闭合** — `docs/research/16-noir-prove-path.md`（不升格 prove/verify）

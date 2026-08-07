@@ -9,9 +9,10 @@
       explicit **unbound** diagnostic (must not alias `__invoke_sync` as vault)
     * non-catalog L0 sync call still lowers (Phase D must not broaden FC)
 
-  Note: transfer* QNs need Principal args; Psy type-closure declines Principal,
-  so without extension those programs fail closed at Principal before the
-  unbound body gate. Resolve-with-extension is the product pin for all five.
+  Note: transfer* QNs need Principal args. PSY-SCALAR-ABI opens Principal
+  wire-identity leaves, so without extension those programs may reach Plan and
+  hit unbound catalog disposition (not Principal type-closure). Resolve-with-
+  extension remains the product pin for all five.
 -/
 import ProofForgeV2
 import ProofForgeV2.Core.RequirementIdsV1

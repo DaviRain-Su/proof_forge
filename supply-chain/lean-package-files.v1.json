@@ -896,9 +896,9 @@
       "sha256": "7b68293b20aef9bdbb81ac5bbb74c9d9548509a116efbd8a64244497373beef1"
     },
     {
-      "bytes": 135446,
+      "bytes": 144948,
       "path": "ProofForgeV2/Targets/Psy/LowerSemanticV1.lean",
-      "sha256": "130084645be0bb60b712bc5f7f364f7412a3ecb055703c1162d371e93ca9d570"
+      "sha256": "1640c2621ae2a7afe5ef9719af0ec271fca81c604216253ed5bf5bb270f8b736"
     },
     {
       "bytes": 2400,
@@ -906,9 +906,9 @@
       "sha256": "88c55656919281c099d1b92fe3684042abad5002a2242eb4d54578689082f26f"
     },
     {
-      "bytes": 22433,
+      "bytes": 22828,
       "path": "ProofForgeV2/Targets/Psy/ValidatePlanV1.lean",
-      "sha256": "8030d3bd657fb289caa8988c052483241e87d65be9431f5b8c76bd85558bb50d"
+      "sha256": "da1f962d8e55637ab353c273f583cddcc362f37454158c23edfef1499386f668"
     },
     {
       "bytes": 1758,

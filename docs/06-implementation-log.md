@@ -12,6 +12,19 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy Principal/String/Bytes scalar ABI（PSY-SCALAR-ABI engineering）
+
+- Psy type-closure admits Principal/String (`pilotPrincipal*Admit`) and fixed
+  `Bytes N` via `ArrayMapBytes` container policy.
+- **Bytes 1..8**: N×UInt8 Felt leaves for state/param; IndexGet/IndexSet with
+  compile-time index; entry/view return as `[Felt; N]` B-RET aggregate
+  (`byteWidth=1`); Bytes 9+ fail closed.
+- **Principal/String**: wire `u32le(len)||body` flattened to `name_len` +
+  `name_b0..b7` (max 32B payload); param expand to 9 UInt32-width formals;
+  leaf-wise `==`/`!=`; **not** an address/pubkey; return FC (9 > B-RET cap 8).
+- Plan/Validate/Emit + `PsySourceV1` pins; Map/nested/aggregate-params still FC.
+- Non-claims: no Principal→address, no String as Felt scalar, no formal D4/UPS.
+
 ## 2026-08-08 — Psy Int8/16/32 two's-complement（PSY-INT-NARROW engineering）
 
 - `pilotIntWidthPolicyNarrow` 接入 Psy type-closure：Int{8,16,32,64} 匿名宽度开放；
