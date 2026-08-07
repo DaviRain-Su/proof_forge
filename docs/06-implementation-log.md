@@ -26,10 +26,10 @@ normative: false
   `∃ pre, initialLogicalStateV1 program = .ok pre`；initial 失败时两个 base 均为假，
   禁止 implication 空真。
 - initializer presence 与 invocation scope 共享 sole production validation +
-  `data.callables[callableId.toNat]?` classifier；args/context/lifecycle 继续只由
-  `stepReferenceSliceV1` gate 负责。
+  `data.callables[callableId.toNat]?` executable Bool classifier；Prop surface 仅为 `= true`
+  薄封装，args/context/lifecycle 继续只由 `stepReferenceSliceV1` gate 负责。
 - 新增并注册 `Tests/Semantic/PreservationABI.lean`：Iff.rfl ABI shape、initial/admission/OOB
-  no-vacuity、initializer classifier 双向一致性、changed-state helper negatives，以及真实
+  no-vacuity、真实 Bool/Prop classifier 正反例、changed-state helper negatives，以及真实
   no-init/with-init Reference returned/reverted/trapped lifecycle traces。focused build/run 已通过。
 - **未改**：`ProofKindV1`、`proof … preserving` 语法、`(inv,kind)` inventory、certifier/alias、
   EvenCounter、MiniAmm P1、产品 proof gate。当前产品 holds authority 仍为 ADR-0027；formal

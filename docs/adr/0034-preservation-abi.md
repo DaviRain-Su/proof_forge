@@ -208,28 +208,38 @@ Preservation 在 revert/trap 分支上应 **复用** helper（或 defeq 到
 保证 0/1；不由作者手写 flag）。Base **不得** 省略。
 
 ```lean
-/-- Shared classifier: validate once, then use the exact callable-id lookup also
-    used by the Reference invocation gate. Args/context/lifecycle are not
-    duplicated here. -/
+/-- Executable shared classifier: validate, then use exact callable-id lookup.
+    Args/context/lifecycle are not duplicated here. -/
+def isInitializerCallableIdV1
+    (program : SemanticProgramV1)
+    (callableId : CallableIdV1) : Bool :=
+  match validateSemanticProgramV1 program with
+  | .error _ => false
+  | .ok data =>
+      match data.callables[callableId.toNat]? with
+      | none => false
+      | some callable => callable.kind == .initializer
+
 private def IsInitializerCallableIdV1
     (program : SemanticProgramV1)
     (callableId : CallableIdV1) : Prop :=
-  match validateSemanticProgramV1 program with
-  | .error _ => False
-  | .ok data =>
-      match data.callables[callableId.toNat]? with
-      | none => False
-      | some callable => callable.kind = .initializer
+  isInitializerCallableIdV1 program callableId = true
 
 /-- True iff the validated callables table contains an initializer. -/
 def HasInitializerV1 (program : SemanticProgramV1) : Prop :=
   ∃ callableId, IsInitializerCallableIdV1 program callableId
 
+/-- Executable invocation-shaped view of the same classifier. -/
+def isInitializerInvocationV1
+    (program : SemanticProgramV1)
+    (invocation : InvocationV1) : Bool :=
+  isInitializerCallableIdV1 program invocation.callableId
+
 /-- The invocation targets the validated initializer by exact callable id. -/
 def IsInitializerInvocationV1
     (program : SemanticProgramV1)
     (invocation : InvocationV1) : Prop :=
-  IsInitializerCallableIdV1 program invocation.callableId
+  isInitializerInvocationV1 program invocation = true
 
 /-- Base when the program has no initializer. `initialLogicalStateV1` returns
     Except, so constructor success is itself a positive obligation. -/
