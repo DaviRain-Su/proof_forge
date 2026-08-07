@@ -42,28 +42,34 @@ private def manifestPath : System.FilePath :=
 
 private def wireTags : Array String := #[
   "BinaryOp.Add", "BinaryOp.And", "BinaryOp.BitAnd", "BinaryOp.BitOr",
-  "BinaryOp.BitXor", "BinaryOp.Div", "BinaryOp.Eq", "BinaryOp.Ge", "BinaryOp.Gt",
-  "BinaryOp.Le", "BinaryOp.Lt", "BinaryOp.Mod", "BinaryOp.Mul", "BinaryOp.Ne",
-  "BinaryOp.Or", "BinaryOp.Shl", "BinaryOp.Shr", "BinaryOp.Sub", "Block",
-  "ConstDecl", "EntryDecl", "EnumDecl", "EnumVariant", "ErrorDecl", "EventDecl",
-  "Expr.Binary", "Expr.Constructor", "Expr.Literal", "Expr.LocalCall", "Expr.Match",
-  "Expr.Place", "Expr.Unary", "ExprMatchArm", "ExtensionReq", "ExternalCallExpr",
-  "FieldDecl", "FnDecl", "InitDecl", "InvariantDecl", "Literal.Bool",
+  "BinaryOp.BitXor", "BinaryOp.Div", "BinaryOp.Eq", "BinaryOp.Ge",
+  "BinaryOp.Gt", "BinaryOp.Le", "BinaryOp.Lt", "BinaryOp.Mod",
+  "BinaryOp.Mul", "BinaryOp.Ne", "BinaryOp.Or", "BinaryOp.Shl",
+  "BinaryOp.Shr", "BinaryOp.Sub", "Block", "ConstDecl",
+  "EntryDecl", "EnumDecl", "EnumVariant", "ErrorDecl",
+  "EventDecl", "Expr.Binary", "Expr.Constructor", "Expr.Literal",
+  "Expr.LocalCall", "Expr.Match", "Expr.Place", "Expr.Unary",
+  "ExprMatchArm", "ExtensionReq", "ExternalCallExpr", "FieldDecl",
+  "FnDecl", "InitDecl", "InvariantDecl", "Literal.Bool",
   "Literal.Integer", "Literal.String", "Param", "Pattern.Bind",
   "Pattern.Constructor", "Pattern.Literal", "Pattern.Wildcard", "Place.Field",
-  "Place.Index", "Place.Name", "Program", "ProofDecl", "StateDecl", "Stmt.Assert",
-  "Stmt.Assign", "Stmt.Call", "Stmt.Emit", "Stmt.For", "Stmt.If", "Stmt.Let",
-  "Stmt.Match", "Stmt.Return", "Stmt.Revert", "Stmt.Schedule", "StmtMatchArm",
-  "StructDecl", "Type.Array", "Type.Bool", "Type.Bytes", "Type.Field", "Type.Int",
-  "Type.Map", "Type.Named", "Type.Option", "Type.Principal", "Type.UInt", "Type.Unit",
-  "UnaryOp.BitNot", "UnaryOp.Neg", "UnaryOp.Not", "ViewDecl",
-  "Visibility.Commitment", "Visibility.Private", "Visibility.Public"
+  "Place.Index", "Place.Name", "Program", "ProofDecl",
+  "ProofKind.Holds", "StateDecl", "Stmt.Assert", "Stmt.Assign",
+  "Stmt.Call", "Stmt.Emit", "Stmt.For", "Stmt.If",
+  "Stmt.Let", "Stmt.Match", "Stmt.Return", "Stmt.Revert",
+  "Stmt.Schedule", "StmtMatchArm", "StructDecl", "Type.Array",
+  "Type.Bool", "Type.Bytes", "Type.Field", "Type.Int",
+  "Type.Map", "Type.Named", "Type.Option", "Type.Principal",
+  "Type.UInt", "Type.Unit", "UnaryOp.BitNot", "UnaryOp.Neg",
+  "UnaryOp.Not", "ViewDecl", "Visibility.Commitment", "Visibility.Private",
+  "Visibility.Public"
+
 ]
 
 private def diagnosticFamilies : Array String := #[
   "binary-op", "block", "enum-variant", "expr", "expr-match-arm", "external-call",
   "field-decl", "literal", "param", "pattern", "place", "program", "program-item",
-  "stmt", "stmt-match-arm", "type", "unary-op", "visibility"
+  "proof-kind", "stmt", "stmt-match-arm", "type", "unary-op", "visibility"
 ]
 
 private def expectedFamily : String → String
@@ -73,6 +79,7 @@ private def expectedFamily : String → String
       "BinaryOp.Mul" | "BinaryOp.Ne" | "BinaryOp.Or" | "BinaryOp.Shl" |
       "BinaryOp.Shr" | "BinaryOp.Sub" => "binary-op"
   | "Visibility.Commitment" | "Visibility.Private" | "Visibility.Public" => "visibility"
+  | "ProofKind.Holds" | "ProofKind.Preserving" => "proof-kind"
   | "UnaryOp.BitNot" | "UnaryOp.Neg" | "UnaryOp.Not" => "unary-op"
   | "Literal.Bool" | "Literal.Integer" | "Literal.String" => "literal"
   | "Type.Array" | "Type.Bool" | "Type.Bytes" | "Type.Field" | "Type.Int" |
@@ -120,7 +127,7 @@ private def expectDecodeError (row : MutationRow) (bytes : ByteArray) : IO Unit 
         s!"{row.caseId}: expected '{row.expectedError}', got '{detail}'"
   | .ok _ => throw <| IO.userError s!"{row.caseId}: unexpectedly decoded"
 
-/-- D1-PA-128: all 84 constructor tags fail closed after a one-byte unknown mutation. -/
+/-- D1-PA-128: all 85 constructor tags fail closed after a one-byte unknown mutation. -/
 def run : IO Unit := do
   let canonical ← IO.FS.readBinFile basePath
   let manifest ← readManifest
@@ -135,12 +142,12 @@ def run : IO Unit := do
         "testdata/golden/source-program-v1/full-tag-v1/canonical.bin")
     "unknown-tag base identity"
   expect (manifest.baseCanonicalBytesSha256 == "sha256:" ++ baseSha &&
-      baseSha == "5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce")
+      baseSha == "a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8")
     "unknown-tag base digest"
   expect (manifest.diagnosticFamilies == diagnosticFamilies &&
-      manifest.diagnosticFamilyCount == 18 && manifest.tagCount == 84 &&
-      manifest.mutationCount == 84 && manifest.mutations.size == 84 &&
-      wireTags.size == 84)
+      manifest.diagnosticFamilyCount == 19 && manifest.tagCount == 85 &&
+      manifest.mutationCount == 85 && manifest.mutations.size == 85 &&
+      wireTags.size == 85)
     "unknown-tag descriptor cardinalities"
 
   let mut observedTags : Array String := #[]
@@ -198,10 +205,10 @@ def run : IO Unit := do
     expect (Crypto.sha256Hex canonical == baseSha)
       s!"{row.caseId}: base canonical bytes changed"
 
-  expect (observedTags == wireTags) "closed 84-tag mutation matrix"
+  expect (observedTags == wireTags) "closed 85-tag mutation matrix"
   for family in diagnosticFamilies do
     expect (observedFamilies.contains family) s!"missing diagnostic family {family}"
-  expect (observedFamilies.size == 18) "closed 18-family matrix"
+  expect (observedFamilies.size == 19) "closed 19-family matrix"
 
   let decoded ← liftResult "decode unchanged PA125 base"
     (decodeCanonicalSourceAstBytesV1 canonical)

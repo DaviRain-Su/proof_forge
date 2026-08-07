@@ -270,7 +270,8 @@ private unsafe def testManifestDigestJoin
   let path ← parsePath "manifest"
   let (_, _, _, subject) ← buildPositive source path spans
   let bindings : Array SourceProofBindingV1 :=
-    #[{ invariantName := "truth", theoremComponents := #["Bundle", "Thm"] }]
+    #[{ invariantName := "truth", kind := .holds,
+        theoremComponents := #["Bundle", "Thm"] }]
   let opened ← openMatchingBundle subject.sourceHash subject.semanticHash
     subject.semanticProvenanceDigest
   match joinValidatedProofSubjectV1 bindings opened opened.bundleDigest subject with

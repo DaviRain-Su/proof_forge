@@ -3,7 +3,7 @@ id: PHASE-3
 title: 技术规格总索引
 status: accepted
 owner: engineering
-updated: 2026-08-04
+updated: 2026-08-07
 normative: true
 approvers: architecture-owner, language-semantics-owner, quality-owner, target-owner
 approvedAt: 2026-07-17
@@ -25,8 +25,8 @@ SourceFile (single in-memory snapshot)
 → CheckV1 (structure→type→effect→bound→disclosure)
 → normalize → SemanticProgramV1 + SemanticProvenanceV1（ProgramRequirements 嵌入前者）
 → CompiledSemanticV1 sole product carrier
-→ optional inline same-file proof gate (ADR-0027)
-     · theorem inventory bijection + subject digests
+→ optional inline same-file proof gate (ADR-0027 base + ADR-0034 kind extension)
+     · `(invariant, kind)` theorem inventory bijection + subject digests
      · in-process elaboration of the same held raw source (not a sandbox)
      · Environment kind/defeq/dependency/axiom audit
      · allowed base axioms only Classical.choice / Quot.sound / propext
@@ -38,11 +38,13 @@ SourceFile (single in-memory snapshot)
 → validate hashes/schema/tool outputs → atomic publish
 ```
 
-> **Engineering note（ADR-0027）**：proof gate **必须** 早于 target resolve、
+> **Engineering note（ADR-0027 + ADR-0034）**：proof gate **必须** 早于 target resolve、
 > materialization 与 staging/publish。ProgramV1 / `semanticHash` **不含** adjacent
-> theorem body。当前仅证明 `InvariantTheoremV1`（全体 `StateConformsV1` 状态上
-> invariant 为 true），不声称 reachability / init-step safety / target refinement /
-> formal TST 闭合。产品 sole path 为 inline certifier；`ProofBundleV1` 仅为
+> theorem body。bare `proof … using …` 为 holds (`InvariantTheoremV1`)；显式
+> `proof … preserving using …` 为 Reference-based `PreservationTheoremV1`。kind-aware
+> source/wire/inventory/certifier plumbing 已接线，但 preserving 的首个 certified 正例
+>（EvenCounter）仍 pending；当前成功回归仍仅 holds simple-closure。两类命题均不声称 target
+> refinement / formal TST 闭合。产品 sole path 为 inline certifier；`ProofBundleV1` 仅为
 > library/historical/formal-oriented，**不是** CLI alternate surface。
 
 各阶段只能消费前一阶段的成功类型；禁止以 optional/error string 绕过阶段。失败统一

@@ -72,10 +72,15 @@ def enc_error(n, ps): return enc_tag("ErrorDecl", [enc_ident(n), enc_arr(ps)])
 def enc_ext(i, v, d):
     iB = enc_qid(i); semver(v); digest(d)
     return enc_tag("ExtensionReq", [iB, enc_str(v), enc_str(d)])
-def enc_proof(inv, th): return enc_tag("ProofDecl", [enc_ident(inv), enc_qid(th)])
+def enc_kind(k):
+    if k not in ("Holds", "Preserving"): raise ValueError("proof kind must be Holds or Preserving")
+    return null(f"ProofKind.{k}")
+def enc_proof(inv, kind, th): return enc_tag("ProofDecl", [enc_ident(inv), enc_kind(kind), enc_qid(th)])
 VP = {"Public": "110000005669736962696c6974792e5075626c69630000",
       "Private": "120000005669736962696c6974792e507269766174650000",
       "Commitment": "150000005669736962696c6974792e436f6d6d69746d656e740000"}
+PK_H = "0f00000050726f6f664b696e642e486f6c64730000"
+PK_P = "1400000050726f6f664b696e642e50726573657276696e670000"
 TB, TU64, TU256 = ("09000000547970652e426f6f6c0000", "09000000547970652e55496e7401004000",
                    "09000000547970652e55496e7401000001")
 TP = "0e000000547970652e5072696e636970616c0000"
@@ -127,8 +132,10 @@ G = {
 "ext_advanced": ("0c000000457874656e73696f6e5265710300" + Q_AD + "15000000312e322e332d616c7068612e312b6275696c642e35"
     + "470000007368613235363a" + "6162" * 32,
     lambda: enc_ext(["Demo", "Advanced"], "1.2.3-alpha.1+build.5", "sha256:" + "ab" * 32)),
-"proof_safe": ("0900000050726f6f664465636c02000400000073616665" + Q_PS,
-    lambda: enc_proof("safe", ["Proofs", "safe"])),
+"proof_safe": ("0900000050726f6f664465636c03000400000073616665" + PK_H + Q_PS,
+    lambda: enc_proof("safe", "Holds", ["Proofs", "safe"])),
+"proof_safe_preserving": ("0900000050726f6f664465636c03000400000073616665" + PK_P + Q_PS,
+    lambda: enc_proof("safe", "Preserving", ["Proofs", "safe"])),
 }
 def _fail(name, want, fn):
     try: fn(); raise SystemExit(f"{name}: unexpectedly ok")
@@ -148,7 +155,11 @@ def self_check():
     _fail("qid_first", QID_ERR, lambda: enc_ext(["Only"], "not-a-semver", "bad"))
     _fail("version_first", VER_ERR, lambda: enc_ext(["Demo", "Feature"], "01.0.0", "bad"))
     _fail("bad_digest", DIG_ERR, lambda: enc_ext(["Demo", "Feature"], "1.0.0", "sha256:ZZ"))
-    _fail("proof_qid1", QID_ERR, lambda: enc_proof("safe", ["Only"]))
+    _fail("proof_qid1", QID_ERR, lambda: enc_proof("safe", "Holds", ["Only"]))
+    _fail("proof_kind_bad", "proof kind must be Holds or Preserving",
+          lambda: enc_proof("safe", "Bogus", ["Proofs", "safe"]))
+    if G["proof_safe"][0] == G["proof_safe_preserving"][0]:
+        raise SystemExit("proof kind Holds==Preserving")
     _fail("raw_close", "closing guillemet", lambda: enc_state("Public", "»", null("Type.Bool")))
     _fail("raw_cc", "Cc", lambda: enc_field("a\x00", null("Type.Bool")))
     print("reference_source_ast_decl_v1: ok", len(G))

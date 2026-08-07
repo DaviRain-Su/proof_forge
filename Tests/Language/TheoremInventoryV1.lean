@@ -10,6 +10,8 @@ open ProofForgeV2
 open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Language.Loader
 open ProofForgeV2.Language.TheoremInventoryV1
+open ProofForgeV2.Source.AstDeclV1
+open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireV1
@@ -89,12 +91,54 @@ unsafe def run : IO Unit := do
       expect (bindings.size == 1) "ok binding count"
       let b := bindings[0]!
       expect (b.invariantName == "safe") "ok invariant"
+      expect (b.kind == ProofKindV1.holds) "bare proof defaults to holds"
       expect (b.theoremComponents == #["ProofedProof", "safe"]) "ok theorem components"
       expect (b.typeComponents == #["Proofed", "Proof", "safe"]) "ok type components"
       -- Legacy path still rejects adjacent theorem as outside DSL.
       expectReject (← session.selectProgramV1 okSrc "<ok-legacy>" "Root" none)
         "outside the portable program DSL"
         "legacy path must not silently accept theorems"
+
+  -- Explicit preserving kind selects the Preservation alias namespace.
+  let preserving :=
+    header ++
+    "program Preserving where\n" ++
+    "  view alive() : Bool do\n" ++
+    "    return true\n" ++
+    "  invariant safe : true\n" ++
+    "  proof safe preserving using PreservingProof.safe\n" ++
+    theoremBlock "PreservingProof.safe" "Preserving.ProofPreserving.safe" rflTactics
+  match ← session.selectProgramV1WithTheoremInventory preserving
+      "<preserving>" "Root" none with
+  | .error error => throw <| IO.userError s!"preserving failed: {error.render}"
+  | .ok (_, inv) =>
+      let bindings := theoremInventoryBindingsV1 inv
+      expect (bindings.size == 1) "preserving binding count"
+      let b := bindings[0]!
+      expect (b.kind == ProofKindV1.preserving) "explicit preserving kind"
+      expect (b.typeComponents == #["Preserving", "ProofPreserving", "safe"])
+        "preserving type components"
+
+  -- Same invariant may bind both kinds; the sole key is (invariant, kind).
+  let dualKind :=
+    header ++
+    "program DualKind where\n" ++
+    "  view alive() : Bool do\n" ++
+    "    return true\n" ++
+    "  invariant safe : true\n" ++
+    "  proof safe using DualKindProof.holds\n" ++
+    "  proof safe preserving using DualKindProof.keeps\n" ++
+    theoremBlock "DualKindProof.holds" "DualKind.Proof.safe" rflTactics ++
+    theoremBlock "DualKindProof.keeps" "DualKind.ProofPreserving.safe" rflTactics
+  match ← session.selectProgramV1WithTheoremInventory dualKind
+      "<dual-kind>" "Root" none with
+  | .error error => throw <| IO.userError s!"dual-kind failed: {error.render}"
+  | .ok (_, inv) =>
+      let bindings := theoremInventoryBindingsV1 inv
+      expect (bindings.size == 2) "dual-kind binding count"
+      expect (bindings[0]!.kind == ProofKindV1.holds &&
+          bindings[1]!.kind == ProofKindV1.preserving)
+        "dual-kind source order"
 
   -- Multi-proof source order bijection.
   let multi :=

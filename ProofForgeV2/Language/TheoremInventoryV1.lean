@@ -5,8 +5,8 @@
   Scope:
     * Accept ordinary `theorem QN : Program.Proof.Inv := by …` commands that are
       immediately adjacent after a program, in proof source order
-    * When any proof exists on the inventory path: exact invariant/proof/theorem
-      bijection (count + pairing by proof order)
+    * When any proof exists on the inventory path: every invariant has at least
+      one proof kind and bindings exactly follow `(invariant, kind)` source order
     * Syntax-kind recursive allowlist for a finite tactic surface
       (rfl/intro/constructor/exact/apply/simp-only/rw/cases and structural glue)
     * Reject lemma/def/axiom/modifiers/universe params/binders/non-by bodies and
@@ -28,14 +28,21 @@ namespace ProofForgeV2.Language.TheoremInventoryV1
 open Lean
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Source.AstProgramItemV1
+open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.ValidatedSourceV1
+
+/-- Lean namespace containing the generated Prop alias for a proof kind. -/
+def proofAliasNamespaceV1 : ProofKindV1 → String
+  | .holds => "Proof"
+  | .preserving => "ProofPreserving"
 
 /-- One accepted adjacent theorem binding (source-order). -/
 structure InlineTheoremBindingV1 where
   theoremComponents : Array String
   invariantName : String
+  kind : ProofKindV1
   typeComponents : Array String
   deriving BEq, Repr, Inhabited
 
@@ -43,6 +50,7 @@ structure InlineTheoremBindingV1 where
 structure ExpectedTheoremV1 where
   theoremComponents : Array String
   invariantName : String
+  kind : ProofKindV1
   typeComponents : Array String
   deriving BEq, Repr, Inhabited
 
@@ -308,42 +316,53 @@ def matchAdjacentTheoremCommandV1
   pure {
     theoremComponents := theoremComponents
     invariantName := expected.invariantName
+    kind := expected.kind
     typeComponents := typeComponents
   }
+
+private structure ProgramProofRowV1 where
+  invariantName : String
+  kind : ProofKindV1
+  theoremComponents : Array String
 
 /-- Build expected theorems from a validated program (proof source order).
 
     When `proofs` is empty, returns `#[]` (no adjacent theorems required).
-    When any proof exists, requires exact invariant/proof bijection on names. -/
+    When any proof exists, every declared invariant must bind at least one kind;
+    each `(invariant, kind)` key is unique by the source validation gate. -/
 def expectedTheoremsFromProgramV1
     (programName : String) (source : ValidatedSourceV1) :
     Except TheoremInventoryErrorV1 (Array ExpectedTheoremV1) := do
   let mut invariants : Array String := #[]
-  let mut proofs : Array (String × Array String) := #[]
+  let mut proofs : Array ProgramProofRowV1 := #[]
   for item in source.program.items do
     match item with
     | .invariant d => invariants := invariants.push d.name.raw
     | .proof d =>
         let thm := (NonEmptyArray.toArray d.theorem_.components).map (·.raw)
-        proofs := proofs.push (d.invariant.raw, thm)
+        proofs := proofs.push {
+          invariantName := d.invariant.raw
+          kind := d.kind
+          theoremComponents := thm
+        }
     | _ => pure ()
   if proofs.isEmpty then
     return #[]
-  unless proofs.size == invariants.size do
-    return ← err (.bijection
-      s!"proof count {proofs.size} must equal invariant count {invariants.size}")
   for inv in invariants do
-    unless proofs.any (fun p => p.1 == inv) do
+    unless proofs.any (fun proof => proof.invariantName == inv) do
       return ← err (.bijection s!"missing proof reference for invariant '{inv}'")
-  for (proofInv, _) in proofs do
-    unless invariants.any (· == proofInv) do
-      return ← err (.bijection s!"proof reference names unknown invariant '{proofInv}'")
+  for proof in proofs do
+    unless invariants.any (· == proof.invariantName) do
+      return ← err (.bijection
+        s!"proof reference names unknown invariant '{proof.invariantName}'")
   let mut expected : Array ExpectedTheoremV1 := #[]
-  for (inv, thm) in proofs do
+  for proof in proofs do
     expected := expected.push {
-      theoremComponents := thm
-      invariantName := inv
-      typeComponents := #[programName, "Proof", inv]
+      theoremComponents := proof.theoremComponents
+      invariantName := proof.invariantName
+      kind := proof.kind
+      typeComponents :=
+        #[programName, proofAliasNamespaceV1 proof.kind, proof.invariantName]
     }
   pure expected
 

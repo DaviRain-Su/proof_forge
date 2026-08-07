@@ -17,7 +17,7 @@ SCHEMA = "proof-forge.source-program-field-count-golden-prerequisite.v1"
 SCOPE = "pa125-base-first-occurrence-exact-field-count"
 BASE_CASE = "full-tag-valid-v1"
 BASE_FILE = "testdata/golden/source-program-v1/full-tag-v1/canonical.bin"
-BASE_SHA256 = "5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce"
+BASE_SHA256 = "a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8"
 PACKAGE = Path("testdata/golden/source-program-v1/field-count-v1")
 MANIFEST = "manifest.json"
 
@@ -67,7 +67,7 @@ def expected_descriptor(root):
     first = {}
     for tag, offset, count in records:
         first.setdefault(tag, (offset, count))
-    require(set(first) == base.WIRE_TAGS and len(first) == 84, "closed 84-tag selection")
+    require(set(first) == base.WIRE_TAGS and len(first) == 85, "closed 85-tag selection")
     for tag, (offset, count) in first.items():
         require(0 <= offset <= len(encoded) - 2, f"offset range for {tag}")
         require(int.from_bytes(encoded[offset:offset + 2], "little") == count,
@@ -77,7 +77,7 @@ def expected_descriptor(root):
 
     nullary = sum(count == 0 for _offset, count in first.values())
     positive = len(first) - nullary
-    require(nullary == 28 and positive == 56, "28/56 field-count partition")
+    require(nullary == 29 and positive == 56, "29/56 field-count partition")
     mutations = []
     for tag in sorted(first):
         offset, expected = first[tag]
@@ -91,23 +91,23 @@ def expected_descriptor(root):
                 "mutatedCount": mutated,
                 "tag": tag,
             })
-    require(len(mutations) == 140, "140 mutation rows")
+    require(len(mutations) == 141, "141 mutation rows")
     require(mutations == sorted(mutations, key=lambda row: (row["tag"], row["mutatedCount"])),
             "mutation row order")
-    require(len({(row["tag"], row["mutatedCount"]) for row in mutations}) == 140,
+    require(len({(row["tag"], row["mutatedCount"]) for row in mutations}) == 141,
             "mutation row uniqueness")
 
     document = {
         "baseCanonicalBytesSha256": "sha256:" + BASE_SHA256,
         "baseCanonicalFile": BASE_FILE,
         "baseCaseId": BASE_CASE,
-        "mutationCount": 140,
+        "mutationCount": 141,
         "mutations": mutations,
-        "nullaryTagCount": 28,
+        "nullaryTagCount": 29,
         "positiveFieldTagCount": 56,
         "schema": SCHEMA,
         "scope": SCOPE,
-        "tagCount": 84,
+        "tagCount": 85,
     }
     return document
 
@@ -140,11 +140,11 @@ def main(argv):
     try:
         if argv == ["--emit"]:
             emit(root)
-            print("reference_source_program_wire_field_count_golden_v1: emitted 140 84 28 56")
+            print("reference_source_program_wire_field_count_golden_v1: emitted 141 85 29 56")
             return 0
         if argv == ["--self-check"]:
             validate_checked_in(root)
-            print("reference_source_program_wire_field_count_golden_v1: ok 140 84 28 56")
+            print("reference_source_program_wire_field_count_golden_v1: ok 141 85 29 56")
             return 0
         print("usage: reference_source_program_wire_field_count_golden_v1.py --emit|--self-check",
               file=sys.stderr)

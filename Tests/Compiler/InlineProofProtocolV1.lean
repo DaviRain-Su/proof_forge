@@ -3,12 +3,16 @@
   proof-certifier protocol. No worker, Loader, Audit, or CLI cutover.
 -/
 import ProofForgeV2.Compiler.InlineProofProtocolV1
+import ProofForgeV2.Source.AstCodecV1
+import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.WireCodecV1
 
 namespace Tests.Compiler.InlineProofProtocolV1
 
 open ProofForgeV2.Compiler.InlineProofProtocolV1
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Source.AstCodecV1
+open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.WireCodecV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
@@ -45,7 +49,7 @@ private def sampleTheoremName : IO QualifiedName :=
 
 private def sampleObligation : IO InlineProofObligationV1 := do
   let theoremName ← sampleTheoremName
-  lift "obligation" <| mkInlineProofObligationV1 "safe" 0 theoremName "safe"
+  lift "obligation" <| mkInlineProofObligationV1 "safe" .holds 0 theoremName "safe"
 
 private def sampleRequest
     (sourceBytes : ByteArray := "program Proofed where\n".toUTF8)
@@ -102,6 +106,7 @@ private def testRequestRoundTrip : IO Unit := do
     | some value => pure value
     | none => throw <| IO.userError "missing obligation row"
   expect (obligation0.invariantName == "safe") "invariant name"
+  expect (obligation0.kind == ProofKindV1.holds) "proof kind"
   expect (obligation0.ordinal == 0) "ordinal"
   expect (obligation0.expectedGeneratedName == "safe")
     "generated obligation name"
@@ -209,11 +214,12 @@ private def testTamperAndNoncanonical : IO Unit := do
       | some value => pure value
       | none => throw <| IO.userError "fixture missing obligation"
     let nameB ← lift "ob-name" (encodeIdent ob.invariantName)
+    let kindB ← lift "ob-kind" (encodeProofKindV1 ob.kind)
     let ordB := encodeU32le ob.ordinal
     let thmB ← lift "ob-thm" (encodeQualifiedName ob.theoremName)
     let genB ← lift "ob-gen" (encodeIdent ob.expectedGeneratedName)
     pure ((encodeU32le 1).append
-      (((nameB.append ordB).append thmB).append genB))
+      ((((nameB.append kindB).append ordB).append thmB).append genB))
   let foreignFrame ← lift "foreign-frame" <| encodeTagged "InlineProof.Req.v1"
     #[pathB, modB, progB, srcB, sourceHashB, semanticHashB, provenanceB,
       obligationsB, foreignPolicy.bytes]
@@ -287,23 +293,50 @@ private def testOversizeBombs : IO Unit := do
 
 private def testDuplicateObligations : IO Unit := do
   let theoremName ← sampleTheoremName
-  let a ← lift "a" (mkInlineProofObligationV1 "safe" 0 theoremName "safe")
-  let b ← lift "b" (mkInlineProofObligationV1 "safe" 1 theoremName "safe")
+  let preservingName ← lift "preserving-theorem" <|
+    parseQualifiedName #["ProofedProof", "keeps"]
+  let a ← lift "a" (mkInlineProofObligationV1 "safe" .holds 0 theoremName "safe")
+  let b ← lift "b" (mkInlineProofObligationV1 "safe" .holds 1 theoremName "safe")
   let path ← samplePath
   let sourceHash ← digestOf "source"
   let semanticHash ← digestOf "semantic"
   let provenance ← digestOf "provenance"
-  expectErrContains "dup-name" "duplicate invariant name"
+  expectErrContains "dup-key" "duplicate invariant/kind key"
     (mkInlineProofRequestV1 path "M" none "x".toUTF8
       sourceHash semanticHash provenance #[a, b])
-  let c ← lift "c" (mkInlineProofObligationV1 "other" 0 theoremName "other")
-  expectErrContains "dup-ordinal" "duplicate ordinal"
+  let c ← lift "c" (mkInlineProofObligationV1 "other" .holds 0 theoremName "other")
+  expectErrContains "ordinal-alias" "ordinal maps to multiple invariant names"
     (mkInlineProofRequestV1 path "M" none "x".toUTF8
       sourceHash semanticHash provenance #[a, c])
-  let d ← lift "d" (mkInlineProofObligationV1 "other" 1 theoremName "other")
+  let d ← lift "d" (mkInlineProofObligationV1 "other" .holds 1 theoremName "other")
   expectErrContains "dup-theorem" "duplicate theorem name"
     (mkInlineProofRequestV1 path "M" none "x".toUTF8
       sourceHash semanticHash provenance #[a, d])
+
+  -- Dual kind shares the same invariant ordinal but remains two distinct keys.
+  let preserving ← lift "preserving" <|
+    mkInlineProofObligationV1 "safe" .preserving 0 preservingName "safe"
+  let holds ← lift "holds-request" <|
+    mkInlineProofRequestV1 path "M" none "x".toUTF8
+      sourceHash semanticHash provenance #[a]
+  let dual ← lift "dual-request" <|
+    mkInlineProofRequestV1 path "M" none "x".toUTF8
+      sourceHash semanticHash provenance #[a, preserving]
+  expect (dual.obligations.size == 2) "dual-kind obligations accepted"
+  let holdsSet ← lift "holds-set" (theoremSetDigestV1 holds.obligations)
+  let dualSet ← lift "dual-set" (theoremSetDigestV1 dual.obligations)
+  expect (holdsSet != dualSet) "proof kind changes theorem-set digest"
+  let holdsSuccess ← lift "holds-success" (mkInlineProofSuccessV1 holds)
+  let dualSuccess ← lift "dual-success" (mkInlineProofSuccessV1 dual)
+  expect (holdsSuccess.proofCertificationDigest !=
+      dualSuccess.proofCertificationDigest)
+    "proof kind changes certification digest"
+
+  let preservingWrongOrdinal ← lift "preserving-wrong-ordinal" <|
+    mkInlineProofObligationV1 "safe" .preserving 1 preservingName "safe"
+  expectErrContains "invariant-ordinal" "invariant name maps to multiple theorem ordinals"
+    (mkInlineProofRequestV1 path "M" none "x".toUTF8
+      sourceHash semanticHash provenance #[a, preservingWrongOrdinal])
 
 private def testWrongTagAndFieldCount : IO Unit := do
   let request ← sampleRequest

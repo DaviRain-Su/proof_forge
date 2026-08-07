@@ -22,9 +22,9 @@ normative: false
 > Semantic sketch（`ProofForgeV2/Semantic/MiniAmmSafetySketchV1` + umbrella）**已删除**。
 > 禁止第二套 step；业务保持挂在 admitted `Reference` / 产品 Semantic 上，不挂旁路模型。
 >
-> 对齐：ADR-0027（**当前产品 holds authority**）、ADR-0034（`proposed`；通用
-> Preservation ABI foundation 已实现，kind/inventory/certifier/product cutover pending；
-> **不** supersede 0027）、
+> 对齐：ADR-0027（当前 inline base authority）、ADR-0034（`proposed`；通用
+> Preservation ABI foundation + kind/inventory/alias/protocol/certifier plumbing 已实现，
+> EvenCounter preserving positive/第二实例/supersession pending；**不** supersede 0027）、
 > [`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)、
 > Examples `MiniAmm` / `MiniAmmProofSurface`；共享数学向量 `Tests/Semantic/MiniAmmVectorsV1`。
 
@@ -110,8 +110,9 @@ PreservationTheoremV1 program ordinal :=
 | **平台** | `PreservationABI` 形状、**sole product step**（Normalize → Semantic → admitted Reference）、测试模式 |
 | **程序作者** | 对具体 executable invariant 的 base/step 证明；**不** 另写一套 `miniAmmStep` |
 
-产品 kind/inventory/certifier 尚未接线；保持性仍是独立定理族，不塞进现有全称
-`InvariantTheoremV1`。
+产品 kind/inventory/alias/protocol/certifier plumbing 已接线；保持性仍是独立定理族，不塞进
+现有全称 `InvariantTheoremV1`。首个 preserving product-certified 实例仍必须是 EvenCounter；当前
+alias/negative/identity 回归不等于该实例已完成。
 
 **禁止**：为每个合约再维护平行的 `State` / `Effect` / `step` 手写解释器
 （HEAD 曾有 Semantic `MiniAmmSafetySketchV1` 试点，**Slice 0 已从 HEAD 删除**，见 §5.0）。
@@ -144,7 +145,7 @@ PreservationTheoremV1 program ordinal :=
 | `certifyInlineProofV1` + simple-closure 族 | L0 通用门 |
 | `InvariantABI` | 共享定理命题 / logical state |
 | `ReferenceMachineV1` / `ReferenceV1` | **sole L1 step 权威**（admitted engineering machine；非 formal `step`） |
-| `ProofForgeV2/Semantic/PreservationABI.lean` + ADR-0034（`proposed`） | 通用 `PreservationTheoremV1` / base / step / unchanged helpers 已实现；ProofKind/inventory/certifier/alias/product cutover pending；当前产品 holds 仍由 ADR-0027 约束 |
+| `ProofForgeV2/Semantic/PreservationABI.lean` + ADR-0034（`proposed`） | 通用 `PreservationTheoremV1` / base / step / unchanged helpers + ProofKind/三字段 wire/`(inv,kind)` inventory/双 alias/kind-bound protocol+certifier plumbing 已实现；EvenCounter preserving positive/第二实例/supersession pending；ADR-0027 仍约束 inline base |
 
 ### 3.2 实例：MiniAmm 试点
 

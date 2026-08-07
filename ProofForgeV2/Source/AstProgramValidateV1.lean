@@ -39,6 +39,9 @@ private def raw (n : SourceNameComponentV1) : String := n.raw
 private def extKey (id : SourceQualifiedNameV1) : String :=
   String.intercalate "\u0000" ((NonEmptyArray.toArray id.components).map raw |>.toList)
 
+private def proofKey (proof : ProofDeclV1) : String :=
+  raw proof.invariant ++ "\u0000" ++ toString proof.kind
+
 private def checkDupKeys (keys : Array String) (err : String) : Except String Unit := do
   let mut seen : Std.HashSet String := Std.HashSet.emptyWithCapacity keys.size
   for k in keys do
@@ -119,7 +122,7 @@ def validateProgramDeclSetV1 (program : ProgramV1) : Except String Unit := do
   for it in items do
     match it with
     | .proof p =>
-        let k := raw p.invariant
+        let k := proofKey p
         let (hit, proofSet') := proofSet.containsThenInsert k
         if hit then return ← fail dupProofErr
         proofSet := proofSet'

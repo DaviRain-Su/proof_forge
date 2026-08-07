@@ -11,6 +11,22 @@ inductive VisibilityV1 where
   | commitment
   deriving DecidableEq, Repr
 
+/-- Closed inline-proof obligation kinds. Bare source syntax decodes to `holds`. -/
+inductive ProofKindV1 where
+  | holds
+  | preserving
+  deriving BEq, DecidableEq, Repr, Inhabited
+
+namespace ProofKindV1
+
+def toString : ProofKindV1 → String
+  | .holds => "holds"
+  | .preserving => "preserving"
+
+end ProofKindV1
+
+instance : ToString ProofKindV1 := ⟨ProofKindV1.toString⟩
+
 /-- Portable source type constructors (leaf + nested container). -/
 inductive TypeV1 where
   | bool

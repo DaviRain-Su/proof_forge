@@ -9,8 +9,9 @@ normative: true
 
 # ADR-0034：Preservation ABI（L1 step-preservation）
 
-- 状态：`proposed`（通用 ABI foundation 已于 2026-08-07 以 engineering slice 落地；
-  `ProofKindV1` / `(inv,kind)` inventory / certifier / EvenCounter / 产品 cutover 仍未实现）
+- 状态：`proposed`（通用 ABI foundation 与 `ProofKindV1` / 三字段 wire /
+  `(inv,kind)` inventory / 双 alias / kind-bound protocol/certifier plumbing 已于 2026-08-07
+  以 engineering slices 落地；EvenCounter preserving positive、第二实例与 ADR supersession 仍未实现）
 - 日期：2026-08-07
 - **Proposed extension / amendment to**：
   [`ADR-0027`](0027-inline-same-file-theorem-certification.md)
@@ -52,14 +53,16 @@ pre 到 post 的保持**。若把保持塞进 `InvariantTheoremV1`，或为某�
 `(invariant, kind)`、EvenCounter 首实例 / 禁止 MiniAmm 特例，并记录相对 ADR-0027
 的拟议扩展（见 D0）。
 
-后续同日首个 engineering slice 已仅实现 D1–D3 的通用 ABI foundation：
-`PreservationABI.lean` 直接复用 production validation、`initialLogicalStateV1`、
-`admitReferenceProgramSliceV1` 与 `stepReferenceSliceV1`；没有修改 Reference 机器，也没有
-加入任何 MiniAmm helper。D6–D9 的语法、inventory、certifier、alias、EvenCounter 与产品
-cutover 仍 pending。
+后续同日 engineering slices 已实现 D1–D3 通用 ABI foundation，以及 D6–D8 的
+source/wire/inventory/alias/protocol/certifier plumbing：`PreservationABI.lean` 直接复用 production
+validation、`initialLogicalStateV1`、`admitReferenceProgramSliceV1` 与
+`stepReferenceSliceV1`；`ProofDecl` 原子切为三字段，bare syntax 固定 holds，显式 preserving 使用
+独立 alias 并进入 certification identity。没有修改 Reference 机器，也没有加入任何 MiniAmm helper。
+EvenCounter preserving positive、第二实例与 supersession 仍 pending。
 
-**当前产品路径、holds inventory/certifier、inline gate 纪律继续由 ADR-0027 约束。**
-本 ADR **不** 立即 supersede 0027，也 **不** 声称完整实现/产品已对齐 0034。
+**当前产品路径的 single-snapshot/audit/axiom/proof-before-materialize 基线继续由 ADR-0027
+约束；新增 kind 扩展由本 ADR 约束。** 本 ADR **不** 立即 supersede 0027，也 **不** 把
+kind-aware plumbing 写成 preserving 实例或完整 formal/product maturity。
 
 **非 formal**：不关闭 TASK-D2-07 / TST-SEM-002/003 / TST-PROOF-001；不声称
 hermetic / Stage-0 / target refinement / release。
@@ -69,32 +72,29 @@ hermetic / Stage-0 / target refinement / release。
 ### D0. Proposed extension / amendment to ADR-0027（非即时 supersession）
 
 1. **Authority 现状（强制）**：
-   - **当前** product authority = [`ADR-0027`](0027-inline-same-file-theorem-certification.md)
-     （`status=proposed`；**无** `successor`；**无** superseded 横幅）。
-   - 本 ADR = **proposed extension / amendment**：设计冻结 L1 Preservation 与
-     未来 inventory/kind 扩维；后续 engineering slice **仅**落地通用 ABI foundation，
-     尚未进入 kind/inventory/certifier/product cutover。
-   - **禁止** 因本文 `proposed` 或 foundation 代码发布就把 ADR-0027 标 `superseded`、写
-     `successor=ADR-0034`、或把现行产品 authority 整体迁到本 ADR。
-   - **禁止** 声称“完整实现与产品已对齐 ADR-0034”。
+   - [`ADR-0027`](0027-inline-same-file-theorem-certification.md) 仍是 product inline gate 的
+     base authority（`status=proposed`；**无** `successor`；**无** superseded 横幅），继续约束
+     single snapshot、audit、axiom、user-olean rejection 与 proof-before-materialize。
+   - 本 ADR = **proposed extension / amendment**：L1 ABI 与 kind/inventory/certifier plumbing
+     已实现；preserving 的首个 certified program instance、第二实例和完整 acceptance 仍 pending。
+   - **禁止** 因 plumbing 发布就把 ADR-0027 标 `superseded`、写 `successor=ADR-0034`，或声称
+     “完整实现与产品已对齐 ADR-0034”。
 2. **未来 supersession 门槛**（仅在同时满足后 **单独** 记录，不得预填）：
-   - 本 ADR 所列 ABI / kind / inventory / certifier 分支 **已实现并完成 cutover**；
-   - 产品路径、测试与文档已诚实切到 0034 义务；
+   - ABI / kind / inventory / certifier 分支与至少首个 preserving product positive 已闭合；
+   - 产品路径、测试与文档已诚实覆盖 0034 义务及失败面；
    - 再以独立文档变更把 ADR-0027 标 `superseded` 并登记 `successor=ADR-0034`。
-   - 在 cutover 完成前，0027 与 0034 **并存**：0027 约束现行 holds 产品；
-     0034 仅约束“将来如何扩展”的设计。
-3. 本 ADR **拟议扩展**（非改写 holds 形状；**未** 因本文生效为当前产品义务）：
+   - 在此之前，0027 与 0034 **并存**：0027 是通用 inline gate 基线；0034 是已部分实现但
+     尚未完成实例 acceptance 的 preserving 扩展。
+3. 本 ADR 扩展的**已实现 plumbing**（不改写 holds 形状）：
    - 第二期望 Prop 族 `PreservationTheoremV1`；
-   - 源码 proof kind `holds | preserving`；
-   - inventory 键从“每 invariant 至多一个 theorem”升级为
-     **`(invariantName, kind)`**（见 D6；cutover 后 **取代** ADR-0027 D3.4 的
-     单键 bijection 表述）。
+   - 源码 proof kind `holds | preserving` 与三字段 `ProofDecl` wire；
+   - inventory sole key **`(invariantName, kind)`**（见 D6），取代新代码中的单键模型；
+   - kind-bound alias、protocol obligation、theorem-set/certification digest 与 certifier audit。
 4. 在 ADR-0027 下已 engineering-closed 的 holds 正例（simple-closure /
    ordinal-0 / literal-true / public-Bool-view product `check` certified）
-   **继续有效**；未来 kind 规范为 `holds`。inline certification 的
-   snapshot / hash 边界 / in-process 非 sandbox / 固定 axioms /
-   proof-before-materialize 等 **现行纪律仍读 ADR-0027**；本 ADR 仅在 D7/D8
-   说明 cutover 后 kind 如何进入 source/cert digest（不提前改写 0027）。
+   **继续有效**且其 kind 固定为 `holds`。inline certification 的 snapshot / in-process 非 sandbox /
+   fixed axioms / proof-before-materialize 等纪律仍读 ADR-0027；D7/D8 的 kind identity 现已进入
+   engineering plumbing，但尚无 preserving certified positive。
 
 ### D1. 独立 closed ABI（禁止塞进 `InvariantTheoremV1`）
 
@@ -460,10 +460,10 @@ def InvariantTheoremV1
 2. **Materializer fail closed**：nonempty invariants 在八个 materializer 上
    既有 FC 纪律 **不变**；preserving proof **不** 放宽 Plan/IR/emit。Quint Q0
    read-only Bool invariant 既有例外独立，不因本 ADR 扩张。
-3. **Non-formal**：本 ABI 是 engineering 命题形状 + 未来 inline gate 扩展；
+3. **Non-formal**：本 ABI 与 kind-aware inline plumbing 是 engineering 命题/认证表面；
    **不是** formal `step`、不是 TST-SEM-002/003 corpus、不是 target refinement。
 4. 不恢复 `--proof-bundle*` 产品路径；不把 library ProofBundle 当 alternate。
-5. Proof gate 顺序（现行 holds 路径见 ADR-0027；**cutover 后** 扩展为 kind 感知）：
+5. Proof gate 顺序（ADR-0027 基线；当前 engineering plumbing 已 kind 感知）：
 
    ```text
    single in-memory source snapshot
@@ -474,8 +474,8 @@ def InvariantTheoremV1
      → requirement resolve / capability → materialize …
    ```
 
-   在实现 cutover 前，产品 inventory 仍为 ADR-0027 单键 holds 模型；上表为
-   **拟议** 目标形状，非当前事实。
+   上表的 `(inv,kind)` inventory、alias、protocol 与 certifier 分支现为工程事实；但 preserving
+   certified positive 与 supersession 门槛仍未满足。
 
 ### D9. 首个实例：EvenCounter；禁止 MiniAmm 特例
 
@@ -501,8 +501,8 @@ def InvariantTheoremV1
 
 | 文档 | 关系 |
 |---|---|
-| ADR-0027 | **当前 product authority**（`proposed`；无 successor）。holds 形状、snapshot/audit/axiom、proof-before-materialize、holds inventory/certifier 纪律 **仍以 0027 为准**。本 ADR 是 **proposed extension/amendment**：D4 原样重申 holds；D6 `(inv, kind)` 等为 **cutover 后** 拟议取代 0027 单键 bijection 的设计。**实现与 cutover 完成前不得** 把 0027 标 `superseded`。 |
-| research-023 | L1 `Preserves P` 目标叙述的设计收口落在本 ADR；首实例从“MiniAmm 优先”调整为 **EvenCounter 优先**。ABI foundation 已实现后，research 文件同步为“kind/inventory/certifier + EvenCounter pending”；MiniAmm 仍不得先于通用实例获得特例。 |
+| ADR-0027 | **当前 inline base authority**（`proposed`；无 successor）。holds 形状、snapshot/audit/axiom、proof-before-materialize 纪律仍以 0027 为准。本 ADR 是 **proposed extension/amendment**：D4 原样重申 holds；D6 `(inv, kind)` plumbing 已实现。preserving positive/acceptance 完成前不得把 0027 标 `superseded`。 |
+| research-023 | L1 `Preserves P` 目标叙述的设计收口落在本 ADR；首实例从“MiniAmm 优先”调整为 **EvenCounter 优先**。foundation 与 kind plumbing 已实现；research 现在应只保留 EvenCounter/第二实例 pending。MiniAmm 仍不得先于通用实例获得特例。 |
 
 ## 后果
 
@@ -511,27 +511,28 @@ def InvariantTheoremV1
 - Holds 与 step-preservation 命题边界清晰；admission 正义务堵住“未 admission
   却证明保持”的空真。
 - `(invariant, kind)` inventory 允许单 kind 或双 kind，非空表面强制每 inv
-  至少一种，避免半覆盖（**cutover 后** 产品义务）。
+  至少一种，避免半覆盖；该纪律已进入 engineering product plumbing。
 - Outcome 三分支与 vault/context/responses 全量化对齐 product Reference。
 - EvenCounter 首切片强制通用 ABI，阻断 MiniAmm 专用证明栈回流。
-- 0027 继续约束现行 holds 产品；0034 的 ABI foundation 不改变产品 authority，避免过早双权威或假对齐。
+- 0027 继续约束 inline base；0034 扩展已进入 plumbing，但不因无 positive instance 而假称完整对齐。
 
 ### 代价 / 风险
 
-- ProgramV1 `ProofDecl` / Loader / inventory / certifier 均需 kind 扩维（后续
-  实现切片；本 ADR 不写代码）。
+- ProgramV1 `ProofDecl` / Loader / inventory / certifier 已完成 kind 扩维；新增 source wire tag 与
+  golden/oracle 需要原子 re-pin，不能保留 2/3-field dual reader。
 - 全输入量化证明负担高于“空 responses 特例”；EvenCounter 须刻意保持状态面窄。
 - MiniAmm L1 时间表后移至 admission 与通用 ABI 之后——接受为正确优先级。
 - 非空表面“每 inv 至少一种 kind”比旧“proof 与 inv 全双射”更严于
   partial-proof 实验流；接受为产品诚实性。
-- cutover 前 0027/0034 文档并存：读者须区分 **现行 authority（0027）** 与
-  **拟议扩展（0034）**；禁止把 design 写成已落地。
+- 0027/0034 文档并存：读者须区分 **inline base authority（0027）**、
+  **已实现 kind plumbing（0034）** 与 **尚未交付 preserving instance acceptance**；禁止把 plumbing
+  写成完整 L1 产品证明。
 
 ## 非目标
 
-- 当前 foundation slice **不实现** `ProofKindV1` 语法、inventory/certifier 分支、alias
-  cutover 或 EvenCounter 源码；仅实现通用 `PreservationTheoremV1` 及其 base/step/helpers。
-- **不** 立即 supersede ADR-0027；**不** 把部分 ABI 实现写成完整产品对齐。
+- 当前已交付 foundation + kind plumbing slice **不实现** EvenCounter preserving theorem、第二实例
+  或 MiniAmm P1；alias/negative/identity 测试不得冒充 preserving certified positive。
+- **不** 立即 supersede ADR-0027；**不** 把 ABI/plumbing 实现写成完整产品或 formal 对齐。
 - 不关闭 formal TASK/TST；不升格 hermetic/release。
 - 不解锁 nonempty invariant 的八 target materialization。
 - 不定义 reachability 闭包、多步 trace 归纳框架、或跨交易 atomicity。
@@ -545,21 +546,24 @@ def InvariantTheoremV1
 
 1. **已完成 — ABI foundation**：`PreservationTheoremV1` + base/step/helpers（与
    `InvariantABI` 并列）；positive initial/admission + 完整 Outcome Prop。
-2. **下一步 — Wire/AST + inventory/certifier**：`ProofKindV1` +
-   `proof … preserving using …` + sourceHash；bare `proof … using` ⇒ holds；
-   inventory 键 `(inv,kind)`、非空表面每 inv ≥1 kind、cert digest 含 kind。
-3. Alias：`Proof.<Inv>` holds 兼容；`ProofPreserving.<Inv>` preserving；
-   共享 `Proof.subjectProgramV1`。
-4. EvenCounter Example + Reference admission + focused preserve suite。
+2. **已完成 — Wire/AST + inventory/certifier plumbing**：`ProofKindV1` + 三字段 wire +
+   `proof … preserving using …`；bare `proof … using` ⇒ holds；inventory 键 `(inv,kind)`、
+   非空表面每 inv ≥1 kind、kind 进入 theorem-set/cert digest；无 2-field fallback。
+3. **已完成 — Alias plumbing**：`Proof.<Inv>` holds 兼容；
+   `ProofPreserving.<Inv>` preserving；共享 `Proof.subjectProgramV1`；simple-closure helper holds-only。
+4. **下一步**：EvenCounter Example + Reference admission + focused preserve suite + product certified positive。
 5. 第二非 AMM 实例复挂。
-6. 产品 cutover + 文档：ADR-0027 → `superseded` / `successor=ADR-0034`（**仅此时**）。
+6. 完整 acceptance + 文档：ADR-0027 → `superseded` / `successor=ADR-0034`（**仅此时**）。
 7. （更后）MiniAmm 复用已 admitted product program 与 **同一** ABI。
 
 ## 状态
 
-- `proposed` / generic ABI foundation implemented / product cutover pending / 2026-08-07
-- 已交付：本文、`ProofForgeV2/Semantic/PreservationABI.lean`、focused ABI/Reference lifecycle tests；
-  **ADR-0027 保持 `proposed`，无 successor/横幅**
-- 未交付：ProofKind/inventory/certifier/alias/EvenCounter/第二实例/MiniAmm P1/product cutover
-- 禁止：修改 Reference 机器或加入 MiniAmm 特例；禁止预填 0027 supersession，或把 foundation
-  写成完整规格/产品对齐
+- `proposed` / generic ABI foundation + kind-aware source/inventory/certifier plumbing implemented /
+  preserving positive and supersession pending / 2026-08-07
+- 已交付：本文、`PreservationABI.lean`、`ProofKindV1` 三字段 wire、bare/preserving syntax、
+  `(inv,kind)` inventory、`Proof`/`ProofPreserving` aliases、kind-bound protocol/digests/certifier、
+  focused identity/tamper tests；**ADR-0027 保持 `proposed`，无 successor/横幅**
+- 未交付：EvenCounter preserving product-certified positive、第二实例、MiniAmm P1、formal/product
+  maturity 与 ADR supersession
+- 禁止：修改 Reference 机器或加入 MiniAmm 特例；禁止预填 0027 supersession，或把 plumbing
+  写成完整 L1 proof/product 对齐

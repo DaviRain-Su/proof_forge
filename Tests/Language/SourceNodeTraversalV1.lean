@@ -187,7 +187,7 @@ private def comprehensiveProgram (names : FixtureNames) : ProgramV1 :=
         version := "1.0.0"
         digest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
       },
-      .proof { invariant := names.name, theorem_ := names.qualified }
+      .proof { invariant := names.name, kind := .holds, theorem_ := names.qualified }
     ]
   }
 
@@ -470,6 +470,7 @@ def run : IO Unit := do
   }
   let proofItem := ProgramItemV1.proof {
     invariant := names.name
+    kind := .holds
     theorem_ := names.qualified
   }
   let orderProgramA : ProgramV1 := {

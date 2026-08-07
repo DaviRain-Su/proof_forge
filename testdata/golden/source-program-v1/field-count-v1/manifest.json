@@ -1,8 +1,8 @@
 {
-  "baseCanonicalBytesSha256": "sha256:5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce",
+  "baseCanonicalBytesSha256": "sha256:a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8",
   "baseCanonicalFile": "testdata/golden/source-program-v1/full-tag-v1/canonical.bin",
   "baseCaseId": "full-tag-valid-v1",
-  "mutationCount": 140,
+  "mutationCount": 141,
   "mutations": [
     {"caseId":"field-count-binaryop-add-0-to-1","expectedCount":0,"expectedError":"tag 'BinaryOp.Add' must declare 0 fields","fieldCountOffset":1840,"mutatedCount":1,"tag":"BinaryOp.Add"},
     {"caseId":"field-count-binaryop-and-0-to-1","expectedCount":0,"expectedError":"tag 'BinaryOp.And' must declare 0 fields","fieldCountOffset":6720,"mutatedCount":1,"tag":"BinaryOp.And"},
@@ -87,8 +87,9 @@
     {"caseId":"field-count-place-name-1-to-2","expectedCount":1,"expectedError":"tag 'Place.Name' must declare 1 fields","fieldCountOffset":1717,"mutatedCount":2,"tag":"Place.Name"},
     {"caseId":"field-count-program-2-to-1","expectedCount":2,"expectedError":"tag 'Program' must declare 2 fields","fieldCountOffset":50,"mutatedCount":1,"tag":"Program"},
     {"caseId":"field-count-program-2-to-3","expectedCount":2,"expectedError":"tag 'Program' must declare 2 fields","fieldCountOffset":50,"mutatedCount":3,"tag":"Program"},
-    {"caseId":"field-count-proofdecl-2-to-1","expectedCount":2,"expectedError":"tag 'ProofDecl' must declare 2 fields","fieldCountOffset":15485,"mutatedCount":1,"tag":"ProofDecl"},
-    {"caseId":"field-count-proofdecl-2-to-3","expectedCount":2,"expectedError":"tag 'ProofDecl' must declare 2 fields","fieldCountOffset":15485,"mutatedCount":3,"tag":"ProofDecl"},
+    {"caseId":"field-count-proofdecl-3-to-2","expectedCount":3,"expectedError":"tag 'ProofDecl' must declare 3 fields","fieldCountOffset":15485,"mutatedCount":2,"tag":"ProofDecl"},
+    {"caseId":"field-count-proofdecl-3-to-4","expectedCount":3,"expectedError":"tag 'ProofDecl' must declare 3 fields","fieldCountOffset":15485,"mutatedCount":4,"tag":"ProofDecl"},
+    {"caseId":"field-count-proofkind-holds-0-to-1","expectedCount":0,"expectedError":"tag 'ProofKind.Holds' must declare 0 fields","fieldCountOffset":15514,"mutatedCount":1,"tag":"ProofKind.Holds"},
     {"caseId":"field-count-statedecl-3-to-2","expectedCount":3,"expectedError":"tag 'StateDecl' must declare 3 fields","fieldCountOffset":80,"mutatedCount":2,"tag":"StateDecl"},
     {"caseId":"field-count-statedecl-3-to-4","expectedCount":3,"expectedError":"tag 'StateDecl' must declare 3 fields","fieldCountOffset":80,"mutatedCount":4,"tag":"StateDecl"},
     {"caseId":"field-count-stmt-assert-2-to-1","expectedCount":2,"expectedError":"tag 'Stmt.Assert' must declare 2 fields","fieldCountOffset":2531,"mutatedCount":1,"tag":"Stmt.Assert"},
@@ -145,9 +146,9 @@
     {"caseId":"field-count-visibility-private-0-to-1","expectedCount":0,"expectedError":"tag 'Visibility.Private' must declare 0 fields","fieldCountOffset":1112,"mutatedCount":1,"tag":"Visibility.Private"},
     {"caseId":"field-count-visibility-public-0-to-1","expectedCount":0,"expectedError":"tag 'Visibility.Public' must declare 0 fields","fieldCountOffset":103,"mutatedCount":1,"tag":"Visibility.Public"}
   ],
-  "nullaryTagCount": 28,
+  "nullaryTagCount": 29,
   "positiveFieldTagCount": 56,
   "schema": "proof-forge.source-program-field-count-golden-prerequisite.v1",
   "scope": "pa125-base-first-occurrence-exact-field-count",
-  "tagCount": 84
+  "tagCount": 85
 }

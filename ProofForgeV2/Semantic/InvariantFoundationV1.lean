@@ -68,18 +68,6 @@ private def fieldValueByteLengthV1 (modulusBE : ByteArray) : Nat :=
     let bitLength := Nat.log2 p + 1
     (bitLength + 7) / 8
 
-/-- Read little-endian u32 at `offset`; returns value and next offset. -/
-private def readU32leAtV1 (bytes : ByteArray) (offset : Nat) :
-    Except SemanticWireErrorV1 (UInt32 × Nat) := do
-  unless offset + 4 ≤ bytes.size do
-    return ← err .truncated
-  let b0 := (bytes.get! offset).toNat
-  let b1 := (bytes.get! (offset + 1)).toNat
-  let b2 := (bytes.get! (offset + 2)).toNat
-  let b3 := (bytes.get! (offset + 3)).toNat
-  let v := b0 + b1 * 256 + b2 * 65536 + b3 * 16777216
-  pure (UInt32.ofNat v, offset + 4)
-
 /-- Encode `valueBytes` as one logical-state slot: `u32le len || bytes`. -/
 private def encodeStateSlotV1 (valueBytes : ByteArray) :
     Except SemanticWireErrorV1 ByteArray := do
@@ -204,6 +192,56 @@ def initialLogicalStateV1 (program : SemanticProgramV1) :
   let hasInitializer := data.callables.any fun c => c.kind == .initializer
   encodeLogicalStateValuesV1 data (!hasInitializer) values
 
+/-- A validated program with one UInt64 state slot and no initializer starts
+    initialized with the exact length-prefixed eight-byte zero value. This is a
+    refinement of the sole production default/state encoder, not a second state
+    constructor. -/
+theorem initialLogicalStateV1_single_uint64_no_initializer_eq_ok
+    (program : SemanticProgramV1) (data : SemanticProgramDataV1)
+    (stateDecl : StateDeclV1) (typeDecl : TypeDeclV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hstate : data.logicalState = #[stateDecl])
+    (htype : data.types[stateDecl.typeId.toNat]? = some typeDecl)
+    (hshape : typeDecl.shape = .uint 64)
+    (hnoInitializer : data.callables.any (fun c => c.kind == .initializer) = false)
+    (hcanonical : validateValueBytesV1 data.types stateDecl.typeId
+      (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]) = .ok ()) :
+    initialLogicalStateV1 program = .ok {
+      initialized := true
+      canonicalValues := (encodeU32le 8).append
+        (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0])
+    } := by
+  let zero := ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]
+  have hdefault : defaultValueAtV1 data.types stateDecl.typeId maxNesting =
+      .ok zero := by
+    rw [show maxNesting = 255 + 1 by rfl, defaultValueAtV1.eq_2, htype]
+    simp only [hshape, Pure.pure, Except.pure]
+    rw [show (64 : UInt16).toNat / 8 = 8 by decide]
+    congr 1
+    simp [zeroBytesV1, List.range', zero]
+    apply ByteArray.ext
+    simp only [ByteArray.data_push]
+    have hempty : (ByteArray.emptyWithCapacity 8).data = (#[] : Array UInt8) := by
+      change (Array.emptyWithCapacity 8 : Array UInt8) = #[]
+      exact Array.emptyWithCapacity_eq
+    rw [hempty]
+    rfl
+  unfold initialLogicalStateV1
+  rw [hvalidate]
+  simp only [Bind.bind, Except.bind]
+  rw [hstate]
+  simp [hdefault, hnoInitializer, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  unfold encodeLogicalStateValuesV1
+  simp only [hstate]
+  have hcanonical' : validateValueBytesV1 data.types stateDecl.typeId zero = .ok () := by
+    simpa [zero] using hcanonical
+  have hzeroSize : zero.size = 8 := by rfl
+  have hslot : encodeStateSlotV1 zero = .ok ((encodeU32le 8).append zero) := by
+    unfold encodeStateSlotV1
+    simp [hzeroSize, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  simp [hcanonical', hslot, zero, Pure.pure, Except.pure,
+    Bind.bind, Except.bind]
+
 /-- Executable StateConforms predicate (SPEC §7).
 
     Requires validated carrier, `initialized=true`, exact per-slot canonical
@@ -223,6 +261,22 @@ def stateConformsBoolV1 (program : SemanticProgramV1) (state : LogicalStateV1) :
 /-- Propositional form of StateConforms (definitionally tied to the Bool gate). -/
 def StateConformsV1 (program : SemanticProgramV1) (state : LogicalStateV1) : Prop :=
   stateConformsBoolV1 program state = true
+
+/-- Construct conformance from the exact successful carrier validation,
+    initialized bit, and sole production logical-state decoder result. -/
+theorem stateConformsV1_intro_of_validate_eq_ok
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (values : Array ByteArray)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok values) :
+    StateConformsV1 program state := by
+  unfold StateConformsV1 stateConformsBoolV1
+  rw [hvalidate]
+  simp only [hinitialized, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+    hdecode]
 
 /-- Eliminate conformance after an exact successful carrier validation. This
     exposes only the initialized-state and canonical-state decode facts already

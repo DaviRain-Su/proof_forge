@@ -1,6 +1,7 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.AstProgramItemV1
+import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Semantic.ProofBundleV1
@@ -12,9 +13,9 @@ import ProofForgeV2.Semantic.ProofSubjectV1
   Product `check`/`build` use `Compiler.certifyInlineProofV1` exclusively.
 
   Scope:
-    * Collect source-order `proof Inv using QN` bindings from ProgramV1
-    * Exact set join of source bindings ↔ ProofBundleV1 exports
-      `(invariantName, theoremComponents)`
+    * Collect source-order holds/preserving proof bindings from ProgramV1
+    * Exact set join of source bindings ↔ holds-only ProofBundleV1 exports
+      `(invariantName, kind, theoremComponents)`; preserving fails closed
     * Caller-supplied expected digest + sourceHash + semanticHash must match opened bundle
     * No ambient Lean term / Environment / definitional equality / olean kernel
 
@@ -27,6 +28,7 @@ namespace ProofForgeV2.Semantic.ProofReferenceJoinV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.AstProgramItemV1
+open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Semantic.ProofBundleV1
@@ -35,6 +37,7 @@ open ProofForgeV2.Semantic.ProofSubjectV1
 /-- One source-level proof reference binding (certification metadata only). -/
 structure SourceProofBindingV1 where
   invariantName : String
+  kind : ProofKindV1
   theoremComponents : Array String
   deriving BEq, Repr, Inhabited
 
@@ -65,26 +68,45 @@ def collectSourceProofBindingsV1 (program : ProgramV1) : Array SourceProofBindin
           let thm :=
             (NonEmptyArray.toArray d.theorem_.components).map
               (fun c => c.raw)
-          out := out.push { invariantName := inv, theoremComponents := thm }
+          out := out.push {
+            invariantName := inv
+            kind := d.kind
+            theoremComponents := thm
+          }
       | _ => pure ()
     pure out
 
-/-- Canonical compare key: invariant name then theorem component array. -/
-private def bindingKey (b : SourceProofBindingV1) : String × Array String :=
-  (b.invariantName, b.theoremComponents)
+private structure BindingKeyV1 where
+  invariantName : String
+  kind : ProofKindV1
+  theoremComponents : Array String
+  deriving BEq, Inhabited
 
-private def exportKey (e : ProofExportV1) : String × Array String :=
-  (e.invariantName, e.theoremName.components.toArray)
+/-- Source keys retain proof kind. Historical ProofBundle exports are explicitly
+    holds-only, so a preserving source binding cannot alias a holds export. -/
+private def bindingKey (b : SourceProofBindingV1) : BindingKeyV1 :=
+  { invariantName := b.invariantName, kind := b.kind,
+    theoremComponents := b.theoremComponents }
 
-/-- Lexicographic order on (invariantName, theoremComponents) for stable sort.
-    Returns true when `a` is strictly less than `b`. -/
-private def cmpKey (a b : String × Array String) : Bool :=
-  if a.1 < b.1 then true
-  else if b.1 < a.1 then false
+private def exportKey (e : ProofExportV1) : BindingKeyV1 :=
+  { invariantName := e.invariantName, kind := .holds,
+    theoremComponents := e.theoremName.components.toArray }
+
+private def kindRank : ProofKindV1 → Nat
+  | .holds => 0
+  | .preserving => 1
+
+/-- Lexicographic order on `(invariantName, kind, theoremComponents)` for stable
+    sort. Returns true when `a` is strictly less than `b`. -/
+private def cmpKey (a b : BindingKeyV1) : Bool :=
+  if a.invariantName < b.invariantName then true
+  else if b.invariantName < a.invariantName then false
+  else if kindRank a.kind < kindRank b.kind then true
+  else if kindRank b.kind < kindRank a.kind then false
   else
     -- Component-wise: use zip-with remaining length fuel.
-    let ac := a.2.toList
-    let bc := b.2.toList
+    let ac := a.theoremComponents.toList
+    let bc := b.theoremComponents.toList
     let rec loop (xs ys : List String) : Bool :=
       match xs, ys with
       | [], [] => false
@@ -97,10 +119,10 @@ private def cmpKey (a b : String × Array String) : Bool :=
     loop ac bc
 
 private partial def insertSorted
-    (xs : Array (String × Array String)) (k : String × Array String) :
-    Array (String × Array String) :=
+    (xs : Array BindingKeyV1) (k : BindingKeyV1) :
+    Array BindingKeyV1 :=
   Id.run do
-    let mut out : Array (String × Array String) := #[]
+    let mut out : Array BindingKeyV1 := #[]
     let mut placed := false
     for x in xs do
       if !placed && cmpKey k x then
@@ -111,10 +133,9 @@ private partial def insertSorted
       out := out.push k
     pure out
 
-private def sortKeys (keys : Array (String × Array String)) :
-    Array (String × Array String) :=
+private def sortKeys (keys : Array BindingKeyV1) : Array BindingKeyV1 :=
   Id.run do
-    let mut out : Array (String × Array String) := #[]
+    let mut out : Array BindingKeyV1 := #[]
     for k in keys do
       out := insertSorted out k
     pure out
@@ -128,13 +149,14 @@ private def exactBindingExportJoin
   let srcKeys := sortKeys (bindings.map bindingKey)
   let expKeys := sortKeys (exports.map exportKey)
   -- Reject duplicates after sort (adjacent equal).
-  let rec noDup (arr : Array (String × Array String)) (i : Nat) (side : String) :
+  let rec noDup (arr : Array BindingKeyV1) (i : Nat) (side : String) :
       Except ProofReferenceJoinErrorV1 Unit := do
     if h : i + 1 < arr.size then
       let a := arr[i]!
       let b := arr[i + 1]!
       if a == b then
-        return ← err (.exportMismatch s!"duplicate {side} binding {a.1}")
+        return ← err (.exportMismatch
+          s!"duplicate {side} binding {a.invariantName}/{a.kind}")
       noDup arr (i + 1) side
     else pure ()
   noDup srcKeys 0 "source"
@@ -146,8 +168,11 @@ private def exactBindingExportJoin
   for sk in srcKeys do
     let ek := expKeys[i]!
     unless sk == ek do
-      return ← err (.exportMismatch
-        s!"source/export set mismatch at sorted index {i}: source=({sk.1}) export=({ek.1})")
+      let detail :=
+        s!"source/export set mismatch at sorted index {i}: source=" ++
+        s!"({sk.invariantName}/{sk.kind}) export=" ++
+        s!"({ek.invariantName}/{ek.kind})"
+      return ← err (.exportMismatch detail)
     i := i + 1
   pure ()
 
@@ -159,7 +184,8 @@ private def exactBindingExportJoin
     * expectedBundleDigest == opened.bundleDigest
     * manifest.sourceHash == sourceHash
     * manifest.semanticHash == semanticHash
-    * source proof set == export set on (invariantName, theoremComponents)
+    * source proof set == holds-only export set on
+      (invariantName, kind, theoremComponents)
     * empty bindings ⇒ `.unusedBundle` (caller should not open when unused)
 -/
 def joinProofReferencesV1

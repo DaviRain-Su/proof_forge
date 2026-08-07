@@ -267,29 +267,35 @@ private def fullTagFixture : Except String Fixture := do
         version := "1.0.0"
         digest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
       },
-      .proof { invariant := safeN, theorem_ := theoremName }
+      .proof { invariant := safeN, kind := .holds, theorem_ := theoremName }
     ]
   }
   pure { moduleName, programIdentity, program }
 
 private def wireTags : Array String := #[
   "BinaryOp.Add", "BinaryOp.And", "BinaryOp.BitAnd", "BinaryOp.BitOr",
-  "BinaryOp.BitXor", "BinaryOp.Div", "BinaryOp.Eq", "BinaryOp.Ge", "BinaryOp.Gt",
-  "BinaryOp.Le", "BinaryOp.Lt", "BinaryOp.Mod", "BinaryOp.Mul", "BinaryOp.Ne",
-  "BinaryOp.Or", "BinaryOp.Shl", "BinaryOp.Shr", "BinaryOp.Sub", "Block",
-  "ConstDecl", "EntryDecl", "EnumDecl", "EnumVariant", "ErrorDecl", "EventDecl",
-  "Expr.Binary", "Expr.Constructor", "Expr.Literal", "Expr.LocalCall", "Expr.Match",
-  "Expr.Place", "Expr.Unary", "ExprMatchArm", "ExtensionReq", "ExternalCallExpr",
-  "FieldDecl", "FnDecl", "InitDecl", "InvariantDecl", "Literal.Bool",
+  "BinaryOp.BitXor", "BinaryOp.Div", "BinaryOp.Eq", "BinaryOp.Ge",
+  "BinaryOp.Gt", "BinaryOp.Le", "BinaryOp.Lt", "BinaryOp.Mod",
+  "BinaryOp.Mul", "BinaryOp.Ne", "BinaryOp.Or", "BinaryOp.Shl",
+  "BinaryOp.Shr", "BinaryOp.Sub", "Block", "ConstDecl",
+  "EntryDecl", "EnumDecl", "EnumVariant", "ErrorDecl",
+  "EventDecl", "Expr.Binary", "Expr.Constructor", "Expr.Literal",
+  "Expr.LocalCall", "Expr.Match", "Expr.Place", "Expr.Unary",
+  "ExprMatchArm", "ExtensionReq", "ExternalCallExpr", "FieldDecl",
+  "FnDecl", "InitDecl", "InvariantDecl", "Literal.Bool",
   "Literal.Integer", "Literal.String", "Param", "Pattern.Bind",
   "Pattern.Constructor", "Pattern.Literal", "Pattern.Wildcard", "Place.Field",
-  "Place.Index", "Place.Name", "Program", "ProofDecl", "StateDecl", "Stmt.Assert",
-  "Stmt.Assign", "Stmt.Call", "Stmt.Emit", "Stmt.For", "Stmt.If", "Stmt.Let",
-  "Stmt.Match", "Stmt.Return", "Stmt.Revert", "Stmt.Schedule", "StmtMatchArm",
-  "StructDecl", "Type.Array", "Type.Bool", "Type.Bytes", "Type.Field", "Type.Int",
-  "Type.Map", "Type.Named", "Type.Option", "Type.Principal", "Type.UInt", "Type.Unit",
-  "UnaryOp.BitNot", "UnaryOp.Neg", "UnaryOp.Not", "ViewDecl",
-  "Visibility.Commitment", "Visibility.Private", "Visibility.Public"
+  "Place.Index", "Place.Name", "Program", "ProofDecl",
+  "ProofKind.Holds", "StateDecl", "Stmt.Assert", "Stmt.Assign",
+  "Stmt.Call", "Stmt.Emit", "Stmt.For", "Stmt.If",
+  "Stmt.Let", "Stmt.Match", "Stmt.Return", "Stmt.Revert",
+  "Stmt.Schedule", "StmtMatchArm", "StructDecl", "Type.Array",
+  "Type.Bool", "Type.Bytes", "Type.Field", "Type.Int",
+  "Type.Map", "Type.Named", "Type.Option", "Type.Principal",
+  "Type.UInt", "Type.Unit", "UnaryOp.BitNot", "UnaryOp.Neg",
+  "UnaryOp.Not", "ViewDecl", "Visibility.Commitment", "Visibility.Private",
+  "Visibility.Public"
+
 ]
 
 private def nodeTags : Array String := #[
@@ -363,8 +369,8 @@ def run : IO Unit := do
   expect (manifest.moduleName == #["Golden"] &&
       manifest.programIdentity == #["Golden", "FullTag"])
     "golden qualified identities"
-  expect (wireTags.size == 84 && sameSet manifest.wireTags wireTags)
-    "closed 84-tag wire inventory"
+  expect (wireTags.size == 85 && sameSet manifest.wireTags wireTags)
+    "closed 85-tag wire inventory"
   expect (nodeTags.size == 57 && sameSet manifest.nodeTags nodeTags)
     "closed 57-tag node inventory"
   expect (edgePairs.size == 63 && sameSet manifest.edgePairs edgePairs)

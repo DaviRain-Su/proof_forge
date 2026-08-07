@@ -114,22 +114,28 @@ private def pathEqual (production : NormalizedSyntacticPathV1)
 
 private def wireTags : Array String := #[
   "BinaryOp.Add", "BinaryOp.And", "BinaryOp.BitAnd", "BinaryOp.BitOr",
-  "BinaryOp.BitXor", "BinaryOp.Div", "BinaryOp.Eq", "BinaryOp.Ge", "BinaryOp.Gt",
-  "BinaryOp.Le", "BinaryOp.Lt", "BinaryOp.Mod", "BinaryOp.Mul", "BinaryOp.Ne",
-  "BinaryOp.Or", "BinaryOp.Shl", "BinaryOp.Shr", "BinaryOp.Sub", "Block",
-  "ConstDecl", "EntryDecl", "EnumDecl", "EnumVariant", "ErrorDecl", "EventDecl",
-  "Expr.Binary", "Expr.Constructor", "Expr.Literal", "Expr.LocalCall", "Expr.Match",
-  "Expr.Place", "Expr.Unary", "ExprMatchArm", "ExtensionReq", "ExternalCallExpr",
-  "FieldDecl", "FnDecl", "InitDecl", "InvariantDecl", "Literal.Bool",
+  "BinaryOp.BitXor", "BinaryOp.Div", "BinaryOp.Eq", "BinaryOp.Ge",
+  "BinaryOp.Gt", "BinaryOp.Le", "BinaryOp.Lt", "BinaryOp.Mod",
+  "BinaryOp.Mul", "BinaryOp.Ne", "BinaryOp.Or", "BinaryOp.Shl",
+  "BinaryOp.Shr", "BinaryOp.Sub", "Block", "ConstDecl",
+  "EntryDecl", "EnumDecl", "EnumVariant", "ErrorDecl",
+  "EventDecl", "Expr.Binary", "Expr.Constructor", "Expr.Literal",
+  "Expr.LocalCall", "Expr.Match", "Expr.Place", "Expr.Unary",
+  "ExprMatchArm", "ExtensionReq", "ExternalCallExpr", "FieldDecl",
+  "FnDecl", "InitDecl", "InvariantDecl", "Literal.Bool",
   "Literal.Integer", "Literal.String", "Param", "Pattern.Bind",
   "Pattern.Constructor", "Pattern.Literal", "Pattern.Wildcard", "Place.Field",
-  "Place.Index", "Place.Name", "Program", "ProofDecl", "StateDecl", "Stmt.Assert",
-  "Stmt.Assign", "Stmt.Call", "Stmt.Emit", "Stmt.For", "Stmt.If", "Stmt.Let",
-  "Stmt.Match", "Stmt.Return", "Stmt.Revert", "Stmt.Schedule", "StmtMatchArm",
-  "StructDecl", "Type.Array", "Type.Bool", "Type.Bytes", "Type.Field", "Type.Int",
-  "Type.Map", "Type.Named", "Type.Option", "Type.Principal", "Type.String", "Type.UInt",
-  "Type.Unit", "UnaryOp.BitNot", "UnaryOp.Neg", "UnaryOp.Not", "ViewDecl",
-  "Visibility.Commitment", "Visibility.Private", "Visibility.Public"
+  "Place.Index", "Place.Name", "Program", "ProofDecl",
+  "ProofKind.Holds", "StateDecl", "Stmt.Assert", "Stmt.Assign",
+  "Stmt.Call", "Stmt.Emit", "Stmt.For", "Stmt.If",
+  "Stmt.Let", "Stmt.Match", "Stmt.Return", "Stmt.Revert",
+  "Stmt.Schedule", "StmtMatchArm", "StructDecl", "Type.Array",
+  "Type.Bool", "Type.Bytes", "Type.Field", "Type.Int",
+  "Type.Map", "Type.Named", "Type.Option", "Type.Principal",
+  "Type.String", "Type.UInt", "Type.Unit", "UnaryOp.BitNot",
+  "UnaryOp.Neg", "UnaryOp.Not", "ViewDecl", "Visibility.Commitment",
+  "Visibility.Private", "Visibility.Public"
+
 ]
 
 private def nodeTags : Array String := #[
@@ -228,8 +234,8 @@ unsafe def run : IO Unit := do
   expect (manifest.programIdentity ==
       #["Tests", "Language", "ProgramV1SourceFullTagGolden", "Source", "FullTag"])
     "programIdentity"
-  expect (wireTags.size == 85 && sameSet manifest.wireTags wireTags)
-    "closed 85-tag wire inventory"
+  expect (wireTags.size == 86 && sameSet manifest.wireTags wireTags)
+    "closed 86-tag wire inventory"
   expect (nodeTags.size == 58 && sameSet manifest.nodeTags nodeTags)
     "closed 58-tag node inventory"
   expect (edgePairs.size == 63 && sameSet manifest.edgePairs edgePairs)

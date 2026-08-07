@@ -74,6 +74,9 @@ import ProofForgeV2.Semantic.SimpleClosureDecodeV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Semantic.PreservationABI
+import ProofForgeV2.ProofInstances.EvenCounterV1
+import ProofForgeV2.ProofInstances.EvenCounterDecodeV1
+import ProofForgeV2.ProofInstances.EvenCounterPreservationV1
 import ProofForgeV2.Semantic.ProofBundleV1
 import ProofForgeV2.Semantic.InlineProofPolicyV1
 import ProofForgeV2.Semantic.ProofSubjectV1

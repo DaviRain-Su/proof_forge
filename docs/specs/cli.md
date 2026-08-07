@@ -3,7 +3,7 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-08-04
+updated: 2026-08-07
 normative: true
 ---
 
@@ -20,11 +20,14 @@ normative: true
 > `artifact-output.published-bytes` 已进程内强制。以下 receipt/containment 条款是
 > proposed 目标。
 >
-> **Inline proof（ADR-0027 sole product gate）**：ProgramV1/`semanticHash` 不含 theorem
-> body；固定 axiom `Classical.choice`/`Quot.sound`/`propext`；当前仅
-> `InvariantTheoremV1`/`StateConformsV1`；**不** 声称 formal TST/release。check 成功输出
-> `proofStatus` / theorem count / certification digest；build 只做门禁、成功输出 **不**
-> 携带 proof 字段。**Kernel closed（engineering）**：legal-only production simple-closure
+> **Inline proof（ADR-0027 base + ADR-0034 kind extension；sole product gate）**：
+> ProgramV1/`semanticHash` 不含 theorem body；固定 axiom
+> `Classical.choice`/`Quot.sound`/`propext`。bare proof 为 holds
+> (`InvariantTheoremV1`)；显式 preserving proof 为 Reference-based
+> `PreservationTheoremV1`。kind 进入 source/request/theorem-set/certification digest，但不进入
+> semanticHash。**不** 声称 formal TST/release。check 成功输出 `proofStatus` / theorem count /
+> certification digest；build 只做门禁、成功输出 **不**携带 proof 字段。
+> **Kernel closed（engineering）**：legal-only production simple-closure
 > encode/decode + exact ordinal-0 `InvariantTheoremV1`（`SimpleClosureCertV1` /
 > `ProofedProof.safe`）。**Narrow product positive 已完成 engineering 验证**：literal-true /
 > public-Bool-view same-file ordinary theorem 经 `certifyInlineProofV1` 的真实 product
@@ -107,8 +110,9 @@ target semantics/Plan，不得通过这些 compiler-operation flags 改写。
 
 ## Proof certification（sole product gate：inline same-file）
 
-产品 `check` / `build` **唯一** proof 路径是 ADR-0027 inline same-file certification。
-**不存在** 产品 CLI alternate / fallback 到 external `ProofBundleV1`。
+产品 `check` / `build` **唯一** proof 路径是 ADR-0027 single-snapshot/audit 基线加
+ADR-0034 kind-aware inline extension。**不存在** 产品 CLI alternate / fallback 到 external
+`ProofBundleV1`。
 
 ### 固定执行顺序
 
@@ -123,22 +127,25 @@ single IO.FS.readFile (project-root-relative source)
   → TargetRegistry resolve / capability / materialize / finalize / publish
 ```
 
-1. theorem inventory 与 program `proof` / invariant exact bijection（inventory untrusted，
-   由 program items 重算对照）；
-2. Environment 审计 root theorem kind、kernel defeq 到 `InvariantTheoremV1` / 生成 Prop
-   alias、dependency 闭包与固定 trust policy（仅 `Classical.choice` / `Quot.sound` /
-   `propext`）；
-3. **禁止** 用户 `.olean`、ambient lake、`LEAN_PATH` 或任何 external bundle 作 theorem
+1. theorem inventory 与 program `proof` bindings 以 `(invariantName, kind)` exact bijection
+   （inventory untrusted，由 program items 重算对照）；非空表面要求每个 invariant 至少一种 kind；
+2. Environment 审计 root theorem kind、kernel defeq 到 kind-selected
+   `InvariantTheoremV1` / `PreservationTheoremV1` 生成 Prop alias、dependency 闭包与固定 trust policy
+   （仅 `Classical.choice` / `Quot.sound` / `propext`）；
+3. holds alias 为 `<Program>.Proof.<Inv>`，preserving alias 为
+   `<Program>.ProofPreserving.<Inv>`，共享 `<Program>.Proof.subjectProgramV1`；simple-closure helper
+   只为 holds 生成；
+4. **禁止** 用户 `.olean`、ambient lake、`LEAN_PATH` 或任何 external bundle 作 theorem
    authority；
-4. Adjacent theorem body **不** 进入 ProgramV1 wire/`sourceHash`；**永不** 进入
-   `semanticHash`；
-5. 当前命题仅全体 `StateConformsV1` 上 `evalInvariantV1 = .returnedTrue`；不声称
-   reachability / init-step safety / target refinement / formal `TST-PROOF-001`；
-6. Quint Q0 的 read-only Bool invariant 支持是独立 target 能力；其余 nonempty invariant 的 **target materializer** 仍可 fail closed（与 proof gate 正交）；
-7. **Engineering 分层**：simple-closure/ordinal-0 kernel cert 与 narrow product
-   `check` certified 正例均已由独立 suites 验证；目标窄家族为 literal-true /
-   public-Bool-view + same-file ordinary theorem。ADR-0027 / `TST-PROOF-INLINE-E1` 的 CLI
-   正例、fail-closed、gate 顺序、hash 与无用户 `.olean` 门槛继续作为回归契约；不升格 formal。
+5. Adjacent theorem body **不** 进入 ProgramV1 wire/`sourceHash`；kind 作为 `ProofDecl` 字段进入
+   source identity 和 certification digest；proof/kind **永不**进入 `semanticHash`；
+6. holds 不声称 reachability；preserving 对 product Reference admission/base/full-input step 做保持，
+   但两者都不声称 target refinement / formal `TST-PROOF-001`；
+7. Quint Q0 的 read-only Bool invariant 支持是独立 target 能力；其余 nonempty invariant 的
+   **target materializer** 仍可 fail closed（与 proof gate 正交）；
+8. **Engineering 分层**：kind-aware plumbing 已验证；simple-closure/ordinal-0 holds kernel cert 与
+   narrow product `check` certified 正例已闭合。preserving 的首个 certified program positive
+   （EvenCounter）仍 pending，不得把 alias/negative 回归写成 L1 实例已完成。
 
 ### check / build 输出差异
 
@@ -155,6 +162,8 @@ single IO.FS.readFile (project-root-relative source)
 
 - **不是** 产品 `check`/`build` 入口；
 - **不得** 被 CLI 作为 silent fallback 调用；
+- historical bundle ABI 只绑定 holds；`ProofReferenceJoinV1` 保留 source proof kind，preserving
+  source row 对 holds-only export 必须 fail closed；
 - 产品 argv **不得** 再接受 `--proof-bundle` / `--proof-bundle-digest`（unknown option）。
 
 Formal `TST-PROOF-001`（immutable bundle + olean closure）仍独立 pending，不由 inline

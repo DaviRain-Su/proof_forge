@@ -3,7 +3,7 @@ id: SPEC-SOURCE-WIRE-001
 title: Source.ProgramV1 Canonical AST 与 Wire 规格
 status: proposed
 owner: frontend
-updated: 2026-07-30
+updated: 2026-08-07
 normative: true
 ---
 
@@ -110,7 +110,8 @@ unbounded recursion 读取攻击输入。
 | `QualifiedId` | source 上为 `SourceNameArray` 且 count `2..256`；common QN 规则不自动适用 |
 | Phase 1 length/bound | `u32le`, value restricted to `0..4096` |
 
-`ProofDecl.theorem`、constructor/pattern callee paths 与 `ExternalCallExpr.callee` 在 source wire 上
+`ProofDecl.kind` 使用下文 closed `ProofKind.*` tag；`ProofDecl.theorem`、constructor/pattern callee
+paths 与 `ExternalCallExpr.callee` 在 source wire 上
 使用 source `QualifiedId`（≥2 raw components）；root `programIdentity` 使用上节 join。
 String escape spelling 不进入 AST，decoded Unicode scalar
 sequence 才编码。Integer literal 的 source spelling 只允许 ASCII unsigned decimal `[0-9]+` 或 lowercase-prefix `0x[0-9a-fA-F]+`；expression/pattern 共享 sole decoder，并拒绝 `0X`、binary/octal prefix、underscore、内嵌 sign 与越界值。decimal/hex spelling 与 hex digit case 不进入 AST；magnitude 必须在
@@ -154,7 +155,7 @@ wire tag、NodeId `parentTag` 与 golden inventory 必须逐 byte 使用同一 A
 | `FnDecl` | 4 | `name : Ident`, `params : Array<Param>`, `result : Type`, `body : Block` |
 | `InvariantDecl` | 2 | `name : Ident`, `predicate : Expr` |
 | `ExtensionReq` | 3 | `id : QualifiedId`, `version : String`, `digest : String` |
-| `ProofDecl` | 2 | `invariant : Ident`, `theorem : QualifiedId` |
+| `ProofDecl` | 3 | `invariant : Ident`, `kind : ProofKind`, `theorem : QualifiedId` |
 
 `Program.items`、`StructDecl.fields`、`EnumDecl.variants` 和 every `Block.statements` 必须 nonempty。
 `ExtensionReq.version` 必须是 canonical exact SemVer string；`digest` 必须是
@@ -173,6 +174,16 @@ order 拒绝，不通过 serializer 修复。
 | `StmtMatchArm` | 2 | `pattern : Pattern`, `body : Block` |
 | `ExprMatchArm` | 2 | `pattern : Pattern`, `value : Expr` |
 | `ExternalCallExpr` | 2 | `callee : QualifiedId`, `args : Array<Expr>` |
+
+Proof kind 与 visibility 都是 closed tagged nullary values。`ProofDecl.kind` 的 exact tags 为：
+
+| Tag | Count |
+|---|---:|
+| `ProofKind.Holds` | 0 |
+| `ProofKind.Preserving` | 0 |
+
+bare source `proof Inv using Thm` 必须在 AST 构造时物化为 `ProofKind.Holds`；wire decoder 只接受
+上述显式 kind 字段，**不得**兼容读取旧 2-field `ProofDecl` 或推断 kind。
 
 Visibility 是 tagged nullary value：
 

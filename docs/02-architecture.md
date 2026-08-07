@@ -3,7 +3,7 @@ id: PHASE-2
 title: 系统架构
 status: accepted
 owner: architecture
-updated: 2026-08-04
+updated: 2026-08-07
 normative: true
 approvers: architecture-owner, davirain, quality-owner, security-owner
 approvedAt: 2026-07-20
@@ -96,23 +96,26 @@ proof reference、theorem body 或 certification digest。独立 `SemanticProven
 exact 绑定 qualifiedName、sourceHash、semanticHash 与 entity origin map；
 它只服务 diagnostics/audit/certification join，不能进入 target-neutral 业务求值或 target 选择。
 
-### Inline same-file theorem certification（ADR-0027，engineering）
+### Inline same-file theorem certification（ADR-0027 base + ADR-0034 extension，engineering）
 
-当 source 在 program 之后声明 ordinary adjacent Lean `theorem`（经 `proof … using …`
-binding / theorem inventory）时，产品在 **requirement resolve 与 materialization 之前**
+当 source 在 program 之后声明 ordinary adjacent Lean `theorem`（经 kind-aware `proof` binding /
+`(invariant, kind)` theorem inventory）时，产品在 **requirement resolve 与 materialization 之前**
 运行 proof gate：
 
 1. 单一 in-memory source snapshot（禁止为证明重读磁盘）；
-2. ProgramV1 / `sourceHash` **不含 theorem body**；`semanticHash` 永不携带 proof；
+2. ProgramV1 / `sourceHash` **不含 theorem body**，但 `ProofDecl.kind` 进入 source bytes/hash；
+   `semanticHash` 永不携带 proof/kind；
 3. in-process elaboration（**非** sandbox）+ Environment declaration-kind / defeq /
    dependency / axiom audit；
 4. 固定允许 base axiom：`Classical.choice` / `Quot.sound` / `propext`；
 5. **不信任** 用户 `.olean` 或 ambient lake 路径作为 theorem authority；
-6. 当前唯一命题为 `InvariantTheoremV1`：在全部 `StateConformsV1` 状态下
-   `evalInvariantV1 = .returnedTrue`。
+6. bare `proof … using …` 选择 `InvariantTheoremV1`；显式
+   `proof … preserving using …` 选择 Reference admission/base/step 的
+   `PreservationTheoremV1`。两者共享 exact subject 与 invariant ordinal。
 
-该 gate **不** 证明 reachability、init/step safety、target refinement，也 **不** 关闭
-formal `TST-PROOF-001` / hermetic / release。失败零制品；空 proof 表面显式 skip。
+kind-aware plumbing 已接线；当前 product-certified engineering 正例仍仅 holds simple-closure，
+EvenCounter preserving 正例 pending。该 gate 不证明 target refinement，也 **不** 关闭 formal
+`TST-PROOF-001` / hermetic / release。失败零制品；空 proof 表面显式 skip。
 
 `SPEC-SEM-001`/public façade `ProofForgeV2.Semantic.ReferenceV1` 唯一定义
 `ReferenceValueV1`、`InvocationV1`、`ExternalResponsesV1`、`OrderedEffectV1`、revert/fault 与

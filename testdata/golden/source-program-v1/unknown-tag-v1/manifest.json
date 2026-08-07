@@ -1,5 +1,5 @@
 {
-  "baseCanonicalBytesSha256": "sha256:5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce",
+  "baseCanonicalBytesSha256": "sha256:a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8",
   "baseCanonicalFile": "testdata/golden/source-program-v1/full-tag-v1/canonical.bin",
   "baseCaseId": "full-tag-valid-v1",
   "diagnosticFamilies": [
@@ -16,14 +16,15 @@
     "place",
     "program",
     "program-item",
+    "proof-kind",
     "stmt",
     "stmt-match-arm",
     "type",
     "unary-op",
     "visibility"
   ],
-  "diagnosticFamilyCount": 18,
-  "mutationCount": 84,
+  "diagnosticFamilyCount": 19,
+  "mutationCount": 85,
   "mutations": [
     {"caseId":"unknown-tag-binaryop-add","diagnosticFamily":"binary-op","expectedError":"unknown binary-op tag 'XinaryOp.Add'","mutatedFirstByte":88,"mutatedTag":"XinaryOp.Add","originalFirstByte":66,"originalTag":"BinaryOp.Add","tagByteOffset":1828},
     {"caseId":"unknown-tag-binaryop-and","diagnosticFamily":"binary-op","expectedError":"unknown binary-op tag 'XinaryOp.And'","mutatedFirstByte":88,"mutatedTag":"XinaryOp.And","originalFirstByte":66,"originalTag":"BinaryOp.And","tagByteOffset":6708},
@@ -77,6 +78,7 @@
     {"caseId":"unknown-tag-place-name","diagnosticFamily":"place","expectedError":"unknown place tag 'Xlace.Name'","mutatedFirstByte":88,"mutatedTag":"Xlace.Name","originalFirstByte":80,"originalTag":"Place.Name","tagByteOffset":1707},
     {"caseId":"unknown-tag-program","diagnosticFamily":"program","expectedError":"unknown program tag 'Xrogram'","mutatedFirstByte":88,"mutatedTag":"Xrogram","originalFirstByte":80,"originalTag":"Program","tagByteOffset":43},
     {"caseId":"unknown-tag-proofdecl","diagnosticFamily":"program-item","expectedError":"unknown program-item tag 'XroofDecl'","mutatedFirstByte":88,"mutatedTag":"XroofDecl","originalFirstByte":80,"originalTag":"ProofDecl","tagByteOffset":15476},
+    {"caseId":"unknown-tag-proofkind-holds","diagnosticFamily":"proof-kind","expectedError":"unknown proof-kind tag 'XroofKind.Holds'","mutatedFirstByte":88,"mutatedTag":"XroofKind.Holds","originalFirstByte":80,"originalTag":"ProofKind.Holds","tagByteOffset":15499},
     {"caseId":"unknown-tag-statedecl","diagnosticFamily":"program-item","expectedError":"unknown program-item tag 'XtateDecl'","mutatedFirstByte":88,"mutatedTag":"XtateDecl","originalFirstByte":83,"originalTag":"StateDecl","tagByteOffset":71},
     {"caseId":"unknown-tag-stmt-assert","diagnosticFamily":"stmt","expectedError":"unknown stmt tag 'Xtmt.Assert'","mutatedFirstByte":88,"mutatedTag":"Xtmt.Assert","originalFirstByte":83,"originalTag":"Stmt.Assert","tagByteOffset":2520},
     {"caseId":"unknown-tag-stmt-assign","diagnosticFamily":"stmt","expectedError":"unknown stmt tag 'Xtmt.Assign'","mutatedFirstByte":88,"mutatedTag":"Xtmt.Assign","originalFirstByte":83,"originalTag":"Stmt.Assign","tagByteOffset":1656},
@@ -112,5 +114,5 @@
   ],
   "schema": "proof-forge.source-program-unknown-tag-golden-prerequisite.v1",
   "scope": "pa125-base-first-occurrence-one-byte-unknown-tag",
-  "tagCount": 84
+  "tagCount": 85
 }

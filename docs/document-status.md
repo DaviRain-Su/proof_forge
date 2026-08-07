@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-08-04
+updated: 2026-08-07
 normative: true
 ---
 
@@ -35,11 +35,13 @@ zero-tool finalize 的 source-only `.qnt` executable-model target；CosmWasm
 **Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；后五个 engineering
 leaves 的产品范围 reconciliation 仍待 **`DOC-ADR-SCOPE`**，不得静默扩 accepted scope。
 日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。**ADR-0027**
-（`proposed`）冻结 inline same-file theorem certification 的 engineering 边界；产品 CLI
-sole proof path 已切到 inventory + `certifyInlineProofV1`（`--proof-bundle*` 删除）；
-simple-closure/ordinal-0 kernel cert 与 literal-true/public-Bool-view same-file ordinary
-theorem 的 product `check` positive 均已 engineering closed（仍非 formal/hermetic/release，
-且不声称 reachability/target refinement）。
+（`proposed`）仍冻结 inline same-file gate 的 single-snapshot/audit/axiom/proof-first 基线；
+**ADR-0034**（`proposed`）的 generic Preservation ABI 与 `ProofKindV1`/三字段 wire/
+`(inv,kind)` inventory/双 alias/kind-bound protocol+certifier plumbing 已 engineering 接线，且不
+supersede 0027。产品 CLI sole proof path 仍是 inventory + `certifyInlineProofV1`
+（`--proof-bundle*` 删除）。simple-closure/ordinal-0 holds product `check` positive 已闭合；
+preserving 的首个 certified positive（EvenCounter）仍 pending。全部仍非 formal/hermetic/release，
+且不声称 target refinement。
 下表中的 task/evidence 文档继续保存历史 release-qualification 权威，但不再作为
 development completion 的前置条件。
 

@@ -19,6 +19,15 @@ def decodeVisibilityV1 : DecoderV1 VisibilityV1 := fun c => do
   let ((), c) ← decodeFieldCountV1 tag 0 c
   pure (value, c)
 
+def decodeProofKindV1 : DecoderV1 ProofKindV1 := fun c => do
+  let (tag, c) ← decodeTagV1 c
+  let value ← match tag with
+    | "ProofKind.Holds" => pure ProofKindV1.holds
+    | "ProofKind.Preserving" => pure ProofKindV1.preserving
+    | _ => fail s!"unknown proof-kind tag '{tag}'"
+  let ((), c) ← decodeFieldCountV1 tag 0 c
+  pure (value, c)
+
 def decodeLiteralV1 : DecoderV1 LiteralV1 := fun c => do
   let (tag, c) ← decodeTagV1 c
   match tag with

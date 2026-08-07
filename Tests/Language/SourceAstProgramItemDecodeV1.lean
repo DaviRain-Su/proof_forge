@@ -166,7 +166,7 @@ def run : IO Unit := do
   let extension : ExtensionReqV1 := {
     id := demoFeature, version := "1.0.0",
     digest := "sha256:0000000000000000000000000000000000000000000000000000000000000000" }
-  let proof : ProofDeclV1 := { invariant := safe, theorem_ := proofsSafe }
+  let proof : ProofDeclV1 := { invariant := safe, kind := .holds, theorem_ := proofsSafe }
 
   let stateHex := "0900000053746174654465636c0300110000005669736962696c6974792e5075626c6963000007000000656e61626c656409000000547970652e426f6f6c0000"
   let structHex := "0a0000005374727563744465636c02000500000053746f726501000000090000004669656c644465636c020005000000636f756e7409000000547970652e55496e7401000001"
@@ -180,7 +180,7 @@ def run : IO Unit := do
   let fnHex := "06000000466e4465636c04000700000068656c706572320100000005000000506172616d0300110000005669736962696c6974792e5075626c69630000010000007809000000547970652e55496e740100400009000000547970652e556e6974000005000000426c6f636b0100010000000700000053746d742e496603000c000000457870722e4c69746572616c01000c0000004c69746572616c2e426f6f6c01000105000000426c6f636b0100010000000b00000053746d742e52657475726e01000000"
   let invariantHex := "0d000000496e76617269616e744465636c020007000000626f756e6465640b000000457870722e42696e61727903000b00000042696e6172794f702e4c7400000a000000457870722e506c61636501000a000000506c6163652e4e616d65010005000000636f756e740c000000457870722e4c69746572616c01000f0000004c69746572616c2e496e746567657201000010000000000000000000000000000000000000000000000000000000000000"
   let extensionHex := "0c000000457874656e73696f6e5265710300020000000400000044656d6f070000004665617475726505000000312e302e30470000007368613235363a30303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030"
-  let proofHex := "0900000050726f6f664465636c02000400000073616665020000000600000050726f6f66730400000073616665"
+  let proofHex := "0900000050726f6f664465636c030004000000736166650f00000050726f6f664b696e642e486f6c64730000020000000600000050726f6f66730400000073616665"
 
   roundTrip "item_state" stateHex 2 2 (.state state)
   roundTrip "item_struct" structHex 3 3 (.struct struct_)
@@ -208,7 +208,7 @@ def run : IO Unit := do
   fieldCountPair "FnDecl" 4 (hexBytes fnHex)
   fieldCountPair "InvariantDecl" 2 (hexBytes invariantHex)
   fieldCountPair "ExtensionReq" 3 (hexBytes extensionHex)
-  fieldCountPair "ProofDecl" 2 (hexBytes proofHex)
+  fieldCountPair "ProofDecl" 3 (hexBytes proofHex)
 
   let sameEvent : ProgramItemV1 := .event { name := ping, params := #[] }
   let sameError : ProgramItemV1 := .error { name := ping, params := #[] }
@@ -224,6 +224,12 @@ def run : IO Unit := do
   let sameEntryBytes ← aliasRoundTrip "same-entry" 4 5 sameEntry
   let sameViewBytes ← aliasRoundTrip "same-view" 4 5 sameView
   let sameFnBytes ← aliasRoundTrip "same-fn" 4 5 sameFn
+  let holdsProofItem := ProgramItemV1.proof proof
+  let preservingProofItem := ProgramItemV1.proof { proof with kind := .preserving }
+  let holdsProofBytes ← aliasRoundTrip "proof-holds" 1 1 holdsProofItem
+  let preservingProofBytes ← aliasRoundTrip "proof-preserving" 1 1 preservingProofItem
+  expectDistinct "proof-kind" holdsProofItem preservingProofItem
+    holdsProofBytes preservingProofBytes
   expectDistinct "event/error" sameEvent sameError sameEventBytes sameErrorBytes
   expectDistinct "entry/view" sameEntry sameView sameEntryBytes sameViewBytes
   expectDistinct "entry/fn" sameEntry sameFn sameEntryBytes sameFnBytes
@@ -260,7 +266,8 @@ def run : IO Unit := do
   expectError "boundary-17" "source qualified id must contain 2..256 components"
     (decodeItem 1 1 (tagged "ExtensionReq" #[oneComponent, stringBytes "bad", stringBytes "bad"]))
   expectError "boundary-18" "source qualified id must contain 2..256 components"
-    (decodeItem 1 1 (tagged "ProofDecl" #[stringBytes "safe", oneComponent]))
+    (decodeItem 1 1 (tagged "ProofDecl" #[stringBytes "safe",
+      tagged "ProofKind.Holds" #[], oneComponent]))
   expectError "boundary-19" "trailing bytes" (do
     let ((_item, _residual), cursor) ← decodeItem 2 2 (hexBytes (stateHex ++ "00"))
     finish cursor)

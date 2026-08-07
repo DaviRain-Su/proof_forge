@@ -1,5 +1,8 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Semantic.InlineProofPolicyV1
+import ProofForgeV2.Source.AstCodecV1
+import ProofForgeV2.Source.AstScalarDecodeV1
+import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.WireCodecV1
 import ProofForgeV2.Source.WireDecodeV1
 
@@ -20,7 +23,8 @@ import ProofForgeV2.Source.WireDecodeV1
     * logical ProjectRelativePath + module/program selectors
     * exact source / semantic / provenance digests (ProofSubject identity claims)
     * ordered theorem obligations
-      (invariant name, ordinal, theorem qualified name, expected generated name)
+      (invariant name, proof kind, ordinal, theorem qualified name,
+       expected generated name)
     * fixed policy digest (sole authority below)
 
   Success carries request digest, theorem count, theorem-set digest, and
@@ -33,6 +37,9 @@ namespace ProofForgeV2.Compiler.InlineProofProtocolV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.InlineProofPolicyV1
+open ProofForgeV2.Source.AstCodecV1
+open ProofForgeV2.Source.AstScalarDecodeV1
+open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.WireCodecV1
 open ProofForgeV2.Source.WireDecodeV1
 
@@ -198,6 +205,7 @@ end InlineProofFailurePhaseV1
 structure InlineProofObligationV1 where
   private mk ::
   private invariantName_ : String
+  private kind_ : ProofKindV1
   private ordinal_ : UInt32
   private theoremName_ : QualifiedName
   private expectedGeneratedName_ : String
@@ -206,6 +214,7 @@ structure InlineProofObligationV1 where
 namespace InlineProofObligationV1
 
 def invariantName (o : InlineProofObligationV1) : String := o.invariantName_
+def kind (o : InlineProofObligationV1) : ProofKindV1 := o.kind_
 def ordinal (o : InlineProofObligationV1) : UInt32 := o.ordinal_
 def theoremName (o : InlineProofObligationV1) : QualifiedName := o.theoremName_
 def expectedGeneratedName (o : InlineProofObligationV1) : String :=
@@ -223,6 +232,7 @@ private def validateSelector (label value : String) : Except String Unit := do
 /-- Smart constructor for one obligation row. -/
 def mkInlineProofObligationV1
     (invariantName : String)
+    (kind : ProofKindV1)
     (ordinal : UInt32)
     (theoremName : QualifiedName)
     (expectedGeneratedName : String) :
@@ -230,26 +240,28 @@ def mkInlineProofObligationV1
   validateIdentifierComponent invariantName
   validateQualifiedName theoremName
   validateIdentifierComponent expectedGeneratedName
-  pure ⟨invariantName, ordinal, theoremName, expectedGeneratedName⟩
+  pure ⟨invariantName, kind, ordinal, theoremName, expectedGeneratedName⟩
 
 private def encodeObligationFields (o : InlineProofObligationV1) :
     Except String ByteArray := do
   let nameB ← encodeIdent o.invariantName_
+  let kindB ← encodeProofKindV1 o.kind_
   let ordB := encodeU32Field o.ordinal_
   let thmB ← encodeQualifiedNameField o.theoremName_
   let genB ← encodeIdent o.expectedGeneratedName_
-  pure (((nameB.append ordB).append thmB).append genB)
+  pure ((((nameB.append kindB).append ordB).append thmB).append genB)
 
 private def decodeObligationFields : DecoderV1 InlineProofObligationV1 := fun c => do
   let (component, c) ← decodeSourceNameComponentV1 c
   let invariantName := component.raw
   validateIdentifierComponent invariantName
+  let (kind, c) ← decodeProofKindV1 c
   let (ordinal, c) ← decodeU32Field c
   let (theoremName, c) ← decodeQualifiedNameField c
   let (genComponent, c) ← decodeSourceNameComponentV1 c
   let expectedGeneratedName := genComponent.raw
   validateIdentifierComponent expectedGeneratedName
-  pure (⟨invariantName, ordinal, theoremName, expectedGeneratedName⟩, c)
+  pure (⟨invariantName, kind, ordinal, theoremName, expectedGeneratedName⟩, c)
 
 private def encodeObligations (obligations : Array InlineProofObligationV1) :
     Except String ByteArray := do
@@ -277,18 +289,27 @@ private def decodeObligations : DecoderV1 (Array InlineProofObligationV1) := fun
 
 private def validateObligationUniqueness
     (obligations : Array InlineProofObligationV1) : Except String Unit := do
-  let mut names : Array String := #[]
-  let mut ordinals : Array UInt32 := #[]
+  let mut keys : Array (String × ProofKindV1) := #[]
+  let mut invariantOrdinals : Array (String × UInt32) := #[]
+  let mut ordinalInvariants : Array (UInt32 × String) := #[]
   let mut theoremNames : Array QualifiedName := #[]
   for obligation in obligations do
-    if names.any (· == obligation.invariantName_) then
-      return ← fail "duplicate invariant name in theorem obligations"
-    if ordinals.any (· == obligation.ordinal_) then
-      return ← fail "duplicate ordinal in theorem obligations"
+    let key := (obligation.invariantName_, obligation.kind_)
+    if keys.any (· == key) then
+      return ← fail "duplicate invariant/kind key in theorem obligations"
+    if invariantOrdinals.any fun pair =>
+        pair.1 == obligation.invariantName_ && pair.2 != obligation.ordinal_ then
+      return ← fail "invariant name maps to multiple theorem ordinals"
+    if ordinalInvariants.any fun pair =>
+        pair.1 == obligation.ordinal_ && pair.2 != obligation.invariantName_ then
+      return ← fail "theorem ordinal maps to multiple invariant names"
     if theoremNames.any (· == obligation.theoremName_) then
       return ← fail "duplicate theorem name in theorem obligations"
-    names := names.push obligation.invariantName_
-    ordinals := ordinals.push obligation.ordinal_
+    keys := keys.push key
+    invariantOrdinals := invariantOrdinals.push
+      (obligation.invariantName_, obligation.ordinal_)
+    ordinalInvariants := ordinalInvariants.push
+      (obligation.ordinal_, obligation.invariantName_)
     theoremNames := theoremNames.push obligation.theoremName_
   pure ()
 

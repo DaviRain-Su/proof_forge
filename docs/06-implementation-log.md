@@ -12,6 +12,38 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-07 — ProofKindV1 / preserving inline plumbing cutover（engineering）
+
+- Source 原子切换为 closed `ProofKindV1 { holds, preserving }` 与三字段
+  `ProofDecl(invariant,kind,theorem)`；bare `proof Inv using Thm` 固定解码为 holds，
+  `proof Inv preserving using Thm` 固定为 preserving。production decoder 只接受 field count 3，
+  无二/三字段 dual-read、默认推断或 fallback。
+- source validation、Typed declaration table、theorem inventory 与 certifier obligation 的 sole key
+  改为 `(invariant,kind)`；同一 invariant 可按 source order携带双 kind。两类 obligation 共享
+  `<Program>.Proof.subjectProgramV1`，holds alias 位于 `Proof`，preserving alias 位于
+  `ProofPreserving`；simple-closure generated helper 仅为 holds 发射与审计。
+- inline request、theorem-set 与 certification digest 均编码 kind；certifier 对 holds 精确审计
+  `InvariantTheoremV1`，对 preserving 精确审计 `PreservationTheoremV1`。focused 回归固定 kind
+  改变 canonical ProgramV1/source/certification identity但不改变 SemanticProgram bytes/hash，双 kind
+  inventory 的遗漏、换序、伪造均在 obligation phase fail closed；preserving false theorem 能越过
+  alias/helper audit并在真实 theorem elaboration 失败，未伪装成 positive。
+- historical/library-only `ProofReferenceJoinV1` 同步保留 source kind；既有 `ProofBundleV1` ABI 仍只
+  绑定 `InvariantTheoremV1`，因此 export 显式映射为 holds，preserving source row 对该 bundle
+  fail closed，不再静默丢弃 kind。产品 CLI 仍不接受 `--proof-bundle*`。
+- 独立 Python oracle 与 checked-in goldens 已重冻：constructed `85 wire / 57 node / 63 edge`，
+  canonical SHA-256 `a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8`；
+  source-driven `86 / 58 / 63`，canonical SHA-256
+  `3252cf500aff195ebbf0e509643a246001248115b11c36d42daf6994def127c4`；unknown-tag
+  `85/19`，field-count `141`。全部相关 Python `--self-check` 在 ordinary 与 `-O` 下通过；
+  `typed`、`source`、`source-b`、`language-b`、`language-heavy` shard 实际执行通过。
+- 收口工程门禁：`just dev-check` 与 ordinary `just ci` 均实际 exit 0；fresh read-only reviewer
+  未发现 P0/P1/P2，报告的两项 P3（language spec 残留 single-key 叙述、Python validator
+  缺失 kind 时 soft-default holds）均已修正，follow-up review 无剩余 actionable finding。该结果仅为
+  engineering gate，不构成 formal/hermetic/release evidence。
+- 边界：当前真实 certified positive 仍仅 holds simple-closure；EvenCounter preserving、第二个非 AMM
+  实例与 MiniAmm P1 尚未实现。ADR-0027 未 supersede；不声称 formal TASK/TST、reachability、
+  target refinement、sandbox/hermetic/release。
+
 ## 2026-08-07 — Generic Preservation ABI foundation（engineering）
 
 - 新增 `ProofForgeV2/Semantic/PreservationABI.lean`，独立 namespace 位于 public

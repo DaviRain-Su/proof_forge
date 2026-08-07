@@ -3,7 +3,7 @@ id: SPEC-SEM-001
 title: 目标中立语义核心
 status: proposed
 owner: semantics
-updated: 2026-08-04
+updated: 2026-08-07
 normative: true
 ---
 
@@ -233,9 +233,11 @@ external responses 与 ordered effect buffer 恒为空。Bool true/false 分别�
 `returnedTrue/returnedFalse`，任何 checked failure 映射 `reverted`，invalid Core/resource fault 映射
 `trapped`；ordinal 越界也为 `trapped`。因此 revert/trap 不能证明 invariant。
 
-对 `proof x using N`，compiler 在上述 canonical program 中按 exact NFC name 找到唯一 invariant
-ordinal `i`，构造 closed expected type
-`ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1 program i`。该命题 **精确** 表示：
+对 bare `proof x using N`，compiler 在上述 canonical program 中按 exact NFC name 找到唯一
+invariant ordinal `i`，并构造 holds expected type
+`ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1 program i`。显式
+`proof x preserving using N` 使用同一 ordinal 与 exact program，构造
+`ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1 program i`。holds 命题 **精确** 表示：
 
 ```text
 ordinal 合法 ∧ ∀ state, StateConformsV1 program state →
@@ -271,9 +273,11 @@ invocation（含任意 args/context）、responses 与 vault，直接匹配 prod
 Reference admission 或 initial-state construction 失败均使命题为假，禁止 implication 空真；
 不得复制 private invocation gate 或建立第二套 step。
 
-该 foundation 仍是 engineering/proposed：`ProofKindV1`、`proof … preserving`、
-`(invariant,kind)` inventory、kind-aware certifier/alias、EvenCounter 与产品 cutover尚未接线。
-当前 inline product authority 继续是 ADR-0027 的 holds-only 路径；formal TASK-D2-07 /
+该 ABI 仍是 engineering/proposed。`ProofKindV1`、三字段 source wire、
+`proof … preserving`、`(invariant,kind)` inventory、双 alias、kind-bound protocol/certifier plumbing
+已接线；bare syntax 永远是 holds，simple-closure generated helper 仍只服务 holds。当前尚无
+preserving 的 product-certified 正例；EvenCounter 与第二个通用实例仍 pending。ADR-0027 继续约束
+single-snapshot/audit/holds 基线，ADR-0034 是未 supersede 的 proposed extension；formal TASK-D2-07 /
 TST-SEM-002/003 / TST-PROOF-001 状态不变。
 
 ## Inline same-file certification（ADR-0027 engineering）
@@ -339,7 +343,10 @@ objects 只允许上面同名 lower-camel-case fields。`schema` 精确为
 `proof-forge.semantic-program.v1`；该 schema 的 binary domain/magic 仍由
 SPEC-SEM-WIRE-001 固定为 `pf.semantic.v1`。module/theorem
 分别精确为 `ProofForgeV2.Semantic.InvariantABI` 与
-`ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1`。modules 按 module name NFC UTF-8 bytes
+`ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1`。因此该历史 schema 的 export 仅代表
+`ProofKindV1.holds`；library `ProofReferenceJoinV1` 的 source key 仍保留
+`(invariantName,kind,theoremName)`，并把 bundle export 显式映射为 holds，preserving source row 必须
+fail closed，不能降级或推断为 holds。modules 按 module name NFC UTF-8 bytes
 排序；roots 同序；exports 按 `(invariantName,theoremName)` 排序。所有 name/path/export/import
 必须唯一，imports 保留 `.olean` direct-import 顺序，owner/root/module 引用必须存在。manifest
 内所有 bundle-local import edge（包括 roots 不可达的 module）必须组成 DAG；self cycle 与任意

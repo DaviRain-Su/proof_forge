@@ -3,7 +3,7 @@ id: SPEC-LANG-001
 title: Program DSL 语言规格
 status: proposed
 owner: frontend
-updated: 2026-08-04
+updated: 2026-08-07
 normative: true
 ---
 
@@ -13,9 +13,11 @@ normative: true
 
 定义唯一、可定位、可确定性 elaboration 的 Lean 自定义 command DSL。作者写业务语义，
 不写目标、VM、部署类别或机器指令。DSL 的 `program … where` 表面不接受任意 Lean term。
-Invariant 证明通过显式 `proof Ident using QualifiedName` binding，并与 **同一文件内、
-program command 之后的 ordinary Lean `theorem`** 配对（[`ADR-0027`](../adr/0027-inline-same-file-theorem-certification.md)
-engineering product path）。theorem body 不属于 ProgramV1 AST。
+Invariant 证明通过 closed proof kind surface：`proof Ident using QualifiedName`
+固定为 `holds`，`proof Ident preserving using QualifiedName` 固定为 `preserving`；两者均与
+**同一文件内、program command 之后的 ordinary Lean `theorem`** 配对（ADR-0027 的
+snapshot/audit 边界 + [`ADR-0034`](../adr/0034-preservation-abi.md) kind 扩展）。theorem body
+不属于 ProgramV1 AST。
 
 ## 文件与命名
 
@@ -45,8 +47,8 @@ program Counter where
 identifier 遵循 Lean identifier；`IntegerLiteral` 只接受 ASCII unsigned decimal `[0-9]+` 或 lowercase-prefix `0x[0-9a-fA-F]+`，值域为 `0..2^256-1`；拒绝 `0X`、binary/octal prefix、underscore 与内嵌符号，负号是一元操作；
 string 使用 Lean 转义但规范值为 Unicode scalar sequence；`//` 与 `/- -/` 注释不进入
 source hash。保留词：`program where state struct enum const event error init entry view fn
-invariant requires extension version digest proof using do let if then else match with for in
-bounded assert revert emit return call schedule public private commitment true false`。
+invariant requires extension version digest proof preserving using do let if then else match with
+for in bounded assert revert emit return call schedule public private commitment true false`。
 
 ## EBNF
 
@@ -71,6 +73,7 @@ InvariantDecl ::= "invariant" Ident ":" Expr
 ExtensionReq  ::= "requires" "extension" QualifiedId "version" String
                   "digest" String
 ProofDecl     ::= "proof" Ident "using" QualifiedName
+                | "proof" Ident "preserving" "using" QualifiedName
 Param         ::= Visibility? Ident ":" Type
 ParamList     ::= Param ("," Param)*
 TypeList      ::= Type ("," Type)*
@@ -2044,12 +2047,14 @@ type/arity lookup，不得根据 target 或运行时重新分类。
 - 表达式从左到右求值；不支持 operator overloading 或隐式 numeric coercion。
 - statement `call` 是同步外部调用，`schedule` 是异步 workflow intent；其
   `ExternalCallExpr` 不参与 local-fn 名称解析，两者均产生 requirements。
-- `proof x using N` 中 `x` 精确绑定同一 program 内名为 `x` 的 invariant；`x` 不是新的 proof
-  名称。每个 invariant 最多一个 proof reference，未知 invariant、重复 reference 或短名/别名
-  匹配均失败。binding 把 `(invariantName, theoremQualifiedName, origin)` 保留为 certification
-  metadata；invariant Bool typing 属于 type/effect 检查；theorem Environment audit 必须等
-  canonical `SemanticProgramV1` 生成、validate 与 hash 完成后、且在 target resolve 之前执行
-  （ADR-0027）。
+- `proof x using N` 固定解码为 `ProofKindV1.holds`；`proof x preserving using N` 固定为
+  `ProofKindV1.preserving`。`x` 精确绑定同一 program 内名为 `x` 的 invariant，不是新的 proof
+  名称。sole key 是 `(invariantName, kind)`：同 key 重复失败，同一 invariant 可各有一条 holds
+  与 preserving；非空 proof 表面要求每个 invariant 至少一种 kind。binding 把
+  `(invariantName, kind, theoremQualifiedName, origin)` 保留为 certification metadata；未知
+  invariant、短名/别名匹配或任何 kind 推断均失败。invariant Bool typing 属于 type/effect 检查；
+  theorem Environment audit 必须等 canonical `SemanticProgramV1` 生成、validate 与 hash 完成后、
+  且在 target resolve 之前执行（ADR-0027 + ADR-0034）。
 
 ## Pure fn 与 proof reference 契约
 
@@ -2063,29 +2068,37 @@ left-to-right 语义执行；callee 的确定性 failure 原样传播且不提�
 type/effect 检查先确认 invariant 为 Bool、pure-fn closure 无环且只有允许的 pure failure；随后
 normalization 在不读取 proof body / 外部 proof-bundle 的情况下产生并 validate 唯一 canonical
 `program : SemanticProgramV1`。compiler 按 canonical invariant array 的 exact NFC name 找到 `x`
-的 ordinal `i`，expected theorem type 唯一为：
+的 ordinal `i`，再按 closed kind 选择 expected theorem type：
 
 ```lean
+-- kind = holds
 ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1 program i
+
+-- kind = preserving
+ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1 program i
 ```
 
-其 state conformance、predicate evaluation、revert/trap 和 closed-program binding 由
-[`SPEC-SEM-001`](semantic-core.md) 与
+两种 kind 共享同一 source-order ordinal 与 exact `program` subject；kind 不进入 Semantic IR。
+其 state conformance、predicate evaluation、Reference admission/step、revert/trap 和 closed-program
+binding 由 [`SPEC-SEM-001`](semantic-core.md) 与
 [`SPEC-SEM-WIRE-001`](semantic-program-wire.md) 唯一定义；不得再次从 Source/Typed AST 拼装另一份
 theorem statement，也不得只把 `semanticHash` 当成 proposition。
 
 ### Inline same-file theorem（ADR-0027 engineering product path）
 
 1. **Adjacent ordinary theorem**：作者在同一 `.lean` 文件、`program` command 之后声明
-   ordinary Lean `theorem N : …`，其 expected closed type 为上述
-   `InvariantTheoremV1 program i`（可经 compiler 生成的 program-local Prop alias 对齐）。
+   ordinary Lean `theorem N : …`，其 expected closed type 按 kind 为
+   `InvariantTheoremV1 program i` 或 `PreservationTheoremV1 program i`。compiler 生成不冲突 alias：
+   holds=`<Program>.Proof.<Inv>`，preserving=`<Program>.ProofPreserving.<Inv>`，并共享
+   `<Program>.Proof.subjectProgramV1`。
 2. **Single in-memory snapshot**：Loader/product 持有的 raw source 是唯一 theorem 数据源；
    certifier 不得为证明重读文件或切换路径。
 3. **Hash 边界**：adjacent **theorem body 不进入** ProgramV1 canonical AST / `sourceHash`，
    也不进入 `SemanticProgramV1` / `semanticHash`。仅修改证明项而保持 program 项与
    `ProofDecl` 不变时，`sourceHash` 与 `semanticHash` 均保持不变。`ProofDecl` 本身是
-   ProgramV1 certification metadata：新增/删除/改名 binding 可改变 source AST/`sourceHash`，
-   但 **仍不得** 改变 `semanticHash`。
+   ProgramV1 certification metadata：新增/删除/改名 binding 或切换 holds/preserving kind 会改变
+   source AST/`sourceHash`，但 **仍不得** 改变 `semanticHash`。kind 同时进入 ordered theorem
+   obligations / theorem-set / certification digest。
 4. **In-process elaboration 不是 sandbox**：engineering certifier 在当前 compiler 进程内
    elaboration 同一 raw source，随后做 Environment declaration-kind / kernel defeq /
    dependency / axiom 审计。不得声称 contained worker、hermetic 或 formal evidence。
@@ -2094,9 +2107,11 @@ theorem statement，也不得只把 `semanticHash` 当成 proposition。
    `proof-forge.proof-trust-policy.v1`）。
 6. **不信任用户 `.olean`**：ambient project/parent `.lake`、`LEAN_PATH` 命中或用户提供的
    `.olean` 不能单独满足 `N`。
-7. **命题范围**：当前仅证明全体 `StateConformsV1` 状态下
-   `evalInvariantV1 = .returnedTrue`；**不** 声称 reachability、init/step safety、target
-   refinement 或 formal `TST-PROOF-001` 闭合。
+7. **命题范围**：holds 仍是全体 `StateConformsV1` 状态上的 evaluator 命题；preserving 是
+   Reference admission 正义务 + lifecycle base + 全输入 `stepReferenceSliceV1` 三 Outcome 保持命题。
+   kind-aware plumbing 已接线，但当前 engineering certified 正例仍只有 holds simple-closure；首个
+   preserving 正例（EvenCounter）尚未闭合。两者均**不**声称 target refinement、formal
+   `TST-PROOF-001` 或 release。
 8. **Gate 顺序**：proof certification 成功（或显式空表面 `noProof`）之后，才允许
    requirement resolve / target Plan；失败零制品。
 
@@ -2171,8 +2186,9 @@ contain。文件上限返回 `PF-SRC-INVALID`；有效源码恰好 16 MiB 接受
 command elaborator 的唯一业务 AST。共享 validation 在 decode 后按固定顺序检查：至少一个
 entry/view、state 名唯一、entry/view declaration 名唯一、event 名唯一、error 名唯一、struct 名唯一、
 enum 名唯一、const 名唯一、fn 名唯一、entry/view/fn callable 名唯一、invariant 名唯一、extension ID
-唯一、每个 invariant 最多一个 proof reference、每个 proof reference 精确绑定已声明 invariant、
-initializer 参数名唯一、每个 struct field 按 struct 声明顺序非空且名称唯一、每个 enum variant 按
+唯一、每个 `(invariant, proofKind)` 至多一个 proof reference、每个 proof reference 精确绑定已声明
+invariant、非空 proof 表面覆盖每个 invariant 至少一种 kind、initializer 参数名唯一、每个 struct field
+按 struct 声明顺序非空且名称唯一、每个 enum variant 按
 enum 声明顺序非空且名称唯一、每个 event 参数名按 event 声明顺序唯一、每个 error 参数名按 error
 声明顺序唯一、每个 entry 参数名唯一、每个 fn 参数名唯一且 body nonempty；
 duplicate initializer 仍在构造 `Source.Program` 前拒绝。Loader 只拥有 module header/
@@ -2225,11 +2241,13 @@ requirement inference、semantic registry digest 与 target support resolution �
 extension table 必须在 `Typed.check` fail closed，不能把 Source 声明直接伪装成可信
 `ProgramRequirements` 或进入 target Plan。
 
-当前 D1 pre-acceptance alpha 把 proof reference 的 exact invariant name 与 theorem QualifiedName
-component array 保存在独立 Source projection，并把 invariant/theorem component count/value/order、
-reference count/order 纳入 development source binding。每个 invariant 最多一个 reference；duplicate
-先于 unknown invariant 拒绝，unknown 检查按 proof 源码顺序 exact、case-sensitive lookup，允许
-forward-declared invariant，不做 short-name 或 namespace alias fallback。theorem 的
+当前 D1 pre-acceptance alpha 把 proof reference 的 exact invariant name、closed proof kind 与 theorem
+QualifiedName component array 保存在独立 Source projection，并把 invariant/kind/theorem component
+count/value/order、reference count/order 纳入 development source binding。每个
+`(invariant, proofKind)` 至多一个 reference，同一 invariant 可同时携带 holds 与 preserving；非空 proof
+表面必须覆盖每个 invariant 至少一种 kind。duplicate same-key 先于 unknown invariant 拒绝，unknown
+检查按 proof 源码顺序 exact、case-sensitive lookup，允许 forward-declared invariant，不做 short-name、
+namespace alias 或 kind fallback。theorem 的
 每个 QualifiedName component 必须先通过同一 DSL reserved-identifier policy，再进入 Common 的
 QualifiedName NFC/字符/长度校验；Common carrier 不拥有或复制 DSL 保留词策略。**ADR-0027
 engineering product path** 在 Normalize/`CompiledSemanticV1` 之后对 **同一 in-memory source**

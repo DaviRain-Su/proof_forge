@@ -203,6 +203,10 @@ syntax ident ident " where" ppLine manyIndent(pfAggregateMember) : pfItem
     nonReservedSymbol "extension " (includeIdent := true) >> checkLineEq >> ident >> checkLineEq >>
     nonReservedSymbol "version " (includeIdent := true) >> checkLineEq >> strLit >> ppLine >>
     withPosition (nonReservedSymbol "digest " (includeIdent := true) >> checkLineEq >> strLit))
+@[pfItem_parser default+2] def preservingProofDecl := leading_parser
+  withPosition (nonReservedSymbol "proof " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLineEq >> nonReservedSymbol "preserving " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "using " (includeIdent := true) >> checkLineEq >> ident)
 @[pfItem_parser default+1] def proofDecl := leading_parser
   withPosition (nonReservedSymbol "proof " (includeIdent := true) >> checkLineEq >> ident >>
     checkLineEq >> nonReservedSymbol "using " (includeIdent := true) >> checkLineEq >> ident)
@@ -383,7 +387,7 @@ private def decodeIntegerLiteralV1 (stx : Syntax) : Except String Nat := do
 private def reservedPortableKeywords : Array String :=
   #["program", "where", "state", "struct", "enum", "const", "event", "error",
     "init", "entry", "view", "fn", "invariant", "requires", "extension",
-    "version", "digest", "proof", "using", "do", "let", "if", "then", "else",
+    "version", "digest", "proof", "preserving", "using", "do", "let", "if", "then", "else",
     "match", "with", "for", "in", "bounded", "assert", "revert", "emit",
     "return", "call", "schedule", "public", "private", "commitment", "true",
     "false"]
@@ -910,10 +914,18 @@ private def decodeItemV1Unchecked : Syntax → Except String ProgramItemV1
   | `(unsupportedExtensionLikeReq| $_requires:ident $_extension:ident $_id:ident $_versionKeyword:ident $_version:str
         $_digestKeyword:ident $_digest:str) =>
       throw "unsupported portable program item"
+  | `(preservingProofDecl| proof $invariant:ident preserving using $theoremName:ident) => do
+      let theoremParts ← decodeProofTheorem theoremName
+      pure (.proof {
+        invariant := ← decodeNameV1 invariant
+        kind := .preserving
+        theorem_ := ← qualifiedV1FromStrings theoremParts
+      })
   | `(proofDecl| proof $invariant:ident using $theoremName:ident) => do
       let theoremParts ← decodeProofTheorem theoremName
       pure (.proof {
         invariant := ← decodeNameV1 invariant
+        kind := .holds
         theorem_ := ← qualifiedV1FromStrings theoremParts
       })
   | `(unsupportedProofIntroducer| $_proof:ident $_invariant:ident using $_theoremName:ident) =>

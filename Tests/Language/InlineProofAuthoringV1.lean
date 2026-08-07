@@ -50,6 +50,35 @@ example : generatedSimpleClosureTheoremBridgeNameV1 "safe" =
 example : generatedSimpleClosureTheoremNameDefV1 "safe" =
     "generatedSafeV1Name" := rfl
 
+program PreservingSurface where
+  view alive() : Bool do
+    return true
+  invariant safe : true
+  proof safe preserving using PreservingSurfaceProof.safe
+
+#check PreservingSurface.Proof.subjectProgramV1
+#check PreservingSurface.ProofPreserving.safe
+
+example : PreservingSurface.ProofPreserving.safe =
+    ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
+      PreservingSurface.Proof.subjectProgramV1 0 := rfl
+
+program DualKindSurface where
+  view alive() : Bool do
+    return true
+  invariant safe : true
+  proof safe using DualKindSurfaceProof.holds
+  proof safe preserving using DualKindSurfaceProof.keeps
+
+#check DualKindSurface.Proof.subjectProgramV1
+#check DualKindSurface.Proof.safe
+#check DualKindSurface.ProofPreserving.safe
+#check DualKindSurface.Proof.generatedSafeV1
+
+example : DualKindSurface.ProofPreserving.safe =
+    ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
+      DualKindSurface.Proof.subjectProgramV1 0 := rfl
+
 /-- Bridge has the exact product Prop-alias conclusion under a wire-trace
     premise (no free hyps beyond `t`). -/
 example :

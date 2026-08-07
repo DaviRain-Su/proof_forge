@@ -7,6 +7,8 @@
     * wrong subject bytes (mixed compile carrier) → subject failure
     * forged empty inventory with proof items → obligation failure (not noProof)
     * dual-invariant forged partial/reorder inventories fail closed
+    * proof-kind source/semantic identity boundary
+    * dual-kind missing/reordered/kind-forged inventories fail closed
     * raw same-file simple-closure product-positive (strict engineering closure):
         - inventory author theorem is ordinary adjacent `SimpleProof.safe`
         - body `exact <Program>.Proof.generatedSafeV1` (generated
@@ -32,6 +34,7 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.TheoremInventoryV1
+import ProofForgeV2.ProofInstances.EvenCounterV1
 import ProofForgeV2.Source.ValidatedSourceV1
 
 namespace Tests.Compiler.InlineProofCertifierV1
@@ -104,6 +107,37 @@ private def simpleClosureProgram
   "    return true\n" ++
   "  invariant safe : true\n" ++
   "  proof safe using " ++ authorTheorem ++ "\n" ++
+  theoremBody
+
+/-- Literal-true simple-closure with an explicit preservation obligation.
+    No compiler-generated holds helper is emitted for this kind. -/
+private def preservingSimpleClosureProgram
+    (programName authorTheorem theoremBody : String) : String :=
+  header ++
+  "program " ++ programName ++ " where\n" ++
+  "  view alive() : Bool do\n" ++
+  "    return true\n" ++
+  "  invariant safe : true\n" ++
+  "  proof safe preserving using " ++ authorTheorem ++ "\n" ++
+  theoremBody
+
+/-- First nontrivial preserving family: one default-zero public UInt64 state,
+    a nullary entry that adds the even literal 2, a read-only view, and the
+    executable parity invariant `count % 2 == 0`. No initializer keeps the
+    base on the product default-state path; overflow still exercises Reference
+    rollback in the universal step obligation. -/
+private def evenCounterPreservingProgram
+    (programName authorTheorem theoremBody : String) : String :=
+  header ++
+  "program " ++ programName ++ " where\n" ++
+  "  state count : UInt64\n" ++
+  "  entry increment() : UInt64 do\n" ++
+  "    count := count + 2\n" ++
+  "    return count\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n" ++
+  "  invariant even : count % 2 == 0\n" ++
+  "  proof even preserving using " ++ authorTheorem ++ "\n" ++
   theoremBody
 
 /-- Same family inside an explicit namespace. This covers the elaborator case
@@ -197,6 +231,128 @@ private unsafe def testFalseTheoremElab (session : ProductParserSessionV1) : IO 
     | .failed phase detail =>
         phase == .certification && detail == .elaborate
     | _ => false
+
+/-- Preserving aliases are audited against `PreservationTheoremV1` and do not
+    require the holds-only simple-closure helper. The structurally accepted `rfl`
+    body still cannot prove preservation, so failure must reach elaboration. -/
+private unsafe def testPreservingFalseTheoremElab
+    (session : ProductParserSessionV1) : IO Unit := do
+  let src := preservingSimpleClosureProgram "PreservingFalse" "PreservingFalseProof.safe"
+    (falseTheoremBody "PreservingFalseProof.safe"
+      "PreservingFalse.ProofPreserving.safe")
+  let path ← parsePath "tests/inline-proof/preserving-false.pf"
+  let (source, origin, inventory) ← loadProduct session src
+    "tests/inline-proof/preserving-false.pf" "Root"
+  let bindings := theoremInventoryBindingsV1 inventory
+  expect (bindings.size == 1 && bindings[0]!.kind == .preserving)
+    "preserving false binding"
+  let compiled ← compileOf source origin
+  let outcome ← certifyInlineProofV1 session src source origin inventory compiled
+    path "Root" none
+  expectOutcome "preserving false theorem" outcome fun
+    | .failed phase detail =>
+        phase == .certification && detail == .elaborate
+    | _ => false
+
+/-- Strict RED→GREEN product-positive for the first real preserving instance.
+    The author theorem must close the exact generic `PreservationTheoremV1` for
+    the normalized EvenCounter subject; no generated holds helper, hand-minted
+    carrier, or alternate step is accepted. -/
+private unsafe def testEvenCounterPreservingProductPositive
+    (session : ProductParserSessionV1) : IO Unit := do
+  let programName := "EvenCounter"
+  let authorTheorem := "EvenCounterProof.even"
+  let src := evenCounterPreservingProgram programName authorTheorem
+    (falseTheoremBody authorTheorem
+      "EvenCounter.ProofPreserving.even")
+  let path ← parsePath "tests/inline-proof/even-counter-preserving.pf"
+  let (source, origin, inventory) ← loadProduct session src
+    "tests/inline-proof/even-counter-preserving.pf" "Root"
+  let bindings := theoremInventoryBindingsV1 inventory
+  expect (bindings.size == 1) "EvenCounter preserving inventory size"
+  let binding := bindings[0]!
+  expect (binding.invariantName == "even" && binding.kind == .preserving)
+    "EvenCounter preserving composite key"
+  expect (binding.theoremComponents == #["EvenCounterProof", "even"])
+    s!"EvenCounter author theorem components: {binding.theoremComponents}"
+  expect (binding.typeComponents == #[programName, "ProofPreserving", "even"])
+    s!"EvenCounter preserving alias components: {binding.typeComponents}"
+  let compiled ← compileOf source origin
+  let semantic := CompiledSemanticV1.semanticV1Of compiled
+  expect (semantic.canonicalBytes ==
+      ProofForgeV2.ProofInstances.EvenCounterV1.canonicalBytes)
+    "EvenCounter product bytes must equal the closed instance bytes"
+  let decoded ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 semantic with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"EvenCounter semantic validation failed: {repr error}"
+  expect (decoded == ProofForgeV2.ProofInstances.EvenCounterV1.data)
+    "EvenCounter product data must equal the closed instance data"
+  let outcome ← certifyInlineProofV1 session src source origin inventory compiled
+    path "Root" none
+  match outcome with
+  | .certified carrier =>
+      expect (CertifiedInlineProofV1.theoremCount carrier == 1)
+        "EvenCounter preserving theoremCount must be 1"
+      expect (digestPresent (CertifiedInlineProofV1.proofCertificationDigest carrier))
+        "EvenCounter preserving certification digest must be present"
+      expect ((CertifiedInlineProofV1.audited carrier).size == 1)
+        "EvenCounter preserving audited theorem set must contain one theorem"
+  | .noProof =>
+      throw <| IO.userError
+        "EvenCounter preserving proof surface must not return noProof"
+  | .failed phase detail =>
+      throw <| IO.userError
+        s!"EvenCounter preserving product-positive requires .certified; got phase={repr phase} detail={repr detail}"
+
+/-- Proof kind is source certification metadata: changing only holds ↔ preserving
+    changes canonical ProgramV1/source identity, while Normalize emits the same
+    business SemanticProgramV1 bytes and digest. -/
+private unsafe def testProofKindIdentityBoundary
+    (session : ProductParserSessionV1) : IO Unit := do
+  let programName := "Kinded"
+  let authorTheorem := "KindedProof.safe"
+  let holdsSrc := simpleClosureProgram programName authorTheorem
+    (falseTheoremBody authorTheorem "Kinded.Proof.safe")
+  let preservingSrc := preservingSimpleClosureProgram programName authorTheorem
+    (falseTheoremBody authorTheorem "Kinded.ProofPreserving.safe")
+  let (holdsSource, holdsOrigin, holdsInventory) ← loadProduct session holdsSrc
+    "tests/inline-proof/kind-holds.pf" "Root"
+  let (preservingSource, preservingOrigin, preservingInventory) ← loadProduct session
+    preservingSrc "tests/inline-proof/kind-preserving.pf" "Root"
+  let holdsBindings := theoremInventoryBindingsV1 holdsInventory
+  let preservingBindings := theoremInventoryBindingsV1 preservingInventory
+  expect (holdsBindings.size == 1 && preservingBindings.size == 1)
+    "kind identity inventories"
+  expect (holdsBindings[0]!.kind == .holds &&
+      preservingBindings[0]!.kind == .preserving)
+    "bare proof is holds; explicit preserving is preserving"
+  expect (holdsBindings[0]!.theoremComponents ==
+      preservingBindings[0]!.theoremComponents)
+    "kind identity uses the same theorem FQN"
+  let holdsCanonical ← match canonicalValidatedSourceAstBytesV1 holdsSource with
+    | .ok value => pure value
+    | .error detail => throw <| IO.userError s!"holds canonical: {detail}"
+  let preservingCanonical ← match canonicalValidatedSourceAstBytesV1 preservingSource with
+    | .ok value => pure value
+    | .error detail => throw <| IO.userError s!"preserving canonical: {detail}"
+  expect (holdsCanonical != preservingCanonical)
+    "proof kind must change canonical ProgramV1 bytes"
+  let holdsHash ← match sourceHashV1 holdsSource with
+    | .ok value => pure value
+    | .error detail => throw <| IO.userError s!"holds sourceHash: {detail}"
+  let preservingHash ← match sourceHashV1 preservingSource with
+    | .ok value => pure value
+    | .error detail => throw <| IO.userError s!"preserving sourceHash: {detail}"
+  expect (holdsHash != preservingHash) "proof kind must change sourceHash"
+  let holdsCompiled ← compileOf holdsSource holdsOrigin
+  let preservingCompiled ← compileOf preservingSource preservingOrigin
+  expect ((CompiledSemanticV1.semanticV1Of holdsCompiled).canonicalBytes ==
+      (CompiledSemanticV1.semanticV1Of preservingCompiled).canonicalBytes)
+    "proof kind must not change SemanticProgramV1 bytes"
+  expect (CompiledSemanticV1.semanticDigestOf holdsCompiled ==
+      CompiledSemanticV1.semanticDigestOf preservingCompiled)
+    "proof kind must not change semantic digest"
 
 /-- Trusted package module roots cannot be reused as the user main-module
     identity. Rejection happens before command elaboration/audit. -/
@@ -313,6 +469,51 @@ private unsafe def testForgedPartialDualInvariant (session : ProductParserSessio
         phase == .obligation && detail == .obligationMap
     | .noProof => false
     | .certified _ => false
+
+/-- One invariant may carry both kinds, but the certifier inventory comparison is
+    exact in source order and kind. Missing, reordered, or kind-forged rows fail
+    before elaboration. -/
+private unsafe def testForgedDualKindInventory
+    (session : ProductParserSessionV1) : IO Unit := do
+  let src :=
+    header ++
+    "program DualKindCert where\n" ++
+    "  view alive() : Bool do\n" ++
+    "    return true\n" ++
+    "  invariant safe : true\n" ++
+    "  proof safe using DualKindCertProof.holds\n" ++
+    "  proof safe preserving using DualKindCertProof.keeps\n" ++
+    falseTheoremBody "DualKindCertProof.holds" "DualKindCert.Proof.safe" ++
+    falseTheoremBody "DualKindCertProof.keeps" "DualKindCert.ProofPreserving.safe"
+  let path ← parsePath "tests/inline-proof/dual-kind-forge.pf"
+  let (source, origin, inventory) ← loadProduct session src
+    "tests/inline-proof/dual-kind-forge.pf" "Root"
+  let bindings := theoremInventoryBindingsV1 inventory
+  expect (bindings.size == 2) "dual-kind certifier binding count"
+  expect (bindings[0]!.invariantName == "safe" &&
+      bindings[1]!.invariantName == "safe" &&
+      bindings[0]!.kind == .holds && bindings[1]!.kind == .preserving)
+    "dual-kind certifier keys"
+  let compiled ← compileOf source origin
+  let partialInventory := mintTheoremInventoryV1 #[bindings[0]!]
+  let partialOutcome ← certifyInlineProofV1 session src source origin partialInventory compiled
+    path "Root" none
+  expectOutcome "dual-kind partial" partialOutcome fun
+    | .failed phase detail => phase == .obligation && detail == .obligationMap
+    | _ => false
+  let reordered := mintTheoremInventoryV1 #[bindings[1]!, bindings[0]!]
+  let reorderedOutcome ← certifyInlineProofV1 session src source origin reordered compiled
+    path "Root" none
+  expectOutcome "dual-kind reordered" reorderedOutcome fun
+    | .failed phase detail => phase == .obligation && detail == .obligationMap
+    | _ => false
+  let forgedFirst := { bindings[0]! with kind := .preserving }
+  let forged := mintTheoremInventoryV1 #[forgedFirst, bindings[1]!]
+  let forgedOutcome ← certifyInlineProofV1 session src source origin forged compiled
+    path "Root" none
+  expectOutcome "dual-kind kind-forged" forgedOutcome fun
+    | .failed phase detail => phase == .obligation && detail == .obligationMap
+    | _ => false
 
 /-- Protocol success mint is not a product capability: only the private carrier
     from `certifyInlineProofV1` is accepted. Runtime checks that noProof/fail
@@ -513,10 +714,14 @@ unsafe def run : IO Unit := do
   let session ← ProductParserSessionV1.create
   testNoProofBypass session
   testFalseTheoremElab session
+  testPreservingFalseTheoremElab session
+  testEvenCounterPreservingProductPositive session
+  testProofKindIdentityBoundary session
   testForbiddenMainModule session
   testWrongSubjectBytes session
   testEmptyInventoryWithProofs session
   testForgedPartialDualInvariant session
+  testForgedDualKindInventory session
   testNoForgedSuccess session
   testSimpleClosureProductPositive session
   testModulePrefixedNamespaceProductPositive session

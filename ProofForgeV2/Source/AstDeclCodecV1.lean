@@ -84,7 +84,8 @@ def encodeExtensionReqV1 (d : ExtensionReqV1) : Except String ByteArray := do
 
 def encodeProofDeclV1 (d : ProofDeclV1) : Except String ByteArray := do
   let inv ← encodeSourceNameComponentV1 d.invariant
+  let kind ← encodeProofKindV1 d.kind
   let thm ← encodeSourceQualifiedIdV1 d.theorem_
-  encodeTagged "ProofDecl" #[inv, thm]
+  encodeTagged "ProofDecl" #[inv, kind, thm]
 
 end ProofForgeV2.Source.AstDeclCodecV1

@@ -168,6 +168,124 @@ theorem validateProgramRequirementsStructure_singleton_value_bool_eq_ok
   have hPred := validatePredicatesSorted_empty
   simp [hDom, hPred, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+private theorem requirementIdSegments_failure_atomic_rollback :
+    requirementIdSegmentsV1 "failure.atomic-rollback" =
+      ["failure", "atomic-rollback"] := by
+  simp [requirementIdSegmentsV1]
+  decide
+
+private theorem requirementIdSegments_state_persistent :
+    requirementIdSegmentsV1 "state.persistent" = ["state", "persistent"] := by
+  simp [requirementIdSegmentsV1]
+  decide
+
+private theorem requirementIdSegments_value_checked_arithmetic :
+    requirementIdSegmentsV1 "value.checked-arithmetic" =
+      ["value", "checked-arithmetic"] := by
+  simp [requirementIdSegmentsV1]
+  decide
+
+private theorem validateRequirementIdDomain_failure_atomic_rollback :
+    validateRequirementIdDomain "failure.atomic-rollback" = .ok () := by
+  simp [validateRequirementIdDomain, requirementIdSegments_failure_atomic_rollback,
+    isKnownRequirementDomain, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+private theorem validateRequirementIdDomain_state_persistent :
+    validateRequirementIdDomain "state.persistent" = .ok () := by
+  simp [validateRequirementIdDomain, requirementIdSegments_state_persistent,
+    isKnownRequirementDomain, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+private theorem validateRequirementIdDomain_value_checked_arithmetic :
+    validateRequirementIdDomain "value.checked-arithmetic" = .ok () := by
+  simp [validateRequirementIdDomain,
+    requirementIdSegments_value_checked_arithmetic, isKnownRequirementDomain,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+private theorem compareRequirementId_failure_state :
+    compareByteArrayLex "failure.atomic-rollback".toByteArray
+      "state.persistent".toByteArray = .lt := by
+  rw [compareByteArrayLex]
+  apply compareByteArrayLexLoopV1_eq_lt
+  · decide
+  · decide
+
+private theorem compareRequirementId_state_value :
+    compareByteArrayLex "state.persistent".toByteArray
+      "value.checked-arithmetic".toByteArray = .lt := by
+  rw [compareByteArrayLex]
+  apply compareByteArrayLexLoopV1_eq_lt
+  · decide
+  · decide
+
+private theorem compareRequirementKey_failure_state_eq_ok
+    (failureVersion stateVersion : SemVer)
+    (failureDigest stateDigest : Digest) :
+    compareRequirementKey {
+      id := "failure.atomic-rollback"
+      version := failureVersion
+      digest := failureDigest
+      predicates := #[]
+    } {
+      id := "state.persistent"
+      version := stateVersion
+      digest := stateDigest
+      predicates := #[]
+    } = .ok .lt := by
+  simp [compareRequirementKey, compareRequirementId_failure_state,
+    Pure.pure, Except.pure]
+
+private theorem compareRequirementKey_state_value_eq_ok
+    (stateVersion valueVersion : SemVer)
+    (stateDigest valueDigest : Digest) :
+    compareRequirementKey {
+      id := "state.persistent"
+      version := stateVersion
+      digest := stateDigest
+      predicates := #[]
+    } {
+      id := "value.checked-arithmetic"
+      version := valueVersion
+      digest := valueDigest
+      predicates := #[]
+    } = .ok .lt := by
+  simp [compareRequirementKey, compareRequirementId_state_value,
+    Pure.pure, Except.pure]
+
+/-- The standard rollback/state/checked-arithmetic requirement triple is in
+    canonical requirement-key order. Versions and digests remain arbitrary
+    because distinct ids decide both comparisons before those fields. -/
+theorem validateProgramRequirementsStructure_failure_state_checked_eq_ok
+    (failureVersion stateVersion valueVersion : SemVer)
+    (failureDigest stateDigest valueDigest : Digest) :
+    validateProgramRequirementsStructure {
+      items := #[{
+        id := "failure.atomic-rollback"
+        version := failureVersion
+        digest := failureDigest
+        predicates := #[]
+      }, {
+        id := "state.persistent"
+        version := stateVersion
+        digest := stateDigest
+        predicates := #[]
+      }, {
+        id := "value.checked-arithmetic"
+        version := valueVersion
+        digest := valueDigest
+        predicates := #[]
+      }]
+    } = .ok () := by
+  have hFailure := validateRequirementIdDomain_failure_atomic_rollback
+  have hState := validateRequirementIdDomain_state_persistent
+  have hValue := validateRequirementIdDomain_value_checked_arithmetic
+  have hPred := validatePredicatesSorted_empty
+  have hFailureState := compareRequirementKey_failure_state_eq_ok
+    failureVersion stateVersion failureDigest stateDigest
+  have hStateValue := compareRequirementKey_state_value_eq_ok
+    stateVersion valueVersion stateDigest valueDigest
+  simp [validateProgramRequirementsStructure, hFailure, hState, hValue, hPred,
+    hFailureState, hStateValue, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Apply `f` to every instruction in callables → blocks → instructions
     source order. Full scan; no early exit. -/
 private def forEachInstruction {m : Type → Type} [Monad m]

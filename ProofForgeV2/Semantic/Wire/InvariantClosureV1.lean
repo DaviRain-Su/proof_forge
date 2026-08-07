@@ -780,6 +780,58 @@ theorem validateInvariantClosureDagCanonicalTwoV1
   rw [hKahn]
   rfl
 
+/-- Three-callable metadata scan for a table whose only closure member is the
+    final invariant root and whose callables are all non-pure. -/
+theorem validatePureFnInvariantClosureMembershipThreeV1
+    (c0 c1 c2 : CallableV1)
+    (h0 : (c0.kind == .pureFn) = false)
+    (h1 : (c1.kind == .pureFn) = false)
+    (h2 : (c2.kind == .pureFn) = false) :
+    validatePureFnInvariantClosureMembershipWithMembersV1
+      #[c0, c1, c2] #[false, false, true] = .ok () := by
+  simp [validatePureFnInvariantClosureMembershipWithMembersV1,
+    validatePureFnInvariantClosureMembershipWorkerV1, h0, h1, h2,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Exact graph/ready/Kahn refinement seam for a three-callable closure with no
+    PureCall edges and only the final callable in the closure. -/
+theorem validateInvariantClosureDagCanonicalThreeV1
+    (callables : Array CallableV1)
+    (hGraph : buildInvariantClosureDagGraphWorkerV1 callables
+      #[false, false, true] 0
+      (Array.mk (List.replicate callables.size 0))
+      (Array.mk (List.replicate callables.size #[])) 0 callables.size =
+      .ok (#[0, 0, 0], #[#[], #[], #[]], 1))
+    (hReady : collectInvariantClosureDagReadyWorkerV1
+      #[false, false, true] #[0, 0, 0] 0 #[] callables.size = .ok #[2])
+    (hKahn : validateInvariantClosureDagReadyWorkerV1 0 0 #[0, 0, 0]
+      #[#[], #[], #[]] #[2] 1 callables.size = .ok 1) :
+    validateInvariantClosureCallGraphDagWithMembersV1 callables
+      #[false, false, true] = .ok () := by
+  simp only [validateInvariantClosureCallGraphDagWithMembersV1]
+  rw [hGraph]
+  simp only [Bind.bind, Except.bind]
+  rw [hReady]
+  simp only []
+  rw [hKahn]
+  rfl
+
+/-- Post-DAG acyclicity and PureFn-op validation for a three-callable table
+    whose only closure member is a back-edge-free, non-pure final callable. -/
+theorem validateInvariantClosurePostDagCanonicalThreeV1
+    (c0 c1 c2 : CallableV1) (b2 : BlockV1)
+    (hC2Blocks : c2.blocks = #[b2])
+    (hC2BackEdges : cfgBackEdges #[b2] 1 = #[])
+    (hC2Kind : (c2.kind == .pureFn) = false) :
+    validateInvariantClosureCfgAcyclicWithMembersV1
+        #[c0, c1, c2] #[false, false, true] = .ok () ∧
+      validateInvariantClosurePureFnOpsWithMembersV1
+        #[c0, c1, c2] #[false, false, true] = .ok () := by
+  constructor <;>
+    simp [validateInvariantClosureCfgAcyclicWithMembersV1,
+      validateInvariantClosurePureFnOpsWithMembersV1, hC2Blocks,
+      hC2BackEdges, hC2Kind, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Exact graph/ready/Kahn refinement seam for a four-callable canonical
     closure. The premises pin the production workers' states: graph
     `(#[0,1,0,0], #[#[],#[],#[1],#[]], 3)`, ready `#[2,3]`, and Kahn count 3. -/
@@ -1046,6 +1098,23 @@ theorem validateGenericCfgPhasesV1_two_eq_ok
     rw [← hCallables]
     exact hContext
   simp [validateGenericCfgPhasesV1, hCallables, h0, h1, hContext',
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Compose the exact generic `.cfg` phase for a three-callable source-order
+    table while preserving the production ContextRead catalog result. -/
+theorem validateGenericCfgPhasesV1_three_eq_ok
+    (data : SemanticProgramDataV1) (c0 c1 c2 : CallableV1)
+    (hCallables : data.callables = #[c0, c1, c2])
+    (h0 : validateCallableCfgShape c0 data.types.size data.types data = .ok ())
+    (h1 : validateCallableCfgShape c1 data.types.size data.types data = .ok ())
+    (h2 : validateCallableCfgShape c2 data.types.size data.types data = .ok ())
+    (hContext : validateContextReadCatalogV1 data.types data.callables = .ok ()) :
+    validateGenericCfgPhasesV1 data = .ok () := by
+  have hContext' :
+      validateContextReadCatalogV1 data.types #[c0, c1, c2] = .ok () := by
+    rw [← hCallables]
+    exact hContext
+  simp [validateGenericCfgPhasesV1, hCallables, h0, h1, h2, hContext',
     Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 /-- Compose the exact generic `.cfg` phase for a four-callable source-order
