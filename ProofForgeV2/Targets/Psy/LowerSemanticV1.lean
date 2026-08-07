@@ -218,18 +218,18 @@ inductive Expr where
   | limbAdd (lhs rhs : Expr)
   | limbSub (lhs rhs : Expr)
   /-- Reference to one result limb produced by an earlier
-      `Statement.bindWideUInt128Mul` in the same lexical statement region.
+      `Statement.bindWideUintMul` in the same lexical statement region.
       `operationId` is the Semantic ValueId ordinal of the multiplication;
       `limbIndex` is little-endian in `0..3`. -/
-  | wideUInt128MulLimb (operationId limbIndex : Nat)
+  | wideUintMulLimb (bitWidth operationId limbIndex : Nat)
   /-- Reference to one quotient/remainder limb produced by an earlier exact
-      `Statement.bindWideUInt128DivMod` restoring-divider binding. -/
-  | wideUInt128DivModLimb (resultKind : WideUInt128DivModResultV1)
-      (operationId limbIndex : Nat)
+      `Statement.bindWideUintDivMod` restoring-divider binding. -/
+  | wideUintDivModLimb (resultKind : WideUInt128DivModResultV1)
+      (bitWidth operationId limbIndex : Nat)
   /-- Reference to one result limb produced by an earlier exact
-      `Statement.bindWideUInt128Shift` (UInt32 count; fixed 128-step bit walk). -/
-  | wideUInt128ShiftLimb (kind : WideUInt128ShiftKindV1)
-      (operationId limbIndex : Nat)
+      `Statement.bindWideUintShift` (UInt32 count; fixed 128-step bit walk). -/
+  | wideUintShiftLimb (kind : WideUInt128ShiftKindV1)
+      (bitWidth operationId limbIndex : Nat)
   /-- Felt-valued conditional used to materialize carry/borrow without field
       division. `condition` is Bool; both branches are Felt expressions. -/
   | select (condition thenValue elseValue : Expr)
@@ -267,19 +267,19 @@ inductive Statement where
       operation sees a value below 2^32, all Felt arithmetic intermediates stay
       below Goldilocks, and any nonzero high 128-bit digit traps before stores.
       Four little-endian result limbs become available through
-      `Expr.wideUInt128MulLimb operationId 0..3`. -/
-  | bindWideUInt128Mul (operationId : Nat) (lhs rhs : Array Expr)
+      `Expr.wideUintMulLimb operationId 0..3`. -/
+  | bindWideUintMul (bitWidth operationId : Nat) (lhs rhs : Array Expr)
   /-- Exact UInt128 unsigned division/remainder for the explicit VM profile.
       The emitter owns a fixed 129-bit restoring algorithm implemented as four
       constant 32-step loops over range-bounded Felt limbs; Psy field `/` and
       `%` are never used for the integer result. -/
-  | bindWideUInt128DivMod (resultKind : WideUInt128DivModResultV1)
-      (operationId : Nat) (lhs rhs : Array Expr)
+  | bindWideUintDivMod (resultKind : WideUInt128DivModResultV1)
+      (bitWidth operationId : Nat) (lhs rhs : Array Expr)
   /-- Exact UInt128 logical shift for the explicit VM profile. `value` is four
       little-endian UInt32 Felt limbs; `count` is a UInt32 Felt in `0..127`.
       The emitter owns a fixed 128-step bit walk (no Psy field `/` for whole/rem
       limb split); `shl` traps on any bit shifted past bit 127. -/
-  | bindWideUInt128Shift (kind : WideUInt128ShiftKindV1) (operationId : Nat)
+  | bindWideUintShift (kind : WideUInt128ShiftKindV1) (bitWidth operationId : Nat)
       (value : Array Expr) (count : Expr)
   deriving BEq, Inhabited, Repr
 
@@ -383,11 +383,11 @@ private def psyPlanErr (message : String) : CompileError :=
 
 /-- Psy width policy is profile-bound. The historical profile preserves
     UInt{8,16,32,64}; the explicit dargo-v0.1.0 VM profile additionally admits
-    UInt128 for target-owned 4×UInt32 Felt-limb lowering. UInt256 stays FC. -/
+    UInt128 (4×UInt32) and UInt256 (8×UInt32) Felt-limb lowering. -/
 private def pilotUintWidthPolicyPsyBody
     (profileMode : PsyProfileModeV1) : PilotUintWidthPolicy where
   admittedWidths :=
-    if profileMode.allowsWideUInt128 then #[128, 64, 32, 16, 8]
+    if profileMode.allowsWideUInt128 then #[256, 128, 64, 32, 16, 8]
     else #[64, 32, 16, 8]
 
 /-- True for Felt-carried narrow UInt widths admitted by the Psy T8 pilot. -/
@@ -478,8 +478,24 @@ private def mkWideUInt128Val (leaves : Array Expr) : LoweredVal :=
   { expr := head, leaves? := some leaves, uintWidth := 0,
     wideUintWidth := 128, isField := false }
 
+private def mkWideUInt256Val (leaves : Array Expr) : LoweredVal :=
+  let head := match leaves[0]? with | some e => e | none => .literal 0
+  { expr := head, leaves? := some leaves, uintWidth := 0,
+    wideUintWidth := 256, isField := false }
+
 private def LoweredVal.isWideUInt128 (v : LoweredVal) : Bool :=
   v.wideUintWidth == 128 && v.leafExprs.size == 4
+
+private def LoweredVal.isWideUInt256 (v : LoweredVal) : Bool :=
+  v.wideUintWidth == 256 && v.leafExprs.size == 8
+
+private def LoweredVal.isWideUint (v : LoweredVal) : Bool :=
+  v.isWideUInt128 || v.isWideUInt256
+
+private def wideLimbCountOf (bitWidth : Nat) : Nat := bitWidth / 32
+
+private def mkWideUintVal (bitWidth : Nat) (leaves : Array Expr) : LoweredVal :=
+  if bitWidth == 256 then mkWideUInt256Val leaves else mkWideUInt128Val leaves
 
 private structure ValueEnv where
   entries : Array (ValueIdV1 × LoweredVal)
@@ -542,14 +558,14 @@ private def isUInt8Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Boo
   | some { shape := .uint 8, .. } => true
   | _ => false
 
-/-- Resolve anonymous UInt TypeId to a Psy-recognized bit width. UInt128 is
-    admitted only after the profile-bound type-closure gate and is represented
-    as four little-endian UInt32 Felt limbs. -/
+/-- Resolve anonymous UInt TypeId to a Psy-recognized bit width. UInt128/256
+    are admitted only after the profile-bound type-closure gate and are
+    represented as little-endian UInt32 Felt limbs (4 / 8). -/
 private def uintWidthOfType
     (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Option Nat :=
   match data.types[typeId.toNat]? with
   | some { shape := .uint w, .. } =>
-      if w == 8 || w == 16 || w == 32 || w == 64 || w == 128 then
+      if w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256 then
         some w.toNat
       else none
   | _ => none
@@ -892,10 +908,14 @@ private def makeStateLayoutV1
         fieldNames := fieldNames.push name
       stateLeaves := stateLeaves.push leaves
     else if profileMode.allowsWideUInt128 &&
-        types.uintWidthOf state.typeId == some 128 then
-      -- Explicit VM profile: UInt128 is four little-endian UInt32 Felt limbs.
-      let leafNames := #[s!"{state.name}_0", s!"{state.name}_1",
-        s!"{state.name}_2", s!"{state.name}_3"]
+        (types.uintWidthOf state.typeId == some 128 ||
+          types.uintWidthOf state.typeId == some 256) then
+      -- Explicit VM profile: UInt128/256 are 4/8 little-endian UInt32 Felt limbs.
+      let limbCount :=
+        if types.uintWidthOf state.typeId == some 256 then 8 else 4
+      let mut leafNames : Array String := #[]
+      for i in [0:limbCount] do
+        leafNames := leafNames.push s!"{state.name}_{i}"
       if fieldNames.size + leafNames.size > maxStateLeafFields then
         planError "unsupported Psy semantic shape: state leaf count exceeds Psy profile limit"
       let mut leaves : Array Nat := #[]
@@ -1027,11 +1047,14 @@ private def lowerLiteral
   else
     planError "unsupported Psy semantic shape: literal type is outside the public UInt{8,16,32,64}/Int64/Bool/Goldilocks-Field envelope"
 
-private def decodeUInt128LimbsV1 (bytes : ByteArray) : CompileResult (Array Expr) := do
-  unless bytes.size == 16 do
-    planError "unsupported Psy semantic shape: UInt128 literal must contain exactly 16 bytes"
+private def decodeWideUintLimbsV1
+    (bitWidth : Nat) (bytes : ByteArray) : CompileResult (Array Expr) := do
+  let limbCount := wideLimbCountOf bitWidth
+  let need := limbCount * 4
+  unless bytes.size == need do
+    planError s!"unsupported Psy semantic shape: UInt{bitWidth} literal must contain exactly {need} bytes"
   let mut limbs : Array Expr := #[]
-  for limbIndex in [0:4] do
+  for limbIndex in [0:limbCount] do
     let base := limbIndex * 4
     let value :=
       (bytes.get! base).toNat +
@@ -1040,6 +1063,12 @@ private def decodeUInt128LimbsV1 (bytes : ByteArray) : CompileResult (Array Expr
       ((bytes.get! (base + 3)).toNat <<< 24)
     limbs := limbs.push (.literal (UInt64.ofNat value))
   pure limbs
+
+private def decodeUInt128LimbsV1 (bytes : ByteArray) : CompileResult (Array Expr) :=
+  decodeWideUintLimbsV1 128 bytes
+
+private def decodeUInt256LimbsV1 (bytes : ByteArray) : CompileResult (Array Expr) :=
+  decodeWideUintLimbsV1 256 bytes
 
 private def lowerLiteralValue
     (data : SemanticProgramDataV1) (layout : PsyLowerLayoutV1)
@@ -1050,6 +1079,10 @@ private def lowerLiteralValue
       unless layout.profileMode.allowsWideUInt128 do
         planError "unsupported Psy semantic shape: UInt128 requires profile psy-dargo-0.1.0-vm-v1"
       pure (mkWideUInt128Val (← decodeUInt128LimbsV1 valueBytes))
+  | some 256 =>
+      unless layout.profileMode.allowsWideUInt128 do
+        planError "unsupported Psy semantic shape: UInt256 requires profile psy-dargo-0.1.0-vm-v1"
+      pure (mkWideUInt256Val (← decodeUInt256LimbsV1 valueBytes))
   | some w =>
       let e ← lowerLiteral data layout.types typeId valueBytes
       if isNarrowUintWidth w then pure (mkNarrowVal w e)
@@ -1125,128 +1158,147 @@ private def lowerNarrowBinary
   | .and | .or =>
       planError s!"unsupported Psy semantic shape: UInt{bitWidth} does not admit logical and/or"
 
-private structure WideUInt128BinaryV1 where
+private structure WideUintBinaryV1 where
   /-- Statements that must execute before any result-limb expression is used. -/
   prelude : Array Statement := #[]
   value : LoweredVal
   assertion? : Option (Expr × String) := none
 
-private def requireWideUInt128Leaves
-    (label : String) (value : LoweredVal) : CompileResult (Array Expr) := do
-  unless value.isWideUInt128 do
-    planError s!"unsupported Psy semantic shape: {label} must be UInt128 (4×UInt32 Felt limbs)"
+private abbrev WideUInt128BinaryV1 := WideUintBinaryV1
+
+private def requireWideUintLeaves
+    (bitWidth : Nat) (label : String) (value : LoweredVal) :
+    CompileResult (Array Expr) := do
+  let need := wideLimbCountOf bitWidth
+  let ok :=
+    (bitWidth == 128 && value.isWideUInt128) ||
+      (bitWidth == 256 && value.isWideUInt256)
+  unless ok do
+    planError s!"unsupported Psy semantic shape: {label} must be UInt{bitWidth} ({need}×UInt32 Felt limbs)"
   pure value.leafExprs
 
-private def lowerWideUInt128Add
-    (lhs rhs : LoweredVal) : CompileResult WideUInt128BinaryV1 := do
-  let left ← requireWideUInt128Leaves "UInt128 add lhs" lhs
-  let right ← requireWideUInt128Leaves "UInt128 add rhs" rhs
+private def requireWideUInt128Leaves
+    (label : String) (value : LoweredVal) : CompileResult (Array Expr) :=
+  requireWideUintLeaves 128 label value
+
+private def lowerWideUintAdd
+    (bitWidth : Nat) (lhs rhs : LoweredVal) : CompileResult WideUintBinaryV1 := do
+  let left ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} add lhs" lhs
+  let right ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} add rhs" rhs
+  let limbs := wideLimbCountOf bitWidth
   let base : Expr := .literal 4294967296
   let zero : Expr := .literal 0
   let one : Expr := .literal 1
   let mut carry := zero
   let mut out : Array Expr := #[]
-  for i in [0:4] do
+  for i in [0:limbs] do
     let sum := .limbAdd (.limbAdd left[i]! right[i]!) carry
     let hasCarry := .compare .ge sum base
     let limb := .select hasCarry (.limbSub sum base) sum
     out := out.push limb
     carry := .select hasCarry one zero
+  let tag := if bitWidth == 256 then "u256" else "u128"
   pure {
-    value := mkWideUInt128Val out
-    assertion? := some (.compare .eq carry zero, "u128 add overflow")
+    value := mkWideUintVal bitWidth out
+    assertion? := some (.compare .eq carry zero, s!"{tag} add overflow")
   }
 
-private def lowerWideUInt128Sub
-    (lhs rhs : LoweredVal) : CompileResult WideUInt128BinaryV1 := do
-  let left ← requireWideUInt128Leaves "UInt128 sub lhs" lhs
-  let right ← requireWideUInt128Leaves "UInt128 sub rhs" rhs
+private def lowerWideUintSub
+    (bitWidth : Nat) (lhs rhs : LoweredVal) : CompileResult WideUintBinaryV1 := do
+  let left ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} sub lhs" lhs
+  let right ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} sub rhs" rhs
+  let limbs := wideLimbCountOf bitWidth
   let base : Expr := .literal 4294967296
   let zero : Expr := .literal 0
   let one : Expr := .literal 1
   let mut borrow := zero
   let mut out : Array Expr := #[]
-  for i in [0:4] do
+  for i in [0:limbs] do
     let rhsWithBorrow := .limbAdd right[i]! borrow
     let underflow := .compare .lt left[i]! rhsWithBorrow
     let wrapped := .limbSub (.limbAdd left[i]! base) rhsWithBorrow
     let direct := .limbSub left[i]! rhsWithBorrow
     out := out.push (.select underflow wrapped direct)
     borrow := .select underflow one zero
+  let tag := if bitWidth == 256 then "u256" else "u128"
   pure {
-    value := mkWideUInt128Val out
-    assertion? := some (.compare .eq borrow zero, "u128 sub underflow")
+    value := mkWideUintVal bitWidth out
+    assertion? := some (.compare .eq borrow zero, s!"{tag} sub underflow")
   }
 
-private def lowerWideUInt128Mul
-    (operationId : Nat) (lhs rhs : LoweredVal) :
-    CompileResult WideUInt128BinaryV1 := do
-  let left ← requireWideUInt128Leaves "UInt128 mul lhs" lhs
-  let right ← requireWideUInt128Leaves "UInt128 mul rhs" rhs
+private def lowerWideUintMul
+    (bitWidth operationId : Nat) (lhs rhs : LoweredVal) :
+    CompileResult WideUintBinaryV1 := do
+  let left ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} mul lhs" lhs
+  let right ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} mul rhs" rhs
+  let limbs := wideLimbCountOf bitWidth
   let mut out : Array Expr := #[]
-  for limbIndex in [0:4] do
-    out := out.push (.wideUInt128MulLimb operationId limbIndex)
+  for limbIndex in [0:limbs] do
+    out := out.push (.wideUintMulLimb bitWidth operationId limbIndex)
   pure {
-    prelude := #[.bindWideUInt128Mul operationId left right]
-    value := mkWideUInt128Val out
+    prelude := #[.bindWideUintMul bitWidth operationId left right]
+    value := mkWideUintVal bitWidth out
   }
 
-private def lowerWideUInt128DivMod
-    (operationId : Nat) (resultKind : WideUInt128DivModResultV1)
-    (lhs rhs : LoweredVal) : CompileResult WideUInt128BinaryV1 := do
+private def lowerWideUintDivMod
+    (bitWidth operationId : Nat) (resultKind : WideUInt128DivModResultV1)
+    (lhs rhs : LoweredVal) : CompileResult WideUintBinaryV1 := do
   let label := match resultKind with
-    | .quotient => "UInt128 div"
-    | .remainder => "UInt128 mod"
-  let left ← requireWideUInt128Leaves (label ++ " lhs") lhs
-  let right ← requireWideUInt128Leaves (label ++ " rhs") rhs
+    | .quotient => s!"UInt{bitWidth} div"
+    | .remainder => s!"UInt{bitWidth} mod"
+  let left ← requireWideUintLeaves bitWidth (label ++ " lhs") lhs
+  let right ← requireWideUintLeaves bitWidth (label ++ " rhs") rhs
+  let limbs := wideLimbCountOf bitWidth
   let mut out : Array Expr := #[]
-  for limbIndex in [0:4] do
-    out := out.push (.wideUInt128DivModLimb resultKind operationId limbIndex)
+  for limbIndex in [0:limbs] do
+    out := out.push (.wideUintDivModLimb resultKind bitWidth operationId limbIndex)
   pure {
-    prelude := #[.bindWideUInt128DivMod resultKind operationId left right]
-    value := mkWideUInt128Val out
+    prelude := #[.bindWideUintDivMod resultKind bitWidth operationId left right]
+    value := mkWideUintVal bitWidth out
   }
 
-/-- Per-limb bitwise: each UInt32 Felt limb is operated independently. Inputs
-    already live in `0..2^32-1` on the admitted UInt128 surface, so Psy u32-backed
-    Felt `&`/`|`/`^` are exact and cannot cross limb boundaries. -/
-private def lowerWideUInt128Bitwise
-    (op : BinaryOpV1) (lhs rhs : LoweredVal) : CompileResult WideUInt128BinaryV1 := do
-  let left ← requireWideUInt128Leaves "UInt128 bitwise lhs" lhs
-  let right ← requireWideUInt128Leaves "UInt128 bitwise rhs" rhs
+/-- Per-limb bitwise: each UInt32 Felt limb is operated independently. -/
+private def lowerWideUintBitwise
+    (bitWidth : Nat) (op : BinaryOpV1) (lhs rhs : LoweredVal) :
+    CompileResult WideUintBinaryV1 := do
+  let left ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} bitwise lhs" lhs
+  let right ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} bitwise rhs" rhs
+  let limbs := wideLimbCountOf bitWidth
   let mut out : Array Expr := #[]
-  for i in [0:4] do
+  for i in [0:limbs] do
     let limb ← match op with
       | .bitAnd => pure (Expr.bitAnd left[i]! right[i]!)
       | .bitOr => pure (Expr.bitOr left[i]! right[i]!)
       | .bitXor => pure (Expr.bitXor left[i]! right[i]!)
-      | _ => planError "unsupported Psy semantic shape: UInt128 bitwise op mismatch"
+      | _ => planError s!"unsupported Psy semantic shape: UInt{bitWidth} bitwise op mismatch"
     out := out.push limb
-  pure { value := mkWideUInt128Val out }
+  pure { value := mkWideUintVal bitWidth out }
 
-/-- Exact UInt128 logical shift: value is 4×UInt32 limbs; count is UInt32
-    (Normalize shift-count rule). Binding emission owns the bit walk. -/
-private def lowerWideUInt128Shift
-    (operationId : Nat) (kind : WideUInt128ShiftKindV1)
-    (lhs rhs : LoweredVal) : CompileResult WideUInt128BinaryV1 := do
-  let left ← requireWideUInt128Leaves "UInt128 shift value" lhs
+/-- Exact wide logical shift: UInt32 count; binding emission owns the bit walk. -/
+private def lowerWideUintShift
+    (bitWidth operationId : Nat) (kind : WideUInt128ShiftKindV1)
+    (lhs rhs : LoweredVal) : CompileResult WideUintBinaryV1 := do
+  let left ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} shift value" lhs
   unless rhs.isU32 do
-    planError "unsupported Psy semantic shape: UInt128 shift count must be UInt32"
+    planError s!"unsupported Psy semantic shape: UInt{bitWidth} shift count must be UInt32"
+  let limbs := wideLimbCountOf bitWidth
   let mut out : Array Expr := #[]
-  for limbIndex in [0:4] do
-    out := out.push (.wideUInt128ShiftLimb kind operationId limbIndex)
+  for limbIndex in [0:limbs] do
+    out := out.push (.wideUintShiftLimb kind bitWidth operationId limbIndex)
   pure {
-    prelude := #[.bindWideUInt128Shift kind operationId left rhs.expr]
-    value := mkWideUInt128Val out
+    prelude := #[.bindWideUintShift kind bitWidth operationId left rhs.expr]
+    value := mkWideUintVal bitWidth out
   }
 
-private def lowerWideUInt128Compare
-    (op : BinaryOpV1) (lhs rhs : LoweredVal) : CompileResult WideUInt128BinaryV1 := do
-  let left ← requireWideUInt128Leaves "UInt128 compare lhs" lhs
-  let right ← requireWideUInt128Leaves "UInt128 compare rhs" rhs
+private def lowerWideUintCompare
+    (bitWidth : Nat) (op : BinaryOpV1) (lhs rhs : LoweredVal) :
+    CompileResult WideUintBinaryV1 := do
+  let left ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} compare lhs" lhs
+  let right ← requireWideUintLeaves bitWidth s!"UInt{bitWidth} compare rhs" rhs
+  let limbs := wideLimbCountOf bitWidth
   let mut eqExpr : Expr := .compare .eq left[0]! right[0]!
   let mut ltExpr : Expr := .compare .lt left[0]! right[0]!
-  for i in [1:4] do
+  for i in [1:limbs] do
     let limbEq : Expr := .compare .eq left[i]! right[i]!
     let limbLt : Expr := .compare .lt left[i]! right[i]!
     ltExpr := .logicalOr limbLt (.logicalAnd limbEq ltExpr)
@@ -1259,24 +1311,29 @@ private def lowerWideUInt128Compare
     | .gt => pure (.boolNot (.logicalOr ltExpr eqExpr))
     | .ge => pure (.boolNot ltExpr)
     | _ =>
-        planError "unsupported Psy semantic shape: UInt128 admits add/sub and six comparisons only"
+        planError s!"unsupported Psy semantic shape: UInt{bitWidth} admits add/sub and six comparisons only"
   pure { value := mkScalarVal result }
+
+private def lowerWideUintBinary
+    (bitWidth operationId : Nat) (op : BinaryOpV1) (lhs rhs : LoweredVal) :
+    CompileResult WideUintBinaryV1 :=
+  match op with
+  | .add => lowerWideUintAdd bitWidth lhs rhs
+  | .sub => lowerWideUintSub bitWidth lhs rhs
+  | .mul => lowerWideUintMul bitWidth operationId lhs rhs
+  | .div => lowerWideUintDivMod bitWidth operationId .quotient lhs rhs
+  | .mod => lowerWideUintDivMod bitWidth operationId .remainder lhs rhs
+  | .bitAnd | .bitOr | .bitXor => lowerWideUintBitwise bitWidth op lhs rhs
+  | .shl => lowerWideUintShift bitWidth operationId .shl lhs rhs
+  | .shr => lowerWideUintShift bitWidth operationId .shr lhs rhs
+  | .eq | .ne | .lt | .le | .gt | .ge => lowerWideUintCompare bitWidth op lhs rhs
+  | _ =>
+      planError s!"unsupported Psy semantic shape: UInt{bitWidth} admits add/sub/mul/div/mod/bitwise/shift and six comparisons only"
 
 private def lowerWideUInt128Binary
     (operationId : Nat) (op : BinaryOpV1) (lhs rhs : LoweredVal) :
-    CompileResult WideUInt128BinaryV1 :=
-  match op with
-  | .add => lowerWideUInt128Add lhs rhs
-  | .sub => lowerWideUInt128Sub lhs rhs
-  | .mul => lowerWideUInt128Mul operationId lhs rhs
-  | .div => lowerWideUInt128DivMod operationId .quotient lhs rhs
-  | .mod => lowerWideUInt128DivMod operationId .remainder lhs rhs
-  | .bitAnd | .bitOr | .bitXor => lowerWideUInt128Bitwise op lhs rhs
-  | .shl => lowerWideUInt128Shift operationId .shl lhs rhs
-  | .shr => lowerWideUInt128Shift operationId .shr lhs rhs
-  | .eq | .ne | .lt | .le | .gt | .ge => lowerWideUInt128Compare op lhs rhs
-  | _ =>
-      planError "unsupported Psy semantic shape: UInt128 admits add/sub/mul/div/mod/bitwise/shift and six comparisons only (UInt256 remains fail closed)"
+    CompileResult WideUintBinaryV1 :=
+  lowerWideUintBinary 128 operationId op lhs rhs
 
 private def lowerUnary
     (op : UnaryOpV1) (operand : Expr) (_resultTypeId : TypeIdV1) : CompileResult Expr :=
@@ -1317,7 +1374,7 @@ private def lookupArgs
   for arg in args do
     match envLookup env arg with
     | some v =>
-        if v.isWideUInt128 && allowWideUInt128 then
+        if v.isWideUint && allowWideUInt128 then
           out := out ++ v.leafExprs
         else if v.isAggregate then
           planError s!"unsupported Psy semantic shape: {what} does not accept aggregate arguments"
@@ -1362,16 +1419,21 @@ private partial def lowerRegion
             let stateTypeId ← match data.logicalState[stateId.toNat]? with
               | some st => pure st.typeId
               | none => planError "unsupported Psy semantic shape: stateLoad declaration is missing"
-            let isWideUInt128State :=
-              layout.profileMode.allowsWideUInt128 &&
-                uintWidthOfType data stateTypeId == some 128
-            if isWideUInt128State then
-              unless leafIdxs.size == 4 do
-                planError "unsupported Psy semantic shape: UInt128 stateLoad must carry four UInt32 limbs"
+            let wideStateW? :=
+              if layout.profileMode.allowsWideUInt128 then
+                match uintWidthOfType data stateTypeId with
+                | some 128 => some 128
+                | some 256 => some 256
+                | _ => none
+              else none
+            if let some bitWidth := wideStateW? then
+              let need := wideLimbCountOf bitWidth
+              unless leafIdxs.size == need do
+                planError s!"unsupported Psy semantic shape: UInt{bitWidth} stateLoad must carry {need} UInt32 limbs"
               let mut leaves : Array Expr := #[]
               for fi in leafIdxs do
                 leaves := leaves.push (.stateLoad fi)
-              env := envInsertVal env valueDef.valueId (mkWideUInt128Val leaves)
+              env := envInsertVal env valueDef.valueId (mkWideUintVal bitWidth leaves)
             else if leafIdxs.size == 1 then
               let some fi := leafIdxs[0]? |
                 planError "unsupported Psy semantic shape: stateLoad leaf index missing"
@@ -1401,26 +1463,38 @@ private partial def lowerRegion
         let valueDef ← match instr.result with
           | some vd => pure vd
           | none => planError "unsupported Psy semantic shape: binary instruction must produce a value"
-        let resultIsWideUInt128 :=
-          uintWidthOfType data valueDef.typeId == some 128
-        let usesWideUInt128 :=
-          lv.isWideUInt128 || rv.isWideUInt128 || resultIsWideUInt128
-        if usesWideUInt128 then
+        let resultWideW? :=
+          match uintWidthOfType data valueDef.typeId with
+          | some 128 => some 128
+          | some 256 => some 256
+          | _ => none
+        let operandWideW? :=
+          if lv.isWideUInt256 || rv.isWideUInt256 then some 256
+          else if lv.isWideUInt128 || rv.isWideUInt128 then some 128
+          else none
+        let usesWideUint :=
+          resultWideW?.isSome || operandWideW?.isSome
+        if usesWideUint then
           unless layout.profileMode.allowsWideUInt128 do
-            planError "unsupported Psy semantic shape: UInt128 binary requires profile psy-dargo-0.1.0-vm-v1"
-          let lowered ← lowerWideUInt128Binary valueDef.valueId.toNat op lv rv
+            planError "unsupported Psy semantic shape: UInt128/256 binary requires profile psy-dargo-0.1.0-vm-v1"
+          let bitWidth ← match resultWideW?, operandWideW? with
+            | some w, _ => pure w
+            | none, some w => pure w
+            | none, none =>
+                planError "unsupported Psy semantic shape: wide binary width unresolved"
+          let lowered ← lowerWideUintBinary bitWidth valueDef.valueId.toNat op lv rv
           if !lowered.prelude.isEmpty then
             ls := { ls with stmts := ls.stmts ++ lowered.prelude }
           match lowered.assertion? with
           | some (condition, message) =>
               ls := { ls with stmts := ls.stmts.push (.assertWithMessage condition message) }
           | none => pure ()
-          if resultIsWideUInt128 then
-            unless lowered.value.isWideUInt128 do
-              planError "unsupported Psy semantic shape: UInt128 arithmetic must produce four UInt32 limbs"
+          if resultWideW?.isSome then
+            unless lowered.value.wideUintWidth == bitWidth do
+              planError s!"unsupported Psy semantic shape: UInt{bitWidth} arithmetic must produce {wideLimbCountOf bitWidth} UInt32 limbs"
           else
             unless !lowered.value.isAggregate do
-              planError "unsupported Psy semantic shape: UInt128 comparison must produce a scalar Bool"
+              planError s!"unsupported Psy semantic shape: UInt{bitWidth} comparison must produce a scalar Bool"
           env := envInsertVal env valueDef.valueId lowered.value
         else if lv.isField && rv.isField then
           -- T14 catalog v2 (Goldilocks): native Felt field arithmetic. Both
@@ -1522,16 +1596,18 @@ private partial def lowerRegion
                   unless !o.isAggregate && !o.isNarrow && !o.isField do
                     planError "unsupported Psy semantic shape: UInt64 bitNot operand must be a scalar Felt UInt64"
                   env := envInsert env valueDef.valueId (.checkedBitNot o.expr)
-                else if w == 128 then
+                else if w == 128 || w == 256 then
                   unless layout.profileMode.allowsWideUInt128 do
-                    planError "unsupported Psy semantic shape: UInt128 bitNot requires profile psy-dargo-0.1.0-vm-v1"
-                  unless o.isWideUInt128 do
-                    planError "unsupported Psy semantic shape: UInt128 bitNot operand must be four UInt32 limbs"
+                    planError s!"unsupported Psy semantic shape: UInt{w} bitNot requires profile psy-dargo-0.1.0-vm-v1"
+                  let ok :=
+                    (w == 128 && o.isWideUInt128) || (w == 256 && o.isWideUInt256)
+                  unless ok do
+                    planError s!"unsupported Psy semantic shape: UInt{w} bitNot operand must be {wideLimbCountOf w} UInt32 limbs"
                   let mask : Expr := .literal 4294967295
                   let mut out : Array Expr := #[]
                   for limb in o.leafExprs do
                     out := out.push (.bitXor limb mask)
-                  env := envInsertVal env valueDef.valueId (mkWideUInt128Val out)
+                  env := envInsertVal env valueDef.valueId (mkWideUintVal w out)
                 else
                   planError s!"unsupported Psy semantic shape: bitNot on UInt{w} is outside the Psy envelope"
             | .neg, _ =>
@@ -1566,8 +1642,8 @@ private partial def lowerRegion
         | none => planError "unsupported Psy semantic shape: pureCall instruction must produce a value"
         | some valueDef =>
             match uintWidthOfType data valueDef.typeId with
-            | some 128 =>
-                planError "unsupported Psy semantic shape: pureFn UInt128 returns require multi-result call binding and remain fail closed"
+            | some 128 | some 256 =>
+                planError "unsupported Psy semantic shape: pureFn UInt128/256 returns require multi-result call binding and remain fail closed"
             | some w =>
                 if isNarrowUintWidth w then
                   env := envInsertNarrow env valueDef.valueId w e
@@ -1585,14 +1661,21 @@ private partial def lowerRegion
         let stateTypeId ← match data.logicalState[stateId.toNat]? with
           | some st => pure st.typeId
           | none => planError "unsupported Psy semantic shape: stateStore declaration is missing"
-        let stateIsWideUInt128 :=
-          layout.profileMode.allowsWideUInt128 &&
-            uintWidthOfType data stateTypeId == some 128
-        if stateIsWideUInt128 then
-          unless v.isWideUInt128 do
-            planError "unsupported Psy semantic shape: UInt128 stateStore requires four UInt32 limbs"
-        else if v.isWideUInt128 then
-          planError "unsupported Psy semantic shape: UInt128 value cannot be stored into a non-UInt128 state"
+        let stateWideW? :=
+          if layout.profileMode.allowsWideUInt128 then
+            match uintWidthOfType data stateTypeId with
+            | some 128 => some 128
+            | some 256 => some 256
+            | _ => none
+          else none
+        if let some bitWidth := stateWideW? then
+          let ok :=
+            (bitWidth == 128 && v.isWideUInt128) ||
+              (bitWidth == 256 && v.isWideUInt256)
+          unless ok do
+            planError s!"unsupported Psy semantic shape: UInt{bitWidth} stateStore requires {wideLimbCountOf bitWidth} UInt32 limbs"
+        else if v.isWideUint then
+          planError "unsupported Psy semantic shape: wide UInt value cannot be stored into a non-matching state"
         let leaves := v.leafExprs
         unless leaves.size == leafIdxs.size do
           planError "unsupported Psy semantic shape: stateStore leaf count mismatch"
@@ -1999,8 +2082,8 @@ private partial def lowerRegion
       let sVal ← match envLookup env scrutinee with
         | some v => pure v
         | none => planError "unsupported Psy semantic shape: switch references an undefined scrutinee"
-      if sVal.isWideUInt128 then
-        planError "unsupported Psy semantic shape: Switch on UInt128 is outside the Psy VM profile"
+      if sVal.isWideUint then
+        planError "unsupported Psy semantic shape: Switch on UInt128/256 is outside the Psy VM profile"
       let s := sVal.expr
       -- Case values: UInt64 wire decoding for 8-byte; narrow switch cases use
       -- the same LE decode path sized to the scrutinee width.
@@ -2046,19 +2129,22 @@ private partial def lowerRegion
             | some v =>
                 match expectedAggregateLeaves with
                 | some expectedLeaves =>
-                    -- B-RET-ABI plus the VM-profile UInt128 ABI. UInt128 is
-                    -- exactly four unsigned 4-byte limbs; existing aggregates
-                    -- remain 1..8 UInt64/Int64 words.
+                    -- B-RET-ABI plus the VM-profile UInt128/256 ABI. Wide values
+                    -- are 4/8 unsigned 4-byte limbs; other aggregates remain
+                    -- 1..8 UInt64/Int64 words.
                     unless v.isAggregate do
                       planError "unsupported Psy semantic shape: aggregate return value must be a multi-leaf aggregate"
-                    let expectsWideUInt128 :=
-                      expectedLeaves.size == 4 &&
+                    let expectsWideUint :=
+                      (expectedLeaves.size == 4 || expectedLeaves.size == 8) &&
                         expectedLeaves.all (fun leaf => !leaf.isInt && leaf.byteWidth == 4)
-                    if expectsWideUInt128 then
-                      unless v.isWideUInt128 do
-                        planError "unsupported Psy semantic shape: UInt128 return requires four UInt32 limbs"
-                    else if v.isWideUInt128 then
-                      planError "unsupported Psy semantic shape: UInt128 value cannot satisfy a non-UInt128 aggregate return"
+                    if expectsWideUint then
+                      let ok :=
+                        (expectedLeaves.size == 4 && v.isWideUInt128) ||
+                          (expectedLeaves.size == 8 && v.isWideUInt256)
+                      unless ok do
+                        planError s!"unsupported Psy semantic shape: UInt{expectedLeaves.size * 32} return requires {expectedLeaves.size} UInt32 limbs"
+                    else if v.isWideUint then
+                      planError "unsupported Psy semantic shape: wide UInt value cannot satisfy a non-wide aggregate return"
                     let gotLeaves := v.leafExprs
                     unless gotLeaves.size == expectedLeaves.size do
                       planError s!"unsupported Psy semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
@@ -2067,7 +2153,7 @@ private partial def lowerRegion
                       unless leaf.byteWidth == 4 || leaf.byteWidth == 8 do
                         planError "unsupported Psy semantic shape: aggregate return leaves must be UInt32 limbs or UInt64/Int64 words"
                       if leaf.byteWidth == 4 && leaf.isInt then
-                        planError "unsupported Psy semantic shape: UInt128 ABI limbs must be unsigned UInt32"
+                        planError "unsupported Psy semantic shape: wide UInt ABI limbs must be unsigned UInt32"
                       leafIsInt := leafIsInt.push leaf.isInt
                     pure (ls.stmts.push (.returnAggregate gotLeaves leafIsInt))
                 | none =>
@@ -2184,6 +2270,12 @@ private def resultShape (data : SemanticProgramDataV1)
         .aggregate (Array.replicate 4 { isInt := false, byteWidth := 4 }))
     else
       planError s!"{owner} UInt128 result requires profile psy-dargo-0.1.0-vm-v1"
+  else if uintWidthOfType data callable.result.typeId == some 256 then
+    if profileMode.allowsWideUInt128 then
+      pure (false, false, 256,
+        .aggregate (Array.replicate 8 { isInt := false, byteWidth := 4 }))
+    else
+      planError s!"{owner} UInt256 result requires profile psy-dargo-0.1.0-vm-v1"
   else if isInt64Type data callable.result.typeId then pure (false, false, 0, .felt)
   else if let some w := uintWidthOfType data callable.result.typeId then
     if isNarrowUintWidth w then pure (false, false, w, .felt)
@@ -2236,12 +2328,12 @@ private def lowerCallable
   let types := layout.types
   for p in callable.params do
     match uintWidthOfType data p.typeId with
-    | some 128 =>
+    | some 128 | some 256 =>
+        let bitWidth := (uintWidthOfType data p.typeId).getD 128
         unless layout.profileMode.allowsWideUInt128 do
-          planError s!"unsupported Psy semantic shape: UInt128 parameter '{p.name}' in {owner} requires profile psy-dargo-0.1.0-vm-v1"
-        -- ABI: one logical UInt128 parameter expands to four little-endian
-        -- UInt32 Felt limbs. Each physical input is independently range-guarded.
-        for limbIndex in [0:4] do
+          planError s!"unsupported Psy semantic shape: UInt{bitWidth} parameter '{p.name}' in {owner} requires profile psy-dargo-0.1.0-vm-v1"
+        -- ABI: one logical wide UInt expands to N little-endian UInt32 Felt limbs.
+        for limbIndex in [0:wideLimbCountOf bitWidth] do
           params := params.push
             { sourceIndex := physicalParamIndex,
               name := s!"{p.name}_limb{limbIndex}", isBool := false,
@@ -2259,7 +2351,7 @@ private def lowerCallable
           else if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
             -- B-OPT-STATE mirrors Enum: Option is state-only (params stay fail closed).
             planError s!"unsupported Psy semantic shape: Option parameter '{p.name}' in {owner} is outside the Psy pilot (Option is state-only; B-RET-ABI scalar)"
-          else planError "unsupported Psy semantic shape: callable parameter is outside the UInt8/16/32/64/128/Int64/Bool/Goldilocks-Field envelope"
+          else planError "unsupported Psy semantic shape: callable parameter is outside the UInt8/16/32/64/128/256/Int64/Bool/Goldilocks-Field envelope"
         let uintWidth := width?.getD 0
         params := params.push
           { sourceIndex := physicalParamIndex, name := p.name, isBool,
@@ -2270,14 +2362,15 @@ private def lowerCallable
   let mut physicalParamOrdinal : Nat := 0
   for p in callable.params do
     match uintWidthOfType data p.typeId with
-    | some 128 =>
+    | some 128 | some 256 =>
+        let bitWidth := (uintWidthOfType data p.typeId).getD 128
         unless layout.profileMode.allowsWideUInt128 do
-          planError s!"unsupported Psy semantic shape: UInt128 parameter '{p.name}' requires profile psy-dargo-0.1.0-vm-v1"
+          planError s!"unsupported Psy semantic shape: UInt{bitWidth} parameter '{p.name}' requires profile psy-dargo-0.1.0-vm-v1"
         let mut limbs : Array Expr := #[]
-        for _ in [0:4] do
+        for _ in [0:wideLimbCountOf bitWidth] do
           limbs := limbs.push (.param physicalParamOrdinal)
           physicalParamOrdinal := physicalParamOrdinal + 1
-        env0 := envInsertVal env0 p.valueId (mkWideUInt128Val limbs)
+        env0 := envInsertVal env0 p.valueId (mkWideUintVal bitWidth limbs)
     | some w =>
         if isNarrowUintWidth w then
           env0 := envInsertNarrow env0 p.valueId w (.param physicalParamOrdinal)

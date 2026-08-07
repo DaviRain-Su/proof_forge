@@ -33,8 +33,8 @@ private def isReserved (name : String) : Bool :=
 private def validateExprNodes (expr : Expr) : Option Nat :=
   match expr with
   | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
-  | .param _ | .loopVar _ | .stateLoad _ | .wideUInt128MulLimb _ _
-  | .wideUInt128DivModLimb _ _ _ | .wideUInt128ShiftLimb _ _ _ => some 1
+  | .param _ | .loopVar _ | .stateLoad _ | .wideUintMulLimb _ _ _
+  | .wideUintDivModLimb _ _ _ _ | .wideUintShiftLimb _ _ _ _ => some 1
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
   | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
@@ -82,23 +82,28 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
           match validateExprNodes value with
           | some _ => pure ()
           | none => planError "Psy plan expression exceeds the depth/node limit"
-    | .bindWideUInt128Mul _ lhs rhs => do
-        unless lhs.size == 4 && rhs.size == 4 do
-          planError "Psy bindWideUInt128Mul requires two four-limb operands"
+    | .bindWideUintMul bitWidth _ lhs rhs => do
+        let need := bitWidth / 32
+        unless (bitWidth == 128 || bitWidth == 256) &&
+            lhs.size == need && rhs.size == need do
+          planError "Psy bindWideUintMul requires matching wide limb operands"
         for value in lhs ++ rhs do
           match validateExprNodes value with
           | some _ => pure ()
           | none => planError "Psy plan expression exceeds the depth/node limit"
-    | .bindWideUInt128DivMod _ _ lhs rhs => do
-        unless lhs.size == 4 && rhs.size == 4 do
-          planError "Psy bindWideUInt128DivMod requires two four-limb operands"
+    | .bindWideUintDivMod _ bitWidth _ lhs rhs => do
+        let need := bitWidth / 32
+        unless (bitWidth == 128 || bitWidth == 256) &&
+            lhs.size == need && rhs.size == need do
+          planError "Psy bindWideUintDivMod requires matching wide limb operands"
         for value in lhs ++ rhs do
           match validateExprNodes value with
           | some _ => pure ()
           | none => planError "Psy plan expression exceeds the depth/node limit"
-    | .bindWideUInt128Shift _ _ value count => do
-        unless value.size == 4 do
-          planError "Psy bindWideUInt128Shift requires four value limbs"
+    | .bindWideUintShift _ bitWidth _ value count => do
+        let need := bitWidth / 32
+        unless (bitWidth == 128 || bitWidth == 256) && value.size == need do
+          planError "Psy bindWideUintShift requires matching wide value limbs"
         for limb in value do
           match validateExprNodes limb with
           | some _ => pure ()
@@ -168,21 +173,27 @@ private partial def validateWideExpr
   match expr with
   | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
   | .param _ | .loopVar _ | .stateLoad _ => pure ()
-  | .wideUInt128MulLimb operationId limbIndex =>
-      unless limbIndex < 4 do
-        planError "Psy UInt128 multiplication result limb index must be in 0..3"
+  | .wideUintMulLimb bitWidth operationId limbIndex =>
+      unless bitWidth == 128 || bitWidth == 256 do
+        planError "Psy wide multiplication bitWidth must be 128 or 256"
+      unless limbIndex < bitWidth / 32 do
+        planError "Psy wide multiplication result limb index is out of range"
       unless defined.mulIds.contains operationId do
-        planError "Psy UInt128 multiplication result is used before its binding"
-  | .wideUInt128DivModLimb resultKind operationId limbIndex =>
-      unless limbIndex < 4 do
-        planError "Psy UInt128 div/mod result limb index must be in 0..3"
+        planError "Psy wide multiplication result is used before its binding"
+  | .wideUintDivModLimb resultKind bitWidth operationId limbIndex =>
+      unless bitWidth == 128 || bitWidth == 256 do
+        planError "Psy wide div/mod bitWidth must be 128 or 256"
+      unless limbIndex < bitWidth / 32 do
+        planError "Psy wide div/mod result limb index is out of range"
       unless defined.divModIds.contains (operationId, resultKind) do
-        planError "Psy UInt128 div/mod result kind is mismatched or used before its binding"
-  | .wideUInt128ShiftLimb kind operationId limbIndex =>
-      unless limbIndex < 4 do
-        planError "Psy UInt128 shift result limb index must be in 0..3"
+        planError "Psy wide div/mod result kind is mismatched or used before its binding"
+  | .wideUintShiftLimb kind bitWidth operationId limbIndex =>
+      unless bitWidth == 128 || bitWidth == 256 do
+        planError "Psy wide shift bitWidth must be 128 or 256"
+      unless limbIndex < bitWidth / 32 do
+        planError "Psy wide shift result limb index is out of range"
       unless defined.shiftIds.contains (operationId, kind) do
-        planError "Psy UInt128 shift result kind is mismatched or used before its binding"
+        planError "Psy wide shift result kind is mismatched or used before its binding"
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
   | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
@@ -226,11 +237,11 @@ private partial def collectWideBindingInventory
   let mut out : WideBindingInventoryV1 := {}
   for stmt in stmts do
     match stmt with
-    | .bindWideUInt128Mul operationId _ _ =>
+    | .bindWideUintMul _ operationId _ _ =>
         out := { out with ids := out.ids.push operationId, mulCount := out.mulCount + 1 }
-    | .bindWideUInt128DivMod _ operationId _ _ =>
+    | .bindWideUintDivMod _ _ operationId _ _ =>
         out := { out with ids := out.ids.push operationId, divModCount := out.divModCount + 1 }
-    | .bindWideUInt128Shift _ operationId _ _ =>
+    | .bindWideUintShift _ _ operationId _ _ =>
         out := { out with ids := out.ids.push operationId, shiftCount := out.shiftCount + 1 }
     | .ifThenElse _ thenBody elseBody =>
         out := appendWideInventory out (collectWideBindingInventory thenBody)
@@ -251,36 +262,45 @@ private partial def validateWideBindings
   let mut defined := defined0
   for stmt in stmts do
     match stmt with
-    | .bindWideUInt128Mul operationId lhs rhs => do
+    | .bindWideUintMul bitWidth operationId lhs rhs => do
         unless profileMode == .dargo010Vm do
-          planError "Psy UInt128 multiplication requires profile psy-dargo-0.1.0-vm-v1"
-        unless lhs.size == 4 && rhs.size == 4 do
-          planError "Psy bindWideUInt128Mul requires two four-limb operands"
+          planError "Psy wide multiplication requires profile psy-dargo-0.1.0-vm-v1"
+        unless bitWidth == 128 || bitWidth == 256 do
+          planError "Psy wide multiplication bitWidth must be 128 or 256"
+        let need := bitWidth / 32
+        unless lhs.size == need && rhs.size == need do
+          planError s!"Psy bindWideUintMul requires two {need}-limb operands"
         unless !hasAnyWideBindingId defined operationId do
           planError "Psy wide operation binding id is duplicated in one lexical region"
         for value in lhs ++ rhs do
           validateWideExpr defined value
         defined := { defined with mulIds := defined.mulIds.push operationId }
-    | .bindWideUInt128DivMod resultKind operationId lhs rhs => do
+    | .bindWideUintDivMod resultKind bitWidth operationId lhs rhs => do
         unless profileMode == .dargo010Vm do
-          planError "Psy UInt128 div/mod requires profile psy-dargo-0.1.0-vm-v1"
+          planError "Psy wide div/mod requires profile psy-dargo-0.1.0-vm-v1"
         unless loopDepth == 0 do
-          planError "Psy UInt128 div/mod inside a bounded loop exceeds the frozen resource profile"
-        unless lhs.size == 4 && rhs.size == 4 do
-          planError "Psy bindWideUInt128DivMod requires two four-limb operands"
+          planError "Psy wide div/mod inside a bounded loop exceeds the frozen resource profile"
+        unless bitWidth == 128 || bitWidth == 256 do
+          planError "Psy wide div/mod bitWidth must be 128 or 256"
+        let need := bitWidth / 32
+        unless lhs.size == need && rhs.size == need do
+          planError s!"Psy bindWideUintDivMod requires two {need}-limb operands"
         unless !hasAnyWideBindingId defined operationId do
           planError "Psy wide operation binding id is duplicated in one lexical region"
         for value in lhs ++ rhs do
           validateWideExpr defined value
         defined := { defined with
           divModIds := defined.divModIds.push (operationId, resultKind) }
-    | .bindWideUInt128Shift kind operationId value count => do
+    | .bindWideUintShift kind bitWidth operationId value count => do
         unless profileMode == .dargo010Vm do
-          planError "Psy UInt128 shift requires profile psy-dargo-0.1.0-vm-v1"
+          planError "Psy wide shift requires profile psy-dargo-0.1.0-vm-v1"
         unless loopDepth == 0 do
-          planError "Psy UInt128 shift inside a bounded loop exceeds the frozen resource profile"
-        unless value.size == 4 do
-          planError "Psy bindWideUInt128Shift requires four value limbs"
+          planError "Psy wide shift inside a bounded loop exceeds the frozen resource profile"
+        unless bitWidth == 128 || bitWidth == 256 do
+          planError "Psy wide shift bitWidth must be 128 or 256"
+        let need := bitWidth / 32
+        unless value.size == need do
+          planError s!"Psy bindWideUintShift requires {need} value limbs"
         unless !hasAnyWideBindingId defined operationId do
           planError "Psy wide operation binding id is duplicated in one lexical region"
         for limb in value do
@@ -379,18 +399,19 @@ private def validateResultKind
   | .aggregate leaves =>
       unless leaves.size > 0 && leaves.size ≤ 8 do
         planError s!"function '{fn.name}' aggregate resultKind leaf count must be in 1..8 (B-RET-ABI)"
-      let isWideUInt128Abi :=
-        leaves.size == 4 &&
+      let isWideUintAbi :=
+        (leaves.size == 4 || leaves.size == 8) &&
           leaves.all (fun leaf => !leaf.isInt && leaf.byteWidth == 4)
-      if isWideUInt128Abi then
+      if isWideUintAbi then
         unless profileMode == .dargo010Vm do
-          planError s!"function '{fn.name}' UInt128 aggregate ABI requires profile psy-dargo-0.1.0-vm-v1"
-        unless fn.resultUintWidth == 128 do
-          planError s!"function '{fn.name}' UInt128 aggregate ABI must carry resultUintWidth=128"
+          planError s!"function '{fn.name}' wide UInt aggregate ABI requires profile psy-dargo-0.1.0-vm-v1"
+        let expectedWidth := leaves.size * 32
+        unless fn.resultUintWidth == expectedWidth do
+          planError s!"function '{fn.name}' UInt{expectedWidth} aggregate ABI must carry resultUintWidth={expectedWidth}"
       else
         for leaf in leaves do
           unless leaf.byteWidth == 8 do
-            planError s!"function '{fn.name}' non-UInt128 aggregate leaves must be 8-byte UInt64/Int64 words"
+            planError s!"function '{fn.name}' non-wide aggregate leaves must be 8-byte UInt64/Int64 words"
       -- pureFn aggregate stays fail closed even if a hand-built plan slips through.
       if fn.kind == .pureHelper then
         planError s!"pureFn '{fn.name}' cannot carry an aggregate resultKind"

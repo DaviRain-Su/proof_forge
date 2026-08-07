@@ -47,6 +47,18 @@ private def psyU128LogicalState (limbs : Array Nat) : LogicalStateV1 :=
     canonicalValues :=
       (ByteArray.mk #[16, 0, 0, 0]).append (psyU128Bytes limbs) }
 
+private def psyU256Bytes (limbs : Array Nat) : ByteArray :=
+  psyU128Bytes limbs
+
+private def psyU256RefValue
+    (typeId : TypeIdV1) (limbs : Array Nat) : ReferenceValueV1 :=
+  { typeId, valueBytes := psyU256Bytes limbs }
+
+private def psyU256LogicalState (limbs : Array Nat) : LogicalStateV1 :=
+  { initialized := true
+    canonicalValues :=
+      (ByteArray.mk #[32, 0, 0, 0]).append (psyU256Bytes limbs) }
+
 private def expectPsyReferenceReturned
     (label : String) (outcome : OutcomeV1) (post : LogicalStateV1)
     (value : Option ReferenceValueV1) : IO Unit := do
@@ -896,23 +908,23 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
       | _ => false)
     "UInt128 sub must carry a stable final-borrow underflow guard"
   expect (multiply.body.any fun
-      | .bindWideUInt128Mul _ lhs rhs => lhs.size == 4 && rhs.size == 4
+      | .bindWideUintMul 128 _ lhs rhs => lhs.size == 4 && rhs.size == 4
       | _ => false)
     "UInt128 mul must bind one exact 8×UInt16 schoolbook multiplication"
   expect (divide.body.any fun
-      | .bindWideUInt128DivMod .quotient _ lhs rhs => lhs.size == 4 && rhs.size == 4
+      | .bindWideUintDivMod .quotient 128 _ lhs rhs => lhs.size == 4 && rhs.size == 4
       | _ => false)
     "UInt128 div must bind one exact quotient-producing restoring divider"
   expect (remainder.body.any fun
-      | .bindWideUInt128DivMod .remainder _ lhs rhs => lhs.size == 4 && rhs.size == 4
+      | .bindWideUintDivMod .remainder 128 _ lhs rhs => lhs.size == 4 && rhs.size == 4
       | _ => false)
     "UInt128 mod must bind one exact remainder-producing restoring divider"
   expect (shiftLeft.body.any fun
-      | .bindWideUInt128Shift .shl _ value _ => value.size == 4
+      | .bindWideUintShift .shl 128 _ value _ => value.size == 4
       | _ => false)
     "UInt128 shl must bind one exact fixed-step shift binding"
   expect (shiftRight.body.any fun
-      | .bindWideUInt128Shift .shr _ value _ => value.size == 4
+      | .bindWideUintShift .shr 128 _ value _ => value.size == 4
       | _ => false)
     "UInt128 shr must bind one exact fixed-step shift binding"
   expect (add.body.any fun
@@ -929,7 +941,7 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
     "UInt128 comparison must return a scalar Bool expression"
   liftResult <| Targets.Psy.validatePlan plan
   let noMulBindingBody := multiply.body.filter fun
-    | .bindWideUInt128Mul .. => false
+    | .bindWideUintMul .. => false
     | _ => true
   let badMultiply := { multiply with body := noMulBindingBody }
   let badPlan := { plan with
@@ -943,7 +955,7 @@ unsafe def testUInt128VmProfileLowered : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "UInt128 mul result without its binding must fail plan validation"
   let noDivBindingBody := divide.body.filter fun
-    | .bindWideUInt128DivMod .. => false
+    | .bindWideUintDivMod .. => false
     | _ => true
   let badDivide := { divide with body := noDivBindingBody }
   let badDivPlan := { plan with
@@ -1017,11 +1029,11 @@ unsafe def testUInt128VmDivModLowered : IO Unit := do
   let some remFn := plan.functions.find? (·.name == "rem") |
     throw <| IO.userError "UInt128 div/mod plan is missing rem"
   expect (divFn.body.any fun
-      | .bindWideUInt128DivMod .quotient _ lhs rhs => lhs.size == 4 && rhs.size == 4
+      | .bindWideUintDivMod .quotient 128 _ lhs rhs => lhs.size == 4 && rhs.size == 4
       | _ => false)
     "UInt128 div must bind one exact quotient-producing restoring divider"
   expect (remFn.body.any fun
-      | .bindWideUInt128DivMod .remainder _ lhs rhs => lhs.size == 4 && rhs.size == 4
+      | .bindWideUintDivMod .remainder 128 _ lhs rhs => lhs.size == 4 && rhs.size == 4
       | _ => false)
     "UInt128 mod must bind one exact remainder-producing restoring divider"
   liftResult <| Targets.Psy.validatePlan plan
@@ -1062,6 +1074,190 @@ unsafe def testUInt128VmDivModResourceFailClosed : IO Unit := do
       throw <| IO.userError s!"expected Psy planInvariant for UInt128 div/mod budget, got {error.render}"
   | .ok _ =>
       throw <| IO.userError "two UInt128 div/mod bindings in one function must remain fail closed"
+
+/-- Explicit VM profile: UInt256 is eight little-endian UInt32 Felt limbs. -/
+unsafe def testUInt256VmProfileLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Wide256 where\n" ++
+    "  state total : UInt256\n" ++
+    "  init(initial : UInt256) do\n" ++
+    "    total := initial\n" ++
+    "  entry add(delta : UInt256) : UInt256 do\n" ++
+    "    total := total + delta\n" ++
+    "    return total\n" ++
+    "  entry subtract(delta : UInt256) : UInt256 do\n" ++
+    "    total := total - delta\n" ++
+    "    return total\n" ++
+    "  entry multiply(factor : UInt256) : UInt256 do\n" ++
+    "    total := total * factor\n" ++
+    "    return total\n" ++
+    "  entry bitand(mask : UInt256) : UInt256 do\n" ++
+    "    total := total & mask\n" ++
+    "    return total\n" ++
+    "  entry shiftLeft(count : UInt32) : UInt256 do\n" ++
+    "    total := total << count\n" ++
+    "    return total\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return total\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-u256-vm>" "Tests.PsyU256Vm" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let carrier := CompiledSemanticV1.semanticV1Of compiled
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"UInt256 VM Reference validate failed: {repr error}"
+  let admitted ← match admitReferenceProgramSliceV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"UInt256 VM Reference admission failed: {repr error}"
+  let some u256TypeId := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .uint 256 => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "UInt256 VM semantic is missing anonymous UInt256"
+  let some u32TypeId := data.types.findSome? (fun decl =>
+      match decl.name, decl.shape with
+      | none, .uint 32 => some decl.id
+      | _, _ => none) |
+    throw <| IO.userError "UInt256 VM semantic is missing anonymous UInt32"
+  let callableNamed (name : String) : Option CallableIdV1 :=
+    data.callables.findSome? fun callable =>
+      if callable.name == some name then some callable.id else none
+  let some initId := data.callables.findSome? (fun c =>
+      if c.kind == .initializer then some c.id else none) |
+    throw <| IO.userError "UInt256 VM semantic is missing initializer"
+  let some addId := callableNamed "add" |
+    throw <| IO.userError "UInt256 VM semantic is missing add"
+  let some multiplyId := callableNamed "multiply" |
+    throw <| IO.userError "UInt256 VM semantic is missing multiply"
+  let some bitandId := callableNamed "bitand" |
+    throw <| IO.userError "UInt256 VM semantic is missing bitand"
+  let some shiftLeftId := callableNamed "shiftLeft" |
+    throw <| IO.userError "UInt256 VM semantic is missing shiftLeft"
+  let invoke (callableId : CallableIdV1) (args : Array ReferenceValueV1) : InvocationV1 :=
+    { callableId, args, context := #[] }
+  let noResponses : ExternalResponsesV1 := #[]
+  let zeroLimbs : Array Nat := #[0, 0, 0, 0, 0, 0, 0, 0]
+  let oneLimbs : Array Nat := #[1, 0, 0, 0, 0, 0, 0, 0]
+  let lowMaxLimbs : Array Nat := #[4294967295, 0, 0, 0, 0, 0, 0, 0]
+  let carriedLimbs : Array Nat := #[0, 1, 0, 0, 0, 0, 0, 0]
+  let squaredLowMaxLimbs : Array Nat := #[1, 4294967294, 0, 0, 0, 0, 0, 0]
+  let maskLimbs : Array Nat := #[4294967295, 0, 0, 0, 0, 0, 0, 0]
+  let shlOneLimbs : Array Nat := #[4294967294, 1, 0, 0, 0, 0, 0, 0]
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"UInt256 VM initial state failed: {repr error}"
+  let lowMaxValue := psyU256RefValue u256TypeId lowMaxLimbs
+  let oneValue := psyU256RefValue u256TypeId oneLimbs
+  let carriedValue := psyU256RefValue u256TypeId carriedLimbs
+  let squaredLowMaxValue := psyU256RefValue u256TypeId squaredLowMaxLimbs
+  let maskValue := psyU256RefValue u256TypeId maskLimbs
+  let shlOneValue := psyU256RefValue u256TypeId shlOneLimbs
+  let zeroValue := psyU256RefValue u256TypeId zeroLimbs
+  let countOneValue : ReferenceValueV1 :=
+    { typeId := u32TypeId, valueBytes := ByteArray.mk #[1, 0, 0, 0] }
+  let lowMaxState := psyU256LogicalState lowMaxLimbs
+  let carriedState := psyU256LogicalState carriedLimbs
+  let squaredLowMaxState := psyU256LogicalState squaredLowMaxLimbs
+  let shlOneState := psyU256LogicalState shlOneLimbs
+  expectPsyReferenceReturned "psy-u256-ref-init"
+    (stepReferenceSliceV1 admitted initial (invoke initId #[lowMaxValue]) noResponses)
+    lowMaxState none
+  expectPsyReferenceReturned "psy-u256-ref-carry"
+    (stepReferenceSliceV1 admitted lowMaxState (invoke addId #[oneValue]) noResponses)
+    carriedState (some carriedValue)
+  expectPsyReferenceReturned "psy-u256-ref-mul-lowmax"
+    (stepReferenceSliceV1 admitted lowMaxState
+      (invoke multiplyId #[lowMaxValue]) noResponses)
+    squaredLowMaxState (some squaredLowMaxValue)
+  expectPsyReferenceReturned "psy-u256-ref-bitand"
+    (stepReferenceSliceV1 admitted carriedState
+      (invoke bitandId #[maskValue]) noResponses)
+    (psyU256LogicalState zeroLimbs) (some zeroValue)
+  expectPsyReferenceReturned "psy-u256-ref-shl1"
+    (stepReferenceSliceV1 admitted lowMaxState
+      (invoke shiftLeftId #[countOneValue]) noResponses)
+    shlOneState (some shlOneValue)
+
+  let plan ← liftResult <| planPsyVm compiled
+  expect (plan.stateFieldNames ==
+      #["total_0", "total_1", "total_2", "total_3",
+        "total_4", "total_5", "total_6", "total_7"])
+    "UInt256 state must flatten to eight little-endian UInt32 Felt limbs"
+  let functionNamed (name : String) := plan.functions.find? (·.name == name)
+  let some add := functionNamed "add" |
+    throw <| IO.userError "UInt256 VM plan is missing add"
+  let some multiply := functionNamed "multiply" |
+    throw <| IO.userError "UInt256 VM plan is missing multiply"
+  let some shiftLeft := functionNamed "shiftLeft" |
+    throw <| IO.userError "UInt256 VM plan is missing shiftLeft"
+  expect (add.params.size == 8 && add.params.all (·.uintWidth == 32))
+    "UInt256 logical parameter must expand to eight UInt32 limbs"
+  expect (shiftLeft.params.size == 1 && shiftLeft.params[0]!.uintWidth == 32)
+    "UInt256 shift count must be one physical UInt32 limb"
+  match add.resultKind with
+  | .aggregate leaves =>
+      expect (add.resultUintWidth == 256 && leaves.size == 8 &&
+          leaves.all (fun leaf => !leaf.isInt && leaf.byteWidth == 4))
+        "UInt256 result must be eight unsigned 4-byte limbs"
+  | other =>
+      throw <| IO.userError s!"UInt256 add expected aggregate result, got {repr other}"
+  expect (add.body.any fun
+      | .assertWithMessage _ message => message == "u256 add overflow"
+      | _ => false)
+    "UInt256 add must carry a stable final-carry overflow guard"
+  expect (multiply.body.any fun
+      | .bindWideUintMul 256 _ lhs rhs => lhs.size == 8 && rhs.size == 8
+      | _ => false)
+    "UInt256 mul must bind one exact schoolbook multiplication over eight limbs"
+  expect (shiftLeft.body.any fun
+      | .bindWideUintShift .shl 256 _ value _ => value.size == 8
+      | _ => false)
+    "UInt256 shl must bind one exact fixed-step shift binding"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsyVm compiled
+  let some psyFile := files.find? (·.path == "Wide256.psy") |
+    throw <| IO.userError "psy: missing Wide256.psy"
+  let psy := psyFile.contents
+  expect (psy.contains "pub total_7: Felt,")
+    "UInt256 state must render eight Felt storage fields"
+  expect (psy.contains
+      "pub fn add(p0: Felt, p1: Felt, p2: Felt, p3: Felt, p4: Felt, p5: Felt, p6: Felt, p7: Felt) -> [Felt; 8]")
+    "UInt256 entry ABI must expand to eight Felt limbs"
+  expect (psy.contains "u256 add overflow" && psy.contains "u256 mul overflow" &&
+      psy.contains "invalidShift: count >= 256")
+    "UInt256 checked messages must reach emitted Psy source"
+  expect (psy.contains "0u32..256u32")
+    "UInt256 shift must emit the fixed 256-step bit walk"
+
+/-- Default profile keeps UInt256 fail closed. -/
+unsafe def testUInt256DefaultProfileFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Wide256Default where\n" ++
+    "  state total : UInt256\n" ++
+    "  entry add(delta : UInt256) : UInt256 do\n" ++
+    "    total := total + delta\n" ++
+    "    return total\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-u256-default>" "Tests.PsyU256Default" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planPsy compiled with
+  | .error (.planInvariant .psy message) =>
+      expect (message.contains "UInt" || message.contains "width" ||
+          message.contains "unsupported")
+        s!"default-profile UInt256 must fail closed, got: {message}"
+  | .error error =>
+      throw <| IO.userError s!"expected Psy planInvariant for default UInt256, got {error.render}"
+  | .ok _ =>
+      throw <| IO.userError "default profile UInt256 must remain fail closed"
 
 /-- UInt32 comparisons are Felt-carried (unsigned order for values < 2^32 < p). -/
 unsafe def testUInt32CompareLowered : IO Unit := do
@@ -2254,6 +2450,8 @@ unsafe def run : IO Unit := do
   testUInt128VmProfileLowered
   testUInt128VmDivModLowered
   testUInt128VmDivModResourceFailClosed
+  testUInt256VmProfileLowered
+  testUInt256DefaultProfileFailClosed
   testUInt32CompareLowered
   testNarrowIntFailClosed
   testBytesStateFailClosed

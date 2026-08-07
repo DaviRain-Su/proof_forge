@@ -371,13 +371,13 @@ private structure EmitCtx where
 private def freshName (ctx : EmitCtx) : String × EmitCtx :=
   (s!"pf_e{ctx.next}", { ctx with next := ctx.next + 1 })
 
-private def wideUInt128MulLimbName (operationId limbIndex : Nat) : String :=
+private def wideUintMulLimbName (operationId limbIndex : Nat) : String :=
   s!"pf_w{operationId}_{limbIndex}"
 
 private def wideUInt128DivModPrefix (operationId : Nat) : String :=
   s!"pf_d{operationId}"
 
-private def wideUInt128DivModLimbName
+private def wideUintDivModLimbName
     (resultKind : WideUInt128DivModResultV1) (operationId limbIndex : Nat) : String :=
   let tag := match resultKind with
     | .quotient => "q"
@@ -387,7 +387,7 @@ private def wideUInt128DivModLimbName
 private def wideUInt128ShiftPrefix (operationId : Nat) : String :=
   s!"pf_s{operationId}"
 
-private def wideUInt128ShiftLimbName
+private def wideUintShiftLimbName
     (kind : WideUInt128ShiftKindV1) (operationId limbIndex : Nat) : String :=
   let tag := match kind with
     | .shl => "l"
@@ -456,18 +456,24 @@ private partial def lowerExprStmt
         | some n => pure n
         | none => planError "Psy emission: stateLoad references a missing field"
       leaf (.storageScalarRead name)
-  | .wideUInt128MulLimb operationId limbIndex => do
-      unless limbIndex < 4 do
-        planError "Psy emission: UInt128 multiplication result limb index must be in 0..3"
-      leaf (.local (wideUInt128MulLimbName operationId limbIndex))
-  | .wideUInt128DivModLimb resultKind operationId limbIndex => do
-      unless limbIndex < 4 do
-        planError "Psy emission: UInt128 div/mod result limb index must be in 0..3"
-      leaf (.local (wideUInt128DivModLimbName resultKind operationId limbIndex))
-  | .wideUInt128ShiftLimb kind operationId limbIndex => do
-      unless limbIndex < 4 do
-        planError "Psy emission: UInt128 shift result limb index must be in 0..3"
-      leaf (.local (wideUInt128ShiftLimbName kind operationId limbIndex))
+  | .wideUintMulLimb bitWidth operationId limbIndex => do
+      unless bitWidth == 128 || bitWidth == 256 do
+        planError "Psy emission: wide mul bitWidth must be 128 or 256"
+      unless limbIndex < bitWidth / 32 do
+        planError "Psy emission: wide multiplication result limb index out of range"
+      leaf (.local (wideUintMulLimbName operationId limbIndex))
+  | .wideUintDivModLimb resultKind bitWidth operationId limbIndex => do
+      unless bitWidth == 128 || bitWidth == 256 do
+        planError "Psy emission: wide div/mod bitWidth must be 128 or 256"
+      unless limbIndex < bitWidth / 32 do
+        planError "Psy emission: wide div/mod result limb index out of range"
+      leaf (.local (wideUintDivModLimbName resultKind operationId limbIndex))
+  | .wideUintShiftLimb kind bitWidth operationId limbIndex => do
+      unless bitWidth == 128 || bitWidth == 256 do
+        planError "Psy emission: wide shift bitWidth must be 128 or 256"
+      unless limbIndex < bitWidth / 32 do
+        planError "Psy emission: wide shift result limb index out of range"
+      leaf (.local (wideUintShiftLimbName kind operationId limbIndex))
   | .limbAdd l r => do
       let (ls1, l', ctx1) ← lowerExprStmt ctx l
       let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
@@ -787,11 +793,16 @@ u32 circuit ops, so every operand to `& 65535` / `>> 16` is kept strictly
 below 2^32. For B=2^16, each digit product is <B^2, `low + productLow` is
 <2B, and the running carry remains <8B. Consequently every Felt add/mul is
 also far below Goldilocks and cannot reduce modulo p. -/
-private def emitWideUInt128Mul
-    (ctx : EmitCtx) (operationId : Nat) (lhs rhs : Array Expr) :
+private def emitWideUintMul
+    (ctx : EmitCtx) (bitWidth operationId : Nat) (lhs rhs : Array Expr) :
     CompileResult (Array PsyStmt × EmitCtx) := do
-  unless lhs.size == 4 && rhs.size == 4 do
-    planError "Psy emission: bindWideUInt128Mul requires two four-limb operands"
+  unless bitWidth == 128 || bitWidth == 256 do
+    planError "Psy emission: wide mul bitWidth must be 128 or 256"
+  let limbCount := bitWidth / 32
+  let digitCount := limbCount * 2
+  let productDigits := digitCount * 2
+  unless lhs.size == limbCount && rhs.size == limbCount do
+    planError s!"Psy emission: bindWideUintMul requires two {limbCount}-limb operands"
   let mask := feltLit 65535
   let shift := feltLit 16
   let base := feltLit 65536
@@ -801,7 +812,7 @@ private def emitWideUInt128Mul
   let mut lhsLimbs : Array PsyExpr := #[]
   let mut rhsLimbs : Array PsyExpr := #[]
 
-  -- Snapshot all eight physical limbs before any derived arithmetic.
+  -- Snapshot all physical limbs before any derived arithmetic.
   for value in lhs do
     let (exprStmts, lowered, ctx1) ← lowerExprStmt ctx' value
     out := out ++ exprStmts
@@ -817,7 +828,7 @@ private def emitWideUInt128Mul
     rhsLimbs := rhsLimbs.push snapshot
     ctx' := ctx2
 
-  -- Four UInt32 limbs → eight little-endian UInt16 digits per operand.
+  -- UInt32 limbs → little-endian UInt16 digits per operand.
   let mut lhsDigits : Array PsyExpr := #[]
   let mut rhsDigits : Array PsyExpr := #[]
   for limb in lhsLimbs do
@@ -837,11 +848,11 @@ private def emitWideUInt128Mul
     rhsDigits := rhsDigits.push lo |>.push hi
     ctx' := ctx2
 
-  -- Full 256-bit product, base 2^16. Sequential product normalization keeps
-  -- every bit-operation operand below 2^32 (never a 35-bit column sum).
+  -- Full double-width product, base 2^16. Sequential product normalization
+  -- keeps every bit-operation operand below 2^32.
   let mut digits : Array PsyExpr := #[]
   let mut carry : PsyExpr := zero
-  for k in [0:16] do
+  for k in [0:productDigits] do
     let (out1, low0, ctx1) :=
       appendFeltBinding out ctx' (.binary carry .bitAnd mask)
     let (out2, carry0, ctx2) :=
@@ -850,16 +861,16 @@ private def emitWideUInt128Mul
     ctx' := ctx2
     let mut low := low0
     let mut nextCarry := carry0
-    for i in [0:8] do
+    for i in [0:digitCount] do
       if i ≤ k then
         let j := k - i
-        if j < 8 then
+        if j < digitCount then
           let a ← match lhsDigits[i]? with
             | some value => pure value
-            | none => planError "Psy emission: UInt128 lhs digit is missing"
+            | none => planError "Psy emission: wide mul lhs digit is missing"
           let b ← match rhsDigits[j]? with
             | some value => pure value
-            | none => planError "Psy emission: UInt128 rhs digit is missing"
+            | none => planError "Psy emission: wide mul rhs digit is missing"
           let (out3, product, ctx3) :=
             appendFeltBinding out ctx' (.binary a .mul b)
           let (out4, productLow, ctx4) :=
@@ -883,71 +894,68 @@ private def emitWideUInt128Mul
     digits := digits.push low
     carry := nextCarry
 
-  -- Checked UInt128: the upper eight base-2^16 digits (and impossible final
-  -- carry) must all be zero. The guard precedes every storage write.
+  -- Checked wide mul: upper base-2^16 digits and final carry must be zero.
+  let overflowMsg := if bitWidth == 256 then "u256 mul overflow" else "u128 mul overflow"
   let mut noOverflow : PsyExpr := .binary carry .eq zero
-  for i in [8:16] do
+  for i in [digitCount:productDigits] do
     let digit ← match digits[i]? with
       | some value => pure value
-      | none => planError "Psy emission: UInt128 product digit is missing"
+      | none => planError "Psy emission: wide product digit is missing"
     noOverflow := .binary noOverflow .boolAnd (.binary digit .eq zero)
-  out := out.push (.assert noOverflow "u128 mul overflow")
+  out := out.push (.assert noOverflow overflowMsg)
 
-  -- Repack the low eight UInt16 digits into four UInt32 Felt limbs.
-  for limbIndex in [0:4] do
+  -- Repack the low UInt16 digits into UInt32 Felt limbs.
+  for limbIndex in [0:limbCount] do
     let loIndex := limbIndex * 2
     let hiIndex := loIndex + 1
     let lo ← match digits[loIndex]? with
       | some value => pure value
-      | none => planError "Psy emission: UInt128 low result digit is missing"
+      | none => planError "Psy emission: wide mul low result digit is missing"
     let hi ← match digits[hiIndex]? with
       | some value => pure value
-      | none => planError "Psy emission: UInt128 high result digit is missing"
+      | none => planError "Psy emission: wide mul high result digit is missing"
     let (out1, scaledHigh, ctx1) :=
       appendFeltBinding out ctx' (.binary hi .mul base)
     out := out1.push
-      (.letBind (wideUInt128MulLimbName operationId limbIndex) "Felt"
+      (.letBind (wideUintMulLimbName operationId limbIndex) "Felt"
         (.binary lo .add scaledHigh))
     ctx' := ctx1
   pure (out, ctx')
 
+private def emitWideUInt128Mul
+    (ctx : EmitCtx) (operationId : Nat) (lhs rhs : Array Expr) :
+    CompileResult (Array PsyStmt × EmitCtx) :=
+  emitWideUintMul ctx 128 operationId lhs rhs
+
 private def wideDivLexGe
     (remainder divisor : Array PsyExpr) : CompileResult PsyExpr := do
-  unless remainder.size == 5 && divisor.size == 4 do
-    planError "Psy emission: UInt128 div comparison requires 5-limb remainder and 4-limb divisor"
-  let r0 := remainder[0]!
-  let r1 := remainder[1]!
-  let r2 := remainder[2]!
-  let r3 := remainder[3]!
-  let r4 := remainder[4]!
-  let d0 := divisor[0]!
-  let d1 := divisor[1]!
-  let d2 := divisor[2]!
-  let d3 := divisor[3]!
-  let low := .binary r0 .ge d0
-  let at1 := .binary (.binary r1 .gt d1) .boolOr
-    (.binary (.binary r1 .eq d1) .boolAnd low)
-  let at2 := .binary (.binary r2 .gt d2) .boolOr
-    (.binary (.binary r2 .eq d2) .boolAnd at1)
-  let at3 := .binary (.binary r3 .gt d3) .boolOr
-    (.binary (.binary r3 .eq d3) .boolAnd at2)
-  pure <| .binary (.binary r4 .ne (feltLit 0)) .boolOr at3
+  let limbCount := divisor.size
+  unless remainder.size == limbCount + 1 do
+    planError "Psy emission: wide div comparison remainder must be one limb wider than divisor"
+  -- Lexicographic >= from low limb upward, then high remainder limb.
+  let zero := feltLit 0
+  let mut acc : PsyExpr := .binary remainder[0]! .ge divisor[0]!
+  for i in [1:limbCount] do
+    let limbGt := .binary remainder[i]! .gt divisor[i]!
+    let limbEq := .binary remainder[i]! .eq divisor[i]!
+    acc := .binary limbGt .boolOr (.binary limbEq .boolAnd acc)
+  pure <| .binary (.binary remainder[limbCount]! .ne zero) .boolOr acc
 
-/-- One fixed 32-step region of the UInt128 restoring divider. `source` is one
-    dividend limb, processed MSB-first. All mutable values remain `< 2^32`;
-    raw Felt subtraction is total even for the unselected wrapped branch. -/
-private def emitWideUInt128DivLoop
-    (operationId sourceIndex : Nat) (source divisorZero : PsyExpr)
+/-- One fixed 32-step region of the wide restoring divider. -/
+private def emitWideUintDivLoop
+    (operationId limbCount sourceIndex : Nat) (source divisorZero : PsyExpr)
     (divisor : Array PsyExpr) : CompileResult (Array PsyStmt) := do
-  unless sourceIndex < 4 && divisor.size == 4 do
-    planError "Psy emission: UInt128 div loop shape mismatch"
+  unless sourceIndex < limbCount && divisor.size == limbCount do
+    planError "Psy emission: wide div loop shape mismatch"
   let nameRoot := wideUInt128DivModPrefix operationId
   let tag := s!"a{sourceIndex}"
   let n (suffix : String) : String := s!"{nameRoot}_{suffix}_{tag}"
-  let rNames := #[s!"{nameRoot}_r0", s!"{nameRoot}_r1", s!"{nameRoot}_r2",
-    s!"{nameRoot}_r3", s!"{nameRoot}_r4"]
-  let qNames := #[s!"{nameRoot}_q0", s!"{nameRoot}_q1", s!"{nameRoot}_q2",
-    s!"{nameRoot}_q3"]
+  let mut rNames : Array String := #[]
+  for i in [0:limbCount + 1] do
+    rNames := rNames.push s!"{nameRoot}_r{i}"
+  let mut qNames : Array String := #[]
+  for i in [0:limbCount] do
+    qNames := qNames.push s!"{nameRoot}_q{i}"
   let remainder := rNames.map PsyExpr.local
   let quotient := qNames.map PsyExpr.local
   let zero := feltLit 0
@@ -965,18 +973,18 @@ private def emitWideUInt128DivLoop
     (.binary (.local workName) .shiftLeft shiftOne))
 
   let mut carryNames : Array String := #[]
-  for i in [0:4] do
+  for i in [0:limbCount] do
     let carryName := n s!"rc{i}"
     body := body.push (.letBind carryName "Felt"
       (.binary remainder[i]! .shiftRight shiftTop))
     carryNames := carryNames.push carryName
   body := body.push (.localAssign rNames[0]!
     (.binary (.binary remainder[0]! .shiftLeft shiftOne) .bitOr (.local bitName)))
-  for i in [1:4] do
+  for i in [1:limbCount] do
     body := body.push (.localAssign rNames[i]!
       (.binary (.binary remainder[i]! .shiftLeft shiftOne) .bitOr
         (.local carryNames[i - 1]!)))
-  body := body.push (.localAssign rNames[4]! (.local carryNames[3]!))
+  body := body.push (.localAssign rNames[limbCount]! (.local carryNames[limbCount - 1]!))
 
   let takeName := n "take"
   let takeExpr ← wideDivLexGe (rNames.map PsyExpr.local) divisor
@@ -985,7 +993,7 @@ private def emitWideUInt128DivLoop
 
   let mut borrow : PsyExpr := zero
   let mut diffNames : Array String := #[]
-  for i in [0:4] do
+  for i in [0:limbCount] do
     let subName := n s!"sub{i}"
     let underName := n s!"under{i}"
     let directName := n s!"direct{i}"
@@ -1009,53 +1017,51 @@ private def emitWideUInt128DivLoop
   let highOkName := n "high_ok"
   body := body.push (.letBind highOkName "bool"
     (.binary (.unary .not take) .boolOr
-      (.binary (.local rNames[4]!) .eq borrow)))
+      (.binary (.local rNames[limbCount]!) .eq borrow)))
   body := body.push (.assert
     (.binary divisorZero .boolOr (.local highOkName))
     "u128 div internal high borrow")
   let highDiffName := n "high_diff"
   body := body.push (.letBind highDiffName "Felt"
-    (.binary (.local rNames[4]!) .sub borrow))
-  for i in [0:4] do
+    (.binary (.local rNames[limbCount]!) .sub borrow))
+  for i in [0:limbCount] do
     body := body.push (.localAssign rNames[i]!
       (.ifExpr take (.local diffNames[i]!) (.local rNames[i]!)))
-  body := body.push (.localAssign rNames[4]!
-    (.ifExpr take (.local highDiffName) (.local rNames[4]!)))
+  body := body.push (.localAssign rNames[limbCount]!
+    (.ifExpr take (.local highDiffName) (.local rNames[limbCount]!)))
   body := body.push (.assert
-    (.binary divisorZero .boolOr (.binary (.local rNames[4]!) .eq zero))
+    (.binary divisorZero .boolOr (.binary (.local rNames[limbCount]!) .eq zero))
     "u128 div internal remainder high")
 
   let qbitName := n "qbit"
   body := body.push (.letBind qbitName "Felt" (.ifExpr take one zero))
   let mut qCarryNames : Array String := #[]
-  for i in [0:4] do
+  for i in [0:limbCount] do
     let carryName := n s!"qc{i}"
     body := body.push (.letBind carryName "Felt"
       (.binary quotient[i]! .shiftRight shiftTop))
     qCarryNames := qCarryNames.push carryName
   body := body.push (.localAssign qNames[0]!
     (.binary (.binary quotient[0]! .shiftLeft shiftOne) .bitOr (.local qbitName)))
-  for i in [1:4] do
+  for i in [1:limbCount] do
     body := body.push (.localAssign qNames[i]!
       (.binary (.binary quotient[i]! .shiftLeft shiftOne) .bitOr
         (.local qCarryNames[i - 1]!)))
   body := body.push (.assert
-    (.binary divisorZero .boolOr (.binary (.local qCarryNames[3]!) .eq zero))
+    (.binary divisorZero .boolOr (.binary (.local qCarryNames[limbCount - 1]!) .eq zero))
     "u128 div internal quotient overflow")
   pure #[.letMutBind workName "Felt" source,
     .boundedFor loopIndex 0 32 body]
 
-/-- Emit a compact exact UInt128 unsigned restoring divider. The public ABI is
-    still 4×UInt32 Felt limbs. Eight raw operands are snapshotted and sanitized
-    before any u32-backed bit operation; four fixed 32-step loops consume the
-    dividend MSB-first while a five-limb remainder represents the sole 129-bit
-    temporary. Psy Felt `/` and `%` are deliberately not used. -/
-private def emitWideUInt128DivMod
+private def emitWideUintDivMod
     (ctx : EmitCtx) (resultKind : WideUInt128DivModResultV1)
-    (operationId : Nat) (lhs rhs : Array Expr) :
+    (bitWidth operationId : Nat) (lhs rhs : Array Expr) :
     CompileResult (Array PsyStmt × EmitCtx) := do
-  unless lhs.size == 4 && rhs.size == 4 do
-    planError "Psy emission: bindWideUInt128DivMod requires two four-limb operands"
+  unless bitWidth == 128 || bitWidth == 256 do
+    planError "Psy emission: wide div bitWidth must be 128 or 256"
+  let limbCount := bitWidth / 32
+  unless lhs.size == limbCount && rhs.size == limbCount do
+    planError s!"Psy emission: bindWideUintDivMod requires two {limbCount}-limb operands"
   let nameRoot := wideUInt128DivModPrefix operationId
   let base := feltLit 4294967296
   let zero := feltLit 0
@@ -1063,93 +1069,106 @@ private def emitWideUInt128DivMod
   let mut ctx' := ctx
   let mut left : Array PsyExpr := #[]
   let mut right : Array PsyExpr := #[]
+  let rangeMsg := if bitWidth == 256 then "u256 div operand limb out of range"
+    else "u128 div operand limb out of range"
+  let zeroMessage := match resultKind, bitWidth with
+    | .quotient, 256 => "u256 div by zero"
+    | .remainder, 256 => "u256 mod by zero"
+    | .quotient, _ => "u128 div by zero"
+    | .remainder, _ => "u128 mod by zero"
 
-  for i in [0:4] do
+  for i in [0:limbCount] do
     let value ← match lhs[i]? with
       | some found => pure found
-      | none => planError "Psy emission: UInt128 dividend limb is missing"
+      | none => planError "Psy emission: wide dividend limb is missing"
     let (exprStmts, lowered, ctx1) ← lowerExprStmt ctx' value
     let rawName := s!"{nameRoot}_a{i}_raw"
     let safeName := s!"{nameRoot}_a{i}"
     let inRange := PsyExpr.binary (.local rawName) .lt base
     out := out ++ exprStmts ++
       #[.letBind rawName "Felt" lowered,
-        .assert inRange "u128 div operand limb out of range",
+        .assert inRange rangeMsg,
         .letBind safeName "Felt" (.ifExpr inRange (.local rawName) zero)]
     left := left.push (.local safeName)
     ctx' := ctx1
-  for i in [0:4] do
+  for i in [0:limbCount] do
     let value ← match rhs[i]? with
       | some found => pure found
-      | none => planError "Psy emission: UInt128 divisor limb is missing"
+      | none => planError "Psy emission: wide divisor limb is missing"
     let (exprStmts, lowered, ctx1) ← lowerExprStmt ctx' value
     let rawName := s!"{nameRoot}_b{i}_raw"
     let safeName := s!"{nameRoot}_b{i}"
     let inRange := PsyExpr.binary (.local rawName) .lt base
     out := out ++ exprStmts ++
       #[.letBind rawName "Felt" lowered,
-        .assert inRange "u128 div operand limb out of range",
+        .assert inRange rangeMsg,
         .letBind safeName "Felt" (.ifExpr inRange (.local rawName) zero)]
     right := right.push (.local safeName)
     ctx' := ctx1
 
   let divisorZeroName := s!"{nameRoot}_divisor_zero"
   let mut divisorZero : PsyExpr := .binary right[0]! .eq zero
-  for i in [1:4] do
+  for i in [1:limbCount] do
     divisorZero := .binary divisorZero .boolAnd (.binary right[i]! .eq zero)
   out := out.push (.letBind divisorZeroName "bool" divisorZero)
   let divisorZeroLocal := PsyExpr.local divisorZeroName
-  let zeroMessage := match resultKind with
-    | .quotient => "u128 div by zero"
-    | .remainder => "u128 mod by zero"
   out := out.push (.assert (.unary .not divisorZeroLocal) zeroMessage)
 
-  for i in [0:5] do
+  for i in [0:limbCount + 1] do
     out := out.push (.letMutBind s!"{nameRoot}_r{i}" "Felt" zero)
-  for i in [0:4] do
+  for i in [0:limbCount] do
     out := out.push (.letMutBind s!"{nameRoot}_q{i}" "Felt" zero)
-  for sourceIndex in #[3, 2, 1, 0] do
-    let loopStmts ← emitWideUInt128DivLoop operationId sourceIndex
+  -- MSB-first: highest limb index down to 0
+  for sourceIndex in List.range limbCount |>.reverse do
+    let loopStmts ← emitWideUintDivLoop operationId limbCount sourceIndex
       left[sourceIndex]! divisorZeroLocal right
     out := out ++ loopStmts
   pure (out, ctx')
 
-/-- Exact UInt128 logical shift: snapshot four UInt32 limbs + UInt32 count,
-    require `count < 128`, then walk 128 fixed one-bit steps. Each step applies
-    only while `i < count`. `shl` traps if the bit shifted out of limb3 is
-    nonzero (checked overflow). Bit operations always see operands `< 2^32`. -/
-private def emitWideUInt128Shift
-    (ctx : EmitCtx) (kind : WideUInt128ShiftKindV1) (operationId : Nat)
-    (value : Array Expr) (count : Expr) :
+private def emitWideUInt128DivMod
+    (ctx : EmitCtx) (resultKind : WideUInt128DivModResultV1)
+    (operationId : Nat) (lhs rhs : Array Expr) :
+    CompileResult (Array PsyStmt × EmitCtx) :=
+  emitWideUintDivMod ctx resultKind 128 operationId lhs rhs
+
+/-- Exact wide logical shift with fixed bitWidth-step one-bit walk. -/
+private def emitWideUintShift
+    (ctx : EmitCtx) (kind : WideUInt128ShiftKindV1)
+    (bitWidth operationId : Nat) (value : Array Expr) (count : Expr) :
     CompileResult (Array PsyStmt × EmitCtx) := do
-  unless value.size == 4 do
-    planError "Psy emission: bindWideUInt128Shift requires four value limbs"
+  unless bitWidth == 128 || bitWidth == 256 do
+    planError "Psy emission: wide shift bitWidth must be 128 or 256"
+  let limbCount := bitWidth / 32
+  unless value.size == limbCount do
+    planError s!"Psy emission: bindWideUintShift requires {limbCount} value limbs"
   let nameRoot := wideUInt128ShiftPrefix operationId
   let tag := match kind with | .shl => "l" | .shr => "r"
-  let limbNames := #[s!"{nameRoot}_{tag}0", s!"{nameRoot}_{tag}1",
-    s!"{nameRoot}_{tag}2", s!"{nameRoot}_{tag}3"]
+  let mut limbNames : Array String := #[]
+  for i in [0:limbCount] do
+    limbNames := limbNames.push s!"{nameRoot}_{tag}{i}"
   let base := feltLit 4294967296
   let zero := feltLit 0
   let one := feltLit 1
   let shiftOne := feltLit 1
   let shiftTop := feltLit 31
+  let rangeMsg := if bitWidth == 256 then "u256 shift operand limb out of range"
+    else "u128 shift operand limb out of range"
+  let overflowMsg := if bitWidth == 256 then "u256 shl overflow" else "u128 shl overflow"
   let mut out : Array PsyStmt := #[]
   let mut ctx' := ctx
-  let mut limbs : Array PsyExpr := #[]
 
-  for i in [0:4] do
+  for i in [0:limbCount] do
     let leaf ← match value[i]? with
       | some found => pure found
-      | none => planError "Psy emission: UInt128 shift value limb is missing"
+      | none => planError "Psy emission: wide shift value limb is missing"
     let (exprStmts, lowered, ctx1) ← lowerExprStmt ctx' leaf
     let rawName := s!"{nameRoot}_v{i}_raw"
     let inRange := PsyExpr.binary (.local rawName) .lt base
     out := out ++ exprStmts ++
       #[.letBind rawName "Felt" lowered,
-        .assert inRange "u128 shift operand limb out of range",
+        .assert inRange rangeMsg,
         .letMutBind limbNames[i]! "Felt"
           (.ifExpr inRange (.local rawName) zero)]
-    limbs := limbs.push (.local limbNames[i]!)
     ctx' := ctx1
 
   let (countStmts, countExpr, ctx2) ← lowerExprStmt ctx' count
@@ -1157,8 +1176,8 @@ private def emitWideUInt128Shift
   let countName := s!"{nameRoot}_count"
   out := out ++ countStmts ++
     #[.letBind countRaw "Felt" countExpr,
-      .assert (.binary (.local countRaw) .lt (feltLit 128))
-        "invalidShift: count >= 128",
+      .assert (.binary (.local countRaw) .lt (feltLit bitWidth))
+        s!"invalidShift: count >= {bitWidth}",
       .letBind countName "Felt" (.local countRaw)]
   ctx' := ctx2
   let countLocal := PsyExpr.local countName
@@ -1172,20 +1191,20 @@ private def emitWideUInt128Shift
   match kind with
   | .shl => do
       let mut carryNames : Array String := #[]
-      for i in [0:4] do
+      for i in [0:limbCount] do
         let carryName := s!"{nameRoot}_c{i}"
         body := body.push (.letBind carryName "Felt"
           (.binary (.local limbNames[i]!) .shiftRight shiftTop))
         carryNames := carryNames.push carryName
       body := body.push (.assert
         (.binary (.unary .not take) .boolOr
-          (.binary (.local carryNames[3]!) .eq zero))
-        "u128 shl overflow")
+          (.binary (.local carryNames[limbCount - 1]!) .eq zero))
+        overflowMsg)
       body := body.push (.localAssign limbNames[0]!
         (.ifExpr take
           (.binary (.local limbNames[0]!) .shiftLeft shiftOne)
           (.local limbNames[0]!)))
-      for i in [1:4] do
+      for i in [1:limbCount] do
         body := body.push (.localAssign limbNames[i]!
           (.ifExpr take
             (.binary
@@ -1194,17 +1213,17 @@ private def emitWideUInt128Shift
             (.local limbNames[i]!)))
   | .shr => do
       let mut lowBitNames : Array String := #[]
-      for i in [0:4] do
+      for i in [0:limbCount] do
         let lowName := s!"{nameRoot}_lb{i}"
         body := body.push (.letBind lowName "Felt"
           (.binary (.local limbNames[i]!) .bitAnd one))
         lowBitNames := lowBitNames.push lowName
-      body := body.push (.localAssign limbNames[3]!
+      body := body.push (.localAssign limbNames[limbCount - 1]!
         (.ifExpr take
-          (.binary (.local limbNames[3]!) .shiftRight shiftOne)
-          (.local limbNames[3]!)))
-      for i in [0:3] do
-        let idx := 2 - i
+          (.binary (.local limbNames[limbCount - 1]!) .shiftRight shiftOne)
+          (.local limbNames[limbCount - 1]!)))
+      for i in [0:limbCount - 1] do
+        let idx := limbCount - 2 - i
         body := body.push (.localAssign limbNames[idx]!
           (.ifExpr take
             (.binary
@@ -1212,8 +1231,14 @@ private def emitWideUInt128Shift
               .bitOr
               (.binary (.local lowBitNames[idx + 1]!) .shiftLeft shiftTop))
             (.local limbNames[idx]!)))
-  out := out.push (.boundedFor loopIndex 0 128 body)
+  out := out.push (.boundedFor loopIndex 0 bitWidth body)
   pure (out, ctx')
+
+private def emitWideUInt128Shift
+    (ctx : EmitCtx) (kind : WideUInt128ShiftKindV1) (operationId : Nat)
+    (value : Array Expr) (count : Expr) :
+    CompileResult (Array PsyStmt × EmitCtx) :=
+  emitWideUintShift ctx kind 128 operationId value count
 
 private partial def emitStatements
     (ctx : EmitCtx) (stmts : Array Statement) (loopDepth : Nat) :
@@ -1256,16 +1281,16 @@ private partial def emitStatements
             | none => planError "Psy emission: storeAggregate references a missing state field"
           out := out.push (.storageWrite name snapshot)
         ctx := ctx'
-    | .bindWideUInt128Mul operationId lhs rhs => do
-        let (mulStmts, ctx1) ← emitWideUInt128Mul ctx operationId lhs rhs
+    | .bindWideUintMul bitWidth operationId lhs rhs => do
+        let (mulStmts, ctx1) ← emitWideUintMul ctx bitWidth operationId lhs rhs
         out := out ++ mulStmts
         ctx := ctx1
-    | .bindWideUInt128DivMod resultKind operationId lhs rhs => do
-        let (divStmts, ctx1) ← emitWideUInt128DivMod ctx resultKind operationId lhs rhs
+    | .bindWideUintDivMod resultKind bitWidth operationId lhs rhs => do
+        let (divStmts, ctx1) ← emitWideUintDivMod ctx resultKind bitWidth operationId lhs rhs
         out := out ++ divStmts
         ctx := ctx1
-    | .bindWideUInt128Shift kind operationId value count => do
-        let (shiftStmts, ctx1) ← emitWideUInt128Shift ctx kind operationId value count
+    | .bindWideUintShift kind bitWidth operationId value count => do
+        let (shiftStmts, ctx1) ← emitWideUintShift ctx kind bitWidth operationId value count
         out := out ++ shiftStmts
         ctx := ctx1
     | .assert condition => do

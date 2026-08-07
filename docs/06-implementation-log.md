@@ -12,6 +12,16 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy UInt256 8×UInt32（PSY-WIDE-3 engineering）
+
+- 显式 `psy-dargo-0.1.0-vm-v1` 现开放 UInt256 为 8×UInt32 little-endian Felt limbs；
+  历史默认 `psy-dargo-u64-v1` 继续 fail closed。
+- 宽整型 Plan binding 参数化为 `bitWidth∈{128,256}`：mul schoolbook、restoring div/mod、
+  固定 bitWidth-step shift walk 与 per-limb bitwise 共用同一 emitter 路径。
+- state/param/literal/entry-view ABI、checked add/sub/mul/div/mod、六比较、shift overflow/
+  invalidShift 与 Reference/Plan/source pin 已接线；`Examples/WideCounter256` 为产品示例。
+- 该结果仅是 engineering 切片，不是 formal refinement / UPS / deploy / hermetic。
+
 ## 2026-08-08 — Psy UInt128 bitwise/shift（PSY-WIDE-2c engineering）
 
 - 显式 `psy-dargo-0.1.0-vm-v1` 现开放 UInt128 `&`/`|`/`^`/`~` 与 `<<`/`>>`；历史默认
