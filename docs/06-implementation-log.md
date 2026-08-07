@@ -12,6 +12,16 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-07 — Surfpool local Surfnet lane for MiniAmmAssets
+
+- 新增 `runtime-tests/solana/surfpool/` + `scripts/solana_surfpool_{up,down}.sh` +
+  `scripts/solana_miniamm_assets_surfpool_smoke.sh` / `just solana-surfpool-*`。
+- 要求 Surfpool ≥1.5（`~/.local/bin`）与 Solana CLI 4.x（匹配 core 4.1.2），
+  start 时打开 SBPFv3 feature gate，offline 起链 → product build →
+  `solana program deploy` MiniAmmAssets.so → program show。
+- Multi-role Token CPI 调用仍由 Mollusk `miniamm_assets` 承担；本 lane 是
+  本地链部署工程门，非 formal/mainnet。
+
 ## 2026-08-07 — MiniAmmAssets EVM M5 dual ERC-20 Anvil（E4 双链 runtime）
 
 - 同一 `Examples/MiniAmmAssets.lean` 经 `build --target evm` 产出 ~11 KiB creation

@@ -1,0 +1,9 @@
+# Local-only Surfpool state (never commit key material or logs).
+keys/
+.surfpool/
+logs/
+*.log
+program-id.txt
+deployed.json
+pid
+rpc-url.txt

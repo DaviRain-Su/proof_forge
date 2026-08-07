@@ -1319,6 +1319,18 @@ solana-transfer-sol-offline:
     cargo run --manifest-path clients/solana-client/Cargo.toml --locked -- \
       verify-artifacts --artifact-dir "$out" --program-adapter transfer-sol-v1
 
+# Surfpool local Surfnet (engineering). Requires `surfpool` + Solana CLI on PATH.
+# Not ordinary ci; not formal/mainnet. Mollusk remains the CPI differential gate.
+solana-surfpool-up:
+    bash scripts/solana_surfpool_up.sh
+
+solana-surfpool-down:
+    bash scripts/solana_surfpool_down.sh
+
+# One-shot: start Surfpool → build MiniAmmAssets cpi-elf → deploy → program show → stop.
+solana-surfpool-miniamm-smoke:
+    bash scripts/solana_miniamm_assets_surfpool_smoke.sh
+
 # Local-only executable call lane: build and independently verify the product
 # OutputSet, then load its manifest-bound ELF in Mollusk and invoke native System.
 # No RPC, faucet, wallet, Program ID, deployment, or test token is involved.
