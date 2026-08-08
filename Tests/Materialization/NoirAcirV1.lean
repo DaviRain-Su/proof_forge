@@ -1,9 +1,11 @@
 /-
-  NOIR-IR-1 + NOIR-IR-2 + NOIR-IR-3 (G3) + NOIR-IR-5 (honesty) + NOIR-IR-6 (product):
+  NOIR-IR-1 + NOIR-IR-2 + NOIR-IR-3 (G3) + NOIR-IR-5 (honesty) + NOIR-IR-6
+  (product dual-write) + NOIR-IR-7 (G6 prove honesty PARTIAL+MISSING):
   Counter nargo ProgramArtifact golden inventory pin, Plan→ACIR MVP via
   nargo-assisted capture, admit-surface control-flow / aggregate circuit-hash
-  pins, §3.2 honesty matrix FC boundaries, and IR-6 optional ACIR dual-write
-  profile (default Finalize remains zero-tool).
+  pins, §3.2 honesty matrix FC boundaries, IR-6 optional ACIR dual-write
+  profile (default Finalize remains zero-tool), and IR-7 host-heavy prove
+  probe (barretenberg null → PF-TOOLCHAIN-MISSING).
 
   IR-1 freezes:
   * product Noir relation packages for Examples/Counter
@@ -24,7 +26,7 @@
   * §3.2 status column (Y/P/F) pinned in CaptureV1.honestyMatrixRowsV1
   * call/schedule = P (witness-binding only; never ACIR Y)
   * String state / Option non-UInt64 = F (product plan-FC)
-  * prove/VK = F (Finalize deployable=false; no product prove)
+  * prove/VK = F (Finalize deployable=false; no product prove; IR-7 PARTIAL)
   * No false Y
 
   IR-6 / G4 product dual-write:
@@ -33,11 +35,17 @@
     ProgramArtifact finalized-extra; nargo missing → PF-TOOLCHAIN-MISSING
   * Counter extras ≡ golden circuit core (live when nargo present)
 
+  IR-7 / G6 prove honesty:
+  * Tool Lock barretenberg=null; no bb/barretenberg asset
+  * `scripts/noir_runtime_test.sh` + `just noir-runtime` → PF-TOOLCHAIN-MISSING
+  * never invent prove CLI/CRS; nargo compile ≠ prove; not ordinary ci
+  * prove/VK matrix remains F; deployable=false
+
   Optional live recheck when `nargo` is present. Missing nargo → honest skip of
   live capture only (inventory pin + source-join + package-stem + honesty matrix
-  + default-profile IR-6 pins still run).
+  + default-profile IR-6 pins + IR-7 notes still run).
 
-  **Not** ACIR opcode decode, prove/verify, deployable, or formal.
+  **Not** ACIR opcode decode, product prove/verify, deployable, or formal.
 -/
 import ProofForgeV2.Targets.Noir.Acir.InventoryV1
 import ProofForgeV2.Targets.Noir.Acir.CaptureV1
@@ -205,6 +213,12 @@ def testIrHonestyNotes : IO Unit := do
     "authority note must mention IR-5 honesty matrix"
   expect (authorityNoteV1.contains "witness-binding")
     "authority note must document call/schedule witness-binding honesty"
+  expect (authorityNoteV1.contains "IR-7")
+    "authority note must mention IR-7 prove honesty"
+  expect (authorityNoteV1.contains "PARTIAL")
+    "authority note must document IR-7 PARTIAL+MISSING"
+  expect (authorityNoteV1.contains "noir-runtime")
+    "authority note must name host-heavy noir-runtime probe"
   let main0 ← IO.FS.readFile
     (goldenPathV1 "product/relations/r0-init/src/main.nr")
   expect (main0.contains "fn main(") "product main.nr present"
@@ -659,18 +673,22 @@ unsafe def testHonestyProveFailClosedNotes : IO Unit := do
   expect (honestyProveNoteV1.contains "deployable=false")
     "prove honesty note"
   expect (honestyProveNoteV1.contains "G6")
-    "prove honesty defers to G6"
+    "prove honesty documents G6 lane"
+  expect (honestyProveNoteV1.contains "PARTIAL")
+    "prove honesty documents PARTIAL+MISSING"
+  expect (honestyProveNoteV1.contains "noir_runtime_test.sh")
+    "prove honesty names host-heavy probe script"
   let proveRow := honestyMatrixRowsV1.find? (·.family == "prove/VK")
   match proveRow with
   | none => throw <| IO.userError "missing prove/VK matrix row"
   | some row =>
       expect (row.acirStatus == .F) "prove/VK ACIR F"
       expect (row.noirPathStatus == .F) "prove/VK Noir path F"
-  -- Authority note must not claim prove.
+      expect (row.evidence.contains "PARTIAL")
+        "prove/VK evidence must state G6 PARTIAL+MISSING"
+  -- Authority note must not claim prove complete.
   expect (!authorityNoteV1.contains "prove/verify complete")
     "authority must not claim prove complete"
-  expect (!authorityNoteV1.contains "Barretenberg")
-    "authority must not invent Barretenberg backend"
   -- Schema ids do not advertise prove surface.
   expect (!(captureSchemaId.contains "prove"))
     "capture schema must not claim prove"
@@ -679,6 +697,43 @@ unsafe def testHonestyProveFailClosedNotes : IO Unit := do
   -- Soft join: FinalizeV1 module remains the product finalize authority.
   let _ := ProofForgeV2.Targets.Noir.FinalizeV1.finalize
   IO.println "  IR-5 prove/VK F + Finalize evidence: ok"
+
+/-- NOIR-IR-7 / G6 prove honesty (docs/targets/07-noir-acir-lowering.md §2.3/§4):
+    * Tool Lock `unresolved.barretenberg=null` — no bb/barretenberg asset
+    * host-heavy probe `scripts/noir_runtime_test.sh` + `just noir-runtime`
+      must exist and is **not** ordinary ci
+    * default probe outcome: `PF-TOOLCHAIN-MISSING` (exit 2) — PARTIAL evidence
+    * nargo is compile-only (IR-1..IR-6), **not** prove authority; this suite
+      does **not** invent a bb/CRS CLI or claim product prove
+    * Counter IR-1 inventory + IR-6 dual-write remain ACIR authority
+    * prove/VK matrix stays F; `deployable=false`; not formal -/
+def testIr7ProveHonestyNotes : IO Unit := do
+  expect (← (FilePath.mk "testdata/golden/noir-acir-v1/inventory.json").pathExists)
+    "Counter ACIR golden inventory must exist (IR-1..IR-6 authority)"
+  let scriptPath : FilePath := "scripts/noir_runtime_test.sh"
+  expect (← scriptPath.pathExists)
+    "NOIR-IR-7 host-heavy probe scripts/noir_runtime_test.sh must exist"
+  expect (authorityNoteV1.contains "IR-7")
+    "authority must document IR-7 prove honesty"
+  expect (authorityNoteV1.contains "PARTIAL")
+    "authority must document PARTIAL+MISSING"
+  expect (honestyProveNoteV1.contains "NOIR-IR-7")
+    "prove honesty note must name NOIR-IR-7"
+  expect (honestyProveNoteV1.contains "PF-TOOLCHAIN-MISSING")
+    "prove honesty note must name PF-TOOLCHAIN-MISSING"
+  expect (honestyProveNoteV1.contains "barretenberg=null")
+    "prove honesty note must pin Tool Lock barretenberg null"
+  let proveRow := honestyMatrixRowsV1.find? (·.family == "prove/VK")
+  match proveRow with
+  | none => throw <| IO.userError "missing prove/VK matrix row"
+  | some row =>
+      expect (row.acirStatus == .F) "IR-7 does not upgrade prove/VK to Y"
+      expect (row.noirPathStatus == .F) "IR-7 does not invent product prove path"
+  -- Non-claims (documented residual only; no invented prove assertion):
+  -- * product prove/VK still F (PARTIAL; PF-TOOLCHAIN-MISSING)
+  -- * no Tool Lock barretenberg asset; never PATH fallback
+  -- * dual-write ACIR remains opt-in nargo-assisted; deployable=false
+  IO.println "  IR-7 prove honesty PARTIAL+MISSING notes: ok"
 
 /-- IR-6: default profile Finalize stays zero-tool; note + empty extras. -/
 unsafe def testIr6DefaultFinalizeZeroTool : IO Unit := do
@@ -830,6 +885,8 @@ unsafe def run : IO Unit := do
   testIr6PathNormalizeHelper
   testIr6DefaultFinalizeZeroTool
   testIr6AcirProfileDualWriteOptional
+  -- IR-7 / G6 prove honesty PARTIAL+MISSING
+  testIr7ProveHonestyNotes
   IO.println "Tests.Materialization.NoirAcirV1: ok"
 
 end Tests.Materialization.NoirAcirV1

@@ -1313,6 +1313,15 @@ psy-runtime:
 aleo-runtime:
     bash scripts/aleo_runtime_test.sh
 
+# Noir ACIR IR-7 / G6 prove honesty probe (host-heavy; NOT ordinary ci).
+# Probes locked $PROOF_FORGE_TOOL_ROOT/bb|barretenberg only (never PATH).
+# Default today: PF-TOOLCHAIN-MISSING + PARTIAL (Tool Lock barretenberg=null;
+# nargo is compile-only, not IR-7 prove authority). Do not invent prove CLI/CRS.
+# Exit 2 expected until a Tool Lock Barretenberg/backend pin lands.
+# Not product finalize / prove product path / deploy / formal / hermetic.
+noir-runtime:
+    bash scripts/noir_runtime_test.sh
+
 # #125 Solana CPI CLI/product acceptance only (proof-forge.output.v1 EscrowCpi
 # under solana-sbpf-cpi-elf-v1). Not ordinary ci; host/tool heavy like solana-runtime.
 # Does not consume #118–#124 preactivation runtime manifests. Requires #125 product

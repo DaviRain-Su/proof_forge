@@ -1,5 +1,6 @@
 /-
-  Noir Plan → ACIR capture (NOIR-IR-2 + NOIR-IR-3 / G3 + NOIR-IR-5 + NOIR-IR-6).
+  Noir Plan → ACIR capture (NOIR-IR-2 + NOIR-IR-3 / G3 + NOIR-IR-5 + NOIR-IR-6
+  + NOIR-IR-7 / G6 prove honesty PARTIAL+MISSING).
 
   ## Path decision (IR-2, frozen)
 
@@ -58,7 +59,8 @@
   * call/schedule slots = **P** (witness-binding relation only; circuit does
     **not** execute external call; proof does **not** attest on-chain call)
   * String state / Option non-UInt64 = **F** (plan-FC)
-  * prove/VK = **F** until G6 (Finalize `deployable=false`; no product prove)
+  * prove/VK = **F** (Finalize `deployable=false`; no product prove; IR-7/G6
+    prove lane is host-heavy PARTIAL+MISSING — see below)
 
   No false Y: every Y row has IR-1/IR-2/IR-3 capture evidence; F/P rows have
   plan-FC or honesty notes (not silent pass).
@@ -74,6 +76,15 @@
     `nargo-compile/{stem}/{pf_relation_N}.json`; missing nargo fail-closed
     (`PF-TOOLCHAIN-MISSING`); still `deployable=false`; no prove/VK
 
+  ## IR-7 / G6 prove honesty (PARTIAL + MISSING)
+
+  Tool Lock `unresolved.barretenberg=null`; no bb/barretenberg asset. Host-heavy
+  probe `scripts/noir_runtime_test.sh` + `just noir-runtime` fail closed with
+  `PF-TOOLCHAIN-MISSING` (never PATH; never invent prove CLI/CRS). nargo is
+  compile-only (IR-1..IR-6), **not** prove authority. Matrix prove/VK stays **F**;
+  product `deployable=false`. When a real backend pin lands, extend the probe
+  with a minimal Counter prove pin (still not ordinary ci).
+
   Honesty:
   * `deployable=false`; no prove/verify/VK/witness product claim.
   * Default Finalize remains zero-tool (no host ACIR).
@@ -81,6 +92,7 @@
   * Does **not** decode ACIR opcodes (bytecode stays opaque base64 gzip).
   * Does **not** invent a backend when nargo is absent on live-skip paths;
     ACIR profile requires nargo.
+  * Does **not** invent Barretenberg/bb prove/CRS when Tool Lock pin is null.
 
   Schema id: `proof-forge.noir-acir-capture.v1`
 -/
@@ -110,6 +122,8 @@ def authorityNoteV1 : String :=
   "G3 admit-surface CF/aggregate circuit-hash pins share this path; " ++
   "IR-5 honesty matrix pins call/schedule P (witness-binding only), " ++
   "String/Option non-UInt64 F (plan-FC), prove/VK F (no product prove); " ++
+  "IR-7/G6 prove honesty PARTIAL+MISSING (Tool Lock barretenberg=null; " ++
+  "just noir-runtime → PF-TOOLCHAIN-MISSING; never invent bb/CRS); " ++
   "missing nargo → honest skip of live capture only"
 
 /-- Path-independent circuit core of a nargo ProgramArtifact.
@@ -651,7 +665,9 @@ def honestyMatrixRowsV1 : Array HonestyMatrixRowV1 :=
       noirPathStatus := .F
       acirStatus := .F
       evidence :=
-        "until G6; Finalize deployable=false; no product prove/verify/VK path" }
+        "G6 PARTIAL+MISSING (barretenberg null; just noir-runtime " ++
+        "PF-TOOLCHAIN-MISSING); Finalize deployable=false; no product " ++
+        "prove/verify/VK path" }
   ]
 
 /-- ExtFlow product package stems (call + schedule witness-binding; status P). -/
@@ -732,10 +748,13 @@ def honestyOptionStringNoteV1 : String :=
   "String state and Option non-UInt64 (including Option String) stay plan-FC on " ++
   "Noir; ACIR status F; only Option UInt64 state is G3-capture Y"
 
-/-- prove/VK honesty note (no product prove until G6). -/
+/-- prove/VK honesty note (no product prove; IR-7/G6 PARTIAL+MISSING). -/
 def honestyProveNoteV1 : String :=
   "no product prove/verify/VK path; Finalize deployable=false; evidence notes " ++
-  "deny ACIR/witness/proof/verification; prove/VK matrix row remains F until G6"
+  "deny ACIR/witness/proof/verification; prove/VK matrix row remains F; " ++
+  "NOIR-IR-7 / G6 prove honesty is PARTIAL+MISSING (Tool Lock " ++
+  "barretenberg=null; scripts/noir_runtime_test.sh + just noir-runtime → " ++
+  "PF-TOOLCHAIN-MISSING; never invent bb/CRS CLI)"
 
 /-- Exact default-profile Finalize evidence note text (join with FinalizeV1).
     Zero-tool; ACIR product dual-write is opt-in profile only (NOIR-IR-6). -/

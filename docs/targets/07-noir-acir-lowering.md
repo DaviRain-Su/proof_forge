@@ -9,7 +9,7 @@ normative: false
 
 # Noir ACIR 层落地规划
 
-状态：`draft`（规划 + **NOIR-IR-1 金样已冻结** + **NOIR-IR-2 Plan→ACIR MVP 已接线** + **NOIR-IR-3 G3 admit-surface circuit-hash pins 已接线** + **NOIR-IR-5 诚实矩阵（G5 轻量）已接线** + **NOIR-IR-6 产品 ACIR dual-write 可选 profile 已接线**）
+状态：`draft`（规划 + **NOIR-IR-1 金样已冻结** + **NOIR-IR-2 Plan→ACIR MVP 已接线** + **NOIR-IR-3 G3 admit-surface circuit-hash pins 已接线** + **NOIR-IR-5 诚实矩阵（G5 轻量）已接线** + **NOIR-IR-6 产品 ACIR dual-write 可选 profile 已接线** + **NOIR-IR-7 / G6 prove honesty PARTIAL+MISSING 已接线**）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Noir target 的权威物化从 **Noir 源包（`.nr` relations）** 切向官方 **电路中间表示（ACIR 及相关编译产物）**，并评估 admit 面覆盖。
 
 与 Psy / Aleo 对照：
@@ -27,8 +27,8 @@ normative: false
 |---|---|
 | 工具 | locked **nargo 1.0.0-beta.26** |
 | 官方语言 | Noir → **ACIR**（Abstract Circuit IR）→ backend prove |
-| 工程现状 | 产品 emit `relations/*/src/main.nr`（过渡/debug base）；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**IR-2** nargo-assisted Plan→ACIR capture（Counter ≡ 金样 circuit core）；**IR-3** G3 CF/aggregate circuit-hash pins；**IR-5** §3.2 诚实矩阵；**IR-6** 默认 `noir-source-u64-relations-v1` zero-tool；显式 `noir-nargo-1.0.0-beta.26-acir-v1` Finalize dual-write path-normalized ProgramArtifact `finalized-extra`（`nargo-compile/{stem}/*.json`；缺 nargo fail-closed；`deployable=false`） |
-| 非本阶段 | Barretenberg prove/verify、CRS、VK 产品绑定、formal |
+| 工程现状 | 产品 emit `relations/*/src/main.nr`（过渡/debug base）；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**IR-2** nargo-assisted Plan→ACIR capture（Counter ≡ 金样 circuit core）；**IR-3** G3 CF/aggregate circuit-hash pins；**IR-5** §3.2 诚实矩阵；**IR-6** 默认 `noir-source-u64-relations-v1` zero-tool；显式 `noir-nargo-1.0.0-beta.26-acir-v1` Finalize dual-write path-normalized ProgramArtifact `finalized-extra`（`nargo-compile/{stem}/*.json`；缺 nargo fail-closed；`deployable=false`）；**IR-7/G6** prove honesty **PARTIAL+MISSING**（Tool Lock `barretenberg=null`；`scripts/noir_runtime_test.sh` + `just noir-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 bb/CRS） |
+| 非本阶段 | 产品 prove/verify、CRS、VK 产品绑定、formal（G6 lane 仅 honesty pin，非 product prove） |
 
 **非目标：**
 
@@ -96,7 +96,7 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 | G3 | 控制流 / 聚合 admit 面 | **done（IR-3）** BranchCounter/LoopSum/OptionState/ArrayRet circuit-hash pins；MapMini init pin + put/get nargo-fail honesty |
 | G4 | 产品 primary ACIR | **done（IR-6）** opt-in nargo ACIR profile dual-write；default zero-tool；`.nr` transitional/debug |
 | G5 | admit 矩阵 | **done（IR-5 轻量）** §3.2 状态列 + call/schedule P + String/Option F + prove F；无假 Y |
-| G6 | prove lane | 独立 host-heavy；非 ordinary ci |
+| G6 | prove lane | **done PARTIAL/MISSING（IR-7 2026-08-08）**：无 locked bb/barretenberg；`just noir-runtime` → `PF-TOOLCHAIN-MISSING`；prove/VK 仍 F；不发明 CLI/CRS |
 
 ---
 
@@ -121,7 +121,7 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 | call/schedule slots | P | **P** | 仅 witness-binding status/arg slots（B-CALL-SEM）；电路不执行外部调用、证明不 attest 链上调用；`testHonestyCallSchedulePartialNotY`；result-bearing 仍 FC |
 | Option UInt64 state | Y | **Y** | OptionState G3 full capture pins |
 | String state / Option non-UInt64 | F | **F** | product plan-FC：`testHonestyOptionStringProductFailClosed`（String / Option String / Option Bool） |
-| prove/VK | F | **F** | 直至 G6；Finalize `deployable=false` + exact evidence note；`testHonestyProveFailClosedNotes` |
+| prove/VK | F | **F** | G6 PARTIAL+MISSING（`barretenberg=null`；`just noir-runtime` → `PF-TOOLCHAIN-MISSING`）；Finalize `deployable=false`；`testHonestyProveFailClosedNotes` + `testIr7ProveHonestyNotes` |
 
 Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `Tests.Materialization.NoirAcirV1` IR-5 段恒跑（不依赖 nargo）。
 
@@ -206,8 +206,11 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 
 ### NOIR-IR-7 — prove honesty（工具存在时）
 
-- [ ] 无 backend pin → `PF-TOOLCHAIN-MISSING` / PARTIAL 文档
-- [ ] 有 pin → 独立 host-heavy；非 ordinary ci
+- [x] 探路 Tool Lock：`unresolved.barretenberg=null`；tool root 无 `bb`/`barretenberg` 资产
+- [x] 无 backend pin → `scripts/noir_runtime_test.sh` + `just noir-runtime` → `PF-TOOLCHAIN-MISSING`（exit 2）+ PARTIAL 文档
+- [x] 有 pin 时预留路径：binary  alone 仍拒绝（无 digest/version/recipe → 仍 `PF-TOOLCHAIN-MISSING`）；真正 Counter prove pin 待真实 Tool Lock pin
+- [x] suite `testIr7ProveHonestyNotes`（恒跑；非 ordinary ci 跑 runtime recipe）
+- [x] 不发明 prove CLI / CRS；nargo compile ≠ prove；prove/VK 矩阵仍 **F**；`deployable=false`
 
 ---
 
@@ -243,7 +246,8 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 
 ### 非完成
 
-- prove/verify 产品门、CRS、formal、全 Noir 表面、default-profile 自动 ACIR（有意保持 zero-tool）。
+- prove/verify **产品**门、CRS、formal、全 Noir 表面、default-profile 自动 ACIR（有意保持 zero-tool）。
+- IR-7 仅 honesty pin：**PARTIAL+MISSING**；有 Tool Lock backend pin 后才可扩展 Counter prove（仍 host-heavy）。
 
 ---
 
@@ -255,7 +259,8 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 4. **NOIR-IR-3** 已完成：G3 CF/aggregate circuit-hash pins。
 5. **NOIR-IR-5** 已完成：§3.2 诚实矩阵 + call/schedule/Option-String/prove FC 边界。
 6. **NOIR-IR-6** 已完成：opt-in nargo ACIR dual-write profile；default zero-tool；`.nr` transitional/debug。
-7. **下一步：NOIR-IR-7 / G6** prove honesty（工具存在时；独立 host-heavy）；IR-4 multi-fixture inventory 可选。
+7. **NOIR-IR-7 / G6** 已完成（PARTIAL+MISSING）：`just noir-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 bb/CRS。
+8. **Lane idle**（optional residual）：IR-4 multi-fixture inventory；未来真实 Barretenberg/backend Tool Lock pin 后的 Counter prove 扩展（仍非 ordinary ci / 非 product prove）。
 
 规划 owner：engineering。
 IR-1/IR-2 冻结细节见 `testdata/golden/noir-acir-v1/README.md`。
