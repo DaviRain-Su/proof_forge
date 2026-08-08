@@ -1,5 +1,5 @@
 /-
-  PSY-DPN-2/3/4: PsyPlan → DPN package.
+  PSY-DPN-2/3/4/5: PsyPlan → DPN package.
 
   DPN-2: UInt64 Counter-shaped templates (init store / checkedAdd store+return /
   view load) pinned to locked-dargo Counter method ids and package shape.
@@ -19,6 +19,13 @@
     * UInt32 param range asserts; bindWideUintMul/DivMod/Shift still FC
     * default profile may lower Option/Array multi-leaf; UInt128 Plan is
       already FC before DPN when profile ≠ psy-dargo-0.1.0-vm-v1
+
+  DPN-5: dense Map UInt64 UInt64 cap-8 (24 occ/key/val Felt leaves)
+    * Plan already expands IndexGet→Option Select tree + IndexSet upsert
+      storeAggregate + map-full assert (LowerSemantic mapLookup/mapUpsert)
+    * General builder admits Select/Bool/compare/storeAggregate path — no
+      text `.psy` return-in-if (dargo syntax break on Map get match)
+    * Nested Map / Map return stay FC at Plan (not DPN-invented)
 
   Method ids: Counter pins match dargo golden; other names use a stable
   engineering hash until an official golden is captured.
@@ -68,8 +75,10 @@ private def bTrue : UInt64 := encodeIndexedId .bool 0
 /-- Max static unroll steps (matches EmitIRV1 PSY-LOOP budget). -/
 def maxUnrollBudgetV1 : Nat := 64
 
-/-- Max physical state leaves admitted in DPN-4 (Map/dense later). -/
-def maxStateLeavesV1 : Nat := 32
+/-- Max physical state leaves admitted in DPN-4/5.
+    Map UInt64 cap-8 = 24; Token Map+supply = 25; Option dual-leaf = 2;
+    headroom for multi-state pilots (not a formal resource profile). -/
+def maxStateLeavesV1 : Nat := 64
 
 /-- View get: Constant + GetState(sub_slot 0) → output target 1. -/
 def lowerViewLoadReturnV1 (name : String) (fieldIndex : Nat) :
@@ -478,7 +487,7 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       planError
         "PSY-DPN-4: wideUintShiftLimb requires bindWideUintShift — not admitted in this slice (fail closed)"
   | other =>
-      planError s!"PSY-DPN-4: unsupported Expr shape {repr other}"
+      planError s!"PSY-DPN-5: unsupported Expr shape {repr other}"
 
 /-- Result of lowering a statement sequence: return wires (empty = unit). -/
 structure StmtResultV1 where
@@ -674,7 +683,7 @@ unroll budget {maxUnrollBudgetV1} (no while/unbounded; PSY-LOOP)"
           planError
             "PSY-DPN-4: bindWideUintShift not admitted in this slice — fail closed"
       | other =>
-          planError s!"PSY-DPN-4: unsupported Statement shape {repr other}"
+          planError s!"PSY-DPN-5: unsupported Statement shape {repr other}"
 
 /-- Encode return wires as circuit_outputs (target raw index; bool uses encoded id). -/
 private def encodeOutputs (wires : Array WireV1) : Array UInt64 :=
@@ -682,7 +691,7 @@ private def encodeOutputs (wires : Array WireV1) : Array UInt64 :=
     | .target i => UInt64.ofNat i
     | .bool i => encodeIndexedId .bool i
 
-/-- General function lower (DPN-3/4). Multi-leaf UInt64/Option + limb wide surface. -/
+/-- General function lower (DPN-3/4/5). Multi-leaf UInt64/Option/Map + limb wide. -/
 def lowerFunctionGeneralV1 (fn : PlanFunction) (multiLeaf : Bool) :
     CompileResult FunctionCircuitDefV1 := do
   let methodId ← requireMethodIdV1 fn.name
@@ -734,7 +743,7 @@ def lowerFunctionV1 (fn : PlanFunction) (multiLeaf : Bool) :
           planError "PSY-DPN: checkedAdd store/return field mismatch"
         return (← lowerCheckedAddStoreReturnV1 fn.name f)
     | _ => pure ()
-  -- DPN-3/4 general path.
+  -- DPN-3/4/5 general path (if/match/for + multi-leaf Option/Map + wide limbs).
   lowerFunctionGeneralV1 fn multiLeaf
 
 /-- Lower an entire Plan to a DPN package. Functions sorted by name (dargo order). -/
@@ -743,7 +752,7 @@ def lowerPlanToPackageV1 (plan : Plan) : CompileResult PackageV1 := do
   unless nFields ≥ 1 do
     planError "PSY-DPN: expected at least one state field"
   unless nFields ≤ maxStateLeavesV1 do
-    planError s!"PSY-DPN-4: state leaf count {nFields} exceeds max {maxStateLeavesV1}"
+    planError s!"PSY-DPN-5: state leaf count {nFields} exceeds max {maxStateLeavesV1}"
   let multiLeaf := nFields > 1
   let mut out : Array FunctionCircuitDefV1 := #[]
   for fn in plan.functions do

@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；DPN-1..4 engineering 已落地，admit 面未全覆盖）  
+状态：`draft`（规划输入；DPN-1..5 engineering 已落地，admit 面未全覆盖）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -121,7 +121,7 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 
 **“ProgramV1 → Psy DPN 全覆盖”** 指（产品最终目标，与用户确认一致）：
 
-> **DSL 自有特性**（统一 `program … where` / ProgramV1）在 Psy 上 **admit 的全部构造**，最终都要有 **确定性 DPN 编码**，使任意该子集上的合约可物化；  
+> **DSL 自有特性**（统一 `program … where` / ProgramV1）在 Psy 上 **admit 的全部构造**，最终都要有 **确定性 DPN 编码**，使任意该子集上的合约可物化；
 > 凡 **不 admit** 的，在 **Normalize / Plan / DPN 边界** 有稳定诊断（证据化 FC），且 **不** 经 `.psy` 旁路偷偷实现。
 
 即：终点不是“只做一个 Counter 模板”，而是 **任意使用已开放 DSL 特性的合约** 都能降到 DPN；分阶段用模板/SSA 扩展矩阵 §3.2，直到 G5。
@@ -146,7 +146,7 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 | Principal / String / Bytes 叶 | Y/P | **Y/P** | wire identity 多 leaf |
 | named Struct/Enum flatten | Y | **Y** | leaf 序固定 |
 | Array UInt64 / Option UInt64 | Y | **Y** | |
-| Map UInt64 UInt64 cap-8 | Plan Y；dargo 破 | **Y** | DPN 绕过 return-in-if |
+| Map UInt64 UInt64 cap-8 | Plan Y；dargo 破 | **Y**（DPN-5） | Select/upsert storeAggregate；绕过 return-in-if |
 | 嵌套 Map / Map return | F | **F** | |
 | let / assign / return | Y | **Y** | SSA defs |
 | if / match | Y | **Y** | Select / 分支状态 cmd condition |
@@ -165,8 +165,8 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 | pf.assets | F | **F** | 零绑定 |
 | 元组 / 闭包 / trait / mod | N | **N/F** | 非 ProgramV1 作者面 |
 
-**结论（规划层）：**  
-在 **Psy 已开放的 ProgramV1 子集** 上，DPN **可以目标 “全覆盖”**（上表 `Y`/`P` 列）。  
+**结论（规划层）：**
+在 **Psy 已开放的 ProgramV1 子集** 上，DPN **可以目标 “全覆盖”**（上表 `Y`/`P` 列）。
 扩展到 **全部 DPN op** 或 **全部 PSL 语法** **不是** 本规划完成条件。
 
 ---
@@ -199,7 +199,7 @@ ProofForgeV2/Targets/Psy/
 | G1 | Lower Counter | 我们生成的 DPN JSON 与 dargo 金样 **结构相等** |
 | G2 | Accumulator / OptionState / LoopSum | 与 runtime 差分同 oracle |
 | G3 | WideCounter VM | 宽整数 defs 金样或 Reference 差分 + 可选 dargo |
-| G4 | Map / 聚合 | 现 .psy 破点在 DPN 上绿 |
+| G4 | Map / 聚合 | **done（DPN-5）** MapMini+Token Plan→DPN；.psy 破点绕过 |
 | G5 | 全 admit 面扫描 | PsySource 正向矩阵每条有 DPN 或显式 FC |
 | G6 | Execute 消费 DPN | 不经 `.psy` 文本：`psy_vm` 或 dargo 可接受路径 |
 
@@ -211,59 +211,61 @@ G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛
 
 ### Phase DPN-0 — 规划与 pin（本文档）
 
-- [x] 选定 DPN 为权威物化层  
-- [ ] Tool Lock / 文档钉死 `psy-node` rev 与 dargo 0.1.0 关系  
+- [x] 选定 DPN 为权威物化层
+- [ ] Tool Lock / 文档钉死 `psy-node` rev 与 dargo 0.1.0 关系
 - [ ] 金样文件入库策略（testdata 或 generated-under-test）
 
 ### Phase DPN-1 — Schema + Counter 金样
 
-- [x] Lean：`SchemaV1` / `JsonCodecV1`（OpType/DataType/StateCmd 子集 / FunctionDef）  
-- [x] 金样：`testdata/golden/psy-dpn-v1/counter-package.v1.json`（dargo Counter）  
+- [x] Lean：`SchemaV1` / `JsonCodecV1`（OpType/DataType/StateCmd 子集 / FunctionDef）
+- [x] 金样：`testdata/golden/psy-dpn-v1/counter-package.v1.json`（dargo Counter）
 - [x] 测试：`PsyDpnV1` decode≡手建 + encode round-trip
 
 ### Phase DPN-2 — Lowering MVP（UInt64 Counter 形）
 
-- [x] `LowerPlanV1`：init store(param) / checkedAdd store+return / view load  
-- [x] method_id **金样 pin**（initialize/increment/get）  
-- [x] product Plan → package ≡ full Counter dargo golden  
+- [x] `LowerPlanV1`：init store(param) / checkedAdd store+return / view load
+- [x] method_id **金样 pin**（initialize/increment/get）
+- [x] product Plan → package ≡ full Counter dargo golden
 - [ ] method_id 官方 hash 复刻（可选硬化）
 
 ### Phase DPN-3 — 控制流与有界循环
 
-- [x] if/match → Select + conditional `SetContractStateSlotSingle`（`LowerPlanV1` general builder；switch→nested if+eq+Select return merge）  
-- [x] bounded for → 静态 unroll（与 EmitIRV1 PSY-LOOP 一致：`boundExceeded` + N 步 `i=start+k`/`i<end` 门控 body；maxIter≤64；超预算 FC）  
+- [x] if/match → Select + conditional `SetContractStateSlotSingle`（`LowerPlanV1` general builder；switch→nested if+eq+Select return merge）
+- [x] bounded for → 静态 unroll（与 EmitIRV1 PSY-LOOP 一致：`boundExceeded` + N 步 `i=start+k`/`i<end` 门控 body；maxIter≤64；超预算 FC）
 - [x] 结构测试：`PsyDpnV1` if/switch/for + `Examples/LoopSum` product Plan→package；Counter 金样仍绿
 
 ### Phase DPN-4 — 多叶与宽整数
 
-- [x] multi-leaf `storeAggregate` / `returnAggregate` → multi `Get/Set … SlotSingle`（engineering sub_slot = fieldIndex+4，对齐 WideCounter dargo 证据；单叶 Counter 模板保持金样）  
-- [x] OptionState 产品 Plan→DPN（双叶 tag+payload）；手建 4-limb UInt128 init/get/add（limbAdd/Select/overflow assert + u32 param range）  
-- [x] UInt128 **仅** `psy-dargo-0.1.0-vm-v1`（默认 profile 在 Plan 层 FC）；`bindWideUintMul/DivMod/Shift` 与 Felt bitAnd/Or/Xor 本片 **FC**（证据化；非假 lower）  
-- [ ] Array/Struct/Principal/Bytes 产品金样与 dargo 全量 package 相等（结构已由 multi-leaf Single 路径覆盖）  
+- [x] multi-leaf `storeAggregate` / `returnAggregate` → multi `Get/Set … SlotSingle`（engineering sub_slot = fieldIndex+4，对齐 WideCounter dargo 证据；单叶 Counter 模板保持金样）
+- [x] OptionState 产品 Plan→DPN（双叶 tag+payload）；手建 4-limb UInt128 init/get/add（limbAdd/Select/overflow assert + u32 param range）
+- [x] UInt128 **仅** `psy-dargo-0.1.0-vm-v1`（默认 profile 在 Plan 层 FC）；`bindWideUintMul/DivMod/Shift` 与 Felt bitAnd/Or/Xor 本片 **FC**（证据化；非假 lower）
+- [ ] Array/Struct/Principal/Bytes 产品金样与 dargo 全量 package 相等（结构已由 multi-leaf Single 路径覆盖）
 - [ ] UInt256 / 完整 WideCounter 产品 package（mul/div/shift 展开）
 
 ### Phase DPN-5 — Map 与现 .psy 破点
 
-- Map cap-8 全在 DPN 表达  
-- 回归：不再依赖 dargo 对 return-in-if 的源语法
+- [x] Map cap-8 全在 DPN 表达（Plan 已 expand IndexGet→Option Select + IndexSet upsert `storeAggregate` + map-full assert；`LowerPlanV1` general builder 直接消费 Select/Bool/compare/multi-leaf Set；`maxStateLeavesV1=64`）
+- [x] 回归：`PsyDpnV1` MapMini/Token product Plan→package + 手建 lookup/upsert 结构门；**不**经 dargo return-in-if `.psy` 路径
+- [x] Nested Map / Map return 保持 Plan FC（非 DPN 发明）
+- [ ] dargo MapMini package 金样相等（可选；dargo 仍破 return-in-if，无官方 JSON pin）
 
 ### Phase DPN-6 — 效果族诚实矩阵
 
-- emit / call：仅 PARTIAL 有证据时写 DPN；否则 FC  
+- emit / call：仅 PARTIAL 有证据时写 DPN；否则 FC
 - schedule / assets / context / invariant：保持 FC
 
 ### Phase DPN-7 — 产品切换
 
-- `filesFromIR` / Finalize 主产物改为 DPN JSON（或 dual-write 过渡）  
-- `.psy` debug flag 或删除路径（删除前 deletion-gate）  
+- `filesFromIR` / Finalize 主产物改为 DPN JSON（或 dual-write 过渡）
+- `.psy` debug flag 或删除路径（删除前 deletion-gate）
 - `just psy-runtime` 优先 DPN 路径
 
 ---
 
 ## 6. method_id / 布局约定
 
-- **method_id**：优先复刻官方 hash（`psy_crypto::hash::utils::gen_dapen_contract_function_method_id`）；若 Lean 侧不便链接，则 **金样锁定** 已知方法 id，并单独 TASK 做跨语言 pin。  
-- **slot / sub_slot**：与现 Emit 一致——4 Felt/leaf；UInt64 占一个 sub-slot 策略与 dargo 金样对照后冻结。  
+- **method_id**：优先复刻官方 hash（`psy_crypto::hash::utils::gen_dapen_contract_function_method_id`）；若 Lean 侧不便链接，则 **金样锁定** 已知方法 id，并单独 TASK 做跨语言 pin。
+- **slot / sub_slot**：与现 Emit 一致——4 Felt/leaf；UInt64 占一个 sub-slot 策略与 dargo 金样对照后冻结。
 - **condition**：无条件写 → ConstantTrue 的 encoded id（Counter 金样：`4294967296`）。
 
 ---
@@ -278,7 +280,7 @@ G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛
 | 范围膨胀到全 PSL/全 DPN | 完成条件锁在 §3.1 |
 | 双路径 (.psy + DPN) 分裂 | 过渡期 dual-write 比较；稳定后删 .psy 权威 |
 
-**成熟度**：DPN 路径落地后，registry 仍可 **source-only / non-deployable**，直到 UPS/网络决策。  
+**成熟度**：DPN 路径落地后，registry 仍可 **source-only / non-deployable**，直到 UPS/网络决策。
 **不得** 把 “DPN JSON 生成成功” 写成 formal / hermetic / 主网。
 
 ---
@@ -299,29 +301,29 @@ G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛
 
 ### 9.1 MVP（DPN-2）
 
-- Counter 产品路径产出 DPN JSON，与 locked-dargo 金样结构相等。  
-- 测试进 ordinary 或 targets shard（不强制 host-heavy execute）。  
+- Counter 产品路径产出 DPN JSON，与 locked-dargo 金样结构相等。
+- 测试进 ordinary 或 targets shard（不强制 host-heavy execute）。
 - 文档声明 `.psy` 为过渡旁路。
 
 ### 9.2 Admit 面全覆盖（DPN-5 + 矩阵 G5）
 
-- §3.2 中所有 **Y** 行有 DPN lowering + 测试。  
-- 所有 **P/F** 行有稳定诊断或 PARTIAL 文档。  
+- §3.2 中所有 **Y** 行有 DPN lowering + 测试。
+- 所有 **P/F** 行有稳定诊断或 PARTIAL 文档。
 - Map 等不再依赖破损 `.psy` 路径。
 
 ### 9.3 非完成条件
 
-- 官方 PSL 全语法。  
-- UPS/节点/RPC。  
+- 官方 PSL 全语法。
+- UPS/节点/RPC。
 - formal TASK / Stage-0。
 
 ---
 
 ## 10. 下一步（规划通过后）
 
-1. **DPN-1**：落地 `SchemaV1` + Counter 金样测试。  
-2. **DPN-2**：`LowerPlanV1` Counter 纵切。  
+1. **DPN-1**：落地 `SchemaV1` + Counter 金样测试。
+2. **DPN-2**：`LowerPlanV1` Counter 纵切。
 3. 按 Phase 顺序扫 §3.2 矩阵至 G5。
 
-规划 owner：engineering。  
+规划 owner：engineering。
 产品决策 implicit：用户已确认 “对准 DPN 层” 与 “ProgramV1 admit 面尽量全覆盖到 DPN target”。

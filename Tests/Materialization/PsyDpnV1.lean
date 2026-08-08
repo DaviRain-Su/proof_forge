@@ -1,6 +1,6 @@
 /-
-  Tests.Materialization.PsyDpnV1 — PSY-DPN-1/2/3/4 schema + Counter golden +
-  Plan lower + if/match/for + multi-leaf/wide structural probes.
+  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..5 schema + Counter golden +
+  Plan lower + if/match/for + multi-leaf/wide + Map cap-8 structural probes.
 
   Pins:
     * OpType / DataType exact discriminants used by Counter (+ Select)
@@ -12,6 +12,8 @@
       bounded for → static unroll; while-shaped FC via maxIter budget
     * DPN-4: OptionState product multi-leaf; hand-built UInt128 4-limb
       storeAggregate/returnAggregate; default profile WideCounter FC at Plan
+    * DPN-5: Map UInt64 UInt64 cap-8 (24 occ/key/val leaves) product Plan→DPN
+      without .psy return-in-if; hand-built lookup Select + upsert storeAggregate
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -528,6 +530,206 @@ unsafe def testWideCounterVmProfileDpnPartial : IO Unit := do
       expect (setCount == 4)
         s!"WideCounter init 4 Sets if fully lowered, got {setCount}"
 
+/-- DPN-5: hand-built dense Map lookup → Option [tag,payload] via Select mux.
+    Models Plan Expr from mapLookupOptionLeavesV1 (cap-2 miniature for size). -/
+def testMapLookupSelectOption : IO Unit := do
+  -- Two-slot map: leaves [occ0,key0,val0, occ1,key1,val1]; lookup key=param0.
+  -- found = (occ0≠0 ∧ key0==k) ∨ (occ1≠0 ∧ key1==k)
+  -- payload = select(hit0, val0, select(hit1, val1, 0))
+  -- tag = select(found, 1, 0); returnAggregate [tag, payload]
+  let hit0 : Expr :=
+    .logicalAnd
+      (.compare .ne (.stateLoad 0) (.literal 0))
+      (.compare .eq (.stateLoad 1) (.param 0))
+  let hit1 : Expr :=
+    .logicalAnd
+      (.compare .ne (.stateLoad 3) (.literal 0))
+      (.compare .eq (.stateLoad 4) (.param 0))
+  let found : Expr := .logicalOr hit0 hit1
+  let payload : Expr :=
+    .select hit0 (.stateLoad 2) (.select hit1 (.stateLoad 5) (.literal 0))
+  let tag : Expr := .select found (.literal 1) (.literal 0)
+  let fn : PlanFunction := {
+    index := 0
+    name := "mapGet"
+    kind := .pureHelper
+    params := #[{ sourceIndex := 0, name := "k", isBool := false }]
+    body := #[.returnAggregate #[tag, payload] #[false, false]]
+    resultIsBool := false
+    resultIsUnit := false
+    resultKind := .aggregate #[
+      { isInt := false, byteWidth := 8 },
+      { isInt := false, byteWidth := 8 }
+    ]
+  }
+  let d ← liftResult (lowerFunctionForTestV1 fn true)
+  expect (d.circuitInputs.size == 1) "mapGet has 1 key param"
+  expect (d.circuitOutputs.size == 2) "mapGet returns Option [tag,payload]"
+  let getCount := d.stateCommands.foldl (fun n c =>
+    match c with | .getSelfUserCurrentContractStateSlotSingle _ => n + 1 | _ => n) 0
+  expect (getCount ≥ 4)
+    s!"mapGet must Get map leaves (≥4 distinct occ/key/val uses), got {getCount}"
+  let hasSelect := d.definitions.any (·.opType == .select)
+  let hasEq := d.definitions.any (·.opType == .eq)
+  let hasAnd := d.definitions.any (·.opType == .boolAnd)
+  let hasOr := d.definitions.any (·.opType == .boolOr)
+  expect hasSelect "mapGet must emit Select"
+  expect hasEq "mapGet must emit Eq for key compare"
+  expect hasAnd "mapGet must emit BoolAnd for hit"
+  expect hasOr "mapGet must emit BoolOr for found"
+  expect (d.assertions.isEmpty) "mapGet lookup has no assert"
+
+/-- DPN-5: hand-built Map upsert storeAggregate (cap-2) + map-full assert.
+    Models Plan from mapUpsertLeavesV1 + storeAggregate of 6 leaves. -/
+def testMapUpsertStoreAggregate : IO Unit := do
+  -- Simplified upsert: rewrite slot0 when empty or key match; assert ok.
+  -- anyMatch = occ0≠0 ∧ key0==k
+  -- empty0 = occ0==0
+  -- write0 = anyMatch ∨ empty0
+  -- occ0' = select(write0, 1, occ0) …
+  -- Full product uses 8 slots; this pins the DPN admit surface.
+  let anyMatch : Expr :=
+    .logicalAnd
+      (.compare .ne (.stateLoad 0) (.literal 0))
+      (.compare .eq (.stateLoad 1) (.param 0))
+  let empty0 : Expr := .compare .eq (.stateLoad 0) (.literal 0)
+  let empty1 : Expr := .compare .eq (.stateLoad 3) (.literal 0)
+  let seenEmpty : Expr := .logicalOr empty0 empty1
+  let okInsert : Expr :=
+    .select (.logicalOr anyMatch seenEmpty) (.literal 1) (.literal 0)
+  let write0 : Expr := .logicalOr anyMatch empty0
+  let match1 : Expr :=
+    .logicalAnd
+      (.compare .ne (.stateLoad 3) (.literal 0))
+      (.compare .eq (.stateLoad 4) (.param 0))
+  let firstEmpty1 : Expr := .logicalAnd empty1 (.boolNot empty0)
+  let write1 : Expr :=
+    .logicalOr match1 (.logicalAnd firstEmpty1 (.boolNot anyMatch))
+  let occ0' : Expr := .select write0 (.literal 1) (.stateLoad 0)
+  let key0' : Expr := .select write0 (.param 0) (.stateLoad 1)
+  let val0' : Expr := .select write0 (.param 1) (.stateLoad 2)
+  let occ1' : Expr := .select write1 (.literal 1) (.stateLoad 3)
+  let key1' : Expr := .select write1 (.param 0) (.stateLoad 4)
+  let val1' : Expr := .select write1 (.param 1) (.stateLoad 5)
+  let fn : PlanFunction := {
+    index := 0
+    name := "mapPut"
+    kind := .mutate
+    params := #[
+      { sourceIndex := 0, name := "k", isBool := false },
+      { sourceIndex := 1, name := "v", isBool := false }
+    ]
+    body := #[
+      .assertWithMessage
+        (.compare .eq okInsert (.literal 1))
+        "map full: no empty slot for new key",
+      .storeAggregate #[0, 1, 2, 3, 4, 5]
+        #[occ0', key0', val0', occ1', key1', val1'],
+      .returnValue (.param 1)
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let d ← liftResult (lowerFunctionForTestV1 fn true)
+  expect (d.circuitInputs.size == 2) "mapPut k,v"
+  expect (d.circuitOutputs.size == 1) "mapPut returns value"
+  let setCount := d.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (setCount == 6)
+    s!"mapPut storeAggregate must emit 6 Sets, got {setCount}"
+  let slots := d.stateCommands.filterMap fun
+    | .setContractStateSlotSingle _ sub _ => some sub
+    | _ => none
+  -- multi-leaf sub_slot = fieldIndex+4 → 4..9
+  expect (slots == #[4, 5, 6, 7, 8, 9])
+    s!"mapPut multi-leaf sub_slots 4..9, got {slots}"
+  expect (d.assertions.any (·.message == "map full: no empty slot for new key"))
+    "map full assert must reach DPN assertions"
+  expect (d.definitions.any (·.opType == .select)) "upsert Select present"
+
+/-- DPN-5: Examples/MapMini product Plan → DPN package (24-leaf dense Map).
+    Proves DPN path admits Map where text .psy return-in-if breaks dargo. -/
+unsafe def testMapMiniProductLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src ← IO.FS.readFile "Examples/MapMini.lean"
+  let parsed ← liftResult (← session.selectProgramV1 src "<dpn-map>" "Examples.MapMini" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg.size ≥ 3)
+    s!"MapMini must lower ≥3 methods, got {pkg.map (·.name)}"
+  expect (pkg.any fun f => f.name == "initialize") "must include initialize"
+  expect (pkg.any fun f => f.name == "put") "must include put"
+  expect (pkg.any fun f => f.name == "get") "must include get"
+  -- Init: Map.empty → 24 zero storeAggregate Sets (sub_slots 4..27)
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing initialize"
+  let initSets := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (initSets == 24)
+    s!"MapMini init must 24-leaf Set (cap-8×3), got {initSets}"
+  let initSlots := initDef.stateCommands.filterMap fun
+    | .setContractStateSlotSingle _ sub _ => some sub
+    | _ => none
+  expect (initSlots.size == 24 && initSlots[0]! == 4 && initSlots[23]! == 27)
+    s!"MapMini init sub_slots 4..27, got first={initSlots[0]?} last={initSlots[23]?}"
+  -- put: map-full assert + 24 Sets + return
+  let some putDef := pkg.find? (·.name == "put") |
+    throw <| IO.userError "missing put"
+  let putSets := putDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (putSets == 24)
+    s!"MapMini put must storeAggregate 24 leaves, got {putSets}"
+  expect (putDef.assertions.any (fun a => a.message.contains "map full"))
+    s!"MapMini put must carry map-full assert, got {putDef.assertions.map (·.message)}"
+  expect (putDef.definitions.any (·.opType == .select))
+    "MapMini put upsert must use Select (no return-in-if)"
+  expect (putDef.circuitOutputs.size ≥ 1) "put returns value"
+  -- get: IndexGet→Option + match → Select/eq, no Sets (view reads)
+  let some getDef := pkg.find? (·.name == "get") |
+    throw <| IO.userError "missing get"
+  let getSets := getDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (getSets == 0)
+    s!"MapMini get view must not Set state, got {getSets}"
+  let getGets := getDef.stateCommands.foldl (fun n c =>
+    match c with | .getSelfUserCurrentContractStateSlotSingle _ => n + 1 | _ => n) 0
+  expect (getGets ≥ 8)
+    s!"MapMini get must Get map leaves, got {getGets}"
+  expect (getDef.definitions.any (·.opType == .select))
+    "MapMini get must Select-merge Option match (DPN bypass of .psy return-in-if)"
+  expect (getDef.circuitOutputs.size ≥ 1) "get returns UInt64"
+  -- Encode package must be well-formed JSON (structural, not dargo golden)
+  let encoded := encodePackageCompact pkg
+  match parsePackage? encoded with
+  | none => throw <| IO.userError "MapMini DPN package encode must round-trip parse"
+  | some pkg2 =>
+      expect (pkg2.size == pkg.size) "MapMini encode round-trip size"
+      expect (pkg2.map (·.name) == pkg.map (·.name)) "MapMini encode round-trip names"
+
+/-- DPN-5: Token (Map + supply) product Plan → DPN; proves multi-state Map+scalar. -/
+unsafe def testTokenMapProductLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src ← IO.FS.readFile "Examples/Token.lean"
+  let parsed ← liftResult (← session.selectProgramV1 src "<dpn-token>" "Examples.Token" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg.size ≥ 4)
+    s!"Token must lower ≥4 methods, got {pkg.map (·.name)}"
+  expect (pkg.any fun f => f.name == "initialize") "Token initialize"
+  expect (pkg.any fun f => f.name == "mint" || f.name == "transfer") "Token entry"
+  expect (pkg.any fun f => f.name == "balanceOf" || f.name == "total") "Token view"
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing Token initialize"
+  -- balances 24 leaves + supply 1 = 25 Sets
+  let initSets := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (initSets == 25)
+    s!"Token init Map(24)+supply(1)=25 Sets, got {initSets}"
+
 unsafe def run : IO Unit := do
   testOpTypeDiscriminants
   testEncodeIndexedId
@@ -545,6 +747,10 @@ unsafe def run : IO Unit := do
   testOptionStateProductLower
   testWideCounterDefaultProfileFailClosed
   testWideCounterVmProfileDpnPartial
+  testMapLookupSelectOption
+  testMapUpsertStoreAggregate
+  testMapMiniProductLower
+  testTokenMapProductLower
   IO.println "Tests.Materialization.PsyDpnV1: ok"
 
 end Tests.Materialization.PsyDpnV1
