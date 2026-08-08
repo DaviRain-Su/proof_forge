@@ -12,6 +12,17 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy dynamic Array index + CheckedCast（PSY-INDEX-CAST engineering）
+
+- Array/Bytes IndexGet/IndexSet: compile-time literal path unchanged; runtime
+  UInt index emits `assertWithMessage … "indexOutOfBounds"` then select-fold
+  get/set over fixed leaves (no silent OOB).
+- CheckedCast: narrow UInt/Int{8,16,32} four-way with exact `castOutOfRange`;
+  no silent truncate; UInt64/Int64/wide remain fail closed on Felt domain.
+- Product source still has no cast syntax / Normalize emission (shared residual);
+  runtime index product path pinned in PsySource.
+- Non-claims: not formal Reference refinement / UPS / deploy.
+
 ## 2026-08-08 — Psy Map + named aggregate params（PSY-CONTAINER-ABI engineering）
 
 - Dense `Map UInt64 UInt64` pilot (cap-8 × occ/key/val = 24 Felt leaves): empty

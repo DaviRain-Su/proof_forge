@@ -46,8 +46,9 @@ Plan Expr remains scalar-only: construct/fieldGet/fieldSet/variantTag/
 variantPayload/indexGet/indexSet operate in the lowering value env only.
 PSY-SCALAR-ABI admits fixed Bytes 1..8 as N×UInt8 Felt leaves and
 Principal/String wire identity as len+8×UInt32 (max 32B payload; returns FC
-at 9 > B-RET cap 8). Array/Bytes IndexGet/IndexSet require a compile-time
-UInt literal index. **PSY-CONTAINER-ABI** admits dense `Map UInt64 UInt64`
+at 9 > B-RET cap 8). Array/Bytes IndexGet/IndexSet accept compile-time UInt literals or **runtime**
+UInt indices with exact `indexOutOfBounds` assert (PSY-INDEX-CAST).
+**PSY-CONTAINER-ABI** admits dense `Map UInt64 UInt64`
 state (cap-8 × occ/key/val = 24 Felt leaves; empty + IndexGet→Option +
 IndexSet upsert + atomic storeAggregate) and named Struct/Enum **params** as
 preorder multi-leaf Felt formals. Nested Map, Map return, Map non-UInt64
@@ -1164,6 +1165,74 @@ private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
   | .u32Literal n => pure n.toNat
   | _ =>
       planError "unsupported Psy semantic shape: Array IndexGet/IndexSet requires a compile-time constant index"
+
+/-- Optional compile-time Nat when `v` is a UInt literal index; `none` → runtime. -/
+private def literalIndexNat? (v : LoweredVal) : Option Nat :=
+  if v.isAggregate then none
+  else
+    match v.expr with
+    | .literal n => some n.toNat
+    | .u32Literal n => some n.toNat
+    | _ => none
+
+/-- PSY-INDEX-CAST: bounds assert for dynamic Array/Bytes index. -/
+private def indexOutOfBoundsGuardV1 (index : Expr) (length : Nat) : Statement :=
+  .assertWithMessage
+    (.compare .lt index (.literal (UInt64.ofNat length)))
+    "indexOutOfBounds"
+
+/-- Dynamic IndexGet: left-fold select `eq(idx,i) ? leaf_i : acc` after bounds. -/
+private def dynamicIndexGetExprV1
+    (index : Expr) (leaves : Array Expr) : CompileResult Expr := do
+  unless leaves.size > 0 do
+    planError "unsupported Psy semantic shape: dynamic IndexGet requires a non-empty aggregate"
+  let mut acc : Expr := .literal 0
+  for i in [0:leaves.size] do
+    let some leaf := leaves[i]? |
+      planError "dynamic IndexGet leaf missing"
+    let hit := .compare .eq index (.literal (UInt64.ofNat i))
+    acc := .select hit leaf acc
+  pure acc
+
+/-- Dynamic IndexSet: rebind every leaf via `eq(idx,j) ? value : base[j]`. -/
+private def dynamicIndexSetLeavesV1
+    (index value : Expr) (leaves : Array Expr) : CompileResult (Array Expr) := do
+  unless leaves.size > 0 do
+    planError "unsupported Psy semantic shape: dynamic IndexSet requires a non-empty aggregate"
+  let mut out : Array Expr := #[]
+  for j in [0:leaves.size] do
+    let some baseLeaf := leaves[j]? |
+      planError "dynamic IndexSet leaf missing"
+    let hit := .compare .eq index (.literal (UInt64.ofNat j))
+    out := out.push (.select hit value baseLeaf)
+  pure out
+
+/-- Max exclusive upper bound for unsigned width `w` as Felt-legal Nat.
+    UInt64 is not admitted for CheckedCast on Psy (full 2^64 ⊄ Goldilocks). -/
+private def uintExclusiveBoundNatV1 (bitWidth : Nat) : CompileResult Nat := do
+  match bitWidth with
+  | 8 => pure 256
+  | 16 => pure 65536
+  | 32 => pure 4294967296
+  | _ =>
+      planError s!"unsupported Psy semantic shape: CheckedCast UInt{bitWidth} is outside Psy narrow widths"
+
+/-- Signed two's-complement max (2^{w-1}-1) as Nat. Int64 FC for CheckedCast. -/
+private def intSignedMaxNatV1 (bitWidth : Nat) : CompileResult Nat := do
+  match bitWidth with
+  | 8 => pure 127
+  | 16 => pure 32767
+  | 32 => pure 2147483647
+  | _ =>
+      planError s!"unsupported Psy semantic shape: CheckedCast Int{bitWidth} is outside Psy narrow widths"
+
+private def intTwoComplementMaskNatV1 (bitWidth : Nat) : CompileResult Nat := do
+  match bitWidth with
+  | 8 => pure 255
+  | 16 => pure 65535
+  | 32 => pure 4294967295
+  | _ =>
+      planError s!"unsupported Psy semantic shape: CheckedCast Int{bitWidth} mask outside Psy narrow widths"
 
 private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
   unless bytes.size == 8 do
@@ -2392,12 +2461,21 @@ private partial def lowerRegion
               let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
               env := envInsertVal env valueDef.valueId (mkAggregateVal optLeaves)
             else
-              let i ← literalIndexNatV1 idx
+              unless !idx.isAggregate do
+                planError "unsupported Psy semantic shape: Array/Bytes IndexGet index must be scalar UInt"
               let leaves := base.leafExprs
-              unless i < leaves.size do
-                planError "unsupported Psy semantic shape: IndexGet index out of range"
-              let some leaf := leaves[i]? |
-                planError "IndexGet leaf missing"
+              let leaf ← match literalIndexNat? idx with
+                | some i => do
+                    unless i < leaves.size do
+                      planError "unsupported Psy semantic shape: IndexGet index out of range"
+                    let some e := leaves[i]? |
+                      planError "IndexGet leaf missing"
+                    pure e
+                | none => do
+                    -- PSY-INDEX-CAST: runtime index with exact indexOutOfBounds.
+                    let g := indexOutOfBoundsGuardV1 idx.expr leaves.size
+                    ls := { ls with stmts := ls.stmts.push g }
+                    dynamicIndexGetExprV1 idx.expr leaves
               -- Bytes elements are UInt8; Array UInt64 elements stay scalar Felt.
               match uintWidthOfType data valueDef.typeId with
               | some 8 =>
@@ -2434,18 +2512,26 @@ private partial def lowerRegion
               ls := { ls with stmts := ls.stmts.push fullGuard }
               env := envInsertVal env valueDef.valueId (mkMapPilotVal outLeaves)
             else
-              let i ← literalIndexNatV1 idx
+              unless !idx.isAggregate do
+                planError "unsupported Psy semantic shape: Array/Bytes IndexSet index must be scalar UInt"
               let leaves := base.leafExprs
-              unless i < leaves.size do
-                planError "unsupported Psy semantic shape: IndexSet index out of range"
-              let mut outLeaves : Array Expr := #[]
-              for j in [0:leaves.size] do
-                if j == i then
-                  outLeaves := outLeaves.push val.expr
-                else
-                  let some e := leaves[j]? |
-                    planError "IndexSet leaf missing"
-                  outLeaves := outLeaves.push e
+              let outLeaves ← match literalIndexNat? idx with
+                | some i => do
+                    unless i < leaves.size do
+                      planError "unsupported Psy semantic shape: IndexSet index out of range"
+                    let mut out : Array Expr := #[]
+                    for j in [0:leaves.size] do
+                      if j == i then
+                        out := out.push val.expr
+                      else
+                        let some e := leaves[j]? |
+                          planError "IndexSet leaf missing"
+                        out := out.push e
+                    pure out
+                | none => do
+                    let g := indexOutOfBoundsGuardV1 idx.expr leaves.size
+                    ls := { ls with stmts := ls.stmts.push g }
+                    dynamicIndexSetLeavesV1 idx.expr val.expr leaves
               env := envInsertVal env valueDef.valueId (mkAggregateVal outLeaves)
     | .constant constantId => do
         let constant ← match data.constants[constantId.toNat]? with
@@ -2463,8 +2549,100 @@ private partial def lowerRegion
         validateConstantRepresentabilityV1 data constant.typeId constant.valueBytes
         let value ← lowerLiteralValue data layout constant.typeId constant.valueBytes
         env := envInsertVal env valueDef.valueId value
-    | .checkedCast .. =>
-        planError "unsupported Psy semantic shape: CheckedCast is outside the Psy scalar envelope"
+    | .checkedCast valueId toType => do
+        -- PSY-INDEX-CAST: UInt/Int width casts with exact castOutOfRange assert.
+        -- Felt-carried bit patterns; no silent truncate. Int64 mixed casts FC.
+        match instr.result with
+        | none => planError "unsupported Psy semantic shape: CheckedCast must produce a value"
+        | some valueDef =>
+            unless valueDef.typeId == toType do
+              planError "unsupported Psy semantic shape: CheckedCast result typeId must equal toType"
+            let src ← match envLookup env valueId with
+              | some v => pure v
+              | none => planError "unsupported Psy semantic shape: CheckedCast references undefined value"
+            unless !src.isAggregate && !src.isWideUint do
+              planError "unsupported Psy semantic shape: CheckedCast operand must be a scalar UInt/Int"
+            let srcSigned? : Option Bool :=
+              if src.isNarrow then some false
+              else if src.isNarrowInt then some true
+              else if src.intWidth == 64 then some true
+              else if src.uintWidth == 0 || src.uintWidth == 64 then some false
+              else none
+            let srcW? : Option Nat :=
+              if src.isNarrow then some src.uintWidth
+              else if src.isNarrowInt then some src.intWidth
+              else if src.intWidth == 64 then some 64
+              else if src.uintWidth == 0 || src.uintWidth == 64 then some 64
+              else none
+            let srcSigned ← match srcSigned? with
+              | some b => pure b
+              | none => planError "unsupported Psy semantic shape: CheckedCast source width unresolved"
+            let srcW ← match srcW? with
+              | some w => pure w
+              | none => planError "unsupported Psy semantic shape: CheckedCast source width unresolved"
+            let dstUW? := uintWidthOfType data toType
+            let dstIW? := intWidthOfType data toType
+            let (dstSigned, dstW) ← match dstUW?, dstIW? with
+              | some w, _ =>
+                  unless isNarrowUintWidth w || w == 64 do
+                    planError s!"unsupported Psy semantic shape: CheckedCast to UInt{w} is outside Psy"
+                  pure (false, w)
+              | none, some w =>
+                  unless isNarrowIntWidth w || w == 64 do
+                    planError s!"unsupported Psy semantic shape: CheckedCast to Int{w} is outside Psy"
+                  pure (true, w)
+              | none, none =>
+                  planError "unsupported Psy semantic shape: CheckedCast destination must be UInt/Int"
+            unless srcW != 64 && dstW != 64 do
+              planError "unsupported Psy semantic shape: CheckedCast involving UInt64/Int64 remains fail closed on Psy Felt (no full 2^64 domain)"
+            let srcE := src.expr
+            if !srcSigned && !dstSigned then
+              let bound ← uintExclusiveBoundNatV1 dstW
+              let guard : Statement :=
+                .assertWithMessage
+                  (.compare .lt srcE (.literal (UInt64.ofNat bound)))
+                  "castOutOfRange"
+              ls := { ls with stmts := ls.stmts.push guard }
+              env := envInsertNarrow env valueDef.valueId dstW srcE
+            else if srcSigned && dstSigned then
+              if srcW == dstW || srcW < dstW then
+                env := envInsertVal env valueDef.valueId (mkNarrowIntVal dstW srcE)
+              else
+                let maxD ← intSignedMaxNatV1 dstW
+                let maskD ← intTwoComplementMaskNatV1 dstW
+                let negStart : Nat :=
+                  match srcW, dstW with
+                  | 16, 8 => 65408
+                  | 32, 8 => 4294967168
+                  | 32, 16 => 4294934528
+                  | _, _ =>
+                      (Nat.pow 2 srcW) - (Nat.pow 2 (dstW - 1))
+                let inRange :=
+                  .logicalOr
+                    (.compare .le srcE (.literal (UInt64.ofNat maxD)))
+                    (.compare .ge srcE (.literal (UInt64.ofNat negStart)))
+                let guard : Statement := .assertWithMessage inRange "castOutOfRange"
+                ls := { ls with stmts := ls.stmts.push guard }
+                let truncated := .bitAnd srcE (.literal (UInt64.ofNat maskD))
+                env := envInsertVal env valueDef.valueId (mkNarrowIntVal dstW truncated)
+            else if !srcSigned && dstSigned then
+              let maxD ← intSignedMaxNatV1 dstW
+              let guard : Statement :=
+                .assertWithMessage
+                  (.compare .le srcE (.literal (UInt64.ofNat maxD)))
+                  "castOutOfRange"
+              ls := { ls with stmts := ls.stmts.push guard }
+              env := envInsertVal env valueDef.valueId (mkNarrowIntVal dstW srcE)
+            else
+              let maxS ← intSignedMaxNatV1 srcW
+              let boundD ← uintExclusiveBoundNatV1 dstW
+              let inRange :=
+                .logicalAnd
+                  (.compare .le srcE (.literal (UInt64.ofNat maxS)))
+                  (.compare .lt srcE (.literal (UInt64.ofNat boundD)))
+              let guard : Statement := .assertWithMessage inRange "castOutOfRange"
+              ls := { ls with stmts := ls.stmts.push guard }
+              env := envInsertNarrow env valueDef.valueId dstW srcE
     -- N5: Psy declines both ContextRead and Commit (policy none).
     | .contextRead .. =>
         planError "unsupported Psy semantic shape: ContextRead is not admitted by pilot context policy"

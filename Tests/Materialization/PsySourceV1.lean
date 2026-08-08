@@ -1509,6 +1509,52 @@ unsafe def testNestedMapFailClosed : IO Unit := do
           throw <| IO.userError
             "Psy nested Map state must fail closed (CONTAINER-ABI admits only Map UInt64 UInt64)"
 
+/-- PSY-INDEX-CAST: runtime Array index with exact indexOutOfBounds guard. -/
+unsafe def testDynamicArrayIndexLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayIdx where\n" ++
+    "  state slots : Array UInt64 3\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "    slots[2] := 0\n" ++
+    "  entry getAt(i : UInt32) : UInt64 do\n" ++
+    "    return slots[i]\n" ++
+    "  entry setAt(i : UInt32, v : UInt64) : UInt64 do\n" ++
+    "    slots[i] := v\n" ++
+    "    return slots[i]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-array-idx>" "Tests.PsyArrayIdx" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  expect (plan.stateFieldNames.size == 3)
+    s!"ArrayIdx must flatten to 3 leaves, got {plan.stateFieldNames.size}"
+  let some getAt := plan.functions.find? (·.name == "getAt") |
+    throw <| IO.userError "missing getAt"
+  let hasBounds :=
+    getAt.body.any fun s =>
+      match s with
+      | .assertWithMessage _ msg => msg == "indexOutOfBounds"
+      | _ => false
+  expect hasBounds "getAt must emit indexOutOfBounds assert for runtime index"
+  let some setAt := plan.functions.find? (·.name == "setAt") |
+    throw <| IO.userError "missing setAt"
+  let setBounds :=
+    setAt.body.any fun s =>
+      match s with
+      | .assertWithMessage _ msg => msg == "indexOutOfBounds"
+      | _ => false
+  expect setBounds "setAt must emit indexOutOfBounds assert for runtime index"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "ArrayIdx.psy") |
+    throw <| IO.userError "psy: missing ArrayIdx.psy"
+  expect (psyFile.contents.contains "indexOutOfBounds")
+    "indexOutOfBounds message must reach emitted Psy source"
+
 /-- if/else multi-block control flow renders as a Psy if-else. -/
 unsafe def testIfElseControlFlow : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -2782,6 +2828,7 @@ unsafe def run : IO Unit := do
   testMapStateLowered
   testNamedStructParamLowered
   testNestedMapFailClosed
+  testDynamicArrayIndexLowered
   testIfElseControlFlow
   testMatchStatement
   testBoundedFor
