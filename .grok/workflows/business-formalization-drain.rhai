@@ -70,15 +70,19 @@ while i < max_slices {
         let path = write_scratch_file("report.md", report);
         complete(#{ status: "program_complete", done_ids: done_ids, report_path: path });
     }
-    if r.output.status == "blocked" || r.output.blockers.len() > 0 {
+    let blockers = r.output.blockers;
+    let has_blockers = blockers != () && type_of(blockers) == "array" && blockers.len() > 0;
+    if r.output.status == "blocked" || has_blockers {
         let report = "# business-formalization-drain\n\nBlocked on " + r.output.slice_id
             + "\n\n" + json_encode(r.output);
         let path = write_scratch_file("report.md", report);
-        complete(#{ status: "blocked", slice_id: r.output.slice_id, done_ids: done_ids, report_path: path, blockers: r.output.blockers });
+        complete(#{ status: "blocked", slice_id: r.output.slice_id, done_ids: done_ids, report_path: path, blockers: blockers });
     }
-    if r.output.status == "committed" || r.output.commit != "" {
+    let commit = r.output.commit;
+    let has_commit = commit != () && type_of(commit) == "string" && commit != "";
+    if r.output.status == "committed" || has_commit {
         done_ids.push(r.output.slice_id);
-        log("Committed " + r.output.slice_id + " @ " + r.output.commit);
+        log("Committed " + r.output.slice_id + " @ " + commit);
     } else {
         let report = "# business-formalization-drain\n\nUnexpected status\n\n" + json_encode(r.output);
         let path = write_scratch_file("report.md", report);

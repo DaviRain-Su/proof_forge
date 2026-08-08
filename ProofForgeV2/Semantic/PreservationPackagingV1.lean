@@ -10,6 +10,20 @@ import ProofForgeV2.Semantic.ReferenceV1
   mentioning EvenCounter constants. Instance modules (e.g. EvenCounter) must
   call these lemmas directly — no defeq-safe local aliases.
 
+  ## Author recipe (unpinned / arbitrary contracts)
+
+  ```text
+  theorem AuthorThm : P.ProofPreserving.inv := by
+    -- Goal: PreservationTheoremV1 P.Proof.subjectProgramV1 ordinal
+    -- Use packaging lemmas + program-specific step facts; do NOT require
+    -- ClosedSubjectPinV1 table membership.
+    ...
+  ```
+
+  ClosedSubjectPin is optional golden exact-defeq only. Transport between
+  byte-identical subjects (when a package theorem exists) is
+  instance-local (e.g. EvenCounter `preservation_theorem_of_eq_bytes`).
+
   Engineering only (track 1 business formalization packaging). Does not add a
   second State/Effect/step machine. Sole L1 step authority remains
   admitReferenceProgramSliceV1 + stepReferenceSliceV1. Pin is not required.

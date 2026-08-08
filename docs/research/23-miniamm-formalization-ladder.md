@@ -232,8 +232,8 @@ alias/negative/identity 回归不等于该实例已完成。
 | Generic Preservation ABI foundation | **done** — positive initial/admission + base/step/full Outcome |
 | ProofKind/inventory/certifier plumbing | **done** — bare holds；preserving kind；无 2-field fallback |
 | EvenCounter preserving product positive | **done（2026-08-08）** — `EvenCounterPreservationV1` + ClosedSubjectPin + InlineProofCertifier |
-| Packaging lemmas / 非 pin author 路径 | **next** — 见 §5.2 |
-| 第二非 AMM 实例 | **deferred** — 通用性回归，不抢 generic 硬化 |
+| Packaging lemmas / 非 pin author 路径 | **done（2026-08-09）** — `PreservationPackagingV1` + `ClosedSubjectPinV1` 非 pin 纪律 + suite |
+| 第二非 AMM 实例 | **deferred** — 通用性回归 |
 
 #### 5.1.1 MiniAmm Reference admission（Map budget 已切 Wire-envelope）
 
@@ -269,8 +269,8 @@ alias/negative/identity 回归不等于该实例已完成。
 |---|---|
 | **ProofKind/inventory/certifier cutover** | **done** — `holds \| preserving`、`(inv,kind)` exact inventory、kind-aware expected Prop/cert digest；ADR-0027 仍 base authority |
 | **EvenCounter 首个端到端实例** | **done（2026-08-08）** — 完整 `PreservationTheoremV1` + product certified；见 ADR-0034 D9/D10 |
-| **Packaging lemmas / 非 pin 路径** | 从 EvenCounter 抽出可复用 Reference packaging lemmas；任意合约对 `subjectProgramV1` 证明，不强制 pin |
-| **第二非 AMM 实例** | 用不同 P 复挂同一 ABI/certifier，证明非单例硬编码（deferred 通用性回归） |
+| **Packaging lemmas / 非 pin 路径** | **done** — `PreservationPackagingV1`；pin 仅 golden；见 `Tests.Semantic.ClosedSubjectPinV1` |
+| **第二非 AMM 实例** | 用不同 P 复挂同一 ABI/certifier（deferred 通用性回归） |
 | **然后 MiniAmm P1** | 在已 admitted MiniAmm 上加入 executable invariant 与真实 Reference proof/traces；无特例；**仍非** formal TASK |
 
 ### 5.3 L1-B — MiniAmm P1 完整保持（依赖 kind/certifier + 两个通用实例门）

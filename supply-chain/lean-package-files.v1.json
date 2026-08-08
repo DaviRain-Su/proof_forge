@@ -261,9 +261,9 @@
       "sha256": "5de58d3d646f2d1c3c6618005b9f3e47deb58c5b4dba84b0e76e6976a5d0a0c3"
     },
     {
-      "bytes": 40273,
+      "bytes": 38351,
       "path": "ProofForgeV2/ProofInstances/EvenCounterPreservationV1.lean",
-      "sha256": "dd010cf142750c76d1aa1262012c56827b23cbbae8ced92d006bce7abec65d9a"
+      "sha256": "6979262835206116e63878b1f6b4548f88ba78e4eb486054f0f46cec7a94f0aa"
     },
     {
       "bytes": 28192,
@@ -276,9 +276,9 @@
       "sha256": "219bb09ae2700d055320076d0c38c4236c22a50735cbb89f3b7db3687940df1a"
     },
     {
-      "bytes": 2258,
+      "bytes": 3070,
       "path": "ProofForgeV2/Semantic/ClosedSubjectPinV1.lean",
-      "sha256": "1d4db13a3d8e66d3cc8d299a076b4a8a7102777ddfbace41df4012f0a35c30b8"
+      "sha256": "76a71ccf265e9c9923c11f82ec718b215792f78f1cb0b84474f88b74c765c50b"
     },
     {
       "bytes": 3891,
@@ -306,9 +306,9 @@
       "sha256": "554ff3a7972d11eec1413494f55bf28a746dc556d867008bf87d4a18fd668266"
     },
     {
-      "bytes": 5018,
+      "bytes": 5643,
       "path": "ProofForgeV2/Semantic/PreservationPackagingV1.lean",
-      "sha256": "83e8acd05ccec69fb19b8dcfa8cba1c64804e64717ad99e5cc23028760da433b"
+      "sha256": "e8439c930b14330d5d1c966ef9b2e86a2e9d364119946ae6caafe431655a10dd"
     },
     {
       "bytes": 5348,

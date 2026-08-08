@@ -552,8 +552,9 @@ theorem AuthorThm : P.ProofPreserving.inv := by
    纪律由 certifier 强制；多参 `Term.app` 等表面失败 closed。
 4. **不声称**：reachability 闭包、多步归纳、target refinement、formal TASK 关闭。
 
-**下一步（业务轨道，非立刻第二实例）**：从 EvenCounter 抽出可复用 Reference packaging
-lemmas；硬化非 pin 路径的 author 挂载；第二非 AMM 实例作通用性回归；MiniAmm 最后。
+**下一步（业务轨道）**：第二非 AMM 实例作通用性回归（deferred）；MiniAmm 最后。
+**已交付 packaging/unpin**：`PreservationPackagingV1` + EvenCounter 直连消费 + 非 pin
+author 路径文档/`Tests.Semantic.ClosedSubjectPinV1`。
 
 ## 与 ADR-0027 / research-023 的关系
 
@@ -616,20 +617,20 @@ lemmas；硬化非 pin 路径的 author 挂载；第二非 AMM 实例作通用�
    `ProofPreserving.<Inv>` preserving；共享 `Proof.subjectProgramV1`；simple-closure helper holds-only。
 4. **已完成 — EvenCounter product positive（2026-08-08）**：closed bytes +
    `preservation_theorem` + ClosedSubjectPin + product `exact` body → `.certified`。
-5. **下一步（业务轨道）**：从 EvenCounter 抽出可复用 Reference packaging lemmas；
-   硬化非 pin 任意合约 author 路径；文档/主路径保持诚实。
-6. 第二非 AMM 实例复挂（通用性回归；**不** 抢在 generic 硬化之前）。
+5. **已完成 — packaging + non-pin（2026-08-09）**：`PreservationPackagingV1`；
+   EvenCounter 直连消费；ClosedSubjectPin 非 pin author 路径文档 +
+   `Tests.Semantic.ClosedSubjectPinV1`。
+6. 第二非 AMM 实例复挂（通用性回归；**deferred**）。
 7. 完整 acceptance + 文档：ADR-0027 → `superseded` / `successor=ADR-0034`（**仅此时**）。
 8. （更后）MiniAmm 复用已 admitted product program 与 **同一** ABI。
 
 ## 状态
 
-- `proposed` / ABI + kind plumbing + **EvenCounter preserving product positive GREEN** /
-  第二实例与 supersession pending / 2026-08-08
-- 已交付：本文、`PreservationABI.lean`、`ProofKindV1` 三字段 wire、bare/preserving syntax、
-  `(inv,kind)` inventory、`Proof`/`ProofPreserving` aliases、kind-bound protocol/digests/certifier、
-  focused identity/tamper tests、`EvenCounterV1`/`EvenCounterPreservationV1`/`ClosedSubjectPinV1`、
-  `Tests.Compiler.InlineProofCertifierV1` EvenCounter preserving positive；
+- `proposed` / ABI + kind plumbing + EvenCounter product GREEN + packaging/non-pin GREEN /
+  第二实例与 supersession pending / 2026-08-09
+- 已交付：本文、`PreservationABI.lean`、`ProofKindV1` plumbing、EvenCounter product positive、
+  `PreservationPackagingV1`、ClosedSubjectPin 非 pin 纪律、`Tests.Semantic.ClosedSubjectPinV1`、
+  Goal `prompt-business-formalization` + drain workflow；
   **ADR-0027 保持 `proposed`，无 successor/横幅**
 - 未交付：第二非 AMM 实例、MiniAmm P1、formal/product maturity 与 ADR supersession
 - 禁止：修改 Reference 机器或加入 MiniAmm 特例；禁止预填 0027 supersession；禁止把 pin

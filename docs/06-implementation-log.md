@@ -12,6 +12,16 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-09 — packaging/non-pin + autonomous drain Goal/workflow（engineering）
+
+- **bf-pack-1/2**：`PreservationPackagingV1` 抽出 failure-arm / returned-gate / post=pre /
+  uint64 size packaging；EvenCounter 删除 thin alias，直连共享 lemmas；product certifier 仍 GREEN。
+- **bf-unpin-1**：ClosedSubjectPin / packaging 模块明确非 pin 主路径；
+  `Tests.Semantic.ClosedSubjectPinV1`（exact pin / miss / eq-bytes transport 无 pin API）。
+- **自治入口**：`.grok/goals/prompt-business-formalization.md`（drain Goal）、
+  `business-formalization-drain` workflow、`.grok/business-formalization-queue.md`。
+- **边界**：第二非 AMM deferred；不 supersede ADR-0027；不 formal 关闭。
+
 ## 2026-08-08 — EvenCounter L1 preserving product positive + 业务形式化主路径文档（engineering）
 
 - **代码（已合入，此前 commits）**：

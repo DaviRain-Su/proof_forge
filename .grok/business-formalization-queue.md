@@ -18,8 +18,8 @@
 |---|---|---|
 | bf-pack-1 | done | Extract **program-agnostic** preservation packaging lemmas from `EvenCounterPreservationV1` into a new shared module under `ProofForgeV2/Semantic/` (suggested name `PreservationPackagingV1.lean`). Candidates: gate-ready packaging from returned outcomes, post=pre returned arm, uint64 size-from-validate, failure-arm / Outcome unchanged helpers that do not mention EvenCounter constants. Import from ProofInstances; keep EvenCounter product GREEN. **GREEN 2026-08-09** committed: `PreservationPackagingV1` + EvenCounter thin wrappers + SBOM pin + focused lake builds exit 0. |
 | bf-pack-2 | done | Refactor `EvenCounterPreservationV1` to **consume** shared packaging lemmas; delete duplicate instance-local copies when defeq-safe; `lake build` instance + `Tests.Compiler.InlineProofCertifierV1` still GREEN. **GREEN 2026-08-09** uncommitted per runner: deleted thin aliases (`preservation_step_failure_arms` / `step_returned_implies_gate_ready` / `preservation_step_returned_post_eq_pre`); step/get-returned call packaging directly; focused lake builds exit 0. |
-| bf-unpin-1 | pending | Harden **non-pin** author path: document + (if needed) test that unpinned programs prove `PreservationTheoremV1 subjectProgramV1 ordinal` via generic/eq-bytes lemmas without requiring `ClosedSubjectPinV1` table growth. Pin remains golden accelerator only. |
-| bf-docs-1 | pending | Sync INV-2 / Agents Active·Next / ADR-0034 status / research-023 after packaging + unpin slices; `just docs-check`; no formal overclaim. |
+| bf-unpin-1 | done | Harden **non-pin** author path: document + test that unpinned programs prove via packaging / eq-bytes without pin table growth. Pin remains golden accelerator only. **GREEN 2026-08-09**: ClosedSubjectPin/PreservationPackaging author recipe docs; `Tests.Semantic.ClosedSubjectPinV1` pin miss + eq-bytes transport. |
+| bf-docs-1 | done | Sync INV-2 / Agents Active·Next / ADR-0034 status after packaging + unpin; `just docs-check`; no formal overclaim. **GREEN 2026-08-09** docs + Goal/workflow autonomous drain entry. |
 
 ## Done criteria (program complete)
 

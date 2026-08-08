@@ -11,13 +11,28 @@ import ProofForgeV2.ProofInstances.EvenCounterV1
   author theorems can `exact` instance-level `PreservationTheoremV1` /
   `InvariantTheoremV1` proofs without large spine reduction.
 
+  ## Non-pin author path (primary for arbitrary contracts)
+
+  Pin is an **optional golden accelerator**, not the product obligation surface.
+
+  1. **Unpinned program** (no table row): elaborator emits a structural
+     `subjectBytesV1` spine. Certifier follows product `subjectBytesV1` →
+     structural decode (no pin hop). Authors prove
+     `PreservationTheoremV1 subjectProgramV1 ordinal` with
+     `PreservationPackagingV1` lemmas + instance-specific step packing, or
+     transport via byte-equality (e.g. `preservation_theorem_of_eq_bytes`
+     when a closed package theorem exists for matching bytes).
+  2. **Pinned golden** (exact byte match): elaborator aliases
+     `subjectBytesV1` to the shared pin constant; certifier may take **one**
+     pin-name hop for identity. Convenience only.
+  3. **Never** grow the pin table as the only way to prove a new contract.
+
   **Product env coupling:** the product session imports only
   `ProgramElaborationV1` (and its transitive graph). Closed-instance *proof*
   modules (e.g. `EvenCounterPreservationV1`) must therefore be imported from
   this pin module (or another ProgramElaboration dependency) so author
   theorems can name them. New closed instances: add pin row + import proof
-  module. Unpinned / arbitrary contracts need no pin; authors prove against
-  `subjectProgramV1` with generic lemmas.
+  module **only when** golden exact-defeq is wanted.
 
   Engineering table only — not formal completeness of all contracts.
 -/

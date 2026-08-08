@@ -33,6 +33,7 @@ import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.PreservationABI
+import Tests.Semantic.ClosedSubjectPinV1
 import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ProofBridgeV1
 import Tests.Semantic.ProofedCertV1
@@ -198,6 +199,7 @@ private unsafe def runSemanticTests : IO Unit := do
   Tests.Semantic.WireV1.run
   Tests.Semantic.InvariantABI.run
   Tests.Semantic.PreservationABI.run
+  Tests.Semantic.ClosedSubjectPinV1.run
   Tests.Semantic.ProofBridgeV1.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.MiniAmmVectorsV1.run
