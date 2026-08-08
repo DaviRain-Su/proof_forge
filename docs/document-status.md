@@ -38,12 +38,13 @@ leaves 的产品范围 reconciliation 仍待 **`DOC-ADR-SCOPE`**，不得静默�
 （`proposed`）仍冻结 inline same-file gate 的 single-snapshot/audit/axiom/proof-first 基线；
 **ADR-0034**（`proposed`）的 generic Preservation ABI 与 `ProofKindV1`/三字段 wire/
 `(inv,kind)` inventory/双 alias/kind-bound protocol+certifier plumbing 已 engineering 接线，
-**EvenCounter 首个 preserving product `check` certified positive 已于 2026-08-08 闭合**
+**EvenCounter 首个 preserving product `check` certified positive 已于 2026-08-08 闭合**，
+**ZeroCounter 第二非 AMM 实例（P=`count==0`）preserving product positive 已于 2026-08-09 闭合**
 （业务逻辑形式化 track 1；sole step = product Reference；ClosedSubjectPin 仅为 closed golden
-加速），且不 supersede 0027。产品 CLI sole proof path 仍是 inventory + `certifyInlineProofV1`
-（`--proof-bundle*` 删除）。holds simple-closure positive 与 preserving EvenCounter positive
-均已闭合；第二非 AMM 实例 / supersession / formal 仍 pending。全部仍非 formal/hermetic/release，
-且不声称 target refinement 或任意合约自动可证。
+加速；wave-2 通用性门 drained），且不 supersede 0027。产品 CLI sole proof path 仍是 inventory +
+`certifyInlineProofV1`（`--proof-bundle*` 删除）。holds simple-closure positive 与
+EvenCounter/ZeroCounter preserving positive 均已闭合；ADR-0027 supersession / MiniAmm P1 /
+formal 仍 pending。全部仍非 formal/hermetic/release，且不声称 target refinement 或任意合约自动可证。
 下表中的 task/evidence 文档继续保存历史 release-qualification 权威，但不再作为
 development completion 的前置条件。
 

@@ -12,26 +12,38 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-09 — ZeroCounter wave-2 bf2-docs（第二实例文档收口）
+
+- 同步 INV-2 / Agents Active·Next / ADR-0034 D9–D10·状态·实现切片 / research-023 §0–§5.7 /
+  document-status / index / adr README：ZeroCounter（P=`count==0`）product GREEN；
+  wave-2 通用性门 drained；下一步 MiniAmm P1。
+- 队列 `bf2-docs` done；wave1+wave2 全 done。**不** supersede ADR-0027；**不** formal 关闭。
+
+## 2026-08-09 — ZeroCounter wave-2 bf2-product（product pin + certifier positive）
+
+- 对齐 closed ZeroCounter semantic 与 product Normalize（1306B，sole `state.persistent`）。
+- ClosedSubjectPin 注册 ZeroCounter golden；`InlineProofCertifierV1` product-positive
+  `exact …ZeroCounterPreservationV1.preservation_theorem`。
+- EvenCounter product path 仍 GREEN；无第二 step 机器。队列 `bf2-product` done。
+
 ## 2026-08-09 — ZeroCounter wave-2 bf2-preserve（PreservationTheoremV1）
 
-- `ZeroCounterDecodeV1`：1499-byte spine production decode bridge（`decode_ok`）。
+- `ZeroCounterDecodeV1`：production decode bridge（`decode_ok`；后续 bf2-product 对齐 1306B）。
 - ReferenceMachine 增补：`runInvariantCallableV1_eq_returnedTrue_of_uint64_eq_zero` /
   `…_returnedFalse_of_uint64_ne_zero`；clear micro-path
   `runMachine_clear_store_zero_return` + `stepReferenceSliceV1_ready_clear_*`。
 - `ZeroCounterPreservationV1`：base + full `PreservationStepV1` +
   `preservation_theorem` / `of_eq_bytes`（sole Reference step；reuse packaging）。
-- EvenCounter product certifier 仍 build GREEN。队列 `bf2-preserve` done；
-  下一步 bf2-product。**不** MiniAmm；**不** supersede ADR-0027。
+- EvenCounter product certifier 仍 build GREEN。队列 `bf2-preserve` done。
 
 ## 2026-08-09 — ZeroCounter wave-2 bf2-data（第二非 AMM 实例起步）
 
 - 新 closed instance `ProofForgeV2/ProofInstances/ZeroCounterV1.lean`：
   `Root.ZeroCounter`，业务 P = `count == 0`（**非** EvenCounter 偶数）；
-  entry `clear` store-0、view `get`、invariant `zero`；1499-byte spine；
+  entry `clear` store-0、view `get`、invariant `zero`；后续 bf2-product 对齐 1306B spine；
   `structure_ok` + `encode_ok` + Reference `admission_bool` decide。
-- Suite `Tests.Semantic.ZeroCounterV1`；umbrella import；SBOM 250。
-- 队列 wave2：`bf2-data` done；随后 `bf2-preserve` 已闭合（见上条）。
-- **不** MiniAmm；**不** supersede ADR-0027。
+- Suite `Tests.Semantic.ZeroCounterV1`；umbrella import；SBOM 刷新。
+- 队列 wave2：`bf2-data` done。**不** MiniAmm；**不** supersede ADR-0027。
 
 ## 2026-08-09 — packaging/non-pin + autonomous drain Goal/workflow（engineering）
 
@@ -41,7 +53,7 @@ normative: false
   `Tests.Semantic.ClosedSubjectPinV1`（exact pin / miss / eq-bytes transport 无 pin API）。
 - **自治入口**：`.grok/goals/prompt-business-formalization.md`（drain Goal）、
   `business-formalization-drain` workflow、`.grok/business-formalization-queue.md`。
-- **边界**：第二非 AMM deferred；不 supersede ADR-0027；不 formal 关闭。
+- **边界（历史本条）**：当时第二非 AMM 仍 deferred；现已由 wave-2 闭合。不 supersede ADR-0027；不 formal 关闭。
 
 ## 2026-08-08 — EvenCounter L1 preserving product positive + 业务形式化主路径文档（engineering）
 

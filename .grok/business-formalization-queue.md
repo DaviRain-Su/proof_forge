@@ -28,11 +28,15 @@
 | bf2-data | done | Closed `ZeroCounterV1` data + product-aligned spine (1306B sole `state.persistent`) + `structure_ok` + `encode_ok` + admission decide; different P from EvenCounter; suite `Tests.Semantic.ZeroCounterV1` |
 | bf2-preserve | done | `ZeroCounterPreservationV1`: base + full `PreservationStepV1` + `preservation_theorem` reusing packaging; no second step machine |
 | bf2-product | done | Product source alignment (1306B) + ZeroCounter ClosedSubjectPin + InlineProofCertifier product-positive (`exact` preservation_theorem); EvenCounter remains GREEN |
-| bf2-docs | pending | INV-2 / Agents / ADR-0034 / research-023 second-instance status; docs-check |
+| bf2-docs | done | INV-2 / Agents / ADR-0034 / research-023 second-instance status; docs-check |
 
 ## Done criteria (wave 2)
 
 All bf2-* `done`, EvenCounter still GREEN, ZeroCounter preserving product certified (or explicit partial bar documented), ADR-0027 not superseded.
+
+## Post wave-2
+
+Wave1+wave2 drained. Next business-track work is **MiniAmm P1** (ordinary instance on same ABI; no platform special-case; do not supersede ADR-0027). No new queue rows until human/Goal opens wave-3.
 
 ## Runner notes
 

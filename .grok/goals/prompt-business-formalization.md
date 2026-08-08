@@ -65,9 +65,10 @@
 
 ## 队列（顺序固定）
 
-先读 `.grok/business-formalization-queue.md` **全部 wave**。Wave1 应已 done。
-**当前 wave2**：`bf2-data` → `bf2-preserve` → `bf2-product` → `bf2-docs`
-（ZeroCounter，P=`count==0`，非 EvenCounter 偶数）。
+先读 `.grok/business-formalization-queue.md` **全部 wave**。Wave1+wave2 应已 done
+（EvenCounter packaging/unpin/docs + ZeroCounter data/preserve/product/docs）。
+若队列清空：`status=program_complete`；下一业务轨是 MiniAmm P1（**不在** 本 queue 除非
+人类新增 wave-3 行）。**不** supersede ADR-0027。
 
 ## 队列（历史 wave1 顺序）
 

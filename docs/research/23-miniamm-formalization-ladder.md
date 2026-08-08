@@ -3,7 +3,7 @@ id: RESEARCH-023
 title: 通用程序形式化栈（L0–L2）与 MiniAmm 后续实例
 status: draft
 owner: engineering
-updated: 2026-08-08
+updated: 2026-08-09
 normative: false
 ---
 
@@ -16,20 +16,23 @@ normative: false
 >
 > **产品立场**：统一源语言与共享证明 **形状 / 门禁**；每个 `program` **实例化**
 > 自己的状态、谓词 P 与保持义务。L1 首个通用端到端实例按 ADR-0034 选
-> **EvenCounter**（**2026-08-08 product GREEN**）；MiniAmm 在同一 ABI 上作为后续业务
-> 实例，不获得平台特例。
+> **EvenCounter**（**2026-08-08 product GREEN**）；第二非 AMM 通用性实例
+> **ZeroCounter**（P=`count==0`；**2026-08-09 product GREEN**）；MiniAmm 在同一 ABI
+> 上作为后续业务实例，不获得平台特例。
 >
 > **两条形式化账本**（见 ADR-0034 D10）：
-> (1) **业务逻辑** — program invariant/preservation（本文件主线；EvenCounter L1 positive 已 GREEN）；
-> (2) **工具内部** — compiler/Reference/wire formal TASK/TST（独立 ledger，不因 EvenCounter 关闭）。
+> (1) **业务逻辑** — program invariant/preservation（本文件主线；EvenCounter + ZeroCounter
+>     L1 positive 已 GREEN）；
+> (2) **工具内部** — compiler/Reference/wire formal TASK/TST（独立 ledger，不因实例正例关闭）。
 >
 > **L1 路线（Reference-first）**：HEAD 上手写 L1-A Semantic sketch 已删除。禁止第二套 step；
 > 业务保持挂在 admitted `Reference` / 产品 Semantic 上。ClosedSubjectPin 仅为 closed golden
 > 加速，**不是**任意合约唯一通道。
 >
 > 对齐：ADR-0027（当前 inline base authority）、ADR-0034（`proposed`；ABI + kind plumbing +
-> EvenCounter preserving product positive GREEN；第二实例/supersession pending；**不** supersede
-> 0027）、[`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)、
+> EvenCounter + ZeroCounter preserving product positive GREEN；wave-2 通用性门闭合；
+> supersession/MiniAmm P1 pending；**不** supersede 0027）、
+> [`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)、
 > Examples `MiniAmm` / `MiniAmmProofSurface`；共享数学向量 `Tests/Semantic/MiniAmmVectorsV1`。
 
 **非 formal**：本文件不关闭 TASK-D2-07 / TST-SEM-002/003 / TST-PROOF-001。
@@ -50,7 +53,7 @@ normative: false
                             │ 实例化（每 program 自己的 P）
          ┌──────────────────┼──────────────────┐
          ▼                  ▼                  ▼
-    EvenCounter（首个）  第二非 AMM 实例       MiniAmm / 后续合约 …
+    EvenCounter（首个）  ZeroCounter（第二）   MiniAmm / 后续合约 …
 ```
 
 | 层级 | 通用？ | 内容 |
@@ -58,13 +61,13 @@ normative: false
 | L0 语法与 CLI 门 | **是** | 任意符合族的 program 名/模块都可 certified |
 | L0 simple-closure 形状 | **是** | `view Bool true` + `invariant : true` + generated helper |
 | L1 **义务形状** | **是（foundation 已实现）** | `PreservationTheoremV1` = ordinal + positive admission + base + full-input product `step` |
-| L1 **P 内容** | **否（每程序）** | MiniAmm 的 empty-pool / swap 公式；Counter 的别的 P |
+| L1 **P 内容** | **否（每程序）** | MiniAmm 的 empty-pool / swap 公式；EvenCounter 偶数；ZeroCounter `count==0` |
 | L1 **step 权威** | **是（产品）** | sole admitted `Reference` / Semantic；**禁止** 第二套手写 step |
 | L2 / 项目 formal | **是（平台轨道）** | 延后；不绑死某个 Example |
 
 **验收通用性**：**EvenCounter** 首个端到端 preserving product positive **已闭合**；
-随后再用第二个非 AMM program 复用同一挂载方式（仍 pending）。MiniAmm 位于通用性门之后。
-当前业务轨道优先：generic packaging lemmas / 非 pin author 路径硬化，不抢第二实例。
+**ZeroCounter**（P=`count==0`）第二非 AMM 实例 **已闭合**（2026-08-09；wave-2 drained）。
+MiniAmm 位于通用性门之后，作为普通业务实例复用同一 ABI。
 
 ---
 
@@ -73,7 +76,7 @@ normative: false
 | 层 | 名称 | 命题直觉 | 当前工程状态 |
 |---|---|---|---|
 | **L0** | 证明表面 / simple-closure | 可认证的 `invariant : true` + 同文件 theorem | **已接线**；样例：`MiniAmmProofSurface`（任意程序可仿）；**当前产品 authority 仍为 ADR-0027** |
-| **L1** | 业务保持 | 对 **该程序** 的 P：positive initial/admission + **product Reference step** 后保持 | **ABI + kind plumbing + EvenCounter product positive GREEN**（`PreservationABI` / `EvenCounterPreservationV1`；无第二 step）；下一步 = packaging lemmas / 非 pin 路径 + 第二非 AMM 实例；MiniAmm P1 后置 |
+| **L1** | 业务保持 | 对 **该程序** 的 P：positive initial/admission + **product Reference step** 后保持 | **ABI + kind plumbing + EvenCounter + ZeroCounter product positive GREEN**（`PreservationABI` / packaging / 无第二 step）；下一步 = MiniAmm P1 普通业务实例；ADR-0027 supersession 独立 pending |
 | **L2** | 项目 formal | formal step corpus、target refine、hermetic/release | **最后**（工具 track 2）；与单合约 L1 分账 |
 
 ### 1.1 共享 L0 ABI（通用，不是 MiniAmm 专有）
@@ -116,8 +119,8 @@ PreservationTheoremV1 program ordinal :=
 | **程序作者** | 对具体 executable invariant 的 base/step 证明；**不** 另写一套 `miniAmmStep` |
 
 产品 kind/inventory/alias/protocol/certifier plumbing 已接线；保持性仍是独立定理族，不塞进
-现有全称 `InvariantTheoremV1`。首个 preserving product-certified 实例仍必须是 EvenCounter；当前
-alias/negative/identity 回归不等于该实例已完成。
+现有全称 `InvariantTheoremV1`。EvenCounter 与 ZeroCounter preserving product-certified 实例
+均已闭合；alias/negative/identity 回归不得冒充 MiniAmm P1 或 formal 完成。
 
 **禁止**：为每个合约再维护平行的 `State` / `Effect` / `step` 手写解释器
 （HEAD 曾有 Semantic `MiniAmmSafetySketchV1` 试点，**Slice 0 已从 HEAD 删除**，见 §5.0）。
@@ -150,7 +153,7 @@ alias/negative/identity 回归不等于该实例已完成。
 | `certifyInlineProofV1` + simple-closure 族 | L0 通用门 |
 | `InvariantABI` | 共享定理命题 / logical state |
 | `ReferenceMachineV1` / `ReferenceV1` | **sole L1 step 权威**（admitted engineering machine；非 formal `step`） |
-| `ProofForgeV2/Semantic/PreservationABI.lean` + ADR-0034（`proposed`） | 通用 `PreservationTheoremV1` / base / step / unchanged helpers + ProofKind plumbing + **EvenCounter product positive GREEN**；ClosedSubjectPin 仅 golden 加速；第二实例/supersession pending；ADR-0027 仍约束 inline base |
+| `ProofForgeV2/Semantic/PreservationABI.lean` + ADR-0034（`proposed`） | 通用 `PreservationTheoremV1` / base / step / unchanged helpers + ProofKind plumbing + **EvenCounter + ZeroCounter product positive GREEN**；ClosedSubjectPin 仅 golden 加速；wave-2 通用性门闭合；supersession/MiniAmm P1 pending；ADR-0027 仍约束 inline base |
 
 ### 3.2 实例：MiniAmm 试点
 
@@ -186,9 +189,10 @@ alias/negative/identity 回归不等于该实例已完成。
 
 1. **首个实例：EvenCounter — done（2026-08-08 product GREEN）**。完整
    `PreservationTheoremV1` + inline `proof even preserving using …` + product certified。
-2. **第二实例：另一非 AMM 极简 program — pending**。不复制 EvenCounter 谓词，只复用同一
-   ABI/inventory/certifier 挂载（通用性回归；不阻塞 packaging lemma 硬化）。
-3. 两个门都通过后，MiniAmm 才作为普通后续业务实例进入 P1。
+2. **第二实例：ZeroCounter — done（2026-08-09 product GREEN）**。P=`count==0`（不同
+   于偶数）；1306B product-aligned spine；`ZeroCounterPreservationV1` + ClosedSubjectPin +
+   product `exact` → `.certified`；reuse packaging；EvenCounter 仍 GREEN。
+3. 两个门都通过后，MiniAmm 才作为普通后续业务实例进入 P1（**现已允许进入**；无平台特例）。
 
 ---
 
@@ -205,9 +209,9 @@ alias/negative/identity 回归不等于该实例已完成。
 
 ## 5. 执行路线图
 
-**优先级**：platform Preservation ABI + kind plumbing + EvenCounter product positive 已完成；
-当前业务轨道做 **generic packaging lemmas / 非 pin author 路径**，再做第二非 AMM 实例，
-之后才进入 MiniAmm P1。**D/L2 项目 formal（工具 track 2）最后**。
+**优先级**：platform Preservation ABI + kind plumbing + EvenCounter/ZeroCounter product positive
+与 packaging/non-pin 已完成；wave-2 通用性门 drained。当前业务轨道进入 **MiniAmm P1**
+普通业务实例。**D/L2 项目 formal（工具 track 2）最后**；**不** supersede ADR-0027。
 
 ### 5.0 已完成 / superseded
 
@@ -233,7 +237,7 @@ alias/negative/identity 回归不等于该实例已完成。
 | ProofKind/inventory/certifier plumbing | **done** — bare holds；preserving kind；无 2-field fallback |
 | EvenCounter preserving product positive | **done（2026-08-08）** — `EvenCounterPreservationV1` + ClosedSubjectPin + InlineProofCertifier |
 | Packaging lemmas / 非 pin author 路径 | **done（2026-08-09）** — `PreservationPackagingV1` + `ClosedSubjectPinV1` 非 pin 纪律 + suite |
-| 第二非 AMM 实例 | **deferred** — 通用性回归 |
+| 第二非 AMM 实例 ZeroCounter | **done（2026-08-09）** — P=`count==0`；bf2-data/preserve/product；product certified |
 
 #### 5.1.1 MiniAmm Reference admission（Map budget 已切 Wire-envelope）
 
@@ -256,12 +260,13 @@ alias/negative/identity 回归不等于该实例已完成。
 
 诚实边界（仍成立）：
 
-- Admission 与 generic ABI foundation 通 **不等于** MiniAmm L1 P1 已证；P1 仍缺
-  kind-aware product certifier、MiniAmm executable invariant、完整 base/step proof 与真实
-  `stepReferenceSliceV1` 业务 traces。
+- Admission 与 generic ABI foundation / 双非 AMM 实例 positive **不等于** MiniAmm L1 P1 已证；
+  P1 仍缺 MiniAmm executable invariant、完整 base/step proof 与真实
+  `stepReferenceSliceV1` 业务 traces（kind-aware product certifier 已对 EvenCounter/ZeroCounter
+  闭合，可复用）。
 - `MiniAmmVectorsV1` 仍只钉数学 floor（非 step）。
 - L0 `MiniAmmProofSurface` 仍由 **ADR-0027** 产品 holds 门约束。
-- **禁止** 旁路手写 step；**禁止** 把 ABI foundation 写成 ProofKind/certifier/product 已完整对齐 0034。
+- **禁止** 旁路手写 step；**禁止** 预填 ADR-0027 supersession 或 formal 关闭。
 
 ### 5.2 下一步（当前 active engineering 方向）
 
@@ -270,8 +275,8 @@ alias/negative/identity 回归不等于该实例已完成。
 | **ProofKind/inventory/certifier cutover** | **done** — `holds \| preserving`、`(inv,kind)` exact inventory、kind-aware expected Prop/cert digest；ADR-0027 仍 base authority |
 | **EvenCounter 首个端到端实例** | **done（2026-08-08）** — 完整 `PreservationTheoremV1` + product certified；见 ADR-0034 D9/D10 |
 | **Packaging lemmas / 非 pin 路径** | **done** — `PreservationPackagingV1`；pin 仅 golden；见 `Tests.Semantic.ClosedSubjectPinV1` |
-| **第二非 AMM 实例** | 用不同 P 复挂同一 ABI/certifier（deferred 通用性回归） |
-| **然后 MiniAmm P1** | 在已 admitted MiniAmm 上加入 executable invariant 与真实 Reference proof/traces；无特例；**仍非** formal TASK |
+| **第二非 AMM 实例 ZeroCounter** | **done（2026-08-09）** — P=`count==0`；同一 ABI/certifier；product certified |
+| **然后 MiniAmm P1（active）** | 在已 admitted MiniAmm 上加入 executable invariant 与真实 Reference proof/traces；无特例；**仍非** formal TASK；**不** supersede ADR-0027 |
 
 ### 5.3 L1-B — MiniAmm P1 完整保持（依赖 kind/certifier + 两个通用实例门）
 
@@ -296,9 +301,9 @@ alias/negative/identity 回归不等于该实例已完成。
 
 | 交付 | 说明 |
 |---|---|
-| EvenCounter + 自有偶数 P + product step | 首个 preserving end-to-end |
-| 第二非 AMM program + 不同 P | 复用同一 ABI/inventory/certifier |
-| 短文档 + 测试 | 「同一挂载，不同业务；MiniAmm 无平台特例」 |
+| EvenCounter + 自有偶数 P + product step | **done** — 首个 preserving end-to-end |
+| ZeroCounter + P=`count==0` | **done** — 复用同一 ABI/inventory/certifier |
+| 短文档 + 测试 | **done（bf2-docs）** — 「同一挂载，不同业务；MiniAmm 无平台特例」 |
 
 ### 5.8 L1-F — Assets 实例（可选）
 
