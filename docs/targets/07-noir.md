@@ -3,7 +3,7 @@ id: TARGET-NOIR
 title: Noir target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-08
 normative: true
 ---
 
@@ -12,6 +12,12 @@ normative: true
 状态：`proposed`
 Target ID：`noir`
 Phase 1：实现
+
+## 权威物化方向（2026-08-08 产品决策）
+
+**下一主线：Noir ACIR / 电路中间 IR**（对标 Psy DPN、Aleo Instructions），**不是**长期 sole `.nr` 源包。  
+规划 sole 输入：[`07-noir-acir-lowering.md`](07-noir-acir-lowering.md)。  
+当前产品仍 emit relation **Noir source packages** + 可选 locked nargo compile-only；实现 ACIR 前不得把 `.nr` 写成最终权威。
 
 ## 当前工程迁移状态（非 formal 完成）
 
