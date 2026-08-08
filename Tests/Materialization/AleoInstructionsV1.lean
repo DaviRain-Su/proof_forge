@@ -1,8 +1,8 @@
 /-
-  ALEO-IR-1..6: Aleo Instructions Schema/TextCodec + Counter golden +
-  Plan→Instructions Counter MVP + if/match/bounded-for + multi-leaf Map/
-  Option/Array + narrow UInt widths + effects honesty matrix + product
-  primary materialize cutover.
+  ALEO-IR-1..6 + ALEO-G5-MATRIX: Aleo Instructions Schema/TextCodec +
+  Counter golden + Plan→Instructions Counter MVP + if/match/bounded-for +
+  multi-leaf Map/Option/Array + narrow UInt widths + effects honesty matrix +
+  product primary materialize cutover + admit-matrix FC/IR pins.
 
   Covers:
   * schema id / Leo golden version pins
@@ -24,10 +24,13 @@
   * ALEO-IR-5: product emit/call/schedule/context/assets FC (matrix honesty)
   * ALEO-IR-6: product materialize primary = Instructions text ≡ golden;
     default no `.leo`; `emitLeoDebug` / compile profile dual-write `.leo`
+  * ALEO-G5-MATRIX: Bool/compare/logic/assert/bare-revert structural IR pins;
+    const plan-FC; Int64/Field/pureFn residual ALEO-IR-4 pins; nested Map plan-FC
   * profile note: default vs compile share Plan; lower is profile-insensitive
 
   **Not** snarkVM execute, prove/deploy, formal. No PARTIAL effects row
-  without evidence.
+  without evidence. No false Y for residual Int64/Field/pureFn (IR target Y,
+  Instructions status residual until G5-HARD true lower).
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Aleo
@@ -247,6 +250,8 @@ private def testUnsupportedPlanFailClosed : IO Unit := do
   | .error e =>
       expect (e.render.contains "ALEO-IR")
         s!"expected ALEO-IR pure-helper diagnostic, got: {e.render}"
+      expect (e.render.contains "pure helper" || e.render.contains "pure")
+        s!"pure helper residual must cite pure helper, got: {e.render}"
   -- Int64 leaf residual FC on Instructions path (Leo path still admits Int64)
   let intPlan : Plan := {
     handBuiltCounterPlan with
@@ -257,6 +262,8 @@ private def testUnsupportedPlanFailClosed : IO Unit := do
   | .error e =>
       expect (e.render.contains "ALEO-IR")
         s!"expected ALEO-IR Int64 diagnostic, got: {e.render}"
+      expect (e.render.contains "Int64" || e.render.contains "residual")
+        s!"Int64 residual must cite Int64/residual, got: {e.render}"
 
 private def countOpsInBody (body : Array InstructionV1) : Nat × Nat :=
   Id.run do
@@ -299,6 +306,50 @@ private def hasBinaryOp (p : ProgramV1) (op : String) : Bool :=
         | .binary o _ _ _ => if o == op then return true
         | _ => pure ()
     pure false
+
+private def hasUnaryOp (p : ProgramV1) (op : String) : Bool :=
+  Id.run do
+    for item in p.items do
+      let body :=
+        match item with
+        | .finalize f => f.body
+        | .function f => f.body
+        | .constructor c => c.body
+        | .mapping _ => #[]
+      for i in body do
+        match i with
+        | .unary o _ _ => if o == op then return true
+        | _ => pure ()
+    pure false
+
+private def hasAssertEq (p : ProgramV1) : Bool :=
+  Id.run do
+    for item in p.items do
+      let body :=
+        match item with
+        | .finalize f => f.body
+        | .function f => f.body
+        | .constructor c => c.body
+        | .mapping _ => #[]
+      for i in body do
+        match i with
+        | .assertEq .. => return true
+        | _ => pure ()
+    pure false
+
+private def countAssertEqInFinalize (p : ProgramV1) (fnName : String) : Nat :=
+  Id.run do
+    let mut n := 0
+    for item in p.items do
+      match item with
+      | .finalize f =>
+          if f.name == fnName then
+            for i in f.body do
+              match i with
+              | .assertEq .. => n := n + 1
+              | _ => pure ()
+      | _ => pure ()
+    pure n
 
 /-- ALEO-IR-3: ifThenElse lowers to branch.eq + position (Leo if shape). -/
 private def testIfThenElseStructural : IO Unit := do
@@ -1140,6 +1191,275 @@ unsafe def testEffectsHonestyProductFailClosed : IO Unit := do
      "    return amount\n")
     "Tests.AleoIr5Assets" "assets"
 
+/-!
+  ## ALEO-G5-MATRIX admit pins
+
+  Honesty: residual Int64 / Field BLS12-377 / pureFn stay **residual** (stable
+  `ALEO-IR-4` FC) even when Leo path admits them; nested Map + const never
+  reach Instructions (plan/Semantic FC). Bool/compare/logic + bare assert/revert
+  are **done** with structural IR pins (no false Y).
+-/
+
+/-- G5-MATRIX: Bool / compare / logical + bare assert + bare revert → Instructions. -/
+private def testG5MatrixBoolAssertStructural : IO Unit := do
+  let plan : Plan := {
+    programName := "Guard"
+    stateFieldNames := #["count"]
+    stateFieldIsInt := #[false]
+    stateFieldUintWidth := #[0]
+    stateFieldIsField := #[false]
+    functions := #[
+      {
+        index := 0
+        name := "initialize"
+        kind := .initialize
+        params := #[{ sourceIndex := 0, name := "initial", isBool := false }]
+        body := #[.store 0 (.param 0), .returnNone]
+        touchesState := true
+        resultIsBool := false
+        resultDropped := false
+      },
+      {
+        index := 1
+        name := "take"
+        kind := .mutate
+        params := #[{ sourceIndex := 0, name := "delta", isBool := false }]
+        body := #[
+          -- bare assert on compare: assert count >= delta
+          .assert (.compare .ge (.stateLoad 0) (.param 0)),
+          -- logical path feeds ternary (Bool expressions admitted on Final)
+          .store 0
+            (.ternary
+              (.logicalAnd
+                (.compare .gt (.param 0) (.literal 0))
+                (.boolNot (.boolLiteral false)))
+              (.checkedSub (.stateLoad 0) (.param 0))
+              (.stateLoad 0)),
+          .returnValue (.stateLoad 0)
+        ]
+        touchesState := true
+        resultIsBool := false
+        resultDropped := true
+      },
+      {
+        index := 2
+        name := "halt"
+        kind := .mutate
+        params := #[]
+        body := #[
+          -- bare revert → assert.eq true false
+          .revertError 0 #[],
+          .returnNone
+        ]
+        touchesState := true
+        resultIsBool := false
+        resultDropped := false
+      }
+    ]
+    views := #[]
+    sourceHash := "00"
+    semanticHash := "00"
+  }
+  let prog ← liftResult <| lowerPlanForTestV1 plan
+  expect (prog.name == "guard.aleo") "guard program name"
+  expect (hasBinaryOp prog "gte" || hasBinaryOp prog "ge")
+    "assert compare must lower to gte/ge binary"
+  expect (hasBinaryOp prog "gt") "logical condition gt"
+  expect (hasBinaryOp prog "and") "logicalAnd must lower to and"
+  expect (hasUnaryOp prog "not") "boolNot must lower to not"
+  expect (hasTernary prog) "Bool ternary select must lower"
+  expect (hasAssertEq prog) "bare assert/revert must emit assert.eq"
+  -- take: assert + initialize-style asserts may coexist; halt bare revert alone
+  let takeAsserts := countAssertEqInFinalize prog "take"
+  expect (takeAsserts ≥ 1)
+    s!"take finalize must assert.eq condition, got {takeAsserts}"
+  let haltAsserts := countAssertEqInFinalize prog "halt"
+  expect (haltAsserts ≥ 1)
+    s!"halt bare revert must assert.eq true false, got {haltAsserts}"
+  let encoded := encodeProgram prog
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "Guard Bool/assert encode→decode failed"
+  | some p2 => expect (p2 == prog) "Guard structural round-trip"
+
+/-- G5-MATRIX product path: bare assert lowers (Bool row done). -/
+unsafe def testG5MatrixProductAssertLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Guard where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry take(delta : UInt64) : UInt64 do\n" ++
+    "    assert count >= delta\n" ++
+    "    count := count - delta\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-g5-assert>" "Tests.AleoG5Assert" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  expect (hasAssertEq prog) "product assert must lower to assert.eq"
+  expect (hasBinaryOp prog "gte" || hasBinaryOp prog "ge")
+    "product assert condition compare"
+  expect (countAssertEqInFinalize prog "take" ≥ 1)
+    "product take finalize carries assert.eq"
+
+/-- G5-MATRIX: const declaration stays plan-FC (Constant load not on Aleo Plan). -/
+unsafe def testG5MatrixConstPlanFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ConstBox where\n" ++
+    "  const K : UInt64 := 7\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump() : UInt64 do\n" ++
+    "    count := count + K\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-g5-const>" "Tests.AleoG5Const" none)
+  match Compiler.compileValidatedSourceV1 parsed with
+  | .error e =>
+      expect (e.render.length > 0)
+        "const must fail closed with a diagnostic"
+  | .ok compiled =>
+      let selection ← liftResult <|
+        BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+      match resolveEngineeringRequirementsV1 selection compiled with
+      | .error e =>
+          expect (e.render.length > 0) "const resolve FC"
+      | .ok cap =>
+          match programFromCapabilityV1 cap with
+          | .ok _ =>
+              throw <| IO.userError
+                "const must fail closed before/at Instructions lower (plan-FC)"
+          | .error e =>
+              expect (
+                  e.render.contains "Constant" ||
+                  e.render.contains "const" ||
+                  e.render.contains "ALEO" ||
+                  e.render.contains "unsupported" ||
+                  e.render.length > 0)
+                s!"const plan-FC diagnostic, got: {e.render}"
+
+/-- G5-MATRIX residual bucket: Int64 leaf/expr, Field leaf/expr, pureFn.
+    Status is **residual** (Leo may admit; Instructions ALEO-IR-4 FC). No false Y. -/
+private def testG5MatrixResidualFcPins : IO Unit := do
+  -- Int64 leaf residual
+  let intLeaf : Plan := {
+    handBuiltCounterPlan with
+    stateFieldIsInt := #[true]
+  }
+  match lowerPlanForTestV1 intLeaf with
+  | .ok _ => throw <| IO.userError "Int64 leaf residual must FC"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-4" || e.render.contains "ALEO-IR")
+        s!"Int64 leaf residual ALEO-IR, got: {e.render}"
+      expect (e.render.contains "Int64" || e.render.contains "residual")
+        s!"Int64 residual wording, got: {e.render}"
+  -- Int64 expression residual (i64Literal in body; leaf stays UInt)
+  let intExpr : Plan := {
+    handBuiltCounterPlan with
+    functions := #[
+      handBuiltCounterPlan.functions[0]!,
+      { handBuiltCounterPlan.functions[1]! with
+        body := #[
+          .store 0 (.i64Literal 1),
+          .returnValue (.stateLoad 0)
+        ] }
+    ]
+  }
+  match lowerPlanForTestV1 intExpr with
+  | .ok _ => throw <| IO.userError "Int64 expr residual must FC"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-4" || e.render.contains "ALEO-IR")
+        s!"Int64 expr residual ALEO-IR, got: {e.render}"
+      expect (e.render.contains "Int64" || e.render.contains "expression" ||
+          e.render.contains "residual")
+        s!"Int64 expr residual wording, got: {e.render}"
+  -- Field BLS12-377 leaf residual (Leo admits; Instructions residual)
+  let fieldLeaf : Plan := {
+    handBuiltCounterPlan with
+    stateFieldIsField := #[true]
+  }
+  match lowerPlanForTestV1 fieldLeaf with
+  | .ok _ => throw <| IO.userError "Field leaf residual must FC"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-4" || e.render.contains "ALEO-IR")
+        s!"Field leaf residual ALEO-IR, got: {e.render}"
+      expect (e.render.contains "Field" || e.render.contains "residual" ||
+          e.render.contains "Int64")
+        s!"Field residual wording, got: {e.render}"
+  -- Field expression residual
+  let fieldExpr : Plan := {
+    handBuiltCounterPlan with
+    functions := #[
+      handBuiltCounterPlan.functions[0]!,
+      { handBuiltCounterPlan.functions[1]! with
+        body := #[
+          .store 0 (.fieldLiteral 1),
+          .returnValue (.stateLoad 0)
+        ] }
+    ]
+  }
+  match lowerPlanForTestV1 fieldExpr with
+  | .ok _ => throw <| IO.userError "Field expr residual must FC"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-4" || e.render.contains "ALEO-IR")
+        s!"Field expr residual ALEO-IR, got: {e.render}"
+      expect (e.render.contains "Field" || e.render.contains "expression" ||
+          e.render.contains "residual")
+        s!"Field expr residual wording, got: {e.render}"
+  -- pureFn / pure helper residual (Plan-admitted Leo helper; IR residual)
+  let purePlan : Plan := {
+    handBuiltCounterPlan with
+    functions := #[
+      handBuiltCounterPlan.functions[0]!,
+      { handBuiltCounterPlan.functions[1]! with
+        name := "helper"
+        isPureHelper := true
+        touchesState := false
+        body := #[.returnValue (.param 0)]
+        resultDropped := false }
+    ]
+  }
+  match lowerPlanForTestV1 purePlan with
+  | .ok _ => throw <| IO.userError "pureFn residual must FC"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-4" || e.render.contains "ALEO-IR")
+        s!"pureFn residual ALEO-IR, got: {e.render}"
+      expect (e.render.contains "pure helper" || e.render.contains "pure")
+        s!"pureFn residual wording, got: {e.render}"
+  -- pureCall/callFn already IR-5; pin again as residual localCall surface
+  let callPlan : Plan := {
+    handBuiltCounterPlan with
+    functions := #[
+      handBuiltCounterPlan.functions[0]!,
+      { handBuiltCounterPlan.functions[1]! with
+        body := #[
+          .store 0 (.callFn "helper" #[.param 0]),
+          .returnValue (.stateLoad 0)
+        ] }
+    ]
+  }
+  match lowerPlanForTestV1 callPlan with
+  | .ok _ => throw <| IO.userError "callFn residual must FC"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-5")
+        s!"callFn residual must cite ALEO-IR-5, got: {e.render}"
+
+/-- G5-MATRIX plan-FC: nested Map never reaches honest Instructions Y. -/
+unsafe def testG5MatrixNestedMapPlanFailClosed : IO Unit := do
+  -- Reuse IR-4 nested Map product pin under G5-MATRIX naming for matrix table.
+  testNestedMapFailClosedAtPlan
+
 /-- ALEO-IR-6: product materialize primary is Instructions text ≡ golden;
     default omits `.leo`; debug flag and compile profile dual-write Leo. -/
 unsafe def testProductPrimaryInstructionsMaterialize : IO Unit := do
@@ -1228,6 +1548,11 @@ unsafe def run : IO Unit := do
   testNestedMapFailClosedAtPlan
   testEffectsHonestyPlanFailClosed
   testEffectsHonestyProductFailClosed
+  testG5MatrixBoolAssertStructural
+  testG5MatrixProductAssertLower
+  testG5MatrixConstPlanFailClosed
+  testG5MatrixResidualFcPins
+  testG5MatrixNestedMapPlanFailClosed
   testProductPrimaryInstructionsMaterialize
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"
 

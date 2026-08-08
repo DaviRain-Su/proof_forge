@@ -25,7 +25,7 @@ IR-5 效果诚实矩阵（emit/callFn/payload-revert Plan FC；call/schedule/ass
 **产品 primary** = Instructions 文本 `{id}.aleo`（Counter ≡ golden）；query-contract 不变；
 Leo 4 源 debug-only（`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug` → `{id}.leo`；
 compile profile 双写供 locked-leo compare extras）。不得把 Leo 源写成长期 sole 权威。
-**Next = G5 residual 扫描**；remaining = IR-7 runtime / full opcode / record / prove。
+**G5-MATRIX done（2026-08-08）**（§3.2 / §3.2.1；residual 桶 Int64/Field/pureFn）；**Next = G5-HARD**；remaining = IR-7 runtime / full opcode / record / prove。
 
 ## 当前工程迁移状态（非 formal 完成）
 
@@ -85,7 +85,7 @@ closure 约束；它不是 Leo `build/abi.json`、不是 executable query，也�
 `{programId}.compiled.aleo`（Instructions 面，IR 金样/对照）、`{programId}.abi.json`、
 `{programId}.leo-program.json`。两 profile 均 `deployable=false`。不得发出 Leo 3.x 兼容语法。
 
-**规划后续**：G5 residual 扫描 → IR-7/G6 runtime（有工具再开）。见
+**规划后续**：G5-HARD residual true lower / hard-require → IR-7/G6 runtime（有工具再开）。见
 [`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md)。
 
 ## 6. 工具链
