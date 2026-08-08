@@ -341,11 +341,11 @@ lean_exe proof_forge_next_fast_tests where
   supportInterpreter := true
 
 -- Focused Aleo Instructions suite (ALEO-IR / MULTI-GOLDEN / ADMIT-FIXTURES).
--- Same root as `lean --run Tests/Materialization/AleoInstructionsV1.lean` but
--- as a native exe so ordinary CI shards stay memory-bounded.
+-- Thin root module owns `main`; suite body only exports `run` so Targets/Fast
+-- can import without a second root `main` clash.
 lean_exe aleo_instructions_v1_focus where
   exeName := "aleo-instructions-v1-focus"
-  root := `Tests.Materialization.AleoInstructionsV1
+  root := `Tests.Materialization.AleoInstructionsV1Focus
   supportInterpreter := true
 
 -- Memory-bounded shards: the single-process aggregate keeps a high-water RSS

@@ -1083,7 +1083,3 @@ unsafe def run : IO Unit := do
 
 end Tests.Materialization.NoirAcirV1
 
-/-- Focused entry for `lake env lean --run` (root `main`; suite body stays namespaced). -/
-unsafe def main : IO Unit :=
-  Tests.Materialization.NoirAcirV1.run
-

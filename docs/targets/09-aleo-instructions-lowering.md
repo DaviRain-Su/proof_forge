@@ -388,6 +388,8 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 
 **IR-0..IR-7 / G0–G6 + G5-MATRIX + G5-HARD + RES-CLEAN engineering closeout（2026-08-08）已闭合**。产品权威 = Plan→Instructions；Leo 源 debug/compare only；Counter ≡ golden；residual 桶 0；空 allowlist；效果矩阵无 PARTIAL 假 Y；IR-7 runtime = **PARTIAL + MISSING**（package-only snarkVM execute 无 Tool Lock pin）。Lane **idle**；`deployable=false` 不变；无 prove/deploy/formal 本切片。
 
+**Local sandbox demo（旁路，不改 IR-7）**：hackathon / 开发者本地闭环见 [`09b-aleo-local-sandbox-demo.md`](09b-aleo-local-sandbox-demo.md) 与 `just aleo-sandbox-demo`：产品 Instructions pin + debug Leo package + locked `leo run --offline`（**本地解释**，非 package-only snarkVM、非链上 deploy）。
+
 ### 已交付（不重开为 Next）
 
 | 切片 | 交付 |
