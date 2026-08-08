@@ -17,9 +17,10 @@ Phase 1：实现（工程切片已接线；成熟度 source-only / compile-only�
 
 **下一主线：Aleo Instructions IR**（官方中间 IR，对标 Psy DPN），**不是**长期 sole Leo 源语法。
 规划 sole 输入：[`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md)。
-**ALEO-IR-1/IR-2 done**：`Targets/Aleo/Instructions/{SchemaV1,TextCodecV1,LowerPlanV1}` +
+**ALEO-IR-1/IR-2/IR-3 done**：`Targets/Aleo/Instructions/{SchemaV1,TextCodecV1,LowerPlanV1}` +
 Counter 金样 `testdata/golden/aleo-instructions-v1/counter.compiled.aleo`（locked Leo 4.0.2）；
-`programFromCapabilityV1` Counter Plan→Instructions ≡ 金样。
+`programFromCapabilityV1` Counter Plan→Instructions ≡ 金样；if/match/bounded-for →
+`branch.eq`/`position`/静态 for-unroll（结构测试）。Next = IR-4 多叶。
 当前产品仍 emit Leo 4 源（`{id}.aleo`）+ 可选 locked `leo build` → `compiled.aleo`；
 Instructions lower 为工程权威候选，**产品 primary 仍 Leo 源**（IR-6 再切）；不得把 Leo 源写成最终权威。
 

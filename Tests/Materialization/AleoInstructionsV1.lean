@@ -1,6 +1,6 @@
 /-
-  ALEO-IR-1 + ALEO-IR-2: Aleo Instructions Schema/TextCodec + Counter golden
-  + Plan→Instructions Counter MVP lower.
+  ALEO-IR-1 + ALEO-IR-2 + ALEO-IR-3: Aleo Instructions Schema/TextCodec +
+  Counter golden + Plan→Instructions Counter MVP + if/match/bounded-for.
 
   Covers:
   * schema id / Leo golden version pins
@@ -11,7 +11,11 @@
   * ALEO-IR-2: hand-built Counter Plan → Instructions ≡ counterProgramV1
   * ALEO-IR-2: Examples/Counter product Plan → Instructions ≡ golden
   * ALEO-IR-2: encode(product lower) ≡ golden bytes
-  * ALEO-IR-2: unsupported Plan shape fail closed
+  * ALEO-IR-3: ifThenElse → branch.eq/position structural
+  * ALEO-IR-3: switchOn (match) → is.eq + nested branch structural
+  * ALEO-IR-3: bounded for → static unroll + runtime gate structural
+  * ALEO-IR-3: unbounded for (maxIterations > 4096) fail closed
+  * multi-leaf / empty Plan fail closed
   * profile note: default vs compile share Plan; lower is profile-insensitive
 
   **Not** product primary materialize cutover (IR-6), snarkVM execute,
@@ -200,9 +204,8 @@ unsafe def testProductCounterPlanLowerEqualsGolden : IO Unit := do
   expect (progCompile == prog)
     "default and compile profiles must lower to identical Instructions (shared Plan)"
 
-/-- ALEO-IR-2: non-Counter Plan fail closed. -/
+/-- Empty / multi-leaf Plan fail closed (IR-3 keeps single-leaf until IR-4). -/
 private def testUnsupportedPlanFailClosed : IO Unit := do
-  -- Zero-state: not Counter.
   let emptyPlan : Plan := {
     programName := "Empty"
     stateFieldNames := #[]
@@ -217,9 +220,8 @@ private def testUnsupportedPlanFailClosed : IO Unit := do
   match lowerPlanForTestV1 emptyPlan with
   | .ok _ => throw <| IO.userError "empty plan must fail closed"
   | .error e =>
-      expect (e.render.contains "ALEO-IR-2")
-        s!"expected ALEO-IR-2 diagnostic, got: {e.render}"
-  -- Two state leaves: not Counter MVP.
+      expect (e.render.contains "ALEO-IR")
+        s!"expected ALEO-IR diagnostic, got: {e.render}"
   let multi : Plan := {
     handBuiltCounterPlan with
     stateFieldNames := #["a", "b"]
@@ -230,23 +232,301 @@ private def testUnsupportedPlanFailClosed : IO Unit := do
   match lowerPlanForTestV1 multi with
   | .ok _ => throw <| IO.userError "multi-leaf plan must fail closed"
   | .error e =>
-      expect (e.render.contains "ALEO-IR-2")
-        s!"expected ALEO-IR-2 multi-leaf diagnostic, got: {e.render}"
-  -- Unsupported body template.
-  let badBody : Plan := {
+      expect (e.render.contains "ALEO-IR")
+        s!"expected ALEO-IR multi-leaf diagnostic, got: {e.render}"
+  -- pure helper fail closed on Instructions path
+  let purePlan : Plan := {
     handBuiltCounterPlan with
     functions := #[
       handBuiltCounterPlan.functions[0]!,
       { handBuiltCounterPlan.functions[1]! with
-        body := #[.store 0 (.param 0), .returnNone]
+        isPureHelper := true
+        touchesState := false
+        body := #[.returnValue (.param 0)]
         resultDropped := false }
     ]
   }
-  match lowerPlanForTestV1 badBody with
-  | .ok _ => throw <| IO.userError "non-checkedAdd mutate must fail closed"
+  match lowerPlanForTestV1 purePlan with
+  | .ok _ => throw <| IO.userError "pure helper must fail closed"
   | .error e =>
-      expect (e.render.contains "ALEO-IR-2")
-        s!"expected ALEO-IR-2 body diagnostic, got: {e.render}"
+      expect (e.render.contains "ALEO-IR")
+        s!"expected ALEO-IR pure-helper diagnostic, got: {e.render}"
+
+private def countOpsInBody (body : Array InstructionV1) : Nat × Nat :=
+  Id.run do
+    let mut branches := 0
+    let mut positions := 0
+    for i in body do
+      match i with
+      | .branchEq .. => branches := branches + 1
+      | .position _ => positions := positions + 1
+      | _ => pure ()
+    pure (branches, positions)
+
+/-- Count branch.eq / position in a program (control-flow structural pin). -/
+private def countControlOps (p : ProgramV1) : Nat × Nat :=
+  Id.run do
+    let mut branches := 0
+    let mut positions := 0
+    for item in p.items do
+      let (b, pos) :=
+        match item with
+        | .finalize f => countOpsInBody f.body
+        | .function f => countOpsInBody f.body
+        | .constructor c => countOpsInBody c.body
+        | .mapping _ => (0, 0)
+      branches := branches + b
+      positions := positions + pos
+    pure (branches, positions)
+
+private def hasBinaryOp (p : ProgramV1) (op : String) : Bool :=
+  Id.run do
+    for item in p.items do
+      let body :=
+        match item with
+        | .finalize f => f.body
+        | .function f => f.body
+        | .constructor c => c.body
+        | .mapping _ => #[]
+      for i in body do
+        match i with
+        | .binary o _ _ _ => if o == op then return true
+        | _ => pure ()
+    pure false
+
+/-- ALEO-IR-3: ifThenElse lowers to branch.eq + position (Leo if shape). -/
+private def testIfThenElseStructural : IO Unit := do
+  let plan : Plan := {
+    programName := "Branch"
+    stateFieldNames := #["count"]
+    stateFieldIsInt := #[false]
+    stateFieldUintWidth := #[0]
+    stateFieldIsField := #[false]
+    functions := #[
+      {
+        index := 0
+        name := "initialize"
+        kind := .initialize
+        params := #[{ sourceIndex := 0, name := "initial", isBool := false }]
+        body := #[.store 0 (.param 0), .returnNone]
+        touchesState := true
+        resultIsBool := false
+        resultDropped := false
+      },
+      {
+        index := 1
+        name := "pick"
+        kind := .mutate
+        params := #[]
+        body := #[
+          .ifThenElse
+            (.compare .gt (.stateLoad 0) (.literal 10))
+            #[.store 0 (.checkedSub (.stateLoad 0) (.literal 1))]
+            #[.store 0 (.checkedAdd (.stateLoad 0) (.literal 1))],
+          .returnValue (.stateLoad 0)
+        ]
+        touchesState := true
+        resultIsBool := false
+        resultDropped := true
+      }
+    ]
+    views := #[]
+    sourceHash := "00"
+    semanticHash := "00"
+  }
+  let prog ← liftResult <| lowerPlanForTestV1 plan
+  expect (prog.name == "branch.aleo") "branch program name"
+  let (branches, positions) := countControlOps prog
+  expect (branches ≥ 2)
+    s!"if/else must emit branch.eq (got {branches})"
+  expect (positions ≥ 2)
+    s!"if/else must emit position labels (got {positions})"
+  expect (hasBinaryOp prog "gt") "condition must lower to gt"
+  expect (hasBinaryOp prog "sub") "then arm checkedSub"
+  expect (hasBinaryOp prog "add") "else arm checkedAdd"
+  -- Round-trip encode/decode for control-flow program
+  let encoded := encodeProgram prog
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "if/else encode→decode failed"
+  | some p2 =>
+      expect (p2 == prog) "if/else structural round-trip"
+
+/-- ALEO-IR-3: switchOn → nested is.eq + branch chain. -/
+private def testSwitchOnStructural : IO Unit := do
+  let plan : Plan := {
+    programName := "Pick"
+    stateFieldNames := #["count"]
+    stateFieldIsInt := #[false]
+    stateFieldUintWidth := #[0]
+    stateFieldIsField := #[false]
+    functions := #[
+      {
+        index := 0
+        name := "initialize"
+        kind := .initialize
+        params := #[{ sourceIndex := 0, name := "initial", isBool := false }]
+        body := #[.store 0 (.param 0), .returnNone]
+        touchesState := true
+        resultIsBool := false
+        resultDropped := false
+      },
+      {
+        index := 1
+        name := "apply"
+        kind := .mutate
+        params := #[{ sourceIndex := 0, name := "delta", isBool := false }]
+        body := #[
+          .switchOn (.param 0)
+            #[
+              (0, #[.store 0 (.literal 0)]),
+              (1, #[.store 0 (.checkedAdd (.stateLoad 0) (.literal 1))])
+            ]
+            #[.store 0 (.param 0)],
+          .returnValue (.stateLoad 0)
+        ]
+        touchesState := true
+        resultIsBool := false
+        resultDropped := true
+      }
+    ]
+    views := #[]
+    sourceHash := "00"
+    semanticHash := "00"
+  }
+  let prog ← liftResult <| lowerPlanForTestV1 plan
+  expect (hasBinaryOp prog "is.eq") "match arms must compare with is.eq"
+  let (branches, positions) := countControlOps prog
+  expect (branches ≥ 4)
+    s!"switch must nest branch.eq (got {branches})"
+  expect (positions ≥ 4)
+    s!"switch must nest position (got {positions})"
+  let encoded := encodeProgram prog
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "switch encode→decode failed"
+  | some p2 => expect (p2 == prog) "switch structural round-trip"
+
+/-- ALEO-IR-3: bounded for static unroll + boundExceeded gate. -/
+private def testBoundedForStructural : IO Unit := do
+  let plan : Plan := {
+    programName := "LoopSum"
+    stateFieldNames := #["count"]
+    stateFieldIsInt := #[false]
+    stateFieldUintWidth := #[0]
+    stateFieldIsField := #[false]
+    functions := #[
+      {
+        index := 0
+        name := "initialize"
+        kind := .initialize
+        params := #[{ sourceIndex := 0, name := "initial", isBool := false }]
+        body := #[.store 0 (.param 0), .returnNone]
+        touchesState := true
+        resultIsBool := false
+        resultDropped := false
+      },
+      {
+        index := 1
+        name := "sumUp"
+        kind := .mutate
+        params := #[{ sourceIndex := 0, name := "n", isBool := false }]
+        body := #[
+          .forLoop (.literal 0) (.param 0) 4
+            #[.store 0 (.checkedAdd (.stateLoad 0) (.loopVar 0))],
+          .returnValue (.stateLoad 0)
+        ]
+        touchesState := true
+        resultIsBool := false
+        resultDropped := true
+      }
+    ]
+    views := #[]
+    sourceHash := "00"
+    semanticHash := "00"
+  }
+  let prog ← liftResult <| lowerPlanForTestV1 plan
+  let (branches, positions) := countControlOps prog
+  -- bound check if + 4 unrolled iterations each with skip/join branches
+  expect (branches ≥ 2 + 4 * 2)
+    s!"for unroll must emit enough branch.eq (got {branches})"
+  expect (positions ≥ 2 + 4 * 2)
+    s!"for unroll must emit enough position (got {positions})"
+  expect (hasBinaryOp prog "lte") "boundExceeded uses lte"
+  expect (hasBinaryOp prog "lt") "iteration gate uses lt"
+  -- Static unroll: four sets into pf_state_0
+  let mut sets := 0
+  for item in prog.items do
+    match item with
+    | .finalize f =>
+        if f.name == "sumUp" then
+          for i in f.body do
+            match i with
+            | .set _ "pf_state_0" _ => sets := sets + 1
+            | _ => pure ()
+    | _ => pure ()
+  expect (sets == 4)
+    s!"for body store must appear once per unrolled iteration (got {sets})"
+  let encoded := encodeProgram prog
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "for encode→decode failed"
+  | some p2 => expect (p2 == prog) "for structural round-trip"
+
+/-- ALEO-IR-3: maxIterations above ceiling fail closed (unbounded honesty). -/
+private def testForUnrollCeilingFailClosed : IO Unit := do
+  let plan : Plan := {
+    handBuiltCounterPlan with
+    programName := "HugeLoop"
+    functions := #[
+      handBuiltCounterPlan.functions[0]!,
+      {
+        index := 1
+        name := "spin"
+        kind := .mutate
+        params := #[{ sourceIndex := 0, name := "n", isBool := false }]
+        body := #[
+          .forLoop (.literal 0) (.param 0) (maxForUnrollIterationsV1 + 1)
+            #[.store 0 (.checkedAdd (.stateLoad 0) (.loopVar 0))],
+          .returnNone
+        ]
+        touchesState := true
+        resultIsBool := false
+        resultDropped := false
+      }
+    ]
+  }
+  match lowerPlanForTestV1 plan with
+  | .ok _ => throw <| IO.userError "oversize for must fail closed"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-3")
+        s!"expected ALEO-IR-3 for ceiling diagnostic, got: {e.render}"
+
+/-- ALEO-IR-3: product Branch via capability has control ops. -/
+unsafe def testProductBranchControlFlow : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Branch where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry pick() : UInt64 do\n" ++
+    "    if count > 10 then\n" ++
+    "      count := count - 1\n" ++
+    "    else\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-ir3-branch>" "Tests.AleoIR3Branch" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  let (branches, positions) := countControlOps prog
+  expect (branches ≥ 2 && positions ≥ 2)
+    s!"product Branch must lower if/else control (b={branches} p={positions})"
+  expect (hasBinaryOp prog "gt") "product Branch condition gt"
 
 unsafe def run : IO Unit := do
   testPins
@@ -258,6 +538,11 @@ unsafe def run : IO Unit := do
   testHandBuiltPlanLowerEqualsCounterProgram
   testProductCounterPlanLowerEqualsGolden
   testUnsupportedPlanFailClosed
+  testIfThenElseStructural
+  testSwitchOnStructural
+  testBoundedForStructural
+  testForUnrollCeilingFailClosed
+  testProductBranchControlFlow
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"
 
 end Tests.Materialization.AleoInstructionsV1

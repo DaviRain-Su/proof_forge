@@ -11,8 +11,8 @@
 
   This module is **not** a full opcode surface, **not** snarkVM Program
   objects, and **not** formal semantics. Unknown opcodes/shapes fail closed
-  at TextCodec decode (IR-1). Plan→Instructions Counter lower is ALEO-IR-2
-  (`LowerPlanV1`).
+  at TextCodec decode. Plan→Instructions: Counter MVP = ALEO-IR-2;
+  if/match/bounded-for control flow = ALEO-IR-3 (`LowerPlanV1`).
 -/
 namespace ProofForgeV2.Targets.Aleo.Instructions.SchemaV1
 
@@ -96,8 +96,9 @@ def OperandV1.render : OperandV1 → String
   | .literal s => s
   | .identifier n => n
 
-/-- Instruction subset frozen against Leo 4.0.2 Counter `compiled.aleo`.
-    Additional opcodes are added only with golden/test evidence. -/
+/-- Instruction subset: Counter golden (IR-1/2) + control-flow ops from
+    locked Leo 4.0.2 compile of if/match/bounded-for (IR-3). Additional
+    opcodes still require golden/test evidence. -/
 inductive InstructionV1 where
   /-- `input rN as <typeAnn>;` -/
   | input (reg : RegisterV1) (ty : TypeAnnV1)
@@ -105,16 +106,22 @@ inductive InstructionV1 where
   | output (reg : RegisterV1) (ty : TypeAnnV1)
   /-- `async <name> rA … into rD;` (zero or more register args) -/
   | asyncCall (name : String) (args : Array RegisterV1) (dest : RegisterV1)
-  /-- Unary: `not src into dest;` (IR-1: `not` only) -/
+  /-- Unary: `not src into dest;` (extend via golden) -/
   | unary (op : String) (src : OperandV1) (dest : RegisterV1)
-  /-- Binary: `add a b into dest;` (IR-1: `add`; extend via golden) -/
+  /-- Binary: `add`/`sub`/`gt`/`lt`/`lte`/`is.eq`/… `a b into dest;` -/
   | binary (op : String) (left : OperandV1) (right : OperandV1) (dest : RegisterV1)
+  /-- Ternary select: `ternary cond thenV elseV into dest;` (IR-3) -/
+  | ternary (cond thenV elseV : OperandV1) (dest : RegisterV1)
   /-- `assert.eq left right;` -/
   | assertEq (left : OperandV1) (right : OperandV1)
   /-- `get.or_use mapping[key] default into dest;` -/
   | getOrUse (mapping : String) (key : OperandV1) (default : OperandV1) (dest : RegisterV1)
   /-- `set value into mapping[key];` -/
   | set (value : OperandV1) (mapping : String) (key : OperandV1)
+  /-- Control: `branch.eq left right to label;` (IR-3; Leo 4.0.2 if/for) -/
+  | branchEq (left right : OperandV1) (label : String)
+  /-- Control: `position label;` (IR-3 branch target) -/
+  | position (label : String)
   deriving DecidableEq, Repr, Inhabited
 
 /-- Mapping declaration (public state table). -/

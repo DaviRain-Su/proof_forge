@@ -36,11 +36,16 @@ def renderInstruction (i : InstructionV1) : String :=
   | .unary op src dest => s!"{op} {src.render} into {dest.render}"
   | .binary op left right dest =>
       s!"{op} {left.render} {right.render} into {dest.render}"
+  | .ternary cond thenV elseV dest =>
+      s!"ternary {cond.render} {thenV.render} {elseV.render} into {dest.render}"
   | .assertEq left right => s!"assert.eq {left.render} {right.render}"
   | .getOrUse mapping key default dest =>
       s!"get.or_use {mapping}[{key.render}] {default.render} into {dest.render}"
   | .set value mapping key =>
       s!"set {value.render} into {mapping}[{key.render}]"
+  | .branchEq left right label =>
+      s!"branch.eq {left.render} {right.render} to {label}"
+  | .position label => s!"position {label}"
 
 private def renderBody (body : Array InstructionV1) : String :=
   body.foldl (init := "") fun acc i =>
@@ -219,6 +224,29 @@ private def parseInstruction? (raw : String) : Option InstructionV1 := do
       let value ← parseOperandToken? toks[1]!
       let (mapping, key) ← parseMappingAccess? toks[3]!
       pure (.set value mapping key)
+  | "branch.eq" =>
+      -- `branch.eq left right to label;`
+      guard (toks.size == 5)
+      guard (toks[3]! == "to")
+      let left ← parseOperandToken? toks[1]!
+      let right ← parseOperandToken? toks[2]!
+      let label := toks[4]!
+      guard (!label.isEmpty)
+      pure (.branchEq left right label)
+  | "position" =>
+      guard (toks.size == 2)
+      let label := toks[1]!
+      guard (!label.isEmpty)
+      pure (.position label)
+  | "ternary" =>
+      -- `ternary cond thenV elseV into dest;`
+      guard (toks.size == 6)
+      guard (toks[4]! == "into")
+      let cond ← parseOperandToken? toks[1]!
+      let thenV ← parseOperandToken? toks[2]!
+      let elseV ← parseOperandToken? toks[3]!
+      let dest ← parseRegister? toks[5]!
+      pure (.ternary cond thenV elseV dest)
   | op =>
       match toks.findIdx? (· == "into") with
       | none => none

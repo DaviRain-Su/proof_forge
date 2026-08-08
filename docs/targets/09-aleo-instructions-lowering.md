@@ -9,7 +9,7 @@ normative: false
 
 # Aleo Instructions IR 落地规划
 
-状态：`draft`（规划 + **ALEO-IR-1/IR-2 已落地**：Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter MVP ≡ 金样；产品 primary 仍 Leo 源至 IR-6）
+状态：`draft`（规划 + **ALEO-IR-1/IR-2/IR-3 已落地**：Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter MVP ≡ 金样 + if/match/bounded-for 控制流指令序列；产品 primary 仍 Leo 源至 IR-6）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Aleo target 的权威物化从 **Leo 4 源文本** 切到官方 **Aleo Instructions**（中间 IR / 寄存器指令集），并评估 **ProgramV1 在 Aleo 上 admit 的构造** 能覆盖到该 IR 的范围。
 
 与 Psy 对照（已闭合 lane）：
@@ -213,7 +213,7 @@ ProofForgeV2/Targets/Aleo/
 | G0 | Schema + 金样 decode | **done**：Counter `compiled.aleo` round-trip / 字段钉死（IR-1） |
 | G1 | Lower Counter | **done**：`LowerPlanV1` Instructions ≡ locked-leo 金样（结构+字节；IR-2） |
 | G2 | OptionState / MapMini 子集 | 与现 Leo admit 面一致 |
-| G3 | 控制流 / for 展开 | 与现 Plan 语义一致 |
+| G3 | 控制流 / for 展开 | **done（IR-3）**：if/switch → `branch.eq`/`position`；bounded for 静态 unroll + boundExceeded 门；结构测试 + Counter 金样回归 |
 | G4 | 产品 dual-write / primary IR | 默认权威 Instructions；Leo debug-only |
 | G5 | admit 面扫描 | 每 Y/P 有 IR 或显式 FC |
 | G6 | Runtime 消费 IR | 不经 Leo 源：snarkVM 或官方路径（**有工具再开**） |
@@ -244,8 +244,8 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ### Phase ALEO-IR-3 — 控制流与有界循环
 
-- [ ] if/match → 指令序列（或证明等价展开）
-- [ ] bounded for 静态展开（与现 Plan 一致）
+- [x] if/match → 指令序列（`branch.eq`/`position`；switch = 右嵌套 `is.eq` 链；对齐 Leo 4.0.2 Final if 形）
+- [x] bounded for 静态展开（`0..maxIterations` 展开 + `start<end` 时 `end-start≤N` assert + 每步 `c<span` 门；`maxIterations>4096` FC）
 
 ### Phase ALEO-IR-4 — 多叶 / Map / Option / 窄宽
 
@@ -332,10 +332,9 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ## 10. 下一步（实现顺序）
 
-1. ~~ALEO-IR-0~~ / ~~IR-1~~ / ~~IR-2~~ done。
-2. **ALEO-IR-3**：if/match/bounded for → 指令序列。
-3. **ALEO-IR-4**：多叶 / Map / Option / 窄宽。
-4. 按 Phase 扫矩阵至 G5；IR-6 产品 primary；G6 仅在工具诚实可用时开。
+1. ~~ALEO-IR-0~~ / ~~IR-1~~ / ~~IR-2~~ / ~~IR-3~~ done。
+2. **ALEO-IR-4**：多叶 / Map / Option / 窄宽。
+3. 按 Phase 扫矩阵至 G5；IR-6 产品 primary；G6 仅在工具诚实可用时开。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-2 Counter lower 已工程闭合。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-2 Counter + IR-3 控制流 lower 已工程闭合（产品 primary 仍 Leo 源）。
