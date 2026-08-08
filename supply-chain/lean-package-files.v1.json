@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 5590,
+      "bytes": 5650,
       "path": "ProofForgeV2.lean",
-      "sha256": "5fcf5ab20a8aada471cf7e4b21a5594e17f32d60a5449e7c98833eb40ef84161"
+      "sha256": "928c8856547d155d67e07c07f8ecdbc933e7b8ebc06f023a608a1f4352b2a807"
     },
     {
       "bytes": 80509,
@@ -269,6 +269,16 @@
       "bytes": 28192,
       "path": "ProofForgeV2/ProofInstances/EvenCounterV1.lean",
       "sha256": "c9d9e5371891fee19987289e8c90331ae4708bf30707c057885513abb298eaee"
+    },
+    {
+      "bytes": 163124,
+      "path": "ProofForgeV2/ProofInstances/MiniAmmEmptyPoolDecodeV1.lean",
+      "sha256": "fd8ef4cc573a856ee4a049876a9c2f13e20a62ba5dc5895e3576fab8295ee84a"
+    },
+    {
+      "bytes": 9212,
+      "path": "ProofForgeV2/ProofInstances/MiniAmmEmptyPoolPreservationV1.lean",
+      "sha256": "ce17e984518f2da3bc0d7f88e1a356382b84394a306b32566f1d9ea8d3370c56"
     },
     {
       "bytes": 31727,

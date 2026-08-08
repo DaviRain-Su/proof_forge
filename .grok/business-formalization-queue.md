@@ -25,7 +25,7 @@ Surface: `Examples/MiniAmmL1.lean` (full vault-internal MiniAmm + executable `em
 |---|---|---|
 | bf3-surface | done | Ship `Examples/MiniAmmL1.lean` with executable `emptyPool`; product `check` ok |
 | bf3-admit-docs | done | Reference admit suite + focused `Tests.Semantic.MiniAmmL1Admit` (18470B carrier); INV-2/Agents/queue wave-3 open |
-| bf3-preserve | in_progress | Closed product-aligned `MiniAmmEmptyPoolV1` data (2342B P1 emptyPool; structure/encode/admission GREEN). Residual: decode bridge + multi-state `PreservationTheoremV1` step packing |
+| bf3-preserve | in_progress | Closed product-aligned `MiniAmmEmptyPoolV1` data (2342B) + production `MiniAmmEmptyPoolDecodeV1` decode bridge GREEN (`decode_ok` / validate bridge). Residual: multi-state `PreservationTheoremV1` step packing (3×UInt64 clear/get + emptyPool eval packing) |
 | bf3-product | pending | same-file `proof emptyPool preserving` + product certifier positive (pin optional golden) |
 | bf3-docs | pending | ADR/research/Agents closeout; **not** ADR-0027 supersession; not formal |
 

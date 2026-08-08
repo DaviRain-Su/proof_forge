@@ -1,17 +1,19 @@
 /-
-  Closed MiniAmm empty-pool instance engineering tests (wave-3 bf3-preserve data).
+  Closed MiniAmm empty-pool instance engineering tests (wave-3 bf3-preserve).
 
   Product-aligned Root.MiniAmmEmptyPool (2342B) with P1 emptyPool predicate.
-  Structure/encode/admission certificates live in MiniAmmEmptyPoolV1.
-  Full PreservationTheoremV1 / decode bridge follow (same queue).
+  Structure/encode/admission certificates + production decode bridge.
+  Multi-state PreservationTheoremV1 step packing follows in the same module family.
 -/
 import ProofForgeV2.ProofInstances.MiniAmmEmptyPoolV1
+import ProofForgeV2.ProofInstances.MiniAmmEmptyPoolDecodeV1
 import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Semantic.WireV1
 
 namespace Tests.Semantic.MiniAmmEmptyPoolV1
 
 open ProofForgeV2.ProofInstances.MiniAmmEmptyPoolV1
+open ProofForgeV2.ProofInstances.MiniAmmEmptyPoolDecodeV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 
@@ -43,6 +45,12 @@ def test_program_validate_roundtrip : IO Unit := do
   | .ok d =>
       expect (d == data) "validated program data must equal closed data"
 
+def test_decode_bridge : IO Unit := do
+  match decodeSemanticProgramDataV1 canonicalBytes with
+  | .error e => throw <| IO.userError s!"decode: {repr e}"
+  | .ok d =>
+      expect (d == data) "decode must recover closed data"
+
 def test_empty_pool_shape : IO Unit := do
   expect (qualifiedName.components.toArray == #["Root", "MiniAmmEmptyPool"])
     "QN Root.MiniAmmEmptyPool"
@@ -56,6 +64,7 @@ def run : IO Unit := do
   test_spine_and_encode
   test_structure_and_admission
   test_program_validate_roundtrip
+  test_decode_bridge
   test_empty_pool_shape
   IO.println "Tests.Semantic.MiniAmmEmptyPoolV1: ok"
 
