@@ -713,19 +713,42 @@ def admitReferenceProgramSliceV1 (program : SemanticProgramV1) :
   validateReferenceProgramDataAdmissionV1 data
   pure ⟨program, data⟩
 
+/-- Exact positive admission from sole production validation and the data-only
+    admission check. The private constructor remains confined to this module. -/
+theorem admitReferenceProgramSliceV1_eq_ok_of_checks
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hcheck : validateReferenceProgramDataAdmissionV1 data = .ok ()) :
+    admitReferenceProgramSliceV1 program = .ok ⟨program, data⟩ := by
+  simp only [admitReferenceProgramSliceV1, hvalidate, hcheck, Bind.bind,
+    Pure.pure, Except.bind, Except.pure]
+
 /-- Compose a positive admission existential from the sole production carrier
-    validation and the exact data-only admission check. The private constructor
-    remains confined to this module. -/
+    validation and the exact data-only admission check. -/
 theorem admitReferenceProgramSliceV1_exists_of_checks
     (program : SemanticProgramV1)
     (data : SemanticProgramDataV1)
     (hvalidate : validateSemanticProgramV1 program = .ok data)
     (hcheck : validateReferenceProgramDataAdmissionV1 data = .ok ()) :
     ∃ admitted : AdmittedReferenceSliceV1,
-      admitReferenceProgramSliceV1 program = .ok admitted := by
-  refine ⟨⟨program, data⟩, ?_⟩
-  simp only [admitReferenceProgramSliceV1, hvalidate, hcheck, Bind.bind,
-    Pure.pure, Except.bind, Except.pure]
+      admitReferenceProgramSliceV1 program = .ok admitted :=
+  ⟨⟨program, data⟩,
+    admitReferenceProgramSliceV1_eq_ok_of_checks program data hvalidate hcheck⟩
+
+/-- Admitted program projection equals the validated input carrier. -/
+theorem AdmittedReferenceSliceV1.program_eq
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1) :
+    (⟨program, data⟩ : AdmittedReferenceSliceV1).program = program :=
+  rfl
+
+/-- Admitted data projection equals the validated decoded table. -/
+theorem AdmittedReferenceSliceV1.data_eq
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1) :
+    (⟨program, data⟩ : AdmittedReferenceSliceV1).data = data :=
+  rfl
 
 /-! ### Internal value helpers -/
 
@@ -972,18 +995,22 @@ private def noteBackEdge (m : MachineV1) (fromBlock toBlock : BlockIdV1) :
             | some counts => .next { m with loopCounts := counts }
       | _, _ => .done m (.trapped .internalInvariant)
 
-private def finalize (m : MachineV1) (cand : CandidateV1) : OutcomeV1 :=
+/-- Terminal outcome packaging. Failure paths always reattach the exact
+    invocation `pre` (not a derived machine field), matching the Reference
+    rollback contract: trap/revert leave business state unchanged. -/
+private def finalize (m : MachineV1) (cand : CandidateV1)
+    (pre : LogicalStateV1) : OutcomeV1 :=
   if m.responseCursor != m.responses.size then
-    .trapped .invalidExternalResponse m.pre
+    .trapped .invalidExternalResponse pre
   else
     match cand with
-    | .trapped fault => .trapped fault m.pre
-    | .reverted reason => .reverted reason m.pre
+    | .trapped fault => .trapped fault pre
+    | .reverted reason => .reverted reason pre
     | .returned value =>
-        let postInit := m.pre.initialized || m.isInitializer
+        let postInit := pre.initialized || m.isInitializer
         match encodeLogicalStateValuesV1 m.data postInit m.overlay with
         | .ok post => .returned post value m.effects
-        | .error _ => .trapped .internalInvariant m.pre
+        | .error _ => .trapped .internalInvariant pre
 
 /-! ### Primitive evaluation -/
 
@@ -2461,7 +2488,7 @@ def stepReferenceSliceV1
             vaultToken := vaultSeed.token
           }
           let (_fuelLeft, mEnd, cand) := runMachine false 1000000 m0
-          finalize mEnd cand
+          finalize mEnd cand pre
 
 private theorem finalizeLifecycle_failureStateUnchangedV1
     (pre : LogicalStateV1)
@@ -2491,34 +2518,35 @@ private theorem finalizeLifecycle_failureStateUnchangedV1
 
 private theorem finalize_failureStateUnchangedV1
     (m : MachineV1)
-    (cand : CandidateV1) :
-    OutcomeFailureStateUnchangedV1 m.pre (finalize m cand) := by
+    (cand : CandidateV1)
+    (pre : LogicalStateV1) :
+    OutcomeFailureStateUnchangedV1 pre (finalize m cand pre) := by
   unfold finalize
   cases h : (m.responseCursor != m.responses.size) with
   | false =>
       simp only [Bool.false_eq_true, ↓reduceIte]
       cases cand with
       | trapped fault =>
-          change OutcomeFailureStateUnchangedV1 m.pre (.trapped fault m.pre)
+          change OutcomeFailureStateUnchangedV1 pre (.trapped fault pre)
           exact rfl
       | reverted reason =>
-          change OutcomeFailureStateUnchangedV1 m.pre (.reverted reason m.pre)
+          change OutcomeFailureStateUnchangedV1 pre (.reverted reason pre)
           exact rfl
       | returned value =>
           cases hencode : encodeLogicalStateValuesV1 m.data
-            (m.pre.initialized || m.isInitializer) m.overlay with
+            (pre.initialized || m.isInitializer) m.overlay with
           | error _ =>
-              change OutcomeFailureStateUnchangedV1 m.pre
-                (.trapped .internalInvariant m.pre)
+              change OutcomeFailureStateUnchangedV1 pre
+                (.trapped .internalInvariant pre)
               exact rfl
           | ok post =>
-              change OutcomeFailureStateUnchangedV1 m.pre
+              change OutcomeFailureStateUnchangedV1 pre
                 (.returned post value m.effects)
               exact trivial
   | true =>
       simp only [↓reduceIte]
-      change OutcomeFailureStateUnchangedV1 m.pre
-        (.trapped .invalidExternalResponse m.pre)
+      change OutcomeFailureStateUnchangedV1 pre
+        (.trapped .invalidExternalResponse pre)
       exact rfl
 
 /-- Shape-invalid invocations trap with the exact pre-state. -/
@@ -2555,6 +2583,104 @@ theorem finalizeLifecycle_failureStateUnchanged_publicV1
     (cand : CandidateV1) :
     OutcomeFailureStateUnchangedV1 pre (finalizeLifecycle pre responses cand) :=
   finalizeLifecycle_failureStateUnchangedV1 pre responses cand
+
+/-- Every production Reference step carries the exact pre-state on revert or
+    trap. Failure packaging uses the invocation `pre` argument directly
+    (see `finalize` / `finalizeLifecycle`), not a derived machine field. -/
+theorem stepReferenceSliceV1_failureStateUnchangedV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vaultSeed : ReferenceVaultSeedV1 := {}) :
+    OutcomeFailureStateUnchangedV1 pre
+      (stepReferenceSliceV1 admitted pre invocation responses vaultSeed) := by
+  unfold stepReferenceSliceV1
+  generalize hgate : gateInvocation admitted pre invocation = gate
+  cases gate with
+  | invalidInvocation => exact rfl
+  | lifecycle cand =>
+      exact finalizeLifecycle_failureStateUnchangedV1 pre responses cand
+  | ready callable overlay context isInitializer =>
+      dsimp only
+      generalize hbind : (Id.run do
+        let mut env := emptyEnv (maxValueIdInCallable callable + 1)
+        let mut i : Nat := 0
+        for p in callable.params do
+          match invocation.args[i]? with
+          | none => return none
+          | some arg =>
+              match envSet env p.valueId arg with
+              | none => return none
+              | some env' => env := env'
+          i := i + 1
+        pure (some env)) = bindResult
+      cases bindResult with
+      | none =>
+          exact finalizeLifecycle_failureStateUnchangedV1 pre responses
+            (.trapped .internalInvariant)
+      | some env =>
+          let m0 : MachineV1 := {
+            data := admitted.data
+            pre
+            callable
+            isInitializer
+            context
+            overlay
+            env
+            effects := #[]
+            occCounts := Array.replicate (maxEffectIdInCallable callable + 1) 0
+            responseCursor := 0
+            responses
+            loopCounts := Array.replicate callable.loopBounds.size 0
+            blockId := callable.entryBlock
+            instrIdx := 0
+            frames := #[]
+            vaultNative := vaultSeed.native
+            vaultToken := vaultSeed.token
+          }
+          exact finalize_failureStateUnchangedV1
+            (runMachine false 1000000 m0).2.1
+            (runMachine false 1000000 m0).2.2
+            pre
+
+/-- Reverted outcomes from the sole production step carry the exact pre-state. -/
+theorem stepReferenceSliceV1_reverted_state_eq
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vaultSeed : ReferenceVaultSeedV1 := {})
+    (reason : SemanticRevertV1)
+    (unchanged : LogicalStateV1)
+    (h :
+      stepReferenceSliceV1 admitted pre invocation responses vaultSeed =
+        .reverted reason unchanged) :
+    unchanged = pre := by
+  have hfail :=
+    stepReferenceSliceV1_failureStateUnchangedV1 admitted pre invocation
+      responses vaultSeed
+  rw [h] at hfail
+  exact hfail
+
+/-- Trapped outcomes from the sole production step carry the exact pre-state. -/
+theorem stepReferenceSliceV1_trapped_state_eq
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vaultSeed : ReferenceVaultSeedV1 := {})
+    (fault : SemanticFaultV1)
+    (unchanged : LogicalStateV1)
+    (h :
+      stepReferenceSliceV1 admitted pre invocation responses vaultSeed =
+        .trapped fault unchanged) :
+    unchanged = pre := by
+  have hfail :=
+    stepReferenceSliceV1_failureStateUnchangedV1 admitted pre invocation
+      responses vaultSeed
+  rw [h] at hfail
+  exact hfail
 
 /-! ### Invariant reference slice -/
 
