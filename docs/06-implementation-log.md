@@ -12,6 +12,17 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-09 — ZeroCounter wave-2 bf2-data（第二非 AMM 实例起步）
+
+- 新 closed instance `ProofForgeV2/ProofInstances/ZeroCounterV1.lean`：
+  `Root.ZeroCounter`，业务 P = `count == 0`（**非** EvenCounter 偶数）；
+  entry `clear` store-0、view `get`、invariant `zero`；1499-byte spine；
+  `structure_ok` + `encode_ok` + Reference `admission_bool` decide。
+- Suite `Tests.Semantic.ZeroCounterV1`；umbrella import；SBOM 250。
+- 队列 wave2：`bf2-data` done；`bf2-preserve` / `bf2-product` / `bf2-docs` pending。
+- 下一步：decode bridge 或等价 validate 证 → `preservation_theorem` → product pin。
+- **不** MiniAmm；**不** supersede ADR-0027。
+
 ## 2026-08-09 — packaging/non-pin + autonomous drain Goal/workflow（engineering）
 
 - **bf-pack-1/2**：`PreservationPackagingV1` 抽出 failure-arm / returned-gate / post=pre /
