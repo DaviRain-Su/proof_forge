@@ -102,6 +102,7 @@ ProgramV1 Counter
 
 ## 8. 后续
 
+- **网络 deploy/execute**：见 [`09c-aleo-network.md`](09c-aleo-network.md) / `just aleo-network`（N1/N2；需可达 endpoint）。
 - Tool Lock pin snarkVM 后扩展「Instructions 直喂」路径（仍 fail closed 直至 pin）。
-- 可选 local snarkOS + `leo deploy`（网络；单独决策）。
-- CLI 子命令 / SDK / MCP 消费本脚本 exit code 与 artifact 目录。
+- Tool Lock 可选 snarkOS → 可复现 local devnet。
+- CLI 子命令 / SDK / MCP 消费本脚本与 network 脚本 exit code / artifact 目录。

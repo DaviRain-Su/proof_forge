@@ -390,6 +390,8 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 
 **Local sandbox（产品本机路径，不改 IR-7）**：[`09b-aleo-local-sandbox.md`](09b-aleo-local-sandbox.md) 与 `just aleo-sandbox`：`--target aleo` 后 Instructions pin + debug Leo package + locked `leo run --offline`（**本地解释**，非 package-only snarkVM、非链上 deploy）。
 
+**Network 维（N1 deploy / N2 execute）**：[`09c-aleo-network.md`](09c-aleo-network.md) 与 `just aleo-network`：显式 network+endpoint+key+`--broadcast` 才上链；默认 Finalize 仍 `deployable=false`（N3 产品决策后才升格）。
+
 ### 已交付（不重开为 Next）
 
 | 切片 | 交付 |

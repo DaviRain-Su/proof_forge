@@ -1321,6 +1321,13 @@ aleo-runtime:
 aleo-sandbox:
     bash scripts/aleo_local_sandbox.sh
 
+# Aleo network deploy/execute (host-heavy; NOT ordinary ci).
+# Requires explicit --broadcast + network/endpoint/private-key (or PROOF_FORGE_ALEO_*).
+# Authority: docs/targets/09c-aleo-network.md
+# Without network opt-in: PF-NETWORK-MISSING exit 2. Not default deployable=true.
+aleo-network *ARGS:
+    bash scripts/aleo_network.sh {{ARGS}}
+
 # Noir ACIR IR-7 / G6 prove honesty probe (host-heavy; NOT ordinary ci).
 # Probes locked $PROOF_FORGE_TOOL_ROOT/bb|barretenberg only (never PATH).
 # Default today: PF-TOOLCHAIN-MISSING + PARTIAL (Tool Lock barretenberg=null;

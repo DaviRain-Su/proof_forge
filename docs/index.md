@@ -34,6 +34,7 @@ Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target
 Psy DPN 物化规划：[`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)（lane idle）。
 Aleo Instructions IR 物化规划：[`targets/09-aleo-instructions-lowering.md`](targets/09-aleo-instructions-lowering.md)（idle residual；OPTION-COMPARE done）。
 Aleo 本地 sandbox（build→package→offline run）：[`targets/09b-aleo-local-sandbox.md`](targets/09b-aleo-local-sandbox.md)（`just aleo-sandbox`；非 ordinary ci / 非 snarkVM package-only）。
+Aleo 网络维 deploy/execute：[`targets/09c-aleo-network.md`](targets/09c-aleo-network.md)（`just aleo-network`；需 endpoint+密钥+`--broadcast`；默认 Finalize 仍 `deployable=false`）。
 Noir ACIR 物化规划：[`targets/07-noir-acir-lowering.md`](targets/07-noir-acir-lowering.md)（lane **idle** residual；IR-0..IR-7 done；金样 `testdata/golden/noir-acir-v1/` Counter + IR-4 multi-fixture `fixtures/*` inventory + G3 circuit-hash pins + 诚实矩阵 + opt-in dual-write）。
 EVM bytecode sole 权威 cutover：**仅研究暂停** [`targets/08-evm-bytecode-lowering.md`](targets/08-evm-bytecode-lowering.md)（**不** Active；用户未授权实现 lane；见 backlog `EVM-BC-RESEARCH`）。
 
