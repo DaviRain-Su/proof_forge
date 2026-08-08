@@ -805,6 +805,18 @@ private def natToLeBytes (n : Nat) (len : Nat) : ByteArray :=
 def natToLeBytesV1 (n : Nat) (len : Nat) : ByteArray :=
   natToLeBytes n len
 
+private theorem natToLeBytesList_length (n len : Nat) :
+    (natToLeBytesList n len).length = len := by
+  induction len generalizing n with
+  | zero => rfl
+  | succ len ih =>
+      simp [natToLeBytesList, ih]
+
+/-- Encoded little-endian payload has exact requested width. -/
+theorem natToLeBytesV1_size (n len : Nat) :
+    (natToLeBytesV1 n len).size = len := by
+  simp [natToLeBytesV1, natToLeBytes, ByteArray.size, natToLeBytesList_length]
+
 private def bytesEqual (a b : ByteArray) : Bool := a == b
 
 private def shapeOf (data : SemanticProgramDataV1) (tid : TypeIdV1) :
@@ -4660,6 +4672,29 @@ theorem add_two_preserves_even
     (n : Nat) (heven : n % 2 = 0) : (n + 2) % 2 = 0 := by
   have h2 : (2 : Nat) % 2 = 0 := by decide
   simpa [Nat.add_mod, heven, h2] using (rfl : (0 : Nat) % 2 = 0)
+
+/-- Successful UInt64 +2 encode bytes remain size-8 and even when the sum does
+    not overflow. Used by increment finalize packaging. -/
+theorem add_two_uint64_sum_bytes_even
+    (countBytes : ByteArray)
+    (_hsize : countBytes.size = 8)
+    (heven : leBytesToNatV1 countBytes % 2 = 0)
+    (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64) :
+    let sumBytes :=
+      natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+    sumBytes.size = 8 ∧
+      leBytesToNatV1 sumBytes % 2 = 0 ∧
+      leBytesToNatV1 sumBytes = leBytesToNatV1 countBytes + 2 := by
+  let sumBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+  have hsz : sumBytes.size = 8 := natToLeBytesV1_size _ 8
+  have hround :
+      leBytesToNatV1 sumBytes = leBytesToNatV1 countBytes + 2 :=
+    leBytesToNatV1_natToLeBytesV1_uint64
+      (leBytesToNatV1 countBytes + 2) hnoOverflow
+  have heven' : leBytesToNatV1 sumBytes % 2 = 0 := by
+    rw [hround]
+    exact add_two_preserves_even _ heven
+  exact ⟨hsz, heven', hround⟩
 
 /-- Finalizer of a lifecycle gate never produces a successful return outcome. -/
 theorem finalizeLifecycle_ne_returned_publicV1

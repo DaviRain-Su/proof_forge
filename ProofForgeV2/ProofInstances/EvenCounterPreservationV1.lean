@@ -358,4 +358,45 @@ theorem eval_even_after_get_returned
   rw [hpost]
   exact eval_even_of_count_even pre countBytes hinit hdecode hcan heven
 
+/-! ### Increment packaging (encode form; runMachine path still open)
+
+    After a successful non-overflowing +2, the sum payload is still even and
+    size-8, so the single-slot encode form evaluates the invariant true.
+-/
+
+/-- Sum bytes after a legal UInt64 +2 stay even and size-8. -/
+theorem increment_sum_bytes_even
+    (countBytes : ByteArray)
+    (hsize : countBytes.size = 8)
+    (heven : leBytesToNatV1 countBytes % 2 = 0)
+    (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64) :
+    let sumBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+    sumBytes.size = 8 ∧ leBytesToNatV1 sumBytes % 2 = 0 := by
+  have h :=
+    add_two_uint64_sum_bytes_even countBytes hsize heven hnoOverflow
+  exact ⟨h.1, h.2.1⟩
+
+/-- Encoded post-state after increment +2 (no overflow) keeps the invariant. -/
+theorem eval_even_after_increment_encode
+    (countBytes : ByteArray)
+    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (hsize : countBytes.size = 8)
+    (heven : leBytesToNatV1 countBytes % 2 = 0)
+    (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64) :
+    let sumBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+    evalInvariantV1 program 0 {
+      initialized := true
+      canonicalValues := (encodeU32le 8).append sumBytes
+    } = .returnedTrue := by
+  let sumBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+  have hsum :=
+    add_two_uint64_sum_bytes_even countBytes hsize heven hnoOverflow
+  have hcanSum :
+      validateValueBytesV1 data.types 0 sumBytes = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 0 uint64Type sumBytes
+      (by simp [data, types, uint64Type]) (by rfl) hsum.1
+  -- silence unused pre-canonicity (documents pre overlay was gated)
+  let _ := hcan
+  exact eval_even_of_encoded_uint64 sumBytes true rfl hcanSum hsum.1 hsum.2.1
+
 end ProofForgeV2.ProofInstances.EvenCounterPreservationV1

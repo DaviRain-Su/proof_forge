@@ -751,6 +751,63 @@ theorem validateValueBytesV1_uint64_eq_ok
   rw [h]
   rfl
 
+/-- Any exact 8-byte payload is a canonical UInt64 valueBytes (fixed width is
+    length + re-encode identity; content is free). -/
+theorem validateValueBytesV1_uint64_of_size
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (decl : TypeDeclV1)
+    (bytes : ByteArray)
+    (hlookup : types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .uint 64)
+    (hsize : bytes.size = 8) :
+    validateValueBytesV1 types typeId bytes = .ok () := by
+  have hentry : 1 ≤ maxCanonicalProgramBytes := by decide
+  have houtput : 8 ≤ maxCanonicalProgramBytes - 1 := by decide
+  have hlimit : bytes.size ≤ maxCanonicalValueBytes := by
+    rw [hsize]
+    decide
+  have hspendEntry :
+      spendCanonicalValueWorkV1 maxCanonicalProgramBytes 1 =
+        .ok (maxCanonicalProgramBytes - 1) := by
+    simp [spendCanonicalValueWorkV1, hentry, Pure.pure, Except.pure]
+  have hspendOutput :
+      spendCanonicalValueWorkV1 (maxCanonicalProgramBytes - 1) 8 =
+        .ok (maxCanonicalProgramBytes - 1 - 8) := by
+    simp [spendCanonicalValueWorkV1, houtput, Pure.pure, Except.pure]
+  have hextract : bytes.extract 0 8 = bytes := by
+    have : bytes.extract 0 bytes.size = bytes := ByteArray.extract_zero_size
+    simpa [hsize] using this
+  have htake :
+      takeBytesNC (start bytes) 8 = .ok (bytes, ⟨bytes, 8, 0⟩) := by
+    -- `start` is offset-0; remaining is size when offset=0.
+    have hstart : start bytes = ⟨bytes, 0, 0⟩ := rfl
+    have hge : remaining ⟨bytes, 0, 0⟩ ≥ 8 := by
+      change bytes.size - 0 ≥ 8
+      omega
+    unfold takeBytesNC
+    rw [hstart]
+    -- `unless p` desugars to `if p then pure () else err; ...`
+    simp only [if_pos hge, Pure.pure, Except.pure, Bind.bind, Except.bind]
+    simp [hextract]
+  have hremaining : remaining ⟨bytes, 8, 0⟩ = 0 := by
+    change bytes.size - 8 = 0
+    omega
+  have hremainingBeq : (remaining ⟨bytes, 8, 0⟩ == 0) = true := by
+    rw [hremaining]
+    decide
+  have hbeq : (bytes == bytes) = true := by
+    change (bytes.data == bytes.data) = true
+    simp
+  unfold validateValueBytesV1 validateValueBytesWithFuelV1
+  simp only [Pure.pure, Except.pure, Bind.bind, Except.bind]
+  rw [if_pos hlimit, show maxNesting = 255 + 1 by rfl,
+    decodeAndReencodeValueBytesV1.eq_2, hspendEntry, hlookup]
+  simp only [hshape]
+  rw [show (64 : UInt16).toNat / 8 = 8 by decide, htake]
+  simp only [Bind.bind, Except.bind, Pure.pure, Except.pure]
+  rw [hsize, show max 1 8 = 8 by decide, hspendOutput]
+  simp only
+  rw [if_pos hremainingBeq, if_pos hbeq]
+
 /-- Internal WireV1-family phase entry (not a public contract; see `validateSemanticProgramStructureV1`). -/
 def validateConstantsValueBytesV1 (types : Array TypeDeclV1)
     (constants : Array ConstantV1) (budget : Nat) : Except SemanticWireErrorV1 Nat := do
