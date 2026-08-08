@@ -255,4 +255,74 @@ theorem eval_even_of_count_even
         .returnedTrue
       simpa [evenInvariant] using hrun)
 
+/-! ### Get-returned packaging (no heavy evenness extract)
+
+    Callers that already hold `leBytesToNatV1 countBytes % 2 = 0` (e.g. from a
+    future extract module, or a specialized micro-path) can re-evaluate after
+    the production single-slot encode used by get finalize.
+-/
+
+/-- Even overlay encoded as the closed single-slot layout evaluates true. -/
+theorem eval_even_of_encoded_uint64
+    (countBytes : ByteArray)
+    (initialized : Bool)
+    (hinit : initialized = true)
+    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (hsize : countBytes.size = 8)
+    (heven : leBytesToNatV1 countBytes % 2 = 0) :
+    evalInvariantV1 program 0 {
+      initialized
+      canonicalValues := (encodeU32le 8).append countBytes
+    } = .returnedTrue := by
+  let state : LogicalStateV1 := {
+    initialized
+    canonicalValues := (encodeU32le 8).append countBytes
+  }
+  have hdecode :
+      decodeLogicalStateValuesV1 data state = .ok #[countBytes] := by
+    simpa [state, data, countState] using
+      decodeLogicalStateValuesV1_of_single_uint64_encode data countState
+        countBytes initialized (by simp [data, countState]) hcan hsize
+  have hinit' : state.initialized = true := by simpa [state] using hinit
+  simpa [state] using
+    eval_even_of_count_even state countBytes hinit' hdecode hcan heven
+
+/-- Encode of a single even UInt64 overlay is the post-state get finalize uses. -/
+theorem encode_even_overlay_eq_ok
+    (countBytes : ByteArray)
+    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (hsize : countBytes.size = 8) :
+    encodeLogicalStateValuesV1 data true #[countBytes] = .ok {
+      initialized := true
+      canonicalValues := (encodeU32le 8).append countBytes
+    } :=
+  encodeLogicalStateValuesV1_single_uint64_eq_ok data countState countBytes true
+    (by simp [data, countState]) hcan hsize
+
+/-- After get-shaped encode of an even overlay, the invariant still holds. -/
+theorem eval_even_after_get_encode
+    (countBytes : ByteArray)
+    (post : LogicalStateV1)
+    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (hsize : countBytes.size = 8)
+    (heven : leBytesToNatV1 countBytes % 2 = 0)
+    (hencode :
+      encodeLogicalStateValuesV1 data true #[countBytes] = .ok post) :
+    evalInvariantV1 program 0 post = .returnedTrue := by
+  have henc := encode_even_overlay_eq_ok countBytes hcan hsize
+  have hpost :
+      post = {
+        initialized := true
+        canonicalValues := (encodeU32le 8).append countBytes
+      } := by
+    have : encodeLogicalStateValuesV1 data true #[countBytes] =
+        .ok {
+          initialized := true
+          canonicalValues := (encodeU32le 8).append countBytes
+        } := henc
+    rw [this] at hencode
+    exact (Except.ok.inj hencode).symm
+  rw [hpost]
+  exact eval_even_of_encoded_uint64 countBytes true rfl hcan hsize heven
+
 end ProofForgeV2.ProofInstances.EvenCounterPreservationV1
