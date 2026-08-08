@@ -77,10 +77,10 @@
       callFn fuel-bounded). Package omits pureHelper top-level methods
       (free helpers match EmitIR; not contract methods). Recursive/effectful
       pure body (store/emit/externalCall/schedule/stateLoad) fail closed.
-    * residual Plan-admit shapes (narrow bitwise/shift only)
-      → stable PSY-DPN-G5-MATRIX FC; EmitIRV1 G5-HARD residual allowlist may
-      emit transitional `.psy` only (no false DPN package); non-residual DPN
-      failures hard-fail materialize
+    * R-HARD (G5 residual → hard-require): narrow bitwise/shift + Goldilocks
+      Field expr → DPN (mirror EmitIR); `isPsyDpnG5HardResidualAllowlistV1`
+      emptied — any Plan-admitted DPN lower failure hard-fails materialize
+      (`PSY-DPN-G5-HARD`); no residual `.psy`-only dual-write path.
     * Bool/compare/logic/bare assert covered by general builder + suite pins
 
   Method ids: Counter pins match dargo golden; other names use a stable
@@ -748,6 +748,105 @@ private def emitNarrowCheckedMod (b : BuilderV1) (bitWidth : Nat) (l r : WireV1)
   }
   let (b3, m) := pushTarget b2 .mod_ #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, m)
+
+/-! ## R-HARD: narrow UInt{8,16,32} bitwise/shift + bitNot (mirror EmitIRV1) -/
+
+/-- `2^w − 1` mask for narrow bitNot (always a legal Goldilocks Felt). -/
+private def narrowMaskV1 (bitWidth : Nat) : CompileResult Nat :=
+  if bitWidth == 8 then pure 255
+  else if bitWidth == 16 then pure 65535
+  else if bitWidth == 32 then pure 4294967295
+  else planError s!"PSY-DPN-G5: narrow bitWidth {bitWidth} not admitted (need 8/16/32)"
+
+/-- Narrow bitAnd/Or/Xor: U32 op + CastFelt (same limb path as UInt64 bit*).
+    Operands are range-checked at entry; result stays in-range when operands do.
+    Inlined (not via later `emitLimbBitwise`) so this family stays above R-SHIFT. -/
+private def emitNarrowBitwise (b : BuilderV1) (bitWidth : Nat) (op : OpTypeV1)
+    (l r : WireV1) : CompileResult (BuilderV1 × WireV1) := do
+  let _ ← narrowBoundV1 bitWidth
+  let (b1, u) := pushU32 b op #[l.operand, r.operand]
+  emitCastFelt b1 u
+
+/-- Narrow bitNot: Felt `x ^ (2^w−1)` via U32Xor + CastFelt (EmitIR mask XOR). -/
+private def emitNarrowBitNot (b : BuilderV1) (bitWidth : Nat) (o : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let mask ← narrowMaskV1 bitWidth
+  let (b1, maskW) := emitLiteralU64 b (UInt64.ofNat mask)
+  let (b2, u) := pushU32 b1 .u32Xor #[o.operand, maskW.operand]
+  emitCastFelt b2 u
+
+/-- Narrow shl: assert `count < w` then U32ShiftLeft + CastFelt + `result < 2^w`
+    (mirror EmitIR invalidShift + post-shl width guard; dargo Felt `<<`). -/
+private def emitNarrowShl (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let bound ← narrowBoundV1 bitWidth
+  let ri ← asTargetIndex r
+  let (b1, wBound) := emitLiteralU64 b (UInt64.ofNat bitWidth)
+  let wi ← asTargetIndex wBound
+  let (b2, okCount) :=
+    pushBool b1 .lt #[UInt64.ofNat ri, UInt64.ofNat wi]
+  let b3 := {
+    b2 with
+      asserts := b2.asserts.push {
+        left := okCount.encoded
+        right := encodeIndexedId .bool b2.trueBool
+        message := s!"invalidShift: count >= {bitWidth}"
+      }
+  }
+  let (b4, u) := pushU32 b3 .u32ShiftLeft #[l.operand, r.operand]
+  let (b5, res) ← emitCastFelt b4 u
+  let resi ← asTargetIndex res
+  let (b6, limW) := emitLiteralU64 b5 (UInt64.ofNat bound)
+  let limi ← asTargetIndex limW
+  let (b7, okRes) :=
+    pushBool b6 .lt #[UInt64.ofNat resi, UInt64.ofNat limi]
+  let b8 := {
+    b7 with
+      asserts := b7.asserts.push {
+        left := okRes.encoded
+        right := encodeIndexedId .bool b7.trueBool
+        message := s!"u{bitWidth} shl overflow"
+      }
+  }
+  pure (b8, res)
+
+/-- Narrow shr: assert `count < w` then U32ShiftRight + CastFelt (EmitIR). -/
+private def emitNarrowShr (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let _ ← narrowBoundV1 bitWidth
+  let ri ← asTargetIndex r
+  let (b1, wBound) := emitLiteralU64 b (UInt64.ofNat bitWidth)
+  let wi ← asTargetIndex wBound
+  let (b2, okCount) :=
+    pushBool b1 .lt #[UInt64.ofNat ri, UInt64.ofNat wi]
+  let b3 := {
+    b2 with
+      asserts := b2.asserts.push {
+        left := okCount.encoded
+        right := encodeIndexedId .bool b2.trueBool
+        message := s!"invalidShift: count >= {bitWidth}"
+      }
+  }
+  let (b4, u) := pushU32 b3 .u32ShiftRight #[l.operand, r.operand]
+  emitCastFelt b4 u
+
+/-! ## R-HARD: Goldilocks Field expr (mirror EmitIR; no checked overflow) -/
+
+/-- Field binary: native Target add/sub/mul/div (exact mod Goldilocks; no
+    UInt64 checked-arith guards). -/
+private def emitFieldBinary (b : BuilderV1) (op : FieldArithOp) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let opType := match op with
+    | .add => OpTypeV1.add | .sub => .sub | .mul => .mul | .div => .div
+  pure (pushTarget b opType #[UInt64.ofNat li, UInt64.ofNat ri])
+
+/-- Field negation: Target `0 - x` (Goldilocks inverse; no intMin). -/
+private def emitFieldNeg (b : BuilderV1) (o : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let oi ← asTargetIndex o
+  pure (pushTarget b .sub #[UInt64.ofNat b.zeroTarget, UInt64.ofNat oi])
 
 /-! ## R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot (mirror EmitIRV1 + dargo) -/
 
@@ -1466,10 +1565,29 @@ is fail closed (PSY-TYPED-ERROR; no structured error payload ABI)"
       let (b1, lw) ← lowerExprV1 b params viewPath l
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
       emitNarrowCheckedMod b2 w lw rw
-  | .narrowBitAnd w _ _ | .narrowBitOr w _ _ | .narrowBitXor w _ _
-  | .narrowShl w _ _ | .narrowShr w _ _ | .narrowBitNot w _ =>
-      planError s!"PSY-DPN-G5-MATRIX: UInt{w} narrow bitwise/shift residual \
-(.psy dual-write only)"
+  | .narrowBitAnd w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowBitwise b2 w .u32And lw rw
+  | .narrowBitOr w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowBitwise b2 w .u32Or lw rw
+  | .narrowBitXor w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowBitwise b2 w .u32Xor lw rw
+  | .narrowShl w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowShl b2 w lw rw
+  | .narrowShr w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowShr b2 w lw rw
+  | .narrowBitNot w o => do
+      let (b1, ow) ← lowerExprV1 b params viewPath o
+      emitNarrowBitNot b1 w ow
   | .narrowSignedCheckedAdd w l r => do
       let (b1, lw) ← lowerExprV1 b params viewPath l
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
@@ -1515,9 +1633,18 @@ is fail closed (PSY-TYPED-ERROR; no structured error payload ABI)"
       let (b1, lw) ← lowerExprV1 b params viewPath l
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
       emitUInt64Shr b2 lw rw
-  | .fieldLiteral _ | .fieldBinary _ _ _ | .fieldCompare _ _ _ | .fieldNeg _ =>
-      planError "PSY-DPN-G5-MATRIX: Goldilocks Field expr residual at DPN \
-(bn254 Field is Plan FC; native Felt field path not yet DPN-lowered)"
+  | .fieldLiteral v => pure (emitLiteralU64 b v)
+  | .fieldBinary op l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitFieldBinary b2 op lw rw
+  | .fieldCompare op l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitCompare b2 op lw rw
+  | .fieldNeg o => do
+      let (b1, ow) ← lowerExprV1 b params viewPath o
+      emitFieldNeg b1 ow
 
 /-! ## G5-WIDE: schoolbook mul / restoring div / limb shift (EmitIRV1 port) -/
 

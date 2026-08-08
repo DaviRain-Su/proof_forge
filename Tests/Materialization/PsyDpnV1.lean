@@ -27,18 +27,17 @@
     * DPN-7: product `buildFromCapability` dual-writes Counter.dpn.json
       (package ≡ golden) + transitional Counter.psy; deployable=false note
     * G5-MATRIX: Bool/compare/logic; bare assert/revert; UInt64 sub/mul/div/mod;
-      bitAnd; const→literal product; residual FC for narrow bitwise;
-      payload revertError FC
+      bitAnd; const→literal product; payload revertError FC
     * R-NARROW: UInt8/16/32 checked arith + param range → DPN; UInt8 product
-      dual-writes `.dpn.json` + `.psy` (no longer residual-only)
+      dual-writes `.dpn.json` + `.psy`
     * R-INT: Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement
       signed add/sub/mul/div/mod/neg/compare → DPN; Int8 product dual-write
     * R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot → DPN (invalidShift /
       representability asserts; U32Shift* + CastFelt / Sub mask); product dual-write
     * R-PURE: pureFn/localCall callFn → DPN inline into caller; nested call;
       recursive/effectful FC; pureHelper omitted from package; product dual-write
-    * G5-HARD: residual allowlist for remaining residual families; non-allowlisted
-      DPN lower (e.g. zero state fields) fails materialize with PSY-DPN-G5-HARD
+    * R-HARD: narrow bitwise/shift + Goldilocks Field → DPN; residual allowlist
+      empty (full hard-require); non-DPN lower fails materialize with PSY-DPN-G5-HARD
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -1831,16 +1830,42 @@ def testNarrowCheckedArithLower : IO Unit := do
     resultIsUnit := false
   } false)
   expect (dCmp.definitions.any fun defn => defn.opType == .lt) "narrow compare lt"
-  -- Narrow bitwise remains residual
-  match lowerFunctionForTestV1
-      (mk 8 "nband" #[.returnValue (.narrowBitAnd 8 (.param 0) (.param 1))]) false with
-  | .error e =>
-      let msg := e.render
-      expect (msg.contains "PSY-DPN-G5-MATRIX" &&
-          (msg.contains "bitwise" || msg.contains "narrow"))
-        s!"narrow bitwise residual must cite G5-MATRIX, got: {msg}"
-  | .ok _ =>
-      throw <| IO.userError "narrowBitAnd must stay residual at DPN"
+  -- R-HARD: narrow bitwise/shift/bitNot DPN lower (was residual)
+  let dBand ← liftResult (lowerFunctionForTestV1
+    (mk 8 "nband" #[.returnValue (.narrowBitAnd 8 (.param 0) (.param 1))]) false)
+  expect (dBand.definitions.any fun defn => defn.opType == .u32And)
+    "narrowBitAnd → U32And"
+  expect (dBand.definitions.any fun defn => defn.opType == .castFelt)
+    "narrowBitAnd CastFelt"
+  let dShl ← liftResult (lowerFunctionForTestV1
+    (mk 16 "nshl" #[.returnValue (.narrowShl 16 (.param 0) (.param 1))]) false)
+  expect (dShl.assertions.any fun a => a.message == "invalidShift: count >= 16")
+    "narrowShl invalidShift"
+  expect (dShl.assertions.any fun a => a.message == "u16 shl overflow")
+    "narrowShl width overflow"
+  expect (dShl.definitions.any fun defn => defn.opType == .u32ShiftLeft)
+    "narrowShl → U32ShiftLeft"
+  let dShr ← liftResult (lowerFunctionForTestV1
+    (mk 32 "nshr" #[.returnValue (.narrowShr 32 (.param 0) (.param 1))]) false)
+  expect (dShr.assertions.any fun a => a.message == "invalidShift: count >= 32")
+    "narrowShr invalidShift"
+  expect (dShr.definitions.any fun defn => defn.opType == .u32ShiftRight)
+    "narrowShr → U32ShiftRight"
+  let dNot ← liftResult (lowerFunctionForTestV1 {
+    index := 0
+    name := "nnot"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false, uintWidth := 8 }]
+    body := #[.returnValue (.narrowBitNot 8 (.param 0))]
+    resultIsBool := false
+    resultUintWidth := 8
+    resultIsUnit := false
+  } false)
+  expect (dNot.definitions.any fun defn =>
+      defn.opType == .constant && defn.inputs == #[255])
+    "narrowBitNot mask 255"
+  expect (dNot.definitions.any fun defn => defn.opType == .u32Xor)
+    "narrowBitNot → U32Xor"
 
 /-- R-INT: Int64 signedCompare/checkedNeg + narrow Int signed arith DPN lower. -/
 def testSignedIntLower : IO Unit := do
@@ -2034,18 +2059,18 @@ def testPayloadRevertErrorFailClosedAtDpn : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "payload revertError must fail closed at DPN"
 
-/-- G5-HARD residual allowlist unit pins (classifier only). -/
+/-- R-HARD: residual allowlist is empty (full hard-require). Historical residual
+    wording strings no longer gate `.psy`-only dual-write. -/
 def testG5HardResidualAllowlistClassifier : IO Unit := do
-  -- Remaining residual families (R-NARROW + R-INT + R-SHIFT-BIT + R-PURE
-  -- admitted; narrow bitwise/shift still residual).
-  expect (isPsyDpnG5HardResidualAllowlistV1
+  expect (!isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN-G5-MATRIX: UInt8 narrow bitwise/shift residual (.psy dual-write only)")
-    "narrow bitwise residual must be allowlisted"
-  -- Historical pureFn residual wording must no longer be product-emitted;
-  -- classifier is wording-based so the string still matches if reintroduced.
-  expect (isPsyDpnG5HardResidualAllowlistV1
+    "R-HARD: former narrow bitwise residual must NOT be allowlisted"
+  expect (!isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN-G5-MATRIX: pureFn/localCall callFn 'f' is residual (.psy dual-write only)")
-    "historical pureFn residual wording still classifies (product must not emit)"
+    "R-HARD: historical pureFn residual wording must NOT be allowlisted"
+  expect (!isPsyDpnG5HardResidualAllowlistV1
+      "PSY-DPN-G5-MATRIX: Goldilocks Field expr residual at DPN")
+    "R-HARD: former Field residual must NOT be allowlisted"
   expect (!isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN: expected at least one state field")
     "non-MATRIX DPN error must not be residual allowlisted"
@@ -2055,6 +2080,8 @@ def testG5HardResidualAllowlistClassifier : IO Unit := do
   expect (!isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN-G5-MATRIX: payload error (nonempty revertError args) is fail closed")
     "payload FC is not residual dual-write allowlist wording"
+  expect (!isPsyDpnG5HardResidualAllowlistV1 "")
+    "empty message must not be allowlisted"
 
 /-- R-NARROW product: UInt8 Counter-shaped program dual-writes DPN package + .psy. -/
 unsafe def testUInt8ProductDualWriteDpn : IO Unit := do
@@ -2269,7 +2296,104 @@ unsafe def testPureFnProductDualWriteDpn : IO Unit := do
       expect (addCount == 2)
         s!"product multi(quadruple) must inline two Add, got {addCount}"
 
-/-- G5-HARD: non-allowlisted DPN lower failure fails materialize (no silent
+/-- R-HARD product: UInt8 narrow bitwise/shift dual-writes DPN + .psy. -/
+unsafe def testUInt8NarrowBitwiseProductDualWriteDpn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program U8BitDpn where\n" ++
+    "  state count : UInt8\n" ++
+    "  init(seed : UInt8) do\n" ++
+    "    count := seed\n" ++
+    "  entry band(a : UInt8, b : UInt8) : UInt8 do\n" ++
+    "    return a & b\n" ++
+    "  entry bshl(a : UInt8, c : UInt32) : UInt8 do\n" ++
+    "    return a << c\n" ++
+    "  entry bnot(a : UInt8) : UInt8 do\n" ++
+    "    return ~a\n" ++
+    "  view get() : UInt8 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-u8-bit>" "Tests.U8BitDpn" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  expect (files.size == 2)
+    s!"R-HARD narrow bitwise must dual-write DPN+.psy, got {files.map (·.path)}"
+  let some dpn := files.find? (·.path.endsWith ".dpn.json") |
+    throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
+  let some psy := files.find? (·.path.endsWith ".psy") |
+    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
+  expect (files[0]!.path.endsWith ".dpn.json")
+    "DPN package must be primary artifact"
+  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
+  match parsePackage? dpn.contents with
+  | none => throw <| IO.userError "U8BitDpn.dpn.json failed to parse"
+  | some pkg =>
+      let some bandFn := pkg.find? (·.name == "band") |
+        throw <| IO.userError s!"missing band; names {pkg.map (·.name)}"
+      expect (bandFn.definitions.any fun defn => defn.opType == .u32And)
+        "product band must emit U32And"
+      let some shlFn := pkg.find? (·.name == "bshl") |
+        throw <| IO.userError s!"missing bshl; names {pkg.map (·.name)}"
+      expect (shlFn.assertions.any fun a => a.message == "invalidShift: count >= 8")
+        "product bshl must assert invalidShift"
+      expect (shlFn.definitions.any fun defn => defn.opType == .u32ShiftLeft)
+        "product bshl must emit U32ShiftLeft"
+      let some notFn := pkg.find? (·.name == "bnot") |
+        throw <| IO.userError s!"missing bnot; names {pkg.map (·.name)}"
+      expect (notFn.definitions.any fun defn => defn.opType == .u32Xor)
+        "product bnot must emit U32Xor mask"
+
+/-- R-HARD product: Goldilocks Field state/arith dual-writes DPN + .psy. -/
+unsafe def testGoldilocksFieldProductDualWriteDpn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program GoldFieldDpn where\n" ++
+    "  state acc : Field goldilocks\n" ++
+    "  init(initial : Field goldilocks) do\n" ++
+    "    acc := initial\n" ++
+    "  entry bump(delta : Field goldilocks) : Field goldilocks do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n" ++
+    "  view get() : Field goldilocks do\n" ++
+    "    return acc\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-gold-field>" "Tests.GoldFieldDpn" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  expect (files.size == 2)
+    s!"R-HARD Field must dual-write DPN+.psy, got {files.map (·.path)}"
+  let some dpn := files.find? (·.path.endsWith ".dpn.json") |
+    throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
+  let some psy := files.find? (·.path.endsWith ".psy") |
+    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
+  expect (files[0]!.path.endsWith ".dpn.json")
+    "DPN package must be primary artifact"
+  expect (psy.contents.contains "pub acc: Felt")
+    "transitional .psy still declares Felt storage"
+  match parsePackage? dpn.contents with
+  | none => throw <| IO.userError "GoldFieldDpn.dpn.json failed to parse"
+  | some pkg =>
+      expect (pkg.size == 3)
+        s!"GoldFieldDpn package must have 3 methods, got {pkg.size}"
+      let some bump := pkg.find? (·.name == "bump") |
+        throw <| IO.userError s!"missing bump; names {pkg.map (·.name)}"
+      -- Field add: native Target Add without u64 overflow assert wording
+      expect (bump.definitions.any fun defn => defn.opType == .add)
+        "product Field bump must emit Add"
+      expect (!bump.assertions.any fun a => a.message == "u64 add overflow")
+        "Field add must not emit UInt64 checked-overflow assert"
+
+/-- G5-HARD / R-HARD: any DPN lower failure fails materialize (no silent
     `.psy`-only). Hand Plan with zero state fields validates/emit-lowers to
     `.psy` shape but DPN package requires ≥1 state field. -/
 def testG5HardNonResidualDpnFailClosed : IO Unit := do
@@ -2394,6 +2518,8 @@ unsafe def run : IO Unit := do
   testInt8ProductDualWriteDpn
   testUInt64ShiftBitNotProductDualWriteDpn
   testPureFnProductDualWriteDpn
+  testUInt8NarrowBitwiseProductDualWriteDpn
+  testGoldilocksFieldProductDualWriteDpn
   testG5HardNonResidualDpnFailClosed
   testCounterProductDualWriteArtifacts
   IO.println "Tests.Materialization.PsyDpnV1: ok"

@@ -11,13 +11,11 @@ the V2 envelope) and capability-internal `lower`/`emitFromIR`.
 **PSY-DPN-7 product dual-write + PSY-DPN-G5-HARD honesty**: primary artifact is
 `{contract}.dpn.json` (dargo-shaped package of `DPNFunctionCircuitDefinition`)
 when Plan→DPN lower succeeds; `{contract}.psy` remains a transitional/debug
-text emission for dargo compile lanes. **G5-HARD**: non-residual DPN lower
-failures fail materialize with stable `PSY-DPN-G5-HARD` (no silent incomplete
-product). Explicit residual allowlist (`PSY-DPN-G5-MATRIX` residual families —
-narrow bitwise/shift, Field residual; **R-NARROW / R-INT / R-SHIFT-BIT /
-R-PURE pureFn callFn-inline admitted to DPN**) may still emit transitional
-`.psy` only until remaining families gain true DPN lower; full hard-require
-(zero allowlist) is deferred.
+text emission for dargo compile lanes. **R-HARD full hard-require (2026-08-08)**:
+`isPsyDpnG5HardResidualAllowlistV1` is empty — any Plan-admitted DPN lower
+failure fails materialize with stable `PSY-DPN-G5-HARD` (no silent incomplete
+product / no residual `.psy`-only path). Narrow bitwise/shift + Goldilocks
+Field expr are DPN-lowered; plan-FC shapes never reach dual-write.
 `deployable=false` unchanged.
 
 Checked u64 arithmetic is realized with explicit assert guards. Psy `Felt`
@@ -1762,25 +1760,21 @@ private def lower (plan : Plan) : CompileResult IR := do
   }
   pure { sourcePlan := plan, module_ }
 
-/-- PSY-DPN-G5-HARD residual allowlist (explicit gated policy).
+/-- PSY-DPN-G5-HARD residual allowlist (R-HARD full hard-require).
 
-    True only for stable `PSY-DPN-G5-MATRIX` residual diagnostics that document
-    Plan-admit shapes not yet DPN-lowered (product may emit transitional
-    `.psy` only). R-NARROW UInt8/16/32, R-INT Int64/narrow signed,
-    R-SHIFT-BIT UInt64 shl/shr/checkedBitNot, and R-PURE pureFn/localCall
-    callFn inline are **not** residual (DPN-lowered). Remaining residual:
-    narrow bitwise/shift, Field. All other DPN lower failures must fail
-    materialize — never silent incomplete product. -/
-def isPsyDpnG5HardResidualAllowlistV1 (message : String) : Bool :=
-  -- Residual matrix families pin the `.psy dual-write only` / residual wording.
-  message.contains "PSY-DPN-G5-MATRIX" &&
-    (message.contains "residual" || message.contains ".psy dual-write only")
+    **Empty after R-HARD (2026-08-08):** every Plan-admitted shape that reaches
+    materialize must DPN-lower or hard-fail with `PSY-DPN-G5-HARD`. No residual
+    `.psy`-only dual-write path remains (narrow bitwise/shift + Goldilocks Field
+    are DPN-lowered; bn254 Field / nested Map / etc. stay Plan-FC before DPN).
+    Function kept for API/test classifier stability; always `false`. -/
+def isPsyDpnG5HardResidualAllowlistV1 (_message : String) : Bool :=
+  false
 
 /-- PSY-DPN-7 dual-write + G5-HARD honesty from retained Plan + PsyModule.
     * Primary: `{name}.dpn.json` when `lowerPlanToPackageV1` succeeds
     * Transitional/debug: `{name}.psy` always on DPN success
-    * Residual allowlist (G5-MATRIX residual): `.psy` only (no false DPN claim)
-    * Non-allowlisted DPN failure: stable `PSY-DPN-G5-HARD` materialize FC
+    * R-HARD: residual allowlist empty — any DPN lower failure →
+      stable `PSY-DPN-G5-HARD` materialize FC (no silent `.psy`-only)
     Prefer evidence FC inside LowerPlan over inventing DPN ops. -/
 private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
   let source := renderModule ir.module_
