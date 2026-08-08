@@ -193,18 +193,17 @@ ProofForgeV2/Targets/Psy/
 
 ### 4.3 验证阶梯
 
-| 阶 | 门 | 完成标准 |
-|---|---|---|
-| G0 | Schema + 金样 decode | Counter dargo JSON round-trip / 字段钉死 |
-| G1 | Lower Counter | 我们生成的 DPN JSON 与 dargo 金样 **结构相等** |
-| G2 | Accumulator / OptionState / LoopSum | 与 runtime 差分同 oracle |
-| G3 | WideCounter VM | 宽整数 defs 金样或 Reference 差分 + 可选 dargo |
-| G4 | Map / 聚合 | **done（DPN-5）** MapMini+Token Plan→DPN；.psy 破点绕过 |
-| G5 | 全 admit 面扫描 | PsySource 正向矩阵每条有 DPN 或显式 FC |
-| G6 | Execute 消费 DPN | 不经 `.psy` 文本：`psy_vm` 或 dargo 可接受路径 |
+| 阶 | 门 | 状态 | 完成标准 |
+|---|---|---|---|
+| G0 | Schema + 金样 decode | **done（DPN-1）** | Counter dargo JSON round-trip / 字段钉死 |
+| G1 | Lower Counter | **done（DPN-2）** | 我们生成的 DPN JSON 与 dargo 金样 **结构相等** |
+| G2 | Accumulator / OptionState / LoopSum | **partial（DPN-3/4）** | Plan→DPN 结构门（LoopSum/OptionState）；**非** runtime 差分同 oracle |
+| G3 | WideCounter VM | **partial（DPN-4）** | multi-leaf + 手建 UInt128 add；mul/div/shift bind **FC** |
+| G4 | Map / 聚合 | **done（DPN-5）** | MapMini+Token Plan→DPN；.psy 破点绕过 |
+| G5 | 全 admit 面扫描 | **open** | Psy admit 正向矩阵每条有 DPN 或显式 FC；hard-require DPN |
+| G6 | Execute 消费 DPN | **open** | 不经 `.psy` 文本：`psy_vm` 或 dargo 可接受路径 |
 
-G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；G6 为 **去文本依赖**。
-
+G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；G6 为 **去文本依赖**。
 ---
 
 ## 5. 分阶段实现（建议顺序）
@@ -212,8 +211,9 @@ G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛
 ### Phase DPN-0 — 规划与 pin（本文档）
 
 - [x] 选定 DPN 为权威物化层
-- [ ] Tool Lock / 文档钉死 `psy-node` rev 与 dargo 0.1.0 关系
-- [ ] 金样文件入库策略（testdata 或 generated-under-test）
+- [x] 文档钉死 `psy-node` rev `79e0b824…` 与 dargo 0.1.0 对齐关系（本规划 § 权威上游 pin）
+- [x] 金样文件入库策略：`testdata/golden/psy-dpn-v1/counter-package.v1.json` + `PsyDpnV1` pin
+- [ ] Tool Lock 独立条目镜像同一 rev（可选硬化；runtime 仍走 dargo 0.1.0 pin）
 
 ### Phase DPN-1 — Schema + Counter 金样
 
@@ -326,11 +326,11 @@ G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛
 
 ---
 
-## 10. 下一步（规划通过后）
+## 10. 下一步（DPN-1..7 engineering 已闭合后）
 
-1. **DPN-1**：落地 `SchemaV1` + Counter 金样测试。
-2. **DPN-2**：`LowerPlanV1` Counter 纵切。
-3. 按 Phase 顺序扫 §3.2 矩阵至 G5。
+1. **G5 admit 面全覆盖**：WideCounter mul/div/shift DPN 展开；Array/Principal/Bytes 产品金样；§3.2 每条 Y/P 有 DPN 或显式 FC；optional hard-require DPN for all Psy Plan admits。
+2. **G6 / deletion-gate（可选）**：`.psy` 删除或 debug-only；`just psy-runtime` DPN-first（不经 product Finalize 改 claim）。
+3. **可选硬化**：method_id 官方 hash 复刻；Tool Lock 镜像 `psy-node` rev。
 
 规划 owner：engineering。
 产品决策 implicit：用户已确认 “对准 DPN 层” 与 “ProgramV1 admit 面尽量全覆盖到 DPN target”。
