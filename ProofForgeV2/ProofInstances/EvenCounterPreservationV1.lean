@@ -399,4 +399,61 @@ theorem eval_even_after_increment_encode
   let _ := hcan
   exact eval_even_of_encoded_uint64 sumBytes true rfl hcanSum hsum.1 hsum.2.1
 
+/-- Encode of the +2 sum overlay under EvenCounter data. -/
+theorem encode_increment_sum_eq_ok
+    (countBytes : ByteArray)
+    (hsize : countBytes.size = 8)
+    (heven : leBytesToNatV1 countBytes % 2 = 0)
+    (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64) :
+    let sumBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+    encodeLogicalStateValuesV1 data true #[sumBytes] = .ok {
+      initialized := true
+      canonicalValues := (encodeU32le 8).append sumBytes
+    } := by
+  let sumBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+  have hsum :=
+    add_two_uint64_sum_bytes_even countBytes hsize heven hnoOverflow
+  have hcanSum :
+      validateValueBytesV1 data.types 0 sumBytes = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 0 uint64Type sumBytes
+      (by simp [data, types, uint64Type]) (by rfl) hsum.1
+  simpa [sumBytes] using
+    encodeLogicalStateValuesV1_single_uint64_eq_ok data countState sumBytes true
+      (by simp [data, countState]) hcanSum hsum.1
+
+/-- After increment micro-path finalize encode of the +2 overlay, invariant holds. -/
+theorem eval_even_after_increment_finalize
+    (countBytes : ByteArray)
+    (post : LogicalStateV1)
+    (hsize : countBytes.size = 8)
+    (heven : leBytesToNatV1 countBytes % 2 = 0)
+    (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64)
+    (hencode :
+      encodeLogicalStateValuesV1 data true
+        #[natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8] = .ok post) :
+    evalInvariantV1 program 0 post = .returnedTrue := by
+  let sumBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+  have henc := encode_increment_sum_eq_ok countBytes hsize heven hnoOverflow
+  have hpost :
+      post = {
+        initialized := true
+        canonicalValues := (encodeU32le 8).append sumBytes
+      } := by
+    have :
+        encodeLogicalStateValuesV1 data true #[sumBytes] = .ok {
+          initialized := true
+          canonicalValues := (encodeU32le 8).append sumBytes
+        } := henc
+    change encodeLogicalStateValuesV1 data true #[sumBytes] = .ok post at hencode
+    rw [this] at hencode
+    exact (Except.ok.inj hencode).symm
+  rw [hpost]
+  have hsum :=
+    add_two_uint64_sum_bytes_even countBytes hsize heven hnoOverflow
+  have hcanSum :
+      validateValueBytesV1 data.types 0 sumBytes = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 0 uint64Type sumBytes
+      (by simp [data, types, uint64Type]) (by rfl) hsum.1
+  exact eval_even_of_encoded_uint64 sumBytes true rfl hcanSum hsum.1 hsum.2.1
+
 end ProofForgeV2.ProofInstances.EvenCounterPreservationV1
