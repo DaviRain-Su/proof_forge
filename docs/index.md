@@ -30,7 +30,8 @@ wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` 
 **日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。  
 **Goal 全队列执行**：[`.grok/goals/prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md)（[`QUEUE.md`](../.grok/goals/QUEUE.md) + [`slices/`](../.grok/goals/slices/)）。  
 宽度/ABI 专项：[`roadmap-t8.md`](roadmap-t8.md)。  
-Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。
+Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。  
+Psy DPN 物化规划：[`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)。
 
 既有 formal task 与 TaskQualification 资料继续如实保留，但不冒充工程实现完成度，也不阻塞日常开发。
 

@@ -4,6 +4,8 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.Psy.LowerSemanticV1
 import ProofForgeV2.Targets.Psy.ValidatePlanV1
 import ProofForgeV2.Targets.Psy.EmitIRV1
+import ProofForgeV2.Targets.Psy.Dpn.SchemaV1
+import ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
 
 /-!
 # ProofForgeV2.Targets.Psy — public façade

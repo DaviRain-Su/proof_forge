@@ -322,6 +322,14 @@ D1–D4 = 0/27 done。
 | **C-2-pin** | leo 4.0.2 Tool Lock pin（G123） | **done**（2026-08-07 current：leo 4.0.2 入 `tools[]`（darwin+linux），requiredBy exact 绑定 Aleo source+compile profiles；acceptance + opt-in product finalizer 仅走 locked resolver；仍 non-deployable compile-only，非 prove/deploy） |
 | **PSY-RUNTIME** | Psy dargo v0.1.0 local VM / base-proof 工程 lane | **done（2026-08-07/08，engineering）**：两平台官方 archive、dargo 与 9 个 `psy-std` member 已进入 Tool Lock v4；`psy_runtime_test.sh` + `just psy-runtime`；Linux exact-member root 实跑默认 Counter 与显式 VM WideCounter（carry/borrow/compare/mul/div/mod + checked negatives）；`PsyAcceptance`/`psy_acceptance.sh` 去 psyup、direct compile/ABI；Finalize 仍 zero-tool；proprietary dev/test-only，无 redistrib / network UPS / formal / hermetic / deploy；Darwin runtime 未实跑；registry 仍 source-only |
 | **PSY-RUNTIME-2** | 扩 dargo execute 差分（多 fixture） | **done（2026-08-08，engineering）**：在既有 Counter+WideCounter 上增加 **Accumulator**（10+5+7→22）、**OptionState**（setSome/peek/clear）、**LoopSum**（static-unroll for 0..4→4）；`result_vm` + empty `result_events` + `public_inputs` 计数 pin；顺带修 wide shift `u32` vs Felt 比较（`count as u32`）使 dargo compile 再通；MapMini 产品 Plan 可出但 dargo 拒 Map get 的 return-in-if，**未**纳入 execute lane；**不是** localhost 链 / UPS submit / network；Darwin 未实跑 |
+| **PSY-DPN** | ProgramV1 → DPN 权威物化（去文本 `.psy` 依赖） | **planned（2026-08-08）**：规划见 [`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)。权威 `psy-node`/`psy_vm` rev `79e0b82…` 的 `DPNFunctionCircuitDefinition`；完成条件 = Psy **admit 面**在 DPN 上全编码（非全 PSL 语法、非全 DPN op）。切片：`PSY-DPN-1` schema+Counter 金样 → `DPN-2` Counter lower → `DPN-3` 控制流/for → `DPN-4` 多叶/wide → `DPN-5` Map → `DPN-6` 效果诚实矩阵 → `DPN-7` 产品切换 |
+| **PSY-DPN-1** | DPN Schema + Counter 金样 | **done（2026-08-08）**：`Targets/Psy/Dpn/SchemaV1`+`JsonCodecV1`；OpType exact u16（含空洞）；`encodeIndexedId`；手建 Counter package 与 `testdata/golden/psy-dpn-v1/counter-package.v1.json`（locked-dargo 产物）decode 结构相等 + encode round-trip；`Tests.Materialization.PsyDpnV1`；**非** Plan→DPN lower（DPN-2） |
+| **PSY-DPN-2** | Counter Plan→DPN lower | **pending**：依赖 DPN-1；initialize/increment/get |
+| **PSY-DPN-3** | if/match/bounded for → DPN | **pending** |
+| **PSY-DPN-4** | 多叶/宽整数 → DPN | **pending** |
+| **PSY-DPN-5** | Map 等 .psy 破点 → DPN | **pending** |
+| **PSY-DPN-6** | call/emit/context 诚实矩阵 | **pending**（多数维持 FC/PARTIAL） |
+| **PSY-DPN-7** | 产品主路径切 DPN | **pending**（.psy 降 debug-only） |
 
 ### Psy target feature completion order（Psy-only capability expansion）
 

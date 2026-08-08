@@ -43,6 +43,7 @@ import Tests.Targets.EvmCancunV1
 import Tests.Materialization.EvmCorpusBlockedV1
 import Tests.Materialization.PsySourceV1
 import Tests.Materialization.PsyPfAssetsV1
+import Tests.Materialization.PsyDpnV1
 import Tests.Materialization.PsyAcceptance
 import Tests.Materialization.QuintSourceV1
 import Tests.Materialization.QuintAcceptance
@@ -126,6 +127,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.PsySourceV1.run
   IO.eprintln "CP run"
   Tests.Materialization.PsyPfAssetsV1.run
+  IO.eprintln "CP run"
+  Tests.Materialization.PsyDpnV1.run
   IO.eprintln "CP run"
   Tests.Materialization.PsyAcceptance.run
   IO.eprintln "CP run"

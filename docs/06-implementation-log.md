@@ -12,6 +12,30 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy DPN schema + Counter golden（PSY-DPN-1）
+
+- Lean `ProofForgeV2/Targets/Psy/Dpn/SchemaV1.lean`: DataType/OpType exact
+  discriminants, encodeIndexedId, StateCmd subset, FunctionCircuitDef,
+  hand-built `counterPackageGoldenV1`.
+- `JsonCodecV1.lean`: package JSON encode/decode (dargo-shaped).
+- Golden: `testdata/golden/psy-dpn-v1/counter-package.v1.json` from locked-dargo
+  Counter package (initialize+increment).
+- Tests: `Tests.Materialization.PsyDpnV1` — decode golden ≡ hand-built, encode
+  round-trip, op holes.
+- Still no Plan→DPN lower (DPN-2); `.psy` product path unchanged.
+- Non-claims: not full DPN op surface, not UPS/execute-without-dargo.
+
+## 2026-08-08 — Psy DPN lowering plan（PSY-DPN planning）
+
+- Product decision: Psy authoritative materialization moves from text `.psy`
+  toward official `DPNFunctionCircuitDefinition` (`psy-node`/`psy_vm`, rev
+  aligned with dargo 0.1.0).
+- Planning doc: `docs/targets/10-psy-dpn-lowering.md` — coverage = ProgramV1
+  constructs admitted on Psy (not full PSL handbook, not every DPN opcode);
+  phases DPN-1..7; Counter golden as MVP.
+- No code path cutover yet; `.psy` emitter remains transitional.
+- Non-claims: not UPS/deploy/formal; not “full PSL syntax support”.
+
 ## 2026-08-08 — Psy dargo execute differential expansion（PSY-RUNTIME-2）
 
 - Expanded `scripts/psy_runtime_test.sh` / `just psy-runtime` beyond Counter +

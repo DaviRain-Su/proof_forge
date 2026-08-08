@@ -289,6 +289,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Product.TipJarCosmWasmV1,
     `Tests.Materialization.CosmWasmPfAssetsV1,
     `Tests.Materialization.PsyPfAssetsV1,
+    `Tests.Materialization.PsyDpnV1,
     `Tests.Materialization.AleoPfAssetsV1,
     `Tests.CLI.Emit,
     `Tests.CLI.ToolchainPolicy,

@@ -185,6 +185,7 @@ import Tests.Materialization.NearPfAssetsV1
 import Tests.Product.TipJarCosmWasmV1
 import Tests.Materialization.CosmWasmPfAssetsV1
 import Tests.Materialization.PsyPfAssetsV1
+import Tests.Materialization.PsyDpnV1
 import Tests.Materialization.AleoPfAssetsV1
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
@@ -269,6 +270,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Product.TipJarCosmWasmV1.run
   Tests.Materialization.CosmWasmPfAssetsV1.run
   Tests.Materialization.PsyPfAssetsV1.run
+  Tests.Materialization.PsyDpnV1.run
   Tests.Materialization.AleoPfAssetsV1.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run
