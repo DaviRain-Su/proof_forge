@@ -325,4 +325,37 @@ theorem eval_even_after_get_encode
   rw [hpost]
   exact eval_even_of_encoded_uint64 countBytes true rfl hcan hsize heven
 
+/-- Get finalize of a pre-state that already decodes to an 8-byte overlay is
+    identity on the carrier (`post = pre`). Avoids re-extracting evenness. -/
+theorem get_encode_post_eq_pre
+    (pre post : LogicalStateV1)
+    (countBytes : ByteArray)
+    (hinit : pre.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data pre = .ok #[countBytes])
+    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (hsize : countBytes.size = 8)
+    (hencode :
+      encodeLogicalStateValuesV1 data true #[countBytes] = .ok post) :
+    post = pre :=
+  encode_of_singleton_uint64_decode_eq data countState pre post countBytes
+    (by simp [data, countState]) hinit hdecode hcan hsize hencode
+
+/-- Get-returned: if pre is even and finalize re-encodes the same overlay,
+    post remains even by `post = pre`. -/
+theorem eval_even_after_get_returned
+    (pre post : LogicalStateV1)
+    (countBytes : ByteArray)
+    (hinit : pre.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data pre = .ok #[countBytes])
+    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (hsize : countBytes.size = 8)
+    (heven : leBytesToNatV1 countBytes % 2 = 0)
+    (hencode :
+      encodeLogicalStateValuesV1 data true #[countBytes] = .ok post) :
+    evalInvariantV1 program 0 post = .returnedTrue := by
+  have hpost : post = pre :=
+    get_encode_post_eq_pre pre post countBytes hinit hdecode hcan hsize hencode
+  rw [hpost]
+  exact eval_even_of_count_even pre countBytes hinit hdecode hcan heven
+
 end ProofForgeV2.ProofInstances.EvenCounterPreservationV1

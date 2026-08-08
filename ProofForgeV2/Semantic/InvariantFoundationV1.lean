@@ -349,6 +349,264 @@ theorem readU32leAtV1_ok_offset
             -- Residual is the pure pair equality after four successful reads.
             exact h.2.symm
 
+/-- `readByteAtV1` success exposes the underlying `data` cell. -/
+theorem readByteAtV1_ok_data
+    (b : ByteArray) (i : Nat) (x : UInt8)
+    (h : readByteAtV1 b i = .ok x) :
+    b.data[i]? = some x := by
+  unfold readByteAtV1 at h
+  cases hg : b.data[i]? with
+  | none => simp [hg] at h
+  | some y =>
+      simp [hg] at h
+      exact hg ▸ congrArg some h
+
+/-- `readByteAtV1` success recovers the indexed byte. -/
+theorem readByteAtV1_ok_getElem
+    (b : ByteArray) (i : Nat) (x : UInt8)
+    (h : readByteAtV1 b i = .ok x)
+    (hi : i < b.size) :
+    b[i] = x := by
+  have hd := readByteAtV1_ok_data b i x h
+  have hbound : i < b.data.size := hi
+  have hsome : b.data[i]? = some (b.data[i]'hbound) :=
+    Array.getElem?_eq_getElem (xs := b.data) (i := i) hbound
+  have heq : b.data[i]'hbound = x := Option.some_inj.mp (hsome.symm.trans hd)
+  change b.data[i] = x
+  exact heq
+
+/-- Closed spelling of the LE length header used by single-slot UInt64 encode. -/
+theorem encodeU32le_eight :
+    encodeU32le (8 : UInt32) = ByteArray.mk #[8, 0, 0, 0] := rfl
+
+private theorem uint8_toNat_eightV1 : (8 : UInt8).toNat = 8 := rfl
+private theorem uint8_toNat_zeroV1 : (0 : UInt8).toNat = 0 := rfl
+
+/-- If `readU32leAtV1 b 0 = .ok (8, 4)`, the 4-byte prefix is `encodeU32le 8`. -/
+theorem readU32leAtV1_ok_eight_prefix
+    (b : ByteArray)
+    (h : readU32leAtV1 b 0 = .ok ((8 : UInt32), 4)) :
+    b.extract 0 4 = encodeU32le (8 : UInt32) := by
+  unfold readU32leAtV1 at h
+  cases hb0 : readByteAtV1 b 0 with
+  | error e => simp [hb0, Bind.bind, Except.bind] at h
+  | ok b0 =>
+    cases hb1 : readByteAtV1 b 1 with
+    | error e =>
+        simp [hb0, hb1, Bind.bind, Except.bind] at h
+    | ok b1 =>
+      cases hb2 : readByteAtV1 b 2 with
+      | error e =>
+          simp [hb0, hb1, hb2, Bind.bind, Except.bind] at h
+      | ok b2 =>
+        cases hb3 : readByteAtV1 b 3 with
+        | error e =>
+            simp [hb0, hb1, hb2, hb3, Bind.bind, Except.bind] at h
+        | ok b3 =>
+            -- Keep the ofNat residual (avoid toUInt32 rewrite) then inject.
+            simp only [hb0, hb1, hb2, hb3, Bind.bind, Except.bind] at h
+            have hpair :
+                (UInt32.ofNat
+                    (b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                      b3.toNat * 16777216),
+                  (4 : Nat)) =
+                  ((8 : UInt32), 4) := by
+              simpa [Pure.pure, Except.pure] using h
+            have hU :
+                UInt32.ofNat
+                    (b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                      b3.toNat * 16777216) =
+                  (8 : UInt32) := (Prod.ext_iff.mp hpair).1
+            have hb0lt : b0.toNat < 256 := UInt8.toNat_lt_size b0
+            have hb1lt : b1.toNat < 256 := UInt8.toNat_lt_size b1
+            have hb2lt : b2.toNat < 256 := UInt8.toNat_lt_size b2
+            have hb3lt : b3.toNat < 256 := UInt8.toNat_lt_size b3
+            have hmod :
+                (b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                  b3.toNat * 16777216) % 4294967296 = 8 := by
+              have := congrArg UInt32.toNat hU
+              simpa [UInt32.toNat_ofNat] using this
+            have hlt :
+                b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                  b3.toNat * 16777216 < 4294967296 := by omega
+            have hsum :
+                b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                  b3.toNat * 16777216 = 8 := by
+              rwa [Nat.mod_eq_of_lt hlt] at hmod
+            have hb0n : b0.toNat = 8 := by omega
+            have hb1n : b1.toNat = 0 := by omega
+            have hb2n : b2.toNat = 0 := by omega
+            have hb3n : b3.toNat = 0 := by omega
+            have hb0' : b0 = 8 :=
+              UInt8.toNat_inj.1 (hb0n.trans uint8_toNat_eightV1.symm)
+            have hb1' : b1 = 0 :=
+              UInt8.toNat_inj.1 (hb1n.trans uint8_toNat_zeroV1.symm)
+            have hb2' : b2 = 0 :=
+              UInt8.toNat_inj.1 (hb2n.trans uint8_toNat_zeroV1.symm)
+            have hb3' : b3 = 0 :=
+              UInt8.toNat_inj.1 (hb3n.trans uint8_toNat_zeroV1.symm)
+            have hsz : 4 ≤ b.size := by
+              have hd3 := readByteAtV1_ok_data b 3 b3 hb3
+              have hlt3 : 3 < b.data.size :=
+                (Array.getElem?_eq_some_iff.mp hd3).1
+              change 4 ≤ b.data.size
+              exact Nat.succ_le_of_lt hlt3
+            have h0lt : 0 < b.size := Nat.lt_of_lt_of_le (by decide : 0 < 4) hsz
+            have h1lt : 1 < b.size := Nat.lt_of_lt_of_le (by decide : 1 < 4) hsz
+            have h2lt : 2 < b.size := Nat.lt_of_lt_of_le (by decide : 2 < 4) hsz
+            have h3lt : 3 < b.size := Nat.lt_of_lt_of_le (by decide : 3 < 4) hsz
+            have g0 : b[0] = b0 := readByteAtV1_ok_getElem b 0 b0 hb0 h0lt
+            have g1 : b[1] = b1 := readByteAtV1_ok_getElem b 1 b1 hb1 h1lt
+            have g2 : b[2] = b2 := readByteAtV1_ok_getElem b 2 b2 hb2 h2lt
+            have g3 : b[3] = b3 := readByteAtV1_ok_getElem b 3 b3 hb3 h3lt
+            have hex :
+                b.extract 0 4 = [b[0], b[1], b[2], b[3]].toByteArray :=
+              ByteArray.extract_add_four (by omega : 0 + 4 ≤ b.size)
+            rw [hex, g0, g1, g2, g3, hb0', hb1', hb2', hb3', encodeU32le_eight]
+            rfl
+
+private theorem uint32_toNat_eightV1 : (8 : UInt32).toNat = 8 := rfl
+
+/-- Successful singleton UInt64-slot decode recovers the closed encode layout
+    `encodeU32le 8 ++ valueBytes`. -/
+theorem decodeLogicalStateValuesV1_singleton_uint64_layout
+    (data : SemanticProgramDataV1)
+    (stateDecl : StateDeclV1)
+    (state : LogicalStateV1)
+    (valueBytes : ByteArray)
+    (hstate : data.logicalState = #[stateDecl])
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok #[valueBytes])
+    (hsize : valueBytes.size = 8) :
+    state.canonicalValues = encodeU32le (8 : UInt32) ++ valueBytes := by
+  unfold decodeLogicalStateValuesV1 at hdecode
+  have hlist : data.logicalState.toList = [stateDecl] := by
+    simp [hstate]
+  simp only [hlist, decodeLogicalStateSlotsV1, Pure.pure, Except.pure,
+    Bind.bind, Except.bind, err] at hdecode
+  cases hread : readU32leAtV1 state.canonicalValues 0 with
+  | error e =>
+      simp [hread] at hdecode
+  | ok pair =>
+      rcases pair with ⟨lenU, afterLen⟩
+      simp [hread] at hdecode
+      by_cases hfit : afterLen + lenU.toNat ≤ state.canonicalValues.size
+      · simp only [if_pos hfit] at hdecode
+        cases hval :
+            validateValueBytesV1 data.types stateDecl.typeId
+              (state.canonicalValues.extract afterLen
+                (afterLen + lenU.toNat)) with
+        | error e =>
+            simp [hval] at hdecode
+        | ok _u =>
+            simp [hval] at hdecode
+            by_cases htrail :
+                afterLen + lenU.toNat = state.canonicalValues.size
+            · simp only [if_pos htrail] at hdecode
+              -- Residual is already `ok #[slice] = ok #[valueBytes]`.
+              have harr :
+                  #[state.canonicalValues.extract afterLen
+                      (afterLen + lenU.toNat)] =
+                    #[valueBytes] :=
+                Except.ok.inj hdecode
+              have hslice :
+                  state.canonicalValues.extract afterLen
+                      (afterLen + lenU.toNat) =
+                    valueBytes := by
+                have := congrArg (fun a : Array ByteArray => a[0]?) harr
+                simpa using this
+              have hafter : afterLen = 4 :=
+                readU32leAtV1_ok_offset state.canonicalValues 0 lenU afterLen
+                  hread
+              have hex_sz :
+                  (state.canonicalValues.extract afterLen
+                    (afterLen + lenU.toNat)).size = lenU.toNat := by
+                have hmin :
+                    min (afterLen + lenU.toNat) state.canonicalValues.size =
+                      afterLen + lenU.toNat :=
+                  Nat.min_eq_left hfit
+                simp [ByteArray.size_extract, hmin, Nat.add_sub_cancel_left]
+              have hlen : lenU.toNat = 8 := by
+                have : valueBytes.size = lenU.toNat := by
+                  rw [← hslice, hex_sz]
+                omega
+              have hlenU : lenU = (8 : UInt32) :=
+                UInt32.toNat_inj.1 (hlen.trans uint32_toNat_eightV1.symm)
+              have hread8 :
+                  readU32leAtV1 state.canonicalValues 0 =
+                    .ok ((8 : UInt32), 4) := by
+                rw [hread, hlenU, hafter]
+              have hpref :
+                  state.canonicalValues.extract 0 4 =
+                    encodeU32le (8 : UInt32) :=
+                readU32leAtV1_ok_eight_prefix state.canonicalValues hread8
+              have hsz4 : 4 ≤ state.canonicalValues.size := by
+                omega
+              have hsplit :=
+                ByteArray_eq_extract_append_extract state.canonicalValues 4 hsz4
+              have hpay :
+                  state.canonicalValues.extract 4 state.canonicalValues.size =
+                    valueBytes := by
+                calc
+                  state.canonicalValues.extract 4 state.canonicalValues.size
+                      = state.canonicalValues.extract afterLen
+                          (afterLen + lenU.toNat) := by
+                        congr 1 <;> omega
+                  _ = valueBytes := hslice
+              rw [hsplit, hpref, hpay]
+            · simp only [if_neg htrail] at hdecode
+              cases hdecode
+      · simp only [if_neg hfit] at hdecode
+        cases hdecode
+
+/-- Encode of a successful singleton UInt64 decode recovers the same carrier
+    (initialized stays true). This is the get-returned post=pre identity. -/
+theorem encode_of_singleton_uint64_decode_eq
+    (data : SemanticProgramDataV1)
+    (stateDecl : StateDeclV1)
+    (pre post : LogicalStateV1)
+    (valueBytes : ByteArray)
+    (hstate : data.logicalState = #[stateDecl])
+    (hinit : pre.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data pre = .ok #[valueBytes])
+    (hcan :
+      validateValueBytesV1 data.types stateDecl.typeId valueBytes = .ok ())
+    (hsize : valueBytes.size = 8)
+    (hencode :
+      encodeLogicalStateValuesV1 data true #[valueBytes] = .ok post) :
+    post = pre := by
+  have henc :=
+    encodeLogicalStateValuesV1_single_uint64_eq_ok data stateDecl valueBytes true
+      hstate hcan hsize
+  have hpost :
+      post = {
+        initialized := true
+        canonicalValues := encodeU32le (8 : UInt32) ++ valueBytes
+      } := by
+    have :
+        encodeLogicalStateValuesV1 data true #[valueBytes] = .ok {
+          initialized := true
+          canonicalValues := encodeU32le (8 : UInt32) ++ valueBytes
+        } := by
+      -- encode lemma spells `.append`; defeq to `++`.
+      simpa [HAppend.hAppend] using henc
+    rw [this] at hencode
+    exact (Except.ok.inj hencode).symm
+  have hpre_layout :=
+    decodeLogicalStateValuesV1_singleton_uint64_layout data stateDecl pre
+      valueBytes hstate hdecode hsize
+  have hpre :
+      pre = {
+        initialized := true
+        canonicalValues := encodeU32le (8 : UInt32) ++ valueBytes
+      } := by
+    cases pre with
+    | mk initialized canonicalValues =>
+      simp only at hinit hpre_layout ⊢
+      subst hinit
+      subst hpre_layout
+      rfl
+  exact hpost.trans hpre.symm
+
 /-- Successful decode of a singleton logicalState table recovers a singleton
     overlay whose sole element is structure-gated for that slot. -/
 theorem decodeLogicalStateValuesV1_singleton_eq
