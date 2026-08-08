@@ -326,7 +326,7 @@ D1–D4 = 0/27 done。
 | **PSY-DPN-1** | DPN Schema + Counter 金样 | **done（2026-08-08）**：`Targets/Psy/Dpn/SchemaV1`+`JsonCodecV1`；OpType exact u16（含空洞）；`encodeIndexedId`；手建 Counter package 与 `testdata/golden/psy-dpn-v1/counter-package.v1.json`（locked-dargo 产物）decode 结构相等 + encode round-trip；`Tests.Materialization.PsyDpnV1`；**非** Plan→DPN lower（DPN-2） |
 | **PSY-DPN-2** | Counter Plan→DPN lower | **done（2026-08-08）**：`LowerPlanV1` 识别 UInt64 Counter 形（init store param / mutate checkedAdd store+return / view load）；method_id pin；name-sort package；`packageFromCapabilityV1` ≡ 全量 dargo Counter 金样（get+increment+initialize）；**扩展路径**仍按 admit 面逐模板加（见规划 §3「全覆盖 DSL 特性」） |
 | **PSY-DPN-3** | if/match/bounded for → DPN | **done（2026-08-08）**：`LowerPlanV1` general builder——ifThenElse 双臂 conditional Set + BoolAnd 写条件；switchOn→nested if+eq+Select return merge；forLoop 静态 unroll（boundExceeded + maxIter≤64 步门控 body，与 EmitIR PSY-LOOP 一致）；超预算/return-in-for/unsupported Expr FC；Counter 三模板保持 dargo 金样；`PsyDpnV1` + LoopSum product 结构门；**非** dargo LoopSum 金样/method_id 官方 hash/execute 差分 |
-| **PSY-DPN-4** | 多叶/宽整数 → DPN | **pending** |
+| **PSY-DPN-4** | 多叶/宽整数 → DPN | **done（2026-08-08，engineering partial）**：`LowerPlanV1` multi-leaf `storeAggregate`/`returnAggregate`→多 `SlotSingle`（sub_slot=fieldIndex+4，WideCounter dargo 证据）；OptionState 产品 Plan→DPN；手建 UInt128 4×UInt32 init/get/add（limbAdd/Select/u32 range）；默认 profile WideCounter FC；VM profile 全量 WideCounter 在 mul/div/shift bind **FC**（诚实 partial）；Counter 金样仍绿；**非** dargo Option/Wide 全量金样、非 UInt256、非 formal |
 | **PSY-DPN-5** | Map 等 .psy 破点 → DPN | **pending** |
 | **PSY-DPN-6** | call/emit/context 诚实矩阵 | **pending**（多数维持 FC/PARTIAL） |
 | **PSY-DPN-7** | 产品主路径切 DPN | **pending**（.psy 降 debug-only） |

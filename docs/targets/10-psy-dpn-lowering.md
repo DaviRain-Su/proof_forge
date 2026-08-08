@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；实现未完成）  
+状态：`draft`（规划输入；DPN-1..4 engineering 已落地，admit 面未全覆盖）  
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -236,8 +236,11 @@ G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛
 
 ### Phase DPN-4 — 多叶与宽整数
 
-- Array/Option/Struct/Principal/Bytes  
-- UInt128/256 profile 门控
+- [x] multi-leaf `storeAggregate` / `returnAggregate` → multi `Get/Set … SlotSingle`（engineering sub_slot = fieldIndex+4，对齐 WideCounter dargo 证据；单叶 Counter 模板保持金样）  
+- [x] OptionState 产品 Plan→DPN（双叶 tag+payload）；手建 4-limb UInt128 init/get/add（limbAdd/Select/overflow assert + u32 param range）  
+- [x] UInt128 **仅** `psy-dargo-0.1.0-vm-v1`（默认 profile 在 Plan 层 FC）；`bindWideUintMul/DivMod/Shift` 与 Felt bitAnd/Or/Xor 本片 **FC**（证据化；非假 lower）  
+- [ ] Array/Struct/Principal/Bytes 产品金样与 dargo 全量 package 相等（结构已由 multi-leaf Single 路径覆盖）  
+- [ ] UInt256 / 完整 WideCounter 产品 package（mul/div/shift 展开）
 
 ### Phase DPN-5 — Map 与现 .psy 破点
 
