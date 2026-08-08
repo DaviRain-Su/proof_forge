@@ -192,6 +192,35 @@ def initialLogicalStateV1 (program : SemanticProgramV1) :
   let hasInitializer := data.callables.any fun c => c.kind == .initializer
   encodeLogicalStateValuesV1 data (!hasInitializer) values
 
+/-- Single-slot encode of an 8-byte (UInt64) payload under a successful valueBytes
+    gate. Mirrors the closed zero-state encode reduction used by
+    `initialLogicalStateV1_single_uint64_no_initializer_eq_ok`. -/
+theorem encodeLogicalStateValuesV1_single_uint64_eq_ok
+    (data : SemanticProgramDataV1)
+    (stateDecl : StateDeclV1)
+    (valueBytes : ByteArray)
+    (initialized : Bool)
+    (hstate : data.logicalState = #[stateDecl])
+    (hcanonical :
+      validateValueBytesV1 data.types stateDecl.typeId valueBytes = .ok ())
+    (hsize : valueBytes.size = 8) :
+    encodeLogicalStateValuesV1 data initialized #[valueBytes] = .ok {
+      initialized
+      canonicalValues := (encodeU32le 8).append valueBytes
+    } := by
+  have hslot :
+      encodeStateSlotV1 valueBytes =
+        .ok ((encodeU32le 8).append valueBytes) := by
+    unfold encodeStateSlotV1
+    have hle : valueBytes.size ≤ UInt32.size - 1 := by simp [hsize]
+    have hsz : UInt32.ofNat valueBytes.size = 8 := by
+      simp [hsize]
+    simp only [if_pos hle, hsz, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  unfold encodeLogicalStateValuesV1
+  simp only [hstate]
+  -- Singleton tables: arity gate + one forIn step (same reduction as zero-slot).
+  simp [hcanonical, hslot, hsize, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- A validated program with one UInt64 state slot and no initializer starts
     initialized with the exact length-prefixed eight-byte zero value. This is a
     refinement of the sole production default/state encoder, not a second state

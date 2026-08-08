@@ -4658,6 +4658,304 @@ theorem finalizeLifecycle_ne_returned_publicV1
     finalizeLifecycle pre responses cand ≠ .returned post value effects :=
   finalizeLifecycle_not_returned pre responses cand post value effects
 
+/-! ### Nullary view (get) micro-path: stateLoad + return
+
+    Follows the closed invariant micro-path style: a local `mk` pins
+    `blockId`/`frames`/`overlay` definitionally so `runMachine.eq_def` reduces.
+-/
+
+/-- Closed nullary view body (`stateLoad; return`). Any fuel of the form
+    `fuel + 2` (production step uses 1_000_000) ends in `.returned` with the
+    loaded slot; overlay and response cursor are unchanged. -/
+private theorem runMachine_nullary_stateLoad_return
+    (data : SemanticProgramDataV1)
+    (pre : LogicalStateV1)
+    (countBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (viewName : Option String)
+    (fuel : Nat)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstateId : stateId = 0)
+    (hcan :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ()) :
+    let getCallable : CallableV1 := {
+      id := callableId
+      kind := .view
+      name := viewName
+      params := #[]
+      result := { typeId := uint64TypeId, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[{
+          result := some { valueId := 0, typeId := uint64TypeId }
+          op := .stateLoad stateId
+        }]
+        terminator := .return_ (some 0)
+      }]
+      loopBounds := #[]
+      invariantSteps := none
+    }
+    let v0 : ReferenceValueV1 :=
+      { typeId := uint64TypeId, valueBytes := countBytes }
+    let mk (env : Array (Option ReferenceValueV1)) (idx : Nat) : MachineV1 := {
+      data, pre, callable := getCallable, isInitializer := false,
+      context := #[], overlay := #[countBytes], env,
+      effects := #[],
+      occCounts := Array.replicate (maxEffectIdInCallable getCallable + 1) 0,
+      responseCursor := 0, responses := #[], loopCounts := #[],
+      blockId := 0, instrIdx := idx, frames := #[],
+      vaultNative := 0, vaultToken := #[]
+    }
+    ∃ (e1 : Array (Option ReferenceValueV1)),
+      envSet (emptyEnv 1) 0 v0 = some e1 ∧
+      runMachine false (fuel + 2) (mk (emptyEnv 1) 0) =
+        (0, mk e1 1, CandidateV1.returned (some v0)) := by
+  -- Bind the statement `let`s into the proof context.
+  let getCallable : CallableV1 := {
+    id := callableId
+    kind := .view
+    name := viewName
+    params := #[]
+    result := { typeId := uint64TypeId, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := uint64TypeId }
+        op := .stateLoad stateId
+      }]
+      terminator := .return_ (some 0)
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+  let v0 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := countBytes }
+  let mk (env : Array (Option ReferenceValueV1)) (idx : Nat) : MachineV1 := {
+    data, pre, callable := getCallable, isInitializer := false,
+    context := #[], overlay := #[countBytes], env,
+    effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable getCallable + 1) 0,
+    responseCursor := 0, responses := #[], loopCounts := #[],
+    blockId := 0, instrIdx := idx, frames := #[],
+    vaultNative := 0, vaultToken := #[]
+  }
+  have hblocks : getCallable.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := uint64TypeId }
+        op := .stateLoad stateId
+      }]
+      terminator := .return_ (some 0)
+    }] := by rfl
+  have hresult : getCallable.result =
+      { typeId := uint64TypeId, visibility := .public_ } := by rfl
+  have hvc : valueCanonical data v0 = true := by
+    simp [valueCanonical, v0, hcan]
+  have heff : maxEffectIdInCallable getCallable = 0 :=
+    maxEffectIdInCallable_eq_zero_of_get_shape getCallable uint64TypeId stateId
+      (by rfl) (by rfl)
+  have hs0 : (0 : ValueIdV1).toNat < (emptyEnv 1).size := by
+    simp [emptyEnv]
+  let e1 := (emptyEnv 1).set 0 (some v0) hs0
+  have hset0 : envSet (emptyEnv 1) 0 v0 = some e1 := by
+    simpa [e1] using envSet_of_lt (emptyEnv 1) (0 : ValueIdV1) v0 hs0
+  have hexec0 :
+      execInstruction (mk (emptyEnv 1) 0)
+        { result := some { valueId := 0, typeId := uint64TypeId }
+          op := .stateLoad stateId } =
+        .next (mk e1 0) := by
+    have hoverlay :
+        (#[countBytes] : Array ByteArray)[stateId.toNat]? = some countBytes := by
+      simp [hstateId]
+    have hty : (uint64TypeId != uint64TypeId) = false := by
+      simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hstate, hoverlay, hty]
+    have hstore :=
+      storeResult_envSet (mk (emptyEnv 1) 0) 0 v0 e1 hvc hset0
+    -- storeResult keeps instrIdx; mk e1 0 shares all fields except env.
+    simpa [mk, e1, v0] using hstore
+  have step0 : runMachine false (fuel + 2) (mk (emptyEnv 1) 0) =
+      runMachine false (fuel + 1) (mk e1 1) := by
+    have hfu : fuel + 2 = (fuel + 1).succ := by omega
+    rw [hfu, runMachine]
+    simp [mk, hblocks, hexec0]
+  have hg0 : envGet e1 0 = some v0 := by
+    have h0 : e1[(0 : ValueIdV1).toNat]? = some (some v0) :=
+      Array.getElem?_set_self hs0
+    simp [envGet, e1, h0, UInt32.toNat]
+  have hret :
+      execTerminator (mk e1 1) (.return_ (some 0)) =
+        .done (mk e1 1) (.returned (some v0)) := by
+    have hunit : isUnitType data getCallable.result.typeId = false := by
+      simp [isUnitType, shapeOf, hresult, htypeU]
+    have hbeq : (v0.typeId != getCallable.result.typeId) = false := by
+      simp [v0, hresult, BEq.beq, bne]
+    have hcond :
+        (v0.typeId != getCallable.result.typeId || !valueCanonical data v0) =
+          false := by
+      simp [hbeq, hvc]
+    simp only [mk, execTerminator, hg0]
+    simp only [hunit, Bool.false_eq_true, ↓reduceIte, hcond, ↓reduceIte]
+  have stepT : runMachine false (fuel + 1) (mk e1 1) =
+      (0, mk e1 1, CandidateV1.returned (some v0)) := by
+    have hfu : fuel + 1 = fuel.succ := by omega
+    rw [hfu, runMachine]
+    -- blockId=0, frames=[], instrIdx=1 ≥ size 1 → terminator.
+    simp [mk, hblocks, hret]
+  refine ⟨e1, hset0, ?_⟩
+  rw [step0, stepT]
+
+/-- Finalize a returned candidate with exhausted empty responses and a successful
+    overlay encode. -/
+private theorem finalize_returned_of_encode
+    (m : MachineV1)
+    (pre : LogicalStateV1)
+    (value : Option ReferenceValueV1)
+    (post : LogicalStateV1)
+    (hcursor : m.responseCursor = 0)
+    (hrespEmpty : m.responses.size = 0)
+    (hencode :
+      encodeLogicalStateValuesV1 m.data (pre.initialized || m.isInitializer)
+        m.overlay = .ok post) :
+    finalize m (.returned value) pre = .returned post value m.effects := by
+  unfold finalize
+  have hne : (m.responseCursor != m.responses.size) = false := by
+    simp [hcursor, hrespEmpty, bne, BEq.beq]
+  simp only [hne, Bool.false_eq_true, ↓reduceIte, hencode]
+
+/-- Get-shaped ready machine (empty env, empty responses) that returns keeps the
+    overlay bytes in the encoded post-state. Requires a successful encode of the
+    ready overlay (caller discharges from prior decode + value canonicity). -/
+private theorem runMachine_get_finalize_returned
+    (data : SemanticProgramDataV1)
+    (pre : LogicalStateV1)
+    (countBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (viewName : Option String)
+    (fuel : Nat)
+    (post : LogicalStateV1)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstateId : stateId = 0)
+    (hcan :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ())
+    (hinit : pre.initialized = true)
+    (hencode :
+      encodeLogicalStateValuesV1 data true #[countBytes] = .ok post) :
+    let getCallable : CallableV1 := {
+      id := callableId
+      kind := .view
+      name := viewName
+      params := #[]
+      result := { typeId := uint64TypeId, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[{
+          result := some { valueId := 0, typeId := uint64TypeId }
+          op := .stateLoad stateId
+        }]
+        terminator := .return_ (some 0)
+      }]
+      loopBounds := #[]
+      invariantSteps := none
+    }
+    let v0 : ReferenceValueV1 :=
+      { typeId := uint64TypeId, valueBytes := countBytes }
+    let m0 : MachineV1 := {
+      data, pre, callable := getCallable, isInitializer := false,
+      context := #[], overlay := #[countBytes], env := emptyEnv 1,
+      effects := #[],
+      occCounts := Array.replicate (maxEffectIdInCallable getCallable + 1) 0,
+      responseCursor := 0, responses := #[], loopCounts := #[],
+      blockId := 0, instrIdx := 0, frames := #[],
+      vaultNative := 0, vaultToken := #[]
+    }
+    ∃ mEnd,
+      runMachine false (fuel + 2) m0 =
+        (0, mEnd, CandidateV1.returned (some v0)) ∧
+      mEnd.overlay = #[countBytes] ∧
+      mEnd.effects = #[] ∧
+      mEnd.responseCursor = 0 ∧
+      mEnd.responses = #[] ∧
+      finalize mEnd (.returned (some v0)) pre =
+        .returned post (some v0) #[] := by
+  let getCallable : CallableV1 := {
+    id := callableId
+    kind := .view
+    name := viewName
+    params := #[]
+    result := { typeId := uint64TypeId, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := uint64TypeId }
+        op := .stateLoad stateId
+      }]
+      terminator := .return_ (some 0)
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+  let v0 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := countBytes }
+  let m0 : MachineV1 := {
+    data, pre, callable := getCallable, isInitializer := false,
+    context := #[], overlay := #[countBytes], env := emptyEnv 1,
+    effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable getCallable + 1) 0,
+    responseCursor := 0, responses := #[], loopCounts := #[],
+    blockId := 0, instrIdx := 0, frames := #[],
+    vaultNative := 0, vaultToken := #[]
+  }
+  have hrun :=
+    runMachine_nullary_stateLoad_return data pre countBytes uint64TypeId
+      stateId stateName callableId viewName fuel htypeU hstate hstateId hcan
+  rcases hrun with ⟨e1, _hset, hrunEq⟩
+  -- m0 is defeq to mk (emptyEnv 1) 0 from the runMachine theorem.
+  have hrun' :
+      runMachine false (fuel + 2) m0 =
+        (0,
+          { m0 with env := e1, instrIdx := 1 },
+          CandidateV1.returned (some v0)) := by
+    -- Align the local mk from the helper with this m0/mEnd shape.
+    simpa [m0, getCallable, v0] using hrunEq
+  let mEnd : MachineV1 := { m0 with env := e1, instrIdx := 1 }
+  have hoverlay : mEnd.overlay = #[countBytes] := by simp [mEnd, m0]
+  have heffects : mEnd.effects = #[] := by simp [mEnd, m0]
+  have hcursor : mEnd.responseCursor = 0 := by simp [mEnd, m0]
+  have hresp : mEnd.responses = #[] := by simp [mEnd, m0]
+  have hencode' :
+      encodeLogicalStateValuesV1 mEnd.data
+        (pre.initialized || mEnd.isInitializer) mEnd.overlay = .ok post := by
+    simp [mEnd, m0, hinit, hoverlay, hencode]
+  have hfin :=
+    finalize_returned_of_encode mEnd pre (some v0) post hcursor
+      (by simp [hresp]) hencode'
+  refine ⟨mEnd, hrun', hoverlay, heffects, hcursor, hresp, ?_⟩
+  simpa [heffects] using hfin
+
 /-- Evaluate one admitted invariant using its structure-validated exact fuel.
     This deliberately bypasses `InvocationV1`: normal root invocation of an
     invariant remains invalid, and invariant execution never publishes an
