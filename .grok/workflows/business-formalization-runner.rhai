@@ -239,22 +239,46 @@ phase("Repair");
 let repair = ();
 if findings.len() > 0 {
     let repair_prompt = common;
-    repair_prompt += "REPAIR real P0/P1 in-scope findings for " + slice_id + ". Stay in allowed_paths "
-        + json_encode(selected.output.allowed_paths) + ". HEAD " + baseline_head
-        + " uncommitted. Findings: " + json_encode(findings)
-        + ". Diff: " + json_encode(git_diff_since(baseline_head));
+    repair_prompt += "REPAIR real P0/P1 findings for THIS slice only (" + slice_id + "). ";
+    repair_prompt += "Stay in allowed_paths " + json_encode(selected.output.allowed_paths) + ". ";
+    repair_prompt += "CRITICAL: do NOT commit, push, or mark the queue done here — leave work UNCOMMITTED ";
+    repair_prompt += "(git add -N only for brand-new files). HEAD must remain " + baseline_head + ". ";
+    repair_prompt += "remaining[] = only unresolved findings for this slice (empty when fixed); ";
+    repair_prompt += "NEVER list future queue ids (bf-pack-2/bf-unpin/bf-docs) in remaining. ";
+    repair_prompt += "Findings: " + json_encode(findings) + ". Diff: " + json_encode(git_diff_since(baseline_head));
     repair = agent(repair_prompt, #{
         label: "repair:" + slice_id,
         phase: "Repair",
         capability_mode: "all",
         output_schema: repair_schema,
     });
-    if repair == () || !repair.success || repair.output.resolved != true
-        || repair.output.head != baseline_head || repair.output.uncommitted != true
-        || repair.output.remaining.len() != 0 {
+    // Prefer the strict uncommitted path. If a repair agent already committed a
+    // green slice (legacy misbehavior), accept when tree is clean and HEAD moved.
+    let repair_strict_ok = repair != () && repair.success && repair.output.resolved == true
+        && repair.output.head == baseline_head && repair.output.uncommitted == true
+        && repair.output.remaining.len() == 0;
+    let repair_already_committed = repair != () && repair.success && repair.output.resolved == true
+        && repair.output.uncommitted == false && repair.output.head != baseline_head
+        && git_diff_since("HEAD") == "";
+    if !repair_strict_ok && !repair_already_committed {
         let report = "# business-formalization-runner\n\nRepair blocked.\n\n" + json_encode(repair);
         let path = write_scratch_file("report.md", report);
         complete(#{ status: "blocked", stage: "repair", slice_id: slice_id, report_path: path });
+    }
+    if repair_already_committed {
+        let report = "# business-formalization-runner\n\n**Status:** committed-via-repair\n\n**Slice:** "
+            + slice_id + "\n\n**Commit:** `" + repair.output.head
+            + "`\n\nRepair agent committed early; accepted because worktree clean. "
+            + "Next fire continues queue.\n\n" + json_encode(repair.output);
+        let path = write_scratch_file("report.md", report);
+        complete(#{
+            status: "committed",
+            slice_id: slice_id,
+            commit: repair.output.head,
+            report_path: path,
+            agent_calls: budget().spent,
+            note: "repair-early-commit-accepted",
+        });
     }
 } else {
     log("No repair");
