@@ -750,6 +750,28 @@ theorem AdmittedReferenceSliceV1.data_eq
     (⟨program, data⟩ : AdmittedReferenceSliceV1).data = data :=
   rfl
 
+/-- Successful whole-program admission recovers the validated carrier identity. -/
+theorem admitReferenceProgramSliceV1_ok_implies
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted) :
+    admitted.program = program ∧ admitted.data = data := by
+  unfold admitReferenceProgramSliceV1 at hadmit
+  rw [hvalidate] at hadmit
+  simp only [Bind.bind, Pure.pure, Except.bind, Except.pure] at hadmit
+  generalize hcheck : validateReferenceProgramDataAdmissionV1 data = check at hadmit
+  cases check with
+  | error error =>
+      -- hadmit : error _ = ok admitted
+      exact False.elim (nomatch hadmit)
+  | ok unit =>
+      cases unit
+      -- hadmit : ok ⟨program, data⟩ = ok admitted
+      cases hadmit
+      constructor <;> rfl
+
 /-! ### Internal value helpers -/
 
 /-- Little-endian unsigned decode. List recursion is definitionally transparent
@@ -2778,6 +2800,66 @@ private theorem maxValueIdInCallable_eq_zero_of_single_result_zero
     maxValueIdInCallable callable = 0 := by
   simp [maxValueIdInCallable, hparams, hblocks]
 
+/-- Increment-shaped body: four value results (0..3) plus one void store. -/
+private theorem maxValueIdInCallable_eq_three_of_increment_shape
+    (callable : CallableV1)
+    (typeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (twoBytes : ByteArray)
+    (hparams : callable.params = #[])
+    (hblocks : callable.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId }, op := .stateLoad stateId },
+        { result := some { valueId := 1, typeId }, op := .literal typeId twoBytes },
+        { result := some { valueId := 2, typeId }, op := .binary .add 0 1 },
+        { result := none, op := .stateStore stateId 2 },
+        { result := some { valueId := 3, typeId }, op := .stateLoad stateId }
+      ]
+      terminator := .return_ (some 3)
+    }]) :
+    maxValueIdInCallable callable = 3 := by
+  simp [maxValueIdInCallable, hparams, hblocks]
+
+private theorem maxEffectIdInCallable_eq_zero_of_get_shape
+    (callable : CallableV1)
+    (typeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (hparams : callable.params = #[])
+    (hblocks : callable.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId }
+        op := .stateLoad stateId
+      }]
+      terminator := .return_ (some 0)
+    }]) :
+    maxEffectIdInCallable callable = 0 := by
+  simp [maxEffectIdInCallable, hparams, hblocks]
+
+private theorem maxEffectIdInCallable_eq_zero_of_increment_shape
+    (callable : CallableV1)
+    (typeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (twoBytes : ByteArray)
+    (hparams : callable.params = #[])
+    (hblocks : callable.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId }, op := .stateLoad stateId },
+        { result := some { valueId := 1, typeId }, op := .literal typeId twoBytes },
+        { result := some { valueId := 2, typeId }, op := .binary .add 0 1 },
+        { result := none, op := .stateStore stateId 2 },
+        { result := some { valueId := 3, typeId }, op := .stateLoad stateId }
+      ]
+      terminator := .return_ (some 3)
+    }]) :
+    maxEffectIdInCallable callable = 0 := by
+  simp [maxEffectIdInCallable, hparams, hblocks]
+
 private theorem maxValueIdInCallable_eq_four_of_five_results
     (callable : CallableV1)
     (typeId0 typeId1 typeId2 typeId3 typeId4 : TypeIdV1)
@@ -2818,6 +2900,10 @@ private theorem natToLeBytes_two8 :
 /-- Closed eight-byte LE zero payload used by the UInt64 parity micro-path. -/
 def zero8BytesV1 : ByteArray :=
   ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]
+
+/-- Closed eight-byte LE one payload used by the UInt64 parity micro-path. -/
+def one8BytesV1 : ByteArray :=
+  ByteArray.mk #[1, 0, 0, 0, 0, 0, 0, 0]
 
 /-- Closed eight-byte LE two payload used by the UInt64 parity micro-path. -/
 def two8BytesV1 : ByteArray :=
@@ -3585,6 +3671,486 @@ theorem runInvariantCallableV1_eq_returnedTrue_of_uint64_parity_even
     simp [v4, hrootResult, BEq.beq, bne]
   simp [htyEq, htrueBytes, v4]
 
+private theorem leBytesToNat_one8 :
+    leBytesToNat (ByteArray.mk #[1, 0, 0, 0, 0, 0, 0, 0]) = 1 := by
+  simp [leBytesToNat, leBytesToNatList]
+
+private theorem natToLeBytes_one8 :
+    natToLeBytes 1 8 = ByteArray.mk #[1, 0, 0, 0, 0, 0, 0, 0] := by
+  simp [natToLeBytes, natToLeBytesList]
+
+private theorem evalBinary_mod_uint64_odd_two
+    (data : SemanticProgramDataV1) (uint64TypeId : TypeIdV1)
+    (countBytes : ByteArray)
+    (htype : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hcanCount :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ())
+    (hcanTwo :
+      validateValueBytesV1 data.types uint64TypeId two8BytesV1 = .ok ())
+    (hodd : leBytesToNatV1 countBytes % 2 = 1) :
+    evalBinary data .mod
+      { typeId := uint64TypeId, valueBytes := countBytes }
+      { typeId := uint64TypeId, valueBytes := two8BytesV1 }
+      uint64TypeId =
+      .ok { typeId := uint64TypeId, valueBytes := one8BytesV1 } := by
+  have hvcC :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := countBytes } =
+        true := by simp [valueCanonical, hcanCount]
+  have hvcT :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := two8BytesV1 } =
+        true := by simp [valueCanonical, hcanTwo]
+  have htid : (uint64TypeId == uint64TypeId) = true := by simp [BEq.beq]
+  have hwidth : uintWidth data uint64TypeId = some 64 := by
+    simp [uintWidth, shapeOf, htype]
+  have ht : leBytesToNat two8BytesV1 = 2 := by
+    simpa [two8BytesV1] using leBytesToNat_two8
+  have hnat1 : natToLeBytes 1 8 = one8BytesV1 := by
+    simpa [one8BytesV1] using natToLeBytes_one8
+  have hnz : ((2 : Nat) == 0) = false := by decide
+  have hmod :
+      natToLeBytes (leBytesToNat countBytes % 2) 8 = one8BytesV1 := by
+    have hodd' : leBytesToNat countBytes % 2 = 1 := hodd
+    rw [hodd', hnat1]
+  simp only [evalBinary, hvcC, hvcT, htid, Bool.and_self,
+    Bool.not_true, Bool.false_eq_true, ↓reduceIte, hwidth, intWidth, shapeOf,
+    htype, uintByteLen, ht, hnz, hmod]
+
+private theorem evalBinary_eq_uint64_one_zero
+    (data : SemanticProgramDataV1)
+    (uint64TypeId boolTypeId : TypeIdV1)
+    (htypeB : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := none, shape := .bool }) :
+    evalBinary data .eq
+      { typeId := uint64TypeId, valueBytes := one8BytesV1 }
+      { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+      boolTypeId =
+      .ok { typeId := boolTypeId, valueBytes := encodeU8 0 } := by
+  have htid : (uint64TypeId == uint64TypeId) = true := by simp [BEq.beq]
+  have hbool : isBoolType data boolTypeId = true := by
+    simp [isBoolType, shapeOf, htypeB]
+  have hbeq : (one8BytesV1 == zero8BytesV1) = false := by
+    change (ByteArray.mk #[1, 0, 0, 0, 0, 0, 0, 0] ==
+        ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]) = false
+    decide
+  simp only [evalBinary, htid, hbool, bytesEqual, hbeq]
+  rfl
+
+/-- Controlled production refinement: nullary UInt64 parity invariant on any
+    odd overlay payload returns false (same closed micro-path as the even case). -/
+theorem runInvariantCallableV1_eq_returnedFalse_of_uint64_parity_odd
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (countBytes : ByteArray)
+    (rootId : CallableIdV1)
+    (uint64TypeId boolTypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (rootName : Option String)
+    (visibility : VisibilityV1)
+    (stateName : String)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok #[countBytes])
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (htypeB : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := none, shape := .bool })
+    (hstateId : stateId = 0)
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hroot : data.callables[rootId.toNat]? = some {
+      id := rootId
+      kind := .invariant
+      name := rootName
+      params := #[]
+      result := { typeId := boolTypeId, visibility }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+          { result := some { valueId := 0, typeId := uint64TypeId },
+            op := .stateLoad stateId },
+          { result := some { valueId := 1, typeId := uint64TypeId },
+            op := .literal uint64TypeId two8BytesV1 },
+          { result := some { valueId := 2, typeId := uint64TypeId },
+            op := .binary .mod 0 1 },
+          { result := some { valueId := 3, typeId := uint64TypeId },
+            op := .literal uint64TypeId zero8BytesV1 },
+          { result := some { valueId := 4, typeId := boolTypeId },
+            op := .binary .eq 2 3 }
+        ]
+        terminator := .return_ (some 4)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 7
+    })
+    (hcanCount :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ())
+    (hcanTwo :
+      validateValueBytesV1 data.types uint64TypeId two8BytesV1 = .ok ())
+    (hcanZero :
+      validateValueBytesV1 data.types uint64TypeId zero8BytesV1 = .ok ())
+    (hcanFalse :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 0) = .ok ())
+    (hodd : leBytesToNatV1 countBytes % 2 = 1) :
+    runInvariantCallableV1 data rootId state = .returnedFalse := by
+  let root : CallableV1 := {
+    id := rootId
+    kind := .invariant
+    name := rootName
+    params := #[]
+    result := { typeId := boolTypeId, visibility }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .stateLoad stateId },
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .literal uint64TypeId two8BytesV1 },
+        { result := some { valueId := 2, typeId := uint64TypeId },
+          op := .binary .mod 0 1 },
+        { result := some { valueId := 3, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 },
+        { result := some { valueId := 4, typeId := boolTypeId },
+          op := .binary .eq 2 3 }
+      ]
+      terminator := .return_ (some 4)
+    }]
+    loopBounds := #[]
+    invariantSteps := some 7
+  }
+  change data.callables[rootId.toNat]? = some root at hroot
+  have hrootMax : maxValueIdInCallable root = 4 :=
+    maxValueIdInCallable_eq_four_of_five_results root
+      uint64TypeId uint64TypeId uint64TypeId uint64TypeId boolTypeId
+      (.stateLoad stateId) (.literal uint64TypeId two8BytesV1)
+      (.binary .mod 0 1) (.literal uint64TypeId zero8BytesV1)
+      (.binary .eq 2 3) (.return_ (some 4)) (by rfl) (by rfl)
+  have hrootSteps : root.invariantSteps = some 7 := by rfl
+  have hrootKind : root.kind = .invariant := by rfl
+  have hrootParams : root.params = #[] := by rfl
+  have hrootLoops : root.loopBounds = #[] := by rfl
+  have hrootResult : root.result.typeId = boolTypeId := by rfl
+  have hrootEntry : root.entryBlock = 0 := by rfl
+  have hrootBlocks : root.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .stateLoad stateId },
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .literal uint64TypeId two8BytesV1 },
+        { result := some { valueId := 2, typeId := uint64TypeId },
+          op := .binary .mod 0 1 },
+        { result := some { valueId := 3, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 },
+        { result := some { valueId := 4, typeId := boolTypeId },
+          op := .binary .eq 2 3 }
+      ]
+      terminator := .return_ (some 4)
+    }] := by rfl
+  have hbool : isBoolType data root.result.typeId = true := by
+    simp [isBoolType, shapeOf, hrootResult, htypeB]
+  have hkindBne : (CallableKindV1.invariant != .invariant) = false := by decide
+  have hseven : 7 % 2 ^ 64 = (7 : Nat) := by decide
+  have hfalseBytes : (encodeU8 0 == encodeU8 1) = false := by decide
+  have hfalseBytes0 : (encodeU8 0 == encodeU8 0) = true := by decide
+  have hvcCount :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := countBytes } =
+        true := by
+    simp [valueCanonical, hcanCount]
+  have hvcTwo :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := two8BytesV1 } =
+        true := by
+    simp [valueCanonical, hcanTwo]
+  have hvcZero :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := zero8BytesV1 } =
+        true := by
+    simp [valueCanonical, hcanZero]
+  have hvcFalse :
+      valueCanonical data { typeId := boolTypeId, valueBytes := encodeU8 0 } =
+        true := by
+    simp [valueCanonical, hcanFalse]
+  have hmod :=
+    evalBinary_mod_uint64_odd_two data uint64TypeId countBytes htypeU
+      hcanCount hcanTwo hodd
+  have heq :=
+    evalBinary_eq_uint64_one_zero data uint64TypeId boolTypeId htypeB
+  let v0 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := countBytes }
+  let v1 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := two8BytesV1 }
+  let v2 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := one8BytesV1 }
+  let v3 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+  let v4 : ReferenceValueV1 :=
+    { typeId := boolTypeId, valueBytes := encodeU8 0 }
+  have hs0 : (0 : ValueIdV1).toNat < (emptyEnv 5).size := by
+    simp [emptyEnv, UInt32.toNat]
+  let e1 := (emptyEnv 5).set (0 : ValueIdV1).toNat (some v0) hs0
+  have hset0 : envSet (emptyEnv 5) 0 v0 = some e1 := by
+    simpa [e1] using envSet_of_lt (emptyEnv 5) (0 : ValueIdV1) v0 hs0
+  have hs1 : (1 : ValueIdV1).toNat < e1.size := by
+    simp [e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e2 := e1.set (1 : ValueIdV1).toNat (some v1) hs1
+  have hset1 : envSet e1 1 v1 = some e2 := by
+    simpa [e2] using envSet_of_lt e1 (1 : ValueIdV1) v1 hs1
+  have hs2 : (2 : ValueIdV1).toNat < e2.size := by
+    simp [e2, e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e3 := e2.set (2 : ValueIdV1).toNat (some v2) hs2
+  have hset2 : envSet e2 2 v2 = some e3 := by
+    simpa [e3] using envSet_of_lt e2 (2 : ValueIdV1) v2 hs2
+  have hs3 : (3 : ValueIdV1).toNat < e3.size := by
+    simp [e3, e2, e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e4 := e3.set (3 : ValueIdV1).toNat (some v3) hs3
+  have hset3 : envSet e3 3 v3 = some e4 := by
+    simpa [e4] using envSet_of_lt e3 (3 : ValueIdV1) v3 hs3
+  have hs4 : (4 : ValueIdV1).toNat < e4.size := by
+    simp [e4, e3, e2, e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e5 := e4.set (4 : ValueIdV1).toNat (some v4) hs4
+  have hset4 : envSet e4 4 v4 = some e5 := by
+    simpa [e5] using envSet_of_lt e4 (4 : ValueIdV1) v4 hs4
+  have hvcOne :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := one8BytesV1 } =
+        true := by
+    -- one8 is a fixed 8-byte UInt64 payload; validate via the public wire rule.
+    have hone :
+        validateValueBytesV1 data.types uint64TypeId one8BytesV1 = .ok () := by
+      have h := validateValueBytesV1_uint64_eq_ok data.types uint64TypeId
+        { id := uint64TypeId, name := none, shape := .uint 64 }
+        1 0 0 0 0 0 0 0 htypeU rfl
+      simpa [one8BytesV1] using h
+    simp [valueCanonical, hone]
+  let mk (env : Array (Option ReferenceValueV1)) (idx : Nat) : MachineV1 := {
+    data, pre := state, callable := root, isInitializer := false,
+    context := #[], overlay := #[countBytes], env,
+    effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable root + 1) 0,
+    responseCursor := 0, responses := #[], loopCounts := #[],
+    blockId := 0, instrIdx := idx, frames := #[],
+    vaultNative := 0, vaultToken := #[]
+  }
+  rw [runInvariantCallableV1]
+  simp only [hinitialized, Bool.not_true, Bool.false_eq_true, ↓reduceIte, hroot]
+  simp only [hrootSteps, hrootKind, hrootParams, Array.isEmpty_empty,
+    hrootLoops, hbool, Bool.not_true, Bool.or_false]
+  rw [hdecode]
+  simp only [UInt64.toNat_ofNat, hrootMax, hrootEntry, hkindBne, hseven]
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  change (match (runMachine true 6 (mk (emptyEnv 5) 0)).2.2 with
+    | .reverted _ => InvariantEvalResultV1.reverted
+    | .trapped _ => InvariantEvalResultV1.trapped
+    | .returned (some value) =>
+        if value.typeId != root.result.typeId then .trapped
+        else if value.valueBytes == encodeU8 1 then .returnedTrue
+        else if value.valueBytes == encodeU8 0 then .returnedFalse
+        else .trapped
+    | .returned none => .trapped) = .returnedFalse
+  have hexec0 :
+      execInstruction (mk (emptyEnv 5) 0)
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .stateLoad stateId } =
+        .next (mk e1 0) := by
+    have hoverlay :
+        (#[countBytes] : Array ByteArray)[stateId.toNat]? =
+          some countBytes := by
+      simp [hstateId]
+    have hty : (uint64TypeId != uint64TypeId) = false := by
+      simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hstate, hoverlay, hty, ↓reduceIte]
+    have hstore := storeResult_envSet (mk (emptyEnv 5) 0) 0 v0 e1 hvcCount hset0
+    simpa [mk, e1, v0] using hstore
+  have step0 : runMachine true 6 (mk (emptyEnv 5) 0) =
+      runMachine true 5 (mk e1 1) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec0]
+  have hexec1 :
+      execInstruction (mk e1 1)
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .literal uint64TypeId two8BytesV1 } =
+        .next (mk e2 1) := by
+    have hty : (uint64TypeId != uint64TypeId) = false := by
+      simp [BEq.beq, bne]
+    have hcan' : valueCanonical data
+        { typeId := uint64TypeId, valueBytes := two8BytesV1 } = true := hvcTwo
+    simp only [mk, execInstruction, hty, ↓reduceIte, hcan', Bool.not_true,
+      Bool.false_eq_true]
+    exact storeResult_envSet (mk e1 1) 1 v1 e2
+      (by simpa [mk, v1] using hvcTwo) hset1
+  have step1 : runMachine true 5 (mk e1 1) = runMachine true 4 (mk e2 2) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec1]
+  have hexec2 :
+      execInstruction (mk e2 2)
+        { result := some { valueId := 2, typeId := uint64TypeId },
+          op := .binary .mod 0 1 } =
+        .next (mk e3 2) := by
+    have hg0 : envGet e2 0 = some v0 := by
+      have hne :
+          (e1.set (1 : ValueIdV1).toNat (some v1) hs1)[0]? = e1[0]? :=
+        Array.getElem?_set_ne hs1 (by decide : (1 : Nat) ≠ 0)
+      have h0 : e1[0]? = some (some v0) := Array.getElem?_set_self hs0
+      change envGet (e1.set (1 : ValueIdV1).toNat (some v1) hs1) 0 = some v0
+      simp [envGet, hne, h0]
+    have hg1 : envGet e2 1 = some v1 := by
+      have h1 : e2[(1 : ValueIdV1).toNat]? = some (some v1) :=
+        Array.getElem?_set_self hs1
+      simp [envGet, e2, h1, UInt32.toNat]
+    have hvc0' : valueCanonical data v0 = true := by simpa [v0] using hvcCount
+    have hvc1' : valueCanonical data v1 = true := by simpa [v1] using hvcTwo
+    have hmod' : evalBinary data .mod v0 v1 uint64TypeId = .ok v2 := by
+      simpa [v0, v1, v2] using hmod
+    simp only [mk, execInstruction, hg0, hg1, hvc0', hvc1', Bool.not_true,
+      Bool.or_false, Bool.false_eq_true, ↓reduceIte, hmod', fromEval]
+    have hstore := storeResult_envSet (mk e2 2) 2 v2 e3
+      (by simpa [v2] using hvcOne) hset2
+    simpa [mk, e3, v2] using hstore
+  have step2 : runMachine true 4 (mk e2 2) = runMachine true 3 (mk e3 3) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec2]
+  have hexec3 :
+      execInstruction (mk e3 3)
+        { result := some { valueId := 3, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 } =
+        .next (mk e4 3) := by
+    have hty : (uint64TypeId != uint64TypeId) = false := by
+      simp [BEq.beq, bne]
+    have hcan' : valueCanonical data
+        { typeId := uint64TypeId, valueBytes := zero8BytesV1 } = true := hvcZero
+    simp only [mk, execInstruction, hty, ↓reduceIte, hcan', Bool.not_true,
+      Bool.false_eq_true]
+    exact storeResult_envSet (mk e3 3) 3 v3 e4
+      (by simpa [mk, v3] using hvcZero) hset3
+  have step3 : runMachine true 3 (mk e3 3) = runMachine true 2 (mk e4 4) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec3]
+  have hexec4 :
+      execInstruction (mk e4 4)
+        { result := some { valueId := 4, typeId := boolTypeId },
+          op := .binary .eq 2 3 } =
+        .next (mk e5 4) := by
+    have hg2 : envGet e4 2 = some v2 := by
+      have hne :
+          (e3.set (3 : ValueIdV1).toNat (some v3) hs3)[2]? = e3[2]? :=
+        Array.getElem?_set_ne hs3 (by decide : (3 : Nat) ≠ 2)
+      have h2 : e3[2]? = some (some v2) := Array.getElem?_set_self hs2
+      change envGet (e3.set (3 : ValueIdV1).toNat (some v3) hs3) 2 = some v2
+      simp [envGet, hne, h2]
+    have hg3 : envGet e4 3 = some v3 := by
+      have h3 : e4[(3 : ValueIdV1).toNat]? = some (some v3) :=
+        Array.getElem?_set_self hs3
+      simp [envGet, e4, h3, UInt32.toNat]
+    have hvc2' : valueCanonical data v2 = true := by simpa [v2] using hvcOne
+    have hvc3' : valueCanonical data v3 = true := by simpa [v3] using hvcZero
+    have heq' : evalBinary data .eq v2 v3 boolTypeId = .ok v4 := by
+      simpa [v2, v3, v4] using heq
+    simp only [mk, execInstruction, hg2, hg3, hvc2', hvc3', Bool.not_true,
+      Bool.or_false, Bool.false_eq_true, ↓reduceIte, heq', fromEval]
+    have hstore := storeResult_envSet (mk e4 4) 4 v4 e5
+      (by simpa [v4] using hvcFalse) hset4
+    simpa [mk, e5, v4] using hstore
+  have step4 : runMachine true 2 (mk e4 4) = runMachine true 1 (mk e5 5) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec4]
+  have hg4 : envGet e5 4 = some v4 := by
+    have h4 : e5[(4 : ValueIdV1).toNat]? = some (some v4) :=
+      Array.getElem?_set_self hs4
+    simp [envGet, e5, h4, UInt32.toNat]
+  have hret :
+      execTerminator (mk e5 5) (.return_ (some 4)) =
+        .done (mk e5 5) (.returned (some v4)) := by
+    have hunit : isUnitType data root.result.typeId = false := by
+      simp [isUnitType, shapeOf, hrootResult, htypeB]
+    have hty :
+        (v4.typeId != root.result.typeId || !valueCanonical data v4) = false := by
+      have hbeq : (v4.typeId != root.result.typeId) = false := by
+        simp [v4, hrootResult, BEq.beq, bne]
+      have hcan : valueCanonical data v4 = true := by simpa [v4] using hvcFalse
+      simp [hbeq, hcan]
+    simp only [mk, execTerminator, hunit, ↓reduceIte, hg4, hty, ↓reduceIte, v4]
+    simp only [Bool.false_eq_true, ↓reduceIte]
+  have stepT : runMachine true 1 (mk e5 5) =
+      (0, mk e5 5, CandidateV1.returned (some v4)) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hret]
+  rw [step0, step1, step2, step3, step4, stepT]
+  have htyEq : (v4.typeId != root.result.typeId) = false := by
+    simp [v4, hrootResult, BEq.beq, bne]
+  simp [htyEq, hfalseBytes, hfalseBytes0, v4]
+
+/-- Returned-true on the closed UInt64 parity invariant forces even overlay. -/
+theorem leBytesToNatV1_even_of_runInvariantCallableV1_returnedTrue_uint64_parity
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (countBytes : ByteArray)
+    (rootId : CallableIdV1)
+    (uint64TypeId boolTypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (rootName : Option String)
+    (visibility : VisibilityV1)
+    (stateName : String)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok #[countBytes])
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (htypeB : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := none, shape := .bool })
+    (hstateId : stateId = 0)
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hroot : data.callables[rootId.toNat]? = some {
+      id := rootId
+      kind := .invariant
+      name := rootName
+      params := #[]
+      result := { typeId := boolTypeId, visibility }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+          { result := some { valueId := 0, typeId := uint64TypeId },
+            op := .stateLoad stateId },
+          { result := some { valueId := 1, typeId := uint64TypeId },
+            op := .literal uint64TypeId two8BytesV1 },
+          { result := some { valueId := 2, typeId := uint64TypeId },
+            op := .binary .mod 0 1 },
+          { result := some { valueId := 3, typeId := uint64TypeId },
+            op := .literal uint64TypeId zero8BytesV1 },
+          { result := some { valueId := 4, typeId := boolTypeId },
+            op := .binary .eq 2 3 }
+        ]
+        terminator := .return_ (some 4)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 7
+    })
+    (hcanCount :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ())
+    (hcanTwo :
+      validateValueBytesV1 data.types uint64TypeId two8BytesV1 = .ok ())
+    (hcanZero :
+      validateValueBytesV1 data.types uint64TypeId zero8BytesV1 = .ok ())
+    (hcanTrue :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 1) = .ok ())
+    (hcanFalse :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 0) = .ok ())
+    (hrun : runInvariantCallableV1 data rootId state = .returnedTrue) :
+    leBytesToNatV1 countBytes % 2 = 0 := by
+  by_cases heven : leBytesToNatV1 countBytes % 2 = 0
+  · exact heven
+  · have hodd : leBytesToNatV1 countBytes % 2 = 1 := by
+      have hmod := Nat.mod_two_eq_zero_or_one (leBytesToNatV1 countBytes)
+      cases hmod with
+      | inl h => exact (heven h).elim
+      | inr h => exact h
+    have hfalse :=
+      runInvariantCallableV1_eq_returnedFalse_of_uint64_parity_odd
+        data state countBytes rootId uint64TypeId boolTypeId stateId rootName
+        visibility stateName hinitialized hdecode htypeU htypeB hstateId hstate
+        hroot hcanCount hcanTwo hcanZero hcanFalse hodd
+    rw [hfalse] at hrun
+    cases hrun
+
 /-- Normalize/source `invariant name : true` shape: nullary invariant with a
     single Bool literal `true` instruction and exact fuel 3. -/
 theorem runInvariantCallableV1_eq_returnedTrue_of_single_nullary_literal_true
@@ -3936,6 +4502,161 @@ theorem runInvariantCallableV1_eq_returnedTrue_of_single_nullary_pureCall_true
   rw [runMachine]
   simp [hrootBlocks, hrootResult, isUnitType, shapeOf, htype, execTerminator,
     envGet, valueCanonical, hcanonical, htrueBytes]
+
+/-! ### EvenCounter step returned-branch: parity preservation -/
+
+private theorem finalizeLifecycle_not_returned
+    (pre : LogicalStateV1) (responses : ExternalResponsesV1)
+    (cand : CandidateV1) (post : LogicalStateV1)
+    (value : Option ReferenceValueV1) (effects : Array OrderedEffectV1) :
+    finalizeLifecycle pre responses cand ≠ .returned post value effects := by
+  unfold finalizeLifecycle
+  cases h : (responses.size != 0) with
+  | true =>
+      simp only [↓reduceIte]
+      intro hfalse; cases hfalse
+  | false =>
+      simp only [Bool.false_eq_true, ↓reduceIte]
+      cases cand with
+      | trapped fault => intro hfalse; cases hfalse
+      | reverted reason => intro hfalse; cases hfalse
+      | returned v => intro hfalse; cases hfalse
+
+private theorem pow_256_eight_eq_pow_two_sixty_four :
+    (256 : Nat) ^ 8 = 2 ^ 64 := by
+  decide
+
+private theorem UInt8_toNat_ofNat_mod256 (k : Nat) :
+    (UInt8.ofNat (k % 256)).toNat = k % 256 := by
+  have : k % 256 < 256 := Nat.mod_lt _ (by decide)
+  simp [UInt8.toNat, UInt8.ofNat, Nat.mod_eq_of_lt this]
+
+/-- Scaling the place argument multiplies the decoded Nat. -/
+private theorem leBytesToNatList_mul_place
+    (bytes : List UInt8) (place : Nat) :
+    leBytesToNatList bytes place = place * leBytesToNatList bytes 1 := by
+  induction bytes generalizing place with
+  | nil =>
+      simp [leBytesToNatList]
+  | cons b rest ih =>
+      change
+        b.toNat * place + leBytesToNatList rest (place * 256) =
+          place * (b.toNat * 1 + leBytesToNatList rest 256)
+      rw [ih (place * 256), ih 256, Nat.mul_one]
+      -- Goal: b*place + (place*256)*x = place*(b + 256*x)
+      rw [Nat.mul_comm b.toNat place]
+      -- place*b + (place*256)*x
+      have hassoc : place * 256 * leBytesToNatList rest 1 =
+          place * (256 * leBytesToNatList rest 1) := by
+        rw [Nat.mul_assoc]
+      rw [hassoc, ← Nat.mul_add]
+
+/-- Little-endian place-value roundtrip for any width: if `n < 256^len` then
+    decoding the `len`-byte encoding recovers `n`. -/
+private theorem leBytesToNatList_natToLeBytesList
+    (n len : Nat) (hn : n < 256 ^ len) :
+    leBytesToNatList (natToLeBytesList n len) = n := by
+  induction len generalizing n with
+  | zero =>
+      have hn0 : n = 0 := by
+        have : n < 1 := by simpa using hn
+        exact Nat.lt_one_iff.mp this
+      simp [natToLeBytesList, leBytesToNatList, hn0]
+  | succ len ih =>
+      have hmod : (UInt8.ofNat (n % 256)).toNat = n % 256 :=
+        UInt8_toNat_ofNat_mod256 n
+      have hdiv : n / 256 < 256 ^ len := by
+        have hpow : 256 ^ (len + 1) = 256 * 256 ^ len := by
+          rw [Nat.pow_succ, Nat.mul_comm]
+        rw [hpow] at hn
+        exact (Nat.div_lt_iff_lt_mul (by decide : (0 : Nat) < 256)).mpr
+          (by simpa [Nat.mul_comm] using hn)
+      have ih' : leBytesToNatList (natToLeBytesList (n / 256) len) = n / 256 :=
+        ih (n / 256) hdiv
+      change
+        (UInt8.ofNat (n % 256)).toNat * 1 +
+            leBytesToNatList (natToLeBytesList (n / 256) len) (1 * 256) = n
+      rw [hmod, Nat.mul_one, show (1 : Nat) * 256 = 256 from rfl]
+      have hscale :
+          leBytesToNatList (natToLeBytesList (n / 256) len) 256 =
+            256 * leBytesToNatList (natToLeBytesList (n / 256) len) :=
+        leBytesToNatList_mul_place (natToLeBytesList (n / 256) len) 256
+      rw [hscale, ih']
+      -- n % 256 + 256 * (n / 256) = n
+      omega
+
+private theorem leBytesToNat_natToLeBytes_of_lt
+    (n len : Nat) (hn : n < 256 ^ len) :
+    leBytesToNat (natToLeBytes n len) = n := by
+  simp only [leBytesToNat, natToLeBytes]
+  -- After unfolding, goal is the list roundtrip (ByteArray.mk reduces away).
+  exact leBytesToNatList_natToLeBytesList n len hn
+
+private theorem leBytesToNat_natToLeBytes_uint64
+    (n : Nat) (hn : n < 2 ^ 64) :
+    leBytesToNat (natToLeBytes n 8) = n := by
+  have hn' : n < 256 ^ 8 := by
+    simpa [pow_256_eight_eq_pow_two_sixty_four] using hn
+  exact leBytesToNat_natToLeBytes_of_lt n 8 hn'
+
+private theorem leBytesToNatV1_natToLeBytesV1_uint64
+    (n : Nat) (hn : n < 2 ^ 64) :
+    leBytesToNatV1 (natToLeBytesV1 n 8) = n :=
+  leBytesToNat_natToLeBytes_uint64 n hn
+
+private theorem evalBinary_add_uint64_two
+    (data : SemanticProgramDataV1) (uint64TypeId : TypeIdV1)
+    (countBytes : ByteArray)
+    (htype : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hcanCount :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ())
+    (hcanTwo :
+      validateValueBytesV1 data.types uint64TypeId two8BytesV1 = .ok ())
+    (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64) :
+    evalBinary data .add
+      { typeId := uint64TypeId, valueBytes := countBytes }
+      { typeId := uint64TypeId, valueBytes := two8BytesV1 }
+      uint64TypeId =
+      .ok {
+        typeId := uint64TypeId
+        valueBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+      } := by
+  have hvcC :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := countBytes } =
+        true := by simp [valueCanonical, hcanCount]
+  have hvcT :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := two8BytesV1 } =
+        true := by simp [valueCanonical, hcanTwo]
+  have htid : (uint64TypeId == uint64TypeId) = true := by simp [BEq.beq]
+  have hwidth : uintWidth data uint64TypeId = some 64 := by
+    simp [uintWidth, shapeOf, htype]
+  have ht : leBytesToNat two8BytesV1 = 2 := by
+    simpa [two8BytesV1] using leBytesToNat_two8
+  have hmax : uintMax 64 = 2 ^ 64 := by
+    simp [uintMax]
+  simp only [evalBinary, hvcC, hvcT, htid, Bool.and_self, Bool.not_true,
+    Bool.false_eq_true, ↓reduceIte, hwidth, intWidth, shapeOf, htype,
+    uintByteLen, ht, hmax, ge_iff_le]
+  have hle : (2 ^ 64 ≤ leBytesToNat countBytes + 2) = False := by
+    simp only [eq_iff_iff, iff_false]
+    exact Nat.not_le_of_gt hnoOverflow
+  simp only [hle, ↓reduceIte]
+  -- Align public aliases with private helpers: 64/8 = 8 and leBytesToNatV1.
+  rfl
+
+private theorem add_two_preserves_even
+    (n : Nat) (heven : n % 2 = 0) : (n + 2) % 2 = 0 := by
+  have h2 : (2 : Nat) % 2 = 0 := by decide
+  simpa [Nat.add_mod, heven, h2] using (rfl : (0 : Nat) % 2 = 0)
+
+/-- Finalizer of a lifecycle gate never produces a successful return outcome. -/
+theorem finalizeLifecycle_ne_returned_publicV1
+    (pre : LogicalStateV1) (responses : ExternalResponsesV1)
+    (cand : CandidateV1) (post : LogicalStateV1)
+    (value : Option ReferenceValueV1) (effects : Array OrderedEffectV1) :
+    finalizeLifecycle pre responses cand ≠ .returned post value effects :=
+  finalizeLifecycle_not_returned pre responses cand post value effects
 
 /-- Evaluate one admitted invariant using its structure-validated exact fuel.
     This deliberately bypasses `InvocationV1`: normal root invocation of an

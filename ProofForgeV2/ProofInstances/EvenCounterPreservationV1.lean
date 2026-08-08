@@ -153,4 +153,46 @@ theorem preservation_base_no_init (admitted : AdmittedReferenceSliceV1) :
     PreservationBaseV1 program 0 admitted :=
   Or.inr ⟨no_initializer, base_no_initializer⟩
 
+/-! ### Step packing (failure arms closed; returned deferred to micro-paths) -/
+
+/-- Revert/trap outcomes of the sole production step always reattach the exact
+    pre-state. The returned branch is left as `True` here so failure arms can
+    be shared by the full step theorem. -/
+theorem preservation_step_failure_arms
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1) :
+    match stepReferenceSliceV1 admitted pre invocation responses vault with
+    | .returned _ _ _ => True
+    | .reverted reason unchangedState =>
+        OutcomeRevertedUnchangedV1 pre reason unchangedState
+    | .trapped fault unchangedState =>
+        OutcomeTrappedUnchangedV1 pre fault unchangedState := by
+  have hfail :=
+    stepReferenceSliceV1_failureStateUnchangedV1 admitted pre invocation
+      responses vault
+  generalize hstep :
+    stepReferenceSliceV1 admitted pre invocation responses vault = outcome
+  cases outcome with
+  | returned post value effects =>
+      trivial
+  | reverted reason unchanged =>
+      have hfail' : OutcomeFailureStateUnchangedV1 pre
+          (OutcomeV1.reverted reason unchanged) := by
+        simpa [hstep] using hfail
+      exact hfail'
+  | trapped fault unchanged =>
+      have hfail' : OutcomeFailureStateUnchangedV1 pre
+          (OutcomeV1.trapped fault unchanged) := by
+        simpa [hstep] using hfail
+      exact hfail'
+
+/-- Ordinal 0 is in range for the closed EvenCounter invariant table. -/
+theorem ordinal_in_range : (0 : InvariantOrdinalV1).toNat < program.invariants.size := by
+  unfold SemanticProgramV1.invariants
+  rw [validate_ok]
+  decide
+
 end ProofForgeV2.ProofInstances.EvenCounterPreservationV1
