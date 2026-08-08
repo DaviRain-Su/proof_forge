@@ -1,9 +1,10 @@
 /-
-  ALEO-IR-1..7 + G5-MATRIX + G5-HARD + RES-CLEAN: Aleo Instructions
-  Schema/TextCodec + Counter golden + Plan→Instructions + if/match/bounded-for
-  + multi-leaf + narrow UInt + effects honesty + product primary + residual
-  true lower + hard-require (empty allowlist) + IR-7 runtime honesty
-  PARTIAL/MISSING + residual honesty closeout.
+  ALEO-IR-1..7 + G5-MATRIX + G5-HARD + RES-CLEAN + ALEO-MULTI-GOLDEN:
+  Aleo Instructions Schema/TextCodec + Counter golden + Plan→Instructions
+  + if/match/bounded-for + multi-leaf + narrow UInt + effects honesty +
+  product primary + residual true lower + hard-require (empty allowlist) +
+  IR-7 runtime honesty PARTIAL/MISSING + residual honesty closeout +
+  multi-fixture structural product pins.
 
   Covers:
   * schema id / Leo golden version pins
@@ -27,9 +28,14 @@
     leo run ≠ Instructions package-only execute
   * RES-CLEAN: sole Counter full-byte golden inventory; multi-program leo
     goldens / record / prove / full opcode deferred (non-claims only)
+  * ALEO-MULTI-GOLDEN: product Plan→Instructions structural pins for
+    admit-surface OptionState / Accumulator / MapMini / LoopSum;
+    Counter remains sole full-byte golden; multi-program leo byte goldens
+    still deferred (structural-only classification documented)
 
-  **Not** snarkVM execute, prove/deploy, formal. PARTIAL only with evidence
-  (IR-7 MISSING pin). deployable=false. Lane idle after RES-CLEAN.
+  **Not** snarkVM execute, prove/deploy, formal, full multi-program leo
+  byte-equality matrix. PARTIAL only with evidence (IR-7 MISSING pin).
+  deployable=false.
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Aleo
@@ -1550,6 +1556,291 @@ unsafe def testProductPrimaryInstructionsMaterialize : IO Unit := do
   expect (artPaths == #["counter.aleo", "counter.aleo-query-contract.json"])
     s!"Registry materializeResult default must omit .leo, got {artPaths}"
 
+/-- Item-kind inventory for multi-fixture structural pins. -/
+private def countItemKinds (p : ProgramV1) : Nat × Nat × Nat × Nat :=
+  Id.run do
+    let mut maps := 0
+    let mut funs := 0
+    let mut fins := 0
+    let mut ctors := 0
+    for item in p.items do
+      match item with
+      | .mapping _ => maps := maps + 1
+      | .function _ => funs := funs + 1
+      | .finalize _ => fins := fins + 1
+      | .constructor _ => ctors := ctors + 1
+    pure (maps, funs, fins, ctors)
+
+private def hasFunctionNamed (p : ProgramV1) (name : String) : Bool :=
+  Id.run do
+    for item in p.items do
+      match item with
+      | .function f => if f.name == name then return true
+      | .finalize f => if f.name == name then return true
+      | _ => pure ()
+    pure false
+
+/-- Shared product capability → Instructions lower for MULTI-GOLDEN fixtures. -/
+unsafe def productProgramFromSource
+    (label source moduleName : String) : IO ProgramV1 := do
+  let session ← Tests.Language.ParserSession.shared
+  let parsed ← liftResult (← session.selectProgramV1
+    source s!"<aleo-multi-{label}>" moduleName none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  liftResult <| programFromCapabilityV1 cap
+
+/-- ALEO-MULTI-GOLDEN: Examples/LoopSum full product Plan→Instructions
+    structural pin (for unroll + bare view; **not** byte golden). -/
+unsafe def testMultiGoldenLoopSumProduct : IO Unit := do
+  let src ← IO.FS.readFile "Examples/LoopSum.lean"
+  let prog ← productProgramFromSource "loopsum" src "Examples.LoopSum"
+  expect (prog.name == "loopsum.aleo") "LoopSum program name"
+  let (maps, funs, fins, ctors) := countItemKinds prog
+  -- 1 state mapping + initialized guard; initialize + run; constructor
+  expect (maps == 2)
+    s!"LoopSum mappings (state+guard), got {maps}"
+  expect (funs == 2 && fins == 2)
+    s!"LoopSum methods: initialize+run fn/final, got fns={funs} finals={fins}"
+  expect (ctors == 1) "LoopSum constructor"
+  expect (hasFunctionNamed prog "initialize") "LoopSum initialize"
+  expect (hasFunctionNamed prog "run") "LoopSum run entry"
+  -- Bare view `get` is query-contract only (not an on-chain function).
+  expect (!hasFunctionNamed prog "get")
+    "LoopSum bare view must not emit on-chain function"
+  expect (hasBinaryOp prog "add") "LoopSum body/total uses add"
+  expect (hasBinaryOp prog "lt" || hasBinaryOp prog "lte")
+    "LoopSum for bound uses lt/lte"
+  let (branches, positions) := countControlOps prog
+  expect (branches ≥ 4 && positions ≥ 4)
+    s!"LoopSum for unroll control ops (b={branches} p={positions})"
+  expect (countSetsInFinalize prog "run" ≥ 1)
+    "LoopSum run must set total inside unroll"
+  expect (countGetOrUseInFinalize prog "run" ≥ 1)
+    "LoopSum run must get.or_use total"
+  let encoded := encodeProgram prog
+  expect (encoded.length > 0) "LoopSum encode nonempty"
+  expect (encoded.startsWith "program loopsum.aleo;")
+    "LoopSum header"
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "LoopSum encode→decode failed"
+  | some p2 => expect (p2 == prog) "LoopSum structural round-trip"
+  -- Hard-require: product lower succeeded (no ALEO-IR-G5-HARD).
+  expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1 "")
+    "G5-HARD allowlist remains empty under MULTI-GOLDEN"
+
+/-- ALEO-MULTI-GOLDEN: Accumulator admit-surface product pin.
+    Full `Examples/Accumulator.lean` is Plan-FC (Leo reserved entry name `add`);
+    admit-surface renames entry to `credit` (same state/view shape). Structural
+    only — **not** byte golden. -/
+unsafe def testMultiGoldenAccumulatorAdmitSurface : IO Unit := do
+  -- Honesty: full Examples/Accumulator.lean must Plan-FC on reserved `add`.
+  let fullSrc ← IO.FS.readFile "Examples/Accumulator.lean"
+  let session ← Tests.Language.ParserSession.shared
+  let fullParsed ← liftResult (← session.selectProgramV1
+    fullSrc "<aleo-multi-acc-full>" "Examples.Accumulator" none)
+  let fullCompiled ← liftResult <| Compiler.compileValidatedSourceV1 fullParsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  match resolveEngineeringRequirementsV1 selection fullCompiled with
+  | .error e =>
+      expect (e.render.length > 0)
+        "full Accumulator resolve/Plan FC diagnostic"
+  | .ok fullCap =>
+      match planFromCapability fullCap with
+      | .ok _ =>
+          throw <| IO.userError
+            "full Examples/Accumulator must Plan-FC on reserved entry 'add'"
+      | .error e =>
+          expect (e.render.contains "reserved" || e.render.contains "add")
+            s!"full Accumulator must cite reserved/add, got: {e.render}"
+  -- Admit-surface: same shape, non-reserved entry name.
+  let admitSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Accumulator where\n" ++
+    "  state total : UInt64\n" ++
+    "  init(seed : UInt64) do\n" ++
+    "    total := seed\n" ++
+    "  entry credit(amount : UInt64) : UInt64 do\n" ++
+    "    total := total + amount\n" ++
+    "    return total\n" ++
+    "  view current() : UInt64 do\n" ++
+    "    return total\n"
+  let prog ← productProgramFromSource "accumulator" admitSrc
+    "Tests.AleoMultiAccumulator"
+  expect (prog.name == "accumulator.aleo") "Accumulator program name"
+  let (maps, funs, fins, ctors) := countItemKinds prog
+  expect (maps == 2)
+    s!"Accumulator mappings (state+guard), got {maps}"
+  expect (funs == 2 && fins == 2)
+    s!"Accumulator initialize+credit fn/final, got fns={funs} finals={fins}"
+  expect (ctors == 1) "Accumulator constructor"
+  expect (hasFunctionNamed prog "initialize") "Accumulator initialize"
+  expect (hasFunctionNamed prog "credit") "Accumulator credit entry"
+  expect (!hasFunctionNamed prog "current")
+    "bare view current is query-only, not on-chain"
+  expect (hasBinaryOp prog "add") "credit body checkedAdd → add"
+  expect (countSetsInFinalize prog "credit" ≥ 1)
+    "credit must set total"
+  expect (countGetOrUseInFinalize prog "credit" ≥ 1)
+    "credit must get.or_use total"
+  expect (countSetsInFinalize prog "initialize" ≥ 2)
+    "init must set total + initialized guard"
+  let encoded := encodeProgram prog
+  expect (encoded.length > 0) "Accumulator encode nonempty"
+  expect (encoded.startsWith "program accumulator.aleo;")
+    "Accumulator header"
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "Accumulator encode→decode failed"
+  | some p2 => expect (p2 == prog) "Accumulator structural round-trip"
+
+/-- ALEO-MULTI-GOLDEN: OptionState admit-surface product pin (entry-only;
+    full Examples/OptionState computed `peek` view is Plan-FC). Structural only. -/
+unsafe def testMultiGoldenOptionStateAdmitSurface : IO Unit := do
+  -- Honesty: full Examples computed view Plan-FC.
+  let fullSrc ← IO.FS.readFile "Examples/OptionState.lean"
+  let session ← Tests.Language.ParserSession.shared
+  let fullParsed ← liftResult (← session.selectProgramV1
+    fullSrc "<aleo-multi-opt-full>" "Examples.OptionState" none)
+  let fullCompiled ← liftResult <| Compiler.compileValidatedSourceV1 fullParsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  match resolveEngineeringRequirementsV1 selection fullCompiled with
+  | .error e =>
+      expect (e.render.length > 0) "full OptionState FC diagnostic"
+  | .ok fullCap =>
+      match planFromCapability fullCap with
+      | .ok _ =>
+          throw <| IO.userError
+            "full Examples/OptionState must Plan-FC on computed view peek"
+      | .error e =>
+          expect (e.render.contains "view" || e.render.contains "computed" ||
+              e.render.contains "leo query")
+            s!"full OptionState must cite computed view, got: {e.render}"
+  let admitSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptionState where\n" ++
+    "  state slot : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n" ++
+    "  entry clear() : UInt64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n"
+  let prog ← productProgramFromSource "optionstate" admitSrc
+    "Tests.AleoMultiOptionState"
+  expect (prog.name == "optionstate.aleo") "OptionState program name"
+  let (maps, funs, fins, ctors) := countItemKinds prog
+  expect (maps == 3)
+    s!"OptionState tag+payload+guard mappings, got {maps}"
+  expect (funs == 3 && fins == 3)
+    s!"OptionState initialize+setSome+clear, got fns={funs} finals={fins}"
+  expect (ctors == 1) "OptionState constructor"
+  expect (mappingNames prog |>.contains "pf_state_0") "tag leaf"
+  expect (mappingNames prog |>.contains "pf_state_1") "payload leaf"
+  expect (hasFunctionNamed prog "setSome" && hasFunctionNamed prog "clear")
+    "OptionState entries present"
+  expect (countSetsInFinalize prog "setSome" ≥ 2)
+    "setSome stores tag+payload"
+  expect (countSetsInFinalize prog "clear" ≥ 2)
+    "clear stores tag+payload"
+  expect (countSetsInFinalize prog "initialize" ≥ 3)
+    "init none stores 2 leaves + guard"
+  let encoded := encodeProgram prog
+  expect (encoded.length > 0) "OptionState encode nonempty"
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "OptionState multi encode→decode failed"
+  | some p2 => expect (p2 == prog) "OptionState multi structural round-trip"
+
+/-- ALEO-MULTI-GOLDEN: MapMini admit-surface product pin (entry put only;
+    full Examples/MapMini computed `get` view is Plan-FC). Structural only. -/
+unsafe def testMultiGoldenMapMiniAdmitSurface : IO Unit := do
+  let fullSrc ← IO.FS.readFile "Examples/MapMini.lean"
+  let session ← Tests.Language.ParserSession.shared
+  let fullParsed ← liftResult (← session.selectProgramV1
+    fullSrc "<aleo-multi-map-full>" "Examples.MapMini" none)
+  let fullCompiled ← liftResult <| Compiler.compileValidatedSourceV1 fullParsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  match resolveEngineeringRequirementsV1 selection fullCompiled with
+  | .error e =>
+      expect (e.render.length > 0) "full MapMini FC diagnostic"
+  | .ok fullCap =>
+      match planFromCapability fullCap with
+      | .ok _ =>
+          throw <| IO.userError
+            "full Examples/MapMini must Plan-FC on computed view get"
+      | .error e =>
+          expect (e.render.contains "view" || e.render.contains "computed" ||
+              e.render.contains "leo query")
+            s!"full MapMini must cite computed view, got: {e.render}"
+  let admitSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapMini where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let prog ← productProgramFromSource "mapmini" admitSrc
+    "Tests.AleoMultiMapMini"
+  expect (prog.name == "mapmini.aleo") "MapMini program name"
+  let (maps, funs, fins, ctors) := countItemKinds prog
+  expect (maps == 7)
+    s!"MapMini cap-2: 6 leaves + guard, got {maps}"
+  expect (funs == 2 && fins == 2)
+    s!"MapMini initialize+put, got fns={funs} finals={fins}"
+  expect (ctors == 1) "MapMini constructor"
+  for i in [0:6] do
+    expect (mappingNames prog |>.contains (mappingNameV1 i))
+      s!"missing Map leaf mapping {mappingNameV1 i}"
+  expect (hasFunctionNamed prog "put") "MapMini put entry"
+  expect (countSetsInFinalize prog "put" == 6)
+    s!"MapMini put must set 6 leaves, got {countSetsInFinalize prog "put"}"
+  expect (countGetOrUseInFinalize prog "put" ≥ 6)
+    "MapMini put snapshot get.or_use"
+  expect (hasTernary prog) "Map upsert uses ternary"
+  let encoded := encodeProgram prog
+  expect (encoded.length > 0) "MapMini encode nonempty"
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "MapMini multi encode→decode failed"
+  | some p2 => expect (p2 == prog) "MapMini multi structural round-trip"
+
+/-- ALEO-MULTI-GOLDEN classification inventory:
+    * sole full-byte golden = Counter (`counter.compiled.aleo`, 870 B)
+    * structural-only product pins = LoopSum (full Example), Accumulator /
+      OptionState / MapMini (admit-surface; full Examples Plan-FC as pinned)
+    * multi-program leo **byte** goldens remain deferred
+    * G5-HARD allowlist empty; Counter golden identity preserved -/
+def testMultiGoldenClassificationInventory : IO Unit := do
+  let goldenPath : System.FilePath :=
+    "testdata/golden/aleo-instructions-v1/counter.compiled.aleo"
+  expect (← goldenPath.pathExists)
+    "MULTI-GOLDEN: sole Counter full-byte golden must exist"
+  let golden ← IO.FS.readFile goldenPath
+  expect (golden.toUTF8.size == 870)
+    s!"MULTI-GOLDEN: Counter golden must stay 870 B, got {golden.toUTF8.size}"
+  expect (golden.startsWith "program counter.aleo;")
+    "MULTI-GOLDEN: sole byte golden is Counter only"
+  let entries ← goldenPath.parent.get!.readDir
+  let names := (entries.map (·.fileName)).qsort (· < ·)
+  expect (names == #["counter.compiled.aleo"])
+    s!"MULTI-GOLDEN: no multi-program byte golden dir expansion, got {names}"
+  -- Structural-only fixtures are suite tests (LoopSum/Accumulator/Option/Map),
+  -- not additional UTF-8 files under testdata/golden/aleo-instructions-v1/.
+  expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1 "")
+    "MULTI-GOLDEN: G5-HARD residual allowlist stays empty"
+  pure ()
+
 /-- ALEO-IR-7 / G6 runtime honesty (docs/targets/09-aleo-instructions-lowering.md §5/§10):
     * package-only snarkVM/snarkOS execute of product Instructions is **MISSING**
       on Tool Lock (Leo 4.0.2 only; RPT-024)
@@ -1577,7 +1868,8 @@ def testIr7RuntimeHonestyNotes : IO Unit := do
 /-- RES-CLEAN residual honesty (docs/targets/09-aleo-instructions-lowering.md §10):
     * sole full-byte Instructions golden = `counter.compiled.aleo` (Counter)
     * multi-program / multi-fixture full-byte goldens remain **deferred**
-      (OptionState/MapMini/Array/Branch covered by structural product pins)
+      (OptionState/MapMini/Array/Branch/LoopSum/Accumulator covered by
+      structural product pins — ALEO-MULTI-GOLDEN; not byte equality)
     * record custody / full opcode / prove/deploy remain **deferred**
     * package-only snarkVM execute remains **MISSING** (IR-7 PARTIAL)
     * this suite does **not** invent a snarkVM CLI or claim prove/deploy -/
@@ -1598,6 +1890,7 @@ def testResidualHonestyNotes : IO Unit := do
     s!"RES-CLEAN sole golden inventory, got {names}"
   -- Non-claims (documented residual only; no invented multi-golden / prove assertion):
   -- * multi-program leo / multi-fixture Instructions byte goldens deferred
+  -- * MULTI-GOLDEN structural product pins do **not** claim byte equality
   -- * record custody / full opcode / prove/deploy out-of-slice
   -- * package-only snarkVM execute still MISSING (PARTIAL; PF-TOOLCHAIN-MISSING)
   pure ()
@@ -1633,6 +1926,11 @@ unsafe def run : IO Unit := do
   testG5HardResidualAllowlistClassifier
   testG5MatrixNestedMapPlanFailClosed
   testProductPrimaryInstructionsMaterialize
+  testMultiGoldenLoopSumProduct
+  testMultiGoldenAccumulatorAdmitSurface
+  testMultiGoldenOptionStateAdmitSurface
+  testMultiGoldenMapMiniAdmitSurface
+  testMultiGoldenClassificationInventory
   testIr7RuntimeHonestyNotes
   testResidualHonestyNotes
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"
