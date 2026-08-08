@@ -78,6 +78,42 @@ theorem initial_state_conforms : StateConformsV1 program initialState :=
 private theorem zeroBytes_eq_zero8 : zeroBytes = zero8BytesV1 := rfl
 private theorem twoBytes_eq_two8 : twoBytes = two8BytesV1 := rfl
 
+/-! ### Closed even-callable shape (shared by zero/general parity paths) -/
+
+/-- The closed EvenCounter invariant callable matches the UInt64 parity micro-path. -/
+theorem even_callable_parity_shape :
+    data.callables[2]? = some {
+      id := 2
+      kind := .invariant
+      name := some "even"
+      params := #[]
+      result := { typeId := 1, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+          { result := some { valueId := 0, typeId := 0 },
+            op := .stateLoad 0 },
+          { result := some { valueId := 1, typeId := 0 },
+            op := .literal 0 two8BytesV1 },
+          { result := some { valueId := 2, typeId := 0 },
+            op := .binary .mod 0 1 },
+          { result := some { valueId := 3, typeId := 0 },
+            op := .literal 0 zero8BytesV1 },
+          { result := some { valueId := 4, typeId := 1 },
+            op := .binary .eq 2 3 }
+        ]
+        terminator := .return_ (some 4)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 7
+    } := by
+  simp [data, evenCallable, evenBlock, valueInstruction, valueDef,
+    twoBytes_eq_two8, zeroBytes_eq_zero8]
+
+/-- Zero-state base: the closed parity invariant returns true on the product
+    default overlay. Uses the zero-specialized micro-path (no general LE decode). -/
 theorem initial_run_even :
     runInvariantCallableV1 data 2 initialState = .returnedTrue := by
   have hdecode' :
@@ -92,39 +128,6 @@ theorem initial_run_even :
   have hcanTrue :
       validateValueBytesV1 data.types 1 (encodeU8 1) = .ok () := by
     simpa [data, types] using true_canonical
-  have hroot : data.callables[2]? = some evenCallable := by
-    simp [data, evenCallable]
-  -- Align the closed EvenCounter evenCallable with the micro-path shape.
-  have hshape :
-      data.callables[2]? = some {
-        id := 2
-        kind := .invariant
-        name := some "even"
-        params := #[]
-        result := { typeId := 1, visibility := .public_ }
-        entryBlock := 0
-        blocks := #[{
-          id := 0
-          params := #[]
-          instructions := #[
-            { result := some { valueId := 0, typeId := 0 },
-              op := .stateLoad 0 },
-            { result := some { valueId := 1, typeId := 0 },
-              op := .literal 0 two8BytesV1 },
-            { result := some { valueId := 2, typeId := 0 },
-              op := .binary .mod 0 1 },
-            { result := some { valueId := 3, typeId := 0 },
-              op := .literal 0 zero8BytesV1 },
-            { result := some { valueId := 4, typeId := 1 },
-              op := .binary .eq 2 3 }
-          ]
-          terminator := .return_ (some 4)
-        }]
-        loopBounds := #[]
-        invariantSteps := some 7
-      } := by
-    simp [data, evenCallable, evenBlock, valueInstruction, valueDef,
-      twoBytes_eq_two8, zeroBytes_eq_zero8]
   exact runInvariantCallableV1_eq_returnedTrue_of_uint64_parity_zero
     data initialState 2 0 1 0 (some "even") .public_ "count"
     rfl hdecode'
@@ -132,7 +135,7 @@ theorem initial_run_even :
     (by simp [data, types, boolType])
     rfl
     (by simp [data, countState])
-    hshape
+    even_callable_parity_shape
     hcanZero hcanTwo hcanTrue
 
 theorem initial_eval_even :
@@ -191,8 +194,58 @@ theorem preservation_step_failure_arms
 
 /-- Ordinal 0 is in range for the closed EvenCounter invariant table. -/
 theorem ordinal_in_range : (0 : InvariantOrdinalV1).toNat < program.invariants.size := by
-  unfold SemanticProgramV1.invariants
-  rw [validate_ok]
+  -- Prefer `invariants_eq_of_validate` over unfolding the raw `validate` match:
+  -- the latter can force kernel evaluation of the full wire gate under `decide`.
+  rw [SemanticProgramV1.invariants_eq_of_validate program data validate_ok]
   decide
+
+/-! ### Admission projection for step packing -/
+
+/-- Successful admission recovers the closed program/data pair. -/
+theorem admit_ok_of_exists
+    (admitted : AdmittedReferenceSliceV1)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted) :
+    admitted.program = program ∧ admitted.data = data :=
+  admitReferenceProgramSliceV1_ok_implies program data admitted
+    validate_ok hadmit
+
+/-- Any initialized single-slot even UInt64 overlay evaluates the ordinal-0
+    invariant to `returnedTrue`. Thin packaging over the general parity micro-path.
+    Callers must supply evenness of `leBytesToNatV1 countBytes`. -/
+theorem eval_even_of_count_even
+    (state : LogicalStateV1)
+    (countBytes : ByteArray)
+    (hinit : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok #[countBytes])
+    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (heven : leBytesToNatV1 countBytes % 2 = 0) :
+    evalInvariantV1 program 0 state = .returnedTrue := by
+  have hcanTwo :
+      validateValueBytesV1 data.types 0 two8BytesV1 = .ok () := by
+    simpa [data, types, twoBytes_eq_two8] using two_canonical
+  have hcanZero :
+      validateValueBytesV1 data.types 0 zero8BytesV1 = .ok () := by
+    simpa [data, types, zeroBytes_eq_zero8] using zero_canonical
+  have hcanTrue :
+      validateValueBytesV1 data.types 1 (encodeU8 1) = .ok () := by
+    simpa [data, types] using true_canonical
+  have hrun :
+      runInvariantCallableV1 data 2 state = .returnedTrue :=
+    runInvariantCallableV1_eq_returnedTrue_of_uint64_parity_even
+      data state countBytes 2 0 1 0 (some "even") .public_ "count"
+      hinit hdecode
+      (by simp [data, types, uint64Type])
+      (by simp [data, types, boolType])
+      rfl
+      (by simp [data, countState])
+      even_callable_parity_shape
+      hcan hcanTwo hcanZero hcanTrue heven
+  exact evalInvariantV1_eq_of_validated_selection
+    program data 0 evenInvariant state #[countBytes] .returnedTrue
+    validate_ok hinit hdecode (by rfl)
+    (by
+      change runInvariantCallableV1 data evenInvariant.callableId state =
+        .returnedTrue
+      simpa [evenInvariant] using hrun)
 
 end ProofForgeV2.ProofInstances.EvenCounterPreservationV1

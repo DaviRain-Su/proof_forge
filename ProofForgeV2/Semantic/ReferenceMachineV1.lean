@@ -2909,6 +2909,16 @@ def one8BytesV1 : ByteArray :=
 def two8BytesV1 : ByteArray :=
   ByteArray.mk #[2, 0, 0, 0, 0, 0, 0, 0]
 
+/-- Public closed LE zero payload decodes to Nat 0. -/
+theorem leBytesToNatV1_zero8BytesV1 :
+    leBytesToNatV1 zero8BytesV1 = 0 := by
+  simpa [zero8BytesV1, leBytesToNatV1] using leBytesToNat_zero8
+
+/-- Public closed LE two payload decodes to Nat 2. -/
+theorem leBytesToNatV1_two8BytesV1 :
+    leBytesToNatV1 two8BytesV1 = 2 := by
+  simpa [two8BytesV1, leBytesToNatV1] using leBytesToNat_two8
+
 /-! ### UInt64 parity invariant micro-path (EvenCounter base) -/
 
 private theorem envSet_of_lt
@@ -4645,7 +4655,8 @@ private theorem evalBinary_add_uint64_two
   -- Align public aliases with private helpers: 64/8 = 8 and leBytesToNatV1.
   rfl
 
-private theorem add_two_preserves_even
+/-- Adding the even literal 2 preserves parity. -/
+theorem add_two_preserves_even
     (n : Nat) (heven : n % 2 = 0) : (n + 2) % 2 = 0 := by
   have h2 : (2 : Nat) % 2 = 0 := by decide
   simpa [Nat.add_mod, heven, h2] using (rfl : (0 : Nat) % 2 = 0)
