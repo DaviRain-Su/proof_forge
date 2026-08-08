@@ -370,7 +370,7 @@ theorem eval_even_after_get_encode
   rw [hpost]
   exact eval_even_of_encoded_uint64 countBytes true rfl hcan hsize heven
 
-/-- Get finalize of a pre-state that already decodes to an 8-byte overlay is
+/-- Get finalize of a pre-state that already decodes to a singleton overlay is
     identity on the carrier (`post = pre`). Avoids re-extracting evenness. -/
 theorem get_encode_post_eq_pre
     (pre post : LogicalStateV1)
@@ -378,12 +378,11 @@ theorem get_encode_post_eq_pre
     (hinit : pre.initialized = true)
     (hdecode : decodeLogicalStateValuesV1 data pre = .ok #[countBytes])
     (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
-    (hsize : countBytes.size = 8)
     (hencode :
       encodeLogicalStateValuesV1 data true #[countBytes] = .ok post) :
     post = pre :=
-  encode_of_singleton_uint64_decode_eq data countState pre post countBytes
-    (by simp [data, countState]) hinit hdecode hcan hsize hencode
+  encode_of_singleton_decode_eq data countState pre post countBytes
+    (by simp [data, countState]) hinit hdecode hcan hencode
 
 /-- Get-returned: if pre is even and finalize re-encodes the same overlay,
     post remains even by `post = pre`. -/
@@ -393,13 +392,12 @@ theorem eval_even_after_get_returned
     (hinit : pre.initialized = true)
     (hdecode : decodeLogicalStateValuesV1 data pre = .ok #[countBytes])
     (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
-    (hsize : countBytes.size = 8)
     (heven : leBytesToNatV1 countBytes % 2 = 0)
     (hencode :
       encodeLogicalStateValuesV1 data true #[countBytes] = .ok post) :
     evalInvariantV1 program 0 post = .returnedTrue := by
   have hpost : post = pre :=
-    get_encode_post_eq_pre pre post countBytes hinit hdecode hcan hsize hencode
+    get_encode_post_eq_pre pre post countBytes hinit hdecode hcan hencode
   rw [hpost]
   exact eval_even_of_count_even pre countBytes hinit hdecode hcan heven
 
@@ -500,5 +498,81 @@ theorem eval_even_after_increment_finalize
     validateValueBytesV1_uint64_of_size data.types 0 uint64Type sumBytes
       (by simp [data, types, uint64Type]) (by rfl) hsum.1
   exact eval_even_of_encoded_uint64 sumBytes true rfl hcanSum hsum.1 hsum.2.1
+
+/-! ### PreservationStep packing (partial)
+
+    Gate analysis helpers + failure arms are closed. Full `PreservationStepV1`
+    still needs ready-overlay equality from `gateInvocation` joined to the
+    get/increment `runMachine` micro-paths (next slice).
+-/
+
+/-- EvenCounter get/increment callables are nullary. -/
+theorem get_params_empty : getCallable.params = #[] := rfl
+theorem increment_params_empty : incrementCallable.params = #[] := rfl
+
+/-- Lifecycle / invalid gates never produce a successful return; a returned
+    outcome forces the ready arm of `gateInvocation`. -/
+theorem step_returned_implies_gate_ready
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (post : LogicalStateV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vault =
+        .returned post value effects) :
+    match gateInvocation admitted pre invocation with
+    | .ready _ _ _ _ => True
+    | .invalidInvocation => False
+    | .lifecycle _ => False := by
+  cases hgate : gateInvocation admitted pre invocation with
+  | invalidInvocation =>
+      have h :=
+        stepReferenceSliceV1_invalidInvocation_eq admitted pre invocation
+          responses vault hgate
+      rw [h] at hstep
+      cases hstep
+  | lifecycle cand =>
+      have h :=
+        stepReferenceSliceV1_lifecycle_eq admitted pre invocation responses
+          vault cand hgate
+      rw [h] at hstep
+      exact
+        absurd hstep
+          (finalizeLifecycle_ne_returned_publicV1 pre responses cand post value
+            effects)
+  | ready c o ctx ini =>
+      simp [hgate]
+
+/-- Returned arm when finalize is carrier identity (`post = pre`). -/
+theorem preservation_step_returned_post_eq_pre
+    (pre post : LogicalStateV1)
+    (heval : evalInvariantV1 program 0 pre = .returnedTrue)
+    (hpost : post = pre) :
+    evalInvariantV1 program 0 post = .returnedTrue := by
+  rw [hpost]
+  exact heval
+
+/-- Returned arm when post is the non-overflowing +2 encode of an even pre overlay. -/
+theorem preservation_step_returned_increment_form
+    (countBytes : ByteArray)
+    (post : LogicalStateV1)
+    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (hsize : countBytes.size = 8)
+    (heven : leBytesToNatV1 countBytes % 2 = 0)
+    (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64)
+    (hpost :
+      post = {
+        initialized := true
+        canonicalValues :=
+          (encodeU32le 8).append
+            (natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8)
+      }) :
+    evalInvariantV1 program 0 post = .returnedTrue := by
+  rw [hpost]
+  exact eval_even_after_increment_encode countBytes hcan hsize heven hnoOverflow
 
 end ProofForgeV2.ProofInstances.EvenCounterPreservationV1

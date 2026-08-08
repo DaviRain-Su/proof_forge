@@ -465,6 +465,112 @@ theorem readU32leAtV1_ok_eight_prefix
             rw [hex, g0, g1, g2, g3, hb0', hb1', hb2', hb3', encodeU32le_eight]
             rfl
 
+/-- If `readU32leAtV1 b 0 = .ok (v, 4)`, the 4-byte prefix is `encodeU32le v`. -/
+theorem readU32leAtV1_ok_prefix
+    (b : ByteArray) (v : UInt32)
+    (h : readU32leAtV1 b 0 = .ok (v, 4)) :
+    b.extract 0 4 = encodeU32le v := by
+  -- Reduce to the mid-offset encode identity after rebuilding the LE limbs.
+  unfold readU32leAtV1 at h
+  cases hb0 : readByteAtV1 b 0 with
+  | error e => simp [hb0, Bind.bind, Except.bind] at h
+  | ok b0 =>
+    cases hb1 : readByteAtV1 b 1 with
+    | error e => simp [hb0, hb1, Bind.bind, Except.bind] at h
+    | ok b1 =>
+      cases hb2 : readByteAtV1 b 2 with
+      | error e => simp [hb0, hb1, hb2, Bind.bind, Except.bind] at h
+      | ok b2 =>
+        cases hb3 : readByteAtV1 b 3 with
+        | error e =>
+            simp [hb0, hb1, hb2, hb3, Bind.bind, Except.bind] at h
+        | ok b3 =>
+            simp only [hb0, hb1, hb2, hb3, Bind.bind, Except.bind] at h
+            have hpair :
+                (UInt32.ofNat
+                    (b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                      b3.toNat * 16777216),
+                  (4 : Nat)) =
+                  (v, 4) := by
+              simpa [Pure.pure, Except.pure] using h
+            have hU :
+                UInt32.ofNat
+                    (b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                      b3.toNat * 16777216) =
+                  v :=
+              (Prod.ext_iff.mp hpair).1
+            have hb0lt : b0.toNat < 256 := UInt8.toNat_lt_size b0
+            have hb1lt : b1.toNat < 256 := UInt8.toNat_lt_size b1
+            have hb2lt : b2.toNat < 256 := UInt8.toNat_lt_size b2
+            have hb3lt : b3.toNat < 256 := UInt8.toNat_lt_size b3
+            have hsum :
+                b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                  b3.toNat * 16777216 =
+                  v.toNat := by
+              have := congrArg UInt32.toNat hU
+              have hmod :
+                  (b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                    b3.toNat * 16777216) % 4294967296 =
+                    v.toNat := by
+                simpa [UInt32.toNat_ofNat] using this
+              have hlt :
+                  b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                    b3.toNat * 16777216 < 4294967296 := by omega
+              rwa [Nat.mod_eq_of_lt hlt] at hmod
+            have hb0n : b0.toNat = v.toNat % 256 := by omega
+            have hb1n : b1.toNat = (v.toNat / 256) % 256 := by omega
+            have hb2n : b2.toNat = (v.toNat / 65536) % 256 := by omega
+            have hb3n : b3.toNat = (v.toNat / 16777216) % 256 := by omega
+            have hb0' : b0 = UInt8.ofNat (v.toNat % 256) := by
+              apply UInt8.toNat_inj.1
+              simpa [UInt8_toNat_ofNat_mod256V1] using hb0n
+            have hb1' : b1 = UInt8.ofNat ((v.toNat / 256) % 256) := by
+              apply UInt8.toNat_inj.1
+              simpa [UInt8_toNat_ofNat_mod256V1] using hb1n
+            have hb2' : b2 = UInt8.ofNat ((v.toNat / 65536) % 256) := by
+              apply UInt8.toNat_inj.1
+              simpa [UInt8_toNat_ofNat_mod256V1] using hb2n
+            have hb3' : b3 = UInt8.ofNat ((v.toNat / 16777216) % 256) := by
+              apply UInt8.toNat_inj.1
+              simpa [UInt8_toNat_ofNat_mod256V1] using hb3n
+            have hsz : 4 ≤ b.size := by
+              have hd3 := readByteAtV1_ok_data b 3 b3 hb3
+              have hlt3 : 3 < b.data.size :=
+                (Array.getElem?_eq_some_iff.mp hd3).1
+              change 4 ≤ b.data.size
+              exact Nat.succ_le_of_lt hlt3
+            have g0 := readByteAtV1_ok_getElem b 0 b0 hb0
+              (Nat.lt_of_lt_of_le (by decide : 0 < 4) hsz)
+            have g1 := readByteAtV1_ok_getElem b 1 b1 hb1
+              (Nat.lt_of_lt_of_le (by decide : 1 < 4) hsz)
+            have g2 := readByteAtV1_ok_getElem b 2 b2 hb2
+              (Nat.lt_of_lt_of_le (by decide : 2 < 4) hsz)
+            have g3 := readByteAtV1_ok_getElem b 3 b3 hb3
+              (Nat.lt_of_lt_of_le (by decide : 3 < 4) hsz)
+            have hex :
+                b.extract 0 4 = [b0, b1, b2, b3].toByteArray := by
+              have h :=
+                ByteArray.extract_add_four (a := b) (i := 0)
+                  (by omega : 0 + 4 ≤ b.size)
+              -- extract_add_four spells b[0+i]; rewrite with getElem facts.
+              simp only [h, Nat.zero_add, g0, g1, g2, g3]
+            rw [hex, hb0', hb1', hb2', hb3']
+            -- encodeU32le is four successive pushes of the LE limbs (= list form).
+            change
+                [UInt8.ofNat (v.toNat % 256),
+                  UInt8.ofNat ((v.toNat / 256) % 256),
+                  UInt8.ofNat ((v.toNat / 65536) % 256),
+                  UInt8.ofNat ((v.toNat / 16777216) % 256)].toByteArray =
+                  encodeU32le v
+            -- List.toByteArray = empty.push…push for length 4.
+            have hlist (a b c d : UInt8) :
+                [a, b, c, d].toByteArray =
+                  (((ByteArray.empty.push a).push b).push c).push d := by
+              -- `toByteArray` is a left-fold push over the list.
+              simp [List.toByteArray, List.toByteArray.loop]
+            simp only [encodeU32le]
+            exact (hlist _ _ _ _).symm
+
 private theorem uint32_toNat_eightV1 : (8 : UInt32).toNat = 8 := rfl
 
 /-- Successful singleton UInt64-slot decode recovers the closed encode layout
@@ -604,6 +710,169 @@ theorem encode_of_singleton_uint64_decode_eq
       simp only at hinit hpre_layout ⊢
       subst hinit
       subst hpre_layout
+      rfl
+  exact hpost.trans hpre.symm
+
+/-- Singleton encode for any validated payload that fits the u32 length header. -/
+theorem encodeLogicalStateValuesV1_singleton_eq_ok
+    (data : SemanticProgramDataV1)
+    (stateDecl : StateDeclV1)
+    (valueBytes : ByteArray)
+    (initialized : Bool)
+    (hstate : data.logicalState = #[stateDecl])
+    (hcanonical :
+      validateValueBytesV1 data.types stateDecl.typeId valueBytes = .ok ())
+    (hle : valueBytes.size ≤ UInt32.size - 1) :
+    encodeLogicalStateValuesV1 data initialized #[valueBytes] = .ok {
+      initialized
+      canonicalValues :=
+        (encodeU32le (UInt32.ofNat valueBytes.size)).append valueBytes
+    } := by
+  have hslot :
+      encodeStateSlotV1 valueBytes =
+        .ok ((encodeU32le (UInt32.ofNat valueBytes.size)).append valueBytes) := by
+    unfold encodeStateSlotV1
+    simp only [if_pos hle, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  unfold encodeLogicalStateValuesV1
+  simp only [hstate]
+  simp [hcanonical, hslot, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Successful singleton decode recovers `encodeU32le len ++ payload` with
+    `len.toNat = payload.size`. -/
+theorem decodeLogicalStateValuesV1_singleton_layout
+    (data : SemanticProgramDataV1)
+    (stateDecl : StateDeclV1)
+    (state : LogicalStateV1)
+    (valueBytes : ByteArray)
+    (hstate : data.logicalState = #[stateDecl])
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok #[valueBytes]) :
+    ∃ lenU : UInt32,
+      valueBytes.size = lenU.toNat ∧
+      state.canonicalValues =
+        encodeU32le lenU ++ valueBytes := by
+  unfold decodeLogicalStateValuesV1 at hdecode
+  have hlist : data.logicalState.toList = [stateDecl] := by
+    simp [hstate]
+  simp only [hlist, decodeLogicalStateSlotsV1, Pure.pure, Except.pure,
+    Bind.bind, Except.bind, err] at hdecode
+  cases hread : readU32leAtV1 state.canonicalValues 0 with
+  | error e =>
+      simp [hread] at hdecode
+  | ok pair =>
+      rcases pair with ⟨lenU, afterLen⟩
+      simp [hread] at hdecode
+      by_cases hfit : afterLen + lenU.toNat ≤ state.canonicalValues.size
+      · simp only [if_pos hfit] at hdecode
+        cases hval :
+            validateValueBytesV1 data.types stateDecl.typeId
+              (state.canonicalValues.extract afterLen
+                (afterLen + lenU.toNat)) with
+        | error e =>
+            simp [hval] at hdecode
+        | ok _u =>
+            simp [hval] at hdecode
+            by_cases htrail :
+                afterLen + lenU.toNat = state.canonicalValues.size
+            · simp only [if_pos htrail] at hdecode
+              have harr :
+                  #[state.canonicalValues.extract afterLen
+                      (afterLen + lenU.toNat)] =
+                    #[valueBytes] :=
+                Except.ok.inj hdecode
+              have hslice :
+                  state.canonicalValues.extract afterLen
+                      (afterLen + lenU.toNat) =
+                    valueBytes := by
+                have := congrArg (fun a : Array ByteArray => a[0]?) harr
+                simpa using this
+              have hafter : afterLen = 4 :=
+                readU32leAtV1_ok_offset state.canonicalValues 0 lenU afterLen
+                  hread
+              have hex_sz :
+                  (state.canonicalValues.extract afterLen
+                    (afterLen + lenU.toNat)).size = lenU.toNat := by
+                have hmin :
+                    min (afterLen + lenU.toNat) state.canonicalValues.size =
+                      afterLen + lenU.toNat :=
+                  Nat.min_eq_left hfit
+                simp [ByteArray.size_extract, hmin, Nat.add_sub_cancel_left]
+              have hlen : valueBytes.size = lenU.toNat := by
+                rw [← hslice, hex_sz]
+              have hread' :
+                  readU32leAtV1 state.canonicalValues 0 = .ok (lenU, 4) := by
+                rw [hread, hafter]
+              have hpref :
+                  state.canonicalValues.extract 0 4 = encodeU32le lenU :=
+                readU32leAtV1_ok_prefix state.canonicalValues lenU hread'
+              have hsz4 : 4 ≤ state.canonicalValues.size := by omega
+              have hsplit :=
+                ByteArray_eq_extract_append_extract state.canonicalValues 4 hsz4
+              have hpay :
+                  state.canonicalValues.extract 4 state.canonicalValues.size =
+                    valueBytes := by
+                calc
+                  state.canonicalValues.extract 4 state.canonicalValues.size
+                      = state.canonicalValues.extract afterLen
+                          (afterLen + lenU.toNat) := by
+                        congr 1 <;> omega
+                  _ = valueBytes := hslice
+              refine ⟨lenU, hlen, ?_⟩
+              rw [hsplit, hpref, hpay]
+            · simp only [if_neg htrail] at hdecode
+              cases hdecode
+      · simp only [if_neg hfit] at hdecode
+        cases hdecode
+
+/-- Get-returned identity without hardcoding width 8: encode of the decoded
+    singleton payload recovers the pre carrier. -/
+theorem encode_of_singleton_decode_eq
+    (data : SemanticProgramDataV1)
+    (stateDecl : StateDeclV1)
+    (pre post : LogicalStateV1)
+    (valueBytes : ByteArray)
+    (hstate : data.logicalState = #[stateDecl])
+    (hinit : pre.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data pre = .ok #[valueBytes])
+    (hcan :
+      validateValueBytesV1 data.types stateDecl.typeId valueBytes = .ok ())
+    (hencode :
+      encodeLogicalStateValuesV1 data true #[valueBytes] = .ok post) :
+    post = pre := by
+  have hle := validateValueBytesV1_size_le_u32 data.types stateDecl.typeId
+    valueBytes hcan
+  have henc :=
+    encodeLogicalStateValuesV1_singleton_eq_ok data stateDecl valueBytes true
+      hstate hcan hle
+  have hpost :
+      post = {
+        initialized := true
+        canonicalValues :=
+          (encodeU32le (UInt32.ofNat valueBytes.size)).append valueBytes
+      } := by
+    rw [henc] at hencode
+    exact (Except.ok.inj hencode).symm
+  rcases decodeLogicalStateValuesV1_singleton_layout data stateDecl pre
+      valueBytes hstate hdecode with ⟨lenU, hlen, hlayout⟩
+  have hlenU : UInt32.ofNat valueBytes.size = lenU := by
+    apply UInt32.toNat_inj.1
+    have hbound : valueBytes.size < UInt32.size := by
+      -- hle : size ≤ 2^32 - 1
+      have : valueBytes.size ≤ UInt32.size - 1 := hle
+      exact Nat.lt_of_le_of_lt this (by decide : UInt32.size - 1 < UInt32.size)
+    have hmod : (UInt32.ofNat valueBytes.size).toNat = valueBytes.size := by
+      simpa [UInt32.toNat_ofNat, Nat.mod_eq_of_lt hbound]
+    rw [hmod, hlen]
+  have hpre :
+      pre = {
+        initialized := true
+        canonicalValues :=
+          (encodeU32le (UInt32.ofNat valueBytes.size)).append valueBytes
+      } := by
+    cases pre with
+    | mk initialized canonicalValues =>
+      simp only at hinit hlayout ⊢
+      subst hinit
+      rw [hlayout, hlenU]
       rfl
   exact hpost.trans hpre.symm
 

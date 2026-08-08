@@ -915,7 +915,8 @@ private structure CallFrameV1 where
   instrIdx : Nat
   resultValueId : ValueIdV1
 
-private structure MachineV1 where
+/-- Body interpreter machine state (engineering; not formal State). -/
+structure MachineV1 where
   data           : SemanticProgramDataV1
   pre            : LogicalStateV1
   callable       : CallableV1
@@ -937,7 +938,8 @@ private structure MachineV1 where
       canonical valueBytes; absent key reads as zero. -/
   vaultToken     : Array (ByteArray × UInt64)
 
-private inductive CandidateV1 where
+/-- Body halt candidate before `finalize` reattaches pre on failure. -/
+inductive CandidateV1 where
   | returned (value : Option ReferenceValueV1)
   | reverted (reason : SemanticRevertV1)
   | trapped (fault : SemanticFaultV1)
@@ -947,7 +949,7 @@ private inductive ExecResult where
   | next (m : MachineV1)
   | done (m : MachineV1) (cand : CandidateV1)
 
-private def maxValueIdInCallable (c : CallableV1) : Nat := Id.run do
+def maxValueIdInCallable (c : CallableV1) : Nat := Id.run do
   let mut m : Nat := 0
   for p in c.params do
     if p.valueId.toNat > m then m := p.valueId.toNat
@@ -960,7 +962,7 @@ private def maxValueIdInCallable (c : CallableV1) : Nat := Id.run do
       | none => pure ()
   pure m
 
-private def maxEffectIdInCallable (c : CallableV1) : Nat := Id.run do
+def maxEffectIdInCallable (c : CallableV1) : Nat := Id.run do
   let mut m : Nat := 0
   let mut found : Bool := false
   for block in c.blocks do
@@ -972,7 +974,7 @@ private def maxEffectIdInCallable (c : CallableV1) : Nat := Id.run do
       | _ => pure ()
   if found then pure m else pure 0
 
-private def emptyEnv (size : Nat) : Array (Option ReferenceValueV1) :=
+def emptyEnv (size : Nat) : Array (Option ReferenceValueV1) :=
   Array.replicate size none
 
 private def envGet (env : Array (Option ReferenceValueV1)) (vid : ValueIdV1) :
@@ -1042,8 +1044,9 @@ private def noteBackEdge (m : MachineV1) (fromBlock toBlock : BlockIdV1) :
 
 /-- Terminal outcome packaging. Failure paths always reattach the exact
     invocation `pre` (not a derived machine field), matching the Reference
-    rollback contract: trap/revert leave business state unchanged. -/
-private def finalize (m : MachineV1) (cand : CandidateV1)
+    rollback contract: trap/revert leave business state unchanged. Public for
+    L1 preservation step packing. -/
+def finalize (m : MachineV1) (cand : CandidateV1)
     (pre : LogicalStateV1) : OutcomeV1 :=
   if m.responseCursor != m.responses.size then
     .trapped .invalidExternalResponse pre
@@ -2187,7 +2190,8 @@ private def execTerminator (m : MachineV1) (term : TerminatorV1) : ExecResult :=
         | .internalInvariant => .internalInvariant
       .done m (.trapped fault)
 
-private def runMachine (chargeFrameEntry : Bool) :
+/-- Fuel-bounded body interpreter (engineering; not formal `step`). -/
+def runMachine (chargeFrameEntry : Bool) :
     (fuel : Nat) → MachineV1 → Nat × MachineV1 × CandidateV1
   | 0, m => (0, m, .trapped .resourceExhausted)
   | fuel + 1, m =>
@@ -2308,8 +2312,11 @@ private def logicalStateBytesEq (a b : LogicalStateV1) : Bool :=
   a.initialized == b.initialized && bytesEqual a.canonicalValues b.canonicalValues
 
 /-- Gate after shape check: lifecycle candidates still subject to response
-    exhaustion; only invalidInvocation bypasses the cursor. -/
-private inductive InvocationGateV1 where
+    exhaustion; only invalidInvocation bypasses the cursor.
+
+    Public for L1 preservation step packing (EvenCounter and later instances);
+    sole production authority remains `stepReferenceSliceV1`. -/
+inductive InvocationGateV1 where
   | invalidInvocation
   | lifecycle (cand : CandidateV1)
   | ready
@@ -2404,10 +2411,10 @@ private def validateInvocationContext
         | _, _ => return none
       pure (some supplied)
 
-/-- Shape checks (id/kind/arity/type/context) → invalidInvocation.
-    Lifecycle (uninit / alreadyInit / internal) → lifecycle candidate.
-    Success → ready. -/
-private def gateInvocation
+/-- Sole production invocation gate (shape + lifecycle + decode overlay).
+    Shape checks → invalidInvocation; lifecycle halt → lifecycle candidate;
+    success → ready. Public for L1 preservation step packing. -/
+def gateInvocation
     (admitted : AdmittedReferenceSliceV1) (pre : LogicalStateV1)
     (invocation : InvocationV1) : InvocationGateV1 :=
   let data := admitted.data
@@ -2620,6 +2627,74 @@ theorem stepReferenceSliceV1_lifecycle_eq
       finalizeLifecycle pre responses cand := by
   unfold stepReferenceSliceV1
   rw [hgate]
+
+/-- Nullary ready gate: param bind is the empty env of the callable's max
+    value id, then ordinary `runMachine` + `finalize`. -/
+theorem stepReferenceSliceV1_ready_nullary_eq
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vaultSeed : ReferenceVaultSeedV1 := {})
+    (callable : CallableV1)
+    (overlay : Array ByteArray)
+    (context : Array ContextInputV1)
+    (isInitializer : Bool)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready callable overlay context isInitializer)
+    (hparams : callable.params = #[]) :
+    let m0 : MachineV1 := {
+      data := admitted.data
+      pre
+      callable
+      isInitializer
+      context
+      overlay
+      env := emptyEnv (maxValueIdInCallable callable + 1)
+      effects := #[]
+      occCounts :=
+        Array.replicate (maxEffectIdInCallable callable + 1) (0 : UInt32)
+      responseCursor := 0
+      responses
+      loopCounts := Array.replicate callable.loopBounds.size (0 : UInt32)
+      blockId := callable.entryBlock
+      instrIdx := 0
+      frames := #[]
+      vaultNative := vaultSeed.native
+      vaultToken := vaultSeed.token
+    }
+    stepReferenceSliceV1 admitted pre invocation responses vaultSeed =
+      finalize (runMachine false 1000000 m0).2.1
+        (runMachine false 1000000 m0).2.2 pre := by
+  let m0 : MachineV1 := {
+    data := admitted.data
+    pre
+    callable
+    isInitializer
+    context
+    overlay
+    env := emptyEnv (maxValueIdInCallable callable + 1)
+    effects := #[]
+    occCounts :=
+      Array.replicate (maxEffectIdInCallable callable + 1) (0 : UInt32)
+    responseCursor := 0
+    responses
+    loopCounts := Array.replicate callable.loopBounds.size (0 : UInt32)
+    blockId := callable.entryBlock
+    instrIdx := 0
+    frames := #[]
+    vaultNative := vaultSeed.native
+    vaultToken := vaultSeed.token
+  }
+  -- Goal uses the `let m0` from the statement; align with local.
+  change stepReferenceSliceV1 admitted pre invocation responses vaultSeed =
+    finalize (runMachine false 1000000 m0).2.1
+      (runMachine false 1000000 m0).2.2 pre
+  unfold stepReferenceSliceV1
+  rw [hgate]
+  -- Nullary: forIn over `[]` is identity; bind is `some emptyEnv`.
+  simp [hparams, m0]
 
 /-- Lifecycle finalization never rewrites the pre-state on trap/revert. -/
 theorem finalizeLifecycle_failureStateUnchanged_publicV1

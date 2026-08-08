@@ -808,6 +808,21 @@ theorem validateValueBytesV1_uint64_of_size
   simp only
   rw [if_pos hremainingBeq, if_pos hbeq]
 
+/-- Successful validate implies payload fits a UInt32 length header
+    (`size ≤ maxCanonicalValueBytes ≤ 2^32-1`). -/
+theorem validateValueBytesV1_size_le_u32
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (bytes : ByteArray)
+    (hcan : validateValueBytesV1 types typeId bytes = .ok ()) :
+    bytes.size ≤ UInt32.size - 1 := by
+  unfold validateValueBytesV1 validateValueBytesWithFuelV1 at hcan
+  by_cases hlim : bytes.size ≤ maxCanonicalValueBytes
+  · have hmax : maxCanonicalValueBytes ≤ UInt32.size - 1 := by
+      decide
+    omega
+  · simp only [if_neg hlim, Pure.pure, Except.pure, Bind.bind, Except.bind,
+      err] at hcan
+    cases hcan
+
 /-- Internal WireV1-family phase entry (not a public contract; see `validateSemanticProgramStructureV1`). -/
 def validateConstantsValueBytesV1 (types : Array TypeDeclV1)
     (constants : Array ConstantV1) (budget : Nat) : Except SemanticWireErrorV1 Nat := do
