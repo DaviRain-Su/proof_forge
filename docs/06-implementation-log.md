@@ -12,6 +12,15 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy nonempty invariants evidence fail closed（PSY-INVARIANT）
+
+- Nonempty `InvariantDecl` / `.invariant` callables fail closed with diagnostics
+  citing missing dargo surface for Semantic predicate closure + `invariantSteps`
+  fuel; local ADR-0027 inline proof is not target Plan lowering.
+- Empty-invariant programs continue to lower (Counter shape).
+- PsySource pins nonempty FC + empty still lowers.
+- Non-claims: not Quint-style model val emission; not formal theorem/target refine.
+
 ## 2026-08-08 — Psy ContextRead/Commit evidence fail closed（PSY-CONTEXT-COMMIT）
 
 - Key-specific Plan diagnostics for `context.unixTimeSeconds` / `caller` /

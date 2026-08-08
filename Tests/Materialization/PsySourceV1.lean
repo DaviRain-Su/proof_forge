@@ -1509,6 +1509,59 @@ unsafe def testNestedMapFailClosed : IO Unit := do
           throw <| IO.userError
             "Psy nested Map state must fail closed (CONTAINER-ABI admits only Map UInt64 UInt64)"
 
+/-- PSY-INVARIANT: nonempty invariants stay evidence fail closed. -/
+unsafe def testNonemptyInvariantFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program InvPin where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  invariant nonNeg : count >= 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-inv>" "Tests.PsyInv" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planPsy compiled with
+  | .error (.planInvariant .psy msg) =>
+      expect (msg.contains "invariant" &&
+          (msg.contains "nonNeg" || msg.contains "nonempty") &&
+          (msg.contains "fuel" || msg.contains "closure" ||
+            msg.contains "dargo" || msg.contains "PSY-INVARIANT" ||
+            msg.contains "inline proof"))
+        s!"nonempty invariant must fail closed with predicate/fuel honesty, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "Psy nonempty invariant must fail closed (no dargo predicate/fuel binding)"
+
+/-- Empty invariants (ordinary Counter shape) remain admitted on Psy. -/
+unsafe def testEmptyInvariantsStillLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NoInv where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-no-inv>" "Tests.NoInv" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  expect (plan.functions.any (·.name == "bump"))
+    "empty-invariant program must still lower entry"
+  liftResult <| Targets.Psy.validatePlan plan
+
 /-- PSY-CONTEXT-COMMIT: circuit-domain evidence FC for ContextRead keys. -/
 unsafe def testContextReadFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -2891,6 +2944,8 @@ unsafe def run : IO Unit := do
   testMapStateLowered
   testNamedStructParamLowered
   testNestedMapFailClosed
+  testNonemptyInvariantFailClosed
+  testEmptyInvariantsStillLower
   testContextReadFailClosed
   testCommitFailClosed
   testDynamicArrayIndexLowered

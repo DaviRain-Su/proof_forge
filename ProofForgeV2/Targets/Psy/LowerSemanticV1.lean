@@ -92,6 +92,15 @@ domain: no official dargo public-input/witness wall-clock, caller, or height
 anchor; unanchored injection is not chain reality. Commit cannot open as Felt
 identity passthrough without a frozen proof/public-input/commitment binding
 (B-COMMIT-ZK). EnvRead remains ADR-0029 zero-binding FC.
+
+## PSY-INVARIANT (evidence fail closed, 2026-08-08)
+
+Nonempty Semantic `.invariant` callables / `InvariantDecl` rows stay **fail
+closed**. dargo/Psy has no source surface that binds the same predicate
+closure DAG and carried `invariantSteps` fuel as Semantic/Wire. Emitting
+unused asserts or dummy `val`/`fn` would overclaim target refinement.
+Inline product `check` certification (ADR-0027) is orthogonal and is **not**
+target Plan lowering of invariants. Empty invariants remain admitted.
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -3149,11 +3158,20 @@ private def makePlanFromSemanticDataV1
     match c.kind with
     | .pureFn => some (c.id, c.name.getD "fn")
     | _ => none
+  -- PSY-INVARIANT evidence FC: nonempty invariant table or invariant
+  -- callables cannot lower without an honest dargo predicate/fuel binding.
+  if !data.invariants.isEmpty then
+    let names := data.invariants.map (·.name)
+    let listed := String.intercalate ", " names.toList
+    planError
+      s!"unsupported Psy semantic shape: nonempty invariants [{listed}] are not admitted (no dargo surface for Semantic predicate closure + invariantSteps fuel; local inline proof ≠ target invariant Plan; PSY-INVARIANT evidence FC)"
   let mut functions : Array PlanFunction := #[]
   for callable in data.callables do
     match callable.kind with
     | .invariant =>
-        planError "unsupported Psy semantic shape: invariants are outside the Psy envelope"
+        let invName := callable.name.getD "<unnamed>"
+        planError
+          s!"unsupported Psy semantic shape: invariant '{invName}' is not admitted (no dargo surface for Semantic predicate closure + invariantSteps fuel; local inline proof ≠ target invariant Plan; PSY-INVARIANT evidence FC)"
     | .initializer | .entry | .view | .pureFn =>
         let fn ← lowerCallable data layout callable fnNames
         functions := functions.push { fn with index := functions.size }
